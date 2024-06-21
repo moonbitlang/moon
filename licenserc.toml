@@ -1,0 +1,5 @@
+baseDir = "."
+
+inlineHeader = ""
+
+excludes = ["*.mbti"]

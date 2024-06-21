@@ -1,0 +1,8 @@
+{
+  "import": {
+    "moontest/lib2": ""
+  },
+  "test-import": [
+    "moontest/lib2"
+  ]
+}

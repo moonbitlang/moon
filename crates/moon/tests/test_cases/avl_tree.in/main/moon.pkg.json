@@ -1,0 +1,6 @@
+{
+  "is-main": true,
+  "import": {
+    "avl_tree/lib": ""
+  }
+}

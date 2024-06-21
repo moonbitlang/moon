@@ -1,0 +1,11 @@
+package username/hello/lib
+
+// Values
+fn hello() -> String
+
+// Types and methods
+
+// Traits
+
+// Extension Methods
+

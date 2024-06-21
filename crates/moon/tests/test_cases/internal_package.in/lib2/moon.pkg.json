@@ -1,0 +1,6 @@
+{
+    "import": [
+        "username/hello/lib/internal",
+        "username/hello/lib/internal/b"
+    ]
+}

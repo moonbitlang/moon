@@ -1,0 +1,14 @@
+{
+  "is-main": true,
+  "import": [
+    "username/hello/lib"
+  ],
+  "link": {
+    "wasm": {
+      "export-memory-name": "awesome_memory"
+    },
+    "wasm-gc": {
+      "export-memory-name": "awesome_memory"
+    }
+  }
+}

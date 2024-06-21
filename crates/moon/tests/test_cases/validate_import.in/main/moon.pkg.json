@@ -1,0 +1,10 @@
+{
+  "is-main": true,
+  "import": [
+    "username/hello/lib",
+    "mbt/core/set"
+  ],
+  "test_import": [
+    "mbt/core/x"
+  ]
+}

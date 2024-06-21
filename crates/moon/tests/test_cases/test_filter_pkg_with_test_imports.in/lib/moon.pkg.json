@@ -1,0 +1,9 @@
+{
+  "import": [
+    "username/hello/lib1",
+    "username/hello/lib2"
+  ],
+  "test-import": [
+    "username/hello/lib7"
+  ]
+}

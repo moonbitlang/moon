@@ -1,0 +1,18 @@
+{
+  "is-main": true,
+  "import": [
+    "username/hello/lib"
+  ],
+  "link": {
+    "wasm": {
+      "flags": [
+        "-no-block-params"
+      ]
+    },
+    "wasm-gc": {
+      "flags": [
+        "-no-block-params"
+      ]
+    }
+  }
+}

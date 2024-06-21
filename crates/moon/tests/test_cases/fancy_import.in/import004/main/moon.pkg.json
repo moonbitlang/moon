@@ -1,0 +1,18 @@
+{
+  "is-main": true,
+  "import": [
+    {
+      "path": "moonbitlang/import004/lib",
+      "alias": "lib"
+    },
+    "moonbitlang/import004/lib2",
+    {
+      "path": "moonbitlang/import004/lib3",
+      "alias": "lib3"
+    },
+    {
+      "path": "moonbitlang/import004/lib4",
+      "alias": ""
+    }
+  ]
+}

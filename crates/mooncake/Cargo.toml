@@ -1,0 +1,33 @@
+[package]
+name = "mooncake"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+moonutil.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+serde_json_lenient.workspace = true
+anyhow.workspace = true
+zip.workspace = true
+colored.workspace = true
+reqwest.workspace = true
+bytes.workspace = true
+semver.workspace = true
+tokio.workspace = true
+clap.workspace = true
+sha2.workspace = true
+log.workspace = true
+walkdir.workspace = true
+dialoguer.workspace = true
+form_urlencoded = "1.2.1"
+indexmap.workspace = true
+petgraph.workspace = true
+thiserror.workspace = true
+
+[dev-dependencies]
+expect-test.workspace = true
+test-log.workspace = true

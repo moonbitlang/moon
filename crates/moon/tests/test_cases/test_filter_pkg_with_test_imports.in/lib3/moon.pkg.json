@@ -1,0 +1,11 @@
+{
+  /* */
+  "import": [
+    "username/hello/lib7"
+  ],
+  //
+  "test-import": [
+    "username/hello/lib5",
+    "username/hello/lib6"
+  ],
+}

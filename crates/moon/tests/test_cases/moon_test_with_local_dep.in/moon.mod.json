@@ -1,0 +1,8 @@
+{
+  "name": "hello31",
+  "deps": {
+    "lijunchen/mooncake": {
+      "path": "./mods/lijunchen/mooncake"
+    }
+  }
+}

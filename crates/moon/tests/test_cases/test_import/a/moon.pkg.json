@@ -1,0 +1,8 @@
+{
+  "import": [
+    "username/hello/s"
+  ],
+  "test-import": [
+    "username/hello/t"
+  ]
+}

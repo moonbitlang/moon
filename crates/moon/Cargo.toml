@@ -1,0 +1,46 @@
+[package]
+name = "moon"
+version = "0.1.0"
+edition.workspace = true
+exclude = [".github/*", ".vscode/*"]
+readme = "README.md"
+rust-version.workspace = true
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+moonbuild.workspace = true
+mooncake.workspace = true
+moonutil.workspace = true
+n2.workspace = true
+semver.workspace = true
+clap.workspace = true
+anyhow.workspace = true
+colored.workspace = true
+serde.workspace = true
+serde_json_lenient.workspace = true
+serde_json.workspace = true
+dialoguer.workspace = true
+dunce.workspace = true
+ctrlc.workspace = true
+home.workspace = true
+which.workspace = true
+chrono.workspace = true
+env_logger.workspace = true
+log.workspace = true
+walkdir.workspace = true
+regex.workspace = true
+tokio.workspace = true
+futures.workspace = true
+
+[target.'cfg(not(windows))'.dependencies]
+openssl = { version = "0.10.60", features = ["vendored"] }
+
+[dev-dependencies]
+tempfile = "3.6.0"
+snapbox = "0.4.15"
+expect-test.workspace = true
+
+[[bin]]
+name = "moon"
+bench = false
