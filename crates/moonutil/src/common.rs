@@ -995,34 +995,42 @@ pub mod render {
     pub struct Position {
         pub line: usize,
         pub col: usize,
-        pub offset: usize,
+        pub offset: isize,
     }
 
     impl MooncDiagnostic {
         pub fn render(&self) {
             let (kind, color) = self.get_level_and_color();
 
-            let source_file_path = &self.location.path;
-            let source_file = std::fs::read_to_string(source_file_path)
-                .unwrap_or_else(|_| panic!("failed to read {}", source_file_path));
+            // for no-location diagnostic, like Missing main function in the main package(4067)
+            if self.location.path.is_empty() {
+                println!(
+                    "{}",
+                    format!("[{}] {}: {}", self.error_code, kind, self.message).fg(color)
+                );
+            } else {
+                let source_file_path = &self.location.path;
+                let source_file = std::fs::read_to_string(source_file_path)
+                    .unwrap_or_else(|_| panic!("failed to read {}", source_file_path));
 
-            #[cfg(windows)]
-            let source_file = source_file.replace("\r\n", "\n");
+                #[cfg(windows)]
+                let source_file = source_file.replace("\r\n", "\n");
 
-            ariadne::Report::build(kind, source_file_path, self.location.start.offset)
-                .with_code(self.error_code)
-                .with_message(&self.message)
-                .with_label(
-                    ariadne::Label::new((
-                        source_file_path,
-                        self.location.start.offset..self.location.end.offset,
-                    ))
-                    .with_message(&self.message.to_string().fg(color))
-                    .with_color(color),
-                )
-                .finish()
-                .print((source_file_path, ariadne::Source::from(source_file)))
-                .unwrap();
+                ariadne::Report::build(kind, source_file_path, self.location.start.offset as usize)
+                    .with_code(self.error_code)
+                    .with_message(&self.message)
+                    .with_label(
+                        ariadne::Label::new((
+                            source_file_path,
+                            self.location.start.offset as usize..self.location.end.offset as usize,
+                        ))
+                        .with_message((&self.message).fg(color))
+                        .with_color(color),
+                    )
+                    .finish()
+                    .print((source_file_path, ariadne::Source::from(source_file)))
+                    .unwrap();
+            }
         }
 
         fn get_level_and_color(&self) -> (ariadne::ReportKind, ariadne::Color) {

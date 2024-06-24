@@ -4062,3 +4062,21 @@ fn test_check_failed_should_write_pkg_json() {
     let pkg_json = dir.join("target/wasm-gc/release/check/packages.json");
     assert!(pkg_json.exists());
 }
+
+#[test]
+fn test_render_no_location() {
+    std::env::set_var("NO_COLOR", "1");
+    let dir = TestDir::new("render_no_location.in");
+
+    let output = snapbox::cmd::Command::new(moon_bin())
+        .current_dir(&dir)
+        .args(["check", "--render"])
+        .assert()
+        .failure()
+        .get_output()
+        .stdout
+        .to_owned();
+
+    let output = String::from_utf8_lossy(&output);
+    assert!(output.contains("[4067] Error: Missing main function in the main package."));
+}
