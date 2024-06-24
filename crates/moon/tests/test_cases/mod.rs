@@ -3007,6 +3007,9 @@ fn test_warn_list() {
         "#]],
     );
 
+    // to cover `moon bundle` no work to do
+    get_stdout_with_args_and_replace_dir(&dir, ["bundle", "--sort-input"]);
+
     check(
         &get_stdout_with_args_and_replace_dir(&dir, ["check", "--sort-input"]),
         expect![[r#"
