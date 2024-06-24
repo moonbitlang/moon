@@ -2964,12 +2964,12 @@ fn test_js_format() {
             .unwrap()
             .replace("\r\n", "\n"),
         expect![[r#"
-            (function () {
+            (() => {
               function username$hello$lib3$$hello() {
                 return "Hello, world!";
               }
               globalThis.hello = username$hello$lib3$$hello;
-            }());
+            })();
         "#]],
     );
 }
