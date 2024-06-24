@@ -4046,3 +4046,16 @@ fn debug_flag_test() {
         "#]],
     );
 }
+
+#[test]
+fn test_check_failed_should_write_pkg_json() {
+    let dir = TestDir::new("check_failed_should_write_pkg_json.in");
+    snapbox::cmd::Command::new(moon_bin())
+        .current_dir(&dir)
+        .args(["check"])
+        .assert()
+        .failure();
+
+    let pkg_json = dir.join("target/wasm-gc/release/check/packages.json");
+    assert!(pkg_json.exists());
+}
