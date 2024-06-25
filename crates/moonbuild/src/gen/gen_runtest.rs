@@ -639,6 +639,13 @@ pub fn gen_runtest_link_command(
                 .map(|(pkg, src)| format!("{}:{}", pkg, src)),
             "-pkg-sources",
         )
+        .args_with_cond(
+            !moonc_opt.nostd,
+            [
+                "-pkg-sources",
+                &format!("moonbitlang/core:{}", &moonutil::moon_dir::core().display()),
+            ],
+        )
         .args(["-target", moonc_opt.link_opt.target_backend.to_flag()])
         .arg_with_cond(moonc_opt.link_opt.debug_flag, "-g")
         .args(moonc_opt.extra_link_opt.iter())
