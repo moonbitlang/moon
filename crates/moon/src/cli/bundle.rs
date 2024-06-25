@@ -82,7 +82,7 @@ pub fn run_bundle(cli: UniversalFlags, cmd: BundleSubcommand) -> anyhow::Result<
             if cli.dry_run {
                 dry_run::print_commands(&module, &moonc_opt, &moonbuild_opt)?;
             } else {
-                moonbuild::entry::run_bundle(&module, &moonbuild_opt, &moonc_opt, false)?;
+                moonbuild::entry::run_bundle(&module, &moonbuild_opt, &moonc_opt, cli.quiet)?;
             }
         }
         Ok(0)
@@ -116,6 +116,6 @@ pub fn run_bundle(cli: UniversalFlags, cmd: BundleSubcommand) -> anyhow::Result<
         if cli.dry_run {
             return dry_run::print_commands(&module, &moonc_opt, &moonbuild_opt);
         }
-        moonbuild::entry::run_bundle(&module, &moonbuild_opt, &moonc_opt, false)
+        moonbuild::entry::run_bundle(&module, &moonbuild_opt, &moonc_opt, cli.quiet)
     }
 }
