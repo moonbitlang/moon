@@ -1153,9 +1153,9 @@ fn test_moon_test_filter_package_dry_run() {
         expect![[r#"
             moon generate-test-driver --source-dir . --target-dir ./target/wasm-gc/debug/test --package username/hello/A --sort-input
             moonc build-package ./A/hello.mbt ./A/test.mbt ./A/hello_test.mbt ./target/wasm-gc/debug/test/A/__generated_driver_for_underscore_test.mbt -o ./target/wasm-gc/debug/test/A/A.underscore_test.core -pkg username/hello/A -is-main -std-path $MOON_HOME/lib/core/target/wasm-gc/release/bundle -pkg-sources username/hello/A:./A -target wasm-gc -g
-            moonc link-core $MOON_HOME/lib/core/target/wasm-gc/release/bundle/core.core ./target/wasm-gc/debug/test/A/A.underscore_test.core -main username/hello/A -o ./target/wasm-gc/debug/test/A/A.underscore_test.wasm -test-mode -pkg-sources username/hello/A:./A -target wasm-gc -g
+            moonc link-core $MOON_HOME/lib/core/target/wasm-gc/release/bundle/core.core ./target/wasm-gc/debug/test/A/A.underscore_test.core -main username/hello/A -o ./target/wasm-gc/debug/test/A/A.underscore_test.wasm -test-mode -pkg-sources username/hello/A:./A -pkg-sources moonbitlang/core:$MOON_HOME/lib/core -target wasm-gc -g
             moonc build-package ./A/hello.mbt ./A/test.mbt ./target/wasm-gc/debug/test/A/__generated_driver_for_internal_test.mbt -o ./target/wasm-gc/debug/test/A/A.internal_test.core -pkg username/hello/A -is-main -std-path $MOON_HOME/lib/core/target/wasm-gc/release/bundle -pkg-sources username/hello/A:./A -target wasm-gc -g
-            moonc link-core $MOON_HOME/lib/core/target/wasm-gc/release/bundle/core.core ./target/wasm-gc/debug/test/A/A.internal_test.core -main username/hello/A -o ./target/wasm-gc/debug/test/A/A.internal_test.wasm -test-mode -pkg-sources username/hello/A:./A -target wasm-gc -g
+            moonc link-core $MOON_HOME/lib/core/target/wasm-gc/release/bundle/core.core ./target/wasm-gc/debug/test/A/A.internal_test.core -main username/hello/A -o ./target/wasm-gc/debug/test/A/A.internal_test.wasm -test-mode -pkg-sources username/hello/A:./A -pkg-sources moonbitlang/core:$MOON_HOME/lib/core -target wasm-gc -g
         "#]],
     );
 
@@ -1164,15 +1164,15 @@ fn test_moon_test_filter_package_dry_run() {
         expect![[r#"
             moon generate-test-driver --source-dir . --target-dir ./target/wasm-gc/debug/test --sort-input
             moonc build-package ./lib2/lib.mbt ./target/wasm-gc/debug/test/lib2/__generated_driver_for_internal_test.mbt -o ./target/wasm-gc/debug/test/lib2/lib2.internal_test.core -pkg username/hello/lib2 -is-main -std-path $MOON_HOME/lib/core/target/wasm-gc/release/bundle -pkg-sources username/hello/lib2:./lib2 -target wasm-gc -g
-            moonc link-core $MOON_HOME/lib/core/target/wasm-gc/release/bundle/core.core ./target/wasm-gc/debug/test/lib2/lib2.internal_test.core -main username/hello/lib2 -o ./target/wasm-gc/debug/test/lib2/lib2.internal_test.wasm -test-mode -pkg-sources username/hello/lib2:./lib2 -target wasm-gc -g
+            moonc link-core $MOON_HOME/lib/core/target/wasm-gc/release/bundle/core.core ./target/wasm-gc/debug/test/lib2/lib2.internal_test.core -main username/hello/lib2 -o ./target/wasm-gc/debug/test/lib2/lib2.internal_test.wasm -test-mode -pkg-sources username/hello/lib2:./lib2 -pkg-sources moonbitlang/core:$MOON_HOME/lib/core -target wasm-gc -g
             moonc build-package ./lib/hello.mbt ./lib/hello_test.mbt ./target/wasm-gc/debug/test/lib/__generated_driver_for_underscore_test.mbt -o ./target/wasm-gc/debug/test/lib/lib.underscore_test.core -pkg username/hello/lib -is-main -std-path $MOON_HOME/lib/core/target/wasm-gc/release/bundle -pkg-sources username/hello/lib:./lib -target wasm-gc -g
-            moonc link-core $MOON_HOME/lib/core/target/wasm-gc/release/bundle/core.core ./target/wasm-gc/debug/test/lib/lib.underscore_test.core -main username/hello/lib -o ./target/wasm-gc/debug/test/lib/lib.underscore_test.wasm -test-mode -pkg-sources username/hello/lib:./lib -target wasm-gc -g
+            moonc link-core $MOON_HOME/lib/core/target/wasm-gc/release/bundle/core.core ./target/wasm-gc/debug/test/lib/lib.underscore_test.core -main username/hello/lib -o ./target/wasm-gc/debug/test/lib/lib.underscore_test.wasm -test-mode -pkg-sources username/hello/lib:./lib -pkg-sources moonbitlang/core:$MOON_HOME/lib/core -target wasm-gc -g
             moonc build-package ./lib/hello.mbt ./target/wasm-gc/debug/test/lib/__generated_driver_for_internal_test.mbt -o ./target/wasm-gc/debug/test/lib/lib.internal_test.core -pkg username/hello/lib -is-main -std-path $MOON_HOME/lib/core/target/wasm-gc/release/bundle -pkg-sources username/hello/lib:./lib -target wasm-gc -g
-            moonc link-core $MOON_HOME/lib/core/target/wasm-gc/release/bundle/core.core ./target/wasm-gc/debug/test/lib/lib.internal_test.core -main username/hello/lib -o ./target/wasm-gc/debug/test/lib/lib.internal_test.wasm -test-mode -pkg-sources username/hello/lib:./lib -target wasm-gc -g
+            moonc link-core $MOON_HOME/lib/core/target/wasm-gc/release/bundle/core.core ./target/wasm-gc/debug/test/lib/lib.internal_test.core -main username/hello/lib -o ./target/wasm-gc/debug/test/lib/lib.internal_test.wasm -test-mode -pkg-sources username/hello/lib:./lib -pkg-sources moonbitlang/core:$MOON_HOME/lib/core -target wasm-gc -g
             moonc build-package ./A/hello.mbt ./A/test.mbt ./A/hello_test.mbt ./target/wasm-gc/debug/test/A/__generated_driver_for_underscore_test.mbt -o ./target/wasm-gc/debug/test/A/A.underscore_test.core -pkg username/hello/A -is-main -std-path $MOON_HOME/lib/core/target/wasm-gc/release/bundle -pkg-sources username/hello/A:./A -target wasm-gc -g
-            moonc link-core $MOON_HOME/lib/core/target/wasm-gc/release/bundle/core.core ./target/wasm-gc/debug/test/A/A.underscore_test.core -main username/hello/A -o ./target/wasm-gc/debug/test/A/A.underscore_test.wasm -test-mode -pkg-sources username/hello/A:./A -target wasm-gc -g
+            moonc link-core $MOON_HOME/lib/core/target/wasm-gc/release/bundle/core.core ./target/wasm-gc/debug/test/A/A.underscore_test.core -main username/hello/A -o ./target/wasm-gc/debug/test/A/A.underscore_test.wasm -test-mode -pkg-sources username/hello/A:./A -pkg-sources moonbitlang/core:$MOON_HOME/lib/core -target wasm-gc -g
             moonc build-package ./A/hello.mbt ./A/test.mbt ./target/wasm-gc/debug/test/A/__generated_driver_for_internal_test.mbt -o ./target/wasm-gc/debug/test/A/A.internal_test.core -pkg username/hello/A -is-main -std-path $MOON_HOME/lib/core/target/wasm-gc/release/bundle -pkg-sources username/hello/A:./A -target wasm-gc -g
-            moonc link-core $MOON_HOME/lib/core/target/wasm-gc/release/bundle/core.core ./target/wasm-gc/debug/test/A/A.internal_test.core -main username/hello/A -o ./target/wasm-gc/debug/test/A/A.internal_test.wasm -test-mode -pkg-sources username/hello/A:./A -target wasm-gc -g
+            moonc link-core $MOON_HOME/lib/core/target/wasm-gc/release/bundle/core.core ./target/wasm-gc/debug/test/A/A.internal_test.core -main username/hello/A -o ./target/wasm-gc/debug/test/A/A.internal_test.wasm -test-mode -pkg-sources username/hello/A:./A -pkg-sources moonbitlang/core:$MOON_HOME/lib/core -target wasm-gc -g
         "#]],
     );
 }
@@ -1405,9 +1405,9 @@ fn test_moon_test_hello_exec() {
         expect![[r#"
             moon generate-test-driver --source-dir . --target-dir ./target/wasm-gc/debug/test --sort-input
             moonc build-package ./lib/hello.mbt ./lib/hello_test.mbt ./target/wasm-gc/debug/test/lib/__generated_driver_for_underscore_test.mbt -o ./target/wasm-gc/debug/test/lib/lib.underscore_test.core -pkg moonbitlang/hello/lib -is-main -std-path $MOON_HOME/lib/core/target/wasm-gc/release/bundle -pkg-sources moonbitlang/hello/lib:./lib -target wasm-gc -g
-            moonc link-core $MOON_HOME/lib/core/target/wasm-gc/release/bundle/core.core ./target/wasm-gc/debug/test/lib/lib.underscore_test.core -main moonbitlang/hello/lib -o ./target/wasm-gc/debug/test/lib/lib.underscore_test.wasm -test-mode -pkg-sources moonbitlang/hello/lib:./lib -target wasm-gc -g
+            moonc link-core $MOON_HOME/lib/core/target/wasm-gc/release/bundle/core.core ./target/wasm-gc/debug/test/lib/lib.underscore_test.core -main moonbitlang/hello/lib -o ./target/wasm-gc/debug/test/lib/lib.underscore_test.wasm -test-mode -pkg-sources moonbitlang/hello/lib:./lib -pkg-sources moonbitlang/core:$MOON_HOME/lib/core -target wasm-gc -g
             moonc build-package ./lib/hello.mbt ./target/wasm-gc/debug/test/lib/__generated_driver_for_internal_test.mbt -o ./target/wasm-gc/debug/test/lib/lib.internal_test.core -pkg moonbitlang/hello/lib -is-main -std-path $MOON_HOME/lib/core/target/wasm-gc/release/bundle -pkg-sources moonbitlang/hello/lib:./lib -target wasm-gc -g
-            moonc link-core $MOON_HOME/lib/core/target/wasm-gc/release/bundle/core.core ./target/wasm-gc/debug/test/lib/lib.internal_test.core -main moonbitlang/hello/lib -o ./target/wasm-gc/debug/test/lib/lib.internal_test.wasm -test-mode -pkg-sources moonbitlang/hello/lib:./lib -target wasm-gc -g
+            moonc link-core $MOON_HOME/lib/core/target/wasm-gc/release/bundle/core.core ./target/wasm-gc/debug/test/lib/lib.internal_test.core -main moonbitlang/hello/lib -o ./target/wasm-gc/debug/test/lib/lib.internal_test.wasm -test-mode -pkg-sources moonbitlang/hello/lib:./lib -pkg-sources moonbitlang/core:$MOON_HOME/lib/core -target wasm-gc -g
         "#]],
     );
 }
@@ -1427,9 +1427,9 @@ fn test_moon_test_hello_exec_fntest() {
         expect![[r#"
             moon generate-test-driver --source-dir . --target-dir ./target/wasm-gc/debug/test --sort-input
             moonc build-package ./lib/hello.mbt ./lib/hello_test.mbt ./target/wasm-gc/debug/test/lib/__generated_driver_for_underscore_test.mbt -o ./target/wasm-gc/debug/test/lib/lib.underscore_test.core -pkg moonbitlang/hello/lib -is-main -std-path $MOON_HOME/lib/core/target/wasm-gc/release/bundle -pkg-sources moonbitlang/hello/lib:./lib -target wasm-gc -g
-            moonc link-core $MOON_HOME/lib/core/target/wasm-gc/release/bundle/core.core ./target/wasm-gc/debug/test/lib/lib.underscore_test.core -main moonbitlang/hello/lib -o ./target/wasm-gc/debug/test/lib/lib.underscore_test.wasm -test-mode -pkg-sources moonbitlang/hello/lib:./lib -target wasm-gc -g
+            moonc link-core $MOON_HOME/lib/core/target/wasm-gc/release/bundle/core.core ./target/wasm-gc/debug/test/lib/lib.underscore_test.core -main moonbitlang/hello/lib -o ./target/wasm-gc/debug/test/lib/lib.underscore_test.wasm -test-mode -pkg-sources moonbitlang/hello/lib:./lib -pkg-sources moonbitlang/core:$MOON_HOME/lib/core -target wasm-gc -g
             moonc build-package ./lib/hello.mbt ./target/wasm-gc/debug/test/lib/__generated_driver_for_internal_test.mbt -o ./target/wasm-gc/debug/test/lib/lib.internal_test.core -pkg moonbitlang/hello/lib -is-main -std-path $MOON_HOME/lib/core/target/wasm-gc/release/bundle -pkg-sources moonbitlang/hello/lib:./lib -target wasm-gc -g
-            moonc link-core $MOON_HOME/lib/core/target/wasm-gc/release/bundle/core.core ./target/wasm-gc/debug/test/lib/lib.internal_test.core -main moonbitlang/hello/lib -o ./target/wasm-gc/debug/test/lib/lib.internal_test.wasm -test-mode -pkg-sources moonbitlang/hello/lib:./lib -target wasm-gc -g
+            moonc link-core $MOON_HOME/lib/core/target/wasm-gc/release/bundle/core.core ./target/wasm-gc/debug/test/lib/lib.internal_test.core -main moonbitlang/hello/lib -o ./target/wasm-gc/debug/test/lib/lib.internal_test.wasm -test-mode -pkg-sources moonbitlang/hello/lib:./lib -pkg-sources moonbitlang/core:$MOON_HOME/lib/core -target wasm-gc -g
         "#]],
     );
 
@@ -2090,8 +2090,8 @@ fn test_backend_config() {
         expect![[r#"
             moonc build-package ./lib/hello.mbt -o ./target/wasm-gc/release/build/lib/lib.core -pkg username/hello/lib -std-path $MOON_HOME/lib/core/target/wasm-gc/release/bundle -pkg-sources username/hello/lib:./lib -target wasm-gc
             moonc build-package ./main/main.mbt -o ./target/wasm-gc/release/build/main/main.core -pkg username/hello/main -is-main -std-path $MOON_HOME/lib/core/target/wasm-gc/release/bundle -i ./target/wasm-gc/release/build/lib/lib.mi:lib -pkg-sources username/hello/main:./main -target wasm-gc
-            moonc link-core $MOON_HOME/lib/core/target/wasm-gc/release/bundle/core.core ./target/wasm-gc/release/build/lib/lib.core ./target/wasm-gc/release/build/main/main.core -main username/hello/main -o ./target/wasm-gc/release/build/main/main.wasm -pkg-sources username/hello/lib:./lib -pkg-sources username/hello/main:./main -target wasm-gc
-            moonc link-core $MOON_HOME/lib/core/target/wasm-gc/release/bundle/core.core ./target/wasm-gc/release/build/lib/lib.core -main username/hello/lib -o ./target/wasm-gc/release/build/lib/lib.wasm -pkg-sources username/hello/lib:./lib -target wasm-gc -exported_functions=hello:hello_wasm_gc
+            moonc link-core $MOON_HOME/lib/core/target/wasm-gc/release/bundle/core.core ./target/wasm-gc/release/build/lib/lib.core ./target/wasm-gc/release/build/main/main.core -main username/hello/main -o ./target/wasm-gc/release/build/main/main.wasm -pkg-sources username/hello/lib:./lib -pkg-sources username/hello/main:./main -pkg-sources moonbitlang/core:$MOON_HOME/lib/core -target wasm-gc
+            moonc link-core $MOON_HOME/lib/core/target/wasm-gc/release/bundle/core.core ./target/wasm-gc/release/build/lib/lib.core -main username/hello/lib -o ./target/wasm-gc/release/build/lib/lib.wasm -pkg-sources username/hello/lib:./lib -pkg-sources moonbitlang/core:$MOON_HOME/lib/core -target wasm-gc -exported_functions=hello:hello_wasm_gc
         "#]],
     );
 
@@ -2840,7 +2840,7 @@ fn test_source_map() {
         ),
         expect![[r#"
             moonc build-package ./main/main.mbt -o ./target/wasm/debug/build/main/main.core -pkg hello/main -is-main -std-path $MOON_HOME/lib/core/target/wasm/release/bundle -pkg-sources hello/main:./main -target wasm -g
-            moonc link-core $MOON_HOME/lib/core/target/wasm/release/bundle/core.core ./target/wasm/debug/build/main/main.core -main hello/main -o ./target/wasm/debug/build/main/main.wasm -pkg-sources hello/main:./main -target wasm -g
+            moonc link-core $MOON_HOME/lib/core/target/wasm/release/bundle/core.core ./target/wasm/debug/build/main/main.core -main hello/main -o ./target/wasm/debug/build/main/main.wasm -pkg-sources hello/main:./main -pkg-sources moonbitlang/core:$MOON_HOME/lib/core -target wasm -g
         "#]],
     );
     check(
@@ -2857,7 +2857,7 @@ fn test_source_map() {
         ),
         expect![[r#"
             moonc build-package ./main/main.mbt -o ./target/wasm-gc/debug/build/main/main.core -pkg hello/main -is-main -std-path $MOON_HOME/lib/core/target/wasm-gc/release/bundle -pkg-sources hello/main:./main -target wasm-gc -g -source-map
-            moonc link-core $MOON_HOME/lib/core/target/wasm-gc/release/bundle/core.core ./target/wasm-gc/debug/build/main/main.core -main hello/main -o ./target/wasm-gc/debug/build/main/main.wasm -pkg-sources hello/main:./main -target wasm-gc -g -source-map
+            moonc link-core $MOON_HOME/lib/core/target/wasm-gc/release/bundle/core.core ./target/wasm-gc/debug/build/main/main.core -main hello/main -o ./target/wasm-gc/debug/build/main/main.wasm -pkg-sources hello/main:./main -pkg-sources moonbitlang/core:$MOON_HOME/lib/core -target wasm-gc -g -source-map
         "#]],
     );
     check(
@@ -2874,7 +2874,7 @@ fn test_source_map() {
         ),
         expect![[r#"
             moonc build-package ./main/main.mbt -o ./target/js/debug/build/main/main.core -pkg hello/main -is-main -std-path $MOON_HOME/lib/core/target/js/release/bundle -pkg-sources hello/main:./main -target js -g -source-map
-            moonc link-core $MOON_HOME/lib/core/target/js/release/bundle/core.core ./target/js/debug/build/main/main.core -main hello/main -o ./target/js/debug/build/main/main.js -pkg-sources hello/main:./main -target js -g -source-map
+            moonc link-core $MOON_HOME/lib/core/target/js/release/bundle/core.core ./target/js/debug/build/main/main.core -main hello/main -o ./target/js/debug/build/main/main.js -pkg-sources hello/main:./main -pkg-sources moonbitlang/core:$MOON_HOME/lib/core -target js -g -source-map
         "#]],
     );
 }
@@ -2984,7 +2984,7 @@ fn test_warn_list() {
             moonc build-package $ROOT/lib/hello.mbt -w -2 -o $ROOT/target/wasm-gc/release/build/lib/lib.core -pkg username/hello/lib -std-path $MOON_HOME/lib/core/target/wasm-gc/release/bundle -pkg-sources username/hello/lib:$ROOT/lib -target wasm-gc
             moonc build-package $ROOT/lib1/hello.mbt -w -1 -o $ROOT/target/wasm-gc/release/build/lib1/lib1.core -pkg username/hello/lib1 -std-path $MOON_HOME/lib/core/target/wasm-gc/release/bundle -pkg-sources username/hello/lib1:$ROOT/lib1 -target wasm-gc
             moonc build-package $ROOT/main/main.mbt -w -1-2 -o $ROOT/target/wasm-gc/release/build/main/main.core -pkg username/hello/main -is-main -std-path $MOON_HOME/lib/core/target/wasm-gc/release/bundle -i $ROOT/target/wasm-gc/release/build/lib/lib.mi:lib -i $ROOT/target/wasm-gc/release/build/lib1/lib1.mi:lib1 -pkg-sources username/hello/main:$ROOT/main -target wasm-gc
-            moonc link-core $MOON_HOME/lib/core/target/wasm-gc/release/bundle/core.core $ROOT/target/wasm-gc/release/build/lib/lib.core $ROOT/target/wasm-gc/release/build/lib1/lib1.core $ROOT/target/wasm-gc/release/build/main/main.core -main username/hello/main -o $ROOT/target/wasm-gc/release/build/main/main.wasm -pkg-sources username/hello/lib:$ROOT/lib -pkg-sources username/hello/lib1:$ROOT/lib1 -pkg-sources username/hello/main:$ROOT/main -target wasm-gc
+            moonc link-core $MOON_HOME/lib/core/target/wasm-gc/release/bundle/core.core $ROOT/target/wasm-gc/release/build/lib/lib.core $ROOT/target/wasm-gc/release/build/lib1/lib1.core $ROOT/target/wasm-gc/release/build/main/main.core -main username/hello/main -o $ROOT/target/wasm-gc/release/build/main/main.wasm -pkg-sources username/hello/lib:$ROOT/lib -pkg-sources username/hello/lib1:$ROOT/lib1 -pkg-sources username/hello/main:$ROOT/main -pkg-sources moonbitlang/core:$MOON_HOME/lib/core -target wasm-gc
             moon: ran 4 tasks, now up to date
         "#]],
     );
@@ -3038,7 +3038,7 @@ fn test_alert_list() {
                │   ───┬───  
                │      ╰───── Warning (Alert alert_2): alert_2
             ───╯
-            moonc link-core $MOON_HOME/lib/core/target/wasm-gc/release/bundle/core.core $ROOT/target/wasm-gc/release/build/lib/lib.core $ROOT/target/wasm-gc/release/build/main/main.core -main username/hello/main -o $ROOT/target/wasm-gc/release/build/main/main.wasm -pkg-sources username/hello/lib:$ROOT/lib -pkg-sources username/hello/main:$ROOT/main -target wasm-gc
+            moonc link-core $MOON_HOME/lib/core/target/wasm-gc/release/bundle/core.core $ROOT/target/wasm-gc/release/build/lib/lib.core $ROOT/target/wasm-gc/release/build/main/main.core -main username/hello/main -o $ROOT/target/wasm-gc/release/build/main/main.wasm -pkg-sources username/hello/lib:$ROOT/lib -pkg-sources username/hello/main:$ROOT/main -pkg-sources moonbitlang/core:$MOON_HOME/lib/core -target wasm-gc
             moon: ran 3 tasks, now up to date
         "#]],
     );
@@ -3104,7 +3104,7 @@ fn test_no_work_to_do() {
         expect![[r#"
             moonc build-package $ROOT/lib/hello.mbt -o $ROOT/target/wasm-gc/release/build/lib/lib.core -pkg moon_new/lib -std-path $MOON_HOME/lib/core/target/wasm-gc/release/bundle -pkg-sources moon_new/lib:$ROOT/lib -target wasm-gc
             moonc build-package $ROOT/main/main.mbt -o $ROOT/target/wasm-gc/release/build/main/main.core -pkg moon_new/main -is-main -std-path $MOON_HOME/lib/core/target/wasm-gc/release/bundle -i $ROOT/target/wasm-gc/release/build/lib/lib.mi:lib -pkg-sources moon_new/main:$ROOT/main -target wasm-gc
-            moonc link-core $MOON_HOME/lib/core/target/wasm-gc/release/bundle/core.core $ROOT/target/wasm-gc/release/build/lib/lib.core $ROOT/target/wasm-gc/release/build/main/main.core -main moon_new/main -o $ROOT/target/wasm-gc/release/build/main/main.wasm -pkg-sources moon_new/lib:$ROOT/lib -pkg-sources moon_new/main:$ROOT/main -target wasm-gc
+            moonc link-core $MOON_HOME/lib/core/target/wasm-gc/release/bundle/core.core $ROOT/target/wasm-gc/release/build/lib/lib.core $ROOT/target/wasm-gc/release/build/main/main.core -main moon_new/main -o $ROOT/target/wasm-gc/release/build/main/main.wasm -pkg-sources moon_new/lib:$ROOT/lib -pkg-sources moon_new/main:$ROOT/main -pkg-sources moonbitlang/core:$MOON_HOME/lib/core -target wasm-gc
             moon: no work to do
         "#]],
     );
@@ -3119,9 +3119,9 @@ fn test_moon_test_release() {
         expect![[r#"
             moon generate-test-driver --source-dir . --target-dir ./target/wasm-gc/debug/test --sort-input
             moonc build-package ./lib/hello.mbt ./lib/hello_test.mbt ./target/wasm-gc/debug/test/lib/__generated_driver_for_underscore_test.mbt -o ./target/wasm-gc/debug/test/lib/lib.underscore_test.core -pkg username/hello/lib -is-main -std-path $MOON_HOME/lib/core/target/wasm-gc/release/bundle -pkg-sources username/hello/lib:./lib -target wasm-gc -g
-            moonc link-core $MOON_HOME/lib/core/target/wasm-gc/release/bundle/core.core ./target/wasm-gc/debug/test/lib/lib.underscore_test.core -main username/hello/lib -o ./target/wasm-gc/debug/test/lib/lib.underscore_test.wasm -test-mode -pkg-sources username/hello/lib:./lib -target wasm-gc -g
+            moonc link-core $MOON_HOME/lib/core/target/wasm-gc/release/bundle/core.core ./target/wasm-gc/debug/test/lib/lib.underscore_test.core -main username/hello/lib -o ./target/wasm-gc/debug/test/lib/lib.underscore_test.wasm -test-mode -pkg-sources username/hello/lib:./lib -pkg-sources moonbitlang/core:$MOON_HOME/lib/core -target wasm-gc -g
             moonc build-package ./lib/hello.mbt ./target/wasm-gc/debug/test/lib/__generated_driver_for_internal_test.mbt -o ./target/wasm-gc/debug/test/lib/lib.internal_test.core -pkg username/hello/lib -is-main -std-path $MOON_HOME/lib/core/target/wasm-gc/release/bundle -pkg-sources username/hello/lib:./lib -target wasm-gc -g
-            moonc link-core $MOON_HOME/lib/core/target/wasm-gc/release/bundle/core.core ./target/wasm-gc/debug/test/lib/lib.internal_test.core -main username/hello/lib -o ./target/wasm-gc/debug/test/lib/lib.internal_test.wasm -test-mode -pkg-sources username/hello/lib:./lib -target wasm-gc -g
+            moonc link-core $MOON_HOME/lib/core/target/wasm-gc/release/bundle/core.core ./target/wasm-gc/debug/test/lib/lib.internal_test.core -main username/hello/lib -o ./target/wasm-gc/debug/test/lib/lib.internal_test.wasm -test-mode -pkg-sources username/hello/lib:./lib -pkg-sources moonbitlang/core:$MOON_HOME/lib/core -target wasm-gc -g
         "#]],
     );
 
@@ -3133,9 +3133,9 @@ fn test_moon_test_release() {
         expect![[r#"
             moon generate-test-driver --source-dir . --target-dir ./target/wasm-gc/release/test --sort-input
             moonc build-package ./lib/hello.mbt ./lib/hello_test.mbt ./target/wasm-gc/release/test/lib/__generated_driver_for_underscore_test.mbt -o ./target/wasm-gc/release/test/lib/lib.underscore_test.core -pkg username/hello/lib -is-main -std-path $MOON_HOME/lib/core/target/wasm-gc/release/bundle -pkg-sources username/hello/lib:./lib -target wasm-gc
-            moonc link-core $MOON_HOME/lib/core/target/wasm-gc/release/bundle/core.core ./target/wasm-gc/release/test/lib/lib.underscore_test.core -main username/hello/lib -o ./target/wasm-gc/release/test/lib/lib.underscore_test.wasm -test-mode -pkg-sources username/hello/lib:./lib -target wasm-gc
+            moonc link-core $MOON_HOME/lib/core/target/wasm-gc/release/bundle/core.core ./target/wasm-gc/release/test/lib/lib.underscore_test.core -main username/hello/lib -o ./target/wasm-gc/release/test/lib/lib.underscore_test.wasm -test-mode -pkg-sources username/hello/lib:./lib -pkg-sources moonbitlang/core:$MOON_HOME/lib/core -target wasm-gc
             moonc build-package ./lib/hello.mbt ./target/wasm-gc/release/test/lib/__generated_driver_for_internal_test.mbt -o ./target/wasm-gc/release/test/lib/lib.internal_test.core -pkg username/hello/lib -is-main -std-path $MOON_HOME/lib/core/target/wasm-gc/release/bundle -pkg-sources username/hello/lib:./lib -target wasm-gc
-            moonc link-core $MOON_HOME/lib/core/target/wasm-gc/release/bundle/core.core ./target/wasm-gc/release/test/lib/lib.internal_test.core -main username/hello/lib -o ./target/wasm-gc/release/test/lib/lib.internal_test.wasm -test-mode -pkg-sources username/hello/lib:./lib -target wasm-gc
+            moonc link-core $MOON_HOME/lib/core/target/wasm-gc/release/bundle/core.core ./target/wasm-gc/release/test/lib/lib.internal_test.core -main username/hello/lib -o ./target/wasm-gc/release/test/lib/lib.internal_test.wasm -test-mode -pkg-sources username/hello/lib:./lib -pkg-sources moonbitlang/core:$MOON_HOME/lib/core -target wasm-gc
         "#]],
     );
 
@@ -3279,7 +3279,7 @@ fn test_deny_warn() {
                │       ┬  
                │       ╰── Warning: Unused variable 'a'
             ───╯
-            moonc link-core $MOON_HOME/lib/core/target/wasm-gc/release/bundle/core.core $ROOT/target/wasm-gc/release/build/lib/lib.core $ROOT/target/wasm-gc/release/build/main/main.core -main username/hello/main -o $ROOT/target/wasm-gc/release/build/main/main.wasm -pkg-sources username/hello/lib:$ROOT/lib -pkg-sources username/hello/main:$ROOT/main -target wasm-gc
+            moonc link-core $MOON_HOME/lib/core/target/wasm-gc/release/bundle/core.core $ROOT/target/wasm-gc/release/build/lib/lib.core $ROOT/target/wasm-gc/release/build/main/main.core -main username/hello/main -o $ROOT/target/wasm-gc/release/build/main/main.wasm -pkg-sources username/hello/lib:$ROOT/lib -pkg-sources username/hello/main:$ROOT/main -pkg-sources moonbitlang/core:$MOON_HOME/lib/core -target wasm-gc
             moon: ran 3 tasks, now up to date
         "#]],
     );
@@ -3436,7 +3436,7 @@ fn test_export_memory_name() {
         expect![[r#"
             moonc build-package ./lib/hello.mbt -o ./target/wasm-gc/release/build/lib/lib.core -pkg username/hello/lib -std-path $MOON_HOME/lib/core/target/wasm-gc/release/bundle -pkg-sources username/hello/lib:./lib -target wasm-gc
             moonc build-package ./main/main.mbt -o ./target/wasm-gc/release/build/main/main.core -pkg username/hello/main -is-main -std-path $MOON_HOME/lib/core/target/wasm-gc/release/bundle -i ./target/wasm-gc/release/build/lib/lib.mi:lib -pkg-sources username/hello/main:./main -target wasm-gc
-            moonc link-core $MOON_HOME/lib/core/target/wasm-gc/release/bundle/core.core ./target/wasm-gc/release/build/lib/lib.core ./target/wasm-gc/release/build/main/main.core -main username/hello/main -o ./target/wasm-gc/release/build/main/main.wasm -pkg-sources username/hello/lib:./lib -pkg-sources username/hello/main:./main -target wasm-gc -export-memory-name awesome_memory
+            moonc link-core $MOON_HOME/lib/core/target/wasm-gc/release/bundle/core.core ./target/wasm-gc/release/build/lib/lib.core ./target/wasm-gc/release/build/main/main.core -main username/hello/main -o ./target/wasm-gc/release/build/main/main.wasm -pkg-sources username/hello/lib:./lib -pkg-sources username/hello/main:./main -pkg-sources moonbitlang/core:$MOON_HOME/lib/core -target wasm-gc -export-memory-name awesome_memory
         "#]],
     );
 
@@ -3448,7 +3448,7 @@ fn test_export_memory_name() {
         expect![[r#"
             moonc build-package ./lib/hello.mbt -o ./target/wasm/release/build/lib/lib.core -pkg username/hello/lib -std-path $MOON_HOME/lib/core/target/wasm/release/bundle -pkg-sources username/hello/lib:./lib -target wasm
             moonc build-package ./main/main.mbt -o ./target/wasm/release/build/main/main.core -pkg username/hello/main -is-main -std-path $MOON_HOME/lib/core/target/wasm/release/bundle -i ./target/wasm/release/build/lib/lib.mi:lib -pkg-sources username/hello/main:./main -target wasm
-            moonc link-core $MOON_HOME/lib/core/target/wasm/release/bundle/core.core ./target/wasm/release/build/lib/lib.core ./target/wasm/release/build/main/main.core -main username/hello/main -o ./target/wasm/release/build/main/main.wasm -pkg-sources username/hello/lib:./lib -pkg-sources username/hello/main:./main -target wasm -export-memory-name awesome_memory
+            moonc link-core $MOON_HOME/lib/core/target/wasm/release/bundle/core.core ./target/wasm/release/build/lib/lib.core ./target/wasm/release/build/main/main.core -main username/hello/main -o ./target/wasm/release/build/main/main.wasm -pkg-sources username/hello/lib:./lib -pkg-sources username/hello/main:./main -pkg-sources moonbitlang/core:$MOON_HOME/lib/core -target wasm -export-memory-name awesome_memory
         "#]],
     );
 
@@ -3460,7 +3460,7 @@ fn test_export_memory_name() {
         expect![[r#"
             moonc build-package ./lib/hello.mbt -o ./target/js/release/build/lib/lib.core -pkg username/hello/lib -std-path $MOON_HOME/lib/core/target/js/release/bundle -pkg-sources username/hello/lib:./lib -target js
             moonc build-package ./main/main.mbt -o ./target/js/release/build/main/main.core -pkg username/hello/main -is-main -std-path $MOON_HOME/lib/core/target/js/release/bundle -i ./target/js/release/build/lib/lib.mi:lib -pkg-sources username/hello/main:./main -target js
-            moonc link-core $MOON_HOME/lib/core/target/js/release/bundle/core.core ./target/js/release/build/lib/lib.core ./target/js/release/build/main/main.core -main username/hello/main -o ./target/js/release/build/main/main.js -pkg-sources username/hello/lib:./lib -pkg-sources username/hello/main:./main -target js
+            moonc link-core $MOON_HOME/lib/core/target/js/release/bundle/core.core ./target/js/release/build/lib/lib.core ./target/js/release/build/main/main.core -main username/hello/main -o ./target/js/release/build/main/main.js -pkg-sources username/hello/lib:./lib -pkg-sources username/hello/main:./main -pkg-sources moonbitlang/core:$MOON_HOME/lib/core -target js
         "#]],
     );
 }
@@ -3473,7 +3473,7 @@ fn test_no_block_params() {
         expect![[r#"
             moonc build-package ./lib/hello.mbt -o ./target/wasm-gc/release/build/lib/lib.core -pkg username/hello/lib -std-path $MOON_HOME/lib/core/target/wasm-gc/release/bundle -pkg-sources username/hello/lib:./lib -target wasm-gc
             moonc build-package ./main/main.mbt -o ./target/wasm-gc/release/build/main/main.core -pkg username/hello/main -is-main -std-path $MOON_HOME/lib/core/target/wasm-gc/release/bundle -i ./target/wasm-gc/release/build/lib/lib.mi:lib -pkg-sources username/hello/main:./main -target wasm-gc
-            moonc link-core $MOON_HOME/lib/core/target/wasm-gc/release/bundle/core.core ./target/wasm-gc/release/build/lib/lib.core ./target/wasm-gc/release/build/main/main.core -main username/hello/main -o ./target/wasm-gc/release/build/main/main.wasm -pkg-sources username/hello/lib:./lib -pkg-sources username/hello/main:./main -target wasm-gc -no-block-params
+            moonc link-core $MOON_HOME/lib/core/target/wasm-gc/release/bundle/core.core ./target/wasm-gc/release/build/lib/lib.core ./target/wasm-gc/release/build/main/main.core -main username/hello/main -o ./target/wasm-gc/release/build/main/main.wasm -pkg-sources username/hello/lib:./lib -pkg-sources username/hello/main:./main -pkg-sources moonbitlang/core:$MOON_HOME/lib/core -target wasm-gc -no-block-params
         "#]],
     );
 
@@ -3485,7 +3485,7 @@ fn test_no_block_params() {
         expect![[r#"
             moonc build-package ./lib/hello.mbt -o ./target/wasm/release/build/lib/lib.core -pkg username/hello/lib -std-path $MOON_HOME/lib/core/target/wasm/release/bundle -pkg-sources username/hello/lib:./lib -target wasm
             moonc build-package ./main/main.mbt -o ./target/wasm/release/build/main/main.core -pkg username/hello/main -is-main -std-path $MOON_HOME/lib/core/target/wasm/release/bundle -i ./target/wasm/release/build/lib/lib.mi:lib -pkg-sources username/hello/main:./main -target wasm
-            moonc link-core $MOON_HOME/lib/core/target/wasm/release/bundle/core.core ./target/wasm/release/build/lib/lib.core ./target/wasm/release/build/main/main.core -main username/hello/main -o ./target/wasm/release/build/main/main.wasm -pkg-sources username/hello/lib:./lib -pkg-sources username/hello/main:./main -target wasm -no-block-params
+            moonc link-core $MOON_HOME/lib/core/target/wasm/release/bundle/core.core ./target/wasm/release/build/lib/lib.core ./target/wasm/release/build/main/main.core -main username/hello/main -o ./target/wasm/release/build/main/main.wasm -pkg-sources username/hello/lib:./lib -pkg-sources username/hello/main:./main -pkg-sources moonbitlang/core:$MOON_HOME/lib/core -target wasm -no-block-params
         "#]],
     );
 
@@ -3497,7 +3497,7 @@ fn test_no_block_params() {
         expect![[r#"
             moonc build-package ./lib/hello.mbt -o ./target/js/release/build/lib/lib.core -pkg username/hello/lib -std-path $MOON_HOME/lib/core/target/js/release/bundle -pkg-sources username/hello/lib:./lib -target js
             moonc build-package ./main/main.mbt -o ./target/js/release/build/main/main.core -pkg username/hello/main -is-main -std-path $MOON_HOME/lib/core/target/js/release/bundle -i ./target/js/release/build/lib/lib.mi:lib -pkg-sources username/hello/main:./main -target js
-            moonc link-core $MOON_HOME/lib/core/target/js/release/bundle/core.core ./target/js/release/build/lib/lib.core ./target/js/release/build/main/main.core -main username/hello/main -o ./target/js/release/build/main/main.js -pkg-sources username/hello/lib:./lib -pkg-sources username/hello/main:./main -target js
+            moonc link-core $MOON_HOME/lib/core/target/js/release/bundle/core.core ./target/js/release/build/lib/lib.core ./target/js/release/build/main/main.core -main username/hello/main -o ./target/js/release/build/main/main.js -pkg-sources username/hello/lib:./lib -pkg-sources username/hello/main:./main -pkg-sources moonbitlang/core:$MOON_HOME/lib/core -target js
         "#]],
     );
 }
@@ -3917,7 +3917,7 @@ fn test_whitespace_parent_space() -> anyhow::Result<()> {
         expect![[r#"
             moonc build-package "./with space/main lib/hello.mbt" -o "./with space/target/wasm-gc/release/build/main lib/main lib.core" -pkg "username/hello/main lib" -std-path $MOON_HOME/lib/core/target/wasm-gc/release/bundle -pkg-sources "username/hello/main lib:./with space/main lib" -target wasm-gc
             moonc build-package "./with space/main exe/main.mbt" -o "./with space/target/wasm-gc/release/build/main exe/main exe.core" -pkg "username/hello/main exe" -is-main -std-path $MOON_HOME/lib/core/target/wasm-gc/release/bundle -i "./with space/target/wasm-gc/release/build/main lib/main lib.mi:lib" -pkg-sources "username/hello/main exe:./with space/main exe" -target wasm-gc
-            moonc link-core $MOON_HOME/lib/core/target/wasm-gc/release/bundle/core.core "./with space/target/wasm-gc/release/build/main lib/main lib.core" "./with space/target/wasm-gc/release/build/main exe/main exe.core" -main "username/hello/main exe" -o "./with space/target/wasm-gc/release/build/main exe/main exe.wasm" -pkg-sources "username/hello/main lib:./with space/main lib" -pkg-sources "username/hello/main exe:./with space/main exe" -target wasm-gc
+            moonc link-core $MOON_HOME/lib/core/target/wasm-gc/release/bundle/core.core "./with space/target/wasm-gc/release/build/main lib/main lib.core" "./with space/target/wasm-gc/release/build/main exe/main exe.core" -main "username/hello/main exe" -o "./with space/target/wasm-gc/release/build/main exe/main exe.wasm" -pkg-sources "username/hello/main lib:./with space/main lib" -pkg-sources "username/hello/main exe:./with space/main exe" -pkg-sources moonbitlang/core:$MOON_HOME/lib/core -target wasm-gc
             moon: ran 3 tasks, now up to date
         "#]],
     );
