@@ -52,7 +52,7 @@ fn main {
     }
   }
   fn repr(obj : Array[String]) -> String {
-    let buf = Buffer::make(10)
+    let buf = Buffer::new(size_hint=16)
     obj.debug_write(buf)
     buf.to_string()
   }
