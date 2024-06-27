@@ -82,7 +82,7 @@ pub fn run_build(cli: &UniversalFlags, cmd: &BuildSubcommand) -> anyhow::Result<
 
     let quiet = cli.quiet;
 
-    let result = entry::run_build(false, quiet, None, &moonc_opt, &moonbuild_opt, &module);
+    let result = entry::run_build(quiet, &moonc_opt, &moonbuild_opt, &module);
     if trace_flag {
         trace::close();
     }

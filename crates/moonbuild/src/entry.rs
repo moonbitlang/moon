@@ -164,60 +164,63 @@ pub fn run_check(
 }
 
 pub fn run_build(
-    exec: bool,
+    quiet: bool,
+    moonc_opt: &MooncOpt,
+    moonbuild_opt: &MoonbuildOpt,
+    module: &ModuleDB,
+) -> anyhow::Result<i32> {
+    let state = trace::scope("moonbit::build::read", || {
+        crate::build::load_moon_proj(module, moonc_opt, moonbuild_opt)
+    })?;
+    let result = n2_run_interface(quiet, state, moonbuild_opt.target_dir.join("build.output"))?;
+    render_result(result, quiet, "building")
+}
+
+pub fn run_run(
     quiet: bool,
     package_path: Option<&String>,
     moonc_opt: &MooncOpt,
     moonbuild_opt: &MoonbuildOpt,
     module: &ModuleDB,
 ) -> anyhow::Result<i32> {
+    run_build(quiet, moonc_opt, moonbuild_opt, module)?;
     let (source_dir, target_dir) = (&moonbuild_opt.source_dir, &moonbuild_opt.target_dir);
+    let package_path = package_path
+        .unwrap()
+        .trim_start_matches("./")
+        .trim_start_matches(".\\")
+        .trim_end_matches(is_slash);
 
-    let state = trace::scope("moonbit::build::read", || {
-        crate::build::load_moon_proj(module, moonc_opt, moonbuild_opt)
+    let (package_path, last_name): (PathBuf, String) =
+        if package_path.is_empty() || package_path == "." {
+            let module = moonutil::common::read_module_desc_file_in_dir(source_dir)?;
+            let p = std::path::PathBuf::from(module.name);
+            (
+                PathBuf::from("./"),
+                p.file_name().unwrap().to_str().unwrap().into(),
+            )
+        } else {
+            let package_path = std::path::PathBuf::from(package_path);
+            let last_name = package_path.file_name().unwrap().to_str().unwrap();
+            (package_path.clone(), last_name.into())
+        };
+
+    let wat_path = target_dir.join(package_path).join(format!(
+        "{}.{}",
+        last_name,
+        moonc_opt.link_opt.output_format.to_str()
+    ));
+    let wat_path = dunce::canonicalize(&wat_path)
+        .context(format!("cannot find wat file at `{:?}`", &wat_path))?;
+    trace::scope("run", || {
+        if moonc_opt.link_opt.target_backend == TargetBackend::Wasm
+            || moonc_opt.link_opt.target_backend == TargetBackend::WasmGC
+        {
+            crate::build::run_wat(&wat_path)
+        } else {
+            crate::build::run_js(&wat_path)
+        }
     })?;
-    let result = n2_run_interface(quiet, state, moonbuild_opt.target_dir.join("build.output"))?;
-    render_result(result, quiet, "building")?;
-
-    if exec {
-        let package_path = package_path
-            .unwrap()
-            .trim_start_matches("./")
-            .trim_start_matches(".\\")
-            .trim_end_matches(is_slash);
-
-        let (package_path, last_name): (PathBuf, String) =
-            if package_path.is_empty() || package_path == "." {
-                let module = moonutil::common::read_module_desc_file_in_dir(source_dir)?;
-                let p = std::path::PathBuf::from(module.name);
-                (
-                    PathBuf::from("./"),
-                    p.file_name().unwrap().to_str().unwrap().into(),
-                )
-            } else {
-                let package_path = std::path::PathBuf::from(package_path);
-                let last_name = package_path.file_name().unwrap().to_str().unwrap();
-                (package_path.clone(), last_name.into())
-            };
-
-        let wat_path = target_dir.join(package_path).join(format!(
-            "{}.{}",
-            last_name,
-            moonc_opt.link_opt.output_format.to_str()
-        ));
-        let wat_path = dunce::canonicalize(&wat_path)
-            .context(format!("cannot find wat file at `{:?}`", &wat_path))?;
-        trace::scope("run", || {
-            if moonc_opt.link_opt.target_backend == TargetBackend::Wasm
-                || moonc_opt.link_opt.target_backend == TargetBackend::WasmGC
-            {
-                crate::build::run_wat(&wat_path)
-            } else {
-                crate::build::run_js(&wat_path)
-            }
-        })?;
-    }
-
     Ok(0)
 }
 

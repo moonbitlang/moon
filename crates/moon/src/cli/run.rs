@@ -99,8 +99,7 @@ pub fn run_run(cli: &UniversalFlags, cmd: &RunSubcommand) -> anyhow::Result<i32>
     let verbose = cli.verbose;
     let quiet = !verbose;
 
-    let result = entry::run_build(
-        true,
+    let result = entry::run_run(
         quiet,
         Some(&package_path),
         &moonc_opt,
