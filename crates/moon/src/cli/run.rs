@@ -24,6 +24,8 @@ pub struct RunSubcommand {
 
     #[clap(flatten)]
     pub auto_sync_flags: AutoSyncFlags,
+
+    pub args: Vec<String>,
 }
 
 pub fn run_run(cli: &UniversalFlags, cmd: &RunSubcommand) -> anyhow::Result<i32> {
@@ -105,6 +107,7 @@ pub fn run_run(cli: &UniversalFlags, cmd: &RunSubcommand) -> anyhow::Result<i32>
         &moonc_opt,
         &moonbuild_opt,
         &module,
+        &cmd.args,
     );
     if trace_flag {
         trace::close();

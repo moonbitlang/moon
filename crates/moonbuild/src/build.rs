@@ -1,4 +1,5 @@
 use super::gen;
+use anyhow::bail;
 use moonutil::common::gen::ModuleDB;
 use moonutil::common::MoonbuildOpt;
 use n2::load::State;
@@ -32,17 +33,25 @@ pub fn load_moon_proj(
     gen::gen_build::gen_n2_build_state(&n2_input, target_dir, moonc_opt, moonbuild_opt)
 }
 
-pub fn run_wat(path: &Path) -> anyhow::Result<()> {
-    run("moonrun", path)
+pub fn run_wat(path: &Path, args: &[String]) -> anyhow::Result<()> {
+    run("moonrun", path, args)
 }
 
-pub fn run_js(path: &Path) -> anyhow::Result<()> {
-    run("node", path)
+pub fn run_js(path: &Path, args: &[String]) -> anyhow::Result<()> {
+    if !args.is_empty() {
+        bail!(format!(
+            "js backend does not support extra args for now {:?}",
+            args
+        ))
+    }
+    run("node", path, args)
 }
 
-fn run(command: &str, path: &Path) -> anyhow::Result<()> {
+fn run(command: &str, path: &Path, args: &[String]) -> anyhow::Result<()> {
     let mut execution = Command::new(command)
         .arg(path)
+        .arg("--")
+        .args(args)
         .stdout(Stdio::piped())
         .stderr(Stdio::inherit())
         .spawn()?;
