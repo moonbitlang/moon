@@ -28,7 +28,7 @@ pub struct RunSubcommand {
     pub args: Vec<String>,
 }
 
-pub fn run_run(cli: &UniversalFlags, cmd: &RunSubcommand) -> anyhow::Result<i32> {
+pub fn run_run(cli: &UniversalFlags, cmd: RunSubcommand) -> anyhow::Result<i32> {
     let PackageDirs {
         source_dir,
         target_dir,
@@ -69,6 +69,7 @@ pub fn run_run(cli: &UniversalFlags, cmd: &RunSubcommand) -> anyhow::Result<i32>
         target_dir,
         sort_input,
         run_mode,
+        args: cmd.args,
         ..Default::default()
     };
 
@@ -107,7 +108,6 @@ pub fn run_run(cli: &UniversalFlags, cmd: &RunSubcommand) -> anyhow::Result<i32>
         &moonc_opt,
         &moonbuild_opt,
         &module,
-        &cmd.args,
     );
     if trace_flag {
         trace::close();

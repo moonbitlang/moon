@@ -182,7 +182,6 @@ pub fn run_run(
     moonc_opt: &MooncOpt,
     moonbuild_opt: &MoonbuildOpt,
     module: &ModuleDB,
-    args: &[String],
 ) -> anyhow::Result<i32> {
     run_build(quiet, moonc_opt, moonbuild_opt, module)?;
     let (source_dir, target_dir) = (&moonbuild_opt.source_dir, &moonbuild_opt.target_dir);
@@ -217,9 +216,9 @@ pub fn run_run(
         if moonc_opt.link_opt.target_backend == TargetBackend::Wasm
             || moonc_opt.link_opt.target_backend == TargetBackend::WasmGC
         {
-            crate::build::run_wat(&wat_path, args)
+            crate::build::run_wat(&wat_path, &moonbuild_opt.args)
         } else {
-            crate::build::run_js(&wat_path, args)
+            crate::build::run_js(&wat_path, &moonbuild_opt.args)
         }
     })?;
     Ok(0)

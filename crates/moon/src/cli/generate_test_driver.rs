@@ -67,6 +67,7 @@ pub fn generate_test_driver(
         fmt_opt: None,
         sort_input,
         run_mode,
+        ..Default::default()
     };
 
     let mut module = moonutil::scan::scan(

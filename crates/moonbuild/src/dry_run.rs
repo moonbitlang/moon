@@ -51,21 +51,23 @@ pub fn print_commands(
         }
         if mode == RunMode::Run {
             for fid in sorted_default.iter() {
-                let watfile = &state.graph.file(*fid).name;
+                let mut watfile = state.graph.file(*fid).name.clone();
                 let cmd = match moonc_opt.link_opt.target_backend {
                     TargetBackend::Wasm => "moonrun",
                     TargetBackend::WasmGC => "moonrun",
                     TargetBackend::Js => "node",
                 };
                 if in_same_dir {
-                    println!(
-                        "{} {}",
-                        cmd,
-                        watfile.replace(&source_dir.display().to_string(), ".")
-                    );
-                } else {
-                    println!("{} {}", cmd, watfile);
+                    watfile = watfile.replace(&source_dir.display().to_string(), ".");
                 }
+
+                let mut moonrun_command = format!("{cmd} {watfile}");
+                if !moonbuild_opt.args.is_empty() {
+                    moonrun_command =
+                        format!("{moonrun_command} -- {}", moonbuild_opt.args.join(" "));
+                }
+
+                println!("{moonrun_command}");
             }
         }
     }
