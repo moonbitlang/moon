@@ -5,7 +5,7 @@ use std::{
 };
 
 use moonutil::{
-    common::{read_module_desc_file_in_dir, Module},
+    common::{read_module_desc_file_in_dir, MoonMod},
     mooncakes::{ModuleName, ModuleSource, ModuleSourceKind},
 };
 use semver::Version;
@@ -17,7 +17,7 @@ use super::ResolverError;
 pub struct ResolverEnv<'a> {
     registries: &'a RegistryList,
     errors: Vec<super::ResolverError>,
-    local_module_cache: HashMap<PathBuf, Rc<Module>>,
+    local_module_cache: HashMap<PathBuf, Rc<MoonMod>>,
 }
 
 impl<'a> ResolverEnv<'a> {
@@ -45,7 +45,7 @@ impl<'a> ResolverEnv<'a> {
         &mut self,
         name: &ModuleName,
         registry: Option<&str>,
-    ) -> Option<Rc<BTreeMap<Version, Rc<Module>>>> {
+    ) -> Option<Rc<BTreeMap<Version, Rc<MoonMod>>>> {
         self.registries
             .get_registry(registry)?
             .all_versions_of(name)
@@ -57,13 +57,13 @@ impl<'a> ResolverEnv<'a> {
         name: &ModuleName,
         version: &Version,
         registry: Option<&str>,
-    ) -> Option<Rc<Module>> {
+    ) -> Option<Rc<MoonMod>> {
         self.registries
             .get_registry(registry)?
             .get_module_version(name, version)
     }
 
-    pub fn get(&mut self, ms: &ModuleSource) -> Option<Rc<Module>> {
+    pub fn get(&mut self, ms: &ModuleSource) -> Option<Rc<MoonMod>> {
         match &ms.source {
             ModuleSourceKind::Registry(reg) => {
                 self.get_module_version(&ms.name, &ms.version, reg.as_deref())
@@ -74,7 +74,7 @@ impl<'a> ResolverEnv<'a> {
     }
 
     /// Resolve a local module from its **canonical** path.
-    pub fn resolve_local_module(&mut self, path: &Path) -> Result<Rc<Module>, ResolverError> {
+    pub fn resolve_local_module(&mut self, path: &Path) -> Result<Rc<MoonMod>, ResolverError> {
         if let Some(module) = self.local_module_cache.get(path) {
             return Ok(module.clone());
         }

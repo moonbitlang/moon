@@ -1,7 +1,7 @@
 use std::{collections::HashMap, rc::Rc};
 
 use moonutil::{
-    common::Module,
+    common::MoonMod,
     mooncakes::{result, ModuleName, ModuleSource},
 };
 use semver::{Version, VersionReq};
@@ -59,7 +59,7 @@ pub trait Resolver {
     fn resolve(
         &mut self,
         env: &mut ResolverEnv,
-        root: &[(ModuleSource, Rc<Module>)],
+        root: &[(ModuleSource, Rc<MoonMod>)],
     ) -> Option<result::ResolvedEnv>;
 }
 
@@ -96,7 +96,7 @@ fn assert_no_duplicate_module_names(result: &result::ResolvedEnv) -> Result<(), 
 pub fn resolve_with_default_env(
     registries: &RegistryList,
     resolver: &mut dyn Resolver,
-    root: &[(ModuleSource, Rc<Module>)],
+    root: &[(ModuleSource, Rc<MoonMod>)],
 ) -> Result<result::ResolvedEnv, ResolverErrors> {
     let mut env = env::ResolverEnv::new(registries);
     let res = resolver.resolve(&mut env, root);
@@ -111,7 +111,7 @@ pub fn resolve_with_default_env(
 
 pub fn resolve_with_default_env_and_resolver(
     registries: &RegistryList,
-    root: &[(ModuleSource, Rc<Module>)],
+    root: &[(ModuleSource, Rc<MoonMod>)],
 ) -> Result<result::ResolvedEnv, ResolverErrors> {
     let mut resolver = MvsSolver;
     resolve_with_default_env(registries, &mut resolver, root)
@@ -120,7 +120,7 @@ pub fn resolve_with_default_env_and_resolver(
 pub fn resolve_single_root_with_defaults(
     registries: &RegistryList,
     root_source: ModuleSource,
-    root_module: Rc<Module>,
+    root_module: Rc<MoonMod>,
 ) -> Result<result::ResolvedEnv, ResolverErrors> {
     resolve_with_default_env_and_resolver(registries, &[(root_source, root_module)])
 }

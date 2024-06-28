@@ -6,7 +6,7 @@ use std::{
 
 use anyhow::anyhow;
 use moonutil::{
-    common::{DependencyInfo, Module},
+    common::{DependencyInfo, MoonMod},
     mooncakes::{ModuleName, ModuleSource, ModuleSourceKind},
     version::as_caret_comparator,
 };
@@ -23,7 +23,7 @@ impl Resolver for MvsSolver {
     fn resolve(
         &mut self,
         env: &mut ResolverEnv,
-        root: &[(ModuleSource, Rc<Module>)],
+        root: &[(ModuleSource, Rc<MoonMod>)],
     ) -> Option<super::result::ResolvedEnv> {
         mvs_resolve(env, root)
     }
@@ -62,7 +62,7 @@ fn select_min_version_satisfying_in_env(
     env: &mut ResolverEnv,
     name: &ModuleName,
     req: &DependencyInfo,
-) -> Result<(Version, Rc<Module>), ResolverError> {
+) -> Result<(Version, Rc<MoonMod>), ResolverError> {
     let all_versions = env
         .all_versions_of(name, None) // todo: registry
         .ok_or_else(|| ResolverError::ModuleMissing(name.clone()))?;
@@ -162,7 +162,7 @@ fn warn_about_skipped_local_or_git_dep(ms: &ModuleSource) {
 
 fn mvs_resolve(
     env: &mut ResolverEnv,
-    root: &[(ModuleSource, Rc<Module>)],
+    root: &[(ModuleSource, Rc<MoonMod>)],
 ) -> Option<super::result::ResolvedEnv> {
     // Ordered set used to ensure they are iterated in order later.
     let mut gathered_versions = HashMap::<ModuleName, BTreeSet<ModuleSourceOrdWrapper>>::new();
@@ -320,7 +320,7 @@ fn resolve_pkg(
     dependant: &ModuleSource,
     env: &mut ResolverEnv,
     pkg_name: &ModuleName,
-) -> Result<(ModuleSource, Rc<Module>), ResolverError> {
+) -> Result<(ModuleSource, Rc<MoonMod>), ResolverError> {
     if let Some(path) = &req.path {
         if local_dep_allowed(dependant) {
             // Try resolving using local dependency
@@ -436,7 +436,7 @@ mod test {
 
         let module_info = result.module_info(id);
         expect![[r#"
-            Module {
+            MoonMod {
                 name: "dep/three",
                 version: Some(
                     Version {
@@ -563,14 +563,14 @@ mod test {
         }
     }
 
-    fn create_mock_local_source(module: &Module) -> ModuleSource {
+    fn create_mock_local_source(module: &MoonMod) -> ModuleSource {
         ModuleSource::from_version(
             module.name.parse().unwrap(),
             module.version.clone().unwrap(),
         )
     }
 
-    fn create_mock_root(root: impl Into<Rc<Module>>) -> Vec<(ModuleSource, Rc<Module>)> {
+    fn create_mock_root(root: impl Into<Rc<MoonMod>>) -> Vec<(ModuleSource, Rc<MoonMod>)> {
         let root = root.into();
         let root_src = create_mock_local_source(&root);
         let roots = vec![(root_src, root)];
@@ -659,7 +659,7 @@ mod test {
         assert_no_depends_on(&result, "root/module@0.1.0", "dep/two@0.2.0");
     }
 
-    fn resolve(registry: &RegistryList, root: Rc<Module>) -> Vec<ModuleSource> {
+    fn resolve(registry: &RegistryList, root: Rc<MoonMod>) -> Vec<ModuleSource> {
         let mut resolver = MvsSolver;
         let mut env = ResolverEnv::new(registry);
         let roots = create_mock_root(root);
@@ -676,7 +676,7 @@ mod test {
         }
     }
 
-    fn check_resolve_result(reg: &RegistryList, root: Rc<Module>, expected: expect_test::Expect) {
+    fn check_resolve_result(reg: &RegistryList, root: Rc<MoonMod>, expected: expect_test::Expect) {
         expected.assert_debug_eq(&resolve(reg, root));
     }
 

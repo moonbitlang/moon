@@ -8,7 +8,7 @@ use std::{
 
 use anyhow::bail;
 use moonutil::{
-    common::{Module, MoonModJSON},
+    common::{MoonMod, MoonModJSON},
     mooncakes::ModuleName,
 };
 use semver::Version;
@@ -17,7 +17,7 @@ pub struct OnlineRegistry {
     index: std::path::PathBuf,
     url_base: String, // TODO: add download feature to registry interface
     #[allow(clippy::type_complexity)] // Isn't it still pretty clear?
-    cache: RefCell<HashMap<ModuleName, Rc<BTreeMap<Version, Rc<Module>>>>>,
+    cache: RefCell<HashMap<ModuleName, Rc<BTreeMap<Version, Rc<MoonMod>>>>>,
 }
 
 impl OnlineRegistry {
@@ -45,7 +45,7 @@ impl super::Registry for OnlineRegistry {
     fn all_versions_of(
         &self,
         name: &ModuleName,
-    ) -> anyhow::Result<Rc<BTreeMap<Version, Rc<Module>>>> {
+    ) -> anyhow::Result<Rc<BTreeMap<Version, Rc<MoonMod>>>> {
         // check cache
         if let Some(v) = self.cache.borrow().get(name) {
             return Ok(v.clone());
@@ -67,7 +67,7 @@ impl super::Registry for OnlineRegistry {
                     continue;
                 }
             };
-            let module: Module = match module.try_into() {
+            let module: MoonMod = match module.try_into() {
                 Ok(m) => m,
                 Err(e) => {
                     log::warn!("Error when reading index file of {}: {}", name, e);

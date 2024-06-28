@@ -175,7 +175,7 @@ fn scan_one_package(
     env: &ScanPaths,
     pkg_path: &Path,
     module_source_dir: &PathBuf,
-    mod_desc: &crate::common::Module,
+    mod_desc: &crate::common::MoonMod,
     moonbuild_opt: &MoonbuildOpt,
     moonc_opt: &crate::common::MooncOpt,
     target_dir: &PathBuf,

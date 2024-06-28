@@ -11,7 +11,7 @@ use semver::Version;
 use serde::{Deserialize, Serialize};
 use sync::AutoSyncFlags;
 
-use crate::common::Module;
+use crate::common::MoonMod;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct ModuleId(u32);
@@ -138,7 +138,7 @@ impl ModuleSource {
         }
     }
 
-    pub fn from_local_module(module: &Module, path: &Path) -> Option<Self> {
+    pub fn from_local_module(module: &MoonMod, path: &Path) -> Option<Self> {
         Some(ModuleSource {
             name: module.name.parse().ok()?,
             version: module
@@ -198,7 +198,7 @@ pub mod result {
     use indexmap::IndexSet;
     use petgraph::graphmap::DiGraphMap;
 
-    use crate::common::Module;
+    use crate::common::MoonMod;
 
     use super::{ModuleId, ModuleName, ModuleSource};
 
@@ -209,7 +209,7 @@ pub mod result {
     pub struct ResolvedEnv {
         mapping: IndexSet<ModuleSource>,
         /// List of all modules in the environment.
-        modules: Vec<Rc<Module>>,
+        modules: Vec<Rc<MoonMod>>,
         /// The real dependency graph. Edges are labelled with the key of the dependency.
         // FIXME: Using module names for dependency keys is not very efficient, both
         // in terms of memory and speed. We should change the graph into a hashmap
@@ -228,7 +228,7 @@ pub mod result {
                 .map(|(id, _)| ModuleId::new_usize(id))
         }
 
-        pub fn module_info(&self, id: ModuleId) -> &Rc<Module> {
+        pub fn module_info(&self, id: ModuleId) -> &Rc<MoonMod> {
             &self.modules[id.as_usize()]
         }
 
@@ -281,7 +281,7 @@ pub mod result {
             ResolvedEnvBuilder::new()
         }
 
-        pub fn only_one_module(ms: ModuleSource, module: Module) -> ResolvedEnv {
+        pub fn only_one_module(ms: ModuleSource, module: MoonMod) -> ResolvedEnv {
             let mut builder = Self::builder();
             builder.add_module(ms, Rc::new(module));
             builder.build()
@@ -303,7 +303,7 @@ pub mod result {
             }
         }
 
-        pub fn add_module(&mut self, pkg: ModuleSource, module: Rc<Module>) -> ModuleId {
+        pub fn add_module(&mut self, pkg: ModuleSource, module: Rc<MoonMod>) -> ModuleId {
             let id = ModuleId::new_usize(self.env.mapping.len());
             self.env.mapping.insert(pkg);
             self.env.modules.push(module);

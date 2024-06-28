@@ -29,7 +29,7 @@ mod dependency;
 pub use dependency::{DependencyInfo, DependencyInfoJson};
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
-pub struct Module {
+pub struct MoonMod {
     pub name: String,
     pub version: Option<Version>,
     pub deps: IndexMap<String, DependencyInfo>,
@@ -269,13 +269,13 @@ pub struct MoonPkgJSON {
     pub alert_list: Option<String>,
 }
 
-pub fn convert_mod_json_to_module(j: MoonModJSON) -> anyhow::Result<Module> {
+pub fn convert_mod_json_to_module(j: MoonModJSON) -> anyhow::Result<MoonMod> {
     let deps = match j.deps {
         None => IndexMap::new(),
         Some(d) => d.into_iter().map(|(k, v)| (k, v.into())).collect(),
     };
 
-    Ok(Module {
+    Ok(MoonMod {
         name: j.name,
         version: j.version,
         deps,
@@ -292,7 +292,7 @@ pub fn convert_mod_json_to_module(j: MoonModJSON) -> anyhow::Result<Module> {
     })
 }
 
-pub fn convert_module_to_mod_json(m: Module) -> MoonModJSON {
+pub fn convert_module_to_mod_json(m: MoonMod) -> MoonModJSON {
     MoonModJSON {
         name: m.name,
         version: m.version,
@@ -310,7 +310,7 @@ pub fn convert_module_to_mod_json(m: Module) -> MoonModJSON {
     }
 }
 
-impl TryFrom<MoonModJSON> for Module {
+impl TryFrom<MoonModJSON> for MoonMod {
     type Error = anyhow::Error;
 
     fn try_from(val: MoonModJSON) -> Result<Self, Self::Error> {
@@ -318,8 +318,8 @@ impl TryFrom<MoonModJSON> for Module {
     }
 }
 
-impl From<Module> for MoonModJSON {
-    fn from(val: Module) -> Self {
+impl From<MoonMod> for MoonModJSON {
+    fn from(val: MoonMod) -> Self {
         convert_module_to_mod_json(val)
     }
 }
@@ -477,7 +477,7 @@ pub fn convert_pkg_json_to_package(j: MoonPkgJSON) -> anyhow::Result<MoonPkg> {
     Ok(result)
 }
 
-pub fn read_module_from_json(path: &Path) -> anyhow::Result<Module> {
+pub fn read_module_from_json(path: &Path) -> anyhow::Result<MoonMod> {
     let file = File::open(path)?;
     let reader = BufReader::new(file);
     let j =
@@ -518,7 +518,7 @@ pub fn check_moon_pkg_exist(dir: &Path) -> bool {
     moon_pkg_path.exists() || moon_pkg_json_path.exists()
 }
 
-pub fn read_module_desc_file_in_dir(dir: &Path) -> anyhow::Result<Module> {
+pub fn read_module_desc_file_in_dir(dir: &Path) -> anyhow::Result<MoonMod> {
     if !dir.join(MOON_MOD_JSON).exists() {
         bail!("`{:?}` does not exist", dir.join(MOON_MOD_JSON));
     }
