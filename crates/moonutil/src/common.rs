@@ -106,7 +106,7 @@ pub struct Link {
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
-pub struct Package {
+pub struct MoonPkg {
     pub name: Option<String>,
     pub is_main: bool,
     pub need_link: bool,
@@ -324,7 +324,7 @@ impl From<Module> for MoonModJSON {
     }
 }
 
-pub fn convert_pkg_json_to_package(j: MoonPkgJSON) -> anyhow::Result<Package> {
+pub fn convert_pkg_json_to_package(j: MoonPkgJSON) -> anyhow::Result<MoonPkg> {
     let mut imports: Vec<Import> = vec![];
     if let Some(im) = j.import {
         match im {
@@ -460,7 +460,7 @@ pub fn convert_pkg_json_to_package(j: MoonPkgJSON) -> anyhow::Result<Package> {
         }
     }
 
-    let result = Package {
+    let result = MoonPkg {
         name: None,
         is_main,
         need_link,
@@ -485,7 +485,7 @@ pub fn read_module_from_json(path: &Path) -> anyhow::Result<Module> {
     convert_mod_json_to_module(j)
 }
 
-fn read_package_from_json(path: &Path) -> anyhow::Result<Package> {
+fn read_package_from_json(path: &Path) -> anyhow::Result<MoonPkg> {
     let file = File::open(path)?;
     let reader = BufReader::new(file);
     let j =
@@ -525,7 +525,7 @@ pub fn read_module_desc_file_in_dir(dir: &Path) -> anyhow::Result<Module> {
     read_module_from_json(&dir.join(MOON_MOD_JSON))
 }
 
-pub fn read_package_desc_file_in_dir(dir: &Path) -> anyhow::Result<Package> {
+pub fn read_package_desc_file_in_dir(dir: &Path) -> anyhow::Result<MoonPkg> {
     if !dir.join(MOON_PKG_JSON).exists() {
         bail!("`{:?}` does not exist", dir.join(MOON_PKG_JSON));
     }
