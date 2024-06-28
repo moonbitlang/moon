@@ -2,7 +2,8 @@ use super::cmd_builder::CommandBuilder;
 use super::mdb::Alias;
 use anyhow::bail;
 use indexmap::map::IndexMap;
-use moonutil::common::gen::{ModuleDB, Package};
+use moonutil::module::ModuleDB;
+use moonutil::package::Package;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
 

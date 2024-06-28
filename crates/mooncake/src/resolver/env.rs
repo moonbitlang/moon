@@ -5,7 +5,8 @@ use std::{
 };
 
 use moonutil::{
-    common::{read_module_desc_file_in_dir, MoonMod},
+    common::read_module_desc_file_in_dir,
+    module::MoonMod,
     mooncakes::{ModuleName, ModuleSource, ModuleSourceKind},
 };
 use semver::Version;

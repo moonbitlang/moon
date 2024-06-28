@@ -6,7 +6,8 @@ use std::{
 
 use anyhow::anyhow;
 use moonutil::{
-    common::{DependencyInfo, MoonMod},
+    common::DependencyInfo,
+    module::MoonMod,
     mooncakes::{ModuleName, ModuleSource, ModuleSourceKind},
     version::as_caret_comparator,
 };

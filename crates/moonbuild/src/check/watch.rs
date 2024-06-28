@@ -1,7 +1,7 @@
 use anyhow::{anyhow, Context};
 use colored::*;
 use mooncake::pkg::sync::auto_sync;
-use moonutil::common::gen::ModuleDB;
+use moonutil::module::ModuleDB;
 use moonutil::mooncakes::sync::AutoSyncFlags;
 use moonutil::mooncakes::RegistryConfig;
 use notify::{Config, RecommendedWatcher, RecursiveMode, Watcher};

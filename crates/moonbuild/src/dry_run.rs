@@ -1,4 +1,4 @@
-use moonutil::common::gen::ModuleDB;
+use moonutil::module::ModuleDB;
 use n2::densemap::Index;
 use n2::graph::{BuildId, FileId, Graph};
 use std::collections::VecDeque;

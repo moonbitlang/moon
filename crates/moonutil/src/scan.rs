@@ -1,6 +1,8 @@
-use crate::common::gen::{ImportComponent, ImportPath, ModuleDB, Package, PathComponent};
+use crate::module::ModuleDB;
 use crate::mooncakes::result::ResolvedEnv;
 use crate::mooncakes::DirSyncResult;
+use crate::package::Package;
+use crate::path::{ImportComponent, ImportPath, PathComponent};
 use anyhow::{bail, Context};
 use indexmap::map::IndexMap;
 use petgraph::graph::{DiGraph, NodeIndex};
@@ -175,7 +177,7 @@ fn scan_one_package(
     env: &ScanPaths,
     pkg_path: &Path,
     module_source_dir: &PathBuf,
-    mod_desc: &crate::common::MoonMod,
+    mod_desc: &crate::module::MoonMod,
     moonbuild_opt: &MoonbuildOpt,
     moonc_opt: &crate::common::MooncOpt,
     target_dir: &PathBuf,
@@ -188,7 +190,7 @@ fn scan_one_package(
     let mut imports: Vec<ImportComponent> = vec![];
     for im in pkg.imports.iter() {
         let x: anyhow::Result<ImportComponent> = match im {
-            crate::common::Import::Simple(path) => {
+            crate::package::Import::Simple(path) => {
                 let ic = match_import_to_path(env, &mod_desc.name, path).with_context(|| {
                     format!(
                         "failed to read import path in \"{}\"",
@@ -200,7 +202,7 @@ fn scan_one_package(
                     alias: None,
                 })
             }
-            crate::common::Import::Alias { path, alias } => {
+            crate::package::Import::Alias { path, alias } => {
                 let ic = match_import_to_path(env, &mod_desc.name, path)?;
                 Ok(ImportComponent {
                     path: ic,
@@ -214,7 +216,7 @@ fn scan_one_package(
     let mut test_imports: Vec<ImportComponent> = vec![];
     for im in pkg.test_imports.iter() {
         let x: anyhow::Result<ImportComponent> = match im {
-            crate::common::Import::Simple(path) => {
+            crate::package::Import::Simple(path) => {
                 let ic = match_import_to_path(env, &mod_desc.name, path).with_context(|| {
                     format!(
                         "failed to read import path in {:?}",
@@ -226,7 +228,7 @@ fn scan_one_package(
                     alias: None,
                 })
             }
-            crate::common::Import::Alias { path, alias } => {
+            crate::package::Import::Alias { path, alias } => {
                 let ic = match_import_to_path(env, &mod_desc.name, path)?;
                 Ok(ImportComponent {
                     path: ic,

@@ -1,10 +1,10 @@
 use super::gen;
 use anyhow::{bail, Context};
-use moonutil::common::gen::ModuleDB;
 use moonutil::common::{
     MoonbuildOpt, MooncOpt, MOON_COVERAGE_DELIMITER_BEGIN, MOON_COVERAGE_DELIMITER_END,
     MOON_TEST_DELIMITER_BEGIN, MOON_TEST_DELIMITER_END,
 };
+use moonutil::module::ModuleDB;
 use n2::load::State;
 use serde::{Deserialize, Serialize};
 use std::io::BufRead;

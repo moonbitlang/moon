@@ -1,8 +1,11 @@
 pub mod cli;
 pub mod common;
 pub mod dirs;
+pub mod module;
 pub mod moon_dir;
 pub mod mooncake_bin;
 pub mod mooncakes;
+pub mod package;
+pub mod path;
 pub mod scan;
 pub mod version;

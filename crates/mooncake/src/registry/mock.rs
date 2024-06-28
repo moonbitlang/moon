@@ -5,10 +5,7 @@ use std::{
     rc::Rc,
 };
 
-use moonutil::{
-    common::{DependencyInfo, MoonMod},
-    mooncakes::ModuleName,
-};
+use moonutil::{common::DependencyInfo, module::MoonMod, mooncakes::ModuleName};
 use semver::{Version, VersionReq};
 
 use super::Registry;

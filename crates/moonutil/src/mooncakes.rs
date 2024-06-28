@@ -11,7 +11,7 @@ use semver::Version;
 use serde::{Deserialize, Serialize};
 use sync::AutoSyncFlags;
 
-use crate::common::MoonMod;
+use crate::module::MoonMod;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct ModuleId(u32);
@@ -198,7 +198,7 @@ pub mod result {
     use indexmap::IndexSet;
     use petgraph::graphmap::DiGraphMap;
 
-    use crate::common::MoonMod;
+    use crate::module::MoonMod;
 
     use super::{ModuleId, ModuleName, ModuleSource};
 

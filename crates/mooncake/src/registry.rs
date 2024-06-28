@@ -8,7 +8,8 @@ use std::{
     rc::Rc,
 };
 
-use moonutil::{common::MoonMod, mooncakes::ModuleName};
+use moonutil::module::MoonMod;
+use moonutil::mooncakes::ModuleName;
 pub use online::*;
 use semver::Version;
 

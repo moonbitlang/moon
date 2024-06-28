@@ -2,7 +2,8 @@ use anyhow::bail;
 use std::{path::Path, rc::Rc};
 
 use moonutil::{
-    common::{convert_module_to_mod_json, read_module_desc_file_in_dir, write_module_json_to_file},
+    common::{read_module_desc_file_in_dir, write_module_json_to_file},
+    module::convert_module_to_mod_json,
     mooncakes::{ModuleSource, RegistryConfig},
 };
 

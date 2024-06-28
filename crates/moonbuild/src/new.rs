@@ -4,9 +4,10 @@ use std::path::Path;
 use anyhow::Context;
 use colored::Colorize;
 
-use moonutil::common::MoonPkgJSON;
 use moonutil::common::MOON_PKG_JSON;
-use moonutil::common::{MoonModJSON, PkgJSONImportItem};
+use moonutil::module::MoonModJSON;
+use moonutil::package::MoonPkgJSON;
+use moonutil::package::PkgJSONImportItem;
 
 use moonutil::common::MOON_MOD_JSON;
 
@@ -40,7 +41,7 @@ pub fn moon_new_exec(
         let j = MoonPkgJSON {
             name: None,
             is_main: Some(true),
-            import: Some(moonutil::common::PkgJSONImport::List(vec![
+            import: Some(moonutil::package::PkgJSONImport::List(vec![
                 PkgJSONImportItem::String(format!("{}/lib", cake_full_name)),
             ])),
             test_import: None,

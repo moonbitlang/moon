@@ -1,12 +1,13 @@
 use anyhow::{bail, Ok};
-use moonutil::common::gen::{ModuleDB, Package};
+use moonutil::module::ModuleDB;
+use moonutil::package::{JsFormat, Package};
 
 use super::cmd_builder::CommandBuilder;
 use super::mdb::Alias;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
 
-use moonutil::common::{JsFormat, MoonbuildOpt, MooncOpt, MOON_PKG_JSON};
+use moonutil::common::{MoonbuildOpt, MooncOpt, MOON_PKG_JSON};
 use n2::graph::{self as n2graph, Build, BuildIns, BuildOuts, FileLoc};
 use n2::load::State;
 use n2::smallmap::SmallMap;
@@ -30,7 +31,7 @@ pub struct LinkDepItem {
     pub package_full_name: String,
     pub package_sources: Vec<(String, String)>, // (pkgname, source_dir)
 
-    pub link: Option<moonutil::common::Link>,
+    pub link: Option<moonutil::package::Link>,
 }
 
 #[derive(Debug)]

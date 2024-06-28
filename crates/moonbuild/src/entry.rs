@@ -1,4 +1,4 @@
-use moonutil::common::gen::ModuleDB;
+use moonutil::module::ModuleDB;
 use n2::progress::{DumbConsoleProgress, FancyConsoleProgress, Progress};
 use n2::terminal;
 use std::io::{BufRead, Write};

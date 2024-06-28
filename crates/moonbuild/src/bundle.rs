@@ -1,6 +1,9 @@
 use n2::load::State;
 
-use moonutil::common::{gen::ModuleDB, MoonbuildOpt, MooncOpt};
+use moonutil::{
+    common::{MoonbuildOpt, MooncOpt},
+    module::ModuleDB,
+};
 
 pub fn load_moon_proj(
     module: &ModuleDB,

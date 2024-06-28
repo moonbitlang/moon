@@ -1,5 +1,7 @@
 use indexmap::IndexMap;
 use moonutil::common::*;
+use moonutil::module::MoonModJSON;
+use moonutil::package::{MoonPkgJSON, PkgJSONImport};
 use std::fs;
 use std::path::Path;
 

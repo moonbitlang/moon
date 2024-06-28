@@ -2,8 +2,8 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 
 use anyhow::Context;
-use moonutil::common::gen::ModuleDB;
 use moonutil::common::IGNORE_DIRS;
+use moonutil::module::ModuleDB;
 use walkdir::WalkDir;
 
 use moonutil::common::{MoonbuildOpt, MooncOpt};

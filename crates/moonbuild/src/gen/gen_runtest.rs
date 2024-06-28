@@ -1,6 +1,8 @@
 use anyhow::{bail, Ok};
 use colored::Colorize;
-use moonutil::common::gen::{GeneratedTestDriver, ModuleDB, Package};
+use moonutil::common::gen::GeneratedTestDriver;
+use moonutil::module::ModuleDB;
+use moonutil::package::Package;
 
 use super::cmd_builder::CommandBuilder;
 use std::collections::HashSet;
@@ -33,7 +35,7 @@ pub struct RuntestLinkDepItem {
     pub package_full_name: String,
     pub package_sources: Vec<(String, String)>, // (pkgname, source_dir)
     pub is_main: bool,
-    pub link: Option<moonutil::common::Link>,
+    pub link: Option<moonutil::package::Link>,
 }
 
 #[derive(Debug)]

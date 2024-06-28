@@ -1,9 +1,7 @@
 use std::{collections::HashMap, rc::Rc};
 
-use moonutil::{
-    common::MoonMod,
-    mooncakes::{result, ModuleName, ModuleSource},
-};
+use moonutil::module::MoonMod;
+use moonutil::mooncakes::{result, ModuleName, ModuleSource};
 use semver::{Version, VersionReq};
 use thiserror::Error;
 

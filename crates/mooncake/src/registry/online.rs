@@ -7,10 +7,8 @@ use std::{
 };
 
 use anyhow::bail;
-use moonutil::{
-    common::{MoonMod, MoonModJSON},
-    mooncakes::ModuleName,
-};
+use moonutil::module::{MoonMod, MoonModJSON};
+use moonutil::mooncakes::ModuleName;
 use semver::Version;
 
 pub struct OnlineRegistry {

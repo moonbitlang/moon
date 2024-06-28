@@ -1,6 +1,7 @@
 use anyhow::bail;
 use indexmap::IndexMap;
-use moonutil::common::gen::{ModuleDB, Package};
+use moonutil::module::ModuleDB;
+use moonutil::package::Package;
 use n2::graph::{self as n2graph, Build, BuildIns, BuildOuts, FileLoc};
 use n2::load::State;
 use n2::smallmap::SmallMap;

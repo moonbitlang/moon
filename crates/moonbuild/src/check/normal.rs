@@ -1,7 +1,7 @@
 use anyhow::Context;
 
-use moonutil::common::gen::{convert_mdb_to_json, ModuleDB, ModuleDBJSON};
 use moonutil::common::{MoonbuildOpt, MooncOpt};
+use moonutil::module::{convert_mdb_to_json, ModuleDB, ModuleDBJSON};
 use n2::load::State;
 use std::io::BufWriter;
 use std::io::Write;

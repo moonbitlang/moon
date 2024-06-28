@@ -1,13 +1,11 @@
 use colored::Colorize;
+use moonutil::module::convert_module_to_mod_json;
 use moonutil::mooncakes::{ModuleName, ModuleSource, RegistryConfig};
 use semver::Version;
 use std::path::Path;
 use std::rc::Rc;
 
-use moonutil::common::{
-    convert_module_to_mod_json, read_module_desc_file_in_dir, write_module_json_to_file,
-    DependencyInfo,
-};
+use moonutil::common::{read_module_desc_file_in_dir, write_module_json_to_file, DependencyInfo};
 
 use crate::registry::{self, Registry, RegistryList};
 use crate::resolver::resolve_single_root_with_defaults;

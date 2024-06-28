@@ -1,7 +1,7 @@
 use super::gen;
 use anyhow::bail;
-use moonutil::common::gen::ModuleDB;
 use moonutil::common::MoonbuildOpt;
+use moonutil::module::ModuleDB;
 use n2::load::State;
 use std::io::BufRead;
 use std::path::Path;
