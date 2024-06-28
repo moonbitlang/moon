@@ -58,7 +58,7 @@ pub fn print_commands(
                     TargetBackend::Js => "node",
                 };
                 if in_same_dir {
-                    watfile = watfile.replace(&source_dir.display().to_string(), ".");
+                    watfile = watfile.replacen(&source_dir.display().to_string(), ".", 1);
                 }
 
                 let mut moonrun_command = format!("{cmd} {watfile}");

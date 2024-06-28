@@ -4080,3 +4080,48 @@ fn test_render_no_location() {
     let output = String::from_utf8_lossy(&output);
     assert!(output.contains("[4067] Error: Missing main function in the main package."));
 }
+
+#[test]
+fn test_moon_run_with_cli_args() {
+    let dir = TestDir::new("moo_run_with_cli_args.in");
+
+    check(
+        &get_stdout_with_args_and_replace_dir(&dir, ["run", "main", "--dry-run"]),
+        expect![[r#"
+            moonc build-package ./main/main.mbt -o ./target/wasm-gc/release/build/main/main.core -pkg username/hello/main -is-main -std-path $MOON_HOME/lib/core/target/wasm-gc/release/bundle -pkg-sources username/hello/main:./main -target wasm-gc
+            moonc link-core $MOON_HOME/lib/core/target/wasm-gc/release/bundle/core.core ./target/wasm-gc/release/build/main/main.core -main username/hello/main -o ./target/wasm-gc/release/build/main/main.wasm -pkg-sources username/hello/main:./main -pkg-sources moonbitlang/core:$MOON_HOME/lib/core -target wasm-gc
+            moonrun ./target/wasm-gc/release/build/main/main.wasm
+        "#]],
+    );
+
+    check(
+        &get_stdout_with_args_and_replace_dir(
+            &dir,
+            [
+                "run",
+                "main",
+                "--dry-run",
+                "--",
+                "中文",
+                "😄👍",
+                "hello",
+                "1242",
+            ],
+        ),
+        expect![[r#"
+            moonc build-package ./main/main.mbt -o ./target/wasm-gc/release/build/main/main.core -pkg username/hello/main -is-main -std-path $MOON_HOME/lib/core/target/wasm-gc/release/bundle -pkg-sources username/hello/main:./main -target wasm-gc
+            moonc link-core $MOON_HOME/lib/core/target/wasm-gc/release/bundle/core.core ./target/wasm-gc/release/build/main/main.core -main username/hello/main -o ./target/wasm-gc/release/build/main/main.wasm -pkg-sources username/hello/main:./main -pkg-sources moonbitlang/core:$MOON_HOME/lib/core -target wasm-gc
+            moonrun ./target/wasm-gc/release/build/main/main.wasm -- 中文 😄👍 hello 1242
+        "#]],
+    );
+
+    check(
+        &get_stdout_with_args_and_replace_dir(
+            &dir,
+            ["run", "main", "--", "中文", "😄👍", "hello", "1242"],
+        ),
+        expect![[r#"
+            [中文, 😄👍, hello, 1242]
+        "#]],
+    );
+}
