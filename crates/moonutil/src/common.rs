@@ -1014,9 +1014,6 @@ pub mod render {
                 let source_file = std::fs::read_to_string(source_file_path)
                     .unwrap_or_else(|_| panic!("failed to read {}", source_file_path));
 
-                #[cfg(windows)]
-                let source_file = source_file.replace("\r\n", "\n");
-
                 ariadne::Report::build(kind, source_file_path, self.location.start.offset as usize)
                     .with_code(self.error_code)
                     .with_message(&self.message)
