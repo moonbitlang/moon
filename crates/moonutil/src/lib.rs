@@ -1,5 +1,6 @@
 pub mod cli;
 pub mod common;
+pub mod dependency;
 pub mod dirs;
 pub mod graph;
 pub mod module;

@@ -1,4 +1,6 @@
-use crate::common::{DependencyInfo, DependencyInfoJson, MooncOpt, MOON_PKG_JSON};
+use crate::common::MooncOpt;
+use crate::common::MOON_PKG_JSON;
+use crate::dependency::{DependencyInfo, DependencyInfoJson};
 use crate::package::{AliasJSON, Package, PackageJSON};
 use crate::path::ImportPath;
 use anyhow::bail;

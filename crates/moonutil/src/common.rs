@@ -23,9 +23,6 @@ pub const MOON_COVERAGE_DELIMITER_END: &str = "----- END MOONBIT COVERAGE -----"
 
 pub const MOON_LOCK: &str = ".moon-lock";
 
-mod dependency;
-pub use dependency::{DependencyInfo, DependencyInfoJson};
-
 pub fn get_mbt_files(dir: &Path) -> Vec<String> {
     let mut moons = vec![];
     let entries = std::fs::read_dir(dir).unwrap();
