@@ -7,13 +7,9 @@ use std::fs;
 use std::io::ErrorKind;
 use std::path::{Path, PathBuf};
 
-pub const MOON_MOD: &str = "moon.mod";
-pub const MOON_PKG: &str = "moon.pkg";
 pub const MOON_MOD_JSON: &str = "moon.mod.json";
 pub const MOON_PKG_JSON: &str = "moon.pkg.json";
 pub const MOON_PID_NAME: &str = ".moon.pid";
-
-pub const RSP_THRESHOLD: usize = 8196;
 
 pub const MOON_TEST_DELIMITER_BEGIN: &str = "----- BEGIN MOON TEST RESULT -----";
 pub const MOON_TEST_DELIMITER_END: &str = "----- END MOON TEST RESULT -----";
@@ -22,40 +18,6 @@ pub const MOON_COVERAGE_DELIMITER_BEGIN: &str = "----- BEGIN MOONBIT COVERAGE --
 pub const MOON_COVERAGE_DELIMITER_END: &str = "----- END MOONBIT COVERAGE -----";
 
 pub const MOON_LOCK: &str = ".moon-lock";
-
-pub fn get_mbt_files(dir: &Path) -> Vec<String> {
-    let mut moons = vec![];
-    let entries = std::fs::read_dir(dir).unwrap();
-    for entry in entries.flatten() {
-        if let Ok(t) = entry.file_type() {
-            if (t.is_file() || t.is_symlink())
-                && entry.path().extension().is_some()
-                && entry.path().extension().unwrap() == "mbt"
-            {
-                moons.push(entry.path().display().to_string())
-            }
-        }
-    }
-    moons
-}
-
-pub fn get_short_and_long_name(module_name: &str, path: &str) -> (String, String) {
-    let short = Path::new(path)
-        .file_name()
-        .unwrap()
-        .to_str()
-        .unwrap()
-        .to_string();
-    let long = startswith_and_trim(path, module_name);
-    (short, long)
-}
-
-#[derive(Debug, Serialize, Deserialize)]
-pub struct PackageListItem {
-    pub name: String,
-    pub path: String,
-    pub deps: Vec<String>,
-}
 
 pub fn startswith_and_trim(s: &str, t: &str) -> String {
     if s.starts_with(t) {
@@ -99,12 +61,6 @@ pub fn write_package_json_to_file(pkg: &MoonPkgJSON, path: &Path) -> anyhow::Res
 use std::fs::File;
 use std::io::{BufReader, BufWriter};
 use std::str::FromStr;
-
-pub fn check_moon_pkg_exist(dir: &Path) -> bool {
-    let moon_pkg_path = dir.join(MOON_PKG);
-    let moon_pkg_json_path = dir.join(MOON_PKG_JSON);
-    moon_pkg_path.exists() || moon_pkg_json_path.exists()
-}
 
 pub fn read_module_desc_file_in_dir(dir: &Path) -> anyhow::Result<MoonMod> {
     if !dir.join(MOON_MOD_JSON).exists() {

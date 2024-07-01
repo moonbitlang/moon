@@ -10,7 +10,7 @@ use anyhow::Context;
 use serde::{Deserialize, Serialize};
 
 use crate::common::{
-    get_moon_version, get_moonc_version, MooncOpt, RunMode, IGNORE_DIRS, MOON_MOD, MOON_MOD_JSON,
+    get_moon_version, get_moonc_version, MooncOpt, RunMode, IGNORE_DIRS, MOON_MOD_JSON,
     MOON_PID_NAME, MOON_PKG_JSON,
 };
 
@@ -36,8 +36,12 @@ pub struct PackageDirs {
     pub target_dir: PathBuf,
 }
 
+pub fn check_moon_pkg_exist(dir: &Path) -> bool {
+    dir.join(MOON_PKG_JSON).exists()
+}
+
 pub fn check_moon_mod_exists(source_dir: &Path) -> bool {
-    source_dir.join(MOON_MOD).exists() || source_dir.join(MOON_MOD_JSON).exists()
+    source_dir.join(MOON_MOD_JSON).exists()
 }
 
 fn find_ancestor_with_mod(source_dir: &Path) -> Option<PathBuf> {
