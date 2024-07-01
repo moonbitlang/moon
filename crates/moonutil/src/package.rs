@@ -9,7 +9,7 @@ use indexmap::IndexMap;
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    common::gen::GeneratedTestDriver,
+    common::GeneratedTestDriver,
     path::{ImportComponent, PathComponent},
 };
 

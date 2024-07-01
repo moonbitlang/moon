@@ -1,6 +1,6 @@
 use anyhow::{bail, Ok};
 use colored::Colorize;
-use moonutil::common::gen::GeneratedTestDriver;
+use moonutil::common::GeneratedTestDriver;
 use moonutil::module::ModuleDB;
 use moonutil::package::Package;
 

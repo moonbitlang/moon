@@ -418,7 +418,7 @@ pub fn scan(
     match petgraph::algo::toposort(&graph, None) {
         Ok(_) => {}
         Err(cycle) => {
-            let cycle = crate::common::gen::util::get_example_cycle(&graph, cycle.node_id());
+            let cycle = crate::graph::get_example_cycle(&graph, cycle.node_id());
             let cycle = cycle
                 .into_iter()
                 .map(|n| idx_to_name[&n].clone())

@@ -1,5 +1,5 @@
 use anyhow::bail;
-use moonutil::common::gen::util::get_example_cycle;
+use moonutil::graph::get_example_cycle;
 use moonutil::module::ModuleDB;
 use moonutil::package::Package;
 #[allow(unused)]

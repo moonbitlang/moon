@@ -3,7 +3,7 @@ use anyhow::bail;
 use colored::Colorize;
 use mooncake::pkg::sync::auto_sync;
 use moonutil::cli::UniversalFlags;
-use moonutil::common::gen::GeneratedTestDriver;
+use moonutil::common::GeneratedTestDriver;
 use moonutil::common::{
     MoonbuildOpt, RunMode, TestOpt, MOON_TEST_DELIMITER_BEGIN, MOON_TEST_DELIMITER_END,
 };

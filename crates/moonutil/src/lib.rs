@@ -1,6 +1,7 @@
 pub mod cli;
 pub mod common;
 pub mod dirs;
+pub mod graph;
 pub mod module;
 pub mod moon_dir;
 pub mod mooncake_bin;
