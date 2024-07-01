@@ -1805,7 +1805,12 @@ fn test_moonbit_docs_example() {
     );
 
     let dir = TestDir::new("palindrome_string.in");
-    check(&get_stdout_with_args(&dir, ["run", "main"]), expect!["aba"]);
+    check(
+        &get_stdout_with_args(&dir, ["run", "main"]),
+        expect![[r#"
+        aba
+    "#]],
+    );
 
     let dir = TestDir::new("avl_tree.in");
     check(
@@ -1813,67 +1818,37 @@ fn test_moonbit_docs_example() {
         expect![[r#"
             height of the tree: 6
                     0
-
                   1
                     2
-
-
                 3
                     4
-
                   5
                     6
-
-
-
               7
                     8
-
                   9
                     10
-
-
                 11
                     12
-
                   13
                     14
-
-
-
-
             15
                     16
-
                   17
                     18
-
-
                 19
                     20
-
                   21
                     22
-
-
-
               23
                   24
-
                 25
                     26
-
                   27
                     28
                       29
-
-
-
-
-
-
-
-            success"#]],
+            success
+        "#]],
     );
 
     let dir = TestDir::new("docstring-demo.in");
@@ -1885,7 +1860,12 @@ fn test_moonbit_docs_example() {
     );
 
     let dir = TestDir::new("multidimensional_arrays.in");
-    check(&get_stdout_with_args(&dir, ["run", "main"]), expect!["11"]);
+    check(
+        &get_stdout_with_args(&dir, ["run", "main"]),
+        expect![[r#"
+        11
+    "#]],
+    );
 }
 
 #[test]

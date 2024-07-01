@@ -67,7 +67,7 @@ fn finish_create_string(handle : StringCreateHandle) -> ExternString = "__moonbi
 
 pub fn string_to_extern(s : String) -> ExternString {
   let handle = begin_create_string()
-  s.iter().each(fn(ch) { string_append_char(handle, ch) })
+  s.as_iter().each(fn(ch) { string_append_char(handle, ch) })
   finish_create_string(handle)
 }
 

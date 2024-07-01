@@ -9,14 +9,14 @@ fn main {
     i = i + 1
   }
   let height = v.height()
-  print("height of the tree: \(height)")
+  println("height of the tree: \(height)")
   v.print_tree()
 
   // Check values from 0 to iter-1 in the AVL tree
   let mut j = 0
   while j < iter {
     if not(v.mem(j)) {
-      print("impossible")
+      println("impossible")
     }
     j = j + 1
   }
@@ -27,11 +27,10 @@ fn main {
     v = v.remove(k)
     k = k + 1
   }
-  print("\n")
 
   // Tree is empty, removal successful
   match v {
-    Empty => print("success")
-    Node(_) => print("impossible")
+    Empty => println("success")
+    Node(_) => println("impossible")
   }
 }

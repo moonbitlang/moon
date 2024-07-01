@@ -224,11 +224,10 @@ pub fn print_tree[U : Show](self : T[U]) -> Unit {
       Node(l, v, r, _) => {
         helper(l, level + 1)
         let indent = repeat_str("  ", level)
-        print(indent + v.to_string())
+        println(indent + v.to_string())
         helper(r, level + 1)
       }
     }
-    print("\n")
   }
 
   helper(self, 0)
