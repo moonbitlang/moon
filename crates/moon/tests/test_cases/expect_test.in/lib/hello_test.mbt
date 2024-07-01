@@ -1,11 +1,11 @@
 test "hello" {
-  let buf = Buffer::make(10)
+  let buf = Buffer::new()
   buf.write_string("just\ntest")
-  buf.expect()?
+  buf.expect()!
 }
 
 test "not-buf" {
-  let notbuf = Buffer::make(10)
+  let notbuf = Buffer::new()
   notbuf.write_string("haha")
-  notbuf.expect()?
+  notbuf.expect()!
 }

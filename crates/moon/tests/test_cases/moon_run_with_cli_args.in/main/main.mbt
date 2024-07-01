@@ -3,9 +3,6 @@ fn main {
   println(args)
 }
 
-
-
-
 fn env_get_var(s : ExternString) -> ExternString = "__moonbit_fs_unstable" "env_get_var"
 
 fn args_get() -> JSArray = "__moonbit_fs_unstable" "args_get"
@@ -40,7 +37,6 @@ pub fn jsvalue_is_string(v : JSValue) -> Bool = "__moonbit_fs_unstable" "jsvalue
 
 pub fn jsvalue_get_string(v : JSValue) -> ExternString = "%identity"
 
-
 pub type JSArray
 
 pub fn array_len(arr : JSArray) -> Int = "__moonbit_fs_unstable" "array_len"
@@ -50,8 +46,6 @@ pub fn array_get(arr : JSArray, idx : Int) -> JSValue = "__moonbit_fs_unstable" 
 pub fn JSArray::op_get(self : JSArray, idx : Int) -> JSValue {
   return array_get(self, idx)
 }
-
-
 
 type StringCreateHandle
 
@@ -80,7 +74,7 @@ fn string_read_char(handle : StringReadHandle) -> Int = "__moonbit_fs_unstable" 
 fn finish_read_string(handle : StringReadHandle) = "__moonbit_fs_unstable" "finish_read_string"
 
 pub fn string_from_extern(e : ExternString) -> String {
-  let buf = Buffer::make(0)
+  let buf = Buffer::new()
   let handle = begin_read_string(e)
   while true {
     let ch = string_read_char(handle)
