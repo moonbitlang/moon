@@ -70,9 +70,8 @@ pub fn n2_run_interface(
 
         for output_content in raw_content_lines {
             catcher.lock().unwrap().push(output_content.to_owned());
-            match serde_json_lenient::from_str::<moonutil::common::render::MooncDiagnostic>(
-                output_content,
-            ) {
+            match serde_json_lenient::from_str::<moonutil::render::MooncDiagnostic>(output_content)
+            {
                 Ok(report) => {
                     report.render();
                 }
@@ -117,7 +116,7 @@ pub fn n2_run_interface(
 
         let raw_json_lines: Vec<&str> = raw_json.split('\n').filter(|it| !it.is_empty()).collect();
         for line in raw_json_lines {
-            match serde_json_lenient::from_str::<moonutil::common::render::MooncDiagnostic>(line) {
+            match serde_json_lenient::from_str::<moonutil::render::MooncDiagnostic>(line) {
                 Ok(report) => {
                     report.render();
                 }
