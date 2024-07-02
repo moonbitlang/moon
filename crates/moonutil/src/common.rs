@@ -230,8 +230,6 @@ pub struct MoonbuildOpt {
     pub run_mode: RunMode,
     pub fmt_opt: Option<FmtOpt>,
     pub args: Vec<String>,
-    pub verbose: bool,
-    pub quiet: bool,
 }
 
 #[derive(Debug, Clone, Default)]

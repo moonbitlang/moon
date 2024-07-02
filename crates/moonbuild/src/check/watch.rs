@@ -26,7 +26,7 @@ pub fn watch_single_thread(
     }
     write_current_pid(target_dir, &pid_path)?;
     print!("{esc}[2J{esc}[1;1H", esc = 27 as char);
-    let result = crate::entry::run_check(moonc_opt, moonbuild_opt, module);
+    let result = crate::entry::run_check(true, moonc_opt, moonbuild_opt, module);
     match result {
         Ok(0) => {
             println!(
@@ -103,7 +103,7 @@ pub fn watch_single_thread(
                         moonc_opt,
                         moonbuild_opt,
                     )?;
-                    let result = crate::entry::run_check(moonc_opt, moonbuild_opt, module);
+                    let result = crate::entry::run_check(true, moonc_opt, moonbuild_opt, module);
                     match result {
                         Ok(0) => {
                             println!(

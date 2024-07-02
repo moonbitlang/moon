@@ -50,8 +50,6 @@ pub fn run_build(cli: &UniversalFlags, cmd: &BuildSubcommand) -> anyhow::Result<
         target_dir,
         sort_input,
         run_mode,
-        quiet: cli.quiet,
-        verbose: cli.verbose,
         ..Default::default()
     };
 
@@ -82,7 +80,9 @@ pub fn run_build(cli: &UniversalFlags, cmd: &BuildSubcommand) -> anyhow::Result<
         trace::open("trace.json").context("failed to open `trace.json`")?;
     }
 
-    let result = entry::run_build(&moonc_opt, &moonbuild_opt, &module);
+    let quiet = cli.quiet;
+
+    let result = entry::run_build(quiet, &moonc_opt, &moonbuild_opt, &module);
     if trace_flag {
         trace::close();
     }

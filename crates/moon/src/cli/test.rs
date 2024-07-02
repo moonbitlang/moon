@@ -114,8 +114,6 @@ pub fn run_test(cli: UniversalFlags, cmd: TestSubcommand) -> anyhow::Result<i32>
         }),
         sort_input,
         run_mode,
-        quiet: true,
-        verbose: cli.verbose,
         ..Default::default()
     };
 
@@ -213,10 +211,25 @@ fn do_run_test(
     limit: u32,
 ) -> anyhow::Result<TestResult, TestFailedStatus> {
     let result = if !auto_update {
-        entry::run_test(moonc_opt, moonbuild_opt, build_only, verbose, false, module)
+        entry::run_test(
+            true,
+            moonc_opt,
+            moonbuild_opt,
+            build_only,
+            verbose,
+            false,
+            module,
+        )
     } else {
-        let mut result =
-            entry::run_test(moonc_opt, moonbuild_opt, build_only, verbose, true, module);
+        let mut result = entry::run_test(
+            true,
+            moonc_opt,
+            moonbuild_opt,
+            build_only,
+            verbose,
+            true,
+            module,
+        );
 
         match result {
             Err(TestFailedStatus::ExpectTestFailed(_)) => {
@@ -228,6 +241,7 @@ fn do_run_test(
                 let (mut should_update, mut count) = (true, 1);
                 while should_update && count < limit {
                     result = entry::run_test(
+                        true,
                         moonc_opt,
                         moonbuild_opt,
                         build_only,

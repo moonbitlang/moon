@@ -58,8 +58,6 @@ pub fn run_check(cli: &UniversalFlags, cmd: &CheckSubcommand) -> anyhow::Result<
         target_dir: target_dir.clone(),
         sort_input,
         run_mode,
-        quiet: cli.quiet,
-        verbose: cli.verbose,
         ..Default::default()
     };
 
@@ -88,6 +86,7 @@ pub fn run_check(cli: &UniversalFlags, cmd: &CheckSubcommand) -> anyhow::Result<
         trace::open("trace.json").context("failed to open `trace.json`")?;
     }
 
+    let quiet = cli.quiet;
     let watch_mode = cmd.watch;
 
     if watch_mode {
@@ -106,7 +105,7 @@ pub fn run_check(cli: &UniversalFlags, cmd: &CheckSubcommand) -> anyhow::Result<
             }
             Ok(if output.is_empty() { 0 } else { 1 })
         } else {
-            let result = entry::run_check(&moonc_opt, &moonbuild_opt, &module);
+            let result = entry::run_check(quiet, &moonc_opt, &moonbuild_opt, &module);
             if cli.trace {
                 trace::close();
             }
