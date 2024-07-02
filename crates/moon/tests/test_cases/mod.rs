@@ -440,7 +440,7 @@ fn test_moon_version_json() -> anyhow::Result<()> {
 
     let output = get_stdout_with_args(&dir, ["version", "--all", "--json"]);
     let items: moonutil::common::VersionItems = serde_json_lenient::from_str(&output)?;
-    assert_eq!(items.items.len(), 2);
+    assert_eq!(items.items.len(), 3);
     assert_eq!(items.items[0].name, "moon");
     assert!(items.items[0].version.contains(&get_cargo_pkg_version()));
     assert_eq!(items.items[1].name, "moonc");

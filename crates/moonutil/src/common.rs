@@ -963,6 +963,22 @@ pub fn get_moonc_version() -> String {
     std::process::exit(1);
 }
 
+pub fn get_moonrun_version() -> String {
+    let output = std::process::Command::new("moonrun")
+        .arg("--version")
+        .output();
+    if let Ok(output) = &output {
+        if output.status.success() {
+            return std::str::from_utf8(&output.stdout)
+                .unwrap()
+                .trim()
+                .to_string();
+        }
+    }
+    println!("{}: failed to get moonrun version", "error".red().bold());
+    std::process::exit(1);
+}
+
 #[test]
 fn test_get_version() {
     let v = get_moon_version();

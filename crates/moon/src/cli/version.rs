@@ -1,7 +1,7 @@
 use std::{env::current_exe, path::Path};
 
 use anyhow::Context;
-use moonutil::common::{get_moon_version, get_moonc_version};
+use moonutil::common::{get_moon_version, get_moonc_version, get_moonrun_version};
 
 /// Print version info and exit
 #[derive(Debug, clap::Parser)]
@@ -46,6 +46,12 @@ fn get_moonc_path() -> anyhow::Result<String> {
     Ok(replace_home_with_tilde(&moonc_path, &user_home))
 }
 
+fn get_moonrun_path() -> anyhow::Result<String> {
+    let moonrun_path = which::which("moonrun").context("failed to find moonc")?;
+    let user_home = home::home_dir().context("failed to get home directory")?;
+    Ok(replace_home_with_tilde(&moonrun_path, &user_home))
+}
+
 pub fn run_version(cmd: VersionSubcommand) -> anyhow::Result<i32> {
     let VersionSubcommand {
         all: all_flag,
@@ -53,7 +59,11 @@ pub fn run_version(cmd: VersionSubcommand) -> anyhow::Result<i32> {
         no_path: nopath_flag,
     } = cmd;
 
-    let (moon_version, moonc_version) = (get_moon_version(), get_moonc_version());
+    let (moon_version, moonc_version, moonrun_version) = (
+        get_moon_version(),
+        get_moonc_version(),
+        get_moonrun_version(),
+    );
 
     match (all_flag, json_flag) {
         (false, false) => {
@@ -63,9 +73,11 @@ pub fn run_version(cmd: VersionSubcommand) -> anyhow::Result<i32> {
             if nopath_flag {
                 println!("moon {}", moon_version);
                 println!("moonc {}", moonc_version);
+                println!("moonc {}", moonrun_version);
             } else {
                 println!("moon {} {}", moon_version, get_moon_path()?);
                 println!("moonc {} {}", moonc_version, get_moonc_path()?);
+                println!("{} {}", moonrun_version, get_moonrun_path()?);
             }
         }
         (false, true) => {
@@ -107,6 +119,15 @@ pub fn run_version(cmd: VersionSubcommand) -> anyhow::Result<i32> {
                             None
                         } else {
                             Some(get_moonc_path()?)
+                        },
+                    },
+                    moonutil::common::VersionItem {
+                        name: "moonrun".to_string(),
+                        version: moonrun_version,
+                        path: if nopath_flag {
+                            None
+                        } else {
+                            Some(get_moonrun_path()?)
                         },
                     },
                 ],
