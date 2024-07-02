@@ -23,15 +23,11 @@ fn default_parallelism() -> anyhow::Result<usize> {
 }
 
 #[allow(clippy::type_complexity)]
-fn create_progress_console(
-    verbose: bool,
-    quiet: bool,
-    callback: Option<Box<dyn Fn(&str) + Send>>,
-) -> Box<dyn Progress> {
+fn create_progress_console(callback: Option<Box<dyn Fn(&str) + Send>>) -> Box<dyn Progress> {
     if terminal::use_fancy() {
-        Box::new(FancyConsoleProgress::new(verbose, quiet, callback))
+        Box::new(FancyConsoleProgress::new(false, callback))
     } else {
-        Box::new(DumbConsoleProgress::new(verbose, quiet, callback))
+        Box::new(DumbConsoleProgress::new(false, callback))
     }
 }
 
@@ -44,14 +40,15 @@ fn render_result(result: Option<usize>, quiet: bool, mode: &str) -> anyhow::Resu
         Some(0) => {
             // Special case: don't print numbers when no work done.
             if !quiet {
-                println!("moon: no work to do");
+                println!("{} moon: no work to do", "Finished.".bright_green().bold());
             }
             Ok(0)
         }
         Some(n) => {
             if !quiet {
                 println!(
-                    "moon: ran {} task{}, now up to date",
+                    "{} moon: ran {} task{}, now up to date",
+                    "Finished.".bright_green().bold(),
                     n,
                     if n == 1 { "" } else { "s" }
                 );
@@ -62,7 +59,6 @@ fn render_result(result: Option<usize>, quiet: bool, mode: &str) -> anyhow::Resu
 }
 
 pub fn n2_run_interface(
-    quiet: bool,
     state: n2::load::State,
     output_path: PathBuf,
 ) -> anyhow::Result<Option<usize>> {
@@ -87,7 +83,7 @@ pub fn n2_run_interface(
         }
     };
 
-    let mut progress = create_progress_console(false, quiet, Some(Box::new(render_and_catch)));
+    let mut progress = create_progress_console(Some(Box::new(render_and_catch)));
     let options = work::Options {
         parallelism: default_parallelism()?,
         failures_left: Some(10),
@@ -143,7 +139,6 @@ pub fn n2_run_interface(
 }
 
 pub fn run_check(
-    quiet: bool,
     moonc_opt: &MooncOpt,
     moonbuild_opt: &MoonbuildOpt,
     module: &ModuleDB,
@@ -152,7 +147,7 @@ pub fn run_check(
         crate::check::normal::load_moon_proj(module, moonc_opt, moonbuild_opt)
     })?;
 
-    let result = n2_run_interface(quiet, state, moonbuild_opt.target_dir.join("check.output"))?;
+    let result = n2_run_interface(state, moonbuild_opt.target_dir.join("check.output"))?;
 
     match result {
         Some(0) => {}
@@ -160,11 +155,10 @@ pub fn run_check(
             write_pkg_lst(module, &moonbuild_opt.target_dir)?;
         }
     }
-    render_result(result, quiet, "checking")
+    render_result(result, moonbuild_opt.quiet, "checking")
 }
 
 pub fn run_build(
-    quiet: bool,
     moonc_opt: &MooncOpt,
     moonbuild_opt: &MoonbuildOpt,
     module: &ModuleDB,
@@ -172,18 +166,17 @@ pub fn run_build(
     let state = trace::scope("moonbit::build::read", || {
         crate::build::load_moon_proj(module, moonc_opt, moonbuild_opt)
     })?;
-    let result = n2_run_interface(quiet, state, moonbuild_opt.target_dir.join("build.output"))?;
-    render_result(result, quiet, "building")
+    let result = n2_run_interface(state, moonbuild_opt.target_dir.join("build.output"))?;
+    render_result(result, moonbuild_opt.quiet, "building")
 }
 
 pub fn run_run(
-    quiet: bool,
     package_path: Option<&String>,
     moonc_opt: &MooncOpt,
     moonbuild_opt: &MoonbuildOpt,
     module: &ModuleDB,
 ) -> anyhow::Result<i32> {
-    run_build(quiet, moonc_opt, moonbuild_opt, module)?;
+    run_build(moonc_opt, moonbuild_opt, module)?;
     let (source_dir, target_dir) = (&moonbuild_opt.source_dir, &moonbuild_opt.target_dir);
     let package_path = package_path
         .unwrap()
@@ -268,7 +261,6 @@ impl std::fmt::Display for TestResult {
 
 #[allow(clippy::too_many_arguments)]
 pub fn run_test(
-    quiet: bool,
     moonc_opt: &MooncOpt,
     moonbuild_opt: &MoonbuildOpt,
     build_only: bool,
@@ -278,8 +270,8 @@ pub fn run_test(
 ) -> anyhow::Result<TestResult, TestFailedStatus> {
     let target_dir = &moonbuild_opt.target_dir;
     let state = crate::runtest::load_moon_proj(module, moonc_opt, moonbuild_opt)?;
-    let result = n2_run_interface(quiet, state, moonbuild_opt.target_dir.join("test.output"))?;
-    render_result(result, quiet, "testing")?;
+    let result = n2_run_interface(state, moonbuild_opt.target_dir.join("test.output"))?;
+    render_result(result, moonbuild_opt.quiet, "testing")?;
 
     if build_only {
         return Ok(TestResult::default());
@@ -416,28 +408,26 @@ pub fn run_bundle(
     module: &ModuleDB,
     moonbuild_opt: &MoonbuildOpt,
     moonc_opt: &MooncOpt,
-    quiet: bool,
 ) -> anyhow::Result<i32> {
     let state = crate::bundle::load_moon_proj(module, moonc_opt, moonbuild_opt)?;
-    let result = n2_run_interface(quiet, state, moonbuild_opt.target_dir.join("bundle.output"))?;
+    let result = n2_run_interface(state, moonbuild_opt.target_dir.join("bundle.output"))?;
     match result {
         Some(0) => {}
         _ => {
             write_pkg_lst(module, &moonbuild_opt.target_dir)?;
         }
     }
-    render_result(result, quiet, "bundle")
+    render_result(result, moonbuild_opt.quiet, "bundle")
 }
 
 pub fn run_fmt(
     module: &ModuleDB,
     moonc_opt: &MooncOpt,
     moonbuild_opt: &MoonbuildOpt,
-    quiet: bool,
 ) -> anyhow::Result<i32> {
     let n2_input = super::fmt::gen_fmt(module, moonc_opt, moonbuild_opt)?;
     let state = super::fmt::gen_n2_fmt_state(&n2_input, moonc_opt, moonbuild_opt)?;
-    let _ = n2_run_interface(quiet, state, moonbuild_opt.target_dir.join("fmt.output"))?;
+    let _ = n2_run_interface(state, moonbuild_opt.target_dir.join("fmt.output"))?;
     let mut exit_code = 0;
     if moonbuild_opt.fmt_opt.as_ref().unwrap().check {
         for item in n2_input.items.iter() {

@@ -70,7 +70,7 @@ pub fn run_info(cli: UniversalFlags, cmd: InfoSubcommand) -> anyhow::Result<i32>
         &moonc_opt,
         &moonbuild_opt,
     )?;
-    let check_result = moonbuild::entry::run_check(true, &moonc_opt, &moonbuild_opt, &module);
+    let check_result = moonbuild::entry::run_check(&moonc_opt, &moonbuild_opt, &module);
     match check_result {
         Ok(0) => {}
         _ => {

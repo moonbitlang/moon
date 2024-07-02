@@ -57,5 +57,5 @@ pub fn run_fmt(cli: &UniversalFlags, cmd: FmtSubcommand) -> anyhow::Result<i32> 
     if cli.dry_run {
         bail!("dry-run is not implemented for fmt");
     }
-    moonbuild::entry::run_fmt(&module, &moonc_opt, &moonbuild_opt, !cli.verbose)
+    moonbuild::entry::run_fmt(&module, &moonc_opt, &moonbuild_opt)
 }

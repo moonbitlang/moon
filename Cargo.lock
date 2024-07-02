@@ -1289,12 +1289,11 @@ dependencies = [
 
 [[package]]
 name = "n2"
-version = "0.1.4"
-source = "git+ssh://git@github.com/moonbitlang/n2.git?rev=564547ca9ad21dbf8eb791cb929213ffcac6314c#564547ca9ad21dbf8eb791cb929213ffcac6314c"
+version = "0.1.0"
+source = "git+ssh://git@github.com/moonbitlang/n2.git?rev=63141b7c2bab4504742f729380ac5e66e3bf5cfa#63141b7c2bab4504742f729380ac5e66e3bf5cfa"
 dependencies = [
  "anyhow",
  "argh",
- "colored",
  "libc",
  "rustc-hash",
  "windows-sys 0.48.0",
