@@ -3,7 +3,6 @@ use anyhow::bail;
 use moonutil::common::MoonbuildOpt;
 use moonutil::module::ModuleDB;
 use n2::load::State;
-use std::io::BufRead;
 use std::path::Path;
 use std::process::{Command, Stdio};
 
@@ -52,20 +51,9 @@ fn run(command: &str, path: &Path, args: &[String]) -> anyhow::Result<()> {
         .arg(path)
         .arg("--")
         .args(args)
-        .stdout(Stdio::piped())
+        .stdout(Stdio::inherit())
         .stderr(Stdio::inherit())
         .spawn()?;
-    let child_stdout = execution.stdout.take().unwrap();
-    let mut buf = String::new();
-    let mut bufread = std::io::BufReader::new(child_stdout);
-    while let Ok(n) = bufread.read_line(&mut buf) {
-        if n > 0 {
-            print!("{}", buf);
-            buf.clear()
-        } else {
-            break;
-        }
-    }
     let status = execution.wait()?;
     if status.success() {
         Ok(())
