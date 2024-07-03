@@ -708,7 +708,7 @@ fn test_moon_new_snapshot() {
         expect![[r#"
             test "hello" {
               if hello() != "Hello, world!" {
-                return Err("hello() != \"Hello, world!\"")
+                raise "hello() != \"Hello, world!\""
               }
             }
         "#]],
@@ -793,7 +793,7 @@ fn test_moon_new_snapshot_lib() {
         expect![[r#"
             test "hello" {
               if hello() != "Hello, world!" {
-                return Err("hello() != \"Hello, world!\"")
+                raise "hello() != \"Hello, world!\""
               }
             }
         "#]],

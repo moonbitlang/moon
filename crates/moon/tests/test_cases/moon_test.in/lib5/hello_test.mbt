@@ -1,5 +1,5 @@
 test {
-  return Ok(())
+  ()
 }
 
 test "" {
@@ -7,11 +7,11 @@ test "" {
 }
 
 test "without_space" {
-  return Ok(())
+  ()
 }
 
 test "with space" {
-  return Ok(())
+  ()
 }
 
 // TODO:

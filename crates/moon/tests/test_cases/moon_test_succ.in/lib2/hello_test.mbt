@@ -1,5 +1,5 @@
 test {
   if hello() != "hello" {
-    return Err("failed")
+    raise "failed"
   }
 }

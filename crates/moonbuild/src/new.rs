@@ -167,7 +167,7 @@ fn common(target_dir: &Path, cake_full_name: &String, license: String) -> anyhow
         let hello_mbt = lib_dir.join("hello_test.mbt");
         let content = r#"test "hello" {
   if hello() != "Hello, world!" {
-    return Err("hello() != \"Hello, world!\"")
+    raise "hello() != \"Hello, world!\""
   }
 }
 "#;

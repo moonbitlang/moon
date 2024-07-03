@@ -2,17 +2,17 @@
 
 fn catch_exception[A](body : A, on_exn : A) -> A = "%control.catch"
 
-fn check_panic[A, B](
-  f : () -> A,
-  does_panic : () -> B,
-  no_panic : () -> B
-) -> B {
+fn check_panic[A, B, E](
+  f : () -> A!E,
+  does_panic : () -> B!E,
+  no_panic : () -> B!E
+) -> B!E {
   catch_exception(
     {
-      f() |> ignore
-      no_panic()
+      f()! |> ignore
+      no_panic()!
     },
-    does_panic(),
+    does_panic()!,
   )
 }
 
@@ -22,7 +22,7 @@ fn startswith_panic(s : String) -> Bool {
 }
 
 fn main {
-  let tests : Array[(String, String, () -> Result[Unit, String])] = [
+  let tests : Array[(String, String, () -> Unit!String)] = [
     // test identifiers
   ]
   let total = tests.length()
@@ -34,17 +34,16 @@ fn main {
   for k = 0; k < tests.length(); k = k + 1 {
     let (filename, name, f) = tests[k]
     filenames[k] = filename
-    let result = if startswith_panic(name) {
-      check_panic(f, fn() { Result::Ok(()) }, fn() { Err("panic is expected") })
-    } else {
-      f()
-    }
-    match result {
-      Ok(_) => {
-        succ_idx -= 1
-        test_names[succ_idx] = name
+    try {
+      if startswith_panic(name) {
+        check_panic(f, fn() { () }, fn() { raise "panic is expected" })!
+      } else {
+        f()!
       }
-      Err(e) => {
+      succ_idx -= 1
+      test_names[succ_idx] = name
+    } catch {
+      e => {
         test_names[fail_idx] = name
         messages[fail_idx] = e
         fail_idx += 1

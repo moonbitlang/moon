@@ -1,3 +1,3 @@
 test {
-  return Err("some msg")
+  raise "some msg"
 }
