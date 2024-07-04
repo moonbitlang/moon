@@ -7,7 +7,7 @@ use super::mdb::Alias;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
 
-use moonutil::common::{MoonbuildOpt, MooncOpt, MOON_PKG_JSON};
+use moonutil::common::{MoonbuildOpt, MooncOpt, MOONBITLANG_CORE, MOON_PKG_JSON};
 use n2::graph::{self as n2graph, Build, BuildIns, BuildOuts, FileLoc};
 use n2::load::State;
 use n2::smallmap::SmallMap;
@@ -372,7 +372,11 @@ pub fn gen_link_command(
             !moonc_opt.nostd,
             [
                 "-pkg-sources",
-                &format!("moonbitlang/core:{}", &moonutil::moon_dir::core().display()),
+                &format!(
+                    "{}:{}",
+                    MOONBITLANG_CORE,
+                    &moonutil::moon_dir::core().display()
+                ),
             ],
         )
         .args(["-target", moonc_opt.link_opt.target_backend.to_flag()])

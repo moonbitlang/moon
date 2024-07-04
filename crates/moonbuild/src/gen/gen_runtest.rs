@@ -1,6 +1,6 @@
 use anyhow::{bail, Ok};
 use colored::Colorize;
-use moonutil::common::GeneratedTestDriver;
+use moonutil::common::{GeneratedTestDriver, MOONBITLANG_CORE};
 use moonutil::module::ModuleDB;
 use moonutil::package::Package;
 
@@ -645,7 +645,11 @@ pub fn gen_runtest_link_command(
             !moonc_opt.nostd,
             [
                 "-pkg-sources",
-                &format!("moonbitlang/core:{}", &moonutil::moon_dir::core().display()),
+                &format!(
+                    "{}:{}",
+                    MOONBITLANG_CORE,
+                    &moonutil::moon_dir::core().display()
+                ),
             ],
         )
         .args(["-target", moonc_opt.link_opt.target_backend.to_flag()])

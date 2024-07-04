@@ -4,7 +4,8 @@ use futures::future::try_join_all;
 use mooncake::pkg::sync::auto_sync;
 use moonutil::{
     common::{
-        read_module_desc_file_in_dir, FileLock, MoonbuildOpt, MooncOpt, RunMode, MOON_MOD_JSON,
+        read_module_desc_file_in_dir, FileLock, MoonbuildOpt, MooncOpt, RunMode, MOONBITLANG_CORE,
+        MOON_MOD_JSON,
     },
     dirs::PackageDirs,
     mooncakes::{sync::AutoSyncFlags, RegistryConfig},
@@ -52,7 +53,7 @@ pub fn run_info(cli: UniversalFlags, cmd: InfoSubcommand) -> anyhow::Result<i32>
     })?;
     let module_name = &mod_desc.name;
     let mut moonc_opt = MooncOpt::default();
-    if module_name == "moonbitlang/core" {
+    if module_name == MOONBITLANG_CORE {
         moonc_opt.nostd = true;
     }
     let moonbuild_opt = MoonbuildOpt {

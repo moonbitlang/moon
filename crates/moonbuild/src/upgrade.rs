@@ -3,7 +3,7 @@ use colored::Colorize;
 use console::Term;
 use dialoguer::Confirm;
 use futures::stream::{self, StreamExt, TryStreamExt};
-use moonutil::common::CargoPathExt;
+use moonutil::common::{CargoPathExt, MOONBITLANG_CORE};
 use moonutil::moon_dir;
 use reqwest;
 use std::io::Write;
@@ -272,7 +272,7 @@ pub fn do_upgrade(root: &'static str) -> Result<i32> {
                             // use new moon to bundle
                             let moon = moon_dir::home().join("bin").join("moon");
                             println!("moon version:");
-                            println!("Compiling moonbitlang/core ...");
+                            println!("Compiling {} ...", MOONBITLANG_CORE);
                             let out = std::process::Command::new(&moon).args(["version"]).output()?;
                             println!("{}", String::from_utf8_lossy(&out.stdout));
 
@@ -281,7 +281,7 @@ pub fn do_upgrade(root: &'static str) -> Result<i32> {
                             match out.status.code() {
                                 Some(0) => {},
                                 Some(code) => bail!("failed to compile core, exit code {}", code),
-                                None => bail!("failed to bundle core"),
+                                None => bail!("failed to bundle {}", MOONBITLANG_CORE),
 
                             }
                         }

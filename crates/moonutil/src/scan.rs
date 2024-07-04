@@ -12,7 +12,8 @@ use std::str::FromStr;
 use walkdir::WalkDir;
 
 use crate::common::{
-    read_module_desc_file_in_dir, MoonbuildOpt, DEP_PATH, IGNORE_DIRS, MOON_MOD_JSON, MOON_PKG_JSON,
+    read_module_desc_file_in_dir, MoonbuildOpt, DEP_PATH, IGNORE_DIRS, MOONBITLANG_CORE,
+    MOON_MOD_JSON, MOON_PKG_JSON,
 };
 
 /// Matches an import string to scan paths.
@@ -243,7 +244,7 @@ fn scan_one_package(
 
     // workaround for builtin package testing
     if moonc_opt.build_opt.enable_coverage
-        && mod_desc.name == "moonbitlang/core"
+        && mod_desc.name == MOONBITLANG_CORE
         && rel_path.components == ["builtin"]
     {
         workaround_builtin_get_coverage_mbt_file_paths(pkg_path, &mut mbt_files);

@@ -6,7 +6,7 @@ use std::{
 };
 
 use moonutil::{
-    common::DEP_PATH,
+    common::{DEP_PATH, MOONBITLANG_CORE},
     moon_dir,
     mooncakes::{result::ResolvedEnv, DirSyncResult, ModuleSource, ModuleSourceKind},
 };
@@ -232,7 +232,7 @@ pub fn sync_deps(
 
 fn pkg_to_dir(dep_dir: &DepDir, username: &str, pkgname: &str) -> PathBuf {
     // Special case: core library locates in ~/.moon
-    if username == "moonbitlang" && pkgname == "core" {
+    if format!("{username}/{pkgname}") == MOONBITLANG_CORE {
         return moon_dir::core();
     }
     let pkg_dir_name = pkgname.replace('/', "+");

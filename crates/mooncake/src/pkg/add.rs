@@ -6,7 +6,7 @@ use semver::Version;
 use std::path::Path;
 use std::rc::Rc;
 
-use moonutil::common::{read_module_desc_file_in_dir, write_module_json_to_file};
+use moonutil::common::{read_module_desc_file_in_dir, write_module_json_to_file, MOONBITLANG_CORE};
 
 use crate::registry::{self, Registry, RegistryList};
 use crate::resolver::resolve_single_root_with_defaults;
@@ -19,9 +19,10 @@ pub fn add_latest(
     registry_config: &RegistryConfig,
     quiet: bool,
 ) -> anyhow::Result<i32> {
-    if format!("{username}/{pkgname}") == "moonbitlang/core" {
+    if format!("{username}/{pkgname}") == MOONBITLANG_CORE {
         eprintln!(
-            "{}: no need to add `moonbitlang/core` as dependency",
+            "{}: no need to add `{}` as dependency",
+            MOONBITLANG_CORE,
             "Warning".yellow().bold()
         );
         std::process::exit(0);
@@ -53,6 +54,12 @@ pub fn add_latest(
     )
 }
 
+#[test]
+fn test_module_name() {
+    let core_name = MOONBITLANG_CORE.parse::<ModuleName>().unwrap();
+    assert_eq!(MOONBITLANG_CORE, core_name.to_string());
+}
+
 pub fn add(
     source_dir: &Path,
     _target_dir: &Path,
@@ -63,9 +70,10 @@ pub fn add(
 ) -> anyhow::Result<i32> {
     let mut m = read_module_desc_file_in_dir(source_dir)?;
 
-    if pkg_name.username == "moonbitlang" && pkg_name.pkgname == "core" {
+    if pkg_name.to_string() == MOONBITLANG_CORE {
         eprintln!(
-            "{}: no need to add `moonbitlang/core` as dependency",
+            "{}: no need to add `{}` as dependency",
+            MOONBITLANG_CORE,
             "Warning".yellow().bold()
         );
         std::process::exit(0);

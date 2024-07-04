@@ -42,7 +42,7 @@ use moonutil::{
     cli::UniversalFlags,
     common::{
         read_module_desc_file_in_dir, BuildPackageFlags, LinkCoreFlags, MooncOpt, OutputFormat,
-        TargetBackend, MOON_MOD_JSON,
+        TargetBackend, MOONBITLANG_CORE, MOON_MOD_JSON,
     },
     mooncakes::{LoginSubcommand, PublishSubcommand, RegisterSubcommand},
 };
@@ -195,7 +195,7 @@ pub fn get_compiler_flags(src_dir: &Path, build_flags: &BuildFlags) -> anyhow::R
         target_backend,
     };
 
-    let nostd = !build_flags.std() || moon_mod.name == "moonbitlang/core";
+    let nostd = !build_flags.std() || moon_mod.name == MOONBITLANG_CORE;
     let render = build_flags.render || std::env::var("MOON_RENDER").unwrap_or_default() == "1";
 
     Ok(MooncOpt {

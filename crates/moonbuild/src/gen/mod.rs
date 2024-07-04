@@ -10,6 +10,13 @@ pub mod util;
 const MOON_CORE_COVERAGE_LIB: &str = "moonbitlang/core/coverage";
 const MOON_CORE_BUILTIN_LIB: &str = "moonbitlang/core/builtin";
 
+#[test]
+fn test_start_with() {
+    use moonutil::common::MOONBITLANG_CORE;
+    assert!(MOON_CORE_COVERAGE_LIB.starts_with(MOONBITLANG_CORE));
+    assert!(MOON_CORE_BUILTIN_LIB.starts_with(MOONBITLANG_CORE));
+}
+
 static SKIP_COVERAGE_LIBS: &[&str] = &[];
 static SELF_COVERAGE_LIBS: &[&str] = &[MOON_CORE_BUILTIN_LIB, MOON_CORE_COVERAGE_LIB];
 

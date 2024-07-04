@@ -2,6 +2,7 @@ use anyhow::bail;
 use mooncake::pkg::sync::auto_sync;
 use moonutil::common::{
     read_module_desc_file_in_dir, CargoPathExt, FileLock, MoonbuildOpt, MooncOpt, RunMode,
+    MOONBITLANG_CORE,
 };
 use moonutil::dirs::{mk_arch_mode_dir, PackageDirs};
 use moonutil::mooncakes::sync::AutoSyncFlags;
@@ -55,7 +56,7 @@ pub fn run_doc(cli: UniversalFlags, cmd: DocSubcommand) -> anyhow::Result<i32> {
     let mod_desc = read_module_desc_file_in_dir(&source_dir)?;
 
     let mut moonc_opt = MooncOpt::default();
-    if mod_desc.name == "moonbitlang/core" {
+    if mod_desc.name == MOONBITLANG_CORE {
         moonc_opt.nostd = true;
     }
 

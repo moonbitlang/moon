@@ -10,6 +10,7 @@ use std::path::{Path, PathBuf};
 pub const MOON_MOD_JSON: &str = "moon.mod.json";
 pub const MOON_PKG_JSON: &str = "moon.pkg.json";
 pub const MOON_PID_NAME: &str = ".moon.pid";
+pub const MOONBITLANG_CORE: &str = "moonbitlang/core";
 
 pub const MOON_TEST_DELIMITER_BEGIN: &str = "----- BEGIN MOON TEST RESULT -----";
 pub const MOON_TEST_DELIMITER_END: &str = "----- END MOON TEST RESULT -----";
