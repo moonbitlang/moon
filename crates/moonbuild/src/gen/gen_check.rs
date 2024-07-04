@@ -1,5 +1,5 @@
 use super::cmd_builder::CommandBuilder;
-use super::mdb::Alias;
+use super::mdb::MiAlias;
 use anyhow::bail;
 use indexmap::map::IndexMap;
 use moonutil::module::ModuleDB;
@@ -16,7 +16,7 @@ use n2::smallmap::SmallMap;
 pub struct CheckDepItem {
     pub mi_out: String,
     pub mbt_deps: Vec<String>,
-    pub mi_deps: Vec<Alias>,
+    pub mi_deps: Vec<MiAlias>,
     pub package_full_name: String,
     pub package_source_dir: String,
     pub is_main: bool,
@@ -59,7 +59,7 @@ pub fn pkg_to_check_item(
         let cur_pkg = &packages[&full_import_name];
         let d = cur_pkg.artifact.with_extension("mi");
         let alias = dep.alias.clone().unwrap_or(cur_pkg.last_name().into());
-        mi_deps.push(Alias {
+        mi_deps.push(MiAlias {
             name: d.display().to_string(),
             alias,
         });
@@ -118,7 +118,7 @@ pub fn pkg_with_test_to_check_item(
         let cur_pkg = &packages[&full_import_name];
         let d = cur_pkg.artifact.with_extension("mi");
         let alias = dep.alias.clone().unwrap_or(cur_pkg.last_name().into());
-        mi_deps.push(Alias {
+        mi_deps.push(MiAlias {
             name: d.display().to_string(),
             alias,
         });

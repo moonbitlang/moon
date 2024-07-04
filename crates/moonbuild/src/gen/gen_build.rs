@@ -3,7 +3,7 @@ use moonutil::module::ModuleDB;
 use moonutil::package::{JsFormat, Package};
 
 use super::cmd_builder::CommandBuilder;
-use super::mdb::Alias;
+use super::mdb::MiAlias;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
 
@@ -17,7 +17,7 @@ pub struct BuildDepItem {
     pub core_out: String,
     pub mi_out: String,
     pub mbt_deps: Vec<String>,
-    pub mi_deps: Vec<Alias>, // do not need add parent's mi files
+    pub mi_deps: Vec<MiAlias>, // do not need add parent's mi files
     pub package_full_name: String,
     pub package_source_dir: String,
     pub is_main: bool,
@@ -80,7 +80,7 @@ pub fn gen_build_build_item(
         let cur_pkg = &m.packages[&full_import_name];
         let d = cur_pkg.artifact.with_extension("mi");
         let alias = dep.alias.clone().unwrap_or(cur_pkg.last_name().into());
-        mi_deps.push(Alias {
+        mi_deps.push(MiAlias {
             name: d.display().to_string(),
             alias,
         });

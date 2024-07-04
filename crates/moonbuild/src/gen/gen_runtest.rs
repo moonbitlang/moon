@@ -14,14 +14,14 @@ use n2::graph::{self as n2graph, Build, BuildIns, BuildOuts, FileLoc};
 use n2::load::State;
 use n2::smallmap::SmallMap;
 
-use super::mdb::Alias;
+use super::mdb::MiAlias;
 
 #[derive(Debug)]
 pub struct RuntestDepItem {
     pub core_out: String,
     pub mi_out: String,
     pub mbt_deps: Vec<String>,
-    pub mi_deps: Vec<Alias>, // do not need add parent's mi files
+    pub mi_deps: Vec<MiAlias>, // do not need add parent's mi files
     pub package_full_name: String,
     pub package_source_dir: String,
     pub is_main: bool,
@@ -77,7 +77,7 @@ pub fn gen_package_core(
         let cur_pkg = &m.packages[&full_import_name];
         let d = cur_pkg.artifact.with_extension("mi");
         let alias = dep.alias.clone().unwrap_or(cur_pkg.last_name().into());
-        mi_deps.push(Alias {
+        mi_deps.push(MiAlias {
             name: d.display().to_string(),
             alias,
         });
@@ -144,7 +144,7 @@ pub fn gen_package_internal_test(
         let cur_pkg = &m.packages[&full_import_name];
         let d = cur_pkg.artifact.with_extension("mi");
         let alias = dep.alias.clone().unwrap_or(cur_pkg.last_name().into());
-        mi_deps.push(Alias {
+        mi_deps.push(MiAlias {
             name: d.display().to_string(),
             alias,
         });
@@ -212,7 +212,7 @@ pub fn gen_package_underscore_test(
         let cur_pkg = &m.packages[&full_import_name];
         let d = cur_pkg.artifact.with_extension("mi");
         let alias = dep.alias.clone().unwrap_or(cur_pkg.last_name().into());
-        mi_deps.push(Alias {
+        mi_deps.push(MiAlias {
             name: d.display().to_string(),
             alias,
         });
