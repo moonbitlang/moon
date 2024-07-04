@@ -1,5 +1,5 @@
 use super::cmd_builder::CommandBuilder;
-use super::mdb::MiAlias;
+use crate::gen::MiAlias;
 use anyhow::bail;
 use indexmap::map::IndexMap;
 use moonutil::module::ModuleDB;

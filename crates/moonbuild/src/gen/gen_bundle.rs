@@ -11,7 +11,7 @@ use std::rc::Rc;
 use moonutil::common::{MoonbuildOpt, MooncOpt, MOON_PKG_JSON};
 
 use super::cmd_builder::CommandBuilder;
-use super::mdb::MiAlias;
+use crate::gen::MiAlias;
 
 #[derive(Debug)]
 pub struct BundleDepItem {

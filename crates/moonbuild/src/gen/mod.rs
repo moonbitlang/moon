@@ -3,7 +3,6 @@ pub mod gen_build;
 pub mod gen_bundle;
 pub mod gen_check;
 pub mod gen_runtest;
-pub mod mdb;
 pub mod util;
 
 // WORKAROUND for do not test coverage on coverage library itself
@@ -26,4 +25,22 @@ fn is_skip_coverage_lib(name: &str) -> bool {
 
 fn is_self_coverage_lib(name: &str) -> bool {
     SELF_COVERAGE_LIBS.contains(&name)
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MiAlias {
+    pub name: String,
+    pub alias: String,
+}
+
+impl PartialOrd for MiAlias {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        Some(self.name.cmp(&other.name))
+    }
+}
+
+impl Ord for MiAlias {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        self.name.cmp(&other.name)
+    }
 }

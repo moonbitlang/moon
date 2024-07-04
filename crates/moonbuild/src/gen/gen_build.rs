@@ -3,7 +3,7 @@ use moonutil::module::ModuleDB;
 use moonutil::package::{JsFormat, Package};
 
 use super::cmd_builder::CommandBuilder;
-use super::mdb::MiAlias;
+use crate::gen::MiAlias;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
 

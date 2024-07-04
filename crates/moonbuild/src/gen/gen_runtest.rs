@@ -14,7 +14,7 @@ use n2::graph::{self as n2graph, Build, BuildIns, BuildOuts, FileLoc};
 use n2::load::State;
 use n2::smallmap::SmallMap;
 
-use super::mdb::MiAlias;
+use crate::gen::MiAlias;
 
 #[derive(Debug)]
 pub struct RuntestDepItem {
