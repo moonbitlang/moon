@@ -1,0 +1,134 @@
+name: Test on main
+
+on:
+  workflow_dispatch:
+
+jobs:
+  test:
+    strategy:
+      fail-fast: false
+      matrix:
+        os:
+          - ubuntu-latest
+          #   - macos-latest
+          #   - macos-13
+          - windows-latest
+    runs-on: ${{ matrix.os }}
+    env:
+      WECOM_ROBOT_KEY: ${{ secrets.WECOM_ROBOT_KEY }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Checkout moonc-version
+        uses: actions/checkout@v4
+        with:
+          ref: moonc-version-dont-delete
+          path: moonc-version-dont-delete
+      - name: Copy moonc-version file to workspace
+        run: |
+          cp moonc-version-dont-delete/moonc-version .
+
+      - uses: dtolnay/rust-toolchain@1.77.0
+      - name: Cargo cache
+        uses: actions/cache@v4
+        with:
+          key: ${{ runner.os }}-cargo-${{ hashFiles('Cargo.lock') }}
+          path: ~/.cargo/registry
+
+      - name: Setup Rclone
+        uses: AnimMouse/setup-rclone@v1
+        with:
+          rclone_config: ${{ secrets.RCLONE_CONFIG }}
+
+      - name: install MoonBit(Unix)
+        if: ${{ matrix.os != 'windows-latest' }}
+        run: |
+          mkdir -p ~/.moon/bin
+          mkdir -p ~/.moon/lib
+          git clone --depth 1 https://github.com/moonbitlang/core.git ~/.moon/lib/core
+          mooncVersion=$(cat moonc-version | cut -c 1-9)
+          echo "$mooncVersion"
+          bins=('moonc' 'mooninfo' 'moonfmt')
+          for bin in "${bins[@]}"; do
+              rclone copy "aws:${{ secrets.AWS_BUCKET_NAME }}/bleeding-moonc/$mooncVersion/$(uname -s)-$(uname -m)/$bin" ~/.moon/bin/
+              chmod +x ~/.moon/bin/"$bin"
+          done
+          moonrunVersion=33bbc3ed9
+          rclone copy "aws:${{ secrets.AWS_BUCKET_NAME }}/bleeding-moonrun/$moonrunVersion/$(uname -s)-$(uname -m)/moonrun" ~/.moon/bin/
+          chmod +x ~/.moon/bin/moonrun
+          echo "$HOME/.moon/bin" >> $GITHUB_PATH
+
+      - name: install MoonBit(Windows)
+        if: ${{ matrix.os == 'windows-latest' }}
+        run: |
+          New-Item -Path "$env:USERPROFILE" -Name ".moon" -ItemType "directory"
+          New-Item -Path "$env:USERPROFILE\.moon" -Name "lib" -ItemType "directory"
+          New-Item -Path "$env:USERPROFILE\.moon" -Name "bin" -ItemType "directory"
+          $mooncVersion = (Get-Content moonc-version -First 1).Substring(0, 9)
+          $bins = @("moonc.exe", "mooninfo.exe", "moonfmt.exe")
+          foreach ($bin in $bins) {
+              rclone copy "aws:${{ secrets.AWS_BUCKET_NAME }}/bleeding-moonc/$mooncVersion/Windows-x86_64/$bin" "$env:USERPROFILE\.moon\bin\"
+          }
+          $moonrunVersion = "33bbc3ed9"
+          rclone copy "aws:${{ secrets.AWS_BUCKET_NAME }}/bleeding-moonrun/$moonrunVersion/Windows-x86_64/moonrun.exe" "$env:USERPROFILE\.moon\bin\"
+          git clone --depth 1 https://github.com/moonbitlang/core.git "$env:USERPROFILE\.moon\lib\core"
+          "$env:USERPROFILE\.moon\bin" | Out-File -FilePath $env:GITHUB_PATH -Append
+
+      - name: Build
+        run: cargo build
+      - name: Versions
+        run: cargo run --bin moon version --all
+      - name: Bundle core (Unix)
+        if: ${{ matrix.os != 'windows-latest' }}
+        run: cargo run --bin moon bundle --source-dir ~/.moon/lib/core --all
+      - name: Bundle core (Windows)
+        if: ${{ matrix.os == 'windows-latest' }}
+        run: cargo run --bin moon bundle --source-dir "$env:USERPROFILE\.moon\lib\core" --all
+
+      - name: Test core (Unix)
+        if: ${{ matrix.os != 'windows-latest' }}
+        run: |
+          cargo run --bin moon test --source-dir ~/.moon/lib/core --target wasm-gc
+          cargo run --bin moon test --source-dir ~/.moon/lib/core --target js
+          cargo run --bin moon test --source-dir ~/.moon/lib/core --target wasm
+          cargo run --bin moon test --source-dir ~/.moon/lib/core --release --target wasm-gc
+          cargo run --bin moon test --source-dir ~/.moon/lib/core --release --target js
+          cargo run --bin moon test --source-dir ~/.moon/lib/core --release --target wasm
+      - name: Test core (Windows)
+        if: ${{ matrix.os == 'windows-latest' }}
+        run: |
+          cargo run --bin moon test --source-dir "$env:USERPROFILE\.moon\lib\core" --target wasm-gc
+          cargo run --bin moon test --source-dir "$env:USERPROFILE\.moon\lib\core" --target js
+          cargo run --bin moon test --source-dir "$env:USERPROFILE\.moon\lib\core" --target wasm
+          cargo run --bin moon test --source-dir "$env:USERPROFILE\.moon\lib\core" --release --target wasm-gc
+          cargo run --bin moon test --source-dir "$env:USERPROFILE\.moon\lib\core" --release --target js
+          cargo run --bin moon test --source-dir "$env:USERPROFILE\.moon\lib\core" --release --target wasm
+
+      - name: Run tests
+        run: cargo test
+
+      - name: Notify on fail (windows)
+        if: ${{ failure() && matrix.os == 'windows-latest' }}
+        run: |
+          $body = @{
+              msgtype = "text"
+              text = @{
+                  content = "🤣 moon ci on windows-latest failed: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{github.run_id}}"
+              }
+          } | ConvertTo-Json
+
+          Invoke-RestMethod -Uri "https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=$env:WECOM_ROBOT_KEY" -Method Post -ContentType "application/json" -Body $body
+
+      - name: notify on fail (unix)
+        if: ${{ failure() && matrix.os != 'windows-latest' }}
+        run: |
+          curl "https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=$WECOM_ROBOT_KEY" \
+            -H 'Content-Type: application/json' \
+            -d @- <<REQUEST_BODY
+            {
+              "msgtype": "text",
+              "text": {
+                "content": "🤣 moon ci on ${{matrix.os}} failed: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+              }
+            }
+          REQUEST_BODY

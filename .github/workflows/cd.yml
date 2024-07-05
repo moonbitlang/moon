@@ -1,0 +1,117 @@
+name: CD
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+
+jobs:
+  build:
+    strategy:
+      matrix:
+        os: [macos-latest, macos-13, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@1.77.0
+      - name: Cargo cache
+        uses: actions/cache@v4
+        with:
+          key: ${{ runner.os }}-cargo-${{ hashFiles('Cargo.lock') }}
+          path: ~/.cargo/registry
+      - name: Build
+        run: cargo build --release
+
+      - name: Setup Rclone
+        uses: AnimMouse/setup-rclone@v1
+        with:
+          rclone_config: ${{ secrets.RCLONE_CONFIG }}
+
+      - name: Upload(Unix)
+        if: ${{ matrix.os != 'windows-latest' }}
+        run: |
+          version=$(echo "$GITHUB_SHA" | cut -c 1-9)
+          rclone copy target/release/moon "aws:${{ secrets.AWS_BUCKET_NAME }}/bleeding-moon/$version/$(uname -s)-$(uname -m)/"
+
+      - name: Upload(Windows)
+        if: ${{ matrix.os == 'windows-latest' }}
+        run: |
+          $version = "$env:GITHUB_SHA".Substring(0, 9)
+          rclone copyto -L .\target\release\moon.exe "aws:${{ secrets.AWS_BUCKET_NAME }}/bleeding-moon/$version/Windows-x86_64/moon.exe"
+
+      - name: Checkout moonc-version (macos-latest)
+        if: ${{ matrix.os == 'macos-latest' }}
+        uses: actions/checkout@v4
+        with:
+          ref: moonc-version-dont-delete
+          path: moonc-version-dont-delete
+
+      - name: Copy moonc-version file to workspace (macos-latest)
+        if: ${{ matrix.os == 'macos-latest' }}
+        run: |
+          cp moonc-version-dont-delete/moonc-version .
+
+      - name: Bleeding Release (macos-latest)
+        if: ${{ matrix.os == 'macos-latest' }}
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          AWS_DEFAULT_REGION: ${{ secrets.AWS_DEFAULT_REGION }}
+        run: |
+          rm -rf tmp-bins
+          mkdir tmp-bins
+          mooncVersion=$(cat moonc-version | cut -c 1-9)
+          rclone copy "aws:${{ secrets.AWS_BUCKET_NAME }}/bleeding-moonc/$mooncVersion/$(uname -s)-$(uname -m)/" ./tmp-bins/
+          moonrunVersion=33bbc3ed9
+          rclone copy "aws:${{ secrets.AWS_BUCKET_NAME }}/bleeding-moonrun/$moonrunVersion/$(uname -s)-$(uname -m)/moonrun" ./tmp-bins/
+          cp -L ./target/release/moon ./tmp-bins/
+          pushd tmp-bins && shasum -a 256 -- * >../moonbit-darwin-aarch64.sha256 && popd
+          tar czf ./moonbit-darwin-aarch64.tar.gz --directory=./tmp-bins .
+          aws s3 cp ./moonbit-darwin-aarch64.tar.gz s3://cli.moonbitlang.com/binaries/bleeding/moonbit-darwin-aarch64.tar.gz
+          aws s3 cp ./moonbit-darwin-aarch64.sha256 s3://cli.moonbitlang.com/binaries/bleeding/moonbit-darwin-aarch64.sha256
+          aws cloudfront create-invalidation --distribution-id E1KQYZEVEB0TAY --paths "/*"
+
+  ubuntu-build:
+    runs-on: ubuntu-latest
+    container:
+      image: ubuntu:16.04
+    steps:
+      - name: Install dependencies
+        run: |
+          apt update && apt install -y software-properties-common curl unzip build-essential git
+
+      - name: Checkout
+        run: |
+          git clone --depth 1 "https://${{ secrets.MOON_CLONE_PAT }}@github.com/moonbitlang/moon.git" "$GITHUB_WORKSPACE"
+
+      - name: Install Rust
+        run: |
+          curl --proto '=https' --tlsv1.2 -sSf "https://sh.rustup.rs" | sh -s -- -y
+          echo ~/.cargo/bin >> $GITHUB_PATH
+
+      - name: Rust Version
+        run: |
+          cargo version
+          rustc --version
+
+      - run: |
+          git config --global --add safe.directory "$(pwd)"
+          git status
+
+      - name: Build
+        run: cargo build --release
+
+      - name: Setup Rclone
+        env:
+          RCLONE_CONFIG_PLAIN: ${{ secrets.RCLONE_CONFIG_PLAIN }}
+        run: |
+          curl https://rclone.org/install.sh | bash
+          mkdir -p ~/.config/rclone
+          echo "$RCLONE_CONFIG_PLAIN" > ~/.config/rclone/rclone.conf
+
+      - name: Upload
+        run: |
+          version="$(echo "$GITHUB_SHA" | cut -c 1-9)"
+          echo "$version"
+          rclone copy target/release/moon "aws:${{ secrets.AWS_BUCKET_NAME }}/bleeding-moon/$version/$(uname -s)-$(uname -m)/"
