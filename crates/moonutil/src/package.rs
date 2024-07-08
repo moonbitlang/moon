@@ -25,9 +25,12 @@ pub struct Package {
     pub files: Vec<PathBuf>,
     //  *_test.mbt
     pub test_files: Vec<PathBuf>,
+    //  *_bbtest.mbt
+    pub bbtest_files: Vec<PathBuf>,
     pub files_contain_test_block: Vec<PathBuf>,
     pub imports: Vec<ImportComponent>,
     pub test_imports: Vec<ImportComponent>,
+    pub bbtest_imports: Vec<ImportComponent>,
     pub generated_test_drivers: Vec<GeneratedTestDriver>,
     pub artifact: PathBuf,
 
@@ -121,6 +124,11 @@ pub struct MoonPkgJSON {
     pub test_import: Option<PkgJSONImport>,
 
     #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(alias = "bbtest-import")]
+    #[serde(alias = "bbtest_import")]
+    pub bbtest_import: Option<PkgJSONImport>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub link: Option<BoolOrLink>,
 
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -198,6 +206,7 @@ pub struct MoonPkg {
     pub need_link: bool,
     pub imports: Vec<Import>,
     pub test_imports: Vec<Import>,
+    pub bbtest_imports: Vec<Import>,
 
     pub link: Option<Link>,
     pub warn_list: Option<String>,
@@ -221,79 +230,49 @@ impl Import {
 }
 
 pub fn convert_pkg_json_to_package(j: MoonPkgJSON) -> anyhow::Result<MoonPkg> {
-    let mut imports: Vec<Import> = vec![];
-    if let Some(im) = j.import {
-        match im {
-            PkgJSONImport::Map(m) => {
-                for (k, v) in m.into_iter() {
-                    match &v {
-                        None => imports.push(Import::Simple(k)),
-                        Some(p) => {
-                            if p.is_empty() {
-                                imports.push(Import::Simple(k));
-                            } else {
-                                imports.push(Import::Alias {
-                                    path: k,
-                                    alias: v.unwrap(),
-                                })
+    let get_imports = |source: Option<PkgJSONImport>| -> Vec<Import> {
+        let mut imports = vec![];
+        if let Some(im) = source {
+            match im {
+                PkgJSONImport::Map(m) => {
+                    for (k, v) in m.into_iter() {
+                        match &v {
+                            None => imports.push(Import::Simple(k)),
+                            Some(p) => {
+                                if p.is_empty() {
+                                    imports.push(Import::Simple(k));
+                                } else {
+                                    imports.push(Import::Alias {
+                                        path: k,
+                                        alias: v.unwrap(),
+                                    })
+                                }
+                            }
+                        }
+                    }
+                }
+                PkgJSONImport::List(l) => {
+                    for item in l.into_iter() {
+                        match item {
+                            PkgJSONImportItem::String(s) => imports.push(Import::Simple(s)),
+                            PkgJSONImportItem::Object { path, alias } => {
+                                if alias.is_empty() {
+                                    imports.push(Import::Simple(path));
+                                } else {
+                                    imports.push(Import::Alias { path, alias })
+                                }
                             }
                         }
                     }
                 }
             }
-            PkgJSONImport::List(l) => {
-                for item in l.into_iter() {
-                    match item {
-                        PkgJSONImportItem::String(s) => imports.push(Import::Simple(s)),
-                        PkgJSONImportItem::Object { path, alias } => {
-                            if alias.is_empty() {
-                                imports.push(Import::Simple(path));
-                            } else {
-                                imports.push(Import::Alias { path, alias })
-                            }
-                        }
-                    }
-                }
-            }
-        }
+        };
+        imports
     };
 
-    let mut test_imports: Vec<Import> = vec![];
-    if let Some(im) = j.test_import {
-        match im {
-            PkgJSONImport::Map(m) => {
-                for (k, v) in m.into_iter() {
-                    match &v {
-                        None => test_imports.push(Import::Simple(k)),
-                        Some(p) => {
-                            if p.is_empty() {
-                                test_imports.push(Import::Simple(k));
-                            } else {
-                                test_imports.push(Import::Alias {
-                                    path: k,
-                                    alias: v.unwrap(),
-                                })
-                            }
-                        }
-                    }
-                }
-            }
-            PkgJSONImport::List(l) => {
-                for item in l.into_iter() {
-                    match item {
-                        PkgJSONImportItem::String(s) => test_imports.push(Import::Simple(s)),
-                        PkgJSONImportItem::Object { path, alias } => {
-                            if alias.is_empty() {
-                                test_imports.push(Import::Simple(path));
-                            } else {
-                                test_imports.push(Import::Alias { path, alias })
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    };
+    let imports = get_imports(j.import);
+    let test_imports = get_imports(j.test_import);
+    let bbtest_imports = get_imports(j.bbtest_import);
 
     let mut is_main = j.is_main.unwrap_or(false);
     if let Some(name) = &j.name {
@@ -356,12 +335,35 @@ pub fn convert_pkg_json_to_package(j: MoonPkgJSON) -> anyhow::Result<MoonPkg> {
         }
     }
 
+    // TODO: check on the fly
+    let mut alias_dedup: HashSet<String> = HashSet::new();
+    for item in bbtest_imports.iter() {
+        let alias = match item {
+            Import::Simple(p) => {
+                let alias = Path::new(p)
+                    .file_stem()
+                    .context(format!("failed to get alias of `{}`", p))?
+                    .to_str()
+                    .unwrap()
+                    .to_string();
+                alias
+            }
+            Import::Alias { path: _path, alias } => alias.clone(),
+        };
+        if alias_dedup.contains(&alias) {
+            bail!("Duplicate alias `{}`", alias);
+        } else {
+            alias_dedup.insert(alias.clone());
+        }
+    }
+
     let result = MoonPkg {
         name: None,
         is_main,
         need_link,
         imports,
         test_imports,
+        bbtest_imports,
         link: match j.link {
             None => None,
             Some(BoolOrLink::Bool(_)) => None,

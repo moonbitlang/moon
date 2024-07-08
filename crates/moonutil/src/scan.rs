@@ -1,7 +1,7 @@
 use crate::module::ModuleDB;
 use crate::mooncakes::result::ResolvedEnv;
 use crate::mooncakes::DirSyncResult;
-use crate::package::Package;
+use crate::package::{Import, Package};
 use crate::path::{ImportComponent, ImportPath, PathComponent};
 use anyhow::{bail, Context};
 use indexmap::map::IndexMap;
@@ -48,10 +48,11 @@ fn match_import_to_path(
     }
 }
 
-/// (*.mbt, *_test.mbt)
-pub fn get_mbt_and_test_file_paths(dir: &Path) -> (Vec<PathBuf>, Vec<PathBuf>) {
+/// (*.mbt, *_test.mbt, , *_bbtest.mbt)
+pub fn get_mbt_and_test_file_paths(dir: &Path) -> (Vec<PathBuf>, Vec<PathBuf>, Vec<PathBuf>) {
     let mut mbt_files = vec![];
     let mut mbt_test_files = vec![];
+    let mut mbt_bbtest_files = vec![];
     let entries = std::fs::read_dir(dir).unwrap();
     for entry in entries.flatten() {
         if let Ok(t) = entry.file_type() {
@@ -67,6 +68,8 @@ pub fn get_mbt_and_test_file_paths(dir: &Path) -> (Vec<PathBuf>, Vec<PathBuf>) {
                     None => {
                         if stem.ends_with("_test") {
                             mbt_test_files.push(p);
+                        } else if stem.ends_with("_bbtest") {
+                            mbt_bbtest_files.push(p);
                         } else {
                             mbt_files.push(p);
                         }
@@ -75,6 +78,8 @@ pub fn get_mbt_and_test_file_paths(dir: &Path) -> (Vec<PathBuf>, Vec<PathBuf>) {
                         let (filename, _dot_backend_ext) = stem.split_at(idx);
                         if filename.ends_with("_test") {
                             mbt_test_files.push(p);
+                        } else if filename.ends_with("_bbtest") {
+                            mbt_bbtest_files.push(p);
                         } else {
                             mbt_files.push(p);
                         }
@@ -83,7 +88,7 @@ pub fn get_mbt_and_test_file_paths(dir: &Path) -> (Vec<PathBuf>, Vec<PathBuf>) {
             }
         }
     }
-    (mbt_files, mbt_test_files)
+    (mbt_files, mbt_test_files, mbt_bbtest_files)
 }
 
 /// This is to support coverage testing for builtin packages.
@@ -185,62 +190,46 @@ fn scan_one_package(
     is_third_party: bool,
     doc_mode: bool,
 ) -> Result<Package, anyhow::Error> {
+    let get_imports = |source: Vec<Import>| -> anyhow::Result<Vec<ImportComponent>> {
+        let mut imports: Vec<ImportComponent> = vec![];
+        for im in source {
+            let x: anyhow::Result<ImportComponent> = match im {
+                crate::package::Import::Simple(path) => {
+                    let ic =
+                        match_import_to_path(env, &mod_desc.name, &path).with_context(|| {
+                            format!(
+                                "failed to read import path in \"{}\"",
+                                pkg_path.join(MOON_PKG_JSON).display()
+                            )
+                        })?;
+                    Ok(ImportComponent {
+                        path: ic,
+                        alias: None,
+                    })
+                }
+                crate::package::Import::Alias { path, alias } => {
+                    let ic = match_import_to_path(env, &mod_desc.name, &path)?;
+                    Ok(ImportComponent {
+                        path: ic,
+                        alias: Some(alias.into()),
+                    })
+                }
+            };
+            let x = x?;
+            imports.push(x);
+        }
+        Ok(imports)
+    };
+
     let pkg = crate::common::read_package_desc_file_in_dir(pkg_path)?;
     let rel = pkg_path.strip_prefix(module_source_dir)?;
     let rel_path = PathComponent::from_path(rel)?;
-    let mut imports: Vec<ImportComponent> = vec![];
-    for im in pkg.imports.iter() {
-        let x: anyhow::Result<ImportComponent> = match im {
-            crate::package::Import::Simple(path) => {
-                let ic = match_import_to_path(env, &mod_desc.name, path).with_context(|| {
-                    format!(
-                        "failed to read import path in \"{}\"",
-                        pkg_path.join(MOON_PKG_JSON).display()
-                    )
-                })?;
-                Ok(ImportComponent {
-                    path: ic,
-                    alias: None,
-                })
-            }
-            crate::package::Import::Alias { path, alias } => {
-                let ic = match_import_to_path(env, &mod_desc.name, path)?;
-                Ok(ImportComponent {
-                    path: ic,
-                    alias: Some(alias.into()),
-                })
-            }
-        };
-        let x = x?;
-        imports.push(x);
-    }
-    let mut test_imports: Vec<ImportComponent> = vec![];
-    for im in pkg.test_imports.iter() {
-        let x: anyhow::Result<ImportComponent> = match im {
-            crate::package::Import::Simple(path) => {
-                let ic = match_import_to_path(env, &mod_desc.name, path).with_context(|| {
-                    format!(
-                        "failed to read import path in {:?}",
-                        pkg_path.join(MOON_PKG_JSON)
-                    )
-                })?;
-                Ok(ImportComponent {
-                    path: ic,
-                    alias: None,
-                })
-            }
-            crate::package::Import::Alias { path, alias } => {
-                let ic = match_import_to_path(env, &mod_desc.name, path)?;
-                Ok(ImportComponent {
-                    path: ic,
-                    alias: Some(alias.into()),
-                })
-            }
-        };
-        let x = x?;
-        test_imports.push(x);
-    }
-    let (mut mbt_files, mut test_mbt_files) = get_mbt_and_test_file_paths(pkg_path);
+
+    let imports = get_imports(pkg.imports)?;
+    let test_imports = get_imports(pkg.test_imports)?;
+    let bbtest_imports = get_imports(pkg.bbtest_imports)?;
+
+    let (mut mbt_files, mut test_mbt_files, mut bbtest_mbt_files) = get_mbt_and_test_file_paths(pkg_path);
 
     // workaround for builtin package testing
     if moonc_opt.build_opt.enable_coverage
@@ -254,6 +243,7 @@ fn scan_one_package(
     if sort_input {
         mbt_files.sort();
         test_mbt_files.sort();
+        bbtest_mbt_files.sort();
     }
     let artifact: PathBuf = target_dir.into();
     let mut cur_pkg = Package {
@@ -265,8 +255,10 @@ fn scan_one_package(
         files: mbt_files,
         files_contain_test_block: vec![],
         test_files: test_mbt_files,
+        bbtest_files: bbtest_mbt_files,
         imports,
         test_imports,
+        bbtest_imports,
         generated_test_drivers: vec![],
         artifact,
         rel: rel_path,
