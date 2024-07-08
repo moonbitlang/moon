@@ -129,7 +129,7 @@ pub fn run_new(_cli: &UniversalFlags, cmd: NewSubcommand) -> anyhow::Result<i32>
                 .interact()?;
 
             let license = dialoguer::Input::<String>::new()
-                .with_prompt("Enter your license")
+                .with_prompt("Enter your license (eg. MIT, Apache-2.0), or leave empty for none")
                 .default("".to_string())
                 .show_default(true)
                 .interact()?;
