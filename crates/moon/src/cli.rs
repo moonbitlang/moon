@@ -130,9 +130,9 @@ pub struct BuildFlags {
     #[clap(long, short)]
     pub deny_warn: bool,
 
-    /// render diagnostics from moonc (tell moonc to output in json format)
+    /// don't render diagnostics from moonc (don't pass '-error-format json' to moonc)
     #[clap(long)]
-    pub render: bool,
+    pub no_render: bool,
 }
 
 impl BuildFlags {
@@ -196,7 +196,8 @@ pub fn get_compiler_flags(src_dir: &Path, build_flags: &BuildFlags) -> anyhow::R
     };
 
     let nostd = !build_flags.std() || moon_mod.name == MOONBITLANG_CORE;
-    let render = build_flags.render || std::env::var("MOON_RENDER").unwrap_or_default() == "1";
+    let render =
+        !build_flags.no_render || std::env::var("MOON_NO_RENDER").unwrap_or_default() == "1";
 
     Ok(MooncOpt {
         build_opt,

@@ -10,6 +10,11 @@ pub fn print_commands(
     moonc_opt: &MooncOpt,
     moonbuild_opt: &MoonbuildOpt,
 ) -> anyhow::Result<i32> {
+    let moonc_opt = &MooncOpt {
+        render: false,
+        ..moonc_opt.clone()
+    };
+
     let (source_dir, target_dir) = (&moonbuild_opt.source_dir, &moonbuild_opt.target_dir);
 
     let in_same_dir = target_dir.starts_with(source_dir);

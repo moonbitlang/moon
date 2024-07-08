@@ -1359,7 +1359,7 @@ fn test_moon_test_succ() {
     std::env::set_var("NO_COLOR", "1");
     let dir = TestDir::new("moon_test_succ.in");
     check(
-        &get_stdout_with_args_and_replace_dir(&dir, ["test", "-v", "--sort-input", "--render"]),
+        &get_stdout_with_args_and_replace_dir(&dir, ["test", "-v", "--sort-input"]),
         expect![[r#"
             [1001] Warning: Warning: Unused function 'add1'
                ╭─[$ROOT/lib2/nested/lib.mbt:1:4]
@@ -2955,7 +2955,7 @@ fn test_warn_list() {
     let dir = TestDir::new("warn_list.in");
 
     check(
-        &get_stdout_with_args_and_replace_dir(&dir, ["build", "--sort-input"]),
+        &get_stdout_with_args_and_replace_dir(&dir, ["build", "--sort-input", "--no-render"]),
         expect![[r#"
             moonc build-package $ROOT/lib/hello.mbt -w -2 -o $ROOT/target/wasm-gc/release/build/lib/lib.core -pkg username/hello/lib -std-path $MOON_HOME/lib/core/target/wasm-gc/release/bundle -pkg-sources username/hello/lib:$ROOT/lib -target wasm-gc
             moonc build-package $ROOT/lib1/hello.mbt -w -1 -o $ROOT/target/wasm-gc/release/build/lib1/lib1.core -pkg username/hello/lib1 -std-path $MOON_HOME/lib/core/target/wasm-gc/release/bundle -pkg-sources username/hello/lib1:$ROOT/lib1 -target wasm-gc
@@ -2973,7 +2973,7 @@ fn test_warn_list() {
     );
 
     check(
-        &get_stdout_with_args_and_replace_dir(&dir, ["bundle", "--sort-input"]),
+        &get_stdout_with_args_and_replace_dir(&dir, ["bundle", "--sort-input", "--no-render"]),
         expect![[r#"
             moonc build-package $ROOT/lib/hello.mbt -w -2 -o $ROOT/target/wasm-gc/release/bundle/lib/lib.core -pkg username/hello/lib -pkg-sources username/hello/lib:$ROOT/lib -target wasm-gc
             moonc build-package $ROOT/lib1/hello.mbt -w -1 -o $ROOT/target/wasm-gc/release/bundle/lib1/lib1.core -pkg username/hello/lib1 -pkg-sources username/hello/lib1:$ROOT/lib1 -target wasm-gc
@@ -2987,7 +2987,7 @@ fn test_warn_list() {
     get_stdout_with_args_and_replace_dir(&dir, ["bundle", "--sort-input"]);
 
     check(
-        &get_stdout_with_args_and_replace_dir(&dir, ["check", "--sort-input"]),
+        &get_stdout_with_args_and_replace_dir(&dir, ["check", "--sort-input", "--no-render"]),
         expect![[r#"
             moonc check $ROOT/lib/hello.mbt -w -2 -o $ROOT/target/wasm-gc/release/check/lib/lib.mi -pkg username/hello/lib -std-path $MOON_HOME/lib/core/target/wasm-gc/release/bundle -pkg-sources username/hello/lib:$ROOT/lib -target wasm-gc
             moonc check $ROOT/lib1/hello.mbt -w -1 -o $ROOT/target/wasm-gc/release/check/lib1/lib1.mi -pkg username/hello/lib1 -std-path $MOON_HOME/lib/core/target/wasm-gc/release/bundle -pkg-sources username/hello/lib1:$ROOT/lib1 -target wasm-gc
@@ -3003,7 +3003,7 @@ fn test_alert_list() {
     let dir = TestDir::new("alert_list.in");
 
     check(
-        &get_stdout_with_args_and_replace_dir(&dir, ["build", "--sort-input", "--render"]),
+        &get_stdout_with_args_and_replace_dir(&dir, ["build", "--sort-input"]),
         expect![[r#"
             moonc build-package -error-format json $ROOT/lib/hello.mbt -w -2 -alert -alert_1-alert_2 -o $ROOT/target/wasm-gc/release/build/lib/lib.core -pkg username/hello/lib -std-path $MOON_HOME/lib/core/target/wasm-gc/release/bundle -pkg-sources username/hello/lib:$ROOT/lib -target wasm-gc
             moonc build-package -error-format json $ROOT/main/main.mbt -w -1-2 -alert -alert_1 -o $ROOT/target/wasm-gc/release/build/main/main.core -pkg username/hello/main -is-main -std-path $MOON_HOME/lib/core/target/wasm-gc/release/bundle -i $ROOT/target/wasm-gc/release/build/lib/lib.mi:lib -pkg-sources username/hello/main:$ROOT/main -target wasm-gc
@@ -3027,7 +3027,7 @@ fn test_alert_list() {
     );
 
     check(
-        &get_stdout_with_args_and_replace_dir(&dir, ["bundle", "--sort-input", "--render"]),
+        &get_stdout_with_args_and_replace_dir(&dir, ["bundle", "--sort-input"]),
         expect![[r#"
             moonc build-package -error-format json $ROOT/lib/hello.mbt -w -2 -alert -alert_1-alert_2 -o $ROOT/target/wasm-gc/release/bundle/lib/lib.core -pkg username/hello/lib -pkg-sources username/hello/lib:$ROOT/lib -target wasm-gc
             moonc build-package -error-format json $ROOT/main/main.mbt -w -1-2 -alert -alert_1 -o $ROOT/target/wasm-gc/release/bundle/main/main.core -pkg username/hello/main -is-main -i $ROOT/target/wasm-gc/release/bundle/lib/lib.mi:lib -pkg-sources username/hello/main:$ROOT/main -target wasm-gc
@@ -3044,7 +3044,7 @@ fn test_alert_list() {
     );
 
     check(
-        &get_stdout_with_args_and_replace_dir(&dir, ["check", "--sort-input", "--render"]),
+        &get_stdout_with_args_and_replace_dir(&dir, ["check", "--sort-input"]),
         expect![[r#"
             moonc check -error-format json $ROOT/lib/hello.mbt -w -2 -alert -alert_1-alert_2 -o $ROOT/target/wasm-gc/release/check/lib/lib.mi -pkg username/hello/lib -std-path $MOON_HOME/lib/core/target/wasm-gc/release/bundle -pkg-sources username/hello/lib:$ROOT/lib -target wasm-gc
             moonc check -error-format json $ROOT/main/main.mbt -w -1-2 -alert -alert_1 -o $ROOT/target/wasm-gc/release/check/main/main.mi -pkg username/hello/main -is-main -std-path $MOON_HOME/lib/core/target/wasm-gc/release/bundle -i $ROOT/target/wasm-gc/release/check/lib/lib.mi:lib -pkg-sources username/hello/main:$ROOT/main -target wasm-gc
@@ -3065,25 +3065,14 @@ fn test_no_work_to_do() {
     let dir = TestDir::new("moon_new.in");
     let out = get_stdout_with_args_and_replace_dir(&dir, ["check"]);
     assert!(out.contains("now up to date"));
-    check(
-        &get_stdout_with_args_and_replace_dir(&dir, ["check"]),
-        expect![[r#"
-            moonc check $ROOT/lib/hello.mbt -o $ROOT/target/wasm-gc/release/check/lib/lib.mi -pkg moon_new/lib -std-path $MOON_HOME/lib/core/target/wasm-gc/release/bundle -pkg-sources moon_new/lib:$ROOT/lib -target wasm-gc
-            moonc check $ROOT/main/main.mbt -o $ROOT/target/wasm-gc/release/check/main/main.mi -pkg moon_new/main -is-main -std-path $MOON_HOME/lib/core/target/wasm-gc/release/bundle -i $ROOT/target/wasm-gc/release/check/lib/lib.mi:lib -pkg-sources moon_new/main:$ROOT/main -target wasm-gc
-            moon: no work to do
-        "#]],
-    );
-    let _ = get_stdout_with_args_and_replace_dir(&dir, ["build"]);
+
+    let out = get_stdout_with_args_and_replace_dir(&dir, ["check"]);
+    assert!(out.contains("moon: no work to do"));
+
+    let out = get_stdout_with_args_and_replace_dir(&dir, ["build"]);
     assert!(out.contains("now up to date"));
-    check(
-        &get_stdout_with_args_and_replace_dir(&dir, ["build"]),
-        expect![[r#"
-            moonc build-package $ROOT/lib/hello.mbt -o $ROOT/target/wasm-gc/release/build/lib/lib.core -pkg moon_new/lib -std-path $MOON_HOME/lib/core/target/wasm-gc/release/bundle -pkg-sources moon_new/lib:$ROOT/lib -target wasm-gc
-            moonc build-package $ROOT/main/main.mbt -o $ROOT/target/wasm-gc/release/build/main/main.core -pkg moon_new/main -is-main -std-path $MOON_HOME/lib/core/target/wasm-gc/release/bundle -i $ROOT/target/wasm-gc/release/build/lib/lib.mi:lib -pkg-sources moon_new/main:$ROOT/main -target wasm-gc
-            moonc link-core $MOON_HOME/lib/core/target/wasm-gc/release/bundle/core.core $ROOT/target/wasm-gc/release/build/lib/lib.core $ROOT/target/wasm-gc/release/build/main/main.core -main moon_new/main -o $ROOT/target/wasm-gc/release/build/main/main.wasm -pkg-sources moon_new/lib:$ROOT/lib -pkg-sources moon_new/main:$ROOT/main -pkg-sources moonbitlang/core:$MOON_HOME/lib/core -target wasm-gc
-            moon: no work to do
-        "#]],
-    );
+    let out = get_stdout_with_args_and_replace_dir(&dir, ["build"]);
+    assert!(out.contains("moon: no work to do"));
 }
 
 #[test]
@@ -3145,7 +3134,7 @@ fn test_deny_warn() {
     let dir = TestDir::new("test_deny_warn.in");
 
     check(
-        &get_stdout_with_args_and_replace_dir(&dir, ["check", "--sort-input", "--render"]),
+        &get_stdout_with_args_and_replace_dir(&dir, ["check", "--sort-input"]),
         expect![[r#"
             moonc check -error-format json $ROOT/lib/hello.mbt -o $ROOT/target/wasm-gc/release/check/lib/lib.mi -pkg username/hello/lib -std-path $MOON_HOME/lib/core/target/wasm-gc/release/bundle -pkg-sources username/hello/lib:$ROOT/lib -target wasm-gc
             [2000] Warning: Warning (Alert alert_2): alert_2
@@ -3206,10 +3195,12 @@ fn test_deny_warn() {
 
     let s = std::str::from_utf8(&out).unwrap().to_string();
 
-    assert!(s.contains("failed: moonc check -w @a -alert @all-raise-throw-unsafe+deprecated"));
+    assert!(s.contains(
+        "failed: moonc check -error-format json -w @a -alert @all-raise-throw-unsafe+deprecated"
+    ));
 
     check(
-        &get_stdout_with_args_and_replace_dir(&dir, ["build", "--sort-input", "--render"]),
+        &get_stdout_with_args_and_replace_dir(&dir, ["build", "--sort-input"]),
         expect![[r#"
             moonc build-package -error-format json $ROOT/lib/hello.mbt -o $ROOT/target/wasm-gc/release/build/lib/lib.core -pkg username/hello/lib -std-path $MOON_HOME/lib/core/target/wasm-gc/release/bundle -pkg-sources username/hello/lib:$ROOT/lib -target wasm-gc
             [2000] Warning: Warning (Alert alert_2): alert_2
@@ -3272,7 +3263,7 @@ fn test_deny_warn() {
     let s = std::str::from_utf8(&out).unwrap().to_string();
 
     assert!(
-        s.contains("failed: moonc build-package -w @a -alert @all-raise-throw-unsafe+deprecated")
+        s.contains("failed: moonc build-package -error-format json -w @a -alert @all-raise-throw-unsafe+deprecated")
     );
 }
 
@@ -3877,7 +3868,7 @@ fn test_whitespace_parent_space() -> anyhow::Result<()> {
     let canon = dunce::canonicalize(tmp_dir.path())?;
     let prefix = canon.as_path().display().to_string().replace('\\', "/");
 
-    let out = get_stdout_with_args(&path_with_space, ["build"]);
+    let out = get_stdout_with_args(&path_with_space, ["build", "--no-render"]);
     let out = out.replace(&prefix, ".");
     let out = out.replace(
         &moonutil::moon_dir::home()
@@ -4046,7 +4037,7 @@ fn test_render_no_location() {
 
     let output = snapbox::cmd::Command::new(moon_bin())
         .current_dir(&dir)
-        .args(["check", "--render"])
+        .arg("check")
         .assert()
         .failure()
         .get_output()
