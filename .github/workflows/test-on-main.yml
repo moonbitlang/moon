@@ -53,7 +53,7 @@ jobs:
               rclone copy "aws:${{ secrets.AWS_BUCKET_NAME }}/bleeding-moonc/$mooncVersion/$(uname -s)-$(uname -m)/$bin" ~/.moon/bin/
               chmod +x ~/.moon/bin/"$bin"
           done
-          moonrunVersion=33bbc3ed9
+          moonrunVersion=4bb74ba5f
           rclone copy "aws:${{ secrets.AWS_BUCKET_NAME }}/bleeding-moonrun/$moonrunVersion/$(uname -s)-$(uname -m)/moonrun" ~/.moon/bin/
           chmod +x ~/.moon/bin/moonrun
           echo "$HOME/.moon/bin" >> $GITHUB_PATH
@@ -69,7 +69,7 @@ jobs:
           foreach ($bin in $bins) {
               rclone copy "aws:${{ secrets.AWS_BUCKET_NAME }}/bleeding-moonc/$mooncVersion/Windows-x86_64/$bin" "$env:USERPROFILE\.moon\bin\"
           }
-          $moonrunVersion = "33bbc3ed9"
+          $moonrunVersion = "4bb74ba5f"
           rclone copy "aws:${{ secrets.AWS_BUCKET_NAME }}/bleeding-moonrun/$moonrunVersion/Windows-x86_64/moonrun.exe" "$env:USERPROFILE\.moon\bin\"
           git clone --depth 1 https://github.com/moonbitlang/core.git "$env:USERPROFILE\.moon\lib\core"
           "$env:USERPROFILE\.moon\bin" | Out-File -FilePath $env:GITHUB_PATH -Append
