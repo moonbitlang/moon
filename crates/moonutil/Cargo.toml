@@ -22,6 +22,8 @@ semver.workspace = true
 fs4.workspace = true
 petgraph.workspace = true
 ariadne.workspace = true
+env_logger.workspace = true
+log.workspace = true
 
 [dev-dependencies]
 expect-test.workspace = true

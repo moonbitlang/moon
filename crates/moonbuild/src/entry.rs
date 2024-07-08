@@ -67,23 +67,17 @@ pub fn n2_run_interface(
     output_path: PathBuf,
 ) -> anyhow::Result<Option<usize>> {
     let logger = Arc::new(Mutex::new(vec![]));
+    let use_fancy = terminal::use_fancy();
 
     let catcher = logger.clone();
     let render_and_catch = move |output: &str| {
-        let raw_content_lines: Vec<&str> = output.split('\n').filter(|it| !it.is_empty()).collect();
-
-        for output_content in raw_content_lines {
-            catcher.lock().unwrap().push(output_content.to_owned());
-            match serde_json_lenient::from_str::<moonutil::render::MooncDiagnostic>(output_content)
-            {
-                Ok(report) => {
-                    report.render();
-                }
-                Err(_) => {
-                    println!("{}", output_content);
-                }
-            }
-        }
+        output
+            .split('\n')
+            .filter(|it| !it.is_empty())
+            .for_each(|content| {
+                catcher.lock().unwrap().push(content.to_owned());
+                moonutil::render::MooncDiagnostic::render(content, use_fancy);
+            });
     };
 
     let mut progress = create_progress_console(false, quiet, Some(Box::new(render_and_catch)));
@@ -118,17 +112,12 @@ pub fn n2_run_interface(
         let raw_json = std::fs::read_to_string(&output_path)
             .context(format!("failed to open `{}`", output_path.display()))?;
 
-        let raw_json_lines: Vec<&str> = raw_json.split('\n').filter(|it| !it.is_empty()).collect();
-        for line in raw_json_lines {
-            match serde_json_lenient::from_str::<moonutil::render::MooncDiagnostic>(line) {
-                Ok(report) => {
-                    report.render();
-                }
-                Err(_) => {
-                    println!("{}", line);
-                }
-            }
-        }
+        raw_json
+            .split('\n')
+            .filter(|it| !it.is_empty())
+            .for_each(|content| {
+                moonutil::render::MooncDiagnostic::render(content, use_fancy);
+            });
     } else {
         let mut output_file = std::fs::File::create(output_path)?;
 
