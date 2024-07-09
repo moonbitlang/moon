@@ -4092,3 +4092,39 @@ fn test_moon_run_with_cli_args() {
         "#]],
     );
 }
+
+#[test]
+fn test_third_party() {
+    let dir = TestDir::new("third_party.in");
+    get_stdout_with_args_and_replace_dir(&dir, ["update"]);
+    get_stdout_with_args_and_replace_dir(&dir, ["build"]);
+    get_stdout_with_args_and_replace_dir(&dir, ["clean"]);
+
+    let actual = &get_stdout_with_args_and_replace_dir(&dir, ["check"]);
+    assert!(actual.contains("moon: ran 4 tasks, now up to date"));
+
+    check(
+        &get_stdout_with_args_and_replace_dir(&dir, ["test", "--dry-run", "--sort-input"]),
+        expect![[r#"
+            moon generate-test-driver --source-dir . --target-dir ./target/wasm-gc/debug/test --sort-input
+            moonc build-package ./.mooncakes/lijunchen/hello18/lib/hello.mbt -o ./target/wasm-gc/debug/test/.mooncakes/lijunchen/hello18/lib/lib.core -pkg lijunchen/hello18/lib -std-path $MOON_HOME/lib/core/target/wasm-gc/release/bundle -pkg-sources lijunchen/hello18/lib:./.mooncakes/lijunchen/hello18/lib -target wasm-gc -g
+            moonc build-package ./lib/test.mbt ./target/wasm-gc/debug/test/lib/__generated_driver_for_internal_test.mbt -o ./target/wasm-gc/debug/test/lib/lib.internal_test.core -pkg username/hello/lib -is-main -std-path $MOON_HOME/lib/core/target/wasm-gc/release/bundle -i ./target/wasm-gc/debug/test/.mooncakes/lijunchen/hello18/lib/lib.mi:lib -pkg-sources username/hello/lib:./lib -target wasm-gc -g
+            moonc link-core $MOON_HOME/lib/core/target/wasm-gc/release/bundle/core.core ./target/wasm-gc/debug/test/.mooncakes/lijunchen/hello18/lib/lib.core ./target/wasm-gc/debug/test/lib/lib.internal_test.core -main username/hello/lib -o ./target/wasm-gc/debug/test/lib/lib.internal_test.wasm -test-mode -pkg-sources lijunchen/hello18/lib:./lib -pkg-sources username/hello/lib:./lib -pkg-sources moonbitlang/core:$MOON_HOME/lib/core -target wasm-gc -g
+        "#]],
+    );
+
+    check(
+        &get_stdout_with_args_and_replace_dir(&dir, ["test", "--sort-input"]),
+        expect![[r#"
+            Hello, world!
+            Hello, world!
+            Total tests: 2, passed: 2, failed: 0.
+        "#]],
+    );
+
+    let actual = &get_stdout_with_args_and_replace_dir(&dir, ["build"]);
+    assert!(actual.contains("moon: ran 5 tasks, now up to date"));
+
+    let actual = &get_stdout_with_args_and_replace_dir(&dir, ["run", "main"]);
+    assert!(actual.contains("Hello, world!"));
+}

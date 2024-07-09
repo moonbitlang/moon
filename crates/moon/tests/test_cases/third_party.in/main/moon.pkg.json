@@ -1,0 +1,6 @@
+{
+  "is-main": true,
+  "import": [
+    "lijunchen/hello18/lib"
+  ]
+}
