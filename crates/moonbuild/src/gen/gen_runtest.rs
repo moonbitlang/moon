@@ -84,11 +84,7 @@ pub fn gen_package_core(
     }
 
     let package_full_name = pkg.full_name();
-    let package_source_dir: String = m
-        .source_dir
-        .join(pkg.rel.fs_full_name())
-        .display()
-        .to_string();
+    let package_source_dir = pkg.root_path.to_string_lossy().into_owned();
 
     Ok(RuntestDepItem {
         core_out: core_out.display().to_string(),
@@ -151,11 +147,7 @@ pub fn gen_package_internal_test(
     }
 
     let package_full_name = pkg.full_name();
-    let package_source_dir: String = m
-        .source_dir
-        .join(pkg.rel.fs_full_name())
-        .display()
-        .to_string();
+    let package_source_dir = pkg.root_path.to_string_lossy().into_owned();
 
     Ok(RuntestDepItem {
         core_out: core_out.display().to_string(),
@@ -219,11 +211,7 @@ pub fn gen_package_underscore_test(
     }
 
     let package_full_name = pkg.full_name();
-    let package_source_dir: String = m
-        .source_dir
-        .join(pkg.rel.fs_full_name())
-        .display()
-        .to_string();
+    let package_source_dir = pkg.root_path.to_string_lossy().into_owned();
 
     Ok(RuntestDepItem {
         core_out: core_out.display().to_string(),
