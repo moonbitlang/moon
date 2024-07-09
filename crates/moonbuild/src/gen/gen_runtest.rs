@@ -399,28 +399,36 @@ pub fn gen_runtest<'a>(
 
         files_contain_test_block.extend(pkg.files_contain_test_block.iter().map(|it| it.as_path()));
 
+        if let Some(filter_pkg) = filter_pkg {
+            if !filter_pkg.contains(Path::new(pkgname)) {
+                continue;
+            }
+        }
+
+        for item in pkg.generated_test_drivers.iter() {
+            if let GeneratedTestDriver::InternalTest(it) = item {
+                build_items.push(gen_package_internal_test(m, pkg, moonc_opt)?);
+                link_items.push(gen_link_internal_test(m, pkg, moonc_opt)?);
+                driver_files.push(it.as_path());
+            }
+        }
+
         if !pkg.test_files.is_empty() {
             for item in pkg.generated_test_drivers.iter() {
-                match item {
-                    GeneratedTestDriver::InternalTest(it) => {
-                        build_items.push(gen_package_internal_test(m, pkg, moonc_opt)?);
-                        link_items.push(gen_link_internal_test(m, pkg, moonc_opt)?);
-                        driver_files.push(it.as_path());
-                    }
-                    GeneratedTestDriver::UnderscoreTest(it) => {
-                        build_items.push(gen_package_underscore_test(m, pkg, moonc_opt)?);
-                        link_items.push(gen_link_underscore_test(m, pkg, moonc_opt)?);
-                        driver_files.push(it.as_path());
-                    }
+                if let GeneratedTestDriver::UnderscoreTest(it) = item {
+                    build_items.push(gen_package_underscore_test(m, pkg, moonc_opt)?);
+                    link_items.push(gen_link_underscore_test(m, pkg, moonc_opt)?);
+                    driver_files.push(it.as_path());
                 }
             }
-        } else if filter_pkg.is_none() || filter_pkg.unwrap().contains(Path::new(pkgname)) {
-            build_items.push(gen_package_internal_test(m, pkg, moonc_opt)?);
-            link_items.push(gen_link_internal_test(m, pkg, moonc_opt)?);
+        }
 
+        if !pkg.bbtest_files.is_empty() {
             for item in pkg.generated_test_drivers.iter() {
-                if let GeneratedTestDriver::InternalTest(it) = item {
-                    driver_files.push(it.as_path());
+                if let GeneratedTestDriver::BlackboxTest(it) = item {
+                    // build_items.push(gen_package_underscore_test(m, pkg, moonc_opt)?);
+                    // link_items.push(gen_link_underscore_test(m, pkg, moonc_opt)?);
+                    // driver_files.push(it.as_path());
                 }
             }
         }

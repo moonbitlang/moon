@@ -3,7 +3,6 @@ use anyhow::bail;
 use colored::Colorize;
 use mooncake::pkg::sync::auto_sync;
 use moonutil::cli::UniversalFlags;
-use moonutil::common::GeneratedTestDriver;
 use moonutil::common::{
     MoonbuildOpt, RunMode, TestOpt, MOON_TEST_DELIMITER_BEGIN, MOON_TEST_DELIMITER_END,
 };
@@ -94,8 +93,15 @@ pub fn generate_test_driver(
 
         let mut testcase_internal = vec![];
         let mut testcase_underscore = vec![];
+        let mut testcase_blackbox = vec![];
         let mut main_contain_test = false;
-        for file in pkg.files.iter().chain(pkg.test_files.iter()) {
+
+        for file in pkg
+            .files
+            .iter()
+            .chain(pkg.test_files.iter())
+            .chain(pkg.bbtest_files.iter())
+        {
             let content = std::fs::read_to_string(file)?;
             let mut counter = 0;
             let pattern =
@@ -133,14 +139,11 @@ pub fn generate_test_driver(
                     }
 
                     let line = format!("({:?}, {}, {}),", filename, description, test_func_name);
-                    if file
-                        .file_stem()
-                        .unwrap()
-                        .to_str()
-                        .unwrap()
-                        .ends_with("_test")
-                    {
+                    let file_name = &file.file_stem().unwrap().to_str().unwrap();
+                    if file_name.ends_with("_test") {
                         testcase_underscore.push(line);
+                    } else if file_name.ends_with("_bbtest") {
+                        testcase_blackbox.push(line);
                     } else {
                         testcase_internal.push(line);
                     }
@@ -158,22 +161,20 @@ pub fn generate_test_driver(
             continue;
         }
 
-        let generated_content = generate_driver(&testcase_internal, pkgname);
+        {
+            let generated_content = generate_driver(&testcase_internal, pkgname);
+            let generated_file = target_dir
+                .join(pkg.rel.fs_full_name())
+                .join("__generated_driver_for_internal_test.mbt");
 
-        let generated_file = target_dir
-            .join(pkg.rel.fs_full_name())
-            .join("__generated_driver_for_internal_test.mbt");
-
-        if !generated_file.parent().unwrap().exists() {
-            std::fs::create_dir_all(generated_file.parent().unwrap())?;
+            if !generated_file.parent().unwrap().exists() {
+                std::fs::create_dir_all(generated_file.parent().unwrap())?;
+            }
+            std::fs::write(&generated_file, &generated_content)?;
         }
-        std::fs::write(&generated_file, &generated_content)?;
-        pkg.generated_test_drivers
-            .push(GeneratedTestDriver::InternalTest(generated_file));
 
         {
             let generated_content = generate_driver(&testcase_underscore, pkgname);
-
             let generated_file = target_dir
                 .join(pkg.rel.fs_full_name())
                 .join("__generated_driver_for_underscore_test.mbt");
@@ -182,9 +183,18 @@ pub fn generate_test_driver(
                 std::fs::create_dir_all(generated_file.parent().unwrap())?;
             }
             std::fs::write(&generated_file, &generated_content)?;
+        }
 
-            pkg.generated_test_drivers
-                .push(GeneratedTestDriver::UnderscoreTest(generated_file));
+        {
+            let generated_content = generate_driver(&testcase_blackbox, pkgname);
+            let generated_file = target_dir
+                .join(pkg.rel.fs_full_name())
+                .join("__generated_driver_for_blackbox_test.mbt");
+
+            if !generated_file.parent().unwrap().exists() {
+                std::fs::create_dir_all(generated_file.parent().unwrap())?;
+            }
+            std::fs::write(&generated_file, &generated_content)?;
         }
     }
 

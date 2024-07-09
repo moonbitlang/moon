@@ -21,7 +21,7 @@ pub struct Package {
     pub root_path: PathBuf,
     pub root: PathComponent,
     pub rel: PathComponent,
-    // *.mbt
+    // *.mbt (exclude the following)
     pub files: Vec<PathBuf>,
     //  *_test.mbt
     pub test_files: Vec<PathBuf>,
