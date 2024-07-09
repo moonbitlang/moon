@@ -12,6 +12,7 @@ pub mod fmt;
 pub mod gen;
 pub mod new;
 pub mod runtest;
+pub mod section_capture;
 pub mod upgrade;
 
 use sysinfo::{ProcessExt, System, SystemExt};
