@@ -12,6 +12,7 @@ use anyhow::{anyhow, Context};
 use colored::Colorize;
 
 use crate::check::normal::write_pkg_lst;
+use crate::expect::{apply_snapshot, expect_failed_to_snapshot_result};
 
 use moonutil::common::{is_slash, MoonbuildOpt, MooncOpt, TargetBackend};
 
@@ -226,6 +227,9 @@ pub enum TestFailedStatus {
     #[error("{0}")]
     RuntimeError(TestResult),
 
+    #[error("{0}")]
+    SnapshotFailed(TestResult),
+
     #[error("{0:?}")]
     Others(#[from] anyhow::Error),
 }
@@ -237,7 +241,8 @@ impl From<TestFailedStatus> for i32 {
             TestFailedStatus::ExpectTestFailed(_) => 2,
             TestFailedStatus::Failed(_) => 3,
             TestFailedStatus::RuntimeError(_) => 4,
-            TestFailedStatus::Others(_) => 5,
+            TestFailedStatus::SnapshotFailed(_) => 5,
+            TestFailedStatus::Others(_) => 6,
         }
     }
 }
@@ -305,6 +310,9 @@ pub fn run_test(
     let mut expect_failed = false;
     let mut apply_expect_failed = false;
 
+    let mut snapshot_failed = false;
+    let mut apply_snapshot_failed = false;
+
     for d in defaults.iter() {
         let p = Path::new(d);
 
@@ -314,9 +322,9 @@ pub fn run_test(
                     if moonc_opt.link_opt.target_backend == TargetBackend::Wasm
                         || moonc_opt.link_opt.target_backend == TargetBackend::WasmGC
                     {
-                        crate::runtest::run_wat(p, target_dir)
+                        crate::runtest::run_wat(p, target_dir, auto_update)
                     } else {
-                        crate::runtest::run_js(p, target_dir)
+                        crate::runtest::run_js(p, target_dir, auto_update)
                     }
                 });
 
@@ -365,6 +373,16 @@ pub fn run_test(
                                 );
                                 let _ = crate::expect::render_expect_fail(&r.messages[i]);
                             }
+                        } else if r.messages[i].starts_with(super::expect::SNAPSHOT_TESTING) {
+                            snapshot_failed = true;
+                            let msg =
+                                r.messages[i].trim_start_matches(super::expect::SNAPSHOT_TESTING);
+                            let t = serde_json_lenient::from_str(msg).context(format!(
+                                "failed to parse snapshot testing output: {}",
+                                msg
+                            ))?;
+                            let s = expect_failed_to_snapshot_result(t);
+                            apply_snapshot(s, auto_update)?;
                         } else {
                             println!(
                                 "test {}/{}::{} {}: {}",
@@ -391,6 +409,8 @@ pub fn run_test(
         Err(TestFailedStatus::ApplyExpectFailed(test_result))
     } else if expect_failed {
         Err(TestFailedStatus::ExpectTestFailed(test_result))
+    } else if snapshot_failed {
+        Err(TestFailedStatus::SnapshotFailed(test_result))
     } else if failed != 0 {
         Err(TestFailedStatus::Failed(test_result))
     } else if runtime_error {

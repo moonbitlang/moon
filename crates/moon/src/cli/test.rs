@@ -297,6 +297,7 @@ fn print_test_res(test_res: &anyhow::Result<TestResult, TestFailedStatus>) {
             TestFailedStatus::ExpectTestFailed(it) => print(it),
             TestFailedStatus::Failed(it) => print(it),
             TestFailedStatus::RuntimeError(it) => print(it),
+            TestFailedStatus::SnapshotFailed(it) => print(it),
             TestFailedStatus::Others(it) => println!("{}: {:?}", "error".bold().red(), it),
         },
     }

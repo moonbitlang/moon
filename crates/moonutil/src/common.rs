@@ -18,6 +18,9 @@ pub const MOON_TEST_DELIMITER_END: &str = "----- END MOON TEST RESULT -----";
 pub const MOON_COVERAGE_DELIMITER_BEGIN: &str = "----- BEGIN MOONBIT COVERAGE -----";
 pub const MOON_COVERAGE_DELIMITER_END: &str = "----- END MOONBIT COVERAGE -----";
 
+pub const MOON_SNAPSHOT_DELIMITER_BEGIN: &str = "----- BEGIN MOONBIT SNAPSHOT TESTING -----";
+pub const MOON_SNAPSHOT_DELIMITER_END: &str = "----- END MOONBIT SNAPSHOT TESTING -----";
+
 pub const MOON_LOCK: &str = ".moon-lock";
 
 pub fn startswith_and_trim(s: &str, t: &str) -> String {

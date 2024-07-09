@@ -2,6 +2,7 @@ use anyhow::Context;
 use colored::Colorize;
 use std::collections::BTreeSet;
 use std::collections::HashMap;
+use std::path::PathBuf;
 
 #[derive(Debug, Default)]
 pub struct PackagePatch {
@@ -31,6 +32,7 @@ pub struct BufferExpect {
 }
 
 pub const EXPECT_FAILED: &str = "@EXPECT_FAILED ";
+pub const SNAPSHOT_TESTING: &str = "@SNAPSHOT_TESTING ";
 
 #[derive(Debug, Default, PartialEq, Eq, PartialOrd, Ord)]
 pub enum TargetKind {
@@ -57,10 +59,49 @@ pub struct Target {
 
 #[derive(Debug, Default, serde::Serialize, serde::Deserialize)]
 pub struct ExpectFailedRaw {
-    loc: String,
-    args_loc: String,
-    expect: String,
-    actual: String,
+    pub loc: String,
+    pub args_loc: String,
+    pub expect: String,
+    pub actual: String,
+    pub snapshot: Option<bool>,
+}
+
+pub fn expect_failed_to_snapshot_result(efr: ExpectFailedRaw) -> SnapshotResult {
+    let filename = parse_filename(&efr.loc).unwrap();
+    let expect_file = PathBuf::from(&filename)
+        .canonicalize()
+        .unwrap()
+        .parent()
+        .unwrap()
+        .join(&efr.expect);
+
+    let file_content = if expect_file.exists() {
+        Some(std::fs::read_to_string(&expect_file).unwrap())
+    } else {
+        None
+    };
+    let succ = match &file_content {
+        Some(content) => content == &efr.actual,
+        None => false,
+    };
+    SnapshotResult {
+        loc: efr.loc,
+        args_loc: efr.args_loc,
+        expect_file: PathBuf::from(efr.expect),
+        expect_content: file_content,
+        actual: efr.actual,
+        succ,
+    }
+}
+
+#[derive(Debug, Default, serde::Serialize, serde::Deserialize)]
+pub struct SnapshotResult {
+    pub loc: String,
+    pub args_loc: String,
+    pub expect_file: PathBuf,
+    pub expect_content: Option<String>,
+    pub actual: String,
+    pub succ: bool,
 }
 
 #[derive(Debug)]
@@ -190,7 +231,7 @@ fn parse_expect_failed_message(msg: &str) -> anyhow::Result<Replace> {
     })
 }
 
-fn parse_filename(loc: &str) -> anyhow::Result<String> {
+pub fn parse_filename(loc: &str) -> anyhow::Result<String> {
     let mut index = loc.len();
     let mut colon = 0;
     for (i, c) in loc.char_indices().rev() {
@@ -506,6 +547,51 @@ fn apply_patch(pp: &PackagePatch) -> anyhow::Result<()> {
             }
         }
         std::fs::write(filename, output)?;
+    }
+
+    Ok(())
+}
+
+pub fn apply_snapshot(snapshot: SnapshotResult, auto_update: bool) -> anyhow::Result<()> {
+    let filename = parse_filename(&snapshot.loc)?;
+    let loc = parse_loc(&snapshot.loc)?;
+    let actual = snapshot.actual.clone();
+    let expect_file = snapshot.expect_file;
+    let expect_file = PathBuf::from(&filename)
+        .canonicalize()
+        .unwrap()
+        .parent()
+        .unwrap()
+        .join(expect_file);
+
+    if !expect_file.parent().unwrap().exists() {
+        if auto_update {
+            std::fs::create_dir_all(&expect_file.parent().unwrap())?;
+        }
+    }
+    let expect = if expect_file.exists() {
+        std::fs::read_to_string(&expect_file)?
+    } else {
+        "".to_string()
+    };
+    if actual != expect {
+        let d = dissimilar::diff(&expect, &actual);
+        println!(
+            r#"expect test failed at {}:{}:{}
+{}
+----
+{}
+----
+"#,
+            filename,
+            loc.line_start + 1,
+            loc.col_start + 1,
+            "Diff:".bold(),
+            format_chunks(d)
+        );
+        if auto_update {
+            std::fs::write(&expect_file, actual)?;
+        }
     }
 
     Ok(())
