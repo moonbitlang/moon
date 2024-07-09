@@ -552,44 +552,55 @@ fn apply_patch(pp: &PackagePatch) -> anyhow::Result<()> {
     Ok(())
 }
 
-pub fn apply_snapshot(snapshot: SnapshotResult, auto_update: bool) -> anyhow::Result<()> {
-    let filename = parse_filename(&snapshot.loc)?;
-    let loc = parse_loc(&snapshot.loc)?;
-    let actual = snapshot.actual.clone();
-    let expect_file = snapshot.expect_file;
-    let expect_file = PathBuf::from(&filename)
-        .canonicalize()
-        .unwrap()
-        .parent()
-        .unwrap()
-        .join(expect_file);
+pub fn apply_snapshot(messages: &[String]) -> anyhow::Result<()> {
+    let snapshots: Vec<SnapshotResult> = messages
+        .iter()
+        .filter(|msg| msg.starts_with(SNAPSHOT_TESTING))
+        .map(|msg| {
+            let json_str = &msg[SNAPSHOT_TESTING.len()..];
+            let rep: ExpectFailedRaw = serde_json_lenient::from_str(json_str)
+                .context(format!("parse snapshot test result failed: {}", json_str))
+                .unwrap();
+            rep
+        })
+        .map(|e| expect_failed_to_snapshot_result(e))
+        .collect();
 
-    if !expect_file.parent().unwrap().exists() {
-        if auto_update {
+    for snapshot in snapshots.iter() {
+        let filename = parse_filename(&snapshot.loc)?;
+        let loc = parse_loc(&snapshot.loc)?;
+        let actual = snapshot.actual.clone();
+        let expect_file = &snapshot.expect_file;
+        let expect_file = PathBuf::from(&filename)
+            .canonicalize()
+            .unwrap()
+            .parent()
+            .unwrap()
+            .join(expect_file);
+
+        if !expect_file.parent().unwrap().exists() {
             std::fs::create_dir_all(&expect_file.parent().unwrap())?;
         }
-    }
-    let expect = if expect_file.exists() {
-        std::fs::read_to_string(&expect_file)?
-    } else {
-        "".to_string()
-    };
-    if actual != expect {
-        let d = dissimilar::diff(&expect, &actual);
-        println!(
-            r#"expect test failed at {}:{}:{}
+        let expect = if expect_file.exists() {
+            std::fs::read_to_string(&expect_file)?
+        } else {
+            "".to_string()
+        };
+        if actual != expect {
+            let d = dissimilar::diff(&expect, &actual);
+            println!(
+                r#"expect test failed at {}:{}:{}
 {}
 ----
 {}
 ----
 "#,
-            filename,
-            loc.line_start + 1,
-            loc.col_start + 1,
-            "Diff:".bold(),
-            format_chunks(d)
-        );
-        if auto_update {
+                filename,
+                loc.line_start + 1,
+                loc.col_start + 1,
+                "Diff:".bold(),
+                format_chunks(d)
+            );
             std::fs::write(&expect_file, actual)?;
         }
     }
@@ -637,6 +648,49 @@ pub fn render_expect_fail(msg: &str) -> anyhow::Result<()> {
         "Diff:".bold(),
         format_chunks(d)
     );
+    Ok(())
+}
+
+pub fn render_snapshot_fail(msg: &str) -> anyhow::Result<()> {
+    assert!(msg.starts_with(SNAPSHOT_TESTING));
+    let json_str = &msg[SNAPSHOT_TESTING.len()..];
+
+    let e: ExpectFailedRaw = serde_json_lenient::from_str(json_str)
+        .context(format!("parse snapshot test result failed: {}", json_str))?;
+    let snapshot = expect_failed_to_snapshot_result(e);
+
+    let filename = parse_filename(&snapshot.loc)?;
+    let loc = parse_loc(&snapshot.loc)?;
+    let actual = snapshot.actual.clone();
+    let expect_file = &snapshot.expect_file;
+    let expect_file = PathBuf::from(&filename)
+        .canonicalize()
+        .unwrap()
+        .parent()
+        .unwrap()
+        .join(expect_file);
+
+    let expect = if expect_file.exists() {
+        std::fs::read_to_string(&expect_file)?
+    } else {
+        "".to_string()
+    };
+    if actual != expect {
+        let d = dissimilar::diff(&expect, &actual);
+        println!(
+            r#"expect test failed at {}:{}:{}
+{}
+----
+{}
+----
+"#,
+            filename,
+            loc.line_start + 1,
+            loc.col_start + 1,
+            "Diff:".bold(),
+            format_chunks(d)
+        );
+    }
     Ok(())
 }
 

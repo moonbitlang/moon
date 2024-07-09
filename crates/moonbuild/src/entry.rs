@@ -346,6 +346,18 @@ pub fn run_test(
                             apply_expect_failed = true;
                         }
                     }
+                    if r.messages
+                        .iter()
+                        .any(|msg| msg.starts_with(super::expect::SNAPSHOT_TESTING))
+                    {
+                        snapshot_failed = true;
+                    }
+                    if auto_update {
+                        if let Err(e) = crate::expect::apply_snapshot(&r.messages) {
+                            eprintln!("{}: {:?}", "failed".red().bold(), e);
+                            apply_snapshot_failed = true;
+                        }
+                    }
                     passed += r.passed;
                     failed += r.test_names.len() as u32 - r.passed;
                     if test_verbose_output {
@@ -374,15 +386,16 @@ pub fn run_test(
                                 let _ = crate::expect::render_expect_fail(&r.messages[i]);
                             }
                         } else if r.messages[i].starts_with(super::expect::SNAPSHOT_TESTING) {
-                            snapshot_failed = true;
-                            let msg =
-                                r.messages[i].trim_start_matches(super::expect::SNAPSHOT_TESTING);
-                            let t = serde_json_lenient::from_str(msg).context(format!(
-                                "failed to parse snapshot testing output: {}",
-                                msg
-                            ))?;
-                            let s = expect_failed_to_snapshot_result(t);
-                            apply_snapshot(s, auto_update)?;
+                            if !(auto_update && failed > 0 && !apply_snapshot_failed) {
+                                println!(
+                                    "test {}/{}::{} {}",
+                                    r.package,
+                                    r.filenames[i],
+                                    r.test_names[i],
+                                    "failed".bold().red(),
+                                );
+                                let _ = crate::expect::render_snapshot_fail(&r.messages[i]);
+                            }
                         } else {
                             println!(
                                 "test {}/{}::{} {}: {}",
