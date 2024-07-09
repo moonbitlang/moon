@@ -48,7 +48,7 @@ fn match_import_to_path(
     }
 }
 
-/// (*.mbt, *_test.mbt, , *_bbtest.mbt)
+/// (*.mbt[exclude the following], *_test.mbt, *_bbtest.mbt)
 pub fn get_mbt_and_test_file_paths(dir: &Path) -> (Vec<PathBuf>, Vec<PathBuf>, Vec<PathBuf>) {
     let mut mbt_files = vec![];
     let mut mbt_test_files = vec![];
@@ -229,7 +229,8 @@ fn scan_one_package(
     let test_imports = get_imports(pkg.test_imports)?;
     let bbtest_imports = get_imports(pkg.bbtest_imports)?;
 
-    let (mut mbt_files, mut test_mbt_files, mut bbtest_mbt_files) = get_mbt_and_test_file_paths(pkg_path);
+    let (mut mbt_files, mut test_mbt_files, mut bbtest_mbt_files) =
+        get_mbt_and_test_file_paths(pkg_path);
 
     // workaround for builtin package testing
     if moonc_opt.build_opt.enable_coverage

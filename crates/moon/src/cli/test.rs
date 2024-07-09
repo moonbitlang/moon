@@ -147,7 +147,18 @@ pub fn run_test(cli: UniversalFlags, cmd: TestSubcommand) -> anyhow::Result<i32>
                 underscore_generated_file,
             ));
 
-        for file in pkg.files.iter().chain(pkg.test_files.iter()) {
+        let blackbox_generated_file = target_dir
+            .join(pkg.rel.fs_full_name())
+            .join("__generated_driver_for_blackbox_test.mbt");
+        pkg.generated_test_drivers
+            .push(GeneratedTestDriver::BlackboxTest(blackbox_generated_file));
+
+        for file in pkg
+            .files
+            .iter()
+            .chain(pkg.test_files.iter())
+            .chain(pkg.bbtest_files.iter())
+        {
             let content = std::fs::read_to_string(file)?;
             let pattern =
                 Regex::new(r#"^test[[:blank:]]*("(?P<name>([^\\"]|\\.)*)")?.*$"#).unwrap();
