@@ -4139,12 +4139,13 @@ fn test_blackbox_success() {
                 "hello_bbtest.mbt",
                 "-i",
                 "0",
-                "--dry-run",
                 "--nostd",
+                "--sort-input",
+                "--dry-run",
             ],
         ),
         expect![[r#"
-            moon generate-test-driver --source-dir . --target-dir ./target/wasm-gc/debug/test --package username/hello/A --file hello_bbtest.mbt --index 0
+            moon generate-test-driver --source-dir . --target-dir ./target/wasm-gc/debug/test --package username/hello/A --file hello_bbtest.mbt --index 0 --sort-input
             moonc build-package ./A/hello.mbt -o ./target/wasm-gc/debug/test/A/A.core -pkg username/hello/A -pkg-sources username/hello/A:./A -target wasm-gc -g
             moonc build-package ./C/hello.mbt -o ./target/wasm-gc/debug/test/C/C.core -pkg username/hello/C -pkg-sources username/hello/C:./C -target wasm-gc -g
             moonc build-package ./A/hello_bbtest.mbt ./target/wasm-gc/debug/test/A/__generated_driver_for_blackbox_test.mbt -o ./target/wasm-gc/debug/test/A/A.blackbox_test.core -pkg username/hello/A_blackbox_test -is-main -i ./target/wasm-gc/debug/test/A/A.mi:A -i ./target/wasm-gc/debug/test/C/C.mi:C -pkg-sources username/hello/A_blackbox_test:./A -target wasm-gc -g
