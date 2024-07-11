@@ -33,6 +33,8 @@ jobs:
         run: |
           version=$(echo "$GITHUB_SHA" | cut -c 1-9)
           rclone copy target/release/moon "aws:${{ secrets.AWS_BUCKET_NAME }}/bleeding-moon/$version/$(uname -s)-$(uname -m)/"
+          mkdir tmp && cp target/release/moon tmp/moon
+          rclone copy tmp/ "aliyun:${{ secrets.ALIYUN_BUCKET_NAME }}/bleeding-moon/$version/$(uname -s)-$(uname -m)/"
 
       - name: Upload(Windows)
         if: ${{ matrix.os == 'windows-latest' }}
@@ -115,3 +117,5 @@ jobs:
           version="$(echo "$GITHUB_SHA" | cut -c 1-9)"
           echo "$version"
           rclone copy target/release/moon "aws:${{ secrets.AWS_BUCKET_NAME }}/bleeding-moon/$version/$(uname -s)-$(uname -m)/"
+          mkdir tmp && cp target/release/moon tmp/moon
+          rclone copy tmp/ "aliyun:${{ secrets.ALIYUN_BUCKET_NAME }}/bleeding-moon/$version/$(uname -s)-$(uname -m)/"
