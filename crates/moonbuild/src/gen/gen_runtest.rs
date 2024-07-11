@@ -225,7 +225,86 @@ pub fn gen_package_underscore_test(
     })
 }
 
-fn get_pkg_topo_order<'a>(m: &'a ModuleDB, leaf: &Package) -> Vec<&'a Package> {
+pub fn gen_package_blackbox_test(
+    m: &ModuleDB,
+    pkg: &Package,
+    moonc_opt: &MooncOpt,
+) -> anyhow::Result<RuntestDepItem> {
+    let pkgname = pkg.artifact.file_stem().unwrap().to_str().unwrap();
+    let core_out = pkg
+        .artifact
+        .with_file_name(format!("{}.blackbox_test.core", pkgname));
+    let mi_out = pkg
+        .artifact
+        .with_file_name(format!("{}.blackbox_test.mi", pkgname));
+
+    let backend_filtered =
+        moonutil::common::backend_filter(&pkg.bbtest_files, moonc_opt.link_opt.target_backend);
+    let mut mbt_deps: Vec<String> = backend_filtered
+        .iter()
+        .map(|f| f.display().to_string())
+        .collect();
+
+    for item in pkg.generated_test_drivers.iter() {
+        if let GeneratedTestDriver::BlackboxTest(path) = item {
+            mbt_deps.push(path.display().to_string());
+        }
+    }
+
+    // add the cur pkg .mi at build-package stage
+    let mut mi_deps = vec![MiAlias {
+        name: pkg
+            .artifact
+            .with_file_name(format!("{}.mi", pkgname))
+            .display()
+            .to_string(),
+        alias: pkg.last_name().into(),
+    }];
+
+    for dep in pkg.bbtest_imports.iter() {
+        let full_import_name = dep.path.make_full_path();
+        if !m.packages.contains_key(&full_import_name) {
+            bail!(
+                "{}: the imported package `{}` could not be located.",
+                m.source_dir
+                    .join(pkg.rel.fs_full_name())
+                    .join(MOON_PKG_JSON)
+                    .display(),
+                full_import_name,
+            );
+        }
+        let cur_pkg = &m.packages[&full_import_name];
+        let d = cur_pkg.artifact.with_extension("mi");
+        let alias = dep.alias.clone().unwrap_or(cur_pkg.last_name().into());
+        mi_deps.push(MiAlias {
+            name: d.display().to_string(),
+            alias,
+        });
+    }
+
+    // this is used for `-pkg` flag in moonc build-package, shouldn't be `pkg.full_name()` since we aren't build that package
+    // actually, `-pkg` flag is not necessary for blackbox test, but we still keep it for consistency
+    let package_full_name = pkg.full_name() + "_blackbox_test";
+    let package_source_dir: String = pkg.root_path.to_string_lossy().into_owned();
+
+    Ok(RuntestDepItem {
+        core_out: core_out.display().to_string(),
+        mi_out: mi_out.display().to_string(),
+        mbt_deps,
+        mi_deps,
+        package_full_name,
+        package_source_dir,
+        is_main: true,
+        is_third_party: pkg.is_third_party,
+    })
+}
+
+fn get_pkg_topo_order<'a>(
+    m: &'a ModuleDB,
+    leaf: &Package,
+    with_test_import: bool,
+    with_bbtest_import: bool,
+) -> Vec<&'a Package> {
     let mut visited: HashSet<String> = HashSet::new();
     let mut pkg_topo_order: Vec<&Package> = vec![];
     fn dfs<'a>(
@@ -233,34 +312,39 @@ fn get_pkg_topo_order<'a>(m: &'a ModuleDB, leaf: &Package) -> Vec<&'a Package> {
         pkg_topo_order: &mut Vec<&'a Package>,
         visited: &mut HashSet<String>,
         cur_pkg_full_name: &String,
-        top: bool,
+        with_test_import: bool,
+        with_bbtest_import: bool,
     ) {
         if visited.contains(cur_pkg_full_name) {
             return;
         }
         visited.insert(cur_pkg_full_name.clone());
         let cur_pkg = &m.packages[cur_pkg_full_name];
-        if top {
-            for dep in cur_pkg.imports.iter().chain(cur_pkg.test_imports.iter()) {
-                dfs(
-                    m,
-                    pkg_topo_order,
-                    visited,
-                    &dep.path.make_full_path(),
-                    false,
-                );
-            }
-        } else {
-            for dep in cur_pkg.imports.iter() {
-                dfs(
-                    m,
-                    pkg_topo_order,
-                    visited,
-                    &dep.path.make_full_path(),
-                    false,
-                );
-            }
+        let imports = cur_pkg
+            .imports
+            .iter()
+            .chain(if with_test_import {
+                cur_pkg.test_imports.iter()
+            } else {
+                [].iter()
+            })
+            .chain(if with_bbtest_import {
+                cur_pkg.bbtest_imports.iter()
+            } else {
+                [].iter()
+            });
+
+        for dep in imports {
+            dfs(
+                m,
+                pkg_topo_order,
+                visited,
+                &dep.path.make_full_path(),
+                false,
+                false,
+            );
         }
+
         pkg_topo_order.push(cur_pkg);
     }
     dfs(
@@ -268,7 +352,8 @@ fn get_pkg_topo_order<'a>(m: &'a ModuleDB, leaf: &Package) -> Vec<&'a Package> {
         &mut pkg_topo_order,
         &mut visited,
         &leaf.full_name(),
-        true,
+        with_test_import,
+        with_bbtest_import,
     );
     pkg_topo_order
 }
@@ -298,7 +383,7 @@ pub fn gen_link_internal_test(
         .artifact
         .with_file_name(format!("{}.internal_test.wat", pkg.last_name()));
 
-    let pkg_topo_order: Vec<&Package> = get_pkg_topo_order(m, pkg);
+    let pkg_topo_order: Vec<&Package> = get_pkg_topo_order(m, pkg, false, false);
 
     let mut core_deps = vec![];
     for cur_pkg in pkg_topo_order.iter() {
@@ -334,7 +419,7 @@ pub fn gen_link_underscore_test(
         .artifact
         .with_file_name(format!("{}.underscore_test.wat", pkg.last_name()));
 
-    let pkg_topo_order: Vec<&Package> = get_pkg_topo_order(m, pkg);
+    let pkg_topo_order: Vec<&Package> = get_pkg_topo_order(m, pkg, true, false);
 
     let mut core_deps = vec![];
     for cur_pkg in pkg_topo_order.iter() {
@@ -342,6 +427,53 @@ pub fn gen_link_underscore_test(
             cur_pkg
                 .artifact
                 .with_file_name(format!("{}.underscore_test.core", cur_pkg.last_name()))
+        } else {
+            cur_pkg.artifact.with_extension("core")
+        };
+        core_deps.push(d.display().to_string());
+    }
+
+    let package_sources = get_package_sources(m, &pkg_topo_order);
+
+    let package_full_name = pkg.full_name();
+
+    Ok(RuntestLinkDepItem {
+        out: out.display().to_string(),
+        core_deps,
+        package_full_name,
+        package_sources,
+        is_main: true,
+        link: pkg.link.clone(),
+    })
+}
+
+pub fn gen_link_blackbox_test(
+    m: &ModuleDB,
+    pkg: &Package,
+    _moonc_opt: &MooncOpt,
+) -> anyhow::Result<RuntestLinkDepItem> {
+    let pkgname = pkg.artifact.file_stem().unwrap().to_str().unwrap();
+    let out = pkg
+        .artifact
+        .with_file_name(format!("{}.blackbox_test.wat", pkg.last_name()));
+
+    let pkg_topo_order: Vec<&Package> = get_pkg_topo_order(m, pkg, false, true);
+
+    let mut core_deps = vec![];
+    for cur_pkg in pkg_topo_order.iter() {
+        let d = if cur_pkg.full_name() == pkg.full_name() {
+            // add the cur pkg .core in link-core stage
+            // make sure that the current package `.core` is placed before `blackbox_test.core`
+            core_deps.push(
+                pkg.artifact
+                    .with_file_name(format!("{}.core", pkgname))
+                    .display()
+                    .to_string(),
+            );
+
+            cur_pkg
+                .artifact
+                .with_file_name(format!("{}.blackbox_test.core", cur_pkg.last_name()))
         } else {
             cur_pkg.artifact.with_extension("core")
         };
@@ -426,9 +558,9 @@ pub fn gen_runtest<'a>(
         if !pkg.bbtest_files.is_empty() {
             for item in pkg.generated_test_drivers.iter() {
                 if let GeneratedTestDriver::BlackboxTest(it) = item {
-                    // build_items.push(gen_package_underscore_test(m, pkg, moonc_opt)?);
-                    // link_items.push(gen_link_underscore_test(m, pkg, moonc_opt)?);
-                    // driver_files.push(it.as_path());
+                    build_items.push(gen_package_blackbox_test(m, pkg, moonc_opt)?);
+                    link_items.push(gen_link_blackbox_test(m, pkg, moonc_opt)?);
+                    driver_files.push(it.as_path());
                 }
             }
         }

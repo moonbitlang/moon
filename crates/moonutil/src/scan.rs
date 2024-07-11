@@ -211,7 +211,7 @@ fn scan_one_package(
                     let ic = match_import_to_path(env, &mod_desc.name, &path)?;
                     Ok(ImportComponent {
                         path: ic,
-                        alias: Some(alias.into()),
+                        alias: Some(alias),
                     })
                 }
             };
@@ -458,7 +458,12 @@ fn resolve_deps_of_pkg(
 ) {
     let pkg = packages.get(pkg_name);
     if let Some(pkg) = pkg {
-        for dep in pkg.imports.iter().chain(pkg.test_imports.iter()) {
+        for dep in pkg
+            .imports
+            .iter()
+            .chain(pkg.test_imports.iter())
+            .chain(pkg.bbtest_imports.iter())
+        {
             let dep = &dep.path.make_full_path();
             if !res.contains(dep) {
                 res.insert(dep.clone());
