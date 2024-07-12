@@ -4167,6 +4167,18 @@ fn test_blackbox_success() {
             Total tests: 2, passed: 2, failed: 0.
         "#]],
     );
+
+    check(
+        &get_stdout_with_args_and_replace_dir(&dir, ["check", "--sort-input", "--dry-run"]),
+        expect![[r#"
+            moonc check ./main/main.mbt -o ./target/wasm-gc/release/check/main/main.mi -pkg username/hello/main -is-main -std-path $MOON_HOME/lib/core/target/wasm-gc/release/bundle -pkg-sources username/hello/main:./main -target wasm-gc
+            moonc check ./A/hello.mbt -o ./target/wasm-gc/release/check/A/A.mi -pkg username/hello/A -std-path $MOON_HOME/lib/core/target/wasm-gc/release/bundle -pkg-sources username/hello/A:./A -target wasm-gc
+            moonc check ./C/hello.mbt -o ./target/wasm-gc/release/check/C/C.mi -pkg username/hello/C -std-path $MOON_HOME/lib/core/target/wasm-gc/release/bundle -pkg-sources username/hello/C:./C -target wasm-gc
+            moonc check ./A/hello_bbtest.mbt -o ./target/wasm-gc/release/check/A/A.blackbox_test.mi -pkg username/hello/A_blackbox_test -std-path $MOON_HOME/lib/core/target/wasm-gc/release/bundle -i ./target/wasm-gc/release/check/A/A.mi:A -i ./target/wasm-gc/release/check/C/C.mi:C -pkg-sources username/hello/A_blackbox_test:./A -target wasm-gc
+            moonc check ./B/hello.mbt -o ./target/wasm-gc/release/check/B/B.mi -pkg username/hello/B -std-path $MOON_HOME/lib/core/target/wasm-gc/release/bundle -pkg-sources username/hello/B:./B -target wasm-gc
+            moonc check ./A/hello.mbt ./A/hello_test.mbt -o ./target/wasm-gc/release/check/A/A.underscore_test.mi -pkg username/hello/A -std-path $MOON_HOME/lib/core/target/wasm-gc/release/bundle -i ./target/wasm-gc/release/check/B/B.mi:B -pkg-sources username/hello/A:./A -target wasm-gc
+        "#]],
+    );
 }
 
 #[test]
@@ -4186,5 +4198,20 @@ fn test_blackbox_failed() {
     // bbtest can not use private function in bbtest_import
     assert!(output.contains("Value _private_hello not found in package \"A\""));
     // bbtest_import could no be used in _test.mbt
+    assert!(output.contains("Package \"C\" not found in the loaded packages."));
+
+    let output = snapbox::cmd::Command::new(moon_bin())
+        .current_dir(&dir)
+        .args(["check"])
+        .assert()
+        .failure()
+        .get_output()
+        .stdout
+        .to_owned();
+
+    let output = String::from_utf8_lossy(&output);
+    assert!(output.contains("Warning: Unused variable 'a'"));
+    assert!(output.contains("Error: Error (warning): The mutability of 'b' is never used"));
+    assert!(output.contains("Value _private_hello not found in package \"A\""));
     assert!(output.contains("Package \"C\" not found in the loaded packages."));
 }
