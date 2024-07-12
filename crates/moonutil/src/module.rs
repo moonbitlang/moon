@@ -187,6 +187,11 @@ pub fn convert_mdb_to_json(module: &ModuleDB) -> ModuleDBJSON {
             .iter()
             .map(|f| f.display().to_string())
             .collect();
+        let bbtest_files = pkg
+            .bbtest_files
+            .iter()
+            .map(|f| f.display().to_string())
+            .collect();
         let mut deps = vec![];
         for dep in &pkg.imports {
             let alias = match &dep.alias {
@@ -223,6 +228,24 @@ pub fn convert_mdb_to_json(module: &ModuleDB) -> ModuleDBJSON {
             });
         }
 
+        let mut bbtest_deps = vec![];
+        for dep in &pkg.bbtest_imports {
+            let alias = match &dep.alias {
+                None => {
+                    let alias = dep.path.rel_path.components.last();
+                    match alias {
+                        None => dep.path.module_name.split('/').last().unwrap().to_string(),
+                        Some(x) => x.to_string(),
+                    }
+                }
+                Some(x) => x.to_string(),
+            };
+            bbtest_deps.push(AliasJSON {
+                path: dep.path.make_full_path(),
+                alias,
+            });
+        }
+
         pkgs.push(PackageJSON {
             is_main: pkg.is_main,
             is_third_party: pkg.is_third_party,
@@ -230,8 +253,10 @@ pub fn convert_mdb_to_json(module: &ModuleDB) -> ModuleDBJSON {
             rel: pkg.rel.full_name(),
             files,
             test_files,
+            bbtest_files,
             deps,
             test_deps,
+            bbtest_deps,
             artifact: pkg
                 .artifact
                 .with_extension("mi")

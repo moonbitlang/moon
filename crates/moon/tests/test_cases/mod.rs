@@ -1536,13 +1536,13 @@ fn test_output_format() {
         .assert()
         .success();
     assert!(dir
-        .join(&format!(
+        .join(format!(
             "target/{}/release/build/main/main.wasm",
             TargetBackend::default().to_backend_ext()
         ))
         .exists());
     assert!(!dir
-        .join(&format!(
+        .join(format!(
             "target/{}/release/build/main/main.wat",
             TargetBackend::default().to_backend_ext()
         ))
@@ -1560,13 +1560,13 @@ fn test_output_format() {
         .assert()
         .success();
     assert!(dir
-        .join(&format!(
+        .join(format!(
             "target/{}/release/build/main/main.wat",
             TargetBackend::default().to_backend_ext()
         ))
         .exists());
     assert!(!dir
-        .join(&format!(
+        .join(format!(
             "target/{}/release/build/main/main.wasm",
             TargetBackend::default().to_backend_ext()
         ))
@@ -1584,13 +1584,13 @@ fn test_output_format() {
         .assert()
         .success();
     assert!(!dir
-        .join(&format!(
+        .join(format!(
             "target/{}/release/build/main/main.wat",
             TargetBackend::default().to_backend_ext()
         ))
         .exists());
     assert!(dir
-        .join(&format!(
+        .join(format!(
             "target/{}/release/build/main/main.wasm",
             TargetBackend::default().to_backend_ext()
         ))
@@ -2052,7 +2052,7 @@ fn test_backend_config() {
     let dir = TestDir::new("backend_config.in");
 
     let _ = get_stdout_with_args(&dir, ["build", "--output-wat"]);
-    let out = std::fs::read_to_string(dir.join(&format!(
+    let out = std::fs::read_to_string(dir.join(format!(
         "target/{}/release/build/lib/lib.wat",
         TargetBackend::default().to_backend_ext()
     )))
@@ -2190,8 +2190,10 @@ fn test_dummy_core() {
                         "$ROOT/0/y_test.wasm-gc.mbt",
                         "$ROOT/0/y_test.wasm.mbt"
                       ],
+                      "bbtest-files": [],
                       "deps": [],
                       "test-deps": [],
+                      "bbtest-deps": [],
                       "artifact": "$ROOT/target/wasm-gc/release/check/0/0.mi"
                     },
                     {
@@ -2208,8 +2210,10 @@ fn test_dummy_core() {
                       "test-files": [
                         "$ROOT/1/x_test.wasm-gc.mbt"
                       ],
+                      "bbtest-files": [],
                       "deps": [],
                       "test-deps": [],
+                      "bbtest-deps": [],
                       "artifact": "$ROOT/target/wasm-gc/release/check/1/1.mi"
                     },
                     {
@@ -2221,6 +2225,7 @@ fn test_dummy_core() {
                         "$ROOT/2/lib.mbt"
                       ],
                       "test-files": [],
+                      "bbtest-files": [],
                       "deps": [
                         {
                           "path": "moonbitlang/core/1",
@@ -2228,6 +2233,7 @@ fn test_dummy_core() {
                         }
                       ],
                       "test-deps": [],
+                      "bbtest-deps": [],
                       "artifact": "$ROOT/target/wasm-gc/release/check/2/2.mi"
                     },
                     {
@@ -2237,6 +2243,7 @@ fn test_dummy_core() {
                       "rel": "char",
                       "files": [],
                       "test-files": [],
+                      "bbtest-files": [],
                       "deps": [
                         {
                           "path": "moonbitlang/core/coverage",
@@ -2244,6 +2251,7 @@ fn test_dummy_core() {
                         }
                       ],
                       "test-deps": [],
+                      "bbtest-deps": [],
                       "artifact": "$ROOT/target/wasm-gc/release/check/char/char.mi"
                     },
                     {
@@ -2253,8 +2261,10 @@ fn test_dummy_core() {
                       "rel": "coverage",
                       "files": [],
                       "test-files": [],
+                      "bbtest-files": [],
                       "deps": [],
                       "test-deps": [],
+                      "bbtest-deps": [],
                       "artifact": "$ROOT/target/wasm-gc/release/check/coverage/coverage.mi"
                     },
                     {
@@ -2264,6 +2274,7 @@ fn test_dummy_core() {
                       "rel": "iter",
                       "files": [],
                       "test-files": [],
+                      "bbtest-files": [],
                       "deps": [
                         {
                           "path": "moonbitlang/core/coverage",
@@ -2276,6 +2287,7 @@ fn test_dummy_core() {
                           "alias": "char"
                         }
                       ],
+                      "bbtest-deps": [],
                       "artifact": "$ROOT/target/wasm-gc/release/check/iter/iter.mi"
                     }
                   ],
@@ -2317,8 +2329,10 @@ fn test_dummy_core() {
                         "$ROOT/0/y_test.wasm-gc.mbt",
                         "$ROOT/0/y_test.wasm.mbt"
                       ],
+                      "bbtest-files": [],
                       "deps": [],
                       "test-deps": [],
+                      "bbtest-deps": [],
                       "artifact": "$ROOT/target/js/release/check/0/0.mi"
                     },
                     {
@@ -2335,8 +2349,10 @@ fn test_dummy_core() {
                       "test-files": [
                         "$ROOT/1/x_test.wasm-gc.mbt"
                       ],
+                      "bbtest-files": [],
                       "deps": [],
                       "test-deps": [],
+                      "bbtest-deps": [],
                       "artifact": "$ROOT/target/js/release/check/1/1.mi"
                     },
                     {
@@ -2348,6 +2364,7 @@ fn test_dummy_core() {
                         "$ROOT/2/lib.mbt"
                       ],
                       "test-files": [],
+                      "bbtest-files": [],
                       "deps": [
                         {
                           "path": "moonbitlang/core/1",
@@ -2355,6 +2372,7 @@ fn test_dummy_core() {
                         }
                       ],
                       "test-deps": [],
+                      "bbtest-deps": [],
                       "artifact": "$ROOT/target/js/release/check/2/2.mi"
                     },
                     {
@@ -2364,6 +2382,7 @@ fn test_dummy_core() {
                       "rel": "char",
                       "files": [],
                       "test-files": [],
+                      "bbtest-files": [],
                       "deps": [
                         {
                           "path": "moonbitlang/core/coverage",
@@ -2371,6 +2390,7 @@ fn test_dummy_core() {
                         }
                       ],
                       "test-deps": [],
+                      "bbtest-deps": [],
                       "artifact": "$ROOT/target/js/release/check/char/char.mi"
                     },
                     {
@@ -2380,8 +2400,10 @@ fn test_dummy_core() {
                       "rel": "coverage",
                       "files": [],
                       "test-files": [],
+                      "bbtest-files": [],
                       "deps": [],
                       "test-deps": [],
+                      "bbtest-deps": [],
                       "artifact": "$ROOT/target/js/release/check/coverage/coverage.mi"
                     },
                     {
@@ -2391,6 +2413,7 @@ fn test_dummy_core() {
                       "rel": "iter",
                       "files": [],
                       "test-files": [],
+                      "bbtest-files": [],
                       "deps": [
                         {
                           "path": "moonbitlang/core/coverage",
@@ -2403,6 +2426,7 @@ fn test_dummy_core() {
                           "alias": "char"
                         }
                       ],
+                      "bbtest-deps": [],
                       "artifact": "$ROOT/target/js/release/check/iter/iter.mi"
                     }
                   ],
@@ -4179,6 +4203,106 @@ fn test_blackbox_success() {
             moonc check ./A/hello.mbt ./A/hello_test.mbt -o ./target/wasm-gc/release/check/A/A.underscore_test.mi -pkg username/hello/A -std-path $MOON_HOME/lib/core/target/wasm-gc/release/bundle -i ./target/wasm-gc/release/check/B/B.mi:B -pkg-sources username/hello/A:./A -target wasm-gc
         "#]],
     );
+
+    snapbox::cmd::Command::new(moon_bin())
+        .current_dir(&dir)
+        .args(["check", "--sort-input"])
+        .assert()
+        .success();
+
+    #[cfg(unix)]
+    {
+        let p = dir.join(format!(
+            "target/{}/release/check/packages.json",
+            TargetBackend::default().to_backend_ext()
+        ));
+        check(
+            &replace_dir(&std::fs::read_to_string(p).unwrap(), &dir),
+            expect![[r#"
+                {
+                  "source_dir": "$ROOT",
+                  "name": "username/hello",
+                  "packages": [
+                    {
+                      "is-main": false,
+                      "is-third-party": false,
+                      "root": "username/hello",
+                      "rel": "A",
+                      "files": [
+                        "$ROOT/A/hello.mbt"
+                      ],
+                      "test-files": [
+                        "$ROOT/A/hello_test.mbt"
+                      ],
+                      "bbtest-files": [
+                        "$ROOT/A/hello_bbtest.mbt"
+                      ],
+                      "deps": [],
+                      "test-deps": [
+                        {
+                          "path": "username/hello/B",
+                          "alias": "B"
+                        }
+                      ],
+                      "bbtest-deps": [
+                        {
+                          "path": "username/hello/C",
+                          "alias": "C"
+                        }
+                      ],
+                      "artifact": "$ROOT/target/wasm-gc/release/check/A/A.mi"
+                    },
+                    {
+                      "is-main": false,
+                      "is-third-party": false,
+                      "root": "username/hello",
+                      "rel": "B",
+                      "files": [
+                        "$ROOT/B/hello.mbt"
+                      ],
+                      "test-files": [],
+                      "bbtest-files": [],
+                      "deps": [],
+                      "test-deps": [],
+                      "bbtest-deps": [],
+                      "artifact": "$ROOT/target/wasm-gc/release/check/B/B.mi"
+                    },
+                    {
+                      "is-main": false,
+                      "is-third-party": false,
+                      "root": "username/hello",
+                      "rel": "C",
+                      "files": [
+                        "$ROOT/C/hello.mbt"
+                      ],
+                      "test-files": [],
+                      "bbtest-files": [],
+                      "deps": [],
+                      "test-deps": [],
+                      "bbtest-deps": [],
+                      "artifact": "$ROOT/target/wasm-gc/release/check/C/C.mi"
+                    },
+                    {
+                      "is-main": true,
+                      "is-third-party": false,
+                      "root": "username/hello",
+                      "rel": "main",
+                      "files": [
+                        "$ROOT/main/main.mbt"
+                      ],
+                      "test-files": [],
+                      "bbtest-files": [],
+                      "deps": [],
+                      "test-deps": [],
+                      "bbtest-deps": [],
+                      "artifact": "$ROOT/target/wasm-gc/release/check/main/main.mi"
+                    }
+                  ],
+                  "deps": [],
+                  "backend": "wasm-gc"
+                }"#]],
+        );
+    }
 }
 
 #[test]
