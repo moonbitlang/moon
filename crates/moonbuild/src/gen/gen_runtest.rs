@@ -282,7 +282,7 @@ pub fn gen_package_blackbox_test(
         });
     }
 
-    // this is used for `-pkg` flag in moonc build-package, shouldn't be `pkg.full_name()` since we aren't build that package
+    // this is used for `-pkg` flag in `moonc build-package`, shouldn't be `pkg.full_name()` since we aren't build that package, otherwise we might encounter an error like "4015] Error: Type StructName has no method method_name"(however, StructName does has method method_name).
     // actually, `-pkg` flag is not necessary for blackbox test, but we still keep it for consistency
     let package_full_name = pkg.full_name() + "_blackbox_test";
     let package_source_dir: String = pkg.root_path.to_string_lossy().into_owned();

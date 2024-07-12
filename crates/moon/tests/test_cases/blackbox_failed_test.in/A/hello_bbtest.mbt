@@ -3,6 +3,8 @@ pub fn hello_bbtest() -> Unit {
 }
 
 test {
+  let a = 1
+  let mut b = 1
   // should failed
   @A._private_hello()
 }

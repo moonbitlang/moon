@@ -27,7 +27,7 @@ pub struct N2CheckInput {
     pub dep_items: Vec<CheckDepItem>,
 }
 
-pub fn pkg_to_check_item(
+fn pkg_to_check_item(
     source_dir: &Path,
     packages: &IndexMap<String, Package>,
     pkg: &Package,
@@ -78,7 +78,7 @@ pub fn pkg_to_check_item(
     })
 }
 
-pub fn pkg_with_test_to_check_item(
+fn pkg_with_test_to_check_item(
     source_dir: &Path,
     packages: &IndexMap<String, Package>,
     pkg: &Package,
@@ -137,6 +137,69 @@ pub fn pkg_with_test_to_check_item(
     })
 }
 
+fn pkg_with_bbtest_to_check_item(
+    source_dir: &Path,
+    packages: &IndexMap<String, Package>,
+    pkg: &Package,
+    moonc_opt: &MooncOpt,
+) -> anyhow::Result<CheckDepItem> {
+    let out = pkg
+        .artifact
+        .with_file_name(format!("{}.blackbox_test.mi", pkg.last_name()));
+
+    let backend_filtered =
+        moonutil::common::backend_filter(&pkg.bbtest_files, moonc_opt.link_opt.target_backend);
+    let mbt_deps: Vec<String> = backend_filtered
+        .iter()
+        .map(|f| f.display().to_string())
+        .collect::<Vec<_>>();
+
+    // add cur pkg as .mi dependency
+    let mut mi_deps = vec![MiAlias {
+        name: pkg
+            .artifact
+            .with_file_name(format!("{}.mi", pkg.last_name()))
+            .display()
+            .to_string(),
+        alias: pkg.last_name().into(),
+    }];
+
+    for dep in pkg.bbtest_imports.iter() {
+        let full_import_name = dep.path.make_full_path();
+        if !packages.contains_key(&full_import_name) {
+            bail!(
+                "{}: the imported package `{}` could not be located.",
+                source_dir
+                    .join(pkg.rel.fs_full_name())
+                    .join(MOON_PKG_JSON)
+                    .display(),
+                full_import_name,
+            );
+        }
+        let cur_pkg = &packages[&full_import_name];
+        let d = cur_pkg.artifact.with_extension("mi");
+        let alias = dep.alias.clone().unwrap_or(cur_pkg.last_name().into());
+        mi_deps.push(MiAlias {
+            name: d.display().to_string(),
+            alias,
+        });
+    }
+
+    // this is used for `-pkg` flag in `moonc check`, shouldn't be `pkg.full_name()` since we aren't check that package, otherwise we might encounter an error like "4015] Error: Type StructName has no method method_name"(however, StructName does has method method_name).
+    // actually, `-pkg` flag is not necessary for blackbox test, but we still keep it for consistency
+    let package_full_name = pkg.full_name() + "_blackbox_test";
+    let package_source_dir: String = pkg.root_path.to_string_lossy().into_owned();
+
+    Ok(CheckDepItem {
+        mi_out: out.display().to_string(),
+        mbt_deps,
+        mi_deps,
+        package_full_name,
+        package_source_dir,
+        is_main: pkg.is_main,
+    })
+}
+
 pub fn gen_check(
     m: &ModuleDB,
     moonc_opt: &MooncOpt,
@@ -150,6 +213,10 @@ pub fn gen_check(
         dep_items.push(item);
         if !pkg.test_files.is_empty() {
             let item = pkg_with_test_to_check_item(&pkg.root_path, &m.packages, pkg, moonc_opt)?;
+            dep_items.push(item);
+        }
+        if !pkg.bbtest_files.is_empty() {
+            let item = pkg_with_bbtest_to_check_item(&pkg.root_path, &m.packages, pkg, moonc_opt)?;
             dep_items.push(item);
         }
     }
