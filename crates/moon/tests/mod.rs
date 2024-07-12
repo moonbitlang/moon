@@ -30,8 +30,8 @@ impl TestDir {
         Self { path: tmp_dir }
     }
 
-    fn join(&self, sub: &str) -> PathBuf {
-        self.path.path().join(sub)
+    fn join(&self, sub: impl AsRef<str>) -> PathBuf {
+        self.path.path().join(sub.as_ref())
     }
 }
 

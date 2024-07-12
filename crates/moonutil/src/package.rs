@@ -72,8 +72,10 @@ pub struct PackageJSON {
     pub rel: String,
     pub files: Vec<String>,
     pub test_files: Vec<String>,
+    pub bbtest_files: Vec<String>,
     pub deps: Vec<AliasJSON>,
     pub test_deps: Vec<AliasJSON>,
+    pub bbtest_deps: Vec<AliasJSON>,
     pub artifact: String,
 }
 
