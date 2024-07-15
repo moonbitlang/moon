@@ -8,7 +8,7 @@ rust-version = "1.77"
 edition = "2021"
 
 [workspace.dependencies]
-n2 = { git = "https://github.com/moonbitlang/n2.git", rev = "564547ca9ad21dbf8eb791cb929213ffcac6314c" }
+n2 = { git = "https://github.com/moonbitlang/n2.git" }
 moonbuild = { path = "./crates/moonbuild", version = "*" }
 mooncake = { path = "./crates/mooncake", version = "*" }
 moonutil = { path = "./crates/moonutil", version = "*" }

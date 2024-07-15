@@ -2970,17 +2970,66 @@ fn test_js_format() {
 }
 
 #[test]
-fn test_warn_list() {
+fn test_warn_list_dry_run() {
+    let dir = TestDir::new("warn_list.in");
+
+    check(
+        &get_stdout_with_args_and_replace_dir(
+            &dir,
+            ["build", "--sort-input", "--no-render", "--dry-run"],
+        ),
+        expect![[r#"
+            moonc build-package ./lib/hello.mbt -w -2 -o ./target/wasm-gc/release/build/lib/lib.core -pkg username/hello/lib -std-path $MOON_HOME/lib/core/target/wasm-gc/release/bundle -pkg-sources username/hello/lib:./lib -target wasm-gc
+            moonc build-package ./lib1/hello.mbt -w -1 -o ./target/wasm-gc/release/build/lib1/lib1.core -pkg username/hello/lib1 -std-path $MOON_HOME/lib/core/target/wasm-gc/release/bundle -pkg-sources username/hello/lib1:./lib1 -target wasm-gc
+            moonc build-package ./main/main.mbt -w -1-2 -o ./target/wasm-gc/release/build/main/main.core -pkg username/hello/main -is-main -std-path $MOON_HOME/lib/core/target/wasm-gc/release/bundle -i ./target/wasm-gc/release/build/lib/lib.mi:lib -i ./target/wasm-gc/release/build/lib1/lib1.mi:lib1 -pkg-sources username/hello/main:./main -target wasm-gc
+            moonc link-core $MOON_HOME/lib/core/target/wasm-gc/release/bundle/core.core ./target/wasm-gc/release/build/lib/lib.core ./target/wasm-gc/release/build/lib1/lib1.core ./target/wasm-gc/release/build/main/main.core -main username/hello/main -o ./target/wasm-gc/release/build/main/main.wasm -pkg-sources username/hello/lib:./lib -pkg-sources username/hello/lib1:./lib1 -pkg-sources username/hello/main:./main -pkg-sources moonbitlang/core:$MOON_HOME/lib/core -target wasm-gc
+        "#]],
+    );
+
+    check(
+        &get_stdout_with_args_and_replace_dir(&dir, ["test", "--sort-input"]),
+        expect![[r#"
+            Total tests: 0, passed: 0, failed: 0.
+        "#]],
+    );
+
+    check(
+        &get_stdout_with_args_and_replace_dir(
+            &dir,
+            ["bundle", "--sort-input", "--no-render", "--dry-run"],
+        ),
+        expect![[r#"
+            moonc build-package ./lib/hello.mbt -w -2 -o ./target/wasm-gc/release/bundle/lib/lib.core -pkg username/hello/lib -pkg-sources username/hello/lib:./lib -target wasm-gc
+            moonc build-package ./lib1/hello.mbt -w -1 -o ./target/wasm-gc/release/bundle/lib1/lib1.core -pkg username/hello/lib1 -pkg-sources username/hello/lib1:./lib1 -target wasm-gc
+            moonc build-package ./main/main.mbt -w -1-2 -o ./target/wasm-gc/release/bundle/main/main.core -pkg username/hello/main -is-main -i ./target/wasm-gc/release/bundle/lib/lib.mi:lib -i ./target/wasm-gc/release/bundle/lib1/lib1.mi:lib1 -pkg-sources username/hello/main:./main -target wasm-gc
+            moonc bundle-core ./target/wasm-gc/release/bundle/lib/lib.core ./target/wasm-gc/release/bundle/lib1/lib1.core ./target/wasm-gc/release/bundle/main/main.core -o ./target/wasm-gc/release/bundle/hello.core
+        "#]],
+    );
+
+    // to cover `moon bundle` no work to do
+    get_stdout_with_args_and_replace_dir(&dir, ["bundle", "--sort-input"]);
+
+    check(
+        &get_stdout_with_args_and_replace_dir(
+            &dir,
+            ["check", "--sort-input", "--no-render", "--dry-run"],
+        ),
+        expect![[r#"
+            moonc check ./lib/hello.mbt -w -2 -o ./target/wasm-gc/release/check/lib/lib.mi -pkg username/hello/lib -std-path $MOON_HOME/lib/core/target/wasm-gc/release/bundle -pkg-sources username/hello/lib:./lib -target wasm-gc
+            moonc check ./lib1/hello.mbt -w -1 -o ./target/wasm-gc/release/check/lib1/lib1.mi -pkg username/hello/lib1 -std-path $MOON_HOME/lib/core/target/wasm-gc/release/bundle -pkg-sources username/hello/lib1:./lib1 -target wasm-gc
+            moonc check ./main/main.mbt -w -1-2 -o ./target/wasm-gc/release/check/main/main.mi -pkg username/hello/main -is-main -std-path $MOON_HOME/lib/core/target/wasm-gc/release/bundle -i ./target/wasm-gc/release/check/lib/lib.mi:lib -i ./target/wasm-gc/release/check/lib1/lib1.mi:lib1 -pkg-sources username/hello/main:./main -target wasm-gc
+        "#]],
+    );
+}
+
+#[test]
+fn test_warn_list_real_run() {
     let dir = TestDir::new("warn_list.in");
 
     check(
         &get_stdout_with_args_and_replace_dir(&dir, ["build", "--sort-input", "--no-render"]),
         expect![[r#"
-            moonc build-package $ROOT/lib/hello.mbt -w -2 -o $ROOT/target/wasm-gc/release/build/lib/lib.core -pkg username/hello/lib -std-path $MOON_HOME/lib/core/target/wasm-gc/release/bundle -pkg-sources username/hello/lib:$ROOT/lib -target wasm-gc
-            moonc build-package $ROOT/lib1/hello.mbt -w -1 -o $ROOT/target/wasm-gc/release/build/lib1/lib1.core -pkg username/hello/lib1 -std-path $MOON_HOME/lib/core/target/wasm-gc/release/bundle -pkg-sources username/hello/lib1:$ROOT/lib1 -target wasm-gc
-            moonc build-package $ROOT/main/main.mbt -w -1-2 -o $ROOT/target/wasm-gc/release/build/main/main.core -pkg username/hello/main -is-main -std-path $MOON_HOME/lib/core/target/wasm-gc/release/bundle -i $ROOT/target/wasm-gc/release/build/lib/lib.mi:lib -i $ROOT/target/wasm-gc/release/build/lib1/lib1.mi:lib1 -pkg-sources username/hello/main:$ROOT/main -target wasm-gc
-            moonc link-core $MOON_HOME/lib/core/target/wasm-gc/release/bundle/core.core $ROOT/target/wasm-gc/release/build/lib/lib.core $ROOT/target/wasm-gc/release/build/lib1/lib1.core $ROOT/target/wasm-gc/release/build/main/main.core -main username/hello/main -o $ROOT/target/wasm-gc/release/build/main/main.wasm -pkg-sources username/hello/lib:$ROOT/lib -pkg-sources username/hello/lib1:$ROOT/lib1 -pkg-sources username/hello/main:$ROOT/main -pkg-sources moonbitlang/core:$MOON_HOME/lib/core -target wasm-gc
-            moon: ran 4 tasks, now up to date
+            Finished. moon: ran 4 tasks, now up to date
         "#]],
     );
 
@@ -2994,11 +3043,7 @@ fn test_warn_list() {
     check(
         &get_stdout_with_args_and_replace_dir(&dir, ["bundle", "--sort-input", "--no-render"]),
         expect![[r#"
-            moonc build-package $ROOT/lib/hello.mbt -w -2 -o $ROOT/target/wasm-gc/release/bundle/lib/lib.core -pkg username/hello/lib -pkg-sources username/hello/lib:$ROOT/lib -target wasm-gc
-            moonc build-package $ROOT/lib1/hello.mbt -w -1 -o $ROOT/target/wasm-gc/release/bundle/lib1/lib1.core -pkg username/hello/lib1 -pkg-sources username/hello/lib1:$ROOT/lib1 -target wasm-gc
-            moonc build-package $ROOT/main/main.mbt -w -1-2 -o $ROOT/target/wasm-gc/release/bundle/main/main.core -pkg username/hello/main -is-main -i $ROOT/target/wasm-gc/release/bundle/lib/lib.mi:lib -i $ROOT/target/wasm-gc/release/bundle/lib1/lib1.mi:lib1 -pkg-sources username/hello/main:$ROOT/main -target wasm-gc
-            moonc bundle-core $ROOT/target/wasm-gc/release/bundle/lib/lib.core $ROOT/target/wasm-gc/release/bundle/lib1/lib1.core $ROOT/target/wasm-gc/release/bundle/main/main.core -o $ROOT/target/wasm-gc/release/bundle/hello.core
-            moon: ran 4 tasks, now up to date
+            Finished. moon: ran 4 tasks, now up to date
         "#]],
     );
 
@@ -3008,10 +3053,7 @@ fn test_warn_list() {
     check(
         &get_stdout_with_args_and_replace_dir(&dir, ["check", "--sort-input", "--no-render"]),
         expect![[r#"
-            moonc check $ROOT/lib/hello.mbt -w -2 -o $ROOT/target/wasm-gc/release/check/lib/lib.mi -pkg username/hello/lib -std-path $MOON_HOME/lib/core/target/wasm-gc/release/bundle -pkg-sources username/hello/lib:$ROOT/lib -target wasm-gc
-            moonc check $ROOT/lib1/hello.mbt -w -1 -o $ROOT/target/wasm-gc/release/check/lib1/lib1.mi -pkg username/hello/lib1 -std-path $MOON_HOME/lib/core/target/wasm-gc/release/bundle -pkg-sources username/hello/lib1:$ROOT/lib1 -target wasm-gc
-            moonc check $ROOT/main/main.mbt -w -1-2 -o $ROOT/target/wasm-gc/release/check/main/main.mi -pkg username/hello/main -is-main -std-path $MOON_HOME/lib/core/target/wasm-gc/release/bundle -i $ROOT/target/wasm-gc/release/check/lib/lib.mi:lib -i $ROOT/target/wasm-gc/release/check/lib1/lib1.mi:lib1 -pkg-sources username/hello/main:$ROOT/main -target wasm-gc
-            moon: ran 3 tasks, now up to date
+            Finished. moon: ran 3 tasks, now up to date
         "#]],
     );
 }
@@ -3024,8 +3066,6 @@ fn test_alert_list() {
     check(
         &get_stdout_with_args_and_replace_dir(&dir, ["build", "--sort-input"]),
         expect![[r#"
-            moonc build-package -error-format json $ROOT/lib/hello.mbt -w -2 -alert -alert_1-alert_2 -o $ROOT/target/wasm-gc/release/build/lib/lib.core -pkg username/hello/lib -std-path $MOON_HOME/lib/core/target/wasm-gc/release/bundle -pkg-sources username/hello/lib:$ROOT/lib -target wasm-gc
-            moonc build-package -error-format json $ROOT/main/main.mbt -w -1-2 -alert -alert_1 -o $ROOT/target/wasm-gc/release/build/main/main.core -pkg username/hello/main -is-main -std-path $MOON_HOME/lib/core/target/wasm-gc/release/bundle -i $ROOT/target/wasm-gc/release/build/lib/lib.mi:lib -pkg-sources username/hello/main:$ROOT/main -target wasm-gc
             [2000] Warning: Warning (Alert alert_2): alert_2
                ╭─[$ROOT/main/main.mbt:3:3]
                │
@@ -3033,8 +3073,7 @@ fn test_alert_list() {
                │   ───┬───  
                │      ╰───── Warning (Alert alert_2): alert_2
             ───╯
-            moonc link-core $MOON_HOME/lib/core/target/wasm-gc/release/bundle/core.core $ROOT/target/wasm-gc/release/build/lib/lib.core $ROOT/target/wasm-gc/release/build/main/main.core -main username/hello/main -o $ROOT/target/wasm-gc/release/build/main/main.wasm -pkg-sources username/hello/lib:$ROOT/lib -pkg-sources username/hello/main:$ROOT/main -pkg-sources moonbitlang/core:$MOON_HOME/lib/core -target wasm-gc
-            moon: ran 3 tasks, now up to date
+            Finished. moon: ran 3 tasks, now up to date
         "#]],
     );
 
@@ -3048,8 +3087,6 @@ fn test_alert_list() {
     check(
         &get_stdout_with_args_and_replace_dir(&dir, ["bundle", "--sort-input"]),
         expect![[r#"
-            moonc build-package -error-format json $ROOT/lib/hello.mbt -w -2 -alert -alert_1-alert_2 -o $ROOT/target/wasm-gc/release/bundle/lib/lib.core -pkg username/hello/lib -pkg-sources username/hello/lib:$ROOT/lib -target wasm-gc
-            moonc build-package -error-format json $ROOT/main/main.mbt -w -1-2 -alert -alert_1 -o $ROOT/target/wasm-gc/release/bundle/main/main.core -pkg username/hello/main -is-main -i $ROOT/target/wasm-gc/release/bundle/lib/lib.mi:lib -pkg-sources username/hello/main:$ROOT/main -target wasm-gc
             [2000] Warning: Warning (Alert alert_2): alert_2
                ╭─[$ROOT/main/main.mbt:3:3]
                │
@@ -3057,16 +3094,13 @@ fn test_alert_list() {
                │   ───┬───  
                │      ╰───── Warning (Alert alert_2): alert_2
             ───╯
-            moonc bundle-core $ROOT/target/wasm-gc/release/bundle/lib/lib.core $ROOT/target/wasm-gc/release/bundle/main/main.core -o $ROOT/target/wasm-gc/release/bundle/hello.core
-            moon: ran 3 tasks, now up to date
+            Finished. moon: ran 3 tasks, now up to date
         "#]],
     );
 
     check(
         &get_stdout_with_args_and_replace_dir(&dir, ["check", "--sort-input"]),
         expect![[r#"
-            moonc check -error-format json $ROOT/lib/hello.mbt -w -2 -alert -alert_1-alert_2 -o $ROOT/target/wasm-gc/release/check/lib/lib.mi -pkg username/hello/lib -std-path $MOON_HOME/lib/core/target/wasm-gc/release/bundle -pkg-sources username/hello/lib:$ROOT/lib -target wasm-gc
-            moonc check -error-format json $ROOT/main/main.mbt -w -1-2 -alert -alert_1 -o $ROOT/target/wasm-gc/release/check/main/main.mi -pkg username/hello/main -is-main -std-path $MOON_HOME/lib/core/target/wasm-gc/release/bundle -i $ROOT/target/wasm-gc/release/check/lib/lib.mi:lib -pkg-sources username/hello/main:$ROOT/main -target wasm-gc
             [2000] Warning: Warning (Alert alert_2): alert_2
                ╭─[$ROOT/main/main.mbt:3:3]
                │
@@ -3074,7 +3108,7 @@ fn test_alert_list() {
                │   ───┬───  
                │      ╰───── Warning (Alert alert_2): alert_2
             ───╯
-            moon: ran 2 tasks, now up to date
+            Finished. moon: ran 2 tasks, now up to date
         "#]],
     );
 }
@@ -3155,7 +3189,6 @@ fn test_deny_warn() {
     check(
         &get_stdout_with_args_and_replace_dir(&dir, ["check", "--sort-input"]),
         expect![[r#"
-            moonc check -error-format json $ROOT/lib/hello.mbt -o $ROOT/target/wasm-gc/release/check/lib/lib.mi -pkg username/hello/lib -std-path $MOON_HOME/lib/core/target/wasm-gc/release/bundle -pkg-sources username/hello/lib:$ROOT/lib -target wasm-gc
             [2000] Warning: Warning (Alert alert_2): alert_2
                 ╭─[$ROOT/lib/hello.mbt:14:3]
                 │
@@ -3191,7 +3224,6 @@ fn test_deny_warn() {
                 │       ────┬─────  
                 │           ╰─────── Warning: Unused variable '🤣😭🤣😭🤣'
             ────╯
-            moonc check -error-format json $ROOT/main/main.mbt -o $ROOT/target/wasm-gc/release/check/main/main.mi -pkg username/hello/main -is-main -std-path $MOON_HOME/lib/core/target/wasm-gc/release/bundle -i $ROOT/target/wasm-gc/release/check/lib/lib.mi:lib -pkg-sources username/hello/main:$ROOT/main -target wasm-gc
             [1002] Warning: Warning: Unused variable 'a'
                ╭─[$ROOT/main/main.mbt:2:7]
                │
@@ -3199,7 +3231,7 @@ fn test_deny_warn() {
                │       ┬  
                │       ╰── Warning: Unused variable 'a'
             ───╯
-            moon: ran 2 tasks, now up to date
+            Finished. moon: ran 2 tasks, now up to date
         "#]],
     );
 
@@ -3221,7 +3253,6 @@ fn test_deny_warn() {
     check(
         &get_stdout_with_args_and_replace_dir(&dir, ["build", "--sort-input"]),
         expect![[r#"
-            moonc build-package -error-format json $ROOT/lib/hello.mbt -o $ROOT/target/wasm-gc/release/build/lib/lib.core -pkg username/hello/lib -std-path $MOON_HOME/lib/core/target/wasm-gc/release/bundle -pkg-sources username/hello/lib:$ROOT/lib -target wasm-gc
             [2000] Warning: Warning (Alert alert_2): alert_2
                 ╭─[$ROOT/lib/hello.mbt:14:3]
                 │
@@ -3257,7 +3288,6 @@ fn test_deny_warn() {
                 │       ────┬─────  
                 │           ╰─────── Warning: Unused variable '🤣😭🤣😭🤣'
             ────╯
-            moonc build-package -error-format json $ROOT/main/main.mbt -o $ROOT/target/wasm-gc/release/build/main/main.core -pkg username/hello/main -is-main -std-path $MOON_HOME/lib/core/target/wasm-gc/release/bundle -i $ROOT/target/wasm-gc/release/build/lib/lib.mi:lib -pkg-sources username/hello/main:$ROOT/main -target wasm-gc
             [1002] Warning: Warning: Unused variable 'a'
                ╭─[$ROOT/main/main.mbt:2:7]
                │
@@ -3265,8 +3295,7 @@ fn test_deny_warn() {
                │       ┬  
                │       ╰── Warning: Unused variable 'a'
             ───╯
-            moonc link-core $MOON_HOME/lib/core/target/wasm-gc/release/bundle/core.core $ROOT/target/wasm-gc/release/build/lib/lib.core $ROOT/target/wasm-gc/release/build/main/main.core -main username/hello/main -o $ROOT/target/wasm-gc/release/build/main/main.wasm -pkg-sources username/hello/lib:$ROOT/lib -pkg-sources username/hello/main:$ROOT/main -pkg-sources moonbitlang/core:$MOON_HOME/lib/core -target wasm-gc
-            moon: ran 3 tasks, now up to date
+            Finished. moon: ran 3 tasks, now up to date
         "#]],
     );
 
@@ -3887,6 +3916,29 @@ fn test_whitespace_parent_space() -> anyhow::Result<()> {
     let canon = dunce::canonicalize(tmp_dir.path())?;
     let prefix = canon.as_path().display().to_string().replace('\\', "/");
 
+    let out = get_stdout_with_args(
+        &path_with_space,
+        ["build", "--no-render", "--sort-input", "--dry-run"],
+    );
+    let out = out.replace(&prefix, ".");
+    let out = out.replace(
+        &moonutil::moon_dir::home()
+            .to_str()
+            .unwrap()
+            .replace('\\', "/"),
+        "$MOON_HOME",
+    );
+
+    copy(&dir, &path_with_space)?;
+    check(
+        &out,
+        expect![[r#"
+            moonc build-package "./main lib/hello.mbt" -o "./target/wasm-gc/release/build/main lib/main lib.core" -pkg "username/hello/main lib" -std-path $MOON_HOME/lib/core/target/wasm-gc/release/bundle -pkg-sources "username/hello/main lib:./main lib" -target wasm-gc
+            moonc build-package "./main exe/main.mbt" -o "./target/wasm-gc/release/build/main exe/main exe.core" -pkg "username/hello/main exe" -is-main -std-path $MOON_HOME/lib/core/target/wasm-gc/release/bundle -i "./target/wasm-gc/release/build/main lib/main lib.mi:lib" -pkg-sources "username/hello/main exe:./main exe" -target wasm-gc
+            moonc link-core $MOON_HOME/lib/core/target/wasm-gc/release/bundle/core.core "./target/wasm-gc/release/build/main lib/main lib.core" "./target/wasm-gc/release/build/main exe/main exe.core" -main "username/hello/main exe" -o "./target/wasm-gc/release/build/main exe/main exe.wasm" -pkg-sources "username/hello/main lib:./main lib" -pkg-sources "username/hello/main exe:./main exe" -pkg-sources moonbitlang/core:$MOON_HOME/lib/core -target wasm-gc
+        "#]],
+    );
+
     let out = get_stdout_with_args(&path_with_space, ["build", "--no-render"]);
     let out = out.replace(&prefix, ".");
     let out = out.replace(
@@ -3901,10 +3953,7 @@ fn test_whitespace_parent_space() -> anyhow::Result<()> {
     check(
         &out,
         expect![[r#"
-            moonc build-package "./with space/main lib/hello.mbt" -o "./with space/target/wasm-gc/release/build/main lib/main lib.core" -pkg "username/hello/main lib" -std-path $MOON_HOME/lib/core/target/wasm-gc/release/bundle -pkg-sources "username/hello/main lib:./with space/main lib" -target wasm-gc
-            moonc build-package "./with space/main exe/main.mbt" -o "./with space/target/wasm-gc/release/build/main exe/main exe.core" -pkg "username/hello/main exe" -is-main -std-path $MOON_HOME/lib/core/target/wasm-gc/release/bundle -i "./with space/target/wasm-gc/release/build/main lib/main lib.mi:lib" -pkg-sources "username/hello/main exe:./with space/main exe" -target wasm-gc
-            moonc link-core $MOON_HOME/lib/core/target/wasm-gc/release/bundle/core.core "./with space/target/wasm-gc/release/build/main lib/main lib.core" "./with space/target/wasm-gc/release/build/main exe/main exe.core" -main "username/hello/main exe" -o "./with space/target/wasm-gc/release/build/main exe/main exe.wasm" -pkg-sources "username/hello/main lib:./with space/main lib" -pkg-sources "username/hello/main exe:./with space/main exe" -pkg-sources moonbitlang/core:$MOON_HOME/lib/core -target wasm-gc
-            moon: ran 3 tasks, now up to date
+            Finished. moon: ran 3 tasks, now up to date
         "#]],
     );
     Ok(())
