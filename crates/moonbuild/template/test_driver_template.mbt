@@ -22,13 +22,13 @@ fn startswith_panic(s : String) -> Bool {
 }
 
 fn main {
-  let tests : Array[(String, String, () -> Unit!String)] = [
+  let tests : @moonbitlang/core/builtin.Array[(String, String, () -> Unit!String)] = [
     // test identifiers
   ]
   let total = tests.length()
-  let test_names = Array::make(total, "")
-  let filenames = Array::make(total, "")
-  let messages = Array::make(total, "")
+  let test_names = @moonbitlang/core/builtin.Array::make(total, "")
+  let filenames = @moonbitlang/core/builtin.Array::make(total, "")
+  let messages = @moonbitlang/core/builtin.Array::make(total, "")
   let mut succ_idx = total
   let mut fail_idx = 0
   for k = 0; k < tests.length(); k = k + 1 {
@@ -50,8 +50,8 @@ fn main {
       }
     }
   }
-  fn repr(obj : Array[String]) -> String {
-    let buf = Buffer::new(size_hint=16)
+  fn repr(obj : @moonbitlang/core/builtin.Array[String]) -> String {
+    let buf = @moonbitlang/core/builtin.Buffer::new(size_hint=16)
     obj.debug_write(buf)
     buf.to_string()
   }

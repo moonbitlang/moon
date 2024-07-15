@@ -4,7 +4,8 @@ use colored::Colorize;
 use mooncake::pkg::sync::auto_sync;
 use moonutil::cli::UniversalFlags;
 use moonutil::common::{
-    MoonbuildOpt, RunMode, TestOpt, MOON_TEST_DELIMITER_BEGIN, MOON_TEST_DELIMITER_END,
+    MoonbuildOpt, RunMode, TestOpt, MOONBITLANG_CORE, MOON_TEST_DELIMITER_BEGIN,
+    MOON_TEST_DELIMITER_END,
 };
 use moonutil::dirs::PackageDirs;
 use moonutil::mooncakes::sync::AutoSyncFlags;
@@ -202,10 +203,18 @@ pub fn generate_test_driver(
 }
 
 fn generate_driver(lines: &[String], pkgname: &str) -> String {
-    let test_driver_template = include_str!(concat!(
-        env!("CARGO_MANIFEST_DIR"),
-        "/../moonbuild/template/test_driver_template.mbt"
-    ));
+    let test_driver_template = {
+        let template = include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../moonbuild/template/test_driver_template.mbt"
+        ));
+        if pkgname.starts_with(MOONBITLANG_CORE) {
+            template.replace(&format!("@{}/builtin.", MOONBITLANG_CORE), "")
+        } else {
+            template.to_string()
+        }
+    };
+
     test_driver_template
         .replace("// test identifiers", &lines.join("\n    "))
         .replace("{package}", pkgname)
