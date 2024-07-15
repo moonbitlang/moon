@@ -84,7 +84,7 @@ pub fn run_doc(cli: UniversalFlags, cmd: DocSubcommand) -> anyhow::Result<i32> {
         &moonc_opt,
         &moonbuild_opt,
     )?;
-    moonbuild::entry::run_check(true, &moonc_opt, &moonbuild_opt, &module)?;
+    moonbuild::entry::run_check(&moonc_opt, &moonbuild_opt, &module)?;
 
     let mut args = vec![
         source_dir.display().to_string(),

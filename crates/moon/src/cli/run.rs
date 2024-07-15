@@ -71,6 +71,8 @@ pub fn run_run(cli: &UniversalFlags, cmd: RunSubcommand) -> anyhow::Result<i32> 
         sort_input,
         run_mode,
         args: cmd.args,
+        quiet: true,
+        verbose: cli.verbose,
         ..Default::default()
     };
 
@@ -100,16 +102,7 @@ pub fn run_run(cli: &UniversalFlags, cmd: RunSubcommand) -> anyhow::Result<i32> 
         trace::open("trace.json").context("failed to open `trace.json`")?;
     }
 
-    let verbose = cli.verbose;
-    let quiet = !verbose;
-
-    let result = entry::run_run(
-        quiet,
-        Some(&package_path),
-        &moonc_opt,
-        &moonbuild_opt,
-        &module,
-    );
+    let result = entry::run_run(Some(&package_path), &moonc_opt, &moonbuild_opt, &module);
     if trace_flag {
         trace::close();
     }
