@@ -4388,3 +4388,26 @@ fn test_blackbox_failed() {
     assert!(output.contains("Value _private_hello not found in package \"A\""));
     assert!(output.contains("Package \"C\" not found in the loaded packages."));
 }
+
+#[test]
+fn test_import_memory_and_heap_start() {
+    let dir = TestDir::new("import_memory.in");
+    check(
+        &get_stdout_with_args_and_replace_dir(
+            &dir,
+            [
+                "build",
+                "--target",
+                "wasm",
+                "--dry-run",
+                "--sort-input",
+                "--nostd",
+            ],
+        ),
+        expect![[r#"
+            moonc build-package ./lib/hello.mbt -o ./target/wasm/release/build/lib/lib.core -pkg username/hello/lib -pkg-sources username/hello/lib:./lib -target wasm
+            moonc build-package ./main/main.mbt -o ./target/wasm/release/build/main/main.core -pkg username/hello/main -is-main -i ./target/wasm/release/build/lib/lib.mi:lib -pkg-sources username/hello/main:./main -target wasm
+            moonc link-core ./target/wasm/release/build/lib/lib.core ./target/wasm/release/build/main/main.core -main username/hello/main -o ./target/wasm/release/build/main/main.wasm -pkg-sources username/hello/lib:./lib -pkg-sources username/hello/main:./main -target wasm -import-memory-module xxx -import-memory-name yyy -heap-start-address 65536
+        "#]],
+    );
+}
