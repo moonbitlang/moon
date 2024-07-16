@@ -145,7 +145,20 @@ pub struct MoonPkgJSON {
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
-pub struct LinkConfig {
+pub struct WasmLinkConfig {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub exports: Option<Vec<String>>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(rename = "export-memory-name")]
+    pub export_memory_name: Option<String>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub flags: Option<Vec<String>>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct WasmGcLinkConfig {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub exports: Option<Vec<String>>,
 
@@ -191,11 +204,11 @@ impl JsFormat {
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct Link {
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub wasm: Option<LinkConfig>,
+    pub wasm: Option<WasmLinkConfig>,
 
     #[serde(skip_serializing_if = "Option::is_none")]
     #[serde(rename = "wasm-gc")]
-    pub wasm_gc: Option<LinkConfig>,
+    pub wasm_gc: Option<WasmGcLinkConfig>,
 
     #[serde(skip_serializing_if = "Option::is_none")]
     pub js: Option<JsLinkConfig>,
