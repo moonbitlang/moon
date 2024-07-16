@@ -1,5 +1,5 @@
 use super::gen;
-use anyhow::bail;
+use anyhow::{bail, Context};
 use moonutil::common::MoonbuildOpt;
 use moonutil::module::ModuleDB;
 use n2::load::State;
@@ -53,7 +53,17 @@ fn run(command: &str, path: &Path, args: &[String]) -> anyhow::Result<()> {
         .args(args)
         .stdout(Stdio::inherit())
         .stderr(Stdio::inherit())
-        .spawn()?;
+        .spawn()
+        .context(format!(
+            "failed to execute: {} {} {}",
+            command,
+            path.display(),
+            if args.is_empty() {
+                "".to_string()
+            } else {
+                format!("-- {}", args.join(" "))
+            }
+        ))?;
     let status = execution.wait()?;
     if status.success() {
         Ok(())
