@@ -1,4 +1,5 @@
 use anyhow::{bail, Ok};
+use moonutil::common::TargetBackend::*;
 use moonutil::module::ModuleDB;
 use moonutil::package::{JsFormat, Package};
 
@@ -7,7 +8,7 @@ use crate::gen::MiAlias;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
 
-use moonutil::common::{MoonbuildOpt, MooncOpt, MOONBITLANG_CORE, MOON_PKG_JSON};
+use moonutil::common::{MoonbuildOpt, MooncOpt, TargetBackend, MOONBITLANG_CORE, MOON_PKG_JSON};
 use n2::graph::{self as n2graph, Build, BuildIns, BuildOuts, FileLoc};
 use n2::load::State;
 use n2::smallmap::SmallMap;
@@ -299,75 +300,11 @@ pub fn gen_link_command(
 
     let mut build = Build::new(loc, ins, outs);
 
-    let exports = match moonc_opt.link_opt.target_backend {
-        moonutil::common::TargetBackend::Wasm => item
-            .link
-            .as_ref()
-            .and_then(|l| l.wasm.as_ref())
-            .and_then(|w| w.exports.as_ref()),
-        moonutil::common::TargetBackend::WasmGC => item
-            .link
-            .as_ref()
-            .and_then(|l| l.wasm_gc.as_ref())
-            .and_then(|w| w.exports.as_ref()),
-        moonutil::common::TargetBackend::Js => item
-            .link
-            .as_ref()
-            .and_then(|l| l.js.as_ref())
-            .and_then(|w| w.exports.as_ref()),
-    };
-
-    let export_memory_name = match moonc_opt.link_opt.target_backend {
-        moonutil::common::TargetBackend::Wasm => item
-            .link
-            .as_ref()
-            .and_then(|l| l.wasm.as_ref())
-            .and_then(|w| w.export_memory_name.as_ref())
-            .map(|s| s.to_string()),
-        moonutil::common::TargetBackend::WasmGC => item
-            .link
-            .as_ref()
-            .and_then(|l| l.wasm_gc.as_ref())
-            .and_then(|w| w.export_memory_name.as_ref())
-            .map(|s| s.to_string()),
-        moonutil::common::TargetBackend::Js => None,
-    };
-
-    let heap_start_address = match moonc_opt.link_opt.target_backend {
-        moonutil::common::TargetBackend::Wasm => item
-            .link
-            .as_ref()
-            .and_then(|l| l.wasm.as_ref())
-            .and_then(|w| w.heap_start_address.as_ref()),
-        moonutil::common::TargetBackend::WasmGC => None,
-        moonutil::common::TargetBackend::Js => None,
-    };
-
-    let import_memory = match moonc_opt.link_opt.target_backend {
-        moonutil::common::TargetBackend::Wasm => item
-            .link
-            .as_ref()
-            .and_then(|l| l.wasm.as_ref())
-            .and_then(|w| w.import_memory.as_ref()),
-        moonutil::common::TargetBackend::WasmGC => None,
-        moonutil::common::TargetBackend::Js => None,
-    };
-
-    let link_flags: Option<Vec<String>> = match moonc_opt.link_opt.target_backend {
-        moonutil::common::TargetBackend::Wasm => item
-            .link
-            .as_ref()
-            .and_then(|l| l.wasm.as_ref())
-            .and_then(|w| w.flags.as_ref())
-            .cloned(),
-        moonutil::common::TargetBackend::WasmGC => item
-            .link
-            .as_ref()
-            .and_then(|l| l.wasm_gc.as_ref())
-            .and_then(|w| w.flags.as_ref())
-            .cloned(),
-        moonutil::common::TargetBackend::Js => None,
-    };
+    let exports = item.exports(moonc_opt.link_opt.target_backend);
+    let export_memory_name = item.export_memory_name(moonc_opt.link_opt.target_backend);
+    let heap_start_address = item.heap_start_address(moonc_opt.link_opt.target_backend);
+    let import_memory = item.import_memory(moonc_opt.link_opt.target_backend);
+    let link_flags = item.link_flags(moonc_opt.link_opt.target_backend);
 
     let command = CommandBuilder::new("moonc")
         .arg("link-core")
@@ -491,4 +428,59 @@ pub fn gen_n2_build_state(
         default,
         pools: SmallMap::default(),
     })
+}
+
+#[rustfmt::skip]
+impl LinkDepItem {
+    pub fn wasm_exports(&self) -> Option<&Vec<String>> { self.link.as_ref()?.wasm.as_ref()?.exports.as_ref() }
+    pub fn wasm_export_memory_name(&self) -> Option<&String> { self.link.as_ref()?.wasm.as_ref()?.export_memory_name.as_ref() }
+    pub fn wasm_import_memory(&self) -> Option<&moonutil::package::ImportMemory> { self.link.as_ref()?.wasm.as_ref()?.import_memory.as_ref() }
+    pub fn wasm_heap_start_address(&self) -> Option<&u32> { self.link.as_ref()?.wasm.as_ref()?.heap_start_address.as_ref() }
+    pub fn wasm_link_flags(&self) -> Option<&Vec<String>> { self.link.as_ref()?.wasm.as_ref()?.flags.as_ref() }
+
+    pub fn wasm_gc_exports(&self) -> Option<&Vec<String>> { self.link.as_ref()?.wasm_gc.as_ref()?.exports.as_ref() }
+    pub fn wasm_gc_export_memory_name(&self) -> Option<&String> { self.link.as_ref()?.wasm_gc.as_ref()?.export_memory_name.as_ref() }
+    pub fn wasm_gc_link_flags(&self) -> Option<&Vec<String>> { self.link.as_ref()?.wasm_gc.as_ref()?.flags.as_ref() }
+
+    pub fn js_exports(&self) -> Option<&Vec<String>> { self.link.as_ref()?.js.as_ref()?.exports.as_ref() }
+
+    pub fn exports(&self, b: TargetBackend) -> Option<&Vec<String>> {
+        match b {
+            Wasm => self.wasm_exports(),
+            WasmGC => self.wasm_gc_exports(),
+            Js => self.js_exports(),
+        }
+    }
+
+    pub fn export_memory_name(&self, b: TargetBackend) -> Option<&String> {
+        match b {
+            Wasm => self.wasm_export_memory_name(),
+            WasmGC => self.wasm_gc_export_memory_name(),
+            Js => None,
+        }
+    }
+
+    pub fn heap_start_address(&self, b: TargetBackend) -> Option<&u32> {
+        match b {
+            Wasm => self.wasm_heap_start_address(),
+            WasmGC => None,
+            Js => None,
+        }
+    }
+
+    pub fn import_memory(&self, b: TargetBackend) -> Option<&moonutil::package::ImportMemory> {
+        match b {
+            Wasm => self.wasm_import_memory(),
+            WasmGC => None,
+            Js => None,
+        }
+    }
+
+    pub fn link_flags(&self, b: TargetBackend) -> Option<Vec<String>> {
+        match b {
+            Wasm => self.wasm_link_flags().cloned(),
+            WasmGC => self.wasm_gc_link_flags().cloned(),
+            Js => None,
+        }
+    }
 }

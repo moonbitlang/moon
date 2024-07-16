@@ -710,38 +710,6 @@ pub fn gen_runtest_link_command(
 
     let mut build = Build::new(loc, ins, outs);
 
-    let export_memory_name = match moonc_opt.link_opt.target_backend {
-        moonutil::common::TargetBackend::Wasm => item
-            .link
-            .as_ref()
-            .and_then(|l| l.wasm.as_ref())
-            .and_then(|w| w.export_memory_name.as_ref())
-            .map(|s| s.to_string()),
-        moonutil::common::TargetBackend::WasmGC => item
-            .link
-            .as_ref()
-            .and_then(|l| l.wasm_gc.as_ref())
-            .and_then(|w| w.export_memory_name.as_ref())
-            .map(|s| s.to_string()),
-        moonutil::common::TargetBackend::Js => None,
-    };
-
-    let link_flags: Option<Vec<String>> = match moonc_opt.link_opt.target_backend {
-        moonutil::common::TargetBackend::Wasm => item
-            .link
-            .as_ref()
-            .and_then(|l| l.wasm.as_ref())
-            .and_then(|w| w.flags.as_ref())
-            .cloned(),
-        moonutil::common::TargetBackend::WasmGC => item
-            .link
-            .as_ref()
-            .and_then(|l| l.wasm_gc.as_ref())
-            .and_then(|w| w.flags.as_ref())
-            .cloned(),
-        moonutil::common::TargetBackend::Js => None,
-    };
-
     let command = CommandBuilder::new("moonc")
         .arg("link-core")
         .arg_with_cond(
@@ -756,13 +724,6 @@ pub fn gen_runtest_link_command(
         .arg("-o")
         .arg(&artifact_output_path)
         .arg("-test-mode") // always passing -test-mode to allow recover from panic
-        .lazy_args_with_cond(export_memory_name.is_some(), || {
-            vec![
-                "-export-memory-name".to_string(),
-                export_memory_name.unwrap().to_string(),
-            ]
-        })
-        .lazy_args_with_cond(link_flags.is_some(), || link_flags.unwrap())
         .args_with_prefix_separator(
             item.package_sources
                 .iter()
