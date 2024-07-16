@@ -3,7 +3,7 @@
   "wbtest-import": [
     "username/hello/B"
   ],
-  "bbtest-import": [
+  "test-import": [
     "username/hello/C"
   ]
 }

@@ -101,7 +101,7 @@ pub fn generate_test_driver(
             .files
             .iter()
             .chain(pkg.wbtest_files.iter())
-            .chain(pkg.bbtest_files.iter())
+            .chain(pkg.test_files.iter())
         {
             let content = std::fs::read_to_string(file)?;
             let mut counter = 0;
@@ -143,7 +143,7 @@ pub fn generate_test_driver(
                     let file_name = &file.file_stem().unwrap().to_str().unwrap();
                     if file_name.ends_with("_wbtest") {
                         testcase_underscore.push(line);
-                    } else if file_name.ends_with("_bbtest") {
+                    } else if file_name.ends_with("_test") {
                         testcase_blackbox.push(line);
                     } else {
                         testcase_internal.push(line);

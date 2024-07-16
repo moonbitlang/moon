@@ -239,7 +239,7 @@ pub fn gen_package_blackbox_test(
         .with_file_name(format!("{}.blackbox_test.mi", pkgname));
 
     let backend_filtered =
-        moonutil::common::backend_filter(&pkg.bbtest_files, moonc_opt.link_opt.target_backend);
+        moonutil::common::backend_filter(&pkg.test_files, moonc_opt.link_opt.target_backend);
     let mut mbt_deps: Vec<String> = backend_filtered
         .iter()
         .map(|f| f.display().to_string())
@@ -261,7 +261,7 @@ pub fn gen_package_blackbox_test(
         alias: pkg.last_name().into(),
     }];
 
-    for dep in pkg.bbtest_imports.iter() {
+    for dep in pkg.test_imports.iter() {
         let full_import_name = dep.path.make_full_path();
         if !m.packages.contains_key(&full_import_name) {
             bail!(
@@ -302,8 +302,8 @@ pub fn gen_package_blackbox_test(
 fn get_pkg_topo_order<'a>(
     m: &'a ModuleDB,
     leaf: &Package,
+    with_wbtest_import: bool,
     with_test_import: bool,
-    with_bbtest_import: bool,
 ) -> Vec<&'a Package> {
     let mut visited: HashSet<String> = HashSet::new();
     let mut pkg_topo_order: Vec<&Package> = vec![];
@@ -312,8 +312,8 @@ fn get_pkg_topo_order<'a>(
         pkg_topo_order: &mut Vec<&'a Package>,
         visited: &mut HashSet<String>,
         cur_pkg_full_name: &String,
+        with_wbtest_import: bool,
         with_test_import: bool,
-        with_bbtest_import: bool,
     ) {
         if visited.contains(cur_pkg_full_name) {
             return;
@@ -323,13 +323,13 @@ fn get_pkg_topo_order<'a>(
         let imports = cur_pkg
             .imports
             .iter()
-            .chain(if with_test_import {
+            .chain(if with_wbtest_import {
                 cur_pkg.wbtest_imports.iter()
             } else {
                 [].iter()
             })
-            .chain(if with_bbtest_import {
-                cur_pkg.bbtest_imports.iter()
+            .chain(if with_test_import {
+                cur_pkg.test_imports.iter()
             } else {
                 [].iter()
             });
@@ -352,8 +352,8 @@ fn get_pkg_topo_order<'a>(
         &mut pkg_topo_order,
         &mut visited,
         &leaf.full_name(),
+        with_wbtest_import,
         with_test_import,
-        with_bbtest_import,
     );
     pkg_topo_order
 }
@@ -555,7 +555,7 @@ pub fn gen_runtest<'a>(
             }
         }
 
-        if !pkg.bbtest_files.is_empty() {
+        if !pkg.test_files.is_empty() {
             for item in pkg.generated_test_drivers.iter() {
                 if let GeneratedTestDriver::BlackboxTest(it) = item {
                     build_items.push(gen_package_blackbox_test(m, pkg, moonc_opt)?);
