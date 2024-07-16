@@ -2,7 +2,7 @@
   "import": {
     "moontest/lib2": ""
   },
-  "test-import": [
+  "wbtest-import": [
     "moontest/lib2"
   ]
 }

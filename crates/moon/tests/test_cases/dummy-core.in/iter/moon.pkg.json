@@ -2,7 +2,7 @@
   "import": [
     "moonbitlang/core/coverage"
   ],
-  "test-import": [
+  "wbtest-import": [
     "moonbitlang/core/char"
   ]
 }

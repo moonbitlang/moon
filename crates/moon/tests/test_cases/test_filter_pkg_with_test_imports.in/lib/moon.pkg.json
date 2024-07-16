@@ -3,7 +3,7 @@
     "username/hello/lib1",
     "username/hello/lib2"
   ],
-  "test-import": [
+  "wbtest-import": [
     "username/hello/lib7"
   ]
 }

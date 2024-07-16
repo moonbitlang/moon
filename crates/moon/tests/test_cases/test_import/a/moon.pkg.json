@@ -2,7 +2,7 @@
   "import": [
     "username/hello/s"
   ],
-  "test-import": [
+  "wbtest-import": [
     "username/hello/t"
   ]
 }
