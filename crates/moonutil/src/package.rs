@@ -103,7 +103,7 @@ pub enum PkgJSONImportItem {
 #[serde(untagged)]
 pub enum BoolOrLink {
     Bool(bool),
-    Link(Link),
+    Link(Box<Link>),
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -145,7 +145,34 @@ pub struct MoonPkgJSON {
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
-pub struct LinkConfig {
+pub struct ImportMemory {
+    pub module: String,
+    pub name: String,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct WasmLinkConfig {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub exports: Option<Vec<String>>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(rename = "heap-start-address")]
+    pub heap_start_address: Option<u32>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(rename = "import-memory")]
+    pub import_memory: Option<ImportMemory>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(rename = "export-memory-name")]
+    pub export_memory_name: Option<String>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub flags: Option<Vec<String>>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct WasmGcLinkConfig {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub exports: Option<Vec<String>>,
 
@@ -191,11 +218,11 @@ impl JsFormat {
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct Link {
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub wasm: Option<LinkConfig>,
+    pub wasm: Option<WasmLinkConfig>,
 
     #[serde(skip_serializing_if = "Option::is_none")]
     #[serde(rename = "wasm-gc")]
-    pub wasm_gc: Option<LinkConfig>,
+    pub wasm_gc: Option<WasmGcLinkConfig>,
 
     #[serde(skip_serializing_if = "Option::is_none")]
     pub js: Option<JsLinkConfig>,
@@ -369,7 +396,7 @@ pub fn convert_pkg_json_to_package(j: MoonPkgJSON) -> anyhow::Result<MoonPkg> {
         link: match j.link {
             None => None,
             Some(BoolOrLink::Bool(_)) => None,
-            Some(BoolOrLink::Link(l)) => Some(l),
+            Some(BoolOrLink::Link(l)) => Some(*l),
         },
         warn_list: j.warn_list,
         alert_list: j.alert_list,
