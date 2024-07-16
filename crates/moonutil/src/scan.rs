@@ -226,10 +226,10 @@ fn scan_one_package(
     let rel_path = PathComponent::from_path(rel)?;
 
     let imports = get_imports(pkg.imports)?;
-    let test_imports = get_imports(pkg.wbtest_imports)?;
+    let wbtest_imports = get_imports(pkg.wbtest_imports)?;
     let bbtest_imports = get_imports(pkg.bbtest_imports)?;
 
-    let (mut mbt_files, mut test_mbt_files, mut bbtest_mbt_files) =
+    let (mut mbt_files, mut wbtest_mbt_files, mut bbtest_mbt_files) =
         get_mbt_and_test_file_paths(pkg_path);
 
     // workaround for builtin package testing
@@ -243,7 +243,7 @@ fn scan_one_package(
     let sort_input = moonbuild_opt.sort_input;
     if sort_input {
         mbt_files.sort();
-        test_mbt_files.sort();
+        wbtest_mbt_files.sort();
         bbtest_mbt_files.sort();
     }
     let artifact: PathBuf = target_dir.into();
@@ -255,10 +255,10 @@ fn scan_one_package(
         root: PathComponent::from_str(&mod_desc.name)?,
         files: mbt_files,
         files_contain_test_block: vec![],
-        wbtest_files: test_mbt_files,
+        wbtest_files: wbtest_mbt_files,
         bbtest_files: bbtest_mbt_files,
         imports,
-        wbtest_imports: test_imports,
+        wbtest_imports,
         bbtest_imports,
         generated_test_drivers: vec![],
         artifact,

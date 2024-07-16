@@ -163,9 +163,9 @@ fn common(target_dir: &Path, cake_full_name: &String, license: String) -> anyhow
         let mut file = std::fs::File::create(hello_mbt).unwrap();
         file.write_all(content.as_bytes()).unwrap();
     }
-    // lib/hello_test.mbt
+    // lib/hello_wbtest.mbt
     {
-        let hello_mbt = lib_dir.join("hello_test.mbt");
+        let hello_mbt = lib_dir.join("hello_wbtest.mbt");
         let content = r#"test "hello" {
   if hello() != "Hello, world!" {
     raise "hello() != \"Hello, world!\""

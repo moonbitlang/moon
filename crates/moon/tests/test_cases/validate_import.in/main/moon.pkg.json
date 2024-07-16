@@ -4,7 +4,7 @@
     "username/hello/lib",
     "mbt/core/set"
   ],
-  "test_import": [
+  "wbtest-import": [
     "mbt/core/x"
   ]
 }
