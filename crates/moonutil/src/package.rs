@@ -146,8 +146,8 @@ pub struct MoonPkgJSON {
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct ImportMemory {
-    module: String,
-    name: String,
+    pub module: String,
+    pub name: String,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]

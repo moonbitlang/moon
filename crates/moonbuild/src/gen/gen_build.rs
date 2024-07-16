@@ -333,6 +333,26 @@ pub fn gen_link_command(
         moonutil::common::TargetBackend::Js => None,
     };
 
+    let heap_start_address = match moonc_opt.link_opt.target_backend {
+        moonutil::common::TargetBackend::Wasm => item
+            .link
+            .as_ref()
+            .and_then(|l| l.wasm.as_ref())
+            .and_then(|w| w.heap_start_address.as_ref()),
+        moonutil::common::TargetBackend::WasmGC => None,
+        moonutil::common::TargetBackend::Js => None,
+    };
+
+    let import_memory = match moonc_opt.link_opt.target_backend {
+        moonutil::common::TargetBackend::Wasm => item
+            .link
+            .as_ref()
+            .and_then(|l| l.wasm.as_ref())
+            .and_then(|w| w.import_memory.as_ref()),
+        moonutil::common::TargetBackend::WasmGC => None,
+        moonutil::common::TargetBackend::Js => None,
+    };
+
     let link_flags: Option<Vec<String>> = match moonc_opt.link_opt.target_backend {
         moonutil::common::TargetBackend::Wasm => item
             .link
@@ -397,6 +417,21 @@ pub fn gen_link_command(
             vec![
                 "-export-memory-name".to_string(),
                 export_memory_name.unwrap().to_string(),
+            ]
+        })
+        .lazy_args_with_cond(import_memory.is_some(), || {
+            let im = import_memory.unwrap();
+            vec![
+                "-import-memory-module".to_string(),
+                im.module.clone(),
+                "-import-memory-name".to_string(),
+                im.name.clone(),
+            ]
+        })
+        .lazy_args_with_cond(heap_start_address.is_some(), || {
+            vec![
+                "-heap-start-address".to_string(),
+                heap_start_address.unwrap().to_string(),
             ]
         })
         .lazy_args_with_cond(link_flags.is_some(), || link_flags.unwrap())
