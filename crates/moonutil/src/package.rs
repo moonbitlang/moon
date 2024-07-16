@@ -103,7 +103,7 @@ pub enum PkgJSONImportItem {
 #[serde(untagged)]
 pub enum BoolOrLink {
     Bool(bool),
-    Link(Link),
+    Link(Box<Link>),
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -396,7 +396,7 @@ pub fn convert_pkg_json_to_package(j: MoonPkgJSON) -> anyhow::Result<MoonPkg> {
         link: match j.link {
             None => None,
             Some(BoolOrLink::Bool(_)) => None,
-            Some(BoolOrLink::Link(l)) => Some(l),
+            Some(BoolOrLink::Link(l)) => Some(*l),
         },
         warn_list: j.warn_list,
         alert_list: j.alert_list,
