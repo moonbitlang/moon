@@ -44,7 +44,7 @@ pub fn moon_new_exec(
             import: Some(moonutil::package::PkgJSONImport::List(vec![
                 PkgJSONImportItem::String(format!("{}/lib", cake_full_name)),
             ])),
-            test_import: None,
+            wbtest_import: None,
             bbtest_import: None,
             link: None,
             warn_list: None,
@@ -183,7 +183,7 @@ fn common(target_dir: &Path, cake_full_name: &String, license: String) -> anyhow
             name: None,
             is_main: None,
             import: None,
-            test_import: None,
+            wbtest_import: None,
             bbtest_import: None,
             link: None,
             warn_list: None,

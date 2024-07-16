@@ -178,7 +178,7 @@ pub fn gen_package_underscore_test(
         moonutil::common::backend_filter(&pkg.files, moonc_opt.link_opt.target_backend);
     let mut mbt_deps: Vec<String> = backend_filtered
         .iter()
-        .chain(pkg.test_files.iter())
+        .chain(pkg.wbtest_files.iter())
         .map(|f| f.display().to_string())
         .collect();
 
@@ -189,7 +189,7 @@ pub fn gen_package_underscore_test(
     }
 
     let mut mi_deps = vec![];
-    for dep in pkg.imports.iter().chain(pkg.test_imports.iter()) {
+    for dep in pkg.imports.iter().chain(pkg.wbtest_imports.iter()) {
         let full_import_name = dep.path.make_full_path();
         if !m.packages.contains_key(&full_import_name) {
             bail!(
@@ -324,7 +324,7 @@ fn get_pkg_topo_order<'a>(
             .imports
             .iter()
             .chain(if with_test_import {
-                cur_pkg.test_imports.iter()
+                cur_pkg.wbtest_imports.iter()
             } else {
                 [].iter()
             })
@@ -545,7 +545,7 @@ pub fn gen_runtest<'a>(
             }
         }
 
-        if !pkg.test_files.is_empty() {
+        if !pkg.wbtest_files.is_empty() {
             for item in pkg.generated_test_drivers.iter() {
                 if let GeneratedTestDriver::UnderscoreTest(it) = item {
                     build_items.push(gen_package_underscore_test(m, pkg, moonc_opt)?);

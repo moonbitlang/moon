@@ -158,7 +158,7 @@ pub fn run_test(cli: UniversalFlags, cmd: TestSubcommand) -> anyhow::Result<i32>
         for file in pkg
             .files
             .iter()
-            .chain(pkg.test_files.iter())
+            .chain(pkg.wbtest_files.iter())
             .chain(pkg.bbtest_files.iter())
         {
             let content = std::fs::read_to_string(file)?;

@@ -51,7 +51,7 @@ fn match_import_to_path(
 /// (*.mbt[exclude the following], *_test.mbt, *_bbtest.mbt)
 pub fn get_mbt_and_test_file_paths(dir: &Path) -> (Vec<PathBuf>, Vec<PathBuf>, Vec<PathBuf>) {
     let mut mbt_files = vec![];
-    let mut mbt_test_files = vec![];
+    let mut mbt_wbtest_files = vec![];
     let mut mbt_bbtest_files = vec![];
     let entries = std::fs::read_dir(dir).unwrap();
     for entry in entries.flatten() {
@@ -66,8 +66,8 @@ pub fn get_mbt_and_test_file_paths(dir: &Path) -> (Vec<PathBuf>, Vec<PathBuf>, V
                 let dot = stem.rfind('.');
                 match dot {
                     None => {
-                        if stem.ends_with("_test") {
-                            mbt_test_files.push(p);
+                        if stem.ends_with("_wbtest") {
+                            mbt_wbtest_files.push(p);
                         } else if stem.ends_with("_bbtest") {
                             mbt_bbtest_files.push(p);
                         } else {
@@ -76,8 +76,8 @@ pub fn get_mbt_and_test_file_paths(dir: &Path) -> (Vec<PathBuf>, Vec<PathBuf>, V
                     }
                     Some(idx) => {
                         let (filename, _dot_backend_ext) = stem.split_at(idx);
-                        if filename.ends_with("_test") {
-                            mbt_test_files.push(p);
+                        if filename.ends_with("_wbtest") {
+                            mbt_wbtest_files.push(p);
                         } else if filename.ends_with("_bbtest") {
                             mbt_bbtest_files.push(p);
                         } else {
@@ -88,7 +88,7 @@ pub fn get_mbt_and_test_file_paths(dir: &Path) -> (Vec<PathBuf>, Vec<PathBuf>, V
             }
         }
     }
-    (mbt_files, mbt_test_files, mbt_bbtest_files)
+    (mbt_files, mbt_wbtest_files, mbt_bbtest_files)
 }
 
 /// This is to support coverage testing for builtin packages.
@@ -226,7 +226,7 @@ fn scan_one_package(
     let rel_path = PathComponent::from_path(rel)?;
 
     let imports = get_imports(pkg.imports)?;
-    let test_imports = get_imports(pkg.test_imports)?;
+    let test_imports = get_imports(pkg.wbtest_imports)?;
     let bbtest_imports = get_imports(pkg.bbtest_imports)?;
 
     let (mut mbt_files, mut test_mbt_files, mut bbtest_mbt_files) =
@@ -255,10 +255,10 @@ fn scan_one_package(
         root: PathComponent::from_str(&mod_desc.name)?,
         files: mbt_files,
         files_contain_test_block: vec![],
-        test_files: test_mbt_files,
+        wbtest_files: test_mbt_files,
         bbtest_files: bbtest_mbt_files,
         imports,
-        test_imports,
+        wbtest_imports: test_imports,
         bbtest_imports,
         generated_test_drivers: vec![],
         artifact,
@@ -461,7 +461,7 @@ fn resolve_deps_of_pkg(
         for dep in pkg
             .imports
             .iter()
-            .chain(pkg.test_imports.iter())
+            .chain(pkg.wbtest_imports.iter())
             .chain(pkg.bbtest_imports.iter())
         {
             let dep = &dep.path.make_full_path();

@@ -100,7 +100,7 @@ pub fn generate_test_driver(
         for file in pkg
             .files
             .iter()
-            .chain(pkg.test_files.iter())
+            .chain(pkg.wbtest_files.iter())
             .chain(pkg.bbtest_files.iter())
         {
             let content = std::fs::read_to_string(file)?;
@@ -141,7 +141,7 @@ pub fn generate_test_driver(
 
                     let line = format!("({:?}, {}, {}),", filename, description, test_func_name);
                     let file_name = &file.file_stem().unwrap().to_str().unwrap();
-                    if file_name.ends_with("_test") {
+                    if file_name.ends_with("_wbtest") {
                         testcase_underscore.push(line);
                     } else if file_name.ends_with("_bbtest") {
                         testcase_blackbox.push(line);

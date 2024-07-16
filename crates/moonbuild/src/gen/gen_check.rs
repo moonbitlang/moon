@@ -91,7 +91,7 @@ fn pkg_with_test_to_check_item(
     let backend_filtered = moonutil::common::backend_filter(
         &pkg.files
             .iter()
-            .chain(pkg.test_files.iter())
+            .chain(pkg.wbtest_files.iter())
             .cloned()
             .collect::<Vec<_>>(),
         moonc_opt.link_opt.target_backend,
@@ -103,7 +103,7 @@ fn pkg_with_test_to_check_item(
 
     let mut mi_deps = vec![];
 
-    for dep in pkg.imports.iter().chain(pkg.test_imports.iter()) {
+    for dep in pkg.imports.iter().chain(pkg.wbtest_imports.iter()) {
         let full_import_name = dep.path.make_full_path();
         if !packages.contains_key(&full_import_name) {
             bail!(
@@ -211,7 +211,7 @@ pub fn gen_check(
     for (_, pkg) in m.packages.iter() {
         let item = pkg_to_check_item(&pkg.root_path, &m.packages, pkg, moonc_opt)?;
         dep_items.push(item);
-        if !pkg.test_files.is_empty() {
+        if !pkg.wbtest_files.is_empty() {
             let item = pkg_with_test_to_check_item(&pkg.root_path, &m.packages, pkg, moonc_opt)?;
             dep_items.push(item);
         }
