@@ -4469,3 +4469,16 @@ fn test_import_memory_and_heap_start() {
         "#]],
     );
 }
+
+#[test]
+fn test_moon_test_target_all() {
+    let dir = TestDir::new("moon_new.in");
+    check(
+        &get_stdout_with_args_and_replace_dir(&dir, ["test", "--target", "all"]),
+        expect![[r#"
+            Total tests: 0, passed: 0, failed: 0.
+            Total tests: 0, passed: 0, failed: 0.
+            Total tests: 0, passed: 0, failed: 0.
+        "#]],
+    );
+}
