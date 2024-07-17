@@ -20,8 +20,12 @@ pub struct NewSubcommand {
     pub path_user_name: NewPathUserName,
 
     /// The license of the package
-    #[clap(long)]
+    #[clap(long, default_value = "Apache-2.0")]
     pub license: Option<String>,
+
+    /// Do not set a license for the package
+    #[clap(long)]
+    pub no_license: bool,
 }
 
 #[derive(Debug, Clone, clap::Args)]
@@ -47,6 +51,18 @@ pub fn run_new(_cli: &UniversalFlags, cmd: NewSubcommand) -> anyhow::Result<i32>
 
     let mut lib_flag = cmd.lib;
     let package_name = cmd.package_name.as_ref();
+    let license = if cmd.no_license {
+        None
+    } else {
+        match cmd.license.as_deref() {
+            Some("") => None,
+            Some("\"\"") => None,
+            Some("\'\'") => None,
+            Some(x) => Some(x),
+            _ => None,
+        }
+    };
+
     if let Some(name) = package_name {
         let target_dir = PathBuf::from(name);
         if lib_flag {
@@ -54,7 +70,7 @@ pub fn run_new(_cli: &UniversalFlags, cmd: NewSubcommand) -> anyhow::Result<i32>
                 &target_dir,
                 "username".into(),
                 "hello".into(),
-                "".into(),
+                license,
             );
         }
 
@@ -62,18 +78,17 @@ pub fn run_new(_cli: &UniversalFlags, cmd: NewSubcommand) -> anyhow::Result<i32>
             &target_dir,
             "username".into(),
             "hello".into(),
-            "".into(),
+            license,
         );
     }
 
     let NewPathUserName { path, user, name } = cmd.path_user_name;
-    let license = cmd.license.as_deref();
 
     ctrlc::set_handler(moonutil::common::dialoguer_ctrlc_handler)?;
 
     let (target_dir, user, name, license) =
         if let (Some(path), Some(user), Some(name)) = (path, user, name) {
-            (path, user, name, license.unwrap_or("").to_string())
+            (path, user, name, license.map(|s| s.to_string()))
         } else {
             let tmp = dialoguer::Input::<String>::new()
                 .with_prompt("Enter the path to create the project (. for current directory)")
@@ -129,12 +144,12 @@ pub fn run_new(_cli: &UniversalFlags, cmd: NewSubcommand) -> anyhow::Result<i32>
                 .interact()?;
 
             let license = dialoguer::Input::<String>::new()
-                .with_prompt("Enter your license (eg. MIT, Apache-2.0), or leave empty for none")
-                .default("".to_string())
+                .with_prompt("Enter your license")
+                .default("Apache-2.0".to_string())
                 .show_default(true)
                 .interact()?;
 
-            (path, username, package_name, license)
+            (path, username, package_name, Some(license))
         };
 
     if target_dir.exists() && target_dir.join(MOON_MOD_JSON).exists() {
@@ -145,8 +160,8 @@ pub fn run_new(_cli: &UniversalFlags, cmd: NewSubcommand) -> anyhow::Result<i32>
     }
 
     if !lib_flag {
-        moonbuild::new::moon_new_exec(&target_dir, user, name, license)
+        moonbuild::new::moon_new_exec(&target_dir, user, name, license.as_deref())
     } else {
-        moonbuild::new::moon_new_lib(&target_dir, user, name, license)
+        moonbuild::new::moon_new_lib(&target_dir, user, name, license.as_deref())
     }
 }

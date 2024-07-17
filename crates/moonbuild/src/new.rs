@@ -28,7 +28,7 @@ pub fn moon_new_exec(
     target_dir: &Path,
     user: String,
     name: String,
-    license: String,
+    license: Option<&str>,
 ) -> anyhow::Result<i32> {
     let cake_full_name = format!("{}/{}", user, name);
     common(target_dir, &cake_full_name, license)?;
@@ -63,6 +63,19 @@ pub fn moon_new_exec(
         file.write_all(content.as_bytes()).unwrap();
     }
 
+    // LICENSE
+    {
+        if let Some("Apache-2.0") = license {
+            let license_file = target_dir.join("LICENSE");
+            let content = include_str!(concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/../moonbuild/template/apache-2.0.txt"
+            ));
+            let mut file = std::fs::File::create(license_file).unwrap();
+            file.write_all(content.as_bytes()).unwrap();
+        }
+    }
+
     println!("{} {}", "Created".bold().green(), target_dir.display());
 
     Ok(0)
@@ -72,7 +85,7 @@ pub fn moon_new_lib(
     target_dir: &Path,
     user: String,
     name: String,
-    license: String,
+    license: Option<&str>,
 ) -> anyhow::Result<i32> {
     let cake_full_name = format!("{}/{}", user, name);
     common(target_dir, &cake_full_name, license)?;
@@ -109,7 +122,7 @@ pub fn moon_new_lib(
     Ok(0)
 }
 
-fn common(target_dir: &Path, cake_full_name: &String, license: String) -> anyhow::Result<i32> {
+fn common(target_dir: &Path, cake_full_name: &str, license: Option<&str>) -> anyhow::Result<i32> {
     std::fs::create_dir_all(target_dir).context("failed to create target directory")?;
     let git_init = std::process::Command::new("git")
         .arg("init")
@@ -127,12 +140,14 @@ fn common(target_dir: &Path, cake_full_name: &String, license: String) -> anyhow
 
     {
         let m: MoonModJSON = MoonModJSON {
-            name: cake_full_name.clone(),
+            name: cake_full_name.into(),
             version: Some("0.1.0".parse().unwrap()),
             deps: None,
             readme: Some("README.md".into()),
             repository: Some("".into()),
-            license: Some(license),
+            license: license
+                .map(|s| s.to_string())
+                .or_else(|| Some(String::from(""))),
             keywords: Some(vec![]),
             description: Some("".into()),
 
