@@ -179,6 +179,10 @@ pub struct WasmGcLinkConfig {
     pub exports: Option<Vec<String>>,
 
     #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(rename = "import-memory")]
+    pub import_memory: Option<ImportMemory>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
     #[serde(rename = "export-memory-name")]
     pub export_memory_name: Option<String>,
 

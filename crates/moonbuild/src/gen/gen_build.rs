@@ -440,6 +440,7 @@ impl LinkDepItem {
 
     pub fn wasm_gc_exports(&self) -> Option<&Vec<String>> { self.link.as_ref()?.wasm_gc.as_ref()?.exports.as_ref() }
     pub fn wasm_gc_export_memory_name(&self) -> Option<&String> { self.link.as_ref()?.wasm_gc.as_ref()?.export_memory_name.as_ref() }
+    pub fn wasm_gc_import_memory(&self) -> Option<&moonutil::package::ImportMemory> { self.link.as_ref()?.wasm_gc.as_ref()?.import_memory.as_ref() }
     pub fn wasm_gc_link_flags(&self) -> Option<&Vec<String>> { self.link.as_ref()?.wasm_gc.as_ref()?.flags.as_ref() }
 
     pub fn js_exports(&self) -> Option<&Vec<String>> { self.link.as_ref()?.js.as_ref()?.exports.as_ref() }
@@ -471,7 +472,7 @@ impl LinkDepItem {
     pub fn import_memory(&self, b: TargetBackend) -> Option<&moonutil::package::ImportMemory> {
         match b {
             Wasm => self.wasm_import_memory(),
-            WasmGC => None,
+            WasmGC => self.wasm_gc_import_memory(),
             Js => None,
         }
     }
