@@ -44,8 +44,8 @@ pub fn moon_new_exec(
             import: Some(moonutil::package::PkgJSONImport::List(vec![
                 PkgJSONImportItem::String(format!("{}/lib", cake_full_name)),
             ])),
+            wbtest_import: None,
             test_import: None,
-            bbtest_import: None,
             link: None,
             warn_list: None,
             alert_list: None,
@@ -163,9 +163,9 @@ fn common(target_dir: &Path, cake_full_name: &String, license: String) -> anyhow
         let mut file = std::fs::File::create(hello_mbt).unwrap();
         file.write_all(content.as_bytes()).unwrap();
     }
-    // lib/hello_test.mbt
+    // lib/hello_wbtest.mbt
     {
-        let hello_mbt = lib_dir.join("hello_test.mbt");
+        let hello_mbt = lib_dir.join("hello_wbtest.mbt");
         let content = r#"test "hello" {
   if hello() != "Hello, world!" {
     raise "hello() != \"Hello, world!\""
@@ -183,8 +183,8 @@ fn common(target_dir: &Path, cake_full_name: &String, license: String) -> anyhow
             name: None,
             is_main: None,
             import: None,
+            wbtest_import: None,
             test_import: None,
-            bbtest_import: None,
             link: None,
             warn_list: None,
             alert_list: None,

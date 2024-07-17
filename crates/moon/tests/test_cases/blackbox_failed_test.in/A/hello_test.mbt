@@ -1,13 +1,10 @@
-pub fn hello_test() -> Unit {
-  println("output from A/hello_test.mbt!")
+pub fn hello_bbtest() -> Unit {
+  println("output from A/hello_bbtest.mbt!")
 }
 
 test {
-  // it's ok for _test.mbt to use test_import
-  @B.hello()
-}
-
-test {
-  // should failed, bbtest_import could no be used in _test.mbt
-  @C.hello()
+  let a = 1
+  let mut b = 1
+  // should failed
+  @A._private_hello()
 }

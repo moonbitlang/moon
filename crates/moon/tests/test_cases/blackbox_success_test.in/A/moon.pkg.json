@@ -1,9 +1,9 @@
 {
   "import": [],
-  "test_import": [
+  "wbtest-import": [
     "username/hello/B"
   ],
-  "bbtest_import": [
+  "test-import": [
     "username/hello/C"
   ]
 }

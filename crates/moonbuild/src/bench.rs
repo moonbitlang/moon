@@ -85,8 +85,8 @@ pub fn f() -> Unit {{
                 } else {
                     Some(PkgJSONImport::Map(import))
                 },
+                wbtest_import: None,
                 test_import: None,
-                bbtest_import: None,
                 link: None,
                 warn_list: None,
                 alert_list: None,
@@ -161,8 +161,8 @@ pub fn write(config: &Config, base_dir: &Path) {
         } else {
             Some(PkgJSONImport::Map(import))
         },
+        wbtest_import: None,
         test_import: None,
-        bbtest_import: None,
         link: None,
         warn_list: None,
         alert_list: None,

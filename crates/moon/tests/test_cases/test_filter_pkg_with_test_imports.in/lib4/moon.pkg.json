@@ -2,7 +2,7 @@
   "import": [
     "username/hello/lib5"
   ],
-  "test-import": [
+  "wbtest-import": [
     "username/hello/lib7"
   ]
 }

@@ -23,14 +23,14 @@ pub struct Package {
     pub rel: PathComponent,
     // *.mbt (exclude the following)
     pub files: Vec<PathBuf>,
+    //  *_wbtest.mbt
+    pub wbtest_files: Vec<PathBuf>,
     //  *_test.mbt
     pub test_files: Vec<PathBuf>,
-    //  *_bbtest.mbt
-    pub bbtest_files: Vec<PathBuf>,
     pub files_contain_test_block: Vec<PathBuf>,
     pub imports: Vec<ImportComponent>,
+    pub wbtest_imports: Vec<ImportComponent>,
     pub test_imports: Vec<ImportComponent>,
-    pub bbtest_imports: Vec<ImportComponent>,
     pub generated_test_drivers: Vec<GeneratedTestDriver>,
     pub artifact: PathBuf,
 
@@ -71,11 +71,13 @@ pub struct PackageJSON {
     pub root: String,
     pub rel: String,
     pub files: Vec<String>,
+    // white box test
+    pub wbtest_files: Vec<String>,
+    // black box test
     pub test_files: Vec<String>,
-    pub bbtest_files: Vec<String>,
     pub deps: Vec<AliasJSON>,
+    pub wbtest_deps: Vec<AliasJSON>,
     pub test_deps: Vec<AliasJSON>,
-    pub bbtest_deps: Vec<AliasJSON>,
     pub artifact: String,
 }
 
@@ -121,14 +123,14 @@ pub struct MoonPkgJSON {
     pub import: Option<PkgJSONImport>,
 
     #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(alias = "wbtest-import")]
+    #[serde(alias = "wbtest_import")]
+    pub wbtest_import: Option<PkgJSONImport>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
     #[serde(alias = "test-import")]
     #[serde(alias = "test_import")]
     pub test_import: Option<PkgJSONImport>,
-
-    #[serde(skip_serializing_if = "Option::is_none")]
-    #[serde(alias = "bbtest-import")]
-    #[serde(alias = "bbtest_import")]
-    pub bbtest_import: Option<PkgJSONImport>,
 
     #[serde(skip_serializing_if = "Option::is_none")]
     pub link: Option<BoolOrLink>,
@@ -234,8 +236,8 @@ pub struct MoonPkg {
     pub is_main: bool,
     pub need_link: bool,
     pub imports: Vec<Import>,
+    pub wbtest_imports: Vec<Import>,
     pub test_imports: Vec<Import>,
-    pub bbtest_imports: Vec<Import>,
 
     pub link: Option<Link>,
     pub warn_list: Option<String>,
@@ -300,8 +302,8 @@ pub fn convert_pkg_json_to_package(j: MoonPkgJSON) -> anyhow::Result<MoonPkg> {
     };
 
     let imports = get_imports(j.import);
+    let wbtest_imports = get_imports(j.wbtest_import);
     let test_imports = get_imports(j.test_import);
-    let bbtest_imports = get_imports(j.bbtest_import);
 
     let mut is_main = j.is_main.unwrap_or(false);
     if let Some(name) = &j.name {
@@ -344,7 +346,7 @@ pub fn convert_pkg_json_to_package(j: MoonPkgJSON) -> anyhow::Result<MoonPkg> {
 
     // TODO: check on the fly
     let mut alias_dedup: HashSet<String> = HashSet::new();
-    for item in test_imports.iter() {
+    for item in wbtest_imports.iter() {
         let alias = match item {
             Import::Simple(p) => {
                 let alias = Path::new(p)
@@ -366,7 +368,7 @@ pub fn convert_pkg_json_to_package(j: MoonPkgJSON) -> anyhow::Result<MoonPkg> {
 
     // TODO: check on the fly
     let mut alias_dedup: HashSet<String> = HashSet::new();
-    for item in bbtest_imports.iter() {
+    for item in test_imports.iter() {
         let alias = match item {
             Import::Simple(p) => {
                 let alias = Path::new(p)
@@ -391,8 +393,8 @@ pub fn convert_pkg_json_to_package(j: MoonPkgJSON) -> anyhow::Result<MoonPkg> {
         is_main,
         need_link,
         imports,
+        wbtest_imports,
         test_imports,
-        bbtest_imports,
         link: match j.link {
             None => None,
             Some(BoolOrLink::Bool(_)) => None,

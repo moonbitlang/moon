@@ -78,7 +78,7 @@ fn pkg_to_check_item(
     })
 }
 
-fn pkg_with_test_to_check_item(
+fn pkg_with_wbtest_to_check_item(
     source_dir: &Path,
     packages: &IndexMap<String, Package>,
     pkg: &Package,
@@ -91,7 +91,7 @@ fn pkg_with_test_to_check_item(
     let backend_filtered = moonutil::common::backend_filter(
         &pkg.files
             .iter()
-            .chain(pkg.test_files.iter())
+            .chain(pkg.wbtest_files.iter())
             .cloned()
             .collect::<Vec<_>>(),
         moonc_opt.link_opt.target_backend,
@@ -103,7 +103,7 @@ fn pkg_with_test_to_check_item(
 
     let mut mi_deps = vec![];
 
-    for dep in pkg.imports.iter().chain(pkg.test_imports.iter()) {
+    for dep in pkg.imports.iter().chain(pkg.wbtest_imports.iter()) {
         let full_import_name = dep.path.make_full_path();
         if !packages.contains_key(&full_import_name) {
             bail!(
@@ -137,7 +137,7 @@ fn pkg_with_test_to_check_item(
     })
 }
 
-fn pkg_with_bbtest_to_check_item(
+fn pkg_with_test_to_check_item(
     source_dir: &Path,
     packages: &IndexMap<String, Package>,
     pkg: &Package,
@@ -148,7 +148,7 @@ fn pkg_with_bbtest_to_check_item(
         .with_file_name(format!("{}.blackbox_test.mi", pkg.last_name()));
 
     let backend_filtered =
-        moonutil::common::backend_filter(&pkg.bbtest_files, moonc_opt.link_opt.target_backend);
+        moonutil::common::backend_filter(&pkg.test_files, moonc_opt.link_opt.target_backend);
     let mbt_deps: Vec<String> = backend_filtered
         .iter()
         .map(|f| f.display().to_string())
@@ -164,7 +164,7 @@ fn pkg_with_bbtest_to_check_item(
         alias: pkg.last_name().into(),
     }];
 
-    for dep in pkg.bbtest_imports.iter() {
+    for dep in pkg.test_imports.iter() {
         let full_import_name = dep.path.make_full_path();
         if !packages.contains_key(&full_import_name) {
             bail!(
@@ -211,12 +211,12 @@ pub fn gen_check(
     for (_, pkg) in m.packages.iter() {
         let item = pkg_to_check_item(&pkg.root_path, &m.packages, pkg, moonc_opt)?;
         dep_items.push(item);
-        if !pkg.test_files.is_empty() {
-            let item = pkg_with_test_to_check_item(&pkg.root_path, &m.packages, pkg, moonc_opt)?;
+        if !pkg.wbtest_files.is_empty() {
+            let item = pkg_with_wbtest_to_check_item(&pkg.root_path, &m.packages, pkg, moonc_opt)?;
             dep_items.push(item);
         }
-        if !pkg.bbtest_files.is_empty() {
-            let item = pkg_with_bbtest_to_check_item(&pkg.root_path, &m.packages, pkg, moonc_opt)?;
+        if !pkg.test_files.is_empty() {
+            let item = pkg_with_test_to_check_item(&pkg.root_path, &m.packages, pkg, moonc_opt)?;
             dep_items.push(item);
         }
     }

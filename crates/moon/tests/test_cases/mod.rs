@@ -562,7 +562,7 @@ fn test_moon_new_new() {
     check(
         &get_stdout_with_args(&hello3, ["test", "-v"]),
         expect![[r#"
-            test moonbitlang/hello/lib/hello_test.mbt::hello ok
+            test moonbitlang/hello/lib/hello_wbtest.mbt::hello ok
             Total tests: 1, passed: 1, failed: 0.
         "#]],
     );
@@ -603,7 +603,7 @@ fn test_moon_new_new() {
     check(
         &get_stdout_with_args(&hello4, ["test", "-v"]),
         expect![[r#"
-            test moonbitlang/hello/lib/hello_test.mbt::hello ok
+            test moonbitlang/hello/lib/hello_wbtest.mbt::hello ok
             Total tests: 1, passed: 1, failed: 0.
         "#]],
     );
@@ -704,7 +704,7 @@ fn test_moon_new_snapshot() {
         "#]],
     );
     check(
-        &std::fs::read_to_string(hello.join("lib").join("hello_test.mbt")).unwrap(),
+        &std::fs::read_to_string(hello.join("lib").join("hello_wbtest.mbt")).unwrap(),
         expect![[r#"
             test "hello" {
               if hello() != "Hello, world!" {
@@ -789,7 +789,7 @@ fn test_moon_new_snapshot_lib() {
         "#]],
     );
     check(
-        &std::fs::read_to_string(hello.join("lib").join("hello_test.mbt")).unwrap(),
+        &std::fs::read_to_string(hello.join("lib").join("hello_wbtest.mbt")).unwrap(),
         expect![[r#"
             test "hello" {
               if hello() != "Hello, world!" {
@@ -858,8 +858,8 @@ fn test_moon_test() {
     check(
         &s,
         expect![[r#"
-            test moontest/lib2/hello_test.mbt::0 failed: hello() != "Hello, World"
-            test moontest/lib2/nested/lib_test.mbt::0 failed: add1(1) should be 2
+            test moontest/lib2/hello_wbtest.mbt::0 failed: hello() != "Hello, World"
+            test moontest/lib2/nested/lib_wbtest.mbt::0 failed: add1(1) should be 2
             Total tests: 10, passed: 8, failed: 2.
         "#]],
     );
@@ -1152,7 +1152,7 @@ fn test_moon_test_filter_package_dry_run() {
         ),
         expect![[r#"
             moon generate-test-driver --source-dir . --target-dir ./target/wasm-gc/debug/test --package username/hello/A --sort-input
-            moonc build-package ./A/hello.mbt ./A/test.mbt ./A/hello_test.mbt ./target/wasm-gc/debug/test/A/__generated_driver_for_underscore_test.mbt -o ./target/wasm-gc/debug/test/A/A.underscore_test.core -pkg username/hello/A -is-main -std-path $MOON_HOME/lib/core/target/wasm-gc/release/bundle -pkg-sources username/hello/A:./A -target wasm-gc -g
+            moonc build-package ./A/hello.mbt ./A/test.mbt ./A/hello_wbtest.mbt ./target/wasm-gc/debug/test/A/__generated_driver_for_underscore_test.mbt -o ./target/wasm-gc/debug/test/A/A.underscore_test.core -pkg username/hello/A -is-main -std-path $MOON_HOME/lib/core/target/wasm-gc/release/bundle -pkg-sources username/hello/A:./A -target wasm-gc -g
             moonc link-core $MOON_HOME/lib/core/target/wasm-gc/release/bundle/core.core ./target/wasm-gc/debug/test/A/A.underscore_test.core -main username/hello/A -o ./target/wasm-gc/debug/test/A/A.underscore_test.wasm -test-mode -pkg-sources username/hello/A:./A -pkg-sources moonbitlang/core:$MOON_HOME/lib/core -target wasm-gc -g
             moonc build-package ./A/hello.mbt ./A/test.mbt ./target/wasm-gc/debug/test/A/__generated_driver_for_internal_test.mbt -o ./target/wasm-gc/debug/test/A/A.internal_test.core -pkg username/hello/A -is-main -std-path $MOON_HOME/lib/core/target/wasm-gc/release/bundle -pkg-sources username/hello/A:./A -target wasm-gc -g
             moonc link-core $MOON_HOME/lib/core/target/wasm-gc/release/bundle/core.core ./target/wasm-gc/debug/test/A/A.internal_test.core -main username/hello/A -o ./target/wasm-gc/debug/test/A/A.internal_test.wasm -test-mode -pkg-sources username/hello/A:./A -pkg-sources moonbitlang/core:$MOON_HOME/lib/core -target wasm-gc -g
@@ -1165,11 +1165,11 @@ fn test_moon_test_filter_package_dry_run() {
             moon generate-test-driver --source-dir . --target-dir ./target/wasm-gc/debug/test --sort-input
             moonc build-package ./lib2/lib.mbt ./target/wasm-gc/debug/test/lib2/__generated_driver_for_internal_test.mbt -o ./target/wasm-gc/debug/test/lib2/lib2.internal_test.core -pkg username/hello/lib2 -is-main -std-path $MOON_HOME/lib/core/target/wasm-gc/release/bundle -pkg-sources username/hello/lib2:./lib2 -target wasm-gc -g
             moonc link-core $MOON_HOME/lib/core/target/wasm-gc/release/bundle/core.core ./target/wasm-gc/debug/test/lib2/lib2.internal_test.core -main username/hello/lib2 -o ./target/wasm-gc/debug/test/lib2/lib2.internal_test.wasm -test-mode -pkg-sources username/hello/lib2:./lib2 -pkg-sources moonbitlang/core:$MOON_HOME/lib/core -target wasm-gc -g
-            moonc build-package ./lib/hello.mbt ./lib/hello_test.mbt ./target/wasm-gc/debug/test/lib/__generated_driver_for_underscore_test.mbt -o ./target/wasm-gc/debug/test/lib/lib.underscore_test.core -pkg username/hello/lib -is-main -std-path $MOON_HOME/lib/core/target/wasm-gc/release/bundle -pkg-sources username/hello/lib:./lib -target wasm-gc -g
+            moonc build-package ./lib/hello.mbt ./lib/hello_wbtest.mbt ./target/wasm-gc/debug/test/lib/__generated_driver_for_underscore_test.mbt -o ./target/wasm-gc/debug/test/lib/lib.underscore_test.core -pkg username/hello/lib -is-main -std-path $MOON_HOME/lib/core/target/wasm-gc/release/bundle -pkg-sources username/hello/lib:./lib -target wasm-gc -g
             moonc link-core $MOON_HOME/lib/core/target/wasm-gc/release/bundle/core.core ./target/wasm-gc/debug/test/lib/lib.underscore_test.core -main username/hello/lib -o ./target/wasm-gc/debug/test/lib/lib.underscore_test.wasm -test-mode -pkg-sources username/hello/lib:./lib -pkg-sources moonbitlang/core:$MOON_HOME/lib/core -target wasm-gc -g
             moonc build-package ./lib/hello.mbt ./target/wasm-gc/debug/test/lib/__generated_driver_for_internal_test.mbt -o ./target/wasm-gc/debug/test/lib/lib.internal_test.core -pkg username/hello/lib -is-main -std-path $MOON_HOME/lib/core/target/wasm-gc/release/bundle -pkg-sources username/hello/lib:./lib -target wasm-gc -g
             moonc link-core $MOON_HOME/lib/core/target/wasm-gc/release/bundle/core.core ./target/wasm-gc/debug/test/lib/lib.internal_test.core -main username/hello/lib -o ./target/wasm-gc/debug/test/lib/lib.internal_test.wasm -test-mode -pkg-sources username/hello/lib:./lib -pkg-sources moonbitlang/core:$MOON_HOME/lib/core -target wasm-gc -g
-            moonc build-package ./A/hello.mbt ./A/test.mbt ./A/hello_test.mbt ./target/wasm-gc/debug/test/A/__generated_driver_for_underscore_test.mbt -o ./target/wasm-gc/debug/test/A/A.underscore_test.core -pkg username/hello/A -is-main -std-path $MOON_HOME/lib/core/target/wasm-gc/release/bundle -pkg-sources username/hello/A:./A -target wasm-gc -g
+            moonc build-package ./A/hello.mbt ./A/test.mbt ./A/hello_wbtest.mbt ./target/wasm-gc/debug/test/A/__generated_driver_for_underscore_test.mbt -o ./target/wasm-gc/debug/test/A/A.underscore_test.core -pkg username/hello/A -is-main -std-path $MOON_HOME/lib/core/target/wasm-gc/release/bundle -pkg-sources username/hello/A:./A -target wasm-gc -g
             moonc link-core $MOON_HOME/lib/core/target/wasm-gc/release/bundle/core.core ./target/wasm-gc/debug/test/A/A.underscore_test.core -main username/hello/A -o ./target/wasm-gc/debug/test/A/A.underscore_test.wasm -test-mode -pkg-sources username/hello/A:./A -pkg-sources moonbitlang/core:$MOON_HOME/lib/core -target wasm-gc -g
             moonc build-package ./A/hello.mbt ./A/test.mbt ./target/wasm-gc/debug/test/A/__generated_driver_for_internal_test.mbt -o ./target/wasm-gc/debug/test/A/A.internal_test.core -pkg username/hello/A -is-main -std-path $MOON_HOME/lib/core/target/wasm-gc/release/bundle -pkg-sources username/hello/A:./A -target wasm-gc -g
             moonc link-core $MOON_HOME/lib/core/target/wasm-gc/release/bundle/core.core ./target/wasm-gc/debug/test/A/A.internal_test.core -main username/hello/A -o ./target/wasm-gc/debug/test/A/A.internal_test.wasm -test-mode -pkg-sources username/hello/A:./A -pkg-sources moonbitlang/core:$MOON_HOME/lib/core -target wasm-gc -g
@@ -1193,7 +1193,7 @@ fn test_moon_test_filter_file() {
     check(
         &get_stdout_with_args(
             &dir,
-            ["test", "-p", "username/hello/lib", "-f", "hello_test.mbt"],
+            ["test", "-p", "username/hello/lib", "-f", "hello_wbtest.mbt"],
         ),
         expect![[r#"
             test hello_0
@@ -1234,7 +1234,7 @@ fn test_moon_test_filter_index() {
                 "-p",
                 "username/hello/lib",
                 "-f",
-                "hello_test.mbt",
+                "hello_wbtest.mbt",
                 "-i",
                 "0",
             ],
@@ -1368,12 +1368,12 @@ fn test_moon_test_succ() {
                │    ──┬─  
                │      ╰─── Warning: Unused function 'add1'
             ───╯
-            test moontest/lib/hello_test.mbt::0 ok
-            test moontest/lib2/hello_test.mbt::0 ok
-            test moontest/lib2/nested/lib_test.mbt::1 ok
-            test moontest/lib2/nested/lib_test.mbt::0 ok
-            test moontest/lib3/hello_test.mbt::0 ok
-            test moontest/lib4/hello_test.mbt::0 ok
+            test moontest/lib/hello_wbtest.mbt::0 ok
+            test moontest/lib2/hello_wbtest.mbt::0 ok
+            test moontest/lib2/nested/lib_wbtest.mbt::1 ok
+            test moontest/lib2/nested/lib_wbtest.mbt::0 ok
+            test moontest/lib3/hello_wbtest.mbt::0 ok
+            test moontest/lib4/hello_wbtest.mbt::0 ok
             Total tests: 6, passed: 6, failed: 0.
         "#]],
     );
@@ -1393,7 +1393,7 @@ fn test_moon_test_hello_exec() {
         expect![[r#"
             Warning: tests in the main package `moonbitlang/hello/main` will be ignored
             this is lib test
-            test moonbitlang/hello/lib/hello_test.mbt::0 ok
+            test moonbitlang/hello/lib/hello_wbtest.mbt::0 ok
             Total tests: 1, passed: 1, failed: 0.
         "#]],
     );
@@ -1404,7 +1404,7 @@ fn test_moon_test_hello_exec() {
         ),
         expect![[r#"
             moon generate-test-driver --source-dir . --target-dir ./target/wasm-gc/debug/test --sort-input
-            moonc build-package ./lib/hello.mbt ./lib/hello_test.mbt ./target/wasm-gc/debug/test/lib/__generated_driver_for_underscore_test.mbt -o ./target/wasm-gc/debug/test/lib/lib.underscore_test.core -pkg moonbitlang/hello/lib -is-main -std-path $MOON_HOME/lib/core/target/wasm-gc/release/bundle -pkg-sources moonbitlang/hello/lib:./lib -target wasm-gc -g
+            moonc build-package ./lib/hello.mbt ./lib/hello_wbtest.mbt ./target/wasm-gc/debug/test/lib/__generated_driver_for_underscore_test.mbt -o ./target/wasm-gc/debug/test/lib/lib.underscore_test.core -pkg moonbitlang/hello/lib -is-main -std-path $MOON_HOME/lib/core/target/wasm-gc/release/bundle -pkg-sources moonbitlang/hello/lib:./lib -target wasm-gc -g
             moonc link-core $MOON_HOME/lib/core/target/wasm-gc/release/bundle/core.core ./target/wasm-gc/debug/test/lib/lib.underscore_test.core -main moonbitlang/hello/lib -o ./target/wasm-gc/debug/test/lib/lib.underscore_test.wasm -test-mode -pkg-sources moonbitlang/hello/lib:./lib -pkg-sources moonbitlang/core:$MOON_HOME/lib/core -target wasm-gc -g
             moonc build-package ./lib/hello.mbt ./target/wasm-gc/debug/test/lib/__generated_driver_for_internal_test.mbt -o ./target/wasm-gc/debug/test/lib/lib.internal_test.core -pkg moonbitlang/hello/lib -is-main -std-path $MOON_HOME/lib/core/target/wasm-gc/release/bundle -pkg-sources moonbitlang/hello/lib:./lib -target wasm-gc -g
             moonc link-core $MOON_HOME/lib/core/target/wasm-gc/release/bundle/core.core ./target/wasm-gc/debug/test/lib/lib.internal_test.core -main moonbitlang/hello/lib -o ./target/wasm-gc/debug/test/lib/lib.internal_test.wasm -test-mode -pkg-sources moonbitlang/hello/lib:./lib -pkg-sources moonbitlang/core:$MOON_HOME/lib/core -target wasm-gc -g
@@ -1426,7 +1426,7 @@ fn test_moon_test_hello_exec_fntest() {
         &get_stdout_with_args_and_replace_dir(&dir, ["test", "-v", "--dry-run", "--sort-input"]),
         expect![[r#"
             moon generate-test-driver --source-dir . --target-dir ./target/wasm-gc/debug/test --sort-input
-            moonc build-package ./lib/hello.mbt ./lib/hello_test.mbt ./target/wasm-gc/debug/test/lib/__generated_driver_for_underscore_test.mbt -o ./target/wasm-gc/debug/test/lib/lib.underscore_test.core -pkg moonbitlang/hello/lib -is-main -std-path $MOON_HOME/lib/core/target/wasm-gc/release/bundle -pkg-sources moonbitlang/hello/lib:./lib -target wasm-gc -g
+            moonc build-package ./lib/hello.mbt ./lib/hello_wbtest.mbt ./target/wasm-gc/debug/test/lib/__generated_driver_for_underscore_test.mbt -o ./target/wasm-gc/debug/test/lib/lib.underscore_test.core -pkg moonbitlang/hello/lib -is-main -std-path $MOON_HOME/lib/core/target/wasm-gc/release/bundle -pkg-sources moonbitlang/hello/lib:./lib -target wasm-gc -g
             moonc link-core $MOON_HOME/lib/core/target/wasm-gc/release/bundle/core.core ./target/wasm-gc/debug/test/lib/lib.underscore_test.core -main moonbitlang/hello/lib -o ./target/wasm-gc/debug/test/lib/lib.underscore_test.wasm -test-mode -pkg-sources moonbitlang/hello/lib:./lib -pkg-sources moonbitlang/core:$MOON_HOME/lib/core -target wasm-gc -g
             moonc build-package ./lib/hello.mbt ./target/wasm-gc/debug/test/lib/__generated_driver_for_internal_test.mbt -o ./target/wasm-gc/debug/test/lib/lib.internal_test.core -pkg moonbitlang/hello/lib -is-main -std-path $MOON_HOME/lib/core/target/wasm-gc/release/bundle -pkg-sources moonbitlang/hello/lib:./lib -target wasm-gc -g
             moonc link-core $MOON_HOME/lib/core/target/wasm-gc/release/bundle/core.core ./target/wasm-gc/debug/test/lib/lib.internal_test.core -main moonbitlang/hello/lib -o ./target/wasm-gc/debug/test/lib/lib.internal_test.wasm -test-mode -pkg-sources moonbitlang/hello/lib:./lib -pkg-sources moonbitlang/core:$MOON_HOME/lib/core -target wasm-gc -g
@@ -1436,12 +1436,12 @@ fn test_moon_test_hello_exec_fntest() {
     check(
         &get_stdout_with_args(&dir, ["test", "-v", "--sort-input"]),
         expect![[r#"
-        test in lib/hello.mbt
-        test moonbitlang/hello/lib/hello.mbt::0 ok
-        test in lib/hello_test.mbt
-        test moonbitlang/hello/lib/hello_test.mbt::0 ok
-        Total tests: 2, passed: 2, failed: 0.
-    "#]],
+            test in lib/hello.mbt
+            test moonbitlang/hello/lib/hello.mbt::0 ok
+            test in lib/hello_test.mbt
+            test moonbitlang/hello/lib/hello_wbtest.mbt::0 ok
+            Total tests: 2, passed: 2, failed: 0.
+        "#]],
     );
 }
 
@@ -1451,7 +1451,7 @@ fn test_moon_test_hello_lib() {
     check(
         &get_stdout_with_args(&dir, ["test", "-v"]),
         expect![[r#"
-            test moonbitlang/hello/lib/hello_test.mbt::0 ok
+            test moonbitlang/hello/lib/hello_wbtest.mbt::0 ok
             Total tests: 1, passed: 1, failed: 0.
         "#]],
     );
@@ -1463,7 +1463,7 @@ fn test_moon_test_with_local_dep() {
     check(
         &get_stdout_with_args(&dir, ["test", "-v", "--frozen"]),
         expect![[r#"
-            test hello31/lib/hello_test.mbt::0 ok
+            test hello31/lib/hello_wbtest.mbt::0 ok
             Total tests: 1, passed: 1, failed: 0.
         "#]],
     );
@@ -1499,7 +1499,7 @@ fn test_moon_test_with_local_dep() {
             .gitignore
             lib
             lib/hello.mbt
-            lib/hello_test.mbt
+            lib/hello_wbtest.mbt
             lib/lib.mbti
             lib/moon.pkg.json
             main
@@ -1511,7 +1511,7 @@ fn test_moon_test_with_local_dep() {
             mods/lijunchen/mooncake
             mods/lijunchen/mooncake/lib
             mods/lijunchen/mooncake/lib/hello.mbt
-            mods/lijunchen/mooncake/lib/hello_test.mbt
+            mods/lijunchen/mooncake/lib/hello_wbtest.mbt
             mods/lijunchen/mooncake/lib/moon.pkg.json
             mods/lijunchen/mooncake/moon.mod.json
             mods/lijunchen/mooncake/moon.pkg.json
@@ -1913,16 +1913,16 @@ fn test_moon_inline_test_order() {
             test username/hello/A/hello.mbt::0 ok
             A_test.mbt::init
             A_test.mbt::test_hello_A
-            test username/hello/A/A_test.mbt::1 ok
-            test username/hello/A/A_test.mbt::0 ok
+            test username/hello/A/A_wbtest.mbt::1 ok
+            test username/hello/A/A_wbtest.mbt::0 ok
             executing B
             executing B::hello.mbt::test_B
             test username/hello/B/hello.mbt::1 ok
             test username/hello/B/hello.mbt::0 ok
             B_test.mbt::init
             B_test.mbt::test_hello_B
-            test username/hello/B/B_test.mbt::1 ok
-            test username/hello/B/B_test.mbt::0 ok
+            test username/hello/B/B_wbtest.mbt::1 ok
+            test username/hello/B/B_wbtest.mbt::0 ok
             Total tests: 8, passed: 8, failed: 0.
         "#]],
     );
@@ -2004,8 +2004,8 @@ fn test_expect_test() -> anyhow::Result<()> {
 
     let out = std::str::from_utf8(&s).unwrap().to_string();
     assert!(out.contains("Total tests: 30, passed: 30, failed: 0."));
-    let out =
-        std::fs::read_to_string(tmp_dir_path.as_ref().join("lib").join("hello_test.mbt")).unwrap();
+    let out = std::fs::read_to_string(tmp_dir_path.as_ref().join("lib").join("hello_wbtest.mbt"))
+        .unwrap();
     assert!(out.contains(r#"notbuf.expect(content="haha")!"#));
     Ok(())
 }
@@ -2184,16 +2184,16 @@ fn test_dummy_core() {
                         "$ROOT/0/y.wasm-gc.mbt",
                         "$ROOT/0/y.wasm.mbt"
                       ],
-                      "test-files": [
-                        "$ROOT/0/y_test.js.mbt",
-                        "$ROOT/0/y_test.mbt",
-                        "$ROOT/0/y_test.wasm-gc.mbt",
-                        "$ROOT/0/y_test.wasm.mbt"
+                      "wbtest-files": [
+                        "$ROOT/0/y_wbtest.js.mbt",
+                        "$ROOT/0/y_wbtest.mbt",
+                        "$ROOT/0/y_wbtest.wasm-gc.mbt",
+                        "$ROOT/0/y_wbtest.wasm.mbt"
                       ],
-                      "bbtest-files": [],
+                      "test-files": [],
                       "deps": [],
+                      "wbtest-deps": [],
                       "test-deps": [],
-                      "bbtest-deps": [],
                       "artifact": "$ROOT/target/wasm-gc/release/check/0/0.mi"
                     },
                     {
@@ -2207,13 +2207,13 @@ fn test_dummy_core() {
                         "$ROOT/1/x.wasm-gc.mbt",
                         "$ROOT/1/x.wasm.mbt"
                       ],
-                      "test-files": [
-                        "$ROOT/1/x_test.wasm-gc.mbt"
+                      "wbtest-files": [
+                        "$ROOT/1/x_wbtest.wasm-gc.mbt"
                       ],
-                      "bbtest-files": [],
+                      "test-files": [],
                       "deps": [],
+                      "wbtest-deps": [],
                       "test-deps": [],
-                      "bbtest-deps": [],
                       "artifact": "$ROOT/target/wasm-gc/release/check/1/1.mi"
                     },
                     {
@@ -2224,16 +2224,16 @@ fn test_dummy_core() {
                       "files": [
                         "$ROOT/2/lib.mbt"
                       ],
+                      "wbtest-files": [],
                       "test-files": [],
-                      "bbtest-files": [],
                       "deps": [
                         {
                           "path": "moonbitlang/core/1",
                           "alias": "1"
                         }
                       ],
+                      "wbtest-deps": [],
                       "test-deps": [],
-                      "bbtest-deps": [],
                       "artifact": "$ROOT/target/wasm-gc/release/check/2/2.mi"
                     },
                     {
@@ -2242,16 +2242,16 @@ fn test_dummy_core() {
                       "root": "moonbitlang/core",
                       "rel": "char",
                       "files": [],
+                      "wbtest-files": [],
                       "test-files": [],
-                      "bbtest-files": [],
                       "deps": [
                         {
                           "path": "moonbitlang/core/coverage",
                           "alias": "coverage"
                         }
                       ],
+                      "wbtest-deps": [],
                       "test-deps": [],
-                      "bbtest-deps": [],
                       "artifact": "$ROOT/target/wasm-gc/release/check/char/char.mi"
                     },
                     {
@@ -2260,11 +2260,11 @@ fn test_dummy_core() {
                       "root": "moonbitlang/core",
                       "rel": "coverage",
                       "files": [],
+                      "wbtest-files": [],
                       "test-files": [],
-                      "bbtest-files": [],
                       "deps": [],
+                      "wbtest-deps": [],
                       "test-deps": [],
-                      "bbtest-deps": [],
                       "artifact": "$ROOT/target/wasm-gc/release/check/coverage/coverage.mi"
                     },
                     {
@@ -2273,21 +2273,21 @@ fn test_dummy_core() {
                       "root": "moonbitlang/core",
                       "rel": "iter",
                       "files": [],
+                      "wbtest-files": [],
                       "test-files": [],
-                      "bbtest-files": [],
                       "deps": [
                         {
                           "path": "moonbitlang/core/coverage",
                           "alias": "coverage"
                         }
                       ],
-                      "test-deps": [
+                      "wbtest-deps": [
                         {
                           "path": "moonbitlang/core/char",
                           "alias": "char"
                         }
                       ],
-                      "bbtest-deps": [],
+                      "test-deps": [],
                       "artifact": "$ROOT/target/wasm-gc/release/check/iter/iter.mi"
                     }
                   ],
@@ -2323,16 +2323,16 @@ fn test_dummy_core() {
                         "$ROOT/0/y.wasm-gc.mbt",
                         "$ROOT/0/y.wasm.mbt"
                       ],
-                      "test-files": [
-                        "$ROOT/0/y_test.js.mbt",
-                        "$ROOT/0/y_test.mbt",
-                        "$ROOT/0/y_test.wasm-gc.mbt",
-                        "$ROOT/0/y_test.wasm.mbt"
+                      "wbtest-files": [
+                        "$ROOT/0/y_wbtest.js.mbt",
+                        "$ROOT/0/y_wbtest.mbt",
+                        "$ROOT/0/y_wbtest.wasm-gc.mbt",
+                        "$ROOT/0/y_wbtest.wasm.mbt"
                       ],
-                      "bbtest-files": [],
+                      "test-files": [],
                       "deps": [],
+                      "wbtest-deps": [],
                       "test-deps": [],
-                      "bbtest-deps": [],
                       "artifact": "$ROOT/target/js/release/check/0/0.mi"
                     },
                     {
@@ -2346,13 +2346,13 @@ fn test_dummy_core() {
                         "$ROOT/1/x.wasm-gc.mbt",
                         "$ROOT/1/x.wasm.mbt"
                       ],
-                      "test-files": [
-                        "$ROOT/1/x_test.wasm-gc.mbt"
+                      "wbtest-files": [
+                        "$ROOT/1/x_wbtest.wasm-gc.mbt"
                       ],
-                      "bbtest-files": [],
+                      "test-files": [],
                       "deps": [],
+                      "wbtest-deps": [],
                       "test-deps": [],
-                      "bbtest-deps": [],
                       "artifact": "$ROOT/target/js/release/check/1/1.mi"
                     },
                     {
@@ -2363,16 +2363,16 @@ fn test_dummy_core() {
                       "files": [
                         "$ROOT/2/lib.mbt"
                       ],
+                      "wbtest-files": [],
                       "test-files": [],
-                      "bbtest-files": [],
                       "deps": [
                         {
                           "path": "moonbitlang/core/1",
                           "alias": "1"
                         }
                       ],
+                      "wbtest-deps": [],
                       "test-deps": [],
-                      "bbtest-deps": [],
                       "artifact": "$ROOT/target/js/release/check/2/2.mi"
                     },
                     {
@@ -2381,16 +2381,16 @@ fn test_dummy_core() {
                       "root": "moonbitlang/core",
                       "rel": "char",
                       "files": [],
+                      "wbtest-files": [],
                       "test-files": [],
-                      "bbtest-files": [],
                       "deps": [
                         {
                           "path": "moonbitlang/core/coverage",
                           "alias": "coverage"
                         }
                       ],
+                      "wbtest-deps": [],
                       "test-deps": [],
-                      "bbtest-deps": [],
                       "artifact": "$ROOT/target/js/release/check/char/char.mi"
                     },
                     {
@@ -2399,11 +2399,11 @@ fn test_dummy_core() {
                       "root": "moonbitlang/core",
                       "rel": "coverage",
                       "files": [],
+                      "wbtest-files": [],
                       "test-files": [],
-                      "bbtest-files": [],
                       "deps": [],
+                      "wbtest-deps": [],
                       "test-deps": [],
-                      "bbtest-deps": [],
                       "artifact": "$ROOT/target/js/release/check/coverage/coverage.mi"
                     },
                     {
@@ -2412,21 +2412,21 @@ fn test_dummy_core() {
                       "root": "moonbitlang/core",
                       "rel": "iter",
                       "files": [],
+                      "wbtest-files": [],
                       "test-files": [],
-                      "bbtest-files": [],
                       "deps": [
                         {
                           "path": "moonbitlang/core/coverage",
                           "alias": "coverage"
                         }
                       ],
-                      "test-deps": [
+                      "wbtest-deps": [
                         {
                           "path": "moonbitlang/core/char",
                           "alias": "char"
                         }
                       ],
-                      "bbtest-deps": [],
+                      "test-deps": [],
                       "artifact": "$ROOT/target/js/release/check/iter/iter.mi"
                     }
                   ],
@@ -2444,8 +2444,8 @@ fn test_dummy_core() {
             moonc check -o ./target/wasm-gc/release/check/char/char.mi -pkg moonbitlang/core/char -i ./target/wasm-gc/release/check/coverage/coverage.mi:coverage -pkg-sources moonbitlang/core/char:./char -target wasm-gc
             moonc check ./1/lib.mbt ./1/x.wasm-gc.mbt -o ./target/wasm-gc/release/check/1/1.mi -pkg moonbitlang/core/1 -pkg-sources moonbitlang/core/1:./1 -target wasm-gc
             moonc check ./2/lib.mbt -o ./target/wasm-gc/release/check/2/2.mi -pkg moonbitlang/core/2 -i ./target/wasm-gc/release/check/1/1.mi:1 -pkg-sources moonbitlang/core/2:./2 -target wasm-gc
-            moonc check ./1/lib.mbt ./1/x.wasm-gc.mbt ./1/x_test.wasm-gc.mbt -o ./target/wasm-gc/release/check/1/1.underscore_test.mi -pkg moonbitlang/core/1 -pkg-sources moonbitlang/core/1:./1 -target wasm-gc
-            moonc check ./0/lib.mbt ./0/y.wasm-gc.mbt ./0/y_test.mbt ./0/y_test.wasm-gc.mbt -o ./target/wasm-gc/release/check/0/0.underscore_test.mi -pkg moonbitlang/core/0 -pkg-sources moonbitlang/core/0:./0 -target wasm-gc
+            moonc check ./1/lib.mbt ./1/x.wasm-gc.mbt ./1/x_wbtest.wasm-gc.mbt -o ./target/wasm-gc/release/check/1/1.underscore_test.mi -pkg moonbitlang/core/1 -pkg-sources moonbitlang/core/1:./1 -target wasm-gc
+            moonc check ./0/lib.mbt ./0/y.wasm-gc.mbt ./0/y_wbtest.mbt ./0/y_wbtest.wasm-gc.mbt -o ./target/wasm-gc/release/check/0/0.underscore_test.mi -pkg moonbitlang/core/0 -pkg-sources moonbitlang/core/0:./0 -target wasm-gc
             moonc check ./0/lib.mbt ./0/y.wasm-gc.mbt -o ./target/wasm-gc/release/check/0/0.mi -pkg moonbitlang/core/0 -pkg-sources moonbitlang/core/0:./0 -target wasm-gc
         "#]],
     );
@@ -2461,7 +2461,7 @@ fn test_dummy_core() {
             moonc check ./1/lib.mbt ./1/x.wasm.mbt -o ./target/wasm/release/check/1/1.mi -pkg moonbitlang/core/1 -pkg-sources moonbitlang/core/1:./1 -target wasm
             moonc check ./2/lib.mbt -o ./target/wasm/release/check/2/2.mi -pkg moonbitlang/core/2 -i ./target/wasm/release/check/1/1.mi:1 -pkg-sources moonbitlang/core/2:./2 -target wasm
             moonc check ./1/lib.mbt ./1/x.wasm.mbt -o ./target/wasm/release/check/1/1.underscore_test.mi -pkg moonbitlang/core/1 -pkg-sources moonbitlang/core/1:./1 -target wasm
-            moonc check ./0/lib.mbt ./0/y.wasm.mbt ./0/y_test.mbt ./0/y_test.wasm.mbt -o ./target/wasm/release/check/0/0.underscore_test.mi -pkg moonbitlang/core/0 -pkg-sources moonbitlang/core/0:./0 -target wasm
+            moonc check ./0/lib.mbt ./0/y.wasm.mbt ./0/y_wbtest.mbt ./0/y_wbtest.wasm.mbt -o ./target/wasm/release/check/0/0.underscore_test.mi -pkg moonbitlang/core/0 -pkg-sources moonbitlang/core/0:./0 -target wasm
             moonc check ./0/lib.mbt ./0/y.wasm.mbt -o ./target/wasm/release/check/0/0.mi -pkg moonbitlang/core/0 -pkg-sources moonbitlang/core/0:./0 -target wasm
         "#]],
     );
@@ -2476,8 +2476,8 @@ fn test_dummy_core() {
             moonc check -o ./target/wasm-gc/release/check/char/char.mi -pkg moonbitlang/core/char -i ./target/wasm-gc/release/check/coverage/coverage.mi:coverage -pkg-sources moonbitlang/core/char:./char -target wasm-gc
             moonc check ./1/lib.mbt ./1/x.wasm-gc.mbt -o ./target/wasm-gc/release/check/1/1.mi -pkg moonbitlang/core/1 -pkg-sources moonbitlang/core/1:./1 -target wasm-gc
             moonc check ./2/lib.mbt -o ./target/wasm-gc/release/check/2/2.mi -pkg moonbitlang/core/2 -i ./target/wasm-gc/release/check/1/1.mi:1 -pkg-sources moonbitlang/core/2:./2 -target wasm-gc
-            moonc check ./1/lib.mbt ./1/x.wasm-gc.mbt ./1/x_test.wasm-gc.mbt -o ./target/wasm-gc/release/check/1/1.underscore_test.mi -pkg moonbitlang/core/1 -pkg-sources moonbitlang/core/1:./1 -target wasm-gc
-            moonc check ./0/lib.mbt ./0/y.wasm-gc.mbt ./0/y_test.mbt ./0/y_test.wasm-gc.mbt -o ./target/wasm-gc/release/check/0/0.underscore_test.mi -pkg moonbitlang/core/0 -pkg-sources moonbitlang/core/0:./0 -target wasm-gc
+            moonc check ./1/lib.mbt ./1/x.wasm-gc.mbt ./1/x_wbtest.wasm-gc.mbt -o ./target/wasm-gc/release/check/1/1.underscore_test.mi -pkg moonbitlang/core/1 -pkg-sources moonbitlang/core/1:./1 -target wasm-gc
+            moonc check ./0/lib.mbt ./0/y.wasm-gc.mbt ./0/y_wbtest.mbt ./0/y_wbtest.wasm-gc.mbt -o ./target/wasm-gc/release/check/0/0.underscore_test.mi -pkg moonbitlang/core/0 -pkg-sources moonbitlang/core/0:./0 -target wasm-gc
             moonc check ./0/lib.mbt ./0/y.wasm-gc.mbt -o ./target/wasm-gc/release/check/0/0.mi -pkg moonbitlang/core/0 -pkg-sources moonbitlang/core/0:./0 -target wasm-gc
         "#]],
     );
@@ -2493,7 +2493,7 @@ fn test_dummy_core() {
             moonc check ./1/lib.mbt ./1/x.js.mbt -o ./target/js/release/check/1/1.mi -pkg moonbitlang/core/1 -pkg-sources moonbitlang/core/1:./1 -target js
             moonc check ./2/lib.mbt -o ./target/js/release/check/2/2.mi -pkg moonbitlang/core/2 -i ./target/js/release/check/1/1.mi:1 -pkg-sources moonbitlang/core/2:./2 -target js
             moonc check ./1/lib.mbt ./1/x.js.mbt -o ./target/js/release/check/1/1.underscore_test.mi -pkg moonbitlang/core/1 -pkg-sources moonbitlang/core/1:./1 -target js
-            moonc check ./0/lib.mbt ./0/y.js.mbt ./0/y_test.js.mbt ./0/y_test.mbt -o ./target/js/release/check/0/0.underscore_test.mi -pkg moonbitlang/core/0 -pkg-sources moonbitlang/core/0:./0 -target js
+            moonc check ./0/lib.mbt ./0/y.js.mbt ./0/y_wbtest.js.mbt ./0/y_wbtest.mbt -o ./target/js/release/check/0/0.underscore_test.mi -pkg moonbitlang/core/0 -pkg-sources moonbitlang/core/0:./0 -target js
             moonc check ./0/lib.mbt ./0/y.js.mbt -o ./target/js/release/check/0/0.mi -pkg moonbitlang/core/0 -pkg-sources moonbitlang/core/0:./0 -target js
         "#]],
     );
@@ -2566,11 +2566,11 @@ fn test_dummy_core() {
             moonc build-package ./1/lib.mbt ./1/x.wasm-gc.mbt -o ./target/wasm-gc/debug/test/1/1.core -pkg moonbitlang/core/1 -pkg-sources moonbitlang/core/1:./1 -target wasm-gc -g
             moonc build-package ./2/lib.mbt ./target/wasm-gc/debug/test/2/__generated_driver_for_internal_test.mbt -o ./target/wasm-gc/debug/test/2/2.internal_test.core -pkg moonbitlang/core/2 -is-main -i ./target/wasm-gc/debug/test/1/1.mi:1 -pkg-sources moonbitlang/core/2:./2 -target wasm-gc -g
             moonc link-core ./target/wasm-gc/debug/test/1/1.core ./target/wasm-gc/debug/test/2/2.internal_test.core -main moonbitlang/core/2 -o ./target/wasm-gc/debug/test/2/2.internal_test.wasm -test-mode -pkg-sources moonbitlang/core/1:./1 -pkg-sources moonbitlang/core/2:./2 -target wasm-gc -g
-            moonc build-package ./1/lib.mbt ./1/x.wasm-gc.mbt ./1/x_test.wasm-gc.mbt ./target/wasm-gc/debug/test/1/__generated_driver_for_underscore_test.mbt -o ./target/wasm-gc/debug/test/1/1.underscore_test.core -pkg moonbitlang/core/1 -is-main -pkg-sources moonbitlang/core/1:./1 -target wasm-gc -g
+            moonc build-package ./1/lib.mbt ./1/x.wasm-gc.mbt ./1/x_wbtest.wasm-gc.mbt ./target/wasm-gc/debug/test/1/__generated_driver_for_underscore_test.mbt -o ./target/wasm-gc/debug/test/1/1.underscore_test.core -pkg moonbitlang/core/1 -is-main -pkg-sources moonbitlang/core/1:./1 -target wasm-gc -g
             moonc link-core ./target/wasm-gc/debug/test/1/1.underscore_test.core -main moonbitlang/core/1 -o ./target/wasm-gc/debug/test/1/1.underscore_test.wasm -test-mode -pkg-sources moonbitlang/core/1:./1 -target wasm-gc -g
             moonc build-package ./1/lib.mbt ./1/x.wasm-gc.mbt ./target/wasm-gc/debug/test/1/__generated_driver_for_internal_test.mbt -o ./target/wasm-gc/debug/test/1/1.internal_test.core -pkg moonbitlang/core/1 -is-main -pkg-sources moonbitlang/core/1:./1 -target wasm-gc -g
             moonc link-core ./target/wasm-gc/debug/test/1/1.internal_test.core -main moonbitlang/core/1 -o ./target/wasm-gc/debug/test/1/1.internal_test.wasm -test-mode -pkg-sources moonbitlang/core/1:./1 -target wasm-gc -g
-            moonc build-package ./0/lib.mbt ./0/y.wasm-gc.mbt ./0/y_test.js.mbt ./0/y_test.mbt ./0/y_test.wasm-gc.mbt ./0/y_test.wasm.mbt ./target/wasm-gc/debug/test/0/__generated_driver_for_underscore_test.mbt -o ./target/wasm-gc/debug/test/0/0.underscore_test.core -pkg moonbitlang/core/0 -is-main -pkg-sources moonbitlang/core/0:./0 -target wasm-gc -g
+            moonc build-package ./0/lib.mbt ./0/y.wasm-gc.mbt ./0/y_wbtest.js.mbt ./0/y_wbtest.mbt ./0/y_wbtest.wasm-gc.mbt ./0/y_wbtest.wasm.mbt ./target/wasm-gc/debug/test/0/__generated_driver_for_underscore_test.mbt -o ./target/wasm-gc/debug/test/0/0.underscore_test.core -pkg moonbitlang/core/0 -is-main -pkg-sources moonbitlang/core/0:./0 -target wasm-gc -g
             moonc link-core ./target/wasm-gc/debug/test/0/0.underscore_test.core -main moonbitlang/core/0 -o ./target/wasm-gc/debug/test/0/0.underscore_test.wasm -test-mode -pkg-sources moonbitlang/core/0:./0 -target wasm-gc -g
             moonc build-package ./0/lib.mbt ./0/y.wasm-gc.mbt ./target/wasm-gc/debug/test/0/__generated_driver_for_internal_test.mbt -o ./target/wasm-gc/debug/test/0/0.internal_test.core -pkg moonbitlang/core/0 -is-main -pkg-sources moonbitlang/core/0:./0 -target wasm-gc -g
             moonc link-core ./target/wasm-gc/debug/test/0/0.internal_test.core -main moonbitlang/core/0 -o ./target/wasm-gc/debug/test/0/0.internal_test.wasm -test-mode -pkg-sources moonbitlang/core/0:./0 -target wasm-gc -g
@@ -2593,11 +2593,11 @@ fn test_dummy_core() {
             moonc build-package ./1/lib.mbt ./1/x.wasm.mbt -o ./target/wasm/debug/test/1/1.core -pkg moonbitlang/core/1 -pkg-sources moonbitlang/core/1:./1 -target wasm -g
             moonc build-package ./2/lib.mbt ./target/wasm/debug/test/2/__generated_driver_for_internal_test.mbt -o ./target/wasm/debug/test/2/2.internal_test.core -pkg moonbitlang/core/2 -is-main -i ./target/wasm/debug/test/1/1.mi:1 -pkg-sources moonbitlang/core/2:./2 -target wasm -g
             moonc link-core ./target/wasm/debug/test/1/1.core ./target/wasm/debug/test/2/2.internal_test.core -main moonbitlang/core/2 -o ./target/wasm/debug/test/2/2.internal_test.wasm -test-mode -pkg-sources moonbitlang/core/1:./1 -pkg-sources moonbitlang/core/2:./2 -target wasm -g
-            moonc build-package ./1/lib.mbt ./1/x.wasm.mbt ./1/x_test.wasm-gc.mbt ./target/wasm/debug/test/1/__generated_driver_for_underscore_test.mbt -o ./target/wasm/debug/test/1/1.underscore_test.core -pkg moonbitlang/core/1 -is-main -pkg-sources moonbitlang/core/1:./1 -target wasm -g
+            moonc build-package ./1/lib.mbt ./1/x.wasm.mbt ./1/x_wbtest.wasm-gc.mbt ./target/wasm/debug/test/1/__generated_driver_for_underscore_test.mbt -o ./target/wasm/debug/test/1/1.underscore_test.core -pkg moonbitlang/core/1 -is-main -pkg-sources moonbitlang/core/1:./1 -target wasm -g
             moonc link-core ./target/wasm/debug/test/1/1.underscore_test.core -main moonbitlang/core/1 -o ./target/wasm/debug/test/1/1.underscore_test.wasm -test-mode -pkg-sources moonbitlang/core/1:./1 -target wasm -g
             moonc build-package ./1/lib.mbt ./1/x.wasm.mbt ./target/wasm/debug/test/1/__generated_driver_for_internal_test.mbt -o ./target/wasm/debug/test/1/1.internal_test.core -pkg moonbitlang/core/1 -is-main -pkg-sources moonbitlang/core/1:./1 -target wasm -g
             moonc link-core ./target/wasm/debug/test/1/1.internal_test.core -main moonbitlang/core/1 -o ./target/wasm/debug/test/1/1.internal_test.wasm -test-mode -pkg-sources moonbitlang/core/1:./1 -target wasm -g
-            moonc build-package ./0/lib.mbt ./0/y.wasm.mbt ./0/y_test.js.mbt ./0/y_test.mbt ./0/y_test.wasm-gc.mbt ./0/y_test.wasm.mbt ./target/wasm/debug/test/0/__generated_driver_for_underscore_test.mbt -o ./target/wasm/debug/test/0/0.underscore_test.core -pkg moonbitlang/core/0 -is-main -pkg-sources moonbitlang/core/0:./0 -target wasm -g
+            moonc build-package ./0/lib.mbt ./0/y.wasm.mbt ./0/y_wbtest.js.mbt ./0/y_wbtest.mbt ./0/y_wbtest.wasm-gc.mbt ./0/y_wbtest.wasm.mbt ./target/wasm/debug/test/0/__generated_driver_for_underscore_test.mbt -o ./target/wasm/debug/test/0/0.underscore_test.core -pkg moonbitlang/core/0 -is-main -pkg-sources moonbitlang/core/0:./0 -target wasm -g
             moonc link-core ./target/wasm/debug/test/0/0.underscore_test.core -main moonbitlang/core/0 -o ./target/wasm/debug/test/0/0.underscore_test.wasm -test-mode -pkg-sources moonbitlang/core/0:./0 -target wasm -g
             moonc build-package ./0/lib.mbt ./0/y.wasm.mbt ./target/wasm/debug/test/0/__generated_driver_for_internal_test.mbt -o ./target/wasm/debug/test/0/0.internal_test.core -pkg moonbitlang/core/0 -is-main -pkg-sources moonbitlang/core/0:./0 -target wasm -g
             moonc link-core ./target/wasm/debug/test/0/0.internal_test.core -main moonbitlang/core/0 -o ./target/wasm/debug/test/0/0.internal_test.wasm -test-mode -pkg-sources moonbitlang/core/0:./0 -target wasm -g
@@ -2620,11 +2620,11 @@ fn test_dummy_core() {
             moonc build-package ./1/lib.mbt ./1/x.wasm-gc.mbt -o ./target/wasm-gc/debug/test/1/1.core -pkg moonbitlang/core/1 -pkg-sources moonbitlang/core/1:./1 -target wasm-gc -g
             moonc build-package ./2/lib.mbt ./target/wasm-gc/debug/test/2/__generated_driver_for_internal_test.mbt -o ./target/wasm-gc/debug/test/2/2.internal_test.core -pkg moonbitlang/core/2 -is-main -i ./target/wasm-gc/debug/test/1/1.mi:1 -pkg-sources moonbitlang/core/2:./2 -target wasm-gc -g
             moonc link-core ./target/wasm-gc/debug/test/1/1.core ./target/wasm-gc/debug/test/2/2.internal_test.core -main moonbitlang/core/2 -o ./target/wasm-gc/debug/test/2/2.internal_test.wasm -test-mode -pkg-sources moonbitlang/core/1:./1 -pkg-sources moonbitlang/core/2:./2 -target wasm-gc -g
-            moonc build-package ./1/lib.mbt ./1/x.wasm-gc.mbt ./1/x_test.wasm-gc.mbt ./target/wasm-gc/debug/test/1/__generated_driver_for_underscore_test.mbt -o ./target/wasm-gc/debug/test/1/1.underscore_test.core -pkg moonbitlang/core/1 -is-main -pkg-sources moonbitlang/core/1:./1 -target wasm-gc -g
+            moonc build-package ./1/lib.mbt ./1/x.wasm-gc.mbt ./1/x_wbtest.wasm-gc.mbt ./target/wasm-gc/debug/test/1/__generated_driver_for_underscore_test.mbt -o ./target/wasm-gc/debug/test/1/1.underscore_test.core -pkg moonbitlang/core/1 -is-main -pkg-sources moonbitlang/core/1:./1 -target wasm-gc -g
             moonc link-core ./target/wasm-gc/debug/test/1/1.underscore_test.core -main moonbitlang/core/1 -o ./target/wasm-gc/debug/test/1/1.underscore_test.wasm -test-mode -pkg-sources moonbitlang/core/1:./1 -target wasm-gc -g
             moonc build-package ./1/lib.mbt ./1/x.wasm-gc.mbt ./target/wasm-gc/debug/test/1/__generated_driver_for_internal_test.mbt -o ./target/wasm-gc/debug/test/1/1.internal_test.core -pkg moonbitlang/core/1 -is-main -pkg-sources moonbitlang/core/1:./1 -target wasm-gc -g
             moonc link-core ./target/wasm-gc/debug/test/1/1.internal_test.core -main moonbitlang/core/1 -o ./target/wasm-gc/debug/test/1/1.internal_test.wasm -test-mode -pkg-sources moonbitlang/core/1:./1 -target wasm-gc -g
-            moonc build-package ./0/lib.mbt ./0/y.wasm-gc.mbt ./0/y_test.js.mbt ./0/y_test.mbt ./0/y_test.wasm-gc.mbt ./0/y_test.wasm.mbt ./target/wasm-gc/debug/test/0/__generated_driver_for_underscore_test.mbt -o ./target/wasm-gc/debug/test/0/0.underscore_test.core -pkg moonbitlang/core/0 -is-main -pkg-sources moonbitlang/core/0:./0 -target wasm-gc -g
+            moonc build-package ./0/lib.mbt ./0/y.wasm-gc.mbt ./0/y_wbtest.js.mbt ./0/y_wbtest.mbt ./0/y_wbtest.wasm-gc.mbt ./0/y_wbtest.wasm.mbt ./target/wasm-gc/debug/test/0/__generated_driver_for_underscore_test.mbt -o ./target/wasm-gc/debug/test/0/0.underscore_test.core -pkg moonbitlang/core/0 -is-main -pkg-sources moonbitlang/core/0:./0 -target wasm-gc -g
             moonc link-core ./target/wasm-gc/debug/test/0/0.underscore_test.core -main moonbitlang/core/0 -o ./target/wasm-gc/debug/test/0/0.underscore_test.wasm -test-mode -pkg-sources moonbitlang/core/0:./0 -target wasm-gc -g
             moonc build-package ./0/lib.mbt ./0/y.wasm-gc.mbt ./target/wasm-gc/debug/test/0/__generated_driver_for_internal_test.mbt -o ./target/wasm-gc/debug/test/0/0.internal_test.core -pkg moonbitlang/core/0 -is-main -pkg-sources moonbitlang/core/0:./0 -target wasm-gc -g
             moonc link-core ./target/wasm-gc/debug/test/0/0.internal_test.core -main moonbitlang/core/0 -o ./target/wasm-gc/debug/test/0/0.internal_test.wasm -test-mode -pkg-sources moonbitlang/core/0:./0 -target wasm-gc -g
@@ -2647,11 +2647,11 @@ fn test_dummy_core() {
             moonc build-package ./1/lib.mbt ./1/x.js.mbt -o ./target/js/debug/test/1/1.core -pkg moonbitlang/core/1 -pkg-sources moonbitlang/core/1:./1 -target js -g -ryu
             moonc build-package ./2/lib.mbt ./target/js/debug/test/2/__generated_driver_for_internal_test.mbt -o ./target/js/debug/test/2/2.internal_test.core -pkg moonbitlang/core/2 -is-main -i ./target/js/debug/test/1/1.mi:1 -pkg-sources moonbitlang/core/2:./2 -target js -g -ryu
             moonc link-core ./target/js/debug/test/1/1.core ./target/js/debug/test/2/2.internal_test.core -main moonbitlang/core/2 -o ./target/js/debug/test/2/2.internal_test.js -test-mode -pkg-sources moonbitlang/core/1:./1 -pkg-sources moonbitlang/core/2:./2 -target js -g -ryu
-            moonc build-package ./1/lib.mbt ./1/x.js.mbt ./1/x_test.wasm-gc.mbt ./target/js/debug/test/1/__generated_driver_for_underscore_test.mbt -o ./target/js/debug/test/1/1.underscore_test.core -pkg moonbitlang/core/1 -is-main -pkg-sources moonbitlang/core/1:./1 -target js -g -ryu
+            moonc build-package ./1/lib.mbt ./1/x.js.mbt ./1/x_wbtest.wasm-gc.mbt ./target/js/debug/test/1/__generated_driver_for_underscore_test.mbt -o ./target/js/debug/test/1/1.underscore_test.core -pkg moonbitlang/core/1 -is-main -pkg-sources moonbitlang/core/1:./1 -target js -g -ryu
             moonc link-core ./target/js/debug/test/1/1.underscore_test.core -main moonbitlang/core/1 -o ./target/js/debug/test/1/1.underscore_test.js -test-mode -pkg-sources moonbitlang/core/1:./1 -target js -g -ryu
             moonc build-package ./1/lib.mbt ./1/x.js.mbt ./target/js/debug/test/1/__generated_driver_for_internal_test.mbt -o ./target/js/debug/test/1/1.internal_test.core -pkg moonbitlang/core/1 -is-main -pkg-sources moonbitlang/core/1:./1 -target js -g -ryu
             moonc link-core ./target/js/debug/test/1/1.internal_test.core -main moonbitlang/core/1 -o ./target/js/debug/test/1/1.internal_test.js -test-mode -pkg-sources moonbitlang/core/1:./1 -target js -g -ryu
-            moonc build-package ./0/lib.mbt ./0/y.js.mbt ./0/y_test.js.mbt ./0/y_test.mbt ./0/y_test.wasm-gc.mbt ./0/y_test.wasm.mbt ./target/js/debug/test/0/__generated_driver_for_underscore_test.mbt -o ./target/js/debug/test/0/0.underscore_test.core -pkg moonbitlang/core/0 -is-main -pkg-sources moonbitlang/core/0:./0 -target js -g -ryu
+            moonc build-package ./0/lib.mbt ./0/y.js.mbt ./0/y_wbtest.js.mbt ./0/y_wbtest.mbt ./0/y_wbtest.wasm-gc.mbt ./0/y_wbtest.wasm.mbt ./target/js/debug/test/0/__generated_driver_for_underscore_test.mbt -o ./target/js/debug/test/0/0.underscore_test.core -pkg moonbitlang/core/0 -is-main -pkg-sources moonbitlang/core/0:./0 -target js -g -ryu
             moonc link-core ./target/js/debug/test/0/0.underscore_test.core -main moonbitlang/core/0 -o ./target/js/debug/test/0/0.underscore_test.js -test-mode -pkg-sources moonbitlang/core/0:./0 -target js -g -ryu
             moonc build-package ./0/lib.mbt ./0/y.js.mbt ./target/js/debug/test/0/__generated_driver_for_internal_test.mbt -o ./target/js/debug/test/0/0.internal_test.core -pkg moonbitlang/core/0 -is-main -pkg-sources moonbitlang/core/0:./0 -target js -g -ryu
             moonc link-core ./target/js/debug/test/0/0.internal_test.core -main moonbitlang/core/0 -o ./target/js/debug/test/0/0.internal_test.js -test-mode -pkg-sources moonbitlang/core/0:./0 -target js -g -ryu
@@ -2674,11 +2674,11 @@ fn test_dummy_core() {
             moonc build-package ./1/lib.mbt ./1/x.wasm-gc.mbt -o ./target/wasm-gc/debug/test/1/1.core -pkg moonbitlang/core/1 -pkg-sources moonbitlang/core/1:./1 -target wasm-gc -g -enable-coverage
             moonc build-package ./2/lib.mbt ./target/wasm-gc/debug/test/2/__generated_driver_for_internal_test.mbt -o ./target/wasm-gc/debug/test/2/2.internal_test.core -pkg moonbitlang/core/2 -is-main -i ./target/wasm-gc/debug/test/1/1.mi:1 -pkg-sources moonbitlang/core/2:./2 -target wasm-gc -g -enable-coverage
             moonc link-core ./target/wasm-gc/debug/test/1/1.core ./target/wasm-gc/debug/test/2/2.internal_test.core -main moonbitlang/core/2 -o ./target/wasm-gc/debug/test/2/2.internal_test.wasm -test-mode -pkg-sources moonbitlang/core/1:./1 -pkg-sources moonbitlang/core/2:./2 -target wasm-gc -g
-            moonc build-package ./1/lib.mbt ./1/x.wasm-gc.mbt ./1/x_test.wasm-gc.mbt ./target/wasm-gc/debug/test/1/__generated_driver_for_underscore_test.mbt -o ./target/wasm-gc/debug/test/1/1.underscore_test.core -pkg moonbitlang/core/1 -is-main -pkg-sources moonbitlang/core/1:./1 -target wasm-gc -g -enable-coverage
+            moonc build-package ./1/lib.mbt ./1/x.wasm-gc.mbt ./1/x_wbtest.wasm-gc.mbt ./target/wasm-gc/debug/test/1/__generated_driver_for_underscore_test.mbt -o ./target/wasm-gc/debug/test/1/1.underscore_test.core -pkg moonbitlang/core/1 -is-main -pkg-sources moonbitlang/core/1:./1 -target wasm-gc -g -enable-coverage
             moonc link-core ./target/wasm-gc/debug/test/1/1.underscore_test.core -main moonbitlang/core/1 -o ./target/wasm-gc/debug/test/1/1.underscore_test.wasm -test-mode -pkg-sources moonbitlang/core/1:./1 -target wasm-gc -g
             moonc build-package ./1/lib.mbt ./1/x.wasm-gc.mbt ./target/wasm-gc/debug/test/1/__generated_driver_for_internal_test.mbt -o ./target/wasm-gc/debug/test/1/1.internal_test.core -pkg moonbitlang/core/1 -is-main -pkg-sources moonbitlang/core/1:./1 -target wasm-gc -g -enable-coverage
             moonc link-core ./target/wasm-gc/debug/test/1/1.internal_test.core -main moonbitlang/core/1 -o ./target/wasm-gc/debug/test/1/1.internal_test.wasm -test-mode -pkg-sources moonbitlang/core/1:./1 -target wasm-gc -g
-            moonc build-package ./0/lib.mbt ./0/y.wasm-gc.mbt ./0/y_test.js.mbt ./0/y_test.mbt ./0/y_test.wasm-gc.mbt ./0/y_test.wasm.mbt ./target/wasm-gc/debug/test/0/__generated_driver_for_underscore_test.mbt -o ./target/wasm-gc/debug/test/0/0.underscore_test.core -pkg moonbitlang/core/0 -is-main -pkg-sources moonbitlang/core/0:./0 -target wasm-gc -g -enable-coverage
+            moonc build-package ./0/lib.mbt ./0/y.wasm-gc.mbt ./0/y_wbtest.js.mbt ./0/y_wbtest.mbt ./0/y_wbtest.wasm-gc.mbt ./0/y_wbtest.wasm.mbt ./target/wasm-gc/debug/test/0/__generated_driver_for_underscore_test.mbt -o ./target/wasm-gc/debug/test/0/0.underscore_test.core -pkg moonbitlang/core/0 -is-main -pkg-sources moonbitlang/core/0:./0 -target wasm-gc -g -enable-coverage
             moonc link-core ./target/wasm-gc/debug/test/0/0.underscore_test.core -main moonbitlang/core/0 -o ./target/wasm-gc/debug/test/0/0.underscore_test.wasm -test-mode -pkg-sources moonbitlang/core/0:./0 -target wasm-gc -g
             moonc build-package ./0/lib.mbt ./0/y.wasm-gc.mbt ./target/wasm-gc/debug/test/0/__generated_driver_for_internal_test.mbt -o ./target/wasm-gc/debug/test/0/0.internal_test.core -pkg moonbitlang/core/0 -is-main -pkg-sources moonbitlang/core/0:./0 -target wasm-gc -g -enable-coverage
             moonc link-core ./target/wasm-gc/debug/test/0/0.internal_test.core -main moonbitlang/core/0 -o ./target/wasm-gc/debug/test/0/0.internal_test.wasm -test-mode -pkg-sources moonbitlang/core/0:./0 -target wasm-gc -g
@@ -3136,7 +3136,7 @@ fn test_moon_test_release() {
         &get_stdout_with_args_and_replace_dir(&dir, ["test", "--dry-run", "--sort-input"]),
         expect![[r#"
             moon generate-test-driver --source-dir . --target-dir ./target/wasm-gc/debug/test --sort-input
-            moonc build-package ./lib/hello.mbt ./lib/hello_test.mbt ./target/wasm-gc/debug/test/lib/__generated_driver_for_underscore_test.mbt -o ./target/wasm-gc/debug/test/lib/lib.underscore_test.core -pkg username/hello/lib -is-main -std-path $MOON_HOME/lib/core/target/wasm-gc/release/bundle -pkg-sources username/hello/lib:./lib -target wasm-gc -g
+            moonc build-package ./lib/hello.mbt ./lib/hello_wbtest.mbt ./target/wasm-gc/debug/test/lib/__generated_driver_for_underscore_test.mbt -o ./target/wasm-gc/debug/test/lib/lib.underscore_test.core -pkg username/hello/lib -is-main -std-path $MOON_HOME/lib/core/target/wasm-gc/release/bundle -pkg-sources username/hello/lib:./lib -target wasm-gc -g
             moonc link-core $MOON_HOME/lib/core/target/wasm-gc/release/bundle/core.core ./target/wasm-gc/debug/test/lib/lib.underscore_test.core -main username/hello/lib -o ./target/wasm-gc/debug/test/lib/lib.underscore_test.wasm -test-mode -pkg-sources username/hello/lib:./lib -pkg-sources moonbitlang/core:$MOON_HOME/lib/core -target wasm-gc -g
             moonc build-package ./lib/hello.mbt ./target/wasm-gc/debug/test/lib/__generated_driver_for_internal_test.mbt -o ./target/wasm-gc/debug/test/lib/lib.internal_test.core -pkg username/hello/lib -is-main -std-path $MOON_HOME/lib/core/target/wasm-gc/release/bundle -pkg-sources username/hello/lib:./lib -target wasm-gc -g
             moonc link-core $MOON_HOME/lib/core/target/wasm-gc/release/bundle/core.core ./target/wasm-gc/debug/test/lib/lib.internal_test.core -main username/hello/lib -o ./target/wasm-gc/debug/test/lib/lib.internal_test.wasm -test-mode -pkg-sources username/hello/lib:./lib -pkg-sources moonbitlang/core:$MOON_HOME/lib/core -target wasm-gc -g
@@ -3150,7 +3150,7 @@ fn test_moon_test_release() {
         ),
         expect![[r#"
             moon generate-test-driver --source-dir . --target-dir ./target/wasm-gc/release/test --sort-input
-            moonc build-package ./lib/hello.mbt ./lib/hello_test.mbt ./target/wasm-gc/release/test/lib/__generated_driver_for_underscore_test.mbt -o ./target/wasm-gc/release/test/lib/lib.underscore_test.core -pkg username/hello/lib -is-main -std-path $MOON_HOME/lib/core/target/wasm-gc/release/bundle -pkg-sources username/hello/lib:./lib -target wasm-gc
+            moonc build-package ./lib/hello.mbt ./lib/hello_wbtest.mbt ./target/wasm-gc/release/test/lib/__generated_driver_for_underscore_test.mbt -o ./target/wasm-gc/release/test/lib/lib.underscore_test.core -pkg username/hello/lib -is-main -std-path $MOON_HOME/lib/core/target/wasm-gc/release/bundle -pkg-sources username/hello/lib:./lib -target wasm-gc
             moonc link-core $MOON_HOME/lib/core/target/wasm-gc/release/bundle/core.core ./target/wasm-gc/release/test/lib/lib.underscore_test.core -main username/hello/lib -o ./target/wasm-gc/release/test/lib/lib.underscore_test.wasm -test-mode -pkg-sources username/hello/lib:./lib -pkg-sources moonbitlang/core:$MOON_HOME/lib/core -target wasm-gc
             moonc build-package ./lib/hello.mbt ./target/wasm-gc/release/test/lib/__generated_driver_for_internal_test.mbt -o ./target/wasm-gc/release/test/lib/lib.internal_test.core -pkg username/hello/lib -is-main -std-path $MOON_HOME/lib/core/target/wasm-gc/release/bundle -pkg-sources username/hello/lib:./lib -target wasm-gc
             moonc link-core $MOON_HOME/lib/core/target/wasm-gc/release/bundle/core.core ./target/wasm-gc/release/test/lib/lib.internal_test.core -main username/hello/lib -o ./target/wasm-gc/release/test/lib/lib.internal_test.wasm -test-mode -pkg-sources username/hello/lib:./lib -pkg-sources moonbitlang/core:$MOON_HOME/lib/core -target wasm-gc
@@ -3532,7 +3532,7 @@ fn test_panic() {
     check(
         &out,
         expect![[r#"
-            test username/hello/lib/hello_test.mbt::panic failed: panic is expected
+            test username/hello/lib/hello_wbtest.mbt::panic failed: panic is expected
             Total tests: 2, passed: 1, failed: 1.
         "#]],
     );
@@ -4209,7 +4209,7 @@ fn test_blackbox_success() {
                 "-p",
                 "username/hello/A",
                 "-f",
-                "hello_bbtest.mbt",
+                "hello_test.mbt",
                 "-i",
                 "0",
                 "--nostd",
@@ -4218,16 +4218,36 @@ fn test_blackbox_success() {
             ],
         ),
         expect![[r#"
-            moon generate-test-driver --source-dir . --target-dir ./target/wasm-gc/debug/test --package username/hello/A --file hello_bbtest.mbt --index 0 --sort-input
+            moon generate-test-driver --source-dir . --target-dir ./target/wasm-gc/debug/test --package username/hello/A --file hello_test.mbt --index 0 --sort-input
             moonc build-package ./A/hello.mbt -o ./target/wasm-gc/debug/test/A/A.core -pkg username/hello/A -pkg-sources username/hello/A:./A -target wasm-gc -g
             moonc build-package ./C/hello.mbt -o ./target/wasm-gc/debug/test/C/C.core -pkg username/hello/C -pkg-sources username/hello/C:./C -target wasm-gc -g
-            moonc build-package ./A/hello_bbtest.mbt ./target/wasm-gc/debug/test/A/__generated_driver_for_blackbox_test.mbt -o ./target/wasm-gc/debug/test/A/A.blackbox_test.core -pkg username/hello/A_blackbox_test -is-main -i ./target/wasm-gc/debug/test/A/A.mi:A -i ./target/wasm-gc/debug/test/C/C.mi:C -pkg-sources username/hello/A_blackbox_test:./A -target wasm-gc -g
+            moonc build-package ./A/hello_test.mbt ./target/wasm-gc/debug/test/A/__generated_driver_for_blackbox_test.mbt -o ./target/wasm-gc/debug/test/A/A.blackbox_test.core -pkg username/hello/A_blackbox_test -is-main -i ./target/wasm-gc/debug/test/A/A.mi:A -i ./target/wasm-gc/debug/test/C/C.mi:C -pkg-sources username/hello/A_blackbox_test:./A -target wasm-gc -g
             moonc link-core ./target/wasm-gc/debug/test/C/C.core ./target/wasm-gc/debug/test/A/A.core ./target/wasm-gc/debug/test/A/A.blackbox_test.core -main username/hello/A -o ./target/wasm-gc/debug/test/A/A.blackbox_test.wasm -test-mode -pkg-sources username/hello/C:./C -pkg-sources username/hello/A:./A -target wasm-gc -g
             moonc build-package ./B/hello.mbt -o ./target/wasm-gc/debug/test/B/B.core -pkg username/hello/B -pkg-sources username/hello/B:./B -target wasm-gc -g
-            moonc build-package ./A/hello.mbt ./A/hello_test.mbt ./target/wasm-gc/debug/test/A/__generated_driver_for_underscore_test.mbt -o ./target/wasm-gc/debug/test/A/A.underscore_test.core -pkg username/hello/A -is-main -i ./target/wasm-gc/debug/test/B/B.mi:B -pkg-sources username/hello/A:./A -target wasm-gc -g
+            moonc build-package ./A/hello.mbt ./A/hello_wbtest.mbt ./target/wasm-gc/debug/test/A/__generated_driver_for_underscore_test.mbt -o ./target/wasm-gc/debug/test/A/A.underscore_test.core -pkg username/hello/A -is-main -i ./target/wasm-gc/debug/test/B/B.mi:B -pkg-sources username/hello/A:./A -target wasm-gc -g
             moonc link-core ./target/wasm-gc/debug/test/B/B.core ./target/wasm-gc/debug/test/A/A.underscore_test.core -main username/hello/A -o ./target/wasm-gc/debug/test/A/A.underscore_test.wasm -test-mode -pkg-sources username/hello/B:./B -pkg-sources username/hello/A:./A -target wasm-gc -g
             moonc build-package ./A/hello.mbt ./target/wasm-gc/debug/test/A/__generated_driver_for_internal_test.mbt -o ./target/wasm-gc/debug/test/A/A.internal_test.core -pkg username/hello/A -is-main -pkg-sources username/hello/A:./A -target wasm-gc -g
             moonc link-core ./target/wasm-gc/debug/test/A/A.internal_test.core -main username/hello/A -o ./target/wasm-gc/debug/test/A/A.internal_test.wasm -test-mode -pkg-sources username/hello/A:./A -target wasm-gc -g
+        "#]],
+    );
+
+    check(
+        &get_stdout_with_args_and_replace_dir(
+            &dir,
+            [
+                "test",
+                "-p",
+                "username/hello/A",
+                "-f",
+                "hello_test.mbt",
+                "-i",
+                "0",
+            ],
+        ),
+        expect![[r#"
+            output from A/hello.mbt!
+            output from C/hello.mbt!
+            Total tests: 1, passed: 1, failed: 0.
         "#]],
     );
 
@@ -4247,9 +4267,9 @@ fn test_blackbox_success() {
             moonc check ./main/main.mbt -o ./target/wasm-gc/release/check/main/main.mi -pkg username/hello/main -is-main -std-path $MOON_HOME/lib/core/target/wasm-gc/release/bundle -pkg-sources username/hello/main:./main -target wasm-gc
             moonc check ./A/hello.mbt -o ./target/wasm-gc/release/check/A/A.mi -pkg username/hello/A -std-path $MOON_HOME/lib/core/target/wasm-gc/release/bundle -pkg-sources username/hello/A:./A -target wasm-gc
             moonc check ./C/hello.mbt -o ./target/wasm-gc/release/check/C/C.mi -pkg username/hello/C -std-path $MOON_HOME/lib/core/target/wasm-gc/release/bundle -pkg-sources username/hello/C:./C -target wasm-gc
-            moonc check ./A/hello_bbtest.mbt -o ./target/wasm-gc/release/check/A/A.blackbox_test.mi -pkg username/hello/A_blackbox_test -std-path $MOON_HOME/lib/core/target/wasm-gc/release/bundle -i ./target/wasm-gc/release/check/A/A.mi:A -i ./target/wasm-gc/release/check/C/C.mi:C -pkg-sources username/hello/A_blackbox_test:./A -target wasm-gc
+            moonc check ./A/hello_test.mbt -o ./target/wasm-gc/release/check/A/A.blackbox_test.mi -pkg username/hello/A_blackbox_test -std-path $MOON_HOME/lib/core/target/wasm-gc/release/bundle -i ./target/wasm-gc/release/check/A/A.mi:A -i ./target/wasm-gc/release/check/C/C.mi:C -pkg-sources username/hello/A_blackbox_test:./A -target wasm-gc
             moonc check ./B/hello.mbt -o ./target/wasm-gc/release/check/B/B.mi -pkg username/hello/B -std-path $MOON_HOME/lib/core/target/wasm-gc/release/bundle -pkg-sources username/hello/B:./B -target wasm-gc
-            moonc check ./A/hello.mbt ./A/hello_test.mbt -o ./target/wasm-gc/release/check/A/A.underscore_test.mi -pkg username/hello/A -std-path $MOON_HOME/lib/core/target/wasm-gc/release/bundle -i ./target/wasm-gc/release/check/B/B.mi:B -pkg-sources username/hello/A:./A -target wasm-gc
+            moonc check ./A/hello.mbt ./A/hello_wbtest.mbt -o ./target/wasm-gc/release/check/A/A.underscore_test.mi -pkg username/hello/A -std-path $MOON_HOME/lib/core/target/wasm-gc/release/bundle -i ./target/wasm-gc/release/check/B/B.mi:B -pkg-sources username/hello/A:./A -target wasm-gc
         "#]],
     );
 
@@ -4280,20 +4300,20 @@ fn test_blackbox_success() {
                       "files": [
                         "$ROOT/A/hello.mbt"
                       ],
+                      "wbtest-files": [
+                        "$ROOT/A/hello_wbtest.mbt"
+                      ],
                       "test-files": [
                         "$ROOT/A/hello_test.mbt"
                       ],
-                      "bbtest-files": [
-                        "$ROOT/A/hello_bbtest.mbt"
-                      ],
                       "deps": [],
-                      "test-deps": [
+                      "wbtest-deps": [
                         {
                           "path": "username/hello/B",
                           "alias": "B"
                         }
                       ],
-                      "bbtest-deps": [
+                      "test-deps": [
                         {
                           "path": "username/hello/C",
                           "alias": "C"
@@ -4309,11 +4329,11 @@ fn test_blackbox_success() {
                       "files": [
                         "$ROOT/B/hello.mbt"
                       ],
+                      "wbtest-files": [],
                       "test-files": [],
-                      "bbtest-files": [],
                       "deps": [],
+                      "wbtest-deps": [],
                       "test-deps": [],
-                      "bbtest-deps": [],
                       "artifact": "$ROOT/target/wasm-gc/release/check/B/B.mi"
                     },
                     {
@@ -4324,11 +4344,11 @@ fn test_blackbox_success() {
                       "files": [
                         "$ROOT/C/hello.mbt"
                       ],
+                      "wbtest-files": [],
                       "test-files": [],
-                      "bbtest-files": [],
                       "deps": [],
+                      "wbtest-deps": [],
                       "test-deps": [],
-                      "bbtest-deps": [],
                       "artifact": "$ROOT/target/wasm-gc/release/check/C/C.mi"
                     },
                     {
@@ -4339,11 +4359,11 @@ fn test_blackbox_success() {
                       "files": [
                         "$ROOT/main/main.mbt"
                       ],
+                      "wbtest-files": [],
                       "test-files": [],
-                      "bbtest-files": [],
                       "deps": [],
+                      "wbtest-deps": [],
                       "test-deps": [],
-                      "bbtest-deps": [],
                       "artifact": "$ROOT/target/wasm-gc/release/check/main/main.mi"
                     }
                   ],
@@ -4370,7 +4390,7 @@ fn test_blackbox_failed() {
     let output = String::from_utf8_lossy(&output);
     // bbtest can not use private function in bbtest_import
     assert!(output.contains("Value _private_hello not found in package \"A\""));
-    // bbtest_import could no be used in _test.mbt
+    // bbtest_import could no be used in _wbtest.mbt
     assert!(output.contains("Package \"C\" not found in the loaded packages."));
 
     let output = snapbox::cmd::Command::new(moon_bin())

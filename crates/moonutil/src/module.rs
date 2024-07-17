@@ -136,7 +136,12 @@ impl ModuleDB {
     pub fn validate(&self) -> anyhow::Result<()> {
         let mut errors = vec![];
         for (_, pkg) in &self.packages {
-            for item in pkg.imports.iter().chain(pkg.test_imports.iter()) {
+            for item in pkg
+                .imports
+                .iter()
+                .chain(pkg.wbtest_imports.iter())
+                .chain(pkg.test_imports.iter())
+            {
                 let imported = item.path.make_full_path();
                 if !pkg.full_components().can_import(&item.full_components()) {
                     errors.push(format!(
@@ -182,13 +187,13 @@ pub fn convert_mdb_to_json(module: &ModuleDB) -> ModuleDBJSON {
     let mut pkgs = vec![];
     for (_, pkg) in &module.packages {
         let files = pkg.files.iter().map(|f| f.display().to_string()).collect();
-        let test_files = pkg
-            .test_files
+        let wbtest_files = pkg
+            .wbtest_files
             .iter()
             .map(|f| f.display().to_string())
             .collect();
-        let bbtest_files = pkg
-            .bbtest_files
+        let test_files = pkg
+            .test_files
             .iter()
             .map(|f| f.display().to_string())
             .collect();
@@ -205,6 +210,24 @@ pub fn convert_mdb_to_json(module: &ModuleDB) -> ModuleDBJSON {
                 Some(x) => x.to_string(),
             };
             deps.push(AliasJSON {
+                path: dep.path.make_full_path(),
+                alias,
+            });
+        }
+
+        let mut wbtest_deps = vec![];
+        for dep in &pkg.wbtest_imports {
+            let alias = match &dep.alias {
+                None => {
+                    let alias = dep.path.rel_path.components.last();
+                    match alias {
+                        None => dep.path.module_name.split('/').last().unwrap().to_string(),
+                        Some(x) => x.to_string(),
+                    }
+                }
+                Some(x) => x.to_string(),
+            };
+            wbtest_deps.push(AliasJSON {
                 path: dep.path.make_full_path(),
                 alias,
             });
@@ -228,35 +251,17 @@ pub fn convert_mdb_to_json(module: &ModuleDB) -> ModuleDBJSON {
             });
         }
 
-        let mut bbtest_deps = vec![];
-        for dep in &pkg.bbtest_imports {
-            let alias = match &dep.alias {
-                None => {
-                    let alias = dep.path.rel_path.components.last();
-                    match alias {
-                        None => dep.path.module_name.split('/').last().unwrap().to_string(),
-                        Some(x) => x.to_string(),
-                    }
-                }
-                Some(x) => x.to_string(),
-            };
-            bbtest_deps.push(AliasJSON {
-                path: dep.path.make_full_path(),
-                alias,
-            });
-        }
-
         pkgs.push(PackageJSON {
             is_main: pkg.is_main,
             is_third_party: pkg.is_third_party,
             root: pkg.root.full_name(),
             rel: pkg.rel.full_name(),
             files,
+            wbtest_files,
             test_files,
-            bbtest_files,
             deps,
+            wbtest_deps,
             test_deps,
-            bbtest_deps,
             artifact: pkg
                 .artifact
                 .with_extension("mi")

@@ -48,11 +48,11 @@ fn match_import_to_path(
     }
 }
 
-/// (*.mbt[exclude the following], *_test.mbt, *_bbtest.mbt)
+/// (*.mbt[exclude the following], *_wbtest.mbt, *_test.mbt)
 pub fn get_mbt_and_test_file_paths(dir: &Path) -> (Vec<PathBuf>, Vec<PathBuf>, Vec<PathBuf>) {
     let mut mbt_files = vec![];
+    let mut mbt_wbtest_files = vec![];
     let mut mbt_test_files = vec![];
-    let mut mbt_bbtest_files = vec![];
     let entries = std::fs::read_dir(dir).unwrap();
     for entry in entries.flatten() {
         if let Ok(t) = entry.file_type() {
@@ -66,20 +66,20 @@ pub fn get_mbt_and_test_file_paths(dir: &Path) -> (Vec<PathBuf>, Vec<PathBuf>, V
                 let dot = stem.rfind('.');
                 match dot {
                     None => {
-                        if stem.ends_with("_test") {
+                        if stem.ends_with("_wbtest") {
+                            mbt_wbtest_files.push(p);
+                        } else if stem.ends_with("_test") {
                             mbt_test_files.push(p);
-                        } else if stem.ends_with("_bbtest") {
-                            mbt_bbtest_files.push(p);
                         } else {
                             mbt_files.push(p);
                         }
                     }
                     Some(idx) => {
                         let (filename, _dot_backend_ext) = stem.split_at(idx);
-                        if filename.ends_with("_test") {
+                        if filename.ends_with("_wbtest") {
+                            mbt_wbtest_files.push(p);
+                        } else if filename.ends_with("_test") {
                             mbt_test_files.push(p);
-                        } else if filename.ends_with("_bbtest") {
-                            mbt_bbtest_files.push(p);
                         } else {
                             mbt_files.push(p);
                         }
@@ -88,7 +88,7 @@ pub fn get_mbt_and_test_file_paths(dir: &Path) -> (Vec<PathBuf>, Vec<PathBuf>, V
             }
         }
     }
-    (mbt_files, mbt_test_files, mbt_bbtest_files)
+    (mbt_files, mbt_wbtest_files, mbt_test_files)
 }
 
 /// This is to support coverage testing for builtin packages.
@@ -226,10 +226,10 @@ fn scan_one_package(
     let rel_path = PathComponent::from_path(rel)?;
 
     let imports = get_imports(pkg.imports)?;
+    let wbtest_imports = get_imports(pkg.wbtest_imports)?;
     let test_imports = get_imports(pkg.test_imports)?;
-    let bbtest_imports = get_imports(pkg.bbtest_imports)?;
 
-    let (mut mbt_files, mut test_mbt_files, mut bbtest_mbt_files) =
+    let (mut mbt_files, mut wbtest_mbt_files, mut test_mbt_files) =
         get_mbt_and_test_file_paths(pkg_path);
 
     // workaround for builtin package testing
@@ -243,8 +243,8 @@ fn scan_one_package(
     let sort_input = moonbuild_opt.sort_input;
     if sort_input {
         mbt_files.sort();
+        wbtest_mbt_files.sort();
         test_mbt_files.sort();
-        bbtest_mbt_files.sort();
     }
     let artifact: PathBuf = target_dir.into();
     let mut cur_pkg = Package {
@@ -255,11 +255,11 @@ fn scan_one_package(
         root: PathComponent::from_str(&mod_desc.name)?,
         files: mbt_files,
         files_contain_test_block: vec![],
+        wbtest_files: wbtest_mbt_files,
         test_files: test_mbt_files,
-        bbtest_files: bbtest_mbt_files,
         imports,
+        wbtest_imports,
         test_imports,
-        bbtest_imports,
         generated_test_drivers: vec![],
         artifact,
         rel: rel_path,
@@ -461,8 +461,8 @@ fn resolve_deps_of_pkg(
         for dep in pkg
             .imports
             .iter()
+            .chain(pkg.wbtest_imports.iter())
             .chain(pkg.test_imports.iter())
-            .chain(pkg.bbtest_imports.iter())
         {
             let dep = &dep.path.make_full_path();
             if !res.contains(dep) {
