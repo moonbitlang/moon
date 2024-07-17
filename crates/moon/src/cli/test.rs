@@ -9,6 +9,7 @@ use moonutil::common::FileLock;
 use moonutil::common::GeneratedTestDriver;
 use moonutil::common::MooncOpt;
 use moonutil::common::RunMode;
+use moonutil::common::SurfaceTarget;
 use moonutil::common::{MoonbuildOpt, TargetBackend, TestOpt};
 use moonutil::dirs::mk_arch_mode_dir;
 use moonutil::dirs::PackageDirs;
@@ -19,11 +20,13 @@ use n2::trace;
 use regex::Regex;
 use std::path::Path;
 use std::path::PathBuf;
+use std::sync::Arc;
+use std::thread;
 
 use super::{BuildFlags, UniversalFlags};
 
 /// Test the current package
-#[derive(Debug, clap::Parser)]
+#[derive(Debug, clap::Parser, Clone)]
 pub struct TestSubcommand {
     #[clap(flatten)]
     pub build_flags: BuildFlags,
@@ -65,18 +68,58 @@ pub fn run_test(cli: UniversalFlags, cmd: TestSubcommand) -> anyhow::Result<i32>
         source_dir,
         target_dir,
     } = cli.source_tgt_dir.try_into_package_dirs()?;
+    if let Some(SurfaceTarget::All) = cmd.build_flags.target {
+        let _lock = FileLock::lock(&target_dir)?;
+        let targets = [
+            SurfaceTarget::Wasm,
+            SurfaceTarget::WasmGC,
+            SurfaceTarget::Js,
+        ];
 
-    let _lock = FileLock::lock(&target_dir)?;
+        let cli = Arc::new(cli);
+        let source_dir = Arc::new(source_dir);
+        let target_dir = Arc::new(target_dir);
+        let mut handles = Vec::new();
 
+        for t in &targets {
+            let cli = Arc::clone(&cli);
+            let mut cmd = cmd.clone();
+            cmd.build_flags.target = Some(*t);
+            let source_dir = Arc::clone(&source_dir);
+            let target_dir = Arc::clone(&target_dir);
+
+            let handle =
+                thread::spawn(move || run_test_internal(&cli, &cmd, &source_dir, &target_dir));
+
+            handles.push(handle);
+        }
+
+        for handle in handles {
+            handle.join().unwrap()?;
+        }
+
+        Ok(0)
+    } else {
+        let _lock = FileLock::lock(&target_dir)?;
+        run_test_internal(&cli, &cmd, &source_dir, &target_dir)
+    }
+}
+
+fn run_test_internal(
+    cli: &UniversalFlags,
+    cmd: &TestSubcommand,
+    source_dir: &Path,
+    target_dir: &Path,
+) -> anyhow::Result<i32> {
     // Run moon install before build
     let (resolved_env, dir_sync_result) = auto_sync(
-        &source_dir,
+        source_dir,
         &cmd.auto_sync_flags,
         &RegistryConfig::load(),
         cli.quiet,
     )?;
 
-    let mut moonc_opt = super::get_compiler_flags(&source_dir, &cmd.build_flags)?;
+    let mut moonc_opt = super::get_compiler_flags(source_dir, &cmd.build_flags)?;
     // release is 'false' by default, so we will run test at debug mode(to gain more detailed stack trace info), unless `--release` is specified
     // however, other command like build, check, run, etc, will run at release mode by default
     moonc_opt.build_opt.debug_flag = !cmd.release;
@@ -89,7 +132,7 @@ pub fn run_test(cli: UniversalFlags, cmd: TestSubcommand) -> anyhow::Result<i32>
     }
 
     let run_mode = RunMode::Test;
-    let target_dir = mk_arch_mode_dir(&source_dir, &target_dir, &moonc_opt, run_mode)?;
+    let target_dir = mk_arch_mode_dir(source_dir, target_dir, &moonc_opt, run_mode)?;
 
     if cli.trace {
         trace::open("trace.json").context("failed to open `trace.json`")?;
@@ -101,11 +144,12 @@ pub fn run_test(cli: UniversalFlags, cmd: TestSubcommand) -> anyhow::Result<i32>
     let limit = cmd.limit;
     let sort_input = cmd.build_flags.sort_input;
 
-    let filter_package = cmd.package.map(|it| it.into_iter().collect());
-    let filter_file = cmd.file;
+    let filter_package = <std::option::Option<Vec<PathBuf>> as Clone>::clone(&cmd.package)
+        .map(|it| it.into_iter().collect());
+    let filter_file = &cmd.file;
     let filter_index = cmd.index;
     let moonbuild_opt = MoonbuildOpt {
-        source_dir,
+        source_dir: source_dir.to_path_buf(),
         target_dir: target_dir.clone(),
         test_opt: Some(TestOpt {
             filter_package: filter_package.clone(),
