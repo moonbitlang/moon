@@ -8,6 +8,7 @@ use moonutil::cli::UniversalFlags;
 use moonutil::common::FileLock;
 use moonutil::common::MoonbuildOpt;
 use moonutil::common::RunMode;
+use moonutil::common::SurfaceTarget;
 use moonutil::dirs::mk_arch_mode_dir;
 use moonutil::dirs::PackageDirs;
 use moonutil::mooncakes::sync::AutoSyncFlags;
@@ -31,6 +32,14 @@ pub struct CheckSubcommand {
 }
 
 pub fn run_check(cli: &UniversalFlags, cmd: &CheckSubcommand) -> anyhow::Result<i32> {
+    if let Some(SurfaceTarget::All) = cmd.build_flags.target {
+        anyhow::bail!("`--target all` is currently not supported for `check`")
+    } else {
+        run_check_internal(cli, cmd)
+    }
+}
+
+fn run_check_internal(cli: &UniversalFlags, cmd: &CheckSubcommand) -> anyhow::Result<i32> {
     let PackageDirs {
         source_dir,
         target_dir,
