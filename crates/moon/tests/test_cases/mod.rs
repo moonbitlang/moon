@@ -666,7 +666,7 @@ fn test_moon_new_snapshot() {
 
     snapbox::cmd::Command::new(moon_bin())
         .current_dir(&dir)
-        .args(["new", "hello"])
+        .args(["new", "hello", "--no-license"])
         .assert()
         .success();
     check(
@@ -677,6 +677,7 @@ fn test_moon_new_snapshot() {
             }
         "#]],
     );
+    assert!(!hello.join("LICENSE").exists());
 
     if hello.exists() {
         hello.rm_rf();
@@ -735,6 +736,22 @@ fn test_moon_new_snapshot() {
               ]
             }"#]],
     );
+    check(
+        &std::fs::read_to_string(hello.join("moon.mod.json")).unwrap(),
+        expect![[r#"
+            {
+              "name": "moonbitlang/hello",
+              "version": "0.1.0",
+              "readme": "README.md",
+              "repository": "",
+              "license": "Apache-2.0",
+              "keywords": [],
+              "description": ""
+            }"#]],
+    );
+    let license_content = std::fs::read_to_string(hello.join("LICENSE")).unwrap();
+    assert!(license_content.contains("Apache License"));
+    assert!(license_content.contains("Version 2.0, January 2004"));
     hello.rm_rf();
 }
 
@@ -750,7 +767,7 @@ fn test_moon_new_snapshot_lib() {
 
     snapbox::cmd::Command::new(moon_bin())
         .current_dir(&dir)
-        .args(["new", "--lib", "hello_lib"])
+        .args(["new", "--lib", "hello_lib", "--no-license"])
         .assert()
         .success();
     check(
@@ -777,6 +794,7 @@ fn test_moon_new_snapshot_lib() {
             "moonbitlang",
             "--name",
             "hello",
+            "--no-license",
         ])
         .assert()
         .success();
