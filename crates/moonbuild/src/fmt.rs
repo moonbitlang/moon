@@ -86,7 +86,12 @@ pub fn gen_fmt(
         if pkg.is_third_party {
             continue;
         }
-        for f in pkg.files.iter().chain(pkg.wbtest_files.iter()) {
+        for f in pkg
+            .files
+            .iter()
+            .chain(pkg.wbtest_files.iter())
+            .chain(pkg.test_files.iter())
+        {
             let item = FmtItem {
                 input: f.display().to_string(),
                 output: moonbuild_opt

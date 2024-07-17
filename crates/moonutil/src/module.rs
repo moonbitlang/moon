@@ -136,7 +136,12 @@ impl ModuleDB {
     pub fn validate(&self) -> anyhow::Result<()> {
         let mut errors = vec![];
         for (_, pkg) in &self.packages {
-            for item in pkg.imports.iter().chain(pkg.wbtest_imports.iter()) {
+            for item in pkg
+                .imports
+                .iter()
+                .chain(pkg.wbtest_imports.iter())
+                .chain(pkg.test_imports.iter())
+            {
                 let imported = item.path.make_full_path();
                 if !pkg.full_components().can_import(&item.full_components()) {
                     errors.push(format!(
