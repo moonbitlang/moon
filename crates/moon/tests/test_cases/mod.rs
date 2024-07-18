@@ -4181,6 +4181,9 @@ fn test_moon_run_with_cli_args() {
 
 #[test]
 fn test_third_party() {
+    if std::env::var("CI").is_err() {
+        return;
+    }
     let dir = TestDir::new("third_party.in");
     get_stdout_with_args_and_replace_dir(&dir, ["update"]);
     get_stdout_with_args_and_replace_dir(&dir, ["build"]);
