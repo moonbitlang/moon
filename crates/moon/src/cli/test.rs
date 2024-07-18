@@ -144,8 +144,7 @@ fn run_test_internal(
     let limit = cmd.limit;
     let sort_input = cmd.build_flags.sort_input;
 
-    let filter_package = <std::option::Option<Vec<PathBuf>> as Clone>::clone(&cmd.package)
-        .map(|it| it.into_iter().collect());
+    let filter_package = cmd.package.clone().map(|it| it.into_iter().collect());
     let filter_file = &cmd.file;
     let filter_index = cmd.index;
     let moonbuild_opt = MoonbuildOpt {
