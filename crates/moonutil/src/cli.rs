@@ -25,7 +25,7 @@ use crate::dirs::SourceTargetDirs;
 //     no_std: bool,
 // }
 
-#[derive(Debug, clap::Parser, Serialize, Deserialize)]
+#[derive(Debug, clap::Parser, Serialize, Deserialize, Clone)]
 #[clap(next_display_order(2000), next_help_heading("Common options"))]
 pub struct UniversalFlags {
     #[clap(flatten)]

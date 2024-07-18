@@ -20,11 +20,11 @@ use moonbuild::entry;
 use moonbuild::entry::TestFailedStatus;
 use moonbuild::entry::TestResult;
 use mooncake::pkg::sync::auto_sync;
+use moonutil::common::lower_surface_targets;
 use moonutil::common::FileLock;
 use moonutil::common::GeneratedTestDriver;
 use moonutil::common::MooncOpt;
 use moonutil::common::RunMode;
-use moonutil::common::SurfaceTarget;
 use moonutil::common::{MoonbuildOpt, TargetBackend, TestOpt};
 use moonutil::dirs::mk_arch_mode_dir;
 use moonutil::dirs::PackageDirs;
@@ -83,41 +83,47 @@ pub fn run_test(cli: UniversalFlags, cmd: TestSubcommand) -> anyhow::Result<i32>
         source_dir,
         target_dir,
     } = cli.source_tgt_dir.try_into_package_dirs()?;
-    if let Some(SurfaceTarget::All) = cmd.build_flags.target {
-        let _lock = FileLock::lock(&target_dir)?;
-        let targets = [
-            SurfaceTarget::Wasm,
-            SurfaceTarget::WasmGC,
-            SurfaceTarget::Js,
-        ];
+    let _lock = FileLock::lock(&target_dir)?;
 
-        let cli = Arc::new(cli);
-        let source_dir = Arc::new(source_dir);
-        let target_dir = Arc::new(target_dir);
-        let mut handles = Vec::new();
+    if cmd.build_flags.target.is_none() {
+        return run_test_internal(&cli, &cmd, &source_dir, &target_dir);
+    }
+    let surface_targets = cmd.build_flags.target.clone().unwrap();
+    let targets = lower_surface_targets(&surface_targets);
+    let cli = Arc::new(cli);
+    let source_dir = Arc::new(source_dir);
+    let target_dir = Arc::new(target_dir);
+    let mut handles = Vec::new();
 
-        for t in &targets {
+    if cmd.build_flags.serial {
+        for t in targets {
+            let mut cmd = cmd.clone();
+            cmd.build_flags.target_backend = Some(t);
+            run_test_internal(&cli, &cmd, &source_dir, &target_dir)?;
+        }
+    } else {
+        for t in targets {
             let cli = Arc::clone(&cli);
             let mut cmd = cmd.clone();
-            cmd.build_flags.target = Some(*t);
+            cmd.build_flags.target_backend = Some(t);
             let source_dir = Arc::clone(&source_dir);
             let target_dir = Arc::clone(&target_dir);
 
             let handle =
                 thread::spawn(move || run_test_internal(&cli, &cmd, &source_dir, &target_dir));
 
-            handles.push(handle);
+            handles.push((t, handle));
         }
 
-        for handle in handles {
-            handle.join().unwrap()?;
+        for (backend, handle) in handles {
+            handle
+                .join()
+                .unwrap()
+                .context(format!("failed to run test for target {:?}", backend))?;
         }
-
-        Ok(0)
-    } else {
-        let _lock = FileLock::lock(&target_dir)?;
-        run_test_internal(&cli, &cmd, &source_dir, &target_dir)
     }
+
+    Ok(0)
 }
 
 fn run_test_internal(
