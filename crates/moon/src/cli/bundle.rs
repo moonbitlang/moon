@@ -2,7 +2,7 @@ use moonbuild::dry_run;
 use mooncake::pkg::sync::auto_sync;
 use moonutil::{
     cli::UniversalFlags,
-    common::{FileLock, MoonbuildOpt, RunMode, TargetBackend},
+    common::{FileLock, MoonbuildOpt, RunMode, SurfaceTarget, TargetBackend},
     dirs::{mk_arch_mode_dir, PackageDirs},
     mooncakes::{sync::AutoSyncFlags, RegistryConfig},
 };
@@ -25,6 +25,14 @@ pub struct BundleSubcommand {
 }
 
 pub fn run_bundle(cli: UniversalFlags, cmd: BundleSubcommand) -> anyhow::Result<i32> {
+    if let Some(SurfaceTarget::All) = cmd.build_flags.target {
+        anyhow::bail!("`--target all` is currently not supported for `bundle`")
+    } else {
+        run_bundle_internal(cli, cmd)
+    }
+}
+
+fn run_bundle_internal(cli: UniversalFlags, cmd: BundleSubcommand) -> anyhow::Result<i32> {
     let PackageDirs {
         source_dir,
         target_dir,

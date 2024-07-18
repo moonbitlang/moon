@@ -5,6 +5,7 @@ use mooncake::pkg::sync::auto_sync;
 use moonutil::common::FileLock;
 use moonutil::common::MoonbuildOpt;
 use moonutil::common::RunMode;
+use moonutil::common::SurfaceTarget;
 use moonutil::dirs::mk_arch_mode_dir;
 use moonutil::dirs::PackageDirs;
 use moonutil::mooncakes::sync::AutoSyncFlags;
@@ -24,6 +25,14 @@ pub struct BuildSubcommand {
 }
 
 pub fn run_build(cli: &UniversalFlags, cmd: &BuildSubcommand) -> anyhow::Result<i32> {
+    if let Some(SurfaceTarget::All) = cmd.build_flags.target {
+        anyhow::bail!("`--target all` is currently not supported for `build`");
+    } else {
+        run_build_internal(cli, cmd)
+    }
+}
+
+fn run_build_internal(cli: &UniversalFlags, cmd: &BuildSubcommand) -> anyhow::Result<i32> {
     let PackageDirs {
         source_dir,
         target_dir,

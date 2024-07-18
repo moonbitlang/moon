@@ -330,7 +330,7 @@ pub mod result {
 pub mod sync {
     use serde::{Deserialize, Serialize};
 
-    #[derive(Debug, clap::Parser, Serialize, Deserialize)]
+    #[derive(Debug, clap::Parser, Serialize, Deserialize, Clone)]
     #[clap(next_help_heading = "Manifest Options")]
     pub struct AutoSyncFlags {
         /// Do not sync dependencies, assuming local dependencies are up-to-date

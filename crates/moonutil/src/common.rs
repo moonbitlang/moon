@@ -105,6 +105,28 @@ impl OutputFormat {
 #[derive(
     Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, ValueEnum, Serialize, Deserialize, Default,
 )]
+pub enum SurfaceTarget {
+    Wasm,
+    #[default]
+    WasmGC,
+    Js,
+    All,
+}
+
+impl From<SurfaceTarget> for TargetBackend {
+    fn from(surface_target: SurfaceTarget) -> Self {
+        match surface_target {
+            SurfaceTarget::Wasm => TargetBackend::Wasm,
+            SurfaceTarget::WasmGC => TargetBackend::WasmGC,
+            SurfaceTarget::Js => TargetBackend::Js,
+            SurfaceTarget::All => unreachable!(),
+        }
+    }
+}
+
+#[derive(
+    Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, ValueEnum, Serialize, Deserialize, Default,
+)]
 #[repr(u8)]
 pub enum TargetBackend {
     Wasm,
