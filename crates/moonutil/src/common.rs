@@ -113,20 +113,33 @@ pub enum SurfaceTarget {
     All,
 }
 
-impl From<SurfaceTarget> for TargetBackend {
-    fn from(surface_target: SurfaceTarget) -> Self {
-        match surface_target {
-            SurfaceTarget::Wasm => TargetBackend::Wasm,
-            SurfaceTarget::WasmGC => TargetBackend::WasmGC,
-            SurfaceTarget::Js => TargetBackend::Js,
-            SurfaceTarget::All => unreachable!(),
+pub fn lower_surface_targets(st: &[SurfaceTarget]) -> Vec<TargetBackend> {
+    let mut result = std::collections::HashSet::new();
+    for item in st {
+        match item {
+            SurfaceTarget::Wasm => {
+                result.insert(TargetBackend::Wasm);
+            }
+            SurfaceTarget::WasmGC => {
+                result.insert(TargetBackend::WasmGC);
+            }
+            SurfaceTarget::Js => {
+                result.insert(TargetBackend::Js);
+            }
+            SurfaceTarget::All => {
+                result.insert(TargetBackend::Wasm);
+                result.insert(TargetBackend::WasmGC);
+                result.insert(TargetBackend::Js);
+            }
         }
     }
+    let mut result: Vec<TargetBackend> = result.into_iter().collect();
+    result.sort();
+    result
 }
 
-#[derive(
-    Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, ValueEnum, Serialize, Deserialize, Default,
-)]
+#[rustfmt::skip]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, ValueEnum, Serialize, Deserialize, Default, Hash)]
 #[repr(u8)]
 pub enum TargetBackend {
     Wasm,
