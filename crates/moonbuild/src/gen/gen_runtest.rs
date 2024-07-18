@@ -762,7 +762,7 @@ pub fn gen_n2_runtest_state(
     log::debug!("input: {:#?}", input);
 
     let gen_generate_test_driver_command =
-        gen_generate_test_driver_command(&mut graph, input, moonbuild_opt);
+        gen_generate_test_driver_command(&mut graph, input, moonc_opt, moonbuild_opt);
     graph.add_build(gen_generate_test_driver_command)?;
 
     for item in input.build_items.iter() {
@@ -799,6 +799,7 @@ pub fn gen_n2_runtest_state(
 fn gen_generate_test_driver_command(
     graph: &mut n2graph::Graph,
     n2_run_test_input: &N2RuntestInput,
+    moonc_opt: &MooncOpt,
     moonbuild_opt: &MoonbuildOpt,
 ) -> Build {
     let (driver_files, files_contain_test_block) = (
@@ -845,6 +846,7 @@ fn gen_generate_test_driver_command(
     .arg(&moonbuild_opt.target_dir.display().to_string())
     .args_with_cond(!test_filter_command.is_empty(), &test_filter_command)
     .arg_with_cond(moonbuild_opt.sort_input, "--sort-input")
+    .args(["--target", moonc_opt.build_opt.target_backend.to_flag()])
     .build();
 
     build.cmdline = Some(command);

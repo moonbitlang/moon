@@ -1,0 +1,3 @@
+test {
+  inspect!("js")
+}

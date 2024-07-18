@@ -97,12 +97,18 @@ pub fn generate_test_driver(
         let mut testcase_blackbox = vec![];
         let mut main_contain_test = false;
 
-        for file in pkg
+        let file: Vec<PathBuf> = pkg
             .files
             .iter()
             .chain(pkg.wbtest_files.iter())
             .chain(pkg.test_files.iter())
-        {
+            .cloned()
+            .collect();
+
+        let backend_filtered =
+            moonutil::common::backend_filter(&file, moonc_opt.link_opt.target_backend);
+
+        for file in backend_filtered.iter() {
             let content = std::fs::read_to_string(file)?;
             let mut counter = 0;
             let pattern =
