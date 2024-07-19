@@ -2024,7 +2024,7 @@ fn test_expect_test() -> anyhow::Result<()> {
     assert!(out.contains("Total tests: 30, passed: 30, failed: 0."));
     let updated =
         std::fs::read_to_string(tmp_dir_path.as_ref().join("lib").join("hello.mbt")).unwrap();
-    assert!(updated.contains(r#"[a, b, c]"#));
+    assert!(updated.contains(r#"["a", "b", "c"]"#));
 
     let s = snapbox::cmd::Command::new(moon_bin())
         .current_dir(&tmp_dir_path)
@@ -4189,7 +4189,7 @@ fn test_moon_run_with_cli_args() {
             ["run", "main", "--", "中文", "😄👍", "hello", "1242"],
         ),
         expect![[r#"
-            [中文, 😄👍, hello, 1242]
+            ["中文", "😄👍", "hello", "1242"]
         "#]],
     );
 }
