@@ -45,6 +45,7 @@ pub fn moon_bin() -> PathBuf {
     snapbox::cmd::cargo_bin("moon")
 }
 
+#[track_caller]
 pub fn get_stdout_with_args_without_replace(
     dir: &impl AsRef<std::path::Path>,
     args: impl IntoIterator<Item = impl AsRef<std::ffi::OsStr>>,
@@ -79,6 +80,7 @@ pub fn get_stderr_with_args_without_replace(
     s
 }
 
+#[track_caller]
 pub fn get_stdout_with_args(
     dir: &impl AsRef<std::path::Path>,
     args: impl IntoIterator<Item = impl AsRef<std::ffi::OsStr>>,
@@ -108,6 +110,7 @@ pub fn replace_dir(s: &str, dir: &impl AsRef<std::path::Path>) -> String {
     s.replace("\r\n", "\n").replace('\\', "/")
 }
 
+#[track_caller]
 pub fn get_stdout_with_args_and_replace_dir(
     dir: &impl AsRef<std::path::Path>,
     args: impl IntoIterator<Item = impl AsRef<std::ffi::OsStr>>,
