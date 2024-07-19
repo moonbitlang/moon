@@ -107,7 +107,7 @@ The following content is based on [a59ebb84](https://github.com/moonbitlang/moon
 ## Before PR
 
 It's recommended to run the following command before you submit a PR, which may
-help discover some potential ci failure ASAP
+help discover some potential CI failure ASAP
 
 ```bash
 cargo fmt
@@ -119,3 +119,46 @@ cargo test
 
 We use [typos](https://github.com/crate-ci/typos) to avoid potential typos, you
 can also download and run it locally before PR.
+
+
+## Before Merging
+### Maintain Semi-Linear History
+
+To keep a clean and readable Git history, we follow a semi-linear history pattern. A semi-linear history looks like this:
+
+```
+$ git log --oneline --graph
+*
+|\
+| *
+|/
+*
+|\
+| *
+| *
+|/
+*
+```
+
+A semi-linear history improves readability, simplifies bug tracking.
+
+Until GitHub supports this natively (see discussion: [Support semi-linear history](https://github.com/orgs/community/discussions/8940)), we use rebase workflow and create a merge commit when merging a pull request to achieve a semi-linear history.
+
+### Updating Branches
+
+There are two ways to update branches: locally and on the GitHub Pull Request page.
+
+#### Updating Branches Locally
+
+1. Fetch the latest changes:
+    ```
+    git fetch
+    ```
+2. Rebase your branch:
+    ```
+    git rebase origin/main
+    ```
+
+#### Updating Branches on GitHub
+
+When updating a branch on the GitHub Pull Request page, always use the **"Update with Rebase"** option instead of "Update with merge commit." This helps in maintaining the desired semi-linear history.
