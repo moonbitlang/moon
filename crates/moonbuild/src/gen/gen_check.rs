@@ -179,7 +179,7 @@ fn pkg_with_test_to_check_item(
         alias: pkg.last_name().into(),
     }];
 
-    for dep in pkg.test_imports.iter() {
+    for dep in pkg.imports.iter().chain(pkg.test_imports.iter()) {
         let full_import_name = dep.path.make_full_path();
         if !packages.contains_key(&full_import_name) {
             bail!(
