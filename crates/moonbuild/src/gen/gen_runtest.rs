@@ -261,7 +261,7 @@ pub fn gen_package_blackbox_test(
         alias: pkg.last_name().into(),
     }];
 
-    for dep in pkg.test_imports.iter() {
+    for dep in pkg.imports.iter().chain(pkg.test_imports.iter()) {
         let full_import_name = dep.path.make_full_path();
         if !m.packages.contains_key(&full_import_name) {
             bail!(
