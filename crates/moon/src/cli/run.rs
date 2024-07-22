@@ -2,6 +2,7 @@ use anyhow::{bail, Context};
 use moonbuild::dry_run;
 use moonbuild::entry;
 use mooncake::pkg::sync::auto_sync;
+use moonutil::common::lower_surface_targets;
 use moonutil::common::FileLock;
 use moonutil::common::RunMode;
 use moonutil::common::SurfaceTarget;
@@ -16,7 +17,7 @@ use n2::trace;
 use super::{BuildFlags, UniversalFlags};
 
 /// Run WebAssembly module
-#[derive(Debug, clap::Parser)]
+#[derive(Debug, clap::Parser, Clone)]
 pub struct RunSubcommand {
     /// The package to run
     pub package: String,
@@ -31,19 +32,34 @@ pub struct RunSubcommand {
 }
 
 pub fn run_run(cli: &UniversalFlags, cmd: RunSubcommand) -> anyhow::Result<i32> {
-    if let Some(SurfaceTarget::All) = cmd.build_flags.target {
-        anyhow::bail!("`--target all` is not supported for `run`");
+    if let Some(surface_targets) = &cmd.build_flags.target {
+        for st in surface_targets.iter() {
+            if *st == SurfaceTarget::All {
+                anyhow::bail!("`--target all` is not supported for `run`");
+            }
+        }
+
+        if surface_targets.len() > 1 {
+            anyhow::bail!("`--target` only supports one target for `run`")
+        }
+
+        let targets = lower_surface_targets(surface_targets);
+        for t in targets {
+            let mut cmd = cmd.clone();
+            cmd.build_flags.target_backend = Some(t);
+            run_run_internal(cli, &cmd)?;
+        }
+        Ok(0)
     } else {
-        run_run_internal(cli, cmd)
+        run_run_internal(cli, &cmd)
     }
 }
 
-pub fn run_run_internal(cli: &UniversalFlags, cmd: RunSubcommand) -> anyhow::Result<i32> {
+pub fn run_run_internal(cli: &UniversalFlags, cmd: &RunSubcommand) -> anyhow::Result<i32> {
     let PackageDirs {
         source_dir,
         target_dir,
     } = cli.source_tgt_dir.try_into_package_dirs()?;
-
     let _lock = FileLock::lock(&target_dir)?;
 
     // Run moon install before build
@@ -79,7 +95,7 @@ pub fn run_run_internal(cli: &UniversalFlags, cmd: RunSubcommand) -> anyhow::Res
         target_dir,
         sort_input,
         run_mode,
-        args: cmd.args,
+        args: cmd.args.clone(),
         quiet: true,
         verbose: cli.verbose,
         ..Default::default()
