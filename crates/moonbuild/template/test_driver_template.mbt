@@ -52,7 +52,7 @@ fn main {
   }
   fn repr(obj : @moonbitlang/core/builtin.Array[String]) -> String {
     let buf = @moonbitlang/core/builtin.Buffer::new(size_hint=16)
-    obj.debug_write(buf)
+    Show::output(obj, buf)
     buf.to_string()
   }
 
