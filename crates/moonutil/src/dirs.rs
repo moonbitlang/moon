@@ -29,7 +29,7 @@ use crate::common::{
     MOON_PID_NAME, MOON_PKG_JSON,
 };
 
-#[derive(Debug, clap::Parser, Serialize, Deserialize)]
+#[derive(Debug, clap::Parser, Serialize, Deserialize, Clone)]
 pub struct SourceTargetDirs {
     /// The source code directory. Defaults to the current directory.
     #[arg(long, global = true)]

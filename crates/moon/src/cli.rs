@@ -125,8 +125,14 @@ pub struct BuildFlags {
     pub debug: bool,
 
     /// Select output target
-    #[clap(long)]
-    pub target: Option<SurfaceTarget>,
+    #[clap(long, value_delimiter = ',')]
+    pub target: Option<Vec<SurfaceTarget>>,
+
+    #[clap(skip)]
+    pub target_backend: Option<TargetBackend>,
+
+    #[clap(long, requires = "target")]
+    pub serial: bool,
 
     /// Enable coverage instrumentation
     #[clap(long)]
@@ -162,10 +168,6 @@ impl BuildFlags {
 }
 
 pub fn get_compiler_flags(src_dir: &Path, build_flags: &BuildFlags) -> anyhow::Result<MooncOpt> {
-    if let Some(SurfaceTarget::All) = build_flags.target {
-        unreachable!()
-    }
-
     // read moon.mod.json
     if !moonutil::common::check_moon_mod_exists(src_dir) {
         bail!("could not find `{}`", MOON_MOD_JSON);
@@ -180,7 +182,7 @@ pub fn get_compiler_flags(src_dir: &Path, build_flags: &BuildFlags) -> anyhow::R
         OutputFormat::Wasm
     };
 
-    let target_backend: TargetBackend = build_flags.target.unwrap_or_default().into();
+    let target_backend = build_flags.target_backend.unwrap_or_default();
 
     if target_backend == TargetBackend::Js && output_format == OutputFormat::Wat {
         bail!("--output-wat is not supported for --target js");

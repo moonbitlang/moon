@@ -2777,7 +2777,14 @@ fn test_dummy_core() {
     check(
         &get_stdout_with_args_and_replace_dir(
             &dir,
-            ["bundle", "--all", "--dry-run", "--sort-input"],
+            [
+                "bundle",
+                "--target",
+                "all",
+                "--dry-run",
+                "--sort-input",
+                "--serial",
+            ],
         ),
         expect![[r#"
             moonc build-package ./1/lib.mbt ./1/x.wasm.mbt -o ./target/wasm/release/bundle/1/1.core -pkg moonbitlang/core/1 -pkg-sources moonbitlang/core/1:./1 -target wasm
@@ -4489,14 +4496,199 @@ fn test_import_memory_and_heap_start() {
 }
 
 #[test]
-fn test_moon_test_target_all() {
-    let dir = TestDir::new("moon_new.in");
+fn test_many_targets() {
+    let dir = TestDir::new("test_many_targets.in");
     check(
         &get_stdout_with_args_and_replace_dir(&dir, ["test", "--target", "all"]),
         expect![[r#"
             Total tests: 0, passed: 0, failed: 0.
             Total tests: 0, passed: 0, failed: 0.
             Total tests: 0, passed: 0, failed: 0.
+        "#]],
+    );
+
+    check(
+        &get_stdout_with_args_and_replace_dir(
+            &dir,
+            [
+                "check",
+                "--target",
+                "js,wasm",
+                "--dry-run",
+                "--serial",
+                "--nostd",
+                "--sort-input",
+            ],
+        ),
+        expect![[r#"
+            moonc check ./link/hello.mbt -o ./target/wasm/release/check/link/link.mi -pkg username/hello/link -pkg-sources username/hello/link:./link -target wasm
+            moonc check ./lib/hello.mbt -o ./target/wasm/release/check/lib/lib.mi -pkg username/hello/lib -pkg-sources username/hello/lib:./lib -target wasm
+            moonc check ./link/hello.mbt -o ./target/js/release/check/link/link.mi -pkg username/hello/link -pkg-sources username/hello/link:./link -target js
+            moonc check ./lib/hello.mbt -o ./target/js/release/check/lib/lib.mi -pkg username/hello/lib -pkg-sources username/hello/lib:./lib -target js
+        "#]],
+    );
+
+    check(
+        &get_stdout_with_args_and_replace_dir(
+            &dir,
+            [
+                "build",
+                "--target",
+                "js,wasm",
+                "--dry-run",
+                "--serial",
+                "--nostd",
+                "--sort-input",
+            ],
+        ),
+        expect![[r#"
+            moonc build-package ./link/hello.mbt -o ./target/wasm/release/build/link/link.core -pkg username/hello/link -pkg-sources username/hello/link:./link -target wasm
+            moonc link-core ./target/wasm/release/build/link/link.core -main username/hello/link -o ./target/wasm/release/build/link/link.wasm -pkg-sources username/hello/link:./link -target wasm
+            moonc build-package ./link/hello.mbt -o ./target/js/release/build/link/link.core -pkg username/hello/link -pkg-sources username/hello/link:./link -target js
+            moonc link-core ./target/js/release/build/link/link.core -main username/hello/link -o ./target/js/release/build/link/link.js -pkg-sources username/hello/link:./link -target js
+        "#]],
+    );
+
+    check(
+        &get_stdout_with_args_and_replace_dir(
+            &dir,
+            [
+                "bundle",
+                "--target",
+                "js,wasm",
+                "--dry-run",
+                "--serial",
+                "--nostd",
+                "--sort-input",
+            ],
+        ),
+        expect![[r#"
+            moonc build-package ./lib/hello.mbt -o ./target/wasm/release/bundle/lib/lib.core -pkg username/hello/lib -pkg-sources username/hello/lib:./lib -target wasm
+            moonc build-package ./link/hello.mbt -o ./target/wasm/release/bundle/link/link.core -pkg username/hello/link -pkg-sources username/hello/link:./link -target wasm
+            moonc bundle-core ./target/wasm/release/bundle/lib/lib.core ./target/wasm/release/bundle/link/link.core -o ./target/wasm/release/bundle/hello.core
+            moonc build-package ./lib/hello.mbt -o ./target/js/release/bundle/lib/lib.core -pkg username/hello/lib -pkg-sources username/hello/lib:./lib -target js
+            moonc build-package ./link/hello.mbt -o ./target/js/release/bundle/link/link.core -pkg username/hello/link -pkg-sources username/hello/link:./link -target js
+            moonc bundle-core ./target/js/release/bundle/lib/lib.core ./target/js/release/bundle/link/link.core -o ./target/js/release/bundle/hello.core
+        "#]],
+    );
+
+    check(
+        &get_stdout_with_args_and_replace_dir(
+            &dir,
+            [
+                "test",
+                "--target",
+                "js,wasm",
+                "--dry-run",
+                "--serial",
+                "--nostd",
+                "--sort-input",
+            ],
+        ),
+        expect![[r#"
+            moon generate-test-driver --source-dir . --target-dir ./target/wasm/debug/test --sort-input --target wasm
+            moonc build-package ./link/hello.mbt ./target/wasm/debug/test/link/__generated_driver_for_internal_test.mbt -o ./target/wasm/debug/test/link/link.internal_test.core -pkg username/hello/link -is-main -pkg-sources username/hello/link:./link -target wasm -g
+            moonc link-core ./target/wasm/debug/test/link/link.internal_test.core -main username/hello/link -o ./target/wasm/debug/test/link/link.internal_test.wasm -test-mode -pkg-sources username/hello/link:./link -target wasm -g
+            moonc build-package ./lib/hello.mbt ./target/wasm/debug/test/lib/__generated_driver_for_internal_test.mbt -o ./target/wasm/debug/test/lib/lib.internal_test.core -pkg username/hello/lib -is-main -pkg-sources username/hello/lib:./lib -target wasm -g
+            moonc link-core ./target/wasm/debug/test/lib/lib.internal_test.core -main username/hello/lib -o ./target/wasm/debug/test/lib/lib.internal_test.wasm -test-mode -pkg-sources username/hello/lib:./lib -target wasm -g
+            moon generate-test-driver --source-dir . --target-dir ./target/js/debug/test --sort-input --target js
+            moonc build-package ./link/hello.mbt ./target/js/debug/test/link/__generated_driver_for_internal_test.mbt -o ./target/js/debug/test/link/link.internal_test.core -pkg username/hello/link -is-main -pkg-sources username/hello/link:./link -target js -g -ryu
+            moonc link-core ./target/js/debug/test/link/link.internal_test.core -main username/hello/link -o ./target/js/debug/test/link/link.internal_test.js -test-mode -pkg-sources username/hello/link:./link -target js -g -ryu
+            moonc build-package ./lib/hello.mbt ./target/js/debug/test/lib/__generated_driver_for_internal_test.mbt -o ./target/js/debug/test/lib/lib.internal_test.core -pkg username/hello/lib -is-main -pkg-sources username/hello/lib:./lib -target js -g -ryu
+            moonc link-core ./target/js/debug/test/lib/lib.internal_test.core -main username/hello/lib -o ./target/js/debug/test/lib/lib.internal_test.js -test-mode -pkg-sources username/hello/lib:./lib -target js -g -ryu
+        "#]],
+    );
+
+    check(
+        &get_stdout_with_args_and_replace_dir(
+            &dir,
+            [
+                "test",
+                "--target",
+                "js,wasm",
+                "--dry-run",
+                "--serial",
+                "--nostd",
+                "--sort-input",
+                "-p",
+                "username/hello/lib",
+                "-f",
+                "hello.mbt",
+                "-i",
+                "0",
+            ],
+        ),
+        expect![[r#"
+            moon generate-test-driver --source-dir . --target-dir ./target/wasm/debug/test --package username/hello/lib --file hello.mbt --index 0 --sort-input --target wasm
+            moonc build-package ./lib/hello.mbt ./target/wasm/debug/test/lib/__generated_driver_for_internal_test.mbt -o ./target/wasm/debug/test/lib/lib.internal_test.core -pkg username/hello/lib -is-main -pkg-sources username/hello/lib:./lib -target wasm -g
+            moonc link-core ./target/wasm/debug/test/lib/lib.internal_test.core -main username/hello/lib -o ./target/wasm/debug/test/lib/lib.internal_test.wasm -test-mode -pkg-sources username/hello/lib:./lib -target wasm -g
+            moon generate-test-driver --source-dir . --target-dir ./target/js/debug/test --package username/hello/lib --file hello.mbt --index 0 --sort-input --target js
+            moonc build-package ./lib/hello.mbt ./target/js/debug/test/lib/__generated_driver_for_internal_test.mbt -o ./target/js/debug/test/lib/lib.internal_test.core -pkg username/hello/lib -is-main -pkg-sources username/hello/lib:./lib -target js -g -ryu
+            moonc link-core ./target/js/debug/test/lib/lib.internal_test.core -main username/hello/lib -o ./target/js/debug/test/lib/lib.internal_test.js -test-mode -pkg-sources username/hello/lib:./lib -target js -g -ryu
+        "#]],
+    );
+
+    check(
+        &get_stdout_with_args_and_replace_dir(
+            &dir,
+            [
+                "test",
+                "--target",
+                "js,wasm,all",
+                "--dry-run",
+                "--serial",
+                "--nostd",
+                "--sort-input",
+            ],
+        ),
+        expect![[r#"
+            moon generate-test-driver --source-dir . --target-dir ./target/wasm/debug/test --sort-input --target wasm
+            moonc build-package ./link/hello.mbt ./target/wasm/debug/test/link/__generated_driver_for_internal_test.mbt -o ./target/wasm/debug/test/link/link.internal_test.core -pkg username/hello/link -is-main -pkg-sources username/hello/link:./link -target wasm -g
+            moonc link-core ./target/wasm/debug/test/link/link.internal_test.core -main username/hello/link -o ./target/wasm/debug/test/link/link.internal_test.wasm -test-mode -pkg-sources username/hello/link:./link -target wasm -g
+            moonc build-package ./lib/hello.mbt ./target/wasm/debug/test/lib/__generated_driver_for_internal_test.mbt -o ./target/wasm/debug/test/lib/lib.internal_test.core -pkg username/hello/lib -is-main -pkg-sources username/hello/lib:./lib -target wasm -g
+            moonc link-core ./target/wasm/debug/test/lib/lib.internal_test.core -main username/hello/lib -o ./target/wasm/debug/test/lib/lib.internal_test.wasm -test-mode -pkg-sources username/hello/lib:./lib -target wasm -g
+            moon generate-test-driver --source-dir . --target-dir ./target/wasm-gc/debug/test --sort-input --target wasm-gc
+            moonc build-package ./link/hello.mbt ./target/wasm-gc/debug/test/link/__generated_driver_for_internal_test.mbt -o ./target/wasm-gc/debug/test/link/link.internal_test.core -pkg username/hello/link -is-main -pkg-sources username/hello/link:./link -target wasm-gc -g
+            moonc link-core ./target/wasm-gc/debug/test/link/link.internal_test.core -main username/hello/link -o ./target/wasm-gc/debug/test/link/link.internal_test.wasm -test-mode -pkg-sources username/hello/link:./link -target wasm-gc -g
+            moonc build-package ./lib/hello.mbt ./target/wasm-gc/debug/test/lib/__generated_driver_for_internal_test.mbt -o ./target/wasm-gc/debug/test/lib/lib.internal_test.core -pkg username/hello/lib -is-main -pkg-sources username/hello/lib:./lib -target wasm-gc -g
+            moonc link-core ./target/wasm-gc/debug/test/lib/lib.internal_test.core -main username/hello/lib -o ./target/wasm-gc/debug/test/lib/lib.internal_test.wasm -test-mode -pkg-sources username/hello/lib:./lib -target wasm-gc -g
+            moon generate-test-driver --source-dir . --target-dir ./target/js/debug/test --sort-input --target js
+            moonc build-package ./link/hello.mbt ./target/js/debug/test/link/__generated_driver_for_internal_test.mbt -o ./target/js/debug/test/link/link.internal_test.core -pkg username/hello/link -is-main -pkg-sources username/hello/link:./link -target js -g -ryu
+            moonc link-core ./target/js/debug/test/link/link.internal_test.core -main username/hello/link -o ./target/js/debug/test/link/link.internal_test.js -test-mode -pkg-sources username/hello/link:./link -target js -g -ryu
+            moonc build-package ./lib/hello.mbt ./target/js/debug/test/lib/__generated_driver_for_internal_test.mbt -o ./target/js/debug/test/lib/lib.internal_test.core -pkg username/hello/lib -is-main -pkg-sources username/hello/lib:./lib -target js -g -ryu
+            moonc link-core ./target/js/debug/test/lib/lib.internal_test.core -main username/hello/lib -o ./target/js/debug/test/lib/lib.internal_test.js -test-mode -pkg-sources username/hello/lib:./lib -target js -g -ryu
+        "#]],
+    );
+
+    check(
+        &get_stdout_with_args_and_replace_dir(
+            &dir,
+            [
+                "test",
+                "--target",
+                "all",
+                "--dry-run",
+                "--serial",
+                "--nostd",
+                "--sort-input",
+            ],
+        ),
+        expect![[r#"
+            moon generate-test-driver --source-dir . --target-dir ./target/wasm/debug/test --sort-input --target wasm
+            moonc build-package ./link/hello.mbt ./target/wasm/debug/test/link/__generated_driver_for_internal_test.mbt -o ./target/wasm/debug/test/link/link.internal_test.core -pkg username/hello/link -is-main -pkg-sources username/hello/link:./link -target wasm -g
+            moonc link-core ./target/wasm/debug/test/link/link.internal_test.core -main username/hello/link -o ./target/wasm/debug/test/link/link.internal_test.wasm -test-mode -pkg-sources username/hello/link:./link -target wasm -g
+            moonc build-package ./lib/hello.mbt ./target/wasm/debug/test/lib/__generated_driver_for_internal_test.mbt -o ./target/wasm/debug/test/lib/lib.internal_test.core -pkg username/hello/lib -is-main -pkg-sources username/hello/lib:./lib -target wasm -g
+            moonc link-core ./target/wasm/debug/test/lib/lib.internal_test.core -main username/hello/lib -o ./target/wasm/debug/test/lib/lib.internal_test.wasm -test-mode -pkg-sources username/hello/lib:./lib -target wasm -g
+            moon generate-test-driver --source-dir . --target-dir ./target/wasm-gc/debug/test --sort-input --target wasm-gc
+            moonc build-package ./link/hello.mbt ./target/wasm-gc/debug/test/link/__generated_driver_for_internal_test.mbt -o ./target/wasm-gc/debug/test/link/link.internal_test.core -pkg username/hello/link -is-main -pkg-sources username/hello/link:./link -target wasm-gc -g
+            moonc link-core ./target/wasm-gc/debug/test/link/link.internal_test.core -main username/hello/link -o ./target/wasm-gc/debug/test/link/link.internal_test.wasm -test-mode -pkg-sources username/hello/link:./link -target wasm-gc -g
+            moonc build-package ./lib/hello.mbt ./target/wasm-gc/debug/test/lib/__generated_driver_for_internal_test.mbt -o ./target/wasm-gc/debug/test/lib/lib.internal_test.core -pkg username/hello/lib -is-main -pkg-sources username/hello/lib:./lib -target wasm-gc -g
+            moonc link-core ./target/wasm-gc/debug/test/lib/lib.internal_test.core -main username/hello/lib -o ./target/wasm-gc/debug/test/lib/lib.internal_test.wasm -test-mode -pkg-sources username/hello/lib:./lib -target wasm-gc -g
+            moon generate-test-driver --source-dir . --target-dir ./target/js/debug/test --sort-input --target js
+            moonc build-package ./link/hello.mbt ./target/js/debug/test/link/__generated_driver_for_internal_test.mbt -o ./target/js/debug/test/link/link.internal_test.core -pkg username/hello/link -is-main -pkg-sources username/hello/link:./link -target js -g -ryu
+            moonc link-core ./target/js/debug/test/link/link.internal_test.core -main username/hello/link -o ./target/js/debug/test/link/link.internal_test.js -test-mode -pkg-sources username/hello/link:./link -target js -g -ryu
+            moonc build-package ./lib/hello.mbt ./target/js/debug/test/lib/__generated_driver_for_internal_test.mbt -o ./target/js/debug/test/lib/lib.internal_test.core -pkg username/hello/lib -is-main -pkg-sources username/hello/lib:./lib -target js -g -ryu
+            moonc link-core ./target/js/debug/test/lib/lib.internal_test.core -main username/hello/lib -o ./target/js/debug/test/lib/lib.internal_test.js -test-mode -pkg-sources username/hello/lib:./lib -target js -g -ryu
         "#]],
     );
 }
@@ -4561,6 +4753,131 @@ fn test_many_targets_auto_update_002() {
             test {
               inspect!("js", content="js")
             }
+        "#]],
+    );
+}
+
+#[test]
+fn test_many_targets_auto_update_003() {
+    let dir = TestDir::new("test_many_targets_auto_update.in");
+    let _ = get_stdout_with_args_and_replace_dir(&dir, ["test", "--target", "js,wasm", "-u"]);
+    check(
+        &replace_crlf_to_lf(&std::fs::read_to_string(dir.join("lib").join("x.wasm.mbt")).unwrap()),
+        expect![[r#"
+            test {
+              inspect!("wasm", content="wasm")
+            }
+        "#]],
+    );
+    check(
+        &replace_crlf_to_lf(
+            &std::fs::read_to_string(dir.join("lib").join("x.wasm-gc.mbt")).unwrap(),
+        ),
+        expect![[r#"
+            test {
+              inspect!("wasm-gc")
+            }
+        "#]],
+    );
+    check(
+        &replace_crlf_to_lf(&std::fs::read_to_string(dir.join("lib").join("x.js.mbt")).unwrap()),
+        expect![[r#"
+            test {
+              inspect!("js", content="js")
+            }
+        "#]],
+    );
+}
+
+#[test]
+fn test_many_targets_auto_update_004() {
+    let dir = TestDir::new("test_many_targets_auto_update.in");
+    let _ = get_stdout_with_args_and_replace_dir(&dir, ["test", "--target", "all", "-u"]);
+    check(
+        &replace_crlf_to_lf(&std::fs::read_to_string(dir.join("lib").join("x.wasm.mbt")).unwrap()),
+        expect![[r#"
+            test {
+              inspect!("wasm", content="wasm")
+            }
+        "#]],
+    );
+    check(
+        &replace_crlf_to_lf(
+            &std::fs::read_to_string(dir.join("lib").join("x.wasm-gc.mbt")).unwrap(),
+        ),
+        expect![[r#"
+            test {
+              inspect!("wasm-gc", content="wasm-gc")
+            }
+        "#]],
+    );
+    check(
+        &replace_crlf_to_lf(&std::fs::read_to_string(dir.join("lib").join("x.js.mbt")).unwrap()),
+        expect![[r#"
+            test {
+              inspect!("js", content="js")
+            }
+        "#]],
+    );
+}
+
+#[test]
+fn test_many_targets_expect_failed() {
+    let dir = TestDir::new("test_many_targets_expect_failed.in");
+    check(
+        &get_err_stdout_with_args_and_replace_dir(
+            &dir,
+            ["test", "--target", "all", "--serial", "--sort-input"],
+        ),
+        expect![[r#"
+            test username/hello/lib/x.wasm.mbt::0 failed
+            expect test failed at $ROOT/lib/x.wasm.mbt:2:3-2:32
+            Diff:
+            ----
+            0wasm
+            ----
+
+            Total tests: 1, passed: 0, failed: 1.
+            test username/hello/lib/x.wasm-gc.mbt::0 failed
+            expect test failed at $ROOT/lib/x.wasm-gc.mbt:2:3-2:35
+            Diff:
+            ----
+            1wasm-gc
+            ----
+
+            Total tests: 1, passed: 0, failed: 1.
+            test username/hello/lib/x.js.mbt::0 failed
+            expect test failed at $ROOT/lib/x.js.mbt:2:3-2:30
+            Diff:
+            ----
+            2js
+            ----
+
+            Total tests: 1, passed: 0, failed: 1.
+        "#]],
+    );
+    check(
+        &get_err_stdout_with_args_and_replace_dir(
+            &dir,
+            ["test", "--target", "js,wasm", "--sort-input", "--serial"],
+        ),
+        expect![[r#"
+            test username/hello/lib/x.wasm.mbt::0 failed
+            expect test failed at $ROOT/lib/x.wasm.mbt:2:3-2:32
+            Diff:
+            ----
+            0wasm
+            ----
+
+            Total tests: 1, passed: 0, failed: 1.
+            test username/hello/lib/x.js.mbt::0 failed
+            expect test failed at $ROOT/lib/x.js.mbt:2:3-2:30
+            Diff:
+            ----
+            2js
+            ----
+
+            Total tests: 1, passed: 0, failed: 1.
         "#]],
     );
 }

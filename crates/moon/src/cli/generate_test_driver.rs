@@ -19,8 +19,8 @@ use colored::Colorize;
 use mooncake::pkg::sync::auto_sync;
 use moonutil::cli::UniversalFlags;
 use moonutil::common::{
-    MoonbuildOpt, RunMode, TestOpt, MOONBITLANG_CORE, MOON_TEST_DELIMITER_BEGIN,
-    MOON_TEST_DELIMITER_END,
+    lower_surface_targets, MoonbuildOpt, RunMode, TestOpt, MOONBITLANG_CORE,
+    MOON_TEST_DELIMITER_BEGIN, MOON_TEST_DELIMITER_END,
 };
 use moonutil::dirs::PackageDirs;
 use moonutil::mooncakes::sync::AutoSyncFlags;
@@ -52,6 +52,15 @@ pub fn generate_test_driver(
         source_dir,
         target_dir,
     } = cli.source_tgt_dir.try_into_package_dirs()?;
+
+    let mut cmd = cmd;
+    cmd.build_flags.target_backend = cmd.build_flags.target.as_ref().and_then(|surface_targets| {
+        if surface_targets.is_empty() {
+            None
+        } else {
+            Some(lower_surface_targets(surface_targets)[0])
+        }
+    });
 
     let moonc_opt = super::get_compiler_flags(&source_dir, &cmd.build_flags)?;
 
