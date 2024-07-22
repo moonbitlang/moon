@@ -4805,3 +4805,64 @@ fn test_many_targets_auto_update_004() {
         "#]],
     );
 }
+
+#[test]
+fn test_many_targets_expect_failed() {
+    let dir = TestDir::new("test_many_targets_expect_failed.in");
+    check(
+        &get_err_stdout_with_args_and_replace_dir(
+            &dir,
+            ["test", "--target", "all", "--serial", "--sort-input"],
+        ),
+        expect![[r#"
+            test username/hello/lib/x.wasm.mbt::0 failed
+            expect test failed at $ROOT/lib/x.wasm.mbt:2:3-2:32
+            Diff:
+            ----
+            0wasm
+            ----
+
+            Total tests: 1, passed: 0, failed: 1.
+            test username/hello/lib/x.wasm-gc.mbt::0 failed
+            expect test failed at $ROOT/lib/x.wasm-gc.mbt:2:3-2:35
+            Diff:
+            ----
+            1wasm-gc
+            ----
+
+            Total tests: 1, passed: 0, failed: 1.
+            test username/hello/lib/x.js.mbt::0 failed
+            expect test failed at $ROOT/lib/x.js.mbt:2:3-2:30
+            Diff:
+            ----
+            2js
+            ----
+
+            Total tests: 1, passed: 0, failed: 1.
+        "#]],
+    );
+    check(
+        &get_err_stdout_with_args_and_replace_dir(
+            &dir,
+            ["test", "--target", "js,wasm", "--sort-input", "--serial"],
+        ),
+        expect![[r#"
+            test username/hello/lib/x.wasm.mbt::0 failed
+            expect test failed at $ROOT/lib/x.wasm.mbt:2:3-2:32
+            Diff:
+            ----
+            0wasm
+            ----
+
+            Total tests: 1, passed: 0, failed: 1.
+            test username/hello/lib/x.js.mbt::0 failed
+            expect test failed at $ROOT/lib/x.js.mbt:2:3-2:30
+            Diff:
+            ----
+            2js
+            ----
+
+            Total tests: 1, passed: 0, failed: 1.
+        "#]],
+    );
+}
