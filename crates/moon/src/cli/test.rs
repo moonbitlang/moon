@@ -95,11 +95,13 @@ pub fn run_test(cli: UniversalFlags, cmd: TestSubcommand) -> anyhow::Result<i32>
     let target_dir = Arc::new(target_dir);
     let mut handles = Vec::new();
 
+    let mut ret_value = 0;
     if cmd.build_flags.serial {
         for t in targets {
             let mut cmd = cmd.clone();
             cmd.build_flags.target_backend = Some(t);
-            run_test_internal(&cli, &cmd, &source_dir, &target_dir)?;
+            let x = run_test_internal(&cli, &cmd, &source_dir, &target_dir)?;
+            ret_value = ret_value.max(x);
         }
     } else {
         for t in targets {
@@ -116,14 +118,14 @@ pub fn run_test(cli: UniversalFlags, cmd: TestSubcommand) -> anyhow::Result<i32>
         }
 
         for (backend, handle) in handles {
-            handle
+            let x = handle
                 .join()
                 .unwrap()
                 .context(format!("failed to run test for target {:?}", backend))?;
+            ret_value = ret_value.max(x);
         }
     }
-
-    Ok(0)
+    Ok(ret_value)
 }
 
 fn run_test_internal(
