@@ -188,3 +188,28 @@ pub fn copy(src: &Path, dest: &Path) -> anyhow::Result<()> {
 pub fn replace_crlf_to_lf(s: &str) -> String {
     s.replace("\r\n", "\n")
 }
+
+pub fn get_err_stdout_with_args_without_replace(
+    dir: &impl AsRef<std::path::Path>,
+    args: impl IntoIterator<Item = impl AsRef<std::ffi::OsStr>>,
+) -> String {
+    let out = snapbox::cmd::Command::new(moon_bin())
+        .current_dir(dir)
+        .args(args)
+        .assert()
+        .failure()
+        .get_output()
+        .stdout
+        .to_owned();
+
+    let s = std::str::from_utf8(&out).unwrap().to_string();
+    s
+}
+
+pub fn get_err_stdout_with_args_and_replace_dir(
+    dir: &impl AsRef<std::path::Path>,
+    args: impl IntoIterator<Item = impl AsRef<std::ffi::OsStr>>,
+) -> String {
+    let s = get_err_stdout_with_args_without_replace(dir, args);
+    replace_dir(&s, dir)
+}
