@@ -7,6 +7,8 @@ test {
   @A.hello()
   // bbtest_import pkg
   @C.hello()
+  // import pkg
+  @D.hello()
 }
 
 test {
