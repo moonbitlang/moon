@@ -48,12 +48,14 @@ pub fn run_bundle(cli: UniversalFlags, cmd: BundleSubcommand) -> anyhow::Result<
     }
     let targets = lower_surface_targets(&surface_targets);
 
+    let mut ret_value = 0;
     if cmd.build_flags.serial {
         for t in targets {
             let mut cmd = cmd.clone();
             cmd.build_flags.target_backend = Some(t);
-            run_bundle_internal(&cli, &cmd, &source_dir, &target_dir)
+            let x = run_bundle_internal(&cli, &cmd, &source_dir, &target_dir)
                 .context(format!("failed to run bundle for target {:?}", t))?;
+            ret_value = ret_value.max(x);
         }
     } else {
         let cli = Arc::new(cli);
@@ -75,13 +77,14 @@ pub fn run_bundle(cli: UniversalFlags, cmd: BundleSubcommand) -> anyhow::Result<
         }
 
         for (backend, handle) in handles {
-            handle
+            let x = handle
                 .join()
                 .unwrap()
                 .context(format!("failed to run bundle for target {:?}", backend))?;
+            ret_value = ret_value.max(x);
         }
     }
-    Ok(0)
+    Ok(ret_value)
 }
 
 fn run_bundle_internal(

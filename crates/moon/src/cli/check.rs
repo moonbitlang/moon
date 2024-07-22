@@ -47,12 +47,14 @@ pub fn run_check(cli: &UniversalFlags, cmd: &CheckSubcommand) -> anyhow::Result<
     let surface_targets = cmd.build_flags.target.clone().unwrap();
     let targets = lower_surface_targets(&surface_targets);
 
+    let mut ret_value = 0;
     if cmd.build_flags.serial {
         for t in targets {
             let mut cmd = (*cmd).clone();
             cmd.build_flags.target_backend = Some(t);
-            run_check_internal(cli, &cmd, &source_dir, &target_dir)
+            let x = run_check_internal(cli, &cmd, &source_dir, &target_dir)
                 .context(format!("failed to run check for target {:?}", t))?;
+            ret_value = ret_value.max(x);
         }
     } else {
         let cli = Arc::new(cli.clone());
@@ -74,14 +76,14 @@ pub fn run_check(cli: &UniversalFlags, cmd: &CheckSubcommand) -> anyhow::Result<
         }
 
         for (backend, handle) in handles {
-            handle
+            let x = handle
                 .join()
                 .unwrap()
                 .context(format!("failed to run check for target {:?}", backend))?;
+            ret_value = ret_value.max(x);
         }
     }
-
-    Ok(0)
+    Ok(ret_value)
 }
 
 fn run_check_internal(
