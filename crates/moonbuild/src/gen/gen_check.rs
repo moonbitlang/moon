@@ -143,6 +143,25 @@ fn pkg_with_test_to_check_item(
     pkg: &Package,
     moonc_opt: &MooncOpt,
 ) -> anyhow::Result<CheckDepItem> {
+    if pkg
+        .test_imports
+        .iter()
+        .chain(pkg.imports.iter())
+        .any(|import| {
+            import
+                .alias
+                .as_ref()
+                .map_or(false, |alias| alias.eq(pkg.last_name()))
+        })
+    {
+        bail!(
+            "Duplicate alias `{}` at \"{}\". \
+            \"test-import\" will automatically add \"import\" and current pkg as dependency so you don't need to add it manually. \
+            If you're test-importing a dependency with the same default alias as your current package, considering give it a different alias.",
+            pkg.last_name(), pkg.rel.components.join("/") + "/" + MOON_PKG_JSON
+        );
+    }
+
     let out = pkg
         .artifact
         .with_file_name(format!("{}.blackbox_test.mi", pkg.last_name()));

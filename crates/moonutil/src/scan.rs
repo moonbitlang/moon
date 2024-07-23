@@ -202,9 +202,15 @@ fn scan_one_package(
                                 pkg_path.join(MOON_PKG_JSON).display()
                             )
                         })?;
+                    let alias = Path::new(&path)
+                        .file_stem()
+                        .context(format!("failed to get alias of `{}`", path))?
+                        .to_str()
+                        .unwrap()
+                        .to_string();
                     Ok(ImportComponent {
                         path: ic,
-                        alias: None,
+                        alias: Some(alias),
                     })
                 }
                 crate::package::Import::Alias { path, alias } => {

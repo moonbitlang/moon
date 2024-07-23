@@ -4462,6 +4462,19 @@ fn test_blackbox_failed() {
 }
 
 #[test]
+fn test_blackbox_dedup_alias() {
+    std::env::set_var("RUST_BACKTRACE", "0");
+    let dir = TestDir::new("blackbox_test_dedup_alias.in");
+    let output = get_err_stdout_with_args_without_replace(&dir, ["test"]);
+    check(
+        &output,
+        expect![[r#"
+            error: Duplicate alias `lib` at "lib/moon.pkg.json". "test-import" will automatically add "import" and current pkg as dependency so you don't need to add it manually. If you're test-importing a dependency with the same default alias as your current package, considering give it a different alias.
+        "#]],
+    );
+}
+
+#[test]
 fn test_import_memory_and_heap_start() {
     let dir = TestDir::new("import_memory.in");
     check(
