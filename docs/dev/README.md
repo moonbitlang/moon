@@ -1,11 +1,17 @@
 # Contributing Quick Start
 
+## Contributor Copyright Assignment Agreement
+
+Before submitting your changes to the moon project, you must sign Contributor Copyright Assignment Agreement (CCAA), depending on who owns the copyright to your work:
+- For individual contributors, you can sign it online by visiting https://moonbitlang.com/cla/moon.
+- For corporate contributors, please download the CCAA from [CCAA-IDEA_IDEA Legal_20240712_IDEA Legal20240722.pdf](https://github.com/moonbitlang/moon/blob/CCAA/CCAA-IDEA_IDEA%20Legal_20240712_IDEA%20Legal20240722.pdf), sign it, and send it to us at jichuruanjian@idea.edu.cn.
+
 ## Setup
 
-The first thing is to install rust toolchain and moonbit toolchain, if you have not setup, referring to:
+The first thing is to install Rust toolchain and MoonBit toolchain, if you have not setup, referring to:
 
-- [rust toolchain installation](https://www.rust-lang.org/tools/install)
-- [moonbit toolchain installation](https://www.moonbitlang.com/download/#moonbit-cli-tools)
+- [Install Rust](https://www.rust-lang.org/tools/install)
+- [MoonBit CLI Tools](https://www.moonbitlang.com/download/#moonbit-cli-tools)
 
 
 ## How to Build and Test
@@ -38,7 +44,7 @@ $env:UPDATE_EXPECT=1; cargo test; Remove-Item Env:\UPDATE_EXPECT
 
 ## How to Install
 
-The following command will install `moon` from source code, it will be installed at `~/.cargo/bin/`.(note that the original `moon` install via [moonbit toolchain installation](https://www.moonbitlang.com/download/#moonbit-cli-tools) is at `~/.moon/bin/`)
+The following command will install `moon` from source code, it will be installed at `~/.cargo/bin/`.(note that the original `moon` install via [MoonBit CLI Tools](https://www.moonbitlang.com/download/#moonbit-cli-tools) is at `~/.moon/bin/`)
 
 ### Release Install
 
@@ -60,7 +66,7 @@ cargo install --path ./crates/moon --debug --offline
 
 ## Source Code Overview
 
-The following content is based on [a59ebb84](https://github.com/moonbitlang/moon/commit/a59ebb8406caa91729a56f9e166cc160720e3dd0), which may outdated as the project develops.
+The following content is based on [a28d2f1a](https://github.com/moonbitlang/moon/commit/a28d2f1a1bb47bdaf428fd150e0f6d2b4c959bb0), which may outdated as the project develops.
 
 - `crates/moon`
   - `src/cli`: the command line interface of `moon`
