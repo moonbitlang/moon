@@ -1,0 +1,1 @@
+# MoonBit Build System Contributor Copyright Assignment Agreement
