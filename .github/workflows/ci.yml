@@ -36,10 +36,10 @@ jobs:
           echo "CCAA-signed=$SIGNED" >> $GITHUB_ENV
           echo "If you have any questions about the CCAA result, please contact us."
           if [ "$SIGNED" != "true" ]; then
-          echo "CCAA is not signed."
-          exit 1
+            echo "CCAA is not signed. Please read the document at https://github.com/moonbitlang/moon/tree/main/docs/dev"
+            exit 1
           else
-          echo "CCAA is signed."
+            echo "CCAA is signed."
           fi
 
   license-header-check:
