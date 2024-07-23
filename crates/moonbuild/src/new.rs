@@ -146,6 +146,7 @@ fn common(target_dir: &Path, cake_full_name: &str, license: Option<&str>) -> any
 
     let git_path = Path::new(".git");
     if !git_path.is_dir() {
+        target_dir.join(git_path);
         let git_init = std::process::Command::new("git")
             .arg("init")
             .current_dir(target_dir)
