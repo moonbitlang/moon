@@ -4890,3 +4890,80 @@ fn test_many_targets_expect_failed() {
         "#]],
     );
 }
+
+#[test]
+fn test_moon_run_single_mbt_file() {
+    let dir = TestDir::new("run_single_mbt_file.in");
+
+    #[cfg(unix)]
+    {
+        let output =
+            get_stdout_with_args_and_replace_dir(&dir, ["run", "a/b/single.mbt", "--dry-run"]);
+        check(
+            &output,
+            expect![[r#"
+            moonc build-package $ROOT/a/b/single.mbt -o $ROOT/a/b/single.core -std-path $MOON_HOME/lib/core/target/wasm-gc/release/bundle -is-main -target wasm-gc
+            moonc link-core $MOON_HOME/lib/core/target/wasm-gc/release/bundle/core.core $ROOT/a/b/single.core -o $ROOT/a/b/single.wasm -target wasm-gc
+            moonrun $ROOT/a/b/single.wasm
+        "#]],
+        );
+
+        let output = get_stdout_with_args_and_replace_dir(
+            &dir,
+            ["run", "a/b/single.mbt", "--target", "js", "--dry-run"],
+        );
+        check(
+            &output,
+            expect![[r#"
+            moonc build-package $ROOT/a/b/single.mbt -o $ROOT/a/b/single.core -std-path $MOON_HOME/lib/core/target/js/release/bundle -is-main -target js
+            moonc link-core $MOON_HOME/lib/core/target/js/release/bundle/core.core $ROOT/a/b/single.core -o $ROOT/a/b/single.js -target js
+            node $ROOT/a/b/single.js
+        "#]],
+        );
+    }
+
+    let output = get_stdout_with_args_and_replace_dir(&dir, ["run", "a/b/single.mbt"]);
+    check(
+        &output,
+        expect![[r#"
+        I am OK
+    "#]],
+    );
+    let core_output_path = dir.join("a").join("b").join("single.core");
+    assert!(core_output_path.exists());
+    assert!(!dir.join("single.core").exists());
+
+    core_output_path.rm_rf();
+    assert!(!core_output_path.exists());
+
+    let output = get_stdout_with_args_and_replace_dir(
+        &dir.join("a").join("b").join("c"),
+        ["run", "../single.mbt"],
+    );
+    check(
+        &output,
+        expect![[r#"
+            I am OK
+            "#]],
+    );
+    let core_output_path = dir.join("a").join("b").join("single.core");
+    assert!(core_output_path.exists());
+    assert!(!dir
+        .join("a")
+        .join("b")
+        .join("c")
+        .join("single.core")
+        .exists());
+
+    let output = get_stdout_with_args_and_replace_dir(
+        &dir.join("a").join("b"),
+        ["run", "single.mbt", "--target", "js"],
+    );
+    check(
+        &output,
+        expect![[r#"
+        I am OK
+        "#]],
+    );
+    assert!(dir.join("a").join("b").join("single.js").exists());
+}
