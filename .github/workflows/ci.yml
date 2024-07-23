@@ -12,6 +12,36 @@ env:
   CARGO_TARPAULIN_VERSION: 0.30.0
 
 jobs:
+  CCAA-check:
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request'
+    outputs:
+        CCAA-signed: ${{ steps.CCAA-check-step.outputs.CCAA-signed }}
+    steps:
+    - uses: actions/checkout@v4
+    - name: CCAA check
+      id: CCAA-check-step
+      env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      run: |
+          PR_AUTHOR=$(curl -s -H "Authorization: token $GITHUB_TOKEN" \
+          https://api.github.com/repos/${{ github.repository }}/pulls/${{ github.event.number }} \
+          | jq -r '.user.login')
+          echo "The PR author is $PR_AUTHOR"
+          EMAIL=$(git log -1 --pretty=format:'%ae')
+          echo "Commit author email: $EMAIL"
+          CCAA_RESPONSE=$(curl -s "https://mooncakes.io/api/v0/cla/check_with_repo?gh_username=$PR_AUTHOR&repo=moon&email=$EMAIL")
+          echo "CCAA check response: $CCAA_RESPONSE"
+          SIGNED=$(echo $CCAA_RESPONSE | jq -r '.signed')
+          echo "CCAA-signed=$SIGNED" >> $GITHUB_ENV
+          echo "If you have any questions about the CCAA result, please contact us."
+          if [ "$SIGNED" != "true" ]; then
+          echo "CCAA is not signed."
+          exit 1
+          else
+          echo "CCAA is signed."
+          fi
+
   license-header-check:
     name: license header check
     runs-on: ubuntu-latest
