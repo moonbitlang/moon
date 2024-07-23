@@ -143,17 +143,21 @@ pub fn moon_new_lib(
 
 fn common(target_dir: &Path, cake_full_name: &str, license: Option<&str>) -> anyhow::Result<i32> {
     std::fs::create_dir_all(target_dir).context("failed to create target directory")?;
-    let git_init = std::process::Command::new("git")
-        .arg("init")
-        .current_dir(target_dir)
-        .status();
-    match git_init {
-        Ok(status) if status.success() => {}
-        _ => {
-            eprintln!(
-                "{}: git init failed, make sure you have git in PATH",
-                "Warning".yellow().bold()
-            );
+    
+    let git_path = Path::new(".git");
+    if !(git_path.exists() && git_path.is_dir()) {
+        let git_init = std::process::Command::new("git")
+            .a  rg("init")
+            .current_dir(target_dir)
+            .status();
+        match git_init {
+            Ok(status) if status.success() => {}
+            _ => {
+                eprintln!(
+                    "{}: git init failed, make sure you have git in PATH",
+                    "Warning".yellow().bold()
+                );
+            }
         }
     }
 
