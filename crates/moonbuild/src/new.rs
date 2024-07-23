@@ -180,10 +180,10 @@ fn common(target_dir: &Path, cake_full_name: &str, license: Option<&str>) -> any
     }
     // lib/hello_wbtest.mbt
     {
-        let hello_mbt = lib_dir.join("hello_wbtest.mbt");
+        let hello_mbt = lib_dir.join("hello_test.mbt");
         let content = r#"test "hello" {
-  if hello() != "Hello, world!" {
-    raise "hello() != \"Hello, world!\""
+  if @lib.hello() != "Hello, world!" {
+    raise "@lib.hello() != \"Hello, world!\""
   }
 }
 "#;
