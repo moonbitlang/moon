@@ -562,7 +562,7 @@ fn test_moon_new_new() {
     check(
         &get_stdout_with_args(&hello3, ["test", "-v"]),
         expect![[r#"
-            test moonbitlang/hello/lib/hello_wbtest.mbt::hello ok
+            test moonbitlang/hello/lib/hello_test.mbt::hello ok
             Total tests: 1, passed: 1, failed: 0.
         "#]],
     );
@@ -603,7 +603,7 @@ fn test_moon_new_new() {
     check(
         &get_stdout_with_args(&hello4, ["test", "-v"]),
         expect![[r#"
-            test moonbitlang/hello/lib/hello_wbtest.mbt::hello ok
+            test moonbitlang/hello/lib/hello_test.mbt::hello ok
             Total tests: 1, passed: 1, failed: 0.
         "#]],
     );
@@ -670,7 +670,7 @@ fn test_moon_new_snapshot() {
         .assert()
         .success();
     check(
-        &std::fs::read_to_string(hello.join("lib").join("hello.mbt")).unwrap(),
+        &replace_crlf_to_lf(&std::fs::read_to_string(hello.join("lib").join("hello.mbt")).unwrap()),
         expect![[r#"
             pub fn hello() -> String {
               "Hello, world!"
@@ -697,7 +697,7 @@ fn test_moon_new_snapshot() {
         .assert()
         .success();
     check(
-        &std::fs::read_to_string(hello.join("lib").join("hello.mbt")).unwrap(),
+        &replace_crlf_to_lf(&std::fs::read_to_string(hello.join("lib").join("hello.mbt")).unwrap()),
         expect![[r#"
             pub fn hello() -> String {
               "Hello, world!"
@@ -705,11 +705,13 @@ fn test_moon_new_snapshot() {
         "#]],
     );
     check(
-        &std::fs::read_to_string(hello.join("lib").join("hello_wbtest.mbt")).unwrap(),
+        &replace_crlf_to_lf(
+            &std::fs::read_to_string(hello.join("lib").join("hello_test.mbt")).unwrap(),
+        ),
         expect![[r#"
             test "hello" {
-              if hello() != "Hello, world!" {
-                raise "hello() != \"Hello, world!\""
+              if @lib.hello() != "Hello, world!" {
+                raise "@lib.hello() != \"Hello, world!\""
               }
             }
         "#]],
@@ -719,7 +721,7 @@ fn test_moon_new_snapshot() {
         expect!["{}"],
     );
     check(
-        &std::fs::read_to_string(hello.join("main").join("main.mbt")).unwrap(),
+        &replace_crlf_to_lf(&std::fs::read_to_string(hello.join("main").join("main.mbt")).unwrap()),
         expect![[r#"
             fn main {
               println(@lib.hello())
@@ -771,7 +773,7 @@ fn test_moon_new_snapshot_lib() {
         .assert()
         .success();
     check(
-        &std::fs::read_to_string(hello.join("lib").join("hello.mbt")).unwrap(),
+        &replace_crlf_to_lf(&std::fs::read_to_string(hello.join("lib").join("hello.mbt")).unwrap()),
         expect![[r#"
             pub fn hello() -> String {
               "Hello, world!"
@@ -799,7 +801,7 @@ fn test_moon_new_snapshot_lib() {
         .assert()
         .success();
     check(
-        &std::fs::read_to_string(hello.join("lib").join("hello.mbt")).unwrap(),
+        &replace_crlf_to_lf(&std::fs::read_to_string(hello.join("lib").join("hello.mbt")).unwrap()),
         expect![[r#"
             pub fn hello() -> String {
               "Hello, world!"
@@ -807,11 +809,13 @@ fn test_moon_new_snapshot_lib() {
         "#]],
     );
     check(
-        &std::fs::read_to_string(hello.join("lib").join("hello_wbtest.mbt")).unwrap(),
+        &replace_crlf_to_lf(
+            &std::fs::read_to_string(hello.join("lib").join("hello_test.mbt")).unwrap(),
+        ),
         expect![[r#"
             test "hello" {
-              if hello() != "Hello, world!" {
-                raise "hello() != \"Hello, world!\""
+              if @lib.hello() != "Hello, world!" {
+                raise "@lib.hello() != \"Hello, world!\""
               }
             }
         "#]],
@@ -844,7 +848,7 @@ fn test_moon_new_snapshot_lib() {
             }"#]],
     );
     check(
-        &std::fs::read_to_string(hello.join("top.mbt")).unwrap(),
+        &replace_crlf_to_lf(&std::fs::read_to_string(hello.join("top.mbt")).unwrap()),
         expect![[r#"
             pub fn greeting() -> Unit {
               println(@lib.hello())
