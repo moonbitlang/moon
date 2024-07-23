@@ -337,7 +337,7 @@ fn test_moon_help() {
     check(
         &get_stdout_with_args(&dir, ["help"]).replace("moon.exe", "moon"),
         expect![[r#"
-            MoonBit's build system
+            The build system and package manager for MoonBit.
 
             Usage: moon [OPTIONS] <COMMAND>
 

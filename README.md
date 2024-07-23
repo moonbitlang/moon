@@ -5,10 +5,9 @@
 
 The build system and package manager for MoonBit.
 
-
 ```bash
 $ moon              
-MoonBit's build system
+The build system and package manager for MoonBit.
 
 Usage: moon [OPTIONS] <COMMAND>
 
@@ -46,8 +45,10 @@ Options:
   -h, --help                     Print help
 ```
 
-See tutorials at [MoonBit's Build System Tutorial](https://www.moonbitlang.com/docs/build-system-tutorial)
+See tutorials at
+[MoonBit's Build System Tutorial](https://www.moonbitlang.com/docs/build-system-tutorial)
 
 ## Contributing
 
-To contribute, please read the contribution guidelines at [docs/dev](./docs/dev/README.md).
+To contribute, please read the contribution guidelines at
+[docs/dev](./docs/dev/README.md).

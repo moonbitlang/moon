@@ -48,7 +48,10 @@ use moonutil::{
 };
 
 #[derive(Debug, clap::Parser)]
-#[clap(name = "moon", about = "MoonBit's build system")]
+#[clap(
+    name = "moon",
+    about = "The build system and package manager for MoonBit."
+)]
 pub struct MoonBuildCli {
     #[clap(subcommand)]
     pub subcommand: MoonBuildSubcommands,
