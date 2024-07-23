@@ -1,0 +1,35 @@
+name: Check for Merge Commits
+
+on:
+  pull_request:
+    branches: main
+
+jobs:
+  check-merge-commit:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Check out the repository
+      uses: actions/checkout@v4
+  
+    - name: Get all commit messages
+      id: get-commit-messages
+      uses: actions/github-script@v7
+      with:
+        script: |
+          const prNumber = context.payload.pull_request.number;
+          const commits = await github.rest.pulls.listCommits({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              pull_number: prNumber,
+              per_page: 100
+          });
+          const commitMessages = commits.data.map(commit => commit.commit.message);
+          const hasMergeCommit = commitMessages.some(message => message.startsWith('Merge branch') || message.startsWith('Merge pull request'));
+          if (hasMergeCommit) {
+              core.setFailed('Pull request contains merge commit(s).');
+          }
+
+    - name: Check for merge commits
+      if: failure()
+      run: echo "This pull request contains merge commit(s) and has been marked as failed."
