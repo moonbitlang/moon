@@ -1,0 +1,6 @@
+{
+  "link": true,
+  "import": [
+    "moonbitlang/core/1"
+  ]
+}

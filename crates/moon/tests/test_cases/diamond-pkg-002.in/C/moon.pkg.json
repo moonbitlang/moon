@@ -1,0 +1,8 @@
+{
+  "import": {
+    "hello/A": "",
+    "hello/C/C2": "",
+    "hello/C/C1": "",
+    "hello/C/C0": ""
+  }
+}

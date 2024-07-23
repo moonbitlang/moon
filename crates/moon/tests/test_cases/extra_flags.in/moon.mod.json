@@ -1,0 +1,10 @@
+{
+  "name": "hello",
+  "compile_flags": [
+    "-g",
+    "-no-builtin"
+  ],
+  "link_flags": [
+    "-no-builtin"
+  ]
+}

@@ -1,0 +1,6 @@
+{
+  "is-main": true,
+  "import": {
+    "design/lib/queue": ""
+  }
+}

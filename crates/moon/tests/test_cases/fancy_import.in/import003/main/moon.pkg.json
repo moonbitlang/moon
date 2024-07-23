@@ -1,0 +1,10 @@
+{
+  "is-main": true,
+  "import": [
+    "moonbitlang/import003/lib",
+    {
+      "path": "moonbitlang/import003/lib2",
+      "alias": "haha"
+    }
+  ]
+}

@@ -1,0 +1,21 @@
+{
+  "is-main": true,
+  "import": {
+    "build_matrix/dir_0_0/m_0_0_0_0": "",
+    "build_matrix/dir_0_0/m_0_0_0_1": "",
+    "build_matrix/dir_0_0/m_0_0_1_0": "",
+    "build_matrix/dir_0_0/m_0_0_1_1": "",
+    "build_matrix/dir_0_1/m_0_1_0_0": "",
+    "build_matrix/dir_0_1/m_0_1_0_1": "",
+    "build_matrix/dir_0_1/m_0_1_1_0": "",
+    "build_matrix/dir_0_1/m_0_1_1_1": "",
+    "build_matrix/dir_1_0/m_1_0_0_0": "",
+    "build_matrix/dir_1_0/m_1_0_0_1": "",
+    "build_matrix/dir_1_0/m_1_0_1_0": "",
+    "build_matrix/dir_1_0/m_1_0_1_1": "",
+    "build_matrix/dir_1_1/m_1_1_0_0": "",
+    "build_matrix/dir_1_1/m_1_1_0_1": "",
+    "build_matrix/dir_1_1/m_1_1_1_0": "",
+    "build_matrix/dir_1_1/m_1_1_1_1": ""
+  }
+}

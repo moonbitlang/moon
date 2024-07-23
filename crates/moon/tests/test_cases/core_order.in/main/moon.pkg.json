@@ -1,0 +1,7 @@
+{
+  "is-main": true,
+  "import": [
+    "lijunchen/hello/A",
+    "lijunchen/hello/B"
+  ]
+}

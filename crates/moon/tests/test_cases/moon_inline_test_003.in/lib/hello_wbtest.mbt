@@ -1,0 +1,3 @@
+test {
+  raise "some msg"
+}

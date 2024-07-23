@@ -1,0 +1,10 @@
+{
+  "link": {
+    "js": {
+      "exports": [
+        "hello"
+      ],
+      "format": "cjs"
+    }
+  }
+}

@@ -1,0 +1,8 @@
+{
+  "is-main": true,
+  "import": {
+    "moonbit/design/lib/queue": "",
+    "moonbit/design/lib/stack": "",
+    "moonbit/design/lib/vec": ""
+  }
+}

@@ -1,0 +1,21 @@
+{
+  "is-main": true,
+  "import": [
+    "username/hello/lib"
+  ],
+  "link": {
+    "wasm": {
+      "heap-start-address": 65536,
+      "import-memory": {
+        "module": "xxx",
+        "name": "yyy"
+      }
+    },
+    "wasm-gc": {
+        "import-memory": {
+          "module": "xxx",
+          "name": "yyy"
+        }
+      }
+  }
+}

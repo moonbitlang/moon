@@ -1,0 +1,7 @@
+{
+  "is-main": true,
+  "import": [
+    "username/hello/b",
+    "username/hello/c"
+  ]
+}

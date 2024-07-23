@@ -1,0 +1,264 @@
+# moon: The build system and package manager for MoonBit.
+# Copyright (C) 2024 International Digital Economy Academy
+#
+# This program is free software: you can redistribute it and/or modify
+# it under the terms of the GNU Affero General Public License as published by
+# the Free Software Foundation, either version 3 of the License, or
+# (at your option) any later version.
+#
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU Affero General Public License for more details.
+#
+# You should have received a copy of the GNU Affero General Public License
+# along with this program.  If not, see <https://www.gnu.org/licenses/>.
+#
+# For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
+
+name: CI
+
+on:
+  push:
+    branches: main
+  pull_request:
+    branches: main
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: 0
+  CARGO_TARPAULIN_VERSION: 0.30.0
+
+jobs:
+  CCAA-check:
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request'
+    outputs:
+        CCAA-signed: ${{ steps.CCAA-check-step.outputs.CCAA-signed }}
+    steps:
+    - uses: actions/checkout@v4
+    - name: CCAA check
+      id: CCAA-check-step
+      env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      run: |
+          PR_AUTHOR=$(curl -s -H "Authorization: token $GITHUB_TOKEN" \
+          https://api.github.com/repos/${{ github.repository }}/pulls/${{ github.event.number }} \
+          | jq -r '.user.login')
+          echo "The PR author is $PR_AUTHOR"
+          EMAIL=$(git log -1 --pretty=format:'%ae')
+          echo "Commit author email: $EMAIL"
+          CCAA_RESPONSE=$(curl -s "https://mooncakes.io/api/v0/cla/check_with_repo?gh_username=$PR_AUTHOR&repo=moon&email=$EMAIL")
+          echo "CCAA check response: $CCAA_RESPONSE"
+          SIGNED=$(echo $CCAA_RESPONSE | jq -r '.signed')
+          echo "CCAA-signed=$SIGNED" >> $GITHUB_ENV
+          echo "If you have any questions about the CCAA result, please contact us."
+          if [ "$SIGNED" != "true" ]; then
+            echo "CCAA is not signed. Please read the document at https://github.com/moonbitlang/moon/tree/main/docs/dev"
+            exit 1
+          else
+            echo "CCAA is signed."
+          fi
+
+  license-header-check:
+    name: license header check
+    runs-on: ubuntu-latest
+    env:
+      HAWKEYE_VERSION: v5.6.0
+    steps:
+      - uses: actions/checkout@v4
+      - name: Download HawkEye
+        run: curl --proto '=https' --tlsv1.2 -LsSf https://github.com/korandoru/hawkeye/releases/download/$HAWKEYE_VERSION/hawkeye-installer.sh | sh
+      - name: License Header Check
+        run: hawkeye check
+
+  typo-check:
+    name: typo-check
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      FORCE_COLOR: 1
+      TYPOS_VERSION: v1.18.0
+    steps:
+      - name: download typos
+        run: curl -LsSf https://github.com/crate-ci/typos/releases/download/$TYPOS_VERSION/typos-$TYPOS_VERSION-x86_64-unknown-linux-musl.tar.gz | tar zxf - -C ${CARGO_HOME:-~/.cargo}/bin
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+      - name: check for typos
+        run: typos
+
+  code-style:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@1.77.0
+        with:
+          components: rustfmt, clippy
+      - name: Check formatting
+        run: cargo fmt -- --check
+      - name: Clippy
+        run: cargo clippy --all-targets --all-features -- -D warnings
+
+  test:
+    needs: [code-style, typo-check, license-header-check]
+    strategy:
+      fail-fast: false
+      matrix:
+        os:
+          - ubuntu-latest
+          #   - macos-latest
+          #   - macos-13
+          - windows-latest
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Checkout moonc-version
+        uses: actions/checkout@v4
+        with:
+          ref: moonc-version-dont-delete
+          path: moonc-version-dont-delete
+      - name: Copy moonc-version file to workspace
+        run: |
+          cp moonc-version-dont-delete/moonc-version .
+
+      - uses: dtolnay/rust-toolchain@1.77.0
+      - name: Cargo cache
+        uses: actions/cache@v4
+        with:
+          key: ${{ runner.os }}-cargo-${{ hashFiles('Cargo.lock') }}
+          path: ~/.cargo/registry
+
+      - name: Setup Rclone
+        uses: AnimMouse/setup-rclone@v1
+        with:
+          rclone_config: ${{ secrets.RCLONE_CONFIG }}
+
+      - name: install MoonBit(Unix)
+        if: ${{ matrix.os != 'windows-latest' }}
+        run: |
+          mkdir -p ~/.moon/bin
+          mkdir -p ~/.moon/lib
+          git clone --depth 1 https://github.com/moonbitlang/core.git ~/.moon/lib/core
+          mooncVersion=$(cat moonc-version | cut -c 1-9)
+          echo "$mooncVersion"
+          bins=('moonc' 'mooninfo' 'moonfmt')
+          for bin in "${bins[@]}"; do
+              rclone copy "aws:${{ secrets.AWS_BUCKET_NAME }}/bleeding-moonc/$mooncVersion/$(uname -s)-$(uname -m)/$bin" ~/.moon/bin/
+              chmod +x ~/.moon/bin/"$bin"
+          done
+          moonrunVersion=4bb74ba5f
+          rclone copy "aws:${{ secrets.AWS_BUCKET_NAME }}/bleeding-moonrun/$moonrunVersion/$(uname -s)-$(uname -m)/moonrun" ~/.moon/bin/
+          chmod +x ~/.moon/bin/moonrun
+          echo "$HOME/.moon/bin" >> $GITHUB_PATH
+
+      - name: install MoonBit(Windows)
+        if: ${{ matrix.os == 'windows-latest' }}
+        run: |
+          New-Item -Path "$env:USERPROFILE" -Name ".moon" -ItemType "directory"
+          New-Item -Path "$env:USERPROFILE\.moon" -Name "lib" -ItemType "directory"
+          New-Item -Path "$env:USERPROFILE\.moon" -Name "bin" -ItemType "directory"
+          $mooncVersion = (Get-Content moonc-version -First 1).Substring(0, 9)
+          $bins = @("moonc.exe", "mooninfo.exe", "moonfmt.exe")
+          foreach ($bin in $bins) {
+              rclone copy "aws:${{ secrets.AWS_BUCKET_NAME }}/bleeding-moonc/$mooncVersion/Windows-x86_64/$bin" "$env:USERPROFILE\.moon\bin\"
+          }
+          $moonrunVersion = "4bb74ba5f"
+          rclone copy "aws:${{ secrets.AWS_BUCKET_NAME }}/bleeding-moonrun/$moonrunVersion/Windows-x86_64/moonrun.exe" "$env:USERPROFILE\.moon\bin\"
+          git clone --depth 1 https://github.com/moonbitlang/core.git "$env:USERPROFILE\.moon\lib\core"
+          "$env:USERPROFILE\.moon\bin" | Out-File -FilePath $env:GITHUB_PATH -Append
+
+      - name: Build
+        run: cargo build
+      - name: Versions
+        run: cargo run --bin moon version --all
+      - name: Bundle core (Unix)
+        if: ${{ matrix.os != 'windows-latest' }}
+        run: cargo run --bin moon bundle --source-dir ~/.moon/lib/core --all
+      - name: Bundle core (Windows)
+        if: ${{ matrix.os == 'windows-latest' }}
+        run: cargo run --bin moon bundle --source-dir "$env:USERPROFILE\.moon\lib\core" --all
+
+      - name: Test core (Unix)
+        if: ${{ matrix.os != 'windows-latest' }}
+        run: |
+          cargo run --bin moon test --source-dir ~/.moon/lib/core --target wasm-gc
+          cargo run --bin moon test --source-dir ~/.moon/lib/core --target js
+          cargo run --bin moon test --source-dir ~/.moon/lib/core --target wasm
+          cargo run --bin moon test --source-dir ~/.moon/lib/core --release --target wasm-gc
+          cargo run --bin moon test --source-dir ~/.moon/lib/core --release --target js
+          cargo run --bin moon test --source-dir ~/.moon/lib/core --release --target wasm
+      - name: Test core (Windows)
+        if: ${{ matrix.os == 'windows-latest' }}
+        run: |
+          cargo run --bin moon test --source-dir "$env:USERPROFILE\.moon\lib\core" --target wasm-gc
+          cargo run --bin moon test --source-dir "$env:USERPROFILE\.moon\lib\core" --target js
+          cargo run --bin moon test --source-dir "$env:USERPROFILE\.moon\lib\core" --target wasm
+          cargo run --bin moon test --source-dir "$env:USERPROFILE\.moon\lib\core" --release --target wasm-gc
+          cargo run --bin moon test --source-dir "$env:USERPROFILE\.moon\lib\core" --release --target js
+          cargo run --bin moon test --source-dir "$env:USERPROFILE\.moon\lib\core" --release --target wasm
+
+      - name: Run tests
+        run: cargo test
+
+  coverage:
+    needs: test
+    runs-on: macos-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@1.77.0
+
+      - name: Checkout moonc-version
+        uses: actions/checkout@v4
+        with:
+          ref: moonc-version-dont-delete
+          path: moonc-version-dont-delete
+      - name: Copy moonc-version file to workspace
+        run: |
+          cp moonc-version-dont-delete/moonc-version .
+
+      - name: Setup Rclone
+        uses: AnimMouse/setup-rclone@v1
+        with:
+          rclone_config: ${{ secrets.RCLONE_CONFIG }}
+
+      - name: install MoonBit(Unix)
+        run: |
+          mkdir -p ~/.moon/bin
+          mkdir -p ~/.moon/lib
+          git clone --depth 1 https://github.com/moonbitlang/core.git ~/.moon/lib/core
+          mooncVersion=$(cat moonc-version | cut -c 1-9)
+          echo "$mooncVersion"
+          bins=('moonc' 'mooninfo' 'moonfmt')
+          for bin in "${bins[@]}"; do
+              rclone copy "aws:${{ secrets.AWS_BUCKET_NAME }}/bleeding-moonc/$mooncVersion/$(uname -s)-$(uname -m)/$bin" ~/.moon/bin/
+              chmod +x ~/.moon/bin/"$bin"
+          done
+          moonrunVersion=4bb74ba5f
+          rclone copy "aws:${{ secrets.AWS_BUCKET_NAME }}/bleeding-moonrun/$moonrunVersion/$(uname -s)-$(uname -m)/moonrun" ~/.moon/bin/
+          chmod +x ~/.moon/bin/moonrun
+          echo "$HOME/.moon/bin" >> $GITHUB_PATH
+
+      - name: install cargo-tarpaulin ${{ env.CARGO_TARPAULIN_VERSION }}
+        run: |
+          cd "${CARGO_HOME}/bin"
+          curl -sL https://github.com/xd009642/tarpaulin/releases/download/${CARGO_TARPAULIN_VERSION}/cargo-tarpaulin-aarch64-apple-darwin.tar.gz | tar zxf - -C ${CARGO_HOME:-~/.cargo}/bin
+
+      - name: Build
+        run: cargo build
+      - name: Versions
+        run: cargo run --bin moon version --all
+      - name: Bundle core (Unix)
+        run: cargo run --bin moon bundle --source-dir ~/.moon/lib/core --all
+
+      - name: Generate code coverage
+        run: cargo tarpaulin --ignore-tests --out Xml
+
+      - name: Upload coverage reports to Codecov
+        uses: codecov/codecov-action@v4.0.1
+        with:
+          token: ${{secrets.CODECOV_TOKEN}}
+          fail_ci_if_error: true

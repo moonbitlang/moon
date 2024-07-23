@@ -1,0 +1,6 @@
+{
+  "is-main": true,
+  "import": {
+    "palindrome_string/lib": ""
+  }
+}
