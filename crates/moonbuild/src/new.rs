@@ -145,7 +145,7 @@ fn common(target_dir: &Path, cake_full_name: &str, license: Option<&str>) -> any
     std::fs::create_dir_all(target_dir).context("failed to create target directory")?;
 
     let git_path = Path::new(".git");
-    if !(git_path.exists() && git_path.is_dir()) {
+    if !git_path.is_dir() {
         let git_init = std::process::Command::new("git")
             .arg("init")
             .current_dir(target_dir)
