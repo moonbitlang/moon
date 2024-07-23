@@ -97,7 +97,9 @@ pub fn replace_dir(s: &str, dir: &impl AsRef<std::path::Path>) -> String {
         .to_str()
         .unwrap()
         .to_string();
+    println!("path_str1: {:?}", path_str1);
     let s = s.replace("\\\\", "\\");
+    println!("s: {:?}", s);
     let s = s.replace(&path_str1, "$ROOT");
     let s = s.replace(
         dunce::canonicalize(moonutil::moon_dir::home())
