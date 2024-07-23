@@ -55,10 +55,11 @@ pub fn moon_new_exec(
     // main/main.mbt
     {
         let main_moon = main_dir.join("main.mbt");
-        let content = r#"fn main {
-  println(@lib.hello())
-}
-"#;
+        let content = include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../moonbuild/template/moon_new_template/main.mbt"
+        ));
+
         let mut file = std::fs::File::create(main_moon).unwrap();
         file.write_all(content.as_bytes()).unwrap();
     }
@@ -93,10 +94,10 @@ pub fn moon_new_lib(
     // top.mbt
     {
         let top_mbt = target_dir.join("top.mbt");
-        let content = r#"pub fn greeting() -> Unit {
-  println(@lib.hello())
-}
-"#;
+        let content = include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../moonbuild/template/moon_new_template/top.mbt"
+        ));
         let mut file = std::fs::File::create(top_mbt).unwrap();
         file.write_all(content.as_bytes()).unwrap();
     }
@@ -171,22 +172,20 @@ fn common(target_dir: &Path, cake_full_name: &str, license: Option<&str>) -> any
     // lib/hello.mbt
     {
         let hello_mbt = lib_dir.join("hello.mbt");
-        let content = r#"pub fn hello() -> String {
-  "Hello, world!"
-}
-"#;
+        let content = include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../moonbuild/template/moon_new_template/hello.mbt"
+        ));
         let mut file = std::fs::File::create(hello_mbt).unwrap();
         file.write_all(content.as_bytes()).unwrap();
     }
-    // lib/hello_wbtest.mbt
+    // lib/hello_test.mbt
     {
         let hello_mbt = lib_dir.join("hello_test.mbt");
-        let content = r#"test "hello" {
-  if @lib.hello() != "Hello, world!" {
-    raise "@lib.hello() != \"Hello, world!\""
-  }
-}
-"#;
+        let content = include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../moonbuild/template/moon_new_template/hello_test.mbt"
+        ));
 
         let mut file = std::fs::File::create(hello_mbt).unwrap();
         file.write_all(content.as_bytes()).unwrap();

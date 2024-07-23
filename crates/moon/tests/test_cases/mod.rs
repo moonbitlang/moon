@@ -670,7 +670,7 @@ fn test_moon_new_snapshot() {
         .assert()
         .success();
     check(
-        &std::fs::read_to_string(hello.join("lib").join("hello.mbt")).unwrap(),
+        &replace_crlf_to_lf(&std::fs::read_to_string(hello.join("lib").join("hello.mbt")).unwrap()),
         expect![[r#"
             pub fn hello() -> String {
               "Hello, world!"
@@ -697,7 +697,7 @@ fn test_moon_new_snapshot() {
         .assert()
         .success();
     check(
-        &std::fs::read_to_string(hello.join("lib").join("hello.mbt")).unwrap(),
+        &replace_crlf_to_lf(&std::fs::read_to_string(hello.join("lib").join("hello.mbt")).unwrap()),
         expect![[r#"
             pub fn hello() -> String {
               "Hello, world!"
@@ -705,7 +705,9 @@ fn test_moon_new_snapshot() {
         "#]],
     );
     check(
-        &std::fs::read_to_string(hello.join("lib").join("hello_test.mbt")).unwrap(),
+        &replace_crlf_to_lf(
+            &std::fs::read_to_string(hello.join("lib").join("hello_test.mbt")).unwrap(),
+        ),
         expect![[r#"
             test "hello" {
               if @lib.hello() != "Hello, world!" {
@@ -719,7 +721,7 @@ fn test_moon_new_snapshot() {
         expect!["{}"],
     );
     check(
-        &std::fs::read_to_string(hello.join("main").join("main.mbt")).unwrap(),
+        &replace_crlf_to_lf(&std::fs::read_to_string(hello.join("main").join("main.mbt")).unwrap()),
         expect![[r#"
             fn main {
               println(@lib.hello())
@@ -771,7 +773,7 @@ fn test_moon_new_snapshot_lib() {
         .assert()
         .success();
     check(
-        &std::fs::read_to_string(hello.join("lib").join("hello.mbt")).unwrap(),
+        &replace_crlf_to_lf(&std::fs::read_to_string(hello.join("lib").join("hello.mbt")).unwrap()),
         expect![[r#"
             pub fn hello() -> String {
               "Hello, world!"
@@ -799,7 +801,7 @@ fn test_moon_new_snapshot_lib() {
         .assert()
         .success();
     check(
-        &std::fs::read_to_string(hello.join("lib").join("hello.mbt")).unwrap(),
+        &replace_crlf_to_lf(&std::fs::read_to_string(hello.join("lib").join("hello.mbt")).unwrap()),
         expect![[r#"
             pub fn hello() -> String {
               "Hello, world!"
@@ -807,7 +809,9 @@ fn test_moon_new_snapshot_lib() {
         "#]],
     );
     check(
-        &std::fs::read_to_string(hello.join("lib").join("hello_test.mbt")).unwrap(),
+        &replace_crlf_to_lf(
+            &std::fs::read_to_string(hello.join("lib").join("hello_test.mbt")).unwrap(),
+        ),
         expect![[r#"
             test "hello" {
               if @lib.hello() != "Hello, world!" {
@@ -844,7 +848,7 @@ fn test_moon_new_snapshot_lib() {
             }"#]],
     );
     check(
-        &std::fs::read_to_string(hello.join("top.mbt")).unwrap(),
+        &replace_crlf_to_lf(&std::fs::read_to_string(hello.join("top.mbt")).unwrap()),
         expect![[r#"
             pub fn greeting() -> Unit {
               println(@lib.hello())
