@@ -230,6 +230,25 @@ pub fn gen_package_blackbox_test(
     pkg: &Package,
     moonc_opt: &MooncOpt,
 ) -> anyhow::Result<RuntestDepItem> {
+    if pkg
+        .test_imports
+        .iter()
+        .chain(pkg.imports.iter())
+        .any(|import| {
+            import
+                .alias
+                .as_ref()
+                .map_or(false, |alias| alias.eq(pkg.last_name()))
+        })
+    {
+        bail!(
+            "Duplicate alias `{}` at \"{}\". \
+            \"test-import\" will automatically add \"import\" and current pkg as dependency so you don't need to add it manually. \
+            If you're test-importing a dependency with the same default alias as your current package, considering give it a different alias.",
+            pkg.last_name(), pkg.rel.components.join("/") + "/" + MOON_PKG_JSON
+        );
+    }
+
     let pkgname = pkg.artifact.file_stem().unwrap().to_str().unwrap();
     let core_out = pkg
         .artifact
