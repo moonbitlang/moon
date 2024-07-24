@@ -286,6 +286,7 @@ pub struct MoonbuildOpt {
     pub args: Vec<String>,
     pub verbose: bool,
     pub quiet: bool,
+    pub output_json: bool,
 }
 
 #[derive(Debug, Clone, Default)]
