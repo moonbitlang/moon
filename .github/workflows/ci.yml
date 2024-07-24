@@ -131,43 +131,16 @@ jobs:
           key: ${{ runner.os }}-cargo-${{ hashFiles('Cargo.lock') }}
           path: ~/.cargo/registry
 
-      - name: Setup Rclone
-        uses: AnimMouse/setup-rclone@v1
-        with:
-          rclone_config: ${{ secrets.RCLONE_CONFIG }}
-
       - name: install MoonBit(Unix)
         if: ${{ matrix.os != 'windows-latest' }}
         run: |
-          mkdir -p ~/.moon/bin
-          mkdir -p ~/.moon/lib
-          git clone --depth 1 https://github.com/moonbitlang/core.git ~/.moon/lib/core
-          mooncVersion=$(cat moonc-version | cut -c 1-9)
-          echo "$mooncVersion"
-          bins=('moonc' 'mooninfo' 'moonfmt')
-          for bin in "${bins[@]}"; do
-              rclone copy "aws:${{ secrets.AWS_BUCKET_NAME }}/bleeding-moonc/$mooncVersion/$(uname -s)-$(uname -m)/$bin" ~/.moon/bin/
-              chmod +x ~/.moon/bin/"$bin"
-          done
-          moonrunVersion=4bb74ba5f
-          rclone copy "aws:${{ secrets.AWS_BUCKET_NAME }}/bleeding-moonrun/$moonrunVersion/$(uname -s)-$(uname -m)/moonrun" ~/.moon/bin/
-          chmod +x ~/.moon/bin/moonrun
+          curl -fsSL https://cli.moonbitlang.com/install/unix.sh | bash
           echo "$HOME/.moon/bin" >> $GITHUB_PATH
 
       - name: install MoonBit(Windows)
         if: ${{ matrix.os == 'windows-latest' }}
         run: |
-          New-Item -Path "$env:USERPROFILE" -Name ".moon" -ItemType "directory"
-          New-Item -Path "$env:USERPROFILE\.moon" -Name "lib" -ItemType "directory"
-          New-Item -Path "$env:USERPROFILE\.moon" -Name "bin" -ItemType "directory"
-          $mooncVersion = (Get-Content moonc-version -First 1).Substring(0, 9)
-          $bins = @("moonc.exe", "mooninfo.exe", "moonfmt.exe")
-          foreach ($bin in $bins) {
-              rclone copy "aws:${{ secrets.AWS_BUCKET_NAME }}/bleeding-moonc/$mooncVersion/Windows-x86_64/$bin" "$env:USERPROFILE\.moon\bin\"
-          }
-          $moonrunVersion = "4bb74ba5f"
-          rclone copy "aws:${{ secrets.AWS_BUCKET_NAME }}/bleeding-moonrun/$moonrunVersion/Windows-x86_64/moonrun.exe" "$env:USERPROFILE\.moon\bin\"
-          git clone --depth 1 https://github.com/moonbitlang/core.git "$env:USERPROFILE\.moon\lib\core"
+          irm https://cli.moonbitlang.com/install/powershell.ps1 | iex
           "$env:USERPROFILE\.moon\bin" | Out-File -FilePath $env:GITHUB_PATH -Append
 
       - name: Build
@@ -220,26 +193,9 @@ jobs:
         run: |
           cp moonc-version-dont-delete/moonc-version .
 
-      - name: Setup Rclone
-        uses: AnimMouse/setup-rclone@v1
-        with:
-          rclone_config: ${{ secrets.RCLONE_CONFIG }}
-
       - name: install MoonBit(Unix)
         run: |
-          mkdir -p ~/.moon/bin
-          mkdir -p ~/.moon/lib
-          git clone --depth 1 https://github.com/moonbitlang/core.git ~/.moon/lib/core
-          mooncVersion=$(cat moonc-version | cut -c 1-9)
-          echo "$mooncVersion"
-          bins=('moonc' 'mooninfo' 'moonfmt')
-          for bin in "${bins[@]}"; do
-              rclone copy "aws:${{ secrets.AWS_BUCKET_NAME }}/bleeding-moonc/$mooncVersion/$(uname -s)-$(uname -m)/$bin" ~/.moon/bin/
-              chmod +x ~/.moon/bin/"$bin"
-          done
-          moonrunVersion=4bb74ba5f
-          rclone copy "aws:${{ secrets.AWS_BUCKET_NAME }}/bleeding-moonrun/$moonrunVersion/$(uname -s)-$(uname -m)/moonrun" ~/.moon/bin/
-          chmod +x ~/.moon/bin/moonrun
+          curl -fsSL https://cli.moonbitlang.com/install/unix.sh | bash
           echo "$HOME/.moon/bin" >> $GITHUB_PATH
 
       - name: install cargo-tarpaulin ${{ env.CARGO_TARPAULIN_VERSION }}
