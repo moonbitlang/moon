@@ -215,29 +215,30 @@ fn generate_driver(
         .replace("{end_moontest}", MOON_TEST_DELIMITER_END)
 }
 
-fn base16_encode_lower(bytes: &[u8]) -> String {
-    fn to_char(x: u8) -> char {
-        if x < 10 {
-            (b'0' + x) as char
-        } else {
-            (b'a' + x - 10) as char
-        }
-    }
-
-    let mut result = String::with_capacity(bytes.len() * 2);
-    for &b in bytes {
-        let high = to_char(b >> 4);
-        let low = to_char(b & 0xf);
-        result.push(high);
-        result.push(low);
-    }
-    result
-}
-
 #[test]
 fn test_base16() {
-    #[allow(unused)]
-    use expect_test::{expect, Expect};
+    /// This function is currently unused.
+    /// It is retained for documentation purposes, particularly for test name encoding.
+    fn base16_encode_lower(bytes: &[u8]) -> String {
+        fn to_char(x: u8) -> char {
+            if x < 10 {
+                (b'0' + x) as char
+            } else {
+                (b'a' + x - 10) as char
+            }
+        }
+
+        let mut result = String::with_capacity(bytes.len() * 2);
+        for &b in bytes {
+            let high = to_char(b >> 4);
+            let low = to_char(b & 0xf);
+            result.push(high);
+            result.push(low);
+        }
+        result
+    }
+
+    use expect_test::expect;
 
     fn check(a: &str, b: expect_test::Expect) {
         let bytes = a.as_bytes();
