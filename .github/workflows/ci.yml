@@ -181,6 +181,9 @@ jobs:
         if: ${{ matrix.os == 'windows-latest' }}
         run: cargo run --bin moon bundle --source-dir "$env:USERPROFILE\.moon\lib\core" --all
 
+      - name: Run tests
+        run: cargo test
+
       - name: Test core (Unix)
         if: ${{ matrix.os != 'windows-latest' }}
         run: |
@@ -199,9 +202,6 @@ jobs:
           cargo run --bin moon test --source-dir "$env:USERPROFILE\.moon\lib\core" --release --target wasm-gc
           cargo run --bin moon test --source-dir "$env:USERPROFILE\.moon\lib\core" --release --target js
           cargo run --bin moon test --source-dir "$env:USERPROFILE\.moon\lib\core" --release --target wasm
-
-      - name: Run tests
-        run: cargo test
 
   coverage:
     needs: test
