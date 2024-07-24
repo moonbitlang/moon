@@ -90,15 +90,14 @@ fn run_single_mbt_file(cli: &UniversalFlags, cmd: RunSubcommand) -> anyhow::Resu
         .map_or(TargetBackend::default(), |it| *it);
     let core_bundle_path = moonutil::moon_dir::core_bundle(target_backend);
 
-    // `parent_path` is not always same with `current_dir`, since `cmd.package_or_mbt_file` can be something like "a/b/c/single.mbt"
-    let parent_path = mbt_file_path.parent().unwrap();
+    let output_artifact_path = std::env::temp_dir().join("moon_run_artifact");
 
     // we want all output artifacts to be in the same directory as the input single .mbt file
-    let output_core_path = &(parent_path
+    let output_core_path = &(output_artifact_path
         .join(format!("{}.core", file_name))
         .display()
         .to_string());
-    let output_wasm_or_js_path = &(parent_path
+    let output_wasm_or_js_path = &(output_artifact_path
         .join(format!("{}.{}", file_name, target_backend.to_extension()))
         .display()
         .to_string());
@@ -117,7 +116,7 @@ fn run_single_mbt_file(cli: &UniversalFlags, cmd: RunSubcommand) -> anyhow::Resu
     let link_core_command = [
         "link-core",
         &core_bundle_path.join("core.core").display().to_string(),
-        &(parent_path
+        &(output_artifact_path
             .join(format!("{}.core", file_name))
             .display()
             .to_string()),
