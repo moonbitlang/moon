@@ -48,6 +48,10 @@ pub struct CheckSubcommand {
     #[clap(flatten)]
     pub build_flags: BuildFlags,
 
+    /// output in json format
+    #[clap(long)]
+    pub output_json: bool,
+
     #[clap(flatten)]
     pub auto_sync_flags: AutoSyncFlags,
 }
@@ -132,6 +136,7 @@ fn run_check_internal(
         run_mode,
         quiet: cli.quiet,
         verbose: cli.verbose,
+        output_json: cmd.output_json,
         ..Default::default()
     };
 

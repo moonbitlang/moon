@@ -5002,3 +5002,43 @@ fn test_moon_run_single_mbt_file() {
     );
     assert!(dir.join("a").join("b").join("single.js").exists());
 }
+
+#[test]
+fn test_moon_check_json_output() {
+    let dir = TestDir::new("alert_list.in");
+
+    #[cfg(unix)]
+    {
+        check(
+            &get_stdout_with_args_and_replace_dir(&dir, ["check", "--output-json", "-q"]),
+            expect![[r#"
+            {"$message_type":"diagnostic","level":"warning","loc":{"path":"$ROOT/main/main.mbt","start":{"line":3,"col":3,"offset":25},"end":{"line":3,"col":10,"offset":32}},"message":"Warning (Alert alert_2): alert_2","error_code":2000}
+        "#]],
+        );
+        check(
+            &get_stdout_with_args_and_replace_dir(&dir, ["check", "--output-json"]),
+            expect![[r#"
+            {"$message_type":"diagnostic","level":"warning","loc":{"path":"$ROOT/main/main.mbt","start":{"line":3,"col":3,"offset":25},"end":{"line":3,"col":10,"offset":32}},"message":"Warning (Alert alert_2): alert_2","error_code":2000}
+            Finished. moon: no work to do
+        "#]],
+        );
+    }
+
+    // windows crlf(\r\n)
+    #[cfg(windows)]
+    {
+        check(
+            &get_stdout_with_args_and_replace_dir(&dir, ["check", "--output-json", "-q"]),
+            expect![[r#"
+            {"$message_type":"diagnostic","level":"warning","loc":{"path":"$ROOT/main/main.mbt","start":{"line":3,"col":3,"offset":27},"end":{"line":3,"col":10,"offset":34}},"message":"Warning (Alert alert_2): alert_2","error_code":2000}
+        "#]],
+        );
+        check(
+            &get_stdout_with_args_and_replace_dir(&dir, ["check", "--output-json"]),
+            expect![[r#"
+            {"$message_type":"diagnostic","level":"warning","loc":{"path":"$ROOT/main/main.mbt","start":{"line":3,"col":3,"offset":27},"end":{"line":3,"col":10,"offset":34}},"message":"Warning (Alert alert_2): alert_2","error_code":2000}
+            Finished. moon: no work to do
+        "#]],
+        );
+    }
+}
