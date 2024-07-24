@@ -29,6 +29,8 @@ use moonutil::package::PkgJSONImportItem;
 
 use moonutil::common::MOON_MOD_JSON;
 
+use moonutil::git::{create_git_repo, is_in_git_repo};
+
 pub fn create_or_warning(path: &Path) -> anyhow::Result<()> {
     if path.exists() {
         eprintln!(
@@ -143,17 +145,14 @@ pub fn moon_new_lib(
 
 fn common(target_dir: &Path, cake_full_name: &str, license: Option<&str>) -> anyhow::Result<i32> {
     std::fs::create_dir_all(target_dir).context("failed to create target directory")?;
-    let git_init = std::process::Command::new("git")
-        .arg("init")
-        .current_dir(target_dir)
-        .status();
-    match git_init {
-        Ok(status) if status.success() => {}
-        _ => {
-            eprintln!(
-                "{}: git init failed, make sure you have git in PATH",
-                "Warning".yellow().bold()
-            );
+    if !is_in_git_repo(target_dir) {
+        println!("{}", target_dir.to_str().unwrap());
+        let git_init = create_git_repo(target_dir);
+        match git_init {
+            Ok(_) => {}
+            Err(info) => {
+                eprintln!("{}: {}", "Warning".yellow().bold(), info);
+            }
         }
     }
 

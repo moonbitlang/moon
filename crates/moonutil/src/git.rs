@@ -16,18 +16,13 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
-pub mod cli;
-pub mod common;
-pub mod dependency;
-pub mod dirs;
-pub mod git;
-pub mod graph;
-pub mod module;
-pub mod moon_dir;
-pub mod mooncake_bin;
-pub mod mooncakes;
-pub mod package;
-pub mod path;
-pub mod render;
-pub mod scan;
-pub mod version;
+use git2::Repository;
+use std::path::Path;
+
+pub fn is_in_git_repo(path: &Path) -> bool {
+    Repository::discover(path).is_ok()
+}
+
+pub fn create_git_repo(path: &Path) -> Result<Repository, git2::Error> {
+    Repository::init(path)
+}
