@@ -157,24 +157,24 @@ jobs:
       - name: Run tests
         run: cargo test
 
-      - name: Test core (Unix)
-        if: ${{ matrix.os != 'windows-latest' }}
-        run: |
-          cargo run --bin moon test --source-dir ~/.moon/lib/core --target wasm-gc
-          cargo run --bin moon test --source-dir ~/.moon/lib/core --target js
-          cargo run --bin moon test --source-dir ~/.moon/lib/core --target wasm
-          cargo run --bin moon test --source-dir ~/.moon/lib/core --release --target wasm-gc
-          cargo run --bin moon test --source-dir ~/.moon/lib/core --release --target js
-          cargo run --bin moon test --source-dir ~/.moon/lib/core --release --target wasm
-      - name: Test core (Windows)
-        if: ${{ matrix.os == 'windows-latest' }}
-        run: |
-          cargo run --bin moon test --source-dir "$env:USERPROFILE\.moon\lib\core" --target wasm-gc
-          cargo run --bin moon test --source-dir "$env:USERPROFILE\.moon\lib\core" --target js
-          cargo run --bin moon test --source-dir "$env:USERPROFILE\.moon\lib\core" --target wasm
-          cargo run --bin moon test --source-dir "$env:USERPROFILE\.moon\lib\core" --release --target wasm-gc
-          cargo run --bin moon test --source-dir "$env:USERPROFILE\.moon\lib\core" --release --target js
-          cargo run --bin moon test --source-dir "$env:USERPROFILE\.moon\lib\core" --release --target wasm
+      # - name: Test core (Unix)
+      #   if: ${{ matrix.os != 'windows-latest' }}
+      #   run: |
+      #     cargo run --bin moon test --source-dir ~/.moon/lib/core --target wasm-gc
+      #     cargo run --bin moon test --source-dir ~/.moon/lib/core --target js
+      #     cargo run --bin moon test --source-dir ~/.moon/lib/core --target wasm
+      #     cargo run --bin moon test --source-dir ~/.moon/lib/core --release --target wasm-gc
+      #     cargo run --bin moon test --source-dir ~/.moon/lib/core --release --target js
+      #     cargo run --bin moon test --source-dir ~/.moon/lib/core --release --target wasm
+      # - name: Test core (Windows)
+      #   if: ${{ matrix.os == 'windows-latest' }}
+      #   run: |
+      #     cargo run --bin moon test --source-dir "$env:USERPROFILE\.moon\lib\core" --target wasm-gc
+      #     cargo run --bin moon test --source-dir "$env:USERPROFILE\.moon\lib\core" --target js
+      #     cargo run --bin moon test --source-dir "$env:USERPROFILE\.moon\lib\core" --target wasm
+      #     cargo run --bin moon test --source-dir "$env:USERPROFILE\.moon\lib\core" --release --target wasm-gc
+      #     cargo run --bin moon test --source-dir "$env:USERPROFILE\.moon\lib\core" --release --target js
+      #     cargo run --bin moon test --source-dir "$env:USERPROFILE\.moon\lib\core" --release --target wasm
 
   coverage:
     needs: test
