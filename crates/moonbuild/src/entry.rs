@@ -189,7 +189,7 @@ pub fn run_build(
 }
 
 pub fn run_run(
-    package_path: Option<&String>,
+    package_path: &str,
     moonc_opt: &MooncOpt,
     moonbuild_opt: &MoonbuildOpt,
     module: &ModuleDB,
@@ -197,7 +197,6 @@ pub fn run_run(
     run_build(moonc_opt, moonbuild_opt, module)?;
     let (source_dir, target_dir) = (&moonbuild_opt.source_dir, &moonbuild_opt.target_dir);
     let package_path = package_path
-        .unwrap()
         .trim_start_matches("./")
         .trim_start_matches(".\\")
         .trim_end_matches(is_slash);

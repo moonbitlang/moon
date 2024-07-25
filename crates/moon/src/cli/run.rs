@@ -249,7 +249,7 @@ pub fn run_run_internal(cli: &UniversalFlags, cmd: RunSubcommand) -> anyhow::Res
         trace::open("trace.json").context("failed to open `trace.json`")?;
     }
 
-    let result = entry::run_run(Some(&package_path), &moonc_opt, &moonbuild_opt, &module);
+    let result = entry::run_run(&package_path, &moonc_opt, &moonbuild_opt, &module);
     if trace_flag {
         trace::close();
     }
