@@ -25,6 +25,7 @@ use moonutil::common::FileLock;
 use moonutil::common::RunMode;
 use moonutil::common::SurfaceTarget;
 use moonutil::common::TargetBackend;
+use moonutil::common::MOON_PKG_JSON;
 use moonutil::common::{MoonbuildOpt, OutputFormat};
 use moonutil::dirs::check_moon_pkg_exist;
 use moonutil::dirs::mk_arch_mode_dir;
@@ -76,7 +77,7 @@ pub fn run_run(cli: &UniversalFlags, cmd: RunSubcommand) -> anyhow::Result<i32> 
 }
 
 fn run_single_mbt_file(cli: &UniversalFlags, cmd: RunSubcommand) -> anyhow::Result<i32> {
-    let current_dir = std::env::current_dir().unwrap();
+    let current_dir = std::env::current_dir()?;
     let mbt_file_path = current_dir.join(cmd.package_or_mbt_file);
 
     if !mbt_file_path.exists() || !mbt_file_path.is_file() {
@@ -173,7 +174,11 @@ fn run_single_mbt_file(cli: &UniversalFlags, cmd: RunSubcommand) -> anyhow::Resu
 }
 
 pub fn run_run_internal(cli: &UniversalFlags, cmd: RunSubcommand) -> anyhow::Result<i32> {
-    if cmd.package_or_mbt_file.ends_with(".mbt") {
+    let moon_pkg_json_exist = std::env::current_dir()?
+        .join(&cmd.package_or_mbt_file)
+        .parent()
+        .map_or(false, |p| p.join(MOON_PKG_JSON).exists());
+    if cmd.package_or_mbt_file.ends_with(".mbt") && !moon_pkg_json_exist {
         return run_single_mbt_file(cli, cmd);
     }
 
@@ -201,7 +206,18 @@ pub fn run_run_internal(cli: &UniversalFlags, cmd: RunSubcommand) -> anyhow::Res
 
     let sort_input = cmd.build_flags.sort_input;
 
-    let package_path = cmd.package_or_mbt_file.clone();
+    // run .mbt inside a package should run as a package
+    let package_path = if cmd.package_or_mbt_file.ends_with(".mbt") {
+        // `package_path` based on `source_dir`
+        dunce::canonicalize(std::env::current_dir()?.join(cmd.package_or_mbt_file))?
+            .parent()
+            .unwrap()
+            .strip_prefix(&source_dir)?
+            .display()
+            .to_string()
+    } else {
+        cmd.package_or_mbt_file
+    };
     let package = source_dir.join(&package_path);
     if !check_moon_pkg_exist(&package) {
         bail!("{} is not a package", package_path);

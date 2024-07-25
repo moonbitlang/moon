@@ -5045,3 +5045,67 @@ fn test_moon_check_json_output() {
         );
     }
 }
+
+#[test]
+fn test_moon_run_single_mbt_file_inside_a_pkg() {
+    let dir = TestDir::new("run_single_mbt_file_inside_pkg.in");
+
+    let output = get_stdout_with_args_and_replace_dir(&dir, ["run", "main/main.mbt"]);
+    check(
+        &output,
+        expect![[r#"
+            Hello, world!!!
+            root main
+        "#]],
+    );
+    let output = get_stdout_with_args_and_replace_dir(&dir, ["run", "lib/main_in_lib/main.mbt"]);
+    check(
+        &output,
+        expect![[r#"
+            Hello, world!!!
+            main in lib
+        "#]],
+    );
+
+    let output =
+        get_stdout_with_args_and_replace_dir(&dir.join("lib"), ["run", "../main/main.mbt"]);
+    check(
+        &output,
+        expect![[r#"
+            Hello, world!!!
+            root main
+        "#]],
+    );
+    let output =
+        get_stdout_with_args_and_replace_dir(&dir.join("lib"), ["run", "main_in_lib/main.mbt"]);
+    check(
+        &output,
+        expect![[r#"
+            Hello, world!!!
+            main in lib
+        "#]],
+    );
+
+    let output = get_stdout_with_args_and_replace_dir(
+        &dir.join("lib").join("main_in_lib"),
+        ["run", "../../main/main.mbt"],
+    );
+    check(
+        &output,
+        expect![[r#"
+            Hello, world!!!
+            root main
+        "#]],
+    );
+    let output = get_stdout_with_args_and_replace_dir(
+        &dir.join("lib").join("main_in_lib"),
+        ["run", "main.mbt"],
+    );
+    check(
+        &output,
+        expect![[r#"
+            Hello, world!!!
+            main in lib
+        "#]],
+    );
+}
