@@ -47,7 +47,6 @@ chrono.workspace = true
 env_logger.workspace = true
 log.workspace = true
 walkdir.workspace = true
-regex.workspace = true
 tokio.workspace = true
 futures.workspace = true
 
