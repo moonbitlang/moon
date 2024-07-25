@@ -169,8 +169,12 @@ pub fn generate_test_driver(
                     pkgname
                 )
             }
-            let generated_content =
-                generate_driver(&mbts_test_data, pkgname, &filter_file, &filter_index);
+            let generated_content = generate_driver(
+                &mbts_test_data,
+                pkgname,
+                filter_file.as_deref(),
+                filter_index,
+            );
             let generated_file = target_dir.join(pkg.rel.fs_full_name()).join(driver_name);
 
             if !generated_file.parent().unwrap().exists() {
@@ -186,8 +190,8 @@ pub fn generate_test_driver(
 fn generate_driver(
     data: &str,
     pkgname: &str,
-    file_filter: &Option<String>,
-    index_filter: &Option<u32>,
+    file_filter: Option<&str>,
+    index_filter: Option<u32>,
 ) -> String {
     let test_driver_template = {
         let template = include_str!(concat!(
