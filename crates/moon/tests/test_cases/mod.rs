@@ -3696,6 +3696,9 @@ fn test_internal_package() {
 
 #[test]
 fn mooncakes_io_smoke_test() {
+    if std::env::var("CI").is_err() {
+        return;
+    }
     let dir = TestDir::new("hello.in");
     let _ = get_stdout_with_args(&dir, ["update"]);
     let _ = get_stdout_with_args(&dir, ["add", "lijunchen/hello2@0.1.0"]);
