@@ -105,10 +105,16 @@ jobs:
         run: |
           git clone --depth 1 "https://${{ secrets.MOON_CLONE_PAT }}@github.com/moonbitlang/moon.git" "$GITHUB_WORKSPACE"
 
+      - name: Install Rustup
+        run: |
+          curl --proto '=https' --tlsv1.2 -sSf "https://sh.rustup.rs" | sh -s -- --default-toolchain none -y
+          echo ~/.cargo/bin >> $GITHUB_PATH
+
       - name: Install Rust
         run: |
-          curl --proto '=https' --tlsv1.2 -sSf "https://sh.rustup.rs" | sh -s -- -y
-          echo ~/.cargo/bin >> $GITHUB_PATH
+          rustup toolchain install ${{ env.toolchain }} --profile minimal --no-self-update
+        env:
+          toolchain: 1.77.0
 
       - name: Rust Version
         run: |
