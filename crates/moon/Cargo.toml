@@ -51,7 +51,7 @@ tokio.workspace = true
 futures.workspace = true
 
 [target.'cfg(not(windows))'.dependencies]
-openssl = { version = "0.10.60", features = ["vendored"] }
+openssl = { version = "0.10.66", features = ["vendored"] }
 
 [dev-dependencies]
 tempfile = "3.6.0"
