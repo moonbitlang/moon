@@ -289,10 +289,9 @@ pub fn do_upgrade(root: &'static str) -> Result<i32> {
 
                             // use new moon to bundle
                             let moon = moon_dir::home().join("bin").join("moon");
-                            println!("moon version:");
                             println!("Compiling {} ...", MOONBITLANG_CORE);
                             let out = std::process::Command::new(&moon).args(["version"]).output()?;
-                            println!("{}", String::from_utf8_lossy(&out.stdout));
+                            println!("moon version: {}", String::from_utf8_lossy(&out.stdout));
 
                             let out = std::process::Command::new(moon).args(["bundle", "--all", "--source-dir", &core_dir.display().to_string()]).output()?;
                             println!("{}", String::from_utf8_lossy(&out.stdout));
