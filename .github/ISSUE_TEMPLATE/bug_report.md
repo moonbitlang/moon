@@ -6,16 +6,40 @@ assignees: ''
 
 ---
 
+# Bug Report
+
+## Environment
+
+### OS
+
+Operating System: ____
+
 <!--
-Before submitting, please check for any existing issues and provide information that will help us resolve them quickly.
+e.g. Linux, Windows, macOS
 -->
 
-**moonbit toolchain version**: (eg. output of "moon version --all" command)
+### MoonBit CLI Tools Version
 
-**repository link (if public, optional)**: (eg. [moonbitlang/moon](https://github.com/moonbitlang/moon))
-
-**code snippet to reproduce**: 
-```moonbit
-// add your code here
+<!--
+Please copy and paste the output of `moon version --all` below.
+-->
 
 ```
+
+```
+
+## Steps to Reproduce
+
+<!-- Provide the steps to reproduce the bug.
+-->
+
+## Expected Behavior
+
+<!-- Describe what you expected to happen. -->
+
+## Actual Behavior
+
+<!-- Describe what actually happened. Include screenshots or logs if applicable. -->
+
+## Checklist
+- [ ] (Optional) My case is minimal enough to be reproducible.
