@@ -4933,47 +4933,44 @@ fn test_many_targets_expect_failed() {
 fn test_moon_run_single_mbt_file() {
     let dir = TestDir::new("run_single_mbt_file.in");
 
-    #[cfg(unix)]
-    {
-        fn replace_tmp(s: String) -> String {
-            s.split(' ')
-                .map(|s| {
-                    if let Some(pos) = s.find("moon_run_artifact") {
-                        format!("{}/{}", "$tmp", &s[pos..])
-                    } else {
-                        s.to_string()
-                    }
-                })
-                .collect::<Vec<String>>()
-                .join(" ")
-        }
+    fn replace_tmp(s: String) -> String {
+        s.split(' ')
+            .map(|s| {
+                if let Some(pos) = s.find("moon_run_artifact") {
+                    format!("{}/{}", "$tmp", &s[pos..])
+                } else {
+                    s.to_string()
+                }
+            })
+            .collect::<Vec<String>>()
+            .join(" ")
+    }
 
-        let output = replace_tmp(get_stdout_with_args_and_replace_dir(
-            &dir,
-            ["run", "a/b/single.mbt", "--dry-run"],
-        ));
-        check(
-            &output,
-            expect![[r#"
+    let output = replace_tmp(get_stdout_with_args_and_replace_dir(
+        &dir,
+        ["run", "a/b/single.mbt", "--dry-run"],
+    ));
+    check(
+        &output,
+        expect![[r#"
                 moonc build-package $ROOT/a/b/single.mbt -o $tmp/moon_run_artifact/single.core -std-path $MOON_HOME/lib/core/target/wasm-gc/release/bundle -is-main -target wasm-gc
                 moonc link-core $MOON_HOME/lib/core/target/wasm-gc/release/bundle/core.core $tmp/moon_run_artifact/single.core -o $tmp/moon_run_artifact/single.wasm -target wasm-gc
                 moonrun $tmp/moon_run_artifact/single.wasm
             "#]],
-        );
+    );
 
-        let output = replace_tmp(get_stdout_with_args_and_replace_dir(
-            &dir,
-            ["run", "a/b/single.mbt", "--target", "js", "--dry-run"],
-        ));
-        check(
-            &output,
-            expect![[r#"
+    let output = replace_tmp(get_stdout_with_args_and_replace_dir(
+        &dir,
+        ["run", "a/b/single.mbt", "--target", "js", "--dry-run"],
+    ));
+    check(
+        &output,
+        expect![[r#"
                 moonc build-package $ROOT/a/b/single.mbt -o $tmp/moon_run_artifact/single.core -std-path $MOON_HOME/lib/core/target/js/release/bundle -is-main -target js
                 moonc link-core $MOON_HOME/lib/core/target/js/release/bundle/core.core $tmp/moon_run_artifact/single.core -o $tmp/moon_run_artifact/single.js -target js
                 node $tmp/moon_run_artifact/single.js
             "#]],
-        );
-    }
+    );
 
     let output = get_stdout_with_args_and_replace_dir(&dir, ["run", "a/b/single.mbt"]);
     check(

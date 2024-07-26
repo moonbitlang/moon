@@ -30,6 +30,7 @@ use moonutil::common::{MoonbuildOpt, OutputFormat};
 use moonutil::dirs::check_moon_pkg_exist;
 use moonutil::dirs::mk_arch_mode_dir;
 use moonutil::dirs::PackageDirs;
+use moonutil::moon_dir::core_core;
 use moonutil::mooncakes::sync::AutoSyncFlags;
 use moonutil::mooncakes::RegistryConfig;
 use n2::trace;
@@ -78,9 +79,9 @@ pub fn run_run(cli: &UniversalFlags, cmd: RunSubcommand) -> anyhow::Result<i32> 
 
 fn run_single_mbt_file(cli: &UniversalFlags, cmd: RunSubcommand) -> anyhow::Result<i32> {
     let current_dir = std::env::current_dir()?;
-    let mbt_file_path = current_dir.join(cmd.package_or_mbt_file);
+    let mbt_file_path = dunce::canonicalize(current_dir.join(cmd.package_or_mbt_file))?;
 
-    if !mbt_file_path.exists() || !mbt_file_path.is_file() {
+    if !mbt_file_path.is_file() {
         bail!("{} is not exist or not a file", mbt_file_path.display());
     }
 
@@ -93,7 +94,6 @@ fn run_single_mbt_file(cli: &UniversalFlags, cmd: RunSubcommand) -> anyhow::Resu
 
     let output_artifact_path = std::env::temp_dir().join("moon_run_artifact");
 
-    // we want all output artifacts to be in the same directory as the input single .mbt file
     let output_core_path = &(output_artifact_path
         .join(format!("{}.core", file_name))
         .display()
@@ -116,7 +116,7 @@ fn run_single_mbt_file(cli: &UniversalFlags, cmd: RunSubcommand) -> anyhow::Resu
     ];
     let link_core_command = [
         "link-core",
-        &core_bundle_path.join("core.core").display().to_string(),
+        &core_core(target_backend).display().to_string(),
         &(output_artifact_path
             .join(format!("{}.core", file_name))
             .display()
@@ -209,7 +209,9 @@ pub fn run_run_internal(cli: &UniversalFlags, cmd: RunSubcommand) -> anyhow::Res
     // run .mbt inside a package should run as a package
     let package_path = if cmd.package_or_mbt_file.ends_with(".mbt") {
         // `package_path` based on `source_dir`
-        dunce::canonicalize(std::env::current_dir()?.join(cmd.package_or_mbt_file))?
+        let full_path = std::env::current_dir()?.join(cmd.package_or_mbt_file);
+        dunce::canonicalize(&full_path)
+            .with_context(|| format!("can't canonicalize {}", full_path.display()))?
             .parent()
             .unwrap()
             .strip_prefix(&source_dir)?
