@@ -1,5 +1,6 @@
 # Contributing Quick Start
 
+
 ## Contributor Copyright Assignment Agreement
 
 Before submitting your changes to the moon project, you must sign Contributor Copyright Assignment Agreement (CCAA), depending on who owns the copyright to your work:
