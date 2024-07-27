@@ -17,7 +17,7 @@
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
 use super::BuildFlags;
-use anyhow::bail;
+use anyhow::{bail, Context};
 use colored::Colorize;
 use mooncake::pkg::sync::auto_sync;
 use moonutil::cli::UniversalFlags;
@@ -28,7 +28,7 @@ use moonutil::common::{
 use moonutil::dirs::PackageDirs;
 use moonutil::mooncakes::sync::AutoSyncFlags;
 use moonutil::mooncakes::RegistryConfig;
-use regex::Regex;
+use std::io::Read;
 use std::path::{Path, PathBuf};
 
 /// Test the current package
@@ -45,6 +45,35 @@ pub struct GeneratedTestDriverSubcommand {
 
     #[clap(short, long, requires("file"))]
     pub index: Option<u32>,
+}
+
+fn moonc_gen_test_info(files: &[PathBuf]) -> anyhow::Result<String> {
+    let mut generated = std::process::Command::new("moonc")
+        .arg("gen-test-info")
+        .args(files)
+        .stdout(std::process::Stdio::piped())
+        .spawn()
+        .with_context(|| gen_error_message(files))?;
+    let mut out = String::new();
+    generated
+        .stdout
+        .take()
+        .unwrap()
+        .read_to_string(&mut out)
+        .with_context(|| gen_error_message(files))?;
+    generated.wait()?;
+    return Ok(out);
+
+    fn gen_error_message(files: &[PathBuf]) -> String {
+        format!(
+            "failed to execute `moonc gen-test-info {}`",
+            files
+                .iter()
+                .map(|it| it.to_string_lossy())
+                .collect::<Vec<_>>()
+                .join(" ")
+        )
+    }
 }
 
 pub fn generate_test_driver(
@@ -97,7 +126,7 @@ pub fn generate_test_driver(
         ..Default::default()
     };
 
-    let mut module = moonutil::scan::scan(
+    let module = moonutil::scan::scan(
         false,
         &resolved_env,
         &dir_sync_result,
@@ -108,7 +137,7 @@ pub fn generate_test_driver(
         bail!("dry-run is not implemented for generate-test-driver");
     }
 
-    for (pkgname, pkg) in module.packages.iter_mut() {
+    for (pkgname, pkg) in module.packages.iter() {
         if let Some(ref package) = filter_package {
             if !package.contains(Path::new(pkgname)) {
                 continue;
@@ -119,123 +148,51 @@ pub fn generate_test_driver(
             continue;
         }
 
-        let mut testcase_internal = vec![];
-        let mut testcase_underscore = vec![];
-        let mut testcase_blackbox = vec![];
-        let mut main_contain_test = false;
+        let test_sets = [
+            (&pkg.files, "__generated_driver_for_internal_test.mbt"),
+            (
+                &pkg.wbtest_files,
+                "__generated_driver_for_underscore_test.mbt",
+            ),
+            (&pkg.test_files, "__generated_driver_for_blackbox_test.mbt"),
+        ];
 
-        let file: Vec<PathBuf> = pkg
-            .files
-            .iter()
-            .chain(pkg.wbtest_files.iter())
-            .chain(pkg.test_files.iter())
-            .cloned()
-            .collect();
+        for (files, driver_name) in test_sets {
+            let backend_filtered: Vec<PathBuf> =
+                moonutil::common::backend_filter(files, moonc_opt.link_opt.target_backend);
+            let mbts_test_data = moonc_gen_test_info(&backend_filtered)?;
 
-        let backend_filtered =
-            moonutil::common::backend_filter(&file, moonc_opt.link_opt.target_backend);
-
-        for file in backend_filtered.iter() {
-            let content = std::fs::read_to_string(file)?;
-            let mut counter = 0;
-            let pattern =
-                Regex::new(r#"^test[[:blank:]]*("(?P<name>([^\\"]|\\.)*)")?.*$"#).unwrap();
-
-            let filename = file.file_name().unwrap().to_str().unwrap();
-            if let Some(ref filter_file) = filter_file {
-                if filter_file != filename {
-                    continue;
-                }
-            }
-
-            for line in content.lines() {
-                let escaped_filename = base16_encode_lower(filename.as_bytes());
-
-                if let Some(captured) = pattern.captures(line) {
-                    main_contain_test = true;
-                    let test_func_name = format!("__test_{}_{}", escaped_filename, counter);
-
-                    let description = if let Some(test_name) = captured.name("name") {
-                        if test_name.is_empty() {
-                            format!("{:?}", counter.to_string())
-                        } else {
-                            format!(r#""{}""#, test_name.as_str())
-                        }
-                    } else {
-                        format!("{:?}", counter.to_string())
-                    };
-
-                    counter += 1;
-                    if let Some(filter_index) = filter_index {
-                        if (filter_index + 1) != counter {
-                            continue;
-                        }
-                    }
-
-                    let line = format!("({:?}, {}, {}),", filename, description, test_func_name);
-                    let file_name = &file.file_stem().unwrap().to_str().unwrap();
-                    if file_name.ends_with("_wbtest") {
-                        testcase_underscore.push(line);
-                    } else if file_name.ends_with("_test") {
-                        testcase_blackbox.push(line);
-                    } else {
-                        testcase_internal.push(line);
-                    }
-                }
-            }
-        }
-        if pkg.is_main {
-            if main_contain_test {
+            if pkg.is_main && mbts_test_data.contains("(__test_") {
                 eprintln!(
                     "{}: tests in the main package `{}` will be ignored",
                     "Warning".yellow().bold(),
                     pkgname
                 )
             }
-            continue;
-        }
-
-        {
-            let generated_content = generate_driver(&testcase_internal, pkgname);
-            let generated_file = target_dir
-                .join(pkg.rel.fs_full_name())
-                .join("__generated_driver_for_internal_test.mbt");
-
-            if !generated_file.parent().unwrap().exists() {
-                std::fs::create_dir_all(generated_file.parent().unwrap())?;
-            }
-            std::fs::write(&generated_file, &generated_content)?;
-        }
-
-        {
-            let generated_content = generate_driver(&testcase_underscore, pkgname);
-            let generated_file = target_dir
-                .join(pkg.rel.fs_full_name())
-                .join("__generated_driver_for_underscore_test.mbt");
+            let generated_content = generate_driver(
+                &mbts_test_data,
+                pkgname,
+                filter_file.as_deref(),
+                filter_index,
+            );
+            let generated_file = target_dir.join(pkg.rel.fs_full_name()).join(driver_name);
 
             if !generated_file.parent().unwrap().exists() {
                 std::fs::create_dir_all(generated_file.parent().unwrap())?;
             }
-            std::fs::write(&generated_file, &generated_content)?;
-        }
-
-        {
-            let generated_content = generate_driver(&testcase_blackbox, pkgname);
-            let generated_file = target_dir
-                .join(pkg.rel.fs_full_name())
-                .join("__generated_driver_for_blackbox_test.mbt");
-
-            if !generated_file.parent().unwrap().exists() {
-                std::fs::create_dir_all(generated_file.parent().unwrap())?;
-            }
-            std::fs::write(&generated_file, &generated_content)?;
+            std::fs::write(&generated_file, generated_content)?;
         }
     }
 
     Ok(0)
 }
 
-fn generate_driver(lines: &[String], pkgname: &str) -> String {
+fn generate_driver(
+    data: &str,
+    pkgname: &str,
+    file_filter: Option<&str>,
+    index_filter: Option<u32>,
+) -> String {
     let test_driver_template = {
         let template = include_str!(concat!(
             env!("CARGO_MANIFEST_DIR"),
@@ -247,37 +204,45 @@ fn generate_driver(lines: &[String], pkgname: &str) -> String {
             template.to_string()
         }
     };
-
     test_driver_template
-        .replace("// test identifiers", &lines.join("\n    "))
+        .replace("let tests = abort(\"\")", data)
         .replace("{package}", pkgname)
+        .replace(
+            "let file_filter : String? = None",
+            &format!("let file_filter : String? = {:?}", file_filter),
+        )
+        .replace(
+            "let index_filter : Int? = None",
+            &format!("let index_filter : Int? = {:?}", index_filter),
+        )
         .replace("{begin_moontest}", MOON_TEST_DELIMITER_BEGIN)
         .replace("{end_moontest}", MOON_TEST_DELIMITER_END)
 }
 
-fn base16_encode_lower(bytes: &[u8]) -> String {
-    fn to_char(x: u8) -> char {
-        if x < 10 {
-            (b'0' + x) as char
-        } else {
-            (b'a' + x - 10) as char
-        }
-    }
-
-    let mut result = String::with_capacity(bytes.len() * 2);
-    for &b in bytes {
-        let high = to_char(b >> 4);
-        let low = to_char(b & 0xf);
-        result.push(high);
-        result.push(low);
-    }
-    result
-}
-
 #[test]
 fn test_base16() {
-    #[allow(unused)]
-    use expect_test::{expect, Expect};
+    /// This function is currently unused.
+    /// It is retained for documentation purposes, particularly for test name encoding.
+    fn base16_encode_lower(bytes: &[u8]) -> String {
+        fn to_char(x: u8) -> char {
+            if x < 10 {
+                (b'0' + x) as char
+            } else {
+                (b'a' + x - 10) as char
+            }
+        }
+
+        let mut result = String::with_capacity(bytes.len() * 2);
+        for &b in bytes {
+            let high = to_char(b >> 4);
+            let low = to_char(b & 0xf);
+            result.push(high);
+            result.push(low);
+        }
+        result
+    }
+
+    use expect_test::expect;
 
     fn check(a: &str, b: expect_test::Expect) {
         let bytes = a.as_bytes();

@@ -9,10 +9,10 @@ fn check_panic[A, B, E](
 ) -> B!E {
   catch_exception(
     {
-      f()! |> ignore
-      no_panic()!
+      f!() |> ignore
+      no_panic!()
     },
-    does_panic()!,
+    does_panic!(),
   )
 }
 
@@ -21,35 +21,87 @@ fn startswith_panic(s : String) -> Bool {
   s[4] == 'c'
 }
 
-fn main {
-  let tests : @moonbitlang/core/builtin.Array[(String, String, () -> Unit!String)] = [
-    // test identifiers
+fn typing_tests(
+  x : Map[
+    String,
+    @moonbitlang/core/builtin.Array[
+      (() -> Unit!String, @moonbitlang/core/builtin.Array[String]),
+    ],
   ]
-  let total = tests.length()
+) -> Unit {
+  ignore(x)
+}
+
+fn main {
+  let tests = abort("")
+  typing_tests(tests)
+  let file_filter : String? = None
+  let index_filter : Int? = None
+  let file_filtered_tests = match file_filter {
+    None => tests
+    Some(f) =>
+      if tests.contains(f) {
+        Map::from_array([(f, tests.get(f).unwrap())])
+      } else {
+        {  }
+      }
+  }
+  let index_filtered_tests = match index_filter {
+    None => file_filtered_tests
+    Some(index) => {
+      let res = {  }
+      file_filtered_tests.iter().each(
+        fn(item) {
+          let filename = item.0
+          let cases = item.1
+          let filtered_cases = []
+          for i = 0; i < cases.length(); i = i + 1 {
+            if i == index {
+              filtered_cases.push(cases[i])
+            }
+          }
+          res[filename] = filtered_cases
+        },
+      )
+      res
+    }
+  }
+  let mut total = 0
+  index_filtered_tests.iter().each(fn(item) { total = total + item.1.length() })
   let test_names = @moonbitlang/core/builtin.Array::make(total, "")
   let filenames = @moonbitlang/core/builtin.Array::make(total, "")
   let messages = @moonbitlang/core/builtin.Array::make(total, "")
   let mut succ_idx = total
   let mut fail_idx = 0
-  for k = 0; k < tests.length(); k = k + 1 {
-    let (filename, name, f) = tests[k]
-    filenames[k] = filename
-    try {
-      if startswith_panic(name) {
-        check_panic(f, fn() { () }, fn() { raise "panic is expected" })!
-      } else {
-        f()!
+  let mut counter = 0
+  index_filtered_tests.iter().each(
+    fn(item) {
+      let filename = item.0
+      let tests = item.1
+      for i = 0; i < tests.length(); i = i + 1 {
+        filenames[counter] = filename
+        counter += 1
+        let (f, attrs) = tests[i]
+        let name = if attrs.is_empty() { "" } else { attrs[0] }
+        let name = if name.length() == 0 { i.to_string() } else { name }
+        try {
+          if startswith_panic(name) {
+            check_panic!(f, fn() { () }, fn() { raise "panic is expected" })
+          } else {
+            f!()
+          }
+          succ_idx -= 1
+          test_names[succ_idx] = name
+        } catch {
+          e => {
+            test_names[fail_idx] = name
+            messages[fail_idx] = e
+            fail_idx += 1
+          }
+        }
       }
-      succ_idx -= 1
-      test_names[succ_idx] = name
-    } catch {
-      e => {
-        test_names[fail_idx] = name
-        messages[fail_idx] = e
-        fail_idx += 1
-      }
-    }
-  }
+    },
+  )
   fn repr(obj : @moonbitlang/core/builtin.Array[String]) -> String {
     let buf = @moonbitlang/core/builtin.Buffer::new(size_hint=16)
     Show::output(obj, buf)

@@ -389,7 +389,7 @@ pub fn gen_link_command(
                 heap_start_address.unwrap().to_string(),
             ]
         })
-        .lazy_args_with_cond(link_flags.is_some(), || link_flags.unwrap())
+        .lazy_args_with_cond(link_flags.is_some(), || link_flags.unwrap().into())
         .lazy_args_with_cond(
             moonc_opt.link_opt.target_backend == moonutil::common::TargetBackend::Js
                 && item.link.is_some()
@@ -450,20 +450,20 @@ pub fn gen_n2_build_state(
 
 #[rustfmt::skip]
 impl LinkDepItem {
-    pub fn wasm_exports(&self) -> Option<&Vec<String>> { self.link.as_ref()?.wasm.as_ref()?.exports.as_ref() }
-    pub fn wasm_export_memory_name(&self) -> Option<&String> { self.link.as_ref()?.wasm.as_ref()?.export_memory_name.as_ref() }
+    pub fn wasm_exports(&self) -> Option<&[String]> { self.link.as_ref()?.wasm.as_ref()?.exports.as_deref() }
+    pub fn wasm_export_memory_name(&self) -> Option<&str> { self.link.as_ref()?.wasm.as_ref()?.export_memory_name.as_deref() }
     pub fn wasm_import_memory(&self) -> Option<&moonutil::package::ImportMemory> { self.link.as_ref()?.wasm.as_ref()?.import_memory.as_ref() }
-    pub fn wasm_heap_start_address(&self) -> Option<&u32> { self.link.as_ref()?.wasm.as_ref()?.heap_start_address.as_ref() }
-    pub fn wasm_link_flags(&self) -> Option<&Vec<String>> { self.link.as_ref()?.wasm.as_ref()?.flags.as_ref() }
+    pub fn wasm_heap_start_address(&self) -> Option<u32> { self.link.as_ref()?.wasm.as_ref()?.heap_start_address }
+    pub fn wasm_link_flags(&self) -> Option<&[String]> { self.link.as_ref()?.wasm.as_ref()?.flags.as_deref() }
 
-    pub fn wasm_gc_exports(&self) -> Option<&Vec<String>> { self.link.as_ref()?.wasm_gc.as_ref()?.exports.as_ref() }
-    pub fn wasm_gc_export_memory_name(&self) -> Option<&String> { self.link.as_ref()?.wasm_gc.as_ref()?.export_memory_name.as_ref() }
+    pub fn wasm_gc_exports(&self) -> Option<&[String]> { self.link.as_ref()?.wasm_gc.as_ref()?.exports.as_deref() }
+    pub fn wasm_gc_export_memory_name(&self) -> Option<&str> { self.link.as_ref()?.wasm_gc.as_ref()?.export_memory_name.as_deref() }
     pub fn wasm_gc_import_memory(&self) -> Option<&moonutil::package::ImportMemory> { self.link.as_ref()?.wasm_gc.as_ref()?.import_memory.as_ref() }
-    pub fn wasm_gc_link_flags(&self) -> Option<&Vec<String>> { self.link.as_ref()?.wasm_gc.as_ref()?.flags.as_ref() }
+    pub fn wasm_gc_link_flags(&self) -> Option<&[String]> { self.link.as_ref()?.wasm_gc.as_ref()?.flags.as_deref() }
 
-    pub fn js_exports(&self) -> Option<&Vec<String>> { self.link.as_ref()?.js.as_ref()?.exports.as_ref() }
+    pub fn js_exports(&self) -> Option<&[String]> { self.link.as_ref()?.js.as_ref()?.exports.as_deref() }
 
-    pub fn exports(&self, b: TargetBackend) -> Option<&Vec<String>> {
+    pub fn exports(&self, b: TargetBackend) -> Option<&[String]> {
         match b {
             Wasm => self.wasm_exports(),
             WasmGC => self.wasm_gc_exports(),
@@ -471,7 +471,7 @@ impl LinkDepItem {
         }
     }
 
-    pub fn export_memory_name(&self, b: TargetBackend) -> Option<&String> {
+    pub fn export_memory_name(&self, b: TargetBackend) -> Option<&str> {
         match b {
             Wasm => self.wasm_export_memory_name(),
             WasmGC => self.wasm_gc_export_memory_name(),
@@ -479,7 +479,7 @@ impl LinkDepItem {
         }
     }
 
-    pub fn heap_start_address(&self, b: TargetBackend) -> Option<&u32> {
+    pub fn heap_start_address(&self, b: TargetBackend) -> Option<u32> {
         match b {
             Wasm => self.wasm_heap_start_address(),
             WasmGC => None,
@@ -495,10 +495,10 @@ impl LinkDepItem {
         }
     }
 
-    pub fn link_flags(&self, b: TargetBackend) -> Option<Vec<String>> {
+    pub fn link_flags(&self, b: TargetBackend) -> Option<&[String]> {
         match b {
-            Wasm => self.wasm_link_flags().cloned(),
-            WasmGC => self.wasm_gc_link_flags().cloned(),
+            Wasm => self.wasm_link_flags(),
+            WasmGC => self.wasm_gc_link_flags(),
             Js => None,
         }
     }

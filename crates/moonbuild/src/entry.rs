@@ -78,19 +78,24 @@ fn render_result(result: Option<usize>, quiet: bool, mode: &str) -> anyhow::Resu
 
 pub fn n2_run_interface(
     state: n2::load::State,
-    output_path: PathBuf,
+    moonbuild_opt: &MoonbuildOpt,
 ) -> anyhow::Result<Option<usize>> {
     let logger = Arc::new(Mutex::new(vec![]));
     let use_fancy = terminal::use_fancy();
 
     let catcher = logger.clone();
+    let output_json = moonbuild_opt.output_json;
     let render_and_catch = move |output: &str| {
         output
             .split('\n')
             .filter(|it| !it.is_empty())
             .for_each(|content| {
                 catcher.lock().unwrap().push(content.to_owned());
-                moonutil::render::MooncDiagnostic::render(content, use_fancy);
+                if output_json {
+                    println!("{content}");
+                } else {
+                    moonutil::render::MooncDiagnostic::render(content, use_fancy);
+                }
             });
     };
 
@@ -120,6 +125,9 @@ pub fn n2_run_interface(
 
     let res = trace::scope("work.run", || work.run())?;
 
+    let output_path = moonbuild_opt
+        .target_dir
+        .join(format!("{}.output", moonbuild_opt.run_mode.to_dir_name()));
     if let Some(0) = res {
         // if no work to do, then do not rewrite (build | check | test ...).output
         // instead, read it and print
@@ -130,7 +138,11 @@ pub fn n2_run_interface(
             .split('\n')
             .filter(|it| !it.is_empty())
             .for_each(|content| {
-                moonutil::render::MooncDiagnostic::render(content, use_fancy);
+                if output_json {
+                    println!("{content}");
+                } else {
+                    moonutil::render::MooncDiagnostic::render(content, use_fancy);
+                }
             });
     } else {
         let mut output_file = std::fs::File::create(output_path)?;
@@ -153,7 +165,7 @@ pub fn run_check(
         crate::check::normal::load_moon_proj(module, moonc_opt, moonbuild_opt)
     })?;
 
-    let result = n2_run_interface(state, moonbuild_opt.target_dir.join("check.output"))?;
+    let result = n2_run_interface(state, moonbuild_opt)?;
 
     match result {
         Some(0) => {}
@@ -172,12 +184,12 @@ pub fn run_build(
     let state = trace::scope("moonbit::build::read", || {
         crate::build::load_moon_proj(module, moonc_opt, moonbuild_opt)
     })?;
-    let result = n2_run_interface(state, moonbuild_opt.target_dir.join("build.output"))?;
+    let result = n2_run_interface(state, moonbuild_opt)?;
     render_result(result, moonbuild_opt.quiet, "building")
 }
 
 pub fn run_run(
-    package_path: Option<&String>,
+    package_path: &str,
     moonc_opt: &MooncOpt,
     moonbuild_opt: &MoonbuildOpt,
     module: &ModuleDB,
@@ -185,7 +197,6 @@ pub fn run_run(
     run_build(moonc_opt, moonbuild_opt, module)?;
     let (source_dir, target_dir) = (&moonbuild_opt.source_dir, &moonbuild_opt.target_dir);
     let package_path = package_path
-        .unwrap()
         .trim_start_matches("./")
         .trim_start_matches(".\\")
         .trim_end_matches(is_slash);
@@ -276,7 +287,7 @@ pub fn run_test(
 ) -> anyhow::Result<TestResult, TestFailedStatus> {
     let target_dir = &moonbuild_opt.target_dir;
     let state = crate::runtest::load_moon_proj(module, moonc_opt, moonbuild_opt)?;
-    let result = n2_run_interface(state, moonbuild_opt.target_dir.join("test.output"))?;
+    let result = n2_run_interface(state, moonbuild_opt)?;
     render_result(result, moonbuild_opt.quiet, "testing")?;
 
     if build_only {
@@ -416,7 +427,7 @@ pub fn run_bundle(
     moonc_opt: &MooncOpt,
 ) -> anyhow::Result<i32> {
     let state = crate::bundle::load_moon_proj(module, moonc_opt, moonbuild_opt)?;
-    let result = n2_run_interface(state, moonbuild_opt.target_dir.join("bundle.output"))?;
+    let result = n2_run_interface(state, moonbuild_opt)?;
     match result {
         Some(0) => {}
         _ => {
@@ -433,7 +444,7 @@ pub fn run_fmt(
 ) -> anyhow::Result<i32> {
     let n2_input = super::fmt::gen_fmt(module, moonc_opt, moonbuild_opt)?;
     let state = super::fmt::gen_n2_fmt_state(&n2_input, moonc_opt, moonbuild_opt)?;
-    let _ = n2_run_interface(state, moonbuild_opt.target_dir.join("fmt.output"))?;
+    let _ = n2_run_interface(state, moonbuild_opt)?;
     let mut exit_code = 0;
     if moonbuild_opt.fmt_opt.as_ref().unwrap().check {
         for item in n2_input.items.iter() {

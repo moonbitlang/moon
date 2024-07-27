@@ -35,7 +35,6 @@ use moonutil::module::ModuleDB;
 use moonutil::mooncakes::sync::AutoSyncFlags;
 use moonutil::mooncakes::RegistryConfig;
 use n2::trace;
-use regex::Regex;
 use std::path::Path;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -231,9 +230,6 @@ fn run_test_internal(
             .chain(pkg.test_files.iter())
         {
             let content = std::fs::read_to_string(file)?;
-            let pattern =
-                Regex::new(r#"^test[[:blank:]]*("(?P<name>([^\\"]|\\.)*)")?.*$"#).unwrap();
-
             let filename = file.file_name().unwrap().to_str().unwrap();
             if let Some(ref filter_file) = filter_file {
                 if filter_file != filename {
@@ -242,7 +238,7 @@ fn run_test_internal(
             }
 
             for line in content.lines() {
-                if pattern.captures(line).is_some() {
+                if line.starts_with("test ") {
                     pkg.files_contain_test_block.push(file.clone());
                     break;
                 }

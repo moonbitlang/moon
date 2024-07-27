@@ -30,6 +30,7 @@ pub mod info;
 pub mod mooncake_adapter;
 pub mod new;
 pub mod run;
+pub mod shell_completion;
 pub mod test;
 pub mod update;
 pub mod upgrade;
@@ -48,12 +49,11 @@ pub use generate_test_driver::*;
 pub use info::*;
 pub use new::*;
 pub use run::*;
+pub use shell_completion::*;
 pub use test::*;
 pub use update::*;
 pub use upgrade::*;
 pub use version::*;
-
-use std::path::Path;
 
 use anyhow::bail;
 use moonutil::{
@@ -64,6 +64,7 @@ use moonutil::{
     },
     mooncakes::{LoginSubcommand, PublishSubcommand, RegisterSubcommand},
 };
+use std::path::Path;
 
 #[derive(Debug, clap::Parser)]
 #[clap(
@@ -113,6 +114,7 @@ pub enum MoonBuildSubcommands {
     GenerateBuildMatrix(GenerateBuildMatrix),
     /// Upgrade toolchains
     Upgrade,
+    ShellCompletion(ShellCompSubCommand),
     Version(VersionSubcommand),
 }
 

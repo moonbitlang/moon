@@ -115,6 +115,8 @@ pub fn replace_dir(s: &str, dir: &impl AsRef<std::path::Path>) -> String {
         .to_str()
         .unwrap()
         .to_string();
+    // for something like "{...\"loc\":{\"path\":\"C:\\\\Users\\\\runneradmin\\\\AppData\\\\Local\\\\Temp\\\\.tmpP0u4VZ\\\\main\\\\main.mbt\"...\r\n" on windows
+    // https://github.com/moonbitlang/moon/actions/runs/10092428950/job/27906057649#step:13:149
     let s = s.replace("\\\\", "\\");
     let s = s.replace(&path_str1, "$ROOT");
     let s = s.replace(

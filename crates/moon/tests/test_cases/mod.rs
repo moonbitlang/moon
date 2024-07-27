@@ -380,6 +380,7 @@ fn test_moon_help() {
               coverage               Code coverage utilities
               generate-build-matrix  Generate build matrix for benchmarking (legacy feature)
               upgrade                Upgrade toolchains
+              shell-completion       Generate shell completion for bash/elvish/fish/pwsh/zsh to stdout
               version                Print version info and exit
               help                   Print this message or the help of the given subcommand(s)
 
@@ -3695,6 +3696,9 @@ fn test_internal_package() {
 
 #[test]
 fn mooncakes_io_smoke_test() {
+    if std::env::var("CI").is_err() {
+        return;
+    }
     let dir = TestDir::new("hello.in");
     let _ = get_stdout_with_args(&dir, ["update"]);
     let _ = get_stdout_with_args(&dir, ["add", "lijunchen/hello2@0.1.0"]);
@@ -4929,32 +4933,47 @@ fn test_many_targets_expect_failed() {
 fn test_moon_run_single_mbt_file() {
     let dir = TestDir::new("run_single_mbt_file.in");
 
-    #[cfg(unix)]
-    {
-        let output =
-            get_stdout_with_args_and_replace_dir(&dir, ["run", "a/b/single.mbt", "--dry-run"]);
-        check(
-            &output,
-            expect![[r#"
-            moonc build-package $ROOT/a/b/single.mbt -o $ROOT/a/b/single.core -std-path $MOON_HOME/lib/core/target/wasm-gc/release/bundle -is-main -target wasm-gc
-            moonc link-core $MOON_HOME/lib/core/target/wasm-gc/release/bundle/core.core $ROOT/a/b/single.core -o $ROOT/a/b/single.wasm -target wasm-gc
-            moonrun $ROOT/a/b/single.wasm
+    let output = get_stdout_with_args_and_replace_dir(
+        &dir,
+        [
+            "run",
+            "a/b/single.mbt",
+            "--target",
+            "js",
+            "--build-only",
+            "--dry-run",
+        ],
+    );
+    check(
+        &output,
+        expect![[r#"
+            moonc build-package $ROOT/a/b/single.mbt -o $ROOT/a/b/target/single.core -std-path $MOON_HOME/lib/core/target/js/release/bundle -is-main -pkg moon/run/single -g -source-map -target js
+            moonc link-core $MOON_HOME/lib/core/target/js/release/bundle/core.core $ROOT/a/b/target/single.core -o $ROOT/a/b/target/single.js -pkg-sources moon/run/single:$ROOT/a/b -pkg-sources moonbitlang/core:$MOON_HOME/lib/core -g -source-map -target js
         "#]],
-        );
+    );
 
-        let output = get_stdout_with_args_and_replace_dir(
-            &dir,
-            ["run", "a/b/single.mbt", "--target", "js", "--dry-run"],
-        );
-        check(
-            &output,
-            expect![[r#"
-            moonc build-package $ROOT/a/b/single.mbt -o $ROOT/a/b/single.core -std-path $MOON_HOME/lib/core/target/js/release/bundle -is-main -target js
-            moonc link-core $MOON_HOME/lib/core/target/js/release/bundle/core.core $ROOT/a/b/single.core -o $ROOT/a/b/single.js -target js
-            node $ROOT/a/b/single.js
+    let output = get_stdout_with_args_and_replace_dir(&dir, ["run", "a/b/single.mbt", "--dry-run"]);
+    check(
+        &output,
+        expect![[r#"
+            moonc build-package $ROOT/a/b/single.mbt -o $ROOT/a/b/target/single.core -std-path $MOON_HOME/lib/core/target/wasm-gc/release/bundle -is-main -pkg moon/run/single -g -source-map -target wasm-gc
+            moonc link-core $MOON_HOME/lib/core/target/wasm-gc/release/bundle/core.core $ROOT/a/b/target/single.core -o $ROOT/a/b/target/single.wasm -pkg-sources moon/run/single:$ROOT/a/b -pkg-sources moonbitlang/core:$MOON_HOME/lib/core -g -source-map -target wasm-gc
+            moonrun $ROOT/a/b/target/single.wasm
         "#]],
-        );
-    }
+    );
+
+    let output = get_stdout_with_args_and_replace_dir(
+        &dir,
+        ["run", "a/b/single.mbt", "--target", "js", "--dry-run"],
+    );
+    check(
+        &output,
+        expect![[r#"
+            moonc build-package $ROOT/a/b/single.mbt -o $ROOT/a/b/target/single.core -std-path $MOON_HOME/lib/core/target/js/release/bundle -is-main -pkg moon/run/single -g -source-map -target js
+            moonc link-core $MOON_HOME/lib/core/target/js/release/bundle/core.core $ROOT/a/b/target/single.core -o $ROOT/a/b/target/single.js -pkg-sources moon/run/single:$ROOT/a/b -pkg-sources moonbitlang/core:$MOON_HOME/lib/core -g -source-map -target js
+            node $ROOT/a/b/target/single.js
+        "#]],
+    );
 
     let output = get_stdout_with_args_and_replace_dir(&dir, ["run", "a/b/single.mbt"]);
     check(
@@ -4963,12 +4982,6 @@ fn test_moon_run_single_mbt_file() {
         I am OK
     "#]],
     );
-    let core_output_path = dir.join("a").join("b").join("single.core");
-    assert!(core_output_path.exists());
-    assert!(!dir.join("single.core").exists());
-
-    core_output_path.rm_rf();
-    assert!(!core_output_path.exists());
 
     let output = get_stdout_with_args_and_replace_dir(
         &dir.join("a").join("b").join("c"),
@@ -4980,14 +4993,6 @@ fn test_moon_run_single_mbt_file() {
             I am OK
             "#]],
     );
-    let core_output_path = dir.join("a").join("b").join("single.core");
-    assert!(core_output_path.exists());
-    assert!(!dir
-        .join("a")
-        .join("b")
-        .join("c")
-        .join("single.core")
-        .exists());
 
     let output = get_stdout_with_args_and_replace_dir(
         &dir.join("a").join("b"),
@@ -4999,5 +5004,108 @@ fn test_moon_run_single_mbt_file() {
         I am OK
         "#]],
     );
-    assert!(dir.join("a").join("b").join("single.js").exists());
+}
+
+#[test]
+fn test_moon_check_json_output() {
+    let dir = TestDir::new("alert_list.in");
+
+    #[cfg(unix)]
+    {
+        check(
+            &get_stdout_with_args_and_replace_dir(&dir, ["check", "--output-json", "-q"]),
+            expect![[r#"
+            {"$message_type":"diagnostic","level":"warning","loc":{"path":"$ROOT/main/main.mbt","start":{"line":3,"col":3,"offset":25},"end":{"line":3,"col":10,"offset":32}},"message":"Warning (Alert alert_2): alert_2","error_code":2000}
+        "#]],
+        );
+        check(
+            &get_stdout_with_args_and_replace_dir(&dir, ["check", "--output-json"]),
+            expect![[r#"
+            {"$message_type":"diagnostic","level":"warning","loc":{"path":"$ROOT/main/main.mbt","start":{"line":3,"col":3,"offset":25},"end":{"line":3,"col":10,"offset":32}},"message":"Warning (Alert alert_2): alert_2","error_code":2000}
+            Finished. moon: no work to do
+        "#]],
+        );
+    }
+
+    // windows crlf(\r\n)
+    #[cfg(windows)]
+    {
+        check(
+            &get_stdout_with_args_and_replace_dir(&dir, ["check", "--output-json", "-q"]),
+            expect![[r#"
+            {"$message_type":"diagnostic","level":"warning","loc":{"path":"$ROOT/main/main.mbt","start":{"line":3,"col":3,"offset":27},"end":{"line":3,"col":10,"offset":34}},"message":"Warning (Alert alert_2): alert_2","error_code":2000}
+        "#]],
+        );
+        check(
+            &get_stdout_with_args_and_replace_dir(&dir, ["check", "--output-json"]),
+            expect![[r#"
+            {"$message_type":"diagnostic","level":"warning","loc":{"path":"$ROOT/main/main.mbt","start":{"line":3,"col":3,"offset":27},"end":{"line":3,"col":10,"offset":34}},"message":"Warning (Alert alert_2): alert_2","error_code":2000}
+            Finished. moon: no work to do
+        "#]],
+        );
+    }
+}
+
+#[test]
+fn test_moon_run_single_mbt_file_inside_a_pkg() {
+    let dir = TestDir::new("run_single_mbt_file_inside_pkg.in");
+
+    let output = get_stdout_with_args_and_replace_dir(&dir, ["run", "main/main.mbt"]);
+    check(
+        &output,
+        expect![[r#"
+            Hello, world!!!
+            root main
+        "#]],
+    );
+    let output = get_stdout_with_args_and_replace_dir(&dir, ["run", "lib/main_in_lib/main.mbt"]);
+    check(
+        &output,
+        expect![[r#"
+            Hello, world!!!
+            main in lib
+        "#]],
+    );
+
+    let output =
+        get_stdout_with_args_and_replace_dir(&dir.join("lib"), ["run", "../main/main.mbt"]);
+    check(
+        &output,
+        expect![[r#"
+            Hello, world!!!
+            root main
+        "#]],
+    );
+    let output =
+        get_stdout_with_args_and_replace_dir(&dir.join("lib"), ["run", "main_in_lib/main.mbt"]);
+    check(
+        &output,
+        expect![[r#"
+            Hello, world!!!
+            main in lib
+        "#]],
+    );
+
+    let output = get_stdout_with_args_and_replace_dir(
+        &dir.join("lib").join("main_in_lib"),
+        ["run", "../../main/main.mbt"],
+    );
+    check(
+        &output,
+        expect![[r#"
+            Hello, world!!!
+            root main
+        "#]],
+    );
+    let output = get_stdout_with_args_and_replace_dir(
+        &dir.join("lib").join("main_in_lib"),
+        ["run", "main.mbt"],
+    );
+    check(
+        &output,
+        expect![[r#"
+            Hello, world!!!
+            main in lib
+        "#]],
+    );
 }
