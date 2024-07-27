@@ -16,13 +16,35 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
-use git2::Repository;
 use std::path::Path;
 
+use colored::Colorize;
+
 pub fn is_in_git_repo(path: &Path) -> bool {
-    Repository::discover(path).is_ok()
+    let output = std::process::Command::new("git")
+        .args(["rev-parse", "--is-inside-work-tree"])
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .current_dir(path)
+        .status();
+    match output {
+        Ok(out) => out.success(),
+        _ => false,
+    }
 }
 
-pub fn create_git_repo(path: &Path) -> Result<Repository, git2::Error> {
-    Repository::init(path)
+pub fn create_git_repo(path: &Path) {
+    let git_init = std::process::Command::new("git")
+        .arg("init")
+        .current_dir(path)
+        .status();
+    match git_init {
+        Ok(o) => if o.success() {},
+        _ => {
+            eprintln!(
+                "{}: git init failed, make sure you have git in PATH",
+                "Warning".yellow().bold()
+            );
+        }
+    }
 }

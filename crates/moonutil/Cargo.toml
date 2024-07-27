@@ -42,7 +42,6 @@ petgraph.workspace = true
 ariadne.workspace = true
 env_logger.workspace = true
 log.workspace = true
-git2.workspace = true
 
 [dev-dependencies]
 expect-test.workspace = true

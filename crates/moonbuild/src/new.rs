@@ -145,15 +145,9 @@ pub fn moon_new_lib(
 
 fn common(target_dir: &Path, cake_full_name: &str, license: Option<&str>) -> anyhow::Result<i32> {
     std::fs::create_dir_all(target_dir).context("failed to create target directory")?;
+
     if !is_in_git_repo(target_dir) {
-        println!("{}", target_dir.to_str().unwrap());
-        let git_init = create_git_repo(target_dir);
-        match git_init {
-            Ok(_) => {}
-            Err(info) => {
-                eprintln!("{}: {}", "Warning".yellow().bold(), info);
-            }
-        }
+        create_git_repo(target_dir);
     }
 
     {

@@ -90,7 +90,6 @@ thiserror = "1.0"
 test-log = "0.2"
 fs4 = { version = "0.8.3", features = ["sync"] }
 ariadne = { version = "0.4.1", features = ["auto-color"] }
-git2 = "0.19.0"   
 
 [profile.release]
 debug = false
