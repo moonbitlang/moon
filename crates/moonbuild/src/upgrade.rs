@@ -22,7 +22,7 @@ use console::Term;
 use dialoguer::Confirm;
 use futures::stream::{self, StreamExt, TryStreamExt};
 use moonutil::common::{CargoPathExt, MOONBITLANG_CORE};
-use moonutil::moon_dir;
+use moonutil::moon_dir::{self, moon_tmp_dir};
 use reqwest;
 use std::io::Write;
 use std::path::{Component, Path, PathBuf};
@@ -177,7 +177,7 @@ pub fn do_upgrade(root: &'static str) -> Result<i32> {
             })
             .collect::<Vec<String>>();
 
-        let temp_dir = tempfile::tempdir()?;
+        let temp_dir = tempfile::tempdir_in(moon_tmp_dir()?)?;
         let temp_dir_path = temp_dir.path();
 
         let progress_map = Arc::new(Mutex::new(indexmap::map::IndexMap::new()));

@@ -18,6 +18,8 @@
 
 use std::path::{Path, PathBuf};
 
+use anyhow::Context;
+
 use crate::common::TargetBackend;
 
 pub fn home() -> PathBuf {
@@ -112,6 +114,15 @@ pub fn config_json() -> PathBuf {
     home().join("config.json")
 }
 
+pub fn moon_tmp_dir() -> anyhow::Result<PathBuf> {
+    let p = home().join("tmp");
+    if !p.exists() {
+        std::fs::create_dir_all(&p)
+            .with_context(|| format!("failed to create tmp directory `{}`", p.display()))?;
+    }
+    Ok(p)
+}
+
 #[test]
 fn test_moon_dir() {
     use expect_test::expect;
@@ -123,6 +134,7 @@ fn test_moon_dir() {
         index(),
         credentials_json(),
         config_json(),
+        moon_tmp_dir().unwrap(),
     ];
     dbg!(&dirs);
     let dirs = dirs
@@ -143,6 +155,7 @@ fn test_moon_dir() {
             "registry|index",
             "credentials.json",
             "config.json",
+            "tmp",
         ]
     "#]]
     .assert_debug_eq(&dirs);
