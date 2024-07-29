@@ -8,7 +8,7 @@ fn actual_188() -> String {
 }
 
 test "issue_188" {
-  inspect(
+  inspect!(
     actual_188(),
     content=
       #|State #0
@@ -17,5 +17,5 @@ test "issue_188" {
       #|State #1
       #|
     ,
-  )!
+  )
 }
