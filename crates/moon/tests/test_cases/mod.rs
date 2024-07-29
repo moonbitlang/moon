@@ -788,6 +788,28 @@ fn test_moon_new_snapshot_lib() {
 
     snapbox::cmd::Command::new(moon_bin())
         .current_dir(&dir)
+        .args(["new", "--lib", "hello_lib"])
+        .assert()
+        .success();
+
+    let license_content = std::fs::read_to_string(hello.join("LICENSE")).unwrap();
+    assert!(license_content.contains("Apache License"));
+    assert!(license_content.contains("Version 2.0, January 2004"));
+    hello.rm_rf();
+}
+
+#[test]
+fn test_moon_new_snapshot_lib_no_license() {
+    let dir = TestDir::new("moon_new_snapshot.in");
+
+    let hello = dir.join("hello_lib");
+
+    if hello.exists() {
+        hello.rm_rf()
+    }
+
+    snapbox::cmd::Command::new(moon_bin())
+        .current_dir(&dir)
         .args(["new", "--lib", "hello_lib", "--no-license"])
         .assert()
         .success();
