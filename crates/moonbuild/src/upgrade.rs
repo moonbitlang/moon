@@ -316,7 +316,7 @@ pub fn do_upgrade(root: &'static str) -> Result<i32> {
                                 if dst.exists() {
                                     tokio::fs::remove_file(&dst).await.context(format!("failed to remove {}", dst.display()))?;
                                 }
-                                tokio::fs::rename(&filepath, &dst)
+                                tokio::fs::copy(&filepath, &dst)
                                     .await
                                     .with_context(|| msg)?;
                             }
