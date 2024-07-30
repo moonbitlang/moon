@@ -286,7 +286,8 @@ pub fn run_test(
     module: &ModuleDB,
 ) -> anyhow::Result<TestResult, TestFailedStatus> {
     let target_dir = &moonbuild_opt.target_dir;
-    let state = crate::runtest::load_moon_proj(module, moonc_opt, moonbuild_opt)?;
+    let (state, mut runnable_artifacts) =
+        crate::runtest::load_moon_proj(module, moonc_opt, moonbuild_opt)?;
     let result = n2_run_interface(state, moonbuild_opt)?;
     render_result(result, moonbuild_opt.quiet, "testing")?;
 
@@ -294,29 +295,23 @@ pub fn run_test(
         return Ok(TestResult::default());
     }
 
-    let state = crate::runtest::load_moon_proj(module, moonc_opt, moonbuild_opt)?;
-    let mut defaults: Vec<&String> = state
-        .default
-        .iter()
-        .map(|fid| &state.graph.file(*fid).name)
-        .collect();
     if moonbuild_opt.sort_input {
         #[cfg(unix)]
         {
-            defaults.sort();
+            runnable_artifacts.sort();
         }
         #[cfg(windows)]
         {
-            let normal_slash = defaults
+            let normal_slash = runnable_artifacts
                 .iter()
                 .enumerate()
                 .map(|s| (s.0, s.1.replace('\\', "/")))
                 .collect::<Vec<(usize, String)>>();
-            let mut new_defaults = defaults.clone();
+            let mut sorted_runnable_artifacts = runnable_artifacts.clone();
             for (i, (j, _)) in normal_slash.iter().enumerate() {
-                new_defaults[i] = defaults[*j];
+                sorted_runnable_artifacts[i] = runnable_artifacts[*j].clone();
             }
-            defaults = new_defaults;
+            runnable_artifacts = sorted_runnable_artifacts;
         }
     }
 
@@ -326,8 +321,8 @@ pub fn run_test(
     let mut expect_failed = false;
     let mut apply_expect_failed = false;
 
-    for d in defaults.iter() {
-        let p = Path::new(d);
+    for runnable_artifact in runnable_artifacts.iter() {
+        let p = Path::new(runnable_artifact);
 
         match p.extension() {
             Some(name) if name == moonc_opt.link_opt.output_format.to_str() => {
@@ -343,7 +338,7 @@ pub fn run_test(
 
                 if result.is_err() {
                     let e = result.err().unwrap();
-                    eprintln!("Error when running {}: {}", d, e);
+                    eprintln!("Error when running {}: {}", runnable_artifact, e);
                     runtime_error = true;
                 } else {
                     let r = result.unwrap();
