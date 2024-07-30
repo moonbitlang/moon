@@ -60,8 +60,19 @@ impl MooncDiagnostic {
                     );
                 } else {
                     let source_file_path = &diagnostic.location.path;
-                    let source_file = std::fs::read_to_string(source_file_path)
-                        .unwrap_or_else(|_| panic!("failed to read {}", source_file_path));
+                    let source_file = match std::fs::read_to_string(source_file_path) {
+                        Ok(content) => content,
+                        Err(_) => {
+                            println!(
+                                "failed to read file `{}`, [{}] {}: {}",
+                                source_file_path,
+                                diagnostic.error_code,
+                                diagnostic.level,
+                                diagnostic.message
+                            );
+                            return;
+                        }
+                    };
 
                     let mut report_builder = ariadne::Report::build(
                         kind,
