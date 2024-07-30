@@ -104,7 +104,7 @@ fn pkg_with_wbtest_to_check_item(
 ) -> anyhow::Result<CheckDepItem> {
     let out = pkg
         .artifact
-        .with_file_name(format!("{}.underscore_test.mi", pkg.last_name()));
+        .with_file_name(format!("{}.whitebox_test.mi", pkg.last_name()));
 
     let backend_filtered = moonutil::common::backend_filter(
         &pkg.files

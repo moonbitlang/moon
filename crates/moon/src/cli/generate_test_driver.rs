@@ -152,7 +152,7 @@ pub fn generate_test_driver(
             (&pkg.files, "__generated_driver_for_internal_test.mbt"),
             (
                 &pkg.wbtest_files,
-                "__generated_driver_for_underscore_test.mbt",
+                "__generated_driver_for_whitebox_test.mbt",
             ),
             (&pkg.test_files, "__generated_driver_for_blackbox_test.mbt"),
         ];

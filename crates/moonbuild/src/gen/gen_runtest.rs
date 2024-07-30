@@ -179,7 +179,7 @@ pub fn gen_package_internal_test(
     })
 }
 
-pub fn gen_package_underscore_test(
+pub fn gen_package_whitebox_test(
     m: &ModuleDB,
     pkg: &Package,
     moonc_opt: &MooncOpt,
@@ -187,10 +187,10 @@ pub fn gen_package_underscore_test(
     let pkgname = pkg.artifact.file_stem().unwrap().to_str().unwrap();
     let core_out = pkg
         .artifact
-        .with_file_name(format!("{}.underscore_test.core", pkgname));
+        .with_file_name(format!("{}.whitebox_test.core", pkgname));
     let mi_out = pkg
         .artifact
-        .with_file_name(format!("{}.underscore_test.mi", pkgname));
+        .with_file_name(format!("{}.whitebox_test.mi", pkgname));
 
     let backend_filtered =
         moonutil::common::backend_filter(&pkg.files, moonc_opt.link_opt.target_backend);
@@ -201,7 +201,7 @@ pub fn gen_package_underscore_test(
         .collect();
 
     for item in pkg.generated_test_drivers.iter() {
-        if let GeneratedTestDriver::UnderscoreTest(path) = item {
+        if let GeneratedTestDriver::WhiteboxTest(path) = item {
             mbt_deps.push(path.display().to_string());
         }
     }
@@ -447,14 +447,14 @@ pub fn gen_link_internal_test(
     })
 }
 
-pub fn gen_link_underscore_test(
+pub fn gen_link_whitebox_test(
     m: &ModuleDB,
     pkg: &Package,
     _moonc_opt: &MooncOpt,
 ) -> anyhow::Result<RuntestLinkDepItem> {
     let out = pkg
         .artifact
-        .with_file_name(format!("{}.underscore_test.wat", pkg.last_name()));
+        .with_file_name(format!("{}.whitebox_test.wat", pkg.last_name()));
 
     let pkg_topo_order: Vec<&Package> = get_pkg_topo_order(m, pkg, true, false);
 
@@ -463,7 +463,7 @@ pub fn gen_link_underscore_test(
         let d = if cur_pkg.full_name() == pkg.full_name() {
             cur_pkg
                 .artifact
-                .with_file_name(format!("{}.underscore_test.core", cur_pkg.last_name()))
+                .with_file_name(format!("{}.whitebox_test.core", cur_pkg.last_name()))
         } else {
             cur_pkg.artifact.with_extension("core")
         };
@@ -584,9 +584,9 @@ pub fn gen_runtest<'a>(
 
         if !pkg.wbtest_files.is_empty() {
             for item in pkg.generated_test_drivers.iter() {
-                if let GeneratedTestDriver::UnderscoreTest(it) = item {
-                    build_items.push(gen_package_underscore_test(m, pkg, moonc_opt)?);
-                    link_items.push(gen_link_underscore_test(m, pkg, moonc_opt)?);
+                if let GeneratedTestDriver::WhiteboxTest(it) = item {
+                    build_items.push(gen_package_whitebox_test(m, pkg, moonc_opt)?);
+                    link_items.push(gen_link_whitebox_test(m, pkg, moonc_opt)?);
                     driver_files.push(it.as_path());
                 }
             }
