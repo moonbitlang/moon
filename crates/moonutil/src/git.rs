@@ -33,7 +33,7 @@ pub fn is_in_git_repo(path: &Path) -> bool {
     }
 }
 
-pub fn create_git_repo(path: &Path) {
+pub fn git_init_repo(path: &Path) {
     let git_init = std::process::Command::new("git")
         .arg("init")
         .current_dir(path)

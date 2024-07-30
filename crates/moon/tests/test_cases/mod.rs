@@ -489,6 +489,7 @@ fn test_moon_new_exist() {
     );
 
     assert!(res.contains("Created hello"));
+    assert!(res.contains("Initialized empty Git repository"));
 
     snapbox::cmd::Command::new(moon_bin())
         .current_dir(dir.join("hello"))
