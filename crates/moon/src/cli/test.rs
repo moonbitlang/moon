@@ -209,13 +209,11 @@ fn run_test_internal(
         pkg.generated_test_drivers
             .push(GeneratedTestDriver::InternalTest(internal_generated_file));
 
-        let underscore_generated_file = target_dir
+        let whitebox_generated_file = target_dir
             .join(pkg.rel.fs_full_name())
-            .join("__generated_driver_for_underscore_test.mbt");
+            .join("__generated_driver_for_whitebox_test.mbt");
         pkg.generated_test_drivers
-            .push(GeneratedTestDriver::UnderscoreTest(
-                underscore_generated_file,
-            ));
+            .push(GeneratedTestDriver::WhiteboxTest(whitebox_generated_file));
 
         let blackbox_generated_file = target_dir
             .join(pkg.rel.fs_full_name())

@@ -617,6 +617,6 @@ impl FileLock {
 #[derive(Debug, Clone)]
 pub enum GeneratedTestDriver {
     InternalTest(PathBuf),
-    UnderscoreTest(PathBuf),
+    WhiteboxTest(PathBuf),
     BlackboxTest(PathBuf),
 }
