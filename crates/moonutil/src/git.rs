@@ -16,18 +16,35 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
-pub mod cli;
-pub mod common;
-pub mod dependency;
-pub mod dirs;
-pub mod git;
-pub mod graph;
-pub mod module;
-pub mod moon_dir;
-pub mod mooncake_bin;
-pub mod mooncakes;
-pub mod package;
-pub mod path;
-pub mod render;
-pub mod scan;
-pub mod version;
+use std::path::Path;
+
+use colored::Colorize;
+
+pub fn is_in_git_repo(path: &Path) -> bool {
+    let output = std::process::Command::new("git")
+        .args(["rev-parse", "--is-inside-work-tree"])
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .current_dir(path)
+        .status();
+    match output {
+        Ok(out) => out.success(),
+        _ => false,
+    }
+}
+
+pub fn git_init_repo(path: &Path) {
+    let git_init = std::process::Command::new("git")
+        .arg("init")
+        .current_dir(path)
+        .status();
+    match git_init {
+        Ok(o) => if o.success() {},
+        _ => {
+            eprintln!(
+                "{}: git init failed, make sure you have git in PATH",
+                "Warning".yellow().bold()
+            );
+        }
+    }
+}
