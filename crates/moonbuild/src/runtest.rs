@@ -30,12 +30,13 @@ use serde::{Deserialize, Serialize};
 use std::process::Command;
 use std::{path::Path, process::Stdio};
 
+// load_moon_proj for runtest is different from load_moon_proj for other mode(build, check) which just return a `State`
+// since runtest needs to know all the runnable_artifacts to run them.
 pub fn load_moon_proj(
     module: &ModuleDB,
     moonc_opt: &MooncOpt,
     moonbuild_opt: &MoonbuildOpt,
-) -> anyhow::Result<State> {
-    // let module = module.clone();
+) -> anyhow::Result<(State, Vec<String>)> {
     let n2_input = gen::gen_runtest::gen_runtest(module, moonc_opt, moonbuild_opt)?;
     log::debug!("n2_input: {:#?}", n2_input);
     gen::gen_runtest::gen_n2_runtest_state(&n2_input, moonc_opt, moonbuild_opt)

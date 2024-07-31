@@ -791,7 +791,7 @@ pub fn gen_n2_runtest_state(
     input: &N2RuntestInput,
     moonc_opt: &MooncOpt,
     moonbuild_opt: &MoonbuildOpt,
-) -> anyhow::Result<State> {
+) -> anyhow::Result<(State, Vec<String>)> {
     let _ = moonbuild_opt;
     let mut graph = n2graph::Graph::default();
     let mut default = vec![];
@@ -824,13 +824,21 @@ pub fn gen_n2_runtest_state(
         &mut hashes,
     )?;
 
-    Ok(State {
-        graph,
-        db,
-        hashes,
-        default,
-        pools: SmallMap::default(),
-    })
+    let runnable_artifacts: Vec<String> = default
+        .iter()
+        .map(|fid| graph.file(*fid).name.clone())
+        .collect();
+
+    Ok((
+        State {
+            graph,
+            db,
+            hashes,
+            default,
+            pools: SmallMap::default(),
+        },
+        runnable_artifacts,
+    ))
 }
 
 fn gen_generate_test_driver_command(

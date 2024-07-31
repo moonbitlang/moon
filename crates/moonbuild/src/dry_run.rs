@@ -43,7 +43,7 @@ pub fn print_commands(
             crate::build::load_moon_proj(module, moonc_opt, moonbuild_opt)?
         }
         RunMode::Check => crate::check::normal::load_moon_proj(module, moonc_opt, moonbuild_opt)?,
-        RunMode::Test => crate::runtest::load_moon_proj(module, moonc_opt, moonbuild_opt)?,
+        RunMode::Test => crate::runtest::load_moon_proj(module, moonc_opt, moonbuild_opt)?.0,
         RunMode::Bundle => crate::bundle::load_moon_proj(module, moonc_opt, moonbuild_opt)?,
         RunMode::Format => crate::fmt::load_moon_proj(module, moonc_opt, moonbuild_opt)?,
     };
