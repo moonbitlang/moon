@@ -5209,3 +5209,203 @@ fn moon_test_parallelize_should_success() {
     let output = get_stdout_with_args_and_replace_dir(&dir, ["test", "-u"]);
     assert!(output.contains("Total tests: 13, passed: 13, failed: 0."));
 }
+
+#[test]
+fn test_specify_source_dir_001() {
+    let dir = TestDir::new("specify_source_dir_001.in");
+    check(
+        &get_stdout_with_args_and_replace_dir(&dir, ["check", "--dry-run", "--sort-input"]),
+        expect![[r#"
+            moonc check ./src/lib/hello.mbt -o ./target/wasm-gc/release/check/lib/lib.mi -pkg username/hello/lib -std-path $MOON_HOME/lib/core/target/wasm-gc/release/bundle -pkg-sources username/hello/lib:./src/lib -target wasm-gc
+            moonc check ./src/main/main.mbt -o ./target/wasm-gc/release/check/main/main.mi -pkg username/hello/main -is-main -std-path $MOON_HOME/lib/core/target/wasm-gc/release/bundle -i ./target/wasm-gc/release/check/lib/lib.mi:lib -pkg-sources username/hello/main:./src/main -target wasm-gc
+            moonc check ./src/lib/hello_test.mbt -o ./target/wasm-gc/release/check/lib/lib.blackbox_test.mi -pkg username/hello/lib_blackbox_test -std-path $MOON_HOME/lib/core/target/wasm-gc/release/bundle -i ./target/wasm-gc/release/check/lib/lib.mi:lib -pkg-sources username/hello/lib_blackbox_test:./src/lib -target wasm-gc
+        "#]],
+    );
+    check(
+        &get_stdout_with_args_and_replace_dir(&dir, ["build", "--dry-run", "--sort-input"]),
+        expect![[r#"
+            moonc build-package ./src/lib/hello.mbt -o ./target/wasm-gc/release/build/lib/lib.core -pkg username/hello/lib -std-path $MOON_HOME/lib/core/target/wasm-gc/release/bundle -pkg-sources username/hello/lib:./src/lib -target wasm-gc
+            moonc build-package ./src/main/main.mbt -o ./target/wasm-gc/release/build/main/main.core -pkg username/hello/main -is-main -std-path $MOON_HOME/lib/core/target/wasm-gc/release/bundle -i ./target/wasm-gc/release/build/lib/lib.mi:lib -pkg-sources username/hello/main:./src/main -target wasm-gc
+            moonc link-core $MOON_HOME/lib/core/target/wasm-gc/release/bundle/core.core ./target/wasm-gc/release/build/lib/lib.core ./target/wasm-gc/release/build/main/main.core -main username/hello/main -o ./target/wasm-gc/release/build/main/main.wasm -pkg-sources username/hello/lib:./lib -pkg-sources username/hello/main:./main -pkg-sources moonbitlang/core:$MOON_HOME/lib/core -target wasm-gc
+        "#]],
+    );
+    check(
+        &get_stdout_with_args_and_replace_dir(&dir, ["test", "--dry-run", "--sort-input"]),
+        expect![[r#"
+            moon generate-test-driver --source-dir . --target-dir ./target/wasm-gc/debug/test --sort-input --target wasm-gc
+            moonc build-package ./src/lib/hello.mbt -o ./target/wasm-gc/debug/test/lib/lib.core -pkg username/hello/lib -std-path $MOON_HOME/lib/core/target/wasm-gc/release/bundle -pkg-sources username/hello/lib:./src/lib -target wasm-gc -g
+            moonc build-package ./src/lib/hello_test.mbt ./target/wasm-gc/debug/test/lib/__generated_driver_for_blackbox_test.mbt -o ./target/wasm-gc/debug/test/lib/lib.blackbox_test.core -pkg username/hello/lib_blackbox_test -is-main -std-path $MOON_HOME/lib/core/target/wasm-gc/release/bundle -i ./target/wasm-gc/debug/test/lib/lib.mi:lib -pkg-sources username/hello/lib_blackbox_test:./src/lib -target wasm-gc -g
+            moonc link-core $MOON_HOME/lib/core/target/wasm-gc/release/bundle/core.core ./target/wasm-gc/debug/test/lib/lib.core ./target/wasm-gc/debug/test/lib/lib.blackbox_test.core -main username/hello/lib -o ./target/wasm-gc/debug/test/lib/lib.blackbox_test.wasm -test-mode -pkg-sources username/hello/lib:./lib -pkg-sources moonbitlang/core:$MOON_HOME/lib/core -target wasm-gc -g
+            moonc build-package ./src/lib/hello.mbt ./target/wasm-gc/debug/test/lib/__generated_driver_for_internal_test.mbt -o ./target/wasm-gc/debug/test/lib/lib.internal_test.core -pkg username/hello/lib -is-main -std-path $MOON_HOME/lib/core/target/wasm-gc/release/bundle -pkg-sources username/hello/lib:./src/lib -target wasm-gc -g
+            moonc link-core $MOON_HOME/lib/core/target/wasm-gc/release/bundle/core.core ./target/wasm-gc/debug/test/lib/lib.internal_test.core -main username/hello/lib -o ./target/wasm-gc/debug/test/lib/lib.internal_test.wasm -test-mode -pkg-sources username/hello/lib:./lib -pkg-sources moonbitlang/core:$MOON_HOME/lib/core -target wasm-gc -g
+        "#]],
+    );
+    check(
+        &get_stdout_with_args_and_replace_dir(&dir, ["check"]),
+        expect![[r#"
+            Finished. moon: ran 3 tasks, now up to date
+        "#]],
+    );
+    check(
+        &get_stdout_with_args_and_replace_dir(&dir, ["build"]),
+        expect![[r#"
+            Finished. moon: ran 3 tasks, now up to date
+        "#]],
+    );
+    check(
+        &get_stdout_with_args_and_replace_dir(&dir, ["test"]),
+        expect![[r#"
+            Total tests: 1, passed: 1, failed: 0.
+        "#]],
+    );
+    check(
+        &get_stdout_with_args_and_replace_dir(&dir, ["run", "./src/main"]),
+        expect![[r#"
+            Hello, world!
+        "#]],
+    );
+}
+
+#[test]
+fn test_specify_source_dir_002() {
+    let dir = TestDir::new("specify_source_dir_002.in");
+    check(
+        &get_err_stdout_with_args_and_replace_dir(&dir, ["test"]),
+        expect![[r#"
+            test username/hello/lib/hello_test.mbt::hello failed
+            expect test failed at $ROOT/src/lib/hello_test.mbt:2:3-2:25
+            Diff:
+            ----
+            Hello, world!
+            ----
+
+            Total tests: 1, passed: 0, failed: 1.
+        "#]],
+    );
+    check(
+        &get_stdout_with_args_and_replace_dir(&dir, ["test", "-u"]),
+        expect![[r#"
+
+            Auto updating expect tests and retesting ...
+
+            Total tests: 1, passed: 1, failed: 0.
+        "#]],
+    );
+
+    check(
+        &replace_crlf_to_lf(
+            &std::fs::read_to_string(dir.join("src").join("lib").join("hello_test.mbt")).unwrap(),
+        ),
+        expect![[r#"
+            test "hello" {
+              inspect!(@lib.hello(), content="Hello, world!")
+            }
+        "#]],
+    );
+}
+
+#[test]
+fn test_specify_source_dir_003() {
+    let dir = TestDir::new("specify_source_dir_003_bad.in");
+    check(
+        &get_stderr_with_args_and_replace_dir(&dir, ["check"]),
+        expect![[r#"
+            error: failed to load `$ROOT/moon.mod.json`
+
+            Caused by:
+                0: root-dir bad format
+                1: root-dir should not be empty
+        "#]],
+    );
+}
+
+#[test]
+fn test_specify_source_dir_with_deps() {
+    let dir = TestDir::new("specify_source_dir_with_deps_001.in");
+    check(
+        &get_stdout_with_args_and_replace_dir(&dir, ["check", "--dry-run", "--sort-input"]),
+        expect![[r#"
+            moonc check ./anyhow/lib/hello.mbt -o ./target/wasm-gc/release/check/lib/lib.mi -pkg username/hello/lib -std-path $MOON_HOME/lib/core/target/wasm-gc/release/bundle -pkg-sources username/hello/lib:./anyhow/lib -target wasm-gc
+            moonc check ./deps/hello19/source/top.mbt -o ./target/wasm-gc/release/check/.mooncakes/just/hello19/hello19.mi -pkg just/hello19 -std-path $MOON_HOME/lib/core/target/wasm-gc/release/bundle -pkg-sources just/hello19:./deps/hello19/source -target wasm-gc
+            moonc check ./deps/hello19/source/lib/hello.mbt -o ./target/wasm-gc/release/check/.mooncakes/just/hello19/lib/lib.mi -pkg just/hello19/lib -std-path $MOON_HOME/lib/core/target/wasm-gc/release/bundle -pkg-sources just/hello19/lib:./deps/hello19/source/lib -target wasm-gc
+            moonc check ./anyhow/main/main.mbt -o ./target/wasm-gc/release/check/main/main.mi -pkg username/hello/main -is-main -std-path $MOON_HOME/lib/core/target/wasm-gc/release/bundle -i ./target/wasm-gc/release/check/lib/lib.mi:emmm -i ./target/wasm-gc/release/check/.mooncakes/just/hello19/hello19.mi:hello19 -i ./target/wasm-gc/release/check/.mooncakes/just/hello19/lib/lib.mi:lib -pkg-sources username/hello/main:./anyhow/main -target wasm-gc
+            moonc check ./anyhow/lib/hello_test.mbt -o ./target/wasm-gc/release/check/lib/lib.blackbox_test.mi -pkg username/hello/lib_blackbox_test -std-path $MOON_HOME/lib/core/target/wasm-gc/release/bundle -i ./target/wasm-gc/release/check/lib/lib.mi:lib -pkg-sources username/hello/lib_blackbox_test:./anyhow/lib -target wasm-gc
+            moonc check ./deps/hello19/source/top_test.mbt -o ./target/wasm-gc/release/check/.mooncakes/just/hello19/hello19.blackbox_test.mi -pkg just/hello19_blackbox_test -std-path $MOON_HOME/lib/core/target/wasm-gc/release/bundle -i ./target/wasm-gc/release/check/.mooncakes/just/hello19/hello19.mi:hello19 -pkg-sources just/hello19_blackbox_test:./deps/hello19/source -target wasm-gc
+        "#]],
+    );
+    check(
+        &get_stdout_with_args_and_replace_dir(&dir, ["build", "--dry-run", "--sort-input"]),
+        expect![[r#"
+            moonc build-package ./anyhow/lib/hello.mbt -o ./target/wasm-gc/release/build/lib/lib.core -pkg username/hello/lib -std-path $MOON_HOME/lib/core/target/wasm-gc/release/bundle -pkg-sources username/hello/lib:./anyhow/lib -target wasm-gc
+            moonc build-package ./deps/hello19/source/top.mbt -o ./target/wasm-gc/release/build/.mooncakes/just/hello19/hello19.core -pkg just/hello19 -std-path $MOON_HOME/lib/core/target/wasm-gc/release/bundle -pkg-sources just/hello19:./deps/hello19/source -target wasm-gc
+            moonc build-package ./deps/hello19/source/lib/hello.mbt -o ./target/wasm-gc/release/build/.mooncakes/just/hello19/lib/lib.core -pkg just/hello19/lib -std-path $MOON_HOME/lib/core/target/wasm-gc/release/bundle -pkg-sources just/hello19/lib:./deps/hello19/source/lib -target wasm-gc
+            moonc build-package ./anyhow/main/main.mbt -o ./target/wasm-gc/release/build/main/main.core -pkg username/hello/main -is-main -std-path $MOON_HOME/lib/core/target/wasm-gc/release/bundle -i ./target/wasm-gc/release/build/lib/lib.mi:emmm -i ./target/wasm-gc/release/build/.mooncakes/just/hello19/hello19.mi:hello19 -i ./target/wasm-gc/release/build/.mooncakes/just/hello19/lib/lib.mi:lib -pkg-sources username/hello/main:./anyhow/main -target wasm-gc
+            moonc link-core $MOON_HOME/lib/core/target/wasm-gc/release/bundle/core.core ./target/wasm-gc/release/build/lib/lib.core ./target/wasm-gc/release/build/.mooncakes/just/hello19/hello19.core ./target/wasm-gc/release/build/.mooncakes/just/hello19/lib/lib.core ./target/wasm-gc/release/build/main/main.core -main username/hello/main -o ./target/wasm-gc/release/build/main/main.wasm -pkg-sources username/hello/lib:./lib -pkg-sources just/hello19:. -pkg-sources just/hello19/lib:./lib -pkg-sources username/hello/main:./main -pkg-sources moonbitlang/core:$MOON_HOME/lib/core -target wasm-gc
+        "#]],
+    );
+    check(
+        &get_stdout_with_args_and_replace_dir(&dir, ["test", "--dry-run", "--sort-input"]),
+        expect![[r#"
+            moon generate-test-driver --source-dir . --target-dir ./target/wasm-gc/debug/test --sort-input --target wasm-gc
+            moonc build-package ./anyhow/lib/hello.mbt -o ./target/wasm-gc/debug/test/lib/lib.core -pkg username/hello/lib -std-path $MOON_HOME/lib/core/target/wasm-gc/release/bundle -pkg-sources username/hello/lib:./anyhow/lib -target wasm-gc -g
+            moonc build-package ./anyhow/lib/hello_test.mbt ./target/wasm-gc/debug/test/lib/__generated_driver_for_blackbox_test.mbt -o ./target/wasm-gc/debug/test/lib/lib.blackbox_test.core -pkg username/hello/lib_blackbox_test -is-main -std-path $MOON_HOME/lib/core/target/wasm-gc/release/bundle -i ./target/wasm-gc/debug/test/lib/lib.mi:lib -pkg-sources username/hello/lib_blackbox_test:./anyhow/lib -target wasm-gc -g
+            moonc link-core $MOON_HOME/lib/core/target/wasm-gc/release/bundle/core.core ./target/wasm-gc/debug/test/lib/lib.core ./target/wasm-gc/debug/test/lib/lib.blackbox_test.core -main username/hello/lib -o ./target/wasm-gc/debug/test/lib/lib.blackbox_test.wasm -test-mode -pkg-sources username/hello/lib:./lib -pkg-sources moonbitlang/core:$MOON_HOME/lib/core -target wasm-gc -g
+            moonc build-package ./anyhow/lib/hello.mbt ./target/wasm-gc/debug/test/lib/__generated_driver_for_internal_test.mbt -o ./target/wasm-gc/debug/test/lib/lib.internal_test.core -pkg username/hello/lib -is-main -std-path $MOON_HOME/lib/core/target/wasm-gc/release/bundle -pkg-sources username/hello/lib:./anyhow/lib -target wasm-gc -g
+            moonc link-core $MOON_HOME/lib/core/target/wasm-gc/release/bundle/core.core ./target/wasm-gc/debug/test/lib/lib.internal_test.core -main username/hello/lib -o ./target/wasm-gc/debug/test/lib/lib.internal_test.wasm -test-mode -pkg-sources username/hello/lib:./lib -pkg-sources moonbitlang/core:$MOON_HOME/lib/core -target wasm-gc -g
+        "#]],
+    );
+    check(
+        &get_stdout_with_args_and_replace_dir(&dir, ["check"]),
+        expect![[r#"
+            Finished. moon: ran 6 tasks, now up to date
+        "#]],
+    );
+    check(
+        &get_stdout_with_args_and_replace_dir(&dir, ["build"]),
+        expect![[r#"
+            Finished. moon: ran 5 tasks, now up to date
+        "#]],
+    );
+    check(
+        &get_stdout_with_args_and_replace_dir(&dir, ["test"]),
+        expect![[r#"
+            Total tests: 1, passed: 1, failed: 0.
+        "#]],
+    );
+    check(
+        &get_stdout_with_args_and_replace_dir(&dir, ["run", "./anyhow/main"]),
+        expect![[r#"
+            Hello, world!
+            hello
+            world
+        "#]],
+    );
+}
+
+#[test]
+fn test_specify_source_dir_with_deps_002() {
+    let dir = TestDir::new("specify_source_dir_with_deps_002.in");
+    check(
+        &get_stdout_with_args_and_replace_dir(&dir, ["check"]),
+        expect![[r#"
+            Finished. moon: ran 13 tasks, now up to date
+        "#]],
+    );
+    check(
+        &get_stdout_with_args_and_replace_dir(&dir, ["build"]),
+        expect![[r#"
+            Finished. moon: ran 10 tasks, now up to date
+        "#]],
+    );
+    check(
+        &get_stdout_with_args_and_replace_dir(&dir, ["test"]),
+        expect![""],
+    );
+    check(
+        &get_stdout_with_args_and_replace_dir(&dir, ["run", "./anyhow"]),
+        expect![[r#"
+            a!b!c!d!
+            one!two!three!four!
+        "#]],
+    );
+}
