@@ -25,7 +25,7 @@ fn typing_tests(
   x : Map[
     String,
     @moonbitlang/core/builtin.Array[
-      (() -> Unit!String, @moonbitlang/core/builtin.Array[String]),
+      (() -> Unit!Error, @moonbitlang/core/builtin.Array[String]),
     ],
   ]
 ) -> Unit {
@@ -86,16 +86,15 @@ fn main {
         let name = if name.length() == 0 { i.to_string() } else { name }
         try {
           if startswith_panic(name) {
-            check_panic!(f, fn() { () }, fn() { raise "panic is expected" })
+            check_panic!(f, fn() { () }, fn() { fail!("panic is expected") })
           } else {
             f!()
           }
           succ_idx -= 1
           test_names[succ_idx] = name
         } catch {
-          e => {
+          _ => {
             test_names[fail_idx] = name
-            messages[fail_idx] = e
             fail_idx += 1
           }
         }
