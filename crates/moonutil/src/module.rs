@@ -322,6 +322,7 @@ pub struct MoonMod {
 }
 
 #[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
 pub struct MoonModJSON {
     pub name: String,
 
