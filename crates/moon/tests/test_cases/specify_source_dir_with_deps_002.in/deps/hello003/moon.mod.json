@@ -1,0 +1,15 @@
+{
+  "name": "just/hello003",
+  "version": "0.1.0",
+  "readme": "README.md",
+  "repository": "",
+  "license": "",
+  "keywords": ["mooncakes-test"],
+  "description": "",
+  "root-dir": "source003",
+  "deps": {
+    "just/hello002": {
+        "path": "../hello002"
+    }
+  }
+}
