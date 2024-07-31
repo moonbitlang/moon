@@ -286,8 +286,14 @@ pub fn run_test(
     module: &ModuleDB,
 ) -> anyhow::Result<TestResult, TestFailedStatus> {
     let target_dir = &moonbuild_opt.target_dir;
-    let (state, mut runnable_artifacts) =
-        crate::runtest::load_moon_proj(module, moonc_opt, moonbuild_opt)?;
+    let state = crate::runtest::load_moon_proj(module, moonc_opt, moonbuild_opt)?;
+
+    let mut runnable_artifacts: Vec<String> = state
+        .default
+        .iter()
+        .map(|fid| state.graph.file(*fid).name.clone())
+        .collect();
+
     let result = n2_run_interface(state, moonbuild_opt)?;
     render_result(result, moonbuild_opt.quiet, "testing")?;
 
