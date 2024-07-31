@@ -25,7 +25,7 @@ use moonutil::mooncakes::RegistryConfig;
 use notify::event::{DataChange, ModifyKind};
 use notify::{Config, EventKind, RecommendedWatcher, RecursiveMode, Watcher};
 
-use moonutil::common::{MoonbuildOpt, MooncOpt, MOON_MOD_JSON, MOON_PKG_JSON};
+use moonutil::common::{MoonbuildOpt, MooncOpt, MOON_MOD_JSON, MOON_PKG_JSON, WATCH_MODE_DIR};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
@@ -68,12 +68,18 @@ pub fn watch_single_thread(
                         EventKind::Other if exit_flag.load(Ordering::SeqCst) => {
                             break;
                         }
-                        // when a file was modified, mutiple events may be received, we only care about data content changed event
+                        // when a file was modified, multiple events may be received, we only care about data content changed event
                         EventKind::Modify(ModifyKind::Data(DataChange::Content)) => {
+                            let origin_target_dir = target_dir
+                                .ancestors()
+                                .find(|p| p.ends_with(WATCH_MODE_DIR))
+                                .unwrap()
+                                .parent()
+                                .unwrap();
                             if event.paths.iter().all(|p| {
                                 p.starts_with(
-                                    // can't be `target_dir` since the real target dir for watch_mode is `target_dir/watch_mode`
-                                    source_dir.join("target"),
+                                    // can't be `target_dir` since the real target dir for watch mode is `target_dir/watch`
+                                    origin_target_dir,
                                 )
                             }) {
                                 continue;

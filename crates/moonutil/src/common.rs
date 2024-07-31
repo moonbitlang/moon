@@ -38,6 +38,8 @@ pub const MOON_COVERAGE_DELIMITER_END: &str = "----- END MOONBIT COVERAGE -----"
 
 pub const MOON_LOCK: &str = ".moon-lock";
 
+pub const WATCH_MODE_DIR: &str = "watch";
+
 pub fn startswith_and_trim(s: &str, t: &str) -> String {
     if s.starts_with(t) {
         s.replacen(t, "", 1)

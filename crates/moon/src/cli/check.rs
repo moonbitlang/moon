@@ -27,6 +27,7 @@ use moonutil::common::lower_surface_targets;
 use moonutil::common::FileLock;
 use moonutil::common::MoonbuildOpt;
 use moonutil::common::RunMode;
+use moonutil::common::WATCH_MODE_DIR;
 use moonutil::dirs::mk_arch_mode_dir;
 use moonutil::dirs::PackageDirs;
 use moonutil::mooncakes::sync::AutoSyncFlags;
@@ -64,7 +65,7 @@ pub fn run_check(cli: &UniversalFlags, cmd: &CheckSubcommand) -> anyhow::Result<
 
     // make a dedicated directory for the watch mode so that we don't block(MOON_LOCK) the normal no-watch mode
     if cmd.watch {
-        target_dir = target_dir.join("watch_mode");
+        target_dir = target_dir.join(WATCH_MODE_DIR);
         std::fs::create_dir_all(&target_dir).context(format!(
             "Failed to create target directory: '{}'",
             target_dir.display()
