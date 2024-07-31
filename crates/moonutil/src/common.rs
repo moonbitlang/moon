@@ -16,14 +16,21 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
+pub use crate::dirs::check_moon_mod_exists;
+use crate::module::{MoonMod, MoonModJSON};
+use crate::package::{convert_pkg_json_to_package, MoonPkg, MoonPkgJSON};
 use anyhow::{bail, Context};
+use clap::ValueEnum;
 use colored::Colorize;
 use fs4::FileExt;
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 use std::fs;
+use std::fs::File;
 use std::io::ErrorKind;
+use std::io::{BufReader, BufWriter};
 use std::path::{Path, PathBuf};
+use std::str::FromStr;
 
 pub const MOON_MOD_JSON: &str = "moon.mod.json";
 pub const MOON_PKG_JSON: &str = "moon.pkg.json";
@@ -48,12 +55,67 @@ pub fn startswith_and_trim(s: &str, t: &str) -> String {
     }
 }
 
-pub fn read_module_from_json(path: &Path) -> anyhow::Result<MoonMod> {
-    let file = File::open(path)?;
+#[derive(Debug, thiserror::Error)]
+pub enum RootDirError {
+    #[error("root-dir should not be empty")]
+    EmptyString,
+    #[error("root-dir should not contain invalid chars `{0:?}`")]
+    ContainInvalidChars(Vec<char>),
+}
+
+fn is_valid_folder_name(folder_name: &str) -> Result<(), RootDirError> {
+    if folder_name.is_empty() {
+        return Err(RootDirError::EmptyString);
+    }
+
+    let invalid_chars = ['<', '>', ':', '"', '/', '\\', '|', '?', '*'];
+    let invalid: Vec<char> = folder_name
+        .chars()
+        .filter(|c| invalid_chars.contains(c))
+        .collect();
+    if !invalid.is_empty() {
+        return Err(RootDirError::ContainInvalidChars(invalid));
+    }
+    Ok(())
+}
+
+#[derive(Debug, thiserror::Error)]
+#[error("failed to load `{}`", path.display())]
+pub struct MoonModJSONFormatError {
+    path: Box<Path>,
+    #[source]
+    kind: MoonModJSONFormatErrorKind,
+}
+
+#[derive(Debug, thiserror::Error)]
+pub enum MoonModJSONFormatErrorKind {
+    #[error("I/O error")]
+    IO(#[from] std::io::Error),
+    #[error("Parse error")]
+    Parse(#[from] serde_json_lenient::Error),
+    #[error("root-dir bad format")]
+    RootDir(#[from] RootDirError),
+}
+
+pub fn read_module_from_json(path: &Path) -> Result<MoonMod, MoonModJSONFormatError> {
+    let file = File::open(path).map_err(|e| MoonModJSONFormatError {
+        path: path.into(),
+        kind: MoonModJSONFormatErrorKind::IO(e),
+    })?;
     let reader = BufReader::new(file);
-    let j =
-        serde_json_lenient::from_reader(reader).context(format!("Failed to parse {:?}", path))?;
-    convert_mod_json_to_module(j)
+    let j: MoonModJSON =
+        serde_json_lenient::from_reader(reader).map_err(|e| MoonModJSONFormatError {
+            path: path.into(),
+            kind: MoonModJSONFormatErrorKind::Parse(e),
+        })?;
+
+    if let Some(src) = &j.root_dir {
+        is_valid_folder_name(src).map_err(|e| MoonModJSONFormatError {
+            path: path.into(),
+            kind: MoonModJSONFormatErrorKind::RootDir(e),
+        })?;
+    }
+    Ok(j.into())
 }
 
 fn read_package_from_json(path: &Path) -> anyhow::Result<MoonPkg> {
@@ -79,15 +141,11 @@ pub fn write_package_json_to_file(pkg: &MoonPkgJSON, path: &Path) -> anyhow::Res
     Ok(())
 }
 
-use std::fs::File;
-use std::io::{BufReader, BufWriter};
-use std::str::FromStr;
-
 pub fn read_module_desc_file_in_dir(dir: &Path) -> anyhow::Result<MoonMod> {
     if !dir.join(MOON_MOD_JSON).exists() {
         bail!("`{:?}` does not exist", dir.join(MOON_MOD_JSON));
     }
-    read_module_from_json(&dir.join(MOON_MOD_JSON))
+    Ok(read_module_from_json(&dir.join(MOON_MOD_JSON))?)
 }
 
 pub fn read_package_desc_file_in_dir(dir: &Path) -> anyhow::Result<MoonPkg> {
@@ -97,12 +155,6 @@ pub fn read_package_desc_file_in_dir(dir: &Path) -> anyhow::Result<MoonPkg> {
     read_package_from_json(&dir.join(MOON_PKG_JSON))
         .context(format!("Failed to load {:?}", dir.join(MOON_PKG_JSON)))
 }
-
-use clap::ValueEnum;
-
-pub use crate::dirs::check_moon_mod_exists;
-use crate::module::{convert_mod_json_to_module, MoonMod, MoonModJSON};
-use crate::package::{convert_pkg_json_to_package, MoonPkg, MoonPkgJSON};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, ValueEnum)]
 #[repr(u8)]

@@ -153,6 +153,7 @@ fn common(target_dir: &Path, cake_full_name: &str, license: Option<&str>) -> any
             compile_flags: None,
             link_flags: None,
             checksum: None,
+            root_dir: None,
             ext: Default::default(),
         };
         moonutil::common::write_module_json_to_file(&m, target_dir)

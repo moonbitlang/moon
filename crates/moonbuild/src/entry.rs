@@ -17,6 +17,7 @@
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
 use moonutil::module::ModuleDB;
+use moonutil::path::PathComponent;
 use n2::progress::{DumbConsoleProgress, FancyConsoleProgress, Progress};
 use n2::terminal;
 use std::io::{BufRead, Write};
@@ -32,7 +33,7 @@ use colored::Colorize;
 
 use crate::check::normal::write_pkg_lst;
 
-use moonutil::common::{is_slash, MoonbuildOpt, MooncOpt, TargetBackend};
+use moonutil::common::{MoonbuildOpt, MooncOpt, TargetBackend};
 
 use std::sync::{Arc, Mutex};
 
@@ -197,15 +198,32 @@ pub fn run_run(
 ) -> anyhow::Result<i32> {
     run_build(moonc_opt, moonbuild_opt, module)?;
     let (source_dir, target_dir) = (&moonbuild_opt.source_dir, &moonbuild_opt.target_dir);
-    let package_path = package_path
-        .trim_start_matches("./")
-        .trim_start_matches(".\\")
-        .trim_end_matches(is_slash);
+
+    let moon_mod = moonutil::common::read_module_desc_file_in_dir(source_dir)?;
+    let package_path = {
+        let root = if let Some(src) = &moon_mod.root_dir {
+            dunce::canonicalize(moonbuild_opt.source_dir.join(src))
+                .with_context(|| format!("cannot find root dir `{}`", src))?
+        } else {
+            dunce::canonicalize(&moonbuild_opt.source_dir).with_context(|| {
+                format!(
+                    "cannot find root dir `{}`",
+                    moonbuild_opt.source_dir.display()
+                )
+            })?
+        };
+
+        let p = dunce::canonicalize(moonbuild_opt.source_dir.join(package_path))
+            .with_context(|| format!("cannot find package dir `{}`", package_path))?;
+
+        let rel = p.strip_prefix(&root)?;
+        let path_comp = PathComponent::from_path(rel)?;
+        path_comp.components.join("/")
+    };
 
     let (package_path, last_name): (PathBuf, String) =
         if package_path.is_empty() || package_path == "." {
-            let module = moonutil::common::read_module_desc_file_in_dir(source_dir)?;
-            let p = std::path::PathBuf::from(module.name);
+            let p = std::path::PathBuf::from(moon_mod.name);
             (
                 PathBuf::from("./"),
                 p.file_name().unwrap().to_str().unwrap().into(),

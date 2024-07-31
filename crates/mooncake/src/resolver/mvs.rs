@@ -475,6 +475,7 @@ mod test {
                 compile_flags: None,
                 link_flags: None,
                 checksum: None,
+                root_dir: None,
                 ext: Null,
             }
         "#]]
