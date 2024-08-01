@@ -18,6 +18,7 @@
 
 use std::{
     collections::HashMap,
+    fmt::Display,
     fs::File,
     io::BufReader,
     path::{Path, PathBuf},
@@ -89,14 +90,42 @@ impl FromStr for ModuleName {
     }
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub struct GitSource {
+    url: String,
+    branch: Option<String>,
+    revision: Option<String>,
+}
+
+impl Display for GitSource {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.url)?;
+        if self.branch.is_some() || self.revision.is_some() {
+            write!(f, " (")?;
+            let mut first = true;
+            if let Some(branch) = &self.branch {
+                write!(f, "branch: {}", branch)?;
+                first = false;
+            }
+            if let Some(revision) = &self.revision {
+                if !first {
+                    write!(f, ", ")?;
+                }
+                write!(f, "revision: {}", revision)?;
+            }
+            write!(f, ")")?;
+        }
+        Ok(())
+    }
+}
+
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum ModuleSourceKind {
     /// Module comes from some registry. If param is `None`, it comes from the default
     /// registry. Otherwise it comes from a specific registry (unused for now).
     Registry(Option<String>), // Registry ID?
     /// Module comes from a git repository.
-    // TODO: add branch/commit
-    Git(String),
+    Git(GitSource),
     /// Module comes from a local path. The path must be absolute.
     Local(PathBuf),
 }
@@ -167,11 +196,11 @@ impl ModuleSource {
         })
     }
 
-    pub fn git(name: ModuleName, url: String, version: Version) -> Self {
+    pub fn git(name: ModuleName, details: GitSource, version: Version) -> Self {
         ModuleSource {
             name,
             version,
-            source: ModuleSourceKind::Git(url),
+            source: ModuleSourceKind::Git(details),
         }
     }
 }
