@@ -1253,6 +1253,7 @@ dependencies = [
  "clap",
  "colored",
  "dialoguer",
+ "dunce",
  "expect-test",
  "form_urlencoded",
  "indexmap",

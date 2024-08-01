@@ -351,9 +351,8 @@ fn resolve_pkg(
                 root.display()
             );
             let dep_path = root.join(path);
-            let dep_path = dep_path
-                .canonicalize()
-                .map_err(|err| ResolverError::Other(err.into()))?;
+            let dep_path =
+                dunce::canonicalize(dep_path).map_err(|err| ResolverError::Other(err.into()))?;
             let res = env.resolve_local_module(&dep_path)?;
             let ms = ModuleSource {
                 name: pkg_name.clone(),
