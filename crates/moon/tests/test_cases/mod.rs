@@ -5193,3 +5193,19 @@ fn test_moon_run_single_mbt_file_inside_a_pkg() {
         "#]],
     );
 }
+
+#[test]
+fn moon_test_parallelize_should_success() {
+    let dir = TestDir::new("test_filter_pkg_with_test_imports.in");
+
+    let output = get_stdout_with_args_and_replace_dir(&dir, ["test"]);
+    assert!(output.contains("Total tests: 14, passed: 14, failed: 0."));
+
+    let dir = TestDir::new("test_filter.in");
+
+    let output = get_err_stdout_with_args_and_replace_dir(&dir, ["test"]);
+    assert!(output.contains("Total tests: 13, passed: 11, failed: 2."));
+
+    let output = get_stdout_with_args_and_replace_dir(&dir, ["test", "-u"]);
+    assert!(output.contains("Total tests: 13, passed: 13, failed: 0."));
+}
