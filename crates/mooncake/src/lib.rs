@@ -16,6 +16,8 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
+#![warn(clippy::clone_on_ref_ptr)]
+
 pub mod dep_dir;
 pub mod pkg;
 pub mod registry;
