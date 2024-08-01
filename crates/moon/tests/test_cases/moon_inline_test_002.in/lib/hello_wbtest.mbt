@@ -1,5 +1,5 @@
 test {
   if hello() != "Hello, world!" {
-    raise "some error messages"
+    fail!("some error messages")
   }
 }

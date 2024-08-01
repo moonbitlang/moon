@@ -86,15 +86,21 @@ fn main {
         let name = if name.length() == 0 { i.to_string() } else { name }
         try {
           if startswith_panic(name) {
-            check_panic!(f, fn() { () }, fn() { fail!("panic is expected") })
+            check_panic!(f, fn() { () }, fn() { raise Failure("panic is expected") })
           } else {
             f!()
           }
           succ_idx -= 1
           test_names[succ_idx] = name
         } catch {
+          Failure(e) | InspectError(e) => {
+            test_names[fail_idx] = name
+            messages[fail_idx] = e
+            fail_idx += 1
+          }
           _ => {
             test_names[fail_idx] = name
+            messages[fail_idx] = "unexpected error"
             fail_idx += 1
           }
         }
