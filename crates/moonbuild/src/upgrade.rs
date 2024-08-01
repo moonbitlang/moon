@@ -196,8 +196,8 @@ pub fn do_upgrade(root: &'static str) -> Result<i32> {
         }
 
         let download_futures = urls.iter().map(|url| {
-            let progress_map = progress_map.clone();
-            let term = term.clone();
+            let progress_map = Arc::clone(&progress_map);
+            let term = Arc::clone(&term);
             async move {
                 let filename = url.split('/').last().unwrap();
                 let filepath = temp_dir_path.join(filename);

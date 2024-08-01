@@ -47,7 +47,7 @@ pub fn remove(
     let m = Rc::new(m);
     let ms = ModuleSource::from_local_module(&m, source_dir).expect("Malformed module manifest");
     let registry = crate::registry::RegistryList::with_default_registry();
-    let res = resolve_single_root_with_defaults(&registry, ms, m.clone())?;
+    let res = resolve_single_root_with_defaults(&registry, ms, Rc::clone(&m))?;
 
     let dep_dir = crate::dep_dir::DepDir::of_source(source_dir);
     crate::dep_dir::sync_deps(&dep_dir, &registry, &res, false)?;

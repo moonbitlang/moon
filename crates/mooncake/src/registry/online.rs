@@ -64,7 +64,7 @@ impl super::Registry for OnlineRegistry {
     ) -> anyhow::Result<Rc<BTreeMap<Version, Rc<MoonMod>>>> {
         // check cache
         if let Some(v) = self.cache.borrow().get(name) {
-            return Ok(v.clone());
+            return Ok(Rc::clone(v));
         }
 
         let index_file = self.index_file_of(name);
@@ -91,7 +91,9 @@ impl super::Registry for OnlineRegistry {
 
         // put in cache
         let res = Rc::new(res);
-        self.cache.borrow_mut().insert(name.clone(), res.clone());
+        self.cache
+            .borrow_mut()
+            .insert(name.clone(), Rc::clone(&res));
 
         Ok(res)
     }

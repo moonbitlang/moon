@@ -45,7 +45,7 @@ pub fn watch_single_thread(
 
     let exit_flag = Arc::new(AtomicBool::new(false));
     {
-        let r = exit_flag.clone();
+        let r = Arc::clone(&exit_flag);
         ctrlc::set_handler(move || {
             let exit_signal = notify::Event::new(notify::EventKind::Other);
             r.store(true, Ordering::SeqCst);
@@ -56,7 +56,7 @@ pub fn watch_single_thread(
 
     {
         // main thread
-        let exit_flag = exit_flag.clone();
+        let exit_flag = Arc::clone(&exit_flag);
         watcher.watch(source_dir, RecursiveMode::Recursive)?;
 
         // in watch mode, moon is a long-running process that should handle errors as much as possible rather than throwing them up and then exiting.
