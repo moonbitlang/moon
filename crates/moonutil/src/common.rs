@@ -289,6 +289,7 @@ pub struct MoonbuildOpt {
     pub verbose: bool,
     pub quiet: bool,
     pub output_json: bool,
+    pub no_parallelize: bool,
 }
 
 #[derive(Debug, Clone, Default)]

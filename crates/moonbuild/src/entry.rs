@@ -430,7 +430,15 @@ pub fn run_test(
         }
     }
 
-    runtime.block_on(futures::future::join_all(handlers));
+    if moonbuild_opt.no_parallelize {
+        runtime.block_on(async {
+            for handler in handlers {
+                handler.await;
+            }
+        });
+    } else {
+        runtime.block_on(futures::future::join_all(handlers));
+    }
 
     let test_result = TestResult {
         passed: passed.load(Ordering::SeqCst),

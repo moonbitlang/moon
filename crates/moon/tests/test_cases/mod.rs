@@ -909,7 +909,7 @@ fn test_moon_test() {
 
     let out = snapbox::cmd::Command::new(moon_bin())
         .current_dir(&dir)
-        .args(["test", "--sort-input"])
+        .args(["test", "--sort-input", "--no-parallelize"])
         .assert()
         .failure()
         .get_output()
@@ -933,7 +933,16 @@ fn test_moon_test_filter_package() {
     let dir = TestDir::new("test_filter.in");
 
     check(
-        &get_stdout_with_args(&dir, ["test", "-p", "username/hello/A", "--sort-input"]),
+        &get_stdout_with_args(
+            &dir,
+            [
+                "test",
+                "-p",
+                "username/hello/A",
+                "--sort-input",
+                "--no-parallelize",
+            ],
+        ),
         expect![[r#"
             test A
             test B
@@ -947,7 +956,16 @@ fn test_moon_test_filter_package() {
     );
 
     check(
-        &get_stdout_with_args(&dir, ["test", "-p", "username/hello/lib", "--sort-input"]),
+        &get_stdout_with_args(
+            &dir,
+            [
+                "test",
+                "-p",
+                "username/hello/lib",
+                "--sort-input",
+                "--no-parallelize",
+            ],
+        ),
         expect![[r#"
             test A
             test hello_0
@@ -971,6 +989,7 @@ fn test_moon_test_filter_multi_package() {
                 "username/hello/lib1",
                 "username/hello/lib2",
                 "--sort-input",
+                "--no-parallelize",
             ],
         ),
         expect![[r#"
@@ -998,6 +1017,7 @@ fn test_moon_test_filter_multi_package() {
                 "-p",
                 "username/hello/lib3",
                 "--sort-input",
+                "--no-parallelize",
             ],
         ),
         expect![[r#"
@@ -1031,6 +1051,7 @@ fn test_moon_test_filter_multi_package() {
                 "-p",
                 "username/hello/lib3",
                 "--sort-input",
+                "--no-parallelize",
             ],
         ),
         expect![[r#"
@@ -1064,6 +1085,7 @@ fn test_moon_test_filter_multi_package() {
                 "-i",
                 "0",
                 "--sort-input",
+                "--no-parallelize",
             ],
         ),
         expect![[r#"
@@ -1085,7 +1107,10 @@ fn test_moon_test_filter_package_with_deps() {
     let dir = TestDir::new("test_filter_pkg_with_deps.in");
 
     check(
-        &get_stdout_with_args(&dir, ["test", "-p", "username/hello/lib"]),
+        &get_stdout_with_args(
+            &dir,
+            ["test", "-p", "username/hello/lib", "--no-parallelize"],
+        ),
         expect![[r#"
             Hello from lib1
             Hello from lib2
@@ -1100,7 +1125,10 @@ fn test_moon_test_filter_package_with_deps() {
     );
 
     check(
-        &get_stdout_with_args(&dir, ["test", "-p", "username/hello/lib2"]),
+        &get_stdout_with_args(
+            &dir,
+            ["test", "-p", "username/hello/lib2", "--no-parallelize"],
+        ),
         expect![[r#"
             Hello from lib2
             Hello from lib4
@@ -1110,7 +1138,10 @@ fn test_moon_test_filter_package_with_deps() {
     );
 
     check(
-        &get_stdout_with_args(&dir, ["test", "-p", "username/hello/lib4"]),
+        &get_stdout_with_args(
+            &dir,
+            ["test", "-p", "username/hello/lib4", "--no-parallelize"],
+        ),
         expect![[r#"
             Hello from lib4
             Total tests: 1, passed: 1, failed: 0.
@@ -1123,7 +1154,10 @@ fn test_moon_test_filter_package_with_test_imports() {
     let dir = TestDir::new("test_filter_pkg_with_test_imports.in");
 
     check(
-        &get_stdout_with_args(&dir, ["test", "-p", "username/hello/lib"]),
+        &get_stdout_with_args(
+            &dir,
+            ["test", "-p", "username/hello/lib", "--no-parallelize"],
+        ),
         expect![[r#"
             Hello from lib1
 
@@ -1135,7 +1169,10 @@ fn test_moon_test_filter_package_with_test_imports() {
     );
 
     check(
-        &get_stdout_with_args(&dir, ["test", "-p", "username/hello/lib1"]),
+        &get_stdout_with_args(
+            &dir,
+            ["test", "-p", "username/hello/lib1", "--no-parallelize"],
+        ),
         expect![[r#"
             Hello from lib3
 
@@ -1144,7 +1181,10 @@ fn test_moon_test_filter_package_with_test_imports() {
     );
 
     check(
-        &get_stdout_with_args(&dir, ["test", "-p", "username/hello/lib2"]),
+        &get_stdout_with_args(
+            &dir,
+            ["test", "-p", "username/hello/lib2", "--no-parallelize"],
+        ),
         expect![[r#"
             Hello from lib4
             Total tests: 1, passed: 1, failed: 0.
@@ -1152,7 +1192,10 @@ fn test_moon_test_filter_package_with_test_imports() {
     );
 
     check(
-        &get_stdout_with_args(&dir, ["test", "-p", "username/hello/lib3"]),
+        &get_stdout_with_args(
+            &dir,
+            ["test", "-p", "username/hello/lib3", "--no-parallelize"],
+        ),
         expect![[r#"
             Hello from lib3
 
@@ -1163,7 +1206,10 @@ fn test_moon_test_filter_package_with_test_imports() {
     );
 
     check(
-        &get_stdout_with_args(&dir, ["test", "-p", "username/hello/lib4"]),
+        &get_stdout_with_args(
+            &dir,
+            ["test", "-p", "username/hello/lib4", "--no-parallelize"],
+        ),
         expect![[r#"
             Hello from lib5
             Hello from lib5
@@ -1173,7 +1219,10 @@ fn test_moon_test_filter_package_with_test_imports() {
     );
 
     check(
-        &get_stdout_with_args(&dir, ["test", "-p", "username/hello/lib5"]),
+        &get_stdout_with_args(
+            &dir,
+            ["test", "-p", "username/hello/lib5", "--no-parallelize"],
+        ),
         expect![[r#"
             Hello from lib5
             Total tests: 1, passed: 1, failed: 0.
@@ -1181,7 +1230,10 @@ fn test_moon_test_filter_package_with_test_imports() {
     );
 
     check(
-        &get_stdout_with_args(&dir, ["test", "-p", "username/hello/lib6"]),
+        &get_stdout_with_args(
+            &dir,
+            ["test", "-p", "username/hello/lib6", "--no-parallelize"],
+        ),
         expect![[r#"
             Hello from lib6
             Total tests: 1, passed: 1, failed: 0.
@@ -1189,7 +1241,10 @@ fn test_moon_test_filter_package_with_test_imports() {
     );
 
     check(
-        &get_stdout_with_args(&dir, ["test", "-p", "username/hello/lib7"]),
+        &get_stdout_with_args(
+            &dir,
+            ["test", "-p", "username/hello/lib7", "--no-parallelize"],
+        ),
         expect![[r#"
             Hello from lib7
             Hello from lib6
@@ -1422,7 +1477,10 @@ fn test_moon_test_succ() {
     std::env::set_var("NO_COLOR", "1");
     let dir = TestDir::new("moon_test_succ.in");
     check(
-        &get_stdout_with_args_and_replace_dir(&dir, ["test", "-v", "--sort-input"]),
+        &get_stdout_with_args_and_replace_dir(
+            &dir,
+            ["test", "-v", "--sort-input", "--no-parallelize"],
+        ),
         expect![[r#"
             [1001] Warning: Warning: Unused function 'add1'
                ╭─[$ROOT/lib2/nested/lib.mbt:1:4]
@@ -1497,7 +1555,7 @@ fn test_moon_test_hello_exec_fntest() {
     );
 
     check(
-        &get_stdout_with_args(&dir, ["test", "-v", "--sort-input"]),
+        &get_stdout_with_args(&dir, ["test", "-v", "--sort-input", "--no-parallelize"]),
         expect![[r#"
             test in lib/hello.mbt
             test moonbitlang/hello/lib/hello.mbt::0 ok
@@ -1968,7 +2026,7 @@ fn test_moon_inline_test_004() {
 fn test_moon_inline_test_order() {
     let dir = TestDir::new("moon_inline_test_order.in");
     check(
-        &get_stdout_with_args(&dir, ["test", "-v", "--sort-input"]),
+        &get_stdout_with_args(&dir, ["test", "-v", "--sort-input", "--no-parallelize"]),
         expect![[r#"
             executing A
             executing A::hello.mbt::test_A
@@ -3228,7 +3286,10 @@ fn test_moon_test_release() {
     );
 
     check(
-        &get_stdout_with_args_and_replace_dir(&dir, ["test", "--release", "--sort-input"]),
+        &get_stdout_with_args_and_replace_dir(
+            &dir,
+            ["test", "--release", "--sort-input", "--no-parallelize"],
+        ),
         expect![[r#"
             test A
             test hello_0

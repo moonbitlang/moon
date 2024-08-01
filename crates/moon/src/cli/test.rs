@@ -78,6 +78,9 @@ pub struct TestSubcommand {
 
     #[clap(flatten)]
     pub auto_sync_flags: AutoSyncFlags,
+
+    #[clap(long)]
+    pub no_parallelize: bool,
 }
 
 pub fn run_test(cli: UniversalFlags, cmd: TestSubcommand) -> anyhow::Result<i32> {
@@ -184,6 +187,7 @@ fn run_test_internal(
         run_mode,
         quiet: true,
         verbose: cli.verbose,
+        no_parallelize: cmd.no_parallelize,
         ..Default::default()
     };
 
