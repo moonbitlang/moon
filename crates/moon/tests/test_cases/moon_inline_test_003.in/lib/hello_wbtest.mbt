@@ -1,3 +1,3 @@
 test {
-  raise "some msg"
+  fail!("some msg")
 }
