@@ -27,8 +27,8 @@ use moonutil::common::{
 use moonutil::module::ModuleDB;
 use n2::load::State;
 use serde::{Deserialize, Serialize};
-use std::process::Command;
 use std::{path::Path, process::Stdio};
+use tokio::io::AsyncReadExt;
 
 pub fn load_moon_proj(
     module: &ModuleDB,
@@ -49,23 +49,23 @@ pub struct TestStatistics {
     pub test_names: Vec<String>,
 }
 
-pub fn run_wat(path: &Path, target_dir: &Path) -> anyhow::Result<TestStatistics> {
-    run("moonrun", path, target_dir)
+pub async fn run_wat(path: &Path, target_dir: &Path) -> anyhow::Result<TestStatistics> {
+    run("moonrun", path, target_dir).await
 }
 
-pub fn run_js(path: &Path, target_dir: &Path) -> anyhow::Result<TestStatistics> {
-    run("node", path, target_dir)
+pub async fn run_js(path: &Path, target_dir: &Path) -> anyhow::Result<TestStatistics> {
+    run("node", path, target_dir).await
 }
 
-fn run(command: &str, path: &Path, target_dir: &Path) -> anyhow::Result<TestStatistics> {
-    let mut execution = Command::new(command)
+async fn run(command: &str, path: &Path, target_dir: &Path) -> anyhow::Result<TestStatistics> {
+    let mut execution = tokio::process::Command::new(command)
         .arg(path)
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::inherit())
         .spawn()
         .with_context(|| format!("failed to execute '{} {}'", command, path.display()))?;
-    let stdout = execution.stdout.take().unwrap();
+    let mut stdout = execution.stdout.take().unwrap();
 
     let mut test_capture =
         SectionCapture::new(MOON_TEST_DELIMITER_BEGIN, MOON_TEST_DELIMITER_END, false);
@@ -75,12 +75,18 @@ fn run(command: &str, path: &Path, target_dir: &Path) -> anyhow::Result<TestStat
         true,
     );
 
+    let mut buffer = Vec::new();
+    stdout.read_to_end(&mut buffer).await.context(format!(
+        "failed to read stdout for {} {}",
+        command,
+        path.display()
+    ))?;
     handle_stdout(
-        &mut std::io::BufReader::new(stdout),
+        &mut std::io::BufReader::new(buffer.as_slice()),
         &mut [&mut test_capture, &mut coverage_capture],
         |line| print!("{}", line),
     )?;
-    let output = execution.wait()?;
+    let output = execution.wait().await?;
 
     if output.success() {
         if let Some(coverage_output) = coverage_capture.finish() {

@@ -22,6 +22,7 @@ use n2::terminal;
 use std::io::{BufRead, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
+use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use thiserror::Error;
 
 use n2::{trace, work};
@@ -252,6 +253,12 @@ pub enum TestFailedStatus {
     Others(#[from] anyhow::Error),
 }
 
+impl From<std::io::Error> for TestFailedStatus {
+    fn from(err: std::io::Error) -> Self {
+        TestFailedStatus::Others(anyhow::Error::from(err))
+    }
+}
+
 impl From<TestFailedStatus> for i32 {
     fn from(value: TestFailedStatus) -> Self {
         match value {
@@ -321,101 +328,132 @@ pub fn run_test(
         }
     }
 
-    let mut passed = 0;
-    let mut failed = 0;
-    let mut runtime_error = false;
-    let mut expect_failed = false;
-    let mut apply_expect_failed = false;
+    let passed = Arc::new(AtomicU32::new(0));
+    let failed = Arc::new(AtomicU32::new(0));
+    let runtime_error = Arc::new(AtomicBool::new(false));
+    let expect_failed = Arc::new(AtomicBool::new(false));
+    let apply_expect_failed = Arc::new(AtomicBool::new(false));
+
+    let runtime = tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .build()?;
+
+    let mut handlers = vec![];
 
     for runnable_artifact in runnable_artifacts.iter() {
         let p = Path::new(runnable_artifact);
 
+        let passed = passed.clone();
+        let failed = failed.clone();
+        let runtime_error = runtime_error.clone();
+        let expect_failed = expect_failed.clone();
+        let apply_expect_failed = apply_expect_failed.clone();
+
         match p.extension() {
             Some(name) if name == moonc_opt.link_opt.output_format.to_str() => {
-                let result = trace::scope("test", || {
-                    if moonc_opt.link_opt.target_backend == TargetBackend::Wasm
-                        || moonc_opt.link_opt.target_backend == TargetBackend::WasmGC
-                    {
-                        crate::runtest::run_wat(p, target_dir)
+                handlers.push(async move {
+                    // todo: use tokio::time::timeout to limit the running time
+                    let result = trace::scope("test", || async {
+                        match moonc_opt.link_opt.target_backend {
+                            TargetBackend::Wasm | TargetBackend::WasmGC => {
+                                crate::runtest::run_wat(p, target_dir).await
+                            }
+                            TargetBackend::Js => crate::runtest::run_js(p, target_dir).await,
+                        }
+                    })
+                    .await;
+
+                    if result.is_err() {
+                        let e = result.err().unwrap();
+                        eprintln!("Error when running {}: {}", runnable_artifact, e);
+                        runtime_error.store(true, Ordering::SeqCst);
                     } else {
-                        crate::runtest::run_js(p, target_dir)
-                    }
-                });
-
-                if result.is_err() {
-                    let e = result.err().unwrap();
-                    eprintln!("Error when running {}: {}", runnable_artifact, e);
-                    runtime_error = true;
-                } else {
-                    let r = result.unwrap();
-                    if r.messages
-                        .iter()
-                        .any(|msg| msg.starts_with(super::expect::EXPECT_FAILED))
-                    {
-                        expect_failed = true;
-                    }
-                    if auto_update {
-                        if let Err(e) = crate::expect::apply_expect(&r.messages) {
-                            eprintln!("{}: {:?}", "failed".red().bold(), e);
-                            apply_expect_failed = true;
+                        let r = result.unwrap();
+                        if r.messages
+                            .iter()
+                            .any(|msg| msg.starts_with(super::expect::EXPECT_FAILED))
+                        {
+                            expect_failed.store(true, Ordering::SeqCst);
                         }
-                    }
-                    passed += r.passed;
-                    failed += r.test_names.len() as u32 - r.passed;
-                    if test_verbose_output {
-                        for i in 0..(r.passed as usize) {
-                            println!(
-                                "test {}/{}::{} {}",
-                                r.package,
-                                r.filenames[i],
-                                r.test_names[i],
-                                "ok".bold().green()
-                            )
+                        if auto_update {
+                            if let Err(e) = crate::expect::apply_expect(&r.messages) {
+                                eprintln!("{}: {:?}", "failed".red().bold(), e);
+                                apply_expect_failed.store(true, Ordering::SeqCst);
+                            }
                         }
-                    }
-
-                    for i in 0..(r.test_names.len() - r.passed as usize) {
-                        if r.messages[i].starts_with(super::expect::EXPECT_FAILED) {
-                            // if we failed at auto update mode, we don't show the below msg to user
-                            if !(auto_update && failed > 0 && !apply_expect_failed) {
+                        passed.fetch_add(r.passed, Ordering::SeqCst);
+                        failed.fetch_add(r.test_names.len() as u32 - r.passed, Ordering::SeqCst);
+                        if test_verbose_output {
+                            for i in 0..(r.passed as usize) {
                                 println!(
                                     "test {}/{}::{} {}",
                                     r.package,
                                     r.filenames[i],
                                     r.test_names[i],
-                                    "failed".bold().red(),
-                                );
-                                let _ = crate::expect::render_expect_fail(&r.messages[i]);
+                                    "ok".bold().green()
+                                )
                             }
-                        } else {
-                            println!(
-                                "test {}/{}::{} {}: {}",
-                                r.package,
-                                r.filenames[i],
-                                r.test_names[i],
-                                "failed".bold().red(),
-                                r.messages[i],
-                            );
+                        }
+
+                        for i in 0..(r.test_names.len() - r.passed as usize) {
+                            if r.messages[i].starts_with(super::expect::EXPECT_FAILED) {
+                                // if we failed at auto update mode, we don't show the below msg to user
+                                if !(auto_update
+                                    && failed.load(Ordering::SeqCst) > 0
+                                    && !apply_expect_failed.load(Ordering::SeqCst))
+                                {
+                                    println!(
+                                        "test {}/{}::{} {}",
+                                        r.package,
+                                        r.filenames[i],
+                                        r.test_names[i],
+                                        "failed".bold().red(),
+                                    );
+                                    let _ = crate::expect::render_expect_fail(&r.messages[i]);
+                                }
+                            } else {
+                                println!(
+                                    "test {}/{}::{} {}: {}",
+                                    r.package,
+                                    r.filenames[i],
+                                    r.test_names[i],
+                                    "failed".bold().red(),
+                                    r.messages[i],
+                                );
+                            }
                         }
                     }
-                }
+                });
             }
 
             _ => continue,
         }
     }
 
-    let test_result = TestResult { passed, failed };
+    if moonbuild_opt.no_parallelize {
+        runtime.block_on(async {
+            for handler in handlers {
+                handler.await;
+            }
+        });
+    } else {
+        runtime.block_on(futures::future::join_all(handlers));
+    }
 
-    if failed == 0 && !runtime_error {
+    let test_result = TestResult {
+        passed: passed.load(Ordering::SeqCst),
+        failed: failed.load(Ordering::SeqCst),
+    };
+
+    if failed.load(Ordering::SeqCst) == 0 && !runtime_error.load(Ordering::SeqCst) {
         Ok(test_result)
-    } else if apply_expect_failed {
+    } else if apply_expect_failed.load(Ordering::SeqCst) {
         Err(TestFailedStatus::ApplyExpectFailed(test_result))
-    } else if expect_failed {
+    } else if expect_failed.load(Ordering::SeqCst) {
         Err(TestFailedStatus::ExpectTestFailed(test_result))
-    } else if failed != 0 {
+    } else if failed.load(Ordering::SeqCst) != 0 {
         Err(TestFailedStatus::Failed(test_result))
-    } else if runtime_error {
+    } else if runtime_error.load(Ordering::SeqCst) {
         Err(TestFailedStatus::RuntimeError(test_result))
     } else {
         Err(TestFailedStatus::Others(anyhow!("unknown error")))
