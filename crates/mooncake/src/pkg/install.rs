@@ -44,7 +44,7 @@ pub(crate) fn install_impl(
     let m = Rc::new(m);
     let registry = crate::registry::RegistryList::with_default_registry();
     let ms = ModuleSource::from_local_module(&m, source_dir).expect("Malformed module manifest");
-    let res = resolve_single_root_with_defaults(&registry, ms, m.clone())?;
+    let res = resolve_single_root_with_defaults(&registry, ms, Rc::clone(&m))?;
     let dep_dir = crate::dep_dir::DepDir::of_source(source_dir);
     if !dont_sync {
         crate::dep_dir::sync_deps(&dep_dir, &registry, &res, quiet)

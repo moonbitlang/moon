@@ -89,7 +89,7 @@ fn select_min_version_satisfying_in_env(
     let min_version_satisfying = select_min_version_satisfying(name, req, all_versions.keys());
     match min_version_satisfying {
         Ok(version) => {
-            let module = all_versions[&version].clone();
+            let module = Rc::clone(&all_versions[&version]);
             Ok((version, module))
         }
         Err(err) => Err(err),
@@ -289,9 +289,9 @@ fn mvs_resolve(
     log::debug!("-- Inserting root modules");
     // Insert ID for root modules
     for (ms, module) in root {
-        let id = builder.add_module(ms.clone(), module.clone());
+        let id = builder.add_module(ms.clone(), Rc::clone(module));
         log::debug!("---- {} -> {:?}", ms, id);
-        working_list.push((module.clone(), ms.clone()));
+        working_list.push((Rc::clone(module), ms.clone()));
         visited.insert(ms, id);
     }
 
@@ -316,7 +316,7 @@ fn mvs_resolve(
                 *id
             } else {
                 let dep_module = env.get(resolved).unwrap();
-                let id = builder.add_module(resolved.clone(), dep_module.clone());
+                let id = builder.add_module(resolved.clone(), Rc::clone(&dep_module));
                 log::debug!("---- {} -> {:?}", resolved, id);
                 visited.insert(resolved, id);
                 working_list.push((dep_module, resolved.clone()));

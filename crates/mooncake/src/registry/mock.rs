@@ -92,12 +92,11 @@ impl MockRegistry {
     }
 
     pub fn try_get_module(&self, name: &str, version: &str) -> Option<Rc<MoonMod>> {
-        Some(
+        Some(Rc::clone(
             self.modules
                 .get(&name.parse().unwrap())?
-                .get(&Version::parse(version).unwrap())?
-                .clone(),
-        )
+                .get(&Version::parse(version).unwrap())?,
+        ))
     }
 
     /// Add a module to the mock registry. Only available when the mock registry

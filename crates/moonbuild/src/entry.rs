@@ -85,7 +85,7 @@ pub fn n2_run_interface(
     let logger = Arc::new(Mutex::new(vec![]));
     let use_fancy = terminal::use_fancy();
 
-    let catcher = logger.clone();
+    let catcher = Arc::clone(&logger);
     let output_json = moonbuild_opt.output_json;
     let render_and_catch = move |output: &str| {
         output
@@ -361,11 +361,11 @@ pub fn run_test(
     for runnable_artifact in runnable_artifacts.iter() {
         let p = Path::new(runnable_artifact);
 
-        let passed = passed.clone();
-        let failed = failed.clone();
-        let runtime_error = runtime_error.clone();
-        let expect_failed = expect_failed.clone();
-        let apply_expect_failed = apply_expect_failed.clone();
+        let passed = Arc::clone(&passed);
+        let failed = Arc::clone(&failed);
+        let runtime_error = Arc::clone(&runtime_error);
+        let expect_failed = Arc::clone(&expect_failed);
+        let apply_expect_failed = Arc::clone(&apply_expect_failed);
 
         match p.extension() {
             Some(name) if name == moonc_opt.link_opt.output_format.to_str() => {

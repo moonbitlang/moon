@@ -95,13 +95,13 @@ impl<'a> ResolverEnv<'a> {
     /// Resolve a local module from its **canonical** path.
     pub fn resolve_local_module(&mut self, path: &Path) -> Result<Rc<MoonMod>, ResolverError> {
         if let Some(module) = self.local_module_cache.get(path) {
-            return Ok(module.clone());
+            return Ok(Rc::clone(module));
         }
 
         let module = read_module_desc_file_in_dir(path).map_err(ResolverError::Other)?;
         let rc_module = Rc::new(module);
         self.local_module_cache
-            .insert(path.to_owned(), rc_module.clone());
+            .insert(path.to_owned(), Rc::clone(&rc_module));
         Ok(rc_module)
     }
 }

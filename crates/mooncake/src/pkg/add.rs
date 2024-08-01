@@ -107,7 +107,7 @@ pub fn add(
     let ms = ModuleSource::from_local_module(&m, source_dir).expect("Malformed module manifest");
     let registries = RegistryList::with_default_registry();
     let m = Rc::new(m);
-    let result = resolve_single_root_with_defaults(&registries, ms, m.clone())?;
+    let result = resolve_single_root_with_defaults(&registries, ms, Rc::clone(&m))?;
 
     let dep_dir = crate::dep_dir::DepDir::of_source(source_dir);
     crate::dep_dir::sync_deps(&dep_dir, &registries, &result, quiet)?;
