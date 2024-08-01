@@ -315,6 +315,7 @@ pub struct MoonMod {
     pub compile_flags: Option<Vec<String>>,
     pub link_flags: Option<Vec<String>>,
     pub checksum: Option<String>,
+    pub root_dir: Option<String>,
 
     /// Fields not covered by the info above, which should be left as-is.
     #[serde(flatten)]
@@ -356,32 +357,38 @@ pub struct MoonModJSON {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub checksum: Option<String>,
 
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub root_dir: Option<String>,
+
     /// Fields not covered by the info above, which should be left as-is.
     #[serde(flatten)]
     pub ext: serde_json_lenient::Value,
 }
 
-pub fn convert_mod_json_to_module(j: MoonModJSON) -> anyhow::Result<MoonMod> {
-    let deps = match j.deps {
-        None => IndexMap::new(),
-        Some(d) => d.into_iter().map(|(k, v)| (k, v.into())).collect(),
-    };
+impl From<MoonModJSON> for MoonMod {
+    fn from(j: MoonModJSON) -> Self {
+        let deps = match j.deps {
+            None => IndexMap::new(),
+            Some(d) => d.into_iter().map(|(k, v)| (k, v.into())).collect(),
+        };
 
-    Ok(MoonMod {
-        name: j.name,
-        version: j.version,
-        deps,
-        readme: j.readme,
-        repository: j.repository,
-        license: j.license,
-        keywords: j.keywords,
-        description: j.description,
+        MoonMod {
+            name: j.name,
+            version: j.version,
+            deps,
+            readme: j.readme,
+            repository: j.repository,
+            license: j.license,
+            keywords: j.keywords,
+            description: j.description,
 
-        compile_flags: j.compile_flags,
-        link_flags: j.link_flags,
-        checksum: j.checksum,
-        ext: j.ext,
-    })
+            compile_flags: j.compile_flags,
+            link_flags: j.link_flags,
+            checksum: j.checksum,
+            root_dir: j.root_dir,
+            ext: j.ext,
+        }
+    }
 }
 
 pub fn convert_module_to_mod_json(m: MoonMod) -> MoonModJSON {
@@ -398,15 +405,8 @@ pub fn convert_module_to_mod_json(m: MoonMod) -> MoonModJSON {
         compile_flags: m.compile_flags,
         link_flags: m.link_flags,
         checksum: m.checksum,
+        root_dir: m.root_dir,
         ext: m.ext,
-    }
-}
-
-impl TryFrom<MoonModJSON> for MoonMod {
-    type Error = anyhow::Error;
-
-    fn try_from(val: MoonModJSON) -> Result<Self, Self::Error> {
-        convert_mod_json_to_module(val)
     }
 }
 

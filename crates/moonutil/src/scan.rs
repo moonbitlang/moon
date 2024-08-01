@@ -142,11 +142,15 @@ fn scan_module_packages(
     let (module_source_dir, target_dir) = (&moonbuild_opt.source_dir, &moonbuild_opt.target_dir);
 
     let mod_desc = read_module_desc_file_in_dir(module_source_dir)?;
+    let module_source_dir = match &mod_desc.root_dir {
+        None => module_source_dir.to_path_buf(),
+        Some(p) => module_source_dir.join(p),
+    };
 
     let mut packages: IndexMap<String, Package> = IndexMap::new();
 
     // scan local packages
-    let mut walker = WalkDir::new(module_source_dir)
+    let mut walker = WalkDir::new(&module_source_dir)
         .into_iter()
         .filter_entry(|e| {
             !IGNORE_DIRS.contains(&e.file_name().to_str().unwrap()) && e.file_type().is_dir()
@@ -181,7 +185,7 @@ fn scan_module_packages(
             let cur_pkg = scan_one_package(
                 env,
                 path,
-                module_source_dir,
+                &module_source_dir,
                 &mod_desc,
                 moonbuild_opt,
                 moonc_opt,

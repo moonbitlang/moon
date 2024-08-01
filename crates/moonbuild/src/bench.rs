@@ -134,6 +134,7 @@ pub fn write(config: &Config, base_dir: &Path) {
         compile_flags: None,
         link_flags: None,
         checksum: None,
+        root_dir: None,
         ext: Default::default(),
     };
     moonutil::common::write_module_json_to_file(&module, base_dir).unwrap();

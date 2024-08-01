@@ -83,13 +83,7 @@ impl super::Registry for OnlineRegistry {
                     continue;
                 }
             };
-            let module: MoonMod = match module.try_into() {
-                Ok(m) => m,
-                Err(e) => {
-                    log::warn!("Error when reading index file of {}: {}", name, e);
-                    continue;
-                }
-            };
+            let module: MoonMod = module.into();
             if let Some(v) = &module.version {
                 res.insert(v.clone(), Rc::new(module));
             }
