@@ -24,16 +24,15 @@ use std::{
 
 use anyhow::Context;
 use moonutil::{
-    common::{read_module_desc_file_in_dir, MOON_MOD_JSON},
+    common::read_module_desc_file_in_dir,
     module::MoonMod,
     mooncakes::{GitSource, ModuleName, ModuleSource, ModuleSourceKind},
 };
 use semver::Version;
-use walkdir::WalkDir;
 
 use crate::registry::RegistryList;
 
-use super::ResolverError;
+use super::{git::recursively_scan_for_moon_mods, ResolverError};
 
 pub struct ResolverEnv<'a> {
     registries: &'a RegistryList,
@@ -148,16 +147,4 @@ impl<'a> ResolverEnv<'a> {
             .map(|(_, module)| module.clone())
             .ok_or_else(|| ResolverError::ModuleMissing(expected_name.clone()))
     }
-}
-
-fn recursively_scan_for_moon_mods(path: &Path) -> anyhow::Result<Vec<(PathBuf, Rc<MoonMod>)>> {
-    let mut mods = Vec::new();
-    for entry in WalkDir::new(path) {
-        let entry = entry?;
-        if entry.file_name() == MOON_MOD_JSON {
-            let module = read_module_desc_file_in_dir(entry.path())?;
-            mods.push((entry.path().to_owned(), Rc::new(module)));
-        }
-    }
-    Ok(mods)
 }
