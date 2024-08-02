@@ -145,23 +145,12 @@ pub fn upgrade() -> Result<i32> {
 pub fn do_upgrade(root: &'static str) -> Result<i32> {
     let rt = tokio::runtime::Runtime::new()?;
     rt.block_on(async {
-        #[cfg(unix)]
         let items = [
             "moon",
             "moonc",
             "moonfmt",
             "moonrun",
             "mooninfo",
-            "moondoc",
-            "moon_cove_report",
-            "mooncake",
-            "core.zip",];
-        #[cfg(windows)]
-        let items = [
-            "moon",
-            "moonc",
-            "moonfmt",
-            "moonrun",
             "moondoc",
             "moon_cove_report",
             "mooncake",
