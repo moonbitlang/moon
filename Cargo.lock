@@ -1197,6 +1197,7 @@ dependencies = [
  "expect-test",
  "futures",
  "home",
+ "indexmap",
  "log",
  "moonbuild",
  "mooncake",

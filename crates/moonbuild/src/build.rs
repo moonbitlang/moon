@@ -17,7 +17,7 @@
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
 use super::gen;
-use anyhow::{bail, Context};
+use anyhow::Context;
 use moonutil::common::MoonbuildOpt;
 use moonutil::module::ModuleDB;
 use n2::load::State;

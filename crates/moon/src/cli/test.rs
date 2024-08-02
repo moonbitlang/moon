@@ -18,6 +18,7 @@
 
 use anyhow::Context;
 use colored::Colorize;
+use indexmap::IndexMap;
 use moonbuild::dry_run;
 use moonbuild::entry;
 use moonbuild::entry::TestFailedStatus;
@@ -206,24 +207,33 @@ fn run_test_internal(
             }
         }
 
-        // test driver file will be generated via `moon generate-test-driver` command
-        let internal_generated_file = target_dir
-            .join(pkg.rel.fs_full_name())
-            .join("__generated_driver_for_internal_test.mbt");
-        pkg.generated_test_drivers
-            .push(GeneratedTestDriver::InternalTest(internal_generated_file));
+        if pkg.is_third_party {
+            continue;
+        }
 
-        let whitebox_generated_file = target_dir
-            .join(pkg.rel.fs_full_name())
-            .join("__generated_driver_for_whitebox_test.mbt");
-        pkg.generated_test_drivers
-            .push(GeneratedTestDriver::WhiteboxTest(whitebox_generated_file));
+        {
+            // test driver file will be generated via `moon generate-test-driver` command
+            let internal_generated_file = target_dir
+                .join(pkg.rel.fs_full_name())
+                .join("__generated_driver_for_internal_test.mbt");
+            pkg.generated_test_drivers
+                .push(GeneratedTestDriver::InternalTest(internal_generated_file));
 
-        let blackbox_generated_file = target_dir
-            .join(pkg.rel.fs_full_name())
-            .join("__generated_driver_for_blackbox_test.mbt");
-        pkg.generated_test_drivers
-            .push(GeneratedTestDriver::BlackboxTest(blackbox_generated_file));
+            let whitebox_generated_file = target_dir
+                .join(pkg.rel.fs_full_name())
+                .join("__generated_driver_for_whitebox_test.mbt");
+            pkg.generated_test_drivers
+                .push(GeneratedTestDriver::WhiteboxTest(whitebox_generated_file));
+
+            let blackbox_generated_file = target_dir
+                .join(pkg.rel.fs_full_name())
+                .join("__generated_driver_for_blackbox_test.mbt");
+            pkg.generated_test_drivers
+                .push(GeneratedTestDriver::BlackboxTest(blackbox_generated_file));
+        }
+
+        module.test_info.insert(pkgname.clone(), (vec![], IndexMap::new()));
+        let current_pkg_test_info = module.test_info.get_mut(pkgname).unwrap();
 
         for file in pkg
             .files
@@ -239,12 +249,14 @@ fn run_test_internal(
                 }
             }
 
+            let mut test_block_nums_in_current_file = 0;
             for line in content.lines() {
                 if line.starts_with("test ") {
                     pkg.files_contain_test_block.push(file.clone());
-                    break;
+                    test_block_nums_in_current_file += 1;
                 }
             }
+            current_pkg_test_info.1.insert(file.clone(), test_block_nums_in_current_file);
         }
     }
 
