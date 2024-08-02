@@ -116,11 +116,9 @@ jobs:
         run: |
           curl -fsSL https://cli.moonbitlang.com/install/unix.sh | bash
           curl https://cli.moonbitlang.com/moon-ci/$(uname -s)-$(uname -m).tar.gz --output moonbit.tar.gz
-          mkdir -p ~/.moon/bin
-          mkdir -p ~/.moon/lib
           tar xf moonbit.tar.gz --directory ~/.moon/bin/
           chmod +x ~/.moon/bin/moon*
-          git clone --depth 1 https://github.com/moonbitlang/core.git ~/.moon/lib/core
+          rm -rf ~/.moon/lib/core && git clone --depth 1 https://github.com/moonbitlang/core.git ~/.moon/lib/core
           echo "$HOME/.moon/bin" >> $GITHUB_PATH
 
       - name: install MoonBit(Windows)
@@ -131,6 +129,7 @@ jobs:
           New-Item -ItemType Directory -Force -Path "$env:USERPROFILE/.moon/bin"
           New-Item -ItemType Directory -Force -Path "$env:USERPROFILE/.moon/lib"
           Expand-Archive -Path "moonbit.zip" -DestinationPath "$env:USERPROFILE/.moon/bin/" -Force
+          Remove-Item -Recurse -Force -Path "$HOME/.moon/lib/core"
           git clone --depth 1 https://github.com/moonbitlang/core.git "$env:USERPROFILE/.moon/lib/core"
           "$env:USERPROFILE\.moon\bin" | Out-File -FilePath $env:GITHUB_PATH -Append
 
@@ -195,11 +194,9 @@ jobs:
         run: |
           curl -fsSL https://cli.moonbitlang.com/install/unix.sh | bash
           curl https://cli.moonbitlang.com/moon-ci/$(uname -s)-$(uname -m).tar.gz --output moonbit.tar.gz
-          mkdir -p ~/.moon/bin
-          mkdir -p ~/.moon/lib
           tar xf moonbit.tar.gz --directory ~/.moon/bin/
           chmod +x ~/.moon/bin/moon*
-          git clone --depth 1 https://github.com/moonbitlang/core.git ~/.moon/lib/core
+          rm -rf ~/.moon/lib/core && git clone --depth 1 https://github.com/moonbitlang/core.git ~/.moon/lib/core
           echo "$HOME/.moon/bin" >> $GITHUB_PATH
 
       - name: install cargo-tarpaulin ${{ env.CARGO_TARPAULIN_VERSION }}
