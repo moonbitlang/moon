@@ -39,6 +39,7 @@ pub struct ModuleDB {
     pub deps: Vec<String>,
     pub graph: DiGraph<String, usize>,
     pub backend: String,
+    pub root_dir: Option<String>,
 }
 
 impl ModuleDB {
@@ -199,6 +200,7 @@ pub struct ModuleDBJSON {
     pub packages: Vec<PackageJSON>,
     pub deps: Vec<String>,
     pub backend: String,
+    pub root_dir: Option<String>,
 }
 
 pub fn convert_mdb_to_json(module: &ModuleDB) -> ModuleDBJSON {
@@ -298,6 +300,7 @@ pub fn convert_mdb_to_json(module: &ModuleDB) -> ModuleDBJSON {
         packages: pkgs,
         deps,
         backend: module.backend.clone(),
+        root_dir: module.root_dir.clone(),
     }
 }
 

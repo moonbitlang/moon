@@ -459,6 +459,7 @@ pub fn scan(
         deps,
         graph,
         backend: moonc_opt.link_opt.target_backend.to_backend_ext().into(),
+        root_dir: mod_desc.root_dir,
     };
 
     module.validate()?;
