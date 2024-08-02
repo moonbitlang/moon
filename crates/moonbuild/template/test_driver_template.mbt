@@ -2,7 +2,7 @@
 
 fn catch_exception[A](body : A, on_exn : A) -> A = "%control.catch"
 
-fn check_panic[A, B, E](
+fn check_panic[A, B, E: Error](
   f : () -> A!E,
   does_panic : () -> B!E,
   no_panic : () -> B!E
