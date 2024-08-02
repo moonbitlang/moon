@@ -2425,7 +2425,8 @@ fn test_dummy_core() {
                     }
                   ],
                   "deps": [],
-                  "backend": "wasm-gc"
+                  "backend": "wasm-gc",
+                  "root_dir": null
                 }"#]],
         );
     }
@@ -2564,7 +2565,8 @@ fn test_dummy_core() {
                     }
                   ],
                   "deps": [],
-                  "backend": "js"
+                  "backend": "js",
+                  "root_dir": null
                 }"#]],
         );
     };
@@ -4541,7 +4543,8 @@ fn test_blackbox_success() {
                     }
                   ],
                   "deps": [],
-                  "backend": "wasm-gc"
+                  "backend": "wasm-gc",
+                  "root_dir": null
                 }"#]],
         );
     }
@@ -5258,6 +5261,60 @@ fn test_specify_source_dir_001() {
             Finished. moon: ran 3 tasks, now up to date
         "#]],
     );
+    #[cfg(unix)]
+    {
+        let p = dir.join("target/wasm-gc/release/check/packages.json");
+        check(
+            &replace_dir(&std::fs::read_to_string(p).unwrap(), &dir),
+            expect![[r#"
+                {
+                  "source_dir": "$ROOT",
+                  "name": "username/hello",
+                  "packages": [
+                    {
+                      "is-main": false,
+                      "is-third-party": false,
+                      "root": "username/hello",
+                      "rel": "lib",
+                      "files": [
+                        "$ROOT/src/lib/hello.mbt"
+                      ],
+                      "wbtest-files": [],
+                      "test-files": [
+                        "$ROOT/src/lib/hello_test.mbt"
+                      ],
+                      "deps": [],
+                      "wbtest-deps": [],
+                      "test-deps": [],
+                      "artifact": "$ROOT/target/wasm-gc/release/check/lib/lib.mi"
+                    },
+                    {
+                      "is-main": true,
+                      "is-third-party": false,
+                      "root": "username/hello",
+                      "rel": "main",
+                      "files": [
+                        "$ROOT/src/main/main.mbt"
+                      ],
+                      "wbtest-files": [],
+                      "test-files": [],
+                      "deps": [
+                        {
+                          "path": "username/hello/lib",
+                          "alias": "lib"
+                        }
+                      ],
+                      "wbtest-deps": [],
+                      "test-deps": [],
+                      "artifact": "$ROOT/target/wasm-gc/release/check/main/main.mi"
+                    }
+                  ],
+                  "deps": [],
+                  "backend": "wasm-gc",
+                  "root_dir": "src"
+                }"#]],
+        )
+    }
     check(
         &get_stdout_with_args_and_replace_dir(&dir, ["build"]),
         expect![[r#"
