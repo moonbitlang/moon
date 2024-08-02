@@ -47,6 +47,10 @@ pub const MOON_LOCK: &str = ".moon-lock";
 
 pub const WATCH_MODE_DIR: &str = "watch";
 
+pub const GET_CLI_ARGS: &str = r#"fn get_cli_args() -> Array[String] {
+  Array::make(1, "template")
+}"#;
+
 pub fn startswith_and_trim(s: &str, t: &str) -> String {
     if s.starts_with(t) {
         s.replacen(t, "", 1)

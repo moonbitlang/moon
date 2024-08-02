@@ -22,8 +22,7 @@ use colored::Colorize;
 use mooncake::pkg::sync::auto_sync;
 use moonutil::cli::UniversalFlags;
 use moonutil::common::{
-    lower_surface_targets, MoonbuildOpt, RunMode, TestOpt, MOONBITLANG_CORE,
-    MOON_TEST_DELIMITER_BEGIN, MOON_TEST_DELIMITER_END,
+    lower_surface_targets, MoonbuildOpt, RunMode, TargetBackend, TestOpt, GET_CLI_ARGS, MOONBITLANG_CORE, MOON_TEST_DELIMITER_BEGIN, MOON_TEST_DELIMITER_END
 };
 use moonutil::dirs::PackageDirs;
 use moonutil::mooncakes::sync::AutoSyncFlags;
@@ -86,13 +85,14 @@ pub fn generate_test_driver(
     } = cli.source_tgt_dir.try_into_package_dirs()?;
 
     let mut cmd = cmd;
-    cmd.build_flags.target_backend = cmd.build_flags.target.as_ref().and_then(|surface_targets| {
+    let target_backend = cmd.build_flags.target.as_ref().and_then(|surface_targets| {
         if surface_targets.is_empty() {
             None
         } else {
             Some(lower_surface_targets(surface_targets)[0])
         }
     });
+    cmd.build_flags.target_backend = target_backend;
 
     let moonc_opt = super::get_compiler_flags(&source_dir, &cmd.build_flags)?;
 
@@ -174,6 +174,7 @@ pub fn generate_test_driver(
                 pkgname,
                 filter_file.as_deref(),
                 filter_index,
+                target_backend
             );
             let generated_file = target_dir.join(pkg.rel.fs_full_name()).join(driver_name);
 
@@ -192,6 +193,7 @@ fn generate_driver(
     pkgname: &str,
     file_filter: Option<&str>,
     index_filter: Option<u32>,
+    target_backend: Option<TargetBackend>
 ) -> String {
     let test_driver_template = {
         let template = include_str!(concat!(
@@ -203,6 +205,20 @@ fn generate_driver(
         } else {
             template.to_string()
         }
+    };
+    let get_cli_args = match target_backend.unwrap_or_default() {
+        TargetBackend::Wasm | TargetBackend::WasmGC => {
+            include_str!(concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/../moonbuild/template/get_cli_args_wasm.mbt"
+            ))
+        },
+        TargetBackend::Js => {
+            include_str!(concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/../moonbuild/template/get_cli_args_js.mbt"
+            ))
+        },
     };
     test_driver_template
         .replace("let tests = abort(\"\")", data)
@@ -217,6 +233,7 @@ fn generate_driver(
         )
         .replace("{begin_moontest}", MOON_TEST_DELIMITER_BEGIN)
         .replace("{end_moontest}", MOON_TEST_DELIMITER_END)
+        .replace(GET_CLI_ARGS, get_cli_args)
 }
 
 #[test]

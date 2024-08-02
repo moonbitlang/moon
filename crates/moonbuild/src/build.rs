@@ -55,12 +55,12 @@ pub fn run_wat(path: &Path, args: &[String]) -> anyhow::Result<()> {
 }
 
 pub fn run_js(path: &Path, args: &[String]) -> anyhow::Result<()> {
-    if !args.is_empty() {
-        bail!(format!(
-            "js backend does not support extra args for now {:?}",
-            args
-        ))
-    }
+    // if !args.is_empty() {
+    //     bail!(format!(
+    //         "js backend does not support extra args for now {:?}",
+    //         args
+    //     ))
+    // }
     run("node", path, args)
 }
 

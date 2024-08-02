@@ -60,6 +60,7 @@ pub async fn run_js(path: &Path, target_dir: &Path) -> anyhow::Result<TestStatis
 async fn run(command: &str, path: &Path, target_dir: &Path) -> anyhow::Result<TestStatistics> {
     let mut execution = tokio::process::Command::new(command)
         .arg(path)
+        .args(["--", "hello", "world"])
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::inherit())

@@ -33,6 +33,11 @@ fn typing_tests(
 }
 
 fn main {
+  let args = get_cli_args()
+  let index = args.pop().unwrap()
+  let file = args.pop().unwrap()
+  println(file)
+  println(index)
   let tests = abort("")
   typing_tests(tests)
   let file_filter : String? = None
@@ -123,3 +128,10 @@ fn main {
   )
   println("{end_moontest}")
 }
+
+
+// get_cli_args begin
+fn get_cli_args() -> Array[String] {
+  Array::make(1, "template")
+}
+// get_cli_args end
