@@ -89,25 +89,8 @@ jobs:
       - name: check for typos
         run: typos
 
-  code-style:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@1.77.0
-        with:
-          components: rustfmt, clippy
-      - name: Cargo cache
-        uses: actions/cache@v4
-        with:
-            key: ${{ runner.os }}-cargo-${{ hashFiles('Cargo.lock') }}
-            path: ~/.cargo/registry
-      - name: Check formatting
-        run: cargo fmt -- --check
-      - name: Clippy
-        run: cargo clippy --all-targets --all-features -- -D warnings
-
   test:
-    needs: [code-style, typo-check, license-header-check]
+    needs: [typo-check, license-header-check]
     strategy:
       fail-fast: false
       matrix:
@@ -130,6 +113,8 @@ jobs:
           cp moonc-version-dont-delete/moonc-version .
 
       - uses: dtolnay/rust-toolchain@1.77.0
+        with:
+          components: rustfmt, clippy
       - name: Cargo cache
         uses: actions/cache@v4
         with:
@@ -161,6 +146,13 @@ jobs:
 
       - name: Run tests
         run: cargo test
+
+      - name: Check format
+        if: matrix.os == 'ubuntu-latest'
+        run: cargo fmt -- --check
+      - name: Clippy
+        if: matrix.os == 'ubuntu-latest'
+        run: cargo clippy --all-targets --all-features -- -D warnings
 
       # - name: Test core (Unix)
       #   if: ${{ matrix.os != 'windows-latest' }}
