@@ -340,7 +340,7 @@ fn test_moon_new() {
                 "./hello",
                 "--target-dir",
                 "./hello/target",
-                "main",
+                "src/main",
             ],
         ),
         expect![[r#"
@@ -530,7 +530,7 @@ fn test_moon_new_new() {
         .assert()
         .success();
     check(
-        &get_stdout_with_args(&hello1, ["run", "main"]),
+        &get_stdout_with_args(&hello1, ["run", "src/main"]),
         expect![[r#"
             Hello, world!
         "#]],
@@ -553,7 +553,7 @@ fn test_moon_new_new() {
         .assert()
         .success();
     check(
-        &get_stdout_with_args(&hello2, ["run", "main"]),
+        &get_stdout_with_args(&hello2, ["run", "src/main"]),
         expect![[r#"
             Hello, world!
         "#]],
@@ -610,7 +610,7 @@ fn test_moon_new_new() {
         .assert()
         .success();
     check(
-        &std::fs::read_to_string(hello4.join("moon.pkg.json")).unwrap(),
+        &std::fs::read_to_string(hello4.join("src").join("moon.pkg.json")).unwrap(),
         expect![[r#"
             {
               "import": [
@@ -689,7 +689,9 @@ fn test_moon_new_snapshot() {
         .assert()
         .success();
     check(
-        &replace_crlf_to_lf(&std::fs::read_to_string(hello.join("lib").join("hello.mbt")).unwrap()),
+        &replace_crlf_to_lf(
+            &std::fs::read_to_string(hello.join("src").join("lib").join("hello.mbt")).unwrap(),
+        ),
         expect![[r#"
             pub fn hello() -> String {
               "Hello, world!"
@@ -716,7 +718,9 @@ fn test_moon_new_snapshot() {
         .assert()
         .success();
     check(
-        &replace_crlf_to_lf(&std::fs::read_to_string(hello.join("lib").join("hello.mbt")).unwrap()),
+        &replace_crlf_to_lf(
+            &std::fs::read_to_string(hello.join("src").join("lib").join("hello.mbt")).unwrap(),
+        ),
         expect![[r#"
             pub fn hello() -> String {
               "Hello, world!"
@@ -725,7 +729,7 @@ fn test_moon_new_snapshot() {
     );
     check(
         &replace_crlf_to_lf(
-            &std::fs::read_to_string(hello.join("lib").join("hello_test.mbt")).unwrap(),
+            &std::fs::read_to_string(hello.join("src").join("lib").join("hello_test.mbt")).unwrap(),
         ),
         expect![[r#"
             test "hello" {
@@ -736,11 +740,13 @@ fn test_moon_new_snapshot() {
         "#]],
     );
     check(
-        &std::fs::read_to_string(hello.join("lib").join("moon.pkg.json")).unwrap(),
+        &std::fs::read_to_string(hello.join("src").join("lib").join("moon.pkg.json")).unwrap(),
         expect!["{}"],
     );
     check(
-        &replace_crlf_to_lf(&std::fs::read_to_string(hello.join("main").join("main.mbt")).unwrap()),
+        &replace_crlf_to_lf(
+            &std::fs::read_to_string(hello.join("src").join("main").join("main.mbt")).unwrap(),
+        ),
         expect![[r#"
             fn main {
               println(@lib.hello())
@@ -748,7 +754,7 @@ fn test_moon_new_snapshot() {
         "#]],
     );
     check(
-        &std::fs::read_to_string(hello.join("main").join("moon.pkg.json")).unwrap(),
+        &std::fs::read_to_string(hello.join("src").join("main").join("moon.pkg.json")).unwrap(),
         expect![[r#"
             {
               "is-main": true,
@@ -767,7 +773,8 @@ fn test_moon_new_snapshot() {
               "repository": "",
               "license": "Apache-2.0",
               "keywords": [],
-              "description": ""
+              "description": "",
+              "root-dir": "src"
             }"#]],
     );
     let license_content = std::fs::read_to_string(hello.join("LICENSE")).unwrap();
@@ -814,7 +821,9 @@ fn test_moon_new_snapshot_lib_no_license() {
         .assert()
         .success();
     check(
-        &replace_crlf_to_lf(&std::fs::read_to_string(hello.join("lib").join("hello.mbt")).unwrap()),
+        &replace_crlf_to_lf(
+            &std::fs::read_to_string(hello.join("src").join("lib").join("hello.mbt")).unwrap(),
+        ),
         expect![[r#"
             pub fn hello() -> String {
               "Hello, world!"
@@ -842,7 +851,9 @@ fn test_moon_new_snapshot_lib_no_license() {
         .assert()
         .success();
     check(
-        &replace_crlf_to_lf(&std::fs::read_to_string(hello.join("lib").join("hello.mbt")).unwrap()),
+        &replace_crlf_to_lf(
+            &std::fs::read_to_string(hello.join("src").join("lib").join("hello.mbt")).unwrap(),
+        ),
         expect![[r#"
             pub fn hello() -> String {
               "Hello, world!"
@@ -851,7 +862,7 @@ fn test_moon_new_snapshot_lib_no_license() {
     );
     check(
         &replace_crlf_to_lf(
-            &std::fs::read_to_string(hello.join("lib").join("hello_test.mbt")).unwrap(),
+            &std::fs::read_to_string(hello.join("src").join("lib").join("hello_test.mbt")).unwrap(),
         ),
         expect![[r#"
             test "hello" {
@@ -862,11 +873,11 @@ fn test_moon_new_snapshot_lib_no_license() {
         "#]],
     );
     check(
-        &std::fs::read_to_string(hello.join("lib").join("moon.pkg.json")).unwrap(),
+        &std::fs::read_to_string(hello.join("src").join("lib").join("moon.pkg.json")).unwrap(),
         expect!["{}"],
     );
     check(
-        &std::fs::read_to_string(hello.join("moon.pkg.json")).unwrap(),
+        &std::fs::read_to_string(hello.join("src").join("moon.pkg.json")).unwrap(),
         expect![[r#"
             {
               "import": [
@@ -885,11 +896,12 @@ fn test_moon_new_snapshot_lib_no_license() {
               "repository": "",
               "license": "",
               "keywords": [],
-              "description": ""
+              "description": "",
+              "root-dir": "src"
             }"#]],
     );
     check(
-        &replace_crlf_to_lf(&std::fs::read_to_string(hello.join("top.mbt")).unwrap()),
+        &replace_crlf_to_lf(&std::fs::read_to_string(hello.join("src").join("top.mbt")).unwrap()),
         expect![[r#"
             pub fn greeting() -> Unit {
               println(@lib.hello())
