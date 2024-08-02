@@ -26,7 +26,7 @@ use anyhow::anyhow;
 use moonutil::{
     dependency::SourceDependencyInfo,
     module::MoonMod,
-    mooncakes::{ModuleName, ModuleSource, ModuleSourceKind},
+    mooncakes::{GitSource, ModuleName, ModuleSource, ModuleSourceKind},
     version::as_caret_comparator,
 };
 use semver::Version;
@@ -364,7 +364,7 @@ fn resolve_pkg(
         }
     }
     if req.git.is_some() && git_dep_allowed(dependant) {
-        return resolve_pkg_git(dependant, req, env, pkg_name);
+        return resolve_pkg_git(req, env, pkg_name);
     }
     // If neither git nor local dependencies can be resolved (either because the user
     // didn't specify it at all, or because the repo comes from a registry), we fallback
@@ -421,12 +421,22 @@ fn resolve_pkg_local(
 }
 
 fn resolve_pkg_git(
-    dependant: &ModuleSource,
     info: &DependencyInfo,
     env: &mut ResolverEnv,
     pkg_name: &ModuleName,
 ) -> Result<(ModuleSource, Rc<MoonMod>), ResolverError> {
-    todo!()
+    let git_info = GitSource {
+        url: info.git.clone().unwrap(),
+        branch: info.git_branch.clone(),
+        revision: info.git_revision.clone(),
+    };
+    let res = env.resolve_git_module(&git_info, pkg_name)?;
+    let ms = ModuleSource {
+        name: pkg_name.clone(),
+        version: res.version.clone().expect("Expected version in module"),
+        source: ModuleSourceKind::Git(git_info),
+    };
+    Ok((ms, res))
 }
 
 #[cfg(test)]
