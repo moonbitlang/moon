@@ -92,9 +92,9 @@ impl FromStr for ModuleName {
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct GitSource {
-    url: String,
-    branch: Option<String>,
-    revision: Option<String>,
+    pub url: String,
+    pub branch: Option<String>,
+    pub revision: Option<String>,
 }
 
 impl Display for GitSource {

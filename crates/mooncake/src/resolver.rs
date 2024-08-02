@@ -26,6 +26,7 @@ use thiserror::Error;
 use crate::registry::RegistryList;
 
 pub mod env;
+mod git;
 pub mod mvs;
 
 pub use mvs::MvsSolver;

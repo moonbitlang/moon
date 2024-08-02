@@ -46,6 +46,8 @@ indexmap.workspace = true
 petgraph.workspace = true
 thiserror.workspace = true
 dunce.workspace = true
+git2 = "0.19.0"
+url = "2.5.2"
 
 [dev-dependencies]
 expect-test.workspace = true
