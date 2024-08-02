@@ -183,6 +183,7 @@ pub fn do_upgrade(root: &'static str) -> Result<i32> {
                 },
             );
         }
+        display_progress(&term, &progress_map, false);
 
         let download_futures = urls.iter().map(|url| {
             let progress_map = Arc::clone(&progress_map);
@@ -220,7 +221,7 @@ pub fn do_upgrade(root: &'static str) -> Result<i32> {
                             progress.downloaded += chunk.len() as u64;
                         }
                     }
-                    display_progress(&term, &progress_map);
+                    display_progress(&term, &progress_map, true);
                 }
 
                 file.flush().await.context(format!("failed to flush file {}", filepath.display()))?;
@@ -279,8 +280,8 @@ pub fn do_upgrade(root: &'static str) -> Result<i32> {
                             // use new moon to bundle
                             let moon = moon_dir::home().join("bin").join("moon");
                             println!("Compiling {} ...", MOONBITLANG_CORE);
-                            let out = std::process::Command::new(&moon).args(["version"]).output()?;
-                            println!("moon version: {}", String::from_utf8_lossy(&out.stdout));
+                            let out = std::process::Command::new(&moon).args(["version", "--all"]).output()?;
+                            println!("Toolchain version: \n{}", String::from_utf8_lossy(&out.stdout));
 
                             let out = std::process::Command::new(moon).args(["bundle", "--all", "--source-dir", &core_dir.display().to_string()]).output()?;
                             println!("{}", String::from_utf8_lossy(&out.stdout));
@@ -332,21 +333,25 @@ pub fn do_upgrade(root: &'static str) -> Result<i32> {
 fn display_progress(
     term: &Arc<Mutex<Term>>,
     progress_map: &Arc<Mutex<indexmap::map::IndexMap<&str, DownloadProgress>>>,
+    clear_lines: bool,
 ) {
     let map = progress_map.lock().unwrap();
 
-    let mut cur = 0.0;
-    let mut total = 0.0;
-    map.iter().for_each(|(_url, progress)| {
-        cur += progress.downloaded as f64;
-        total += progress.total_size as f64;
-    });
-
-    let msg = format!("Downloading {:.1}%", cur / total * 100.0);
-
+    let progress = map
+        .iter()
+        .map(|(filename, progress)| {
+            let cur = progress.downloaded as f64;
+            let total = progress.total_size as f64;
+            let percent = if cur == 0.0 { 0.0 } else { cur / total * 100.0 };
+            format!("{} {:.1}%", filename, percent)
+        })
+        .collect::<Vec<String>>();
+    let msg = format!("Downloading...\n{}", progress.join("\n"));
     {
         let mut term = term.lock().unwrap();
-        let _ = term.clear_line();
+        if clear_lines {
+            let _ = term.clear_last_lines(progress.len());
+        };
         let _ = term.write(msg.as_bytes());
     }
 }
