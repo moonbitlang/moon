@@ -114,6 +114,7 @@ jobs:
       - name: install MoonBit(Unix)
         if: ${{ matrix.os != 'windows-latest' }}
         run: |
+          curl -fsSL https://cli.moonbitlang.com/install/unix.sh | bash
           curl https://cli.moonbitlang.com/moon-ci/$(uname -s)-$(uname -m).tar.gz --output moonbit.tar.gz
           mkdir -p ~/.moon/bin
           mkdir -p ~/.moon/lib
@@ -125,10 +126,11 @@ jobs:
       - name: install MoonBit(Windows)
         if: ${{ matrix.os == 'windows-latest' }}
         run: |
+          irm https://cli.moonbitlang.com/install/powershell.ps1 | iex
           Invoke-WebRequest -Uri https://cli.moonbitlang.com/moon-ci/Windows-x86_64.zip -OutFile moonbit.zip
           New-Item -ItemType Directory -Force -Path "$env:USERPROFILE/.moon/bin"
           New-Item -ItemType Directory -Force -Path "$env:USERPROFILE/.moon/lib"
-          Expand-Archive -Path "moonbit.zip" -DestinationPath "$env:USERPROFILE/.moon/bin/"
+          Expand-Archive -Path "moonbit.zip" -DestinationPath "$env:USERPROFILE/.moon/bin/" -Force
           git clone --depth 1 https://github.com/moonbitlang/core.git "$env:USERPROFILE/.moon/lib/core"
           "$env:USERPROFILE\.moon\bin" | Out-File -FilePath $env:GITHUB_PATH -Append
 
@@ -191,6 +193,7 @@ jobs:
 
       - name: install MoonBit(Unix)
         run: |
+          curl -fsSL https://cli.moonbitlang.com/install/unix.sh | bash
           curl https://cli.moonbitlang.com/moon-ci/$(uname -s)-$(uname -m).tar.gz --output moonbit.tar.gz
           mkdir -p ~/.moon/bin
           mkdir -p ~/.moon/lib
