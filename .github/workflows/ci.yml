@@ -96,6 +96,11 @@ jobs:
       - uses: dtolnay/rust-toolchain@1.77.0
         with:
           components: rustfmt, clippy
+      - name: Cargo cache
+        uses: actions/cache@v4
+        with:
+            key: ${{ runner.os }}-cargo-${{ hashFiles('Cargo.lock') }}
+            path: ~/.cargo/registry
       - name: Check formatting
         run: cargo fmt -- --check
       - name: Clippy
