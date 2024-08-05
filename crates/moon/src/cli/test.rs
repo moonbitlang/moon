@@ -325,6 +325,33 @@ fn do_run_test(
                     }
                     count += 1;
                 }
+                result
+            }
+            Err(TestFailedStatus::SnapshotFailed(_)) => {
+                println!(
+                    "\n{}\n",
+                    "Auto updating expect tests and retesting ...".bold()
+                );
+
+                let (mut should_update, mut count) = (true, 1);
+                while should_update && count < limit {
+                    result = entry::run_test(
+                        moonc_opt,
+                        moonbuild_opt,
+                        build_only,
+                        verbose,
+                        true,
+                        module,
+                    );
+                    match result {
+                        // only continue update when it is a SnapshotFailed
+                        Err(TestFailedStatus::SnapshotFailed(_)) => {}
+                        _ => {
+                            should_update = false;
+                        }
+                    }
+                    count += 1;
+                }
 
                 result
             }
@@ -364,6 +391,7 @@ fn print_test_res(test_res: &anyhow::Result<TestResult, TestFailedStatus>) {
             TestFailedStatus::ExpectTestFailed(it) => print(it),
             TestFailedStatus::Failed(it) => print(it),
             TestFailedStatus::RuntimeError(it) => print(it),
+            TestFailedStatus::SnapshotFailed(it) => print(it),
             TestFailedStatus::Others(it) => println!("{}: {:?}", "error".bold().red(), it),
         },
     }

@@ -16,13 +16,17 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
+use crate::expect::{
+    expect_failed_to_snapshot_result, parse_filename, ExpectFailedRaw, SNAPSHOT_TESTING,
+};
 use crate::section_capture::{handle_stdout, SectionCapture};
 
 use super::gen;
 use anyhow::{bail, Context};
 use moonutil::common::{
     MoonbuildOpt, MooncOpt, MOON_COVERAGE_DELIMITER_BEGIN, MOON_COVERAGE_DELIMITER_END,
-    MOON_TEST_DELIMITER_BEGIN, MOON_TEST_DELIMITER_END,
+    MOON_SNAPSHOT_DELIMITER_BEGIN, MOON_SNAPSHOT_DELIMITER_END, MOON_TEST_DELIMITER_BEGIN,
+    MOON_TEST_DELIMITER_END,
 };
 use moonutil::module::ModuleDB;
 use n2::load::State;
@@ -49,15 +53,28 @@ pub struct TestStatistics {
     pub test_names: Vec<String>,
 }
 
-pub async fn run_wat(path: &Path, target_dir: &Path) -> anyhow::Result<TestStatistics> {
-    run("moonrun", path, target_dir).await
+pub async fn run_wat(
+    path: &Path,
+    target_dir: &Path,
+    auto_update: bool,
+) -> anyhow::Result<TestStatistics> {
+    run("moonrun", path, target_dir, auto_update).await
 }
 
-pub async fn run_js(path: &Path, target_dir: &Path) -> anyhow::Result<TestStatistics> {
-    run("node", path, target_dir).await
+pub async fn run_js(
+    path: &Path,
+    target_dir: &Path,
+    auto_update: bool,
+) -> anyhow::Result<TestStatistics> {
+    run("node", path, target_dir, auto_update).await
 }
 
-async fn run(command: &str, path: &Path, target_dir: &Path) -> anyhow::Result<TestStatistics> {
+async fn run(
+    command: &str,
+    path: &Path,
+    target_dir: &Path,
+    _auto_update: bool,
+) -> anyhow::Result<TestStatistics> {
     let mut execution = tokio::process::Command::new(command)
         .arg(path)
         .stdin(Stdio::null())
@@ -75,6 +92,12 @@ async fn run(command: &str, path: &Path, target_dir: &Path) -> anyhow::Result<Te
         true,
     );
 
+    let mut snapshot_capture = SectionCapture::new(
+        MOON_SNAPSHOT_DELIMITER_BEGIN,
+        MOON_SNAPSHOT_DELIMITER_END,
+        false,
+    );
+
     let mut buffer = Vec::new();
     stdout.read_to_end(&mut buffer).await.context(format!(
         "failed to read stdout for {} {}",
@@ -83,7 +106,11 @@ async fn run(command: &str, path: &Path, target_dir: &Path) -> anyhow::Result<Te
     ))?;
     handle_stdout(
         &mut std::io::BufReader::new(buffer.as_slice()),
-        &mut [&mut test_capture, &mut coverage_capture],
+        &mut [
+            &mut test_capture,
+            &mut coverage_capture,
+            &mut snapshot_capture,
+        ],
         |line| print!("{}", line),
     )?;
     let output = execution.wait().await?;
@@ -97,9 +124,61 @@ async fn run(command: &str, path: &Path, target_dir: &Path) -> anyhow::Result<Te
             std::fs::write(&filename, coverage_output)
                 .context(format!("failed to write {}", filename.to_string_lossy()))?;
         }
+        let snapshots = if let Some(snapshot_testing_output) = snapshot_capture.finish() {
+            let mut xs = vec![];
+            for line in snapshot_testing_output.lines() {
+                let json_str = line.trim_start_matches(SNAPSHOT_TESTING);
+                let t: crate::expect::ExpectFailedRaw = serde_json_lenient::from_str(json_str)
+                    .context(format!(
+                        "failed to parse snapshot testing output: {}",
+                        json_str
+                    ))?;
+                xs.push(expect_failed_to_snapshot_result(t));
+            }
+            xs
+        } else {
+            vec![]
+        };
         if let Some(test_output) = test_capture.finish() {
             let j: TestStatistics = serde_json_lenient::from_str(test_output.trim())
                 .context(format!("failed to parse test summary: {}", test_output))?;
+            let j = if !snapshots.is_empty() {
+                let mut j = j;
+                let mut index = j.filenames.len() - j.passed as usize;
+                for snap in snapshots.iter() {
+                    let expect_failed = ExpectFailedRaw {
+                        loc: snap.loc.clone(),
+                        args_loc: snap.args_loc.clone(),
+                        expect: snap.expect_file.display().to_string(),
+                        actual: snap.actual.clone(),
+                        snapshot: Some(true),
+                    };
+
+                    if snap.succ {
+                        j.messages.push("".to_string());
+                        let filename = parse_filename(&snap.loc)?;
+                        j.filenames.push(filename);
+                        j.test_names.push("snapshot".to_string());
+                        j.passed += 1;
+                    } else {
+                        j.messages.insert(
+                            index,
+                            format!(
+                                "{} {}",
+                                SNAPSHOT_TESTING,
+                                serde_json_lenient::to_string(&expect_failed)?
+                            ),
+                        );
+                        let filename = parse_filename(&snap.loc)?;
+                        j.filenames.insert(index, filename);
+                        j.test_names.insert(index, "snapshot".to_string());
+                        index += 1;
+                    }
+                }
+                j
+            } else {
+                j
+            };
             Ok(j)
         } else {
             bail!("No test output found");
