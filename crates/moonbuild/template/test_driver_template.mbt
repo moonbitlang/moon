@@ -36,12 +36,13 @@ fn main {
   let args = get_cli_args()
   let index = args.pop().unwrap()
   let file = args.pop().unwrap()
-  println(file)
-  println(index)
   let tests = abort("")
   typing_tests(tests)
-  let file_filter : String? = None
-  let index_filter : Int? = None
+  let file_filter : String? = Some(file)
+  let index = try @moonbitlang/core/strconv.parse_int!(index) {
+    _ => panic()
+  }
+  let index_filter : Int? = Some(index)
   let file_filtered_tests = match file_filter {
     None => tests
     Some(f) =>
@@ -112,21 +113,21 @@ fn main {
       }
     },
   )
-  fn repr(obj : @moonbitlang/core/builtin.Array[String]) -> String {
-    let buf = @moonbitlang/core/builtin.Buffer::new(size_hint=16)
-    Show::output(obj, buf)
-    buf.to_string()
-  }
+  // fn repr(obj : @moonbitlang/core/builtin.Array[String]) -> String {
+  //   let buf = @moonbitlang/core/builtin.Buffer::new(size_hint=16)
+  //   Show::output(obj, buf)
+  //   buf.to_string()
+  // }
 
-  let filenames = repr(filenames)
-  let test_names = repr(test_names)
-  let messages = repr(messages)
-  let passed = total - succ_idx
-  println("{begin_moontest}")
-  println(
-    "{\"passed\": \(passed), \"package\": \"{package}\", \"filenames\": \(filenames), \"test_names\": \(test_names), \"messages\": \(messages)}",
-  )
-  println("{end_moontest}")
+  // let filenames = repr(filenames)
+  // let test_names = repr(test_names)
+  // let messages = repr(messages)
+  // let passed = total - succ_idx
+  // println("{begin_moontest}")
+  // println(
+  //   "{\"passed\": \(passed), \"package\": \"{package}\", \"filenames\": \(filenames), \"test_names\": \(test_names), \"messages\": \(messages)}",
+  // )
+  // println("{end_moontest}")
 }
 
 

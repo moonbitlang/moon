@@ -232,13 +232,13 @@ fn run_test_internal(
                 .push(GeneratedTestDriver::BlackboxTest(blackbox_generated_file));
         }
 
-        let no_exist_path = (None, IndexMap::new());
+        let no_exist = (None, IndexMap::new());
         module.test_info.insert(
             pkgname.clone(),
             [
-                no_exist_path.clone(),
-                no_exist_path.clone(),
-                no_exist_path.clone(),
+                no_exist.clone(),
+                no_exist.clone(),
+                no_exist.clone(),
             ],
         );
         let current_pkg_test_info = module.test_info.get_mut(pkgname).unwrap();
@@ -282,7 +282,7 @@ fn run_test_internal(
             if artifact_opt.is_none() {
                 *artifact_opt = Some(artifact_path.clone());
             }
-            let test_block_count = map.entry(file.clone()).or_insert(0);
+            let test_block_count = map.entry(filename.into()).or_insert(0);
             *test_block_count += test_block_nums_in_current_file;
         }
     }

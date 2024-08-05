@@ -16,10 +16,11 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
+use crate::entry::TestFailedStatus;
 use crate::section_capture::{handle_stdout, SectionCapture};
 
 use super::gen;
-use anyhow::{bail, Context};
+use anyhow::{anyhow, bail, Context};
 use moonutil::common::{
     MoonbuildOpt, MooncOpt, MOON_COVERAGE_DELIMITER_BEGIN, MOON_COVERAGE_DELIMITER_END,
     MOON_TEST_DELIMITER_BEGIN, MOON_TEST_DELIMITER_END,
@@ -49,18 +50,34 @@ pub struct TestStatistics {
     pub test_names: Vec<String>,
 }
 
-pub async fn run_wat(path: &Path, target_dir: &Path) -> anyhow::Result<TestStatistics> {
-    run("moonrun", path, target_dir).await
+pub async fn run_wat(
+    path: &Path,
+    target_dir: &Path,
+    file_name: &str,
+    index: u32,
+) -> anyhow::Result<i32, TestFailedStatus> {
+    run("moonrun", path, target_dir, file_name, index).await
 }
 
-pub async fn run_js(path: &Path, target_dir: &Path) -> anyhow::Result<TestStatistics> {
-    run("node", path, target_dir).await
+pub async fn run_js(
+    path: &Path,
+    target_dir: &Path,
+    file_name: &str,
+    index: u32,
+) -> anyhow::Result<i32, TestFailedStatus> {
+    run("node", path, target_dir, file_name, index).await
 }
 
-async fn run(command: &str, path: &Path, target_dir: &Path) -> anyhow::Result<TestStatistics> {
+async fn run(
+    command: &str,
+    path: &Path,
+    target_dir: &Path,
+    file_name: &str,
+    index: u32,
+) -> anyhow::Result<i32, TestFailedStatus> {
     let mut execution = tokio::process::Command::new(command)
         .arg(path)
-        .args(["--", "hello", "world"])
+        .args(["--", file_name, &format!("{index}")])
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::inherit())
@@ -68,13 +85,13 @@ async fn run(command: &str, path: &Path, target_dir: &Path) -> anyhow::Result<Te
         .with_context(|| format!("failed to execute '{} {}'", command, path.display()))?;
     let mut stdout = execution.stdout.take().unwrap();
 
-    let mut test_capture =
-        SectionCapture::new(MOON_TEST_DELIMITER_BEGIN, MOON_TEST_DELIMITER_END, false);
-    let mut coverage_capture = SectionCapture::new(
-        MOON_COVERAGE_DELIMITER_BEGIN,
-        MOON_COVERAGE_DELIMITER_END,
-        true,
-    );
+    // let mut test_capture =
+    //     SectionCapture::new(MOON_TEST_DELIMITER_BEGIN, MOON_TEST_DELIMITER_END, false);
+    // let mut coverage_capture = SectionCapture::new(
+    //     MOON_COVERAGE_DELIMITER_BEGIN,
+    //     MOON_COVERAGE_DELIMITER_END,
+    //     true,
+    // );
 
     let mut buffer = Vec::new();
     stdout.read_to_end(&mut buffer).await.context(format!(
@@ -82,30 +99,37 @@ async fn run(command: &str, path: &Path, target_dir: &Path) -> anyhow::Result<Te
         command,
         path.display()
     ))?;
-    handle_stdout(
-        &mut std::io::BufReader::new(buffer.as_slice()),
-        &mut [&mut test_capture, &mut coverage_capture],
-        |line| print!("{}", line),
-    )?;
+    println!("{}", String::from_utf8_lossy(&buffer));
+    // handle_stdout(
+    //     &mut std::io::BufReader::new(buffer.as_slice()),
+    //     &mut [&mut test_capture, &mut coverage_capture],
+    //     |line| print!("{}", line),
+    // )?;
     let output = execution.wait().await?;
 
     if output.success() {
-        if let Some(coverage_output) = coverage_capture.finish() {
-            // Output to moonbit_coverage_<time>.txt
-            // TODO: do we need to move this out of the runtest module?
-            let time = chrono::Local::now().timestamp_micros();
-            let filename = target_dir.join(format!("moonbit_coverage_{}.txt", time));
-            std::fs::write(&filename, coverage_output)
-                .context(format!("failed to write {}", filename.to_string_lossy()))?;
-        }
-        if let Some(test_output) = test_capture.finish() {
-            let j: TestStatistics = serde_json_lenient::from_str(test_output.trim())
-                .context(format!("failed to parse test summary: {}", test_output))?;
-            Ok(j)
-        } else {
-            bail!("No test output found");
-        }
+        Ok(0)
     } else {
-        bail!("Failed to run the test");
+        Err(TestFailedStatus::Others(anyhow!("Failed to run the test")))
     }
+
+    // if output.success() {
+    //     if let Some(coverage_output) = coverage_capture.finish() {
+    //         // Output to moonbit_coverage_<time>.txt
+    //         // TODO: do we need to move this out of the runtest module?
+    //         let time = chrono::Local::now().timestamp_micros();
+    //         let filename = target_dir.join(format!("moonbit_coverage_{}.txt", time));
+    //         std::fs::write(&filename, coverage_output)
+    //             .context(format!("failed to write {}", filename.to_string_lossy()))?;
+    //     }
+    //     if let Some(test_output) = test_capture.finish() {
+    //         let j: TestStatistics = serde_json_lenient::from_str(test_output.trim())
+    //             .context(format!("failed to parse test summary: {}", test_output))?;
+    //         Ok(j)
+    //     } else {
+    //         bail!("No test output found");
+    //     }
+    // } else {
+    //     bail!("Failed to run the test");
+    // }
 }

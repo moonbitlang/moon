@@ -223,14 +223,14 @@ fn generate_driver(
     test_driver_template
         .replace("let tests = abort(\"\")", data)
         .replace("{package}", pkgname)
-        .replace(
-            "let file_filter : String? = None",
-            &format!("let file_filter : String? = {:?}", file_filter),
-        )
-        .replace(
-            "let index_filter : Int? = None",
-            &format!("let index_filter : Int? = {:?}", index_filter),
-        )
+        // .replace(
+        //     "let file_filter : String? = None",
+        //     &format!("let file_filter : String? = {:?}", file_filter),
+        // )
+        // .replace(
+        //     "let index_filter : Int? = None",
+        //     &format!("let index_filter : Int? = {:?}", index_filter),
+        // )
         .replace("{begin_moontest}", MOON_TEST_DELIMITER_BEGIN)
         .replace("{end_moontest}", MOON_TEST_DELIMITER_END)
         .replace(GET_CLI_ARGS, get_cli_args)
