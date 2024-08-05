@@ -48,6 +48,7 @@ pub struct BufferExpect {
     kind: TargetKind,
 }
 
+pub const FAILED: &str = "FAILED";
 pub const EXPECT_FAILED: &str = "@EXPECT_FAILED ";
 
 #[derive(Debug, Default, PartialEq, Eq, PartialOrd, Ord)]

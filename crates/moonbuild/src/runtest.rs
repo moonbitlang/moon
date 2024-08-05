@@ -16,7 +16,8 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
-use crate::entry::TestFailedStatus;
+use crate::entry::{TestFailedStatus, TestResult};
+use crate::expect::{EXPECT_FAILED, FAILED};
 use crate::section_capture::{handle_stdout, SectionCapture};
 
 use super::gen;
@@ -43,11 +44,11 @@ pub fn load_moon_proj(
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct TestStatistics {
-    pub passed: u32,
+    // pub passed: u32,
     pub package: String,
-    pub filenames: Vec<String>,
-    pub messages: Vec<String>,
-    pub test_names: Vec<String>,
+    pub filenames: String,
+    pub messages: String,
+    pub test_names: String,
 }
 
 pub async fn run_wat(
@@ -85,13 +86,13 @@ async fn run(
         .with_context(|| format!("failed to execute '{} {}'", command, path.display()))?;
     let mut stdout = execution.stdout.take().unwrap();
 
-    // let mut test_capture =
-    //     SectionCapture::new(MOON_TEST_DELIMITER_BEGIN, MOON_TEST_DELIMITER_END, false);
-    // let mut coverage_capture = SectionCapture::new(
-    //     MOON_COVERAGE_DELIMITER_BEGIN,
-    //     MOON_COVERAGE_DELIMITER_END,
-    //     true,
-    // );
+    let mut test_capture =
+        SectionCapture::new(MOON_TEST_DELIMITER_BEGIN, MOON_TEST_DELIMITER_END, false);
+    let mut coverage_capture = SectionCapture::new(
+        MOON_COVERAGE_DELIMITER_BEGIN,
+        MOON_COVERAGE_DELIMITER_END,
+        true,
+    );
 
     let mut buffer = Vec::new();
     stdout.read_to_end(&mut buffer).await.context(format!(
@@ -99,19 +100,41 @@ async fn run(
         command,
         path.display()
     ))?;
-    println!("{}", String::from_utf8_lossy(&buffer));
-    // handle_stdout(
-    //     &mut std::io::BufReader::new(buffer.as_slice()),
-    //     &mut [&mut test_capture, &mut coverage_capture],
-    //     |line| print!("{}", line),
-    // )?;
+
+    handle_stdout(
+        &mut std::io::BufReader::new(buffer.as_slice()),
+        &mut [&mut test_capture, &mut coverage_capture],
+        |line| print!("{}", line),
+    )?;
     let output = execution.wait().await?;
 
-    if output.success() {
+    if !output.success() {
+        return Err(TestFailedStatus::RuntimeError(TestResult::default()))
+    }
+
+    if let Some(test_output) = test_capture.finish() {
+        let j: TestStatistics = serde_json_lenient::from_str(test_output.trim())
+            .context(format!("failed to parse test summary: {}", test_output))?;
+        println!("j: {:?}", j);
+
+        let return_message = &j.messages;
+        if return_message.starts_with(EXPECT_FAILED) {
+            return Err(TestFailedStatus::ExpectTestFailed(TestResult::default()))
+        }
+        else if return_message.starts_with(FAILED) {
+            return Err(TestFailedStatus::Failed(TestResult::default()))
+        }
+        
         Ok(0)
     } else {
-        Err(TestFailedStatus::Others(anyhow!("Failed to run the test")))
+        Err(TestFailedStatus::Others(anyhow!("No test output found")))
     }
+
+    // if output.success() {
+    //     Ok(0)
+    // } else {
+    //     Err(TestFailedStatus::Others(anyhow!("Failed to run the test")))
+    // }
 
     // if output.success() {
     //     if let Some(coverage_output) = coverage_capture.finish() {

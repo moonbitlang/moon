@@ -287,7 +287,7 @@ fn run_test_internal(
         }
     }
 
-    dbg!(module.test_info.clone());
+    // dbg!(module.test_info.clone());
 
     moonc_opt.build_opt.warn_lists = module
         .packages

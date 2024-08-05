@@ -376,7 +376,6 @@ pub fn run_test(
             if artifact_path.is_none() {
                 continue;
             }
-
             let artifact_path = artifact_path.as_ref().unwrap();
 
             for (file_name, test_count) in map {
@@ -386,13 +385,15 @@ pub fn run_test(
                     }
                 }
 
+                let range;
                 if let Some(filter_index) = filter_index {
-                    if *test_count < filter_index {
-                        continue;
-                    }
+                    range = filter_index..(filter_index + 1);
+                }
+                else {
+                    range = 0..(*test_count);
                 }
 
-                for index in 0..(*test_count) {
+                for index in range {
                     handlers.push(async move {
                         // todo: use tokio::time::timeout to limit the running time
                         let result = trace::scope("test", || async {
@@ -418,6 +419,7 @@ pub fn run_test(
                             }
                         })
                         .await;
+                        result
                     });
                 }
 
@@ -527,6 +529,8 @@ pub fn run_test(
     } else {
         runtime.block_on(futures::future::join_all(handlers))
     };
+
+    dbg!(res);
 
     let test_result = TestResult {
         passed: passed.load(Ordering::SeqCst),

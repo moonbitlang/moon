@@ -33,103 +33,123 @@ fn typing_tests(
 }
 
 fn main {
-  let args = get_cli_args()
-  let index = args.pop().unwrap()
-  let file = args.pop().unwrap()
   let tests = abort("")
   typing_tests(tests)
-  let file_filter : String? = Some(file)
-  let index = try @moonbitlang/core/strconv.parse_int!(index) {
+  let args = get_cli_args()
+  let index_filter = try {
+    @moonbitlang/core/strconv.parse_int!(args.pop().unwrap())
+  } catch {
     _ => panic()
   }
-  let index_filter : Int? = Some(index)
-  let file_filtered_tests = match file_filter {
-    None => tests
-    Some(f) =>
-      if tests.contains(f) {
-        Map::from_array([(f, tests.get(f).unwrap())])
-      } else {
-        {  }
-      }
+  let file_filter = args.pop().unwrap()
+  let file_filtered_tests = (file_filter, tests.get(file_filter).unwrap())
+
+  if index_filter >= file_filtered_tests.1.length() {
+    return
   }
-  let index_filtered_tests = match index_filter {
-    None => file_filtered_tests
-    Some(index) => {
-      let res = {  }
-      file_filtered_tests.iter().each(
-        fn(item) {
-          let filename = item.0
-          let cases = item.1
-          let filtered_cases = []
-          for i = 0; i < cases.length(); i = i + 1 {
-            if i == index {
-              filtered_cases.push(cases[i])
-            }
-          }
-          res[filename] = filtered_cases
-        },
-      )
-      res
+  let index_filtered_test = file_filtered_tests.1[index_filter]
+
+  let test_block_name = index_filtered_test.1.get(0).or("anonymous test")
+  let test_block_func = index_filtered_test.0
+
+  let mut messages = ""
+  try {
+    if startswith_panic(test_block_name) {
+      check_panic!(test_block_func, fn() { () }, fn() { raise Failure("panic is expected") })
+    } else {
+      test_block_func!()
+    }
+  } catch {
+    Failure(e) | InspectError(e) => {
+      messages = e
+    }
+    _ => {
+      messages = "unexpected error"
     }
   }
-  let mut total = 0
-  index_filtered_tests.iter().each(fn(item) { total = total + item.1.length() })
-  let test_names = @moonbitlang/core/builtin.Array::make(total, "")
-  let filenames = @moonbitlang/core/builtin.Array::make(total, "")
-  let messages = @moonbitlang/core/builtin.Array::make(total, "")
-  let mut succ_idx = total
-  let mut fail_idx = 0
-  let mut counter = 0
-  index_filtered_tests.iter().each(
-    fn(item) {
-      let filename = item.0
-      let tests = item.1
-      for i = 0; i < tests.length(); i = i + 1 {
-        filenames[counter] = filename
-        counter += 1
-        let (f, attrs) = tests[i]
-        let name = if attrs.is_empty() { "" } else { attrs[0] }
-        let name = if name.length() == 0 { i.to_string() } else { name }
-        try {
-          if startswith_panic(name) {
-            check_panic!(f, fn() { () }, fn() { raise Failure("panic is expected") })
-          } else {
-            f!()
-          }
-          succ_idx -= 1
-          test_names[succ_idx] = name
-        } catch {
-          Failure(e) | InspectError(e) => {
-            test_names[fail_idx] = name
-            messages[fail_idx] = e
-            fail_idx += 1
-          }
-          _ => {
-            test_names[fail_idx] = name
-            messages[fail_idx] = "unexpected error"
-            fail_idx += 1
-          }
-        }
-      }
-    },
-  )
-  // fn repr(obj : @moonbitlang/core/builtin.Array[String]) -> String {
-  //   let buf = @moonbitlang/core/builtin.Buffer::new(size_hint=16)
-  //   Show::output(obj, buf)
-  //   buf.to_string()
+
+
+
+  // let index_filtered_tests = {
+  //   let res = {  }
+  //   file_filtered_tests.iter().each(
+  //     fn(item) {
+  //       let filename = item.0
+  //       let cases = item.1
+  //       let filtered_cases = []
+  //       for i = 0; i < cases.length(); i = i + 1 {
+  //         if i == index_filter {
+  //           filtered_cases.push(cases[i])
+  //         }
+  //       }
+  //       res[filename] = filtered_cases
+  //     },
+  //   )
+  //   res
   // }
 
-  // let filenames = repr(filenames)
-  // let test_names = repr(test_names)
-  // let messages = repr(messages)
-  // let passed = total - succ_idx
-  // println("{begin_moontest}")
-  // println(
-  //   "{\"passed\": \(passed), \"package\": \"{package}\", \"filenames\": \(filenames), \"test_names\": \(test_names), \"messages\": \(messages)}",
+  // let mut total = 0
+  // index_filtered_tests.iter().each(fn(item) { total = total + item.1.length() })
+  // let test_names = @moonbitlang/core/builtin.Array::make(total, "")
+  // let filenames = @moonbitlang/core/builtin.Array::make(total, "")
+  // let messages = @moonbitlang/core/builtin.Array::make(total, "")
+  // let mut succ_idx = total
+  // let mut fail_idx = 0
+  // let mut counter = 0
+  // index_filtered_tests.iter().each(
+  //   fn(item) {
+  //     let filename = item.0
+  //     let tests = item.1
+  //     for i = 0; i < tests.length(); i = i + 1 {
+  //       filenames[counter] = filename
+  //       counter += 1
+  //       let (f, attrs) = tests[i]
+  //       let name = if attrs.is_empty() { "" } else { attrs[0] }
+  //       let name = if name.length() == 0 { i.to_string() } else { name }
+  //       try {
+  //         if startswith_panic(name) {
+  //           check_panic!(
+  //             f,
+  //             fn() { () },
+  //             fn() { raise Failure("panic is expected") },
+  //           )
+  //         } else {
+  //           f!()
+  //         }
+  //         succ_idx -= 1
+  //         test_names[succ_idx] = name
+  //       } catch {
+  //         Failure(e) | InspectError(e) => {
+  //           test_names[fail_idx] = name
+  //           messages[fail_idx] = e
+  //           fail_idx += 1
+  //         }
+  //         _ => {
+  //           test_names[fail_idx] = name
+  //           messages[fail_idx] = "unexpected error"
+  //           fail_idx += 1
+  //         }
+  //       }
+  //     }
+  //   },
   // )
-  // println("{end_moontest}")
-}
+  fn repr(obj : String) -> String {
+    let buf = @moonbitlang/core/builtin.Buffer::new(size_hint=16)
+    Show::output(obj, buf)
+    buf.to_string()
+  }
 
+
+
+  let filenames = repr(file_filter)
+  let test_names = repr(test_block_name)
+  let messages = repr(messages)
+  println("{begin_moontest}")
+  println(
+    "{\"package\": \"{package}\", \"filenames\": \(filenames), \"test_names\": \(test_names), \"messages\": \(messages)}",
+  )
+  println("{end_moontest}")
+}
 
 // get_cli_args begin
 fn get_cli_args() -> Array[String] {
