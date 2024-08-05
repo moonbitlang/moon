@@ -102,16 +102,6 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
-
-      - name: Checkout moonc-version
-        uses: actions/checkout@v4
-        with:
-          ref: moonc-version-dont-delete
-          path: moonc-version-dont-delete
-      - name: Copy moonc-version file to workspace
-        run: |
-          cp moonc-version-dont-delete/moonc-version .
-
       - uses: dtolnay/rust-toolchain@1.77.0
         with:
           components: rustfmt, clippy
@@ -125,12 +115,22 @@ jobs:
         if: ${{ matrix.os != 'windows-latest' }}
         run: |
           curl -fsSL https://cli.moonbitlang.com/install/unix.sh | bash
+          curl https://cli.moonbitlang.com/moon-ci/$(uname -s)-$(uname -m).tar.gz --output moonbit.tar.gz
+          tar xf moonbit.tar.gz --directory ~/.moon/bin/
+          chmod +x ~/.moon/bin/moon*
+          rm -rf ~/.moon/lib/core && git clone --depth 1 https://github.com/moonbitlang/core.git ~/.moon/lib/core
           echo "$HOME/.moon/bin" >> $GITHUB_PATH
 
       - name: install MoonBit(Windows)
         if: ${{ matrix.os == 'windows-latest' }}
         run: |
           irm https://cli.moonbitlang.com/install/powershell.ps1 | iex
+          Invoke-WebRequest -Uri https://cli.moonbitlang.com/moon-ci/Windows-x86_64.zip -OutFile moonbit.zip
+          New-Item -ItemType Directory -Force -Path "$env:USERPROFILE/.moon/bin"
+          New-Item -ItemType Directory -Force -Path "$env:USERPROFILE/.moon/lib"
+          Expand-Archive -Path "moonbit.zip" -DestinationPath "$env:USERPROFILE/.moon/bin/" -Force
+          Remove-Item -Recurse -Force -Path "$HOME/.moon/lib/core"
+          git clone --depth 1 https://github.com/moonbitlang/core.git "$env:USERPROFILE/.moon/lib/core"
           "$env:USERPROFILE\.moon\bin" | Out-File -FilePath $env:GITHUB_PATH -Append
 
       - name: Build
@@ -193,6 +193,10 @@ jobs:
       - name: install MoonBit(Unix)
         run: |
           curl -fsSL https://cli.moonbitlang.com/install/unix.sh | bash
+          curl https://cli.moonbitlang.com/moon-ci/$(uname -s)-$(uname -m).tar.gz --output moonbit.tar.gz
+          tar xf moonbit.tar.gz --directory ~/.moon/bin/
+          chmod +x ~/.moon/bin/moon*
+          rm -rf ~/.moon/lib/core && git clone --depth 1 https://github.com/moonbitlang/core.git ~/.moon/lib/core
           echo "$HOME/.moon/bin" >> $GITHUB_PATH
 
       - name: install cargo-tarpaulin ${{ env.CARGO_TARPAULIN_VERSION }}
