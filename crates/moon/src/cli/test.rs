@@ -207,7 +207,7 @@ fn run_test_internal(
             }
         }
 
-        if pkg.is_third_party {
+        if pkg.is_third_party || pkg.is_main {
             continue;
         }
 
@@ -232,7 +232,15 @@ fn run_test_internal(
                 .push(GeneratedTestDriver::BlackboxTest(blackbox_generated_file));
         }
 
-        module.test_info.insert(pkgname.clone(), (vec![], IndexMap::new()));
+        let no_exist_path = (None, IndexMap::new());
+        module.test_info.insert(
+            pkgname.clone(),
+            [
+                no_exist_path.clone(),
+                no_exist_path.clone(),
+                no_exist_path.clone(),
+            ],
+        );
         let current_pkg_test_info = module.test_info.get_mut(pkgname).unwrap();
 
         for file in pkg
@@ -249,16 +257,37 @@ fn run_test_internal(
                 }
             }
 
+            let (test_type, index) = if filename.ends_with("_test.mbt") {
+                ("blackbox", 0)
+            } else if filename.ends_with("_wbtest.mbt") {
+                ("whitebox", 1)
+            } else {
+                ("internal", 2)
+            };
+
             let mut test_block_nums_in_current_file = 0;
+            let artifact_path = pkg
+                .artifact
+                .with_file_name(format!("{}.{test_type}_test.wat", pkg.last_name()))
+                .with_extension(moonc_opt.link_opt.output_format.to_str());
+
             for line in content.lines() {
                 if line.starts_with("test ") {
                     pkg.files_contain_test_block.push(file.clone());
                     test_block_nums_in_current_file += 1;
                 }
             }
-            current_pkg_test_info.1.insert(file.clone(), test_block_nums_in_current_file);
+
+            let (artifact_opt, map) = &mut current_pkg_test_info[index];
+            if artifact_opt.is_none() {
+                *artifact_opt = Some(artifact_path.clone());
+            }
+            let test_block_count = map.entry(file.clone()).or_insert(0);
+            *test_block_count += test_block_nums_in_current_file;
         }
     }
+
+    dbg!(module.test_info.clone());
 
     moonc_opt.build_opt.warn_lists = module
         .packages

@@ -36,7 +36,7 @@ pub struct ModuleDB {
     pub name: String,
     pub packages: IndexMap<String, Package>,
     // Map<pkg, (it's runnable artifacts, <mbt file, it's test block nums>)>
-    pub test_info: IndexMap<String, (Vec<PathBuf>, IndexMap<PathBuf, u32>)>,
+    pub test_info: IndexMap<String, [(Option<PathBuf>, IndexMap<PathBuf, u32>); 3]>,
     pub entries: Vec<usize>, // index of entry packages
     pub deps: Vec<String>,
     pub graph: DiGraph<String, usize>,
