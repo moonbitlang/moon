@@ -33,6 +33,7 @@ use anyhow::{anyhow, Context};
 use colored::Colorize;
 
 use crate::check::normal::write_pkg_lst;
+use crate::runtest::TestStatistics;
 
 use moonutil::common::{MoonbuildOpt, MooncOpt, TargetBackend};
 
@@ -257,16 +258,16 @@ pub fn run_run(
 #[derive(Debug, Error)]
 pub enum TestFailedStatus {
     #[error("{0}")]
-    ApplyExpectFailed(TestResult),
+    ApplyExpectFailed(TestStatistics),
 
     #[error("{0}")]
-    ExpectTestFailed(TestResult),
+    ExpectTestFailed(TestStatistics),
 
     #[error("{0}")]
-    Failed(TestResult),
+    Failed(TestStatistics),
 
     #[error("{0}")]
-    RuntimeError(TestResult),
+    RuntimeError(TestStatistics),
 
     #[error("{0:?}")]
     Others(#[from] anyhow::Error),
@@ -310,7 +311,7 @@ pub fn run_test(
     test_verbose_output: bool,
     auto_update: bool,
     module: &ModuleDB,
-) -> anyhow::Result<TestResult, TestFailedStatus> {
+) -> anyhow::Result<Vec<Result<TestStatistics, TestFailedStatus>>> {
     let target_dir = &moonbuild_opt.target_dir;
     let state = crate::runtest::load_moon_proj(module, moonc_opt, moonbuild_opt)?;
 
@@ -324,7 +325,7 @@ pub fn run_test(
     render_result(result, moonbuild_opt.quiet, "testing")?;
 
     if build_only {
-        return Ok(TestResult::default());
+        return Ok(vec![]);
     }
 
     if moonbuild_opt.sort_input {
@@ -347,11 +348,11 @@ pub fn run_test(
         }
     }
 
-    let passed = Arc::new(AtomicU32::new(0));
-    let failed = Arc::new(AtomicU32::new(0));
-    let runtime_error = Arc::new(AtomicBool::new(false));
-    let expect_failed = Arc::new(AtomicBool::new(false));
-    let apply_expect_failed = Arc::new(AtomicBool::new(false));
+    // let passed = Arc::new(AtomicU32::new(0));
+    // let failed = Arc::new(AtomicU32::new(0));
+    // let runtime_error = Arc::new(AtomicBool::new(false));
+    // let expect_failed = Arc::new(AtomicBool::new(false));
+    // let apply_expect_failed = Arc::new(AtomicBool::new(false));
 
     let runtime = tokio::runtime::Builder::new_multi_thread()
         .enable_all()
@@ -364,7 +365,11 @@ pub fn run_test(
     let filter_file = test_opt.as_ref().and_then(|it| it.filter_file.as_ref());
     let filter_index = test_opt.as_ref().and_then(|it| it.filter_index);
 
-    for (pkgname, _) in module.packages.iter().filter(|(_, p)| !(p.is_main || p.is_third_party) ) {
+    for (pkgname, _) in module
+        .packages
+        .iter()
+        .filter(|(_, p)| !(p.is_main || p.is_third_party))
+    {
         if let Some(ref package) = filter_package {
             if !package.contains(Path::new(pkgname)) {
                 continue;
@@ -388,8 +393,7 @@ pub fn run_test(
                 let range;
                 if let Some(filter_index) = filter_index {
                     range = filter_index..(filter_index + 1);
-                }
-                else {
+                } else {
                     range = 0..(*test_count);
                 }
 
@@ -419,11 +423,101 @@ pub fn run_test(
                             }
                         })
                         .await;
+
+                        match result {
+                            Err(TestFailedStatus::RuntimeError(_)) => {
+                                println!(
+                                    "{}: {}::{}::test#{}",
+                                    "failed".red(),
+                                    pkgname,
+                                    file_name,
+                                    index
+                                );
+                            }
+                            Err(TestFailedStatus::ExpectTestFailed(ref e)) => {
+                                if auto_update {
+                                    println!(
+                                        "\n{}\n",
+                                        "Auto updating expect tests and retesting ...".bold()
+                                    );
+
+                                    if let Err(e) =
+                                        crate::expect::apply_expect(&[e.message.clone()])
+                                    {
+                                        eprintln!("{}: {:?}", "failed".red().bold(), e);
+                                    }
+                                    let mut cur_res = trace::scope("test", || async {
+                                        match moonc_opt.link_opt.target_backend {
+                                            TargetBackend::Wasm | TargetBackend::WasmGC => {
+                                                crate::runtest::run_wat(
+                                                    artifact_path,
+                                                    target_dir,
+                                                    file_name,
+                                                    index,
+                                                )
+                                                .await
+                                            }
+                                            TargetBackend::Js => {
+                                                crate::runtest::run_js(
+                                                    artifact_path,
+                                                    target_dir,
+                                                    file_name,
+                                                    index,
+                                                )
+                                                .await
+                                            }
+                                        }
+                                    })
+                                    .await;
+
+                                    let mut cnt = 1;
+                                    while let Err(TestFailedStatus::ExpectTestFailed(_)) = cur_res {
+                                        if let Err(e) =
+                                            crate::expect::apply_expect(&[e.message.clone()])
+                                        {
+                                            eprintln!("{}: {:?}", "failed".red().bold(), e);
+                                        }
+
+                                        cur_res = trace::scope("test", || async {
+                                            match moonc_opt.link_opt.target_backend {
+                                                TargetBackend::Wasm | TargetBackend::WasmGC => {
+                                                    crate::runtest::run_wat(
+                                                        artifact_path,
+                                                        target_dir,
+                                                        file_name,
+                                                        index,
+                                                    )
+                                                    .await
+                                                }
+                                                TargetBackend::Js => {
+                                                    crate::runtest::run_js(
+                                                        artifact_path,
+                                                        target_dir,
+                                                        file_name,
+                                                        index,
+                                                    )
+                                                    .await
+                                                }
+                                            }
+                                        })
+                                        .await;
+
+                                        cnt += 1;
+                                        if cnt > 10 {
+                                            break;
+                                        }
+                                    }
+                                }
+                            }
+                            Err(ref e) => {
+                                println!("{}: {}", "failed".red(), e);
+                            }
+                            _ => {}
+                        }
+
                         result
                     });
                 }
-
-
             }
         }
     }
@@ -530,26 +624,27 @@ pub fn run_test(
         runtime.block_on(futures::future::join_all(handlers))
     };
 
-    dbg!(res);
+    // dbg!(res);
+    Ok(res)
 
-    let test_result = TestResult {
-        passed: passed.load(Ordering::SeqCst),
-        failed: failed.load(Ordering::SeqCst),
-    };
+    // let test_result = TestResult {
+    //     passed: passed.load(Ordering::SeqCst),
+    //     failed: failed.load(Ordering::SeqCst),
+    // };
 
-    if failed.load(Ordering::SeqCst) == 0 && !runtime_error.load(Ordering::SeqCst) {
-        Ok(test_result)
-    } else if apply_expect_failed.load(Ordering::SeqCst) {
-        Err(TestFailedStatus::ApplyExpectFailed(test_result))
-    } else if expect_failed.load(Ordering::SeqCst) {
-        Err(TestFailedStatus::ExpectTestFailed(test_result))
-    } else if failed.load(Ordering::SeqCst) != 0 {
-        Err(TestFailedStatus::Failed(test_result))
-    } else if runtime_error.load(Ordering::SeqCst) {
-        Err(TestFailedStatus::RuntimeError(test_result))
-    } else {
-        Err(TestFailedStatus::Others(anyhow!("unknown error")))
-    }
+    // if failed.load(Ordering::SeqCst) == 0 && !runtime_error.load(Ordering::SeqCst) {
+    //     Ok(test_result)
+    // } else if apply_expect_failed.load(Ordering::SeqCst) {
+    //     Err(TestFailedStatus::ApplyExpectFailed(test_result))
+    // } else if expect_failed.load(Ordering::SeqCst) {
+    //     Err(TestFailedStatus::ExpectTestFailed(test_result))
+    // } else if failed.load(Ordering::SeqCst) != 0 {
+    //     Err(TestFailedStatus::Failed(test_result))
+    // } else if runtime_error.load(Ordering::SeqCst) {
+    //     Err(TestFailedStatus::RuntimeError(test_result))
+    // } else {
+    //     Err(TestFailedStatus::Others(anyhow!("unknown error")))
+    // }
 }
 
 pub fn run_bundle(

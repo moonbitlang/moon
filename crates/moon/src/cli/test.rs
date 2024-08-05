@@ -16,6 +16,7 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
+use anyhow::bail;
 use anyhow::Context;
 use colored::Colorize;
 use indexmap::IndexMap;
@@ -235,11 +236,7 @@ fn run_test_internal(
         let no_exist = (None, IndexMap::new());
         module.test_info.insert(
             pkgname.clone(),
-            [
-                no_exist.clone(),
-                no_exist.clone(),
-                no_exist.clone(),
-            ],
+            [no_exist.clone(), no_exist.clone(), no_exist.clone()],
         );
         let current_pkg_test_info = module.test_info.get_mut(pkgname).unwrap();
 
@@ -307,7 +304,7 @@ fn run_test_internal(
         trace::close();
     }
 
-    let result = do_run_test(
+    do_run_test(
         &moonc_opt,
         &moonbuild_opt,
         build_only,
@@ -315,11 +312,7 @@ fn run_test_internal(
         &module,
         verbose,
         limit,
-    );
-    match result {
-        Ok(_) => Ok(0),
-        Err(e) => Ok(e.into()),
-    }
+    )
 }
 
 fn do_run_test(
@@ -330,79 +323,54 @@ fn do_run_test(
     module: &ModuleDB,
     verbose: bool,
     limit: u32,
-) -> anyhow::Result<TestResult, TestFailedStatus> {
-    let result = if !auto_update {
-        entry::run_test(moonc_opt, moonbuild_opt, build_only, verbose, false, module)
-    } else {
-        let mut result =
-            entry::run_test(moonc_opt, moonbuild_opt, build_only, verbose, true, module);
+) -> anyhow::Result<i32> {
+    // let test_res = if !auto_update {
+    //     entry::run_test(moonc_opt, moonbuild_opt, build_only, verbose, false, module)
+    // } else {
+    //     let mut result =
+    //         entry::run_test(moonc_opt, moonbuild_opt, build_only, verbose, true, module);
+    //     match result {
+    //         Err(TestFailedStatus::ExpectTestFailed(_)) => {
+    //             println!(
+    //                 "\n{}\n",
+    //                 "Auto updating expect tests and retesting ...".bold()
+    //             );
+    //             let (mut should_update, mut count) = (true, 1);
+    //             while should_update && count < limit {
+    //                 result = entry::run_test(
+    //                     moonc_opt,
+    //                     moonbuild_opt,
+    //                     build_only,
+    //                     verbose,
+    //                     true,
+    //                     module,
+    //                 );
+    //                 match result {
+    //                     // only continue update when it is a ExpectTestFailed
+    //                     Err(TestFailedStatus::ExpectTestFailed(_)) => {}
+    //                     _ => {
+    //                         should_update = false;
+    //                     }
+    //                 }
+    //                 count += 1;
+    //             }
+    //             result
+    //         }
+    //         _ => result,
+    //     }
+    // }?;
 
-        match result {
-            Err(TestFailedStatus::ExpectTestFailed(_)) => {
-                println!(
-                    "\n{}\n",
-                    "Auto updating expect tests and retesting ...".bold()
-                );
+    let test_res = entry::run_test(moonc_opt, moonbuild_opt, build_only, verbose, auto_update, module)?;
+    let total = test_res.len();
+    let passed = test_res.iter().filter(|r| r.is_ok()).count();
+    let failed = total - passed;
+    println!("Total tests: {}, passed: {}, failed: {}.", total.to_string().blue(), passed.to_string().green(), failed.to_string().red());
 
-                let (mut should_update, mut count) = (true, 1);
-                while should_update && count < limit {
-                    result = entry::run_test(
-                        moonc_opt,
-                        moonbuild_opt,
-                        build_only,
-                        verbose,
-                        true,
-                        module,
-                    );
-                    match result {
-                        // only continue update when it is a ExpectTestFailed
-                        Err(TestFailedStatus::ExpectTestFailed(_)) => {}
-                        _ => {
-                            should_update = false;
-                        }
-                    }
-                    count += 1;
-                }
-
-                result
-            }
-            _ => result,
-        }
-    };
-
-    print_test_res(&result);
-    result
-}
-
-fn print_test_res(test_res: &anyhow::Result<TestResult, TestFailedStatus>) {
-    let print = |test_res: &TestResult| {
-        let (passed, failed) = (test_res.passed, test_res.failed);
-        println!(
-            "Total tests: {}, passed: {}, failed: {}.",
-            passed + failed,
-            if passed > 0 {
-                passed.to_string().green()
-            } else {
-                passed.to_string().normal()
-            },
-            if failed > 0 {
-                failed.to_string().red()
-            } else {
-                failed.to_string().normal()
-            },
-        );
-    };
-
-    match test_res {
-        Ok(test_res) => {
-            print(test_res);
-        }
-        Err(e) => match e {
-            TestFailedStatus::ApplyExpectFailed(it) => print(it),
-            TestFailedStatus::ExpectTestFailed(it) => print(it),
-            TestFailedStatus::Failed(it) => print(it),
-            TestFailedStatus::RuntimeError(it) => print(it),
-            TestFailedStatus::Others(it) => println!("{}: {:?}", "error".bold().red(), it),
-        },
+    if passed == total {
+        Ok(0)
     }
+    else {
+        bail!("Failed to run all tests");
+    }
+
 }

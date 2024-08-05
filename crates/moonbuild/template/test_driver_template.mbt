@@ -141,12 +141,12 @@ fn main {
 
 
 
-  let filenames = repr(file_filter)
-  let test_names = repr(test_block_name)
-  let messages = repr(messages)
+  let filename = repr(file_filter)
+  let test_name = repr(test_block_name)
+  let message = repr(messages)
   println("{begin_moontest}")
   println(
-    "{\"package\": \"{package}\", \"filenames\": \(filenames), \"test_names\": \(test_names), \"messages\": \(messages)}",
+    "{\"package\": \"{package}\", \"filename\": \(filename), \"test_name\": \(test_name), \"message\": \(message)}",
   )
   println("{end_moontest}")
 }

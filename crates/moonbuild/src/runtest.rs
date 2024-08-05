@@ -42,13 +42,22 @@ pub fn load_moon_proj(
     gen::gen_runtest::gen_n2_runtest_state(&n2_input, moonc_opt, moonbuild_opt)
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, Default)]
 pub struct TestStatistics {
-    // pub passed: u32,
     pub package: String,
-    pub filenames: String,
-    pub messages: String,
-    pub test_names: String,
+    pub filename: String,
+    pub test_name: String,
+    pub message: String,
+}
+
+impl std::fmt::Display for TestStatistics {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "{}::{}::test#{}, message: {}",
+            self.package, self.filename, self.test_name, self.message
+        )
+    }
 }
 
 pub async fn run_wat(
@@ -56,7 +65,7 @@ pub async fn run_wat(
     target_dir: &Path,
     file_name: &str,
     index: u32,
-) -> anyhow::Result<i32, TestFailedStatus> {
+) -> anyhow::Result<TestStatistics, TestFailedStatus> {
     run("moonrun", path, target_dir, file_name, index).await
 }
 
@@ -65,7 +74,7 @@ pub async fn run_js(
     target_dir: &Path,
     file_name: &str,
     index: u32,
-) -> anyhow::Result<i32, TestFailedStatus> {
+) -> anyhow::Result<TestStatistics, TestFailedStatus> {
     run("node", path, target_dir, file_name, index).await
 }
 
@@ -75,7 +84,7 @@ async fn run(
     target_dir: &Path,
     file_name: &str,
     index: u32,
-) -> anyhow::Result<i32, TestFailedStatus> {
+) -> anyhow::Result<TestStatistics, TestFailedStatus> {
     let mut execution = tokio::process::Command::new(command)
         .arg(path)
         .args(["--", file_name, &format!("{index}")])
@@ -109,25 +118,24 @@ async fn run(
     let output = execution.wait().await?;
 
     if !output.success() {
-        return Err(TestFailedStatus::RuntimeError(TestResult::default()))
+        return Err(TestFailedStatus::RuntimeError(TestStatistics::default()))
     }
 
     if let Some(test_output) = test_capture.finish() {
-        let j: TestStatistics = serde_json_lenient::from_str(test_output.trim())
+        let test_statistic: TestStatistics = serde_json_lenient::from_str(test_output.trim())
             .context(format!("failed to parse test summary: {}", test_output))?;
-        println!("j: {:?}", j);
+        // println!("test_statistic: {:?}", test_statistic);
 
-        let return_message = &j.messages;
+        let return_message = &test_statistic.message;
         if return_message.starts_with(EXPECT_FAILED) {
-            return Err(TestFailedStatus::ExpectTestFailed(TestResult::default()))
+            return Err(TestFailedStatus::ExpectTestFailed(test_statistic));
+        } else if return_message.starts_with(FAILED) {
+            return Err(TestFailedStatus::Failed(test_statistic));
         }
-        else if return_message.starts_with(FAILED) {
-            return Err(TestFailedStatus::Failed(TestResult::default()))
-        }
-        
-        Ok(0)
+
+        return Ok(test_statistic);
     } else {
-        Err(TestFailedStatus::Others(anyhow!("No test output found")))
+        return Err(TestFailedStatus::Others(anyhow!("No test output found")));
     }
 
     // if output.success() {
