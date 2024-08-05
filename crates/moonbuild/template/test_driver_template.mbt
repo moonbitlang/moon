@@ -2,7 +2,7 @@
 
 fn catch_exception[A](body : A, on_exn : A) -> A = "%control.catch"
 
-fn check_panic[A, B, E: Error](
+fn check_panic[A, B, E : Error](
   f : () -> A!E,
   does_panic : () -> B!E,
   no_panic : () -> B!E
@@ -86,7 +86,11 @@ fn main {
         let name = if name.length() == 0 { i.to_string() } else { name }
         try {
           if startswith_panic(name) {
-            check_panic!(f, fn() { () }, fn() { raise Failure("panic is expected") })
+            check_panic!(
+              f,
+              fn() { () },
+              fn() { raise Failure("panic is expected") },
+            )
           } else {
             f!()
           }
