@@ -347,6 +347,40 @@ fn test_moon_new() {
             Hello, world!
         "#]],
     );
+
+    check(
+        &get_stdout_with_args(
+            &dir,
+            [
+                "run",
+                "--directory",
+                "./hello",
+                "--target-dir",
+                "./hello/target",
+                "src/main",
+            ],
+        ),
+        expect![[r#"
+            Hello, world!
+        "#]],
+    );
+
+    check(
+        &get_stdout_with_args(
+            &dir,
+            [
+                "run",
+                "-C",
+                "./hello",
+                "--target-dir",
+                "./hello/target",
+                "src/main",
+            ],
+        ),
+        expect![[r#"
+            Hello, world!
+        "#]],
+    );
 }
 
 #[test]
@@ -385,7 +419,7 @@ fn test_moon_help() {
               help                   Print this message or the help of the given subcommand(s)
 
             Options:
-                  --source-dir <SOURCE_DIR>  The source code directory. Defaults to the current directory
+              -C, --directory <SOURCE_DIR>   The source code directory. Defaults to the current directory
                   --target-dir <TARGET_DIR>  The target directory. Defaults to `source_dir/target`
               -q, --quiet                    Suppress output
               -v, --verbose                  Increase verbosity
