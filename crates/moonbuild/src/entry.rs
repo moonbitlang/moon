@@ -355,6 +355,7 @@ pub fn run_test(
     // let apply_expect_failed = Arc::new(AtomicBool::new(false));
 
     let runtime = tokio::runtime::Builder::new_multi_thread()
+        .worker_threads(16)
         .enable_all()
         .build()?;
 
@@ -399,6 +400,7 @@ pub fn run_test(
 
                 for index in range {
                     handlers.push(async move {
+                        // println!("----------------");
                         // todo: use tokio::time::timeout to limit the running time
                         let result = trace::scope("test", || async {
                             match moonc_opt.link_opt.target_backend {
@@ -434,7 +436,7 @@ pub fn run_test(
                                     index
                                 );
                             }
-                            Err(TestFailedStatus::ExpectTestFailed(ref e)) => {
+                            Err(TestFailedStatus::ExpectTestFailed(ref etf)) => {
                                 if auto_update {
                                     println!(
                                         "\n{}\n",
@@ -442,9 +444,18 @@ pub fn run_test(
                                     );
 
                                     if let Err(e) =
-                                        crate::expect::apply_expect(&[e.message.clone()])
+                                        crate::expect::apply_expect(&[etf.message.clone()])
                                     {
                                         eprintln!("{}: {:?}", "failed".red().bold(), e);
+                                    }
+                                    {
+                                        // recomplie after apply expect
+                                        let state = crate::runtest::load_moon_proj(
+                                            module,
+                                            moonc_opt,
+                                            moonbuild_opt,
+                                        )?;
+                                        n2_run_interface(state, moonbuild_opt)?;
                                     }
                                     let mut cur_res = trace::scope("test", || async {
                                         match moonc_opt.link_opt.target_backend {
@@ -471,11 +482,24 @@ pub fn run_test(
                                     .await;
 
                                     let mut cnt = 1;
-                                    while let Err(TestFailedStatus::ExpectTestFailed(_)) = cur_res {
+                                    let limit =
+                                        moonbuild_opt.test_opt.as_ref().map(|it| it.limit).unwrap();
+                                    while let Err(TestFailedStatus::ExpectTestFailed(etf)) = cur_res
+                                    {
                                         if let Err(e) =
-                                            crate::expect::apply_expect(&[e.message.clone()])
+                                            crate::expect::apply_expect(&[etf.message.clone()])
                                         {
                                             eprintln!("{}: {:?}", "failed".red().bold(), e);
+                                        }
+
+                                        {
+                                            // recomplie after apply expect
+                                            let state = crate::runtest::load_moon_proj(
+                                                module,
+                                                moonc_opt,
+                                                moonbuild_opt,
+                                            )?;
+                                            n2_run_interface(state, moonbuild_opt)?;
                                         }
 
                                         cur_res = trace::scope("test", || async {
@@ -503,10 +527,11 @@ pub fn run_test(
                                         .await;
 
                                         cnt += 1;
-                                        if cnt > 10 {
+                                        if cnt >= limit {
                                             break;
                                         }
                                     }
+                                    return cur_res;
                                 }
                             }
                             Err(ref e) => {
@@ -514,9 +539,10 @@ pub fn run_test(
                             }
                             _ => {}
                         }
-
+                        // println!("+++++++++++++");
                         result
-                    });
+                    }
+                );
                 }
             }
         }
@@ -524,13 +550,11 @@ pub fn run_test(
 
     // for runnable_artifact in runnable_artifacts.iter() {
     //     let p = Path::new(runnable_artifact);
-
     //     let passed = Arc::clone(&passed);
     //     let failed = Arc::clone(&failed);
     //     let runtime_error = Arc::clone(&runtime_error);
     //     let expect_failed = Arc::clone(&expect_failed);
     //     let apply_expect_failed = Arc::clone(&apply_expect_failed);
-
     //     match p.extension() {
     //         Some(name) if name == moonc_opt.link_opt.output_format.to_str() => {
     //             handlers.push(async move {
@@ -544,7 +568,6 @@ pub fn run_test(
     //                     }
     //                 })
     //                 .await;
-
     //                 if result.is_err() {
     //                     let e = result.err().unwrap();
     //                     eprintln!("Error when running {}: {}", runnable_artifact, e);
@@ -576,7 +599,6 @@ pub fn run_test(
     //                             )
     //                         }
     //                     }
-
     //                     for i in 0..(r.test_names.len() - r.passed as usize) {
     //                         if r.messages[i].starts_with(super::expect::EXPECT_FAILED) {
     //                             // if we failed at auto update mode, we don't show the below msg to user
@@ -607,7 +629,6 @@ pub fn run_test(
     //                 }
     //             });
     //         }
-
     //         _ => continue,
     //     }
     // }
@@ -631,7 +652,6 @@ pub fn run_test(
     //     passed: passed.load(Ordering::SeqCst),
     //     failed: failed.load(Ordering::SeqCst),
     // };
-
     // if failed.load(Ordering::SeqCst) == 0 && !runtime_error.load(Ordering::SeqCst) {
     //     Ok(test_result)
     // } else if apply_expect_failed.load(Ordering::SeqCst) {

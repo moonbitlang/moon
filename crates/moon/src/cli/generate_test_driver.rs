@@ -119,6 +119,7 @@ pub fn generate_test_driver(
             filter_package: filter_package.clone(),
             filter_file: filter_file.clone(),
             filter_index,
+            limit: 256,
         }),
         fmt_opt: None,
         sort_input,

@@ -184,6 +184,7 @@ fn run_test_internal(
             filter_package: filter_package.clone(),
             filter_file: filter_file.clone(),
             filter_index,
+            limit: cmd.limit,
         }),
         sort_input,
         run_mode,
