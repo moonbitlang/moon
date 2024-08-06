@@ -774,7 +774,7 @@ fn test_moon_new_snapshot() {
               "license": "Apache-2.0",
               "keywords": [],
               "description": "",
-              "root-dir": "src"
+              "source": "src"
             }"#]],
     );
     let license_content = std::fs::read_to_string(hello.join("LICENSE")).unwrap();
@@ -897,7 +897,7 @@ fn test_moon_new_snapshot_lib_no_license() {
               "license": "",
               "keywords": [],
               "description": "",
-              "root-dir": "src"
+              "source": "src"
             }"#]],
     );
     check(
@@ -2430,7 +2430,7 @@ fn test_dummy_core() {
                   ],
                   "deps": [],
                   "backend": "wasm-gc",
-                  "root_dir": null
+                  "source": null
                 }"#]],
         );
     }
@@ -2570,7 +2570,7 @@ fn test_dummy_core() {
                   ],
                   "deps": [],
                   "backend": "js",
-                  "root_dir": null
+                  "source": null
                 }"#]],
         );
     };
@@ -4548,7 +4548,7 @@ fn test_blackbox_success() {
                   ],
                   "deps": [],
                   "backend": "wasm-gc",
-                  "root_dir": null
+                  "source": null
                 }"#]],
         );
     }
@@ -5315,7 +5315,7 @@ fn test_specify_source_dir_001() {
                   ],
                   "deps": [],
                   "backend": "wasm-gc",
-                  "root_dir": "src"
+                  "source": "src"
                 }"#]],
         )
     }
@@ -5386,8 +5386,8 @@ fn test_specify_source_dir_003() {
             error: failed to load `$ROOT/moon.mod.json`
 
             Caused by:
-                0: root-dir bad format
-                1: root-dir should not be empty
+                0: source bad format
+                1: source should not be empty
         "#]],
     );
 }

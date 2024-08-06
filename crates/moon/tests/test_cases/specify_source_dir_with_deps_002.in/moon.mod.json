@@ -6,7 +6,7 @@
   "license": "",
   "keywords": [],
   "description": "",
-  "root-dir": "anyhow",
+  "source": "anyhow",
   "deps": {
     "just/hello004": {
         "path": "./deps/hello004"
