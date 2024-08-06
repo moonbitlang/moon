@@ -92,7 +92,7 @@ my-project
 
 Here's a brief explanation of the directory structure:
 
-- `moon.mod.json` is used to identify a directory as a MoonBit module. It contains the module's metadata, such as the module name, version, etc. `root-dir` specifies the root directory of the module. The default value is `src`.
+- `moon.mod.json` is used to identify a directory as a MoonBit module. It contains the module's metadata, such as the module name, version, etc. `source` specifies the source directory of the module. The default value is `src`.
 
   ```json
   {
@@ -103,7 +103,7 @@ Here's a brief explanation of the directory structure:
     "license": "Apache-2.0",
     "keywords": [],
     "description": "",
-    "root-dir": "src"
+    "source": "src"
   }
   ```
 
