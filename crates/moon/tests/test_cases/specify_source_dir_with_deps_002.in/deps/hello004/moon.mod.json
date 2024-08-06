@@ -6,7 +6,7 @@
   "license": "",
   "keywords": ["mooncakes-test"],
   "description": "",
-  "root-dir": ".",
+  "source": ".",
   "deps": {
     "just/hello003": {
         "path": "../hello003"

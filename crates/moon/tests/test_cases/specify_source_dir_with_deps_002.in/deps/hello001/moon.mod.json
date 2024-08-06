@@ -6,5 +6,5 @@
   "license": "",
   "keywords": ["mooncakes-test"],
   "description": "",
-  "root-dir": "source001"
+  "source": "source001"
 }

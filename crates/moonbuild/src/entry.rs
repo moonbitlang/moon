@@ -201,7 +201,7 @@ pub fn run_run(
 
     let moon_mod = moonutil::common::read_module_desc_file_in_dir(source_dir)?;
     let package_path = {
-        let root = if let Some(src) = &moon_mod.root_dir {
+        let root = if let Some(src) = &moon_mod.source {
             dunce::canonicalize(moonbuild_opt.source_dir.join(src))
                 .with_context(|| format!("cannot find root dir `{}`", src))?
         } else {
