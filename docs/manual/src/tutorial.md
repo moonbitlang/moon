@@ -289,7 +289,7 @@ This line imports the `fib` package, which is part of the `lib` package in the `
 fn main {
   let a = @my_awesome_fibonacci.fib(10)
   let b = @my_awesome_fibonacci.fib2(11)
-  println("fib(10) = \(a), fib(11) = \(b)")
+  println("fib(10) = \{a}, fib(11) = \{b}")
 
   println(@lib.hello())
 }

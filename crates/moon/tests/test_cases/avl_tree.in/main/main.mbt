@@ -9,7 +9,7 @@ fn main {
     i = i + 1
   }
   let height = v.height()
-  println("height of the tree: \(height)")
+  println("height of the tree: \{height}")
   v.print_tree()
 
   // Check values from 0 to iter-1 in the AVL tree

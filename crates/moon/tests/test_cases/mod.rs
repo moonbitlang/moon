@@ -2259,6 +2259,8 @@ fn test_mbti() {
 
         // Types and methods
 
+        // Type aliases
+
         // Traits
 
         // Extension Methods
@@ -2273,6 +2275,8 @@ fn test_mbti() {
         // Values
 
         // Types and methods
+
+        // Type aliases
 
         // Traits
 
