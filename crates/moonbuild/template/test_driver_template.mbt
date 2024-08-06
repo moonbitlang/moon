@@ -123,7 +123,7 @@ fn main {
   let passed = total - succ_idx
   println("{begin_moontest}")
   println(
-    "{\"passed\": \(passed), \"package\": \"{package}\", \"filenames\": \(filenames), \"test_names\": \(test_names), \"messages\": \(messages)}",
+    "{\"passed\": \{passed}, \"package\": \"{package}\", \"filenames\": \{filenames}, \"test_names\": \{test_names}, \"messages\": \{messages}}",
   )
   println("{end_moontest}")
 }
