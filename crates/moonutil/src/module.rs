@@ -24,6 +24,7 @@ use crate::path::ImportPath;
 use anyhow::bail;
 use indexmap::map::IndexMap;
 use petgraph::graph::DiGraph;
+use schemars::JsonSchema;
 use semver::Version;
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
@@ -328,47 +329,65 @@ pub struct MoonMod {
     pub alert_list: Option<String>,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "kebab-case")]
+#[schemars(
+    title = "JSON schema for Moonbit moon.mod.json files",
+    description = "A module of Moonbit lang"
+)]
 pub struct MoonModJSON {
+    /// Name of the module
     pub name: String,
 
     #[serde(skip_serializing_if = "Option::is_none")]
+    #[schemars(with = "Option<String>")]
     pub version: Option<Version>,
 
+    /// Third-party dependencies of the module
     #[serde(skip_serializing_if = "Option::is_none")]
+    #[schemars(with = "Option<std::collections::HashMap<String, String>>")]
     pub deps: Option<IndexMap<String, DependencyInfoJson>>,
 
+    /// Path to module's README file
     #[serde(skip_serializing_if = "Option::is_none")]
     pub readme: Option<String>,
 
+    /// url to module's repository
     #[serde(skip_serializing_if = "Option::is_none")]
     pub repository: Option<String>,
 
+    /// liecense of this module
     #[serde(skip_serializing_if = "Option::is_none")]
     pub license: Option<String>,
 
+    /// key word of this module
     #[serde(skip_serializing_if = "Option::is_none")]
     pub keywords: Option<Vec<String>>,
 
+    /// description of this module
     #[serde(skip_serializing_if = "Option::is_none")]
     pub description: Option<String>,
 
+    /// custom compile flags
     #[serde(skip_serializing_if = "Option::is_none")]
     pub compile_flags: Option<Vec<String>>,
 
+    /// custom link flags
     #[serde(skip_serializing_if = "Option::is_none")]
     pub link_flags: Option<Vec<String>>,
 
     #[serde(skip_serializing_if = "Option::is_none")]
+    #[schemars(skip)]
     pub checksum: Option<String>,
 
+    /// source code directory of this module
     #[serde(skip_serializing_if = "Option::is_none")]
     #[serde(alias = "root-dir")]
     pub source: Option<String>,
 
     /// Fields not covered by the info above, which should be left as-is.
     #[serde(flatten)]
+    #[schemars(skip)]
     pub ext: serde_json_lenient::Value,
 
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -433,4 +452,113 @@ impl From<MoonMod> for MoonModJSON {
     fn from(val: MoonMod) -> Self {
         convert_module_to_mod_json(val)
     }
+}
+
+#[test]
+fn gen_json_schema() {
+    let schema = schemars::schema_for!(MoonModJSON);
+    let actual = &serde_json_lenient::to_string_pretty(&schema).unwrap();
+    expect_test::expect![[r#"
+        {
+          "$schema": "http://json-schema.org/draft-07/schema#",
+          "title": "JSON schema for Moonbit moon.mod.json files",
+          "description": "A module of Moonbit lang",
+          "type": "object",
+          "required": [
+            "name"
+          ],
+          "properties": {
+            "compile-flags": {
+              "description": "custom compile flags",
+              "type": [
+                "array",
+                "null"
+              ],
+              "items": {
+                "type": "string"
+              }
+            },
+            "deps": {
+              "description": "Third-party dependencies of the module",
+              "type": [
+                "object",
+                "null"
+              ],
+              "additionalProperties": {
+                "type": "string"
+              }
+            },
+            "description": {
+              "description": "description of this module",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "keywords": {
+              "description": "key word of this module",
+              "type": [
+                "array",
+                "null"
+              ],
+              "items": {
+                "type": "string"
+              }
+            },
+            "license": {
+              "description": "liecense of this module",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "link-flags": {
+              "description": "custom link flags",
+              "type": [
+                "array",
+                "null"
+              ],
+              "items": {
+                "type": "string"
+              }
+            },
+            "name": {
+              "description": "Name of the module",
+              "type": "string"
+            },
+            "readme": {
+              "description": "Path to module's README file",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "repository": {
+              "description": "url to module's repository",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "source": {
+              "description": "source code directory of this module",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "version": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          }
+        }"#]]
+    .assert_eq(actual);
+    let path = concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../moonbuild/template/mod.schema.json"
+    );
+    std::fs::write(path, actual).unwrap();
 }
