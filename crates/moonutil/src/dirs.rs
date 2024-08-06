@@ -35,7 +35,7 @@ use crate::common::{
 #[derive(Debug, clap::Parser, Serialize, Deserialize, Clone)]
 pub struct SourceTargetDirs {
     /// The source code directory. Defaults to the current directory.
-    #[arg(long, global = true)]
+    #[arg(long = "directory", global = true, alias = "source-dir", short = 'C')]
     source_dir: Option<PathBuf>,
 
     /// The target directory. Defaults to `source_dir/target`.
