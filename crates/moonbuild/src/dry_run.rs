@@ -19,7 +19,7 @@
 use moonutil::module::ModuleDB;
 use n2::densemap::Index;
 use n2::graph::{BuildId, FileId, Graph};
-use std::collections::VecDeque;
+use std::collections::{HashSet, VecDeque};
 
 use moonutil::common::{MoonbuildOpt, MooncOpt, RunMode, TargetBackend};
 
@@ -48,17 +48,11 @@ pub fn print_commands(
         RunMode::Format => crate::fmt::load_moon_proj(module, moonc_opt, moonbuild_opt)?,
     };
     log::debug!("{:#?}", state);
-    let mut builds: VecDeque<BuildId> = VecDeque::new();
     if !state.default.is_empty() {
         let mut sorted_default = state.default.clone();
         sorted_default.sort_by_key(|a| a.index());
-        let mut queue: VecDeque<FileId> = VecDeque::new();
-        for target in sorted_default.iter() {
-            queue.push_back(*target);
-            bfs_graph(&state.graph, &mut queue, &mut builds);
-            queue.clear();
-        }
-        for b in builds.iter().rev() {
+        let builds: Vec<BuildId> = bfs_graph(&state.graph, &sorted_default);
+        for b in builds.iter() {
             let build = &state.graph.builds[*b];
             if let Some(cmdline) = &build.cmdline {
                 if in_same_dir {
@@ -97,22 +91,35 @@ pub fn print_commands(
     Ok(0)
 }
 
-fn bfs_graph(graph: &Graph, queue: &mut VecDeque<FileId>, builds: &mut VecDeque<BuildId>) {
-    while !queue.is_empty() {
-        let file_id = queue.pop_front().unwrap();
-        if let Some(bid) = graph.file(file_id).input {
-            if !builds.contains(&bid) {
-                builds.push_back(bid);
-            } else {
-                builds.retain(|id| &bid != id);
-                builds.push_back(bid);
-            }
-            let build = &graph.builds[bid];
-            for &fid in build.explicit_ins().iter().rev() {
-                if !queue.contains(&fid) {
-                    queue.push_back(fid);
+fn bfs_graph(graph: &Graph, sorted_default: &[FileId]) -> Vec<BuildId> {
+    let mut bids: Vec<BuildId> = Vec::new();
+    for &target in sorted_default.iter() {
+        let mut fid_queue: VecDeque<FileId> = VecDeque::from([target]);
+        let mut fid_set: HashSet<FileId> = HashSet::from([target]);
+        while !fid_queue.is_empty() {
+            let file_id = fid_queue.pop_front().unwrap();
+            fid_set.remove(&file_id);
+            if let Some(bid) = graph.file(file_id).input {
+                bids.push(bid);
+                let build = &graph.builds[bid];
+                for &fid in build.explicit_ins().iter().rev() {
+                    if fid_set.insert(fid) {
+                        fid_queue.push_back(fid);
+                    }
                 }
             }
         }
     }
+    dedupe(bids)
+}
+
+fn dedupe(inputs: Vec<BuildId>) -> Vec<BuildId> {
+    let mut seen: HashSet<BuildId> = HashSet::new();
+    let mut bids: Vec<BuildId> = Vec::new();
+    for &bid in inputs.iter().rev() {
+        if seen.insert(bid) {
+            bids.push(bid);
+        }
+    }
+    bids
 }
