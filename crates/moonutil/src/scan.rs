@@ -274,6 +274,18 @@ fn scan_one_package(
         wbtest_mbt_files.sort();
         test_mbt_files.sort();
     }
+    // if warn_list & alert_list not set in current moon.pkg.json, use the one in moon.mod.json
+    let warn_list = if pkg.warn_list.is_none() {
+        mod_desc.warn_list.clone()
+    } else {
+        pkg.warn_list
+    };
+    let alert_list = if pkg.alert_list.is_none() {
+        mod_desc.alert_list.clone()
+    } else {
+        pkg.alert_list
+    };
+
     let artifact: PathBuf = target_dir.into();
     let mut cur_pkg = Package {
         is_main: pkg.is_main,
@@ -292,8 +304,8 @@ fn scan_one_package(
         artifact,
         rel: rel_path,
         link: pkg.link,
-        warn_list: pkg.warn_list,
-        alert_list: pkg.alert_list,
+        warn_list,
+        alert_list,
     };
     if doc_mode {
         // -o <folder>

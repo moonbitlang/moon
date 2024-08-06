@@ -323,6 +323,9 @@ pub struct MoonMod {
     /// Fields not covered by the info above, which should be left as-is.
     #[serde(flatten)]
     pub ext: serde_json_lenient::Value,
+
+    pub warn_list: Option<String>,
+    pub alert_list: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -367,6 +370,12 @@ pub struct MoonModJSON {
     /// Fields not covered by the info above, which should be left as-is.
     #[serde(flatten)]
     pub ext: serde_json_lenient::Value,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub warn_list: Option<String>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub alert_list: Option<String>,
 }
 
 impl From<MoonModJSON> for MoonMod {
@@ -391,6 +400,9 @@ impl From<MoonModJSON> for MoonMod {
             checksum: j.checksum,
             source: j.source,
             ext: j.ext,
+
+            alert_list: j.alert_list,
+            warn_list: j.warn_list,
         }
     }
 }
@@ -411,6 +423,9 @@ pub fn convert_module_to_mod_json(m: MoonMod) -> MoonModJSON {
         checksum: m.checksum,
         source: m.source,
         ext: m.ext,
+
+        alert_list: m.alert_list,
+        warn_list: m.warn_list,
     }
 }
 
