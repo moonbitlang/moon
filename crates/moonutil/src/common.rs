@@ -56,16 +56,16 @@ pub fn startswith_and_trim(s: &str, t: &str) -> String {
 }
 
 #[derive(Debug, thiserror::Error)]
-pub enum RootDirError {
-    #[error("root-dir should not be empty")]
+pub enum SourceError {
+    #[error("source should not be empty")]
     EmptyString,
-    #[error("root-dir should not contain invalid chars `{0:?}`")]
+    #[error("source should not contain invalid chars `{0:?}`")]
     ContainInvalidChars(Vec<char>),
 }
 
-fn is_valid_folder_name(folder_name: &str) -> Result<(), RootDirError> {
+fn is_valid_folder_name(folder_name: &str) -> Result<(), SourceError> {
     if folder_name.is_empty() {
-        return Err(RootDirError::EmptyString);
+        return Err(SourceError::EmptyString);
     }
 
     let invalid_chars = ['<', '>', ':', '"', '/', '\\', '|', '?', '*'];
@@ -74,7 +74,7 @@ fn is_valid_folder_name(folder_name: &str) -> Result<(), RootDirError> {
         .filter(|c| invalid_chars.contains(c))
         .collect();
     if !invalid.is_empty() {
-        return Err(RootDirError::ContainInvalidChars(invalid));
+        return Err(SourceError::ContainInvalidChars(invalid));
     }
     Ok(())
 }
@@ -93,8 +93,8 @@ pub enum MoonModJSONFormatErrorKind {
     IO(#[from] std::io::Error),
     #[error("Parse error")]
     Parse(#[from] serde_json_lenient::Error),
-    #[error("root-dir bad format")]
-    RootDir(#[from] RootDirError),
+    #[error("source bad format")]
+    Source(#[from] SourceError),
 }
 
 pub fn read_module_from_json(path: &Path) -> Result<MoonMod, MoonModJSONFormatError> {
@@ -109,10 +109,10 @@ pub fn read_module_from_json(path: &Path) -> Result<MoonMod, MoonModJSONFormatEr
             kind: MoonModJSONFormatErrorKind::Parse(e),
         })?;
 
-    if let Some(src) = &j.root_dir {
+    if let Some(src) = &j.source {
         is_valid_folder_name(src).map_err(|e| MoonModJSONFormatError {
             path: path.into(),
-            kind: MoonModJSONFormatErrorKind::RootDir(e),
+            kind: MoonModJSONFormatErrorKind::Source(e),
         })?;
     }
     Ok(j.into())

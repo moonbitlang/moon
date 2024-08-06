@@ -39,7 +39,7 @@ pub struct ModuleDB {
     pub deps: Vec<String>,
     pub graph: DiGraph<String, usize>,
     pub backend: String,
-    pub root_dir: Option<String>,
+    pub source: Option<String>,
 }
 
 impl ModuleDB {
@@ -200,7 +200,7 @@ pub struct ModuleDBJSON {
     pub packages: Vec<PackageJSON>,
     pub deps: Vec<String>,
     pub backend: String,
-    pub root_dir: Option<String>,
+    pub source: Option<String>,
 }
 
 pub fn convert_mdb_to_json(module: &ModuleDB) -> ModuleDBJSON {
@@ -300,7 +300,7 @@ pub fn convert_mdb_to_json(module: &ModuleDB) -> ModuleDBJSON {
         packages: pkgs,
         deps,
         backend: module.backend.clone(),
-        root_dir: module.root_dir.clone(),
+        source: module.source.clone(),
     }
 }
 
@@ -318,7 +318,7 @@ pub struct MoonMod {
     pub compile_flags: Option<Vec<String>>,
     pub link_flags: Option<Vec<String>>,
     pub checksum: Option<String>,
-    pub root_dir: Option<String>,
+    pub source: Option<String>,
 
     /// Fields not covered by the info above, which should be left as-is.
     #[serde(flatten)]
@@ -361,7 +361,8 @@ pub struct MoonModJSON {
     pub checksum: Option<String>,
 
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub root_dir: Option<String>,
+    #[serde(alias = "root-dir")]
+    pub source: Option<String>,
 
     /// Fields not covered by the info above, which should be left as-is.
     #[serde(flatten)]
@@ -388,7 +389,7 @@ impl From<MoonModJSON> for MoonMod {
             compile_flags: j.compile_flags,
             link_flags: j.link_flags,
             checksum: j.checksum,
-            root_dir: j.root_dir,
+            source: j.source,
             ext: j.ext,
         }
     }
@@ -408,7 +409,7 @@ pub fn convert_module_to_mod_json(m: MoonMod) -> MoonModJSON {
         compile_flags: m.compile_flags,
         link_flags: m.link_flags,
         checksum: m.checksum,
-        root_dir: m.root_dir,
+        source: m.source,
         ext: m.ext,
     }
 }

@@ -142,7 +142,7 @@ fn scan_module_packages(
     let (module_source_dir, target_dir) = (&moonbuild_opt.source_dir, &moonbuild_opt.target_dir);
 
     let mod_desc = read_module_desc_file_in_dir(module_source_dir)?;
-    let module_source_dir = match &mod_desc.root_dir {
+    let module_source_dir = match &mod_desc.source {
         None => module_source_dir.to_path_buf(),
         Some(p) => module_source_dir.join(p),
     };
@@ -459,7 +459,7 @@ pub fn scan(
         deps,
         graph,
         backend: moonc_opt.link_opt.target_backend.to_backend_ext().into(),
-        root_dir: mod_desc.root_dir,
+        source: mod_desc.source,
     };
 
     module.validate()?;

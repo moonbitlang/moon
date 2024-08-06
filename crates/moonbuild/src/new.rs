@@ -51,10 +51,10 @@ pub fn moon_new_exec(
     license: Option<&str>,
 ) -> anyhow::Result<i32> {
     let cake_full_name = format!("{}/{}", user, name);
-    let root_dir = target_dir.join("src");
-    common(target_dir, &root_dir, &cake_full_name, license)?;
+    let source = target_dir.join("src");
+    common(target_dir, &source, &cake_full_name, license)?;
 
-    let main_dir = root_dir.join("main");
+    let main_dir = source.join("main");
     create_or_warning(&main_dir)?;
     // src/main/${MOON_PKG}
     {
@@ -97,12 +97,12 @@ pub fn moon_new_lib(
     license: Option<&str>,
 ) -> anyhow::Result<i32> {
     let cake_full_name = format!("{}/{}", user, name);
-    let root_dir = target_dir.join("src");
-    common(target_dir, &root_dir, &cake_full_name, license)?;
+    let source = target_dir.join("src");
+    common(target_dir, &source, &cake_full_name, license)?;
 
     // src/top.mbt
     {
-        let top_mbt = root_dir.join("top.mbt");
+        let top_mbt = source.join("top.mbt");
         let content = include_str!(concat!(
             env!("CARGO_MANIFEST_DIR"),
             "/../moonbuild/template/moon_new_template/top.mbt"
@@ -113,7 +113,7 @@ pub fn moon_new_lib(
 
     // src/moon.pkg.json
     {
-        let moon_pkg_json = root_dir.join("moon.pkg.json");
+        let moon_pkg_json = source.join("moon.pkg.json");
         let content = format!(
             r#"{{
   "import": [
@@ -134,7 +134,7 @@ pub fn moon_new_lib(
 
 fn common(
     target_dir: &Path,
-    root_dir: &Path,
+    source: &Path,
     cake_full_name: &str,
     license: Option<&str>,
 ) -> anyhow::Result<i32> {
@@ -160,7 +160,7 @@ fn common(
             compile_flags: None,
             link_flags: None,
             checksum: None,
-            root_dir: Some("src".to_string()),
+            source: Some("src".to_string()),
             ext: Default::default(),
         };
         moonutil::common::write_module_json_to_file(&m, target_dir)
@@ -173,7 +173,7 @@ fn common(
         let mut file = std::fs::File::create(gitignore).unwrap();
         file.write_all(content.as_bytes()).unwrap();
     }
-    let lib_dir = root_dir.join("lib");
+    let lib_dir = source.join("lib");
     create_or_warning(&lib_dir)?;
     // src/lib/hello.mbt
     {
