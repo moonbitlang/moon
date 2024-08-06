@@ -5420,8 +5420,40 @@ fn test_specify_source_dir_003() {
             error: failed to load `$ROOT/moon.mod.json`
 
             Caused by:
-                0: source bad format
-                1: source should not be empty
+                0: `source` bad format
+                1: `source` should not be empty
+        "#]],
+    );
+}
+
+#[test]
+fn test_specify_source_dir_004() {
+    let dir = TestDir::new("specify_source_dir_004.in");
+    check(
+        &get_stdout_with_args_and_replace_dir(&dir, ["check"]),
+        expect![[r#"
+            Finished. moon: ran 3 tasks, now up to date
+        "#]],
+    );
+    check(
+        &get_stdout_with_args_and_replace_dir(&dir, ["run", "nes/t/ed/src/main"]),
+        expect![[r#"
+            Hello, world!
+        "#]],
+    );
+}
+
+#[test]
+fn test_specify_source_dir_005() {
+    let dir = TestDir::new("specify_source_dir_005_bad.in");
+    check(
+        &get_stderr_with_args_and_replace_dir(&dir, ["check"]),
+        expect![[r#"
+            error: failed to load `$ROOT/moon.mod.json`
+
+            Caused by:
+                0: `source` bad format
+                1: `source` not a subdirectory of the parent directory
         "#]],
     );
 }
