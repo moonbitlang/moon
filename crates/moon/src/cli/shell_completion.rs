@@ -44,7 +44,7 @@ Discussion:
     Run the command:
 
         $ mkdir -p ~/.local/share/bash-completion/completions
-        $ moon shell-completion --shell bash >> ~/.local/share/bash-completion/completions/rustup
+        $ moon shell-completion --shell bash >> ~/.local/share/bash-completion/completions/moon
 
     This installs the completion script. You may have to log out and
     log back in to your shell session for the changes to take effect.
@@ -55,7 +55,7 @@ Discussion:
     With the `bash-completion` brew formula installed, run the command:
 
         $ mkdir -p $(brew --prefix)/etc/bash_completion.d
-        $ moon shell-completion --shell bash > $(brew --prefix)/etc/bash_completion.d/rustup.bash-completion
+        $ moon shell-completion --shell bash > $(brew --prefix)/etc/bash_completion.d/moon.bash-completion
 
     Fish:
 
@@ -63,7 +63,7 @@ Discussion:
     `$HOME/.config/fish/completions`. Run the command:
 
         $ mkdir -p ~/.config/fish/completions
-        $ moon shell-completion --shell fish > ~/.config/fish/completions/rustup.fish
+        $ moon shell-completion --shell fish > ~/.config/fish/completions/moon.fish
 
     This installs the completion script. You may have to log out and
     log back in to your shell session for the changes to take effect.
@@ -90,7 +90,7 @@ Discussion:
     Now you can install the completions script using the following
     command:
 
-        $ moon shell-completion --shell zsh > ~/.zfunc/_rustup
+        $ moon shell-completion --shell zsh > ~/.zfunc/_moon
 
     You must then either log out and log back in, or simply run
 
