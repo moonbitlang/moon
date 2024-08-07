@@ -33,10 +33,10 @@ fn typing_tests(
 }
 
 fn main {
-  let tests = abort("")
+  let tests = {  } // WILL BE REPLACED
   typing_tests(tests)
-  let file_filter : String? = None
-  let index_filter : Int? = None
+  let file_filter : String? = None // WILL BE REPLACED
+  let index_filter : Int? = None // WILL BE REPLACED
   let file_filtered_tests = match file_filter {
     None => tests
     Some(f) =>
@@ -121,9 +121,9 @@ fn main {
   let test_names = repr(test_names)
   let messages = repr(messages)
   let passed = total - succ_idx
-  println("{begin_moontest}")
+  println("{BEGIN_MOONTEST}")
   println(
-    "{\"passed\": \{passed}, \"package\": \"{package}\", \"filenames\": \{filenames}, \"test_names\": \{test_names}, \"messages\": \{messages}}",
+    "{\"passed\": \{passed}, \"package\": \"{PACKAGE}\", \"filenames\": \{filenames}, \"test_names\": \{test_names}, \"messages\": \{messages}}",
   )
-  println("{end_moontest}")
+  println("{END_MOONTEST}")
 }
