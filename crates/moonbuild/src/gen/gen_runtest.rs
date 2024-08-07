@@ -41,6 +41,7 @@ pub struct RuntestDepItem {
     pub mbt_deps: Vec<String>,
     pub mi_deps: Vec<MiAlias>, // do not need add parent's mi files
     pub package_full_name: String,
+    pub original_package_full_name: Option<String>,
     pub package_source_dir: String,
     pub is_main: bool,
     pub is_third_party: bool,
@@ -110,6 +111,7 @@ pub fn gen_package_core(
         mbt_deps,
         mi_deps,
         package_full_name,
+        original_package_full_name: None,
         package_source_dir,
         is_main: false,
         is_third_party: pkg.is_third_party,
@@ -173,6 +175,7 @@ pub fn gen_package_internal_test(
         mbt_deps,
         mi_deps,
         package_full_name,
+        original_package_full_name: None,
         package_source_dir,
         is_main: true,
         is_third_party: pkg.is_third_party,
@@ -237,6 +240,7 @@ pub fn gen_package_whitebox_test(
         mbt_deps,
         mi_deps,
         package_full_name,
+        original_package_full_name: None,
         package_source_dir,
         is_main: true,
         is_third_party: pkg.is_third_party,
@@ -330,6 +334,7 @@ pub fn gen_package_blackbox_test(
         mbt_deps,
         mi_deps,
         package_full_name,
+        original_package_full_name: Some(pkg.full_name()),
         package_source_dir,
         is_main: true,
         is_third_party: pkg.is_third_party,
@@ -656,7 +661,12 @@ pub fn gen_runtest_build_command(
         && !super::is_skip_coverage_lib(&item.package_full_name)
         && !item.is_third_party;
     // WORKAROUND: lang core/builtin and core/coverage should be able to cover themselves
-    let self_coverage = enable_coverage && super::is_self_coverage_lib(&item.package_full_name);
+    let self_coverage = enable_coverage
+        && super::is_self_coverage_lib(
+            item.original_package_full_name
+                .as_ref()
+                .unwrap_or(&item.package_full_name),
+        );
 
     let mut build = Build::new(loc, ins, outs);
 
