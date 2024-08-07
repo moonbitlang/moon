@@ -205,18 +205,18 @@ fn generate_driver(
         }
     };
     test_driver_template
-        .replace("let tests = abort(\"\")", data)
-        .replace("{package}", pkgname)
+        .replace("let tests = {  } // WILL BE REPLACED", data)
+        .replace("{PACKAGE}", pkgname)
         .replace(
-            "let file_filter : String? = None",
+            "let file_filter : String? = None // WILL BE REPLACED",
             &format!("let file_filter : String? = {:?}", file_filter),
         )
         .replace(
-            "let index_filter : Int? = None",
+            "let index_filter : Int? = None // WILL BE REPLACED",
             &format!("let index_filter : Int? = {:?}", index_filter),
         )
-        .replace("{begin_moontest}", MOON_TEST_DELIMITER_BEGIN)
-        .replace("{end_moontest}", MOON_TEST_DELIMITER_END)
+        .replace("{BEGIN_MOONTEST}", MOON_TEST_DELIMITER_BEGIN)
+        .replace("{END_MOONTEST}", MOON_TEST_DELIMITER_END)
 }
 
 #[test]
