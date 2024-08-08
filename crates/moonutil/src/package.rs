@@ -25,6 +25,7 @@ use anyhow::{bail, Context};
 use colored::Colorize;
 use indexmap::IndexMap;
 use serde::{Deserialize, Serialize};
+use schemars::JsonSchema;
 
 use crate::{
     common::GeneratedTestDriver,
@@ -105,46 +106,56 @@ pub struct AliasJSON {
     pub alias: String,
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone)]
+#[derive(Debug, Serialize, Deserialize, Clone, JsonSchema)]
 #[serde(untagged)]
 pub enum PkgJSONImport {
+    /// Path and alias of an imported package
+    #[schemars(with = "std::collections::HashMap<String, Option<String>>")]
     Map(IndexMap<String, Option<String>>),
     List(Vec<PkgJSONImportItem>),
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone)]
+#[derive(Debug, Serialize, Deserialize, Clone, JsonSchema)]
 #[serde(untagged)]
 pub enum PkgJSONImportItem {
     String(String),
     Object { path: String, alias: String },
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, JsonSchema)]
 #[serde(untagged)]
 pub enum BoolOrLink {
     Bool(bool),
     Link(Box<Link>),
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, JsonSchema)]
+#[schemars(
+    title = "JSON schema for Moonbit moon.pkg.json files",
+    description = "A package of Moonbit lang"
+)]
 pub struct MoonPkgJSON {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub name: Option<String>,
 
+    /// Specify whether this package is a main package or not
     #[serde(skip_serializing_if = "Option::is_none")]
     #[serde(alias = "is-main")]
     #[serde(alias = "is_main")]
     #[serde(rename(serialize = "is-main"))]
     pub is_main: Option<bool>,
 
+    /// Imported packages of the package
     #[serde(skip_serializing_if = "Option::is_none")]
     pub import: Option<PkgJSONImport>,
 
+    /// White box test imported packages of the package
     #[serde(skip_serializing_if = "Option::is_none")]
     #[serde(alias = "wbtest-import")]
     #[serde(alias = "wbtest_import")]
     pub wbtest_import: Option<PkgJSONImport>,
 
+    /// Black box test imported packages of the package
     #[serde(skip_serializing_if = "Option::is_none")]
     #[serde(alias = "test-import")]
     #[serde(alias = "test_import")]
@@ -153,24 +164,26 @@ pub struct MoonPkgJSON {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub link: Option<BoolOrLink>,
 
+    /// Warn list setting of the package
     #[serde(skip_serializing_if = "Option::is_none")]
     #[serde(alias = "warn-list")]
     #[serde(alias = "warn_list")]
     pub warn_list: Option<String>,
 
+    /// Alert list setting of the package
     #[serde(skip_serializing_if = "Option::is_none")]
     #[serde(alias = "alert-list")]
     #[serde(alias = "alert_list")]
     pub alert_list: Option<String>,
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone)]
+#[derive(Debug, Serialize, Deserialize, Clone, JsonSchema)]
 pub struct ImportMemory {
     pub module: String,
     pub name: String,
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone)]
+#[derive(Debug, Serialize, Deserialize, Clone, JsonSchema)]
 pub struct WasmLinkConfig {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub exports: Option<Vec<String>>,
@@ -191,7 +204,7 @@ pub struct WasmLinkConfig {
     pub flags: Option<Vec<String>>,
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone)]
+#[derive(Debug, Serialize, Deserialize, Clone, JsonSchema)]
 pub struct WasmGcLinkConfig {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub exports: Option<Vec<String>>,
@@ -208,7 +221,7 @@ pub struct WasmGcLinkConfig {
     pub flags: Option<Vec<String>>,
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone)]
+#[derive(Debug, Serialize, Deserialize, Clone, JsonSchema)]
 pub struct JsLinkConfig {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub exports: Option<Vec<String>>,
@@ -217,7 +230,7 @@ pub struct JsLinkConfig {
     pub format: Option<JsFormat>,
 }
 
-#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Default, Serialize, Deserialize)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Default, Serialize, Deserialize, JsonSchema)]
 #[repr(u8)]
 pub enum JsFormat {
     #[default]
@@ -239,7 +252,7 @@ impl JsFormat {
     }
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone)]
+#[derive(Debug, Serialize, Deserialize, Clone, JsonSchema)]
 pub struct Link {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub wasm: Option<WasmLinkConfig>,
@@ -427,3 +440,15 @@ pub fn convert_pkg_json_to_package(j: MoonPkgJSON) -> anyhow::Result<MoonPkg> {
     };
     Ok(result)
 }
+
+#[test]
+fn validate_pkg_json_schema() {
+    let schema = schemars::schema_for!(MoonPkgJSON);
+    let actual = &serde_json_lenient::to_string_pretty(&schema).unwrap();
+    let path = concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../moonbuild/template/pkg.schema.json"
+    );
+    expect_test::expect_file![path].assert_eq(actual);
+}
+

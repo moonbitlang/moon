@@ -18,7 +18,7 @@
       }
     },
     "deps": {
-      "description": "Third-party dependencies of the module",
+      "description": "third-party dependencies of the module",
       "type": [
         "object",
         "null"
@@ -62,11 +62,11 @@
       }
     },
     "name": {
-      "description": "Name of the module",
+      "description": "name of the module",
       "type": "string"
     },
     "readme": {
-      "description": "Path to module's README file",
+      "description": "path to module's README file",
       "type": [
         "string",
         "null"
@@ -87,6 +87,7 @@
       ]
     },
     "version": {
+      "description": "version of the module",
       "type": [
         "string",
         "null"

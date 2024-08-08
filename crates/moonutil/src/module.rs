@@ -336,19 +336,20 @@ pub struct MoonMod {
     description = "A module of Moonbit lang"
 )]
 pub struct MoonModJSON {
-    /// Name of the module
+    /// name of the module
     pub name: String,
 
+    /// version of the module
     #[serde(skip_serializing_if = "Option::is_none")]
     #[schemars(with = "Option<String>")]
     pub version: Option<Version>,
 
-    /// Third-party dependencies of the module
+    /// third-party dependencies of the module
     #[serde(skip_serializing_if = "Option::is_none")]
     #[schemars(with = "Option<std::collections::HashMap<String, String>>")]
     pub deps: Option<IndexMap<String, DependencyInfoJson>>,
 
-    /// Path to module's README file
+    /// path to module's README file
     #[serde(skip_serializing_if = "Option::is_none")]
     pub readme: Option<String>,
 
@@ -455,110 +456,12 @@ impl From<MoonMod> for MoonModJSON {
 }
 
 #[test]
-fn gen_json_schema() {
+fn validate_mod_json_schema() {
     let schema = schemars::schema_for!(MoonModJSON);
     let actual = &serde_json_lenient::to_string_pretty(&schema).unwrap();
-    expect_test::expect![[r#"
-        {
-          "$schema": "http://json-schema.org/draft-07/schema#",
-          "title": "JSON schema for Moonbit moon.mod.json files",
-          "description": "A module of Moonbit lang",
-          "type": "object",
-          "required": [
-            "name"
-          ],
-          "properties": {
-            "compile-flags": {
-              "description": "custom compile flags",
-              "type": [
-                "array",
-                "null"
-              ],
-              "items": {
-                "type": "string"
-              }
-            },
-            "deps": {
-              "description": "Third-party dependencies of the module",
-              "type": [
-                "object",
-                "null"
-              ],
-              "additionalProperties": {
-                "type": "string"
-              }
-            },
-            "description": {
-              "description": "description of this module",
-              "type": [
-                "string",
-                "null"
-              ]
-            },
-            "keywords": {
-              "description": "key word of this module",
-              "type": [
-                "array",
-                "null"
-              ],
-              "items": {
-                "type": "string"
-              }
-            },
-            "license": {
-              "description": "liecense of this module",
-              "type": [
-                "string",
-                "null"
-              ]
-            },
-            "link-flags": {
-              "description": "custom link flags",
-              "type": [
-                "array",
-                "null"
-              ],
-              "items": {
-                "type": "string"
-              }
-            },
-            "name": {
-              "description": "Name of the module",
-              "type": "string"
-            },
-            "readme": {
-              "description": "Path to module's README file",
-              "type": [
-                "string",
-                "null"
-              ]
-            },
-            "repository": {
-              "description": "url to module's repository",
-              "type": [
-                "string",
-                "null"
-              ]
-            },
-            "source": {
-              "description": "source code directory of this module",
-              "type": [
-                "string",
-                "null"
-              ]
-            },
-            "version": {
-              "type": [
-                "string",
-                "null"
-              ]
-            }
-          }
-        }"#]]
-    .assert_eq(actual);
     let path = concat!(
         env!("CARGO_MANIFEST_DIR"),
         "/../moonbuild/template/mod.schema.json"
     );
-    std::fs::write(path, actual).unwrap();
+    expect_test::expect_file![path].assert_eq(actual);
 }
