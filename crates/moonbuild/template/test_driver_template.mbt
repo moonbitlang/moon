@@ -21,92 +21,183 @@ fn startswith_panic(s : String) -> Bool {
   s[4] == 'c'
 }
 
+typealias TestDriver_No_Args_Function = () -> Unit!Error
+
+typealias TestDriver_With_Args_Function = (@moonbitlang/core/test.T) -> Unit!Error
+
+typealias TestDriver_No_Args_Map = @moonbitlang/core/builtin.Map[
+  String,
+  @moonbitlang/core/builtin.Map[
+    Int,
+    (TestDriver_No_Args_Function, @moonbitlang/core/builtin.Array[String]),
+  ],
+]
+
+typealias TestDriver_With_Args_Map = @moonbitlang/core/builtin.Map[
+  String,
+  @moonbitlang/core/builtin.Map[
+    Int,
+    (TestDriver_With_Args_Function, @moonbitlang/core/builtin.Array[String]),
+  ],
+]
+
 fn typing_tests(
-  x : Map[
+  x : @moonbitlang/core/builtin.Map[
     String,
     @moonbitlang/core/builtin.Array[
-      (() -> Unit!Error, @moonbitlang/core/builtin.Array[String]),
+      (TestDriver_No_Args_Function, @moonbitlang/core/builtin.Array[String]),
     ],
   ]
 ) -> Unit {
   ignore(x)
 }
 
-fn main {
-  let tests = {  } // WILL BE REPLACED
-  typing_tests(tests)
-  let file_filter : String? = None // WILL BE REPLACED
-  let index_filter : Int? = None // WILL BE REPLACED
-  let file_filtered_tests = match file_filter {
-    None => tests
-    Some(f) =>
-      if tests.contains(f) {
-        Map::from_array([(f, tests.get(f).unwrap())])
-      } else {
-        {  }
+fn typing_no_args_tests(x : TestDriver_No_Args_Map) -> Unit {
+  ignore(x)
+}
+
+fn typing_with_args_tests(x : TestDriver_With_Args_Map) -> Unit {
+  ignore(x)
+}
+
+struct TestDriver__Meta {
+  filename : String
+  index : Int
+  attrs : @moonbitlang/core/builtin.Array[String]
+}
+
+enum TestDriver__F {
+  F0(TestDriver_No_Args_Function)
+  F1(TestDriver_With_Args_Function)
+}
+
+struct TestDriver__TestCase {
+  f : TestDriver__F
+  meta : TestDriver__Meta
+}
+
+fn apply_filter(
+  no_args_tests : TestDriver_No_Args_Map,
+  with_args_tests : TestDriver_With_Args_Map,
+  file_filter : String?,
+  index_filter : Int?
+) -> @moonbitlang/core/builtin.Array[TestDriver__TestCase] {
+  let ret = []
+  no_args_tests.iter().each(
+    fn(file) {
+      let filename = file.0
+      match file_filter {
+        Some(f) => if filename != f { return  }
+        _ => ()
       }
-  }
-  let index_filtered_tests = match index_filter {
-    None => file_filtered_tests
-    Some(index) => {
-      let res = {  }
-      file_filtered_tests.iter().each(
-        fn(item) {
-          let filename = item.0
-          let cases = item.1
-          let filtered_cases = []
-          for i = 0; i < cases.length(); i = i + 1 {
-            if i == index {
-              filtered_cases.push(cases[i])
-            }
+      let tests = file.1
+      tests.iter().each(
+        fn(cases) {
+          let index = cases.0
+          match index_filter {
+            Some(f) => if index != f { return  }
+            _ => ()
           }
-          res[filename] = filtered_cases
+          let k = {
+            f: TestDriver__F::F0(cases.1.0),
+            meta: { filename, index, attrs: cases.1.1 },
+          }
+          ret.push(k)
         },
       )
-      res
-    }
-  }
-  let mut total = 0
-  index_filtered_tests.iter().each(fn(item) { total = total + item.1.length() })
+    },
+  )
+  with_args_tests.iter().each(
+    fn(file) {
+      let filename = file.0
+      match file_filter {
+        Some(f) => if filename != f { return  }
+        _ => ()
+      }
+      let tests = file.1
+      tests.iter().each(
+        fn(cases) {
+          let index = cases.0
+          match index_filter {
+            Some(f) => if index != f { return  }
+            _ => ()
+          }
+          let k = {
+            f: TestDriver__F::F1(cases.1.0),
+            meta: { filename, index, attrs: cases.1.1 },
+          }
+          ret.push(k)
+        },
+      )
+    },
+  )
+  ret
+}
+
+fn main {
+  let tests = {  } // WILL BE REPLACED
+  let no_args_tests = {  } // WILL BE REPLACED
+  let with_args_tests = {  } // WILL BE REPLACED
+  typing_tests(tests)
+  typing_no_args_tests(no_args_tests)
+  typing_with_args_tests(with_args_tests)
+  let file_filter : String? = None // WILL BE REPLACED
+  let index_filter : Int? = None // WILL BE REPLACED
+  let filtered_tests = apply_filter(
+    no_args_tests, with_args_tests, file_filter, index_filter,
+  )
+  let total = filtered_tests.length()
   let test_names = @moonbitlang/core/builtin.Array::make(total, "")
   let filenames = @moonbitlang/core/builtin.Array::make(total, "")
   let messages = @moonbitlang/core/builtin.Array::make(total, "")
   let mut succ_idx = total
   let mut fail_idx = 0
   let mut counter = 0
-  index_filtered_tests.iter().each(
+  filtered_tests.iter().each(
     fn(item) {
-      let filename = item.0
-      let tests = item.1
-      for i = 0; i < tests.length(); i = i + 1 {
-        filenames[counter] = filename
-        counter += 1
-        let (f, attrs) = tests[i]
-        let name = if attrs.is_empty() { "" } else { attrs[0] }
-        let name = if name.length() == 0 { i.to_string() } else { name }
-        try {
-          if startswith_panic(name) {
-            check_panic!(
-              f,
-              fn() { () },
-              fn() { raise Failure("panic is expected") },
-            )
-          } else {
-            f!()
-          }
-          succ_idx -= 1
-          test_names[succ_idx] = name
-        } catch {
-          Failure(e) | InspectError(e) => {
-            test_names[fail_idx] = name
-            messages[fail_idx] = e
-            fail_idx += 1
-          }
-          _ => {
-            test_names[fail_idx] = name
-            messages[fail_idx] = "unexpected error"
-            fail_idx += 1
-          }
+      let filename = item.meta.filename
+      filenames[counter] = filename
+      counter += 1
+      let attrs = item.meta.attrs
+      let name = if attrs.is_empty() { "" } else { attrs[0] }
+      let name = if name.length() == 0 {
+        item.meta.index.to_string()
+      } else {
+        name
+      }
+      try {
+        let f = match item.f {
+          TestDriver__F::F0(f) => f
+          TestDriver__F::F1(f) =>
+            fn() {
+              let it : @moonbitlang/core/test.T = {
+                name,
+                buffer: Buffer::new(),
+              }
+              f!(it)
+            }
+        }
+        if startswith_panic(name) {
+          check_panic!(
+            f,
+            fn() { () },
+            fn() { raise Failure("panic is expected") },
+          )
+        } else {
+          f!()
+        }
+        succ_idx -= 1
+        test_names[succ_idx] = name
+      } catch {
+        Failure(e) | InspectError(e) => {
+          test_names[fail_idx] = name
+          messages[fail_idx] = e
+          fail_idx += 1
+        }
+        _ => {
+          test_names[fail_idx] = name
+          messages[fail_idx] = "unexpected error"
+          fail_idx += 1
         }
       }
     },

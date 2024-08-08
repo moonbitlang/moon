@@ -205,7 +205,12 @@ fn generate_driver(
         }
     };
     test_driver_template
-        .replace("let tests = {  } // WILL BE REPLACED", data)
+        .replace(
+            "let tests = {  } // WILL BE REPLACED\n  \
+        let no_args_tests = {  } // WILL BE REPLACED\n  \
+        let with_args_tests = {  } // WILL BE REPLACED\n",
+            data,
+        )
         .replace("{PACKAGE}", pkgname)
         .replace(
             "let file_filter : String? = None // WILL BE REPLACED",
