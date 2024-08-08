@@ -276,12 +276,14 @@ fn run_test_internal(
                 }
             }
 
-            let (artifact_opt, map) = &mut current_pkg_test_info[index];
-            if artifact_opt.is_none() {
-                *artifact_opt = Some(artifact_path.clone());
+            if test_block_nums_in_current_file > 0 {
+                let (artifact_opt, map) = &mut current_pkg_test_info[index];
+                if artifact_opt.is_none() {
+                    *artifact_opt = Some(artifact_path.clone());
+                }
+                let test_block_count = map.entry(filename.into()).or_insert(0);
+                *test_block_count += test_block_nums_in_current_file;
             }
-            let test_block_count = map.entry(filename.into()).or_insert(0);
-            *test_block_count += test_block_nums_in_current_file;
         }
     }
 
@@ -361,17 +363,32 @@ fn do_run_test(
     //     }
     // }?;
 
-    let test_res = entry::run_test(moonc_opt, moonbuild_opt, build_only, verbose, auto_update, module)?;
+    let test_res = entry::run_test(
+        moonc_opt,
+        moonbuild_opt,
+        build_only,
+        verbose,
+        auto_update,
+        module,
+    )?;
     let total = test_res.len();
     let passed = test_res.iter().filter(|r| r.is_ok()).count();
+    // test_res.iter().filter(|r| r.is_err()).for_each(|r| {
+    //     if let Err(e) = r {
+    //         println!("{}", e.to_string().red());
+    //     }
+    // });
     let failed = total - passed;
-    println!("Total tests: {}, passed: {}, failed: {}.", total.to_string().blue(), passed.to_string().green(), failed.to_string().red());
+    println!(
+        "Total tests: {}, passed: {}, failed: {}.",
+        total.to_string().blue(),
+        passed.to_string().green(),
+        failed.to_string().red()
+    );
 
     if passed == total {
         Ok(0)
-    }
-    else {
+    } else {
         bail!("Failed to run all tests");
     }
-
 }

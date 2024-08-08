@@ -42,7 +42,7 @@ pub fn load_moon_proj(
     gen::gen_runtest::gen_n2_runtest_state(&n2_input, moonc_opt, moonbuild_opt)
 }
 
-#[derive(Debug, Serialize, Deserialize, Default)]
+#[derive(Debug, Serialize, Deserialize, Default, Clone)]
 pub struct TestStatistics {
     pub package: String,
     pub filename: String,
@@ -63,37 +63,36 @@ impl std::fmt::Display for TestStatistics {
 pub async fn run_wat(
     path: &Path,
     target_dir: &Path,
-    file_name: &str,
-    index: u32,
-) -> anyhow::Result<TestStatistics, TestFailedStatus> {
-    run("moonrun", path, target_dir, file_name, index).await
+    args: &[String],
+) -> anyhow::Result<Vec<Result<TestStatistics, TestFailedStatus>>> {
+    run("mmr", path, target_dir, args).await
 }
 
 pub async fn run_js(
     path: &Path,
     target_dir: &Path,
-    file_name: &str,
-    index: u32,
-) -> anyhow::Result<TestStatistics, TestFailedStatus> {
-    run("node", path, target_dir, file_name, index).await
+    args: &[String],
+) -> anyhow::Result<Vec<Result<TestStatistics, TestFailedStatus>>> {
+    run("node", path, target_dir, args).await
 }
 
 async fn run(
     command: &str,
     path: &Path,
     target_dir: &Path,
-    file_name: &str,
-    index: u32,
-) -> anyhow::Result<TestStatistics, TestFailedStatus> {
+    args: &[String],
+) -> anyhow::Result<Vec<Result<TestStatistics, TestFailedStatus>>> {
     let mut execution = tokio::process::Command::new(command)
         .arg(path)
-        .args(["--", file_name, &format!("{index}")])
+        .args(args)
+        .arg("--test")
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
-        .stderr(Stdio::inherit())
+        .stderr(Stdio::piped())
         .spawn()
         .with_context(|| format!("failed to execute '{} {}'", command, path.display()))?;
     let mut stdout = execution.stdout.take().unwrap();
+    let mut stderr = execution.stderr.take().unwrap();
 
     let mut test_capture =
         SectionCapture::new(MOON_TEST_DELIMITER_BEGIN, MOON_TEST_DELIMITER_END, false);
@@ -103,40 +102,72 @@ async fn run(
         true,
     );
 
-    let mut buffer = Vec::new();
-    stdout.read_to_end(&mut buffer).await.context(format!(
+    let mut stdout_buffer = Vec::new();
+    stdout.read_to_end(&mut stdout_buffer).await.context(format!(
         "failed to read stdout for {} {}",
         command,
         path.display()
     ))?;
 
+    let mut stderr_buffer = Vec::new();
+    stderr.read_to_end(&mut stderr_buffer).await.context(format!(
+        "failed to read stdout for {} {}",
+        command,
+        path.display()
+    ))?;
+
+    // let s = String::from_utf8_lossy(&stdout_buffer).to_string();
+    // s.split("----- END MOON TEST RESULT -----")
+    // .for_each(|it| {
+    //     println!("it: {}", it);
+    // });
+
     handle_stdout(
-        &mut std::io::BufReader::new(buffer.as_slice()),
+        &mut std::io::BufReader::new(stdout_buffer.as_slice()),
         &mut [&mut test_capture, &mut coverage_capture],
         |line| print!("{}", line),
     )?;
     let output = execution.wait().await?;
 
     if !output.success() {
-        return Err(TestFailedStatus::RuntimeError(TestStatistics::default()))
+        println!("exec failed");
+        // return Err(TestFailedStatus::RuntimeError(TestStatistics::default()))
     }
+
+    let mut res = vec![];
 
     if let Some(test_output) = test_capture.finish() {
-        let test_statistic: TestStatistics = serde_json_lenient::from_str(test_output.trim())
-            .context(format!("failed to parse test summary: {}", test_output))?;
-        // println!("test_statistic: {:?}", test_statistic);
-
-        let return_message = &test_statistic.message;
-        if return_message.starts_with(EXPECT_FAILED) {
-            return Err(TestFailedStatus::ExpectTestFailed(test_statistic));
-        } else if return_message.starts_with(FAILED) {
-            return Err(TestFailedStatus::Failed(test_statistic));
+        let mut test_statistics: Vec<TestStatistics> = vec![];
+        for s in test_output.split('\n') {
+            if s == "" {
+                continue;
+            }
+            let a = serde_json_lenient::from_str(s.trim())
+                .context(format!("failed to parse test summary: {}", s))?;
+            test_statistics.push(a);
         }
 
-        return Ok(test_statistic);
+        for test_statistic in test_statistics {
+            let return_message = &test_statistic.message;
+            if return_message.starts_with(EXPECT_FAILED) {
+                res.push(Err(TestFailedStatus::ExpectTestFailed(test_statistic)));
+            } else if return_message.starts_with(FAILED) {
+                res.push(Err(TestFailedStatus::Failed(test_statistic)));
+            } else {
+                res.push(Ok(test_statistic));
+            }
+        }
     } else {
-        return Err(TestFailedStatus::Others(anyhow!("No test output found")));
+        let s = String::from_utf8_lossy(&stdout_buffer).to_string();
+        println!("stdout: {}", s);
+        let s = String::from_utf8_lossy(&stderr_buffer).to_string();
+        println!("stderr: {}", s);
+        res.push(Err(TestFailedStatus::Others(anyhow!(
+            "No test output found"
+        ))));
     }
+
+    Ok(res)
 
     // if output.success() {
     //     Ok(0)

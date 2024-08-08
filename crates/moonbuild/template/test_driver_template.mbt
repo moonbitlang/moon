@@ -76,7 +76,7 @@ fn main {
   let message = repr(messages)
   println("{begin_moontest}")
   println(
-    "{\"package\": \"{package}\", \"filename\": \(filename), \"test_name\": \(test_name), \"message\": \(message)}",
+    "{\"package\": \"{package}\", \"filename\": \{filename}, \"test_name\": \{test_name}, \"message\": \{message}}",
   )
   println("{end_moontest}")
 }

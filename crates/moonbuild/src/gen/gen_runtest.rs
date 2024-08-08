@@ -574,15 +574,17 @@ pub fn gen_runtest<'a>(
             }
         }
 
-        for item in pkg.generated_test_drivers.iter() {
-            if let GeneratedTestDriver::InternalTest(it) = item {
-                build_items.push(gen_package_internal_test(m, pkg, moonc_opt)?);
-                link_items.push(gen_link_internal_test(m, pkg, moonc_opt)?);
-                driver_files.push(it.as_path());
+        if m.test_info.get(pkgname).unwrap()[2].0.is_some() {
+            for item in pkg.generated_test_drivers.iter() {
+                if let GeneratedTestDriver::InternalTest(it) = item {
+                    build_items.push(gen_package_internal_test(m, pkg, moonc_opt)?);
+                    link_items.push(gen_link_internal_test(m, pkg, moonc_opt)?);
+                    driver_files.push(it.as_path());
+                }
             }
         }
 
-        if !pkg.wbtest_files.is_empty() {
+        if m.test_info.get(pkgname).unwrap()[1].0.is_some() {
             for item in pkg.generated_test_drivers.iter() {
                 if let GeneratedTestDriver::WhiteboxTest(it) = item {
                     build_items.push(gen_package_whitebox_test(m, pkg, moonc_opt)?);
@@ -592,7 +594,7 @@ pub fn gen_runtest<'a>(
             }
         }
 
-        if !pkg.test_files.is_empty() {
+        if m.test_info.get(pkgname).unwrap()[0].0.is_some() {
             for item in pkg.generated_test_drivers.iter() {
                 if let GeneratedTestDriver::BlackboxTest(it) = item {
                     build_items.push(gen_package_blackbox_test(m, pkg, moonc_opt)?);

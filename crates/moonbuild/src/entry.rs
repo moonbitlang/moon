@@ -398,152 +398,176 @@ pub fn run_test(
                     range = 0..(*test_count);
                 }
 
-                for index in range {
-                    handlers.push(async move {
-                        // println!("----------------");
-                        // todo: use tokio::time::timeout to limit the running time
-                        let result = trace::scope("test", || async {
-                            match moonc_opt.link_opt.target_backend {
-                                TargetBackend::Wasm | TargetBackend::WasmGC => {
-                                    crate::runtest::run_wat(
-                                        artifact_path,
-                                        target_dir,
-                                        file_name,
-                                        index,
-                                    )
-                                    .await
-                                }
-                                TargetBackend::Js => {
-                                    crate::runtest::run_js(
-                                        artifact_path,
-                                        target_dir,
-                                        file_name,
-                                        index,
-                                    )
-                                    .await
-                                }
-                            }
-                        })
-                        .await;
-
-                        match result {
-                            Err(TestFailedStatus::RuntimeError(_)) => {
-                                println!(
-                                    "{}: {}::{}::test#{}",
-                                    "failed".red(),
-                                    pkgname,
-                                    file_name,
-                                    index
-                                );
-                            }
-                            Err(TestFailedStatus::ExpectTestFailed(ref etf)) => {
-                                if auto_update {
-                                    println!(
-                                        "\n{}\n",
-                                        "Auto updating expect tests and retesting ...".bold()
-                                    );
-
-                                    if let Err(e) =
-                                        crate::expect::apply_expect(&[etf.message.clone()])
-                                    {
-                                        eprintln!("{}: {:?}", "failed".red().bold(), e);
-                                    }
-                                    {
-                                        // recomplie after apply expect
-                                        let state = crate::runtest::load_moon_proj(
-                                            module,
-                                            moonc_opt,
-                                            moonbuild_opt,
-                                        )?;
-                                        n2_run_interface(state, moonbuild_opt)?;
-                                    }
-                                    let mut cur_res = trace::scope("test", || async {
-                                        match moonc_opt.link_opt.target_backend {
-                                            TargetBackend::Wasm | TargetBackend::WasmGC => {
-                                                crate::runtest::run_wat(
-                                                    artifact_path,
-                                                    target_dir,
-                                                    file_name,
-                                                    index,
-                                                )
-                                                .await
-                                            }
-                                            TargetBackend::Js => {
-                                                crate::runtest::run_js(
-                                                    artifact_path,
-                                                    target_dir,
-                                                    file_name,
-                                                    index,
-                                                )
-                                                .await
-                                            }
-                                        }
-                                    })
-                                    .await;
-
-                                    let mut cnt = 1;
-                                    let limit =
-                                        moonbuild_opt.test_opt.as_ref().map(|it| it.limit).unwrap();
-                                    while let Err(TestFailedStatus::ExpectTestFailed(etf)) = cur_res
-                                    {
-                                        if let Err(e) =
-                                            crate::expect::apply_expect(&[etf.message.clone()])
-                                        {
-                                            eprintln!("{}: {:?}", "failed".red().bold(), e);
-                                        }
-
-                                        {
-                                            // recomplie after apply expect
-                                            let state = crate::runtest::load_moon_proj(
-                                                module,
-                                                moonc_opt,
-                                                moonbuild_opt,
-                                            )?;
-                                            n2_run_interface(state, moonbuild_opt)?;
-                                        }
-
-                                        cur_res = trace::scope("test", || async {
-                                            match moonc_opt.link_opt.target_backend {
-                                                TargetBackend::Wasm | TargetBackend::WasmGC => {
-                                                    crate::runtest::run_wat(
-                                                        artifact_path,
-                                                        target_dir,
-                                                        file_name,
-                                                        index,
-                                                    )
-                                                    .await
-                                                }
-                                                TargetBackend::Js => {
-                                                    crate::runtest::run_js(
-                                                        artifact_path,
-                                                        target_dir,
-                                                        file_name,
-                                                        index,
-                                                    )
-                                                    .await
-                                                }
-                                            }
-                                        })
-                                        .await;
-
-                                        cnt += 1;
-                                        if cnt >= limit {
-                                            break;
-                                        }
-                                    }
-                                    return cur_res;
-                                }
-                            }
-                            Err(ref e) => {
-                                println!("{}: {}", "failed".red(), e);
-                            }
-                            _ => {}
-                        }
-                        // println!("+++++++++++++");
-                        result
-                    }
-                );
+                let mut args = vec![];
+                for index in range.clone() {
+                    args.push(file_name.clone());
+                    args.push(index.to_string());
                 }
+
+                handlers.push(async move {
+                    let result = trace::scope("test", || async {
+                        crate::runtest::run_wat(
+                            artifact_path,
+                            target_dir,
+                            &args
+                        )
+                        .await
+                    })
+                    .await;
+                    result
+                });
+
+                {
+
+                // for index in range {
+                //     handlers.push(async move {
+                //         // println!("----------------");
+                //         // todo: use tokio::time::timeout to limit the running time
+                //         let result = trace::scope("test", || async {
+                //             match moonc_opt.link_opt.target_backend {
+                //                 TargetBackend::Wasm | TargetBackend::WasmGC => {
+                //                     crate::runtest::run_wat(
+                //                         artifact_path,
+                //                         target_dir,
+                //                         file_name,
+                //                         index,
+                //                     )
+                //                     .await
+                //                 }
+                //                 TargetBackend::Js => {
+                //                     crate::runtest::run_js(
+                //                         artifact_path,
+                //                         target_dir,
+                //                         file_name,
+                //                         index,
+                //                     )
+                //                     .await
+                //                 }
+                //             }
+                //         })
+                //         .await;
+
+                //         match result {
+                //             Err(TestFailedStatus::RuntimeError(_)) => {
+                //                 println!(
+                //                     "{}: {}::{}::test#{}",
+                //                     "failed".red(),
+                //                     pkgname,
+                //                     file_name,
+                //                     index
+                //                 );
+                //             }
+                //             Err(TestFailedStatus::ExpectTestFailed(ref etf)) => {
+                //                 if auto_update {
+                //                     println!(
+                //                         "\n{}\n",
+                //                         "Auto updating expect tests and retesting ...".bold()
+                //                     );
+
+                //                     if let Err(e) =
+                //                         crate::expect::apply_expect(&[etf.message.clone()])
+                //                     {
+                //                         eprintln!("{}: {:?}", "failed".red().bold(), e);
+                //                     }
+                //                     {
+                //                         // recomplie after apply expect
+                //                         let state = crate::runtest::load_moon_proj(
+                //                             module,
+                //                             moonc_opt,
+                //                             moonbuild_opt,
+                //                         )?;
+                //                         n2_run_interface(state, moonbuild_opt)?;
+                //                     }
+                //                     let mut cur_res = trace::scope("test", || async {
+                //                         match moonc_opt.link_opt.target_backend {
+                //                             TargetBackend::Wasm | TargetBackend::WasmGC => {
+                //                                 crate::runtest::run_wat(
+                //                                     artifact_path,
+                //                                     target_dir,
+                //                                     file_name,
+                //                                     index,
+                //                                 )
+                //                                 .await
+                //                             }
+                //                             TargetBackend::Js => {
+                //                                 crate::runtest::run_js(
+                //                                     artifact_path,
+                //                                     target_dir,
+                //                                     file_name,
+                //                                     index,
+                //                                 )
+                //                                 .await
+                //                             }
+                //                         }
+                //                     })
+                //                     .await;
+
+                //                     let mut cnt = 1;
+                //                     let limit =
+                //                         moonbuild_opt.test_opt.as_ref().map(|it| it.limit).unwrap();
+                //                     while let Err(TestFailedStatus::ExpectTestFailed(etf)) = cur_res
+                //                     {
+                //                         if let Err(e) =
+                //                             crate::expect::apply_expect(&[etf.message.clone()])
+                //                         {
+                //                             eprintln!("{}: {:?}", "failed".red().bold(), e);
+                //                         }
+
+                //                         {
+                //                             // recomplie after apply expect
+                //                             let state = crate::runtest::load_moon_proj(
+                //                                 module,
+                //                                 moonc_opt,
+                //                                 moonbuild_opt,
+                //                             )?;
+                //                             n2_run_interface(state, moonbuild_opt)?;
+                //                         }
+
+                //                         cur_res = trace::scope("test", || async {
+                //                             match moonc_opt.link_opt.target_backend {
+                //                                 TargetBackend::Wasm | TargetBackend::WasmGC => {
+                //                                     crate::runtest::run_wat(
+                //                                         artifact_path,
+                //                                         target_dir,
+                //                                         file_name,
+                //                                         index,
+                //                                     )
+                //                                     .await
+                //                                 }
+                //                                 TargetBackend::Js => {
+                //                                     crate::runtest::run_js(
+                //                                         artifact_path,
+                //                                         target_dir,
+                //                                         file_name,
+                //                                         index,
+                //                                     )
+                //                                     .await
+                //                                 }
+                //                             }
+                //                         })
+                //                         .await;
+
+                //                         cnt += 1;
+                //                         if cnt >= limit {
+                //                             break;
+                //                         }
+                //                     }
+                //                     return cur_res;
+                //                 }
+                //             }
+                //             Err(ref e) => {
+                //                 println!("{}: {}", "failed".red(), e);
+                //             }
+                //             _ => {}
+                //         }
+                //         // println!("+++++++++++++");
+                //         result
+                //     }
+                // );
+                // }
+            
+                }
+
             }
         }
     }
@@ -645,8 +669,13 @@ pub fn run_test(
         runtime.block_on(futures::future::join_all(handlers))
     };
 
+    let mut r = vec![];
+    for item in res {
+        r.extend(item?.into_iter());
+    }
+
     // dbg!(res);
-    Ok(res)
+    Ok(r)
 
     // let test_result = TestResult {
     //     passed: passed.load(Ordering::SeqCst),
