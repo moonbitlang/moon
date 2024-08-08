@@ -4624,6 +4624,40 @@ fn test_blackbox_failed() {
 }
 
 #[test]
+fn test_blackbox_test_core_override() {
+    let dir = TestDir::new("blackbox_test_core_override.in");
+    let output =
+        get_stdout_with_args_and_replace_dir(&dir, ["test", "--enable-coverage", "--dry-run"]);
+
+    let mut found = false;
+    for line in output.lines() {
+        // For the command compiling builtin's blackbox tests,
+        if line.contains("moonc build-package") && line.contains("builtin_blackbox_test") {
+            found = true;
+            // it should have the -enable-coverage flag
+            assert!(
+                line.contains("-enable-coverage"),
+                "No -enable-coverage flag found in the command: {}",
+                line
+            );
+            // and -coverage-package-override to the original package
+            assert!(
+                line.contains("-coverage-package-override=moonbitlang/core/builtin"),
+                "No -coverage-package-override=moonbitlang/core/builtin found in the command: {}",
+                line
+            );
+            // and should not contain -coverage-package-override to itself
+            assert!(
+                !line.contains("-coverage-package-override=@self"),
+                "Unexpected -coverage-package-override=@self found in the command: {}",
+                line
+            );
+        }
+    }
+    assert!(found, "builtin's blackbox tests not found in the output");
+}
+
+#[test]
 fn test_blackbox_dedup_alias() {
     std::env::set_var("RUST_BACKTRACE", "0");
     let dir = TestDir::new("blackbox_test_dedup_alias.in");
