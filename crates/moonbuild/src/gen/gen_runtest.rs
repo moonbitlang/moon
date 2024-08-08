@@ -661,12 +661,12 @@ pub fn gen_runtest_build_command(
         && !super::is_skip_coverage_lib(&item.package_full_name)
         && !item.is_third_party;
     // WORKAROUND: lang core/builtin and core/coverage should be able to cover themselves
-    let self_coverage = enable_coverage
-        && super::is_self_coverage_lib(
-            item.original_package_full_name
-                .as_ref()
-                .unwrap_or(&item.package_full_name),
-        );
+    let self_coverage = enable_coverage && super::is_self_coverage_lib(&item.package_full_name);
+    let original_package_self_coverage = enable_coverage
+        && item
+            .original_package_full_name
+            .as_ref()
+            .map_or(false, |name| super::is_self_coverage_lib(name));
 
     let mut build = Build::new(loc, ins, outs);
 
@@ -710,8 +710,15 @@ pub fn gen_runtest_build_command(
         ))
         .args(["-target", moonc_opt.build_opt.target_backend.to_flag()])
         .arg_with_cond(moonc_opt.build_opt.debug_flag, "-g")
+        // Coverage arg
         .arg_with_cond(enable_coverage, "-enable-coverage")
         .arg_with_cond(self_coverage, "-coverage-package-override=@self")
+        .lazy_args_with_cond(original_package_self_coverage, || {
+            vec![format!(
+                "-coverage-package-override={}",
+                item.original_package_full_name.as_ref().unwrap()
+            )]
+        })
         .args(moonc_opt.extra_build_opt.iter())
         .build();
     log::debug!("Command: {}", command);
