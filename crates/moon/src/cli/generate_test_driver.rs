@@ -193,35 +193,68 @@ fn generate_driver(
     file_filter: Option<&str>,
     index_filter: Option<u32>,
 ) -> String {
-    let test_driver_template = {
-        let template = include_str!(concat!(
-            env!("CARGO_MANIFEST_DIR"),
-            "/../moonbuild/template/test_driver_template.mbt"
-        ));
-        if pkgname.starts_with(MOONBITLANG_CORE) {
-            template.replace(&format!("@{}/builtin.", MOONBITLANG_CORE), "")
-        } else {
-            template.to_string()
-        }
-    };
-    test_driver_template
-        .replace(
-            "let tests = {  } // WILL BE REPLACED\n  \
+    let index = data.find("  let with_args_tests =").unwrap_or(data.len());
+    let only_no_arg_tests = !data[index..].contains("__test_");
+    if only_no_arg_tests {
+        let test_driver_template = {
+            let template = include_str!(concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/../moonbuild/template/test_driver_template2.mbt"
+            ));
+            if pkgname.starts_with(MOONBITLANG_CORE) {
+                template.replace(&format!("@{}/builtin.", MOONBITLANG_CORE), "")
+            } else {
+                template.to_string()
+            }
+        };
+        test_driver_template
+            .replace(
+                "let tests = {  } // WILL BE REPLACED\n  \
+        let no_args_tests = {  } // WILL BE REPLACED\n",
+                &data[0..index],
+            )
+            .replace("{PACKAGE}", pkgname)
+            .replace(
+                "let file_filter : String? = None // WILL BE REPLACED",
+                &format!("let file_filter : String? = {:?}", file_filter),
+            )
+            .replace(
+                "let index_filter : Int? = None // WILL BE REPLACED",
+                &format!("let index_filter : Int? = {:?}", index_filter),
+            )
+            .replace("{BEGIN_MOONTEST}", MOON_TEST_DELIMITER_BEGIN)
+            .replace("{END_MOONTEST}", MOON_TEST_DELIMITER_END)
+    } else {
+        let test_driver_template = {
+            let template = include_str!(concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/../moonbuild/template/test_driver_template.mbt"
+            ));
+            if pkgname.starts_with(MOONBITLANG_CORE) {
+                template.replace(&format!("@{}/builtin.", MOONBITLANG_CORE), "")
+            } else {
+                template.to_string()
+            }
+        };
+        test_driver_template
+            .replace(
+                "let tests = {  } // WILL BE REPLACED\n  \
         let no_args_tests = {  } // WILL BE REPLACED\n  \
         let with_args_tests = {  } // WILL BE REPLACED\n",
-            data,
-        )
-        .replace("{PACKAGE}", pkgname)
-        .replace(
-            "let file_filter : String? = None // WILL BE REPLACED",
-            &format!("let file_filter : String? = {:?}", file_filter),
-        )
-        .replace(
-            "let index_filter : Int? = None // WILL BE REPLACED",
-            &format!("let index_filter : Int? = {:?}", index_filter),
-        )
-        .replace("{BEGIN_MOONTEST}", MOON_TEST_DELIMITER_BEGIN)
-        .replace("{END_MOONTEST}", MOON_TEST_DELIMITER_END)
+                data,
+            )
+            .replace("{PACKAGE}", pkgname)
+            .replace(
+                "let file_filter : String? = None // WILL BE REPLACED",
+                &format!("let file_filter : String? = {:?}", file_filter),
+            )
+            .replace(
+                "let index_filter : Int? = None // WILL BE REPLACED",
+                &format!("let index_filter : Int? = {:?}", index_filter),
+            )
+            .replace("{BEGIN_MOONTEST}", MOON_TEST_DELIMITER_BEGIN)
+            .replace("{END_MOONTEST}", MOON_TEST_DELIMITER_END)
+    }
 }
 
 #[test]
