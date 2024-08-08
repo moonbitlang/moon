@@ -177,17 +177,27 @@ fn main {
               f!(it)
             }
         }
-        if startswith_panic(name) {
-          check_panic!(
-            f,
-            fn() { () },
-            fn() { raise Failure("panic is expected") },
-          )
-        } else {
-          f!()
-        }
-        succ_idx -= 1
-        test_names[succ_idx] = name
+        check_panic!(
+          f,
+          // will be called when panic happens
+          fn() {
+            // if panic is expected, treat it as success
+            if startswith_panic(name) {
+              succ_idx -= 1
+              test_names[succ_idx] = name
+              // if panic is not expected, treat it as failure
+            } else {
+              test_names[fail_idx] = name
+              messages[fail_idx] = "runtime error"
+              fail_idx += 1
+            }
+          },
+          // will be called when panic does not happen
+          fn() {
+            succ_idx -= 1
+            test_names[succ_idx] = name
+          },
+        )
       } catch {
         Failure(e) | InspectError(e) => {
           test_names[fail_idx] = name
