@@ -4624,6 +4624,51 @@ fn test_blackbox_failed() {
 }
 
 #[test]
+fn test_blackbox_test_core_override() {
+    let dir = TestDir::new("blackbox_test_core_override.in");
+    let output =
+        get_stdout_with_args_and_replace_dir(&dir, ["test", "--enable-coverage", "--dry-run"]);
+    check(
+        &output,
+        expect![[r#"
+        moon generate-test-driver --source-dir . --target-dir ./target/wasm-gc/debug/test --target wasm-gc
+        moonc build-package ./builtin/main.mbt -o ./target/wasm-gc/debug/test/builtin/builtin.core -pkg moonbitlang/core/builtin -pkg-sources moonbitlang/core/builtin:./builtin -target wasm-gc -g -enable-coverage -coverage-package-override=@self
+        moonc build-package ./builtin/main_test.mbt ./target/wasm-gc/debug/test/builtin/__generated_driver_for_blackbox_test.mbt -o ./target/wasm-gc/debug/test/builtin/builtin.blackbox_test.core -pkg moonbitlang/core/builtin_blackbox_test -is-main -i ./target/wasm-gc/debug/test/builtin/builtin.mi:builtin -pkg-sources moonbitlang/core/builtin_blackbox_test:./builtin -target wasm-gc -g -enable-coverage -coverage-package-override=moonbitlang/core/builtin
+        moonc link-core ./target/wasm-gc/debug/test/builtin/builtin.core ./target/wasm-gc/debug/test/builtin/builtin.blackbox_test.core -main moonbitlang/core/builtin -o ./target/wasm-gc/debug/test/builtin/builtin.blackbox_test.wasm -test-mode -pkg-sources moonbitlang/core/builtin:./builtin -target wasm-gc -g
+        moonc build-package ./builtin/main.mbt ./target/wasm-gc/debug/test/builtin/__generated_driver_for_internal_test.mbt -o ./target/wasm-gc/debug/test/builtin/builtin.internal_test.core -pkg moonbitlang/core/builtin -is-main -pkg-sources moonbitlang/core/builtin:./builtin -target wasm-gc -g -enable-coverage -coverage-package-override=@self
+        moonc link-core ./target/wasm-gc/debug/test/builtin/builtin.internal_test.core -main moonbitlang/core/builtin -o ./target/wasm-gc/debug/test/builtin/builtin.internal_test.wasm -test-mode -pkg-sources moonbitlang/core/builtin:./builtin -target wasm-gc -g
+    "#]],
+    );
+
+    let mut found = false;
+    for line in output.lines() {
+        // For the command compiling builtin's blackbox tests,
+        if line.contains("moonc build-package") && line.contains("builtin_blackbox_test") {
+            found = true;
+            // it should have the -enable-coverage flag
+            assert!(
+                line.contains("-enable-coverage"),
+                "No -enable-coverage flag found in the command: {}",
+                line
+            );
+            // and -coverage-package-override to the original package
+            assert!(
+                line.contains("-coverage-package-override=moonbitlang/core/builtin"),
+                "No -coverage-package-override=moonbitlang/core/builtin found in the command: {}",
+                line
+            );
+            // and should not contain -coverage-package-override to itself
+            assert!(
+                !line.contains("-coverage-package-override=@self"),
+                "Unexpected -coverage-package-override=@self found in the command: {}",
+                line
+            );
+        }
+    }
+    assert!(found, "builtin's blackbox tests not found in the output");
+}
+
+#[test]
 fn test_blackbox_dedup_alias() {
     std::env::set_var("RUST_BACKTRACE", "0");
     let dir = TestDir::new("blackbox_test_dedup_alias.in");
