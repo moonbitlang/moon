@@ -3294,6 +3294,19 @@ fn test_alert_list() {
 }
 
 #[test]
+fn test_mod_level_warn_alert_list() {
+    let dir = TestDir::new("mod_level_warn&alert_list.in");
+
+    check(
+        &get_stdout_with_args_and_replace_dir(&dir, ["check", "--dry-run"]),
+        expect![[r#"
+            moonc check ./lib/hello.mbt -w -1 -alert -alert_1 -o ./target/wasm-gc/release/check/lib/lib.mi -pkg username/hello/lib -std-path $MOON_HOME/lib/core/target/wasm-gc/release/bundle -pkg-sources username/hello/lib:./lib -target wasm-gc
+            moonc check ./main/main.mbt -w -1-2 -alert -alert_1-alert_2 -o ./target/wasm-gc/release/check/main/main.mi -pkg username/hello/main -is-main -std-path $MOON_HOME/lib/core/target/wasm-gc/release/bundle -i ./target/wasm-gc/release/check/lib/lib.mi:lib -pkg-sources username/hello/main:./main -target wasm-gc
+        "#]],
+    );
+}
+
+#[test]
 fn test_no_work_to_do() {
     let dir = TestDir::new("moon_new.in");
     let out = get_stdout_with_args_and_replace_dir(&dir, ["check"]);
