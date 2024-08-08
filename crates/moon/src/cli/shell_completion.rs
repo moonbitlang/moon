@@ -24,14 +24,21 @@ use std::io;
 
 /// Generate shell completion for bash/elvish/fish/pwsh/zsh to stdout
 #[derive(Debug, clap::Parser)]
-#[clap(after_help = r"
+#[clap(after_help = r#"
 Discussion:
-    Enable tab completion for Bash, Fish, Zsh, or PowerShell
+    Enable tab completion for Bash, Elvish, Fish, Zsh, or PowerShell
     The script is output on `stdout`, allowing one to re-direct the
     output to the file of their choosing. Where you place the file
     will depend on which shell, and which operating system you are
     using. Your particular configuration may also determine where
     these scripts need to be placed.
+
+    The completion scripts won't update itself, so you may need to
+    periodically run this command to get the latest completions.
+    Or you may put `eval "$(moon shell-completion --shell <SHELL>)"`
+    in your shell's rc file to always load newest completions on startup.
+    Although it's considered not as efficient as having the completions
+    script installed.
 
     Here are some common set ups for the three supported shells under
     Unix and similar operating systems (such as GNU/Linux).
@@ -68,6 +75,22 @@ Discussion:
     This installs the completion script. You may have to log out and
     log back in to your shell session for the changes to take effect.
 
+    Elvish:
+
+    Elvish completions are commonly stored in a single `completers` module.
+    A typical module search path is `~/.config/elvish/lib`, and
+    running the command:
+
+        $ moon shell-completion --shell elvish >> ~/.config/elvish/lib/completers.elv
+    
+    will install the completions script. Note that use `>>` (append) 
+    instead of `>` (overwrite) to prevent overwriting the existing completions 
+    for other commands. Then prepend your rc.elv with:
+
+        `use completers`
+    
+    to load the `completers` module and enable completions.
+
     Zsh:
 
     ZSH completions are commonly stored in any directory listed in
@@ -92,9 +115,9 @@ Discussion:
 
         $ moon shell-completion --shell zsh > ~/.zfunc/_moon
 
-    You must then either log out and log back in, or simply run
+    You must then open a new zsh session, or simply run
 
-        $ exec zsh
+        $ . ~/.zshrc
 
     for the new completions to take effect.
 
@@ -131,8 +154,8 @@ Discussion:
         PS C:\> moon shell-completion --shell powershell >>
         ${env:USERPROFILE}\Documents\WindowsPowerShell\Microsoft.PowerShell_profile.ps1
 
-    This discussion is taken from `rustup completions` command.
-")]
+    This discussion is taken from `rustup completions` command with some changes.
+"#)]
 pub struct ShellCompSubCommand {
     /// The shell to generate completion for
     #[clap(value_enum, long, ignore_case = true, value_parser = clap::builder::EnumValueParser::<Shell>::new(), default_value_t = Shell::from_env().unwrap_or(Shell::Bash), value_name = "SHELL")]
