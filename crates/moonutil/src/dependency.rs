@@ -33,12 +33,17 @@ pub struct DependencyInfo {
     /// Local path to the dependency. Overrides the version requirement.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub path: Option<String>,
-    /// Git repository URL. Overrides the version requirement.
+
+    /// Git repository URL. Overrides the version requirement unless the dependency comes from a
+    /// registry.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub git: Option<String>,
     /// Git branch to use.
     #[serde(skip_serializing_if = "Option::is_none", rename = "branch")]
     pub git_branch: Option<String>,
+    /// Git revision to use.
+    #[serde(skip_serializing_if = "Option::is_none", rename = "revision")]
+    pub git_revision: Option<String>,
 }
 
 fn version_is_default(version: &VersionReq) -> bool {
@@ -70,7 +75,10 @@ pub enum DependencyInfoJson {
 impl DependencyInfo {
     /// Check if the requirement is simple. That is, it only contains a version requirement
     fn is_simple(&self) -> bool {
-        self.path.is_none() && self.git.is_none() && self.git_branch.is_none()
+        self.path.is_none()
+            && self.git.is_none()
+            && self.git_branch.is_none()
+            && self.git_revision.is_none()
     }
 
     #[allow(clippy::needless_update)] // More fields will be added later

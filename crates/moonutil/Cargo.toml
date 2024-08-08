@@ -43,6 +43,7 @@ ariadne.workspace = true
 env_logger.workspace = true
 log.workspace = true
 thiserror.workspace = true
+twox-hash.workspace = true
 
 [dev-dependencies]
 expect-test.workspace = true

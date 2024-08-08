@@ -26,7 +26,7 @@ use anyhow::anyhow;
 use moonutil::{
     dependency::DependencyInfo,
     module::MoonMod,
-    mooncakes::{ModuleName, ModuleSource, ModuleSourceKind},
+    mooncakes::{GitSource, ModuleName, ModuleSource, ModuleSourceKind},
     version::as_caret_comparator,
 };
 use semver::Version;
@@ -342,39 +342,11 @@ fn resolve_pkg(
 ) -> Result<(ModuleSource, Rc<MoonMod>), ResolverError> {
     if let Some(path) = &req.path {
         if local_dep_allowed(dependant) {
-            // Try resolving using local dependency
-            let root = root_path_of(dependant);
-            assert!(
-                root.is_absolute(),
-                "Root path of {} is not absolute! Got: {}",
-                dependant,
-                root.display()
-            );
-            let dep_path = root.join(path);
-            let dep_path =
-                dunce::canonicalize(dep_path).map_err(|err| ResolverError::Other(err.into()))?;
-            let res = env.resolve_local_module(&dep_path)?;
-            let ms = ModuleSource {
-                name: pkg_name.clone(),
-                version: res.version.clone().expect("Expected version in module"),
-                source: ModuleSourceKind::Local(dep_path),
-            };
-            // Assert version matches
-            if let Some(v) = &res.version {
-                if !req.version.matches(v) {
-                    return Err(ResolverError::LocalDepVersionMismatch(
-                        Box::new(ms),
-                        req.version.clone(),
-                    ));
-                }
-            }
-            return Ok((ms, res));
+            return resolve_pkg_local(dependant, path, env, pkg_name, req);
         }
     }
-    if let Some(_url) = &req.git {
-        if git_dep_allowed(dependant) {
-            // TODO: Try resolving using git dependency
-        }
+    if req.git.is_some() && git_dep_allowed(dependant) {
+        return resolve_pkg_git(req, env, pkg_name);
     }
     // If neither git nor local dependencies can be resolved (either because the user
     // didn't specify it at all, or because the repo comes from a registry), we fallback
@@ -392,6 +364,61 @@ fn resolve_pkg(
         source: ModuleSourceKind::Registry(None),
     };
     Ok((ms, module))
+}
+
+fn resolve_pkg_local(
+    dependant: &ModuleSource,
+    path: &String,
+    env: &mut ResolverEnv,
+    pkg_name: &ModuleName,
+    req: &DependencyInfo,
+) -> Result<(ModuleSource, Rc<MoonMod>), ResolverError> {
+    // Try resolving using local dependency
+    let root = root_path_of(dependant);
+    assert!(
+        root.is_absolute(),
+        "Root path of {} is not absolute! Got: {}",
+        dependant,
+        root.display()
+    );
+    let dep_path = root.join(path);
+    let dep_path = dunce::canonicalize(dep_path).map_err(|err| ResolverError::Other(err.into()))?;
+    let res = env.resolve_local_module(&dep_path)?;
+    let ms = ModuleSource {
+        name: pkg_name.clone(),
+        version: res.version.clone().expect("Expected version in module"),
+        source: ModuleSourceKind::Local(dep_path),
+    };
+    // Assert version matches
+    if let Some(v) = &res.version {
+        if !req.version.matches(v) {
+            return Err(ResolverError::LocalDepVersionMismatch(
+                Box::new(ms),
+                req.version.clone(),
+            ));
+        }
+    }
+
+    Ok((ms, res))
+}
+
+fn resolve_pkg_git(
+    info: &DependencyInfo,
+    env: &mut ResolverEnv,
+    pkg_name: &ModuleName,
+) -> Result<(ModuleSource, Rc<MoonMod>), ResolverError> {
+    let git_info = GitSource {
+        url: info.git.clone().unwrap(),
+        branch: info.git_branch.clone(),
+        revision: info.git_revision.clone(),
+    };
+    let res = env.resolve_git_module(&git_info, pkg_name)?;
+    let ms = ModuleSource {
+        name: pkg_name.clone(),
+        version: res.version.clone().expect("Expected version in module"),
+        source: ModuleSourceKind::Git(git_info),
+    };
+    Ok((ms, res))
 }
 
 #[cfg(test)]

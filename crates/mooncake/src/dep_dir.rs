@@ -265,9 +265,7 @@ fn map_source_to_dir(dep_dir: &DepDir, module: &ModuleSource) -> PathBuf {
             pkg_to_dir(dep_dir, &module.name.username, &module.name.pkgname)
         }
         ModuleSourceKind::Local(path) => path.clone(),
-        ModuleSourceKind::Git(url) => {
-            todo!("Git dependency is not yet supported. Got git url: {}", url)
-        }
+        ModuleSourceKind::Git(url) => crate::resolver::git::resolve(url).unwrap(),
     }
 }
 
