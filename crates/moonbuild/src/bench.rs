@@ -136,6 +136,9 @@ pub fn write(config: &Config, base_dir: &Path) {
         checksum: None,
         source: None,
         ext: Default::default(),
+
+        alert_list: None,
+        warn_list: None,
     };
     moonutil::common::write_module_json_to_file(&module, base_dir).unwrap();
     fs::create_dir_all(base_dir.join("main")).unwrap();

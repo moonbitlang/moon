@@ -476,6 +476,8 @@ mod test {
                 checksum: None,
                 source: None,
                 ext: Null,
+                warn_list: None,
+                alert_list: None,
             }
         "#]]
         .assert_debug_eq(module_info);
