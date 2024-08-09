@@ -51,7 +51,7 @@ Before you begin with this tutorial, make sure you have installed the following:
     -h, --help                     Print help
     ```
 
-2. **Moonbit Language** plugin in Visual Studio Code: You can install it from the VS Code marketplace. This plugin provides a rich development environment for MoonBit, including functionalities like syntax highlighting, code completion, and more.
+2. **MoonBit Language** plugin in Visual Studio Code: You can install it from the VS Code marketplace. This plugin provides a rich development environment for MoonBit, including functionalities like syntax highlighting, code completion, and more.
 
 Once you have these prerequisites fulfilled, let's start by creating a new MoonBit module.
 
