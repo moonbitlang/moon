@@ -25,7 +25,7 @@ use moonutil::{
         read_module_desc_file_in_dir, FileLock, MoonbuildOpt, MooncOpt, RunMode, MOONBITLANG_CORE,
         MOON_MOD_JSON,
     },
-    dirs::PackageDirs,
+    dirs::{mk_arch_mode_dir, PackageDirs},
     mooncakes::{sync::AutoSyncFlags, RegistryConfig},
 };
 
@@ -71,6 +71,12 @@ pub fn run_info(cli: UniversalFlags, cmd: InfoSubcommand) -> anyhow::Result<i32>
     })?;
     let module_name = &mod_desc.name;
     let mut moonc_opt = MooncOpt::default();
+    let target_dir = mk_arch_mode_dir(
+        source_dir.as_path(),
+        target_dir.as_path(),
+        &moonc_opt,
+        RunMode::Check,
+    )?;
     if module_name == MOONBITLANG_CORE {
         moonc_opt.nostd = true;
     }
