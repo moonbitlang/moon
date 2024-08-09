@@ -131,8 +131,8 @@ pub enum BoolOrLink {
 
 #[derive(Debug, Serialize, Deserialize, JsonSchema)]
 #[schemars(
-    title = "JSON schema for Moonbit moon.pkg.json files",
-    description = "A package of Moonbit lang"
+    title = "JSON schema for MoonBit moon.pkg.json files",
+    description = "A package of MoonBit language"
 )]
 pub struct MoonPkgJSON {
     #[serde(skip_serializing_if = "Option::is_none")]
