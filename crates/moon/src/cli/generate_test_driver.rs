@@ -195,6 +195,7 @@ fn generate_driver(
 ) -> String {
     let index = data.find("  let with_args_tests =").unwrap_or(data.len());
     let only_no_arg_tests = !data[index..].contains("__test_");
+    // TODO: need refactor
     if only_no_arg_tests {
         let test_driver_template = {
             let template = include_str!(concat!(
@@ -208,6 +209,7 @@ fn generate_driver(
             }
         };
         test_driver_template
+            .replace("// WILL BE REPLACED\r\n", "// WILL BE REPLACED\n")
             .replace(
                 "let tests = {  } // WILL BE REPLACED\n  \
         let no_args_tests = {  } // WILL BE REPLACED\n",
@@ -237,6 +239,7 @@ fn generate_driver(
             }
         };
         test_driver_template
+            .replace("// WILL BE REPLACED\r\n", "// WILL BE REPLACED\n")
             .replace(
                 "let tests = {  } // WILL BE REPLACED\n  \
         let no_args_tests = {  } // WILL BE REPLACED\n  \
