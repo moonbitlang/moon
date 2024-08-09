@@ -101,6 +101,9 @@ jobs:
           - windows-latest
     runs-on: ${{ matrix.os }}
     steps:
+      - name: Set ulimit -s
+        if: ${{ matrix.os != 'windows-latest' }}
+        run: ulimit -s 10
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@1.77.0
         with:
