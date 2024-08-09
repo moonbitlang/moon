@@ -1,0 +1,17 @@
+  $ pwd
+  ${WORK_DIR}
+  
+  $ xls
+  ${WORK_DIR}/exec.rs
+  ${WORK_DIR}/run.rs
+  ${WORK_DIR}/mod.rs
+  ${WORK_DIR}/parse.rs
+  ${WORK_DIR}/moon.test
+  $ xcat mod.rs
+  mod exec;
+  mod parse;
+  pub mod run;
+  
+  $ echo hello
+  hello
+

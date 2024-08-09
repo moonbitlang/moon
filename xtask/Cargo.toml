@@ -26,5 +26,10 @@ rust-version.workspace = true
 
 [dependencies]
 anyhow = "1.0.79"
-clap = { version = "4.4.12" }
-xshell = "0.2.5"
+clap = { version = "4.4.12", features = ["derive"] }
+dissimilar.workspace = true
+dunce.workspace = true
+snapbox = "0.4.15"
+tempfile.workspace = true
+walkdir.workspace = true
+home.workspace = true

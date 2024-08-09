@@ -16,36 +16,6 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
-use clap;
-use clap::Parser;
-use std::path::PathBuf;
-
-mod cmdtest;
-
-#[derive(Debug, clap::Parser)]
-struct Cli {
-    #[clap(subcommand)]
-    pub subcommand: XSubcommands,
-}
-
-#[derive(Debug, clap::Parser)]
-enum XSubcommands {
-    #[command(name = "cmdtest")]
-    CmdTest(CmdTest),
-}
-
-#[derive(Debug, clap::Parser)]
-struct CmdTest {
-    file: PathBuf,
-
-    #[arg(short, long)]
-    update: bool,
-}
-
-fn main() {
-    let cli = Cli::parse();
-    let code = match cli.subcommand {
-        XSubcommands::CmdTest(t) => cmdtest::run::t(&t.file, t.update),
-    };
-    std::process::exit(code);
-}
+mod exec;
+mod parse;
+pub mod run;
