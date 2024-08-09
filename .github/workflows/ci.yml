@@ -89,6 +89,35 @@ jobs:
       - name: check for typos
         run: typos
 
+  mdbook-check:
+    name: mdBook Check
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+  
+      - name: Cache cargo registry
+        uses: actions/cache@v4
+        with:
+          path: ~/.cargo/registry
+          key: ${{ runner.os }}-cargo-registry-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-registry-
+  
+      - name: Cache cargo build
+        uses: actions/cache@v4
+        with:
+          path: target
+          key: ${{ runner.os }}-cargo-target-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-target-
+  
+      - name: Install mdBook
+        run: cargo install mdbook
+  
+      - name: Build and Check mdBook
+        run: mdbook build docs/manual
+
   test:
     needs: [typo-check, license-header-check]
     strategy:
