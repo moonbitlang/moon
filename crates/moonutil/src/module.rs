@@ -24,6 +24,7 @@ use crate::path::ImportPath;
 use anyhow::bail;
 use indexmap::map::IndexMap;
 use petgraph::graph::DiGraph;
+use schemars::JsonSchema;
 use semver::Version;
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
@@ -328,52 +329,75 @@ pub struct MoonMod {
     pub alert_list: Option<String>,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "kebab-case")]
+#[schemars(
+    title = "JSON schema for MoonBit moon.mod.json files",
+    description = "A module of MoonBit lang"
+)]
 pub struct MoonModJSON {
+    /// name of the module
     pub name: String,
 
+    /// version of the module
     #[serde(skip_serializing_if = "Option::is_none")]
+    #[schemars(with = "Option<String>")]
     pub version: Option<Version>,
 
+    /// third-party dependencies of the module
     #[serde(skip_serializing_if = "Option::is_none")]
+    #[schemars(with = "Option<std::collections::HashMap<String, String>>")]
     pub deps: Option<IndexMap<String, DependencyInfoJson>>,
 
+    /// path to module's README file
     #[serde(skip_serializing_if = "Option::is_none")]
     pub readme: Option<String>,
 
+    /// url to module's repository
     #[serde(skip_serializing_if = "Option::is_none")]
     pub repository: Option<String>,
 
+    /// license of this module
     #[serde(skip_serializing_if = "Option::is_none")]
     pub license: Option<String>,
 
+    /// keywords of this module
     #[serde(skip_serializing_if = "Option::is_none")]
     pub keywords: Option<Vec<String>>,
 
+    /// description of this module
     #[serde(skip_serializing_if = "Option::is_none")]
     pub description: Option<String>,
 
+    /// custom compile flags
     #[serde(skip_serializing_if = "Option::is_none")]
+    #[schemars(skip)]
     pub compile_flags: Option<Vec<String>>,
 
+    /// custom link flags
     #[serde(skip_serializing_if = "Option::is_none")]
+    #[schemars(skip)]
     pub link_flags: Option<Vec<String>>,
 
     #[serde(skip_serializing_if = "Option::is_none")]
+    #[schemars(skip)]
     pub checksum: Option<String>,
 
+    /// source code directory of this module
     #[serde(skip_serializing_if = "Option::is_none")]
     #[serde(alias = "root-dir")]
     pub source: Option<String>,
 
     /// Fields not covered by the info above, which should be left as-is.
     #[serde(flatten)]
+    #[schemars(skip)]
     pub ext: serde_json_lenient::Value,
 
+    /// Warn list setting of the module
     #[serde(skip_serializing_if = "Option::is_none")]
     pub warn_list: Option<String>,
 
+    /// Alert list setting of the module
     #[serde(skip_serializing_if = "Option::is_none")]
     pub alert_list: Option<String>,
 }
@@ -433,4 +457,15 @@ impl From<MoonMod> for MoonModJSON {
     fn from(val: MoonMod) -> Self {
         convert_module_to_mod_json(val)
     }
+}
+
+#[test]
+fn validate_mod_json_schema() {
+    let schema = schemars::schema_for!(MoonModJSON);
+    let actual = &serde_json_lenient::to_string_pretty(&schema).unwrap();
+    let path = concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../moonbuild/template/mod.schema.json"
+    );
+    expect_test::expect_file![path].assert_eq(actual);
 }
