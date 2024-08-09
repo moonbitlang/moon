@@ -1,0 +1,7 @@
+  $ xls lib
+  lib.mbt moon.pkg.json
+  $ moon info
+  Finished. moon: ran 1 task, now up to date
+  
+  $ xls lib
+  lib.mbt lib.mbti moon.pkg.json

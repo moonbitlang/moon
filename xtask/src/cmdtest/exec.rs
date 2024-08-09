@@ -203,16 +203,27 @@ mod custom_operations {
 
     pub fn xls(args: &[String], workdir: &Path) -> String {
         let dir = if args.is_empty() {
-            workdir
+            workdir.to_path_buf()
         } else {
-            Path::new(&args[0])
+            workdir.join(&args[0])
         };
         match fs::read_dir(dir) {
-            Ok(entries) => entries
-                .filter_map(Result::ok)
-                .map(|entry| entry.path().display().to_string())
-                .collect::<Vec<String>>()
-                .join("\n"),
+            Ok(entries) => {
+                let mut files = entries
+                    .filter_map(Result::ok)
+                    .map(|entry| {
+                        entry
+                            .path()
+                            .file_name()
+                            .unwrap()
+                            .to_string_lossy()
+                            .to_string()
+                    })
+                    .collect::<Vec<String>>();
+                files.sort();
+                files.join(" ")
+            }
+
             Err(err) => format!("failed to list files: {}", err),
         }
     }
