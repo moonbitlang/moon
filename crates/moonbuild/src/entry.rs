@@ -267,6 +267,9 @@ pub enum TestFailedStatus {
     #[error("{0}")]
     RuntimeError(TestResult),
 
+    #[error("{0}")]
+    SnapshotFailed(TestResult),
+
     #[error("{0:?}")]
     Others(#[from] anyhow::Error),
 }
@@ -284,7 +287,8 @@ impl From<TestFailedStatus> for i32 {
             TestFailedStatus::ExpectTestFailed(_) => 2,
             TestFailedStatus::Failed(_) => 3,
             TestFailedStatus::RuntimeError(_) => 4,
-            TestFailedStatus::Others(_) => 5,
+            TestFailedStatus::SnapshotFailed(_) => 5,
+            TestFailedStatus::Others(_) => 6,
         }
     }
 }
@@ -352,6 +356,9 @@ pub fn run_test(
     let expect_failed = Arc::new(AtomicBool::new(false));
     let apply_expect_failed = Arc::new(AtomicBool::new(false));
 
+    let snapshot_failed = Arc::new(AtomicBool::new(false));
+    let apply_snapshot_failed = Arc::new(AtomicBool::new(false));
+
     let runtime = tokio::runtime::Builder::new_multi_thread()
         .enable_all()
         .build()?;
@@ -366,6 +373,8 @@ pub fn run_test(
         let runtime_error = Arc::clone(&runtime_error);
         let expect_failed = Arc::clone(&expect_failed);
         let apply_expect_failed = Arc::clone(&apply_expect_failed);
+        let snapshot_failed = Arc::clone(&snapshot_failed);
+        let apply_snapshot_failed = Arc::clone(&apply_snapshot_failed);
 
         match p.extension() {
             Some(name) if name == moonc_opt.link_opt.output_format.to_str() => {
@@ -374,9 +383,11 @@ pub fn run_test(
                     let result = trace::scope("test", || async {
                         match moonc_opt.link_opt.target_backend {
                             TargetBackend::Wasm | TargetBackend::WasmGC => {
-                                crate::runtest::run_wat(p, target_dir).await
+                                crate::runtest::run_wat(p, target_dir, auto_update).await
                             }
-                            TargetBackend::Js => crate::runtest::run_js(p, target_dir).await,
+                            TargetBackend::Js => {
+                                crate::runtest::run_js(p, target_dir, auto_update).await
+                            }
                         }
                     })
                     .await;
@@ -397,6 +408,18 @@ pub fn run_test(
                             if let Err(e) = crate::expect::apply_expect(&r.messages) {
                                 eprintln!("{}: {:?}", "failed".red().bold(), e);
                                 apply_expect_failed.store(true, Ordering::SeqCst);
+                            }
+                        }
+                        if r.messages
+                            .iter()
+                            .any(|msg| msg.starts_with(super::expect::SNAPSHOT_TESTING))
+                        {
+                            snapshot_failed.store(true, Ordering::SeqCst);
+                        }
+                        if auto_update {
+                            if let Err(e) = crate::expect::apply_snapshot(&r.messages) {
+                                eprintln!("{}: {:?}", "failed".red().bold(), e);
+                                apply_snapshot_failed.store(true, Ordering::SeqCst);
                             }
                         }
                         passed.fetch_add(r.passed, Ordering::SeqCst);
@@ -429,6 +452,18 @@ pub fn run_test(
                                     );
                                     let _ = crate::expect::render_expect_fail(&r.messages[i]);
                                 }
+                            } else if !(auto_update
+                                && failed.load(Ordering::SeqCst) > 0
+                                && !apply_snapshot_failed.load(Ordering::SeqCst))
+                            {
+                                println!(
+                                    "test {}/{}::{} {}",
+                                    r.package,
+                                    r.filenames[i],
+                                    r.test_names[i],
+                                    "failed".bold().red(),
+                                );
+                                let _ = crate::expect::render_snapshot_fail(&r.messages[i]);
                             } else {
                                 println!(
                                     "test {}/{}::{} {}: {}",
@@ -469,6 +504,8 @@ pub fn run_test(
         Err(TestFailedStatus::ApplyExpectFailed(test_result))
     } else if expect_failed.load(Ordering::SeqCst) {
         Err(TestFailedStatus::ExpectTestFailed(test_result))
+    } else if snapshot_failed.load(Ordering::SeqCst) {
+        Err(TestFailedStatus::SnapshotFailed(test_result))
     } else if failed.load(Ordering::SeqCst) != 0 {
         Err(TestFailedStatus::Failed(test_result))
     } else if runtime_error.load(Ordering::SeqCst) {
