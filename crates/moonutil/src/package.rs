@@ -24,8 +24,8 @@ use std::{
 use anyhow::{bail, Context};
 use colored::Colorize;
 use indexmap::IndexMap;
-use serde::{Deserialize, Serialize};
 use schemars::JsonSchema;
+use serde::{Deserialize, Serialize};
 
 use crate::{
     common::GeneratedTestDriver,
@@ -230,7 +230,9 @@ pub struct JsLinkConfig {
     pub format: Option<JsFormat>,
 }
 
-#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Default, Serialize, Deserialize, JsonSchema)]
+#[derive(
+    Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Default, Serialize, Deserialize, JsonSchema,
+)]
 #[repr(u8)]
 pub enum JsFormat {
     #[default]
@@ -451,4 +453,3 @@ fn validate_pkg_json_schema() {
     );
     expect_test::expect_file![path].assert_eq(actual);
 }
-

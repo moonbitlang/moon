@@ -1,21 +1,18 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
-  "title": "JSON schema for Moonbit moon.mod.json files",
-  "description": "A module of Moonbit lang",
+  "title": "JSON schema for MoonBit moon.mod.json files",
+  "description": "A module of MoonBit lang",
   "type": "object",
   "required": [
     "name"
   ],
   "properties": {
-    "compile-flags": {
-      "description": "custom compile flags",
+    "alert-list": {
+      "description": "Alert list setting of the module",
       "type": [
-        "array",
+        "string",
         "null"
-      ],
-      "items": {
-        "type": "string"
-      }
+      ]
     },
     "deps": {
       "description": "third-party dependencies of the module",
@@ -35,7 +32,7 @@
       ]
     },
     "keywords": {
-      "description": "key word of this module",
+      "description": "keywords of this module",
       "type": [
         "array",
         "null"
@@ -45,21 +42,11 @@
       }
     },
     "license": {
-      "description": "liecense of this module",
+      "description": "license of this module",
       "type": [
         "string",
         "null"
       ]
-    },
-    "link-flags": {
-      "description": "custom link flags",
-      "type": [
-        "array",
-        "null"
-      ],
-      "items": {
-        "type": "string"
-      }
     },
     "name": {
       "description": "name of the module",
@@ -88,6 +75,13 @@
     },
     "version": {
       "description": "version of the module",
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "warn-list": {
+      "description": "Warn list setting of the module",
       "type": [
         "string",
         "null"

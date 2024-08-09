@@ -332,8 +332,8 @@ pub struct MoonMod {
 #[derive(Debug, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "kebab-case")]
 #[schemars(
-    title = "JSON schema for Moonbit moon.mod.json files",
-    description = "A module of Moonbit lang"
+    title = "JSON schema for MoonBit moon.mod.json files",
+    description = "A module of MoonBit lang"
 )]
 pub struct MoonModJSON {
     /// name of the module
@@ -357,11 +357,11 @@ pub struct MoonModJSON {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub repository: Option<String>,
 
-    /// liecense of this module
+    /// license of this module
     #[serde(skip_serializing_if = "Option::is_none")]
     pub license: Option<String>,
 
-    /// key word of this module
+    /// keywords of this module
     #[serde(skip_serializing_if = "Option::is_none")]
     pub keywords: Option<Vec<String>>,
 
@@ -371,10 +371,12 @@ pub struct MoonModJSON {
 
     /// custom compile flags
     #[serde(skip_serializing_if = "Option::is_none")]
+    #[schemars(skip)]
     pub compile_flags: Option<Vec<String>>,
 
     /// custom link flags
     #[serde(skip_serializing_if = "Option::is_none")]
+    #[schemars(skip)]
     pub link_flags: Option<Vec<String>>,
 
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -391,9 +393,11 @@ pub struct MoonModJSON {
     #[schemars(skip)]
     pub ext: serde_json_lenient::Value,
 
+    /// Warn list setting of the module
     #[serde(skip_serializing_if = "Option::is_none")]
     pub warn_list: Option<String>,
 
+    /// Alert list setting of the module
     #[serde(skip_serializing_if = "Option::is_none")]
     pub alert_list: Option<String>,
 }
