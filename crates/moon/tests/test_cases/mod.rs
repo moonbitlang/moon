@@ -5013,7 +5013,7 @@ fn test_many_targets_auto_update_002() {
 #[test]
 fn test_many_targets_auto_update_003() {
     let dir = TestDir::new("test_many_targets_auto_update.in");
-    let _ = get_stdout_with_args_and_replace_dir(&dir, ["test", "--target", "js,wasm", "-u"]);
+    let _ = get_stdout_with_args_and_replace_dir(&dir, ["test", "--target", "wasm", "-u"]);
     check(
         &replace_crlf_to_lf(&std::fs::read_to_string(dir.join("lib").join("x.wasm.mbt")).unwrap()),
         expect![[r#"
@@ -5032,6 +5032,7 @@ fn test_many_targets_auto_update_003() {
             }
         "#]],
     );
+    let _ = get_stdout_with_args_and_replace_dir(&dir, ["test", "--target", "js", "-u"]);
     check(
         &replace_crlf_to_lf(&std::fs::read_to_string(dir.join("lib").join("x.js.mbt")).unwrap()),
         expect![[r#"
@@ -5045,7 +5046,7 @@ fn test_many_targets_auto_update_003() {
 #[test]
 fn test_many_targets_auto_update_004() {
     let dir = TestDir::new("test_many_targets_auto_update.in");
-    let _ = get_stdout_with_args_and_replace_dir(&dir, ["test", "--target", "all", "-u"]);
+    let _ = get_stdout_with_args_and_replace_dir(&dir, ["test", "--target", "wasm", "-u"]);
     check(
         &replace_crlf_to_lf(&std::fs::read_to_string(dir.join("lib").join("x.wasm.mbt")).unwrap()),
         expect![[r#"
@@ -5054,6 +5055,7 @@ fn test_many_targets_auto_update_004() {
             }
         "#]],
     );
+    let _ = get_stdout_with_args_and_replace_dir(&dir, ["test", "--target", "wasm-gc", "-u"]);
     check(
         &replace_crlf_to_lf(
             &std::fs::read_to_string(dir.join("lib").join("x.wasm-gc.mbt")).unwrap(),
@@ -5064,6 +5066,7 @@ fn test_many_targets_auto_update_004() {
             }
         "#]],
     );
+    let _ = get_stdout_with_args_and_replace_dir(&dir, ["test", "--target", "js", "-u"]);
     check(
         &replace_crlf_to_lf(&std::fs::read_to_string(dir.join("lib").join("x.js.mbt")).unwrap()),
         expect![[r#"

@@ -95,6 +95,9 @@ pub fn run_test(cli: UniversalFlags, cmd: TestSubcommand) -> anyhow::Result<i32>
     }
     let surface_targets = cmd.build_flags.target.clone().unwrap();
     let targets = lower_surface_targets(&surface_targets);
+    if cmd.update && targets.len() > 1 {
+        return Err(anyhow::anyhow!("cannot update test on multiple targets"));
+    }
     let cli = Arc::new(cli);
     let source_dir = Arc::new(source_dir);
     let target_dir = Arc::new(target_dir);
