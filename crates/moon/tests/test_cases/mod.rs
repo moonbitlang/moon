@@ -477,7 +477,18 @@ fn test_bench4() {
 fn test_moon_version() {
     let dir = TestDir::new_empty();
     let output = get_stdout_with_args(&dir, ["version"]);
-    assert!(output.contains(&format!("moon {}", get_cargo_pkg_version())));
+    let expected_moon_version = format!("moon {}", get_cargo_pkg_version());
+    assert!(output.contains(&expected_moon_version));
+
+    let output = get_stdout_with_args(&dir, ["version", "--all"]);
+    assert!(output.contains(&expected_moon_version));
+    assert!(output.contains("moonc"));
+    assert!(output.contains("moonrun"));
+
+    let output = get_stdout_with_args(&dir, ["version", "--all", "--no-path"]);
+    assert!(output.contains(&expected_moon_version));
+    assert!(output.contains("moonc"));
+    assert!(output.contains("moonrun"));
 }
 
 #[test]
