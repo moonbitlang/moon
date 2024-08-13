@@ -683,3 +683,24 @@ pub enum GeneratedTestDriver {
     WhiteboxTest(PathBuf),
     BlackboxTest(PathBuf),
 }
+
+#[derive(Debug, ValueEnum, Clone)]
+pub enum DriverKind {
+    Internal,
+    Whitebox,
+    Blackbox,
+}
+
+impl DriverKind {
+    pub fn to_string(&self) -> &'static str {
+        match self {
+            Self::Internal => "internal",
+            Self::Whitebox => "whitebox",
+            Self::Blackbox => "blackbox",
+        }
+    }
+}
+
+pub const INTERNAL_TEST_DRIVER: &str = "__generated_driver_for_internal_test.mbt";
+pub const WHITEBOX_TEST_DRIVER: &str = "__generated_driver_for_whitebox_test.mbt";
+pub const BLACKBOX_TEST_DRIVER: &str = "__generated_driver_for_blackbox_test.mbt";

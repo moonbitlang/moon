@@ -18,7 +18,7 @@
 
 use anyhow::{bail, Ok};
 use colored::Colorize;
-use moonutil::common::{GeneratedTestDriver, MOONBITLANG_CORE};
+use moonutil::common::{DriverKind, GeneratedTestDriver, MOONBITLANG_CORE};
 use moonutil::module::ModuleDB;
 use moonutil::package::Package;
 
@@ -58,11 +58,69 @@ pub struct RuntestLinkDepItem {
 }
 
 #[derive(Debug)]
-pub struct N2RuntestInput<'a> {
+pub struct RuntestDriverItem {
+    pub driver_kind: DriverKind,
+    pub package_name: String,
+    pub driver_file: String,
+    pub files_may_contain_test_block: Vec<String>,
+}
+
+#[derive(Debug)]
+pub struct N2RuntestInput {
     pub build_items: Vec<RuntestDepItem>,
     pub link_items: Vec<RuntestLinkDepItem>, // entry points
-    pub driver_files: Vec<&'a Path>,
-    pub files_contain_test_block: Vec<&'a Path>,
+    pub test_drivers: Vec<RuntestDriverItem>,
+}
+
+pub fn gen_package_test_driver(
+    g: &GeneratedTestDriver,
+    pkg: &Package,
+) -> anyhow::Result<RuntestDriverItem> {
+    match g {
+        GeneratedTestDriver::InternalTest(it) => {
+            let package_name = pkg.full_name();
+            let driver_file = it.display().to_string();
+            let files_may_contain_test_block =
+                pkg.files.iter().map(|f| f.display().to_string()).collect();
+            Ok(RuntestDriverItem {
+                package_name,
+                driver_file,
+                files_may_contain_test_block,
+                driver_kind: DriverKind::Internal,
+            })
+        }
+        GeneratedTestDriver::BlackboxTest(it) => {
+            let package_name = pkg.full_name();
+            let driver_file = it.display().to_string();
+            let files_may_contain_test_block = pkg
+                .test_files
+                .iter()
+                .map(|f| f.display().to_string())
+                .collect();
+            Ok(RuntestDriverItem {
+                package_name,
+                driver_file,
+                files_may_contain_test_block,
+                driver_kind: DriverKind::Blackbox,
+            })
+        }
+        GeneratedTestDriver::WhiteboxTest(it) => {
+            let package_name = pkg.full_name();
+            let driver_file = it.display().to_string();
+            let files_may_contain_test_block = pkg
+                .files
+                .iter()
+                .chain(pkg.wbtest_files.iter())
+                .map(|f| f.display().to_string())
+                .collect();
+            Ok(RuntestDriverItem {
+                package_name,
+                driver_file,
+                files_may_contain_test_block,
+                driver_kind: DriverKind::Whitebox,
+            })
+        }
+    }
 }
 
 pub fn gen_package_core(
@@ -545,15 +603,14 @@ pub fn contain_mbt_test_file(pkg: &Package, moonc_opt: &MooncOpt) -> bool {
     })
 }
 
-pub fn gen_runtest<'a>(
-    m: &'a ModuleDB,
+pub fn gen_runtest(
+    m: &ModuleDB,
     moonc_opt: &MooncOpt,
     moonbuild_opt: &MoonbuildOpt,
-) -> anyhow::Result<N2RuntestInput<'a>> {
+) -> anyhow::Result<N2RuntestInput> {
     let mut build_items = vec![];
     let mut link_items = vec![];
-    let mut driver_files = vec![];
-    let mut files_contain_test_block = vec![];
+    let mut test_drivers = vec![];
 
     let filter_pkg = moonbuild_opt
         .test_opt
@@ -571,8 +628,6 @@ pub fn gen_runtest<'a>(
             continue;
         }
 
-        files_contain_test_block.extend(pkg.files_contain_test_block.iter().map(|it| it.as_path()));
-
         if let Some(filter_pkg) = filter_pkg {
             if !filter_pkg.contains(Path::new(pkgname)) {
                 continue;
@@ -580,29 +635,29 @@ pub fn gen_runtest<'a>(
         }
 
         for item in pkg.generated_test_drivers.iter() {
-            if let GeneratedTestDriver::InternalTest(it) = item {
+            if let GeneratedTestDriver::InternalTest(_) = item {
+                test_drivers.push(gen_package_test_driver(item, pkg)?);
                 build_items.push(gen_package_internal_test(m, pkg, moonc_opt)?);
                 link_items.push(gen_link_internal_test(m, pkg, moonc_opt)?);
-                driver_files.push(it.as_path());
             }
         }
 
         if !pkg.wbtest_files.is_empty() {
             for item in pkg.generated_test_drivers.iter() {
-                if let GeneratedTestDriver::WhiteboxTest(it) = item {
+                if let GeneratedTestDriver::WhiteboxTest(_) = item {
+                    test_drivers.push(gen_package_test_driver(item, pkg)?);
                     build_items.push(gen_package_whitebox_test(m, pkg, moonc_opt)?);
                     link_items.push(gen_link_whitebox_test(m, pkg, moonc_opt)?);
-                    driver_files.push(it.as_path());
                 }
             }
         }
 
         if !pkg.test_files.is_empty() {
             for item in pkg.generated_test_drivers.iter() {
-                if let GeneratedTestDriver::BlackboxTest(it) = item {
+                if let GeneratedTestDriver::BlackboxTest(_) = item {
+                    test_drivers.push(gen_package_test_driver(item, pkg)?);
                     build_items.push(gen_package_blackbox_test(m, pkg, moonc_opt)?);
                     link_items.push(gen_link_blackbox_test(m, pkg, moonc_opt)?);
-                    driver_files.push(it.as_path());
                 }
             }
         }
@@ -611,8 +666,7 @@ pub fn gen_runtest<'a>(
     Ok(N2RuntestInput {
         build_items,
         link_items,
-        driver_files,
-        files_contain_test_block,
+        test_drivers,
     })
 }
 
@@ -815,10 +869,6 @@ pub fn gen_n2_runtest_state(
 
     log::debug!("input: {:#?}", input);
 
-    let gen_generate_test_driver_command =
-        gen_generate_test_driver_command(&mut graph, input, moonc_opt, moonbuild_opt);
-    graph.add_build(gen_generate_test_driver_command)?;
-
     for item in input.build_items.iter() {
         let build = gen_runtest_build_command(&mut graph, item, moonc_opt);
         graph.add_build(build)?;
@@ -826,6 +876,10 @@ pub fn gen_n2_runtest_state(
     for item in input.link_items.iter() {
         let (build, fid) = gen_runtest_link_command(&mut graph, item, moonc_opt);
         default.push(fid);
+        graph.add_build(build)?;
+    }
+    for item in input.test_drivers.iter() {
+        let build = gen_generate_test_driver_command(&mut graph, item, moonc_opt, moonbuild_opt);
         graph.add_build(build)?;
     }
 
@@ -852,30 +906,25 @@ pub fn gen_n2_runtest_state(
 
 fn gen_generate_test_driver_command(
     graph: &mut n2graph::Graph,
-    n2_run_test_input: &N2RuntestInput,
+    item: &RuntestDriverItem,
     moonc_opt: &MooncOpt,
     moonbuild_opt: &MoonbuildOpt,
 ) -> Build {
-    let (driver_files, files_contain_test_block) = (
-        &n2_run_test_input.driver_files,
-        &n2_run_test_input.files_contain_test_block,
-    );
+    let (driver_file, files_contain_test_block) =
+        (&item.driver_file, &item.files_may_contain_test_block);
 
     let ins = BuildIns {
         ids: files_contain_test_block
             .iter()
-            .map(|f| graph.files.id_from_canonical(f.display().to_string()))
+            .map(|f| graph.files.id_from_canonical(f.to_string()))
             .collect(),
         explicit: files_contain_test_block.len(),
         implicit: 0,
         order_only: 0,
     };
     let outs = BuildOuts {
-        explicit: driver_files.len(),
-        ids: driver_files
-            .iter()
-            .map(|f| graph.files.id_from_canonical(f.display().to_string()))
-            .collect(),
+        explicit: 0,
+        ids: vec![graph.files.id_from_canonical(driver_file.to_string())],
     };
 
     let loc = FileLoc {
@@ -885,10 +934,14 @@ fn gen_generate_test_driver_command(
 
     let mut build = Build::new(loc, ins, outs);
 
-    let test_filter_command = moonbuild_opt
+    let mut test_filter_command = moonbuild_opt
         .test_opt
         .as_ref()
         .map_or(vec![], |t| t.to_command());
+    if test_filter_command.is_empty() {
+        test_filter_command = vec!["--package".to_string(), item.package_name.clone()];
+    }
+
     let command = CommandBuilder::new(
         &std::env::current_exe()
             .map_or_else(|_| "moon".into(), |x| x.to_string_lossy().into_owned()),
@@ -898,9 +951,10 @@ fn gen_generate_test_driver_command(
     .arg(&moonbuild_opt.source_dir.display().to_string())
     .arg("--target-dir")
     .arg(&moonbuild_opt.target_dir.display().to_string())
-    .args_with_cond(!test_filter_command.is_empty(), &test_filter_command)
+    .args(test_filter_command)
     .arg_with_cond(moonbuild_opt.sort_input, "--sort-input")
     .args(["--target", moonc_opt.build_opt.target_backend.to_flag()])
+    .args(["--driver-kind", item.driver_kind.to_string()])
     .build();
 
     build.cmdline = Some(command);
