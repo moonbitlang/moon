@@ -116,13 +116,17 @@ pub fn run_info(cli: UniversalFlags, cmd: InfoSubcommand) -> anyhow::Result<i32>
 
     let runtime = tokio::runtime::Runtime::new()?;
     let mut handlers = vec![];
+    let module_source_dir = match &mod_desc.source {
+        None => source_dir.to_path_buf(),
+        Some(p) => source_dir.join(p),
+    };
     for (name, pkg) in mdb.packages {
         // Skip if pkg is not part of the module
         if pkg.is_third_party {
             continue;
         }
 
-        let source_dir = std::sync::Arc::new(source_dir.clone());
+        let module_source_dir = std::sync::Arc::new(module_source_dir.clone());
         handlers.push(async move {
             let mi = pkg.artifact.with_extension("mi");
             if !mi.exists() {
@@ -136,7 +140,9 @@ pub fn run_info(cli: UniversalFlags, cmd: InfoSubcommand) -> anyhow::Result<i32>
 
             if out.status.success() {
                 let filename = format!("{}.mbti", pkg.last_name());
-                let filepath = source_dir.join(pkg.rel.fs_full_name()).join(&filename);
+                let filepath = module_source_dir
+                    .join(pkg.rel.fs_full_name())
+                    .join(&filename);
 
                 tokio::fs::write(filepath, out.stdout)
                     .await
