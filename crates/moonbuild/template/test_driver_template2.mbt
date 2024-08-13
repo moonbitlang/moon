@@ -144,9 +144,9 @@ fn main {
         messages[fail_idx] = e
         fail_idx += 1
       }
-      _ => {
+      e => {
         test_names[fail_idx] = name
-        messages[fail_idx] = "unexpected error"
+        messages[fail_idx] = (e as Show).to_string()
         fail_idx += 1
       }
     }
