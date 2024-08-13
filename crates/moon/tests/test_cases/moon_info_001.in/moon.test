@@ -1,2 +1,18 @@
   $ moon info
-  $ cat src/lib/lib.mbti
+  Finished. moon: ran 2 tasks, now up to date
+  
+  $ xcat src/lib/lib.mbti
+  package username/hello/lib
+  
+  // Values
+  fn hello() -> String
+  
+  // Types and methods
+  
+  // Type aliases
+  
+  // Traits
+  
+  // Extension Methods
+  
+  
