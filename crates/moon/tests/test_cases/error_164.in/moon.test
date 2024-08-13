@@ -1,5 +1,0 @@
-  $ moon test
-  [3]
-  test moonbitlang/hello/lib.mbt::0 failed: moonbitlang/hello.ErrorString.ErrorString
-  Total tests: 1, passed: 0, failed: 1.
-  
