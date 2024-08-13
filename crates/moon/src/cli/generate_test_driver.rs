@@ -22,8 +22,9 @@ use colored::Colorize;
 use mooncake::pkg::sync::auto_sync;
 use moonutil::cli::UniversalFlags;
 use moonutil::common::{
-    lower_surface_targets, MoonbuildOpt, RunMode, TestOpt, MOONBITLANG_CORE,
-    MOON_TEST_DELIMITER_BEGIN, MOON_TEST_DELIMITER_END,
+    lower_surface_targets, DriverKind, MoonbuildOpt, RunMode, TestOpt, BLACKBOX_TEST_DRIVER,
+    INTERNAL_TEST_DRIVER, MOONBITLANG_CORE, MOON_TEST_DELIMITER_BEGIN, MOON_TEST_DELIMITER_END,
+    WHITEBOX_TEST_DRIVER,
 };
 use moonutil::dirs::PackageDirs;
 use moonutil::mooncakes::sync::AutoSyncFlags;
@@ -45,6 +46,9 @@ pub struct GeneratedTestDriverSubcommand {
 
     #[clap(short, long, requires("file"))]
     pub index: Option<u32>,
+
+    #[clap(long)]
+    pub driver_kind: DriverKind,
 }
 
 fn moonc_gen_test_info(files: &[PathBuf]) -> anyhow::Result<String> {
@@ -148,40 +152,35 @@ pub fn generate_test_driver(
             continue;
         }
 
-        let test_sets = [
-            (&pkg.files, "__generated_driver_for_internal_test.mbt"),
-            (
-                &pkg.wbtest_files,
-                "__generated_driver_for_whitebox_test.mbt",
-            ),
-            (&pkg.test_files, "__generated_driver_for_blackbox_test.mbt"),
-        ];
+        let (files, driver_name) = match cmd.driver_kind {
+            DriverKind::Internal => (&pkg.files, INTERNAL_TEST_DRIVER),
+            DriverKind::Whitebox => (&pkg.wbtest_files, WHITEBOX_TEST_DRIVER),
+            DriverKind::Blackbox => (&pkg.test_files, BLACKBOX_TEST_DRIVER),
+        };
 
-        for (files, driver_name) in test_sets {
-            let backend_filtered: Vec<PathBuf> =
-                moonutil::common::backend_filter(files, moonc_opt.link_opt.target_backend);
-            let mbts_test_data = moonc_gen_test_info(&backend_filtered)?;
+        let backend_filtered: Vec<PathBuf> =
+            moonutil::common::backend_filter(files, moonc_opt.link_opt.target_backend);
+        let mbts_test_data = moonc_gen_test_info(&backend_filtered)?;
 
-            if pkg.is_main && mbts_test_data.contains("(__test_") {
-                eprintln!(
-                    "{}: tests in the main package `{}` will be ignored",
-                    "Warning".yellow().bold(),
-                    pkgname
-                )
-            }
-            let generated_content = generate_driver(
-                &mbts_test_data,
-                pkgname,
-                filter_file.as_deref(),
-                filter_index,
-            );
-            let generated_file = target_dir.join(pkg.rel.fs_full_name()).join(driver_name);
-
-            if !generated_file.parent().unwrap().exists() {
-                std::fs::create_dir_all(generated_file.parent().unwrap())?;
-            }
-            std::fs::write(&generated_file, generated_content)?;
+        if pkg.is_main && mbts_test_data.contains("(__test_") {
+            eprintln!(
+                "{}: tests in the main package `{}` will be ignored",
+                "Warning".yellow().bold(),
+                pkgname
+            )
         }
+        let generated_content = generate_driver(
+            &mbts_test_data,
+            pkgname,
+            filter_file.as_deref(),
+            filter_index,
+        );
+        let generated_file = target_dir.join(pkg.rel.fs_full_name()).join(driver_name);
+
+        if !generated_file.parent().unwrap().exists() {
+            std::fs::create_dir_all(generated_file.parent().unwrap())?;
+        }
+        std::fs::write(&generated_file, generated_content)?;
     }
 
     Ok(0)
