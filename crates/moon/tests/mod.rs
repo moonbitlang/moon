@@ -82,6 +82,25 @@ pub fn get_stdout_with_args_without_replace(
     s
 }
 
+#[track_caller]
+pub fn get_stderr_on_success_with_args_without_replace(
+    dir: &impl AsRef<std::path::Path>,
+    args: impl IntoIterator<Item = impl AsRef<std::ffi::OsStr>>,
+) -> String {
+    let out = snapbox::cmd::Command::new(moon_bin())
+        .current_dir(dir)
+        .args(args)
+        .assert()
+        .success()
+        .get_output()
+        .stderr
+        .to_owned();
+
+    let s = std::str::from_utf8(&out).unwrap().to_string();
+    s
+}
+
+#[track_caller]
 pub fn get_stderr_with_args_without_replace(
     dir: &impl AsRef<std::path::Path>,
     args: impl IntoIterator<Item = impl AsRef<std::ffi::OsStr>>,
@@ -149,6 +168,14 @@ pub fn get_stderr_with_args_and_replace_dir(
 }
 
 #[track_caller]
+pub fn get_stderr_on_success_with_args_and_replace_dir(
+    dir: &impl AsRef<std::path::Path>,
+    args: impl IntoIterator<Item = impl AsRef<std::ffi::OsStr>>,
+) -> String {
+    let s = get_stderr_on_success_with_args_without_replace(dir, args);
+    replace_dir(&s, dir)
+}
+
 pub fn get_stderr_with_args(
     dir: &impl AsRef<std::path::Path>,
     args: impl IntoIterator<Item = impl AsRef<std::ffi::OsStr>>,
@@ -158,6 +185,25 @@ pub fn get_stderr_with_args(
         .args(args)
         .assert()
         .failure()
+        .get_output()
+        .stderr
+        .to_owned();
+
+    let s = std::str::from_utf8(&out).unwrap().to_string();
+    let s = s.replace("\r\n", "\n");
+
+    s.replace('\\', "/")
+}
+
+pub fn get_stderr_on_success_with_args(
+    dir: &impl AsRef<std::path::Path>,
+    args: impl IntoIterator<Item = impl AsRef<std::ffi::OsStr>>,
+) -> String {
+    let out = snapbox::cmd::Command::new(moon_bin())
+        .current_dir(dir)
+        .args(args)
+        .assert()
+        .success()
         .get_output()
         .stderr
         .to_owned();
