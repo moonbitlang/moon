@@ -34,6 +34,7 @@ pub mod new;
 pub mod runtest;
 pub mod section_capture;
 pub mod upgrade;
+pub mod watch;
 
 use sysinfo::{ProcessExt, System, SystemExt};
 

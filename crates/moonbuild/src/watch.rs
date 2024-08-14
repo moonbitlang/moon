@@ -25,11 +25,13 @@ use moonutil::mooncakes::RegistryConfig;
 use notify::event::ModifyKind;
 use notify::{Config, EventKind, RecommendedWatcher, RecursiveMode, Watcher};
 
-use moonutil::common::{MoonbuildOpt, MooncOpt, MOON_MOD_JSON, MOON_PKG_JSON, WATCH_MODE_DIR};
+use moonutil::common::{
+    MoonbuildOpt, MooncOpt, RunMode, MOON_MOD_JSON, MOON_PKG_JSON, WATCH_MODE_DIR,
+};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
-pub fn watch_single_thread(
+pub fn watching(
     moonc_opt: &MooncOpt,
     moonbuild_opt: &MoonbuildOpt,
     registry_config: &RegistryConfig,
@@ -37,7 +39,7 @@ pub fn watch_single_thread(
 ) -> anyhow::Result<i32> {
     let (source_dir, target_dir) = (&moonbuild_opt.source_dir, &moonbuild_opt.target_dir);
 
-    run_check_and_print(moonc_opt, moonbuild_opt, module);
+    run_and_print(moonc_opt, moonbuild_opt, module)?;
 
     let (tx, rx) = std::sync::mpsc::channel();
     let tx_for_exit = tx.clone();
@@ -68,14 +70,20 @@ pub fn watch_single_thread(
                         EventKind::Other if exit_flag.load(Ordering::SeqCst) => {
                             break;
                         }
-                        // when a file was modified, multiple events may be received, we only care about those modified data
+                        // when a file was modified, multiple events may be received, we only care about data those modified data
                         EventKind::Modify(ModifyKind::Data(_)) => {
-                            let origin_target_dir = target_dir
-                                .ancestors()
-                                .find(|p| p.ends_with(WATCH_MODE_DIR))
-                                .unwrap()
-                                .parent()
-                                .unwrap();
+                            // check --watch will own a subdir named `watch` in target_dir but build --watch still use the original target_dir
+                            let origin_target_dir =
+                                if target_dir.display().to_string().contains(WATCH_MODE_DIR) {
+                                    target_dir
+                                        .ancestors()
+                                        .find(|p| p.ends_with(WATCH_MODE_DIR))
+                                        .unwrap()
+                                        .parent()
+                                        .unwrap()
+                                } else {
+                                    target_dir
+                                };
                             if event.paths.iter().all(|p| {
                                 p.starts_with(
                                     // can't be `target_dir` since the real target dir for watch mode is `target_dir/watch`
@@ -124,9 +132,9 @@ pub fn watch_single_thread(
                                         continue;
                                     }
                                 };
-                                run_check_and_print(moonc_opt, moonbuild_opt, &module);
+                                run_and_print(moonc_opt, moonbuild_opt, &module)?;
                             } else {
-                                run_check_and_print(moonc_opt, moonbuild_opt, module);
+                                run_and_print(moonc_opt, moonbuild_opt, module)?;
                             }
                         }
                         _ => {
@@ -144,9 +152,19 @@ pub fn watch_single_thread(
     Ok(0)
 }
 
-fn run_check_and_print(moonc_opt: &MooncOpt, moonbuild_opt: &MoonbuildOpt, module: &ModuleDB) {
+fn run_and_print(
+    moonc_opt: &MooncOpt,
+    moonbuild_opt: &MoonbuildOpt,
+    module: &ModuleDB,
+) -> anyhow::Result<()> {
     print!("{esc}[2J{esc}[1;1H", esc = 27 as char);
-    let result = crate::entry::run_check(moonc_opt, moonbuild_opt, module);
+    let result = match moonbuild_opt.run_mode {
+        RunMode::Check => crate::entry::run_check(moonc_opt, moonbuild_opt, module),
+        RunMode::Build => crate::entry::run_build(moonc_opt, moonbuild_opt, module),
+        _ => {
+            anyhow::bail!("watch mode only support check and build");
+        }
+    };
     match result {
         Ok(0) => {
             println!(
@@ -168,4 +186,5 @@ fn run_check_and_print(moonc_opt: &MooncOpt, moonbuild_opt: &MoonbuildOpt, modul
             );
         }
     }
+    Ok(())
 }

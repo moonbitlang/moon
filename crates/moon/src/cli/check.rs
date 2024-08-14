@@ -17,8 +17,8 @@
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
 use anyhow::Context;
-use moonbuild::check;
 use moonbuild::dry_run;
+use moonbuild::watch::watching;
 use moonbuild::watcher_is_running;
 use moonbuild::{entry, MOON_PID_NAME};
 use mooncake::pkg::sync::auto_sync;
@@ -63,7 +63,7 @@ pub fn run_check(cli: &UniversalFlags, cmd: &CheckSubcommand) -> anyhow::Result<
         mut target_dir,
     } = cli.source_tgt_dir.try_into_package_dirs()?;
 
-    // make a dedicated directory for the watch mode so that we don't block(MOON_LOCK) the normal no-watch mode
+    // make a dedicated directory for the watch mode so that we don't block(MOON_LOCK) the normal no-watch mode(automatically trigger by ide in background)
     if cmd.watch {
         target_dir = target_dir.join(WATCH_MODE_DIR);
         std::fs::create_dir_all(&target_dir).context(format!(
@@ -180,7 +180,7 @@ fn run_check_internal(
 
     if watch_mode {
         let reg_cfg = RegistryConfig::load();
-        check::watch::watch_single_thread(&moonc_opt, &moonbuild_opt, &reg_cfg, &module)
+        watching(&moonc_opt, &moonbuild_opt, &reg_cfg, &module)
     } else {
         let pid_path = target_dir.join(MOON_PID_NAME);
         let running = watcher_is_running(&pid_path);

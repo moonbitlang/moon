@@ -19,6 +19,7 @@
 use anyhow::Context;
 use moonbuild::dry_run;
 use moonbuild::entry;
+use moonbuild::watch::watching;
 use mooncake::pkg::sync::auto_sync;
 use moonutil::common::lower_surface_targets;
 use moonutil::common::FileLock;
@@ -43,6 +44,10 @@ pub struct BuildSubcommand {
 
     #[clap(flatten)]
     pub auto_sync_flags: AutoSyncFlags,
+
+    /// Monitor the file system and automatically build artifacts
+    #[clap(long, short)]
+    pub watch: bool,
 }
 
 pub fn run_build(cli: &UniversalFlags, cmd: &BuildSubcommand) -> anyhow::Result<i32> {
@@ -154,9 +159,10 @@ fn run_build_internal(
         trace::open("trace.json").context("failed to open `trace.json`")?;
     }
 
-    let result = entry::run_build(&moonc_opt, &moonbuild_opt, &module);
-    if trace_flag {
-        trace::close();
+    if cmd.watch {
+        let reg_cfg = RegistryConfig::load();
+        watching(&moonc_opt, &moonbuild_opt, &reg_cfg, &module)
+    } else {
+        entry::run_build(&moonc_opt, &moonbuild_opt, &module)
     }
-    result
 }
