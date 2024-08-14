@@ -48,6 +48,8 @@ pub struct BufferExpect {
     kind: TargetKind,
 }
 
+pub const ERROR: &str = "Error";
+pub const RUNTIME_ERROR: &str = "RuntimeError";
 pub const FAILED: &str = "FAILED";
 pub const EXPECT_FAILED: &str = "@EXPECT_FAILED ";
 

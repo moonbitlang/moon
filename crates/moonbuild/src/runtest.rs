@@ -17,7 +17,7 @@
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
 use crate::entry::{TestFailedStatus, TestResult};
-use crate::expect::{EXPECT_FAILED, FAILED};
+use crate::expect::{ERROR, EXPECT_FAILED, FAILED, RUNTIME_ERROR};
 use crate::section_capture::{handle_stdout, SectionCapture};
 
 use super::gen;
@@ -85,14 +85,14 @@ async fn run(
     let mut execution = tokio::process::Command::new(command)
         .arg(path)
         .args(args)
-        .arg("--test")
+        // .arg("--test")
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
+        .stderr(Stdio::inherit())
         .spawn()
         .with_context(|| format!("failed to execute '{} {}'", command, path.display()))?;
     let mut stdout = execution.stdout.take().unwrap();
-    let mut stderr = execution.stderr.take().unwrap();
+    // let mut stderr = execution.stderr.take().unwrap();
 
     let mut test_capture =
         SectionCapture::new(MOON_TEST_DELIMITER_BEGIN, MOON_TEST_DELIMITER_END, false);
@@ -109,12 +109,12 @@ async fn run(
         path.display()
     ))?;
 
-    let mut stderr_buffer = Vec::new();
-    stderr.read_to_end(&mut stderr_buffer).await.context(format!(
-        "failed to read stdout for {} {}",
-        command,
-        path.display()
-    ))?;
+    // let mut stderr_buffer = Vec::new();
+    // stderr.read_to_end(&mut stderr_buffer).await.context(format!(
+    //     "failed to read stdout for {} {}",
+    //     command,
+    //     path.display()
+    // ))?;
 
     // let s = String::from_utf8_lossy(&stdout_buffer).to_string();
     // s.split("----- END MOON TEST RESULT -----")
@@ -153,6 +153,10 @@ async fn run(
                 res.push(Err(TestFailedStatus::ExpectTestFailed(test_statistic)));
             } else if return_message.starts_with(FAILED) {
                 res.push(Err(TestFailedStatus::Failed(test_statistic)));
+            } else if return_message.starts_with(RUNTIME_ERROR) {
+                res.push(Err(TestFailedStatus::RuntimeError(test_statistic)));
+            } else if return_message.starts_with(ERROR) {
+                res.push(Err(TestFailedStatus::RuntimeError(test_statistic)));
             } else {
                 res.push(Ok(test_statistic));
             }
@@ -160,8 +164,8 @@ async fn run(
     } else {
         let s = String::from_utf8_lossy(&stdout_buffer).to_string();
         println!("stdout: {}", s);
-        let s = String::from_utf8_lossy(&stderr_buffer).to_string();
-        println!("stderr: {}", s);
+        // let s = String::from_utf8_lossy(&stderr_buffer).to_string();
+        // println!("stderr: {}", s);
         res.push(Err(TestFailedStatus::Others(anyhow!(
             "No test output found"
         ))));

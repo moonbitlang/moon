@@ -84,3 +84,15 @@ pub fn string_from_extern(e : ExternString) -> String {
   finish_read_string(handle)
   buf.to_string()
 }
+
+fn _get_file_name() -> ExternString = "test" "get_file_name"
+fn get_file_name() -> String {
+  let file_name = _get_file_name()
+  string_from_extern(file_name)
+}
+
+fn _get_index() -> ExternString = "test" "get_index"
+fn get_index() -> String {
+  let index = _get_index()
+  string_from_extern(index)
+}

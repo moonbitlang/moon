@@ -400,6 +400,7 @@ pub fn run_test(
 
                 let mut args = vec![];
                 for index in range.clone() {
+                    args.push(pkgname.clone());
                     args.push(file_name.clone());
                     args.push(index.to_string());
                 }

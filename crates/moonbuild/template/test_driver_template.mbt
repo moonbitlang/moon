@@ -35,9 +35,15 @@ fn typing_tests(
 fn main {
   let tests = abort("")
   typing_tests(tests)
-  let args = get_cli_args()
-  let index_filter = parse_int_(args.pop().unwrap())
-  let file_filter = args.pop().unwrap()
+  // let args = get_cli_args()
+  // let index_filter = parse_int_(args.pop().unwrap())
+  // let file_filter = args.pop().unwrap()
+  // println(file_filter)
+  // println(index_filter)
+  let file_filter = get_file_name()
+  let index_filter = parse_int_(get_index())
+  // println(file_filter)
+  // println(index_filter)
   let file_filtered_tests = (file_filter, tests.get(file_filter).unwrap())
   if index_filter >= file_filtered_tests.1.length() {
     return
