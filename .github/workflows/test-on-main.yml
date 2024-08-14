@@ -46,7 +46,7 @@ jobs:
         run: |
           cp moonc-version-dont-delete/moonc-version .
 
-      - uses: dtolnay/rust-toolchain@1.77.0
+      - uses: dtolnay/rust-toolchain@1.80.0
       - name: Cargo cache
         uses: actions/cache@v4
         with:
