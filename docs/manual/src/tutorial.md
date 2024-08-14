@@ -311,11 +311,11 @@ Let's add some tests to verify our fib implementation. Add the following content
 
 ```moonbit
 test {
-  @test.eq!(fib(1), 1)
-  @test.eq!(fib(2), 1)
-  @test.eq!(fib(3), 2)
-  @test.eq!(fib(4), 3)
-  @test.eq!(fib(5), 5)
+  assert_eq!(fib(1), 1)
+  assert_eq!(fib(2), 1)
+  assert_eq!(fib(3), 2)
+  assert_eq!(fib(4), 3)
+  assert_eq!(fib(5), 5)
 }
 ```
 
@@ -331,11 +331,11 @@ Besides inline tests, MoonBit also supports stand-alone test files. Source files
 
 ```moonbit
 test {
-  @test.eq!(@fib.fib(1), 1)
-  @test.eq!(@fib.fib2(2), 1)
-  @test.eq!(@fib.fib(3), 2)
-  @test.eq!(@fib.fib2(4), 3)
-  @test.eq!(@fib.fib(5), 5)
+  assert_eq!(@fib.fib(1), 1)
+  assert_eq!(@fib.fib2(2), 1)
+  assert_eq!(@fib.fib(3), 2)
+  assert_eq!(@fib.fib2(4), 3)
+  assert_eq!(@fib.fib(5), 5)
 }
 ```
 
