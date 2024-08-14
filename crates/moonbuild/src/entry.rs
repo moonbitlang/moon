@@ -61,13 +61,13 @@ fn render_result(result: Option<usize>, quiet: bool, mode: &str) -> anyhow::Resu
         Some(0) => {
             // Special case: don't print numbers when no work done.
             if !quiet {
-                println!("{} moon: no work to do", "Finished.".bright_green().bold());
+                eprintln!("{} moon: no work to do", "Finished.".bright_green().bold());
             }
             Ok(0)
         }
         Some(n) => {
             if !quiet {
-                println!(
+                eprintln!(
                     "{} moon: ran {} task{}, now up to date",
                     "Finished.".bright_green().bold(),
                     n,
