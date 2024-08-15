@@ -34,14 +34,14 @@ jobs:
     runs-on: ubuntu-latest
     if: github.event_name == 'pull_request'
     outputs:
-        CCAA-signed: ${{ steps.CCAA-check-step.outputs.CCAA-signed }}
+      CCAA-signed: ${{ steps.CCAA-check-step.outputs.CCAA-signed }}
     steps:
-    - uses: actions/checkout@v4
-    - name: CCAA check
-      id: CCAA-check-step
-      env:
+      - uses: actions/checkout@v4
+      - name: CCAA check
+        id: CCAA-check-step
+        env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      run: |
+        run: |
           PR_AUTHOR=$(curl -s -H "Authorization: token $GITHUB_TOKEN" \
           https://api.github.com/repos/${{ github.repository }}/pulls/${{ github.event.number }} \
           | jq -r '.user.login')
@@ -100,7 +100,7 @@ jobs:
         uses: peaceiris/actions-mdbook@v2
         with:
           mdbook-version: 'latest'
-  
+
       - name: Build and Check mdBook
         run: mdbook build docs/manual
 
@@ -169,24 +169,24 @@ jobs:
         if: matrix.os == 'ubuntu-latest'
         run: cargo clippy --all-targets --all-features -- -D warnings
 
-      # - name: Test core (Unix)
-      #   if: ${{ matrix.os != 'windows-latest' }}
-      #   run: |
-      #     cargo run --bin moon test --source-dir ~/.moon/lib/core --target wasm-gc
-      #     cargo run --bin moon test --source-dir ~/.moon/lib/core --target js
-      #     cargo run --bin moon test --source-dir ~/.moon/lib/core --target wasm
-      #     cargo run --bin moon test --source-dir ~/.moon/lib/core --release --target wasm-gc
-      #     cargo run --bin moon test --source-dir ~/.moon/lib/core --release --target js
-      #     cargo run --bin moon test --source-dir ~/.moon/lib/core --release --target wasm
-      # - name: Test core (Windows)
-      #   if: ${{ matrix.os == 'windows-latest' }}
-      #   run: |
-      #     cargo run --bin moon test --source-dir "$env:USERPROFILE\.moon\lib\core" --target wasm-gc
-      #     cargo run --bin moon test --source-dir "$env:USERPROFILE\.moon\lib\core" --target js
-      #     cargo run --bin moon test --source-dir "$env:USERPROFILE\.moon\lib\core" --target wasm
-      #     cargo run --bin moon test --source-dir "$env:USERPROFILE\.moon\lib\core" --release --target wasm-gc
-      #     cargo run --bin moon test --source-dir "$env:USERPROFILE\.moon\lib\core" --release --target js
-      #     cargo run --bin moon test --source-dir "$env:USERPROFILE\.moon\lib\core" --release --target wasm
+      - name: Test core (Unix)
+        if: ${{ matrix.os != 'windows-latest' }}
+        run: |
+          cargo run --bin moon test --source-dir ~/.moon/lib/core --target wasm-gc
+          cargo run --bin moon test --source-dir ~/.moon/lib/core --target js
+          cargo run --bin moon test --source-dir ~/.moon/lib/core --target wasm
+          cargo run --bin moon test --source-dir ~/.moon/lib/core --release --target wasm-gc
+          cargo run --bin moon test --source-dir ~/.moon/lib/core --release --target js
+          cargo run --bin moon test --source-dir ~/.moon/lib/core --release --target wasm
+      - name: Test core (Windows)
+        if: ${{ matrix.os == 'windows-latest' }}
+        run: |
+          cargo run --bin moon test --source-dir "$env:USERPROFILE\.moon\lib\core" --target wasm-gc
+          cargo run --bin moon test --source-dir "$env:USERPROFILE\.moon\lib\core" --target js
+          cargo run --bin moon test --source-dir "$env:USERPROFILE\.moon\lib\core" --target wasm
+          cargo run --bin moon test --source-dir "$env:USERPROFILE\.moon\lib\core" --release --target wasm-gc
+          cargo run --bin moon test --source-dir "$env:USERPROFILE\.moon\lib\core" --release --target js
+          cargo run --bin moon test --source-dir "$env:USERPROFILE\.moon\lib\core" --release --target wasm
 
   coverage:
     needs: test
