@@ -104,7 +104,8 @@ fn main {
   // let file_filter : String? = None // WILL BE REPLACED
   // let index_filter : Int? = None // WILL BE REPLACED
   let file_filter: String? = Some(get_file_name())
-  let index_filter : Int? = Some(parse_int_(get_index()))
+  let index = get_index()
+  let index_filter : Int? = Some(parse_int_(index))
   let filtered_tests = apply_filter(no_args_tests, file_filter, index_filter)
   let total = filtered_tests.length()
   let test_names = @moonbitlang/core/builtin.Array::make(total, "")
@@ -165,7 +166,7 @@ fn main {
   let _passed = total - succ_idx
   println("{BEGIN_MOONTEST}")
   println(
-    "{\"package\": \"{PACKAGE}\", \"filename\": \{filenames}, \"test_name\": \{test_names}, \"message\": \{messages}}",
+    "{\"package\": \"{PACKAGE}\", \"filename\": \{filenames}, \"index\": \"\{index}\", \"test_name\": \{test_names}, \"message\": \{messages}}",
   )
   println("{END_MOONTEST}")
 }

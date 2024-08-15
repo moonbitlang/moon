@@ -46,6 +46,7 @@ pub fn load_moon_proj(
 pub struct TestStatistics {
     pub package: String,
     pub filename: String,
+    pub index: String,
     pub test_name: String,
     pub message: String,
 }
@@ -105,9 +106,10 @@ async fn run(
         .read_to_end(&mut stdout_buffer)
         .await
         .context(format!(
-            "failed to read stdout for {} {}",
+            "failed to read stdout for {} {} {}",
             command,
-            path.display()
+            path.display(),
+            args.join(" ")
         ))?;
 
     handle_stdout(

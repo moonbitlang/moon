@@ -398,10 +398,81 @@ pub fn run_test(
                 }
 
                 handlers.push(async move {
-                    let result = trace::scope("test", || async {
+                    let mut result = trace::scope("test", || async {
                         crate::runtest::run_wat(artifact_path, target_dir, &args).await
                     })
                     .await;
+                    // todo
+                    match result {
+                        Ok(ref mut s) => {
+                            for item in s {
+                                match item {
+                                    Err(
+                                        TestFailedStatus::RuntimeError(e)
+                                        | TestFailedStatus::Failed(e),
+                                    ) => {
+                                        println!(
+                                            "{}: {}::{}::{}: {}",
+                                            "failed".red(),
+                                            e.package,
+                                            e.filename,
+                                            e.test_name,
+                                            e.message
+                                        );
+                                    }
+                                    Err(TestFailedStatus::Others(e)) => {
+                                        eprintln!("{}: {}", "failed".red(), e);
+                                    }
+                                    Err(TestFailedStatus::ExpectTestFailed(e)) => {
+                                        println!(
+                                            "{}: {}::{}::test#{}: {}",
+                                            "failed".red(),
+                                            e.package,
+                                            e.filename,
+                                            e.test_name,
+                                            e.message
+                                        );
+                                        if auto_update {
+                                            println!(
+                                                "\n{}\n",
+                                                "Auto updating expect tests and retesting ..."
+                                                    .bold()
+                                            );
+
+                                            if let Err(e) =
+                                                crate::expect::apply_expect(&[e.message.clone()])
+                                            {
+                                                eprintln!("{}: {:?}", "apply expect failed".red().bold(), e);
+                                            }
+                                            {
+                                                // recomplie after apply expect
+                                                let state = crate::runtest::load_moon_proj(
+                                                    module,
+                                                    moonc_opt,
+                                                    moonbuild_opt,
+                                                )?;
+                                                n2_run_interface(state, moonbuild_opt)?;
+                                            }
+
+                                            let mut cur_res = trace::scope("test", || async {
+                                                crate::runtest::run_wat(artifact_path, target_dir, &[e.package.clone(), e.filename.clone(), e.index.clone()]).await
+                                            })
+                                            .await;
+
+                                            let mut cnt = 1;
+                                            let limit =
+                                                moonbuild_opt.test_opt.as_ref().map(|it| it.limit).unwrap();
+
+                                            
+                                        }
+                                    }
+                                    _ => {}
+                                }
+                            }
+                        }
+                        Err(_) => return result,
+                    }
+
                     result
                 });
             }
@@ -423,11 +494,6 @@ pub fn run_test(
     let mut r = vec![];
     for item in res {
         r.extend(item?.into_iter());
-    }
-
-    // todo
-    if auto_update {
-
     }
 
     Ok(r)
