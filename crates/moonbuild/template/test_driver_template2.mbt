@@ -31,7 +31,7 @@ typealias TestDriver_No_Args_Map = @moonbitlang/core/builtin.Map[
   ],
 ]
 
-fn typing_tests(
+fn _typing_tests(
   x : @moonbitlang/core/builtin.Map[
     String,
     @moonbitlang/core/builtin.Array[
@@ -42,7 +42,7 @@ fn typing_tests(
   ignore(x)
 }
 
-fn typing_no_args_tests(x : TestDriver_No_Args_Map) -> Unit {
+fn _typing_no_args_tests(x : TestDriver_No_Args_Map) -> Unit {
   ignore(x)
 }
 
@@ -96,13 +96,15 @@ fn apply_filter(
   ret
 }
 
+let tests: Map[String, Array[(() -> Unit!Error, Array[String])]] = {  } // WILL BE REPLACED
+let no_args_tests: Map[String, Map[Int, (() -> Unit!Error, Array[String])]] = {  } // WILL BE REPLACED
 fn main {
-  let tests = {  } // WILL BE REPLACED
-  let no_args_tests = {  } // WILL BE REPLACED
-  typing_tests(tests)
-  typing_no_args_tests(no_args_tests)
-  let file_filter : String? = None // WILL BE REPLACED
-  let index_filter : Int? = None // WILL BE REPLACED
+  // _typing_tests(tests)
+  // _typing_no_args_tests(no_args_tests)
+  // let file_filter : String? = None // WILL BE REPLACED
+  // let index_filter : Int? = None // WILL BE REPLACED
+  let file_filter: String? = Some(get_file_name())
+  let index_filter : Int? = Some(parse_int_(get_index()))
   let filtered_tests = apply_filter(no_args_tests, file_filter, index_filter)
   let total = filtered_tests.length()
   let test_names = @moonbitlang/core/builtin.Array::make(total, "")
@@ -153,17 +155,32 @@ fn main {
   }
   fn repr(obj : @moonbitlang/core/builtin.Array[String]) -> String {
     let buf = @moonbitlang/core/builtin.Buffer::new(size_hint=16)
-    Show::output(obj, buf)
+    Show::output(obj[0], buf)
     buf.to_string()
   }
 
   let filenames = repr(filenames)
   let test_names = repr(test_names)
   let messages = repr(messages)
-  let passed = total - succ_idx
+  let _passed = total - succ_idx
   println("{BEGIN_MOONTEST}")
   println(
-    "{\"passed\": \{passed}, \"package\": \"{PACKAGE}\", \"filenames\": \{filenames}, \"test_names\": \{test_names}, \"messages\": \{messages}}",
+    "{\"package\": \"{PACKAGE}\", \"filename\": \{filenames}, \"test_name\": \{test_names}, \"message\": \{messages}}",
   )
   println("{END_MOONTEST}")
 }
+
+fn parse_int_(s : String) -> Int {
+  let mut res = 0
+  let len = s.length()
+  for i = 0; i < len; i = i + 1 {
+    res = res * 10 + (s[i].to_int() - '0'.to_int())
+  }
+  res
+}
+
+// get_cli_args begin
+fn get_cli_args() -> Array[String] {
+  Array::make(1, "template")
+}
+// get_cli_args end

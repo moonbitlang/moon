@@ -47,6 +47,10 @@ pub const MOON_LOCK: &str = ".moon-lock";
 
 pub const WATCH_MODE_DIR: &str = "watch";
 
+pub const GET_CLI_ARGS: &str = r#"fn get_cli_args() -> Array[String] {
+  Array::make(1, "template")
+}"#;
+
 pub fn startswith_and_trim(s: &str, t: &str) -> String {
     if s.starts_with(t) {
         s.replacen(t, "", 1)
@@ -357,6 +361,7 @@ pub struct TestOpt {
     pub filter_package: Option<HashSet<PathBuf>>,
     pub filter_file: Option<String>,
     pub filter_index: Option<u32>,
+    pub limit: u32,
 }
 
 impl TestOpt {

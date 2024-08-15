@@ -141,8 +141,10 @@ fn main {
   typing_tests(tests)
   typing_no_args_tests(no_args_tests)
   typing_with_args_tests(with_args_tests)
-  let file_filter : String? = None // WILL BE REPLACED
-  let index_filter : Int? = None // WILL BE REPLACED
+  // let file_filter : String? = None // WILL BE REPLACED
+  // let index_filter : Int? = None // WILL BE REPLACED
+  let file_filter: String? = Some(get_file_name())
+  let index_filter : Int? = Some(parse_int_(get_index()))
   let filtered_tests = apply_filter(
     no_args_tests, with_args_tests, file_filter, index_filter,
   )
@@ -218,3 +220,19 @@ fn main {
   )
   println("{END_MOONTEST}")
 }
+
+
+fn parse_int_(s : String) -> Int {
+  let mut res = 0
+  let len = s.length()
+  for i = 0; i < len; i = i + 1 {
+    res = res * 10 + (s[i].to_int() - '0'.to_int())
+  }
+  res
+}
+
+// get_cli_args begin
+fn get_cli_args() -> Array[String] {
+  Array::make(1, "template")
+}
+// get_cli_args end

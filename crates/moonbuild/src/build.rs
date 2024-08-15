@@ -17,7 +17,7 @@
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
 use super::gen;
-use anyhow::{bail, Context};
+use anyhow::Context;
 use moonutil::common::MoonbuildOpt;
 use moonutil::module::ModuleDB;
 use n2::load::State;
@@ -55,12 +55,12 @@ pub fn run_wat(path: &Path, args: &[String]) -> anyhow::Result<()> {
 }
 
 pub fn run_js(path: &Path, args: &[String]) -> anyhow::Result<()> {
-    if !args.is_empty() {
-        bail!(format!(
-            "js backend does not support extra args for now {:?}",
-            args
-        ))
-    }
+    // if !args.is_empty() {
+    //     bail!(format!(
+    //         "js backend does not support extra args for now {:?}",
+    //         args
+    //     ))
+    // }
     run("node", path, args)
 }
 
