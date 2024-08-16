@@ -582,7 +582,7 @@ pub fn apply_snapshot(messages: &[String]) -> anyhow::Result<()> {
                 .unwrap();
             rep
         })
-        .map(|e| expect_failed_to_snapshot_result(e))
+        .map(expect_failed_to_snapshot_result)
         .collect();
 
     for snapshot in snapshots.iter() {
@@ -599,7 +599,7 @@ pub fn apply_snapshot(messages: &[String]) -> anyhow::Result<()> {
             .join(expect_file);
 
         if !expect_file.parent().unwrap().exists() {
-            std::fs::create_dir_all(&expect_file.parent().unwrap())?;
+            std::fs::create_dir_all(expect_file.parent().unwrap())?;
         }
         let expect = if expect_file.exists() {
             std::fs::read_to_string(&expect_file)?

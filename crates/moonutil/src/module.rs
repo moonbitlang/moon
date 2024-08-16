@@ -468,4 +468,16 @@ fn validate_mod_json_schema() {
         "/../moonbuild/template/mod.schema.json"
     );
     expect_test::expect_file![path].assert_eq(actual);
+
+    let html_template_path = concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../moonbuild/template/mod_json_schema.html"
+    );
+    let html_template = std::fs::read_to_string(html_template_path).unwrap();
+    let content = html_template.replace("const schema = {}", &format!("const schema = {}", actual));
+    let html_path = concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../docs/manual/src/source/mod_json_schema.html"
+    );
+    std::fs::write(html_path, content).unwrap();
 }
