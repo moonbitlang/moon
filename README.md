@@ -47,7 +47,7 @@ Options:
 ```
 
 See tutorials at
-[MoonBit's Build System Tutorial](https://www.moonbitlang.com/docs/build-system-tutorial)
+[MoonBit's Build System Tutorial](https://moonbitlang.github.io/moon/tutorial.html)
 
 ## Contributing
 
