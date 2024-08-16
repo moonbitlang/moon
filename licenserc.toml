@@ -39,6 +39,7 @@ For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 """
 
 excludes = [
+    "*.html",
     "*.mbti",
     "crates/moon/tests/test_cases/**",
     "!crates/moon/tests/test_cases/mod.rs",

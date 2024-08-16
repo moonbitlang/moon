@@ -143,6 +143,7 @@ pub struct MoonPkgJSON {
     #[serde(alias = "is-main")]
     #[serde(alias = "is_main")]
     #[serde(rename(serialize = "is-main"))]
+    #[schemars(rename = "is-main")]
     pub is_main: Option<bool>,
 
     /// Imported packages of the package
@@ -151,14 +152,16 @@ pub struct MoonPkgJSON {
 
     /// White box test imported packages of the package
     #[serde(skip_serializing_if = "Option::is_none")]
-    #[serde(alias = "wbtest-import")]
     #[serde(alias = "wbtest_import")]
+    #[serde(alias = "wbtest-import")]
+    #[schemars(rename = "wbtest-import")]
     pub wbtest_import: Option<PkgJSONImport>,
 
     /// Black box test imported packages of the package
     #[serde(skip_serializing_if = "Option::is_none")]
-    #[serde(alias = "test-import")]
     #[serde(alias = "test_import")]
+    #[serde(alias = "test-import")]
+    #[schemars(rename = "test-import")]
     pub test_import: Option<PkgJSONImport>,
 
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -168,16 +171,19 @@ pub struct MoonPkgJSON {
     #[serde(skip_serializing_if = "Option::is_none")]
     #[serde(alias = "warn-list")]
     #[serde(alias = "warn_list")]
+    #[schemars(rename = "warn-list")]
     pub warn_list: Option<String>,
 
     /// Alert list setting of the package
     #[serde(skip_serializing_if = "Option::is_none")]
     #[serde(alias = "alert-list")]
     #[serde(alias = "alert_list")]
+    #[schemars(rename = "alert-list")]
     pub alert_list: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, JsonSchema)]
+#[schemars(rename = "import-memory")]
 pub struct ImportMemory {
     pub module: String,
     pub name: String,
@@ -452,4 +458,16 @@ fn validate_pkg_json_schema() {
         "/../moonbuild/template/pkg.schema.json"
     );
     expect_test::expect_file![path].assert_eq(actual);
+
+    let html_template_path = concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../moonbuild/template/pkg_json_schema.html"
+    );
+    let html_template = std::fs::read_to_string(html_template_path).unwrap();
+    let content = html_template.replace("const schema = {}", &format!("const schema = {}", actual));
+    let html_path = concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../docs/manual/src/source/pkg_json_schema.html"
+    );
+    std::fs::write(html_path, content).unwrap();
 }
