@@ -582,7 +582,8 @@ pub fn gen_link_blackbox_test(
 
     let package_sources = get_package_sources(m, &pkg_topo_order);
 
-    let package_full_name = pkg.full_name();
+    // this will be passed to link-core `-main`
+    let package_full_name = pkg.full_name() + "_blackbox_test";
 
     Ok(RuntestLinkDepItem {
         out: out.display().to_string(),
@@ -851,6 +852,8 @@ pub fn gen_runtest_link_command(
                 ),
             ],
         )
+        .args(["-exported_functions", "execute"])
+        .args(["-js-format", "cjs"])
         .args(["-target", moonc_opt.link_opt.target_backend.to_flag()])
         .arg_with_cond(moonc_opt.link_opt.debug_flag, "-g")
         .args(moonc_opt.extra_link_opt.iter())
@@ -962,3 +965,8 @@ fn gen_generate_test_driver_command(
     build.cmdline = Some(command);
     build
 }
+// moonc build-package ./src/lib/hello_test.mbt ./target/js/debug/test/lib/__generated_driver_for_blackbox_test.mbt -o ./target/js/debug/test/lib/lib.blackbox_test.core -pkg username/hello/lib_blackbox_test -is-main -std-path /Users/flash/.moon/lib/core/target/js/release/bundle -i ./target/js/debug/test/lib/lib.mi:lib -pkg-sources username/hello/lib_blackbox_test:./src/lib -target js -g -ryu
+
+// moonc build-package ./src/lib/hello_test.mbt ./target/js/debug/test/lib/__generated_driver_for_blackbox_test.mbt -o ./target/js/debug/test/lib/lib.blackbox_test.core -pkg username/hello/lib -is-main -std-path /Users/flash/.moon/lib/core/target/js/release/bundle -i ./target/js/debug/test/lib/lib.mi:lib -pkg-sources username/hello/lib_blackbox_test:./src/lib -target js -g -ryu
+
+// moonc link-core /Users/flash/.moon/lib/core/target/js/release/bundle/core.core ./target/js/debug/test/lib/lib.core ./target/js/debug/test/lib/lib.blackbox_test.core -main username/hello/lib_blackbox_test -o ./target/js/debug/test/lib/lib.blackbox_test.js -test-mode -pkg-sources username/hello/lib:./lib -pkg-sources moonbitlang/core:/Users/flash/.moon/lib/core -exported_functions execute -js-format cjs -target js -g -ryu

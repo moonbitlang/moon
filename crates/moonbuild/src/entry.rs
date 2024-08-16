@@ -372,6 +372,18 @@ pub fn run_test(
                 continue;
             }
             let artifact_path = artifact_path.as_ref().unwrap();
+            let wrapper_js_driver_path = artifact_path.with_extension("cjs");
+
+            if moonc_opt.build_opt.target_backend == TargetBackend::Js
+                && !wrapper_js_driver_path.exists()
+            {
+                let js_driver = include_str!(concat!(
+                    env!("CARGO_MANIFEST_DIR"),
+                    "/../moonbuild/template/js_driver.js"
+                ))
+                .replace("origin_js_path", &artifact_path.display().to_string());
+                std::fs::write(&wrapper_js_driver_path, js_driver)?;
+            }
 
             for (file_name, test_count) in map {
                 if let Some(filter_file) = filter_file {
@@ -397,7 +409,19 @@ pub fn run_test(
                 let printed = Arc::clone(&printed);
                 handlers.push(async move {
                     let mut result = trace::scope("test", || async {
-                        crate::runtest::run_wat(artifact_path, target_dir, &args).await
+                        match moonc_opt.build_opt.target_backend {
+                            TargetBackend::Wasm | TargetBackend::WasmGC => {
+                                crate::runtest::run_wat(artifact_path, target_dir, &args).await
+                            }
+                            TargetBackend::Js => {
+                                crate::runtest::run_js(
+                                    &artifact_path.with_extension("cjs"),
+                                    target_dir,
+                                    &args,
+                                )
+                                .await
+                            }
+                        }
                     })
                     .await;
                     match result {
@@ -440,7 +464,9 @@ pub fn run_test(
                                                 origin_err.filename,
                                                 origin_err.test_name
                                             );
-                                            let _ = crate::expect::render_expect_fail(&origin_err.message);
+                                            let _ = crate::expect::render_expect_fail(
+                                                &origin_err.message,
+                                            );
                                         }
                                         if auto_update {
                                             if !printed.load(std::sync::atomic::Ordering::SeqCst) {
@@ -457,23 +483,31 @@ pub fn run_test(
 
                                             // here need to rerun the test to get the new error message
                                             // since the previous apply expect may add or delete some line, which make the error message out of date
-                                            let rerun = crate::runtest::run_wat(
-                                                artifact_path,
-                                                target_dir,
-                                                &[
-                                                    origin_err.package.clone(),
-                                                    origin_err.filename.clone(),
-                                                    origin_err.index.clone(),
-                                                ],
-                                            )
-                                            .await?
+                                            let rerun = match moonc_opt.build_opt.target_backend {
+                                                TargetBackend::Wasm | TargetBackend::WasmGC => {
+                                                    crate::runtest::run_wat(
+                                                        artifact_path,
+                                                        target_dir,
+                                                        &args,
+                                                    )
+                                                    .await
+                                                }
+                                                TargetBackend::Js => {
+                                                    crate::runtest::run_js(
+                                                        &artifact_path.with_extension("cjs"),
+                                                        target_dir,
+                                                        &args,
+                                                    )
+                                                    .await
+                                                }
+                                            }?
                                             .get(0)
                                             .unwrap()
                                             .clone();
                                             let update_msg = match rerun {
-                                                Err(TestFailedStatus::ExpectTestFailed(cur_err)) => {
-                                                    &[cur_err.message]
-                                                }
+                                                Err(TestFailedStatus::ExpectTestFailed(
+                                                    cur_err,
+                                                )) => &[cur_err.message],
                                                 _ => &[origin_err.message.clone()],
                                             };
                                             if let Err(e) = crate::expect::apply_expect(update_msg)
@@ -494,19 +528,28 @@ pub fn run_test(
                                                 n2_run_interface(state, moonbuild_opt)?;
                                             }
 
-                                            let mut cur_res = crate::runtest::run_wat(
-                                                artifact_path,
-                                                target_dir,
-                                                &[
-                                                    origin_err.package.clone(),
-                                                    origin_err.filename.clone(),
-                                                    origin_err.index.clone(),
-                                                ],
-                                            )
-                                            .await?
-                                            .get(0)
-                                            .unwrap()
-                                            .clone();
+                                            let mut cur_res =
+                                                match moonc_opt.build_opt.target_backend {
+                                                    TargetBackend::Wasm | TargetBackend::WasmGC => {
+                                                        crate::runtest::run_wat(
+                                                            artifact_path,
+                                                            target_dir,
+                                                            &args,
+                                                        )
+                                                        .await
+                                                    }
+                                                    TargetBackend::Js => {
+                                                        crate::runtest::run_js(
+                                                            &artifact_path.with_extension("cjs"),
+                                                            target_dir,
+                                                            &args,
+                                                        )
+                                                        .await
+                                                    }
+                                                }?
+                                                .get(0)
+                                                .unwrap()
+                                                .clone();
 
                                             let mut cnt = 1;
                                             let limit = moonbuild_opt
@@ -522,8 +565,9 @@ pub fn run_test(
                                                     break;
                                                 }
 
-                                                if let Err(e) =
-                                                    crate::expect::apply_expect(&[etf.message.clone()])
+                                                if let Err(e) = crate::expect::apply_expect(&[etf
+                                                    .message
+                                                    .clone()])
                                                 {
                                                     eprintln!("{}: {:?}", "failed".red().bold(), e);
                                                 }
@@ -538,19 +582,30 @@ pub fn run_test(
                                                     n2_run_interface(state, moonbuild_opt)?;
                                                 }
 
-                                                cur_res = crate::runtest::run_wat(
-                                                    artifact_path,
-                                                    target_dir,
-                                                    &[
-                                                        origin_err.package.clone(),
-                                                        origin_err.filename.clone(),
-                                                        origin_err.index.clone(),
-                                                    ],
-                                                )
-                                                .await?
-                                                .get(0)
-                                                .unwrap()
-                                                .clone();
+                                                cur_res =
+                                                    match moonc_opt.build_opt.target_backend {
+                                                        TargetBackend::Wasm
+                                                        | TargetBackend::WasmGC => {
+                                                            crate::runtest::run_wat(
+                                                                artifact_path,
+                                                                target_dir,
+                                                                &args,
+                                                            )
+                                                            .await
+                                                        }
+                                                        TargetBackend::Js => {
+                                                            crate::runtest::run_js(
+                                                                &artifact_path
+                                                                    .with_extension("cjs"),
+                                                                target_dir,
+                                                                &args,
+                                                            )
+                                                            .await
+                                                        }
+                                                    }?
+                                                    .get(0)
+                                                    .unwrap()
+                                                    .clone();
 
                                                 cnt += 1;
                                             }
