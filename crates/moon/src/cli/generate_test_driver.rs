@@ -234,7 +234,7 @@ fn generate_driver(
             )
             .replace(
                 "let tests = {",
-                "let tests: Map[String, Array[(() -> Unit!Error, Array[String])]] = {",
+                "let _tests: Map[String, Array[(() -> Unit!Error, Array[String])]] = {",
             )
             .replace(
                 "  let no_args_tests = {",

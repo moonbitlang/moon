@@ -16,6 +16,7 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
+use clap::builder::Str;
 use moonutil::module::ModuleDB;
 use moonutil::path::PathComponent;
 use n2::progress::{DumbConsoleProgress, FancyConsoleProgress, Progress};
@@ -23,6 +24,7 @@ use n2::terminal;
 use std::io::{BufRead, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
+use std::sync::atomic::AtomicBool;
 use thiserror::Error;
 
 use n2::{trace, work};
@@ -253,7 +255,7 @@ pub fn run_run(
     Ok(0)
 }
 
-#[derive(Debug, Error)]
+#[derive(Debug, Error, Clone)]
 pub enum TestFailedStatus {
     #[error("{0}")]
     ApplyExpectFailed(TestStatistics),
@@ -268,13 +270,7 @@ pub enum TestFailedStatus {
     RuntimeError(TestStatistics),
 
     #[error("{0:?}")]
-    Others(#[from] anyhow::Error),
-}
-
-impl From<std::io::Error> for TestFailedStatus {
-    fn from(err: std::io::Error) -> Self {
-        TestFailedStatus::Others(anyhow::Error::from(err))
-    }
+    Others(String),
 }
 
 impl From<TestFailedStatus> for i32 {
@@ -358,6 +354,7 @@ pub fn run_test(
     let filter_file = test_opt.as_ref().and_then(|it| it.filter_file.as_ref());
     let filter_index = test_opt.as_ref().and_then(|it| it.filter_index);
 
+    let printed = Arc::new(AtomicBool::new(false));
     for (pkgname, _) in module
         .packages
         .iter()
@@ -397,16 +394,27 @@ pub fn run_test(
                     args.push(index.to_string());
                 }
 
+                let printed = Arc::clone(&printed);
                 handlers.push(async move {
                     let mut result = trace::scope("test", || async {
                         crate::runtest::run_wat(artifact_path, target_dir, &args).await
                     })
                     .await;
-                    // todo
                     match result {
                         Ok(ref mut s) => {
                             for item in s {
                                 match item {
+                                    Ok(s) => {
+                                        if test_verbose_output {
+                                            println!(
+                                                "test {}/{}::{} {}",
+                                                s.package,
+                                                s.filename,
+                                                s.test_name,
+                                                "ok".bold().green()
+                                            );
+                                        }
+                                    }
                                     Err(
                                         TestFailedStatus::RuntimeError(e)
                                         | TestFailedStatus::Failed(e),
@@ -423,29 +431,61 @@ pub fn run_test(
                                     Err(TestFailedStatus::Others(e)) => {
                                         eprintln!("{}: {}", "failed".red(), e);
                                     }
-                                    Err(TestFailedStatus::ExpectTestFailed(e)) => {
-                                        println!(
-                                            "{}: {}::{}::test#{}: {}",
-                                            "failed".red(),
-                                            e.package,
-                                            e.filename,
-                                            e.test_name,
-                                            e.message
-                                        );
-                                        if auto_update {
+                                    Err(TestFailedStatus::ExpectTestFailed(origin_err)) => {
+                                        if !printed.load(std::sync::atomic::Ordering::SeqCst) {
                                             println!(
-                                                "\n{}\n",
-                                                "Auto updating expect tests and retesting ..."
-                                                    .bold()
+                                                "{}: {}::{}::{}",
+                                                "failed".red(),
+                                                origin_err.package,
+                                                origin_err.filename,
+                                                origin_err.test_name
                                             );
-
-                                            if let Err(e) =
-                                                crate::expect::apply_expect(&[e.message.clone()])
-                                            {
-                                                eprintln!("{}: {:?}", "apply expect failed".red().bold(), e);
+                                            let _ = crate::expect::render_expect_fail(&origin_err.message);
+                                        }
+                                        if auto_update {
+                                            if !printed.load(std::sync::atomic::Ordering::SeqCst) {
+                                                println!(
+                                                    "\n{}\n",
+                                                    "Auto updating expect tests and retesting ..."
+                                                        .bold()
+                                                );
+                                                printed.store(
+                                                    true,
+                                                    std::sync::atomic::Ordering::SeqCst,
+                                                );
                                             }
+
+                                            // here need to rerun the test to get the new error message
+                                            // since the previous apply expect may add or delete some line, which make the error message out of date
+                                            let rerun = crate::runtest::run_wat(
+                                                artifact_path,
+                                                target_dir,
+                                                &[
+                                                    origin_err.package.clone(),
+                                                    origin_err.filename.clone(),
+                                                    origin_err.index.clone(),
+                                                ],
+                                            )
+                                            .await?
+                                            .get(0)
+                                            .unwrap()
+                                            .clone();
+                                            let update_msg = match rerun {
+                                                Err(TestFailedStatus::ExpectTestFailed(cur_err)) => {
+                                                    &[cur_err.message]
+                                                }
+                                                _ => &[origin_err.message.clone()],
+                                            };
+                                            if let Err(e) = crate::expect::apply_expect(update_msg)
                                             {
-                                                // recomplie after apply expect
+                                                eprintln!(
+                                                    "{}: {:?}",
+                                                    "apply expect failed".red().bold(),
+                                                    e
+                                                );
+                                            }
+                                            // recomplie after apply expect
+                                            {
                                                 let state = crate::runtest::load_moon_proj(
                                                     module,
                                                     moonc_opt,
@@ -454,16 +494,69 @@ pub fn run_test(
                                                 n2_run_interface(state, moonbuild_opt)?;
                                             }
 
-                                            let mut cur_res = trace::scope("test", || async {
-                                                crate::runtest::run_wat(artifact_path, target_dir, &[e.package.clone(), e.filename.clone(), e.index.clone()]).await
-                                            })
-                                            .await;
+                                            let mut cur_res = crate::runtest::run_wat(
+                                                artifact_path,
+                                                target_dir,
+                                                &[
+                                                    origin_err.package.clone(),
+                                                    origin_err.filename.clone(),
+                                                    origin_err.index.clone(),
+                                                ],
+                                            )
+                                            .await?
+                                            .get(0)
+                                            .unwrap()
+                                            .clone();
 
                                             let mut cnt = 1;
-                                            let limit =
-                                                moonbuild_opt.test_opt.as_ref().map(|it| it.limit).unwrap();
+                                            let limit = moonbuild_opt
+                                                .test_opt
+                                                .as_ref()
+                                                .map(|it| it.limit)
+                                                .unwrap();
+                                            while let Err(TestFailedStatus::ExpectTestFailed(
+                                                ref etf,
+                                            )) = cur_res
+                                            {
+                                                if cnt >= limit {
+                                                    break;
+                                                }
 
-                                            
+                                                if let Err(e) =
+                                                    crate::expect::apply_expect(&[etf.message.clone()])
+                                                {
+                                                    eprintln!("{}: {:?}", "failed".red().bold(), e);
+                                                }
+
+                                                // recomplie after apply expect
+                                                {
+                                                    let state = crate::runtest::load_moon_proj(
+                                                        module,
+                                                        moonc_opt,
+                                                        moonbuild_opt,
+                                                    )?;
+                                                    n2_run_interface(state, moonbuild_opt)?;
+                                                }
+
+                                                cur_res = crate::runtest::run_wat(
+                                                    artifact_path,
+                                                    target_dir,
+                                                    &[
+                                                        origin_err.package.clone(),
+                                                        origin_err.filename.clone(),
+                                                        origin_err.index.clone(),
+                                                    ],
+                                                )
+                                                .await?
+                                                .get(0)
+                                                .unwrap()
+                                                .clone();
+
+                                                cnt += 1;
+                                            }
+
+                                            // update the previous test result
+                                            *item = cur_res;
                                         }
                                     }
                                     _ => {}
@@ -493,6 +586,7 @@ pub fn run_test(
 
     let mut r = vec![];
     for item in res {
+        // handle error for item?
         r.extend(item?.into_iter());
     }
 

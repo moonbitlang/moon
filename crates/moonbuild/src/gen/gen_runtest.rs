@@ -634,7 +634,7 @@ pub fn gen_runtest(
             }
         }
 
-        if m.test_info.get(pkgname).unwrap()[2].0.is_some() {
+        // if m.test_info.get(pkgname).unwrap()[2].0.is_some() {
             for item in pkg.generated_test_drivers.iter() {
                 if let GeneratedTestDriver::InternalTest(_) = item {
                     test_drivers.push(gen_package_test_driver(item, pkg)?);
@@ -642,9 +642,9 @@ pub fn gen_runtest(
                     link_items.push(gen_link_internal_test(m, pkg, moonc_opt)?);
                 }
             }
-        }
+        // }
 
-        if m.test_info.get(pkgname).unwrap()[1].0.is_some() {
+        if !pkg.wbtest_files.is_empty() {
             for item in pkg.generated_test_drivers.iter() {
                 if let GeneratedTestDriver::WhiteboxTest(_) = item {
                     test_drivers.push(gen_package_test_driver(item, pkg)?);
@@ -654,7 +654,7 @@ pub fn gen_runtest(
             }
         }
 
-        if m.test_info.get(pkgname).unwrap()[0].0.is_some() {
+        if !pkg.test_files.is_empty() {
             for item in pkg.generated_test_drivers.iter() {
                 if let GeneratedTestDriver::BlackboxTest(_) = item {
                     test_drivers.push(gen_package_test_driver(item, pkg)?);

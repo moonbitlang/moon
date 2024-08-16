@@ -138,6 +138,7 @@ async fn run(
 
         for test_statistic in test_statistics {
             let return_message = &test_statistic.message;
+            // dbg!(&test_statistic);
             if return_message.is_empty() {
                 res.push(Ok(test_statistic));
             } else if return_message.starts_with(EXPECT_FAILED) {
@@ -148,11 +149,11 @@ async fn run(
                 res.push(Err(TestFailedStatus::RuntimeError(test_statistic)));
             } else if return_message.starts_with(ERROR) {
                 res.push(Err(TestFailedStatus::RuntimeError(test_statistic)));
-            } else {
-                res.push(Err(TestFailedStatus::Others(anyhow!(
-                    "unexpected test output: {}",
-                    test_statistic
-                ))));
+            } else if !return_message.is_empty() {
+                res.push(Err(TestFailedStatus::Failed(test_statistic)));
+            }
+            else {
+                res.push(Err(TestFailedStatus::Others(return_message.to_string())));
             }
         }
     } else {
@@ -160,7 +161,7 @@ async fn run(
         println!("stdout: {}", s);
         // let s = String::from_utf8_lossy(&stderr_buffer).to_string();
         // println!("stderr: {}", s);
-        res.push(Err(TestFailedStatus::Others(anyhow!(
+        res.push(Err(TestFailedStatus::Others(String::from(
             "No test output found"
         ))));
     }
