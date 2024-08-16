@@ -1,7 +1,7 @@
 # MoonBit's Build System Tutorial
 
 Moon is the build system for the MoonBit language, currently based on the [n2](https://github.com/evmar/n2) project. Moon supports parallel and incremental builds. Additionally, moon also supports managing and building third-party packages on [mooncakes.io](https://mooncakes.io/)
-- [aaa](./source/mod_json_schema.html)
+
 ## Prerequisites
 
 Before you begin with this tutorial, make sure you have installed the following:
