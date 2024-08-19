@@ -66,7 +66,12 @@ pub async fn run_wat(
     target_dir: &Path,
     args: &[String],
 ) -> anyhow::Result<Vec<Result<TestStatistics, TestFailedStatus>>> {
-    run("mmr", path, target_dir, args).await
+    // put "--test-mode" at the front of args
+    let mut _args = vec!["--test-mode".to_string()];
+    for a in args {
+        _args.push(a.clone());
+    }
+    run("mmr", path, target_dir, &_args).await
 }
 
 pub async fn run_js(
@@ -125,6 +130,15 @@ async fn run(
 
     let mut res = vec![];
 
+    if let Some(coverage_output) = coverage_capture.finish() {
+        // Output to moonbit_coverage_<time>.txt
+        // TODO: do we need to move this out of the runtest module?
+        let time = chrono::Local::now().timestamp_micros();
+        let filename = target_dir.join(format!("moonbit_coverage_{}.txt", time));
+        std::fs::write(&filename, coverage_output)
+            .context(format!("failed to write {}", filename.to_string_lossy()))?;
+    }
+
     if let Some(test_output) = test_capture.finish() {
         let mut test_statistics: Vec<TestStatistics> = vec![];
         for s in test_output.split('\n') {
@@ -151,40 +165,16 @@ async fn run(
                 res.push(Err(TestFailedStatus::RuntimeError(test_statistic)));
             } else if !return_message.is_empty() {
                 res.push(Err(TestFailedStatus::Failed(test_statistic)));
-            }
-            else {
+            } else {
                 res.push(Err(TestFailedStatus::Others(return_message.to_string())));
             }
         }
     } else {
-        let s = String::from_utf8_lossy(&stdout_buffer).to_string();
-        println!("stdout: {}", s);
-        // let s = String::from_utf8_lossy(&stderr_buffer).to_string();
-        // println!("stderr: {}", s);
         res.push(Err(TestFailedStatus::Others(String::from(
-            "No test output found"
+            "No test output found",
         ))));
     }
 
     Ok(res)
 
-    // if output.success() {
-    //     if let Some(coverage_output) = coverage_capture.finish() {
-    //         // Output to moonbit_coverage_<time>.txt
-    //         // TODO: do we need to move this out of the runtest module?
-    //         let time = chrono::Local::now().timestamp_micros();
-    //         let filename = target_dir.join(format!("moonbit_coverage_{}.txt", time));
-    //         std::fs::write(&filename, coverage_output)
-    //             .context(format!("failed to write {}", filename.to_string_lossy()))?;
-    //     }
-    //     if let Some(test_output) = test_capture.finish() {
-    //         let j: TestStatistics = serde_json_lenient::from_str(test_output.trim())
-    //             .context(format!("failed to parse test summary: {}", test_output))?;
-    //         Ok(j)
-    //     } else {
-    //         bail!("No test output found");
-    //     }
-    // } else {
-    //     bail!("Failed to run the test");
-    // }
 }

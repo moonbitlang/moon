@@ -261,12 +261,12 @@ fn scan_one_package(
         get_mbt_and_test_file_paths(pkg_path);
 
     // workaround for builtin package testing
-    if moonc_opt.build_opt.enable_coverage
-        && mod_desc.name == MOONBITLANG_CORE
-        && rel_path.components == ["builtin"]
-    {
-        workaround_builtin_get_coverage_mbt_file_paths(pkg_path, &mut mbt_files);
-    }
+    // if moonc_opt.build_opt.enable_coverage
+    //     && mod_desc.name == MOONBITLANG_CORE
+    //     && rel_path.components == ["builtin"]
+    // {
+    //     workaround_builtin_get_coverage_mbt_file_paths(pkg_path, &mut mbt_files);
+    // }
 
     let sort_input = moonbuild_opt.sort_input;
     if sort_input {

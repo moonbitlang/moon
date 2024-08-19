@@ -324,7 +324,6 @@ fn run_test_internal(
         auto_update,
         &module,
         verbose,
-        limit,
     )
 }
 
@@ -335,7 +334,6 @@ fn do_run_test(
     auto_update: bool,
     module: &ModuleDB,
     verbose: bool,
-    limit: u32,
 ) -> anyhow::Result<i32> {
     let test_res = entry::run_test(
         moonc_opt,
