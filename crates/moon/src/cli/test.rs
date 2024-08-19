@@ -242,11 +242,22 @@ fn run_test_internal(
         );
         let current_pkg_test_info = module.test_info.get_mut(pkgname).unwrap();
 
-        for file in pkg
-            .files
+        let filter_files =
+            moonutil::common::backend_filter(&pkg.files, moonc_opt.link_opt.target_backend);
+        let filter_wbtest_files =
+            moonutil::common::backend_filter(&pkg.wbtest_files, moonc_opt.link_opt.target_backend);
+        let filter_test_files =
+            moonutil::common::backend_filter(&pkg.test_files, moonc_opt.link_opt.target_backend);
+
+        // for file in pkg
+        //     .files
+        //     .iter()
+        //     .chain(pkg.wbtest_files.iter())
+        //     .chain(pkg.test_files.iter())
+        for file in filter_files
             .iter()
-            .chain(pkg.wbtest_files.iter())
-            .chain(pkg.test_files.iter())
+            .chain(filter_wbtest_files.iter())
+            .chain(filter_test_files.iter())
         {
             let content = std::fs::read_to_string(file)?;
             let filename = file.file_name().unwrap().to_str().unwrap();
@@ -352,6 +363,7 @@ fn do_run_test(
     if passed == total {
         Ok(0)
     } else {
-        bail!("Failed to run all tests");
+        Ok(2)
+        // bail!("Failed to run all tests");
     }
 }

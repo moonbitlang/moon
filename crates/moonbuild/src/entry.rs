@@ -406,6 +406,8 @@ pub fn run_test(
                     args.push(index.to_string());
                 }
 
+                // println!("args: {:?}", args);
+
                 let printed = Arc::clone(&printed);
                 handlers.push(async move {
                     let mut result = trace::scope("test", || async {
@@ -488,7 +490,7 @@ pub fn run_test(
                                                     crate::runtest::run_wat(
                                                         artifact_path,
                                                         target_dir,
-                                                        &args,
+                                                        &[origin_err.package.clone(), origin_err.filename.clone(), origin_err.index.clone()],
                                                     )
                                                     .await
                                                 }
@@ -496,7 +498,7 @@ pub fn run_test(
                                                     crate::runtest::run_js(
                                                         &artifact_path.with_extension("cjs"),
                                                         target_dir,
-                                                        &args,
+                                                        &[origin_err.package.clone(), origin_err.filename.clone(), origin_err.index.clone()],
                                                     )
                                                     .await
                                                 }
@@ -534,7 +536,7 @@ pub fn run_test(
                                                         crate::runtest::run_wat(
                                                             artifact_path,
                                                             target_dir,
-                                                            &args,
+                                                            &[origin_err.package.clone(), origin_err.filename.clone(), origin_err.index.clone()],
                                                         )
                                                         .await
                                                     }
@@ -542,7 +544,7 @@ pub fn run_test(
                                                         crate::runtest::run_js(
                                                             &artifact_path.with_extension("cjs"),
                                                             target_dir,
-                                                            &args,
+                                                            &[origin_err.package.clone(), origin_err.filename.clone(), origin_err.index.clone()],
                                                         )
                                                         .await
                                                     }
@@ -562,6 +564,8 @@ pub fn run_test(
                                             )) = cur_res
                                             {
                                                 if cnt >= limit {
+                                                    println!("limit: {:?}", limit);
+                                                    println!("etf: {:?}", etf);
                                                     break;
                                                 }
 
@@ -589,7 +593,7 @@ pub fn run_test(
                                                             crate::runtest::run_wat(
                                                                 artifact_path,
                                                                 target_dir,
-                                                                &args,
+                                                                &[origin_err.package.clone(), origin_err.filename.clone(), origin_err.index.clone()],
                                                             )
                                                             .await
                                                         }
@@ -598,7 +602,7 @@ pub fn run_test(
                                                                 &artifact_path
                                                                     .with_extension("cjs"),
                                                                 target_dir,
-                                                                &args,
+                                                                &[origin_err.package.clone(), origin_err.filename.clone(), origin_err.index.clone()],
                                                             )
                                                             .await
                                                         }

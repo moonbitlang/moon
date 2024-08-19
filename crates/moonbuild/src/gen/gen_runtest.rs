@@ -852,8 +852,10 @@ pub fn gen_runtest_link_command(
                 ),
             ],
         )
-        .args(["-exported_functions", "execute"])
-        .args(["-js-format", "cjs"])
+        .args_with_cond(
+            moonc_opt.link_opt.target_backend == moonutil::common::TargetBackend::Js,
+            ["-exported_functions", "execute", "-js-format", "cjs"],
+        )
         .args(["-target", moonc_opt.link_opt.target_backend.to_flag()])
         .arg_with_cond(moonc_opt.link_opt.debug_flag, "-g")
         .args(moonc_opt.extra_link_opt.iter())
