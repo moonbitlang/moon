@@ -49,7 +49,7 @@ pub fn run_bundle(cli: UniversalFlags, cmd: BundleSubcommand) -> anyhow::Result<
         source_dir,
         target_dir,
     } = cli.source_tgt_dir.try_into_package_dirs()?;
-    let _lock = FileLock::lock(&target_dir)?;
+
     let target = if cmd.all {
         Some(vec![SurfaceTarget::All])
     } else {
@@ -124,6 +124,7 @@ fn run_bundle_internal(
     let sort_input = cmd.build_flags.sort_input;
 
     let target_dir = mk_arch_mode_dir(source_dir, target_dir, &moonc_opt, run_mode)?;
+    let _lock = FileLock::lock(&target_dir)?;
 
     let moonbuild_opt = MoonbuildOpt {
         source_dir: source_dir.to_path_buf(),

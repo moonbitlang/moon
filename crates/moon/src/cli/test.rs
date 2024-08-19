@@ -87,7 +87,6 @@ pub fn run_test(cli: UniversalFlags, cmd: TestSubcommand) -> anyhow::Result<i32>
         source_dir,
         target_dir,
     } = cli.source_tgt_dir.try_into_package_dirs()?;
-    let _lock = FileLock::lock(&target_dir)?;
 
     if cmd.build_flags.target.is_none() {
         return run_test_internal(&cli, &cmd, &source_dir, &target_dir);
@@ -163,6 +162,7 @@ fn run_test_internal(
 
     let run_mode = RunMode::Test;
     let target_dir = mk_arch_mode_dir(source_dir, target_dir, &moonc_opt, run_mode)?;
+    let _lock = FileLock::lock(&target_dir)?;
 
     if cli.trace {
         trace::open("trace.json").context("failed to open `trace.json`")?;

@@ -42,11 +42,10 @@ pub fn run_fmt(cli: &UniversalFlags, cmd: FmtSubcommand) -> anyhow::Result<i32> 
         target_dir,
     } = cli.source_tgt_dir.try_into_package_dirs()?;
 
-    let _lock = FileLock::lock(&target_dir)?;
-
     let moonc_opt = MooncOpt::default();
     let run_mode = RunMode::Format;
     let target_dir = mk_arch_mode_dir(&source_dir, &target_dir, &moonc_opt, run_mode)?;
+    let _lock = FileLock::lock(&target_dir)?;
 
     // Resolve dependencies, but don't download anything
     let (resolved_env, dir_sync_result) = auto_sync(

@@ -50,7 +50,7 @@ pub fn run_build(cli: &UniversalFlags, cmd: &BuildSubcommand) -> anyhow::Result<
         source_dir,
         target_dir,
     } = cli.source_tgt_dir.try_into_package_dirs()?;
-    let _lock = FileLock::lock(&target_dir)?;
+
     if cmd.build_flags.target.is_none() {
         return run_build_internal(cli, cmd, &source_dir, &target_dir);
     }
@@ -114,6 +114,7 @@ fn run_build_internal(
     moonc_opt.build_opt.deny_warn = cmd.build_flags.deny_warn;
     let run_mode = RunMode::Build;
     let target_dir = mk_arch_mode_dir(source_dir, target_dir, &moonc_opt, run_mode)?;
+    let _lock = FileLock::lock(&target_dir)?;
     let sort_input = cmd.build_flags.sort_input;
 
     let moonbuild_opt = MoonbuildOpt {

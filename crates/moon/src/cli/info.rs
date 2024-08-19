@@ -48,8 +48,6 @@ pub fn run_info(cli: UniversalFlags, cmd: InfoSubcommand) -> anyhow::Result<i32>
         target_dir,
     } = cli.source_tgt_dir.try_into_package_dirs()?;
 
-    let _lock = FileLock::lock(&target_dir)?;
-
     // Run moon install before build
     let (resolved_env, dir_sync_result) = auto_sync(
         &source_dir,
@@ -77,6 +75,8 @@ pub fn run_info(cli: UniversalFlags, cmd: InfoSubcommand) -> anyhow::Result<i32>
         &moonc_opt,
         RunMode::Check,
     )?;
+    let _lock = FileLock::lock(&target_dir)?;
+
     if module_name == MOONBITLANG_CORE {
         moonc_opt.nostd = true;
     }

@@ -121,6 +121,8 @@ pub fn mk_arch_mode_dir(
             .context(format!("failed to create directory {:?}", arch_mode_dir))?;
     }
 
+    // this lock is used to prevent race condition on moon.db
+    let _lock = crate::common::FileLock::lock(&arch_mode_dir)?;
     if !has_moon_db(&arch_mode_dir) {
         create_moon_db(source_dir, &arch_mode_dir)?;
     } else if need_rebuild(source_dir, &arch_mode_dir) {
