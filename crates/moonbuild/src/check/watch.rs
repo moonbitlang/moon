@@ -22,7 +22,7 @@ use mooncake::pkg::sync::auto_sync;
 use moonutil::module::ModuleDB;
 use moonutil::mooncakes::sync::AutoSyncFlags;
 use moonutil::mooncakes::RegistryConfig;
-use notify::event::{DataChange, ModifyKind};
+use notify::event::ModifyKind;
 use notify::{Config, EventKind, RecommendedWatcher, RecursiveMode, Watcher};
 
 use moonutil::common::{MoonbuildOpt, MooncOpt, MOON_MOD_JSON, MOON_PKG_JSON, WATCH_MODE_DIR};
@@ -68,8 +68,8 @@ pub fn watch_single_thread(
                         EventKind::Other if exit_flag.load(Ordering::SeqCst) => {
                             break;
                         }
-                        // when a file was modified, multiple events may be received, we only care about data content changed event
-                        EventKind::Modify(ModifyKind::Data(DataChange::Content)) => {
+                        // when a file was modified, multiple events may be received, we only care about those modified data
+                        EventKind::Modify(ModifyKind::Data(_)) => {
                             let origin_target_dir = target_dir
                                 .ancestors()
                                 .find(|p| p.ends_with(WATCH_MODE_DIR))
