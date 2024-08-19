@@ -20,10 +20,9 @@ use moonutil::module::ModuleDB;
 use moonutil::path::PathComponent;
 use n2::progress::{DumbConsoleProgress, FancyConsoleProgress, Progress};
 use n2::terminal;
-use std::io::{BufRead, Write};
+use std::io::Write;
 use std::path::{Path, PathBuf};
-use std::process::{Command, Stdio};
-use std::sync::atomic::AtomicBool;
+use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use thiserror::Error;
 
 use n2::{trace, work};
@@ -766,48 +765,19 @@ pub fn run_fmt(
     moonbuild_opt: &MoonbuildOpt,
 ) -> anyhow::Result<i32> {
     let n2_input = super::fmt::gen_fmt(module, moonc_opt, moonbuild_opt)?;
-    let state = super::fmt::gen_n2_fmt_state(&n2_input, moonc_opt, moonbuild_opt)?;
-    let _ = n2_run_interface(state, moonbuild_opt)?;
-    let mut exit_code = 0;
-    if moonbuild_opt.fmt_opt.as_ref().unwrap().check {
-        for item in n2_input.items.iter() {
-            let mut execution = Command::new("git")
-                .args([
-                    "--no-pager",
-                    "diff",
-                    "--color=always",
-                    "--no-index",
-                    &item.input,
-                    &item.output,
-                ])
-                .stdout(Stdio::piped())
-                .stderr(Stdio::inherit())
-                .spawn()?;
-            let child_stdout = execution.stdout.take().unwrap();
-            let mut buf = String::new();
-            let mut bufread = std::io::BufReader::new(child_stdout);
-            while let Ok(n) = bufread.read_line(&mut buf) {
-                if n > 0 {
-                    print!("{}", buf);
-                    buf.clear()
-                } else {
-                    break;
-                }
-            }
-            let status = execution.wait()?;
-            match status.code() {
-                Some(0) => {}
-                Some(1) => {
-                    exit_code = 1;
-                }
-                _ => {
-                    eprintln!(
-                        "failed to execute `git --no-pager diff --color=always --no-index {} {}`",
-                        item.input, item.output
-                    );
-                }
-            }
+    let state = if moonbuild_opt.fmt_opt.as_ref().unwrap().check {
+        super::fmt::gen_n2_fmt_check_state(&n2_input, moonc_opt, moonbuild_opt)?
+    } else {
+        super::fmt::gen_n2_fmt_state(&n2_input, moonc_opt, moonbuild_opt)?
+    };
+    let res = n2_run_interface(state, moonbuild_opt)?;
+
+    match res {
+        None => {
+            return Ok(1);
         }
+        Some(0) => (),
+        Some(_) => (),
     }
-    Ok(exit_code)
+    Ok(0)
 }

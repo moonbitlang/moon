@@ -32,6 +32,7 @@ pub mod new;
 pub mod run;
 pub mod shell_completion;
 pub mod test;
+pub mod tool;
 pub mod update;
 pub mod upgrade;
 pub mod version;
@@ -51,6 +52,7 @@ pub use new::*;
 pub use run::*;
 pub use shell_completion::*;
 pub use test::*;
+pub use tool::*;
 pub use update::*;
 pub use upgrade::*;
 pub use version::*;
@@ -116,6 +118,8 @@ pub enum MoonBuildSubcommands {
     Upgrade,
     ShellCompletion(ShellCompSubCommand),
     Version(VersionSubcommand),
+    #[clap(hide = true)]
+    Tool(ToolSubcommand),
 }
 
 #[derive(Debug, clap::Parser, Clone)]
