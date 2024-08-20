@@ -50,6 +50,7 @@ walkdir.workspace = true
 tokio.workspace = true
 futures.workspace = true
 clap_complete.workspace = true
+indexmap.workspace = true
 
 [target.'cfg(not(windows))'.dependencies]
 openssl = { version = "0.10.66", features = ["vendored"] }

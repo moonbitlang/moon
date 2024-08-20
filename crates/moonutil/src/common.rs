@@ -360,6 +360,7 @@ pub struct TestOpt {
     pub filter_package: Option<HashSet<PathBuf>>,
     pub filter_file: Option<String>,
     pub filter_index: Option<u32>,
+    pub limit: u32,
 }
 
 impl TestOpt {
