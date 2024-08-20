@@ -48,6 +48,13 @@ pub struct BufferExpect {
     kind: TargetKind,
 }
 
+// something like array out of bounds, moonbit panic & abort catch by js
+pub const ERROR: &str = "Error";
+// something like division by zero, overflow, etc.
+pub const RUNTIME_ERROR: &str = "RuntimeError";
+// controll by moonbit
+pub const FAILED: &str = "FAILED";
+// controll by moonbit
 pub const EXPECT_FAILED: &str = "@EXPECT_FAILED ";
 
 #[derive(Debug, Default, PartialEq, Eq, PartialOrd, Ord)]

@@ -582,7 +582,8 @@ pub fn gen_link_blackbox_test(
 
     let package_sources = get_package_sources(m, &pkg_topo_order);
 
-    let package_full_name = pkg.full_name();
+    // this will be passed to link-core `-main`
+    let package_full_name = pkg.full_name() + "_blackbox_test";
 
     Ok(RuntestLinkDepItem {
         out: out.display().to_string(),
@@ -634,6 +635,7 @@ pub fn gen_runtest(
             }
         }
 
+        // todo: only generate the test driver when there is test block exist
         for item in pkg.generated_test_drivers.iter() {
             if let GeneratedTestDriver::InternalTest(_) = item {
                 test_drivers.push(gen_package_test_driver(item, pkg)?);
@@ -848,6 +850,10 @@ pub fn gen_runtest_link_command(
                     &moonutil::moon_dir::core().display()
                 ),
             ],
+        )
+        .args_with_cond(
+            moonc_opt.link_opt.target_backend == moonutil::common::TargetBackend::Js,
+            ["-exported_functions", "execute", "-js-format", "cjs"],
         )
         .args(["-target", moonc_opt.link_opt.target_backend.to_flag()])
         .arg_with_cond(moonc_opt.link_opt.debug_flag, "-g")

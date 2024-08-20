@@ -18,10 +18,9 @@
 
 use anyhow::Context;
 use colored::Colorize;
+use indexmap::IndexMap;
 use moonbuild::dry_run;
 use moonbuild::entry;
-use moonbuild::entry::TestFailedStatus;
-use moonbuild::entry::TestResult;
 use mooncake::pkg::sync::auto_sync;
 use moonutil::common::lower_surface_targets;
 use moonutil::common::FileLock;
@@ -185,6 +184,7 @@ fn run_test_internal(
             filter_package: filter_package.clone(),
             filter_file: filter_file.clone(),
             filter_index,
+            limit,
         }),
         sort_input,
         run_mode,
@@ -209,31 +209,57 @@ fn run_test_internal(
             }
         }
 
-        // test driver file will be generated via `moon generate-test-driver` command
-        let internal_generated_file = target_dir
-            .join(pkg.rel.fs_full_name())
-            .join("__generated_driver_for_internal_test.mbt");
-        pkg.generated_test_drivers
-            .push(GeneratedTestDriver::InternalTest(internal_generated_file));
+        if pkg.is_third_party || pkg.is_main {
+            continue;
+        }
 
-        let whitebox_generated_file = target_dir
-            .join(pkg.rel.fs_full_name())
-            .join("__generated_driver_for_whitebox_test.mbt");
-        pkg.generated_test_drivers
-            .push(GeneratedTestDriver::WhiteboxTest(whitebox_generated_file));
-
-        let blackbox_generated_file = target_dir
-            .join(pkg.rel.fs_full_name())
-            .join("__generated_driver_for_blackbox_test.mbt");
-        pkg.generated_test_drivers
-            .push(GeneratedTestDriver::BlackboxTest(blackbox_generated_file));
-
-        for file in pkg
-            .files
-            .iter()
-            .chain(pkg.wbtest_files.iter())
-            .chain(pkg.test_files.iter())
         {
+            // test driver file will be generated via `moon generate-test-driver` command
+            let internal_generated_file = target_dir
+                .join(pkg.rel.fs_full_name())
+                .join("__generated_driver_for_internal_test.mbt");
+            pkg.generated_test_drivers
+                .push(GeneratedTestDriver::InternalTest(internal_generated_file));
+
+            let whitebox_generated_file = target_dir
+                .join(pkg.rel.fs_full_name())
+                .join("__generated_driver_for_whitebox_test.mbt");
+            pkg.generated_test_drivers
+                .push(GeneratedTestDriver::WhiteboxTest(whitebox_generated_file));
+
+            let blackbox_generated_file = target_dir
+                .join(pkg.rel.fs_full_name())
+                .join("__generated_driver_for_blackbox_test.mbt");
+            pkg.generated_test_drivers
+                .push(GeneratedTestDriver::BlackboxTest(blackbox_generated_file));
+        }
+
+        let no_exist = (None, IndexMap::new());
+        module.test_info.insert(
+            pkgname.clone(),
+            [no_exist.clone(), no_exist.clone(), no_exist.clone()],
+        );
+        let current_pkg_test_info = module.test_info.get_mut(pkgname).unwrap();
+
+        let backend_filter_files =
+            moonutil::common::backend_filter(&pkg.files, moonc_opt.link_opt.target_backend);
+        let backend_filter_wbtest_files =
+            moonutil::common::backend_filter(&pkg.wbtest_files, moonc_opt.link_opt.target_backend);
+        let backend_filter_test_files =
+            moonutil::common::backend_filter(&pkg.test_files, moonc_opt.link_opt.target_backend);
+
+        for file in backend_filter_files
+            .iter()
+            .chain(backend_filter_wbtest_files.iter())
+            .chain(backend_filter_test_files.iter())
+        {
+            // workaround for skip test coverage.mbt in builtin when --enable-coverage is specified
+            if moonc_opt.build_opt.enable_coverage
+                && pkgname == "moonbitlang/core/builtin"
+                && file.to_str().unwrap().contains("coverage.mbt")
+            {
+                continue;
+            }
             let content = std::fs::read_to_string(file)?;
             let filename = file.file_name().unwrap().to_str().unwrap();
             if let Some(ref filter_file) = filter_file {
@@ -242,11 +268,35 @@ fn run_test_internal(
                 }
             }
 
+            // todo: refactor this when we have a json info from moonc
+            let (test_type, index) = if filename.ends_with("_test.mbt") {
+                ("blackbox", 0)
+            } else if filename.ends_with("_wbtest.mbt") {
+                ("whitebox", 1)
+            } else {
+                ("internal", 2)
+            };
+
+            let mut test_block_nums_in_current_file = 0;
+            let artifact_path = pkg
+                .artifact
+                .with_file_name(format!("{}.{test_type}_test.wat", pkg.last_name()))
+                .with_extension(moonc_opt.link_opt.output_format.to_str());
+
             for line in content.lines() {
                 if line.starts_with("test ") {
                     pkg.files_contain_test_block.push(file.clone());
-                    break;
+                    test_block_nums_in_current_file += 1;
                 }
+            }
+
+            if test_block_nums_in_current_file > 0 {
+                let (artifact_opt, map) = &mut current_pkg_test_info[index];
+                if artifact_opt.is_none() {
+                    *artifact_opt = Some(artifact_path.clone());
+                }
+                let test_block_count = map.entry(filename.into()).or_insert(0);
+                *test_block_count += test_block_nums_in_current_file;
             }
         }
     }
@@ -269,19 +319,14 @@ fn run_test_internal(
         trace::close();
     }
 
-    let result = do_run_test(
+    do_run_test(
         &moonc_opt,
         &moonbuild_opt,
         build_only,
         auto_update,
         &module,
         verbose,
-        limit,
-    );
-    match result {
-        Ok(_) => Ok(0),
-        Err(e) => Ok(e.into()),
-    }
+    )
 }
 
 fn do_run_test(
@@ -291,80 +336,30 @@ fn do_run_test(
     auto_update: bool,
     module: &ModuleDB,
     verbose: bool,
-    limit: u32,
-) -> anyhow::Result<TestResult, TestFailedStatus> {
-    let result = if !auto_update {
-        entry::run_test(moonc_opt, moonbuild_opt, build_only, verbose, false, module)
+) -> anyhow::Result<i32> {
+    let test_res = entry::run_test(
+        moonc_opt,
+        moonbuild_opt,
+        build_only,
+        verbose,
+        auto_update,
+        module,
+    )?;
+    let total = test_res.len();
+    let passed = test_res.iter().filter(|r| r.is_ok()).count();
+
+    let failed = total - passed;
+    println!(
+        "Total tests: {}, passed: {}, failed: {}.",
+        total.to_string().blue(),
+        passed.to_string().green(),
+        failed.to_string().red()
+    );
+
+    if passed == total {
+        Ok(0)
     } else {
-        let mut result =
-            entry::run_test(moonc_opt, moonbuild_opt, build_only, verbose, true, module);
-
-        match result {
-            Err(TestFailedStatus::ExpectTestFailed(_)) => {
-                println!(
-                    "\n{}\n",
-                    "Auto updating expect tests and retesting ...".bold()
-                );
-
-                let (mut should_update, mut count) = (true, 1);
-                while should_update && count < limit {
-                    result = entry::run_test(
-                        moonc_opt,
-                        moonbuild_opt,
-                        build_only,
-                        verbose,
-                        true,
-                        module,
-                    );
-                    match result {
-                        // only continue update when it is a ExpectTestFailed
-                        Err(TestFailedStatus::ExpectTestFailed(_)) => {}
-                        _ => {
-                            should_update = false;
-                        }
-                    }
-                    count += 1;
-                }
-
-                result
-            }
-            _ => result,
-        }
-    };
-
-    print_test_res(&result);
-    result
-}
-
-fn print_test_res(test_res: &anyhow::Result<TestResult, TestFailedStatus>) {
-    let print = |test_res: &TestResult| {
-        let (passed, failed) = (test_res.passed, test_res.failed);
-        println!(
-            "Total tests: {}, passed: {}, failed: {}.",
-            passed + failed,
-            if passed > 0 {
-                passed.to_string().green()
-            } else {
-                passed.to_string().normal()
-            },
-            if failed > 0 {
-                failed.to_string().red()
-            } else {
-                failed.to_string().normal()
-            },
-        );
-    };
-
-    match test_res {
-        Ok(test_res) => {
-            print(test_res);
-        }
-        Err(e) => match e {
-            TestFailedStatus::ApplyExpectFailed(it) => print(it),
-            TestFailedStatus::ExpectTestFailed(it) => print(it),
-            TestFailedStatus::Failed(it) => print(it),
-            TestFailedStatus::RuntimeError(it) => print(it),
-            TestFailedStatus::Others(it) => println!("{}: {:?}", "error".bold().red(), it),
-        },
+        // don't bail! here, use no-zero exit code to indicate test failed
+        Ok(2)
     }
 }

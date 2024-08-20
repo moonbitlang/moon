@@ -148,6 +148,7 @@ pub fn get_stderr_with_args_and_replace_dir(
     replace_dir(&s, dir)
 }
 
+#[track_caller]
 pub fn get_stderr_with_args(
     dir: &impl AsRef<std::path::Path>,
     args: impl IntoIterator<Item = impl AsRef<std::ffi::OsStr>>,

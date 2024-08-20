@@ -23,15 +23,16 @@ use n2::terminal;
 use std::io::{BufRead, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
-use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
+use std::sync::atomic::AtomicBool;
 use thiserror::Error;
 
 use n2::{trace, work};
 
-use anyhow::{anyhow, Context};
+use anyhow::Context;
 use colored::Colorize;
 
 use crate::check::normal::write_pkg_lst;
+use crate::runtest::TestStatistics;
 
 use moonutil::common::{MoonbuildOpt, MooncOpt, TargetBackend};
 
@@ -253,28 +254,22 @@ pub fn run_run(
     Ok(0)
 }
 
-#[derive(Debug, Error)]
+#[derive(Debug, Error, Clone)]
 pub enum TestFailedStatus {
     #[error("{0}")]
-    ApplyExpectFailed(TestResult),
+    ApplyExpectFailed(TestStatistics),
 
     #[error("{0}")]
-    ExpectTestFailed(TestResult),
+    ExpectTestFailed(TestStatistics),
 
     #[error("{0}")]
-    Failed(TestResult),
+    Failed(TestStatistics),
 
     #[error("{0}")]
-    RuntimeError(TestResult),
+    RuntimeError(TestStatistics),
 
     #[error("{0:?}")]
-    Others(#[from] anyhow::Error),
-}
-
-impl From<std::io::Error> for TestFailedStatus {
-    fn from(err: std::io::Error) -> Self {
-        TestFailedStatus::Others(anyhow::Error::from(err))
-    }
+    Others(String),
 }
 
 impl From<TestFailedStatus> for i32 {
@@ -309,7 +304,7 @@ pub fn run_test(
     test_verbose_output: bool,
     auto_update: bool,
     module: &ModuleDB,
-) -> anyhow::Result<TestResult, TestFailedStatus> {
+) -> anyhow::Result<Vec<Result<TestStatistics, TestFailedStatus>>> {
     let target_dir = &moonbuild_opt.target_dir;
     let state = crate::runtest::load_moon_proj(module, moonc_opt, moonbuild_opt)?;
 
@@ -323,7 +318,7 @@ pub fn run_test(
     render_result(result, moonbuild_opt.quiet, "testing")?;
 
     if build_only {
-        return Ok(TestResult::default());
+        return Ok(vec![]);
     }
 
     if moonbuild_opt.sort_input {
@@ -346,136 +341,300 @@ pub fn run_test(
         }
     }
 
-    let passed = Arc::new(AtomicU32::new(0));
-    let failed = Arc::new(AtomicU32::new(0));
-    let runtime_error = Arc::new(AtomicBool::new(false));
-    let expect_failed = Arc::new(AtomicBool::new(false));
-    let apply_expect_failed = Arc::new(AtomicBool::new(false));
-
     let runtime = tokio::runtime::Builder::new_multi_thread()
+        // todo: add config item
+        .worker_threads(16)
         .enable_all()
         .build()?;
 
     let mut handlers = vec![];
 
-    for runnable_artifact in runnable_artifacts.iter() {
-        let p = Path::new(runnable_artifact);
+    let test_opt = &moonbuild_opt.test_opt;
+    let filter_package = test_opt.as_ref().and_then(|it| it.filter_package.as_ref());
+    let filter_file = test_opt.as_ref().and_then(|it| it.filter_file.as_ref());
+    let filter_index = test_opt.as_ref().and_then(|it| it.filter_index);
 
-        let passed = Arc::clone(&passed);
-        let failed = Arc::clone(&failed);
-        let runtime_error = Arc::clone(&runtime_error);
-        let expect_failed = Arc::clone(&expect_failed);
-        let apply_expect_failed = Arc::clone(&apply_expect_failed);
+    let printed = Arc::new(AtomicBool::new(false));
+    for (pkgname, _) in module
+        .packages
+        .iter()
+        .filter(|(_, p)| !(p.is_main || p.is_third_party))
+    {
+        if let Some(package) = filter_package {
+            if !package.contains(Path::new(pkgname)) {
+                continue;
+            }
+        }
 
-        match p.extension() {
-            Some(name) if name == moonc_opt.link_opt.output_format.to_str() => {
-                handlers.push(async move {
-                    // todo: use tokio::time::timeout to limit the running time
-                    let result = trace::scope("test", || async {
-                        match moonc_opt.link_opt.target_backend {
-                            TargetBackend::Wasm | TargetBackend::WasmGC => {
-                                crate::runtest::run_wat(p, target_dir).await
-                            }
-                            TargetBackend::Js => crate::runtest::run_js(p, target_dir).await,
-                        }
-                    })
-                    .await;
+        let current_pkg_test_info = module.test_info.get(pkgname).unwrap();
+        for (artifact_path, map) in current_pkg_test_info {
+            if artifact_path.is_none() {
+                continue;
+            }
+            let artifact_path = artifact_path.as_ref().unwrap();
 
-                    if result.is_err() {
-                        let e = result.err().unwrap();
-                        eprintln!("Error when running {}: {}", runnable_artifact, e);
-                        runtime_error.store(true, Ordering::SeqCst);
-                    } else {
-                        let r = result.unwrap();
-                        if r.messages
-                            .iter()
-                            .any(|msg| msg.starts_with(super::expect::EXPECT_FAILED))
-                        {
-                            expect_failed.store(true, Ordering::SeqCst);
-                        }
-                        if auto_update {
-                            if let Err(e) = crate::expect::apply_expect(&r.messages) {
-                                eprintln!("{}: {:?}", "failed".red().bold(), e);
-                                apply_expect_failed.store(true, Ordering::SeqCst);
-                            }
-                        }
-                        passed.fetch_add(r.passed, Ordering::SeqCst);
-                        failed.fetch_add(r.test_names.len() as u32 - r.passed, Ordering::SeqCst);
-                        if test_verbose_output {
-                            for i in 0..(r.passed as usize) {
-                                println!(
-                                    "test {}/{}::{} {}",
-                                    r.package,
-                                    r.filenames[i],
-                                    r.test_names[i],
-                                    "ok".bold().green()
-                                )
-                            }
-                        }
-
-                        for i in 0..(r.test_names.len() - r.passed as usize) {
-                            if r.messages[i].starts_with(super::expect::EXPECT_FAILED) {
-                                // if we failed at auto update mode, we don't show the below msg to user
-                                if !(auto_update
-                                    && failed.load(Ordering::SeqCst) > 0
-                                    && !apply_expect_failed.load(Ordering::SeqCst))
-                                {
-                                    println!(
-                                        "test {}/{}::{} {}",
-                                        r.package,
-                                        r.filenames[i],
-                                        r.test_names[i],
-                                        "failed".bold().red(),
-                                    );
-                                    let _ = crate::expect::render_expect_fail(&r.messages[i]);
-                                }
-                            } else {
-                                println!(
-                                    "test {}/{}::{} {}: {}",
-                                    r.package,
-                                    r.filenames[i],
-                                    r.test_names[i],
-                                    "failed".bold().red(),
-                                    r.messages[i],
-                                );
-                            }
-                        }
-                    }
-                });
+            let wrapper_js_driver_path = artifact_path.with_extension("cjs");
+            if moonc_opt.build_opt.target_backend == TargetBackend::Js
+                && !wrapper_js_driver_path.exists()
+            {
+                let js_driver = include_str!(concat!(
+                    env!("CARGO_MANIFEST_DIR"),
+                    "/../moonbuild/template/js_driver.js"
+                ))
+                .replace("origin_js_path", &artifact_path.display().to_string());
+                std::fs::write(&wrapper_js_driver_path, js_driver)?;
             }
 
-            _ => continue,
+            for (file_name, test_count) in map {
+                if let Some(filter_file) = filter_file {
+                    if file_name != filter_file {
+                        continue;
+                    }
+                }
+
+                let range;
+                if let Some(filter_index) = filter_index {
+                    range = filter_index..(filter_index + 1);
+                } else {
+                    range = 0..(*test_count);
+                }
+
+                let mut args = vec![];
+                for index in range.clone() {
+                    args.push(pkgname.clone());
+                    args.push(file_name.clone());
+                    args.push(index.to_string());
+                }
+
+                let printed = Arc::clone(&printed);
+                handlers.push(async move {
+                    let mut result = trace::scope("test", || async {
+                        execute_test(
+                            moonc_opt.build_opt.target_backend,
+                            artifact_path,
+                            target_dir,
+                            &args,
+                        )
+                        .await
+                    })
+                    .await;
+                    match result {
+                        Ok(ref mut test_res_for_cur_pkg) => {
+                            handle_test_result(
+                                test_res_for_cur_pkg,
+                                moonc_opt,
+                                moonbuild_opt,
+                                module,
+                                auto_update,
+                                test_verbose_output,
+                                artifact_path,
+                                target_dir,
+                                printed,
+                            )
+                            .await?;
+                        }
+                        Err(_) => {
+                            return Ok(vec![
+                                Err(
+                                    TestFailedStatus::Others("unexpected error".into(),)
+                                );
+                                range.len()
+                            ])
+                        }
+                    }
+
+                    result
+                });
+            }
         }
     }
 
-    if moonbuild_opt.no_parallelize {
+    let res = if moonbuild_opt.no_parallelize {
         runtime.block_on(async {
+            let mut results = vec![];
             for handler in handlers {
-                handler.await;
+                results.push(handler.await);
             }
-        });
+            results
+        })
     } else {
-        runtime.block_on(futures::future::join_all(handlers));
-    }
-
-    let test_result = TestResult {
-        passed: passed.load(Ordering::SeqCst),
-        failed: failed.load(Ordering::SeqCst),
+        runtime.block_on(futures::future::join_all(handlers))
     };
 
-    if failed.load(Ordering::SeqCst) == 0 && !runtime_error.load(Ordering::SeqCst) {
-        Ok(test_result)
-    } else if apply_expect_failed.load(Ordering::SeqCst) {
-        Err(TestFailedStatus::ApplyExpectFailed(test_result))
-    } else if expect_failed.load(Ordering::SeqCst) {
-        Err(TestFailedStatus::ExpectTestFailed(test_result))
-    } else if failed.load(Ordering::SeqCst) != 0 {
-        Err(TestFailedStatus::Failed(test_result))
-    } else if runtime_error.load(Ordering::SeqCst) {
-        Err(TestFailedStatus::RuntimeError(test_result))
-    } else {
-        Err(TestFailedStatus::Others(anyhow!("unknown error")))
+    let mut r = vec![];
+    for item in res {
+        // todo: how to handle error for item?
+        r.extend(item?.into_iter());
     }
+
+    Ok(r)
+}
+
+async fn execute_test(
+    target_backend: TargetBackend,
+    artifact_path: &Path,
+    target_dir: &Path,
+    args: &[String],
+) -> anyhow::Result<Vec<Result<TestStatistics, TestFailedStatus>>> {
+    match target_backend {
+        TargetBackend::Wasm | TargetBackend::WasmGC => {
+            crate::runtest::run_wat(artifact_path, target_dir, args).await
+        }
+        TargetBackend::Js => {
+            crate::runtest::run_js(&artifact_path.with_extension("cjs"), target_dir, args).await
+        }
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+async fn handle_test_result(
+    test_res_for_cur_pkg: &mut Vec<Result<TestStatistics, TestFailedStatus>>,
+    moonc_opt: &MooncOpt,
+    moonbuild_opt: &MoonbuildOpt,
+    module: &ModuleDB,
+    auto_update: bool,
+    test_verbose_output: bool,
+    artifact_path: &Path,
+    target_dir: &Path,
+    printed: Arc<AtomicBool>,
+) -> anyhow::Result<()> {
+    for item in test_res_for_cur_pkg {
+        match item {
+            Ok(ok_ts) => {
+                if test_verbose_output {
+                    println!(
+                        "test {}/{}::{} {}",
+                        ok_ts.package,
+                        ok_ts.filename,
+                        ok_ts.test_name,
+                        "ok".bold().green()
+                    );
+                }
+            }
+            Err(TestFailedStatus::RuntimeError(err_ts) | TestFailedStatus::Failed(err_ts)) => {
+                println!(
+                    "test {}/{}::{} {}: {}",
+                    err_ts.package,
+                    err_ts.filename,
+                    err_ts.test_name,
+                    "failed".bold().red(),
+                    err_ts.message,
+                );
+            }
+            Err(TestFailedStatus::Others(e)) => {
+                eprintln!("{}: {}", "failed".red(), e);
+            }
+            Err(TestFailedStatus::ExpectTestFailed(origin_err)) => {
+                if !auto_update {
+                    println!(
+                        "test {}/{}::{} {}",
+                        origin_err.package,
+                        origin_err.filename,
+                        origin_err.test_name,
+                        "failed".bold().red(),
+                    );
+                    let _ = crate::expect::render_expect_fail(&origin_err.message);
+                }
+                if auto_update {
+                    if !printed.load(std::sync::atomic::Ordering::SeqCst) {
+                        println!(
+                            "\n{}\n",
+                            "Auto updating expect tests and retesting ...".bold()
+                        );
+                        printed.store(true, std::sync::atomic::Ordering::SeqCst);
+                    }
+
+                    // here need to rerun the test to get the new error message
+                    // since the previous apply expect may add or delete some line, which make the error message out of date
+                    let rerun = execute_test(
+                        moonc_opt.build_opt.target_backend,
+                        artifact_path,
+                        target_dir,
+                        &[
+                            origin_err.package.clone(),
+                            origin_err.filename.clone(),
+                            origin_err.index.clone(),
+                        ],
+                    )
+                    .await?
+                    .first()
+                    .unwrap()
+                    .clone();
+                    let update_msg = match rerun {
+                        Err(TestFailedStatus::ExpectTestFailed(cur_err)) => &[cur_err.message],
+                        _ => &[origin_err.message.clone()],
+                    };
+                    if let Err(e) = crate::expect::apply_expect(update_msg) {
+                        eprintln!("{}: {:?}", "apply expect failed".red().bold(), e);
+                    }
+
+                    // recomplie after apply expect
+                    {
+                        let state =
+                            crate::runtest::load_moon_proj(module, moonc_opt, moonbuild_opt)?;
+                        n2_run_interface(state, moonbuild_opt)?;
+                    }
+
+                    let mut cur_res = execute_test(
+                        moonc_opt.build_opt.target_backend,
+                        artifact_path,
+                        target_dir,
+                        &[
+                            origin_err.package.clone(),
+                            origin_err.filename.clone(),
+                            origin_err.index.clone(),
+                        ],
+                    )
+                    .await?
+                    .first()
+                    .unwrap()
+                    .clone();
+
+                    let mut cnt = 1;
+                    let limit = moonbuild_opt.test_opt.as_ref().map(|it| it.limit).unwrap();
+                    while let Err(TestFailedStatus::ExpectTestFailed(ref etf)) = cur_res {
+                        if cnt >= limit {
+                            break;
+                        }
+
+                        if let Err(e) = crate::expect::apply_expect(&[etf.message.clone()]) {
+                            eprintln!("{}: {:?}", "failed".red().bold(), e);
+                        }
+
+                        // recomplie after apply expect
+                        {
+                            let state =
+                                crate::runtest::load_moon_proj(module, moonc_opt, moonbuild_opt)?;
+                            n2_run_interface(state, moonbuild_opt)?;
+                        }
+
+                        cur_res = execute_test(
+                            moonc_opt.build_opt.target_backend,
+                            artifact_path,
+                            target_dir,
+                            &[
+                                origin_err.package.clone(),
+                                origin_err.filename.clone(),
+                                origin_err.index.clone(),
+                            ],
+                        )
+                        .await?
+                        .first()
+                        .unwrap()
+                        .clone();
+
+                        cnt += 1;
+                    }
+
+                    // update the previous test result
+                    *item = cur_res;
+                }
+            }
+            _ => {}
+        }
+    }
+
+    Ok(())
 }
 
 pub fn run_bundle(

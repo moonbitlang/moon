@@ -30,8 +30,7 @@ use std::str::FromStr;
 use walkdir::WalkDir;
 
 use crate::common::{
-    read_module_desc_file_in_dir, MoonbuildOpt, DEP_PATH, IGNORE_DIRS, MOONBITLANG_CORE,
-    MOON_MOD_JSON, MOON_PKG_JSON,
+    read_module_desc_file_in_dir, MoonbuildOpt, DEP_PATH, IGNORE_DIRS, MOON_MOD_JSON, MOON_PKG_JSON,
 };
 
 /// Matches an import string to scan paths.
@@ -115,7 +114,7 @@ pub fn get_mbt_and_test_file_paths(dir: &Path) -> (Vec<PathBuf>, Vec<PathBuf>, V
 ///
 /// This function is a temporary workaround requested by Hongbo.
 /// It should be removed once proper package build disambiguation is implemented.
-fn workaround_builtin_get_coverage_mbt_file_paths(dir: &Path, paths: &mut Vec<PathBuf>) {
+fn _workaround_builtin_get_coverage_mbt_file_paths(dir: &Path, paths: &mut Vec<PathBuf>) {
     let coverage_dir = dir.parent().unwrap().join("coverage");
     if coverage_dir.exists() {
         let entries = std::fs::read_dir(coverage_dir).unwrap();
@@ -207,7 +206,7 @@ fn scan_one_package(
     module_source_dir: &PathBuf,
     mod_desc: &crate::module::MoonMod,
     moonbuild_opt: &MoonbuildOpt,
-    moonc_opt: &crate::common::MooncOpt,
+    _moonc_opt: &crate::common::MooncOpt,
     target_dir: &PathBuf,
     is_third_party: bool,
     doc_mode: bool,
@@ -261,12 +260,12 @@ fn scan_one_package(
         get_mbt_and_test_file_paths(pkg_path);
 
     // workaround for builtin package testing
-    if moonc_opt.build_opt.enable_coverage
-        && mod_desc.name == MOONBITLANG_CORE
-        && rel_path.components == ["builtin"]
-    {
-        workaround_builtin_get_coverage_mbt_file_paths(pkg_path, &mut mbt_files);
-    }
+    // if _moonc_opt.build_opt.enable_coverage
+    //     && mod_desc.name == crate::common::MOONBITLANG_CORE
+    //     && rel_path.components == ["builtin"]
+    // {
+    //     _workaround_builtin_get_coverage_mbt_file_paths(pkg_path, &mut mbt_files);
+    // }
 
     let sort_input = moonbuild_opt.sort_input;
     if sort_input {
@@ -475,6 +474,7 @@ pub fn scan(
         graph,
         backend: moonc_opt.link_opt.target_backend.to_backend_ext().into(),
         source: mod_desc.source,
+        test_info: IndexMap::new(),
     };
 
     module.validate()?;
