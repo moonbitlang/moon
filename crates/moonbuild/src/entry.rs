@@ -385,7 +385,10 @@ pub fn run_test(
                     env!("CARGO_MANIFEST_DIR"),
                     "/../moonbuild/template/js_driver.js"
                 ))
-                .replace("origin_js_path", &artifact_path.display().to_string());
+                .replace(
+                    "origin_js_path",
+                    &artifact_path.display().to_string().replace("\\", "/"),
+                );
                 std::fs::write(&wrapper_js_driver_path, js_driver)?;
             }
 

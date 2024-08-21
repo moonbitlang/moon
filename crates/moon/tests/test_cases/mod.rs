@@ -2882,11 +2882,11 @@ fn test_dummy_core() {
         ),
         expect![[r#"
             moon generate-test-driver --source-dir . --target-dir ./target/wasm-gc/debug/test --package moonbitlang/core/iter --sort-input --target wasm-gc --driver-kind internal
-            moonc build-package -o ./target/wasm-gc/debug/test/coverage/coverage.core -pkg moonbitlang/core/coverage -pkg-sources moonbitlang/core/coverage:./coverage -target wasm-gc -g
+            moonc build-package -o ./target/wasm-gc/debug/test/coverage/coverage.core -pkg moonbitlang/core/coverage -pkg-sources moonbitlang/core/coverage:./coverage -target wasm-gc -g -enable-coverage -coverage-package-override=@self
             moonc build-package ./target/wasm-gc/debug/test/iter/__generated_driver_for_internal_test.mbt -o ./target/wasm-gc/debug/test/iter/iter.internal_test.core -pkg moonbitlang/core/iter -is-main -i ./target/wasm-gc/debug/test/coverage/coverage.mi:coverage -pkg-sources moonbitlang/core/iter:./iter -target wasm-gc -g -enable-coverage
             moonc link-core ./target/wasm-gc/debug/test/coverage/coverage.core ./target/wasm-gc/debug/test/iter/iter.internal_test.core -main moonbitlang/core/iter -o ./target/wasm-gc/debug/test/iter/iter.internal_test.wasm -test-mode -pkg-sources moonbitlang/core/coverage:./coverage -pkg-sources moonbitlang/core/iter:./iter -target wasm-gc -g
             moon generate-test-driver --source-dir . --target-dir ./target/wasm-gc/debug/test --package moonbitlang/core/coverage --sort-input --target wasm-gc --driver-kind internal
-            moonc build-package ./target/wasm-gc/debug/test/coverage/__generated_driver_for_internal_test.mbt -o ./target/wasm-gc/debug/test/coverage/coverage.internal_test.core -pkg moonbitlang/core/coverage -is-main -pkg-sources moonbitlang/core/coverage:./coverage -target wasm-gc -g
+            moonc build-package ./target/wasm-gc/debug/test/coverage/__generated_driver_for_internal_test.mbt -o ./target/wasm-gc/debug/test/coverage/coverage.internal_test.core -pkg moonbitlang/core/coverage -is-main -pkg-sources moonbitlang/core/coverage:./coverage -target wasm-gc -g -enable-coverage -coverage-package-override=@self
             moonc link-core ./target/wasm-gc/debug/test/coverage/coverage.internal_test.core -main moonbitlang/core/coverage -o ./target/wasm-gc/debug/test/coverage/coverage.internal_test.wasm -test-mode -pkg-sources moonbitlang/core/coverage:./coverage -target wasm-gc -g
             moon generate-test-driver --source-dir . --target-dir ./target/wasm-gc/debug/test --package moonbitlang/core/char --sort-input --target wasm-gc --driver-kind internal
             moonc build-package ./target/wasm-gc/debug/test/char/__generated_driver_for_internal_test.mbt -o ./target/wasm-gc/debug/test/char/char.internal_test.core -pkg moonbitlang/core/char -is-main -i ./target/wasm-gc/debug/test/coverage/coverage.mi:coverage -pkg-sources moonbitlang/core/char:./char -target wasm-gc -g -enable-coverage
@@ -4692,7 +4692,6 @@ fn test_blackbox_failed() {
     assert!(output.contains("Package \"C\" not found in the loaded packages."));
 }
 
-#[ignore = "coverage can't work for now"]
 #[test]
 fn test_blackbox_test_core_override() {
     let dir = TestDir::new("blackbox_test_core_override.in");
@@ -4704,7 +4703,7 @@ fn test_blackbox_test_core_override() {
             moon generate-test-driver --source-dir . --target-dir ./target/wasm-gc/debug/test --package moonbitlang/core/builtin --target wasm-gc --driver-kind blackbox
             moonc build-package ./builtin/main.mbt -o ./target/wasm-gc/debug/test/builtin/builtin.core -pkg moonbitlang/core/builtin -pkg-sources moonbitlang/core/builtin:./builtin -target wasm-gc -g -enable-coverage -coverage-package-override=@self
             moonc build-package ./builtin/main_test.mbt ./target/wasm-gc/debug/test/builtin/__generated_driver_for_blackbox_test.mbt -o ./target/wasm-gc/debug/test/builtin/builtin.blackbox_test.core -pkg moonbitlang/core/builtin_blackbox_test -is-main -i ./target/wasm-gc/debug/test/builtin/builtin.mi:builtin -pkg-sources moonbitlang/core/builtin_blackbox_test:./builtin -target wasm-gc -g -enable-coverage -coverage-package-override=moonbitlang/core/builtin
-            moonc link-core ./target/wasm-gc/debug/test/builtin/builtin.core ./target/wasm-gc/debug/test/builtin/builtin.blackbox_test.core -main moonbitlang/core/builtin -o ./target/wasm-gc/debug/test/builtin/builtin.blackbox_test.wasm -test-mode -pkg-sources moonbitlang/core/builtin:./builtin -target wasm-gc -g
+            moonc link-core ./target/wasm-gc/debug/test/builtin/builtin.core ./target/wasm-gc/debug/test/builtin/builtin.blackbox_test.core -main moonbitlang/core/builtin_blackbox_test -o ./target/wasm-gc/debug/test/builtin/builtin.blackbox_test.wasm -test-mode -pkg-sources moonbitlang/core/builtin:./builtin -target wasm-gc -g
             moon generate-test-driver --source-dir . --target-dir ./target/wasm-gc/debug/test --package moonbitlang/core/builtin --target wasm-gc --driver-kind internal
             moonc build-package ./builtin/main.mbt ./target/wasm-gc/debug/test/builtin/__generated_driver_for_internal_test.mbt -o ./target/wasm-gc/debug/test/builtin/builtin.internal_test.core -pkg moonbitlang/core/builtin -is-main -pkg-sources moonbitlang/core/builtin:./builtin -target wasm-gc -g -enable-coverage -coverage-package-override=@self
             moonc link-core ./target/wasm-gc/debug/test/builtin/builtin.internal_test.core -main moonbitlang/core/builtin -o ./target/wasm-gc/debug/test/builtin/builtin.internal_test.wasm -test-mode -pkg-sources moonbitlang/core/builtin:./builtin -target wasm-gc -g

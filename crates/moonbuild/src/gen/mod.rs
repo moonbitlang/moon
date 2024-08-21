@@ -34,11 +34,8 @@ fn test_start_with() {
     assert!(MOON_CORE_BUILTIN_LIB.starts_with(MOONBITLANG_CORE));
 }
 
-// todo: change it back when coverage is fixed
-static SELF_COVERAGE_LIBS: &[&str] = &[];
-static SKIP_COVERAGE_LIBS: &[&str] = &[MOON_CORE_BUILTIN_LIB, MOON_CORE_COVERAGE_LIB];
-// static SKIP_COVERAGE_LIBS: &[&str] = &[];
-// static SELF_COVERAGE_LIBS: &[&str] = &[MOON_CORE_BUILTIN_LIB, MOON_CORE_COVERAGE_LIB];
+static SKIP_COVERAGE_LIBS: &[&str] = &[];
+static SELF_COVERAGE_LIBS: &[&str] = &[MOON_CORE_BUILTIN_LIB, MOON_CORE_COVERAGE_LIB];
 
 fn is_skip_coverage_lib(name: &str) -> bool {
     SKIP_COVERAGE_LIBS.contains(&name)
