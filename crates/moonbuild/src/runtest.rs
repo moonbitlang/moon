@@ -16,7 +16,7 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
-use crate::entry::TestFailedStatus;
+use crate::entry::{TestArgs, TestFailedStatus};
 use crate::expect::{ERROR, EXPECT_FAILED, FAILED, RUNTIME_ERROR};
 use crate::section_capture::{handle_stdout, SectionCapture};
 
@@ -65,22 +65,26 @@ impl std::fmt::Display for TestStatistics {
 pub async fn run_wat(
     path: &Path,
     target_dir: &Path,
-    args: &[String],
+    args: &TestArgs,
 ) -> anyhow::Result<Vec<Result<TestStatistics, TestFailedStatus>>> {
     // put "--test-mode" at the front of args
     let mut _args = vec!["--test-mode".to_string()];
-    for a in args {
-        _args.push(a.clone());
-    }
+    _args.push(serde_json_lenient::to_string(args).unwrap());
     run("moonrun", path, target_dir, &_args).await
 }
 
 pub async fn run_js(
     path: &Path,
     target_dir: &Path,
-    args: &[String],
+    args: &TestArgs,
 ) -> anyhow::Result<Vec<Result<TestStatistics, TestFailedStatus>>> {
-    run("node", path, target_dir, args).await
+    run(
+        "node",
+        path,
+        target_dir,
+        &[serde_json_lenient::to_string(args).unwrap()],
+    )
+    .await
 }
 
 async fn run(

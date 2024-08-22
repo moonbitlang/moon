@@ -377,21 +377,10 @@ pub fn run_test(
             }
             let artifact_path = artifact_path.as_ref().unwrap();
 
-            let wrapper_js_driver_path = artifact_path.with_extension("cjs");
-            if moonc_opt.build_opt.target_backend == TargetBackend::Js
-                && !wrapper_js_driver_path.exists()
-            {
-                let js_driver = include_str!(concat!(
-                    env!("CARGO_MANIFEST_DIR"),
-                    "/../moonbuild/template/js_driver.js"
-                ))
-                .replace(
-                    "origin_js_path",
-                    &artifact_path.display().to_string().replace("\\", "/"),
-                );
-                std::fs::write(&wrapper_js_driver_path, js_driver)?;
-            }
-
+            let mut test_args = TestArgs {
+                package: pkgname.clone(),
+                file_and_index: vec![],
+            };
             for (file_name, test_count) in map {
                 if let Some(filter_file) = filter_file {
                     if file_name != filter_file {
@@ -413,46 +402,72 @@ pub fn run_test(
                     args.push(index.to_string());
                 }
 
-                let printed = Arc::clone(&printed);
-                handlers.push(async move {
-                    let mut result = trace::scope("test", || async {
-                        execute_test(
-                            moonc_opt.build_opt.target_backend,
+                test_args.file_and_index.push((file_name.clone(), range));
+            }
+
+            let wrapper_js_driver_path = artifact_path.with_extension("cjs");
+            if moonc_opt.build_opt.target_backend == TargetBackend::Js
+                && !wrapper_js_driver_path.exists()
+            {
+                let js_driver = include_str!(concat!(
+                    env!("CARGO_MANIFEST_DIR"),
+                    "/../moonbuild/template/js_driver.js"
+                ))
+                .replace(
+                    "origin_js_path",
+                    &artifact_path.display().to_string().replace("\\", "/"),
+                )
+                .replace(
+                    "const test_params = []",
+                    &format!("const test_params = {}", test_args.to_args()),
+                )
+                .replace(
+                    "const package = \"\"",
+                    &format!("const package = {:?}", test_args.package),
+                );
+
+                std::fs::write(&wrapper_js_driver_path, js_driver)?;
+            }
+
+            let printed = Arc::clone(&printed);
+            handlers.push(async move {
+                let mut result = trace::scope("test", || async {
+                    execute_test(
+                        moonc_opt.build_opt.target_backend,
+                        artifact_path,
+                        target_dir,
+                        &test_args,
+                    )
+                    .await
+                })
+                .await;
+                match result {
+                    Ok(ref mut test_res_for_cur_pkg) => {
+                        handle_test_result(
+                            test_res_for_cur_pkg,
+                            moonc_opt,
+                            moonbuild_opt,
+                            module,
+                            auto_update,
+                            test_verbose_output,
                             artifact_path,
                             target_dir,
-                            &args,
+                            printed,
                         )
-                        .await
-                    })
-                    .await;
-                    match result {
-                        Ok(ref mut test_res_for_cur_pkg) => {
-                            handle_test_result(
-                                test_res_for_cur_pkg,
-                                moonc_opt,
-                                moonbuild_opt,
-                                module,
-                                auto_update,
-                                test_verbose_output,
-                                artifact_path,
-                                target_dir,
-                                printed,
-                            )
-                            .await?;
-                        }
-                        Err(_) => {
-                            return Ok(vec![
-                                Err(
-                                    TestFailedStatus::Others("unexpected error".into(),)
-                                );
-                                range.len()
-                            ])
-                        }
+                        .await?;
                     }
+                    Err(e) => {
+                        // when spawn process failed, this can still make the total test count to be correct
+                        // but this is not a good way to handle it
+                        return Ok(vec![
+                            Err(TestFailedStatus::Others(e.to_string()));
+                            test_args.get_test_cnt() as usize
+                        ]);
+                    }
+                }
 
-                    result
-                });
-            }
+                result
+            });
         }
     }
 
@@ -477,11 +492,37 @@ pub fn run_test(
     Ok(r)
 }
 
+#[derive(serde::Serialize, Clone)]
+pub struct TestArgs {
+    pub package: String,
+    pub file_and_index: Vec<(String, std::ops::Range<u32>)>,
+}
+
+impl TestArgs {
+    fn to_args(&self) -> String {
+        let file_and_index = &self.file_and_index;
+        let mut test_params: Vec<[String; 2]> = vec![];
+        for (file, index) in file_and_index {
+            for i in index.clone() {
+                test_params.push([file.clone(), i.to_string()]);
+            }
+        }
+        format!("{:?}", test_params)
+    }
+
+    fn get_test_cnt(&self) -> u32 {
+        self.file_and_index
+            .iter()
+            .map(|(_, range)| range.end - range.start)
+            .sum()
+    }
+}
+
 async fn execute_test(
     target_backend: TargetBackend,
     artifact_path: &Path,
     target_dir: &Path,
-    args: &[String],
+    args: &TestArgs,
 ) -> anyhow::Result<Vec<Result<TestStatistics, TestFailedStatus>>> {
     match target_backend {
         TargetBackend::Wasm | TargetBackend::WasmGC => {
@@ -553,15 +594,16 @@ async fn handle_test_result(
 
                     // here need to rerun the test to get the new error message
                     // since the previous apply expect may add or delete some line, which make the error message out of date
+                    let index = origin_err.index.clone().parse::<u32>().unwrap();
+                    let test_args = TestArgs {
+                        package: origin_err.package.clone(),
+                        file_and_index: vec![(origin_err.filename.clone(), index..(index + 1))],
+                    };
                     let rerun = execute_test(
                         moonc_opt.build_opt.target_backend,
                         artifact_path,
                         target_dir,
-                        &[
-                            origin_err.package.clone(),
-                            origin_err.filename.clone(),
-                            origin_err.index.clone(),
-                        ],
+                        &test_args,
                     )
                     .await?
                     .first()
@@ -586,11 +628,7 @@ async fn handle_test_result(
                         moonc_opt.build_opt.target_backend,
                         artifact_path,
                         target_dir,
-                        &[
-                            origin_err.package.clone(),
-                            origin_err.filename.clone(),
-                            origin_err.index.clone(),
-                        ],
+                        &test_args,
                     )
                     .await?
                     .first()
@@ -619,11 +657,7 @@ async fn handle_test_result(
                             moonc_opt.build_opt.target_backend,
                             artifact_path,
                             target_dir,
-                            &[
-                                origin_err.package.clone(),
-                                origin_err.filename.clone(),
-                                origin_err.index.clone(),
-                            ],
+                            &test_args,
                         )
                         .await?
                         .first()
