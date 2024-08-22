@@ -16,9 +16,8 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
-use crate::expect::{
-    expect_failed_to_snapshot_result, parse_filename, ExpectFailedRaw, SNAPSHOT_TESTING,
-};
+use crate::entry::{TestArgs, TestFailedStatus};
+use crate::expect::{ERROR, EXPECT_FAILED, FAILED, RUNTIME_ERROR};
 use crate::section_capture::{handle_stdout, SectionCapture};
 
 use super::gen;
@@ -44,39 +43,59 @@ pub fn load_moon_proj(
     gen::gen_runtest::gen_n2_runtest_state(&n2_input, moonc_opt, moonbuild_opt)
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, Default, Clone)]
 pub struct TestStatistics {
-    pub passed: u32,
     pub package: String,
-    pub filenames: Vec<String>,
-    pub messages: Vec<String>,
-    pub test_names: Vec<String>,
+    pub filename: String,
+    pub index: String,
+    pub test_name: String,
+    pub message: String,
+}
+
+impl std::fmt::Display for TestStatistics {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "{}::{}::test#{}, message: {}",
+            self.package, self.filename, self.test_name, self.message
+        )
+    }
 }
 
 pub async fn run_wat(
     path: &Path,
     target_dir: &Path,
-    auto_update: bool,
-) -> anyhow::Result<TestStatistics> {
-    run("moonrun", path, target_dir, auto_update).await
+    args: &TestArgs,
+) -> anyhow::Result<Vec<Result<TestStatistics, TestFailedStatus>>> {
+    // put "--test-mode" at the front of args
+    let mut _args = vec!["--test-mode".to_string()];
+    _args.push(serde_json_lenient::to_string(args).unwrap());
+    run("moonrun", path, target_dir, &_args).await
 }
 
 pub async fn run_js(
     path: &Path,
     target_dir: &Path,
-    auto_update: bool,
-) -> anyhow::Result<TestStatistics> {
-    run("node", path, target_dir, auto_update).await
+    args: &TestArgs,
+) -> anyhow::Result<Vec<Result<TestStatistics, TestFailedStatus>>> {
+    run(
+        "node",
+        path,
+        target_dir,
+        &[serde_json_lenient::to_string(args).unwrap()],
+    )
+    .await
 }
 
 async fn run(
     command: &str,
     path: &Path,
     target_dir: &Path,
-    _auto_update: bool,
-) -> anyhow::Result<TestStatistics> {
+    args: &[String],
+) -> anyhow::Result<Vec<Result<TestStatistics, TestFailedStatus>>> {
     let mut execution = tokio::process::Command::new(command)
         .arg(path)
+        .args(args)
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::inherit())
@@ -98,14 +117,19 @@ async fn run(
         false,
     );
 
-    let mut buffer = Vec::new();
-    stdout.read_to_end(&mut buffer).await.context(format!(
-        "failed to read stdout for {} {}",
-        command,
-        path.display()
-    ))?;
+    let mut stdout_buffer = Vec::new();
+    stdout
+        .read_to_end(&mut stdout_buffer)
+        .await
+        .context(format!(
+            "failed to read stdout for {} {} {}",
+            command,
+            path.display(),
+            args.join(" ")
+        ))?;
+
     handle_stdout(
-        &mut std::io::BufReader::new(buffer.as_slice()),
+        &mut std::io::BufReader::new(stdout_buffer.as_slice()),
         &mut [
             &mut test_capture,
             &mut coverage_capture,
@@ -115,75 +139,52 @@ async fn run(
     )?;
     let output = execution.wait().await?;
 
-    if output.success() {
-        if let Some(coverage_output) = coverage_capture.finish() {
-            // Output to moonbit_coverage_<time>.txt
-            // TODO: do we need to move this out of the runtest module?
-            let time = chrono::Local::now().timestamp_micros();
-            let filename = target_dir.join(format!("moonbit_coverage_{}.txt", time));
-            std::fs::write(&filename, coverage_output)
-                .context(format!("failed to write {}", filename.to_string_lossy()))?;
-        }
-        let snapshots = if let Some(snapshot_testing_output) = snapshot_capture.finish() {
-            let mut xs = vec![];
-            for line in snapshot_testing_output.lines() {
-                let json_str = line.trim_start_matches(SNAPSHOT_TESTING);
-                let t: crate::expect::ExpectFailedRaw = serde_json_lenient::from_str(json_str)
-                    .context(format!(
-                        "failed to parse snapshot testing output: {}",
-                        json_str
-                    ))?;
-                xs.push(expect_failed_to_snapshot_result(t));
-            }
-            xs
-        } else {
-            vec![]
-        };
-        if let Some(test_output) = test_capture.finish() {
-            let j: TestStatistics = serde_json_lenient::from_str(test_output.trim())
-                .context(format!("failed to parse test summary: {}", test_output))?;
-            let j = if !snapshots.is_empty() {
-                let mut j = j;
-                let mut index = j.filenames.len() - j.passed as usize;
-                for snap in snapshots.iter() {
-                    let expect_failed = ExpectFailedRaw {
-                        loc: snap.loc.clone(),
-                        args_loc: snap.args_loc.clone(),
-                        expect: snap.expect_file.display().to_string(),
-                        actual: snap.actual.clone(),
-                        snapshot: Some(true),
-                    };
-
-                    if snap.succ {
-                        j.messages.push("".to_string());
-                        let filename = parse_filename(&snap.loc)?;
-                        j.filenames.push(filename);
-                        j.test_names.push("snapshot".to_string());
-                        j.passed += 1;
-                    } else {
-                        j.messages.insert(
-                            index,
-                            format!(
-                                "{} {}",
-                                SNAPSHOT_TESTING,
-                                serde_json_lenient::to_string(&expect_failed)?
-                            ),
-                        );
-                        let filename = parse_filename(&snap.loc)?;
-                        j.filenames.insert(index, filename);
-                        j.test_names.insert(index, "snapshot".to_string());
-                        index += 1;
-                    }
-                }
-                j
-            } else {
-                j
-            };
-            Ok(j)
-        } else {
-            bail!("No test output found");
-        }
-    } else {
+    if !output.success() {
         bail!("Failed to run the test");
     }
+
+    if let Some(coverage_output) = coverage_capture.finish() {
+        // Output to moonbit_coverage_<time>.txt
+        // TODO: do we need to move this out of the runtest module?
+        let time = chrono::Local::now().timestamp_micros();
+        let filename = target_dir.join(format!("moonbit_coverage_{}.txt", time));
+        std::fs::write(&filename, coverage_output)
+            .context(format!("failed to write {}", filename.to_string_lossy()))?;
+    }
+
+    let mut res = vec![];
+    if let Some(test_output) = test_capture.finish() {
+        let mut test_statistics: Vec<TestStatistics> = vec![];
+        for s in test_output.split('\n') {
+            if s.is_empty() {
+                continue;
+            }
+            let a = serde_json_lenient::from_str(s.trim())
+                .context(format!("failed to parse test summary: {}", s))?;
+            test_statistics.push(a);
+        }
+
+        for test_statistic in test_statistics {
+            let return_message = &test_statistic.message;
+            if return_message.is_empty() {
+                res.push(Ok(test_statistic));
+            } else if return_message.starts_with(EXPECT_FAILED) {
+                res.push(Err(TestFailedStatus::ExpectTestFailed(test_statistic)));
+            } else if return_message.starts_with(RUNTIME_ERROR) || return_message.starts_with(ERROR)
+            {
+                res.push(Err(TestFailedStatus::RuntimeError(test_statistic)));
+            } else if return_message.starts_with(FAILED) || !return_message.is_empty() {
+                // FAILED(moonbit) or something like "panic is expected"
+                res.push(Err(TestFailedStatus::Failed(test_statistic)));
+            } else {
+                res.push(Err(TestFailedStatus::Others(return_message.to_string())));
+            }
+        }
+    } else {
+        res.push(Err(TestFailedStatus::Others(String::from(
+            "No test output found",
+        ))));
+    }
+
+    Ok(res)
 }
