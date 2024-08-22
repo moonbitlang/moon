@@ -594,7 +594,6 @@ pub fn apply_snapshot(messages: &[String]) -> anyhow::Result<()> {
 
     for snapshot in snapshots.iter() {
         let filename = parse_filename(&snapshot.loc)?;
-        let loc = parse_loc(&snapshot.loc)?;
         let actual = snapshot.actual.clone();
         let expect_file = &snapshot.expect_file;
         let expect_file = PathBuf::from(&filename)
@@ -614,20 +613,6 @@ pub fn apply_snapshot(messages: &[String]) -> anyhow::Result<()> {
             "".to_string()
         };
         if actual != expect {
-            let d = dissimilar::diff(&expect, &actual);
-            println!(
-                r#"expect test failed at {}:{}:{}
-{}
-----
-{}
-----
-"#,
-                filename,
-                loc.line_start + 1,
-                loc.col_start + 1,
-                "Diff:".bold(),
-                format_chunks(d)
-            );
             std::fs::write(&expect_file, actual)?;
         }
     }
@@ -678,7 +663,34 @@ pub fn render_expect_fail(msg: &str) -> anyhow::Result<()> {
     Ok(())
 }
 
-pub fn render_snapshot_fail(msg: &str) -> anyhow::Result<()> {
+pub fn snapshot_eq(msg: &str) -> anyhow::Result<bool> {
+    assert!(msg.starts_with(SNAPSHOT_TESTING));
+    let json_str = &msg[SNAPSHOT_TESTING.len()..];
+
+    let e: ExpectFailedRaw = serde_json_lenient::from_str(json_str)
+        .context(format!("parse snapshot test result failed: {}", json_str))?;
+    let snapshot = expect_failed_to_snapshot_result(e);
+
+    let filename = parse_filename(&snapshot.loc)?;
+    let actual = snapshot.actual.clone();
+    let expect_file = &snapshot.expect_file;
+    let expect_file = dunce::canonicalize(PathBuf::from(&filename))
+        .unwrap()
+        .parent()
+        .unwrap()
+        .join("__snapshot__")
+        .join(expect_file);
+
+    let expect = if expect_file.exists() {
+        std::fs::read_to_string(&expect_file)?
+    } else {
+        "".to_string()
+    };
+    let eq = actual == expect;
+    Ok(eq)
+}
+
+pub fn render_snapshot_fail(msg: &str) -> anyhow::Result<(bool, String, String)> {
     assert!(msg.starts_with(SNAPSHOT_TESTING));
     let json_str = &msg[SNAPSHOT_TESTING.len()..];
 
@@ -703,7 +715,8 @@ pub fn render_snapshot_fail(msg: &str) -> anyhow::Result<()> {
     } else {
         "".to_string()
     };
-    if actual != expect {
+    let eq = actual == expect;
+    if !eq {
         let d = dissimilar::diff(&expect, &actual);
         println!(
             r#"expect test failed at {}:{}:{}
@@ -719,7 +732,7 @@ pub fn render_snapshot_fail(msg: &str) -> anyhow::Result<()> {
             format_chunks(d)
         );
     }
-    Ok(())
+    Ok((eq, expect, actual))
 }
 
 pub fn render_expect_fails(messages: &[String]) -> anyhow::Result<()> {

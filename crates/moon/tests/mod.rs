@@ -220,3 +220,7 @@ pub fn get_err_stdout_with_args_and_replace_dir(
     let s = get_err_stdout_with_args_without_replace(dir, args);
     replace_dir(&s, dir)
 }
+
+fn read(p: &Path) -> String {
+    std::fs::read_to_string(p).unwrap().replace('\r', "")
+}
