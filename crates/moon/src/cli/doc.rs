@@ -108,6 +108,10 @@ pub fn run_doc(cli: UniversalFlags, cmd: DocSubcommand) -> anyhow::Result<i32> {
         source_dir.display().to_string(),
         "-o".to_string(),
         static_dir.display().to_string(),
+        "-std-path".to_string(),
+        moonutil::moon_dir::core_bundle(moonc_opt.link_opt.target_backend)
+            .display()
+            .to_string(),
     ];
     if serve {
         args.push("-serve-mode".to_string())
