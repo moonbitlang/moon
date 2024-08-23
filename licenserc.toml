@@ -46,4 +46,6 @@ excludes = [
     "crates/moonbuild/template/**",
     ".justfile",
     "moon.test",
+    "*.js",
+    "*.wasm",
 ]
