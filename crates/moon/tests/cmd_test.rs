@@ -18,8 +18,49 @@
 
 use std::path::PathBuf;
 
+use std::sync::{Arc, Mutex};
+use std::thread;
+
+#[derive(PartialEq, Eq, PartialOrd, Ord)]
+struct MoonTest {
+    name: String,
+    status: bool,
+}
+
+impl std::fmt::Debug for MoonTest {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "{}, {}",
+            self.name,
+            if self.status { "ok" } else { "failed" }
+        )
+    }
+}
+
+fn replace_dir(s: &str, dir: &impl AsRef<std::path::Path>) -> String {
+    let path_str1 = dunce::canonicalize(dir)
+        .unwrap()
+        .to_str()
+        .unwrap()
+        .to_string();
+    let s = s.replace("\\\\", "\\");
+    let s = s.replace(&path_str1, "${WORK_DIR}");
+    s.replace("\r\n", "\n").replace('\\', "/")
+}
+
 #[test]
 fn cmd_test() {
+    // Build xtask first
+    let mut build_cmd = std::process::Command::new("cargo");
+    build_cmd
+        .arg("build")
+        .arg("--package")
+        .arg("xtask")
+        .arg("--locked");
+    let build_status = build_cmd.status().expect("Failed to execute build command");
+    assert!(build_status.success(), "Failed to build xtask");
+
     let mut test_cases = Vec::new();
 
     for entry in
@@ -34,19 +75,53 @@ fn cmd_test() {
         };
 
         if entry.file_type().is_file() && entry.file_name() == "moon.test" {
-            test_cases.push(entry.path().display().to_string());
+            test_cases.push(entry.clone());
         }
     }
 
-    // execute `cargo xtask cmdtest $file`
-    // if UPDATE_EXPECT been set, execute `cargo xtask cmdtest $file -u`
-    for test_case in test_cases {
-        let mut cmd = std::process::Command::new("cargo");
-        cmd.arg("xtask").arg("cmdtest").arg(test_case);
-        if std::env::var("UPDATE_EXPECT").is_ok() {
-            cmd.arg("-u");
-        }
-        let status = cmd.status().unwrap();
-        assert!(status.success());
+    let test_cases = Arc::new(Mutex::new(test_cases));
+    let results = Arc::new(Mutex::new(Vec::new()));
+    let mut handles = Vec::new();
+
+    while let Some(test_case) = test_cases.lock().unwrap().pop() {
+        let test_case = test_case.clone();
+        let p = dunce::canonicalize(test_case.clone().into_path()).unwrap();
+        let handle = thread::spawn(move || {
+            let xtask_path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+                .parent()
+                .unwrap()
+                .parent()
+                .unwrap()
+                .join("target/debug/xtask");
+            let mut cmd = std::process::Command::new(xtask_path);
+            cmd.arg("cmdtest").arg(test_case.into_path());
+            if std::env::var("UPDATE_EXPECT").is_ok() {
+                cmd.arg("-u");
+            }
+            let status = cmd.status().unwrap();
+            let parent = p.parent().unwrap().parent().unwrap();
+            MoonTest {
+                name: replace_dir(p.to_str().unwrap(), &parent),
+                status: status.success(),
+            }
+        });
+        handles.push(handle);
     }
+
+    for handle in handles {
+        let res = handle.join().unwrap();
+        results.lock().unwrap().push(res);
+    }
+
+    let mut all_results = results.lock().unwrap();
+    all_results.sort();
+    expect_test::expect![[r#"
+        [
+            ${WORK_DIR}/moon_info_001.in/moon.test, ok,
+            ${WORK_DIR}/moon_info_002.in/moon.test, ok,
+            ${WORK_DIR}/specify_source_dir_001.in/moon.test, ok,
+            ${WORK_DIR}/test_moon_info.in/moon.test, ok,
+        ]
+    "#]]
+    .assert_debug_eq(&all_results);
 }
