@@ -17,4 +17,3 @@
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
 pub mod normal;
-pub mod watch;
