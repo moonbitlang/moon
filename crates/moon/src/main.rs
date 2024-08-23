@@ -88,5 +88,6 @@ fn main1() -> anyhow::Result<i32> {
         Upgrade => cli::run_upgrade(flags),
         ShellCompletion(gs) => cli::gen_shellcomp(&flags, gs),
         Version(v) => cli::run_version(v),
+        Tool(v) => cli::run_tool(v),
     }
 }

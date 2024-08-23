@@ -122,7 +122,6 @@ pub fn gen_fmt(
                     .target_dir
                     .join(PathBuf::from_iter(pkg.rel.components.iter()))
                     .join(f.file_name().unwrap().to_str().unwrap())
-                    .with_extension("phony")
                     .display()
                     .to_string(),
             };
@@ -160,40 +159,8 @@ fn gen_inplace_fmt_command(graph: &mut n2graph::Graph, item: &FmtItem) -> (Build
     let command = CommandBuilder::new("moonfmt")
         .arg(&item.input)
         .arg("-w")
-        .build();
-    build.cmdline = Some(command);
-    (build, output_id)
-}
-
-fn gen_fmt_to_command(graph: &mut n2graph::Graph, item: &FmtItem) -> (Build, FileId) {
-    let loc = FileLoc {
-        filename: Rc::new(PathBuf::from("format")),
-        line: 0,
-    };
-
-    let input_ids = vec![graph.files.id_from_canonical(item.input.clone())];
-
-    let output_id = graph.files.id_from_canonical(item.output.clone());
-    let output_ids = vec![output_id];
-
-    let ins = BuildIns {
-        ids: input_ids,
-        explicit: 1,
-        implicit: 0,
-        order_only: 0,
-    };
-
-    let outs = BuildOuts {
-        ids: output_ids,
-        explicit: 1,
-    };
-
-    let mut build = Build::new(loc, ins, outs);
-
-    let command = CommandBuilder::new("moonfmt")
-        .arg(&item.input)
         .arg("-o")
-        .arg(&item.output)
+        .arg(&item.phony_out)
         .build();
     build.cmdline = Some(command);
     (build, output_id)
@@ -208,29 +175,6 @@ pub fn gen_inplace_format_action(graph: &mut n2graph::Graph, ids: &[FileId]) -> 
     let phony_out = graph
         .files
         .id_from_canonical("__inplace_format".to_string());
-
-    let ins = BuildIns {
-        ids: ids.into(),
-        explicit: ids.len(),
-        implicit: 0,
-        order_only: 0,
-    };
-
-    let outs = BuildOuts {
-        ids: vec![phony_out],
-        explicit: 1,
-    };
-
-    (Build::new(loc, ins, outs), phony_out)
-}
-
-pub fn gen_format_to_action(graph: &mut n2graph::Graph, ids: &[FileId]) -> (Build, FileId) {
-    let loc = FileLoc {
-        filename: Rc::new(PathBuf::from("format")),
-        line: 0,
-    };
-
-    let phony_out = graph.files.id_from_canonical("__format_to".to_string());
 
     let ins = BuildIns {
         ids: ids.into(),
@@ -267,18 +211,101 @@ pub fn gen_n2_fmt_state(
     graph.add_build(all_inplace_format_build)?;
     default.push(inplace_format_action);
 
-    if moonbuild_opt.fmt_opt.as_ref().unwrap().check {
-        default.clear();
-        builds.clear();
-        for item in input.items.iter() {
-            let (build, fid) = gen_fmt_to_command(&mut graph, item);
-            graph.add_build(build)?;
-            builds.push(fid);
-        }
-        let (all_format_to_build, format_to_action) = gen_format_to_action(&mut graph, &builds);
-        graph.add_build(all_format_to_build)?;
-        default.push(format_to_action);
+    let mut hashes = n2graph::Hashes::default();
+    let db = n2::db::open(
+        &moonbuild_opt.target_dir.join("format.db"),
+        &mut graph,
+        &mut hashes,
+    )?;
+
+    Ok(State {
+        graph,
+        db,
+        hashes,
+        default,
+        pools: SmallMap::default(),
+    })
+}
+
+fn gen_fmt_to_command(graph: &mut n2graph::Graph, item: &FmtItem) -> (Build, FileId) {
+    let loc = FileLoc {
+        filename: Rc::new(PathBuf::from("format")),
+        line: 0,
+    };
+
+    let input_ids = vec![graph.files.id_from_canonical(item.input.clone())];
+
+    let output_id = graph.files.id_from_canonical(item.output.clone());
+    let output_ids = vec![output_id];
+
+    let ins = BuildIns {
+        ids: input_ids,
+        explicit: 1,
+        implicit: 0,
+        order_only: 0,
+    };
+
+    let outs = BuildOuts {
+        ids: output_ids,
+        explicit: 1,
+    };
+
+    let mut build = Build::new(loc, ins, outs);
+
+    let command = CommandBuilder::new("moon")
+        .arg("tool")
+        .arg("format-and-diff")
+        .arg("--old")
+        .arg(&item.input)
+        .arg("--new")
+        .arg(&item.output)
+        .build();
+    build.cmdline = Some(command);
+
+    (build, output_id)
+}
+
+pub fn gen_format_to_action(graph: &mut n2graph::Graph, ids: &[FileId]) -> (Build, FileId) {
+    let loc = FileLoc {
+        filename: Rc::new(PathBuf::from("format")),
+        line: 0,
+    };
+
+    let phony_out = graph.files.id_from_canonical("__format_to".to_string());
+
+    let ins = BuildIns {
+        ids: ids.into(),
+        explicit: ids.len(),
+        implicit: 0,
+        order_only: 0,
+    };
+
+    let outs = BuildOuts {
+        ids: vec![phony_out],
+        explicit: 1,
+    };
+
+    (Build::new(loc, ins, outs), phony_out)
+}
+
+pub fn gen_n2_fmt_check_state(
+    input: &N2FmtInput,
+    _moonc_opt: &MooncOpt,
+    moonbuild_opt: &MoonbuildOpt,
+) -> anyhow::Result<State> {
+    assert!(moonbuild_opt.fmt_opt.as_ref().unwrap().check);
+    let mut graph = n2graph::Graph::default();
+    let mut default = vec![];
+    let mut builds = vec![];
+
+    for item in input.items.iter() {
+        let (bs, fs) = gen_fmt_to_command(&mut graph, item);
+        graph.add_build(bs)?;
+        builds.push(fs);
     }
+    let (all_format_to_build, format_to_action) = gen_format_to_action(&mut graph, &builds);
+    graph.add_build(all_format_to_build)?;
+    default.push(format_to_action);
 
     let mut hashes = n2graph::Hashes::default();
     let db = n2::db::open(
