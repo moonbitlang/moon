@@ -22,7 +22,7 @@ use n2::progress::{DumbConsoleProgress, FancyConsoleProgress, Progress};
 use n2::terminal;
 use std::io::Write;
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
+use std::sync::atomic::AtomicBool;
 use thiserror::Error;
 
 use n2::{trace, work};
