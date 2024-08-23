@@ -212,7 +212,6 @@ pub fn run_run_internal(cli: &UniversalFlags, cmd: RunSubcommand) -> anyhow::Res
         source_dir,
         target_dir,
     } = cli.source_tgt_dir.try_into_package_dirs()?;
-    let _lock = FileLock::lock(&target_dir)?;
 
     // Run moon install before build
     let (resolved_env, dir_sync_result) = auto_sync(
@@ -225,6 +224,7 @@ pub fn run_run_internal(cli: &UniversalFlags, cmd: RunSubcommand) -> anyhow::Res
     let mut moonc_opt = super::get_compiler_flags(&source_dir, &cmd.build_flags)?;
     let run_mode = RunMode::Run;
     let target_dir = mk_arch_mode_dir(&source_dir, &target_dir, &moonc_opt, run_mode)?;
+    let _lock = FileLock::lock(&target_dir)?;
 
     if moonc_opt.link_opt.output_format == OutputFormat::Wat {
         bail!("`--output-wat` is not supported for `run`");

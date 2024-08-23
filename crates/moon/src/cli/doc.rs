@@ -51,9 +51,9 @@ pub fn run_doc(cli: UniversalFlags, cmd: DocSubcommand) -> anyhow::Result<i32> {
         target_dir,
     } = cli.source_tgt_dir.try_into_package_dirs()?;
 
-    let _lock = FileLock::lock(&target_dir)?;
-
     let static_dir = target_dir.join("doc");
+    let _lock = FileLock::lock(&static_dir)?;
+
     if static_dir.exists() {
         static_dir.rm_rf();
     }

@@ -72,7 +72,6 @@ pub fn run_check(cli: &UniversalFlags, cmd: &CheckSubcommand) -> anyhow::Result<
         ))?;
     };
 
-    let _lock = FileLock::lock(&target_dir)?;
     if cmd.build_flags.target.is_none() {
         return run_check_internal(cli, cmd, &source_dir, &target_dir);
     }
@@ -137,6 +136,7 @@ fn run_check_internal(
     moonc_opt.build_opt.deny_warn = cmd.build_flags.deny_warn;
     let run_mode = RunMode::Check;
     let target_dir = mk_arch_mode_dir(source_dir, target_dir, &moonc_opt, run_mode)?;
+    let _lock = FileLock::lock(&target_dir)?;
 
     let sort_input = cmd.build_flags.sort_input;
 
