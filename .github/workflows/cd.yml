@@ -51,12 +51,16 @@ jobs:
         run: |
           version=$(echo "$GITHUB_SHA" | cut -c 1-9)
           rclone copy target/release/moon "aws:${{ secrets.AWS_BUCKET_NAME }}/bleeding-moon/$version/$(uname -s)-$(uname -m)/"
+          rclone copy target/release/moonrun "aws:${{ secrets.AWS_BUCKET_NAME }}/bleeding-moonrun/$version/$(uname -s)-$(uname -m)/"
+          rclone copy target/release/moonrun "aws:cli.moonbitlang.com/moon-ci/$(uname -s)-$(uname -m)/"
 
       - name: Upload(Windows)
         if: ${{ matrix.os == 'windows-latest' }}
         run: |
           $version = "$env:GITHUB_SHA".Substring(0, 9)
           rclone copyto -L .\target\release\moon.exe "aws:${{ secrets.AWS_BUCKET_NAME }}/bleeding-moon/$version/Windows-x86_64/moon.exe"
+          rclone copyto -L .\target\release\moonrun.exe "aws:${{ secrets.AWS_BUCKET_NAME }}/bleeding-moonrun/$version/Windows-x86_64/moonrun.exe"
+          rclone copyto -L .\target\release\moonrun.exe "aws:cli.moonbitlang.com/moon-ci/Windows-x86_64/moonrun.exe"
 
       - name: Checkout moonc-version (macos-latest)
         if: ${{ matrix.os == 'macos-latest' }}
@@ -139,3 +143,5 @@ jobs:
           version="$(echo "$GITHUB_SHA" | cut -c 1-9)"
           echo "$version"
           rclone copy target/release/moon "aws:${{ secrets.AWS_BUCKET_NAME }}/bleeding-moon/$version/$(uname -s)-$(uname -m)/"
+          rclone copy target/release/moonrun "aws:${{ secrets.AWS_BUCKET_NAME }}/bleeding-moonrun/$version/$(uname -s)-$(uname -m)/"
+          rclone copy target/release/moonrun "aws:cli.moonbitlang.com/moon-ci/$(uname -s)-$(uname -m)/"
