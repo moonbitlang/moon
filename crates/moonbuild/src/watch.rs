@@ -28,6 +28,7 @@ use notify::{Config, EventKind, RecommendedWatcher, RecursiveMode, Watcher};
 use moonutil::common::{
     MoonbuildOpt, MooncOpt, RunMode, MOON_MOD_JSON, MOON_PKG_JSON, WATCH_MODE_DIR,
 };
+use std::path::Path;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
@@ -36,6 +37,7 @@ pub fn watching(
     moonbuild_opt: &MoonbuildOpt,
     registry_config: &RegistryConfig,
     module: &ModuleDB,
+    original_target_dir: &Path,
 ) -> anyhow::Result<i32> {
     let (source_dir, target_dir) = (&moonbuild_opt.source_dir, &moonbuild_opt.target_dir);
 
@@ -73,21 +75,19 @@ pub fn watching(
                         // when a file was modified, multiple events may be received, we only care about data those modified data
                         EventKind::Modify(ModifyKind::Data(_)) => {
                             // check --watch will own a subdir named `watch` in target_dir but build --watch still use the original target_dir
-                            let origin_target_dir =
-                                if target_dir.display().to_string().contains(WATCH_MODE_DIR) {
-                                    target_dir
-                                        .ancestors()
-                                        .find(|p| p.ends_with(WATCH_MODE_DIR))
-                                        .unwrap()
-                                        .parent()
-                                        .unwrap()
-                                } else {
-                                    target_dir
-                                };
+                            let original_target_dir = match moonbuild_opt.run_mode {
+                                RunMode::Check => target_dir
+                                    .ancestors()
+                                    .find(|p| p.ends_with(WATCH_MODE_DIR))
+                                    .unwrap()
+                                    .parent()
+                                    .unwrap(),
+                                _ => original_target_dir,
+                            };
                             if event.paths.iter().all(|p| {
                                 p.starts_with(
                                     // can't be `target_dir` since the real target dir for watch mode is `target_dir/watch`
-                                    origin_target_dir,
+                                    original_target_dir,
                                 )
                             }) {
                                 continue;
