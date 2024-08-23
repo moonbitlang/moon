@@ -123,7 +123,7 @@ pub fn execute(file : String, index : Int) -> Unit {
       succ_idx -= 1
       test_names[succ_idx] = name
     } catch {
-      Failure(e) | InspectError(e) => {
+      Failure(e) | InspectError(e) | SnapshotError(e) => {
         test_names[fail_idx] = name
         messages[fail_idx] = e
         fail_idx += 1

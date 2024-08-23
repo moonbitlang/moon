@@ -115,16 +115,13 @@ fn apply_filter(
   ret
 }
 
-let tests : Map[String, Array[(() -> Unit!Error, Array[String])]] = { }
-let no_args_tests : Map[String, Map[Int, (() -> Unit!Error, Array[String])]] = { }
-let with_args_tests : Map[String, Map[Int, ((@test.T) -> Unit!Error, Array[String])]] = { }
-// REPLACE ME 0
+let tests: Map[String, Array[(() -> Unit!Error, Array[String])]] = {  } // WILL BE REPLACED
+let no_args_tests : Map[String, Map[Int, (() -> Unit!Error, Array[String])]] = { }  // WILL BE REPLACED
+let with_args_tests : Map[String, Map[Int, ((@test.T) -> Unit!Error, Array[String])]] = { }  // WILL BE REPLACED
 
-fn main {
-  let _ = tests
-  let file_filter: String? = Some(get_file_name())
-  let index = get_index()
-  let index_filter : Int? = Some(parse_int_(index))
+pub fn execute(file : String, index : Int) -> Unit {
+  let file_filter: String? = Some(file)
+  let index_filter : Int? = Some(index)
   let filtered_tests = apply_filter(no_args_tests, with_args_tests, file_filter, index_filter)
   let total = filtered_tests.length()
   let test_names = @moonbitlang/core/builtin.Array::make(total, "")
@@ -198,86 +195,6 @@ fn main {
   println("{END_MOONTEST}")
 }
 
-fn parse_int_(s : String) -> Int {
-  let mut res = 0
-  let len = s.length()
-  for i = 0; i < len; i = i + 1 {
-    res = res * 10 + (s[i].to_int() - '0'.to_int())
-  }
-  res
+fn main {
+  ()
 }
-
-// =========== ffi start ===========
-
-fn _get_file_name() -> ExternString = "test" "get_file_name"
-fn get_file_name() -> String {
-  let file_name = _get_file_name()
-  string_from_extern(file_name)
-}
-
-fn _get_index() -> ExternString = "test" "get_index"
-fn get_index() -> String {
-  let index = _get_index()
-  string_from_extern(index)
-}
-
-type JSValue
-
-pub fn jsvalue_is_string(v : JSValue) -> Bool = "__moonbit_fs_unstable" "jsvalue_is_string"
-
-pub fn jsvalue_get_string(v : JSValue) -> ExternString = "%identity"
-
-pub type JSArray
-
-pub fn array_len(arr : JSArray) -> Int = "__moonbit_fs_unstable" "array_len"
-
-pub fn array_get(arr : JSArray, idx : Int) -> JSValue = "__moonbit_fs_unstable" "array_get"
-
-pub fn JSArray::op_get(self : JSArray, idx : Int) -> JSValue {
-  return array_get(self, idx)
-}
-
-type StringCreateHandle
-
-type StringReadHandle
-
-pub type ExternString
-
-fn begin_create_string() -> StringCreateHandle = "__moonbit_fs_unstable" "begin_create_string"
-
-fn string_append_char(handle : StringCreateHandle, ch : Char) = "__moonbit_fs_unstable" "string_append_char"
-
-fn finish_create_string(handle : StringCreateHandle) -> ExternString = "__moonbit_fs_unstable" "finish_create_string"
-
-pub fn string_to_extern(s : String) -> ExternString {
-  let handle = begin_create_string()
-  let len = s.length()
-  for i = 0; i < len; i = i + 1 {
-    string_append_char(handle, s[i])
-  }
-  finish_create_string(handle)
-}
-
-fn begin_read_string(s : ExternString) -> StringReadHandle = "__moonbit_fs_unstable" "begin_read_string"
-
-
-fn string_read_char(handle : StringReadHandle) -> Int = "__moonbit_fs_unstable" "string_read_char"
-
-fn finish_read_string(handle : StringReadHandle) = "__moonbit_fs_unstable" "finish_read_string"
-
-pub fn string_from_extern(e : ExternString) -> String {
-  let buf = Buffer::new()
-  let handle = begin_read_string(e)
-  while true {
-    let ch = string_read_char(handle)
-    if ch == -1 {
-      break
-    } else {
-      buf.write_char(Char::from_int(ch))
-    }
-  }
-  finish_read_string(handle)
-  buf.to_string()
-}
-
-// =========== ffi end ===========

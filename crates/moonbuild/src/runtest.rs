@@ -17,15 +17,14 @@
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
 use crate::entry::{TestArgs, TestFailedStatus};
-use crate::expect::{ERROR, EXPECT_FAILED, FAILED, RUNTIME_ERROR};
+use crate::expect::{snapshot_eq, ERROR, EXPECT_FAILED, FAILED, RUNTIME_ERROR, SNAPSHOT_TESTING};
 use crate::section_capture::{handle_stdout, SectionCapture};
 
 use super::gen;
 use anyhow::{bail, Context};
 use moonutil::common::{
     MoonbuildOpt, MooncOpt, MOON_COVERAGE_DELIMITER_BEGIN, MOON_COVERAGE_DELIMITER_END,
-    MOON_SNAPSHOT_DELIMITER_BEGIN, MOON_SNAPSHOT_DELIMITER_END, MOON_TEST_DELIMITER_BEGIN,
-    MOON_TEST_DELIMITER_END,
+    MOON_TEST_DELIMITER_BEGIN, MOON_TEST_DELIMITER_END,
 };
 use moonutil::module::ModuleDB;
 use n2::load::State;
@@ -111,12 +110,6 @@ async fn run(
         true,
     );
 
-    let mut snapshot_capture = SectionCapture::new(
-        MOON_SNAPSHOT_DELIMITER_BEGIN,
-        MOON_SNAPSHOT_DELIMITER_END,
-        false,
-    );
-
     let mut stdout_buffer = Vec::new();
     stdout
         .read_to_end(&mut stdout_buffer)
@@ -130,11 +123,7 @@ async fn run(
 
     handle_stdout(
         &mut std::io::BufReader::new(stdout_buffer.as_slice()),
-        &mut [
-            &mut test_capture,
-            &mut coverage_capture,
-            &mut snapshot_capture,
-        ],
+        &mut [&mut test_capture, &mut coverage_capture],
         |line| print!("{}", line),
     )?;
     let output = execution.wait().await?;
@@ -142,7 +131,6 @@ async fn run(
     if !output.success() {
         bail!("Failed to run the test");
     }
-
     if let Some(coverage_output) = coverage_capture.finish() {
         // Output to moonbit_coverage_<time>.txt
         // TODO: do we need to move this out of the runtest module?
@@ -170,6 +158,13 @@ async fn run(
                 res.push(Ok(test_statistic));
             } else if return_message.starts_with(EXPECT_FAILED) {
                 res.push(Err(TestFailedStatus::ExpectTestFailed(test_statistic)));
+            } else if return_message.starts_with(SNAPSHOT_TESTING) {
+                let ok = snapshot_eq(&test_statistic.message)?;
+                if ok {
+                    res.push(Ok(test_statistic));
+                } else {
+                    res.push(Err(TestFailedStatus::SnapshotPending(test_statistic)));
+                }
             } else if return_message.starts_with(RUNTIME_ERROR) || return_message.starts_with(ERROR)
             {
                 res.push(Err(TestFailedStatus::RuntimeError(test_statistic)));

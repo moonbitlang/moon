@@ -3588,10 +3588,6 @@ fn test_moon_test_no_entry_warning() {
 
 #[test]
 fn test_moon_fmt() {
-    fn read(p: &Path) -> String {
-        std::fs::read_to_string(p).unwrap().replace('\r', "")
-    }
-
     {
         let dir = TestDir::new("moon_fmt.in");
         check(
@@ -5674,5 +5670,239 @@ fn test_specify_source_dir_with_deps_002() {
             a!b!c!d!
             one!two!three!four!
         "#]],
+    );
+}
+
+#[test]
+fn test_snapshot_test() {
+    let dir = TestDir::new("snapshot_testing.in");
+    check(
+        &get_err_stdout_with_args_and_replace_dir(
+            &dir,
+            ["test", "--sort-input", "--no-parallelize"],
+        ),
+        expect![[r#"
+            test username/hello/lib/hello_test.mbt::snapshot in blackbox test failed
+            expect test failed at $ROOT/src/lib/hello_test.mbt:9:3
+            Diff:
+            ----
+            Hello, world!
+            ----
+
+            test username/hello/lib/hello.mbt::test inspect 1 failed
+            expect test failed at $ROOT/src/lib/hello.mbt:6:3-6:16
+            Diff:
+            ----
+            a
+            ----
+
+            test username/hello/lib/hello.mbt::test snapshot 1 failed
+            expect test failed at $ROOT/src/lib/hello.mbt:14:3
+            Diff:
+            ----
+            hello
+            snapshot
+            testing
+
+            ----
+
+            test username/hello/lib/hello.mbt::test inspect 2 failed
+            expect test failed at $ROOT/src/lib/hello.mbt:18:3-18:16
+            Diff:
+            ----
+            c
+            ----
+
+            test username/hello/lib/hello.mbt::test snapshot 2 failed
+            expect test failed at $ROOT/src/lib/hello.mbt:26:3
+            Diff:
+            ----
+            should
+            be
+            work
+
+            ----
+
+            Total tests: 6, passed: 1, failed: 5.
+        "#]],
+    );
+    check(
+        &get_stdout_with_args_and_replace_dir(&dir, ["test", "-u"]),
+        expect![[r#"
+
+            Auto updating expect tests and retesting ...
+
+            Total tests: 6, passed: 6, failed: 0.
+        "#]],
+    );
+
+    check(
+        &read(&dir.join("src/lib/hello.mbt")),
+        expect![[r#"
+            pub fn hello() -> String {
+              "Hello, world!"
+            }
+
+            test "test inspect 1" {
+              inspect!("a", content="a")
+              inspect!("b", content="b")
+            }
+
+            test "test snapshot 1" (it : @test.T) {
+              it.writeln("hello")
+              it.writeln("snapshot")
+              it.writeln("testing")
+              it.snapshot!(filename="001.txt")
+            }
+
+            test "test inspect 2" {
+              inspect!("c", content="c")
+              inspect!("d", content="d")
+            }
+
+            test "test snapshot 2" (it : @test.T) {
+              it.writeln("should")
+              it.writeln("be")
+              it.writeln("work")
+              it.snapshot!(filename="002.txt")
+            }
+        "#]],
+    );
+    check(
+        &read(&dir.join("src/lib/__snapshot__/001.txt")),
+        expect![[r#"
+        hello
+        snapshot
+        testing
+    "#]],
+    );
+    check(
+        &read(&dir.join("src/lib/__snapshot__/002.txt")),
+        expect![[r#"
+        should
+        be
+        work
+    "#]],
+    );
+    check(
+        &read(&dir.join("src/lib/__snapshot__/003.txt")),
+        expect!["Hello, world!"],
+    );
+}
+
+#[test]
+fn test_snapshot_test_target_js() {
+    let dir = TestDir::new("snapshot_testing.in");
+    check(
+        &get_err_stdout_with_args_and_replace_dir(
+            &dir,
+            ["test", "--target", "js", "--sort-input", "--no-parallelize"],
+        ),
+        expect![[r#"
+            test username/hello/lib/hello_test.mbt::snapshot in blackbox test failed
+            expect test failed at $ROOT/src/lib/hello_test.mbt:9:3
+            Diff:
+            ----
+            Hello, world!
+            ----
+
+            test username/hello/lib/hello.mbt::test inspect 1 failed
+            expect test failed at $ROOT/src/lib/hello.mbt:6:3-6:16
+            Diff:
+            ----
+            a
+            ----
+
+            test username/hello/lib/hello.mbt::test snapshot 1 failed
+            expect test failed at $ROOT/src/lib/hello.mbt:14:3
+            Diff:
+            ----
+            hello
+            snapshot
+            testing
+
+            ----
+
+            test username/hello/lib/hello.mbt::test inspect 2 failed
+            expect test failed at $ROOT/src/lib/hello.mbt:18:3-18:16
+            Diff:
+            ----
+            c
+            ----
+
+            test username/hello/lib/hello.mbt::test snapshot 2 failed
+            expect test failed at $ROOT/src/lib/hello.mbt:26:3
+            Diff:
+            ----
+            should
+            be
+            work
+
+            ----
+
+            Total tests: 6, passed: 1, failed: 5.
+        "#]],
+    );
+    check(
+        &get_stdout_with_args_and_replace_dir(&dir, ["test", "--target", "js", "-u"]),
+        expect![[r#"
+
+            Auto updating expect tests and retesting ...
+
+            Total tests: 6, passed: 6, failed: 0.
+        "#]],
+    );
+
+    check(
+        &read(&dir.join("src/lib/hello.mbt")),
+        expect![[r#"
+            pub fn hello() -> String {
+              "Hello, world!"
+            }
+
+            test "test inspect 1" {
+              inspect!("a", content="a")
+              inspect!("b", content="b")
+            }
+
+            test "test snapshot 1" (it : @test.T) {
+              it.writeln("hello")
+              it.writeln("snapshot")
+              it.writeln("testing")
+              it.snapshot!(filename="001.txt")
+            }
+
+            test "test inspect 2" {
+              inspect!("c", content="c")
+              inspect!("d")
+            }
+
+            test "test snapshot 2" (it : @test.T) {
+              it.writeln("should")
+              it.writeln("be")
+              it.writeln("work")
+              it.snapshot!(filename="002.txt")
+            }
+        "#]],
+    );
+    check(
+        &read(&dir.join("src/lib/__snapshot__/001.txt")),
+        expect![[r#"
+        hello
+        snapshot
+        testing
+    "#]],
+    );
+    check(
+        &read(&dir.join("src/lib/__snapshot__/002.txt")),
+        expect![[r#"
+        should
+        be
+        work
+    "#]],
+    );
+    check(
+        &read(&dir.join("src/lib/__snapshot__/003.txt")),
+        expect!["Hello, world!"],
     );
 }

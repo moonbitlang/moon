@@ -32,6 +32,7 @@ use anyhow::Context;
 use colored::Colorize;
 
 use crate::check::normal::write_pkg_lst;
+use crate::expect::{apply_snapshot, render_snapshot_fail};
 use crate::runtest::TestStatistics;
 
 use moonutil::common::{MoonbuildOpt, MooncOpt, TargetBackend};
@@ -269,7 +270,7 @@ pub enum TestFailedStatus {
     RuntimeError(TestStatistics),
 
     #[error("{0}")]
-    SnapshotFailed(TestStatistics),
+    SnapshotPending(TestStatistics),
 
     #[error("{0:?}")]
     Others(String),
@@ -282,7 +283,7 @@ impl From<TestFailedStatus> for i32 {
             TestFailedStatus::ExpectTestFailed(_) => 2,
             TestFailedStatus::Failed(_) => 3,
             TestFailedStatus::RuntimeError(_) => 4,
-            TestFailedStatus::SnapshotFailed(_) => 5,
+            TestFailedStatus::SnapshotPending(_) => 5,
             TestFailedStatus::Others(_) => 6,
         }
     }
@@ -559,6 +560,72 @@ async fn handle_test_result(
                     );
                 }
             }
+            Err(TestFailedStatus::SnapshotPending(stat)) => {
+                if !auto_update {
+                    println!(
+                        "test {}/{}::{} {}",
+                        stat.package,
+                        stat.filename,
+                        stat.test_name,
+                        "failed".bold().red(),
+                    );
+                    render_snapshot_fail(&stat.message)?;
+                }
+                if auto_update {
+                    if !printed.load(std::sync::atomic::Ordering::SeqCst) {
+                        println!(
+                            "\n{}\n",
+                            "Auto updating expect tests and retesting ...".bold()
+                        );
+                        printed.store(true, std::sync::atomic::Ordering::SeqCst);
+                    }
+                    apply_snapshot(&[stat.message.to_string()])?;
+                    let index = stat.index.clone().parse::<u32>().unwrap();
+                    let test_args = TestArgs {
+                        package: stat.package.clone(),
+                        file_and_index: vec![(stat.filename.clone(), index..(index + 1))],
+                    };
+                    let rerun = execute_test(
+                        moonc_opt.build_opt.target_backend,
+                        artifact_path,
+                        target_dir,
+                        &test_args,
+                    )
+                    .await?
+                    .first()
+                    .unwrap()
+                    .clone();
+
+                    let update_msg = match rerun {
+                        Err(TestFailedStatus::SnapshotPending(cur_err)) => &[cur_err.message],
+                        _ => &[stat.message.clone()],
+                    };
+                    if let Err(e) = apply_snapshot(update_msg) {
+                        eprintln!("{}: {:?}", "apply snapshot failed".red().bold(), e);
+                    }
+
+                    let cur_res = execute_test(
+                        moonc_opt.build_opt.target_backend,
+                        artifact_path,
+                        target_dir,
+                        &test_args,
+                    )
+                    .await?
+                    .first()
+                    .unwrap()
+                    .clone();
+
+                    // update the previous test result
+                    *item = cur_res;
+                }
+            }
+            Err(TestFailedStatus::ApplyExpectFailed(_)) => {
+                eprintln!(
+                    "{}: {:?}",
+                    "failed to apply patch for expect testing".red().bold(),
+                    "unexpected error"
+                );
+            }
             Err(TestFailedStatus::RuntimeError(err_ts) | TestFailedStatus::Failed(err_ts)) => {
                 println!(
                     "test {}/{}::{} {}: {}",
@@ -671,7 +738,6 @@ async fn handle_test_result(
                     *item = cur_res;
                 }
             }
-            _ => {}
         }
     }
 
