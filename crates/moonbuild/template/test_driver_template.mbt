@@ -16,6 +16,8 @@ fn check_panic[A, B, E : Error](
   )
 }
 
+fn error_to_string(x : Error) -> String = "%error.to_string"
+
 fn startswith_panic(s : String) -> Bool {
   s.length() >= 5 && s[0] == 'p' && s[1] == 'a' && s[2] == 'n' && s[3] == 'i' &&
   s[4] == 'c'
@@ -174,9 +176,9 @@ fn main {
         messages[fail_idx] = e
         fail_idx += 1
       }
-      _ => {
+      e => {
         test_names[fail_idx] = name
-        messages[fail_idx] = "unexpected error"
+        messages[fail_idx] = error_to_string(e)
         fail_idx += 1
       }
     }
