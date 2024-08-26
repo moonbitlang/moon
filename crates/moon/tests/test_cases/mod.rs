@@ -3588,90 +3588,90 @@ fn test_moon_test_no_entry_warning() {
 
 #[test]
 fn test_moon_fmt() {
-    {
-        let dir = TestDir::new("moon_fmt.in");
-        check(
-            &read(&dir.join("lib").join("hello.mbt")),
-            expect![[r#"
+    let dir = TestDir::new("moon_fmt.in");
+    check(
+        &read(&dir.join("lib").join("hello.mbt")),
+        expect![[r#"
                 pub fn hello() -> String { "Hello, world!" }
             "#]],
-        );
-        check(
-            &read(&dir.join("main").join("main.mbt")),
-            expect![[r#"
+    );
+    check(
+        &read(&dir.join("main").join("main.mbt")),
+        expect![[r#"
                 fn main { println(@lib.hello()) }"#]],
-        );
-        let _ = get_stdout_with_args_and_replace_dir(&dir, ["fmt"]);
-        check(
-            &read(&dir.join("lib").join("hello.mbt")),
-            expect![[r#"
+    );
+    let _ = get_stdout_with_args_and_replace_dir(&dir, ["fmt"]);
+    check(
+        &read(&dir.join("lib").join("hello.mbt")),
+        expect![[r#"
                 pub fn hello() -> String {
                   "Hello, world!"
                 }
             "#]],
-        );
-        check(
-            &read(&dir.join("main").join("main.mbt")),
-            expect![[r#"
+    );
+    check(
+        &read(&dir.join("main").join("main.mbt")),
+        expect![[r#"
                 fn main {
                   println(@lib.hello())
                 }
             "#]],
-        );
-    }
+    );
+}
 
-    {
-        let dir = TestDir::new("moon_fmt.in");
-        let _ = snapbox::cmd::Command::new(moon_bin())
-            .current_dir(&dir)
-            .args(["fmt", "--check"])
-            .assert()
-            .failure()
-            .get_output()
-            .stdout
-            .to_owned();
-        check(
-            &read(&dir.join("lib").join("hello.mbt")),
-            expect![[r#"
-                pub fn hello() -> String { "Hello, world!" }
-            "#]],
-        );
-        check(
-            &read(&dir.join("main").join("main.mbt")),
-            expect![[r#"
-                fn main { println(@lib.hello()) }"#]],
-        );
-        check(
-            &read(
-                &dir.join("target")
-                    .join(TargetBackend::default().to_dir_name())
-                    .join("release")
-                    .join("format")
-                    .join("lib")
-                    .join("hello.mbt"),
-            ),
-            expect![[r#"
-                pub fn hello() -> String {
-                  "Hello, world!"
-                }
-            "#]],
-        );
-        check(
-            &read(
-                &dir.join("target")
-                    .join(TargetBackend::default().to_dir_name())
-                    .join("release")
-                    .join("format")
-                    .join("main")
-                    .join("main.mbt"),
-            ),
-            expect![[r#"
-                fn main {
-                  println(@lib.hello())
-                }
-            "#]],
-        );
-    }
+#[cfg(unix)]
+#[test]
+fn test_moon_fmt_002() {
+    let dir = TestDir::new("moon_fmt.in");
+    let _ = snapbox::cmd::Command::new(moon_bin())
+        .current_dir(&dir)
+        .args(["fmt", "--check"])
+        .assert()
+        .failure()
+        .get_output()
+        .stdout
+        .to_owned();
+    check(
+        &read(&dir.join("lib").join("hello.mbt")),
+        expect![[r#"
+            pub fn hello() -> String { "Hello, world!" }
+        "#]],
+    );
+    check(
+        &read(&dir.join("main").join("main.mbt")),
+        expect![[r#"
+            fn main { println(@lib.hello()) }"#]],
+    );
+    check(
+        &read(
+            &dir.join("target")
+                .join(TargetBackend::default().to_dir_name())
+                .join("release")
+                .join("format")
+                .join("lib")
+                .join("hello.mbt"),
+        ),
+        expect![[r#"
+            pub fn hello() -> String {
+              "Hello, world!"
+            }
+        "#]],
+    );
+    check(
+        &read(
+            &dir.join("target")
+                .join(TargetBackend::default().to_dir_name())
+                .join("release")
+                .join("format")
+                .join("main")
+                .join("main.mbt"),
+        ),
+        expect![[r#"
+            fn main {
+              println(@lib.hello())
+            }
+        "#]],
+    );
 }
 
 #[test]
