@@ -312,37 +312,11 @@ pub fn run_test(
     let target_dir = &moonbuild_opt.target_dir;
     let state = crate::runtest::load_moon_proj(module, moonc_opt, moonbuild_opt)?;
 
-    let mut runnable_artifacts: Vec<String> = state
-        .default
-        .iter()
-        .map(|fid| state.graph.file(*fid).name.clone())
-        .collect();
-
     let result = n2_run_interface(state, moonbuild_opt)?;
     render_result(result, moonbuild_opt.quiet, "testing")?;
 
     if build_only {
         return Ok(vec![]);
-    }
-
-    if moonbuild_opt.sort_input {
-        #[cfg(unix)]
-        {
-            runnable_artifacts.sort();
-        }
-        #[cfg(windows)]
-        {
-            let normal_slash = runnable_artifacts
-                .iter()
-                .enumerate()
-                .map(|s| (s.0, s.1.replace('\\', "/")))
-                .collect::<Vec<(usize, String)>>();
-            let mut sorted_runnable_artifacts = runnable_artifacts.clone();
-            for (i, (j, _)) in normal_slash.iter().enumerate() {
-                sorted_runnable_artifacts[i] = runnable_artifacts[*j].clone();
-            }
-            runnable_artifacts = sorted_runnable_artifacts;
-        }
     }
 
     let runtime = tokio::runtime::Builder::new_multi_thread()
