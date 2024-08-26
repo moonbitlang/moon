@@ -766,6 +766,7 @@ pub fn gen_runtest_build_command(
         ))
         .args(["-target", moonc_opt.build_opt.target_backend.to_flag()])
         .arg_with_cond(moonc_opt.build_opt.debug_flag, "-g")
+        .arg_with_cond(moonc_opt.link_opt.source_map, "-source-map")
         // Coverage arg
         .arg_with_cond(enable_coverage, "-enable-coverage")
         .arg_with_cond(self_coverage, "-coverage-package-override=@self")
@@ -857,6 +858,7 @@ pub fn gen_runtest_link_command(
         )
         .args(["-target", moonc_opt.link_opt.target_backend.to_flag()])
         .arg_with_cond(moonc_opt.link_opt.debug_flag, "-g")
+        .arg_with_cond(moonc_opt.link_opt.source_map, "-source-map")
         .args(moonc_opt.extra_link_opt.iter())
         .build();
     log::debug!("Command: {}", command);
