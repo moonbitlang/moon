@@ -5906,3 +5906,18 @@ fn test_snapshot_test_target_js() {
         expect!["Hello, world!"],
     );
 }
+
+#[test]
+fn moon_test_with_failure_json() {
+    let dir = TestDir::new("test_with_failure_json");
+
+    let output = get_err_stdout_with_args_and_replace_dir(&dir, ["test", "--test-failure-json"]);
+    check(
+        &output,
+        // should keep in this format, it's used in ide test explorer
+        expect![[r#"
+            {"package":"username/hello/lib1","filename":"hello.mbt","index":"0","test_name":"test_1","message":"FAILED: $ROOT/src/lib1/hello.mbt:7:3-7:25 test_1 failed"}
+            Total tests: 2, passed: 1, failed: 1.
+        "#]],
+    );
+}
