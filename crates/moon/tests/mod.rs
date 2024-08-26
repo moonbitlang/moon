@@ -221,6 +221,7 @@ pub fn get_err_stdout_with_args_and_replace_dir(
     replace_dir(&s, dir)
 }
 
+#[track_caller]
 fn read(p: &Path) -> String {
     std::fs::read_to_string(p).unwrap().replace('\r', "")
 }

@@ -252,14 +252,17 @@ fn gen_fmt_to_command(graph: &mut n2graph::Graph, item: &FmtItem) -> (Build, Fil
 
     let mut build = Build::new(loc, ins, outs);
 
-    let command = CommandBuilder::new("moon")
-        .arg("tool")
-        .arg("format-and-diff")
-        .arg("--old")
-        .arg(&item.input)
-        .arg("--new")
-        .arg(&item.output)
-        .build();
+    let command = CommandBuilder::new(
+        &std::env::current_exe()
+            .map_or_else(|_| "moon".into(), |x| x.to_string_lossy().into_owned()),
+    )
+    .arg("tool")
+    .arg("format-and-diff")
+    .arg("--old")
+    .arg(&item.input)
+    .arg("--new")
+    .arg(&item.output)
+    .build();
     build.cmdline = Some(command);
 
     (build, output_id)
