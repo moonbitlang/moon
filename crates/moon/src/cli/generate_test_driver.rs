@@ -125,6 +125,7 @@ pub fn generate_test_driver(
             filter_file: filter_file.clone(),
             filter_index,
             limit: 256,
+            test_failure_json: false,
         }),
         fmt_opt: None,
         sort_input,

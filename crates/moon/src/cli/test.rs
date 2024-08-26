@@ -80,6 +80,9 @@ pub struct TestSubcommand {
 
     #[clap(long)]
     pub no_parallelize: bool,
+
+    #[clap(long)]
+    pub test_failure_json: bool,
 }
 
 pub fn run_test(cli: UniversalFlags, cmd: TestSubcommand) -> anyhow::Result<i32> {
@@ -185,6 +188,7 @@ fn run_test_internal(
             filter_file: filter_file.clone(),
             filter_index,
             limit,
+            test_failure_json: cmd.test_failure_json,
         }),
         sort_input,
         run_mode,

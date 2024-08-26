@@ -546,6 +546,11 @@ async fn handle_test_result(
     target_dir: &Path,
     printed: Arc<AtomicBool>,
 ) -> anyhow::Result<()> {
+    let output_failure_in_json = moonbuild_opt
+        .test_opt
+        .as_ref()
+        .map(|it| it.test_failure_json)
+        .unwrap_or(false);
     for item in test_res_for_cur_pkg {
         match item {
             Ok(ok_ts) => {
@@ -626,27 +631,35 @@ async fn handle_test_result(
                 );
             }
             Err(TestFailedStatus::RuntimeError(err_ts) | TestFailedStatus::Failed(err_ts)) => {
-                println!(
-                    "test {}/{}::{} {}: {}",
-                    err_ts.package,
-                    err_ts.filename,
-                    err_ts.test_name,
-                    "failed".bold().red(),
-                    err_ts.message,
-                );
+                if output_failure_in_json {
+                    println!("{}", serde_json_lenient::to_string(err_ts)?);
+                } else {
+                    println!(
+                        "test {}/{}::{} {}: {}",
+                        err_ts.package,
+                        err_ts.filename,
+                        err_ts.test_name,
+                        "failed".bold().red(),
+                        err_ts.message,
+                    );
+                }
             }
             Err(TestFailedStatus::Others(e)) => {
                 eprintln!("{}: {}", "failed".red(), e);
             }
             Err(TestFailedStatus::ExpectTestFailed(origin_err)) => {
                 if !auto_update {
-                    println!(
-                        "test {}/{}::{} {}",
-                        origin_err.package,
-                        origin_err.filename,
-                        origin_err.test_name,
-                        "failed".bold().red(),
-                    );
+                    if output_failure_in_json {
+                        println!("{}", serde_json_lenient::to_string(&origin_err)?);
+                    } else {
+                        println!(
+                            "test {}/{}::{} {}",
+                            origin_err.package,
+                            origin_err.filename,
+                            origin_err.test_name,
+                            "failed".bold().red(),
+                        );
+                    }
                     let _ = crate::expect::render_expect_fail(&origin_err.message);
                 }
                 if auto_update {
