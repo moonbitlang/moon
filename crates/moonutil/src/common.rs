@@ -361,6 +361,7 @@ pub struct TestOpt {
     pub filter_file: Option<String>,
     pub filter_index: Option<u32>,
     pub limit: u32,
+    pub test_failure_json: bool,
 }
 
 impl TestOpt {
