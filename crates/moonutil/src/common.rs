@@ -676,9 +676,7 @@ impl FileLock {
         match file.try_lock_exclusive() {
             Ok(_) => Ok(FileLock { _file: file }),
             Err(_) => {
-                println!("Blocking waiting for file lock ...");
-                // Move console cursor up by one line to overprint the above tip
-                print!("\x1b[1A");
+                println!("Blocking waiting for file lock {} ...", path.join(MOON_LOCK).display());
                 file.lock_exclusive()
                     .map_err(|e| std::io::Error::new(e.kind(), "failed to lock target dir"))?;
                 Ok(FileLock { _file: file })
