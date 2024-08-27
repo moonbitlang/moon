@@ -461,10 +461,14 @@ fn get_pkg_topo_order<'a>(
 fn get_package_sources(m: &ModuleDB, pkg_topo_order: &[&Package]) -> Vec<(String, String)> {
     let mut package_sources = vec![];
     for cur_pkg in pkg_topo_order {
+        let root_source_dir = match &m.source {
+            None => m.source_dir.clone(),
+            Some(x) => m.source_dir.join(x),
+        };
         let package_source_dir: String = if cur_pkg.rel.components.is_empty() {
-            m.source_dir.display().to_string()
+            root_source_dir.display().to_string()
         } else {
-            m.source_dir
+            root_source_dir
                 .join(cur_pkg.rel.fs_full_name())
                 .display()
                 .to_string()
