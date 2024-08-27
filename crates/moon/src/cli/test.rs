@@ -27,7 +27,7 @@ use moonutil::common::FileLock;
 use moonutil::common::GeneratedTestDriver;
 use moonutil::common::MooncOpt;
 use moonutil::common::RunMode;
-use moonutil::common::{MoonbuildOpt, TargetBackend, TestOpt};
+use moonutil::common::{MoonbuildOpt, TestOpt};
 use moonutil::dirs::mk_arch_mode_dir;
 use moonutil::dirs::PackageDirs;
 use moonutil::module::ModuleDB;
@@ -156,12 +156,6 @@ fn run_test_internal(
     // however, other command like build, check, run, etc, will run at release mode by default
     moonc_opt.build_opt.debug_flag = !cmd.release;
     moonc_opt.link_opt.debug_flag = !cmd.release;
-
-    // TODO: remove this when we have a better way to handle this
-    if matches!(moonc_opt.link_opt.target_backend, TargetBackend::Js) {
-        moonc_opt.extra_build_opt.push("-ryu".into());
-        moonc_opt.extra_link_opt.push("-ryu".into());
-    }
 
     let run_mode = RunMode::Test;
     let target_dir = mk_arch_mode_dir(source_dir, target_dir, &moonc_opt, run_mode)?;
