@@ -538,14 +538,18 @@ async fn handle_test_result(
             }
             Err(TestFailedStatus::SnapshotPending(stat)) => {
                 if !auto_update {
-                    println!(
-                        "test {}/{}::{} {}",
-                        stat.package,
-                        stat.filename,
-                        stat.test_name,
-                        "failed".bold().red(),
-                    );
-                    render_snapshot_fail(&stat.message)?;
+                    if output_failure_in_json {
+                        println!("{}", serde_json_lenient::to_string(stat)?);
+                    } else {
+                        println!(
+                            "test {}/{}::{} {}",
+                            stat.package,
+                            stat.filename,
+                            stat.test_name,
+                            "failed".bold().red(),
+                        );
+                    }
+                    let _ = render_snapshot_fail(&stat.message);
                 }
                 if auto_update {
                     if !printed.load(std::sync::atomic::Ordering::SeqCst) {
