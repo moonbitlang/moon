@@ -232,7 +232,6 @@ pub fn clean_dir_in_target(target_dir: &Path) -> anyhow::Result<()> {
 }
 
 pub fn has_moon_db(target_dir: &Path) -> bool {
-    // println!("target_dir: {:?}", target_dir);
     let moon_db = target_dir.join("moon.db");
     moon_db.exists()
 }

@@ -667,6 +667,12 @@ pub struct FileLock {
     _file: std::fs::File,
 }
 
+impl Drop for FileLock {
+    fn drop(&mut self) {
+        self._file.unlock().unwrap();
+    }
+}
+
 impl FileLock {
     pub fn lock(path: &std::path::Path) -> std::io::Result<Self> {
         let file = match std::fs::File::create(path.join(MOON_LOCK)) {
