@@ -380,9 +380,7 @@ pub fn run_test(
             }
 
             let wrapper_js_driver_path = artifact_path.with_extension("cjs");
-            if moonc_opt.build_opt.target_backend == TargetBackend::Js
-                && !wrapper_js_driver_path.exists()
-            {
+            if moonc_opt.build_opt.target_backend == TargetBackend::Js {
                 let js_driver = include_str!(concat!(
                     env!("CARGO_MANIFEST_DIR"),
                     "/../moonbuild/template/js_driver.js"

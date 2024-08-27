@@ -5921,3 +5921,54 @@ fn moon_test_with_failure_json() {
         "#]],
     );
 }
+
+#[test]
+fn test_js() {
+    let dir = TestDir::new("test_filter.in");
+
+    let output = get_stdout_with_args_and_replace_dir(
+        &dir,
+        [
+            "test",
+            "-p",
+            "username/hello/lib",
+            "--target",
+            "js",
+            "--sort-input",
+            "--no-parallelize",
+        ],
+    );
+    check(
+        &output,
+        expect![[r#"
+            test hello_0
+            test hello_1
+            test A
+            Total tests: 3, passed: 3, failed: 0.
+        "#]],
+    );
+
+    let output = get_stdout_with_args_and_replace_dir(
+        &dir,
+        [
+            "test",
+            "-p",
+            "username/hello/lib",
+            "-f",
+            "hello_wbtest.mbt",
+            "-i",
+            "1",
+            "--target",
+            "js",
+            "--sort-input",
+            "--no-parallelize",
+        ],
+    );
+    check(
+        &output,
+        expect![[r#"
+            test hello_1
+            Total tests: 1, passed: 1, failed: 0.
+        "#]],
+    );
+}
