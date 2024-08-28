@@ -46,7 +46,7 @@ try {
                 try {
                     globalThis.testParams = {
                         fileName: param[0],
-                        index: param[1]
+                        index: parseInt(param[1])
                     };
                     instance.exports._start();
                 } catch (e) {
