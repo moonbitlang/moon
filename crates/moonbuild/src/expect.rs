@@ -686,7 +686,10 @@ pub fn snapshot_eq(msg: &str) -> anyhow::Result<bool> {
     } else {
         "".to_string()
     };
-    let eq = actual == expect;
+    fn normalize_string(s: &str) -> String {
+        s.replace("\r\n", "\n").replace('\r', "")
+    }
+    let eq = normalize_string(&actual) == normalize_string(&expect);
     Ok(eq)
 }
 
