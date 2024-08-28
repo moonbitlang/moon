@@ -147,11 +147,11 @@ pub fn execute(file : String, index : Int) -> Unit {
   let test_names = repr(test_names)
   let messages = repr(messages)
   let _passed = total - succ_idx
-  println("{BEGIN_MOONTEST}")
-  println(
+  @moonbitlang/core/builtin.println("{BEGIN_MOONTEST}")
+  @moonbitlang/core/builtin.println(
     "{\"package\": \"{PACKAGE}\", \"filename\": \{filenames}, \"index\": \"\{index}\", \"test_name\": \{test_names}, \"message\": \{messages}}",
   )
-  println("{END_MOONTEST}")
+  @moonbitlang/core/builtin.println("{END_MOONTEST}")
 }
 
 fn main {
