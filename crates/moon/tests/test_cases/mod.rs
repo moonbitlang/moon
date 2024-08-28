@@ -1544,7 +1544,7 @@ fn test_moon_test_succ() {
             ["test", "-v", "--sort-input", "--no-parallelize"],
         ),
         expect![[r#"
-            [1001] Warning: Warning: Unused function 'add1'
+            Warning: [1001]
                ╭─[$ROOT/lib2/nested/lib.mbt:1:4]
                │
              1 │ fn add1(x : Int) -> Int {
@@ -3298,7 +3298,7 @@ fn test_alert_list() {
     check(
         &get_stdout_with_args_and_replace_dir(&dir, ["build", "--sort-input"]),
         expect![[r#"
-            [2000] Warning: Warning (Alert alert_2): alert_2
+            Warning: [2000]
                ╭─[$ROOT/main/main.mbt:3:3]
                │
              3 │   alert_2();
@@ -3319,7 +3319,7 @@ fn test_alert_list() {
     check(
         &get_stdout_with_args_and_replace_dir(&dir, ["bundle", "--sort-input"]),
         expect![[r#"
-            [2000] Warning: Warning (Alert alert_2): alert_2
+            Warning: [2000]
                ╭─[$ROOT/main/main.mbt:3:3]
                │
              3 │   alert_2();
@@ -3333,7 +3333,7 @@ fn test_alert_list() {
     check(
         &get_stdout_with_args_and_replace_dir(&dir, ["check", "--sort-input"]),
         expect![[r#"
-            [2000] Warning: Warning (Alert alert_2): alert_2
+            Warning: [2000]
                ╭─[$ROOT/main/main.mbt:3:3]
                │
              3 │   alert_2();
@@ -3439,42 +3439,42 @@ fn test_deny_warn() {
     check(
         &get_stdout_with_args_and_replace_dir(&dir, ["check", "--sort-input"]),
         expect![[r#"
-            [2000] Warning: Warning (Alert alert_2): alert_2
+            Warning: [2000]
                 ╭─[$ROOT/lib/hello.mbt:14:3]
                 │
              14 │   alert_2();
                 │   ───┬───  
                 │      ╰───── Warning (Alert alert_2): alert_2
             ────╯
-            [2000] Warning: Warning (Alert alert_1): alert_1
+            Warning: [2000]
                 ╭─[$ROOT/lib/hello.mbt:13:3]
                 │
              13 │   alert_1();
                 │   ───┬───  
                 │      ╰───── Warning (Alert alert_1): alert_1
             ────╯
-            [1002] Warning: Warning: Unused variable 'a'
+            Warning: [1002]
                ╭─[$ROOT/lib/hello.mbt:4:7]
                │
              4 │   let a = 1;
                │       ┬  
                │       ╰── Warning: Unused variable 'a'
             ───╯
-            [1002] Warning: Warning: Unused variable '中文'
+            Warning: [1002]
                 ╭─[$ROOT/lib/hello.mbt:11:7]
                 │
              11 │   let 中文 = 2
                 │       ──┬─  
                 │         ╰─── Warning: Unused variable '中文'
             ────╯
-            [1002] Warning: Warning: Unused variable '🤣😭🤣😭🤣'
+            Warning: [1002]
                 ╭─[$ROOT/lib/hello.mbt:12:7]
                 │
              12 │   let 🤣😭🤣😭🤣 = 2
                 │       ────┬─────  
                 │           ╰─────── Warning: Unused variable '🤣😭🤣😭🤣'
             ────╯
-            [1002] Warning: Warning: Unused variable 'a'
+            Warning: [1002]
                ╭─[$ROOT/main/main.mbt:2:7]
                │
              2 │   let a = 0
@@ -3503,42 +3503,42 @@ fn test_deny_warn() {
     check(
         &get_stdout_with_args_and_replace_dir(&dir, ["build", "--sort-input"]),
         expect![[r#"
-            [2000] Warning: Warning (Alert alert_2): alert_2
+            Warning: [2000]
                 ╭─[$ROOT/lib/hello.mbt:14:3]
                 │
              14 │   alert_2();
                 │   ───┬───  
                 │      ╰───── Warning (Alert alert_2): alert_2
             ────╯
-            [2000] Warning: Warning (Alert alert_1): alert_1
+            Warning: [2000]
                 ╭─[$ROOT/lib/hello.mbt:13:3]
                 │
              13 │   alert_1();
                 │   ───┬───  
                 │      ╰───── Warning (Alert alert_1): alert_1
             ────╯
-            [1002] Warning: Warning: Unused variable 'a'
+            Warning: [1002]
                ╭─[$ROOT/lib/hello.mbt:4:7]
                │
              4 │   let a = 1;
                │       ┬  
                │       ╰── Warning: Unused variable 'a'
             ───╯
-            [1002] Warning: Warning: Unused variable '中文'
+            Warning: [1002]
                 ╭─[$ROOT/lib/hello.mbt:11:7]
                 │
              11 │   let 中文 = 2
                 │       ──┬─  
                 │         ╰─── Warning: Unused variable '中文'
             ────╯
-            [1002] Warning: Warning: Unused variable '🤣😭🤣😭🤣'
+            Warning: [1002]
                 ╭─[$ROOT/lib/hello.mbt:12:7]
                 │
              12 │   let 🤣😭🤣😭🤣 = 2
                 │       ────┬─────  
                 │           ╰─────── Warning: Unused variable '🤣😭🤣😭🤣'
             ────╯
-            [1002] Warning: Warning: Unused variable 'a'
+            Warning: [1002]
                ╭─[$ROOT/main/main.mbt:2:7]
                │
              2 │   let a = 0
@@ -4683,7 +4683,7 @@ fn test_blackbox_failed() {
 
     let output = String::from_utf8_lossy(&output);
     assert!(output.contains("Warning: Unused variable 'a'"));
-    assert!(output.contains("Error: Error (warning): The mutability of 'b' is never used"));
+    assert!(output.contains("Error (warning): The mutability of 'b' is never used"));
     assert!(output.contains("Value _private_hello not found in package \"A\""));
     assert!(output.contains("Package \"C\" not found in the loaded packages."));
 }

@@ -79,8 +79,7 @@ impl MooncDiagnostic {
                         source_file_path,
                         diagnostic.location.start.offset as usize,
                     )
-                    .with_code(diagnostic.error_code)
-                    .with_message(&diagnostic.message)
+                    .with_message(format!("[{}]", diagnostic.error_code).fg(color))
                     .with_label(
                         ariadne::Label::new((
                             source_file_path,
