@@ -85,7 +85,7 @@ fn main1() -> anyhow::Result<i32> {
         Test(t) => cli::run_test(flags, t),
         Tree(t) => cli::tree_cli(flags, t),
         Update(u) => cli::update_cli(flags, u),
-        Upgrade => cli::run_upgrade(flags),
+        Upgrade(u) => cli::run_upgrade(flags, u),
         ShellCompletion(gs) => cli::gen_shellcomp(&flags, gs),
         Version(v) => cli::run_version(v),
         Tool(v) => cli::run_tool(v),

@@ -21,7 +21,9 @@ use colored::Colorize;
 use console::Term;
 use dialoguer::Confirm;
 use futures::stream::{self, StreamExt, TryStreamExt};
-use moonutil::common::{CargoPathExt, MOONBITLANG_CORE};
+use moonutil::common::{
+    get_moon_version, get_moonc_version, CargoPathExt, VersionItems, MOONBITLANG_CORE,
+};
 use moonutil::moon_dir::{self, moon_tmp_dir};
 use reqwest;
 use std::io::Write;
@@ -37,6 +39,13 @@ use std::os::unix::fs::PermissionsExt;
 
 #[cfg(unix)]
 use tokio::fs::set_permissions;
+
+#[derive(Debug, clap::Parser, Clone)]
+pub struct UpgradeSubcommand {
+    /// force upgrade
+    #[clap(long, short)]
+    pub force: bool,
+}
 
 #[derive(Default)]
 struct DownloadProgress {
@@ -107,7 +116,53 @@ fn os_arch() -> &'static str {
     }
 }
 
-pub fn upgrade() -> Result<i32> {
+fn extract_date(input: &str) -> Option<String> {
+    // from the second dot
+    input.split('.').nth(2).and_then(|s| {
+        // find the first digit
+        let start = s.find(|c: char| c.is_ascii_digit())?;
+        // take 8 chars from the start
+        let date = s[start..].chars().take(8).collect::<String>();
+        // ensure the extracted string is 8 chars and all digits
+        if date.len() == 8 && date.chars().all(|c| c.is_ascii_digit()) {
+            Some(date)
+        } else {
+            None
+        }
+    })
+}
+
+#[test]
+fn test_extract_date() {
+    let date1 = extract_date("0.1.20240828 (901ac075 2024-08-28)").unwrap();
+    assert_eq!("20240828", date1);
+    let date2 = extract_date("v0.1.20240827+848d2bb76").unwrap();
+    assert_eq!("20240827", date2);
+    assert!(date1 > date2);
+}
+
+fn should_upgrade(latest_version_info: &VersionItems) -> bool {
+    let moon_version = get_moon_version();
+    let moonc_version = get_moonc_version();
+
+    // extract date from moon_version and moonc_version, compare with latest
+    let moon_date = extract_date(&moon_version).unwrap();
+    let moonc_date = extract_date(&moonc_version).unwrap();
+    let mut should_upgrade = false;
+    for item in &latest_version_info.items {
+        let latest_date = extract_date(&item.version).unwrap();
+
+        if ((item.name == "moon") && latest_date > moon_date)
+            || (item.name == "moonc" && latest_date > moonc_date)
+        {
+            should_upgrade = true;
+        }
+    }
+
+    should_upgrade
+}
+
+pub fn upgrade(cmd: UpgradeSubcommand) -> Result<i32> {
     ctrlc::set_handler(moonutil::common::dialoguer_ctrlc_handler)?;
 
     let h = moon_dir::home();
@@ -121,6 +176,14 @@ pub fn upgrade() -> Result<i32> {
     } else {
         "https://www.moonbitlang.com/download"
     };
+
+    println!("Checking latest toolchain version ...");
+    let version_url = format!("{}/version.json", root);
+    let latest_version_info = reqwest::blocking::get(version_url)?.json::<VersionItems>()?;
+    if !cmd.force && !should_upgrade(&latest_version_info) {
+        println!("Your toolchain is up to date.");
+        return Ok(0);
+    }
 
     println!("{}", "Warning: moon upgrade is highly experimental.".bold());
     let msg = format!(
