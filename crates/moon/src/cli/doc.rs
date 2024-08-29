@@ -52,6 +52,9 @@ pub fn run_doc(cli: UniversalFlags, cmd: DocSubcommand) -> anyhow::Result<i32> {
     } = cli.source_tgt_dir.try_into_package_dirs()?;
 
     let static_dir = target_dir.join("doc");
+    if !static_dir.exists() {
+        std::fs::create_dir_all(&static_dir)?;
+    }
     let _lock = FileLock::lock(&static_dir)?;
 
     if static_dir.exists() {
