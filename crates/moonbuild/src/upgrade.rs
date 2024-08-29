@@ -141,16 +141,16 @@ fn test_extract_date() {
     assert!(date1 > date2);
 }
 
-fn should_upgrade(latest_version_info: &VersionItems) -> bool {
+fn should_upgrade(latest_version_info: &VersionItems) -> Option<bool> {
     let moon_version = get_moon_version();
     let moonc_version = get_moonc_version();
 
     // extract date from moon_version and moonc_version, compare with latest
-    let moon_date = extract_date(&moon_version).unwrap();
-    let moonc_date = extract_date(&moonc_version).unwrap();
+    let moon_date = extract_date(&moon_version)?;
+    let moonc_date = extract_date(&moonc_version)?;
     let mut should_upgrade = false;
     for item in &latest_version_info.items {
-        let latest_date = extract_date(&item.version).unwrap();
+        let latest_date = extract_date(&item.version)?;
 
         if ((item.name == "moon") && latest_date > moon_date)
             || (item.name == "moonc" && latest_date > moonc_date)
@@ -159,7 +159,7 @@ fn should_upgrade(latest_version_info: &VersionItems) -> bool {
         }
     }
 
-    should_upgrade
+    Some(should_upgrade)
 }
 
 pub fn upgrade(cmd: UpgradeSubcommand) -> Result<i32> {
@@ -180,9 +180,12 @@ pub fn upgrade(cmd: UpgradeSubcommand) -> Result<i32> {
     println!("Checking latest toolchain version ...");
     let version_url = format!("{}/version.json", root);
     let latest_version_info = reqwest::blocking::get(version_url)?.json::<VersionItems>()?;
-    if !cmd.force && !should_upgrade(&latest_version_info) {
-        println!("Your toolchain is up to date.");
-        return Ok(0);
+    match should_upgrade(&latest_version_info) {
+        Some(false) if !cmd.force => {
+            println!("Your toolchain is up to date.");
+            return Ok(0);
+        },
+        _ => {},
     }
 
     println!("{}", "Warning: moon upgrade is highly experimental.".bold());
