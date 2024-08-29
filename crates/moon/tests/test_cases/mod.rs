@@ -6064,6 +6064,28 @@ fn test_generate_test_driver_incremental() {
     let time_3 = driver_file.metadata().unwrap().modified().unwrap();
 
     assert!(time_2 == time_3);
+
+    let mut file = std::fs::OpenOptions::new()
+        .append(true)
+        .open(dir.join("lib/hello.mbt"))
+        .unwrap();
+    file.write_all(b"\n").unwrap();
+
+    get_stdout_with_args_and_replace_dir(
+        &dir,
+        [
+            "test",
+            "--package",
+            "moonbitlang/hello/lib",
+            "--file",
+            "hello_wbtest.mbt",
+            "--index",
+            "0",
+        ],
+    );
+    let time_4 = driver_file.metadata().unwrap().modified().unwrap();
+
+    assert!(time_3 != time_4);
 }
 
 #[test]

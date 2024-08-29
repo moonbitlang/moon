@@ -41,12 +41,6 @@ pub struct GeneratedTestDriverSubcommand {
     #[clap(short, long, num_args(0..))]
     pub package: Option<Vec<PathBuf>>,
 
-    #[clap(short, long, requires("package"))]
-    pub file: Option<String>,
-
-    #[clap(short, long, requires("file"))]
-    pub index: Option<u32>,
-
     #[clap(long)]
     pub driver_kind: DriverKind,
 }
@@ -103,11 +97,7 @@ pub fn generate_test_driver(
 
     let run_mode = RunMode::Test;
     let sort_input = cmd.build_flags.sort_input;
-    let (filter_package, filter_file, filter_index) = (
-        cmd.package.map(|it| it.into_iter().collect()),
-        cmd.file,
-        cmd.index,
-    );
+    let filter_package = cmd.package.map(|it| it.into_iter().collect());
 
     // Resolve dependencies, but don't download anything
     let (resolved_env, dir_sync_result) = auto_sync(
@@ -122,8 +112,8 @@ pub fn generate_test_driver(
         target_dir: target_dir.clone(),
         test_opt: Some(TestOpt {
             filter_package: filter_package.clone(),
-            filter_file: filter_file.clone(),
-            filter_index,
+            filter_file: None,
+            filter_index: None,
             limit: 256,
             test_failure_json: false,
         }),
