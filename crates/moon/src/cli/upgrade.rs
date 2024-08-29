@@ -17,12 +17,13 @@
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
 use anyhow::bail;
+use moonbuild::upgrade::UpgradeSubcommand;
 
 use super::UniversalFlags;
 
-pub fn run_upgrade(cli: UniversalFlags) -> anyhow::Result<i32> {
+pub fn run_upgrade(cli: UniversalFlags, cmd: UpgradeSubcommand) -> anyhow::Result<i32> {
     if cli.dry_run {
         bail!("dry-run is not implemented for upgrade")
     }
-    moonbuild::upgrade::upgrade()
+    moonbuild::upgrade::upgrade(cmd)
 }

@@ -48,6 +48,7 @@ pub use doc::*;
 pub use fmt::*;
 pub use generate_test_driver::*;
 pub use info::*;
+use moonbuild::upgrade::UpgradeSubcommand;
 pub use new::*;
 pub use run::*;
 pub use shell_completion::*;
@@ -115,7 +116,7 @@ pub enum MoonBuildSubcommands {
     Coverage(CoverageSubcommand),
     GenerateBuildMatrix(GenerateBuildMatrix),
     /// Upgrade toolchains
-    Upgrade,
+    Upgrade(UpgradeSubcommand),
     ShellCompletion(ShellCompSubCommand),
     Version(VersionSubcommand),
     #[clap(hide = true)]
