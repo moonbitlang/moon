@@ -50,7 +50,7 @@ impl MooncDiagnostic {
 
                 // for no-location diagnostic, like Missing main function in the main package(4067)
                 if diagnostic.location.path.is_empty() {
-                    println!(
+                    eprintln!(
                         "{}",
                         format!(
                             "[{}] {}: {}",
@@ -63,7 +63,7 @@ impl MooncDiagnostic {
                     let source_file = match std::fs::read_to_string(source_file_path) {
                         Ok(content) => content,
                         Err(_) => {
-                            println!(
+                            eprintln!(
                                 "failed to read file `{}`, [{}] {}: {}",
                                 source_file_path,
                                 diagnostic.error_code,
@@ -97,12 +97,12 @@ impl MooncDiagnostic {
 
                     report_builder
                         .finish()
-                        .print((source_file_path, ariadne::Source::from(source_file)))
+                        .eprint((source_file_path, ariadne::Source::from(source_file)))
                         .unwrap();
                 }
             }
             Err(_) => {
-                println!("{}", content);
+                eprintln!("{}", content);
             }
         }
     }

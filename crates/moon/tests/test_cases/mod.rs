@@ -1544,13 +1544,6 @@ fn test_moon_test_succ() {
             ["test", "-v", "--sort-input", "--no-parallelize"],
         ),
         expect![[r#"
-            Warning: [1001]
-               ╭─[$ROOT/lib2/nested/lib.mbt:1:4]
-               │
-             1 │ fn add1(x : Int) -> Int {
-               │    ──┬─  
-               │      ╰─── Warning: Unused function 'add1'
-            ───╯
             test moontest/lib/hello_wbtest.mbt::0 ok
             test moontest/lib2/hello_wbtest.mbt::0 ok
             test moontest/lib2/nested/lib_wbtest.mbt::0 ok
@@ -3259,7 +3252,10 @@ fn test_warn_list_real_run() {
     let dir = TestDir::new("warn_list.in");
 
     check(
-        &get_stdout_with_args_and_replace_dir(&dir, ["build", "--sort-input", "--no-render"]),
+        &get_stderr_on_success_with_args_and_replace_dir(
+            &dir,
+            ["build", "--sort-input", "--no-render"],
+        ),
         expect![[r#"
             Finished. moon: ran 4 tasks, now up to date
         "#]],
@@ -3273,7 +3269,10 @@ fn test_warn_list_real_run() {
     );
 
     check(
-        &get_stdout_with_args_and_replace_dir(&dir, ["bundle", "--sort-input", "--no-render"]),
+        &get_stderr_on_success_with_args_and_replace_dir(
+            &dir,
+            ["bundle", "--sort-input", "--no-render"],
+        ),
         expect![[r#"
             Finished. moon: ran 4 tasks, now up to date
         "#]],
@@ -3283,7 +3282,10 @@ fn test_warn_list_real_run() {
     get_stdout_with_args_and_replace_dir(&dir, ["bundle", "--sort-input"]);
 
     check(
-        &get_stdout_with_args_and_replace_dir(&dir, ["check", "--sort-input", "--no-render"]),
+        &get_stderr_on_success_with_args_and_replace_dir(
+            &dir,
+            ["check", "--sort-input", "--no-render"],
+        ),
         expect![[r#"
             Finished. moon: ran 3 tasks, now up to date
         "#]],
@@ -3296,7 +3298,7 @@ fn test_alert_list() {
     let dir = TestDir::new("alert_list.in");
 
     check(
-        &get_stdout_with_args_and_replace_dir(&dir, ["build", "--sort-input"]),
+        &get_stderr_on_success_with_args_and_replace_dir(&dir, ["build", "--sort-input"]),
         expect![[r#"
             Warning: [2000]
                ╭─[$ROOT/main/main.mbt:3:3]
@@ -3317,7 +3319,7 @@ fn test_alert_list() {
     );
 
     check(
-        &get_stdout_with_args_and_replace_dir(&dir, ["bundle", "--sort-input"]),
+        &get_stderr_on_success_with_args_and_replace_dir(&dir, ["bundle", "--sort-input"]),
         expect![[r#"
             Warning: [2000]
                ╭─[$ROOT/main/main.mbt:3:3]
@@ -3331,7 +3333,7 @@ fn test_alert_list() {
     );
 
     check(
-        &get_stdout_with_args_and_replace_dir(&dir, ["check", "--sort-input"]),
+        &get_stderr_on_success_with_args_and_replace_dir(&dir, ["check", "--sort-input"]),
         expect![[r#"
             Warning: [2000]
                ╭─[$ROOT/main/main.mbt:3:3]
@@ -3361,15 +3363,15 @@ fn test_mod_level_warn_alert_list() {
 #[test]
 fn test_no_work_to_do() {
     let dir = TestDir::new("moon_new.in");
-    let out = get_stdout_with_args_and_replace_dir(&dir, ["check"]);
+    let out = get_stderr_on_success_with_args_and_replace_dir(&dir, ["check"]);
     assert!(out.contains("now up to date"));
 
-    let out = get_stdout_with_args_and_replace_dir(&dir, ["check"]);
+    let out = get_stderr_on_success_with_args_and_replace_dir(&dir, ["check"]);
     assert!(out.contains("moon: no work to do"));
 
-    let out = get_stdout_with_args_and_replace_dir(&dir, ["build"]);
+    let out = get_stderr_on_success_with_args_and_replace_dir(&dir, ["build"]);
     assert!(out.contains("now up to date"));
-    let out = get_stdout_with_args_and_replace_dir(&dir, ["build"]);
+    let out = get_stderr_on_success_with_args_and_replace_dir(&dir, ["build"]);
     assert!(out.contains("moon: no work to do"));
 }
 
@@ -3437,7 +3439,7 @@ fn test_deny_warn() {
     let dir = TestDir::new("test_deny_warn.in");
 
     check(
-        &get_stdout_with_args_and_replace_dir(&dir, ["check", "--sort-input"]),
+        &get_stderr_on_success_with_args_and_replace_dir(&dir, ["check", "--sort-input"]),
         expect![[r#"
             Warning: [2000]
                 ╭─[$ROOT/lib/hello.mbt:14:3]
@@ -3501,7 +3503,7 @@ fn test_deny_warn() {
     ));
 
     check(
-        &get_stdout_with_args_and_replace_dir(&dir, ["build", "--sort-input"]),
+        &get_stderr_on_success_with_args_and_replace_dir(&dir, ["build", "--sort-input"]),
         expect![[r#"
             Warning: [2000]
                 ╭─[$ROOT/lib/hello.mbt:14:3]
@@ -3858,7 +3860,7 @@ fn test_multi_process() {
 
                 if output.status.success() {
                     success.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
-                    let out = String::from_utf8(output.stdout).unwrap();
+                    let out = String::from_utf8(output.stderr).unwrap();
                     assert!(out.contains("no work to do") || out.contains("now up to date"));
                 } else {
                     println!("moon output: {:?}", String::from_utf8(output.stdout));
@@ -4148,7 +4150,7 @@ fn whitespace_test() {
         "#]],
     );
 
-    let out = get_stdout_with_args(&dir, ["check"]);
+    let out = get_stderr_on_success_with_args(&dir, ["check"]);
     assert!(out.contains("moon: ran 3 tasks, now up to date"));
 }
 
@@ -4188,7 +4190,7 @@ fn test_whitespace_parent_space() -> anyhow::Result<()> {
         "#]],
     );
 
-    let out = get_stdout_with_args(&path_with_space, ["build", "--no-render"]);
+    let out = get_stderr_on_success_with_args(&path_with_space, ["build", "--no-render"]);
     let out = out.replace(&prefix, ".");
     let out = out.replace(
         &moonutil::moon_dir::home()
@@ -4202,8 +4204,8 @@ fn test_whitespace_parent_space() -> anyhow::Result<()> {
     check(
         &out,
         expect![[r#"
-            Finished. moon: ran 3 tasks, now up to date
-        "#]],
+        Finished. moon: ran 3 tasks, now up to date
+    "#]],
     );
     Ok(())
 }
@@ -4358,7 +4360,7 @@ fn test_render_no_location() {
         .assert()
         .failure()
         .get_output()
-        .stdout
+        .stderr
         .to_owned();
 
     let output = String::from_utf8_lossy(&output);
@@ -4420,7 +4422,7 @@ fn test_third_party() {
     get_stdout_with_args_and_replace_dir(&dir, ["build"]);
     get_stdout_with_args_and_replace_dir(&dir, ["clean"]);
 
-    let actual = &get_stdout_with_args_and_replace_dir(&dir, ["check"]);
+    let actual = &get_stderr_on_success_with_args_and_replace_dir(&dir, ["check"]);
     assert!(actual.contains("moon: ran 4 tasks, now up to date"));
 
     check(
@@ -4442,7 +4444,7 @@ fn test_third_party() {
         "#]],
     );
 
-    let actual = &get_stdout_with_args_and_replace_dir(&dir, ["build"]);
+    let actual = &get_stderr_on_success_with_args_and_replace_dir(&dir, ["build"]);
     assert!(actual.contains("moon: ran 5 tasks, now up to date"));
 
     let actual = &get_stdout_with_args_and_replace_dir(&dir, ["run", "main"]);
@@ -4663,7 +4665,7 @@ fn test_blackbox_failed() {
         .assert()
         .failure()
         .get_output()
-        .stdout
+        .stderr
         .to_owned();
 
     let output = String::from_utf8_lossy(&output);
@@ -4678,7 +4680,7 @@ fn test_blackbox_failed() {
         .assert()
         .failure()
         .get_output()
-        .stdout
+        .stderr
         .to_owned();
 
     let output = String::from_utf8_lossy(&output);
@@ -5278,11 +5280,17 @@ fn test_moon_check_json_output() {
         "#]],
         );
         check(
-            &get_stdout_with_args_and_replace_dir(&dir, ["check", "--output-json"]),
+            &get_stderr_on_success_with_args_and_replace_dir(
+                &dir,
+                ["check", "--output-json", "-q"],
+            ),
+            expect![""],
+        );
+        check(
+            &get_stderr_on_success_with_args_and_replace_dir(&dir, ["check", "--output-json"]),
             expect![[r#"
-            {"$message_type":"diagnostic","level":"warning","loc":{"path":"$ROOT/main/main.mbt","start":{"line":3,"col":3,"offset":25},"end":{"line":3,"col":10,"offset":32}},"message":"Warning (Alert alert_2): alert_2","error_code":2000}
-            Finished. moon: no work to do
-        "#]],
+                Finished. moon: no work to do
+            "#]],
         );
     }
 
@@ -5296,11 +5304,17 @@ fn test_moon_check_json_output() {
         "#]],
         );
         check(
-            &get_stdout_with_args_and_replace_dir(&dir, ["check", "--output-json"]),
+            &get_stderr_on_success_with_args_and_replace_dir(
+                &dir,
+                ["check", "--output-json", "-q"],
+            ),
+            expect![""],
+        );
+        check(
+            &get_stderr_on_success_with_args_and_replace_dir(&dir, ["check", "--output-json"]),
             expect![[r#"
-            {"$message_type":"diagnostic","level":"warning","loc":{"path":"$ROOT/main/main.mbt","start":{"line":3,"col":3,"offset":27},"end":{"line":3,"col":10,"offset":34}},"message":"Warning (Alert alert_2): alert_2","error_code":2000}
-            Finished. moon: no work to do
-        "#]],
+                Finished. moon: no work to do
+            "#]],
         );
     }
 }
@@ -5417,7 +5431,7 @@ fn test_specify_source_dir_001() {
         "#]],
     );
     check(
-        &get_stdout_with_args_and_replace_dir(&dir, ["check"]),
+        &get_stderr_on_success_with_args_and_replace_dir(&dir, ["check"]),
         expect![[r#"
             Finished. moon: ran 3 tasks, now up to date
         "#]],
@@ -5477,7 +5491,7 @@ fn test_specify_source_dir_001() {
         )
     }
     check(
-        &get_stdout_with_args_and_replace_dir(&dir, ["build"]),
+        &get_stderr_on_success_with_args_and_replace_dir(&dir, ["build"]),
         expect![[r#"
             Finished. moon: ran 3 tasks, now up to date
         "#]],
@@ -5553,7 +5567,7 @@ fn test_specify_source_dir_003() {
 fn test_specify_source_dir_004() {
     let dir = TestDir::new("specify_source_dir_004.in");
     check(
-        &get_stdout_with_args_and_replace_dir(&dir, ["check"]),
+        &get_stderr_on_success_with_args_and_replace_dir(&dir, ["check"]),
         expect![[r#"
             Finished. moon: ran 3 tasks, now up to date
         "#]],
@@ -5618,13 +5632,13 @@ fn test_specify_source_dir_with_deps() {
         "#]],
     );
     check(
-        &get_stdout_with_args_and_replace_dir(&dir, ["check"]),
+        &get_stderr_on_success_with_args_and_replace_dir(&dir, ["check"]),
         expect![[r#"
             Finished. moon: ran 6 tasks, now up to date
         "#]],
     );
     check(
-        &get_stdout_with_args_and_replace_dir(&dir, ["build"]),
+        &get_stderr_on_success_with_args_and_replace_dir(&dir, ["build"]),
         expect![[r#"
             Finished. moon: ran 5 tasks, now up to date
         "#]],
@@ -5649,13 +5663,13 @@ fn test_specify_source_dir_with_deps() {
 fn test_specify_source_dir_with_deps_002() {
     let dir = TestDir::new("specify_source_dir_with_deps_002.in");
     check(
-        &get_stdout_with_args_and_replace_dir(&dir, ["check"]),
+        &get_stderr_on_success_with_args_and_replace_dir(&dir, ["check"]),
         expect![[r#"
             Finished. moon: ran 13 tasks, now up to date
         "#]],
     );
     check(
-        &get_stdout_with_args_and_replace_dir(&dir, ["build"]),
+        &get_stderr_on_success_with_args_and_replace_dir(&dir, ["build"]),
         expect![[r#"
             Finished. moon: ran 10 tasks, now up to date
         "#]],

@@ -1,4 +1,5 @@
   $ moon info
+  
   Finished. moon: ran 1 task, now up to date
   
   $ xcat lib/lib.mbti
