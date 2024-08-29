@@ -4485,16 +4485,16 @@ fn test_blackbox_success() {
         ),
         expect![[r#"
             moonc build-package ./D/hello.mbt -o ./target/wasm-gc/debug/test/D/D.core -pkg username/hello/D -pkg-sources username/hello/D:./D -target wasm-gc -g
-            moon generate-test-driver --source-dir . --target-dir ./target/wasm-gc/debug/test --package username/hello/A --file hello_test.mbt --index 0 --sort-input --target wasm-gc --driver-kind blackbox
+            moon generate-test-driver --source-dir . --target-dir ./target/wasm-gc/debug/test --package username/hello/A --sort-input --target wasm-gc --driver-kind blackbox
             moonc build-package ./A/hello.mbt -o ./target/wasm-gc/debug/test/A/A.core -pkg username/hello/A -i ./target/wasm-gc/debug/test/D/D.mi:D -pkg-sources username/hello/A:./A -target wasm-gc -g
             moonc build-package ./C/hello.mbt -o ./target/wasm-gc/debug/test/C/C.core -pkg username/hello/C -pkg-sources username/hello/C:./C -target wasm-gc -g
             moonc build-package ./A/hello_test.mbt ./target/wasm-gc/debug/test/A/__generated_driver_for_blackbox_test.mbt -o ./target/wasm-gc/debug/test/A/A.blackbox_test.core -pkg username/hello/A_blackbox_test -is-main -i ./target/wasm-gc/debug/test/A/A.mi:A -i ./target/wasm-gc/debug/test/D/D.mi:D -i ./target/wasm-gc/debug/test/C/C.mi:C -pkg-sources username/hello/A_blackbox_test:./A -target wasm-gc -g
             moonc link-core ./target/wasm-gc/debug/test/D/D.core ./target/wasm-gc/debug/test/C/C.core ./target/wasm-gc/debug/test/A/A.core ./target/wasm-gc/debug/test/A/A.blackbox_test.core -main username/hello/A_blackbox_test -o ./target/wasm-gc/debug/test/A/A.blackbox_test.wasm -test-mode -pkg-sources username/hello/D:./D -pkg-sources username/hello/C:./C -pkg-sources username/hello/A:./A -target wasm-gc -g
-            moon generate-test-driver --source-dir . --target-dir ./target/wasm-gc/debug/test --package username/hello/A --file hello_test.mbt --index 0 --sort-input --target wasm-gc --driver-kind whitebox
+            moon generate-test-driver --source-dir . --target-dir ./target/wasm-gc/debug/test --package username/hello/A --sort-input --target wasm-gc --driver-kind whitebox
             moonc build-package ./B/hello.mbt -o ./target/wasm-gc/debug/test/B/B.core -pkg username/hello/B -pkg-sources username/hello/B:./B -target wasm-gc -g
             moonc build-package ./A/hello.mbt ./A/hello_wbtest.mbt ./target/wasm-gc/debug/test/A/__generated_driver_for_whitebox_test.mbt -o ./target/wasm-gc/debug/test/A/A.whitebox_test.core -pkg username/hello/A -is-main -i ./target/wasm-gc/debug/test/D/D.mi:D -i ./target/wasm-gc/debug/test/B/B.mi:B -pkg-sources username/hello/A:./A -target wasm-gc -g
             moonc link-core ./target/wasm-gc/debug/test/D/D.core ./target/wasm-gc/debug/test/B/B.core ./target/wasm-gc/debug/test/A/A.whitebox_test.core -main username/hello/A -o ./target/wasm-gc/debug/test/A/A.whitebox_test.wasm -test-mode -pkg-sources username/hello/D:./D -pkg-sources username/hello/B:./B -pkg-sources username/hello/A:./A -target wasm-gc -g
-            moon generate-test-driver --source-dir . --target-dir ./target/wasm-gc/debug/test --package username/hello/A --file hello_test.mbt --index 0 --sort-input --target wasm-gc --driver-kind internal
+            moon generate-test-driver --source-dir . --target-dir ./target/wasm-gc/debug/test --package username/hello/A --sort-input --target wasm-gc --driver-kind internal
             moonc build-package ./A/hello.mbt ./target/wasm-gc/debug/test/A/__generated_driver_for_internal_test.mbt -o ./target/wasm-gc/debug/test/A/A.internal_test.core -pkg username/hello/A -is-main -i ./target/wasm-gc/debug/test/D/D.mi:D -pkg-sources username/hello/A:./A -target wasm-gc -g
             moonc link-core ./target/wasm-gc/debug/test/D/D.core ./target/wasm-gc/debug/test/A/A.internal_test.core -main username/hello/A -o ./target/wasm-gc/debug/test/A/A.internal_test.wasm -test-mode -pkg-sources username/hello/D:./D -pkg-sources username/hello/A:./A -target wasm-gc -g
         "#]],
@@ -4930,10 +4930,10 @@ fn test_many_targets() {
             ],
         ),
         expect![[r#"
-            moon generate-test-driver --source-dir . --target-dir ./target/wasm/debug/test --package username/hello/lib --file hello.mbt --index 0 --sort-input --target wasm --driver-kind internal
+            moon generate-test-driver --source-dir . --target-dir ./target/wasm/debug/test --package username/hello/lib --sort-input --target wasm --driver-kind internal
             moonc build-package ./lib/hello.mbt ./target/wasm/debug/test/lib/__generated_driver_for_internal_test.mbt -o ./target/wasm/debug/test/lib/lib.internal_test.core -pkg username/hello/lib -is-main -pkg-sources username/hello/lib:./lib -target wasm -g
             moonc link-core ./target/wasm/debug/test/lib/lib.internal_test.core -main username/hello/lib -o ./target/wasm/debug/test/lib/lib.internal_test.wasm -test-mode -pkg-sources username/hello/lib:./lib -target wasm -g
-            moon generate-test-driver --source-dir . --target-dir ./target/js/debug/test --package username/hello/lib --file hello.mbt --index 0 --sort-input --target js --driver-kind internal
+            moon generate-test-driver --source-dir . --target-dir ./target/js/debug/test --package username/hello/lib --sort-input --target js --driver-kind internal
             moonc build-package ./lib/hello.mbt ./target/js/debug/test/lib/__generated_driver_for_internal_test.mbt -o ./target/js/debug/test/lib/lib.internal_test.core -pkg username/hello/lib -is-main -pkg-sources username/hello/lib:./lib -target js -g
             moonc link-core ./target/js/debug/test/lib/lib.internal_test.core -main username/hello/lib -o ./target/js/debug/test/lib/lib.internal_test.js -test-mode -pkg-sources username/hello/lib:./lib -exported_functions execute -js-format cjs -target js -g
         "#]],
@@ -6022,6 +6022,48 @@ fn test_js() {
             Total tests: 1, passed: 1, failed: 0.
         "#]],
     );
+}
+
+#[test]
+fn test_generate_test_driver_incremental() {
+    let dir = TestDir::new("moon_test_hello_lib.in");
+
+    get_stdout_with_args_and_replace_dir(&dir, ["test", "--package", "moonbitlang/hello/lib"]);
+    let driver_file =
+        dir.join("target/wasm-gc/debug/test/lib/__generated_driver_for_internal_test.mbt");
+    assert!(driver_file.exists());
+
+    let time_1 = driver_file.metadata().unwrap().modified().unwrap();
+
+    get_stdout_with_args_and_replace_dir(
+        &dir,
+        [
+            "test",
+            "--package",
+            "moonbitlang/hello/lib",
+            "--file",
+            "hello_wbtest.mbt",
+        ],
+    );
+    let time_2 = driver_file.metadata().unwrap().modified().unwrap();
+
+    assert!(time_1 == time_2);
+
+    get_stdout_with_args_and_replace_dir(
+        &dir,
+        [
+            "test",
+            "--package",
+            "moonbitlang/hello/lib",
+            "--file",
+            "hello_wbtest.mbt",
+            "--index",
+            "0",
+        ],
+    );
+    let time_3 = driver_file.metadata().unwrap().modified().unwrap();
+
+    assert!(time_2 == time_3);
 }
 
 #[test]
