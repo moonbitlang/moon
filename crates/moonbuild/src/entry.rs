@@ -390,12 +390,12 @@ pub fn run_test(
                     &artifact_path.display().to_string().replace("\\", "/"),
                 )
                 .replace(
-                    "const test_params = []",
-                    &format!("const test_params = {}", test_args.to_args()),
+                    "const testParams = []",
+                    &format!("const testParams = {}", test_args.to_args()),
                 )
                 .replace(
-                    "const package = \"\"",
-                    &format!("const package = {:?}", test_args.package),
+                    "const packageName = \"\"",
+                    &format!("const packageName = {:?}", test_args.package),
                 );
 
                 std::fs::write(&wrapper_js_driver_path, js_driver)?;

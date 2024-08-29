@@ -42,7 +42,7 @@ try {
     let instance = new WebAssembly.Instance(module, spectest);
     if (instance.exports._start) {
         if (test_mode) {
-            for (param of test_params) {
+            for (param of testParams) {
                 try {
                     globalThis.testParams = {
                         fileName: param[0],
@@ -51,7 +51,7 @@ try {
                     instance.exports._start();
                 } catch (e) {
                     console.log("----- BEGIN MOON TEST RESULT -----")
-                    console.log(`{"package": "${package}", "filename": "${param[0]}", "index": "${param[1]}", "test_name": "${param[1]}", "message": "${e.stack.toString().split('\n').join('\\n')}"}`);
+                    console.log(`{"package": "${packageName}", "filename": "${param[0]}", "index": "${param[1]}", "test_name": "${param[1]}", "message": "${e.stack.toString().split('\n').join('\\n')}"}`);
                     console.log("----- END MOON TEST RESULT -----")
                 }
             }

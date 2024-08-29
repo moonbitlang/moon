@@ -426,8 +426,8 @@ fn wasm_mode(
                 test_params.push([file.clone(), i.to_string()]);
             }
         }
-        script.push_str(&format!("const package = {:?};", test_args.package));
-        script.push_str(&format!("const test_params = {:?};", test_params));
+        script.push_str(&format!("const packageName = {:?};", test_args.package));
+        script.push_str(&format!("const testParams = {:?};", test_params));
     }
     script.push_str(&format!("const no_stack_trace = {};", no_stack_trace));
     script.push_str(&format!("const test_mode = {};", test_mode));
