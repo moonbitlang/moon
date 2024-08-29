@@ -184,8 +184,8 @@ pub fn upgrade(cmd: UpgradeSubcommand) -> Result<i32> {
         Some(false) if !cmd.force => {
             println!("Your toolchain is up to date.");
             return Ok(0);
-        },
-        _ => {},
+        }
+        _ => {}
     }
 
     println!("{}", "Warning: moon upgrade is highly experimental.".bold());
