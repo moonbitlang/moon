@@ -115,6 +115,12 @@ pub fn run_doc(cli: UniversalFlags, cmd: DocSubcommand) -> anyhow::Result<i32> {
         moonutil::moon_dir::core_bundle(moonc_opt.link_opt.target_backend)
             .display()
             .to_string(),
+        "-packages-json".to_string(),
+        moonbuild_opt
+            .target_dir
+            .join("packages.json")
+            .display()
+            .to_string(),
     ];
     if serve {
         args.push("-serve-mode".to_string())
