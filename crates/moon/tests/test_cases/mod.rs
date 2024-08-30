@@ -5986,3 +5986,70 @@ fn test_js() {
         "#]],
     );
 }
+
+#[test]
+fn test_moon_doc_dry_run() {
+    let dir = TestDir::new("moon_doc.in");
+    check(
+        &get_stdout_with_args_and_replace_dir(&dir, ["doc", "--dry-run"]),
+        expect![[r#"
+            moonc check ./src/lib/hello.mbt -o ./target/wasm-gc/release/check/lib/lib.mi -pkg username/hello/lib -std-path $MOON_HOME/lib/core/target/wasm-gc/release/bundle -pkg-sources username/hello/lib:./src/lib -target wasm-gc
+            moonc check ./src/main/main.mbt -o ./target/wasm-gc/release/check/main/main.mi -pkg username/hello/main -is-main -std-path $MOON_HOME/lib/core/target/wasm-gc/release/bundle -i ./target/wasm-gc/release/check/lib/lib.mi:lib -pkg-sources username/hello/main:./src/main -target wasm-gc
+            moonc check ./src/lib/hello_test.mbt -o ./target/wasm-gc/release/check/lib/lib.blackbox_test.mi -pkg username/hello/lib_blackbox_test -std-path $MOON_HOME/lib/core/target/wasm-gc/release/bundle -i ./target/wasm-gc/release/check/lib/lib.mi:lib -pkg-sources username/hello/lib_blackbox_test:./src/lib -target wasm-gc
+            moondoc $ROOT -o $ROOT/target/doc -std-path $MOON_HOME/lib/core/target/wasm-gc/release/bundle -packages-json $ROOT/target/wasm-gc/release/check/packages.json
+        "#]],
+    );
+}
+
+#[test]
+#[ignore = "wait for the latest release of moonc"]
+fn test_moon_doc() {
+    let dir = TestDir::new("moon_doc.in");
+    let _ = get_stderr_on_success_with_args_and_replace_dir(&dir, ["doc"]);
+    check(
+        &read(&dir.join("target/doc/username/hello/lib/members.md")),
+        expect![[r##"
+            # username/hello/lib
+            * * *
+            # Index
+
+            |Value|Description|
+            |---|---|
+            |[hello](#hello)||
+
+
+            * * *
+            # Value and Function
+            ## hello
+            ```moonbit
+            :::source,username/hello/lib/hello.mbt,1:::pub fn hello() -> <a href="moonbitlang/predef#string">String</a> 
+            ```
+
+
+
+
+        "##]],
+    );
+    check(
+        &read(&dir.join("target/doc/username/hello/main/members.md")),
+        expect![[r#"
+            # username/hello/main
+            * * *
+            # Index
+        "#]],
+    );
+    check(
+        &read(&dir.join("target/doc/username/hello/_sidebar.md")),
+        expect![[r#"
+            - [Contents](username/hello/)
+            - Packages
+                - [username/hello/lib](username/hello/lib/members)
+                - [username/hello/main](username/hello/main/members)
+
+            - Dependencies
+                - [moonbitlang/core](moonbitlang/core/)
+
+
+        "#]],
+    );
+}
