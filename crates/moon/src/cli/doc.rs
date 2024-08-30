@@ -17,6 +17,7 @@
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
 use anyhow::bail;
+use moonbuild::dry_run::print_commands;
 use mooncake::pkg::sync::auto_sync;
 use moonutil::common::{
     read_module_desc_file_in_dir, CargoPathExt, FileLock, MoonbuildOpt, MooncOpt, RunMode,
@@ -64,16 +65,6 @@ pub fn run_doc(cli: UniversalFlags, cmd: DocSubcommand) -> anyhow::Result<i32> {
     let bind = cmd.bind;
     let port = cmd.port;
 
-    if cli.dry_run {
-        println!(
-            "moondoc {} -o {}{}",
-            source_dir.display(),
-            static_dir.display(),
-            if serve { " -serve-mode" } else { "" }
-        );
-        return Ok(0);
-    }
-
     let mod_desc = read_module_desc_file_in_dir(&source_dir)?;
 
     let mut moonc_opt = MooncOpt::default();
@@ -105,7 +96,6 @@ pub fn run_doc(cli: UniversalFlags, cmd: DocSubcommand) -> anyhow::Result<i32> {
         &moonc_opt,
         &moonbuild_opt,
     )?;
-    moonbuild::entry::run_check(&moonc_opt, &moonbuild_opt, &module)?;
 
     let mut args = vec![
         source_dir.display().to_string(),
@@ -125,6 +115,12 @@ pub fn run_doc(cli: UniversalFlags, cmd: DocSubcommand) -> anyhow::Result<i32> {
     if serve {
         args.push("-serve-mode".to_string())
     }
+    if cli.dry_run {
+        print_commands(&module, &moonc_opt, &moonbuild_opt)?;
+        println!("moondoc {}", args.join(" "));
+        return Ok(0);
+    }
+    moonbuild::entry::run_check(&moonc_opt, &moonbuild_opt, &module)?;
     let output = std::process::Command::new("moondoc").args(&args).output()?;
     if output.status.code().unwrap() != 0 {
         eprintln!("{}", String::from_utf8_lossy(&output.stderr));
