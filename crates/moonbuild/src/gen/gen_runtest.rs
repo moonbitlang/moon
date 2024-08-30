@@ -946,14 +946,6 @@ fn gen_generate_test_driver_command(
 
     let mut build = Build::new(loc, ins, outs);
 
-    let mut test_filter_command = moonbuild_opt
-        .test_opt
-        .as_ref()
-        .map_or(vec![], |t| t.to_command());
-    if test_filter_command.is_empty() {
-        test_filter_command = vec!["--package".to_string(), item.package_name.clone()];
-    }
-
     let command = CommandBuilder::new(
         &std::env::current_exe()
             .map_or_else(|_| "moon".into(), |x| x.to_string_lossy().into_owned()),
@@ -963,7 +955,7 @@ fn gen_generate_test_driver_command(
     .arg(&moonbuild_opt.source_dir.display().to_string())
     .arg("--target-dir")
     .arg(&moonbuild_opt.target_dir.display().to_string())
-    .args(test_filter_command)
+    .args(["--package", &item.package_name])
     .arg_with_cond(moonbuild_opt.sort_input, "--sort-input")
     .args(["--target", moonc_opt.build_opt.target_backend.to_flag()])
     .args(["--driver-kind", item.driver_kind.to_string()])
