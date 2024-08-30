@@ -32,18 +32,6 @@ pub fn load_moon_proj(
     moonbuild_opt: &MoonbuildOpt,
 ) -> anyhow::Result<State> {
     let target_dir = &moonbuild_opt.target_dir;
-
-    let mut contain_link_item = false;
-    for (_, pkg) in module.packages.iter() {
-        if pkg.is_main || pkg.need_link {
-            contain_link_item = true;
-            break;
-        }
-    }
-    if !contain_link_item {
-        anyhow::bail!("no package need to be linked in the project")
-    }
-
     log::debug!("module: {:#?}", module);
     let n2_input = gen::gen_build::gen_build(module, moonc_opt, moonbuild_opt)?;
     log::debug!("n2_input: {:#?}", n2_input);
