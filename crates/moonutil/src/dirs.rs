@@ -121,6 +121,11 @@ pub fn mk_arch_mode_dir(
             .context(format!("failed to create directory {:?}", arch_mode_dir))?;
     }
 
+    let arch_mode_dir = arch_mode_dir.join(mode.to_dir_name());
+    if !arch_mode_dir.exists() {
+        std::fs::create_dir_all(&arch_mode_dir).expect("Failed to create target directory");
+    }
+
     // this lock is used to prevent race condition on moon.db
     let _lock = crate::common::FileLock::lock(&arch_mode_dir)?;
     if !has_moon_db(&arch_mode_dir) {
@@ -128,12 +133,6 @@ pub fn mk_arch_mode_dir(
     } else if need_rebuild(source_dir, &arch_mode_dir) {
         recreate_moon_db(source_dir, &arch_mode_dir)?;
         clean_dir_in_target(&arch_mode_dir)?;
-    }
-
-    let arch_mode_dir = arch_mode_dir.join(mode.to_dir_name());
-
-    if !arch_mode_dir.exists() {
-        std::fs::create_dir_all(&arch_mode_dir).expect("Failed to create target directory");
     }
 
     Ok(arch_mode_dir)
