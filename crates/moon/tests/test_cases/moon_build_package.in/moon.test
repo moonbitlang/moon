@@ -1,2 +1,12 @@
   $ moon build --dry-run
+  moonc build-package ./src/lib/hello.mbt -o ./target/wasm-gc/release/build/lib/lib.core -pkg username/hello/lib -std-path $MOON_HOME/lib/core/target/wasm-gc/release/bundle -pkg-sources username/hello/lib:./src/lib -target wasm-gc
+  moonc build-package ./src/top.mbt -o ./target/wasm-gc/release/build/hello.core -pkg username/hello -std-path $MOON_HOME/lib/core/target/wasm-gc/release/bundle -i ./target/wasm-gc/release/build/lib/lib.mi:lib -pkg-sources username/hello:./src -target wasm-gc
+  
   $ moon build
+  
+  Finished. moon: ran 2 tasks, now up to date
+  
+  $ xls ./target/wasm-gc/release/build/lib/
+  lib.core lib.mi
+  $ xls ./target/wasm-gc/release/build/
+  .moon-lock build.moon_db build.output hello.core hello.mi lib moon.db
