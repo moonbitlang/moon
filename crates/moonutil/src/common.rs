@@ -385,6 +385,11 @@ impl TestOpt {
     }
 }
 
+#[derive(serde::Serialize, Clone)]
+pub struct TestArtifacts {
+    pub artifacts_path: Vec<PathBuf>,
+}
+
 #[derive(Debug, Clone, Default)]
 pub struct FmtOpt {
     pub check: bool,

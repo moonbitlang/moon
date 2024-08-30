@@ -25,6 +25,7 @@ use moonutil::common::FileLock;
 use moonutil::common::RunMode;
 use moonutil::common::SurfaceTarget;
 use moonutil::common::TargetBackend;
+use moonutil::common::TestArtifacts;
 use moonutil::common::MOONBITLANG_CORE;
 use moonutil::common::MOON_PKG_JSON;
 use moonutil::common::{MoonbuildOpt, OutputFormat};
@@ -34,7 +35,6 @@ use moonutil::dirs::PackageDirs;
 use moonutil::mooncakes::sync::AutoSyncFlags;
 use moonutil::mooncakes::RegistryConfig;
 use n2::trace;
-use std::path::PathBuf;
 
 use super::{BuildFlags, UniversalFlags};
 
@@ -102,10 +102,9 @@ fn run_single_mbt_file(cli: &UniversalFlags, cmd: RunSubcommand) -> anyhow::Resu
         .join(format!("{}.core", file_name))
         .display()
         .to_string());
-    let output_wasm_or_js_path = &(output_artifact_path
-        .join(format!("{}.{}", file_name, target_backend.to_extension()))
-        .display()
-        .to_string());
+
+    let output_wasm_or_js_path =
+        output_artifact_path.join(format!("{}.{}", file_name, target_backend.to_extension()));
 
     let pkg_name = "moon/run/single";
     let build_package_command = [
@@ -133,7 +132,7 @@ fn run_single_mbt_file(cli: &UniversalFlags, cmd: RunSubcommand) -> anyhow::Resu
             .display()
             .to_string()),
         "-o",
-        output_wasm_or_js_path,
+        &output_wasm_or_js_path.display().to_string(),
         "-pkg-sources",
         &format!("{}:{}", pkg_name, mbt_file_parent_path.display()),
         "-pkg-sources",
@@ -156,7 +155,7 @@ fn run_single_mbt_file(cli: &UniversalFlags, cmd: RunSubcommand) -> anyhow::Resu
                 TargetBackend::Wasm | TargetBackend::WasmGC => "moonrun",
                 TargetBackend::Js => "node",
             };
-            println!("{runner} {output_wasm_or_js_path}");
+            println!("{} {}", runner, output_wasm_or_js_path.display());
         }
         return Ok(0);
     }
@@ -184,16 +183,18 @@ fn run_single_mbt_file(cli: &UniversalFlags, cmd: RunSubcommand) -> anyhow::Resu
     }
 
     if cmd.build_only {
+        let test_artifacts = TestArtifacts {
+            artifacts_path: vec![output_wasm_or_js_path],
+        };
+        println!("{}", serde_json_lenient::to_string(&test_artifacts)?);
         return Ok(0);
     }
 
     trace::scope("run", || match target_backend {
         TargetBackend::Wasm | TargetBackend::WasmGC => {
-            moonbuild::build::run_wat(&PathBuf::from(output_wasm_or_js_path), &cmd.args)
+            moonbuild::build::run_wat(&output_wasm_or_js_path, &cmd.args)
         }
-        TargetBackend::Js => {
-            moonbuild::build::run_js(&PathBuf::from(output_wasm_or_js_path), &cmd.args)
-        }
+        TargetBackend::Js => moonbuild::build::run_js(&output_wasm_or_js_path, &cmd.args),
     })?;
 
     Ok(0)
@@ -292,7 +293,13 @@ pub fn run_run_internal(cli: &UniversalFlags, cmd: RunSubcommand) -> anyhow::Res
         trace::open("trace.json").context("failed to open `trace.json`")?;
     }
 
-    let result = entry::run_run(&package_path, &moonc_opt, &moonbuild_opt, &module);
+    let result = entry::run_run(
+        &package_path,
+        &moonc_opt,
+        &moonbuild_opt,
+        &module,
+        cmd.build_only,
+    );
     if trace_flag {
         trace::close();
     }

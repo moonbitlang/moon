@@ -343,6 +343,12 @@ fn do_run_test(
         auto_update,
         module,
     )?;
+
+    // don't print test summary if build_only
+    if build_only {
+        return Ok(0);
+    }
+
     let total = test_res.len();
     let passed = test_res.iter().filter(|r| r.is_ok()).count();
 

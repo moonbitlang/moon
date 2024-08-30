@@ -34,7 +34,7 @@ use crate::check::normal::write_pkg_lst;
 use crate::expect::{apply_snapshot, render_snapshot_fail};
 use crate::runtest::TestStatistics;
 
-use moonutil::common::{MoonbuildOpt, MooncOpt, TargetBackend};
+use moonutil::common::{MoonbuildOpt, MooncOpt, TargetBackend, TestArtifacts};
 
 use std::sync::{Arc, Mutex};
 
@@ -196,6 +196,7 @@ pub fn run_run(
     moonc_opt: &MooncOpt,
     moonbuild_opt: &MoonbuildOpt,
     module: &ModuleDB,
+    build_only: bool,
 ) -> anyhow::Result<i32> {
     run_build(moonc_opt, moonbuild_opt, module)?;
     let (source_dir, target_dir) = (&moonbuild_opt.source_dir, &moonbuild_opt.target_dir);
@@ -242,6 +243,15 @@ pub fn run_run(
     ));
     let wat_path = dunce::canonicalize(&wat_path)
         .context(format!("cannot find wat file at `{:?}`", &wat_path))?;
+
+    if build_only {
+        let test_artifacts = TestArtifacts {
+            artifacts_path: vec![wat_path],
+        };
+        println!("{}", serde_json_lenient::to_string(&test_artifacts)?);
+        return Ok(0);
+    }
+
     trace::scope("run", || {
         if moonc_opt.link_opt.target_backend == TargetBackend::Wasm
             || moonc_opt.link_opt.target_backend == TargetBackend::WasmGC
@@ -315,10 +325,6 @@ pub fn run_test(
     let result = n2_run_interface(state, moonbuild_opt)?;
     render_result(result, moonbuild_opt.quiet, "testing")?;
 
-    if build_only {
-        return Ok(vec![]);
-    }
-
     let runtime = tokio::runtime::Builder::new_multi_thread()
         // todo: add config item
         .worker_threads(16)
@@ -333,6 +339,9 @@ pub fn run_test(
     let filter_index = test_opt.as_ref().and_then(|it| it.filter_index);
 
     let printed = Arc::new(AtomicBool::new(false));
+    let mut test_artifacts = TestArtifacts {
+        artifacts_path: vec![],
+    };
     for (pkgname, _) in module
         .packages
         .iter()
@@ -399,6 +408,11 @@ pub fn run_test(
                 );
 
                 std::fs::write(&wrapper_js_driver_path, js_driver)?;
+                test_artifacts
+                    .artifacts_path
+                    .push(wrapper_js_driver_path.clone());
+            } else {
+                test_artifacts.artifacts_path.push(artifact_path.clone());
             }
 
             let printed = Arc::clone(&printed);
@@ -441,6 +455,11 @@ pub fn run_test(
                 result
             });
         }
+    }
+
+    if build_only {
+        println!("{}", serde_json_lenient::to_string(&test_artifacts)?);
+        return Ok(vec![]);
     }
 
     let res = if moonbuild_opt.no_parallelize {

@@ -67,6 +67,18 @@ fn test_design() {
             main2
         "#]],
     );
+
+    get_stdout_with_args(&dir, ["clean"]);
+    check(
+        &get_stdout_with_args_and_replace_dir(
+            &dir,
+            ["run", "main2", "--target", "js", "--build-only"],
+        ),
+        expect![[r#"
+            {"artifacts_path":["$ROOT/target/js/release/build/main2/main2.js"]}
+        "#]],
+    );
+    assert!(dir.join("target/js/release/build/main2/main2.js").exists());
 }
 
 #[test]
@@ -5213,6 +5225,18 @@ fn test_moon_run_single_mbt_file() {
         "#]],
     );
 
+    let output = get_stdout_with_args_and_replace_dir(
+        &dir,
+        ["run", "a/b/single.mbt", "--target", "js", "--build-only"],
+    );
+    check(
+        &output,
+        expect![[r#"
+            {"artifacts_path":["$ROOT/a/b/target/single.js"]}
+        "#]],
+    );
+    assert!(dir.join("a/b/target/single.js").exists());
+
     let output = get_stdout_with_args_and_replace_dir(&dir, ["run", "a/b/single.mbt", "--dry-run"]);
     check(
         &output,
@@ -5572,6 +5596,19 @@ fn test_specify_source_dir_004() {
             Finished. moon: ran 3 tasks, now up to date
         "#]],
     );
+
+    get_stdout_with_args(&dir, ["clean"]);
+    check(
+        &get_stdout_with_args_and_replace_dir(
+            &dir,
+            ["run", "nes/t/ed/src/main", "--target", "js", "--build-only"],
+        ),
+        expect![[r#"
+            {"artifacts_path":["$ROOT/target/js/release/build/main/main.js"]}
+        "#]],
+    );
+    assert!(dir.join("target/js/release/build/main/main.js").exists());
+
     check(
         &get_stdout_with_args_and_replace_dir(&dir, ["run", "nes/t/ed/src/main"]),
         expect![[r#"
