@@ -1,0 +1,2 @@
+  $ moon build --dry-run
+  $ moon build
