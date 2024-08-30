@@ -179,7 +179,7 @@ pub fn gen_build_command(
     graph: &mut n2graph::Graph,
     item: &BuildDepItem,
     moonc_opt: &MooncOpt,
-) -> Build {
+) -> (Build, n2graph::FileId) {
     let core_output_id = graph.files.id_from_canonical(item.core_out.clone());
     let mi_output_id = graph.files.id_from_canonical(item.mi_out.clone());
 
@@ -277,7 +277,7 @@ pub fn gen_build_command(
         .build();
     log::debug!("Command: {}", command);
     build.cmdline = Some(command);
-    build
+    (build, core_output_id)
 }
 
 pub fn gen_link_command(
@@ -427,10 +427,16 @@ pub fn gen_n2_build_state(
     let mut default = vec![];
 
     for item in input.build_items.iter() {
-        let build = gen_build_command(&mut graph, item, moonc_opt);
+        let (build, fid) = gen_build_command(&mut graph, item, moonc_opt);
         graph.add_build(build)?;
+        default.push(fid);
     }
+    let mut has_link_item = false;
     for item in input.link_items.iter() {
+        if !has_link_item {
+            has_link_item = true;
+            default.clear();
+        }
         let (build, fid) = gen_link_command(&mut graph, item, moonc_opt);
         default.push(fid);
         graph.add_build(build)?;
