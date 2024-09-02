@@ -83,7 +83,6 @@ fn moonbit_test_driver_internal_apply_filter(
   ret
 }
 
-let tests: Map[String, Array[(() -> Unit!Error, Array[String])]] = {  } // WILL BE REPLACED
 let no_args_tests: Map[String, Map[Int, (() -> Unit!Error, Array[String])]] = {  } // WILL BE REPLACED
 fn main {
   let file_filter: String? = Some(moonbit_test_driver_internal_get_file_name())

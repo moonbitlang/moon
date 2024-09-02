@@ -117,7 +117,6 @@ fn moonbit_test_driver_internal_apply_filter(
   ret
 }
 
-let tests : Map[String, Array[(() -> Unit!Error, Array[String])]] = { }
 let no_args_tests : Map[String, Map[Int, (() -> Unit!Error, Array[String])]] = { }
 let with_args_tests : Map[String, Map[Int, ((@test.T) -> Unit!Error, Array[String])]] = { }
 // REPLACE ME 0

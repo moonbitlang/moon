@@ -721,3 +721,56 @@ impl DriverKind {
 pub const INTERNAL_TEST_DRIVER: &str = "__generated_driver_for_internal_test.mbt";
 pub const WHITEBOX_TEST_DRIVER: &str = "__generated_driver_for_whitebox_test.mbt";
 pub const BLACKBOX_TEST_DRIVER: &str = "__generated_driver_for_blackbox_test.mbt";
+
+#[derive(Serialize, Deserialize, Debug)]
+pub struct TestInfo {
+    pub index: usize,
+    pub func: String,
+    pub name: Option<String>,
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+pub struct MooncGenTestInfo {
+    pub tests: HashMap<String, Vec<TestInfo>>,
+    pub no_args_tests: HashMap<String, Vec<TestInfo>>,
+    pub with_args_tests: HashMap<String, Vec<TestInfo>>,
+}
+
+impl MooncGenTestInfo {
+    pub fn to_mbt(&self) -> String {
+        let mut result = String::new();
+        let default_name = "".to_string();
+
+        result.push_str("let no_args_tests = {\n");
+        for (file, tests) in &self.no_args_tests {
+            result.push_str(&format!("  \"{}\": {{\n", file));
+            for test in tests {
+                result.push_str(&format!(
+                    "    {}: ({}, [\"{}\"]),\n",
+                    test.index,
+                    test.func,
+                    test.name.as_ref().unwrap_or(&default_name)
+                ));
+            }
+            result.push_str("  },\n");
+        }
+        result.push_str("}\n\n");
+
+        result.push_str("let with_args_tests = {\n");
+        for (file, tests) in &self.with_args_tests {
+            result.push_str(&format!("  \"{}\": {{\n", file));
+            for test in tests {
+                result.push_str(&format!(
+                    "    {}: ({}, [\"{}\"]),\n",
+                    test.index,
+                    test.func,
+                    test.name.as_ref().unwrap_or(&default_name)
+                ));
+            }
+            result.push_str("  },\n");
+        }
+        result.push_str("}\n");
+
+        result
+    }
+}
