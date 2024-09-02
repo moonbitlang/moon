@@ -584,7 +584,23 @@ pub fn gen_link_blackbox_test(
         core_deps.push(d.display().to_string());
     }
 
-    let package_sources = get_package_sources(m, &pkg_topo_order);
+    let mut package_sources = get_package_sources(m, &pkg_topo_order);
+    {
+        // add blackbox test pkg into `package_sources`, which will be passed to `-pkg-source` in `link-core`
+        let root_source_dir = match &m.source {
+            None => m.source_dir.clone(),
+            Some(x) => m.source_dir.join(x),
+        };
+        let package_source_dir: String = if pkg.rel.components.is_empty() {
+            root_source_dir.display().to_string()
+        } else {
+            root_source_dir
+                .join(pkg.rel.fs_full_name())
+                .display()
+                .to_string()
+        };
+        package_sources.push((pkg.full_name() + "_blackbox_test", package_source_dir));
+    }
 
     // this will be passed to link-core `-main`
     let package_full_name = pkg.full_name() + "_blackbox_test";
