@@ -16,7 +16,9 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
+use indexmap::IndexMap;
 use moonutil::module::ModuleDB;
+use moonutil::package::Package;
 use moonutil::path::PathComponent;
 use n2::progress::{DumbConsoleProgress, FancyConsoleProgress, Progress};
 use n2::terminal;
@@ -34,7 +36,9 @@ use crate::check::normal::write_pkg_lst;
 use crate::expect::{apply_snapshot, render_snapshot_fail};
 use crate::runtest::TestStatistics;
 
-use moonutil::common::{MoonbuildOpt, MooncOpt, TargetBackend, TestArtifacts};
+use moonutil::common::{
+    MbtTestInfo, MoonbuildOpt, MooncGenTestInfo, MooncOpt, TargetBackend, TestArtifacts,
+};
 
 use std::sync::{Arc, Mutex};
 
@@ -310,6 +314,67 @@ impl std::fmt::Display for TestResult {
     }
 }
 
+// (pkg's runnable artifacts, <mbt file name, array of (index, test_name)>) for blackbox whitebox internal test
+#[allow(clippy::type_complexity)]
+fn convert_moonc_test_info(
+    test_info_file: &Path,
+    pkg: &Package,
+    output_format: &str,
+    filter_file: Option<&String>,
+) -> anyhow::Result<Vec<(Option<PathBuf>, IndexMap<String, Vec<MbtTestInfo>>)>> {
+    let content = std::fs::read_to_string(test_info_file)
+        .context(format!("failed to read {}", test_info_file.display()))?;
+    let mut moonc_test_info = MooncGenTestInfo {
+        no_args_tests: IndexMap::new(),
+        with_args_tests: IndexMap::new(),
+    };
+    for line in content.split('\n') {
+        if let Ok(info) = serde_json_lenient::from_str::<MooncGenTestInfo>(line) {
+            moonc_test_info.no_args_tests.extend(info.no_args_tests);
+            moonc_test_info.with_args_tests.extend(info.with_args_tests);
+        }
+    }
+
+    let no_exist = (None, IndexMap::<String, Vec<MbtTestInfo>>::new());
+    let mut current_pkg_test_info = vec![no_exist.clone(), no_exist.clone(), no_exist.clone()];
+
+    for (filename, test_info) in moonc_test_info
+        .no_args_tests
+        .into_iter()
+        .chain(moonc_test_info.with_args_tests.into_iter())
+    {
+        if test_info.is_empty() {
+            continue;
+        }
+        if let Some(filter_file) = filter_file {
+            if filename != *filter_file {
+                continue;
+            }
+        }
+        let (test_type, index) = if filename.ends_with("_test.mbt") {
+            ("blackbox", 0)
+        } else if filename.ends_with("_wbtest.mbt") {
+            ("whitebox", 1)
+        } else {
+            ("internal", 2)
+        };
+
+        let artifact_path = pkg
+            .artifact
+            .with_file_name(format!("{}.{test_type}_test.wat", pkg.last_name()))
+            .with_extension(output_format);
+
+        let (artifact_opt, map) = &mut current_pkg_test_info[index];
+        if artifact_opt.is_none() {
+            *artifact_opt = Some(artifact_path);
+        }
+        let mbt_test_info = map.entry(filename).or_insert(vec![]);
+        mbt_test_info.extend(test_info);
+    }
+
+    Ok(current_pkg_test_info)
+}
+
 #[allow(clippy::too_many_arguments)]
 pub fn run_test(
     moonc_opt: &MooncOpt,
@@ -342,7 +407,7 @@ pub fn run_test(
     let mut test_artifacts = TestArtifacts {
         artifacts_path: vec![],
     };
-    for (pkgname, _) in module
+    for (pkgname, pkg) in module
         .packages
         .iter()
         .filter(|(_, p)| !(p.is_main || p.is_third_party))
@@ -353,29 +418,31 @@ pub fn run_test(
             }
         }
 
-        let current_pkg_test_info = module.test_info.get(pkgname).unwrap();
-        for (artifact_path, map) in current_pkg_test_info {
+        // convert moonc test info
+        let test_info_file = target_dir.join(pkg.rel.full_name()).join("test_info.json");
+        let current_pkg_test_info = convert_moonc_test_info(
+            &test_info_file,
+            pkg,
+            moonc_opt.link_opt.output_format.to_str(),
+            filter_file,
+        )?;
+
+        for (artifact_path, file_test_info_map) in current_pkg_test_info {
             if artifact_path.is_none() {
                 continue;
             }
-            let artifact_path = artifact_path.as_ref().unwrap();
+            let artifact_path = artifact_path.unwrap();
 
             let mut test_args = TestArgs {
                 package: pkgname.clone(),
                 file_and_index: vec![],
             };
-            for (file_name, test_count) in map {
-                if let Some(filter_file) = filter_file {
-                    if file_name != filter_file {
-                        continue;
-                    }
-                }
-
+            for (file_name, test_count) in file_test_info_map {
                 let range;
                 if let Some(filter_index) = filter_index {
                     range = filter_index..(filter_index + 1);
                 } else {
-                    range = 0..(*test_count);
+                    range = 0..(test_count.len() as u32);
                 }
 
                 let mut args = vec![];
@@ -420,7 +487,7 @@ pub fn run_test(
                 let mut result = trace::scope("test", || async {
                     execute_test(
                         moonc_opt.build_opt.target_backend,
-                        artifact_path,
+                        &artifact_path,
                         target_dir,
                         &test_args,
                     )
@@ -436,7 +503,7 @@ pub fn run_test(
                             module,
                             auto_update,
                             test_verbose_output,
-                            artifact_path,
+                            &artifact_path,
                             target_dir,
                             printed,
                         )

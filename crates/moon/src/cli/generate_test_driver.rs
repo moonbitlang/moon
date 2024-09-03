@@ -29,7 +29,7 @@ use moonutil::common::{
 use moonutil::dirs::PackageDirs;
 use moonutil::mooncakes::sync::AutoSyncFlags;
 use moonutil::mooncakes::RegistryConfig;
-use std::io::Read;
+use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 
 /// Test the current package
@@ -45,7 +45,7 @@ pub struct GeneratedTestDriverSubcommand {
     pub driver_kind: DriverKind,
 }
 
-fn moonc_gen_test_info(files: &[PathBuf]) -> anyhow::Result<String> {
+fn moonc_gen_test_info(files: &[PathBuf], target_dir: &Path) -> anyhow::Result<String> {
     let mut generated = std::process::Command::new("moonc")
         .arg("gen-test-info")
         .arg("-json")
@@ -61,6 +61,26 @@ fn moonc_gen_test_info(files: &[PathBuf]) -> anyhow::Result<String> {
         .read_to_string(&mut out)
         .with_context(|| gen_error_message(files))?;
     generated.wait()?;
+
+    // append whitebox blackbox internal test info to test_info.json
+    {
+        let test_info_json_path = target_dir.join("test_info.json");
+        out.push('\n');
+        std::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(&test_info_json_path)
+            .context(format!(
+                "failed to open file: {}",
+                test_info_json_path.display()
+            ))?
+            .write_all(out.as_bytes())
+            .context(format!(
+                "failed to write file: {}",
+                test_info_json_path.display()
+            ))?;
+    }
+
     let t: MooncGenTestInfo = serde_json_lenient::from_str(&out)?;
     return Ok(t.to_mbt());
 
@@ -155,7 +175,8 @@ pub fn generate_test_driver(
 
         let backend_filtered: Vec<PathBuf> =
             moonutil::common::backend_filter(files, moonc_opt.link_opt.target_backend);
-        let mbts_test_data = moonc_gen_test_info(&backend_filtered)?;
+        let mbts_test_data =
+            moonc_gen_test_info(&backend_filtered, &target_dir.join(pkg.rel.full_name()))?;
 
         if pkg.is_main && mbts_test_data.contains("(__test_") {
             eprintln!(

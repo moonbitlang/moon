@@ -176,6 +176,8 @@ async fn run(
             }
         }
     } else {
+        println!("path: {:?}", path);
+        println!("args: {:?}", args);
         res.push(Err(TestFailedStatus::Others(String::from(
             "No test output found",
         ))));

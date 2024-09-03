@@ -23,6 +23,7 @@ use anyhow::{bail, Context};
 use clap::ValueEnum;
 use colored::Colorize;
 use fs4::FileExt;
+use indexmap::IndexMap;
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 use std::fs;
@@ -722,18 +723,19 @@ pub const INTERNAL_TEST_DRIVER: &str = "__generated_driver_for_internal_test.mbt
 pub const WHITEBOX_TEST_DRIVER: &str = "__generated_driver_for_whitebox_test.mbt";
 pub const BLACKBOX_TEST_DRIVER: &str = "__generated_driver_for_blackbox_test.mbt";
 
-#[derive(Serialize, Deserialize, Debug)]
-pub struct TestInfo {
-    pub index: usize,
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct MbtTestInfo {
+    pub index: u32,
     pub func: String,
     pub name: Option<String>,
 }
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct MooncGenTestInfo {
-    pub tests: HashMap<String, Vec<TestInfo>>,
-    pub no_args_tests: HashMap<String, Vec<TestInfo>>,
-    pub with_args_tests: HashMap<String, Vec<TestInfo>>,
+    // filename, test_info
+    // pub tests: HashMap<String, Vec<MbtTestInfo>>,
+    pub no_args_tests: IndexMap<String, Vec<MbtTestInfo>>,
+    pub with_args_tests: IndexMap<String, Vec<MbtTestInfo>>,
 }
 
 impl MooncGenTestInfo {

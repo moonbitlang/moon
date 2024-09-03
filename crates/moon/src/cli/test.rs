@@ -18,7 +18,6 @@
 
 use anyhow::Context;
 use colored::Colorize;
-use indexmap::IndexMap;
 use moonbuild::dry_run;
 use moonbuild::entry;
 use mooncake::pkg::sync::auto_sync;
@@ -230,72 +229,6 @@ fn run_test_internal(
                 .join("__generated_driver_for_blackbox_test.mbt");
             pkg.generated_test_drivers
                 .push(GeneratedTestDriver::BlackboxTest(blackbox_generated_file));
-        }
-
-        let no_exist = (None, IndexMap::new());
-        module.test_info.insert(
-            pkgname.clone(),
-            [no_exist.clone(), no_exist.clone(), no_exist.clone()],
-        );
-        let current_pkg_test_info = module.test_info.get_mut(pkgname).unwrap();
-
-        let backend_filter_files =
-            moonutil::common::backend_filter(&pkg.files, moonc_opt.link_opt.target_backend);
-        let backend_filter_wbtest_files =
-            moonutil::common::backend_filter(&pkg.wbtest_files, moonc_opt.link_opt.target_backend);
-        let backend_filter_test_files =
-            moonutil::common::backend_filter(&pkg.test_files, moonc_opt.link_opt.target_backend);
-
-        for file in backend_filter_files
-            .iter()
-            .chain(backend_filter_wbtest_files.iter())
-            .chain(backend_filter_test_files.iter())
-        {
-            // workaround for skip test coverage.mbt in builtin when --enable-coverage is specified
-            if moonc_opt.build_opt.enable_coverage
-                && pkgname == "moonbitlang/core/builtin"
-                && file.to_str().unwrap().contains("coverage.mbt")
-            {
-                continue;
-            }
-            let content = std::fs::read_to_string(file)?;
-            let filename = file.file_name().unwrap().to_str().unwrap();
-            if let Some(ref filter_file) = filter_file {
-                if filter_file != filename {
-                    continue;
-                }
-            }
-
-            // todo: refactor this when we have a json info from moonc
-            let (test_type, index) = if filename.ends_with("_test.mbt") {
-                ("blackbox", 0)
-            } else if filename.ends_with("_wbtest.mbt") {
-                ("whitebox", 1)
-            } else {
-                ("internal", 2)
-            };
-
-            let mut test_block_nums_in_current_file = 0;
-            let artifact_path = pkg
-                .artifact
-                .with_file_name(format!("{}.{test_type}_test.wat", pkg.last_name()))
-                .with_extension(moonc_opt.link_opt.output_format.to_str());
-
-            for line in content.lines() {
-                if line.starts_with("test ") {
-                    pkg.files_contain_test_block.push(file.clone());
-                    test_block_nums_in_current_file += 1;
-                }
-            }
-
-            if test_block_nums_in_current_file > 0 {
-                let (artifact_opt, map) = &mut current_pkg_test_info[index];
-                if artifact_opt.is_none() {
-                    *artifact_opt = Some(artifact_path.clone());
-                }
-                let test_block_count = map.entry(filename.into()).or_insert(0);
-                *test_block_count += test_block_nums_in_current_file;
-            }
         }
     }
 

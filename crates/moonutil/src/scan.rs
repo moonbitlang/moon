@@ -474,7 +474,6 @@ pub fn scan(
         graph,
         backend: moonc_opt.link_opt.target_backend.to_backend_ext().into(),
         source: mod_desc.source,
-        test_info: IndexMap::new(),
     };
 
     module.validate()?;
