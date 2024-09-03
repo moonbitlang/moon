@@ -22,6 +22,7 @@ use crate::section_capture::{handle_stdout, SectionCapture};
 
 use super::gen;
 use anyhow::{bail, Context};
+use indexmap::IndexMap;
 use moonutil::common::{
     MoonbuildOpt, MooncOpt, MOON_COVERAGE_DELIMITER_BEGIN, MOON_COVERAGE_DELIMITER_END,
     MOON_TEST_DELIMITER_BEGIN, MOON_TEST_DELIMITER_END,
@@ -65,23 +66,26 @@ pub async fn run_wat(
     path: &Path,
     target_dir: &Path,
     args: &TestArgs,
+    file_test_info_map: &IndexMap<String, IndexMap<u32, Option<String>>>,
 ) -> anyhow::Result<Vec<Result<TestStatistics, TestFailedStatus>>> {
     // put "--test-mode" at the front of args
     let mut _args = vec!["--test-mode".to_string()];
     _args.push(serde_json_lenient::to_string(args).unwrap());
-    run("moonrun", path, target_dir, &_args).await
+    run("moonrun", path, target_dir, &_args, file_test_info_map).await
 }
 
 pub async fn run_js(
     path: &Path,
     target_dir: &Path,
     args: &TestArgs,
+    file_test_info_map: &IndexMap<String, IndexMap<u32, Option<String>>>,
 ) -> anyhow::Result<Vec<Result<TestStatistics, TestFailedStatus>>> {
     run(
         "node",
         path,
         target_dir,
         &[serde_json_lenient::to_string(args).unwrap()],
+        file_test_info_map,
     )
     .await
 }
@@ -91,6 +95,7 @@ async fn run(
     path: &Path,
     target_dir: &Path,
     args: &[String],
+    file_test_info_map: &IndexMap<String, IndexMap<u32, Option<String>>>,
 ) -> anyhow::Result<Vec<Result<TestStatistics, TestFailedStatus>>> {
     let mut execution = tokio::process::Command::new(command)
         .arg(path)
@@ -152,8 +157,31 @@ async fn run(
             test_statistics.push(a);
         }
 
-        for test_statistic in test_statistics {
-            let return_message = &test_statistic.message;
+        for mut test_statistic in test_statistics {
+            let filename = &test_statistic.filename;
+            let index = &test_statistic.index.parse::<u32>().unwrap();
+            let test_name = file_test_info_map
+                .get(filename)
+                .unwrap()
+                .get(index)
+                .unwrap()
+                .as_ref()
+                .unwrap_or(&test_statistic.index);
+
+            if test_name.starts_with("panic") {
+                // should panic but not panic
+                if test_statistic.message.is_empty() {
+                    test_statistic.message = "panic is expected".to_string();
+                }
+                // it does panic, treat it as ok
+                else {
+                    test_statistic.message = "".to_string();
+                }
+            }
+
+            test_statistic.test_name = test_name.clone();
+
+            let return_message = test_statistic.message.clone();
             if return_message.is_empty() {
                 res.push(Ok(test_statistic));
             } else if return_message.starts_with(EXPECT_FAILED) {
@@ -176,8 +204,6 @@ async fn run(
             }
         }
     } else {
-        println!("path: {:?}", path);
-        println!("args: {:?}", args);
         res.push(Err(TestFailedStatus::Others(String::from(
             "No test output found",
         ))));

@@ -36,9 +36,7 @@ use crate::check::normal::write_pkg_lst;
 use crate::expect::{apply_snapshot, render_snapshot_fail};
 use crate::runtest::TestStatistics;
 
-use moonutil::common::{
-    MbtTestInfo, MoonbuildOpt, MooncGenTestInfo, MooncOpt, TargetBackend, TestArtifacts,
-};
+use moonutil::common::{MoonbuildOpt, MooncGenTestInfo, MooncOpt, TargetBackend, TestArtifacts};
 
 use std::sync::{Arc, Mutex};
 
@@ -321,7 +319,12 @@ fn convert_moonc_test_info(
     pkg: &Package,
     output_format: &str,
     filter_file: Option<&String>,
-) -> anyhow::Result<Vec<(Option<PathBuf>, IndexMap<String, Vec<MbtTestInfo>>)>> {
+) -> anyhow::Result<
+    Vec<(
+        Option<PathBuf>,
+        IndexMap<String, IndexMap<u32, Option<String>>>,
+    )>,
+> {
     let content = std::fs::read_to_string(test_info_file)
         .context(format!("failed to read {}", test_info_file.display()))?;
     let mut moonc_test_info = MooncGenTestInfo {
@@ -335,7 +338,10 @@ fn convert_moonc_test_info(
         }
     }
 
-    let no_exist = (None, IndexMap::<String, Vec<MbtTestInfo>>::new());
+    let no_exist = (
+        None,
+        IndexMap::<String, IndexMap<u32, Option<String>>>::new(),
+    );
     let mut current_pkg_test_info = vec![no_exist.clone(), no_exist.clone(), no_exist.clone()];
 
     for (filename, test_info) in moonc_test_info
@@ -368,8 +374,8 @@ fn convert_moonc_test_info(
         if artifact_opt.is_none() {
             *artifact_opt = Some(artifact_path);
         }
-        let mbt_test_info = map.entry(filename).or_insert(vec![]);
-        mbt_test_info.extend(test_info);
+        let mbt_test_info = map.entry(filename).or_insert(IndexMap::new());
+        mbt_test_info.extend(test_info.iter().map(|it| (it.index, it.name.clone())));
     }
 
     Ok(current_pkg_test_info)
@@ -437,7 +443,7 @@ pub fn run_test(
                 package: pkgname.clone(),
                 file_and_index: vec![],
             };
-            for (file_name, test_count) in file_test_info_map {
+            for (file_name, test_count) in &file_test_info_map {
                 let range;
                 if let Some(filter_index) = filter_index {
                     range = filter_index..(filter_index + 1);
@@ -490,6 +496,7 @@ pub fn run_test(
                         &artifact_path,
                         target_dir,
                         &test_args,
+                        &file_test_info_map,
                     )
                     .await
                 })
@@ -506,6 +513,7 @@ pub fn run_test(
                             &artifact_path,
                             target_dir,
                             printed,
+                            &file_test_info_map,
                         )
                         .await?;
                     }
@@ -581,13 +589,20 @@ async fn execute_test(
     artifact_path: &Path,
     target_dir: &Path,
     args: &TestArgs,
+    file_test_info_map: &IndexMap<String, IndexMap<u32, Option<String>>>,
 ) -> anyhow::Result<Vec<Result<TestStatistics, TestFailedStatus>>> {
     match target_backend {
         TargetBackend::Wasm | TargetBackend::WasmGC => {
-            crate::runtest::run_wat(artifact_path, target_dir, args).await
+            crate::runtest::run_wat(artifact_path, target_dir, args, file_test_info_map).await
         }
         TargetBackend::Js => {
-            crate::runtest::run_js(&artifact_path.with_extension("cjs"), target_dir, args).await
+            crate::runtest::run_js(
+                &artifact_path.with_extension("cjs"),
+                target_dir,
+                args,
+                file_test_info_map,
+            )
+            .await
         }
     }
 }
@@ -603,6 +618,7 @@ async fn handle_test_result(
     artifact_path: &Path,
     target_dir: &Path,
     printed: Arc<AtomicBool>,
+    file_test_info_map: &IndexMap<String, IndexMap<u32, Option<String>>>,
 ) -> anyhow::Result<()> {
     let output_failure_in_json = moonbuild_opt
         .test_opt
@@ -656,6 +672,7 @@ async fn handle_test_result(
                         artifact_path,
                         target_dir,
                         &test_args,
+                        file_test_info_map,
                     )
                     .await?
                     .first()
@@ -675,6 +692,7 @@ async fn handle_test_result(
                         artifact_path,
                         target_dir,
                         &test_args,
+                        file_test_info_map,
                     )
                     .await?
                     .first()
@@ -745,6 +763,7 @@ async fn handle_test_result(
                         artifact_path,
                         target_dir,
                         &test_args,
+                        file_test_info_map,
                     )
                     .await?
                     .first()
@@ -770,6 +789,7 @@ async fn handle_test_result(
                         artifact_path,
                         target_dir,
                         &test_args,
+                        file_test_info_map,
                     )
                     .await?
                     .first()
@@ -799,6 +819,7 @@ async fn handle_test_result(
                             artifact_path,
                             target_dir,
                             &test_args,
+                            file_test_info_map,
                         )
                         .await?
                         .first()
