@@ -22,7 +22,8 @@ use console::Term;
 use dialoguer::Confirm;
 use futures::stream::{self, StreamExt, TryStreamExt};
 use moonutil::common::{
-    get_moon_version, get_moonc_version, CargoPathExt, VersionItems, MOONBITLANG_CORE,
+    get_moon_version, get_moonc_version, get_moonrun_version, CargoPathExt, VersionItems,
+    MOONBITLANG_CORE,
 };
 use moonutil::moon_dir::{self, moon_tmp_dir};
 use reqwest;
@@ -143,16 +144,19 @@ fn test_extract_date() {
 
 fn should_upgrade(latest_version_info: &VersionItems) -> Option<bool> {
     let moon_version = get_moon_version();
-    let moonc_version = get_moonc_version();
+    let moonrun_version = get_moonrun_version().ok()?;
+    let moonc_version = get_moonc_version().ok()?;
 
     // extract date from moon_version and moonc_version, compare with latest
     let moon_date = extract_date(&moon_version)?;
+    let moonrun_date = extract_date(&moonrun_version)?;
     let moonc_date = extract_date(&moonc_version)?;
     let mut should_upgrade = false;
     for item in &latest_version_info.items {
         let latest_date = extract_date(&item.version)?;
 
         if ((item.name == "moon") && latest_date > moon_date)
+            || (item.name == "moonrun" && latest_date > moonrun_date)
             || (item.name == "moonc" && latest_date > moonc_date)
         {
             should_upgrade = true;
@@ -179,13 +183,16 @@ pub fn upgrade(cmd: UpgradeSubcommand) -> Result<i32> {
 
     println!("Checking latest toolchain version ...");
     let version_url = format!("{}/version.json", root);
-    let latest_version_info = reqwest::blocking::get(version_url)?.json::<VersionItems>()?;
-    match should_upgrade(&latest_version_info) {
-        Some(false) if !cmd.force => {
-            println!("Your toolchain is up to date.");
-            return Ok(0);
+    if !cmd.force {
+        // if any step(network request, serde json...) fail, just do upgrade
+        if let Ok(data) = reqwest::blocking::get(version_url) {
+            if let Ok(latest_version_info) = data.json::<VersionItems>() {
+                if let Some(false) = should_upgrade(&latest_version_info) {
+                    println!("Your toolchain is up to date.");
+                    return Ok(0);
+                }
+            }
         }
-        _ => {}
     }
 
     println!("{}", "Warning: moon upgrade is highly experimental.".bold());

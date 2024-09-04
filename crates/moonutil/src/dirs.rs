@@ -170,7 +170,7 @@ fn hash_file(path: &str) -> u64 {
 fn _get_fingerprint(moon_files: &[String], pkg_files: &[String]) -> Fingerprint {
     let mut fingerprint = Fingerprint {
         moon_version: get_moon_version(),
-        moonc_version: get_moonc_version(),
+        moonc_version: get_moonc_version().unwrap(),
         moon_pkgs: vec![],
         mbt_files: HashSet::new(),
     };

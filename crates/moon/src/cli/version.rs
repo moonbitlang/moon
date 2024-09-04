@@ -90,12 +90,12 @@ pub fn run_version(cmd: VersionSubcommand) -> anyhow::Result<i32> {
         (true, false) => {
             if nopath_flag {
                 println!("moon {}", moon_version);
-                println!("moonc {}", moonc_version);
-                println!("moonc {}", moonrun_version);
+                println!("moonc {}", moonc_version?);
+                println!("moonc {}", moonrun_version?);
             } else {
                 println!("moon {} {}", moon_version, get_moon_path()?);
-                println!("moonc {} {}", moonc_version, get_moonc_path()?);
-                println!("{} {}", moonrun_version, get_moonrun_path()?);
+                println!("moonc {} {}", moonc_version?, get_moonc_path()?);
+                println!("{} {}", moonrun_version?, get_moonrun_path()?);
             }
         }
         (false, true) => {
@@ -132,7 +132,7 @@ pub fn run_version(cmd: VersionSubcommand) -> anyhow::Result<i32> {
                     },
                     moonutil::common::VersionItem {
                         name: "moonc".to_string(),
-                        version: moonc_version,
+                        version: moonc_version?,
                         path: if nopath_flag {
                             None
                         } else {
@@ -141,7 +141,7 @@ pub fn run_version(cmd: VersionSubcommand) -> anyhow::Result<i32> {
                     },
                     moonutil::common::VersionItem {
                         name: "moonrun".to_string(),
-                        version: moonrun_version,
+                        version: moonrun_version?,
                         path: if nopath_flag {
                             None
                         } else {
