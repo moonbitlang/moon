@@ -1,14 +1,14 @@
 # MoonBit 构建系统教程
 
-Moon is the build system for the MoonBit language, currently based on the [n2](https://github.com/evmar/n2) project. Moon supports parallel and incremental builds. Additionally, moon also supports managing and building third-party packages on [mooncakes.io](https://mooncakes.io/)
+`moon` 是 MoonBit 语言的构建系统，目前基于 [n2](https://github.com/evmar/n2) 项目。`moon` 支持并行构建和增量构建，此外它还支持管理和构建 [mooncakes.io](https://mooncakes.io/) 上的第三方包。
 
-## Prerequisites
+## 准备工作
 
-Before you begin with this tutorial, make sure you have installed the following:
+在开始之前，请确保安装好以下内容：
 
-1. **MoonBit CLI Tools**: Download it from the <https://www.moonbitlang.com/download/>. This command line tool is needed for creating and managing MoonBit projects.
+1. **MoonBit CLI 工具**: 从[这里](https://www.moonbitlang.cn/download/)下载。该命令行工具用于创建和管理 MoonBit 项目。
 
-    Use `moon help` to view the usage instructions.
+    使用 `moon help` 命令可查看使用说明。
 
     ```bash
     $ moon help
@@ -51,13 +51,13 @@ Before you begin with this tutorial, make sure you have installed the following:
     -h, --help                     Print help
     ```
 
-2. **MoonBit Language** plugin in Visual Studio Code: You can install it from the VS Code marketplace. This plugin provides a rich development environment for MoonBit, including functionalities like syntax highlighting, code completion, and more.
+2. **Moonbit Language** Visual Studio Code 插件: 可以从 VS Code 市场安装。该插件为 MoonBit 提供了丰富的开发环境，包括语法高亮、代码补全、交互式除错和测试等功能。
 
-Once you have these prerequisites fulfilled, let's start by creating a new MoonBit module.
+安装完成后，让我们开始创建一个新的 MoonBit 模块。
 
-## Creating a New Module
+## 创建一个新模块
 
-To create a new module, enter the `moon new` command in the terminal, and you will see the module creation wizard. By using all the default values, you can create a new module named `username/hello` in the `my-project` directory.
+使用 `moon new` 创建一个新项目，默认的配置是：
 
 ```bash
 $ moon new
@@ -69,11 +69,11 @@ Enter your license: Apache-2.0
 Created my-project
 ```
 
-> If you want use all default values, you can use `moon new my-project` to create a new module named `username/hello` in the `my-project` directory.
+这会在 `my-project` 下创建一个名为 `username/hello` 的新模块。上述过程也可以使用 `moon new my-project` 代替。
 
-## Understanding the Module Directory Structure
+## 了解模块目录结构
 
-After creating the new module, your directory structure should resemble the following:
+上一步所创建的模块目录结构如下所示：
 
 ```bash
 my-project
@@ -90,10 +90,9 @@ my-project
         └── moon.pkg.json
 ```
 
-Here's a brief explanation of the directory structure:
+这里简单解释一下目录结构：
 
-- `moon.mod.json` is used to identify a directory as a MoonBit module. It contains the module's metadata, such as the module name, version, etc. `source` specifies the source directory of the module. The default value is `src`.
-
+- `moon.mod.json` 用来标记这个目录是一个模块。它包含了模块的元信息，例如模块名、版本等。
   ```json
   {
     "name": "username/hello",
@@ -107,9 +106,11 @@ Here's a brief explanation of the directory structure:
   }
   ```
 
-- `lib` and `main` directories: These are the packages within the module. Each package can contain multiple `.mbt` files, which are the source code files for the MoonBit language. However, regardless of how many `.mbt` files a package has, they all share a common `moon.pkg.json` file. `lib/*_test.mbt` are separate test files in the `lib` package, these files are for blackbox test, so private members of the `lib` package cannot be accessed directly.
+  `source` 字段指定了模块的源代码目录，默认值是 `src`。该字段存在的原因是因为 MoonBit 模块中的包名与文件路径相关。例如，当前模块名为 `username/hello`，而其中一个包所在目录为 `lib/moon.pkg.json`，那么在导入该包时，需要写包的全名为 `username/hello/lib`。有时，为了更好地组织项目结构，我们想把源码放在 `src` 目录下，例如 `src/lib/moon.pkg.json`，这时需要使用 `username/hello/src/lib` 导入该包。但一般来说我们并不希望 `src` 出现在包的路径中，此时可以通过指定 `"source": "src"` 来忽略 `src` 这层目录，便可使用 `username/hello/lib` 导入该包。
 
-- `moon.pkg.json` is package descriptor. It defines the properties of the package, such as whether it is the main package and the packages it imports.
+- `src/lib` 和 `src/main` 目录：这是模块内的包。每个包可以包含多个 `.mbt` 文件，这些文件是 MoonBit 语言的源代码文件。但是，无论一个包有多少 `.mbt` 文件，它们都共享一个 `moon.pkg.json` 文件。`lib/*_test.mbt` 是 `lib` 包中的独立测试文件，这些文件用于黑盒测试，无法直接访问 `lib` 包的私有成员。
+
+- `moon.pkg.json` 是包描述文件。它定义了包的属性，例如，是否是 `main` 包，所导入的其他包。
 
   - `main/moon.pkg.json`:
 
@@ -122,7 +123,7 @@ Here's a brief explanation of the directory structure:
     }
     ```
 
-  Here, `"is_main: true"` declares that the package needs to be linked by the build system into a wasm file.
+  这里，`"is_main: true"` 表示这个包需要被链接成目标文件。在 `wasm/wasm-gc` 后端，会被链接成一个 `wasm` 文件，在 `js` 后端，会被链接成一个 `js` 文件。
 
   - `lib/moon.pkg.json`:
 
@@ -130,13 +131,13 @@ Here's a brief explanation of the directory structure:
     {}
     ```
 
-  This file is empty. Its purpose is simply to inform the build system that this folder is a package.
+  这个文件只是为了告诉构建系统当前目录是一个包。
 
-## Working with Packages
+## 如何使用包
 
-Our `username/hello` module contains two packages: `username/hello/lib` and `username/hello/main`.
+我们的 `username/hello` 模块包含两个包：`username/hello/lib` 和 `username/hello/main`。
 
-The `username/hello/lib` package contains `hello.mbt` and `hello_test.mbt` files:
+包 `username/hello/lib` 包含 `hello.mbt` 和 `hello_test.mbt` 文件：
 
   `hello.mbt`
 
@@ -156,7 +157,7 @@ The `username/hello/lib` package contains `hello.mbt` and `hello_test.mbt` files
   }
   ```
 
-The `username/hello/main` package contains a `main.mbt` file:
+包 `username/hello/main` 只包含一个 `main.mbt` 文件：
 
   ```moonbit
   fn main {
@@ -164,31 +165,32 @@ The `username/hello/main` package contains a `main.mbt` file:
   }
   ```
 
-To execute the program, specify the file system's path to the `username/hello/main` package in the `moon run` command:
+为了执行程序，需要在 `moon run` 命令中指定 `username/hello/main` 包的**文件系统路径**：
 
 ```bash
 $ moon run ./src/main
 Hello, world!
 ```
 
-You can also omit `./`
+你也可以省略 `./`
 
 ```bash
 $ moon run src/main
 Hello, world!
 ```
 
-You can test using the `moon test` command:
+你可以使用 `moon test` 命令进行测试：
 
 ```bash
 $ moon test
 Total tests: 1, passed: 1, failed: 0.
 ```
 
-## Package Importing
+## 如何导入包
 
-In the MoonBit's build system, a module's name is used to reference its internal packages.
-To import the `username/hello/lib` package in `src/main/main.mbt`, you need to specify it in `src/main/moon.pkg.json`:
+在 MoonBit 的构建系统中，模块名用于引用其内部包。
+
+如果想在 `src/main/main.mbt` 中使用 `username/hello/lib` 包，你需要在 `src/main/moon.pkg.json` 中指定：
 
 ```json
 {
@@ -199,19 +201,19 @@ To import the `username/hello/lib` package in `src/main/main.mbt`, you need to s
 }
 ```
 
-Here, `username/hello/lib` specifies importing the `username/hello/lib` package from the `username/hello` module, so you can use `@lib.hello()` in `main/main.mbt`.
+这里，`username/hello/lib` 指定了从 `username/hello` 模块导入 `username/hello/lib` 包，所以你可以在 `main/main.mbt` 中使用 `@lib.hello()`。
 
-Note that the package name imported in `src/main/moon.pkg.json` is `username/hello/lib`, and `@lib` is used to refer to this package in `src/main/main.mbt`. The import here actually generates a default alias for the package name `username/hello/lib`. In the following sections, you will learn how to customize the alias for a package.
+注意，`src/main/moon.pkg.json` 中导入的包名是 `username/hello/lib`，在 `src/main/main.mbt` 中使用 `@lib` 来引用这个包。这里的导入实际上为包名 `username/hello/lib` 生成了一个默认别名。在接下来的章节中，你将学习如何为包自定义别名。
 
-## Creating and Using a New Package
+## 创建和使用包
 
-First, create a new directory named `fib` under `lib`:
+首先，在 `lib` 下创建一个名为 `fib` 的新目录：
 
 ```bash
 mkdir src/lib/fib
 ```
 
-Now, you can create new files under `src/lib/fib`:
+现在，你可以在 `src/lib/fib` 下创建新文件：
 
 `a.mbt`:
 
@@ -247,7 +249,7 @@ pub fn fib2(num : Int) -> Int {
 {}
 ```
 
-After creating these files, your directory structure should look like this:
+在创建完这些文件后，你的目录结构应该如下所示：
 
 ```bash
 my-project
@@ -268,7 +270,7 @@ my-project
         └── moon.pkg.json
 ```
 
-In the `src/main/moon.pkg.json` file, import the `username/hello/lib/fib` package and customize its alias to `my_awesome_fibonacci`:
+在 `src/main/moon.pkg.json` 文件中，导入 `username/hello/lib/fib` 包，并自定义别名为 `my_awesome_fibonacci`：
 
 ```json
 {
@@ -283,7 +285,9 @@ In the `src/main/moon.pkg.json` file, import the `username/hello/lib/fib` packag
 }
 ```
 
-This line imports the `fib` package, which is part of the `lib` package in the `hello` module. After doing this, you can use the `fib` package in `main/main.mbt`. Replace the file content of `main/main.mbt` to:
+这行导入了 `username/hello/lib/fib` 包。导入后，你可以在 `main/main.mbt` 中使用 `fib` 包了。
+
+将 `main/main.mbt` 的文件内容替换为：
 
 ```moonbit
 fn main {
@@ -295,7 +299,7 @@ fn main {
 }
 ```
 
-To execute your program, specify the path to the `main` package:
+为了执行程序，需要在 `moon run` 命令中指定 `username/hello/main` 包的文件系统路径：
 
 ```bash
 $ moon run ./src/main
@@ -303,9 +307,9 @@ fib(10) = 55, fib(11) = 89
 Hello, world!
 ```
 
-## Adding Tests
+## 添加测试
 
-Let's add some tests to verify our fib implementation. Add the following content in `src/lib/fib/a.mbt`:
+让我们添加一些测试来验证我们的 fib 实现。在 `src/lib/fib/a.mbt` 中添加以下内容：
 
 `src/lib/fib/a.mbt`
 
@@ -319,13 +323,13 @@ test {
 }
 ```
 
-This code tests the first five terms of the Fibonacci sequence. `test { ... }` defines an inline test block. The code inside an inline test block is executed in test mode.
+这些代码测试了斐波那契数列的前五项。`test { ... }` 定义了一个内联测试块。内联测试块中的代码在测试模式下执行。
 
-Inline test blocks are discarded in non-test compilation modes (`moon build` and `moon run`), so they won't cause the generated code size to bloat.
+内联测试块在非测试模式下（`moon build` 和 `moon run`）会被丢弃，因此不会导致生成的代码大小膨胀。
 
-## Stand-alone test files for blackbox tests
+## 用于黑盒测试的独立测试文件
 
-Besides inline tests, MoonBit also supports stand-alone test files. Source files ending in `_test.mbt` are considered test files for blackbox tests. For example, inside the `src/lib/fib` directory, create a file named `fib_test.mbt` and paste the following code:
+除了内联测试，MoonBit 还支持独立测试文件。以 `_test.mbt` 结尾的源文件被认为是黑盒测试的测试文件。例如，在 `src/lib/fib` 目录中，创建一个名为 `fib_test.mbt` 的文件，并粘贴以下代码：
 
 `src/lib/fib/fib_test.mbt`
 
@@ -339,9 +343,9 @@ test {
 }
 ```
 
-Notice that the test code uses `@fib` to refer to the `username/hello/lib/fib` package. The build system automatically creates a new package for blackbox tests by using the files that end with `_test.mbt`. This new package will import the current package automatically, allowing you to use `@lib` in the test code.
+注意，构建系统会自动为以 `_test.mbt` 结尾的文件创建一个新的包，用于黑盒测试，并且自动导入当前包。因此，在测试块中需要使用 `@fib` 来引用 `username/hello/lib/fib` 包，而不需要在 `moon.pkg.json` 中显式地导入该包。
 
-Finally, use the `moon test` command, which scans the entire project, identifies, and runs all inline tests as well as files ending with `_test.mbt`. If everything is normal, you will see:
+最后，使用 `moon test` 命令，它会扫描整个项目，识别并运行所有内联测试以及以 `_test.mbt` 结尾的文件。如果一切正常，你会看到：
 
 ```bash
 $ moon test

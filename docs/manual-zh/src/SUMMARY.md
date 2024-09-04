@@ -1,3 +1,3 @@
 # 目录
 
-- [教程](./tutorial.md)
+- [构建系统教程](./tutorial.md)
