@@ -5348,8 +5348,8 @@ fn test_moon_check_json_output() {
         check(
             &get_stdout_with_args_and_replace_dir(&dir, ["check", "--output-json", "-q"]),
             expect![[r#"
-            {"$message_type":"diagnostic","level":"warning","loc":{"path":"$ROOT/main/main.mbt","start":{"line":3,"col":3,"offset":25},"end":{"line":3,"col":10,"offset":32}},"message":"Warning (Alert alert_2): alert_2","error_code":2000}
-        "#]],
+                {"$message_type":"diagnostic","level":"warning","loc":{"path":"$ROOT/main/main.mbt","start":{"line":3,"col":3},"end":{"line":3,"col":10}},"message":"Warning (Alert alert_2): alert_2","error_code":2000}
+            "#]],
         );
         check(
             &get_stderr_on_success_with_args_and_replace_dir(
@@ -5372,7 +5372,7 @@ fn test_moon_check_json_output() {
         check(
             &get_stdout_with_args_and_replace_dir(&dir, ["check", "--output-json", "-q"]),
             expect![[r#"
-            {"$message_type":"diagnostic","level":"warning","loc":{"path":"$ROOT/main/main.mbt","start":{"line":3,"col":3,"offset":27},"end":{"line":3,"col":10,"offset":34}},"message":"Warning (Alert alert_2): alert_2","error_code":2000}
+            {"$message_type":"diagnostic","level":"warning","loc":{"path":"$ROOT/main/main.mbt","start":{"line":3,"col":3},"end":{"line":3,"col":10}},"message":"Warning (Alert alert_2): alert_2","error_code":2000}
         "#]],
         );
         check(

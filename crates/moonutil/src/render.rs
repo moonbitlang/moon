@@ -39,7 +39,29 @@ pub struct Location {
 pub struct Position {
     pub line: usize,
     pub col: usize,
-    pub offset: isize,
+}
+
+impl Position {
+    pub fn calculate_offset(&self, content: &str) -> usize {
+        // line and col count from 1
+        let mut current_line = 1;
+        let mut current_col = 1;
+
+        for (char_idx, (_, c)) in content.char_indices().enumerate() {
+            if current_line == self.line && current_col == self.col {
+                return char_idx;
+            }
+
+            if c == '\n' {
+                current_line += 1;
+                current_col = 1;
+            } else {
+                current_col += 1;
+            }
+        }
+
+        content.chars().count()
+    }
 }
 
 impl MooncDiagnostic {
@@ -74,21 +96,17 @@ impl MooncDiagnostic {
                         }
                     };
 
-                    let mut report_builder = ariadne::Report::build(
-                        kind,
-                        source_file_path,
-                        diagnostic.location.start.offset as usize,
-                    )
-                    .with_message(format!("[{}]", diagnostic.error_code).fg(color))
-                    .with_label(
-                        ariadne::Label::new((
-                            source_file_path,
-                            diagnostic.location.start.offset as usize
-                                ..diagnostic.location.end.offset as usize,
-                        ))
-                        .with_message((&diagnostic.message).fg(color))
-                        .with_color(color),
-                    );
+                    let start_offset = diagnostic.location.start.calculate_offset(&source_file);
+                    let end_offset = diagnostic.location.end.calculate_offset(&source_file);
+
+                    let mut report_builder =
+                        ariadne::Report::build(kind, source_file_path, start_offset)
+                            .with_message(format!("[{}]", diagnostic.error_code).fg(color))
+                            .with_label(
+                                ariadne::Label::new((source_file_path, start_offset..end_offset))
+                                    .with_message((&diagnostic.message).fg(color))
+                                    .with_color(color),
+                            );
 
                     if !use_fancy {
                         let config = ariadne::Config::default().with_color(false);
