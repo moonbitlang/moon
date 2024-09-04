@@ -24,7 +24,7 @@ use moonutil::cli::UniversalFlags;
 use moonutil::common::{
     lower_surface_targets, DriverKind, MoonbuildOpt, MooncGenTestInfo, RunMode, TargetBackend,
     TestOpt, BLACKBOX_TEST_DRIVER, INTERNAL_TEST_DRIVER, MOONBITLANG_CORE,
-    MOON_TEST_DELIMITER_BEGIN, MOON_TEST_DELIMITER_END, WHITEBOX_TEST_DRIVER,
+    MOON_TEST_DELIMITER_BEGIN, MOON_TEST_DELIMITER_END, TEST_INFO_FILE, WHITEBOX_TEST_DRIVER,
 };
 use moonutil::dirs::PackageDirs;
 use moonutil::mooncakes::sync::AutoSyncFlags;
@@ -64,7 +64,7 @@ fn moonc_gen_test_info(files: &[PathBuf], target_dir: &Path) -> anyhow::Result<S
 
     // append whitebox blackbox internal test info to test_info.json
     {
-        let test_info_json_path = target_dir.join("test_info.json");
+        let test_info_json_path = target_dir.join(TEST_INFO_FILE);
         out.push('\n');
         std::fs::OpenOptions::new()
             .create(true)
@@ -176,7 +176,7 @@ pub fn generate_test_driver(
         let backend_filtered: Vec<PathBuf> =
             moonutil::common::backend_filter(files, moonc_opt.link_opt.target_backend);
         let mbts_test_data =
-            moonc_gen_test_info(&backend_filtered, &target_dir.join(pkg.rel.full_name()))?;
+            moonc_gen_test_info(&backend_filtered, &target_dir.join(pkg.rel.fs_full_name()))?;
 
         if pkg.is_main && mbts_test_data.contains("(__test_") {
             eprintln!(

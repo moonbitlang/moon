@@ -36,7 +36,10 @@ use crate::check::normal::write_pkg_lst;
 use crate::expect::{apply_snapshot, render_snapshot_fail};
 use crate::runtest::TestStatistics;
 
-use moonutil::common::{MoonbuildOpt, MooncGenTestInfo, MooncOpt, TargetBackend, TestArtifacts};
+use moonutil::common::{
+    DriverKind, FileName, MoonbuildOpt, MooncGenTestInfo, MooncOpt, TargetBackend, TestArtifacts,
+    TestBlockIndex, TestName, TEST_INFO_FILE,
+};
 
 use std::sync::{Arc, Mutex};
 
@@ -312,37 +315,29 @@ impl std::fmt::Display for TestResult {
     }
 }
 
-// (pkg's runnable artifacts, <mbt file name, array of (index, test_name)>) for blackbox whitebox internal test
-#[allow(clippy::type_complexity)]
+pub type FileTestInfo = IndexMap<FileName, IndexMap<TestBlockIndex, Option<TestName>>>;
 fn convert_moonc_test_info(
     test_info_file: &Path,
     pkg: &Package,
     output_format: &str,
     filter_file: Option<&String>,
-) -> anyhow::Result<
-    Vec<(
-        Option<PathBuf>,
-        IndexMap<String, IndexMap<u32, Option<String>>>,
-    )>,
-> {
+    sort_input: bool,
+) -> anyhow::Result<IndexMap<PathBuf, FileTestInfo>> {
     let content = std::fs::read_to_string(test_info_file)
         .context(format!("failed to read {}", test_info_file.display()))?;
     let mut moonc_test_info = MooncGenTestInfo {
         no_args_tests: IndexMap::new(),
         with_args_tests: IndexMap::new(),
     };
-    for line in content.split('\n') {
+    // there are three line of json(internal, blackbox, whitebox) in test_info.json, merge them into one
+    for line in content.lines() {
         if let Ok(info) = serde_json_lenient::from_str::<MooncGenTestInfo>(line) {
             moonc_test_info.no_args_tests.extend(info.no_args_tests);
             moonc_test_info.with_args_tests.extend(info.with_args_tests);
         }
     }
 
-    let no_exist = (
-        None,
-        IndexMap::<String, IndexMap<u32, Option<String>>>::new(),
-    );
-    let mut current_pkg_test_info = vec![no_exist.clone(), no_exist.clone(), no_exist.clone()];
+    let mut current_pkg_test_info = IndexMap::new();
 
     for (filename, test_info) in moonc_test_info
         .no_args_tests
@@ -357,25 +352,28 @@ fn convert_moonc_test_info(
                 continue;
             }
         }
-        let (test_type, index) = if filename.ends_with("_test.mbt") {
-            ("blackbox", 0)
+        let test_type = if filename.ends_with("_test.mbt") {
+            DriverKind::Blackbox.to_string()
         } else if filename.ends_with("_wbtest.mbt") {
-            ("whitebox", 1)
+            DriverKind::Whitebox.to_string()
         } else {
-            ("internal", 2)
+            DriverKind::Internal.to_string()
         };
-
         let artifact_path = pkg
             .artifact
             .with_file_name(format!("{}.{test_type}_test.wat", pkg.last_name()))
             .with_extension(output_format);
 
-        let (artifact_opt, map) = &mut current_pkg_test_info[index];
-        if artifact_opt.is_none() {
-            *artifact_opt = Some(artifact_path);
-        }
-        let mbt_test_info = map.entry(filename).or_insert(IndexMap::new());
-        mbt_test_info.extend(test_info.iter().map(|it| (it.index, it.name.clone())));
+        current_pkg_test_info
+            .entry(artifact_path)
+            .or_insert(IndexMap::new())
+            .entry(filename)
+            .or_insert(IndexMap::new())
+            .extend(test_info.iter().map(|it| (it.index, it.name.clone())));
+    }
+
+    if sort_input {
+        current_pkg_test_info.sort_keys();
     }
 
     Ok(current_pkg_test_info)
@@ -425,19 +423,20 @@ pub fn run_test(
         }
 
         // convert moonc test info
-        let test_info_file = target_dir.join(pkg.rel.full_name()).join("test_info.json");
+        let test_info_file = target_dir.join(pkg.rel.fs_full_name()).join(TEST_INFO_FILE);
         let current_pkg_test_info = convert_moonc_test_info(
             &test_info_file,
             pkg,
             moonc_opt.link_opt.output_format.to_str(),
             filter_file,
+            moonbuild_opt.sort_input,
         )?;
 
         for (artifact_path, file_test_info_map) in current_pkg_test_info {
-            if artifact_path.is_none() {
-                continue;
-            }
-            let artifact_path = artifact_path.unwrap();
+            // if artifact_path.is_none() {
+            //     continue;
+            // }
+            // let artifact_path = artifact_path.unwrap();
 
             let mut test_args = TestArgs {
                 package: pkgname.clone(),
@@ -589,7 +588,7 @@ async fn execute_test(
     artifact_path: &Path,
     target_dir: &Path,
     args: &TestArgs,
-    file_test_info_map: &IndexMap<String, IndexMap<u32, Option<String>>>,
+    file_test_info_map: &FileTestInfo,
 ) -> anyhow::Result<Vec<Result<TestStatistics, TestFailedStatus>>> {
     match target_backend {
         TargetBackend::Wasm | TargetBackend::WasmGC => {
@@ -618,7 +617,7 @@ async fn handle_test_result(
     artifact_path: &Path,
     target_dir: &Path,
     printed: Arc<AtomicBool>,
-    file_test_info_map: &IndexMap<String, IndexMap<u32, Option<String>>>,
+    file_test_info_map: &FileTestInfo,
 ) -> anyhow::Result<()> {
     let output_failure_in_json = moonbuild_opt
         .test_opt

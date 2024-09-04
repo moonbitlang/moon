@@ -101,7 +101,6 @@ let with_args_tests : Map[String, Map[Int, ((@test.T) -> Unit!Error, Array[Strin
 // REPLACE ME 0
 
 fn main {
-  // let _ = tests
   let file_filter: String? = Some(moonbit_test_driver_internal_get_file_name())
   let index = moonbit_test_driver_internal_get_index()
   let index_filter : Int? = Some(index)

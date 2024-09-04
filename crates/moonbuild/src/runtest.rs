@@ -16,13 +16,12 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
-use crate::entry::{TestArgs, TestFailedStatus};
+use crate::entry::{FileTestInfo, TestArgs, TestFailedStatus};
 use crate::expect::{snapshot_eq, ERROR, EXPECT_FAILED, FAILED, RUNTIME_ERROR, SNAPSHOT_TESTING};
 use crate::section_capture::{handle_stdout, SectionCapture};
 
 use super::gen;
 use anyhow::{bail, Context};
-use indexmap::IndexMap;
 use moonutil::common::{
     MoonbuildOpt, MooncOpt, MOON_COVERAGE_DELIMITER_BEGIN, MOON_COVERAGE_DELIMITER_END,
     MOON_TEST_DELIMITER_BEGIN, MOON_TEST_DELIMITER_END,
@@ -66,7 +65,7 @@ pub async fn run_wat(
     path: &Path,
     target_dir: &Path,
     args: &TestArgs,
-    file_test_info_map: &IndexMap<String, IndexMap<u32, Option<String>>>,
+    file_test_info_map: &FileTestInfo,
 ) -> anyhow::Result<Vec<Result<TestStatistics, TestFailedStatus>>> {
     // put "--test-mode" at the front of args
     let mut _args = vec!["--test-mode".to_string()];
@@ -78,7 +77,7 @@ pub async fn run_js(
     path: &Path,
     target_dir: &Path,
     args: &TestArgs,
-    file_test_info_map: &IndexMap<String, IndexMap<u32, Option<String>>>,
+    file_test_info_map: &FileTestInfo,
 ) -> anyhow::Result<Vec<Result<TestStatistics, TestFailedStatus>>> {
     run(
         "node",
@@ -95,7 +94,7 @@ async fn run(
     path: &Path,
     target_dir: &Path,
     args: &[String],
-    file_test_info_map: &IndexMap<String, IndexMap<u32, Option<String>>>,
+    file_test_info_map: &FileTestInfo,
 ) -> anyhow::Result<Vec<Result<TestStatistics, TestFailedStatus>>> {
     let mut execution = tokio::process::Command::new(command)
         .arg(path)
@@ -162,10 +161,8 @@ async fn run(
             let index = &test_statistic.index.parse::<u32>().unwrap();
             let test_name = file_test_info_map
                 .get(filename)
-                .unwrap()
-                .get(index)
-                .unwrap()
-                .as_ref()
+                .and_then(|m| m.get(index))
+                .and_then(|s| s.as_ref())
                 .unwrap_or(&test_statistic.index);
 
             if test_name.starts_with("panic") {

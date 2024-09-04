@@ -51,6 +51,8 @@ pub const WATCH_MODE_DIR: &str = "watch";
 pub const MOON_SNAPSHOT_DELIMITER_BEGIN: &str = "----- BEGIN MOONBIT SNAPSHOT TESTING -----";
 pub const MOON_SNAPSHOT_DELIMITER_END: &str = "----- END MOONBIT SNAPSHOT TESTING -----";
 
+pub const TEST_INFO_FILE: &str = "test_info.json";
+
 pub fn startswith_and_trim(s: &str, t: &str) -> String {
     if s.starts_with(t) {
         s.replacen(t, "", 1)
@@ -723,19 +725,21 @@ pub const INTERNAL_TEST_DRIVER: &str = "__generated_driver_for_internal_test.mbt
 pub const WHITEBOX_TEST_DRIVER: &str = "__generated_driver_for_whitebox_test.mbt";
 pub const BLACKBOX_TEST_DRIVER: &str = "__generated_driver_for_blackbox_test.mbt";
 
+pub type FileName = String;
+pub type TestName = String;
+pub type TestBlockIndex = u32;
+
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct MbtTestInfo {
-    pub index: u32,
+    pub index: TestBlockIndex,
     pub func: String,
-    pub name: Option<String>,
+    pub name: Option<TestName>,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct MooncGenTestInfo {
-    // filename, test_info
-    // pub tests: HashMap<String, Vec<MbtTestInfo>>,
-    pub no_args_tests: IndexMap<String, Vec<MbtTestInfo>>,
-    pub with_args_tests: IndexMap<String, Vec<MbtTestInfo>>,
+    pub no_args_tests: IndexMap<FileName, Vec<MbtTestInfo>>,
+    pub with_args_tests: IndexMap<FileName, Vec<MbtTestInfo>>,
 }
 
 impl MooncGenTestInfo {
