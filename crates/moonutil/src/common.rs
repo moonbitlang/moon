@@ -21,7 +21,6 @@ use crate::module::{MoonMod, MoonModJSON};
 use crate::package::{convert_pkg_json_to_package, MoonPkg, MoonPkgJSON};
 use anyhow::{bail, Context};
 use clap::ValueEnum;
-use colored::Colorize;
 use fs4::FileExt;
 use indexmap::IndexMap;
 use serde::{Deserialize, Serialize};
@@ -626,34 +625,40 @@ pub fn get_moon_version() -> String {
     )
 }
 
-pub fn get_moonc_version() -> String {
+pub fn get_moonc_version() -> anyhow::Result<String> {
     let output = std::process::Command::new("moonc").arg("-v").output();
-    if let Ok(output) = &output {
-        if output.status.success() {
-            return std::str::from_utf8(&output.stdout)
-                .unwrap()
-                .trim()
-                .to_string();
+    match output {
+        Ok(output) => {
+            if output.status.success() {
+                return Ok(std::str::from_utf8(&output.stdout)?.trim().to_string());
+            } else {
+                anyhow::bail!(
+                    "failed to get moonc version: {}",
+                    std::str::from_utf8(&output.stderr)?
+                );
+            }
         }
+        Err(e) => anyhow::bail!("failed to get moonc version: {}", e),
     }
-    println!("{}: failed to get moonc version", "error".red().bold());
-    std::process::exit(1);
 }
 
-pub fn get_moonrun_version() -> String {
+pub fn get_moonrun_version() -> anyhow::Result<String> {
     let output = std::process::Command::new("moonrun")
         .arg("--version")
         .output();
-    if let Ok(output) = &output {
-        if output.status.success() {
-            return std::str::from_utf8(&output.stdout)
-                .unwrap()
-                .trim()
-                .to_string();
+    match output {
+        Ok(output) => {
+            if output.status.success() {
+                return Ok(std::str::from_utf8(&output.stdout)?.trim().to_string());
+            } else {
+                anyhow::bail!(
+                    "failed to get moonrun version: {}",
+                    std::str::from_utf8(&output.stderr)?
+                );
+            }
         }
+        Err(e) => anyhow::bail!("failed to get moonrun version: {}", e),
     }
-    println!("{}: failed to get moonrun version", "error".red().bold());
-    std::process::exit(1);
 }
 
 #[test]
@@ -661,7 +666,7 @@ fn test_get_version() {
     let v = get_moon_version();
     println!("moon_version: {}", v);
     assert!(!v.is_empty());
-    let v = get_moonc_version();
+    let v = get_moonc_version().unwrap();
     println!("moonc_version: {}", v);
     assert!(!v.is_empty());
 }
