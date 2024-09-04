@@ -22,14 +22,14 @@ use colored::Colorize;
 use mooncake::pkg::sync::auto_sync;
 use moonutil::cli::UniversalFlags;
 use moonutil::common::{
-    lower_surface_targets, DriverKind, MoonbuildOpt, RunMode, TargetBackend, TestOpt,
-    BLACKBOX_TEST_DRIVER, INTERNAL_TEST_DRIVER, MOONBITLANG_CORE, MOON_TEST_DELIMITER_BEGIN,
-    MOON_TEST_DELIMITER_END, WHITEBOX_TEST_DRIVER,
+    lower_surface_targets, DriverKind, MoonbuildOpt, MooncGenTestInfo, RunMode, TargetBackend,
+    TestOpt, BLACKBOX_TEST_DRIVER, INTERNAL_TEST_DRIVER, MOONBITLANG_CORE,
+    MOON_TEST_DELIMITER_BEGIN, MOON_TEST_DELIMITER_END, TEST_INFO_FILE, WHITEBOX_TEST_DRIVER,
 };
 use moonutil::dirs::PackageDirs;
 use moonutil::mooncakes::sync::AutoSyncFlags;
 use moonutil::mooncakes::RegistryConfig;
-use std::io::Read;
+use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 
 /// Test the current package
@@ -45,9 +45,10 @@ pub struct GeneratedTestDriverSubcommand {
     pub driver_kind: DriverKind,
 }
 
-fn moonc_gen_test_info(files: &[PathBuf]) -> anyhow::Result<String> {
+fn moonc_gen_test_info(files: &[PathBuf], target_dir: &Path) -> anyhow::Result<String> {
     let mut generated = std::process::Command::new("moonc")
         .arg("gen-test-info")
+        .arg("-json")
         .args(files)
         .stdout(std::process::Stdio::piped())
         .spawn()
@@ -60,7 +61,28 @@ fn moonc_gen_test_info(files: &[PathBuf]) -> anyhow::Result<String> {
         .read_to_string(&mut out)
         .with_context(|| gen_error_message(files))?;
     generated.wait()?;
-    return Ok(out);
+
+    // append whitebox blackbox internal test info to test_info.json
+    {
+        let test_info_json_path = target_dir.join(TEST_INFO_FILE);
+        out.push('\n');
+        std::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(&test_info_json_path)
+            .context(format!(
+                "failed to open file: {}",
+                test_info_json_path.display()
+            ))?
+            .write_all(out.as_bytes())
+            .context(format!(
+                "failed to write file: {}",
+                test_info_json_path.display()
+            ))?;
+    }
+
+    let t: MooncGenTestInfo = serde_json_lenient::from_str(&out)?;
+    return Ok(t.to_mbt());
 
     fn gen_error_message(files: &[PathBuf]) -> String {
         format!(
@@ -153,7 +175,8 @@ pub fn generate_test_driver(
 
         let backend_filtered: Vec<PathBuf> =
             moonutil::common::backend_filter(files, moonc_opt.link_opt.target_backend);
-        let mbts_test_data = moonc_gen_test_info(&backend_filtered)?;
+        let mbts_test_data =
+            moonc_gen_test_info(&backend_filtered, &target_dir.join(pkg.rel.fs_full_name()))?;
 
         if pkg.is_main && mbts_test_data.contains("(__test_") {
             eprintln!(
@@ -175,7 +198,7 @@ pub fn generate_test_driver(
 }
 
 fn generate_driver(data: &str, pkgname: &str, target_backend: Option<TargetBackend>) -> String {
-    let index = data.find("  let with_args_tests =").unwrap_or(data.len());
+    let index = data.find("let with_args_tests =").unwrap_or(data.len());
     let only_no_arg_tests = !data[index..].contains("__test_");
 
     // TODO: need refactor
@@ -196,16 +219,11 @@ fn generate_driver(data: &str, pkgname: &str, target_backend: Option<TargetBacke
                 test_driver_template
                 .replace("\r\n", "\n")
                 .replace(
-                    "let tests: Map[String, Array[(() -> Unit!Error, Array[String])]] = {  } // WILL BE REPLACED\n\
-            let no_args_tests: Map[String, Map[Int, (() -> Unit!Error, Array[String])]] = {  } // WILL BE REPLACED\n",
+                    "let no_args_tests: Map[String, Map[Int, (() -> Unit!Error, Array[String])]] = {  } // WILL BE REPLACED\n",
                     &data[0..index],
                 )
                 .replace(
-                    "let tests = {",
-                    "let _tests: Map[String, Array[(() -> Unit!Error, Array[String])]] = {",
-                )
-                .replace(
-                    "  let no_args_tests = {",
+                    "let no_args_tests = {",
                     "let no_args_tests: Map[String, Map[Int, (() -> Unit!Error, Array[String])]] = {",
                 )
                 .replace("{PACKAGE}", pkgname)
@@ -225,11 +243,9 @@ fn generate_driver(data: &str, pkgname: &str, target_backend: Option<TargetBacke
                 };
                 test_driver_template
                     .replace("\r\n", "\n")
-                    .replace("let tests : Map[String, Array[(() -> Unit!Error, Array[String])]] = { }\n", "")
                     .replace("let no_args_tests : Map[String, Map[Int, (() -> Unit!Error, Array[String])]] = { }\n", "")
                     .replace("let with_args_tests : Map[String, Map[Int, ((@test.T) -> Unit!Error, Array[String])]] = { }\n", "")
                     .replace("// REPLACE ME 0\n", &data.replace("  let", "let"))
-                    .replace("let tests =", "let tests : Map[String, Array[(() -> Unit!Error, Array[String])]] =")
                     .replace("let no_args_tests =", "let no_args_tests : Map[String, Map[Int, (() -> Unit!Error, Array[String])]] =")
                     .replace("let with_args_tests =", "let with_args_tests : Map[String, Map[Int, ((@test.T) -> Unit!Error, Array[String])]] =")
                     .replace("{PACKAGE}", pkgname)
@@ -253,13 +269,8 @@ fn generate_driver(data: &str, pkgname: &str, target_backend: Option<TargetBacke
                 test_driver_template
                 .replace("\r\n", "\n")
                 .replace(
-                    "let tests: Map[String, Array[(() -> Unit!Error, Array[String])]] = {  } // WILL BE REPLACED\n\
-                    let no_args_tests: Map[String, Map[Int, (() -> Unit!Error, Array[String])]] = {  } // WILL BE REPLACED\n",
+                    "let no_args_tests: Map[String, Map[Int, (() -> Unit!Error, Array[String])]] = {  } // WILL BE REPLACED\n",
                     &data[0..index].replace("  let", "let"),
-                )
-                .replace(
-                    "let tests = {",
-                    "let _tests: Map[String, Array[(() -> Unit!Error, Array[String])]] = {",
                 )
                 .replace(
                     "let no_args_tests = {",
@@ -283,14 +294,9 @@ fn generate_driver(data: &str, pkgname: &str, target_backend: Option<TargetBacke
                 test_driver_template
                 .replace("\r\n", "\n")
                 .replace(
-                    "let tests: Map[String, Array[(() -> Unit!Error, Array[String])]] = {  } // WILL BE REPLACED\n\
-                    let no_args_tests : Map[String, Map[Int, (() -> Unit!Error, Array[String])]] = { }  // WILL BE REPLACED\n\
+                    "let no_args_tests : Map[String, Map[Int, (() -> Unit!Error, Array[String])]] = { }  // WILL BE REPLACED\n\
                     let with_args_tests : Map[String, Map[Int, ((@test.T) -> Unit!Error, Array[String])]] = { }  // WILL BE REPLACED\n",
                     &data.replace("  let ", "let "),
-                )
-                .replace(
-                    "let tests = {",
-                    "let _tests: Map[String, Array[(() -> Unit!Error, Array[String])]] = {",
                 )
                 .replace(
                     "let no_args_tests = {",

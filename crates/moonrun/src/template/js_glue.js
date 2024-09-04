@@ -51,7 +51,7 @@ try {
                     instance.exports._start();
                 } catch (e) {
                     console.log("----- BEGIN MOON TEST RESULT -----")
-                    console.log(`{"package": "${packageName}", "filename": "${param[0]}", "index": "${param[1]}", "test_name": "${param[1]}", "message": "${e.stack.toString().split('\n').join('\\n')}"}`);
+                    console.log(`{"package": "${packageName}", "filename": "${param[0]}", "index": "${param[1]}", "test_name": "${param[1]}", "message": "${e.stack.toString().replaceAll("\\", "\\\\").split('\n').join('\\n')}"}`);
                     console.log("----- END MOON TEST RESULT -----")
                 }
             }

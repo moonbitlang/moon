@@ -31,15 +31,11 @@ use std::collections::HashSet;
 use std::fmt::Debug;
 use std::path::{Path, PathBuf};
 
-// Map<pkg, (it's runnable artifacts, <mbt file name, it's test block nums>) for inline whitebox blackbox test>
-type TestInfo = IndexMap<String, [(Option<PathBuf>, IndexMap<String, u32>); 3]>;
-
 #[derive(Debug, Clone)]
 pub struct ModuleDB {
     pub source_dir: PathBuf,
     pub name: String,
     pub packages: IndexMap<String, Package>,
-    pub test_info: TestInfo,
     pub entries: Vec<usize>, // index of entry packages
     pub deps: Vec<String>,
     pub graph: DiGraph<String, usize>,

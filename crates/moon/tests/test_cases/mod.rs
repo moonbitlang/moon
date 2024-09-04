@@ -1013,13 +1013,13 @@ fn test_moon_test_filter_package() {
             ],
         ),
         expect![[r#"
-            test hello_0
-            test hello_1
-            test hello_2
             test A
             test B
             test C
             test D
+            test hello_0
+            test hello_1
+            test hello_2
             Total tests: 7, passed: 7, failed: 0.
         "#]],
     );
@@ -1036,9 +1036,9 @@ fn test_moon_test_filter_package() {
             ],
         ),
         expect![[r#"
+            test A
             test hello_0
             test hello_1
-            test A
             Total tests: 3, passed: 3, failed: 0.
         "#]],
     );
@@ -1062,11 +1062,11 @@ fn test_moon_test_filter_multi_package() {
             ],
         ),
         expect![[r#"
-            Hello from lib7
             Hello from lib1
 
             Hello from lib2
 
+            Hello from lib7
             Hello from lib3
 
             Hello from lib4
@@ -1090,18 +1090,18 @@ fn test_moon_test_filter_multi_package() {
             ],
         ),
         expect![[r#"
-            Hello from lib7
             Hello from lib1
 
             Hello from lib2
 
+            Hello from lib7
             Hello from lib3
 
             Hello from lib4
-            Hello from lib6
             Hello from lib3
 
             Hello from lib7
+            Hello from lib6
             Total tests: 7, passed: 7, failed: 0.
         "#]],
     );
@@ -1225,14 +1225,20 @@ fn test_moon_test_filter_package_with_test_imports() {
     check(
         &get_stdout_with_args(
             &dir,
-            ["test", "-p", "username/hello/lib", "--no-parallelize"],
+            [
+                "test",
+                "-p",
+                "username/hello/lib",
+                "--sort-input",
+                "--no-parallelize",
+            ],
         ),
         expect![[r#"
-            Hello from lib7
             Hello from lib1
 
             Hello from lib2
 
+            Hello from lib7
             Total tests: 2, passed: 2, failed: 0.
         "#]],
     );
@@ -1240,7 +1246,13 @@ fn test_moon_test_filter_package_with_test_imports() {
     check(
         &get_stdout_with_args(
             &dir,
-            ["test", "-p", "username/hello/lib1", "--no-parallelize"],
+            [
+                "test",
+                "-p",
+                "username/hello/lib1",
+                "--sort-input",
+                "--no-parallelize",
+            ],
         ),
         expect![[r#"
             Hello from lib3
@@ -1252,7 +1264,13 @@ fn test_moon_test_filter_package_with_test_imports() {
     check(
         &get_stdout_with_args(
             &dir,
-            ["test", "-p", "username/hello/lib2", "--no-parallelize"],
+            [
+                "test",
+                "-p",
+                "username/hello/lib2",
+                "--sort-input",
+                "--no-parallelize",
+            ],
         ),
         expect![[r#"
             Hello from lib4
@@ -1263,13 +1281,19 @@ fn test_moon_test_filter_package_with_test_imports() {
     check(
         &get_stdout_with_args(
             &dir,
-            ["test", "-p", "username/hello/lib3", "--no-parallelize"],
+            [
+                "test",
+                "-p",
+                "username/hello/lib3",
+                "--sort-input",
+                "--no-parallelize",
+            ],
         ),
         expect![[r#"
-            Hello from lib6
             Hello from lib3
 
             Hello from lib7
+            Hello from lib6
             Total tests: 3, passed: 3, failed: 0.
         "#]],
     );
@@ -1277,12 +1301,18 @@ fn test_moon_test_filter_package_with_test_imports() {
     check(
         &get_stdout_with_args(
             &dir,
-            ["test", "-p", "username/hello/lib4", "--no-parallelize"],
+            [
+                "test",
+                "-p",
+                "username/hello/lib4",
+                "--sort-input",
+                "--no-parallelize",
+            ],
         ),
         expect![[r#"
             Hello from lib5
-            Hello from lib7
             Hello from lib5
+            Hello from lib7
             Total tests: 3, passed: 3, failed: 0.
         "#]],
     );
@@ -1290,7 +1320,13 @@ fn test_moon_test_filter_package_with_test_imports() {
     check(
         &get_stdout_with_args(
             &dir,
-            ["test", "-p", "username/hello/lib5", "--no-parallelize"],
+            [
+                "test",
+                "-p",
+                "username/hello/lib5",
+                "--sort-input",
+                "--no-parallelize",
+            ],
         ),
         expect![[r#"
             Hello from lib5
@@ -1301,7 +1337,13 @@ fn test_moon_test_filter_package_with_test_imports() {
     check(
         &get_stdout_with_args(
             &dir,
-            ["test", "-p", "username/hello/lib6", "--no-parallelize"],
+            [
+                "test",
+                "-p",
+                "username/hello/lib6",
+                "--sort-input",
+                "--no-parallelize",
+            ],
         ),
         expect![[r#"
             Hello from lib6
@@ -1312,11 +1354,17 @@ fn test_moon_test_filter_package_with_test_imports() {
     check(
         &get_stdout_with_args(
             &dir,
-            ["test", "-p", "username/hello/lib7", "--no-parallelize"],
+            [
+                "test",
+                "-p",
+                "username/hello/lib7",
+                "--sort-input",
+                "--no-parallelize",
+            ],
         ),
         expect![[r#"
-            Hello from lib6
             Hello from lib7
+            Hello from lib6
             Total tests: 2, passed: 2, failed: 0.
         "#]],
     );
@@ -1625,10 +1673,10 @@ fn test_moon_test_hello_exec_fntest() {
     check(
         &get_stdout_with_args(&dir, ["test", "-v", "--sort-input", "--no-parallelize"]),
         expect![[r#"
-            test in lib/hello_test.mbt
-            test moonbitlang/hello/lib/hello_wbtest.mbt::0 ok
             test in lib/hello.mbt
             test moonbitlang/hello/lib/hello.mbt::0 ok
+            test in lib/hello_test.mbt
+            test moonbitlang/hello/lib/hello_wbtest.mbt::0 ok
             Total tests: 2, passed: 2, failed: 0.
         "#]],
     );
@@ -2096,22 +2144,22 @@ fn test_moon_inline_test_order() {
     check(
         &get_stdout_with_args(&dir, ["test", "-v", "--sort-input", "--no-parallelize"]),
         expect![[r#"
-            A_test.mbt::init
-            A_test.mbt::test_hello_A
-            test username/hello/A/A_wbtest.mbt::0 ok
-            test username/hello/A/A_wbtest.mbt::1 ok
             executing A
             executing A::hello.mbt::test_A
             test username/hello/A/hello.mbt::0 ok
             test username/hello/A/hello.mbt::1 ok
-            B_test.mbt::init
-            B_test.mbt::test_hello_B
-            test username/hello/B/B_wbtest.mbt::0 ok
-            test username/hello/B/B_wbtest.mbt::1 ok
+            A_test.mbt::init
+            A_test.mbt::test_hello_A
+            test username/hello/A/A_wbtest.mbt::0 ok
+            test username/hello/A/A_wbtest.mbt::1 ok
             executing B
             executing B::hello.mbt::test_B
             test username/hello/B/hello.mbt::0 ok
             test username/hello/B/hello.mbt::1 ok
+            B_test.mbt::init
+            B_test.mbt::test_hello_B
+            test username/hello/B/B_wbtest.mbt::0 ok
+            test username/hello/B/B_wbtest.mbt::1 ok
             Total tests: 8, passed: 8, failed: 0.
         "#]],
     );
@@ -3424,9 +3472,9 @@ fn test_moon_test_release() {
             ["test", "--release", "--sort-input", "--no-parallelize"],
         ),
         expect![[r#"
+            test A
             test hello_0
             test hello_1
-            test A
             Total tests: 3, passed: 3, failed: 0.
         "#]],
     );
@@ -5992,9 +6040,9 @@ fn test_js() {
     check(
         &output,
         expect![[r#"
+            test A
             test hello_0
             test hello_1
-            test A
             Total tests: 3, passed: 3, failed: 0.
         "#]],
     );
