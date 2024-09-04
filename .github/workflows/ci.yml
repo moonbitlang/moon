@@ -102,7 +102,9 @@ jobs:
           mdbook-version: 'latest'
 
       - name: Build and Check mdBook
-        run: mdbook build docs/manual
+        run: |
+          mdbook build docs/manual
+          mdbook build docs/manual-zh
 
   test:
     needs: [typo-check, license-header-check]
