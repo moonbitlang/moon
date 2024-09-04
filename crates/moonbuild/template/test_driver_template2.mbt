@@ -129,7 +129,7 @@ fn main {
 
 // =========== ffi start ===========
 
-fn _moonbit_test_driver_internal_get_file_name() -> ExternString = "test" "get_file_name"
+fn _moonbit_test_driver_internal_get_file_name() -> MoonbitTestDriverInternalExternString = "test" "get_file_name"
 fn moonbit_test_driver_internal_get_file_name() -> String {
   let file_name = _moonbit_test_driver_internal_get_file_name()
   moonbit_test_driver_internal_string_from_extern(file_name)
@@ -137,18 +137,18 @@ fn moonbit_test_driver_internal_get_file_name() -> String {
 
 fn moonbit_test_driver_internal_get_index() -> Int = "test" "get_index"
 
-type StringReadHandle
+type MoonbitTestDriverInternalStringReadHandle
 
-type ExternString
+type MoonbitTestDriverInternalExternString
 
-fn moonbit_test_driver_internal_begin_read_string(s : ExternString) -> StringReadHandle = "__moonbit_fs_unstable" "begin_read_string"
+fn moonbit_test_driver_internal_begin_read_string(s : MoonbitTestDriverInternalExternString) -> MoonbitTestDriverInternalStringReadHandle = "__moonbit_fs_unstable" "begin_read_string"
 
-fn moonbit_test_driver_internal_string_read_char(handle : StringReadHandle) -> Int = "__moonbit_fs_unstable" "string_read_char"
+fn moonbit_test_driver_internal_string_read_char(handle : MoonbitTestDriverInternalStringReadHandle) -> Int = "__moonbit_fs_unstable" "string_read_char"
 
-fn moonbit_test_driver_internal_finish_read_string(handle : StringReadHandle) = "__moonbit_fs_unstable" "finish_read_string"
+fn moonbit_test_driver_internal_finish_read_string(handle : MoonbitTestDriverInternalStringReadHandle) = "__moonbit_fs_unstable" "finish_read_string"
 
-fn moonbit_test_driver_internal_string_from_extern(e : ExternString) -> String {
-  let buf = Buffer::new()
+fn moonbit_test_driver_internal_string_from_extern(e : MoonbitTestDriverInternalExternString) -> String {
+  let buf = @moonbitlang/core/builtin.Buffer::new()
   let handle = moonbit_test_driver_internal_begin_read_string(e)
   while true {
     let ch = moonbit_test_driver_internal_string_read_char(handle)
