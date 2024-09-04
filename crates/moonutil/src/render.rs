@@ -19,6 +19,8 @@
 use ariadne::Fmt;
 use serde::{Deserialize, Serialize};
 
+use crate::common::line_col_to_byte_idx;
+
 #[derive(Debug, Serialize, Deserialize)]
 pub struct MooncDiagnostic {
     pub level: String,
@@ -43,24 +45,16 @@ pub struct Position {
 
 impl Position {
     pub fn calculate_offset(&self, content: &str) -> usize {
-        // line and col count from 1
-        let mut current_line = 1;
-        let mut current_col = 1;
+        let line_index = line_index::LineIndex::new(content);
+        let byte_based_index =
+            line_col_to_byte_idx(&line_index, self.line as u32 - 1, self.col as u32 - 1).unwrap();
 
-        for (char_idx, (_, c)) in content.char_indices().enumerate() {
-            if current_line == self.line && current_col == self.col {
-                return char_idx;
-            }
-
-            if c == '\n' {
-                current_line += 1;
-                current_col = 1;
-            } else {
-                current_col += 1;
-            }
-        }
-
-        content.chars().count()
+        content
+            .char_indices()
+            .enumerate()
+            .find(|(_, (byte_offset, _))| *byte_offset == byte_based_index)
+            .map(|(i, _)| i)
+            .unwrap_or(usize::from(line_index.len()))
     }
 }
 
