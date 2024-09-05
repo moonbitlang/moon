@@ -44,6 +44,7 @@ env_logger.workspace = true
 log.workspace = true
 thiserror.workspace = true
 schemars.workspace = true
+line-index.workspace = true
 
 [dev-dependencies]
 expect-test.workspace = true
