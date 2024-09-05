@@ -5503,7 +5503,7 @@ fn test_specify_source_dir_001() {
         "#]],
     );
     check(
-        &get_stderr_on_success_with_args_and_replace_dir(&dir, ["check"]),
+        &get_stderr_on_success_with_args_and_replace_dir(&dir, ["check", "--sort-input"]),
         expect![[r#"
             Finished. moon: ran 3 tasks, now up to date
         "#]],

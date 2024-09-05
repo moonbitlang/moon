@@ -84,7 +84,7 @@ pub fn run_doc(cli: UniversalFlags, cmd: DocSubcommand) -> anyhow::Result<i32> {
     let moonbuild_opt = MoonbuildOpt {
         source_dir: source_dir.clone(),
         target_dir,
-        sort_input: false,
+        sort_input: true,
         run_mode,
         ..Default::default()
     };
