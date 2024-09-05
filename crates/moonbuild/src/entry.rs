@@ -20,8 +20,11 @@ use indexmap::IndexMap;
 use moonutil::module::ModuleDB;
 use moonutil::package::Package;
 use moonutil::path::PathComponent;
+use n2::graph::FileId;
+use n2::load::State;
 use n2::progress::{DumbConsoleProgress, FancyConsoleProgress, Progress};
 use n2::terminal;
+use std::collections::HashSet;
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::AtomicBool;
@@ -108,7 +111,7 @@ pub fn n2_run_interface(
     };
 
     if moonbuild_opt.build_graph {
-        vis_build_graph(&state.graph, moonbuild_opt);
+        vis_build_graph(&state, moonbuild_opt);
     }
 
     let mut progress = create_progress_console(Some(Box::new(render_and_catch)));
@@ -168,25 +171,41 @@ pub fn n2_run_interface(
     Ok(res)
 }
 
-fn vis_build_graph(graph: &n2::graph::Graph, moonbuild_opt: &MoonbuildOpt) {
+fn vis_build_graph(state: &State, moonbuild_opt: &MoonbuildOpt) {
     let path = moonbuild_opt.target_dir.join("build_graph.dot");
     let source_dir = moonbuild_opt.source_dir.display().to_string();
+
+    let graph = &state.graph;
     let files = &graph.files;
     let builds = &graph.builds;
+    let default_artifact = state
+        .default
+        .clone()
+        .into_iter()
+        .collect::<HashSet<FileId>>();
 
     let mut dot = String::from("digraph BuildGraph {\n");
 
     for file_id in files.all_ids() {
         let file_name = &files.by_id[file_id].name.replace(&source_dir, ".");
-        dot.push_str(&format!("    \"{}\" [shape=box];\n", file_name));
+        // mark the file if it's the default artifact that we really want
+        let (style, fontcolor) = if default_artifact.contains(&file_id) {
+            ("style=filled, fillcolor=black", "fontcolor=white")
+        } else {
+            ("color=black", "")
+        };
+        dot.push_str(&format!(
+            "    \"{}\" [shape=box, {}, {}];\n",
+            file_name, style, fontcolor
+        ));
     }
 
-    let default = "missing description".to_string();
+    let default_desc = "missing description".to_string();
     for build in builds.iter() {
         let build_desc = build
             .desc
             .as_ref()
-            .unwrap_or(&default)
+            .unwrap_or(&default_desc)
             .replace(&source_dir, ".");
         dot.push_str(&format!("    \"{}\" [shape=ellipse];\n", build_desc));
 
