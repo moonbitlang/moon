@@ -26,7 +26,7 @@ use moonutil::{
 
 use super::UniversalFlags;
 
-/// Format moonbit source code
+/// Format source code
 #[derive(Debug, clap::Parser)]
 pub struct FmtSubcommand {
     #[clap(long)]

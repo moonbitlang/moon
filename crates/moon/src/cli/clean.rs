@@ -22,7 +22,7 @@ use moonutil::{
     common::{FileLock, MOON_MOD_JSON},
 };
 
-/// Clean the target directory
+/// Remove the target directory
 #[derive(Debug, clap::Parser)]
 pub struct CleanSubcommand {}
 

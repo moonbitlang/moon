@@ -17,13 +17,13 @@
     Usage: moon [OPTIONS] <COMMAND>
 
     Commands:
-    new                    Create a new moonbit package
+    new                    Create a new MoonBit module
     build                  Build the current package
     check                  Check the current package, but don't build object files
-    run                    Run WebAssembly module
+    run                    Run a main package
     test                   Test the current package
-    clean                  Clean the target directory
-    fmt                    Format moonbit source code
+    clean                  Remove the target directory
+    fmt                    Format source code
     doc                    Generate documentation
     info                   Generate public interface (`.mbti`) files for all packages in the module
     add                    Add a dependency
