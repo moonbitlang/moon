@@ -18,7 +18,7 @@
 
 use super::cmd_builder::CommandBuilder;
 use crate::gen::MiAlias;
-use anyhow::bail;
+use anyhow::{bail, Context};
 use indexmap::map::IndexMap;
 use moonutil::module::ModuleDB;
 use moonutil::package::Package;
@@ -367,7 +367,9 @@ pub fn gen_n2_check_state(
     }
 
     let mut hashes = n2graph::Hashes::default();
-    let db = n2::db::open(&target_dir.join("check.moon_db"), &mut graph, &mut hashes)?;
+    let n2_db_path = &target_dir.join("check.moon_db");
+    let db = n2::db::open(n2_db_path, &mut graph, &mut hashes)
+        .with_context(|| format!("failed to process n2 db: {}", n2_db_path.display()))?;
 
     let default = graph.get_start_nodes();
 

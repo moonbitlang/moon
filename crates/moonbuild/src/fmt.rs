@@ -212,11 +212,9 @@ pub fn gen_n2_fmt_state(
     default.push(inplace_format_action);
 
     let mut hashes = n2graph::Hashes::default();
-    let db = n2::db::open(
-        &moonbuild_opt.target_dir.join("format.db"),
-        &mut graph,
-        &mut hashes,
-    )?;
+    let n2_db_path = &moonbuild_opt.target_dir.join("format.db");
+    let db = n2::db::open(n2_db_path, &mut graph, &mut hashes)
+        .with_context(|| format!("failed to process n2 db: {}", n2_db_path.display()))?;
 
     Ok(State {
         graph,
@@ -311,11 +309,9 @@ pub fn gen_n2_fmt_check_state(
     default.push(format_to_action);
 
     let mut hashes = n2graph::Hashes::default();
-    let db = n2::db::open(
-        &moonbuild_opt.target_dir.join("format.db"),
-        &mut graph,
-        &mut hashes,
-    )?;
+    let n2_db_path = &moonbuild_opt.target_dir.join("format.db");
+    let db = n2::db::open(n2_db_path, &mut graph, &mut hashes)
+        .with_context(|| format!("failed to process n2 db: {}", n2_db_path.display()))?;
 
     Ok(State {
         graph,
