@@ -38,7 +38,7 @@ use n2::trace;
 
 use super::{BuildFlags, UniversalFlags};
 
-/// Run WebAssembly module
+/// Run a main package
 #[derive(Debug, clap::Parser, Clone)]
 pub struct RunSubcommand {
     /// The package or .mbt file to run

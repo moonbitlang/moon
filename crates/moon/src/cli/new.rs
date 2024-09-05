@@ -24,7 +24,7 @@ use moonutil::{common::MOON_MOD_JSON, mooncakes::validate_username};
 
 use super::UniversalFlags;
 
-/// Create a new moonbit package
+/// Create a new MoonBit module
 #[derive(Debug, clap::Parser)]
 pub struct NewSubcommand {
     /// The name of the package
