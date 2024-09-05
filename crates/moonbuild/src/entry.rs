@@ -107,6 +107,10 @@ pub fn n2_run_interface(
             });
     };
 
+    if moonbuild_opt.build_graph {
+        vis_build_graph(&state.graph, moonbuild_opt);
+    }
+
     let mut progress = create_progress_console(Some(Box::new(render_and_catch)));
     let options = work::Options {
         parallelism: default_parallelism()?,
@@ -162,6 +166,49 @@ pub fn n2_run_interface(
     }
 
     Ok(res)
+}
+
+fn vis_build_graph(graph: &n2::graph::Graph, moonbuild_opt: &MoonbuildOpt) {
+    let path = moonbuild_opt.target_dir.join("build_graph.dot");
+    let source_dir = moonbuild_opt.source_dir.display().to_string();
+    let files = &graph.files;
+    let builds = &graph.builds;
+
+    let mut dot = String::from("digraph BuildGraph {\n");
+
+    for file_id in files.all_ids() {
+        let file_name = &files.by_id[file_id].name.replace(&source_dir, ".");
+        dot.push_str(&format!("    \"{}\" [shape=box];\n", file_name));
+    }
+
+    let default = "missing description".to_string();
+    for build in builds.iter() {
+        let build_desc = build
+            .desc
+            .as_ref()
+            .unwrap_or(&default)
+            .replace(&source_dir, ".");
+        dot.push_str(&format!("    \"{}\" [shape=ellipse];\n", build_desc));
+
+        for &input_id in build.ins.ids.iter() {
+            let input_file_name = &files.by_id[input_id].name.replace(&source_dir, ".");
+            dot.push_str(&format!(
+                "    \"{}\" -> \"{}\";\n",
+                input_file_name, build_desc
+            ));
+        }
+
+        for &output_id in build.outs() {
+            let output_file_name = &files.by_id[output_id].name.replace(&source_dir, ".");
+            dot.push_str(&format!(
+                "    \"{}\" -> \"{}\";\n",
+                build_desc, output_file_name
+            ));
+        }
+    }
+
+    dot.push_str("}\n");
+    std::fs::write(path, dot).expect("Unable to write dot file");
 }
 
 pub fn run_check(

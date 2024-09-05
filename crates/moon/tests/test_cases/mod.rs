@@ -437,6 +437,7 @@ fn test_moon_help() {
               -v, --verbose                  Increase verbosity
                   --trace                    Trace the execution of the program
                   --dry-run                  Do not actually run the command
+                  --build-graph              generate build graph
               -h, --help                     Print help
         "#]],
     );
@@ -3556,11 +3557,12 @@ fn test_deny_warn() {
         .stdout
         .to_owned();
 
-    let s = std::str::from_utf8(&out).unwrap().to_string();
-
-    assert!(s.contains(
-        "failed: moonc check -error-format json -w @a -alert @all-raise-throw-unsafe+deprecated"
-    ));
+    check(
+        std::str::from_utf8(&out).unwrap(),
+        expect![[r#"
+        failed: check: username/hello/lib
+    "#]],
+    );
 
     check(
         &get_stderr_on_success_with_args_and_replace_dir(&dir, ["build", "--sort-input"]),
@@ -3620,10 +3622,11 @@ fn test_deny_warn() {
         .stdout
         .to_owned();
 
-    let s = std::str::from_utf8(&out).unwrap().to_string();
-
-    assert!(
-        s.contains("failed: moonc build-package -error-format json -w @a -alert @all-raise-throw-unsafe+deprecated")
+    check(
+        std::str::from_utf8(&out).unwrap(),
+        expect![[r#"
+            failed: build-package: username/hello/lib
+        "#]],
     );
 }
 

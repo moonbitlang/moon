@@ -264,6 +264,7 @@ pub fn run_run_internal(cli: &UniversalFlags, cmd: RunSubcommand) -> anyhow::Res
         args: cmd.args.clone(),
         quiet: true,
         verbose: cli.verbose,
+        build_graph: cli.build_graph,
         ..Default::default()
     };
 
