@@ -16,7 +16,7 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
-use anyhow::bail;
+use anyhow::{bail, Context};
 use indexmap::IndexMap;
 use moonutil::module::ModuleDB;
 use moonutil::package::Package;
@@ -306,7 +306,9 @@ pub fn gen_n2_bundle_state(
     let default = graph.get_start_nodes();
 
     let mut hashes = n2graph::Hashes::default();
-    let db = n2::db::open(&target_dir.join("build.moon_db"), &mut graph, &mut hashes)?;
+    let n2_db_path = &target_dir.join("build.moon_db");
+    let db = n2::db::open(n2_db_path, &mut graph, &mut hashes)
+        .with_context(|| format!("failed to process n2 db: {}", n2_db_path.display()))?;
 
     Ok(State {
         graph,
