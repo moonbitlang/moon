@@ -6202,3 +6202,29 @@ fn test_moon_doc() {
         "#]],
     );
 }
+
+#[test]
+fn test_failed_to_fill_whole_buffer() {
+    let dir = TestDir::new("hello.in");
+    check(
+        &get_stderr_on_success_with_args_and_replace_dir(&dir, ["check"]),
+        expect![[r#"
+            Finished. moon: ran 1 task, now up to date
+        "#]],
+    );
+    let moon_db_path = dir.join("./target/wasm-gc/release/check/check.moon_db");
+    if moon_db_path.exists() {
+        std::fs::remove_file(&moon_db_path).unwrap();
+    }
+    std::fs::write(&moon_db_path, "").unwrap();
+    check(
+        &get_stderr_with_args_and_replace_dir(&dir, ["check"]),
+        expect![[r#"
+            error: internal build state error: $ROOT/target/wasm-gc/release/check/check.moon_db
+
+            Caused by:
+                0: failed to open build database
+                1: failed to fill whole buffer
+        "#]],
+    );
+}

@@ -16,7 +16,7 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
-use anyhow::{bail, Context};
+use anyhow::bail;
 use indexmap::IndexMap;
 use moonutil::module::ModuleDB;
 use moonutil::package::Package;
@@ -29,6 +29,7 @@ use std::rc::Rc;
 use moonutil::common::{MoonbuildOpt, MooncOpt, MOON_PKG_JSON};
 
 use super::cmd_builder::CommandBuilder;
+use super::n2_errors::{N2Error, N2ErrorKind};
 use crate::gen::MiAlias;
 
 #[derive(Debug)]
@@ -307,8 +308,10 @@ pub fn gen_n2_bundle_state(
 
     let mut hashes = n2graph::Hashes::default();
     let n2_db_path = &target_dir.join("build.moon_db");
-    let db = n2::db::open(n2_db_path, &mut graph, &mut hashes)
-        .with_context(|| format!("failed to process n2 db: {}", n2_db_path.display()))?;
+    let db = n2::db::open(n2_db_path, &mut graph, &mut hashes).map_err(|e| N2Error {
+        path: n2_db_path.to_path_buf(),
+        source: N2ErrorKind::OpenDataBaseError(e),
+    })?;
 
     Ok(State {
         graph,
