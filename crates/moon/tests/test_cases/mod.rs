@@ -3548,20 +3548,11 @@ fn test_deny_warn() {
         "#]],
     );
 
-    let out = snapbox::cmd::Command::new(moon_bin())
-        .current_dir(&dir)
-        .args(["check", "--deny-warn", "--sort-input"])
-        .assert()
-        .failure()
-        .get_output()
-        .stdout
-        .to_owned();
-
     check(
-        std::str::from_utf8(&out).unwrap(),
+        &get_err_stdout_with_args_and_replace_dir(&dir, ["check", "--deny-warn", "--sort-input"]),
         expect![[r#"
-        failed: check: username/hello/lib
-    "#]],
+            failed: moonc check -error-format json -w @a -alert @all-raise-throw-unsafe+deprecated $ROOT/lib/hello.mbt -o $ROOT/target/wasm-gc/release/check/lib/lib.mi -pkg username/hello/lib -std-path $MOON_HOME/lib/core/target/wasm-gc/release/bundle -pkg-sources username/hello/lib:$ROOT/lib -target wasm-gc
+        "#]],
     );
 
     check(
@@ -3613,19 +3604,10 @@ fn test_deny_warn() {
         "#]],
     );
 
-    let out = snapbox::cmd::Command::new(moon_bin())
-        .current_dir(&dir)
-        .args(["build", "--deny-warn", "--sort-input"])
-        .assert()
-        .failure()
-        .get_output()
-        .stdout
-        .to_owned();
-
     check(
-        std::str::from_utf8(&out).unwrap(),
+        &get_err_stdout_with_args_and_replace_dir(&dir, ["build", "--deny-warn", "--sort-input"]),
         expect![[r#"
-            failed: build-package: username/hello/lib
+            failed: moonc build-package -error-format json -w @a -alert @all-raise-throw-unsafe+deprecated $ROOT/lib/hello.mbt -o $ROOT/target/wasm-gc/release/build/lib/lib.core -pkg username/hello/lib -std-path $MOON_HOME/lib/core/target/wasm-gc/release/bundle -pkg-sources username/hello/lib:$ROOT/lib -target wasm-gc
         "#]],
     );
 }

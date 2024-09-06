@@ -2,11 +2,31 @@
   moonc build-package ./src/lib/hello.mbt -o ./target/wasm-gc/release/build/lib/lib.core -pkg username/hello/lib -std-path $MOON_HOME/lib/core/target/wasm-gc/release/bundle -pkg-sources username/hello/lib:./src/lib -target wasm-gc
   moonc build-package ./src/top.mbt -o ./target/wasm-gc/release/build/hello.core -pkg username/hello -std-path $MOON_HOME/lib/core/target/wasm-gc/release/bundle -i ./target/wasm-gc/release/build/lib/lib.mi:lib -pkg-sources username/hello:./src -target wasm-gc
   
-  $ moon build --build-graph
+  $ moon build --build-graph --sort-input
   
+  generated build graph: ${WORK_DIR}/target/wasm-gc/release/build/build_graph.dot
   Finished. moon: ran 2 tasks, now up to date
   
   $ xls ./target/wasm-gc/release/build/lib/
   lib.core lib.mi
   $ xls ./target/wasm-gc/release/build/
   .moon-lock build.moon_db build.output build_graph.dot hello.core hello.mi lib moon.db
+  $ xcat ./target/wasm-gc/release/build/build_graph.dot
+  digraph BuildGraph {
+      "./target/wasm-gc/release/build/hello.core" [shape=box, style=filled, fillcolor=black, fontcolor=white];
+      "./target/wasm-gc/release/build/hello.mi" [shape=box, color=black, ];
+      "./src/top.mbt" [shape=box, color=black, ];
+      "./target/wasm-gc/release/build/lib/lib.mi" [shape=box, color=black, ];
+      "./target/wasm-gc/release/build/lib/lib.core" [shape=box, style=filled, fillcolor=black, fontcolor=white];
+      "./src/lib/hello.mbt" [shape=box, color=black, ];
+      "build-package: username/hello" [shape=ellipse];
+      "./src/top.mbt" -> "build-package: username/hello";
+      "./target/wasm-gc/release/build/lib/lib.mi" -> "build-package: username/hello";
+      "build-package: username/hello" -> "./target/wasm-gc/release/build/hello.core";
+      "build-package: username/hello" -> "./target/wasm-gc/release/build/hello.mi";
+      "build-package: username/hello/lib" [shape=ellipse];
+      "./src/lib/hello.mbt" -> "build-package: username/hello/lib";
+      "build-package: username/hello/lib" -> "./target/wasm-gc/release/build/lib/lib.core";
+      "build-package: username/hello/lib" -> "./target/wasm-gc/release/build/lib/lib.mi";
+  }
+  

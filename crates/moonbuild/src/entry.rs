@@ -227,7 +227,8 @@ fn vis_build_graph(state: &State, moonbuild_opt: &MoonbuildOpt) {
     }
 
     dot.push_str("}\n");
-    std::fs::write(path, dot).expect("Unable to write dot file");
+    std::fs::write(&path, dot).expect("Unable to write dot file");
+    eprintln!("generated build graph: {}", path.display());
 }
 
 pub fn run_check(

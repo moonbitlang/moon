@@ -51,6 +51,6 @@ pub struct UniversalFlags {
     pub dry_run: bool,
 
     /// generate build graph
-    #[clap(long, global = true)]
+    #[clap(long, global = true, conflicts_with = "dry_run")]
     pub build_graph: bool,
 }
