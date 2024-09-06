@@ -16,18 +16,15 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
-use std::path::PathBuf;
-
 #[derive(Debug, thiserror::Error)]
-#[error("internal build state error: {path}")]
+#[error("internal error")]
 pub struct N2Error {
-    pub path: PathBuf,
     #[source]
     pub(crate) source: N2ErrorKind,
 }
 
 #[derive(Debug, thiserror::Error)]
 pub enum N2ErrorKind {
-    #[error("failed to open build database")]
-    OpenDataBaseError(#[from] anyhow::Error),
+    #[error("failed to open n2 database")]
+    DBOpenError(#[from] n2::db::OpenError),
 }

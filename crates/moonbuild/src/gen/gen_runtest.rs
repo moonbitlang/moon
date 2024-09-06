@@ -920,8 +920,7 @@ pub fn gen_n2_runtest_state(
     let mut hashes = n2graph::Hashes::default();
     let n2_db_path = &moonbuild_opt.target_dir.join("build.moon_db");
     let db = n2::db::open(n2_db_path, &mut graph, &mut hashes).map_err(|e| N2Error {
-        path: n2_db_path.to_path_buf(),
-        source: N2ErrorKind::OpenDataBaseError(e),
+        source: N2ErrorKind::DBOpenError(e),
     })?;
 
     Ok(State {
