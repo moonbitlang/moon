@@ -21,6 +21,7 @@ pub mod gen_build;
 pub mod gen_bundle;
 pub mod gen_check;
 pub mod gen_runtest;
+pub mod n2_errors;
 pub mod util;
 
 // WORKAROUND for do not test coverage on coverage library itself

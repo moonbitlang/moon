@@ -32,6 +32,7 @@ use n2::smallmap::SmallMap;
 use std::rc::Rc;
 
 use crate::gen::cmd_builder::CommandBuilder;
+use crate::gen::n2_errors::{N2Error, N2ErrorKind};
 
 pub fn format_package(dir: &Path) -> anyhow::Result<i32> {
     let mut errors = vec![];
@@ -213,8 +214,10 @@ pub fn gen_n2_fmt_state(
 
     let mut hashes = n2graph::Hashes::default();
     let n2_db_path = &moonbuild_opt.target_dir.join("format.db");
-    let db = n2::db::open(n2_db_path, &mut graph, &mut hashes)
-        .with_context(|| format!("failed to process n2 db: {}", n2_db_path.display()))?;
+    let db = n2::db::open(n2_db_path, &mut graph, &mut hashes).map_err(|e| N2Error {
+        path: n2_db_path.to_path_buf(),
+        source: N2ErrorKind::OpenDataBaseError(e),
+    })?;
 
     Ok(State {
         graph,
@@ -310,8 +313,10 @@ pub fn gen_n2_fmt_check_state(
 
     let mut hashes = n2graph::Hashes::default();
     let n2_db_path = &moonbuild_opt.target_dir.join("format.db");
-    let db = n2::db::open(n2_db_path, &mut graph, &mut hashes)
-        .with_context(|| format!("failed to process n2 db: {}", n2_db_path.display()))?;
+    let db = n2::db::open(n2_db_path, &mut graph, &mut hashes).map_err(|e| N2Error {
+        path: n2_db_path.to_path_buf(),
+        source: N2ErrorKind::OpenDataBaseError(e),
+    })?;
 
     Ok(State {
         graph,
