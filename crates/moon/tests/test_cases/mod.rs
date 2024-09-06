@@ -6220,11 +6220,13 @@ fn test_failed_to_fill_whole_buffer() {
     check(
         &get_stderr_with_args_and_replace_dir(&dir, ["check"]),
         expect![[r#"
-            error: internal build state error: $ROOT/target/wasm-gc/release/check/check.moon_db
+            error: internal error
 
             Caused by:
-                0: failed to open build database
-                1: failed to fill whole buffer
+                0: failed to open n2 database
+                1: failed to open $ROOT/target/wasm-gc/release/check/check.moon_db
+                2: failed to read
+                3: failed to fill whole buffer
         "#]],
     );
 }
