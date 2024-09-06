@@ -28,7 +28,8 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    common::GeneratedTestDriver,
+    common::{FileName, GeneratedTestDriver},
+    cond_expr::{CondExpr, RawTargets},
     path::{ImportComponent, PathComponent},
 };
 
@@ -56,6 +57,8 @@ pub struct Package {
     pub link: Option<Link>,
     pub warn_list: Option<String>,
     pub alert_list: Option<String>,
+
+    pub targets: Option<IndexMap<FileName, CondExpr>>,
 }
 
 impl Package {
@@ -180,6 +183,13 @@ pub struct MoonPkgJSON {
     #[serde(alias = "alert_list")]
     #[schemars(rename = "alert-list")]
     pub alert_list: Option<String>,
+
+    /// Conditional compilation targets
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(alias = "targets")]
+    #[schemars(rename = "targets")]
+    #[schemars(with = "Option<std::collections::HashMap<String, Option<String>>>")]
+    pub targets: Option<RawTargets>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, JsonSchema)]
@@ -285,6 +295,8 @@ pub struct MoonPkg {
     pub link: Option<Link>,
     pub warn_list: Option<String>,
     pub alert_list: Option<String>,
+
+    pub targets: Option<RawTargets>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -445,6 +457,7 @@ pub fn convert_pkg_json_to_package(j: MoonPkgJSON) -> anyhow::Result<MoonPkg> {
         },
         warn_list: j.warn_list,
         alert_list: j.alert_list,
+        targets: j.targets,
     };
     Ok(result)
 }

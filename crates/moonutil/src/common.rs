@@ -16,6 +16,7 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
+use crate::cond_expr::{CondExprs, OptLevel};
 pub use crate::dirs::check_moon_mod_exists;
 use crate::module::{MoonMod, MoonModJSON};
 use crate::package::{convert_pkg_json_to_package, MoonPkg, MoonPkgJSON};
@@ -543,9 +544,35 @@ impl RunMode {
     }
 }
 
-pub fn backend_filter(files: &[PathBuf], backend: TargetBackend) -> Vec<std::path::PathBuf> {
+pub fn backend_filter(
+    files: &[PathBuf],
+    cond_exprs: Option<&CondExprs>,
+    moonc_opt: &MooncOpt,
+) -> Vec<std::path::PathBuf> {
+    let mut satisfy = HashMap::new();
+    if let Some(cond_exprs) = cond_exprs {
+        for (file, cond) in cond_exprs.iter() {
+            let x = cond.eval(
+                OptLevel::from_debug_flag(moonc_opt.build_opt.debug_flag),
+                moonc_opt.build_opt.target_backend,
+            );
+            satisfy.insert(file.to_string(), x);
+        }
+    }
+    backend_filter_internal(files, &satisfy, moonc_opt.build_opt.target_backend)
+}
+
+pub fn backend_filter_internal(
+    files: &[PathBuf],
+    satisfy: &HashMap<String, bool>,
+    target_backend: TargetBackend,
+) -> Vec<PathBuf> {
     files
         .iter()
+        .filter(|f| {
+            let filename = f.file_name().unwrap().to_str().unwrap();
+            *satisfy.get(filename).unwrap_or(&true)
+        })
         .filter(|f| {
             let stem = f.file_stem().unwrap().to_str().unwrap();
             let dot = stem.rfind('.');
@@ -553,7 +580,7 @@ pub fn backend_filter(files: &[PathBuf], backend: TargetBackend) -> Vec<std::pat
                 None => true,
                 Some(idx) => {
                     let (_, backend_ext) = stem.split_at(idx + 1);
-                    backend_ext == backend.to_backend_ext()
+                    backend_ext == target_backend.to_backend_ext()
                 }
             }
         })
@@ -588,7 +615,11 @@ fn test_backend_filter() {
             "x_test.js.mbt",
         ]
     "#]]
-    .assert_debug_eq(&backend_filter(&files, TargetBackend::Js));
+    .assert_debug_eq(&backend_filter_internal(
+        &files,
+        &HashMap::new(),
+        TargetBackend::Js,
+    ));
     expect![[r#"
         [
             "a.mbt",
@@ -599,7 +630,11 @@ fn test_backend_filter() {
             "x_test.wasm.mbt",
         ]
     "#]]
-    .assert_debug_eq(&backend_filter(&files, TargetBackend::Wasm));
+    .assert_debug_eq(&backend_filter_internal(
+        &files,
+        &HashMap::new(),
+        TargetBackend::Wasm,
+    ));
     expect![[r#"
         [
             "a.mbt",
@@ -610,7 +645,11 @@ fn test_backend_filter() {
             "x_test.wasm-gc.mbt",
         ]
     "#]]
-    .assert_debug_eq(&backend_filter(&files, TargetBackend::WasmGC));
+    .assert_debug_eq(&backend_filter_internal(
+        &files,
+        &HashMap::new(),
+        TargetBackend::WasmGC,
+    ));
 }
 
 pub fn get_cargo_pkg_version() -> String {

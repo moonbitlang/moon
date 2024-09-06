@@ -174,7 +174,7 @@ pub fn generate_test_driver(
         };
 
         let backend_filtered: Vec<PathBuf> =
-            moonutil::common::backend_filter(files, moonc_opt.link_opt.target_backend);
+            moonutil::common::backend_filter(files, pkg.targets.as_ref(), &moonc_opt);
         let mbts_test_data =
             moonc_gen_test_info(&backend_filtered, &target_dir.join(pkg.rel.fs_full_name()))?;
 
