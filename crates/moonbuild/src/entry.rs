@@ -586,6 +586,9 @@ pub fn run_test(
                     Err(e) => {
                         // when spawn process failed, this can still make the total test count to be correct
                         // but this is not a good way to handle it
+                        for _ in 0..test_args.get_test_cnt() {
+                            eprintln!("{:?}\n", &e);
+                        }
                         return Ok(vec![
                             Err(TestFailedStatus::Others(e.to_string()));
                             test_args.get_test_cnt() as usize
