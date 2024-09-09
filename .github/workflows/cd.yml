@@ -91,7 +91,7 @@ jobs:
     steps:
       - name: Install dependencies
         run: |
-          apt update && apt install -y software-properties-common curl unzip build-essential git
+          apt update && apt install -y software-properties-common curl unzip build-essential git sudo
 
       - name: Checkout
         run: |
