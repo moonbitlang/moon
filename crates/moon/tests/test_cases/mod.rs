@@ -3559,18 +3559,18 @@ fn test_deny_warn() {
         &get_stderr_on_success_with_args_and_replace_dir(&dir, ["build", "--sort-input"]),
         expect![[r#"
             Warning: [2000]
-                ╭─[$ROOT/lib/hello.mbt:14:3]
-                │
-             14 │   alert_2();
-                │   ───┬───  
-                │      ╰───── Warning (Alert alert_2): alert_2
-            ────╯
-            Warning: [2000]
                 ╭─[$ROOT/lib/hello.mbt:13:3]
                 │
              13 │   alert_1();
                 │   ───┬───  
                 │      ╰───── Warning (Alert alert_1): alert_1
+            ────╯
+            Warning: [2000]
+                ╭─[$ROOT/lib/hello.mbt:14:3]
+                │
+             14 │   alert_2();
+                │   ───┬───  
+                │      ╰───── Warning (Alert alert_2): alert_2
             ────╯
             Warning: [1002]
                ╭─[$ROOT/lib/hello.mbt:4:7]
