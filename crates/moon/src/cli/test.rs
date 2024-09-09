@@ -188,6 +188,7 @@ fn run_test_internal(
         quiet: true,
         verbose: cli.verbose,
         no_parallelize: cmd.no_parallelize,
+        build_graph: cli.build_graph,
         ..Default::default()
     };
 

@@ -26,7 +26,7 @@ use moonutil::package::Package;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
 
-use moonutil::common::{MoonbuildOpt, MooncOpt, MOON_PKG_JSON};
+use moonutil::common::{get_desc_name, MoonbuildOpt, MooncOpt, MOON_PKG_JSON};
 use n2::graph::{self as n2graph, Build, BuildIns, BuildOuts, FileLoc};
 use n2::load::State;
 use n2::smallmap::SmallMap;
@@ -350,6 +350,10 @@ pub fn gen_check_command(
         .build();
     log::debug!("Command: {}", command);
     build.cmdline = Some(command);
+    build.desc = Some(format!(
+        "check: {}",
+        get_desc_name(&item.package_full_name, &item.mi_out)
+    ));
     build
 }
 

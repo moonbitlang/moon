@@ -164,6 +164,7 @@ fn gen_inplace_fmt_command(graph: &mut n2graph::Graph, item: &FmtItem) -> (Build
         .arg(&item.phony_out)
         .build();
     build.cmdline = Some(command);
+    build.desc = Some(format!("moonfmt {}", item.input));
     (build, output_id)
 }
 
@@ -264,6 +265,7 @@ fn gen_fmt_to_command(graph: &mut n2graph::Graph, item: &FmtItem) -> (Build, Fil
     .arg(&item.output)
     .build();
     build.cmdline = Some(command);
+    build.desc = Some(format!("moonfmt {}", item.input));
 
     (build, output_id)
 }

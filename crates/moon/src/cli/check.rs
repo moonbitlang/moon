@@ -149,6 +149,7 @@ fn run_check_internal(
         quiet: cli.quiet,
         verbose: cli.verbose,
         output_json: cmd.output_json,
+        build_graph: cli.build_graph,
         ..Default::default()
     };
 

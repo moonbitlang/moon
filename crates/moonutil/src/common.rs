@@ -355,6 +355,7 @@ pub struct MoonbuildOpt {
     pub quiet: bool,
     pub output_json: bool,
     pub no_parallelize: bool,
+    pub build_graph: bool,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -796,4 +797,14 @@ pub fn line_col_to_byte_idx(
         line_index::WideLineCol { line, col },
     )?)?;
     Some(usize::from(offset))
+}
+
+pub fn get_desc_name(package_name: &str, artifact: &str) -> String {
+    if artifact.contains("internal_test") {
+        format!("{}_{}", package_name, "internal_test")
+    } else if artifact.contains("whitebox_test") {
+        format!("{}_{}", package_name, "whitebox_test")
+    } else {
+        package_name.to_string()
+    }
 }

@@ -278,6 +278,7 @@ pub fn gen_build_command(
         .build();
     log::debug!("Command: {}", command);
     build.cmdline = Some(command);
+    build.desc = Some(format!("build-package: {}", item.package_full_name));
     (build, core_output_id)
 }
 
@@ -414,6 +415,7 @@ pub fn gen_link_command(
         .build();
     log::debug!("Command: {}", command);
     build.cmdline = Some(command);
+    build.desc = Some(format!("link-core: {}", item.package_full_name));
     (build, artifact_id)
 }
 

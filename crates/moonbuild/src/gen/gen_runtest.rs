@@ -18,7 +18,7 @@
 
 use anyhow::{bail, Ok};
 use colored::Colorize;
-use moonutil::common::{DriverKind, GeneratedTestDriver, MOONBITLANG_CORE};
+use moonutil::common::{get_desc_name, DriverKind, GeneratedTestDriver, MOONBITLANG_CORE};
 use moonutil::module::ModuleDB;
 use moonutil::package::Package;
 
@@ -801,6 +801,10 @@ pub fn gen_runtest_build_command(
         .build();
     log::debug!("Command: {}", command);
     build.cmdline = Some(command);
+    build.desc = Some(format!(
+        "build-package: {}",
+        get_desc_name(&item.package_full_name, &item.core_out)
+    ));
     build
 }
 
@@ -884,6 +888,10 @@ pub fn gen_runtest_link_command(
         .build();
     log::debug!("Command: {}", command);
     build.cmdline = Some(command);
+    build.desc = Some(format!(
+        "link-core: {}",
+        get_desc_name(&item.package_full_name, &item.out)
+    ));
     (build, artifact_id)
 }
 
@@ -978,5 +986,10 @@ fn gen_generate_test_driver_command(
     .build();
 
     build.cmdline = Some(command);
+    build.desc = Some(format!(
+        "gen-test-driver: {}_{}_test",
+        item.package_name,
+        item.driver_kind.to_string()
+    ));
     build
 }

@@ -235,6 +235,7 @@ pub fn gen_build_command(
         .build();
     log::debug!("Command: {}", command);
     build.cmdline = Some(command);
+    build.desc = Some(format!("build-package {}", item.package_full_name));
     build
 }
 
@@ -283,6 +284,7 @@ fn gen_bundle_all(
 
     log::debug!("Command: {}", command);
     build.cmdline = Some(command);
+    build.desc = Some(format!("bundle-core {}", bundle_all.name));
     build
 }
 

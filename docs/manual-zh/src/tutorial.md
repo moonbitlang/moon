@@ -48,6 +48,7 @@
     -v, --verbose                  Increase verbosity
         --trace                    Trace the execution of the program
         --dry-run                  Do not actually run the command
+        --build-graph              generate build graph
     -h, --help                     Print help
     ```
 

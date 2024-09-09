@@ -61,6 +61,7 @@ pub fn run_fmt(cli: &UniversalFlags, cmd: FmtSubcommand) -> anyhow::Result<i32> 
         sort_input: cmd.sort_input,
         run_mode,
         fmt_opt: Some(FmtOpt { check: cmd.check }),
+        build_graph: cli.build_graph,
         ..Default::default()
     };
 

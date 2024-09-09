@@ -130,6 +130,7 @@ fn run_build_internal(
         run_mode,
         quiet: cli.quiet,
         verbose: cli.verbose,
+        build_graph: cli.build_graph,
         ..Default::default()
     };
 

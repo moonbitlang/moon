@@ -49,4 +49,8 @@ pub struct UniversalFlags {
     /// Do not actually run the command
     #[clap(long, global = true)]
     pub dry_run: bool,
+
+    /// generate build graph
+    #[clap(long, global = true, conflicts_with = "dry_run")]
+    pub build_graph: bool,
 }

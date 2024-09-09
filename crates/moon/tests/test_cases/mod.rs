@@ -437,6 +437,7 @@ fn test_moon_help() {
               -v, --verbose                  Increase verbosity
                   --trace                    Trace the execution of the program
                   --dry-run                  Do not actually run the command
+                  --build-graph              generate build graph
               -h, --help                     Print help
         "#]],
     );
@@ -3502,18 +3503,18 @@ fn test_deny_warn() {
         &get_stderr_on_success_with_args_and_replace_dir(&dir, ["check", "--sort-input"]),
         expect![[r#"
             Warning: [2000]
-                ╭─[$ROOT/lib/hello.mbt:14:3]
-                │
-             14 │   alert_2();
-                │   ───┬───  
-                │      ╰───── Warning (Alert alert_2): alert_2
-            ────╯
-            Warning: [2000]
                 ╭─[$ROOT/lib/hello.mbt:13:3]
                 │
              13 │   alert_1();
                 │   ───┬───  
                 │      ╰───── Warning (Alert alert_1): alert_1
+            ────╯
+            Warning: [2000]
+                ╭─[$ROOT/lib/hello.mbt:14:3]
+                │
+             14 │   alert_2();
+                │   ───┬───  
+                │      ╰───── Warning (Alert alert_2): alert_2
             ────╯
             Warning: [1002]
                ╭─[$ROOT/lib/hello.mbt:4:7]
@@ -3547,20 +3548,12 @@ fn test_deny_warn() {
         "#]],
     );
 
-    let out = snapbox::cmd::Command::new(moon_bin())
-        .current_dir(&dir)
-        .args(["check", "--deny-warn", "--sort-input"])
-        .assert()
-        .failure()
-        .get_output()
-        .stdout
-        .to_owned();
-
-    let s = std::str::from_utf8(&out).unwrap().to_string();
-
-    assert!(s.contains(
-        "failed: moonc check -error-format json -w @a -alert @all-raise-throw-unsafe+deprecated"
-    ));
+    check(
+        &get_err_stdout_with_args_and_replace_dir(&dir, ["check", "--deny-warn", "--sort-input"]),
+        expect![[r#"
+            failed: moonc check -error-format json -w @a -alert @all-raise-throw-unsafe+deprecated $ROOT/lib/hello.mbt -o $ROOT/target/wasm-gc/release/check/lib/lib.mi -pkg username/hello/lib -std-path $MOON_HOME/lib/core/target/wasm-gc/release/bundle -pkg-sources username/hello/lib:$ROOT/lib -target wasm-gc
+        "#]],
+    );
 
     check(
         &get_stderr_on_success_with_args_and_replace_dir(&dir, ["build", "--sort-input"]),
@@ -3611,19 +3604,11 @@ fn test_deny_warn() {
         "#]],
     );
 
-    let out = snapbox::cmd::Command::new(moon_bin())
-        .current_dir(&dir)
-        .args(["build", "--deny-warn", "--sort-input"])
-        .assert()
-        .failure()
-        .get_output()
-        .stdout
-        .to_owned();
-
-    let s = std::str::from_utf8(&out).unwrap().to_string();
-
-    assert!(
-        s.contains("failed: moonc build-package -error-format json -w @a -alert @all-raise-throw-unsafe+deprecated")
+    check(
+        &get_err_stdout_with_args_and_replace_dir(&dir, ["build", "--deny-warn", "--sort-input"]),
+        expect![[r#"
+            failed: moonc build-package -error-format json -w @a -alert @all-raise-throw-unsafe+deprecated $ROOT/lib/hello.mbt -o $ROOT/target/wasm-gc/release/build/lib/lib.core -pkg username/hello/lib -std-path $MOON_HOME/lib/core/target/wasm-gc/release/bundle -pkg-sources username/hello/lib:$ROOT/lib -target wasm-gc
+        "#]],
     );
 }
 
