@@ -98,7 +98,7 @@ pub fn pkg_to_bundle_item(
     let mi_out = pkg.artifact.with_extension("mi");
 
     let backend_filtered =
-        moonutil::common::backend_filter(&pkg.files, moonc_opt.link_opt.target_backend);
+        moonutil::common::backend_filter(&pkg.files, pkg.targets.as_ref(), moonc_opt);
     let mbt_deps = backend_filtered
         .iter()
         .filter(|f| {

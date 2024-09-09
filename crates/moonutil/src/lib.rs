@@ -20,6 +20,7 @@
 
 pub mod cli;
 pub mod common;
+pub mod cond_expr;
 pub mod dependency;
 pub mod dirs;
 pub mod git;

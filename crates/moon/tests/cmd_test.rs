@@ -117,6 +117,7 @@ fn cmd_test() {
     all_results.sort();
     expect_test::expect![[r#"
         [
+            ${WORK_DIR}/cond_comp.in/moon.test, ok,
             ${WORK_DIR}/moon_build_package.in/moon.test, ok,
             ${WORK_DIR}/moon_info_001.in/moon.test, ok,
             ${WORK_DIR}/moon_info_002.in/moon.test, ok,

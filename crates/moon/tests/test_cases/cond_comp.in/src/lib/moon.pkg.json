@@ -1,0 +1,9 @@
+{
+    "targets": {
+        "only_js.mbt": ["and", "js"],
+        "not_js.mbt": ["not", "js"],
+        "only_debug.mbt": ["and", "debug"],
+        "js_and_release.mbt": ["and", ["or", "js"], ["or", "release"]],
+        "js_only_test.mbt": ["and", "js"]
+    }
+}

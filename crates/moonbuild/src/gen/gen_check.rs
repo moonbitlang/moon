@@ -55,7 +55,7 @@ fn pkg_to_check_item(
     let out = pkg.artifact.with_extension("mi");
 
     let backend_filtered =
-        moonutil::common::backend_filter(&pkg.files, moonc_opt.link_opt.target_backend);
+        moonutil::common::backend_filter(&pkg.files, pkg.targets.as_ref(), moonc_opt);
     let mbt_deps: Vec<String> = backend_filtered
         .iter()
         .map(|f| f.display().to_string())
@@ -113,7 +113,8 @@ fn pkg_with_wbtest_to_check_item(
             .chain(pkg.wbtest_files.iter())
             .cloned()
             .collect::<Vec<_>>(),
-        moonc_opt.link_opt.target_backend,
+        pkg.targets.as_ref(),
+        moonc_opt,
     );
     let mbt_deps: Vec<String> = backend_filtered
         .iter()
@@ -186,7 +187,7 @@ fn pkg_with_test_to_check_item(
         .with_file_name(format!("{}.blackbox_test.mi", pkg.last_name()));
 
     let backend_filtered =
-        moonutil::common::backend_filter(&pkg.test_files, moonc_opt.link_opt.target_backend);
+        moonutil::common::backend_filter(&pkg.test_files, pkg.targets.as_ref(), moonc_opt);
     let mbt_deps: Vec<String> = backend_filtered
         .iter()
         .map(|f| f.display().to_string())

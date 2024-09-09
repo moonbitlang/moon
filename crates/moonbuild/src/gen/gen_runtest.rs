@@ -133,7 +133,7 @@ pub fn gen_package_core(
     let mi_out = pkg.artifact.with_extension("mi");
 
     let backend_filtered: Vec<PathBuf> =
-        moonutil::common::backend_filter(&pkg.files, moonc_opt.link_opt.target_backend);
+        moonutil::common::backend_filter(&pkg.files, pkg.targets.as_ref(), moonc_opt);
     let mbt_deps = backend_filtered
         .iter()
         .map(|f| f.display().to_string())
@@ -191,7 +191,7 @@ pub fn gen_package_internal_test(
         .with_file_name(format!("{}.internal_test.mi", pkgname));
 
     let backend_filtered =
-        moonutil::common::backend_filter(&pkg.files, moonc_opt.link_opt.target_backend);
+        moonutil::common::backend_filter(&pkg.files, pkg.targets.as_ref(), moonc_opt);
     let mut mbt_deps: Vec<String> = backend_filtered
         .iter()
         .map(|f| f.display().to_string())
@@ -255,7 +255,7 @@ pub fn gen_package_whitebox_test(
         .with_file_name(format!("{}.whitebox_test.mi", pkgname));
 
     let backend_filtered =
-        moonutil::common::backend_filter(&pkg.files, moonc_opt.link_opt.target_backend);
+        moonutil::common::backend_filter(&pkg.files, pkg.targets.as_ref(), moonc_opt);
     let mut mbt_deps: Vec<String> = backend_filtered
         .iter()
         .chain(pkg.wbtest_files.iter())
@@ -339,7 +339,7 @@ pub fn gen_package_blackbox_test(
         .with_file_name(format!("{}.blackbox_test.mi", pkgname));
 
     let backend_filtered =
-        moonutil::common::backend_filter(&pkg.test_files, moonc_opt.link_opt.target_backend);
+        moonutil::common::backend_filter(&pkg.test_files, pkg.targets.as_ref(), moonc_opt);
     let mut mbt_deps: Vec<String> = backend_filtered
         .iter()
         .map(|f| f.display().to_string())
@@ -618,7 +618,7 @@ pub fn gen_link_blackbox_test(
 
 pub fn contain_mbt_test_file(pkg: &Package, moonc_opt: &MooncOpt) -> bool {
     let backend_filtered =
-        moonutil::common::backend_filter(&pkg.files, moonc_opt.link_opt.target_backend);
+        moonutil::common::backend_filter(&pkg.files, pkg.targets.as_ref(), moonc_opt);
     backend_filtered.iter().any(|f| {
         let filename = f.file_name().unwrap().to_str().unwrap().to_string();
         filename.ends_with("_test.mbt")

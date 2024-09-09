@@ -16,6 +16,7 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
+use crate::cond_expr::parse_cond_exprs;
 use crate::module::ModuleDB;
 use crate::mooncakes::result::ResolvedEnv;
 use crate::mooncakes::DirSyncResult;
@@ -289,6 +290,12 @@ fn scan_one_package(
         });
 
     let artifact: PathBuf = target_dir.into();
+
+    let cond_targets = match &pkg.targets {
+        Some(x) => Some(parse_cond_exprs(&pkg_path.join(MOON_PKG_JSON), x)?),
+        None => None,
+    };
+
     let mut cur_pkg = Package {
         is_main: pkg.is_main,
         need_link: pkg.need_link,
@@ -308,6 +315,7 @@ fn scan_one_package(
         link: pkg.link,
         warn_list,
         alert_list,
+        targets: cond_targets,
     };
     if doc_mode {
         // -o <folder>
