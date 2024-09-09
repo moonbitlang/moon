@@ -584,6 +584,7 @@ pub fn run_test(
                         .await?;
                     }
                     Err(e) => {
+                        eprintln!("{:?}\n", &e);
                         // when spawn process failed, this can still make the total test count to be correct
                         // but this is not a good way to handle it
                         return Ok(vec![
