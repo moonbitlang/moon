@@ -61,9 +61,9 @@ jobs:
           AWS_DEFAULT_REGION: ${{ secrets.AWS_DEFAULT_REGION }}
         run: |
           $version = "$env:GITHUB_SHA".Substring(0, 9)
-          aws s3 cp .\target\release\moon.exe "s3://${{ secrets.AWS_BUCKET_NAME }}/bleeding-moon/$version/$(uname -s)-$(uname -m)/"
-          aws s3 cp .\target\release\moonrun.exe "s3://${{ secrets.AWS_BUCKET_NAME }}/bleeding-moonrun/$version/$(uname -s)-$(uname -m)/"
-          aws s3 cp .\target\release\moonrun.exe "s3://cli.moonbitlang.com/moon-ci/$(uname -s)-$(uname -m)/"
+          aws s3 cp .\target\release\moon.exe "s3://${{ secrets.AWS_BUCKET_NAME }}/bleeding-moon/$version/Windows-x86_64/"
+          aws s3 cp .\target\release\moonrun.exe "s3://${{ secrets.AWS_BUCKET_NAME }}/bleeding-moonrun/$version/Windows-x86_64/"
+          aws s3 cp .\target\release\moonrun.exe "s3://cli.moonbitlang.com/moon-ci/Windows-x86_64/"
 
       - name: Bleeding Release (macos-latest)
         if: ${{ matrix.os == 'macos-latest' }}
