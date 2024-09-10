@@ -6215,3 +6215,57 @@ fn test_failed_to_fill_whole_buffer() {
         "#]],
     );
 }
+
+#[test]
+fn test_moon_update_failed() {
+    if std::env::var("CI").is_err() {
+        return;
+    }
+    let tmp = tempfile::tempdir().unwrap();
+    let dir = tmp.path();
+    let moon_home = dir;
+    let out = std::process::Command::new(moon_bin())
+        .current_dir(dir)
+        .env("MOON_HOME", moon_home)
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .args(["update"])
+        .output()
+        .unwrap();
+    let out = String::from_utf8(out.stderr).unwrap();
+    check(
+        &out,
+        expect![[r#"
+        Registry index cloned successfully
+    "#]],
+    );
+
+    let _ = std::process::Command::new("git")
+        .args([
+            "-C",
+            dir.join("registry").join("index").to_str().unwrap(),
+            "remote",
+            "set-url",
+            "origin",
+            "whatever",
+        ])
+        .output()
+        .unwrap();
+
+    let out = std::process::Command::new(moon_bin())
+        .current_dir(dir)
+        .env("MOON_HOME", moon_home)
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .args(["update"])
+        .output()
+        .unwrap();
+    let out = String::from_utf8(out.stderr).unwrap();
+    check(
+        &out,
+        expect![[r#"
+            Registry index is not cloned from the same URL, re-cloning
+            Registry index re-cloned successfully
+        "#]],
+    );
+}
