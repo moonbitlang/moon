@@ -4,6 +4,7 @@
         "not_js.mbt": ["not", "js"],
         "only_debug.mbt": ["debug"],
         "js_and_release.mbt": ["and", ["js"], ["release"]],
-        "js_only_test.mbt": ["js"]
+        "js_only_test.mbt": ["js"],
+        "js_and_wasm.mbt": ["js", "wasm"]
     }
 }
