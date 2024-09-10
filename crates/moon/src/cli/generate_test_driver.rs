@@ -231,6 +231,7 @@ fn generate_driver(data: &str, pkgname: &str, target_backend: Option<TargetBacke
             "/../moonbuild/template/with_args_driver_template.mbt"
         )).to_string()
     }
+    .replace("\r\n", "\n")
     .replace("fn moonbit_test_driver_internal_get_file_name(file_name : MoonbitTestDriverInternalExternString) -> String { panic() }\n", "")
     .replace("type MoonbitTestDriverInternalExternString\n", "");
 
