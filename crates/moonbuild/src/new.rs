@@ -141,8 +141,8 @@ fn common(
 ) -> anyhow::Result<i32> {
     std::fs::create_dir_all(target_dir).context("failed to create target directory")?;
 
-    if !is_in_git_repo(target_dir) {
-        git_init_repo(target_dir);
+    if !is_in_git_repo(target_dir)? {
+        git_init_repo(target_dir)?;
     }
 
     {

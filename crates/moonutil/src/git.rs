@@ -18,33 +18,103 @@
 
 use std::path::Path;
 
-use colored::Colorize;
+#[derive(Debug, thiserror::Error)]
+#[error("git command failed: `{cmd}`")]
+pub struct GitCommandError {
+    cmd: String,
 
-pub fn is_in_git_repo(path: &Path) -> bool {
-    let output = std::process::Command::new("git")
-        .args(["rev-parse", "--is-inside-work-tree"])
-        .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::null())
-        .current_dir(path)
-        .status();
-    match output {
-        Ok(out) => out.success(),
-        _ => false,
+    #[source]
+    source: GitCommandErrorKind,
+}
+
+#[derive(Debug, thiserror::Error)]
+pub enum GitCommandErrorKind {
+    #[error(transparent)]
+    IO(#[from] std::io::Error),
+
+    #[error("non-zero exit code: {0}")]
+    ExitStatus(i32),
+
+    #[error("unknown exit code")]
+    UnknownExitCode,
+}
+
+pub struct Stdios {
+    stdin: std::process::Stdio,
+    stdout: std::process::Stdio,
+    stderr: std::process::Stdio,
+}
+
+impl Stdios {
+    pub fn inherit() -> Self {
+        Self {
+            stdin: std::process::Stdio::inherit(),
+            stdout: std::process::Stdio::inherit(),
+            stderr: std::process::Stdio::inherit(),
+        }
+    }
+
+    pub fn npp() -> Self {
+        Self {
+            stdin: std::process::Stdio::null(),
+            stdout: std::process::Stdio::piped(),
+            stderr: std::process::Stdio::piped(),
+        }
+    }
+}
+pub fn git_command(args: &[&str], stdios: Stdios) -> Result<std::process::Child, GitCommandError> {
+    std::process::Command::new("git")
+        .args(args)
+        .stdin(stdios.stdin)
+        .stdout(stdios.stdout)
+        .stderr(stdios.stderr)
+        .spawn()
+        .map_err(|e| GitCommandError {
+            cmd: format!("git {}", args.join(" ")),
+            source: GitCommandErrorKind::IO(e),
+        })
+}
+
+pub fn is_in_git_repo(path: &Path) -> Result<bool, GitCommandError> {
+    let args = [
+        "-C",
+        path.to_str().unwrap(),
+        "rev-parse",
+        "--is-inside-work-tree",
+    ];
+    let mut output = git_command(&args, Stdios::npp())?;
+    let status = output.wait();
+    match status {
+        Ok(status) => Ok(status.success()),
+        Err(e) => Err(GitCommandError {
+            cmd: format!("git {}", args.join(" ")),
+            source: GitCommandErrorKind::IO(e),
+        }),
     }
 }
 
-pub fn git_init_repo(path: &Path) {
-    let git_init = std::process::Command::new("git")
-        .arg("init")
-        .current_dir(path)
-        .status();
-    match git_init {
-        Ok(o) => if o.success() {},
-        _ => {
-            eprintln!(
-                "{}: git init failed, make sure you have git in PATH",
-                "Warning".yellow().bold()
-            );
+pub fn git_init_repo(path: &Path) -> Result<(), GitCommandError> {
+    let args = ["-C", path.to_str().unwrap(), "init"];
+    let mut git_init = git_command(&args, Stdios::inherit())?;
+    let status = git_init.wait().map_err(|e| GitCommandError {
+        cmd: format!("git {}", args.join(" ")),
+        source: GitCommandErrorKind::IO(e),
+    })?;
+    if !status.success() {
+        match status.code() {
+            Some(code) => {
+                return Err(GitCommandError {
+                    cmd: format!("git {}", args.join(" ")),
+                    source: GitCommandErrorKind::ExitStatus(code),
+                });
+            }
+            None => {
+                return Err(GitCommandError {
+                    cmd: format!("git {}", args.join(" ")),
+                    source: GitCommandErrorKind::UnknownExitCode,
+                })
+            }
         }
     }
+    Ok(())
 }
