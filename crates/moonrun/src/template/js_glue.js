@@ -40,7 +40,7 @@ const spectest = {
 
 try {
     let instance = new WebAssembly.Instance(module, spectest);
-    if (instance.exports._start) {
+    if (instance.exports.execute) {
         if (test_mode) {
             for (param of testParams) {
                 try {
@@ -48,7 +48,7 @@ try {
                         fileName: param[0],
                         index: parseInt(param[1])
                     };
-                    instance.exports._start();
+                    instance.exports.execute(param[0], parseInt(param[1]));
                 } catch (e) {
                     console.log("----- BEGIN MOON TEST RESULT -----")
                     console.log(`{"package": "${packageName}", "filename": "${param[0]}", "index": "${param[1]}", "test_name": "${param[1]}", "message": "${e.stack.toString().replaceAll("\\", "\\\\").split('\n').join('\\n')}"}`);
