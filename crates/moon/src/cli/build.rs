@@ -161,19 +161,18 @@ fn run_build_internal(
         trace::open("trace.json").context("failed to open `trace.json`")?;
     }
 
-    let res;
-    if cmd.watch {
+    let res = if cmd.watch {
         let reg_cfg = RegistryConfig::load();
-        res = watching(
+        watching(
             &moonc_opt,
             &moonbuild_opt,
             &reg_cfg,
             &module,
             original_target_dir,
-        );
+        )
     } else {
-        res = entry::run_build(&moonc_opt, &moonbuild_opt, &module);
-    }
+        entry::run_build(&moonc_opt, &moonbuild_opt, &module)
+    };
 
     if trace_flag {
         trace::close();
