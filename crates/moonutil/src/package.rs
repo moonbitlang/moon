@@ -59,6 +59,7 @@ pub struct Package {
     pub alert_list: Option<String>,
 
     pub targets: Option<IndexMap<FileName, CondExpr>>,
+    pub pre_build: Option<Vec<MoonPkgGenerate>>,
 }
 
 impl Package {
@@ -190,6 +191,12 @@ pub struct MoonPkgJSON {
     #[schemars(rename = "targets")]
     #[schemars(with = "Option<std::collections::HashMap<String, Option<String>>>")]
     pub targets: Option<RawTargets>,
+
+    /// Command for moon generate
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(alias = "pre-build")]
+    #[schemars(rename = "pre-build")]
+    pub pre_build: Option<Vec<MoonPkgGenerate>>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, JsonSchema)]
@@ -283,6 +290,20 @@ pub struct Link {
     pub js: Option<JsLinkConfig>,
 }
 
+#[derive(Debug, Serialize, Deserialize, Clone, JsonSchema)]
+pub struct MoonPkgGenerate {
+    pub input: StringOrArray,
+    pub output: StringOrArray,
+    pub command: String,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone, JsonSchema)]
+#[serde(untagged)]
+pub enum StringOrArray {
+    String(String),
+    Array(Vec<String>),
+}
+
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct MoonPkg {
     pub name: Option<String>,
@@ -297,6 +318,8 @@ pub struct MoonPkg {
     pub alert_list: Option<String>,
 
     pub targets: Option<RawTargets>,
+
+    pub pre_build: Option<Vec<MoonPkgGenerate>>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -458,6 +481,7 @@ pub fn convert_pkg_json_to_package(j: MoonPkgJSON) -> anyhow::Result<MoonPkg> {
         warn_list: j.warn_list,
         alert_list: j.alert_list,
         targets: j.targets,
+        pre_build: j.pre_build,
     };
     Ok(result)
 }

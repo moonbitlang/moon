@@ -115,6 +115,7 @@ pub enum MoonBuildSubcommands {
     // Misc
     Coverage(CoverageSubcommand),
     GenerateBuildMatrix(GenerateBuildMatrix),
+
     /// Upgrade toolchains
     Upgrade(UpgradeSubcommand),
     ShellCompletion(ShellCompSubCommand),

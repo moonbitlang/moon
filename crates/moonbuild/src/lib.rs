@@ -30,6 +30,7 @@ pub mod entry;
 pub mod expect;
 pub mod fmt;
 pub mod gen;
+pub mod generate;
 pub mod new;
 pub mod runtest;
 pub mod section_capture;
