@@ -228,11 +228,26 @@ fn parse_cond_expr(file: &Path, value: &StringOrArray) -> Result<CondExpr, Parse
                     let logic_op = parse_cond_logic_op(op).map_err(|e| ParseCondExprError {
                         file: file.to_path_buf(),
                         source: ParseCondExprErrorKind::ParseCondLogicOpError(e),
-                    })?;
+                    });
 
-                    let sub_exprs: Result<Vec<CondExpr>, ParseCondExprError> =
-                        iter.map(|x| parse_cond_expr(file, x)).collect();
-                    Ok(CondExpr::Condition(logic_op, sub_exprs?))
+                    match logic_op {
+                        Ok(logic_op) => {
+                            let sub_exprs: Result<Vec<CondExpr>, ParseCondExprError> =
+                                iter.map(|x| parse_cond_expr(file, x)).collect();
+                            Ok(CondExpr::Condition(logic_op, sub_exprs?))
+                        }
+                        Err(_) => {
+                            let atom = parse_cond_target(op).map_err(|e| ParseCondExprError {
+                                file: file.to_path_buf(),
+                                source: ParseCondExprErrorKind::ParseCondAtomError(e),
+                            })?;
+                            let sub_exprs: Result<Vec<CondExpr>, ParseCondExprError> =
+                                iter.map(|x| parse_cond_expr(file, x)).collect();
+                            let mut sub_exprs = sub_exprs?;
+                            sub_exprs.insert(0, atom);
+                            Ok(CondExpr::Condition(LogicOp::Or, sub_exprs))
+                        }
+                    }
                 }
                 _ => Err(ParseCondExprError {
                     file: file.to_path_buf(),
