@@ -247,18 +247,20 @@ fn run_test_internal(
         return dry_run::print_commands(&module, &moonc_opt, &moonbuild_opt).map(From::from);
     }
 
-    if cli.trace {
-        trace::close();
-    }
-
-    do_run_test(
+    let res = do_run_test(
         &moonc_opt,
         &moonbuild_opt,
         build_only,
         auto_update,
         &module,
         verbose,
-    )
+    );
+
+    if cli.trace {
+        trace::close();
+    }
+
+    res
 }
 
 fn do_run_test(
