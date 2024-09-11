@@ -161,7 +161,7 @@ fn run_build_internal(
         trace::open("trace.json").context("failed to open `trace.json`")?;
     }
 
-    if cmd.watch {
+    let res = if cmd.watch {
         let reg_cfg = RegistryConfig::load();
         watching(
             &moonc_opt,
@@ -172,5 +172,11 @@ fn run_build_internal(
         )
     } else {
         entry::run_build(&moonc_opt, &moonbuild_opt, &module)
+    };
+
+    if trace_flag {
+        trace::close();
     }
+
+    res
 }
