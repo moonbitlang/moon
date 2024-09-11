@@ -29,6 +29,7 @@ use crate::dirs::SourceTargetDirs;
 // }
 
 #[derive(Debug, clap::Parser, Serialize, Deserialize, Clone)]
+#[clap(next_help_heading = "Common Options")]
 pub struct UniversalFlags {
     #[clap(flatten)]
     pub source_tgt_dir: SourceTargetDirs,
