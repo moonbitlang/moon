@@ -23,6 +23,7 @@ use expect_test::expect;
 use moonutil::common::{
     get_cargo_pkg_version, CargoPathExt, TargetBackend, DEP_PATH, MOON_MOD_JSON,
 };
+use serde::{Deserialize, Serialize};
 use walkdir::WalkDir;
 
 #[test]
@@ -6270,4 +6271,40 @@ fn test_moon_update_failed() {
             Registry index re-cloned successfully
         "#]],
     );
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct TraceResult(Vec<TraceEvent>);
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct TraceEvent {
+    pid: u64,
+    name: String,
+    ts: u64,
+    tid: u64,
+    ph: String,
+    dur: u64,
+}
+
+#[test]
+fn test_trace_001() {
+    let dir = TestDir::new("hello.in");
+    let _ = get_stdout_with_args_and_replace_dir(&dir, ["build", "--trace"]);
+    let s = replace_dir(&read(&dir.join("trace.json")), &dir);
+    let j: TraceResult = serde_json::from_str(&s).unwrap();
+    let event_names = j.0.iter().map(|e| e.name.clone()).collect::<Vec<_>>();
+    check(
+        &format!("{:#?}", event_names),
+        expect![[r#"
+            [
+                "moonbit::build::read",
+                "moonc build-package -error-format json $ROOT/main/main.mbt -o $ROOT/target/wasm-gc/release/build/main/main.core -pkg hello/main -is-main -std-path $MOON_HOME/lib/core/target/wasm-gc/release/bundle -pkg-sources hello/main:$ROOT/main -target wasm-gc",
+                "moonc link-core $MOON_HOME/lib/core/target/wasm-gc/release/bundle/core.core $ROOT/target/wasm-gc/release/build/main/main.core -main hello/main -o $ROOT/target/wasm-gc/release/build/main/main.wasm -pkg-sources hello/main:$ROOT/main -pkg-sources moonbitlang/core:$MOON_HOME/lib/core -target wasm-gc",
+                "work.run",
+                "main",
+            ]"#]],
+    );
+    for e in j.0.iter() {
+        assert!(e.dur > 0);
+    }
 }
