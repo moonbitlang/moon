@@ -32,33 +32,23 @@ const spectest = {
             throw new WebAssembly.Exception(tag, [], { traceStack: true })
         },
     },
-    test: {
-        get_file_name: () => globalThis.testParams.fileName,
-        get_index: () => globalThis.testParams.index,
-    }
 };
 
 try {
     let instance = new WebAssembly.Instance(module, spectest);
-    if (instance.exports._start) {
-        if (test_mode) {
-            for (param of testParams) {
-                try {
-                    globalThis.testParams = {
-                        fileName: param[0],
-                        index: parseInt(param[1])
-                    };
-                    instance.exports._start();
-                } catch (e) {
-                    console.log("----- BEGIN MOON TEST RESULT -----")
-                    console.log(`{"package": "${packageName}", "filename": "${param[0]}", "index": "${param[1]}", "test_name": "${param[1]}", "message": "${e.stack.toString().replaceAll("\\", "\\\\").split('\n').join('\\n')}"}`);
-                    console.log("----- END MOON TEST RESULT -----")
-                }
+    if (test_mode) {
+        for (param of testParams) {
+            try {
+                instance.exports.execute(param[0], parseInt(param[1]));
+            } catch (e) {
+                console.log("----- BEGIN MOON TEST RESULT -----")
+                console.log(`{"package": "${packageName}", "filename": "${param[0]}", "index": "${param[1]}", "test_name": "${param[1]}", "message": "${e.stack.toString().replaceAll("\\", "\\\\").split('\n').join('\\n')}"}`);
+                console.log("----- END MOON TEST RESULT -----")
             }
         }
-        else {
-            instance.exports._start();
-        }
+    }
+    else {
+        instance.exports._start();
     }
 }
 catch (e) {
