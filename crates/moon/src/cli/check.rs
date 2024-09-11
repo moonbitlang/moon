@@ -180,7 +180,7 @@ fn run_check_internal(
 
     let watch_mode = cmd.watch;
 
-    if watch_mode {
+    let res = if watch_mode {
         let reg_cfg = RegistryConfig::load();
         watching(
             &moonc_opt,
@@ -202,11 +202,13 @@ fn run_check_internal(
             }
             Ok(if output.is_empty() { 0 } else { 1 })
         } else {
-            let result = entry::run_check(&moonc_opt, &moonbuild_opt, &module);
-            if cli.trace {
-                trace::close();
-            }
-            result
+            entry::run_check(&moonc_opt, &moonbuild_opt, &module)
         }
+    };
+
+    if cli.trace {
+        trace::close();
     }
+
+    res
 }
