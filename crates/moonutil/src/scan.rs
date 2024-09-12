@@ -493,6 +493,11 @@ pub fn scan(
         deps,
         graph,
         backend: moonc_opt.link_opt.target_backend.to_backend_ext().into(),
+        opt_level: if moonc_opt.build_opt.debug_flag {
+            "debug".to_string()
+        } else {
+            "release".to_string()
+        },
         source: mod_desc.source,
     };
 

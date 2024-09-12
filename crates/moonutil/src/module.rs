@@ -40,6 +40,7 @@ pub struct ModuleDB {
     pub deps: Vec<String>,
     pub graph: DiGraph<String, usize>,
     pub backend: String,
+    pub opt_level: String,
     pub source: Option<String>,
 }
 
@@ -201,6 +202,7 @@ pub struct ModuleDBJSON {
     pub packages: Vec<PackageJSON>,
     pub deps: Vec<String>,
     pub backend: String,
+    pub opt_level: String,
     pub source: Option<String>,
 }
 
@@ -293,6 +295,7 @@ pub fn convert_mdb_to_json(module: &ModuleDB) -> ModuleDBJSON {
         packages: pkgs,
         deps,
         backend: module.backend.clone(),
+        opt_level: module.opt_level.clone(),
         source: module.source.clone(),
     }
 }
