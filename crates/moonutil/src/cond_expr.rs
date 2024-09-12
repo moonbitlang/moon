@@ -16,14 +16,17 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
-use std::path::{Path, PathBuf};
+use std::{
+    collections::HashSet,
+    path::{Path, PathBuf},
+};
 
 use indexmap::IndexMap;
 use serde::{Deserialize, Serialize};
 
 use crate::common::TargetBackend;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 pub enum OptLevel {
     Release,
     Debug,
@@ -72,6 +75,80 @@ impl CondExpr {
             },
         }
     }
+
+    pub fn to_compile_condition(&self) -> CompileCondition {
+        let mut backend = HashSet::new();
+        let mut optlevel = HashSet::new();
+        for (t, o) in [
+            (TargetBackend::Wasm, OptLevel::Debug),
+            (TargetBackend::Wasm, OptLevel::Release),
+            (TargetBackend::WasmGC, OptLevel::Debug),
+            (TargetBackend::WasmGC, OptLevel::Release),
+            (TargetBackend::Js, OptLevel::Debug),
+            (TargetBackend::Js, OptLevel::Release),
+        ] {
+            if self.eval(o, t) {
+                optlevel.insert(o);
+                backend.insert(t);
+            }
+        }
+
+        CompileCondition {
+            backend: backend.into_iter().collect(),
+            optlevel: optlevel.into_iter().collect(),
+        }
+    }
+}
+
+// in packages.json, for ide usage
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct CompileCondition {
+    pub backend: Vec<TargetBackend>,
+    pub optlevel: Vec<OptLevel>,
+}
+
+impl CompileCondition {
+    pub fn eval(&self, opt_level: OptLevel, target_backend: TargetBackend) -> bool {
+        self.optlevel.contains(&opt_level) && self.backend.contains(&target_backend)
+    }
+}
+
+impl Default for CompileCondition {
+    fn default() -> Self {
+        Self {
+            backend: vec![
+                TargetBackend::Wasm,
+                TargetBackend::WasmGC,
+                TargetBackend::Js,
+            ],
+            optlevel: vec![OptLevel::Debug, OptLevel::Release],
+        }
+    }
+}
+
+#[test]
+fn test_001() {
+    let a = CompileCondition {
+        backend: vec![
+            TargetBackend::Wasm,
+            TargetBackend::WasmGC,
+            TargetBackend::Js,
+        ],
+        optlevel: vec![OptLevel::Debug, OptLevel::Release],
+    };
+    assert!(a.eval(OptLevel::Release, TargetBackend::Wasm));
+    assert!(a.eval(OptLevel::Release, TargetBackend::WasmGC));
+    assert!(a.eval(OptLevel::Release, TargetBackend::Js));
+    assert!(a.eval(OptLevel::Debug, TargetBackend::Js));
+    assert!(a.eval(OptLevel::Debug, TargetBackend::Wasm));
+    assert!(a.eval(OptLevel::Debug, TargetBackend::WasmGC));
+
+    let b = CompileCondition {
+        backend: vec![TargetBackend::Wasm, TargetBackend::Js],
+        optlevel: vec![OptLevel::Debug],
+    };
+    assert!(b.eval(OptLevel::Debug, TargetBackend::Js));
+    assert!(b.eval(OptLevel::Debug, TargetBackend::Wasm));
 }
 
 #[test]
@@ -81,7 +158,6 @@ fn test_eval_001() {
         LogicOp::Or,
         vec![CondExpr::Atom(Atom::Target(TargetBackend::Js))],
     );
-
     let result = lhs.eval(OptLevel::Release, TargetBackend::Js);
     assert!(result);
 

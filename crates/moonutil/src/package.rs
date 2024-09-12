@@ -29,7 +29,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::{
     common::{FileName, GeneratedTestDriver},
-    cond_expr::{CondExpr, RawTargets},
+    cond_expr::{CompileCondition, CondExpr, RawTargets},
     path::{ImportComponent, PathComponent},
 };
 
@@ -42,11 +42,11 @@ pub struct Package {
     pub root: PathComponent,
     pub rel: PathComponent,
     // *.mbt (exclude the following)
-    pub files: Vec<PathBuf>,
+    pub files: IndexMap<PathBuf, CompileCondition>,
     //  *_wbtest.mbt
-    pub wbtest_files: Vec<PathBuf>,
+    pub wbtest_files: IndexMap<PathBuf, CompileCondition>,
     //  *_test.mbt
-    pub test_files: Vec<PathBuf>,
+    pub test_files: IndexMap<PathBuf, CompileCondition>,
     pub files_contain_test_block: Vec<PathBuf>,
     pub imports: Vec<ImportComponent>,
     pub wbtest_imports: Vec<ImportComponent>,
@@ -92,11 +92,11 @@ pub struct PackageJSON {
     pub is_third_party: bool,
     pub root: String,
     pub rel: String,
-    pub files: Vec<String>,
+    pub files: IndexMap<PathBuf, CompileCondition>,
     // white box test
-    pub wbtest_files: Vec<String>,
+    pub wbtest_files: IndexMap<PathBuf, CompileCondition>,
     // black box test
-    pub test_files: Vec<String>,
+    pub test_files: IndexMap<PathBuf, CompileCondition>,
     pub deps: Vec<AliasJSON>,
     pub wbtest_deps: Vec<AliasJSON>,
     pub test_deps: Vec<AliasJSON>,

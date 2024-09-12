@@ -16,7 +16,7 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
-use crate::cond_expr::parse_cond_exprs;
+use crate::cond_expr::{parse_cond_exprs, CompileCondition};
 use crate::module::ModuleDB;
 use crate::mooncakes::result::ResolvedEnv;
 use crate::mooncakes::DirSyncResult;
@@ -296,16 +296,28 @@ fn scan_one_package(
         None => None,
     };
 
+    let file_cond_map = |files: Vec<PathBuf>| -> IndexMap<PathBuf, CompileCondition> {
+        IndexMap::from_iter(files.into_iter().map(|p| {
+            (
+                p.clone(),
+                cond_targets
+                    .as_ref()
+                    .and_then(|it| it.get(p.file_name().unwrap().to_str().unwrap()))
+                    .map(|f| f.to_compile_condition())
+                    .unwrap_or_default(),
+            )
+        }))
+    };
     let mut cur_pkg = Package {
         is_main: pkg.is_main,
         need_link: pkg.need_link,
         is_third_party,
         root_path: pkg_path.to_owned(),
         root: PathComponent::from_str(&mod_desc.name)?,
-        files: mbt_files,
+        files: file_cond_map(mbt_files),
         files_contain_test_block: vec![],
-        wbtest_files: wbtest_mbt_files,
-        test_files: test_mbt_files,
+        wbtest_files: file_cond_map(wbtest_mbt_files),
+        test_files: file_cond_map(test_mbt_files),
         imports,
         wbtest_imports,
         test_imports,

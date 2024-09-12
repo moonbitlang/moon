@@ -207,17 +207,9 @@ pub struct ModuleDBJSON {
 pub fn convert_mdb_to_json(module: &ModuleDB) -> ModuleDBJSON {
     let mut pkgs = vec![];
     for (_, pkg) in &module.packages {
-        let files = pkg.files.iter().map(|f| f.display().to_string()).collect();
-        let wbtest_files = pkg
-            .wbtest_files
-            .iter()
-            .map(|f| f.display().to_string())
-            .collect();
-        let test_files = pkg
-            .test_files
-            .iter()
-            .map(|f| f.display().to_string())
-            .collect();
+        let files = pkg.files.clone();
+        let wbtest_files = pkg.wbtest_files.clone();
+        let test_files = pkg.test_files.clone();
         let mut deps = vec![];
         for dep in &pkg.imports {
             let alias = match &dep.alias {

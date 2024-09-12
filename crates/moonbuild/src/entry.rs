@@ -500,11 +500,6 @@ pub fn run_test(
         )?;
 
         for (artifact_path, file_test_info_map) in current_pkg_test_info {
-            // if artifact_path.is_none() {
-            //     continue;
-            // }
-            // let artifact_path = artifact_path.unwrap();
-
             let mut test_args = TestArgs {
                 package: pkgname.clone(),
                 file_and_index: vec![],
