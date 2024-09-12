@@ -138,6 +138,7 @@ pub fn generate_test_driver(
             filter_index: None,
             limit: 256,
             test_failure_json: false,
+            display_backend_hint: None,
         }),
         fmt_opt: None,
         sort_input,

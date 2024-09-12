@@ -91,13 +91,14 @@ pub fn run_test(cli: UniversalFlags, cmd: TestSubcommand) -> anyhow::Result<i32>
     } = cli.source_tgt_dir.try_into_package_dirs()?;
 
     if cmd.build_flags.target.is_none() {
-        return run_test_internal(&cli, &cmd, &source_dir, &target_dir);
+        return run_test_internal(&cli, &cmd, &source_dir, &target_dir, None);
     }
     let surface_targets = cmd.build_flags.target.clone().unwrap();
     let targets = lower_surface_targets(&surface_targets);
     if cmd.update && targets.len() > 1 {
         return Err(anyhow::anyhow!("cannot update test on multiple targets"));
     }
+    let display_backend_hint = if targets.len() > 1 { Some(()) } else { None };
     let cli = Arc::new(cli);
     let source_dir = Arc::new(source_dir);
     let target_dir = Arc::new(target_dir);
@@ -108,7 +109,7 @@ pub fn run_test(cli: UniversalFlags, cmd: TestSubcommand) -> anyhow::Result<i32>
         for t in targets {
             let mut cmd = cmd.clone();
             cmd.build_flags.target_backend = Some(t);
-            let x = run_test_internal(&cli, &cmd, &source_dir, &target_dir)?;
+            let x = run_test_internal(&cli, &cmd, &source_dir, &target_dir, display_backend_hint)?;
             ret_value = ret_value.max(x);
         }
     } else {
@@ -119,8 +120,9 @@ pub fn run_test(cli: UniversalFlags, cmd: TestSubcommand) -> anyhow::Result<i32>
             let source_dir = Arc::clone(&source_dir);
             let target_dir = Arc::clone(&target_dir);
 
-            let handle =
-                thread::spawn(move || run_test_internal(&cli, &cmd, &source_dir, &target_dir));
+            let handle = thread::spawn(move || {
+                run_test_internal(&cli, &cmd, &source_dir, &target_dir, display_backend_hint)
+            });
 
             handles.push((t, handle));
         }
@@ -141,6 +143,7 @@ fn run_test_internal(
     cmd: &TestSubcommand,
     source_dir: &Path,
     target_dir: &Path,
+    display_backend_hint: Option<()>,
 ) -> anyhow::Result<i32> {
     // Run moon install before build
     let (resolved_env, dir_sync_result) = auto_sync(
@@ -182,6 +185,7 @@ fn run_test_internal(
             filter_index,
             limit,
             test_failure_json: cmd.test_failure_json,
+            display_backend_hint,
         }),
         sort_input,
         run_mode,
@@ -289,8 +293,15 @@ fn do_run_test(
     let passed = test_res.iter().filter(|r| r.is_ok()).count();
 
     let failed = total - passed;
+    let backend_hint = moonbuild_opt
+        .test_opt
+        .as_ref()
+        .and_then(|opt| opt.display_backend_hint.as_ref())
+        .map(|_| format!(" [{}]", moonc_opt.build_opt.target_backend.to_backend_ext()))
+        .unwrap_or_default();
+
     println!(
-        "Total tests: {}, passed: {}, failed: {}.",
+        "Total tests: {}, passed: {}, failed: {}.{}",
         if total > 0 {
             total.to_string().blue().to_string()
         } else {
@@ -305,7 +316,8 @@ fn do_run_test(
             failed.to_string().red().to_string()
         } else {
             failed.to_string()
-        }
+        },
+        backend_hint,
     );
 
     if passed == total {
