@@ -5194,11 +5194,19 @@ fn test_import_memory_and_heap_start() {
 fn test_many_targets() {
     let dir = TestDir::new("test_many_targets.in");
     check(
-        &get_stdout_with_args_and_replace_dir(&dir, ["test", "--target", "all"]),
+        &get_stdout_with_args_and_replace_dir(&dir, ["test", "--target", "all", "--serial"]),
         expect![[r#"
-            Total tests: 0, passed: 0, failed: 0.
-            Total tests: 0, passed: 0, failed: 0.
-            Total tests: 0, passed: 0, failed: 0.
+            Total tests: 0, passed: 0, failed: 0. [wasm]
+            Total tests: 0, passed: 0, failed: 0. [wasm-gc]
+            Total tests: 0, passed: 0, failed: 0. [js]
+        "#]],
+    );
+
+    check(
+        &get_stdout_with_args_and_replace_dir(&dir, ["test", "--target", "js,wasm", "--serial"]),
+        expect![[r#"
+            Total tests: 0, passed: 0, failed: 0. [wasm]
+            Total tests: 0, passed: 0, failed: 0. [js]
         "#]],
     );
 
@@ -5543,7 +5551,7 @@ fn test_many_targets_expect_failed() {
             0wasm
             ----
 
-            Total tests: 1, passed: 0, failed: 1.
+            Total tests: 1, passed: 0, failed: 1. [wasm]
             test username/hello/lib/x.wasm-gc.mbt::0 failed
             expect test failed at $ROOT/lib/x.wasm-gc.mbt:2:3-2:35
             Diff:
@@ -5551,7 +5559,7 @@ fn test_many_targets_expect_failed() {
             1wasm-gc
             ----
 
-            Total tests: 1, passed: 0, failed: 1.
+            Total tests: 1, passed: 0, failed: 1. [wasm-gc]
             test username/hello/lib/x.js.mbt::0 failed
             expect test failed at $ROOT/lib/x.js.mbt:2:3-2:30
             Diff:
@@ -5559,7 +5567,7 @@ fn test_many_targets_expect_failed() {
             2js
             ----
 
-            Total tests: 1, passed: 0, failed: 1.
+            Total tests: 1, passed: 0, failed: 1. [js]
         "#]],
     );
     check(
@@ -5575,7 +5583,7 @@ fn test_many_targets_expect_failed() {
             0wasm
             ----
 
-            Total tests: 1, passed: 0, failed: 1.
+            Total tests: 1, passed: 0, failed: 1. [wasm]
             test username/hello/lib/x.js.mbt::0 failed
             expect test failed at $ROOT/lib/x.js.mbt:2:3-2:30
             Diff:
@@ -5583,7 +5591,7 @@ fn test_many_targets_expect_failed() {
             2js
             ----
 
-            Total tests: 1, passed: 0, failed: 1.
+            Total tests: 1, passed: 0, failed: 1. [js]
         "#]],
     );
 }
