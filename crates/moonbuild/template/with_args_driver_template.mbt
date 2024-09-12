@@ -2,54 +2,54 @@
 
 fn moonbit_test_driver_internal_error_to_string(x : Error) -> String = "%error.to_string"
 
-typealias TestDriver_No_Args_Function = () -> Unit!Error
+typealias Moonbit_Test_Driver_Internal_No_Args_Function = () -> Unit!Error
 
-typealias TestDriver_With_Args_Function = (@moonbitlang/core/test.T) -> Unit!Error
+typealias Moonbit_Test_Driver_Internal_With_Args_Function = (@moonbitlang/core/test.T) -> Unit!Error
 
-typealias TestDriver_No_Args_Map = @moonbitlang/core/builtin.Map[
+typealias Moonbit_Test_Driver_Internal_No_Args_Map = @moonbitlang/core/builtin.Map[
   String,
   @moonbitlang/core/builtin.Map[
     Int,
-    (TestDriver_No_Args_Function, @moonbitlang/core/builtin.Array[String]),
+    (Moonbit_Test_Driver_Internal_No_Args_Function, @moonbitlang/core/builtin.Array[String]),
   ],
 ]
 
-typealias TestDriver_With_Args_Map = @moonbitlang/core/builtin.Map[
+typealias Moonbit_Test_Driver_Internal_TestDriver_With_Args_Map = @moonbitlang/core/builtin.Map[
   String,
   @moonbitlang/core/builtin.Map[
     Int,
-    (TestDriver_With_Args_Function, @moonbitlang/core/builtin.Array[String]),
+    (Moonbit_Test_Driver_Internal_With_Args_Function, @moonbitlang/core/builtin.Array[String]),
   ],
 ]
 
-struct TestDriver__Meta {
+struct Moonbit_Test_Driver_Internal_Meta {
   filename : String
   index : Int
   attrs : @moonbitlang/core/builtin.Array[String]
 }
 
-enum TestDriver__F {
-  F0(TestDriver_No_Args_Function)
-  F1(TestDriver_With_Args_Function)
+enum Moonbit_Test_Driver_Internal__F {
+  F0(Moonbit_Test_Driver_Internal_No_Args_Function)
+  F1(Moonbit_Test_Driver_Internal_With_Args_Function)
 }
 
-struct TestDriver__TestCase {
-  f : TestDriver__F
-  meta : TestDriver__Meta
+struct Moonbit_Test_Driver_Internal__TestCase {
+  f : Moonbit_Test_Driver_Internal__F
+  meta : Moonbit_Test_Driver_Internal_Meta
 }
 
 fn moonbit_test_driver_internal_apply_filter(
-  no_args_tests : TestDriver_No_Args_Map,
-  with_args_tests : TestDriver_With_Args_Map,
+  no_args_tests : Moonbit_Test_Driver_Internal_No_Args_Map,
+  with_args_tests : Moonbit_Test_Driver_Internal_TestDriver_With_Args_Map,
   file_filter : String,
   index_filter : Int
-) -> Option[TestDriver__TestCase] {
+) -> Option[Moonbit_Test_Driver_Internal__TestCase] {
   let no_args_filtered_test = match no_args_tests.get(file_filter) {
     Some(index_func_map) => {
       match index_func_map.get(index_filter) {
         Some(func_attrs_tuple) => {
           let k = {
-            f: TestDriver__F::F0(func_attrs_tuple.0),
+            f: Moonbit_Test_Driver_Internal__F::F0(func_attrs_tuple.0),
             meta: { filename: file_filter, index: index_filter, attrs: func_attrs_tuple.1 },
           }
           Some(k)
@@ -65,7 +65,7 @@ fn moonbit_test_driver_internal_apply_filter(
       match index_func_map.get(index_filter) {
         Some(func_attrs_tuple) => {
           let k = {
-            f: TestDriver__F::F1(func_attrs_tuple.0),
+            f: Moonbit_Test_Driver_Internal__F::F1(func_attrs_tuple.0),
             meta: { filename: file_filter, index: index_filter, attrs: func_attrs_tuple.1 },
           }
           Some(k)
@@ -82,15 +82,15 @@ fn moonbit_test_driver_internal_apply_filter(
   }
 }
 
-let no_args_tests : TestDriver_No_Args_Map = { }  // WILL BE REPLACED
-let with_args_tests : TestDriver_With_Args_Map = { }  // WILL BE REPLACED
+let moonbit_test_driver_internal_no_args_tests : Moonbit_Test_Driver_Internal_No_Args_Map = { }  // WILL BE REPLACED
+let moonbit_test_driver_internal_with_args_tests : Moonbit_Test_Driver_Internal_TestDriver_With_Args_Map = { }  // WILL BE REPLACED
 
-pub fn execute(file_name: MoonbitTestDriverInternalExternString, index: Int) -> Unit {
+pub fn moonbit_test_driver_internal_execute(file_name: MoonbitTestDriverInternalExternString, index: Int) -> Unit {
   let file_filter: String = moonbit_test_driver_internal_get_file_name(file_name)
   let index_filter : Int = index
   let filtered_test = moonbit_test_driver_internal_apply_filter(
-    no_args_tests,
-    with_args_tests,
+    moonbit_test_driver_internal_no_args_tests,
+    moonbit_test_driver_internal_with_args_tests,
     file_filter,
     index_filter
   )
@@ -109,8 +109,8 @@ pub fn execute(file_name: MoonbitTestDriverInternalExternString, index: Int) -> 
       }
       try {
         let func = match item.f {
-        TestDriver__F::F0(f) => f
-        TestDriver__F::F1(f) =>
+        Moonbit_Test_Driver_Internal__F::F0(f) => f
+        Moonbit_Test_Driver_Internal__F::F1(f) =>
             fn() {
               let it : @moonbitlang/core/test.T = {
                 name,

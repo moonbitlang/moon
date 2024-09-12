@@ -883,7 +883,10 @@ pub fn gen_runtest_link_command(
                 ),
             ],
         )
-        .args(["-exported_functions", "execute"])
+        .args([
+            "-exported_functions",
+            "moonbit_test_driver_internal_execute",
+        ])
         .args_with_cond(
             moonc_opt.link_opt.target_backend == moonutil::common::TargetBackend::Js,
             ["-js-format", "cjs"],
