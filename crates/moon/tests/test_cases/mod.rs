@@ -2678,6 +2678,7 @@ fn test_dummy_core() {
                   ],
                   "deps": [],
                   "backend": "wasm-gc",
+                  "opt_level": "release",
                   "source": null
                 }"#]],
         );
@@ -2958,6 +2959,7 @@ fn test_dummy_core() {
                   ],
                   "deps": [],
                   "backend": "js",
+                  "opt_level": "release",
                   "source": null
                 }"#]],
         );
@@ -5047,6 +5049,7 @@ fn test_blackbox_success() {
                   ],
                   "deps": [],
                   "backend": "wasm-gc",
+                  "opt_level": "release",
                   "source": null
                 }"#]],
         );
@@ -5934,6 +5937,7 @@ fn test_specify_source_dir_001() {
                   ],
                   "deps": [],
                   "backend": "wasm-gc",
+                  "opt_level": "release",
                   "source": "src"
                 }"#]],
         )

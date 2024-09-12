@@ -96,6 +96,7 @@
     ],
     "deps": [],
     "backend": "wasm-gc",
+    "opt_level": "release",
     "source": "src"
   }
   $ moon build
