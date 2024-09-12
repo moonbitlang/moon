@@ -43,6 +43,8 @@ pub struct UniversalFlags {
     pub verbose: bool,
 
     /// Trace the execution of the program
+    // The module `n2::trace` doesn't suppose parallelism now, so `--trace`
+    // should be used in conjunction with `--serial` and `--no-parallelize`.
     #[clap(long, global = true)]
     pub trace: bool,
 
@@ -50,7 +52,7 @@ pub struct UniversalFlags {
     #[clap(long, global = true)]
     pub dry_run: bool,
 
-    /// generate build graph
+    /// Generate build graph
     #[clap(long, global = true, conflicts_with = "dry_run")]
     pub build_graph: bool,
 }

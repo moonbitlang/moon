@@ -29,9 +29,11 @@ use super::UniversalFlags;
 /// Format source code
 #[derive(Debug, clap::Parser)]
 pub struct FmtSubcommand {
+    /// Check only and don't change the source code
     #[clap(long)]
     check: bool,
 
+    /// Sort input files
     #[clap(long)]
     pub sort_input: bool,
 }

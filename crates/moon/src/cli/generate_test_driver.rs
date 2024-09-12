@@ -32,15 +32,17 @@ use moonutil::mooncakes::RegistryConfig;
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 
-/// Test the current package
+/// Generate tests for the provided packages
 #[derive(Debug, clap::Parser)]
-pub struct GeneratedTestDriverSubcommand {
+pub struct GenerateTestDriverSubcommand {
     #[clap(flatten)]
     pub build_flags: BuildFlags,
 
+    /// The paths of the packages
     #[clap(short, long, num_args(0..))]
     pub package: Option<Vec<PathBuf>>,
 
+    /// The test driver kind
     #[clap(long)]
     pub driver_kind: DriverKind,
 }
@@ -98,7 +100,7 @@ fn moonc_gen_test_info(files: &[PathBuf], target_dir: &Path) -> anyhow::Result<S
 
 pub fn generate_test_driver(
     cli: UniversalFlags,
-    cmd: GeneratedTestDriverSubcommand,
+    cmd: GenerateTestDriverSubcommand,
 ) -> anyhow::Result<i32> {
     let PackageDirs {
         source_dir,

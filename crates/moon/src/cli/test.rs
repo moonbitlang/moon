@@ -62,10 +62,6 @@ pub struct TestSubcommand {
     #[clap(short, long, requires("file"))]
     pub index: Option<u32>,
 
-    /// Only build, do not run the tests
-    #[clap(long)]
-    pub build_only: bool,
-
     /// Update the test snapshot
     #[clap(short, long)]
     pub update: bool,
@@ -77,9 +73,15 @@ pub struct TestSubcommand {
     #[clap(flatten)]
     pub auto_sync_flags: AutoSyncFlags,
 
+    /// Only build, do not run the tests
+    #[clap(long)]
+    pub build_only: bool,
+
+    /// Run the tests in a target backend sequentially
     #[clap(long)]
     pub no_parallelize: bool,
 
+    /// Print failure message in JSON format
     #[clap(long)]
     pub test_failure_json: bool,
 }

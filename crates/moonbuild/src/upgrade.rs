@@ -43,7 +43,7 @@ use tokio::fs::set_permissions;
 
 #[derive(Debug, clap::Parser, Clone)]
 pub struct UpgradeSubcommand {
-    /// force upgrade
+    /// Force upgrade
     #[clap(long, short)]
     pub force: bool,
 }

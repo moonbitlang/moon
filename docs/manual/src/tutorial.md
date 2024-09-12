@@ -38,7 +38,7 @@ Before you begin with this tutorial, make sure you have installed the following:
       generate-build-matrix  Generate build matrix for benchmarking (legacy feature)
       upgrade                Upgrade toolchains
       shell-completion       Generate shell completion for bash/elvish/fish/pwsh/zsh to stdout
-      version                Print version info and exit
+      version                Print version information and exit
       help                   Print this message or the help of the given subcommand(s)
 
     Options:
@@ -51,7 +51,7 @@ Before you begin with this tutorial, make sure you have installed the following:
       -v, --verbose                  Increase verbosity
           --trace                    Trace the execution of the program
           --dry-run                  Do not actually run the command
-          --build-graph              generate build graph
+          --build-graph              Generate build graph
     ```
 
 2. **MoonBit Language** plugin in Visual Studio Code: You can install it from the VS Code marketplace. This plugin provides a rich development environment for MoonBit, including functionalities like syntax highlighting, code completion, and more.

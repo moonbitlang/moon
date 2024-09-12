@@ -93,7 +93,7 @@ pub enum MoonBuildSubcommands {
     Run(RunSubcommand),
     Test(TestSubcommand),
     #[clap(hide = true)]
-    GenerateTestDriver(GeneratedTestDriverSubcommand),
+    GenerateTestDriver(GenerateTestDriverSubcommand),
     Clean(CleanSubcommand),
     Fmt(FmtSubcommand),
     Doc(DocSubcommand),
@@ -144,6 +144,7 @@ pub struct BuildFlags {
     #[clap(skip)]
     pub target_backend: Option<TargetBackend>,
 
+    /// Handle the selected targets sequentially
     #[clap(long, requires = "target")]
     pub serial: bool,
 
@@ -160,11 +161,11 @@ pub struct BuildFlags {
     #[clap(long)]
     pub output_wat: bool,
 
-    /// treat all warnings as errors
+    /// Treat all warnings as errors
     #[clap(long, short)]
     pub deny_warn: bool,
 
-    /// don't render diagnostics from moonc (don't pass '-error-format json' to moonc)
+    /// Don't render diagnostics from moonc (don't pass '-error-format json' to moonc)
     #[clap(long)]
     pub no_render: bool,
 }

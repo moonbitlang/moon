@@ -47,11 +47,13 @@ pub struct RunSubcommand {
     #[clap(flatten)]
     pub build_flags: BuildFlags,
 
+    /// The arguments provided to the program to be run
+    pub args: Vec<String>,
+
     #[clap(flatten)]
     pub auto_sync_flags: AutoSyncFlags,
 
-    pub args: Vec<String>,
-
+    /// Only build, do not run the code
     #[clap(long)]
     pub build_only: bool,
 }
