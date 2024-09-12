@@ -18,6 +18,7 @@
 
 use anyhow::{bail, Ok};
 use colored::Colorize;
+use indexmap::IndexMap;
 use moonutil::common::{get_desc_name, DriverKind, GeneratedTestDriver, MOONBITLANG_CORE};
 use moonutil::module::ModuleDB;
 use moonutil::package::Package;
@@ -81,8 +82,11 @@ pub fn gen_package_test_driver(
         GeneratedTestDriver::InternalTest(it) => {
             let package_name = pkg.full_name();
             let driver_file = it.display().to_string();
-            let files_may_contain_test_block =
-                pkg.files.iter().map(|f| f.display().to_string()).collect();
+            let files_may_contain_test_block = pkg
+                .files
+                .iter()
+                .map(|(f, _)| f.display().to_string())
+                .collect();
             Ok(RuntestDriverItem {
                 package_name,
                 driver_file,
@@ -96,7 +100,7 @@ pub fn gen_package_test_driver(
             let files_may_contain_test_block = pkg
                 .test_files
                 .iter()
-                .map(|f| f.display().to_string())
+                .map(|(f, _)| f.display().to_string())
                 .collect();
             Ok(RuntestDriverItem {
                 package_name,
@@ -112,7 +116,7 @@ pub fn gen_package_test_driver(
                 .files
                 .iter()
                 .chain(pkg.wbtest_files.iter())
-                .map(|f| f.display().to_string())
+                .map(|(f, _)| f.display().to_string())
                 .collect();
             Ok(RuntestDriverItem {
                 package_name,
@@ -132,8 +136,7 @@ pub fn gen_package_core(
     let core_out = pkg.artifact.with_extension("core");
     let mi_out = pkg.artifact.with_extension("mi");
 
-    let backend_filtered: Vec<PathBuf> =
-        moonutil::common::backend_filter(&pkg.files, pkg.targets.as_ref(), moonc_opt);
+    let backend_filtered: Vec<PathBuf> = moonutil::common::backend_filter(&pkg.files, moonc_opt);
     let mbt_deps = backend_filtered
         .iter()
         .map(|f| f.display().to_string())
@@ -190,8 +193,7 @@ pub fn gen_package_internal_test(
         .artifact
         .with_file_name(format!("{}.internal_test.mi", pkgname));
 
-    let backend_filtered =
-        moonutil::common::backend_filter(&pkg.files, pkg.targets.as_ref(), moonc_opt);
+    let backend_filtered = moonutil::common::backend_filter(&pkg.files, moonc_opt);
     let mut mbt_deps: Vec<String> = backend_filtered
         .iter()
         .map(|f| f.display().to_string())
@@ -254,11 +256,17 @@ pub fn gen_package_whitebox_test(
         .artifact
         .with_file_name(format!("{}.whitebox_test.mi", pkgname));
 
-    let backend_filtered =
-        moonutil::common::backend_filter(&pkg.files, pkg.targets.as_ref(), moonc_opt);
+    let mut files_and_con = IndexMap::new();
+    files_and_con.extend(
+        pkg.files
+            .iter()
+            .chain(pkg.wbtest_files.iter())
+            .map(|(p, c)| (p.clone(), c.clone())),
+    );
+
+    let backend_filtered = moonutil::common::backend_filter(&files_and_con, moonc_opt);
     let mut mbt_deps: Vec<String> = backend_filtered
         .iter()
-        .chain(pkg.wbtest_files.iter())
         .map(|f| f.display().to_string())
         .collect();
 
@@ -338,8 +346,7 @@ pub fn gen_package_blackbox_test(
         .artifact
         .with_file_name(format!("{}.blackbox_test.mi", pkgname));
 
-    let backend_filtered =
-        moonutil::common::backend_filter(&pkg.test_files, pkg.targets.as_ref(), moonc_opt);
+    let backend_filtered = moonutil::common::backend_filter(&pkg.test_files, moonc_opt);
     let mut mbt_deps: Vec<String> = backend_filtered
         .iter()
         .map(|f| f.display().to_string())
@@ -617,8 +624,7 @@ pub fn gen_link_blackbox_test(
 }
 
 pub fn contain_mbt_test_file(pkg: &Package, moonc_opt: &MooncOpt) -> bool {
-    let backend_filtered =
-        moonutil::common::backend_filter(&pkg.files, pkg.targets.as_ref(), moonc_opt);
+    let backend_filtered = moonutil::common::backend_filter(&pkg.files, moonc_opt);
     backend_filtered.iter().any(|f| {
         let filename = f.file_name().unwrap().to_str().unwrap().to_string();
         filename.ends_with("_test.mbt")

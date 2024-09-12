@@ -31,13 +31,33 @@
         "is-third-party": false,
         "root": "username/hello",
         "rel": "lib",
-        "files": [
-          "${WORK_DIR}/src/lib/hello.mbt"
-        ],
-        "wbtest-files": [],
-        "test-files": [
-          "${WORK_DIR}/src/lib/hello_test.mbt"
-        ],
+        "files": {
+          "${WORK_DIR}/src/lib/hello.mbt": {
+            "backend": [
+              "Wasm",
+              "WasmGC",
+              "Js"
+            ],
+            "optlevel": [
+              "Debug",
+              "Release"
+            ]
+          }
+        },
+        "wbtest-files": {},
+        "test-files": {
+          "${WORK_DIR}/src/lib/hello_test.mbt": {
+            "backend": [
+              "Wasm",
+              "WasmGC",
+              "Js"
+            ],
+            "optlevel": [
+              "Debug",
+              "Release"
+            ]
+          }
+        },
         "deps": [],
         "wbtest-deps": [],
         "test-deps": [],
@@ -48,11 +68,21 @@
         "is-third-party": false,
         "root": "username/hello",
         "rel": "main",
-        "files": [
-          "${WORK_DIR}/src/main/main.mbt"
-        ],
-        "wbtest-files": [],
-        "test-files": [],
+        "files": {
+          "${WORK_DIR}/src/main/main.mbt": {
+            "backend": [
+              "Wasm",
+              "WasmGC",
+              "Js"
+            ],
+            "optlevel": [
+              "Debug",
+              "Release"
+            ]
+          }
+        },
+        "wbtest-files": {},
+        "test-files": {},
         "deps": [
           {
             "path": "username/hello/lib",

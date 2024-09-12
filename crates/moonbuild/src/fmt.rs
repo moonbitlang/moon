@@ -105,7 +105,7 @@ pub fn gen_fmt(
         if pkg.is_third_party {
             continue;
         }
-        for f in pkg
+        for (f, _) in pkg
             .files
             .iter()
             .chain(pkg.wbtest_files.iter())

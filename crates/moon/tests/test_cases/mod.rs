@@ -2423,19 +2423,99 @@ fn test_dummy_core() {
                       "is-third-party": false,
                       "root": "moonbitlang/core",
                       "rel": "0",
-                      "files": [
-                        "$ROOT/0/lib.mbt",
-                        "$ROOT/0/y.js.mbt",
-                        "$ROOT/0/y.wasm-gc.mbt",
-                        "$ROOT/0/y.wasm.mbt"
-                      ],
-                      "wbtest-files": [
-                        "$ROOT/0/y_wbtest.js.mbt",
-                        "$ROOT/0/y_wbtest.mbt",
-                        "$ROOT/0/y_wbtest.wasm-gc.mbt",
-                        "$ROOT/0/y_wbtest.wasm.mbt"
-                      ],
-                      "test-files": [],
+                      "files": {
+                        "$ROOT/0/lib.mbt": {
+                          "backend": [
+                            "Wasm",
+                            "WasmGC",
+                            "Js"
+                          ],
+                          "optlevel": [
+                            "Debug",
+                            "Release"
+                          ]
+                        },
+                        "$ROOT/0/y.js.mbt": {
+                          "backend": [
+                            "Wasm",
+                            "WasmGC",
+                            "Js"
+                          ],
+                          "optlevel": [
+                            "Debug",
+                            "Release"
+                          ]
+                        },
+                        "$ROOT/0/y.wasm-gc.mbt": {
+                          "backend": [
+                            "Wasm",
+                            "WasmGC",
+                            "Js"
+                          ],
+                          "optlevel": [
+                            "Debug",
+                            "Release"
+                          ]
+                        },
+                        "$ROOT/0/y.wasm.mbt": {
+                          "backend": [
+                            "Wasm",
+                            "WasmGC",
+                            "Js"
+                          ],
+                          "optlevel": [
+                            "Debug",
+                            "Release"
+                          ]
+                        }
+                      },
+                      "wbtest-files": {
+                        "$ROOT/0/y_wbtest.js.mbt": {
+                          "backend": [
+                            "Wasm",
+                            "WasmGC",
+                            "Js"
+                          ],
+                          "optlevel": [
+                            "Debug",
+                            "Release"
+                          ]
+                        },
+                        "$ROOT/0/y_wbtest.mbt": {
+                          "backend": [
+                            "Wasm",
+                            "WasmGC",
+                            "Js"
+                          ],
+                          "optlevel": [
+                            "Debug",
+                            "Release"
+                          ]
+                        },
+                        "$ROOT/0/y_wbtest.wasm-gc.mbt": {
+                          "backend": [
+                            "Wasm",
+                            "WasmGC",
+                            "Js"
+                          ],
+                          "optlevel": [
+                            "Debug",
+                            "Release"
+                          ]
+                        },
+                        "$ROOT/0/y_wbtest.wasm.mbt": {
+                          "backend": [
+                            "Wasm",
+                            "WasmGC",
+                            "Js"
+                          ],
+                          "optlevel": [
+                            "Debug",
+                            "Release"
+                          ]
+                        }
+                      },
+                      "test-files": {},
                       "deps": [],
                       "wbtest-deps": [],
                       "test-deps": [],
@@ -2446,16 +2526,66 @@ fn test_dummy_core() {
                       "is-third-party": false,
                       "root": "moonbitlang/core",
                       "rel": "1",
-                      "files": [
-                        "$ROOT/1/lib.mbt",
-                        "$ROOT/1/x.js.mbt",
-                        "$ROOT/1/x.wasm-gc.mbt",
-                        "$ROOT/1/x.wasm.mbt"
-                      ],
-                      "wbtest-files": [
-                        "$ROOT/1/x_wbtest.wasm-gc.mbt"
-                      ],
-                      "test-files": [],
+                      "files": {
+                        "$ROOT/1/lib.mbt": {
+                          "backend": [
+                            "Wasm",
+                            "WasmGC",
+                            "Js"
+                          ],
+                          "optlevel": [
+                            "Debug",
+                            "Release"
+                          ]
+                        },
+                        "$ROOT/1/x.js.mbt": {
+                          "backend": [
+                            "Wasm",
+                            "WasmGC",
+                            "Js"
+                          ],
+                          "optlevel": [
+                            "Debug",
+                            "Release"
+                          ]
+                        },
+                        "$ROOT/1/x.wasm-gc.mbt": {
+                          "backend": [
+                            "Wasm",
+                            "WasmGC",
+                            "Js"
+                          ],
+                          "optlevel": [
+                            "Debug",
+                            "Release"
+                          ]
+                        },
+                        "$ROOT/1/x.wasm.mbt": {
+                          "backend": [
+                            "Wasm",
+                            "WasmGC",
+                            "Js"
+                          ],
+                          "optlevel": [
+                            "Debug",
+                            "Release"
+                          ]
+                        }
+                      },
+                      "wbtest-files": {
+                        "$ROOT/1/x_wbtest.wasm-gc.mbt": {
+                          "backend": [
+                            "Wasm",
+                            "WasmGC",
+                            "Js"
+                          ],
+                          "optlevel": [
+                            "Debug",
+                            "Release"
+                          ]
+                        }
+                      },
+                      "test-files": {},
                       "deps": [],
                       "wbtest-deps": [],
                       "test-deps": [],
@@ -2466,11 +2596,21 @@ fn test_dummy_core() {
                       "is-third-party": false,
                       "root": "moonbitlang/core",
                       "rel": "2",
-                      "files": [
-                        "$ROOT/2/lib.mbt"
-                      ],
-                      "wbtest-files": [],
-                      "test-files": [],
+                      "files": {
+                        "$ROOT/2/lib.mbt": {
+                          "backend": [
+                            "Wasm",
+                            "WasmGC",
+                            "Js"
+                          ],
+                          "optlevel": [
+                            "Debug",
+                            "Release"
+                          ]
+                        }
+                      },
+                      "wbtest-files": {},
+                      "test-files": {},
                       "deps": [
                         {
                           "path": "moonbitlang/core/1",
@@ -2486,9 +2626,9 @@ fn test_dummy_core() {
                       "is-third-party": false,
                       "root": "moonbitlang/core",
                       "rel": "char",
-                      "files": [],
-                      "wbtest-files": [],
-                      "test-files": [],
+                      "files": {},
+                      "wbtest-files": {},
+                      "test-files": {},
                       "deps": [
                         {
                           "path": "moonbitlang/core/coverage",
@@ -2504,9 +2644,9 @@ fn test_dummy_core() {
                       "is-third-party": false,
                       "root": "moonbitlang/core",
                       "rel": "coverage",
-                      "files": [],
-                      "wbtest-files": [],
-                      "test-files": [],
+                      "files": {},
+                      "wbtest-files": {},
+                      "test-files": {},
                       "deps": [],
                       "wbtest-deps": [],
                       "test-deps": [],
@@ -2517,9 +2657,9 @@ fn test_dummy_core() {
                       "is-third-party": false,
                       "root": "moonbitlang/core",
                       "rel": "iter",
-                      "files": [],
-                      "wbtest-files": [],
-                      "test-files": [],
+                      "files": {},
+                      "wbtest-files": {},
+                      "test-files": {},
                       "deps": [
                         {
                           "path": "moonbitlang/core/coverage",
@@ -2563,19 +2703,99 @@ fn test_dummy_core() {
                       "is-third-party": false,
                       "root": "moonbitlang/core",
                       "rel": "0",
-                      "files": [
-                        "$ROOT/0/lib.mbt",
-                        "$ROOT/0/y.js.mbt",
-                        "$ROOT/0/y.wasm-gc.mbt",
-                        "$ROOT/0/y.wasm.mbt"
-                      ],
-                      "wbtest-files": [
-                        "$ROOT/0/y_wbtest.js.mbt",
-                        "$ROOT/0/y_wbtest.mbt",
-                        "$ROOT/0/y_wbtest.wasm-gc.mbt",
-                        "$ROOT/0/y_wbtest.wasm.mbt"
-                      ],
-                      "test-files": [],
+                      "files": {
+                        "$ROOT/0/lib.mbt": {
+                          "backend": [
+                            "Wasm",
+                            "WasmGC",
+                            "Js"
+                          ],
+                          "optlevel": [
+                            "Debug",
+                            "Release"
+                          ]
+                        },
+                        "$ROOT/0/y.js.mbt": {
+                          "backend": [
+                            "Wasm",
+                            "WasmGC",
+                            "Js"
+                          ],
+                          "optlevel": [
+                            "Debug",
+                            "Release"
+                          ]
+                        },
+                        "$ROOT/0/y.wasm-gc.mbt": {
+                          "backend": [
+                            "Wasm",
+                            "WasmGC",
+                            "Js"
+                          ],
+                          "optlevel": [
+                            "Debug",
+                            "Release"
+                          ]
+                        },
+                        "$ROOT/0/y.wasm.mbt": {
+                          "backend": [
+                            "Wasm",
+                            "WasmGC",
+                            "Js"
+                          ],
+                          "optlevel": [
+                            "Debug",
+                            "Release"
+                          ]
+                        }
+                      },
+                      "wbtest-files": {
+                        "$ROOT/0/y_wbtest.js.mbt": {
+                          "backend": [
+                            "Wasm",
+                            "WasmGC",
+                            "Js"
+                          ],
+                          "optlevel": [
+                            "Debug",
+                            "Release"
+                          ]
+                        },
+                        "$ROOT/0/y_wbtest.mbt": {
+                          "backend": [
+                            "Wasm",
+                            "WasmGC",
+                            "Js"
+                          ],
+                          "optlevel": [
+                            "Debug",
+                            "Release"
+                          ]
+                        },
+                        "$ROOT/0/y_wbtest.wasm-gc.mbt": {
+                          "backend": [
+                            "Wasm",
+                            "WasmGC",
+                            "Js"
+                          ],
+                          "optlevel": [
+                            "Debug",
+                            "Release"
+                          ]
+                        },
+                        "$ROOT/0/y_wbtest.wasm.mbt": {
+                          "backend": [
+                            "Wasm",
+                            "WasmGC",
+                            "Js"
+                          ],
+                          "optlevel": [
+                            "Debug",
+                            "Release"
+                          ]
+                        }
+                      },
+                      "test-files": {},
                       "deps": [],
                       "wbtest-deps": [],
                       "test-deps": [],
@@ -2586,16 +2806,66 @@ fn test_dummy_core() {
                       "is-third-party": false,
                       "root": "moonbitlang/core",
                       "rel": "1",
-                      "files": [
-                        "$ROOT/1/lib.mbt",
-                        "$ROOT/1/x.js.mbt",
-                        "$ROOT/1/x.wasm-gc.mbt",
-                        "$ROOT/1/x.wasm.mbt"
-                      ],
-                      "wbtest-files": [
-                        "$ROOT/1/x_wbtest.wasm-gc.mbt"
-                      ],
-                      "test-files": [],
+                      "files": {
+                        "$ROOT/1/lib.mbt": {
+                          "backend": [
+                            "Wasm",
+                            "WasmGC",
+                            "Js"
+                          ],
+                          "optlevel": [
+                            "Debug",
+                            "Release"
+                          ]
+                        },
+                        "$ROOT/1/x.js.mbt": {
+                          "backend": [
+                            "Wasm",
+                            "WasmGC",
+                            "Js"
+                          ],
+                          "optlevel": [
+                            "Debug",
+                            "Release"
+                          ]
+                        },
+                        "$ROOT/1/x.wasm-gc.mbt": {
+                          "backend": [
+                            "Wasm",
+                            "WasmGC",
+                            "Js"
+                          ],
+                          "optlevel": [
+                            "Debug",
+                            "Release"
+                          ]
+                        },
+                        "$ROOT/1/x.wasm.mbt": {
+                          "backend": [
+                            "Wasm",
+                            "WasmGC",
+                            "Js"
+                          ],
+                          "optlevel": [
+                            "Debug",
+                            "Release"
+                          ]
+                        }
+                      },
+                      "wbtest-files": {
+                        "$ROOT/1/x_wbtest.wasm-gc.mbt": {
+                          "backend": [
+                            "Wasm",
+                            "WasmGC",
+                            "Js"
+                          ],
+                          "optlevel": [
+                            "Debug",
+                            "Release"
+                          ]
+                        }
+                      },
+                      "test-files": {},
                       "deps": [],
                       "wbtest-deps": [],
                       "test-deps": [],
@@ -2606,11 +2876,21 @@ fn test_dummy_core() {
                       "is-third-party": false,
                       "root": "moonbitlang/core",
                       "rel": "2",
-                      "files": [
-                        "$ROOT/2/lib.mbt"
-                      ],
-                      "wbtest-files": [],
-                      "test-files": [],
+                      "files": {
+                        "$ROOT/2/lib.mbt": {
+                          "backend": [
+                            "Wasm",
+                            "WasmGC",
+                            "Js"
+                          ],
+                          "optlevel": [
+                            "Debug",
+                            "Release"
+                          ]
+                        }
+                      },
+                      "wbtest-files": {},
+                      "test-files": {},
                       "deps": [
                         {
                           "path": "moonbitlang/core/1",
@@ -2626,9 +2906,9 @@ fn test_dummy_core() {
                       "is-third-party": false,
                       "root": "moonbitlang/core",
                       "rel": "char",
-                      "files": [],
-                      "wbtest-files": [],
-                      "test-files": [],
+                      "files": {},
+                      "wbtest-files": {},
+                      "test-files": {},
                       "deps": [
                         {
                           "path": "moonbitlang/core/coverage",
@@ -2644,9 +2924,9 @@ fn test_dummy_core() {
                       "is-third-party": false,
                       "root": "moonbitlang/core",
                       "rel": "coverage",
-                      "files": [],
-                      "wbtest-files": [],
-                      "test-files": [],
+                      "files": {},
+                      "wbtest-files": {},
+                      "test-files": {},
                       "deps": [],
                       "wbtest-deps": [],
                       "test-deps": [],
@@ -2657,9 +2937,9 @@ fn test_dummy_core() {
                       "is-third-party": false,
                       "root": "moonbitlang/core",
                       "rel": "iter",
-                      "files": [],
-                      "wbtest-files": [],
-                      "test-files": [],
+                      "files": {},
+                      "wbtest-files": {},
+                      "test-files": {},
                       "deps": [
                         {
                           "path": "moonbitlang/core/coverage",
@@ -2823,7 +3103,7 @@ fn test_dummy_core() {
             moonc build-package ./1/lib.mbt ./1/x.wasm-gc.mbt ./target/wasm-gc/debug/test/1/__generated_driver_for_internal_test.mbt -o ./target/wasm-gc/debug/test/1/1.internal_test.core -pkg moonbitlang/core/1 -is-main -pkg-sources moonbitlang/core/1:./1 -target wasm-gc -g
             moonc link-core ./target/wasm-gc/debug/test/1/1.internal_test.core -main moonbitlang/core/1 -o ./target/wasm-gc/debug/test/1/1.internal_test.wasm -test-mode -pkg-sources moonbitlang/core/1:./1 -exported_functions execute -target wasm-gc -g
             moon generate-test-driver --source-dir . --target-dir ./target/wasm-gc/debug/test --package moonbitlang/core/0 --sort-input --target wasm-gc --driver-kind whitebox
-            moonc build-package ./0/lib.mbt ./0/y.wasm-gc.mbt ./0/y_wbtest.js.mbt ./0/y_wbtest.mbt ./0/y_wbtest.wasm-gc.mbt ./0/y_wbtest.wasm.mbt ./target/wasm-gc/debug/test/0/__generated_driver_for_whitebox_test.mbt -o ./target/wasm-gc/debug/test/0/0.whitebox_test.core -pkg moonbitlang/core/0 -is-main -pkg-sources moonbitlang/core/0:./0 -target wasm-gc -g
+            moonc build-package ./0/lib.mbt ./0/y.wasm-gc.mbt ./0/y_wbtest.mbt ./0/y_wbtest.wasm-gc.mbt ./target/wasm-gc/debug/test/0/__generated_driver_for_whitebox_test.mbt -o ./target/wasm-gc/debug/test/0/0.whitebox_test.core -pkg moonbitlang/core/0 -is-main -pkg-sources moonbitlang/core/0:./0 -target wasm-gc -g
             moonc link-core ./target/wasm-gc/debug/test/0/0.whitebox_test.core -main moonbitlang/core/0 -o ./target/wasm-gc/debug/test/0/0.whitebox_test.wasm -test-mode -pkg-sources moonbitlang/core/0:./0 -exported_functions execute -target wasm-gc -g
             moon generate-test-driver --source-dir . --target-dir ./target/wasm-gc/debug/test --package moonbitlang/core/0 --sort-input --target wasm-gc --driver-kind internal
             moonc build-package ./0/lib.mbt ./0/y.wasm-gc.mbt ./target/wasm-gc/debug/test/0/__generated_driver_for_internal_test.mbt -o ./target/wasm-gc/debug/test/0/0.internal_test.core -pkg moonbitlang/core/0 -is-main -pkg-sources moonbitlang/core/0:./0 -target wasm-gc -g
@@ -2851,13 +3131,13 @@ fn test_dummy_core() {
             moonc build-package ./2/lib.mbt ./target/wasm/debug/test/2/__generated_driver_for_internal_test.mbt -o ./target/wasm/debug/test/2/2.internal_test.core -pkg moonbitlang/core/2 -is-main -i ./target/wasm/debug/test/1/1.mi:1 -pkg-sources moonbitlang/core/2:./2 -target wasm -g
             moonc link-core ./target/wasm/debug/test/1/1.core ./target/wasm/debug/test/2/2.internal_test.core -main moonbitlang/core/2 -o ./target/wasm/debug/test/2/2.internal_test.wasm -test-mode -pkg-sources moonbitlang/core/1:./1 -pkg-sources moonbitlang/core/2:./2 -exported_functions execute -target wasm -g
             moon generate-test-driver --source-dir . --target-dir ./target/wasm/debug/test --package moonbitlang/core/1 --sort-input --target wasm --driver-kind whitebox
-            moonc build-package ./1/lib.mbt ./1/x.wasm.mbt ./1/x_wbtest.wasm-gc.mbt ./target/wasm/debug/test/1/__generated_driver_for_whitebox_test.mbt -o ./target/wasm/debug/test/1/1.whitebox_test.core -pkg moonbitlang/core/1 -is-main -pkg-sources moonbitlang/core/1:./1 -target wasm -g
+            moonc build-package ./1/lib.mbt ./1/x.wasm.mbt ./target/wasm/debug/test/1/__generated_driver_for_whitebox_test.mbt -o ./target/wasm/debug/test/1/1.whitebox_test.core -pkg moonbitlang/core/1 -is-main -pkg-sources moonbitlang/core/1:./1 -target wasm -g
             moonc link-core ./target/wasm/debug/test/1/1.whitebox_test.core -main moonbitlang/core/1 -o ./target/wasm/debug/test/1/1.whitebox_test.wasm -test-mode -pkg-sources moonbitlang/core/1:./1 -exported_functions execute -target wasm -g
             moon generate-test-driver --source-dir . --target-dir ./target/wasm/debug/test --package moonbitlang/core/1 --sort-input --target wasm --driver-kind internal
             moonc build-package ./1/lib.mbt ./1/x.wasm.mbt ./target/wasm/debug/test/1/__generated_driver_for_internal_test.mbt -o ./target/wasm/debug/test/1/1.internal_test.core -pkg moonbitlang/core/1 -is-main -pkg-sources moonbitlang/core/1:./1 -target wasm -g
             moonc link-core ./target/wasm/debug/test/1/1.internal_test.core -main moonbitlang/core/1 -o ./target/wasm/debug/test/1/1.internal_test.wasm -test-mode -pkg-sources moonbitlang/core/1:./1 -exported_functions execute -target wasm -g
             moon generate-test-driver --source-dir . --target-dir ./target/wasm/debug/test --package moonbitlang/core/0 --sort-input --target wasm --driver-kind whitebox
-            moonc build-package ./0/lib.mbt ./0/y.wasm.mbt ./0/y_wbtest.js.mbt ./0/y_wbtest.mbt ./0/y_wbtest.wasm-gc.mbt ./0/y_wbtest.wasm.mbt ./target/wasm/debug/test/0/__generated_driver_for_whitebox_test.mbt -o ./target/wasm/debug/test/0/0.whitebox_test.core -pkg moonbitlang/core/0 -is-main -pkg-sources moonbitlang/core/0:./0 -target wasm -g
+            moonc build-package ./0/lib.mbt ./0/y.wasm.mbt ./0/y_wbtest.mbt ./0/y_wbtest.wasm.mbt ./target/wasm/debug/test/0/__generated_driver_for_whitebox_test.mbt -o ./target/wasm/debug/test/0/0.whitebox_test.core -pkg moonbitlang/core/0 -is-main -pkg-sources moonbitlang/core/0:./0 -target wasm -g
             moonc link-core ./target/wasm/debug/test/0/0.whitebox_test.core -main moonbitlang/core/0 -o ./target/wasm/debug/test/0/0.whitebox_test.wasm -test-mode -pkg-sources moonbitlang/core/0:./0 -exported_functions execute -target wasm -g
             moon generate-test-driver --source-dir . --target-dir ./target/wasm/debug/test --package moonbitlang/core/0 --sort-input --target wasm --driver-kind internal
             moonc build-package ./0/lib.mbt ./0/y.wasm.mbt ./target/wasm/debug/test/0/__generated_driver_for_internal_test.mbt -o ./target/wasm/debug/test/0/0.internal_test.core -pkg moonbitlang/core/0 -is-main -pkg-sources moonbitlang/core/0:./0 -target wasm -g
@@ -2891,7 +3171,7 @@ fn test_dummy_core() {
             moonc build-package ./1/lib.mbt ./1/x.wasm-gc.mbt ./target/wasm-gc/debug/test/1/__generated_driver_for_internal_test.mbt -o ./target/wasm-gc/debug/test/1/1.internal_test.core -pkg moonbitlang/core/1 -is-main -pkg-sources moonbitlang/core/1:./1 -target wasm-gc -g
             moonc link-core ./target/wasm-gc/debug/test/1/1.internal_test.core -main moonbitlang/core/1 -o ./target/wasm-gc/debug/test/1/1.internal_test.wasm -test-mode -pkg-sources moonbitlang/core/1:./1 -exported_functions execute -target wasm-gc -g
             moon generate-test-driver --source-dir . --target-dir ./target/wasm-gc/debug/test --package moonbitlang/core/0 --sort-input --target wasm-gc --driver-kind whitebox
-            moonc build-package ./0/lib.mbt ./0/y.wasm-gc.mbt ./0/y_wbtest.js.mbt ./0/y_wbtest.mbt ./0/y_wbtest.wasm-gc.mbt ./0/y_wbtest.wasm.mbt ./target/wasm-gc/debug/test/0/__generated_driver_for_whitebox_test.mbt -o ./target/wasm-gc/debug/test/0/0.whitebox_test.core -pkg moonbitlang/core/0 -is-main -pkg-sources moonbitlang/core/0:./0 -target wasm-gc -g
+            moonc build-package ./0/lib.mbt ./0/y.wasm-gc.mbt ./0/y_wbtest.mbt ./0/y_wbtest.wasm-gc.mbt ./target/wasm-gc/debug/test/0/__generated_driver_for_whitebox_test.mbt -o ./target/wasm-gc/debug/test/0/0.whitebox_test.core -pkg moonbitlang/core/0 -is-main -pkg-sources moonbitlang/core/0:./0 -target wasm-gc -g
             moonc link-core ./target/wasm-gc/debug/test/0/0.whitebox_test.core -main moonbitlang/core/0 -o ./target/wasm-gc/debug/test/0/0.whitebox_test.wasm -test-mode -pkg-sources moonbitlang/core/0:./0 -exported_functions execute -target wasm-gc -g
             moon generate-test-driver --source-dir . --target-dir ./target/wasm-gc/debug/test --package moonbitlang/core/0 --sort-input --target wasm-gc --driver-kind internal
             moonc build-package ./0/lib.mbt ./0/y.wasm-gc.mbt ./target/wasm-gc/debug/test/0/__generated_driver_for_internal_test.mbt -o ./target/wasm-gc/debug/test/0/0.internal_test.core -pkg moonbitlang/core/0 -is-main -pkg-sources moonbitlang/core/0:./0 -target wasm-gc -g
@@ -2919,13 +3199,13 @@ fn test_dummy_core() {
             moonc build-package ./2/lib.mbt ./target/js/debug/test/2/__generated_driver_for_internal_test.mbt -o ./target/js/debug/test/2/2.internal_test.core -pkg moonbitlang/core/2 -is-main -i ./target/js/debug/test/1/1.mi:1 -pkg-sources moonbitlang/core/2:./2 -target js -g
             moonc link-core ./target/js/debug/test/1/1.core ./target/js/debug/test/2/2.internal_test.core -main moonbitlang/core/2 -o ./target/js/debug/test/2/2.internal_test.js -test-mode -pkg-sources moonbitlang/core/1:./1 -pkg-sources moonbitlang/core/2:./2 -exported_functions execute -js-format cjs -target js -g
             moon generate-test-driver --source-dir . --target-dir ./target/js/debug/test --package moonbitlang/core/1 --sort-input --target js --driver-kind whitebox
-            moonc build-package ./1/lib.mbt ./1/x.js.mbt ./1/x_wbtest.wasm-gc.mbt ./target/js/debug/test/1/__generated_driver_for_whitebox_test.mbt -o ./target/js/debug/test/1/1.whitebox_test.core -pkg moonbitlang/core/1 -is-main -pkg-sources moonbitlang/core/1:./1 -target js -g
+            moonc build-package ./1/lib.mbt ./1/x.js.mbt ./target/js/debug/test/1/__generated_driver_for_whitebox_test.mbt -o ./target/js/debug/test/1/1.whitebox_test.core -pkg moonbitlang/core/1 -is-main -pkg-sources moonbitlang/core/1:./1 -target js -g
             moonc link-core ./target/js/debug/test/1/1.whitebox_test.core -main moonbitlang/core/1 -o ./target/js/debug/test/1/1.whitebox_test.js -test-mode -pkg-sources moonbitlang/core/1:./1 -exported_functions execute -js-format cjs -target js -g
             moon generate-test-driver --source-dir . --target-dir ./target/js/debug/test --package moonbitlang/core/1 --sort-input --target js --driver-kind internal
             moonc build-package ./1/lib.mbt ./1/x.js.mbt ./target/js/debug/test/1/__generated_driver_for_internal_test.mbt -o ./target/js/debug/test/1/1.internal_test.core -pkg moonbitlang/core/1 -is-main -pkg-sources moonbitlang/core/1:./1 -target js -g
             moonc link-core ./target/js/debug/test/1/1.internal_test.core -main moonbitlang/core/1 -o ./target/js/debug/test/1/1.internal_test.js -test-mode -pkg-sources moonbitlang/core/1:./1 -exported_functions execute -js-format cjs -target js -g
             moon generate-test-driver --source-dir . --target-dir ./target/js/debug/test --package moonbitlang/core/0 --sort-input --target js --driver-kind whitebox
-            moonc build-package ./0/lib.mbt ./0/y.js.mbt ./0/y_wbtest.js.mbt ./0/y_wbtest.mbt ./0/y_wbtest.wasm-gc.mbt ./0/y_wbtest.wasm.mbt ./target/js/debug/test/0/__generated_driver_for_whitebox_test.mbt -o ./target/js/debug/test/0/0.whitebox_test.core -pkg moonbitlang/core/0 -is-main -pkg-sources moonbitlang/core/0:./0 -target js -g
+            moonc build-package ./0/lib.mbt ./0/y.js.mbt ./0/y_wbtest.js.mbt ./0/y_wbtest.mbt ./target/js/debug/test/0/__generated_driver_for_whitebox_test.mbt -o ./target/js/debug/test/0/0.whitebox_test.core -pkg moonbitlang/core/0 -is-main -pkg-sources moonbitlang/core/0:./0 -target js -g
             moonc link-core ./target/js/debug/test/0/0.whitebox_test.core -main moonbitlang/core/0 -o ./target/js/debug/test/0/0.whitebox_test.js -test-mode -pkg-sources moonbitlang/core/0:./0 -exported_functions execute -js-format cjs -target js -g
             moon generate-test-driver --source-dir . --target-dir ./target/js/debug/test --package moonbitlang/core/0 --sort-input --target js --driver-kind internal
             moonc build-package ./0/lib.mbt ./0/y.js.mbt ./target/js/debug/test/0/__generated_driver_for_internal_test.mbt -o ./target/js/debug/test/0/0.internal_test.core -pkg moonbitlang/core/0 -is-main -pkg-sources moonbitlang/core/0:./0 -target js -g
@@ -2959,7 +3239,7 @@ fn test_dummy_core() {
             moonc build-package ./1/lib.mbt ./1/x.wasm-gc.mbt ./target/wasm-gc/debug/test/1/__generated_driver_for_internal_test.mbt -o ./target/wasm-gc/debug/test/1/1.internal_test.core -pkg moonbitlang/core/1 -is-main -pkg-sources moonbitlang/core/1:./1 -target wasm-gc -g -enable-coverage
             moonc link-core ./target/wasm-gc/debug/test/1/1.internal_test.core -main moonbitlang/core/1 -o ./target/wasm-gc/debug/test/1/1.internal_test.wasm -test-mode -pkg-sources moonbitlang/core/1:./1 -exported_functions execute -target wasm-gc -g
             moon generate-test-driver --source-dir . --target-dir ./target/wasm-gc/debug/test --package moonbitlang/core/0 --sort-input --target wasm-gc --driver-kind whitebox
-            moonc build-package ./0/lib.mbt ./0/y.wasm-gc.mbt ./0/y_wbtest.js.mbt ./0/y_wbtest.mbt ./0/y_wbtest.wasm-gc.mbt ./0/y_wbtest.wasm.mbt ./target/wasm-gc/debug/test/0/__generated_driver_for_whitebox_test.mbt -o ./target/wasm-gc/debug/test/0/0.whitebox_test.core -pkg moonbitlang/core/0 -is-main -pkg-sources moonbitlang/core/0:./0 -target wasm-gc -g -enable-coverage
+            moonc build-package ./0/lib.mbt ./0/y.wasm-gc.mbt ./0/y_wbtest.mbt ./0/y_wbtest.wasm-gc.mbt ./target/wasm-gc/debug/test/0/__generated_driver_for_whitebox_test.mbt -o ./target/wasm-gc/debug/test/0/0.whitebox_test.core -pkg moonbitlang/core/0 -is-main -pkg-sources moonbitlang/core/0:./0 -target wasm-gc -g -enable-coverage
             moonc link-core ./target/wasm-gc/debug/test/0/0.whitebox_test.core -main moonbitlang/core/0 -o ./target/wasm-gc/debug/test/0/0.whitebox_test.wasm -test-mode -pkg-sources moonbitlang/core/0:./0 -exported_functions execute -target wasm-gc -g
             moon generate-test-driver --source-dir . --target-dir ./target/wasm-gc/debug/test --package moonbitlang/core/0 --sort-input --target wasm-gc --driver-kind internal
             moonc build-package ./0/lib.mbt ./0/y.wasm-gc.mbt ./target/wasm-gc/debug/test/0/__generated_driver_for_internal_test.mbt -o ./target/wasm-gc/debug/test/0/0.internal_test.core -pkg moonbitlang/core/0 -is-main -pkg-sources moonbitlang/core/0:./0 -target wasm-gc -g -enable-coverage
@@ -4605,15 +4885,45 @@ fn test_blackbox_success() {
                       "is-third-party": false,
                       "root": "username/hello",
                       "rel": "A",
-                      "files": [
-                        "$ROOT/A/hello.mbt"
-                      ],
-                      "wbtest-files": [
-                        "$ROOT/A/hello_wbtest.mbt"
-                      ],
-                      "test-files": [
-                        "$ROOT/A/hello_test.mbt"
-                      ],
+                      "files": {
+                        "$ROOT/A/hello.mbt": {
+                          "backend": [
+                            "Wasm",
+                            "WasmGC",
+                            "Js"
+                          ],
+                          "optlevel": [
+                            "Debug",
+                            "Release"
+                          ]
+                        }
+                      },
+                      "wbtest-files": {
+                        "$ROOT/A/hello_wbtest.mbt": {
+                          "backend": [
+                            "Wasm",
+                            "WasmGC",
+                            "Js"
+                          ],
+                          "optlevel": [
+                            "Debug",
+                            "Release"
+                          ]
+                        }
+                      },
+                      "test-files": {
+                        "$ROOT/A/hello_test.mbt": {
+                          "backend": [
+                            "Wasm",
+                            "WasmGC",
+                            "Js"
+                          ],
+                          "optlevel": [
+                            "Debug",
+                            "Release"
+                          ]
+                        }
+                      },
                       "deps": [
                         {
                           "path": "username/hello/D",
@@ -4639,11 +4949,21 @@ fn test_blackbox_success() {
                       "is-third-party": false,
                       "root": "username/hello",
                       "rel": "B",
-                      "files": [
-                        "$ROOT/B/hello.mbt"
-                      ],
-                      "wbtest-files": [],
-                      "test-files": [],
+                      "files": {
+                        "$ROOT/B/hello.mbt": {
+                          "backend": [
+                            "Wasm",
+                            "WasmGC",
+                            "Js"
+                          ],
+                          "optlevel": [
+                            "Debug",
+                            "Release"
+                          ]
+                        }
+                      },
+                      "wbtest-files": {},
+                      "test-files": {},
                       "deps": [],
                       "wbtest-deps": [],
                       "test-deps": [],
@@ -4654,11 +4974,21 @@ fn test_blackbox_success() {
                       "is-third-party": false,
                       "root": "username/hello",
                       "rel": "C",
-                      "files": [
-                        "$ROOT/C/hello.mbt"
-                      ],
-                      "wbtest-files": [],
-                      "test-files": [],
+                      "files": {
+                        "$ROOT/C/hello.mbt": {
+                          "backend": [
+                            "Wasm",
+                            "WasmGC",
+                            "Js"
+                          ],
+                          "optlevel": [
+                            "Debug",
+                            "Release"
+                          ]
+                        }
+                      },
+                      "wbtest-files": {},
+                      "test-files": {},
                       "deps": [],
                       "wbtest-deps": [],
                       "test-deps": [],
@@ -4669,11 +4999,21 @@ fn test_blackbox_success() {
                       "is-third-party": false,
                       "root": "username/hello",
                       "rel": "D",
-                      "files": [
-                        "$ROOT/D/hello.mbt"
-                      ],
-                      "wbtest-files": [],
-                      "test-files": [],
+                      "files": {
+                        "$ROOT/D/hello.mbt": {
+                          "backend": [
+                            "Wasm",
+                            "WasmGC",
+                            "Js"
+                          ],
+                          "optlevel": [
+                            "Debug",
+                            "Release"
+                          ]
+                        }
+                      },
+                      "wbtest-files": {},
+                      "test-files": {},
                       "deps": [],
                       "wbtest-deps": [],
                       "test-deps": [],
@@ -4684,11 +5024,21 @@ fn test_blackbox_success() {
                       "is-third-party": false,
                       "root": "username/hello",
                       "rel": "main",
-                      "files": [
-                        "$ROOT/main/main.mbt"
-                      ],
-                      "wbtest-files": [],
-                      "test-files": [],
+                      "files": {
+                        "$ROOT/main/main.mbt": {
+                          "backend": [
+                            "Wasm",
+                            "WasmGC",
+                            "Js"
+                          ],
+                          "optlevel": [
+                            "Debug",
+                            "Release"
+                          ]
+                        }
+                      },
+                      "wbtest-files": {},
+                      "test-files": {},
                       "deps": [],
                       "wbtest-deps": [],
                       "test-deps": [],
@@ -5511,13 +5861,33 @@ fn test_specify_source_dir_001() {
                       "is-third-party": false,
                       "root": "username/hello",
                       "rel": "lib",
-                      "files": [
-                        "$ROOT/src/lib/hello.mbt"
-                      ],
-                      "wbtest-files": [],
-                      "test-files": [
-                        "$ROOT/src/lib/hello_test.mbt"
-                      ],
+                      "files": {
+                        "$ROOT/src/lib/hello.mbt": {
+                          "backend": [
+                            "Wasm",
+                            "WasmGC",
+                            "Js"
+                          ],
+                          "optlevel": [
+                            "Debug",
+                            "Release"
+                          ]
+                        }
+                      },
+                      "wbtest-files": {},
+                      "test-files": {
+                        "$ROOT/src/lib/hello_test.mbt": {
+                          "backend": [
+                            "Wasm",
+                            "WasmGC",
+                            "Js"
+                          ],
+                          "optlevel": [
+                            "Debug",
+                            "Release"
+                          ]
+                        }
+                      },
                       "deps": [],
                       "wbtest-deps": [],
                       "test-deps": [],
@@ -5528,11 +5898,21 @@ fn test_specify_source_dir_001() {
                       "is-third-party": false,
                       "root": "username/hello",
                       "rel": "main",
-                      "files": [
-                        "$ROOT/src/main/main.mbt"
-                      ],
-                      "wbtest-files": [],
-                      "test-files": [],
+                      "files": {
+                        "$ROOT/src/main/main.mbt": {
+                          "backend": [
+                            "Wasm",
+                            "WasmGC",
+                            "Js"
+                          ],
+                          "optlevel": [
+                            "Debug",
+                            "Release"
+                          ]
+                        }
+                      },
+                      "wbtest-files": {},
+                      "test-files": {},
                       "deps": [
                         {
                           "path": "username/hello/lib",
