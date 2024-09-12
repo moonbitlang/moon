@@ -2,7 +2,7 @@
 
 fn moonbit_test_driver_internal_error_to_string(x : Error) -> String = "%error.to_string"
 
-typealias TestDriver_No_Args_Map = @moonbitlang/core/builtin.Map[
+typealias Moonbit_Test_Driver_Internal_No_Args_Map = @moonbitlang/core/builtin.Map[
   String,
   @moonbitlang/core/builtin.Map[
     Int,
@@ -10,12 +10,12 @@ typealias TestDriver_No_Args_Map = @moonbitlang/core/builtin.Map[
   ],
 ]
 
-let no_args_tests : TestDriver_No_Args_Map = { }  // WILL BE REPLACED
+let moonbit_test_driver_internal_no_args_tests : Moonbit_Test_Driver_Internal_No_Args_Map = { }  // WILL BE REPLACED
 
-pub fn execute(filename: MoonbitTestDriverInternalExternString, index: Int) -> Unit {
+pub fn moonbit_test_driver_internal_execute(filename: MoonbitTestDriverInternalExternString, index: Int) -> Unit {
   let file_filter = moonbit_test_driver_internal_get_file_name(filename)
   let index_filter = index
-  let filtered_test = match no_args_tests.get(file_filter) {
+  let filtered_test = match moonbit_test_driver_internal_no_args_tests.get(file_filter) {
     Some(index_func_map) => {
       index_func_map.get(index_filter)
     }

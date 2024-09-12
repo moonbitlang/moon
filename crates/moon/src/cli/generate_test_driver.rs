@@ -198,7 +198,9 @@ pub fn generate_test_driver(
 }
 
 fn generate_driver(data: &str, pkgname: &str, target_backend: Option<TargetBackend>) -> String {
-    let index = data.find("let with_args_tests =").unwrap_or(data.len());
+    let index = data
+        .find("let moonbit_test_driver_internal_with_args_tests =")
+        .unwrap_or(data.len());
     let no_args = &data[0..index];
     let with_args = &data[index..];
 
@@ -239,20 +241,20 @@ fn generate_driver(data: &str, pkgname: &str, target_backend: Option<TargetBacke
     template = template
         .replace("\r\n", "\n")
         .replace(
-            "let no_args_tests : TestDriver_No_Args_Map = { }  // WILL BE REPLACED\n",
+            "let moonbit_test_driver_internal_no_args_tests : Moonbit_Test_Driver_Internal_No_Args_Map = { }  // WILL BE REPLACED\n",
             no_args,
         )
         .replace(
-            "let with_args_tests : TestDriver_With_Args_Map = { }  // WILL BE REPLACED\n",
+            "let moonbit_test_driver_internal_with_args_tests : Moonbit_Test_Driver_Internal_TestDriver_With_Args_Map = { }  // WILL BE REPLACED\n",
             with_args,
         )
         .replace(
-            "let no_args_tests =",
-            "let no_args_tests : TestDriver_No_Args_Map =",
+            "let moonbit_test_driver_internal_no_args_tests =",
+            "let moonbit_test_driver_internal_no_args_tests : Moonbit_Test_Driver_Internal_No_Args_Map =",
         )
         .replace(
-            "let with_args_tests =",
-            "let with_args_tests : TestDriver_With_Args_Map =",
+            "let moonbit_test_driver_internal_with_args_tests =",
+            "let moonbit_test_driver_internal_with_args_tests : Moonbit_Test_Driver_Internal_TestDriver_With_Args_Map =",
         )
         .replace("{PACKAGE}", pkgname)
         .replace("{BEGIN_MOONTEST}", MOON_TEST_DELIMITER_BEGIN)

@@ -794,7 +794,7 @@ impl MooncGenTestInfo {
         let mut result = String::new();
         let default_name = "".to_string();
 
-        result.push_str("let no_args_tests = {\n");
+        result.push_str("let moonbit_test_driver_internal_no_args_tests = {\n");
         for (file, tests) in &self.no_args_tests {
             result.push_str(&format!("  \"{}\": {{\n", file));
             for test in tests {
@@ -809,7 +809,7 @@ impl MooncGenTestInfo {
         }
         result.push_str("}\n\n");
 
-        result.push_str("let with_args_tests = {\n");
+        result.push_str("let moonbit_test_driver_internal_with_args_tests = {\n");
         for (file, tests) in &self.with_args_tests {
             result.push_str(&format!("  \"{}\": {{\n", file));
             for test in tests {
