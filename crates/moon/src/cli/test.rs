@@ -254,11 +254,11 @@ fn run_test_internal(
     }
 
     let res = do_run_test(
-        &moonc_opt,
-        &moonbuild_opt,
+        moonc_opt,
+        moonbuild_opt,
         build_only,
         auto_update,
-        &module,
+        module,
         verbose,
     );
 
@@ -270,13 +270,20 @@ fn run_test_internal(
 }
 
 fn do_run_test(
-    moonc_opt: &MooncOpt,
-    moonbuild_opt: &MoonbuildOpt,
+    moonc_opt: MooncOpt,
+    moonbuild_opt: MoonbuildOpt,
     build_only: bool,
     auto_update: bool,
-    module: &ModuleDB,
+    module: ModuleDB,
     verbose: bool,
 ) -> anyhow::Result<i32> {
+    let backend_hint = moonbuild_opt
+        .test_opt
+        .as_ref()
+        .and_then(|opt| opt.display_backend_hint.as_ref())
+        .map(|_| format!(" [{}]", moonc_opt.build_opt.target_backend.to_backend_ext()))
+        .unwrap_or_default();
+
     let test_res = entry::run_test(
         moonc_opt,
         moonbuild_opt,
@@ -295,13 +302,6 @@ fn do_run_test(
     let passed = test_res.iter().filter(|r| r.is_ok()).count();
 
     let failed = total - passed;
-    let backend_hint = moonbuild_opt
-        .test_opt
-        .as_ref()
-        .and_then(|opt| opt.display_backend_hint.as_ref())
-        .map(|_| format!(" [{}]", moonc_opt.build_opt.target_backend.to_backend_ext()))
-        .unwrap_or_default();
-
     println!(
         "Total tests: {}, passed: {}, failed: {}.{}",
         if total > 0 {

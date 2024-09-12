@@ -448,24 +448,20 @@ fn convert_moonc_test_info(
 
 #[allow(clippy::too_many_arguments)]
 pub fn run_test(
-    moonc_opt: &MooncOpt,
-    moonbuild_opt: &MoonbuildOpt,
+    moonc_opt: MooncOpt,
+    moonbuild_opt: MoonbuildOpt,
     build_only: bool,
     test_verbose_output: bool,
     auto_update: bool,
-    module: &ModuleDB,
+    module: ModuleDB,
 ) -> anyhow::Result<Vec<Result<TestStatistics, TestFailedStatus>>> {
-    let target_dir = &moonbuild_opt.target_dir;
-    let state = crate::runtest::load_moon_proj(module, moonc_opt, moonbuild_opt)?;
+    let moonc_opt = Arc::new(moonc_opt);
+    let moonbuild_opt = Arc::new(moonbuild_opt);
+    let module = Arc::new(module);
 
-    let result = n2_run_interface(state, moonbuild_opt)?;
+    let state = crate::runtest::load_moon_proj(&module, &moonc_opt, &moonbuild_opt)?;
+    let result = n2_run_interface(state, &moonbuild_opt)?;
     render_result(result, moonbuild_opt.quiet, "testing")?;
-
-    let runtime = tokio::runtime::Builder::new_multi_thread()
-        // todo: add config item
-        .worker_threads(16)
-        .enable_all()
-        .build()?;
 
     let mut handlers = vec![];
 
@@ -490,7 +486,10 @@ pub fn run_test(
         }
 
         // convert moonc test info
-        let test_info_file = target_dir.join(pkg.rel.fs_full_name()).join(TEST_INFO_FILE);
+        let test_info_file = moonbuild_opt
+            .target_dir
+            .join(pkg.rel.fs_full_name())
+            .join(TEST_INFO_FILE);
         let current_pkg_test_info = convert_moonc_test_info(
             &test_info_file,
             pkg,
@@ -550,13 +549,16 @@ pub fn run_test(
             }
 
             let printed = Arc::clone(&printed);
+            let moonc_opt = Arc::clone(&moonc_opt);
+            let moonbuild_opt = Arc::clone(&moonbuild_opt);
+            let module = Arc::clone(&module);
             handlers.push(async move {
                 let mut result = trace::async_scope(
                     "test",
                     execute_test(
                         moonc_opt.build_opt.target_backend,
                         &artifact_path,
-                        target_dir,
+                        &moonbuild_opt.target_dir,
                         &test_args,
                         &file_test_info_map,
                     ),
@@ -566,13 +568,13 @@ pub fn run_test(
                     Ok(ref mut test_res_for_cur_pkg) => {
                         handle_test_result(
                             test_res_for_cur_pkg,
-                            moonc_opt,
-                            moonbuild_opt,
-                            module,
+                            &moonc_opt,
+                            &moonbuild_opt,
+                            &module,
                             auto_update,
                             test_verbose_output,
                             &artifact_path,
-                            target_dir,
+                            &moonbuild_opt.target_dir,
                             printed,
                             &file_test_info_map,
                         )
@@ -600,15 +602,35 @@ pub fn run_test(
     }
 
     let res = if moonbuild_opt.no_parallelize {
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()?;
+
         runtime.block_on(async {
             let mut results = vec![];
             for handler in handlers {
+                // Tasks are run sequentially by using the `await` expression directly.
                 results.push(handler.await);
             }
             results
         })
     } else {
-        runtime.block_on(futures::future::join_all(handlers))
+        let runtime = tokio::runtime::Builder::new_multi_thread()
+            .enable_all()
+            .build()?;
+
+        runtime.block_on(async {
+            let mut res_handlers = vec![];
+            for handler in handlers {
+                // Submit tasks to the scheduler
+                res_handlers.push(runtime.spawn(handler));
+            }
+            futures::future::join_all(res_handlers)
+                .await
+                .into_iter()
+                .map(|res| res.unwrap())
+                .collect()
+        })
     };
 
     let mut r = vec![];
