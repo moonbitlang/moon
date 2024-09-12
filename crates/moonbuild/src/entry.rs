@@ -551,16 +551,16 @@ pub fn run_test(
 
             let printed = Arc::clone(&printed);
             handlers.push(async move {
-                let mut result = trace::scope("test", || async {
+                let mut result = trace::async_scope(
+                    "test",
                     execute_test(
                         moonc_opt.build_opt.target_backend,
                         &artifact_path,
                         target_dir,
                         &test_args,
                         &file_test_info_map,
-                    )
-                    .await
-                })
+                    ),
+                )
                 .await;
                 match result {
                     Ok(ref mut test_res_for_cur_pkg) => {
