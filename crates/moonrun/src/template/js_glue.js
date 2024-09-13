@@ -48,7 +48,9 @@ try {
         }
     }
     else {
-        instance.exports._start();
+        if (instance.exports._start) {
+            instance.exports._start();
+        }
     }
 }
 catch (e) {

@@ -6700,3 +6700,27 @@ fn test_trace_001() {
         assert!(e.dur > 0);
     }
 }
+
+#[test]
+fn no_main_just_init() {
+    let dir = TestDir::new("no_main_just_init.in");
+    get_stdout_with_args_and_replace_dir(&dir, ["build"]);
+    let file = dir.join("target/wasm-gc/release/build/lib/lib.wasm");
+    assert!(file.exists());
+
+    let out = snapbox::cmd::Command::new("moonrun")
+        .current_dir(&dir)
+        .args(["./target/wasm-gc/release/build/lib/lib.wasm"])
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .to_owned();
+
+    check(
+        std::str::from_utf8(&out).unwrap(),
+        expect![[r#"
+            I am in fn init { ... }
+        "#]],
+    );
+}
