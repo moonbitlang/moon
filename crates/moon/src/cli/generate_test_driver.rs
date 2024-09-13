@@ -130,9 +130,11 @@ pub fn generate_test_driver(
         &RegistryConfig::load(),
         cli.quiet,
     )?;
+    let raw_target_dir = target_dir.to_path_buf();
 
     let moonbuild_opt = MoonbuildOpt {
         source_dir,
+        raw_target_dir,
         target_dir: target_dir.clone(),
         test_opt: Some(TestOpt {
             filter_package: filter_package.clone(),
@@ -145,7 +147,12 @@ pub fn generate_test_driver(
         fmt_opt: None,
         sort_input,
         run_mode,
-        ..Default::default()
+        args: vec![],
+        verbose: cli.verbose,
+        quiet: cli.quiet,
+        output_json: false,
+        no_parallelize: false,
+        build_graph: false,
     };
 
     let module = moonutil::scan::scan(

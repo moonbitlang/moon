@@ -82,13 +82,22 @@ pub fn run_doc(cli: UniversalFlags, cmd: DocSubcommand) -> anyhow::Result<i32> {
     )?;
 
     let run_mode = RunMode::Check;
+    let raw_target_dir = target_dir.to_path_buf();
     let target_dir = mk_arch_mode_dir(&source_dir, &target_dir, &moonc_opt, run_mode)?;
     let moonbuild_opt = MoonbuildOpt {
         source_dir: source_dir.clone(),
+        raw_target_dir,
         target_dir,
         sort_input: true,
         run_mode,
-        ..Default::default()
+        test_opt: None,
+        fmt_opt: None,
+        args: vec![],
+        verbose: cli.verbose,
+        quiet: cli.quiet,
+        output_json: false,
+        no_parallelize: false,
+        build_graph: false,
     };
 
     let module = moonutil::scan::scan(
