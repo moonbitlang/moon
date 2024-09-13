@@ -8,6 +8,7 @@
 - [ ] New feature
     - [ ] I have already discussed this feature with the maintainers.
 - [ ] Refactor
+- [ ] Performance optimization
 - [ ] Documentation
 - [ ] Other (please describe):
 
