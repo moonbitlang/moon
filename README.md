@@ -33,7 +33,7 @@ Commands:
   generate-build-matrix  Generate build matrix for benchmarking (legacy feature)
   upgrade                Upgrade toolchains
   shell-completion       Generate shell completion for bash/elvish/fish/pwsh/zsh to stdout
-  version                Print version info and exit
+  version                Print version information and exit
   help                   Print this message or the help of the given subcommand(s)
 
 Options:
@@ -46,7 +46,7 @@ Common Options:
   -v, --verbose                  Increase verbosity
       --trace                    Trace the execution of the program
       --dry-run                  Do not actually run the command
-      --build-graph              generate build graph
+      --build-graph              Generate build graph
 ```
 
 See tutorials at

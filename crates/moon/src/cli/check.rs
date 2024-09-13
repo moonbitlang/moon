@@ -42,19 +42,19 @@ use super::{get_compiler_flags, BuildFlags};
 /// Check the current package, but don't build object files
 #[derive(Debug, clap::Parser, Clone)]
 pub struct CheckSubcommand {
-    /// Monitor the file system and automatically check files
-    #[clap(long, short)]
-    pub watch: bool,
-
     #[clap(flatten)]
     pub build_flags: BuildFlags,
 
-    /// output in json format
+    /// Output in json format
     #[clap(long)]
     pub output_json: bool,
 
     #[clap(flatten)]
     pub auto_sync_flags: AutoSyncFlags,
+
+    /// Monitor the file system and automatically check files
+    #[clap(long, short)]
+    pub watch: bool,
 }
 
 pub fn run_check(cli: &UniversalFlags, cmd: &CheckSubcommand) -> anyhow::Result<i32> {

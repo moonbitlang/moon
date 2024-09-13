@@ -18,10 +18,14 @@
 
 use std::{io::BufRead, path::PathBuf, process::Stdio};
 
+/// Format the code and print the difference
 #[derive(Debug, clap::Parser)]
 pub struct FormatAndDiffSubcommand {
+    /// The source path of the code which needs to be formatted
     #[clap(long)]
     old: PathBuf,
+
+    /// The target path of the formatted code
     #[clap(long)]
     new: PathBuf,
 }

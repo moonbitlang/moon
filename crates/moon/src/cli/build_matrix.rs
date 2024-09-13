@@ -45,6 +45,7 @@ pub struct GenerateBuildMatrix {
     #[clap(long, long = "mcol")]
     pub mod_cols: Option<u32>,
 
+    /// The output directory
     #[clap(long, long = "output-dir", short, short = 'o')]
     pub out_dir: PathBuf,
 }

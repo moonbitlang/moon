@@ -21,14 +21,14 @@ use std::{env::current_exe, path::Path};
 use anyhow::Context;
 use moonutil::common::{get_moon_version, get_moonc_version, get_moonrun_version};
 
-/// Print version info and exit
+/// Print version information and exit
 #[derive(Debug, clap::Parser)]
 pub struct VersionSubcommand {
-    /// Print all version info
+    /// Print all version information
     #[clap(long)]
     pub all: bool,
 
-    /// Print version info in JSON format
+    /// Print version information in JSON format
     #[clap(long)]
     pub json: bool,
 

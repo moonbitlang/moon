@@ -36,10 +36,12 @@ pub struct DocSubcommand {
     #[clap(long)]
     pub serve: bool,
 
-    #[clap(long, short, default_value = "127.0.0.1")]
+    /// The address of the server
+    #[clap(long, short, default_value = "127.0.0.1", requires("serve"))]
     pub bind: String,
 
-    #[clap(long, short, default_value = "3000")]
+    /// The port of the server
+    #[clap(long, short, default_value = "3000", requires("serve"))]
     pub port: u16,
 
     #[clap(flatten)]
