@@ -145,7 +145,12 @@ pub fn generate_test_driver(
         fmt_opt: None,
         sort_input,
         run_mode,
-        ..Default::default()
+        args: vec![],
+        verbose: cli.verbose,
+        quiet: cli.quiet,
+        output_json: false,
+        no_parallelize: false,
+        build_graph: false,
     };
 
     let module = moonutil::scan::scan(

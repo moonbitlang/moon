@@ -131,7 +131,14 @@ fn run_bundle_internal(
         target_dir,
         sort_input,
         run_mode,
-        ..Default::default()
+        test_opt: None,
+        fmt_opt: None,
+        args: vec![],
+        verbose: cli.verbose,
+        quiet: cli.quiet,
+        output_json: false,
+        no_parallelize: false,
+        build_graph: false,
     };
     let module = moonutil::scan::scan(
         false,

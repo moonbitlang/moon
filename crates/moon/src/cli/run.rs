@@ -267,7 +267,10 @@ pub fn run_run_internal(cli: &UniversalFlags, cmd: RunSubcommand) -> anyhow::Res
         quiet: true,
         verbose: cli.verbose,
         build_graph: cli.build_graph,
-        ..Default::default()
+        test_opt: None,
+        fmt_opt: None,
+        output_json: false,
+        no_parallelize: false,
     };
 
     let module = moonutil::scan::scan(

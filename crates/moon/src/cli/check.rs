@@ -150,7 +150,10 @@ fn run_check_internal(
         verbose: cli.verbose,
         output_json: cmd.output_json,
         build_graph: cli.build_graph,
-        ..Default::default()
+        test_opt: None,
+        fmt_opt: None,
+        args: vec![],
+        no_parallelize: false,
     };
 
     let module = moonutil::scan::scan(

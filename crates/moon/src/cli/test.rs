@@ -195,7 +195,9 @@ fn run_test_internal(
         verbose: cli.verbose,
         no_parallelize: cmd.no_parallelize,
         build_graph: cli.build_graph,
-        ..Default::default()
+        fmt_opt: None,
+        args: vec![],
+        output_json: false,
     };
 
     let mut module = moonutil::scan::scan(

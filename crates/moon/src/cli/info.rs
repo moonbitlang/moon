@@ -85,7 +85,14 @@ pub fn run_info(cli: UniversalFlags, cmd: InfoSubcommand) -> anyhow::Result<i32>
         target_dir: target_dir.clone(),
         sort_input: false,
         run_mode: RunMode::Check,
-        ..Default::default()
+        test_opt: None,
+        fmt_opt: None,
+        args: vec![],
+        verbose: cli.verbose,
+        quiet: cli.quiet,
+        output_json: false,
+        no_parallelize: false,
+        build_graph: false,
     };
 
     let module = moonutil::scan::scan(
@@ -110,7 +117,16 @@ pub fn run_info(cli: UniversalFlags, cmd: InfoSubcommand) -> anyhow::Result<i32>
         &MoonbuildOpt {
             source_dir: source_dir.clone(),
             target_dir,
-            ..Default::default()
+            sort_input: false,
+            run_mode: RunMode::Check,
+            test_opt: None,
+            fmt_opt: None,
+            args: vec![],
+            verbose: cli.verbose,
+            quiet: cli.quiet,
+            output_json: false,
+            no_parallelize: false,
+            build_graph: false,
         },
     )?;
 

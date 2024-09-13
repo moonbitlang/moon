@@ -343,7 +343,7 @@ impl LinkCoreFlags {
     }
 }
 
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone)]
 pub struct MoonbuildOpt {
     pub source_dir: PathBuf,
     pub target_dir: PathBuf,
