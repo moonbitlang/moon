@@ -162,6 +162,7 @@ fn run_test_internal(
     moonc_opt.link_opt.debug_flag = !cmd.release;
 
     let run_mode = RunMode::Test;
+    let raw_target_dir = target_dir.to_path_buf();
     let target_dir = mk_arch_mode_dir(source_dir, target_dir, &moonc_opt, run_mode)?;
     let _lock = FileLock::lock(&target_dir)?;
 
@@ -180,6 +181,7 @@ fn run_test_internal(
     let filter_index = cmd.index;
     let moonbuild_opt = MoonbuildOpt {
         source_dir: source_dir.to_path_buf(),
+        raw_target_dir,
         target_dir: target_dir.clone(),
         test_opt: Some(TestOpt {
             filter_package: filter_package.clone(),

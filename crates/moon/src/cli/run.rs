@@ -226,6 +226,7 @@ pub fn run_run_internal(cli: &UniversalFlags, cmd: RunSubcommand) -> anyhow::Res
 
     let mut moonc_opt = super::get_compiler_flags(&source_dir, &cmd.build_flags)?;
     let run_mode = RunMode::Run;
+    let raw_target_dir = target_dir.to_path_buf();
     let target_dir = mk_arch_mode_dir(&source_dir, &target_dir, &moonc_opt, run_mode)?;
     let _lock = FileLock::lock(&target_dir)?;
 
@@ -260,6 +261,7 @@ pub fn run_run_internal(cli: &UniversalFlags, cmd: RunSubcommand) -> anyhow::Res
     }
     let moonbuild_opt = MoonbuildOpt {
         source_dir,
+        raw_target_dir,
         target_dir,
         sort_input,
         run_mode,

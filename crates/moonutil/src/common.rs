@@ -346,6 +346,7 @@ impl LinkCoreFlags {
 #[derive(Debug, Clone)]
 pub struct MoonbuildOpt {
     pub source_dir: PathBuf,
+    pub raw_target_dir: PathBuf,
     pub target_dir: PathBuf,
     pub test_opt: Option<TestOpt>,
     pub sort_input: bool,

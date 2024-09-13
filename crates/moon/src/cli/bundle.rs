@@ -123,11 +123,13 @@ fn run_bundle_internal(
     let run_mode = RunMode::Bundle;
     let sort_input = cmd.build_flags.sort_input;
 
+    let raw_target_dir = target_dir.to_path_buf();
     let target_dir = mk_arch_mode_dir(source_dir, target_dir, &moonc_opt, run_mode)?;
     let _lock = FileLock::lock(&target_dir)?;
 
     let moonbuild_opt = MoonbuildOpt {
         source_dir: source_dir.to_path_buf(),
+        raw_target_dir,
         target_dir,
         sort_input,
         run_mode,

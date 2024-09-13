@@ -115,7 +115,7 @@ fn run_build_internal(
         cli.quiet,
     )?;
 
-    let original_target_dir = target_dir;
+    let raw_target_dir = target_dir;
     let mut moonc_opt = super::get_compiler_flags(source_dir, &cmd.build_flags)?;
     moonc_opt.build_opt.deny_warn = cmd.build_flags.deny_warn;
     let run_mode = RunMode::Build;
@@ -125,6 +125,7 @@ fn run_build_internal(
 
     let moonbuild_opt = MoonbuildOpt {
         source_dir: source_dir.to_path_buf(),
+        raw_target_dir: raw_target_dir.to_path_buf(),
         target_dir,
         sort_input,
         run_mode,
@@ -172,7 +173,7 @@ fn run_build_internal(
             &moonbuild_opt,
             &reg_cfg,
             &module,
-            original_target_dir,
+            raw_target_dir,
         )
     } else {
         entry::run_build(&moonc_opt, &moonbuild_opt, &module)

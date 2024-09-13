@@ -69,6 +69,7 @@ pub fn run_info(cli: UniversalFlags, cmd: InfoSubcommand) -> anyhow::Result<i32>
     })?;
     let module_name = &mod_desc.name;
     let mut moonc_opt = MooncOpt::default();
+    let raw_target_dir = target_dir.to_path_buf();
     let target_dir = mk_arch_mode_dir(
         source_dir.as_path(),
         target_dir.as_path(),
@@ -82,6 +83,7 @@ pub fn run_info(cli: UniversalFlags, cmd: InfoSubcommand) -> anyhow::Result<i32>
     }
     let moonbuild_opt = MoonbuildOpt {
         source_dir: source_dir.clone(),
+        raw_target_dir,
         target_dir: target_dir.clone(),
         sort_input: false,
         run_mode: RunMode::Check,
@@ -114,20 +116,7 @@ pub fn run_info(cli: UniversalFlags, cmd: InfoSubcommand) -> anyhow::Result<i32>
         &resolved_env,
         &dir_sync_result,
         &moonc_opt,
-        &MoonbuildOpt {
-            source_dir: source_dir.clone(),
-            target_dir,
-            sort_input: false,
-            run_mode: RunMode::Check,
-            test_opt: None,
-            fmt_opt: None,
-            args: vec![],
-            verbose: cli.verbose,
-            quiet: cli.quiet,
-            output_json: false,
-            no_parallelize: false,
-            build_graph: false,
-        },
+        &moonbuild_opt,
     )?;
 
     let runtime = tokio::runtime::Runtime::new()?;

@@ -46,6 +46,7 @@ pub fn run_fmt(cli: &UniversalFlags, cmd: FmtSubcommand) -> anyhow::Result<i32> 
 
     let moonc_opt = MooncOpt::default();
     let run_mode = RunMode::Format;
+    let raw_target_dir = target_dir.to_path_buf();
     let target_dir = mk_arch_mode_dir(&source_dir, &target_dir, &moonc_opt, run_mode)?;
     let _lock = FileLock::lock(&target_dir)?;
 
@@ -59,6 +60,7 @@ pub fn run_fmt(cli: &UniversalFlags, cmd: FmtSubcommand) -> anyhow::Result<i32> 
 
     let moonbuild_opt = MoonbuildOpt {
         source_dir,
+        raw_target_dir,
         target_dir: target_dir.clone(),
         sort_input: cmd.sort_input,
         run_mode,
