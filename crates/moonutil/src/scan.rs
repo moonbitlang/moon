@@ -347,6 +347,7 @@ fn scan_one_package(
         warn_list,
         alert_list,
         targets: cond_targets,
+        pre_build: pkg.pre_build,
     };
     if doc_mode {
         // -o <folder>

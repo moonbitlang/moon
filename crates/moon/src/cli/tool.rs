@@ -16,8 +16,12 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
-mod format_and_diff;
+use std::path::PathBuf;
 
+pub mod embed;
+pub mod format_and_diff;
+
+use embed::*;
 use format_and_diff::*;
 
 #[derive(Debug, clap::Parser)]
@@ -29,10 +33,20 @@ pub struct ToolSubcommand {
 #[derive(Debug, clap::Parser)]
 pub enum ToolSubcommands {
     FormatAndDiff(FormatAndDiffSubcommand),
+    Embed(Embed),
+}
+
+#[derive(Debug, clap::Parser)]
+pub struct FormatAndWriteSubcommand {
+    #[clap(long)]
+    old: PathBuf,
+    #[clap(long)]
+    new: PathBuf,
 }
 
 pub fn run_tool(cmd: ToolSubcommand) -> anyhow::Result<i32> {
     match cmd.subcommand {
         ToolSubcommands::FormatAndDiff(subcmd) => run_format_and_diff(subcmd),
+        ToolSubcommands::Embed(subcmd) => run_embed(subcmd),
     }
 }

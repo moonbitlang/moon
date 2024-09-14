@@ -87,6 +87,59 @@ fn render_result(result: Option<usize>, quiet: bool, mode: &str) -> anyhow::Resu
     }
 }
 
+pub fn n2_simple_run_interface(
+    state: n2::load::State,
+    moonbuild_opt: &MoonbuildOpt,
+) -> anyhow::Result<Option<usize>> {
+    let logger = Arc::new(Mutex::new(vec![]));
+    let use_fancy = terminal::use_fancy();
+
+    let catcher = Arc::clone(&logger);
+    let output_json = moonbuild_opt.output_json;
+    let render_and_catch = move |output: &str| {
+        output
+            .split('\n')
+            .filter(|it| !it.is_empty())
+            .for_each(|content| {
+                catcher.lock().unwrap().push(content.to_owned());
+                if output_json {
+                    println!("{content}");
+                } else {
+                    moonutil::render::MooncDiagnostic::render(content, use_fancy);
+                }
+            });
+    };
+
+    // TODO: generate build graph for pre_build?
+
+    let mut progress = create_progress_console(Some(Box::new(render_and_catch)));
+    let options = work::Options {
+        parallelism: default_parallelism()?,
+        failures_left: Some(10),
+        explain: false,
+        adopt: false,
+    };
+    let mut work = work::Work::new(
+        state.graph,
+        state.hashes,
+        state.db,
+        &options,
+        progress.as_mut(),
+        state.pools,
+    );
+
+    if !state.default.is_empty() {
+        for target in state.default {
+            work.want_file(target)?;
+        }
+    } else {
+        return Ok(Some(0));
+    }
+
+    let res = trace::scope("work.run", || work.run())?;
+    Ok(res)
+}
+
 pub fn n2_run_interface(
     state: n2::load::State,
     moonbuild_opt: &MoonbuildOpt,
@@ -231,11 +284,39 @@ fn vis_build_graph(state: &State, moonbuild_opt: &MoonbuildOpt) {
     eprintln!("generated build graph: {}", path.display());
 }
 
+fn run_moon_generate(moonbuild_opt: &MoonbuildOpt, module: &ModuleDB) -> anyhow::Result<i32> {
+    let generate_state = crate::generate::load_moon_generate(moonbuild_opt, module)?;
+    let generate_result = n2_simple_run_interface(generate_state, moonbuild_opt)?;
+    render_generate_result(generate_result, moonbuild_opt.quiet)?;
+    Ok(0)
+}
+
+fn render_generate_result(result: Option<usize>, quiet: bool) -> anyhow::Result<i32> {
+    match result {
+        None => {
+            anyhow::bail!(format!("failed when execute generate"));
+        }
+        Some(0) => Ok(0),
+        Some(n) => {
+            if !quiet {
+                eprintln!(
+                    "Executed {} pre-build task{}, now up to date",
+                    n,
+                    if n == 1 { "" } else { "s" }
+                );
+            }
+            Ok(0)
+        }
+    }
+}
+
 pub fn run_check(
     moonc_opt: &MooncOpt,
     moonbuild_opt: &MoonbuildOpt,
     module: &ModuleDB,
 ) -> anyhow::Result<i32> {
+    run_moon_generate(moonbuild_opt, module)?;
+
     let state = trace::scope("moonbit::check::read", || {
         crate::check::normal::load_moon_proj(module, moonc_opt, moonbuild_opt)
     })?;
@@ -256,6 +337,8 @@ pub fn run_build(
     moonbuild_opt: &MoonbuildOpt,
     module: &ModuleDB,
 ) -> anyhow::Result<i32> {
+    run_moon_generate(moonbuild_opt, module)?;
+
     let state = trace::scope("moonbit::build::read", || {
         crate::build::load_moon_proj(module, moonc_opt, moonbuild_opt)
     })?;
@@ -455,6 +538,8 @@ pub fn run_test(
     auto_update: bool,
     module: ModuleDB,
 ) -> anyhow::Result<Vec<Result<TestStatistics, TestFailedStatus>>> {
+    run_moon_generate(&moonbuild_opt, &module)?;
+
     let moonc_opt = Arc::new(moonc_opt);
     let moonbuild_opt = Arc::new(moonbuild_opt);
     let module = Arc::new(module);
@@ -928,6 +1013,8 @@ pub fn run_bundle(
     moonbuild_opt: &MoonbuildOpt,
     moonc_opt: &MooncOpt,
 ) -> anyhow::Result<i32> {
+    run_moon_generate(moonbuild_opt, module)?;
+
     let state = crate::bundle::load_moon_proj(module, moonc_opt, moonbuild_opt)?;
     let result = n2_run_interface(state, moonbuild_opt)?;
     match result {
