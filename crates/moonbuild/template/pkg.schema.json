@@ -45,6 +45,16 @@
         "null"
       ]
     },
+    "pre-build": {
+      "description": "Command for moon generate",
+      "type": [
+        "array",
+        "null"
+      ],
+      "items": {
+        "$ref": "#/definitions/MoonPkgGenerate"
+      }
+    },
     "targets": {
       "description": "Conditional compilation targets",
       "type": [
@@ -166,6 +176,25 @@
         }
       }
     },
+    "MoonPkgGenerate": {
+      "type": "object",
+      "required": [
+        "command",
+        "input",
+        "output"
+      ],
+      "properties": {
+        "command": {
+          "type": "string"
+        },
+        "input": {
+          "$ref": "#/definitions/StringOrArray"
+        },
+        "output": {
+          "$ref": "#/definitions/StringOrArray"
+        }
+      }
+    },
     "PkgJSONImport": {
       "anyOf": [
         {
@@ -204,6 +233,19 @@
             "path": {
               "type": "string"
             }
+          }
+        }
+      ]
+    },
+    "StringOrArray": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "array",
+          "items": {
+            "type": "string"
           }
         }
       ]

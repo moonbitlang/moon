@@ -121,6 +121,7 @@ fn cmd_test() {
             ${WORK_DIR}/moon_build_package.in/moon.test, ok,
             ${WORK_DIR}/moon_info_001.in/moon.test, ok,
             ${WORK_DIR}/moon_info_002.in/moon.test, ok,
+            ${WORK_DIR}/pre_build.in/moon.test, ok,
             ${WORK_DIR}/specify_source_dir_001.in/moon.test, ok,
             ${WORK_DIR}/test_moon_info.in/moon.test, ok,
         ]
