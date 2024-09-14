@@ -6669,3 +6669,17 @@ fn no_main_just_init() {
         "#]],
     );
 }
+
+#[test]
+fn test_pre_build() {
+    let dir = TestDir::new("pre_build.in");
+    check(
+        &get_stdout_with_args_and_replace_dir(&dir, ["check"]),
+        expect![[r#"
+        "#]],
+    );
+
+    check(&read(&dir.join("src/lib/a.mbt")), expect![[r#""#]]);
+    check(&read(&dir.join("src/lib/b.mbt")), expect![[r#""#]]);
+    check(&read(&dir.join("src/lib/c.mbt")), expect![[r#""#]]);
+}
