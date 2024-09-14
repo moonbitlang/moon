@@ -286,9 +286,13 @@ fn vis_build_graph(state: &State, moonbuild_opt: &MoonbuildOpt) {
 
 fn run_moon_generate(moonbuild_opt: &MoonbuildOpt, module: &ModuleDB) -> anyhow::Result<i32> {
     let generate_state = crate::generate::load_moon_generate(moonbuild_opt, module)?;
-    let generate_result = n2_simple_run_interface(generate_state, moonbuild_opt)?;
-    render_generate_result(generate_result, moonbuild_opt.quiet)?;
-    Ok(0)
+    if let Some(generate_state) = generate_state {
+        let generate_result = n2_simple_run_interface(generate_state, moonbuild_opt)?;
+        render_generate_result(generate_result, moonbuild_opt.quiet)?;
+        Ok(0)
+    } else {
+        Ok(0)
+    }
 }
 
 fn render_generate_result(result: Option<usize>, quiet: bool) -> anyhow::Result<i32> {
