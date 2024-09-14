@@ -626,6 +626,10 @@ pub fn run_test(
                 );
 
                 std::fs::write(&wrapper_js_driver_path, js_driver)?;
+                // prevent node use the outer layer packages.json, which may cause ide debug can't start
+                if moonc_opt.build_opt.debug_flag {
+                    std::fs::write(moonbuild_opt.target_dir.join("package.json"), "{}")?;
+                }
                 test_artifacts
                     .artifacts_path
                     .push(wrapper_js_driver_path.clone());

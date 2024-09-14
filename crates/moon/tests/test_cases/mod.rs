@@ -6282,6 +6282,7 @@ fn test_snapshot_test_target_js() {
             Total tests: 6, passed: 1, failed: 5.
         "#]],
     );
+    assert!(dir.join("target/js/debug/test/package.json").exists());
     check(
         &get_stdout_with_args_and_replace_dir(&dir, ["test", "--target", "js", "-u"]),
         expect![[r#"
