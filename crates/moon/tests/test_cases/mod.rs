@@ -6492,7 +6492,6 @@ fn test_moon_doc_dry_run() {
 }
 
 #[test]
-#[ignore = "wait for the latest release of moonc"]
 fn test_moon_doc() {
     let dir = TestDir::new("moon_doc.in");
     let _ = get_stderr_on_success_with_args_and_replace_dir(&dir, ["doc"]);
