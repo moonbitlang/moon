@@ -17,14 +17,13 @@
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
 use colored::Colorize;
+use moonutil::common::{read_module_desc_file_in_dir, write_module_json_to_file, MOONBITLANG_CORE};
 use moonutil::dependency::DependencyInfo;
 use moonutil::module::convert_module_to_mod_json;
-use moonutil::mooncakes::{ModuleName, ModuleSource, RegistryConfig};
+use moonutil::mooncakes::{ModuleName, ModuleSource};
 use semver::Version;
 use std::path::Path;
 use std::rc::Rc;
-
-use moonutil::common::{read_module_desc_file_in_dir, write_module_json_to_file, MOONBITLANG_CORE};
 
 use crate::registry::{self, Registry, RegistryList};
 use crate::resolver::resolve_single_root_with_defaults;
@@ -32,12 +31,10 @@ use crate::resolver::resolve_single_root_with_defaults;
 pub fn add_latest(
     source_dir: &Path,
     target_dir: &Path,
-    username: &str,
-    pkgname: &str,
-    registry_config: &RegistryConfig,
+    pkg_name: &ModuleName,
     quiet: bool,
 ) -> anyhow::Result<i32> {
-    if format!("{username}/{pkgname}") == MOONBITLANG_CORE {
+    if pkg_name.to_string() == MOONBITLANG_CORE {
         eprintln!(
             "{}: no need to add `{}` as dependency",
             MOONBITLANG_CORE,
@@ -45,31 +42,20 @@ pub fn add_latest(
         );
         std::process::exit(0);
     }
+
     let registry = registry::OnlineRegistry::mooncakes_io();
-    let pkg_name = ModuleName {
-        username: username.to_string(),
-        pkgname: pkgname.to_string(),
-    };
     let latest_version = registry
-        .get_latest_version(&pkg_name)
+        .get_latest_version(pkg_name)
         .ok_or_else(|| {
             anyhow::anyhow!(
-                "could not find the latest version of {}/{}. Please consider running `moon update` to update the index.",
-                username,
-                pkgname
+                "could not find the latest version of {}. Please consider running `moon update` to update the index.",
+                pkg_name.to_string()
             )
         })?
         .version
         .clone()
         .unwrap();
-    add(
-        source_dir,
-        target_dir,
-        &pkg_name,
-        &latest_version,
-        registry_config,
-        quiet,
-    )
+    add(source_dir, target_dir, pkg_name, &latest_version, quiet)
 }
 
 #[test]
@@ -83,7 +69,6 @@ pub fn add(
     _target_dir: &Path,
     pkg_name: &ModuleName,
     version: &Version,
-    _registry_config: &RegistryConfig,
     quiet: bool,
 ) -> anyhow::Result<i32> {
     let mut m = read_module_desc_file_in_dir(source_dir)?;
