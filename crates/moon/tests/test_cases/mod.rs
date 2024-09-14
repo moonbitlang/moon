@@ -6497,49 +6497,34 @@ fn test_moon_doc() {
     let _ = get_stderr_on_success_with_args_and_replace_dir(&dir, ["doc"]);
     check(
         &read(&dir.join("target/doc/username/hello/lib/members.md")),
-        expect![[r##"
-            # username/hello/lib
-            * * *
+        expect![[r#"
             # Index
-
-            |Value|Description|
+            |Value|description|
             |---|---|
             |[hello](#hello)||
 
-
-            * * *
             # Value and Function
             ## hello
+
             ```moonbit
-            :::source,username/hello/lib/hello.mbt,1:::pub fn hello() -> <a href="moonbitlang/predef#string">String</a> 
+            :::source,username/hello/lib/hello.mbt,1:::fn hello() -> String
             ```
 
-
-
-
-        "##]],
+        "#]],
     );
     check(
         &read(&dir.join("target/doc/username/hello/main/members.md")),
-        expect![[r#"
-            # username/hello/main
-            * * *
-            # Index
-        "#]],
+        expect!["# Index"],
     );
     check(
         &read(&dir.join("target/doc/username/hello/_sidebar.md")),
         expect![[r#"
-            - [Contents](username/hello/)
-            - Packages
-                - [username/hello/lib](username/hello/lib/members)
-                - [username/hello/main](username/hello/main/members)
-
-            - Dependencies
-                - [moonbitlang/core](moonbitlang/core/)
-
-
-        "#]],
+            - [username/hello](username/hello/)
+            - **In this module**
+              - [lib](username/hello/lib/members)
+              - [main](username/hello/main/members)
+            - **Dependencies**
+              - [moonbitlang/core](moonbitlang/core/)"#]],
     );
 }
 
