@@ -68,7 +68,11 @@ pub fn gen_build_build_item(
     let core_out = pkg.artifact.with_extension("core");
     let mi_out = pkg.artifact.with_extension("mi");
 
-    let backend_filtered = moonutil::common::backend_filter(&pkg.files, moonc_opt);
+    let backend_filtered = moonutil::common::backend_filter(
+        &pkg.files,
+        moonc_opt.build_opt.debug_flag,
+        moonc_opt.build_opt.target_backend,
+    );
 
     let mbt_deps = backend_filtered
         .iter()

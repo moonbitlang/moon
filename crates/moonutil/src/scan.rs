@@ -16,7 +16,7 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
-use crate::cond_expr::{parse_cond_exprs, CompileCondition};
+use crate::cond_expr::{parse_cond_exprs, CompileCondition, StringOrArray};
 use crate::module::ModuleDB;
 use crate::mooncakes::result::ResolvedEnv;
 use crate::mooncakes::DirSyncResult;
@@ -207,7 +207,7 @@ fn scan_one_package(
     module_source_dir: &PathBuf,
     mod_desc: &crate::module::MoonMod,
     moonbuild_opt: &MoonbuildOpt,
-    _moonc_opt: &crate::common::MooncOpt,
+    moonc_opt: &crate::common::MooncOpt,
     target_dir: &PathBuf,
     is_third_party: bool,
     doc_mode: bool,
@@ -261,7 +261,7 @@ fn scan_one_package(
         get_mbt_and_test_file_paths(pkg_path);
 
     // workaround for builtin package testing
-    if _moonc_opt.build_opt.enable_coverage
+    if moonc_opt.build_opt.enable_coverage
         && mod_desc.name == crate::common::MOONBITLANG_CORE
         && rel_path.components == ["builtin"]
     {
@@ -291,9 +291,28 @@ fn scan_one_package(
 
     let artifact: PathBuf = target_dir.into();
 
-    let cond_targets = match &pkg.targets {
-        Some(x) => Some(parse_cond_exprs(&pkg_path.join(MOON_PKG_JSON), x)?),
-        None => None,
+    let cond_targets = {
+        let mut x = pkg.targets.unwrap_or(IndexMap::new());
+
+        for file in mbt_files
+            .iter()
+            .chain(wbtest_mbt_files.iter())
+            .chain(test_mbt_files.iter())
+        {
+            let filename = file.file_name().unwrap().to_str().unwrap().to_string();
+            if !x.contains_key(&filename) {
+                let stem = file.file_stem().unwrap().to_str().unwrap();
+                let dot = stem.rfind('.');
+                match dot {
+                    None => {}
+                    Some(idx) => {
+                        let (_, backend_ext) = stem.split_at(idx + 1);
+                        x.insert(filename, StringOrArray::String(backend_ext.to_string()));
+                    }
+                };
+            }
+        }
+        Some(parse_cond_exprs(&pkg_path.join(MOON_PKG_JSON), &x)?)
     };
 
     let file_cond_map = |files: Vec<PathBuf>| -> IndexMap<PathBuf, CompileCondition> {

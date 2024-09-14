@@ -548,43 +548,16 @@ impl RunMode {
 
 pub fn backend_filter(
     files_and_con: &IndexMap<PathBuf, CompileCondition>,
-    moonc_opt: &MooncOpt,
-) -> Vec<std::path::PathBuf> {
-    let mut satisfy = HashMap::new();
-    let files: Vec<_> = files_and_con.iter().map(|(f, _)| f.clone()).collect();
-
-    for (file, cond) in files_and_con.iter() {
-        let x = cond.eval(
-            OptLevel::from_debug_flag(moonc_opt.build_opt.debug_flag),
-            moonc_opt.build_opt.target_backend,
-        );
-        satisfy.insert(file.display().to_string(), x);
-    }
-
-    backend_filter_internal(
-        files.as_slice(),
-        &satisfy,
-        moonc_opt.build_opt.target_backend,
-    )
-}
-
-pub fn backend_filter_internal(
-    files: &[PathBuf],
-    satisfy: &HashMap<String, bool>,
+    debug_flag: bool,
     target_backend: TargetBackend,
-) -> Vec<PathBuf> {
-    files
+) -> Vec<std::path::PathBuf> {
+    files_and_con
         .iter()
-        .filter(|f| *satisfy.get(&f.display().to_string()).unwrap_or(&true))
-        .filter(|f| {
-            let stem = f.file_stem().unwrap().to_str().unwrap();
-            let dot = stem.rfind('.');
-            match dot {
-                None => true,
-                Some(idx) => {
-                    let (_, backend_ext) = stem.split_at(idx + 1);
-                    backend_ext == target_backend.to_backend_ext()
-                }
+        .filter_map(|(file, cond)| {
+            if cond.eval(OptLevel::from_debug_flag(debug_flag), target_backend) {
+                Some(file)
+            } else {
+                None
             }
         })
         .cloned()
@@ -595,18 +568,63 @@ pub fn backend_filter_internal(
 fn test_backend_filter() {
     use expect_test::expect;
 
-    let files = [
-        PathBuf::from("a.mbt"),
-        PathBuf::from("a_test.mbt"),
-        PathBuf::from("b.mbt"),
-        PathBuf::from("b_test.mbt"),
-        PathBuf::from("x.js.mbt"),
-        PathBuf::from("x_test.js.mbt"),
-        PathBuf::from("x.wasm.mbt"),
-        PathBuf::from("x_test.wasm.mbt"),
-        PathBuf::from("x.wasm-gc.mbt"),
-        PathBuf::from("x_test.wasm-gc.mbt"),
-    ];
+    let cond = CompileCondition {
+        backend: vec![
+            TargetBackend::Js,
+            TargetBackend::Wasm,
+            TargetBackend::WasmGC,
+        ],
+        optlevel: vec![OptLevel::Debug, OptLevel::Release],
+    };
+
+    let files: IndexMap<PathBuf, CompileCondition> = IndexMap::from([
+        (PathBuf::from("a.mbt"), cond.clone()),
+        (PathBuf::from("a_test.mbt"), cond.clone()),
+        (PathBuf::from("b.mbt"), cond.clone()),
+        (PathBuf::from("b_test.mbt"), cond.clone()),
+        (
+            PathBuf::from("x.js.mbt"),
+            CompileCondition {
+                backend: vec![TargetBackend::Js],
+                optlevel: vec![OptLevel::Debug, OptLevel::Release],
+            },
+        ),
+        (
+            PathBuf::from("x_test.js.mbt"),
+            CompileCondition {
+                backend: vec![TargetBackend::Js],
+                optlevel: vec![OptLevel::Debug, OptLevel::Release],
+            },
+        ),
+        (
+            PathBuf::from("x.wasm.mbt"),
+            CompileCondition {
+                backend: vec![TargetBackend::Wasm],
+                optlevel: vec![OptLevel::Debug, OptLevel::Release],
+            },
+        ),
+        (
+            PathBuf::from("x_test.wasm.mbt"),
+            CompileCondition {
+                backend: vec![TargetBackend::Wasm],
+                optlevel: vec![OptLevel::Debug, OptLevel::Release],
+            },
+        ),
+        (
+            PathBuf::from("x.wasm-gc.mbt"),
+            CompileCondition {
+                backend: vec![TargetBackend::WasmGC],
+                optlevel: vec![OptLevel::Debug, OptLevel::Release],
+            },
+        ),
+        (
+            PathBuf::from("x_test.wasm-gc.mbt"),
+            CompileCondition {
+                backend: vec![TargetBackend::WasmGC],
+                optlevel: vec![OptLevel::Debug, OptLevel::Release],
+            },
+        ),
+    ]);
 
     expect![[r#"
         [
@@ -618,11 +636,7 @@ fn test_backend_filter() {
             "x_test.js.mbt",
         ]
     "#]]
-    .assert_debug_eq(&backend_filter_internal(
-        &files,
-        &HashMap::new(),
-        TargetBackend::Js,
-    ));
+    .assert_debug_eq(&backend_filter(&files, false, TargetBackend::Js));
     expect![[r#"
         [
             "a.mbt",
@@ -633,11 +647,7 @@ fn test_backend_filter() {
             "x_test.wasm.mbt",
         ]
     "#]]
-    .assert_debug_eq(&backend_filter_internal(
-        &files,
-        &HashMap::new(),
-        TargetBackend::Wasm,
-    ));
+    .assert_debug_eq(&backend_filter(&files, false, TargetBackend::Wasm));
     expect![[r#"
         [
             "a.mbt",
@@ -648,11 +658,7 @@ fn test_backend_filter() {
             "x_test.wasm-gc.mbt",
         ]
     "#]]
-    .assert_debug_eq(&backend_filter_internal(
-        &files,
-        &HashMap::new(),
-        TargetBackend::WasmGC,
-    ));
+    .assert_debug_eq(&backend_filter(&files, false, TargetBackend::WasmGC));
 }
 
 pub fn get_cargo_pkg_version() -> String {

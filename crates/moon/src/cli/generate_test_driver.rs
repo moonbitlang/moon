@@ -183,7 +183,11 @@ pub fn generate_test_driver(
             DriverKind::Blackbox => (&pkg.test_files, BLACKBOX_TEST_DRIVER),
         };
 
-        let backend_filtered: Vec<PathBuf> = moonutil::common::backend_filter(files, &moonc_opt);
+        let backend_filtered: Vec<PathBuf> = moonutil::common::backend_filter(
+            files,
+            moonc_opt.build_opt.debug_flag,
+            moonc_opt.build_opt.target_backend,
+        );
         let mbts_test_data =
             moonc_gen_test_info(&backend_filtered, &target_dir.join(pkg.rel.fs_full_name()))?;
 
