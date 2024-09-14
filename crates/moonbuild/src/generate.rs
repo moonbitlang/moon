@@ -29,7 +29,7 @@ use n2::smallmap::SmallMap;
 pub fn load_moon_generate(
     moonbuild_opt: &MoonbuildOpt,
     module: &ModuleDB,
-) -> anyhow::Result<State> {
+) -> anyhow::Result<Option<State>> {
     let mut graph = n2graph::Graph::default();
     let mut defaults: Vec<FileId> = vec![];
 
@@ -96,8 +96,11 @@ pub fn load_moon_generate(
                 };
 
                 let mut build = Build::new(loc, ins, outs);
+                let moon_bin = std::env::current_exe()?;
                 let command = if command.starts_with(":embed") {
-                    command.replacen(":embed", "moon tool embed", 1).to_string()
+                    command
+                        .replacen(":embed", &format!("{} tool embed", moon_bin.display()), 1)
+                        .to_string()
                 } else {
                     command.to_string()
                 };
@@ -110,6 +113,10 @@ pub fn load_moon_generate(
         }
     }
 
+    if defaults.is_empty() {
+        return Ok(None);
+    }
+
     let mut hashed = n2graph::Hashes::default();
     let common = moonbuild_opt.raw_target_dir.join("common");
     if !common.exists() {
@@ -118,11 +125,11 @@ pub fn load_moon_generate(
     let _lock = FileLock::lock(&common)?;
     let n2_db_path = common.join("generate.db");
     let db = n2::db::open(&n2_db_path, &mut graph, &mut hashed).unwrap();
-    Ok(State {
+    Ok(Some(State {
         graph,
         db,
         hashes: hashed,
         default: defaults,
         pools: SmallMap::default(),
-    })
+    }))
 }
