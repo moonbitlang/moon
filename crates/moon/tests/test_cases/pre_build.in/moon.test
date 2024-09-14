@@ -1,0 +1,4 @@
+  $ moon check
+  $ xcat src/lib/a.mbt
+  $ xcat src/lib/b.mbt
+  $ xcat src/lib/c.mbt
