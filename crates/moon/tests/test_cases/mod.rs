@@ -2437,8 +2437,6 @@ fn test_dummy_core() {
                         },
                         "$ROOT/0/y.js.mbt": {
                           "backend": [
-                            "Wasm",
-                            "WasmGC",
                             "Js"
                           ],
                           "optlevel": [
@@ -2448,9 +2446,7 @@ fn test_dummy_core() {
                         },
                         "$ROOT/0/y.wasm-gc.mbt": {
                           "backend": [
-                            "Wasm",
-                            "WasmGC",
-                            "Js"
+                            "WasmGC"
                           ],
                           "optlevel": [
                             "Debug",
@@ -2459,9 +2455,7 @@ fn test_dummy_core() {
                         },
                         "$ROOT/0/y.wasm.mbt": {
                           "backend": [
-                            "Wasm",
-                            "WasmGC",
-                            "Js"
+                            "Wasm"
                           ],
                           "optlevel": [
                             "Debug",
@@ -2472,8 +2466,6 @@ fn test_dummy_core() {
                       "wbtest-files": {
                         "$ROOT/0/y_wbtest.js.mbt": {
                           "backend": [
-                            "Wasm",
-                            "WasmGC",
                             "Js"
                           ],
                           "optlevel": [
@@ -2494,9 +2486,7 @@ fn test_dummy_core() {
                         },
                         "$ROOT/0/y_wbtest.wasm-gc.mbt": {
                           "backend": [
-                            "Wasm",
-                            "WasmGC",
-                            "Js"
+                            "WasmGC"
                           ],
                           "optlevel": [
                             "Debug",
@@ -2505,9 +2495,7 @@ fn test_dummy_core() {
                         },
                         "$ROOT/0/y_wbtest.wasm.mbt": {
                           "backend": [
-                            "Wasm",
-                            "WasmGC",
-                            "Js"
+                            "Wasm"
                           ],
                           "optlevel": [
                             "Debug",
@@ -2540,8 +2528,6 @@ fn test_dummy_core() {
                         },
                         "$ROOT/1/x.js.mbt": {
                           "backend": [
-                            "Wasm",
-                            "WasmGC",
                             "Js"
                           ],
                           "optlevel": [
@@ -2551,9 +2537,7 @@ fn test_dummy_core() {
                         },
                         "$ROOT/1/x.wasm-gc.mbt": {
                           "backend": [
-                            "Wasm",
-                            "WasmGC",
-                            "Js"
+                            "WasmGC"
                           ],
                           "optlevel": [
                             "Debug",
@@ -2562,9 +2546,7 @@ fn test_dummy_core() {
                         },
                         "$ROOT/1/x.wasm.mbt": {
                           "backend": [
-                            "Wasm",
-                            "WasmGC",
-                            "Js"
+                            "Wasm"
                           ],
                           "optlevel": [
                             "Debug",
@@ -2575,9 +2557,7 @@ fn test_dummy_core() {
                       "wbtest-files": {
                         "$ROOT/1/x_wbtest.wasm-gc.mbt": {
                           "backend": [
-                            "Wasm",
-                            "WasmGC",
-                            "Js"
+                            "WasmGC"
                           ],
                           "optlevel": [
                             "Debug",
@@ -2718,8 +2698,6 @@ fn test_dummy_core() {
                         },
                         "$ROOT/0/y.js.mbt": {
                           "backend": [
-                            "Wasm",
-                            "WasmGC",
                             "Js"
                           ],
                           "optlevel": [
@@ -2729,9 +2707,7 @@ fn test_dummy_core() {
                         },
                         "$ROOT/0/y.wasm-gc.mbt": {
                           "backend": [
-                            "Wasm",
-                            "WasmGC",
-                            "Js"
+                            "WasmGC"
                           ],
                           "optlevel": [
                             "Debug",
@@ -2740,9 +2716,7 @@ fn test_dummy_core() {
                         },
                         "$ROOT/0/y.wasm.mbt": {
                           "backend": [
-                            "Wasm",
-                            "WasmGC",
-                            "Js"
+                            "Wasm"
                           ],
                           "optlevel": [
                             "Debug",
@@ -2753,8 +2727,6 @@ fn test_dummy_core() {
                       "wbtest-files": {
                         "$ROOT/0/y_wbtest.js.mbt": {
                           "backend": [
-                            "Wasm",
-                            "WasmGC",
                             "Js"
                           ],
                           "optlevel": [
@@ -2775,9 +2747,7 @@ fn test_dummy_core() {
                         },
                         "$ROOT/0/y_wbtest.wasm-gc.mbt": {
                           "backend": [
-                            "Wasm",
-                            "WasmGC",
-                            "Js"
+                            "WasmGC"
                           ],
                           "optlevel": [
                             "Debug",
@@ -2786,9 +2756,7 @@ fn test_dummy_core() {
                         },
                         "$ROOT/0/y_wbtest.wasm.mbt": {
                           "backend": [
-                            "Wasm",
-                            "WasmGC",
-                            "Js"
+                            "Wasm"
                           ],
                           "optlevel": [
                             "Debug",
@@ -2821,8 +2789,6 @@ fn test_dummy_core() {
                         },
                         "$ROOT/1/x.js.mbt": {
                           "backend": [
-                            "Wasm",
-                            "WasmGC",
                             "Js"
                           ],
                           "optlevel": [
@@ -2832,9 +2798,7 @@ fn test_dummy_core() {
                         },
                         "$ROOT/1/x.wasm-gc.mbt": {
                           "backend": [
-                            "Wasm",
-                            "WasmGC",
-                            "Js"
+                            "WasmGC"
                           ],
                           "optlevel": [
                             "Debug",
@@ -2843,9 +2807,7 @@ fn test_dummy_core() {
                         },
                         "$ROOT/1/x.wasm.mbt": {
                           "backend": [
-                            "Wasm",
-                            "WasmGC",
-                            "Js"
+                            "Wasm"
                           ],
                           "optlevel": [
                             "Debug",
@@ -2856,9 +2818,7 @@ fn test_dummy_core() {
                       "wbtest-files": {
                         "$ROOT/1/x_wbtest.wasm-gc.mbt": {
                           "backend": [
-                            "Wasm",
-                            "WasmGC",
-                            "Js"
+                            "WasmGC"
                           ],
                           "optlevel": [
                             "Debug",

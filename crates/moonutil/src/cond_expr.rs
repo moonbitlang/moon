@@ -16,10 +16,7 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
-use std::{
-    collections::HashSet,
-    path::{Path, PathBuf},
-};
+use std::path::{Path, PathBuf};
 
 use indexmap::IndexMap;
 use serde::{Deserialize, Serialize};
@@ -77,8 +74,8 @@ impl CondExpr {
     }
 
     pub fn to_compile_condition(&self) -> CompileCondition {
-        let mut backend = HashSet::new();
-        let mut optlevel = HashSet::new();
+        let mut backend = vec![];
+        let mut optlevel = vec![];
         for (t, o) in [
             (TargetBackend::Wasm, OptLevel::Debug),
             (TargetBackend::Wasm, OptLevel::Release),
@@ -88,15 +85,14 @@ impl CondExpr {
             (TargetBackend::Js, OptLevel::Release),
         ] {
             if self.eval(o, t) {
-                optlevel.insert(o);
-                backend.insert(t);
+                optlevel.push(o);
+                backend.push(t);
             }
         }
 
-        CompileCondition {
-            backend: backend.into_iter().collect(),
-            optlevel: optlevel.into_iter().collect(),
-        }
+        backend.dedup();
+        optlevel.dedup();
+        CompileCondition { backend, optlevel }
     }
 }
 
