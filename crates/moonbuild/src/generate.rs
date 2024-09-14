@@ -19,7 +19,7 @@
 use std::path::PathBuf;
 use std::rc::Rc;
 
-use moonutil::common::MoonbuildOpt;
+use moonutil::common::{FileLock, MoonbuildOpt};
 use moonutil::module::ModuleDB;
 use moonutil::package::StringOrArray;
 use n2::graph::{self as n2graph, Build, BuildIns, BuildOuts, FileId, FileLoc};
@@ -115,6 +115,7 @@ pub fn load_moon_generate(
     if !common.exists() {
         std::fs::create_dir_all(&common)?;
     }
+    let _lock = FileLock::lock(&common)?;
     let n2_db_path = common.join("generate.db");
     let db = n2::db::open(&n2_db_path, &mut graph, &mut hashed).unwrap();
     Ok(State {
