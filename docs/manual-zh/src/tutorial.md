@@ -12,46 +12,7 @@
 
     ```bash
     $ moon help
-    The build system and package manager for MoonBit.
-
-    Usage: moon [OPTIONS] <COMMAND>
-
-    Commands:
-      new                    Create a new MoonBit module
-      build                  Build the current package
-      check                  Check the current package, but don't build object files
-      run                    Run a main package
-      test                   Test the current package
-      clean                  Remove the target directory
-      fmt                    Format source code
-      doc                    Generate documentation
-      info                   Generate public interface (`.mbti`) files for all packages in the module
-      add                    Add a dependency
-      remove                 Remove a dependency
-      install                Install dependencies
-      tree                   Display the dependency tree
-      login                  Log in to your account
-      register               Register an account at mooncakes.io
-      publish                Publish the current package
-      update                 Update the package registry index
-      coverage               Code coverage utilities
-      generate-build-matrix  Generate build matrix for benchmarking (legacy feature)
-      upgrade                Upgrade toolchains
-      shell-completion       Generate shell completion for bash/elvish/fish/pwsh/zsh to stdout
-      version                Print version information and exit
-      help                   Print this message or the help of the given subcommand(s)
-
-    Options:
-      -h, --help  Print help
-
-    Common Options:
-      -C, --directory <SOURCE_DIR>   The source code directory. Defaults to the current directory
-          --target-dir <TARGET_DIR>  The target directory. Defaults to `source_dir/target`
-      -q, --quiet                    Suppress output
-      -v, --verbose                  Increase verbosity
-          --trace                    Trace the execution of the program
-          --dry-run                  Do not actually run the command
-          --build-graph              Generate build graph
+    ...
     ```
 
 2. **Moonbit Language** Visual Studio Code 插件: 可以从 VS Code 市场安装。该插件为 MoonBit 提供了丰富的开发环境，包括语法高亮、代码补全、交互式除错和测试等功能。
