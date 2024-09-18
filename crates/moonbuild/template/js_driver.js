@@ -1,4 +1,4 @@
-const { moonbit_test_driver_internal_execute } = require("origin_js_path");
+const { moonbit_test_driver_internal_execute, moonbit_test_driver_internal_print_coverage } = require("origin_js_path");
 
 const packageName = "";
 const testParams = [];
@@ -6,6 +6,9 @@ const testParams = [];
 for (param of testParams) {
     try {
         moonbit_test_driver_internal_execute(param[0], parseInt(param[1]));
+        if (moonbit_test_driver_internal_print_coverage) {
+            moonbit_test_driver_internal_print_coverage();
+        }
     } catch (e) {
         console.log("----- BEGIN MOON TEST RESULT -----")
         console.log(`{"package": "${packageName}", "filename": "${param[0]}", "index": "${param[1]}", "test_name": "${param[1]}", "message": "${e.stack.toString().replaceAll("\\", "\\\\").split('\n').join('\\n')}"}`);

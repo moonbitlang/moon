@@ -70,7 +70,7 @@ pub async fn run_wat(
     // put "--test-mode" at the front of args
     let mut _args = vec!["--test-mode".to_string()];
     _args.push(serde_json_lenient::to_string(args).unwrap());
-    run("moonrun", path, target_dir, &_args, file_test_info_map).await
+    run("mmr", path, target_dir, &_args, file_test_info_map).await
 }
 
 pub async fn run_js(
