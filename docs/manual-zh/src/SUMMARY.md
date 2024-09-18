@@ -1,3 +1,17 @@
 # 目录
 
 - [构建系统教程](./tutorial.md)
+- [包配置](./package.md)
+  - [包名](./package/name.md)
+  - [is-main 字段](./package/is-main.md)
+  - [import 字段](./package/import.md)
+  - [test-import 字段](./package/test-import.md)
+  - [wbtest-import字段](./package/wbtest-import.md)
+  - [链接选项](./package/link.md)
+    - [wasm 后端链接选项](./package/link/wasm.md)
+    - [wasm-gc 后端链接选项](./package/link/wasm-gc.md)
+    - [js 后端链接选项](./package/link/js.md)
+  - [warn 列表](./package/warnings.md)
+  - [alert 列表](./package/alerts.md)
+  - [条件编译](./package/conditional-compilation.md)
+  - [预构建命令](./package/pre-build.md)
