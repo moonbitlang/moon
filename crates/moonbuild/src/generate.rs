@@ -105,8 +105,8 @@ pub fn load_moon_generate(
                     command.to_string()
                 };
                 let command = command
-                    .replace("${input}", &inputs.join(" "))
-                    .replace("${output}", &outputs.join(" "));
+                    .replace("$input", &inputs.join(" "))
+                    .replace("$output", &outputs.join(" "));
                 build.cmdline = Some(command.clone());
                 graph.add_build(build).unwrap();
             }
