@@ -85,47 +85,24 @@ pub fn add_cli(cli: UniversalFlags, cmd: AddSubcommand) -> anyhow::Result<i32> {
     let package_path = cmd.package_path;
 
     let parts: Vec<&str> = package_path.splitn(2, '@').collect();
+
+    let author_pkg: Vec<&str> = parts[0].splitn(2, '/').collect();
+    if author_pkg.len() != 2 {
+        bail!("package path must be in the form of <author>/<package_name>[@<version>]");
+    }
+    let username = author_pkg[0];
+    let pkgname = author_pkg[1];
+    let pkg_name = ModuleName {
+        username: username.to_string(),
+        pkgname: pkgname.to_string(),
+    };
+
     if parts.len() == 2 {
         let version: &str = parts[1];
         let version = version.parse()?;
-
-        let parts: Vec<&str> = parts[0].splitn(2, '/').collect();
-        if parts.len() != 2 {
-            bail!("package path must be in the form of <author>/<package_name>[@<version>]");
-        }
-        let username = parts[0];
-        let pkgname = parts[1];
-
-        let registry_config = RegistryConfig::load();
-        let name = ModuleName {
-            username: username.to_string(),
-            pkgname: pkgname.to_string(),
-        };
-        mooncake::pkg::add::add(
-            &source_dir,
-            &target_dir,
-            &name,
-            &version,
-            &registry_config,
-            false,
-        )
+        mooncake::pkg::add::add(&source_dir, &target_dir, &pkg_name, &version, false)
     } else {
-        let parts: Vec<&str> = parts[0].splitn(2, '/').collect();
-        if parts.len() < 2 {
-            bail!("package path must be in the form of <author>/<package_name>[@<version>]");
-        }
-        let username = parts[0];
-        let pkgname = parts[1];
-
-        let registry_config = RegistryConfig::load();
-        mooncake::pkg::add::add_latest(
-            &source_dir,
-            &target_dir,
-            username,
-            pkgname,
-            &registry_config,
-            false,
-        )
+        mooncake::pkg::add::add_latest(&source_dir, &target_dir, &pkg_name, false)
     }
 }
 
