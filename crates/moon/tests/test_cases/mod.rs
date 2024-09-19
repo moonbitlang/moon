@@ -50,7 +50,7 @@ fn test_design() {
         .assert()
         .success();
     check(
-        &get_stdout_with_args(&dir, ["run", "main1"]),
+        &get_stdout(&dir, ["run", "main1"]),
         expect![[r#"
             new_list
             new_queue
@@ -61,7 +61,7 @@ fn test_design() {
         "#]],
     );
     check(
-        &get_stdout_with_args(&dir, ["run", "main2"]),
+        &get_stdout(&dir, ["run", "main2"]),
         expect![[r#"
             new_list
             new_queue
@@ -69,12 +69,9 @@ fn test_design() {
         "#]],
     );
 
-    get_stdout_with_args(&dir, ["clean"]);
+    get_stdout(&dir, ["clean"]);
     check(
-        &get_stdout_with_args_and_replace_dir(
-            &dir,
-            ["run", "main2", "--target", "js", "--build-only"],
-        ),
+        &get_stdout(&dir, ["run", "main2", "--target", "js", "--build-only"]),
         expect![[r#"
             {"artifacts_path":["$ROOT/target/js/release/build/main2/main2.js"]}
         "#]],
@@ -106,7 +103,7 @@ fn test_diamond_pkg_001() {
         .assert()
         .success();
     check(
-        &get_stdout_with_args(&dir, ["run", "main"]),
+        &get_stdout(&dir, ["run", "main"]),
         expect![[r#"
             A
             B
@@ -141,7 +138,7 @@ fn test_diamond_pkg_002() {
         .assert()
         .success();
     check(
-        &get_stdout_with_args(&dir, ["run", "main"]),
+        &get_stdout(&dir, ["run", "main"]),
         expect![[r#"
             A0
             A1
@@ -188,7 +185,7 @@ fn test_diamond_pkg_003() {
         .assert()
         .success();
     check(
-        &get_stdout_with_args(&dir, ["run", "main"]),
+        &get_stdout(&dir, ["run", "main"]),
         expect![[r#"
             A0
             A1
@@ -215,7 +212,7 @@ fn test_diamond_pkg_003() {
 fn test_extra_flags() {
     let dir = TestDir::new("extra_flags.in");
     check(
-        &get_stdout_with_args(&dir, ["build", "--dry-run", "--nostd"]),
+        &get_stdout(&dir, ["build", "--dry-run", "--nostd"]),
         expect![[r#"
             moonc build-package ./lib/hello.mbt -o ./target/wasm-gc/release/build/lib/lib.core -pkg hello/lib -pkg-sources hello/lib:./lib -target wasm-gc -g -no-builtin
             moonc build-package ./main/main.mbt -o ./target/wasm-gc/release/build/main/main.core -pkg hello/main -is-main -i ./target/wasm-gc/release/build/lib/lib.mi:lib -pkg-sources hello/main:./main -target wasm-gc -g -no-builtin
@@ -223,7 +220,7 @@ fn test_extra_flags() {
         "#]],
     );
     check(
-        &get_stdout_with_args(&dir, ["build", "--dry-run", "--debug", "--nostd"]),
+        &get_stdout(&dir, ["build", "--dry-run", "--debug", "--nostd"]),
         expect![[r#"
             moonc build-package ./lib/hello.mbt -o ./target/wasm-gc/debug/build/lib/lib.core -pkg hello/lib -pkg-sources hello/lib:./lib -target wasm-gc -g -source-map -g -no-builtin
             moonc build-package ./main/main.mbt -o ./target/wasm-gc/debug/build/main/main.core -pkg hello/main -is-main -i ./target/wasm-gc/debug/build/lib/lib.mi:lib -pkg-sources hello/main:./main -target wasm-gc -g -source-map -g -no-builtin
@@ -232,7 +229,7 @@ fn test_extra_flags() {
     );
 
     check(
-        &get_stdout_with_args(&dir, ["run", "main", "--dry-run", "--nostd"]),
+        &get_stdout(&dir, ["run", "main", "--dry-run", "--nostd"]),
         expect![[r#"
             moonc build-package ./lib/hello.mbt -o ./target/wasm-gc/release/build/lib/lib.core -pkg hello/lib -pkg-sources hello/lib:./lib -target wasm-gc -g -no-builtin
             moonc build-package ./main/main.mbt -o ./target/wasm-gc/release/build/main/main.core -pkg hello/main -is-main -i ./target/wasm-gc/release/build/lib/lib.mi:lib -pkg-sources hello/main:./main -target wasm-gc -g -no-builtin
@@ -241,7 +238,7 @@ fn test_extra_flags() {
         "#]],
     );
     check(
-        &get_stdout_with_args(&dir, ["run", "main", "--dry-run", "--debug", "--nostd"]),
+        &get_stdout(&dir, ["run", "main", "--dry-run", "--debug", "--nostd"]),
         expect![[r#"
             moonc build-package ./lib/hello.mbt -o ./target/wasm-gc/debug/build/lib/lib.core -pkg hello/lib -pkg-sources hello/lib:./lib -target wasm-gc -g -source-map -g -no-builtin
             moonc build-package ./main/main.mbt -o ./target/wasm-gc/debug/build/main/main.core -pkg hello/main -is-main -i ./target/wasm-gc/debug/build/lib/lib.mi:lib -pkg-sources hello/main:./main -target wasm-gc -g -source-map -g -no-builtin
@@ -255,7 +252,7 @@ fn test_extra_flags() {
 fn test_fancy_import() {
     let dir = TestDir::new("fancy_import.in/import001");
     check(
-        &get_stdout_with_args(&dir, ["run", "main"]),
+        &get_stdout(&dir, ["run", "main"]),
         expect![[r#"
             Hello, world!
         "#]],
@@ -263,7 +260,7 @@ fn test_fancy_import() {
 
     let dir = TestDir::new("fancy_import.in/import002");
     check(
-        &get_stdout_with_args(&dir, ["run", "main"]),
+        &get_stdout(&dir, ["run", "main"]),
         expect![[r#"
             Hello, world!
         "#]],
@@ -271,7 +268,7 @@ fn test_fancy_import() {
 
     let dir = TestDir::new("fancy_import.in/import003");
     check(
-        &get_stdout_with_args(&dir, ["run", "main"]),
+        &get_stdout(&dir, ["run", "main"]),
         expect![[r#"
             Hello, world!
             Hello, world2!
@@ -280,7 +277,7 @@ fn test_fancy_import() {
 
     let dir = TestDir::new("fancy_import.in/import004");
     check(
-        &get_stdout_with_args(&dir, ["run", "main"]),
+        &get_stdout(&dir, ["run", "main"]),
         expect![[r#"
             f1
             f2
@@ -294,7 +291,7 @@ fn test_fancy_import() {
 fn test_hello() {
     let dir = TestDir::new("hello.in");
     check(
-        &get_stdout_with_args(&dir, ["run", "main"]),
+        &get_stdout(&dir, ["run", "main"]),
         expect![[r#"
             Hello, world!
         "#]],
@@ -305,7 +302,7 @@ fn test_hello() {
 fn test_moon_commands() {
     let dir = TestDir::new("moon_commands.in");
     check(
-        &get_stdout_with_args(&dir, ["build", "--dry-run", "--nostd", "--sort-input"]),
+        &get_stdout(&dir, ["build", "--dry-run", "--nostd", "--sort-input"]),
         expect![[r#"
             moonc build-package ./lib/list/lib.mbt -o ./target/wasm-gc/release/build/lib/list/list.core -pkg design/lib/list -pkg-sources design/lib/list:./lib/list -target wasm-gc
             moonc build-package ./lib/queue/lib.mbt -o ./target/wasm-gc/release/build/lib/queue/queue.core -pkg design/lib/queue -i ./target/wasm-gc/release/build/lib/list/list.mi:list -pkg-sources design/lib/queue:./lib/queue -target wasm-gc
@@ -321,7 +318,7 @@ fn test_moon_commands() {
 fn test_moon_run_main() {
     let dir = TestDir::new("moon_new.in");
     check(
-        &get_stdout_with_args(&dir, ["run", "main"]),
+        &get_stdout(&dir, ["run", "main"]),
         expect![[r#"
             Hello, world!
         "#]],
@@ -332,7 +329,7 @@ fn test_moon_run_main() {
 #[cfg(unix)]
 fn test_moon_new() {
     let dir = TestDir::new_empty();
-    get_stdout_with_args(
+    get_stdout(
         &dir,
         [
             "new",
@@ -345,7 +342,7 @@ fn test_moon_new() {
         ],
     );
     check(
-        &get_stdout_with_args(
+        &get_stdout(
             &dir,
             [
                 "run",
@@ -362,7 +359,7 @@ fn test_moon_new() {
     );
 
     check(
-        &get_stdout_with_args(
+        &get_stdout(
             &dir,
             [
                 "run",
@@ -379,7 +376,7 @@ fn test_moon_new() {
     );
 
     check(
-        &get_stdout_with_args(
+        &get_stdout(
             &dir,
             [
                 "run",
@@ -400,7 +397,7 @@ fn test_moon_new() {
 fn test_moon_help() {
     let dir = TestDir::new_empty();
     check(
-        &get_stdout_with_args(&dir, ["help"]).replace("moon.exe", "moon"),
+        &get_stdout(&dir, ["help"]).replace("moon.exe", "moon"),
         expect![[r#"
             The build system and package manager for MoonBit.
 
@@ -450,9 +447,9 @@ fn test_moon_help() {
 #[cfg(unix)]
 fn test_bench4() {
     let dir = TestDir::new_empty();
-    get_stdout_with_args(&dir, ["generate-build-matrix", "-n", "4", "-o", "bench4"]);
+    get_stdout(&dir, ["generate-build-matrix", "-n", "4", "-o", "bench4"]);
     check(
-        &get_stdout_with_args(
+        &get_stdout(
             &dir,
             [
                 "run",
@@ -468,7 +465,7 @@ fn test_bench4() {
         "#]],
     );
 
-    get_stdout_with_args(
+    get_stdout(
         &dir,
         [
             "run",
@@ -492,16 +489,16 @@ fn test_bench4() {
 #[test]
 fn test_moon_version() {
     let dir = TestDir::new_empty();
-    let output = get_stdout_with_args(&dir, ["version"]);
+    let output = get_stdout(&dir, ["version"]);
     let expected_moon_version = format!("moon {}", get_cargo_pkg_version());
     assert!(output.contains(&expected_moon_version));
 
-    let output = get_stdout_with_args(&dir, ["version", "--all"]);
+    let output = get_stdout(&dir, ["version", "--all"]);
     assert!(output.contains(&expected_moon_version));
     assert!(output.contains("moonc"));
     assert!(output.contains("moonrun"));
 
-    let output = get_stdout_with_args(&dir, ["version", "--all", "--no-path"]);
+    let output = get_stdout(&dir, ["version", "--all", "--no-path"]);
     assert!(output.contains(&expected_moon_version));
     assert!(output.contains("moonc"));
     assert!(output.contains("moonrun"));
@@ -511,21 +508,21 @@ fn test_moon_version() {
 fn test_moon_version_json() -> anyhow::Result<()> {
     let dir = TestDir::new_empty();
 
-    let output = get_stdout_with_args(&dir, ["version", "--json"]);
+    let output = get_stdout(&dir, ["version", "--json"]);
     let items: moonutil::common::VersionItems = serde_json_lenient::from_str(&output)?;
     assert_eq!(items.items.len(), 1);
     assert_eq!(items.items[0].name, "moon");
     assert!(items.items[0].version.contains(&get_cargo_pkg_version()));
     assert!(items.items[0].path.is_some());
 
-    let output = get_stdout_with_args(&dir, ["version", "--all", "--json"]);
+    let output = get_stdout(&dir, ["version", "--all", "--json"]);
     let items: moonutil::common::VersionItems = serde_json_lenient::from_str(&output)?;
     assert_eq!(items.items.len(), 3);
     assert_eq!(items.items[0].name, "moon");
     assert!(items.items[0].version.contains(&get_cargo_pkg_version()));
     assert_eq!(items.items[1].name, "moonc");
 
-    let output = get_stdout_with_args(&dir, ["version", "--all", "--json", "--no-path"]);
+    let output = get_stdout(&dir, ["version", "--all", "--json", "--no-path"]);
     let items: moonutil::common::VersionItems = serde_json_lenient::from_str(&output)?;
     assert!(items.items[0].path.is_none());
 
@@ -536,7 +533,7 @@ fn test_moon_version_json() -> anyhow::Result<()> {
 fn test_moon_new_exist() {
     let dir = TestDir::new("moon_new_exist.in");
     dir.join("hello").rm_rf();
-    let res = &get_stdout_with_args(
+    let res = &get_stdout(
         &dir,
         [
             "new",
@@ -591,7 +588,7 @@ fn test_moon_new_new() {
         .assert()
         .success();
     check(
-        &get_stdout_with_args(&hello1, ["run", "src/main"]),
+        &get_stdout(&hello1, ["run", "src/main"]),
         expect![[r#"
             Hello, world!
         "#]],
@@ -614,7 +611,7 @@ fn test_moon_new_new() {
         .assert()
         .success();
     check(
-        &get_stdout_with_args(&hello2, ["run", "src/main"]),
+        &get_stdout(&hello2, ["run", "src/main"]),
         expect![[r#"
             Hello, world!
         "#]],
@@ -640,14 +637,14 @@ fn test_moon_new_new() {
         .assert()
         .success();
     check(
-        &get_stdout_with_args(&hello3, ["test", "-v"]),
+        &get_stdout(&hello3, ["test", "-v"]),
         expect![[r#"
             test moonbitlang/hello/lib/hello_test.mbt::hello ok
             Total tests: 1, passed: 1, failed: 0.
         "#]],
     );
     check(
-        &get_stdout_with_args(&hello3, ["test"]),
+        &get_stdout(&hello3, ["test"]),
         expect![[r#"
             Total tests: 1, passed: 1, failed: 0.
         "#]],
@@ -681,7 +678,7 @@ fn test_moon_new_new() {
         "#]],
     );
     check(
-        &get_stdout_with_args(&hello4, ["test", "-v"]),
+        &get_stdout(&hello4, ["test", "-v"]),
         expect![[r#"
             test moonbitlang/hello/lib/hello_test.mbt::hello ok
             Total tests: 1, passed: 1, failed: 0.
@@ -1006,7 +1003,7 @@ fn test_moon_test_filter_package() {
     let dir = TestDir::new("test_filter.in");
 
     check(
-        &get_stdout_with_args(
+        &get_stdout(
             &dir,
             [
                 "test",
@@ -1029,7 +1026,7 @@ fn test_moon_test_filter_package() {
     );
 
     check(
-        &get_stdout_with_args(
+        &get_stdout(
             &dir,
             [
                 "test",
@@ -1053,7 +1050,7 @@ fn test_moon_test_filter_multi_package() {
     let dir = TestDir::new("test_filter_pkg_with_test_imports.in");
 
     check(
-        &get_stdout_with_args(
+        &get_stdout(
             &dir,
             [
                 "test",
@@ -1079,7 +1076,7 @@ fn test_moon_test_filter_multi_package() {
     );
 
     check(
-        &get_stdout_with_args(
+        &get_stdout(
             &dir,
             [
                 "test",
@@ -1111,7 +1108,7 @@ fn test_moon_test_filter_multi_package() {
     );
 
     check(
-        &get_stdout_with_args(
+        &get_stdout(
             &dir,
             [
                 "test",
@@ -1143,7 +1140,7 @@ fn test_moon_test_filter_multi_package() {
     );
 
     check(
-        &get_stdout_with_args(
+        &get_stdout(
             &dir,
             [
                 "test",
@@ -1180,7 +1177,7 @@ fn test_moon_test_filter_package_with_deps() {
     let dir = TestDir::new("test_filter_pkg_with_deps.in");
 
     check(
-        &get_stdout_with_args(
+        &get_stdout(
             &dir,
             ["test", "-p", "username/hello/lib", "--no-parallelize"],
         ),
@@ -1198,7 +1195,7 @@ fn test_moon_test_filter_package_with_deps() {
     );
 
     check(
-        &get_stdout_with_args(
+        &get_stdout(
             &dir,
             ["test", "-p", "username/hello/lib2", "--no-parallelize"],
         ),
@@ -1211,7 +1208,7 @@ fn test_moon_test_filter_package_with_deps() {
     );
 
     check(
-        &get_stdout_with_args(
+        &get_stdout(
             &dir,
             ["test", "-p", "username/hello/lib4", "--no-parallelize"],
         ),
@@ -1227,7 +1224,7 @@ fn test_moon_test_filter_package_with_test_imports() {
     let dir = TestDir::new("test_filter_pkg_with_test_imports.in");
 
     check(
-        &get_stdout_with_args(
+        &get_stdout(
             &dir,
             [
                 "test",
@@ -1248,7 +1245,7 @@ fn test_moon_test_filter_package_with_test_imports() {
     );
 
     check(
-        &get_stdout_with_args(
+        &get_stdout(
             &dir,
             [
                 "test",
@@ -1266,7 +1263,7 @@ fn test_moon_test_filter_package_with_test_imports() {
     );
 
     check(
-        &get_stdout_with_args(
+        &get_stdout(
             &dir,
             [
                 "test",
@@ -1283,7 +1280,7 @@ fn test_moon_test_filter_package_with_test_imports() {
     );
 
     check(
-        &get_stdout_with_args(
+        &get_stdout(
             &dir,
             [
                 "test",
@@ -1303,7 +1300,7 @@ fn test_moon_test_filter_package_with_test_imports() {
     );
 
     check(
-        &get_stdout_with_args(
+        &get_stdout(
             &dir,
             [
                 "test",
@@ -1322,7 +1319,7 @@ fn test_moon_test_filter_package_with_test_imports() {
     );
 
     check(
-        &get_stdout_with_args(
+        &get_stdout(
             &dir,
             [
                 "test",
@@ -1339,7 +1336,7 @@ fn test_moon_test_filter_package_with_test_imports() {
     );
 
     check(
-        &get_stdout_with_args(
+        &get_stdout(
             &dir,
             [
                 "test",
@@ -1356,7 +1353,7 @@ fn test_moon_test_filter_package_with_test_imports() {
     );
 
     check(
-        &get_stdout_with_args(
+        &get_stdout(
             &dir,
             [
                 "test",
@@ -1379,7 +1376,7 @@ fn test_moon_test_filter_package_dry_run() {
     let dir = TestDir::new("test_filter.in");
 
     check(
-        &get_stdout_with_args_and_replace_dir(
+        &get_stdout(
             &dir,
             [
                 "test",
@@ -1400,7 +1397,7 @@ fn test_moon_test_filter_package_dry_run() {
     );
 
     check(
-        &get_stdout_with_args_and_replace_dir(&dir, ["test", "--dry-run", "--sort-input"]),
+        &get_stdout(&dir, ["test", "--dry-run", "--sort-input"]),
         expect![[r#"
             moon generate-test-driver --source-dir . --target-dir ./target/wasm-gc/debug/test --package username/hello/lib2 --sort-input --target wasm-gc --driver-kind internal
             moonc build-package ./lib2/lib.mbt ./target/wasm-gc/debug/test/lib2/__generated_driver_for_internal_test.mbt -o ./target/wasm-gc/debug/test/lib2/lib2.internal_test.core -pkg username/hello/lib2 -is-main -std-path $MOON_HOME/lib/core/target/wasm-gc/release/bundle -pkg-sources username/hello/lib2:./lib2 -target wasm-gc -g
@@ -1426,7 +1423,7 @@ fn test_moon_test_filter_file() {
     let dir = TestDir::new("test_filter.in");
 
     check(
-        &get_stdout_with_args(&dir, ["test", "-p", "username/hello/A", "-f", "hello.mbt"]),
+        &get_stdout(&dir, ["test", "-p", "username/hello/A", "-f", "hello.mbt"]),
         expect![[r#"
             test A
             test B
@@ -1435,7 +1432,7 @@ fn test_moon_test_filter_file() {
     );
 
     check(
-        &get_stdout_with_args(
+        &get_stdout(
             &dir,
             ["test", "-p", "username/hello/lib", "-f", "hello_wbtest.mbt"],
         ),
@@ -1452,7 +1449,7 @@ fn test_moon_test_filter_index() {
     let dir = TestDir::new("test_filter.in");
 
     check(
-        &get_stdout_with_args(
+        &get_stdout(
             &dir,
             [
                 "test",
@@ -1471,7 +1468,7 @@ fn test_moon_test_filter_index() {
     );
 
     check(
-        &get_stdout_with_args(
+        &get_stdout(
             &dir,
             [
                 "test",
@@ -1494,7 +1491,7 @@ fn test_moon_test_filter_index() {
 fn test_moon_test_filter_index_with_auto_update() {
     let dir = TestDir::new("test_filter.in");
 
-    let _ = get_stdout_with_args(
+    let _ = get_stdout(
         &dir,
         [
             "test",
@@ -1528,7 +1525,7 @@ fn test_moon_test_filter_index_with_auto_update() {
     );
 
     let dir = TestDir::new("test_filter.in");
-    let _ = get_stderr_with_args(
+    let _ = get_err_stderr(
         &dir,
         [
             "test",
@@ -1564,7 +1561,7 @@ fn test_moon_test_filter_index_with_auto_update() {
     );
 
     let dir = TestDir::new("test_filter.in");
-    let _ = get_stderr_with_args(
+    let _ = get_err_stderr(
         &dir,
         [
             "test",
@@ -1603,10 +1600,7 @@ fn test_moon_test_succ() {
     std::env::set_var("NO_COLOR", "1");
     let dir = TestDir::new("moon_test_succ.in");
     check(
-        &get_stdout_with_args_and_replace_dir(
-            &dir,
-            ["test", "-v", "--sort-input", "--no-parallelize"],
-        ),
+        &get_stdout(&dir, ["test", "-v", "--sort-input", "--no-parallelize"]),
         expect![[r#"
             test moontest/lib/hello_wbtest.mbt::0 ok
             test moontest/lib2/hello_wbtest.mbt::0 ok
@@ -1623,13 +1617,13 @@ fn test_moon_test_succ() {
 fn test_moon_test_hello_exec() {
     let dir = TestDir::new("moon_test_hello_exec.in");
     check(
-        &get_stdout_with_args(&dir, ["run", "main"]),
+        &get_stdout(&dir, ["run", "main"]),
         expect![[r#"
             Hello, world!
         "#]],
     );
     check(
-        &get_stdout_with_args(&dir, ["test", "-v"]),
+        &get_stdout(&dir, ["test", "-v"]),
         expect![[r#"
             this is lib test
             test moonbitlang/hello/lib/hello_wbtest.mbt::0 ok
@@ -1637,10 +1631,7 @@ fn test_moon_test_hello_exec() {
         "#]],
     );
     check(
-        &get_stdout_with_args_and_replace_dir(
-            &dir,
-            ["test", "--dry-run", "--debug", "--sort-input"],
-        ),
+        &get_stdout(&dir, ["test", "--dry-run", "--debug", "--sort-input"]),
         expect![[r#"
             moon generate-test-driver --source-dir . --target-dir ./target/wasm-gc/debug/test --package moonbitlang/hello/lib --sort-input --target wasm-gc --driver-kind whitebox
             moonc build-package ./lib/hello.mbt ./lib/hello_wbtest.mbt ./target/wasm-gc/debug/test/lib/__generated_driver_for_whitebox_test.mbt -o ./target/wasm-gc/debug/test/lib/lib.whitebox_test.core -pkg moonbitlang/hello/lib -is-main -std-path $MOON_HOME/lib/core/target/wasm-gc/release/bundle -pkg-sources moonbitlang/hello/lib:./lib -target wasm-gc -g -source-map
@@ -1656,14 +1647,14 @@ fn test_moon_test_hello_exec() {
 fn test_moon_test_hello_exec_fntest() {
     let dir = TestDir::new("moon_test_hello_exec_fntest.in");
     check(
-        &get_stdout_with_args(&dir, ["run", "main"]),
+        &get_stdout(&dir, ["run", "main"]),
         expect![[r#"
             init in main/main.mbt
         "#]],
     );
 
     check(
-        &get_stdout_with_args_and_replace_dir(&dir, ["test", "-v", "--dry-run", "--sort-input"]),
+        &get_stdout(&dir, ["test", "-v", "--dry-run", "--sort-input"]),
         expect![[r#"
             moon generate-test-driver --source-dir . --target-dir ./target/wasm-gc/debug/test --package moonbitlang/hello/lib --sort-input --target wasm-gc --driver-kind whitebox
             moonc build-package ./lib/hello.mbt ./lib/hello_wbtest.mbt ./target/wasm-gc/debug/test/lib/__generated_driver_for_whitebox_test.mbt -o ./target/wasm-gc/debug/test/lib/lib.whitebox_test.core -pkg moonbitlang/hello/lib -is-main -std-path $MOON_HOME/lib/core/target/wasm-gc/release/bundle -pkg-sources moonbitlang/hello/lib:./lib -target wasm-gc -g
@@ -1675,7 +1666,7 @@ fn test_moon_test_hello_exec_fntest() {
     );
 
     check(
-        &get_stdout_with_args(&dir, ["test", "-v", "--sort-input", "--no-parallelize"]),
+        &get_stdout(&dir, ["test", "-v", "--sort-input", "--no-parallelize"]),
         expect![[r#"
             test in lib/hello.mbt
             test moonbitlang/hello/lib/hello.mbt::0 ok
@@ -1690,7 +1681,7 @@ fn test_moon_test_hello_exec_fntest() {
 fn test_moon_test_hello_lib() {
     let dir = TestDir::new("moon_test_hello_lib.in");
     check(
-        &get_stdout_with_args(&dir, ["test", "-v"]),
+        &get_stdout(&dir, ["test", "-v"]),
         expect![[r#"
             test moonbitlang/hello/lib/hello_wbtest.mbt::0 ok
             Total tests: 1, passed: 1, failed: 0.
@@ -1702,14 +1693,14 @@ fn test_moon_test_hello_lib() {
 fn test_moon_test_with_local_dep() {
     let dir = TestDir::new("moon_test_with_local_dep.in");
     check(
-        &get_stdout_with_args(&dir, ["test", "-v", "--frozen"]),
+        &get_stdout(&dir, ["test", "-v", "--frozen"]),
         expect![[r#"
             test hello31/lib/hello_wbtest.mbt::0 ok
             Total tests: 1, passed: 1, failed: 0.
         "#]],
     );
     check(
-        &get_stdout_with_args(&dir, ["run", "main", "--frozen"]),
+        &get_stdout(&dir, ["run", "main", "--frozen"]),
         expect![[r#"
             Hello, world!
         "#]],
@@ -1860,7 +1851,7 @@ fn test_output_format() {
 fn test_simple_pkg() {
     let dir = TestDir::new("simple-pkg-A-001.in");
     check(
-        &get_stdout_with_args(&dir, ["run", "main"]),
+        &get_stdout(&dir, ["run", "main"]),
         expect![[r#"
             A
             main
@@ -1869,7 +1860,7 @@ fn test_simple_pkg() {
 
     let dir = TestDir::new("simple-pkg-A-002.in");
     check(
-        &get_stdout_with_args(&dir, ["run", "main"]),
+        &get_stdout(&dir, ["run", "main"]),
         expect![[r#"
             A
             main
@@ -1878,7 +1869,7 @@ fn test_simple_pkg() {
 
     let dir = TestDir::new("simple-pkg-A-003.in");
     check(
-        &get_stdout_with_args(&dir, ["run", "main"]),
+        &get_stdout(&dir, ["run", "main"]),
         expect![[r#"
             A
             main
@@ -1887,7 +1878,7 @@ fn test_simple_pkg() {
 
     let dir = TestDir::new("simple-pkg-A-004.in");
     check(
-        &get_stdout_with_args(&dir, ["run", "main"]),
+        &get_stdout(&dir, ["run", "main"]),
         expect![[r#"
             A
             main
@@ -1896,7 +1887,7 @@ fn test_simple_pkg() {
 
     let dir = TestDir::new("simple-pkg-A-005.in");
     check(
-        &get_stdout_with_args(&dir, ["run", "main"]),
+        &get_stdout(&dir, ["run", "main"]),
         expect![[r#"
             A
             main
@@ -1905,7 +1896,7 @@ fn test_simple_pkg() {
 
     let dir = TestDir::new("simple-pkg-A-006.in");
     check(
-        &get_stdout_with_args(&dir, ["run", "main"]),
+        &get_stdout(&dir, ["run", "main"]),
         expect![[r#"
             main
         "#]],
@@ -1913,7 +1904,7 @@ fn test_simple_pkg() {
 
     let dir = TestDir::new("simple-pkg-AB-001.in");
     check(
-        &get_stdout_with_args(&dir, ["run", "main"]),
+        &get_stdout(&dir, ["run", "main"]),
         expect![[r#"
             A
             B
@@ -1923,7 +1914,7 @@ fn test_simple_pkg() {
 
     let dir = TestDir::new("simple-pkg-AB-002.in");
     check(
-        &get_stdout_with_args(&dir, ["run", "main"]),
+        &get_stdout(&dir, ["run", "main"]),
         expect![[r#"
             A
             B
@@ -1933,7 +1924,7 @@ fn test_simple_pkg() {
 
     let dir = TestDir::new("simple-pkg-AB-003.in");
     check(
-        &get_stdout_with_args(&dir, ["run", "main"]),
+        &get_stdout(&dir, ["run", "main"]),
         expect![[r#"
             A
             B
@@ -1943,7 +1934,7 @@ fn test_simple_pkg() {
 
     let dir = TestDir::new("simple-pkg-AB-004.in");
     check(
-        &get_stdout_with_args(&dir, ["run", "main"]),
+        &get_stdout(&dir, ["run", "main"]),
         expect![[r#"
             A
             B
@@ -1956,7 +1947,7 @@ fn test_simple_pkg() {
 fn test_target_backend() {
     let dir = TestDir::new("target-backend.in");
     check(
-        &get_stdout_with_args(&dir, ["build", "--dry-run", "--nostd"]),
+        &get_stdout(&dir, ["build", "--dry-run", "--nostd"]),
         expect![[r#"
             moonc build-package ./lib/hello.mbt -o ./target/wasm-gc/release/build/lib/lib.core -pkg hello/lib -pkg-sources hello/lib:./lib -target wasm-gc
             moonc build-package ./main/main.mbt -o ./target/wasm-gc/release/build/main/main.core -pkg hello/main -is-main -i ./target/wasm-gc/release/build/lib/lib.mi:lib -pkg-sources hello/main:./main -target wasm-gc
@@ -1964,7 +1955,7 @@ fn test_target_backend() {
         "#]],
     );
     check(
-        &get_stdout_with_args(
+        &get_stdout(
             &dir,
             ["build", "--dry-run", "--target", "wasm-gc", "--nostd"],
         ),
@@ -1975,7 +1966,7 @@ fn test_target_backend() {
         "#]],
     );
     check(
-        &get_stdout_with_args(&dir, ["build", "--dry-run", "--target", "js", "--nostd"]),
+        &get_stdout(&dir, ["build", "--dry-run", "--target", "js", "--nostd"]),
         expect![[r#"
             moonc build-package ./lib/hello.mbt -o ./target/js/release/build/lib/lib.core -pkg hello/lib -pkg-sources hello/lib:./lib -target js
             moonc build-package ./main/main.mbt -o ./target/js/release/build/main/main.core -pkg hello/main -is-main -i ./target/js/release/build/lib/lib.mi:lib -pkg-sources hello/main:./main -target js
@@ -1983,7 +1974,7 @@ fn test_target_backend() {
         "#]],
     );
     check(
-        &get_stdout_with_args(&dir, ["build", "--dry-run", "--nostd"]),
+        &get_stdout(&dir, ["build", "--dry-run", "--nostd"]),
         expect![[r#"
             moonc build-package ./lib/hello.mbt -o ./target/wasm-gc/release/build/lib/lib.core -pkg hello/lib -pkg-sources hello/lib:./lib -target wasm-gc
             moonc build-package ./main/main.mbt -o ./target/wasm-gc/release/build/main/main.core -pkg hello/main -is-main -i ./target/wasm-gc/release/build/lib/lib.mi:lib -pkg-sources hello/main:./main -target wasm-gc
@@ -1991,7 +1982,7 @@ fn test_target_backend() {
         "#]],
     );
     check(
-        &get_stdout_with_args(&dir, ["run", "main", "--dry-run", "--nostd"]),
+        &get_stdout(&dir, ["run", "main", "--dry-run", "--nostd"]),
         expect![[r#"
             moonc build-package ./lib/hello.mbt -o ./target/wasm-gc/release/build/lib/lib.core -pkg hello/lib -pkg-sources hello/lib:./lib -target wasm-gc
             moonc build-package ./main/main.mbt -o ./target/wasm-gc/release/build/main/main.core -pkg hello/main -is-main -i ./target/wasm-gc/release/build/lib/lib.mi:lib -pkg-sources hello/main:./main -target wasm-gc
@@ -2000,7 +1991,7 @@ fn test_target_backend() {
         "#]],
     );
     check(
-        &get_stdout_with_args(
+        &get_stdout(
             &dir,
             ["run", "main", "--dry-run", "--target", "wasm-gc", "--nostd"],
         ),
@@ -2012,7 +2003,7 @@ fn test_target_backend() {
         "#]],
     );
     check(
-        &get_stdout_with_args(
+        &get_stdout(
             &dir,
             ["run", "main", "--dry-run", "--target", "js", "--nostd"],
         ),
@@ -2039,7 +2030,7 @@ fn test_test_error_report() {
 fn test_moonbit_docs_example() {
     let dir = TestDir::new("unicode_demo.in");
     check(
-        &get_stdout_with_args(&dir, ["run", "main"]),
+        &get_stdout(&dir, ["run", "main"]),
         expect![[r#"
             3
         "#]],
@@ -2047,7 +2038,7 @@ fn test_moonbit_docs_example() {
 
     let dir = TestDir::new("palindrome_string.in");
     check(
-        &get_stdout_with_args(&dir, ["run", "main"]),
+        &get_stdout(&dir, ["run", "main"]),
         expect![[r#"
         aba
     "#]],
@@ -2055,7 +2046,7 @@ fn test_moonbit_docs_example() {
 
     let dir = TestDir::new("avl_tree.in");
     check(
-        &get_stdout_with_args(&dir, ["run", "main"]),
+        &get_stdout(&dir, ["run", "main"]),
         expect![[r#"
             height of the tree: 6
                     0
@@ -2094,7 +2085,7 @@ fn test_moonbit_docs_example() {
 
     let dir = TestDir::new("docstring-demo.in");
     check(
-        &get_stdout_with_args(&dir, ["run", "main"]),
+        &get_stdout(&dir, ["run", "main"]),
         expect![[r#"
             Hello, world!
         "#]],
@@ -2102,7 +2093,7 @@ fn test_moonbit_docs_example() {
 
     let dir = TestDir::new("multidimensional_arrays.in");
     check(
-        &get_stdout_with_args(&dir, ["run", "main"]),
+        &get_stdout(&dir, ["run", "main"]),
         expect![[r#"
         11
     "#]],
@@ -2146,7 +2137,7 @@ fn test_moon_inline_test_004() {
 fn test_moon_inline_test_order() {
     let dir = TestDir::new("moon_inline_test_order.in");
     check(
-        &get_stdout_with_args(&dir, ["test", "-v", "--sort-input", "--no-parallelize"]),
+        &get_stdout(&dir, ["test", "-v", "--sort-input", "--no-parallelize"]),
         expect![[r#"
             executing A
             executing A::hello.mbt::test_A
@@ -2169,7 +2160,7 @@ fn test_moon_inline_test_order() {
     );
 
     check(
-        &get_stdout_with_args(&dir, ["run", "main", "--sort-input"]),
+        &get_stdout(&dir, ["run", "main", "--sort-input"]),
         expect![[r#"
             main.mbt::init
         "#]],
@@ -2179,7 +2170,7 @@ fn test_moon_inline_test_order() {
 #[test]
 fn test_error_duplicate_alias() {
     let dir = TestDir::new("error_duplicate_alias.in");
-    let out = get_stderr_with_args(&dir, ["check"]);
+    let out = get_err_stderr(&dir, ["check"]);
     assert!(out.contains("Duplicate alias `lib`"));
 }
 
@@ -2187,7 +2178,7 @@ fn test_error_duplicate_alias() {
 fn test_core_order() {
     let dir = TestDir::new("core_order.in");
     check(
-        &get_stdout_with_args(&dir, ["build", "--dry-run", "--nostd"]),
+        &get_stdout(&dir, ["build", "--dry-run", "--nostd"]),
         expect![[r#"
             moonc build-package ./T/t.mbt -o ./target/wasm-gc/release/build/T/T.core -pkg lijunchen/hello/T -pkg-sources lijunchen/hello/T:./T -target wasm-gc
             moonc build-package ./A/a.mbt -o ./target/wasm-gc/release/build/A/A.core -pkg lijunchen/hello/A -i ./target/wasm-gc/release/build/T/T.mi:T -pkg-sources lijunchen/hello/A:./A -target wasm-gc
@@ -2202,7 +2193,7 @@ fn test_core_order() {
 fn test_moon_bundle() {
     let dir = TestDir::new("moon_bundle.in");
     check(
-        &get_stdout_with_args(&dir, ["bundle", "--dry-run", "--sort-input"]),
+        &get_stdout(&dir, ["bundle", "--dry-run", "--sort-input"]),
         expect![[r#"
             moonc build-package ./A/lib.mbt -o ./target/wasm-gc/release/bundle/A/A.core -pkg moonbitlang/core/A -pkg-sources moonbitlang/core/A:./A -target wasm-gc
             moonc build-package ./B/lib.mbt -o ./target/wasm-gc/release/bundle/B/B.core -pkg moonbitlang/core/B -i ./target/wasm-gc/release/bundle/A/A.mi:A -pkg-sources moonbitlang/core/B:./B -target wasm-gc
@@ -2278,7 +2269,7 @@ fn test_only_update_expect() {
 fn test_need_link() {
     let dir = TestDir::new("need_link.in");
     check(
-        &get_stdout_with_args(&dir, ["build", "--dry-run", "--nostd", "--sort-input"]),
+        &get_stdout(&dir, ["build", "--dry-run", "--nostd", "--sort-input"]),
         expect![[r#"
             moonc build-package ./lib/hello.mbt -o ./target/wasm-gc/release/build/lib/lib.core -pkg username/hello/lib -pkg-sources username/hello/lib:./lib -target wasm-gc
             moonc build-package ./main/main.mbt -o ./target/wasm-gc/release/build/main/main.core -pkg username/hello/main -is-main -i ./target/wasm-gc/release/build/lib/lib.mi:lib -pkg-sources username/hello/main:./main -target wasm-gc
@@ -2292,7 +2283,7 @@ fn test_need_link() {
 fn test_backend_config() {
     let dir = TestDir::new("backend_config.in");
 
-    let _ = get_stdout_with_args(&dir, ["build", "--output-wat"]);
+    let _ = get_stdout(&dir, ["build", "--output-wat"]);
     let out = std::fs::read_to_string(dir.join(format!(
         "target/{}/release/build/lib/lib.wat",
         TargetBackend::default().to_backend_ext()
@@ -2303,7 +2294,7 @@ fn test_backend_config() {
         TargetBackend::default().to_backend_ext().replace('-', "_")
     )));
     check(
-        &get_stdout_with_args_and_replace_dir(&dir, ["build", "--dry-run", "--sort-input"]),
+        &get_stdout(&dir, ["build", "--dry-run", "--sort-input"]),
         expect![[r#"
             moonc build-package ./lib/hello.mbt -o ./target/wasm-gc/release/build/lib/lib.core -pkg username/hello/lib -std-path $MOON_HOME/lib/core/target/wasm-gc/release/bundle -pkg-sources username/hello/lib:./lib -target wasm-gc
             moonc build-package ./main/main.mbt -o ./target/wasm-gc/release/build/main/main.core -pkg username/hello/main -is-main -std-path $MOON_HOME/lib/core/target/wasm-gc/release/bundle -i ./target/wasm-gc/release/build/lib/lib.mi:lib -pkg-sources username/hello/main:./main -target wasm-gc
@@ -2313,7 +2304,7 @@ fn test_backend_config() {
     );
 
     check(
-        &get_stdout_with_args(
+        &get_stdout(
             &dir,
             [
                 "build",
@@ -2333,7 +2324,7 @@ fn test_backend_config() {
     );
 
     check(
-        &get_stdout_with_args(
+        &get_stdout(
             &dir,
             [
                 "build",
@@ -2357,7 +2348,7 @@ fn test_backend_config() {
 #[cfg(unix)]
 fn test_mbti() {
     let dir = TestDir::new("mbti.in");
-    let _ = get_stdout_with_args(&dir, ["info"]);
+    let _ = get_stdout(&dir, ["info"]);
     let lib_mi_out = &std::fs::read_to_string(dir.join("lib").join("lib.mbti")).unwrap();
     expect![[r#"
         package username/hello/lib
@@ -2938,7 +2929,7 @@ fn test_dummy_core() {
     };
 
     check(
-        &get_stdout_with_args_and_replace_dir(&dir, ["check", "--dry-run", "--sort-input"]),
+        &get_stdout(&dir, ["check", "--dry-run", "--sort-input"]),
         expect![[r#"
             moonc check -o ./target/wasm-gc/release/check/coverage/coverage.mi -pkg moonbitlang/core/coverage -pkg-sources moonbitlang/core/coverage:./coverage -target wasm-gc
             moonc check -o ./target/wasm-gc/release/check/iter/iter.mi -pkg moonbitlang/core/iter -i ./target/wasm-gc/release/check/coverage/coverage.mi:coverage -pkg-sources moonbitlang/core/iter:./iter -target wasm-gc
@@ -2951,7 +2942,7 @@ fn test_dummy_core() {
         "#]],
     );
     check(
-        &get_stdout_with_args_and_replace_dir(
+        &get_stdout(
             &dir,
             ["check", "--dry-run", "--target", "wasm", "--sort-input"],
         ),
@@ -2967,7 +2958,7 @@ fn test_dummy_core() {
         "#]],
     );
     check(
-        &get_stdout_with_args_and_replace_dir(
+        &get_stdout(
             &dir,
             ["check", "--dry-run", "--target", "wasm-gc", "--sort-input"],
         ),
@@ -2983,7 +2974,7 @@ fn test_dummy_core() {
         "#]],
     );
     check(
-        &get_stdout_with_args_and_replace_dir(
+        &get_stdout(
             &dir,
             ["check", "--dry-run", "--target", "js", "--sort-input"],
         ),
@@ -3000,7 +2991,7 @@ fn test_dummy_core() {
     );
 
     check(
-        &get_stdout_with_args_and_replace_dir(&dir, ["build", "--dry-run", "--sort-input"]),
+        &get_stdout(&dir, ["build", "--dry-run", "--sort-input"]),
         expect![[r#"
             moonc build-package ./1/lib.mbt ./1/x.wasm-gc.mbt -o ./target/wasm-gc/release/build/1/1.core -pkg moonbitlang/core/1 -pkg-sources moonbitlang/core/1:./1 -target wasm-gc
             moonc build-package ./2/lib.mbt -o ./target/wasm-gc/release/build/2/2.core -pkg moonbitlang/core/2 -i ./target/wasm-gc/release/build/1/1.mi:1 -pkg-sources moonbitlang/core/2:./2 -target wasm-gc
@@ -3011,7 +3002,7 @@ fn test_dummy_core() {
         "#]],
     );
     check(
-        &get_stdout_with_args_and_replace_dir(
+        &get_stdout(
             &dir,
             ["build", "--dry-run", "--target", "wasm", "--sort-input"],
         ),
@@ -3025,7 +3016,7 @@ fn test_dummy_core() {
         "#]],
     );
     check(
-        &get_stdout_with_args_and_replace_dir(
+        &get_stdout(
             &dir,
             ["build", "--dry-run", "--target", "wasm-gc", "--sort-input"],
         ),
@@ -3039,7 +3030,7 @@ fn test_dummy_core() {
         "#]],
     );
     check(
-        &get_stdout_with_args_and_replace_dir(
+        &get_stdout(
             &dir,
             ["build", "--dry-run", "--target", "js", "--sort-input"],
         ),
@@ -3054,7 +3045,7 @@ fn test_dummy_core() {
     );
 
     check(
-        &get_stdout_with_args_and_replace_dir(&dir, ["test", "--dry-run", "--sort-input"]),
+        &get_stdout(&dir, ["test", "--dry-run", "--sort-input"]),
         expect![[r#"
             moon generate-test-driver --source-dir . --target-dir ./target/wasm-gc/debug/test --package moonbitlang/core/iter --sort-input --target wasm-gc --driver-kind internal
             moonc build-package -o ./target/wasm-gc/debug/test/coverage/coverage.core -pkg moonbitlang/core/coverage -pkg-sources moonbitlang/core/coverage:./coverage -target wasm-gc -g
@@ -3085,7 +3076,7 @@ fn test_dummy_core() {
         "#]],
     );
     check(
-        &get_stdout_with_args_and_replace_dir(
+        &get_stdout(
             &dir,
             ["test", "--dry-run", "--target", "wasm", "--sort-input"],
         ),
@@ -3119,7 +3110,7 @@ fn test_dummy_core() {
         "#]],
     );
     check(
-        &get_stdout_with_args_and_replace_dir(
+        &get_stdout(
             &dir,
             ["test", "--dry-run", "--target", "wasm-gc", "--sort-input"],
         ),
@@ -3153,7 +3144,7 @@ fn test_dummy_core() {
         "#]],
     );
     check(
-        &get_stdout_with_args_and_replace_dir(
+        &get_stdout(
             &dir,
             ["test", "--dry-run", "--target", "js", "--sort-input"],
         ),
@@ -3187,7 +3178,7 @@ fn test_dummy_core() {
         "#]],
     );
     check(
-        &get_stdout_with_args_and_replace_dir(
+        &get_stdout(
             &dir,
             ["test", "--dry-run", "--enable-coverage", "--sort-input"],
         ),
@@ -3221,7 +3212,7 @@ fn test_dummy_core() {
         "#]],
     );
     check(
-        &get_stdout_with_args_and_replace_dir(&dir, ["bundle", "--dry-run", "--sort-input"]),
+        &get_stdout(&dir, ["bundle", "--dry-run", "--sort-input"]),
         expect![[r#"
             moonc build-package ./1/lib.mbt ./1/x.wasm-gc.mbt -o ./target/wasm-gc/release/bundle/1/1.core -pkg moonbitlang/core/1 -pkg-sources moonbitlang/core/1:./1 -target wasm-gc
             moonc build-package -o ./target/wasm-gc/release/bundle/coverage/coverage.core -pkg moonbitlang/core/coverage -pkg-sources moonbitlang/core/coverage:./coverage -target wasm-gc
@@ -3233,7 +3224,7 @@ fn test_dummy_core() {
         "#]],
     );
     check(
-        &get_stdout_with_args_and_replace_dir(
+        &get_stdout(
             &dir,
             ["bundle", "--dry-run", "--target", "wasm", "--sort-input"],
         ),
@@ -3248,7 +3239,7 @@ fn test_dummy_core() {
         "#]],
     );
     check(
-        &get_stdout_with_args_and_replace_dir(
+        &get_stdout(
             &dir,
             ["bundle", "--dry-run", "--target", "wasm-gc", "--sort-input"],
         ),
@@ -3263,7 +3254,7 @@ fn test_dummy_core() {
         "#]],
     );
     check(
-        &get_stdout_with_args_and_replace_dir(
+        &get_stdout(
             &dir,
             ["bundle", "--dry-run", "--target", "js", "--sort-input"],
         ),
@@ -3278,7 +3269,7 @@ fn test_dummy_core() {
         "#]],
     );
     check(
-        &get_stdout_with_args_and_replace_dir(
+        &get_stdout(
             &dir,
             [
                 "bundle",
@@ -3321,7 +3312,7 @@ fn test_backend_flag() {
     let dir = TestDir::new("backend-flag.in");
 
     check(
-        &get_stdout_with_args_and_replace_dir(&dir, ["check", "--dry-run", "--sort-input"]),
+        &get_stdout(&dir, ["check", "--dry-run", "--sort-input"]),
         expect![[r#"
             moonc check ./lib/hello.mbt -o ./target/js/release/check/lib/lib.mi -pkg username/hello/lib -std-path $MOON_HOME/lib/core/target/js/release/bundle -pkg-sources username/hello/lib:./lib
             moonc check ./main/main.mbt -o ./target/js/release/check/main/main.mi -pkg username/hello/main -is-main -std-path $MOON_HOME/lib/core/target/js/release/bundle -i ./target/js/release/check/lib/lib.mi:lib -pkg-sources username/hello/main:./main
@@ -3330,7 +3321,7 @@ fn test_backend_flag() {
     );
 
     check(
-        &get_stdout_with_args_and_replace_dir(&dir, ["build", "--dry-run", "--sort-input"]),
+        &get_stdout(&dir, ["build", "--dry-run", "--sort-input"]),
         expect![[r#"
             moonc build-package ./lib/hello.mbt -o ./target/js/release/build/lib/lib.core -pkg username/hello/lib -std-path $MOON_HOME/lib/core/target/js/release/bundle -pkg-sources username/hello/lib:./lib
             moonc build-package ./main/main.mbt -o ./target/js/release/build/main/main.core -pkg username/hello/main -is-main -std-path $MOON_HOME/lib/core/target/js/release/bundle -i ./target/js/release/build/lib/lib.mi:lib -pkg-sources username/hello/main:./main
@@ -3339,7 +3330,7 @@ fn test_backend_flag() {
     );
 
     check(
-        &get_stdout_with_args_and_replace_dir(&dir, ["test", "--dry-run", "--sort-input"]),
+        &get_stdout(&dir, ["test", "--dry-run", "--sort-input"]),
         expect![[r#"
             moon generate-test-driver --source-dir . --target-dir ./target/js/debug/test
             moonc build-package ./lib/hello.mbt ./lib/hello_test.mbt ./target/js/debug/test/lib/__generated_driver_for_underscore_test.mbt -o ./target/js/debug/test/lib/lib.underscore_test.core -pkg username/hello/lib -is-main -std-path $MOON_HOME/lib/core/target/js/release/bundle -pkg-sources username/hello/lib:./lib -g -ryu
@@ -3350,7 +3341,7 @@ fn test_backend_flag() {
     );
 
     check(
-        &get_stdout_with_args_and_replace_dir(&dir, ["bundle", "--dry-run", "--sort-input"]),
+        &get_stdout(&dir, ["bundle", "--dry-run", "--sort-input"]),
         expect![[r#"
             moonc build-package ./lib/hello.mbt -o ./target/js/release/bundle/lib/lib.core -pkg username/hello/lib -pkg-sources username/hello/lib:./lib
             moonc build-package ./main/main.mbt -o ./target/js/release/bundle/main/main.core -pkg username/hello/main -is-main -i ./target/js/release/bundle/lib/lib.mi:lib -pkg-sources username/hello/main:./main
@@ -3365,7 +3356,7 @@ fn test_source_map() {
 
     // no -source-map in wasm backend
     check(
-        &get_stdout_with_args_and_replace_dir(
+        &get_stdout(
             &dir,
             [
                 "build",
@@ -3382,7 +3373,7 @@ fn test_source_map() {
         "#]],
     );
     check(
-        &get_stdout_with_args_and_replace_dir(
+        &get_stdout(
             &dir,
             [
                 "build",
@@ -3399,7 +3390,7 @@ fn test_source_map() {
         "#]],
     );
     check(
-        &get_stdout_with_args_and_replace_dir(
+        &get_stdout(
             &dir,
             [
                 "build",
@@ -3422,14 +3413,14 @@ fn test_find_ancestor_with_mod() {
     let dir = TestDir::new("hello.in");
 
     check(
-        &get_stdout_with_args_and_replace_dir(&dir, ["run", "main"]),
+        &get_stdout(&dir, ["run", "main"]),
         expect![[r#"
             Hello, world!
         "#]],
     );
 
     check(
-        &get_stdout_with_args_and_replace_dir(&dir, ["run", "main"]),
+        &get_stdout(&dir, ["run", "main"]),
         expect![[r#"
             Hello, world!
         "#]],
@@ -3440,7 +3431,7 @@ fn test_find_ancestor_with_mod() {
 fn test_js_format() {
     let dir = TestDir::new("js_format.in");
     check(
-        &get_stdout_with_args_and_replace_dir(
+        &get_stdout(
             &dir,
             [
                 "build",
@@ -3462,7 +3453,7 @@ fn test_js_format() {
             moonc link-core ./target/js/release/build/lib0/lib0.core -main username/hello/lib0 -o ./target/js/release/build/lib0/lib0.js -pkg-sources username/hello/lib0:./lib0 -target js -exported_functions=hello -js-format esm
         "#]],
     );
-    let _ = get_stdout_with_args_and_replace_dir(&dir, ["build", "--target", "js", "--nostd"]);
+    let _ = get_stdout(&dir, ["build", "--target", "js", "--nostd"]);
     let t = dir.join("target").join("js").join("release").join("build");
     check(
         &std::fs::read_to_string(t.join("lib0").join("lib0.js"))
@@ -3517,10 +3508,7 @@ fn test_warn_list_dry_run() {
     let dir = TestDir::new("warn_list.in");
 
     check(
-        &get_stdout_with_args_and_replace_dir(
-            &dir,
-            ["build", "--sort-input", "--no-render", "--dry-run"],
-        ),
+        &get_stdout(&dir, ["build", "--sort-input", "--no-render", "--dry-run"]),
         expect![[r#"
             moonc build-package ./lib/hello.mbt -w -2 -o ./target/wasm-gc/release/build/lib/lib.core -pkg username/hello/lib -std-path $MOON_HOME/lib/core/target/wasm-gc/release/bundle -pkg-sources username/hello/lib:./lib -target wasm-gc
             moonc build-package ./lib1/hello.mbt -w -1 -o ./target/wasm-gc/release/build/lib1/lib1.core -pkg username/hello/lib1 -std-path $MOON_HOME/lib/core/target/wasm-gc/release/bundle -pkg-sources username/hello/lib1:./lib1 -target wasm-gc
@@ -3530,17 +3518,14 @@ fn test_warn_list_dry_run() {
     );
 
     check(
-        &get_stdout_with_args_and_replace_dir(&dir, ["test", "--sort-input"]),
+        &get_stdout(&dir, ["test", "--sort-input"]),
         expect![[r#"
             Total tests: 0, passed: 0, failed: 0.
         "#]],
     );
 
     check(
-        &get_stdout_with_args_and_replace_dir(
-            &dir,
-            ["bundle", "--sort-input", "--no-render", "--dry-run"],
-        ),
+        &get_stdout(&dir, ["bundle", "--sort-input", "--no-render", "--dry-run"]),
         expect![[r#"
             moonc build-package ./lib/hello.mbt -w -2 -o ./target/wasm-gc/release/bundle/lib/lib.core -pkg username/hello/lib -pkg-sources username/hello/lib:./lib -target wasm-gc
             moonc build-package ./lib1/hello.mbt -w -1 -o ./target/wasm-gc/release/bundle/lib1/lib1.core -pkg username/hello/lib1 -pkg-sources username/hello/lib1:./lib1 -target wasm-gc
@@ -3550,13 +3535,10 @@ fn test_warn_list_dry_run() {
     );
 
     // to cover `moon bundle` no work to do
-    get_stdout_with_args_and_replace_dir(&dir, ["bundle", "--sort-input"]);
+    get_stdout(&dir, ["bundle", "--sort-input"]);
 
     check(
-        &get_stdout_with_args_and_replace_dir(
-            &dir,
-            ["check", "--sort-input", "--no-render", "--dry-run"],
-        ),
+        &get_stdout(&dir, ["check", "--sort-input", "--no-render", "--dry-run"]),
         expect![[r#"
             moonc check ./lib/hello.mbt -w -2 -o ./target/wasm-gc/release/check/lib/lib.mi -pkg username/hello/lib -std-path $MOON_HOME/lib/core/target/wasm-gc/release/bundle -pkg-sources username/hello/lib:./lib -target wasm-gc
             moonc check ./lib1/hello.mbt -w -1 -o ./target/wasm-gc/release/check/lib1/lib1.mi -pkg username/hello/lib1 -std-path $MOON_HOME/lib/core/target/wasm-gc/release/bundle -pkg-sources username/hello/lib1:./lib1 -target wasm-gc
@@ -3570,40 +3552,31 @@ fn test_warn_list_real_run() {
     let dir = TestDir::new("warn_list.in");
 
     check(
-        &get_stderr_on_success_with_args_and_replace_dir(
-            &dir,
-            ["build", "--sort-input", "--no-render"],
-        ),
+        &get_stderr(&dir, ["build", "--sort-input", "--no-render"]),
         expect![[r#"
             Finished. moon: ran 4 tasks, now up to date
         "#]],
     );
 
     check(
-        &get_stdout_with_args_and_replace_dir(&dir, ["test", "--sort-input"]),
+        &get_stdout(&dir, ["test", "--sort-input"]),
         expect![[r#"
             Total tests: 0, passed: 0, failed: 0.
         "#]],
     );
 
     check(
-        &get_stderr_on_success_with_args_and_replace_dir(
-            &dir,
-            ["bundle", "--sort-input", "--no-render"],
-        ),
+        &get_stderr(&dir, ["bundle", "--sort-input", "--no-render"]),
         expect![[r#"
             Finished. moon: ran 4 tasks, now up to date
         "#]],
     );
 
     // to cover `moon bundle` no work to do
-    get_stdout_with_args_and_replace_dir(&dir, ["bundle", "--sort-input"]);
+    get_stdout(&dir, ["bundle", "--sort-input"]);
 
     check(
-        &get_stderr_on_success_with_args_and_replace_dir(
-            &dir,
-            ["check", "--sort-input", "--no-render"],
-        ),
+        &get_stderr(&dir, ["check", "--sort-input", "--no-render"]),
         expect![[r#"
             Finished. moon: ran 3 tasks, now up to date
         "#]],
@@ -3616,7 +3589,7 @@ fn test_alert_list() {
     let dir = TestDir::new("alert_list.in");
 
     check(
-        &get_stderr_on_success_with_args_and_replace_dir(&dir, ["build", "--sort-input"]),
+        &get_stderr(&dir, ["build", "--sort-input"]),
         expect![[r#"
             Warning: [2000]
                ╭─[$ROOT/main/main.mbt:3:3]
@@ -3630,14 +3603,14 @@ fn test_alert_list() {
     );
 
     check(
-        &get_stdout_with_args_and_replace_dir(&dir, ["test", "--sort-input"]),
+        &get_stdout(&dir, ["test", "--sort-input"]),
         expect![[r#"
             Total tests: 1, passed: 1, failed: 0.
         "#]],
     );
 
     check(
-        &get_stderr_on_success_with_args_and_replace_dir(&dir, ["bundle", "--sort-input"]),
+        &get_stderr(&dir, ["bundle", "--sort-input"]),
         expect![[r#"
             Warning: [2000]
                ╭─[$ROOT/main/main.mbt:3:3]
@@ -3651,7 +3624,7 @@ fn test_alert_list() {
     );
 
     check(
-        &get_stderr_on_success_with_args_and_replace_dir(&dir, ["check", "--sort-input"]),
+        &get_stderr(&dir, ["check", "--sort-input"]),
         expect![[r#"
             Warning: [2000]
                ╭─[$ROOT/main/main.mbt:3:3]
@@ -3670,7 +3643,7 @@ fn test_mod_level_warn_alert_list() {
     let dir = TestDir::new("mod_level_warn&alert_list.in");
 
     check(
-        &get_stdout_with_args_and_replace_dir(&dir, ["check", "--dry-run"]),
+        &get_stdout(&dir, ["check", "--dry-run"]),
         expect![[r#"
             moonc check ./lib/hello.mbt -w -1 -alert -alert_1 -o ./target/wasm-gc/release/check/lib/lib.mi -pkg username/hello/lib -std-path $MOON_HOME/lib/core/target/wasm-gc/release/bundle -pkg-sources username/hello/lib:./lib -target wasm-gc
             moonc check ./main/main.mbt -w -1-2 -alert -alert_1-alert_2 -o ./target/wasm-gc/release/check/main/main.mi -pkg username/hello/main -is-main -std-path $MOON_HOME/lib/core/target/wasm-gc/release/bundle -i ./target/wasm-gc/release/check/lib/lib.mi:lib -pkg-sources username/hello/main:./main -target wasm-gc
@@ -3681,15 +3654,15 @@ fn test_mod_level_warn_alert_list() {
 #[test]
 fn test_no_work_to_do() {
     let dir = TestDir::new("moon_new.in");
-    let out = get_stderr_on_success_with_args_and_replace_dir(&dir, ["check"]);
+    let out = get_stderr(&dir, ["check"]);
     assert!(out.contains("now up to date"));
 
-    let out = get_stderr_on_success_with_args_and_replace_dir(&dir, ["check"]);
+    let out = get_stderr(&dir, ["check"]);
     assert!(out.contains("moon: no work to do"));
 
-    let out = get_stderr_on_success_with_args_and_replace_dir(&dir, ["build"]);
+    let out = get_stderr(&dir, ["build"]);
     assert!(out.contains("now up to date"));
-    let out = get_stderr_on_success_with_args_and_replace_dir(&dir, ["build"]);
+    let out = get_stderr(&dir, ["build"]);
     assert!(out.contains("moon: no work to do"));
 }
 
@@ -3698,7 +3671,7 @@ fn test_moon_test_release() {
     let dir = TestDir::new("test_release.in");
 
     check(
-        &get_stdout_with_args_and_replace_dir(&dir, ["test", "--dry-run", "--sort-input"]),
+        &get_stdout(&dir, ["test", "--dry-run", "--sort-input"]),
         expect![[r#"
             moon generate-test-driver --source-dir . --target-dir ./target/wasm-gc/debug/test --package username/hello/lib --sort-input --target wasm-gc --driver-kind whitebox
             moonc build-package ./lib/hello.mbt ./lib/hello_wbtest.mbt ./target/wasm-gc/debug/test/lib/__generated_driver_for_whitebox_test.mbt -o ./target/wasm-gc/debug/test/lib/lib.whitebox_test.core -pkg username/hello/lib -is-main -std-path $MOON_HOME/lib/core/target/wasm-gc/release/bundle -pkg-sources username/hello/lib:./lib -target wasm-gc -g
@@ -3710,10 +3683,7 @@ fn test_moon_test_release() {
     );
 
     check(
-        &get_stdout_with_args_and_replace_dir(
-            &dir,
-            ["test", "--release", "--dry-run", "--sort-input"],
-        ),
+        &get_stdout(&dir, ["test", "--release", "--dry-run", "--sort-input"]),
         expect![[r#"
             moon generate-test-driver --source-dir . --target-dir ./target/wasm-gc/release/test --package username/hello/lib --sort-input --target wasm-gc --driver-kind whitebox
             moonc build-package ./lib/hello.mbt ./lib/hello_wbtest.mbt ./target/wasm-gc/release/test/lib/__generated_driver_for_whitebox_test.mbt -o ./target/wasm-gc/release/test/lib/lib.whitebox_test.core -pkg username/hello/lib -is-main -std-path $MOON_HOME/lib/core/target/wasm-gc/release/bundle -pkg-sources username/hello/lib:./lib -target wasm-gc
@@ -3725,7 +3695,7 @@ fn test_moon_test_release() {
     );
 
     check(
-        &get_stdout_with_args_and_replace_dir(
+        &get_stdout(
             &dir,
             ["test", "--release", "--sort-input", "--no-parallelize"],
         ),
@@ -3742,11 +3712,11 @@ fn test_moon_test_release() {
 fn test_backtrace() {
     let dir = TestDir::new("backtrace.in");
 
-    let out = get_stderr_with_args(&dir, ["run", "main"]);
+    let out = get_err_stderr(&dir, ["run", "main"]);
     assert!(!out.contains("main.foo.fn"));
     assert!(!out.contains("main.bar.fn"));
 
-    let out = get_stderr_with_args(&dir, ["run", "main", "--debug"]);
+    let out = get_err_stderr(&dir, ["run", "main", "--debug"]);
     assert!(out.contains("main.foo.fn"));
     assert!(out.contains("main.bar.fn"));
 }
@@ -3757,7 +3727,7 @@ fn test_deny_warn() {
     let dir = TestDir::new("test_deny_warn.in");
 
     check(
-        &get_stderr_on_success_with_args_and_replace_dir(&dir, ["check", "--sort-input"]),
+        &get_stderr(&dir, ["check", "--sort-input"]),
         expect![[r#"
             Warning: [2000]
                 ╭─[$ROOT/lib/hello.mbt:13:3]
@@ -3806,14 +3776,14 @@ fn test_deny_warn() {
     );
 
     check(
-        &get_err_stdout_with_args_and_replace_dir(&dir, ["check", "--deny-warn", "--sort-input"]),
+        &get_err_stdout(&dir, ["check", "--deny-warn", "--sort-input"]),
         expect![[r#"
             failed: moonc check -error-format json -w @a -alert @all-raise-throw-unsafe+deprecated $ROOT/lib/hello.mbt -o $ROOT/target/wasm-gc/release/check/lib/lib.mi -pkg username/hello/lib -std-path $MOON_HOME/lib/core/target/wasm-gc/release/bundle -pkg-sources username/hello/lib:$ROOT/lib -target wasm-gc
         "#]],
     );
 
     check(
-        &get_stderr_on_success_with_args_and_replace_dir(&dir, ["build", "--sort-input"]),
+        &get_stderr(&dir, ["build", "--sort-input"]),
         expect![[r#"
             Warning: [2000]
                 ╭─[$ROOT/lib/hello.mbt:13:3]
@@ -3862,7 +3832,7 @@ fn test_deny_warn() {
     );
 
     check(
-        &get_err_stdout_with_args_and_replace_dir(&dir, ["build", "--deny-warn", "--sort-input"]),
+        &get_err_stdout(&dir, ["build", "--deny-warn", "--sort-input"]),
         expect![[r#"
             failed: moonc build-package -error-format json -w @a -alert @all-raise-throw-unsafe+deprecated $ROOT/lib/hello.mbt -o $ROOT/target/wasm-gc/release/build/lib/lib.core -pkg username/hello/lib -std-path $MOON_HOME/lib/core/target/wasm-gc/release/bundle -pkg-sources username/hello/lib:$ROOT/lib -target wasm-gc
         "#]],
@@ -3904,7 +3874,7 @@ fn test_moon_fmt() {
         expect![[r#"
                 fn main { println(@lib.hello()) }"#]],
     );
-    let _ = get_stdout_with_args_and_replace_dir(&dir, ["fmt"]);
+    let _ = get_stdout(&dir, ["fmt"]);
     check(
         &read(&dir.join("lib").join("hello.mbt")),
         expect![[r#"
@@ -3981,10 +3951,7 @@ fn test_moon_fmt_002() {
 #[test]
 fn test_export_memory_name() {
     let dir = TestDir::new("export_memory.in");
-    let _ = get_stdout_with_args_and_replace_dir(
-        &dir,
-        ["build", "--target", "wasm-gc", "--output-wat"],
-    );
+    let _ = get_stdout(&dir, ["build", "--target", "wasm-gc", "--output-wat"]);
     let content = std::fs::read_to_string(
         dir.join("target")
             .join("wasm-gc")
@@ -3997,7 +3964,7 @@ fn test_export_memory_name() {
     assert!(content.contains("awesome_memory"));
 
     check(
-        &get_stdout_with_args_and_replace_dir(&dir, ["build", "--dry-run", "--sort-input"]),
+        &get_stdout(&dir, ["build", "--dry-run", "--sort-input"]),
         expect![[r#"
             moonc build-package ./lib/hello.mbt -o ./target/wasm-gc/release/build/lib/lib.core -pkg username/hello/lib -std-path $MOON_HOME/lib/core/target/wasm-gc/release/bundle -pkg-sources username/hello/lib:./lib -target wasm-gc
             moonc build-package ./main/main.mbt -o ./target/wasm-gc/release/build/main/main.core -pkg username/hello/main -is-main -std-path $MOON_HOME/lib/core/target/wasm-gc/release/bundle -i ./target/wasm-gc/release/build/lib/lib.mi:lib -pkg-sources username/hello/main:./main -target wasm-gc
@@ -4006,7 +3973,7 @@ fn test_export_memory_name() {
     );
 
     check(
-        &get_stdout_with_args_and_replace_dir(
+        &get_stdout(
             &dir,
             ["build", "--dry-run", "--sort-input", "--target", "wasm"],
         ),
@@ -4018,7 +3985,7 @@ fn test_export_memory_name() {
     );
 
     check(
-        &get_stdout_with_args_and_replace_dir(
+        &get_stdout(
             &dir,
             ["build", "--dry-run", "--sort-input", "--target", "js"],
         ),
@@ -4034,7 +4001,7 @@ fn test_export_memory_name() {
 fn test_no_block_params() {
     let dir = TestDir::new("no_block_params.in");
     check(
-        &get_stdout_with_args_and_replace_dir(&dir, ["build", "--dry-run", "--sort-input"]),
+        &get_stdout(&dir, ["build", "--dry-run", "--sort-input"]),
         expect![[r#"
             moonc build-package ./lib/hello.mbt -o ./target/wasm-gc/release/build/lib/lib.core -pkg username/hello/lib -std-path $MOON_HOME/lib/core/target/wasm-gc/release/bundle -pkg-sources username/hello/lib:./lib -target wasm-gc
             moonc build-package ./main/main.mbt -o ./target/wasm-gc/release/build/main/main.core -pkg username/hello/main -is-main -std-path $MOON_HOME/lib/core/target/wasm-gc/release/bundle -i ./target/wasm-gc/release/build/lib/lib.mi:lib -pkg-sources username/hello/main:./main -target wasm-gc
@@ -4043,7 +4010,7 @@ fn test_no_block_params() {
     );
 
     check(
-        &get_stdout_with_args_and_replace_dir(
+        &get_stdout(
             &dir,
             ["build", "--dry-run", "--sort-input", "--target", "wasm"],
         ),
@@ -4055,7 +4022,7 @@ fn test_no_block_params() {
     );
 
     check(
-        &get_stdout_with_args_and_replace_dir(
+        &get_stdout(
             &dir,
             ["build", "--dry-run", "--sort-input", "--target", "js"],
         ),
@@ -4092,7 +4059,7 @@ fn test_panic() {
 fn test_validate_import() {
     let dir = TestDir::new("validate_import.in");
     check(
-        &get_stderr_with_args_and_replace_dir(&dir, ["check"]),
+        &get_err_stderr(&dir, ["check"]),
         expect![[r#"
             error: failed to read import path in "$ROOT/main/moon.pkg.json"
 
@@ -4101,7 +4068,7 @@ fn test_validate_import() {
         "#]],
     );
     check(
-        &get_stderr_with_args_and_replace_dir(&dir, ["build"]),
+        &get_err_stderr(&dir, ["build"]),
         expect![[r#"
             error: failed to read import path in "$ROOT/main/moon.pkg.json"
 
@@ -4110,7 +4077,7 @@ fn test_validate_import() {
         "#]],
     );
     check(
-        &get_stderr_with_args_and_replace_dir(&dir, ["test"]),
+        &get_err_stderr(&dir, ["test"]),
         expect![[r#"
             error: failed to read import path in "$ROOT/main/moon.pkg.json"
 
@@ -4119,7 +4086,7 @@ fn test_validate_import() {
         "#]],
     );
     check(
-        &get_stderr_with_args_and_replace_dir(&dir, ["bundle"]),
+        &get_err_stderr(&dir, ["bundle"]),
         expect![[r#"
             error: failed to read import path in "$ROOT/main/moon.pkg.json"
 
@@ -4188,7 +4155,7 @@ fn test_multi_process() {
 fn test_internal_package() {
     let dir = TestDir::new("internal_package.in");
     check(
-        &get_stderr_with_args_and_replace_dir(&dir, ["check", "--sort-input"]),
+        &get_err_stderr(&dir, ["check", "--sort-input"]),
         expect![[r#"
             error: $ROOT/lib2/moon.pkg.json: cannot import internal package `username/hello/lib/internal` in `username/hello/lib2`
             $ROOT/lib2/moon.pkg.json: cannot import internal package `username/hello/lib/internal/b` in `username/hello/lib2`
@@ -4203,8 +4170,8 @@ fn mooncakes_io_smoke_test() {
         return;
     }
     let dir = TestDir::new("hello.in");
-    let _ = get_stdout_with_args(&dir, ["update"]);
-    let _ = get_stdout_with_args(&dir, ["add", "lijunchen/hello2@0.1.0"]);
+    let _ = get_stdout(&dir, ["update"]);
+    let _ = get_stdout(&dir, ["add", "lijunchen/hello2@0.1.0"]);
     check(
         &std::fs::read_to_string(dir.join("moon.mod.json")).unwrap(),
         expect![[r#"
@@ -4215,7 +4182,7 @@ fn mooncakes_io_smoke_test() {
               }
             }"#]],
     );
-    let _ = get_stdout_with_args(&dir, ["remove", "lijunchen/hello2"]);
+    let _ = get_stdout(&dir, ["remove", "lijunchen/hello2"]);
     check(
         &std::fs::read_to_string(dir.join("moon.mod.json")).unwrap(),
         expect![[r#"
@@ -4224,7 +4191,7 @@ fn mooncakes_io_smoke_test() {
               "deps": {}
             }"#]],
     );
-    let _ = get_stdout_with_args(&dir, ["add", "lijunchen/hello2@0.1.0"]);
+    let _ = get_stdout(&dir, ["add", "lijunchen/hello2@0.1.0"]);
     std::fs::write(
         dir.join("main/main.mbt"),
         r#"fn main {
@@ -4242,7 +4209,7 @@ fn mooncakes_io_smoke_test() {
         .exists());
 
     std::fs::remove_dir_all(dir.join(DEP_PATH)).unwrap();
-    let out = get_stdout_with_args(&dir, ["install"]);
+    let out = get_stdout(&dir, ["install"]);
     let mut lines = out.lines().collect::<Vec<_>>();
     lines.sort();
     check(
@@ -4265,7 +4232,7 @@ fn mooncakes_io_smoke_test() {
     .unwrap();
 
     check(
-        &get_stdout_with_args(&dir, ["run", "main"]),
+        &get_stdout(&dir, ["run", "main"]),
         expect![[r#"
             Hello, world!Hello, world2!
         "#]],
@@ -4338,7 +4305,7 @@ fn whitespace_test() {
     // );
 
     check(
-        &get_stdout_with_args(&dir, ["build", "--dry-run", "--nostd"]),
+        &get_stdout(&dir, ["build", "--dry-run", "--nostd"]),
         expect![[r#"
             moonc build-package "./main lib/hello.mbt" -o "./target/wasm-gc/release/build/main lib/main lib.core" -pkg "username/hello/main lib" -pkg-sources "username/hello/main lib:./main lib" -target wasm-gc
             moonc build-package "./main exe/main.mbt" -o "./target/wasm-gc/release/build/main exe/main exe.core" -pkg "username/hello/main exe" -is-main -i "./target/wasm-gc/release/build/main lib/main lib.mi:lib" -pkg-sources "username/hello/main exe:./main exe" -target wasm-gc
@@ -4347,7 +4314,7 @@ fn whitespace_test() {
     );
 
     check(
-        &get_stdout_with_args(&dir, ["build", "--dry-run", "--debug", "--nostd"]),
+        &get_stdout(&dir, ["build", "--dry-run", "--debug", "--nostd"]),
         expect![[r#"
             moonc build-package "./main lib/hello.mbt" -o "./target/wasm-gc/debug/build/main lib/main lib.core" -pkg "username/hello/main lib" -pkg-sources "username/hello/main lib:./main lib" -target wasm-gc -g -source-map
             moonc build-package "./main exe/main.mbt" -o "./target/wasm-gc/debug/build/main exe/main exe.core" -pkg "username/hello/main exe" -is-main -i "./target/wasm-gc/debug/build/main lib/main lib.mi:lib" -pkg-sources "username/hello/main exe:./main exe" -target wasm-gc -g -source-map
@@ -4356,7 +4323,7 @@ fn whitespace_test() {
     );
 
     check(
-        &get_stdout_with_args(&dir, ["run", "main exe", "--dry-run", "--nostd"]),
+        &get_stdout(&dir, ["run", "main exe", "--dry-run", "--nostd"]),
         expect![[r#"
             moonc build-package "./main lib/hello.mbt" -o "./target/wasm-gc/release/build/main lib/main lib.core" -pkg "username/hello/main lib" -pkg-sources "username/hello/main lib:./main lib" -target wasm-gc
             moonc build-package "./main exe/main.mbt" -o "./target/wasm-gc/release/build/main exe/main exe.core" -pkg "username/hello/main exe" -is-main -i "./target/wasm-gc/release/build/main lib/main lib.mi:lib" -pkg-sources "username/hello/main exe:./main exe" -target wasm-gc
@@ -4366,7 +4333,7 @@ fn whitespace_test() {
     );
 
     check(
-        &get_stdout_with_args(&dir, ["run", "main exe", "--dry-run", "--debug", "--nostd"]),
+        &get_stdout(&dir, ["run", "main exe", "--dry-run", "--debug", "--nostd"]),
         expect![[r#"
             moonc build-package "./main lib/hello.mbt" -o "./target/wasm-gc/debug/build/main lib/main lib.core" -pkg "username/hello/main lib" -pkg-sources "username/hello/main lib:./main lib" -target wasm-gc -g -source-map
             moonc build-package "./main exe/main.mbt" -o "./target/wasm-gc/debug/build/main exe/main exe.core" -pkg "username/hello/main exe" -is-main -i "./target/wasm-gc/debug/build/main lib/main lib.mi:lib" -pkg-sources "username/hello/main exe:./main exe" -target wasm-gc -g -source-map
@@ -4375,7 +4342,7 @@ fn whitespace_test() {
         "#]],
     );
     check(
-        &get_stdout_with_args(
+        &get_stdout(
             &dir,
             ["build", "--target", "wasm-gc", "--dry-run", "--nostd"],
         ),
@@ -4386,7 +4353,7 @@ fn whitespace_test() {
         "#]],
     );
     check(
-        &get_stdout_with_args(
+        &get_stdout(
             &dir,
             [
                 "build",
@@ -4405,7 +4372,7 @@ fn whitespace_test() {
     );
 
     check(
-        &get_stdout_with_args(
+        &get_stdout(
             &dir,
             [
                 "run",
@@ -4425,7 +4392,7 @@ fn whitespace_test() {
     );
 
     check(
-        &get_stdout_with_args(
+        &get_stdout(
             &dir,
             [
                 "run",
@@ -4446,13 +4413,13 @@ fn whitespace_test() {
     );
 
     check(
-        &get_stdout_with_args(&dir, ["run", "main exe"]),
+        &get_stdout(&dir, ["run", "main exe"]),
         expect![[r#"
             Hello, world!
         "#]],
     );
 
-    let out = get_stderr_on_success_with_args(&dir, ["check"]);
+    let out = get_stderr(&dir, ["check"]);
     assert!(out.contains("moon: ran 3 tasks, now up to date"));
 }
 
@@ -4469,7 +4436,7 @@ fn test_whitespace_parent_space() -> anyhow::Result<()> {
     let canon = dunce::canonicalize(tmp_dir.path())?;
     let prefix = canon.as_path().display().to_string().replace('\\', "/");
 
-    let out = get_stdout_with_args(
+    let out = get_stdout(
         &path_with_space,
         ["build", "--no-render", "--sort-input", "--dry-run"],
     );
@@ -4492,7 +4459,7 @@ fn test_whitespace_parent_space() -> anyhow::Result<()> {
         "#]],
     );
 
-    let out = get_stderr_on_success_with_args(&path_with_space, ["build", "--no-render"]);
+    let out = get_stderr(&path_with_space, ["build", "--no-render"]);
     let out = out.replace(&prefix, ".");
     let out = out.replace(
         &moonutil::moon_dir::home()
@@ -4515,7 +4482,7 @@ fn test_whitespace_parent_space() -> anyhow::Result<()> {
 #[test]
 fn circle_pkg_test() {
     let dir = TestDir::new("circle_pkg_AB_001_test.in");
-    let stderr = get_stderr_with_args(&dir, ["run", "main", "--nostd"]);
+    let stderr = get_err_stderr(&dir, ["run", "main", "--nostd"]);
     assert!(stderr.contains("cyclic dependency"), "stderr: {}", stderr);
 }
 
@@ -4529,7 +4496,7 @@ fn debug_flag_test() {
         .success();
 
     check(
-        &get_stdout_with_args(&dir, ["check", "--dry-run", "--nostd"]),
+        &get_stdout(&dir, ["check", "--dry-run", "--nostd"]),
         expect![[r#"
             moonc check ./lib/hello.mbt -o ./target/wasm-gc/release/check/lib/lib.mi -pkg hello/lib -pkg-sources hello/lib:./lib -target wasm-gc
             moonc check ./main/main.mbt -o ./target/wasm-gc/release/check/main/main.mi -pkg hello/main -is-main -i ./target/wasm-gc/release/check/lib/lib.mi:lib -pkg-sources hello/main:./main -target wasm-gc
@@ -4537,7 +4504,7 @@ fn debug_flag_test() {
     );
 
     check(
-        &get_stdout_with_args(&dir, ["build", "--dry-run", "--nostd"]),
+        &get_stdout(&dir, ["build", "--dry-run", "--nostd"]),
         expect![[r#"
             moonc build-package ./lib/hello.mbt -o ./target/wasm-gc/release/build/lib/lib.core -pkg hello/lib -pkg-sources hello/lib:./lib -target wasm-gc
             moonc build-package ./main/main.mbt -o ./target/wasm-gc/release/build/main/main.core -pkg hello/main -is-main -i ./target/wasm-gc/release/build/lib/lib.mi:lib -pkg-sources hello/main:./main -target wasm-gc
@@ -4546,7 +4513,7 @@ fn debug_flag_test() {
     );
 
     check(
-        &get_stdout_with_args(&dir, ["build", "--dry-run", "--debug", "--nostd"]),
+        &get_stdout(&dir, ["build", "--dry-run", "--debug", "--nostd"]),
         expect![[r#"
             moonc build-package ./lib/hello.mbt -o ./target/wasm-gc/debug/build/lib/lib.core -pkg hello/lib -pkg-sources hello/lib:./lib -target wasm-gc -g -source-map
             moonc build-package ./main/main.mbt -o ./target/wasm-gc/debug/build/main/main.core -pkg hello/main -is-main -i ./target/wasm-gc/debug/build/lib/lib.mi:lib -pkg-sources hello/main:./main -target wasm-gc -g -source-map
@@ -4555,7 +4522,7 @@ fn debug_flag_test() {
     );
 
     check(
-        &get_stdout_with_args(&dir, ["run", "main", "--dry-run", "--nostd"]),
+        &get_stdout(&dir, ["run", "main", "--dry-run", "--nostd"]),
         expect![[r#"
             moonc build-package ./lib/hello.mbt -o ./target/wasm-gc/release/build/lib/lib.core -pkg hello/lib -pkg-sources hello/lib:./lib -target wasm-gc
             moonc build-package ./main/main.mbt -o ./target/wasm-gc/release/build/main/main.core -pkg hello/main -is-main -i ./target/wasm-gc/release/build/lib/lib.mi:lib -pkg-sources hello/main:./main -target wasm-gc
@@ -4565,7 +4532,7 @@ fn debug_flag_test() {
     );
 
     check(
-        &get_stdout_with_args(&dir, ["run", "main", "--dry-run", "--debug", "--nostd"]),
+        &get_stdout(&dir, ["run", "main", "--dry-run", "--debug", "--nostd"]),
         expect![[r#"
             moonc build-package ./lib/hello.mbt -o ./target/wasm-gc/debug/build/lib/lib.core -pkg hello/lib -pkg-sources hello/lib:./lib -target wasm-gc -g -source-map
             moonc build-package ./main/main.mbt -o ./target/wasm-gc/debug/build/main/main.core -pkg hello/main -is-main -i ./target/wasm-gc/debug/build/lib/lib.mi:lib -pkg-sources hello/main:./main -target wasm-gc -g -source-map
@@ -4574,7 +4541,7 @@ fn debug_flag_test() {
         "#]],
     );
     check(
-        &get_stdout_with_args(
+        &get_stdout(
             &dir,
             ["build", "--target", "wasm-gc", "--dry-run", "--nostd"],
         ),
@@ -4585,7 +4552,7 @@ fn debug_flag_test() {
         "#]],
     );
     check(
-        &get_stdout_with_args(
+        &get_stdout(
             &dir,
             [
                 "build",
@@ -4604,7 +4571,7 @@ fn debug_flag_test() {
     );
 
     check(
-        &get_stdout_with_args(
+        &get_stdout(
             &dir,
             ["run", "main", "--target", "wasm-gc", "--dry-run", "--nostd"],
         ),
@@ -4617,7 +4584,7 @@ fn debug_flag_test() {
     );
 
     check(
-        &get_stdout_with_args(
+        &get_stdout(
             &dir,
             [
                 "run",
@@ -4674,7 +4641,7 @@ fn test_moon_run_with_cli_args() {
     let dir = TestDir::new("moo_run_with_cli_args.in");
 
     check(
-        &get_stdout_with_args_and_replace_dir(&dir, ["run", "main", "--dry-run"]),
+        &get_stdout(&dir, ["run", "main", "--dry-run"]),
         expect![[r#"
             moonc build-package ./main/main.mbt -o ./target/wasm-gc/release/build/main/main.core -pkg username/hello/main -is-main -std-path $MOON_HOME/lib/core/target/wasm-gc/release/bundle -pkg-sources username/hello/main:./main -target wasm-gc
             moonc link-core $MOON_HOME/lib/core/target/wasm-gc/release/bundle/core.core ./target/wasm-gc/release/build/main/main.core -main username/hello/main -o ./target/wasm-gc/release/build/main/main.wasm -pkg-sources username/hello/main:./main -pkg-sources moonbitlang/core:$MOON_HOME/lib/core -target wasm-gc
@@ -4683,7 +4650,7 @@ fn test_moon_run_with_cli_args() {
     );
 
     check(
-        &get_stdout_with_args_and_replace_dir(
+        &get_stdout(
             &dir,
             [
                 "run",
@@ -4704,10 +4671,7 @@ fn test_moon_run_with_cli_args() {
     );
 
     check(
-        &get_stdout_with_args_and_replace_dir(
-            &dir,
-            ["run", "main", "--", "中文", "😄👍", "hello", "1242"],
-        ),
+        &get_stdout(&dir, ["run", "main", "--", "中文", "😄👍", "hello", "1242"]),
         expect![[r#"
             ["中文", "😄👍", "hello", "1242"]
         "#]],
@@ -4720,15 +4684,15 @@ fn test_third_party() {
         return;
     }
     let dir = TestDir::new("third_party.in");
-    get_stdout_with_args_and_replace_dir(&dir, ["update"]);
-    get_stdout_with_args_and_replace_dir(&dir, ["build"]);
-    get_stdout_with_args_and_replace_dir(&dir, ["clean"]);
+    get_stdout(&dir, ["update"]);
+    get_stdout(&dir, ["build"]);
+    get_stdout(&dir, ["clean"]);
 
-    let actual = &get_stderr_on_success_with_args_and_replace_dir(&dir, ["check"]);
+    let actual = &get_stderr(&dir, ["check"]);
     assert!(actual.contains("moon: ran 4 tasks, now up to date"));
 
     check(
-        &get_stdout_with_args_and_replace_dir(&dir, ["test", "--dry-run", "--sort-input"]),
+        &get_stdout(&dir, ["test", "--dry-run", "--sort-input"]),
         expect![[r#"
             moon generate-test-driver --source-dir . --target-dir ./target/wasm-gc/debug/test --package username/hello/lib --sort-input --target wasm-gc --driver-kind internal
             moonc build-package ./.mooncakes/lijunchen/hello18/lib/hello.mbt -o ./target/wasm-gc/debug/test/.mooncakes/lijunchen/hello18/lib/lib.core -pkg lijunchen/hello18/lib -std-path $MOON_HOME/lib/core/target/wasm-gc/release/bundle -pkg-sources lijunchen/hello18/lib:./.mooncakes/lijunchen/hello18/lib -target wasm-gc -g
@@ -4738,7 +4702,7 @@ fn test_third_party() {
     );
 
     check(
-        &get_stdout_with_args_and_replace_dir(&dir, ["test", "--sort-input"]),
+        &get_stdout(&dir, ["test", "--sort-input"]),
         expect![[r#"
             Hello, world!
             Hello, world!
@@ -4746,10 +4710,10 @@ fn test_third_party() {
         "#]],
     );
 
-    let actual = &get_stderr_on_success_with_args_and_replace_dir(&dir, ["build"]);
+    let actual = &get_stderr(&dir, ["build"]);
     assert!(actual.contains("moon: ran 5 tasks, now up to date"));
 
-    let actual = &get_stdout_with_args_and_replace_dir(&dir, ["run", "main"]);
+    let actual = &get_stdout(&dir, ["run", "main"]);
     assert!(actual.contains("Hello, world!"));
 }
 
@@ -4758,7 +4722,7 @@ fn test_blackbox_success() {
     let dir = TestDir::new("blackbox_success_test.in");
 
     check(
-        &get_stdout_with_args_and_replace_dir(
+        &get_stdout(
             &dir,
             [
                 "test",
@@ -4791,7 +4755,7 @@ fn test_blackbox_success() {
     );
 
     check(
-        &get_stdout_with_args_and_replace_dir(
+        &get_stdout(
             &dir,
             [
                 "test",
@@ -4812,7 +4776,7 @@ fn test_blackbox_success() {
     );
 
     check(
-        &get_stdout_with_args_and_replace_dir(&dir, ["test"]),
+        &get_stdout(&dir, ["test"]),
         expect![[r#"
             output from A/hello.mbt!
             output from C/hello.mbt!
@@ -4823,7 +4787,7 @@ fn test_blackbox_success() {
     );
 
     check(
-        &get_stdout_with_args_and_replace_dir(&dir, ["check", "--sort-input", "--dry-run"]),
+        &get_stdout(&dir, ["check", "--sort-input", "--dry-run"]),
         expect![[r#"
             moonc check ./main/main.mbt -o ./target/wasm-gc/release/check/main/main.mi -pkg username/hello/main -is-main -std-path $MOON_HOME/lib/core/target/wasm-gc/release/bundle -pkg-sources username/hello/main:./main -target wasm-gc
             moonc check ./D/hello.mbt -o ./target/wasm-gc/release/check/D/D.mi -pkg username/hello/D -std-path $MOON_HOME/lib/core/target/wasm-gc/release/bundle -pkg-sources username/hello/D:./D -target wasm-gc
@@ -5071,8 +5035,7 @@ fn test_blackbox_failed() {
 #[test]
 fn test_blackbox_test_core_override() {
     let dir = TestDir::new("blackbox_test_core_override.in");
-    let output =
-        get_stdout_with_args_and_replace_dir(&dir, ["test", "--enable-coverage", "--dry-run"]);
+    let output = get_stdout(&dir, ["test", "--enable-coverage", "--dry-run"]);
     check(
         &output,
         expect![[r#"
@@ -5118,7 +5081,7 @@ fn test_blackbox_test_core_override() {
 fn test_blackbox_dedup_alias() {
     std::env::set_var("RUST_BACKTRACE", "0");
     let dir = TestDir::new("blackbox_test_dedup_alias.in");
-    let output = get_stderr_with_args_without_replace(&dir, ["test"]);
+    let output = get_err_stderr(&dir, ["test"]);
     check(
         &output,
         expect![[r#"
@@ -5131,7 +5094,7 @@ fn test_blackbox_dedup_alias() {
 fn test_import_memory_and_heap_start() {
     let dir = TestDir::new("import_memory.in");
     check(
-        &get_stdout_with_args_and_replace_dir(
+        &get_stdout(
             &dir,
             [
                 "build",
@@ -5151,7 +5114,7 @@ fn test_import_memory_and_heap_start() {
 
     let dir = TestDir::new("import_memory.in");
     check(
-        &get_stdout_with_args_and_replace_dir(
+        &get_stdout(
             &dir,
             [
                 "build",
@@ -5174,7 +5137,7 @@ fn test_import_memory_and_heap_start() {
 fn test_many_targets() {
     let dir = TestDir::new("test_many_targets.in");
     check(
-        &get_stdout_with_args_and_replace_dir(&dir, ["test", "--target", "all", "--serial"]),
+        &get_stdout(&dir, ["test", "--target", "all", "--serial"]),
         expect![[r#"
             Total tests: 0, passed: 0, failed: 0. [wasm]
             Total tests: 0, passed: 0, failed: 0. [wasm-gc]
@@ -5183,7 +5146,7 @@ fn test_many_targets() {
     );
 
     check(
-        &get_stdout_with_args_and_replace_dir(&dir, ["test", "--target", "js,wasm", "--serial"]),
+        &get_stdout(&dir, ["test", "--target", "js,wasm", "--serial"]),
         expect![[r#"
             Total tests: 0, passed: 0, failed: 0. [wasm]
             Total tests: 0, passed: 0, failed: 0. [js]
@@ -5191,7 +5154,7 @@ fn test_many_targets() {
     );
 
     check(
-        &get_stdout_with_args_and_replace_dir(
+        &get_stdout(
             &dir,
             [
                 "check",
@@ -5212,7 +5175,7 @@ fn test_many_targets() {
     );
 
     check(
-        &get_stdout_with_args_and_replace_dir(
+        &get_stdout(
             &dir,
             [
                 "build",
@@ -5233,7 +5196,7 @@ fn test_many_targets() {
     );
 
     check(
-        &get_stdout_with_args_and_replace_dir(
+        &get_stdout(
             &dir,
             [
                 "bundle",
@@ -5256,7 +5219,7 @@ fn test_many_targets() {
     );
 
     check(
-        &get_stdout_with_args_and_replace_dir(
+        &get_stdout(
             &dir,
             [
                 "test",
@@ -5285,7 +5248,7 @@ fn test_many_targets() {
     );
 
     check(
-        &get_stdout_with_args_and_replace_dir(
+        &get_stdout(
             &dir,
             [
                 "test",
@@ -5314,7 +5277,7 @@ fn test_many_targets() {
     );
 
     check(
-        &get_stdout_with_args_and_replace_dir(
+        &get_stdout(
             &dir,
             [
                 "test",
@@ -5349,7 +5312,7 @@ fn test_many_targets() {
     );
 
     check(
-        &get_stdout_with_args_and_replace_dir(
+        &get_stdout(
             &dir,
             [
                 "test",
@@ -5387,7 +5350,7 @@ fn test_many_targets() {
 #[test]
 fn test_many_targets_auto_update_001() {
     let dir = TestDir::new("test_many_targets_auto_update.in");
-    let _ = get_stdout_with_args_and_replace_dir(&dir, ["test", "-u"]);
+    let _ = get_stdout(&dir, ["test", "-u"]);
     check(
         &replace_crlf_to_lf(&std::fs::read_to_string(dir.join("lib").join("x.wasm.mbt")).unwrap()),
         expect![[r#"
@@ -5419,7 +5382,7 @@ fn test_many_targets_auto_update_001() {
 #[test]
 fn test_many_targets_auto_update_002() {
     let dir = TestDir::new("test_many_targets_auto_update.in");
-    let _ = get_stdout_with_args_and_replace_dir(&dir, ["test", "--target", "js", "-u"]);
+    let _ = get_stdout(&dir, ["test", "--target", "js", "-u"]);
     check(
         &replace_crlf_to_lf(&std::fs::read_to_string(dir.join("lib").join("x.wasm.mbt")).unwrap()),
         expect![[r#"
@@ -5451,7 +5414,7 @@ fn test_many_targets_auto_update_002() {
 #[test]
 fn test_many_targets_auto_update_003() {
     let dir = TestDir::new("test_many_targets_auto_update.in");
-    let _ = get_stdout_with_args_and_replace_dir(&dir, ["test", "--target", "wasm", "-u"]);
+    let _ = get_stdout(&dir, ["test", "--target", "wasm", "-u"]);
     check(
         &replace_crlf_to_lf(&std::fs::read_to_string(dir.join("lib").join("x.wasm.mbt")).unwrap()),
         expect![[r#"
@@ -5470,7 +5433,7 @@ fn test_many_targets_auto_update_003() {
             }
         "#]],
     );
-    let _ = get_stdout_with_args_and_replace_dir(&dir, ["test", "--target", "js", "-u"]);
+    let _ = get_stdout(&dir, ["test", "--target", "js", "-u"]);
     check(
         &replace_crlf_to_lf(&std::fs::read_to_string(dir.join("lib").join("x.js.mbt")).unwrap()),
         expect![[r#"
@@ -5484,7 +5447,7 @@ fn test_many_targets_auto_update_003() {
 #[test]
 fn test_many_targets_auto_update_004() {
     let dir = TestDir::new("test_many_targets_auto_update.in");
-    let _ = get_stdout_with_args_and_replace_dir(&dir, ["test", "--target", "wasm", "-u"]);
+    let _ = get_stdout(&dir, ["test", "--target", "wasm", "-u"]);
     check(
         &replace_crlf_to_lf(&std::fs::read_to_string(dir.join("lib").join("x.wasm.mbt")).unwrap()),
         expect![[r#"
@@ -5493,7 +5456,7 @@ fn test_many_targets_auto_update_004() {
             }
         "#]],
     );
-    let _ = get_stdout_with_args_and_replace_dir(&dir, ["test", "--target", "wasm-gc", "-u"]);
+    let _ = get_stdout(&dir, ["test", "--target", "wasm-gc", "-u"]);
     check(
         &replace_crlf_to_lf(
             &std::fs::read_to_string(dir.join("lib").join("x.wasm-gc.mbt")).unwrap(),
@@ -5504,7 +5467,7 @@ fn test_many_targets_auto_update_004() {
             }
         "#]],
     );
-    let _ = get_stdout_with_args_and_replace_dir(&dir, ["test", "--target", "js", "-u"]);
+    let _ = get_stdout(&dir, ["test", "--target", "js", "-u"]);
     check(
         &replace_crlf_to_lf(&std::fs::read_to_string(dir.join("lib").join("x.js.mbt")).unwrap()),
         expect![[r#"
@@ -5519,7 +5482,7 @@ fn test_many_targets_auto_update_004() {
 fn test_many_targets_expect_failed() {
     let dir = TestDir::new("test_many_targets_expect_failed.in");
     check(
-        &get_err_stdout_with_args_and_replace_dir(
+        &get_err_stdout(
             &dir,
             ["test", "--target", "all", "--serial", "--sort-input"],
         ),
@@ -5551,7 +5514,7 @@ fn test_many_targets_expect_failed() {
         "#]],
     );
     check(
-        &get_err_stdout_with_args_and_replace_dir(
+        &get_err_stdout(
             &dir,
             ["test", "--target", "js,wasm", "--sort-input", "--serial"],
         ),
@@ -5580,7 +5543,7 @@ fn test_many_targets_expect_failed() {
 fn test_moon_run_single_mbt_file() {
     let dir = TestDir::new("run_single_mbt_file.in");
 
-    let output = get_stdout_with_args_and_replace_dir(
+    let output = get_stdout(
         &dir,
         [
             "run",
@@ -5599,7 +5562,7 @@ fn test_moon_run_single_mbt_file() {
         "#]],
     );
 
-    let output = get_stdout_with_args_and_replace_dir(
+    let output = get_stdout(
         &dir,
         ["run", "a/b/single.mbt", "--target", "js", "--build-only"],
     );
@@ -5611,7 +5574,7 @@ fn test_moon_run_single_mbt_file() {
     );
     assert!(dir.join("a/b/target/single.js").exists());
 
-    let output = get_stdout_with_args_and_replace_dir(&dir, ["run", "a/b/single.mbt", "--dry-run"]);
+    let output = get_stdout(&dir, ["run", "a/b/single.mbt", "--dry-run"]);
     check(
         &output,
         expect![[r#"
@@ -5621,7 +5584,7 @@ fn test_moon_run_single_mbt_file() {
         "#]],
     );
 
-    let output = get_stdout_with_args_and_replace_dir(
+    let output = get_stdout(
         &dir,
         ["run", "a/b/single.mbt", "--target", "js", "--dry-run"],
     );
@@ -5634,7 +5597,7 @@ fn test_moon_run_single_mbt_file() {
         "#]],
     );
 
-    let output = get_stdout_with_args_and_replace_dir(&dir, ["run", "a/b/single.mbt"]);
+    let output = get_stdout(&dir, ["run", "a/b/single.mbt"]);
     check(
         &output,
         expect![[r#"
@@ -5642,10 +5605,7 @@ fn test_moon_run_single_mbt_file() {
     "#]],
     );
 
-    let output = get_stdout_with_args_and_replace_dir(
-        &dir.join("a").join("b").join("c"),
-        ["run", "../single.mbt"],
-    );
+    let output = get_stdout(&dir.join("a").join("b").join("c"), ["run", "../single.mbt"]);
     check(
         &output,
         expect![[r#"
@@ -5653,7 +5613,7 @@ fn test_moon_run_single_mbt_file() {
             "#]],
     );
 
-    let output = get_stdout_with_args_and_replace_dir(
+    let output = get_stdout(
         &dir.join("a").join("b"),
         ["run", "single.mbt", "--target", "js"],
     );
@@ -5672,20 +5632,17 @@ fn test_moon_check_json_output() {
     #[cfg(unix)]
     {
         check(
-            &get_stdout_with_args_and_replace_dir(&dir, ["check", "--output-json", "-q"]),
+            &get_stdout(&dir, ["check", "--output-json", "-q"]),
             expect![[r#"
                 {"$message_type":"diagnostic","level":"warning","loc":{"path":"$ROOT/main/main.mbt","start":{"line":3,"col":3},"end":{"line":3,"col":10}},"message":"Warning (Alert alert_2): alert_2","error_code":2000}
             "#]],
         );
         check(
-            &get_stderr_on_success_with_args_and_replace_dir(
-                &dir,
-                ["check", "--output-json", "-q"],
-            ),
+            &get_stderr(&dir, ["check", "--output-json", "-q"]),
             expect![""],
         );
         check(
-            &get_stderr_on_success_with_args_and_replace_dir(&dir, ["check", "--output-json"]),
+            &get_stderr(&dir, ["check", "--output-json"]),
             expect![[r#"
                 Finished. moon: no work to do
             "#]],
@@ -5696,20 +5653,17 @@ fn test_moon_check_json_output() {
     #[cfg(windows)]
     {
         check(
-            &get_stdout_with_args_and_replace_dir(&dir, ["check", "--output-json", "-q"]),
+            &get_stdout(&dir, ["check", "--output-json", "-q"]),
             expect![[r#"
             {"$message_type":"diagnostic","level":"warning","loc":{"path":"$ROOT/main/main.mbt","start":{"line":3,"col":3},"end":{"line":3,"col":10}},"message":"Warning (Alert alert_2): alert_2","error_code":2000}
         "#]],
         );
         check(
-            &get_stderr_on_success_with_args_and_replace_dir(
-                &dir,
-                ["check", "--output-json", "-q"],
-            ),
+            &get_stderr(&dir, ["check", "--output-json", "-q"]),
             expect![""],
         );
         check(
-            &get_stderr_on_success_with_args_and_replace_dir(&dir, ["check", "--output-json"]),
+            &get_stderr(&dir, ["check", "--output-json"]),
             expect![[r#"
                 Finished. moon: no work to do
             "#]],
@@ -5721,7 +5675,7 @@ fn test_moon_check_json_output() {
 fn test_moon_run_single_mbt_file_inside_a_pkg() {
     let dir = TestDir::new("run_single_mbt_file_inside_pkg.in");
 
-    let output = get_stdout_with_args_and_replace_dir(&dir, ["run", "main/main.mbt"]);
+    let output = get_stdout(&dir, ["run", "main/main.mbt"]);
     check(
         &output,
         expect![[r#"
@@ -5729,7 +5683,7 @@ fn test_moon_run_single_mbt_file_inside_a_pkg() {
             root main
         "#]],
     );
-    let output = get_stdout_with_args_and_replace_dir(&dir, ["run", "lib/main_in_lib/main.mbt"]);
+    let output = get_stdout(&dir, ["run", "lib/main_in_lib/main.mbt"]);
     check(
         &output,
         expect![[r#"
@@ -5738,8 +5692,7 @@ fn test_moon_run_single_mbt_file_inside_a_pkg() {
         "#]],
     );
 
-    let output =
-        get_stdout_with_args_and_replace_dir(&dir.join("lib"), ["run", "../main/main.mbt"]);
+    let output = get_stdout(&dir.join("lib"), ["run", "../main/main.mbt"]);
     check(
         &output,
         expect![[r#"
@@ -5747,8 +5700,7 @@ fn test_moon_run_single_mbt_file_inside_a_pkg() {
             root main
         "#]],
     );
-    let output =
-        get_stdout_with_args_and_replace_dir(&dir.join("lib"), ["run", "main_in_lib/main.mbt"]);
+    let output = get_stdout(&dir.join("lib"), ["run", "main_in_lib/main.mbt"]);
     check(
         &output,
         expect![[r#"
@@ -5757,7 +5709,7 @@ fn test_moon_run_single_mbt_file_inside_a_pkg() {
         "#]],
     );
 
-    let output = get_stdout_with_args_and_replace_dir(
+    let output = get_stdout(
         &dir.join("lib").join("main_in_lib"),
         ["run", "../../main/main.mbt"],
     );
@@ -5768,10 +5720,7 @@ fn test_moon_run_single_mbt_file_inside_a_pkg() {
             root main
         "#]],
     );
-    let output = get_stdout_with_args_and_replace_dir(
-        &dir.join("lib").join("main_in_lib"),
-        ["run", "main.mbt"],
-    );
+    let output = get_stdout(&dir.join("lib").join("main_in_lib"), ["run", "main.mbt"]);
     check(
         &output,
         expect![[r#"
@@ -5785,15 +5734,15 @@ fn test_moon_run_single_mbt_file_inside_a_pkg() {
 fn moon_test_parallelize_should_success() {
     let dir = TestDir::new("test_filter_pkg_with_test_imports.in");
 
-    let output = get_stdout_with_args_and_replace_dir(&dir, ["test"]);
+    let output = get_stdout(&dir, ["test"]);
     assert!(output.contains("Total tests: 14, passed: 14, failed: 0."));
 
     let dir = TestDir::new("test_filter.in");
 
-    let output = get_err_stdout_with_args_and_replace_dir(&dir, ["test"]);
+    let output = get_err_stdout(&dir, ["test"]);
     assert!(output.contains("Total tests: 13, passed: 11, failed: 2."));
 
-    let output = get_stdout_with_args_and_replace_dir(&dir, ["test", "-u"]);
+    let output = get_stdout(&dir, ["test", "-u"]);
     assert!(output.contains("Total tests: 13, passed: 13, failed: 0."));
 }
 
@@ -5801,7 +5750,7 @@ fn moon_test_parallelize_should_success() {
 fn test_specify_source_dir_001() {
     let dir = TestDir::new("specify_source_dir_001.in");
     check(
-        &get_stdout_with_args_and_replace_dir(&dir, ["check", "--dry-run", "--sort-input"]),
+        &get_stdout(&dir, ["check", "--dry-run", "--sort-input"]),
         expect![[r#"
             moonc check ./src/lib/hello.mbt -o ./target/wasm-gc/release/check/lib/lib.mi -pkg username/hello/lib -std-path $MOON_HOME/lib/core/target/wasm-gc/release/bundle -pkg-sources username/hello/lib:./src/lib -target wasm-gc
             moonc check ./src/main/main.mbt -o ./target/wasm-gc/release/check/main/main.mi -pkg username/hello/main -is-main -std-path $MOON_HOME/lib/core/target/wasm-gc/release/bundle -i ./target/wasm-gc/release/check/lib/lib.mi:lib -pkg-sources username/hello/main:./src/main -target wasm-gc
@@ -5809,7 +5758,7 @@ fn test_specify_source_dir_001() {
         "#]],
     );
     check(
-        &get_stdout_with_args_and_replace_dir(&dir, ["build", "--dry-run", "--sort-input"]),
+        &get_stdout(&dir, ["build", "--dry-run", "--sort-input"]),
         expect![[r#"
             moonc build-package ./src/lib/hello.mbt -o ./target/wasm-gc/release/build/lib/lib.core -pkg username/hello/lib -std-path $MOON_HOME/lib/core/target/wasm-gc/release/bundle -pkg-sources username/hello/lib:./src/lib -target wasm-gc
             moonc build-package ./src/main/main.mbt -o ./target/wasm-gc/release/build/main/main.core -pkg username/hello/main -is-main -std-path $MOON_HOME/lib/core/target/wasm-gc/release/bundle -i ./target/wasm-gc/release/build/lib/lib.mi:lib -pkg-sources username/hello/main:./src/main -target wasm-gc
@@ -5817,7 +5766,7 @@ fn test_specify_source_dir_001() {
         "#]],
     );
     check(
-        &get_stdout_with_args_and_replace_dir(&dir, ["test", "--dry-run", "--sort-input"]),
+        &get_stdout(&dir, ["test", "--dry-run", "--sort-input"]),
         expect![[r#"
             moon generate-test-driver --source-dir . --target-dir ./target/wasm-gc/debug/test --package username/hello/lib --sort-input --target wasm-gc --driver-kind blackbox
             moonc build-package ./src/lib/hello.mbt -o ./target/wasm-gc/debug/test/lib/lib.core -pkg username/hello/lib -std-path $MOON_HOME/lib/core/target/wasm-gc/release/bundle -pkg-sources username/hello/lib:./src/lib -target wasm-gc -g
@@ -5829,7 +5778,7 @@ fn test_specify_source_dir_001() {
         "#]],
     );
     check(
-        &get_stderr_on_success_with_args_and_replace_dir(&dir, ["check", "--sort-input"]),
+        &get_stderr(&dir, ["check", "--sort-input"]),
         expect![[r#"
             Finished. moon: ran 3 tasks, now up to date
         "#]],
@@ -5922,19 +5871,19 @@ fn test_specify_source_dir_001() {
         )
     }
     check(
-        &get_stderr_on_success_with_args_and_replace_dir(&dir, ["build"]),
+        &get_stderr(&dir, ["build"]),
         expect![[r#"
             Finished. moon: ran 3 tasks, now up to date
         "#]],
     );
     check(
-        &get_stdout_with_args_and_replace_dir(&dir, ["test"]),
+        &get_stdout(&dir, ["test"]),
         expect![[r#"
             Total tests: 1, passed: 1, failed: 0.
         "#]],
     );
     check(
-        &get_stdout_with_args_and_replace_dir(&dir, ["run", "./src/main"]),
+        &get_stdout(&dir, ["run", "./src/main"]),
         expect![[r#"
             Hello, world!
         "#]],
@@ -5945,7 +5894,7 @@ fn test_specify_source_dir_001() {
 fn test_specify_source_dir_002() {
     let dir = TestDir::new("specify_source_dir_002.in");
     check(
-        &get_err_stdout_with_args_and_replace_dir(&dir, ["test"]),
+        &get_err_stdout(&dir, ["test"]),
         expect![[r#"
             test username/hello/lib/hello_test.mbt::hello failed
             expect test failed at $ROOT/src/lib/hello_test.mbt:2:3-2:25
@@ -5958,7 +5907,7 @@ fn test_specify_source_dir_002() {
         "#]],
     );
     check(
-        &get_stdout_with_args_and_replace_dir(&dir, ["test", "-u"]),
+        &get_stdout(&dir, ["test", "-u"]),
         expect![[r#"
 
             Auto updating expect tests and retesting ...
@@ -5983,7 +5932,7 @@ fn test_specify_source_dir_002() {
 fn test_specify_source_dir_003() {
     let dir = TestDir::new("specify_source_dir_003_empty_string.in");
     check(
-        &get_stderr_on_success_with_args_and_replace_dir(&dir, ["check"]),
+        &get_stderr(&dir, ["check"]),
         expect![[r#"
             Finished. moon: ran 1 task, now up to date
         "#]],
@@ -5994,15 +5943,15 @@ fn test_specify_source_dir_003() {
 fn test_specify_source_dir_004() {
     let dir = TestDir::new("specify_source_dir_004.in");
     check(
-        &get_stderr_on_success_with_args_and_replace_dir(&dir, ["check"]),
+        &get_stderr(&dir, ["check"]),
         expect![[r#"
             Finished. moon: ran 3 tasks, now up to date
         "#]],
     );
 
-    get_stdout_with_args(&dir, ["clean"]);
+    get_stdout(&dir, ["clean"]);
     check(
-        &get_stdout_with_args_and_replace_dir(
+        &get_stdout(
             &dir,
             ["run", "nes/t/ed/src/main", "--target", "js", "--build-only"],
         ),
@@ -6013,7 +5962,7 @@ fn test_specify_source_dir_004() {
     assert!(dir.join("target/js/release/build/main/main.js").exists());
 
     check(
-        &get_stdout_with_args_and_replace_dir(&dir, ["run", "nes/t/ed/src/main"]),
+        &get_stdout(&dir, ["run", "nes/t/ed/src/main"]),
         expect![[r#"
             Hello, world!
         "#]],
@@ -6024,7 +5973,7 @@ fn test_specify_source_dir_004() {
 fn test_specify_source_dir_005() {
     let dir = TestDir::new("specify_source_dir_005_bad.in");
     check(
-        &get_stderr_with_args_and_replace_dir(&dir, ["check"]),
+        &get_err_stderr(&dir, ["check"]),
         expect![[r#"
             error: failed to load `$ROOT/moon.mod.json`
 
@@ -6039,7 +5988,7 @@ fn test_specify_source_dir_005() {
 fn test_specify_source_dir_with_deps() {
     let dir = TestDir::new("specify_source_dir_with_deps_001.in");
     check(
-        &get_stdout_with_args_and_replace_dir(&dir, ["check", "--dry-run", "--sort-input"]),
+        &get_stdout(&dir, ["check", "--dry-run", "--sort-input"]),
         expect![[r#"
             moonc check ./anyhow/lib/hello.mbt -o ./target/wasm-gc/release/check/lib/lib.mi -pkg username/hello/lib -std-path $MOON_HOME/lib/core/target/wasm-gc/release/bundle -pkg-sources username/hello/lib:./anyhow/lib -target wasm-gc
             moonc check ./deps/hello19/source/top.mbt -o ./target/wasm-gc/release/check/.mooncakes/just/hello19/hello19.mi -pkg just/hello19 -std-path $MOON_HOME/lib/core/target/wasm-gc/release/bundle -pkg-sources just/hello19:./deps/hello19/source -target wasm-gc
@@ -6050,7 +5999,7 @@ fn test_specify_source_dir_with_deps() {
         "#]],
     );
     check(
-        &get_stdout_with_args_and_replace_dir(&dir, ["build", "--dry-run", "--sort-input"]),
+        &get_stdout(&dir, ["build", "--dry-run", "--sort-input"]),
         expect![[r#"
             moonc build-package ./anyhow/lib/hello.mbt -o ./target/wasm-gc/release/build/lib/lib.core -pkg username/hello/lib -std-path $MOON_HOME/lib/core/target/wasm-gc/release/bundle -pkg-sources username/hello/lib:./anyhow/lib -target wasm-gc
             moonc build-package ./deps/hello19/source/top.mbt -o ./target/wasm-gc/release/build/.mooncakes/just/hello19/hello19.core -pkg just/hello19 -std-path $MOON_HOME/lib/core/target/wasm-gc/release/bundle -pkg-sources just/hello19:./deps/hello19/source -target wasm-gc
@@ -6060,7 +6009,7 @@ fn test_specify_source_dir_with_deps() {
         "#]],
     );
     check(
-        &get_stdout_with_args_and_replace_dir(&dir, ["test", "--dry-run", "--sort-input"]),
+        &get_stdout(&dir, ["test", "--dry-run", "--sort-input"]),
         expect![[r#"
             moon generate-test-driver --source-dir . --target-dir ./target/wasm-gc/debug/test --package username/hello/lib --sort-input --target wasm-gc --driver-kind blackbox
             moonc build-package ./anyhow/lib/hello.mbt -o ./target/wasm-gc/debug/test/lib/lib.core -pkg username/hello/lib -std-path $MOON_HOME/lib/core/target/wasm-gc/release/bundle -pkg-sources username/hello/lib:./anyhow/lib -target wasm-gc -g
@@ -6072,25 +6021,25 @@ fn test_specify_source_dir_with_deps() {
         "#]],
     );
     check(
-        &get_stderr_on_success_with_args_and_replace_dir(&dir, ["check"]),
+        &get_stderr(&dir, ["check"]),
         expect![[r#"
             Finished. moon: ran 6 tasks, now up to date
         "#]],
     );
     check(
-        &get_stderr_on_success_with_args_and_replace_dir(&dir, ["build"]),
+        &get_stderr(&dir, ["build"]),
         expect![[r#"
             Finished. moon: ran 5 tasks, now up to date
         "#]],
     );
     check(
-        &get_stdout_with_args_and_replace_dir(&dir, ["test"]),
+        &get_stdout(&dir, ["test"]),
         expect![[r#"
             Total tests: 1, passed: 1, failed: 0.
         "#]],
     );
     check(
-        &get_stdout_with_args_and_replace_dir(&dir, ["run", "./anyhow/main"]),
+        &get_stdout(&dir, ["run", "./anyhow/main"]),
         expect![[r#"
             Hello, world!
             hello
@@ -6103,23 +6052,20 @@ fn test_specify_source_dir_with_deps() {
 fn test_specify_source_dir_with_deps_002() {
     let dir = TestDir::new("specify_source_dir_with_deps_002.in");
     check(
-        &get_stderr_on_success_with_args_and_replace_dir(&dir, ["check"]),
+        &get_stderr(&dir, ["check"]),
         expect![[r#"
             Finished. moon: ran 13 tasks, now up to date
         "#]],
     );
     check(
-        &get_stderr_on_success_with_args_and_replace_dir(&dir, ["build"]),
+        &get_stderr(&dir, ["build"]),
         expect![[r#"
             Finished. moon: ran 10 tasks, now up to date
         "#]],
     );
+    check(&get_stdout(&dir, ["test"]), expect![""]);
     check(
-        &get_stdout_with_args_and_replace_dir(&dir, ["test"]),
-        expect![""],
-    );
-    check(
-        &get_stdout_with_args_and_replace_dir(&dir, ["run", "./anyhow"]),
+        &get_stdout(&dir, ["run", "./anyhow"]),
         expect![[r#"
             a!b!c!d!
             one!two!three!four!
@@ -6131,10 +6077,7 @@ fn test_specify_source_dir_with_deps_002() {
 fn test_snapshot_test() {
     let dir = TestDir::new("snapshot_testing.in");
     check(
-        &get_err_stdout_with_args_and_replace_dir(
-            &dir,
-            ["test", "--sort-input", "--no-parallelize"],
-        ),
+        &get_err_stdout(&dir, ["test", "--sort-input", "--no-parallelize"]),
         expect![[r#"
             test username/hello/lib/hello_test.mbt::snapshot in blackbox test failed
             expect test failed at $ROOT/src/lib/hello_test.mbt:9:3
@@ -6181,7 +6124,7 @@ fn test_snapshot_test() {
         "#]],
     );
     check(
-        &get_stdout_with_args_and_replace_dir(&dir, ["test", "-u"]),
+        &get_stdout(&dir, ["test", "-u"]),
         expect![[r#"
 
             Auto updating expect tests and retesting ...
@@ -6248,7 +6191,7 @@ fn test_snapshot_test() {
 fn test_snapshot_test_target_js() {
     let dir = TestDir::new("snapshot_testing.in");
     check(
-        &get_err_stdout_with_args_and_replace_dir(
+        &get_err_stdout(
             &dir,
             ["test", "--target", "js", "--sort-input", "--no-parallelize"],
         ),
@@ -6299,7 +6242,7 @@ fn test_snapshot_test_target_js() {
     );
     assert!(dir.join("target/js/debug/test/package.json").exists());
     check(
-        &get_stdout_with_args_and_replace_dir(&dir, ["test", "--target", "js", "-u"]),
+        &get_stdout(&dir, ["test", "--target", "js", "-u"]),
         expect![[r#"
 
             Auto updating expect tests and retesting ...
@@ -6366,7 +6309,7 @@ fn test_snapshot_test_target_js() {
 fn moon_test_with_failure_json() {
     let dir = TestDir::new("test_with_failure_json");
 
-    let output = get_err_stdout_with_args_and_replace_dir(&dir, ["test", "--test-failure-json"]);
+    let output = get_err_stdout(&dir, ["test", "--test-failure-json"]);
     check(
         &output,
         // should keep in this format, it's used in ide test explorer
@@ -6381,7 +6324,7 @@ fn moon_test_with_failure_json() {
 fn test_js() {
     let dir = TestDir::new("test_filter.in");
 
-    let output = get_stdout_with_args_and_replace_dir(
+    let output = get_stdout(
         &dir,
         [
             "test",
@@ -6403,7 +6346,7 @@ fn test_js() {
         "#]],
     );
 
-    let output = get_stdout_with_args_and_replace_dir(
+    let output = get_stdout(
         &dir,
         [
             "test",
@@ -6432,14 +6375,14 @@ fn test_js() {
 fn test_generate_test_driver_incremental() {
     let dir = TestDir::new("moon_test_hello_lib.in");
 
-    get_stdout_with_args_and_replace_dir(&dir, ["test", "--package", "moonbitlang/hello/lib"]);
+    get_stdout(&dir, ["test", "--package", "moonbitlang/hello/lib"]);
     let driver_file =
         dir.join("target/wasm-gc/debug/test/lib/__generated_driver_for_internal_test.mbt");
     assert!(driver_file.exists());
 
     let time_1 = driver_file.metadata().unwrap().modified().unwrap();
 
-    get_stdout_with_args_and_replace_dir(
+    get_stdout(
         &dir,
         [
             "test",
@@ -6453,7 +6396,7 @@ fn test_generate_test_driver_incremental() {
 
     assert!(time_1 == time_2);
 
-    get_stdout_with_args_and_replace_dir(
+    get_stdout(
         &dir,
         [
             "test",
@@ -6475,7 +6418,7 @@ fn test_generate_test_driver_incremental() {
         .unwrap();
     file.write_all(b"\n").unwrap();
 
-    get_stdout_with_args_and_replace_dir(
+    get_stdout(
         &dir,
         [
             "test",
@@ -6496,7 +6439,7 @@ fn test_generate_test_driver_incremental() {
 fn test_moon_doc_dry_run() {
     let dir = TestDir::new("moon_doc.in");
     check(
-        &get_stdout_with_args_and_replace_dir(&dir, ["doc", "--dry-run"]),
+        &get_stdout(&dir, ["doc", "--dry-run"]),
         expect![[r#"
             moonc check ./src/lib/hello.mbt -o ./target/wasm-gc/release/check/lib/lib.mi -pkg username/hello/lib -std-path $MOON_HOME/lib/core/target/wasm-gc/release/bundle -pkg-sources username/hello/lib:./src/lib -target wasm-gc
             moonc check ./src/main/main.mbt -o ./target/wasm-gc/release/check/main/main.mi -pkg username/hello/main -is-main -std-path $MOON_HOME/lib/core/target/wasm-gc/release/bundle -i ./target/wasm-gc/release/check/lib/lib.mi:lib -pkg-sources username/hello/main:./src/main -target wasm-gc
@@ -6509,7 +6452,7 @@ fn test_moon_doc_dry_run() {
 #[test]
 fn test_moon_doc() {
     let dir = TestDir::new("moon_doc.in");
-    let _ = get_stderr_on_success_with_args_and_replace_dir(&dir, ["doc"]);
+    let _ = get_stderr(&dir, ["doc"]);
     check(
         &read(&dir.join("target/doc/username/hello/lib/members.md")),
         expect![[r#"
@@ -6547,7 +6490,7 @@ fn test_moon_doc() {
 fn test_failed_to_fill_whole_buffer() {
     let dir = TestDir::new("hello.in");
     check(
-        &get_stderr_on_success_with_args_and_replace_dir(&dir, ["check"]),
+        &get_stderr(&dir, ["check"]),
         expect![[r#"
             Finished. moon: ran 1 task, now up to date
         "#]],
@@ -6558,7 +6501,7 @@ fn test_failed_to_fill_whole_buffer() {
     }
     std::fs::write(&moon_db_path, "").unwrap();
     check(
-        &get_stderr_with_args_and_replace_dir(&dir, ["check"]),
+        &get_err_stderr(&dir, ["check"]),
         expect![[r#"
             error: internal error
 
@@ -6641,7 +6584,7 @@ pub struct TraceEvent {
 #[test]
 fn test_trace_001() {
     let dir = TestDir::new("hello.in");
-    let _ = get_stdout_with_args_and_replace_dir(&dir, ["build", "--trace"]);
+    let _ = get_stdout(&dir, ["build", "--trace"]);
     let s = replace_dir(&read(&dir.join("trace.json")), &dir);
     let j: TraceResult = serde_json::from_str(&s).unwrap();
     let event_names = j.0.iter().map(|e| e.name.clone()).collect::<Vec<_>>();
@@ -6664,7 +6607,7 @@ fn test_trace_001() {
 #[test]
 fn no_main_just_init() {
     let dir = TestDir::new("no_main_just_init.in");
-    get_stdout_with_args_and_replace_dir(&dir, ["build"]);
+    get_stdout(&dir, ["build"]);
     let file = dir.join("target/wasm-gc/release/build/lib/lib.wasm");
     assert!(file.exists());
 
@@ -6689,14 +6632,14 @@ fn no_main_just_init() {
 fn test_pre_build() {
     let dir = TestDir::new("pre_build.in");
     check(
-        &get_stderr_on_success_with_args_and_replace_dir(&dir, ["check"]),
+        &get_stderr(&dir, ["check"]),
         expect![[r#"
             Executed 3 pre-build tasks, now up to date
             Finished. moon: ran 2 tasks, now up to date
         "#]],
     );
     check(
-        &get_stderr_on_success_with_args_and_replace_dir(&dir, ["build"]),
+        &get_stderr(&dir, ["build"]),
         expect![[r#"
             Warning: [1002]
                ╭─[$ROOT/src/lib/a.mbt:3:5]
@@ -6741,33 +6684,30 @@ fn test_pre_build() {
 fn test_moon_coverage() {
     let dir = TestDir::new("test_coverage.in");
 
-    get_stdout_with_args_and_replace_dir(
-        &dir,
-        ["test", "--enable-coverage", "--target", "wasm-gc"],
-    );
+    get_stdout(&dir, ["test", "--enable-coverage", "--target", "wasm-gc"]);
     // just get the last line, since other output contains path sequence which is not stable
     check(
-        get_stdout_with_args_and_replace_dir(&dir, ["coverage", "report", "-f", "summary"])
+        get_stdout(&dir, ["coverage", "report", "-f", "summary"])
             .lines()
             .last()
             .unwrap(),
         expect!["Total: 3/6"],
     );
 
-    get_stdout_with_args_and_replace_dir(&dir, ["clean"]);
-    get_stdout_with_args_and_replace_dir(&dir, ["test", "--enable-coverage", "--target", "wasm"]);
+    get_stdout(&dir, ["clean"]);
+    get_stdout(&dir, ["test", "--enable-coverage", "--target", "wasm"]);
     check(
-        get_stdout_with_args_and_replace_dir(&dir, ["coverage", "report", "-f", "summary"])
+        get_stdout(&dir, ["coverage", "report", "-f", "summary"])
             .lines()
             .last()
             .unwrap(),
         expect!["Total: 3/6"],
     );
 
-    get_stdout_with_args_and_replace_dir(&dir, ["clean"]);
-    get_stdout_with_args_and_replace_dir(&dir, ["test", "--enable-coverage", "--target", "js"]);
+    get_stdout(&dir, ["clean"]);
+    get_stdout(&dir, ["test", "--enable-coverage", "--target", "js"]);
     check(
-        get_stdout_with_args_and_replace_dir(&dir, ["coverage", "report", "-f", "summary"])
+        get_stdout(&dir, ["coverage", "report", "-f", "summary"])
             .lines()
             .last()
             .unwrap(),
