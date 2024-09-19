@@ -507,5 +507,11 @@ fn validate_pkg_json_schema() {
         env!("CARGO_MANIFEST_DIR"),
         "/../../docs/manual/src/source/pkg_json_schema.html"
     );
-    std::fs::write(html_path, content).unwrap();
+    std::fs::write(html_path, &content).unwrap();
+
+    let zh_html_path = concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../docs/manual-zh/src/source/pkg_json_schema.html"
+    );
+    std::fs::write(zh_html_path, content).unwrap();
 }
