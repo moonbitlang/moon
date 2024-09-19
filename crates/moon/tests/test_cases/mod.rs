@@ -6751,7 +6751,7 @@ fn test_moon_coverage() {
     );
     // just get the last line, since other output contains path sequence which is not stable
     check(
-        &get_stdout_with_args_and_replace_dir(&dir, ["coverage", "report", "-f", "summary"])
+        get_stdout_with_args_and_replace_dir(&dir, ["coverage", "report", "-f", "summary"])
             .lines()
             .last()
             .unwrap(),
@@ -6761,7 +6761,7 @@ fn test_moon_coverage() {
     get_stdout_with_args_and_replace_dir(&dir, ["clean"]);
     get_stdout_with_args_and_replace_dir(&dir, ["test", "--enable-coverage", "--target", "wasm"]);
     check(
-        &get_stdout_with_args_and_replace_dir(&dir, ["coverage", "report", "-f", "summary"])
+        get_stdout_with_args_and_replace_dir(&dir, ["coverage", "report", "-f", "summary"])
             .lines()
             .last()
             .unwrap(),
@@ -6771,7 +6771,7 @@ fn test_moon_coverage() {
     get_stdout_with_args_and_replace_dir(&dir, ["clean"]);
     get_stdout_with_args_and_replace_dir(&dir, ["test", "--enable-coverage", "--target", "js"]);
     check(
-        &get_stdout_with_args_and_replace_dir(&dir, ["coverage", "report", "-f", "summary"])
+        get_stdout_with_args_and_replace_dir(&dir, ["coverage", "report", "-f", "summary"])
             .lines()
             .last()
             .unwrap(),
