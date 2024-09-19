@@ -405,6 +405,8 @@ impl From<MoonModJSON> for MoonMod {
             Some(d) => d.into_iter().map(|(k, v)| (k, v.into())).collect(),
         };
 
+        let source = j.source.map(|s| if s.is_empty() { ".".into() } else { s });
+
         MoonMod {
             name: j.name,
             version: j.version,
@@ -418,7 +420,7 @@ impl From<MoonModJSON> for MoonMod {
             compile_flags: j.compile_flags,
             link_flags: j.link_flags,
             checksum: j.checksum,
-            source: j.source,
+            source,
             ext: j.ext,
 
             alert_list: j.alert_list,

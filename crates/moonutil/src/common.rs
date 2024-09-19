@@ -63,8 +63,6 @@ pub fn startswith_and_trim(s: &str, t: &str) -> String {
 
 #[derive(Debug, thiserror::Error)]
 pub enum SourceError {
-    #[error("`source` should not be empty")]
-    EmptyString,
     #[error("`source` should not contain invalid chars `{0:?}`")]
     ContainInvalidChars(Vec<char>),
     #[error("`source` not a subdirectory of the parent directory")]
@@ -72,10 +70,6 @@ pub enum SourceError {
 }
 
 fn is_valid_folder_name(folder_name: &str) -> Result<(), SourceError> {
-    if folder_name.is_empty() {
-        return Err(SourceError::EmptyString);
-    }
-
     let invalid_chars = ['<', '>', ':', '"', '|', '?', '*'];
     let invalid: Vec<char> = folder_name
         .chars()
