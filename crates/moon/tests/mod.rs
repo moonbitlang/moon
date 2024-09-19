@@ -129,7 +129,7 @@ fn get_err_stderr_without_replace(
 }
 
 #[track_caller]
-pub fn get_stdout_and_replace_dir(
+pub fn get_stdout(
     dir: &impl AsRef<std::path::Path>,
     args: impl IntoIterator<Item = impl AsRef<std::ffi::OsStr>>,
 ) -> String {
@@ -138,7 +138,7 @@ pub fn get_stdout_and_replace_dir(
 }
 
 #[track_caller]
-pub fn get_stderr_and_replace_dir(
+pub fn get_stderr(
     dir: &impl AsRef<std::path::Path>,
     args: impl IntoIterator<Item = impl AsRef<std::ffi::OsStr>>,
 ) -> String {
@@ -146,7 +146,7 @@ pub fn get_stderr_and_replace_dir(
     replace_dir(&s, dir)
 }
 
-pub fn get_err_stdout_and_replace_dir(
+pub fn get_err_stdout(
     dir: &impl AsRef<std::path::Path>,
     args: impl IntoIterator<Item = impl AsRef<std::ffi::OsStr>>,
 ) -> String {
@@ -154,48 +154,10 @@ pub fn get_err_stdout_and_replace_dir(
     replace_dir(&s, dir)
 }
 
-pub fn get_err_stderr_and_replace_dir(
+pub fn get_err_stderr(
     dir: &impl AsRef<std::path::Path>,
     args: impl IntoIterator<Item = impl AsRef<std::ffi::OsStr>>,
 ) -> String {
     let s = get_err_stderr_without_replace(dir, args);
     replace_dir(&s, dir)
-}
-
-pub fn get_err_stderr(
-    dir: &impl AsRef<std::path::Path>,
-    args: impl IntoIterator<Item = impl AsRef<std::ffi::OsStr>>,
-) -> String {
-    let out = snapbox::cmd::Command::new(moon_bin())
-        .current_dir(dir)
-        .args(args)
-        .assert()
-        .failure()
-        .get_output()
-        .stderr
-        .to_owned();
-
-    let s = std::str::from_utf8(&out).unwrap().to_string();
-    let s = s.replace("\r\n", "\n");
-
-    s.replace('\\', "/")
-}
-
-pub fn get_stderr(
-    dir: &impl AsRef<std::path::Path>,
-    args: impl IntoIterator<Item = impl AsRef<std::ffi::OsStr>>,
-) -> String {
-    let out = snapbox::cmd::Command::new(moon_bin())
-        .current_dir(dir)
-        .args(args)
-        .assert()
-        .success()
-        .get_output()
-        .stderr
-        .to_owned();
-
-    let s = std::str::from_utf8(&out).unwrap().to_string();
-    let s = s.replace("\r\n", "\n");
-
-    s.replace('\\', "/")
 }
