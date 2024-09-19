@@ -21,11 +21,15 @@
 {
     "targets": {
         "only_js.mbt": ["js"],
+        "only_wasm.mbt": ["wasm"],
+        "only_wasm_gc.mbt": ["wasm-gc"],
+        "all_wasm.mbt": ["wasm", "wasm-gc"],
         "not_js.mbt": ["not", "js"],
-        "only_debug.mbt": ["and", "debug"],
-        "js_and_release.mbt": ["and", "js", "release"],
+        "only_debug.mbt": ["debug"],
+        "js_and_release.mbt": ["and", ["js"], ["release"]],
         "js_only_test.mbt": ["js"],
-        "complex.mbt": ["or", ["and", "wasm", "release"], ["and", "js", "debug"]]
+        "js_or_wasm.mbt": ["js", "wasm"],
+        "wasm_release_or_js_debug.mbt": ["or", ["and", "wasm", "release"], ["and", "js", "debug"]]
     }
 }
 ``` 
