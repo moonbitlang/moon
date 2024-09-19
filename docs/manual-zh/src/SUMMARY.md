@@ -1,6 +1,18 @@
 # 目录
 
 - [构建系统教程](./tutorial.md)
+- [模块配置](./module.md)
+  - [模块名](./module/name.md)
+  - [版本](./module/version.md)
+  - [依赖](./module/deps.md)
+  - [README 文件](./module/readme.md)
+  - [仓库地址](./module/repository.md)
+  - [许可证](./module/license.md)
+  - [关键词](./module/keywords.md)
+  - [描述](./module/description.md)
+  - [源码目录](./module/source.md)
+  - [warn 列表](./package/warnings.md)
+  - [alert 列表](./package/alerts.md)
 - [包配置](./package.md)
   - [包名](./package/name.md)
   - [is-main 字段](./package/is-main.md)
