@@ -62,6 +62,6 @@ catch (e) {
             break;
         }
     }
-    __moonbit_sys_unstable.exit(1); 
+    __moonbit_sys_unstable.exit(1);
 
 }

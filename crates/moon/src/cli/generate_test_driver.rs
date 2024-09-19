@@ -42,6 +42,10 @@ pub struct GenerateTestDriverSubcommand {
     #[clap(short, long, num_args(0..))]
     pub package: Option<Vec<PathBuf>>,
 
+    /// Override coverage package name; `@self` is a special value that means the package itself
+    #[clap(long)]
+    pub coverage_package_override: Option<String>,
+
     /// The test driver kind
     #[clap(long)]
     pub driver_kind: DriverKind,
@@ -198,7 +202,13 @@ pub fn generate_test_driver(
                 pkgname
             )
         }
-        let generated_content = generate_driver(&mbts_test_data, pkgname, target_backend);
+        let generated_content = generate_driver(
+            &mbts_test_data,
+            pkgname,
+            target_backend,
+            cmd.build_flags.enable_coverage,
+            cmd.coverage_package_override.as_deref(),
+        );
         let generated_file = target_dir.join(pkg.rel.fs_full_name()).join(driver_name);
 
         if !generated_file.parent().unwrap().exists() {
@@ -210,7 +220,13 @@ pub fn generate_test_driver(
     Ok(0)
 }
 
-fn generate_driver(data: &str, pkgname: &str, target_backend: Option<TargetBackend>) -> String {
+fn generate_driver(
+    data: &str,
+    pkgname: &str,
+    target_backend: Option<TargetBackend>,
+    enable_coverage: bool,
+    coverage_package_override: Option<&str>,
+) -> String {
     let index = data
         .find("let moonbit_test_driver_internal_with_args_tests =")
         .unwrap_or(data.len());
@@ -250,6 +266,22 @@ fn generate_driver(data: &str, pkgname: &str, target_backend: Option<TargetBacke
     .replace("fn moonbit_test_driver_internal_get_file_name(file_name : MoonbitTestDriverInternalExternString) -> String { panic() }\n", "")
     .replace("type MoonbitTestDriverInternalExternString\n", "");
 
+    let coverage_end_template = if enable_coverage {
+        let coverage_package_name =
+            if let Some(coverage_package_override) = coverage_package_override {
+                if coverage_package_override == "@self" {
+                    "".into()
+                } else {
+                    format!("@{}.", coverage_package_override)
+                }
+            } else {
+                "@moonbitlang/core/coverage.".into()
+            };
+        format!("{}end();", coverage_package_name)
+    } else {
+        "".into()
+    };
+
     template.push_str(args_processing);
     template = template
         .replace("\r\n", "\n")
@@ -271,7 +303,8 @@ fn generate_driver(data: &str, pkgname: &str, target_backend: Option<TargetBacke
         )
         .replace("{PACKAGE}", pkgname)
         .replace("{BEGIN_MOONTEST}", MOON_TEST_DELIMITER_BEGIN)
-        .replace("{END_MOONTEST}", MOON_TEST_DELIMITER_END);
+        .replace("{END_MOONTEST}", MOON_TEST_DELIMITER_END)
+        .replace("// {COVERAGE_END}", &coverage_end_template);
 
     if pkgname.starts_with(MOONBITLANG_CORE) {
         template.replace(&format!("@{}/builtin.", MOONBITLANG_CORE), "")

@@ -46,6 +46,34 @@ fn is_self_coverage_lib(name: &str) -> bool {
     SELF_COVERAGE_LIBS.contains(&name)
 }
 
+fn coverage_args(
+    enable_coverage: bool,
+    package_name: &str,
+    package_original_name: Option<&str>,
+    two_dashes: bool,
+) -> Vec<String> {
+    if !enable_coverage {
+        return vec![];
+    }
+    if is_skip_coverage_lib(package_name) {
+        return vec![];
+    }
+    let dashes = if two_dashes { "--" } else { "-" };
+    let mut args = vec![format!("{}enable-coverage", dashes)];
+    // WORKAROUND: lang core/builtin and core/coverage should be able to cover themselves
+    if is_self_coverage_lib(package_name) {
+        args.push(format!("{}coverage-package-override=@self", dashes));
+    } else if let Some(original_name) = package_original_name {
+        if is_self_coverage_lib(original_name) {
+            args.push(format!(
+                "{}coverage-package-override={}",
+                dashes, original_name
+            ));
+        }
+    }
+    args
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct MiAlias {
     pub name: String,
