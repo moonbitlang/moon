@@ -34,7 +34,7 @@ use n2::load::State;
 use n2::smallmap::SmallMap;
 
 use crate::gen::n2_errors::{N2Error, N2ErrorKind};
-use crate::gen::MiAlias;
+use crate::gen::{coverage_args, MiAlias};
 
 #[derive(Debug)]
 pub struct RuntestDepItem {
@@ -759,17 +759,12 @@ pub fn gen_runtest_build_command(
         explicit: 1,
     };
 
-    // WORKAROUND: do not test coverage on coverage library itself, because of cyclic dependency
-    let enable_coverage = moonc_opt.build_opt.enable_coverage
-        && !super::is_skip_coverage_lib(&item.package_full_name)
-        && !item.is_third_party;
-    // WORKAROUND: lang core/builtin and core/coverage should be able to cover themselves
-    let self_coverage = enable_coverage && super::is_self_coverage_lib(&item.package_full_name);
-    let original_package_self_coverage = enable_coverage
-        && item
-            .original_package_full_name
-            .as_ref()
-            .map_or(false, |name| super::is_self_coverage_lib(name));
+    let coverage_args = coverage_args(
+        moonc_opt.build_opt.enable_coverage && !item.is_third_party,
+        &item.package_full_name,
+        item.original_package_full_name.as_deref(),
+        false,
+    );
 
     let mut build = Build::new(loc, ins, outs);
 
@@ -815,14 +810,7 @@ pub fn gen_runtest_build_command(
         .arg_with_cond(moonc_opt.build_opt.debug_flag, "-g")
         .arg_with_cond(moonc_opt.link_opt.source_map, "-source-map")
         // Coverage arg
-        .arg_with_cond(enable_coverage, "-enable-coverage")
-        .arg_with_cond(self_coverage, "-coverage-package-override=@self")
-        .lazy_args_with_cond(original_package_self_coverage, || {
-            vec![format!(
-                "-coverage-package-override={}",
-                item.original_package_full_name.as_ref().unwrap()
-            )]
-        })
+        .args(coverage_args.iter())
         .args(moonc_opt.extra_build_opt.iter())
         .build();
     log::debug!("Command: {}", command);
@@ -905,7 +893,7 @@ pub fn gen_runtest_link_command(
         )
         .args([
             "-exported_functions",
-            "moonbit_test_driver_internal_execute,moonbit_test_driver_internal_print_coverage",
+            "moonbit_test_driver_internal_execute",
         ])
         .args_with_cond(
             moonc_opt.link_opt.target_backend == moonutil::common::TargetBackend::Js,
@@ -998,6 +986,13 @@ fn gen_generate_test_driver_command(
         line: 0,
     };
 
+    let coverage_args = coverage_args(
+        moonc_opt.build_opt.enable_coverage,
+        &item.package_name,
+        None,
+        true,
+    );
+
     let mut build = Build::new(loc, ins, outs);
 
     let command = CommandBuilder::new(
@@ -1013,6 +1008,7 @@ fn gen_generate_test_driver_command(
     .arg_with_cond(moonbuild_opt.sort_input, "--sort-input")
     .args(["--target", moonc_opt.build_opt.target_backend.to_flag()])
     .args(["--driver-kind", item.driver_kind.to_string()])
+    .args(coverage_args.iter())
     .build();
 
     build.cmdline = Some(command);
