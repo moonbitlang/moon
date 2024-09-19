@@ -91,6 +91,7 @@ impl Package {
 pub struct PackageJSON {
     pub is_main: bool,
     pub is_third_party: bool,
+    pub root_path: String,
     pub root: String,
     pub rel: String,
     pub files: IndexMap<PathBuf, CompileCondition>,
