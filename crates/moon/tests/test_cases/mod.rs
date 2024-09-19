@@ -2421,6 +2421,7 @@ fn test_dummy_core() {
                     {
                       "is-main": false,
                       "is-third-party": false,
+                      "root-path": "$ROOT/0",
                       "root": "moonbitlang/core",
                       "rel": "0",
                       "files": {
@@ -2512,6 +2513,7 @@ fn test_dummy_core() {
                     {
                       "is-main": false,
                       "is-third-party": false,
+                      "root-path": "$ROOT/1",
                       "root": "moonbitlang/core",
                       "rel": "1",
                       "files": {
@@ -2574,6 +2576,7 @@ fn test_dummy_core() {
                     {
                       "is-main": false,
                       "is-third-party": false,
+                      "root-path": "$ROOT/2",
                       "root": "moonbitlang/core",
                       "rel": "2",
                       "files": {
@@ -2604,6 +2607,7 @@ fn test_dummy_core() {
                     {
                       "is-main": false,
                       "is-third-party": false,
+                      "root-path": "$ROOT/char",
                       "root": "moonbitlang/core",
                       "rel": "char",
                       "files": {},
@@ -2622,6 +2626,7 @@ fn test_dummy_core() {
                     {
                       "is-main": false,
                       "is-third-party": false,
+                      "root-path": "$ROOT/coverage",
                       "root": "moonbitlang/core",
                       "rel": "coverage",
                       "files": {},
@@ -2635,6 +2640,7 @@ fn test_dummy_core() {
                     {
                       "is-main": false,
                       "is-third-party": false,
+                      "root-path": "$ROOT/iter",
                       "root": "moonbitlang/core",
                       "rel": "iter",
                       "files": {},
@@ -2682,6 +2688,7 @@ fn test_dummy_core() {
                     {
                       "is-main": false,
                       "is-third-party": false,
+                      "root-path": "$ROOT/0",
                       "root": "moonbitlang/core",
                       "rel": "0",
                       "files": {
@@ -2773,6 +2780,7 @@ fn test_dummy_core() {
                     {
                       "is-main": false,
                       "is-third-party": false,
+                      "root-path": "$ROOT/1",
                       "root": "moonbitlang/core",
                       "rel": "1",
                       "files": {
@@ -2835,6 +2843,7 @@ fn test_dummy_core() {
                     {
                       "is-main": false,
                       "is-third-party": false,
+                      "root-path": "$ROOT/2",
                       "root": "moonbitlang/core",
                       "rel": "2",
                       "files": {
@@ -2865,6 +2874,7 @@ fn test_dummy_core() {
                     {
                       "is-main": false,
                       "is-third-party": false,
+                      "root-path": "$ROOT/char",
                       "root": "moonbitlang/core",
                       "rel": "char",
                       "files": {},
@@ -2883,6 +2893,7 @@ fn test_dummy_core() {
                     {
                       "is-main": false,
                       "is-third-party": false,
+                      "root-path": "$ROOT/coverage",
                       "root": "moonbitlang/core",
                       "rel": "coverage",
                       "files": {},
@@ -2896,6 +2907,7 @@ fn test_dummy_core() {
                     {
                       "is-main": false,
                       "is-third-party": false,
+                      "root-path": "$ROOT/iter",
                       "root": "moonbitlang/core",
                       "rel": "iter",
                       "files": {},
@@ -4845,6 +4857,7 @@ fn test_blackbox_success() {
                     {
                       "is-main": false,
                       "is-third-party": false,
+                      "root-path": "$ROOT/A",
                       "root": "username/hello",
                       "rel": "A",
                       "files": {
@@ -4909,6 +4922,7 @@ fn test_blackbox_success() {
                     {
                       "is-main": false,
                       "is-third-party": false,
+                      "root-path": "$ROOT/B",
                       "root": "username/hello",
                       "rel": "B",
                       "files": {
@@ -4934,6 +4948,7 @@ fn test_blackbox_success() {
                     {
                       "is-main": false,
                       "is-third-party": false,
+                      "root-path": "$ROOT/C",
                       "root": "username/hello",
                       "rel": "C",
                       "files": {
@@ -4959,6 +4974,7 @@ fn test_blackbox_success() {
                     {
                       "is-main": false,
                       "is-third-party": false,
+                      "root-path": "$ROOT/D",
                       "root": "username/hello",
                       "rel": "D",
                       "files": {
@@ -4984,6 +5000,7 @@ fn test_blackbox_success() {
                     {
                       "is-main": true,
                       "is-third-party": false,
+                      "root-path": "$ROOT/main",
                       "root": "username/hello",
                       "rel": "main",
                       "files": {
@@ -5830,6 +5847,7 @@ fn test_specify_source_dir_001() {
                     {
                       "is-main": false,
                       "is-third-party": false,
+                      "root-path": "$ROOT/src/lib",
                       "root": "username/hello",
                       "rel": "lib",
                       "files": {
@@ -5867,6 +5885,7 @@ fn test_specify_source_dir_001() {
                     {
                       "is-main": true,
                       "is-third-party": false,
+                      "root-path": "$ROOT/src/main",
                       "root": "username/hello",
                       "rel": "main",
                       "files": {

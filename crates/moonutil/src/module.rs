@@ -269,6 +269,7 @@ pub fn convert_mdb_to_json(module: &ModuleDB) -> ModuleDBJSON {
         pkgs.push(PackageJSON {
             is_main: pkg.is_main,
             is_third_party: pkg.is_third_party,
+            root_path: pkg.root_path.display().to_string(),
             root: pkg.root.full_name(),
             rel: pkg.rel.full_name(),
             files,
