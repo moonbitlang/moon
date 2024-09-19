@@ -1525,7 +1525,7 @@ fn test_moon_test_filter_index_with_auto_update() {
     );
 
     let dir = TestDir::new("test_filter.in");
-    let _ = get_stderr(
+    let _ = get_err_stderr(
         &dir,
         [
             "test",
@@ -1561,7 +1561,7 @@ fn test_moon_test_filter_index_with_auto_update() {
     );
 
     let dir = TestDir::new("test_filter.in");
-    let _ = get_stderr(
+    let _ = get_err_stderr(
         &dir,
         [
             "test",
@@ -2170,7 +2170,7 @@ fn test_moon_inline_test_order() {
 #[test]
 fn test_error_duplicate_alias() {
     let dir = TestDir::new("error_duplicate_alias.in");
-    let out = get_stderr(&dir, ["check"]);
+    let out = get_err_stderr(&dir, ["check"]);
     assert!(out.contains("Duplicate alias `lib`"));
 }
 
@@ -3552,7 +3552,7 @@ fn test_warn_list_real_run() {
     let dir = TestDir::new("warn_list.in");
 
     check(
-        &get_stderr_on_success_and_replace_dir(&dir, ["build", "--sort-input", "--no-render"]),
+        &get_stderr_and_replace_dir(&dir, ["build", "--sort-input", "--no-render"]),
         expect![[r#"
             Finished. moon: ran 4 tasks, now up to date
         "#]],
@@ -3566,7 +3566,7 @@ fn test_warn_list_real_run() {
     );
 
     check(
-        &get_stderr_on_success_and_replace_dir(&dir, ["bundle", "--sort-input", "--no-render"]),
+        &get_stderr_and_replace_dir(&dir, ["bundle", "--sort-input", "--no-render"]),
         expect![[r#"
             Finished. moon: ran 4 tasks, now up to date
         "#]],
@@ -3576,7 +3576,7 @@ fn test_warn_list_real_run() {
     get_stdout_and_replace_dir(&dir, ["bundle", "--sort-input"]);
 
     check(
-        &get_stderr_on_success_and_replace_dir(&dir, ["check", "--sort-input", "--no-render"]),
+        &get_stderr_and_replace_dir(&dir, ["check", "--sort-input", "--no-render"]),
         expect![[r#"
             Finished. moon: ran 3 tasks, now up to date
         "#]],
@@ -3589,7 +3589,7 @@ fn test_alert_list() {
     let dir = TestDir::new("alert_list.in");
 
     check(
-        &get_stderr_on_success_and_replace_dir(&dir, ["build", "--sort-input"]),
+        &get_stderr_and_replace_dir(&dir, ["build", "--sort-input"]),
         expect![[r#"
             Warning: [2000]
                ╭─[$ROOT/main/main.mbt:3:3]
@@ -3610,7 +3610,7 @@ fn test_alert_list() {
     );
 
     check(
-        &get_stderr_on_success_and_replace_dir(&dir, ["bundle", "--sort-input"]),
+        &get_stderr_and_replace_dir(&dir, ["bundle", "--sort-input"]),
         expect![[r#"
             Warning: [2000]
                ╭─[$ROOT/main/main.mbt:3:3]
@@ -3624,7 +3624,7 @@ fn test_alert_list() {
     );
 
     check(
-        &get_stderr_on_success_and_replace_dir(&dir, ["check", "--sort-input"]),
+        &get_stderr_and_replace_dir(&dir, ["check", "--sort-input"]),
         expect![[r#"
             Warning: [2000]
                ╭─[$ROOT/main/main.mbt:3:3]
@@ -3654,15 +3654,15 @@ fn test_mod_level_warn_alert_list() {
 #[test]
 fn test_no_work_to_do() {
     let dir = TestDir::new("moon_new.in");
-    let out = get_stderr_on_success_and_replace_dir(&dir, ["check"]);
+    let out = get_stderr_and_replace_dir(&dir, ["check"]);
     assert!(out.contains("now up to date"));
 
-    let out = get_stderr_on_success_and_replace_dir(&dir, ["check"]);
+    let out = get_stderr_and_replace_dir(&dir, ["check"]);
     assert!(out.contains("moon: no work to do"));
 
-    let out = get_stderr_on_success_and_replace_dir(&dir, ["build"]);
+    let out = get_stderr_and_replace_dir(&dir, ["build"]);
     assert!(out.contains("now up to date"));
-    let out = get_stderr_on_success_and_replace_dir(&dir, ["build"]);
+    let out = get_stderr_and_replace_dir(&dir, ["build"]);
     assert!(out.contains("moon: no work to do"));
 }
 
@@ -3712,11 +3712,11 @@ fn test_moon_test_release() {
 fn test_backtrace() {
     let dir = TestDir::new("backtrace.in");
 
-    let out = get_stderr(&dir, ["run", "main"]);
+    let out = get_err_stderr(&dir, ["run", "main"]);
     assert!(!out.contains("main.foo.fn"));
     assert!(!out.contains("main.bar.fn"));
 
-    let out = get_stderr(&dir, ["run", "main", "--debug"]);
+    let out = get_err_stderr(&dir, ["run", "main", "--debug"]);
     assert!(out.contains("main.foo.fn"));
     assert!(out.contains("main.bar.fn"));
 }
@@ -3727,7 +3727,7 @@ fn test_deny_warn() {
     let dir = TestDir::new("test_deny_warn.in");
 
     check(
-        &get_stderr_on_success_and_replace_dir(&dir, ["check", "--sort-input"]),
+        &get_stderr_and_replace_dir(&dir, ["check", "--sort-input"]),
         expect![[r#"
             Warning: [2000]
                 ╭─[$ROOT/lib/hello.mbt:13:3]
@@ -3783,7 +3783,7 @@ fn test_deny_warn() {
     );
 
     check(
-        &get_stderr_on_success_and_replace_dir(&dir, ["build", "--sort-input"]),
+        &get_stderr_and_replace_dir(&dir, ["build", "--sort-input"]),
         expect![[r#"
             Warning: [2000]
                 ╭─[$ROOT/lib/hello.mbt:13:3]
@@ -4059,7 +4059,7 @@ fn test_panic() {
 fn test_validate_import() {
     let dir = TestDir::new("validate_import.in");
     check(
-        &get_stderr_and_replace_dir(&dir, ["check"]),
+        &get_err_stderr_and_replace_dir(&dir, ["check"]),
         expect![[r#"
             error: failed to read import path in "$ROOT/main/moon.pkg.json"
 
@@ -4068,7 +4068,7 @@ fn test_validate_import() {
         "#]],
     );
     check(
-        &get_stderr_and_replace_dir(&dir, ["build"]),
+        &get_err_stderr_and_replace_dir(&dir, ["build"]),
         expect![[r#"
             error: failed to read import path in "$ROOT/main/moon.pkg.json"
 
@@ -4077,7 +4077,7 @@ fn test_validate_import() {
         "#]],
     );
     check(
-        &get_stderr_and_replace_dir(&dir, ["test"]),
+        &get_err_stderr_and_replace_dir(&dir, ["test"]),
         expect![[r#"
             error: failed to read import path in "$ROOT/main/moon.pkg.json"
 
@@ -4086,7 +4086,7 @@ fn test_validate_import() {
         "#]],
     );
     check(
-        &get_stderr_and_replace_dir(&dir, ["bundle"]),
+        &get_err_stderr_and_replace_dir(&dir, ["bundle"]),
         expect![[r#"
             error: failed to read import path in "$ROOT/main/moon.pkg.json"
 
@@ -4155,7 +4155,7 @@ fn test_multi_process() {
 fn test_internal_package() {
     let dir = TestDir::new("internal_package.in");
     check(
-        &get_stderr_and_replace_dir(&dir, ["check", "--sort-input"]),
+        &get_err_stderr_and_replace_dir(&dir, ["check", "--sort-input"]),
         expect![[r#"
             error: $ROOT/lib2/moon.pkg.json: cannot import internal package `username/hello/lib/internal` in `username/hello/lib2`
             $ROOT/lib2/moon.pkg.json: cannot import internal package `username/hello/lib/internal/b` in `username/hello/lib2`
@@ -4419,7 +4419,7 @@ fn whitespace_test() {
         "#]],
     );
 
-    let out = get_stderr_on_success(&dir, ["check"]);
+    let out = get_stderr(&dir, ["check"]);
     assert!(out.contains("moon: ran 3 tasks, now up to date"));
 }
 
@@ -4459,7 +4459,7 @@ fn test_whitespace_parent_space() -> anyhow::Result<()> {
         "#]],
     );
 
-    let out = get_stderr_on_success(&path_with_space, ["build", "--no-render"]);
+    let out = get_stderr(&path_with_space, ["build", "--no-render"]);
     let out = out.replace(&prefix, ".");
     let out = out.replace(
         &moonutil::moon_dir::home()
@@ -4482,7 +4482,7 @@ fn test_whitespace_parent_space() -> anyhow::Result<()> {
 #[test]
 fn circle_pkg_test() {
     let dir = TestDir::new("circle_pkg_AB_001_test.in");
-    let stderr = get_stderr(&dir, ["run", "main", "--nostd"]);
+    let stderr = get_err_stderr(&dir, ["run", "main", "--nostd"]);
     assert!(stderr.contains("cyclic dependency"), "stderr: {}", stderr);
 }
 
@@ -4688,7 +4688,7 @@ fn test_third_party() {
     get_stdout_and_replace_dir(&dir, ["build"]);
     get_stdout_and_replace_dir(&dir, ["clean"]);
 
-    let actual = &get_stderr_on_success_and_replace_dir(&dir, ["check"]);
+    let actual = &get_stderr_and_replace_dir(&dir, ["check"]);
     assert!(actual.contains("moon: ran 4 tasks, now up to date"));
 
     check(
@@ -4710,7 +4710,7 @@ fn test_third_party() {
         "#]],
     );
 
-    let actual = &get_stderr_on_success_and_replace_dir(&dir, ["build"]);
+    let actual = &get_stderr_and_replace_dir(&dir, ["build"]);
     assert!(actual.contains("moon: ran 5 tasks, now up to date"));
 
     let actual = &get_stdout_and_replace_dir(&dir, ["run", "main"]);
@@ -5081,7 +5081,7 @@ fn test_blackbox_test_core_override() {
 fn test_blackbox_dedup_alias() {
     std::env::set_var("RUST_BACKTRACE", "0");
     let dir = TestDir::new("blackbox_test_dedup_alias.in");
-    let output = get_stderr_without_replace(&dir, ["test"]);
+    let output = get_err_stderr_without_replace(&dir, ["test"]);
     check(
         &output,
         expect![[r#"
@@ -5639,11 +5639,11 @@ fn test_moon_check_json_output() {
             "#]],
         );
         check(
-            &get_stderr_on_success_and_replace_dir(&dir, ["check", "--output-json", "-q"]),
+            &get_stderr_and_replace_dir(&dir, ["check", "--output-json", "-q"]),
             expect![""],
         );
         check(
-            &get_stderr_on_success_and_replace_dir(&dir, ["check", "--output-json"]),
+            &get_stderr_and_replace_dir(&dir, ["check", "--output-json"]),
             expect![[r#"
                 Finished. moon: no work to do
             "#]],
@@ -5660,11 +5660,11 @@ fn test_moon_check_json_output() {
         "#]],
         );
         check(
-            &get_stderr_on_success_and_replace_dir(&dir, ["check", "--output-json", "-q"]),
+            &get_stderr_and_replace_dir(&dir, ["check", "--output-json", "-q"]),
             expect![""],
         );
         check(
-            &get_stderr_on_success_and_replace_dir(&dir, ["check", "--output-json"]),
+            &get_stderr_and_replace_dir(&dir, ["check", "--output-json"]),
             expect![[r#"
                 Finished. moon: no work to do
             "#]],
@@ -5780,7 +5780,7 @@ fn test_specify_source_dir_001() {
         "#]],
     );
     check(
-        &get_stderr_on_success_and_replace_dir(&dir, ["check", "--sort-input"]),
+        &get_stderr_and_replace_dir(&dir, ["check", "--sort-input"]),
         expect![[r#"
             Finished. moon: ran 3 tasks, now up to date
         "#]],
@@ -5873,7 +5873,7 @@ fn test_specify_source_dir_001() {
         )
     }
     check(
-        &get_stderr_on_success_and_replace_dir(&dir, ["build"]),
+        &get_stderr_and_replace_dir(&dir, ["build"]),
         expect![[r#"
             Finished. moon: ran 3 tasks, now up to date
         "#]],
@@ -5934,7 +5934,7 @@ fn test_specify_source_dir_002() {
 fn test_specify_source_dir_003() {
     let dir = TestDir::new("specify_source_dir_003_empty_string.in");
     check(
-        &get_stderr_on_success_and_replace_dir(&dir, ["check"]),
+        &get_stderr_and_replace_dir(&dir, ["check"]),
         expect![[r#"
             Finished. moon: ran 1 task, now up to date
         "#]],
@@ -5945,7 +5945,7 @@ fn test_specify_source_dir_003() {
 fn test_specify_source_dir_004() {
     let dir = TestDir::new("specify_source_dir_004.in");
     check(
-        &get_stderr_on_success_and_replace_dir(&dir, ["check"]),
+        &get_stderr_and_replace_dir(&dir, ["check"]),
         expect![[r#"
             Finished. moon: ran 3 tasks, now up to date
         "#]],
@@ -5975,7 +5975,7 @@ fn test_specify_source_dir_004() {
 fn test_specify_source_dir_005() {
     let dir = TestDir::new("specify_source_dir_005_bad.in");
     check(
-        &get_stderr_and_replace_dir(&dir, ["check"]),
+        &get_err_stderr_and_replace_dir(&dir, ["check"]),
         expect![[r#"
             error: failed to load `$ROOT/moon.mod.json`
 
@@ -6023,13 +6023,13 @@ fn test_specify_source_dir_with_deps() {
         "#]],
     );
     check(
-        &get_stderr_on_success_and_replace_dir(&dir, ["check"]),
+        &get_stderr_and_replace_dir(&dir, ["check"]),
         expect![[r#"
             Finished. moon: ran 6 tasks, now up to date
         "#]],
     );
     check(
-        &get_stderr_on_success_and_replace_dir(&dir, ["build"]),
+        &get_stderr_and_replace_dir(&dir, ["build"]),
         expect![[r#"
             Finished. moon: ran 5 tasks, now up to date
         "#]],
@@ -6054,13 +6054,13 @@ fn test_specify_source_dir_with_deps() {
 fn test_specify_source_dir_with_deps_002() {
     let dir = TestDir::new("specify_source_dir_with_deps_002.in");
     check(
-        &get_stderr_on_success_and_replace_dir(&dir, ["check"]),
+        &get_stderr_and_replace_dir(&dir, ["check"]),
         expect![[r#"
             Finished. moon: ran 13 tasks, now up to date
         "#]],
     );
     check(
-        &get_stderr_on_success_and_replace_dir(&dir, ["build"]),
+        &get_stderr_and_replace_dir(&dir, ["build"]),
         expect![[r#"
             Finished. moon: ran 10 tasks, now up to date
         "#]],
@@ -6454,7 +6454,7 @@ fn test_moon_doc_dry_run() {
 #[test]
 fn test_moon_doc() {
     let dir = TestDir::new("moon_doc.in");
-    let _ = get_stderr_on_success_and_replace_dir(&dir, ["doc"]);
+    let _ = get_stderr_and_replace_dir(&dir, ["doc"]);
     check(
         &read(&dir.join("target/doc/username/hello/lib/members.md")),
         expect![[r#"
@@ -6492,7 +6492,7 @@ fn test_moon_doc() {
 fn test_failed_to_fill_whole_buffer() {
     let dir = TestDir::new("hello.in");
     check(
-        &get_stderr_on_success_and_replace_dir(&dir, ["check"]),
+        &get_stderr_and_replace_dir(&dir, ["check"]),
         expect![[r#"
             Finished. moon: ran 1 task, now up to date
         "#]],
@@ -6503,7 +6503,7 @@ fn test_failed_to_fill_whole_buffer() {
     }
     std::fs::write(&moon_db_path, "").unwrap();
     check(
-        &get_stderr_and_replace_dir(&dir, ["check"]),
+        &get_err_stderr_and_replace_dir(&dir, ["check"]),
         expect![[r#"
             error: internal error
 
@@ -6634,14 +6634,14 @@ fn no_main_just_init() {
 fn test_pre_build() {
     let dir = TestDir::new("pre_build.in");
     check(
-        &get_stderr_on_success_and_replace_dir(&dir, ["check"]),
+        &get_stderr_and_replace_dir(&dir, ["check"]),
         expect![[r#"
             Executed 3 pre-build tasks, now up to date
             Finished. moon: ran 2 tasks, now up to date
         "#]],
     );
     check(
-        &get_stderr_on_success_and_replace_dir(&dir, ["build"]),
+        &get_stderr_and_replace_dir(&dir, ["build"]),
         expect![[r#"
             Warning: [1002]
                ╭─[$ROOT/src/lib/a.mbt:3:5]

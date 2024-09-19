@@ -83,7 +83,7 @@ pub fn get_stdout_without_replace(
 }
 
 #[track_caller]
-pub fn get_stderr_on_success_without_replace(
+pub fn get_stderr_without_replace(
     dir: &impl AsRef<std::path::Path>,
     args: impl IntoIterator<Item = impl AsRef<std::ffi::OsStr>>,
 ) -> String {
@@ -101,7 +101,7 @@ pub fn get_stderr_on_success_without_replace(
 }
 
 #[track_caller]
-pub fn get_stderr_without_replace(
+pub fn get_err_stderr_without_replace(
     dir: &impl AsRef<std::path::Path>,
     args: impl IntoIterator<Item = impl AsRef<std::ffi::OsStr>>,
 ) -> String {
@@ -159,6 +159,15 @@ pub fn get_stdout_and_replace_dir(
     replace_dir(&s, dir)
 }
 
+pub fn get_err_stderr_and_replace_dir(
+    dir: &impl AsRef<std::path::Path>,
+    args: impl IntoIterator<Item = impl AsRef<std::ffi::OsStr>>,
+) -> String {
+    let s = get_err_stderr_without_replace(dir, args);
+    replace_dir(&s, dir)
+}
+
+#[track_caller]
 pub fn get_stderr_and_replace_dir(
     dir: &impl AsRef<std::path::Path>,
     args: impl IntoIterator<Item = impl AsRef<std::ffi::OsStr>>,
@@ -167,16 +176,7 @@ pub fn get_stderr_and_replace_dir(
     replace_dir(&s, dir)
 }
 
-#[track_caller]
-pub fn get_stderr_on_success_and_replace_dir(
-    dir: &impl AsRef<std::path::Path>,
-    args: impl IntoIterator<Item = impl AsRef<std::ffi::OsStr>>,
-) -> String {
-    let s = get_stderr_on_success_without_replace(dir, args);
-    replace_dir(&s, dir)
-}
-
-pub fn get_stderr(
+pub fn get_err_stderr(
     dir: &impl AsRef<std::path::Path>,
     args: impl IntoIterator<Item = impl AsRef<std::ffi::OsStr>>,
 ) -> String {
@@ -195,7 +195,7 @@ pub fn get_stderr(
     s.replace('\\', "/")
 }
 
-pub fn get_stderr_on_success(
+pub fn get_stderr(
     dir: &impl AsRef<std::path::Path>,
     args: impl IntoIterator<Item = impl AsRef<std::ffi::OsStr>>,
 ) -> String {
