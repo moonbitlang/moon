@@ -5981,15 +5981,11 @@ fn test_specify_source_dir_002() {
 
 #[test]
 fn test_specify_source_dir_003() {
-    let dir = TestDir::new("specify_source_dir_003_bad.in");
+    let dir = TestDir::new("specify_source_dir_003_empty_string.in");
     check(
-        &get_stderr_with_args_and_replace_dir(&dir, ["check"]),
+        &get_stderr_on_success_with_args_and_replace_dir(&dir, ["check"]),
         expect![[r#"
-            error: failed to load `$ROOT/moon.mod.json`
-
-            Caused by:
-                0: `source` bad format
-                1: `source` should not be empty
+            Finished. moon: ran 1 task, now up to date
         "#]],
     );
 }
