@@ -541,7 +541,7 @@ Discussion:
 
 * `--shell <SHELL>` — The shell to generate completion for
 
-  Default value: `zsh`
+  Default value: `<your shell>`
 
   Possible values: `bash`, `elvish`, `fish`, `powershell`, `zsh`
 
