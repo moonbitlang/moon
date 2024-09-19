@@ -65,7 +65,7 @@ pub fn moon_bin() -> PathBuf {
 }
 
 #[track_caller]
-pub fn get_stdout_without_replace(
+fn get_stdout_without_replace(
     dir: &impl AsRef<std::path::Path>,
     args: impl IntoIterator<Item = impl AsRef<std::ffi::OsStr>>,
 ) -> String {
@@ -83,7 +83,7 @@ pub fn get_stdout_without_replace(
 }
 
 #[track_caller]
-pub fn get_stderr_without_replace(
+fn get_stderr_without_replace(
     dir: &impl AsRef<std::path::Path>,
     args: impl IntoIterator<Item = impl AsRef<std::ffi::OsStr>>,
 ) -> String {
@@ -101,7 +101,7 @@ pub fn get_stderr_without_replace(
 }
 
 #[track_caller]
-pub fn get_err_stderr_without_replace(
+fn get_err_stderr_without_replace(
     dir: &impl AsRef<std::path::Path>,
     args: impl IntoIterator<Item = impl AsRef<std::ffi::OsStr>>,
 ) -> String {
@@ -116,17 +116,6 @@ pub fn get_err_stderr_without_replace(
 
     let s = std::str::from_utf8(&out).unwrap().to_string();
     s
-}
-
-#[track_caller]
-pub fn get_stdout(
-    dir: &impl AsRef<std::path::Path>,
-    args: impl IntoIterator<Item = impl AsRef<std::ffi::OsStr>>,
-) -> String {
-    let s = get_stdout_without_replace(dir, args);
-    let s = s.replace("\r\n", "\n");
-
-    s.replace('\\', "/")
 }
 
 pub fn replace_dir(s: &str, dir: &impl AsRef<std::path::Path>) -> String {
@@ -242,7 +231,7 @@ pub fn replace_crlf_to_lf(s: &str) -> String {
     s.replace("\r\n", "\n")
 }
 
-pub fn get_err_stdout_without_replace(
+fn get_err_stdout_without_replace(
     dir: &impl AsRef<std::path::Path>,
     args: impl IntoIterator<Item = impl AsRef<std::ffi::OsStr>>,
 ) -> String {
