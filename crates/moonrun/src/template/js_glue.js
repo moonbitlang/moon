@@ -46,9 +46,6 @@ try {
                 console.log("----- END MOON TEST RESULT -----")
             }
         }
-        if (instance.exports.moonbit_test_driver_internal_print_coverage) {
-            instance.exports.moonbit_test_driver_internal_print_coverage();
-        }
     }
     else {
         if (instance.exports._start) {
@@ -65,6 +62,6 @@ catch (e) {
             break;
         }
     }
-    __moonbit_sys_unstable.exit(1); 
+    __moonbit_sys_unstable.exit(1);
 
 }
