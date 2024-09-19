@@ -21,3 +21,7 @@ language = "zh"
 multilingual = false
 src = "src"
 title = "Moon 手册"
+
+[output.html.fold]
+enable = true
+level = 0
