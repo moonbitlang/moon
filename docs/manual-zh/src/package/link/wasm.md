@@ -19,7 +19,7 @@
   }
   ```
 
-- `heap_start_address` 选项用于指定 moonc 编译到 wasm 后端时能够使用的线性内存的起始地址。
+- `heap-start-address` 选项用于指定 moonc 编译到 wasm 后端时能够使用的线性内存的起始地址。
 
   例如，如下配置将线性内存的起始地址设置为 1024。
 
@@ -27,7 +27,7 @@
   {
     "link": {
         "wasm": {
-          "heap_start_address": 1024
+          "heap-start-address": 1024
       },
     }
   }

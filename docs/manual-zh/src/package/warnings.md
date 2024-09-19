@@ -6,7 +6,7 @@
 
 ```json
 {
-  "warn_list": "-2",
+  "warn-list": "-2",
 }
 ```
 

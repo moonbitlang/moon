@@ -4,6 +4,6 @@
 
 ```json
 {
-  "alert_list": "-alert_1-alert_2"
+  "alert-list": "-alert_1-alert_2"
 }
 ```
