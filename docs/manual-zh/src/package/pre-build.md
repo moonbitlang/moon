@@ -12,7 +12,7 @@
     {
       "input": "a.txt",
       "output": "a.mbt",
-      "command": ":embed -i ${input} -o ${output}"
+      "command": ":embed -i $input -o $output"
     }
   ]
 }
