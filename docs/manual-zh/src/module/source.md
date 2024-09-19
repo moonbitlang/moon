@@ -11,3 +11,17 @@
   "source": "src"
 }
 ```
+
+当 `source` 字段不存在，或者其值为 `null` 或空字符串 `""` 时，相当于设置 `"source": "."`。这表示源码目录为该 `moon.mod.json` 文件所在的目录。
+
+```json
+{
+  "source": null
+}
+{
+  "source": ""
+}
+{
+  "source": "."
+}
+```
