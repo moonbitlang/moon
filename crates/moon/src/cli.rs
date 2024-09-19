@@ -246,8 +246,14 @@ pub fn get_compiler_flags(src_dir: &Path, build_flags: &BuildFlags) -> anyhow::R
 }
 
 #[test]
-fn gen_docs_for_moon_new() {
+fn gen_docs_for_moon_help_page() {
     let markdown: String = clap_markdown::help_markdown::<MoonBuildSubcommands>();
+    let markdown = markdown.replace("Default value: `zsh`", "Default value: `<your shell>`");
+    let markdown = markdown.replace("Default value: `bash`", "Default value: `<your shell>`");
+    let markdown = markdown.replace(
+        "Default value: `powershell`",
+        "Default value: `<your shell>`",
+    );
     let manifest_dir = std::env::var("CARGO_MANIFEST_DIR").unwrap();
     let file_path =
         std::path::PathBuf::from(&manifest_dir).join("../../docs/manual-zh/src/commands.md");

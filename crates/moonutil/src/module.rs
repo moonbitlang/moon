@@ -475,5 +475,11 @@ fn validate_mod_json_schema() {
         env!("CARGO_MANIFEST_DIR"),
         "/../../docs/manual/src/source/mod_json_schema.html"
     );
-    std::fs::write(html_path, content).unwrap();
+    std::fs::write(html_path, &content).unwrap();
+
+    let html_path_zh = concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../docs/manual-zh/src/source/mod_json_schema.html"
+    );
+    std::fs::write(html_path_zh, content).unwrap();
 }

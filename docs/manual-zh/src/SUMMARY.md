@@ -28,3 +28,4 @@
   - [alert 列表](./package/alerts.md)
   - [条件编译](./package/conditional-compilation.md)
   - [预构建命令](./package/pre-build.md)
+- [JSON Schema](./json_schema.md)
