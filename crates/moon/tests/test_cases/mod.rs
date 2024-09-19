@@ -6740,3 +6740,55 @@ fn test_pre_build() {
     "#]],
     );
 }
+
+#[test]
+fn test_moon_coverage() {
+    let dir = TestDir::new("test_coverage.in");
+
+    get_stdout_with_args_and_replace_dir(
+        &dir,
+        ["test", "--enable-coverage", "--target", "wasm-gc"],
+    );
+    check(
+        &get_stdout_with_args_and_replace_dir(&dir, ["coverage", "report", "-f", "summary"]),
+        expect![[r#"
+            lib/hello.mbt: 3/3
+            lib/hello_wbtest.mbt: 0/0
+            lib2/hello.mbt: 0/3
+            target/wasm-gc/debug/test/lib/__generated_driver_for_internal_test.mbt: 0/0
+            target/wasm-gc/debug/test/lib/__generated_driver_for_whitebox_test.mbt: 0/0
+            target/wasm-gc/debug/test/lib2/__generated_driver_for_internal_test.mbt: 0/0
+            Total: 3/6
+        "#]],
+    );
+
+    get_stdout_with_args_and_replace_dir(&dir, ["clean"]);
+    get_stdout_with_args_and_replace_dir(&dir, ["test", "--enable-coverage", "--target", "wasm"]);
+    check(
+        &get_stdout_with_args_and_replace_dir(&dir, ["coverage", "report", "-f", "summary"]),
+        expect![[r#"
+            lib/hello.mbt: 3/3
+            lib/hello_wbtest.mbt: 0/0
+            lib2/hello.mbt: 0/3
+            target/wasm/debug/test/lib/__generated_driver_for_internal_test.mbt: 0/0
+            target/wasm/debug/test/lib/__generated_driver_for_whitebox_test.mbt: 0/0
+            target/wasm/debug/test/lib2/__generated_driver_for_internal_test.mbt: 0/0
+            Total: 3/6
+        "#]],
+    );
+
+    get_stdout_with_args_and_replace_dir(&dir, ["clean"]);
+    get_stdout_with_args_and_replace_dir(&dir, ["test", "--enable-coverage", "--target", "js"]);
+    check(
+        &get_stdout_with_args_and_replace_dir(&dir, ["coverage", "report", "-f", "summary"]),
+        expect![[r#"
+            lib/hello.mbt: 3/3
+            lib/hello_wbtest.mbt: 0/0
+            lib2/hello.mbt: 0/3
+            target/js/debug/test/lib/__generated_driver_for_internal_test.mbt: 0/0
+            target/js/debug/test/lib/__generated_driver_for_whitebox_test.mbt: 0/0
+            target/js/debug/test/lib2/__generated_driver_for_internal_test.mbt: 0/0
+            Total: 3/6
+        "#]],
+    );
+}
