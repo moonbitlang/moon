@@ -29,6 +29,7 @@
       {
         "is-main": false,
         "is-third-party": false,
+        "root-path": "${WORK_DIR}/src/lib",
         "root": "username/hello",
         "rel": "lib",
         "files": {
@@ -66,6 +67,7 @@
       {
         "is-main": true,
         "is-third-party": false,
+        "root-path": "${WORK_DIR}/src/main",
         "root": "username/hello",
         "rel": "main",
         "files": {
