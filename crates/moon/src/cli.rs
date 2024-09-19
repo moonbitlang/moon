@@ -244,3 +244,15 @@ pub fn get_compiler_flags(src_dir: &Path, build_flags: &BuildFlags) -> anyhow::R
         render,
     })
 }
+
+#[test]
+fn gen_docs_for_moon_new() {
+    let markdown: String = clap_markdown::help_markdown::<MoonBuildSubcommands>();
+    let manifest_dir = std::env::var("CARGO_MANIFEST_DIR").unwrap();
+    let file_path =
+        std::path::PathBuf::from(&manifest_dir).join("../../docs/manual-zh/src/commands.md");
+    expect_test::expect_file!(file_path).assert_eq(&markdown);
+    let file_path =
+        std::path::PathBuf::from(&manifest_dir).join("../../docs/manual/src/commands.md");
+    expect_test::expect_file!(file_path).assert_eq(&markdown);
+}

@@ -1,6 +1,7 @@
 # 目录
 
 - [构建系统教程](./tutorial.md)
+- [moon 命令](./commands.md)
 - [模块配置](./module.md)
   - [模块名](./module/name.md)
   - [版本](./module/version.md)
