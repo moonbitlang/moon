@@ -6,3 +6,6 @@ clippy:
 
 add-header:
     hawkeye format
+
+install-moonrun:
+    cargo install --path ./crates/moonrun --debug --offline --root ~/.moon --force --locked
