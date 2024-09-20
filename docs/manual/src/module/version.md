@@ -7,7 +7,7 @@ This field is optional. For modules published to [mooncakes.io](https://mooncake
 ```json
 {
   "name": "example",
-  "version": "1.0.0",
+  "version": "0.1.0",
   ...
 }
 ```
