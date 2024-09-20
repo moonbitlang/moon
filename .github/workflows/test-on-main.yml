@@ -87,7 +87,9 @@ jobs:
         run: cargo run --bin moon version --all
       - name: Bundle core (Unix)
         if: ${{ matrix.os != 'windows-latest' }}
-        run: cargo run --bin moon bundle --source-dir ~/.moon/lib/core --all
+        run: | 
+          cargo run --bin moon bundle --source-dir ~/.moon/lib/core --all
+          echo "${{ github.workspace }}/target/debug" >> $GITHUB_PATH
       - name: Bundle core (Windows)
         if: ${{ matrix.os == 'windows-latest' }}
         run: cargo run --bin moon bundle --source-dir "$env:USERPROFILE\.moon\lib\core" --all
@@ -104,6 +106,23 @@ jobs:
           cargo run --bin moon test --source-dir ~/.moon/lib/core --release --target wasm-gc
           cargo run --bin moon test --source-dir ~/.moon/lib/core --release --target js
           cargo run --bin moon test --source-dir ~/.moon/lib/core --release --target wasm
+
+      - name: Test core coverage (Unix)
+        if: ${{ matrix.os != 'windows-latest' }}
+        run: |
+          cd ~/.moon/lib/core
+          moon test --enable-coverage
+          moon coverage report -f summary
+          moon coverage report -f coveralls  -o codecov_report.json
+
+      - name: Coveralls GitHub Action
+        if: ${{ matrix.os != 'windows-latest' }}
+        uses: coverallsapp/github-action@v2.3.0
+        with:
+          github-token: ${{ secrets.COVERALLS_REPO_TOKEN }}
+          base-path: ~/.moon/lib/core/
+          file: ~/.moon/lib/core/codecov_report.json
+
       - name: Test core (Windows)
         if: ${{ matrix.os == 'windows-latest' }}
         run: |
