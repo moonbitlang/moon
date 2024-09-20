@@ -68,6 +68,48 @@ const INIT_JS_API: &str = r#"
             return
         }
 
+        function begin_read_byte_array(arr) {
+            return { arr: arr, i: 0 }
+        }
+
+        function byte_array_read_byte(handle) {
+            if (handle.i >= handle.arr.length) {
+                return -1
+            }
+            return handle.arr[handle.i++]
+        }
+
+        function finish_read_byte_array(handle) {
+            return
+        }
+
+        function begin_create_byte_array() {
+            return { arr: [] }
+        }
+
+        function byte_array_append_byte(handle, byte) {
+            handle.arr.push(byte)
+        }
+
+        function finish_create_byte_array(handle) {
+            return new Uint8Array(handle.arr)
+        }
+
+        function begin_read_string_array(arr) {
+            return { arr: arr, i: 0 }
+        }
+
+        function string_array_read_string(handle) {
+            if (handle.i >= handle.arr.length) {
+                return "ffi_end_of_/string_array"
+            }
+            return handle.arr[handle.i++]
+        }
+
+        function finish_read_string_array(handle) {
+            return
+        }
+
         // Array ops
 
         function array_len(arr) {
@@ -90,6 +132,17 @@ const INIT_JS_API: &str = r#"
         obj.begin_read_string = begin_read_string
         obj.string_read_char = string_read_char
         obj.finish_read_string = finish_read_string
+
+        obj.begin_read_byte_array = begin_read_byte_array
+        obj.byte_array_read_byte = byte_array_read_byte
+        obj.finish_read_byte_array = finish_read_byte_array
+        obj.begin_create_byte_array = begin_create_byte_array
+        obj.byte_array_append_byte = byte_array_append_byte
+        obj.finish_create_byte_array = finish_create_byte_array
+
+        obj.begin_read_string_array = begin_read_string_array
+        obj.string_array_read_string = string_array_read_string
+        obj.finish_read_string_array = finish_read_string_array
 
         obj.array_len = array_len
         obj.array_get = array_get
