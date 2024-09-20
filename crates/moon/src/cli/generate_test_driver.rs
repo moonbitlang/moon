@@ -191,7 +191,16 @@ pub fn generate_test_driver(
             files,
             moonc_opt.build_opt.debug_flag,
             moonc_opt.build_opt.target_backend,
-        );
+        )
+        .into_iter()
+        .filter(|file| {
+            // workaround for skip test coverage.mbt in builtin when --enable-coverage is specified
+            !(moonc_opt.build_opt.enable_coverage
+                && pkgname == "moonbitlang/core/builtin"
+                && file.to_str().unwrap().contains("coverage.mbt"))
+        })
+        .collect();
+
         let mbts_test_data =
             moonc_gen_test_info(&backend_filtered, &target_dir.join(pkg.rel.fs_full_name()))?;
 
