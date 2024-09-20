@@ -51,7 +51,7 @@ pub struct GenerateTestDriverSubcommand {
     pub driver_kind: DriverKind,
 }
 
-fn moonc_gen_test_info(files: &[PathBuf], target_dir: &Path) -> anyhow::Result<String> {
+fn moonc_gen_test_info(files: &[PathBuf], output_path: &Path) -> anyhow::Result<String> {
     let mut generated = std::process::Command::new("moonc")
         .arg("gen-test-info")
         .arg("-json")
@@ -68,24 +68,21 @@ fn moonc_gen_test_info(files: &[PathBuf], target_dir: &Path) -> anyhow::Result<S
         .with_context(|| gen_error_message(files))?;
     generated.wait()?;
 
-    // append whitebox blackbox internal test info to test_info.json
-    {
-        let test_info_json_path = target_dir.join(TEST_INFO_FILE);
-        out.push('\n');
-        std::fs::OpenOptions::new()
-            .create(true)
-            .append(true)
-            .open(&test_info_json_path)
-            .context(format!(
-                "failed to open file: {}",
-                test_info_json_path.display()
-            ))?
-            .write_all(out.as_bytes())
-            .context(format!(
-                "failed to write file: {}",
-                test_info_json_path.display()
-            ))?;
-    }
+    let test_info_json_path = output_path;
+    std::fs::OpenOptions::new()
+        .create(true)
+        .truncate(true)
+        .write(true)
+        .open(test_info_json_path)
+        .context(format!(
+            "failed to open file: {}",
+            test_info_json_path.display()
+        ))?
+        .write_all(out.as_bytes())
+        .context(format!(
+            "failed to write file: {}",
+            test_info_json_path.display()
+        ))?;
 
     let t: MooncGenTestInfo = serde_json_lenient::from_str(&out)?;
     return Ok(t.to_mbt());
@@ -201,8 +198,14 @@ pub fn generate_test_driver(
         })
         .collect();
 
-        let mbts_test_data =
-            moonc_gen_test_info(&backend_filtered, &target_dir.join(pkg.rel.fs_full_name()))?;
+        let mbts_test_data = moonc_gen_test_info(
+            &backend_filtered,
+            &target_dir.join(pkg.rel.fs_full_name()).join(format!(
+                "__{}_{}",
+                cmd.driver_kind.to_string(),
+                TEST_INFO_FILE,
+            )),
+        )?;
 
         if pkg.is_main && mbts_test_data.contains("(__test_") {
             eprintln!(
