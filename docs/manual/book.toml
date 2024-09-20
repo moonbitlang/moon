@@ -21,3 +21,7 @@ language = "en"
 multilingual = false
 src = "src"
 title = "Moon Manual"
+
+[output.html.fold]
+enable = true
+level = 0
