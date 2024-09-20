@@ -477,18 +477,33 @@ fn convert_moonc_test_info(
     filter_file: Option<&String>,
     sort_input: bool,
 ) -> anyhow::Result<IndexMap<PathBuf, FileTestInfo>> {
-    let content = std::fs::read_to_string(test_info_file)
-        .context(format!("failed to read {}", test_info_file.display()))?;
+    let mut test_info_files = vec![];
+    for (files, driver_kind) in [
+        (&pkg.files, DriverKind::Internal),
+        (&pkg.wbtest_files, DriverKind::Whitebox),
+        (&pkg.test_files, DriverKind::Blackbox),
+    ] {
+        if !files.is_empty() {
+            test_info_files.push(test_info_file.join(format!(
+                "__{}_{}",
+                driver_kind.to_string(),
+                TEST_INFO_FILE
+            )));
+        }
+    }
+
     let mut moonc_test_info = MooncGenTestInfo {
         no_args_tests: IndexMap::new(),
         with_args_tests: IndexMap::new(),
     };
-    // there are three line of json(internal, blackbox, whitebox) in test_info.json, merge them into one
-    for line in content.lines() {
-        if let Ok(info) = serde_json_lenient::from_str::<MooncGenTestInfo>(line) {
-            moonc_test_info.no_args_tests.extend(info.no_args_tests);
-            moonc_test_info.with_args_tests.extend(info.with_args_tests);
-        }
+    for test_info_file in test_info_files {
+        let content = std::fs::read_to_string(&test_info_file)
+            .context(format!("failed to read {}", test_info_file.display()))?;
+
+        let info = serde_json_lenient::from_str::<MooncGenTestInfo>(&content)
+            .context(format!("failed to parse {}", test_info_file.display()))?;
+        moonc_test_info.no_args_tests.extend(info.no_args_tests);
+        moonc_test_info.with_args_tests.extend(info.with_args_tests);
     }
 
     let mut current_pkg_test_info = IndexMap::new();
@@ -575,12 +590,9 @@ pub fn run_test(
         }
 
         // convert moonc test info
-        let test_info_file = moonbuild_opt
-            .target_dir
-            .join(pkg.rel.fs_full_name())
-            .join(TEST_INFO_FILE);
+        let test_info_file_dir = moonbuild_opt.target_dir.join(pkg.rel.fs_full_name());
         let current_pkg_test_info = convert_moonc_test_info(
-            &test_info_file,
+            &test_info_file_dir,
             pkg,
             moonc_opt.link_opt.output_format.to_str(),
             filter_file,
