@@ -28,7 +28,8 @@ fn read_file_to_string(
     let path = path.to_string(scope).unwrap();
     let path = path.to_rust_string_lossy(scope);
 
-    let contents = std::fs::read_to_string(&path).expect(&format!("Failed to read file: {}", path));
+    let contents =
+        std::fs::read_to_string(&path).unwrap_or_else(|_| panic!("Failed to read file: {}", path));
     let contents = v8::String::new(scope, &contents).unwrap();
     ret.set(contents.into());
 }
@@ -42,7 +43,7 @@ fn read_file_to_bytes(
     let path = path.to_string(scope).unwrap();
     let path = path.to_rust_string_lossy(scope);
 
-    let contents = std::fs::read(&path).expect(&format!("Failed to read file: {}", path));
+    let contents = std::fs::read(&path).unwrap_or_else(|_| panic!("Failed to read file: {}", path));
     let len = contents.len();
     let array_buffer = v8::ArrayBuffer::with_backing_store(
         scope,
@@ -67,7 +68,7 @@ fn write_string_to_file(
     let contents = contents.to_string(scope).unwrap();
     let contents = contents.to_rust_string_lossy(scope);
 
-    std::fs::write(&path, contents).expect(&format!("Failed to write file: {}", path));
+    std::fs::write(&path, contents).unwrap_or_else(|_| panic!("Failed to write file: {}", path));
 
     ret.set_undefined()
 }
@@ -88,7 +89,7 @@ fn write_bytes_to_file(
     let mut buffer = vec![0; length];
     uint8_array.copy_contents(&mut buffer);
 
-    std::fs::write(&path, buffer).expect(&format!("Failed to write file: {}", path));
+    std::fs::write(&path, buffer).unwrap_or_else(|_| panic!("Failed to write file: {}", path));
 
     ret.set_undefined()
 }
@@ -102,12 +103,13 @@ fn create_dir(
     let path = path.to_string(scope).unwrap();
     let path = path.to_rust_string_lossy(scope);
 
-    std::fs::create_dir_all(&path).expect(&format!("Failed to create directory: {}", path));
+    std::fs::create_dir_all(&path)
+        .unwrap_or_else(|_| panic!("Failed to create directory: {}", path));
 
     ret.set_undefined()
 }
 
-
+#[allow(clippy::manual_flatten)]
 fn read_dir(
     scope: &mut v8::HandleScope,
     args: v8::FunctionCallbackArguments,
@@ -117,8 +119,9 @@ fn read_dir(
     let path = path.to_string(scope).unwrap();
     let path = path.to_rust_string_lossy(scope);
 
-    let entries = std::fs::read_dir(&path).expect(&format!("Failed to read directory: {}", path));
-    
+    let entries =
+        std::fs::read_dir(&path).unwrap_or_else(|_| panic!("Failed to read directory: {}", path));
+
     let result = v8::Array::new(scope, 0);
     let mut index = 0;
 
@@ -171,7 +174,7 @@ fn remove_file(
     let path = path.to_string(scope).unwrap();
     let path = path.to_rust_string_lossy(scope);
 
-    std::fs::remove_file(&path).expect(&format!("Failed to remove file: {}", path));
+    std::fs::remove_file(&path).unwrap_or_else(|_| panic!("Failed to remove file: {}", path));
 
     ret.set_undefined();
 }
@@ -185,7 +188,8 @@ fn remove_dir(
     let path = path.to_string(scope).unwrap();
     let path = path.to_rust_string_lossy(scope);
 
-    std::fs::remove_dir_all(&path).expect(&format!("Failed to remove directory: {}", path));
+    std::fs::remove_dir_all(&path)
+        .unwrap_or_else(|_| panic!("Failed to remove directory: {}", path));
 
     ret.set_undefined();
 }
