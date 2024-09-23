@@ -37,7 +37,8 @@
             "backend": [
               "Wasm",
               "WasmGC",
-              "Js"
+              "Js",
+              "Native"
             ],
             "optlevel": [
               "Debug",
@@ -51,7 +52,8 @@
             "backend": [
               "Wasm",
               "WasmGC",
-              "Js"
+              "Js",
+              "Native"
             ],
             "optlevel": [
               "Debug",
@@ -75,7 +77,8 @@
             "backend": [
               "Wasm",
               "WasmGC",
-              "Js"
+              "Js",
+              "Native"
             ],
             "optlevel": [
               "Debug",

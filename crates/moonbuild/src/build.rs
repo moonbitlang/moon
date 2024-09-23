@@ -52,6 +52,16 @@ pub fn run_js(path: &Path, args: &[String]) -> anyhow::Result<()> {
     run("node", path, args)
 }
 
+pub fn run_native(path: &Path, args: &[String]) -> anyhow::Result<()> {
+    if !args.is_empty() {
+        bail!(format!(
+            "native backend does not support extra args for now {:?}",
+            args
+        ))
+    }
+    run(path.to_str().unwrap(), path, args)
+}
+
 fn run(command: &str, path: &Path, args: &[String]) -> anyhow::Result<()> {
     let mut execution = Command::new(command)
         .arg(path)

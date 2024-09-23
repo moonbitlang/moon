@@ -203,10 +203,10 @@ pub fn get_compiler_flags(src_dir: &Path, build_flags: &BuildFlags) -> anyhow::R
         bail!("--output-wat is not supported for --target js");
     }
 
-    let output_format = if target_backend == TargetBackend::Js {
-        OutputFormat::Js
-    } else {
-        output_format
+    let output_format = match target_backend {
+        TargetBackend::Js => OutputFormat::Js,
+        TargetBackend::Native => OutputFormat::Native,
+        _ => output_format,
     };
 
     let debug_flag = build_flags.debug;

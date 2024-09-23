@@ -97,7 +97,7 @@ Build the current package
 * `-g`, `--debug` — Emit debug information
 * `--target <TARGET>` — Select output target
 
-  Possible values: `wasm`, `wasm-gc`, `js`, `all`
+  Possible values: `wasm`, `wasm-gc`, `js`, `native`, `all`
 
 * `--serial` — Handle the selected targets sequentially
 * `--enable-coverage` — Enable coverage instrumentation
@@ -123,7 +123,7 @@ Check the current package, but don't build object files
 * `-g`, `--debug` — Emit debug information
 * `--target <TARGET>` — Select output target
 
-  Possible values: `wasm`, `wasm-gc`, `js`, `all`
+  Possible values: `wasm`, `wasm-gc`, `js`, `native`, `all`
 
 * `--serial` — Handle the selected targets sequentially
 * `--enable-coverage` — Enable coverage instrumentation
@@ -155,7 +155,7 @@ Run a main package
 * `-g`, `--debug` — Emit debug information
 * `--target <TARGET>` — Select output target
 
-  Possible values: `wasm`, `wasm-gc`, `js`, `all`
+  Possible values: `wasm`, `wasm-gc`, `js`, `native`, `all`
 
 * `--serial` — Handle the selected targets sequentially
 * `--enable-coverage` — Enable coverage instrumentation
@@ -181,7 +181,7 @@ Test the current package
 * `-g`, `--debug` — Emit debug information
 * `--target <TARGET>` — Select output target
 
-  Possible values: `wasm`, `wasm-gc`, `js`, `all`
+  Possible values: `wasm`, `wasm-gc`, `js`, `native`, `all`
 
 * `--serial` — Handle the selected targets sequentially
 * `--enable-coverage` — Enable coverage instrumentation

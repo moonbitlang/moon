@@ -483,6 +483,7 @@ impl LinkDepItem {
             Wasm => self.wasm_exports(),
             WasmGC => self.wasm_gc_exports(),
             Js => self.js_exports(),
+            Native => None,
         }
     }
 
@@ -491,6 +492,7 @@ impl LinkDepItem {
             Wasm => self.wasm_export_memory_name(),
             WasmGC => self.wasm_gc_export_memory_name(),
             Js => None,
+            Native => None,
         }
     }
 
@@ -499,6 +501,7 @@ impl LinkDepItem {
             Wasm => self.wasm_heap_start_address(),
             WasmGC => None,
             Js => None,
+            Native => None,
         }
     }
 
@@ -507,6 +510,7 @@ impl LinkDepItem {
             Wasm => self.wasm_import_memory(),
             WasmGC => self.wasm_gc_import_memory(),
             Js => None,
+            Native => None,
         }
     }
 
@@ -515,6 +519,7 @@ impl LinkDepItem {
             Wasm => self.wasm_link_flags(),
             WasmGC => self.wasm_gc_link_flags(),
             Js => None,
+            Native => self.link.as_ref()?.native.as_ref()?.flags.as_deref(),
         }
     }
 }

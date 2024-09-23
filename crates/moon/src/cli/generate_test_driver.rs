@@ -260,6 +260,7 @@ fn generate_driver(
                 "/../moonbuild/template/js_args.mbt"
             ))
         }
+        TargetBackend::Native => todo!("no implement yet"),
     };
 
     let mut template = if only_no_arg_tests {
