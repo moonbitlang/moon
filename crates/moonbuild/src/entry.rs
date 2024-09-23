@@ -970,7 +970,10 @@ async fn handle_test_result(
                     {
                         let state =
                             crate::runtest::load_moon_proj(module, moonc_opt, moonbuild_opt)?;
-                        n2_run_interface(state, moonbuild_opt)?;
+                        let result = n2_run_interface(state, moonbuild_opt)?;
+                        if result.is_none() {
+                            break;
+                        }
                     }
 
                     let mut cur_res = execute_test(
@@ -987,6 +990,7 @@ async fn handle_test_result(
 
                     let mut cnt = 1;
                     let limit = moonbuild_opt.test_opt.as_ref().map(|it| it.limit).unwrap();
+                    let mut rerun_error = false;
                     while let Err(TestFailedStatus::ExpectTestFailed(ref etf)) = cur_res {
                         if cnt >= limit {
                             break;
@@ -1000,7 +1004,11 @@ async fn handle_test_result(
                         {
                             let state =
                                 crate::runtest::load_moon_proj(module, moonc_opt, moonbuild_opt)?;
-                            n2_run_interface(state, moonbuild_opt)?;
+                            let result = n2_run_interface(state, moonbuild_opt)?;
+                            if result.is_none() {
+                                rerun_error = true;
+                                break;
+                            }
                         }
 
                         cur_res = execute_test(
@@ -1016,6 +1024,10 @@ async fn handle_test_result(
                         .clone();
 
                         cnt += 1;
+                    }
+
+                    if rerun_error {
+                        break;
                     }
 
                     // update the previous test result
