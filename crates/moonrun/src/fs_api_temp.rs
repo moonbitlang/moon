@@ -127,8 +127,9 @@ fn read_dir(
 
     for entry in entries {
         if let Ok(entry) = entry {
-            let path = entry.path();
-            if let Some(path_str) = path.to_str() {
+            let rust_style_path = entry.path();
+            let node_style_path = rust_style_path.strip_prefix(&path).unwrap();
+            if let Some(path_str) = node_style_path.to_str() {
                 let js_string = v8::String::new(scope, path_str).unwrap();
                 result.set_index(scope, index, js_string.into()).unwrap();
                 index += 1;
