@@ -19,6 +19,7 @@
 use clap::Parser;
 use std::any::Any;
 use std::io::{self, Write};
+use std::path::Path;
 use std::{cell::Cell, io::Read, path::PathBuf, time::Instant};
 
 mod fs_api_temp;
@@ -191,6 +192,24 @@ fn read_char(
     }
 }
 
+fn read_file_to_bytes(
+    scope: &mut v8::HandleScope,
+    args: v8::FunctionCallbackArguments,
+    mut ret: v8::ReturnValue,
+) {
+    let arg = args.get(0);
+    let path = PathBuf::from(arg.to_rust_string_lossy(scope));
+    let bytes = std::fs::read(path).unwrap();
+    let buffer = v8::ArrayBuffer::new(scope, bytes.len());
+    let ab = v8::Uint8Array::new(scope, buffer, 0, bytes.len()).unwrap();
+
+    unsafe {
+        std::ptr::copy(bytes.as_ptr(), get_array_buffer_ptr(buffer), bytes.len());
+    }
+
+    ret.set(ab.into());
+}
+
 fn write_char(
     scope: &mut v8::HandleScope,
     args: v8::FunctionCallbackArguments,
@@ -318,6 +337,14 @@ fn init_env(dtors: &mut Vec<Box<dyn Any>>, scope: &mut v8::HandleScope, args: &[
     global_proxy.set(scope, identifier.into(), obj.into());
 
     {
+        let identifier = v8::String::new(scope, "read_file_to_bytes").unwrap();
+        let value = v8::Function::builder(read_file_to_bytes)
+            .build(scope)
+            .unwrap();
+        global_proxy.set(scope, identifier.into(), value.into());
+    }
+
+    {
         let identifier = v8::String::new(scope, "__moonbit_io_unstable").unwrap();
         let obj = v8::Object::new(scope);
         global_proxy.set(scope, identifier.into(), obj.into());
@@ -384,12 +411,13 @@ fn create_script_origin<'s>(scope: &mut v8::HandleScope<'s>, name: &str) -> v8::
 }
 
 fn wasm_mode(
-    file: &PathBuf,
+    file: &Path,
     args: &[String],
     no_stack_trace: bool,
     test_mode: bool,
 ) -> anyhow::Result<()> {
     v8::V8::set_flags_from_string("--experimental-wasm-exnref");
+    v8::V8::set_flags_from_string("--experimental-wasm-imported-strings");
     let platform = v8::new_default_platform(0, false).make_shared();
     v8::V8::initialize_platform(platform);
     v8::V8::initialize();
@@ -402,11 +430,11 @@ fn wasm_mode(
     {
         let global_proxy = scope.get_current_context().global(scope);
 
-        let file = std::fs::read(file)?;
-        let wasm_mod = v8::WasmModuleObject::compile(scope, &file)
-            .ok_or_else(|| anyhow::format_err!("Failed to compile wasm module"))?;
-        let module_key = v8::String::new(scope, "module").unwrap().into();
-        global_proxy.set(scope, module_key, wasm_mod.into());
+        let module_key = v8::String::new(scope, "module_name").unwrap().into();
+        let module_name = v8::String::new(scope, file.to_string_lossy().as_ref())
+            .unwrap()
+            .into();
+        global_proxy.set(scope, module_key, module_name);
     }
 
     let mut dtors = Vec::new();
