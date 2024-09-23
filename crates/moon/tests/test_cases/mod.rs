@@ -2433,8 +2433,8 @@ fn test_dummy_core() {
                             "Js"
                           ],
                           "optlevel": [
-                            "Debug",
-                            "Release"
+                            "Release",
+                            "Debug"
                           ]
                         },
                         "$ROOT/0/y.wasm-gc.mbt": {
@@ -2442,8 +2442,8 @@ fn test_dummy_core() {
                             "WasmGC"
                           ],
                           "optlevel": [
-                            "Debug",
-                            "Release"
+                            "Release",
+                            "Debug"
                           ]
                         },
                         "$ROOT/0/y.wasm.mbt": {
@@ -2451,8 +2451,8 @@ fn test_dummy_core() {
                             "Wasm"
                           ],
                           "optlevel": [
-                            "Debug",
-                            "Release"
+                            "Release",
+                            "Debug"
                           ]
                         }
                       },
@@ -2462,8 +2462,8 @@ fn test_dummy_core() {
                             "Js"
                           ],
                           "optlevel": [
-                            "Debug",
-                            "Release"
+                            "Release",
+                            "Debug"
                           ]
                         },
                         "$ROOT/0/y_wbtest.mbt": {
@@ -2483,8 +2483,8 @@ fn test_dummy_core() {
                             "WasmGC"
                           ],
                           "optlevel": [
-                            "Debug",
-                            "Release"
+                            "Release",
+                            "Debug"
                           ]
                         },
                         "$ROOT/0/y_wbtest.wasm.mbt": {
@@ -2492,8 +2492,8 @@ fn test_dummy_core() {
                             "Wasm"
                           ],
                           "optlevel": [
-                            "Debug",
-                            "Release"
+                            "Release",
+                            "Debug"
                           ]
                         }
                       },
@@ -2527,8 +2527,8 @@ fn test_dummy_core() {
                             "Js"
                           ],
                           "optlevel": [
-                            "Debug",
-                            "Release"
+                            "Release",
+                            "Debug"
                           ]
                         },
                         "$ROOT/1/x.wasm-gc.mbt": {
@@ -2536,8 +2536,8 @@ fn test_dummy_core() {
                             "WasmGC"
                           ],
                           "optlevel": [
-                            "Debug",
-                            "Release"
+                            "Release",
+                            "Debug"
                           ]
                         },
                         "$ROOT/1/x.wasm.mbt": {
@@ -2545,8 +2545,8 @@ fn test_dummy_core() {
                             "Wasm"
                           ],
                           "optlevel": [
-                            "Debug",
-                            "Release"
+                            "Release",
+                            "Debug"
                           ]
                         }
                       },
@@ -2556,8 +2556,8 @@ fn test_dummy_core() {
                             "WasmGC"
                           ],
                           "optlevel": [
-                            "Debug",
-                            "Release"
+                            "Release",
+                            "Debug"
                           ]
                         }
                       },
@@ -2704,8 +2704,8 @@ fn test_dummy_core() {
                             "Js"
                           ],
                           "optlevel": [
-                            "Debug",
-                            "Release"
+                            "Release",
+                            "Debug"
                           ]
                         },
                         "$ROOT/0/y.wasm-gc.mbt": {
@@ -2713,8 +2713,8 @@ fn test_dummy_core() {
                             "WasmGC"
                           ],
                           "optlevel": [
-                            "Debug",
-                            "Release"
+                            "Release",
+                            "Debug"
                           ]
                         },
                         "$ROOT/0/y.wasm.mbt": {
@@ -2722,8 +2722,8 @@ fn test_dummy_core() {
                             "Wasm"
                           ],
                           "optlevel": [
-                            "Debug",
-                            "Release"
+                            "Release",
+                            "Debug"
                           ]
                         }
                       },
@@ -2733,8 +2733,8 @@ fn test_dummy_core() {
                             "Js"
                           ],
                           "optlevel": [
-                            "Debug",
-                            "Release"
+                            "Release",
+                            "Debug"
                           ]
                         },
                         "$ROOT/0/y_wbtest.mbt": {
@@ -2754,8 +2754,8 @@ fn test_dummy_core() {
                             "WasmGC"
                           ],
                           "optlevel": [
-                            "Debug",
-                            "Release"
+                            "Release",
+                            "Debug"
                           ]
                         },
                         "$ROOT/0/y_wbtest.wasm.mbt": {
@@ -2763,8 +2763,8 @@ fn test_dummy_core() {
                             "Wasm"
                           ],
                           "optlevel": [
-                            "Debug",
-                            "Release"
+                            "Release",
+                            "Debug"
                           ]
                         }
                       },
@@ -2798,8 +2798,8 @@ fn test_dummy_core() {
                             "Js"
                           ],
                           "optlevel": [
-                            "Debug",
-                            "Release"
+                            "Release",
+                            "Debug"
                           ]
                         },
                         "$ROOT/1/x.wasm-gc.mbt": {
@@ -2807,8 +2807,8 @@ fn test_dummy_core() {
                             "WasmGC"
                           ],
                           "optlevel": [
-                            "Debug",
-                            "Release"
+                            "Release",
+                            "Debug"
                           ]
                         },
                         "$ROOT/1/x.wasm.mbt": {
@@ -2816,8 +2816,8 @@ fn test_dummy_core() {
                             "Wasm"
                           ],
                           "optlevel": [
-                            "Debug",
-                            "Release"
+                            "Release",
+                            "Debug"
                           ]
                         }
                       },
@@ -2827,8 +2827,8 @@ fn test_dummy_core() {
                             "WasmGC"
                           ],
                           "optlevel": [
-                            "Debug",
-                            "Release"
+                            "Release",
+                            "Debug"
                           ]
                         }
                       },

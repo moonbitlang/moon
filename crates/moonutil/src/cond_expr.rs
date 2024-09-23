@@ -74,8 +74,10 @@ impl CondExpr {
     }
 
     pub fn to_compile_condition(&self) -> CompileCondition {
-        let mut backend = vec![];
-        let mut optlevel = vec![];
+        use std::collections::HashSet;
+
+        let mut backend_set = HashSet::new();
+        let mut optlevel_set = HashSet::new();
         for (t, o) in [
             (TargetBackend::Wasm, OptLevel::Debug),
             (TargetBackend::Wasm, OptLevel::Release),
@@ -87,13 +89,17 @@ impl CondExpr {
             (TargetBackend::Native, OptLevel::Release),
         ] {
             if self.eval(o, t) {
-                optlevel.push(o);
-                backend.push(t);
+                optlevel_set.insert(o);
+                backend_set.insert(t);
             }
         }
 
-        backend.dedup();
-        optlevel.dedup();
+        let mut backend: Vec<_> = backend_set.into_iter().collect();
+        let mut optlevel: Vec<_> = optlevel_set.into_iter().collect();
+
+        // to keep a stable order
+        backend.sort();
+        optlevel.sort();
         CompileCondition { backend, optlevel }
     }
 }
