@@ -19,6 +19,7 @@
 use clap::Parser;
 use std::any::Any;
 use std::io::{self, Write};
+use std::path::Path;
 use std::{cell::Cell, io::Read, path::PathBuf, time::Instant};
 
 mod fs_api_temp;
@@ -410,7 +411,7 @@ fn create_script_origin<'s>(scope: &mut v8::HandleScope<'s>, name: &str) -> v8::
 }
 
 fn wasm_mode(
-    file: &PathBuf,
+    file: &Path,
     args: &[String],
     no_stack_trace: bool,
     test_mode: bool,
