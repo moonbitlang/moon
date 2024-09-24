@@ -124,36 +124,30 @@ fn run_single_mbt_file(cli: &UniversalFlags, cmd: RunSubcommand) -> anyhow::Resu
         "-target",
         target_backend.to_flag(),
     ];
-    let mut link_core_command = vec![
-        "link-core".to_string(),
-        moonutil::moon_dir::core_core(target_backend)
+    let link_core_command = [
+        "link-core",
+        &moonutil::moon_dir::core_core(target_backend)
             .display()
             .to_string(),
-        (output_artifact_path
+        &(output_artifact_path
             .join(format!("{}.core", file_name))
             .display()
             .to_string()),
-        "-o".to_string(),
-        output_wasm_or_js_path.display().to_string(),
-        "-pkg-sources".to_string(),
-        format!("{}:{}", pkg_name, mbt_file_parent_path.display()),
-        "-pkg-sources".to_string(),
-        format!(
+        "-o",
+        &output_wasm_or_js_path.display().to_string(),
+        "-pkg-sources",
+        &format!("{}:{}", pkg_name, mbt_file_parent_path.display()),
+        "-pkg-sources",
+        &format!(
             "{}:{}",
             MOONBITLANG_CORE,
             moonutil::moon_dir::core().display()
         ),
-        "-g".to_string(),
-        "-source-map".to_string(),
-        "-target".to_string(),
-        target_backend.to_flag().to_string(),
+        "-g",
+        "-source-map",
+        "-target",
+        target_backend.to_flag(),
     ];
-
-    // no config for single mbt file so there just hardcode to tcc
-    if target_backend == TargetBackend::Native {
-        link_core_command.push("-cc".to_string());
-        link_core_command.push("tcc".to_string());
-    }
 
     if cli.dry_run {
         println!("moonc {}", build_package_command.join(" "));
@@ -181,7 +175,7 @@ fn run_single_mbt_file(cli: &UniversalFlags, cmd: RunSubcommand) -> anyhow::Resu
     }
 
     let moonc_link_core = std::process::Command::new("moonc")
-        .args(&link_core_command)
+        .args(link_core_command)
         .stdout(std::process::Stdio::inherit())
         .stderr(std::process::Stdio::inherit())
         .spawn()?
