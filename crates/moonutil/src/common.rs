@@ -170,6 +170,7 @@ pub enum OutputFormat {
     Wat,
     Wasm,
     Js,
+    Native,
 }
 
 impl OutputFormat {
@@ -178,6 +179,7 @@ impl OutputFormat {
             OutputFormat::Wat => "wat",
             OutputFormat::Wasm => "wasm",
             OutputFormat::Js => "js",
+            OutputFormat::Native => "exe",
         }
     }
 }
@@ -190,6 +192,7 @@ pub enum SurfaceTarget {
     #[default]
     WasmGC,
     Js,
+    Native,
     All,
 }
 
@@ -206,10 +209,15 @@ pub fn lower_surface_targets(st: &[SurfaceTarget]) -> Vec<TargetBackend> {
             SurfaceTarget::Js => {
                 result.insert(TargetBackend::Js);
             }
+            SurfaceTarget::Native => {
+                result.insert(TargetBackend::Native);
+            }
             SurfaceTarget::All => {
                 result.insert(TargetBackend::Wasm);
                 result.insert(TargetBackend::WasmGC);
                 result.insert(TargetBackend::Js);
+                // todo: enable native backend
+                // result.insert(TargetBackend::Native);
             }
         }
     }
@@ -226,6 +234,7 @@ pub enum TargetBackend {
     #[default]
     WasmGC,
     Js,
+    Native,
 }
 
 impl TargetBackend {
@@ -234,6 +243,7 @@ impl TargetBackend {
             Self::Wasm => "wasm",
             Self::WasmGC => "wasm-gc",
             Self::Js => "js",
+            Self::Native => "native",
         }
     }
 
@@ -242,6 +252,7 @@ impl TargetBackend {
             Self::Wasm => "wasm",
             Self::WasmGC => "wasm",
             Self::Js => "js",
+            Self::Native => "exe",
         }
     }
 
@@ -250,6 +261,7 @@ impl TargetBackend {
             Self::Wasm => "wasm",
             Self::WasmGC => "wasm-gc",
             Self::Js => "js",
+            Self::Native => "native",
         }
     }
 
@@ -258,6 +270,7 @@ impl TargetBackend {
             Self::Wasm => "wasm",
             Self::WasmGC => "wasm-gc",
             Self::Js => "js",
+            Self::Native => "native",
         }
     }
 }

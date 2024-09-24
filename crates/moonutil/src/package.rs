@@ -229,6 +229,12 @@ pub struct WasmLinkConfig {
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, JsonSchema)]
+pub struct NativeLinkConfig {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub flags: Option<Vec<String>>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone, JsonSchema)]
 pub struct WasmGcLinkConfig {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub exports: Option<Vec<String>>,
@@ -289,6 +295,9 @@ pub struct Link {
 
     #[serde(skip_serializing_if = "Option::is_none")]
     pub js: Option<JsLinkConfig>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub native: Option<NativeLinkConfig>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, JsonSchema)]

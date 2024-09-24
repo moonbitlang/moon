@@ -4,7 +4,7 @@
   moonc link-core ./target/wasm-gc/release/build/lib/lib.core ./target/wasm-gc/release/build/main/main.core -main username/hello/main -o ./target/wasm-gc/release/build/main/main.wasm -pkg-sources username/hello/lib:./src/lib -pkg-sources username/hello/main:./src/main -target wasm-gc
   
   $ moon build --target wasm --dry-run --sort-input --nostd
-  moonc build-package ./src/lib/all.mbt ./src/lib/all_wasm.mbt ./src/lib/js_or_wasm.mbt ./src/lib/not_js.mbt ./src/lib/only_wasm.mbt ./src/lib/wasm_release_or_js_debug.mbt -o ./target/wasm/release/build/lib/lib.core -pkg username/hello/lib -pkg-sources username/hello/lib:./src/lib -target wasm
+  moonc build-package ./src/lib/all.mbt ./src/lib/all_wasm.mbt ./src/lib/js_or_wasm.mbt ./src/lib/native_and_wasm.mbt ./src/lib/not_js.mbt ./src/lib/only_wasm.mbt ./src/lib/wasm_release_or_js_debug.mbt -o ./target/wasm/release/build/lib/lib.core -pkg username/hello/lib -pkg-sources username/hello/lib:./src/lib -target wasm
   moonc build-package ./src/main/main.mbt -o ./target/wasm/release/build/main/main.core -pkg username/hello/main -is-main -i ./target/wasm/release/build/lib/lib.mi:lib -pkg-sources username/hello/main:./src/main -target wasm
   moonc link-core ./target/wasm/release/build/lib/lib.core ./target/wasm/release/build/main/main.core -main username/hello/main -o ./target/wasm/release/build/main/main.wasm -pkg-sources username/hello/lib:./src/lib -pkg-sources username/hello/main:./src/main -target wasm
   
@@ -19,7 +19,7 @@
   moonc link-core ./target/js/release/build/lib/lib.core ./target/js/release/build/main/main.core -main username/hello/main -o ./target/js/release/build/main/main.js -pkg-sources username/hello/lib:./src/lib -pkg-sources username/hello/main:./src/main -target js
   
   $ moon build --dry-run --target wasm --sort-input --nostd --debug
-  moonc build-package ./src/lib/all.mbt ./src/lib/all_wasm.mbt ./src/lib/js_or_wasm.mbt ./src/lib/not_js.mbt ./src/lib/only_debug.mbt ./src/lib/only_wasm.mbt ./src/lib/wasm_release_or_js_debug.mbt -o ./target/wasm/debug/build/lib/lib.core -pkg username/hello/lib -pkg-sources username/hello/lib:./src/lib -target wasm -g
+  moonc build-package ./src/lib/all.mbt ./src/lib/all_wasm.mbt ./src/lib/js_or_wasm.mbt ./src/lib/native_and_wasm.mbt ./src/lib/not_js.mbt ./src/lib/only_debug.mbt ./src/lib/only_wasm.mbt ./src/lib/wasm_release_or_js_debug.mbt -o ./target/wasm/debug/build/lib/lib.core -pkg username/hello/lib -pkg-sources username/hello/lib:./src/lib -target wasm -g
   moonc build-package ./src/main/main.mbt -o ./target/wasm/debug/build/main/main.core -pkg username/hello/main -is-main -i ./target/wasm/debug/build/lib/lib.mi:lib -pkg-sources username/hello/main:./src/main -target wasm -g
   moonc link-core ./target/wasm/debug/build/lib/lib.core ./target/wasm/debug/build/main/main.core -main username/hello/main -o ./target/wasm/debug/build/main/main.wasm -pkg-sources username/hello/lib:./src/lib -pkg-sources username/hello/main:./src/main -target wasm -g
   
@@ -52,3 +52,217 @@
   moonc build-package ./src/main/main.mbt -o ./target/js/release/bundle/main/main.core -pkg username/hello/main -is-main -i ./target/js/release/bundle/lib/lib.mi:lib -pkg-sources username/hello/main:./main -target js
   moonc bundle-core ./target/js/release/bundle/lib/lib.core ./target/js/release/bundle/main/main.core -o ./target/js/release/bundle/hello.core
   
+  $ moon build --dry-run --target native --sort-input --nostd --debug
+  moonc build-package ./src/lib/all.mbt ./src/lib/native_and_wasm.mbt ./src/lib/native_only.mbt ./src/lib/not_js.mbt ./src/lib/only_debug.mbt -o ./target/native/debug/build/lib/lib.core -pkg username/hello/lib -pkg-sources username/hello/lib:./src/lib -target native -g
+  moonc build-package ./src/main/main.mbt -o ./target/native/debug/build/main/main.core -pkg username/hello/main -is-main -i ./target/native/debug/build/lib/lib.mi:lib -pkg-sources username/hello/main:./src/main -target native -g
+  moonc link-core ./target/native/debug/build/lib/lib.core ./target/native/debug/build/main/main.core -main username/hello/main -o ./target/native/debug/build/main/main.exe -pkg-sources username/hello/lib:./src/lib -pkg-sources username/hello/main:./src/main -target native -g
+  
+  $ moon check --sort-input
+  
+  Warning: [1002]
+     ╭─[${WORK_DIR}/src/lib/all.mbt:2:7]
+     │
+   2 │   let a = 1
+     │       ┬  
+     │       ╰── Warning: Unused variable 'a'
+  ───╯
+  Finished. moon: ran 3 tasks, now up to date
+  
+  $ xcat target/wasm-gc/release/check/packages.json
+  {
+    "source_dir": "${WORK_DIR}",
+    "name": "username/hello",
+    "packages": [
+      {
+        "is-main": false,
+        "is-third-party": false,
+        "root-path": "${WORK_DIR}/src/lib",
+        "root": "username/hello",
+        "rel": "lib",
+        "files": {
+          "${WORK_DIR}/src/lib/all.mbt": {
+            "backend": [
+              "Wasm",
+              "WasmGC",
+              "Js",
+              "Native"
+            ],
+            "optlevel": [
+              "Debug",
+              "Release"
+            ]
+          },
+          "${WORK_DIR}/src/lib/all_wasm.mbt": {
+            "backend": [
+              "Wasm",
+              "WasmGC"
+            ],
+            "optlevel": [
+              "Release",
+              "Debug"
+            ]
+          },
+          "${WORK_DIR}/src/lib/js_and_release.mbt": {
+            "backend": [
+              "Js"
+            ],
+            "optlevel": [
+              "Release"
+            ]
+          },
+          "${WORK_DIR}/src/lib/js_or_wasm.mbt": {
+            "backend": [
+              "Wasm",
+              "Js"
+            ],
+            "optlevel": [
+              "Release",
+              "Debug"
+            ]
+          },
+          "${WORK_DIR}/src/lib/native_and_wasm.mbt": {
+            "backend": [
+              "Wasm",
+              "Native"
+            ],
+            "optlevel": [
+              "Release",
+              "Debug"
+            ]
+          },
+          "${WORK_DIR}/src/lib/native_only.mbt": {
+            "backend": [
+              "Native"
+            ],
+            "optlevel": [
+              "Release",
+              "Debug"
+            ]
+          },
+          "${WORK_DIR}/src/lib/not_js.mbt": {
+            "backend": [
+              "Wasm",
+              "WasmGC",
+              "Native"
+            ],
+            "optlevel": [
+              "Release",
+              "Debug"
+            ]
+          },
+          "${WORK_DIR}/src/lib/only_debug.mbt": {
+            "backend": [
+              "Wasm",
+              "WasmGC",
+              "Js",
+              "Native"
+            ],
+            "optlevel": [
+              "Debug"
+            ]
+          },
+          "${WORK_DIR}/src/lib/only_js.mbt": {
+            "backend": [
+              "Js"
+            ],
+            "optlevel": [
+              "Release",
+              "Debug"
+            ]
+          },
+          "${WORK_DIR}/src/lib/only_wasm.mbt": {
+            "backend": [
+              "Wasm"
+            ],
+            "optlevel": [
+              "Release",
+              "Debug"
+            ]
+          },
+          "${WORK_DIR}/src/lib/only_wasm_gc.mbt": {
+            "backend": [
+              "WasmGC"
+            ],
+            "optlevel": [
+              "Release",
+              "Debug"
+            ]
+          },
+          "${WORK_DIR}/src/lib/wasm_release_or_js_debug.mbt": {
+            "backend": [
+              "Wasm",
+              "Js"
+            ],
+            "optlevel": [
+              "Release",
+              "Debug"
+            ]
+          }
+        },
+        "wbtest-files": {},
+        "test-files": {
+          "${WORK_DIR}/src/lib/hello_test.mbt": {
+            "backend": [
+              "Wasm",
+              "WasmGC",
+              "Js",
+              "Native"
+            ],
+            "optlevel": [
+              "Debug",
+              "Release"
+            ]
+          },
+          "${WORK_DIR}/src/lib/js_only_test.mbt": {
+            "backend": [
+              "Js"
+            ],
+            "optlevel": [
+              "Release",
+              "Debug"
+            ]
+          }
+        },
+        "deps": [],
+        "wbtest-deps": [],
+        "test-deps": [],
+        "artifact": "${WORK_DIR}/target/wasm-gc/release/check/lib/lib.mi"
+      },
+      {
+        "is-main": true,
+        "is-third-party": false,
+        "root-path": "${WORK_DIR}/src/main",
+        "root": "username/hello",
+        "rel": "main",
+        "files": {
+          "${WORK_DIR}/src/main/main.mbt": {
+            "backend": [
+              "Wasm",
+              "WasmGC",
+              "Js",
+              "Native"
+            ],
+            "optlevel": [
+              "Debug",
+              "Release"
+            ]
+          }
+        },
+        "wbtest-files": {},
+        "test-files": {},
+        "deps": [
+          {
+            "path": "username/hello/lib",
+            "alias": "lib"
+          }
+        ],
+        "wbtest-deps": [],
+        "test-deps": [],
+        "artifact": "${WORK_DIR}/target/wasm-gc/release/check/main/main.mi"
+      }
+    ],
+    "deps": [],
+    "backend": "wasm-gc",
+    "opt_level": "release",
+    "source": "src"
+  }

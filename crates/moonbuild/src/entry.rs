@@ -411,14 +411,12 @@ pub fn run_run(
         return Ok(0);
     }
 
-    trace::scope("run", || {
-        if moonc_opt.link_opt.target_backend == TargetBackend::Wasm
-            || moonc_opt.link_opt.target_backend == TargetBackend::WasmGC
-        {
+    trace::scope("run", || match moonc_opt.link_opt.target_backend {
+        TargetBackend::Wasm | TargetBackend::WasmGC => {
             crate::build::run_wat(&wat_path, &moonbuild_opt.args)
-        } else {
-            crate::build::run_js(&wat_path, &moonbuild_opt.args)
         }
+        TargetBackend::Js => crate::build::run_js(&wat_path, &moonbuild_opt.args),
+        TargetBackend::Native => crate::build::run_native(&wat_path, &moonbuild_opt.args),
     })?;
     Ok(0)
 }
@@ -793,6 +791,7 @@ async fn execute_test(
             )
             .await
         }
+        TargetBackend::Native => todo!("no implement yet"),
     }
 }
 

@@ -154,6 +154,16 @@
             }
           ]
         },
+        "native": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/NativeLinkConfig"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
         "wasm": {
           "anyOf": [
             {
@@ -192,6 +202,20 @@
         },
         "output": {
           "$ref": "#/definitions/StringOrArray"
+        }
+      }
+    },
+    "NativeLinkConfig": {
+      "type": "object",
+      "properties": {
+        "flags": {
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": {
+            "type": "string"
+          }
         }
       }
     },

@@ -2420,7 +2420,8 @@ fn test_dummy_core() {
                           "backend": [
                             "Wasm",
                             "WasmGC",
-                            "Js"
+                            "Js",
+                            "Native"
                           ],
                           "optlevel": [
                             "Debug",
@@ -2432,8 +2433,8 @@ fn test_dummy_core() {
                             "Js"
                           ],
                           "optlevel": [
-                            "Debug",
-                            "Release"
+                            "Release",
+                            "Debug"
                           ]
                         },
                         "$ROOT/0/y.wasm-gc.mbt": {
@@ -2441,8 +2442,8 @@ fn test_dummy_core() {
                             "WasmGC"
                           ],
                           "optlevel": [
-                            "Debug",
-                            "Release"
+                            "Release",
+                            "Debug"
                           ]
                         },
                         "$ROOT/0/y.wasm.mbt": {
@@ -2450,8 +2451,8 @@ fn test_dummy_core() {
                             "Wasm"
                           ],
                           "optlevel": [
-                            "Debug",
-                            "Release"
+                            "Release",
+                            "Debug"
                           ]
                         }
                       },
@@ -2461,15 +2462,16 @@ fn test_dummy_core() {
                             "Js"
                           ],
                           "optlevel": [
-                            "Debug",
-                            "Release"
+                            "Release",
+                            "Debug"
                           ]
                         },
                         "$ROOT/0/y_wbtest.mbt": {
                           "backend": [
                             "Wasm",
                             "WasmGC",
-                            "Js"
+                            "Js",
+                            "Native"
                           ],
                           "optlevel": [
                             "Debug",
@@ -2481,8 +2483,8 @@ fn test_dummy_core() {
                             "WasmGC"
                           ],
                           "optlevel": [
-                            "Debug",
-                            "Release"
+                            "Release",
+                            "Debug"
                           ]
                         },
                         "$ROOT/0/y_wbtest.wasm.mbt": {
@@ -2490,8 +2492,8 @@ fn test_dummy_core() {
                             "Wasm"
                           ],
                           "optlevel": [
-                            "Debug",
-                            "Release"
+                            "Release",
+                            "Debug"
                           ]
                         }
                       },
@@ -2512,7 +2514,8 @@ fn test_dummy_core() {
                           "backend": [
                             "Wasm",
                             "WasmGC",
-                            "Js"
+                            "Js",
+                            "Native"
                           ],
                           "optlevel": [
                             "Debug",
@@ -2524,8 +2527,8 @@ fn test_dummy_core() {
                             "Js"
                           ],
                           "optlevel": [
-                            "Debug",
-                            "Release"
+                            "Release",
+                            "Debug"
                           ]
                         },
                         "$ROOT/1/x.wasm-gc.mbt": {
@@ -2533,8 +2536,8 @@ fn test_dummy_core() {
                             "WasmGC"
                           ],
                           "optlevel": [
-                            "Debug",
-                            "Release"
+                            "Release",
+                            "Debug"
                           ]
                         },
                         "$ROOT/1/x.wasm.mbt": {
@@ -2542,8 +2545,8 @@ fn test_dummy_core() {
                             "Wasm"
                           ],
                           "optlevel": [
-                            "Debug",
-                            "Release"
+                            "Release",
+                            "Debug"
                           ]
                         }
                       },
@@ -2553,8 +2556,8 @@ fn test_dummy_core() {
                             "WasmGC"
                           ],
                           "optlevel": [
-                            "Debug",
-                            "Release"
+                            "Release",
+                            "Debug"
                           ]
                         }
                       },
@@ -2575,7 +2578,8 @@ fn test_dummy_core() {
                           "backend": [
                             "Wasm",
                             "WasmGC",
-                            "Js"
+                            "Js",
+                            "Native"
                           ],
                           "optlevel": [
                             "Debug",
@@ -2687,7 +2691,8 @@ fn test_dummy_core() {
                           "backend": [
                             "Wasm",
                             "WasmGC",
-                            "Js"
+                            "Js",
+                            "Native"
                           ],
                           "optlevel": [
                             "Debug",
@@ -2699,8 +2704,8 @@ fn test_dummy_core() {
                             "Js"
                           ],
                           "optlevel": [
-                            "Debug",
-                            "Release"
+                            "Release",
+                            "Debug"
                           ]
                         },
                         "$ROOT/0/y.wasm-gc.mbt": {
@@ -2708,8 +2713,8 @@ fn test_dummy_core() {
                             "WasmGC"
                           ],
                           "optlevel": [
-                            "Debug",
-                            "Release"
+                            "Release",
+                            "Debug"
                           ]
                         },
                         "$ROOT/0/y.wasm.mbt": {
@@ -2717,8 +2722,8 @@ fn test_dummy_core() {
                             "Wasm"
                           ],
                           "optlevel": [
-                            "Debug",
-                            "Release"
+                            "Release",
+                            "Debug"
                           ]
                         }
                       },
@@ -2728,15 +2733,16 @@ fn test_dummy_core() {
                             "Js"
                           ],
                           "optlevel": [
-                            "Debug",
-                            "Release"
+                            "Release",
+                            "Debug"
                           ]
                         },
                         "$ROOT/0/y_wbtest.mbt": {
                           "backend": [
                             "Wasm",
                             "WasmGC",
-                            "Js"
+                            "Js",
+                            "Native"
                           ],
                           "optlevel": [
                             "Debug",
@@ -2748,8 +2754,8 @@ fn test_dummy_core() {
                             "WasmGC"
                           ],
                           "optlevel": [
-                            "Debug",
-                            "Release"
+                            "Release",
+                            "Debug"
                           ]
                         },
                         "$ROOT/0/y_wbtest.wasm.mbt": {
@@ -2757,8 +2763,8 @@ fn test_dummy_core() {
                             "Wasm"
                           ],
                           "optlevel": [
-                            "Debug",
-                            "Release"
+                            "Release",
+                            "Debug"
                           ]
                         }
                       },
@@ -2779,7 +2785,8 @@ fn test_dummy_core() {
                           "backend": [
                             "Wasm",
                             "WasmGC",
-                            "Js"
+                            "Js",
+                            "Native"
                           ],
                           "optlevel": [
                             "Debug",
@@ -2791,8 +2798,8 @@ fn test_dummy_core() {
                             "Js"
                           ],
                           "optlevel": [
-                            "Debug",
-                            "Release"
+                            "Release",
+                            "Debug"
                           ]
                         },
                         "$ROOT/1/x.wasm-gc.mbt": {
@@ -2800,8 +2807,8 @@ fn test_dummy_core() {
                             "WasmGC"
                           ],
                           "optlevel": [
-                            "Debug",
-                            "Release"
+                            "Release",
+                            "Debug"
                           ]
                         },
                         "$ROOT/1/x.wasm.mbt": {
@@ -2809,8 +2816,8 @@ fn test_dummy_core() {
                             "Wasm"
                           ],
                           "optlevel": [
-                            "Debug",
-                            "Release"
+                            "Release",
+                            "Debug"
                           ]
                         }
                       },
@@ -2820,8 +2827,8 @@ fn test_dummy_core() {
                             "WasmGC"
                           ],
                           "optlevel": [
-                            "Debug",
-                            "Release"
+                            "Release",
+                            "Debug"
                           ]
                         }
                       },
@@ -2842,7 +2849,8 @@ fn test_dummy_core() {
                           "backend": [
                             "Wasm",
                             "WasmGC",
-                            "Js"
+                            "Js",
+                            "Native"
                           ],
                           "optlevel": [
                             "Debug",
@@ -4829,7 +4837,8 @@ fn test_blackbox_success() {
                           "backend": [
                             "Wasm",
                             "WasmGC",
-                            "Js"
+                            "Js",
+                            "Native"
                           ],
                           "optlevel": [
                             "Debug",
@@ -4842,7 +4851,8 @@ fn test_blackbox_success() {
                           "backend": [
                             "Wasm",
                             "WasmGC",
-                            "Js"
+                            "Js",
+                            "Native"
                           ],
                           "optlevel": [
                             "Debug",
@@ -4855,7 +4865,8 @@ fn test_blackbox_success() {
                           "backend": [
                             "Wasm",
                             "WasmGC",
-                            "Js"
+                            "Js",
+                            "Native"
                           ],
                           "optlevel": [
                             "Debug",
@@ -4894,7 +4905,8 @@ fn test_blackbox_success() {
                           "backend": [
                             "Wasm",
                             "WasmGC",
-                            "Js"
+                            "Js",
+                            "Native"
                           ],
                           "optlevel": [
                             "Debug",
@@ -4920,7 +4932,8 @@ fn test_blackbox_success() {
                           "backend": [
                             "Wasm",
                             "WasmGC",
-                            "Js"
+                            "Js",
+                            "Native"
                           ],
                           "optlevel": [
                             "Debug",
@@ -4946,7 +4959,8 @@ fn test_blackbox_success() {
                           "backend": [
                             "Wasm",
                             "WasmGC",
-                            "Js"
+                            "Js",
+                            "Native"
                           ],
                           "optlevel": [
                             "Debug",
@@ -4972,7 +4986,8 @@ fn test_blackbox_success() {
                           "backend": [
                             "Wasm",
                             "WasmGC",
-                            "Js"
+                            "Js",
+                            "Native"
                           ],
                           "optlevel": [
                             "Debug",
@@ -5804,7 +5819,8 @@ fn test_specify_source_dir_001() {
                           "backend": [
                             "Wasm",
                             "WasmGC",
-                            "Js"
+                            "Js",
+                            "Native"
                           ],
                           "optlevel": [
                             "Debug",
@@ -5818,7 +5834,8 @@ fn test_specify_source_dir_001() {
                           "backend": [
                             "Wasm",
                             "WasmGC",
-                            "Js"
+                            "Js",
+                            "Native"
                           ],
                           "optlevel": [
                             "Debug",
@@ -5842,7 +5859,8 @@ fn test_specify_source_dir_001() {
                           "backend": [
                             "Wasm",
                             "WasmGC",
-                            "Js"
+                            "Js",
+                            "Native"
                           ],
                           "optlevel": [
                             "Debug",

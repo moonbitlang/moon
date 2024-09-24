@@ -74,8 +74,10 @@ impl CondExpr {
     }
 
     pub fn to_compile_condition(&self) -> CompileCondition {
-        let mut backend = vec![];
-        let mut optlevel = vec![];
+        use std::collections::HashSet;
+
+        let mut backend_set = HashSet::new();
+        let mut optlevel_set = HashSet::new();
         for (t, o) in [
             (TargetBackend::Wasm, OptLevel::Debug),
             (TargetBackend::Wasm, OptLevel::Release),
@@ -83,15 +85,21 @@ impl CondExpr {
             (TargetBackend::WasmGC, OptLevel::Release),
             (TargetBackend::Js, OptLevel::Debug),
             (TargetBackend::Js, OptLevel::Release),
+            (TargetBackend::Native, OptLevel::Debug),
+            (TargetBackend::Native, OptLevel::Release),
         ] {
             if self.eval(o, t) {
-                optlevel.push(o);
-                backend.push(t);
+                optlevel_set.insert(o);
+                backend_set.insert(t);
             }
         }
 
-        backend.dedup();
-        optlevel.dedup();
+        let mut backend: Vec<_> = backend_set.into_iter().collect();
+        let mut optlevel: Vec<_> = optlevel_set.into_iter().collect();
+
+        // to keep a stable order
+        backend.sort();
+        optlevel.sort();
         CompileCondition { backend, optlevel }
     }
 }
@@ -116,6 +124,7 @@ impl Default for CompileCondition {
                 TargetBackend::Wasm,
                 TargetBackend::WasmGC,
                 TargetBackend::Js,
+                TargetBackend::Native,
             ],
             optlevel: vec![OptLevel::Debug, OptLevel::Release],
         }
@@ -250,6 +259,7 @@ pub fn parse_cond_target(expr: &str) -> Result<CondExpr, ParseTargetError> {
         "wasm" => Ok(CondExpr::Atom(Atom::Target(TargetBackend::Wasm))),
         "wasm-gc" => Ok(CondExpr::Atom(Atom::Target(TargetBackend::WasmGC))),
         "js" => Ok(CondExpr::Atom(Atom::Target(TargetBackend::Js))),
+        "native" => Ok(CondExpr::Atom(Atom::Target(TargetBackend::Native))),
         _ => Err(ParseTargetError::UnknownTarget(expr.to_string())),
     }
 }

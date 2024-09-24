@@ -156,6 +156,7 @@ fn run_single_mbt_file(cli: &UniversalFlags, cmd: RunSubcommand) -> anyhow::Resu
             let runner = match target_backend {
                 TargetBackend::Wasm | TargetBackend::WasmGC => "moonrun",
                 TargetBackend::Js => "node",
+                TargetBackend::Native => "",
             };
             println!("{} {}", runner, output_wasm_or_js_path.display());
         }
@@ -197,6 +198,7 @@ fn run_single_mbt_file(cli: &UniversalFlags, cmd: RunSubcommand) -> anyhow::Resu
             moonbuild::build::run_wat(&output_wasm_or_js_path, &cmd.args)
         }
         TargetBackend::Js => moonbuild::build::run_js(&output_wasm_or_js_path, &cmd.args),
+        TargetBackend::Native => moonbuild::build::run_native(&output_wasm_or_js_path, &cmd.args),
     })?;
 
     Ok(0)

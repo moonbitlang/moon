@@ -1,5 +1,7 @@
 {
     "targets": {
+        "native_only.mbt": ["native"],
+        "native_and_wasm.mbt": ["native", "wasm"],
         "only_js.mbt": ["js"],
         "only_wasm.mbt": ["wasm"],
         "only_wasm_gc.mbt": ["wasm-gc"],
