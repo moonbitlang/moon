@@ -624,7 +624,7 @@ pub fn run_test(
             if moonc_opt.build_opt.target_backend == TargetBackend::Js {
                 let js_driver = include_str!(concat!(
                     env!("CARGO_MANIFEST_DIR"),
-                    "/../moonbuild/template/js_driver.js"
+                    "/../moonbuild/template/test_driver/js_driver.js"
                 ))
                 .replace(
                     "origin_js_path",
