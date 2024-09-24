@@ -68,6 +68,11 @@ fn moonc_gen_test_info(files: &[PathBuf], output_path: &Path) -> anyhow::Result<
         .with_context(|| gen_error_message(files))?;
     generated.wait()?;
 
+    // when mauanlly execute command to generate test driver, we need to create the parent directory
+    if !output_path.parent().unwrap().exists() {
+        std::fs::create_dir_all(output_path.parent().unwrap())?;
+    }
+
     let test_info_json_path = output_path;
     std::fs::OpenOptions::new()
         .create(true)
