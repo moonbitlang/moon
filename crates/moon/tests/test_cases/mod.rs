@@ -6260,7 +6260,17 @@ fn test_snapshot_test_target_js() {
     );
     assert!(dir.join("target/js/debug/test/package.json").exists());
     check(
-        &get_stdout(&dir, ["test", "--target", "js", "-u"]),
+        &get_stdout(
+            &dir,
+            [
+                "test",
+                "--target",
+                "js",
+                "-u",
+                "--sort-input",
+                "--no-parallelize",
+            ],
+        ),
         expect![[r#"
 
             Auto updating expect tests and retesting ...
