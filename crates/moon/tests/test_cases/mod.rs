@@ -3310,13 +3310,6 @@ fn test_dummy_core() {
             moonc build-package -o ./target/js/release/bundle/char/char.core -pkg moonbitlang/core/char -i ./target/js/release/bundle/coverage/coverage.mi:coverage -pkg-sources moonbitlang/core/char:./char -target js
             moonc build-package -o ./target/js/release/bundle/iter/iter.core -pkg moonbitlang/core/iter -i ./target/js/release/bundle/coverage/coverage.mi:coverage -pkg-sources moonbitlang/core/iter:./iter -target js
             moonc bundle-core ./target/js/release/bundle/0/0.core ./target/js/release/bundle/1/1.core ./target/js/release/bundle/2/2.core ./target/js/release/bundle/coverage/coverage.core ./target/js/release/bundle/char/char.core ./target/js/release/bundle/iter/iter.core -o ./target/js/release/bundle/core.core
-            moonc build-package ./1/lib.mbt -o ./target/native/release/bundle/1/1.core -pkg moonbitlang/core/1 -pkg-sources moonbitlang/core/1:./1 -target native
-            moonc build-package -o ./target/native/release/bundle/coverage/coverage.core -pkg moonbitlang/core/coverage -pkg-sources moonbitlang/core/coverage:./coverage -target native
-            moonc build-package ./0/lib.mbt -o ./target/native/release/bundle/0/0.core -pkg moonbitlang/core/0 -pkg-sources moonbitlang/core/0:./0 -target native
-            moonc build-package ./2/lib.mbt -o ./target/native/release/bundle/2/2.core -pkg moonbitlang/core/2 -i ./target/native/release/bundle/1/1.mi:1 -pkg-sources moonbitlang/core/2:./2 -target native
-            moonc build-package -o ./target/native/release/bundle/char/char.core -pkg moonbitlang/core/char -i ./target/native/release/bundle/coverage/coverage.mi:coverage -pkg-sources moonbitlang/core/char:./char -target native
-            moonc build-package -o ./target/native/release/bundle/iter/iter.core -pkg moonbitlang/core/iter -i ./target/native/release/bundle/coverage/coverage.mi:coverage -pkg-sources moonbitlang/core/iter:./iter -target native
-            moonc bundle-core ./target/native/release/bundle/0/0.core ./target/native/release/bundle/1/1.core ./target/native/release/bundle/2/2.core ./target/native/release/bundle/coverage/coverage.core ./target/native/release/bundle/char/char.core ./target/native/release/bundle/iter/iter.core -o ./target/native/release/bundle/core.core
         "#]],
     );
 }
@@ -5159,8 +5152,7 @@ fn test_import_memory_and_heap_start() {
 fn test_many_targets() {
     let dir = TestDir::new("test_many_targets.in");
     check(
-        // todo: change to `--target all`
-        &get_stdout(&dir, ["test", "--target", "wasm,wasm-gc,js", "--serial"]),
+        &get_stdout(&dir, ["test", "--target", "all", "--serial"]),
         expect![[r#"
             Total tests: 0, passed: 0, failed: 0. [wasm]
             Total tests: 0, passed: 0, failed: 0. [wasm-gc]
@@ -5305,8 +5297,7 @@ fn test_many_targets() {
             [
                 "test",
                 "--target",
-                // todo: change to "js,wasm,all"
-                "js,wasm,wasm-gc",
+                "js,wasm,all",
                 "--dry-run",
                 "--serial",
                 "--nostd",
@@ -5341,8 +5332,7 @@ fn test_many_targets() {
             [
                 "test",
                 "--target",
-                // todo: change to "all"
-                "wasm,wasm-gc,js",
+                "all",
                 "--dry-run",
                 "--serial",
                 "--nostd",
@@ -5509,14 +5499,7 @@ fn test_many_targets_expect_failed() {
     check(
         &get_err_stdout(
             &dir,
-            // todo: change to "all"
-            [
-                "test",
-                "--target",
-                "wasm,wasm-gc,js",
-                "--serial",
-                "--sort-input",
-            ],
+            ["test", "--target", "all", "--serial", "--sort-input"],
         ),
         expect![[r#"
             test username/hello/lib/x.wasm.mbt::0 failed

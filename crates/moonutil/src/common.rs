@@ -216,7 +216,8 @@ pub fn lower_surface_targets(st: &[SurfaceTarget]) -> Vec<TargetBackend> {
                 result.insert(TargetBackend::Wasm);
                 result.insert(TargetBackend::WasmGC);
                 result.insert(TargetBackend::Js);
-                result.insert(TargetBackend::Native);
+                // todo: enable native backend
+                // result.insert(TargetBackend::Native);
             }
         }
     }
