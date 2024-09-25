@@ -51,11 +51,11 @@ pub fn topo_from_node(m: &ModuleDB, pkg: &Package) -> anyhow::Result<Vec<String>
 
     fn dfs(
         m: &ModuleDB,
-        pkg_full_name: &String,
+        pkg_full_name: &str,
         stk: &mut Vec<String>,
         visited: &mut HashSet<String>,
     ) -> anyhow::Result<()> {
-        visited.insert(pkg_full_name.clone());
+        visited.insert(pkg_full_name.to_string());
 
         for neighbor in m.get_package_by_name(pkg_full_name).imports.iter() {
             let neighbor_full_name = neighbor.path.make_full_path();
@@ -64,7 +64,7 @@ pub fn topo_from_node(m: &ModuleDB, pkg: &Package) -> anyhow::Result<Vec<String>
             }
         }
 
-        stk.push(pkg_full_name.clone());
+        stk.push(pkg_full_name.to_string());
         Ok(())
     }
 

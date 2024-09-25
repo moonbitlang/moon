@@ -89,6 +89,32 @@ impl ModuleDB {
     pub fn contains_package(&self, name: &str) -> bool {
         self.packages.contains_key(name)
     }
+
+    pub fn get_filtered_packages(
+        &self,
+        maybe_filter: Option<impl Fn(&Package) -> bool>,
+    ) -> impl Iterator<Item = (&String, &Package)> {
+        self.packages.iter().filter(move |(_, pkg)| {
+            if let Some(filter) = &maybe_filter {
+                filter(pkg)
+            } else {
+                true
+            }
+        })
+    }
+
+    pub fn get_filtered_packages_mut(
+        &mut self,
+        maybe_filter: Option<impl Fn(&Package) -> bool>,
+    ) -> impl Iterator<Item = (&String, &mut Package)> {
+        self.packages.iter_mut().filter(move |(_, pkg)| {
+            if let Some(filter) = &maybe_filter {
+                filter(pkg)
+            } else {
+                true
+            }
+        })
+    }
 }
 
 impl ModuleDB {

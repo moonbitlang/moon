@@ -419,15 +419,9 @@ pub fn scan(
     )?;
 
     if moonbuild_opt.run_mode == crate::common::RunMode::Test {
-        if let Some(crate::common::TestOpt {
-            filter_package: Some(ref filter_package),
-            ..
-        }) = moonbuild_opt.test_opt
-        {
-            let pkgs = packages
-                .iter()
-                .filter(|(k, _)| filter_package.contains(Path::new(k)))
-                .map(|(_, v)| v);
+        let package_filter = moonbuild_opt.get_package_filter();
+        if let Some(filter) = package_filter {
+            let pkgs = packages.iter().filter(|(_, p)| filter(p)).map(|(_, v)| v);
             let mut pkg_and_its_deps = HashSet::new();
             for pkg in pkgs {
                 pkg_and_its_deps.extend(get_pkg_and_its_deps(pkg, &packages));

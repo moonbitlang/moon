@@ -172,13 +172,8 @@ pub fn generate_test_driver(
         bail!("dry-run is not implemented for generate-test-driver");
     }
 
-    for (pkgname, pkg) in module.get_all_packages().iter() {
-        if let Some(ref package) = filter_package {
-            if !package.contains(Path::new(pkgname)) {
-                continue;
-            }
-        }
-
+    let package_filter = moonbuild_opt.get_package_filter();
+    for (pkgname, pkg) in module.get_filtered_packages(package_filter) {
         if pkg.is_third_party {
             continue;
         }

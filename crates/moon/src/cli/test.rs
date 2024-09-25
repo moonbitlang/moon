@@ -210,13 +210,8 @@ fn run_test_internal(
         &moonbuild_opt,
     )?;
 
-    for (pkgname, pkg) in module.get_all_packages_mut().iter_mut() {
-        if let Some(ref package) = filter_package {
-            if !package.contains(Path::new(pkgname)) {
-                continue;
-            }
-        }
-
+    let package_filter = moonbuild_opt.get_package_filter();
+    for (_, pkg) in module.get_filtered_packages_mut(package_filter) {
         if pkg.is_third_party || pkg.is_main {
             continue;
         }

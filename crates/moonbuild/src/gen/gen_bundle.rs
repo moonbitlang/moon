@@ -62,7 +62,7 @@ pub fn gen_bundle(
 ) -> anyhow::Result<N2BundleInput> {
     let mut dep_items = vec![];
     for (_, pkg) in m.get_all_packages().iter() {
-        let item = pkg_to_bundle_item(&m.source_dir, &m.get_all_packages(), pkg, moonc_opt)?;
+        let item = pkg_to_bundle_item(&m.source_dir, m.get_all_packages(), pkg, moonc_opt)?;
         dep_items.push(item);
     }
 

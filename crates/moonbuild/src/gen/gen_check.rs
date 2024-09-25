@@ -258,12 +258,12 @@ pub fn gen_check(
     let _ = moonbuild_opt;
     let mut dep_items = vec![];
     for (_, pkg) in m.get_all_packages().iter() {
-        let item = pkg_to_check_item(&pkg.root_path, &m.get_all_packages(), pkg, moonc_opt)?;
+        let item = pkg_to_check_item(&pkg.root_path, m.get_all_packages(), pkg, moonc_opt)?;
         dep_items.push(item);
         if !pkg.wbtest_files.is_empty() {
             let item = pkg_with_wbtest_to_check_item(
                 &pkg.root_path,
-                &m.get_all_packages(),
+                m.get_all_packages(),
                 pkg,
                 moonc_opt,
             )?;
@@ -271,7 +271,7 @@ pub fn gen_check(
         }
         if !pkg.test_files.is_empty() {
             let item =
-                pkg_with_test_to_check_item(&pkg.root_path, &m.get_all_packages(), pkg, moonc_opt)?;
+                pkg_with_test_to_check_item(&pkg.root_path, m.get_all_packages(), pkg, moonc_opt)?;
             dep_items.push(item);
         }
     }
