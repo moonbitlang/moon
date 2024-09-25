@@ -61,15 +61,15 @@ pub fn gen_bundle(
     _moonbuild_opt: &MoonbuildOpt,
 ) -> anyhow::Result<N2BundleInput> {
     let mut dep_items = vec![];
-    for (_, pkg) in m.packages.iter() {
-        let item = pkg_to_bundle_item(&m.source_dir, &m.packages, pkg, moonc_opt)?;
+    for (_, pkg) in m.get_all_packages().iter() {
+        let item = pkg_to_bundle_item(&m.source_dir, m.get_all_packages(), pkg, moonc_opt)?;
         dep_items.push(item);
     }
 
     let nodes = super::util::toposort(m)?;
     let mut order = vec![];
     for node in nodes.iter() {
-        let p = &m.packages[node];
+        let p = &m.get_package_by_name(node);
         order.push(
             p.artifact
                 .with_extension("core")

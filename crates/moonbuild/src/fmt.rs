@@ -101,7 +101,7 @@ pub fn gen_fmt(
     moonbuild_opt: &MoonbuildOpt,
 ) -> anyhow::Result<N2FmtInput> {
     let mut items = vec![];
-    for (_, pkg) in m.packages.iter() {
+    for (_, pkg) in m.get_all_packages().iter() {
         if pkg.is_third_party {
             continue;
         }

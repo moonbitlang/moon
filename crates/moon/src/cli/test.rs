@@ -210,13 +210,8 @@ fn run_test_internal(
         &moonbuild_opt,
     )?;
 
-    for (pkgname, pkg) in module.packages.iter_mut() {
-        if let Some(ref package) = filter_package {
-            if !package.contains(Path::new(pkgname)) {
-                continue;
-            }
-        }
-
+    let package_filter = moonbuild_opt.get_package_filter();
+    for (_, pkg) in module.get_filtered_packages_mut(package_filter) {
         if pkg.is_third_party || pkg.is_main {
             continue;
         }
@@ -244,12 +239,12 @@ fn run_test_internal(
     }
 
     moonc_opt.build_opt.warn_lists = module
-        .packages
+        .get_all_packages()
         .iter()
         .map(|(name, pkg)| (name.clone(), pkg.warn_list.clone()))
         .collect();
     moonc_opt.build_opt.alert_lists = module
-        .packages
+        .get_all_packages()
         .iter()
         .map(|(name, pkg)| (name.clone(), pkg.alert_list.clone()))
         .collect();

@@ -285,12 +285,12 @@ pub fn run_run_internal(cli: &UniversalFlags, cmd: RunSubcommand) -> anyhow::Res
         &moonbuild_opt,
     )?;
     moonc_opt.build_opt.warn_lists = module
-        .packages
+        .get_all_packages()
         .iter()
         .map(|(name, pkg)| (name.clone(), pkg.warn_list.clone()))
         .collect();
     moonc_opt.build_opt.alert_lists = module
-        .packages
+        .get_all_packages()
         .iter()
         .map(|(name, pkg)| (name.clone(), pkg.alert_list.clone()))
         .collect();

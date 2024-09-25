@@ -36,7 +36,7 @@ pub fn toposort(m: &ModuleDB) -> anyhow::Result<Vec<String>> {
             let cycle = get_example_cycle(&m.graph, cycle.node_id());
             let cycle = cycle
                 .into_iter()
-                .map(|n| m.packages[n.index()].full_name())
+                .map(|n| m.get_package_by_index(n.index()).full_name())
                 .collect::<Vec<_>>();
             bail!("cyclic dependency detected: {:?}", cycle);
         }
@@ -51,20 +51,20 @@ pub fn topo_from_node(m: &ModuleDB, pkg: &Package) -> anyhow::Result<Vec<String>
 
     fn dfs(
         m: &ModuleDB,
-        pkg_full_name: &String,
+        pkg_full_name: &str,
         stk: &mut Vec<String>,
         visited: &mut HashSet<String>,
     ) -> anyhow::Result<()> {
-        visited.insert(pkg_full_name.clone());
+        visited.insert(pkg_full_name.to_string());
 
-        for neighbor in m.packages[pkg_full_name].imports.iter() {
+        for neighbor in m.get_package_by_name(pkg_full_name).imports.iter() {
             let neighbor_full_name = neighbor.path.make_full_path();
             if !visited.contains(&neighbor_full_name) {
                 dfs(m, &neighbor_full_name, stk, visited)?;
             }
         }
 
-        stk.push(pkg_full_name.clone());
+        stk.push(pkg_full_name.to_string());
         Ok(())
     }
 
@@ -75,14 +75,14 @@ pub fn topo_from_node(m: &ModuleDB, pkg: &Package) -> anyhow::Result<Vec<String>
 pub fn nodes_to_names(m: &ModuleDB, nodes: &[usize]) -> Vec<String> {
     nodes
         .iter()
-        .map(|index| m.packages[*index].full_name())
+        .map(|index| m.get_package_by_index(*index).full_name())
         .collect::<Vec<_>>()
 }
 
 pub fn nodes_to_cores(m: &ModuleDB, nodes: &[String]) -> Vec<String> {
     nodes
         .iter()
-        .map(|index| m.packages[index].artifact.with_extension("core"))
+        .map(|name| m.get_package_by_name(name).artifact.with_extension("core"))
         .map(|p| p.display().to_string())
         .collect::<Vec<_>>()
 }
@@ -90,12 +90,12 @@ pub fn nodes_to_cores(m: &ModuleDB, nodes: &[String]) -> Vec<String> {
 pub fn nodes_to_pkg_sources(m: &ModuleDB, nodes: &[String]) -> Vec<(String, String)> {
     nodes
         .iter()
-        .map(|index| {
+        .map(|name| {
             let root_source_dir = match &m.source {
                 None => m.source_dir.clone(),
                 Some(x) => m.source_dir.join(x),
             };
-            let pkg = &m.packages[index];
+            let pkg = &m.get_package_by_name(name);
             let package_source_dir: String = if pkg.rel.components.is_empty() {
                 root_source_dir.display().to_string()
             } else {

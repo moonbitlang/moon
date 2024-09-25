@@ -577,7 +577,7 @@ pub fn run_test(
         artifacts_path: vec![],
     };
     for (pkgname, pkg) in module
-        .packages
+        .get_all_packages()
         .iter()
         .filter(|(_, p)| !(p.is_main || p.is_third_party))
     {

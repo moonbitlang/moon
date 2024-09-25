@@ -149,7 +149,7 @@ pub fn gen_package_core(
     let mut mi_deps = vec![];
     for dep in pkg.imports.iter() {
         let full_import_name = dep.path.make_full_path();
-        if !m.packages.contains_key(&full_import_name) {
+        if !m.contains_package(&full_import_name) {
             bail!(
                 "{}: the imported package `{}` could not be located.",
                 m.source_dir
@@ -159,7 +159,7 @@ pub fn gen_package_core(
                 full_import_name,
             );
         }
-        let cur_pkg = &m.packages[&full_import_name];
+        let cur_pkg = m.get_package_by_name(&full_import_name);
         let d = cur_pkg.artifact.with_extension("mi");
         let alias = dep.alias.clone().unwrap_or(cur_pkg.last_name().into());
         mi_deps.push(MiAlias {
@@ -216,7 +216,7 @@ pub fn gen_package_internal_test(
     let mut mi_deps = vec![];
     for dep in pkg.imports.iter() {
         let full_import_name = dep.path.make_full_path();
-        if !m.packages.contains_key(&full_import_name) {
+        if !m.contains_package(&full_import_name) {
             bail!(
                 "{}: the imported package `{}` could not be located.",
                 m.source_dir
@@ -226,7 +226,7 @@ pub fn gen_package_internal_test(
                 full_import_name,
             );
         }
-        let cur_pkg = &m.packages[&full_import_name];
+        let cur_pkg = m.get_package_by_name(&full_import_name);
         let d = cur_pkg.artifact.with_extension("mi");
         let alias = dep.alias.clone().unwrap_or(cur_pkg.last_name().into());
         mi_deps.push(MiAlias {
@@ -291,7 +291,7 @@ pub fn gen_package_whitebox_test(
     let mut mi_deps = vec![];
     for dep in pkg.imports.iter().chain(pkg.wbtest_imports.iter()) {
         let full_import_name = dep.path.make_full_path();
-        if !m.packages.contains_key(&full_import_name) {
+        if !m.contains_package(&full_import_name) {
             bail!(
                 "{}: the imported package `{}` could not be located.",
                 m.source_dir
@@ -301,7 +301,7 @@ pub fn gen_package_whitebox_test(
                 full_import_name,
             );
         }
-        let cur_pkg = &m.packages[&full_import_name];
+        let cur_pkg = m.get_package_by_name(&full_import_name);
         let d = cur_pkg.artifact.with_extension("mi");
         let alias = dep.alias.clone().unwrap_or(cur_pkg.last_name().into());
         mi_deps.push(MiAlias {
@@ -386,7 +386,7 @@ pub fn gen_package_blackbox_test(
 
     for dep in pkg.imports.iter().chain(pkg.test_imports.iter()) {
         let full_import_name = dep.path.make_full_path();
-        if !m.packages.contains_key(&full_import_name) {
+        if !m.contains_package(&full_import_name) {
             bail!(
                 "{}: the imported package `{}` could not be located.",
                 m.source_dir
@@ -396,7 +396,7 @@ pub fn gen_package_blackbox_test(
                 full_import_name,
             );
         }
-        let cur_pkg = &m.packages[&full_import_name];
+        let cur_pkg = m.get_package_by_name(&full_import_name);
         let d = cur_pkg.artifact.with_extension("mi");
         let alias = dep.alias.clone().unwrap_or(cur_pkg.last_name().into());
         mi_deps.push(MiAlias {
@@ -443,7 +443,7 @@ fn get_pkg_topo_order<'a>(
             return;
         }
         visited.insert(cur_pkg_full_name.clone());
-        let cur_pkg = &m.packages[cur_pkg_full_name];
+        let cur_pkg = m.get_package_by_name(cur_pkg_full_name);
         let imports = cur_pkg
             .imports
             .iter()
@@ -665,7 +665,7 @@ pub fn gen_runtest(
         .as_ref()
         .and_then(|f| f.filter_package.as_ref());
 
-    for (pkgname, pkg) in m.packages.iter() {
+    for (pkgname, pkg) in m.get_all_packages().iter() {
         if pkg.is_main {
             continue;
         }

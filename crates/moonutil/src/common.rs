@@ -19,7 +19,7 @@
 use crate::cond_expr::{CompileCondition, OptLevel};
 pub use crate::dirs::check_moon_mod_exists;
 use crate::module::{MoonMod, MoonModJSON};
-use crate::package::{convert_pkg_json_to_package, MoonPkg, MoonPkgJSON};
+use crate::package::{convert_pkg_json_to_package, MoonPkg, MoonPkgJSON, Package};
 use anyhow::{bail, Context};
 use clap::ValueEnum;
 use fs4::FileExt;
@@ -367,6 +367,12 @@ pub struct MoonbuildOpt {
     pub build_graph: bool,
 }
 
+impl MoonbuildOpt {
+    pub fn get_package_filter(&self) -> Option<impl Fn(&Package) -> bool + '_> {
+        self.test_opt.as_ref().map(|opt| opt.get_package_filter())
+    }
+}
+
 #[derive(Debug, Clone, Default)]
 pub struct TestOpt {
     pub filter_package: Option<HashSet<PathBuf>>,
@@ -395,6 +401,15 @@ impl TestOpt {
             command_str.push(filter_index.to_string());
         }
         command_str
+    }
+    pub fn get_package_filter(&self) -> impl Fn(&Package) -> bool + '_ {
+        move |pkg| {
+            if let Some(ref filter_package) = self.filter_package {
+                filter_package.contains(&PathBuf::from(pkg.full_name()))
+            } else {
+                true
+            }
+        }
     }
 }
 

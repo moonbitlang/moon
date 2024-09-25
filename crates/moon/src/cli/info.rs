@@ -125,7 +125,7 @@ pub fn run_info(cli: UniversalFlags, cmd: InfoSubcommand) -> anyhow::Result<i32>
         None => source_dir.to_path_buf(),
         Some(p) => source_dir.join(p),
     };
-    for (name, pkg) in mdb.packages {
+    for (name, pkg) in mdb.get_all_packages() {
         // Skip if pkg is not part of the module
         if pkg.is_third_party {
             continue;
