@@ -25,7 +25,7 @@ use crate::path::{ImportComponent, ImportPath, PathComponent};
 use anyhow::{bail, Context};
 use indexmap::map::IndexMap;
 use petgraph::graph::{DiGraph, NodeIndex};
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
 use walkdir::WalkDir;
@@ -418,19 +418,6 @@ pub fn scan(
         moonc_opt,
     )?;
 
-    if moonbuild_opt.run_mode == crate::common::RunMode::Test {
-        let package_filter = moonbuild_opt.get_package_filter();
-        if let Some(filter) = package_filter {
-            let pkgs = packages.iter().filter(|(_, p)| filter(p)).map(|(_, v)| v);
-            let mut pkg_and_its_deps = HashSet::new();
-            for pkg in pkgs {
-                pkg_and_its_deps.extend(get_pkg_and_its_deps(pkg, &packages));
-            }
-            // filter out other packages
-            packages.retain(|k, _| pkg_and_its_deps.contains(k));
-        }
-    }
-
     // scan third party packages in DEP_PATH according to deps field
     for (module_id, _) in resolved_modules.all_packages_and_id() {
         if resolved_modules.module_info(module_id).name == mod_desc.name {
@@ -523,36 +510,6 @@ pub fn scan(
     //     petgraph::dot::Dot::with_config(&module.graph, &[petgraph::dot::Config::EdgeNoLabel])
     // );
     Ok(module)
-}
-
-fn get_pkg_and_its_deps(pkg: &Package, packages: &IndexMap<String, Package>) -> HashSet<String> {
-    let mut resolved = HashSet::new();
-    resolved.insert(pkg.full_name().clone());
-    resolve_deps_of_pkg(&pkg.full_name(), packages, &mut resolved);
-    resolved
-}
-
-// resolve deps of the given pkg in dfs way
-fn resolve_deps_of_pkg(
-    pkg_name: &String,
-    packages: &IndexMap<String, Package>,
-    res: &mut HashSet<String>,
-) {
-    let pkg = packages.get(pkg_name);
-    if let Some(pkg) = pkg {
-        for dep in pkg
-            .imports
-            .iter()
-            .chain(pkg.wbtest_imports.iter())
-            .chain(pkg.test_imports.iter())
-        {
-            let dep = &dep.path.make_full_path();
-            if !res.contains(dep) {
-                res.insert(dep.clone());
-                resolve_deps_of_pkg(dep, packages, res);
-            }
-        }
-    }
 }
 
 #[cfg(test)]
