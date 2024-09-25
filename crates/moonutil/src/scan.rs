@@ -505,21 +505,21 @@ pub fn scan(
 
     entries.sort();
 
-    let module = ModuleDB {
-        source_dir: dunce::canonicalize(source_dir).unwrap(),
-        name: mod_desc.name.to_string(),
+    let module = ModuleDB::new(
+        dunce::canonicalize(source_dir).unwrap(),
+        mod_desc.name.to_string(),
         packages,
         entries,
         deps,
         graph,
-        backend: moonc_opt.link_opt.target_backend.to_backend_ext().into(),
-        opt_level: if moonc_opt.build_opt.debug_flag {
+        moonc_opt.link_opt.target_backend.to_backend_ext().into(),
+        if moonc_opt.build_opt.debug_flag {
             "debug".to_string()
         } else {
             "release".to_string()
         },
-        source: mod_desc.source,
-    };
+        mod_desc.source,
+    );
 
     module.validate()?;
 

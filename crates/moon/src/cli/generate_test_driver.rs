@@ -172,7 +172,7 @@ pub fn generate_test_driver(
         bail!("dry-run is not implemented for generate-test-driver");
     }
 
-    for (pkgname, pkg) in module.packages.iter() {
+    for (pkgname, pkg) in module.get_all_packages().iter() {
         if let Some(ref package) = filter_package {
             if !package.contains(Path::new(pkgname)) {
                 continue;

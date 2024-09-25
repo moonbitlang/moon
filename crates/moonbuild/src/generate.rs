@@ -33,7 +33,7 @@ pub fn load_moon_generate(
     let mut graph = n2graph::Graph::default();
     let mut defaults: Vec<FileId> = vec![];
 
-    for (_, pkg) in module.packages.iter() {
+    for (_, pkg) in module.get_all_packages().iter() {
         if pkg.is_third_party {
             continue;
         }

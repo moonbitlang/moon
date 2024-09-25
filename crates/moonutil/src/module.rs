@@ -35,13 +35,60 @@ use std::path::{Path, PathBuf};
 pub struct ModuleDB {
     pub source_dir: PathBuf,
     pub name: String,
-    pub packages: IndexMap<String, Package>,
+    packages: IndexMap<String, Package>,
     pub entries: Vec<usize>, // index of entry packages
     pub deps: Vec<String>,
     pub graph: DiGraph<String, usize>,
     pub backend: String,
     pub opt_level: String,
     pub source: Option<String>,
+}
+
+impl ModuleDB {
+    #[allow(clippy::too_many_arguments)]
+    pub fn new(
+        source_dir: PathBuf,
+        name: String,
+        package: IndexMap<String, Package>,
+        entries: Vec<usize>,
+        deps: Vec<String>,
+        graph: DiGraph<String, usize>,
+        backend: String,
+        opt_level: String,
+        source: Option<String>,
+    ) -> Self {
+        ModuleDB {
+            source_dir,
+            name,
+            packages: package,
+            entries,
+            deps,
+            graph,
+            backend,
+            opt_level,
+            source,
+        }
+    }
+
+    pub fn get_all_packages(&self) -> &IndexMap<String, Package> {
+        &self.packages
+    }
+
+    pub fn get_all_packages_mut(&mut self) -> &mut IndexMap<String, Package> {
+        &mut self.packages
+    }
+
+    pub fn get_package_by_name(&self, name: &str) -> &Package {
+        self.packages.get(name).unwrap()
+    }
+
+    pub fn get_package_by_index(&self, index: usize) -> &Package {
+        &self.packages[self.packages.keys().nth(index).unwrap()]
+    }
+
+    pub fn contains_package(&self, name: &str) -> bool {
+        self.packages.contains_key(name)
+    }
 }
 
 impl ModuleDB {
