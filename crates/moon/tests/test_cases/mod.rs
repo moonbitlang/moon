@@ -2391,7 +2391,7 @@ fn test_mbti() {
 #[test]
 fn test_dummy_core() {
     let test_dir = TestDir::new("dummy-core.in");
-    let dir = test_dir.as_ref().canonicalize().unwrap();
+    let dir = dunce::canonicalize(test_dir.as_ref()).unwrap();
 
     snapbox::cmd::Command::new(moon_bin())
         .current_dir(&dir)
