@@ -1,7 +1,17 @@
 const { moonbit_test_driver_internal_execute } = require("origin_js_path");
 
-const packageName = "";
-const testParams = [];
+let testArgs;
+try {
+  testArgs = JSON.parse(process.argv[2]);
+} catch (error) {
+  console.error("failed to parse args:", error.message);
+  process.exit(1);
+}
+
+const packageName = testArgs.package;
+const testParams = testArgs.file_and_index.flatMap(([file, range]) => 
+  Array.from({length: range.end - range.start}, (_, i) => [file, (range.start + i).toString()])
+);
 
 for (param of testParams) {
     try {

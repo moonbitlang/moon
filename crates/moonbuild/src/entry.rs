@@ -629,14 +629,6 @@ pub fn run_test(
                 .replace(
                     "origin_js_path",
                     &artifact_path.display().to_string().replace("\\", "/"),
-                )
-                .replace(
-                    "const testParams = []",
-                    &format!("const testParams = {}", test_args.to_args()),
-                )
-                .replace(
-                    "const packageName = \"\"",
-                    &format!("const packageName = {:?}", test_args.package),
                 );
 
                 std::fs::write(&wrapper_js_driver_path, js_driver)?;
@@ -745,24 +737,13 @@ pub fn run_test(
     Ok(r)
 }
 
-#[derive(serde::Serialize, Clone)]
+#[derive(serde::Serialize, Clone, Debug)]
 pub struct TestArgs {
     pub package: String,
     pub file_and_index: Vec<(String, std::ops::Range<u32>)>,
 }
 
 impl TestArgs {
-    fn to_args(&self) -> String {
-        let file_and_index = &self.file_and_index;
-        let mut test_params: Vec<[String; 2]> = vec![];
-        for (file, index) in file_and_index {
-            for i in index.clone() {
-                test_params.push([file.clone(), i.to_string()]);
-            }
-        }
-        format!("{:?}", test_params)
-    }
-
     fn get_test_cnt(&self) -> u32 {
         self.file_and_index
             .iter()
@@ -868,6 +849,11 @@ async fn handle_test_result(
                     .clone();
 
                     let update_msg = match rerun {
+                        // if rerun test success, update the previous test result and continue
+                        Ok(_) => {
+                            *item = rerun;
+                            continue;
+                        }
                         Err(TestFailedStatus::SnapshotPending(cur_err)) => &[cur_err.message],
                         _ => &[stat.message.clone()],
                     };
@@ -958,6 +944,11 @@ async fn handle_test_result(
                     .unwrap()
                     .clone();
                     let update_msg = match rerun {
+                        // if rerun test success, update the previous test result and continue
+                        Ok(_) => {
+                            *item = rerun;
+                            continue;
+                        }
                         Err(TestFailedStatus::ExpectTestFailed(cur_err)) => &[cur_err.message],
                         _ => &[origin_err.message.clone()],
                     };
