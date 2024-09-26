@@ -6306,7 +6306,7 @@ fn test_snapshot_test_target_js() {
 
             test "test inspect 2" {
               inspect!("c", content="c")
-              inspect!("d")
+              inspect!("d", content="d")
             }
 
             test "test snapshot 2" (it : @test.T) {
