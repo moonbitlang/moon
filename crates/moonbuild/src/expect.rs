@@ -94,8 +94,7 @@ pub struct ExpectFailedRaw {
 
 pub fn expect_failed_to_snapshot_result(efr: ExpectFailedRaw) -> SnapshotResult {
     let filename = parse_filename(&efr.loc).unwrap();
-    let expect_file = PathBuf::from(&filename)
-        .canonicalize()
+    let expect_file = dunce::canonicalize(PathBuf::from(&filename))
         .unwrap()
         .parent()
         .unwrap()
@@ -589,8 +588,7 @@ pub fn apply_snapshot(messages: &[String]) -> anyhow::Result<()> {
         let filename = parse_filename(&snapshot.loc)?;
         let actual = snapshot.actual.clone();
         let expect_file = &snapshot.expect_file;
-        let expect_file = PathBuf::from(&filename)
-            .canonicalize()
+        let expect_file = dunce::canonicalize(PathBuf::from(&filename))
             .unwrap()
             .parent()
             .unwrap()
@@ -698,8 +696,7 @@ pub fn render_snapshot_fail(msg: &str) -> anyhow::Result<(bool, String, String)>
     let loc = parse_loc(&snapshot.loc)?;
     let actual = snapshot.actual.clone();
     let expect_file = &snapshot.expect_file;
-    let expect_file = PathBuf::from(&filename)
-        .canonicalize()
+    let expect_file = dunce::canonicalize(PathBuf::from(&filename))
         .unwrap()
         .parent()
         .unwrap()
