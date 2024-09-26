@@ -1502,6 +1502,7 @@ fn test_moon_test_filter_index_with_auto_update() {
             "-i",
             "1",
             "-u",
+            "--no-parallelize",
         ],
     );
     check(
@@ -1538,6 +1539,7 @@ fn test_moon_test_filter_index_with_auto_update() {
             "-u",
             "-l",
             "2",
+            "--no-parallelize",
         ],
     );
     check(
@@ -1572,6 +1574,7 @@ fn test_moon_test_filter_index_with_auto_update() {
             "-u",
             "-l",
             "1",
+            "--no-parallelize",
         ],
     );
     check(
@@ -2211,7 +2214,7 @@ fn test_expect_test() -> anyhow::Result<()> {
 
     let s = snapbox::cmd::Command::new(moon_bin())
         .current_dir(&tmp_dir_path)
-        .args(["test", "--update"])
+        .args(["test", "--update", "--no-parallelize"])
         .assert()
         .success()
         .get_output()
@@ -2227,7 +2230,7 @@ fn test_expect_test() -> anyhow::Result<()> {
 
     let s = snapbox::cmd::Command::new(moon_bin())
         .current_dir(&tmp_dir_path)
-        .args(["test", "--update"])
+        .args(["test", "--update", "--no-parallelize"])
         .assert()
         .success()
         .get_output()
@@ -5365,7 +5368,7 @@ fn test_many_targets() {
 #[test]
 fn test_many_targets_auto_update_001() {
     let dir = TestDir::new("test_many_targets_auto_update.in");
-    let _ = get_stdout(&dir, ["test", "-u"]);
+    let _ = get_stdout(&dir, ["test", "-u", "--no-parallelize"]);
     check(
         &replace_crlf_to_lf(&std::fs::read_to_string(dir.join("lib").join("x.wasm.mbt")).unwrap()),
         expect![[r#"
@@ -5397,7 +5400,7 @@ fn test_many_targets_auto_update_001() {
 #[test]
 fn test_many_targets_auto_update_002() {
     let dir = TestDir::new("test_many_targets_auto_update.in");
-    let _ = get_stdout(&dir, ["test", "--target", "js", "-u"]);
+    let _ = get_stdout(&dir, ["test", "--target", "js", "-u", "--no-parallelize"]);
     check(
         &replace_crlf_to_lf(&std::fs::read_to_string(dir.join("lib").join("x.wasm.mbt")).unwrap()),
         expect![[r#"
@@ -5429,7 +5432,7 @@ fn test_many_targets_auto_update_002() {
 #[test]
 fn test_many_targets_auto_update_003() {
     let dir = TestDir::new("test_many_targets_auto_update.in");
-    let _ = get_stdout(&dir, ["test", "--target", "wasm", "-u"]);
+    let _ = get_stdout(&dir, ["test", "--target", "wasm", "-u", "--no-parallelize"]);
     check(
         &replace_crlf_to_lf(&std::fs::read_to_string(dir.join("lib").join("x.wasm.mbt")).unwrap()),
         expect![[r#"
@@ -5448,7 +5451,7 @@ fn test_many_targets_auto_update_003() {
             }
         "#]],
     );
-    let _ = get_stdout(&dir, ["test", "--target", "js", "-u"]);
+    let _ = get_stdout(&dir, ["test", "--target", "js", "-u", "--no-parallelize"]);
     check(
         &replace_crlf_to_lf(&std::fs::read_to_string(dir.join("lib").join("x.js.mbt")).unwrap()),
         expect![[r#"
@@ -5462,7 +5465,7 @@ fn test_many_targets_auto_update_003() {
 #[test]
 fn test_many_targets_auto_update_004() {
     let dir = TestDir::new("test_many_targets_auto_update.in");
-    let _ = get_stdout(&dir, ["test", "--target", "wasm", "-u"]);
+    let _ = get_stdout(&dir, ["test", "--target", "wasm", "-u", "--no-parallelize"]);
     check(
         &replace_crlf_to_lf(&std::fs::read_to_string(dir.join("lib").join("x.wasm.mbt")).unwrap()),
         expect![[r#"
@@ -5471,7 +5474,10 @@ fn test_many_targets_auto_update_004() {
             }
         "#]],
     );
-    let _ = get_stdout(&dir, ["test", "--target", "wasm-gc", "-u"]);
+    let _ = get_stdout(
+        &dir,
+        ["test", "--target", "wasm-gc", "-u", "--no-parallelize"],
+    );
     check(
         &replace_crlf_to_lf(
             &std::fs::read_to_string(dir.join("lib").join("x.wasm-gc.mbt")).unwrap(),
@@ -5482,7 +5488,7 @@ fn test_many_targets_auto_update_004() {
             }
         "#]],
     );
-    let _ = get_stdout(&dir, ["test", "--target", "js", "-u"]);
+    let _ = get_stdout(&dir, ["test", "--target", "js", "-u", "--no-parallelize"]);
     check(
         &replace_crlf_to_lf(&std::fs::read_to_string(dir.join("lib").join("x.js.mbt")).unwrap()),
         expect![[r#"
@@ -5757,7 +5763,7 @@ fn moon_test_parallelize_should_success() {
     let output = get_err_stdout(&dir, ["test"]);
     assert!(output.contains("Total tests: 13, passed: 11, failed: 2."));
 
-    let output = get_stdout(&dir, ["test", "-u"]);
+    let output = get_stdout(&dir, ["test", "-u", "--no-parallelize"]);
     assert!(output.contains("Total tests: 13, passed: 13, failed: 0."));
 }
 
@@ -5925,7 +5931,7 @@ fn test_specify_source_dir_002() {
         "#]],
     );
     check(
-        &get_stdout(&dir, ["test", "-u"]),
+        &get_stdout(&dir, ["test", "-u", "--no-parallelize"]),
         expect![[r#"
 
             Auto updating expect tests and retesting ...
@@ -6142,7 +6148,7 @@ fn test_snapshot_test() {
         "#]],
     );
     check(
-        &get_stdout(&dir, ["test", "-u"]),
+        &get_stdout(&dir, ["test", "-u", "--no-parallelize"]),
         expect![[r#"
 
             Auto updating expect tests and retesting ...
@@ -6484,12 +6490,11 @@ fn test_moon_doc() {
     check(
         &read(&dir.join("target/doc/username/hello/lib/members.md")),
         expect![[r#"
-            # Index
+            # Documentation
             |Value|description|
             |---|---|
             |[hello](#hello)||
 
-            # Value and Function
             ## hello
 
             ```moonbit
@@ -6500,7 +6505,7 @@ fn test_moon_doc() {
     );
     check(
         &read(&dir.join("target/doc/username/hello/main/members.md")),
-        expect!["# Index"],
+        expect!["# Documentation"],
     );
     check(
         &read(&dir.join("target/doc/username/hello/_sidebar.md")),
