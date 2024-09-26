@@ -6490,12 +6490,11 @@ fn test_moon_doc() {
     check(
         &read(&dir.join("target/doc/username/hello/lib/members.md")),
         expect![[r#"
-            # Index
+            # Documentation
             |Value|description|
             |---|---|
             |[hello](#hello)||
 
-            # Value and Function
             ## hello
 
             ```moonbit
@@ -6506,7 +6505,7 @@ fn test_moon_doc() {
     );
     check(
         &read(&dir.join("target/doc/username/hello/main/members.md")),
-        expect!["# Index"],
+        expect!["# Documentation"],
     );
     check(
         &read(&dir.join("target/doc/username/hello/_sidebar.md")),
