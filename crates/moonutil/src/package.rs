@@ -84,6 +84,19 @@ impl Package {
         comps.extend(self.rel.components.iter().cloned());
         PathComponent { components: comps }
     }
+
+    pub fn get_all_files(&self) -> Vec<String> {
+        let mut files =
+            Vec::with_capacity(self.files.len() + self.test_files.len() + self.wbtest_files.len());
+        files.extend(
+            self.files
+                .keys()
+                .chain(self.test_files.keys())
+                .chain(self.wbtest_files.keys())
+                .map(|x| x.file_name().unwrap().to_str().unwrap().to_string()),
+        );
+        files
+    }
 }
 
 #[derive(Debug, Serialize, Deserialize, PartialEq)]
