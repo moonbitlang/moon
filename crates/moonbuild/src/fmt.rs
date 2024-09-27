@@ -16,13 +16,9 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
-use std::path::{Path, PathBuf};
-use std::process::Command;
+use std::path::PathBuf;
 
-use anyhow::Context;
-use moonutil::common::IGNORE_DIRS;
 use moonutil::module::ModuleDB;
-use walkdir::WalkDir;
 
 use moonutil::common::{MoonbuildOpt, MooncOpt};
 
@@ -33,45 +29,6 @@ use std::rc::Rc;
 
 use crate::gen::cmd_builder::CommandBuilder;
 use crate::gen::n2_errors::{N2Error, N2ErrorKind};
-
-pub fn format_package(dir: &Path) -> anyhow::Result<i32> {
-    let mut errors = vec![];
-    let result = walk_dir(dir, &mut errors);
-    if result.is_ok() {
-        if errors.is_empty() {
-            return Ok(0);
-        } else {
-            for (p, e) in errors {
-                eprintln!("Error while formatting {}:\n{}", p.display(), e);
-            }
-            return Ok(1);
-        }
-    }
-    anyhow::bail!(result.err().unwrap())
-}
-
-fn walk_dir(dir: &Path, errors: &mut Vec<(PathBuf, String)>) -> anyhow::Result<()> {
-    let walker = WalkDir::new(dir).into_iter();
-    for entry in walker.filter_entry(|e| !IGNORE_DIRS.contains(&e.file_name().to_str().unwrap())) {
-        let entry = entry.context("failed to read entry")?;
-        if entry.file_type().is_dir() {
-            continue;
-        }
-
-        let p = entry.path();
-
-        if let Some(ext) = p.extension() {
-            if ext == "mbt" {
-                let out = Command::new("moonfmt").arg("-w").arg(p).output()?;
-                if !out.status.success() {
-                    let stderr = String::from_utf8_lossy(&out.stderr).to_string();
-                    errors.push((p.to_path_buf(), stderr));
-                }
-            }
-        }
-    }
-    Ok(())
-}
 
 pub fn load_moon_proj(
     m: &ModuleDB,
