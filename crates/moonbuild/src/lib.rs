@@ -18,8 +18,6 @@
 
 #![warn(clippy::clone_on_ref_ptr)]
 
-use std::io::Write;
-
 pub mod bench;
 pub mod build;
 pub mod bundle;
@@ -40,24 +38,6 @@ pub mod watch;
 use sysinfo::{ProcessExt, System, SystemExt};
 
 pub const MOON_PID_NAME: &str = ".moon.pid";
-
-pub fn bail_moon_check_is_running(p: &std::path::Path) -> anyhow::Result<i32> {
-    anyhow::bail!(
-        "`moon check` is already running. If you are certain it is not running, you may want to manually delete `{}` and try again.",
-        p.to_str().unwrap_or(MOON_PID_NAME)
-    )
-}
-
-pub fn write_current_pid(
-    target_dir: &std::path::Path,
-    pid_path: &std::path::Path,
-) -> anyhow::Result<()> {
-    std::fs::create_dir_all(target_dir)?;
-    let pid = std::process::id();
-    let mut pid_file = std::fs::File::create(pid_path)?;
-    pid_file.write_all(pid.to_string().as_bytes())?;
-    Ok(())
-}
 
 pub fn watcher_is_running(pid_path: &std::path::Path) -> anyhow::Result<bool> {
     if !pid_path.exists() {

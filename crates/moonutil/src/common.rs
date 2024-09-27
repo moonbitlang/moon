@@ -31,7 +31,6 @@ use std::fs::File;
 use std::io::ErrorKind;
 use std::io::{BufReader, BufWriter};
 use std::path::{Path, PathBuf};
-use std::str::FromStr;
 
 pub const MOON_MOD_JSON: &str = "moon.mod.json";
 pub const MOON_PKG_JSON: &str = "moon.pkg.json";
@@ -52,14 +51,6 @@ pub const MOON_SNAPSHOT_DELIMITER_BEGIN: &str = "----- BEGIN MOONBIT SNAPSHOT TE
 pub const MOON_SNAPSHOT_DELIMITER_END: &str = "----- END MOONBIT SNAPSHOT TESTING -----";
 
 pub const TEST_INFO_FILE: &str = "test_info.json";
-
-pub fn startswith_and_trim(s: &str, t: &str) -> String {
-    if s.starts_with(t) {
-        s.replacen(t, "", 1)
-    } else {
-        s.into()
-    }
-}
 
 #[derive(Debug, thiserror::Error)]
 pub enum SourceError {
@@ -164,9 +155,10 @@ pub fn read_package_desc_file_in_dir(dir: &Path) -> anyhow::Result<MoonPkg> {
         .context(format!("Failed to load {:?}", dir.join(MOON_PKG_JSON)))
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, ValueEnum)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, ValueEnum, Default)]
 #[repr(u8)]
 pub enum OutputFormat {
+    #[default]
     Wat,
     Wasm,
     Js,
@@ -275,24 +267,7 @@ impl TargetBackend {
     }
 }
 
-impl FromStr for TargetBackend {
-    type Err = &'static str;
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        match s {
-            "wasm" => Ok(Self::Wasm),
-            "wasm-gc" => Ok(Self::WasmGC),
-            "js" => Ok(Self::Js),
-            _ => Err("invalid target backend"),
-        }
-    }
-}
-
-pub fn is_slash(c: char) -> bool {
-    c == '/' || c == '\\'
-}
-
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct BuildPackageFlags {
     pub debug_flag: bool,
     pub source_map: bool,
@@ -303,12 +278,6 @@ pub struct BuildPackageFlags {
     // treat all warnings as errors
     pub deny_warn: bool,
     pub target_backend: TargetBackend,
-}
-
-impl Default for BuildPackageFlags {
-    fn default() -> Self {
-        Self::new()
-    }
 }
 
 impl BuildPackageFlags {
@@ -325,18 +294,12 @@ impl BuildPackageFlags {
     }
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, Default)]
 pub struct LinkCoreFlags {
     pub debug_flag: bool,
     pub source_map: bool,
     pub output_format: OutputFormat,
     pub target_backend: TargetBackend,
-}
-
-impl Default for LinkCoreFlags {
-    fn default() -> Self {
-        Self::new()
-    }
 }
 
 impl LinkCoreFlags {
@@ -384,24 +347,6 @@ pub struct TestOpt {
 }
 
 impl TestOpt {
-    pub fn to_command(&self) -> Vec<String> {
-        let mut command_str = Vec::new();
-        if let Some(filter_package) = &self.filter_package {
-            command_str.push("--package".into());
-            filter_package.iter().for_each(|pkg| {
-                command_str.push(pkg.display().to_string());
-            });
-        }
-        if let Some(filter_file) = &self.filter_file {
-            command_str.push("--file".into());
-            command_str.push(filter_file.into());
-        }
-        if let Some(filter_index) = self.filter_index {
-            command_str.push("--index".into());
-            command_str.push(filter_index.to_string());
-        }
-        command_str
-    }
     pub fn get_package_filter(&self) -> impl Fn(&Package) -> bool + '_ {
         move |pkg| {
             if let Some(ref filter_package) = self.filter_package {
@@ -479,11 +424,6 @@ pub struct VersionItem {
 // Copy from https://github.com/rust-lang/cargo/blob/e52e360/crates/cargo-test-support/src/paths.rs#L113
 pub trait CargoPathExt {
     fn rm_rf(&self);
-    fn mkdir_p(&self);
-
-    /// Returns a list of all files and directories underneath the given
-    /// directory, recursively, including the starting path.
-    fn ls_r(&self) -> Vec<PathBuf>;
 }
 
 impl CargoPathExt for Path {
@@ -508,41 +448,6 @@ impl CargoPathExt for Path {
             panic!("failed to remove {:?}: {:?}", self, e)
         }
     }
-
-    fn mkdir_p(&self) {
-        fs::create_dir_all(self)
-            .unwrap_or_else(|e| panic!("failed to mkdir_p {}: {}", self.display(), e))
-    }
-
-    fn ls_r(&self) -> Vec<PathBuf> {
-        walkdir::WalkDir::new(self)
-            .sort_by_file_name()
-            .into_iter()
-            .filter_map(|e| e.map(|e| e.path().to_owned()).ok())
-            .collect()
-    }
-}
-
-pub fn get_src_dst_dir(matches: &clap::ArgMatches) -> anyhow::Result<(PathBuf, PathBuf)> {
-    let default_source_dir = dunce::canonicalize(PathBuf::from(".")).unwrap();
-    let source_dir = matches
-        .get_one::<PathBuf>("source-dir")
-        .unwrap_or(&default_source_dir);
-    let default_target_dir = source_dir.join("target");
-
-    if !check_moon_mod_exists(source_dir) {
-        bail!("could not find `{}`", MOON_MOD_JSON);
-    }
-
-    let target_dir = matches
-        .get_one::<PathBuf>("target-dir")
-        .unwrap_or(&default_target_dir);
-    if !target_dir.exists() {
-        std::fs::create_dir_all(target_dir).context("failed to create target directory")?;
-    }
-
-    let target_dir = dunce::canonicalize(target_dir).context("failed to set target directory")?;
-    Ok((source_dir.into(), target_dir))
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Copy, Default)]
