@@ -45,6 +45,7 @@ log.workspace = true
 thiserror.workspace = true
 schemars.workspace = true
 line-index.workspace = true
+nucleo-matcher.workspace = true
 
 [dev-dependencies]
 expect-test.workspace = true

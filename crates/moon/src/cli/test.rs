@@ -32,6 +32,7 @@ use moonutil::dirs::PackageDirs;
 use moonutil::module::ModuleDB;
 use moonutil::mooncakes::sync::AutoSyncFlags;
 use moonutil::mooncakes::RegistryConfig;
+use moonutil::package::Package;
 use n2::trace;
 use std::path::Path;
 use std::path::PathBuf;
@@ -210,7 +211,75 @@ fn run_test_internal(
         &moonbuild_opt,
     )?;
 
-    let package_filter = moonbuild_opt.get_package_filter();
+    let (package_filter, moonbuild_opt) = if let Some(filter_package) = moonbuild_opt
+        .test_opt
+        .as_ref()
+        .and_then(|opt| opt.filter_package.as_ref())
+    {
+        let all_packages: indexmap::IndexSet<String> = module
+            .get_all_packages()
+            .iter()
+            .map(|pkg| pkg.0.to_string())
+            .collect();
+
+        let mut final_set = indexmap::IndexSet::new();
+        for pkg in filter_package {
+            let needle = pkg.display().to_string();
+            if all_packages.contains(&needle) {
+                // exact matching
+                final_set.insert(needle);
+            } else {
+                let xs = moonutil::fuzzy_match::fuzzy_match(&needle, &all_packages);
+                if let Some(xs) = xs {
+                    final_set.extend(xs);
+                }
+            }
+        }
+
+        if let Some(file_filter) = moonbuild_opt
+            .test_opt
+            .as_ref()
+            .and_then(|opt| opt.filter_file.as_ref())
+        {
+            let mut find = false;
+            for pkgname in final_set.iter() {
+                let pkg = module.get_package_by_name(pkgname);
+                let files = pkg.get_all_files();
+                for file in files.iter() {
+                    if file == file_filter {
+                        find = true;
+                        break;
+                    }
+                }
+            }
+            if !find {
+                eprintln!(
+                    "{}: cannot find file `{}` in package {}, --file only support exact matching",
+                    "Warning".yellow(),
+                    file_filter,
+                    final_set
+                        .iter()
+                        .map(|p| format!("`{}`", p))
+                        .collect::<Vec<String>>()
+                        .join(", "),
+                );
+            }
+        };
+
+        let moonbuild_opt = MoonbuildOpt {
+            test_opt: Some(TestOpt {
+                filter_package: Some(final_set.clone().into_iter().map(PathBuf::from).collect()),
+                ..moonbuild_opt.test_opt.unwrap()
+            }),
+            ..moonbuild_opt
+        };
+
+        let package_filter = Some(move |pkg: &Package| final_set.contains(&pkg.full_name()));
+        (package_filter, moonbuild_opt)
+    } else {
+        (None, moonbuild_opt)
+    };
+
     for (_, pkg) in module.get_filtered_packages_mut(package_filter) {
         if pkg.is_third_party || pkg.is_main {
             continue;

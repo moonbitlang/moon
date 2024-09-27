@@ -23,6 +23,7 @@ pub mod common;
 pub mod cond_expr;
 pub mod dependency;
 pub mod dirs;
+pub mod fuzzy_match;
 pub mod git;
 pub mod graph;
 pub mod module;
