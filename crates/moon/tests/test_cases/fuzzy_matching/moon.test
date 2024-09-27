@@ -1,0 +1,14 @@
+  $ moon test -p username/hello/x --sort-input --no-parallelize
+  
+  $ moon test -p x --sort-input --no-parallelize
+  
+  $ moon test -p x/y --sort-input --no-parallelize
+  
+  $ moon test -p u/h/x/y --sort-input --no-parallelize
+  
+  $ moon test -p y --sort-input --no-parallelize
+  
+  $ moon test -p asdf --sort-input --no-parallelize
+  
+  $ moon test -p y -f asdf --sort-input --no-parallelize
+  
