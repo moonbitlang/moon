@@ -1,14 +1,45 @@
   $ moon test -p username/hello/x --sort-input --no-parallelize
+  x blackbox test
+  x inline test
+  x whitebox test
+  Total tests: 3, passed: 3, failed: 0.
   
   $ moon test -p x --sort-input --no-parallelize
+  x blackbox test
+  x inline test
+  x whitebox test
+  x_y blackbox test
+  x_y inline test
+  x_y whitebox test
+  Total tests: 6, passed: 6, failed: 0.
   
   $ moon test -p x/y --sort-input --no-parallelize
+  x_y blackbox test
+  x_y inline test
+  x_y whitebox test
+  Total tests: 3, passed: 3, failed: 0.
   
   $ moon test -p u/h/x/y --sort-input --no-parallelize
+  x_y blackbox test
+  x_y inline test
+  x_y whitebox test
+  Total tests: 3, passed: 3, failed: 0.
   
   $ moon test -p y --sort-input --no-parallelize
+  x_y blackbox test
+  x_y inline test
+  x_y whitebox test
+  y blackbox test
+  y inline test
+  y whitebox test
+  Total tests: 6, passed: 6, failed: 0.
   
   $ moon test -p asdf --sort-input --no-parallelize
   
+  Warning: no test entry found
+  
   $ moon test -p y -f asdf --sort-input --no-parallelize
+  Total tests: 0, passed: 0, failed: 0.
+  
+  Warning: cannot find file `asdf` in package `username/hello/x/y`, `username/hello/y`, --file only support exact matching
   
