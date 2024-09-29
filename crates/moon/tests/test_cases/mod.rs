@@ -6771,3 +6771,75 @@ fn test_bad_version() {
     "#]],
     );
 }
+
+#[test]
+fn test_moonfmt() {
+    let dir = TestDir::new("general.in");
+    let oneline = r#"pub fn hello() -> String { "Hello, world!" }"#;
+
+    std::fs::write(dir.join("src/lib/hello.mbt"), oneline).unwrap();
+
+    let out = std::process::Command::new("moonfmt")
+        .args(["./src/lib/hello.mbt"])
+        .current_dir(&dir)
+        .output()
+        .unwrap();
+    let out = replace_crlf_to_lf(&String::from_utf8(out.stdout).unwrap());
+    check(
+        &out,
+        expect![[r#"
+        pub fn hello() -> String {
+          "Hello, world!"
+        }
+    "#]],
+    );
+
+    check(
+        &read(&dir.join("src/lib/hello.mbt")),
+        expect![[r#"pub fn hello() -> String { "Hello, world!" }"#]],
+    );
+
+    let out = std::process::Command::new("moonfmt")
+        .args(["-i", "./src/lib/hello.mbt"])
+        .current_dir(&dir)
+        .output()
+        .unwrap();
+    let _ = String::from_utf8(out.stdout).unwrap();
+    check(
+        &read(&dir.join("src/lib/hello.mbt")),
+        expect![[r#"
+            pub fn hello() -> String {
+              "Hello, world!"
+            }
+        "#]],
+    );
+
+    std::fs::write(dir.join("src/lib/hello.mbt"), oneline).unwrap();
+    check(
+        &read(&dir.join("src/lib/hello.mbt")),
+        expect![[r#"pub fn hello() -> String { "Hello, world!" }"#]],
+    );
+
+    let out = std::process::Command::new("moonfmt")
+        .args(["-i", "./src/lib/hello.mbt", "-o", "./src/lib/hello.txt"])
+        .current_dir(&dir)
+        .output()
+        .unwrap();
+    let _ = String::from_utf8(out.stdout).unwrap();
+    check(
+        &read(&dir.join("src/lib/hello.mbt")),
+        expect![[r#"
+        pub fn hello() -> String {
+          "Hello, world!"
+        }
+    "#]],
+    );
+    check(
+        &read(&dir.join("src/lib/hello.txt")),
+        expect![[r#"
+    pub fn hello() -> String {
+      "Hello, world!"
+    }
+"#]],
+    );
+}
