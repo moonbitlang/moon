@@ -791,7 +791,9 @@ async fn execute_test(
             )
             .await
         }
-        TargetBackend::Native => todo!("no implement yet"),
+        TargetBackend::Native => {
+            crate::runtest::run_native(artifact_path, target_dir, args, file_test_info_map).await
+        }
     }
 }
 

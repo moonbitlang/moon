@@ -260,14 +260,21 @@ fn generate_driver(
                 "/../moonbuild/template/test_driver/js_args.mbt"
             ))
         }
-        TargetBackend::Native => todo!("no implement yet"),
+        TargetBackend::Native => "",
     };
 
     let mut template = if only_no_arg_tests {
-        include_str!(concat!(
-            env!("CARGO_MANIFEST_DIR"),
-            "/../moonbuild/template/test_driver/no_args_driver_template.mbt"
-        )).to_string()
+        if target_backend.unwrap_or_default() == TargetBackend::Native {
+            include_str!(concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/../moonbuild/template/test_driver/no_args_driver_template_native.mbt"
+            )).to_string()
+        } else {
+            include_str!(concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/../moonbuild/template/test_driver/no_args_driver_template.mbt"
+            )).to_string()
+        }
     }
     else {
         include_str!(concat!(

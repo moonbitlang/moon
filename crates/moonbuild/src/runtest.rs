@@ -89,6 +89,22 @@ pub async fn run_js(
     .await
 }
 
+pub async fn run_native(
+    path: &Path,
+    target_dir: &Path,
+    args: &TestArgs,
+    file_test_info_map: &FileTestInfo,
+) -> anyhow::Result<Vec<Result<TestStatistics, TestFailedStatus>>> {
+    run(
+        path.to_str().unwrap(),
+        path,
+        target_dir,
+        &[serde_json_lenient::to_string(args).unwrap()],
+        file_test_info_map,
+    )
+    .await
+}
+
 async fn run(
     command: &str,
     path: &Path,
@@ -133,7 +149,7 @@ async fn run(
     let output = execution.wait().await?;
 
     if !output.success() {
-        bail!("Failed to run the test");
+        bail!(format!("Failed to run the test: {}", path.display()));
     }
     if let Some(coverage_output) = coverage_capture.finish() {
         // Output to moonbit_coverage_<time>.txt
