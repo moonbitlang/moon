@@ -629,6 +629,14 @@ pub fn run_test(
                 .replace(
                     "origin_js_path",
                     &artifact_path.display().to_string().replace("\\", "/"),
+                )
+                .replace(
+                    "let testParams = []",
+                    &format!("let testParams = {}", test_args.to_args()),
+                )
+                .replace(
+                    "let packageName = \"\"",
+                    &format!("let packageName = {:?}", test_args.package),
                 );
 
                 std::fs::write(&wrapper_js_driver_path, js_driver)?;
@@ -749,6 +757,17 @@ impl TestArgs {
             .iter()
             .map(|(_, range)| range.end - range.start)
             .sum()
+    }
+
+    fn to_args(&self) -> String {
+        let file_and_index = &self.file_and_index;
+        let mut test_params: Vec<[String; 2]> = vec![];
+        for (file, index) in file_and_index {
+            for i in index.clone() {
+                test_params.push([file.clone(), i.to_string()]);
+            }
+        }
+        format!("{:?}", test_params)
     }
 }
 
