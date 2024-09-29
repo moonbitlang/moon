@@ -16,6 +16,7 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
+use crate::common::MoonModJSONFormatErrorKind;
 use crate::common::MooncOpt;
 use crate::common::MOON_PKG_JSON;
 use crate::dependency::{DependencyInfo, DependencyInfoJson};
@@ -410,8 +411,7 @@ pub struct MoonModJSON {
 
     /// version of the module
     #[serde(skip_serializing_if = "Option::is_none")]
-    #[schemars(with = "Option<String>")]
-    pub version: Option<Version>,
+    pub version: Option<String>,
 
     /// third-party dependencies of the module
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -471,8 +471,16 @@ pub struct MoonModJSON {
     pub alert_list: Option<String>,
 }
 
-impl From<MoonModJSON> for MoonMod {
-    fn from(j: MoonModJSON) -> Self {
+impl TryFrom<MoonModJSON> for MoonMod {
+    type Error = MoonModJSONFormatErrorKind;
+    fn try_from(j: MoonModJSON) -> Result<Self, Self::Error> {
+        let version = match &j.version {
+            None => None,
+            Some(v) => Some(
+                Version::parse(v.as_str()).map_err(MoonModJSONFormatErrorKind::Version)?,
+            ),
+        };
+
         let deps = match j.deps {
             None => IndexMap::new(),
             Some(d) => d.into_iter().map(|(k, v)| (k, v.into())).collect(),
@@ -480,9 +488,9 @@ impl From<MoonModJSON> for MoonMod {
 
         let source = j.source.map(|s| if s.is_empty() { ".".into() } else { s });
 
-        MoonMod {
+        Ok(MoonMod {
             name: j.name,
-            version: j.version,
+            version,
             deps,
             readme: j.readme,
             repository: j.repository,
@@ -498,14 +506,14 @@ impl From<MoonModJSON> for MoonMod {
 
             alert_list: j.alert_list,
             warn_list: j.warn_list,
-        }
+        })
     }
 }
 
 pub fn convert_module_to_mod_json(m: MoonMod) -> MoonModJSON {
     MoonModJSON {
         name: m.name,
-        version: m.version,
+        version: m.version.map(|v| v.to_string()),
         deps: Some(m.deps.into_iter().map(|(k, v)| (k, v.into())).collect()),
         readme: m.readme,
         repository: m.repository,

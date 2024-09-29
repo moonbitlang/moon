@@ -88,6 +88,8 @@ pub enum MoonModJSONFormatErrorKind {
     Parse(#[from] serde_json_lenient::Error),
     #[error("`source` bad format")]
     Source(#[from] SourceError),
+    #[error("`version` bad format")]
+    Version(#[from] semver::Error),
 }
 
 pub fn read_module_from_json(path: &Path) -> Result<MoonMod, MoonModJSONFormatError> {
@@ -114,7 +116,10 @@ pub fn read_module_from_json(path: &Path) -> Result<MoonMod, MoonModJSONFormatEr
             });
         }
     }
-    Ok(j.into())
+    j.try_into().map_err(|e| MoonModJSONFormatError {
+        path: path.into(),
+        kind: e,
+    })
 }
 
 fn read_package_from_json(path: &Path) -> anyhow::Result<MoonPkg> {
