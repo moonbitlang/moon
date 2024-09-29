@@ -83,7 +83,7 @@ impl super::Registry for OnlineRegistry {
                     continue;
                 }
             };
-            let module: MoonMod = module.into();
+            let module: MoonMod = module.try_into()?;
             if let Some(v) = &module.version {
                 res.insert(v.clone(), Rc::new(module));
             }
@@ -144,7 +144,7 @@ impl OnlineRegistry {
         let lines = reader.lines().collect::<std::io::Result<Vec<String>>>()?;
         for line in lines.iter().rev() {
             let j: MoonModJSON = serde_json_lenient::from_str(line)?;
-            if j.version.as_ref() == Some(version) {
+            if j.version.as_ref() == Some(&version.to_string()) {
                 if let Some(checksum) = j.checksum {
                     return Ok(checksum);
                 } else {
