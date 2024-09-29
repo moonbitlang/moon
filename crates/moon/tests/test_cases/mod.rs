@@ -20,8 +20,9 @@ use std::io::Write;
 
 use super::*;
 use expect_test::expect;
-use moonutil::common::{
-    get_cargo_pkg_version, CargoPathExt, TargetBackend, DEP_PATH, MOON_MOD_JSON,
+use moonutil::{
+    common::{get_cargo_pkg_version, CargoPathExt, TargetBackend, DEP_PATH, MOON_MOD_JSON},
+    module::MoonModJSON,
 };
 use serde::{Deserialize, Serialize};
 use walkdir::WalkDir;
@@ -6745,5 +6746,28 @@ fn test_moon_coverage() {
             .last()
             .unwrap(),
         expect!["Total: 3/6"],
+    );
+}
+
+#[test]
+fn test_bad_version() {
+    let dir = TestDir::new("general.in");
+    let content = std::fs::read_to_string(dir.join("moon.mod.json")).unwrap();
+    let mut moon_mod: MoonModJSON = serde_json::from_str(&content).unwrap();
+    moon_mod.version = Some("0.0".to_string());
+    std::fs::write(
+        dir.join("moon.mod.json"),
+        serde_json::to_string(&moon_mod).unwrap(),
+    )
+    .unwrap();
+    check(
+        &get_err_stderr(&dir, ["check"]),
+        expect![[r#"
+        error: failed to load `$ROOT/moon.mod.json`
+
+        Caused by:
+            0: `version` bad format
+            1: unexpected end of input while parsing minor version number
+    "#]],
     );
 }

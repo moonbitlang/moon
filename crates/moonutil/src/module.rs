@@ -476,9 +476,9 @@ impl TryFrom<MoonModJSON> for MoonMod {
     fn try_from(j: MoonModJSON) -> Result<Self, Self::Error> {
         let version = match &j.version {
             None => None,
-            Some(v) => Some(
-                Version::parse(v.as_str()).map_err(MoonModJSONFormatErrorKind::Version)?,
-            ),
+            Some(v) => {
+                Some(Version::parse(v.as_str()).map_err(MoonModJSONFormatErrorKind::Version)?)
+            }
         };
 
         let deps = match j.deps {
