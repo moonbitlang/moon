@@ -31,6 +31,7 @@ use n2::load::State;
 use serde::{Deserialize, Serialize};
 use std::{path::Path, process::Stdio};
 use tokio::io::AsyncReadExt;
+use tokio::sync::mpsc;
 
 pub fn load_moon_proj(
     module: &ModuleDB,
@@ -106,104 +107,167 @@ async fn run(
         .with_context(|| format!("failed to execute '{} {}'", command, path.display()))?;
     let mut stdout = execution.stdout.take().unwrap();
 
-    let mut test_capture =
-        SectionCapture::new(MOON_TEST_DELIMITER_BEGIN, MOON_TEST_DELIMITER_END, false);
+    let (test_sender, mut test_receiver) = mpsc::channel(100);
+    let (coverage_sender, coverage_receiver) = mpsc::channel(100);
+    let mut test_capture = SectionCapture::new(
+        MOON_TEST_DELIMITER_BEGIN,
+        MOON_TEST_DELIMITER_END,
+        false,
+        test_sender.clone(),
+    );
+
     let mut coverage_capture = SectionCapture::new(
         MOON_COVERAGE_DELIMITER_BEGIN,
         MOON_COVERAGE_DELIMITER_END,
         true,
+        coverage_sender.clone(),
     );
 
-    let mut stdout_buffer = Vec::new();
-    stdout
-        .read_to_end(&mut stdout_buffer)
+    let mut reader = tokio::io::BufReader::new(stdout);
+    let handle_stdout_task = tokio::spawn(async move {
+        handle_stdout(
+            &mut reader,
+            vec![test_capture, coverage_capture],
+            |l| print!("{}", l),
+        )
         .await
-        .context(format!(
-            "failed to read stdout for {} {} {}",
-            command,
-            path.display(),
-            args.join(" ")
-        ))?;
+    });
 
-    handle_stdout(
-        &mut std::io::BufReader::new(stdout_buffer.as_slice()),
-        &mut [&mut test_capture, &mut coverage_capture],
-        |line| print!("{}", line),
-    )?;
+    // handle_stdout(
+    //     &mut reader,
+    //     vec![test_capture, coverage_capture],
+    //     |l| print!("{}", l),
+    // )
+    // .await?;
+    
+    // if let Some(coverage_output) = coverage_capture.finish() {
+    //     // Output to moonbit_coverage_<time>.txt
+    //     // TODO: do we need to move this out of the runtest module?
+    //     let time = chrono::Local::now().timestamp_micros();
+    //     let filename = target_dir.join(format!("moonbit_coverage_{}.txt", time));
+    //     std::fs::write(&filename, coverage_output)
+    //         .context(format!("failed to write {}", filename.to_string_lossy()))?;
+    // }
+
+    drop(test_sender);
+    drop(coverage_sender);
+
+    let mut res = vec![];
+    while let Some(test_output) = test_receiver.recv().await {
+        if test_output == "stop" {
+            break;
+        }
+        let mut test_statistic = serde_json_lenient::from_str::<TestStatistics>(test_output.trim())
+            .context(format!("failed to parse test summary: {}", test_output))?;
+
+        let filename = &test_statistic.filename;
+        let index = &test_statistic.index.parse::<u32>().unwrap();
+        let test_name = file_test_info_map
+            .get(filename)
+            .and_then(|m| m.get(index))
+            .and_then(|s| s.as_ref())
+            .unwrap_or(&test_statistic.index);
+
+        if test_name.starts_with("panic") {
+            // should panic but not panic
+            if test_statistic.message.is_empty() {
+                test_statistic.message = "panic is expected".to_string();
+            }
+            // it does panic, treat it as ok
+            else {
+                test_statistic.message = "".to_string();
+            }
+        }
+
+        test_statistic.test_name = test_name.clone();
+
+        let return_message = test_statistic.message.clone();
+        if return_message.is_empty() {
+            res.push(Ok(test_statistic));
+        } else if return_message.starts_with(EXPECT_FAILED) {
+            res.push(Err(TestFailedStatus::ExpectTestFailed(test_statistic)));
+        } else if return_message.starts_with(SNAPSHOT_TESTING) {
+            let ok = snapshot_eq(&test_statistic.message)?;
+            if ok {
+                res.push(Ok(test_statistic));
+            } else {
+                res.push(Err(TestFailedStatus::SnapshotPending(test_statistic)));
+            }
+        } else if return_message.starts_with(RUNTIME_ERROR) || return_message.starts_with(ERROR) {
+            res.push(Err(TestFailedStatus::RuntimeError(test_statistic)));
+        } else if return_message.starts_with(FAILED) || !return_message.is_empty() {
+            // FAILED(moonbit) or something like "panic is expected"
+            res.push(Err(TestFailedStatus::Failed(test_statistic)));
+        } else {
+            res.push(Err(TestFailedStatus::Others(return_message.to_string())));
+        }
+    }
+    // println!("44444444");
+    // if let Some(test_output) = test_capture.finish() {
+    //     let mut test_statistics: Vec<TestStatistics> = vec![];
+    //     for s in test_output.split('\n') {
+    //         if s.is_empty() {
+    //             continue;
+    //         }
+    //         let a = serde_json_lenient::from_str(s.trim())
+    //             .context(format!("failed to parse test summary: {}", s))?;
+    //         test_statistics.push(a);
+    //     }
+
+    //     for mut test_statistic in test_statistics {
+    //         let filename = &test_statistic.filename;
+    //         let index = &test_statistic.index.parse::<u32>().unwrap();
+    //         let test_name = file_test_info_map
+    //             .get(filename)
+    //             .and_then(|m| m.get(index))
+    //             .and_then(|s| s.as_ref())
+    //             .unwrap_or(&test_statistic.index);
+
+    //         if test_name.starts_with("panic") {
+    //             // should panic but not panic
+    //             if test_statistic.message.is_empty() {
+    //                 test_statistic.message = "panic is expected".to_string();
+    //             }
+    //             // it does panic, treat it as ok
+    //             else {
+    //                 test_statistic.message = "".to_string();
+    //             }
+    //         }
+
+    //         test_statistic.test_name = test_name.clone();
+
+    //         let return_message = test_statistic.message.clone();
+    //         if return_message.is_empty() {
+    //             res.push(Ok(test_statistic));
+    //         } else if return_message.starts_with(EXPECT_FAILED) {
+    //             res.push(Err(TestFailedStatus::ExpectTestFailed(test_statistic)));
+    //         } else if return_message.starts_with(SNAPSHOT_TESTING) {
+    //             let ok = snapshot_eq(&test_statistic.message)?;
+    //             if ok {
+    //                 res.push(Ok(test_statistic));
+    //             } else {
+    //                 res.push(Err(TestFailedStatus::SnapshotPending(test_statistic)));
+    //             }
+    //         } else if return_message.starts_with(RUNTIME_ERROR) || return_message.starts_with(ERROR)
+    //         {
+    //             res.push(Err(TestFailedStatus::RuntimeError(test_statistic)));
+    //         } else if return_message.starts_with(FAILED) || !return_message.is_empty() {
+    //             // FAILED(moonbit) or something like "panic is expected"
+    //             res.push(Err(TestFailedStatus::Failed(test_statistic)));
+    //         } else {
+    //             res.push(Err(TestFailedStatus::Others(return_message.to_string())));
+    //         }
+    //     }
+    // } else {
+    //     res.push(Err(TestFailedStatus::Others(String::from(
+    //         "No test output found",
+    //     ))));
+    // }
+
     let output = execution.wait().await?;
 
     if !output.success() {
         bail!("Failed to run the test");
-    }
-    if let Some(coverage_output) = coverage_capture.finish() {
-        // Output to moonbit_coverage_<time>.txt
-        // TODO: do we need to move this out of the runtest module?
-        let time = chrono::Local::now().timestamp_micros();
-        let filename = target_dir.join(format!("moonbit_coverage_{}.txt", time));
-        std::fs::write(&filename, coverage_output)
-            .context(format!("failed to write {}", filename.to_string_lossy()))?;
-    }
-
-    let mut res = vec![];
-    if let Some(test_output) = test_capture.finish() {
-        let mut test_statistics: Vec<TestStatistics> = vec![];
-        for s in test_output.split('\n') {
-            if s.is_empty() {
-                continue;
-            }
-            let a = serde_json_lenient::from_str(s.trim())
-                .context(format!("failed to parse test summary: {}", s))?;
-            test_statistics.push(a);
-        }
-
-        for mut test_statistic in test_statistics {
-            let filename = &test_statistic.filename;
-            let index = &test_statistic.index.parse::<u32>().unwrap();
-            let test_name = file_test_info_map
-                .get(filename)
-                .and_then(|m| m.get(index))
-                .and_then(|s| s.as_ref())
-                .unwrap_or(&test_statistic.index);
-
-            if test_name.starts_with("panic") {
-                // should panic but not panic
-                if test_statistic.message.is_empty() {
-                    test_statistic.message = "panic is expected".to_string();
-                }
-                // it does panic, treat it as ok
-                else {
-                    test_statistic.message = "".to_string();
-                }
-            }
-
-            test_statistic.test_name = test_name.clone();
-
-            let return_message = test_statistic.message.clone();
-            if return_message.is_empty() {
-                res.push(Ok(test_statistic));
-            } else if return_message.starts_with(EXPECT_FAILED) {
-                res.push(Err(TestFailedStatus::ExpectTestFailed(test_statistic)));
-            } else if return_message.starts_with(SNAPSHOT_TESTING) {
-                let ok = snapshot_eq(&test_statistic.message)?;
-                if ok {
-                    res.push(Ok(test_statistic));
-                } else {
-                    res.push(Err(TestFailedStatus::SnapshotPending(test_statistic)));
-                }
-            } else if return_message.starts_with(RUNTIME_ERROR) || return_message.starts_with(ERROR)
-            {
-                res.push(Err(TestFailedStatus::RuntimeError(test_statistic)));
-            } else if return_message.starts_with(FAILED) || !return_message.is_empty() {
-                // FAILED(moonbit) or something like "panic is expected"
-                res.push(Err(TestFailedStatus::Failed(test_statistic)));
-            } else {
-                res.push(Err(TestFailedStatus::Others(return_message.to_string())));
-            }
-        }
-    } else {
-        res.push(Err(TestFailedStatus::Others(String::from(
-            "No test output found",
-        ))));
     }
 
     Ok(res)
