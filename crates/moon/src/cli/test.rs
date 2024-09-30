@@ -216,20 +216,23 @@ fn run_test_internal(
         .as_ref()
         .and_then(|opt| opt.filter_package.as_ref())
     {
-        let all_packages: indexmap::IndexSet<String> = module
+        let all_packages: indexmap::IndexSet<&str> = module
             .get_all_packages()
             .iter()
-            .map(|pkg| pkg.0.to_string())
+            .map(|pkg| pkg.0.as_str())
             .collect();
 
         let mut final_set = indexmap::IndexSet::new();
         for pkg in filter_package {
             let needle = pkg.display().to_string();
-            if all_packages.contains(&needle) {
+            if all_packages.contains(&needle.as_str()) {
                 // exact matching
                 final_set.insert(needle);
             } else {
-                let xs = moonutil::fuzzy_match::fuzzy_match(&needle, &all_packages);
+                let xs = moonutil::fuzzy_match::fuzzy_match(
+                    needle.as_str(),
+                    all_packages.iter().map(|x| *x),
+                );
                 if let Some(xs) = xs {
                     final_set.extend(xs);
                 }
@@ -241,17 +244,12 @@ fn run_test_internal(
             .as_ref()
             .and_then(|opt| opt.filter_file.as_ref())
         {
-            let mut find = false;
-            for pkgname in final_set.iter() {
+            let find = final_set.iter().any(|pkgname| {
                 let pkg = module.get_package_by_name(pkgname);
                 let files = pkg.get_all_files();
-                for file in files.iter() {
-                    if file == file_filter {
-                        find = true;
-                        break;
-                    }
-                }
-            }
+                files.iter().any(|file| file == file_filter)
+            });
+
             if !find {
                 eprintln!(
                     "{}: cannot find file `{}` in package {}, --file only support exact matching",
