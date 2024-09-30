@@ -25,7 +25,7 @@ use moonutil::package::Package;
 
 use super::cmd_builder::CommandBuilder;
 use std::collections::HashSet;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::rc::Rc;
 
 use moonutil::common::{MoonbuildOpt, MooncOpt, MOON_PKG_JSON};
@@ -677,7 +677,7 @@ pub fn gen_runtest(
         }
 
         if let Some(filter_pkg) = filter_pkg {
-            if !filter_pkg.contains(Path::new(pkgname)) {
+            if !filter_pkg.contains(pkgname) {
                 continue;
             }
         }

@@ -582,7 +582,7 @@ pub fn run_test(
         .filter(|(_, p)| !(p.is_main || p.is_third_party))
     {
         if let Some(package) = filter_package {
-            if !package.contains(Path::new(pkgname)) {
+            if !package.contains(pkgname) {
                 continue;
             }
         }

@@ -40,7 +40,7 @@ pub struct GenerateTestDriverSubcommand {
 
     /// The paths of the packages
     #[clap(short, long, num_args(0..))]
-    pub package: Option<Vec<PathBuf>>,
+    pub package: Option<Vec<String>>,
 
     /// Override coverage package name; `@self` is a special value that means the package itself
     #[clap(long)]
