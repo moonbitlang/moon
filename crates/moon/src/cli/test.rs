@@ -35,7 +35,6 @@ use moonutil::mooncakes::RegistryConfig;
 use moonutil::package::Package;
 use n2::trace;
 use std::path::Path;
-use std::path::PathBuf;
 use std::sync::Arc;
 use std::thread;
 
@@ -53,7 +52,7 @@ pub struct TestSubcommand {
 
     /// Run test in the specified package
     #[clap(short, long, num_args(0..))]
-    pub package: Option<Vec<PathBuf>>,
+    pub package: Option<Vec<String>>,
 
     /// Run test in the specified file. Only valid when `--package` is also specified.
     #[clap(short, long, requires("package"))]
@@ -223,15 +222,14 @@ fn run_test_internal(
             .collect();
 
         let mut final_set = indexmap::IndexSet::new();
-        for pkg in filter_package {
-            let needle = pkg.display().to_string();
+        for needle in filter_package {
             if all_packages.contains(&needle.as_str()) {
                 // exact matching
-                final_set.insert(needle);
+                final_set.insert(needle.to_string());
             } else {
                 let xs = moonutil::fuzzy_match::fuzzy_match(
                     needle.as_str(),
-                    all_packages.iter().map(|x| *x),
+                    all_packages.iter().copied(),
                 );
                 if let Some(xs) = xs {
                     final_set.extend(xs);
@@ -266,7 +264,13 @@ fn run_test_internal(
 
         let moonbuild_opt = MoonbuildOpt {
             test_opt: Some(TestOpt {
-                filter_package: Some(final_set.clone().into_iter().map(PathBuf::from).collect()),
+                filter_package: Some(
+                    final_set
+                        .clone()
+                        .into_iter()
+                        .map(|x| x.to_string())
+                        .collect(),
+                ),
                 ..moonbuild_opt.test_opt.unwrap()
             }),
             ..moonbuild_opt

@@ -343,7 +343,7 @@ impl MoonbuildOpt {
 
 #[derive(Debug, Clone, Default)]
 pub struct TestOpt {
-    pub filter_package: Option<HashSet<PathBuf>>,
+    pub filter_package: Option<HashSet<String>>,
     pub filter_file: Option<String>,
     pub filter_index: Option<u32>,
     pub limit: u32,
@@ -355,7 +355,7 @@ impl TestOpt {
     pub fn get_package_filter(&self) -> impl Fn(&Package) -> bool + '_ {
         move |pkg| {
             if let Some(ref filter_package) = self.filter_package {
-                filter_package.contains(&PathBuf::from(pkg.full_name()))
+                filter_package.contains(&pkg.full_name())
             } else {
                 true
             }
