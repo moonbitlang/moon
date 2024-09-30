@@ -203,7 +203,7 @@ pub struct MoonPkgJSON {
     #[serde(skip_serializing_if = "Option::is_none")]
     #[serde(alias = "targets")]
     #[schemars(rename = "targets")]
-    #[schemars(with = "Option<std::collections::HashMap<String, Option<String>>>")]
+    #[schemars(with = "Option<std::collections::HashMap<String, StringOrArray>>")]
     pub targets: Option<RawTargets>,
 
     /// Command for moon generate
