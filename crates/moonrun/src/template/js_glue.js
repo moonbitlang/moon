@@ -8,14 +8,6 @@ const spectest = {
         print_char: (x) => print(x),
         read_char: () => read_char(),
     },
-    Instant: {
-        now() {
-            return instant_now();
-        },
-        elapsed_as_secs_f64(instant) {
-            return instant_elapsed_as_secs_f64(instant);
-        }
-    },
     __moonbit_fs_unstable: __moonbit_fs_unstable,
     __moonbit_rand_unstable: __moonbit_rand_unstable,
     __moonbit_io_unstable: __moonbit_io_unstable,
