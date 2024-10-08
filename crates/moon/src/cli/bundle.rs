@@ -21,7 +21,9 @@ use moonbuild::dry_run;
 use mooncake::pkg::sync::auto_sync;
 use moonutil::{
     cli::UniversalFlags,
-    common::{lower_surface_targets, FileLock, MoonbuildOpt, RunMode, SurfaceTarget},
+    common::{
+        lower_surface_targets, FileLock, MoonbuildOpt, RunMode, SurfaceTarget, TargetBackend,
+    },
     dirs::{mk_arch_mode_dir, PackageDirs},
     mooncakes::{sync::AutoSyncFlags, RegistryConfig},
 };
@@ -64,7 +66,12 @@ pub fn run_bundle(cli: UniversalFlags, cmd: BundleSubcommand) -> anyhow::Result<
     if cmd.all {
         surface_targets.push(SurfaceTarget::All);
     }
-    let targets = lower_surface_targets(&surface_targets);
+    let mut targets = lower_surface_targets(&surface_targets);
+    // this is a workaround for supporting bundle core for native backend when --target all
+    // should move to `lower_surface_targets` when native backend being stable
+    if cmd.all || cmd.build_flags.target == Some(vec![SurfaceTarget::All]) {
+        targets.push(TargetBackend::Native);
+    }
 
     let mut ret_value = 0;
     if cmd.build_flags.serial {
