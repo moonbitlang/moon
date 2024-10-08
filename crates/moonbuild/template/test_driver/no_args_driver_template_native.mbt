@@ -13,8 +13,6 @@ typealias Moonbit_Test_Driver_Internal_No_Args_Map = @moonbitlang/core/builtin.M
 let moonbit_test_driver_internal_no_args_tests : Moonbit_Test_Driver_Internal_No_Args_Map = { }  // WILL BE REPLACED
 
 pub fn moonbit_test_driver_internal_execute() -> Unit {
-  let mut test_name = ""
-  let mut message = ""
   for filename, index_func_map in moonbit_test_driver_internal_no_args_tests {
     for index, pair in index_func_map {
       let (func, attrs) = (pair.0, pair.1)
@@ -31,15 +29,15 @@ pub fn moonbit_test_driver_internal_execute() -> Unit {
       } else {
         name
       }
+
+      let mut message = ""
       try {
         func!()
       } catch {
         Failure(e) | InspectError(e) | SnapshotError(e) => {
-          test_name = name
           message = e
         }
         e => {
-          test_name = name
           message = moonbit_test_driver_internal_error_to_string(e)
         }
       }
@@ -51,7 +49,7 @@ pub fn moonbit_test_driver_internal_execute() -> Unit {
       }
 
       let file_name = repr(filename)
-      let test_name = repr(test_name)
+      let test_name = repr(name)
       let message = repr(message)
       @moonbitlang/core/builtin.println("{BEGIN_MOONTEST}")
       @moonbitlang/core/builtin.println(
