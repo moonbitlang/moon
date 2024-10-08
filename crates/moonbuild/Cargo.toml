@@ -60,6 +60,7 @@ semver.workspace = true
 chrono.workspace = true
 zip.workspace = true
 thiserror.workspace = true
+json-structural-diff = { version = "0.1.0", features = ["colorize"] }
 
 [dev-dependencies]
 expect-test.workspace = true
