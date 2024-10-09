@@ -137,6 +137,7 @@ jobs:
           tar xf moonbit.tar.gz --directory ~/.moon/bin/
           curl https://cli.moonbitlang.com/moon-ci/$(uname -s)-$(uname -m)/moonrun --output ~/.moon/bin/moonrun
           chmod +x ~/.moon/bin/moon*
+          chmod +x ~/.moon/bin/tcc
           git clone --depth 1 https://github.com/moonbitlang/core.git ~/.moon/lib/core
           echo "$HOME/.moon/bin" >> $GITHUB_PATH
 
@@ -216,6 +217,7 @@ jobs:
           tar xf moonbit.tar.gz --directory ~/.moon/bin/
           curl https://cli.moonbitlang.com/moon-ci/$(uname -s)-$(uname -m)/moonrun --output ~/.moon/bin/moonrun
           chmod +x ~/.moon/bin/moon*
+          chmod +x ~/.moon/bin/tcc
           git clone --depth 1 https://github.com/moonbitlang/core.git ~/.moon/lib/core
           echo "$HOME/.moon/bin" >> $GITHUB_PATH
 
