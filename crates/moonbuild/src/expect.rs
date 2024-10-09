@@ -48,6 +48,7 @@ pub struct BufferExpect {
     expect: String,
     actual: String,
     kind: TargetKind,
+    mode: Option<String>,
 }
 
 // something like array out of bounds, moonbit panic & abort catch by js
@@ -81,6 +82,7 @@ pub struct Target {
     kind: TargetKind,
     expect: String,
     actual: String,
+    mode: Option<String>,
 }
 
 #[derive(Debug, Default, serde::Serialize, serde::Deserialize)]
@@ -90,6 +92,7 @@ pub struct ExpectFailedRaw {
     pub expect: String,
     pub actual: String,
     pub snapshot: Option<bool>,
+    pub mode: Option<String>,
 }
 
 pub fn expect_failed_to_snapshot_result(efr: ExpectFailedRaw) -> SnapshotResult {
@@ -167,6 +170,8 @@ struct Replace {
 
     pub expect: String,
     pub expect_loc: Option<Location>,
+
+    pub mode: Option<String>,
 }
 
 impl Replace {
@@ -183,6 +188,7 @@ impl Replace {
                 kind: TargetKind::Trivial,
                 expect: self.expect.clone(),
                 actual: self.actual.clone(),
+                mode: self.mode.clone(),
             })
         } else {
             let is_pipe = self.actual_loc.ahead(&self.loc);
@@ -197,6 +203,7 @@ impl Replace {
                     kind: TargetKind::Pipe,
                     expect: self.expect.clone(),
                     actual: self.actual.clone(),
+                    mode: self.mode.clone(),
                 })
             } else {
                 // TODO: find comma
@@ -211,6 +218,7 @@ impl Replace {
                     kind: TargetKind::Call,
                     expect: self.expect.clone(),
                     actual: self.actual.clone(),
+                    mode: self.mode.clone(),
                 })
             }
         }
@@ -246,6 +254,7 @@ fn parse_expect_failed_message(msg: &str) -> anyhow::Result<Replace> {
         expect_loc,
         actual: j.actual,
         actual_loc,
+        mode: j.mode,
     })
 }
 
@@ -431,6 +440,7 @@ fn gen_patch(targets: HashMap<String, BTreeSet<Target>>) -> anyhow::Result<Packa
                 expect: t.expect,
                 actual: t.actual,
                 kind: t.kind,
+                mode: t.mode.clone(),
             });
         }
 
@@ -535,18 +545,28 @@ fn apply_patch(pp: &PackagePatch) -> anyhow::Result<()> {
                     }
                 }
 
-                if !patch.actual.contains('\n') && !patch.actual.contains('"') {
-                    output.push_str(&format!("{:?}", &patch.actual));
-                } else {
-                    let next_char = content_chars[usize::from(end)..].first();
-                    let prev_char = content_chars[..usize::from(start)].last();
-                    push_multi_line_string(
-                        &mut output,
-                        spaces + 2,
-                        &patch.actual,
-                        prev_char,
-                        next_char,
-                    );
+                match patch.mode.as_deref() {
+                    None => {
+                        if !patch.actual.contains('\n') && !patch.actual.contains('"') {
+                            output.push_str(&format!("{:?}", &patch.actual));
+                        } else {
+                            let next_char = content_chars[usize::from(end)..].first();
+                            let prev_char = content_chars[..usize::from(start)].last();
+                            push_multi_line_string(
+                                &mut output,
+                                spaces + 2,
+                                &patch.actual,
+                                prev_char,
+                                next_char,
+                            );
+                        }
+                    }
+                    Some("json") => {
+                        output.push_str(&patch.actual.to_string());
+                    }
+                    Some(mode) => {
+                        anyhow::bail!("unsupported mode: {:?} in expect testing", mode);
+                    }
                 }
 
                 if let Some(padding) = patch.right_padding {
@@ -638,6 +658,19 @@ pub fn render_expect_fail(msg: &str) -> anyhow::Result<()> {
     assert!(msg.starts_with(EXPECT_FAILED));
     let json_str = &msg[EXPECT_FAILED.len()..];
     let rep = parse_expect_failed_message(json_str)?;
+
+    if let Some("json") = rep.mode.as_deref() {
+        let j_expect = serde_json_lenient::from_str(&rep.expect)?;
+        let j_actual = serde_json_lenient::from_str(&rep.actual)?;
+        let diffs = json_structural_diff::JsonDiff::diff(&j_expect, &j_actual, false);
+        if let Some(diff) = diffs.diff {
+            let diffs = json_structural_diff::colorize(&diff, true);
+            println!("inspect failed at {}", rep.loc.raw);
+            println!("{}", "Diff:".bold());
+            println!("{}", diffs);
+        }
+        return Ok(());
+    }
 
     let d = dissimilar::diff(&rep.expect, &rep.actual);
     println!(
