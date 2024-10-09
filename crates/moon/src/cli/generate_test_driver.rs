@@ -251,28 +251,35 @@ fn generate_driver(
         TargetBackend::Wasm | TargetBackend::WasmGC => {
             include_str!(concat!(
                 env!("CARGO_MANIFEST_DIR"),
-                "/../moonbuild/template/wasm_args.mbt"
+                "/../moonbuild/template/test_driver/wasm_args.mbt"
             ))
         }
         TargetBackend::Js => {
             include_str!(concat!(
                 env!("CARGO_MANIFEST_DIR"),
-                "/../moonbuild/template/js_args.mbt"
+                "/../moonbuild/template/test_driver/js_args.mbt"
             ))
         }
-        TargetBackend::Native => todo!("no implement yet"),
+        TargetBackend::Native => "",
     };
 
     let mut template = if only_no_arg_tests {
-        include_str!(concat!(
-            env!("CARGO_MANIFEST_DIR"),
-            "/../moonbuild/template/no_args_driver_template.mbt"
-        )).to_string()
+        if target_backend.unwrap_or_default() == TargetBackend::Native {
+            include_str!(concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/../moonbuild/template/test_driver/no_args_driver_template_native.mbt"
+            )).to_string()
+        } else {
+            include_str!(concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/../moonbuild/template/test_driver/no_args_driver_template.mbt"
+            )).to_string()
+        }
     }
     else {
         include_str!(concat!(
             env!("CARGO_MANIFEST_DIR"),
-            "/../moonbuild/template/with_args_driver_template.mbt"
+            "/../moonbuild/template/test_driver/with_args_driver_template.mbt"
         )).to_string()
     }
     .replace("\r\n", "\n")
