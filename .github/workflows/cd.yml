@@ -149,7 +149,7 @@ jobs:
           tar xf moonbit.tar.gz --directory ./tmp-bins/
           cp -L ./target/release/moonrun ./tmp-bins/
           cp -L ./target/release/moon ./tmp-bins/
-          pushd tmp-bins && sha256sum -- * >../moonbit-linux-x86_64.sha256 && popd
+          cd tmp-bins && sha256sum -- * >../moonbit-linux-x86_64.sha256 && cd ..
           tar czf ./moonbit-linux-x86_64.tar.gz --directory=./tmp-bins .
           aws s3 cp ./moonbit-linux-x86_64.tar.gz s3://cli.moonbitlang.com/binaries/bleeding/moonbit-linux-x86_64.tar.gz
           aws s3 cp ./moonbit-linux-x86_64.sha256 s3://cli.moonbitlang.com/binaries/bleeding/moonbit-linux-x86_64.sha256
