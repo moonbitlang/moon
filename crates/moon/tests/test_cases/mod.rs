@@ -5403,6 +5403,16 @@ fn test_many_targets_auto_update_001() {
             }
         "#]],
     );
+    check(
+        &replace_crlf_to_lf(
+            &std::fs::read_to_string(dir.join("lib").join("x.native.mbt")).unwrap(),
+        ),
+        expect![[r#"
+            test {
+              inspect!("native")
+            }
+        "#]],
+    );
 }
 
 #[test]
@@ -5432,6 +5442,31 @@ fn test_many_targets_auto_update_002() {
         expect![[r#"
             test {
               inspect!("js", content="js")
+            }
+        "#]],
+    );
+    check(
+        &replace_crlf_to_lf(
+            &std::fs::read_to_string(dir.join("lib").join("x.native.mbt")).unwrap(),
+        ),
+        expect![[r#"
+            test {
+              inspect!("native")
+            }
+        "#]],
+    );
+
+    let _ = get_stdout(
+        &dir,
+        ["test", "--target", "native", "-u", "--no-parallelize"],
+    );
+    check(
+        &replace_crlf_to_lf(
+            &std::fs::read_to_string(dir.join("lib").join("x.native.mbt")).unwrap(),
+        ),
+        expect![[r#"
+            test {
+              inspect!("native", content="native")
             }
         "#]],
     );
@@ -5545,7 +5580,13 @@ fn test_many_targets_expect_failed() {
     check(
         &get_err_stdout(
             &dir,
-            ["test", "--target", "js,wasm", "--sort-input", "--serial"],
+            [
+                "test",
+                "--target",
+                "js,wasm,native",
+                "--sort-input",
+                "--serial",
+            ],
         ),
         expect![[r#"
             test username/hello/lib/x.wasm.mbt::0 failed
@@ -5564,6 +5605,14 @@ fn test_many_targets_expect_failed() {
             ----
 
             Total tests: 1, passed: 0, failed: 1. [js]
+            test username/hello/lib/x.native.mbt::0 failed
+            expect test failed at $ROOT/lib/x.native.mbt:2:3-2:34
+            Diff:
+            ----
+            3native
+            ----
+
+            Total tests: 1, passed: 0, failed: 1. [native]
         "#]],
     );
 }
@@ -5645,6 +5694,17 @@ fn test_moon_run_single_mbt_file() {
     let output = get_stdout(
         &dir.join("a").join("b"),
         ["run", "single.mbt", "--target", "js"],
+    );
+    check(
+        &output,
+        expect![[r#"
+        I am OK
+        "#]],
+    );
+
+    let output = get_stdout(
+        &dir.join("a").join("b"),
+        ["run", "single.mbt", "--target", "native"],
     );
     check(
         &output,
@@ -5757,6 +5817,29 @@ fn test_moon_run_single_mbt_file_inside_a_pkg() {
             main in lib
         "#]],
     );
+
+    let output = get_stdout(
+        &dir.join("lib").join("main_in_lib"),
+        ["run", "../../main/main.mbt", "--target", "native"],
+    );
+    check(
+        &output,
+        expect![[r#"
+            Hello, world!!!
+            root main
+        "#]],
+    );
+    let output = get_stdout(
+        &dir.join("lib").join("main_in_lib"),
+        ["run", "main.mbt", "--target", "native"],
+    );
+    check(
+        &output,
+        expect![[r#"
+            Hello, world!!!
+            main in lib
+        "#]],
+    );
 }
 
 #[test]
@@ -5765,13 +5848,22 @@ fn moon_test_parallelize_should_success() {
 
     let output = get_stdout(&dir, ["test"]);
     assert!(output.contains("Total tests: 14, passed: 14, failed: 0."));
+    let output = get_stdout(&dir, ["test", "--target", "native"]);
+    assert!(output.contains("Total tests: 14, passed: 14, failed: 0."));
 
     let dir = TestDir::new("test_filter.in");
 
     let output = get_err_stdout(&dir, ["test"]);
     assert!(output.contains("Total tests: 13, passed: 11, failed: 2."));
+    let output = get_err_stdout(&dir, ["test", "--target", "native"]);
+    assert!(output.contains("Total tests: 13, passed: 11, failed: 2."));
 
     let output = get_stdout(&dir, ["test", "-u", "--no-parallelize"]);
+    assert!(output.contains("Total tests: 13, passed: 13, failed: 0."));
+    let output = get_stdout(
+        &dir,
+        ["test", "-u", "--no-parallelize", "--target", "native"],
+    );
     assert!(output.contains("Total tests: 13, passed: 13, failed: 0."));
 }
 
