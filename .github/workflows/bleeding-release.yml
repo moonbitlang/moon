@@ -16,7 +16,9 @@
 #
 # For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
-name: Bleeding Release Mac
+name: Bleeding Release Unix
+
+# trigger by moonc-version-dont-delete/.github/workflows/ci.yml when moonc merged PR
 
 on:
   workflow_dispatch:
@@ -25,7 +27,7 @@ jobs:
   build:
     strategy:
       matrix:
-        os: [macos-latest]
+        os: [macos-latest, ubuntu-latest]
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
@@ -38,8 +40,7 @@ jobs:
       - name: Build
         run: cargo build --release
 
-      - name: Bleeding Release (macos-latest)
-        if: ${{ matrix.os == 'macos-latest' }}
+      - name: Bleeding Release Unix
         env:
           AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
@@ -51,8 +52,8 @@ jobs:
           tar xf moonbit.tar.gz --directory ./tmp-bins/
           cp -L ./target/release/moonrun ./tmp-bins/
           cp -L ./target/release/moon ./tmp-bins/
-          pushd tmp-bins && shasum -a 256 -- * >../moonbit-darwin-aarch64.sha256 && popd
-          tar czf ./moonbit-darwin-aarch64.tar.gz --directory=./tmp-bins .
-          aws s3 cp ./moonbit-darwin-aarch64.tar.gz s3://cli.moonbitlang.com/binaries/bleeding/moonbit-darwin-aarch64.tar.gz
-          aws s3 cp ./moonbit-darwin-aarch64.sha256 s3://cli.moonbitlang.com/binaries/bleeding/moonbit-darwin-aarch64.sha256
+          pushd tmp-bins && shasum -a 256 -- * >../moonbit-$(uname -s)-$(uname -m).sha256 && popd
+          tar czf ./moonbit-$(uname -s)-$(uname -m).tar.gz --directory=./tmp-bins .
+          aws s3 cp ./moonbit-$(uname -s)-$(uname -m).tar.gz s3://cli.moonbitlang.com/binaries/bleeding/moonbit-$(uname -s)-$(uname -m).tar.gz
+          aws s3 cp ./moonbit-$(uname -s)-$(uname -m).sha256 s3://cli.moonbitlang.com/binaries/bleeding/moonbit-$(uname -s)-$(uname -m).sha256
           aws cloudfront create-invalidation --distribution-id E1KQYZEVEB0TAY --paths "/*"
