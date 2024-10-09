@@ -167,6 +167,9 @@ fn common(
 
             alert_list: None,
             warn_list: None,
+
+            include: None,
+            exclude: None,
         };
         moonutil::common::write_module_json_to_file(&m, target_dir)
             .context(format!("failed to write `{}`", MOON_MOD_JSON))?;
