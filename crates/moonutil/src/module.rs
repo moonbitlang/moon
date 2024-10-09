@@ -397,6 +397,9 @@ pub struct MoonMod {
 
     pub warn_list: Option<String>,
     pub alert_list: Option<String>,
+
+    pub include: Option<Vec<String>>,
+    pub exclude: Option<Vec<String>>,
 }
 
 #[derive(Debug, Serialize, Deserialize, JsonSchema)]
@@ -469,6 +472,14 @@ pub struct MoonModJSON {
     /// Alert list setting of the module
     #[serde(skip_serializing_if = "Option::is_none")]
     pub alert_list: Option<String>,
+
+    /// Files to include when publishing.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub include: Option<Vec<String>>,
+
+    /// Files to exclude when publishing.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub exclude: Option<Vec<String>>,
 }
 
 impl TryFrom<MoonModJSON> for MoonMod {
@@ -506,6 +517,9 @@ impl TryFrom<MoonModJSON> for MoonMod {
 
             alert_list: j.alert_list,
             warn_list: j.warn_list,
+
+            include: j.include,
+            exclude: j.exclude,
         })
     }
 }
@@ -529,6 +543,9 @@ pub fn convert_module_to_mod_json(m: MoonMod) -> MoonModJSON {
 
         alert_list: m.alert_list,
         warn_list: m.warn_list,
+
+        include: m.include,
+        exclude: m.exclude,
     }
 }
 

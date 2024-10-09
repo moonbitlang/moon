@@ -31,6 +31,26 @@
         "null"
       ]
     },
+    "exclude": {
+      "description": "Files to exclude when publishing.",
+      "type": [
+        "array",
+        "null"
+      ],
+      "items": {
+        "type": "string"
+      }
+    },
+    "include": {
+      "description": "Files to include when publishing.",
+      "type": [
+        "array",
+        "null"
+      ],
+      "items": {
+        "type": "string"
+      }
+    },
     "keywords": {
       "description": "keywords of this module",
       "type": [

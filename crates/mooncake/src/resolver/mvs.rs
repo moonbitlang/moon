@@ -478,6 +478,8 @@ mod test {
                 ext: Null,
                 warn_list: None,
                 alert_list: None,
+                include: None,
+                exclude: None,
             }
         "#]]
         .assert_debug_eq(module_info);
