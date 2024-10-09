@@ -91,7 +91,7 @@ jobs:
     steps:
       - name: Install dependencies
         run: |
-          apt update && apt install -y software-properties-common curl unzip build-essential git sudo
+          apt update && apt install -y software-properties-common curl unzip build-essential git sudo coreutils
 
       - name: Checkout
         run: |
@@ -136,3 +136,21 @@ jobs:
           aws s3 cp target/release/moon "s3://${{ secrets.AWS_BUCKET_NAME }}/bleeding-moon/$version/$(uname -s)-$(uname -m)/"
           aws s3 cp target/release/moonrun "s3://${{ secrets.AWS_BUCKET_NAME }}/bleeding-moonrun/$version/$(uname -s)-$(uname -m)/"
           aws s3 cp target/release/moonrun "s3://cli.moonbitlang.com/moon-ci/$(uname -s)-$(uname -m)/"
+
+      - name: Bleeding Release
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          AWS_DEFAULT_REGION: ${{ secrets.AWS_DEFAULT_REGION }}
+        run: |
+          rm -rf tmp-bins
+          mkdir tmp-bins
+          curl https://cli.moonbitlang.com/moon-ci/$(uname -s)-$(uname -m).tar.gz --output moonbit.tar.gz
+          tar xf moonbit.tar.gz --directory ./tmp-bins/
+          cp -L ./target/release/moonrun ./tmp-bins/
+          cp -L ./target/release/moon ./tmp-bins/
+          pushd tmp-bins && sha256sum -- * >../moonbit-linux-x86_64.sha256 && popd
+          tar czf ./moonbit-linux-x86_64.tar.gz --directory=./tmp-bins .
+          aws s3 cp ./moonbit-linux-x86_64.tar.gz s3://cli.moonbitlang.com/binaries/bleeding/moonbit-linux-x86_64.tar.gz
+          aws s3 cp ./moonbit-linux-x86_64.sha256 s3://cli.moonbitlang.com/binaries/bleeding/moonbit-linux-x86_64.sha256
+          aws cloudfront create-invalidation --distribution-id E1KQYZEVEB0TAY --paths "/*"
