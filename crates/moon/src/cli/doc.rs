@@ -27,7 +27,7 @@ use moonutil::dirs::{mk_arch_mode_dir, PackageDirs};
 use moonutil::mooncakes::sync::AutoSyncFlags;
 use moonutil::mooncakes::RegistryConfig;
 
-use super::pre_build::run_pre_build;
+use super::pre_build::scan_with_pre_build;
 use super::UniversalFlags;
 
 /// Generate documentation
@@ -101,18 +101,10 @@ pub fn run_doc(cli: UniversalFlags, cmd: DocSubcommand) -> anyhow::Result<i32> {
         build_graph: false,
     };
 
-    let module = moonutil::scan::scan(
+    let module = scan_with_pre_build(
         false,
-        &resolved_env,
-        &dir_sync_result,
         &moonc_opt,
         &moonbuild_opt,
-    )?;
-
-    let module = run_pre_build(
-        &moonc_opt,
-        &moonbuild_opt,
-        module,
         &resolved_env,
         &dir_sync_result,
     )?;

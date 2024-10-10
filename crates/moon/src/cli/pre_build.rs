@@ -16,22 +16,45 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
-use moonbuild::entry::{run_moon_generate, MoonGenerateState};
+use moonbuild::entry::{run_moon_pre_build, MoonPreBuildState};
 use moonutil::{
     common::{MoonbuildOpt, MooncOpt},
     module::ModuleDB,
     mooncakes::{result::ResolvedEnv, DirSyncResult},
 };
 
-pub fn run_pre_build(
+pub fn scan_with_pre_build(
+    doc_mode: bool,
+    moonc_opt: &MooncOpt,
+    moonbuild_opt: &MoonbuildOpt,
+    resolved_env: &ResolvedEnv,
+    dir_sync_result: &DirSyncResult,
+) -> anyhow::Result<ModuleDB> {
+    let module = moonutil::scan::scan(
+        doc_mode,
+        resolved_env,
+        dir_sync_result,
+        moonc_opt,
+        moonbuild_opt,
+    )?;
+    run_pre_build(
+        moonc_opt,
+        moonbuild_opt,
+        module,
+        resolved_env,
+        dir_sync_result,
+    )
+}
+
+fn run_pre_build(
     moonc_opt: &MooncOpt,
     moonbuild_opt: &MoonbuildOpt,
     module: ModuleDB,
     resolved_env: &ResolvedEnv,
     dir_sync_result: &DirSyncResult,
 ) -> anyhow::Result<ModuleDB> {
-    let gen_result = run_moon_generate(moonbuild_opt, &module)?;
-    let module = if let MoonGenerateState::WorkDone = gen_result {
+    let pre_build_result = run_moon_pre_build(moonbuild_opt, &module)?;
+    let module = if let MoonPreBuildState::WorkDone = pre_build_result {
         moonutil::scan::scan(
             false,
             resolved_env,

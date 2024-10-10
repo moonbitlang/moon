@@ -26,7 +26,7 @@ use n2::graph::{self as n2graph, Build, BuildIns, BuildOuts, FileId, FileLoc};
 use n2::load::State;
 use n2::smallmap::SmallMap;
 
-pub fn load_moon_generate(
+pub fn load_moon_pre_build(
     moonbuild_opt: &MoonbuildOpt,
     module: &ModuleDB,
 ) -> anyhow::Result<Option<State>> {

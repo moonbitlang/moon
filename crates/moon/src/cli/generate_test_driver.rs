@@ -16,7 +16,7 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
-use super::pre_build::run_pre_build;
+use super::pre_build::scan_with_pre_build;
 use super::BuildFlags;
 use anyhow::{bail, Context};
 use colored::Colorize;
@@ -162,20 +162,14 @@ pub fn generate_test_driver(
         build_graph: false,
     };
 
-    let module = moonutil::scan::scan(
+    let module = scan_with_pre_build(
         false,
-        &resolved_env,
-        &dir_sync_result,
         &moonc_opt,
         &moonbuild_opt,
-    )?;
-    let module = run_pre_build(
-        &moonc_opt,
-        &moonbuild_opt,
-        module,
         &resolved_env,
         &dir_sync_result,
     )?;
+
     if cli.dry_run {
         bail!("dry-run is not implemented for generate-test-driver");
     }
