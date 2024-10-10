@@ -42,15 +42,9 @@ pub fn moonbit_test_driver_internal_execute() -> Unit {
         }
       }
 
-      fn repr(obj : String) -> String {
-        let buf = @moonbitlang/core/builtin.Buffer::new(size_hint=16)
-        Show::output(obj, buf)
-        buf.to_string()
-      }
-
-      let file_name = repr(filename)
-      let test_name = repr(name)
-      let message = repr(message)
+      let file_name = filename.escape()
+      let test_name = name.escape()
+      let message = message.escape()
       @moonbitlang/core/builtin.println("{BEGIN_MOONTEST}")
       @moonbitlang/core/builtin.println(
         "{\"package\": \"{PACKAGE}\", \"filename\": \{file_name}, \"index\": \"\{index}\", \"test_name\": \{test_name}, \"message\": \{message}}",
