@@ -68,7 +68,7 @@
   ───╯
   Finished. moon: ran 3 tasks, now up to date
   
-  $ xcat target/wasm-gc/release/check/packages.json
+  $ xcat target/packages.json
   {
     "source_dir": "${WORK_DIR}",
     "name": "username/hello",

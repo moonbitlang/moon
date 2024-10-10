@@ -118,7 +118,7 @@ pub fn run_doc(cli: UniversalFlags, cmd: DocSubcommand) -> anyhow::Result<i32> {
             .to_string(),
         "-packages-json".to_string(),
         moonbuild_opt
-            .target_dir
+            .raw_target_dir
             .join("packages.json")
             .display()
             .to_string(),

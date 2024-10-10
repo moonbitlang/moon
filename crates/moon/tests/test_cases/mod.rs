@@ -2402,10 +2402,7 @@ fn test_dummy_core() {
 
     #[cfg(unix)]
     {
-        let p = dir.join(format!(
-            "target/{}/release/check/packages.json",
-            TargetBackend::default().to_backend_ext()
-        ));
+        let p = dir.join("target/packages.json");
         check(
             &replace_dir(&std::fs::read_to_string(p).unwrap(), &dir),
             expect![[r#"
@@ -2676,7 +2673,7 @@ fn test_dummy_core() {
 
     #[cfg(unix)]
     {
-        let p = dir.join("target/js/release/check/packages.json");
+        let p = dir.join("target/packages.json");
         check(
             &replace_dir(&std::fs::read_to_string(p).unwrap(), &dir),
             expect![[r#"
@@ -4633,7 +4630,7 @@ fn test_check_failed_should_write_pkg_json() {
         .assert()
         .failure();
 
-    let pkg_json = dir.join("target/wasm-gc/release/check/packages.json");
+    let pkg_json = dir.join("target/packages.json");
     assert!(pkg_json.exists());
 }
 
@@ -4826,10 +4823,7 @@ fn test_blackbox_success() {
 
     #[cfg(unix)]
     {
-        let p = dir.join(format!(
-            "target/{}/release/check/packages.json",
-            TargetBackend::default().to_backend_ext()
-        ));
+        let p = dir.join("target/packages.json");
         check(
             &replace_dir(&std::fs::read_to_string(p).unwrap(), &dir),
             expect![[r#"
@@ -5956,7 +5950,7 @@ fn test_specify_source_dir_001() {
     );
     #[cfg(unix)]
     {
-        let p = dir.join("target/wasm-gc/release/check/packages.json");
+        let p = dir.join("target/packages.json");
         check(
             &replace_dir(&std::fs::read_to_string(p).unwrap(), &dir),
             expect![[r#"
@@ -6628,7 +6622,7 @@ fn test_moon_doc_dry_run() {
             moonc check ./src/lib/hello.mbt -o ./target/wasm-gc/release/check/lib/lib.mi -pkg username/hello/lib -std-path $MOON_HOME/lib/core/target/wasm-gc/release/bundle -pkg-sources username/hello/lib:./src/lib -target wasm-gc
             moonc check ./src/main/main.mbt -o ./target/wasm-gc/release/check/main/main.mi -pkg username/hello/main -is-main -std-path $MOON_HOME/lib/core/target/wasm-gc/release/bundle -i ./target/wasm-gc/release/check/lib/lib.mi:lib -pkg-sources username/hello/main:./src/main -target wasm-gc
             moonc check ./src/lib/hello_test.mbt -o ./target/wasm-gc/release/check/lib/lib.blackbox_test.mi -pkg username/hello/lib_blackbox_test -std-path $MOON_HOME/lib/core/target/wasm-gc/release/bundle -i ./target/wasm-gc/release/check/lib/lib.mi:lib -pkg-sources username/hello/lib_blackbox_test:./src/lib -target wasm-gc
-            moondoc $ROOT -o $ROOT/target/doc -std-path $MOON_HOME/lib/core/target/wasm-gc/release/bundle -packages-json $ROOT/target/wasm-gc/release/check/packages.json
+            moondoc $ROOT -o $ROOT/target/doc -std-path $MOON_HOME/lib/core/target/wasm-gc/release/bundle -packages-json $ROOT/target/packages.json
         "#]],
     );
 }

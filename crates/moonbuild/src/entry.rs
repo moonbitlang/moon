@@ -330,7 +330,7 @@ pub fn run_check(
     match result {
         Some(0) => {}
         _ => {
-            write_pkg_lst(module, &moonbuild_opt.target_dir)?;
+            write_pkg_lst(module, &moonbuild_opt.raw_target_dir)?;
         }
     }
     render_result(result, moonbuild_opt.quiet, "checking")
@@ -1063,7 +1063,7 @@ pub fn run_bundle(
     match result {
         Some(0) => {}
         _ => {
-            write_pkg_lst(module, &moonbuild_opt.target_dir)?;
+            write_pkg_lst(module, &moonbuild_opt.raw_target_dir)?;
         }
     }
     render_result(result, moonbuild_opt.quiet, "bundle")
