@@ -23,7 +23,30 @@ use moonutil::{
     mooncakes::{result::ResolvedEnv, DirSyncResult},
 };
 
-pub fn run_pre_build(
+pub fn scan_with_pre_build(
+    doc_mode: bool,
+    moonc_opt: &MooncOpt,
+    moonbuild_opt: &MoonbuildOpt,
+    resolved_env: &ResolvedEnv,
+    dir_sync_result: &DirSyncResult,
+) -> anyhow::Result<ModuleDB> {
+    let module = moonutil::scan::scan(
+        doc_mode,
+        resolved_env,
+        dir_sync_result,
+        moonc_opt,
+        moonbuild_opt,
+    )?;
+    run_pre_build(
+        moonc_opt,
+        moonbuild_opt,
+        module,
+        resolved_env,
+        dir_sync_result,
+    )
+}
+
+fn run_pre_build(
     moonc_opt: &MooncOpt,
     moonbuild_opt: &MoonbuildOpt,
     module: ModuleDB,

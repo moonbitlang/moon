@@ -37,7 +37,7 @@ use std::path::Path;
 use std::sync::Arc;
 use std::thread;
 
-use super::pre_build::run_pre_build;
+use super::pre_build::scan_with_pre_build;
 use super::{get_compiler_flags, BuildFlags};
 
 /// Check the current package, but don't build object files
@@ -158,17 +158,10 @@ fn run_check_internal(
         no_parallelize: false,
     };
 
-    let module = moonutil::scan::scan(
+    let module = scan_with_pre_build(
         false,
-        &resolved_env,
-        &dir_sync_result,
         &moonc_opt,
         &moonbuild_opt,
-    )?;
-    let module = run_pre_build(
-        &moonc_opt,
-        &moonbuild_opt,
-        module,
         &resolved_env,
         &dir_sync_result,
     )?;

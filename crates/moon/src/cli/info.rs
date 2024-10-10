@@ -29,7 +29,7 @@ use moonutil::{
     mooncakes::{sync::AutoSyncFlags, RegistryConfig},
 };
 
-use super::{pre_build::run_pre_build, UniversalFlags};
+use super::{pre_build::scan_with_pre_build, UniversalFlags};
 
 /// Generate public interface (`.mbti`) files for all packages in the module
 #[derive(Debug, clap::Parser)]
@@ -97,20 +97,14 @@ pub fn run_info(cli: UniversalFlags, cmd: InfoSubcommand) -> anyhow::Result<i32>
         build_graph: false,
     };
 
-    let module = moonutil::scan::scan(
+    let module = scan_with_pre_build(
         false,
-        &resolved_env,
-        &dir_sync_result,
         &moonc_opt,
         &moonbuild_opt,
-    )?;
-    let module = run_pre_build(
-        &moonc_opt,
-        &moonbuild_opt,
-        module,
         &resolved_env,
         &dir_sync_result,
     )?;
+
     let check_result = moonbuild::entry::run_check(&moonc_opt, &moonbuild_opt, &module);
     match check_result {
         Ok(0) => {}

@@ -29,7 +29,7 @@ use moonutil::{
 };
 use std::{path::Path, sync::Arc, thread};
 
-use super::{pre_build::run_pre_build, BuildFlags};
+use super::{pre_build::scan_with_pre_build, BuildFlags};
 
 /// Bundle the module
 #[derive(Debug, clap::Parser, Clone)]
@@ -149,17 +149,10 @@ fn run_bundle_internal(
         no_parallelize: false,
         build_graph: false,
     };
-    let module = moonutil::scan::scan(
+    let module = scan_with_pre_build(
         false,
-        &resolved_env,
-        &dir_sync_result,
         &moonc_opt,
         &moonbuild_opt,
-    )?;
-    let module = run_pre_build(
-        &moonc_opt,
-        &moonbuild_opt,
-        module,
         &resolved_env,
         &dir_sync_result,
     )?;
