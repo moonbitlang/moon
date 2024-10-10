@@ -16,7 +16,7 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
-use moonbuild::entry::{run_moon_generate, MoonGenerateState};
+use moonbuild::entry::{run_moon_pre_build, MoonPreBuildState};
 use moonutil::{
     common::{MoonbuildOpt, MooncOpt},
     module::ModuleDB,
@@ -53,8 +53,8 @@ fn run_pre_build(
     resolved_env: &ResolvedEnv,
     dir_sync_result: &DirSyncResult,
 ) -> anyhow::Result<ModuleDB> {
-    let gen_result = run_moon_generate(moonbuild_opt, &module)?;
-    let module = if let MoonGenerateState::WorkDone = gen_result {
+    let pre_build_result = run_moon_pre_build(moonbuild_opt, &module)?;
+    let module = if let MoonPreBuildState::WorkDone = pre_build_result {
         moonutil::scan::scan(
             false,
             resolved_env,

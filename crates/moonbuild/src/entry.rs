@@ -284,26 +284,26 @@ fn vis_build_graph(state: &State, moonbuild_opt: &MoonbuildOpt) {
     eprintln!("generated build graph: {}", path.display());
 }
 
-pub enum MoonGenerateState {
+pub enum MoonPreBuildState {
     NoWork,
     WorkDone,
 }
 
-pub fn run_moon_generate(
+pub fn run_moon_pre_build(
     moonbuild_opt: &MoonbuildOpt,
     module: &ModuleDB,
-) -> anyhow::Result<MoonGenerateState> {
-    let generate_state = crate::generate::load_moon_generate(moonbuild_opt, module)?;
-    if let Some(generate_state) = generate_state {
-        let generate_result = n2_simple_run_interface(generate_state, moonbuild_opt)?;
-        render_generate_result(generate_result, moonbuild_opt.quiet)?;
-        Ok(MoonGenerateState::WorkDone)
+) -> anyhow::Result<MoonPreBuildState> {
+    let pre_build_state = crate::pre_build::load_moon_pre_build(moonbuild_opt, module)?;
+    if let Some(pre_build_state) = pre_build_state {
+        let pre_build_result = n2_simple_run_interface(pre_build_state, moonbuild_opt)?;
+        render_pre_build_result(pre_build_result, moonbuild_opt.quiet)?;
+        Ok(MoonPreBuildState::WorkDone)
     } else {
-        Ok(MoonGenerateState::NoWork)
+        Ok(MoonPreBuildState::NoWork)
     }
 }
 
-fn render_generate_result(result: Option<usize>, quiet: bool) -> anyhow::Result<i32> {
+fn render_pre_build_result(result: Option<usize>, quiet: bool) -> anyhow::Result<i32> {
     match result {
         None => {
             anyhow::bail!(format!("failed when execute generate"));
