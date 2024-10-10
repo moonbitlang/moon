@@ -6738,7 +6738,7 @@ fn test_trace_001() {
     let j: TraceResult = serde_json::from_str(&s).unwrap();
     let event_names = j.0.iter().map(|e| e.name.clone()).collect::<Vec<_>>();
     check(
-        &format!("{:#?}", event_names),
+        format!("{:#?}", event_names),
         expect![[r#"
             [
                 "moonbit::build::read",

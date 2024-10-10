@@ -333,12 +333,7 @@ pub fn run_check(
 
     let result = n2_run_interface(state, moonbuild_opt)?;
 
-    match result {
-        Some(0) => {}
-        _ => {
-            write_pkg_lst(module, &moonbuild_opt.raw_target_dir)?;
-        }
-    }
+    write_pkg_lst(module, &moonbuild_opt.raw_target_dir)?;
     render_result(result, moonbuild_opt.quiet, "checking")
 }
 
@@ -1060,12 +1055,7 @@ pub fn run_bundle(
 ) -> anyhow::Result<i32> {
     let state = crate::bundle::load_moon_proj(module, moonc_opt, moonbuild_opt)?;
     let result = n2_run_interface(state, moonbuild_opt)?;
-    match result {
-        Some(0) => {}
-        _ => {
-            write_pkg_lst(module, &moonbuild_opt.raw_target_dir)?;
-        }
-    }
+    write_pkg_lst(module, &moonbuild_opt.raw_target_dir)?;
     render_result(result, moonbuild_opt.quiet, "bundle")
 }
 
