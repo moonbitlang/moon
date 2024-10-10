@@ -24,7 +24,7 @@ use moonutil::{
     mooncakes::{sync::AutoSyncFlags, RegistryConfig},
 };
 
-use super::UniversalFlags;
+use super::{pre_build::run_pre_build, UniversalFlags};
 
 /// Format source code
 #[derive(Debug, clap::Parser)]
@@ -81,6 +81,15 @@ pub fn run_fmt(cli: &UniversalFlags, cmd: FmtSubcommand) -> anyhow::Result<i32> 
         &moonc_opt,
         &moonbuild_opt,
     )?;
+
+    let module = run_pre_build(
+        &moonc_opt,
+        &moonbuild_opt,
+        module,
+        &resolved_env,
+        &dir_sync_result,
+    )?;
+
     if cli.dry_run {
         bail!("dry-run is not implemented for fmt");
     }

@@ -34,6 +34,7 @@ use std::path::Path;
 use std::sync::Arc;
 use std::thread;
 
+use super::pre_build::run_pre_build;
 use super::{BuildFlags, UniversalFlags};
 
 /// Build the current package
@@ -145,6 +146,13 @@ fn run_build_internal(
         &dir_sync_result,
         &moonc_opt,
         &moonbuild_opt,
+    )?;
+    let module = run_pre_build(
+        &moonc_opt,
+        &moonbuild_opt,
+        module,
+        &resolved_env,
+        &dir_sync_result,
     )?;
     moonc_opt.build_opt.warn_lists = module
         .get_all_packages()

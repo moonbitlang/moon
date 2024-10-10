@@ -6812,6 +6812,13 @@ fn test_pre_build() {
         &get_stderr(&dir, ["check"]),
         expect![[r#"
             Executed 3 pre-build tasks, now up to date
+            Warning: [1002]
+               ╭─[$ROOT/src/lib/a.mbt:3:5]
+               │
+             3 │ let resource : String =
+               │     ────┬───  
+               │         ╰───── Warning: Unused toplevel variable 'resource'. Note if the body contains side effect, it will not happen. Use `fn init { .. }` to wrap the effect.
+            ───╯
             Finished. moon: ran 2 tasks, now up to date
         "#]],
     );

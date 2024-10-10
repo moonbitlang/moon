@@ -37,6 +37,7 @@ use std::path::Path;
 use std::sync::Arc;
 use std::thread;
 
+use super::pre_build::run_pre_build;
 use super::{get_compiler_flags, BuildFlags};
 
 /// Check the current package, but don't build object files
@@ -125,7 +126,7 @@ fn run_check_internal(
     target_dir: &Path,
 ) -> anyhow::Result<i32> {
     // Run moon install before build
-    let (resolved_modules, dir_sync_result) = auto_sync(
+    let (resolved_env, dir_sync_result) = auto_sync(
         source_dir,
         &cmd.auto_sync_flags,
         &RegistryConfig::load(),
@@ -159,10 +160,17 @@ fn run_check_internal(
 
     let module = moonutil::scan::scan(
         false,
-        &resolved_modules,
+        &resolved_env,
         &dir_sync_result,
         &moonc_opt,
         &moonbuild_opt,
+    )?;
+    let module = run_pre_build(
+        &moonc_opt,
+        &moonbuild_opt,
+        module,
+        &resolved_env,
+        &dir_sync_result,
     )?;
     moonc_opt.build_opt.warn_lists = module
         .get_all_packages()
