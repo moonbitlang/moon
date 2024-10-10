@@ -788,3 +788,13 @@ pub fn get_desc_name(package_name: &str, artifact: &str) -> String {
         package_name.to_string()
     }
 }
+
+pub trait StringExt {
+    fn replace_crlf_to_lf(&self) -> String;
+}
+
+impl StringExt for str {
+    fn replace_crlf_to_lf(&self) -> String {
+        self.replace("\r\n", "\n")
+    }
+}

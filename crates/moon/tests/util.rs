@@ -19,9 +19,10 @@
 use std::path::{Path, PathBuf};
 
 use expect_test::Expect;
+use moonutil::common::StringExt;
 
-pub fn check(actual: &str, expect: Expect) {
-    expect.assert_eq(actual)
+pub fn check<S: AsRef<str>>(actual: S, expect: Expect) {
+    expect.assert_eq(actual.as_ref())
 }
 
 pub fn moon_bin() -> PathBuf {
@@ -73,11 +74,7 @@ pub fn copy(src: &Path, dest: &Path) -> anyhow::Result<()> {
     Ok(())
 }
 
-pub fn replace_crlf_to_lf(s: &str) -> String {
-    s.replace("\r\n", "\n")
-}
-
 #[track_caller]
-pub fn read(p: &Path) -> String {
-    std::fs::read_to_string(p).unwrap().replace('\r', "")
+pub fn read<P: AsRef<Path>>(p: P) -> String {
+    std::fs::read_to_string(p).unwrap().replace_crlf_to_lf()
 }
