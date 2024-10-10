@@ -5425,7 +5425,6 @@ fn test_many_targets_auto_update_002() {
         "#]],
     );
 
-    #[cfg(unix)]
     {
         check(
             read(dir.join("lib").join("x.native.mbt")),
@@ -5577,7 +5576,6 @@ fn test_many_targets_expect_failed() {
         "#]],
     );
 
-    #[cfg(unix)]
     {
         check(
             get_err_stdout(
@@ -5705,7 +5703,6 @@ fn test_moon_run_single_mbt_file() {
         "#]],
     );
 
-    #[cfg(unix)]
     {
         let output = get_stdout(
             &dir.join("a").join("b"),
@@ -5824,7 +5821,6 @@ fn test_moon_run_single_mbt_file_inside_a_pkg() {
         "#]],
     );
 
-    #[cfg(unix)]
     {
         let output = get_stdout(
             &dir.join("lib").join("main_in_lib"),
@@ -5857,7 +5853,7 @@ fn moon_test_parallelize_should_success() {
 
     let output = get_stdout(&dir, ["test"]);
     assert!(output.contains("Total tests: 14, passed: 14, failed: 0."));
-    #[cfg(unix)]
+
     {
         let output = get_stdout(&dir, ["test", "--target", "native"]);
         assert!(output.contains("Total tests: 14, passed: 14, failed: 0."));
@@ -5867,7 +5863,7 @@ fn moon_test_parallelize_should_success() {
 
     let output = get_err_stdout(&dir, ["test"]);
     assert!(output.contains("Total tests: 13, passed: 11, failed: 2."));
-    #[cfg(unix)]
+
     {
         let output = get_err_stdout(&dir, ["test", "--target", "native"]);
         assert!(output.contains("Total tests: 13, passed: 11, failed: 2."));
@@ -5875,7 +5871,7 @@ fn moon_test_parallelize_should_success() {
 
     let output = get_stdout(&dir, ["test", "-u", "--no-parallelize"]);
     assert!(output.contains("Total tests: 13, passed: 13, failed: 0."));
-    #[cfg(unix)]
+
     {
         let output = get_stdout(
             &dir,
