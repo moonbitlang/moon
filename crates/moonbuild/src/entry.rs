@@ -284,14 +284,22 @@ fn vis_build_graph(state: &State, moonbuild_opt: &MoonbuildOpt) {
     eprintln!("generated build graph: {}", path.display());
 }
 
-fn run_moon_generate(moonbuild_opt: &MoonbuildOpt, module: &ModuleDB) -> anyhow::Result<i32> {
+pub enum MoonGenerateState {
+    NoWork,
+    WorkDone,
+}
+
+pub fn run_moon_generate(
+    moonbuild_opt: &MoonbuildOpt,
+    module: &ModuleDB,
+) -> anyhow::Result<MoonGenerateState> {
     let generate_state = crate::generate::load_moon_generate(moonbuild_opt, module)?;
     if let Some(generate_state) = generate_state {
         let generate_result = n2_simple_run_interface(generate_state, moonbuild_opt)?;
         render_generate_result(generate_result, moonbuild_opt.quiet)?;
-        Ok(0)
+        Ok(MoonGenerateState::WorkDone)
     } else {
-        Ok(0)
+        Ok(MoonGenerateState::NoWork)
     }
 }
 
@@ -319,8 +327,6 @@ pub fn run_check(
     moonbuild_opt: &MoonbuildOpt,
     module: &ModuleDB,
 ) -> anyhow::Result<i32> {
-    run_moon_generate(moonbuild_opt, module)?;
-
     let state = trace::scope("moonbit::check::read", || {
         crate::check::normal::load_moon_proj(module, moonc_opt, moonbuild_opt)
     })?;
@@ -341,8 +347,6 @@ pub fn run_build(
     moonbuild_opt: &MoonbuildOpt,
     module: &ModuleDB,
 ) -> anyhow::Result<i32> {
-    run_moon_generate(moonbuild_opt, module)?;
-
     let state = trace::scope("moonbit::build::read", || {
         crate::build::load_moon_proj(module, moonc_opt, moonbuild_opt)
     })?;
@@ -555,8 +559,6 @@ pub fn run_test(
     auto_update: bool,
     module: ModuleDB,
 ) -> anyhow::Result<Vec<Result<TestStatistics, TestFailedStatus>>> {
-    run_moon_generate(&moonbuild_opt, &module)?;
-
     let moonc_opt = Arc::new(moonc_opt);
     let moonbuild_opt = Arc::new(moonbuild_opt);
     let module = Arc::new(module);
@@ -1056,8 +1058,6 @@ pub fn run_bundle(
     moonbuild_opt: &MoonbuildOpt,
     moonc_opt: &MooncOpt,
 ) -> anyhow::Result<i32> {
-    run_moon_generate(moonbuild_opt, module)?;
-
     let state = crate::bundle::load_moon_proj(module, moonc_opt, moonbuild_opt)?;
     let result = n2_run_interface(state, moonbuild_opt)?;
     match result {

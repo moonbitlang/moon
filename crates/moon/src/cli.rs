@@ -29,6 +29,7 @@ pub mod generate_test_driver;
 pub mod info;
 pub mod mooncake_adapter;
 pub mod new;
+mod pre_build;
 pub mod run;
 pub mod shell_completion;
 pub mod test;

@@ -36,6 +36,7 @@ use moonutil::mooncakes::sync::AutoSyncFlags;
 use moonutil::mooncakes::RegistryConfig;
 use n2::trace;
 
+use super::pre_build::run_pre_build;
 use super::{BuildFlags, UniversalFlags};
 
 /// Run a main package
@@ -283,6 +284,13 @@ pub fn run_run_internal(cli: &UniversalFlags, cmd: RunSubcommand) -> anyhow::Res
         &dir_sync_result,
         &moonc_opt,
         &moonbuild_opt,
+    )?;
+    let module = run_pre_build(
+        &moonc_opt,
+        &moonbuild_opt,
+        module,
+        &resolved_env,
+        &dir_sync_result,
     )?;
     moonc_opt.build_opt.warn_lists = module
         .get_all_packages()

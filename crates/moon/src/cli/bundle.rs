@@ -29,7 +29,7 @@ use moonutil::{
 };
 use std::{path::Path, sync::Arc, thread};
 
-use super::BuildFlags;
+use super::{pre_build::run_pre_build, BuildFlags};
 
 /// Bundle the module
 #[derive(Debug, clap::Parser, Clone)]
@@ -155,6 +155,13 @@ fn run_bundle_internal(
         &dir_sync_result,
         &moonc_opt,
         &moonbuild_opt,
+    )?;
+    let module = run_pre_build(
+        &moonc_opt,
+        &moonbuild_opt,
+        module,
+        &resolved_env,
+        &dir_sync_result,
     )?;
     moonc_opt.build_opt.warn_lists = module
         .get_all_packages()
