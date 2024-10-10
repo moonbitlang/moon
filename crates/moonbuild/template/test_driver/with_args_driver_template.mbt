@@ -134,15 +134,9 @@ pub fn moonbit_test_driver_internal_execute(file_name: MoonbitTestDriverInternal
     _ => { message = "internal error: failed to filter test with (\{file_filter}, \{index_filter})" }
   }
 
-  fn repr(obj : String) -> String {
-    let buf = @moonbitlang/core/builtin.Buffer::new(size_hint=16)
-    Show::output(obj, buf)
-    buf.to_string()
-  }
-
-  let file_name = repr(file_name)
-  let test_name = repr(test_name)
-  let message = repr(message)
+  let file_name = file_name.escape()
+  let test_name = test_name.escape()
+  let message = message.escape()
   @moonbitlang/core/builtin.println("{BEGIN_MOONTEST}")
   @moonbitlang/core/builtin.println(
     "{\"package\": \"{PACKAGE}\", \"filename\": \{file_name}, \"index\": \"\{index}\", \"test_name\": \{test_name}, \"message\": \{message}}",
