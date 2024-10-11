@@ -21,6 +21,7 @@ This document contains the help content for the `moon` command-line program.
 * [`moon login`↴](#moon-login)
 * [`moon register`↴](#moon-register)
 * [`moon publish`↴](#moon-publish)
+* [`moon package`↴](#moon-package)
 * [`moon update`↴](#moon-update)
 * [`moon coverage`↴](#moon-coverage)
 * [`moon coverage report`↴](#moon-coverage-report)
@@ -51,7 +52,8 @@ This document contains the help content for the `moon` command-line program.
 * `tree` — Display the dependency tree
 * `login` — Log in to your account
 * `register` — Register an account at mooncakes.io
-* `publish` — Publish the current package
+* `publish` — Publish the current module
+* `package` — Package the current module
 * `update` — Update the package registry index
 * `coverage` — Code coverage utilities
 * `generate-build-matrix` — Generate build matrix for benchmarking (legacy feature)
@@ -317,13 +319,26 @@ Register an account at mooncakes.io
 
 ## `moon publish`
 
-Publish the current package
+Publish the current module
 
 **Usage:** `moon publish [OPTIONS]`
 
 ###### **Options:**
 
 * `--frozen` — Do not sync dependencies, assuming local dependencies are up-to-date
+
+
+
+## `moon package`
+
+Package the current module
+
+**Usage:** `moon package [OPTIONS]`
+
+###### **Options:**
+
+* `--frozen` — Do not sync dependencies, assuming local dependencies are up-to-date
+* `--list`
 
 
 
