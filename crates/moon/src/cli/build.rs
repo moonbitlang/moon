@@ -117,9 +117,9 @@ fn run_build_internal(
     )?;
 
     let raw_target_dir = target_dir;
-    let mut moonc_opt = super::get_compiler_flags(source_dir, &cmd.build_flags)?;
-    moonc_opt.build_opt.deny_warn = cmd.build_flags.deny_warn;
     let run_mode = RunMode::Build;
+    let mut moonc_opt = super::get_compiler_flags(source_dir, &cmd.build_flags, run_mode)?;
+    moonc_opt.build_opt.deny_warn = cmd.build_flags.deny_warn;
     let target_dir = mk_arch_mode_dir(source_dir, target_dir, &moonc_opt, run_mode)?;
     let _lock = FileLock::lock(&target_dir)?;
     let sort_input = cmd.build_flags.sort_input;

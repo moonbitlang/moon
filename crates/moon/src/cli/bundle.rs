@@ -126,8 +126,8 @@ fn run_bundle_internal(
         cli.quiet,
     )?;
 
-    let mut moonc_opt = super::get_compiler_flags(source_dir, &cmd.build_flags)?;
     let run_mode = RunMode::Bundle;
+    let mut moonc_opt = super::get_compiler_flags(source_dir, &cmd.build_flags, run_mode)?;
     let sort_input = cmd.build_flags.sort_input;
 
     let raw_target_dir = target_dir.to_path_buf();
