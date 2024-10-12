@@ -422,7 +422,8 @@ fn test_moon_help() {
               tree                   Display the dependency tree
               login                  Log in to your account
               register               Register an account at mooncakes.io
-              publish                Publish the current package
+              publish                Publish the current module
+              package                Package the current module
               update                 Update the package registry index
               coverage               Code coverage utilities
               generate-build-matrix  Generate build matrix for benchmarking (legacy feature)

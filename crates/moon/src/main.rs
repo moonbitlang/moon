@@ -79,6 +79,7 @@ fn main1() -> anyhow::Result<i32> {
         Login(l) => cli::mooncake_adapter::login_cli(flags, l),
         New(n) => cli::run_new(&flags, n),
         Publish(p) => cli::mooncake_adapter::publish_cli(flags, p),
+        Package(p) => cli::mooncake_adapter::package_cli(flags, p),
         Register(r) => cli::mooncake_adapter::register_cli(flags, r),
         Remove(r) => cli::remove_cli(flags, r),
         Run(r) => cli::run_run(&flags, r),

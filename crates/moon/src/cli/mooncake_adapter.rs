@@ -22,7 +22,10 @@ use anyhow::bail;
 use moonutil::{
     cli::UniversalFlags,
     mooncake_bin::call_mooncake,
-    mooncakes::{LoginSubcommand, MooncakeSubcommands, PublishSubcommand, RegisterSubcommand},
+    mooncakes::{
+        LoginSubcommand, MooncakeSubcommands, PackageSubcommand, PublishSubcommand,
+        RegisterSubcommand,
+    },
 };
 use serde::Serialize;
 
@@ -86,6 +89,14 @@ pub fn publish_cli(cli: UniversalFlags, cmd: PublishSubcommand) -> anyhow::Resul
     execute_cli(
         cli,
         MooncakeSubcommands::Publish(cmd),
+        &["--read-args-from-stdin"],
+    )
+}
+
+pub fn package_cli(cli: UniversalFlags, cmd: PackageSubcommand) -> anyhow::Result<i32> {
+    execute_cli(
+        cli,
+        MooncakeSubcommands::Package(cmd),
         &["--read-args-from-stdin"],
     )
 }

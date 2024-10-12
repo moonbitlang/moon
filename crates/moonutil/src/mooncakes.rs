@@ -412,6 +412,7 @@ pub enum MooncakeSubcommands {
     Login(LoginSubcommand),
     Register(RegisterSubcommand),
     Publish(PublishSubcommand),
+    Package(PackageSubcommand),
 }
 
 /// Log in to your account
@@ -422,11 +423,21 @@ pub struct LoginSubcommand {}
 #[derive(Debug, clap::Parser, Serialize, Deserialize)]
 pub struct RegisterSubcommand {}
 
-/// Publish the current package
+/// Publish the current module
 #[derive(Debug, clap::Parser, Serialize, Deserialize)]
 pub struct PublishSubcommand {
     #[clap(flatten)]
     pub auto_sync_flags: AutoSyncFlags,
+}
+
+/// Package the current module
+#[derive(Debug, clap::Parser, Serialize, Deserialize)]
+pub struct PackageSubcommand {
+    #[clap(flatten)]
+    pub auto_sync_flags: AutoSyncFlags,
+
+    #[clap(long)]
+    pub list: bool,
 }
 
 // username rule

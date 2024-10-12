@@ -66,7 +66,7 @@ use moonutil::{
         read_module_desc_file_in_dir, BuildPackageFlags, LinkCoreFlags, MooncOpt, OutputFormat,
         SurfaceTarget, TargetBackend, MOONBITLANG_CORE, MOON_MOD_JSON,
     },
-    mooncakes::{LoginSubcommand, PublishSubcommand, RegisterSubcommand},
+    mooncakes::{LoginSubcommand, PackageSubcommand, PublishSubcommand, RegisterSubcommand},
 };
 use std::path::Path;
 
@@ -110,6 +110,7 @@ pub enum MoonBuildSubcommands {
     Login(LoginSubcommand),
     Register(RegisterSubcommand),
     Publish(PublishSubcommand),
+    Package(PackageSubcommand),
 
     Update(UpdateSubcommand),
 
