@@ -46,10 +46,6 @@ pub struct TestSubcommand {
     #[clap(flatten)]
     pub build_flags: BuildFlags,
 
-    /// run test at release compiled mode
-    #[clap(long)]
-    pub release: bool,
-
     /// Run test in the specified package
     #[clap(short, long, num_args(0..))]
     pub package: Option<Vec<String>>,
@@ -158,8 +154,8 @@ fn run_test_internal(
     let mut moonc_opt = super::get_compiler_flags(source_dir, &cmd.build_flags)?;
     // release is 'false' by default, so we will run test at debug mode(to gain more detailed stack trace info), unless `--release` is specified
     // however, other command like build, check, run, etc, will run at release mode by default
-    moonc_opt.build_opt.debug_flag = !cmd.release;
-    moonc_opt.link_opt.debug_flag = !cmd.release;
+    moonc_opt.build_opt.debug_flag = !cmd.build_flags.release;
+    moonc_opt.link_opt.debug_flag = !cmd.build_flags.release;
 
     let run_mode = RunMode::Test;
     let raw_target_dir = target_dir.to_path_buf();

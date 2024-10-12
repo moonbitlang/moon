@@ -4607,6 +4607,54 @@ fn debug_flag_test() {
             moonrun ./target/wasm-gc/debug/build/main/main.wasm
         "#]],
     );
+
+    // release should conflict with debug
+    #[cfg(unix)]
+    {
+        check(
+            get_err_stderr(&dir, ["test", "--release", "--debug"]),
+            expect![[r#"
+                error: the argument '--release' cannot be used with '--debug'
+
+                Usage: moon test --release
+
+                For more information, try '--help'.
+            "#]],
+        );
+
+        check(
+            get_err_stderr(&dir, ["build", "--debug", "--release"]),
+            expect![[r#"
+                error: the argument '--debug' cannot be used with '--release'
+
+                Usage: moon build --debug
+
+                For more information, try '--help'.
+            "#]],
+        );
+
+        check(
+            get_err_stderr(&dir, ["check", "--release", "--debug"]),
+            expect![[r#"
+                error: the argument '--release' cannot be used with '--debug'
+
+                Usage: moon check --release
+
+                For more information, try '--help'.
+            "#]],
+        );
+
+        check(
+            get_err_stderr(&dir, ["run", "main", "--debug", "--release"]),
+            expect![[r#"
+                error: the argument '--debug' cannot be used with '--release'
+
+                Usage: moon run --debug <PACKAGE_OR_MBT_FILE> [ARGS]...
+
+                For more information, try '--help'.
+            "#]],
+        );
+    }
 }
 
 #[test]
