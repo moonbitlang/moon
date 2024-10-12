@@ -64,7 +64,7 @@ use moonutil::{
     cli::UniversalFlags,
     common::{
         read_module_desc_file_in_dir, BuildPackageFlags, LinkCoreFlags, MooncOpt, OutputFormat,
-        SurfaceTarget, TargetBackend, MOONBITLANG_CORE, MOON_MOD_JSON,
+        RunMode, SurfaceTarget, TargetBackend, MOONBITLANG_CORE, MOON_MOD_JSON,
     },
     mooncakes::{LoginSubcommand, PackageSubcommand, PublishSubcommand, RegisterSubcommand},
 };
@@ -188,14 +188,38 @@ impl BuildFlags {
     }
 }
 
-pub fn get_compiler_flags(src_dir: &Path, build_flags: &BuildFlags) -> anyhow::Result<MooncOpt> {
+pub fn get_compiler_flags(
+    src_dir: &Path,
+    build_flags: &BuildFlags,
+    run_mode: RunMode,
+) -> anyhow::Result<MooncOpt> {
     // read moon.mod.json
     if !moonutil::common::check_moon_mod_exists(src_dir) {
         bail!("could not find `{}`", MOON_MOD_JSON);
     }
     let moon_mod = read_module_desc_file_in_dir(src_dir)?;
     let extra_build_opt = moon_mod.compile_flags.unwrap_or_default();
-    let extra_link_opt = moon_mod.link_flags.unwrap_or_default();
+    let mut extra_link_opt = moon_mod.link_flags.unwrap_or_default();
+
+    #[cfg(unix)]
+    match run_mode {
+        // need link-core for build, test and run
+        RunMode::Build | RunMode::Test | RunMode::Run => {
+            if build_flags.release && build_flags.target_backend == Some(TargetBackend::Native) {
+                // check if cc exists in PATH
+                if let Err(e) = which::which("cc") {
+                    eprintln!(
+                        "error: 'cc' not found in PATH, which is used for native backend release compilation: {}",
+                        e
+                    );
+                    std::process::exit(1);
+                }
+                // use "cc -O2" to compile
+                extra_link_opt.extend_from_slice(&["-cc".to_string(), "cc -O2".to_string()]);
+            }
+        }
+        _ => {}
+    }
 
     let output_format = if build_flags.output_wat {
         OutputFormat::Wat

@@ -151,13 +151,13 @@ fn run_test_internal(
         cli.quiet,
     )?;
 
-    let mut moonc_opt = super::get_compiler_flags(source_dir, &cmd.build_flags)?;
+    let run_mode = RunMode::Test;
+    let mut moonc_opt = super::get_compiler_flags(source_dir, &cmd.build_flags, run_mode)?;
     // release is 'false' by default, so we will run test at debug mode(to gain more detailed stack trace info), unless `--release` is specified
     // however, other command like build, check, run, etc, will run at release mode by default
     moonc_opt.build_opt.debug_flag = !cmd.build_flags.release;
     moonc_opt.link_opt.debug_flag = !cmd.build_flags.release;
 
-    let run_mode = RunMode::Test;
     let raw_target_dir = target_dir.to_path_buf();
     let target_dir = mk_arch_mode_dir(source_dir, target_dir, &moonc_opt, run_mode)?;
     let _lock = FileLock::lock(&target_dir)?;
