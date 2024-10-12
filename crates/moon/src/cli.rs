@@ -139,6 +139,10 @@ pub struct BuildFlags {
     #[clap(long, short = 'g')]
     pub debug: bool,
 
+    /// Compile in release mode
+    #[clap(long)]
+    pub release: bool,
+
     /// Select output target
     #[clap(long, value_delimiter = ',')]
     pub target: Option<Vec<SurfaceTarget>>,

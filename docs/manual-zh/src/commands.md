@@ -95,6 +95,7 @@ Build the current package
 * `--std` — Enable the standard library (default)
 * `--nostd` — Disable the standard library
 * `-g`, `--debug` — Emit debug information
+* `--release` — Compile in release mode
 * `--target <TARGET>` — Select output target
 
   Possible values: `wasm`, `wasm-gc`, `js`, `native`, `all`
@@ -121,6 +122,7 @@ Check the current package, but don't build object files
 * `--std` — Enable the standard library (default)
 * `--nostd` — Disable the standard library
 * `-g`, `--debug` — Emit debug information
+* `--release` — Compile in release mode
 * `--target <TARGET>` — Select output target
 
   Possible values: `wasm`, `wasm-gc`, `js`, `native`, `all`
@@ -153,6 +155,7 @@ Run a main package
 * `--std` — Enable the standard library (default)
 * `--nostd` — Disable the standard library
 * `-g`, `--debug` — Emit debug information
+* `--release` — Compile in release mode
 * `--target <TARGET>` — Select output target
 
   Possible values: `wasm`, `wasm-gc`, `js`, `native`, `all`
@@ -179,6 +182,7 @@ Test the current package
 * `--std` — Enable the standard library (default)
 * `--nostd` — Disable the standard library
 * `-g`, `--debug` — Emit debug information
+* `--release` — Compile in release mode
 * `--target <TARGET>` — Select output target
 
   Possible values: `wasm`, `wasm-gc`, `js`, `native`, `all`
@@ -189,7 +193,6 @@ Test the current package
 * `--output-wat` — Output WAT instead of WASM
 * `-d`, `--deny-warn` — Treat all warnings as errors
 * `--no-render` — Don't render diagnostics from moonc (don't pass '-error-format json' to moonc)
-* `--release` — run test at release compiled mode
 * `-p`, `--package <PACKAGE>` — Run test in the specified package
 * `-f`, `--file <FILE>` — Run test in the specified file. Only valid when `--package` is also specified
 * `-i`, `--index <INDEX>` — Run only the index-th test in the file. Only valid when `--file` is also specified
