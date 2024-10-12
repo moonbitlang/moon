@@ -140,7 +140,7 @@ pub struct BuildFlags {
     pub debug: bool,
 
     /// Compile in release mode
-    #[clap(long)]
+    #[clap(long, conflicts_with = "debug")]
     pub release: bool,
 
     /// Select output target
