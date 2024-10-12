@@ -370,16 +370,8 @@ fn do_run_test(
     let failed = total - passed;
     println!(
         "Total tests: {}, passed: {}, failed: {}.{}",
-        if total > 0 {
-            total.to_string().blue().to_string()
-        } else {
-            total.to_string()
-        },
-        if passed > 0 {
-            passed.to_string().green().to_string()
-        } else {
-            passed.to_string()
-        },
+        total,
+        passed,
         if failed > 0 {
             failed.to_string().red().to_string()
         } else {
