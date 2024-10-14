@@ -54,6 +54,7 @@ jobs:
           tar xf moonbit.tar.gz --directory ./tmp-bins/
           cp -L ./target/release/moonrun ./tmp-bins/
           cp -L ./target/release/moon ./tmp-bins/
+          ls ./tmp-bins/
           pushd tmp-bins && shasum -a 256 -- * >../moonbit-$PLATFORM.sha256 && popd
           tar czf ./moonbit-$PLATFORM.tar.gz --directory=./tmp-bins .
           aws s3 cp ./moonbit-$PLATFORM.tar.gz s3://cli.moonbitlang.com/binaries/bleeding/moonbit-$PLATFORM.tar.gz
