@@ -215,7 +215,8 @@ pub fn get_compiler_flags(
                     std::process::exit(1);
                 }
                 // use "cc -O2" to compile
-                extra_link_opt.extend_from_slice(&["-cc".to_string(), "cc -O2".to_string()]);
+                extra_link_opt
+                    .extend_from_slice(&["-cc".to_string(), "cc -O2 -fwrapv".to_string()]);
             }
         }
         _ => {}
