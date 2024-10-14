@@ -5084,7 +5084,7 @@ fn test_blackbox_failed() {
 
     let output = String::from_utf8_lossy(&output);
     assert!(output.contains("Warning: Unused variable 'a'"));
-    assert!(output.contains("Error (warning): The mutability of 'b' is never used"));
+    assert!(output.contains("Warning: Unused variable 'b'"));
     assert!(output.contains("Value _private_hello not found in package \"A\""));
     assert!(output.contains("Package \"C\" not found in the loaded packages."));
 }
