@@ -214,9 +214,14 @@ pub fn get_compiler_flags(
                     );
                     std::process::exit(1);
                 }
-                // use "cc -O2" to compile
-                extra_link_opt
-                    .extend_from_slice(&["-cc".to_string(), "cc -O2 -fwrapv".to_string()]);
+                // libmoonbitrun.o should be in the same directory as moonc
+                let libmoonbitrun_path = which::which("moonc")?.with_file_name("libmoonbitrun.o");
+
+                // use "cc" to compile
+                extra_link_opt.extend_from_slice(&[
+                    "-cc".to_string(),
+                    format!("cc {} -O2 -fwrapv", libmoonbitrun_path.display()),
+                ]);
             }
         }
         _ => {}
