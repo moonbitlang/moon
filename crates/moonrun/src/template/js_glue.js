@@ -24,6 +24,9 @@ const spectest = {
             throw new WebAssembly.Exception(tag, [], { traceStack: true })
         },
     },
+    console: {
+        log: (x) => console.log(x),
+    },
 };
 
 try {
