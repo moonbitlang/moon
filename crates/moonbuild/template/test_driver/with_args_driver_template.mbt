@@ -114,7 +114,7 @@ pub fn moonbit_test_driver_internal_execute(file_name: MoonbitTestDriverInternal
             fn() {
               let it : @moonbitlang/core/test.T = {
                 name,
-                buffer: Buffer::new(),
+                buffer: @moonbitlang/core/builtin.StringBuilder::new(),
               }
               f!(it)
             }
