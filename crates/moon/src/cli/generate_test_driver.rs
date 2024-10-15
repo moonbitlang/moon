@@ -265,6 +265,7 @@ fn generate_driver(
         TargetBackend::Native => "",
     };
 
+    #[allow(clippy::collapsible_else_if)]
     let mut template = if only_no_arg_tests {
         if target_backend.unwrap_or_default() == TargetBackend::Native {
             include_str!(concat!(
@@ -279,10 +280,18 @@ fn generate_driver(
         }
     }
     else {
-        include_str!(concat!(
-            env!("CARGO_MANIFEST_DIR"),
-            "/../moonbuild/template/test_driver/with_args_driver_template.mbt"
-        )).to_string()
+        if target_backend.unwrap_or_default() == TargetBackend::Native {
+            include_str!(concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/../moonbuild/template/test_driver/with_args_driver_template_native.mbt"
+            )).to_string()
+        }
+        else {
+            include_str!(concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/../moonbuild/template/test_driver/with_args_driver_template.mbt"
+            )).to_string()
+        }
     }
     .replace("\r\n", "\n")
     .replace("fn moonbit_test_driver_internal_get_file_name(file_name : MoonbitTestDriverInternalExternString) -> String { panic() }\n", "")

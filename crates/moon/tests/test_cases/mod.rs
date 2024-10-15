@@ -6293,6 +6293,62 @@ fn test_snapshot_test() {
         "#]],
     );
     check(
+        get_err_stdout(
+            &dir,
+            [
+                "test",
+                "--sort-input",
+                "--no-parallelize",
+                "--target",
+                "native",
+            ],
+        ),
+        expect![[r#"
+            test username/hello/lib/hello_test.mbt::snapshot in blackbox test failed
+            expect test failed at $ROOT/src/lib/hello_test.mbt:9:3
+            Diff:
+            ----
+            Hello, world!
+            ----
+
+            test username/hello/lib/hello.mbt::test snapshot 1 failed
+            expect test failed at $ROOT/src/lib/hello.mbt:14:3
+            Diff:
+            ----
+            hello
+            snapshot
+            testing
+
+            ----
+
+            test username/hello/lib/hello.mbt::test snapshot 2 failed
+            expect test failed at $ROOT/src/lib/hello.mbt:26:3
+            Diff:
+            ----
+            should
+            be
+            work
+
+            ----
+
+            test username/hello/lib/hello.mbt::test inspect 1 failed
+            expect test failed at $ROOT/src/lib/hello.mbt:6:3-6:16
+            Diff:
+            ----
+            a
+            ----
+
+            test username/hello/lib/hello.mbt::test inspect 2 failed
+            expect test failed at $ROOT/src/lib/hello.mbt:18:3-18:16
+            Diff:
+            ----
+            c
+            ----
+
+            Total tests: 6, passed: 1, failed: 5.
+        "#]],
+    );
+    check(
         get_stdout(&dir, ["test", "-u", "--no-parallelize"]),
         expect![[r#"
 
