@@ -71,6 +71,7 @@ jobs:
           chmod +x ~/.moon/bin/tcc
           git clone --depth 1 https://github.com/moonbitlang/core.git ~/.moon/lib/core
           echo "$HOME/.moon/bin" >> $GITHUB_PATH
+          echo "$GITHUB_WORKSPACE/target/debug" >> $GITHUB_PATH
 
       - name: install MoonBit(Windows)
         if: ${{ matrix.os == 'windows-latest' }}
@@ -83,6 +84,7 @@ jobs:
           Invoke-WebRequest -Uri https://cli.moonbitlang.com/moon-ci/Windows-x86_64/mooncake.exe -OutFile "$env:USERPROFILE/.moon/bin/mooncake.exe"
           git clone --depth 1 https://github.com/moonbitlang/core.git "$env:USERPROFILE/.moon/lib/core"
           "$env:USERPROFILE\.moon\bin" | Out-File -FilePath $env:GITHUB_PATH -Append
+          "$env:GITHUB_WORKSPACE\target\debug" | Out-File -FilePath $env:GITHUB_PATH -Append
 
       - name: Build
         run: cargo build
@@ -92,7 +94,6 @@ jobs:
         if: ${{ matrix.os != 'windows-latest' }}
         run: | 
           cargo run --bin moon bundle --source-dir ~/.moon/lib/core --all
-          echo "${{ github.workspace }}/target/debug" >> $GITHUB_PATH
       - name: Bundle core (Windows)
         if: ${{ matrix.os == 'windows-latest' }}
         run: cargo run --bin moon bundle --source-dir "$env:USERPROFILE\.moon\lib\core" --all
