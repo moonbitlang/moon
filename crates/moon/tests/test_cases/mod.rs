@@ -7217,3 +7217,27 @@ fn test_use_cc_for_native_release() {
         );
     }
 }
+
+#[test]
+fn test_moon_package_list() {
+    let dir = TestDir::new("test_publish.in");
+    check(
+        get_stderr(&dir, ["package", "--list"]),
+        expect![[r#"
+            Running moon check ...
+            Finished. moon: ran 3 tasks, now up to date
+            Check passed
+            README.md
+            moon.mod.json
+            src
+            src/lib
+            src/lib/hello.mbt
+            src/lib/hello_test.mbt
+            src/lib/moon.pkg.json
+            src/main
+            src/main/main.mbt
+            src/main/moon.pkg.json
+            Package to $ROOT/target/publish/username-hello-0.1.0.zip
+        "#]],
+    );
+}
