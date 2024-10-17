@@ -1,1 +1,13 @@
   $ moon package --list
+  
+  Running moon check ...
+  Finished. moon: ran 3 tasks, now up to date
+  Check passed
+  moon.mod.json
+  src/lib/hello.mbt
+  src/lib/hello_test.mbt
+  src/main/main.mbt
+  test/a/a.txt
+  test/b/b.txt
+  Package to ${WORK_DIR}/target/publish/username-hello-0.1.0.zip
+  
