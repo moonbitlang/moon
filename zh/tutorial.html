@@ -1,0 +1,462 @@
+<!DOCTYPE HTML>
+<html lang="zh" class="light" dir="ltr">
+    <head>
+        <!-- Book generated using mdBook -->
+        <meta charset="UTF-8">
+        <title>构建系统教程 - Moon 手册</title>
+
+
+        <!-- Custom HTML head -->
+        
+        <meta name="description" content="">
+        <meta name="viewport" content="width=device-width, initial-scale=1">
+        <meta name="theme-color" content="#ffffff">
+
+        <link rel="icon" href="favicon.svg">
+        <link rel="shortcut icon" href="favicon.png">
+        <link rel="stylesheet" href="css/variables.css">
+        <link rel="stylesheet" href="css/general.css">
+        <link rel="stylesheet" href="css/chrome.css">
+        <link rel="stylesheet" href="css/print.css" media="print">
+
+        <!-- Fonts -->
+        <link rel="stylesheet" href="FontAwesome/css/font-awesome.css">
+        <link rel="stylesheet" href="fonts/fonts.css">
+
+        <!-- Highlight.js Stylesheets -->
+        <link rel="stylesheet" href="highlight.css">
+        <link rel="stylesheet" href="tomorrow-night.css">
+        <link rel="stylesheet" href="ayu-highlight.css">
+
+        <!-- Custom theme stylesheets -->
+
+    </head>
+    <body class="sidebar-visible no-js">
+    <div id="body-container">
+        <!-- Provide site root to javascript -->
+        <script>
+            var path_to_root = "";
+            var default_theme = window.matchMedia("(prefers-color-scheme: dark)").matches ? "navy" : "light";
+        </script>
+
+        <!-- Work around some values being stored in localStorage wrapped in quotes -->
+        <script>
+            try {
+                var theme = localStorage.getItem('mdbook-theme');
+                var sidebar = localStorage.getItem('mdbook-sidebar');
+
+                if (theme.startsWith('"') && theme.endsWith('"')) {
+                    localStorage.setItem('mdbook-theme', theme.slice(1, theme.length - 1));
+                }
+
+                if (sidebar.startsWith('"') && sidebar.endsWith('"')) {
+                    localStorage.setItem('mdbook-sidebar', sidebar.slice(1, sidebar.length - 1));
+                }
+            } catch (e) { }
+        </script>
+
+        <!-- Set the theme before any content is loaded, prevents flash -->
+        <script>
+            var theme;
+            try { theme = localStorage.getItem('mdbook-theme'); } catch(e) { }
+            if (theme === null || theme === undefined) { theme = default_theme; }
+            var html = document.querySelector('html');
+            html.classList.remove('light')
+            html.classList.add(theme);
+            var body = document.querySelector('body');
+            body.classList.remove('no-js')
+            body.classList.add('js');
+        </script>
+
+        <input type="checkbox" id="sidebar-toggle-anchor" class="hidden">
+
+        <!-- Hide / unhide sidebar before it is displayed -->
+        <script>
+            var body = document.querySelector('body');
+            var sidebar = null;
+            var sidebar_toggle = document.getElementById("sidebar-toggle-anchor");
+            if (document.body.clientWidth >= 1080) {
+                try { sidebar = localStorage.getItem('mdbook-sidebar'); } catch(e) { }
+                sidebar = sidebar || 'visible';
+            } else {
+                sidebar = 'hidden';
+            }
+            sidebar_toggle.checked = sidebar === 'visible';
+            body.classList.remove('sidebar-visible');
+            body.classList.add("sidebar-" + sidebar);
+        </script>
+
+        <nav id="sidebar" class="sidebar" aria-label="Table of contents">
+            <div class="sidebar-scrollbox">
+                <ol class="chapter"><li class="chapter-item expanded "><a href="tutorial.html" class="active"><strong aria-hidden="true">1.</strong> 构建系统教程</a></li><li class="chapter-item "><a href="commands.html"><strong aria-hidden="true">2.</strong> moon 命令</a></li><li class="chapter-item "><a href="module.html"><strong aria-hidden="true">3.</strong> 模块配置</a><a class="toggle"><div>❱</div></a></li><li><ol class="section"><li class="chapter-item "><a href="module/name.html"><strong aria-hidden="true">3.1.</strong> 模块名</a></li><li class="chapter-item "><a href="module/version.html"><strong aria-hidden="true">3.2.</strong> 版本</a></li><li class="chapter-item "><a href="module/deps.html"><strong aria-hidden="true">3.3.</strong> 依赖</a></li><li class="chapter-item "><a href="module/index.html"><strong aria-hidden="true">3.4.</strong> README 文件</a></li><li class="chapter-item "><a href="module/repository.html"><strong aria-hidden="true">3.5.</strong> 仓库地址</a></li><li class="chapter-item "><a href="module/license.html"><strong aria-hidden="true">3.6.</strong> 许可证</a></li><li class="chapter-item "><a href="module/keywords.html"><strong aria-hidden="true">3.7.</strong> 关键词</a></li><li class="chapter-item "><a href="module/description.html"><strong aria-hidden="true">3.8.</strong> 描述</a></li><li class="chapter-item "><a href="module/source.html"><strong aria-hidden="true">3.9.</strong> 源码目录</a></li><li class="chapter-item "><a href="package/warnings.html"><strong aria-hidden="true">3.10.</strong> warn 列表</a></li><li class="chapter-item "><a href="package/alerts.html"><strong aria-hidden="true">3.11.</strong> alert 列表</a></li></ol></li><li class="chapter-item "><a href="package.html"><strong aria-hidden="true">4.</strong> 包配置</a><a class="toggle"><div>❱</div></a></li><li><ol class="section"><li class="chapter-item "><a href="package/name.html"><strong aria-hidden="true">4.1.</strong> 包名</a></li><li class="chapter-item "><a href="package/is-main.html"><strong aria-hidden="true">4.2.</strong> is-main 字段</a></li><li class="chapter-item "><a href="package/import.html"><strong aria-hidden="true">4.3.</strong> import 字段</a></li><li class="chapter-item "><a href="package/test-import.html"><strong aria-hidden="true">4.4.</strong> test-import 字段</a></li><li class="chapter-item "><a href="package/wbtest-import.html"><strong aria-hidden="true">4.5.</strong> wbtest-import字段</a></li><li class="chapter-item "><a href="package/link.html"><strong aria-hidden="true">4.6.</strong> 链接选项</a><a class="toggle"><div>❱</div></a></li><li><ol class="section"><li class="chapter-item "><a href="package/link/wasm.html"><strong aria-hidden="true">4.6.1.</strong> wasm 后端链接选项</a></li><li class="chapter-item "><a href="package/link/wasm-gc.html"><strong aria-hidden="true">4.6.2.</strong> wasm-gc 后端链接选项</a></li><li class="chapter-item "><a href="package/link/js.html"><strong aria-hidden="true">4.6.3.</strong> js 后端链接选项</a></li></ol></li><li class="chapter-item "><a href="package/warnings.html"><strong aria-hidden="true">4.7.</strong> warn 列表</a></li><li class="chapter-item "><a href="package/alerts.html"><strong aria-hidden="true">4.8.</strong> alert 列表</a></li><li class="chapter-item "><a href="package/conditional-compilation.html"><strong aria-hidden="true">4.9.</strong> 条件编译</a></li><li class="chapter-item "><a href="package/pre-build.html"><strong aria-hidden="true">4.10.</strong> 预构建命令</a></li></ol></li><li class="chapter-item "><a href="json_schema.html"><strong aria-hidden="true">5.</strong> JSON Schema</a></li></ol>
+            </div>
+            <div id="sidebar-resize-handle" class="sidebar-resize-handle">
+                <div class="sidebar-resize-indicator"></div>
+            </div>
+        </nav>
+
+        <!-- Track and set sidebar scroll position -->
+        <script>
+            var sidebarScrollbox = document.querySelector('#sidebar .sidebar-scrollbox');
+            sidebarScrollbox.addEventListener('click', function(e) {
+                if (e.target.tagName === 'A') {
+                    sessionStorage.setItem('sidebar-scroll', sidebarScrollbox.scrollTop);
+                }
+            }, { passive: true });
+            var sidebarScrollTop = sessionStorage.getItem('sidebar-scroll');
+            sessionStorage.removeItem('sidebar-scroll');
+            if (sidebarScrollTop) {
+                // preserve sidebar scroll position when navigating via links within sidebar
+                sidebarScrollbox.scrollTop = sidebarScrollTop;
+            } else {
+                // scroll sidebar to current active section when navigating via "next/previous chapter" buttons
+                var activeSection = document.querySelector('#sidebar .active');
+                if (activeSection) {
+                    activeSection.scrollIntoView({ block: 'center' });
+                }
+            }
+        </script>
+
+        <div id="page-wrapper" class="page-wrapper">
+
+            <div class="page">
+                                <div id="menu-bar-hover-placeholder"></div>
+                <div id="menu-bar" class="menu-bar sticky">
+                    <div class="left-buttons">
+                        <label id="sidebar-toggle" class="icon-button" for="sidebar-toggle-anchor" title="Toggle Table of Contents" aria-label="Toggle Table of Contents" aria-controls="sidebar">
+                            <i class="fa fa-bars"></i>
+                        </label>
+                        <button id="theme-toggle" class="icon-button" type="button" title="Change theme" aria-label="Change theme" aria-haspopup="true" aria-expanded="false" aria-controls="theme-list">
+                            <i class="fa fa-paint-brush"></i>
+                        </button>
+                        <ul id="theme-list" class="theme-popup" aria-label="Themes" role="menu">
+                            <li role="none"><button role="menuitem" class="theme" id="light">Light</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="rust">Rust</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="coal">Coal</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="navy">Navy</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="ayu">Ayu</button></li>
+                        </ul>
+                        <button id="search-toggle" class="icon-button" type="button" title="Search. (Shortkey: s)" aria-label="Toggle Searchbar" aria-expanded="false" aria-keyshortcuts="S" aria-controls="searchbar">
+                            <i class="fa fa-search"></i>
+                        </button>
+                    </div>
+
+                    <h1 class="menu-title">Moon 手册</h1>
+
+                    <div class="right-buttons">
+                        <a href="print.html" title="Print this book" aria-label="Print this book">
+                            <i id="print-button" class="fa fa-print"></i>
+                        </a>
+
+                    </div>
+                </div>
+
+                <div id="search-wrapper" class="hidden">
+                    <form id="searchbar-outer" class="searchbar-outer">
+                        <input type="search" id="searchbar" name="searchbar" placeholder="Search this book ..." aria-controls="searchresults-outer" aria-describedby="searchresults-header">
+                    </form>
+                    <div id="searchresults-outer" class="searchresults-outer hidden">
+                        <div id="searchresults-header" class="searchresults-header"></div>
+                        <ul id="searchresults">
+                        </ul>
+                    </div>
+                </div>
+
+                <!-- Apply ARIA attributes after the sidebar and the sidebar toggle button are added to the DOM -->
+                <script>
+                    document.getElementById('sidebar-toggle').setAttribute('aria-expanded', sidebar === 'visible');
+                    document.getElementById('sidebar').setAttribute('aria-hidden', sidebar !== 'visible');
+                    Array.from(document.querySelectorAll('#sidebar a')).forEach(function(link) {
+                        link.setAttribute('tabIndex', sidebar === 'visible' ? 0 : -1);
+                    });
+                </script>
+
+                <div id="content" class="content">
+                    <main>
+                        <h1 id="moonbit-构建系统教程"><a class="header" href="#moonbit-构建系统教程">MoonBit 构建系统教程</a></h1>
+<p><code>moon</code> 是 MoonBit 语言的构建系统，目前基于 <a href="https://github.com/evmar/n2">n2</a> 项目。<code>moon</code> 支持并行构建和增量构建，此外它还支持管理和构建 <a href="https://mooncakes.io/">mooncakes.io</a> 上的第三方包。</p>
+<h2 id="准备工作"><a class="header" href="#准备工作">准备工作</a></h2>
+<p>在开始之前，请确保安装好以下内容：</p>
+<ol>
+<li>
+<p><strong>MoonBit CLI 工具</strong>: 从<a href="https://www.moonbitlang.cn/download/">这里</a>下载。该命令行工具用于创建和管理 MoonBit 项目。</p>
+<p>使用 <code>moon help</code> 命令可查看使用说明。</p>
+<pre><code class="language-bash">$ moon help
+...
+</code></pre>
+</li>
+<li>
+<p><strong>Moonbit Language</strong> Visual Studio Code 插件: 可以从 VS Code 市场安装。该插件为 MoonBit 提供了丰富的开发环境，包括语法高亮、代码补全、交互式除错和测试等功能。</p>
+</li>
+</ol>
+<p>安装完成后，让我们开始创建一个新的 MoonBit 模块。</p>
+<h2 id="创建一个新模块"><a class="header" href="#创建一个新模块">创建一个新模块</a></h2>
+<p>使用 <code>moon new</code> 创建一个新项目，默认的配置是：</p>
+<pre><code class="language-bash">$ moon new
+Enter the path to create the project (. for current directory): my-project
+Select the create mode: exec
+Enter your username: username
+Enter your project name: hello
+Enter your license: Apache-2.0
+Created my-project
+</code></pre>
+<p>这会在 <code>my-project</code> 下创建一个名为 <code>username/hello</code> 的新模块。上述过程也可以使用 <code>moon new my-project</code> 代替。</p>
+<h2 id="了解模块目录结构"><a class="header" href="#了解模块目录结构">了解模块目录结构</a></h2>
+<p>上一步所创建的模块目录结构如下所示：</p>
+<pre><code class="language-bash">my-project
+├── LICENSE
+├── README.md
+├── moon.mod.json
+└── src
+    ├── lib
+    │   ├── hello.mbt
+    │   ├── hello_test.mbt
+    │   └── moon.pkg.json
+    └── main
+        ├── main.mbt
+        └── moon.pkg.json
+</code></pre>
+<p>这里简单解释一下目录结构：</p>
+<ul>
+<li>
+<p><code>moon.mod.json</code> 用来标记这个目录是一个模块。它包含了模块的元信息，例如模块名、版本等。</p>
+<pre><code class="language-json">{
+  "name": "username/hello",
+  "version": "0.1.0",
+  "readme": "README.md",
+  "repository": "",
+  "license": "Apache-2.0",
+  "keywords": [],
+  "description": "",
+  "source": "src"
+}
+</code></pre>
+<p><code>source</code> 字段指定了模块的源代码目录，默认值是 <code>src</code>。该字段存在的原因是因为 MoonBit 模块中的包名与文件路径相关。例如，当前模块名为 <code>username/hello</code>，而其中一个包所在目录为 <code>lib/moon.pkg.json</code>，那么在导入该包时，需要写包的全名为 <code>username/hello/lib</code>。有时，为了更好地组织项目结构，我们想把源码放在 <code>src</code> 目录下，例如 <code>src/lib/moon.pkg.json</code>，这时需要使用 <code>username/hello/src/lib</code> 导入该包。但一般来说我们并不希望 <code>src</code> 出现在包的路径中，此时可以通过指定 <code>"source": "src"</code> 来忽略 <code>src</code> 这层目录，便可使用 <code>username/hello/lib</code> 导入该包。</p>
+</li>
+<li>
+<p><code>src/lib</code> 和 <code>src/main</code> 目录：这是模块内的包。每个包可以包含多个 <code>.mbt</code> 文件，这些文件是 MoonBit 语言的源代码文件。但是，无论一个包有多少 <code>.mbt</code> 文件，它们都共享一个 <code>moon.pkg.json</code> 文件。<code>lib/*_test.mbt</code> 是 <code>lib</code> 包中的独立测试文件，这些文件用于黑盒测试，无法直接访问 <code>lib</code> 包的私有成员。</p>
+</li>
+<li>
+<p><code>moon.pkg.json</code> 是包描述文件。它定义了包的属性，例如，是否是 <code>main</code> 包，所导入的其他包。</p>
+<ul>
+<li>
+<p><code>main/moon.pkg.json</code>:</p>
+<pre><code class="language-json">{
+  "is_main": true,
+  "import": [
+    "username/hello/lib"
+  ]
+}
+</code></pre>
+</li>
+</ul>
+<p>这里，<code>"is_main: true"</code> 表示这个包需要被链接成目标文件。在 <code>wasm/wasm-gc</code> 后端，会被链接成一个 <code>wasm</code> 文件，在 <code>js</code> 后端，会被链接成一个 <code>js</code> 文件。</p>
+<ul>
+<li>
+<p><code>lib/moon.pkg.json</code>:</p>
+<pre><code class="language-json">{}
+</code></pre>
+</li>
+</ul>
+<p>这个文件只是为了告诉构建系统当前目录是一个包。</p>
+</li>
+</ul>
+<h2 id="如何使用包"><a class="header" href="#如何使用包">如何使用包</a></h2>
+<p>我们的 <code>username/hello</code> 模块包含两个包：<code>username/hello/lib</code> 和 <code>username/hello/main</code>。</p>
+<p>包 <code>username/hello/lib</code> 包含 <code>hello.mbt</code> 和 <code>hello_test.mbt</code> 文件：</p>
+<p><code>hello.mbt</code></p>
+<pre><code class="language-moonbit">pub fn hello() -&gt; String {
+    "Hello, world!"
+}
+</code></pre>
+<p><code>hello_test.mbt</code></p>
+<pre><code class="language-moonbit">test "hello" {
+  if @lib.hello() != "Hello, world!" {
+    fail!("@lib.hello() != \"Hello, world!\"")
+  }
+}
+</code></pre>
+<p>包 <code>username/hello/main</code> 只包含一个 <code>main.mbt</code> 文件：</p>
+<pre><code class="language-moonbit">fn main {
+  println(@lib.hello())
+}
+</code></pre>
+<p>为了执行程序，需要在 <code>moon run</code> 命令中指定 <code>username/hello/main</code> 包的<strong>文件系统路径</strong>：</p>
+<pre><code class="language-bash">$ moon run ./src/main
+Hello, world!
+</code></pre>
+<p>你也可以省略 <code>./</code></p>
+<pre><code class="language-bash">$ moon run src/main
+Hello, world!
+</code></pre>
+<p>你可以使用 <code>moon test</code> 命令进行测试：</p>
+<pre><code class="language-bash">$ moon test
+Total tests: 1, passed: 1, failed: 0.
+</code></pre>
+<h2 id="如何导入包"><a class="header" href="#如何导入包">如何导入包</a></h2>
+<p>在 MoonBit 的构建系统中，模块名用于引用其内部包。</p>
+<p>如果想在 <code>src/main/main.mbt</code> 中使用 <code>username/hello/lib</code> 包，你需要在 <code>src/main/moon.pkg.json</code> 中指定：</p>
+<pre><code class="language-json">{
+  "is_main": true,
+  "import": [
+    "username/hello/lib"
+  ]
+}
+</code></pre>
+<p>这里，<code>username/hello/lib</code> 指定了从 <code>username/hello</code> 模块导入 <code>username/hello/lib</code> 包，所以你可以在 <code>main/main.mbt</code> 中使用 <code>@lib.hello()</code>。</p>
+<p>注意，<code>src/main/moon.pkg.json</code> 中导入的包名是 <code>username/hello/lib</code>，在 <code>src/main/main.mbt</code> 中使用 <code>@lib</code> 来引用这个包。这里的导入实际上为包名 <code>username/hello/lib</code> 生成了一个默认别名。在接下来的章节中，你将学习如何为包自定义别名。</p>
+<h2 id="创建和使用包"><a class="header" href="#创建和使用包">创建和使用包</a></h2>
+<p>首先，在 <code>lib</code> 下创建一个名为 <code>fib</code> 的新目录：</p>
+<pre><code class="language-bash">mkdir src/lib/fib
+</code></pre>
+<p>现在，你可以在 <code>src/lib/fib</code> 下创建新文件：</p>
+<p><code>a.mbt</code>:</p>
+<pre><code class="language-moonbit">pub fn fib(n : Int) -&gt; Int {
+  match n {
+    0 =&gt; 0
+    1 =&gt; 1
+    _ =&gt; fib(n - 1) + fib(n - 2)
+  }
+}
+</code></pre>
+<p><code>b.mbt</code>:</p>
+<pre><code class="language-moonbit">pub fn fib2(num : Int) -&gt; Int {
+  fn aux(n, acc1, acc2) {
+    match n {
+      0 =&gt; acc1
+      1 =&gt; acc2
+      _ =&gt; aux(n - 1, acc2, acc1 + acc2)
+    }
+  }
+
+  aux(num, 0, 1)
+}
+</code></pre>
+<p><code>moon.pkg.json</code>:</p>
+<pre><code class="language-json">{}
+</code></pre>
+<p>在创建完这些文件后，你的目录结构应该如下所示：</p>
+<pre><code class="language-bash">my-project
+├── LICENSE
+├── README.md
+├── moon.mod.json
+└── src
+    ├── lib
+    │   ├── fib
+    │   │   ├── a.mbt
+    │   │   ├── b.mbt
+    │   │   └── moon.pkg.json
+    │   ├── hello.mbt
+    │   ├── hello_test.mbt
+    │   └── moon.pkg.json
+    └── main
+        ├── main.mbt
+        └── moon.pkg.json
+</code></pre>
+<p>在 <code>src/main/moon.pkg.json</code> 文件中，导入 <code>username/hello/lib/fib</code> 包，并自定义别名为 <code>my_awesome_fibonacci</code>：</p>
+<pre><code class="language-json">{
+  "is_main": true,
+  "import": [
+    "username/hello/lib",
+    {
+      "path": "username/hello/lib/fib",
+      "alias": "my_awesome_fibonacci"
+    }
+  ]
+}
+</code></pre>
+<p>这行导入了 <code>username/hello/lib/fib</code> 包。导入后，你可以在 <code>main/main.mbt</code> 中使用 <code>fib</code> 包了。</p>
+<p>将 <code>main/main.mbt</code> 的文件内容替换为：</p>
+<pre><code class="language-moonbit">fn main {
+  let a = @my_awesome_fibonacci.fib(10)
+  let b = @my_awesome_fibonacci.fib2(11)
+  println("fib(10) = \{a}, fib(11) = \{b}")
+
+  println(@lib.hello())
+}
+</code></pre>
+<p>为了执行程序，需要在 <code>moon run</code> 命令中指定 <code>username/hello/main</code> 包的文件系统路径：</p>
+<pre><code class="language-bash">$ moon run ./src/main
+fib(10) = 55, fib(11) = 89
+Hello, world!
+</code></pre>
+<h2 id="添加测试"><a class="header" href="#添加测试">添加测试</a></h2>
+<p>让我们添加一些测试来验证我们的 fib 实现。在 <code>src/lib/fib/a.mbt</code> 中添加以下内容：</p>
+<p><code>src/lib/fib/a.mbt</code></p>
+<pre><code class="language-moonbit">test {
+  assert_eq!(fib(1), 1)
+  assert_eq!(fib(2), 1)
+  assert_eq!(fib(3), 2)
+  assert_eq!(fib(4), 3)
+  assert_eq!(fib(5), 5)
+}
+</code></pre>
+<p>这些代码测试了斐波那契数列的前五项。<code>test { ... }</code> 定义了一个内联测试块。内联测试块中的代码在测试模式下执行。</p>
+<p>内联测试块在非测试模式下（<code>moon build</code> 和 <code>moon run</code>）会被丢弃，因此不会导致生成的代码大小膨胀。</p>
+<h2 id="用于黑盒测试的独立测试文件"><a class="header" href="#用于黑盒测试的独立测试文件">用于黑盒测试的独立测试文件</a></h2>
+<p>除了内联测试，MoonBit 还支持独立测试文件。以 <code>_test.mbt</code> 结尾的源文件被认为是黑盒测试的测试文件。例如，在 <code>src/lib/fib</code> 目录中，创建一个名为 <code>fib_test.mbt</code> 的文件，并粘贴以下代码：</p>
+<p><code>src/lib/fib/fib_test.mbt</code></p>
+<pre><code class="language-moonbit">test {
+  assert_eq!(@fib.fib(1), 1)
+  assert_eq!(@fib.fib2(2), 1)
+  assert_eq!(@fib.fib(3), 2)
+  assert_eq!(@fib.fib2(4), 3)
+  assert_eq!(@fib.fib(5), 5)
+}
+</code></pre>
+<p>注意，构建系统会自动为以 <code>_test.mbt</code> 结尾的文件创建一个新的包，用于黑盒测试，并且自动导入当前包。因此，在测试块中需要使用 <code>@fib</code> 来引用 <code>username/hello/lib/fib</code> 包，而不需要在 <code>moon.pkg.json</code> 中显式地导入该包。</p>
+<p>最后，使用 <code>moon test</code> 命令，它会扫描整个项目，识别并运行所有内联测试以及以 <code>_test.mbt</code> 结尾的文件。如果一切正常，你会看到：</p>
+<pre><code class="language-bash">$ moon test
+Total tests: 3, passed: 3, failed: 0.
+$ moon test -v
+test username/hello/lib/hello_test.mbt::hello ok
+test username/hello/lib/fib/a.mbt::0 ok
+test username/hello/lib/fib/fib_test.mbt::0 ok
+Total tests: 3, passed: 3, failed: 0.
+</code></pre>
+
+                    </main>
+
+                    <nav class="nav-wrapper" aria-label="Page navigation">
+                        <!-- Mobile navigation buttons -->
+
+                            <a rel="next prefetch" href="commands.html" class="mobile-nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
+                                <i class="fa fa-angle-right"></i>
+                            </a>
+
+                        <div style="clear: both"></div>
+                    </nav>
+                </div>
+            </div>
+
+            <nav class="nav-wide-wrapper" aria-label="Page navigation">
+
+                    <a rel="next prefetch" href="commands.html" class="nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
+                        <i class="fa fa-angle-right"></i>
+                    </a>
+            </nav>
+
+        </div>
+
+
+
+
+        <script>
+            window.playground_copyable = true;
+        </script>
+
+
+        <script src="elasticlunr.min.js"></script>
+        <script src="mark.min.js"></script>
+        <script src="searcher.js"></script>
+
+        <script src="clipboard.min.js"></script>
+        <script src="highlight.js"></script>
+        <script src="book.js"></script>
+
+        <!-- Custom JS scripts -->
+
+
+    </div>
+    </body>
+</html>
