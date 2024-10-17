@@ -220,7 +220,7 @@ pub fn get_compiler_flags(
                 // use "cc" to compile
                 extra_link_opt.extend_from_slice(&[
                     "-cc".to_string(),
-                    format!("cc {} -O2 -fwrapv", libmoonbitrun_path.display()),
+                    format!("cc {} -O2 -fwrapv -lm", libmoonbitrun_path.display()),
                 ]);
             }
         }
