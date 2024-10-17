@@ -16,7 +16,7 @@
 #
 # For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
-name: Bleeding Release Unix
+name: Bleeding Release
 
 # trigger by moonc-version-dont-delete/.github/workflows/ci.yml when moonc merged PR
 
@@ -70,8 +70,6 @@ jobs:
           AWS_DEFAULT_REGION: ${{ secrets.AWS_DEFAULT_REGION }}
         shell: pwsh
         run: |
-          $PLATFORM = "windows-x86_64"
-          echo "PLATFORM=$PLATFORM" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
           Remove-Item -Recurse -Force tmp-bins -ErrorAction SilentlyContinue
           New-Item -ItemType Directory -Force -Path tmp-bins
           Invoke-WebRequest -Uri "https://cli.moonbitlang.com/moon-ci/Windows-x86_64.zip" -OutFile moonbit.zip
@@ -80,9 +78,9 @@ jobs:
           Copy-Item .\target\release\moon.exe .\tmp-bins
           Get-ChildItem .\tmp-bins
           Push-Location tmp-bins
-          Get-FileHash -Algorithm SHA256 * | ForEach-Object { $_.Hash + "  " + $_.Path.Split("\")[-1] } | Out-File -FilePath ..\moonbit-$env:PLATFORM.sha256 -Encoding utf8
+          Get-FileHash -Algorithm SHA256 * | ForEach-Object { $_.Hash + "  " + $_.Path.Split("\")[-1] } | Out-File -FilePath ..\moonbit-windows-x86_64.sha256 -Encoding utf8
           Pop-Location
-          Compress-Archive -Path .\tmp-bins\* -DestinationPath .\moonbit-$env:PLATFORM.zip
-          aws s3 cp .\moonbit-$env:PLATFORM.zip s3://cli.moonbitlang.com/binaries/bleeding/moonbit-$env:PLATFORM.zip
-          aws s3 cp .\moonbit-$env:PLATFORM.sha256 s3://cli.moonbitlang.com/binaries/bleeding/moonbit-$env:PLATFORM.sha256
+          Compress-Archive -Path .\tmp-bins\* -DestinationPath .\moonbit-windows-x86_64.zip
+          aws s3 cp .\moonbit-windows-x86_64.zip s3://cli.moonbitlang.com/binaries/bleeding/moonbit-windows-x86_64.zip
+          aws s3 cp .\moonbit-windows-x86_64.sha256 s3://cli.moonbitlang.com/binaries/bleeding/moonbit-windows-x86_64.sha256
           aws cloudfront create-invalidation --distribution-id E1KQYZEVEB0TAY --paths "/*"
