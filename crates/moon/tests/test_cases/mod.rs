@@ -6865,6 +6865,11 @@ fn no_main_just_init() {
 #[test]
 fn test_pre_build() {
     let dir = TestDir::new("pre_build.in");
+
+    // replace CRLF with LF on Windows
+    let b_txt_path = dir.join("src/lib/b.txt");
+    std::fs::write(&b_txt_path, read(&b_txt_path)).unwrap();
+
     check(
         get_stderr(&dir, ["check"]),
         expect![[r#"
