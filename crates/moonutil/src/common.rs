@@ -371,6 +371,7 @@ pub struct TestArtifacts {
 #[derive(Debug, Clone, Default)]
 pub struct FmtOpt {
     pub check: bool,
+    pub extra_args: Vec<String>,
 }
 
 #[derive(Debug, Clone)]

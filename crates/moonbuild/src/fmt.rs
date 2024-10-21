@@ -35,8 +35,12 @@ pub fn load_moon_proj(
     moonc_opt: &MooncOpt,
     moonbuild_opt: &MoonbuildOpt,
 ) -> anyhow::Result<State> {
-    let n2_input = gen_fmt(m, moonc_opt, moonbuild_opt);
-    let state = gen_n2_fmt_state(&n2_input?, moonc_opt, moonbuild_opt)?;
+    let n2_input = super::fmt::gen_fmt(m, moonc_opt, moonbuild_opt)?;
+    let state = if moonbuild_opt.fmt_opt.as_ref().unwrap().check {
+        super::fmt::gen_n2_fmt_check_state(&n2_input, moonc_opt, moonbuild_opt)?
+    } else {
+        super::fmt::gen_n2_fmt_state(&n2_input, moonc_opt, moonbuild_opt)?
+    };
     Ok(state)
 }
 
@@ -89,7 +93,11 @@ pub fn gen_fmt(
     Ok(N2FmtInput { items })
 }
 
-fn gen_inplace_fmt_command(graph: &mut n2graph::Graph, item: &FmtItem) -> (Build, FileId) {
+fn gen_inplace_fmt_command(
+    graph: &mut n2graph::Graph,
+    item: &FmtItem,
+    moonbuild_opt: &MoonbuildOpt,
+) -> (Build, FileId) {
     let loc = FileLoc {
         filename: Rc::new(PathBuf::from("format")),
         line: 0,
@@ -119,6 +127,7 @@ fn gen_inplace_fmt_command(graph: &mut n2graph::Graph, item: &FmtItem) -> (Build
         .arg("-w")
         .arg("-o")
         .arg(&item.phony_out)
+        .args(&moonbuild_opt.fmt_opt.as_ref().unwrap().extra_args)
         .build();
     build.cmdline = Some(command);
     build.desc = Some(format!("moonfmt {}", item.input));
@@ -160,7 +169,7 @@ pub fn gen_n2_fmt_state(
     let mut builds = vec![];
 
     for item in input.items.iter() {
-        let (build, fid) = gen_inplace_fmt_command(&mut graph, item);
+        let (build, fid) = gen_inplace_fmt_command(&mut graph, item, moonbuild_opt);
         graph.add_build(build)?;
         builds.push(fid);
     }
@@ -185,7 +194,11 @@ pub fn gen_n2_fmt_state(
     })
 }
 
-fn gen_fmt_to_command(graph: &mut n2graph::Graph, item: &FmtItem) -> (Build, FileId) {
+fn gen_fmt_to_command(
+    graph: &mut n2graph::Graph,
+    item: &FmtItem,
+    moonbuild_opt: &MoonbuildOpt,
+) -> (Build, FileId) {
     let loc = FileLoc {
         filename: Rc::new(PathBuf::from("format")),
         line: 0,
@@ -220,6 +233,7 @@ fn gen_fmt_to_command(graph: &mut n2graph::Graph, item: &FmtItem) -> (Build, Fil
     .arg(&item.input)
     .arg("--new")
     .arg(&item.output)
+    .args(&moonbuild_opt.fmt_opt.as_ref().unwrap().extra_args)
     .build();
     build.cmdline = Some(command);
     build.desc = Some(format!("moonfmt {}", item.input));
@@ -261,7 +275,7 @@ pub fn gen_n2_fmt_check_state(
     let mut builds = vec![];
 
     for item in input.items.iter() {
-        let (bs, fs) = gen_fmt_to_command(&mut graph, item);
+        let (bs, fs) = gen_fmt_to_command(&mut graph, item, moonbuild_opt);
         graph.add_build(bs)?;
         builds.push(fs);
     }
