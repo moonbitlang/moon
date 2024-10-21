@@ -144,7 +144,7 @@ fn scan_module_packages(
     let mod_desc = read_module_desc_file_in_dir(module_source_dir)?;
     let module_source_dir = match &mod_desc.source {
         None => module_source_dir.to_path_buf(),
-        Some(p) => module_source_dir.join(p),
+        Some(p) => dunce::canonicalize(module_source_dir.join(p))?,
     };
 
     let mut packages: IndexMap<String, Package> = IndexMap::new();
