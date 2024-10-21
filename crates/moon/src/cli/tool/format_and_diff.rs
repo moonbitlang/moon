@@ -28,6 +28,8 @@ pub struct FormatAndDiffSubcommand {
     /// The target path of the formatted code
     #[clap(long)]
     new: PathBuf,
+
+    pub args: Vec<String>,
 }
 
 pub fn run_format_and_diff(cmd: FormatAndDiffSubcommand) -> anyhow::Result<i32> {
@@ -36,6 +38,7 @@ pub fn run_format_and_diff(cmd: FormatAndDiffSubcommand) -> anyhow::Result<i32> 
         .arg(cmd.old.to_str().unwrap())
         .arg("-o")
         .arg(cmd.new.to_str().unwrap())
+        .args(&cmd.args)
         .stdin(Stdio::inherit())
         .stdout(Stdio::inherit())
         .stderr(Stdio::inherit())

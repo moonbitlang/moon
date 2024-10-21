@@ -16,7 +16,7 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
-use anyhow::bail;
+use moonbuild::dry_run;
 use mooncake::pkg::sync::auto_sync;
 use moonutil::{
     common::{FileLock, FmtOpt, MoonbuildOpt, MooncOpt, RunMode},
@@ -36,6 +36,8 @@ pub struct FmtSubcommand {
     /// Sort input files
     #[clap(long)]
     pub sort_input: bool,
+
+    pub args: Vec<String>,
 }
 
 pub fn run_fmt(cli: &UniversalFlags, cmd: FmtSubcommand) -> anyhow::Result<i32> {
@@ -64,7 +66,10 @@ pub fn run_fmt(cli: &UniversalFlags, cmd: FmtSubcommand) -> anyhow::Result<i32> 
         target_dir: target_dir.clone(),
         sort_input: cmd.sort_input,
         run_mode,
-        fmt_opt: Some(FmtOpt { check: cmd.check }),
+        fmt_opt: Some(FmtOpt {
+            check: cmd.check,
+            extra_args: cmd.args,
+        }),
         build_graph: cli.build_graph,
         test_opt: None,
         args: vec![],
@@ -83,7 +88,7 @@ pub fn run_fmt(cli: &UniversalFlags, cmd: FmtSubcommand) -> anyhow::Result<i32> 
     )?;
 
     if cli.dry_run {
-        bail!("dry-run is not implemented for fmt");
+        return dry_run::print_commands(&module, &moonc_opt, &moonbuild_opt);
     }
     moonbuild::entry::run_fmt(&module, &moonc_opt, &moonbuild_opt)
 }

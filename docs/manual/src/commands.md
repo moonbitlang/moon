@@ -221,7 +221,11 @@ Remove the target directory
 
 Format source code
 
-**Usage:** `moon fmt [OPTIONS]`
+**Usage:** `moon fmt [OPTIONS] [ARGS]...`
+
+###### **Arguments:**
+
+* `<ARGS>`
 
 ###### **Options:**
 

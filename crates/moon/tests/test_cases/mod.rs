@@ -3954,6 +3954,54 @@ fn test_moon_fmt_002() {
 }
 
 #[test]
+fn test_moon_fmt_extra_args() {
+    let dir = TestDir::new("moon_fmt.in");
+    check(
+        get_stdout(&dir, ["fmt", "--dry-run", "--sort-input"]),
+        expect![[r#"
+        moonfmt ./lib/hello.mbt -w -o ./target/wasm-gc/release/format/lib/hello.mbt
+        moonfmt ./lib/hello_wbtest.mbt -w -o ./target/wasm-gc/release/format/lib/hello_wbtest.mbt
+        moonfmt ./main/main.mbt -w -o ./target/wasm-gc/release/format/main/main.mbt
+    "#]],
+    );
+    check(
+        get_stdout(&dir, ["fmt", "--dry-run", "--sort-input", "--", "a", "b"]),
+        expect![[r#"
+            moonfmt ./lib/hello.mbt -w -o ./target/wasm-gc/release/format/lib/hello.mbt a b
+            moonfmt ./lib/hello_wbtest.mbt -w -o ./target/wasm-gc/release/format/lib/hello_wbtest.mbt a b
+            moonfmt ./main/main.mbt -w -o ./target/wasm-gc/release/format/main/main.mbt a b
+        "#]],
+    );
+    check(
+        get_stdout(&dir, ["fmt", "--check", "--sort-input", "--dry-run"]),
+        expect![[r#"
+            moon tool format-and-diff --old ./lib/hello.mbt --new ./target/wasm-gc/release/format/lib/hello.mbt
+            moon tool format-and-diff --old ./lib/hello_wbtest.mbt --new ./target/wasm-gc/release/format/lib/hello_wbtest.mbt
+            moon tool format-and-diff --old ./main/main.mbt --new ./target/wasm-gc/release/format/main/main.mbt
+        "#]],
+    );
+    check(
+        get_stdout(
+            &dir,
+            [
+                "fmt",
+                "--check",
+                "--sort-input",
+                "--dry-run",
+                "--",
+                "c",
+                "d",
+            ],
+        ),
+        expect![[r#"
+            moon tool format-and-diff --old ./lib/hello.mbt --new ./target/wasm-gc/release/format/lib/hello.mbt c d
+            moon tool format-and-diff --old ./lib/hello_wbtest.mbt --new ./target/wasm-gc/release/format/lib/hello_wbtest.mbt c d
+            moon tool format-and-diff --old ./main/main.mbt --new ./target/wasm-gc/release/format/main/main.mbt c d
+        "#]],
+    );
+}
+
+#[test]
 fn test_export_memory_name() {
     let dir = TestDir::new("export_memory.in");
     let _ = get_stdout(&dir, ["build", "--target", "wasm-gc", "--output-wat"]);
