@@ -123,6 +123,7 @@ fn cmd_test() {
             ${WORK_DIR}/moon_info_001.in/moon.test, ok,
             ${WORK_DIR}/moon_info_002.in/moon.test, ok,
             ${WORK_DIR}/specify_source_dir_001.in/moon.test, ok,
+            ${WORK_DIR}/test_dot_source.in/moon.test, ok,
             ${WORK_DIR}/test_exclude_001.in/moon.test, ok,
             ${WORK_DIR}/test_exclude_002.in/moon.test, ok,
             ${WORK_DIR}/test_include_001.in/moon.test, ok,
