@@ -18,7 +18,7 @@
 
 use anyhow::Context;
 
-use moonutil::common::{MoonbuildOpt, MooncOpt};
+use moonutil::common::{FileLock, MoonbuildOpt, MooncOpt};
 use moonutil::module::{convert_mdb_to_json, ModuleDB, ModuleDBJSON};
 use n2::load::State;
 use std::io::BufWriter;
@@ -43,6 +43,8 @@ pub fn write_pkg_lst(module: &ModuleDB, target_dir: &Path) -> anyhow::Result<()>
 
     let mj = convert_mdb_to_json(module);
     let pkg_json = target_dir.join("packages.json");
+    // packages.json now placed in target/, should be protected for mutil-thread write
+    let _lock = FileLock::lock(target_dir)?;
 
     // if the file exist and the old content is the same as the new content in `module`, don't rewrite it
     // otherwise we create and write

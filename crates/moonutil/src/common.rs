@@ -22,7 +22,7 @@ use crate::module::{MoonMod, MoonModJSON};
 use crate::package::{convert_pkg_json_to_package, MoonPkg, MoonPkgJSON, Package};
 use anyhow::{bail, Context};
 use clap::ValueEnum;
-use fs4::FileExt;
+use fs4::fs_std::FileExt;
 use indexmap::IndexMap;
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
