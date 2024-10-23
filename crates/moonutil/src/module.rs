@@ -83,6 +83,10 @@ impl ModuleDB {
         self.packages.get(name).unwrap()
     }
 
+    pub fn get_package_by_path(&self, path: &Path) -> Option<&Package> {
+        self.packages.values().find(|it| it.root_path == path)
+    }
+
     pub fn get_package_by_index(&self, index: usize) -> &Package {
         &self.packages[self.packages.keys().nth(index).unwrap()]
     }
@@ -102,6 +106,38 @@ impl ModuleDB {
                 true
             }
         })
+    }
+
+    pub fn get_filtered_packages_and_its_deps(&self, pkg_path: &Path) -> IndexMap<String, Package> {
+        let pkg = self.get_package_by_path(pkg_path);
+        match pkg {
+            Some(pkg) => {
+                let mut resolved = HashSet::new();
+                resolved.insert(pkg.full_name().clone());
+                self.resolve_deps_of_pkg(pkg, &mut resolved);
+                let it = resolved
+                    .iter()
+                    .map(|pkg_name| (pkg_name.clone(), self.get_package_by_name(pkg_name).clone()));
+                IndexMap::from_iter(it)
+            }
+            None => IndexMap::new(),
+        }
+    }
+
+    // resolve deps of the given pkg in dfs way
+    fn resolve_deps_of_pkg(&self, pkg: &Package, res: &mut HashSet<String>) {
+        for dep in pkg
+            .imports
+            .iter()
+            .chain(pkg.wbtest_imports.iter())
+            .chain(pkg.test_imports.iter())
+        {
+            let dep = &dep.path.make_full_path();
+            if !res.contains(dep) {
+                res.insert(dep.clone());
+                self.resolve_deps_of_pkg(self.get_package_by_name(dep), res);
+            }
+        }
     }
 
     pub fn get_filtered_packages_mut(
