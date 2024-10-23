@@ -348,7 +348,7 @@ fn do_run_test(
     moonbuild_opt: MoonbuildOpt,
     build_only: bool,
     auto_update: bool,
-    module: ModuleDB,
+    mut module: ModuleDB,
     verbose: bool,
 ) -> anyhow::Result<i32> {
     let backend_hint = moonbuild_opt
@@ -357,6 +357,10 @@ fn do_run_test(
         .and_then(|opt| opt.display_backend_hint.as_ref())
         .map(|_| format!(" [{}]", moonc_opt.build_opt.target_backend.to_backend_ext()))
         .unwrap_or_default();
+
+    // Preprocess module db: add coverage libs if needed
+    moonbuild::gen::gen_runtest::moduledb_test_pp(&mut module, &moonc_opt)?;
+    let module = module;
 
     let test_res = entry::run_test(
         moonc_opt,
