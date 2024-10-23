@@ -265,7 +265,18 @@ pub fn gen_check(
     let _ = moonc_opt;
     let _ = moonbuild_opt;
     let mut dep_items = vec![];
-    for (_, pkg) in m.get_all_packages().iter() {
+    let check_opt_filter = moonbuild_opt.check_opt.as_ref().and_then(|it| {
+        if let Some(ref package_path) = it.package_path {
+            let filter_op = move |pkg: &Package| {
+                pkg.root_path == moonbuild_opt.source_dir.join(package_path)
+            };
+            Some(filter_op)
+        } else {
+            None
+        }
+    });
+    let pkgs = m.get_filtered_packages(check_opt_filter);
+    for (_, pkg) in pkgs {
         let item = pkg_to_check_item(&pkg.root_path, m.get_all_packages(), pkg, moonc_opt)?;
         dep_items.push(item);
         if !pkg.wbtest_files.is_empty() {
