@@ -274,6 +274,7 @@ pub fn run_run_internal(cli: &UniversalFlags, cmd: RunSubcommand) -> anyhow::Res
         verbose: cli.verbose,
         build_graph: cli.build_graph,
         test_opt: None,
+        check_opt: None,
         fmt_opt: None,
         output_json: false,
         no_parallelize: false,

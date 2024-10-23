@@ -117,7 +117,11 @@ Build the current package
 
 Check the current package, but don't build object files
 
-**Usage:** `moon check [OPTIONS]`
+**Usage:** `moon check [OPTIONS] [PACKAGE_PATH]`
+
+###### **Arguments:**
+
+* `<PACKAGE_PATH>` — The package to check
 
 ###### **Options:**
 

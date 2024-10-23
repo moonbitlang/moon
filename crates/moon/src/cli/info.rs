@@ -88,6 +88,7 @@ pub fn run_info(cli: UniversalFlags, cmd: InfoSubcommand) -> anyhow::Result<i32>
         sort_input: false,
         run_mode: RunMode::Check,
         test_opt: None,
+        check_opt: None,
         fmt_opt: None,
         args: vec![],
         verbose: cli.verbose,

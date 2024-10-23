@@ -134,6 +134,7 @@ fn run_build_internal(
         verbose: cli.verbose,
         build_graph: cli.build_graph,
         test_opt: None,
+        check_opt: None,
         fmt_opt: None,
         args: vec![],
         output_json: false,
