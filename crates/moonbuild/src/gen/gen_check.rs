@@ -26,7 +26,7 @@ use moonutil::package::Package;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
 
-use moonutil::common::{get_desc_name, MoonbuildOpt, MooncOpt, MOON_PKG_JSON};
+use moonutil::common::{get_desc_name, CheckOpt, MoonbuildOpt, MooncOpt, MOON_PKG_JSON};
 use n2::graph::{self as n2graph, Build, BuildIns, BuildOuts, FileLoc};
 use n2::load::State;
 use n2::smallmap::SmallMap;
@@ -265,17 +265,12 @@ pub fn gen_check(
     let _ = moonc_opt;
     let _ = moonbuild_opt;
     let mut dep_items = vec![];
-    let check_opt_filter = moonbuild_opt.check_opt.as_ref().and_then(|it| {
-        if let Some(ref package_path) = it.package_path {
-            let filter_op = move |pkg: &Package| {
-                pkg.root_path == moonbuild_opt.source_dir.join(package_path)
-            };
-            Some(filter_op)
-        } else {
-            None
-        }
-    });
-    let pkgs = m.get_filtered_packages(check_opt_filter);
+    let pkgs = match moonbuild_opt.check_opt.as_ref() {
+        Some(CheckOpt {
+            package_path: Some(pkg_path),
+        }) => &m.get_filtered_packages_and_its_deps(&moonbuild_opt.source_dir.join(pkg_path)),
+        _ => m.get_all_packages(),
+    };
     for (_, pkg) in pkgs {
         let item = pkg_to_check_item(&pkg.root_path, m.get_all_packages(), pkg, moonc_opt)?;
         dep_items.push(item);
