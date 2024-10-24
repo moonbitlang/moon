@@ -47,6 +47,8 @@ pub struct RuntestDepItem {
     pub package_source_dir: String,
     pub is_main: bool,
     pub is_third_party: bool,
+    pub is_whitebox_test: bool,
+    pub is_blackbox_test: bool,
 }
 
 #[derive(Debug)]
@@ -181,6 +183,8 @@ pub fn gen_package_core(
         package_source_dir,
         is_main: false,
         is_third_party: pkg.is_third_party,
+        is_whitebox_test: false,
+        is_blackbox_test: false,
     })
 }
 
@@ -248,6 +252,8 @@ pub fn gen_package_internal_test(
         package_source_dir,
         is_main: true,
         is_third_party: pkg.is_third_party,
+        is_whitebox_test: false,
+        is_blackbox_test: false,
     })
 }
 
@@ -323,6 +329,8 @@ pub fn gen_package_whitebox_test(
         package_source_dir,
         is_main: true,
         is_third_party: pkg.is_third_party,
+        is_whitebox_test: true,
+        is_blackbox_test: false,
     })
 }
 
@@ -420,6 +428,8 @@ pub fn gen_package_blackbox_test(
         package_source_dir,
         is_main: true,
         is_third_party: pkg.is_third_party,
+        is_whitebox_test: false,
+        is_blackbox_test: true,
     })
 }
 
@@ -812,6 +822,8 @@ pub fn gen_runtest_build_command(
         // Coverage arg
         .args(coverage_args.iter())
         .args(moonc_opt.extra_build_opt.iter())
+        .arg_with_cond(item.is_whitebox_test, "-whitebox-test")
+        .arg_with_cond(item.is_blackbox_test, "-blackbox-test")
         .build();
     log::debug!("Command: {}", command);
     build.cmdline = Some(command);
