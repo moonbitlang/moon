@@ -19,6 +19,7 @@
 use anyhow::{bail, Ok};
 use colored::Colorize;
 use indexmap::IndexMap;
+use log::info;
 use moonutil::common::{
     get_desc_name, DriverKind, GeneratedTestDriver, MOONBITLANG_CORE, MOONBITLANG_COVERAGE,
 };
@@ -73,11 +74,16 @@ pub struct N2RuntestInput {
     pub test_drivers: Vec<RuntestDriverItem>,
 }
 
-/// Preprocess module db for test. Mainly for adding coverage library reference to each package.
-pub fn moduledb_test_pp(mdb: &mut ModuleDB, moonc_opt: &MooncOpt) -> anyhow::Result<()> {
+/// Automatically add coverage library import to core module if needed
+pub fn add_coverage_to_core_if_needed(
+    mdb: &mut ModuleDB,
+    moonc_opt: &MooncOpt,
+) -> anyhow::Result<()> {
     if moonc_opt.build_opt.enable_coverage {
         // Only core module needs to add coverage library
         if mdb.name == MOONBITLANG_CORE {
+            info!("Automatically adding coverage library to other packages in the core module");
+
             // Add coverage library reference to each package
             for (pkg_name, pkg) in mdb.get_all_packages_mut() {
                 if is_self_coverage_lib(pkg_name) || is_skip_coverage_lib(pkg_name) {

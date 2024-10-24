@@ -323,6 +323,10 @@ fn run_test_internal(
         .iter()
         .map(|(name, pkg)| (name.clone(), pkg.alert_list.clone()))
         .collect();
+
+    // add coverage libs if needed
+    moonbuild::gen::gen_runtest::add_coverage_to_core_if_needed(&mut module, &moonc_opt)?;
+
     if cli.dry_run {
         return dry_run::print_commands(&module, &moonc_opt, &moonbuild_opt).map(From::from);
     }
@@ -348,7 +352,7 @@ fn do_run_test(
     moonbuild_opt: MoonbuildOpt,
     build_only: bool,
     auto_update: bool,
-    mut module: ModuleDB,
+    module: ModuleDB,
     verbose: bool,
 ) -> anyhow::Result<i32> {
     let backend_hint = moonbuild_opt
@@ -357,10 +361,6 @@ fn do_run_test(
         .and_then(|opt| opt.display_backend_hint.as_ref())
         .map(|_| format!(" [{}]", moonc_opt.build_opt.target_backend.to_backend_ext()))
         .unwrap_or_default();
-
-    // Preprocess module db: add coverage libs if needed
-    moonbuild::gen::gen_runtest::moduledb_test_pp(&mut module, &moonc_opt)?;
-    let module = module;
 
     let test_res = entry::run_test(
         moonc_opt,
