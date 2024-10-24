@@ -219,6 +219,8 @@ pub fn run_run_internal(cli: &UniversalFlags, cmd: RunSubcommand) -> anyhow::Res
         target_dir,
     } = cli.source_tgt_dir.try_into_package_dirs()?;
 
+    let mod_desc = moonutil::common::read_module_desc_file_in_dir(&source_dir)?;
+
     // Run moon install before build
     let (resolved_env, dir_sync_result) = auto_sync(
         &source_dir,
@@ -259,7 +261,7 @@ pub fn run_run_internal(cli: &UniversalFlags, cmd: RunSubcommand) -> anyhow::Res
         bail!("{} is not a package", package_path);
     }
 
-    let pkg = moonutil::common::read_package_desc_file_in_dir(&package)?;
+    let pkg = moonutil::common::read_package_desc_file_in_dir(&mod_desc.name, &package)?;
     if !pkg.is_main {
         bail!("`{}` is not a main package", package_path);
     }
