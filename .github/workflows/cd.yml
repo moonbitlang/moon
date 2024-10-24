@@ -75,9 +75,11 @@ jobs:
           rm -rf tmp-bins
           mkdir tmp-bins
           curl https://cli.moonbitlang.com/moon-ci/$(uname -s)-$(uname -m).tar.gz --output moonbit.tar.gz
+          curl https://cli.moonbitlang.com/moon-ci/$(uname -s)-$(uname -m)/mooncake --output mooncake
           tar xf moonbit.tar.gz --directory ./tmp-bins/
           cp -L ./target/release/moonrun ./tmp-bins/
           cp -L ./target/release/moon ./tmp-bins/
+          cp -L ./mooncake ./tmp-bins/
           pushd tmp-bins && shasum -a 256 -- * >../moonbit-darwin-aarch64.sha256 && popd
           tar czf ./moonbit-darwin-aarch64.tar.gz --directory=./tmp-bins .
           aws s3 cp ./moonbit-darwin-aarch64.tar.gz s3://cli.moonbitlang.com/binaries/bleeding/moonbit-darwin-aarch64.tar.gz
@@ -146,9 +148,11 @@ jobs:
           rm -rf tmp-bins
           mkdir tmp-bins
           curl https://cli.moonbitlang.com/moon-ci/$(uname -s)-$(uname -m).tar.gz --output moonbit.tar.gz
+          curl https://cli.moonbitlang.com/moon-ci/$(uname -s)-$(uname -m)/mooncake --output mooncake
           tar xf moonbit.tar.gz --directory ./tmp-bins/
           cp -L ./target/release/moonrun ./tmp-bins/
           cp -L ./target/release/moon ./tmp-bins/
+          cp -L ./mooncake ./tmp-bins/
           cd tmp-bins && sha256sum -- * >../moonbit-linux-x86_64.sha256 && cd ..
           tar czf ./moonbit-linux-x86_64.tar.gz --directory=./tmp-bins .
           aws s3 cp ./moonbit-linux-x86_64.tar.gz s3://cli.moonbitlang.com/binaries/bleeding/moonbit-linux-x86_64.tar.gz
