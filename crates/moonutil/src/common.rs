@@ -122,12 +122,12 @@ pub fn read_module_from_json(path: &Path) -> Result<MoonMod, MoonModJSONFormatEr
     })
 }
 
-fn read_package_from_json(path: &Path) -> anyhow::Result<MoonPkg> {
+fn read_package_from_json(module_name: &str, path: &Path) -> anyhow::Result<MoonPkg> {
     let file = File::open(path)?;
     let reader = BufReader::new(file);
     let j =
         serde_json_lenient::from_reader(reader).context(format!("Failed to parse {:?}", path))?;
-    convert_pkg_json_to_package(j)
+    convert_pkg_json_to_package(module_name, j)
 }
 
 pub fn write_module_json_to_file(m: &MoonModJSON, source_dir: &Path) -> anyhow::Result<()> {
@@ -152,11 +152,11 @@ pub fn read_module_desc_file_in_dir(dir: &Path) -> anyhow::Result<MoonMod> {
     Ok(read_module_from_json(&dir.join(MOON_MOD_JSON))?)
 }
 
-pub fn read_package_desc_file_in_dir(dir: &Path) -> anyhow::Result<MoonPkg> {
+pub fn read_package_desc_file_in_dir(module_name: &str, dir: &Path) -> anyhow::Result<MoonPkg> {
     if !dir.join(MOON_PKG_JSON).exists() {
         bail!("`{:?}` does not exist", dir.join(MOON_PKG_JSON));
     }
-    read_package_from_json(&dir.join(MOON_PKG_JSON))
+    read_package_from_json(module_name, &dir.join(MOON_PKG_JSON))
         .context(format!("Failed to load {:?}", dir.join(MOON_PKG_JSON)))
 }
 

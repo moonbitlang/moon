@@ -249,7 +249,7 @@ fn scan_one_package(
         Ok(imports)
     };
 
-    let pkg = crate::common::read_package_desc_file_in_dir(pkg_path)?;
+    let pkg = crate::common::read_package_desc_file_in_dir(&mod_desc.name, pkg_path)?;
     let rel = pkg_path.strip_prefix(module_source_dir)?;
     let rel_path = PathComponent::from_path(rel)?;
 

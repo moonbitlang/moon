@@ -28,7 +28,7 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    common::{FileName, GeneratedTestDriver},
+    common::{FileName, GeneratedTestDriver, MOONBITLANG_CORE},
     cond_expr::{CompileCondition, CondExpr, RawTargets},
     path::{ImportComponent, PathComponent},
 };
@@ -333,8 +333,11 @@ pub struct MoonPkg {
     pub is_main: bool,
     pub need_link: bool,
     pub imports: Vec<Import>,
+    pub core_imports: Vec<Import>,
     pub wbtest_imports: Vec<Import>,
+    pub core_wbtest_imports: Vec<Import>,
     pub test_imports: Vec<Import>,
+    pub core_test_imports: Vec<Import>,
 
     pub link: Option<Link>,
     pub warn_list: Option<String>,
@@ -361,7 +364,7 @@ impl Import {
     }
 }
 
-pub fn convert_pkg_json_to_package(j: MoonPkgJSON) -> anyhow::Result<MoonPkg> {
+pub fn convert_pkg_json_to_package(module_name: &str, j: MoonPkgJSON) -> anyhow::Result<MoonPkg> {
     let get_imports = |source: Option<PkgJSONImport>| -> Vec<Import> {
         let mut imports = vec![];
         if let Some(im) = source {
@@ -444,6 +447,19 @@ pub fn convert_pkg_json_to_package(j: MoonPkgJSON) -> anyhow::Result<MoonPkg> {
             alias_dedup.insert(alias.clone());
         }
     }
+    let mut imports_with_core = vec![];
+    let mut imports_without_core = vec![];
+    for im in imports {
+        let path = match &im {
+            Import::Simple(p) => p,
+            Import::Alias { path, alias: _ } => path,
+        };
+        if module_name != MOONBITLANG_CORE && path.starts_with(MOONBITLANG_CORE) {
+            imports_with_core.push(im);
+        } else {
+            imports_without_core.push(im);
+        }
+    }
 
     // TODO: check on the fly
     let mut alias_dedup: HashSet<String> = HashSet::new();
@@ -464,6 +480,19 @@ pub fn convert_pkg_json_to_package(j: MoonPkgJSON) -> anyhow::Result<MoonPkg> {
             bail!("Duplicate alias `{}`", alias);
         } else {
             alias_dedup.insert(alias.clone());
+        }
+    }
+    let mut wbtest_imports_with_core = vec![];
+    let mut wbtest_imports_without_core = vec![];
+    for im in wbtest_imports {
+        let path = match &im {
+            Import::Simple(p) => p,
+            Import::Alias { path, alias: _ } => path,
+        };
+        if module_name != MOONBITLANG_CORE && path.starts_with(MOONBITLANG_CORE) {
+            wbtest_imports_with_core.push(im);
+        } else {
+            wbtest_imports_without_core.push(im);
         }
     }
 
@@ -488,14 +517,30 @@ pub fn convert_pkg_json_to_package(j: MoonPkgJSON) -> anyhow::Result<MoonPkg> {
             alias_dedup.insert(alias.clone());
         }
     }
+    let mut test_imports_with_core = vec![];
+    let mut test_imports_without_core = vec![];
+    for im in test_imports {
+        let path = match &im {
+            Import::Simple(p) => p,
+            Import::Alias { path, alias: _ } => path,
+        };
+        if module_name != MOONBITLANG_CORE && path.starts_with(MOONBITLANG_CORE) {
+            test_imports_with_core.push(im);
+        } else {
+            test_imports_without_core.push(im);
+        }
+    }
 
     let result = MoonPkg {
         name: None,
         is_main,
         need_link,
-        imports,
-        wbtest_imports,
-        test_imports,
+        imports: imports_without_core,
+        core_imports: imports_with_core,
+        wbtest_imports: wbtest_imports_without_core,
+        core_wbtest_imports: wbtest_imports_with_core,
+        test_imports: test_imports_without_core,
+        core_test_imports: test_imports_with_core,
         link: match j.link {
             None => None,
             Some(BoolOrLink::Bool(_)) => None,
