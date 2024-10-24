@@ -87,6 +87,13 @@ impl ModuleDB {
         self.packages.values().find(|it| it.root_path == path)
     }
 
+    pub fn get_package_by_path_mut(&mut self, path: &Path) -> Option<&mut Package> {
+        self.packages
+            .iter_mut()
+            .map(|(_, pkg)| pkg)
+            .find(|it| it.root_path == path)
+    }
+
     pub fn get_package_by_index(&self, index: usize) -> &Package {
         &self.packages[self.packages.keys().nth(index).unwrap()]
     }
