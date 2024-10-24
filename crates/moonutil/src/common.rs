@@ -324,6 +324,7 @@ pub struct MoonbuildOpt {
     pub raw_target_dir: PathBuf,
     pub target_dir: PathBuf,
     pub test_opt: Option<TestOpt>,
+    pub check_opt: Option<CheckOpt>,
     pub sort_input: bool,
     pub run_mode: RunMode,
     pub fmt_opt: Option<FmtOpt>,
@@ -339,6 +340,13 @@ impl MoonbuildOpt {
     pub fn get_package_filter(&self) -> Option<impl Fn(&Package) -> bool + '_> {
         self.test_opt.as_ref().map(|opt| opt.get_package_filter())
     }
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct CheckOpt {
+    pub package_path: Option<PathBuf>,
+    pub patch_file: Option<PathBuf>,
+    pub no_mi: bool,
 }
 
 #[derive(Debug, Clone, Default)]

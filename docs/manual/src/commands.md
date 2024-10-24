@@ -117,7 +117,11 @@ Build the current package
 
 Check the current package, but don't build object files
 
-**Usage:** `moon check [OPTIONS]`
+**Usage:** `moon check [OPTIONS] [PACKAGE_PATH]`
+
+###### **Arguments:**
+
+* `<PACKAGE_PATH>` — The package(and it's deps) to check
 
 ###### **Options:**
 
@@ -138,6 +142,8 @@ Check the current package, but don't build object files
 * `--output-json` — Output in json format
 * `--frozen` — Do not sync dependencies, assuming local dependencies are up-to-date
 * `-w`, `--watch` — Monitor the file system and automatically check files
+* `--patch-file <PATCH_FILE>` — The patch file to check, Only valid when checking specified package
+* `--no-mi` — Whether to skip the mi generation, Only valid when checking specified package
 
 
 

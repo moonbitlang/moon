@@ -92,6 +92,7 @@ pub fn run_doc(cli: UniversalFlags, cmd: DocSubcommand) -> anyhow::Result<i32> {
         sort_input: true,
         run_mode,
         test_opt: None,
+        check_opt: None,
         fmt_opt: None,
         args: vec![],
         verbose: cli.verbose,
