@@ -348,6 +348,8 @@ fn scan_one_package(
         alert_list,
         targets: cond_targets,
         pre_build: pkg.pre_build,
+        patch_file: None,
+        no_mi: false,
     };
     if doc_mode {
         // -o <folder>

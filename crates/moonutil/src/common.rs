@@ -345,6 +345,8 @@ impl MoonbuildOpt {
 #[derive(Debug, Clone, Default)]
 pub struct CheckOpt {
     pub package_path: Option<PathBuf>,
+    pub patch_file: Option<PathBuf>,
+    pub no_mi: bool,
 }
 
 #[derive(Debug, Clone, Default)]

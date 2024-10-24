@@ -39,6 +39,8 @@ pub struct CheckDepItem {
     pub package_full_name: String,
     pub package_source_dir: String,
     pub is_main: bool,
+    pub patch_file: Option<PathBuf>,
+    pub no_mi: bool,
 }
 
 #[derive(Debug)]
@@ -97,6 +99,8 @@ fn pkg_to_check_item(
         package_full_name,
         package_source_dir,
         is_main: pkg.is_main,
+        patch_file: pkg.patch_file.clone(),
+        no_mi: pkg.no_mi,
     })
 }
 
@@ -161,6 +165,8 @@ fn pkg_with_wbtest_to_check_item(
         package_full_name,
         package_source_dir,
         is_main: pkg.is_main,
+        patch_file: pkg.patch_file.clone(),
+        no_mi: pkg.no_mi,
     })
 }
 
@@ -246,6 +252,8 @@ fn pkg_with_test_to_check_item(
         package_full_name,
         package_source_dir,
         is_main: pkg.is_main,
+        patch_file: pkg.patch_file.clone(),
+        no_mi: pkg.no_mi,
     })
 }
 
@@ -257,30 +265,34 @@ pub fn gen_check(
     let _ = moonc_opt;
     let _ = moonbuild_opt;
     let mut dep_items = vec![];
-    let pkgs = match moonbuild_opt.check_opt.as_ref() {
-        Some(CheckOpt {
-            package_path: Some(pkg_path),
-        }) => &m.get_filtered_packages_and_its_deps(&moonbuild_opt.source_dir.join(pkg_path)),
-        _ => m.get_all_packages(),
+
+    // if pkg is specified, check that pkg and it's deps; if no pkg specified, check all pkgs
+    let pkgs_to_check = if let Some(CheckOpt {
+        package_path: Some(pkg_path),
+        ..
+    }) = moonbuild_opt.check_opt.as_ref()
+    {
+        &m.get_filtered_packages_and_its_deps(&moonbuild_opt.source_dir.join(pkg_path))
+    } else {
+        m.get_all_packages()
     };
-    for (_, pkg) in pkgs {
-        let item = pkg_to_check_item(&pkg.root_path, m.get_all_packages(), pkg, moonc_opt)?;
+
+    for (_, pkg) in pkgs_to_check {
+        let item = pkg_to_check_item(&pkg.root_path, pkgs_to_check, pkg, moonc_opt)?;
         dep_items.push(item);
+
         if !pkg.wbtest_files.is_empty() {
-            let item = pkg_with_wbtest_to_check_item(
-                &pkg.root_path,
-                m.get_all_packages(),
-                pkg,
-                moonc_opt,
-            )?;
+            let item =
+                pkg_with_wbtest_to_check_item(&pkg.root_path, pkgs_to_check, pkg, moonc_opt)?;
             dep_items.push(item);
         }
         if !pkg.test_files.is_empty() {
-            let item =
-                pkg_with_test_to_check_item(&pkg.root_path, m.get_all_packages(), pkg, moonc_opt)?;
+            let item = pkg_with_test_to_check_item(&pkg.root_path, pkgs_to_check, pkg, moonc_opt)?;
             dep_items.push(item);
         }
     }
+
+    // dbg!(&dep_items);
     Ok(N2CheckInput { dep_items })
 }
 
@@ -336,6 +348,11 @@ pub fn gen_check_command(
 
     let command = CommandBuilder::new("moonc")
         .arg("check")
+        .arg_with_cond(item.patch_file.is_some(), "-patch-file")
+        .lazy_args_with_cond(item.patch_file.is_some(), || {
+            vec![item.patch_file.as_ref().unwrap().display().to_string()]
+        })
+        .arg_with_cond(item.no_mi, "-no-mi")
         .args_with_cond(moonc_opt.render, vec!["-error-format", "json"])
         .args_with_cond(
             moonc_opt.build_opt.deny_warn,
