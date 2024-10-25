@@ -1,6 +1,7 @@
 fn main {
   alert_1();
   alert_2();
+  @lib.hello()
 }
 
 /// @alert alert_1 "alert_1"

@@ -1,5 +1,5 @@
-pub fn hello() -> String {
-  "Hello, world!"
+pub fn hello() -> Unit {
+
 }
 
 fn t() -> Unit {

@@ -1,4 +1,3 @@
-pub fn hello() -> String {
+pub fn hello() -> Unit {
   let a = 0
-  "Hello, world!"
 }

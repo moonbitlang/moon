@@ -10,3 +10,6 @@ fn alert_1() -> Unit {
 /// @alert alert_2 "alert_2"
 fn alert_2() -> Unit {
 }
+
+pub fn hello() -> Unit {
+}
