@@ -106,7 +106,7 @@ jobs:
           mdbook build docs/manual
           mdbook build docs/manual-zh
 
-  test:
+  bleeding-test:
     needs: [typo-check, license-header-check]
     strategy:
       fail-fast: false
@@ -196,8 +196,82 @@ jobs:
           cargo run --bin moon test --source-dir "$env:USERPROFILE\.moon\lib\core" --release --target js
           cargo run --bin moon test --source-dir "$env:USERPROFILE\.moon\lib\core" --release --target wasm
 
+  stable-test:
+    needs: [typo-check, license-header-check]
+    strategy:
+      fail-fast: false
+      matrix:
+        os:
+          - ubuntu-latest
+          - macos-latest
+          - macos-13
+          - windows-latest
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@1.80.0
+        with:
+          components: rustfmt, clippy
+      - name: Cargo cache
+        uses: actions/cache@v4
+        with:
+          key: ${{ runner.os }}-cargo-${{ hashFiles('Cargo.lock') }}
+          path: ~/.cargo/registry
+
+      - name: install MoonBit(Unix)
+        if: ${{ matrix.os != 'windows-latest' }}
+        run: |
+          curl -fsSL https://cli.moonbitlang.com/install/unix.sh | bash
+          echo "$HOME/.moon/bin" >> $GITHUB_PATH
+
+      - name: install MoonBit(Windows)
+        if: ${{ matrix.os == 'windows-latest' }}
+        run: |
+          Set-ExecutionPolicy RemoteSigned -Scope CurrentUser; irm https://cli.moonbitlang.com/install/powershell.ps1 | iex
+          "C:\Users\runneradmin\.moon\bin" | Out-File -FilePath $env:GITHUB_PATH -Append
+
+      - name: Build
+        run: cargo build
+      - name: Versions
+        run: cargo run --bin moon version --all
+      - name: Bundle core (Unix)
+        if: ${{ matrix.os != 'windows-latest' }}
+        run: cargo run --bin moon bundle --source-dir ~/.moon/lib/core --all
+      - name: Bundle core (Windows)
+        if: ${{ matrix.os == 'windows-latest' }}
+        run: cargo run --bin moon bundle --source-dir "$env:USERPROFILE\.moon\lib\core" --all
+
+      - name: Run tests
+        run: cargo test
+
+      - name: Check format
+        if: matrix.os == 'ubuntu-latest'
+        run: cargo fmt -- --check
+      - name: Clippy
+        if: matrix.os == 'ubuntu-latest'
+        run: cargo clippy --all-targets --all-features -- -D warnings
+
+      - name: Test core (Unix)
+        if: ${{ matrix.os != 'windows-latest' }}
+        run: |
+          cargo run --bin moon test --source-dir ~/.moon/lib/core --target wasm-gc
+          cargo run --bin moon test --source-dir ~/.moon/lib/core --target js
+          cargo run --bin moon test --source-dir ~/.moon/lib/core --target wasm
+          cargo run --bin moon test --source-dir ~/.moon/lib/core --release --target wasm-gc
+          cargo run --bin moon test --source-dir ~/.moon/lib/core --release --target js
+          cargo run --bin moon test --source-dir ~/.moon/lib/core --release --target wasm
+      - name: Test core (Windows)
+        if: ${{ matrix.os == 'windows-latest' }}
+        run: |
+          cargo run --bin moon test --source-dir "$env:USERPROFILE\.moon\lib\core" --target wasm-gc
+          cargo run --bin moon test --source-dir "$env:USERPROFILE\.moon\lib\core" --target js
+          cargo run --bin moon test --source-dir "$env:USERPROFILE\.moon\lib\core" --target wasm
+          cargo run --bin moon test --source-dir "$env:USERPROFILE\.moon\lib\core" --release --target wasm-gc
+          cargo run --bin moon test --source-dir "$env:USERPROFILE\.moon\lib\core" --release --target js
+          cargo run --bin moon test --source-dir "$env:USERPROFILE\.moon\lib\core" --release --target wasm
+
   coverage:
-    needs: test
+    needs: bleeding-test
     runs-on: macos-latest
     steps:
       - name: Checkout repository
