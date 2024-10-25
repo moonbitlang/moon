@@ -39,6 +39,8 @@ pub struct CheckDepItem {
     pub package_full_name: String,
     pub package_source_dir: String,
     pub is_main: bool,
+    pub is_whitebox_test: bool,
+    pub is_blackbox_test: bool,
 }
 
 #[derive(Debug)]
@@ -97,6 +99,8 @@ fn pkg_to_check_item(
         package_full_name,
         package_source_dir,
         is_main: pkg.is_main,
+        is_whitebox_test: false,
+        is_blackbox_test: false,
     })
 }
 
@@ -161,6 +165,8 @@ fn pkg_with_wbtest_to_check_item(
         package_full_name,
         package_source_dir,
         is_main: pkg.is_main,
+        is_whitebox_test: true,
+        is_blackbox_test: false,
     })
 }
 
@@ -246,6 +252,8 @@ fn pkg_with_test_to_check_item(
         package_full_name,
         package_source_dir,
         is_main: pkg.is_main,
+        is_whitebox_test: false,
+        is_blackbox_test: true,
     })
 }
 
@@ -364,6 +372,8 @@ pub fn gen_check_command(
             &item.package_full_name, &item.package_source_dir
         ))
         .args(["-target", moonc_opt.build_opt.target_backend.to_flag()])
+        .arg_with_cond(item.is_whitebox_test, "-whitebox-test")
+        .arg_with_cond(item.is_blackbox_test, "-blackbox-test")
         .build();
     log::debug!("Command: {}", command);
     build.cmdline = Some(command);
