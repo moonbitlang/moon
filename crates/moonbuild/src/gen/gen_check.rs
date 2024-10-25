@@ -103,7 +103,10 @@ fn pkg_to_check_item(
         is_main: pkg.is_main,
         is_whitebox_test: false,
         is_blackbox_test: false,
-        patch_file: pkg.patch_file.clone(),
+        patch_file: pkg.patch_file.as_ref().and_then(|p| {
+            let file_stem = p.file_stem().unwrap().to_str().unwrap();
+            (!file_stem.ends_with("_wbtest") && !file_stem.ends_with("_test")).then_some(p.clone())
+        }),
         no_mi: pkg.no_mi,
     })
 }
@@ -171,7 +174,14 @@ fn pkg_with_wbtest_to_check_item(
         is_main: pkg.is_main,
         is_whitebox_test: true,
         is_blackbox_test: false,
-        patch_file: pkg.patch_file.clone(),
+        patch_file: pkg.patch_file.as_ref().and_then(|p| {
+            p.file_stem()
+                .unwrap()
+                .to_str()
+                .unwrap()
+                .ends_with("_wbtest")
+                .then_some(p.clone())
+        }),
         no_mi: pkg.no_mi,
     })
 }
@@ -260,7 +270,14 @@ fn pkg_with_test_to_check_item(
         is_main: pkg.is_main,
         is_whitebox_test: false,
         is_blackbox_test: true,
-        patch_file: pkg.patch_file.clone(),
+        patch_file: pkg.patch_file.as_ref().and_then(|p| {
+            p.file_stem()
+                .unwrap()
+                .to_str()
+                .unwrap()
+                .ends_with("_test")
+                .then_some(p.clone())
+        }),
         no_mi: pkg.no_mi,
     })
 }
