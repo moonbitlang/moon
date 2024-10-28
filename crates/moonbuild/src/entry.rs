@@ -150,17 +150,14 @@ pub fn n2_run_interface(
     let catcher = Arc::clone(&logger);
     let output_json = moonbuild_opt.output_json;
     let render_and_catch = move |output: &str| {
-        output
-            .split('\n')
-            .filter(|it| !it.is_empty())
-            .for_each(|content| {
-                catcher.lock().unwrap().push(content.to_owned());
-                if output_json {
-                    println!("{content}");
-                } else {
-                    moonutil::render::MooncDiagnostic::render(content, use_fancy);
-                }
-            });
+        output.split('\n').for_each(|content| {
+            catcher.lock().unwrap().push(content.to_owned());
+            if output_json {
+                println!("{content}");
+            } else {
+                moonutil::render::MooncDiagnostic::render(content, use_fancy);
+            }
+        });
     };
 
     if moonbuild_opt.build_graph {
@@ -202,16 +199,13 @@ pub fn n2_run_interface(
         let raw_json = std::fs::read_to_string(&output_path)
             .context(format!("failed to open `{}`", output_path.display()))?;
 
-        raw_json
-            .split('\n')
-            .filter(|it| !it.is_empty())
-            .for_each(|content| {
-                if output_json {
-                    println!("{content}");
-                } else {
-                    moonutil::render::MooncDiagnostic::render(content, use_fancy);
-                }
-            });
+        raw_json.split('\n').for_each(|content| {
+            if output_json {
+                println!("{content}");
+            } else {
+                moonutil::render::MooncDiagnostic::render(content, use_fancy);
+            }
+        });
     } else {
         let mut output_file = std::fs::File::create(output_path)?;
 
