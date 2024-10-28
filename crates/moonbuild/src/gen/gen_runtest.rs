@@ -51,15 +51,7 @@ pub struct RuntestDepItem {
     pub is_blackbox_test: bool,
 }
 
-#[derive(Debug)]
-pub struct RuntestLinkDepItem {
-    pub out: String,
-    pub core_deps: Vec<String>, // need add parent's core files recursively
-    pub package_full_name: String,
-    pub package_sources: Vec<(String, String)>, // (pkgname, source_dir)
-    pub is_main: bool,
-    pub link: Option<moonutil::package::Link>,
-}
+type RuntestLinkDepItem = moonutil::package::LinkDepItem;
 
 #[derive(Debug)]
 pub struct RuntestDriverItem {
@@ -543,7 +535,6 @@ pub fn gen_link_internal_test(
         core_deps,
         package_full_name,
         package_sources,
-        is_main: true,
         link: pkg.link.clone(),
     })
 }
@@ -580,7 +571,6 @@ pub fn gen_link_whitebox_test(
         core_deps,
         package_full_name,
         package_sources,
-        is_main: true,
         link: pkg.link.clone(),
     })
 }
@@ -644,7 +634,6 @@ pub fn gen_link_blackbox_test(
         core_deps,
         package_full_name,
         package_sources,
-        is_main: true,
         link: pkg.link.clone(),
     })
 }
@@ -872,6 +861,10 @@ pub fn gen_runtest_link_command(
 
     let mut build = Build::new(loc, ins, outs);
 
+    let native_cc = item.native_cc(moonc_opt.link_opt.target_backend);
+    let native_cc_flags = item.native_cc_flags(moonc_opt.link_opt.target_backend);
+    let native_cc_link_flags = item.native_cc_link_flags(moonc_opt.link_opt.target_backend);
+
     let command = CommandBuilder::new("moonc")
         .arg("link-core")
         .arg_with_cond(
@@ -914,6 +907,21 @@ pub fn gen_runtest_link_command(
         .args(["-target", moonc_opt.link_opt.target_backend.to_flag()])
         .arg_with_cond(moonc_opt.link_opt.debug_flag, "-g")
         .arg_with_cond(moonc_opt.link_opt.source_map, "-source-map")
+        .lazy_args_with_cond(native_cc.is_some(), || {
+            vec!["-cc".to_string(), native_cc.unwrap().to_string()]
+        })
+        .lazy_args_with_cond(native_cc_flags.is_some(), || {
+            vec![
+                "-cc-flags".to_string(),
+                native_cc_flags.unwrap().to_string(),
+            ]
+        })
+        .lazy_args_with_cond(native_cc_link_flags.is_some(), || {
+            vec![
+                "-cc-link-flags".to_string(),
+                native_cc_link_flags.unwrap().to_string(),
+            ]
+        })
         .args(moonc_opt.extra_link_opt.iter())
         .build();
     log::debug!("Command: {}", command);

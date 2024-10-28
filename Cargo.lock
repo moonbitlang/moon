@@ -1484,6 +1484,7 @@ dependencies = [
  "thiserror",
  "vergen",
  "walkdir",
+ "which 6.0.2",
 ]
 
 [[package]]

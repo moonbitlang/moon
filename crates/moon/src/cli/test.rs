@@ -152,7 +152,7 @@ fn run_test_internal(
     )?;
 
     let run_mode = RunMode::Test;
-    let mut moonc_opt = super::get_compiler_flags(source_dir, &cmd.build_flags, run_mode)?;
+    let mut moonc_opt = super::get_compiler_flags(source_dir, &cmd.build_flags)?;
     // release is 'false' by default, so we will run test at debug mode(to gain more detailed stack trace info), unless `--release` is specified
     // however, other command like build, check, run, etc, will run at release mode by default
     moonc_opt.build_opt.debug_flag = !cmd.build_flags.release;
@@ -304,6 +304,13 @@ fn run_test_internal(
                 .push(GeneratedTestDriver::BlackboxTest(blackbox_generated_file));
         }
     }
+
+    moonutil::common::set_native_backend_link_flags(
+        run_mode,
+        cmd.build_flags.release,
+        cmd.build_flags.target_backend,
+        &mut module,
+    );
 
     moonc_opt.build_opt.warn_lists = module
         .get_all_packages()

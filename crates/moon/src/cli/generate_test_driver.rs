@@ -125,7 +125,7 @@ pub fn generate_test_driver(
     cmd.build_flags.target_backend = target_backend;
 
     let run_mode = RunMode::Test;
-    let moonc_opt = super::get_compiler_flags(&source_dir, &cmd.build_flags, run_mode)?;
+    let moonc_opt = super::get_compiler_flags(&source_dir, &cmd.build_flags)?;
 
     let sort_input = cmd.build_flags.sort_input;
     let filter_package = cmd.package.map(|it| it.into_iter().collect());

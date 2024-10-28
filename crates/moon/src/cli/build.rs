@@ -118,7 +118,7 @@ fn run_build_internal(
 
     let raw_target_dir = target_dir;
     let run_mode = RunMode::Build;
-    let mut moonc_opt = super::get_compiler_flags(source_dir, &cmd.build_flags, run_mode)?;
+    let mut moonc_opt = super::get_compiler_flags(source_dir, &cmd.build_flags)?;
     moonc_opt.build_opt.deny_warn = cmd.build_flags.deny_warn;
     let target_dir = mk_arch_mode_dir(source_dir, target_dir, &moonc_opt, run_mode)?;
     let _lock = FileLock::lock(&target_dir)?;
@@ -140,13 +140,20 @@ fn run_build_internal(
         no_parallelize: false,
     };
 
-    let module = scan_with_pre_build(
+    let mut module = scan_with_pre_build(
         false,
         &moonc_opt,
         &moonbuild_opt,
         &resolved_env,
         &dir_sync_result,
     )?;
+
+    moonutil::common::set_native_backend_link_flags(
+        run_mode,
+        cmd.build_flags.release,
+        cmd.build_flags.target_backend,
+        &mut module,
+    );
 
     moonc_opt.build_opt.warn_lists = module
         .get_all_packages()

@@ -243,14 +243,23 @@
     "NativeLinkConfig": {
       "type": "object",
       "properties": {
-        "flags": {
+        "cc": {
           "type": [
-            "array",
+            "string",
             "null"
-          ],
-          "items": {
-            "type": "string"
-          }
+          ]
+        },
+        "cc-flags": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "cc-link-flags": {
+          "type": [
+            "string",
+            "null"
+          ]
         }
       }
     },

@@ -1,0 +1,10 @@
+{
+  "import": {},
+  "link": {
+    "native": {
+      "cc": "cc",
+      "cc-flags": "ccflags fasd",
+      "cc-link-flags": "cclinkflags"
+    }
+  }
+}
