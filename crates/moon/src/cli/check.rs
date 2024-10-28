@@ -23,17 +23,17 @@ use moonbuild::watcher_is_running;
 use moonbuild::{entry, MOON_PID_NAME};
 use mooncake::pkg::sync::auto_sync;
 use moonutil::cli::UniversalFlags;
-use moonutil::common::lower_surface_targets;
 use moonutil::common::FileLock;
 use moonutil::common::MoonbuildOpt;
 use moonutil::common::RunMode;
 use moonutil::common::WATCH_MODE_DIR;
+use moonutil::common::{lower_surface_targets, CheckOpt};
 use moonutil::dirs::mk_arch_mode_dir;
 use moonutil::dirs::PackageDirs;
 use moonutil::mooncakes::sync::AutoSyncFlags;
 use moonutil::mooncakes::RegistryConfig;
 use n2::trace;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::thread;
 
@@ -56,6 +56,17 @@ pub struct CheckSubcommand {
     /// Monitor the file system and automatically check files
     #[clap(long, short)]
     pub watch: bool,
+
+    /// The package(and it's deps) to check
+    pub package_path: Option<PathBuf>,
+
+    /// The patch file to check, Only valid when checking specified package.
+    #[clap(long, requires = "package_path")]
+    pub patch_file: Option<PathBuf>,
+
+    /// Whether to skip the mi generation, Only valid when checking specified package.
+    #[clap(long, requires = "package_path")]
+    pub no_mi: bool,
 }
 
 pub fn run_check(cli: &UniversalFlags, cmd: &CheckSubcommand) -> anyhow::Result<i32> {
@@ -152,19 +163,38 @@ fn run_check_internal(
         verbose: cli.verbose,
         output_json: cmd.output_json,
         build_graph: cli.build_graph,
+        check_opt: Some(CheckOpt {
+            package_path: cmd.package_path.clone(),
+            patch_file: cmd.patch_file.clone(),
+            no_mi: cmd.no_mi,
+        }),
         test_opt: None,
         fmt_opt: None,
         args: vec![],
         no_parallelize: false,
     };
 
-    let module = scan_with_pre_build(
+    let mut module = scan_with_pre_build(
         false,
         &moonc_opt,
         &moonbuild_opt,
         &resolved_env,
         &dir_sync_result,
     )?;
+
+    if let Some(CheckOpt {
+        package_path: Some(pkg_path),
+        patch_file: pp,
+        no_mi: nm,
+    }) = moonbuild_opt.check_opt.as_ref()
+    {
+        let pkg_by_path = module.get_package_by_path_mut(&moonbuild_opt.source_dir.join(pkg_path));
+        if let Some(specified_pkg) = pkg_by_path {
+            specified_pkg.no_mi = *nm;
+            specified_pkg.patch_file = pp.clone();
+        }
+    };
+
     moonc_opt.build_opt.warn_lists = module
         .get_all_packages()
         .iter()

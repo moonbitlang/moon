@@ -151,6 +151,7 @@ pub fn generate_test_driver(
             test_failure_json: false,
             display_backend_hint: None,
         }),
+        check_opt: None,
         fmt_opt: None,
         sort_input,
         run_mode,

@@ -187,6 +187,7 @@ fn run_test_internal(
             test_failure_json: cmd.test_failure_json,
             display_backend_hint,
         }),
+        check_opt: None,
         sort_input,
         run_mode,
         quiet: true,

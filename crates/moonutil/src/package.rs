@@ -63,6 +63,9 @@ pub struct Package {
 
     pub targets: Option<IndexMap<FileName, CondExpr>>,
     pub pre_build: Option<Vec<MoonPkgGenerate>>,
+
+    pub patch_file: Option<PathBuf>,
+    pub no_mi: bool,
 }
 
 impl Package {

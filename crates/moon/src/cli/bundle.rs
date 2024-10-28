@@ -141,6 +141,7 @@ fn run_bundle_internal(
         sort_input,
         run_mode,
         test_opt: None,
+        check_opt: None,
         fmt_opt: None,
         args: vec![],
         verbose: cli.verbose,

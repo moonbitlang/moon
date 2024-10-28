@@ -72,6 +72,7 @@ pub fn run_fmt(cli: &UniversalFlags, cmd: FmtSubcommand) -> anyhow::Result<i32> 
         }),
         build_graph: cli.build_graph,
         test_opt: None,
+        check_opt: None,
         args: vec![],
         verbose: cli.verbose,
         quiet: cli.quiet,
