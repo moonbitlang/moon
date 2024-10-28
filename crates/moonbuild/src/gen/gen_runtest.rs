@@ -682,11 +682,13 @@ pub fn gen_runtest(
         }
 
         // todo: only generate the test driver when there is test block exist
-        for item in pkg.generated_test_drivers.iter() {
-            if let GeneratedTestDriver::InternalTest(_) = item {
-                test_drivers.push(gen_package_test_driver(item, pkg)?);
-                build_items.push(gen_package_internal_test(m, pkg, moonc_opt)?);
-                link_items.push(gen_link_internal_test(m, pkg, moonc_opt)?);
+        if !pkg.files.is_empty() {
+            for item in pkg.generated_test_drivers.iter() {
+                if let GeneratedTestDriver::InternalTest(_) = item {
+                    test_drivers.push(gen_package_test_driver(item, pkg)?);
+                    build_items.push(gen_package_internal_test(m, pkg, moonc_opt)?);
+                    link_items.push(gen_link_internal_test(m, pkg, moonc_opt)?);
+                }
             }
         }
 
