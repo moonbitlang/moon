@@ -17,7 +17,6 @@
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
 use anyhow::{bail, Ok};
-use moonutil::common::TargetBackend::*;
 use moonutil::module::ModuleDB;
 use moonutil::package::{JsFormat, Package};
 
@@ -27,7 +26,7 @@ use crate::gen::MiAlias;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
 
-use moonutil::common::{MoonbuildOpt, MooncOpt, TargetBackend, MOONBITLANG_CORE, MOON_PKG_JSON};
+use moonutil::common::{MoonbuildOpt, MooncOpt, MOONBITLANG_CORE, MOON_PKG_JSON};
 use n2::graph::{self as n2graph, Build, BuildIns, BuildOuts, FileLoc};
 use n2::load::State;
 use n2::smallmap::SmallMap;
@@ -44,20 +43,12 @@ pub struct BuildDepItem {
     pub is_third_party: bool,
 }
 
-#[derive(Debug)]
-pub struct LinkDepItem {
-    pub out: String,
-    pub core_deps: Vec<String>, // need add parent's core files recursively
-    pub package_full_name: String,
-    pub package_sources: Vec<(String, String)>, // (pkgname, source_dir)
-
-    pub link: Option<moonutil::package::Link>,
-}
+type BuildLinkDepItem = moonutil::package::LinkDepItem;
 
 #[derive(Debug)]
 pub struct N2BuildInput {
     pub build_items: Vec<BuildDepItem>,
-    pub link_items: Vec<LinkDepItem>, // entry points
+    pub link_items: Vec<BuildLinkDepItem>, // entry points
 }
 
 pub fn gen_build_build_item(
@@ -128,7 +119,7 @@ pub fn gen_build_link_item(
     m: &ModuleDB,
     pkg: &Package,
     _moonc_opt: &MooncOpt,
-) -> anyhow::Result<LinkDepItem> {
+) -> anyhow::Result<BuildLinkDepItem> {
     let out = pkg.artifact.with_extension("wat"); // TODO: extension is determined by build option
     let package_full_name = pkg.full_name();
 
@@ -136,7 +127,7 @@ pub fn gen_build_link_item(
     let core_deps = super::util::nodes_to_cores(m, &tp);
     let package_sources = super::util::nodes_to_pkg_sources(m, &tp);
 
-    Ok(LinkDepItem {
+    Ok(BuildLinkDepItem {
         out: out.display().to_string(),
         core_deps,
         package_sources,
@@ -287,7 +278,7 @@ pub fn gen_build_command(
 
 pub fn gen_link_command(
     graph: &mut n2graph::Graph,
-    item: &LinkDepItem,
+    item: &BuildLinkDepItem,
     moonc_opt: &MooncOpt,
 ) -> (Build, n2graph::FileId) {
     let artifact_output_path = PathBuf::from(&item.out)
@@ -328,6 +319,10 @@ pub fn gen_link_command(
     let heap_start_address = item.heap_start_address(moonc_opt.link_opt.target_backend);
     let import_memory = item.import_memory(moonc_opt.link_opt.target_backend);
     let link_flags = item.link_flags(moonc_opt.link_opt.target_backend);
+
+    let native_cc = item.native_cc(moonc_opt.link_opt.target_backend);
+    let native_cc_flags = item.native_cc_flags(moonc_opt.link_opt.target_backend);
+    let native_cc_link_flags = item.native_cc_link_flags(moonc_opt.link_opt.target_backend);
 
     let command = CommandBuilder::new("moonc")
         .arg("link-core")
@@ -414,6 +409,21 @@ pub fn gen_link_command(
                 }
             },
         )
+        .lazy_args_with_cond(native_cc.is_some(), || {
+            vec!["-cc".to_string(), native_cc.unwrap().to_string()]
+        })
+        .lazy_args_with_cond(native_cc_flags.is_some(), || {
+            vec![
+                "-cc-flags".to_string(),
+                native_cc_flags.unwrap().to_string(),
+            ]
+        })
+        .lazy_args_with_cond(native_cc_link_flags.is_some(), || {
+            vec![
+                "-cc-link-flags".to_string(),
+                native_cc_link_flags.unwrap().to_string(),
+            ]
+        })
         .args(moonc_opt.extra_link_opt.iter())
         .build();
     log::debug!("Command: {}", command);
@@ -461,65 +471,4 @@ pub fn gen_n2_build_state(
         default,
         pools: SmallMap::default(),
     })
-}
-
-#[rustfmt::skip]
-impl LinkDepItem {
-    pub fn wasm_exports(&self) -> Option<&[String]> { self.link.as_ref()?.wasm.as_ref()?.exports.as_deref() }
-    pub fn wasm_export_memory_name(&self) -> Option<&str> { self.link.as_ref()?.wasm.as_ref()?.export_memory_name.as_deref() }
-    pub fn wasm_import_memory(&self) -> Option<&moonutil::package::ImportMemory> { self.link.as_ref()?.wasm.as_ref()?.import_memory.as_ref() }
-    pub fn wasm_heap_start_address(&self) -> Option<u32> { self.link.as_ref()?.wasm.as_ref()?.heap_start_address }
-    pub fn wasm_link_flags(&self) -> Option<&[String]> { self.link.as_ref()?.wasm.as_ref()?.flags.as_deref() }
-
-    pub fn wasm_gc_exports(&self) -> Option<&[String]> { self.link.as_ref()?.wasm_gc.as_ref()?.exports.as_deref() }
-    pub fn wasm_gc_export_memory_name(&self) -> Option<&str> { self.link.as_ref()?.wasm_gc.as_ref()?.export_memory_name.as_deref() }
-    pub fn wasm_gc_import_memory(&self) -> Option<&moonutil::package::ImportMemory> { self.link.as_ref()?.wasm_gc.as_ref()?.import_memory.as_ref() }
-    pub fn wasm_gc_link_flags(&self) -> Option<&[String]> { self.link.as_ref()?.wasm_gc.as_ref()?.flags.as_deref() }
-
-    pub fn js_exports(&self) -> Option<&[String]> { self.link.as_ref()?.js.as_ref()?.exports.as_deref() }
-
-    pub fn exports(&self, b: TargetBackend) -> Option<&[String]> {
-        match b {
-            Wasm => self.wasm_exports(),
-            WasmGC => self.wasm_gc_exports(),
-            Js => self.js_exports(),
-            Native => None,
-        }
-    }
-
-    pub fn export_memory_name(&self, b: TargetBackend) -> Option<&str> {
-        match b {
-            Wasm => self.wasm_export_memory_name(),
-            WasmGC => self.wasm_gc_export_memory_name(),
-            Js => None,
-            Native => None,
-        }
-    }
-
-    pub fn heap_start_address(&self, b: TargetBackend) -> Option<u32> {
-        match b {
-            Wasm => self.wasm_heap_start_address(),
-            WasmGC => None,
-            Js => None,
-            Native => None,
-        }
-    }
-
-    pub fn import_memory(&self, b: TargetBackend) -> Option<&moonutil::package::ImportMemory> {
-        match b {
-            Wasm => self.wasm_import_memory(),
-            WasmGC => self.wasm_gc_import_memory(),
-            Js => None,
-            Native => None,
-        }
-    }
-
-    pub fn link_flags(&self, b: TargetBackend) -> Option<&[String]> {
-        match b {
-            Wasm => self.wasm_link_flags(),
-            WasmGC => self.wasm_gc_link_flags(),
-            Js => None,
-            Native => self.link.as_ref()?.native.as_ref()?.flags.as_deref(),
-        }
-    }
 }

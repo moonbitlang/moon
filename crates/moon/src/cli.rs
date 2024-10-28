@@ -64,7 +64,7 @@ use moonutil::{
     cli::UniversalFlags,
     common::{
         read_module_desc_file_in_dir, BuildPackageFlags, LinkCoreFlags, MooncOpt, OutputFormat,
-        RunMode, SurfaceTarget, TargetBackend, MOONBITLANG_CORE, MOON_MOD_JSON,
+        SurfaceTarget, TargetBackend, MOONBITLANG_CORE, MOON_MOD_JSON,
     },
     mooncakes::{LoginSubcommand, PackageSubcommand, PublishSubcommand, RegisterSubcommand},
 };
@@ -188,46 +188,14 @@ impl BuildFlags {
     }
 }
 
-pub fn get_compiler_flags(
-    src_dir: &Path,
-    build_flags: &BuildFlags,
-    run_mode: RunMode,
-) -> anyhow::Result<MooncOpt> {
+pub fn get_compiler_flags(src_dir: &Path, build_flags: &BuildFlags) -> anyhow::Result<MooncOpt> {
     // read moon.mod.json
     if !moonutil::common::check_moon_mod_exists(src_dir) {
         bail!("could not find `{}`", MOON_MOD_JSON);
     }
     let moon_mod = read_module_desc_file_in_dir(src_dir)?;
     let extra_build_opt = moon_mod.compile_flags.unwrap_or_default();
-    let mut extra_link_opt = moon_mod.link_flags.unwrap_or_default();
-
-    #[cfg(unix)]
-    match run_mode {
-        // need link-core for build, test and run
-        RunMode::Build | RunMode::Test | RunMode::Run => {
-            if build_flags.release && build_flags.target_backend == Some(TargetBackend::Native) {
-                // check if cc exists in PATH
-                if let Err(e) = which::which("cc") {
-                    eprintln!(
-                        "error: 'cc' not found in PATH, which is used for native backend release compilation: {}",
-                        e
-                    );
-                    std::process::exit(1);
-                }
-                // libmoonbitrun.o should be in the same directory as moonc
-                let libmoonbitrun_path = which::which("moonc")?.with_file_name("libmoonbitrun.o");
-
-                // use "cc" to compile
-                extra_link_opt.extend_from_slice(&[
-                    "-cc".to_string(),
-                    format!("cc {} -O2 -fwrapv", libmoonbitrun_path.display()),
-                    "-cc-link-flags".to_string(),
-                    "-lm".to_string(),
-                ]);
-            }
-        }
-        _ => {}
-    }
+    let extra_link_opt = moon_mod.link_flags.unwrap_or_default();
 
     let output_format = if build_flags.output_wat {
         OutputFormat::Wat

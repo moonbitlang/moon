@@ -28,7 +28,10 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    common::{FileName, GeneratedTestDriver},
+    common::{
+        FileName, GeneratedTestDriver, TargetBackend, TargetBackend::Js, TargetBackend::Native,
+        TargetBackend::Wasm, TargetBackend::WasmGC,
+    },
     cond_expr::{CompileCondition, CondExpr, RawTargets},
     path::{ImportComponent, PathComponent},
 };
@@ -220,6 +223,97 @@ pub struct ImportMemory {
     pub name: String,
 }
 
+#[derive(Debug)]
+pub struct LinkDepItem {
+    pub out: String,
+    pub core_deps: Vec<String>, // need add parent's core files recursively
+    pub package_full_name: String,
+    pub package_sources: Vec<(String, String)>, // (pkgname, source_dir)
+    pub link: Option<Link>,
+}
+
+#[rustfmt::skip]
+impl LinkDepItem {
+    pub fn wasm_exports(&self) -> Option<&[String]> { self.link.as_ref()?.wasm.as_ref()?.exports.as_deref() }
+    pub fn wasm_export_memory_name(&self) -> Option<&str> { self.link.as_ref()?.wasm.as_ref()?.export_memory_name.as_deref() }
+    pub fn wasm_import_memory(&self) -> Option<&ImportMemory> { self.link.as_ref()?.wasm.as_ref()?.import_memory.as_ref() }
+    pub fn wasm_heap_start_address(&self) -> Option<u32> { self.link.as_ref()?.wasm.as_ref()?.heap_start_address }
+    pub fn wasm_link_flags(&self) -> Option<&[String]> { self.link.as_ref()?.wasm.as_ref()?.flags.as_deref() }
+
+    pub fn wasm_gc_exports(&self) -> Option<&[String]> { self.link.as_ref()?.wasm_gc.as_ref()?.exports.as_deref() }
+    pub fn wasm_gc_export_memory_name(&self) -> Option<&str> { self.link.as_ref()?.wasm_gc.as_ref()?.export_memory_name.as_deref() }
+    pub fn wasm_gc_import_memory(&self) -> Option<&ImportMemory> { self.link.as_ref()?.wasm_gc.as_ref()?.import_memory.as_ref() }
+    pub fn wasm_gc_link_flags(&self) -> Option<&[String]> { self.link.as_ref()?.wasm_gc.as_ref()?.flags.as_deref() }
+
+    pub fn js_exports(&self) -> Option<&[String]> { self.link.as_ref()?.js.as_ref()?.exports.as_deref() }
+
+    pub fn exports(&self, b: TargetBackend) -> Option<&[String]> {
+        match b {
+            Wasm => self.wasm_exports(),
+            WasmGC => self.wasm_gc_exports(),
+            Js => self.js_exports(),
+            Native => None,
+        }
+    }
+
+    pub fn export_memory_name(&self, b: TargetBackend) -> Option<&str> {
+        match b {
+            Wasm => self.wasm_export_memory_name(),
+            WasmGC => self.wasm_gc_export_memory_name(),
+            Js => None,
+            Native => None,
+        }
+    }
+
+    pub fn heap_start_address(&self, b: TargetBackend) -> Option<u32> {
+        match b {
+            Wasm => self.wasm_heap_start_address(),
+            WasmGC => None,
+            Js => None,
+            Native => None,
+        }
+    }
+
+    pub fn import_memory(&self, b: TargetBackend) -> Option<&ImportMemory> {
+        match b {
+            Wasm => self.wasm_import_memory(),
+            WasmGC => self.wasm_gc_import_memory(),
+            Js => None,
+            Native => None,
+        }
+    }
+
+    pub fn link_flags(&self, b: TargetBackend) -> Option<&[String]> {
+        match b {
+            Wasm => self.wasm_link_flags(),
+            WasmGC => self.wasm_gc_link_flags(),
+            Js => None,
+            Native => None,
+        }
+    }
+
+    pub fn native_cc(&self, b: TargetBackend) -> Option<&str> {
+        match b {
+            Native => self.link.as_ref()?.native.as_ref()?.cc.as_deref(),
+            _ => None,
+        }
+    }
+
+    pub fn native_cc_flags(&self, b: TargetBackend) -> Option<&str> {
+        match b {
+            Native => self.link.as_ref()?.native.as_ref()?.cc_flags.as_deref(),
+            _ => None,
+        }
+    }
+
+    pub fn native_cc_link_flags(&self, b: TargetBackend) -> Option<&str> {
+        match b {
+            Native => self.link.as_ref()?.native.as_ref()?.cc_link_flags.as_deref(),
+            _ => None,
+        }
+    }
+}
+
 #[derive(Debug, Serialize, Deserialize, Clone, JsonSchema)]
 pub struct WasmLinkConfig {
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -242,9 +336,14 @@ pub struct WasmLinkConfig {
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, JsonSchema)]
+#[serde(rename_all = "kebab-case")]
 pub struct NativeLinkConfig {
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub flags: Option<Vec<String>>,
+    pub cc: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cc_flags: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cc_link_flags: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, JsonSchema)]
@@ -297,7 +396,7 @@ impl JsFormat {
     }
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone, JsonSchema)]
+#[derive(Debug, Serialize, Deserialize, Clone, JsonSchema, Default)]
 pub struct Link {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub wasm: Option<WasmLinkConfig>,

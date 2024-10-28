@@ -135,7 +135,7 @@ fn run_check_internal(
 
     let raw_target_dir = target_dir;
     let run_mode = RunMode::Check;
-    let mut moonc_opt = get_compiler_flags(source_dir, &cmd.build_flags, run_mode)?;
+    let mut moonc_opt = get_compiler_flags(source_dir, &cmd.build_flags)?;
     moonc_opt.build_opt.deny_warn = cmd.build_flags.deny_warn;
     let target_dir = mk_arch_mode_dir(source_dir, target_dir, &moonc_opt, run_mode)?;
     let _lock = FileLock::lock(&target_dir)?;

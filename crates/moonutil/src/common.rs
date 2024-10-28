@@ -799,3 +799,56 @@ impl StringExt for str {
         self.replace("\r\n", "\n")
     }
 }
+
+pub fn set_native_backend_link_flags(
+    run_mode: RunMode,
+    release: bool,
+    target_backend: Option<TargetBackend>,
+    module: &mut crate::module::ModuleDB,
+) {
+    #[cfg(unix)]
+    match run_mode {
+        // need link-core for build, test and run
+        RunMode::Build | RunMode::Test | RunMode::Run => {
+            if release && target_backend == Some(TargetBackend::Native) {
+                // check if cc exists in PATH
+                if let Err(e) = which::which("cc") {
+                    eprintln!(
+                        "error: 'cc' not found in PATH, which is used for native backend release compilation: {}",
+                        e
+                    );
+                    std::process::exit(1);
+                }
+
+                // libmoonbitrun.o should be in the same directory as moonc
+                let libmoonbitrun_path =
+                    which::which("moonc").map(|p| p.with_file_name("libmoonbitrun.o"));
+                if let Err(e) = libmoonbitrun_path {
+                    eprintln!(
+                        "error: 'libmoonbitrun.o' not found in PATH, which is used for native backend release compilation: {}",
+                        e
+                    );
+                    std::process::exit(1);
+                }
+
+                let all_pkgs = module.get_all_packages_mut();
+                for (_, pkg) in all_pkgs {
+                    if pkg.link.is_none() || pkg.link.as_ref().unwrap().native.is_none() {
+                        pkg.link = Some(crate::package::Link {
+                            native: Some(crate::package::NativeLinkConfig {
+                                cc: Some("cc".to_string()),
+                                cc_flags: Some(format!(
+                                    "-O2 {} -fwrapv",
+                                    libmoonbitrun_path.as_ref().unwrap().display()
+                                )),
+                                cc_link_flags: Some("-lm".to_string()),
+                            }),
+                            ..Default::default()
+                        });
+                    }
+                }
+            }
+        }
+        _ => {}
+    }
+}
