@@ -17,6 +17,7 @@
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
 use indexmap::IndexMap;
+use moonutil::iters::ItersExtension;
 use moonutil::module::ModuleDB;
 use moonutil::package::Package;
 use moonutil::path::PathComponent;
@@ -150,7 +151,7 @@ pub fn n2_run_interface(
     let catcher = Arc::clone(&logger);
     let output_json = moonbuild_opt.output_json;
     let render_and_catch = move |output: &str| {
-        output.split('\n').for_each(|content| {
+        output.split('\n').strip_two_sides("").for_each(|content| {
             catcher.lock().unwrap().push(content.to_owned());
             if output_json {
                 println!("{content}");
@@ -199,13 +200,16 @@ pub fn n2_run_interface(
         let raw_json = std::fs::read_to_string(&output_path)
             .context(format!("failed to open `{}`", output_path.display()))?;
 
-        raw_json.split('\n').for_each(|content| {
-            if output_json {
-                println!("{content}");
-            } else {
-                moonutil::render::MooncDiagnostic::render(content, use_fancy);
-            }
-        });
+        raw_json
+            .split('\n')
+            .strip_two_sides("")
+            .for_each(|content| {
+                if output_json {
+                    println!("{content}");
+                } else {
+                    moonutil::render::MooncDiagnostic::render(content, use_fancy);
+                }
+            });
     } else {
         let mut output_file = std::fs::File::create(output_path)?;
 
