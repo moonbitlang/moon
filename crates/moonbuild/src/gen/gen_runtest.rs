@@ -1023,12 +1023,13 @@ fn gen_generate_test_driver_command(
     .arg("--source-dir")
     .arg(&moonbuild_opt.source_dir.display().to_string())
     .arg("--target-dir")
-    .arg(&moonbuild_opt.target_dir.display().to_string())
+    .arg(&moonbuild_opt.raw_target_dir.display().to_string())
     .args(["--package", &item.package_name])
     .arg_with_cond(moonbuild_opt.sort_input, "--sort-input")
     .args(["--target", moonc_opt.build_opt.target_backend.to_flag()])
     .args(["--driver-kind", item.driver_kind.to_string()])
     .args(coverage_args.iter())
+    .arg_with_cond(!moonc_opt.build_opt.debug_flag, "--release")
     .build();
 
     build.cmdline = Some(command);
