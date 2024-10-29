@@ -814,15 +814,20 @@ pub fn set_native_backend_link_flags(
     target_backend: Option<TargetBackend>,
     module: &mut crate::module::ModuleDB,
 ) {
-    #[cfg(unix)]
     match run_mode {
         // need link-core for build, test and run
         RunMode::Build | RunMode::Test | RunMode::Run => {
-            if release && target_backend == Some(TargetBackend::Native) {
-                // check if cc exists in PATH
-                if let Err(e) = which::which("cc") {
+            if target_backend == Some(TargetBackend::Native) {
+                // check if c compiler exists in PATH
+                #[cfg(unix)]
+                let compiler = "cc";
+                #[cfg(windows)]
+                let compiler = "cl";
+
+                if let Err(e) = which::which(compiler) {
                     eprintln!(
-                        "error: 'cc' not found in PATH, which is used for native backend release compilation: {}",
+                        "error: '{}' not found in PATH, which is used for native backend release compilation: {}", 
+                        compiler,
                         e
                     );
                     std::process::exit(1);
@@ -841,19 +846,47 @@ pub fn set_native_backend_link_flags(
 
                 let all_pkgs = module.get_all_packages_mut();
                 for (_, pkg) in all_pkgs {
-                    if pkg.link.is_none() || pkg.link.as_ref().unwrap().native.is_none() {
-                        pkg.link = Some(crate::package::Link {
-                            native: Some(crate::package::NativeLinkConfig {
-                                cc: Some("cc".to_string()),
-                                cc_flags: Some(format!(
-                                    "-O2 {} -fwrapv",
-                                    libmoonbitrun_path.as_ref().unwrap().display()
-                                )),
-                                cc_link_flags: Some("-lm".to_string()),
+                    let existing_native = pkg.link.as_ref().and_then(|link| link.native.as_ref());
+
+                    let native_config = crate::package::NativeLinkConfig {
+                        cc: existing_native
+                            .and_then(|n| n.cc.clone())
+                            .or_else(|| release.then_some(compiler.to_string())),
+
+                        cc_flags: existing_native
+                            .and_then(|n| n.cc_flags.clone())
+                            .or_else(|| {
+                                release
+                                    .then(|| {
+                                        #[cfg(unix)]
+                                        return Some(format!(
+                                            "-O2 {} -fwrapv",
+                                            libmoonbitrun_path.as_ref().unwrap().display()
+                                        ));
+                                        #[cfg(windows)]
+                                        return None;
+                                    })
+                                    .flatten()
                             }),
-                            ..Default::default()
-                        });
-                    }
+
+                        cc_link_flags: existing_native
+                            .and_then(|n| n.cc_link_flags.clone())
+                            .or_else(|| {
+                                release
+                                    .then(|| {
+                                        #[cfg(unix)]
+                                        return Some("-lm".to_string());
+                                        #[cfg(windows)]
+                                        return None;
+                                    })
+                                    .flatten()
+                            }),
+                    };
+
+                    pkg.link = Some(crate::package::Link {
+                        native: Some(native_config),
+                        ..Default::default()
+                    });
                 }
             }
         }

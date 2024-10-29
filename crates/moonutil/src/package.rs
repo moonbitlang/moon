@@ -338,7 +338,7 @@ pub struct WasmLinkConfig {
     pub flags: Option<Vec<String>>,
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone, JsonSchema)]
+#[derive(Debug, Serialize, Deserialize, Clone, JsonSchema, Default)]
 #[serde(rename_all = "kebab-case")]
 pub struct NativeLinkConfig {
     #[serde(skip_serializing_if = "Option::is_none")]
