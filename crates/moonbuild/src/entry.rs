@@ -40,8 +40,8 @@ use crate::expect::{apply_snapshot, render_snapshot_fail};
 use crate::runtest::TestStatistics;
 
 use moonutil::common::{
-    DriverKind, FileName, MoonbuildOpt, MooncGenTestInfo, MooncOpt, TargetBackend, TestArtifacts,
-    TestBlockIndex, TestName, TEST_INFO_FILE,
+    DriverKind, FileLock, FileName, MoonbuildOpt, MooncGenTestInfo, MooncOpt, TargetBackend,
+    TestArtifacts, TestBlockIndex, TestName, TEST_INFO_FILE,
 };
 
 use std::sync::{Arc, Mutex};
@@ -293,6 +293,12 @@ pub fn run_moon_pre_build(
     moonbuild_opt: &MoonbuildOpt,
     module: &ModuleDB,
 ) -> anyhow::Result<MoonPreBuildState> {
+    let common = moonbuild_opt.source_dir.join("target").join("common");
+    if !common.exists() {
+        std::fs::create_dir_all(&common)?;
+    }
+    let _lock = FileLock::lock(&common)?;
+
     let pre_build_state = crate::pre_build::load_moon_pre_build(moonbuild_opt, module)?;
     if let Some(pre_build_state) = pre_build_state {
         let pre_build_result = n2_simple_run_interface(pre_build_state, moonbuild_opt)?;
