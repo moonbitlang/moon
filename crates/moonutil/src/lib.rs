@@ -26,6 +26,7 @@ pub mod dirs;
 pub mod fuzzy_match;
 pub mod git;
 pub mod graph;
+pub mod iters;
 pub mod module;
 pub mod moon_dir;
 pub mod mooncake_bin;
