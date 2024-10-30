@@ -680,7 +680,8 @@ impl FileLock {
         match file.try_lock_exclusive() {
             Ok(_) => Ok(FileLock { _file: file }),
             Err(_) => {
-                println!(
+                #[cfg(not(test))]
+                eprintln!(
                     "Blocking waiting for file lock {} ...",
                     path.join(MOON_LOCK).display()
                 );
