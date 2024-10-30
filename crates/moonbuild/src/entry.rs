@@ -293,7 +293,7 @@ pub fn run_moon_pre_build(
     moonbuild_opt: &MoonbuildOpt,
     module: &ModuleDB,
 ) -> anyhow::Result<MoonPreBuildState> {
-    let common = moonbuild_opt.source_dir.join("target").join("common");
+    let common = moonbuild_opt.raw_target_dir.join("common");
     if !common.exists() {
         std::fs::create_dir_all(&common)?;
     }

@@ -19,7 +19,7 @@
 use std::path::PathBuf;
 use std::rc::Rc;
 
-use moonutil::common::{FileLock, MoonbuildOpt};
+use moonutil::common::MoonbuildOpt;
 use moonutil::module::ModuleDB;
 use moonutil::package::StringOrArray;
 use n2::graph::{self as n2graph, Build, BuildIns, BuildOuts, FileId, FileLoc};
@@ -120,7 +120,7 @@ pub fn load_moon_pre_build(
     }
 
     let mut hashed = n2graph::Hashes::default();
-    let common = moonbuild_opt.source_dir.join("target").join("common");
+    let common = moonbuild_opt.raw_target_dir.join("common");
 
     let n2_db_path = common.join("generate.db");
     let db = n2::db::open(&n2_db_path, &mut graph, &mut hashed).map_err(|e| N2Error {
