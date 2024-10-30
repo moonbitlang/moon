@@ -21,6 +21,7 @@ use std::any::Any;
 use std::io::{self, Write};
 use std::path::Path;
 use std::{cell::Cell, io::Read, path::PathBuf, time::Instant};
+use v8::V8::set_flags_from_string;
 
 mod fs_api_temp;
 mod js;
@@ -503,6 +504,9 @@ struct Commandline {
 
     #[clap(long)]
     test_mode: bool,
+
+    #[clap(long)]
+    stack_size: Option<String>,
 }
 
 fn main() -> anyhow::Result<()> {
@@ -517,6 +521,10 @@ fn main() -> anyhow::Result<()> {
 
     if !file.exists() {
         anyhow::bail!("no such file");
+    }
+
+    if let Some(stack_size) = matches.stack_size {
+        set_flags_from_string(&format!("--stack-size={}", stack_size));
     }
 
     match file.extension().unwrap().to_str() {
