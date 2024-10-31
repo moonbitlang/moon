@@ -132,6 +132,7 @@ pub fn gen_build_link_item(
         core_deps,
         package_sources,
         package_full_name,
+        package_path: pkg.root_path.clone(),
         link: pkg.link.clone(),
     })
 }
@@ -337,6 +338,8 @@ pub fn gen_link_command(
         .arg(&item.package_full_name)
         .arg("-o")
         .arg(&artifact_output_path)
+        .arg("-pkg-config-path") // tell moonc where moon.pkg.json is
+        .arg(&item.package_path.join(MOON_PKG_JSON).display().to_string())
         .args_with_prefix_separator(
             item.package_sources
                 .iter()
