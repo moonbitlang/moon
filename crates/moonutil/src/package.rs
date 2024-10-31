@@ -232,6 +232,7 @@ pub struct LinkDepItem {
     pub core_deps: Vec<String>, // need add parent's core files recursively
     pub package_full_name: String,
     pub package_sources: Vec<(String, String)>, // (pkgname, source_dir)
+    pub package_path: PathBuf,
     pub link: Option<Link>,
 }
 
