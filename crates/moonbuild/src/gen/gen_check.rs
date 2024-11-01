@@ -381,9 +381,14 @@ pub fn gen_check_command(
         .args_with_cond(moonc_opt.render, vec!["-error-format", "json"])
         .args_with_cond(
             moonc_opt.build_opt.deny_warn,
-            // the default strategy for warn and alert is +a and +all-raise-throw-unsafe+deprecated
+            // the default strategy for warn and alert is +a-31-32 and +all-raise-throw-unsafe+deprecated
             // we replace + with @ to tell moonc treat warning as error
-            ["-w", "@a", "-alert", "@all-raise-throw-unsafe+deprecated"],
+            [
+                "-w",
+                "@a-31-32",
+                "-alert",
+                "@all-raise-throw-unsafe+deprecated",
+            ],
         )
         .args(&item.mbt_deps)
         .args_with_cond(!cur_pkg_warn_list.is_empty(), ["-w", cur_pkg_warn_list])
