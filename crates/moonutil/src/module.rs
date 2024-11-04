@@ -285,6 +285,7 @@ impl ModuleDB {
                     errors.push(format!(
                         "{}: cannot import internal package `{}` in `{}`",
                         self.source_dir
+                            .join(self.source.as_ref().unwrap_or(&String::new()))
                             .join(pkg.rel.fs_full_name())
                             .join(MOON_PKG_JSON)
                             .display(),
@@ -296,6 +297,7 @@ impl ModuleDB {
                     errors.push(format!(
                         "{}: cannot import `{}` in `{}`, no such package",
                         self.source_dir
+                            .join(self.source.as_ref().unwrap_or(&String::new()))
                             .join(pkg.rel.fs_full_name())
                             .join(MOON_PKG_JSON)
                             .display(),

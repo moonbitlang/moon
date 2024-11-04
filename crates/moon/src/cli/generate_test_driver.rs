@@ -115,11 +115,11 @@ pub fn generate_test_driver(
     } = cli.source_tgt_dir.try_into_package_dirs()?;
 
     let mut cmd = cmd;
-    let target_backend = cmd.build_flags.target.as_ref().and_then(|surface_targets| {
+    let target_backend = cmd.build_flags.target.as_ref().map(|surface_targets| {
         if surface_targets.is_empty() {
-            None
+            TargetBackend::WasmGC
         } else {
-            Some(lower_surface_targets(surface_targets)[0])
+            lower_surface_targets(surface_targets)[0]
         }
     });
     cmd.build_flags.target_backend = target_backend;
@@ -138,6 +138,14 @@ pub fn generate_test_driver(
         cli.quiet,
     )?;
     let raw_target_dir = target_dir.to_path_buf();
+    let target_dir = target_dir
+        .join(target_backend.unwrap().to_dir_name())
+        .join(if cmd.build_flags.release {
+            "release"
+        } else {
+            "debug"
+        })
+        .join("test");
 
     let moonbuild_opt = MoonbuildOpt {
         source_dir,

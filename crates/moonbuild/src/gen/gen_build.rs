@@ -132,6 +132,7 @@ pub fn gen_build_link_item(
         core_deps,
         package_sources,
         package_full_name,
+        package_path: pkg.root_path.clone(),
         link: pkg.link.clone(),
     })
 }
@@ -233,9 +234,14 @@ pub fn gen_build_command(
         .args_with_cond(moonc_opt.render, vec!["-error-format", "json"])
         .args_with_cond(
             moonc_opt.build_opt.deny_warn,
-            // the default strategy for warn and alert is +a and +all-raise-throw-unsafe+deprecated
+            // the default strategy for warn and alert is +a-31-32 and +all-raise-throw-unsafe+deprecated
             // we replace + with @ to tell moonc treat warning as error
-            ["-w", "@a", "-alert", "@all-raise-throw-unsafe+deprecated"],
+            [
+                "-w",
+                "@a-31-32",
+                "-alert",
+                "@all-raise-throw-unsafe+deprecated",
+            ],
         )
         .args(&item.mbt_deps)
         .args_with_cond(!cur_pkg_warn_list.is_empty(), ["-w", cur_pkg_warn_list])
@@ -337,6 +343,8 @@ pub fn gen_link_command(
         .arg(&item.package_full_name)
         .arg("-o")
         .arg(&artifact_output_path)
+        .arg("-pkg-config-path") // tell moonc where moon.pkg.json is
+        .arg(&item.package_path.join(MOON_PKG_JSON).display().to_string())
         .args_with_prefix_separator(
             item.package_sources
                 .iter()

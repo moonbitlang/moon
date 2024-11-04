@@ -219,6 +219,10 @@ pub fn do_upgrade(root: &'static str) -> Result<i32> {
     let rt = tokio::runtime::Runtime::new()?;
     rt.block_on(async {
         let items = [
+            "moonbit.h",
+            "moonbit-fundamental.h",
+            "libmoonbitrun.o",
+            "libtcc1.a",
             "moon",
             "moonc",
             "moonfmt",
@@ -227,12 +231,13 @@ pub fn do_upgrade(root: &'static str) -> Result<i32> {
             "moondoc",
             "moon_cove_report",
             "mooncake",
-            "core.zip",];
+            "core.zip",
+        ];
         let urls = items
             .iter()
             .map(|item| {
                 if *item != "core.zip" {
-                    format!("{}/{}/{}{}", root, os_arch(), item, if os_arch() == "windows" { ".exe" } else { "" })
+                    format!("{}/{}/{}{}", root, os_arch(), item, if os_arch() == "windows" && !item.contains(".") { ".exe" } else { "" })
                 } else {
                     format!("{}/{}", root, item)
                 }

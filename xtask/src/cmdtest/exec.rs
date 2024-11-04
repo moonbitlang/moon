@@ -149,6 +149,13 @@ where
         }
         let exit_status = child.wait().unwrap();
 
+        // a dirty workaround
+        stderr = stderr
+            .split('\n')
+            .filter(|line| !line.starts_with("Blocking waiting for file lock"))
+            .collect::<Vec<&str>>()
+            .join("\n");
+
         ExecResult {
             stdout,
             stderr,

@@ -144,9 +144,16 @@ fn scan_module_packages(
     let mod_desc = read_module_desc_file_in_dir(module_source_dir)?;
     let module_source_dir = match &mod_desc.source {
         None => module_source_dir.to_path_buf(),
-        Some(p) => dunce::canonicalize(module_source_dir.join(p))?,
+        Some(p) => {
+            let src_dir = module_source_dir.join(p);
+            dunce::canonicalize(src_dir.clone()).with_context(|| {
+                format!(
+                    "failed to canonicalize source directory: {}",
+                    src_dir.display()
+                )
+            })?
+        }
     };
-
     let mut packages: IndexMap<String, Package> = IndexMap::new();
 
     // scan local packages

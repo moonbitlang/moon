@@ -680,7 +680,8 @@ impl FileLock {
         match file.try_lock_exclusive() {
             Ok(_) => Ok(FileLock { _file: file }),
             Err(_) => {
-                println!(
+                #[cfg(not(test))]
+                eprintln!(
                     "Blocking waiting for file lock {} ...",
                     path.join(MOON_LOCK).display()
                 );
@@ -814,15 +815,20 @@ pub fn set_native_backend_link_flags(
     target_backend: Option<TargetBackend>,
     module: &mut crate::module::ModuleDB,
 ) {
-    #[cfg(unix)]
     match run_mode {
         // need link-core for build, test and run
         RunMode::Build | RunMode::Test | RunMode::Run => {
-            if release && target_backend == Some(TargetBackend::Native) {
-                // check if cc exists in PATH
-                if let Err(e) = which::which("cc") {
+            if target_backend == Some(TargetBackend::Native) {
+                // check if c compiler exists in PATH
+                #[cfg(unix)]
+                let compiler = "cc";
+                #[cfg(windows)]
+                let compiler = "cl";
+
+                if let Err(e) = which::which(compiler) {
                     eprintln!(
-                        "error: 'cc' not found in PATH, which is used for native backend release compilation: {}",
+                        "error: '{}' not found in PATH, which is used for native backend release compilation: {}", 
+                        compiler,
                         e
                     );
                     std::process::exit(1);
@@ -839,21 +845,56 @@ pub fn set_native_backend_link_flags(
                     std::process::exit(1);
                 }
 
+                let get_default_cc_flags = || -> Option<String> {
+                    #[cfg(unix)]
+                    return Some(format!(
+                        "-O2 {} -fwrapv",
+                        libmoonbitrun_path.as_ref().unwrap().display()
+                    ));
+                    #[cfg(windows)]
+                    return None;
+                };
+
+                let get_default_cc_link_flag = || -> Option<String> {
+                    #[cfg(unix)]
+                    return Some("-lm".to_string());
+                    #[cfg(windows)]
+                    return None;
+                };
+
                 let all_pkgs = module.get_all_packages_mut();
                 for (_, pkg) in all_pkgs {
-                    if pkg.link.is_none() || pkg.link.as_ref().unwrap().native.is_none() {
-                        pkg.link = Some(crate::package::Link {
-                            native: Some(crate::package::NativeLinkConfig {
-                                cc: Some("cc".to_string()),
+                    let existing_native = pkg.link.as_ref().and_then(|link| link.native.as_ref());
+
+                    let native_config = match existing_native {
+                        Some(n) => crate::package::NativeLinkConfig {
+                            cc: n.cc.clone().or(Some(compiler.to_string())),
+                            cc_flags: n.cc_flags.clone().or(get_default_cc_flags()),
+                            cc_link_flags: n.cc_link_flags.clone().or(get_default_cc_link_flag()),
+                        },
+                        None if release => crate::package::NativeLinkConfig {
+                            cc: Some(compiler.to_string()),
+                            cc_flags: get_default_cc_flags(),
+                            cc_link_flags: get_default_cc_link_flag(),
+                        },
+                        None => {
+                            let moon_home = libmoonbitrun_path.as_ref().unwrap().parent().unwrap();
+                            crate::package::NativeLinkConfig {
+                                cc: Some("tcc".to_string()),
                                 cc_flags: Some(format!(
-                                    "-O2 {} -fwrapv",
-                                    libmoonbitrun_path.as_ref().unwrap().display()
+                                    "-L{} -I{} -DMOONBIT_NATIVE_NO_SYS_HEADER",
+                                    moon_home.display(),
+                                    moon_home.display()
                                 )),
-                                cc_link_flags: Some("-lm".to_string()),
-                            }),
-                            ..Default::default()
-                        });
-                    }
+                                cc_link_flags: None,
+                            }
+                        }
+                    };
+
+                    pkg.link = Some(crate::package::Link {
+                        native: Some(native_config),
+                        ..Default::default()
+                    });
                 }
             }
         }

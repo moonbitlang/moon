@@ -535,6 +535,7 @@ pub fn gen_link_internal_test(
         core_deps,
         package_full_name,
         package_sources,
+        package_path: pkg.root_path.clone(),
         link: pkg.link.clone(),
     })
 }
@@ -571,6 +572,7 @@ pub fn gen_link_whitebox_test(
         core_deps,
         package_full_name,
         package_sources,
+        package_path: pkg.root_path.clone(),
         link: pkg.link.clone(),
     })
 }
@@ -634,6 +636,7 @@ pub fn gen_link_blackbox_test(
         core_deps,
         package_full_name,
         package_sources,
+        package_path: pkg.root_path.clone(),
         link: pkg.link.clone(),
     })
 }
@@ -879,6 +882,8 @@ pub fn gen_runtest_link_command(
         .arg("-o")
         .arg(&artifact_output_path)
         .arg("-test-mode") // always passing -test-mode to allow recover from panic
+        .arg("-pkg-config-path") // tell moonc where moon.pkg.json is
+        .arg(&item.package_path.join(MOON_PKG_JSON).display().to_string())
         .args_with_prefix_separator(
             item.package_sources
                 .iter()
@@ -1023,12 +1028,13 @@ fn gen_generate_test_driver_command(
     .arg("--source-dir")
     .arg(&moonbuild_opt.source_dir.display().to_string())
     .arg("--target-dir")
-    .arg(&moonbuild_opt.target_dir.display().to_string())
+    .arg(&moonbuild_opt.raw_target_dir.display().to_string())
     .args(["--package", &item.package_name])
     .arg_with_cond(moonbuild_opt.sort_input, "--sort-input")
     .args(["--target", moonc_opt.build_opt.target_backend.to_flag()])
     .args(["--driver-kind", item.driver_kind.to_string()])
     .args(coverage_args.iter())
+    .arg_with_cond(!moonc_opt.build_opt.debug_flag, "--release")
     .build();
 
     build.cmdline = Some(command);
