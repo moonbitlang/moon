@@ -845,43 +845,50 @@ pub fn set_native_backend_link_flags(
                     std::process::exit(1);
                 }
 
+                let get_default_cc_flags = || -> Option<String> {
+                    #[cfg(unix)]
+                    return Some(format!(
+                        "-O2 {} -fwrapv",
+                        libmoonbitrun_path.as_ref().unwrap().display()
+                    ));
+                    #[cfg(windows)]
+                    return None;
+                };
+
+                let get_default_cc_link_flag = || -> Option<String> {
+                    #[cfg(unix)]
+                    return Some("-lm".to_string());
+                    #[cfg(windows)]
+                    return None;
+                };
+
                 let all_pkgs = module.get_all_packages_mut();
                 for (_, pkg) in all_pkgs {
                     let existing_native = pkg.link.as_ref().and_then(|link| link.native.as_ref());
 
-                    let native_config = crate::package::NativeLinkConfig {
-                        cc: existing_native
-                            .and_then(|n| n.cc.clone())
-                            .or_else(|| release.then_some(compiler.to_string())),
-
-                        cc_flags: existing_native
-                            .and_then(|n| n.cc_flags.clone())
-                            .or_else(|| {
-                                release
-                                    .then(|| {
-                                        #[cfg(unix)]
-                                        return Some(format!(
-                                            "-O2 {} -fwrapv",
-                                            libmoonbitrun_path.as_ref().unwrap().display()
-                                        ));
-                                        #[cfg(windows)]
-                                        return None;
-                                    })
-                                    .flatten()
-                            }),
-
-                        cc_link_flags: existing_native
-                            .and_then(|n| n.cc_link_flags.clone())
-                            .or_else(|| {
-                                release
-                                    .then(|| {
-                                        #[cfg(unix)]
-                                        return Some("-lm".to_string());
-                                        #[cfg(windows)]
-                                        return None;
-                                    })
-                                    .flatten()
-                            }),
+                    let native_config = match existing_native {
+                        Some(n) => crate::package::NativeLinkConfig {
+                            cc: n.cc.clone().or(Some(compiler.to_string())),
+                            cc_flags: n.cc_flags.clone().or(get_default_cc_flags()),
+                            cc_link_flags: n.cc_link_flags.clone().or(get_default_cc_link_flag()),
+                        },
+                        None if release => crate::package::NativeLinkConfig {
+                            cc: Some(compiler.to_string()),
+                            cc_flags: get_default_cc_flags(),
+                            cc_link_flags: get_default_cc_link_flag(),
+                        },
+                        None => {
+                            let moon_home = libmoonbitrun_path.as_ref().unwrap().parent().unwrap();
+                            crate::package::NativeLinkConfig {
+                                cc: Some("tcc".to_string()),
+                                cc_flags: Some(format!(
+                                    "-L{} -I{} -DMOONBIT_NATIVE_NO_SYS_HEADER",
+                                    moon_home.display(),
+                                    moon_home.display()
+                                )),
+                                cc_link_flags: None,
+                            }
+                        }
                     };
 
                     pkg.link = Some(crate::package::Link {
