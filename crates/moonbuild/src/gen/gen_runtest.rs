@@ -84,6 +84,12 @@ pub fn add_coverage_to_core_if_needed(
         if mdb.name == MOONBITLANG_CORE {
             info!("Automatically adding coverage library to other packages in the core module");
 
+            // Check if the coverage library is available
+            if !mdb.contains_package(MOONBITLANG_COVERAGE) {
+                log::warn!("Coverage library is not available in core module. Skipping relevant operations.");
+                return Ok(());
+            }
+
             // Add coverage library reference to each package
             for (pkg_name, pkg) in mdb.get_all_packages_mut() {
                 if is_self_coverage_lib(pkg_name) || is_skip_coverage_lib(pkg_name) {
