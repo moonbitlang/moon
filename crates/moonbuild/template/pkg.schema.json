@@ -262,6 +262,15 @@
             },
             "path": {
               "type": "string"
+            },
+            "value": {
+              "type": [
+                "array",
+                "null"
+              ],
+              "items": {
+                "type": "string"
+              }
             }
           }
         }
@@ -315,6 +324,18 @@
             {
               "type": "null"
             }
+          ]
+        },
+        "imported-string-constants": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "use-js-builtin-string": {
+          "type": [
+            "boolean",
+            "null"
           ]
         }
       }
