@@ -37,6 +37,10 @@ pub struct FmtSubcommand {
     #[clap(long)]
     pub sort_input: bool,
 
+    /// Add separator between each segments
+    #[clap(long)]
+    pub block_style: bool,
+
     pub args: Vec<String>,
 }
 
@@ -68,6 +72,7 @@ pub fn run_fmt(cli: &UniversalFlags, cmd: FmtSubcommand) -> anyhow::Result<i32> 
         run_mode,
         fmt_opt: Some(FmtOpt {
             check: cmd.check,
+            block_style: cmd.block_style,
             extra_args: cmd.args,
         }),
         build_graph: cli.build_graph,
