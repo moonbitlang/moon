@@ -29,15 +29,25 @@ pub struct FormatAndDiffSubcommand {
     #[clap(long)]
     new: PathBuf,
 
+    /// Add separator between each segments
+    #[clap(long)]
+    block_style: bool,
+
     pub args: Vec<String>,
 }
 
 pub fn run_format_and_diff(cmd: FormatAndDiffSubcommand) -> anyhow::Result<i32> {
+    let mut args = vec![
+        "-exit-code",
+        cmd.old.to_str().unwrap(),
+        "-o",
+        cmd.new.to_str().unwrap(),
+    ];
+    if cmd.block_style {
+        args.push("-block-style")
+    }
     let mut execution = std::process::Command::new("moonfmt")
-        .arg("-exit-code")
-        .arg(cmd.old.to_str().unwrap())
-        .arg("-o")
-        .arg(cmd.new.to_str().unwrap())
+        .args(args)
         .args(&cmd.args)
         .stdin(Stdio::inherit())
         .stdout(Stdio::inherit())
