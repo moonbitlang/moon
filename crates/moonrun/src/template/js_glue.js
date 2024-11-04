@@ -43,6 +43,7 @@ try {
                 console.log("----- END MOON TEST RESULT -----")
             }
         }
+        instance.exports.moonbit_test_driver_finish();
     }
     else {
         if (instance.exports._start) {
@@ -60,5 +61,5 @@ catch (e) {
         }
     }
     __moonbit_sys_unstable.exit(1);
-
+    
 }

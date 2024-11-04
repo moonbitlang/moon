@@ -52,7 +52,9 @@ pub fn moonbit_test_driver_internal_execute() -> Unit {
       @moonbitlang/core/builtin.println("{END_MOONTEST}")
     }
   }
+}
 
+pub fn moonbit_test_driver_finish() -> Unit {
   // {COVERAGE_END}
 }
 
