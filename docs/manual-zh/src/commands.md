@@ -237,6 +237,7 @@ Format source code
 
 * `--check` — Check only and don't change the source code
 * `--sort-input` — Sort input files
+* `--block-style` — Add separator between each segments
 
 
 
