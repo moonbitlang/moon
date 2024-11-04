@@ -143,7 +143,11 @@ pub enum PkgJSONImport {
 #[serde(untagged)]
 pub enum PkgJSONImportItem {
     String(String),
-    Object { path: String, alias: String },
+    Object {
+        path: String,
+        alias: String,
+        value: Option<Vec<String>>,
+    },
 }
 
 #[derive(Debug, Serialize, Deserialize, JsonSchema)]
@@ -351,20 +355,25 @@ pub struct NativeLinkConfig {
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, JsonSchema)]
+#[serde(rename_all = "kebab-case")]
 pub struct WasmGcLinkConfig {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub exports: Option<Vec<String>>,
 
     #[serde(skip_serializing_if = "Option::is_none")]
-    #[serde(rename = "import-memory")]
     pub import_memory: Option<ImportMemory>,
 
     #[serde(skip_serializing_if = "Option::is_none")]
-    #[serde(rename = "export-memory-name")]
     pub export_memory_name: Option<String>,
 
     #[serde(skip_serializing_if = "Option::is_none")]
     pub flags: Option<Vec<String>>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub use_js_builtin_string: Option<bool>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub imported_string_constants: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, JsonSchema)]
@@ -490,7 +499,11 @@ pub fn convert_pkg_json_to_package(j: MoonPkgJSON) -> anyhow::Result<MoonPkg> {
                     for item in l.into_iter() {
                         match item {
                             PkgJSONImportItem::String(s) => imports.push(Import::Simple(s)),
-                            PkgJSONImportItem::Object { path, alias } => {
+                            PkgJSONImportItem::Object {
+                                path,
+                                alias,
+                                value: _,
+                            } => {
                                 if alias.is_empty() {
                                     imports.push(Import::Simple(path));
                                 } else {
