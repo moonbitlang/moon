@@ -31,7 +31,7 @@ const spectest = {
 
 try {
     let bytes = read_file_to_bytes(module_name);
-    let module = new WebAssembly.Module(bytes, { builtins: ['js-string'], importedStringConstants: "moonbit:constant_strings" });
+    let module = new WebAssembly.Module(bytes, { builtins: ['js-string'], importedStringConstants: "_" });
     let instance = new WebAssembly.Instance(module, spectest);
     if (test_mode) {
         for (param of testParams) {
