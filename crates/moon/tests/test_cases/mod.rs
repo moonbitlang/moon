@@ -2161,6 +2161,13 @@ fn test_moon_inline_test_order() {
 }
 
 #[test]
+fn test_empty_name() {
+    let dir = TestDir::new("empty_name.in");
+    let out = get_err_stderr(&dir, ["check"]);
+    assert!(out.contains("empty package path from 'name' field"));
+}
+
+#[test]
 fn test_error_duplicate_alias() {
     let dir = TestDir::new("error_duplicate_alias.in");
     let out = get_err_stderr(&dir, ["check"]);
