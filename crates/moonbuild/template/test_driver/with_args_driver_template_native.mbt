@@ -107,9 +107,11 @@ pub fn moonbit_test_driver_internal_execute() -> Unit {
       "{\"package\": \"{PACKAGE}\", \"filename\": \{file_name}, \"index\": \"\{index}\", \"test_name\": \{test_name}, \"message\": \{message}}",
     )
     @moonbitlang/core/builtin.println("{END_MOONTEST}")
-    // {COVERAGE_END}
   }
+}
 
+pub fn moonbit_test_driver_finish() -> Unit {
+  // {COVERAGE_END}
 }
 
 fn main {

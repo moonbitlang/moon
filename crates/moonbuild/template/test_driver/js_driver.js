@@ -1,4 +1,4 @@
-const { moonbit_test_driver_internal_execute } = require("origin_js_path");
+const { moonbit_test_driver_internal_execute, moonbit_test_driver_finish } = require("origin_js_path");
 
 let packageName = "";
 let testParams = [];
@@ -27,3 +27,4 @@ for (param of testParams) {
         console.log("----- END MOON TEST RESULT -----")
     }
 }
+moonbit_test_driver_finish();
