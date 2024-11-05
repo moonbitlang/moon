@@ -253,12 +253,14 @@
         {
           "type": "object",
           "required": [
-            "alias",
             "path"
           ],
           "properties": {
             "alias": {
-              "type": "string"
+              "type": [
+                "string",
+                "null"
+              ]
             },
             "path": {
               "type": "string"

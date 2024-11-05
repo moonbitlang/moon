@@ -145,7 +145,7 @@ pub enum PkgJSONImportItem {
     String(String),
     Object {
         path: String,
-        alias: String,
+        alias: Option<String>,
         value: Option<Vec<String>>,
     },
 }
@@ -503,13 +503,13 @@ pub fn convert_pkg_json_to_package(j: MoonPkgJSON) -> anyhow::Result<MoonPkg> {
                                 path,
                                 alias,
                                 value: _,
-                            } => {
-                                if alias.is_empty() {
-                                    imports.push(Import::Simple(path));
-                                } else {
-                                    imports.push(Import::Alias { path, alias })
+                            } => match alias {
+                                None => imports.push(Import::Simple(path)),
+                                Some(alias) if alias.is_empty() => {
+                                    imports.push(Import::Simple(path))
                                 }
-                            }
+                                Some(alias) => imports.push(Import::Alias { path, alias }),
+                            },
                         }
                     }
                 }
