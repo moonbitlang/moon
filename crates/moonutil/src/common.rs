@@ -73,6 +73,12 @@ fn is_valid_folder_name(folder_name: &str) -> Result<(), SourceError> {
 }
 
 #[derive(Debug, thiserror::Error)]
+pub enum NameError {
+    #[error("`name` should not be empty")]
+    EmptyName,
+}
+
+#[derive(Debug, thiserror::Error)]
 #[error("failed to load `{}`", path.display())]
 pub struct MoonModJSONFormatError {
     path: Box<Path>,
@@ -86,6 +92,8 @@ pub enum MoonModJSONFormatErrorKind {
     IO(#[from] std::io::Error),
     #[error("Parse error")]
     Parse(#[from] serde_json_lenient::Error),
+    #[error("`name` bad format")]
+    Name(#[from] NameError),
     #[error("`source` bad format")]
     Source(#[from] SourceError),
     #[error("`version` bad format")]

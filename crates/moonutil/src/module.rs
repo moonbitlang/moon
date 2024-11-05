@@ -18,6 +18,7 @@
 
 use crate::common::MoonModJSONFormatErrorKind;
 use crate::common::MooncOpt;
+use crate::common::NameError;
 use crate::common::MOON_PKG_JSON;
 use crate::dependency::{DependencyInfo, DependencyInfoJson};
 use crate::package::{AliasJSON, Package, PackageJSON};
@@ -530,6 +531,10 @@ pub struct MoonModJSON {
 impl TryFrom<MoonModJSON> for MoonMod {
     type Error = MoonModJSONFormatErrorKind;
     fn try_from(j: MoonModJSON) -> Result<Self, Self::Error> {
+        if j.name.is_empty() {
+            return Err(MoonModJSONFormatErrorKind::Name(NameError::EmptyName));
+        }
+
         let version = match &j.version {
             None => None,
             Some(v) => {

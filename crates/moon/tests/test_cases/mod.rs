@@ -2163,8 +2163,16 @@ fn test_moon_inline_test_order() {
 #[test]
 fn test_empty_name() {
     let dir = TestDir::new("empty_name.in");
-    let out = get_err_stderr(&dir, ["check"]);
-    assert!(out.contains("empty package path from 'name' field"));
+    check(
+        get_err_stderr(&dir, ["check"]),
+        expect![[r#"
+            error: failed to load `$ROOT/moon.mod.json`
+
+            Caused by:
+                0: `name` bad format
+                1: `name` should not be empty
+        "#]],
+    );
 }
 
 #[test]

@@ -334,17 +334,12 @@ fn scan_one_package(
             )
         }))
     };
-    let name_path = PathComponent::from_str(&mod_desc.name)?;
-    if name_path.is_empty() {
-        bail!("empty package path from 'name' field in 'moon.mod.json'")
-    }
-
     let mut cur_pkg = Package {
         is_main: pkg.is_main,
         need_link: pkg.need_link,
         is_third_party,
         root_path: pkg_path.to_owned(),
-        root: name_path,
+        root: PathComponent::from_str(&mod_desc.name)?,
         files: file_cond_map(mbt_files),
         files_contain_test_block: vec![],
         wbtest_files: file_cond_map(wbtest_mbt_files),
