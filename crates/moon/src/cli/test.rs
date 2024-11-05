@@ -34,7 +34,7 @@ use moonutil::mooncakes::sync::AutoSyncFlags;
 use moonutil::mooncakes::RegistryConfig;
 use moonutil::package::Package;
 use n2::trace;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::thread;
 
@@ -80,6 +80,10 @@ pub struct TestSubcommand {
     /// Print failure message in JSON format
     #[clap(long)]
     pub test_failure_json: bool,
+
+    /// Path to the patch file
+    #[clap(long)]
+    pub patch: Option<PathBuf>,
 }
 
 pub fn run_test(cli: UniversalFlags, cmd: TestSubcommand) -> anyhow::Result<i32> {
@@ -172,8 +176,15 @@ fn run_test_internal(
     let limit = cmd.limit;
     let sort_input = cmd.build_flags.sort_input;
 
+    let patch = cmd.patch.clone();
     let filter_package = cmd.package.clone().map(|it| it.into_iter().collect());
-    let filter_file = &cmd.file;
+    let filter_file = cmd.file.clone().or_else(|| {
+        patch.as_ref().and_then(|patch_file_path| {
+            patch_file_path
+                .file_name()
+                .map(|it| it.to_str().unwrap().to_string())
+        })
+    });
     let filter_index = cmd.index;
     let moonbuild_opt = MoonbuildOpt {
         source_dir: source_dir.to_path_buf(),
@@ -181,11 +192,12 @@ fn run_test_internal(
         target_dir: target_dir.clone(),
         test_opt: Some(TestOpt {
             filter_package: filter_package.clone(),
-            filter_file: filter_file.clone(),
+            filter_file,
             filter_index,
             limit,
             test_failure_json: cmd.test_failure_json,
             display_backend_hint,
+            patch,
         }),
         check_opt: None,
         sort_input,

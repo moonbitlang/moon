@@ -365,6 +365,7 @@ pub struct TestOpt {
     pub limit: u32,
     pub test_failure_json: bool,
     pub display_backend_hint: Option<()>, // use Option to avoid if else
+    pub patch: Option<PathBuf>,
 }
 
 impl TestOpt {

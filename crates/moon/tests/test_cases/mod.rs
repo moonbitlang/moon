@@ -7592,3 +7592,142 @@ fn test_moon_check_package_with_patch() {
         "#]],
     );
 }
+
+#[test]
+fn test_moon_test_patch() {
+    let dir = TestDir::new("moon_test_patch.in");
+    check(
+        get_stdout(
+            &dir,
+            [
+                "test",
+                "-p",
+                "lib",
+                "--patch",
+                "./patch.mbt",
+                "--dry-run",
+                "--sort-input",
+                "--nostd",
+            ],
+        ),
+        expect![[r#"
+            moon generate-test-driver --source-dir . --target-dir ./target --package moon_new/lib --sort-input --target wasm-gc --driver-kind blackbox --patch ./patch.mbt
+            moonc build-package ./lib/hello.mbt ./patch.mbt -o ./target/wasm-gc/debug/test/lib/lib.core -pkg moon_new/lib -pkg-sources moon_new/lib:./lib -target wasm-gc -g
+            moonc build-package ./lib/hello_test.mbt ./target/wasm-gc/debug/test/lib/__generated_driver_for_blackbox_test.mbt -o ./target/wasm-gc/debug/test/lib/lib.blackbox_test.core -pkg moon_new/lib_blackbox_test -is-main -i ./target/wasm-gc/debug/test/lib/lib.mi:lib -pkg-sources moon_new/lib_blackbox_test:./lib -target wasm-gc -g -blackbox-test
+            moonc link-core ./target/wasm-gc/debug/test/lib/lib.core ./target/wasm-gc/debug/test/lib/lib.blackbox_test.core -main moon_new/lib_blackbox_test -o ./target/wasm-gc/debug/test/lib/lib.blackbox_test.wasm -test-mode -pkg-config-path ./lib/moon.pkg.json -pkg-sources moon_new/lib:./lib -pkg-sources moon_new/lib_blackbox_test:./lib -exported_functions moonbit_test_driver_internal_execute,moonbit_test_driver_finish -target wasm-gc -g
+            moon generate-test-driver --source-dir . --target-dir ./target --package moon_new/lib --sort-input --target wasm-gc --driver-kind whitebox --patch ./patch.mbt
+            moonc build-package ./lib/hello.mbt ./patch.mbt ./lib/hello_wbtest.mbt ./target/wasm-gc/debug/test/lib/__generated_driver_for_whitebox_test.mbt -o ./target/wasm-gc/debug/test/lib/lib.whitebox_test.core -pkg moon_new/lib -is-main -pkg-sources moon_new/lib:./lib -target wasm-gc -g -whitebox-test
+            moonc link-core ./target/wasm-gc/debug/test/lib/lib.whitebox_test.core -main moon_new/lib -o ./target/wasm-gc/debug/test/lib/lib.whitebox_test.wasm -test-mode -pkg-config-path ./lib/moon.pkg.json -pkg-sources moon_new/lib:./lib -exported_functions moonbit_test_driver_internal_execute,moonbit_test_driver_finish -target wasm-gc -g
+            moon generate-test-driver --source-dir . --target-dir ./target --package moon_new/lib --sort-input --target wasm-gc --driver-kind internal --patch ./patch.mbt
+            moonc build-package ./lib/hello.mbt ./patch.mbt ./target/wasm-gc/debug/test/lib/__generated_driver_for_internal_test.mbt -o ./target/wasm-gc/debug/test/lib/lib.internal_test.core -pkg moon_new/lib -is-main -pkg-sources moon_new/lib:./lib -target wasm-gc -g
+            moonc link-core ./target/wasm-gc/debug/test/lib/lib.internal_test.core -main moon_new/lib -o ./target/wasm-gc/debug/test/lib/lib.internal_test.wasm -test-mode -pkg-config-path ./lib/moon.pkg.json -pkg-sources moon_new/lib:./lib -exported_functions moonbit_test_driver_internal_execute,moonbit_test_driver_finish -target wasm-gc -g
+        "#]],
+    );
+    check(
+        get_stdout(
+            &dir,
+            [
+                "test",
+                "-p",
+                "lib",
+                "--patch",
+                "./patch.mbt"
+            ],
+        ),
+        expect![[r#"
+            hello from patch.mbt
+            hello from lib/hello.mbt
+            Total tests: 1, passed: 1, failed: 0.
+        "#]],
+    );
+
+    check(
+        get_stdout(
+            &dir,
+            [
+                "test",
+                "-p",
+                "lib",
+                "--patch",
+                "./patch_wbtest.mbt",
+                "--dry-run",
+                "--sort-input",
+                "--nostd",
+            ],
+        ),
+        expect![[r#"
+            moon generate-test-driver --source-dir . --target-dir ./target --package moon_new/lib --sort-input --target wasm-gc --driver-kind blackbox --patch ./patch_wbtest.mbt
+            moonc build-package ./lib/hello.mbt -o ./target/wasm-gc/debug/test/lib/lib.core -pkg moon_new/lib -pkg-sources moon_new/lib:./lib -target wasm-gc -g
+            moonc build-package ./lib/hello_test.mbt ./target/wasm-gc/debug/test/lib/__generated_driver_for_blackbox_test.mbt -o ./target/wasm-gc/debug/test/lib/lib.blackbox_test.core -pkg moon_new/lib_blackbox_test -is-main -i ./target/wasm-gc/debug/test/lib/lib.mi:lib -pkg-sources moon_new/lib_blackbox_test:./lib -target wasm-gc -g -blackbox-test
+            moonc link-core ./target/wasm-gc/debug/test/lib/lib.core ./target/wasm-gc/debug/test/lib/lib.blackbox_test.core -main moon_new/lib_blackbox_test -o ./target/wasm-gc/debug/test/lib/lib.blackbox_test.wasm -test-mode -pkg-config-path ./lib/moon.pkg.json -pkg-sources moon_new/lib:./lib -pkg-sources moon_new/lib_blackbox_test:./lib -exported_functions moonbit_test_driver_internal_execute,moonbit_test_driver_finish -target wasm-gc -g
+            moon generate-test-driver --source-dir . --target-dir ./target --package moon_new/lib --sort-input --target wasm-gc --driver-kind whitebox --patch ./patch_wbtest.mbt
+            moonc build-package ./lib/hello.mbt ./lib/hello_wbtest.mbt ./patch_wbtest.mbt ./target/wasm-gc/debug/test/lib/__generated_driver_for_whitebox_test.mbt -o ./target/wasm-gc/debug/test/lib/lib.whitebox_test.core -pkg moon_new/lib -is-main -pkg-sources moon_new/lib:./lib -target wasm-gc -g -whitebox-test
+            moonc link-core ./target/wasm-gc/debug/test/lib/lib.whitebox_test.core -main moon_new/lib -o ./target/wasm-gc/debug/test/lib/lib.whitebox_test.wasm -test-mode -pkg-config-path ./lib/moon.pkg.json -pkg-sources moon_new/lib:./lib -exported_functions moonbit_test_driver_internal_execute,moonbit_test_driver_finish -target wasm-gc -g
+            moon generate-test-driver --source-dir . --target-dir ./target --package moon_new/lib --sort-input --target wasm-gc --driver-kind internal --patch ./patch_wbtest.mbt
+            moonc build-package ./lib/hello.mbt ./target/wasm-gc/debug/test/lib/__generated_driver_for_internal_test.mbt -o ./target/wasm-gc/debug/test/lib/lib.internal_test.core -pkg moon_new/lib -is-main -pkg-sources moon_new/lib:./lib -target wasm-gc -g
+            moonc link-core ./target/wasm-gc/debug/test/lib/lib.internal_test.core -main moon_new/lib -o ./target/wasm-gc/debug/test/lib/lib.internal_test.wasm -test-mode -pkg-config-path ./lib/moon.pkg.json -pkg-sources moon_new/lib:./lib -exported_functions moonbit_test_driver_internal_execute,moonbit_test_driver_finish -target wasm-gc -g
+        "#]],
+    );
+    check(
+        get_stdout(
+            &dir,
+            [
+                "test",
+                "-p",
+                "lib",
+                "--patch",
+                "./patch_wbtest.mbt"
+            ],
+        ),
+        expect![[r#"
+            hello from patch_wbtest.mbt
+            hello from lib/hello.mbt
+            Total tests: 1, passed: 1, failed: 0.
+        "#]],
+    );
+
+    check(
+        get_stdout(
+            &dir,
+            [
+                "test",
+                "-p",
+                "lib",
+                "--patch",
+                "./patch_test.mbt",
+                "--dry-run",
+                "--sort-input",
+                "--nostd",
+            ],
+        ),
+        expect![[r#"
+            moon generate-test-driver --source-dir . --target-dir ./target --package moon_new/lib --sort-input --target wasm-gc --driver-kind blackbox --patch ./patch_test.mbt
+            moonc build-package ./lib/hello.mbt -o ./target/wasm-gc/debug/test/lib/lib.core -pkg moon_new/lib -pkg-sources moon_new/lib:./lib -target wasm-gc -g
+            moonc build-package ./lib/hello_test.mbt ./patch_test.mbt ./target/wasm-gc/debug/test/lib/__generated_driver_for_blackbox_test.mbt -o ./target/wasm-gc/debug/test/lib/lib.blackbox_test.core -pkg moon_new/lib_blackbox_test -is-main -i ./target/wasm-gc/debug/test/lib/lib.mi:lib -pkg-sources moon_new/lib_blackbox_test:./lib -target wasm-gc -g -blackbox-test
+            moonc link-core ./target/wasm-gc/debug/test/lib/lib.core ./target/wasm-gc/debug/test/lib/lib.blackbox_test.core -main moon_new/lib_blackbox_test -o ./target/wasm-gc/debug/test/lib/lib.blackbox_test.wasm -test-mode -pkg-config-path ./lib/moon.pkg.json -pkg-sources moon_new/lib:./lib -pkg-sources moon_new/lib_blackbox_test:./lib -exported_functions moonbit_test_driver_internal_execute,moonbit_test_driver_finish -target wasm-gc -g
+            moon generate-test-driver --source-dir . --target-dir ./target --package moon_new/lib --sort-input --target wasm-gc --driver-kind whitebox --patch ./patch_test.mbt
+            moonc build-package ./lib/hello.mbt ./lib/hello_wbtest.mbt ./target/wasm-gc/debug/test/lib/__generated_driver_for_whitebox_test.mbt -o ./target/wasm-gc/debug/test/lib/lib.whitebox_test.core -pkg moon_new/lib -is-main -pkg-sources moon_new/lib:./lib -target wasm-gc -g -whitebox-test
+            moonc link-core ./target/wasm-gc/debug/test/lib/lib.whitebox_test.core -main moon_new/lib -o ./target/wasm-gc/debug/test/lib/lib.whitebox_test.wasm -test-mode -pkg-config-path ./lib/moon.pkg.json -pkg-sources moon_new/lib:./lib -exported_functions moonbit_test_driver_internal_execute,moonbit_test_driver_finish -target wasm-gc -g
+            moon generate-test-driver --source-dir . --target-dir ./target --package moon_new/lib --sort-input --target wasm-gc --driver-kind internal --patch ./patch_test.mbt
+            moonc build-package ./lib/hello.mbt ./target/wasm-gc/debug/test/lib/__generated_driver_for_internal_test.mbt -o ./target/wasm-gc/debug/test/lib/lib.internal_test.core -pkg moon_new/lib -is-main -pkg-sources moon_new/lib:./lib -target wasm-gc -g
+            moonc link-core ./target/wasm-gc/debug/test/lib/lib.internal_test.core -main moon_new/lib -o ./target/wasm-gc/debug/test/lib/lib.internal_test.wasm -test-mode -pkg-config-path ./lib/moon.pkg.json -pkg-sources moon_new/lib:./lib -exported_functions moonbit_test_driver_internal_execute,moonbit_test_driver_finish -target wasm-gc -g
+        "#]],
+    );
+    check(
+        get_stdout(
+            &dir,
+            [
+                "test",
+                "-p",
+                "lib",
+                "--patch",
+                "./patch_test.mbt"
+            ],
+        ),
+        expect![[r#"
+            hello from patch_test.mbt
+            hello from lib/hello.mbt
+            Total tests: 1, passed: 1, failed: 0.
+        "#]],
+    );
+}

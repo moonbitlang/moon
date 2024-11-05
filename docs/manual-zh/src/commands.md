@@ -212,6 +212,7 @@ Test the current package
 * `--build-only` — Only build, do not run the tests
 * `--no-parallelize` — Run the tests in a target backend sequentially
 * `--test-failure-json` — Print failure message in JSON format
+* `--patch <PATCH>` — Path to the patch file
 
 
 

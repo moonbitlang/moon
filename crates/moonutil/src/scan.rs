@@ -267,6 +267,21 @@ fn scan_one_package(
     let (mut mbt_files, mut wbtest_mbt_files, mut test_mbt_files) =
         get_mbt_and_test_file_paths(pkg_path);
 
+    if let Some(patch_file_path) = &moonbuild_opt
+        .test_opt
+        .as_ref()
+        .and_then(|opt| opt.patch.as_ref())
+    {
+        let patch_file_name = patch_file_path.file_name().unwrap().to_str().unwrap();
+        if patch_file_name.ends_with("_wbtest.mbt") {
+            wbtest_mbt_files.push(patch_file_path.into());
+        } else if patch_file_name.ends_with("_test.mbt") {
+            test_mbt_files.push(patch_file_path.into());
+        } else if patch_file_name.ends_with(".mbt") {
+            mbt_files.push(patch_file_path.into());
+        }
+    }
+
     // workaround for builtin package testing
     if moonc_opt.build_opt.enable_coverage
         && mod_desc.name == crate::common::MOONBITLANG_CORE

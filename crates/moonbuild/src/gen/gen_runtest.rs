@@ -1020,6 +1020,11 @@ fn gen_generate_test_driver_command(
 
     let mut build = Build::new(loc, ins, outs);
 
+    let patch = moonbuild_opt
+        .test_opt
+        .as_ref()
+        .and_then(|opt| opt.patch.as_ref());
+
     let command = CommandBuilder::new(
         &std::env::current_exe()
             .map_or_else(|_| "moon".into(), |x| x.to_string_lossy().into_owned()),
@@ -1035,6 +1040,9 @@ fn gen_generate_test_driver_command(
     .args(["--driver-kind", item.driver_kind.to_string()])
     .args(coverage_args.iter())
     .arg_with_cond(!moonc_opt.build_opt.debug_flag, "--release")
+    .lazy_args_with_cond(patch.is_some(), || {
+        vec!["--patch".to_string(), patch.unwrap().display().to_string()]
+    })
     .build();
 
     build.cmdline = Some(command);

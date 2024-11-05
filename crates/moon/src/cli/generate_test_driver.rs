@@ -50,6 +50,10 @@ pub struct GenerateTestDriverSubcommand {
     /// The test driver kind
     #[clap(long)]
     pub driver_kind: DriverKind,
+
+    /// Path to the patch file
+    #[clap(long)]
+    pub patch: Option<PathBuf>,
 }
 
 fn moonc_gen_test_info(files: &[PathBuf], output_path: &Path) -> anyhow::Result<String> {
@@ -158,6 +162,7 @@ pub fn generate_test_driver(
             limit: 256,
             test_failure_json: false,
             display_backend_hint: None,
+            patch: cmd.patch,
         }),
         check_opt: None,
         fmt_opt: None,
