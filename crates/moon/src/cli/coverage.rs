@@ -87,11 +87,12 @@ fn run_coverage_report(cli: UniversalFlags, args: CoverageReportSubcommand) -> a
     }
 
     let PackageDirs {
-        source_dir: src,
-        target_dir: _tgt,
+        source_dir: _src,
+        target_dir: tgt,
     } = cli.source_tgt_dir.try_into_package_dirs()?;
 
-    let res = run_coverage_report_command(args.args, &src);
+    // target-dir for moon is cwd for moon_cove_report
+    let res = run_coverage_report_command(args.args, &tgt);
     res.context("Unable to run coverage report")?
         .code()
         .ok_or_else(|| anyhow::anyhow!("Coverage report command exited without a status code"))
