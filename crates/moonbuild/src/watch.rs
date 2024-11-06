@@ -22,7 +22,6 @@ use mooncake::pkg::sync::auto_sync;
 use moonutil::module::ModuleDB;
 use moonutil::mooncakes::sync::AutoSyncFlags;
 use moonutil::mooncakes::RegistryConfig;
-use notify::event::ModifyKind;
 use notify::{Config, EventKind, RecommendedWatcher, RecursiveMode, Watcher};
 
 use moonutil::common::{
@@ -39,8 +38,6 @@ pub fn watching(
     module: &ModuleDB,
     original_target_dir: &Path,
 ) -> anyhow::Result<i32> {
-    let (source_dir, target_dir) = (&moonbuild_opt.source_dir, &moonbuild_opt.target_dir);
-
     run_and_print(moonc_opt, moonbuild_opt, module)?;
 
     let (tx, rx) = std::sync::mpsc::channel();
@@ -61,7 +58,7 @@ pub fn watching(
     {
         // main thread
         let exit_flag = Arc::clone(&exit_flag);
-        watcher.watch(source_dir, RecursiveMode::Recursive)?;
+        watcher.watch(&moonbuild_opt.source_dir, RecursiveMode::Recursive)?;
 
         // in watch mode, moon is a long-running process that should handle errors as much as possible rather than throwing them up and then exiting.
         for res in rx {
@@ -73,68 +70,31 @@ pub fn watching(
                             break;
                         }
                         // when a file was modified, multiple events may be received, we only care about data those modified data
-                        EventKind::Modify(ModifyKind::Data(_)) => {
-                            // check --watch will own a subdir named `watch` in target_dir but build --watch still use the original target_dir
-                            let original_target_dir = match moonbuild_opt.run_mode {
-                                RunMode::Check => target_dir
-                                    .ancestors()
-                                    .find(|p| p.ends_with(WATCH_MODE_DIR))
-                                    .unwrap()
-                                    .parent()
-                                    .unwrap(),
-                                _ => original_target_dir,
-                            };
-                            if event.paths.iter().all(|p| {
-                                p.starts_with(
-                                    // can't be `target_dir` since the real target dir for watch mode is `target_dir/watch`
-                                    original_target_dir,
-                                )
-                            }) {
+                        #[cfg(unix)]
+                        EventKind::Modify(notify::event::ModifyKind::Data(_)) => {
+                            if let Ok(None) = handle_file_change(
+                                moonc_opt,
+                                moonbuild_opt,
+                                registry_config,
+                                module,
+                                original_target_dir,
+                                &event,
+                            ) {
                                 continue;
                             }
-
-                            // prevent the case that the whole target_dir was deleted
-                            if !target_dir.exists() {
-                                std::fs::create_dir_all(target_dir).context(format!(
-                                    "Failed to create target directory: '{}'",
-                                    target_dir.display()
-                                ))?;
-                            }
-
-                            if event
-                                .paths
-                                .iter()
-                                .any(|p| p.ends_with(MOON_MOD_JSON) || p.ends_with(MOON_PKG_JSON))
-                            {
-                                // we need to get the latest ModuleDB when moon.pkg.json || moon.mod.json is changed
-                                let (resolved_env, dir_sync_result) = match auto_sync(
-                                    source_dir,
-                                    &AutoSyncFlags { frozen: false },
-                                    registry_config,
-                                    false,
-                                ) {
-                                    Ok((r, d)) => (r, d),
-                                    Err(e) => {
-                                        println!("failed at auto sync: {:?}", e);
-                                        continue;
-                                    }
-                                };
-                                let module = match moonutil::scan::scan(
-                                    false,
-                                    &resolved_env,
-                                    &dir_sync_result,
-                                    moonc_opt,
-                                    moonbuild_opt,
-                                ) {
-                                    Ok(m) => m,
-                                    Err(e) => {
-                                        println!("failed at scan: {:?}", e);
-                                        continue;
-                                    }
-                                };
-                                run_and_print(moonc_opt, moonbuild_opt, &module)?;
-                            } else {
-                                run_and_print(moonc_opt, moonbuild_opt, module)?;
+                        }
+                        // windows has different file event kind
+                        #[cfg(windows)]
+                        EventKind::Modify(_) => {
+                            if let Ok(None) = handle_file_change(
+                                moonc_opt,
+                                moonbuild_opt,
+                                registry_config,
+                                module,
+                                original_target_dir,
+                                &event,
+                            ) {
+                                continue;
                             }
                         }
                         _ => {
@@ -150,6 +110,80 @@ pub fn watching(
         }
     }
     Ok(0)
+}
+
+fn handle_file_change(
+    moonc_opt: &MooncOpt,
+    moonbuild_opt: &MoonbuildOpt,
+    registry_config: &RegistryConfig,
+    module: &ModuleDB,
+    original_target_dir: &Path,
+    event: &notify::Event,
+) -> anyhow::Result<Option<()>> {
+    // check --watch will own a subdir named `watch` in target_dir but build --watch still use the original target_dir
+    let (source_dir, target_dir) = (&moonbuild_opt.source_dir, &moonbuild_opt.target_dir);
+    let original_target_dir = match moonbuild_opt.run_mode {
+        RunMode::Check => target_dir
+            .ancestors()
+            .find(|p| p.ends_with(WATCH_MODE_DIR))
+            .unwrap()
+            .parent()
+            .unwrap(),
+        _ => original_target_dir,
+    };
+    if event.paths.iter().all(|p| {
+        p.starts_with(
+            // can't be `target_dir` since the real target dir for watch mode is `target_dir/watch`
+            original_target_dir,
+        )
+    }) {
+        return Ok(None);
+    }
+
+    // prevent the case that the whole target_dir was deleted
+    if !target_dir.exists() {
+        std::fs::create_dir_all(target_dir).context(format!(
+            "Failed to create target directory: '{}'",
+            target_dir.display()
+        ))?;
+    }
+
+    if event
+        .paths
+        .iter()
+        .any(|p| p.ends_with(MOON_MOD_JSON) || p.ends_with(MOON_PKG_JSON))
+    {
+        // we need to get the latest ModuleDB when moon.pkg.json || moon.mod.json is changed
+        let (resolved_env, dir_sync_result) = match auto_sync(
+            source_dir,
+            &AutoSyncFlags { frozen: false },
+            registry_config,
+            false,
+        ) {
+            Ok((r, d)) => (r, d),
+            Err(e) => {
+                println!("failed at auto sync: {:?}", e);
+                return Ok(None);
+            }
+        };
+        let module = match moonutil::scan::scan(
+            false,
+            &resolved_env,
+            &dir_sync_result,
+            moonc_opt,
+            moonbuild_opt,
+        ) {
+            Ok(m) => m,
+            Err(e) => {
+                println!("failed at scan: {:?}", e);
+                return Ok(None);
+            }
+        };
+        run_and_print(moonc_opt, moonbuild_opt, &module)?;
+    } else {
+        run_and_print(moonc_opt, moonbuild_opt, module)?;
+    }
+    Ok(Some(()))
 }
 
 fn run_and_print(
