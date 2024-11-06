@@ -121,7 +121,7 @@ jobs:
           cd ~/.moon/lib/core
           moon test --enable-coverage
           moon coverage report -f summary
-          moon coverage report -f coveralls  -o codecov_report.json
+          moon coverage report -f coveralls -o codecov_report.json
 
       - name: Coveralls GitHub Action
         if: ${{ matrix.os != 'windows-latest' }}
@@ -129,7 +129,7 @@ jobs:
         with:
           github-token: ${{ secrets.COVERALLS_REPO_TOKEN }}
           base-path: ~/.moon/lib/core/
-          file: ~/.moon/lib/core/codecov_report.json
+          file: ~/.moon/lib/core/target/codecov_report.json
 
       - name: Test core (Windows)
         if: ${{ matrix.os == 'windows-latest' }}
