@@ -19,11 +19,17 @@
 use anyhow::{bail, Ok};
 use colored::Colorize;
 use indexmap::IndexMap;
-use moonutil::common::{get_desc_name, DriverKind, GeneratedTestDriver, MOONBITLANG_CORE};
+use log::info;
+use moonutil::common::{
+    get_desc_name, DriverKind, GeneratedTestDriver, MOONBITLANG_CORE, MOONBITLANG_COVERAGE,
+};
 use moonutil::module::ModuleDB;
 use moonutil::package::Package;
+use moonutil::path::{ImportPath, PathComponent};
+use petgraph::graph::NodeIndex;
 
 use super::cmd_builder::CommandBuilder;
+use super::{is_self_coverage_lib, is_skip_coverage_lib};
 use std::collections::HashSet;
 use std::path::PathBuf;
 use std::rc::Rc;
@@ -66,6 +72,60 @@ pub struct N2RuntestInput {
     pub build_items: Vec<RuntestDepItem>,
     pub link_items: Vec<RuntestLinkDepItem>, // entry points
     pub test_drivers: Vec<RuntestDriverItem>,
+}
+
+/// Automatically add coverage library import to core module if needed
+pub fn add_coverage_to_core_if_needed(
+    mdb: &mut ModuleDB,
+    moonc_opt: &MooncOpt,
+) -> anyhow::Result<()> {
+    if moonc_opt.build_opt.enable_coverage {
+        // Only core module needs to add coverage library
+        if mdb.name == MOONBITLANG_CORE {
+            info!("Automatically adding coverage library to other packages in the core module");
+
+            // Check if the coverage library is available
+            if !mdb.contains_package(MOONBITLANG_COVERAGE) {
+                log::warn!("Coverage library is not available in core module. Skipping relevant operations.");
+                return Ok(());
+            }
+
+            // Add coverage library reference to each package
+            for (pkg_name, pkg) in mdb.get_all_packages_mut() {
+                if is_self_coverage_lib(pkg_name) || is_skip_coverage_lib(pkg_name) {
+                    continue;
+                }
+                pkg.imports.push(moonutil::path::ImportComponent {
+                    path: ImportPath {
+                        module_name: MOONBITLANG_CORE.into(),
+                        rel_path: PathComponent {
+                            components: vec!["coverage".into()],
+                        },
+                        is_3rd: false,
+                    },
+                    alias: None,
+                });
+            }
+
+            // Update dependency graph
+            let coverage_lib_node = mdb
+                .get_all_packages()
+                .get_index_of(MOONBITLANG_COVERAGE)
+                .unwrap();
+            let coverage_lib_node = NodeIndex::new(coverage_lib_node);
+            let node_cnt = mdb.graph.node_count();
+            for i in 0..node_cnt {
+                let node_ix = NodeIndex::new(i);
+                let node = mdb.graph.node_weight(node_ix).unwrap();
+                if is_self_coverage_lib(node) || is_skip_coverage_lib(node) {
+                    continue;
+                }
+                mdb.graph.add_edge(node_ix, coverage_lib_node, 0);
+            }
+        }
+    }
+
+    Ok(())
 }
 
 pub fn gen_package_test_driver(
