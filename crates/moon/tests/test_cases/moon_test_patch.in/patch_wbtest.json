@@ -1,0 +1,9 @@
+{
+  "drops": [],
+  "patches": [
+    {
+      "name": "hello_1_wbtest.mbt",
+      "content": "test { \n println(\"hello from patch_wbtest.json\") \n hello() \n }"
+    }
+  ]
+}
