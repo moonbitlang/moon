@@ -50,13 +50,27 @@ pub struct GenerateTestDriverSubcommand {
     /// The test driver kind
     #[clap(long)]
     pub driver_kind: DriverKind,
+
+    /// Path to the patch file
+    #[clap(long)]
+    pub patch_file: Option<PathBuf>,
 }
 
-fn moonc_gen_test_info(files: &[PathBuf], output_path: &Path) -> anyhow::Result<String> {
+fn moonc_gen_test_info(
+    files: &[PathBuf],
+    output_path: &Path,
+    patch_file: Option<PathBuf>,
+) -> anyhow::Result<String> {
+    let patch_args = if let Some(patch_file) = patch_file {
+        vec!["-patch-file".to_string(), patch_file.display().to_string()]
+    } else {
+        vec![]
+    };
     let mut generated = std::process::Command::new("moonc")
         .arg("gen-test-info")
         .arg("-json")
         .args(files)
+        .args(patch_args)
         .stdout(std::process::Stdio::piped())
         .spawn()
         .with_context(|| gen_error_message(files))?;
@@ -158,6 +172,7 @@ pub fn generate_test_driver(
             limit: 256,
             test_failure_json: false,
             display_backend_hint: None,
+            patch_file: cmd.patch_file.clone(),
         }),
         check_opt: None,
         fmt_opt: None,
@@ -216,6 +231,7 @@ pub fn generate_test_driver(
                 cmd.driver_kind.to_string(),
                 TEST_INFO_FILE,
             )),
+            cmd.patch_file.clone(),
         )?;
 
         if pkg.is_main && mbts_test_data.contains("(__test_") {

@@ -53,6 +53,9 @@ pub const MOON_SNAPSHOT_DELIMITER_END: &str = "----- END MOONBIT SNAPSHOT TESTIN
 
 pub const TEST_INFO_FILE: &str = "test_info.json";
 
+pub const WHITEBOX_TEST_PATCH: &str = "_wbtest.json";
+pub const BLACKBOX_TEST_PATCH: &str = "_test.json";
+
 #[derive(Debug, thiserror::Error)]
 pub enum SourceError {
     #[error("`source` should not contain invalid chars `{0:?}`")]
@@ -366,6 +369,7 @@ pub struct TestOpt {
     pub limit: u32,
     pub test_failure_json: bool,
     pub display_backend_hint: Option<()>, // use Option to avoid if else
+    pub patch_file: Option<PathBuf>,
 }
 
 impl TestOpt {
