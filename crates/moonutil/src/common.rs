@@ -835,25 +835,10 @@ pub fn set_native_backend_link_flags(
                 #[cfg(windows)]
                 let compiler = "cl";
 
-                if let Err(e) = which::which(compiler) {
-                    eprintln!(
-                        "error: '{}' not found in PATH, which is used for native backend release compilation: {}", 
-                        compiler,
-                        e
-                    );
-                    std::process::exit(1);
-                }
-
                 // libmoonbitrun.o should be in the same directory as moonc
-                let libmoonbitrun_path =
-                    which::which("moonc").map(|p| p.with_file_name("libmoonbitrun.o"));
-                if let Err(e) = libmoonbitrun_path {
-                    eprintln!(
-                        "error: 'libmoonbitrun.o' not found in PATH, which is used for native backend release compilation: {}",
-                        e
-                    );
-                    std::process::exit(1);
-                }
+                let libmoonbitrun_path = which::which("moonc")
+                    .map(|p| p.with_file_name("libmoonbitrun.o"))
+                    .context("libmoonbitrun.o not found in the same directory as moonc");
 
                 let get_default_cc_flags = || -> Option<String> {
                     #[cfg(unix)]
