@@ -92,5 +92,6 @@ fn main1() -> anyhow::Result<i32> {
         ShellCompletion(gs) => cli::gen_shellcomp(&flags, gs),
         Version(v) => cli::run_version(v),
         Tool(v) => cli::run_tool(v),
+        External(args) => cli::run_external(args),
     }
 }

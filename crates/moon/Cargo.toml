@@ -57,6 +57,10 @@ petgraph.workspace = true
 [target.'cfg(not(windows))'.dependencies]
 openssl = { version = "0.10.66", features = ["vendored"] }
 
+[target."cfg(windows)".dependencies.windows-sys]
+features = ["Win32_Foundation", "Win32_System_Console"]
+version = "0.59.0"
+
 [dev-dependencies]
 tempfile = "3.6.0"
 snapbox = "0.4.15"
