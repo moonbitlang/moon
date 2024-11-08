@@ -1,0 +1,9 @@
+{
+  "drops": [],
+  "patches": [
+    {
+      "name": "hello_2_test.mbt",
+      "content": "test \"hello_2_test\" { \n println(\"hello from 2.patch_test.json\") \n @lib2.hello() \n }"
+    }
+  ]
+}

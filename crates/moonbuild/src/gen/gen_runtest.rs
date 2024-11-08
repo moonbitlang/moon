@@ -21,7 +21,8 @@ use colored::Colorize;
 use indexmap::IndexMap;
 use log::info;
 use moonutil::common::{
-    get_desc_name, DriverKind, GeneratedTestDriver, BLACKBOX_TEST_PATCH, MOONBITLANG_CORE, WHITEBOX_TEST_PATCH, MOONBITLANG_COVERAGE,
+    get_desc_name, DriverKind, GeneratedTestDriver, BLACKBOX_TEST_PATCH, MOONBITLANG_CORE,
+    MOONBITLANG_COVERAGE, WHITEBOX_TEST_PATCH,
 };
 use moonutil::module::ModuleDB;
 use moonutil::package::Package;
@@ -787,7 +788,7 @@ pub fn gen_runtest(
             }
         }
 
-        if !pkg.wbtest_files.is_empty() {
+        if !pkg.wbtest_files.is_empty() || whitebox_patch_file.is_some() {
             for item in pkg.generated_test_drivers.iter() {
                 if let GeneratedTestDriver::WhiteboxTest(_) = item {
                     test_drivers.push(gen_package_test_driver(item, pkg)?);
@@ -802,7 +803,7 @@ pub fn gen_runtest(
             }
         }
 
-        if !pkg.test_files.is_empty() {
+        if !pkg.test_files.is_empty() || blackbox_patch_file.is_some() {
             for item in pkg.generated_test_drivers.iter() {
                 if let GeneratedTestDriver::BlackboxTest(_) = item {
                     test_drivers.push(gen_package_test_driver(item, pkg)?);
@@ -1141,7 +1142,8 @@ fn gen_generate_test_driver_command(
                 DriverKind::Whitebox if filename.ends_with(WHITEBOX_TEST_PATCH) => Some(p),
                 DriverKind::Blackbox if filename.ends_with(BLACKBOX_TEST_PATCH) => Some(p),
                 DriverKind::Internal
-                    if !filename.ends_with(WHITEBOX_TEST_PATCH) && !filename.ends_with(BLACKBOX_TEST_PATCH) =>
+                    if !filename.ends_with(WHITEBOX_TEST_PATCH)
+                        && !filename.ends_with(BLACKBOX_TEST_PATCH) =>
                 {
                     Some(p)
                 }
