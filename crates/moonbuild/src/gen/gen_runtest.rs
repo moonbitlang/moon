@@ -55,6 +55,7 @@ pub struct RuntestDepItem {
     pub is_third_party: bool,
     pub is_whitebox_test: bool,
     pub is_blackbox_test: bool,
+    pub no_mi: bool,
 }
 
 type RuntestLinkDepItem = moonutil::package::LinkDepItem;
@@ -237,6 +238,7 @@ pub fn gen_package_core(
         is_third_party: pkg.is_third_party,
         is_whitebox_test: false,
         is_blackbox_test: false,
+        no_mi: false,
     })
 }
 
@@ -306,6 +308,7 @@ pub fn gen_package_internal_test(
         is_third_party: pkg.is_third_party,
         is_whitebox_test: false,
         is_blackbox_test: false,
+        no_mi: true,
     })
 }
 
@@ -383,6 +386,7 @@ pub fn gen_package_whitebox_test(
         is_third_party: pkg.is_third_party,
         is_whitebox_test: true,
         is_blackbox_test: false,
+        no_mi: true,
     })
 }
 
@@ -482,6 +486,7 @@ pub fn gen_package_blackbox_test(
         is_third_party: pkg.is_third_party,
         is_whitebox_test: false,
         is_blackbox_test: true,
+        no_mi: true,
     })
 }
 
@@ -876,6 +881,7 @@ pub fn gen_runtest_build_command(
         .args(moonc_opt.extra_build_opt.iter())
         .arg_with_cond(item.is_whitebox_test, "-whitebox-test")
         .arg_with_cond(item.is_blackbox_test, "-blackbox-test")
+        .arg_with_cond(item.no_mi, "-no-mi")
         .build();
     log::debug!("Command: {}", command);
     build.cmdline = Some(command);
