@@ -1019,7 +1019,7 @@ pub fn gen_runtest_link_command(
         ])
         .args_with_cond(
             moonc_opt.link_opt.target_backend == moonutil::common::TargetBackend::Js,
-            ["-js-format", "cjs"],
+            ["-js-format", "cjs", "-no-dts"],
         )
         .args(["-target", moonc_opt.link_opt.target_backend.to_flag()])
         .arg_with_cond(moonc_opt.link_opt.debug_flag, "-g")
