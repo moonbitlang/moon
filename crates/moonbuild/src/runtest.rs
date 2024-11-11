@@ -66,11 +66,20 @@ pub async fn run_wat(
     target_dir: &Path,
     args: &TestArgs,
     file_test_info_map: &FileTestInfo,
+    verbose: bool,
 ) -> anyhow::Result<Vec<Result<TestStatistics, TestFailedStatus>>> {
     // put "--test-mode" at the front of args
     let mut _args = vec!["--test-mode".to_string()];
     _args.push(serde_json_lenient::to_string(args).unwrap());
-    run("moonrun", path, target_dir, &_args, file_test_info_map).await
+    run(
+        "moonrun",
+        path,
+        target_dir,
+        &_args,
+        file_test_info_map,
+        verbose,
+    )
+    .await
 }
 
 pub async fn run_js(
@@ -78,6 +87,7 @@ pub async fn run_js(
     target_dir: &Path,
     args: &TestArgs,
     file_test_info_map: &FileTestInfo,
+    verbose: bool,
 ) -> anyhow::Result<Vec<Result<TestStatistics, TestFailedStatus>>> {
     run(
         "node",
@@ -85,6 +95,7 @@ pub async fn run_js(
         target_dir,
         &[serde_json_lenient::to_string(args).unwrap()],
         file_test_info_map,
+        verbose,
     )
     .await
 }
@@ -94,6 +105,7 @@ pub async fn run_native(
     target_dir: &Path,
     args: &TestArgs,
     file_test_info_map: &FileTestInfo,
+    verbose: bool,
 ) -> anyhow::Result<Vec<Result<TestStatistics, TestFailedStatus>>> {
     run(
         path.to_str().unwrap(),
@@ -101,6 +113,7 @@ pub async fn run_native(
         target_dir,
         &[serde_json_lenient::to_string(args).unwrap()],
         file_test_info_map,
+        verbose,
     )
     .await
 }
@@ -111,7 +124,11 @@ async fn run(
     target_dir: &Path,
     args: &[String],
     file_test_info_map: &FileTestInfo,
+    verbose: bool,
 ) -> anyhow::Result<Vec<Result<TestStatistics, TestFailedStatus>>> {
+    if verbose {
+        eprintln!("{} {} {}", command, path.display(), args.join(" "));
+    }
     let mut execution = tokio::process::Command::new(command)
         .arg(path)
         .args(args)
