@@ -2370,8 +2370,6 @@ fn test_mbti() {
 
         // Traits
 
-        // Extension Methods
-
     "#]]
     .assert_eq(lib_mi_out);
 
@@ -2386,8 +2384,6 @@ fn test_mbti() {
         // Type aliases
 
         // Traits
-
-        // Extension Methods
 
     "#]]
     .assert_eq(main_mi_out);
