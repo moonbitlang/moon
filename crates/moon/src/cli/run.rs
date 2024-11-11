@@ -196,10 +196,14 @@ fn run_single_mbt_file(cli: &UniversalFlags, cmd: RunSubcommand) -> anyhow::Resu
 
     trace::scope("run", || match target_backend {
         TargetBackend::Wasm | TargetBackend::WasmGC => {
-            moonbuild::build::run_wat(&output_wasm_or_js_path, &cmd.args)
+            moonbuild::build::run_wat(&output_wasm_or_js_path, &cmd.args, cli.verbose)
         }
-        TargetBackend::Js => moonbuild::build::run_js(&output_wasm_or_js_path, &cmd.args),
-        TargetBackend::Native => moonbuild::build::run_native(&output_wasm_or_js_path, &cmd.args),
+        TargetBackend::Js => {
+            moonbuild::build::run_js(&output_wasm_or_js_path, &cmd.args, cli.verbose)
+        }
+        TargetBackend::Native => {
+            moonbuild::build::run_native(&output_wasm_or_js_path, &cmd.args, cli.verbose)
+        }
     })?;
 
     Ok(0)

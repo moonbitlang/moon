@@ -38,31 +38,34 @@ pub fn load_moon_proj(
     gen::gen_build::gen_n2_build_state(&n2_input, target_dir, moonc_opt, moonbuild_opt)
 }
 
-pub fn run_wat(path: &Path, args: &[String]) -> anyhow::Result<()> {
-    run("moonrun", path, args)
+pub fn run_wat(path: &Path, args: &[String], verbose: bool) -> anyhow::Result<()> {
+    run("moonrun", path, args, verbose)
 }
 
-pub fn run_js(path: &Path, args: &[String]) -> anyhow::Result<()> {
+pub fn run_js(path: &Path, args: &[String], verbose: bool) -> anyhow::Result<()> {
     if !args.is_empty() {
         bail!(format!(
             "js backend does not support extra args for now {:?}",
             args
         ))
     }
-    run("node", path, args)
+    run("node", path, args, verbose)
 }
 
-pub fn run_native(path: &Path, args: &[String]) -> anyhow::Result<()> {
+pub fn run_native(path: &Path, args: &[String], verbose: bool) -> anyhow::Result<()> {
     if !args.is_empty() {
         bail!(format!(
             "native backend does not support extra args for now {:?}",
             args
         ))
     }
-    run(path.to_str().unwrap(), path, args)
+    run(path.to_str().unwrap(), path, args, verbose)
 }
 
-fn run(command: &str, path: &Path, args: &[String]) -> anyhow::Result<()> {
+fn run(command: &str, path: &Path, args: &[String], verbose: bool) -> anyhow::Result<()> {
+    if verbose {
+        eprintln!("{} {} {}", command, path.display(), args.join(" "));
+    }
     let mut execution = Command::new(command)
         .arg(path)
         .arg("--")

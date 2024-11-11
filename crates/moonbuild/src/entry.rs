@@ -53,11 +53,14 @@ fn default_parallelism() -> anyhow::Result<usize> {
 }
 
 #[allow(clippy::type_complexity)]
-fn create_progress_console(callback: Option<Box<dyn Fn(&str) + Send>>) -> Box<dyn Progress> {
+fn create_progress_console(
+    callback: Option<Box<dyn Fn(&str) + Send>>,
+    verbose: bool,
+) -> Box<dyn Progress> {
     if terminal::use_fancy() {
-        Box::new(FancyConsoleProgress::new(false, callback))
+        Box::new(FancyConsoleProgress::new(verbose, callback))
     } else {
-        Box::new(DumbConsoleProgress::new(false, callback))
+        Box::new(DumbConsoleProgress::new(verbose, callback))
     }
 }
 
@@ -113,7 +116,8 @@ pub fn n2_simple_run_interface(
 
     // TODO: generate build graph for pre_build?
 
-    let mut progress = create_progress_console(Some(Box::new(render_and_catch)));
+    let mut progress =
+        create_progress_console(Some(Box::new(render_and_catch)), moonbuild_opt.verbose);
     let options = work::Options {
         parallelism: default_parallelism()?,
         failures_left: Some(10),
@@ -165,7 +169,8 @@ pub fn n2_run_interface(
         vis_build_graph(&state, moonbuild_opt);
     }
 
-    let mut progress = create_progress_console(Some(Box::new(render_and_catch)));
+    let mut progress =
+        create_progress_console(Some(Box::new(render_and_catch)), moonbuild_opt.verbose);
     let options = work::Options {
         parallelism: default_parallelism()?,
         failures_left: Some(10),
@@ -413,10 +418,14 @@ pub fn run_run(
 
     trace::scope("run", || match moonc_opt.link_opt.target_backend {
         TargetBackend::Wasm | TargetBackend::WasmGC => {
-            crate::build::run_wat(&wat_path, &moonbuild_opt.args)
+            crate::build::run_wat(&wat_path, &moonbuild_opt.args, moonbuild_opt.verbose)
         }
-        TargetBackend::Js => crate::build::run_js(&wat_path, &moonbuild_opt.args),
-        TargetBackend::Native => crate::build::run_native(&wat_path, &moonbuild_opt.args),
+        TargetBackend::Js => {
+            crate::build::run_js(&wat_path, &moonbuild_opt.args, moonbuild_opt.verbose)
+        }
+        TargetBackend::Native => {
+            crate::build::run_native(&wat_path, &moonbuild_opt.args, moonbuild_opt.verbose)
+        }
     })?;
     Ok(0)
 }
@@ -680,6 +689,7 @@ pub fn run_test(
                         &moonbuild_opt.target_dir,
                         &test_args,
                         &file_test_info_map,
+                        moonbuild_opt.verbose,
                     ),
                 )
                 .await;
@@ -793,10 +803,12 @@ async fn execute_test(
     target_dir: &Path,
     args: &TestArgs,
     file_test_info_map: &FileTestInfo,
+    verbose: bool,
 ) -> anyhow::Result<Vec<Result<TestStatistics, TestFailedStatus>>> {
     match target_backend {
         TargetBackend::Wasm | TargetBackend::WasmGC => {
-            crate::runtest::run_wat(artifact_path, target_dir, args, file_test_info_map).await
+            crate::runtest::run_wat(artifact_path, target_dir, args, file_test_info_map, verbose)
+                .await
         }
         TargetBackend::Js => {
             crate::runtest::run_js(
@@ -804,11 +816,13 @@ async fn execute_test(
                 target_dir,
                 args,
                 file_test_info_map,
+                verbose,
             )
             .await
         }
         TargetBackend::Native => {
-            crate::runtest::run_native(artifact_path, target_dir, args, file_test_info_map).await
+            crate::runtest::run_native(artifact_path, target_dir, args, file_test_info_map, verbose)
+                .await
         }
     }
 }
@@ -879,6 +893,7 @@ async fn handle_test_result(
                         target_dir,
                         &test_args,
                         file_test_info_map,
+                        moonbuild_opt.verbose,
                     )
                     .await?
                     .first()
@@ -904,6 +919,7 @@ async fn handle_test_result(
                         target_dir,
                         &test_args,
                         file_test_info_map,
+                        moonbuild_opt.verbose,
                     )
                     .await?
                     .first()
@@ -975,6 +991,7 @@ async fn handle_test_result(
                         target_dir,
                         &test_args,
                         file_test_info_map,
+                        moonbuild_opt.verbose,
                     )
                     .await?
                     .first()
@@ -1009,6 +1026,7 @@ async fn handle_test_result(
                         target_dir,
                         &test_args,
                         file_test_info_map,
+                        moonbuild_opt.verbose,
                     )
                     .await?
                     .first()
@@ -1044,6 +1062,7 @@ async fn handle_test_result(
                             target_dir,
                             &test_args,
                             file_test_info_map,
+                            moonbuild_opt.verbose,
                         )
                         .await?
                         .first()
