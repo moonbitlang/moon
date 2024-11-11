@@ -862,7 +862,11 @@ pub fn gen_runtest_build_command(
     };
 
     let outs = BuildOuts {
-        ids: vec![core_output_id, mi_output_id],
+        ids: if item.no_mi {
+            vec![core_output_id]
+        } else {
+            vec![core_output_id, mi_output_id]
+        },
         explicit: 1,
     };
 
