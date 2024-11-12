@@ -192,6 +192,12 @@ pub struct MoonPkgJSON {
     #[schemars(rename = "test-import")]
     pub test_import: Option<PkgJSONImport>,
 
+    /// Whether to import all definitions from the package being tested
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(alias = "test-import-all")]
+    #[schemars(rename = "test-import-all")]
+    pub test_import_all: Option<bool>,
+
     #[serde(skip_serializing_if = "Option::is_none")]
     pub link: Option<BoolOrLink>,
 
