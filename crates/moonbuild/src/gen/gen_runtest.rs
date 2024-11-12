@@ -403,22 +403,27 @@ pub fn gen_package_blackbox_test(
     moonc_opt: &MooncOpt,
     patch_file: Option<PathBuf>,
 ) -> anyhow::Result<RuntestDepItem> {
-    if pkg
-        .test_imports
-        .iter()
-        .chain(pkg.imports.iter())
-        .any(|import| {
-            import
-                .alias
-                .as_ref()
-                .map_or(false, |alias| alias.eq(pkg.last_name()))
-        })
+    let self_in_test_import = pkg.test_imports.iter().any(|import| {
+        import.path.make_full_path() == format!("{}/{}", pkg.root.full_name(), pkg.rel.full_name())
+    });
+
+    if !self_in_test_import
+        && pkg
+            .test_imports
+            .iter()
+            .chain(pkg.imports.iter())
+            .any(|import| {
+                import
+                    .alias
+                    .as_ref()
+                    .map_or(false, |alias| alias.eq(pkg.last_name()))
+            })
     {
         bail!(
             "Duplicate alias `{}` at \"{}\". \
             \"test-import\" will automatically add \"import\" and current pkg as dependency so you don't need to add it manually. \
             If you're test-importing a dependency with the same default alias as your current package, considering give it a different alias.",
-            pkg.last_name(), pkg.rel.components.join("/") + "/" + MOON_PKG_JSON
+            pkg.last_name(), pkg.root_path.join(MOON_PKG_JSON).display()
         );
     }
 
@@ -446,15 +451,19 @@ pub fn gen_package_blackbox_test(
         }
     }
 
-    // add the cur pkg .mi at build-package stage
-    let mut mi_deps = vec![MiAlias {
-        name: pkg
-            .artifact
-            .with_file_name(format!("{}.mi", pkgname))
-            .display()
-            .to_string(),
-        alias: pkg.last_name().into(),
-    }];
+    let mut mi_deps = vec![];
+
+    // add cur pkg as .mi dependency at build-package stage if it's not set in test_imports
+    if !self_in_test_import {
+        mi_deps.push(MiAlias {
+            name: pkg
+                .artifact
+                .with_file_name(format!("{}.mi", pkgname))
+                .display()
+                .to_string(),
+            alias: pkg.last_name().into(),
+        });
+    }
 
     for dep in pkg.imports.iter().chain(pkg.test_imports.iter()) {
         let full_import_name = dep.path.make_full_path();

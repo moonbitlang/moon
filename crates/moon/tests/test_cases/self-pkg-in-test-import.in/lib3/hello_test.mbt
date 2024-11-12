@@ -1,0 +1,4 @@
+test "hello" {
+    println(hello())
+}
+

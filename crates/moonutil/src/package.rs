@@ -41,8 +41,11 @@ pub struct Package {
     pub is_main: bool,
     pub need_link: bool,
     pub is_third_party: bool,
+    // /Users/flash/projects/core/builtin
     pub root_path: PathBuf,
+    // moonbitlang/core
     pub root: PathComponent,
+    // builtin
     pub rel: PathComponent,
     // *.mbt (exclude the following)
     pub files: IndexMap<PathBuf, CompileCondition>,

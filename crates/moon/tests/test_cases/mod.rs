@@ -5214,7 +5214,7 @@ fn test_blackbox_dedup_alias() {
     check(
         &output,
         expect![[r#"
-            error: Duplicate alias `lib` at "lib/moon.pkg.json". "test-import" will automatically add "import" and current pkg as dependency so you don't need to add it manually. If you're test-importing a dependency with the same default alias as your current package, considering give it a different alias.
+            error: Duplicate alias `lib` at "$ROOT/lib/moon.pkg.json". "test-import" will automatically add "import" and current pkg as dependency so you don't need to add it manually. If you're test-importing a dependency with the same default alias as your current package, considering give it a different alias.
         "#]],
     );
 }
@@ -7791,6 +7791,43 @@ fn test_moon_test_patch() {
             hello from 2.patch_wbtest.json
             hello from lib2/hello.mbt
             Total tests: 1, passed: 1, failed: 0.
+        "#]],
+    );
+}
+
+#[test]
+fn test_add_mi_if_self_not_set_in_test_imports() {
+    let dir = TestDir::new("self-pkg-in-test-import.in");
+
+    check(
+        get_stdout(&dir, ["check", "--dry-run", "--sort-input"]),
+        expect![[r#"
+            moonc check ./lib/hello.mbt -o ./target/wasm-gc/release/check/lib/lib.mi -pkg username/hello/lib -std-path $MOON_HOME/lib/core/target/wasm-gc/release/bundle -pkg-sources username/hello/lib:./lib -target wasm-gc
+            moonc check ./main/main.mbt -o ./target/wasm-gc/release/check/main/main.mi -pkg username/hello/main -is-main -std-path $MOON_HOME/lib/core/target/wasm-gc/release/bundle -i ./target/wasm-gc/release/check/lib/lib.mi:lib -pkg-sources username/hello/main:./main -target wasm-gc
+            moonc check ./lib3/hello.mbt -o ./target/wasm-gc/release/check/lib3/lib3.mi -pkg username/hello/lib3 -std-path $MOON_HOME/lib/core/target/wasm-gc/release/bundle -pkg-sources username/hello/lib3:./lib3 -target wasm-gc
+            moonc check ./lib3/hello_test.mbt -o ./target/wasm-gc/release/check/lib3/lib3.blackbox_test.mi -pkg username/hello/lib3_blackbox_test -std-path $MOON_HOME/lib/core/target/wasm-gc/release/bundle -i ./target/wasm-gc/release/check/lib3/lib3.mi:lib3 -pkg-sources username/hello/lib3_blackbox_test:./lib3 -target wasm-gc -blackbox-test
+            moonc check ./lib2/hello.mbt -o ./target/wasm-gc/release/check/lib2/lib2.mi -pkg username/hello/lib2 -std-path $MOON_HOME/lib/core/target/wasm-gc/release/bundle -pkg-sources username/hello/lib2:./lib2 -target wasm-gc
+            moonc check ./lib2/hello_test.mbt -o ./target/wasm-gc/release/check/lib2/lib2.blackbox_test.mi -pkg username/hello/lib2_blackbox_test -std-path $MOON_HOME/lib/core/target/wasm-gc/release/bundle -i ./target/wasm-gc/release/check/lib2/lib2.mi:lib2 -pkg-sources username/hello/lib2_blackbox_test:./lib2 -target wasm-gc -blackbox-test
+            moonc check ./lib/hello_test.mbt -o ./target/wasm-gc/release/check/lib/lib.blackbox_test.mi -pkg username/hello/lib_blackbox_test -std-path $MOON_HOME/lib/core/target/wasm-gc/release/bundle -i ./target/wasm-gc/release/check/lib/lib.mi:lll -pkg-sources username/hello/lib_blackbox_test:./lib -target wasm-gc -blackbox-test
+        "#]],
+    );
+
+    check(get_stdout(&dir, ["check"]), expect![""]);
+    get_stdout(&dir, ["clean"]);
+    check(
+        get_stderr(&dir, ["check"]),
+        expect![[r#"
+            Finished. moon: ran 7 tasks, now up to date
+        "#]],
+    );
+
+    check(
+        get_stdout(&dir, ["test", "--no-parallelize", "--sort-input"]),
+        expect![[r#"
+            Hello, world! lib
+            Hello, world! lib2
+            Hello, world! lib3
+            Total tests: 3, passed: 3, failed: 0.
         "#]],
     );
 }
