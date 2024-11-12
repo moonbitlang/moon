@@ -27,5 +27,5 @@ fn moonbit_test_driver_internal_string_from_extern(e : MoonbitTestDriverInternal
     }
   }
   moonbit_test_driver_internal_finish_read_string(handle)
-  buf.sub_string(0, len).to_string()
+  buf.to_unchecked_string(offset = 0, length = len).to_string()
 }
