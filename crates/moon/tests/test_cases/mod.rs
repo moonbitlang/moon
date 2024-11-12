@@ -7812,10 +7812,7 @@ fn test_add_mi_if_self_not_set_in_test_imports() {
         "#]],
     );
 
-    check(
-        get_stdout(&dir, ["check"]),
-        expect![""],
-    );
+    check(get_stdout(&dir, ["check"]), expect![""]);
     get_stdout(&dir, ["clean"]);
     check(
         get_stderr(&dir, ["check"]),
@@ -7823,7 +7820,6 @@ fn test_add_mi_if_self_not_set_in_test_imports() {
             Finished. moon: ran 7 tasks, now up to date
         "#]],
     );
-
 
     check(
         get_stdout(&dir, ["test", "--no-parallelize", "--sort-input"]),
