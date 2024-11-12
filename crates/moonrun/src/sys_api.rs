@@ -28,8 +28,18 @@ const INIT_SYS_API: &str = r#"
             return run_env.args
         }
 
+        function env_get_vars() {
+            let result = []
+            for (let [key, value] of run_env.env_vars) {
+                result.push(key)
+                result.push(value)
+            }
+            return result
+        }
+
         obj.env_get_var = env_get_var
         obj.args_get = args_get
+        obj.env_get_vars = env_get_vars
     })()
 "#;
 
