@@ -76,6 +76,13 @@
         }
       ]
     },
+    "test-import-all": {
+      "description": "Whether to import all definitions from the package being tested",
+      "type": [
+        "boolean",
+        "null"
+      ]
+    },
     "warn-list": {
       "description": "Warn list setting of the package",
       "type": [
