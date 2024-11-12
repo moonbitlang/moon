@@ -1,0 +1,9 @@
+{
+  "import": {},
+  "test-import": [
+    {
+      "path": "username/hello/lib",
+      "alias": "lll"
+    }
+  ]
+}
