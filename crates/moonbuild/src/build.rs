@@ -17,7 +17,7 @@
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
 use super::gen;
-use anyhow::{bail, Context};
+use anyhow::Context;
 use moonutil::common::MoonbuildOpt;
 use moonutil::module::ModuleDB;
 use n2::load::State;
@@ -43,22 +43,10 @@ pub fn run_wat(path: &Path, args: &[String], verbose: bool) -> anyhow::Result<()
 }
 
 pub fn run_js(path: &Path, args: &[String], verbose: bool) -> anyhow::Result<()> {
-    if !args.is_empty() {
-        bail!(format!(
-            "js backend does not support extra args for now {:?}",
-            args
-        ))
-    }
     run("node", path, args, verbose)
 }
 
 pub fn run_native(path: &Path, args: &[String], verbose: bool) -> anyhow::Result<()> {
-    if !args.is_empty() {
-        bail!(format!(
-            "native backend does not support extra args for now {:?}",
-            args
-        ))
-    }
     run(path.to_str().unwrap(), path, args, verbose)
 }
 
@@ -68,7 +56,6 @@ fn run(command: &str, path: &Path, args: &[String], verbose: bool) -> anyhow::Re
     }
     let mut execution = Command::new(command)
         .arg(path)
-        .arg("--")
         .args(args)
         .stdout(Stdio::inherit())
         .stderr(Stdio::inherit())
