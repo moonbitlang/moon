@@ -441,7 +441,7 @@ fn wasm_mode(
                 .unwrap()
                 .into();
             global_proxy.set(scope, module_key, module_name);
-            script.push_str(&format!("let bytes;"));
+            script.push_str("let bytes;");
         }
         Source::Bytes(bytes) => {
             script.push_str(&format!("let bytes = new Uint8Array([{}]);", bytes));
