@@ -31,6 +31,7 @@ use moonutil::mooncakes::sync::AutoSyncFlags;
 use moonutil::mooncakes::RegistryConfig;
 use n2::trace;
 use std::path::Path;
+use std::path::PathBuf;
 use std::sync::Arc;
 use std::thread;
 
@@ -49,6 +50,9 @@ pub struct BuildSubcommand {
     /// Monitor the file system and automatically build artifacts
     #[clap(long, short)]
     pub watch: bool,
+
+    #[clap(long, hide = true)]
+    pub show_artifacts: bool,
 }
 
 pub fn run_build(cli: &UniversalFlags, cmd: &BuildSubcommand) -> anyhow::Result<i32> {
@@ -193,5 +197,24 @@ fn run_build_internal(
         trace::close();
     }
 
+    if let (Ok(0), true) = (res.as_ref(), cmd.show_artifacts) {
+        let mut artifacts = vec![];
+        for pkg in module
+            .get_topo_pkgs()?
+            .iter()
+            .filter(|pkg| !pkg.is_third_party)
+        {
+            let mi = pkg.artifact.with_extension("mi");
+            let core = pkg.artifact.with_extension("core");
+            artifacts.push((mi, core));
+        }
+        let ba = BuildArtifacts { artifacts };
+        eprintln!("{}", serde_json::to_string(&ba).unwrap());
+    }
     res
+}
+
+#[derive(serde::Serialize)]
+struct BuildArtifacts {
+    artifacts: Vec<(PathBuf, PathBuf)>,
 }

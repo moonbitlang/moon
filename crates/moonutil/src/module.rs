@@ -88,6 +88,46 @@ impl ModuleDB {
         self.packages.values().find(|it| it.root_path == path)
     }
 
+    pub fn get_topo_pkgs(&self) -> anyhow::Result<Vec<&Package>> {
+        use petgraph::graph::NodeIndex;
+
+        let mut graph = DiGraph::<String, usize>::new();
+        let mut name_to_idx: IndexMap<String, NodeIndex> = IndexMap::new();
+        let mut idx_to_name = IndexMap::new();
+
+        for (to_node, pkg) in self.packages.iter() {
+            if !name_to_idx.contains_key(to_node) {
+                let to_idx = graph.add_node(to_node.clone());
+                name_to_idx.insert(to_node.clone(), to_idx);
+                idx_to_name.insert(to_idx, to_node.clone());
+            }
+
+            let to_idx = name_to_idx[to_node];
+
+            for dep in pkg.imports.iter() {
+                let from_node = dep.path.make_full_path();
+                if !name_to_idx.contains_key(&from_node) {
+                    let to_idx = graph.add_node(from_node.clone());
+                    name_to_idx.insert(from_node.clone(), to_idx);
+                    idx_to_name.insert(to_idx, from_node.clone());
+                }
+                let from_idx = name_to_idx[&from_node];
+                graph.add_edge(from_idx, to_idx, 0);
+            }
+        }
+
+        let topo_pkgs = match petgraph::algo::toposort(&graph, None) {
+            Ok(res) => res
+                .into_iter()
+                .map(|idx| self.get_package_by_name(idx_to_name[&idx].as_str()))
+                .collect::<Vec<_>>(),
+            Err(cycle) => {
+                bail!("cyclic dependency detected: {:?}", cycle);
+            }
+        };
+        Ok(topo_pkgs)
+    }
+
     pub fn get_package_by_path_mut(&mut self, path: &Path) -> Option<&mut Package> {
         self.packages
             .iter_mut()
