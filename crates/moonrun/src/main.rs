@@ -510,6 +510,11 @@ struct Commandline {
 }
 
 fn main() -> anyhow::Result<()> {
+    #[allow(unsafe_code)]
+    unsafe {
+        libc::signal(libc::SIGPIPE, libc::SIG_DFL);
+    }
+
     tracing_subscriber::FmtSubscriber::builder()
         .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
         .compact()
