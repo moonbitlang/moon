@@ -36,6 +36,10 @@ use super::{pre_build::scan_with_pre_build, UniversalFlags};
 pub struct InfoSubcommand {
     #[clap(flatten)]
     pub auto_sync_flags: AutoSyncFlags,
+
+    /// Do not use alias to shorten package names in the output
+    #[clap(long)]
+    pub no_alias: bool,
 }
 
 pub fn run_info(cli: UniversalFlags, cmd: InfoSubcommand) -> anyhow::Result<i32> {
@@ -140,10 +144,12 @@ pub fn run_info(cli: UniversalFlags, cmd: InfoSubcommand) -> anyhow::Result<i32>
                 bail!("cannot find mi file for package {}", name);
             }
 
-            let out = tokio::process::Command::new("mooninfo")
-                .args(["-format=text", mi.display().to_string().as_str()])
-                .output()
-                .await?;
+            let mut mooninfo = tokio::process::Command::new("mooninfo");
+            mooninfo.arg("-format=text").arg(&mi);
+            if cmd.no_alias {
+                mooninfo.arg("-no-alias");
+            }
+            let out = mooninfo.output().await?;
 
             if out.status.success() {
                 let filename = format!("{}.mbti", pkg.last_name());
