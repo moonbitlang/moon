@@ -144,11 +144,12 @@ pub fn run_info(cli: UniversalFlags, cmd: InfoSubcommand) -> anyhow::Result<i32>
                 bail!("cannot find mi file for package {}", name);
             }
 
-            let mut mooninfo = tokio::process::Command::new("mooninfo");
-            mooninfo.arg("-format=text").arg(&mi);
+            let mut args = vec!["-format=text".into(), mi.display().to_string()];
             if cmd.no_alias {
-                mooninfo.arg("-no-alias");
+                args.push("-no-alias".into());
             }
+            let mut mooninfo = tokio::process::Command::new("mooninfo");
+            mooninfo.args(&args);
             let out = mooninfo.output().await?;
 
             if out.status.success() {
@@ -162,7 +163,7 @@ pub fn run_info(cli: UniversalFlags, cmd: InfoSubcommand) -> anyhow::Result<i32>
                     .context(format!("failed to write {}", filename))?;
             } else {
                 eprintln!("{}", String::from_utf8_lossy(&out.stderr));
-                eprintln!("failed to run `mooninfo -format=text {}`", mi.display());
+                eprintln!("failed to run `mooninfo {}`", args.join(" "));
             }
 
             Ok(0)
