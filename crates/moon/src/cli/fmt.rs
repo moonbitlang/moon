@@ -19,7 +19,7 @@
 use moonbuild::dry_run;
 use mooncake::pkg::sync::auto_sync;
 use moonutil::{
-    common::{FileLock, FmtOpt, MoonbuildOpt, MooncOpt, RunMode},
+    common::{BlockStyle, FileLock, FmtOpt, MoonbuildOpt, MooncOpt, RunMode},
     dirs::{mk_arch_mode_dir, PackageDirs},
     mooncakes::{sync::AutoSyncFlags, RegistryConfig},
 };
@@ -38,9 +38,8 @@ pub struct FmtSubcommand {
     pub sort_input: bool,
 
     /// Add separator between each segments
-    #[clap(long)]
-    pub block_style: bool,
-
+    #[clap(long, value_enum, num_args=0..=1, default_missing_value = "true")]
+    pub block_style: Option<BlockStyle>,
     pub args: Vec<String>,
 }
 
@@ -72,7 +71,7 @@ pub fn run_fmt(cli: &UniversalFlags, cmd: FmtSubcommand) -> anyhow::Result<i32> 
         run_mode,
         fmt_opt: Some(FmtOpt {
             check: cmd.check,
-            block_style: cmd.block_style,
+            block_style: cmd.block_style.unwrap_or_default(),
             extra_args: cmd.args,
         }),
         build_graph: cli.build_graph,
