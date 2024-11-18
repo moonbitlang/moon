@@ -32,15 +32,14 @@ pub fn moonbit_test_driver_internal_execute(filename: MoonbitTestDriverInternalE
       } else {
         name
       }
+      test_name = name
       try {
         func!()
       } catch {
         Failure(e) | InspectError(e) | SnapshotError(e) => {
-          test_name = name
           message = e
         }
         e => {
-          test_name = name
           message = moonbit_test_driver_internal_error_to_string(e)
         }
       }
