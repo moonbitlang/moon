@@ -389,10 +389,23 @@ pub struct TestArtifacts {
     pub artifacts_path: Vec<PathBuf>,
 }
 
+#[derive(Debug, Clone, Default, ValueEnum)]
+pub enum BlockStyle {
+    False,
+    #[default]
+    True,
+}
+
+impl BlockStyle {
+    pub fn is_line(&self) -> bool {
+        matches!(self, Self::True)
+    }
+}
+
 #[derive(Debug, Clone, Default)]
 pub struct FmtOpt {
     pub check: bool,
-    pub block_style: bool,
+    pub block_style: BlockStyle,
     pub extra_args: Vec<String>,
 }
 

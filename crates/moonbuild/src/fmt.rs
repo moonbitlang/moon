@@ -129,7 +129,12 @@ fn gen_inplace_fmt_command(
         .arg(&item.phony_out)
         .args(&moonbuild_opt.fmt_opt.as_ref().unwrap().extra_args)
         .arg_with_cond(
-            moonbuild_opt.fmt_opt.as_ref().unwrap().block_style,
+            moonbuild_opt
+                .fmt_opt
+                .as_ref()
+                .unwrap()
+                .block_style
+                .is_line(),
             "-block-style",
         )
         .build();
@@ -238,7 +243,12 @@ fn gen_fmt_to_command(
     .arg("--new")
     .arg(&item.output)
     .arg_with_cond(
-        moonbuild_opt.fmt_opt.as_ref().unwrap().block_style,
+        moonbuild_opt
+            .fmt_opt
+            .as_ref()
+            .unwrap()
+            .block_style
+            .is_line(),
         "--block-style",
     )
     .args(&moonbuild_opt.fmt_opt.as_ref().unwrap().extra_args)
