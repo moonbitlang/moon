@@ -3937,18 +3937,20 @@ fn test_moon_fmt() {
     check(
         read(dir.join("lib").join("hello.mbt")),
         expect![[r#"
-                pub fn hello() -> String {
-                  "Hello, world!"
-                }
-            "#]],
+            ///|
+            pub fn hello() -> String {
+              "Hello, world!"
+            }
+        "#]],
     );
     check(
         read(dir.join("main").join("main.mbt")),
         expect![[r#"
-                fn main {
-                  println(@lib.hello())
-                }
-            "#]],
+            ///|
+            fn main {
+              println(@lib.hello())
+            }
+        "#]],
     );
 }
 
@@ -3985,6 +3987,7 @@ fn test_moon_fmt_002() {
                 .join("hello.mbt"),
         ),
         expect![[r#"
+            ///|
             pub fn hello() -> String {
               "Hello, world!"
             }
@@ -4000,6 +4003,7 @@ fn test_moon_fmt_002() {
                 .join("main.mbt"),
         ),
         expect![[r#"
+            ///|
             fn main {
               println(@lib.hello())
             }
@@ -4013,25 +4017,25 @@ fn test_moon_fmt_extra_args() {
     check(
         get_stdout(&dir, ["fmt", "--dry-run", "--sort-input"]),
         expect![[r#"
-        moonfmt ./lib/hello.mbt -w -o ./target/wasm-gc/release/format/lib/hello.mbt
-        moonfmt ./lib/hello_wbtest.mbt -w -o ./target/wasm-gc/release/format/lib/hello_wbtest.mbt
-        moonfmt ./main/main.mbt -w -o ./target/wasm-gc/release/format/main/main.mbt
-    "#]],
+            moonfmt ./lib/hello.mbt -w -o ./target/wasm-gc/release/format/lib/hello.mbt -block-style
+            moonfmt ./lib/hello_wbtest.mbt -w -o ./target/wasm-gc/release/format/lib/hello_wbtest.mbt -block-style
+            moonfmt ./main/main.mbt -w -o ./target/wasm-gc/release/format/main/main.mbt -block-style
+        "#]],
     );
     check(
         get_stdout(&dir, ["fmt", "--dry-run", "--sort-input", "--", "a", "b"]),
         expect![[r#"
-            moonfmt ./lib/hello.mbt -w -o ./target/wasm-gc/release/format/lib/hello.mbt a b
-            moonfmt ./lib/hello_wbtest.mbt -w -o ./target/wasm-gc/release/format/lib/hello_wbtest.mbt a b
-            moonfmt ./main/main.mbt -w -o ./target/wasm-gc/release/format/main/main.mbt a b
+            moonfmt ./lib/hello.mbt -w -o ./target/wasm-gc/release/format/lib/hello.mbt a b -block-style
+            moonfmt ./lib/hello_wbtest.mbt -w -o ./target/wasm-gc/release/format/lib/hello_wbtest.mbt a b -block-style
+            moonfmt ./main/main.mbt -w -o ./target/wasm-gc/release/format/main/main.mbt a b -block-style
         "#]],
     );
     check(
         get_stdout(&dir, ["fmt", "--check", "--sort-input", "--dry-run"]),
         expect![[r#"
-            moon tool format-and-diff --old ./lib/hello.mbt --new ./target/wasm-gc/release/format/lib/hello.mbt
-            moon tool format-and-diff --old ./lib/hello_wbtest.mbt --new ./target/wasm-gc/release/format/lib/hello_wbtest.mbt
-            moon tool format-and-diff --old ./main/main.mbt --new ./target/wasm-gc/release/format/main/main.mbt
+            moon tool format-and-diff --old ./lib/hello.mbt --new ./target/wasm-gc/release/format/lib/hello.mbt --block-style
+            moon tool format-and-diff --old ./lib/hello_wbtest.mbt --new ./target/wasm-gc/release/format/lib/hello_wbtest.mbt --block-style
+            moon tool format-and-diff --old ./main/main.mbt --new ./target/wasm-gc/release/format/main/main.mbt --block-style
         "#]],
     );
     check(
@@ -4048,9 +4052,9 @@ fn test_moon_fmt_extra_args() {
             ],
         ),
         expect![[r#"
-            moon tool format-and-diff --old ./lib/hello.mbt --new ./target/wasm-gc/release/format/lib/hello.mbt c d
-            moon tool format-and-diff --old ./lib/hello_wbtest.mbt --new ./target/wasm-gc/release/format/lib/hello_wbtest.mbt c d
-            moon tool format-and-diff --old ./main/main.mbt --new ./target/wasm-gc/release/format/main/main.mbt c d
+            moon tool format-and-diff --old ./lib/hello.mbt --new ./target/wasm-gc/release/format/lib/hello.mbt --block-style c d
+            moon tool format-and-diff --old ./lib/hello_wbtest.mbt --new ./target/wasm-gc/release/format/lib/hello_wbtest.mbt --block-style c d
+            moon tool format-and-diff --old ./main/main.mbt --new ./target/wasm-gc/release/format/main/main.mbt --block-style c d
         "#]],
     );
 }
@@ -4064,6 +4068,30 @@ fn test_moon_fmt_block_style() {
             moonfmt ./lib/hello.mbt -w -o ./target/wasm-gc/release/format/lib/hello.mbt -block-style
             moonfmt ./lib/hello_wbtest.mbt -w -o ./target/wasm-gc/release/format/lib/hello_wbtest.mbt -block-style
             moonfmt ./main/main.mbt -w -o ./target/wasm-gc/release/format/main/main.mbt -block-style
+        "#]],
+    );
+
+    check(
+        get_stdout(
+            &dir,
+            ["fmt", "--block-style=true", "--sort-input", "--dry-run"],
+        ),
+        expect![[r#"
+            moonfmt ./lib/hello.mbt -w -o ./target/wasm-gc/release/format/lib/hello.mbt -block-style
+            moonfmt ./lib/hello_wbtest.mbt -w -o ./target/wasm-gc/release/format/lib/hello_wbtest.mbt -block-style
+            moonfmt ./main/main.mbt -w -o ./target/wasm-gc/release/format/main/main.mbt -block-style
+        "#]],
+    );
+
+    check(
+        get_stdout(
+            &dir,
+            ["fmt", "--block-style=false", "--sort-input", "--dry-run"],
+        ),
+        expect![[r#"
+            moonfmt ./lib/hello.mbt -w -o ./target/wasm-gc/release/format/lib/hello.mbt
+            moonfmt ./lib/hello_wbtest.mbt -w -o ./target/wasm-gc/release/format/lib/hello_wbtest.mbt
+            moonfmt ./main/main.mbt -w -o ./target/wasm-gc/release/format/main/main.mbt
         "#]],
     );
 
