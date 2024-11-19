@@ -391,8 +391,8 @@ pub struct TestArtifacts {
 
 #[derive(Debug, Clone, Default, ValueEnum)]
 pub enum BlockStyle {
-    False,
     #[default]
+    False,
     True,
 }
 
