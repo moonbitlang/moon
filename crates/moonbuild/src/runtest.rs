@@ -192,7 +192,9 @@ async fn run(
                 let temp = ts.test_name.split(" ").collect::<Vec<&str>>();
                 let original_file_name = temp[1].to_string();
                 ts.filename = original_file_name.clone();
-                ts.message = ts.message.replace(moonutil::common::MOON_DOC_TEST_POSTFIX, "");
+                ts.message = ts
+                    .message
+                    .replace(moonutil::common::MOON_DOC_TEST_POSTFIX, "");
             }
 
             test_statistics.push(ts);

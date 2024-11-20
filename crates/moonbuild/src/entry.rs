@@ -545,10 +545,10 @@ fn convert_moonc_test_info(
         // if doc test patch json is given, we should just running doc test
         // so tests in other files should be filtered out
         if let Some(patch_json) = patch_file {
-            if patch_json.to_str().unwrap().contains(MOON_DOC_TEST_POSTFIX) {
-                if !filename.contains(MOON_DOC_TEST_POSTFIX) {
-                    continue;
-                }
+            if patch_json.to_str().unwrap().contains(MOON_DOC_TEST_POSTFIX)
+                && !filename.contains(MOON_DOC_TEST_POSTFIX)
+            {
+                continue;
             }
         }
         let test_type = if filename.ends_with("_test.mbt") {
