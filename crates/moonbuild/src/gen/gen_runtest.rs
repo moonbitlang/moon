@@ -68,6 +68,7 @@ pub struct RuntestDriverItem {
     pub package_name: String,
     pub driver_file: String,
     pub files_may_contain_test_block: Vec<String>,
+    pub patch_file: Option<PathBuf>,
 }
 
 #[derive(Debug)]
@@ -149,6 +150,7 @@ pub fn gen_package_test_driver(
                 driver_file,
                 files_may_contain_test_block,
                 driver_kind: DriverKind::Internal,
+                patch_file: pkg.patch_file.clone(),
             })
         }
         GeneratedTestDriver::BlackboxTest(it) => {
@@ -164,6 +166,7 @@ pub fn gen_package_test_driver(
                 driver_file,
                 files_may_contain_test_block,
                 driver_kind: DriverKind::Blackbox,
+                patch_file: pkg.patch_file.clone().or(pkg.doc_test_patch_file.clone()),
             })
         }
         GeneratedTestDriver::WhiteboxTest(it) => {
@@ -180,6 +183,7 @@ pub fn gen_package_test_driver(
                 driver_file,
                 files_may_contain_test_block,
                 driver_kind: DriverKind::Whitebox,
+                patch_file: pkg.patch_file.clone(),
             })
         }
     }
@@ -812,7 +816,10 @@ pub fn gen_runtest(
             }
         }
 
-        if !pkg.test_files.is_empty() || blackbox_patch_file.is_some() {
+        if !pkg.test_files.is_empty()
+            || blackbox_patch_file.is_some()
+            || pkg.doc_test_patch_file.is_some()
+        {
             for item in pkg.generated_test_drivers.iter() {
                 if let GeneratedTestDriver::BlackboxTest(_) = item {
                     test_drivers.push(gen_package_test_driver(item, pkg)?);
@@ -820,7 +827,9 @@ pub fn gen_runtest(
                         m,
                         pkg,
                         moonc_opt,
-                        blackbox_patch_file.clone(),
+                        blackbox_patch_file
+                            .clone()
+                            .or(pkg.doc_test_patch_file.clone()),
                     )?);
                     link_items.push(gen_link_blackbox_test(m, pkg, moonc_opt)?);
                 }
@@ -1145,24 +1154,20 @@ fn gen_generate_test_driver_command(
 
     let mut build = Build::new(loc, ins, outs);
 
-    let patch_file = moonbuild_opt
-        .test_opt
-        .as_ref()
-        .and_then(|opt| opt.patch_file.as_ref())
-        .and_then(|p| {
-            let filename = p.to_str().unwrap();
-            match item.driver_kind {
-                DriverKind::Whitebox if filename.ends_with(WHITEBOX_TEST_PATCH) => Some(p),
-                DriverKind::Blackbox if filename.ends_with(BLACKBOX_TEST_PATCH) => Some(p),
-                DriverKind::Internal
-                    if !filename.ends_with(WHITEBOX_TEST_PATCH)
-                        && !filename.ends_with(BLACKBOX_TEST_PATCH) =>
-                {
-                    Some(p)
-                }
-                _ => None,
+    let patch_file = item.patch_file.as_ref().and_then(|p| {
+        let filename = p.to_str().unwrap();
+        match item.driver_kind {
+            DriverKind::Whitebox if filename.ends_with(WHITEBOX_TEST_PATCH) => Some(p),
+            DriverKind::Blackbox if filename.ends_with(BLACKBOX_TEST_PATCH) => Some(p),
+            DriverKind::Internal
+                if !filename.ends_with(WHITEBOX_TEST_PATCH)
+                    && !filename.ends_with(BLACKBOX_TEST_PATCH) =>
+            {
+                Some(p)
             }
-        });
+            _ => None,
+        }
+    });
 
     let command = CommandBuilder::new(
         &std::env::current_exe()

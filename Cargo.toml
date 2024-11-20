@@ -92,6 +92,7 @@ ariadne = { version = "0.4.1", features = ["auto-color"] }
 clap_complete = { version = "4.5.4" }
 schemars = "0.8"
 nucleo-matcher = "0.3.1"
+regex = { version = "1.10.3", default-features = false, features = ["std"] }
 
 [profile.release]
 debug = false

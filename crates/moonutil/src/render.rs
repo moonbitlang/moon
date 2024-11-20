@@ -19,7 +19,7 @@
 use ariadne::Fmt;
 use serde::{Deserialize, Serialize};
 
-use crate::common::line_col_to_byte_idx;
+use crate::common::{line_col_to_byte_idx, MOON_DOC_TEST_POSTFIX};
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct MooncDiagnostic {
@@ -75,7 +75,12 @@ impl MooncDiagnostic {
                         .fg(color)
                     );
                 } else {
-                    let source_file_path = &diagnostic.location.path;
+                    let source_file_path =
+                        &if diagnostic.location.path.contains(MOON_DOC_TEST_POSTFIX) {
+                            diagnostic.location.path.replace(MOON_DOC_TEST_POSTFIX, "")
+                        } else {
+                            diagnostic.location.path.clone()
+                        };
                     let source_file = match std::fs::read_to_string(source_file_path) {
                         Ok(content) => content,
                         Err(_) => {

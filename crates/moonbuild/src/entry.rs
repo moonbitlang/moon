@@ -41,8 +41,8 @@ use crate::runtest::TestStatistics;
 
 use moonutil::common::{
     DriverKind, FileLock, FileName, MoonbuildOpt, MooncGenTestInfo, MooncOpt, TargetBackend,
-    TestArtifacts, TestBlockIndex, TestName, BLACKBOX_TEST_PATCH, TEST_INFO_FILE,
-    WHITEBOX_TEST_PATCH,
+    TestArtifacts, TestBlockIndex, TestName, BLACKBOX_TEST_PATCH, MOON_DOC_TEST_POSTFIX,
+    TEST_INFO_FILE, WHITEBOX_TEST_PATCH,
 };
 
 use std::sync::{Arc, Mutex};
@@ -483,7 +483,7 @@ fn convert_moonc_test_info(
     output_format: &str,
     filter_file: Option<&String>,
     sort_input: bool,
-    patch_file: Option<&PathBuf>,
+    patch_file: &Option<PathBuf>,
 ) -> anyhow::Result<IndexMap<PathBuf, FileTestInfo>> {
     let mut test_info_files = vec![];
     for (files, driver_kind) in [
@@ -540,6 +540,15 @@ fn convert_moonc_test_info(
         if let Some(filter_file) = filter_file {
             if filename != *filter_file {
                 continue;
+            }
+        }
+        // if doc test patch json is given, we should just running doc test
+        // so tests in other files should be filtered out
+        if let Some(patch_json) = patch_file {
+            if patch_json.to_str().unwrap().contains(MOON_DOC_TEST_POSTFIX) {
+                if !filename.contains(MOON_DOC_TEST_POSTFIX) {
+                    continue;
+                }
             }
         }
         let test_type = if filename.ends_with("_test.mbt") {
@@ -616,10 +625,7 @@ pub fn run_test(
             moonc_opt.link_opt.output_format.to_str(),
             filter_file,
             moonbuild_opt.sort_input,
-            moonbuild_opt
-                .test_opt
-                .as_ref()
-                .and_then(|it| it.patch_file.as_ref()),
+            &pkg.patch_file.clone().or(pkg.doc_test_patch_file.clone()),
         )?;
 
         for (artifact_path, file_test_info_map) in current_pkg_test_info {

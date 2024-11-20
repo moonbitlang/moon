@@ -357,6 +357,7 @@ fn scan_one_package(
         pre_build: pkg.pre_build,
         patch_file: None,
         no_mi: false,
+        doc_test_patch_file: None,
     };
     if doc_mode {
         // -o <folder>

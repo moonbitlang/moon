@@ -69,6 +69,8 @@ pub struct Package {
 
     pub patch_file: Option<PathBuf>,
     pub no_mi: bool,
+
+    pub doc_test_patch_file: Option<PathBuf>,
 }
 
 impl Package {
