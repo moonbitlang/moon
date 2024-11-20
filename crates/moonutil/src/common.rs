@@ -56,6 +56,8 @@ pub const TEST_INFO_FILE: &str = "test_info.json";
 pub const WHITEBOX_TEST_PATCH: &str = "_wbtest.json";
 pub const BLACKBOX_TEST_PATCH: &str = "_test.json";
 
+pub const MOON_DOC_TEST_POSTFIX: &str = "__moonbit_internal_doc_test";
+
 #[derive(Debug, thiserror::Error)]
 pub enum SourceError {
     #[error("`source` should not contain invalid chars `{0:?}`")]

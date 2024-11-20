@@ -7898,3 +7898,54 @@ fn test_add_mi_if_self_not_set_in_test_imports() {
         "#]],
     );
 }
+
+#[test]
+fn test_run_doc_test() {
+    let dir = TestDir::new("run_doc_test.in");
+
+    // `moon test --doc` run doc test only
+    check(
+        get_err_stdout(&dir, ["test", "--sort-input", "--doc"]),
+        expect![[r#"
+            doc_test 1 from hello.mbt
+            doc_test 2 from hello.mbt
+            doc_test 3 from hello.mbt
+            doc_test
+            doc_test 1 from greet.mbt
+            doc_test 2 from greet.mbt
+            doc_test 3 from greet.mbt
+            doc_test from greet.mbt
+            test username/hello/lib/hello.mbt::2 failed: FAILED: $ROOT/src/lib/hello.mbt:22:5-22:31 this is a failure
+            test username/hello/lib/greet.mbt::3 failed
+            expect test failed at $ROOT/src/lib/greet.mbt:33:5-33:18
+            Diff:
+            ----
+            423
+            ----
+
+            Total tests: 8, passed: 6, failed: 2.
+        "#]],
+    );
+
+    // --doc conflicts with --update
+    #[cfg(unix)]
+    check(
+        get_err_stderr(&dir, ["test", "--doc", "--update"]),
+        expect![[r#"
+            error: the argument '--doc' cannot be used with '--update'
+
+            Usage: moon test --doc
+
+            For more information, try '--help'.
+        "#]],
+    );
+
+    // `moon test` will not run doc test
+    check(
+        get_stdout(&dir, ["test", "--sort-input"]),
+        expect![[r#"
+            hello from hello_test.mbt
+            Total tests: 1, passed: 1, failed: 0.
+        "#]],
+    );
+}

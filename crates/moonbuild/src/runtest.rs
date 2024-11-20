@@ -184,9 +184,20 @@ async fn run(
             if s.is_empty() {
                 continue;
             }
-            let a = serde_json_lenient::from_str(s.trim())
+            let mut ts: TestStatistics = serde_json_lenient::from_str(s.trim())
                 .context(format!("failed to parse test summary: {}", s))?;
-            test_statistics.push(a);
+
+            // this is a hack for doc test, make the doc test patch filename be the original file name
+            if ts.test_name.starts_with("doc_test") {
+                let temp = ts.test_name.split(" ").collect::<Vec<&str>>();
+                let original_file_name = temp[1].to_string();
+                ts.filename = original_file_name.clone();
+                ts.message = ts
+                    .message
+                    .replace(moonutil::common::MOON_DOC_TEST_POSTFIX, "");
+            }
+
+            test_statistics.push(ts);
         }
 
         for mut test_statistic in test_statistics {
