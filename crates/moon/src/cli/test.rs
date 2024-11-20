@@ -464,7 +464,8 @@ mod doc_test {
 
     impl DocTestExtractor {
         pub fn new() -> Self {
-            let pattern = r#"///\s*```\n((?:///.*\n)*?)///\s*```"#;
+            // \r\n for windows, \n for unix
+            let pattern = r#"///\s*```(?:\r?\n)((?:///.*(?:\r?\n))*?)///\s*```"#;
             Self {
                 test_pattern: Regex::new(pattern).expect("Invalid regex pattern"),
             }

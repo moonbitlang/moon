@@ -7928,6 +7928,7 @@ fn test_run_doc_test() {
     );
 
     // --doc conflicts with --update
+    #[cfg(unix)]
     check(
         get_err_stderr(&dir, ["test", "--doc", "--update"]),
         expect![[r#"
