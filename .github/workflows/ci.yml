@@ -202,6 +202,7 @@ jobs:
           cargo run --bin moon test --source-dir ~/.moon/lib/core --release --target wasm-gc
           cargo run --bin moon test --source-dir ~/.moon/lib/core --release --target js
           cargo run --bin moon test --source-dir ~/.moon/lib/core --release --target wasm
+          cargo run --bin moon test --source-dir ~/.moon/lib/core --doc
       - name: Test core (Windows)
         if: ${{ matrix.os == 'windows-latest' }}
         run: |
@@ -211,6 +212,7 @@ jobs:
           cargo run --bin moon test --source-dir "$env:USERPROFILE\.moon\lib\core" --release --target wasm-gc
           cargo run --bin moon test --source-dir "$env:USERPROFILE\.moon\lib\core" --release --target js
           cargo run --bin moon test --source-dir "$env:USERPROFILE\.moon\lib\core" --release --target wasm
+          cargo run --bin moon test --source-dir "$env:USERPROFILE\.moon\lib\core" --doc
 
   stable-test:
     needs: [typo-check, license-header-check]
@@ -288,6 +290,7 @@ jobs:
           cargo run --bin moon test --source-dir ~/.moon/lib/core --release --target wasm-gc
           cargo run --bin moon test --source-dir ~/.moon/lib/core --release --target js
           cargo run --bin moon test --source-dir ~/.moon/lib/core --release --target wasm
+          cargo run --bin moon test --source-dir ~/.moon/lib/core --release --doc
       - name: Test core (Windows)
         if: ${{ matrix.os == 'windows-latest' }}
         run: |
@@ -297,6 +300,7 @@ jobs:
           cargo run --bin moon test --source-dir "$env:USERPROFILE\.moon\lib\core" --release --target wasm-gc
           cargo run --bin moon test --source-dir "$env:USERPROFILE\.moon\lib\core" --release --target js
           cargo run --bin moon test --source-dir "$env:USERPROFILE\.moon\lib\core" --release --target wasm
+          cargo run --bin moon test --source-dir "$env:USERPROFILE\.moon\lib\core" --doc
 
   coverage:
     needs: bleeding-test
