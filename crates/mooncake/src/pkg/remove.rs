@@ -27,6 +27,13 @@ use moonutil::{
 
 use crate::resolver::resolve_single_root_with_defaults;
 
+/// Remove a dependency
+#[derive(Debug, clap::Parser)]
+pub struct RemoveSubcommand {
+    /// The package path to remove
+    pub package_path: String,
+}
+
 pub fn remove(
     source_dir: &Path,
     target_dir: &Path,

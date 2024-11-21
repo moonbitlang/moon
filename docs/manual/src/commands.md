@@ -316,6 +316,10 @@ Install dependencies
 
 **Usage:** `moon install`
 
+###### **Arguments:**
+
+* `<EXTRA_ARGS>`
+
 
 
 ## `moon tree`

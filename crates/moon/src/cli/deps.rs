@@ -17,6 +17,9 @@
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
 use anyhow::bail;
+use mooncake::pkg::{
+    add::AddSubcommand, install::InstallSubcommand, remove::RemoveSubcommand, tree::TreeSubcommand,
+};
 use moonutil::{
     dirs::PackageDirs,
     mooncakes::{ModuleName, RegistryConfig},
@@ -24,35 +27,13 @@ use moonutil::{
 
 use super::UniversalFlags;
 
-/// Install dependencies
-#[derive(Debug, clap::Parser)]
-pub struct InstallSubcommand {}
-
-/// Remove a dependency
-#[derive(Debug, clap::Parser)]
-pub struct RemoveSubcommand {
-    /// The package path to remove
-    pub package_path: String,
-}
-
-/// Add a dependency
-#[derive(Debug, clap::Parser)]
-pub struct AddSubcommand {
-    /// The package path to add
-    pub package_path: String,
-}
-
-/// Display the dependency tree
-#[derive(Debug, clap::Parser)]
-pub struct TreeSubcommand {}
-
-pub fn install_cli(cli: UniversalFlags, _cmd: InstallSubcommand) -> anyhow::Result<i32> {
+pub fn install_cli(cli: UniversalFlags, cmd: InstallSubcommand) -> anyhow::Result<i32> {
     let PackageDirs {
         source_dir,
         target_dir,
     } = cli.source_tgt_dir.try_into_package_dirs()?;
     let registry_config = RegistryConfig::load();
-    mooncake::pkg::install::install(&source_dir, &target_dir, &registry_config, false)
+    mooncake::pkg::install::install(&source_dir, &target_dir, &registry_config, false, cmd)
 }
 
 pub fn remove_cli(cli: UniversalFlags, cmd: RemoveSubcommand) -> anyhow::Result<i32> {

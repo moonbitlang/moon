@@ -28,6 +28,13 @@ use std::rc::Rc;
 use crate::registry::{self, Registry, RegistryList};
 use crate::resolver::resolve_single_root_with_defaults;
 
+/// Add a dependency
+#[derive(Debug, clap::Parser)]
+pub struct AddSubcommand {
+    /// The package path to add
+    pub package_path: String,
+}
+
 pub fn add_latest(
     source_dir: &Path,
     target_dir: &Path,

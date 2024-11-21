@@ -25,6 +25,10 @@ use moonutil::common::{
     read_module_desc_file_in_dir, read_module_from_json, DEP_PATH, MOON_MOD_JSON,
 };
 
+/// Display the dependency tree
+#[derive(Debug, clap::Parser)]
+pub struct TreeSubcommand {}
+
 pub fn bold(top: &HashSet<String>, item: &str) -> ColoredString {
     if top.contains(item) {
         item.bold()

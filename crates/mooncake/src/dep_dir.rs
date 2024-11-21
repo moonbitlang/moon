@@ -137,7 +137,7 @@ fn diff_dep_dir_state<'a>(
     for user in current.keys() {
         if !target.contains_key(user)
             // this is a temporary workaround
-            && user != "bin"
+            && user != moonutil::common::MOON_BIN_DIR
         {
             remove_user.insert(user.clone());
         }
