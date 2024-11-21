@@ -99,13 +99,24 @@ pub fn load_moon_pre_build(
 
                 let mut build = Build::new(loc, ins, outs);
                 let moon_bin = std::env::current_exe()?;
+
                 let command = if command.starts_with(":embed") {
                     command
                         .replacen(":embed", &format!("{} tool embed", moon_bin.display()), 1)
                         .to_string()
                 } else {
                     command.to_string()
-                };
+                }
+                .replace(
+                    moonutil::common::MOONCAKE_BIN,
+                    &moonbuild_opt
+                        .source_dir
+                        .join(moonutil::common::DEP_PATH)
+                        .join(moonutil::common::MOON_BIN_DIR)
+                        .display()
+                        .to_string(),
+                );
+
                 let command = command
                     .replace("$input", &inputs.join(" "))
                     .replace("$output", &outputs.join(" "));

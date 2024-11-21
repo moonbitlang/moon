@@ -60,6 +60,8 @@ pub const MOON_DOC_TEST_POSTFIX: &str = "__moonbit_internal_doc_test";
 
 pub const MOON_BIN_DIR: &str = "__moonbin__";
 
+pub const MOONCAKE_BIN: &str = "$mooncake_bin";
+
 #[derive(Debug, thiserror::Error)]
 pub enum SourceError {
     #[error("`source` should not contain invalid chars `{0:?}`")]
