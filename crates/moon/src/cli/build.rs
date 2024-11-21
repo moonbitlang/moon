@@ -49,6 +49,9 @@ pub struct BuildSubcommand {
     /// Monitor the file system and automatically build artifacts
     #[clap(long, short)]
     pub watch: bool,
+
+    #[clap(long, hide = true)]
+    pub show_artifacts: bool,
 }
 
 pub fn run_build(cli: &UniversalFlags, cmd: &BuildSubcommand) -> anyhow::Result<i32> {
@@ -193,5 +196,20 @@ fn run_build_internal(
         trace::close();
     }
 
+    if let (Ok(_), true) = (res.as_ref(), cmd.show_artifacts) {
+        // can't use HashMap because the order of the packages is not guaranteed
+        // can't use IndexMap because moonc cannot handled ordered map
+        let mut artifacts = Vec::new();
+        for pkg in module
+            .get_topo_pkgs()?
+            .iter()
+            .filter(|pkg| !pkg.is_third_party)
+        {
+            let mi = pkg.artifact.with_extension("mi");
+            let core = pkg.artifact.with_extension("core");
+            artifacts.push((pkg.full_name(), mi, core));
+        }
+        println!("{}", serde_json::to_string(&artifacts).unwrap());
+    }
     res
 }
