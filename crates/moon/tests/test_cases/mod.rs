@@ -4835,7 +4835,7 @@ fn test_moon_run_with_cli_args() {
     check(
         get_stdout(&dir, ["run", "main", "--dry-run"]),
         expect![[r#"
-            moonc build-package ./main/main.mbt -o ./target/wasm-gc/release/build/main/main.core -pkg username/hello/main -is-main -std-path $MOON_HOME/lib/core/target/wasm-gc/release/bundle -pkg-sources username/hello/main:./main -target wasm-gc
+            moonc build-package ./main/main_wasm.mbt -o ./target/wasm-gc/release/build/main/main.core -pkg username/hello/main -is-main -std-path $MOON_HOME/lib/core/target/wasm-gc/release/bundle -pkg-sources username/hello/main:./main -target wasm-gc
             moonc link-core $MOON_HOME/lib/core/target/wasm-gc/release/bundle/core.core ./target/wasm-gc/release/build/main/main.core -main username/hello/main -o ./target/wasm-gc/release/build/main/main.wasm -pkg-config-path ./main/moon.pkg.json -pkg-sources username/hello/main:./main -pkg-sources moonbitlang/core:$MOON_HOME/lib/core -target wasm-gc
             moonrun ./target/wasm-gc/release/build/main/main.wasm
         "#]],
@@ -4856,16 +4856,33 @@ fn test_moon_run_with_cli_args() {
             ],
         ),
         expect![[r#"
-            moonc build-package ./main/main.mbt -o ./target/wasm-gc/release/build/main/main.core -pkg username/hello/main -is-main -std-path $MOON_HOME/lib/core/target/wasm-gc/release/bundle -pkg-sources username/hello/main:./main -target wasm-gc
+            moonc build-package ./main/main_wasm.mbt -o ./target/wasm-gc/release/build/main/main.core -pkg username/hello/main -is-main -std-path $MOON_HOME/lib/core/target/wasm-gc/release/bundle -pkg-sources username/hello/main:./main -target wasm-gc
             moonc link-core $MOON_HOME/lib/core/target/wasm-gc/release/bundle/core.core ./target/wasm-gc/release/build/main/main.core -main username/hello/main -o ./target/wasm-gc/release/build/main/main.wasm -pkg-config-path ./main/moon.pkg.json -pkg-sources username/hello/main:./main -pkg-sources moonbitlang/core:$MOON_HOME/lib/core -target wasm-gc
             moonrun ./target/wasm-gc/release/build/main/main.wasm -- 中文 😄👍 hello 1242
         "#]],
     );
 
     check(
-        get_stdout(&dir, ["run", "main", "--", "中文", "😄👍", "hello", "1242"]),
+        get_stdout(
+            &dir,
+            [
+                "run", "main", "--", "中文", "😄👍", "hello", "1242", "--flag",
+            ],
+        ),
         expect![[r#"
-            ["中文", "😄👍", "hello", "1242"]
+            ["中文", "😄👍", "hello", "1242", "--flag"]
+        "#]],
+    );
+
+    check(
+        get_stdout(
+            &dir,
+            [
+                "run", "main", "--target", "js", "--", "中文", "😄👍", "hello", "1242", "--flag",
+            ],
+        ),
+        expect![[r#"
+            ["--", "中文", "😄👍", "hello", "1242", "--flag"]
         "#]],
     );
 }

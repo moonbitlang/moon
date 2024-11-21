@@ -56,6 +56,7 @@ fn run(command: &str, path: &Path, args: &[String], verbose: bool) -> anyhow::Re
     }
     let mut execution = Command::new(command)
         .arg(path)
+        .arg("--")
         .args(args)
         .stdout(Stdio::inherit())
         .stderr(Stdio::inherit())
