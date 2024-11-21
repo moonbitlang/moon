@@ -80,6 +80,7 @@ fn main1() -> anyhow::Result<i32> {
         New(n) => cli::run_new(&flags, n),
         Publish(p) => cli::mooncake_adapter::publish_cli(flags, p),
         Package(p) => cli::mooncake_adapter::package_cli(flags, p),
+        Query(q) => cli::run_query(flags, q),
         Register(r) => cli::mooncake_adapter::register_cli(flags, r),
         Remove(r) => cli::remove_cli(flags, r),
         Run(r) => cli::run_run(&flags, r),

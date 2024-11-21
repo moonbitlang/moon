@@ -31,7 +31,6 @@ use moonutil::mooncakes::sync::AutoSyncFlags;
 use moonutil::mooncakes::RegistryConfig;
 use n2::trace;
 use std::path::Path;
-use std::path::PathBuf;
 use std::sync::Arc;
 use std::thread;
 
@@ -197,8 +196,10 @@ fn run_build_internal(
         trace::close();
     }
 
-    if let (Ok(0), true) = (res.as_ref(), cmd.show_artifacts) {
-        let mut artifacts = vec![];
+    if let (Ok(_), true) = (res.as_ref(), cmd.show_artifacts) {
+        // can't use HashMap because the order of the packages is not guaranteed
+        // can't use IndexMap because moonc cannot handled ordered map
+        let mut artifacts = Vec::new();
         for pkg in module
             .get_topo_pkgs()?
             .iter()
@@ -206,15 +207,9 @@ fn run_build_internal(
         {
             let mi = pkg.artifact.with_extension("mi");
             let core = pkg.artifact.with_extension("core");
-            artifacts.push((mi, core));
+            artifacts.push((pkg.full_name(), mi, core));
         }
-        let ba = BuildArtifacts { artifacts };
-        eprintln!("{}", serde_json::to_string(&ba).unwrap());
+        println!("{}", serde_json::to_string(&artifacts).unwrap());
     }
     res
-}
-
-#[derive(serde::Serialize)]
-struct BuildArtifacts {
-    artifacts: Vec<(PathBuf, PathBuf)>,
 }

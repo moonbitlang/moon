@@ -30,6 +30,7 @@ pub mod info;
 pub mod mooncake_adapter;
 pub mod new;
 mod pre_build;
+pub mod query;
 pub mod run;
 pub mod shell_completion;
 pub mod test;
@@ -51,6 +52,7 @@ pub use generate_test_driver::*;
 pub use info::*;
 use moonbuild::upgrade::UpgradeSubcommand;
 pub use new::*;
+pub use query::*;
 pub use run::*;
 pub use shell_completion::*;
 pub use test::*;
@@ -117,6 +119,8 @@ pub enum MoonBuildSubcommands {
     // Misc
     Coverage(CoverageSubcommand),
     GenerateBuildMatrix(GenerateBuildMatrix),
+    #[clap(hide = true)]
+    Query(QuerySubcommand),
 
     /// Upgrade toolchains
     Upgrade(UpgradeSubcommand),
