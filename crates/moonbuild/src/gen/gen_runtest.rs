@@ -634,6 +634,7 @@ pub fn gen_link_internal_test(
         package_sources,
         package_path: pkg.root_path.clone(),
         link: pkg.link.clone(),
+        install_path: None,
     })
 }
 
@@ -671,6 +672,7 @@ pub fn gen_link_whitebox_test(
         package_sources,
         package_path: pkg.root_path.clone(),
         link: pkg.link.clone(),
+        install_path: None,
     })
 }
 
@@ -735,6 +737,7 @@ pub fn gen_link_blackbox_test(
         package_sources,
         package_path: pkg.root_path.clone(),
         link: pkg.link.clone(),
+        install_path: None,
     })
 }
 

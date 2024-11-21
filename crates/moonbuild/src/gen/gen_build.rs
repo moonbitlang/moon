@@ -138,6 +138,7 @@ pub fn gen_build_link_item(
         package_full_name,
         package_path: pkg.root_path.clone(),
         link: pkg.link.clone(),
+        install_path: pkg.install_path.clone(),
     })
 }
 
@@ -460,6 +461,23 @@ pub fn gen_n2_build_state(
         let (build, fid) = gen_link_command(&mut graph, item, moonc_opt);
         default.push(fid);
         graph.add_build(build)?;
+
+        // if we need to install the artifact to a specific path
+        if let Some(install_path) = item.install_path.as_ref() {
+            let artifact_output_path = install_path
+                .join(PathBuf::from(&item.out).file_name().unwrap())
+                .display()
+                .to_string();
+
+            let link_item_to_install = BuildLinkDepItem {
+                out: artifact_output_path,
+                ..item.clone()
+            };
+
+            let (build, fid) = gen_link_command(&mut graph, &link_item_to_install, moonc_opt);
+            default.push(fid);
+            graph.add_build(build)?;
+        }
     }
 
     let mut hashes = n2graph::Hashes::default();

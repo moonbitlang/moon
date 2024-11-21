@@ -73,6 +73,8 @@ pub struct Package {
     pub no_mi: bool,
 
     pub doc_test_patch_file: Option<PathBuf>,
+
+    pub install_path: Option<PathBuf>,
 }
 
 impl Package {
@@ -243,7 +245,7 @@ pub struct ImportMemory {
     pub name: String,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct LinkDepItem {
     pub out: String,
     pub core_deps: Vec<String>, // need add parent's core files recursively
@@ -251,6 +253,7 @@ pub struct LinkDepItem {
     pub package_sources: Vec<(String, String)>, // (pkgname, source_dir)
     pub package_path: PathBuf,
     pub link: Option<Link>,
+    pub install_path: Option<PathBuf>,
 }
 
 #[rustfmt::skip]

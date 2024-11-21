@@ -135,7 +135,10 @@ fn diff_dep_dir_state<'a>(
         }
     }
     for user in current.keys() {
-        if !target.contains_key(user) {
+        if !target.contains_key(user)
+            // this is a temporary workaround
+            && user != "bin"
+        {
             remove_user.insert(user.clone());
         }
     }

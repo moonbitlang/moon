@@ -22,6 +22,7 @@ use moonbuild::entry;
 use moonbuild::watch::watching;
 use mooncake::pkg::sync::auto_sync;
 use moonutil::common::lower_surface_targets;
+use moonutil::common::BuildOpt;
 use moonutil::common::FileLock;
 use moonutil::common::MoonbuildOpt;
 use moonutil::common::RunMode;
@@ -31,6 +32,7 @@ use moonutil::mooncakes::sync::AutoSyncFlags;
 use moonutil::mooncakes::RegistryConfig;
 use n2::trace;
 use std::path::Path;
+use std::path::PathBuf;
 use std::sync::Arc;
 use std::thread;
 
@@ -49,6 +51,9 @@ pub struct BuildSubcommand {
     /// Monitor the file system and automatically build artifacts
     #[clap(long, short)]
     pub watch: bool,
+
+    #[clap(long, hide = true)]
+    pub install_path: Option<PathBuf>,
 
     #[clap(long, hide = true)]
     pub show_artifacts: bool,
@@ -138,6 +143,9 @@ fn run_build_internal(
         build_graph: cli.build_graph,
         test_opt: None,
         check_opt: None,
+        build_opt: cmd.install_path.as_ref().map(|p| BuildOpt {
+            install_path: Some(p.clone()),
+        }),
         fmt_opt: None,
         args: vec![],
         output_json: false,

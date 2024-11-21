@@ -175,6 +175,7 @@ pub fn generate_test_driver(
             patch_file: cmd.patch_file.clone(),
         }),
         check_opt: None,
+        build_opt: None,
         fmt_opt: None,
         sort_input,
         run_mode,
