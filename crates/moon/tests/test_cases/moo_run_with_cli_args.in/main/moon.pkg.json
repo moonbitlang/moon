@@ -1,3 +1,7 @@
 {
-  "is-main": true
+  "is-main": true,
+  "targets": {
+    "main_wasm.mbt": ["wasm", "wasm-gc"],
+    "main_js.mbt": ["js"]
+  }
 }
