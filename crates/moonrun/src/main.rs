@@ -411,40 +411,46 @@ fn create_script_origin<'s>(scope: &mut v8::HandleScope<'s>, name: &str) -> v8::
     )
 }
 
+enum Source<'a> {
+    File(&'a Path),
+    Bytes(&'a String),
+}
+
 fn wasm_mode(
-    file: &Path,
+    source: Source,
     args: &[String],
     no_stack_trace: bool,
     test_mode: bool,
 ) -> anyhow::Result<()> {
-    v8::V8::set_flags_from_string("--experimental-wasm-exnref");
-    v8::V8::set_flags_from_string("--experimental-wasm-imported-strings");
-    let platform = v8::new_default_platform(0, false).make_shared();
-    v8::V8::initialize_platform(platform);
-    v8::V8::initialize();
-
     let isolate = &mut v8::Isolate::new(Default::default());
     let scope = &mut v8::HandleScope::new(isolate);
     let context = v8::Context::new(scope, Default::default());
     let scope = &mut v8::ContextScope::new(scope, context);
 
-    {
-        let global_proxy = scope.get_current_context().global(scope);
+    let mut script = format!(
+        r#"const BUILTIN_SCRIPT_ORIGIN_PREFIX = "{}";"#,
+        BUILTIN_SCRIPT_ORIGIN_PREFIX
+    );
 
-        let module_key = v8::String::new(scope, "module_name").unwrap().into();
-        let module_name = v8::String::new(scope, file.to_string_lossy().as_ref())
-            .unwrap()
-            .into();
-        global_proxy.set(scope, module_key, module_name);
+    match source {
+        Source::File(file) => {
+            let global_proxy = scope.get_current_context().global(scope);
+
+            let module_key = v8::String::new(scope, "module_name").unwrap().into();
+            let module_name = v8::String::new(scope, file.to_string_lossy().as_ref())
+                .unwrap()
+                .into();
+            global_proxy.set(scope, module_key, module_name);
+            script.push_str("let bytes;");
+        }
+        Source::Bytes(bytes) => {
+            script.push_str(&format!("let bytes = new Uint8Array([{}]);", bytes));
+        }
     }
 
     let mut dtors = Vec::new();
     init_env(&mut dtors, scope, args);
 
-    let mut script = format!(
-        r#"const BUILTIN_SCRIPT_ORIGIN_PREFIX = "{}";"#,
-        BUILTIN_SCRIPT_ORIGIN_PREFIX
-    );
     if test_mode {
         let test_args = serde_json_lenient::from_str::<TestArgs>(&args.join(" ")).unwrap();
         let file_and_index = test_args.file_and_index;
@@ -469,6 +475,7 @@ fn wasm_mode(
     let code = v8::String::new(scope, &script).unwrap();
     let script_origin = create_script_origin(scope, "wasm_mode_entry");
     let script = v8::Script::compile(scope, code, Some(&script_origin)).unwrap();
+
     script.run(scope);
     drop(dtors);
     Ok(())
@@ -493,7 +500,8 @@ pub fn get_moonrun_version() -> String {
 #[command(version = get_moonrun_version())]
 struct Commandline {
     /// The path of the file to run
-    path: PathBuf,
+    #[clap(required_unless_present = "interactive")]
+    path: Option<PathBuf>,
 
     /// Additional arguments
     args: Vec<String>,
@@ -507,6 +515,48 @@ struct Commandline {
 
     #[clap(long)]
     stack_size: Option<String>,
+
+    #[clap(short, long)]
+    interactive: bool,
+}
+
+fn run_interactive() -> anyhow::Result<()> {
+    loop {
+        let stdin = io::stdin();
+        let mut handle = stdin.lock();
+
+        // read the length (4 bytes) first
+        let mut len_bytes = [0u8; 4];
+        handle.read_exact(&mut len_bytes)?;
+        let length = i32::from_le_bytes(len_bytes);
+
+        // read the wasm byte sequence
+        let mut input = vec![0u8; length as usize];
+        handle.read_exact(&mut input)?;
+
+        // convert the byte sequence to a string
+        let bytes_string = input
+            .iter()
+            .map(|b| format!("0x{:02X}", b))
+            .collect::<Vec<_>>()
+            .join(", ");
+
+        wasm_mode(Source::Bytes(&bytes_string), &[], false, false)?;
+        const END_MARKER: [u8; 4] = [0xFF, 0xFE, 0xFD, 0xFC];
+        io::stdout().write_all(&END_MARKER)?;
+        io::stdout().write_all(b"\n")?;
+
+        io::stdout().flush()?;
+    }
+}
+
+fn initialize_v8() -> anyhow::Result<()> {
+    v8::V8::set_flags_from_string("--experimental-wasm-exnref");
+    v8::V8::set_flags_from_string("--experimental-wasm-imported-strings");
+    let platform = v8::new_default_platform(0, false).make_shared();
+    v8::V8::initialize_platform(platform);
+    v8::V8::initialize();
+    Ok(())
 }
 
 fn main() -> anyhow::Result<()> {
@@ -517,23 +567,31 @@ fn main() -> anyhow::Result<()> {
 
     let matches = Commandline::parse();
 
-    let file = &matches.path;
+    if matches.interactive {
+        initialize_v8()?;
+        run_interactive()
+    } else {
+        let file = matches.path.as_ref().unwrap();
 
-    if !file.exists() {
-        anyhow::bail!("no such file");
-    }
+        if !file.exists() {
+            anyhow::bail!("no such file");
+        }
 
-    if let Some(stack_size) = matches.stack_size {
-        set_flags_from_string(&format!("--stack-size={}", stack_size));
-    }
+        if let Some(stack_size) = matches.stack_size {
+            set_flags_from_string(&format!("--stack-size={}", stack_size));
+        }
 
-    match file.extension().unwrap().to_str() {
-        Some("wasm") => wasm_mode(
-            file,
-            &matches.args,
-            matches.no_stack_trace,
-            matches.test_mode,
-        ),
-        _ => anyhow::bail!("Unsupported file type"),
+        match file.extension().unwrap().to_str() {
+            Some("wasm") => {
+                initialize_v8()?;
+                wasm_mode(
+                    Source::File(file),
+                    &matches.args,
+                    matches.no_stack_trace,
+                    matches.test_mode,
+                )
+            }
+            _ => anyhow::bail!("Unsupported file type"),
+        }
     }
 }
