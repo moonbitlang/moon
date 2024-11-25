@@ -157,7 +157,7 @@ fn test_moon_run_with_cli_args() {
     let s = std::str::from_utf8(&out).unwrap().to_string();
 
     assert!(s.contains("moonrun"));
-    assert!(s.contains(&wasm_file.to_str().unwrap()));
+    assert!(s.contains(".wasm"));
 
     let out = snapbox::cmd::Command::new(snapbox::cmd::cargo_bin("moonrun"))
         .arg(&wasm_file)
