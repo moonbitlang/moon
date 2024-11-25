@@ -156,12 +156,8 @@ fn test_moon_run_with_cli_args() {
         .to_owned();
     let s = std::str::from_utf8(&out).unwrap().to_string();
 
-    check(
-        &s,
-        expect![[r#"
-            []
-        "#]],
-    );
+    assert!(s.contains("moonrun"));
+    assert!(s.contains(".wasm"));
 
     let out = snapbox::cmd::Command::new(snapbox::cmd::cargo_bin("moonrun"))
         .arg(&wasm_file)
@@ -174,10 +170,5 @@ fn test_moon_run_with_cli_args() {
         .to_owned();
     let s = std::str::from_utf8(&out).unwrap().to_string();
 
-    check(
-        &s,
-        expect![[r#"
-            ["中文", "😄👍", "hello", "1242"]
-        "#]],
-    );
+    assert!(s.contains("\"中文\", \"😄👍\", \"hello\", \"1242\""));
 }

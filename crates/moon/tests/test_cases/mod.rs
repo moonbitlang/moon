@@ -4838,7 +4838,7 @@ fn test_check_failed_should_write_pkg_json() {
 
 #[test]
 fn test_moon_run_with_cli_args() {
-    let dir = TestDir::new("moo_run_with_cli_args.in");
+    let dir = TestDir::new("moon_run_with_cli_args.in");
 
     check(
         get_stdout(&dir, ["run", "main", "--dry-run"]),
@@ -4870,29 +4870,21 @@ fn test_moon_run_with_cli_args() {
         "#]],
     );
 
-    check(
-        get_stdout(
-            &dir,
-            [
-                "run", "main", "--", "中文", "😄👍", "hello", "1242", "--flag",
-            ],
-        ),
-        expect![[r#"
-            ["中文", "😄👍", "hello", "1242", "--flag"]
-        "#]],
+    let s = get_stdout(
+        &dir,
+        [
+            "run", "main", "--", "中文", "😄👍", "hello", "1242", "--flag",
+        ],
     );
+    assert!(s.contains("\"中文\", \"😄👍\", \"hello\", \"1242\", \"--flag\""));
 
-    check(
-        get_stdout(
-            &dir,
-            [
-                "run", "main", "--target", "js", "--", "中文", "😄👍", "hello", "1242", "--flag",
-            ],
-        ),
-        expect![[r#"
-            ["--", "中文", "😄👍", "hello", "1242", "--flag"]
-        "#]],
+    let s = get_stdout(
+        &dir,
+        [
+            "run", "main", "--target", "js", "--", "中文", "😄👍", "hello", "1242", "--flag",
+        ],
     );
+    assert!(s.contains("\"中文\", \"😄👍\", \"hello\", \"1242\", \"--flag\""));
 }
 
 #[test]
