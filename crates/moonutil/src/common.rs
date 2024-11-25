@@ -25,7 +25,7 @@ use clap::ValueEnum;
 use fs4::fs_std::FileExt;
 use indexmap::IndexMap;
 use serde::{Deserialize, Serialize};
-use std::collections::{HashMap, HashSet};
+use std::collections::HashSet;
 use std::fs;
 use std::fs::File;
 use std::io::ErrorKind;
@@ -291,9 +291,6 @@ pub struct BuildPackageFlags {
     pub debug_flag: bool,
     pub source_map: bool,
     pub enable_coverage: bool,
-    // key: package name, value: warn_list for this package
-    pub warn_lists: HashMap<String, Option<String>>,
-    pub alert_lists: HashMap<String, Option<String>>,
     // treat all warnings as errors
     pub deny_warn: bool,
     pub target_backend: TargetBackend,
@@ -305,8 +302,6 @@ impl BuildPackageFlags {
             debug_flag: false,
             source_map: false,
             enable_coverage: false,
-            warn_lists: HashMap::new(),
-            alert_lists: HashMap::new(),
             deny_warn: false,
             target_backend: TargetBackend::default(),
         }

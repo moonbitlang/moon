@@ -40,6 +40,8 @@ pub struct BundleDepItem {
     pub mi_deps: Vec<MiAlias>,
     pub package_full_name: String,
     pub package_source_dir: String,
+    pub warn_list: Option<String>,
+    pub alert_list: Option<String>,
     pub is_main: bool,
 }
 
@@ -154,6 +156,8 @@ pub fn pkg_to_bundle_item(
         mi_deps,
         package_full_name,
         package_source_dir,
+        warn_list: pkg.warn_list.clone(),
+        alert_list: pkg.alert_list.clone(),
         is_main: pkg.is_main,
     })
 }
@@ -202,24 +206,16 @@ pub fn gen_build_command(
 
     let mut build = Build::new(loc, ins, outs);
 
-    let cur_pkg_warn_list = match moonc_opt.build_opt.warn_lists.get(&item.package_full_name) {
-        Some(Some(warn_list)) => warn_list,
-        _ => "",
-    };
-    let cur_pkg_alert_list = match moonc_opt.build_opt.alert_lists.get(&item.package_full_name) {
-        Some(Some(alert_list)) => alert_list,
-        _ => "",
-    };
-
     let command = CommandBuilder::new("moonc")
         .arg("build-package")
         .args_with_cond(moonc_opt.render, vec!["-error-format", "json"])
         .args(&item.mbt_deps)
-        .args_with_cond(!cur_pkg_warn_list.is_empty(), ["-w", cur_pkg_warn_list])
-        .args_with_cond(
-            !cur_pkg_alert_list.is_empty(),
-            ["-alert", cur_pkg_alert_list],
-        )
+        .lazy_args_with_cond(item.warn_list.is_some(), || {
+            vec!["-w".to_string(), item.warn_list.clone().unwrap()]
+        })
+        .lazy_args_with_cond(item.alert_list.is_some(), || {
+            vec!["-alert".to_string(), item.alert_list.clone().unwrap()]
+        })
         .arg("-o")
         .arg(&item.core_out)
         .arg("-pkg")

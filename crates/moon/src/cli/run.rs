@@ -232,7 +232,7 @@ pub fn run_run_internal(cli: &UniversalFlags, cmd: RunSubcommand) -> anyhow::Res
     )?;
 
     let run_mode = RunMode::Run;
-    let mut moonc_opt = super::get_compiler_flags(&source_dir, &cmd.build_flags)?;
+    let moonc_opt = super::get_compiler_flags(&source_dir, &cmd.build_flags)?;
 
     let raw_target_dir = target_dir.to_path_buf();
     let target_dir = mk_arch_mode_dir(&source_dir, &target_dir, &moonc_opt, run_mode)?;
@@ -299,16 +299,6 @@ pub fn run_run_internal(cli: &UniversalFlags, cmd: RunSubcommand) -> anyhow::Res
         &mut module,
     );
 
-    moonc_opt.build_opt.warn_lists = module
-        .get_all_packages()
-        .iter()
-        .map(|(name, pkg)| (name.clone(), pkg.warn_list.clone()))
-        .collect();
-    moonc_opt.build_opt.alert_lists = module
-        .get_all_packages()
-        .iter()
-        .map(|(name, pkg)| (name.clone(), pkg.alert_list.clone()))
-        .collect();
     if cli.dry_run {
         return dry_run::print_commands(&module, &moonc_opt, &moonbuild_opt);
     }

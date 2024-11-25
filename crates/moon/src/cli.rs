@@ -228,8 +228,6 @@ pub fn get_compiler_flags(src_dir: &Path, build_flags: &BuildFlags) -> anyhow::R
         debug_flag,
         source_map,
         enable_coverage,
-        warn_lists: Default::default(),
-        alert_lists: Default::default(),
         deny_warn: false,
         target_backend,
     };

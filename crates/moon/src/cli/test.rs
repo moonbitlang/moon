@@ -358,17 +358,6 @@ fn run_test_internal(
         &mut module,
     );
 
-    moonc_opt.build_opt.warn_lists = module
-        .get_all_packages()
-        .iter()
-        .map(|(name, pkg)| (name.clone(), pkg.warn_list.clone()))
-        .collect();
-    moonc_opt.build_opt.alert_lists = module
-        .get_all_packages()
-        .iter()
-        .map(|(name, pkg)| (name.clone(), pkg.alert_list.clone()))
-        .collect();
-
     // add coverage libs if needed
     moonbuild::gen::gen_runtest::add_coverage_to_core_if_needed(&mut module, &moonc_opt)?;
 
