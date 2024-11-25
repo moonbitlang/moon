@@ -369,6 +369,7 @@ fn scan_one_package(
             .as_ref()
             .and_then(|it| it.install_path.clone())
             .filter(|_| pkg.is_main && !is_third_party),
+        bin_name: pkg.bin_name,
     };
     if doc_mode {
         // -o <folder>

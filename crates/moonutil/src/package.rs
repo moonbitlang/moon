@@ -75,6 +75,8 @@ pub struct Package {
     pub doc_test_patch_file: Option<PathBuf>,
 
     pub install_path: Option<PathBuf>,
+
+    pub bin_name: Option<String>,
 }
 
 impl Package {
@@ -236,6 +238,11 @@ pub struct MoonPkgJSON {
     #[serde(alias = "pre-build")]
     #[schemars(rename = "pre-build")]
     pub pre_build: Option<Vec<MoonPkgGenerate>>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(alias = "bin-name")]
+    #[schemars(rename = "bin-name")]
+    pub bin_name: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, JsonSchema)]
@@ -254,6 +261,7 @@ pub struct LinkDepItem {
     pub package_path: PathBuf,
     pub link: Option<Link>,
     pub install_path: Option<PathBuf>,
+    pub bin_name: Option<String>,
 }
 
 #[rustfmt::skip]
@@ -471,6 +479,8 @@ pub struct MoonPkg {
     pub targets: Option<RawTargets>,
 
     pub pre_build: Option<Vec<MoonPkgGenerate>>,
+
+    pub bin_name: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -637,6 +647,7 @@ pub fn convert_pkg_json_to_package(j: MoonPkgJSON) -> anyhow::Result<MoonPkg> {
         alert_list: j.alert_list,
         targets: j.targets,
         pre_build: j.pre_build,
+        bin_name: j.bin_name,
     };
     Ok(result)
 }

@@ -139,6 +139,7 @@ pub fn gen_build_link_item(
         package_path: pkg.root_path.clone(),
         link: pkg.link.clone(),
         install_path: pkg.install_path.clone(),
+        bin_name: pkg.bin_name.clone(),
     })
 }
 
@@ -465,7 +466,16 @@ pub fn gen_n2_build_state(
         // if we need to install the artifact to a specific path
         if let Some(install_path) = item.install_path.as_ref() {
             let artifact_output_path = install_path
-                .join(PathBuf::from(&item.out).file_name().unwrap())
+                .join(if let Some(bin_name) = &item.bin_name {
+                    bin_name.clone()
+                } else {
+                    PathBuf::from(&item.out)
+                        .file_name()
+                        .unwrap()
+                        .to_str()
+                        .unwrap()
+                        .to_string()
+                })
                 .display()
                 .to_string();
 
