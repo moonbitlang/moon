@@ -127,7 +127,7 @@ fn run_bundle_internal(
     )?;
 
     let run_mode = RunMode::Bundle;
-    let mut moonc_opt = super::get_compiler_flags(source_dir, &cmd.build_flags)?;
+    let moonc_opt = super::get_compiler_flags(source_dir, &cmd.build_flags)?;
     let sort_input = cmd.build_flags.sort_input;
 
     let raw_target_dir = target_dir.to_path_buf();
@@ -157,16 +157,7 @@ fn run_bundle_internal(
         &resolved_env,
         &dir_sync_result,
     )?;
-    moonc_opt.build_opt.warn_lists = module
-        .get_all_packages()
-        .iter()
-        .map(|(name, pkg)| (name.clone(), pkg.warn_list.clone()))
-        .collect();
-    moonc_opt.build_opt.alert_lists = module
-        .get_all_packages()
-        .iter()
-        .map(|(name, pkg)| (name.clone(), pkg.alert_list.clone()))
-        .collect();
+
     if cli.dry_run {
         return dry_run::print_commands(&module, &moonc_opt, &moonbuild_opt);
     }

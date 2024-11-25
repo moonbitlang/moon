@@ -195,16 +195,6 @@ fn run_check_internal(
         }
     };
 
-    moonc_opt.build_opt.warn_lists = module
-        .get_all_packages()
-        .iter()
-        .map(|(name, pkg)| (name.clone(), pkg.warn_list.clone()))
-        .collect();
-    moonc_opt.build_opt.alert_lists = module
-        .get_all_packages()
-        .iter()
-        .map(|(name, pkg)| (name.clone(), pkg.alert_list.clone()))
-        .collect();
     if cli.dry_run {
         return dry_run::print_commands(&module, &moonc_opt, &moonbuild_opt);
     }
