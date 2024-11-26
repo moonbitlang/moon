@@ -4,7 +4,7 @@ pub fn get_args() -> Array[String] {
 
 extern "js" fn get_cli_args_internal() -> Array[String] =
   #| function() {
-  #|  return process.argv.slice(2);
+  #|  return process.argv;
   #| }
 
 fn main {
