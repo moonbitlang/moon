@@ -147,7 +147,7 @@ pub enum BinaryDependencyInfoJson {
 }
 
 /// Information about a specific dependency
-#[derive(Clone, Serialize, Deserialize, Default)]
+#[derive(Clone, Serialize, Deserialize, Default, Debug)]
 pub struct BinaryDependencyInfo {
     #[serde(serialize_with = "serialize_version_req")]
     #[serde(default, skip_serializing_if = "version_is_default")]
@@ -163,9 +163,20 @@ pub struct BinaryDependencyInfo {
     #[serde(skip_serializing_if = "Option::is_none", rename = "branch")]
     pub git_branch: Option<String>,
 
-    /// Compile this bin-dep to which backend.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub backend: Option<String>,
+    /// Binary packages to compile.
+    #[serde(skip_serializing_if = "Option::is_none", alias = "bin-pkg")]
+    pub bin_pkg: Option<Vec<BinPkgItem>>,
+}
+
+#[derive(Clone, Serialize, Deserialize, Debug)]
+#[serde(untagged)]
+pub enum BinPkgItem {
+    Simple(String),
+    Detailed {
+        name: String,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        alias: Option<String>,
+    },
 }
 
 impl BinaryDependencyInfo {
@@ -179,19 +190,6 @@ impl BinaryDependencyInfo {
         Self {
             version,
             ..Default::default()
-        }
-    }
-}
-
-impl std::fmt::Debug for BinaryDependencyInfo {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        if self.is_simple() {
-            write!(f, "{}", self.version)
-        } else {
-            f.debug_struct("BinaryDependencyInfo")
-                .field("version", &format_args!("{}", self.version))
-                .field("backend", &self.backend)
-                .finish()
         }
     }
 }
