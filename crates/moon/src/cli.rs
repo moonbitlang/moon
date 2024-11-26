@@ -262,6 +262,26 @@ fn gen_docs_for_moon_help_page() {
         "Default value: `powershell`",
         "Default value: `<your shell>`",
     );
+    let mut lines = Vec::new();
+    let mut need_trim = false;
+    for line in markdown.lines() {
+        if line.starts_with("## `moon shell-completion`") {
+            need_trim = true;
+        }
+        if need_trim {
+            if let Some(stripped) = line.strip_prefix("    ") {
+                lines.push(stripped)
+            } else {
+                lines.push(line)
+            }
+        } else {
+            lines.push(line);
+        }
+        if line.starts_with("  Possible values:") {
+            need_trim = false;
+        }
+    }
+    let markdown = lines.join("\n");
     let manifest_dir = std::env::var("CARGO_MANIFEST_DIR").unwrap();
     let file_path =
         std::path::PathBuf::from(&manifest_dir).join("../../docs/manual-zh/src/commands.md");
