@@ -23,7 +23,7 @@ use std::{
     rc::Rc,
 };
 
-use moonutil::{dependency::DependencyInfo, module::MoonMod, mooncakes::ModuleName};
+use moonutil::{dependency::SourceDependencyInfo, module::MoonMod, mooncakes::ModuleName};
 use semver::{Version, VersionReq};
 
 use super::Registry;
@@ -136,7 +136,7 @@ pub fn create_mock_module<'a>(
             .map(|(name, version)| {
                 (
                     name.to_string(),
-                    DependencyInfo {
+                    SourceDependencyInfo {
                         version: VersionReq::parse(version).unwrap(),
                         ..Default::default()
                     },

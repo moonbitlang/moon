@@ -24,7 +24,7 @@ use std::{
 
 use anyhow::anyhow;
 use moonutil::{
-    dependency::DependencyInfo,
+    dependency::SourceDependencyInfo,
     module::MoonMod,
     mooncakes::{ModuleName, ModuleSource, ModuleSourceKind},
     version::as_caret_comparator,
@@ -50,7 +50,7 @@ impl Resolver for MvsSolver {
 
 fn select_min_version_satisfying<'a>(
     name: &ModuleName,
-    req: &DependencyInfo,
+    req: &SourceDependencyInfo,
     versions: impl Iterator<Item = &'a Version> + 'a,
 ) -> Result<Version, ResolverError> {
     // We only support caret version requirements, per mvs algorithm, so
@@ -80,7 +80,7 @@ fn select_min_version_satisfying<'a>(
 fn select_min_version_satisfying_in_env(
     env: &mut ResolverEnv,
     name: &ModuleName,
-    req: &DependencyInfo,
+    req: &SourceDependencyInfo,
 ) -> Result<(Version, Rc<MoonMod>), ResolverError> {
     let all_versions = env
         .all_versions_of(name, None) // todo: registry
@@ -204,7 +204,14 @@ fn mvs_resolve(
     while let Some((source, module)) = working_list.pop() {
         log::debug!("-- Solving for {}", source);
         let mut all_deps = module.deps.clone();
-        all_deps.extend(module.bin_deps.clone().unwrap_or_default());
+        all_deps.extend(
+            module
+                .bin_deps
+                .clone()
+                .unwrap_or_default()
+                .into_iter()
+                .map(|(k, v)| (k, v.into())),
+        );
         for (name, req) in &all_deps {
             let pkg_name = match name.parse() {
                 Ok(v) => v,
@@ -304,7 +311,14 @@ fn mvs_resolve(
         let curr_id = *visited.get(&pkg).unwrap();
 
         let mut all_deps = module.deps.clone();
-        all_deps.extend(module.bin_deps.clone().unwrap_or_default());
+        all_deps.extend(
+            module
+                .bin_deps
+                .clone()
+                .unwrap_or_default()
+                .into_iter()
+                .map(|(k, v)| (k, v.into())),
+        );
         for (dep_name, req) in &all_deps {
             let dep_name = dep_name.parse().unwrap();
             // If any malformed name, it should be reported in the previous round
@@ -339,7 +353,7 @@ fn mvs_resolve(
 }
 
 fn resolve_pkg(
-    req: &DependencyInfo,
+    req: &SourceDependencyInfo,
     dependant: &ModuleSource,
     env: &mut ResolverEnv,
     pkg_name: &ModuleName,

@@ -18,7 +18,7 @@
 
 use colored::Colorize;
 use moonutil::common::{read_module_desc_file_in_dir, write_module_json_to_file, MOONBITLANG_CORE};
-use moonutil::dependency::DependencyInfo;
+use moonutil::dependency::{BinaryDependencyInfo, SourceDependencyInfo};
 use moonutil::module::convert_module_to_mod_json;
 use moonutil::mooncakes::{ModuleName, ModuleSource};
 use semver::Version;
@@ -103,10 +103,10 @@ pub fn add(
     }
 
     if bin {
-        let deps = m.bin_deps.get_or_insert_with(indexmap::IndexMap::new);
-        deps.insert(
+        let bin_deps = m.bin_deps.get_or_insert_with(indexmap::IndexMap::new);
+        bin_deps.insert(
             pkg_name.to_string(),
-            DependencyInfo {
+            BinaryDependencyInfo {
                 version: moonutil::version::as_caret_version_req(version.clone()),
                 ..Default::default()
             },
@@ -114,7 +114,7 @@ pub fn add(
     } else {
         m.deps.insert(
             pkg_name.to_string(),
-            DependencyInfo {
+            SourceDependencyInfo {
                 version: moonutil::version::as_caret_version_req(version.clone()),
                 ..Default::default()
             },

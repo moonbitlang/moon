@@ -16,11 +16,10 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
-use crate::common::MoonModJSONFormatErrorKind;
-use crate::common::MooncOpt;
-use crate::common::NameError;
-use crate::common::MOON_PKG_JSON;
-use crate::dependency::{DependencyInfo, DependencyInfoJson};
+use crate::common::{MoonModJSONFormatErrorKind, MooncOpt, NameError, MOON_PKG_JSON};
+use crate::dependency::{
+    BinaryDependencyInfo, BinaryDependencyInfoJson, SourceDependencyInfo, SourceDependencyInfoJson,
+};
 use crate::package::{AliasJSON, Package, PackageJSON};
 use crate::path::ImportPath;
 use anyhow::bail;
@@ -465,8 +464,8 @@ pub fn convert_mdb_to_json(module: &ModuleDB) -> ModuleDBJSON {
 pub struct MoonMod {
     pub name: String,
     pub version: Option<Version>,
-    pub deps: IndexMap<String, DependencyInfo>,
-    pub bin_deps: Option<IndexMap<String, DependencyInfo>>,
+    pub deps: IndexMap<String, SourceDependencyInfo>,
+    pub bin_deps: Option<IndexMap<String, BinaryDependencyInfo>>,
     pub readme: Option<String>,
     pub repository: Option<String>,
     pub license: Option<String>,
@@ -506,12 +505,12 @@ pub struct MoonModJSON {
     /// third-party dependencies of the module
     #[serde(skip_serializing_if = "Option::is_none")]
     #[schemars(with = "Option<std::collections::HashMap<String, String>>")]
-    pub deps: Option<IndexMap<String, DependencyInfoJson>>,
+    pub deps: Option<IndexMap<String, SourceDependencyInfoJson>>,
 
     /// third-party binary dependencies of the module
     #[serde(skip_serializing_if = "Option::is_none")]
     #[schemars(with = "Option<std::collections::HashMap<String, String>>")]
-    pub bin_deps: Option<IndexMap<String, DependencyInfoJson>>,
+    pub bin_deps: Option<IndexMap<String, BinaryDependencyInfoJson>>,
 
     /// path to module's README file
     #[serde(skip_serializing_if = "Option::is_none")]
