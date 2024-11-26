@@ -466,6 +466,7 @@ pub struct MoonMod {
     pub name: String,
     pub version: Option<Version>,
     pub deps: IndexMap<String, DependencyInfo>,
+    pub bin_deps: Option<IndexMap<String, DependencyInfo>>,
     pub readme: Option<String>,
     pub repository: Option<String>,
     pub license: Option<String>,
@@ -506,6 +507,11 @@ pub struct MoonModJSON {
     #[serde(skip_serializing_if = "Option::is_none")]
     #[schemars(with = "Option<std::collections::HashMap<String, String>>")]
     pub deps: Option<IndexMap<String, DependencyInfoJson>>,
+
+    /// third-party binary dependencies of the module
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[schemars(with = "Option<std::collections::HashMap<String, String>>")]
+    pub bin_deps: Option<IndexMap<String, DependencyInfoJson>>,
 
     /// path to module's README file
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -587,12 +593,17 @@ impl TryFrom<MoonModJSON> for MoonMod {
             Some(d) => d.into_iter().map(|(k, v)| (k, v.into())).collect(),
         };
 
+        let bin_deps = j
+            .bin_deps
+            .map(|d| d.into_iter().map(|(k, v)| (k, v.into())).collect());
+
         let source = j.source.map(|s| if s.is_empty() { ".".into() } else { s });
 
         Ok(MoonMod {
             name: j.name,
             version,
             deps,
+            bin_deps,
             readme: j.readme,
             repository: j.repository,
             license: j.license,
@@ -619,6 +630,9 @@ pub fn convert_module_to_mod_json(m: MoonMod) -> MoonModJSON {
         name: m.name,
         version: m.version.map(|v| v.to_string()),
         deps: Some(m.deps.into_iter().map(|(k, v)| (k, v.into())).collect()),
+        bin_deps: m
+            .bin_deps
+            .map(|d| d.into_iter().map(|(k, v)| (k, v.into())).collect()),
         readme: m.readme,
         repository: m.repository,
         license: m.license,

@@ -129,6 +129,7 @@ pub fn write(config: &Config, base_dir: &Path) {
         name: "build_matrix".to_string(),
         version: None,
         deps: None,
+        bin_deps: None,
         readme: None,
         repository: None,
         license: None,

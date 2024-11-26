@@ -33,12 +33,17 @@ use crate::resolver::resolve_single_root_with_defaults;
 pub struct AddSubcommand {
     /// The package path to add
     pub package_path: String,
+
+    /// Whether to add the dependency as a binary
+    #[clap(long)]
+    pub bin: bool,
 }
 
 pub fn add_latest(
     source_dir: &Path,
     target_dir: &Path,
     pkg_name: &ModuleName,
+    bin: bool,
     quiet: bool,
 ) -> anyhow::Result<i32> {
     if pkg_name.to_string() == MOONBITLANG_CORE {
@@ -62,7 +67,14 @@ pub fn add_latest(
         .version
         .clone()
         .unwrap();
-    add(source_dir, target_dir, pkg_name, &latest_version, quiet)
+    add(
+        source_dir,
+        target_dir,
+        pkg_name,
+        bin,
+        &latest_version,
+        quiet,
+    )
 }
 
 #[test]
@@ -75,6 +87,7 @@ pub fn add(
     source_dir: &Path,
     _target_dir: &Path,
     pkg_name: &ModuleName,
+    bin: bool,
     version: &Version,
     quiet: bool,
 ) -> anyhow::Result<i32> {
@@ -89,13 +102,24 @@ pub fn add(
         std::process::exit(0);
     }
 
-    m.deps.insert(
-        pkg_name.to_string(),
-        DependencyInfo {
-            version: moonutil::version::as_caret_version_req(version.clone()),
-            ..Default::default()
-        },
-    );
+    if bin {
+        let deps = m.bin_deps.get_or_insert_with(indexmap::IndexMap::new);
+        deps.insert(
+            pkg_name.to_string(),
+            DependencyInfo {
+                version: moonutil::version::as_caret_version_req(version.clone()),
+                ..Default::default()
+            },
+        );
+    } else {
+        m.deps.insert(
+            pkg_name.to_string(),
+            DependencyInfo {
+                version: moonutil::version::as_caret_version_req(version.clone()),
+                ..Default::default()
+            },
+        );
+    }
     let ms = ModuleSource::from_local_module(&m, source_dir).expect("Malformed module manifest");
     let registries = RegistryList::with_default_registry();
     let m = Rc::new(m);

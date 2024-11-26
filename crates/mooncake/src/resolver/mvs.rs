@@ -203,7 +203,9 @@ fn mvs_resolve(
     // Do a DFS in the graph
     while let Some((source, module)) = working_list.pop() {
         log::debug!("-- Solving for {}", source);
-        for (name, req) in &module.deps {
+        let mut all_deps = module.deps.clone();
+        all_deps.extend(module.bin_deps.clone().unwrap_or_default());
+        for (name, req) in &all_deps {
             let pkg_name = match name.parse() {
                 Ok(v) => v,
                 Err(_) => {
@@ -301,7 +303,9 @@ fn mvs_resolve(
 
         let curr_id = *visited.get(&pkg).unwrap();
 
-        for (dep_name, req) in &module.deps {
+        let mut all_deps = module.deps.clone();
+        all_deps.extend(module.bin_deps.clone().unwrap_or_default());
+        for (dep_name, req) in &all_deps {
             let dep_name = dep_name.parse().unwrap();
             // If any malformed name, it should be reported in the previous round
 

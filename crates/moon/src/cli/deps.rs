@@ -81,9 +81,16 @@ pub fn add_cli(cli: UniversalFlags, cmd: AddSubcommand) -> anyhow::Result<i32> {
     if parts.len() == 2 {
         let version: &str = parts[1];
         let version = version.parse()?;
-        mooncake::pkg::add::add(&source_dir, &target_dir, &pkg_name, &version, false)
+        mooncake::pkg::add::add(
+            &source_dir,
+            &target_dir,
+            &pkg_name,
+            cmd.bin,
+            &version,
+            false,
+        )
     } else {
-        mooncake::pkg::add::add_latest(&source_dir, &target_dir, &pkg_name, false)
+        mooncake::pkg::add::add_latest(&source_dir, &target_dir, &pkg_name, cmd.bin, false)
     }
 }
 

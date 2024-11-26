@@ -153,6 +153,7 @@ fn common(
             name: cake_full_name.into(),
             version: Some("0.1.0".parse().unwrap()),
             deps: None,
+            bin_deps: None,
             readme: Some("README.md".into()),
             repository: Some("".into()),
             license: license
