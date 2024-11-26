@@ -27,13 +27,19 @@ use moonutil::{
 
 use super::UniversalFlags;
 
-pub fn install_cli(cli: UniversalFlags, cmd: InstallSubcommand) -> anyhow::Result<i32> {
+pub fn install_cli(cli: UniversalFlags, _cmd: InstallSubcommand) -> anyhow::Result<i32> {
     let PackageDirs {
         source_dir,
         target_dir,
     } = cli.source_tgt_dir.try_into_package_dirs()?;
     let registry_config = RegistryConfig::load();
-    mooncake::pkg::install::install(&source_dir, &target_dir, &registry_config, false, cmd)
+    mooncake::pkg::install::install(
+        &source_dir,
+        &target_dir,
+        &registry_config,
+        cli.quiet,
+        cli.verbose,
+    )
 }
 
 pub fn remove_cli(cli: UniversalFlags, cmd: RemoveSubcommand) -> anyhow::Result<i32> {

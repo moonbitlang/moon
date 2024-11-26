@@ -33,7 +33,7 @@ pub fn auto_sync(
     quiet: bool,
 ) -> anyhow::Result<(ResolvedEnv, DirSyncResult)> {
     let (resolved_env, dep_dir) =
-        super::install::install_impl(source_dir, registry_config, quiet, cli.dont_sync(), None)?;
+        super::install::install_impl(source_dir, registry_config, quiet, false, cli.dont_sync())?;
     let dir_sync_result = resolve_dep_dirs(&dep_dir, &resolved_env);
     log::debug!("Dir sync result: {:?}", dir_sync_result);
     Ok((resolved_env, dir_sync_result))
