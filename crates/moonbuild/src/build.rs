@@ -56,14 +56,7 @@ fn run(command: &str, path: &Path, args: &[String], verbose: bool) -> anyhow::Re
     }
     let mut execution = Command::new(command)
         .arg(path)
-        .args(match command {
-            "moonrun" => {
-                let mut v = vec!["--".to_string()];
-                v.extend(args.iter().cloned());
-                v
-            }
-            _ => args.to_vec(),
-        })
+        .args(args)
         .stdout(Stdio::inherit())
         .stderr(Stdio::inherit())
         .spawn()
