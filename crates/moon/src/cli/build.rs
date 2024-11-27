@@ -57,6 +57,10 @@ pub struct BuildSubcommand {
 
     #[clap(long, hide = true)]
     pub show_artifacts: bool,
+
+    // package name (username/hello/lib)
+    #[clap(long, hide = true)]
+    pub package: Option<String>,
 }
 
 pub fn run_build(cli: &UniversalFlags, cmd: &BuildSubcommand) -> anyhow::Result<i32> {
@@ -143,8 +147,9 @@ fn run_build_internal(
         build_graph: cli.build_graph,
         test_opt: None,
         check_opt: None,
-        build_opt: cmd.install_path.as_ref().map(|p| BuildOpt {
-            install_path: Some(p.clone()),
+        build_opt: Some(BuildOpt {
+            install_path: cmd.install_path.clone(),
+            filter_package: cmd.package.clone(),
         }),
         fmt_opt: None,
         args: vec![],

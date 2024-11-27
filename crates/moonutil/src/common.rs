@@ -376,6 +376,8 @@ impl MoonbuildOpt {
 #[derive(Debug, Clone, Default)]
 pub struct BuildOpt {
     pub install_path: Option<PathBuf>,
+
+    pub filter_package: Option<String>,
 }
 
 #[derive(Debug, Clone, Default)]

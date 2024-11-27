@@ -26,7 +26,7 @@ use crate::gen::MiAlias;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
 
-use moonutil::common::{MoonbuildOpt, MooncOpt, MOONBITLANG_CORE, MOON_PKG_JSON};
+use moonutil::common::{BuildOpt, MoonbuildOpt, MooncOpt, MOONBITLANG_CORE, MOON_PKG_JSON};
 use n2::graph::{self as n2graph, Build, BuildIns, BuildOuts, FileLoc};
 use n2::load::State;
 use n2::smallmap::SmallMap;
@@ -146,12 +146,23 @@ pub fn gen_build_link_item(
 pub fn gen_build(
     m: &ModuleDB,
     moonc_opt: &MooncOpt,
-    _moonbuild_opt: &MoonbuildOpt,
+    moonbuild_opt: &MoonbuildOpt,
 ) -> anyhow::Result<N2BuildInput> {
     let mut build_items = vec![];
     let mut link_items = vec![];
-    for (i, (_, pkg)) in m.get_all_packages().iter().enumerate() {
-        let is_main = m.entries.contains(&i);
+
+    let pkgs_to_build = if let Some(BuildOpt {
+        filter_package: Some(filter_package),
+        ..
+    }) = moonbuild_opt.build_opt.as_ref()
+    {
+        &m.get_filtered_packages_and_its_deps_by_pkgname(filter_package)?
+    } else {
+        m.get_all_packages()
+    };
+
+    for (_, pkg) in pkgs_to_build {
+        let is_main = pkg.is_main;
 
         if is_main {
             // entry also need build

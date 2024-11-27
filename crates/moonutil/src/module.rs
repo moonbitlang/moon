@@ -155,7 +155,10 @@ impl ModuleDB {
         })
     }
 
-    pub fn get_filtered_packages_and_its_deps(&self, pkg_path: &Path) -> IndexMap<String, Package> {
+    pub fn get_filtered_packages_and_its_deps_by_pkgpath(
+        &self,
+        pkg_path: &Path,
+    ) -> IndexMap<String, Package> {
         let pkg = self.get_package_by_path(pkg_path);
         match pkg {
             Some(pkg) => {
@@ -168,6 +171,24 @@ impl ModuleDB {
                 IndexMap::from_iter(it)
             }
             None => IndexMap::new(),
+        }
+    }
+
+    pub fn get_filtered_packages_and_its_deps_by_pkgname(
+        &self,
+        pkgname: &str,
+    ) -> anyhow::Result<IndexMap<String, Package>> {
+        match self.packages.get(pkgname) {
+            None => bail!("no such package: {}", pkgname),
+            Some(pkg) => {
+                let mut resolved = HashSet::new();
+                resolved.insert(pkg.full_name().clone());
+                self.resolve_deps_of_pkg(pkg, &mut resolved);
+                let it = resolved
+                    .iter()
+                    .map(|pkg_name| (pkg_name.clone(), self.get_package_by_name(pkg_name).clone()));
+                Ok(IndexMap::from_iter(it))
+            }
         }
     }
 
