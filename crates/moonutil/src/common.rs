@@ -288,6 +288,19 @@ impl TargetBackend {
             Self::Native => "native",
         }
     }
+
+    pub fn str_to_backend(s: &str) -> anyhow::Result<Self> {
+        match s {
+            "wasm" => Ok(Self::Wasm),
+            "wasm-gc" => Ok(Self::WasmGC),
+            "js" => Ok(Self::Js),
+            "native" => Ok(Self::Native),
+            _ => bail!(
+                "invalid backend: {}, only support wasm, wasm-gc, js, native",
+                s
+            ),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Default)]
