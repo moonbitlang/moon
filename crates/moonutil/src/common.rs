@@ -294,6 +294,8 @@ pub struct BuildPackageFlags {
     // treat all warnings as errors
     pub deny_warn: bool,
     pub target_backend: TargetBackend,
+    pub warn_list: Option<String>,
+    pub alert_list: Option<String>,
 }
 
 impl BuildPackageFlags {
@@ -304,6 +306,8 @@ impl BuildPackageFlags {
             enable_coverage: false,
             deny_warn: false,
             target_backend: TargetBackend::default(),
+            warn_list: None,
+            alert_list: None,
         }
     }
 }

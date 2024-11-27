@@ -288,12 +288,18 @@ fn scan_one_package(
         .as_ref()
         .map_or(pkg.warn_list.clone(), |x| {
             Some(x.clone() + &pkg.warn_list.unwrap_or_default())
+        })
+        .map_or(moonc_opt.build_opt.warn_list.clone(), |x| {
+            Some(x.clone() + &moonc_opt.build_opt.warn_list.clone().unwrap_or_default())
         });
     let alert_list = mod_desc
         .alert_list
         .as_ref()
         .map_or(pkg.alert_list.clone(), |x| {
             Some(x.clone() + &pkg.alert_list.unwrap_or_default())
+        })
+        .map_or(moonc_opt.build_opt.alert_list.clone(), |x| {
+            Some(x.clone() + &moonc_opt.build_opt.alert_list.clone().unwrap_or_default())
         });
 
     let artifact: PathBuf = target_dir.into();

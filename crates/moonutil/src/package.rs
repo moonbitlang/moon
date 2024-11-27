@@ -61,6 +61,8 @@ pub struct Package {
     pub artifact: PathBuf,
 
     pub link: Option<Link>,
+
+    // moon.mod.json + moon.pkg.json + cli passing value
     pub warn_list: Option<String>,
     pub alert_list: Option<String>,
 
