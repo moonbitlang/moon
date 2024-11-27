@@ -179,6 +179,14 @@ pub struct BuildFlags {
     /// Don't render diagnostics from moonc (don't pass '-error-format json' to moonc)
     #[clap(long)]
     pub no_render: bool,
+
+    /// Warn list config
+    #[clap(long, allow_hyphen_values = true)]
+    pub warn_list: Option<String>,
+
+    /// Alert list config
+    #[clap(long, allow_hyphen_values = true)]
+    pub alert_list: Option<String>,
 }
 
 impl BuildFlags {
@@ -230,6 +238,8 @@ pub fn get_compiler_flags(src_dir: &Path, build_flags: &BuildFlags) -> anyhow::R
         enable_coverage,
         deny_warn: false,
         target_backend,
+        warn_list: build_flags.warn_list.clone(),
+        alert_list: build_flags.alert_list.clone(),
     };
 
     let link_opt = LinkCoreFlags {

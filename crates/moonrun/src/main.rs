@@ -504,6 +504,7 @@ struct Commandline {
     path: Option<PathBuf>,
 
     /// Additional arguments
+    #[clap(allow_hyphen_values = true)]
     args: Vec<String>,
 
     /// Don't print stack trace

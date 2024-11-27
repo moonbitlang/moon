@@ -44,17 +44,10 @@ const INIT_SYS_API: &str = r#"
 "#;
 
 fn construct_args_list<'s>(
-    args: &[String],
+    _args: &[String],
     scope: &mut v8::HandleScope<'s>,
 ) -> v8::Local<'s, v8::Array> {
-    // align with node's behavior
-    // use this concat instead of std::env::args(), to ignore the possible --
-    let cli_args: Vec<String> = std::env::args()
-        // path of moonrun and the path of the wasm file
-        .take(2)
-        .chain(args.iter().cloned())
-        .collect();
-
+    let cli_args: Vec<String> = std::env::args().collect();
     let arr = v8::Array::new(scope, cli_args.len() as i32);
     for (i, arg) in cli_args.iter().enumerate() {
         let arg = v8::String::new(scope, arg).unwrap();
