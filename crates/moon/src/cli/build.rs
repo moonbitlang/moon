@@ -61,6 +61,10 @@ pub struct BuildSubcommand {
     // package name (username/hello/lib)
     #[clap(long, hide = true)]
     pub package: Option<String>,
+
+    // when package is specified, specify the alias of the binary package artifact to install
+    #[clap(long, hide = true, requires("package"))]
+    pub bin_alias: Option<String>,
 }
 
 pub fn run_build(cli: &UniversalFlags, cmd: &BuildSubcommand) -> anyhow::Result<i32> {
@@ -164,6 +168,11 @@ fn run_build_internal(
         &resolved_env,
         &dir_sync_result,
     )?;
+
+    if let Some(bin_alias) = cmd.bin_alias.clone() {
+        let pkg = module.get_package_by_name_mut(cmd.package.as_ref().unwrap());
+        pkg.bin_name = Some(bin_alias);
+    }
 
     moonutil::common::set_native_backend_link_flags(
         run_mode,
