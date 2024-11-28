@@ -96,7 +96,7 @@ fn string_read_char(handle : StringReadHandle) -> Int = "__moonbit_fs_unstable" 
 fn finish_read_string(handle : StringReadHandle) = "__moonbit_fs_unstable" "finish_read_string"
 
 fn string_from_extern(e : ExternString) -> String {
-  let buf = Buffer::new()
+  let buf = @buffer.new()
   let handle = begin_read_string(e)
   while true {
     let ch = string_read_char(handle)

@@ -1,11 +1,11 @@
 test "hello" {
-  let buf = Buffer::new()
+  let buf = @buffer.new()
   buf.write_string("just\ntest")
-  buf.expect!()
+  inspect!(buf)
 }
 
 test "not-buf" {
-  let notbuf = Buffer::new()
+  let notbuf = @buffer.new()
   notbuf.write_string("haha")
-  notbuf.expect!()
+  inspect!(notbuf)
 }
