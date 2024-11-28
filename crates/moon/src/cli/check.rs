@@ -169,6 +169,7 @@ fn run_check_internal(
             no_mi: cmd.no_mi,
         }),
         test_opt: None,
+        build_opt: None,
         fmt_opt: None,
         args: vec![],
         no_parallelize: false,

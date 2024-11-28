@@ -19,7 +19,7 @@
 use std::path::PathBuf;
 use std::rc::Rc;
 
-use moonutil::common::MoonbuildOpt;
+use moonutil::common::{MoonbuildOpt, DEP_PATH, MOD_DIR, MOONCAKE_BIN, MOON_BIN_DIR, PKG_DIR};
 use moonutil::module::ModuleDB;
 use moonutil::package::StringOrArray;
 use n2::graph::{self as n2graph, Build, BuildIns, BuildOuts, FileId, FileLoc};
@@ -99,13 +99,26 @@ pub fn load_moon_pre_build(
 
                 let mut build = Build::new(loc, ins, outs);
                 let moon_bin = std::env::current_exe()?;
+
                 let command = if command.starts_with(":embed") {
                     command
                         .replacen(":embed", &format!("{} tool embed", moon_bin.display()), 1)
                         .to_string()
                 } else {
                     command.to_string()
-                };
+                }
+                .replace(
+                    MOONCAKE_BIN,
+                    &moonbuild_opt
+                        .source_dir
+                        .join(DEP_PATH)
+                        .join(MOON_BIN_DIR)
+                        .display()
+                        .to_string(),
+                )
+                .replace(MOD_DIR, &moonbuild_opt.source_dir.display().to_string())
+                .replace(PKG_DIR, &cwd.display().to_string());
+
                 let command = command
                     .replace("$input", &inputs.join(" "))
                     .replace("$output", &outputs.join(" "));

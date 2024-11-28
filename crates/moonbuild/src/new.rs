@@ -73,6 +73,8 @@ pub fn moon_new_exec(
             alert_list: None,
             targets: None,
             pre_build: None,
+            bin_name: None,
+            bin_target: None,
         };
         moonutil::common::write_package_json_to_file(&j, &main_moon_pkg)?;
     }
@@ -152,6 +154,7 @@ fn common(
             name: cake_full_name.into(),
             version: Some("0.1.0".parse().unwrap()),
             deps: None,
+            bin_deps: None,
             readme: Some("README.md".into()),
             repository: Some("".into()),
             license: license
@@ -220,6 +223,8 @@ fn common(
             alert_list: None,
             targets: None,
             pre_build: None,
+            bin_name: None,
+            bin_target: None,
         };
         moonutil::common::write_package_json_to_file(&j, &lib_moon_pkg)?;
     }

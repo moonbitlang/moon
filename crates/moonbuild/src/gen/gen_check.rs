@@ -314,7 +314,7 @@ pub fn gen_check(
         ..
     }) = moonbuild_opt.check_opt.as_ref()
     {
-        &m.get_filtered_packages_and_its_deps(&moonbuild_opt.source_dir.join(pkg_path))
+        &m.get_filtered_packages_and_its_deps_by_pkgpath(&moonbuild_opt.source_dir.join(pkg_path))
     } else {
         m.get_all_packages()
     };

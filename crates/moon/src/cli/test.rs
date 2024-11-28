@@ -202,6 +202,7 @@ fn run_test_internal(
             patch_file,
         }),
         check_opt: None,
+        build_opt: None,
         sort_input,
         run_mode,
         quiet: true,

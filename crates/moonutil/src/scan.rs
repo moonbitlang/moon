@@ -364,6 +364,13 @@ fn scan_one_package(
         patch_file: None,
         no_mi: false,
         doc_test_patch_file: None,
+        install_path: moonbuild_opt
+            .build_opt
+            .as_ref()
+            .and_then(|it| it.install_path.clone())
+            .filter(|_| pkg.is_main && !is_third_party),
+        bin_name: pkg.bin_name,
+        bin_target: pkg.bin_target,
     };
     if doc_mode {
         // -o <folder>

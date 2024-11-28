@@ -58,6 +58,12 @@ pub const BLACKBOX_TEST_PATCH: &str = "_test.json";
 
 pub const MOON_DOC_TEST_POSTFIX: &str = "__moonbit_internal_doc_test";
 
+pub const MOON_BIN_DIR: &str = "__moonbin__";
+
+pub const MOONCAKE_BIN: &str = "$mooncake_bin";
+pub const MOD_DIR: &str = "$mod_dir";
+pub const PKG_DIR: &str = "$pkg_dir";
+
 #[derive(Debug, thiserror::Error)]
 pub enum SourceError {
     #[error("`source` should not contain invalid chars `{0:?}`")]
@@ -284,6 +290,19 @@ impl TargetBackend {
             Self::Native => "native",
         }
     }
+
+    pub fn str_to_backend(s: &str) -> anyhow::Result<Self> {
+        match s {
+            "wasm" => Ok(Self::Wasm),
+            "wasm-gc" => Ok(Self::WasmGC),
+            "js" => Ok(Self::Js),
+            "native" => Ok(Self::Native),
+            _ => bail!(
+                "invalid backend: {}, only support wasm, wasm-gc, js, native",
+                s
+            ),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Default)]
@@ -338,6 +357,7 @@ pub struct MoonbuildOpt {
     pub target_dir: PathBuf,
     pub test_opt: Option<TestOpt>,
     pub check_opt: Option<CheckOpt>,
+    pub build_opt: Option<BuildOpt>,
     pub sort_input: bool,
     pub run_mode: RunMode,
     pub fmt_opt: Option<FmtOpt>,
@@ -353,6 +373,13 @@ impl MoonbuildOpt {
     pub fn get_package_filter(&self) -> Option<impl Fn(&Package) -> bool + '_> {
         self.test_opt.as_ref().map(|opt| opt.get_package_filter())
     }
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct BuildOpt {
+    pub install_path: Option<PathBuf>,
+
+    pub filter_package: Option<String>,
 }
 
 #[derive(Debug, Clone, Default)]

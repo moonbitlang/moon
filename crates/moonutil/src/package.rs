@@ -73,6 +73,12 @@ pub struct Package {
     pub no_mi: bool,
 
     pub doc_test_patch_file: Option<PathBuf>,
+
+    pub install_path: Option<PathBuf>,
+
+    pub bin_name: Option<String>,
+
+    pub bin_target: TargetBackend,
 }
 
 impl Package {
@@ -234,6 +240,16 @@ pub struct MoonPkgJSON {
     #[serde(alias = "pre-build")]
     #[schemars(rename = "pre-build")]
     pub pre_build: Option<Vec<MoonPkgGenerate>>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(alias = "bin-name")]
+    #[schemars(rename = "bin-name")]
+    pub bin_name: Option<String>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(alias = "bin-target")]
+    #[schemars(rename = "bin-target")]
+    pub bin_target: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, JsonSchema)]
@@ -243,7 +259,7 @@ pub struct ImportMemory {
     pub name: String,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct LinkDepItem {
     pub out: String,
     pub core_deps: Vec<String>, // need add parent's core files recursively
@@ -251,6 +267,8 @@ pub struct LinkDepItem {
     pub package_sources: Vec<(String, String)>, // (pkgname, source_dir)
     pub package_path: PathBuf,
     pub link: Option<Link>,
+    pub install_path: Option<PathBuf>,
+    pub bin_name: Option<String>,
 }
 
 #[rustfmt::skip]
@@ -468,6 +486,9 @@ pub struct MoonPkg {
     pub targets: Option<RawTargets>,
 
     pub pre_build: Option<Vec<MoonPkgGenerate>>,
+
+    pub bin_name: Option<String>,
+    pub bin_target: TargetBackend,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -618,6 +639,12 @@ pub fn convert_pkg_json_to_package(j: MoonPkgJSON) -> anyhow::Result<MoonPkg> {
         }
     }
 
+    let bin_target = if let Some(ref b) = j.bin_target {
+        TargetBackend::str_to_backend(b)?
+    } else {
+        TargetBackend::WasmGC
+    };
+
     let result = MoonPkg {
         name: None,
         is_main,
@@ -634,6 +661,8 @@ pub fn convert_pkg_json_to_package(j: MoonPkgJSON) -> anyhow::Result<MoonPkg> {
         alert_list: j.alert_list,
         targets: j.targets,
         pre_build: j.pre_build,
+        bin_name: j.bin_name,
+        bin_target,
     };
     Ok(result)
 }

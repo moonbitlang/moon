@@ -51,6 +51,9 @@ pub use fmt::*;
 pub use generate_test_driver::*;
 pub use info::*;
 use moonbuild::upgrade::UpgradeSubcommand;
+use mooncake::pkg::{
+    add::AddSubcommand, install::InstallSubcommand, remove::RemoveSubcommand, tree::TreeSubcommand,
+};
 pub use new::*;
 pub use query::*;
 pub use run::*;

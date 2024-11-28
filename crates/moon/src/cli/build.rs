@@ -22,6 +22,7 @@ use moonbuild::entry;
 use moonbuild::watch::watching;
 use mooncake::pkg::sync::auto_sync;
 use moonutil::common::lower_surface_targets;
+use moonutil::common::BuildOpt;
 use moonutil::common::FileLock;
 use moonutil::common::MoonbuildOpt;
 use moonutil::common::RunMode;
@@ -31,6 +32,7 @@ use moonutil::mooncakes::sync::AutoSyncFlags;
 use moonutil::mooncakes::RegistryConfig;
 use n2::trace;
 use std::path::Path;
+use std::path::PathBuf;
 use std::sync::Arc;
 use std::thread;
 
@@ -51,7 +53,18 @@ pub struct BuildSubcommand {
     pub watch: bool,
 
     #[clap(long, hide = true)]
+    pub install_path: Option<PathBuf>,
+
+    #[clap(long, hide = true)]
     pub show_artifacts: bool,
+
+    // package name (username/hello/lib)
+    #[clap(long, hide = true)]
+    pub package: Option<String>,
+
+    // when package is specified, specify the alias of the binary package artifact to install
+    #[clap(long, hide = true, requires("package"))]
+    pub bin_alias: Option<String>,
 }
 
 pub fn run_build(cli: &UniversalFlags, cmd: &BuildSubcommand) -> anyhow::Result<i32> {
@@ -138,6 +151,10 @@ fn run_build_internal(
         build_graph: cli.build_graph,
         test_opt: None,
         check_opt: None,
+        build_opt: Some(BuildOpt {
+            install_path: cmd.install_path.clone(),
+            filter_package: cmd.package.clone(),
+        }),
         fmt_opt: None,
         args: vec![],
         output_json: false,
@@ -151,6 +168,19 @@ fn run_build_internal(
         &resolved_env,
         &dir_sync_result,
     )?;
+
+    if let Some(bin_alias) = cmd.bin_alias.clone() {
+        let pkg = module.get_package_by_name_mut_safe(cmd.package.as_ref().unwrap());
+        match pkg {
+            Some(pkg) => {
+                pkg.bin_name = Some(bin_alias);
+            }
+            _ => anyhow::bail!(format!(
+                "package `{}` not found",
+                cmd.package.as_ref().unwrap()
+            )),
+        }
+    }
 
     moonutil::common::set_native_backend_link_flags(
         run_mode,

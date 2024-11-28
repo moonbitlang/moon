@@ -25,7 +25,7 @@ use serde::{Deserialize, Serialize, Serializer};
 
 /// Information about a specific dependency
 #[derive(Clone, Serialize, Deserialize, Default)]
-pub struct DependencyInfo {
+pub struct SourceDependencyInfo {
     #[serde(serialize_with = "serialize_version_req")]
     #[serde(default, skip_serializing_if = "version_is_default")]
     pub version: VersionReq,
@@ -45,29 +45,29 @@ fn version_is_default(version: &VersionReq) -> bool {
     version.comparators.is_empty()
 }
 
-impl std::fmt::Debug for DependencyInfo {
+impl std::fmt::Debug for SourceDependencyInfo {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         if self.is_simple() {
             write!(f, "{}", self.version)
         } else {
-            f.debug_struct("DependencyInfo")
+            f.debug_struct("SourceDependencyInfo")
                 .field("version", &format_args!("{}", self.version))
                 .finish()
         }
     }
 }
 
-/// The JSON representation of a dependency info
+/// The JSON representation of a source dependency info
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(untagged)]
-pub enum DependencyInfoJson {
+pub enum SourceDependencyInfoJson {
     /// A simple version requirement
     Simple(#[serde(serialize_with = "serialize_version_req")] VersionReq),
     /// A detailed dependency info
-    Detailed(DependencyInfo),
+    Detailed(SourceDependencyInfo),
 }
 
-impl DependencyInfo {
+impl SourceDependencyInfo {
     /// Check if the requirement is simple. That is, it only contains a version requirement
     fn is_simple(&self) -> bool {
         self.path.is_none() && self.git.is_none() && self.git_branch.is_none()
@@ -82,21 +82,21 @@ impl DependencyInfo {
     }
 }
 
-impl From<DependencyInfo> for DependencyInfoJson {
-    fn from(dep: DependencyInfo) -> Self {
+impl From<SourceDependencyInfo> for SourceDependencyInfoJson {
+    fn from(dep: SourceDependencyInfo) -> Self {
         if dep.is_simple() {
-            DependencyInfoJson::Simple(dep.version)
+            SourceDependencyInfoJson::Simple(dep.version)
         } else {
-            DependencyInfoJson::Detailed(dep)
+            SourceDependencyInfoJson::Detailed(dep)
         }
     }
 }
 
-impl From<DependencyInfoJson> for DependencyInfo {
-    fn from(dep: DependencyInfoJson) -> Self {
+impl From<SourceDependencyInfoJson> for SourceDependencyInfo {
+    fn from(dep: SourceDependencyInfoJson) -> Self {
         match dep {
-            DependencyInfoJson::Simple(v) => DependencyInfo::from_simple(v),
-            DependencyInfoJson::Detailed(d) => d,
+            SourceDependencyInfoJson::Simple(v) => SourceDependencyInfo::from_simple(v),
+            SourceDependencyInfoJson::Detailed(d) => d,
         }
     }
 }
@@ -128,10 +128,108 @@ impl<'a> std::fmt::Display for ComparatorFormatWrapper<'a> {
     }
 }
 
-impl FromStr for DependencyInfo {
+impl FromStr for SourceDependencyInfo {
     type Err = semver::Error;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        Ok(DependencyInfo::from_simple(VersionReq::parse(s)?))
+        Ok(SourceDependencyInfo::from_simple(VersionReq::parse(s)?))
+    }
+}
+
+/// The JSON representation of a binary dependency info
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum BinaryDependencyInfoJson {
+    /// A simple version requirement
+    Simple(#[serde(serialize_with = "serialize_version_req")] VersionReq),
+    /// A detailed dependency info
+    Detailed(BinaryDependencyInfo),
+}
+
+/// Information about a specific dependency
+#[derive(Clone, Serialize, Deserialize, Default, Debug)]
+pub struct BinaryDependencyInfo {
+    #[serde(serialize_with = "serialize_version_req")]
+    #[serde(default, skip_serializing_if = "version_is_default")]
+    pub version: VersionReq,
+    // Other optional fields...
+    /// Local path to the dependency. Overrides the version requirement.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub path: Option<String>,
+    /// Git repository URL. Overrides the version requirement.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub git: Option<String>,
+    /// Git branch to use.
+    #[serde(skip_serializing_if = "Option::is_none", rename = "branch")]
+    pub git_branch: Option<String>,
+
+    /// Binary packages to compile.
+    #[serde(skip_serializing_if = "Option::is_none", alias = "bin-pkg")]
+    pub bin_pkg: Option<Vec<BinPkgItem>>,
+}
+
+#[derive(Clone, Serialize, Deserialize, Debug)]
+#[serde(untagged)]
+pub enum BinPkgItem {
+    Simple(String),
+    Detailed {
+        name: String,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        alias: Option<String>,
+    },
+}
+
+impl BinaryDependencyInfo {
+    /// Check if the requirement is simple. That is, it only contains a version requirement
+    fn is_simple(&self) -> bool {
+        self.path.is_none() && self.git.is_none() && self.git_branch.is_none()
+    }
+
+    #[allow(clippy::needless_update)] // More fields will be added later
+    fn from_simple(version: VersionReq) -> Self {
+        Self {
+            version,
+            ..Default::default()
+        }
+    }
+}
+
+impl From<BinaryDependencyInfo> for SourceDependencyInfoJson {
+    fn from(dep: BinaryDependencyInfo) -> Self {
+        if dep.is_simple() {
+            SourceDependencyInfoJson::Simple(dep.version)
+        } else {
+            SourceDependencyInfoJson::Detailed(dep.into())
+        }
+    }
+}
+
+impl From<BinaryDependencyInfo> for SourceDependencyInfo {
+    fn from(dep: BinaryDependencyInfo) -> Self {
+        SourceDependencyInfo {
+            version: dep.version,
+            path: dep.path,
+            git: dep.git,
+            git_branch: dep.git_branch,
+        }
+    }
+}
+
+impl From<BinaryDependencyInfo> for BinaryDependencyInfoJson {
+    fn from(dep: BinaryDependencyInfo) -> Self {
+        if dep.is_simple() {
+            BinaryDependencyInfoJson::Simple(dep.version)
+        } else {
+            BinaryDependencyInfoJson::Detailed(dep)
+        }
+    }
+}
+
+impl From<BinaryDependencyInfoJson> for BinaryDependencyInfo {
+    fn from(dep: BinaryDependencyInfoJson) -> Self {
+        match dep {
+            BinaryDependencyInfoJson::Simple(v) => BinaryDependencyInfo::from_simple(v),
+            BinaryDependencyInfoJson::Detailed(d) => d,
+        }
     }
 }

@@ -16,11 +16,10 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
-use crate::common::MoonModJSONFormatErrorKind;
-use crate::common::MooncOpt;
-use crate::common::NameError;
-use crate::common::MOON_PKG_JSON;
-use crate::dependency::{DependencyInfo, DependencyInfoJson};
+use crate::common::{MoonModJSONFormatErrorKind, MooncOpt, NameError, MOON_PKG_JSON};
+use crate::dependency::{
+    BinaryDependencyInfo, BinaryDependencyInfoJson, SourceDependencyInfo, SourceDependencyInfoJson,
+};
 use crate::package::{AliasJSON, Package, PackageJSON};
 use crate::path::ImportPath;
 use anyhow::bail;
@@ -82,6 +81,14 @@ impl ModuleDB {
 
     pub fn get_package_by_name(&self, name: &str) -> &Package {
         self.packages.get(name).unwrap()
+    }
+
+    pub fn get_package_by_name_safe(&self, name: &str) -> Option<&Package> {
+        self.packages.get(name)
+    }
+
+    pub fn get_package_by_name_mut_safe(&mut self, name: &str) -> Option<&mut Package> {
+        self.packages.get_mut(name)
     }
 
     pub fn get_package_by_path(&self, path: &Path) -> Option<&Package> {
@@ -156,7 +163,10 @@ impl ModuleDB {
         })
     }
 
-    pub fn get_filtered_packages_and_its_deps(&self, pkg_path: &Path) -> IndexMap<String, Package> {
+    pub fn get_filtered_packages_and_its_deps_by_pkgpath(
+        &self,
+        pkg_path: &Path,
+    ) -> IndexMap<String, Package> {
         let pkg = self.get_package_by_path(pkg_path);
         match pkg {
             Some(pkg) => {
@@ -169,6 +179,24 @@ impl ModuleDB {
                 IndexMap::from_iter(it)
             }
             None => IndexMap::new(),
+        }
+    }
+
+    pub fn get_filtered_packages_and_its_deps_by_pkgname(
+        &self,
+        pkgname: &str,
+    ) -> anyhow::Result<IndexMap<String, Package>> {
+        match self.packages.get(pkgname) {
+            None => bail!("no such package: {}", pkgname),
+            Some(pkg) => {
+                let mut resolved = HashSet::new();
+                resolved.insert(pkg.full_name().clone());
+                self.resolve_deps_of_pkg(pkg, &mut resolved);
+                let it = resolved
+                    .iter()
+                    .map(|pkg_name| (pkg_name.clone(), self.get_package_by_name(pkg_name).clone()));
+                Ok(IndexMap::from_iter(it))
+            }
         }
     }
 
@@ -465,7 +493,8 @@ pub fn convert_mdb_to_json(module: &ModuleDB) -> ModuleDBJSON {
 pub struct MoonMod {
     pub name: String,
     pub version: Option<Version>,
-    pub deps: IndexMap<String, DependencyInfo>,
+    pub deps: IndexMap<String, SourceDependencyInfo>,
+    pub bin_deps: Option<IndexMap<String, BinaryDependencyInfo>>,
     pub readme: Option<String>,
     pub repository: Option<String>,
     pub license: Option<String>,
@@ -505,7 +534,12 @@ pub struct MoonModJSON {
     /// third-party dependencies of the module
     #[serde(skip_serializing_if = "Option::is_none")]
     #[schemars(with = "Option<std::collections::HashMap<String, String>>")]
-    pub deps: Option<IndexMap<String, DependencyInfoJson>>,
+    pub deps: Option<IndexMap<String, SourceDependencyInfoJson>>,
+
+    /// third-party binary dependencies of the module
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[schemars(with = "Option<std::collections::HashMap<String, String>>")]
+    pub bin_deps: Option<IndexMap<String, BinaryDependencyInfoJson>>,
 
     /// path to module's README file
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -587,12 +621,17 @@ impl TryFrom<MoonModJSON> for MoonMod {
             Some(d) => d.into_iter().map(|(k, v)| (k, v.into())).collect(),
         };
 
+        let bin_deps = j
+            .bin_deps
+            .map(|d| d.into_iter().map(|(k, v)| (k, v.into())).collect());
+
         let source = j.source.map(|s| if s.is_empty() { ".".into() } else { s });
 
         Ok(MoonMod {
             name: j.name,
             version,
             deps,
+            bin_deps,
             readme: j.readme,
             repository: j.repository,
             license: j.license,
@@ -619,6 +658,9 @@ pub fn convert_module_to_mod_json(m: MoonMod) -> MoonModJSON {
         name: m.name,
         version: m.version.map(|v| v.to_string()),
         deps: Some(m.deps.into_iter().map(|(k, v)| (k, v.into())).collect()),
+        bin_deps: m
+            .bin_deps
+            .map(|d| d.into_iter().map(|(k, v)| (k, v.into())).collect()),
         readme: m.readme,
         repository: m.repository,
         license: m.license,

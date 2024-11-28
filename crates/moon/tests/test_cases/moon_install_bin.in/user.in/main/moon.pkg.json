@@ -1,0 +1,13 @@
+{
+  "is_main": true,
+  "import": [
+    "good/idea/lib"
+  ],
+  "pre-build": [
+    {
+      "input": [],
+      "output": ["1.txt"],
+      "command": "node $mooncake_bin/main-js.js"
+    }
+  ]
+}

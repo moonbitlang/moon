@@ -22,22 +22,32 @@ use anyhow::Context;
 use moonutil::{
     common::read_module_desc_file_in_dir,
     mooncakes::{result::ResolvedEnv, ModuleSource, RegistryConfig},
+    scan::scan,
 };
-use std::{path::Path, rc::Rc};
+use std::{
+    path::{Path, PathBuf},
+    rc::Rc,
+};
+
+/// Install dependencies
+#[derive(Debug, clap::Parser)]
+pub struct InstallSubcommand {}
 
 pub fn install(
     source_dir: &Path,
     _target_dir: &Path,
     registry_config: &RegistryConfig,
     quiet: bool,
+    verbose: bool,
 ) -> anyhow::Result<i32> {
-    install_impl(source_dir, registry_config, quiet, false).map(|_| 0)
+    install_impl(source_dir, registry_config, quiet, verbose, false).map(|_| 0)
 }
 
 pub(crate) fn install_impl(
     source_dir: &Path,
     _registry_config: &RegistryConfig,
     quiet: bool,
+    verbose: bool,
     dont_sync: bool,
 ) -> anyhow::Result<(ResolvedEnv, DepDir)> {
     let m = read_module_desc_file_in_dir(source_dir)?;
@@ -50,5 +60,168 @@ pub(crate) fn install_impl(
         crate::dep_dir::sync_deps(&dep_dir, &registry, &res, quiet)
             .context("When installing packages")?;
     }
+
+    if let Some(ref bin_deps) = m.bin_deps {
+        let install_path = source_dir
+            .join(moonutil::common::DEP_PATH)
+            .join(moonutil::common::MOON_BIN_DIR);
+
+        let moon_path = std::env::current_exe()
+            .map_or_else(|_| "moon".into(), |x| x.to_string_lossy().into_owned());
+
+        for (bin_mod_to_install, info) in bin_deps {
+            let bin_mod_path = match info.path {
+                Some(ref path) => PathBuf::from(path),
+                None => dep_dir.path().join(bin_mod_to_install),
+            };
+
+            if !bin_mod_path.exists() {
+                anyhow::bail!(
+                    "binary module `{}` not found in `{}`",
+                    bin_mod_to_install,
+                    dep_dir.path().display()
+                );
+            }
+
+            let module_db = get_module_db(&bin_mod_path, &res, &dep_dir)?;
+
+            if let Some(ref bin_pkg) = info.bin_pkg {
+                for bin_pkg_to_install in bin_pkg {
+                    let (pkg_name, bin_alias) = match bin_pkg_to_install {
+                        moonutil::dependency::BinPkgItem::Simple(pkg_name) => (pkg_name, None),
+                        moonutil::dependency::BinPkgItem::Detailed { name, alias } => {
+                            (name, alias.as_ref())
+                        }
+                    };
+
+                    let full_pkg_name = format!("{bin_mod_to_install}/{pkg_name}");
+
+                    let pkg = module_db.get_package_by_name_safe(&full_pkg_name);
+                    match pkg {
+                        Some(pkg) => {
+                            build_and_install_bin_package(
+                                &moon_path,
+                                &bin_mod_path,
+                                &full_pkg_name,
+                                &install_path,
+                                pkg.bin_target.to_backend_ext(),
+                                bin_alias,
+                                verbose,
+                            )?;
+                        }
+                        _ => anyhow::bail!(format!("package `{}` not found", full_pkg_name)),
+                    }
+                }
+            } else {
+                for (full_pkg_name, pkg) in module_db
+                    .get_all_packages()
+                    .iter()
+                    .filter(|(_, p)| p.is_main && !p.is_third_party)
+                {
+                    build_and_install_bin_package(
+                        &moon_path,
+                        &bin_mod_path,
+                        full_pkg_name,
+                        &install_path,
+                        pkg.bin_target.to_backend_ext(),
+                        None,
+                        verbose,
+                    )?;
+                }
+            }
+        }
+
+        // remove all files except .exe, .wasm, .js
+        if install_path.exists() {
+            for entry in std::fs::read_dir(&install_path)? {
+                let entry = entry?;
+                let path = entry.path();
+                if path.is_file() {
+                    let ext = path.extension().and_then(|s| s.to_str());
+                    if !matches!(ext, Some("exe" | "wasm" | "js")) {
+                        std::fs::remove_file(path)?;
+                    }
+                }
+            }
+        }
+    }
+
     Ok((res, dep_dir))
+}
+
+fn build_and_install_bin_package(
+    moon_path: &str,
+    bin_mod_path: &Path,
+    full_pkg_name: &str,
+    install_path: &Path,
+    bin_target: impl AsRef<str>,
+    bin_alias: Option<&String>,
+    verbose: bool,
+) -> anyhow::Result<()> {
+    let mut build_args = vec![
+        "build".to_string(),
+        "--source-dir".to_string(),
+        bin_mod_path.display().to_string(),
+        "--install-path".to_string(),
+        install_path.display().to_string(),
+        "--target".to_string(),
+        bin_target.as_ref().to_string(),
+        "--package".to_string(),
+        full_pkg_name.to_string(),
+    ];
+
+    if let Some(bin_alias) = bin_alias {
+        build_args.push("--bin-alias".to_string());
+        build_args.push(bin_alias.to_string());
+    }
+
+    if !verbose {
+        build_args.push("--quiet".to_string());
+    }
+
+    if verbose {
+        eprintln!("Installing binary package `{}`", full_pkg_name);
+    }
+
+    std::process::Command::new(moon_path)
+        .args(&build_args)
+        .spawn()
+        .with_context(|| format!("Failed to spawn build process for {}", full_pkg_name))?
+        .wait()
+        .with_context(|| format!("Failed to wait for build process of {}", full_pkg_name))?;
+
+    Ok(())
+}
+
+fn get_module_db(
+    source_dir: &Path,
+    resolved_env: &ResolvedEnv,
+    dep_dir: &DepDir,
+) -> anyhow::Result<moonutil::module::ModuleDB> {
+    let dir_sync_result = crate::dep_dir::resolve_dep_dirs(dep_dir, resolved_env);
+    let moonbuild_opt = moonutil::common::MoonbuildOpt {
+        source_dir: source_dir.to_path_buf(),
+        raw_target_dir: source_dir.join("target"),
+        target_dir: source_dir.join("target"),
+        test_opt: None,
+        check_opt: None,
+        build_opt: None,
+        sort_input: false,
+        run_mode: moonutil::common::RunMode::Build,
+        quiet: true,
+        verbose: false,
+        no_parallelize: false,
+        build_graph: false,
+        fmt_opt: None,
+        args: vec![],
+        output_json: false,
+    };
+    let module_db = scan(
+        false,
+        resolved_env,
+        &dir_sync_result,
+        &moonutil::common::MooncOpt::default(),
+        &moonbuild_opt,
+    )?;
+    Ok(module_db)
 }

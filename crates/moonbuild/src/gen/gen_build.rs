@@ -26,7 +26,7 @@ use crate::gen::MiAlias;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
 
-use moonutil::common::{MoonbuildOpt, MooncOpt, MOONBITLANG_CORE, MOON_PKG_JSON};
+use moonutil::common::{BuildOpt, MoonbuildOpt, MooncOpt, MOONBITLANG_CORE, MOON_PKG_JSON};
 use n2::graph::{self as n2graph, Build, BuildIns, BuildOuts, FileLoc};
 use n2::load::State;
 use n2::smallmap::SmallMap;
@@ -138,18 +138,31 @@ pub fn gen_build_link_item(
         package_full_name,
         package_path: pkg.root_path.clone(),
         link: pkg.link.clone(),
+        install_path: pkg.install_path.clone(),
+        bin_name: pkg.bin_name.clone(),
     })
 }
 
 pub fn gen_build(
     m: &ModuleDB,
     moonc_opt: &MooncOpt,
-    _moonbuild_opt: &MoonbuildOpt,
+    moonbuild_opt: &MoonbuildOpt,
 ) -> anyhow::Result<N2BuildInput> {
     let mut build_items = vec![];
     let mut link_items = vec![];
-    for (i, (_, pkg)) in m.get_all_packages().iter().enumerate() {
-        let is_main = m.entries.contains(&i);
+
+    let pkgs_to_build = if let Some(BuildOpt {
+        filter_package: Some(filter_package),
+        ..
+    }) = moonbuild_opt.build_opt.as_ref()
+    {
+        &m.get_filtered_packages_and_its_deps_by_pkgname(filter_package)?
+    } else {
+        m.get_all_packages()
+    };
+
+    for (_, pkg) in pkgs_to_build {
+        let is_main = pkg.is_main;
 
         if is_main {
             // entry also need build
@@ -460,6 +473,32 @@ pub fn gen_n2_build_state(
         let (build, fid) = gen_link_command(&mut graph, item, moonc_opt);
         default.push(fid);
         graph.add_build(build)?;
+
+        // if we need to install the artifact to a specific path
+        if let Some(install_path) = item.install_path.as_ref() {
+            let artifact_output_path = install_path
+                .join(if let Some(bin_name) = &item.bin_name {
+                    bin_name.clone()
+                } else {
+                    PathBuf::from(&item.out)
+                        .file_name()
+                        .unwrap()
+                        .to_str()
+                        .unwrap()
+                        .to_string()
+                })
+                .display()
+                .to_string();
+
+            let link_item_to_install = BuildLinkDepItem {
+                out: artifact_output_path,
+                ..item.clone()
+            };
+
+            let (build, fid) = gen_link_command(&mut graph, &link_item_to_install, moonc_opt);
+            default.push(fid);
+            graph.add_build(build)?;
+        }
     }
 
     let mut hashes = n2graph::Hashes::default();
