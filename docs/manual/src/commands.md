@@ -290,11 +290,15 @@ Generate public interface (`.mbti`) files for all packages in the module
 
 Add a dependency
 
-**Usage:** `moon add <PACKAGE_PATH>`
+**Usage:** `moon add [OPTIONS] <PACKAGE_PATH>`
 
 ###### **Arguments:**
 
 * `<PACKAGE_PATH>` — The package path to add
+
+###### **Options:**
+
+* `--bin` — Whether to add the dependency as a binary
 
 
 
@@ -315,10 +319,6 @@ Remove a dependency
 Install dependencies
 
 **Usage:** `moon install`
-
-###### **Arguments:**
-
-* `<EXTRA_ARGS>`
 
 
 

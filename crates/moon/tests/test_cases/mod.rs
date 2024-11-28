@@ -8020,3 +8020,39 @@ fn test_moon_query() {
 
     get_stdout(&dir, ["query", "moonbitlang/x"]);
 }
+
+#[test]
+fn test_moon_install_bin() {
+    let dir = TestDir::new("moon_install_bin.in");
+    let dir = dir.join("user.in");
+
+    let mooncakes_path = dir.join(moonutil::common::DEP_PATH);
+    if mooncakes_path.exists() {
+        std::fs::remove_dir_all(&mooncakes_path).unwrap();
+    }
+
+    let bin_dir = mooncakes_path.join(moonutil::common::MOON_BIN_DIR);
+
+    // moon check should auto install bin deps
+    get_stdout(&dir, ["check"]);
+    assert!(bin_dir.exists());
+    assert!(bin_dir.join("author2-native.exe").exists());
+    assert!(bin_dir.join("author2-js.js").exists());
+    assert!(bin_dir.join("author2-wasm.wasm").exists());
+    assert!(bin_dir.join("m-wasm.wasm").exists());
+    assert!(bin_dir.join("main-js.js").exists());
+
+    std::fs::remove_dir_all(&mooncakes_path).unwrap();
+
+    assert!(!bin_dir.exists());
+
+    // moon install should install bin deps
+    get_stdout(&dir, ["install"]);
+
+    assert!(bin_dir.exists());
+    assert!(bin_dir.join("author2-native.exe").exists());
+    assert!(bin_dir.join("author2-js.js").exists());
+    assert!(bin_dir.join("author2-wasm.wasm").exists());
+    assert!(bin_dir.join("m-wasm.wasm").exists());
+    assert!(bin_dir.join("main-js.js").exists());
+}

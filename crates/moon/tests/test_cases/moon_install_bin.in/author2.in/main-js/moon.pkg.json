@@ -1,0 +1,8 @@
+{
+  "is_main": true,
+  "import": [
+    "author2/flash/lib"
+  ],
+  "bin-target": "js",
+  "bin-name": "author2-js"
+}

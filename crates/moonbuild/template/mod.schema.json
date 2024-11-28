@@ -14,6 +14,16 @@
         "null"
       ]
     },
+    "bin-deps": {
+      "description": "third-party binary dependencies of the module",
+      "type": [
+        "object",
+        "null"
+      ],
+      "additionalProperties": {
+        "type": "string"
+      }
+    },
     "deps": {
       "description": "third-party dependencies of the module",
       "type": [

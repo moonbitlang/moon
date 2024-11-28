@@ -11,6 +11,18 @@
         "null"
       ]
     },
+    "bin-name": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "bin-target": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
     "import": {
       "description": "Imported packages of the package",
       "anyOf": [

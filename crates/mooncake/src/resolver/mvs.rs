@@ -484,6 +484,7 @@ mod test {
                 deps: {
                     "dep/two": ^0.1.0,
                 },
+                bin_deps: None,
                 readme: None,
                 repository: None,
                 license: None,
