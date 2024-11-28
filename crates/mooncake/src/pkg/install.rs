@@ -96,16 +96,21 @@ pub(crate) fn install_impl(
 
                     let full_pkg_name = format!("{bin_mod_to_install}/{pkg_name}");
 
-                    let pkg = module_db.get_package_by_name(&full_pkg_name);
-                    build_and_install_bin_package(
-                        &moon_path,
-                        &bin_mod_path,
-                        &full_pkg_name,
-                        &install_path,
-                        pkg.bin_target.to_backend_ext(),
-                        bin_alias,
-                        verbose,
-                    )?;
+                    let pkg = module_db.get_package_by_name_safe(&full_pkg_name);
+                    match pkg {
+                        Some(pkg) => {
+                            build_and_install_bin_package(
+                                &moon_path,
+                                &bin_mod_path,
+                                &full_pkg_name,
+                                &install_path,
+                                pkg.bin_target.to_backend_ext(),
+                                bin_alias,
+                                verbose,
+                            )?;
+                        }
+                        _ => anyhow::bail!(format!("package `{}` not found", full_pkg_name)),
+                    }
                 }
             } else {
                 for (full_pkg_name, pkg) in module_db

@@ -170,8 +170,16 @@ fn run_build_internal(
     )?;
 
     if let Some(bin_alias) = cmd.bin_alias.clone() {
-        let pkg = module.get_package_by_name_mut(cmd.package.as_ref().unwrap());
-        pkg.bin_name = Some(bin_alias);
+        let pkg = module.get_package_by_name_mut_safe(cmd.package.as_ref().unwrap());
+        match pkg {
+            Some(pkg) => {
+                pkg.bin_name = Some(bin_alias);
+            }
+            _ => anyhow::bail!(format!(
+                "package `{}` not found",
+                cmd.package.as_ref().unwrap()
+            )),
+        }
     }
 
     moonutil::common::set_native_backend_link_flags(

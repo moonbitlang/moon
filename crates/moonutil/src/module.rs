@@ -83,8 +83,12 @@ impl ModuleDB {
         self.packages.get(name).unwrap()
     }
 
-    pub fn get_package_by_name_mut(&mut self, name: &str) -> &mut Package {
-        self.packages.get_mut(name).unwrap()
+    pub fn get_package_by_name_safe(&self, name: &str) -> Option<&Package> {
+        self.packages.get(name)
+    }
+
+    pub fn get_package_by_name_mut_safe(&mut self, name: &str) -> Option<&mut Package> {
+        self.packages.get_mut(name)
     }
 
     pub fn get_package_by_path(&self, path: &Path) -> Option<&Package> {
