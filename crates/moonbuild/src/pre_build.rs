@@ -19,7 +19,7 @@
 use std::path::PathBuf;
 use std::rc::Rc;
 
-use moonutil::common::MoonbuildOpt;
+use moonutil::common::{MoonbuildOpt, DEP_PATH, MOD_DIR, MOONCAKE_BIN, MOON_BIN_DIR, PKG_DIR};
 use moonutil::module::ModuleDB;
 use moonutil::package::StringOrArray;
 use n2::graph::{self as n2graph, Build, BuildIns, BuildOuts, FileId, FileLoc};
@@ -108,14 +108,16 @@ pub fn load_moon_pre_build(
                     command.to_string()
                 }
                 .replace(
-                    moonutil::common::MOONCAKE_BIN,
+                    MOONCAKE_BIN,
                     &moonbuild_opt
                         .source_dir
-                        .join(moonutil::common::DEP_PATH)
-                        .join(moonutil::common::MOON_BIN_DIR)
+                        .join(DEP_PATH)
+                        .join(MOON_BIN_DIR)
                         .display()
                         .to_string(),
-                );
+                )
+                .replace(MOD_DIR, &moonbuild_opt.source_dir.display().to_string())
+                .replace(PKG_DIR, &cwd.display().to_string());
 
                 let command = command
                     .replace("$input", &inputs.join(" "))

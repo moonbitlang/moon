@@ -75,8 +75,6 @@ pub(crate) fn install_impl(
                 None => dep_dir.path().join(bin_mod_to_install),
             };
 
-            // dbg!(&bin_mod_path);
-
             if !bin_mod_path.exists() {
                 anyhow::bail!(
                     "binary module `{}` not found in `{}`",
