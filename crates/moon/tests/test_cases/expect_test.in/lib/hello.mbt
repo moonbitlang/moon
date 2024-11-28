@@ -3,46 +3,46 @@ pub fn hello() -> String {
 }
 
 test "basic" {
-  let buf = Buffer::new()
+  let buf = @buffer.new()
   let n = 123
   buf.write_string(n.to_string())
-  buf.expect!()
+  inspect!(buf)
 }
 
 test "indent" {
   let _ = {
-    let buf = Buffer::new()
+    let buf = @buffer.new()
     let s = "haha"
     buf.write_string(s)
-    buf.expect!()
+    inspect!(buf)
   }
   ()
 }
 
 test "auto_reset" {
-  let buf = Buffer::new()
+  let buf = @buffer.new()
   let s = "haha"
   buf.write_string(s)
-  buf.expect!()
+  inspect!(buf)
   let s = "123"
   buf.write_string(s)
-  buf.expect!(content="123")
+  inspect!(buf, content="123")
 }
 
 test "multiline-string" {
-  let buf = Buffer::new()
+  let buf = @buffer.new()
   let s = "1\n2\n3\n"
   buf.write_string(s)
-  buf.expect!()
+  inspect!(buf)
 }
 
 test "multiline-string-2" {
-  let buf = Buffer::new()
+  let buf = @buffer.new()
   let s =
     #|abc
     #|def
   buf.write_string(s)
-  buf.expect!(
+  inspect!(buf,
     content=
       #|bcd
       #|defg
@@ -51,9 +51,9 @@ test "multiline-string-2" {
 }
 
 test "not-empty-expect" {
-  let buf = Buffer::new()
+  let buf = @buffer.new()
   buf.write_string("123")
-  buf.expect!(content="1")
+  inspect!(buf, content="1")
 }
 
 test {
@@ -128,15 +128,15 @@ test {
 }
 
 test {
-  let buf = Buffer::new()
+  let buf = @buffer.new()
   buf.write_string("just\ntest")
-  buf.expect!()
+  inspect!(buf)
 }
 
 test "hello" {
-  let buf = Buffer::new()
+  let buf = @buffer.new()
   buf.write_string("just\ntest")
-  buf.expect!(content="")
+  inspect!(buf, content="")
 }
 
 fn actual() -> String {
