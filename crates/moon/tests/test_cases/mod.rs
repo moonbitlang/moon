@@ -8055,4 +8055,12 @@ fn test_moon_install_bin() {
     assert!(bin_dir.join("author2-wasm.wasm").exists());
     assert!(bin_dir.join("m-wasm.wasm").exists());
     assert!(bin_dir.join("main-js.js").exists());
+
+    check(get_stderr(&dir, ["build"]), expect![[r#"
+        main-js
+        lib Hello, world!
+        ()
+        Executed 1 pre-build task, now up to date
+        Finished. moon: ran 17 tasks, now up to date
+    "#]]);
 }
