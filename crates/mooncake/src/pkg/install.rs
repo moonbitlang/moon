@@ -85,7 +85,7 @@ pub(crate) fn install_impl(
                 );
             }
 
-            let module_db = get_module_db(&bin_mod_path)?;
+            let module_db = get_module_db(&bin_mod_path, &res, &dep_dir)?;
 
             if let Some(ref bin_pkg) = info.bin_pkg {
                 for bin_pkg_to_install in bin_pkg {
@@ -190,13 +190,12 @@ fn build_and_install_bin_package(
     Ok(())
 }
 
-fn get_module_db(source_dir: &Path) -> anyhow::Result<moonutil::module::ModuleDB> {
-    let (resolved_env, dir_sync_result) = super::sync::auto_sync(
-        source_dir,
-        &moonutil::mooncakes::sync::AutoSyncFlags { frozen: true },
-        &RegistryConfig::load(),
-        true,
-    )?;
+fn get_module_db(
+    source_dir: &Path,
+    resolved_env: &ResolvedEnv,
+    dep_dir: &DepDir,
+) -> anyhow::Result<moonutil::module::ModuleDB> {
+    let dir_sync_result = crate::dep_dir::resolve_dep_dirs(dep_dir, resolved_env);
     let moonbuild_opt = moonutil::common::MoonbuildOpt {
         source_dir: source_dir.to_path_buf(),
         raw_target_dir: source_dir.join("target"),
@@ -216,7 +215,7 @@ fn get_module_db(source_dir: &Path) -> anyhow::Result<moonutil::module::ModuleDB
     };
     let module_db = scan(
         false,
-        &resolved_env,
+        resolved_env,
         &dir_sync_result,
         &moonutil::common::MooncOpt::default(),
         &moonbuild_opt,
