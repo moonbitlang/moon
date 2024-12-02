@@ -36,7 +36,7 @@
   
   $ moon test -p asdf --sort-input --no-parallelize
   
-  Warning: no test entry found
+  Warning: no test entry found(test block in main package is not support for now)
   
   $ moon test -p y -f asdf --sort-input --no-parallelize
   Total tests: 0, passed: 0, failed: 0.

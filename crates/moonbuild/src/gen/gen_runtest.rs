@@ -1106,7 +1106,10 @@ pub fn gen_n2_runtest_state(
     }
 
     if default.is_empty() {
-        eprintln!("{}: no test entry found", "Warning".yellow().bold());
+        eprintln!(
+            "{}: no test entry found(test block in main package is not support for now)",
+            "Warning".yellow().bold()
+        );
         std::process::exit(0);
     }
 

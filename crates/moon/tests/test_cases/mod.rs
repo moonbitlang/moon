@@ -3960,7 +3960,7 @@ fn test_moon_test_no_entry_warning() {
     check(
         std::str::from_utf8(&out).unwrap(),
         expect![[r#"
-            Warning: no test entry found
+            Warning: no test entry found(test block in main package is not support for now)
         "#]],
     );
 }
