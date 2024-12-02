@@ -165,18 +165,7 @@ pub struct BinaryDependencyInfo {
 
     /// Binary packages to compile.
     #[serde(skip_serializing_if = "Option::is_none", alias = "bin-pkg")]
-    pub bin_pkg: Option<Vec<BinPkgItem>>,
-}
-
-#[derive(Clone, Serialize, Deserialize, Debug)]
-#[serde(untagged)]
-pub enum BinPkgItem {
-    Simple(String),
-    Detailed {
-        name: String,
-        #[serde(skip_serializing_if = "Option::is_none")]
-        alias: Option<String>,
-    },
+    pub bin_pkg: Option<Vec<String>>,
 }
 
 impl BinaryDependencyInfo {

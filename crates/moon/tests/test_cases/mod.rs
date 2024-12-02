@@ -8047,7 +8047,7 @@ fn test_moon_install_bin() {
     assert!(bin_dir.join("author2-native.exe").exists());
     assert!(bin_dir.join("author2-js.js").exists());
     assert!(bin_dir.join("author2-wasm.wasm").exists());
-    assert!(bin_dir.join("m-wasm.wasm").exists());
+    assert!(bin_dir.join("this-is-wasm.wasm").exists());
     assert!(bin_dir.join("main-js.js").exists());
 
     std::fs::remove_dir_all(&mooncakes_path).unwrap();
@@ -8061,7 +8061,7 @@ fn test_moon_install_bin() {
     assert!(bin_dir.join("author2-native.exe").exists());
     assert!(bin_dir.join("author2-js.js").exists());
     assert!(bin_dir.join("author2-wasm.wasm").exists());
-    assert!(bin_dir.join("m-wasm.wasm").exists());
+    assert!(bin_dir.join("this-is-wasm.wasm").exists());
     assert!(bin_dir.join("main-js.js").exists());
 
     check(
