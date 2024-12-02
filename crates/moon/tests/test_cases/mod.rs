@@ -3983,6 +3983,7 @@ fn test_moon_fmt() {
     check(
         read(dir.join("lib").join("hello.mbt")),
         expect![[r#"
+            ///|
             pub fn hello() -> String {
               "Hello, world!"
             }
@@ -3991,6 +3992,7 @@ fn test_moon_fmt() {
     check(
         read(dir.join("main").join("main.mbt")),
         expect![[r#"
+            ///|
             fn main {
               println(@lib.hello())
             }
@@ -4031,6 +4033,7 @@ fn test_moon_fmt_002() {
                 .join("hello.mbt"),
         ),
         expect![[r#"
+            ///|
             pub fn hello() -> String {
               "Hello, world!"
             }
@@ -4046,6 +4049,7 @@ fn test_moon_fmt_002() {
                 .join("main.mbt"),
         ),
         expect![[r#"
+            ///|
             fn main {
               println(@lib.hello())
             }
@@ -7220,10 +7224,11 @@ fn test_moonfmt() {
     check(
         &out,
         expect![[r#"
-        pub fn hello() -> String {
-          "Hello, world!"
-        }
-    "#]],
+            ///|
+            pub fn hello() -> String {
+              "Hello, world!"
+            }
+        "#]],
     );
 
     check(
@@ -7240,6 +7245,7 @@ fn test_moonfmt() {
     check(
         read(dir.join("src/lib/hello.mbt")),
         expect![[r#"
+            ///|
             pub fn hello() -> String {
               "Hello, world!"
             }
@@ -7261,18 +7267,20 @@ fn test_moonfmt() {
     check(
         read(dir.join("src/lib/hello.mbt")),
         expect![[r#"
-        pub fn hello() -> String {
-          "Hello, world!"
-        }
-    "#]],
+            ///|
+            pub fn hello() -> String {
+              "Hello, world!"
+            }
+        "#]],
     );
     check(
         read(dir.join("src/lib/hello.txt")),
         expect![[r#"
-    pub fn hello() -> String {
-      "Hello, world!"
-    }
-"#]],
+            ///|
+            pub fn hello() -> String {
+              "Hello, world!"
+            }
+        "#]],
     );
 }
 
