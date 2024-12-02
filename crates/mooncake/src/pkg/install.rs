@@ -62,10 +62,6 @@ pub(crate) fn install_impl(
     }
 
     if let Some(ref bin_deps) = m.bin_deps {
-        let install_path = source_dir
-            .join(moonutil::common::DEP_PATH)
-            .join(moonutil::common::MOON_BIN_DIR);
-
         let moon_path = std::env::current_exe()
             .map_or_else(|_| "moon".into(), |x| x.to_string_lossy().into_owned());
 
@@ -96,7 +92,7 @@ pub(crate) fn install_impl(
                                 &moon_path,
                                 &bin_mod_path,
                                 &full_pkg_name,
-                                &install_path,
+                                &bin_mod_path,
                                 pkg.bin_target.to_backend_ext(),
                                 verbose,
                             )?;
@@ -114,24 +110,10 @@ pub(crate) fn install_impl(
                         &moon_path,
                         &bin_mod_path,
                         full_pkg_name,
-                        &install_path,
+                        &bin_mod_path,
                         pkg.bin_target.to_backend_ext(),
                         verbose,
                     )?;
-                }
-            }
-        }
-
-        // remove all files except .exe, .wasm, .js
-        if install_path.exists() {
-            for entry in std::fs::read_dir(&install_path)? {
-                let entry = entry?;
-                let path = entry.path();
-                if path.is_file() {
-                    let ext = path.extension().and_then(|s| s.to_str());
-                    if !matches!(ext, Some("exe" | "wasm" | "js")) {
-                        std::fs::remove_file(path)?;
-                    }
                 }
             }
         }

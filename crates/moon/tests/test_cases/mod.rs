@@ -8030,39 +8030,47 @@ fn test_moon_query() {
 }
 
 #[test]
+#[allow(clippy::just_underscores_and_digits)]
 fn test_moon_install_bin() {
-    let dir = TestDir::new("moon_install_bin.in");
-    let dir = dir.join("user.in");
+    let top_dir = TestDir::new("moon_install_bin.in");
+    let dir = top_dir.join("user.in");
 
-    let mooncakes_path = dir.join(moonutil::common::DEP_PATH);
-    if mooncakes_path.exists() {
-        std::fs::remove_dir_all(&mooncakes_path).unwrap();
-    }
-
-    let bin_dir = mooncakes_path.join(moonutil::common::MOON_BIN_DIR);
+    let _1 = top_dir.join("author2.in").join("author2-native.exe");
+    let _2 = top_dir.join("author2.in").join("author2-js.js");
+    let _3 = top_dir.join("author2.in").join("author2-wasm.wasm");
+    let _4 = top_dir.join("author1.in").join("this-is-wasm.wasm");
+    let _5 = top_dir.join("author1.in").join("main-js.js");
 
     // moon check should auto install bin deps
     get_stdout(&dir, ["check"]);
-    assert!(bin_dir.exists());
-    assert!(bin_dir.join("author2-native.exe").exists());
-    assert!(bin_dir.join("author2-js.js").exists());
-    assert!(bin_dir.join("author2-wasm.wasm").exists());
-    assert!(bin_dir.join("this-is-wasm.wasm").exists());
-    assert!(bin_dir.join("main-js.js").exists());
+    assert!(_1.exists());
+    assert!(_2.exists());
+    assert!(_3.exists());
+    assert!(_4.exists());
+    assert!(_5.exists());
 
-    std::fs::remove_dir_all(&mooncakes_path).unwrap();
-
-    assert!(!bin_dir.exists());
+    {
+        // delete all bin files
+        std::fs::remove_file(&_1).unwrap();
+        std::fs::remove_file(&_2).unwrap();
+        std::fs::remove_file(&_3).unwrap();
+        std::fs::remove_file(&_4).unwrap();
+        std::fs::remove_file(&_5).unwrap();
+        assert!(!_1.exists());
+        assert!(!_2.exists());
+        assert!(!_3.exists());
+        assert!(!_4.exists());
+        assert!(!_5.exists());
+    }
 
     // moon install should install bin deps
     get_stdout(&dir, ["install"]);
 
-    assert!(bin_dir.exists());
-    assert!(bin_dir.join("author2-native.exe").exists());
-    assert!(bin_dir.join("author2-js.js").exists());
-    assert!(bin_dir.join("author2-wasm.wasm").exists());
-    assert!(bin_dir.join("this-is-wasm.wasm").exists());
-    assert!(bin_dir.join("main-js.js").exists());
+    assert!(_1.exists());
+    assert!(_2.exists());
+    assert!(_3.exists());
+    assert!(_4.exists());
+    assert!(_5.exists());
 
     check(
         get_stderr(&dir, ["build"]),
