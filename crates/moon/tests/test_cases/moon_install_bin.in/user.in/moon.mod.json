@@ -11,10 +11,7 @@
       "path": "../author1.in",
       "bin_pkg": [
         "main-js",
-        {
-          "name": "main-wasm",
-          "alias": "m-wasm"
-        }
+        "main-wasm"
       ]
     },
     "author2/flash": {

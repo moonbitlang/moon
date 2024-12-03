@@ -62,10 +62,6 @@ pub(crate) fn install_impl(
     }
 
     if let Some(ref bin_deps) = m.bin_deps {
-        let install_path = source_dir
-            .join(moonutil::common::DEP_PATH)
-            .join(moonutil::common::MOON_BIN_DIR);
-
         let moon_path = std::env::current_exe()
             .map_or_else(|_| "moon".into(), |x| x.to_string_lossy().into_owned());
 
@@ -86,14 +82,7 @@ pub(crate) fn install_impl(
             let module_db = get_module_db(&bin_mod_path, &res, &dep_dir)?;
 
             if let Some(ref bin_pkg) = info.bin_pkg {
-                for bin_pkg_to_install in bin_pkg {
-                    let (pkg_name, bin_alias) = match bin_pkg_to_install {
-                        moonutil::dependency::BinPkgItem::Simple(pkg_name) => (pkg_name, None),
-                        moonutil::dependency::BinPkgItem::Detailed { name, alias } => {
-                            (name, alias.as_ref())
-                        }
-                    };
-
+                for pkg_name in bin_pkg {
                     let full_pkg_name = format!("{bin_mod_to_install}/{pkg_name}");
 
                     let pkg = module_db.get_package_by_name_safe(&full_pkg_name);
@@ -103,9 +92,8 @@ pub(crate) fn install_impl(
                                 &moon_path,
                                 &bin_mod_path,
                                 &full_pkg_name,
-                                &install_path,
+                                &bin_mod_path,
                                 pkg.bin_target.to_backend_ext(),
-                                bin_alias,
                                 verbose,
                             )?;
                         }
@@ -122,25 +110,10 @@ pub(crate) fn install_impl(
                         &moon_path,
                         &bin_mod_path,
                         full_pkg_name,
-                        &install_path,
+                        &bin_mod_path,
                         pkg.bin_target.to_backend_ext(),
-                        None,
                         verbose,
                     )?;
-                }
-            }
-        }
-
-        // remove all files except .exe, .wasm, .js
-        if install_path.exists() {
-            for entry in std::fs::read_dir(&install_path)? {
-                let entry = entry?;
-                let path = entry.path();
-                if path.is_file() {
-                    let ext = path.extension().and_then(|s| s.to_str());
-                    if !matches!(ext, Some("exe" | "wasm" | "js")) {
-                        std::fs::remove_file(path)?;
-                    }
                 }
             }
         }
@@ -155,7 +128,6 @@ fn build_and_install_bin_package(
     full_pkg_name: &str,
     install_path: &Path,
     bin_target: impl AsRef<str>,
-    bin_alias: Option<&String>,
     verbose: bool,
 ) -> anyhow::Result<()> {
     let mut build_args = vec![
@@ -169,11 +141,6 @@ fn build_and_install_bin_package(
         "--package".to_string(),
         full_pkg_name.to_string(),
     ];
-
-    if let Some(bin_alias) = bin_alias {
-        build_args.push("--bin-alias".to_string());
-        build_args.push(bin_alias.to_string());
-    }
 
     if !verbose {
         build_args.push("--quiet".to_string());
