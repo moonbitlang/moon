@@ -987,9 +987,17 @@ async fn handle_test_result(
                     // here need to rerun the test to get the new error message
                     // since the previous apply expect may add or delete some line, which make the error message out of date
                     let index = origin_err.index.clone().parse::<u32>().unwrap();
+                    let filename = if origin_err.is_doc_test {
+                        origin_err
+                            .filename
+                            .replace(".mbt", &format!("{}.mbt", MOON_DOC_TEST_POSTFIX))
+                    } else {
+                        origin_err.filename.clone()
+                    };
+
                     let test_args = TestArgs {
                         package: origin_err.package.clone(),
-                        file_and_index: vec![(origin_err.filename.clone(), index..(index + 1))],
+                        file_and_index: vec![(filename, index..(index + 1))],
                     };
                     let rerun = execute_test(
                         moonc_opt.build_opt.target_backend,
@@ -1012,8 +1020,16 @@ async fn handle_test_result(
                         Err(TestFailedStatus::ExpectTestFailed(cur_err)) => &[cur_err.message],
                         _ => &[origin_err.message.clone()],
                     };
+
                     if let Err(e) = crate::expect::apply_expect(update_msg) {
                         eprintln!("{}: {:?}", "apply expect failed".red().bold(), e);
+                    }
+                    // if is doc test, after apply_expect, we need to update the doc test patch file
+                    if origin_err.is_doc_test {
+                        moonutil::doc_test::gen_doc_test_patch(
+                            module.get_package_by_name(&origin_err.package),
+                            moonc_opt,
+                        )?;
                     }
 
                     // recompile after apply expect
@@ -1049,6 +1065,13 @@ async fn handle_test_result(
 
                         if let Err(e) = crate::expect::apply_expect(&[etf.message.clone()]) {
                             eprintln!("{}: {:?}", "failed".red().bold(), e);
+                        }
+                        // if is doc test, after apply_expect, we need to update the doc test patch file
+                        if origin_err.is_doc_test {
+                            moonutil::doc_test::gen_doc_test_patch(
+                                module.get_package_by_name(&origin_err.package),
+                                moonc_opt,
+                            )?;
                         }
 
                         // recompile after apply expect

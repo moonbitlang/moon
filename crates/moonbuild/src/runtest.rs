@@ -24,7 +24,7 @@ use super::gen;
 use anyhow::{bail, Context};
 use moonutil::common::{
     MoonbuildOpt, MooncOpt, MOON_COVERAGE_DELIMITER_BEGIN, MOON_COVERAGE_DELIMITER_END,
-    MOON_TEST_DELIMITER_BEGIN, MOON_TEST_DELIMITER_END,
+    MOON_DOC_TEST_POSTFIX, MOON_TEST_DELIMITER_BEGIN, MOON_TEST_DELIMITER_END,
 };
 use moonutil::module::ModuleDB;
 use n2::load::State;
@@ -49,6 +49,9 @@ pub struct TestStatistics {
     pub index: String,
     pub test_name: String,
     pub message: String,
+    #[serde(skip_serializing)]
+    #[serde(default)]
+    pub is_doc_test: bool,
 }
 
 impl std::fmt::Display for TestStatistics {
@@ -187,14 +190,13 @@ async fn run(
             let mut ts: TestStatistics = serde_json_lenient::from_str(s.trim())
                 .context(format!("failed to parse test summary: {}", s))?;
 
+            if ts.filename.contains(MOON_DOC_TEST_POSTFIX) {
+                ts.is_doc_test = true;
+            }
             // this is a hack for doc test, make the doc test patch filename be the original file name
-            if ts.test_name.starts_with("doc_test") {
-                let temp = ts.test_name.split(" ").collect::<Vec<&str>>();
-                let original_file_name = temp[1].to_string();
-                ts.filename = original_file_name.clone();
-                ts.message = ts
-                    .message
-                    .replace(moonutil::common::MOON_DOC_TEST_POSTFIX, "");
+            if ts.is_doc_test {
+                ts.filename = ts.filename.replace(MOON_DOC_TEST_POSTFIX, "");
+                ts.message = ts.message.replace(MOON_DOC_TEST_POSTFIX, "");
             }
 
             test_statistics.push(ts);
