@@ -112,3 +112,17 @@ pub fn nodes_to_pkg_sources(m: &ModuleDB, nodes: &[String]) -> Vec<(String, Stri
 pub fn graph_to_dot(m: &ModuleDB) {
     println!("{:?}", Dot::with_config(&m.graph, &[Config::EdgeNoLabel]));
 }
+
+pub fn self_in_test_import(pkg: &Package) -> bool {
+    // for package in the same level of mod, like "Yoorkin/prettyprinter", pkg.rel.full_name() is_empty
+    // current_pkg_full_path should be "Yoorkin/prettyprinter" instead of "Yoorkin/prettyprinter/"
+    let current_pkg_full_path = if pkg.rel.full_name().is_empty() {
+        pkg.root.full_name()
+    } else {
+        format!("{}/{}", pkg.root.full_name(), pkg.rel.full_name())
+    };
+
+    pkg.test_imports
+        .iter()
+        .any(|import| import.path.make_full_path() == current_pkg_full_path)
+}

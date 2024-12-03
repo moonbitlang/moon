@@ -18,6 +18,7 @@
 
 use super::cmd_builder::CommandBuilder;
 use super::n2_errors::{N2Error, N2ErrorKind};
+use super::util::self_in_test_import;
 use crate::gen::MiAlias;
 use anyhow::bail;
 use indexmap::map::IndexMap;
@@ -198,9 +199,7 @@ fn pkg_with_test_to_check_item(
     pkg: &Package,
     moonc_opt: &MooncOpt,
 ) -> anyhow::Result<CheckDepItem> {
-    let self_in_test_import = pkg.test_imports.iter().any(|import| {
-        import.path.make_full_path() == format!("{}/{}", pkg.root.full_name(), pkg.rel.full_name())
-    });
+    let self_in_test_import = self_in_test_import(pkg);
 
     if !self_in_test_import
         && pkg
