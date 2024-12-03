@@ -158,11 +158,14 @@ pub fn gen_package_test_driver(
         GeneratedTestDriver::BlackboxTest(it) => {
             let package_name = pkg.full_name();
             let driver_file = it.display().to_string();
-            let files_may_contain_test_block = pkg
+            let mut files_may_contain_test_block: Vec<String> = pkg
                 .test_files
                 .iter()
                 .map(|(f, _)| f.display().to_string())
                 .collect();
+            if let Some(doc_test_patch_file) = pkg.doc_test_patch_file.clone() {
+                files_may_contain_test_block.push(doc_test_patch_file.display().to_string());
+            }
             Ok(RuntestDriverItem {
                 package_name,
                 driver_file,
