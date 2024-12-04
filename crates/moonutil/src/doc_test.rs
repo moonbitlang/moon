@@ -21,7 +21,7 @@ pub struct DocTestExtractor {
 impl DocTestExtractor {
     pub fn new() -> Self {
         // \r\n for windows, \n for unix
-        let pattern = r#"///\s*```(?:\r?\n)((?:///.*(?:\r?\n))*?)///\s*```"#;
+        let pattern = r#"///\s*```(?:mbt|moonbit)?\s*(?:\r?\n)((?:///.*(?:\r?\n))*?)///\s*```"#;
         Self {
             test_pattern: Regex::new(pattern).expect("Invalid regex pattern"),
         }
@@ -96,10 +96,11 @@ impl PatchJSON {
                     empty_lines, test_name, doc_test.content
                 ));
 
-                std::fs::write(format!("__doc_test_{}.mbt", doc_test.file_name), &content).unwrap();
-
                 // +1 for the }
                 current_line = start_line_number + doc_test.line_count + 1;
+
+                // this is for debug
+                // std::fs::write(format!("__doc_test_{}.mbt", doc_test.file_name), &content).unwrap();
             }
 
             patches.push(PatchItem {

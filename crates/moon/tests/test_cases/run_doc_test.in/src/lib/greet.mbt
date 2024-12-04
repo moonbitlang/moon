@@ -16,7 +16,7 @@ pub fn greet2() -> String {
   "greet, world!"
 }
 
-/// ```
+/// ```moonbit
 /// println("doc_test 3 from greet.mbt")
 /// 
 /// 

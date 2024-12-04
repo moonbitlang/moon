@@ -6,7 +6,7 @@ pub fn hello1() -> String {
 }
 
 
-/// ```
+/// ```mbt
 /// println("doc_test 2 from hello.mbt")
 /// 
 /// inspect!(1256)
