@@ -7975,31 +7975,58 @@ fn test_run_doc_test() {
             doc_test 3 from hello.mbt
             doc_test
             doc_test 1 from greet.mbt
-            doc_test 2 from greet.mbt
+            test block 1
+            test block 2
+            test block 3
             doc_test 3 from greet.mbt
-            doc_test from greet.mbt
-            test username/hello/lib/hello.mbt::2 failed: FAILED: $ROOT/src/lib/hello.mbt:22:5-22:31 this is a failure
-            test username/hello/lib/greet.mbt::3 failed
-            expect test failed at $ROOT/src/lib/greet.mbt:33:5-33:18
+            test block 4
+            test block 5
+            doc_test 5 from greet.mbt
+            test username/hello/lib/hello.mbt::1 failed
+            expect test failed at $ROOT/src/lib/hello.mbt:12:5-12:19
             Diff:
             ----
-            423
+            1256
             ----
 
-            Total tests: 8, passed: 6, failed: 2.
+            test username/hello/lib/hello.mbt::2 failed: FAILED: $ROOT/src/lib/hello.mbt:22:5-22:31 this is a failure
+            test username/hello/lib/greet.mbt::2 failed
+            expect test failed at $ROOT/src/lib/greet.mbt:22:7-22:21
+            Diff:
+            ----
+            1256
+            ----
+
+            test username/hello/lib/greet.mbt::3 failed: FAILED: $ROOT/src/lib/greet.mbt:31:7-31:31 another failure
+            Total tests: 12, passed: 8, failed: 4.
         "#]],
     );
 
-    // --doc conflicts with --update
-    #[cfg(unix)]
     check(
-        get_err_stderr(&dir, ["test", "--doc", "--update"]),
+        get_err_stdout(&dir, ["test", "--sort-input", "--doc", "--update"]),
         expect![[r#"
-            error: the argument '--doc' cannot be used with '--update'
+            doc_test 1 from hello.mbt
+            doc_test 2 from hello.mbt
+            doc_test 3 from hello.mbt
+            doc_test
+            doc_test 1 from greet.mbt
+            test block 1
+            test block 2
+            test block 3
+            doc_test 3 from greet.mbt
+            test block 4
+            test block 5
+            doc_test 5 from greet.mbt
 
-            Usage: moon test --doc
+            Auto updating expect tests and retesting ...
 
-            For more information, try '--help'.
+            doc_test 2 from hello.mbt
+            doc_test 2 from hello.mbt
+            test username/hello/lib/hello.mbt::2 failed: FAILED: $ROOT/src/lib/hello.mbt:22:5-22:31 this is a failure
+            test block 2
+            test block 2
+            test username/hello/lib/greet.mbt::3 failed: FAILED: $ROOT/src/lib/greet.mbt:31:7-31:31 another failure
+            Total tests: 12, passed: 10, failed: 2.
         "#]],
     );
 
