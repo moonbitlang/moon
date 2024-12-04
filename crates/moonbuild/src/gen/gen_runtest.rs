@@ -30,6 +30,7 @@ use moonutil::path::{ImportPath, PathComponent};
 use petgraph::graph::NodeIndex;
 
 use super::cmd_builder::CommandBuilder;
+use super::util::self_in_test_import;
 use super::{is_self_coverage_lib, is_skip_coverage_lib};
 use std::collections::HashSet;
 use std::path::PathBuf;
@@ -418,9 +419,7 @@ pub fn gen_package_blackbox_test(
     moonc_opt: &MooncOpt,
     patch_file: Option<PathBuf>,
 ) -> anyhow::Result<RuntestDepItem> {
-    let self_in_test_import = pkg.test_imports.iter().any(|import| {
-        import.path.make_full_path() == format!("{}/{}", pkg.root.full_name(), pkg.rel.full_name())
-    });
+    let self_in_test_import = self_in_test_import(pkg);
 
     if !self_in_test_import
         && pkg
