@@ -1,3 +1,21 @@
+// moon: The build system and package manager for MoonBit.
+// Copyright (C) 2024 International Digital Economy Academy
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU Affero General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU Affero General Public License for more details.
+//
+// You should have received a copy of the GNU Affero General Public License
+// along with this program.  If not, see <https://www.gnu.org/licenses/>.
+//
+// For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
+
 use anyhow::Context;
 use regex::Regex;
 use std::fs;
@@ -16,6 +34,12 @@ pub struct DocTest {
 
 pub struct DocTestExtractor {
     test_pattern: Regex,
+}
+
+impl Default for DocTestExtractor {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl DocTestExtractor {
@@ -41,17 +65,10 @@ impl DocTestExtractor {
                     + 1;
 
                 if let Some(test_content) = cap.get(1) {
-                    let processed_content = test_content
-                        .as_str()
-                        .lines()
-                        .map(|line| format!("    {}", line.trim_start_matches("/// ")).to_string())
-                        .collect::<Vec<_>>()
-                        .join("\n");
-
-                    let line_count = processed_content.split('\n').count();
+                    let line_count = test_content.as_str().lines().count();
 
                     tests.push(DocTest {
-                        content: processed_content,
+                        content: test_content.as_str().to_string(),
                         file_name: file_path.file_name().unwrap().to_str().unwrap().to_string(),
                         line_number,
                         line_count,
@@ -88,13 +105,41 @@ impl PatchJSON {
                     "doc_test", doc_test.file_name, doc_test.line_number, doc_test.line_count
                 );
 
+                let already_wrapped = doc_test
+                    .content
+                    .lines()
+                    .any(|line| line.replace("///", "").trim_start().starts_with("test"));
+
+                let processed_content = doc_test
+                    .content
+                    .as_str()
+                    .lines()
+                    .map(|line| {
+                        if already_wrapped {
+                            let remove_slash = line.replace("///", "").trim_start().to_string();
+                            if remove_slash.starts_with("test") || remove_slash.starts_with("}") {
+                                remove_slash
+                            } else {
+                                line.to_string().replace("///", "   ")
+                            }
+                        } else {
+                            format!("   {}", line.trim_start_matches("///")).to_string()
+                        }
+                    })
+                    .collect::<Vec<_>>()
+                    .join("\n");
+
                 let start_line_number = doc_test.line_number;
                 let empty_lines = "\n".repeat(start_line_number - current_line);
 
-                content.push_str(&format!(
-                    "{}test \"{}\" {{\n{}\n}}",
-                    empty_lines, test_name, doc_test.content
-                ));
+                if already_wrapped {
+                    content.push_str(&format!("\n{}{}\n", empty_lines, processed_content));
+                } else {
+                    content.push_str(&format!(
+                        "{}test \"{}\" {{\n{}\n}}",
+                        empty_lines, test_name, processed_content
+                    ));
+                }
 
                 // +1 for the }
                 current_line = start_line_number + doc_test.line_count + 1;
