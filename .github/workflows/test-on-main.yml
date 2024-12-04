@@ -140,6 +140,7 @@ jobs:
           cargo run --bin moon test --source-dir "$env:USERPROFILE\.moon\lib\core" --release --target wasm-gc
           cargo run --bin moon test --source-dir "$env:USERPROFILE\.moon\lib\core" --release --target js
           cargo run --bin moon test --source-dir "$env:USERPROFILE\.moon\lib\core" --release --target wasm
+          cargo run --bin moon test --source-dir "$env:USERPROFILE\.moon\lib\core" --doc
 
       - name: Notify on fail (windows)
         if: ${{ failure() && matrix.os == 'windows-latest' }}
