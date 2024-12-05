@@ -28,18 +28,8 @@ const INIT_SYS_API: &str = r#"
             return run_env.args
         }
 
-        function env_get_vars() {
-            let result = []
-            for (let [key, value] of run_env.env_vars) {
-                result.push(key)
-                result.push(value)
-            }
-            return result
-        }
-
         obj.env_get_var = env_get_var
         obj.args_get = args_get
-        obj.env_get_vars = env_get_vars
     })()
 "#;
 
@@ -66,6 +56,41 @@ fn construct_env_vars<'s>(scope: &mut v8::HandleScope<'s>) -> v8::Local<'s, v8::
     map
 }
 
+fn set_env_var(
+    scope: &mut v8::HandleScope,
+    args: v8::FunctionCallbackArguments,
+    mut ret: v8::ReturnValue,
+) {
+    let key = args.get(0);
+    let key = key.to_string(scope).unwrap();
+    let key = key.to_rust_string_lossy(scope);
+
+    let value = args.get(1);
+    let value = value.to_string(scope).unwrap();
+    let value = value.to_rust_string_lossy(scope);
+
+    std::env::set_var(&key, &value);
+
+    ret.set_undefined()
+}
+
+fn get_env_vars(
+    scope: &mut v8::HandleScope,
+    _args: v8::FunctionCallbackArguments,
+    mut ret: v8::ReturnValue,
+) {
+    let result = v8::Array::new(scope, 0);
+    let mut index = 0;
+    for (k, v) in std::env::vars() {
+        let key = v8::String::new(scope, &k).unwrap();
+        let val = v8::String::new(scope, &v).unwrap();
+        result.set_index(scope, index, key.into()).unwrap();
+        result.set_index(scope, index + 1, val.into()).unwrap();
+        index += 2;
+    }
+    ret.set(result.into());
+}
+
 pub fn init_env<'s>(
     obj: v8::Local<'s, v8::Object>,
     scope: &mut v8::HandleScope<'s>,
@@ -88,5 +113,16 @@ pub fn init_env<'s>(
 
     let undefined = v8::undefined(scope);
     func.call(scope, undefined.into(), &[obj.into(), env_obj.into()]);
+
+    let set_env_var = v8::FunctionTemplate::new(scope, set_env_var);
+    let set_env_var = set_env_var.get_function(scope).unwrap();
+    let ident = v8::String::new(scope, "set_env_var").unwrap();
+    obj.set(scope, ident.into(), set_env_var.into());
+
+    let get_env_vars = v8::FunctionTemplate::new(scope, get_env_vars);
+    let get_env_vars = get_env_vars.get_function(scope).unwrap();
+    let ident = v8::String::new(scope, "get_env_vars").unwrap();
+    obj.set(scope, ident.into(), get_env_vars.into());
+
     obj
 }
