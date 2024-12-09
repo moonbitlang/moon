@@ -257,6 +257,7 @@ pub struct MoonPkgJSON {
 pub struct ImportMemory {
     pub module: String,
     pub name: String,
+    pub shared: Option<bool>,
 }
 
 #[derive(Debug, Clone)]
