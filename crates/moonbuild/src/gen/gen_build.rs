@@ -395,12 +395,20 @@ pub fn gen_link_command(
         })
         .lazy_args_with_cond(import_memory.is_some(), || {
             let im = import_memory.unwrap();
-            vec![
+            let mut args = vec![
                 "-import-memory-module".to_string(),
                 im.module.clone(),
                 "-import-memory-name".to_string(),
                 im.name.clone(),
-            ]
+            ];
+            match im.shared {
+                None => {}
+                Some(shared) => {
+                    args.push("-import-memory-shared".to_string());
+                    args.push(shared.to_string())
+                }
+            }
+            args
         })
         .lazy_args_with_cond(heap_start_address.is_some(), || {
             vec![
