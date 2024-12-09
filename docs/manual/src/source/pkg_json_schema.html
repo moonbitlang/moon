@@ -391,6 +391,22 @@
             "null"
           ]
         },
+        "memory-limits": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/memory-limits"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "shared-memory": {
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
         "use-js-builtin-string": {
           "type": [
             "boolean",
@@ -443,6 +459,22 @@
               "type": "null"
             }
           ]
+        },
+        "memory-limits": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/memory-limits"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "shared-memory": {
+          "type": [
+            "boolean",
+            "null"
+          ]
         }
       }
     },
@@ -458,6 +490,25 @@
         },
         "name": {
           "type": "string"
+        }
+      }
+    },
+    "memory-limits": {
+      "type": "object",
+      "required": [
+        "max",
+        "min"
+      ],
+      "properties": {
+        "max": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0.0
+        },
+        "min": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0.0
         }
       }
     }

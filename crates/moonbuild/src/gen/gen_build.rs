@@ -346,6 +346,8 @@ pub fn gen_link_command(
     let export_memory_name = item.export_memory_name(moonc_opt.link_opt.target_backend);
     let heap_start_address = item.heap_start_address(moonc_opt.link_opt.target_backend);
     let import_memory = item.import_memory(moonc_opt.link_opt.target_backend);
+    let memory_limits = item.memory_limits(moonc_opt.link_opt.target_backend);
+    let shared_memory = item.shared_memory(moonc_opt.link_opt.target_backend);
     let link_flags = item.link_flags(moonc_opt.link_opt.target_backend);
 
     let native_cc = item.native_cc(moonc_opt.link_opt.target_backend);
@@ -420,6 +422,23 @@ pub fn gen_link_command(
                 "-import-memory-name".to_string(),
                 im.name.clone(),
             ]
+        })
+        .lazy_args_with_cond(memory_limits.is_some(), || {
+            let ml = memory_limits.unwrap();
+            vec![
+                "-memory-limits-min".to_string(),
+                ml.min.to_string(),
+                "-memory-limits-max".to_string(),
+                ml.max.to_string(),
+            ]
+        })
+        .lazy_args_with_cond(shared_memory.is_some(), || {
+            let sm = shared_memory.unwrap_or(false);
+            let mut args = vec![];
+            if sm {
+                args.push("-shared-memory".to_string())
+            }
+            args
         })
         .lazy_args_with_cond(heap_start_address.is_some(), || {
             vec![

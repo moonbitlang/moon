@@ -265,6 +265,13 @@ pub struct ImportMemory {
     pub name: String,
 }
 
+#[derive(Debug, Serialize, Deserialize, Clone, JsonSchema)]
+#[schemars(rename = "memory-limits")]
+pub struct MemoryLimits {
+    pub min: u32,
+    pub max: u32,
+}
+
 #[derive(Debug, Clone)]
 pub struct LinkDepItem {
     pub out: String,
@@ -282,12 +289,16 @@ impl LinkDepItem {
     pub fn wasm_exports(&self) -> Option<&[String]> { self.link.as_ref()?.wasm.as_ref()?.exports.as_deref() }
     pub fn wasm_export_memory_name(&self) -> Option<&str> { self.link.as_ref()?.wasm.as_ref()?.export_memory_name.as_deref() }
     pub fn wasm_import_memory(&self) -> Option<&ImportMemory> { self.link.as_ref()?.wasm.as_ref()?.import_memory.as_ref() }
+    pub fn wasm_memory_limits(&self) -> Option<&MemoryLimits> { self.link.as_ref()?.wasm.as_ref()?.memory_limits.as_ref() }
+    pub fn wasm_shared_memory(&self) -> Option<bool> { self.link.as_ref()?.wasm.as_ref()?.shared_memory }
     pub fn wasm_heap_start_address(&self) -> Option<u32> { self.link.as_ref()?.wasm.as_ref()?.heap_start_address }
     pub fn wasm_link_flags(&self) -> Option<&[String]> { self.link.as_ref()?.wasm.as_ref()?.flags.as_deref() }
 
     pub fn wasm_gc_exports(&self) -> Option<&[String]> { self.link.as_ref()?.wasm_gc.as_ref()?.exports.as_deref() }
     pub fn wasm_gc_export_memory_name(&self) -> Option<&str> { self.link.as_ref()?.wasm_gc.as_ref()?.export_memory_name.as_deref() }
     pub fn wasm_gc_import_memory(&self) -> Option<&ImportMemory> { self.link.as_ref()?.wasm_gc.as_ref()?.import_memory.as_ref() }
+    pub fn wasm_gc_memory_limits(&self) -> Option<&MemoryLimits> { self.link.as_ref()?.wasm.as_ref()?.memory_limits.as_ref() }
+    pub fn wasm_gc_shared_memory(&self) -> Option<bool> { self.link.as_ref()?.wasm.as_ref()?.shared_memory }
     pub fn wasm_gc_link_flags(&self) -> Option<&[String]> { self.link.as_ref()?.wasm_gc.as_ref()?.flags.as_deref() }
 
     pub fn js_exports(&self) -> Option<&[String]> { self.link.as_ref()?.js.as_ref()?.exports.as_deref() }
@@ -323,6 +334,24 @@ impl LinkDepItem {
         match b {
             Wasm => self.wasm_import_memory(),
             WasmGC => self.wasm_gc_import_memory(),
+            Js => None,
+            Native => None,
+        }
+    }
+
+    pub fn memory_limits(&self, b:TargetBackend) -> Option<&MemoryLimits> {
+        match b {
+            Wasm => self.wasm_memory_limits(),
+            WasmGC => self.wasm_gc_memory_limits(),
+            Js => None,
+            Native => None,
+        }
+    }
+
+    pub fn shared_memory(&self, b: TargetBackend) -> Option<bool> {
+        match b {
+            Wasm => self.wasm_shared_memory(),
+            WasmGC => self.wasm_gc_shared_memory(),
             Js => None,
             Native => None,
         }
@@ -373,6 +402,14 @@ pub struct WasmLinkConfig {
     pub import_memory: Option<ImportMemory>,
 
     #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(rename = "memory-limits")]
+    pub memory_limits: Option<MemoryLimits>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(rename = "shared-memory")]
+    pub shared_memory: Option<bool>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
     #[serde(rename = "export-memory-name")]
     pub export_memory_name: Option<String>,
 
@@ -399,6 +436,12 @@ pub struct WasmGcLinkConfig {
 
     #[serde(skip_serializing_if = "Option::is_none")]
     pub import_memory: Option<ImportMemory>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub memory_limits: Option<MemoryLimits>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub shared_memory: Option<bool>,
 
     #[serde(skip_serializing_if = "Option::is_none")]
     pub export_memory_name: Option<String>,
