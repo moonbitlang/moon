@@ -181,11 +181,7 @@ fn common(
     // .gitignore
     {
         let gitignore = target_dir.join(".gitignore");
-        let content = vec![
-            "target/",
-            ".mooncakes/",
-            ".DS_Store"
-        ];
+        let content = vec!["target/", ".mooncakes/", ".DS_Store"];
         let content = content.join("\n") + "\n";
         let mut file = std::fs::File::create(gitignore).unwrap();
         file.write_all(content.as_bytes()).unwrap();
