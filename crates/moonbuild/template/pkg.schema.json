@@ -420,6 +420,12 @@
         },
         "name": {
           "type": "string"
+        },
+        "shared": {
+          "type": [
+            "boolean",
+            "null"
+          ]
         }
       }
     }
