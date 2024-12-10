@@ -531,11 +531,14 @@ pub fn gen_n2_build_state(
                 std::fs::write(&bin_script_path, bin_script_content).with_context(|| {
                     format!("Failed to write bin script to {:?}", bin_script_path)
                 })?;
-                std::fs::set_permissions(
-                    &bin_script_path,
-                    std::os::unix::fs::PermissionsExt::from_mode(0o755),
-                )
-                .with_context(|| format!("Failed to set permissions for {:?}", bin_script_path))?;
+                #[cfg(unix)]
+                {
+                    std::fs::set_permissions(
+                        &bin_script_path,
+                        std::os::unix::fs::PermissionsExt::from_mode(0o755),
+                    )
+                    .with_context(|| format!("Failed to set permissions for {:?}", bin_script_path))?;
+                }
             }
         }
     }
