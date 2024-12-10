@@ -8065,6 +8065,12 @@ fn test_moon_install_bin() {
     let top_dir = TestDir::new("moon_install_bin.in");
     let dir = top_dir.join("user.in");
 
+    #[cfg(target_os = "windows")]
+    {
+        let pkg_json = std::fs::read_to_string(dir.join("main/moon.pkg.json")).unwrap();
+        std::fs::write(dir.join("main/moon.pkg.json"), pkg_json.replace(".sh", ".ps1")).unwrap();
+    }
+
     let mut _1 = PathBuf::from("");
     let mut _2 = PathBuf::from("");
     let mut _3 = PathBuf::from("");
