@@ -119,6 +119,13 @@ pub fn load_moon_pre_build(
                 .replace(MOD_DIR, &moonbuild_opt.source_dir.display().to_string())
                 .replace(PKG_DIR, &cwd.display().to_string());
 
+                #[cfg(target_os = "windows")]
+                let command = if command.contains(".ps1") {
+                    format!("powershell {}", command)
+                } else {
+                    command
+                };
+
                 let command = command
                     .replace("$input", &inputs.join(" "))
                     .replace("$output", &outputs.join(" "));
