@@ -126,8 +126,8 @@ pub fn load_moon_pre_build(
                         .source_dir
                         .join(maybe_ps1)
                         .with_extension("ps1");
-                    let ps1_path = dunce::canonicalize(ps1_path).unwrap();
                     if ps1_path.exists() {
+                        let ps1_path = dunce::canonicalize(ps1_path).unwrap();
                         format!("powershell {}", ps1_path.display())
                     } else {
                         command

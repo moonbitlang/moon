@@ -505,6 +505,12 @@ pub fn gen_n2_build_state(
                 .to_string();
 
             let bin_script_path = install_path.join(bin_script_name);
+            if bin_script_path.exists() && bin_script_path.is_dir() {
+                anyhow::bail!(
+                    "bin install failed, there is a directory {:?} already exists",
+                    bin_script_path
+                );
+            }
 
             if !bin_script_path.exists() {
                 let artifact_output_path = PathBuf::from(&item.out)
