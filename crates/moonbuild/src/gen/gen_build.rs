@@ -16,7 +16,7 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
-use anyhow::{bail, Ok};
+use anyhow::{bail, Context, Ok};
 use moonutil::module::ModuleDB;
 use moonutil::package::{JsFormat, Package};
 
@@ -26,7 +26,9 @@ use crate::gen::MiAlias;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
 
-use moonutil::common::{BuildOpt, MoonbuildOpt, MooncOpt, MOONBITLANG_CORE, MOON_PKG_JSON};
+use moonutil::common::{
+    BuildOpt, MoonbuildOpt, MooncOpt, TargetBackend, MOONBITLANG_CORE, MOON_PKG_JSON,
+};
 use n2::graph::{self as n2graph, Build, BuildIns, BuildOuts, FileLoc};
 use n2::load::State;
 use n2::smallmap::SmallMap;
@@ -476,28 +478,64 @@ pub fn gen_n2_build_state(
 
         // if we need to install the artifact to a specific path
         if let Some(install_path) = item.install_path.as_ref() {
-            let artifact_output_path = install_path
-                .join(if let Some(bin_name) = &item.bin_name {
-                    bin_name.clone()
-                } else {
-                    PathBuf::from(&item.out)
-                        .file_name()
-                        .unwrap()
-                        .to_str()
-                        .unwrap()
-                        .to_string()
-                })
+            let bin_script_content = if cfg!(target_os = "windows") {
+                include_str!(concat!(
+                    env!("CARGO_MANIFEST_DIR"),
+                    "/../moonbuild/template/moon_bin_script_template/windows.ps1"
+                ))
+            } else {
+                include_str!(concat!(
+                    env!("CARGO_MANIFEST_DIR"),
+                    "/../moonbuild/template/moon_bin_script_template/unix.sh"
+                ))
+            };
+
+            let bin_script_name = item.bin_name.clone().unwrap_or(
+                PathBuf::from(&item.out)
+                    .file_stem()
+                    .unwrap()
+                    .to_str()
+                    .unwrap()
+                    .to_string(),
+            );
+            #[cfg(target_os = "windows")]
+            let bin_script_name = PathBuf::from(&bin_script_name)
+                .with_extension("ps1")
                 .display()
                 .to_string();
 
-            let link_item_to_install = BuildLinkDepItem {
-                out: artifact_output_path,
-                ..item.clone()
-            };
+            let bin_script_path = install_path.join(bin_script_name);
 
-            let (build, fid) = gen_link_command(&mut graph, &link_item_to_install, moonc_opt);
-            default.push(fid);
-            graph.add_build(build)?;
+            if !bin_script_path.exists() {
+                let artifact_output_path = PathBuf::from(&item.out)
+                    .with_extension(moonc_opt.link_opt.output_format.to_str())
+                    .display()
+                    .to_string();
+
+                let runtime = match moonc_opt.link_opt.target_backend {
+                    TargetBackend::Native => "".to_string(),
+                    TargetBackend::Wasm | TargetBackend::WasmGC => "moonrun".to_string(),
+                    TargetBackend::Js => "node".to_string(),
+                };
+
+                let bin_script_content = bin_script_content
+                    .replace("$runtime", &runtime)
+                    .replace("$artifact_output_path", &artifact_output_path);
+
+                std::fs::write(&bin_script_path, bin_script_content).with_context(|| {
+                    format!("Failed to write bin script to {:?}", bin_script_path)
+                })?;
+                #[cfg(unix)]
+                {
+                    std::fs::set_permissions(
+                        &bin_script_path,
+                        std::os::unix::fs::PermissionsExt::from_mode(0o755),
+                    )
+                    .with_context(|| {
+                        format!("Failed to set permissions for {:?}", bin_script_path)
+                    })?;
+                }
+            }
         }
     }
 
