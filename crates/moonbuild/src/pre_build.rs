@@ -119,6 +119,21 @@ pub fn load_moon_pre_build(
                 .replace(MOD_DIR, &moonbuild_opt.source_dir.display().to_string())
                 .replace(PKG_DIR, &cwd.display().to_string());
 
+                #[cfg(target_os = "windows")]
+                let command = {
+                    let maybe_ps1 = command.trim_start().split(" ").next().unwrap();
+                    let ps1_path = moonbuild_opt
+                        .source_dir
+                        .join(maybe_ps1)
+                        .with_extension("ps1");
+                    if ps1_path.exists() {
+                        let ps1_path = dunce::canonicalize(ps1_path).unwrap();
+                        format!("powershell {}", ps1_path.display())
+                    } else {
+                        command
+                    }
+                };
+
                 let command = command
                     .replace("$input", &inputs.join(" "))
                     .replace("$output", &outputs.join(" "));

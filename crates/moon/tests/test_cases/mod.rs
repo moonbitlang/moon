@@ -8065,11 +8065,29 @@ fn test_moon_install_bin() {
     let top_dir = TestDir::new("moon_install_bin.in");
     let dir = top_dir.join("user.in");
 
-    let _1 = top_dir.join("author2.in").join("author2-native.exe");
-    let _2 = top_dir.join("author2.in").join("author2-js.js");
-    let _3 = top_dir.join("author2.in").join("author2-wasm.wasm");
-    let _4 = top_dir.join("author1.in").join("this-is-wasm.wasm");
-    let _5 = top_dir.join("author1.in").join("main-js.js");
+    let mut _1 = PathBuf::from("");
+    let mut _2 = PathBuf::from("");
+    let mut _3 = PathBuf::from("");
+    let mut _4 = PathBuf::from("");
+    let mut _5 = PathBuf::from("");
+
+    #[cfg(unix)]
+    {
+        _1 = top_dir.join("author2.in").join("author2-native");
+        _2 = top_dir.join("author2.in").join("author2-js");
+        _3 = top_dir.join("author2.in").join("author2-wasm");
+        _4 = top_dir.join("author1.in").join("this-is-wasm");
+        _5 = top_dir.join("author1.in").join("main-js");
+    }
+
+    #[cfg(target_os = "windows")]
+    {
+        _1 = top_dir.join("author2.in").join("author2-native.ps1");
+        _2 = top_dir.join("author2.in").join("author2-js.ps1");
+        _3 = top_dir.join("author2.in").join("author2-wasm.ps1");
+        _4 = top_dir.join("author1.in").join("this-is-wasm.ps1");
+        _5 = top_dir.join("author1.in").join("main-js.ps1");
+    }
 
     // moon check should auto install bin deps
     get_stdout(&dir, ["check"]);
@@ -8103,13 +8121,13 @@ fn test_moon_install_bin() {
     assert!(_5.exists());
 
     check(
-        get_stderr(&dir, ["build"]),
+        get_stderr(&dir, ["build", "--sort-input"]),
         expect![[r#"
-        main-js
-        lib Hello, world!
-        ()
-        Executed 1 pre-build task, now up to date
-        Finished. moon: ran 17 tasks, now up to date
-    "#]],
+            main-js
+            lib Hello, world!
+            ()
+            Executed 1 pre-build task, now up to date
+            Finished. moon: ran 17 tasks, now up to date
+        "#]],
     );
 }

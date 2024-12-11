@@ -7,7 +7,7 @@
     {
       "input": [],
       "output": ["1.txt"],
-      "command": "node ../author1.in/main-js.js"
+      "command": "../author1.in/main-js"
     }
   ]
 }
