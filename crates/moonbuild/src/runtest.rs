@@ -71,8 +71,8 @@ pub async fn run_wat(
     file_test_info_map: &FileTestInfo,
     verbose: bool,
 ) -> anyhow::Result<Vec<Result<TestStatistics, TestFailedStatus>>> {
-    // put "--test-mode" at the front of args
-    let mut _args = vec!["--test-mode".to_string()];
+    // put "--test-args" at the front of args
+    let mut _args = vec!["--test-args".to_string()];
     _args.push(serde_json_lenient::to_string(args).unwrap());
     run(
         "moonrun",
