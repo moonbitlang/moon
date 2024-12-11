@@ -420,7 +420,7 @@ fn wasm_mode(
     source: Source,
     args: &[String],
     no_stack_trace: bool,
-    test_mode: bool,
+    test_args: Option<String>,
 ) -> anyhow::Result<()> {
     let isolate = &mut v8::Isolate::new(Default::default());
     let scope = &mut v8::HandleScope::new(isolate);
@@ -451,8 +451,8 @@ fn wasm_mode(
     let mut dtors = Vec::new();
     init_env(&mut dtors, scope, args);
 
-    if test_mode {
-        let test_args = serde_json_lenient::from_str::<TestArgs>(&args.join(" ")).unwrap();
+    if let Some(ref test_args) = test_args {
+        let test_args = serde_json_lenient::from_str::<TestArgs>(test_args).unwrap();
         let file_and_index = test_args.file_and_index;
 
         let mut test_params: Vec<[String; 2]> = vec![];
@@ -465,7 +465,7 @@ fn wasm_mode(
         script.push_str(&format!("const testParams = {:?};", test_params));
     }
     script.push_str(&format!("const no_stack_trace = {};", no_stack_trace));
-    script.push_str(&format!("const test_mode = {};", test_mode));
+    script.push_str(&format!("const test_mode = {};", test_args.is_some()));
     let js_glue = include_str!(concat!(
         env!("CARGO_MANIFEST_DIR"),
         "/src/template/js_glue.js"
@@ -512,7 +512,7 @@ struct Commandline {
     no_stack_trace: bool,
 
     #[clap(long)]
-    test_mode: bool,
+    test_args: Option<String>,
 
     #[clap(long)]
     stack_size: Option<String>,
@@ -542,7 +542,7 @@ fn run_interactive() -> anyhow::Result<()> {
             .collect::<Vec<_>>()
             .join(", ");
 
-        wasm_mode(Source::Bytes(&bytes_string), &[], false, false)?;
+        wasm_mode(Source::Bytes(&bytes_string), &[], false, None)?;
         const END_MARKER: [u8; 4] = [0xFF, 0xFE, 0xFD, 0xFC];
         io::stdout().write_all(&END_MARKER)?;
         io::stdout().write_all(b"\n")?;
@@ -589,7 +589,7 @@ fn main() -> anyhow::Result<()> {
                     Source::File(file),
                     &matches.args,
                     matches.no_stack_trace,
-                    matches.test_mode,
+                    matches.test_args,
                 )
             }
             _ => anyhow::bail!("Unsupported file type"),
