@@ -7985,14 +7985,14 @@ fn test_run_doc_test() {
             test block 4
             test block 5
             doc_test 5 from greet.mbt
-            test username/hello/lib/hello.mbt::1 failed
+            test username/hello/lib/hello.mbt::doc_test hello.mbt 9 4 failed
             expect test failed at $ROOT/src/lib/hello.mbt:12:5-12:19
             Diff:
             ----
             1256
             ----
 
-            test username/hello/lib/hello.mbt::2 failed: FAILED: $ROOT/src/lib/hello.mbt:22:5-22:31 this is a failure
+            test username/hello/lib/hello.mbt::doc_test hello.mbt 19 4 failed: FAILED: $ROOT/src/lib/hello.mbt:22:5-22:31 this is a failure
             test username/hello/lib/greet.mbt::2 failed
             expect test failed at $ROOT/src/lib/greet.mbt:22:7-22:21
             Diff:
@@ -8025,7 +8025,7 @@ fn test_run_doc_test() {
 
             doc_test 2 from hello.mbt
             doc_test 2 from hello.mbt
-            test username/hello/lib/hello.mbt::2 failed: FAILED: $ROOT/src/lib/hello.mbt:22:5-22:31 this is a failure
+            test username/hello/lib/hello.mbt::doc_test hello.mbt 19 4 failed: FAILED: $ROOT/src/lib/hello.mbt:22:5-22:31 this is a failure
             test block 2
             test block 2
             test username/hello/lib/greet.mbt::3 failed: FAILED: $ROOT/src/lib/greet.mbt:31:7-31:31 another failure

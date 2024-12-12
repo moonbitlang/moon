@@ -52,6 +52,9 @@ pub struct TestStatistics {
     #[serde(skip_serializing)]
     #[serde(default)]
     pub is_doc_test: bool,
+    #[serde(skip_serializing)]
+    #[serde(default)]
+    pub original_filename: Option<String>,
 }
 
 impl std::fmt::Display for TestStatistics {
@@ -195,6 +198,7 @@ async fn run(
             }
             // this is a hack for doc test, make the doc test patch filename be the original file name
             if ts.is_doc_test {
+                ts.original_filename = Some(ts.filename.clone());
                 ts.filename = ts.filename.replace(MOON_DOC_TEST_POSTFIX, "");
                 ts.message = ts.message.replace(MOON_DOC_TEST_POSTFIX, "");
             }
@@ -206,7 +210,11 @@ async fn run(
             let filename = &test_statistic.filename;
             let index = &test_statistic.index.parse::<u32>().unwrap();
             let test_name = file_test_info_map
-                .get(filename)
+                .get(&if test_statistic.is_doc_test {
+                    test_statistic.original_filename.clone().unwrap()
+                } else {
+                    filename.to_string()
+                })
                 .and_then(|m| m.get(index))
                 .and_then(|s| s.as_ref())
                 .unwrap_or(&test_statistic.index);

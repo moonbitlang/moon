@@ -48,12 +48,12 @@ pub fn greet3() -> String {
 }
 
 /// ```moonbit
-/// test { 
+/// test "panic test" { 
 /// 
 /// 
 /// 
 ///   println("test block 4")
-/// 
+///   panic()
 /// }
 /// 
 /// 
