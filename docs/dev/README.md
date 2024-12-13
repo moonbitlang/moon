@@ -4,7 +4,7 @@
 
 Before submitting your changes to the moon project, you must sign Contributor Copyright Assignment Agreement (CCAA), depending on who owns the copyright to your work:
 - For individual contributors, you can sign it online by visiting https://moonbitlang.com/cla/moon.
-- For corporate contributors, please download the CCAA from [CCAA-IDEA_IDEA Legal_20240712_IDEA Legal20240722.pdf](https://github.com/moonbitlang/moon/blob/CCAA/CCAA-IDEA_IDEA%20Legal_20240712_IDEA%20Legal20240722.pdf), sign it, and send it to us at jichuruanjian@idea.edu.cn.
+- For corporate contributors, please download the CCAA from [MoonBit_Build_System_Contributor_Copyright_Assignment_Agreement_V1.0.pdf](https://github.com/moonbitlang/moon/blob/CCAA/MoonBit_Build_System_Contributor_Copyright_Assignment_Agreement_V1.0.pdf), sign it, and send it to us at jichuruanjian@idea.edu.cn.
 
 ## Setup
 
