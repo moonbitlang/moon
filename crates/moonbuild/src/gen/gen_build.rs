@@ -281,7 +281,7 @@ pub fn gen_build_command(
             &item.package_full_name, &item.package_source_dir
         ))
         .args(["-target", moonc_opt.build_opt.target_backend.to_flag()])
-        .arg_with_cond(moonc_opt.build_opt.debug_flag, "-g")
+        .args_with_cond(moonc_opt.build_opt.debug_flag, vec!["-g", "-O0"])
         .arg_with_cond(moonc_opt.link_opt.source_map, "-source-map")
         .arg_with_cond(enable_coverage, "-enable-coverage")
         .arg_with_cond(self_coverage, "-coverage-package-override=@self")
@@ -374,7 +374,7 @@ pub fn gen_link_command(
             ],
         )
         .args(["-target", moonc_opt.link_opt.target_backend.to_flag()])
-        .arg_with_cond(moonc_opt.link_opt.debug_flag, "-g")
+        .args_with_cond(moonc_opt.link_opt.debug_flag, vec!["-g", "-O0"])
         .arg_with_cond(moonc_opt.link_opt.source_map, "-source-map")
         .lazy_args_with_cond(exports.is_some(), || {
             let es = exports.unwrap();
