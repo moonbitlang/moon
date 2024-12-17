@@ -172,3 +172,38 @@ fn test_moon_run_with_cli_args() {
 
     assert!(s.contains("\"中文\", \"😄👍\", \"hello\", \"1242\""));
 }
+
+#[test]
+fn test_moon_run_with_read_bytes_from_stdin() {
+    let dir = TestDir::new("test_read_bytes.in");
+
+    snapbox::cmd::Command::new(snapbox::cmd::cargo_bin("moon"))
+        .current_dir(&dir)
+        .arg("build")
+        .assert()
+        .success();
+
+    let wasm_file = dir.join("target/wasm-gc/release/build/main/main.wasm");
+
+    let out = snapbox::cmd::Command::new(snapbox::cmd::cargo_bin("moonrun"))
+        .arg(&wasm_file)
+        .stdin("中文😄👍hello1242")
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .to_owned();
+    let s = std::str::from_utf8(&out).unwrap().to_string();
+    assert!(s.trim() == "中文😄👍hello1242".as_bytes().len().to_string());
+
+    let out = snapbox::cmd::Command::new(snapbox::cmd::cargo_bin("moonrun"))
+        .arg(&wasm_file)
+        .stdin("")
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .to_owned();
+    let s = std::str::from_utf8(&out).unwrap().to_string();
+    assert!(s.trim() == "0");
+}
