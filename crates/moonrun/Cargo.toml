@@ -32,6 +32,7 @@ rand = "0.8.5"
 tracing = "0.1.40"
 tracing-subscriber = { version = "0.3.18", features = ["env-filter"] }
 v8 = "0.106.0"
+libc = "0.2.162"
 
 [build-dependencies]
 vergen = { version = "8.0.0", features = ["build", "git", "gitcl"] }
