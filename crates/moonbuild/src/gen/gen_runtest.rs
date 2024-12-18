@@ -946,7 +946,7 @@ pub fn gen_runtest_build_command(
             &item.package_full_name, &item.package_source_dir
         ))
         .args(["-target", moonc_opt.build_opt.target_backend.to_flag()])
-        .arg_with_cond(moonc_opt.build_opt.debug_flag, "-g")
+        .args_with_cond(moonc_opt.build_opt.debug_flag, vec!["-g", "-O0"])
         .arg_with_cond(moonc_opt.link_opt.source_map, "-source-map")
         // Coverage arg
         .args(coverage_args.iter())
@@ -1054,7 +1054,7 @@ pub fn gen_runtest_link_command(
             ["-js-format", "cjs", "-no-dts"],
         )
         .args(["-target", moonc_opt.link_opt.target_backend.to_flag()])
-        .arg_with_cond(moonc_opt.link_opt.debug_flag, "-g")
+        .args_with_cond(moonc_opt.link_opt.debug_flag, vec!["-g", "-O0"])
         .arg_with_cond(moonc_opt.link_opt.source_map, "-source-map")
         .lazy_args_with_cond(native_cc.is_some(), || {
             vec!["-cc".to_string(), native_cc.unwrap().to_string()]

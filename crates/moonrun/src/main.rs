@@ -193,6 +193,31 @@ fn read_char(
     }
 }
 
+fn read_bytes_from_stdin(
+    scope: &mut v8::HandleScope,
+    _args: v8::FunctionCallbackArguments,
+    mut ret: v8::ReturnValue,
+) {
+    let mut buffer = Vec::new();
+    let stdin = io::stdin();
+    let mut handle = stdin.lock();
+
+    let size = handle.read_to_end(&mut buffer).unwrap();
+
+    if size == 0 {
+        let empty_array_buffer = v8::ArrayBuffer::new(scope, 0);
+        let empty_uint8_array = v8::Uint8Array::new(scope, empty_array_buffer, 0, 0).unwrap();
+        ret.set(empty_uint8_array.into());
+    } else {
+        let array_buffer = v8::ArrayBuffer::new(scope, size);
+        let uint8_array = v8::Uint8Array::new(scope, array_buffer, 0, size).unwrap();
+        unsafe {
+            std::ptr::copy(buffer.as_ptr(), get_array_buffer_ptr(array_buffer), size);
+        }
+        ret.set(uint8_array.into());
+    }
+}
+
 fn read_file_to_bytes(
     scope: &mut v8::HandleScope,
     args: v8::FunctionCallbackArguments,
@@ -332,9 +357,9 @@ fn init_env(dtors: &mut Vec<Box<dyn Any>>, scope: &mut v8::HandleScope, args: &[
     // API for the fs module
     let identifier = v8::String::new(scope, "__moonbit_fs_unstable").unwrap();
     let obj = v8::Object::new(scope);
-    let obj = js::init_env(obj, scope);
+    let obj: v8::Local<'_, v8::Object> = js::init_env(obj, scope);
     let obj = sys_api::init_env(obj, scope, args);
-    let obj = fs_api_temp::init_fs(obj, scope);
+    let obj: v8::Local<'_, v8::Object> = fs_api_temp::init_fs(obj, scope);
     global_proxy.set(scope, identifier.into(), obj.into());
 
     {
@@ -349,6 +374,12 @@ fn init_env(dtors: &mut Vec<Box<dyn Any>>, scope: &mut v8::HandleScope, args: &[
         let identifier = v8::String::new(scope, "__moonbit_io_unstable").unwrap();
         let obj = v8::Object::new(scope);
         global_proxy.set(scope, identifier.into(), obj.into());
+
+        let identifier = v8::String::new(scope, "read_bytes_from_stdin").unwrap();
+        let value = v8::Function::builder(read_bytes_from_stdin)
+            .build(scope)
+            .unwrap();
+        obj.set(scope, identifier.into(), value.into());
 
         let identifier = v8::String::new(scope, "read_char").unwrap();
         let value = v8::Function::builder(read_char).build(scope).unwrap();

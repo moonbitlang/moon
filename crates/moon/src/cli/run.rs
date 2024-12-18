@@ -121,6 +121,7 @@ fn run_single_mbt_file(cli: &UniversalFlags, cmd: RunSubcommand) -> anyhow::Resu
         "-pkg",
         pkg_name,
         "-g",
+        "-O0",
         "-source-map",
         "-target",
         target_backend.to_flag(),
@@ -145,6 +146,7 @@ fn run_single_mbt_file(cli: &UniversalFlags, cmd: RunSubcommand) -> anyhow::Resu
             moonutil::moon_dir::core().display()
         ),
         "-g",
+        "-O0",
         "-source-map",
         "-target",
         target_backend.to_flag(),
