@@ -39,30 +39,43 @@ pub fn load_moon_proj(
 }
 
 pub fn run_wat(path: &Path, args: &[String], verbose: bool) -> anyhow::Result<()> {
-    run("moonrun", path, args, verbose)
+    run(Some("moonrun"), path, args, verbose)
 }
 
 pub fn run_js(path: &Path, args: &[String], verbose: bool) -> anyhow::Result<()> {
-    run("node", path, args, verbose)
+    run(Some("node"), path, args, verbose)
 }
 
 pub fn run_native(path: &Path, args: &[String], verbose: bool) -> anyhow::Result<()> {
-    run(path.to_str().unwrap(), path, args, verbose)
+    run(None, path, args, verbose)
 }
 
-fn run(command: &str, path: &Path, args: &[String], verbose: bool) -> anyhow::Result<()> {
+fn run(runtime: Option<&str>, path: &Path, args: &[String], verbose: bool) -> anyhow::Result<()> {
     if verbose {
-        eprintln!("{} {} {}", command, path.display(), args.join(" "));
+        if let Some(runtime) = runtime {
+            eprintln!("{} {} {}", runtime, path.display(), args.join(" "));
+        } else {
+            eprintln!("{} {}", path.display(), args.join(" "));
+        }
     }
-    let mut execution = Command::new(command)
-        .arg(path)
-        .args(args)
+    let mut subprocess = Command::new(if let Some(runtime) = runtime {
+        runtime
+    } else {
+        path.to_str().unwrap()
+    });
+
+    if runtime.is_some() {
+        subprocess.arg(path);
+    }
+    subprocess.args(args);
+
+    let mut execution = subprocess
         .stdout(Stdio::inherit())
         .stderr(Stdio::inherit())
         .spawn()
         .context(format!(
             "failed to execute: {} {} {}",
-            command,
+            runtime.unwrap_or(""),
             path.display(),
             if args.is_empty() {
                 "".to_string()
