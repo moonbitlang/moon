@@ -78,7 +78,7 @@ pub async fn run_wat(
     let mut _args = vec!["--test-args".to_string()];
     _args.push(serde_json_lenient::to_string(args).unwrap());
     run(
-        "moonrun",
+        Some("moonrun"),
         path,
         target_dir,
         &_args,
@@ -96,7 +96,7 @@ pub async fn run_js(
     verbose: bool,
 ) -> anyhow::Result<Vec<Result<TestStatistics, TestFailedStatus>>> {
     run(
-        "node",
+        Some("node"),
         path,
         target_dir,
         &[serde_json_lenient::to_string(args).unwrap()],
@@ -114,7 +114,7 @@ pub async fn run_native(
     verbose: bool,
 ) -> anyhow::Result<Vec<Result<TestStatistics, TestFailedStatus>>> {
     run(
-        path.to_str().unwrap(),
+        None,
         path,
         target_dir,
         &[serde_json_lenient::to_string(args).unwrap()],
@@ -125,7 +125,7 @@ pub async fn run_native(
 }
 
 async fn run(
-    command: &str,
+    runtime: Option<&str>,
     path: &Path,
     target_dir: &Path,
     args: &[String],
@@ -133,16 +133,36 @@ async fn run(
     verbose: bool,
 ) -> anyhow::Result<Vec<Result<TestStatistics, TestFailedStatus>>> {
     if verbose {
-        eprintln!("{} {} {}", command, path.display(), args.join(" "));
+        if let Some(runtime) = runtime {
+            eprintln!("{} {} {}", runtime, path.display(), args.join(" "));
+        } else {
+            eprintln!("{} {}", path.display(), args.join(" "));
+        }
     }
-    let mut execution = tokio::process::Command::new(command)
-        .arg(path)
-        .args(args)
+
+    let mut subprocess = tokio::process::Command::new(if let Some(runtime) = runtime {
+        runtime
+    } else {
+        path.to_str().unwrap()
+    });
+
+    if runtime.is_some() {
+        subprocess.arg(path);
+    }
+    subprocess.args(args);
+
+    let mut execution = subprocess
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::inherit())
         .spawn()
-        .with_context(|| format!("failed to execute '{} {}'", command, path.display()))?;
+        .with_context(|| {
+            format!(
+                "failed to execute '{} {}'",
+                runtime.unwrap_or(""),
+                path.display()
+            )
+        })?;
     let mut stdout = execution.stdout.take().unwrap();
 
     let mut test_capture =
@@ -159,7 +179,7 @@ async fn run(
         .await
         .context(format!(
             "failed to read stdout for {} {} {}",
-            command,
+            runtime.unwrap_or(""),
             path.display(),
             args.join(" ")
         ))?;
