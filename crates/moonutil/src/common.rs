@@ -110,6 +110,8 @@ pub enum MoonModJSONFormatErrorKind {
     Source(#[from] SourceError),
     #[error("`version` bad format")]
     Version(#[from] semver::Error),
+    #[error("`backend` bad format")]
+    Backend(#[from] anyhow::Error),
 }
 
 pub fn read_module_from_json(path: &Path) -> Result<MoonMod, MoonModJSONFormatError> {

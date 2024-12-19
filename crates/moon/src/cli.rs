@@ -218,7 +218,7 @@ pub fn get_compiler_flags(src_dir: &Path, build_flags: &BuildFlags) -> anyhow::R
         OutputFormat::Wasm
     };
 
-    let target_backend = build_flags.target_backend.unwrap_or_default();
+    let target_backend = build_flags.target_backend.unwrap_or(moon_mod.backend);
 
     if target_backend == TargetBackend::Js && output_format == OutputFormat::Wat {
         bail!("--output-wat is not supported for --target js");
