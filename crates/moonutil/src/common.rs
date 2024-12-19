@@ -308,6 +308,7 @@ impl TargetBackend {
 #[derive(Debug, Clone, Default)]
 pub struct BuildPackageFlags {
     pub debug_flag: bool,
+    pub strip_flag: bool,
     pub source_map: bool,
     pub enable_coverage: bool,
     // treat all warnings as errors
@@ -321,6 +322,7 @@ impl BuildPackageFlags {
     pub fn new() -> Self {
         Self {
             debug_flag: false,
+            strip_flag: true,
             source_map: false,
             enable_coverage: false,
             deny_warn: false,

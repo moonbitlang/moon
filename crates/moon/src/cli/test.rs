@@ -164,6 +164,13 @@ fn run_test_internal(
     // release is 'false' by default, so we will run test at debug mode(to gain more detailed stack trace info), unless `--release` is specified
     // however, other command like build, check, run, etc, will run at release mode by default
     moonc_opt.build_opt.debug_flag = !cmd.build_flags.release;
+    moonc_opt.build_opt.strip_flag = if cmd.build_flags.strip {
+        true
+    } else if cmd.build_flags.no_strip {
+        false
+    } else {
+        cmd.build_flags.release
+    };
     moonc_opt.link_opt.debug_flag = !cmd.build_flags.release;
 
     let raw_target_dir = target_dir.to_path_buf();
