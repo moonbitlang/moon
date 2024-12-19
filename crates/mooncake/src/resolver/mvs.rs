@@ -499,6 +499,7 @@ mod test {
                 alert_list: None,
                 include: None,
                 exclude: None,
+                backend: WasmGC,
             }
         "#]]
         .assert_debug_eq(module_info);

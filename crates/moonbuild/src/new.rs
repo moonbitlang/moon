@@ -174,6 +174,8 @@ fn common(
 
             include: None,
             exclude: None,
+
+            backend: None,
         };
         moonutil::common::write_module_json_to_file(&m, target_dir)
             .context(format!("failed to write `{}`", MOON_MOD_JSON))?;

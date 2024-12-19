@@ -8131,3 +8131,42 @@ fn test_moon_install_bin() {
         "#]],
     );
 }
+
+#[test]
+fn test_set_backend_in_mod_json() {
+    let dir = TestDir::new("backend_in_mod_json.in");
+
+    check(
+        get_stdout(&dir, ["check", "--dry-run", "--sort-input"]),
+        expect![[r#"
+            moonc check ./main/main.mbt -o ./target/js/release/check/main/main.mi -pkg unicode_demo/main -is-main -std-path $MOON_HOME/lib/core/target/js/release/bundle -pkg-sources unicode_demo/main:./main -target js
+            moonc check ./lib/hello.mbt -o ./target/js/release/check/lib/lib.mi -pkg unicode_demo/lib -std-path $MOON_HOME/lib/core/target/js/release/bundle -pkg-sources unicode_demo/lib:./lib -target js
+        "#]],
+    );
+
+    check(
+        get_stdout(&dir, ["build", "--dry-run", "--sort-input"]),
+        expect![[r#"
+            moonc build-package ./main/main.mbt -o ./target/js/release/build/main/main.core -pkg unicode_demo/main -is-main -std-path $MOON_HOME/lib/core/target/js/release/bundle -pkg-sources unicode_demo/main:./main -target js
+            moonc link-core $MOON_HOME/lib/core/target/js/release/bundle/core.core ./target/js/release/build/main/main.core -main unicode_demo/main -o ./target/js/release/build/main/main.js -pkg-config-path ./main/moon.pkg.json -pkg-sources unicode_demo/main:./main -pkg-sources moonbitlang/core:$MOON_HOME/lib/core -target js
+        "#]],
+    );
+
+    check(
+        get_stdout(&dir, ["run", "main", "--dry-run", "--sort-input"]),
+        expect![[r#"
+            moonc build-package ./main/main.mbt -o ./target/js/release/build/main/main.core -pkg unicode_demo/main -is-main -std-path $MOON_HOME/lib/core/target/js/release/bundle -pkg-sources unicode_demo/main:./main -target js
+            moonc link-core $MOON_HOME/lib/core/target/js/release/bundle/core.core ./target/js/release/build/main/main.core -main unicode_demo/main -o ./target/js/release/build/main/main.js -pkg-config-path ./main/moon.pkg.json -pkg-sources unicode_demo/main:./main -pkg-sources moonbitlang/core:$MOON_HOME/lib/core -target js
+            node ./target/js/release/build/main/main.js
+        "#]],
+    );
+
+    check(
+        get_stdout(&dir, ["test", "--dry-run", "--sort-input"]),
+        expect![[r#"
+            moon generate-test-driver --source-dir . --target-dir ./target --package unicode_demo/lib --sort-input --target js --driver-kind internal
+            moonc build-package ./lib/hello.mbt ./target/js/debug/test/lib/__generated_driver_for_internal_test.mbt -o ./target/js/debug/test/lib/lib.internal_test.core -pkg unicode_demo/lib -is-main -std-path $MOON_HOME/lib/core/target/js/release/bundle -pkg-sources unicode_demo/lib:./lib -target js -g -O0 -no-mi
+            moonc link-core $MOON_HOME/lib/core/target/js/release/bundle/core.core ./target/js/debug/test/lib/lib.internal_test.core -main unicode_demo/lib -o ./target/js/debug/test/lib/lib.internal_test.js -test-mode -pkg-config-path ./lib/moon.pkg.json -pkg-sources unicode_demo/lib:./lib -pkg-sources moonbitlang/core:$MOON_HOME/lib/core -exported_functions moonbit_test_driver_internal_execute,moonbit_test_driver_finish -js-format cjs -no-dts -target js -g -O0
+        "#]],
+    );
+}

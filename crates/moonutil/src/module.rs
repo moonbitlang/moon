@@ -16,10 +16,15 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
-use crate::common::{MoonModJSONFormatErrorKind, MooncOpt, NameError, MOON_PKG_JSON};
-use crate::dependency::{
-    BinaryDependencyInfo, BinaryDependencyInfoJson, SourceDependencyInfo, SourceDependencyInfoJson,
-};
+use crate::common::MoonModJSONFormatErrorKind;
+use crate::common::MooncOpt;
+use crate::common::NameError;
+use crate::common::TargetBackend;
+use crate::common::MOON_PKG_JSON;
+use crate::dependency::BinaryDependencyInfo;
+use crate::dependency::BinaryDependencyInfoJson;
+use crate::dependency::SourceDependencyInfo;
+use crate::dependency::SourceDependencyInfoJson;
 use crate::package::{AliasJSON, Package, PackageJSON};
 use crate::path::ImportPath;
 use anyhow::bail;
@@ -515,6 +520,8 @@ pub struct MoonMod {
 
     pub include: Option<Vec<String>>,
     pub exclude: Option<Vec<String>>,
+
+    pub backend: TargetBackend,
 }
 
 #[derive(Debug, Serialize, Deserialize, JsonSchema)]
@@ -600,6 +607,10 @@ pub struct MoonModJSON {
     /// Files to exclude when publishing.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub exclude: Option<Vec<String>>,
+
+    /// Restrict backend to build the module.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub backend: Option<String>,
 }
 
 impl TryFrom<MoonModJSON> for MoonMod {
@@ -627,6 +638,12 @@ impl TryFrom<MoonModJSON> for MoonMod {
 
         let source = j.source.map(|s| if s.is_empty() { ".".into() } else { s });
 
+        let backend = if let Some(ref b) = j.backend {
+            TargetBackend::str_to_backend(b).map_err(MoonModJSONFormatErrorKind::Backend)?
+        } else {
+            TargetBackend::WasmGC
+        };
+
         Ok(MoonMod {
             name: j.name,
             version,
@@ -649,6 +666,8 @@ impl TryFrom<MoonModJSON> for MoonMod {
 
             include: j.include,
             exclude: j.exclude,
+
+            backend,
         })
     }
 }
@@ -678,6 +697,12 @@ pub fn convert_module_to_mod_json(m: MoonMod) -> MoonModJSON {
 
         include: m.include,
         exclude: m.exclude,
+
+        backend: if m.backend == TargetBackend::WasmGC {
+            None
+        } else {
+            Some(m.backend.to_flag().to_string())
+        },
     }
 }
 
