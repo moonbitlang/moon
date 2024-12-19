@@ -206,6 +206,11 @@ pub fn gen_build_command(
 
     let mut build = Build::new(loc, ins, outs);
 
+    let (debug_flag, strip_flag) = (
+        moonc_opt.build_opt.debug_flag,
+        moonc_opt.build_opt.strip_flag,
+    );
+
     let command = CommandBuilder::new("moonc")
         .arg("build-package")
         .args_with_cond(moonc_opt.render, vec!["-error-format", "json"])
@@ -228,7 +233,10 @@ pub fn gen_build_command(
             &item.package_full_name, &item.package_source_dir
         ))
         .args(["-target", moonc_opt.build_opt.target_backend.to_flag()])
-        .args_with_cond(moonc_opt.build_opt.debug_flag, vec!["-g", "-O0"])
+        .args_with_cond(debug_flag && !strip_flag, vec!["-g", "-O0"])
+        .arg_with_cond(debug_flag && strip_flag, "-O0")
+        .arg_with_cond(!debug_flag && !strip_flag, "-g")
+        // .arg_with_cond(!debug_flag && strip_flag, "")
         .arg_with_cond(moonc_opt.link_opt.source_map, "-source-map")
         .args(moonc_opt.extra_build_opt.iter())
         .build();

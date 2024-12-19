@@ -151,6 +151,14 @@ pub struct BuildFlags {
     #[clap(long, conflicts_with = "debug")]
     pub release: bool,
 
+    /// Enable stripping debug information
+    #[clap(long, conflicts_with = "no_strip")]
+    pub strip: bool,
+
+    /// Disable stripping debug information
+    #[clap(long, conflicts_with = "strip")]
+    pub no_strip: bool,
+
     /// Select output target
     #[clap(long, value_delimiter = ',')]
     pub target: Option<Vec<SurfaceTarget>>,
@@ -201,6 +209,16 @@ impl BuildFlags {
             (true, true) => panic!("both std and no_std flags are set"),
         }
     }
+
+    pub fn strip(&self) -> bool {
+        if self.strip {
+            true
+        } else if self.no_strip {
+            false
+        } else {
+            self.debug == false
+        }
+    }
 }
 
 pub fn get_compiler_flags(src_dir: &Path, build_flags: &BuildFlags) -> anyhow::Result<MooncOpt> {
@@ -237,6 +255,7 @@ pub fn get_compiler_flags(src_dir: &Path, build_flags: &BuildFlags) -> anyhow::R
 
     let build_opt = BuildPackageFlags {
         debug_flag,
+        strip_flag: build_flags.strip(),
         source_map,
         enable_coverage,
         deny_warn: false,
