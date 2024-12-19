@@ -169,7 +169,7 @@ fn run_test_internal(
     } else if cmd.build_flags.no_strip {
         false
     } else {
-        moonc_opt.build_opt.debug_flag == false
+        cmd.build_flags.release
     };
     moonc_opt.link_opt.debug_flag = !cmd.build_flags.release;
 

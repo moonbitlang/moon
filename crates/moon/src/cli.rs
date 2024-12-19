@@ -216,7 +216,7 @@ impl BuildFlags {
         } else if self.no_strip {
             false
         } else {
-            self.debug == false
+            !self.debug
         }
     }
 }
