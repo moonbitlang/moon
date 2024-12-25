@@ -248,7 +248,6 @@ pub fn gen_build_command(
 
     let command = CommandBuilder::new("moonc")
         .arg("build-package")
-        .arg_with_cond(item.enable_value_tracing, "-enable-value-tracing")
         .args_with_cond(moonc_opt.render, vec!["-error-format", "json"])
         .args_with_cond(
             moonc_opt.build_opt.deny_warn,
@@ -297,6 +296,7 @@ pub fn gen_build_command(
         .arg_with_cond(enable_coverage, "-enable-coverage")
         .arg_with_cond(self_coverage, "-coverage-package-override=@self")
         .args(moonc_opt.extra_build_opt.iter())
+        .arg_with_cond(item.enable_value_tracing, "-enable-value-tracing")
         .build();
     log::debug!("Command: {}", command);
     build.cmdline = Some(command);

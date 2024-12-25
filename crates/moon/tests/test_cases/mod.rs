@@ -8218,3 +8218,71 @@ fn test_strip_debug() {
         "#]],
     );
 }
+
+#[test]
+fn test_tracing_value() {
+    let dir = TestDir::new("tracing_value.in");
+
+    // main.mbt in package
+    check(
+        get_stdout(
+            &dir,
+            [
+                "run",
+                "./main/main.mbt",
+                "--enable-value-tracing",
+                "--dry-run",
+            ],
+        ),
+        expect![[r#"
+            moonc build-package ./lib/hello.mbt -o ./target/wasm-gc/release/build/lib/lib.core -pkg moon_new/lib -std-path $MOON_HOME/lib/core/target/wasm-gc/release/bundle -pkg-sources moon_new/lib:./lib -target wasm-gc
+            moonc build-package ./main/main.mbt -o ./target/wasm-gc/release/build/main/main.core -pkg moon_new/main -is-main -std-path $MOON_HOME/lib/core/target/wasm-gc/release/bundle -i ./target/wasm-gc/release/build/lib/lib.mi:lib -pkg-sources moon_new/main:./main -target wasm-gc -enable-value-tracing
+            moonc link-core $MOON_HOME/lib/core/target/wasm-gc/release/bundle/core.core ./target/wasm-gc/release/build/lib/lib.core ./target/wasm-gc/release/build/main/main.core -main moon_new/main -o ./target/wasm-gc/release/build/main/main.wasm -pkg-config-path ./main/moon.pkg.json -pkg-sources moon_new/lib:./lib -pkg-sources moon_new/main:./main -pkg-sources moonbitlang/core:$MOON_HOME/lib/core -target wasm-gc
+            moonrun ./target/wasm-gc/release/build/main/main.wasm
+        "#]],
+    );
+    check(
+        get_stdout(&dir, ["run", "./main/main.mbt", "--enable-value-tracing"]),
+        expect![[r#"
+            Hello, world!
+            ######MOONBIT_VALUE_TRACING_START######
+            {"name":"a","value":"1","line":"3","start_column":"7","end_column":"8"}
+            ######MOONBIT_VALUE_TRACING_END######
+            ######MOONBIT_VALUE_TRACING_START######
+            {"name":"b","value":"2","line":"4","start_column":"7","end_column":"8"}
+            ######MOONBIT_VALUE_TRACING_END######
+            ######MOONBIT_VALUE_TRACING_START######
+            {"name":"c","value":"3","line":"5","start_column":"7","end_column":"8"}
+            ######MOONBIT_VALUE_TRACING_END######
+            3
+        "#]],
+    );
+
+    // single file
+    check(
+        get_stdout(
+            &dir,
+            ["run", "./main.mbt", "--enable-value-tracing", "--dry-run"],
+        ),
+        expect![[r#"
+            moonc build-package $ROOT/main.mbt -o $ROOT/target/main.core -std-path $MOON_HOME/lib/core/target/wasm-gc/release/bundle -is-main -pkg moon/run/single -g -O0 -source-map -target wasm-gc -enable-value-tracing
+            moonc link-core $MOON_HOME/lib/core/target/wasm-gc/release/bundle/core.core $ROOT/target/main.core -o $ROOT/target/main.wasm -pkg-sources moon/run/single:$ROOT -pkg-sources moonbitlang/core:$MOON_HOME/lib/core -g -O0 -source-map -target wasm-gc
+            moonrun $ROOT/target/main.wasm
+        "#]],
+    );
+    check(
+        get_stdout(&dir, ["run", "./main.mbt", "--enable-value-tracing"]),
+        expect![[r#######"
+            ######MOONBIT_VALUE_TRACING_START######
+            {"name":"a","value":"1","line":"2","start_column":"7","end_column":"8"}
+            ######MOONBIT_VALUE_TRACING_END######
+            ######MOONBIT_VALUE_TRACING_START######
+            {"name":"b","value":"2","line":"3","start_column":"7","end_column":"8"}
+            ######MOONBIT_VALUE_TRACING_END######
+            ######MOONBIT_VALUE_TRACING_START######
+            {"name":"c","value":"3","line":"4","start_column":"7","end_column":"8"}
+            ######MOONBIT_VALUE_TRACING_END######
+            3
+        "#######]],
+    );
+}
