@@ -198,6 +198,10 @@ pub struct BuildFlags {
     /// Alert list config
     #[clap(long, allow_hyphen_values = true)]
     pub alert_list: Option<String>,
+
+    /// Enable value tracing
+    #[clap(long, hide = true)]
+    pub enable_value_tracing: bool,
 }
 
 impl BuildFlags {
@@ -262,6 +266,7 @@ pub fn get_compiler_flags(src_dir: &Path, build_flags: &BuildFlags) -> anyhow::R
         target_backend,
         warn_list: build_flags.warn_list.clone(),
         alert_list: build_flags.alert_list.clone(),
+        enable_value_tracing: build_flags.enable_value_tracing,
     };
 
     let link_opt = LinkCoreFlags {
