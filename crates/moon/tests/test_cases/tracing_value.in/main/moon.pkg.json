@@ -1,0 +1,6 @@
+{
+  "is-main": true,
+  "import": {
+    "moon_new/lib": ""
+  }
+}

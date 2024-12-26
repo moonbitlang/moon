@@ -45,6 +45,7 @@ pub struct BuildDepItem {
     pub alert_list: Option<String>,
     pub is_main: bool,
     pub is_third_party: bool,
+    pub enable_value_tracing: bool,
 }
 
 type BuildLinkDepItem = moonutil::package::LinkDepItem;
@@ -118,6 +119,7 @@ pub fn gen_build_build_item(
         alert_list: pkg.alert_list.clone(),
         is_main: pkg.is_main,
         is_third_party: pkg.is_third_party,
+        enable_value_tracing: pkg.enable_value_tracing,
     })
 }
 
@@ -294,6 +296,7 @@ pub fn gen_build_command(
         .arg_with_cond(enable_coverage, "-enable-coverage")
         .arg_with_cond(self_coverage, "-coverage-package-override=@self")
         .args(moonc_opt.extra_build_opt.iter())
+        .arg_with_cond(item.enable_value_tracing, "-enable-value-tracing")
         .build();
     log::debug!("Command: {}", command);
     build.cmdline = Some(command);

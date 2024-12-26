@@ -110,22 +110,25 @@ fn run_single_mbt_file(cli: &UniversalFlags, cmd: RunSubcommand) -> anyhow::Resu
         output_artifact_path.join(format!("{}.{}", file_name, target_backend.to_extension()));
 
     let pkg_name = "moon/run/single";
-    let build_package_command = [
-        "build-package",
-        &mbt_file_path.display().to_string(),
-        "-o",
-        output_core_path,
-        "-std-path",
-        core_bundle_path.to_str().unwrap(),
-        "-is-main",
-        "-pkg",
-        pkg_name,
-        "-g",
-        "-O0",
-        "-source-map",
-        "-target",
-        target_backend.to_flag(),
+    let mut build_package_command = vec![
+        "build-package".to_string(),
+        mbt_file_path.display().to_string(),
+        "-o".to_string(),
+        output_core_path.to_string(),
+        "-std-path".to_string(),
+        core_bundle_path.to_str().unwrap().to_string(),
+        "-is-main".to_string(),
+        "-pkg".to_string(),
+        pkg_name.to_string(),
+        "-g".to_string(),
+        "-O0".to_string(),
+        "-source-map".to_string(),
+        "-target".to_string(),
+        target_backend.to_flag().to_string(),
     ];
+    if cmd.build_flags.enable_value_tracing {
+        build_package_command.push("-enable-value-tracing".to_string());
+    }
     let link_core_command = [
         "link-core",
         &moonutil::moon_dir::core_core(target_backend)
@@ -167,7 +170,7 @@ fn run_single_mbt_file(cli: &UniversalFlags, cmd: RunSubcommand) -> anyhow::Resu
     }
 
     let moonc_build_package = std::process::Command::new("moonc")
-        .args(build_package_command)
+        .args(&build_package_command)
         .stdout(std::process::Stdio::inherit())
         .stderr(std::process::Stdio::inherit())
         .spawn()?
@@ -294,6 +297,9 @@ pub fn run_run_internal(cli: &UniversalFlags, cmd: RunSubcommand) -> anyhow::Res
         &resolved_env,
         &dir_sync_result,
     )?;
+
+    let pkg = module.get_package_by_path_mut(&package).unwrap();
+    pkg.enable_value_tracing = cmd.build_flags.enable_value_tracing;
 
     moonutil::common::set_native_backend_link_flags(
         run_mode,

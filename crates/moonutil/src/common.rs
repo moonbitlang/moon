@@ -316,6 +316,7 @@ pub struct BuildPackageFlags {
     pub target_backend: TargetBackend,
     pub warn_list: Option<String>,
     pub alert_list: Option<String>,
+    pub enable_value_tracing: bool,
 }
 
 impl BuildPackageFlags {
@@ -329,6 +330,7 @@ impl BuildPackageFlags {
             target_backend: TargetBackend::default(),
             warn_list: None,
             alert_list: None,
+            enable_value_tracing: false,
         }
     }
 }

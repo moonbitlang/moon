@@ -79,6 +79,8 @@ pub struct Package {
     pub bin_name: Option<String>,
 
     pub bin_target: TargetBackend,
+
+    pub enable_value_tracing: bool,
 }
 
 impl Package {

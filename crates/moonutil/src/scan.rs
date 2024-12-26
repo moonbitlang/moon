@@ -371,6 +371,7 @@ fn scan_one_package(
             .filter(|_| pkg.is_main && !is_third_party),
         bin_name: pkg.bin_name,
         bin_target: pkg.bin_target,
+        enable_value_tracing: false,
     };
     if doc_mode {
         // -o <folder>
