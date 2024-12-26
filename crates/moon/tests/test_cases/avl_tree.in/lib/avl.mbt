@@ -3,7 +3,7 @@
 
 // Empty represents an empty node in the AVL tree
 // Node represents a node in the AVL tree with left child, value, right child, and height
-pub enum T[U] {
+pub(all) enum T[U] {
   Empty
   Node(T[U], U, T[U], Int)
 }
