@@ -19,7 +19,10 @@
 use std::path::PathBuf;
 use std::rc::Rc;
 
-use moonutil::common::{MoonbuildOpt, DEP_PATH, MOD_DIR, MOONCAKE_BIN, MOON_BIN_DIR, PKG_DIR};
+use moonutil::common::{
+    MoonbuildOpt, DEP_PATH, LIB_ARTIFACT_DIR, MOD_DIR, MOONCAKE_BIN, MOON_BIN_DIR, PKG_DIR,
+    TARGET_DIR,
+};
 use moonutil::module::ModuleDB;
 use moonutil::package::StringOrArray;
 use n2::graph::{self as n2graph, Build, BuildIns, BuildOuts, FileId, FileLoc};
@@ -39,91 +42,115 @@ pub fn load_moon_pre_build(
         if pkg.is_third_party {
             continue;
         }
-        if let Some(generate) = &pkg.pre_build {
-            for rule in generate {
-                let cwd = &pkg.root_path;
-                let input = &rule.input;
-                let output = &rule.output;
-                let command = &rule.command;
-                let inputs = match input {
-                    StringOrArray::String(s) => {
-                        vec![cwd.join(s)]
-                    }
-                    StringOrArray::Array(arr) => {
-                        arr.iter().map(|s| cwd.join(s)).collect::<Vec<_>>()
-                    }
-                };
-                let inputs = inputs
-                    .iter()
-                    .map(|p| p.display().to_string())
-                    .collect::<Vec<_>>();
 
-                let inputs_ids = inputs
-                    .iter()
-                    .map(|f| graph.files.id_from_canonical(f.into()))
-                    .collect::<Vec<_>>();
+        let pkg_with_its_imports = pkg
+            .imports
+            .iter()
+            .map(|p| module.get_package_by_name(&p.path.make_full_path()))
+            .chain(std::iter::once(pkg));
 
-                let outputs = match output {
-                    StringOrArray::String(s) => vec![cwd.join(s)],
-                    StringOrArray::Array(arr) => {
-                        arr.iter().map(|s| cwd.join(s)).collect::<Vec<_>>()
+        for pkg in pkg_with_its_imports {
+            if let Some(generate) = &pkg.pre_build {
+                for rule in generate {
+                    let cwd = &pkg.root_path;
+                    let input = &rule.input;
+                    let output = &rule.output;
+                    let command = &rule.command;
+                    let inputs = match input {
+                        StringOrArray::String(s) => {
+                            vec![cwd.join(s)]
+                        }
+                        StringOrArray::Array(arr) => {
+                            arr.iter().map(|s| cwd.join(s)).collect::<Vec<_>>()
+                        }
+                    };
+
+                    let inputs = inputs
+                        .iter()
+                        .map(|p| p.display().to_string())
+                        .collect::<Vec<_>>();
+
+                    let inputs_ids = inputs
+                        .iter()
+                        .map(|f| graph.files.id_from_canonical(f.into()))
+                        .collect::<Vec<_>>();
+
+                    let outputs = match output {
+                        StringOrArray::String(s) => vec![cwd.join(s.replace(
+                            LIB_ARTIFACT_DIR,
+                            &pkg.artifact.parent().unwrap().display().to_string(),
+                        ))],
+                        StringOrArray::Array(arr) => arr
+                            .iter()
+                            .map(|s| {
+                                cwd.join(s.replace(
+                                    LIB_ARTIFACT_DIR,
+                                    &pkg.artifact.parent().unwrap().display().to_string(),
+                                ))
+                            })
+                            .collect::<Vec<_>>(),
+                    };
+                    let outputs = outputs
+                        .iter()
+                        .map(|p| p.display().to_string())
+                        .collect::<Vec<_>>();
+                    let outputs_ids = outputs
+                        .iter()
+                        .map(|f| graph.files.id_from_canonical(f.into()))
+                        .collect::<Vec<_>>();
+
+                    let ins = BuildIns {
+                        explicit: inputs_ids.len(),
+                        ids: inputs_ids,
+                        implicit: 0,
+                        order_only: 0,
+                    };
+                    for o in outputs_ids.iter() {
+                        defaults.push(*o);
                     }
-                };
-                let outputs = outputs
-                    .iter()
-                    .map(|p| p.display().to_string())
-                    .collect::<Vec<_>>();
-                let outputs_ids = outputs
-                    .iter()
-                    .map(|f| graph.files.id_from_canonical(f.into()))
-                    .collect::<Vec<_>>();
+                    let outs = BuildOuts {
+                        explicit: outputs_ids.len(),
+                        ids: outputs_ids,
+                    };
 
-                let ins = BuildIns {
-                    explicit: inputs_ids.len(),
-                    ids: inputs_ids,
-                    implicit: 0,
-                    order_only: 0,
-                };
-                for o in outputs_ids.iter() {
-                    defaults.push(*o);
+                    let loc = FileLoc {
+                        filename: Rc::new(PathBuf::from("generate")),
+                        line: 0,
+                    };
+
+                    let mut build = Build::new(loc, ins, outs);
+                    let moon_bin = std::env::current_exe()?;
+
+                    let command = if command.starts_with(":embed") {
+                        command
+                            .replacen(":embed", &format!("{} tool embed", moon_bin.display()), 1)
+                            .to_string()
+                    } else {
+                        command.to_string()
+                    }
+                    .replace(
+                        MOONCAKE_BIN,
+                        &moonbuild_opt
+                            .source_dir
+                            .join(DEP_PATH)
+                            .join(MOON_BIN_DIR)
+                            .display()
+                            .to_string(),
+                    )
+                    .replace(MOD_DIR, &moonbuild_opt.source_dir.display().to_string())
+                    .replace(PKG_DIR, &cwd.display().to_string())
+                    .replace(
+                        TARGET_DIR,
+                        &moonbuild_opt.raw_target_dir.display().to_string(),
+                    );
+
+                    let command = command
+                        .replace("$input", &inputs.join(" "))
+                        .replace("$output", &outputs.join(" "));
+
+                    build.cmdline = Some(command.clone());
+                    graph.add_build(build).unwrap();
                 }
-                let outs = BuildOuts {
-                    explicit: outputs_ids.len(),
-                    ids: outputs_ids,
-                };
-
-                let loc = FileLoc {
-                    filename: Rc::new(PathBuf::from("generate")),
-                    line: 0,
-                };
-
-                let mut build = Build::new(loc, ins, outs);
-                let moon_bin = std::env::current_exe()?;
-
-                let command = if command.starts_with(":embed") {
-                    command
-                        .replacen(":embed", &format!("{} tool embed", moon_bin.display()), 1)
-                        .to_string()
-                } else {
-                    command.to_string()
-                }
-                .replace(
-                    MOONCAKE_BIN,
-                    &moonbuild_opt
-                        .source_dir
-                        .join(DEP_PATH)
-                        .join(MOON_BIN_DIR)
-                        .display()
-                        .to_string(),
-                )
-                .replace(MOD_DIR, &moonbuild_opt.source_dir.display().to_string())
-                .replace(PKG_DIR, &cwd.display().to_string());
-
-                let command = command
-                    .replace("$input", &inputs.join(" "))
-                    .replace("$output", &outputs.join(" "));
-                build.cmdline = Some(command.clone());
-                graph.add_build(build).unwrap();
             }
         }
     }

@@ -63,6 +63,8 @@ pub const MOON_BIN_DIR: &str = "__moonbin__";
 pub const MOONCAKE_BIN: &str = "$mooncake_bin";
 pub const MOD_DIR: &str = "$mod_dir";
 pub const PKG_DIR: &str = "$pkg_dir";
+pub const TARGET_DIR: &str = "$target_dir";
+pub const LIB_ARTIFACT_DIR: &str = "$lib_artifact_dir";
 
 #[derive(Debug, thiserror::Error)]
 pub enum SourceError {
@@ -902,38 +904,160 @@ pub fn set_native_backend_link_flags(
                     return None;
                 };
 
+                let backup_pkgs = module.get_all_packages().clone();
+
                 let all_pkgs = module.get_all_packages_mut();
-                for (_, pkg) in all_pkgs {
+                for (s, pkg) in all_pkgs {
                     let existing_native = pkg.link.as_ref().and_then(|link| link.native.as_ref());
 
+                    // let all_stub_artifacts = pkg
+                    //     .imports
+                    //     .iter()
+                    //     .filter_map(|i| backup_pkgs.get(&i.path.make_full_path()))
+                    //     .fold(None, |acc, p| {
+                    //         if s == "moonbitlang/x/fs" {
+                    //             println!("fs p.link: {:?}", p.link);
+                    //         }
+
+                    //         p.link
+                    //             .as_ref()
+                    //             .and_then(|link| link.native.as_ref())
+                    //             .and_then(|native| native.stub_artifacts.as_ref())
+                    //             .map(|artifacts| {
+                    //                 println!("artifacts: {:?}", artifacts);
+                    //                 let mut artifacts = artifacts.clone();
+                    //                 if let Some(existing) = acc.clone() {
+                    //                     artifacts.extend(existing);
+                    //                 }
+                    //                 artifacts
+                    //             })
+                    //             .or(acc)
+                    //     });
+
+                    let mut all_stub_artifacts = None;
+
+                    for i in pkg.imports.iter() {
+                        if let Some(p) = backup_pkgs.get(&i.path.make_full_path()) {
+                            if s == "moonbitlang/x/fs" {
+                                println!("fs p.link: {:?}", p.link);
+                            }
+
+                            let current_artifacts = p
+                                .link
+                                .as_ref()
+                                .and_then(|link| link.native.as_ref())
+                                .and_then(|native| native.stub_artifacts.as_ref());
+
+                            if let Some(new) = current_artifacts {
+                                println!("artifacts: {:?}", new);
+                                match &mut all_stub_artifacts {
+                                    None => all_stub_artifacts = {
+                                        // 替换 $lib_artifact_dir，注意本包的和第三方包的别混了
+                                        Some(new.clone())
+                                    },
+                                    Some(existing) => existing.extend(new.clone()),
+                                }
+                            }
+                        }
+                    }
+
                     let native_config = match existing_native {
-                        Some(n) => crate::package::NativeLinkConfig {
-                            cc: n.cc.clone().or(Some(compiler.to_string())),
-                            cc_flags: n.cc_flags.clone().or(get_default_cc_flags()),
-                            cc_link_flags: n.cc_link_flags.clone().or(get_default_cc_link_flag()),
-                        },
-                        None if release => crate::package::NativeLinkConfig {
-                            cc: Some(compiler.to_string()),
-                            cc_flags: get_default_cc_flags(),
-                            cc_link_flags: get_default_cc_link_flag(),
-                        },
+                        Some(n) => {
+                            println!(
+                                "all_stub_artifacts.clone(): {:?}",
+                                all_stub_artifacts.clone()
+                            );
+                            let mut cc_link_flags =
+                                n.cc_link_flags.clone().or(get_default_cc_link_flag());
+                            if let Some(artifacts) = n
+                                .stub_artifacts
+                                .clone()
+                                .map(|mut artifacts| {
+                                    if let Some(additional) = all_stub_artifacts.clone() {
+                                        artifacts.extend(additional);
+                                    }
+                                    artifacts
+                                })
+                                .or(all_stub_artifacts.clone())
+                            {
+                                cc_link_flags = Some(match cc_link_flags {
+                                    Some(mut flags) => {
+                                        flags.push_str(" ");
+                                        flags.push_str(&artifacts.join(" "));
+                                        flags
+                                    }
+                                    None => artifacts.join(" "),
+                                });
+                            }
+
+                            crate::package::NativeLinkConfig {
+                                cc: n.cc.clone().or(Some(compiler.to_string())),
+                                cc_flags: n.cc_flags.clone().or(get_default_cc_flags()),
+                                cc_link_flags,
+                                stub_artifacts: n
+                                    .stub_artifacts
+                                    .clone()
+                                    .map(|mut artifacts| {
+                                        if let Some(additional) = all_stub_artifacts.clone() {
+                                            artifacts.extend(additional);
+                                        }
+                                        artifacts
+                                    })
+                                    .or(all_stub_artifacts.clone()),
+                            }
+                        }
+                        None if release => {
+                            let mut cc_link_flags = get_default_cc_link_flag();
+                            if let Some(artifacts) = all_stub_artifacts.clone() {
+                                cc_link_flags = Some(match cc_link_flags {
+                                    Some(mut flags) => {
+                                        flags.push_str(" ");
+                                        flags.push_str(&artifacts.join(" "));
+                                        flags
+                                    }
+                                    None => artifacts.join(" "),
+                                });
+                            }
+
+                            crate::package::NativeLinkConfig {
+                                cc: Some(compiler.to_string()),
+                                cc_flags: get_default_cc_flags(),
+                                cc_link_flags,
+                                stub_artifacts: all_stub_artifacts.clone(),
+                            }
+                        }
                         None => {
                             let moon_home = libmoonbitrun_path.as_ref().unwrap().parent().unwrap();
+                            let mut cc_link_flags = None;
+                            if s == "username/flash/main" {
+                                println!("all_stub_artifacts: {:?}", all_stub_artifacts.clone());
+                            }
+                            if let Some(artifacts) = all_stub_artifacts.clone() {
+                                println!("artifacts: {:?}", artifacts);
+                                cc_link_flags = Some(artifacts.join(" "));
+                            }
+
                             crate::package::NativeLinkConfig {
-                                cc: Some("tcc".to_string()),
+                                // tcc
+                                cc: Some("cc".to_string()),
                                 cc_flags: Some(format!(
                                     "-L{} -I{} -DMOONBIT_NATIVE_NO_SYS_HEADER",
                                     moon_home.display(),
                                     moon_home.display()
                                 )),
-                                cc_link_flags: None,
+                                cc_link_flags,
+                                stub_artifacts: all_stub_artifacts.clone(),
                             }
                         }
                     };
 
+                    if s == "moonbitlang/x/fs" {
+                        println!("native_config: {:?}", native_config);
+                    }
+
                     pkg.link = Some(crate::package::Link {
                         native: Some(native_config),
-                        ..Default::default()
+                        ..pkg.link.clone().unwrap_or_default()
                     });
                 }
             }

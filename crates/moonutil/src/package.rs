@@ -383,6 +383,9 @@ pub struct NativeLinkConfig {
     pub cc_flags: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub cc_link_flags: Option<String>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub stub_artifacts: Option<Vec<String>>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, JsonSchema)]
