@@ -1393,6 +1393,7 @@ dependencies = [
  "n2",
  "notify",
  "petgraph",
+ "rand",
  "reqwest",
  "self-replace",
  "semver",

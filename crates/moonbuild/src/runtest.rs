@@ -198,7 +198,8 @@ async fn run(
         // Output to moonbit_coverage_<time>.txt
         // TODO: do we need to move this out of the runtest module?
         let time = chrono::Local::now().timestamp_micros();
-        let filename = target_dir.join(format!("moonbit_coverage_{}.txt", time));
+        let rnd = rand::random::<u32>();
+        let filename = target_dir.join(format!("moonbit_coverage_{}_{:08x}.txt", time, rnd));
         std::fs::write(&filename, coverage_output)
             .context(format!("failed to write {}", filename.to_string_lossy()))?;
     }
