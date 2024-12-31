@@ -64,7 +64,7 @@ jobs:
           curl https://cli.moonbitlang.com/moon-ci/$(uname -s)-$(uname -m).tar.gz --output moonbit.tar.gz
           mkdir -p ~/.moon/bin
           mkdir -p ~/.moon/lib
-          tar xf moonbit.tar.gz --directory ~/.moon/bin/
+          tar xf moonbit.tar.gz --directory ~/.moon/
           curl https://cli.moonbitlang.com/moon-ci/$(uname -s)-$(uname -m)/moonrun --output ~/.moon/bin/moonrun
           curl https://cli.moonbitlang.com/moon-ci/$(uname -s)-$(uname -m)/mooncake --output ~/.moon/bin/mooncake
           ls -l ~/.moon/bin
@@ -81,7 +81,7 @@ jobs:
           Invoke-WebRequest -Uri https://cli.moonbitlang.com/moon-ci/Windows-x86_64.zip -OutFile moonbit.zip
           New-Item -ItemType Directory -Force -Path "$env:USERPROFILE/.moon/bin"
           New-Item -ItemType Directory -Force -Path "$env:USERPROFILE/.moon/lib"
-          Expand-Archive -Path "moonbit.zip" -DestinationPath "$env:USERPROFILE/.moon/bin/" -Force
+          Expand-Archive -Path "moonbit.zip" -DestinationPath "$env:USERPROFILE/.moon/" -Force
           Invoke-WebRequest -Uri https://cli.moonbitlang.com/moon-ci/Windows-x86_64/moonrun.exe -OutFile "$env:USERPROFILE/.moon/bin/moonrun.exe"
           Invoke-WebRequest -Uri https://cli.moonbitlang.com/moon-ci/Windows-x86_64/mooncake.exe -OutFile "$env:USERPROFILE/.moon/bin/mooncake.exe"
           Get-ChildItem -Path "$env:USERPROFILE/.moon/bin"
