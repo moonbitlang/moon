@@ -873,7 +873,7 @@ pub fn set_native_backend_link_flags(
     release: bool,
     target_backend: Option<TargetBackend>,
     module: &mut crate::module::ModuleDB,
-) {
+) -> anyhow::Result<()> {
     match run_mode {
         // need link-core for build, test and run
         RunMode::Build | RunMode::Test | RunMode::Run => {
@@ -884,16 +884,20 @@ pub fn set_native_backend_link_flags(
                 #[cfg(windows)]
                 let compiler = "cl";
 
-                // libmoonbitrun.o should be in the same directory as moonc
-                let libmoonbitrun_path = which::which("moonc")
-                    .map(|p| p.with_file_name("libmoonbitrun.o"))
-                    .context("libmoonbitrun.o not found in the same directory as moonc");
+                let moonc_path = which::which("moonc").context("moonc not found in PATH")?;
+                let moon_home = moonc_path.parent().unwrap().parent().unwrap();
+                let moon_include_path = moon_home.join("include");
+                let moon_lib_path = moon_home.join("lib");
+
+                // libmoonbitrun.o should under $MOON_HOME/lib
+                let libmoonbitrun_path = moon_home.join("lib").join("libmoonbitrun.o");
 
                 let get_default_cc_flags = || -> Option<String> {
                     #[cfg(unix)]
                     return Some(format!(
-                        "-O2 {} -fwrapv",
-                        libmoonbitrun_path.as_ref().unwrap().display()
+                        "-I{} -O2 {} -fwrapv -fno-strict-aliasing",
+                        moon_include_path.display(),
+                        libmoonbitrun_path.display()
                     ));
                     #[cfg(windows)]
                     return None;
@@ -913,7 +917,17 @@ pub fn set_native_backend_link_flags(
                     let native_config = match existing_native {
                         Some(n) => crate::package::NativeLinkConfig {
                             cc: n.cc.clone().or(Some(compiler.to_string())),
-                            cc_flags: n.cc_flags.clone().or(get_default_cc_flags()),
+                            cc_flags: n
+                                .cc_flags
+                                .clone()
+                                .map(|cc_flags| {
+                                    format!(
+                                        "-I{} -fno-strict-aliasing {}",
+                                        moon_include_path.display(),
+                                        cc_flags
+                                    )
+                                })
+                                .or(get_default_cc_flags()),
                             cc_link_flags: n.cc_link_flags.clone().or(get_default_cc_link_flag()),
                         },
                         None if release => crate::package::NativeLinkConfig {
@@ -921,18 +935,22 @@ pub fn set_native_backend_link_flags(
                             cc_flags: get_default_cc_flags(),
                             cc_link_flags: get_default_cc_link_flag(),
                         },
-                        None => {
-                            let moon_home = libmoonbitrun_path.as_ref().unwrap().parent().unwrap();
-                            crate::package::NativeLinkConfig {
-                                cc: Some("tcc".to_string()),
-                                cc_flags: Some(format!(
-                                    "-L{} -I{} -DMOONBIT_NATIVE_NO_SYS_HEADER",
-                                    moon_home.display(),
-                                    moon_home.display()
-                                )),
-                                cc_link_flags: None,
-                            }
-                        }
+                        None => crate::package::NativeLinkConfig {
+                            cc: Some(
+                                moon_home
+                                    .join("bin")
+                                    .join("internal")
+                                    .join("tcc")
+                                    .display()
+                                    .to_string(),
+                            ),
+                            cc_flags: Some(format!(
+                                "-L{} -I{} -DMOONBIT_NATIVE_NO_SYS_HEADER",
+                                moon_lib_path.display(),
+                                moon_include_path.display()
+                            )),
+                            cc_link_flags: None,
+                        },
                     };
 
                     pkg.link = Some(crate::package::Link {
@@ -941,7 +959,8 @@ pub fn set_native_backend_link_flags(
                     });
                 }
             }
+            Ok(())
         }
-        _ => {}
+        _ => Ok(()),
     }
 }
