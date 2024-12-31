@@ -68,7 +68,7 @@ jobs:
           curl https://cli.moonbitlang.com/moon-ci/$(uname -s)-$(uname -m)/moonrun --output ~/.moon/bin/moonrun
           curl https://cli.moonbitlang.com/moon-ci/$(uname -s)-$(uname -m)/mooncake --output ~/.moon/bin/mooncake
           chmod +x ~/.moon/bin/moon*
-          chmod +x ~/.moon/bin/tcc
+          chmod +x ~/.moon/bin/internal/tcc
           git clone --depth 1 https://github.com/moonbitlang/core.git ~/.moon/lib/core
           echo "$HOME/.moon/bin" >> $GITHUB_PATH
           echo "$GITHUB_WORKSPACE/target/debug" >> $GITHUB_PATH
