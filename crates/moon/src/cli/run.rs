@@ -129,31 +129,48 @@ fn run_single_mbt_file(cli: &UniversalFlags, cmd: RunSubcommand) -> anyhow::Resu
     if cmd.build_flags.enable_value_tracing {
         build_package_command.push("-enable-value-tracing".to_string());
     }
-    let link_core_command = [
-        "link-core",
-        &moonutil::moon_dir::core_core(target_backend)
+    let mut link_core_command = vec![
+        "link-core".to_string(),
+        moonutil::moon_dir::core_core(target_backend)
             .display()
             .to_string(),
-        &(output_artifact_path
+        output_artifact_path
             .join(format!("{}.core", file_name))
             .display()
-            .to_string()),
-        "-o",
-        &output_wasm_or_js_path.display().to_string(),
-        "-pkg-sources",
-        &format!("{}:{}", pkg_name, mbt_file_parent_path.display()),
-        "-pkg-sources",
-        &format!(
+            .to_string(),
+        "-o".to_string(),
+        output_wasm_or_js_path.display().to_string(),
+        "-pkg-sources".to_string(),
+        format!("{}:{}", pkg_name, mbt_file_parent_path.display()),
+        "-pkg-sources".to_string(),
+        format!(
             "{}:{}",
             MOONBITLANG_CORE,
             moonutil::moon_dir::core().display()
         ),
-        "-g",
-        "-O0",
-        "-source-map",
-        "-target",
-        target_backend.to_flag(),
+        "-g".to_string(),
+        "-O0".to_string(),
+        "-source-map".to_string(),
+        "-target".to_string(),
+        target_backend.to_flag().to_string(),
     ];
+
+    if target_backend == TargetBackend::Native {
+        let moonc_path = which::which("moonc").context("moonc not found in PATH")?;
+        let moon_home = moonc_path.parent().unwrap().parent().unwrap();
+        let moon_include_path = moon_home.join("include");
+        let moon_lib_path = moon_home.join("lib");
+        let tcc_path = moon_home.join("bin").join("internal").join("tcc");
+
+        link_core_command.push("-cc".to_string());
+        link_core_command.push(tcc_path.display().to_string());
+        link_core_command.push("-cc-flags".to_string());
+        link_core_command.push(format!(
+            "-L{} -I{} -DMOONBIT_NATIVE_NO_SYS_HEADER",
+            moon_lib_path.display(),
+            moon_include_path.display()
+        ));
+    }
 
     if cli.dry_run {
         println!("moonc {}", build_package_command.join(" "));
@@ -181,7 +198,7 @@ fn run_single_mbt_file(cli: &UniversalFlags, cmd: RunSubcommand) -> anyhow::Resu
     }
 
     let moonc_link_core = std::process::Command::new("moonc")
-        .args(link_core_command)
+        .args(&link_core_command)
         .stdout(std::process::Stdio::inherit())
         .stderr(std::process::Stdio::inherit())
         .spawn()?
