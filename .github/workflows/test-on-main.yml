@@ -67,6 +67,8 @@ jobs:
           tar xf moonbit.tar.gz --directory ~/.moon/bin/
           curl https://cli.moonbitlang.com/moon-ci/$(uname -s)-$(uname -m)/moonrun --output ~/.moon/bin/moonrun
           curl https://cli.moonbitlang.com/moon-ci/$(uname -s)-$(uname -m)/mooncake --output ~/.moon/bin/mooncake
+          ls -l ~/.moon/bin
+          ls -l ~/.moon/bin/internal
           chmod +x ~/.moon/bin/moon*
           chmod +x ~/.moon/bin/internal/tcc
           git clone --depth 1 https://github.com/moonbitlang/core.git ~/.moon/lib/core
@@ -82,6 +84,8 @@ jobs:
           Expand-Archive -Path "moonbit.zip" -DestinationPath "$env:USERPROFILE/.moon/bin/" -Force
           Invoke-WebRequest -Uri https://cli.moonbitlang.com/moon-ci/Windows-x86_64/moonrun.exe -OutFile "$env:USERPROFILE/.moon/bin/moonrun.exe"
           Invoke-WebRequest -Uri https://cli.moonbitlang.com/moon-ci/Windows-x86_64/mooncake.exe -OutFile "$env:USERPROFILE/.moon/bin/mooncake.exe"
+          Get-ChildItem -Path "$env:USERPROFILE/.moon/bin"
+          Get-ChildItem -Path "$env:USERPROFILE/.moon/bin/internal"
           git clone --depth 1 https://github.com/moonbitlang/core.git "$env:USERPROFILE/.moon/lib/core"
           "$env:USERPROFILE\.moon\bin" | Out-File -FilePath $env:GITHUB_PATH -Append
           "$env:GITHUB_WORKSPACE\target\debug" | Out-File -FilePath $env:GITHUB_PATH -Append
