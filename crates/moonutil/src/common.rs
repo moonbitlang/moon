@@ -900,7 +900,7 @@ pub fn set_native_backend_link_flags(
                         libmoonbitrun_path.display()
                     ));
                     #[cfg(windows)]
-                    return None;
+                    return Some(format!("-I{}", moon_include_path.display()));
                 };
 
                 let get_default_cc_link_flag = || -> Option<String> {
