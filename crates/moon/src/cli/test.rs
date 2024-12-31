@@ -336,7 +336,7 @@ fn run_test_internal(
         cmd.build_flags.release,
         cmd.build_flags.target_backend,
         &mut module,
-    );
+    )?;
 
     // add coverage libs if needed
     moonbuild::gen::gen_runtest::add_coverage_to_core_if_needed(&mut module, &moonc_opt)?;

@@ -64,12 +64,12 @@ jobs:
           curl https://cli.moonbitlang.com/moon-ci/$(uname -s)-$(uname -m).tar.gz --output moonbit.tar.gz
           curl https://cli.moonbitlang.com/moon-ci/$(uname -s)-$(uname -m)/mooncake --output mooncake
           tar xf moonbit.tar.gz --directory ./tmp-bins/
-          cp -L ./target/release/moonrun ./tmp-bins/
-          cp -L ./target/release/moon ./tmp-bins/
-          cp -L ./mooncake ./tmp-bins/
+          cp -L ./target/release/moonrun ./tmp-bins/bin/
+          cp -L ./target/release/moon ./tmp-bins/bin/
+          cp -L ./mooncake ./tmp-bins/bin/
           ls ./tmp-bins/
-          pushd tmp-bins && shasum -a 256 -- * >../moonbit-$PLATFORM.sha256 && popd
           tar czf ./moonbit-$PLATFORM.tar.gz --directory=./tmp-bins .
+          shasum -a 256 ./moonbit-$PLATFORM.tar.gz > moonbit-$PLATFORM.sha256
           aws s3 cp ./moonbit-$PLATFORM.tar.gz s3://cli.moonbitlang.com/binaries/bleeding/moonbit-$PLATFORM.tar.gz
           aws s3 cp ./moonbit-$PLATFORM.sha256 s3://cli.moonbitlang.com/binaries/bleeding/moonbit-$PLATFORM.sha256
           aws cloudfront create-invalidation --distribution-id E1KQYZEVEB0TAY --paths "/*"
@@ -87,14 +87,14 @@ jobs:
           Invoke-WebRequest -Uri "https://cli.moonbitlang.com/moon-ci/Windows-x86_64.zip" -OutFile moonbit.zip
           Invoke-WebRequest -Uri "https://cli.moonbitlang.com/moon-ci/Windows-x86_64/mooncake.exe" -OutFile mooncake.exe
           Expand-Archive -Path moonbit.zip -DestinationPath .\tmp-bins
-          Copy-Item .\target\release\moonrun.exe .\tmp-bins
-          Copy-Item .\target\release\moon.exe .\tmp-bins
-          Copy-Item .\mooncake.exe .\tmp-bins
+          Copy-Item .\target\release\moonrun.exe .\tmp-bins\bin
+          Copy-Item .\target\release\moon.exe .\tmp-bins\bin
+          Copy-Item .\mooncake.exe .\tmp-bins\bin
           Get-ChildItem .\tmp-bins
           Push-Location tmp-bins
-          Get-FileHash -Algorithm SHA256 * | ForEach-Object { $_.Hash + "  " + $_.Path.Split("\")[-1] } | Out-File -FilePath ..\moonbit-windows-x86_64.sha256 -Encoding utf8
           Pop-Location
           Compress-Archive -Path .\tmp-bins\* -DestinationPath .\moonbit-windows-x86_64.zip
+          Get-FileHash -Algorithm SHA256 .\moonbit-windows-x86_64.zip | ForEach-Object { $_.Hash + "  " + $_.Path.Split("\")[-1] } | Out-File -FilePath .\moonbit-windows-x86_64.sha256 -Encoding utf8
           aws s3 cp .\moonbit-windows-x86_64.zip s3://cli.moonbitlang.com/binaries/bleeding/moonbit-windows-x86_64.zip
           aws s3 cp .\moonbit-windows-x86_64.sha256 s3://cli.moonbitlang.com/binaries/bleeding/moonbit-windows-x86_64.sha256
           aws cloudfront create-invalidation --distribution-id E1KQYZEVEB0TAY --paths "/*"

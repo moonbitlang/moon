@@ -323,7 +323,7 @@ pub fn run_run_internal(cli: &UniversalFlags, cmd: RunSubcommand) -> anyhow::Res
         cmd.build_flags.release,
         cmd.build_flags.target_backend,
         &mut module,
-    );
+    )?;
 
     if cli.dry_run {
         return dry_run::print_commands(&module, &moonc_opt, &moonbuild_opt);

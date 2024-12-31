@@ -80,8 +80,8 @@ jobs:
           cp -L ./target/release/moonrun ./tmp-bins/bin/
           cp -L ./target/release/moon ./tmp-bins/bin/
           cp -L ./mooncake ./tmp-bins/bin/
-          pushd tmp-bins && shasum -a 256 -- * >../moonbit-darwin-aarch64.sha256 && popd
           tar czf ./moonbit-darwin-aarch64.tar.gz --directory=./tmp-bins .
+          shasum -a 256 ./moonbit-darwin-aarch64.tar.gz > moonbit-darwin-aarch64.sha256
           aws s3 cp ./moonbit-darwin-aarch64.tar.gz s3://cli.moonbitlang.com/binaries/bleeding/moonbit-darwin-aarch64.tar.gz
           aws s3 cp ./moonbit-darwin-aarch64.sha256 s3://cli.moonbitlang.com/binaries/bleeding/moonbit-darwin-aarch64.sha256
           aws cloudfront create-invalidation --distribution-id E1KQYZEVEB0TAY --paths "/*"
@@ -153,8 +153,8 @@ jobs:
           cp -L ./target/release/moonrun ./tmp-bins/bin/
           cp -L ./target/release/moon ./tmp-bins/bin/
           cp -L ./mooncake ./tmp-bins/bin/
-          cd tmp-bins && sha256sum -- * >../moonbit-linux-x86_64.sha256 && cd ..
           tar czf ./moonbit-linux-x86_64.tar.gz --directory=./tmp-bins .
+          shasum -a 256 ./moonbit-linux-x86_64.tar.gz > moonbit-linux-x86_64.sha256
           aws s3 cp ./moonbit-linux-x86_64.tar.gz s3://cli.moonbitlang.com/binaries/bleeding/moonbit-linux-x86_64.tar.gz
           aws s3 cp ./moonbit-linux-x86_64.sha256 s3://cli.moonbitlang.com/binaries/bleeding/moonbit-linux-x86_64.sha256
           aws cloudfront create-invalidation --distribution-id E1KQYZEVEB0TAY --paths "/*"
