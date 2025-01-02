@@ -7985,13 +7985,6 @@ fn test_run_doc_test() {
             test block 4
             test block 5
             doc_test 5 from greet.mbt
-            test username/hello/lib/hello.mbt::doc_test hello.mbt 9 4 failed
-            expect test failed at $ROOT/src/lib/hello.mbt:12:5-12:19
-            Diff:
-            ----
-            1256
-            ----
-
             test username/hello/lib/hello.mbt::doc_test hello.mbt 19 4 failed: FAILED: $ROOT/src/lib/hello.mbt:22:5-22:31 this is a failure
             test username/hello/lib/greet.mbt::2 failed
             expect test failed at $ROOT/src/lib/greet.mbt:22:7-22:21
@@ -8001,7 +7994,14 @@ fn test_run_doc_test() {
             ----
 
             test username/hello/lib/greet.mbt::3 failed: FAILED: $ROOT/src/lib/greet.mbt:31:7-31:31 another failure
-            Total tests: 12, passed: 8, failed: 4.
+            test username/hello/lib/greet.mbt::doc_test greet.mbt 92 18 failed
+            expect test failed at $ROOT/src/lib/greet.mbt:99:5-99:29
+            Diff:
+            ----
+            b"/x54/x00/x65/x00/x73/x00/x74/x00"
+            ----
+
+            Total tests: 13, passed: 9, failed: 4.
         "#]],
     );
 
@@ -8020,16 +8020,14 @@ fn test_run_doc_test() {
             test block 4
             test block 5
             doc_test 5 from greet.mbt
+            test username/hello/lib/hello.mbt::doc_test hello.mbt 19 4 failed: FAILED: $ROOT/src/lib/hello.mbt:22:5-22:31 this is a failure
 
             Auto updating expect tests and retesting ...
 
-            doc_test 2 from hello.mbt
-            doc_test 2 from hello.mbt
-            test username/hello/lib/hello.mbt::doc_test hello.mbt 19 4 failed: FAILED: $ROOT/src/lib/hello.mbt:22:5-22:31 this is a failure
             test block 2
             test block 2
             test username/hello/lib/greet.mbt::3 failed: FAILED: $ROOT/src/lib/greet.mbt:31:7-31:31 another failure
-            Total tests: 12, passed: 10, failed: 2.
+            Total tests: 13, passed: 11, failed: 2.
         "#]],
     );
 
