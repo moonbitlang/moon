@@ -463,7 +463,7 @@ fn push_multi_line_string(
     } else {
         let lines: Vec<&str> = content.split('\n').collect();
         if !output.ends_with("\n") {
-            output.push_str("\n");
+            output.push('\n');
         }
         for (i, line) in lines.iter().enumerate() {
             if line.trim().starts_with("#|") {

@@ -93,9 +93,7 @@ pub fn greet5() -> String {
 /// let buf = @buffer.new(size_hint=100)
 /// buf.write_string("Tes")
 /// buf.write_char('t')
-/// inspect!(buf.contents(), content=
-///   #|b"\x54\x00\x65\x00\x73\x00\x74\x00"
-/// )
+/// inspect!(buf.contents(), content="")
 /// inspect!(buf.contents())
 /// 
 ///  let multi_line_string_1 = 
@@ -107,6 +105,28 @@ pub fn greet5() -> String {
 ///     #|
 /// 
 ///  inspect!(multi_line_string_1)
+///  inspect!(multi_line_string_1, content="")
+/// 
+///  let multi_line_string_2 = 
+///     #|1
+///     #|2
+///     #|3
+/// 
+///  inspect!(multi_line_string_2)
+///  inspect!(multi_line_string_2, content="")
+/// 
+///  let multi_line_string_3 = 
+///     #|1
+///     #|2
+/// 
+///  inspect!(multi_line_string_3)
+///  inspect!(multi_line_string_3, content="")
+/// 
+///  let multi_line_string_4 = 
+///     #|1
+/// 
+///  inspect!(multi_line_string_4)
+///  inspect!(multi_line_string_4, content="")
 /// 
 /// ```
 pub fn greet6() -> String {
