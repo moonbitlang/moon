@@ -455,23 +455,40 @@ fn push_multi_line_string(
     s: &str,
     prev_char: Option<&char>,
     next_char: Option<&char>,
+    is_doc_test: bool,
 ) {
+    println!("s: {:?}", s);
     let lines: Vec<&str> = s.split('\n').collect();
+    println!("lines: {:?}", lines);
     for (i, line) in lines.iter().enumerate() {
         if i == 0 {
             match prev_char {
                 Some('=') | Some('(') => {
                     output.push('\n');
-                    output.push_str(" ".repeat(spaces).as_str());
+                    if !is_doc_test {
+                        output.push_str(" ".repeat(spaces).as_str());
+                    } else {
+                        output.push_str("/// ");
+                    }
                 }
                 Some(c) if c.is_alphabetic() => {
                     output.push('\n');
-                    output.push_str(" ".repeat(spaces).as_str());
+                    if !is_doc_test {
+                        output.push_str(" ".repeat(spaces).as_str());
+                    } else {
+                        output.push_str("/// ");
+                    }
                 }
                 _ => {}
             }
-            output.push_str(&format!("#|{}", line));
+            // if is_doc_test {
+            //     output.push_str("/// ");
+            // }
+            output.push_str(&format!("{}#|{}", " ".repeat(spaces), line));
         } else {
+            if is_doc_test {
+                output.push_str("/// ");
+            }
             match prev_char {
                 Some(' ') => {
                     output.push_str(&format!(
@@ -490,13 +507,16 @@ fn push_multi_line_string(
                 output.push('\n');
                 output.push_str(" ".repeat(if spaces > 2 { spaces - 2 } else { 0 }).as_str());
             }
+            if is_doc_test {
+                output.push_str("/// ");
+            }
         } else {
             output.push('\n');
         }
     }
 }
 
-fn apply_patch(pp: &PackagePatch) -> anyhow::Result<()> {
+fn apply_patch(pp: &PackagePatch, is_doc_test: bool) -> anyhow::Result<()> {
     for (filename, patches) in pp.patches.iter() {
         let content = std::fs::read_to_string(filename)?;
         // TODO: share content_chars with gen_patch
@@ -541,7 +561,9 @@ fn apply_patch(pp: &PackagePatch) -> anyhow::Result<()> {
                     output.push_str(padding);
                     if patch.kind == TargetKind::Call && patch.actual.contains('\n') {
                         output.push('\n');
-                        output.push_str(" ".repeat(spaces + 2).as_str());
+                        if !is_doc_test {
+                            output.push_str(" ".repeat(spaces + 2).as_str());
+                        }
                     }
                 }
 
@@ -558,6 +580,7 @@ fn apply_patch(pp: &PackagePatch) -> anyhow::Result<()> {
                                 &patch.actual,
                                 prev_char,
                                 next_char,
+                                is_doc_test,
                             );
                         }
                     }
@@ -631,13 +654,13 @@ pub fn apply_snapshot(messages: &[String]) -> anyhow::Result<()> {
     Ok(())
 }
 
-pub fn apply_expect(messages: &[String]) -> anyhow::Result<()> {
+pub fn apply_expect(messages: &[String], is_doc_test: bool) -> anyhow::Result<()> {
     // dbg!(&messages);
     let targets = collect(messages)?;
     // dbg!(&targets);
     let patches = gen_patch(targets)?;
     // dbg!(&patches);
-    apply_patch(&patches)?;
+    apply_patch(&patches, is_doc_test)?;
     Ok(())
 }
 

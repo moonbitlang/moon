@@ -88,3 +88,25 @@ pub fn greet4() -> String {
 pub fn greet5() -> String {
   "greet, wor1ld!"
 }
+
+/// ```
+/// let buf = @buffer.new(size_hint=100)
+/// buf.write_string("Tes")
+/// buf.write_char('t')
+/// inspect!(buf.contents(), content="Test")
+/// inspect!(buf.contents())
+/// 
+///  let multi_line_string_1 = 
+///     #|1
+///     #|2
+///     #|3
+///     #|4
+///     #|5
+///     #|
+/// 
+///  inspect!(multi_line_string_1)
+/// 
+/// ```
+pub fn greet6() -> String {
+  "greet, wor1ld!"
+}
