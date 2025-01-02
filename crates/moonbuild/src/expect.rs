@@ -457,38 +457,47 @@ fn push_multi_line_string(
     next_char: Option<&char>,
     is_doc_test: bool,
 ) {
-    println!("s: {:?}", s);
+    let content = push_multi_line_string_internal(spaces, s, prev_char, next_char);
+    if !is_doc_test {
+        output.push_str(&content);
+    } else {
+        let lines: Vec<&str> = content.split('\n').collect();
+        if !output.ends_with("\n") {
+            output.push_str("\n");
+        }
+        for (i, line) in lines.iter().enumerate() {
+            if line.trim().starts_with("#|") {
+                let spaces = if i == 0 { 2 } else { 0 };
+                output.push_str(&format!("/// {}{}\n", " ".repeat(spaces).as_str(), line));
+            }
+        }
+        output.push_str("/// ");
+    }
+}
+
+fn push_multi_line_string_internal(
+    spaces: usize,
+    s: &str,
+    prev_char: Option<&char>,
+    next_char: Option<&char>,
+) -> String {
+    let mut output = String::new();
     let lines: Vec<&str> = s.split('\n').collect();
-    println!("lines: {:?}", lines);
     for (i, line) in lines.iter().enumerate() {
         if i == 0 {
             match prev_char {
                 Some('=') | Some('(') => {
                     output.push('\n');
-                    if !is_doc_test {
-                        output.push_str(" ".repeat(spaces).as_str());
-                    } else {
-                        output.push_str("/// ");
-                    }
+                    output.push_str(" ".repeat(spaces).as_str());
                 }
                 Some(c) if c.is_alphabetic() => {
                     output.push('\n');
-                    if !is_doc_test {
-                        output.push_str(" ".repeat(spaces).as_str());
-                    } else {
-                        output.push_str("/// ");
-                    }
+                    output.push_str(" ".repeat(spaces).as_str());
                 }
                 _ => {}
             }
-            // if is_doc_test {
-            //     output.push_str("/// ");
-            // }
-            output.push_str(&format!("{}#|{}", " ".repeat(spaces), line));
+            output.push_str(&format!("#|{}", line));
         } else {
-            if is_doc_test {
-                output.push_str("/// ");
-            }
             match prev_char {
                 Some(' ') => {
                     output.push_str(&format!(
@@ -507,13 +516,11 @@ fn push_multi_line_string(
                 output.push('\n');
                 output.push_str(" ".repeat(if spaces > 2 { spaces - 2 } else { 0 }).as_str());
             }
-            if is_doc_test {
-                output.push_str("/// ");
-            }
         } else {
             output.push('\n');
         }
     }
+    output
 }
 
 fn apply_patch(pp: &PackagePatch, is_doc_test: bool) -> anyhow::Result<()> {
