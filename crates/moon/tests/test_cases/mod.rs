@@ -8001,7 +8001,14 @@ fn test_run_doc_test() {
             ----
 
             test username/hello/lib/greet.mbt::3 failed: FAILED: $ROOT/src/lib/greet.mbt:31:7-31:31 another failure
-            Total tests: 12, passed: 8, failed: 4.
+            test username/hello/lib/greet.mbt::doc_test greet.mbt 92 38 failed
+            expect test failed at $ROOT/src/lib/greet.mbt:96:5-96:41
+            Diff:
+            ----
+            b"/x54/x00/x65/x00/x73/x00/x74/x00"
+            ----
+
+            Total tests: 13, passed: 8, failed: 5.
         "#]],
     );
 
@@ -8029,7 +8036,7 @@ fn test_run_doc_test() {
             test block 2
             test block 2
             test username/hello/lib/greet.mbt::3 failed: FAILED: $ROOT/src/lib/greet.mbt:31:7-31:31 another failure
-            Total tests: 12, passed: 10, failed: 2.
+            Total tests: 13, passed: 11, failed: 2.
         "#]],
     );
 

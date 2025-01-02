@@ -455,7 +455,33 @@ fn push_multi_line_string(
     s: &str,
     prev_char: Option<&char>,
     next_char: Option<&char>,
+    is_doc_test: bool,
 ) {
+    let content = push_multi_line_string_internal(spaces, s, prev_char, next_char);
+    if !is_doc_test {
+        output.push_str(&content);
+    } else {
+        let lines: Vec<&str> = content.split('\n').collect();
+        if !output.ends_with("\n") {
+            output.push('\n');
+        }
+        for (i, line) in lines.iter().enumerate() {
+            if line.trim().starts_with("#|") {
+                let spaces = if i == 0 { 2 } else { 0 };
+                output.push_str(&format!("/// {}{}\n", " ".repeat(spaces).as_str(), line));
+            }
+        }
+        output.push_str("/// ");
+    }
+}
+
+fn push_multi_line_string_internal(
+    spaces: usize,
+    s: &str,
+    prev_char: Option<&char>,
+    next_char: Option<&char>,
+) -> String {
+    let mut output = String::new();
     let lines: Vec<&str> = s.split('\n').collect();
     for (i, line) in lines.iter().enumerate() {
         if i == 0 {
@@ -494,9 +520,10 @@ fn push_multi_line_string(
             output.push('\n');
         }
     }
+    output
 }
 
-fn apply_patch(pp: &PackagePatch) -> anyhow::Result<()> {
+fn apply_patch(pp: &PackagePatch, is_doc_test: bool) -> anyhow::Result<()> {
     for (filename, patches) in pp.patches.iter() {
         let content = std::fs::read_to_string(filename)?;
         // TODO: share content_chars with gen_patch
@@ -541,7 +568,9 @@ fn apply_patch(pp: &PackagePatch) -> anyhow::Result<()> {
                     output.push_str(padding);
                     if patch.kind == TargetKind::Call && patch.actual.contains('\n') {
                         output.push('\n');
-                        output.push_str(" ".repeat(spaces + 2).as_str());
+                        if !is_doc_test {
+                            output.push_str(" ".repeat(spaces + 2).as_str());
+                        }
                     }
                 }
 
@@ -558,6 +587,7 @@ fn apply_patch(pp: &PackagePatch) -> anyhow::Result<()> {
                                 &patch.actual,
                                 prev_char,
                                 next_char,
+                                is_doc_test,
                             );
                         }
                     }
@@ -631,13 +661,13 @@ pub fn apply_snapshot(messages: &[String]) -> anyhow::Result<()> {
     Ok(())
 }
 
-pub fn apply_expect(messages: &[String]) -> anyhow::Result<()> {
+pub fn apply_expect(messages: &[String], is_doc_test: bool) -> anyhow::Result<()> {
     // dbg!(&messages);
     let targets = collect(messages)?;
     // dbg!(&targets);
     let patches = gen_patch(targets)?;
     // dbg!(&patches);
-    apply_patch(&patches)?;
+    apply_patch(&patches, is_doc_test)?;
     Ok(())
 }
 
