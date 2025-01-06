@@ -91,20 +91,8 @@ pub fn nodes_to_pkg_sources(m: &ModuleDB, nodes: &[String]) -> Vec<(String, Stri
     nodes
         .iter()
         .map(|name| {
-            let root_source_dir = match &m.source {
-                None => m.source_dir.clone(),
-                Some(x) => m.source_dir.join(x),
-            };
             let pkg = &m.get_package_by_name(name);
-            let package_source_dir: String = if pkg.rel.components.is_empty() {
-                root_source_dir.display().to_string()
-            } else {
-                root_source_dir
-                    .join(pkg.rel.fs_full_name())
-                    .display()
-                    .to_string()
-            };
-            (pkg.full_name(), package_source_dir)
+            (pkg.full_name(), pkg.root_path.display().to_string())
         })
         .collect::<Vec<_>>()
 }

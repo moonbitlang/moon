@@ -583,22 +583,10 @@ fn get_pkg_topo_order<'a>(
     pkg_topo_order
 }
 
-fn get_package_sources(m: &ModuleDB, pkg_topo_order: &[&Package]) -> Vec<(String, String)> {
+fn get_package_sources(pkg_topo_order: &[&Package]) -> Vec<(String, String)> {
     let mut package_sources = vec![];
-    for cur_pkg in pkg_topo_order {
-        let root_source_dir = match &m.source {
-            None => m.source_dir.clone(),
-            Some(x) => m.source_dir.join(x),
-        };
-        let package_source_dir: String = if cur_pkg.rel.components.is_empty() {
-            root_source_dir.display().to_string()
-        } else {
-            root_source_dir
-                .join(cur_pkg.rel.fs_full_name())
-                .display()
-                .to_string()
-        };
-        package_sources.push((cur_pkg.full_name(), package_source_dir));
+    for pkg in pkg_topo_order {
+        package_sources.push((pkg.full_name(), pkg.root_path.display().to_string()));
     }
     package_sources
 }
@@ -625,7 +613,7 @@ pub fn gen_link_internal_test(
         };
         core_deps.push(d.display().to_string());
     }
-    let package_sources = get_package_sources(m, &pkg_topo_order);
+    let package_sources = get_package_sources(&pkg_topo_order);
 
     let package_full_name = pkg.full_name();
 
@@ -664,7 +652,7 @@ pub fn gen_link_whitebox_test(
         core_deps.push(d.display().to_string());
     }
 
-    let package_sources = get_package_sources(m, &pkg_topo_order);
+    let package_sources = get_package_sources(&pkg_topo_order);
 
     let package_full_name = pkg.full_name();
 
@@ -713,23 +701,13 @@ pub fn gen_link_blackbox_test(
         core_deps.push(d.display().to_string());
     }
 
-    let mut package_sources = get_package_sources(m, &pkg_topo_order);
-    {
-        // add blackbox test pkg into `package_sources`, which will be passed to `-pkg-source` in `link-core`
-        let root_source_dir = match &m.source {
-            None => m.source_dir.clone(),
-            Some(x) => m.source_dir.join(x),
-        };
-        let package_source_dir: String = if pkg.rel.components.is_empty() {
-            root_source_dir.display().to_string()
-        } else {
-            root_source_dir
-                .join(pkg.rel.fs_full_name())
-                .display()
-                .to_string()
-        };
-        package_sources.push((pkg.full_name() + "_blackbox_test", package_source_dir));
-    }
+    let mut package_sources = get_package_sources(&pkg_topo_order);
+
+    // add blackbox test pkg into `package_sources`, which will be passed to `-pkg-source` in `link-core`
+    package_sources.push((
+        pkg.full_name() + "_blackbox_test",
+        pkg.root_path.display().to_string(),
+    ));
 
     // this will be passed to link-core `-main`
     let package_full_name = pkg.full_name() + "_blackbox_test";
