@@ -3,6 +3,9 @@
   "deps": {
     "lijunchen/mooncake": {
       "path": "./mods/lijunchen/mooncake"
+    },
+    "lijunchen/mooncake2": {
+      "path": "./mods/lijunchen/mooncake2"
     }
   }
 }

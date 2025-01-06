@@ -1746,6 +1746,19 @@ fn test_moon_test_with_local_dep() {
 }
 
 #[test]
+fn test_pkg_source_in() {
+    let dir = TestDir::new("moon_test_with_local_dep.in");
+    let out = get_stdout(&dir, ["build", "--dry-run", "--sort-input", "--frozen"]);
+    check(
+        &out,
+        expect![[r#"
+        "#]],
+    );
+    assert!(out.contains("lijunchen/mooncake:./mods/lijunchen/mooncake"));
+    assert!(out.contains("lijunchen/mooncake2:./mods/lijunchen/mooncake2/src"));
+}
+
+#[test]
 fn test_output_format() {
     let dir = TestDir::new("output-format.in");
 
@@ -4936,6 +4949,7 @@ fn test_third_party() {
     }
     let dir = TestDir::new("third_party.in");
     get_stdout(&dir, ["update"]);
+    get_stdout(&dir, ["install"]);
     get_stdout(&dir, ["build"]);
     get_stdout(&dir, ["clean"]);
 
@@ -4966,6 +4980,37 @@ fn test_third_party() {
 
     let actual = get_stdout(&dir, ["run", "main"]);
     assert!(actual.contains("Hello, world!"));
+}
+
+#[test]
+fn test_moonbitlang_x() {
+    if std::env::var("CI").is_err() {
+        return;
+    }
+    let dir = TestDir::new("test_moonbitlang_x.in");
+    get_stdout(&dir, ["update"]);
+    get_stdout(&dir, ["install"]);
+
+    let build_output = get_stdout(&dir, ["build", "--dry-run", "--sort-input"]);
+
+    check(
+        &build_output,
+        expect![[r#"
+        "#]],
+    );
+
+    let test_output = get_stdout(&dir, ["test", "--dry-run", "--sort-input"]);
+    check(
+        &test_output,
+        expect![[r#"
+        "#]],
+    );
+
+    check(
+        get_stdout(&dir, ["run", "src/main"]),
+        expect![[r#"
+    "#]],
+    );
 }
 
 #[test]
