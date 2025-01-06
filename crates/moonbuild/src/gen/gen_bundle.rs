@@ -140,15 +140,7 @@ pub fn pkg_to_bundle_item(
     }
 
     let package_full_name = pkg.full_name();
-    let package_source_dir: String = if pkg.rel.components.is_empty() {
-        source_dir.display().to_string()
-    } else {
-        source_dir
-            .join(pkg.rel.fs_full_name())
-            .to_str()
-            .unwrap()
-            .into()
-    };
+    let package_source_dir: String = pkg.root_path.display().to_string();
     Ok(BundleDepItem {
         mi_out: mi_out.display().to_string(),
         core_out: core_out.display().to_string(),

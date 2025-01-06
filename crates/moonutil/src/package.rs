@@ -41,11 +41,15 @@ pub struct Package {
     pub is_main: bool,
     pub need_link: bool,
     pub is_third_party: bool,
-    // /Users/flash/projects/core/builtin
+    // Absolute fs path to the root directory of the package, already consider
+    // `source` field in moon.mod.json
+    // e.g. after `moon add moonbitlang/x`
+    // root_path of package `moonbitlang/x/stack` is
+    // $WORKSPACE/.mooncakes/moonbitlang/x/`{source}`
     pub root_path: PathBuf,
-    // moonbitlang/core
+    // moonbitlang/x
     pub root: PathComponent,
-    // builtin
+    // stack
     pub rel: PathComponent,
     // *.mbt (exclude the following)
     pub files: IndexMap<PathBuf, CompileCondition>,
