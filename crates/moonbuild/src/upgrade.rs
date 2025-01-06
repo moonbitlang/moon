@@ -219,30 +219,31 @@ pub fn do_upgrade(root: &'static str) -> Result<i32> {
     let rt = tokio::runtime::Runtime::new()?;
     rt.block_on(async {
         let items = [
-            "moonbit.h",
-            "moonbit-fundamental.h",
-            "libmoonbitrun.o",
-            "libtcc1.a",
-            "moon",
-            "moonc",
-            "moonfmt",
-            "moonrun",
-            "mooninfo",
-            "moondoc",
-            "moon_cove_report",
-            "mooncake",
+            "include/moonbit.h",
+            "include/moonbit-fundamental.h",
+            "lib/libmoonbitrun.o",
+            "lib/libtcc1.a",
+            "bin/moon",
+            "bin/moonc",
+            "bin/moonfmt",
+            "bin/moonrun",
+            "bin/mooninfo",
+            "bin/moondoc",
+            "bin/moon_cove_report",
+            "bin/mooncake",
+            "bin/internal/tcc",
             "core.zip",
         ];
-        let urls = items
+        let download_items_and_urls = items
             .iter()
             .map(|item| {
                 if *item != "core.zip" {
-                    format!("{}/{}/{}{}", root, os_arch(), item, if os_arch() == "windows" && !item.contains(".") { ".exe" } else { "" })
+                    (item.to_string(), format!("{}/{}/{}{}", root, os_arch(), item, if os_arch() == "windows" && !item.contains(".") { ".exe" } else { "" }))
                 } else {
-                    format!("{}/{}", root, item)
+                    (item.to_string(), format!("{}/{}", root, item))
                 }
             })
-            .collect::<Vec<String>>();
+            .collect::<Vec<(String,String)>>();
 
         let temp_dir = tempfile::tempdir_in(moon_tmp_dir()?)?;
         let temp_dir_path = temp_dir.path();
@@ -251,10 +252,10 @@ pub fn do_upgrade(root: &'static str) -> Result<i32> {
 
         let term = Arc::new(Mutex::new(Term::stdout()));
 
-        for item in urls.iter() {
+        for (download_item, _) in download_items_and_urls.iter() {
             let mut map = progress_map.lock().unwrap();
             map.insert(
-                item.split('/').last().unwrap(),
+                download_item,
                 DownloadProgress {
                     total_size: 0,
                     downloaded: 0,
@@ -262,14 +263,18 @@ pub fn do_upgrade(root: &'static str) -> Result<i32> {
             );
         }
 
-        let download_futures = urls.iter().map(|url| {
+        let download_futures = download_items_and_urls.iter().map(|(download_item, url)| {
             let progress_map = Arc::clone(&progress_map);
             let term = Arc::clone(&term);
             async move {
-                let filename = url.split('/').last().unwrap();
-                let filepath = temp_dir_path.join(filename);
-                let response = reqwest::get(url).await.context(format!("failed to download {}", filename))?;
-                let total_size = response.content_length().context(format!("failed to download {}: No content length", filename))?;
+                let filepath = temp_dir_path.join(download_item);
+                if let Some(parent) = filepath.parent() {
+                    if !parent.exists() {
+                        tokio::fs::create_dir_all(parent).await.context(format!("failed to create directory {}", parent.display()))?;
+                    }
+                }
+                let response = reqwest::get(url).await.context(format!("failed to download {}", download_item))?;
+                let total_size = response.content_length().context(format!("failed to download {}: No content length", download_item))?;
                 let mut file = tokio::fs::File::create(&filepath)
                     .await
                     .context(format!("failed to create file {}", filepath.display()))?;
@@ -277,7 +282,7 @@ pub fn do_upgrade(root: &'static str) -> Result<i32> {
                 {
                     let mut map = progress_map.lock().unwrap();
                     map.insert(
-                        filename,
+                        download_item,
                         DownloadProgress {
                             total_size,
                             downloaded: 0,
@@ -287,14 +292,14 @@ pub fn do_upgrade(root: &'static str) -> Result<i32> {
 
                 let mut stream = response.bytes_stream();
                 while let Some(item) = stream.next().await {
-                    let chunk = item.context(format!("error while downloading {}", filename))?;
+                    let chunk = item.context(format!("error while downloading {}", download_item))?;
                     file.write_all(&chunk)
                         .await
                         .context(format!("error while writing to file {}", filepath.display()))?;
 
                     {
                         let mut map = progress_map.lock().unwrap();
-                        if let Some(progress) = map.get_mut(filename) {
+                        if let Some(progress) = map.get_mut(download_item) {
                             progress.downloaded += chunk.len() as u64;
                         }
                     }
@@ -324,10 +329,8 @@ pub fn do_upgrade(root: &'static str) -> Result<i32> {
                 println!();
 
                 // post handling
-                for url in urls {
-                    let filename = url.split('/').last().unwrap();
-                    let filepath = temp_dir_path.join(filename);
-
+                for (download_item, _) in download_items_and_urls {
+                    let filepath = temp_dir_path.join(&download_item);
                     match filepath.extension().and_then(std::ffi::OsStr::to_str) {
                         Some("zip") => {
                             // delete old
@@ -370,7 +373,12 @@ pub fn do_upgrade(root: &'static str) -> Result<i32> {
                             }
                         }
                         _ => {
-                            let dst = moon_dir::bin().join(filename);
+                            let dst = moon_dir::home().join(download_item);
+                            if let Some(parent) = dst.parent() {
+                                if !parent.exists() {
+                                    tokio::fs::create_dir_all(parent).await.context(format!("failed to create directory {}", parent.display()))?;
+                                }
+                            }
                             let msg = format!("failed to copy {}", dst.display());
                             let cur_bin = std::env::current_exe().context("failed to get current executable")?;
                             let cur_bin_norm = normalize_path(&cur_bin);
@@ -409,7 +417,7 @@ pub fn do_upgrade(root: &'static str) -> Result<i32> {
 
 fn display_progress(
     term: &Arc<Mutex<Term>>,
-    progress_map: &Arc<Mutex<indexmap::map::IndexMap<&str, DownloadProgress>>>,
+    progress_map: &Arc<Mutex<indexmap::map::IndexMap<&String, DownloadProgress>>>,
 ) {
     let map = progress_map.lock().unwrap();
 
