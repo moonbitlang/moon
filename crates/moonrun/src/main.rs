@@ -39,6 +39,24 @@ struct PrintEnv {
     dangling_high_half: Cell<Option<u32>>,
 }
 
+fn now(
+    scope: &mut v8::HandleScope,
+    _args: v8::FunctionCallbackArguments,
+    mut ret: v8::ReturnValue,
+) {
+    let result = v8::Array::new(scope, 1);
+
+    let now = std::time::SystemTime::now();
+    let duration = now
+        .duration_since(std::time::UNIX_EPOCH)
+        .expect("Time went backwards");
+
+    let secs = v8::Number::new(scope, duration.as_millis() as f64).into();
+    result.set_index(scope, 0, secs).unwrap();
+
+    ret.set(result.into());
+}
+
 fn instant_now(
     scope: &mut v8::HandleScope,
     mut args: v8::FunctionCallbackArguments,
@@ -351,6 +369,10 @@ fn init_env(dtors: &mut Vec<Box<dyn Any>>, scope: &mut v8::HandleScope, args: &[
         let value = v8::Function::builder(instant_elapsed_as_secs_f64)
             .build(scope)
             .unwrap();
+        obj.set(scope, identifier.into(), value.into());
+
+        let identifier = v8::String::new(scope, "now").unwrap();
+        let value = v8::Function::builder(now).build(scope).unwrap();
         obj.set(scope, identifier.into(), value.into());
     }
 
