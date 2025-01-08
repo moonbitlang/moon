@@ -16,14 +16,21 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
+use std::{
+    collections::HashMap,
+    path::{Path, PathBuf},
+    sync::{Arc, Mutex},
+    thread,
+};
+
 use anyhow::{bail, Context};
 use colored::Colorize;
 use futures::future::try_join_all;
 use mooncake::pkg::sync::auto_sync;
 use moonutil::{
     common::{
-        read_module_desc_file_in_dir, FileLock, MoonbuildOpt, MooncOpt, RunMode, MOONBITLANG_CORE,
-        MOON_MOD_JSON,
+        lower_surface_targets, read_module_desc_file_in_dir, FileLock, MoonbuildOpt, MooncOpt,
+        RunMode, SurfaceTarget, TargetBackend, MOONBITLANG_CORE, MOON_MOD_JSON,
     },
     dirs::{mk_arch_mode_dir, PackageDirs},
     mooncakes::{sync::AutoSyncFlags, RegistryConfig},
@@ -32,7 +39,7 @@ use moonutil::{
 use super::{pre_build::scan_with_pre_build, UniversalFlags};
 
 /// Generate public interface (`.mbti`) files for all packages in the module
-#[derive(Debug, clap::Parser)]
+#[derive(Debug, Clone, clap::Parser)]
 pub struct InfoSubcommand {
     #[clap(flatten)]
     pub auto_sync_flags: AutoSyncFlags,
@@ -40,21 +47,116 @@ pub struct InfoSubcommand {
     /// Do not use alias to shorten package names in the output
     #[clap(long)]
     pub no_alias: bool,
+
+    #[clap(skip)]
+    pub target_backend: Option<TargetBackend>,
+
+    /// Select output target
+    #[clap(long, value_delimiter = ',')]
+    pub target: Option<Vec<SurfaceTarget>>,
 }
 
 pub fn run_info(cli: UniversalFlags, cmd: InfoSubcommand) -> anyhow::Result<i32> {
-    if cli.dry_run {
-        bail!("dry-run is not implemented for info")
-    }
-
     let PackageDirs {
         source_dir,
         target_dir,
     } = cli.source_tgt_dir.try_into_package_dirs()?;
 
-    // Run moon install before build
+    let targets = if cmd.target.is_none() {
+        vec![TargetBackend::WasmGC]
+    } else {
+        lower_surface_targets(&cmd.target.clone().unwrap())
+    };
+
+    let cli = Arc::new(cli.clone());
+    let source_dir = Arc::new(source_dir);
+    let target_dir = Arc::new(target_dir);
+    let mut handles = Vec::new();
+
+    for t in &targets {
+        let cli = Arc::clone(&cli);
+        let mut cmd = cmd.clone();
+        cmd.target_backend = Some(*t);
+        let source_dir = Arc::clone(&source_dir);
+        let target_dir = Arc::clone(&target_dir);
+
+        let handle = thread::spawn(move || run_info_internal(&cli, &cmd, &source_dir, &target_dir));
+
+        handles.push((*t, handle));
+    }
+
+    let mut mbti_files_for_targets = vec![];
+    for (backend, handle) in handles {
+        let mut x = handle
+            .join()
+            .unwrap()
+            .context(format!("failed to run check for target {:?}", backend))?;
+        x.sort_by(|a, b| a.0.cmp(&b.0));
+        mbti_files_for_targets.push((backend, x));
+    }
+
+    // check consistency if there are multiple targets
+    if mbti_files_for_targets.len() > 1 {
+        // create a map to store the mbti files for each package
+        let mut pkg_mbti_files: HashMap<String, HashMap<TargetBackend, PathBuf>> = HashMap::new();
+        for (backend, paths) in &mbti_files_for_targets {
+            for (pkg_name, mbti_file) in paths {
+                pkg_mbti_files
+                    .entry(pkg_name.to_string())
+                    .or_default()
+                    .insert(*backend, mbti_file.clone());
+            }
+        }
+
+        // compare the mbti files for each package in different backends
+        for (pkg_name, backend_files) in pkg_mbti_files {
+            let mut backends: Vec<_> = backend_files.keys().collect();
+            backends.sort();
+
+            for window in backends.windows(2) {
+                let backend1 = window[0];
+                let backend2 = window[1];
+                let file1 = &backend_files[backend1];
+                let file2 = &backend_files[backend2];
+
+                let output = std::process::Command::new("git")
+                    .args(["diff", "--no-index", "--exit-code", "--color=always"])
+                    .arg(file1)
+                    .arg(file2)
+                    .output()
+                    .context("Failed to run git diff")?;
+
+                if !output.status.success() {
+                    // print the diff
+                    eprintln!("{}", String::from_utf8_lossy(&output.stdout));
+                    bail!(
+                        "Package '{}' has different interfaces for backends {:?} and {:?}.\nFiles:\n{}\n{}", 
+                        pkg_name,
+                        backend1,
+                        backend2,
+                        file1.display(),
+                        file2.display()
+                    );
+                }
+            }
+        }
+    }
+
+    Ok(0)
+}
+
+pub fn run_info_internal(
+    cli: &UniversalFlags,
+    cmd: &InfoSubcommand,
+    source_dir: &Path,
+    target_dir: &Path,
+) -> anyhow::Result<Vec<(String, PathBuf)>> {
+    if cli.dry_run {
+        bail!("dry-run is not implemented for info")
+    }
+
     let (resolved_env, dir_sync_result) = auto_sync(
-        &source_dir,
+        source_dir,
         &cmd.auto_sync_flags,
         &RegistryConfig::load(),
         cli.quiet,
@@ -73,20 +175,18 @@ pub fn run_info(cli: UniversalFlags, cmd: InfoSubcommand) -> anyhow::Result<i32>
     })?;
     let module_name = &mod_desc.name;
     let mut moonc_opt = MooncOpt::default();
+    moonc_opt.link_opt.target_backend = cmd.target_backend.unwrap_or_default();
+    moonc_opt.build_opt.target_backend = cmd.target_backend.unwrap_or_default();
+
     let raw_target_dir = target_dir.to_path_buf();
-    let target_dir = mk_arch_mode_dir(
-        source_dir.as_path(),
-        target_dir.as_path(),
-        &moonc_opt,
-        RunMode::Check,
-    )?;
+    let target_dir = mk_arch_mode_dir(source_dir, target_dir, &moonc_opt, RunMode::Check)?;
     let _lock = FileLock::lock(&target_dir)?;
 
     if module_name == MOONBITLANG_CORE {
         moonc_opt.nostd = true;
     }
     let moonbuild_opt = MoonbuildOpt {
-        source_dir: source_dir.clone(),
+        source_dir: source_dir.to_path_buf(),
         raw_target_dir,
         target_dir: target_dir.clone(),
         sort_input: false,
@@ -132,12 +232,15 @@ pub fn run_info(cli: UniversalFlags, cmd: InfoSubcommand) -> anyhow::Result<i32>
         None => source_dir.to_path_buf(),
         Some(p) => source_dir.join(p),
     };
+
+    let mbti_files = Arc::new(Mutex::new(vec![]));
     for (name, pkg) in mdb.get_all_packages() {
         // Skip if pkg is not part of the module
         if pkg.is_third_party {
             continue;
         }
 
+        let mbti_files = Arc::clone(&mbti_files);
         let module_source_dir = std::sync::Arc::new(module_source_dir.clone());
         handlers.push(async move {
             let mi = pkg.artifact.with_extension("mi");
@@ -155,16 +258,28 @@ pub fn run_info(cli: UniversalFlags, cmd: InfoSubcommand) -> anyhow::Result<i32>
 
             if out.status.success() {
                 let filename = format!("{}.mbti", pkg.last_name());
-                let filepath = module_source_dir
-                    .join(pkg.rel.fs_full_name())
-                    .join(&filename);
+                let filepath = mi.with_extension("mbti");
 
-                tokio::fs::write(filepath, out.stdout)
+                tokio::fs::write(&filepath, out.stdout)
                     .await
                     .context(format!("failed to write {}", filename))?;
+
+                if cmd.target.is_none()
+                    || cmd.target.as_ref().unwrap().len() == 1
+                    || cmd.target_backend == Some(TargetBackend::WasmGC)
+                {
+                    tokio::fs::copy(
+                        &filepath,
+                        &module_source_dir
+                            .join(pkg.rel.fs_full_name())
+                            .join(&filename),
+                    )
+                    .await?;
+                }
+                mbti_files.lock().unwrap().push((name.clone(), filepath));
             } else {
                 eprintln!("{}", String::from_utf8_lossy(&out.stderr));
-                eprintln!("failed to run `mooninfo {}`", args.join(" "));
+                bail!("failed to run `mooninfo {}`", args.join(" "));
             }
 
             Ok(0)
@@ -174,5 +289,6 @@ pub fn run_info(cli: UniversalFlags, cmd: InfoSubcommand) -> anyhow::Result<i32>
     // `try_join_all` will return immediately if anyone task fail
     runtime.block_on(try_join_all(handlers))?;
 
-    Ok(0)
+    let mbti_files = mbti_files.lock().unwrap().clone();
+    Ok(mbti_files)
 }
