@@ -586,6 +586,8 @@ pub fn run_test(
     test_verbose_output: bool,
     auto_update: bool,
     module: ModuleDB,
+    memory_limit: Option<usize>,
+    time_limit: Option<usize>,
 ) -> anyhow::Result<Vec<Result<TestStatistics, TestFailedStatus>>> {
     let moonc_opt = Arc::new(moonc_opt);
     let moonbuild_opt = Arc::new(moonbuild_opt);
@@ -696,6 +698,8 @@ pub fn run_test(
                         &test_args,
                         &file_test_info_map,
                         moonbuild_opt.verbose,
+                        memory_limit,
+                        time_limit,
                     ),
                 )
                 .await;
@@ -712,6 +716,8 @@ pub fn run_test(
                             &moonbuild_opt.target_dir,
                             printed,
                             &file_test_info_map,
+                            memory_limit,
+                            time_limit,
                         )
                         .await?;
                     }
@@ -810,11 +816,21 @@ async fn execute_test(
     args: &TestArgs,
     file_test_info_map: &FileTestInfo,
     verbose: bool,
+    memory_limit: Option<usize>,
+    time_limit: Option<usize>,
 ) -> anyhow::Result<Vec<Result<TestStatistics, TestFailedStatus>>> {
     match target_backend {
         TargetBackend::Wasm | TargetBackend::WasmGC => {
-            crate::runtest::run_wat(artifact_path, target_dir, args, file_test_info_map, verbose)
-                .await
+            crate::runtest::run_wat(
+                artifact_path,
+                target_dir,
+                args,
+                file_test_info_map,
+                verbose,
+                memory_limit,
+                time_limit,
+            )
+            .await
         }
         TargetBackend::Js => {
             crate::runtest::run_js(
@@ -845,6 +861,8 @@ async fn handle_test_result(
     target_dir: &Path,
     printed: Arc<AtomicBool>,
     file_test_info_map: &FileTestInfo,
+    memory_limit: Option<usize>,
+    time_limit: Option<usize>,
 ) -> anyhow::Result<()> {
     let output_failure_in_json = moonbuild_opt
         .test_opt
@@ -900,6 +918,8 @@ async fn handle_test_result(
                         &test_args,
                         file_test_info_map,
                         moonbuild_opt.verbose,
+                        memory_limit,
+                        time_limit,
                     )
                     .await?
                     .first()
@@ -926,6 +946,8 @@ async fn handle_test_result(
                         &test_args,
                         file_test_info_map,
                         moonbuild_opt.verbose,
+                        memory_limit,
+                        time_limit,
                     )
                     .await?
                     .first()
@@ -1006,6 +1028,8 @@ async fn handle_test_result(
                         &test_args,
                         file_test_info_map,
                         moonbuild_opt.verbose,
+                        memory_limit,
+                        time_limit,
                     )
                     .await?
                     .first()
@@ -1050,6 +1074,8 @@ async fn handle_test_result(
                         &test_args,
                         file_test_info_map,
                         moonbuild_opt.verbose,
+                        memory_limit,
+                        time_limit,
                     )
                     .await?
                     .first()
@@ -1096,6 +1122,8 @@ async fn handle_test_result(
                             &test_args,
                             file_test_info_map,
                             moonbuild_opt.verbose,
+                            memory_limit,
+                            time_limit,
                         )
                         .await?
                         .first()

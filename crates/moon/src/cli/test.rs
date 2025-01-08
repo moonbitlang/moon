@@ -88,6 +88,14 @@ pub struct TestSubcommand {
     /// Run doc test
     #[clap(long = "doc")]
     pub doc_test: bool,
+
+    /// Memory limit for test
+    #[clap(short, long)]
+    pub memory_limit: Option<usize>,
+
+    /// Time limit for test
+    #[clap(short, long)]
+    pub time_limit: Option<usize>,
 }
 
 pub fn run_test(cli: UniversalFlags, cmd: TestSubcommand) -> anyhow::Result<i32> {
@@ -339,7 +347,7 @@ fn run_test_internal(
     )?;
 
     // add coverage libs if needed
-    moonbuild::gen::gen_runtest::add_coverage_to_core_if_needed(&mut module, &moonc_opt)?;
+    // moonbuild::gen::gen_runtest::add_coverage_to_core_if_needed(&mut module, &moonc_opt)?;
 
     if cli.dry_run {
         return dry_run::print_commands(&module, &moonc_opt, &moonbuild_opt).map(From::from);
@@ -352,6 +360,8 @@ fn run_test_internal(
         auto_update,
         module,
         verbose,
+        cmd.memory_limit,
+        cmd.time_limit,
     );
 
     if cli.trace {
@@ -368,6 +378,8 @@ fn do_run_test(
     auto_update: bool,
     module: ModuleDB,
     verbose: bool,
+    memory_limit: Option<usize>,
+    time_limit: Option<usize>,
 ) -> anyhow::Result<i32> {
     let backend_hint = moonbuild_opt
         .test_opt
@@ -383,6 +395,8 @@ fn do_run_test(
         verbose,
         auto_update,
         module,
+        memory_limit,
+        time_limit,
     )?;
 
     // don't print test summary if build_only

@@ -73,10 +73,18 @@ pub async fn run_wat(
     args: &TestArgs,
     file_test_info_map: &FileTestInfo,
     verbose: bool,
+    memory_limit: Option<usize>,
+    time_limit: Option<usize>,
 ) -> anyhow::Result<Vec<Result<TestStatistics, TestFailedStatus>>> {
     // put "--test-args" at the front of args
     let mut _args = vec!["--test-args".to_string()];
     _args.push(serde_json_lenient::to_string(args).unwrap());
+    if let Some(memory_limit) = memory_limit {
+        _args.push(format!("--memory-limit={}", memory_limit));
+    }
+    if let Some(time_limit) = time_limit {
+        _args.push(format!("--time-limit={}", time_limit));
+    }
     run(
         Some("moonrun"),
         path,

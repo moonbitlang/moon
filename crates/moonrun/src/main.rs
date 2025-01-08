@@ -469,13 +469,23 @@ enum Source<'a> {
     Bytes(&'a String),
 }
 
+extern "C" fn oom_handler(_isolate: *const i8, _details: &v8::OomDetails) {
+    println!("oom error");
+    std::process::exit(2);
+}
+
 fn wasm_mode(
     source: Source,
     args: &[String],
     no_stack_trace: bool,
     test_args: Option<String>,
+    memory_limit: Option<usize>,
+    time_limit: Option<usize>,
 ) -> anyhow::Result<()> {
-    let isolate = &mut v8::Isolate::new(Default::default());
+    let isolate = &mut v8::Isolate::new(
+        v8::CreateParams::default().heap_limits(0, memory_limit.unwrap_or(128) * 1024 * 1024),
+    );
+    isolate.set_oom_error_handler(oom_handler);
     let scope = &mut v8::HandleScope::new(isolate);
     let context = v8::Context::new(scope, Default::default());
     let scope = &mut v8::ContextScope::new(scope, context);
@@ -529,7 +539,22 @@ fn wasm_mode(
     let script_origin = create_script_origin(scope, "wasm_mode_entry");
     let script = v8::Script::compile(scope, code, Some(&script_origin)).unwrap();
 
-    script.run(scope);
+    if let Some(limit) = time_limit {
+        let (tx, rx) = std::sync::mpsc::channel();
+        std::thread::spawn(move || {
+            std::thread::sleep(std::time::Duration::from_secs(limit as u64));
+            let _ = tx.send(());
+        });
+
+        script.run(scope);
+
+        if rx.try_recv().is_ok() {
+            println!("Execution timeout after {} seconds", limit);
+            std::process::exit(3);
+        }
+    } else {
+        script.run(scope);
+    }
     drop(dtors);
     Ok(())
 }
@@ -572,6 +597,12 @@ struct Commandline {
 
     #[clap(short, long)]
     interactive: bool,
+
+    #[clap(short, long)]
+    memory_limit: Option<usize>,
+
+    #[clap(short, long)]
+    time_limit: Option<usize>,
 }
 
 fn run_interactive() -> anyhow::Result<()> {
@@ -595,7 +626,7 @@ fn run_interactive() -> anyhow::Result<()> {
             .collect::<Vec<_>>()
             .join(", ");
 
-        wasm_mode(Source::Bytes(&bytes_string), &[], false, None)?;
+        wasm_mode(Source::Bytes(&bytes_string), &[], false, None, None, None)?;
         const END_MARKER: [u8; 4] = [0xFF, 0xFE, 0xFD, 0xFC];
         io::stdout().write_all(&END_MARKER)?;
         io::stdout().write_all(b"\n")?;
@@ -643,6 +674,8 @@ fn main() -> anyhow::Result<()> {
                     &matches.args,
                     matches.no_stack_trace,
                     matches.test_args,
+                    matches.memory_limit,
+                    matches.time_limit,
                 )
             }
             _ => anyhow::bail!("Unsupported file type"),
