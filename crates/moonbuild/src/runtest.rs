@@ -95,8 +95,13 @@ pub async fn run_js(
     file_test_info_map: &FileTestInfo,
     verbose: bool,
 ) -> anyhow::Result<Vec<Result<TestStatistics, TestFailedStatus>>> {
+    let node = if which::which("node.cmd").is_ok() {
+        Some("node.cmd")
+    } else {
+        Some("node")
+    };
     run(
-        Some("node"),
+        node,
         path,
         target_dir,
         &[serde_json_lenient::to_string(args).unwrap()],
