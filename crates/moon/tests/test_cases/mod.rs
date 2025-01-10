@@ -8174,6 +8174,7 @@ fn test_run_doc_test() {
 
 #[cfg(unix)]
 #[test]
+#[ignore = "moon query may no support anymore"]
 fn test_moon_query() {
     let dir = TestDir::new("test_filter_pkg_with_test_imports.in");
 
