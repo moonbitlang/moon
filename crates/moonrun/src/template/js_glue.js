@@ -63,5 +63,4 @@ catch (e) {
         }
     }
     __moonbit_sys_unstable.exit(1);
-    
 }

@@ -89,10 +89,6 @@ pub struct TestSubcommand {
     #[clap(long = "doc")]
     pub doc_test: bool,
 
-    /// Memory limit for test
-    #[clap(short, long)]
-    pub memory_limit: Option<usize>,
-
     /// Time limit for test
     #[clap(short, long)]
     pub time_limit: Option<usize>,
@@ -360,7 +356,6 @@ fn run_test_internal(
         auto_update,
         module,
         verbose,
-        cmd.memory_limit,
         cmd.time_limit,
     );
 
@@ -378,7 +373,6 @@ fn do_run_test(
     auto_update: bool,
     module: ModuleDB,
     verbose: bool,
-    memory_limit: Option<usize>,
     time_limit: Option<usize>,
 ) -> anyhow::Result<i32> {
     let backend_hint = moonbuild_opt
@@ -395,7 +389,6 @@ fn do_run_test(
         verbose,
         auto_update,
         module,
-        memory_limit,
         time_limit,
     )?;
 
