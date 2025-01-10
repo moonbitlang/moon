@@ -5468,6 +5468,49 @@ fn test_import_memory_and_heap_start() {
 }
 
 #[test]
+fn test_import_shared_memory() {
+    let dir = TestDir::new("import_shared_memory.in");
+    check(
+        get_stdout(
+            &dir,
+            [
+                "build",
+                "--target",
+                "wasm",
+                "--dry-run",
+                "--sort-input",
+                "--nostd",
+            ],
+        ),
+        expect![[r#"
+            moonc build-package ./lib/hello.mbt -o ./target/wasm/release/build/lib/lib.core -pkg username/hello/lib -pkg-sources username/hello/lib:./lib -target wasm
+            moonc build-package ./main/main.mbt -o ./target/wasm/release/build/main/main.core -pkg username/hello/main -is-main -i ./target/wasm/release/build/lib/lib.mi:lib -pkg-sources username/hello/main:./main -target wasm
+            moonc link-core ./target/wasm/release/build/lib/lib.core ./target/wasm/release/build/main/main.core -main username/hello/main -o ./target/wasm/release/build/main/main.wasm -pkg-config-path ./main/moon.pkg.json -pkg-sources username/hello/lib:./lib -pkg-sources username/hello/main:./main -target wasm -import-memory-module xxx -import-memory-name yyy -memory-limits-min 1 -memory-limits-max 65536 -shared-memory -heap-start-address 65536
+        "#]],
+    );
+
+    let dir = TestDir::new("import_shared_memory.in");
+    check(
+        get_stdout(
+            &dir,
+            [
+                "build",
+                "--target",
+                "wasm-gc",
+                "--dry-run",
+                "--sort-input",
+                "--nostd",
+            ],
+        ),
+        expect![[r#"
+            moonc build-package ./lib/hello.mbt -o ./target/wasm-gc/release/build/lib/lib.core -pkg username/hello/lib -pkg-sources username/hello/lib:./lib -target wasm-gc
+            moonc build-package ./main/main.mbt -o ./target/wasm-gc/release/build/main/main.core -pkg username/hello/main -is-main -i ./target/wasm-gc/release/build/lib/lib.mi:lib -pkg-sources username/hello/main:./main -target wasm-gc
+            moonc link-core ./target/wasm-gc/release/build/lib/lib.core ./target/wasm-gc/release/build/main/main.core -main username/hello/main -o ./target/wasm-gc/release/build/main/main.wasm -pkg-config-path ./main/moon.pkg.json -pkg-sources username/hello/lib:./lib -pkg-sources username/hello/main:./main -target wasm-gc -import-memory-module xxx -import-memory-name yyy -memory-limits-min 1 -memory-limits-max 65536 -shared-memory
+        "#]],
+    );
+}
+
+#[test]
 fn test_many_targets() {
     let dir = TestDir::new("test_many_targets.in");
     check(
