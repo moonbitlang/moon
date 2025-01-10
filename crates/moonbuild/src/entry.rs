@@ -447,6 +447,12 @@ pub enum TestFailedStatus {
     #[error("{0}")]
     SnapshotPending(TestStatistics),
 
+    #[error("{0}")]
+    OJMemoryLimitExceeded(TestStatistics),
+
+    #[error("{0}")]
+    OJTimeLimitExceeded(TestStatistics),
+
     #[error("{0:?}")]
     Others(String),
 }
@@ -459,7 +465,9 @@ impl From<TestFailedStatus> for i32 {
             TestFailedStatus::Failed(_) => 3,
             TestFailedStatus::RuntimeError(_) => 4,
             TestFailedStatus::SnapshotPending(_) => 5,
-            TestFailedStatus::Others(_) => 6,
+            TestFailedStatus::OJMemoryLimitExceeded(_) => 6,
+            TestFailedStatus::OJTimeLimitExceeded(_) => 7,
+            TestFailedStatus::Others(_) => 8,
         }
     }
 }
@@ -586,7 +594,6 @@ pub fn run_test(
     test_verbose_output: bool,
     auto_update: bool,
     module: ModuleDB,
-    memory_limit: Option<usize>,
     time_limit: Option<usize>,
 ) -> anyhow::Result<Vec<Result<TestStatistics, TestFailedStatus>>> {
     let moonc_opt = Arc::new(moonc_opt);
@@ -698,7 +705,6 @@ pub fn run_test(
                         &test_args,
                         &file_test_info_map,
                         moonbuild_opt.verbose,
-                        memory_limit,
                         time_limit,
                     ),
                 )
@@ -716,7 +722,6 @@ pub fn run_test(
                             &moonbuild_opt.target_dir,
                             printed,
                             &file_test_info_map,
-                            memory_limit,
                             time_limit,
                         )
                         .await?;
@@ -816,7 +821,6 @@ async fn execute_test(
     args: &TestArgs,
     file_test_info_map: &FileTestInfo,
     verbose: bool,
-    memory_limit: Option<usize>,
     time_limit: Option<usize>,
 ) -> anyhow::Result<Vec<Result<TestStatistics, TestFailedStatus>>> {
     match target_backend {
@@ -827,7 +831,6 @@ async fn execute_test(
                 args,
                 file_test_info_map,
                 verbose,
-                memory_limit,
                 time_limit,
             )
             .await
@@ -861,7 +864,6 @@ async fn handle_test_result(
     target_dir: &Path,
     printed: Arc<AtomicBool>,
     file_test_info_map: &FileTestInfo,
-    memory_limit: Option<usize>,
     time_limit: Option<usize>,
 ) -> anyhow::Result<()> {
     let output_failure_in_json = moonbuild_opt
@@ -918,7 +920,6 @@ async fn handle_test_result(
                         &test_args,
                         file_test_info_map,
                         moonbuild_opt.verbose,
-                        memory_limit,
                         time_limit,
                     )
                     .await?
@@ -946,7 +947,6 @@ async fn handle_test_result(
                         &test_args,
                         file_test_info_map,
                         moonbuild_opt.verbose,
-                        memory_limit,
                         time_limit,
                     )
                     .await?
@@ -1028,7 +1028,6 @@ async fn handle_test_result(
                         &test_args,
                         file_test_info_map,
                         moonbuild_opt.verbose,
-                        memory_limit,
                         time_limit,
                     )
                     .await?
@@ -1074,7 +1073,6 @@ async fn handle_test_result(
                         &test_args,
                         file_test_info_map,
                         moonbuild_opt.verbose,
-                        memory_limit,
                         time_limit,
                     )
                     .await?
@@ -1122,7 +1120,6 @@ async fn handle_test_result(
                             &test_args,
                             file_test_info_map,
                             moonbuild_opt.verbose,
-                            memory_limit,
                             time_limit,
                         )
                         .await?
@@ -1140,6 +1137,40 @@ async fn handle_test_result(
                     // update the previous test result
                     *item = cur_res;
                 }
+            }
+            Err(TestFailedStatus::OJMemoryLimitExceeded(test_statistic)) => {
+                eprintln!(
+                    r#"
+                        ----- MoonBit OJ Memory Limit Exceeded -----
+                             You are using too much memory.
+                        ----- MoonBit OJ Memory Limit Exceeded -----
+                    "#
+                );
+                println!(
+                    "test {}/{}::{} {}",
+                    test_statistic.package,
+                    test_statistic.filename,
+                    test_statistic.test_name,
+                    "failed".bold().red(),
+                );
+                std::process::exit(4);
+            }
+            Err(TestFailedStatus::OJTimeLimitExceeded(test_statistic)) => {
+                eprintln!(
+                    r#"
+                        ----- MoonBit OJ Time Limit Exceeded -----
+                             You are using too much time.
+                        ----- MoonBit OJ Time Limit Exceeded -----
+                    "#
+                );
+                println!(
+                    "test {}/{}::{} {}",
+                    test_statistic.package,
+                    test_statistic.filename,
+                    test_statistic.test_name,
+                    "failed".bold().red(),
+                );
+                std::process::exit(5);
             }
         }
     }

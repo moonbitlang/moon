@@ -73,15 +73,11 @@ pub async fn run_wat(
     args: &TestArgs,
     file_test_info_map: &FileTestInfo,
     verbose: bool,
-    memory_limit: Option<usize>,
     time_limit: Option<usize>,
 ) -> anyhow::Result<Vec<Result<TestStatistics, TestFailedStatus>>> {
     // put "--test-args" at the front of args
     let mut _args = vec!["--test-args".to_string()];
     _args.push(serde_json_lenient::to_string(args).unwrap());
-    if let Some(memory_limit) = memory_limit {
-        _args.push(format!("--memory-limit={}", memory_limit));
-    }
     if let Some(time_limit) = time_limit {
         _args.push(format!("--time-limit={}", time_limit));
     }
@@ -219,23 +215,19 @@ async fn run(
             if s.is_empty() {
                 continue;
             }
-            let mut ts: TestStatistics = serde_json_lenient::from_str(s.trim())
-                .context(format!("failed to parse test summary: {}", s))?;
-
-            if ts.filename.contains(MOON_DOC_TEST_POSTFIX) {
-                ts.is_doc_test = true;
-            }
-            // this is a hack for doc test, make the doc test patch filename be the original file name
-            if ts.is_doc_test {
-                ts.original_filename = Some(ts.filename.clone());
-                ts.filename = ts.filename.replace(MOON_DOC_TEST_POSTFIX, "");
-                ts.message = ts.message.replace(MOON_DOC_TEST_POSTFIX, "");
-            }
-
+            let ts: TestStatistics =
+                serde_json_lenient::from_str(s.trim()).unwrap_or(TestStatistics {
+                    message: s.trim().to_string(),
+                    ..Default::default()
+                });
             test_statistics.push(ts);
         }
 
         for mut test_statistic in test_statistics {
+            if test_statistic.message == "Time Limit Exceeded" {
+                res.push(Err(TestFailedStatus::OJTimeLimitExceeded(test_statistic)));
+                continue;
+            }
             let filename = &test_statistic.filename;
             let index = &test_statistic.index.parse::<u32>().unwrap();
             let test_name = file_test_info_map
@@ -247,17 +239,6 @@ async fn run(
                 .and_then(|m| m.get(index))
                 .and_then(|s| s.as_ref())
                 .unwrap_or(&test_statistic.index);
-
-            if test_name.starts_with("panic") {
-                // should panic but not panic
-                if test_statistic.message.is_empty() {
-                    test_statistic.message = "panic is expected".to_string();
-                }
-                // it does panic, treat it as ok
-                else {
-                    test_statistic.message = "".to_string();
-                }
-            }
 
             test_statistic.test_name = test_name.clone();
 
@@ -273,8 +254,13 @@ async fn run(
                 } else {
                     res.push(Err(TestFailedStatus::SnapshotPending(test_statistic)));
                 }
-            } else if return_message.starts_with(RUNTIME_ERROR) || return_message.starts_with(ERROR)
+            } else if return_message.starts_with(RUNTIME_ERROR)
+                && return_message.contains("moonbit.malloc")
             {
+                res.push(Err(TestFailedStatus::OJMemoryLimitExceeded(test_statistic)));
+            } else if return_message.starts_with(RUNTIME_ERROR) {
+                res.push(Err(TestFailedStatus::RuntimeError(test_statistic)));
+            } else if return_message.starts_with(ERROR) {
                 res.push(Err(TestFailedStatus::RuntimeError(test_statistic)));
             } else if return_message.starts_with(FAILED) || !return_message.is_empty() {
                 // FAILED(moonbit) or something like "panic is expected"

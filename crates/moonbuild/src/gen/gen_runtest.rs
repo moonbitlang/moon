@@ -997,6 +997,7 @@ pub fn gen_runtest_link_command(
     let native_cc = item.native_cc(moonc_opt.link_opt.target_backend);
     let native_cc_flags = item.native_cc_flags(moonc_opt.link_opt.target_backend);
     let native_cc_link_flags = item.native_cc_link_flags(moonc_opt.link_opt.target_backend);
+    let memory_limits = item.memory_limits(moonc_opt.link_opt.target_backend);
 
     let (debug_flag, strip_flag) = (
         moonc_opt.build_opt.debug_flag,
@@ -1063,6 +1064,15 @@ pub fn gen_runtest_link_command(
             vec![
                 "-cc-link-flags".to_string(),
                 native_cc_link_flags.unwrap().to_string(),
+            ]
+        })
+        .lazy_args_with_cond(memory_limits.is_some(), || {
+            let ml = memory_limits.unwrap();
+            vec![
+                "-memory-limits-min".to_string(),
+                ml.min.to_string(),
+                "-memory-limits-max".to_string(),
+                ml.max.to_string(),
             ]
         })
         .args(moonc_opt.extra_link_opt.iter())
