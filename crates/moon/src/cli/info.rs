@@ -120,7 +120,7 @@ pub fn run_info(cli: UniversalFlags, cmd: InfoSubcommand) -> anyhow::Result<i32>
                 let file2 = &backend_files[backend2];
 
                 let output = std::process::Command::new("git")
-                    .args(["diff", "--no-index", "--exit-code", "--color=always"])
+                    .args(["diff", "--no-index", "--exit-code"])
                     .arg(file1)
                     .arg(file2)
                     .output()
@@ -128,7 +128,7 @@ pub fn run_info(cli: UniversalFlags, cmd: InfoSubcommand) -> anyhow::Result<i32>
 
                 if !output.status.success() {
                     // print the diff
-                    eprintln!("{}", String::from_utf8_lossy(&output.stdout));
+                    println!("{}", String::from_utf8_lossy(&output.stdout));
                     bail!(
                         "Package '{}' has different interfaces for backends {:?} and {:?}.\nFiles:\n{}\n{}", 
                         pkg_name,
@@ -162,7 +162,7 @@ pub fn run_info_internal(
         cli.quiet,
     )?;
 
-    let mod_desc = read_module_desc_file_in_dir(&source_dir).with_context(|| {
+    let mod_desc = read_module_desc_file_in_dir(source_dir).with_context(|| {
         format!(
             "failed to read module description file: {}",
             source_dir
@@ -264,8 +264,13 @@ pub fn run_info_internal(
                     .await
                     .context(format!("failed to write {}", filename))?;
 
-                if cmd.target.is_none()
-                    || cmd.target.as_ref().unwrap().len() == 1
+                if
+                // no target specified, default to wasmgc
+                cmd.target.is_none()
+                    // specific one target
+                    || (cmd.target.as_ref().unwrap().len() == 1
+                        && cmd.target.as_ref().unwrap().first().unwrap() != &SurfaceTarget::All)
+                    // maybe more than one target, but running for wasmgc target
                     || cmd.target_backend == Some(TargetBackend::WasmGC)
                 {
                     tokio::fs::copy(

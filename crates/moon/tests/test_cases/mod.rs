@@ -8416,3 +8416,13 @@ fn test_tracing_value() {
         "#######]],
     );
 }
+
+#[test]
+fn test_diff_mbti() {
+    let dir = TestDir::new("diff_mbti.in");
+    let content = get_err_stdout(&dir, ["info", "--target", "all"]);
+    assert!(content.contains("$ROOT/target/wasm-gc/release/check/lib/lib.mbti"));
+    assert!(content.contains("$ROOT/target/js/release/check/lib/lib.mbti"));
+    assert!(content.contains("-fn aaa() -> String"));
+    assert!(content.contains("+fn a() -> String"));
+}
