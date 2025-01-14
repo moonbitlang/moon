@@ -43,7 +43,12 @@ pub fn run_wat(path: &Path, args: &[String], verbose: bool) -> anyhow::Result<()
 }
 
 pub fn run_js(path: &Path, args: &[String], verbose: bool) -> anyhow::Result<()> {
-    run(Some("node"), path, args, verbose)
+    let node = if which::which("node.cmd").is_ok() {
+        Some("node.cmd")
+    } else {
+        Some("node")
+    };
+    run(node, path, args, verbose)
 }
 
 pub fn run_native(path: &Path, args: &[String], verbose: bool) -> anyhow::Result<()> {
