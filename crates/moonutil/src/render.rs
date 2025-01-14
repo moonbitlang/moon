@@ -16,10 +16,12 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
+use std::path::PathBuf;
+
 use ariadne::Fmt;
 use serde::{Deserialize, Serialize};
 
-use crate::common::{line_col_to_byte_idx, MOON_DOC_TEST_POSTFIX};
+use crate::common::{line_col_to_byte_idx, PatchJSON, MOON_DOC_TEST_POSTFIX};
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct MooncDiagnostic {
@@ -59,7 +61,7 @@ impl Position {
 }
 
 impl MooncDiagnostic {
-    pub fn render(content: &str, use_fancy: bool) {
+    pub fn render(content: &str, use_fancy: bool, check_patch_file: Option<PathBuf>) {
         match serde_json_lenient::from_str::<MooncDiagnostic>(content) {
             Ok(diagnostic) => {
                 let (kind, color) = diagnostic.get_level_and_color();
@@ -81,22 +83,79 @@ impl MooncDiagnostic {
                         } else {
                             diagnostic.location.path.clone()
                         };
-                    let source_file = match std::fs::read_to_string(source_file_path) {
-                        Ok(content) => content,
+                    let source_file_content;
+                    match std::fs::read_to_string(source_file_path) {
+                        Ok(content) => source_file_content = content,
                         Err(_) => {
-                            eprintln!(
-                                "failed to read file `{}`, [{}] {}: {}",
-                                source_file_path,
-                                diagnostic.error_code,
-                                diagnostic.level,
-                                diagnostic.message
-                            );
-                            return;
+                            // if the source file is not found, try to get the content from the check patch file
+                            if let Some(ref check_patch_file) = check_patch_file {
+                                let check_patch_json_content =
+                                    match std::fs::read_to_string(check_patch_file) {
+                                        Ok(content) => content,
+                                        Err(_) => {
+                                            eprintln!(
+                                                "failed to read check patch file `{}`",
+                                                check_patch_file.display(),
+                                            );
+                                            return;
+                                        }
+                                    };
+                                let patch_json = match serde_json_lenient::from_str::<PatchJSON>(
+                                    &check_patch_json_content,
+                                ) {
+                                    Ok(patch_json) => patch_json,
+                                    Err(_) => {
+                                        eprintln!(
+                                            "failed to parse check patch file `{}`",
+                                            check_patch_file.display()
+                                        );
+                                        return;
+                                    }
+                                };
+                                let patch_file_content = match patch_json
+                                    .patches
+                                    .iter()
+                                    .find(|it| {
+                                        it.name
+                                            == PathBuf::from(&diagnostic.location.path)
+                                                .file_name()
+                                                .unwrap()
+                                                .to_str()
+                                                .unwrap()
+                                    })
+                                    .map(|it| it.content.clone())
+                                {
+                                    Some(content) => content,
+                                    None => {
+                                        eprintln!(
+                                            "failed to get the content from patch file `{}`",
+                                            &diagnostic.location.path
+                                        );
+                                        return;
+                                    }
+                                };
+                                source_file_content = patch_file_content;
+                            } else {
+                                eprintln!(
+                                    "failed to read file `{}`, [{}] {}: {}",
+                                    source_file_path,
+                                    diagnostic.error_code,
+                                    diagnostic.level,
+                                    diagnostic.message
+                                );
+                                return;
+                            }
                         }
                     };
 
-                    let start_offset = diagnostic.location.start.calculate_offset(&source_file);
-                    let end_offset = diagnostic.location.end.calculate_offset(&source_file);
+                    let start_offset = diagnostic
+                        .location
+                        .start
+                        .calculate_offset(&source_file_content);
+                    let end_offset = diagnostic
+                        .location
+                        .end
+                        .calculate_offset(&source_file_content);
 
                     let mut report_builder =
                         ariadne::Report::build(kind, source_file_path, start_offset)
@@ -114,7 +173,7 @@ impl MooncDiagnostic {
 
                     report_builder
                         .finish()
-                        .eprint((source_file_path, ariadne::Source::from(source_file)))
+                        .eprint((source_file_path, ariadne::Source::from(source_file_content)))
                         .unwrap();
                 }
             }
