@@ -4407,6 +4407,19 @@ fn test_internal_package() {
 }
 
 #[test]
+fn test_nonexistent_package() {
+    let dir = TestDir::new("nonexistent_package.in");
+    check(
+        get_err_stderr(&dir, ["check", "--sort-input"]),
+        expect![[r#"
+            error: $ROOT/main/moon.pkg.json: cannot import `username/hello/lib/b` in `username/hello/main`, no such package
+            $ROOT/main/moon.pkg.json: cannot import `username/hello/transient` in `username/hello/main`, no such package
+            $ROOT/moon.pkg.json: cannot import `username/transient/lib/b` in `username/transient`, no such package
+        "#]],
+    );
+}
+
+#[test]
 fn mooncakes_io_smoke_test() {
     if std::env::var("CI").is_err() {
         return;
