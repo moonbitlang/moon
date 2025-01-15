@@ -4414,7 +4414,7 @@ fn test_nonexistent_package() {
         expect![[r#"
             error: $ROOT/main/moon.pkg.json: cannot import `username/hello/lib/b` in `username/hello/main`, no such package
             $ROOT/main/moon.pkg.json: cannot import `username/hello/transient` in `username/hello/main`, no such package
-            $ROOT/moon.pkg.json: cannot import `username/transient/lib/b` in `username/transient`, no such package
+            $ROOT/pkg/transient/moon.pkg.json: cannot import `username/transient/lib/b` in `username/transient`, no such package
         "#]],
     );
 }
