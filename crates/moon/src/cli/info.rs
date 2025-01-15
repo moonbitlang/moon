@@ -247,8 +247,14 @@ pub fn run_info_internal(
             if !mi.exists() {
                 bail!("cannot find mi file for package {}", name);
             }
+            let filepath = mi.with_extension("mbti");
+            let filename = filepath.file_name().unwrap().to_str().unwrap();
 
-            let mut args = vec!["-format=text".into(), mi.display().to_string()];
+            let mut args = vec![
+                "-format=text".into(),
+                mi.display().to_string(),
+                format!("-o={}", filepath.display()),
+            ];
             if cmd.no_alias {
                 args.push("-no-alias".into());
             }
@@ -257,13 +263,6 @@ pub fn run_info_internal(
             let out = mooninfo.output().await?;
 
             if out.status.success() {
-                let filename = format!("{}.mbti", pkg.last_name());
-                let filepath = mi.with_extension("mbti");
-
-                tokio::fs::write(&filepath, out.stdout)
-                    .await
-                    .context(format!("failed to write {}", filename))?;
-
                 if
                 // no target specified, default to wasmgc
                 cmd.target.is_none()
@@ -277,7 +276,7 @@ pub fn run_info_internal(
                         &filepath,
                         &module_source_dir
                             .join(pkg.rel.fs_full_name())
-                            .join(&filename),
+                            .join(filename),
                     )
                     .await?;
                 }
