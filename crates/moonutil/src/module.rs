@@ -353,11 +353,7 @@ impl ModuleDB {
                 if !pkg.full_components().can_import(&item.full_components()) {
                     errors.push(format!(
                         "{}: cannot import internal package `{}` in `{}`",
-                        self.source_dir
-                            .join(self.source.as_ref().unwrap_or(&String::new()))
-                            .join(pkg.rel.fs_full_name())
-                            .join(MOON_PKG_JSON)
-                            .display(),
+                        pkg.root_path.join(MOON_PKG_JSON).display(),
                         imported,
                         pkg.full_name()
                     ))
@@ -365,11 +361,7 @@ impl ModuleDB {
                 if !self.packages.contains_key(&imported) {
                     errors.push(format!(
                         "{}: cannot import `{}` in `{}`, no such package",
-                        self.source_dir
-                            .join(self.source.as_ref().unwrap_or(&String::new()))
-                            .join(pkg.rel.fs_full_name())
-                            .join(MOON_PKG_JSON)
-                            .display(),
+                        pkg.root_path.join(MOON_PKG_JSON).display(),
                         imported,
                         pkg.full_name(),
                     ));
