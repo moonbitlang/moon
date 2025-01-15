@@ -8054,29 +8054,14 @@ fn test_moon_test_patch() {
 fn test_render_diagnostic_in_patch_file() {
     let dir = TestDir::new("moon_test_patch.in");
     check(
-        get_stderr(
-            &dir,
-            [
-                "check",
-                "lib",
-                "--patch-file",
-                "./patch_test.json",
-            ],
-        ),
+        get_stderr(&dir, ["check", "lib", "--patch-file", "./patch_test.json"]),
         expect![[r#"
             Warning: [1002]
-               ╭─[$ROOT/lib/hello_2_test.mbt:2:6]
+               ╭─[hello_2_test.mbt:2:6]
                │
              2 │  let unused_in_patch_test_json = 1;
                │      ────────────┬────────────  
                │                  ╰────────────── Warning: Unused variable 'unused_in_patch_test_json'
-            ───╯
-            Warning: [1002]
-               ╭─[$ROOT/lib/hello_test.mbt:3:7]
-               │
-             3 │   let x_in_real = 1
-               │       ────┬────  
-               │           ╰────── Warning: Unused variable 'x_in_real'
             ───╯
             Finished. moon: ran 3 tasks, now up to date
         "#]],
@@ -8084,23 +8069,11 @@ fn test_render_diagnostic_in_patch_file() {
     check(
         get_stderr(
             &dir,
-            [
-                "check",
-                "lib",
-                "--patch-file",
-                "./patch_wbtest.json",
-            ],
+            ["check", "lib", "--patch-file", "./patch_wbtest.json"],
         ),
         expect![[r#"
             Warning: [1002]
-               ╭─[$ROOT/lib/hello_test.mbt:3:7]
-               │
-             3 │   let x_in_real = 1
-               │       ────┬────  
-               │           ╰────── Warning: Unused variable 'x_in_real'
-            ───╯
-            Warning: [1002]
-               ╭─[$ROOT/lib/hello_1_wbtest.mbt:2:6]
+               ╭─[hello_1_wbtest.mbt:2:6]
                │
              2 │  let unused_in_patch_wbtest_json = 1;
                │      ─────────────┬─────────────  
@@ -8110,29 +8083,14 @@ fn test_render_diagnostic_in_patch_file() {
         "#]],
     );
     check(
-        get_stderr(
-            &dir,
-            [
-                "check",
-                "lib",
-                "--patch-file",
-                "./patch.json",
-            ],
-        ),
+        get_stderr(&dir, ["check", "lib", "--patch-file", "./patch.json"]),
         expect![[r#"
             Warning: [1002]
-               ╭─[$ROOT/lib/hello_0.mbt:2:6]
+               ╭─[hello_0.mbt:2:6]
                │
              2 │  let unused_in_patch_json = 1;
                │      ──────────┬─────────  
                │                ╰─────────── Warning: Unused variable 'unused_in_patch_json'
-            ───╯
-            Warning: [1002]
-               ╭─[$ROOT/lib/hello_test.mbt:3:7]
-               │
-             3 │   let x_in_real = 1
-               │       ────┬────  
-               │           ╰────── Warning: Unused variable 'x_in_real'
             ───╯
             Finished. moon: ran 3 tasks, now up to date
         "#]],

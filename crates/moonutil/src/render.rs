@@ -62,125 +62,109 @@ impl Position {
 
 impl MooncDiagnostic {
     pub fn render(content: &str, use_fancy: bool, check_patch_file: Option<PathBuf>) {
-        match serde_json_lenient::from_str::<MooncDiagnostic>(content) {
-            Ok(diagnostic) => {
-                let (kind, color) = diagnostic.get_level_and_color();
-
-                // for no-location diagnostic, like Missing main function in the main package(4067)
-                if diagnostic.location.path.is_empty() {
-                    eprintln!(
-                        "{}",
-                        format!(
-                            "[{}] {}: {}",
-                            diagnostic.error_code, kind, diagnostic.message
-                        )
-                        .fg(color)
-                    );
-                } else {
-                    let source_file_path =
-                        &if diagnostic.location.path.contains(MOON_DOC_TEST_POSTFIX) {
-                            diagnostic.location.path.replace(MOON_DOC_TEST_POSTFIX, "")
-                        } else {
-                            diagnostic.location.path.clone()
-                        };
-                    let source_file_content;
-                    match std::fs::read_to_string(source_file_path) {
-                        Ok(content) => source_file_content = content,
-                        Err(_) => {
-                            // if the source file is not found, try to get the content from the check patch file
-                            if let Some(ref check_patch_file) = check_patch_file {
-                                let check_patch_json_content =
-                                    match std::fs::read_to_string(check_patch_file) {
-                                        Ok(content) => content,
-                                        Err(_) => {
-                                            eprintln!(
-                                                "failed to read check patch file `{}`",
-                                                check_patch_file.display(),
-                                            );
-                                            return;
-                                        }
-                                    };
-                                let patch_json = match serde_json_lenient::from_str::<PatchJSON>(
-                                    &check_patch_json_content,
-                                ) {
-                                    Ok(patch_json) => patch_json,
-                                    Err(_) => {
-                                        eprintln!(
-                                            "failed to parse check patch file `{}`",
-                                            check_patch_file.display()
-                                        );
-                                        return;
-                                    }
-                                };
-                                let patch_file_content = match patch_json
-                                    .patches
-                                    .iter()
-                                    .find(|it| {
-                                        it.name
-                                            == PathBuf::from(&diagnostic.location.path)
-                                                .file_name()
-                                                .unwrap()
-                                                .to_str()
-                                                .unwrap()
-                                    })
-                                    .map(|it| it.content.clone())
-                                {
-                                    Some(content) => content,
-                                    None => {
-                                        eprintln!(
-                                            "failed to get the content from patch file `{}`",
-                                            &diagnostic.location.path
-                                        );
-                                        return;
-                                    }
-                                };
-                                source_file_content = patch_file_content;
-                            } else {
-                                eprintln!(
-                                    "failed to read file `{}`, [{}] {}: {}",
-                                    source_file_path,
-                                    diagnostic.error_code,
-                                    diagnostic.level,
-                                    diagnostic.message
-                                );
-                                return;
-                            }
-                        }
-                    };
-
-                    let start_offset = diagnostic
-                        .location
-                        .start
-                        .calculate_offset(&source_file_content);
-                    let end_offset = diagnostic
-                        .location
-                        .end
-                        .calculate_offset(&source_file_content);
-
-                    let mut report_builder =
-                        ariadne::Report::build(kind, source_file_path, start_offset)
-                            .with_message(format!("[{}]", diagnostic.error_code).fg(color))
-                            .with_label(
-                                ariadne::Label::new((source_file_path, start_offset..end_offset))
-                                    .with_message((&diagnostic.message).fg(color))
-                                    .with_color(color),
-                            );
-
-                    if !use_fancy {
-                        let config = ariadne::Config::default().with_color(false);
-                        report_builder = report_builder.with_config(config);
-                    }
-
-                    report_builder
-                        .finish()
-                        .eprint((source_file_path, ariadne::Source::from(source_file_content)))
-                        .unwrap();
-                }
-            }
+        let diagnostic = match serde_json_lenient::from_str::<MooncDiagnostic>(content) {
+            Ok(d) => d,
             Err(_) => {
                 eprintln!("{}", content);
+                return;
             }
+        };
+
+        let (kind, color) = diagnostic.get_level_and_color();
+
+        // for no-location diagnostic, like Missing main function in the main package(4067)
+        if diagnostic.location.path.is_empty() {
+            eprintln!(
+                "{}",
+                format!(
+                    "[{}] {}: {}",
+                    diagnostic.error_code, kind, diagnostic.message
+                )
+                .fg(color)
+            );
+            return;
         }
+
+        let source_file_path = if diagnostic.location.path.contains(MOON_DOC_TEST_POSTFIX) {
+            diagnostic.location.path.replace(MOON_DOC_TEST_POSTFIX, "")
+        } else {
+            diagnostic.location.path.clone()
+        };
+
+        let (source_file_content, display_filename) =
+            match std::fs::read_to_string(&source_file_path) {
+                Ok(content) => (content, source_file_path.clone()),
+                Err(_) => {
+                    // if the source file is not found, try to get the content from the check patch file
+                    match check_patch_file.and_then(|f| {
+                        Self::get_content_and_filename_from_diagnostic_patch_file(
+                            &f,
+                            &diagnostic.location.path,
+                        )
+                    }) {
+                        Some((content, filename)) => (content, filename),
+                        None => {
+                            eprintln!(
+                                "failed to read file `{}`, [{}] {}: {}",
+                                source_file_path,
+                                diagnostic.error_code,
+                                diagnostic.level,
+                                diagnostic.message
+                            );
+                            return;
+                        }
+                    }
+                }
+            };
+
+        let start_offset = diagnostic
+            .location
+            .start
+            .calculate_offset(&source_file_content);
+        let end_offset = diagnostic
+            .location
+            .end
+            .calculate_offset(&source_file_content);
+
+        let mut report_builder = ariadne::Report::build(kind, &display_filename, start_offset)
+            .with_message(format!("[{}]", diagnostic.error_code).fg(color))
+            .with_label(
+                ariadne::Label::new((&display_filename, start_offset..end_offset))
+                    .with_message((&diagnostic.message).fg(color))
+                    .with_color(color),
+            );
+
+        if !use_fancy {
+            report_builder =
+                report_builder.with_config(ariadne::Config::default().with_color(false));
+        }
+
+        report_builder
+            .finish()
+            .eprint((
+                &display_filename,
+                ariadne::Source::from(source_file_content),
+            ))
+            .unwrap();
+    }
+
+    fn get_content_and_filename_from_diagnostic_patch_file(
+        patch_file: &PathBuf,
+        diagnostic_location_path: &str,
+    ) -> Option<(String, String)> {
+        let patch_content = std::fs::read_to_string(patch_file).ok()?;
+        let patch_json: PatchJSON = serde_json_lenient::from_str(&patch_content).ok()?;
+
+        let diagnostic_filename = PathBuf::from(diagnostic_location_path)
+            .file_name()?
+            .to_str()?
+            .to_string();
+
+        patch_json
+            .patches
+            .iter()
+            .find(|it| it.name == diagnostic_filename)
+            .map(|it| (it.content.clone(), it.name.clone()))
     }
 
     fn get_level_and_color(&self) -> (ariadne::ReportKind, ariadne::Color) {
