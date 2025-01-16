@@ -5359,7 +5359,7 @@ fn test_blackbox_failed() {
 
     let output = String::from_utf8_lossy(&output);
     // bbtest can not use private function in bbtest_import
-    assert!(output.contains("Value _private_hello not found in package \"A\""));
+    assert!(output.contains("Value _private_hello not found in package `A`"));
     // bbtest_import could no be used in _wbtest.mbt
     assert!(output.contains("Package \"C\" not found in the loaded packages."));
 
@@ -5375,7 +5375,7 @@ fn test_blackbox_failed() {
     let output = String::from_utf8_lossy(&output);
     assert!(output.contains("Warning: Unused variable 'a'"));
     assert!(output.contains("Warning: Unused variable 'b'"));
-    assert!(output.contains("Value _private_hello not found in package \"A\""));
+    assert!(output.contains("Value _private_hello not found in package `A`"));
     assert!(output.contains("Package \"C\" not found in the loaded packages."));
 }
 
