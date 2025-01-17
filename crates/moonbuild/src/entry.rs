@@ -100,6 +100,10 @@ pub fn n2_simple_run_interface(
 
     let catcher = Arc::clone(&logger);
     let output_json = moonbuild_opt.output_json;
+    let check_patch_file = moonbuild_opt
+        .check_opt
+        .as_ref()
+        .and_then(|it| it.patch_file.clone());
     let render_and_catch = move |output: &str| {
         output
             .split('\n')
@@ -109,7 +113,11 @@ pub fn n2_simple_run_interface(
                 if output_json {
                     println!("{content}");
                 } else {
-                    moonutil::render::MooncDiagnostic::render(content, use_fancy);
+                    moonutil::render::MooncDiagnostic::render(
+                        content,
+                        use_fancy,
+                        check_patch_file.clone(),
+                    );
                 }
             });
     };
@@ -154,13 +162,21 @@ pub fn n2_run_interface(
 
     let catcher = Arc::clone(&logger);
     let output_json = moonbuild_opt.output_json;
+    let check_patch_file = moonbuild_opt
+        .check_opt
+        .as_ref()
+        .and_then(|it| it.patch_file.clone());
     let render_and_catch = move |output: &str| {
         output.lines().for_each(|content| {
             catcher.lock().unwrap().push(content.to_owned());
             if output_json {
                 println!("{content}");
             } else {
-                moonutil::render::MooncDiagnostic::render(content, use_fancy);
+                moonutil::render::MooncDiagnostic::render(
+                    content,
+                    use_fancy,
+                    check_patch_file.clone(),
+                );
             }
         });
     };
@@ -205,11 +221,19 @@ pub fn n2_run_interface(
         let raw_json = std::fs::read_to_string(&output_path)
             .context(format!("failed to open `{}`", output_path.display()))?;
 
+        let check_patch_file = moonbuild_opt
+            .check_opt
+            .as_ref()
+            .and_then(|it| it.patch_file.clone());
         raw_json.lines().for_each(|content| {
             if output_json {
                 println!("{content}");
             } else {
-                moonutil::render::MooncDiagnostic::render(content, use_fancy);
+                moonutil::render::MooncDiagnostic::render(
+                    content,
+                    use_fancy,
+                    check_patch_file.clone(),
+                );
             }
         });
     } else {

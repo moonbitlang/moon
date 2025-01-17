@@ -1,0 +1,4 @@
+{
+  "is-main": true,
+  "import": ["username/hello/lib", "username/hello/lib/b", "username/hello/transient"]
+}

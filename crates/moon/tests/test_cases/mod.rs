@@ -4407,6 +4407,19 @@ fn test_internal_package() {
 }
 
 #[test]
+fn test_nonexistent_package() {
+    let dir = TestDir::new("nonexistent_package.in");
+    check(
+        get_err_stderr(&dir, ["check", "--sort-input"]),
+        expect![[r#"
+            error: $ROOT/main/moon.pkg.json: cannot import `username/hello/lib/b` in `username/hello/main`, no such package
+            $ROOT/main/moon.pkg.json: cannot import `username/hello/transient` in `username/hello/main`, no such package
+            $ROOT/pkg/transient/moon.pkg.json: cannot import `username/transient/lib/b` in `username/transient`, no such package
+        "#]],
+    );
+}
+
+#[test]
 fn mooncakes_io_smoke_test() {
     if std::env::var("CI").is_err() {
         return;
@@ -5346,7 +5359,7 @@ fn test_blackbox_failed() {
 
     let output = String::from_utf8_lossy(&output);
     // bbtest can not use private function in bbtest_import
-    assert!(output.contains("Value _private_hello not found in package \"A\""));
+    assert!(output.contains("Value _private_hello not found in package `A`"));
     // bbtest_import could no be used in _wbtest.mbt
     assert!(output.contains("Package \"C\" not found in the loaded packages."));
 
@@ -5362,7 +5375,7 @@ fn test_blackbox_failed() {
     let output = String::from_utf8_lossy(&output);
     assert!(output.contains("Warning: Unused variable 'a'"));
     assert!(output.contains("Warning: Unused variable 'b'"));
-    assert!(output.contains("Value _private_hello not found in package \"A\""));
+    assert!(output.contains("Value _private_hello not found in package `A`"));
     assert!(output.contains("Package \"C\" not found in the loaded packages."));
 }
 
@@ -8046,6 +8059,53 @@ fn test_moon_test_patch() {
             hello from 2.patch_wbtest.json
             hello from lib2/hello.mbt
             Total tests: 1, passed: 1, failed: 0.
+        "#]],
+    );
+}
+
+#[test]
+fn test_render_diagnostic_in_patch_file() {
+    let dir = TestDir::new("moon_test_patch.in");
+    check(
+        get_stderr(&dir, ["check", "lib", "--patch-file", "./patch_test.json"]),
+        expect![[r#"
+            Warning: [1002]
+               ╭─[hello_2_test.mbt:2:6]
+               │
+             2 │  let unused_in_patch_test_json = 1;
+               │      ────────────┬────────────  
+               │                  ╰────────────── Warning: Unused variable 'unused_in_patch_test_json'
+            ───╯
+            Finished. moon: ran 3 tasks, now up to date
+        "#]],
+    );
+    check(
+        get_stderr(
+            &dir,
+            ["check", "lib", "--patch-file", "./patch_wbtest.json"],
+        ),
+        expect![[r#"
+            Warning: [1002]
+               ╭─[hello_1_wbtest.mbt:2:6]
+               │
+             2 │  let unused_in_patch_wbtest_json = 1;
+               │      ─────────────┬─────────────  
+               │                   ╰─────────────── Warning: Unused variable 'unused_in_patch_wbtest_json'
+            ───╯
+            Finished. moon: ran 2 tasks, now up to date
+        "#]],
+    );
+    check(
+        get_stderr(&dir, ["check", "lib", "--patch-file", "./patch.json"]),
+        expect![[r#"
+            Warning: [1002]
+               ╭─[hello_0.mbt:2:6]
+               │
+             2 │  let unused_in_patch_json = 1;
+               │      ──────────┬─────────  
+               │                ╰─────────── Warning: Unused variable 'unused_in_patch_json'
+            ───╯
+            Finished. moon: ran 3 tasks, now up to date
         "#]],
     );
 }

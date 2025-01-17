@@ -21,7 +21,7 @@ use regex::Regex;
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use crate::common::{backend_filter, MooncOpt};
+use crate::common::{backend_filter, MooncOpt, PatchItem, PatchJSON};
 use crate::package::Package;
 
 #[derive(Debug)]
@@ -79,18 +79,6 @@ impl DocTestExtractor {
 
         Ok(tests)
     }
-}
-
-#[derive(Debug, serde::Serialize)]
-pub struct PatchJSON {
-    pub drops: Vec<String>,
-    pub patches: Vec<PatchItem>,
-}
-
-#[derive(Debug, serde::Serialize)]
-pub struct PatchItem {
-    pub name: String,
-    pub content: String,
 }
 
 impl PatchJSON {

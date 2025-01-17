@@ -64,6 +64,18 @@ pub const MOONCAKE_BIN: &str = "$mooncake_bin";
 pub const MOD_DIR: &str = "$mod_dir";
 pub const PKG_DIR: &str = "$pkg_dir";
 
+#[derive(Debug, Serialize, Deserialize)]
+pub struct PatchJSON {
+    pub drops: Vec<String>,
+    pub patches: Vec<PatchItem>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct PatchItem {
+    pub name: String,
+    pub content: String,
+}
+
 #[derive(Debug, thiserror::Error)]
 pub enum SourceError {
     #[error("`source` should not contain invalid chars `{0:?}`")]
