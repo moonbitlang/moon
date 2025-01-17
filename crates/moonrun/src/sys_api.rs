@@ -74,6 +74,18 @@ fn set_env_var(
     ret.set_undefined()
 }
 
+fn unset_env_var(
+    scope: &mut v8::HandleScope,
+    args: v8::FunctionCallbackArguments,
+    mut ret: v8::ReturnValue,
+) {
+    let key = args.get(0);
+    let key = key.to_string(scope).unwrap();
+    let key = key.to_rust_string_lossy(scope);
+    std::env::remove_var(&key);
+    ret.set_undefined()
+}
+
 fn get_env_vars(
     scope: &mut v8::HandleScope,
     _args: v8::FunctionCallbackArguments,
@@ -118,6 +130,11 @@ pub fn init_env<'s>(
     let set_env_var = set_env_var.get_function(scope).unwrap();
     let ident = v8::String::new(scope, "set_env_var").unwrap();
     obj.set(scope, ident.into(), set_env_var.into());
+
+    let unset_env_var = v8::FunctionTemplate::new(scope, unset_env_var);
+    let unset_env_var = unset_env_var.get_function(scope).unwrap();
+    let ident = v8::String::new(scope, "unset_env_var").unwrap();
+    obj.set(scope, ident.into(), unset_env_var.into());
 
     let get_env_vars = v8::FunctionTemplate::new(scope, get_env_vars);
     let get_env_vars = get_env_vars.get_function(scope).unwrap();

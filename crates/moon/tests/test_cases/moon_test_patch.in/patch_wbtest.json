@@ -3,7 +3,7 @@
   "patches": [
     {
       "name": "hello_1_wbtest.mbt",
-      "content": "test { \n println(\"hello from patch_wbtest.json\") \n hello() \n }"
+      "content": "test { \n let unused_in_patch_wbtest_json = 1; \n println(\"hello from patch_wbtest.json\") \n hello() \n }"
     }
   ]
 }
