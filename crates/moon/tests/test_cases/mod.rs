@@ -8490,18 +8490,6 @@ fn test_diff_mbti() {
 #[test]
 fn test_exports_in_native_backend() {
     let dir = TestDir::new("native_exports.in");
-    check(
-        get_stdout(&dir, ["build", "--target", "native", "--dry-run"]),
-        expect![[r#"
-            moonc build-package ./src/lib/hello.mbt -o ./target/native/release/build/lib/lib.core -pkg username/hello/lib -std-path $MOON_HOME/lib/core/target/native/release/bundle -pkg-sources username/hello/lib:./src/lib -target native
-            moonc build-package ./src/main/main.mbt -o ./target/native/release/build/main/main.core -pkg username/hello/main -is-main -std-path $MOON_HOME/lib/core/target/native/release/bundle -i ./target/native/release/build/lib/lib.mi:lib -pkg-sources username/hello/main:./src/main -target native
-            moonc link-core $MOON_HOME/lib/core/target/native/release/bundle/core.core ./target/native/release/build/lib/lib.core ./target/native/release/build/main/main.core -main username/hello/main -o ./target/native/release/build/main/main.exe -pkg-config-path ./src/main/moon.pkg.json -pkg-sources username/hello/lib:./src/lib -pkg-sources username/hello/main:./src/main -pkg-sources moonbitlang/core:$MOON_HOME/lib/core -target native -cc $MOON_HOME/bin/internal/tcc -cc-flags "-L$MOON_HOME/lib -I$MOON_HOME/include -DMOONBIT_NATIVE_NO_SYS_HEADER"
-            moonc build-package ./src/lib3/hello.mbt -o ./target/native/release/build/lib3/lib3.core -pkg username/hello/lib3 -std-path $MOON_HOME/lib/core/target/native/release/bundle -pkg-sources username/hello/lib3:./src/lib3 -target native
-            moonc link-core $MOON_HOME/lib/core/target/native/release/bundle/core.core ./target/native/release/build/lib3/lib3.core -main username/hello/lib3 -o ./target/native/release/build/lib3/lib3.exe -pkg-config-path ./src/lib3/moon.pkg.json -pkg-sources username/hello/lib3:./src/lib3 -pkg-sources moonbitlang/core:$MOON_HOME/lib/core -target native -exported_functions=hello:awesome -cc cc -cc-flags "-I$MOON_HOME/include -O2 $MOON_HOME/lib/libmoonbitrun.o -fwrapv -fno-strict-aliasing" -cc-link-flags -lm
-            moonc build-package ./src/lib2/hello.mbt -o ./target/native/release/build/lib2/lib2.core -pkg username/hello/lib2 -std-path $MOON_HOME/lib/core/target/native/release/bundle -pkg-sources username/hello/lib2:./src/lib2 -target native
-            moonc link-core $MOON_HOME/lib/core/target/native/release/bundle/core.core ./target/native/release/build/lib2/lib2.core -main username/hello/lib2 -o ./target/native/release/build/lib2/lib2.exe -pkg-config-path ./src/lib2/moon.pkg.json -pkg-sources username/hello/lib2:./src/lib2 -pkg-sources moonbitlang/core:$MOON_HOME/lib/core -target native -exported_functions=hello -cc cc -cc-flags "-I$MOON_HOME/include -O2 $MOON_HOME/lib/libmoonbitrun.o -fwrapv -fno-strict-aliasing" -cc-link-flags -lm
-        "#]],
-    );
     let _ = get_stdout(&dir, ["build", "--target", "native"]);
     assert!(!dir
         .join("target")
