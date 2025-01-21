@@ -241,6 +241,15 @@
             "string",
             "null"
           ]
+        },
+        "exports": {
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": {
+            "type": "string"
+          }
         }
       }
     },

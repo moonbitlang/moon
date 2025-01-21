@@ -1,0 +1,7 @@
+{
+    "link": {
+        "native": {
+            "exports": ["hello:awesome"]
+        }
+    }
+}

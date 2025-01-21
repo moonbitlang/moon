@@ -49,8 +49,8 @@ pub fn add_latest(
     if pkg_name.to_string() == MOONBITLANG_CORE {
         eprintln!(
             "{}: no need to add `{}` as dependency",
-            MOONBITLANG_CORE,
-            "Warning".yellow().bold()
+            "Warning".yellow().bold(),
+            MOONBITLANG_CORE
         );
         std::process::exit(0);
     }
@@ -96,8 +96,8 @@ pub fn add(
     if pkg_name.to_string() == MOONBITLANG_CORE {
         eprintln!(
             "{}: no need to add `{}` as dependency",
-            MOONBITLANG_CORE,
-            "Warning".yellow().bold()
+            "Warning".yellow().bold(),
+            MOONBITLANG_CORE
         );
         std::process::exit(0);
     }

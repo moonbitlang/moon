@@ -8486,3 +8486,37 @@ fn test_diff_mbti() {
     assert!(content.contains("-fn aaa() -> String"));
     assert!(content.contains("+fn a() -> String"));
 }
+
+#[test]
+fn test_exports_in_native_backend() {
+    let dir = TestDir::new("native_exports.in");
+    let _ = get_stdout(&dir, ["build", "--target", "native"]);
+    assert!(!dir
+        .join("target")
+        .join("native")
+        .join("release")
+        .join("build")
+        .join("lib")
+        .join("lib.c")
+        .exists());
+    let lib2_c = read(
+        dir.join("target")
+            .join("native")
+            .join("release")
+            .join("build")
+            .join("lib2")
+            .join("lib2.c"),
+    );
+    assert!(lib2_c.contains("$username$hello$lib2$hello()"));
+
+    // alias not works
+    let lib3_c = read(
+        dir.join("target")
+            .join("native")
+            .join("release")
+            .join("build")
+            .join("lib3")
+            .join("lib3.c"),
+    );
+    assert!(lib3_c.contains("$username$hello$lib3$hello()"));
+}
