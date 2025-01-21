@@ -904,12 +904,19 @@ pub fn set_native_backend_link_flags(
                 // libmoonbitrun.o should under $MOON_HOME/lib
                 let libmoonbitrun_path = moon_home.join("lib").join("libmoonbitrun.o");
 
+                let no_strict_aliasing = if cfg!(unix) {
+                    "-fno-strict-aliasing"
+                } else {
+                    ""
+                };
+
                 let get_default_cc_flags = || -> Option<String> {
                     #[cfg(unix)]
                     return Some(format!(
-                        "-I{} -O2 {} -fwrapv -fno-strict-aliasing",
+                        "-I{} -O2 {} -fwrapv {}",
                         moon_include_path.display(),
-                        libmoonbitrun_path.display()
+                        libmoonbitrun_path.display(),
+                        no_strict_aliasing
                     ));
                     #[cfg(windows)]
                     return Some(format!("-I{}", moon_include_path.display()));
@@ -934,8 +941,9 @@ pub fn set_native_backend_link_flags(
                                 .clone()
                                 .map(|cc_flags| {
                                     format!(
-                                        "-I{} -fno-strict-aliasing {}",
+                                        "-I{} {} {}",
                                         moon_include_path.display(),
+                                        no_strict_aliasing,
                                         cc_flags
                                     )
                                 })
