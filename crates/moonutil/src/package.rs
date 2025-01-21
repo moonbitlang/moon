@@ -303,12 +303,14 @@ impl LinkDepItem {
 
     pub fn js_exports(&self) -> Option<&[String]> { self.link.as_ref()?.js.as_ref()?.exports.as_deref() }
 
+    pub fn native_exports(&self) -> Option<&[String]> { self.link.as_ref()?.native.as_ref()?.exports.as_deref() }
+
     pub fn exports(&self, b: TargetBackend) -> Option<&[String]> {
         match b {
             Wasm => self.wasm_exports(),
             WasmGC => self.wasm_gc_exports(),
             Js => self.js_exports(),
-            Native => None,
+            Native => self.native_exports(),
         }
     }
 
@@ -420,6 +422,8 @@ pub struct WasmLinkConfig {
 #[derive(Debug, Serialize, Deserialize, Clone, JsonSchema, Default)]
 #[serde(rename_all = "kebab-case")]
 pub struct NativeLinkConfig {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub exports: Option<Vec<String>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub cc: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]

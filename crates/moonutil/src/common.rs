@@ -928,6 +928,7 @@ pub fn set_native_backend_link_flags(
 
                     let native_config = match existing_native {
                         Some(n) => crate::package::NativeLinkConfig {
+                            exports: n.exports.clone(),
                             cc: n.cc.clone().or(Some(compiler.to_string())),
                             cc_flags: n
                                 .cc_flags
@@ -943,11 +944,13 @@ pub fn set_native_backend_link_flags(
                             cc_link_flags: n.cc_link_flags.clone().or(get_default_cc_link_flag()),
                         },
                         None if release => crate::package::NativeLinkConfig {
+                            exports: None,
                             cc: Some(compiler.to_string()),
                             cc_flags: get_default_cc_flags(),
                             cc_link_flags: get_default_cc_link_flag(),
                         },
                         None => crate::package::NativeLinkConfig {
+                            exports: None,
                             cc: Some(
                                 moon_home
                                     .join("bin")
