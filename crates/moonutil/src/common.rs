@@ -882,7 +882,7 @@ impl StringExt for str {
 
 pub fn set_native_backend_link_flags(
     run_mode: RunMode,
-    _release: bool,
+    release: bool,
     target_backend: Option<TargetBackend>,
     module: &mut crate::module::ModuleDB,
 ) -> anyhow::Result<()> {
@@ -896,11 +896,10 @@ pub fn set_native_backend_link_flags(
                 #[cfg(windows)]
                 let compiler = "cl";
 
-                let _ =
-                    which::which(compiler).context(format!("{} not found in PATH", compiler))?;
                 let moonc_path = which::which("moonc").context("moonc not found in PATH")?;
                 let moon_home = moonc_path.parent().unwrap().parent().unwrap();
                 let moon_include_path = moon_home.join("include");
+                let moon_lib_path = moon_home.join("lib");
 
                 // libmoonbitrun.o should under $MOON_HOME/lib
                 let libmoonbitrun_path = moon_home.join("lib").join("libmoonbitrun.o");
@@ -944,11 +943,28 @@ pub fn set_native_backend_link_flags(
                                 .or(get_default_cc_flags()),
                             cc_link_flags: n.cc_link_flags.clone().or(get_default_cc_link_flag()),
                         },
-                        None => crate::package::NativeLinkConfig {
+                        None if release => crate::package::NativeLinkConfig {
                             exports: None,
                             cc: Some(compiler.to_string()),
                             cc_flags: get_default_cc_flags(),
                             cc_link_flags: get_default_cc_link_flag(),
+                        },
+                        None => crate::package::NativeLinkConfig {
+                            exports: None,
+                            cc: Some(
+                                moon_home
+                                    .join("bin")
+                                    .join("internal")
+                                    .join("tcc")
+                                    .display()
+                                    .to_string(),
+                            ),
+                            cc_flags: Some(format!(
+                                "-L{} -I{} -DMOONBIT_NATIVE_NO_SYS_HEADER",
+                                moon_lib_path.display(),
+                                moon_include_path.display()
+                            )),
+                            cc_link_flags: None,
                         },
                     };
 
