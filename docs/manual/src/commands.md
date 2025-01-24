@@ -112,6 +112,7 @@ Build the current package
 * `--no-render` — Don't render diagnostics from moonc (don't pass '-error-format json' to moonc)
 * `--warn-list <WARN_LIST>` — Warn list config
 * `--alert-list <ALERT_LIST>` — Alert list config
+* `-j`, `--jobs <JOBS>` — Set the max number of jobs to run in parallel
 * `--frozen` — Do not sync dependencies, assuming local dependencies are up-to-date
 * `-w`, `--watch` — Monitor the file system and automatically build artifacts
 
@@ -147,6 +148,7 @@ Check the current package, but don't build object files
 * `--no-render` — Don't render diagnostics from moonc (don't pass '-error-format json' to moonc)
 * `--warn-list <WARN_LIST>` — Warn list config
 * `--alert-list <ALERT_LIST>` — Alert list config
+* `-j`, `--jobs <JOBS>` — Set the max number of jobs to run in parallel
 * `--output-json` — Output in json format
 * `--frozen` — Do not sync dependencies, assuming local dependencies are up-to-date
 * `-w`, `--watch` — Monitor the file system and automatically check files
@@ -186,6 +188,7 @@ Run a main package
 * `--no-render` — Don't render diagnostics from moonc (don't pass '-error-format json' to moonc)
 * `--warn-list <WARN_LIST>` — Warn list config
 * `--alert-list <ALERT_LIST>` — Alert list config
+* `-j`, `--jobs <JOBS>` — Set the max number of jobs to run in parallel
 * `--frozen` — Do not sync dependencies, assuming local dependencies are up-to-date
 * `--build-only` — Only build, do not run the code
 
@@ -217,6 +220,7 @@ Test the current package
 * `--no-render` — Don't render diagnostics from moonc (don't pass '-error-format json' to moonc)
 * `--warn-list <WARN_LIST>` — Warn list config
 * `--alert-list <ALERT_LIST>` — Alert list config
+* `-j`, `--jobs <JOBS>` — Set the max number of jobs to run in parallel
 * `-p`, `--package <PACKAGE>` — Run test in the specified package
 * `-f`, `--file <FILE>` — Run test in the specified file. Only valid when `--package` is also specified
 * `-i`, `--index <INDEX>` — Run only the index-th test in the file. Only valid when `--file` is also specified
