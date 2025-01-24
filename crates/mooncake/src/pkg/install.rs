@@ -182,6 +182,7 @@ fn get_module_db(
         fmt_opt: None,
         args: vec![],
         output_json: false,
+        parallelism: None, // we don't care about parallelism here
     };
     let module_db = scan(
         false,

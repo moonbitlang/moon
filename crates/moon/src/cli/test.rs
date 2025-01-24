@@ -215,6 +215,7 @@ fn run_test_internal(
         fmt_opt: None,
         args: vec![],
         output_json: false,
+        parallelism: cmd.build_flags.jobs,
     };
 
     let mut module = moonutil::scan::scan(

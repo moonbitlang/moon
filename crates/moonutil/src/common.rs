@@ -383,6 +383,8 @@ pub struct MoonbuildOpt {
     pub output_json: bool,
     pub no_parallelize: bool,
     pub build_graph: bool,
+    /// Max parallel tasks to run in n2; `None` to use default
+    pub parallelism: Option<usize>,
 }
 
 impl MoonbuildOpt {
