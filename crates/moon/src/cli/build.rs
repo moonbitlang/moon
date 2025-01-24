@@ -159,6 +159,7 @@ fn run_build_internal(
         args: vec![],
         output_json: false,
         no_parallelize: false,
+        parallelism: cmd.build_flags.jobs,
     };
 
     let mut module = scan_with_pre_build(

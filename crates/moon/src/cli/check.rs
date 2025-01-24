@@ -173,6 +173,7 @@ fn run_check_internal(
         fmt_opt: None,
         args: vec![],
         no_parallelize: false,
+        parallelism: cmd.build_flags.jobs,
     };
 
     let mut module = scan_with_pre_build(

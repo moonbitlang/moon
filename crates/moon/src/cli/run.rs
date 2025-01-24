@@ -305,6 +305,7 @@ pub fn run_run_internal(cli: &UniversalFlags, cmd: RunSubcommand) -> anyhow::Res
         fmt_opt: None,
         output_json: false,
         no_parallelize: false,
+        parallelism: cmd.build_flags.jobs,
     };
 
     let mut module = scan_with_pre_build(
