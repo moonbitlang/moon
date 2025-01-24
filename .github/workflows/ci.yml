@@ -355,7 +355,7 @@ jobs:
         run: cargo run --bin moon bundle --source-dir ~/.moon/lib/core --all
 
       - name: Generate code coverage
-        run: cargo tarpaulin -v -j 2 --ignore-tests --engine llvm --out Xml
+        run: cargo tarpaulin -j 3 --ignore-tests --engine llvm --out Xml
 
       - name: Upload coverage reports to Codecov
         if: github.ref == 'refs/heads/main'
