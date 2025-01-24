@@ -153,6 +153,13 @@ pub fn n2_simple_run_interface(
     Ok(res)
 }
 
+pub fn get_parallelism() -> usize {
+    std::env::var("MOON_MAX_CONCURRENCY")
+        .ok()
+        .and_then(|it| it.parse().ok())
+        .unwrap_or_else(|| default_parallelism().unwrap_or(1))
+}
+
 pub fn n2_run_interface(
     state: n2::load::State,
     moonbuild_opt: &MoonbuildOpt,
@@ -188,7 +195,7 @@ pub fn n2_run_interface(
     let mut progress =
         create_progress_console(Some(Box::new(render_and_catch)), moonbuild_opt.verbose);
     let options = work::Options {
-        parallelism: default_parallelism()?,
+        parallelism: get_parallelism(),
         failures_left: Some(10),
         explain: false,
         adopt: false,
