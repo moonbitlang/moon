@@ -1,0 +1,1438 @@
+<!DOCTYPE HTML>
+<html lang="zh" class="light sidebar-visible" dir="ltr">
+    <head>
+        <!-- Book generated using mdBook -->
+        <meta charset="UTF-8">
+        <title>Moon 手册</title>
+        <meta name="robots" content="noindex">
+
+
+        <!-- Custom HTML head -->
+
+        <meta name="description" content="">
+        <meta name="viewport" content="width=device-width, initial-scale=1">
+        <meta name="theme-color" content="#ffffff">
+
+        <link rel="icon" href="favicon.svg">
+        <link rel="shortcut icon" href="favicon.png">
+        <link rel="stylesheet" href="css/variables.css">
+        <link rel="stylesheet" href="css/general.css">
+        <link rel="stylesheet" href="css/chrome.css">
+        <link rel="stylesheet" href="css/print.css" media="print">
+
+        <!-- Fonts -->
+        <link rel="stylesheet" href="FontAwesome/css/font-awesome.css">
+        <link rel="stylesheet" href="fonts/fonts.css">
+
+        <!-- Highlight.js Stylesheets -->
+        <link rel="stylesheet" href="highlight.css">
+        <link rel="stylesheet" href="tomorrow-night.css">
+        <link rel="stylesheet" href="ayu-highlight.css">
+
+        <!-- Custom theme stylesheets -->
+
+
+        <!-- Provide site root to javascript -->
+        <script>
+            var path_to_root = "";
+            var default_theme = window.matchMedia("(prefers-color-scheme: dark)").matches ? "navy" : "light";
+        </script>
+        <!-- Start loading toc.js asap -->
+        <script src="toc.js"></script>
+    </head>
+    <body>
+    <div id="body-container">
+        <!-- Work around some values being stored in localStorage wrapped in quotes -->
+        <script>
+            try {
+                var theme = localStorage.getItem('mdbook-theme');
+                var sidebar = localStorage.getItem('mdbook-sidebar');
+
+                if (theme.startsWith('"') && theme.endsWith('"')) {
+                    localStorage.setItem('mdbook-theme', theme.slice(1, theme.length - 1));
+                }
+
+                if (sidebar.startsWith('"') && sidebar.endsWith('"')) {
+                    localStorage.setItem('mdbook-sidebar', sidebar.slice(1, sidebar.length - 1));
+                }
+            } catch (e) { }
+        </script>
+
+        <!-- Set the theme before any content is loaded, prevents flash -->
+        <script>
+            var theme;
+            try { theme = localStorage.getItem('mdbook-theme'); } catch(e) { }
+            if (theme === null || theme === undefined) { theme = default_theme; }
+            const html = document.documentElement;
+            html.classList.remove('light')
+            html.classList.add(theme);
+            html.classList.add("js");
+        </script>
+
+        <input type="checkbox" id="sidebar-toggle-anchor" class="hidden">
+
+        <!-- Hide / unhide sidebar before it is displayed -->
+        <script>
+            var sidebar = null;
+            var sidebar_toggle = document.getElementById("sidebar-toggle-anchor");
+            if (document.body.clientWidth >= 1080) {
+                try { sidebar = localStorage.getItem('mdbook-sidebar'); } catch(e) { }
+                sidebar = sidebar || 'visible';
+            } else {
+                sidebar = 'hidden';
+            }
+            sidebar_toggle.checked = sidebar === 'visible';
+            html.classList.remove('sidebar-visible');
+            html.classList.add("sidebar-" + sidebar);
+        </script>
+
+        <nav id="sidebar" class="sidebar" aria-label="Table of contents">
+            <!-- populated by js -->
+            <mdbook-sidebar-scrollbox class="sidebar-scrollbox"></mdbook-sidebar-scrollbox>
+            <noscript>
+                <iframe class="sidebar-iframe-outer" src="toc.html"></iframe>
+            </noscript>
+            <div id="sidebar-resize-handle" class="sidebar-resize-handle">
+                <div class="sidebar-resize-indicator"></div>
+            </div>
+        </nav>
+
+        <div id="page-wrapper" class="page-wrapper">
+
+            <div class="page">
+                <div id="menu-bar-hover-placeholder"></div>
+                <div id="menu-bar" class="menu-bar sticky">
+                    <div class="left-buttons">
+                        <label id="sidebar-toggle" class="icon-button" for="sidebar-toggle-anchor" title="Toggle Table of Contents" aria-label="Toggle Table of Contents" aria-controls="sidebar">
+                            <i class="fa fa-bars"></i>
+                        </label>
+                        <button id="theme-toggle" class="icon-button" type="button" title="Change theme" aria-label="Change theme" aria-haspopup="true" aria-expanded="false" aria-controls="theme-list">
+                            <i class="fa fa-paint-brush"></i>
+                        </button>
+                        <ul id="theme-list" class="theme-popup" aria-label="Themes" role="menu">
+                            <li role="none"><button role="menuitem" class="theme" id="light">Light</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="rust">Rust</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="coal">Coal</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="navy">Navy</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="ayu">Ayu</button></li>
+                        </ul>
+                        <button id="search-toggle" class="icon-button" type="button" title="Search. (Shortkey: s)" aria-label="Toggle Searchbar" aria-expanded="false" aria-keyshortcuts="S" aria-controls="searchbar">
+                            <i class="fa fa-search"></i>
+                        </button>
+                    </div>
+
+                    <h1 class="menu-title">Moon 手册</h1>
+
+                    <div class="right-buttons">
+                        <a href="print.html" title="Print this book" aria-label="Print this book">
+                            <i id="print-button" class="fa fa-print"></i>
+                        </a>
+
+                    </div>
+                </div>
+
+                <div id="search-wrapper" class="hidden">
+                    <form id="searchbar-outer" class="searchbar-outer">
+                        <input type="search" id="searchbar" name="searchbar" placeholder="Search this book ..." aria-controls="searchresults-outer" aria-describedby="searchresults-header">
+                    </form>
+                    <div id="searchresults-outer" class="searchresults-outer hidden">
+                        <div id="searchresults-header" class="searchresults-header"></div>
+                        <ul id="searchresults">
+                        </ul>
+                    </div>
+                </div>
+
+                <!-- Apply ARIA attributes after the sidebar and the sidebar toggle button are added to the DOM -->
+                <script>
+                    document.getElementById('sidebar-toggle').setAttribute('aria-expanded', sidebar === 'visible');
+                    document.getElementById('sidebar').setAttribute('aria-hidden', sidebar !== 'visible');
+                    Array.from(document.querySelectorAll('#sidebar a')).forEach(function(link) {
+                        link.setAttribute('tabIndex', sidebar === 'visible' ? 0 : -1);
+                    });
+                </script>
+
+                <div id="content" class="content">
+                    <main>
+                        <h1 id="moonbit-构建系统教程"><a class="header" href="#moonbit-构建系统教程">MoonBit 构建系统教程</a></h1>
+<p><code>moon</code> 是 MoonBit 语言的构建系统，目前基于 <a href="https://github.com/evmar/n2">n2</a> 项目。<code>moon</code> 支持并行构建和增量构建，此外它还支持管理和构建 <a href="https://mooncakes.io/">mooncakes.io</a> 上的第三方包。</p>
+<h2 id="准备工作"><a class="header" href="#准备工作">准备工作</a></h2>
+<p>在开始之前，请确保安装好以下内容：</p>
+<ol>
+<li>
+<p><strong>MoonBit CLI 工具</strong>: 从<a href="https://www.moonbitlang.cn/download/">这里</a>下载。该命令行工具用于创建和管理 MoonBit 项目。</p>
+<p>使用 <code>moon help</code> 命令可查看使用说明。</p>
+<pre><code class="language-bash">$ moon help
+...
+</code></pre>
+</li>
+<li>
+<p><strong>Moonbit Language</strong> Visual Studio Code 插件: 可以从 VS Code 市场安装。该插件为 MoonBit 提供了丰富的开发环境，包括语法高亮、代码补全、交互式除错和测试等功能。</p>
+</li>
+</ol>
+<p>安装完成后，让我们开始创建一个新的 MoonBit 模块。</p>
+<h2 id="创建一个新模块"><a class="header" href="#创建一个新模块">创建一个新模块</a></h2>
+<p>使用 <code>moon new</code> 创建一个新项目，默认的配置是：</p>
+<pre><code class="language-bash">$ moon new
+Enter the path to create the project (. for current directory): my-project
+Select the create mode: exec
+Enter your username: username
+Enter your project name: hello
+Enter your license: Apache-2.0
+Created my-project
+</code></pre>
+<p>这会在 <code>my-project</code> 下创建一个名为 <code>username/hello</code> 的新模块。上述过程也可以使用 <code>moon new my-project</code> 代替。</p>
+<h2 id="了解模块目录结构"><a class="header" href="#了解模块目录结构">了解模块目录结构</a></h2>
+<p>上一步所创建的模块目录结构如下所示：</p>
+<pre><code class="language-bash">my-project
+├── LICENSE
+├── README.md
+├── moon.mod.json
+└── src
+    ├── lib
+    │   ├── hello.mbt
+    │   ├── hello_test.mbt
+    │   └── moon.pkg.json
+    └── main
+        ├── main.mbt
+        └── moon.pkg.json
+</code></pre>
+<p>这里简单解释一下目录结构：</p>
+<ul>
+<li>
+<p><code>moon.mod.json</code> 用来标记这个目录是一个模块。它包含了模块的元信息，例如模块名、版本等。</p>
+<pre><code class="language-json">{
+  "name": "username/hello",
+  "version": "0.1.0",
+  "readme": "README.md",
+  "repository": "",
+  "license": "Apache-2.0",
+  "keywords": [],
+  "description": "",
+  "source": "src"
+}
+</code></pre>
+<p><code>source</code> 字段指定了模块的源代码目录，默认值是 <code>src</code>。该字段存在的原因是因为 MoonBit 模块中的包名与文件路径相关。例如，当前模块名为 <code>username/hello</code>，而其中一个包所在目录为 <code>lib/moon.pkg.json</code>，那么在导入该包时，需要写包的全名为 <code>username/hello/lib</code>。有时，为了更好地组织项目结构，我们想把源码放在 <code>src</code> 目录下，例如 <code>src/lib/moon.pkg.json</code>，这时需要使用 <code>username/hello/src/lib</code> 导入该包。但一般来说我们并不希望 <code>src</code> 出现在包的路径中，此时可以通过指定 <code>"source": "src"</code> 来忽略 <code>src</code> 这层目录，便可使用 <code>username/hello/lib</code> 导入该包。</p>
+</li>
+<li>
+<p><code>src/lib</code> 和 <code>src/main</code> 目录：这是模块内的包。每个包可以包含多个 <code>.mbt</code> 文件，这些文件是 MoonBit 语言的源代码文件。但是，无论一个包有多少 <code>.mbt</code> 文件，它们都共享一个 <code>moon.pkg.json</code> 文件。<code>lib/*_test.mbt</code> 是 <code>lib</code> 包中的独立测试文件，这些文件用于黑盒测试，无法直接访问 <code>lib</code> 包的私有成员。</p>
+</li>
+<li>
+<p><code>moon.pkg.json</code> 是包描述文件。它定义了包的属性，例如，是否是 <code>main</code> 包，所导入的其他包。</p>
+<ul>
+<li>
+<p><code>main/moon.pkg.json</code>:</p>
+<pre><code class="language-json">{
+  "is_main": true,
+  "import": [
+    "username/hello/lib"
+  ]
+}
+</code></pre>
+</li>
+</ul>
+<p>这里，<code>"is_main: true"</code> 表示这个包需要被链接成目标文件。在 <code>wasm/wasm-gc</code> 后端，会被链接成一个 <code>wasm</code> 文件，在 <code>js</code> 后端，会被链接成一个 <code>js</code> 文件。</p>
+<ul>
+<li>
+<p><code>lib/moon.pkg.json</code>:</p>
+<pre><code class="language-json">{}
+</code></pre>
+</li>
+</ul>
+<p>这个文件只是为了告诉构建系统当前目录是一个包。</p>
+</li>
+</ul>
+<h2 id="如何使用包"><a class="header" href="#如何使用包">如何使用包</a></h2>
+<p>我们的 <code>username/hello</code> 模块包含两个包：<code>username/hello/lib</code> 和 <code>username/hello/main</code>。</p>
+<p>包 <code>username/hello/lib</code> 包含 <code>hello.mbt</code> 和 <code>hello_test.mbt</code> 文件：</p>
+<p><code>hello.mbt</code></p>
+<pre><code class="language-moonbit">pub fn hello() -&gt; String {
+    "Hello, world!"
+}
+</code></pre>
+<p><code>hello_test.mbt</code></p>
+<pre><code class="language-moonbit">test "hello" {
+  if @lib.hello() != "Hello, world!" {
+    fail!("@lib.hello() != \"Hello, world!\"")
+  }
+}
+</code></pre>
+<p>包 <code>username/hello/main</code> 只包含一个 <code>main.mbt</code> 文件：</p>
+<pre><code class="language-moonbit">fn main {
+  println(@lib.hello())
+}
+</code></pre>
+<p>为了执行程序，需要在 <code>moon run</code> 命令中指定 <code>username/hello/main</code> 包的<strong>文件系统路径</strong>：</p>
+<pre><code class="language-bash">$ moon run ./src/main
+Hello, world!
+</code></pre>
+<p>你也可以省略 <code>./</code></p>
+<pre><code class="language-bash">$ moon run src/main
+Hello, world!
+</code></pre>
+<p>你可以使用 <code>moon test</code> 命令进行测试：</p>
+<pre><code class="language-bash">$ moon test
+Total tests: 1, passed: 1, failed: 0.
+</code></pre>
+<h2 id="如何导入包"><a class="header" href="#如何导入包">如何导入包</a></h2>
+<p>在 MoonBit 的构建系统中，模块名用于引用其内部包。</p>
+<p>如果想在 <code>src/main/main.mbt</code> 中使用 <code>username/hello/lib</code> 包，你需要在 <code>src/main/moon.pkg.json</code> 中指定：</p>
+<pre><code class="language-json">{
+  "is_main": true,
+  "import": [
+    "username/hello/lib"
+  ]
+}
+</code></pre>
+<p>这里，<code>username/hello/lib</code> 指定了从 <code>username/hello</code> 模块导入 <code>username/hello/lib</code> 包，所以你可以在 <code>main/main.mbt</code> 中使用 <code>@lib.hello()</code>。</p>
+<p>注意，<code>src/main/moon.pkg.json</code> 中导入的包名是 <code>username/hello/lib</code>，在 <code>src/main/main.mbt</code> 中使用 <code>@lib</code> 来引用这个包。这里的导入实际上为包名 <code>username/hello/lib</code> 生成了一个默认别名。在接下来的章节中，你将学习如何为包自定义别名。</p>
+<h2 id="创建和使用包"><a class="header" href="#创建和使用包">创建和使用包</a></h2>
+<p>首先，在 <code>lib</code> 下创建一个名为 <code>fib</code> 的新目录：</p>
+<pre><code class="language-bash">mkdir src/lib/fib
+</code></pre>
+<p>现在，你可以在 <code>src/lib/fib</code> 下创建新文件：</p>
+<p><code>a.mbt</code>:</p>
+<pre><code class="language-moonbit">pub fn fib(n : Int) -&gt; Int {
+  match n {
+    0 =&gt; 0
+    1 =&gt; 1
+    _ =&gt; fib(n - 1) + fib(n - 2)
+  }
+}
+</code></pre>
+<p><code>b.mbt</code>:</p>
+<pre><code class="language-moonbit">pub fn fib2(num : Int) -&gt; Int {
+  fn aux(n, acc1, acc2) {
+    match n {
+      0 =&gt; acc1
+      1 =&gt; acc2
+      _ =&gt; aux(n - 1, acc2, acc1 + acc2)
+    }
+  }
+
+  aux(num, 0, 1)
+}
+</code></pre>
+<p><code>moon.pkg.json</code>:</p>
+<pre><code class="language-json">{}
+</code></pre>
+<p>在创建完这些文件后，你的目录结构应该如下所示：</p>
+<pre><code class="language-bash">my-project
+├── LICENSE
+├── README.md
+├── moon.mod.json
+└── src
+    ├── lib
+    │   ├── fib
+    │   │   ├── a.mbt
+    │   │   ├── b.mbt
+    │   │   └── moon.pkg.json
+    │   ├── hello.mbt
+    │   ├── hello_test.mbt
+    │   └── moon.pkg.json
+    └── main
+        ├── main.mbt
+        └── moon.pkg.json
+</code></pre>
+<p>在 <code>src/main/moon.pkg.json</code> 文件中，导入 <code>username/hello/lib/fib</code> 包，并自定义别名为 <code>my_awesome_fibonacci</code>：</p>
+<pre><code class="language-json">{
+  "is_main": true,
+  "import": [
+    "username/hello/lib",
+    {
+      "path": "username/hello/lib/fib",
+      "alias": "my_awesome_fibonacci"
+    }
+  ]
+}
+</code></pre>
+<p>这行导入了 <code>username/hello/lib/fib</code> 包。导入后，你可以在 <code>main/main.mbt</code> 中使用 <code>fib</code> 包了。</p>
+<p>将 <code>main/main.mbt</code> 的文件内容替换为：</p>
+<pre><code class="language-moonbit">fn main {
+  let a = @my_awesome_fibonacci.fib(10)
+  let b = @my_awesome_fibonacci.fib2(11)
+  println("fib(10) = \{a}, fib(11) = \{b}")
+
+  println(@lib.hello())
+}
+</code></pre>
+<p>为了执行程序，需要在 <code>moon run</code> 命令中指定 <code>username/hello/main</code> 包的文件系统路径：</p>
+<pre><code class="language-bash">$ moon run ./src/main
+fib(10) = 55, fib(11) = 89
+Hello, world!
+</code></pre>
+<h2 id="添加测试"><a class="header" href="#添加测试">添加测试</a></h2>
+<p>让我们添加一些测试来验证我们的 fib 实现。在 <code>src/lib/fib/a.mbt</code> 中添加以下内容：</p>
+<p><code>src/lib/fib/a.mbt</code></p>
+<pre><code class="language-moonbit">test {
+  assert_eq!(fib(1), 1)
+  assert_eq!(fib(2), 1)
+  assert_eq!(fib(3), 2)
+  assert_eq!(fib(4), 3)
+  assert_eq!(fib(5), 5)
+}
+</code></pre>
+<p>这些代码测试了斐波那契数列的前五项。<code>test { ... }</code> 定义了一个内联测试块。内联测试块中的代码在测试模式下执行。</p>
+<p>内联测试块在非测试模式下（<code>moon build</code> 和 <code>moon run</code>）会被丢弃，因此不会导致生成的代码大小膨胀。</p>
+<h2 id="用于黑盒测试的独立测试文件"><a class="header" href="#用于黑盒测试的独立测试文件">用于黑盒测试的独立测试文件</a></h2>
+<p>除了内联测试，MoonBit 还支持独立测试文件。以 <code>_test.mbt</code> 结尾的源文件被认为是黑盒测试的测试文件。例如，在 <code>src/lib/fib</code> 目录中，创建一个名为 <code>fib_test.mbt</code> 的文件，并粘贴以下代码：</p>
+<p><code>src/lib/fib/fib_test.mbt</code></p>
+<pre><code class="language-moonbit">test {
+  assert_eq!(@fib.fib(1), 1)
+  assert_eq!(@fib.fib2(2), 1)
+  assert_eq!(@fib.fib(3), 2)
+  assert_eq!(@fib.fib2(4), 3)
+  assert_eq!(@fib.fib(5), 5)
+}
+</code></pre>
+<p>注意，构建系统会自动为以 <code>_test.mbt</code> 结尾的文件创建一个新的包，用于黑盒测试，并且自动导入当前包。因此，在测试块中需要使用 <code>@fib</code> 来引用 <code>username/hello/lib/fib</code> 包，而不需要在 <code>moon.pkg.json</code> 中显式地导入该包。</p>
+<p>最后，使用 <code>moon test</code> 命令，它会扫描整个项目，识别并运行所有内联测试以及以 <code>_test.mbt</code> 结尾的文件。如果一切正常，你会看到：</p>
+<pre><code class="language-bash">$ moon test
+Total tests: 3, passed: 3, failed: 0.
+$ moon test -v
+test username/hello/lib/hello_test.mbt::hello ok
+test username/hello/lib/fib/a.mbt::0 ok
+test username/hello/lib/fib/fib_test.mbt::0 ok
+Total tests: 3, passed: 3, failed: 0.
+</code></pre>
+<div style="break-before: page; page-break-before: always;"></div><h1 id="command-line-help-for-moon"><a class="header" href="#command-line-help-for-moon">Command-Line Help for <code>moon</code></a></h1>
+<p>This document contains the help content for the <code>moon</code> command-line program.</p>
+<p><strong>Command Overview:</strong></p>
+<ul>
+<li><a href="commands.html#moon"><code>moon</code>↴</a></li>
+<li><a href="commands.html#moon-new"><code>moon new</code>↴</a></li>
+<li><a href="commands.html#moon-build"><code>moon build</code>↴</a></li>
+<li><a href="commands.html#moon-check"><code>moon check</code>↴</a></li>
+<li><a href="commands.html#moon-run"><code>moon run</code>↴</a></li>
+<li><a href="commands.html#moon-test"><code>moon test</code>↴</a></li>
+<li><a href="commands.html#moon-clean"><code>moon clean</code>↴</a></li>
+<li><a href="commands.html#moon-fmt"><code>moon fmt</code>↴</a></li>
+<li><a href="commands.html#moon-doc"><code>moon doc</code>↴</a></li>
+<li><a href="commands.html#moon-info"><code>moon info</code>↴</a></li>
+<li><a href="commands.html#moon-add"><code>moon add</code>↴</a></li>
+<li><a href="commands.html#moon-remove"><code>moon remove</code>↴</a></li>
+<li><a href="commands.html#moon-install"><code>moon install</code>↴</a></li>
+<li><a href="commands.html#moon-tree"><code>moon tree</code>↴</a></li>
+<li><a href="commands.html#moon-login"><code>moon login</code>↴</a></li>
+<li><a href="commands.html#moon-register"><code>moon register</code>↴</a></li>
+<li><a href="commands.html#moon-publish"><code>moon publish</code>↴</a></li>
+<li><a href="commands.html#moon-package"><code>moon package</code>↴</a></li>
+<li><a href="commands.html#moon-update"><code>moon update</code>↴</a></li>
+<li><a href="commands.html#moon-coverage"><code>moon coverage</code>↴</a></li>
+<li><a href="commands.html#moon-coverage-report"><code>moon coverage report</code>↴</a></li>
+<li><a href="commands.html#moon-coverage-clean"><code>moon coverage clean</code>↴</a></li>
+<li><a href="commands.html#moon-generate-build-matrix"><code>moon generate-build-matrix</code>↴</a></li>
+<li><a href="commands.html#moon-upgrade"><code>moon upgrade</code>↴</a></li>
+<li><a href="commands.html#moon-shell-completion"><code>moon shell-completion</code>↴</a></li>
+<li><a href="commands.html#moon-version"><code>moon version</code>↴</a></li>
+</ul>
+<h2 id="moon"><a class="header" href="#moon"><code>moon</code></a></h2>
+<p><strong>Usage:</strong> <code>moon &lt;COMMAND&gt;</code></p>
+<h6 id="subcommands"><a class="header" href="#subcommands"><strong>Subcommands:</strong></a></h6>
+<ul>
+<li><code>new</code> — Create a new MoonBit module</li>
+<li><code>build</code> — Build the current package</li>
+<li><code>check</code> — Check the current package, but don't build object files</li>
+<li><code>run</code> — Run a main package</li>
+<li><code>test</code> — Test the current package</li>
+<li><code>clean</code> — Remove the target directory</li>
+<li><code>fmt</code> — Format source code</li>
+<li><code>doc</code> — Generate documentation</li>
+<li><code>info</code> — Generate public interface (<code>.mbti</code>) files for all packages in the module</li>
+<li><code>add</code> — Add a dependency</li>
+<li><code>remove</code> — Remove a dependency</li>
+<li><code>install</code> — Install dependencies</li>
+<li><code>tree</code> — Display the dependency tree</li>
+<li><code>login</code> — Log in to your account</li>
+<li><code>register</code> — Register an account at mooncakes.io</li>
+<li><code>publish</code> — Publish the current module</li>
+<li><code>package</code> — Package the current module</li>
+<li><code>update</code> — Update the package registry index</li>
+<li><code>coverage</code> — Code coverage utilities</li>
+<li><code>generate-build-matrix</code> — Generate build matrix for benchmarking (legacy feature)</li>
+<li><code>upgrade</code> — Upgrade toolchains</li>
+<li><code>shell-completion</code> — Generate shell completion for bash/elvish/fish/pwsh/zsh to stdout</li>
+<li><code>version</code> — Print version information and exit</li>
+</ul>
+<h2 id="moon-new"><a class="header" href="#moon-new"><code>moon new</code></a></h2>
+<p>Create a new MoonBit module</p>
+<p><strong>Usage:</strong> <code>moon new [OPTIONS] [PACKAGE_NAME]</code></p>
+<h6 id="arguments"><a class="header" href="#arguments"><strong>Arguments:</strong></a></h6>
+<ul>
+<li><code>&lt;PACKAGE_NAME&gt;</code> — The name of the package</li>
+</ul>
+<h6 id="options"><a class="header" href="#options"><strong>Options:</strong></a></h6>
+<ul>
+<li>
+<p><code>--lib</code> — Create a library package instead of an executable</p>
+</li>
+<li>
+<p><code>--path &lt;PATH&gt;</code> — Output path of the package</p>
+</li>
+<li>
+<p><code>--user &lt;USER&gt;</code> — The user name of the package</p>
+</li>
+<li>
+<p><code>--name &lt;NAME&gt;</code> — The name part of the package</p>
+</li>
+<li>
+<p><code>--license &lt;LICENSE&gt;</code> — The license of the package</p>
+<p>Default value: <code>Apache-2.0</code></p>
+</li>
+<li>
+<p><code>--no-license</code> — Do not set a license for the package</p>
+</li>
+</ul>
+<h2 id="moon-build"><a class="header" href="#moon-build"><code>moon build</code></a></h2>
+<p>Build the current package</p>
+<p><strong>Usage:</strong> <code>moon build [OPTIONS]</code></p>
+<h6 id="options-1"><a class="header" href="#options-1"><strong>Options:</strong></a></h6>
+<ul>
+<li>
+<p><code>--std</code> — Enable the standard library (default)</p>
+</li>
+<li>
+<p><code>--nostd</code> — Disable the standard library</p>
+</li>
+<li>
+<p><code>-g</code>, <code>--debug</code> — Emit debug information</p>
+</li>
+<li>
+<p><code>--release</code> — Compile in release mode</p>
+</li>
+<li>
+<p><code>--strip</code> — Enable stripping debug information</p>
+</li>
+<li>
+<p><code>--no-strip</code> — Disable stripping debug information</p>
+</li>
+<li>
+<p><code>--target &lt;TARGET&gt;</code> — Select output target</p>
+<p>Possible values: <code>wasm</code>, <code>wasm-gc</code>, <code>js</code>, <code>native</code>, <code>all</code></p>
+</li>
+<li>
+<p><code>--serial</code> — Handle the selected targets sequentially</p>
+</li>
+<li>
+<p><code>--enable-coverage</code> — Enable coverage instrumentation</p>
+</li>
+<li>
+<p><code>--sort-input</code> — Sort input files</p>
+</li>
+<li>
+<p><code>--output-wat</code> — Output WAT instead of WASM</p>
+</li>
+<li>
+<p><code>-d</code>, <code>--deny-warn</code> — Treat all warnings as errors</p>
+</li>
+<li>
+<p><code>--no-render</code> — Don't render diagnostics from moonc (don't pass '-error-format json' to moonc)</p>
+</li>
+<li>
+<p><code>--warn-list &lt;WARN_LIST&gt;</code> — Warn list config</p>
+</li>
+<li>
+<p><code>--alert-list &lt;ALERT_LIST&gt;</code> — Alert list config</p>
+</li>
+<li>
+<p><code>-j</code>, <code>--jobs &lt;JOBS&gt;</code> — Set the max number of jobs to run in parallel</p>
+</li>
+<li>
+<p><code>--frozen</code> — Do not sync dependencies, assuming local dependencies are up-to-date</p>
+</li>
+<li>
+<p><code>-w</code>, <code>--watch</code> — Monitor the file system and automatically build artifacts</p>
+</li>
+</ul>
+<h2 id="moon-check"><a class="header" href="#moon-check"><code>moon check</code></a></h2>
+<p>Check the current package, but don't build object files</p>
+<p><strong>Usage:</strong> <code>moon check [OPTIONS] [PACKAGE_PATH]</code></p>
+<h6 id="arguments-1"><a class="header" href="#arguments-1"><strong>Arguments:</strong></a></h6>
+<ul>
+<li><code>&lt;PACKAGE_PATH&gt;</code> — The package(and it's deps) to check</li>
+</ul>
+<h6 id="options-2"><a class="header" href="#options-2"><strong>Options:</strong></a></h6>
+<ul>
+<li>
+<p><code>--std</code> — Enable the standard library (default)</p>
+</li>
+<li>
+<p><code>--nostd</code> — Disable the standard library</p>
+</li>
+<li>
+<p><code>-g</code>, <code>--debug</code> — Emit debug information</p>
+</li>
+<li>
+<p><code>--release</code> — Compile in release mode</p>
+</li>
+<li>
+<p><code>--strip</code> — Enable stripping debug information</p>
+</li>
+<li>
+<p><code>--no-strip</code> — Disable stripping debug information</p>
+</li>
+<li>
+<p><code>--target &lt;TARGET&gt;</code> — Select output target</p>
+<p>Possible values: <code>wasm</code>, <code>wasm-gc</code>, <code>js</code>, <code>native</code>, <code>all</code></p>
+</li>
+<li>
+<p><code>--serial</code> — Handle the selected targets sequentially</p>
+</li>
+<li>
+<p><code>--enable-coverage</code> — Enable coverage instrumentation</p>
+</li>
+<li>
+<p><code>--sort-input</code> — Sort input files</p>
+</li>
+<li>
+<p><code>--output-wat</code> — Output WAT instead of WASM</p>
+</li>
+<li>
+<p><code>-d</code>, <code>--deny-warn</code> — Treat all warnings as errors</p>
+</li>
+<li>
+<p><code>--no-render</code> — Don't render diagnostics from moonc (don't pass '-error-format json' to moonc)</p>
+</li>
+<li>
+<p><code>--warn-list &lt;WARN_LIST&gt;</code> — Warn list config</p>
+</li>
+<li>
+<p><code>--alert-list &lt;ALERT_LIST&gt;</code> — Alert list config</p>
+</li>
+<li>
+<p><code>-j</code>, <code>--jobs &lt;JOBS&gt;</code> — Set the max number of jobs to run in parallel</p>
+</li>
+<li>
+<p><code>--output-json</code> — Output in json format</p>
+</li>
+<li>
+<p><code>--frozen</code> — Do not sync dependencies, assuming local dependencies are up-to-date</p>
+</li>
+<li>
+<p><code>-w</code>, <code>--watch</code> — Monitor the file system and automatically check files</p>
+</li>
+<li>
+<p><code>--patch-file &lt;PATCH_FILE&gt;</code> — The patch file to check, Only valid when checking specified package</p>
+</li>
+<li>
+<p><code>--no-mi</code> — Whether to skip the mi generation, Only valid when checking specified package</p>
+</li>
+</ul>
+<h2 id="moon-run"><a class="header" href="#moon-run"><code>moon run</code></a></h2>
+<p>Run a main package</p>
+<p><strong>Usage:</strong> <code>moon run [OPTIONS] &lt;PACKAGE_OR_MBT_FILE&gt; [ARGS]...</code></p>
+<h6 id="arguments-2"><a class="header" href="#arguments-2"><strong>Arguments:</strong></a></h6>
+<ul>
+<li><code>&lt;PACKAGE_OR_MBT_FILE&gt;</code> — The package or .mbt file to run</li>
+<li><code>&lt;ARGS&gt;</code> — The arguments provided to the program to be run</li>
+</ul>
+<h6 id="options-3"><a class="header" href="#options-3"><strong>Options:</strong></a></h6>
+<ul>
+<li>
+<p><code>--std</code> — Enable the standard library (default)</p>
+</li>
+<li>
+<p><code>--nostd</code> — Disable the standard library</p>
+</li>
+<li>
+<p><code>-g</code>, <code>--debug</code> — Emit debug information</p>
+</li>
+<li>
+<p><code>--release</code> — Compile in release mode</p>
+</li>
+<li>
+<p><code>--strip</code> — Enable stripping debug information</p>
+</li>
+<li>
+<p><code>--no-strip</code> — Disable stripping debug information</p>
+</li>
+<li>
+<p><code>--target &lt;TARGET&gt;</code> — Select output target</p>
+<p>Possible values: <code>wasm</code>, <code>wasm-gc</code>, <code>js</code>, <code>native</code>, <code>all</code></p>
+</li>
+<li>
+<p><code>--serial</code> — Handle the selected targets sequentially</p>
+</li>
+<li>
+<p><code>--enable-coverage</code> — Enable coverage instrumentation</p>
+</li>
+<li>
+<p><code>--sort-input</code> — Sort input files</p>
+</li>
+<li>
+<p><code>--output-wat</code> — Output WAT instead of WASM</p>
+</li>
+<li>
+<p><code>-d</code>, <code>--deny-warn</code> — Treat all warnings as errors</p>
+</li>
+<li>
+<p><code>--no-render</code> — Don't render diagnostics from moonc (don't pass '-error-format json' to moonc)</p>
+</li>
+<li>
+<p><code>--warn-list &lt;WARN_LIST&gt;</code> — Warn list config</p>
+</li>
+<li>
+<p><code>--alert-list &lt;ALERT_LIST&gt;</code> — Alert list config</p>
+</li>
+<li>
+<p><code>-j</code>, <code>--jobs &lt;JOBS&gt;</code> — Set the max number of jobs to run in parallel</p>
+</li>
+<li>
+<p><code>--frozen</code> — Do not sync dependencies, assuming local dependencies are up-to-date</p>
+</li>
+<li>
+<p><code>--build-only</code> — Only build, do not run the code</p>
+</li>
+</ul>
+<h2 id="moon-test"><a class="header" href="#moon-test"><code>moon test</code></a></h2>
+<p>Test the current package</p>
+<p><strong>Usage:</strong> <code>moon test [OPTIONS]</code></p>
+<h6 id="options-4"><a class="header" href="#options-4"><strong>Options:</strong></a></h6>
+<ul>
+<li>
+<p><code>--std</code> — Enable the standard library (default)</p>
+</li>
+<li>
+<p><code>--nostd</code> — Disable the standard library</p>
+</li>
+<li>
+<p><code>-g</code>, <code>--debug</code> — Emit debug information</p>
+</li>
+<li>
+<p><code>--release</code> — Compile in release mode</p>
+</li>
+<li>
+<p><code>--strip</code> — Enable stripping debug information</p>
+</li>
+<li>
+<p><code>--no-strip</code> — Disable stripping debug information</p>
+</li>
+<li>
+<p><code>--target &lt;TARGET&gt;</code> — Select output target</p>
+<p>Possible values: <code>wasm</code>, <code>wasm-gc</code>, <code>js</code>, <code>native</code>, <code>all</code></p>
+</li>
+<li>
+<p><code>--serial</code> — Handle the selected targets sequentially</p>
+</li>
+<li>
+<p><code>--enable-coverage</code> — Enable coverage instrumentation</p>
+</li>
+<li>
+<p><code>--sort-input</code> — Sort input files</p>
+</li>
+<li>
+<p><code>--output-wat</code> — Output WAT instead of WASM</p>
+</li>
+<li>
+<p><code>-d</code>, <code>--deny-warn</code> — Treat all warnings as errors</p>
+</li>
+<li>
+<p><code>--no-render</code> — Don't render diagnostics from moonc (don't pass '-error-format json' to moonc)</p>
+</li>
+<li>
+<p><code>--warn-list &lt;WARN_LIST&gt;</code> — Warn list config</p>
+</li>
+<li>
+<p><code>--alert-list &lt;ALERT_LIST&gt;</code> — Alert list config</p>
+</li>
+<li>
+<p><code>-j</code>, <code>--jobs &lt;JOBS&gt;</code> — Set the max number of jobs to run in parallel</p>
+</li>
+<li>
+<p><code>-p</code>, <code>--package &lt;PACKAGE&gt;</code> — Run test in the specified package</p>
+</li>
+<li>
+<p><code>-f</code>, <code>--file &lt;FILE&gt;</code> — Run test in the specified file. Only valid when <code>--package</code> is also specified</p>
+</li>
+<li>
+<p><code>-i</code>, <code>--index &lt;INDEX&gt;</code> — Run only the index-th test in the file. Only valid when <code>--file</code> is also specified</p>
+</li>
+<li>
+<p><code>-u</code>, <code>--update</code> — Update the test snapshot</p>
+</li>
+<li>
+<p><code>-l</code>, <code>--limit &lt;LIMIT&gt;</code> — Limit of expect test update passes to run, in order to avoid infinite loops</p>
+<p>Default value: <code>256</code></p>
+</li>
+<li>
+<p><code>--frozen</code> — Do not sync dependencies, assuming local dependencies are up-to-date</p>
+</li>
+<li>
+<p><code>--build-only</code> — Only build, do not run the tests</p>
+</li>
+<li>
+<p><code>--no-parallelize</code> — Run the tests in a target backend sequentially</p>
+</li>
+<li>
+<p><code>--test-failure-json</code> — Print failure message in JSON format</p>
+</li>
+<li>
+<p><code>--patch-file &lt;PATCH_FILE&gt;</code> — Path to the patch file</p>
+</li>
+<li>
+<p><code>--doc</code> — Run doc test</p>
+</li>
+</ul>
+<h2 id="moon-clean"><a class="header" href="#moon-clean"><code>moon clean</code></a></h2>
+<p>Remove the target directory</p>
+<p><strong>Usage:</strong> <code>moon clean</code></p>
+<h2 id="moon-fmt"><a class="header" href="#moon-fmt"><code>moon fmt</code></a></h2>
+<p>Format source code</p>
+<p><strong>Usage:</strong> <code>moon fmt [OPTIONS] [ARGS]...</code></p>
+<h6 id="arguments-3"><a class="header" href="#arguments-3"><strong>Arguments:</strong></a></h6>
+<ul>
+<li><code>&lt;ARGS&gt;</code></li>
+</ul>
+<h6 id="options-5"><a class="header" href="#options-5"><strong>Options:</strong></a></h6>
+<ul>
+<li>
+<p><code>--check</code> — Check only and don't change the source code</p>
+</li>
+<li>
+<p><code>--sort-input</code> — Sort input files</p>
+</li>
+<li>
+<p><code>--block-style &lt;BLOCK_STYLE&gt;</code> — Add separator between each segments</p>
+<p>Possible values: <code>false</code>, <code>true</code></p>
+</li>
+</ul>
+<h2 id="moon-doc"><a class="header" href="#moon-doc"><code>moon doc</code></a></h2>
+<p>Generate documentation</p>
+<p><strong>Usage:</strong> <code>moon doc [OPTIONS]</code></p>
+<h6 id="options-6"><a class="header" href="#options-6"><strong>Options:</strong></a></h6>
+<ul>
+<li>
+<p><code>--serve</code> — Start a web server to serve the documentation</p>
+</li>
+<li>
+<p><code>-b</code>, <code>--bind &lt;BIND&gt;</code> — The address of the server</p>
+<p>Default value: <code>127.0.0.1</code></p>
+</li>
+<li>
+<p><code>-p</code>, <code>--port &lt;PORT&gt;</code> — The port of the server</p>
+<p>Default value: <code>3000</code></p>
+</li>
+<li>
+<p><code>--frozen</code> — Do not sync dependencies, assuming local dependencies are up-to-date</p>
+</li>
+</ul>
+<h2 id="moon-info"><a class="header" href="#moon-info"><code>moon info</code></a></h2>
+<p>Generate public interface (<code>.mbti</code>) files for all packages in the module</p>
+<p><strong>Usage:</strong> <code>moon info [OPTIONS]</code></p>
+<h6 id="options-7"><a class="header" href="#options-7"><strong>Options:</strong></a></h6>
+<ul>
+<li>
+<p><code>--frozen</code> — Do not sync dependencies, assuming local dependencies are up-to-date</p>
+</li>
+<li>
+<p><code>--no-alias</code> — Do not use alias to shorten package names in the output</p>
+</li>
+<li>
+<p><code>--target &lt;TARGET&gt;</code> — Select output target</p>
+<p>Possible values: <code>wasm</code>, <code>wasm-gc</code>, <code>js</code>, <code>native</code>, <code>all</code></p>
+</li>
+</ul>
+<h2 id="moon-add"><a class="header" href="#moon-add"><code>moon add</code></a></h2>
+<p>Add a dependency</p>
+<p><strong>Usage:</strong> <code>moon add [OPTIONS] &lt;PACKAGE_PATH&gt;</code></p>
+<h6 id="arguments-4"><a class="header" href="#arguments-4"><strong>Arguments:</strong></a></h6>
+<ul>
+<li><code>&lt;PACKAGE_PATH&gt;</code> — The package path to add</li>
+</ul>
+<h6 id="options-8"><a class="header" href="#options-8"><strong>Options:</strong></a></h6>
+<ul>
+<li><code>--bin</code> — Whether to add the dependency as a binary</li>
+</ul>
+<h2 id="moon-remove"><a class="header" href="#moon-remove"><code>moon remove</code></a></h2>
+<p>Remove a dependency</p>
+<p><strong>Usage:</strong> <code>moon remove &lt;PACKAGE_PATH&gt;</code></p>
+<h6 id="arguments-5"><a class="header" href="#arguments-5"><strong>Arguments:</strong></a></h6>
+<ul>
+<li><code>&lt;PACKAGE_PATH&gt;</code> — The package path to remove</li>
+</ul>
+<h2 id="moon-install"><a class="header" href="#moon-install"><code>moon install</code></a></h2>
+<p>Install dependencies</p>
+<p><strong>Usage:</strong> <code>moon install</code></p>
+<h2 id="moon-tree"><a class="header" href="#moon-tree"><code>moon tree</code></a></h2>
+<p>Display the dependency tree</p>
+<p><strong>Usage:</strong> <code>moon tree</code></p>
+<h2 id="moon-login"><a class="header" href="#moon-login"><code>moon login</code></a></h2>
+<p>Log in to your account</p>
+<p><strong>Usage:</strong> <code>moon login</code></p>
+<h2 id="moon-register"><a class="header" href="#moon-register"><code>moon register</code></a></h2>
+<p>Register an account at mooncakes.io</p>
+<p><strong>Usage:</strong> <code>moon register</code></p>
+<h2 id="moon-publish"><a class="header" href="#moon-publish"><code>moon publish</code></a></h2>
+<p>Publish the current module</p>
+<p><strong>Usage:</strong> <code>moon publish [OPTIONS]</code></p>
+<h6 id="options-9"><a class="header" href="#options-9"><strong>Options:</strong></a></h6>
+<ul>
+<li><code>--frozen</code> — Do not sync dependencies, assuming local dependencies are up-to-date</li>
+</ul>
+<h2 id="moon-package"><a class="header" href="#moon-package"><code>moon package</code></a></h2>
+<p>Package the current module</p>
+<p><strong>Usage:</strong> <code>moon package [OPTIONS]</code></p>
+<h6 id="options-10"><a class="header" href="#options-10"><strong>Options:</strong></a></h6>
+<ul>
+<li><code>--frozen</code> — Do not sync dependencies, assuming local dependencies are up-to-date</li>
+<li><code>--list</code></li>
+</ul>
+<h2 id="moon-update"><a class="header" href="#moon-update"><code>moon update</code></a></h2>
+<p>Update the package registry index</p>
+<p><strong>Usage:</strong> <code>moon update</code></p>
+<h2 id="moon-coverage"><a class="header" href="#moon-coverage"><code>moon coverage</code></a></h2>
+<p>Code coverage utilities</p>
+<p><strong>Usage:</strong> <code>moon coverage &lt;COMMAND&gt;</code></p>
+<h6 id="subcommands-1"><a class="header" href="#subcommands-1"><strong>Subcommands:</strong></a></h6>
+<ul>
+<li><code>report</code> — Generate code coverage report</li>
+<li><code>clean</code> — Clean up coverage artifacts</li>
+</ul>
+<h2 id="moon-coverage-report"><a class="header" href="#moon-coverage-report"><code>moon coverage report</code></a></h2>
+<p>Generate code coverage report</p>
+<p><strong>Usage:</strong> <code>moon coverage report [args]... [COMMAND]</code></p>
+<h6 id="arguments-6"><a class="header" href="#arguments-6"><strong>Arguments:</strong></a></h6>
+<ul>
+<li><code>&lt;args&gt;</code> — Arguments to pass to the coverage utility</li>
+</ul>
+<h6 id="options-11"><a class="header" href="#options-11"><strong>Options:</strong></a></h6>
+<ul>
+<li><code>-h</code>, <code>--help</code> — Show help for the coverage utility</li>
+</ul>
+<h2 id="moon-coverage-clean"><a class="header" href="#moon-coverage-clean"><code>moon coverage clean</code></a></h2>
+<p>Clean up coverage artifacts</p>
+<p><strong>Usage:</strong> <code>moon coverage clean</code></p>
+<h2 id="moon-generate-build-matrix"><a class="header" href="#moon-generate-build-matrix"><code>moon generate-build-matrix</code></a></h2>
+<p>Generate build matrix for benchmarking (legacy feature)</p>
+<p><strong>Usage:</strong> <code>moon generate-build-matrix [OPTIONS] --output-dir &lt;OUT_DIR&gt;</code></p>
+<h6 id="options-12"><a class="header" href="#options-12"><strong>Options:</strong></a></h6>
+<ul>
+<li><code>-n &lt;NUMBER&gt;</code> — Set all of <code>drow</code>, <code>dcol</code>, <code>mrow</code>, <code>mcol</code> to the same value</li>
+<li><code>--drow &lt;DIR_ROWS&gt;</code> — Number of directory rows</li>
+<li><code>--dcol &lt;DIR_COLS&gt;</code> — Number of directory columns</li>
+<li><code>--mrow &lt;MOD_ROWS&gt;</code> — Number of module rows</li>
+<li><code>--mcol &lt;MOD_COLS&gt;</code> — Number of module columns</li>
+<li><code>-o</code>, <code>--output-dir &lt;OUT_DIR&gt;</code> — The output directory</li>
+</ul>
+<h2 id="moon-upgrade"><a class="header" href="#moon-upgrade"><code>moon upgrade</code></a></h2>
+<p>Upgrade toolchains</p>
+<p><strong>Usage:</strong> <code>moon upgrade [OPTIONS]</code></p>
+<h6 id="options-13"><a class="header" href="#options-13"><strong>Options:</strong></a></h6>
+<ul>
+<li><code>-f</code>, <code>--force</code> — Force upgrade</li>
+</ul>
+<h2 id="moon-shell-completion"><a class="header" href="#moon-shell-completion"><code>moon shell-completion</code></a></h2>
+<p>Generate shell completion for bash/elvish/fish/pwsh/zsh to stdout</p>
+<p><strong>Usage:</strong> <code>moon shell-completion [OPTIONS]</code></p>
+<p>Discussion:
+Enable tab completion for Bash, Elvish, Fish, Zsh, or PowerShell
+The script is output on <code>stdout</code>, allowing one to re-direct the
+output to the file of their choosing. Where you place the file
+will depend on which shell, and which operating system you are
+using. Your particular configuration may also determine where
+these scripts need to be placed.</p>
+<p>The completion scripts won't update itself, so you may need to
+periodically run this command to get the latest completions.
+Or you may put <code>eval "$(moon shell-completion --shell &lt;SHELL&gt;)"</code>
+in your shell's rc file to always load newest completions on startup.
+Although it's considered not as efficient as having the completions
+script installed.</p>
+<p>Here are some common set ups for the three supported shells under
+Unix and similar operating systems (such as GNU/Linux).</p>
+<p>Bash:</p>
+<p>Completion files are commonly stored in <code>/etc/bash_completion.d/</code> for
+system-wide commands, but can be stored in
+<code>~/.local/share/bash-completion/completions</code> for user-specific commands.
+Run the command:</p>
+<pre><code>$ mkdir -p ~/.local/share/bash-completion/completions
+$ moon shell-completion --shell bash &gt;&gt; ~/.local/share/bash-completion/completions/moon
+</code></pre>
+<p>This installs the completion script. You may have to log out and
+log back in to your shell session for the changes to take effect.</p>
+<p>Bash (macOS/Homebrew):</p>
+<p>Homebrew stores bash completion files within the Homebrew directory.
+With the <code>bash-completion</code> brew formula installed, run the command:</p>
+<pre><code>$ mkdir -p $(brew --prefix)/etc/bash_completion.d
+$ moon shell-completion --shell bash &gt; $(brew --prefix)/etc/bash_completion.d/moon.bash-completion
+</code></pre>
+<p>Fish:</p>
+<p>Fish completion files are commonly stored in
+<code>$HOME/.config/fish/completions</code>. Run the command:</p>
+<pre><code>$ mkdir -p ~/.config/fish/completions
+$ moon shell-completion --shell fish &gt; ~/.config/fish/completions/moon.fish
+</code></pre>
+<p>This installs the completion script. You may have to log out and
+log back in to your shell session for the changes to take effect.</p>
+<p>Elvish:</p>
+<p>Elvish completions are commonly stored in a single <code>completers</code> module.
+A typical module search path is <code>~/.config/elvish/lib</code>, and
+running the command:</p>
+<pre><code>$ moon shell-completion --shell elvish &gt;&gt; ~/.config/elvish/lib/completers.elv
+</code></pre>
+<p>will install the completions script. Note that use <code>&gt;&gt;</code> (append)
+instead of <code>&gt;</code> (overwrite) to prevent overwriting the existing completions
+for other commands. Then prepend your rc.elv with:</p>
+<pre><code>`use completers`
+</code></pre>
+<p>to load the <code>completers</code> module and enable completions.</p>
+<p>Zsh:</p>
+<p>ZSH completions are commonly stored in any directory listed in
+your <code>$fpath</code> variable. To use these completions, you must either
+add the generated script to one of those directories, or add your
+own to this list.</p>
+<p>Adding a custom directory is often the safest bet if you are
+unsure of which directory to use. First create the directory; for
+this example we'll create a hidden directory inside our <code>$HOME</code>
+directory:</p>
+<pre><code>$ mkdir ~/.zfunc
+</code></pre>
+<p>Then add the following lines to your <code>.zshrc</code> just before
+<code>compinit</code>:</p>
+<pre><code>fpath+=~/.zfunc
+</code></pre>
+<p>Now you can install the completions script using the following
+command:</p>
+<pre><code>$ moon shell-completion --shell zsh &gt; ~/.zfunc/_moon
+</code></pre>
+<p>You must then open a new zsh session, or simply run</p>
+<pre><code>$ . ~/.zshrc
+</code></pre>
+<p>for the new completions to take effect.</p>
+<p>Custom locations:</p>
+<p>Alternatively, you could save these files to the place of your
+choosing, such as a custom directory inside your $HOME. Doing so
+will require you to add the proper directives, such as <code>source</code>ing
+inside your login script. Consult your shells documentation for
+how to add such directives.</p>
+<p>PowerShell:</p>
+<p>The powershell completion scripts require PowerShell v5.0+ (which
+comes with Windows 10, but can be downloaded separately for windows 7
+or 8.1).</p>
+<p>First, check if a profile has already been set</p>
+<pre><code>PS C:\&gt; Test-Path $profile
+</code></pre>
+<p>If the above command returns <code>False</code> run the following</p>
+<pre><code>PS C:\&gt; New-Item -path $profile -type file -force
+</code></pre>
+<p>Now open the file provided by <code>$profile</code> (if you used the
+<code>New-Item</code> command it will be
+<code>${env:USERPROFILE}\Documents\WindowsPowerShell\Microsoft.PowerShell_profile.ps1</code></p>
+<p>Next, we either save the completions file into our profile, or
+into a separate file and source it inside our profile. To save the
+completions into our profile simply use</p>
+<pre><code>PS C:\&gt; moon shell-completion --shell powershell &gt;&gt;
+${env:USERPROFILE}\Documents\WindowsPowerShell\Microsoft.PowerShell_profile.ps1
+</code></pre>
+<p>This discussion is taken from <code>rustup completions</code> command with some changes.</p>
+<h6 id="options-14"><a class="header" href="#options-14"><strong>Options:</strong></a></h6>
+<ul>
+<li>
+<p><code>--shell &lt;SHELL&gt;</code> — The shell to generate completion for</p>
+<p>Default value: <code>&lt;your shell&gt;</code></p>
+<p>Possible values: <code>bash</code>, <code>elvish</code>, <code>fish</code>, <code>powershell</code>, <code>zsh</code></p>
+</li>
+</ul>
+<h2 id="moon-version"><a class="header" href="#moon-version"><code>moon version</code></a></h2>
+<p>Print version information and exit</p>
+<p><strong>Usage:</strong> <code>moon version [OPTIONS]</code></p>
+<h6 id="options-15"><a class="header" href="#options-15"><strong>Options:</strong></a></h6>
+<ul>
+<li><code>--all</code> — Print all version information</li>
+<li><code>--json</code> — Print version information in JSON format</li>
+<li><code>--no-path</code> — Do not print the path</li>
+</ul>
+<hr/>
+<p><small><i>
+This document was generated automatically by
+<a href="https://crates.io/crates/clap-markdown"><code>clap-markdown</code></a>.
+</i></small></p>
+<div style="break-before: page; page-break-before: always;"></div><h1 id="模块配置"><a class="header" href="#模块配置">模块配置</a></h1>
+<p>moon 使用 <code>moon.mod.json</code> 文件来识别、描述一个模块。</p>
+<div style="break-before: page; page-break-before: always;"></div><h1 id="模块名"><a class="header" href="#模块名">模块名</a></h1>
+<p><code>name</code> 字段用于指定模块的名称，必须指定。</p>
+<pre><code class="language-json">{
+  "name": "example",
+  ...
+}
+</code></pre>
+<p>模块名可以包含字母、数字、<code>_</code>、<code>-</code>、<code>/</code>。</p>
+<p>对于发布到 <a href="https://mooncakes.io">mooncakes.io</a> 的模块，模块名必须以用户名开头，例如：</p>
+<pre><code class="language-json">{
+  "name": "moonbitlang/core",
+  ...
+}
+</code></pre>
+<div style="break-before: page; page-break-before: always;"></div><h1 id="版本"><a class="header" href="#版本">版本</a></h1>
+<p><code>version</code> 字段用于指定模块的版本。</p>
+<p>该字段为可选项，对于发布到 <a href="https://mooncakes.io">mooncakes.io</a> 的模块，版本号必须符合 <a href="https://semver.org/spec/v2.0.0.html">语义化版本 2.0.0</a> 规范。</p>
+<pre><code class="language-json">{
+  "name": "example",
+  "version": "0.1.0",
+  ...
+}
+</code></pre>
+<div style="break-before: page; page-break-before: always;"></div><h1 id="依赖"><a class="header" href="#依赖">依赖</a></h1>
+<p><code>deps</code> 字段用于指定模块的依赖。</p>
+<p>由 <code>moon add</code>、<code>moon remove</code> 等命令自动管理。</p>
+<pre><code class="language-json">{
+  "name": "username/hello",
+  "deps": {
+    "moonbitlang/x": "0.4.6"
+  }
+}
+</code></pre>
+<div style="break-before: page; page-break-before: always;"></div><h1 id="readme-文件"><a class="header" href="#readme-文件">README 文件</a></h1>
+<p><code>readme</code> 字段用于指定模块的 README 文件路径。</p>
+<div style="break-before: page; page-break-before: always;"></div><h1 id="仓库地址"><a class="header" href="#仓库地址">仓库地址</a></h1>
+<p><code>repository</code> 字段用于指定模块的仓库地址。</p>
+<div style="break-before: page; page-break-before: always;"></div><h1 id="许可证"><a class="header" href="#许可证">许可证</a></h1>
+<p><code>license</code> 字段用于指定模块的许可证。许可证类型必须符合 <a href="https://spdx.org/licenses/">SPDX 许可证列表</a>。</p>
+<pre><code class="language-json">{
+  "license": "MIT"
+}
+</code></pre>
+<div style="break-before: page; page-break-before: always;"></div><h1 id="关键词"><a class="header" href="#关键词">关键词</a></h1>
+<p><code>keywords</code> 字段用于指定模块的关键词。</p>
+<pre><code class="language-json">{
+  "keywords": ["example", "test"]
+}
+</code></pre>
+<div style="break-before: page; page-break-before: always;"></div><h1 id="描述"><a class="header" href="#描述">描述</a></h1>
+<p><code>description</code> 字段用于指定模块的描述。</p>
+<pre><code class="language-json">{
+  "description": "This is a description of the module."
+}
+</code></pre>
+<div style="break-before: page; page-break-before: always;"></div><h1 id="源码目录"><a class="header" href="#源码目录">源码目录</a></h1>
+<p><code>source</code> 字段用于指定模块的源码目录。</p>
+<p>它必须为当前 <code>moon.mod.json</code> 文件所在目录的子目录。且必须为相对路径</p>
+<p>当使用 <code>moon new</code> 命令创建模块时，会自动生成一个 <code>src</code> 目录，并且 <code>source</code> 字段的默认值为 <code>src</code>。</p>
+<pre><code class="language-json">{
+  "source": "src"
+}
+</code></pre>
+<p>当 <code>source</code> 字段不存在，或者其值为 <code>null</code> 或空字符串 <code>""</code> 时，相当于设置 <code>"source": "."</code>。这表示源码目录为该 <code>moon.mod.json</code> 文件所在的目录。</p>
+<pre><code class="language-json">{
+  "source": null
+}
+{
+  "source": ""
+}
+{
+  "source": "."
+}
+</code></pre>
+<div style="break-before: page; page-break-before: always;"></div><h1 id="warn-列表"><a class="header" href="#warn-列表">warn 列表</a></h1>
+<p>关闭对应的编译器预设警告编号。</p>
+<p>例如，如下配置中 <code>-2</code> 代表关闭编号为 2(Unused variable) 的警告</p>
+<pre><code class="language-json">{
+  "warn-list": "-2",
+}
+</code></pre>
+<p>可用 <code>moonc build-package -warn-help</code> 查看编译器预设的警告编号</p>
+<pre><code>$ moonc -v                      
+v0.1.20240914+b541585d3
+
+$ moonc build-package -warn-help
+Available warnings: 
+  1 Unused function.
+  2 Unused variable.
+  3 Unused type declaration.
+  4 Redundant case in a pattern matching (unused match case).
+  5 Unused function argument.
+  6 Unused constructor.
+  7 Unused module declaration.
+  8 Unused struct field.
+ 10 Unused generic type variable.
+ 11 Partial pattern matching.
+ 12 Unreachable code.
+ 13 Unresolved type variable.
+ 14 Lowercase type name.
+ 15 Unused mutability.
+ 16 Parser inconsistency.
+ 18 Useless loop expression.
+ 19 Top-level declaration is not left aligned.
+ 20 Invalid pragma
+ 21 Some arguments of constructor are omitted in pattern.
+ 22 Ambiguous block.
+ 23 Useless try expression.
+ 24 Useless error type.
+ 26 Useless catch all.
+  A all warnings
+</code></pre>
+<div style="break-before: page; page-break-before: always;"></div><h1 id="alert-列表"><a class="header" href="#alert-列表">alert 列表</a></h1>
+<p>关闭用户预设 alter。</p>
+<pre><code class="language-json">{
+  "alert-list": "-alert_1-alert_2"
+}
+</code></pre>
+<div style="break-before: page; page-break-before: always;"></div><h1 id="包配置"><a class="header" href="#包配置">包配置</a></h1>
+<p>moon 使用 <code>moon.pkg.json</code> 文件来识别、描述一个包。</p>
+<div style="break-before: page; page-break-before: always;"></div><h1 id="包名"><a class="header" href="#包名">包名</a></h1>
+<p>包名不可配置，它由包的目录名决定。</p>
+<div style="break-before: page; page-break-before: always;"></div><h1 id="is-main-字段"><a class="header" href="#is-main-字段">is-main 字段</a></h1>
+<p><code>is-main</code> 字段用于指定一个包是否需要被链接成一个可执行的文件。</p>
+<p>链接所生成的产物与后端相关，当该字段为 <code>true</code> 时：</p>
+<ul>
+<li>对于 <code>wasm</code> 和 <code>wasm-gc</code> 后端，将会生成一个可以独立运行的 WebAssembly 模块。</li>
+<li>对于 <code>js</code> 后端，将会生成一个可以独立运行的 JavaScript 文件。</li>
+</ul>
+<div style="break-before: page; page-break-before: always;"></div><h1 id="import-字段"><a class="header" href="#import-字段">import 字段</a></h1>
+<p><code>import</code> 字段用于指定一个包所依赖的其他包。</p>
+<div style="break-before: page; page-break-before: always;"></div><h1 id="test-import-字段"><a class="header" href="#test-import-字段">test-import 字段</a></h1>
+<p><code>test-import</code> 字段用于指定该包对应的黑盒测试包所依赖的其他包。</p>
+<div style="break-before: page; page-break-before: always;"></div><h1 id="wbtest-import字段"><a class="header" href="#wbtest-import字段">wbtest-import字段</a></h1>
+<p><code>wbtest-import</code> 字段用于指定该包对应的白盒测试包所依赖的其他包。</p>
+<div style="break-before: page; page-break-before: always;"></div><h1 id="链接选项"><a class="header" href="#链接选项">链接选项</a></h1>
+<p>moon 默认只会链接 <code>is-main</code> 为 <code>true</code> 的包，如果需要链接其他包，可以通过 <code>link</code> 选项指定。</p>
+<p><code>link</code> 选项用于指定链接选项，它的值可以为布尔值或一个对象。</p>
+<ul>
+<li>
+<p><code>link</code> 值为 <code>true</code> 时，表示需要链接该包。构建时所指定的后端不同，产物也不同。</p>
+<pre><code class="language-json">{
+  "link": true
+}
+</code></pre>
+</li>
+<li>
+<p><code>link</code> 值为对象时，表示需要链接该包，并且可以指定链接选项，详细配置请查看对应后端的子页面。</p>
+</li>
+</ul>
+<div style="break-before: page; page-break-before: always;"></div><h1 id="wasm-后端链接选项"><a class="header" href="#wasm-后端链接选项">wasm 后端链接选项</a></h1>
+<h4 id="可配置选项"><a class="header" href="#可配置选项">可配置选项</a></h4>
+<ul>
+<li>
+<p><code>exports</code> 选项用于指定 wasm 后端导出的函数名。</p>
+<p>例如，如下配置将当前包中的 <code>hello</code> 函数导出为 wasm 模块的 <code>hello</code> 函数, <code>foo</code> 函数导出为 wasm 模块的 <code>foo</code> 函数。在 wasm 宿主中，可以通过 <code>hello</code> 和 <code>bar</code> 函数来调用当前包中的 <code>hello</code> 和 <code>foo</code> 函数。</p>
+<pre><code class="language-json">{
+  "link": {
+    "wasm": {
+      "exports": [
+        "hello",
+        "foo:bar"
+      ]
+    },
+  }
+}
+</code></pre>
+</li>
+<li>
+<p><code>heap-start-address</code> 选项用于指定 moonc 编译到 wasm 后端时能够使用的线性内存的起始地址。</p>
+<p>例如，如下配置将线性内存的起始地址设置为 1024。</p>
+<pre><code class="language-json">{
+  "link": {
+      "wasm": {
+        "heap-start-address": 1024
+    },
+  }
+}
+</code></pre>
+</li>
+<li>
+<p><code>import-memory</code> 选项用于指定 wasm 模块导入的线性内存。</p>
+<p>例如，如下配置将 wasm 模块导入的线性内存指定为 <code>env</code> 模块的 <code>memory</code> 变量。</p>
+<pre><code class="language-json">{
+  "link": {
+    "wasm": {
+      "import-memory": {
+        "module": "env",
+        "name": "memory"
+      }
+    },
+  }
+}
+</code></pre>
+</li>
+<li>
+<p><code>export-memory-name</code> 选项用于指定 wasm 模块导出的线性内存名称。</p>
+<pre><code class="language-json">{
+  "link": {
+    "wasm": {
+      "export-memory-name": "memory"
+    },
+  }
+}
+</code></pre>
+</li>
+</ul>
+<div style="break-before: page; page-break-before: always;"></div><h1 id="wasm-gc-后端链接选项"><a class="header" href="#wasm-gc-后端链接选项">wasm-gc 后端链接选项</a></h1>
+<p>wasm-gc 后端与 wasm 后端的链接选项类似，只不过没有 <code>heap-start-address</code> 选项。</p>
+<div style="break-before: page; page-break-before: always;"></div><h1 id="js-后端链接选项"><a class="header" href="#js-后端链接选项">js 后端链接选项</a></h1>
+<h4 id="可配置选项-1"><a class="header" href="#可配置选项-1">可配置选项</a></h4>
+<ul>
+<li>
+<p><code>exports</code> 选项用于指定 JavaScript 模块的导出函数名。</p>
+<p>例如，如下配置将当前包中的 <code>hello</code> 函数导出为 JavaScript 模块的 <code>hello</code> 函数。在 JavaScript 宿主中，可以通过 <code>hello</code> 函数来调用当前包中的 <code>hello</code> 函数。</p>
+<pre><code class="language-json">{
+  "link": {
+    "js": {
+      "exports": [
+        "hello"
+      ]
+    }
+  }
+}
+</code></pre>
+</li>
+<li>
+<p><code>format</code> 选项用于指定 JavaScript 模块的输出格式。</p>
+<p>目前支持的格式有：</p>
+<ul>
+<li><code>esm</code></li>
+<li><code>cjs</code></li>
+<li><code>iife</code></li>
+</ul>
+<p>例如，如下配置将当前包的输出格式指定为 ES Module。</p>
+<pre><code class="language-json">{
+  "link": {
+    "js": {
+      "format": "esm"
+    }
+  }
+}
+</code></pre>
+</li>
+</ul>
+<div style="break-before: page; page-break-before: always;"></div><h1 id="warn-列表-1"><a class="header" href="#warn-列表-1">warn 列表</a></h1>
+<p>关闭对应的编译器预设警告编号。</p>
+<p>例如，如下配置中 <code>-2</code> 代表关闭编号为 2(Unused variable) 的警告</p>
+<pre><code class="language-json">{
+  "warn-list": "-2",
+}
+</code></pre>
+<p>可用 <code>moonc build-package -warn-help</code> 查看编译器预设的警告编号</p>
+<pre><code>$ moonc -v                      
+v0.1.20240914+b541585d3
+
+$ moonc build-package -warn-help
+Available warnings: 
+  1 Unused function.
+  2 Unused variable.
+  3 Unused type declaration.
+  4 Redundant case in a pattern matching (unused match case).
+  5 Unused function argument.
+  6 Unused constructor.
+  7 Unused module declaration.
+  8 Unused struct field.
+ 10 Unused generic type variable.
+ 11 Partial pattern matching.
+ 12 Unreachable code.
+ 13 Unresolved type variable.
+ 14 Lowercase type name.
+ 15 Unused mutability.
+ 16 Parser inconsistency.
+ 18 Useless loop expression.
+ 19 Top-level declaration is not left aligned.
+ 20 Invalid pragma
+ 21 Some arguments of constructor are omitted in pattern.
+ 22 Ambiguous block.
+ 23 Useless try expression.
+ 24 Useless error type.
+ 26 Useless catch all.
+  A all warnings
+</code></pre>
+<div style="break-before: page; page-break-before: always;"></div><h1 id="alert-列表-1"><a class="header" href="#alert-列表-1">alert 列表</a></h1>
+<p>关闭用户预设 alter。</p>
+<pre><code class="language-json">{
+  "alert-list": "-alert_1-alert_2"
+}
+</code></pre>
+<div style="break-before: page; page-break-before: always;"></div><h1 id="条件编译"><a class="header" href="#条件编译">条件编译</a></h1>
+<p>条件编译的最小单位是文件。</p>
+<p>在条件编译表达式中，支持三种逻辑操作符：<code>and</code>、<code>or</code> 和 <code>not</code>，其中 <code>or</code> 操作符可以省略不写。</p>
+<p>例如，<code>["or", "wasm", "wasm-gc"]</code> 可以简写为 <code>["wasm", "wasm-gc"]</code>。</p>
+<p>条件表达式中的条件可以分为后端和优化级别：</p>
+<ul>
+<li><strong>后端条件</strong>：<code>"wasm"</code>、<code>"wasm-gc"</code> 和 <code>"js"</code></li>
+<li><strong>优化等级条件</strong>：<code>"debug"</code> 和 <code>"release"</code></li>
+</ul>
+<p>条件表达式支持嵌套。</p>
+<p>如果一个文件未在 <code>"targets"</code> 中列出，它将默认在所有条件下编译。</p>
+<p>示例：</p>
+<pre><code class="language-json">{
+    "targets": {
+        "only_js.mbt": ["js"],
+        "only_wasm.mbt": ["wasm"],
+        "only_wasm_gc.mbt": ["wasm-gc"],
+        "all_wasm.mbt": ["wasm", "wasm-gc"],
+        "not_js.mbt": ["not", "js"],
+        "only_debug.mbt": ["debug"],
+        "js_and_release.mbt": ["and", ["js"], ["release"]],
+        "js_only_test.mbt": ["js"],
+        "js_or_wasm.mbt": ["js", "wasm"],
+        "wasm_release_or_js_debug.mbt": ["or", ["and", "wasm", "release"], ["and", "js", "debug"]]
+    }
+}
+</code></pre>
+<div style="break-before: page; page-break-before: always;"></div><h1 id="预构建命令"><a class="header" href="#预构建命令">预构建命令</a></h1>
+<p>字段 <code>"pre-build"</code> 用于指定预构建命令，预构建命令会在 <code>moon check|build|test</code> 等构建命令之前执行。</p>
+<p><code>"pre-build"</code>是一个数组，数组中的每个元素是一个对象，对象中包含 <code>input</code>，<code>output</code> 和 <code>command</code> 三个字段，<code>input</code> 和 <code>output</code> 可以是字符串或者字符串数组，<code>command</code> 是字符串，<code>command</code> 中可以使用任意命令行命令，以及 <code>$input</code>，<code>$output</code> 变量，分别代表输入文件、输出文件，如果是数组默认使用空格分割。</p>
+<p>目前内置了一个特殊命令 <code>:embed</code>，用于将文件转换为 MoonBit 源码，<code>--text</code> 参数用于嵌入文本文件，<code>--binary</code> 用于嵌入二进制文件，<code>--text</code> 为默认值，可省略不写。<code>--name</code> 用于指定生成的变量名，默认值为 <code>resource</code>。命令的执行目录为当前 <code>moon.pkg.json</code> 所在目录。</p>
+<pre><code class="language-json">{
+  "pre-build": [
+    {
+      "input": "a.txt",
+      "output": "a.mbt",
+      "command": ":embed -i $input -o $output"
+    }
+  ]
+}
+</code></pre>
+<p>如果当前包目录下的 <code>a.txt</code> 的内容为</p>
+<pre><code>hello,
+world
+</code></pre>
+<p>执行  <code>moon build</code> 后，在此 <code>moon.pkg.json</code> 所在目录下生成如下 <code>a.mbt</code> 文件</p>
+<pre><code>let resource : String =
+  #|hello,
+  #|world
+  #|
+</code></pre>
+<div style="break-before: page; page-break-before: always;"></div><h1 id="config-json-schema"><a class="header" href="#config-json-schema">Config JSON Schema</a></h1>
+<h2 id="moonmodjson"><a class="header" href="#moonmodjson">moon.mod.json</a></h2>
+<iframe src="source/mod_json_schema.html" width="100%" height="500px" frameborder="0"></iframe>
+<h2 id="moonpkgjson"><a class="header" href="#moonpkgjson">moon.pkg.json</a></h2>
+<iframe src="source/pkg_json_schema.html" width="100%" height="500px" frameborder="0"></iframe>
+                    </main>
+
+                    <nav class="nav-wrapper" aria-label="Page navigation">
+                        <!-- Mobile navigation buttons -->
+
+
+                        <div style="clear: both"></div>
+                    </nav>
+                </div>
+            </div>
+
+            <nav class="nav-wide-wrapper" aria-label="Page navigation">
+
+            </nav>
+
+        </div>
+
+
+
+
+        <script>
+            window.playground_copyable = true;
+        </script>
+
+
+        <script src="elasticlunr.min.js"></script>
+        <script src="mark.min.js"></script>
+        <script src="searcher.js"></script>
+
+        <script src="clipboard.min.js"></script>
+        <script src="highlight.js"></script>
+        <script src="book.js"></script>
+
+        <!-- Custom JS scripts -->
+
+        <script>
+        window.addEventListener('load', function() {
+            window.setTimeout(window.print, 100);
+        });
+        </script>
+
+    </div>
+    </body>
+</html>
