@@ -219,6 +219,10 @@ async fn run(
             let mut ts: TestStatistics = serde_json_lenient::from_str(s.trim())
                 .context(format!("failed to parse test summary: {}", s))?;
 
+            if ts.message == "skipped test" {
+                continue;
+            }
+
             if ts.filename.contains(MOON_DOC_TEST_POSTFIX) {
                 ts.is_doc_test = true;
             }
