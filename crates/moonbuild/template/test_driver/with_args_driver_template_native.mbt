@@ -77,6 +77,18 @@ pub fn moonbit_test_driver_internal_execute() -> Unit {
       name
     }
 
+    if attrs.iter().any(fn(attr) -> Bool {
+      attr.length() >= 5 && attr[0] == 'p' && attr[1] == 'a' && attr[2] == 'n' && attr[3] == 'i' && attr[4] == 'c'
+    }) {
+      @moonbitlang/core/builtin.println("skipped test block: \{file_name}: \{attrs[0]}")
+      @moonbitlang/core/builtin.println("{BEGIN_MOONTEST}")
+      @moonbitlang/core/builtin.println(
+        "{\"package\": \"{PACKAGE}\", \"filename\": \{file_name.escape()}, \"index\": \"\{index}\", \"test_name\": \{name.escape()}, \"message\": \"skipped test\"}",
+      )
+      @moonbitlang/core/builtin.println("{END_MOONTEST}")
+      continue
+    }
+
     try {
       let func = match item.f {
       Moonbit_Test_Driver_Internal__F::F0(f) => f
