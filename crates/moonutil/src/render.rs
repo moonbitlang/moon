@@ -16,7 +16,7 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use ariadne::Fmt;
 use serde::{Deserialize, Serialize};
@@ -66,14 +66,16 @@ struct SourceMap {
 }
 
 impl SourceMap {
-    fn to_original(&self, offset: usize) -> Option<(String, usize)> {
+    fn to_original(&self, offset: usize, base_path: &String) -> Option<(String, usize)> {
+        let base_path = Path::new(base_path);
         // TODO: perform binary search to improve performance
         for mapping in &self.mappings {
             if offset >= mapping.generated_utf8_pos
                 && offset <= mapping.generated_utf8_pos + mapping.utf8_length
             {
+                let path = std::fs::canonicalize(base_path.parent()?.join(&mapping.source)).ok()?;
                 return Some((
-                    mapping.source.clone(),
+                    path.to_str()?.to_string(),
                     offset - mapping.generated_utf8_pos + mapping.original_utf8_pos,
                 ));
             }
@@ -157,11 +159,12 @@ impl MooncDiagnostic {
             .calculate_offset(&source_file_content);
 
         // Remapping if there's .map.json file
-        let mapped = std::fs::read_to_string(source_file_path + ".map.json").map(
+        let path_to_map_json = source_file_path + ".map.json";
+        let mapped = std::fs::read_to_string(&path_to_map_json).map(
             |content| -> Option<(String, String, usize, usize)> {
                 let map: SourceMap = serde_json_lenient::from_str::<SourceMap>(&content).ok()?;
-                let (source1, start_offset) = map.to_original(start_offset)?;
-                let (source2, end_offset) = map.to_original(end_offset)?;
+                let (source1, start_offset) = map.to_original(start_offset, &path_to_map_json)?;
+                let (source2, end_offset) = map.to_original(end_offset, &path_to_map_json)?;
                 if source1 != source2 {
                     return None;
                 }
