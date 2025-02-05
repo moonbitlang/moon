@@ -60,6 +60,36 @@ impl Position {
     }
 }
 
+#[derive(Deserialize)]
+struct SourceMap {
+    mappings: Vec<SourceMapping>,
+}
+
+impl SourceMap {
+    fn to_original(&self, offset: usize) -> Option<(String, usize)> {
+        // TODO: perform binary search to improve performance
+        for mapping in &self.mappings {
+            if offset >= mapping.generated_utf8_pos
+                && offset <= mapping.generated_utf8_pos + mapping.utf8_length
+            {
+                return Some((
+                    mapping.source.clone(),
+                    offset - mapping.generated_utf8_pos + mapping.original_utf8_pos,
+                ));
+            }
+        }
+        None
+    }
+}
+
+#[derive(Deserialize)]
+struct SourceMapping {
+    source: String,
+    original_utf8_pos: usize,
+    generated_utf8_pos: usize,
+    utf8_length: usize,
+}
+
 impl MooncDiagnostic {
     pub fn render(content: &str, use_fancy: bool, check_patch_file: Option<PathBuf>) {
         let diagnostic = match serde_json_lenient::from_str::<MooncDiagnostic>(content) {
@@ -125,6 +155,30 @@ impl MooncDiagnostic {
             .location
             .end
             .calculate_offset(&source_file_content);
+
+        // Remapping if there's .map.json file
+        let mapped = std::fs::read_to_string(source_file_path + ".map.json").map(
+            |content| -> Option<(String, String, usize, usize)> {
+                let map: SourceMap = serde_json_lenient::from_str::<SourceMap>(&content).ok()?;
+                let (source1, start_offset) = map.to_original(start_offset)?;
+                let (source2, end_offset) = map.to_original(end_offset)?;
+                if source1 != source2 {
+                    return None;
+                }
+                let source_file_content = std::fs::read_to_string(&source1).ok()?;
+                Some((source_file_content, source1, start_offset, end_offset))
+            },
+        );
+
+        let (source_file_content, display_filename, start_offset, end_offset) = match mapped {
+            Ok(Some(tuple)) => tuple,
+            Ok(None) | Err(_) => (
+                source_file_content,
+                display_filename,
+                start_offset,
+                end_offset,
+            ),
+        };
 
         let mut report_builder = ariadne::Report::build(kind, &display_filename, start_offset)
             .with_message(format!("[{}]", diagnostic.error_code).fg(color))
