@@ -208,6 +208,118 @@ fn path_exists(
     ret.set_bool(exists);
 }
 
+// new ffi with error handling, use in moonbitlang/core
+
+use once_cell::sync::Lazy;
+use std::sync::Mutex;
+
+static GLOBAL_STATE: Lazy<Mutex<GlobalState>> = Lazy::new(|| {
+    Mutex::new(GlobalState {
+        file_content: Vec::new(),
+        error_message: String::new(),
+    })
+});
+
+struct GlobalState {
+    file_content: Vec<u8>,
+    error_message: String,
+}
+
+fn write_bytes_to_file_new(
+    scope: &mut v8::HandleScope,
+    args: v8::FunctionCallbackArguments,
+    mut ret: v8::ReturnValue,
+) {
+    let path = match args.get(0).to_string(scope) {
+        Some(p) => p.to_rust_string_lossy(scope),
+        None => {
+            GLOBAL_STATE.lock().unwrap().error_message =
+                "Failed to convert path to string".to_string();
+            ret.set_int32(-1);
+            return;
+        }
+    };
+
+    let contents = args.get(1);
+    let uint8_array = match v8::Local::<v8::Uint8Array>::try_from(contents) {
+        Ok(array) => array,
+        Err(_) => {
+            GLOBAL_STATE.lock().unwrap().error_message =
+                "Failed to convert contents to Uint8Array".to_string();
+            ret.set_int32(-1);
+            return;
+        }
+    };
+
+    let length = uint8_array.byte_length();
+    let mut buffer = vec![0; length];
+    uint8_array.copy_contents(&mut buffer);
+
+    match std::fs::write(&path, buffer) {
+        Ok(_) => {
+            ret.set_int32(0);
+        }
+        Err(e) => {
+            GLOBAL_STATE.lock().unwrap().error_message =
+                format!("Failed to write file {}: {}", path, e);
+            ret.set_int32(-1);
+        }
+    }
+}
+
+fn read_file_to_bytes_new(
+    scope: &mut v8::HandleScope,
+    args: v8::FunctionCallbackArguments,
+    mut ret: v8::ReturnValue,
+) {
+    let path = match args.get(0).to_string(scope) {
+        Some(p) => p.to_rust_string_lossy(scope),
+        None => {
+            GLOBAL_STATE.lock().unwrap().error_message =
+                "Failed to convert path to string".to_string();
+            ret.set_int32(-1);
+            return;
+        }
+    };
+
+    match std::fs::read(&path) {
+        Ok(contents) => {
+            GLOBAL_STATE.lock().unwrap().file_content = contents;
+            ret.set_int32(0);
+        }
+        Err(e) => {
+            GLOBAL_STATE.lock().unwrap().error_message =
+                format!("Failed to read file {}: {}", path, e);
+            ret.set_int32(-1);
+        }
+    }
+}
+
+fn get_file_content(
+    scope: &mut v8::HandleScope,
+    _args: v8::FunctionCallbackArguments,
+    mut ret: v8::ReturnValue,
+) {
+    let state = GLOBAL_STATE.lock().unwrap();
+    let array_buffer = v8::ArrayBuffer::with_backing_store(
+        scope,
+        &v8::ArrayBuffer::new_backing_store_from_bytes(state.file_content.clone()).make_shared(),
+    );
+    let uint8_array =
+        v8::Uint8Array::new(scope, array_buffer, 0, state.file_content.len()).unwrap();
+    ret.set(uint8_array.into());
+}
+
+fn get_error_message(
+    scope: &mut v8::HandleScope,
+    _args: v8::FunctionCallbackArguments,
+    mut ret: v8::ReturnValue,
+) {
+    let state = GLOBAL_STATE.lock().unwrap();
+    let error = v8::String::new(scope, &state.error_message).unwrap();
+    ret.set(error.into());
+}
+
 pub fn init_fs<'s>(
     obj: v8::Local<'s, v8::Object>,
     scope: &mut v8::HandleScope<'s>,
@@ -266,6 +378,28 @@ pub fn init_fs<'s>(
     let path_exists = path_exists.get_function(scope).unwrap();
     let ident = v8::String::new(scope, "path_exists").unwrap();
     obj.set(scope, ident.into(), path_exists.into());
+
+    {
+        let read_file_to_bytes_new = v8::FunctionTemplate::new(scope, read_file_to_bytes_new);
+        let read_file_to_bytes_new = read_file_to_bytes_new.get_function(scope).unwrap();
+        let ident = v8::String::new(scope, "read_file_to_bytes_new").unwrap();
+        obj.set(scope, ident.into(), read_file_to_bytes_new.into());
+
+        let write_bytes_to_file_new = v8::FunctionTemplate::new(scope, write_bytes_to_file_new);
+        let write_bytes_to_file_new = write_bytes_to_file_new.get_function(scope).unwrap();
+        let ident = v8::String::new(scope, "write_bytes_to_file_new").unwrap();
+        obj.set(scope, ident.into(), write_bytes_to_file_new.into());
+
+        let get_file_content = v8::FunctionTemplate::new(scope, get_file_content);
+        let get_file_content = get_file_content.get_function(scope).unwrap();
+        let ident = v8::String::new(scope, "get_file_content").unwrap();
+        obj.set(scope, ident.into(), get_file_content.into());
+
+        let get_error_message = v8::FunctionTemplate::new(scope, get_error_message);
+        let get_error_message = get_error_message.get_function(scope).unwrap();
+        let ident = v8::String::new(scope, "get_error_message").unwrap();
+        obj.set(scope, ident.into(), get_error_message.into());
+    }
 
     obj
 }

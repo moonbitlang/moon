@@ -16,18 +16,24 @@ pub fn moonbit_test_driver_internal_execute() -> Unit {
   for filename, index_func_map in moonbit_test_driver_internal_no_args_tests {
     for index, pair in index_func_map {
       let (func, attrs) = (pair.0, pair.1)
-      if attrs.iter().any(fn(attr) -> Bool {
-        attr.length() >= 5 && attr[0] == 'p' && attr[1] == 'a' && attr[2] == 'n' && attr[3] == 'i' && attr[4] == 'c'
-      }) {
-        @moonbitlang/core/builtin.println("skipped test block: \{filename}: \{attrs[0]}")
-        continue
-      }
 
       let name = if attrs.is_empty() { "" } else { attrs[0] }
       let name = if name.length() == 0 {
         index.to_string()
       } else {
         name
+      }
+
+      if attrs.iter().any(fn(attr) -> Bool {
+        attr.length() >= 5 && attr[0] == 'p' && attr[1] == 'a' && attr[2] == 'n' && attr[3] == 'i' && attr[4] == 'c'
+      }) {
+        @moonbitlang/core/builtin.println("skipped test block: \{filename}: \{attrs[0]}")
+        @moonbitlang/core/builtin.println("{BEGIN_MOONTEST}")
+        @moonbitlang/core/builtin.println(
+          "{\"package\": \"{PACKAGE}\", \"filename\": \{filename.escape()}, \"index\": \"\{index}\", \"test_name\": \{name.escape()}, \"message\": \"skipped test\"}",
+        )
+        @moonbitlang/core/builtin.println("{END_MOONTEST}")
+        continue
       }
 
       let mut message = ""

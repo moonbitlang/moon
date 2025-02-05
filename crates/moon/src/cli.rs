@@ -202,6 +202,10 @@ pub struct BuildFlags {
     /// Enable value tracing
     #[clap(long, hide = true)]
     pub enable_value_tracing: bool,
+
+    /// Set the max number of jobs to run in parallel
+    #[clap(short = 'j', long)]
+    pub jobs: Option<usize>,
 }
 
 impl BuildFlags {

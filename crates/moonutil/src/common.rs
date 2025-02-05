@@ -383,6 +383,8 @@ pub struct MoonbuildOpt {
     pub output_json: bool,
     pub no_parallelize: bool,
     pub build_graph: bool,
+    /// Max parallel tasks to run in n2; `None` to use default
+    pub parallelism: Option<usize>,
 }
 
 impl MoonbuildOpt {
@@ -484,7 +486,7 @@ impl MooncOpt {
 
 pub const DEP_PATH: &str = ".mooncakes";
 
-pub const IGNORE_DIRS: &[&str] = &["target", ".git", DEP_PATH];
+pub const IGNORE_DIRS: &[&str] = &["target", ".git", "node_modules", DEP_PATH];
 
 pub fn dialoguer_ctrlc_handler() {
     // Fix cursor disappears after ctrc+c

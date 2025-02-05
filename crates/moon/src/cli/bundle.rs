@@ -150,6 +150,7 @@ fn run_bundle_internal(
         output_json: false,
         no_parallelize: false,
         build_graph: false,
+        parallelism: cmd.build_flags.jobs,
     };
     let module = scan_with_pre_build(
         false,

@@ -17,6 +17,7 @@
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
 use indexmap::IndexMap;
+use log::warn;
 use moonutil::module::ModuleDB;
 use moonutil::package::Package;
 use moonutil::path::PathComponent;
@@ -127,7 +128,7 @@ pub fn n2_simple_run_interface(
     let mut progress =
         create_progress_console(Some(Box::new(render_and_catch)), moonbuild_opt.verbose);
     let options = work::Options {
-        parallelism: default_parallelism()?,
+        parallelism: get_parallelism(moonbuild_opt)?,
         failures_left: Some(10),
         explain: false,
         adopt: false,
@@ -151,6 +152,20 @@ pub fn n2_simple_run_interface(
 
     let res = trace::scope("work.run", || work.run())?;
     Ok(res)
+}
+
+pub fn get_parallelism(opt: &MoonbuildOpt) -> anyhow::Result<usize> {
+    if let Ok(val) = std::env::var("MOON_MAX_PAR_TASKS") {
+        val.parse()
+            .context("Failed to parse MOON_MAX_PAR_TASKS to get the parallelism for building")
+    } else if let Some(par) = opt.parallelism {
+        Ok(par)
+    } else if let Ok(val) = default_parallelism() {
+        Ok(val)
+    } else {
+        warn!("Failed to get the parallelism for building, falling back to 1 parallel task");
+        Ok(1)
+    }
 }
 
 pub fn n2_run_interface(
@@ -188,7 +203,7 @@ pub fn n2_run_interface(
     let mut progress =
         create_progress_console(Some(Box::new(render_and_catch)), moonbuild_opt.verbose);
     let options = work::Options {
-        parallelism: default_parallelism()?,
+        parallelism: get_parallelism(moonbuild_opt)?,
         failures_left: Some(10),
         explain: false,
         adopt: false,

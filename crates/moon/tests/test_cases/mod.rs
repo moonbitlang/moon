@@ -1362,6 +1362,166 @@ fn test_moon_test_filter_package_with_test_imports() {
 }
 
 #[test]
+fn test_moon_parallelism() {
+    let dir = TestDir::new("test_filter_pkg_with_test_imports.in");
+
+    check(
+        get_stdout(
+            &dir,
+            [
+                "test",
+                "-j1",
+                "-p",
+                "username/hello/lib",
+                "--sort-input",
+                "--no-parallelize",
+            ],
+        ),
+        expect![[r#"
+            Hello from lib1
+
+            Hello from lib2
+
+            Hello from lib7
+            Total tests: 2, passed: 2, failed: 0.
+        "#]],
+    );
+
+    check(
+        get_stdout(
+            &dir,
+            [
+                "test",
+                "-j1",
+                "-p",
+                "username/hello/lib1",
+                "--sort-input",
+                "--no-parallelize",
+            ],
+        ),
+        expect![[r#"
+            Hello from lib3
+
+            Total tests: 1, passed: 1, failed: 0.
+        "#]],
+    );
+
+    check(
+        get_stdout(
+            &dir,
+            [
+                "test",
+                "-j1",
+                "-p",
+                "username/hello/lib2",
+                "--sort-input",
+                "--no-parallelize",
+            ],
+        ),
+        expect![[r#"
+            Hello from lib4
+            Total tests: 1, passed: 1, failed: 0.
+        "#]],
+    );
+
+    check(
+        get_stdout(
+            &dir,
+            [
+                "test",
+                "-j1",
+                "-p",
+                "username/hello/lib3",
+                "--sort-input",
+                "--no-parallelize",
+            ],
+        ),
+        expect![[r#"
+            Hello from lib3
+
+            Hello from lib7
+            Hello from lib6
+            Total tests: 3, passed: 3, failed: 0.
+        "#]],
+    );
+
+    check(
+        get_stdout(
+            &dir,
+            [
+                "test",
+                "-j1",
+                "-p",
+                "username/hello/lib4",
+                "--sort-input",
+                "--no-parallelize",
+            ],
+        ),
+        expect![[r#"
+            Hello from lib5
+            Hello from lib5
+            Hello from lib7
+            Total tests: 3, passed: 3, failed: 0.
+        "#]],
+    );
+
+    check(
+        get_stdout(
+            &dir,
+            [
+                "test",
+                "-j1",
+                "-p",
+                "username/hello/lib5",
+                "--sort-input",
+                "--no-parallelize",
+            ],
+        ),
+        expect![[r#"
+            Hello from lib5
+            Total tests: 1, passed: 1, failed: 0.
+        "#]],
+    );
+
+    check(
+        get_stdout(
+            &dir,
+            [
+                "test",
+                "-j1",
+                "-p",
+                "username/hello/lib6",
+                "--sort-input",
+                "--no-parallelize",
+            ],
+        ),
+        expect![[r#"
+            Hello from lib6
+            Total tests: 1, passed: 1, failed: 0.
+        "#]],
+    );
+
+    check(
+        get_stdout(
+            &dir,
+            [
+                "test",
+                "-j1",
+                "-p",
+                "username/hello/lib7",
+                "--sort-input",
+                "--no-parallelize",
+            ],
+        ),
+        expect![[r#"
+            Hello from lib7
+            Hello from lib6
+            Total tests: 2, passed: 2, failed: 0.
+        "#]],
+    );
+}
+
+#[test]
 fn test_moon_test_filter_package_dry_run() {
     let dir = TestDir::new("test_filter.in");
 

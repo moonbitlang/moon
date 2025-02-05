@@ -1610,6 +1610,7 @@ dependencies = [
  "chrono",
  "clap",
  "expect-test",
+ "once_cell",
  "rand",
  "serde",
  "serde_json_lenient",
