@@ -8695,3 +8695,23 @@ fn test_exports_in_native_backend() {
     );
     assert!(lib3_c.contains("$username$hello$lib3$hello()"));
 }
+
+#[test]
+fn test_diag_loc_map() {
+    let dir = TestDir::new("diag_loc_map.in");
+    check(
+        get_err_stderr(&dir, ["check"]),
+        expect![[r#"
+            Error: [4014]
+                ╭─[$ROOT/parser.mbty:25:37]
+                │
+             25 │   : lhs=add "+" rhs=factor  { lhs + 'x' + rhs }
+                │                                     ─┬─  
+                │                                      ╰─── Expr Type Mismatch
+                    has type : Char
+                    wanted   : Int
+            ────╯
+            error: failed when checking
+        "#]],
+    );
+}
