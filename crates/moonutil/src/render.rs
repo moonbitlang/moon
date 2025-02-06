@@ -66,8 +66,7 @@ struct SourceMap {
 }
 
 impl SourceMap {
-    fn to_original(&self, offset: usize, base_path: &String) -> Option<(String, usize)> {
-        let base_path = Path::new(base_path);
+    fn to_original(&self, offset: usize, base_path: &Path) -> Option<(PathBuf, usize)> {
         let index = self
             .mappings
             .binary_search_by(|mapping| {
@@ -81,9 +80,9 @@ impl SourceMap {
             })
             .ok()?;
         let mapping = &self.mappings[index];
-        let path = std::fs::canonicalize(base_path.parent()?.join(&mapping.source)).ok()?;
+        let path = dunce::canonicalize(base_path.parent()?.join(&mapping.source)).ok()?;
         Some((
-            path.to_str()?.to_string(),
+            path,
             offset - mapping.generated_utf8_pos + mapping.original_utf8_pos,
         ))
     }
@@ -164,30 +163,31 @@ impl MooncDiagnostic {
             .calculate_offset(&source_file_content);
 
         // Remapping if there's .map.json file
-        let path_to_map_json = source_file_path + ".map.json";
         // TODO: log reasons for `.map.json` exists but not works.
-        let mapped = std::fs::read_to_string(&path_to_map_json).map(
-            |content| -> Option<(String, String, usize, usize)> {
-                let map: SourceMap = serde_json_lenient::from_str::<SourceMap>(&content).ok()?;
-                let (source1, start_offset) = map.to_original(start_offset, &path_to_map_json)?;
-                let (source2, end_offset) = map.to_original(end_offset, &path_to_map_json)?;
+        let path_to_map_json = PathBuf::from(source_file_path + ".map.json");
+        let mapped = std::fs::read_to_string(&path_to_map_json)
+            .ok()
+            .and_then(|content| {
+                let map = serde_json_lenient::from_str::<SourceMap>(&content).ok()?;
+
+                let (source1, start_pos) = map.to_original(start_offset, &path_to_map_json)?;
+                let (source2, end_pos) = map.to_original(end_offset, &path_to_map_json)?;
+
                 if source1 != source2 {
                     return None;
                 }
-                let source_file_content = std::fs::read_to_string(&source1).ok()?;
-                Some((source_file_content, source1, start_offset, end_offset))
-            },
-        );
 
-        let (source_file_content, display_filename, start_offset, end_offset) = match mapped {
-            Ok(Some(tuple)) => tuple,
-            Ok(None) | Err(_) => (
-                source_file_content,
-                display_filename,
-                start_offset,
-                end_offset,
-            ),
-        };
+                std::fs::read_to_string(&source1)
+                    .ok()
+                    .map(|content| (content, source1.display().to_string(), start_pos, end_pos))
+            });
+
+        let (source_file_content, display_filename, start_offset, end_offset) = mapped.unwrap_or((
+            source_file_content,
+            display_filename,
+            start_offset,
+            end_offset,
+        ));
 
         let mut report_builder = ariadne::Report::build(kind, &display_filename, start_offset)
             .with_message(format!("[{}]", diagnostic.error_code).fg(color))
