@@ -82,10 +82,10 @@ impl SourceMap {
             .ok()?;
         let mapping = &self.mappings[index];
         let path = std::fs::canonicalize(base_path.parent()?.join(&mapping.source)).ok()?;
-        return Some((
+        Some((
             path.to_str()?.to_string(),
             offset - mapping.generated_utf8_pos + mapping.original_utf8_pos,
-        ));
+        ))
     }
 }
 
