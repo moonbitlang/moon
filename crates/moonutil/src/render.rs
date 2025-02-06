@@ -68,19 +68,24 @@ struct SourceMap {
 impl SourceMap {
     fn to_original(&self, offset: usize, base_path: &String) -> Option<(String, usize)> {
         let base_path = Path::new(base_path);
-        // TODO: perform binary search to improve performance
-        for mapping in &self.mappings {
-            if offset >= mapping.generated_utf8_pos
-                && offset <= mapping.generated_utf8_pos + mapping.utf8_length
-            {
-                let path = std::fs::canonicalize(base_path.parent()?.join(&mapping.source)).ok()?;
-                return Some((
-                    path.to_str()?.to_string(),
-                    offset - mapping.generated_utf8_pos + mapping.original_utf8_pos,
-                ));
-            }
-        }
-        None
+        let index = self
+            .mappings
+            .binary_search_by(|mapping| {
+                if offset < mapping.generated_utf8_pos {
+                    std::cmp::Ordering::Greater
+                } else if offset > mapping.generated_utf8_pos + mapping.utf8_length {
+                    std::cmp::Ordering::Less
+                } else {
+                    std::cmp::Ordering::Equal
+                }
+            })
+            .ok()?;
+        let mapping = &self.mappings[index];
+        let path = std::fs::canonicalize(base_path.parent()?.join(&mapping.source)).ok()?;
+        return Some((
+            path.to_str()?.to_string(),
+            offset - mapping.generated_utf8_pos + mapping.original_utf8_pos,
+        ));
     }
 }
 
