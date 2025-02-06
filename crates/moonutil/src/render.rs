@@ -165,6 +165,7 @@ impl MooncDiagnostic {
 
         // Remapping if there's .map.json file
         let path_to_map_json = source_file_path + ".map.json";
+        // TODO: log reasons for `.map.json` exists but not works.
         let mapped = std::fs::read_to_string(&path_to_map_json).map(
             |content| -> Option<(String, String, usize, usize)> {
                 let map: SourceMap = serde_json_lenient::from_str::<SourceMap>(&content).ok()?;
