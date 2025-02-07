@@ -2488,7 +2488,7 @@ fn test_backend_config() {
     )))
     .unwrap();
     assert!(out.contains(&format!(
-        "(export \"hello_{}\")",
+        "export \"hello_{}\"",
         TargetBackend::default().to_backend_ext().replace('-', "_")
     )));
     check(
