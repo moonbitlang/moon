@@ -107,7 +107,7 @@ fn run_single_mbt_file(cli: &UniversalFlags, cmd: RunSubcommand) -> anyhow::Resu
         .to_string());
 
     let output_wasm_or_js_path =
-        output_artifact_path.join(format!("{}.{}", file_name, target_backend.to_extension()));
+        output_artifact_path.join(format!("{}.{}", file_name, target_backend.to_artifact()));
 
     let pkg_name = "moon/run/single";
     let mut build_package_command = vec![
@@ -129,7 +129,7 @@ fn run_single_mbt_file(cli: &UniversalFlags, cmd: RunSubcommand) -> anyhow::Resu
     if cmd.build_flags.enable_value_tracing {
         build_package_command.push("-enable-value-tracing".to_string());
     }
-    let mut link_core_command = vec![
+    let link_core_command = vec![
         "link-core".to_string(),
         moonutil::moon_dir::core_core(target_backend)
             .display()
@@ -155,26 +155,35 @@ fn run_single_mbt_file(cli: &UniversalFlags, cmd: RunSubcommand) -> anyhow::Resu
         target_backend.to_flag().to_string(),
     ];
 
-    if target_backend == TargetBackend::Native {
+    let compile_exe_command = if target_backend == TargetBackend::Native {
         let moonc_path = which::which("moonc").context("moonc not found in PATH")?;
         let moon_home = moonc_path.parent().unwrap().parent().unwrap();
         let moon_include_path = moon_home.join("include");
         let moon_lib_path = moon_home.join("lib");
         let tcc_path = moon_home.join("bin").join("internal").join("tcc");
 
-        link_core_command.push("-cc".to_string());
-        link_core_command.push(tcc_path.display().to_string());
-        link_core_command.push("-cc-flags".to_string());
-        link_core_command.push(format!(
-            "-L{} -I{} -DMOONBIT_NATIVE_NO_SYS_HEADER",
-            moon_lib_path.display(),
-            moon_include_path.display()
-        ));
-    }
+        Some(vec![
+            tcc_path.display().to_string(),
+            output_wasm_or_js_path.display().to_string(),
+            format!("-L{} ", moon_lib_path.display()),
+            format!("-I{}", moon_include_path.display()),
+            "-DMOONBIT_NATIVE_NO_SYS_HEADER".to_string(),
+            "-o".to_string(),
+            output_wasm_or_js_path
+                .with_extension("exe")
+                .display()
+                .to_string(),
+        ])
+    } else {
+        None
+    };
 
     if cli.dry_run {
         println!("moonc {}", build_package_command.join(" "));
         println!("moonc {}", link_core_command.join(" "));
+        if let Some(compile_exe_command) = compile_exe_command {
+            println!("{}", compile_exe_command.join(" "));
+        }
         if !cmd.build_only {
             let runner = match target_backend {
                 TargetBackend::Wasm | TargetBackend::WasmGC => "moonrun",
@@ -208,6 +217,19 @@ fn run_single_mbt_file(cli: &UniversalFlags, cmd: RunSubcommand) -> anyhow::Resu
         bail!("failed to run: moonc {}", link_core_command.join(" "))
     }
 
+    if let Some(compile_exe_command) = compile_exe_command {
+        let compile_exe = std::process::Command::new(&compile_exe_command[0])
+            .args(&compile_exe_command[1..])
+            .stdout(std::process::Stdio::inherit())
+            .stderr(std::process::Stdio::inherit())
+            .spawn()?
+            .wait()?;
+
+        if !compile_exe.success() {
+            bail!("failed to run: {}", compile_exe_command.join(" "));
+        }
+    }
+
     if cmd.build_only {
         let test_artifacts = TestArtifacts {
             artifacts_path: vec![output_wasm_or_js_path],
@@ -223,9 +245,11 @@ fn run_single_mbt_file(cli: &UniversalFlags, cmd: RunSubcommand) -> anyhow::Resu
         TargetBackend::Js => {
             moonbuild::build::run_js(&output_wasm_or_js_path, &cmd.args, cli.verbose)
         }
-        TargetBackend::Native => {
-            moonbuild::build::run_native(&output_wasm_or_js_path, &cmd.args, cli.verbose)
-        }
+        TargetBackend::Native => moonbuild::build::run_native(
+            &output_wasm_or_js_path.with_extension("exe"),
+            &cmd.args,
+            cli.verbose,
+        ),
     })?;
 
     Ok(0)
