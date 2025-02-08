@@ -70,9 +70,9 @@ impl SourceMap {
         let index = self
             .mappings
             .binary_search_by(|mapping| {
-                if offset < mapping.generated_utf8_pos {
+                if offset < mapping.generated_offset {
                     std::cmp::Ordering::Greater
-                } else if offset > mapping.generated_utf8_pos + mapping.utf8_length {
+                } else if offset > mapping.generated_offset + mapping.length {
                     std::cmp::Ordering::Less
                 } else {
                     std::cmp::Ordering::Equal
@@ -83,7 +83,7 @@ impl SourceMap {
         let path = dunce::canonicalize(base_path.parent()?.join(&mapping.source)).ok()?;
         Some((
             path,
-            offset - mapping.generated_utf8_pos + mapping.original_utf8_pos,
+            offset - mapping.generated_offset + mapping.original_offset,
         ))
     }
 }
@@ -91,9 +91,9 @@ impl SourceMap {
 #[derive(Deserialize)]
 struct SourceMapping {
     source: String,
-    original_utf8_pos: usize,
-    generated_utf8_pos: usize,
-    utf8_length: usize,
+    original_offset: usize,
+    generated_offset: usize,
+    length: usize,
 }
 
 impl MooncDiagnostic {
