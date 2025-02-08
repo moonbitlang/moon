@@ -462,9 +462,11 @@ pub fn run_run(
         TargetBackend::Js => {
             crate::build::run_js(&wat_path, &moonbuild_opt.args, moonbuild_opt.verbose)
         }
-        TargetBackend::Native => {
-            crate::build::run_native(&wat_path, &moonbuild_opt.args, moonbuild_opt.verbose)
-        }
+        TargetBackend::Native => crate::build::run_native(
+            &wat_path.with_extension("exe"),
+            &moonbuild_opt.args,
+            moonbuild_opt.verbose,
+        ),
     })?;
     Ok(0)
 }
@@ -661,7 +663,7 @@ pub fn run_test(
         let current_pkg_test_info = convert_moonc_test_info(
             &test_info_file_dir,
             pkg,
-            moonc_opt.link_opt.output_format.to_str(),
+            moonc_opt.link_opt.target_backend.to_extension(),
             filter_file,
             moonbuild_opt.sort_input,
             &pkg.patch_file.clone().or(pkg.doc_test_patch_file.clone()),

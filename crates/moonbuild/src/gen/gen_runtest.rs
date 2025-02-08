@@ -21,8 +21,8 @@ use colored::Colorize;
 use indexmap::IndexMap;
 use log::info;
 use moonutil::common::{
-    get_desc_name, DriverKind, GeneratedTestDriver, BLACKBOX_TEST_PATCH, MOONBITLANG_CORE,
-    MOONBITLANG_COVERAGE, WHITEBOX_TEST_PATCH,
+    get_desc_name, DriverKind, GeneratedTestDriver, TargetBackend, BLACKBOX_TEST_PATCH,
+    MOONBITLANG_CORE, MOONBITLANG_COVERAGE, WHITEBOX_TEST_PATCH,
 };
 use moonutil::module::ModuleDB;
 use moonutil::package::Package;
@@ -41,6 +41,7 @@ use n2::graph::{self as n2graph, Build, BuildIns, BuildOuts, FileLoc};
 use n2::load::State;
 use n2::smallmap::SmallMap;
 
+use crate::gen::gen_build::gen_compile_exe_command;
 use crate::gen::n2_errors::{N2Error, N2ErrorKind};
 use crate::gen::{coverage_args, MiAlias};
 
@@ -594,7 +595,7 @@ fn get_package_sources(pkg_topo_order: &[&Package]) -> Vec<(String, String)> {
 pub fn gen_link_internal_test(
     m: &ModuleDB,
     pkg: &Package,
-    _moonc_opt: &MooncOpt,
+    moonc_opt: &MooncOpt,
 ) -> anyhow::Result<RuntestLinkDepItem> {
     let out = pkg
         .artifact
@@ -626,13 +627,14 @@ pub fn gen_link_internal_test(
         link: pkg.link.clone(),
         install_path: None,
         bin_name: None,
+        need_compile_native: moonc_opt.link_opt.target_backend == TargetBackend::Native,
     })
 }
 
 pub fn gen_link_whitebox_test(
     m: &ModuleDB,
     pkg: &Package,
-    _moonc_opt: &MooncOpt,
+    moonc_opt: &MooncOpt,
 ) -> anyhow::Result<RuntestLinkDepItem> {
     let out = pkg
         .artifact
@@ -665,13 +667,14 @@ pub fn gen_link_whitebox_test(
         link: pkg.link.clone(),
         install_path: None,
         bin_name: None,
+        need_compile_native: moonc_opt.link_opt.target_backend == TargetBackend::Native,
     })
 }
 
 pub fn gen_link_blackbox_test(
     m: &ModuleDB,
     pkg: &Package,
-    _moonc_opt: &MooncOpt,
+    moonc_opt: &MooncOpt,
 ) -> anyhow::Result<RuntestLinkDepItem> {
     let pkgname = pkg.artifact.file_stem().unwrap().to_str().unwrap();
     let out = pkg
@@ -721,6 +724,7 @@ pub fn gen_link_blackbox_test(
         link: pkg.link.clone(),
         install_path: None,
         bin_name: None,
+        need_compile_native: moonc_opt.link_opt.target_backend == TargetBackend::Native,
     })
 }
 
@@ -994,10 +998,6 @@ pub fn gen_runtest_link_command(
 
     let mut build = Build::new(loc, ins, outs);
 
-    let native_cc = item.native_cc(moonc_opt.link_opt.target_backend);
-    let native_cc_flags = item.native_cc_flags(moonc_opt.link_opt.target_backend);
-    let native_cc_link_flags = item.native_cc_link_flags(moonc_opt.link_opt.target_backend);
-
     let (debug_flag, strip_flag) = (
         moonc_opt.build_opt.debug_flag,
         moonc_opt.build_opt.strip_flag,
@@ -1050,21 +1050,6 @@ pub fn gen_runtest_link_command(
         .arg_with_cond(!debug_flag && !strip_flag, "-g")
         // .arg_with_cond(!debug_flag && strip_flag, "")
         .arg_with_cond(moonc_opt.link_opt.source_map, "-source-map")
-        .lazy_args_with_cond(native_cc.is_some(), || {
-            vec!["-cc".to_string(), native_cc.unwrap().to_string()]
-        })
-        .lazy_args_with_cond(native_cc_flags.is_some(), || {
-            vec![
-                "-cc-flags".to_string(),
-                native_cc_flags.unwrap().to_string(),
-            ]
-        })
-        .lazy_args_with_cond(native_cc_link_flags.is_some(), || {
-            vec![
-                "-cc-link-flags".to_string(),
-                native_cc_link_flags.unwrap().to_string(),
-            ]
-        })
         .args(moonc_opt.extra_link_opt.iter())
         .build();
     log::debug!("Command: {}", command);
@@ -1093,8 +1078,15 @@ pub fn gen_n2_runtest_state(
     }
     for item in input.link_items.iter() {
         let (build, fid) = gen_runtest_link_command(&mut graph, item, moonc_opt);
-        default.push(fid);
+        let mut default_fid = fid;
         graph.add_build(build)?;
+
+        if item.need_compile_native {
+            let (build, fid) = gen_compile_exe_command(&mut graph, item, moonc_opt);
+            default_fid = fid;
+            graph.add_build(build)?;
+        }
+        default.push(default_fid);
     }
     for item in input.test_drivers.iter() {
         let build = gen_generate_test_driver_command(&mut graph, item, moonc_opt, moonbuild_opt);

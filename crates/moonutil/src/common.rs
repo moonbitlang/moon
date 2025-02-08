@@ -208,7 +208,7 @@ impl OutputFormat {
             OutputFormat::Wat => "wat",
             OutputFormat::Wasm => "wasm",
             OutputFormat::Js => "js",
-            OutputFormat::Native => "exe",
+            OutputFormat::Native => "c",
         }
     }
 }
@@ -282,6 +282,15 @@ impl TargetBackend {
             Self::WasmGC => "wasm",
             Self::Js => "js",
             Self::Native => "exe",
+        }
+    }
+
+    pub fn to_artifact(self) -> &'static str {
+        match self {
+            Self::Wasm => "wasm",
+            Self::WasmGC => "wasm",
+            Self::Js => "js",
+            Self::Native => "c",
         }
     }
 
