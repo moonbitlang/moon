@@ -521,8 +521,8 @@ pub fn gen_compile_exe_command(
 
     let command = CommandBuilder::new(native_cc)
         .arg(&c_artifact_path)
-        .args_with_cond(native_cc_flags.len() > 0, native_cc_flags)
-        .args_with_cond(native_cc_link_flags.len() > 0, native_cc_link_flags)
+        .args_with_cond(!native_cc_flags.is_empty(), native_cc_flags)
+        .args_with_cond(!native_cc_link_flags.is_empty(), native_cc_link_flags)
         .arg("-o")
         .arg(&artifact_output_path)
         .build();

@@ -165,7 +165,7 @@ fn run_single_mbt_file(cli: &UniversalFlags, cmd: RunSubcommand) -> anyhow::Resu
         Some(vec![
             tcc_path.display().to_string(),
             output_wasm_or_js_path.display().to_string(),
-            format!("-L{} ", moon_lib_path.display()),
+            format!("-L{}", moon_lib_path.display()),
             format!("-I{}", moon_include_path.display()),
             "-DMOONBIT_NATIVE_NO_SYS_HEADER".to_string(),
             "-o".to_string(),
