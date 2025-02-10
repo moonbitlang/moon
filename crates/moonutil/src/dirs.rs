@@ -190,16 +190,15 @@ fn get_project_files(
     dir: &Path,
     pkg_files: &mut Vec<String>,
     mbt_files: &mut Vec<String>,
-    root: bool,
 ) -> anyhow::Result<()> {
     for entry in fs::read_dir(dir)? {
         let entry = entry?;
         let path = entry.path();
         if path.is_dir() {
-            if root && IGNORE_DIRS.contains(&path.file_name().unwrap().to_str().unwrap()) {
+            if IGNORE_DIRS.contains(&path.file_name().unwrap().to_str().unwrap()) {
                 continue;
             }
-            get_project_files(&path, pkg_files, mbt_files, false)?;
+            get_project_files(&path, pkg_files, mbt_files)?;
         } else if let Some(extension) = path.extension() {
             if let Some(filename) = path.file_name() {
                 if extension == "mbt" {
@@ -245,7 +244,7 @@ pub fn recreate_moon_db(source_dir: &Path, target_dir: &Path) -> anyhow::Result<
 fn get_fingerprint(source_dir: &Path) -> Fingerprint {
     let mut pkg_files = vec![];
     let mut mbt_files = vec![];
-    get_project_files(source_dir, &mut pkg_files, &mut mbt_files, true).unwrap();
+    get_project_files(source_dir, &mut pkg_files, &mut mbt_files).unwrap();
     _get_fingerprint(&mbt_files, &pkg_files)
 }
 
