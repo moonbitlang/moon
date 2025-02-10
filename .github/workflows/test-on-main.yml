@@ -200,7 +200,7 @@ jobs:
       - name: upload success status（Windows）
         if: ${{ success() && matrix.os == 'windows-latest' }}
         run: |
-          aws s3 cp - s3://cli.moonbitlang.com/moon-ci/test-on-main-windows-status --content-type text/plain <<< "success"
+          "success" | aws s3 cp - s3://cli.moonbitlang.com/moon-ci/test-on-main-windows-status --content-type text/plain
 
       - name: upload success status（Unix）
         if: ${{ success() && matrix.os != 'windows-latest' }}
