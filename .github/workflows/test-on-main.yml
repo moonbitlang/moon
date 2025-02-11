@@ -38,6 +38,9 @@ jobs:
       AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
       AWS_DEFAULT_REGION: ${{ secrets.AWS_DEFAULT_REGION }}
     steps:
+      - name: Configure git
+        run: git config --global core.autocrlf false
+
       - uses: actions/checkout@v4
 
       - name: Checkout moonc-version
@@ -206,3 +209,7 @@ jobs:
         if: ${{ success() && matrix.os != 'windows-latest' }}
         run: |
           aws s3 cp - s3://cli.moonbitlang.com/moon-ci/test-on-main-unix-status --content-type text/plain <<< "success"
+
+      - name: refresh cloudfront
+        run: |
+          aws cloudfront create-invalidation --distribution-id E1KQYZEVEB0TAY --paths "/*"
