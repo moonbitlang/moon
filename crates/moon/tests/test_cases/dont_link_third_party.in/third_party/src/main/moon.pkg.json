@@ -1,0 +1,6 @@
+{
+  "is-main": true,
+  "import": [
+    "username/third_party/lib"
+  ]
+}
