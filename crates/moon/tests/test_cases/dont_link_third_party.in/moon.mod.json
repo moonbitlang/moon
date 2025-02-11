@@ -1,0 +1,8 @@
+{
+  "name": "hello",
+  "deps": {
+    "username/third_party": {
+        "path": "./third_party"
+    }
+  }
+}

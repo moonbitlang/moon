@@ -29,7 +29,7 @@ pub fn moon_bin() -> PathBuf {
     snapbox::cmd::cargo_bin("moon")
 }
 
-pub fn replace_dir(s: &str, dir: &impl AsRef<std::path::Path>) -> String {
+pub fn replace_dir(s: &str, dir: impl AsRef<std::path::Path>) -> String {
     let path_str1 = dunce::canonicalize(dir)
         .unwrap()
         .to_str()

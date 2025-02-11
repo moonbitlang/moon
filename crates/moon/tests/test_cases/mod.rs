@@ -5166,7 +5166,7 @@ fn test_third_party() {
     );
 
     let actual = get_stderr(&dir, ["build"]);
-    assert!(actual.contains("moon: ran 5 tasks, now up to date"));
+    assert!(actual.contains("moon: ran 3 tasks, now up to date"));
 
     let actual = get_stdout(&dir, ["run", "main"]);
     assert!(actual.contains("Hello, world!"));
@@ -5190,10 +5190,6 @@ fn test_moonbitlang_x() {
             moonc build-package ./src/lib/hello.mbt -o ./target/wasm-gc/release/build/lib/lib.core -pkg username/hello/lib -std-path $MOON_HOME/lib/core/target/wasm-gc/release/bundle -i ./target/wasm-gc/release/build/.mooncakes/moonbitlang/x/stack/stack.mi:stack -pkg-sources username/hello/lib:./src/lib -target wasm-gc
             moonc build-package ./src/main/main.mbt -o ./target/wasm-gc/release/build/main/main.core -pkg username/hello/main -is-main -std-path $MOON_HOME/lib/core/target/wasm-gc/release/bundle -i ./target/wasm-gc/release/build/lib/lib.mi:lib -i ./target/wasm-gc/release/build/.mooncakes/moonbitlang/x/stack/stack.mi:stack -pkg-sources username/hello/main:./src/main -target wasm-gc
             moonc link-core $MOON_HOME/lib/core/target/wasm-gc/release/bundle/core.core ./target/wasm-gc/release/build/.mooncakes/moonbitlang/x/stack/stack.core ./target/wasm-gc/release/build/lib/lib.core ./target/wasm-gc/release/build/main/main.core -main username/hello/main -o ./target/wasm-gc/release/build/main/main.wasm -pkg-config-path ./src/main/moon.pkg.json -pkg-sources moonbitlang/x/stack:./.mooncakes/moonbitlang/x/stack -pkg-sources username/hello/lib:./src/lib -pkg-sources username/hello/main:./src/main -pkg-sources moonbitlang/core:$MOON_HOME/lib/core -target wasm-gc
-            moonc build-package ./.mooncakes/moonbitlang/x/internal/ffi/byte_array_wasm.mbt ./.mooncakes/moonbitlang/x/internal/ffi/dir_wasm.mbt ./.mooncakes/moonbitlang/x/internal/ffi/string_wasm.mbt -w -29 -o ./target/wasm-gc/release/build/.mooncakes/moonbitlang/x/internal/ffi/ffi.core -pkg moonbitlang/x/internal/ffi -std-path $MOON_HOME/lib/core/target/wasm-gc/release/bundle -pkg-sources moonbitlang/x/internal/ffi:./.mooncakes/moonbitlang/x/internal/ffi -target wasm-gc
-            moonc build-package ./.mooncakes/moonbitlang/x/fs/internal/ffi/fs_wasm.mbt -w -29 -o ./target/wasm-gc/release/build/.mooncakes/moonbitlang/x/fs/internal/ffi/ffi.core -pkg moonbitlang/x/fs/internal/ffi -std-path $MOON_HOME/lib/core/target/wasm-gc/release/bundle -i ./target/wasm-gc/release/build/.mooncakes/moonbitlang/x/internal/ffi/ffi.mi:ffi -pkg-sources moonbitlang/x/fs/internal/ffi:./.mooncakes/moonbitlang/x/fs/internal/ffi -target wasm-gc
-            moonc build-package ./.mooncakes/moonbitlang/x/fs/fs.mbt -w -29 -o ./target/wasm-gc/release/build/.mooncakes/moonbitlang/x/fs/fs.core -pkg moonbitlang/x/fs -std-path $MOON_HOME/lib/core/target/wasm-gc/release/bundle -i ./target/wasm-gc/release/build/.mooncakes/moonbitlang/x/fs/internal/ffi/ffi.mi:ffi -pkg-sources moonbitlang/x/fs:./.mooncakes/moonbitlang/x/fs -target wasm-gc
-            moonc link-core $MOON_HOME/lib/core/target/wasm-gc/release/bundle/core.core ./target/wasm-gc/release/build/.mooncakes/moonbitlang/x/internal/ffi/ffi.core ./target/wasm-gc/release/build/.mooncakes/moonbitlang/x/fs/internal/ffi/ffi.core ./target/wasm-gc/release/build/.mooncakes/moonbitlang/x/fs/fs.core -main moonbitlang/x/fs -o ./target/wasm-gc/release/build/.mooncakes/moonbitlang/x/fs/fs.wasm -pkg-config-path ./.mooncakes/moonbitlang/x/fs/moon.pkg.json -pkg-sources moonbitlang/x/internal/ffi:./.mooncakes/moonbitlang/x/internal/ffi -pkg-sources moonbitlang/x/fs/internal/ffi:./.mooncakes/moonbitlang/x/fs/internal/ffi -pkg-sources moonbitlang/x/fs:./.mooncakes/moonbitlang/x/fs -pkg-sources moonbitlang/core:$MOON_HOME/lib/core -target wasm-gc
         "#]],
     );
 
@@ -8492,7 +8488,7 @@ fn test_moon_install_bin() {
             lib Hello, world!
             ()
             Executed 1 pre-build task, now up to date
-            Finished. moon: ran 17 tasks, now up to date
+            Finished. moon: ran 3 tasks, now up to date
         "#]],
     );
 }
@@ -8712,6 +8708,19 @@ fn test_diag_loc_map() {
                     wanted   : Int
             ────╯
             error: failed when checking
+        "#]],
+    );
+}
+
+#[test]
+fn test_dont_link_third_party() {
+    let dir = TestDir::new("dont_link_third_party.in");
+
+    check(
+        get_stdout(&dir, ["build", "--dry-run", "--sort-input"]),
+        expect![[r#"
+            moonc build-package ./main/main.mbt -o ./target/wasm-gc/release/build/main/main.core -pkg hello/main -is-main -std-path $MOON_HOME/lib/core/target/wasm-gc/release/bundle -pkg-sources hello/main:./main -target wasm-gc
+            moonc link-core $MOON_HOME/lib/core/target/wasm-gc/release/bundle/core.core ./target/wasm-gc/release/build/main/main.core -main hello/main -o ./target/wasm-gc/release/build/main/main.wasm -pkg-config-path ./main/moon.pkg.json -pkg-sources hello/main:./main -pkg-sources moonbitlang/core:$MOON_HOME/lib/core -target wasm-gc
         "#]],
     );
 }

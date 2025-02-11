@@ -169,22 +169,11 @@ pub fn gen_build(
     for (_, pkg) in pkgs_to_build {
         let is_main = pkg.is_main;
 
-        if is_main {
-            // entry also need build
-            build_items.push(gen_build_build_item(m, pkg, moonc_opt)?);
+        build_items.push(gen_build_build_item(m, pkg, moonc_opt)?);
+
+        if (is_main || pkg.need_link) && !pkg.is_third_party {
             // link need add *.core files recursively
             link_items.push(gen_build_link_item(m, pkg, moonc_opt)?);
-            continue;
-        }
-
-        if pkg.need_link {
-            build_items.push(gen_build_build_item(m, pkg, moonc_opt)?);
-            link_items.push(gen_build_link_item(m, pkg, moonc_opt)?);
-            continue;
-        }
-
-        {
-            build_items.push(gen_build_build_item(m, pkg, moonc_opt)?);
         }
     }
     Ok(N2BuildInput {
