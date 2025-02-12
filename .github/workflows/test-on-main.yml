@@ -185,17 +185,17 @@ jobs:
           last_status=$(curl -s "https://cli.moonbitlang.com/moon-ci/test-on-main-unix-status")
           echo "last_status: $last_status"
           if [ "$last_status" = "success" ]; then
-            aws s3 cp - s3://cli.moonbitlang.com/moon-ci/test-on-main-unix-status --content-type text/plain <<< "failed"
-            curl "https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=$WECOM_ROBOT_KEY" \
-              -H 'Content-Type: application/json' \
-              -d @- <<REQUEST_BODY
-              {
-                "msgtype": "text",
-                "text": {
-                  "content": "🤣 moon ci on ${{matrix.os}} failed: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }} moonc version: $(cat moonc_version.txt)"
-                }
+          aws s3 cp - s3://cli.moonbitlang.com/moon-ci/test-on-main-unix-status --content-type text/plain <<< "failed"
+          curl "https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=$WECOM_ROBOT_KEY" \
+            -H 'Content-Type: application/json' \
+            -d @- <<REQUEST_BODY
+            {
+              "msgtype": "text",
+              "text": {
+                "content": "🤣 moon ci on ${{matrix.os}} failed: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }} moonc version: $(cat moonc_version.txt)"
               }
-              REQUEST_BODY
+            }
+            REQUEST_BODY
           else
             exit 0
           fi
