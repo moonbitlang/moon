@@ -85,6 +85,8 @@ pub struct Package {
     pub bin_target: TargetBackend,
 
     pub enable_value_tracing: bool,
+
+    pub supported_backends: HashSet<TargetBackend>,
 }
 
 impl Package {
@@ -256,6 +258,11 @@ pub struct MoonPkgJSON {
     #[serde(alias = "bin-target")]
     #[schemars(rename = "bin-target")]
     pub bin_target: Option<String>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(alias = "supported-backends")]
+    #[schemars(rename = "supported-backends")]
+    pub supported_backends: Option<Vec<String>>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, JsonSchema)]
@@ -544,6 +551,8 @@ pub struct MoonPkg {
 
     pub bin_name: Option<String>,
     pub bin_target: TargetBackend,
+
+    pub supported_backends: HashSet<TargetBackend>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -700,6 +709,21 @@ pub fn convert_pkg_json_to_package(j: MoonPkgJSON) -> anyhow::Result<MoonPkg> {
         TargetBackend::WasmGC
     };
 
+    let mut supported_backends = HashSet::new();
+    if let Some(ref b) = j.supported_backends {
+        for backend in b.iter() {
+            supported_backends.insert(TargetBackend::str_to_backend(backend)?);
+        }
+    } else {
+        // if supported_backends in moon.pkg.json is not set, then set it to all backends
+        supported_backends.extend(vec![
+            TargetBackend::Wasm,
+            TargetBackend::WasmGC,
+            TargetBackend::Js,
+            TargetBackend::Native,
+        ]);
+    };
+
     let result = MoonPkg {
         name: None,
         is_main,
@@ -718,6 +742,7 @@ pub fn convert_pkg_json_to_package(j: MoonPkgJSON) -> anyhow::Result<MoonPkg> {
         pre_build: j.pre_build,
         bin_name: j.bin_name,
         bin_target,
+        supported_backends,
     };
     Ok(result)
 }

@@ -372,6 +372,7 @@ fn scan_one_package(
         bin_name: pkg.bin_name,
         bin_target: pkg.bin_target,
         enable_value_tracing: false,
+        supported_backends: pkg.supported_backends,
     };
     if doc_mode {
         // -o <folder>
@@ -527,6 +528,9 @@ pub fn scan(
     );
 
     module.validate()?;
+
+    // todo: if there are only one backend and target backend is not specified by user, set it as the default backend?
+    let _ = module.get_project_supported_backends(moonc_opt.build_opt.target_backend)?;
 
     // log::debug!("{:#?}", module);
     // log::debug!(

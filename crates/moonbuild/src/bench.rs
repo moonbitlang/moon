@@ -113,6 +113,7 @@ pub fn f() -> Unit {{
                 pre_build: None,
                 bin_name: None,
                 bin_target: None,
+                supported_backends: None,
             };
             moonutil::common::write_package_json_to_file(&pkg, &moon_pkg).unwrap();
         }
@@ -202,6 +203,7 @@ pub fn write(config: &Config, base_dir: &Path) {
         pre_build: None,
         bin_name: None,
         bin_target: None,
+        supported_backends: None,
     };
 
     moonutil::common::write_package_json_to_file(&pkg, &base_dir.join("main").join(MOON_PKG_JSON))

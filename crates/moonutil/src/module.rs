@@ -16,7 +16,9 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
-use crate::common::{MoonModJSONFormatErrorKind, MooncOpt, NameError, MOON_PKG_JSON};
+use crate::common::{
+    MoonModJSONFormatErrorKind, MooncOpt, NameError, TargetBackend, MOON_PKG_JSON,
+};
 use crate::dependency::{
     BinaryDependencyInfo, BinaryDependencyInfoJson, SourceDependencyInfo, SourceDependencyInfoJson,
 };
@@ -28,7 +30,7 @@ use petgraph::graph::DiGraph;
 use schemars::JsonSchema;
 use semver::Version;
 use serde::{Deserialize, Serialize};
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::fmt::Debug;
 use std::path::{Path, PathBuf};
 
@@ -93,6 +95,66 @@ impl ModuleDB {
 
     pub fn get_package_by_path(&self, path: &Path) -> Option<&Package> {
         self.packages.values().find(|it| it.root_path == path)
+    }
+
+    fn get_entry_pkgs(&self) -> Vec<&Package> {
+        let mut dependent_pkgs = HashSet::<String>::new();
+
+        for (_, pkg) in self.packages.iter() {
+            let mut deps = HashSet::new();
+            self.resolve_deps_of_pkg(pkg, &mut deps);
+            for dep in deps.iter() {
+                dependent_pkgs.insert(dep.clone());
+            }
+        }
+
+        self.packages
+            .iter()
+            .filter(|(_, pkg)| !dependent_pkgs.contains(&pkg.full_name()))
+            .map(|(_, pkg)| pkg)
+            .collect()
+    }
+
+    pub fn get_project_supported_backends(&self, cur_target_backend: TargetBackend) -> anyhow::Result<HashSet<TargetBackend>> {
+        let mut project_supported_backends = HashSet::from_iter(vec![
+            TargetBackend::WasmGC,
+            TargetBackend::Wasm,
+            TargetBackend::Native,
+            TargetBackend::Js,
+        ]);
+
+        for entry_pkg in self.get_entry_pkgs() {
+            let mut cut_deps_chain_supported_backends = entry_pkg.supported_backends.clone();
+
+            let mut deps_of_current_pkg =
+                self.get_filtered_packages_and_its_deps_by_pkgname(&entry_pkg.full_name())?;
+            // remove the current entry_pkg from the deps
+            deps_of_current_pkg.swap_remove(&entry_pkg.full_name());
+
+            for (dep_pkg_name, dep_pkg) in deps_of_current_pkg.iter() {
+                let dep_pkg_supported_backends = &dep_pkg.supported_backends;
+
+                cut_deps_chain_supported_backends = cut_deps_chain_supported_backends
+                    .intersection(dep_pkg_supported_backends)
+                    .cloned()
+                    .collect();
+
+                if cut_deps_chain_supported_backends.is_empty() {
+                    bail!("package `{}` supports backends `{:?}`, while its dep `{}` supports backends `{:?}`", entry_pkg.full_name(), entry_pkg.supported_backends, dep_pkg_name, dep_pkg_supported_backends);
+                }
+
+                if !cut_deps_chain_supported_backends.contains(&cur_target_backend) {
+                    bail!("package `{}` supports backends `{:?}` in current deps chain, while the current target backend is `{:?}`", entry_pkg.full_name(), cut_deps_chain_supported_backends, cur_target_backend);
+                }
+            }
+
+            project_supported_backends = project_supported_backends
+                .intersection(&cut_deps_chain_supported_backends)
+                .cloned()
+                .collect();
+        }
+
+        Ok(project_supported_backends)
     }
 
     pub fn get_topo_pkgs(&self) -> anyhow::Result<Vec<&Package>> {
