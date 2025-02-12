@@ -1,0 +1,10 @@
+{
+  "is-main": true,
+  "import": [
+    "username/hello2/lib"
+  ],
+  "supported-backends": [
+    "wasm-gc", 
+    "js"
+  ]
+}

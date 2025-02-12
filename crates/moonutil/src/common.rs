@@ -266,6 +266,12 @@ pub enum TargetBackend {
     Native,
 }
 
+impl std::fmt::Display for TargetBackend {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.to_flag())
+    }
+}
+
 impl TargetBackend {
     pub fn to_flag(self) -> &'static str {
         match self {
@@ -323,6 +329,12 @@ impl TargetBackend {
                 s
             ),
         }
+    }
+
+    pub fn hashset_to_string(backends: &HashSet<TargetBackend>) -> Vec<&str> {
+        let mut backends = backends.iter().map(|b| b.to_flag()).collect::<Vec<_>>();
+        backends.sort();
+        backends
     }
 }
 
