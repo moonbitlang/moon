@@ -30,7 +30,7 @@ use petgraph::graph::DiGraph;
 use schemars::JsonSchema;
 use semver::Version;
 use serde::{Deserialize, Serialize};
-use std::collections::{HashMap, HashSet};
+use std::collections::HashSet;
 use std::fmt::Debug;
 use std::path::{Path, PathBuf};
 
@@ -115,7 +115,10 @@ impl ModuleDB {
             .collect()
     }
 
-    pub fn get_project_supported_backends(&self, cur_target_backend: TargetBackend) -> anyhow::Result<HashSet<TargetBackend>> {
+    pub fn get_project_supported_backends(
+        &self,
+        cur_target_backend: TargetBackend,
+    ) -> anyhow::Result<HashSet<TargetBackend>> {
         let mut project_supported_backends = HashSet::from_iter(vec![
             TargetBackend::WasmGC,
             TargetBackend::Wasm,
@@ -140,11 +143,11 @@ impl ModuleDB {
                     .collect();
 
                 if cut_deps_chain_supported_backends.is_empty() {
-                    bail!("package `{}` supports backends `{:?}`, while its dep `{}` supports backends `{:?}`", entry_pkg.full_name(), entry_pkg.supported_backends, dep_pkg_name, dep_pkg_supported_backends);
+                    bail!("package `{}` supports backends `{:?}`, while its dep `{}` supports backends `{:?}`", entry_pkg.full_name(), TargetBackend::hashset_to_string(&entry_pkg.supported_backends), dep_pkg_name, TargetBackend::hashset_to_string(dep_pkg_supported_backends));
                 }
 
                 if !cut_deps_chain_supported_backends.contains(&cur_target_backend) {
-                    bail!("package `{}` supports backends `{:?}` in current deps chain, while the current target backend is `{:?}`", entry_pkg.full_name(), cut_deps_chain_supported_backends, cur_target_backend);
+                    bail!("package `{}` supports backends `{:?}` in current deps chain, while the current target backend is `{}`", entry_pkg.full_name(), TargetBackend::hashset_to_string(&cut_deps_chain_supported_backends), cur_target_backend);
                 }
             }
 
