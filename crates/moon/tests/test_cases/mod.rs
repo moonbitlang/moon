@@ -8765,3 +8765,15 @@ fn test_supported_backends_in_pkg_json() {
         "#]],
     );
 }
+
+#[test]
+fn test_update_expect_failed() {
+    let dir = TestDir::new("update_expect_failed.in");
+    let out = get_err_stderr(&dir, ["test", "-u", "--limit", "5"]);
+    let count = out
+        .lines()
+        .filter(|line| line.contains("invalid escape"))
+        .count()
+        .to_string();
+    check(count, expect!["5"])
+}
