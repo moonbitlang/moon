@@ -1110,6 +1110,7 @@ async fn handle_test_result(
                             origin_err.is_doc_test,
                         ) {
                             eprintln!("{}: {:?}", "failed".red().bold(), e);
+                            break;
                         }
                         // if is doc test, after apply_expect, we need to update the doc test patch file
                         if origin_err.is_doc_test {
