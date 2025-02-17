@@ -54,6 +54,11 @@ pub struct InfoSubcommand {
     /// Select output target
     #[clap(long, value_delimiter = ',')]
     pub target: Option<Vec<SurfaceTarget>>,
+
+    /// only emit mbti files for the specified package
+    // (username/hello/lib)
+    #[clap(short, long)]
+    pub package: Option<String>,
 }
 
 pub fn run_info(cli: UniversalFlags, cmd: InfoSubcommand) -> anyhow::Result<i32> {
@@ -90,7 +95,7 @@ pub fn run_info(cli: UniversalFlags, cmd: InfoSubcommand) -> anyhow::Result<i32>
         let mut x = handle
             .join()
             .unwrap()
-            .context(format!("failed to run check for target {:?}", backend))?;
+            .context(format!("failed to run moon info for target {:?}", backend))?;
         x.sort_by(|a, b| a.0.cmp(&b.0));
         mbti_files_for_targets.push((backend, x));
     }
@@ -204,7 +209,7 @@ pub fn run_info_internal(
         parallelism: None,
     };
 
-    let module = scan_with_pre_build(
+    let mdb = scan_with_pre_build(
         false,
         &moonc_opt,
         &moonbuild_opt,
@@ -212,20 +217,13 @@ pub fn run_info_internal(
         &dir_sync_result,
     )?;
 
-    let check_result = moonbuild::entry::run_check(&moonc_opt, &moonbuild_opt, &module);
+    let check_result = moonbuild::entry::run_check(&moonc_opt, &moonbuild_opt, &mdb);
     match check_result {
         Ok(0) => {}
         _ => {
             bail!("moon check failed");
         }
     }
-    let mdb = moonutil::scan::scan(
-        false,
-        &resolved_env,
-        &dir_sync_result,
-        &moonc_opt,
-        &moonbuild_opt,
-    )?;
 
     let runtime = tokio::runtime::Runtime::new()?;
     let mut handlers = vec![];
@@ -235,7 +233,24 @@ pub fn run_info_internal(
     };
 
     let mbti_files = Arc::new(Mutex::new(vec![]));
-    for (name, pkg) in mdb.get_all_packages() {
+
+    if let Some(pkg_name) = &cmd.package {
+        if mdb.get_package_by_name_safe(pkg_name).is_none() {
+            bail!("package `{}` not found, make sure you have spelled it correctly, e.g. `moonbitlang/core/hashmap`", pkg_name);
+        }
+    }
+    let packages_to_emit_mbti = mdb.get_all_packages().iter().filter_map(|(name, pkg)| {
+        match &cmd.package {
+            // if specified package name, only return the specified package
+            Some(pkg_name) if name == pkg_name => Some((name, pkg)),
+            // if specified package name but not match, return None
+            Some(_) => None,
+            // if not specified package name, return all packages
+            None => Some((name, pkg)),
+        }
+    });
+
+    for (name, pkg) in packages_to_emit_mbti {
         // Skip if pkg is not part of the module
         if pkg.is_third_party {
             continue;

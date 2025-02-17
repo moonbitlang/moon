@@ -8659,6 +8659,17 @@ fn test_diff_mbti() {
 }
 
 #[test]
+fn moon_info_specific_package() {
+    let dir = TestDir::new("moon_new.in");
+    get_stdout(&dir, ["info", "--package", "moon_new/main"]);
+    assert!(dir.join("main/main.mbt").exists());
+    assert!(!dir.join("lib/lib.mbt").exists());
+
+    let content = get_err_stderr(&dir, ["info", "--package", "moon_new/does_not_exist"]);
+    assert!(content.contains("package `moon_new/does_not_exist` not found, make sure you have spelled it correctly, e.g. `moonbitlang/core/hashmap`"));
+}
+
+#[test]
 fn test_exports_in_native_backend() {
     let dir = TestDir::new("native_exports.in");
     let _ = get_stdout(&dir, ["build", "--target", "native"]);

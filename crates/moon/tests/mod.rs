@@ -146,6 +146,7 @@ pub fn get_stderr(
     replace_dir(&s, dir)
 }
 
+#[track_caller]
 pub fn get_err_stdout(
     dir: &impl AsRef<std::path::Path>,
     args: impl IntoIterator<Item = impl AsRef<std::ffi::OsStr>>,
@@ -154,6 +155,7 @@ pub fn get_err_stdout(
     replace_dir(&s, dir)
 }
 
+#[track_caller]
 pub fn get_err_stderr(
     dir: &impl AsRef<std::path::Path>,
     args: impl IntoIterator<Item = impl AsRef<std::ffi::OsStr>>,
