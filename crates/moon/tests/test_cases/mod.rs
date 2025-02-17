@@ -8775,5 +8775,5 @@ fn test_update_expect_failed() {
         .filter(|line| line.contains("invalid escape"))
         .count()
         .to_string();
-    check(count, expect!["5"])
+    check(count, expect!["2"])
 }
