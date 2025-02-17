@@ -331,10 +331,13 @@ impl TargetBackend {
         }
     }
 
-    pub fn hashset_to_string(backends: &HashSet<TargetBackend>) -> Vec<&str> {
-        let mut backends = backends.iter().map(|b| b.to_flag()).collect::<Vec<_>>();
+    pub fn hashset_to_string(backends: &HashSet<TargetBackend>) -> String {
+        let mut backends = backends
+            .iter()
+            .map(|b| b.to_flag().to_string())
+            .collect::<Vec<_>>();
         backends.sort();
-        backends
+        format!("[{}]", backends.join(", "))
     }
 }
 

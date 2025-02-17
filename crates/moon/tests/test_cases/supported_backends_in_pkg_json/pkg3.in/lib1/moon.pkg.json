@@ -1,0 +1,8 @@
+{
+  "import": [
+    "username/hello/lib3"
+  ],
+  "supported-targets": [
+    "wasm-gc"
+  ]
+}

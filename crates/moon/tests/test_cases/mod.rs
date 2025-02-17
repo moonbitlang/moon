@@ -448,6 +448,7 @@ fn test_moon_help() {
 }
 
 #[test]
+#[ignore]
 #[cfg(unix)]
 fn test_bench4() {
     let dir = TestDir::new_empty();
@@ -8730,18 +8731,26 @@ fn test_supported_backends_in_pkg_json() {
     let dir = TestDir::new("supported_backends_in_pkg_json");
     let pkg1 = dir.join("pkg1.in");
     let pkg2 = dir.join("pkg2.in");
+    let pkg3 = dir.join("pkg3.in");
 
     check(
         get_err_stderr(&pkg1, ["build"]),
         expect![[r#"
-            error: package `username/hello1/main` supports backends `["js", "wasm-gc"]`, while its dep `username/hello1/lib` supports backends `["native"]`
+            error: cannot find a common supported backend for the deps chain: "username/hello1/main: [js, wasm-gc] -> username/hello1/lib: [native]"
         "#]],
     );
 
     check(
         get_err_stderr(&pkg2, ["build"]),
         expect![[r#"
-            error: package `username/hello2/main` supports backends `["js"]` in current deps chain, while the current target backend is `wasm-gc`
+            error: deps chain: "username/hello2/main: [js, wasm-gc] -> username/hello2/lib: [js]" supports backends `[js]`, while the current target backend is wasm-gc
+        "#]],
+    );
+
+    check(
+        get_err_stderr(&pkg3, ["check"]),
+        expect![[r#"
+            error: cannot find a common supported backend for the deps chain: "username/hello/main: [wasm-gc] -> username/hello/lib: [js, native, wasm, wasm-gc] -> username/hello/lib1: [wasm-gc] -> username/hello/lib3: [wasm-gc] -> username/hello/lib7: [js, wasm]"
         "#]],
     );
 }

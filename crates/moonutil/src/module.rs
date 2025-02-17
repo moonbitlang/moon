@@ -30,7 +30,7 @@ use petgraph::graph::DiGraph;
 use schemars::JsonSchema;
 use semver::Version;
 use serde::{Deserialize, Serialize};
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::fmt::Debug;
 use std::path::{Path, PathBuf};
 
@@ -115,11 +115,67 @@ impl ModuleDB {
             .collect()
     }
 
-    pub fn get_project_supported_backends(
+    fn backtrace_deps_chain(&self, pkg: &Package) -> Vec<Vec<String>> {
+        let mut cache = HashMap::new();
+        let mut visited = HashSet::new();
+
+        fn dfs(
+            mdb: &ModuleDB,
+            pkg: &Package,
+            cache: &mut HashMap<String, Vec<Vec<String>>>,
+            visited: &mut HashSet<String>,
+        ) -> Vec<Vec<String>> {
+            let pkg_name = pkg.full_name();
+
+            if let Some(cached) = cache.get(&pkg_name) {
+                return cached.clone();
+            }
+
+            if visited.contains(&pkg_name) {
+                return vec![];
+            }
+            visited.insert(pkg_name.clone());
+
+            let all_deps = pkg
+                .imports
+                .iter()
+                .chain(pkg.wbtest_imports.iter())
+                .chain(pkg.test_imports.iter());
+
+            let mut paths = Vec::new();
+            let has_deps = all_deps.clone().count() > 0;
+
+            for dep in all_deps {
+                let dep_name = dep.path.make_full_path();
+                let dep_pkg = mdb.get_package_by_name(&dep_name);
+
+                for mut subpath in dfs(mdb, dep_pkg, cache, visited) {
+                    let mut new_path = vec![pkg_name.clone()];
+                    new_path.append(&mut subpath);
+                    paths.push(new_path);
+                }
+            }
+
+            if !has_deps || paths.is_empty() {
+                paths.push(vec![pkg_name.clone()]);
+            }
+
+            visited.remove(&pkg_name);
+            cache.insert(pkg_name, paths.clone());
+            paths
+        }
+
+        let mut result = dfs(self, pkg, &mut cache, &mut visited);
+
+        result.retain(|path| path.len() > 1);
+        result
+    }
+
+    pub fn get_project_supported_targets(
         &self,
         cur_target_backend: TargetBackend,
     ) -> anyhow::Result<HashSet<TargetBackend>> {
-        let mut project_supported_backends = HashSet::from_iter(vec![
+        let mut project_supported_targets = HashSet::from_iter(vec![
             TargetBackend::WasmGC,
             TargetBackend::Wasm,
             TargetBackend::Native,
@@ -127,37 +183,51 @@ impl ModuleDB {
         ]);
 
         for entry_pkg in self.get_entry_pkgs() {
-            let mut cut_deps_chain_supported_backends = entry_pkg.supported_backends.clone();
-
-            let mut deps_of_current_pkg =
-                self.get_filtered_packages_and_its_deps_by_pkgname(&entry_pkg.full_name())?;
-            // remove the current entry_pkg from the deps
-            deps_of_current_pkg.swap_remove(&entry_pkg.full_name());
-
-            for (dep_pkg_name, dep_pkg) in deps_of_current_pkg.iter() {
-                let dep_pkg_supported_backends = &dep_pkg.supported_backends;
-
-                cut_deps_chain_supported_backends = cut_deps_chain_supported_backends
-                    .intersection(dep_pkg_supported_backends)
+            let deps_chain = self.backtrace_deps_chain(entry_pkg);
+            for chain in deps_chain.iter() {
+                let mut cur_deps_chain_supported_targets = HashSet::from_iter(vec![
+                    TargetBackend::WasmGC,
+                    TargetBackend::Wasm,
+                    TargetBackend::Native,
+                    TargetBackend::Js,
+                ]);
+                for (i, dpe_pkg_name) in chain.iter().enumerate() {
+                    let dep_pkg = self.get_package_by_name(dpe_pkg_name);
+                    cur_deps_chain_supported_targets = cur_deps_chain_supported_targets
+                        .intersection(&dep_pkg.supported_targets)
+                        .cloned()
+                        .collect();
+                    if cur_deps_chain_supported_targets.is_empty() {
+                        bail!(
+                            "cannot find a common supported backend for the deps chain: {:?}",
+                            chain[0..=i]
+                                .iter()
+                                .map(|s| format!(
+                                    "{}: {}",
+                                    s,
+                                    TargetBackend::hashset_to_string(
+                                        &self.get_package_by_name(s).supported_targets
+                                    )
+                                ))
+                                .collect::<Vec<_>>()
+                                .join(" -> ")
+                        );
+                    }
+                    if !cur_deps_chain_supported_targets.contains(&cur_target_backend) {
+                        bail!(
+                            "deps chain: {:?} supports backends `{}`, while the current target backend is {}",
+                            chain[0..=i].iter().map(|s| format!("{}: {}", s, TargetBackend::hashset_to_string(&self.get_package_by_name(s).supported_targets))).collect::<Vec<_>>().join(" -> "), TargetBackend::hashset_to_string(&cur_deps_chain_supported_targets), cur_target_backend
+                        );
+                    }
+                }
+                project_supported_targets = project_supported_targets
+                    .intersection(&cur_deps_chain_supported_targets)
                     .cloned()
                     .collect();
-
-                if cut_deps_chain_supported_backends.is_empty() {
-                    bail!("package `{}` supports backends `{:?}`, while its dep `{}` supports backends `{:?}`", entry_pkg.full_name(), TargetBackend::hashset_to_string(&entry_pkg.supported_backends), dep_pkg_name, TargetBackend::hashset_to_string(dep_pkg_supported_backends));
-                }
-
-                if !cut_deps_chain_supported_backends.contains(&cur_target_backend) {
-                    bail!("package `{}` supports backends `{:?}` in current deps chain, while the current target backend is `{}`", entry_pkg.full_name(), TargetBackend::hashset_to_string(&cut_deps_chain_supported_backends), cur_target_backend);
-                }
             }
-
-            project_supported_backends = project_supported_backends
-                .intersection(&cut_deps_chain_supported_backends)
-                .cloned()
-                .collect();
         }
 
-        Ok(project_supported_backends)
+        Ok(project_supported_targets)
     }
 
     pub fn get_topo_pkgs(&self) -> anyhow::Result<Vec<&Package>> {
