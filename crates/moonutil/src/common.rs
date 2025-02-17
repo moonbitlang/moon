@@ -958,10 +958,10 @@ pub fn set_native_backend_link_flags(
                             cc: n.cc.clone().or(Some(compiler.to_string())),
                             cc_flags: n
                                 .cc_flags
-                                .clone()
+                                .as_ref()
                                 .map(|cc_flags| {
                                     format!(
-                                        "-I{} -fno-strict-aliasing {}",
+                                        "-I{} -fwrapv -fno-strict-aliasing {}",
                                         moon_include_path.display(),
                                         cc_flags
                                     )
