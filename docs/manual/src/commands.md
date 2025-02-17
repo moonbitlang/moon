@@ -299,6 +299,7 @@ Generate public interface (`.mbti`) files for all packages in the module
 
   Possible values: `wasm`, `wasm-gc`, `js`, `native`, `all`
 
+* `-p`, `--package <PACKAGE>` — only emit mbti files for the specified package
 
 
 
