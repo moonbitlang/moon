@@ -123,6 +123,9 @@ jobs:
           - windows-latest
     runs-on: ${{ matrix.os }}
     steps:
+      - name: Configure git
+        run: git config --global core.autocrlf false
+
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@1.80.0
         with:
@@ -227,6 +230,9 @@ jobs:
           - windows-latest
     runs-on: ${{ matrix.os }}
     steps:
+      - name: Configure git
+        run: git config --global core.autocrlf false
+
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@1.80.0
         with:

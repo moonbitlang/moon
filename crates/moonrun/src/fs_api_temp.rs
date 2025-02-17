@@ -216,12 +216,14 @@ use std::sync::Mutex;
 static GLOBAL_STATE: Lazy<Mutex<GlobalState>> = Lazy::new(|| {
     Mutex::new(GlobalState {
         file_content: Vec::new(),
+        dir_files: Vec::new(),
         error_message: String::new(),
     })
 });
 
 struct GlobalState {
     file_content: Vec<u8>,
+    dir_files: Vec<String>,
     error_message: String,
 }
 
@@ -230,15 +232,11 @@ fn write_bytes_to_file_new(
     args: v8::FunctionCallbackArguments,
     mut ret: v8::ReturnValue,
 ) {
-    let path = match args.get(0).to_string(scope) {
-        Some(p) => p.to_rust_string_lossy(scope),
-        None => {
-            GLOBAL_STATE.lock().unwrap().error_message =
-                "Failed to convert path to string".to_string();
-            ret.set_int32(-1);
-            return;
-        }
-    };
+    let path = args
+        .get(0)
+        .to_string(scope)
+        .unwrap()
+        .to_rust_string_lossy(scope);
 
     let contents = args.get(1);
     let uint8_array = match v8::Local::<v8::Uint8Array>::try_from(contents) {
@@ -272,15 +270,11 @@ fn read_file_to_bytes_new(
     args: v8::FunctionCallbackArguments,
     mut ret: v8::ReturnValue,
 ) {
-    let path = match args.get(0).to_string(scope) {
-        Some(p) => p.to_rust_string_lossy(scope),
-        None => {
-            GLOBAL_STATE.lock().unwrap().error_message =
-                "Failed to convert path to string".to_string();
-            ret.set_int32(-1);
-            return;
-        }
-    };
+    let path = args
+        .get(0)
+        .to_string(scope)
+        .unwrap()
+        .to_rust_string_lossy(scope);
 
     match std::fs::read(&path) {
         Ok(contents) => {
@@ -308,6 +302,183 @@ fn get_file_content(
     let uint8_array =
         v8::Uint8Array::new(scope, array_buffer, 0, state.file_content.len()).unwrap();
     ret.set(uint8_array.into());
+}
+
+fn get_dir_files(
+    scope: &mut v8::HandleScope,
+    _args: v8::FunctionCallbackArguments,
+    mut ret: v8::ReturnValue,
+) {
+    let state = GLOBAL_STATE.lock().unwrap();
+    let array = v8::Array::new(scope, 0);
+    for (index, file) in state.dir_files.iter().enumerate() {
+        let js_string = v8::String::new(scope, file).unwrap();
+        array
+            .set_index(scope, index as u32, js_string.into())
+            .unwrap();
+    }
+    ret.set(array.into());
+}
+
+fn create_dir_new(
+    scope: &mut v8::HandleScope,
+    args: v8::FunctionCallbackArguments,
+    mut ret: v8::ReturnValue,
+) {
+    let path = args
+        .get(0)
+        .to_string(scope)
+        .unwrap()
+        .to_rust_string_lossy(scope);
+
+    match std::fs::create_dir_all(&path) {
+        Ok(_) => {
+            ret.set_int32(0);
+        }
+        Err(e) => {
+            GLOBAL_STATE.lock().unwrap().error_message =
+                format!("Failed to create directory {}: {}", path, e);
+            ret.set_int32(-1);
+        }
+    }
+}
+
+#[allow(clippy::manual_flatten)]
+fn read_dir_new(
+    scope: &mut v8::HandleScope,
+    args: v8::FunctionCallbackArguments,
+    mut ret: v8::ReturnValue,
+) {
+    let path = args
+        .get(0)
+        .to_string(scope)
+        .unwrap()
+        .to_rust_string_lossy(scope);
+
+    let entries = match std::fs::read_dir(&path) {
+        Ok(entries) => entries,
+        Err(e) => {
+            GLOBAL_STATE.lock().unwrap().error_message =
+                format!("Failed to read directory {}: {}", path, e);
+            ret.set_int32(-1);
+            return;
+        }
+    };
+
+    let mut dir_files = Vec::new();
+    for entry in entries {
+        if let Ok(entry) = entry {
+            let rust_style_path = entry.path();
+            let node_style_path = rust_style_path.strip_prefix(&path).unwrap();
+            if let Some(path_str) = node_style_path.to_str() {
+                dir_files.push(path_str.to_string());
+            }
+        }
+    }
+
+    GLOBAL_STATE.lock().unwrap().dir_files = dir_files;
+
+    ret.set_int32(0);
+}
+
+fn is_file_new(
+    scope: &mut v8::HandleScope,
+    args: v8::FunctionCallbackArguments,
+    mut ret: v8::ReturnValue,
+) {
+    let path = args
+        .get(0)
+        .to_string(scope)
+        .unwrap()
+        .to_rust_string_lossy(scope);
+
+    let is_file = match std::fs::metadata(&path) {
+        Ok(metadata) => {
+            if metadata.is_file() {
+                1
+            } else {
+                0
+            }
+        }
+        Err(e) => {
+            GLOBAL_STATE.lock().unwrap().error_message = format!("{}: {}", e, path);
+            -1
+        }
+    };
+    ret.set_int32(is_file);
+}
+
+fn is_dir_new(
+    scope: &mut v8::HandleScope,
+    args: v8::FunctionCallbackArguments,
+    mut ret: v8::ReturnValue,
+) {
+    let path = args
+        .get(0)
+        .to_string(scope)
+        .unwrap()
+        .to_rust_string_lossy(scope);
+
+    let is_dir = match std::fs::metadata(&path) {
+        Ok(metadata) => {
+            if metadata.is_dir() {
+                1
+            } else {
+                0
+            }
+        }
+        Err(e) => {
+            GLOBAL_STATE.lock().unwrap().error_message = format!("{}: {}", e, path);
+            -1
+        }
+    };
+    ret.set_int32(is_dir);
+}
+
+fn remove_file_new(
+    scope: &mut v8::HandleScope,
+    args: v8::FunctionCallbackArguments,
+    mut ret: v8::ReturnValue,
+) {
+    let path = args
+        .get(0)
+        .to_string(scope)
+        .unwrap()
+        .to_rust_string_lossy(scope);
+
+    match std::fs::remove_file(&path) {
+        Ok(_) => {
+            ret.set_int32(0);
+        }
+        Err(e) => {
+            GLOBAL_STATE.lock().unwrap().error_message =
+                format!("Failed to remove file {}: {}", path, e);
+            ret.set_int32(-1);
+        }
+    }
+}
+
+fn remove_dir_new(
+    scope: &mut v8::HandleScope,
+    args: v8::FunctionCallbackArguments,
+    mut ret: v8::ReturnValue,
+) {
+    let path = args
+        .get(0)
+        .to_string(scope)
+        .unwrap()
+        .to_rust_string_lossy(scope);
+
+    match std::fs::remove_dir_all(&path) {
+        Ok(_) => {
+            ret.set_int32(0);
+        }
+        Err(e) => {
+            GLOBAL_STATE.lock().unwrap().error_message =
+                format!("Failed to remove directory {}: {}", path, e);
+            ret.set_int32(-1);
+        }
+    }
 }
 
 fn get_error_message(
@@ -395,10 +566,45 @@ pub fn init_fs<'s>(
         let ident = v8::String::new(scope, "get_file_content").unwrap();
         obj.set(scope, ident.into(), get_file_content.into());
 
+        let get_dir_files = v8::FunctionTemplate::new(scope, get_dir_files);
+        let get_dir_files = get_dir_files.get_function(scope).unwrap();
+        let ident = v8::String::new(scope, "get_dir_files").unwrap();
+        obj.set(scope, ident.into(), get_dir_files.into());
+
         let get_error_message = v8::FunctionTemplate::new(scope, get_error_message);
         let get_error_message = get_error_message.get_function(scope).unwrap();
         let ident = v8::String::new(scope, "get_error_message").unwrap();
         obj.set(scope, ident.into(), get_error_message.into());
+
+        let create_dir_new = v8::FunctionTemplate::new(scope, create_dir_new);
+        let create_dir_new = create_dir_new.get_function(scope).unwrap();
+        let ident = v8::String::new(scope, "create_dir_new").unwrap();
+        obj.set(scope, ident.into(), create_dir_new.into());
+
+        let read_dir_new = v8::FunctionTemplate::new(scope, read_dir_new);
+        let read_dir_new = read_dir_new.get_function(scope).unwrap();
+        let ident = v8::String::new(scope, "read_dir_new").unwrap();
+        obj.set(scope, ident.into(), read_dir_new.into());
+
+        let is_file_new = v8::FunctionTemplate::new(scope, is_file_new);
+        let is_file_new = is_file_new.get_function(scope).unwrap();
+        let ident = v8::String::new(scope, "is_file_new").unwrap();
+        obj.set(scope, ident.into(), is_file_new.into());
+
+        let is_dir_new = v8::FunctionTemplate::new(scope, is_dir_new);
+        let is_dir_new = is_dir_new.get_function(scope).unwrap();
+        let ident = v8::String::new(scope, "is_dir_new").unwrap();
+        obj.set(scope, ident.into(), is_dir_new.into());
+
+        let remove_file_new = v8::FunctionTemplate::new(scope, remove_file_new);
+        let remove_file_new = remove_file_new.get_function(scope).unwrap();
+        let ident = v8::String::new(scope, "remove_file_new").unwrap();
+        obj.set(scope, ident.into(), remove_file_new.into());
+
+        let remove_dir_new = v8::FunctionTemplate::new(scope, remove_dir_new);
+        let remove_dir_new = remove_dir_new.get_function(scope).unwrap();
+        let ident = v8::String::new(scope, "remove_dir_new").unwrap();
+        obj.set(scope, ident.into(), remove_dir_new.into());
     }
 
     obj

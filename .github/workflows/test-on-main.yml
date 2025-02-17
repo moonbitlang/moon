@@ -34,7 +34,13 @@ jobs:
     runs-on: ${{ matrix.os }}
     env:
       WECOM_ROBOT_KEY: ${{ secrets.WECOM_ROBOT_KEY }}
+      AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+      AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+      AWS_DEFAULT_REGION: ${{ secrets.AWS_DEFAULT_REGION }}
     steps:
+      - name: Configure git
+        run: git config --global core.autocrlf false
+
       - uses: actions/checkout@v4
 
       - name: Checkout moonc-version
@@ -45,6 +51,8 @@ jobs:
       - name: Copy moonc-version file to workspace
         run: |
           cp moonc-version-dont-delete/moonc-version .
+          cat ./moonc-version
+          echo "MOONC_VERSION=$(cat ./moonc-version)" >> $GITHUB_ENV
 
       - uses: dtolnay/rust-toolchain@1.80.0
       - name: Cargo cache
@@ -150,25 +158,58 @@ jobs:
       - name: Notify on fail (windows)
         if: ${{ failure() && matrix.os == 'windows-latest' }}
         run: |
+          moonc -v > moonc_version.txt
+          echo "moonc version: $(cat moonc_version.txt)"
           $body = @{
               msgtype = "text"
               text = @{
-                  content = "🤣 moon ci on windows-latest failed: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{github.run_id}}"
+                  content = "🤣 moon ci on windows-latest failed: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{github.run_id}} moonc version: $(cat moonc_version.txt)"
               }
           } | ConvertTo-Json
 
-          Invoke-RestMethod -Uri "https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=$env:WECOM_ROBOT_KEY" -Method Post -ContentType "application/json" -Body $body
+          $last_status = (Invoke-WebRequest -Uri "https://cli.moonbitlang.com/moon-ci/test-on-main-windows-status" -UseBasicParsing).Content
+          echo "last_status: $last_status"
+          "failed" | aws s3 cp - s3://cli.moonbitlang.com/moon-ci/test-on-main-windows-status --content-type text/plain
+          if ($last_status -eq "success") {
+            echo "moonc version: $(cat moonc_version.txt)"
+            Invoke-RestMethod -Uri "https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=$env:WECOM_ROBOT_KEY" -Method Post -ContentType "application/json" -Body $body
+          } else {
+            exit 0
+          }
 
-      - name: notify on fail (unix)
+      - name: Notify on fail (unix)
         if: ${{ failure() && matrix.os != 'windows-latest' }}
         run: |
+          moonc -v > moonc_version.txt
+          echo "moonc version: $(cat moonc_version.txt)"
+          last_status=$(curl -s "https://cli.moonbitlang.com/moon-ci/test-on-main-unix-status")
+          echo "last_status: $last_status"
+          aws s3 cp - s3://cli.moonbitlang.com/moon-ci/test-on-main-unix-status --content-type text/plain <<< "failed"
+          if [ "$last_status" != "success" ]; then
+            exit 0
+          fi
           curl "https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=$WECOM_ROBOT_KEY" \
             -H 'Content-Type: application/json' \
             -d @- <<REQUEST_BODY
             {
               "msgtype": "text",
               "text": {
-                "content": "🤣 moon ci on ${{matrix.os}} failed: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+                "content": "🤣 moon ci on ${{matrix.os}} failed: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }} moonc version: $(cat moonc_version.txt)"
               }
             }
-          REQUEST_BODY
+            REQUEST_BODY
+
+      - name: upload success status（Windows）
+        if: ${{ success() && matrix.os == 'windows-latest' }}
+        run: |
+          "success" | aws s3 cp - s3://cli.moonbitlang.com/moon-ci/test-on-main-windows-status --content-type text/plain
+
+      - name: upload success status（Unix）
+        if: ${{ success() && matrix.os != 'windows-latest' }}
+        run: |
+          aws s3 cp - s3://cli.moonbitlang.com/moon-ci/test-on-main-unix-status --content-type text/plain <<< "success"
+
+      - name: refresh cloudfront
+        if: always()
+        run: |
+          aws cloudfront create-invalidation --distribution-id E1KQYZEVEB0TAY --paths "/*"

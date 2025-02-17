@@ -282,6 +282,8 @@ pub struct LinkDepItem {
     pub link: Option<Link>,
     pub install_path: Option<PathBuf>,
     pub bin_name: Option<String>,
+
+    pub need_compile_native: bool, // need compile .c to native executable?
 }
 
 #[rustfmt::skip]

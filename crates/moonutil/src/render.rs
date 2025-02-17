@@ -16,7 +16,7 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use ariadne::Fmt;
 use serde::{Deserialize, Serialize};
@@ -58,6 +58,42 @@ impl Position {
             .map(|(i, _)| i)
             .unwrap_or(usize::from(line_index.len()))
     }
+}
+
+#[derive(Deserialize)]
+struct SourceMap {
+    mappings: Vec<SourceMapping>,
+}
+
+impl SourceMap {
+    fn to_original(&self, offset: usize, base_path: &Path) -> Option<(PathBuf, usize)> {
+        let index = self
+            .mappings
+            .binary_search_by(|mapping| {
+                if offset < mapping.generated_offset {
+                    std::cmp::Ordering::Greater
+                } else if offset > mapping.generated_offset + mapping.length {
+                    std::cmp::Ordering::Less
+                } else {
+                    std::cmp::Ordering::Equal
+                }
+            })
+            .ok()?;
+        let mapping = &self.mappings[index];
+        let path = dunce::canonicalize(base_path.parent()?.join(&mapping.source)).ok()?;
+        Some((
+            path,
+            offset - mapping.generated_offset + mapping.original_offset,
+        ))
+    }
+}
+
+#[derive(Deserialize)]
+struct SourceMapping {
+    source: String,
+    original_offset: usize,
+    generated_offset: usize,
+    length: usize,
 }
 
 impl MooncDiagnostic {
@@ -125,6 +161,33 @@ impl MooncDiagnostic {
             .location
             .end
             .calculate_offset(&source_file_content);
+
+        // Remapping if there's .map.json file
+        // TODO: log reasons for `.map.json` exists but not works.
+        let path_to_map_json = PathBuf::from(source_file_path + ".map.json");
+        let mapped = std::fs::read_to_string(&path_to_map_json)
+            .ok()
+            .and_then(|content| {
+                let map = serde_json_lenient::from_str::<SourceMap>(&content).ok()?;
+
+                let (source1, start_pos) = map.to_original(start_offset, &path_to_map_json)?;
+                let (source2, end_pos) = map.to_original(end_offset, &path_to_map_json)?;
+
+                if source1 != source2 {
+                    return None;
+                }
+
+                std::fs::read_to_string(&source1)
+                    .ok()
+                    .map(|content| (content, source1.display().to_string(), start_pos, end_pos))
+            });
+
+        let (source_file_content, display_filename, start_offset, end_offset) = mapped.unwrap_or((
+            source_file_content,
+            display_filename,
+            start_offset,
+            end_offset,
+        ));
 
         let mut report_builder = ariadne::Report::build(kind, &display_filename, start_offset)
             .with_message(format!("[{}]", diagnostic.error_code).fg(color))

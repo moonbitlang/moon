@@ -126,7 +126,7 @@ pub fn gen_build_build_item(
 pub fn gen_build_link_item(
     m: &ModuleDB,
     pkg: &Package,
-    _moonc_opt: &MooncOpt,
+    moonc_opt: &MooncOpt,
 ) -> anyhow::Result<BuildLinkDepItem> {
     let out = pkg.artifact.with_extension("wat"); // TODO: extension is determined by build option
     let package_full_name = pkg.full_name();
@@ -144,6 +144,7 @@ pub fn gen_build_link_item(
         link: pkg.link.clone(),
         install_path: pkg.install_path.clone(),
         bin_name: pkg.bin_name.clone(),
+        need_compile_native: moonc_opt.link_opt.target_backend == TargetBackend::Native,
     })
 }
 
@@ -168,22 +169,11 @@ pub fn gen_build(
     for (_, pkg) in pkgs_to_build {
         let is_main = pkg.is_main;
 
-        if is_main {
-            // entry also need build
-            build_items.push(gen_build_build_item(m, pkg, moonc_opt)?);
+        build_items.push(gen_build_build_item(m, pkg, moonc_opt)?);
+
+        if (is_main || pkg.need_link) && !pkg.is_third_party {
             // link need add *.core files recursively
             link_items.push(gen_build_link_item(m, pkg, moonc_opt)?);
-            continue;
-        }
-
-        if pkg.need_link {
-            build_items.push(gen_build_build_item(m, pkg, moonc_opt)?);
-            link_items.push(gen_build_link_item(m, pkg, moonc_opt)?);
-            continue;
-        }
-
-        {
-            build_items.push(gen_build_build_item(m, pkg, moonc_opt)?);
         }
     }
     Ok(N2BuildInput {
@@ -350,10 +340,6 @@ pub fn gen_link_command(
     let shared_memory = item.shared_memory(moonc_opt.link_opt.target_backend);
     let link_flags = item.link_flags(moonc_opt.link_opt.target_backend);
 
-    let native_cc = item.native_cc(moonc_opt.link_opt.target_backend);
-    let native_cc_flags = item.native_cc_flags(moonc_opt.link_opt.target_backend);
-    let native_cc_link_flags = item.native_cc_link_flags(moonc_opt.link_opt.target_backend);
-
     let (debug_flag, strip_flag) = (
         moonc_opt.build_opt.debug_flag,
         moonc_opt.build_opt.strip_flag,
@@ -466,26 +452,72 @@ pub fn gen_link_command(
                 }
             },
         )
-        .lazy_args_with_cond(native_cc.is_some(), || {
-            vec!["-cc".to_string(), native_cc.unwrap().to_string()]
-        })
-        .lazy_args_with_cond(native_cc_flags.is_some(), || {
-            vec![
-                "-cc-flags".to_string(),
-                native_cc_flags.unwrap().to_string(),
-            ]
-        })
-        .lazy_args_with_cond(native_cc_link_flags.is_some(), || {
-            vec![
-                "-cc-link-flags".to_string(),
-                native_cc_link_flags.unwrap().to_string(),
-            ]
-        })
         .args(moonc_opt.extra_link_opt.iter())
         .build();
     log::debug!("Command: {}", command);
     build.cmdline = Some(command);
     build.desc = Some(format!("link-core: {}", item.package_full_name));
+    (build, artifact_id)
+}
+
+pub fn gen_compile_exe_command(
+    graph: &mut n2graph::Graph,
+    item: &BuildLinkDepItem,
+    moonc_opt: &MooncOpt,
+) -> (Build, n2graph::FileId) {
+    let c_artifact_path = PathBuf::from(&item.out)
+        .with_extension("c")
+        .display()
+        .to_string();
+
+    let artifact_output_path = PathBuf::from(&item.out)
+        .with_extension(moonc_opt.link_opt.target_backend.to_extension())
+        .display()
+        .to_string();
+
+    let artifact_id = graph.files.id_from_canonical(artifact_output_path.clone());
+
+    let loc = FileLoc {
+        filename: Rc::new(PathBuf::from("compile-exe")),
+        line: 0,
+    };
+
+    let input_ids = vec![graph.files.id_from_canonical(c_artifact_path.clone())];
+
+    let ins = BuildIns {
+        ids: input_ids,
+        explicit: 1,
+        implicit: 0,
+        order_only: 0,
+    };
+
+    let outs = BuildOuts {
+        ids: vec![artifact_id],
+        explicit: 1,
+    };
+
+    let mut build = Build::new(loc, ins, outs);
+
+    let native_cc = item.native_cc(moonc_opt.link_opt.target_backend).unwrap();
+    let native_cc_flags = item
+        .native_cc_flags(moonc_opt.link_opt.target_backend)
+        .map(|it| it.split(" ").collect::<Vec<_>>())
+        .unwrap_or_default();
+    let native_cc_link_flags = item
+        .native_cc_link_flags(moonc_opt.link_opt.target_backend)
+        .map(|it| it.split(" ").collect::<Vec<_>>())
+        .unwrap_or_default();
+
+    let command = CommandBuilder::new(native_cc)
+        .arg(&c_artifact_path)
+        .args_with_cond(!native_cc_flags.is_empty(), native_cc_flags)
+        .args_with_cond(!native_cc_link_flags.is_empty(), native_cc_link_flags)
+        .arg("-o")
+        .arg(&artifact_output_path)
+        .build();
+    log::debug!("Command: {}", command);
+    build.cmdline = Some(command);
+    build.desc = Some(format!("compile-exe: {}", item.package_full_name));
     (build, artifact_id)
 }
 
@@ -511,8 +543,16 @@ pub fn gen_n2_build_state(
             default.clear();
         }
         let (build, fid) = gen_link_command(&mut graph, item, moonc_opt);
-        default.push(fid);
+        let mut default_fid = fid;
         graph.add_build(build)?;
+
+        if item.need_compile_native {
+            let (build, fid) = gen_compile_exe_command(&mut graph, item, moonc_opt);
+            graph.add_build(build)?;
+            default_fid = fid;
+        }
+
+        default.push(default_fid);
 
         // if we need to install the artifact to a specific path
         if let Some(install_path) = item.install_path.as_ref() {
