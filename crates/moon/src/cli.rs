@@ -299,6 +299,7 @@ fn gen_docs_for_moon_help_page() {
     let markdown: String = clap_markdown::help_markdown::<MoonBuildSubcommands>();
     let markdown = markdown.replace("Default value: `zsh`", "Default value: `<your shell>`");
     let markdown = markdown.replace("Default value: `bash`", "Default value: `<your shell>`");
+    let markdown = markdown.replace("Default value: `fish`", "Default value: `<your shell>`");
     let markdown = markdown.replace(
         "Default value: `powershell`",
         "Default value: `<your shell>`",
