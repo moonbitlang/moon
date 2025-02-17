@@ -1,0 +1,9 @@
+{
+  "wbtest-import": [
+    "username/hello/lib6"
+  ],
+  "supported-targets": [
+    "wasm",
+    "js"
+  ]
+}

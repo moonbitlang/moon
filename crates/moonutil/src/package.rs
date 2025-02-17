@@ -86,7 +86,7 @@ pub struct Package {
 
     pub enable_value_tracing: bool,
 
-    pub supported_backends: HashSet<TargetBackend>,
+    pub supported_targets: HashSet<TargetBackend>,
 }
 
 impl Package {
@@ -260,9 +260,9 @@ pub struct MoonPkgJSON {
     pub bin_target: Option<String>,
 
     #[serde(skip_serializing_if = "Option::is_none")]
-    #[serde(alias = "supported-backends")]
-    #[schemars(rename = "supported-backends")]
-    pub supported_backends: Option<Vec<String>>,
+    #[serde(alias = "supported-targets")]
+    #[schemars(rename = "supported-targets")]
+    pub supported_targets: Option<Vec<String>>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, JsonSchema)]
@@ -552,7 +552,7 @@ pub struct MoonPkg {
     pub bin_name: Option<String>,
     pub bin_target: TargetBackend,
 
-    pub supported_backends: HashSet<TargetBackend>,
+    pub supported_targets: HashSet<TargetBackend>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -710,7 +710,7 @@ pub fn convert_pkg_json_to_package(j: MoonPkgJSON) -> anyhow::Result<MoonPkg> {
     };
 
     let mut supported_backends = HashSet::new();
-    if let Some(ref b) = j.supported_backends {
+    if let Some(ref b) = j.supported_targets {
         for backend in b.iter() {
             supported_backends.insert(TargetBackend::str_to_backend(backend)?);
         }
@@ -742,7 +742,7 @@ pub fn convert_pkg_json_to_package(j: MoonPkgJSON) -> anyhow::Result<MoonPkg> {
         pre_build: j.pre_build,
         bin_name: j.bin_name,
         bin_target,
-        supported_backends,
+        supported_targets: supported_backends,
     };
     Ok(result)
 }

@@ -1,0 +1,9 @@
+{
+  "import": [
+    "username/hello/lib1",
+    "username/hello/lib2"
+  ],
+  "wbtest-import": [
+    "username/hello/lib7"
+  ]
+}

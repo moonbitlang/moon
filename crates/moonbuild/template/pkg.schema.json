@@ -67,7 +67,7 @@
         "$ref": "#/definitions/MoonPkgGenerate"
       }
     },
-    "supported-backends": {
+    "supported-targets": {
       "type": [
         "array",
         "null"

@@ -3,7 +3,7 @@
   "import": [
     "username/hello1/lib"
   ],
-  "supported-backends": [
+  "supported-targets": [
     "wasm-gc", 
     "js"
   ]

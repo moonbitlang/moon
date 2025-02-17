@@ -1,10 +1,9 @@
 {
   "is-main": true,
   "import": [
-    "username/hello2/lib"
+    "username/hello/lib"
   ],
   "supported-targets": [
-    "wasm-gc", 
-    "js"
+    "wasm-gc"
   ]
 }
