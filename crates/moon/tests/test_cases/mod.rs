@@ -8767,6 +8767,7 @@ fn test_supported_backends_in_pkg_json() {
 }
 
 #[test]
+#[ignore = "wait for the migration of inspect to be finished"]
 fn test_update_expect_failed() {
     let dir = TestDir::new("update_expect_failed.in");
     let out = get_err_stderr(&dir, ["test", "-u", "--limit", "5"]);
