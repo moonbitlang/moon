@@ -373,6 +373,7 @@ fn scan_one_package(
         bin_target: pkg.bin_target,
         enable_value_tracing: false,
         supported_targets: pkg.supported_targets,
+        native_stub: pkg.native_stub,
     };
     if doc_mode {
         // -o <folder>

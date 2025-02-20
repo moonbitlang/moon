@@ -76,6 +76,7 @@ pub fn moon_new_exec(
             bin_name: None,
             bin_target: None,
             supported_targets: None,
+            native_stub: None,
         };
         moonutil::common::write_package_json_to_file(&j, &main_moon_pkg)?;
     }
@@ -228,6 +229,7 @@ fn common(
             bin_name: None,
             bin_target: None,
             supported_targets: None,
+            native_stub: None,
         };
         moonutil::common::write_package_json_to_file(&j, &lib_moon_pkg)?;
     }

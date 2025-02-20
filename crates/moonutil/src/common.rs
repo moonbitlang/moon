@@ -25,7 +25,7 @@ use clap::ValueEnum;
 use fs4::fs_std::FileExt;
 use indexmap::IndexMap;
 use serde::{Deserialize, Serialize};
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::fs::File;
 use std::io::ErrorKind;
@@ -948,11 +948,14 @@ pub fn set_native_backend_link_flags(
                     return None;
                 };
 
-                let all_pkgs = module.get_all_packages_mut();
+                let mut link_configs = HashMap::new();
+                let mut cc_configs = HashMap::new();
+
+                let all_pkgs = module.get_all_packages();
                 for (_, pkg) in all_pkgs {
                     let existing_native = pkg.link.as_ref().and_then(|link| link.native.as_ref());
 
-                    let native_config = match existing_native {
+                    let mut native_config = match existing_native {
                         Some(n) => crate::package::NativeLinkConfig {
                             exports: n.exports.clone(),
                             cc: n.cc.clone().or(Some(compiler.to_string())),
@@ -968,12 +971,14 @@ pub fn set_native_backend_link_flags(
                                 })
                                 .or(get_default_cc_flags()),
                             cc_link_flags: n.cc_link_flags.clone().or(get_default_cc_link_flag()),
+                            native_stub_deps: None,
                         },
                         None if release => crate::package::NativeLinkConfig {
                             exports: None,
                             cc: Some(compiler.to_string()),
                             cc_flags: get_default_cc_flags(),
                             cc_link_flags: get_default_cc_link_flag(),
+                            native_stub_deps: None,
                         },
                         None => crate::package::NativeLinkConfig {
                             exports: None,
@@ -991,13 +996,56 @@ pub fn set_native_backend_link_flags(
                                 moon_include_path.display()
                             )),
                             cc_link_flags: None,
+                            native_stub_deps: None,
                         },
                     };
 
-                    pkg.link = Some(crate::package::Link {
-                        native: Some(native_config),
-                        ..Default::default()
-                    });
+                    if (pkg.is_main || pkg.need_link) && !pkg.is_third_party {
+                        module
+                            .get_filtered_packages_and_its_deps_by_pkgname(pkg.full_name().as_str())
+                            .unwrap()
+                            .iter()
+                            .for_each(|(pkgname, _)| {
+                                cc_configs.insert(pkgname.clone(), native_config.cc.clone());
+                            });
+                    }
+
+                    let mut native_stub_o = Vec::new();
+                    module
+                        .get_filtered_packages_and_its_deps_by_pkgname(pkg.full_name().as_str())
+                        .unwrap()
+                        .iter()
+                        .for_each(|(_, pkg)| {
+                            if pkg.native_stub.is_some() {
+                                native_stub_o
+                                    .push(pkg.artifact.with_extension("o").display().to_string());
+                            }
+                        });
+
+                    if !native_stub_o.is_empty() {
+                        native_config.native_stub_deps = Some(native_stub_o);
+                    }
+
+                    link_configs.insert(
+                        pkg.full_name(),
+                        Some(crate::package::Link {
+                            native: Some(native_config),
+                            ..Default::default()
+                        }),
+                    );
+                }
+
+                for (pkgname, link_config) in link_configs {
+                    module.get_package_by_name_mut_safe(&pkgname).unwrap().link = link_config;
+                }
+                // keep the cc for entry package same as its deps packages
+                for (pkgname, cc) in cc_configs {
+                    let p = module.get_package_by_name_mut_safe(&pkgname).unwrap();
+                    if let Some(link) = &mut p.link {
+                        if let Some(native) = &mut link.native {
+                            native.cc = cc;
+                        }
+                    }
                 }
             }
             Ok(())
