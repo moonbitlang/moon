@@ -27,7 +27,7 @@ use std::path::{Path, PathBuf};
 use std::rc::Rc;
 
 use moonutil::common::{
-    BuildOpt, MoonbuildOpt, MooncOpt, TargetBackend, MOONBITLANG_CORE, MOON_PKG_JSON,
+    BuildOpt, MoonbuildOpt, MooncOpt, TargetBackend, MOONBITLANG_CORE, MOON_PKG_JSON, O_EXT,
 };
 use n2::graph::{self as n2graph, Build, BuildIns, BuildOuts, FileLoc};
 use n2::load::State;
@@ -175,7 +175,7 @@ pub fn gen_build(
 
         if pkg.native_stub.is_some() {
             compile_stub_items.push(BuildLinkDepItem {
-                out: pkg.artifact.with_extension("o").display().to_string(),
+                out: pkg.artifact.with_extension(O_EXT).display().to_string(),
                 core_deps: vec![],
                 package_sources: vec![],
                 package_full_name: pkg.full_name(),
@@ -542,8 +542,7 @@ pub fn gen_compile_exe_command(
         .lazy_args_with_cond(native_stub_deps.is_some(), || {
             native_stub_deps.unwrap().into()
         })
-        .arg("-o")
-        .arg(&artifact_output_path)
+        .args(vec!["-o", &artifact_output_path])
         .build();
     log::debug!("Command: {}", command);
     build.cmdline = Some(command);
@@ -602,13 +601,15 @@ pub fn gen_compile_stub_command(
         .map(|it| it.split(" ").collect::<Vec<_>>())
         .unwrap_or_default();
 
+    let windows_with_cl = cfg!(windows) && native_cc == "cl";
+
     let command = CommandBuilder::new(native_cc)
         .arg("-c")
         .args(inputs)
         .args_with_cond(!native_cc_flags.is_empty(), native_cc_flags)
         .args_with_cond(!native_cc_link_flags.is_empty(), native_cc_link_flags)
-        .arg("-o")
-        .arg(&artifact_output_path)
+        .args_with_cond(!windows_with_cl, vec!["-o", &artifact_output_path])
+        .arg_with_cond(windows_with_cl, &format!("-Fo{}", artifact_output_path))
         .build();
     log::debug!("Command: {}", command);
     build.cmdline = Some(command);

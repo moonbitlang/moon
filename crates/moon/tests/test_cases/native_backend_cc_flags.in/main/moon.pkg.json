@@ -2,5 +2,12 @@
   "is-main": true,
   "import": {
     "moon_new/lib": ""
+  },
+  "link": {
+    "native": {
+      "cc": "cc",
+      "cc-flags": "ccflags fasd",
+      "cc-link-flags": "cclinkflags"
+    }
   }
 }
