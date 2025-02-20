@@ -7794,7 +7794,7 @@ fn test_native_backend_cc_flags() {
             moonc link-core $MOON_HOME/lib/core/target/native/release/bundle/core.core ./target/native/release/build/lib/lib.core ./target/native/release/build/main/main.core -main moon_new/main -o ./target/native/release/build/main/main.c -pkg-config-path ./main/moon.pkg.json -pkg-sources moon_new/lib:./lib -pkg-sources moon_new/main:./main -pkg-sources moonbitlang/core:$MOON_HOME/lib/core -target native
             $MOON_HOME/bin/internal/tcc ./target/native/release/build/main/main.c -L$MOON_HOME/lib -I$MOON_HOME/include -DMOONBIT_NATIVE_NO_SYS_HEADER -o ./target/native/release/build/main/main.exe
             moonc link-core $MOON_HOME/lib/core/target/native/release/bundle/core.core ./target/native/release/build/lib/lib.core -main moon_new/lib -o ./target/native/release/build/lib/lib.c -pkg-config-path ./lib/moon.pkg.json -pkg-sources moon_new/lib:./lib -pkg-sources moonbitlang/core:$MOON_HOME/lib/core -target native
-            cc ./target/native/release/build/lib/lib.c -I$MOON_HOME/include -fwrapv -fno-strict-aliasing ccflags fasd cclinkflags -o ./target/native/release/build/lib/lib.exe
+            $MOON_HOME/bin/internal/tcc ./target/native/release/build/lib/lib.c -I$MOON_HOME/include -fwrapv -fno-strict-aliasing ccflags fasd cclinkflags -o ./target/native/release/build/lib/lib.exe
         "#]],
     );
     // don't pass native cc flags for no native backend
@@ -7820,7 +7820,7 @@ fn test_native_backend_cc_flags() {
             moon generate-test-driver --source-dir . --target-dir ./target --package moon_new/lib --sort-input --target native --driver-kind internal
             moonc build-package ./lib/hello.mbt ./target/native/debug/test/lib/__generated_driver_for_internal_test.mbt -o ./target/native/debug/test/lib/lib.internal_test.core -pkg moon_new/lib -is-main -std-path $MOON_HOME/lib/core/target/native/release/bundle -pkg-sources moon_new/lib:./lib -target native -g -O0 -no-mi
             moonc link-core $MOON_HOME/lib/core/target/native/release/bundle/core.core ./target/native/debug/test/lib/lib.internal_test.core -main moon_new/lib -o ./target/native/debug/test/lib/lib.internal_test.c -test-mode -pkg-config-path ./lib/moon.pkg.json -pkg-sources moon_new/lib:./lib -pkg-sources moonbitlang/core:$MOON_HOME/lib/core -exported_functions moonbit_test_driver_internal_execute,moonbit_test_driver_finish -target native -g -O0
-            cc ./target/native/debug/test/lib/lib.internal_test.c -I$MOON_HOME/include -fwrapv -fno-strict-aliasing ccflags fasd cclinkflags -o ./target/native/debug/test/lib/lib.internal_test.exe
+            $MOON_HOME/bin/internal/tcc ./target/native/debug/test/lib/lib.internal_test.c -I$MOON_HOME/include -fwrapv -fno-strict-aliasing ccflags fasd cclinkflags -o ./target/native/debug/test/lib/lib.internal_test.exe
         "#]],
     );
     // don't pass native cc flags for no native backend
@@ -7851,7 +7851,7 @@ fn test_native_backend_cc_flags() {
             moonc link-core $MOON_HOME/lib/core/target/native/release/bundle/core.core ./target/native/release/build/lib/lib.core ./target/native/release/build/main/main.core -main moon_new/main -o ./target/native/release/build/main/main.c -pkg-config-path ./main/moon.pkg.json -pkg-sources moon_new/lib:./lib -pkg-sources moon_new/main:./main -pkg-sources moonbitlang/core:$MOON_HOME/lib/core -target native
             $MOON_HOME/bin/internal/tcc ./target/native/release/build/main/main.c -L$MOON_HOME/lib -I$MOON_HOME/include -DMOONBIT_NATIVE_NO_SYS_HEADER -o ./target/native/release/build/main/main.exe
             moonc link-core $MOON_HOME/lib/core/target/native/release/bundle/core.core ./target/native/release/build/lib/lib.core -main moon_new/lib -o ./target/native/release/build/lib/lib.c -pkg-config-path ./lib/moon.pkg.json -pkg-sources moon_new/lib:./lib -pkg-sources moonbitlang/core:$MOON_HOME/lib/core -target native
-            cc ./target/native/release/build/lib/lib.c -I$MOON_HOME/include -fwrapv -fno-strict-aliasing ccflags fasd cclinkflags -o ./target/native/release/build/lib/lib.exe
+            $MOON_HOME/bin/internal/tcc ./target/native/release/build/lib/lib.c -I$MOON_HOME/include -fwrapv -fno-strict-aliasing ccflags fasd cclinkflags -o ./target/native/release/build/lib/lib.exe
              ./target/native/release/build/lib/lib.exe
              ./target/native/release/build/main/main.exe
         "#]],
@@ -8776,4 +8776,58 @@ fn test_update_expect_failed() {
         .count()
         .to_string();
     check(count, expect!["2"])
+}
+
+#[test]
+fn test_native_stub_in_pkg_json() {
+    let dir = TestDir::new("native_stub.in");
+
+    let native_1 = dir.join("native_1.in");
+    let native_2 = dir.join("native_2.in");
+    let native_3 = dir.join("native_3.in");
+
+    check(
+        get_stdout(&native_1, ["test", "--target", "native", "--sort-input"]),
+        expect![[r#"
+            Hello world from native_1/lib/stub.c!!!
+            Total tests: 1, passed: 1, failed: 0.
+        "#]],
+    );
+    check(
+        get_stdout(&native_1, ["run", "main", "--target", "native"]),
+        expect![[r#"
+            Hello world from native_1/lib/stub.c!!!
+        "#]],
+    );
+
+    check(
+        get_stdout(&native_2, ["test", "--target", "native", "--sort-input"]),
+        expect![[r#"
+            Hello world from native_1/lib/stub.c!!!
+            Hello world from native_2/libb/stub.c!!!
+            Total tests: 1, passed: 1, failed: 0.
+        "#]],
+    );
+    check(
+        get_stdout(&native_2, ["run", "main", "--target", "native"]),
+        expect![[r#"
+            Hello world from native_2/libb/stub.c!!!
+        "#]],
+    );
+
+    check(
+        get_stdout(&native_3, ["test", "--target", "native", "--sort-input"]),
+        expect![[r#"
+            Hello world from native_1/lib/stub.c!!!
+            Hello world from native_2/libb/stub.c!!!
+            Hello world from native_3/libbb/stub.c!!!
+            Total tests: 1, passed: 1, failed: 0.
+        "#]],
+    );
+    check(
+        get_stdout(&native_3, ["run", "main", "--target", "native"]),
+        expect![[r#"
+            Hello world from native_3/libbb/stub.c!!!
+        "#]],
+    );
 }

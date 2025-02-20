@@ -1,0 +1,9 @@
+{
+  "name": "native_2",
+  "version": "0.1.0",
+  "deps": {
+    "native_1": {
+      "path": "../native_1.in"
+    }
+  }
+}
