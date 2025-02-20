@@ -41,7 +41,7 @@ use n2::graph::{self as n2graph, Build, BuildIns, BuildOuts, FileLoc};
 use n2::load::State;
 use n2::smallmap::SmallMap;
 
-use crate::gen::gen_build::gen_compile_exe_command;
+use crate::gen::gen_build::{gen_compile_exe_command, gen_compile_stub_command};
 use crate::gen::n2_errors::{N2Error, N2ErrorKind};
 use crate::gen::{coverage_args, MiAlias};
 
@@ -80,6 +80,7 @@ pub struct N2RuntestInput {
     pub build_items: Vec<RuntestDepItem>,
     pub link_items: Vec<RuntestLinkDepItem>, // entry points
     pub test_drivers: Vec<RuntestDriverItem>,
+    pub compile_stub_items: Vec<RuntestLinkDepItem>,
 }
 
 /// Automatically add coverage library import to core module if needed
@@ -595,7 +596,7 @@ fn get_package_sources(pkg_topo_order: &[&Package]) -> Vec<(String, String)> {
 pub fn gen_link_internal_test(
     m: &ModuleDB,
     pkg: &Package,
-    moonc_opt: &MooncOpt,
+    _moonc_opt: &MooncOpt,
 ) -> anyhow::Result<RuntestLinkDepItem> {
     let out = pkg
         .artifact
@@ -627,14 +628,14 @@ pub fn gen_link_internal_test(
         link: pkg.link.clone(),
         install_path: None,
         bin_name: None,
-        need_compile_native: moonc_opt.link_opt.target_backend == TargetBackend::Native,
+        native_stub: pkg.native_stub.clone(),
     })
 }
 
 pub fn gen_link_whitebox_test(
     m: &ModuleDB,
     pkg: &Package,
-    moonc_opt: &MooncOpt,
+    _moonc_opt: &MooncOpt,
 ) -> anyhow::Result<RuntestLinkDepItem> {
     let out = pkg
         .artifact
@@ -667,14 +668,14 @@ pub fn gen_link_whitebox_test(
         link: pkg.link.clone(),
         install_path: None,
         bin_name: None,
-        need_compile_native: moonc_opt.link_opt.target_backend == TargetBackend::Native,
+        native_stub: pkg.native_stub.clone(),
     })
 }
 
 pub fn gen_link_blackbox_test(
     m: &ModuleDB,
     pkg: &Package,
-    moonc_opt: &MooncOpt,
+    _moonc_opt: &MooncOpt,
 ) -> anyhow::Result<RuntestLinkDepItem> {
     let pkgname = pkg.artifact.file_stem().unwrap().to_str().unwrap();
     let out = pkg
@@ -724,7 +725,7 @@ pub fn gen_link_blackbox_test(
         link: pkg.link.clone(),
         install_path: None,
         bin_name: None,
-        need_compile_native: moonc_opt.link_opt.target_backend == TargetBackend::Native,
+        native_stub: pkg.native_stub.clone(),
     })
 }
 
@@ -748,6 +749,7 @@ pub fn gen_runtest(
     let mut build_items = vec![];
     let mut link_items = vec![];
     let mut test_drivers = vec![];
+    let mut compile_stub_items = vec![];
 
     let filter_pkg = moonbuild_opt
         .test_opt
@@ -776,6 +778,19 @@ pub fn gen_runtest(
         }
 
         build_items.push(gen_package_core(m, pkg, moonc_opt)?);
+        if pkg.native_stub.is_some() {
+            compile_stub_items.push(RuntestLinkDepItem {
+                out: pkg.artifact.with_extension("o").display().to_string(),
+                core_deps: vec![],
+                package_sources: vec![],
+                package_full_name: pkg.full_name(),
+                package_path: pkg.root_path.clone(),
+                link: pkg.link.clone(),
+                install_path: None,
+                bin_name: None,
+                native_stub: pkg.native_stub.clone(),
+            });
+        }
 
         if pkg.is_third_party {
             continue;
@@ -841,6 +856,7 @@ pub fn gen_runtest(
         build_items,
         link_items,
         test_drivers,
+        compile_stub_items,
     })
 }
 
@@ -1076,12 +1092,15 @@ pub fn gen_n2_runtest_state(
         let build = gen_runtest_build_command(&mut graph, item, moonc_opt);
         graph.add_build(build)?;
     }
+
+    let is_native_backend = moonc_opt.link_opt.target_backend == TargetBackend::Native;
+
     for item in input.link_items.iter() {
         let (build, fid) = gen_runtest_link_command(&mut graph, item, moonc_opt);
         let mut default_fid = fid;
         graph.add_build(build)?;
 
-        if item.need_compile_native {
+        if is_native_backend {
             let (build, fid) = gen_compile_exe_command(&mut graph, item, moonc_opt);
             default_fid = fid;
             graph.add_build(build)?;
@@ -1091,6 +1110,14 @@ pub fn gen_n2_runtest_state(
     for item in input.test_drivers.iter() {
         let build = gen_generate_test_driver_command(&mut graph, item, moonc_opt, moonbuild_opt);
         graph.add_build(build)?;
+    }
+
+    if is_native_backend {
+        for item in input.compile_stub_items.iter() {
+            let (build, fid) = gen_compile_stub_command(&mut graph, item, moonc_opt);
+            graph.add_build(build)?;
+            default.push(fid);
+        }
     }
 
     if default.is_empty() {
