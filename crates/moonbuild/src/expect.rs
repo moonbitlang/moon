@@ -17,6 +17,7 @@
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
 use anyhow::Context;
+use base64::Engine;
 use colored::Colorize;
 use moonutil::common::line_col_to_byte_idx;
 use std::collections::BTreeSet;
@@ -92,8 +93,8 @@ pub struct ExpectFailedRaw {
     pub args_loc: String,
     pub expect: Option<String>,
     pub actual: Option<String>,
-    pub expect_base16: Option<String>,
-    pub actual_base16: Option<String>,
+    pub expect_base64: Option<String>,
+    pub actual_base64: Option<String>,
     pub snapshot: Option<bool>,
     pub mode: Option<String>,
 }
@@ -105,9 +106,9 @@ impl std::str::FromStr for ExpectFailedRaw {
         let expect_index = s
             .find("\"expect\":")
             .context(format!("expect field not found: {}", s))?;
-        let expect_base16_index = s.find("\"expect_base16\":");
-        (if let Some(expect_base16_index) = expect_base16_index {
-            let s2 = format!("{}{}", &s[..expect_index], &s[expect_base16_index..]);
+        let expect_base64_index = s.find("\"expect_base64\":");
+        (if let Some(expect_base64_index) = expect_base64_index {
+            let s2 = format!("{}{}", &s[..expect_index], &s[expect_base64_index..]);
             serde_json_lenient::from_str(&s2)
         } else {
             serde_json_lenient::from_str(s)
@@ -246,23 +247,8 @@ impl Replace {
     }
 }
 
-fn to_num(x: u8) -> u8 {
-    if x.is_ascii_digit() {
-        x - b'0'
-    } else if (b'a'..=b'f').contains(&x) {
-        x - b'a' + 10
-    } else {
-        unreachable!()
-    }
-}
-fn base16_decode(s: &str) -> String {
-    let mut buf = Vec::new();
-    let data: &[u8] = s.as_bytes();
-    for i in (0..data.len()).step_by(2) {
-        let hi = to_num(data[i]);
-        let lo = to_num(data[i + 1]);
-        buf.push((hi << 4) | lo);
-    }
+fn base64_decode_string_codepoint(s: &str) -> String {
+    let buf = base64::prelude::BASE64_STANDARD.decode(s).unwrap();
     let mut s = String::new();
     for i in (0..buf.len()).step_by(4) {
         let c = std::char::from_u32(
@@ -318,8 +304,28 @@ fn to_moonbit_style(s: &str, with_quote: bool) -> String {
 
 #[test]
 fn test_decode() {
-    let s = "610000006200000063000000";
-    println!("{}", base16_decode(s));
+    assert_eq!("", base64_decode_string_codepoint(""));
+    assert_eq!("a", base64_decode_string_codepoint("YQAAAA=="));
+    assert_eq!("ab", base64_decode_string_codepoint("YQAAAGIAAAA="));
+    assert_eq!("abc", base64_decode_string_codepoint("YQAAAGIAAABjAAAA"));
+    assert_eq!(
+        "abcd",
+        base64_decode_string_codepoint("YQAAAGIAAABjAAAAZAAAAA==")
+    );
+    assert_eq!(
+        "abcde",
+        base64_decode_string_codepoint("YQAAAGIAAABjAAAAZAAAAGUAAAA=")
+    );
+    assert_eq!("a中", base64_decode_string_codepoint("YQAAAC1OAAA="));
+    assert_eq!("a中🤣", base64_decode_string_codepoint("YQAAAC1OAAAj+QEA"));
+    assert_eq!(
+        "a中🤣a",
+        base64_decode_string_codepoint("YQAAAC1OAAAj+QEAYQAAAA==")
+    );
+    assert_eq!(
+        "a中🤣中",
+        base64_decode_string_codepoint("YQAAAC1OAAAj+QEALU4AAA==")
+    );
 }
 
 fn parse_expect_failed_message(msg: &str) -> anyhow::Result<Replace> {
@@ -344,13 +350,13 @@ fn parse_expect_failed_message(msg: &str) -> anyhow::Result<Replace> {
         None
     };
 
-    let expect = if let Some(base16) = &j.expect_base16 {
-        base16_decode(base16)
+    let expect = if let Some(base64) = &j.expect_base64 {
+        base64_decode_string_codepoint(base64)
     } else {
         j.expect.unwrap_or_default().clone()
     };
-    let actual = if let Some(base16) = &j.actual_base16 {
-        base16_decode(base16)
+    let actual = if let Some(base64) = &j.actual_base64 {
+        base64_decode_string_codepoint(base64)
     } else {
         j.actual.unwrap_or_default().clone()
     };

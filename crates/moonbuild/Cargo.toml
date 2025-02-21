@@ -63,6 +63,7 @@ zip.workspace = true
 thiserror.workspace = true
 rand.workspace = true
 json-structural-diff = { version = "0.1.0", features = ["colorize"] }
+base64.workspace = true
 
 [dev-dependencies]
 expect-test.workspace = true
