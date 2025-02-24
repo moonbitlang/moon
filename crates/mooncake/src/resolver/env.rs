@@ -22,21 +22,23 @@ use std::{
     rc::Rc,
 };
 
+use anyhow::Context;
 use moonutil::{
     common::read_module_desc_file_in_dir,
     module::MoonMod,
-    mooncakes::{ModuleName, ModuleSource, ModuleSourceKind},
+    mooncakes::{GitSource, ModuleName, ModuleSource, ModuleSourceKind},
 };
 use semver::Version;
 
 use crate::registry::RegistryList;
 
-use super::ResolverError;
+use super::{git::recursively_scan_for_moon_mods, ResolverError};
 
 pub struct ResolverEnv<'a> {
     registries: &'a RegistryList,
     errors: Vec<super::ResolverError>,
     local_module_cache: HashMap<PathBuf, Rc<MoonMod>>,
+    git_module_cache: HashMap<GitSource, HashMap<ModuleName, (PathBuf, Rc<MoonMod>)>>,
 }
 
 impl<'a> ResolverEnv<'a> {
@@ -45,6 +47,7 @@ impl<'a> ResolverEnv<'a> {
             registries,
             errors: Vec::new(),
             local_module_cache: HashMap::new(),
+            git_module_cache: HashMap::new(),
         }
     }
 
@@ -103,5 +106,45 @@ impl<'a> ResolverEnv<'a> {
         self.local_module_cache
             .insert(path.to_owned(), Rc::clone(&rc_module));
         Ok(rc_module)
+    }
+
+    pub fn resolve_git_module(
+        &mut self,
+        git_info: &GitSource,
+        expected_name: &ModuleName,
+    ) -> Result<Rc<MoonMod>, ResolverError> {
+        // Check cache
+        if let Some(mods) = self.git_module_cache.get(git_info) {
+            if let Some((_, module)) = mods.get(expected_name) {
+                return Ok(module.clone());
+            }
+        }
+
+        let checkout = super::git::resolve(git_info)
+            .with_context(|| format!("Failed to resolve git source {}", git_info))
+            .map_err(ResolverError::Other)?;
+        let mods = recursively_scan_for_moon_mods(&checkout)
+            .with_context(|| format!("Failed to scan for moon mods in {}", checkout.display()))
+            .map_err(ResolverError::Other)?;
+
+        // populate cache
+        let mut mods_map = HashMap::new();
+        for (path, module) in mods {
+            mods_map.insert(
+                module.name.parse().map_err(|e| {
+                    ResolverError::Other(anyhow::anyhow!("Failed to parse module name: {}", e))
+                })?,
+                (path, module.clone()),
+            );
+        }
+        let entry = self
+            .git_module_cache
+            .entry(git_info.clone())
+            .or_insert(mods_map);
+
+        entry
+            .get(expected_name)
+            .map(|(_, module)| module.clone())
+            .ok_or_else(|| ResolverError::ModuleMissing(expected_name.clone()))
     }
 }
