@@ -322,7 +322,7 @@ fn generate_driver(
     }
     .replace("\r\n", "\n")
     .replace("fn moonbit_test_driver_internal_get_file_name(file_name : MoonbitTestDriverInternalExternString) -> String { panic() }\n", "")
-    .replace("type MoonbitTestDriverInternalExternString\n", "");
+    .replace("extern type MoonbitTestDriverInternalExternString\n", "");
 
     let coverage_end_template = if enable_coverage {
         let coverage_package_name =
