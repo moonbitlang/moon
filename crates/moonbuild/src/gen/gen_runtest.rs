@@ -22,7 +22,7 @@ use indexmap::IndexMap;
 use log::info;
 use moonutil::common::{
     get_desc_name, DriverKind, GeneratedTestDriver, TargetBackend, BLACKBOX_TEST_PATCH,
-    MOONBITLANG_CORE, MOONBITLANG_COVERAGE, WHITEBOX_TEST_PATCH,
+    MOONBITLANG_CORE, MOONBITLANG_COVERAGE, O_EXT, WHITEBOX_TEST_PATCH,
 };
 use moonutil::module::ModuleDB;
 use moonutil::package::Package;
@@ -780,7 +780,7 @@ pub fn gen_runtest(
         build_items.push(gen_package_core(m, pkg, moonc_opt)?);
         if pkg.native_stub.is_some() {
             compile_stub_items.push(RuntestLinkDepItem {
-                out: pkg.artifact.with_extension("o").display().to_string(),
+                out: pkg.artifact.with_extension(O_EXT).display().to_string(),
                 core_deps: vec![],
                 package_sources: vec![],
                 package_full_name: pkg.full_name(),

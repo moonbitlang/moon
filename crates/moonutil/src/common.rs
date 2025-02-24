@@ -31,6 +31,7 @@ use std::fs::File;
 use std::io::ErrorKind;
 use std::io::{BufReader, BufWriter};
 use std::path::{Path, PathBuf};
+use which::which;
 
 pub const MOON_MOD_JSON: &str = "moon.mod.json";
 pub const MOON_PKG_JSON: &str = "moon.pkg.json";
@@ -63,6 +64,8 @@ pub const MOON_BIN_DIR: &str = "__moonbin__";
 pub const MOONCAKE_BIN: &str = "$mooncake_bin";
 pub const MOD_DIR: &str = "$mod_dir";
 pub const PKG_DIR: &str = "$pkg_dir";
+
+pub const O_EXT: &str = if cfg!(windows) { "obj" } else { "o" };
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct PatchJSON {
@@ -949,7 +952,6 @@ pub fn set_native_backend_link_flags(
                 };
 
                 let mut link_configs = HashMap::new();
-                let mut cc_configs = HashMap::new();
 
                 let all_pkgs = module.get_all_packages();
                 for (_, pkg) in all_pkgs {
@@ -973,13 +975,18 @@ pub fn set_native_backend_link_flags(
                             cc_link_flags: n.cc_link_flags.clone().or(get_default_cc_link_flag()),
                             native_stub_deps: None,
                         },
-                        None if release => crate::package::NativeLinkConfig {
-                            exports: None,
-                            cc: Some(compiler.to_string()),
-                            cc_flags: get_default_cc_flags(),
-                            cc_link_flags: get_default_cc_link_flag(),
-                            native_stub_deps: None,
-                        },
+                        None if (release
+                            || pkg.native_stub.is_some()
+                            || which(compiler).is_ok()) =>
+                        {
+                            crate::package::NativeLinkConfig {
+                                exports: None,
+                                cc: Some(compiler.to_string()),
+                                cc_flags: get_default_cc_flags(),
+                                cc_link_flags: get_default_cc_link_flag(),
+                                native_stub_deps: None,
+                            }
+                        }
                         None => crate::package::NativeLinkConfig {
                             exports: None,
                             cc: Some(
@@ -1000,16 +1007,6 @@ pub fn set_native_backend_link_flags(
                         },
                     };
 
-                    if (pkg.is_main || pkg.need_link) && !pkg.is_third_party {
-                        module
-                            .get_filtered_packages_and_its_deps_by_pkgname(pkg.full_name().as_str())
-                            .unwrap()
-                            .iter()
-                            .for_each(|(pkgname, _)| {
-                                cc_configs.insert(pkgname.clone(), native_config.cc.clone());
-                            });
-                    }
-
                     let mut native_stub_o = Vec::new();
                     module
                         .get_filtered_packages_and_its_deps_by_pkgname(pkg.full_name().as_str())
@@ -1018,7 +1015,7 @@ pub fn set_native_backend_link_flags(
                         .for_each(|(_, pkg)| {
                             if pkg.native_stub.is_some() {
                                 native_stub_o
-                                    .push(pkg.artifact.with_extension("o").display().to_string());
+                                    .push(pkg.artifact.with_extension(O_EXT).display().to_string());
                             }
                         });
 
@@ -1037,15 +1034,6 @@ pub fn set_native_backend_link_flags(
 
                 for (pkgname, link_config) in link_configs {
                     module.get_package_by_name_mut_safe(&pkgname).unwrap().link = link_config;
-                }
-                // keep the cc for entry package same as its deps packages
-                for (pkgname, cc) in cc_configs {
-                    let p = module.get_package_by_name_mut_safe(&pkgname).unwrap();
-                    if let Some(link) = &mut p.link {
-                        if let Some(native) = &mut link.native {
-                            native.cc = cc;
-                        }
-                    }
                 }
             }
             Ok(())
