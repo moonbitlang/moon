@@ -154,6 +154,7 @@ Check the current package, but don't build object files
 * `-w`, `--watch` — Monitor the file system and automatically check files
 * `--patch-file <PATCH_FILE>` — The patch file to check, Only valid when checking specified package
 * `--no-mi` — Whether to skip the mi generation, Only valid when checking specified package
+* `--explain` — Whether to explain the error code with details
 
 
 

@@ -21,7 +21,10 @@ use std::path::{Path, PathBuf};
 use ariadne::Fmt;
 use serde::{Deserialize, Serialize};
 
-use crate::common::{line_col_to_byte_idx, PatchJSON, MOON_DOC_TEST_POSTFIX};
+use crate::{
+    common::{line_col_to_byte_idx, PatchJSON, MOON_DOC_TEST_POSTFIX},
+    error_code_docs::get_error_code_doc,
+};
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct MooncDiagnostic {
@@ -97,7 +100,12 @@ struct SourceMapping {
 }
 
 impl MooncDiagnostic {
-    pub fn render(content: &str, use_fancy: bool, check_patch_file: Option<PathBuf>) {
+    pub fn render(
+        content: &str,
+        use_fancy: bool,
+        check_patch_file: Option<PathBuf>,
+        explain: bool,
+    ) {
         let diagnostic = match serde_json_lenient::from_str::<MooncDiagnostic>(content) {
             Ok(d) => d,
             Err(_) => {
@@ -189,13 +197,20 @@ impl MooncDiagnostic {
             end_offset,
         ));
 
-        let mut report_builder = ariadne::Report::build(kind, &display_filename, start_offset)
-            .with_message(format!("[{}]", diagnostic.error_code).fg(color))
-            .with_label(
+        let mut report_builder =
+            ariadne::Report::build(kind, (&display_filename, start_offset..end_offset)).with_label(
                 ariadne::Label::new((&display_filename, start_offset..end_offset))
                     .with_message((&diagnostic.message).fg(color))
                     .with_color(color),
             );
+
+        if explain {
+            let error_code_doc = get_error_code_doc(&diagnostic.error_code.to_string()).unwrap();
+            report_builder = report_builder.with_message(error_code_doc.fg(color));
+        } else {
+            report_builder =
+                report_builder.with_message(format!("[{}]", diagnostic.error_code).fg(color));
+        }
 
         if !use_fancy {
             report_builder =

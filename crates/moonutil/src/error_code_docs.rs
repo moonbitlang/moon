@@ -16,24 +16,12 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
-#![warn(clippy::clone_on_ref_ptr)]
+use once_cell::sync::Lazy;
+use std::collections::HashMap;
 
-pub mod cli;
-pub mod common;
-pub mod cond_expr;
-pub mod dependency;
-pub mod dirs;
-pub mod doc_test;
-pub mod error_code_docs;
-pub mod fuzzy_match;
-pub mod git;
-pub mod graph;
-pub mod module;
-pub mod moon_dir;
-pub mod mooncake_bin;
-pub mod mooncakes;
-pub mod package;
-pub mod path;
-pub mod render;
-pub mod scan;
-pub mod version;
+// include the generated error code docs
+include!(concat!(env!("OUT_DIR"), "/error_code_docs.rs"));
+
+pub fn get_error_code_doc(error_code: &str) -> Option<&'static str> {
+    ERROR_DOCS.get(error_code).copied()
+}
