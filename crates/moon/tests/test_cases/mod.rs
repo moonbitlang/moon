@@ -8280,6 +8280,103 @@ fn test_render_diagnostic_in_patch_file() {
             Finished. moon: ran 2 tasks, now up to date
         "#]],
     );
+
+    // check --explain
+    check(
+        get_stderr(
+            &dir,
+            [
+                "check",
+                "lib",
+                "--patch-file",
+                "./patch_test.json",
+                "--explain",
+            ],
+        ),
+        expect![[r#"
+            Warning: # E1002
+
+            Unused variable.
+
+            This variable is unused by any other part of your code, nor marked with `pub`
+            visibility.
+
+            Note that this warning might uncover other bugs in your code. For example, if
+            there are two variables in your codebase that has similar name, you might just
+            use the other variable by mistake.
+
+            Specifically, if the variable is at the toplevel, and the body of the module
+            contains side effects, the side effects will not happen.
+
+            ## Erroneous example
+
+            ```moonbit
+            let p : Int = {
+            //  ^ Warning: Unused toplevel variable 'p'.
+            //             Note if the body contains side effect, it will not happen.
+            //             Use `fn init { .. }` to wrap the effect.
+              println("Side effect")
+              42
+            }
+
+            fn main {
+              let x = 42 // Warning: Unused variable 'x'
+            }
+            ```
+
+            ## Suggestion
+
+            There are multiple ways to fix this warning:
+
+            - If the variable is indeed useless, you can remove the definition of the
+              variable.
+            - If this variable is at the toplevel (i.e., not local), and is part of the
+              public API of your module, you can add the `pub` keyword to the variable.
+
+              ```moonbit
+              pub let p = 42
+              ```
+
+            - If you made a typo in the variable name, you can rename the variable to the
+              correct name at the use site.
+            - If your code depends on the side-effect of the variable, you can wrap the
+              side-effect in a `fn init` block.
+
+              ```moonbit
+              fn init {
+                println("Side effect")
+              }
+              ```
+
+            There are some cases where you might want to keep the variable private and
+            unused at the same time. In this case, you can call `ignore()` on the variable
+            to force the use of it.
+
+            ```moonbit
+            let p : Int = {
+              println("Side effect")
+              42
+            }
+
+            fn init {
+              ignore(p)
+            }
+
+            fn main {
+              let x = 42
+              ignore(x)
+            }
+            ```
+
+               ╭─[hello_2_test.mbt:2:6]
+               │
+             2 │  let unused_in_patch_test_json = 1;
+               │      ────────────┬────────────  
+               │                  ╰────────────── Warning: Unused variable 'unused_in_patch_test_json'
+            ───╯
+            Finished. moon: ran 2 tasks, now up to date
+        "#]],
+    );
 }
 
 #[test]

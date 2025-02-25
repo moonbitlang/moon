@@ -126,6 +126,9 @@ jobs:
         run: git config --global core.autocrlf false
 
       - uses: actions/checkout@v4
+        with:
+          submodules: true
+
       - uses: dtolnay/rust-toolchain@1.80.0
         with:
           components: rustfmt, clippy
@@ -233,6 +236,9 @@ jobs:
         run: git config --global core.autocrlf false
 
       - uses: actions/checkout@v4
+        with:
+          submodules: true
+
       - uses: dtolnay/rust-toolchain@1.80.0
         with:
           components: rustfmt, clippy
@@ -314,6 +320,9 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+        with:
+          submodules: true
+
       - uses: dtolnay/rust-toolchain@1.80.0
 
       - name: Checkout moonc-version

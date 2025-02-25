@@ -67,6 +67,10 @@ pub struct CheckSubcommand {
     /// Whether to skip the mi generation, Only valid when checking specified package.
     #[clap(long, requires = "package_path")]
     pub no_mi: bool,
+
+    /// Whether to explain the error code with details.
+    #[clap(long)]
+    pub explain: bool,
 }
 
 pub fn run_check(cli: &UniversalFlags, cmd: &CheckSubcommand) -> anyhow::Result<i32> {
@@ -167,6 +171,7 @@ fn run_check_internal(
             package_path: cmd.package_path.clone(),
             patch_file: cmd.patch_file.clone(),
             no_mi: cmd.no_mi,
+            explain: cmd.explain,
         }),
         test_opt: None,
         build_opt: None,
@@ -188,6 +193,7 @@ fn run_check_internal(
         package_path: Some(pkg_path),
         patch_file: pp,
         no_mi: nm,
+        ..
     }) = moonbuild_opt.check_opt.as_ref()
     {
         let pkg_by_path = module.get_package_by_path_mut(&moonbuild_opt.source_dir.join(pkg_path));

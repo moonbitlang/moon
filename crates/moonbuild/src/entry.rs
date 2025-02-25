@@ -105,6 +105,10 @@ pub fn n2_simple_run_interface(
         .check_opt
         .as_ref()
         .and_then(|it| it.patch_file.clone());
+    let explain = moonbuild_opt
+        .check_opt
+        .as_ref()
+        .map_or(false, |it| it.explain);
     let render_and_catch = move |output: &str| {
         output
             .split('\n')
@@ -118,6 +122,7 @@ pub fn n2_simple_run_interface(
                         content,
                         use_fancy,
                         check_patch_file.clone(),
+                        explain,
                     );
                 }
             });
@@ -182,6 +187,10 @@ pub fn n2_run_interface(
         .check_opt
         .as_ref()
         .and_then(|it| it.patch_file.clone());
+    let explain = moonbuild_opt
+        .check_opt
+        .as_ref()
+        .map_or(false, |it| it.explain);
     let render_and_catch = move |output: &str| {
         output.lines().for_each(|content| {
             catcher.lock().unwrap().push(content.to_owned());
@@ -192,6 +201,7 @@ pub fn n2_run_interface(
                     content,
                     use_fancy,
                     check_patch_file.clone(),
+                    explain,
                 );
             }
         });
@@ -250,6 +260,10 @@ pub fn n2_run_interface(
                     content,
                     use_fancy,
                     check_patch_file.clone(),
+                    moonbuild_opt
+                        .check_opt
+                        .as_ref()
+                        .map_or(false, |it| it.explain),
                 );
             }
         });
