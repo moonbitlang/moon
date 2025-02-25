@@ -32,6 +32,9 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          submodules: true
+
       - uses: dtolnay/rust-toolchain@1.80.0
       - name: Cargo cache
         uses: actions/cache@v4
@@ -98,6 +101,7 @@ jobs:
       - name: Checkout
         run: |
           git clone --depth 1 "https://${{ secrets.MOON_CLONE_PAT }}@github.com/moonbitlang/moon.git" "$GITHUB_WORKSPACE"
+          git submodule update --init --recursive
 
       - name: Install Rustup
         run: |
