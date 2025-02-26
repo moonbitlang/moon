@@ -1,3 +1,4 @@
 {
-  "name": "dummy"
+  "name": "dummy",
+  "warn-list": "-27"
 }
