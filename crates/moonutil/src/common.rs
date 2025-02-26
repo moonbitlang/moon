@@ -1014,9 +1014,16 @@ pub fn set_native_backend_link_flags(
                         .unwrap()
                         .iter()
                         .for_each(|(_, pkg)| {
-                            if pkg.native_stub.is_some() {
-                                native_stub_o
-                                    .push(pkg.artifact.with_extension(O_EXT).display().to_string());
+                            if let Some(ref stub_files) = pkg.native_stub {
+                                native_stub_o.extend(stub_files.iter().map(|f| {
+                                    pkg.artifact
+                                        .parent()
+                                        .unwrap()
+                                        .join(f)
+                                        .with_extension(O_EXT)
+                                        .display()
+                                        .to_string()
+                                }));
                             }
                         });
 

@@ -1,3 +1,6 @@
 {
-  "native-stub": ["stub.c"]
+  "native-stub": [
+    "stub1.c",
+    "stub2.c"
+  ]
 }
