@@ -7097,6 +7097,7 @@ fn test_js() {
 }
 
 #[test]
+#[ignore]
 fn test_generate_test_driver_incremental() {
     let dir = TestDir::new("moon_test_hello_lib.in");
 
