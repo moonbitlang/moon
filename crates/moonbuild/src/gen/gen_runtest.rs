@@ -1114,9 +1114,11 @@ pub fn gen_n2_runtest_state(
 
     if is_native_backend {
         for item in input.compile_stub_items.iter() {
-            let (build, fid) = gen_compile_stub_command(&mut graph, item, moonc_opt);
-            graph.add_build(build)?;
-            default.push(fid);
+            let builds = gen_compile_stub_command(&mut graph, item, moonc_opt);
+            for (build, fid) in builds {
+                graph.add_build(build)?;
+                default.push(fid);
+            }
         }
     }
 

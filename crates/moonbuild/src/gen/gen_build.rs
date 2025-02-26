@@ -554,67 +554,70 @@ pub fn gen_compile_stub_command(
     graph: &mut n2graph::Graph,
     item: &LinkDepItem,
     moonc_opt: &MooncOpt,
-) -> (Build, n2graph::FileId) {
-    let artifact_output_path = PathBuf::from(&item.out).display().to_string();
-
-    let artifact_id = graph.files.id_from_canonical(artifact_output_path.clone());
-
-    let loc = FileLoc {
-        filename: Rc::new(PathBuf::from("compile-stub")),
-        line: 0,
-    };
-
+) -> Vec<(Build, n2graph::FileId)> {
     let inputs = item
         .native_stub
         .as_ref()
         .unwrap()
         .iter()
-        .map(|f| item.package_path.join(f).display().to_string())
-        .collect::<Vec<_>>();
-    let input_cnt = inputs.len();
-    let input_ids = inputs
-        .iter()
-        .map(|f| graph.files.id_from_canonical(f.clone()))
-        .collect::<Vec<_>>();
+        .map(|f| item.package_path.join(f));
 
-    let ins = BuildIns {
-        ids: input_ids,
-        explicit: input_cnt,
-        implicit: 0,
-        order_only: 0,
-    };
+    let mut res = vec![];
 
-    let outs = BuildOuts {
-        ids: vec![artifact_id],
-        explicit: 1,
-    };
+    for input in inputs {
+        let artifact_output_path = PathBuf::from(&item.out)
+            .with_file_name(input.with_extension(O_EXT).file_name().unwrap())
+            .display()
+            .to_string();
+        let artifact_id = graph.files.id_from_canonical(artifact_output_path.clone());
 
-    let mut build = Build::new(loc, ins, outs);
+        let loc = FileLoc {
+            filename: Rc::new(PathBuf::from("compile-stub")),
+            line: 0,
+        };
 
-    let native_cc = item.native_cc(moonc_opt.link_opt.target_backend).unwrap();
-    let native_cc_flags = item
-        .native_cc_flags(moonc_opt.link_opt.target_backend)
-        .map(|it| it.split(" ").collect::<Vec<_>>())
-        .unwrap_or_default();
-    let native_cc_link_flags = item
-        .native_cc_link_flags(moonc_opt.link_opt.target_backend)
-        .map(|it| it.split(" ").collect::<Vec<_>>())
-        .unwrap_or_default();
+        let input_ids = vec![graph.files.id_from_canonical(input.display().to_string())];
+        let ins = BuildIns {
+            ids: input_ids,
+            explicit: 1,
+            implicit: 0,
+            order_only: 0,
+        };
 
-    let windows_with_cl = cfg!(windows) && native_cc == "cl";
+        let outs = BuildOuts {
+            ids: vec![artifact_id],
+            explicit: 1,
+        };
 
-    let command = CommandBuilder::new(native_cc)
-        .arg("-c")
-        .args(inputs)
-        .args_with_cond(!native_cc_flags.is_empty(), native_cc_flags)
-        .args_with_cond(!native_cc_link_flags.is_empty(), native_cc_link_flags)
-        .args_with_cond(!windows_with_cl, vec!["-o", &artifact_output_path])
-        .arg_with_cond(windows_with_cl, &format!("-Fo{}", artifact_output_path))
-        .build();
-    log::debug!("Command: {}", command);
-    build.cmdline = Some(command);
-    build.desc = Some(format!("compile-stub: {}", item.package_full_name));
-    (build, artifact_id)
+        let mut build = Build::new(loc, ins, outs);
+
+        let native_cc = item.native_cc(moonc_opt.link_opt.target_backend).unwrap();
+        let native_cc_flags = item
+            .native_cc_flags(moonc_opt.link_opt.target_backend)
+            .map(|it| it.split(" ").collect::<Vec<_>>())
+            .unwrap_or_default();
+        let native_cc_link_flags = item
+            .native_cc_link_flags(moonc_opt.link_opt.target_backend)
+            .map(|it| it.split(" ").collect::<Vec<_>>())
+            .unwrap_or_default();
+
+        let windows_with_cl = cfg!(windows) && native_cc == "cl";
+
+        let command = CommandBuilder::new(native_cc)
+            .arg("-c")
+            .arg(&input.display().to_string())
+            .args_with_cond(!native_cc_flags.is_empty(), native_cc_flags)
+            .args_with_cond(!native_cc_link_flags.is_empty(), native_cc_link_flags)
+            .args_with_cond(!windows_with_cl, vec!["-o", &artifact_output_path])
+            .arg_with_cond(windows_with_cl, &format!("-Fo{}", artifact_output_path))
+            .build();
+        log::debug!("Command: {}", command);
+        build.cmdline = Some(command);
+        build.desc = Some(format!("compile-stub: {}", input.display()));
+        res.push((build, artifact_id));
+    }
+
+    res
 }
 
 pub fn gen_n2_build_state(
@@ -724,9 +727,11 @@ pub fn gen_n2_build_state(
 
     if is_native_backend {
         for item in input.compile_stub_items.iter() {
-            let (build, fid) = gen_compile_stub_command(&mut graph, item, moonc_opt);
-            graph.add_build(build)?;
-            default.push(fid);
+            let builds = gen_compile_stub_command(&mut graph, item, moonc_opt);
+            for (build, fid) in builds {
+                graph.add_build(build)?;
+                default.push(fid);
+            }
         }
     }
 
