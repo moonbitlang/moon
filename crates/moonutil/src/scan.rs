@@ -23,6 +23,7 @@ use crate::mooncakes::DirSyncResult;
 use crate::package::{Import, Package};
 use crate::path::{ImportComponent, ImportPath, PathComponent};
 use anyhow::{bail, Context};
+use colored::Colorize;
 use indexmap::map::IndexMap;
 use petgraph::graph::{DiGraph, NodeIndex};
 use std::collections::HashMap;
@@ -31,7 +32,8 @@ use std::str::FromStr;
 use walkdir::WalkDir;
 
 use crate::common::{
-    read_module_desc_file_in_dir, MoonbuildOpt, DEP_PATH, IGNORE_DIRS, MOON_MOD_JSON, MOON_PKG_JSON,
+    read_module_desc_file_in_dir, MoonbuildOpt, TargetBackend, DEP_PATH, IGNORE_DIRS,
+    MOON_MOD_JSON, MOON_PKG_JSON,
 };
 
 /// Matches an import string to scan paths.
@@ -320,7 +322,14 @@ fn scan_one_package(
                     None => {}
                     Some(idx) => {
                         let (_, backend_ext) = stem.split_at(idx + 1);
-                        x.insert(filename, StringOrArray::String(backend_ext.to_string()));
+                        if TargetBackend::str_to_backend(backend_ext).is_ok() {
+                            eprintln!(
+                                "{}: use backend extension in filename(`{}`) is deprecated. Please use `targets` field in moon.pkg.json instead.",
+                                "Warning".yellow(),
+                                file.display()
+                            );
+                            x.insert(filename, StringOrArray::String(backend_ext.to_string()));
+                        }
                     }
                 };
             }
