@@ -16,7 +16,9 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
-use crate::common::{MoonModJSONFormatErrorKind, MooncOpt, NameError, MOON_PKG_JSON};
+use crate::common::{
+    MoonModJSONFormatErrorKind, MooncOpt, NameError, TargetBackend, MOON_PKG_JSON,
+};
 use crate::dependency::{
     BinaryDependencyInfo, BinaryDependencyInfoJson, SourceDependencyInfo, SourceDependencyInfoJson,
 };
@@ -28,7 +30,7 @@ use petgraph::graph::DiGraph;
 use schemars::JsonSchema;
 use semver::Version;
 use serde::{Deserialize, Serialize};
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::fmt::Debug;
 use std::path::{Path, PathBuf};
 
@@ -93,6 +95,139 @@ impl ModuleDB {
 
     pub fn get_package_by_path(&self, path: &Path) -> Option<&Package> {
         self.packages.values().find(|it| it.root_path == path)
+    }
+
+    fn get_entry_pkgs(&self) -> Vec<&Package> {
+        let mut dependent_pkgs = HashSet::<String>::new();
+
+        for (_, pkg) in self.packages.iter() {
+            let mut deps = HashSet::new();
+            self.resolve_deps_of_pkg(pkg, &mut deps);
+            for dep in deps.iter() {
+                dependent_pkgs.insert(dep.clone());
+            }
+        }
+
+        self.packages
+            .iter()
+            .filter(|(_, pkg)| !dependent_pkgs.contains(&pkg.full_name()))
+            .map(|(_, pkg)| pkg)
+            .collect()
+    }
+
+    fn backtrace_deps_chain(&self, pkg: &Package) -> Vec<Vec<String>> {
+        let mut cache = HashMap::new();
+        let mut visited = HashSet::new();
+
+        fn dfs(
+            mdb: &ModuleDB,
+            pkg: &Package,
+            cache: &mut HashMap<String, Vec<Vec<String>>>,
+            visited: &mut HashSet<String>,
+        ) -> Vec<Vec<String>> {
+            let pkg_name = pkg.full_name();
+
+            if let Some(cached) = cache.get(&pkg_name) {
+                return cached.clone();
+            }
+
+            if visited.contains(&pkg_name) {
+                return vec![];
+            }
+            visited.insert(pkg_name.clone());
+
+            let all_deps = pkg
+                .imports
+                .iter()
+                .chain(pkg.wbtest_imports.iter())
+                .chain(pkg.test_imports.iter());
+
+            let mut paths = Vec::new();
+            let has_deps = all_deps.clone().count() > 0;
+
+            for dep in all_deps {
+                let dep_name = dep.path.make_full_path();
+                let dep_pkg = mdb.get_package_by_name(&dep_name);
+
+                for mut subpath in dfs(mdb, dep_pkg, cache, visited) {
+                    let mut new_path = vec![pkg_name.clone()];
+                    new_path.append(&mut subpath);
+                    paths.push(new_path);
+                }
+            }
+
+            if !has_deps || paths.is_empty() {
+                paths.push(vec![pkg_name.clone()]);
+            }
+
+            visited.remove(&pkg_name);
+            cache.insert(pkg_name, paths.clone());
+            paths
+        }
+
+        let mut result = dfs(self, pkg, &mut cache, &mut visited);
+
+        result.retain(|path| path.len() > 1);
+        result
+    }
+
+    pub fn get_project_supported_targets(
+        &self,
+        cur_target_backend: TargetBackend,
+    ) -> anyhow::Result<HashSet<TargetBackend>> {
+        let mut project_supported_targets = HashSet::from_iter(vec![
+            TargetBackend::WasmGC,
+            TargetBackend::Wasm,
+            TargetBackend::Native,
+            TargetBackend::Js,
+        ]);
+
+        for entry_pkg in self.get_entry_pkgs() {
+            let deps_chain = self.backtrace_deps_chain(entry_pkg);
+            for chain in deps_chain.iter() {
+                let mut cur_deps_chain_supported_targets = HashSet::from_iter(vec![
+                    TargetBackend::WasmGC,
+                    TargetBackend::Wasm,
+                    TargetBackend::Native,
+                    TargetBackend::Js,
+                ]);
+                for (i, dpe_pkg_name) in chain.iter().enumerate() {
+                    let dep_pkg = self.get_package_by_name(dpe_pkg_name);
+                    cur_deps_chain_supported_targets = cur_deps_chain_supported_targets
+                        .intersection(&dep_pkg.supported_targets)
+                        .cloned()
+                        .collect();
+                    if cur_deps_chain_supported_targets.is_empty() {
+                        bail!(
+                            "cannot find a common supported backend for the deps chain: {:?}",
+                            chain[0..=i]
+                                .iter()
+                                .map(|s| format!(
+                                    "{}: {}",
+                                    s,
+                                    TargetBackend::hashset_to_string(
+                                        &self.get_package_by_name(s).supported_targets
+                                    )
+                                ))
+                                .collect::<Vec<_>>()
+                                .join(" -> ")
+                        );
+                    }
+                    if !cur_deps_chain_supported_targets.contains(&cur_target_backend) {
+                        bail!(
+                            "deps chain: {:?} supports backends `{}`, while the current target backend is {}",
+                            chain[0..=i].iter().map(|s| format!("{}: {}", s, TargetBackend::hashset_to_string(&self.get_package_by_name(s).supported_targets))).collect::<Vec<_>>().join(" -> "), TargetBackend::hashset_to_string(&cur_deps_chain_supported_targets), cur_target_backend
+                        );
+                    }
+                }
+                project_supported_targets = project_supported_targets
+                    .intersection(&cur_deps_chain_supported_targets)
+                    .cloned()
+                    .collect();
+            }
+        }
+
+        Ok(project_supported_targets)
     }
 
     pub fn get_topo_pkgs(&self) -> anyhow::Result<Vec<&Package>> {

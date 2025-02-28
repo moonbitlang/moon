@@ -25,12 +25,13 @@ use clap::ValueEnum;
 use fs4::fs_std::FileExt;
 use indexmap::IndexMap;
 use serde::{Deserialize, Serialize};
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::fs::File;
 use std::io::ErrorKind;
 use std::io::{BufReader, BufWriter};
 use std::path::{Path, PathBuf};
+use which::which;
 
 pub const MOON_MOD_JSON: &str = "moon.mod.json";
 pub const MOON_PKG_JSON: &str = "moon.pkg.json";
@@ -63,6 +64,8 @@ pub const MOON_BIN_DIR: &str = "__moonbin__";
 pub const MOONCAKE_BIN: &str = "$mooncake_bin";
 pub const MOD_DIR: &str = "$mod_dir";
 pub const PKG_DIR: &str = "$pkg_dir";
+
+pub const O_EXT: &str = if cfg!(windows) { "obj" } else { "o" };
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct PatchJSON {
@@ -266,6 +269,12 @@ pub enum TargetBackend {
     Native,
 }
 
+impl std::fmt::Display for TargetBackend {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.to_flag())
+    }
+}
+
 impl TargetBackend {
     pub fn to_flag(self) -> &'static str {
         match self {
@@ -323,6 +332,15 @@ impl TargetBackend {
                 s
             ),
         }
+    }
+
+    pub fn hashset_to_string(backends: &HashSet<TargetBackend>) -> String {
+        let mut backends = backends
+            .iter()
+            .map(|b| b.to_flag().to_string())
+            .collect::<Vec<_>>();
+        backends.sort();
+        format!("[{}]", backends.join(", "))
     }
 }
 
@@ -414,6 +432,7 @@ pub struct CheckOpt {
     pub package_path: Option<PathBuf>,
     pub patch_file: Option<PathBuf>,
     pub no_mi: bool,
+    pub explain: bool,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -933,33 +952,42 @@ pub fn set_native_backend_link_flags(
                     return None;
                 };
 
-                let all_pkgs = module.get_all_packages_mut();
+                let mut link_configs = HashMap::new();
+
+                let all_pkgs = module.get_all_packages();
                 for (_, pkg) in all_pkgs {
                     let existing_native = pkg.link.as_ref().and_then(|link| link.native.as_ref());
 
-                    let native_config = match existing_native {
+                    let mut native_config = match existing_native {
                         Some(n) => crate::package::NativeLinkConfig {
                             exports: n.exports.clone(),
                             cc: n.cc.clone().or(Some(compiler.to_string())),
                             cc_flags: n
                                 .cc_flags
-                                .clone()
+                                .as_ref()
                                 .map(|cc_flags| {
                                     format!(
-                                        "-I{} -fno-strict-aliasing {}",
+                                        "-I{} -fwrapv -fno-strict-aliasing {}",
                                         moon_include_path.display(),
                                         cc_flags
                                     )
                                 })
                                 .or(get_default_cc_flags()),
                             cc_link_flags: n.cc_link_flags.clone().or(get_default_cc_link_flag()),
+                            native_stub_deps: None,
                         },
-                        None if release => crate::package::NativeLinkConfig {
-                            exports: None,
-                            cc: Some(compiler.to_string()),
-                            cc_flags: get_default_cc_flags(),
-                            cc_link_flags: get_default_cc_link_flag(),
-                        },
+                        None if (release
+                            || pkg.native_stub.is_some()
+                            || which(compiler).is_ok()) =>
+                        {
+                            crate::package::NativeLinkConfig {
+                                exports: None,
+                                cc: Some(compiler.to_string()),
+                                cc_flags: get_default_cc_flags(),
+                                cc_link_flags: get_default_cc_link_flag(),
+                                native_stub_deps: None,
+                            }
+                        }
                         None => crate::package::NativeLinkConfig {
                             exports: None,
                             cc: Some(
@@ -976,13 +1004,44 @@ pub fn set_native_backend_link_flags(
                                 moon_include_path.display()
                             )),
                             cc_link_flags: None,
+                            native_stub_deps: None,
                         },
                     };
 
-                    pkg.link = Some(crate::package::Link {
-                        native: Some(native_config),
-                        ..Default::default()
-                    });
+                    let mut native_stub_o = Vec::new();
+                    module
+                        .get_filtered_packages_and_its_deps_by_pkgname(pkg.full_name().as_str())
+                        .unwrap()
+                        .iter()
+                        .for_each(|(_, pkg)| {
+                            if let Some(ref stub_files) = pkg.native_stub {
+                                native_stub_o.extend(stub_files.iter().map(|f| {
+                                    pkg.artifact
+                                        .parent()
+                                        .unwrap()
+                                        .join(f)
+                                        .with_extension(O_EXT)
+                                        .display()
+                                        .to_string()
+                                }));
+                            }
+                        });
+
+                    if !native_stub_o.is_empty() {
+                        native_config.native_stub_deps = Some(native_stub_o);
+                    }
+
+                    link_configs.insert(
+                        pkg.full_name(),
+                        Some(crate::package::Link {
+                            native: Some(native_config),
+                            ..Default::default()
+                        }),
+                    );
+                }
+
+                for (pkgname, link_config) in link_configs {
+                    module.get_package_by_name_mut_safe(&pkgname).unwrap().link = link_config;
                 }
             }
             Ok(())

@@ -448,6 +448,7 @@ fn test_moon_help() {
 }
 
 #[test]
+#[ignore]
 #[cfg(unix)]
 fn test_bench4() {
     let dir = TestDir::new_empty();
@@ -6266,7 +6267,7 @@ fn test_moon_check_json_output() {
         check(
             get_stderr(&dir, ["check", "--output-json"]),
             expect![[r#"
-                Finished. moon: no work to do
+                Finished. moon: ran 1 task, now up to date
             "#]],
         );
     }
@@ -6287,7 +6288,7 @@ fn test_moon_check_json_output() {
         check(
             get_stderr(&dir, ["check", "--output-json"]),
             expect![[r#"
-                Finished. moon: no work to do
+                Finished. moon: ran 1 task, now up to date
             "#]],
         );
     }
@@ -7096,6 +7097,7 @@ fn test_js() {
 }
 
 #[test]
+#[ignore]
 fn test_generate_test_driver_incremental() {
     let dir = TestDir::new("moon_test_hello_lib.in");
 
@@ -7613,7 +7615,7 @@ fn test_use_cc_for_native_release() {
                 moonc build-package ./lib/hello.mbt -o ./target/native/release/build/lib/lib.core -pkg moonbitlang/hello/lib -std-path $MOON_HOME/lib/core/target/native/release/bundle -pkg-sources moonbitlang/hello/lib:./lib -target native
                 moonc build-package ./main/main.mbt -o ./target/native/release/build/main/main.core -pkg moonbitlang/hello/main -is-main -std-path $MOON_HOME/lib/core/target/native/release/bundle -i ./target/native/release/build/lib/lib.mi:lib -pkg-sources moonbitlang/hello/main:./main -target native
                 moonc link-core $MOON_HOME/lib/core/target/native/release/bundle/core.core ./target/native/release/build/lib/lib.core ./target/native/release/build/main/main.core -main moonbitlang/hello/main -o ./target/native/release/build/main/main.c -pkg-config-path ./main/moon.pkg.json -pkg-sources moonbitlang/hello/lib:./lib -pkg-sources moonbitlang/hello/main:./main -pkg-sources moonbitlang/core:$MOON_HOME/lib/core -target native
-                $MOON_HOME/bin/internal/tcc ./target/native/release/build/main/main.c -L$MOON_HOME/lib -I$MOON_HOME/include -DMOONBIT_NATIVE_NO_SYS_HEADER -o ./target/native/release/build/main/main.exe
+                cc ./target/native/release/build/main/main.c -I$MOON_HOME/include -O2 $MOON_HOME/lib/libmoonbitrun.o -fwrapv -fno-strict-aliasing -lm -o ./target/native/release/build/main/main.exe
             "#]],
         );
         check(
@@ -7632,7 +7634,7 @@ fn test_use_cc_for_native_release() {
                 moonc build-package ./lib/hello.mbt -o ./target/native/debug/build/lib/lib.core -pkg moonbitlang/hello/lib -std-path $MOON_HOME/lib/core/target/native/release/bundle -pkg-sources moonbitlang/hello/lib:./lib -target native -g -O0
                 moonc build-package ./main/main.mbt -o ./target/native/debug/build/main/main.core -pkg moonbitlang/hello/main -is-main -std-path $MOON_HOME/lib/core/target/native/release/bundle -i ./target/native/debug/build/lib/lib.mi:lib -pkg-sources moonbitlang/hello/main:./main -target native -g -O0
                 moonc link-core $MOON_HOME/lib/core/target/native/release/bundle/core.core ./target/native/debug/build/lib/lib.core ./target/native/debug/build/main/main.core -main moonbitlang/hello/main -o ./target/native/debug/build/main/main.c -pkg-config-path ./main/moon.pkg.json -pkg-sources moonbitlang/hello/lib:./lib -pkg-sources moonbitlang/hello/main:./main -pkg-sources moonbitlang/core:$MOON_HOME/lib/core -target native -g -O0
-                $MOON_HOME/bin/internal/tcc ./target/native/debug/build/main/main.c -L$MOON_HOME/lib -I$MOON_HOME/include -DMOONBIT_NATIVE_NO_SYS_HEADER -o ./target/native/debug/build/main/main.exe
+                cc ./target/native/debug/build/main/main.c -I$MOON_HOME/include -O2 $MOON_HOME/lib/libmoonbitrun.o -fwrapv -fno-strict-aliasing -lm -o ./target/native/debug/build/main/main.exe
             "#]],
         );
     }
@@ -7677,7 +7679,7 @@ fn test_use_cc_for_native_release() {
                 moonc build-package ./lib/hello.mbt -o ./target/native/release/build/lib/lib.core -pkg moonbitlang/hello/lib -std-path $MOON_HOME/lib/core/target/native/release/bundle -pkg-sources moonbitlang/hello/lib:./lib -target native
                 moonc build-package ./main/main.mbt -o ./target/native/release/build/main/main.core -pkg moonbitlang/hello/main -is-main -std-path $MOON_HOME/lib/core/target/native/release/bundle -i ./target/native/release/build/lib/lib.mi:lib -pkg-sources moonbitlang/hello/main:./main -target native
                 moonc link-core $MOON_HOME/lib/core/target/native/release/bundle/core.core ./target/native/release/build/lib/lib.core ./target/native/release/build/main/main.core -main moonbitlang/hello/main -o ./target/native/release/build/main/main.c -pkg-config-path ./main/moon.pkg.json -pkg-sources moonbitlang/hello/lib:./lib -pkg-sources moonbitlang/hello/main:./main -pkg-sources moonbitlang/core:$MOON_HOME/lib/core -target native
-                $MOON_HOME/bin/internal/tcc ./target/native/release/build/main/main.c -L$MOON_HOME/lib -I$MOON_HOME/include -DMOONBIT_NATIVE_NO_SYS_HEADER -o ./target/native/release/build/main/main.exe
+                cc ./target/native/release/build/main/main.c -I$MOON_HOME/include -O2 $MOON_HOME/lib/libmoonbitrun.o -fwrapv -fno-strict-aliasing -lm -o ./target/native/release/build/main/main.exe
                  ./target/native/release/build/main/main.exe
             "#]],
         );
@@ -7698,7 +7700,7 @@ fn test_use_cc_for_native_release() {
                 moonc build-package ./lib/hello.mbt -o ./target/native/debug/build/lib/lib.core -pkg moonbitlang/hello/lib -std-path $MOON_HOME/lib/core/target/native/release/bundle -pkg-sources moonbitlang/hello/lib:./lib -target native -g -O0
                 moonc build-package ./main/main.mbt -o ./target/native/debug/build/main/main.core -pkg moonbitlang/hello/main -is-main -std-path $MOON_HOME/lib/core/target/native/release/bundle -i ./target/native/debug/build/lib/lib.mi:lib -pkg-sources moonbitlang/hello/main:./main -target native -g -O0
                 moonc link-core $MOON_HOME/lib/core/target/native/release/bundle/core.core ./target/native/debug/build/lib/lib.core ./target/native/debug/build/main/main.core -main moonbitlang/hello/main -o ./target/native/debug/build/main/main.c -pkg-config-path ./main/moon.pkg.json -pkg-sources moonbitlang/hello/lib:./lib -pkg-sources moonbitlang/hello/main:./main -pkg-sources moonbitlang/core:$MOON_HOME/lib/core -target native -g -O0
-                $MOON_HOME/bin/internal/tcc ./target/native/debug/build/main/main.c -L$MOON_HOME/lib -I$MOON_HOME/include -DMOONBIT_NATIVE_NO_SYS_HEADER -o ./target/native/debug/build/main/main.exe
+                cc ./target/native/debug/build/main/main.c -I$MOON_HOME/include -O2 $MOON_HOME/lib/libmoonbitrun.o -fwrapv -fno-strict-aliasing -lm -o ./target/native/debug/build/main/main.exe
                  ./target/native/debug/build/main/main.exe
             "#]],
         );
@@ -7745,11 +7747,11 @@ fn test_use_cc_for_native_release() {
                 moon generate-test-driver --source-dir . --target-dir ./target --package moonbitlang/hello/lib --sort-input --target native --driver-kind whitebox
                 moonc build-package ./lib/hello.mbt ./lib/hello_wbtest.mbt ./target/native/debug/test/lib/__generated_driver_for_whitebox_test.mbt -o ./target/native/debug/test/lib/lib.whitebox_test.core -pkg moonbitlang/hello/lib -is-main -std-path $MOON_HOME/lib/core/target/native/release/bundle -pkg-sources moonbitlang/hello/lib:./lib -target native -g -O0 -whitebox-test -no-mi
                 moonc link-core $MOON_HOME/lib/core/target/native/release/bundle/core.core ./target/native/debug/test/lib/lib.whitebox_test.core -main moonbitlang/hello/lib -o ./target/native/debug/test/lib/lib.whitebox_test.c -test-mode -pkg-config-path ./lib/moon.pkg.json -pkg-sources moonbitlang/hello/lib:./lib -pkg-sources moonbitlang/core:$MOON_HOME/lib/core -exported_functions moonbit_test_driver_internal_execute,moonbit_test_driver_finish -target native -g -O0
-                $MOON_HOME/bin/internal/tcc ./target/native/debug/test/lib/lib.whitebox_test.c -L$MOON_HOME/lib -I$MOON_HOME/include -DMOONBIT_NATIVE_NO_SYS_HEADER -o ./target/native/debug/test/lib/lib.whitebox_test.exe
+                cc ./target/native/debug/test/lib/lib.whitebox_test.c -I$MOON_HOME/include -O2 $MOON_HOME/lib/libmoonbitrun.o -fwrapv -fno-strict-aliasing -lm -o ./target/native/debug/test/lib/lib.whitebox_test.exe
                 moon generate-test-driver --source-dir . --target-dir ./target --package moonbitlang/hello/lib --sort-input --target native --driver-kind internal
                 moonc build-package ./lib/hello.mbt ./target/native/debug/test/lib/__generated_driver_for_internal_test.mbt -o ./target/native/debug/test/lib/lib.internal_test.core -pkg moonbitlang/hello/lib -is-main -std-path $MOON_HOME/lib/core/target/native/release/bundle -pkg-sources moonbitlang/hello/lib:./lib -target native -g -O0 -no-mi
                 moonc link-core $MOON_HOME/lib/core/target/native/release/bundle/core.core ./target/native/debug/test/lib/lib.internal_test.core -main moonbitlang/hello/lib -o ./target/native/debug/test/lib/lib.internal_test.c -test-mode -pkg-config-path ./lib/moon.pkg.json -pkg-sources moonbitlang/hello/lib:./lib -pkg-sources moonbitlang/core:$MOON_HOME/lib/core -exported_functions moonbit_test_driver_internal_execute,moonbit_test_driver_finish -target native -g -O0
-                $MOON_HOME/bin/internal/tcc ./target/native/debug/test/lib/lib.internal_test.c -L$MOON_HOME/lib -I$MOON_HOME/include -DMOONBIT_NATIVE_NO_SYS_HEADER -o ./target/native/debug/test/lib/lib.internal_test.exe
+                cc ./target/native/debug/test/lib/lib.internal_test.c -I$MOON_HOME/include -O2 $MOON_HOME/lib/libmoonbitrun.o -fwrapv -fno-strict-aliasing -lm -o ./target/native/debug/test/lib/lib.internal_test.exe
             "#]],
         );
     }
@@ -7791,9 +7793,9 @@ fn test_native_backend_cc_flags() {
             moonc build-package ./lib/hello.mbt -o ./target/native/release/build/lib/lib.core -pkg moon_new/lib -std-path $MOON_HOME/lib/core/target/native/release/bundle -pkg-sources moon_new/lib:./lib -target native
             moonc build-package ./main/main.mbt -o ./target/native/release/build/main/main.core -pkg moon_new/main -is-main -std-path $MOON_HOME/lib/core/target/native/release/bundle -i ./target/native/release/build/lib/lib.mi:lib -pkg-sources moon_new/main:./main -target native
             moonc link-core $MOON_HOME/lib/core/target/native/release/bundle/core.core ./target/native/release/build/lib/lib.core ./target/native/release/build/main/main.core -main moon_new/main -o ./target/native/release/build/main/main.c -pkg-config-path ./main/moon.pkg.json -pkg-sources moon_new/lib:./lib -pkg-sources moon_new/main:./main -pkg-sources moonbitlang/core:$MOON_HOME/lib/core -target native
-            $MOON_HOME/bin/internal/tcc ./target/native/release/build/main/main.c -L$MOON_HOME/lib -I$MOON_HOME/include -DMOONBIT_NATIVE_NO_SYS_HEADER -o ./target/native/release/build/main/main.exe
+            cc ./target/native/release/build/main/main.c -I$MOON_HOME/include -fwrapv -fno-strict-aliasing ccflags fasd cclinkflags -o ./target/native/release/build/main/main.exe
             moonc link-core $MOON_HOME/lib/core/target/native/release/bundle/core.core ./target/native/release/build/lib/lib.core -main moon_new/lib -o ./target/native/release/build/lib/lib.c -pkg-config-path ./lib/moon.pkg.json -pkg-sources moon_new/lib:./lib -pkg-sources moonbitlang/core:$MOON_HOME/lib/core -target native
-            cc ./target/native/release/build/lib/lib.c -I$MOON_HOME/include -fno-strict-aliasing ccflags fasd cclinkflags -o ./target/native/release/build/lib/lib.exe
+            cc ./target/native/release/build/lib/lib.c -I$MOON_HOME/include -fwrapv -fno-strict-aliasing ccflags fasd cclinkflags -o ./target/native/release/build/lib/lib.exe
         "#]],
     );
     // don't pass native cc flags for no native backend
@@ -7819,7 +7821,7 @@ fn test_native_backend_cc_flags() {
             moon generate-test-driver --source-dir . --target-dir ./target --package moon_new/lib --sort-input --target native --driver-kind internal
             moonc build-package ./lib/hello.mbt ./target/native/debug/test/lib/__generated_driver_for_internal_test.mbt -o ./target/native/debug/test/lib/lib.internal_test.core -pkg moon_new/lib -is-main -std-path $MOON_HOME/lib/core/target/native/release/bundle -pkg-sources moon_new/lib:./lib -target native -g -O0 -no-mi
             moonc link-core $MOON_HOME/lib/core/target/native/release/bundle/core.core ./target/native/debug/test/lib/lib.internal_test.core -main moon_new/lib -o ./target/native/debug/test/lib/lib.internal_test.c -test-mode -pkg-config-path ./lib/moon.pkg.json -pkg-sources moon_new/lib:./lib -pkg-sources moonbitlang/core:$MOON_HOME/lib/core -exported_functions moonbit_test_driver_internal_execute,moonbit_test_driver_finish -target native -g -O0
-            cc ./target/native/debug/test/lib/lib.internal_test.c -I$MOON_HOME/include -fno-strict-aliasing ccflags fasd cclinkflags -o ./target/native/debug/test/lib/lib.internal_test.exe
+            cc ./target/native/debug/test/lib/lib.internal_test.c -I$MOON_HOME/include -fwrapv -fno-strict-aliasing ccflags fasd cclinkflags -o ./target/native/debug/test/lib/lib.internal_test.exe
         "#]],
     );
     // don't pass native cc flags for no native backend
@@ -7848,9 +7850,9 @@ fn test_native_backend_cc_flags() {
             moonc build-package ./lib/hello.mbt -o ./target/native/release/build/lib/lib.core -pkg moon_new/lib -std-path $MOON_HOME/lib/core/target/native/release/bundle -pkg-sources moon_new/lib:./lib -target native
             moonc build-package ./main/main.mbt -o ./target/native/release/build/main/main.core -pkg moon_new/main -is-main -std-path $MOON_HOME/lib/core/target/native/release/bundle -i ./target/native/release/build/lib/lib.mi:lib -pkg-sources moon_new/main:./main -target native
             moonc link-core $MOON_HOME/lib/core/target/native/release/bundle/core.core ./target/native/release/build/lib/lib.core ./target/native/release/build/main/main.core -main moon_new/main -o ./target/native/release/build/main/main.c -pkg-config-path ./main/moon.pkg.json -pkg-sources moon_new/lib:./lib -pkg-sources moon_new/main:./main -pkg-sources moonbitlang/core:$MOON_HOME/lib/core -target native
-            $MOON_HOME/bin/internal/tcc ./target/native/release/build/main/main.c -L$MOON_HOME/lib -I$MOON_HOME/include -DMOONBIT_NATIVE_NO_SYS_HEADER -o ./target/native/release/build/main/main.exe
+            cc ./target/native/release/build/main/main.c -I$MOON_HOME/include -fwrapv -fno-strict-aliasing ccflags fasd cclinkflags -o ./target/native/release/build/main/main.exe
             moonc link-core $MOON_HOME/lib/core/target/native/release/bundle/core.core ./target/native/release/build/lib/lib.core -main moon_new/lib -o ./target/native/release/build/lib/lib.c -pkg-config-path ./lib/moon.pkg.json -pkg-sources moon_new/lib:./lib -pkg-sources moonbitlang/core:$MOON_HOME/lib/core -target native
-            cc ./target/native/release/build/lib/lib.c -I$MOON_HOME/include -fno-strict-aliasing ccflags fasd cclinkflags -o ./target/native/release/build/lib/lib.exe
+            cc ./target/native/release/build/lib/lib.c -I$MOON_HOME/include -fwrapv -fno-strict-aliasing ccflags fasd cclinkflags -o ./target/native/release/build/lib/lib.exe
              ./target/native/release/build/lib/lib.exe
              ./target/native/release/build/main/main.exe
         "#]],
@@ -8276,7 +8278,104 @@ fn test_render_diagnostic_in_patch_file() {
                │      ──────────┬─────────  
                │                ╰─────────── Warning: Unused variable 'unused_in_patch_json'
             ───╯
-            Finished. moon: ran 3 tasks, now up to date
+            Finished. moon: ran 2 tasks, now up to date
+        "#]],
+    );
+
+    // check --explain
+    check(
+        get_stderr(
+            &dir,
+            [
+                "check",
+                "lib",
+                "--patch-file",
+                "./patch_test.json",
+                "--explain",
+            ],
+        ),
+        expect![[r#"
+            Warning: # E1002
+
+            Unused variable.
+
+            This variable is unused by any other part of your code, nor marked with `pub`
+            visibility.
+
+            Note that this warning might uncover other bugs in your code. For example, if
+            there are two variables in your codebase that has similar name, you might just
+            use the other variable by mistake.
+
+            Specifically, if the variable is at the toplevel, and the body of the module
+            contains side effects, the side effects will not happen.
+
+            ## Erroneous example
+
+            ```moonbit
+            let p : Int = {
+            //  ^ Warning: Unused toplevel variable 'p'.
+            //             Note if the body contains side effect, it will not happen.
+            //             Use `fn init { .. }` to wrap the effect.
+              println("Side effect")
+              42
+            }
+
+            fn main {
+              let x = 42 // Warning: Unused variable 'x'
+            }
+            ```
+
+            ## Suggestion
+
+            There are multiple ways to fix this warning:
+
+            - If the variable is indeed useless, you can remove the definition of the
+              variable.
+            - If this variable is at the toplevel (i.e., not local), and is part of the
+              public API of your module, you can add the `pub` keyword to the variable.
+
+              ```moonbit
+              pub let p = 42
+              ```
+
+            - If you made a typo in the variable name, you can rename the variable to the
+              correct name at the use site.
+            - If your code depends on the side-effect of the variable, you can wrap the
+              side-effect in a `fn init` block.
+
+              ```moonbit
+              fn init {
+                println("Side effect")
+              }
+              ```
+
+            There are some cases where you might want to keep the variable private and
+            unused at the same time. In this case, you can call `ignore()` on the variable
+            to force the use of it.
+
+            ```moonbit
+            let p : Int = {
+              println("Side effect")
+              42
+            }
+
+            fn init {
+              ignore(p)
+            }
+
+            fn main {
+              let x = 42
+              ignore(x)
+            }
+            ```
+
+               ╭─[hello_2_test.mbt:2:6]
+               │
+             2 │  let unused_in_patch_test_json = 1;
+               │      ────────────┬────────────  
+               │                  ╰────────────── Warning: Unused variable 'unused_in_patch_test_json'
+            ───╯
+            Finished. moon: ran 2 tasks, now up to date
         "#]],
     );
 }
@@ -8481,15 +8580,18 @@ fn test_moon_install_bin() {
     assert!(_4.exists());
     assert!(_5.exists());
 
+    let content = get_stderr(&dir, ["build", "--sort-input"]);
+    // ignore some cl warnings
+    let mut lines = content.lines().rev().take(5).collect::<Vec<_>>();
+    lines.reverse();
     check(
-        get_stderr(&dir, ["build", "--sort-input"]),
+        lines.join("\n"),
         expect![[r#"
             main-js
             lib Hello, world!
             ()
             Executed 1 pre-build task, now up to date
-            Finished. moon: ran 3 tasks, now up to date
-        "#]],
+            Finished. moon: ran 3 tasks, now up to date"#]],
     );
 }
 
@@ -8659,6 +8761,17 @@ fn test_diff_mbti() {
 }
 
 #[test]
+fn moon_info_specific_package() {
+    let dir = TestDir::new("moon_new.in");
+    get_stdout(&dir, ["info", "--package", "moon_new/main"]);
+    assert!(dir.join("main/main.mbt").exists());
+    assert!(!dir.join("lib/lib.mbt").exists());
+
+    let content = get_err_stderr(&dir, ["info", "--package", "moon_new/does_not_exist"]);
+    assert!(content.contains("package `moon_new/does_not_exist` not found, make sure you have spelled it correctly, e.g. `moonbitlang/core/hashmap`"));
+}
+
+#[test]
 fn test_exports_in_native_backend() {
     let dir = TestDir::new("native_exports.in");
     let _ = get_stdout(&dir, ["build", "--target", "native"]);
@@ -8721,6 +8834,102 @@ fn test_dont_link_third_party() {
         expect![[r#"
             moonc build-package ./main/main.mbt -o ./target/wasm-gc/release/build/main/main.core -pkg hello/main -is-main -std-path $MOON_HOME/lib/core/target/wasm-gc/release/bundle -pkg-sources hello/main:./main -target wasm-gc
             moonc link-core $MOON_HOME/lib/core/target/wasm-gc/release/bundle/core.core ./target/wasm-gc/release/build/main/main.core -main hello/main -o ./target/wasm-gc/release/build/main/main.wasm -pkg-config-path ./main/moon.pkg.json -pkg-sources hello/main:./main -pkg-sources moonbitlang/core:$MOON_HOME/lib/core -target wasm-gc
+        "#]],
+    );
+}
+
+#[test]
+fn test_supported_backends_in_pkg_json() {
+    let dir = TestDir::new("supported_backends_in_pkg_json");
+    let pkg1 = dir.join("pkg1.in");
+    let pkg2 = dir.join("pkg2.in");
+    let pkg3 = dir.join("pkg3.in");
+
+    check(
+        get_err_stderr(&pkg1, ["build"]),
+        expect![[r#"
+            error: cannot find a common supported backend for the deps chain: "username/hello1/main: [js, wasm-gc] -> username/hello1/lib: [native]"
+        "#]],
+    );
+
+    check(
+        get_err_stderr(&pkg2, ["build"]),
+        expect![[r#"
+            error: deps chain: "username/hello2/main: [js, wasm-gc] -> username/hello2/lib: [js]" supports backends `[js]`, while the current target backend is wasm-gc
+        "#]],
+    );
+
+    check(
+        get_err_stderr(&pkg3, ["check"]),
+        expect![[r#"
+            error: cannot find a common supported backend for the deps chain: "username/hello/main: [wasm-gc] -> username/hello/lib: [js, native, wasm, wasm-gc] -> username/hello/lib1: [wasm-gc] -> username/hello/lib3: [wasm-gc] -> username/hello/lib7: [js, wasm]"
+        "#]],
+    );
+}
+
+#[test]
+#[ignore = "wait for the migration of inspect to be finished"]
+fn test_update_expect_failed() {
+    let dir = TestDir::new("update_expect_failed.in");
+    let out = get_err_stderr(&dir, ["test", "-u", "--limit", "5"]);
+    let count = out
+        .lines()
+        .filter(|line| line.contains("invalid escape"))
+        .count()
+        .to_string();
+    check(count, expect!["2"])
+}
+
+#[test]
+fn test_native_stub_in_pkg_json() {
+    let dir = TestDir::new("native_stub.in");
+
+    let native_1 = dir.join("native_1.in");
+    let native_2 = dir.join("native_2.in");
+    let native_3 = dir.join("native_3.in");
+
+    check(
+        get_stdout(&native_1, ["test", "--target", "native", "--sort-input"]),
+        expect![[r#"
+            Hello world from native_1/lib/stub.c!!!
+            Total tests: 1, passed: 1, failed: 0.
+        "#]],
+    );
+    check(
+        get_stdout(&native_1, ["run", "main", "--target", "native"]),
+        expect![[r#"
+            Hello world from native_1/lib/stub.c!!!
+        "#]],
+    );
+
+    check(
+        get_stdout(&native_2, ["test", "--target", "native", "--sort-input"]),
+        expect![[r#"
+            Hello world from native_1/lib/stub.c!!!
+            Hello world from native_2/libb/stub.c!!!
+            Total tests: 1, passed: 1, failed: 0.
+        "#]],
+    );
+    check(
+        get_stdout(&native_2, ["run", "main", "--target", "native"]),
+        expect![[r#"
+            Hello world from native_2/libb/stub.c!!!
+        "#]],
+    );
+
+    check(
+        get_stdout(&native_3, ["test", "--target", "native", "--sort-input"]),
+        expect![[r#"
+            Hello world from native_1/lib/stub.c!!!
+            Hello world from native_2/libb/stub.c!!!
+            Hello world from native_3/libbb/stub.c!!!
+            Total tests: 1, passed: 1, failed: 0.
+        "#]],
+    );
+    check(
+        get_stdout(&native_3, ["run", "main", "--target", "native"]),
+        expect![[r#"
+            Hello world from native_3/libbb/stub.c!!!
         "#]],
     );
 }

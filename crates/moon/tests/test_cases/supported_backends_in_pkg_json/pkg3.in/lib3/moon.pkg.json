@@ -1,0 +1,14 @@
+{
+  /* */
+  "import": [
+    "username/hello/lib7"
+  ],
+  //
+  "wbtest-import": [
+    "username/hello/lib5",
+    "username/hello/lib6"
+  ],
+  "supported-targets": [
+    "wasm-gc"
+  ]
+}

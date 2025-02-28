@@ -17,11 +17,13 @@
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
 use anyhow::Context;
+use base64::Engine;
 use colored::Colorize;
 use moonutil::common::line_col_to_byte_idx;
 use std::collections::BTreeSet;
 use std::collections::HashMap;
 use std::path::PathBuf;
+use std::str::FromStr;
 
 #[derive(Debug, Default)]
 pub struct PackagePatch {
@@ -89,10 +91,30 @@ pub struct Target {
 pub struct ExpectFailedRaw {
     pub loc: String,
     pub args_loc: String,
-    pub expect: String,
-    pub actual: String,
+    pub expect: Option<String>,
+    pub actual: Option<String>,
+    pub expect_base64: Option<String>,
+    pub actual_base64: Option<String>,
     pub snapshot: Option<bool>,
     pub mode: Option<String>,
+}
+
+impl std::str::FromStr for ExpectFailedRaw {
+    type Err = anyhow::Error;
+
+    fn from_str(s: &str) -> anyhow::Result<Self> {
+        let expect_index = s
+            .find("\"expect\":")
+            .context(format!("expect field not found: {}", s))?;
+        let expect_base64_index = s.find("\"expect_base64\":");
+        (if let Some(expect_base64_index) = expect_base64_index {
+            let s2 = format!("{}{}", &s[..expect_index], &s[expect_base64_index..]);
+            serde_json_lenient::from_str(&s2)
+        } else {
+            serde_json_lenient::from_str(s)
+        })
+        .context(format!("parse expect test result failed: {}", s))
+    }
 }
 
 pub fn expect_failed_to_snapshot_result(efr: ExpectFailedRaw) -> SnapshotResult {
@@ -102,7 +124,7 @@ pub fn expect_failed_to_snapshot_result(efr: ExpectFailedRaw) -> SnapshotResult 
         .parent()
         .unwrap()
         .join("__snapshot__")
-        .join(&efr.expect);
+        .join(efr.expect.as_deref().unwrap_or_default());
 
     let file_content = if expect_file.exists() {
         Some(std::fs::read_to_string(&expect_file).unwrap())
@@ -110,15 +132,15 @@ pub fn expect_failed_to_snapshot_result(efr: ExpectFailedRaw) -> SnapshotResult 
         None
     };
     let succ = match &file_content {
-        Some(content) => content == &efr.actual,
+        Some(content) => content == efr.actual.as_deref().unwrap_or_default(),
         None => false,
     };
     SnapshotResult {
         loc: efr.loc,
         args_loc: efr.args_loc,
-        expect_file: PathBuf::from(efr.expect),
+        expect_file: PathBuf::from(efr.expect.unwrap_or_default()),
         expect_content: file_content,
-        actual: efr.actual,
+        actual: efr.actual.unwrap_or_default(),
         succ,
     }
 }
@@ -225,9 +247,89 @@ impl Replace {
     }
 }
 
+fn base64_decode_string_codepoint(s: &str) -> String {
+    let buf = base64::prelude::BASE64_STANDARD.decode(s).unwrap();
+    let mut s = String::new();
+    for i in (0..buf.len()).step_by(4) {
+        let c = std::char::from_u32(
+            (buf[i] as u32)
+                | (buf[i + 1] as u32) << 8
+                | (buf[i + 2] as u32) << 16
+                | (buf[i + 3] as u32) << 24,
+        )
+        .unwrap();
+        s.push(c);
+    }
+    s
+}
+
+fn contains_escape(s: &str) -> bool {
+    for c in s.chars() {
+        match c {
+            c if (c as u32) < 0x20 => return true,
+            '"' => return true,
+            '\\' => return true,
+            '\n' => return true,
+            '\r' => return true,
+            '\t' => return true,
+            _ => {}
+        }
+    }
+    false
+}
+
+fn to_moonbit_style(s: &str, with_quote: bool) -> String {
+    let mut buf = String::new();
+    if with_quote {
+        buf.push('"');
+    }
+    for c in s.chars() {
+        match c {
+            c if (c as u32) < 0x20 => {
+                buf.push_str(&format!("\\x{:02x}", c as u32));
+            }
+            '"' => buf.push_str("\\\""),
+            '\\' => buf.push_str("\\\\"),
+            '\n' => buf.push_str("\\n"),
+            '\r' => buf.push_str("\\r"),
+            '\t' => buf.push_str("\\t"),
+            _ => buf.push(c),
+        }
+    }
+    if with_quote {
+        buf.push('"');
+    }
+    buf
+}
+
+#[test]
+fn test_decode() {
+    assert_eq!("", base64_decode_string_codepoint(""));
+    assert_eq!("a", base64_decode_string_codepoint("YQAAAA=="));
+    assert_eq!("ab", base64_decode_string_codepoint("YQAAAGIAAAA="));
+    assert_eq!("abc", base64_decode_string_codepoint("YQAAAGIAAABjAAAA"));
+    assert_eq!(
+        "abcd",
+        base64_decode_string_codepoint("YQAAAGIAAABjAAAAZAAAAA==")
+    );
+    assert_eq!(
+        "abcde",
+        base64_decode_string_codepoint("YQAAAGIAAABjAAAAZAAAAGUAAAA=")
+    );
+    assert_eq!("a中", base64_decode_string_codepoint("YQAAAC1OAAA="));
+    assert_eq!("a中🤣", base64_decode_string_codepoint("YQAAAC1OAAAj+QEA"));
+    assert_eq!(
+        "a中🤣a",
+        base64_decode_string_codepoint("YQAAAC1OAAAj+QEAYQAAAA==")
+    );
+    assert_eq!(
+        "a中🤣中",
+        base64_decode_string_codepoint("YQAAAC1OAAAj+QEALU4AAA==")
+    );
+}
+
 fn parse_expect_failed_message(msg: &str) -> anyhow::Result<Replace> {
-    let j: ExpectFailedRaw = serde_json_lenient::from_str(msg)
-        .context(format!("parse expect test result failed: {}", msg))?;
+    let j: ExpectFailedRaw = ExpectFailedRaw::from_str(msg)?;
     let locs: Vec<Option<String>> = serde_json_lenient::from_str(&j.args_loc)?;
     if locs.len() != 4 {
         anyhow::bail!(
@@ -247,12 +349,24 @@ fn parse_expect_failed_message(msg: &str) -> anyhow::Result<Replace> {
     } else {
         None
     };
+
+    let expect = if let Some(base64) = &j.expect_base64 {
+        base64_decode_string_codepoint(base64)
+    } else {
+        j.expect.unwrap_or_default().clone()
+    };
+    let actual = if let Some(base64) = &j.actual_base64 {
+        base64_decode_string_codepoint(base64)
+    } else {
+        j.actual.unwrap_or_default().clone()
+    };
+
     Ok(Replace {
         filename: parse_filename(&j.loc)?,
         loc,
-        expect: j.expect,
+        expect,
         expect_loc,
-        actual: j.actual,
+        actual,
         actual_loc,
         mode: j.mode,
     })
@@ -429,7 +543,10 @@ fn gen_patch(targets: HashMap<String, BTreeSet<Target>>) -> anyhow::Result<Packa
             };
 
             for line in lines[t.line_start as usize..].iter() {
-                if line.trim().ends_with(")?") && !line.trim().starts_with("#|") {
+                if line.trim().ends_with(")?")
+                    && !line.trim().starts_with("#|")
+                    && !line.trim().starts_with("$|")
+                {
                     break;
                 }
             }
@@ -466,12 +583,20 @@ fn push_multi_line_string(
             output.push('\n');
         }
         for (i, line) in lines.iter().enumerate() {
-            if line.trim().starts_with("#|") {
+            if line.trim().starts_with("#|") || line.trim().starts_with("$|") {
                 let spaces = if i == 0 { 2 } else { 0 };
                 output.push_str(&format!("/// {}{}\n", " ".repeat(spaces).as_str(), line));
             }
         }
         output.push_str("/// ");
+    }
+}
+
+fn to_moonbit_multi_line_string(s: &str) -> String {
+    if contains_escape(s) {
+        format!("$|{}", to_moonbit_style(s, false))
+    } else {
+        format!("#|{}", s)
     }
 }
 
@@ -496,18 +621,22 @@ fn push_multi_line_string_internal(
                 }
                 _ => {}
             }
-            output.push_str(&format!("#|{}", line));
+            output.push_str(&to_moonbit_multi_line_string(line));
         } else {
             match prev_char {
                 Some(' ') => {
                     output.push_str(&format!(
-                        "{}#|{}",
+                        "{}{}",
                         " ".repeat(if spaces > 2 { spaces - 2 } else { 0 }),
-                        line
+                        to_moonbit_multi_line_string(line),
                     ));
                 }
                 _ => {
-                    output.push_str(&format!("{}#|{}", " ".repeat(spaces), line));
+                    output.push_str(&format!(
+                        "{}{}",
+                        " ".repeat(spaces),
+                        to_moonbit_multi_line_string(line),
+                    ));
                 }
             }
         }
@@ -577,7 +706,7 @@ fn apply_patch(pp: &PackagePatch, is_doc_test: bool) -> anyhow::Result<()> {
                 match patch.mode.as_deref() {
                     None => {
                         if !patch.actual.contains('\n') && !patch.actual.contains('"') {
-                            output.push_str(&format!("{:?}", &patch.actual));
+                            output.push_str(&to_moonbit_style(&patch.actual, true));
                         } else {
                             let next_char = content_chars[usize::from(end)..].first();
                             let prev_char = content_chars[..usize::from(start)].last();
@@ -626,7 +755,7 @@ pub fn apply_snapshot(messages: &[String]) -> anyhow::Result<()> {
         .filter(|msg| msg.starts_with(SNAPSHOT_TESTING))
         .map(|msg| {
             let json_str = &msg[SNAPSHOT_TESTING.len()..];
-            let rep: ExpectFailedRaw = serde_json_lenient::from_str(json_str)
+            let rep: ExpectFailedRaw = ExpectFailedRaw::from_str(json_str)
                 .context(format!("parse snapshot test result failed: {}", json_str))
                 .unwrap();
             rep
@@ -721,7 +850,7 @@ pub fn snapshot_eq(msg: &str) -> anyhow::Result<bool> {
     assert!(msg.starts_with(SNAPSHOT_TESTING));
     let json_str = &msg[SNAPSHOT_TESTING.len()..];
 
-    let e: ExpectFailedRaw = serde_json_lenient::from_str(json_str)
+    let e: ExpectFailedRaw = ExpectFailedRaw::from_str(json_str)
         .context(format!("parse snapshot test result failed: {}", json_str))?;
     let snapshot = expect_failed_to_snapshot_result(e);
 
@@ -751,7 +880,7 @@ pub fn render_snapshot_fail(msg: &str) -> anyhow::Result<(bool, String, String)>
     assert!(msg.starts_with(SNAPSHOT_TESTING));
     let json_str = &msg[SNAPSHOT_TESTING.len()..];
 
-    let e: ExpectFailedRaw = serde_json_lenient::from_str(json_str)
+    let e: ExpectFailedRaw = ExpectFailedRaw::from_str(json_str)
         .context(format!("parse snapshot test result failed: {}", json_str))?;
     let snapshot = expect_failed_to_snapshot_result(e);
 

@@ -17,6 +17,7 @@
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
 use chrono::DateTime;
+use std::{env, fs, path::Path};
 use std::{
     error::Error,
     time::{SystemTime, UNIX_EPOCH},
@@ -30,5 +31,41 @@ pub fn main() -> Result<(), Box<dyn Error>> {
     let datetime = DateTime::from_timestamp(time.as_secs() as i64, 0).unwrap();
     let date_str = datetime.format("%Y%m%d").to_string();
     println!("cargo:rustc-env=CARGO_PKG_VERSION=0.1.{}", date_str);
+
+    println!("cargo:rerun-if-changed=resources/error_codes");
+
+    let out_dir = env::var_os("OUT_DIR").unwrap();
+    let dest_path = Path::new(&out_dir).join("error_code_docs.rs");
+
+    let mut docs_map = String::from("{\n    let mut m = HashMap::new();\n");
+
+    let docs_dir = Path::new("resources/error_codes/next/language/error_codes");
+    if let Ok(entries) = fs::read_dir(docs_dir) {
+        for entry in entries.flatten() {
+            if let Some(file_name) = entry.file_name().to_str() {
+                if file_name.ends_with(".md") {
+                    if let Ok(content) = fs::read_to_string(entry.path()) {
+                        let error_code = file_name.trim_end_matches(".md").replace("E", "");
+                        docs_map.push_str(&format!(
+                            "    m.insert(\"{}\", r#\"{}\"#);\n",
+                            error_code, content
+                        ));
+                    }
+                }
+            }
+        }
+    }
+
+    docs_map.push_str("    m\n}");
+
+    fs::write(
+        dest_path,
+        format!(
+            "pub static ERROR_DOCS: Lazy<HashMap<&'static str, &'static str>> = Lazy::new(|| {});",
+            docs_map
+        ),
+    )
+    .unwrap();
+
     Ok(())
 }

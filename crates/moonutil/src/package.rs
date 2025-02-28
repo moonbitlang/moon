@@ -85,6 +85,10 @@ pub struct Package {
     pub bin_target: TargetBackend,
 
     pub enable_value_tracing: bool,
+
+    pub supported_targets: HashSet<TargetBackend>,
+
+    pub native_stub: Option<Vec<String>>,
 }
 
 impl Package {
@@ -256,6 +260,16 @@ pub struct MoonPkgJSON {
     #[serde(alias = "bin-target")]
     #[schemars(rename = "bin-target")]
     pub bin_target: Option<String>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(alias = "supported-targets")]
+    #[schemars(rename = "supported-targets")]
+    pub supported_targets: Option<Vec<String>>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(alias = "native-stub")]
+    #[schemars(rename = "native-stub")]
+    pub native_stub: Option<Vec<String>>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, JsonSchema)]
@@ -283,7 +297,7 @@ pub struct LinkDepItem {
     pub install_path: Option<PathBuf>,
     pub bin_name: Option<String>,
 
-    pub need_compile_native: bool, // need compile .c to native executable?
+    pub native_stub: Option<Vec<String>>,
 }
 
 #[rustfmt::skip]
@@ -390,6 +404,10 @@ impl LinkDepItem {
             _ => None,
         }
     }
+
+    pub fn native_stub_deps(&self) -> Option<&[String]> {
+        self.link.as_ref()?.native.as_ref()?.native_stub_deps.as_deref()
+    }
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, JsonSchema)]
@@ -432,6 +450,10 @@ pub struct NativeLinkConfig {
     pub cc_flags: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub cc_link_flags: Option<String>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[schemars(skip)]
+    pub native_stub_deps: Option<Vec<String>>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, JsonSchema)]
@@ -544,6 +566,10 @@ pub struct MoonPkg {
 
     pub bin_name: Option<String>,
     pub bin_target: TargetBackend,
+
+    pub supported_targets: HashSet<TargetBackend>,
+
+    pub native_stub: Option<Vec<String>>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -700,6 +726,21 @@ pub fn convert_pkg_json_to_package(j: MoonPkgJSON) -> anyhow::Result<MoonPkg> {
         TargetBackend::WasmGC
     };
 
+    let mut supported_backends = HashSet::new();
+    if let Some(ref b) = j.supported_targets {
+        for backend in b.iter() {
+            supported_backends.insert(TargetBackend::str_to_backend(backend)?);
+        }
+    } else {
+        // if supported_backends in moon.pkg.json is not set, then set it to all backends
+        supported_backends.extend(vec![
+            TargetBackend::Wasm,
+            TargetBackend::WasmGC,
+            TargetBackend::Js,
+            TargetBackend::Native,
+        ]);
+    };
+
     let result = MoonPkg {
         name: None,
         is_main,
@@ -718,6 +759,8 @@ pub fn convert_pkg_json_to_package(j: MoonPkgJSON) -> anyhow::Result<MoonPkg> {
         pre_build: j.pre_build,
         bin_name: j.bin_name,
         bin_target,
+        supported_targets: supported_backends,
+        native_stub: j.native_stub,
     };
     Ok(result)
 }

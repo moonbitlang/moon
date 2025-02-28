@@ -1,0 +1,4 @@
+[submodule "crates/moonutil/resources/error_codes"]
+	path = crates/moonutil/resources/error_codes
+	url = https://github.com/moonbitlang/moonbit-docs.git
+	branch = main

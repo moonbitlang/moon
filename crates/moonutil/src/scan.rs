@@ -372,6 +372,8 @@ fn scan_one_package(
         bin_name: pkg.bin_name,
         bin_target: pkg.bin_target,
         enable_value_tracing: false,
+        supported_targets: pkg.supported_targets,
+        native_stub: pkg.native_stub,
     };
     if doc_mode {
         // -o <folder>
@@ -516,7 +518,7 @@ pub fn scan(
         packages,
         entries,
         deps,
-        graph,
+        graph.clone(),
         moonc_opt.link_opt.target_backend.to_backend_ext().into(),
         if moonc_opt.build_opt.debug_flag {
             "debug".to_string()
@@ -527,6 +529,9 @@ pub fn scan(
     );
 
     module.validate()?;
+
+    // todo: if there are only one backend and target backend is not specified by user, set it as the default backend?
+    let _ = module.get_project_supported_targets(moonc_opt.build_opt.target_backend)?;
 
     // log::debug!("{:#?}", module);
     // log::debug!(

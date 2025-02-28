@@ -52,12 +52,6 @@
   moonc build-package ./src/main/main.mbt -o ./target/js/release/bundle/main/main.core -pkg username/hello/main -is-main -i ./target/js/release/bundle/lib/lib.mi:lib -pkg-sources username/hello/main:./src/main -target js
   moonc bundle-core ./target/js/release/bundle/lib/lib.core ./target/js/release/bundle/main/main.core -o ./target/js/release/bundle/hello.core
   
-  $ moon build --dry-run --target native --sort-input --nostd --debug
-  moonc build-package ./src/lib/all.mbt ./src/lib/native_and_wasm.mbt ./src/lib/native_only.mbt ./src/lib/not_js.mbt ./src/lib/only_debug.mbt -o ./target/native/debug/build/lib/lib.core -pkg username/hello/lib -pkg-sources username/hello/lib:./src/lib -target native -g -O0
-  moonc build-package ./src/main/main.mbt -o ./target/native/debug/build/main/main.core -pkg username/hello/main -is-main -i ./target/native/debug/build/lib/lib.mi:lib -pkg-sources username/hello/main:./src/main -target native -g -O0
-  moonc link-core ./target/native/debug/build/lib/lib.core ./target/native/debug/build/main/main.core -main username/hello/main -o ./target/native/debug/build/main/main.c -pkg-config-path ./src/main/moon.pkg.json -pkg-sources username/hello/lib:./src/lib -pkg-sources username/hello/main:./src/main -target native -g -O0
-  $MOON_HOME/bin/internal/tcc ./target/native/debug/build/main/main.c -L$MOON_HOME/lib -I$MOON_HOME/include -DMOONBIT_NATIVE_NO_SYS_HEADER -o ./target/native/debug/build/main/main.exe
-  
   $ moon check --sort-input
   
   Warning: [1002]

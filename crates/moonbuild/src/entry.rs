@@ -105,6 +105,10 @@ pub fn n2_simple_run_interface(
         .check_opt
         .as_ref()
         .and_then(|it| it.patch_file.clone());
+    let explain = moonbuild_opt
+        .check_opt
+        .as_ref()
+        .map_or(false, |it| it.explain);
     let render_and_catch = move |output: &str| {
         output
             .split('\n')
@@ -118,6 +122,7 @@ pub fn n2_simple_run_interface(
                         content,
                         use_fancy,
                         check_patch_file.clone(),
+                        explain,
                     );
                 }
             });
@@ -132,6 +137,7 @@ pub fn n2_simple_run_interface(
         failures_left: Some(10),
         explain: false,
         adopt: false,
+        dirty_on_output: true,
     };
     let mut work = work::Work::new(
         state.graph,
@@ -181,6 +187,10 @@ pub fn n2_run_interface(
         .check_opt
         .as_ref()
         .and_then(|it| it.patch_file.clone());
+    let explain = moonbuild_opt
+        .check_opt
+        .as_ref()
+        .map_or(false, |it| it.explain);
     let render_and_catch = move |output: &str| {
         output.lines().for_each(|content| {
             catcher.lock().unwrap().push(content.to_owned());
@@ -191,6 +201,7 @@ pub fn n2_run_interface(
                     content,
                     use_fancy,
                     check_patch_file.clone(),
+                    explain,
                 );
             }
         });
@@ -207,6 +218,7 @@ pub fn n2_run_interface(
         failures_left: Some(10),
         explain: false,
         adopt: false,
+        dirty_on_output: true,
     };
     let mut work = work::Work::new(
         state.graph,
@@ -248,6 +260,10 @@ pub fn n2_run_interface(
                     content,
                     use_fancy,
                     check_patch_file.clone(),
+                    moonbuild_opt
+                        .check_opt
+                        .as_ref()
+                        .map_or(false, |it| it.explain),
                 );
             }
         });
@@ -1134,6 +1150,7 @@ async fn handle_test_result(
                             origin_err.is_doc_test,
                         ) {
                             eprintln!("{}: {:?}", "failed".red().bold(), e);
+                            break;
                         }
                         // if is doc test, after apply_expect, we need to update the doc test patch file
                         if origin_err.is_doc_test {

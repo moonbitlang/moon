@@ -18,7 +18,7 @@
 
 use anyhow::{bail, Context, Ok};
 use moonutil::module::ModuleDB;
-use moonutil::package::{JsFormat, Package};
+use moonutil::package::{JsFormat, LinkDepItem, Package};
 
 use super::cmd_builder::CommandBuilder;
 use super::n2_errors::{N2Error, N2ErrorKind};
@@ -27,7 +27,7 @@ use std::path::{Path, PathBuf};
 use std::rc::Rc;
 
 use moonutil::common::{
-    BuildOpt, MoonbuildOpt, MooncOpt, TargetBackend, MOONBITLANG_CORE, MOON_PKG_JSON,
+    BuildOpt, MoonbuildOpt, MooncOpt, TargetBackend, MOONBITLANG_CORE, MOON_PKG_JSON, O_EXT,
 };
 use n2::graph::{self as n2graph, Build, BuildIns, BuildOuts, FileLoc};
 use n2::load::State;
@@ -54,6 +54,7 @@ type BuildLinkDepItem = moonutil::package::LinkDepItem;
 pub struct N2BuildInput {
     pub build_items: Vec<BuildDepItem>,
     pub link_items: Vec<BuildLinkDepItem>, // entry points
+    pub compile_stub_items: Vec<BuildLinkDepItem>,
 }
 
 pub fn gen_build_build_item(
@@ -126,7 +127,7 @@ pub fn gen_build_build_item(
 pub fn gen_build_link_item(
     m: &ModuleDB,
     pkg: &Package,
-    moonc_opt: &MooncOpt,
+    _moonc_opt: &MooncOpt,
 ) -> anyhow::Result<BuildLinkDepItem> {
     let out = pkg.artifact.with_extension("wat"); // TODO: extension is determined by build option
     let package_full_name = pkg.full_name();
@@ -144,7 +145,7 @@ pub fn gen_build_link_item(
         link: pkg.link.clone(),
         install_path: pkg.install_path.clone(),
         bin_name: pkg.bin_name.clone(),
-        need_compile_native: moonc_opt.link_opt.target_backend == TargetBackend::Native,
+        native_stub: pkg.native_stub.clone(),
     })
 }
 
@@ -155,6 +156,7 @@ pub fn gen_build(
 ) -> anyhow::Result<N2BuildInput> {
     let mut build_items = vec![];
     let mut link_items = vec![];
+    let mut compile_stub_items = vec![];
 
     let pkgs_to_build = if let Some(BuildOpt {
         filter_package: Some(filter_package),
@@ -171,6 +173,20 @@ pub fn gen_build(
 
         build_items.push(gen_build_build_item(m, pkg, moonc_opt)?);
 
+        if pkg.native_stub.is_some() {
+            compile_stub_items.push(BuildLinkDepItem {
+                out: pkg.artifact.with_extension(O_EXT).display().to_string(),
+                core_deps: vec![],
+                package_sources: vec![],
+                package_full_name: pkg.full_name(),
+                package_path: pkg.root_path.clone(),
+                link: pkg.link.clone(),
+                install_path: None,
+                bin_name: None,
+                native_stub: pkg.native_stub.clone(),
+            });
+        }
+
         if (is_main || pkg.need_link) && !pkg.is_third_party {
             // link need add *.core files recursively
             link_items.push(gen_build_link_item(m, pkg, moonc_opt)?);
@@ -179,6 +195,7 @@ pub fn gen_build(
     Ok(N2BuildInput {
         build_items,
         link_items,
+        compile_stub_items,
     })
 }
 
@@ -482,11 +499,21 @@ pub fn gen_compile_exe_command(
         line: 0,
     };
 
-    let input_ids = vec![graph.files.id_from_canonical(c_artifact_path.clone())];
+    let mut input_ids = vec![graph.files.id_from_canonical(c_artifact_path.clone())];
+    let mut input_cnt = input_ids.len();
+    let native_stub_deps = item.native_stub_deps();
+    if let Some(native_stub_deps) = native_stub_deps {
+        input_cnt += native_stub_deps.len();
+        input_ids.extend(
+            native_stub_deps
+                .iter()
+                .map(|f| graph.files.id_from_canonical(f.clone())),
+        );
+    }
 
     let ins = BuildIns {
         ids: input_ids,
-        explicit: 1,
+        explicit: input_cnt,
         implicit: 0,
         order_only: 0,
     };
@@ -512,13 +539,85 @@ pub fn gen_compile_exe_command(
         .arg(&c_artifact_path)
         .args_with_cond(!native_cc_flags.is_empty(), native_cc_flags)
         .args_with_cond(!native_cc_link_flags.is_empty(), native_cc_link_flags)
-        .arg("-o")
-        .arg(&artifact_output_path)
+        .lazy_args_with_cond(native_stub_deps.is_some(), || {
+            native_stub_deps.unwrap().into()
+        })
+        .args(vec!["-o", &artifact_output_path])
         .build();
     log::debug!("Command: {}", command);
     build.cmdline = Some(command);
     build.desc = Some(format!("compile-exe: {}", item.package_full_name));
     (build, artifact_id)
+}
+
+pub fn gen_compile_stub_command(
+    graph: &mut n2graph::Graph,
+    item: &LinkDepItem,
+    moonc_opt: &MooncOpt,
+) -> Vec<(Build, n2graph::FileId)> {
+    let inputs = item
+        .native_stub
+        .as_ref()
+        .unwrap()
+        .iter()
+        .map(|f| item.package_path.join(f));
+
+    let mut res = vec![];
+
+    for input in inputs {
+        let artifact_output_path = PathBuf::from(&item.out)
+            .with_file_name(input.with_extension(O_EXT).file_name().unwrap())
+            .display()
+            .to_string();
+        let artifact_id = graph.files.id_from_canonical(artifact_output_path.clone());
+
+        let loc = FileLoc {
+            filename: Rc::new(PathBuf::from("compile-stub")),
+            line: 0,
+        };
+
+        let input_ids = vec![graph.files.id_from_canonical(input.display().to_string())];
+        let ins = BuildIns {
+            ids: input_ids,
+            explicit: 1,
+            implicit: 0,
+            order_only: 0,
+        };
+
+        let outs = BuildOuts {
+            ids: vec![artifact_id],
+            explicit: 1,
+        };
+
+        let mut build = Build::new(loc, ins, outs);
+
+        let native_cc = item.native_cc(moonc_opt.link_opt.target_backend).unwrap();
+        let native_cc_flags = item
+            .native_cc_flags(moonc_opt.link_opt.target_backend)
+            .map(|it| it.split(" ").collect::<Vec<_>>())
+            .unwrap_or_default();
+        let native_cc_link_flags = item
+            .native_cc_link_flags(moonc_opt.link_opt.target_backend)
+            .map(|it| it.split(" ").collect::<Vec<_>>())
+            .unwrap_or_default();
+
+        let windows_with_cl = cfg!(windows) && native_cc == "cl";
+
+        let command = CommandBuilder::new(native_cc)
+            .arg("-c")
+            .arg(&input.display().to_string())
+            .args_with_cond(!native_cc_flags.is_empty(), native_cc_flags)
+            .args_with_cond(!native_cc_link_flags.is_empty(), native_cc_link_flags)
+            .args_with_cond(!windows_with_cl, vec!["-o", &artifact_output_path])
+            .arg_with_cond(windows_with_cl, &format!("-Fo{}", artifact_output_path))
+            .build();
+        log::debug!("Command: {}", command);
+        build.cmdline = Some(command);
+        build.desc = Some(format!("compile-stub: {}", input.display()));
+        res.push((build, artifact_id));
+    }
+
+    res
 }
 
 pub fn gen_n2_build_state(
@@ -536,6 +635,9 @@ pub fn gen_n2_build_state(
         graph.add_build(build)?;
         default.push(fid);
     }
+
+    let is_native_backend = moonc_opt.link_opt.target_backend == TargetBackend::Native;
+
     let mut has_link_item = false;
     for item in input.link_items.iter() {
         if !has_link_item {
@@ -546,7 +648,7 @@ pub fn gen_n2_build_state(
         let mut default_fid = fid;
         graph.add_build(build)?;
 
-        if item.need_compile_native {
+        if is_native_backend {
             let (build, fid) = gen_compile_exe_command(&mut graph, item, moonc_opt);
             graph.add_build(build)?;
             default_fid = fid;
@@ -619,6 +721,16 @@ pub fn gen_n2_build_state(
                         format!("Failed to set permissions for {:?}", bin_script_path)
                     })?;
                 }
+            }
+        }
+    }
+
+    if is_native_backend {
+        for item in input.compile_stub_items.iter() {
+            let builds = gen_compile_stub_command(&mut graph, item, moonc_opt);
+            for (build, fid) in builds {
+                graph.add_build(build)?;
+                default.push(fid);
             }
         }
     }

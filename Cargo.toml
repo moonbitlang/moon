@@ -26,7 +26,7 @@ rust-version = "1.80"
 edition = "2021"
 
 [workspace.dependencies]
-n2 = { git = "https://github.com/moonbitlang/n2.git" }
+n2 = { git = "https://github.com/moonbitlang/n2.git", rev = "4d42dd7ee1039161133271c84b2cdd27295e80d4" }
 moonbuild = { path = "./crates/moonbuild", version = "*" }
 mooncake = { path = "./crates/mooncake", version = "*" }
 moonutil = { path = "./crates/moonutil", version = "*" }
@@ -88,12 +88,14 @@ env_logger = "0.10.0"
 thiserror = "1.0"
 test-log = "0.2"
 fs4 = { version = "0.12.0", features = ["sync"] }
-ariadne = { version = "0.4.1", features = ["auto-color"] }
+ariadne = { version = "0.5.0", features = ["auto-color"] }
 clap_complete = { version = "4.5.4" }
 schemars = "0.8"
 nucleo-matcher = "0.3.1"
 regex = { version = "1.10.3", default-features = false, features = ["std"] }
 rand = "0.8.5"
+base64 = "0.22.1"
+once_cell = "1.20.3"
 
 [profile.release]
 debug = false
