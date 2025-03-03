@@ -19,6 +19,7 @@
 use anyhow::{bail, Context, Ok};
 use moonutil::module::ModuleDB;
 use moonutil::package::{JsFormat, LinkDepItem, Package};
+use which::which;
 
 use super::cmd_builder::CommandBuilder;
 use super::n2_errors::{N2Error, N2ErrorKind};
@@ -535,8 +536,21 @@ pub fn gen_compile_exe_command(
         .map(|it| it.split(" ").collect::<Vec<_>>())
         .unwrap_or_default();
 
+    let runtime_dot_c_path = which("moonc")
+        .unwrap()
+        .parent()
+        .unwrap()
+        .parent()
+        .unwrap()
+        .join("lib/runtime.c");
+
     let command = CommandBuilder::new(native_cc)
         .arg(&c_artifact_path)
+        // this is a workaround, if the user has specified -c flag and we add the runtime.c file, it will cause error "cannot specify -o when generating multiple output files"
+        .arg_with_cond(
+            !native_cc_flags.contains(&"-c"),
+            &runtime_dot_c_path.display().to_string(),
+        )
         .args_with_cond(!native_cc_flags.is_empty(), native_cc_flags)
         .args_with_cond(!native_cc_link_flags.is_empty(), native_cc_link_flags)
         .lazy_args_with_cond(native_stub_deps.is_some(), || {
