@@ -41,7 +41,9 @@ use n2::graph::{self as n2graph, Build, BuildIns, BuildOuts, FileLoc};
 use n2::load::State;
 use n2::smallmap::SmallMap;
 
-use crate::gen::gen_build::{gen_compile_exe_command, gen_compile_stub_command};
+use crate::gen::gen_build::{
+    gen_compile_exe_command, gen_compile_runtime_command, gen_compile_stub_command,
+};
 use crate::gen::n2_errors::{N2Error, N2ErrorKind};
 use crate::gen::{coverage_args, MiAlias};
 
@@ -1095,13 +1097,21 @@ pub fn gen_n2_runtest_state(
 
     let is_native_backend = moonc_opt.link_opt.target_backend == TargetBackend::Native;
 
+    let mut runtime_o_path = String::new();
+    if is_native_backend {
+        let (build, path) = gen_compile_runtime_command(&mut graph, &moonbuild_opt.target_dir);
+        graph.add_build(build)?;
+        runtime_o_path = path;
+    }
+
     for item in input.link_items.iter() {
         let (build, fid) = gen_runtest_link_command(&mut graph, item, moonc_opt);
         let mut default_fid = fid;
         graph.add_build(build)?;
 
         if is_native_backend {
-            let (build, fid) = gen_compile_exe_command(&mut graph, item, moonc_opt);
+            let (build, fid) =
+                gen_compile_exe_command(&mut graph, item, moonc_opt, runtime_o_path.clone());
             default_fid = fid;
             graph.add_build(build)?;
         }
