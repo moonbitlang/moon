@@ -641,8 +641,8 @@ fn push_multi_line_string_internal(
             }
         }
         if i == lines.len() - 1 {
-            if let Some(')') = next_char {
-                output.push('\n');
+            output.push('\n');
+            if let Some(')' | ',') = next_char {
                 output.push_str(" ".repeat(if spaces > 2 { spaces - 2 } else { 0 }).as_str());
             }
         } else {
