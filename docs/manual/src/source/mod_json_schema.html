@@ -59,7 +59,7 @@
         "null"
       ],
       "additionalProperties": {
-        "type": "string"
+        "$ref": "#/definitions/BinaryDependencyInfoJson"
       }
     },
     "deps": {
@@ -69,7 +69,7 @@
         "null"
       ],
       "additionalProperties": {
-        "type": "string"
+        "$ref": "#/definitions/SourceDependencyInfoJson"
       }
     },
     "description": {
@@ -153,6 +153,112 @@
       "type": [
         "string",
         "null"
+      ]
+    }
+  },
+  "definitions": {
+    "BinaryDependencyInfo": {
+      "description": "Information about a specific dependency",
+      "type": "object",
+      "properties": {
+        "bin_pkg": {
+          "description": "Binary packages to compile.",
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": {
+            "type": "string"
+          }
+        },
+        "branch": {
+          "description": "Git branch to use.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "git": {
+          "description": "Git repository URL. Overrides the version requirement.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "path": {
+          "description": "Local path to the dependency. Overrides the version requirement.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "version": {
+          "type": "string"
+        }
+      }
+    },
+    "BinaryDependencyInfoJson": {
+      "description": "The JSON representation of a binary dependency info",
+      "anyOf": [
+        {
+          "description": "A simple version requirement",
+          "type": "string"
+        },
+        {
+          "description": "A detailed dependency info",
+          "allOf": [
+            {
+              "$ref": "#/definitions/BinaryDependencyInfo"
+            }
+          ]
+        }
+      ]
+    },
+    "SourceDependencyInfo": {
+      "description": "Information about a specific dependency",
+      "type": "object",
+      "properties": {
+        "branch": {
+          "description": "Git branch to use.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "git": {
+          "description": "Git repository URL. Overrides the version requirement.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "path": {
+          "description": "Local path to the dependency. Overrides the version requirement.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "version": {
+          "type": "string"
+        }
+      }
+    },
+    "SourceDependencyInfoJson": {
+      "description": "The JSON representation of a source dependency info",
+      "anyOf": [
+        {
+          "description": "A simple version requirement",
+          "type": "string"
+        },
+        {
+          "description": "A detailed dependency info",
+          "allOf": [
+            {
+              "$ref": "#/definitions/SourceDependencyInfo"
+            }
+          ]
+        }
       ]
     }
   }

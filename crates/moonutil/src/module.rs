@@ -660,12 +660,12 @@ pub struct MoonModJSON {
 
     /// third-party dependencies of the module
     #[serde(skip_serializing_if = "Option::is_none")]
-    #[schemars(with = "Option<std::collections::HashMap<String, String>>")]
+    #[schemars(with = "Option<std::collections::HashMap<String, SourceDependencyInfoJson>>")]
     pub deps: Option<IndexMap<String, SourceDependencyInfoJson>>,
 
     /// third-party binary dependencies of the module
     #[serde(skip_serializing_if = "Option::is_none")]
-    #[schemars(with = "Option<std::collections::HashMap<String, String>>")]
+    #[schemars(with = "Option<std::collections::HashMap<String, BinaryDependencyInfoJson>>")]
     pub bin_deps: Option<IndexMap<String, BinaryDependencyInfoJson>>,
 
     /// path to module's README file
