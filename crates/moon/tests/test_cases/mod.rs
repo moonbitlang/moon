@@ -8880,16 +8880,38 @@ fn test_supported_backends_in_pkg_json() {
 }
 
 #[test]
-#[ignore = "wait for the migration of inspect to be finished"]
 fn test_update_expect_failed() {
-    let dir = TestDir::new("update_expect_failed.in");
-    let out = get_err_stderr(&dir, ["test", "-u", "--limit", "5"]);
-    let count = out
-        .lines()
-        .filter(|line| line.contains("invalid escape"))
-        .count()
-        .to_string();
-    check(count, expect!["2"])
+    let dir = TestDir::new("test_expect_with_escape.in");
+    let _ = get_stdout(&dir, ["test", "-u"]);
+    check(
+        read(dir.join("src").join("lib").join("hello.mbt")),
+        expect![[r#"
+            ///|
+            test {
+              inspect!("\x0b", content="\x0b")
+              inspect!("a\x0b", content="a\x0b")
+              inspect!("a\x00b", content="a\x00b")
+              inspect!("a\x00b\x19", content="a\x00b\x19")
+              inspect!("\na\n\x00\nb\n\x19", content=
+                "\x0aa\x0a\x00\x0ab\x0a\x19")
+              inspect!("\n\"a\n\x00\nb\"\n\x19", content=
+                "\x0a\"a\x0a\x00\x0ab\"\x0a\x19")
+            }
+
+            ///|
+            test {
+              inspect!("\"abc\"", content=#|"abc"
+              )
+              inspect!("\"a\nb\nc\"", content=
+                #|"a
+                #|b
+                #|c"
+              )
+              inspect!("\x0b\"a\nb\nc\"", content=
+                "\x0b\"a\x0ab\x0ac\"")
+            }
+        "#]],
+    );
 }
 
 #[test]
