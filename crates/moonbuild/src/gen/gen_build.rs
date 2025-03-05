@@ -19,6 +19,7 @@
 use anyhow::{bail, Context, Ok};
 use moonutil::module::ModuleDB;
 use moonutil::package::{JsFormat, LinkDepItem, Package};
+use which::which;
 
 use super::cmd_builder::CommandBuilder;
 use super::n2_errors::{N2Error, N2ErrorKind};
@@ -477,10 +478,72 @@ pub fn gen_link_command(
     (build, artifact_id)
 }
 
+pub fn gen_compile_runtime_command(
+    graph: &mut n2graph::Graph,
+    target_dir: &Path,
+) -> (Build, String) {
+    let moonc_path = which("moonc").unwrap();
+    let moon_home = moonc_path.parent().unwrap().parent().unwrap();
+    let runtime_dot_c_path = moon_home.join("lib").join("runtime.c");
+
+    let ins = BuildIns {
+        ids: vec![graph
+            .files
+            .id_from_canonical(runtime_dot_c_path.display().to_string())],
+        explicit: 1,
+        implicit: 0,
+        order_only: 0,
+    };
+
+    let artifact_output_path = target_dir
+        .join(format!("runtime.{}", O_EXT))
+        .display()
+        .to_string();
+
+    let artifact_id = graph.files.id_from_canonical(artifact_output_path.clone());
+    let outs = BuildOuts {
+        ids: vec![artifact_id],
+        explicit: 1,
+    };
+
+    let cc = if cfg!(windows) {
+        if which("cl").is_ok() {
+            "cl"
+        } else {
+            "tcc"
+        }
+    } else if which("cc").is_ok() {
+        "cc"
+    } else {
+        "tcc"
+    };
+
+    let windows_with_cl = cfg!(windows) && cc == "cl";
+
+    let loc = FileLoc {
+        filename: Rc::new(PathBuf::from("compile-runtime")),
+        line: 0,
+    };
+
+    let command = CommandBuilder::new(cc)
+        .arg("-c")
+        .arg(&runtime_dot_c_path.display().to_string())
+        .args(vec!["-I", &moon_home.join("include").display().to_string()])
+        .args_with_cond(!windows_with_cl, vec!["-o", &artifact_output_path])
+        .arg_with_cond(windows_with_cl, &format!("-Fo{}", artifact_output_path))
+        .build();
+    log::debug!("Command: {}", command);
+    let mut build = Build::new(loc, ins, outs);
+    build.cmdline = Some(command);
+    build.desc = Some(format!("compile-runtime: {}", runtime_dot_c_path.display()));
+    (build, artifact_output_path)
+}
+
 pub fn gen_compile_exe_command(
     graph: &mut n2graph::Graph,
     item: &BuildLinkDepItem,
     moonc_opt: &MooncOpt,
+    runtime_o_path: String,
 ) -> (Build, n2graph::FileId) {
     let c_artifact_path = PathBuf::from(&item.out)
         .with_extension("c")
@@ -499,7 +562,10 @@ pub fn gen_compile_exe_command(
         line: 0,
     };
 
-    let mut input_ids = vec![graph.files.id_from_canonical(c_artifact_path.clone())];
+    let mut input_ids = vec![
+        graph.files.id_from_canonical(c_artifact_path.clone()),
+        graph.files.id_from_canonical(runtime_o_path.clone()),
+    ];
     let mut input_cnt = input_ids.len();
     let native_stub_deps = item.native_stub_deps();
     if let Some(native_stub_deps) = native_stub_deps {
@@ -537,6 +603,7 @@ pub fn gen_compile_exe_command(
 
     let command = CommandBuilder::new(native_cc)
         .arg(&c_artifact_path)
+        .arg(&runtime_o_path)
         .args_with_cond(!native_cc_flags.is_empty(), native_cc_flags)
         .args_with_cond(!native_cc_link_flags.is_empty(), native_cc_link_flags)
         .lazy_args_with_cond(native_stub_deps.is_some(), || {
@@ -638,6 +705,14 @@ pub fn gen_n2_build_state(
 
     let is_native_backend = moonc_opt.link_opt.target_backend == TargetBackend::Native;
 
+    // compile runtime.o, it will be the dependency of gen_compile_exe_command
+    let mut runtime_o_path = String::new();
+    if is_native_backend {
+        let (build, path) = gen_compile_runtime_command(&mut graph, target_dir);
+        graph.add_build(build)?;
+        runtime_o_path = path;
+    }
+
     let mut has_link_item = false;
     for item in input.link_items.iter() {
         if !has_link_item {
@@ -649,7 +724,8 @@ pub fn gen_n2_build_state(
         graph.add_build(build)?;
 
         if is_native_backend {
-            let (build, fid) = gen_compile_exe_command(&mut graph, item, moonc_opt);
+            let (build, fid) =
+                gen_compile_exe_command(&mut graph, item, moonc_opt, runtime_o_path.clone());
             graph.add_build(build)?;
             default_fid = fid;
         }

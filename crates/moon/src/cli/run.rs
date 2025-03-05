@@ -164,6 +164,7 @@ fn run_single_mbt_file(cli: &UniversalFlags, cmd: RunSubcommand) -> anyhow::Resu
 
         Some(vec![
             tcc_path.display().to_string(),
+            moon_lib_path.join("runtime.c").display().to_string(),
             output_wasm_or_js_path.display().to_string(),
             format!("-L{}", moon_lib_path.display()),
             format!("-I{}", moon_include_path.display()),

@@ -20,14 +20,16 @@
 
 use std::str::FromStr;
 
+use schemars::JsonSchema;
 use semver::VersionReq;
 use serde::{Deserialize, Serialize, Serializer};
 
 /// Information about a specific dependency
-#[derive(Clone, Serialize, Deserialize, Default)]
+#[derive(Clone, Serialize, Deserialize, Default, JsonSchema)]
 pub struct SourceDependencyInfo {
     #[serde(serialize_with = "serialize_version_req")]
     #[serde(default, skip_serializing_if = "version_is_default")]
+    #[schemars(with = "String")]
     pub version: VersionReq,
     // Other optional fields...
     /// Local path to the dependency. Overrides the version requirement.
@@ -58,10 +60,11 @@ impl std::fmt::Debug for SourceDependencyInfo {
 }
 
 /// The JSON representation of a source dependency info
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 #[serde(untagged)]
 pub enum SourceDependencyInfoJson {
     /// A simple version requirement
+    #[schemars(with = "String")]
     Simple(#[serde(serialize_with = "serialize_version_req")] VersionReq),
     /// A detailed dependency info
     Detailed(SourceDependencyInfo),
@@ -137,20 +140,22 @@ impl FromStr for SourceDependencyInfo {
 }
 
 /// The JSON representation of a binary dependency info
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 #[serde(untagged)]
 pub enum BinaryDependencyInfoJson {
     /// A simple version requirement
+    #[schemars(with = "String")]
     Simple(#[serde(serialize_with = "serialize_version_req")] VersionReq),
     /// A detailed dependency info
     Detailed(BinaryDependencyInfo),
 }
 
 /// Information about a specific dependency
-#[derive(Clone, Serialize, Deserialize, Default, Debug)]
+#[derive(Clone, Serialize, Deserialize, Default, Debug, JsonSchema)]
 pub struct BinaryDependencyInfo {
     #[serde(serialize_with = "serialize_version_req")]
     #[serde(default, skip_serializing_if = "version_is_default")]
+    #[schemars(with = "String")]
     pub version: VersionReq,
     // Other optional fields...
     /// Local path to the dependency. Overrides the version requirement.
