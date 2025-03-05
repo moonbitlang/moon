@@ -550,12 +550,12 @@ pub fn gen_compile_exe_command(
         .display()
         .to_string();
 
-    let artifact_output_path = PathBuf::from(&item.out)
-        .with_extension(moonc_opt.link_opt.target_backend.to_extension())
-        .display()
-        .to_string();
+    let artifact_output_path =
+        PathBuf::from(&item.out).with_extension(moonc_opt.link_opt.target_backend.to_extension());
 
-    let artifact_id = graph.files.id_from_canonical(artifact_output_path.clone());
+    let artifact_id = graph
+        .files
+        .id_from_canonical(artifact_output_path.display().to_string());
 
     let loc = FileLoc {
         filename: Rc::new(PathBuf::from("compile-exe")),
@@ -601,6 +601,8 @@ pub fn gen_compile_exe_command(
         .map(|it| it.split(" ").collect::<Vec<_>>())
         .unwrap_or_default();
 
+    let windows_with_cl = cfg!(windows) && native_cc == "cl";
+
     let command = CommandBuilder::new(native_cc)
         .arg(&c_artifact_path)
         .arg(&runtime_o_path)
@@ -609,7 +611,13 @@ pub fn gen_compile_exe_command(
         .lazy_args_with_cond(native_stub_deps.is_some(), || {
             native_stub_deps.unwrap().into()
         })
-        .args(vec!["-o", &artifact_output_path])
+        .args(vec!["-o", &artifact_output_path.display().to_string()])
+        .lazy_args_with_cond(windows_with_cl, || {
+            // add -FoC:\projects\core\target\native\debug\test\immut\priority_queue\
+            // the last \ is necessary
+            let artifact_output_dir = artifact_output_path.parent().unwrap().display().to_string();
+            vec![format!("-Fo{}\\", artifact_output_dir)]
+        })
         .build();
     log::debug!("Command: {}", command);
     build.cmdline = Some(command);

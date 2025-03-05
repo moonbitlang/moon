@@ -16,5 +16,10 @@
 #
 # For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
-[default.extend-identifiers]
+[default.extend-words]
 Fo = "Fo"
+
+[files]
+extend-exclude = [
+    "crates/moonutil/resources/error_codes/"
+]
