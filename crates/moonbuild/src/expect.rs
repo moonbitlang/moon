@@ -722,9 +722,8 @@ fn apply_patch(pp: &PackagePatch, is_doc_test: bool) -> anyhow::Result<()> {
                 match patch.mode.as_deref() {
                     None => {
                         let escape_info = detect_escape_info(&patch.actual);
-                        if !escape_info.newline && !escape_info.quote {
-                            output.push_str(&to_moonbit_style(&patch.actual, true));
-                        } else if escape_info.ascii_control {
+                        if (!escape_info.newline && !escape_info.quote) || escape_info.ascii_control
+                        {
                             output.push_str(&to_moonbit_style(&patch.actual, true));
                         } else {
                             let next_char = content_chars[usize::from(end)..].first();

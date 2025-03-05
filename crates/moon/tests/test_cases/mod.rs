@@ -8884,7 +8884,7 @@ fn test_update_expect_failed() {
     let dir = TestDir::new("test_expect_with_escape.in");
     let _ = get_stdout(&dir, ["test", "-u"]);
     check(
-        &read(dir.join("src").join("lib").join("hello.mbt")),
+        read(dir.join("src").join("lib").join("hello.mbt")),
         expect![[r#"
             ///|
             test {
