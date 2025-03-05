@@ -42,8 +42,15 @@ impl PackagePatch {
 }
 
 #[derive(Debug, Default)]
+#[allow(dead_code)]
 pub struct BufferExpect {
     range: line_index::TextRange,
+    // only for debug
+    line_start: i32,
+    col_start: i32,
+    line_end: i32,
+    col_end: i32,
+    // end
     left_padding: Option<&'static str>,
     right_padding: Option<&'static str>,
     #[allow(unused)]
@@ -180,14 +187,14 @@ impl Location {
 struct Replace {
     pub filename: String,
 
-    // inspect(1234)?
-    // ^...........^
+    // inspect!(1234)
+    // ^............^
     pub loc: Location,
 
     // "1234"
     pub actual: String,
-    // inspect(1234)?
-    //         ^..^
+    // inspect!(1234)
+    //          ^..^
     pub actual_loc: Location,
 
     pub expect: String,
@@ -263,19 +270,28 @@ fn base64_decode_string_codepoint(s: &str) -> String {
     s
 }
 
-fn contains_escape(s: &str) -> bool {
+struct EscapeInfo {
+    pub quote: bool,
+    pub newline: bool,
+    pub ascii_control: bool,
+}
+
+fn detect_escape_info(s: &str) -> EscapeInfo {
+    let mut info = EscapeInfo {
+        quote: false,
+        newline: false,
+        ascii_control: false,
+    };
+
     for c in s.chars() {
         match c {
-            c if (c as u32) < 0x20 => return true,
-            '"' => return true,
-            '\\' => return true,
-            '\n' => return true,
-            '\r' => return true,
-            '\t' => return true,
+            '"' => info.quote = true,
+            '\n' => info.newline = true,
+            c if (c as u32) < 0x20 => info.ascii_control = true,
             _ => {}
         }
     }
-    false
+    info
 }
 
 fn to_moonbit_style(s: &str, with_quote: bool) -> String {
@@ -552,6 +568,10 @@ fn gen_patch(targets: HashMap<String, BTreeSet<Target>>) -> anyhow::Result<Packa
             }
             file_patches.push(BufferExpect {
                 range: rg,
+                line_start: t.line_start as i32,
+                col_start: t.col_start as i32,
+                line_end: t.line_end as i32,
+                col_end: t.col_end as i32,
                 left_padding,
                 right_padding,
                 expect: t.expect,
@@ -593,11 +613,7 @@ fn push_multi_line_string(
 }
 
 fn to_moonbit_multi_line_string(s: &str) -> String {
-    if contains_escape(s) {
-        format!("$|{}", to_moonbit_style(s, false))
-    } else {
-        format!("#|{}", s)
-    }
+    format!("#|{}", s)
 }
 
 fn push_multi_line_string_internal(
@@ -705,7 +721,10 @@ fn apply_patch(pp: &PackagePatch, is_doc_test: bool) -> anyhow::Result<()> {
 
                 match patch.mode.as_deref() {
                     None => {
-                        if !patch.actual.contains('\n') && !patch.actual.contains('"') {
+                        let escape_info = detect_escape_info(&patch.actual);
+                        if !escape_info.newline && !escape_info.quote {
+                            output.push_str(&to_moonbit_style(&patch.actual, true));
+                        } else if escape_info.ascii_control {
                             output.push_str(&to_moonbit_style(&patch.actual, true));
                         } else {
                             let next_char = content_chars[usize::from(end)..].first();
