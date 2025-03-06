@@ -194,7 +194,7 @@ fn test_moon_run_with_read_bytes_from_stdin() {
         .stdout
         .to_owned();
     let s = std::str::from_utf8(&out).unwrap().to_string();
-    assert!(s.trim() == "中文😄👍hello1242".as_bytes().len().to_string());
+    assert!(s.trim() == "中文😄👍hello1242".len().to_string());
 
     let out = snapbox::cmd::Command::new(snapbox::cmd::cargo_bin("moonrun"))
         .arg(&wasm_file)

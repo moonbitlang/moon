@@ -721,7 +721,7 @@ pub fn get_moonc_version() -> anyhow::Result<String> {
     match output {
         Ok(output) => {
             if output.status.success() {
-                return Ok(std::str::from_utf8(&output.stdout)?.trim().to_string());
+                Ok(std::str::from_utf8(&output.stdout)?.trim().to_string())
             } else {
                 anyhow::bail!(
                     "failed to get moonc version: {}",
@@ -740,7 +740,7 @@ pub fn get_moonrun_version() -> anyhow::Result<String> {
     match output {
         Ok(output) => {
             if output.status.success() {
-                return Ok(std::str::from_utf8(&output.stdout)?.trim().to_string());
+                Ok(std::str::from_utf8(&output.stdout)?.trim().to_string())
             } else {
                 anyhow::bail!(
                     "failed to get moonrun version: {}",
@@ -768,16 +768,13 @@ pub struct FileLock {
 
 impl Drop for FileLock {
     fn drop(&mut self) {
-        self._file.unlock().unwrap();
+        fs4::fs_std::FileExt::unlock(&self._file).unwrap();
     }
 }
 
 impl FileLock {
     pub fn lock(path: &std::path::Path) -> std::io::Result<Self> {
-        let file = match std::fs::File::create(path.join(MOON_LOCK)) {
-            Ok(f) => f,
-            Err(e) => return Err(e),
-        };
+        let file = std::fs::File::create(path.join(MOON_LOCK))?;
         match file.try_lock_exclusive() {
             Ok(_) => Ok(FileLock { _file: file }),
             Err(_) => {

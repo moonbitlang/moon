@@ -260,7 +260,7 @@ pub fn run_run_internal(cli: &UniversalFlags, cmd: RunSubcommand) -> anyhow::Res
     let moon_pkg_json_exist = std::env::current_dir()?
         .join(&cmd.package_or_mbt_file)
         .parent()
-        .map_or(false, |p| p.join(MOON_PKG_JSON).exists());
+        .is_some_and(|p| p.join(MOON_PKG_JSON).exists());
     if cmd.package_or_mbt_file.ends_with(".mbt") && !moon_pkg_json_exist {
         return run_single_mbt_file(cli, cmd);
     }

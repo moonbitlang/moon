@@ -261,7 +261,6 @@ fn pkg_to_dir(dep_dir: &DepDir, username: &str, pkgname: &str) -> PathBuf {
 }
 
 /// The result of a directory sync.
-
 fn map_source_to_dir(dep_dir: &DepDir, module: &ModuleSource) -> PathBuf {
     match &module.source {
         ModuleSourceKind::Registry(_) => {

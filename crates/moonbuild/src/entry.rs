@@ -108,7 +108,7 @@ pub fn n2_simple_run_interface(
     let explain = moonbuild_opt
         .check_opt
         .as_ref()
-        .map_or(false, |it| it.explain);
+        .is_some_and(|it| it.explain);
     let render_and_catch = move |output: &str| {
         output
             .split('\n')
@@ -190,7 +190,7 @@ pub fn n2_run_interface(
     let explain = moonbuild_opt
         .check_opt
         .as_ref()
-        .map_or(false, |it| it.explain);
+        .is_some_and(|it| it.explain);
     let render_and_catch = move |output: &str| {
         output.lines().for_each(|content| {
             catcher.lock().unwrap().push(content.to_owned());
@@ -263,7 +263,7 @@ pub fn n2_run_interface(
                     moonbuild_opt
                         .check_opt
                         .as_ref()
-                        .map_or(false, |it| it.explain),
+                        .is_some_and(|it| it.explain),
                 );
             }
         });
@@ -549,7 +549,7 @@ fn convert_moonc_test_info(
         (&pkg.test_files, DriverKind::Blackbox),
     ] {
         let need_test_info = !files.is_empty()
-            || patch_file.as_ref().map_or(false, |pf| {
+            || patch_file.as_ref().is_some_and(|pf| {
                 let filename = pf.to_str().unwrap();
                 match driver_kind {
                     DriverKind::Internal => {

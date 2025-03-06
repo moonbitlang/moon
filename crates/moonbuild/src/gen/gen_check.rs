@@ -210,7 +210,7 @@ fn pkg_with_test_to_check_item(
                 import
                     .alias
                     .as_ref()
-                    .map_or(false, |alias| alias.eq(pkg.last_name()))
+                    .is_some_and(|alias| alias.eq(pkg.last_name()))
             })
     {
         bail!(
