@@ -530,7 +530,14 @@ pub fn gen_compile_runtime_command(
         .arg(&runtime_dot_c_path.display().to_string())
         .args(vec!["-I", &moon_home.join("include").display().to_string()])
         .args_with_cond(!windows_with_cl, vec!["-o", &artifact_output_path])
-        .arg_with_cond(windows_with_cl, &format!("-Fo{}", artifact_output_path))
+        .args_with_cond(
+            windows_with_cl,
+            vec![
+                format!("-Fo{}", artifact_output_path),
+                "/wd4819".to_string(),
+                "/nologo".to_string(),
+            ],
+        )
         .build();
     log::debug!("Command: {}", command);
     let mut build = Build::new(loc, ins, outs);
@@ -611,12 +618,20 @@ pub fn gen_compile_exe_command(
         .lazy_args_with_cond(native_stub_deps.is_some(), || {
             native_stub_deps.unwrap().into()
         })
-        .args(vec!["-o", &artifact_output_path.display().to_string()])
+        .args_with_cond(
+            !windows_with_cl,
+            vec!["-o", &artifact_output_path.display().to_string()],
+        )
         .lazy_args_with_cond(windows_with_cl, || {
             // add -FoC:\projects\core\target\native\debug\test\immut\priority_queue\
             // the last \ is necessary
             let artifact_output_dir = artifact_output_path.parent().unwrap().display().to_string();
-            vec![format!("-Fo{}\\", artifact_output_dir)]
+            vec![
+                format!("/Fe{}", artifact_output_path.display().to_string()),
+                format!("-Fo{}\\", artifact_output_dir),
+                "/wd4819".to_string(),
+                "/nologo".to_string(),
+            ]
         })
         .build();
     log::debug!("Command: {}", command);
