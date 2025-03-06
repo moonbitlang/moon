@@ -434,7 +434,7 @@ pub fn gen_package_blackbox_test(
                 import
                     .alias
                     .as_ref()
-                    .map_or(false, |alias| alias.eq(pkg.last_name()))
+                    .is_some_and(|alias| alias.eq(pkg.last_name()))
             })
     {
         bail!(

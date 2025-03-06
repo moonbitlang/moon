@@ -115,7 +115,7 @@ fn serialize_version_req<S: Serializer>(v: &VersionReq, s: S) -> Result<S::Ok, S
 
 struct ComparatorFormatWrapper<'a>(&'a semver::Comparator);
 
-impl<'a> std::fmt::Display for ComparatorFormatWrapper<'a> {
+impl std::fmt::Display for ComparatorFormatWrapper<'_> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}", self.0.major)?;
         if let Some(minor) = &self.0.minor {

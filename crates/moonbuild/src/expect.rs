@@ -260,9 +260,9 @@ fn base64_decode_string_codepoint(s: &str) -> String {
     for i in (0..buf.len()).step_by(4) {
         let c = std::char::from_u32(
             (buf[i] as u32)
-                | (buf[i + 1] as u32) << 8
-                | (buf[i + 2] as u32) << 16
-                | (buf[i + 3] as u32) << 24,
+                | ((buf[i + 1] as u32) << 8)
+                | ((buf[i + 2] as u32) << 16)
+                | ((buf[i + 3] as u32) << 24),
         )
         .unwrap();
         s.push(c);
