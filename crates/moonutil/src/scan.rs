@@ -438,10 +438,6 @@ pub fn scan(
     moonc_opt: &crate::common::MooncOpt,
     moonbuild_opt: &crate::common::MoonbuildOpt,
 ) -> anyhow::Result<ModuleDB> {
-    if moonc_opt.link_opt.target_backend == crate::common::TargetBackend::LLVM {
-        eprintln!("{}: LLVM backend only supported on linux and macos with bleeding moonbit toolchain for now", "Warning".yellow());
-    }
-
     let source_dir = &moonbuild_opt.source_dir;
 
     let mod_desc = read_module_desc_file_in_dir(source_dir)?;
