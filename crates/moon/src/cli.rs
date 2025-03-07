@@ -253,6 +253,7 @@ pub fn get_compiler_flags(src_dir: &Path, build_flags: &BuildFlags) -> anyhow::R
     let output_format = match target_backend {
         TargetBackend::Js => OutputFormat::Js,
         TargetBackend::Native => OutputFormat::Native,
+        TargetBackend::LLVM => OutputFormat::LLVM,
         _ => output_format,
     };
 

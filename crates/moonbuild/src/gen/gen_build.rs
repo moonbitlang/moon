@@ -710,6 +710,81 @@ pub fn gen_compile_stub_command(
     res
 }
 
+// for llvm target
+pub fn gen_link_exe_command(
+    graph: &mut n2graph::Graph,
+    item: &BuildLinkDepItem,
+    moonc_opt: &MooncOpt,
+) -> (Build, n2graph::FileId) {
+    let o_artifact_path = PathBuf::from(&item.out)
+        .with_extension(O_EXT)
+        .display()
+        .to_string();
+
+    let artifact_output_path = PathBuf::from(&item.out)
+        .with_extension(moonc_opt.link_opt.target_backend.to_extension())
+        .display()
+        .to_string();
+
+    let artifact_id = graph.files.id_from_canonical(artifact_output_path.clone());
+
+    let loc = FileLoc {
+        filename: Rc::new(PathBuf::from("link-exe")),
+        line: 0,
+    };
+
+    let input_ids = vec![graph.files.id_from_canonical(o_artifact_path.clone())];
+    let ins = BuildIns {
+        ids: input_ids,
+        explicit: 1,
+        implicit: 0,
+        order_only: 0,
+    };
+
+    let outs = BuildOuts {
+        ids: vec![artifact_id],
+        explicit: 1,
+    };
+
+    let mut build = Build::new(loc, ins, outs);
+
+    let native_cc = item
+        .native_cc(moonc_opt.link_opt.target_backend)
+        .unwrap_or("cc");
+    let native_cc_flags = item
+        .native_cc_flags(moonc_opt.link_opt.target_backend)
+        .map(|it| it.split(" ").collect::<Vec<_>>())
+        .unwrap_or_default();
+    let native_cc_link_flags = item
+        .native_cc_link_flags(moonc_opt.link_opt.target_backend)
+        .map(|it| it.split(" ").collect::<Vec<_>>())
+        .unwrap_or_default();
+
+    let moonc_path = which::which("moonc").unwrap();
+    let moon_home = moonc_path.parent().unwrap().parent().unwrap();
+    let moon_include_path = moon_home.join("include");
+    let moon_lib_path = moon_home.join("lib");
+
+    let runtime_c = moon_lib_path.join("runtime.c").display().to_string();
+    let runtime_core = moon_lib_path.join("runtime_core.c").display().to_string();
+
+    let command = CommandBuilder::new(native_cc)
+        .arg(&runtime_c)
+        .arg(&runtime_core)
+        .arg("-I")
+        .arg(&moon_include_path.display().to_string())
+        .arg(&o_artifact_path)
+        .args_with_cond(!native_cc_flags.is_empty(), native_cc_flags)
+        .args_with_cond(!native_cc_link_flags.is_empty(), native_cc_link_flags)
+        .arg("-o")
+        .arg(&artifact_output_path)
+        .build();
+    log::debug!("Command: {}", command);
+    build.cmdline = Some(command);
+    build.desc = Some(format!("link-exe: {}", item.package_full_name));
+    (build, artifact_id)
+}
+
 pub fn gen_n2_build_state(
     input: &N2BuildInput,
     target_dir: &Path,
@@ -727,6 +802,7 @@ pub fn gen_n2_build_state(
     }
 
     let is_native_backend = moonc_opt.link_opt.target_backend == TargetBackend::Native;
+    let is_llvm_backend = moonc_opt.link_opt.target_backend == TargetBackend::LLVM;
 
     // compile runtime.o, it will be the dependency of gen_compile_exe_command
     let mut runtime_o_path = String::new();
@@ -749,6 +825,11 @@ pub fn gen_n2_build_state(
         if is_native_backend {
             let (build, fid) =
                 gen_compile_exe_command(&mut graph, item, moonc_opt, runtime_o_path.clone());
+            graph.add_build(build)?;
+            default_fid = fid;
+        }
+        if is_llvm_backend {
+            let (build, fid) = gen_link_exe_command(&mut graph, item, moonc_opt);
             graph.add_build(build)?;
             default_fid = fid;
         }
@@ -798,7 +879,7 @@ pub fn gen_n2_build_state(
                     .to_string();
 
                 let runtime = match moonc_opt.link_opt.target_backend {
-                    TargetBackend::Native => "".to_string(),
+                    TargetBackend::Native | TargetBackend::LLVM => "".to_string(),
                     TargetBackend::Wasm | TargetBackend::WasmGC => "moonrun".to_string(),
                     TargetBackend::Js => "node".to_string(),
                 };

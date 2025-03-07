@@ -67,7 +67,7 @@ pub fn run_bundle(cli: UniversalFlags, cmd: BundleSubcommand) -> anyhow::Result<
         surface_targets.push(SurfaceTarget::All);
     }
     let mut targets = lower_surface_targets(&surface_targets);
-    // this is a workaround for supporting bundle core for native backend when --target all
+    // this is a workaround for supporting bundle core for native & llvm backend when --target all
     // should move to `lower_surface_targets` when native backend being stable
     if cmd.all || cmd.build_flags.target == Some(vec![SurfaceTarget::All]) {
         targets.push(TargetBackend::Native);

@@ -478,7 +478,7 @@ pub fn run_run(
         TargetBackend::Js => {
             crate::build::run_js(&wat_path, &moonbuild_opt.args, moonbuild_opt.verbose)
         }
-        TargetBackend::Native => crate::build::run_native(
+        TargetBackend::Native | TargetBackend::LLVM => crate::build::run_native(
             &wat_path.with_extension("exe"),
             &moonbuild_opt.args,
             moonbuild_opt.verbose,
@@ -883,7 +883,7 @@ async fn execute_test(
             )
             .await
         }
-        TargetBackend::Native => {
+        TargetBackend::Native | TargetBackend::LLVM => {
             crate::runtest::run_native(artifact_path, target_dir, args, file_test_info_map, verbose)
                 .await
         }

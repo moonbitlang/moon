@@ -87,7 +87,8 @@
               "Wasm",
               "WasmGC",
               "Js",
-              "Native"
+              "Native",
+              "LLVM"
             ],
             "optlevel": [
               "Debug",
@@ -145,7 +146,8 @@
             "backend": [
               "Wasm",
               "WasmGC",
-              "Native"
+              "Native",
+              "LLVM"
             ],
             "optlevel": [
               "Release",
@@ -157,7 +159,8 @@
               "Wasm",
               "WasmGC",
               "Js",
-              "Native"
+              "Native",
+              "LLVM"
             ],
             "optlevel": [
               "Debug"
@@ -208,7 +211,8 @@
               "Wasm",
               "WasmGC",
               "Js",
-              "Native"
+              "Native",
+              "LLVM"
             ],
             "optlevel": [
               "Debug",
@@ -242,7 +246,8 @@
               "Wasm",
               "WasmGC",
               "Js",
-              "Native"
+              "Native",
+              "LLVM"
             ],
             "optlevel": [
               "Debug",

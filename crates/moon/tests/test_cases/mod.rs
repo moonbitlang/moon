@@ -2656,7 +2656,8 @@ fn test_dummy_core() {
                             "Wasm",
                             "WasmGC",
                             "Js",
-                            "Native"
+                            "Native",
+                            "LLVM"
                           ],
                           "optlevel": [
                             "Debug",
@@ -2706,7 +2707,8 @@ fn test_dummy_core() {
                             "Wasm",
                             "WasmGC",
                             "Js",
-                            "Native"
+                            "Native",
+                            "LLVM"
                           ],
                           "optlevel": [
                             "Debug",
@@ -2750,7 +2752,8 @@ fn test_dummy_core() {
                             "Wasm",
                             "WasmGC",
                             "Js",
-                            "Native"
+                            "Native",
+                            "LLVM"
                           ],
                           "optlevel": [
                             "Debug",
@@ -2814,7 +2817,8 @@ fn test_dummy_core() {
                             "Wasm",
                             "WasmGC",
                             "Js",
-                            "Native"
+                            "Native",
+                            "LLVM"
                           ],
                           "optlevel": [
                             "Debug",
@@ -2927,7 +2931,8 @@ fn test_dummy_core() {
                             "Wasm",
                             "WasmGC",
                             "Js",
-                            "Native"
+                            "Native",
+                            "LLVM"
                           ],
                           "optlevel": [
                             "Debug",
@@ -2977,7 +2982,8 @@ fn test_dummy_core() {
                             "Wasm",
                             "WasmGC",
                             "Js",
-                            "Native"
+                            "Native",
+                            "LLVM"
                           ],
                           "optlevel": [
                             "Debug",
@@ -3021,7 +3027,8 @@ fn test_dummy_core() {
                             "Wasm",
                             "WasmGC",
                             "Js",
-                            "Native"
+                            "Native",
+                            "LLVM"
                           ],
                           "optlevel": [
                             "Debug",
@@ -3085,7 +3092,8 @@ fn test_dummy_core() {
                             "Wasm",
                             "WasmGC",
                             "Js",
-                            "Native"
+                            "Native",
+                            "LLVM"
                           ],
                           "optlevel": [
                             "Debug",
@@ -5327,7 +5335,8 @@ fn test_blackbox_success() {
                             "Wasm",
                             "WasmGC",
                             "Js",
-                            "Native"
+                            "Native",
+                            "LLVM"
                           ],
                           "optlevel": [
                             "Debug",
@@ -5341,7 +5350,8 @@ fn test_blackbox_success() {
                             "Wasm",
                             "WasmGC",
                             "Js",
-                            "Native"
+                            "Native",
+                            "LLVM"
                           ],
                           "optlevel": [
                             "Debug",
@@ -5355,7 +5365,8 @@ fn test_blackbox_success() {
                             "Wasm",
                             "WasmGC",
                             "Js",
-                            "Native"
+                            "Native",
+                            "LLVM"
                           ],
                           "optlevel": [
                             "Debug",
@@ -5395,7 +5406,8 @@ fn test_blackbox_success() {
                             "Wasm",
                             "WasmGC",
                             "Js",
-                            "Native"
+                            "Native",
+                            "LLVM"
                           ],
                           "optlevel": [
                             "Debug",
@@ -5422,7 +5434,8 @@ fn test_blackbox_success() {
                             "Wasm",
                             "WasmGC",
                             "Js",
-                            "Native"
+                            "Native",
+                            "LLVM"
                           ],
                           "optlevel": [
                             "Debug",
@@ -5449,7 +5462,8 @@ fn test_blackbox_success() {
                             "Wasm",
                             "WasmGC",
                             "Js",
-                            "Native"
+                            "Native",
+                            "LLVM"
                           ],
                           "optlevel": [
                             "Debug",
@@ -5476,7 +5490,8 @@ fn test_blackbox_success() {
                             "Wasm",
                             "WasmGC",
                             "Js",
-                            "Native"
+                            "Native",
+                            "LLVM"
                           ],
                           "optlevel": [
                             "Debug",
@@ -6463,7 +6478,8 @@ fn test_specify_source_dir_001() {
                             "Wasm",
                             "WasmGC",
                             "Js",
-                            "Native"
+                            "Native",
+                            "LLVM"
                           ],
                           "optlevel": [
                             "Debug",
@@ -6478,7 +6494,8 @@ fn test_specify_source_dir_001() {
                             "Wasm",
                             "WasmGC",
                             "Js",
-                            "Native"
+                            "Native",
+                            "LLVM"
                           ],
                           "optlevel": [
                             "Debug",
@@ -6503,7 +6520,8 @@ fn test_specify_source_dir_001() {
                             "Wasm",
                             "WasmGC",
                             "Js",
-                            "Native"
+                            "Native",
+                            "LLVM"
                           ],
                           "optlevel": [
                             "Debug",
@@ -8874,7 +8892,7 @@ fn test_supported_backends_in_pkg_json() {
     check(
         get_err_stderr(&pkg3, ["check"]),
         expect![[r#"
-            error: cannot find a common supported backend for the deps chain: "username/hello/main: [wasm-gc] -> username/hello/lib: [js, native, wasm, wasm-gc] -> username/hello/lib1: [wasm-gc] -> username/hello/lib3: [wasm-gc] -> username/hello/lib7: [js, wasm]"
+            error: cannot find a common supported backend for the deps chain: "username/hello/main: [wasm-gc] -> username/hello/lib: [js, llvm, native, wasm, wasm-gc] -> username/hello/lib1: [wasm-gc] -> username/hello/lib3: [wasm-gc] -> username/hello/lib7: [js, wasm]"
         "#]],
     );
 }
