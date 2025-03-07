@@ -190,6 +190,7 @@ impl ModuleDB {
                     TargetBackend::Wasm,
                     TargetBackend::Native,
                     TargetBackend::Js,
+                    TargetBackend::LLVM,
                 ]);
                 for (i, dpe_pkg_name) in chain.iter().enumerate() {
                     let dep_pkg = self.get_package_by_name(dpe_pkg_name);

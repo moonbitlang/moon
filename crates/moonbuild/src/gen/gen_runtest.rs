@@ -43,6 +43,7 @@ use n2::smallmap::SmallMap;
 
 use crate::gen::gen_build::{
     gen_compile_exe_command, gen_compile_runtime_command, gen_compile_stub_command,
+    gen_link_exe_command,
 };
 use crate::gen::n2_errors::{N2Error, N2ErrorKind};
 use crate::gen::{coverage_args, MiAlias};
@@ -1103,6 +1104,7 @@ pub fn gen_n2_runtest_state(
         graph.add_build(build)?;
         runtime_o_path = path;
     }
+    let is_llvm_backend = moonc_opt.link_opt.target_backend == TargetBackend::LLVM;
 
     for item in input.link_items.iter() {
         let (build, fid) = gen_runtest_link_command(&mut graph, item, moonc_opt);
@@ -1115,6 +1117,12 @@ pub fn gen_n2_runtest_state(
             default_fid = fid;
             graph.add_build(build)?;
         }
+        if is_llvm_backend {
+            let (build, fid) = gen_link_exe_command(&mut graph, item, moonc_opt);
+            graph.add_build(build)?;
+            default_fid = fid;
+        }
+
         default.push(default_fid);
     }
     for item in input.test_drivers.iter() {

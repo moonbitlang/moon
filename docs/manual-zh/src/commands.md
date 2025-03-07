@@ -102,7 +102,7 @@ Build the current package
 * `--no-strip` — Disable stripping debug information
 * `--target <TARGET>` — Select output target
 
-  Possible values: `wasm`, `wasm-gc`, `js`, `native`, `all`
+  Possible values: `wasm`, `wasm-gc`, `js`, `native`, `llvm`, `all`
 
 * `--serial` — Handle the selected targets sequentially
 * `--enable-coverage` — Enable coverage instrumentation
@@ -138,7 +138,7 @@ Check the current package, but don't build object files
 * `--no-strip` — Disable stripping debug information
 * `--target <TARGET>` — Select output target
 
-  Possible values: `wasm`, `wasm-gc`, `js`, `native`, `all`
+  Possible values: `wasm`, `wasm-gc`, `js`, `native`, `llvm`, `all`
 
 * `--serial` — Handle the selected targets sequentially
 * `--enable-coverage` — Enable coverage instrumentation
@@ -179,7 +179,7 @@ Run a main package
 * `--no-strip` — Disable stripping debug information
 * `--target <TARGET>` — Select output target
 
-  Possible values: `wasm`, `wasm-gc`, `js`, `native`, `all`
+  Possible values: `wasm`, `wasm-gc`, `js`, `native`, `llvm`, `all`
 
 * `--serial` — Handle the selected targets sequentially
 * `--enable-coverage` — Enable coverage instrumentation
@@ -211,7 +211,7 @@ Test the current package
 * `--no-strip` — Disable stripping debug information
 * `--target <TARGET>` — Select output target
 
-  Possible values: `wasm`, `wasm-gc`, `js`, `native`, `all`
+  Possible values: `wasm`, `wasm-gc`, `js`, `native`, `llvm`, `all`
 
 * `--serial` — Handle the selected targets sequentially
 * `--enable-coverage` — Enable coverage instrumentation
@@ -298,7 +298,7 @@ Generate public interface (`.mbti`) files for all packages in the module
 * `--no-alias` — Do not use alias to shorten package names in the output
 * `--target <TARGET>` — Select output target
 
-  Possible values: `wasm`, `wasm-gc`, `js`, `native`, `all`
+  Possible values: `wasm`, `wasm-gc`, `js`, `native`, `llvm`, `all`
 
 * `-p`, `--package <PACKAGE>` — only emit mbti files for the specified package
 

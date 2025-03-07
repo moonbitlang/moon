@@ -289,32 +289,29 @@ fn generate_driver(
                 "/../moonbuild/template/test_driver/js_args.mbt"
             ))
         }
-        TargetBackend::Native => "",
+        TargetBackend::Native | TargetBackend::LLVM => "",
     };
 
     #[allow(clippy::collapsible_else_if)]
     let mut template = if only_no_arg_tests {
-        if target_backend.unwrap_or_default() == TargetBackend::Native {
-            include_str!(concat!(
+        match target_backend.unwrap_or_default() {
+            TargetBackend::Native | TargetBackend::LLVM => include_str!(concat!(
                 env!("CARGO_MANIFEST_DIR"),
                 "/../moonbuild/template/test_driver/no_args_driver_template_native.mbt"
-            )).to_string()
-        } else {
-            include_str!(concat!(
+            )).to_string(),
+            _ => include_str!(concat!(
                 env!("CARGO_MANIFEST_DIR"),
                 "/../moonbuild/template/test_driver/no_args_driver_template.mbt"
             )).to_string()
         }
     }
     else {
-        if target_backend.unwrap_or_default() == TargetBackend::Native {
-            include_str!(concat!(
+        match target_backend.unwrap_or_default() {
+            TargetBackend::Native | TargetBackend::LLVM => include_str!(concat!(
                 env!("CARGO_MANIFEST_DIR"),
                 "/../moonbuild/template/test_driver/with_args_driver_template_native.mbt"
-            )).to_string()
-        }
-        else {
-            include_str!(concat!(
+            )).to_string(),
+            _ => include_str!(concat!(
                 env!("CARGO_MANIFEST_DIR"),
                 "/../moonbuild/template/test_driver/with_args_driver_template.mbt"
             )).to_string()

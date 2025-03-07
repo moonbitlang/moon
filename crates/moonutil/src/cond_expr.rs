@@ -87,6 +87,8 @@ impl CondExpr {
             (TargetBackend::Js, OptLevel::Release),
             (TargetBackend::Native, OptLevel::Debug),
             (TargetBackend::Native, OptLevel::Release),
+            (TargetBackend::LLVM, OptLevel::Debug),
+            (TargetBackend::LLVM, OptLevel::Release),
         ] {
             if self.eval(o, t) {
                 optlevel_set.insert(o);
@@ -125,6 +127,7 @@ impl Default for CompileCondition {
                 TargetBackend::WasmGC,
                 TargetBackend::Js,
                 TargetBackend::Native,
+                TargetBackend::LLVM,
             ],
             optlevel: vec![OptLevel::Debug, OptLevel::Release],
         }
@@ -260,6 +263,7 @@ pub fn parse_cond_target(expr: &str) -> Result<CondExpr, ParseTargetError> {
         "wasm-gc" => Ok(CondExpr::Atom(Atom::Target(TargetBackend::WasmGC))),
         "js" => Ok(CondExpr::Atom(Atom::Target(TargetBackend::Js))),
         "native" => Ok(CondExpr::Atom(Atom::Target(TargetBackend::Native))),
+        "llvm" => Ok(CondExpr::Atom(Atom::Target(TargetBackend::LLVM))),
         _ => Err(ParseTargetError::UnknownTarget(expr.to_string())),
     }
 }

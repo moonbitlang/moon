@@ -38,7 +38,8 @@
               "Wasm",
               "WasmGC",
               "Js",
-              "Native"
+              "Native",
+              "LLVM"
             ],
             "optlevel": [
               "Debug",
@@ -53,7 +54,8 @@
               "Wasm",
               "WasmGC",
               "Js",
-              "Native"
+              "Native",
+              "LLVM"
             ],
             "optlevel": [
               "Debug",
@@ -78,7 +80,8 @@
               "Wasm",
               "WasmGC",
               "Js",
-              "Native"
+              "Native",
+              "LLVM"
             ],
             "optlevel": [
               "Debug",

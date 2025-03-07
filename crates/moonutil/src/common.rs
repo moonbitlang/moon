@@ -203,6 +203,7 @@ pub enum OutputFormat {
     Wasm,
     Js,
     Native,
+    LLVM,
 }
 
 impl OutputFormat {
@@ -212,6 +213,7 @@ impl OutputFormat {
             OutputFormat::Wasm => "wasm",
             OutputFormat::Js => "js",
             OutputFormat::Native => "c",
+            OutputFormat::LLVM => "o",
         }
     }
 }
@@ -225,6 +227,7 @@ pub enum SurfaceTarget {
     WasmGC,
     Js,
     Native,
+    LLVM,
     All,
 }
 
@@ -243,6 +246,9 @@ pub fn lower_surface_targets(st: &[SurfaceTarget]) -> Vec<TargetBackend> {
             }
             SurfaceTarget::Native => {
                 result.insert(TargetBackend::Native);
+            }
+            SurfaceTarget::LLVM => {
+                result.insert(TargetBackend::LLVM);
             }
             SurfaceTarget::All => {
                 result.insert(TargetBackend::Wasm);
@@ -267,6 +273,7 @@ pub enum TargetBackend {
     WasmGC,
     Js,
     Native,
+    LLVM
 }
 
 impl std::fmt::Display for TargetBackend {
@@ -282,6 +289,7 @@ impl TargetBackend {
             Self::WasmGC => "wasm-gc",
             Self::Js => "js",
             Self::Native => "native",
+            Self::LLVM => "llvm",
         }
     }
 
@@ -291,6 +299,7 @@ impl TargetBackend {
             Self::WasmGC => "wasm",
             Self::Js => "js",
             Self::Native => "exe",
+            Self::LLVM => "exe",
         }
     }
 
@@ -300,6 +309,7 @@ impl TargetBackend {
             Self::WasmGC => "wasm",
             Self::Js => "js",
             Self::Native => "c",
+            Self::LLVM => O_EXT,
         }
     }
 
@@ -309,6 +319,7 @@ impl TargetBackend {
             Self::WasmGC => "wasm-gc",
             Self::Js => "js",
             Self::Native => "native",
+            Self::LLVM => "llvm",
         }
     }
 
@@ -318,6 +329,7 @@ impl TargetBackend {
             Self::WasmGC => "wasm-gc",
             Self::Js => "js",
             Self::Native => "native",
+            Self::LLVM => "llvm",
         }
     }
 
@@ -327,8 +339,9 @@ impl TargetBackend {
             "wasm-gc" => Ok(Self::WasmGC),
             "js" => Ok(Self::Js),
             "native" => Ok(Self::Native),
+            "llvm" => Ok(Self::LLVM),
             _ => bail!(
-                "invalid backend: {}, only support wasm, wasm-gc, js, native",
+                "invalid backend: {}, only support wasm, wasm-gc, js, native, llvm",
                 s
             ),
         }

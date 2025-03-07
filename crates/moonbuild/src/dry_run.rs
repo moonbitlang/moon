@@ -73,7 +73,7 @@ pub fn print_commands(
                     TargetBackend::Wasm => "moonrun",
                     TargetBackend::WasmGC => "moonrun",
                     TargetBackend::Js => "node",
-                    TargetBackend::Native => "",
+                    TargetBackend::Native | TargetBackend::LLVM => "",
                 };
                 if in_same_dir {
                     watfile = watfile.replacen(&source_dir.display().to_string(), ".", 1);

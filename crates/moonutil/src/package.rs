@@ -30,7 +30,7 @@ use serde::{Deserialize, Serialize};
 use crate::{
     common::{
         FileName, GeneratedTestDriver, TargetBackend, TargetBackend::Js, TargetBackend::Native,
-        TargetBackend::Wasm, TargetBackend::WasmGC,
+        TargetBackend::Wasm, TargetBackend::WasmGC, TargetBackend::LLVM,
     },
     cond_expr::{CompileCondition, CondExpr, RawTargets},
     path::{ImportComponent, PathComponent},
@@ -327,6 +327,7 @@ impl LinkDepItem {
             WasmGC => self.wasm_gc_exports(),
             Js => self.js_exports(),
             Native => self.native_exports(),
+            LLVM => None,
         }
     }
 
@@ -336,6 +337,7 @@ impl LinkDepItem {
             WasmGC => self.wasm_gc_export_memory_name(),
             Js => None,
             Native => None,
+            LLVM => None,
         }
     }
 
@@ -345,6 +347,7 @@ impl LinkDepItem {
             WasmGC => None,
             Js => None,
             Native => None,
+            LLVM => None,
         }
     }
 
@@ -354,6 +357,7 @@ impl LinkDepItem {
             WasmGC => self.wasm_gc_import_memory(),
             Js => None,
             Native => None,
+            LLVM => None,
         }
     }
 
@@ -363,6 +367,7 @@ impl LinkDepItem {
             WasmGC => self.wasm_gc_memory_limits(),
             Js => None,
             Native => None,
+            LLVM => None,
         }
     }
 
@@ -372,6 +377,7 @@ impl LinkDepItem {
             WasmGC => self.wasm_gc_shared_memory(),
             Js => None,
             Native => None,
+            LLVM => None,
         }
     }
 
@@ -381,6 +387,7 @@ impl LinkDepItem {
             WasmGC => self.wasm_gc_link_flags(),
             Js => None,
             Native => None,
+            LLVM => None,
         }
     }
 
@@ -738,6 +745,7 @@ pub fn convert_pkg_json_to_package(j: MoonPkgJSON) -> anyhow::Result<MoonPkg> {
             TargetBackend::WasmGC,
             TargetBackend::Js,
             TargetBackend::Native,
+            TargetBackend::LLVM,
         ]);
     };
 
