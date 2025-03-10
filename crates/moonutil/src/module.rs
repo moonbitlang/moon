@@ -173,7 +173,7 @@ impl ModuleDB {
 
     pub fn get_project_supported_targets(
         &self,
-        cur_target_backend: TargetBackend,
+        _cur_target_backend: TargetBackend,
     ) -> anyhow::Result<HashSet<TargetBackend>> {
         let mut project_supported_targets = HashSet::from_iter(vec![
             TargetBackend::WasmGC,
@@ -214,12 +214,13 @@ impl ModuleDB {
                                 .join(" -> ")
                         );
                     }
-                    if !cur_deps_chain_supported_targets.contains(&cur_target_backend) {
-                        bail!(
-                            "deps chain: {:?} supports backends `{}`, while the current target backend is {}",
-                            chain[0..=i].iter().map(|s| format!("{}: {}", s, TargetBackend::hashset_to_string(&self.get_package_by_name(s).supported_targets))).collect::<Vec<_>>().join(" -> "), TargetBackend::hashset_to_string(&cur_deps_chain_supported_targets), cur_target_backend
-                        );
-                    }
+                    // disable this check for now, since it cause moon fmt | moon publish to fail
+                    // if !cur_deps_chain_supported_targets.contains(&cur_target_backend) {
+                    //     bail!(
+                    //         "deps chain: {:?} supports backends `{}`, while the current target backend is {}",
+                    //         chain[0..=i].iter().map(|s| format!("{}: {}", s, TargetBackend::hashset_to_string(&self.get_package_by_name(s).supported_targets))).collect::<Vec<_>>().join(" -> "), TargetBackend::hashset_to_string(&cur_deps_chain_supported_targets), cur_target_backend
+                    //     );
+                    // }
                 }
                 project_supported_targets = project_supported_targets
                     .intersection(&cur_deps_chain_supported_targets)

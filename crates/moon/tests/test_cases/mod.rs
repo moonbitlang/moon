@@ -8872,7 +8872,7 @@ fn test_dont_link_third_party() {
 fn test_supported_backends_in_pkg_json() {
     let dir = TestDir::new("supported_backends_in_pkg_json");
     let pkg1 = dir.join("pkg1.in");
-    let pkg2 = dir.join("pkg2.in");
+    // let pkg2 = dir.join("pkg2.in");
     let pkg3 = dir.join("pkg3.in");
 
     check(
@@ -8882,12 +8882,12 @@ fn test_supported_backends_in_pkg_json() {
         "#]],
     );
 
-    check(
-        get_err_stderr(&pkg2, ["build"]),
-        expect![[r#"
-            error: deps chain: "username/hello2/main: [js, wasm-gc] -> username/hello2/lib: [js]" supports backends `[js]`, while the current target backend is wasm-gc
-        "#]],
-    );
+    // check(
+    //     get_err_stderr(&pkg2, ["build"]),
+    //     expect![[r#"
+    //         error: deps chain: "username/hello2/main: [js, wasm-gc] -> username/hello2/lib: [js]" supports backends `[js]`, while the current target backend is wasm-gc
+    //     "#]],
+    // );
 
     check(
         get_err_stderr(&pkg3, ["check"]),
