@@ -17,17 +17,18 @@
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
 use anyhow::Context;
+use colored::Colorize;
 use moonbuild::dry_run;
 use moonbuild::watch::watching;
 use moonbuild::watcher_is_running;
 use moonbuild::{entry, MOON_PID_NAME};
 use mooncake::pkg::sync::auto_sync;
 use moonutil::cli::UniversalFlags;
-use moonutil::common::FileLock;
 use moonutil::common::MoonbuildOpt;
 use moonutil::common::RunMode;
 use moonutil::common::WATCH_MODE_DIR;
 use moonutil::common::{lower_surface_targets, CheckOpt};
+use moonutil::common::{FileLock, TargetBackend};
 use moonutil::dirs::mk_arch_mode_dir;
 use moonutil::dirs::PackageDirs;
 use moonutil::mooncakes::sync::AutoSyncFlags;
@@ -154,6 +155,11 @@ fn run_check_internal(
     moonc_opt.build_opt.deny_warn = cmd.build_flags.deny_warn;
     let target_dir = mk_arch_mode_dir(source_dir, target_dir, &moonc_opt, run_mode)?;
     let _lock = FileLock::lock(&target_dir)?;
+
+    // TODO: remove this once LLVM backend is well supported
+    if moonc_opt.build_opt.target_backend == TargetBackend::LLVM {
+        eprintln!("{}: LLVM backend is experimental and only supported on linux and macos with bleeding moonbit toolchain for now", "Warning".yellow());
+    }
 
     let sort_input = cmd.build_flags.sort_input;
 
