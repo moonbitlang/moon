@@ -434,6 +434,7 @@ pub fn gen_check_command(
         "check: {}",
         get_desc_name(&item.package_full_name, &item.mi_out)
     ));
+    build.can_dirty_on_output = false;
     build
 }
 
