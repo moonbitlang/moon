@@ -1,0 +1,9 @@
+{
+    "pre-build": [
+        {
+            "input": "a.txt",
+            "output": "a.mbt",
+            "command": "cat $input | tee $output"
+        }
+    ]
+}

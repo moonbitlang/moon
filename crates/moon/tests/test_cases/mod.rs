@@ -9034,3 +9034,39 @@ fn test_run_md_test() {
         "#]],
     );
 }
+
+#[test]
+fn test_pre_build_dirty() {
+    let dir = TestDir::new("pre_build_dirty.in");
+
+    check(
+        get_stderr(&dir, ["check"]),
+        expect![[r#"
+            fn init {
+    
+            }
+            Executed 1 pre-build task, now up to date
+            Finished. moon: ran 3 tasks, now up to date
+        "#]],
+    );
+    check(
+        get_stderr(&dir, ["check"]),
+        expect![[r#"
+            fn init {
+    
+            }
+            Executed 1 pre-build task, now up to date
+            Finished. moon: ran 1 task, now up to date
+        "#]],
+    );
+    check(
+        get_stderr(&dir, ["check"]),
+        expect![[r#"
+            fn init {
+    
+            }
+            Executed 1 pre-build task, now up to date
+            Finished. moon: ran 1 task, now up to date
+        "#]],
+    );
+}
