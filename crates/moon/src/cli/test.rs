@@ -88,6 +88,10 @@ pub struct TestSubcommand {
     /// Run doc test
     #[clap(long = "doc")]
     pub doc_test: bool,
+
+    /// Run test in markdown file
+    #[clap(long = "md", conflicts_with = "doc_test")]
+    pub md_test: bool,
 }
 
 pub fn run_test(cli: UniversalFlags, cmd: TestSubcommand) -> anyhow::Result<i32> {
@@ -308,6 +312,11 @@ fn run_test_internal(
         if cmd.doc_test {
             let pj_path = moonutil::doc_test::gen_doc_test_patch(pkg, &moonc_opt)?;
             pkg.doc_test_patch_file = Some(pj_path);
+        }
+
+        if cmd.md_test {
+            let pj_path = moonutil::doc_test::gen_md_test_patch(pkg)?;
+            pkg.doc_test_patch_file = Some(pj_path.clone());
         }
 
         {

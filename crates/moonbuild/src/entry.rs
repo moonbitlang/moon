@@ -43,7 +43,7 @@ use crate::runtest::TestStatistics;
 use moonutil::common::{
     DriverKind, FileLock, FileName, MoonbuildOpt, MooncGenTestInfo, MooncOpt, TargetBackend,
     TestArtifacts, TestBlockIndex, TestName, BLACKBOX_TEST_PATCH, MOON_DOC_TEST_POSTFIX,
-    TEST_INFO_FILE, WHITEBOX_TEST_PATCH,
+    MOON_MD_TEST_POSTFIX, TEST_INFO_FILE, WHITEBOX_TEST_PATCH,
 };
 
 use std::sync::{Arc, Mutex};
@@ -603,7 +603,8 @@ fn convert_moonc_test_info(
         // so tests in other files should be filtered out
         if let Some(patch_json) = patch_file {
             if patch_json.to_str().unwrap().contains(MOON_DOC_TEST_POSTFIX)
-                && !filename.contains(MOON_DOC_TEST_POSTFIX)
+                && !(filename.contains(MOON_DOC_TEST_POSTFIX)
+                    || filename.contains(MOON_MD_TEST_POSTFIX))
             {
                 continue;
             }
@@ -1044,10 +1045,8 @@ async fn handle_test_result(
                     // here need to rerun the test to get the new error message
                     // since the previous apply expect may add or delete some line, which make the error message out of date
                     let index = origin_err.index.clone().parse::<u32>().unwrap();
-                    let filename = if origin_err.is_doc_test {
-                        origin_err
-                            .filename
-                            .replace(".mbt", &format!("{}.mbt", MOON_DOC_TEST_POSTFIX))
+                    let filename = if origin_err.is_doc_test || origin_err.is_md_test {
+                        origin_err.original_filename.clone().unwrap()
                     } else {
                         origin_err.filename.clone()
                     };
@@ -1078,8 +1077,11 @@ async fn handle_test_result(
                         _ => &[origin_err.message.clone()],
                     };
 
-                    if let Err(e) = crate::expect::apply_expect(update_msg, origin_err.is_doc_test)
-                    {
+                    if let Err(e) = crate::expect::apply_expect(
+                        update_msg,
+                        origin_err.is_doc_test,
+                        origin_err.is_md_test,
+                    ) {
                         eprintln!("{}: {:?}", "apply expect failed".red().bold(), e);
                     }
                     // if is doc test, after apply_expect, we need to update the doc test patch file
@@ -1087,6 +1089,11 @@ async fn handle_test_result(
                         moonutil::doc_test::gen_doc_test_patch(
                             module.get_package_by_name(&origin_err.package),
                             moonc_opt,
+                        )?;
+                    }
+                    if origin_err.is_md_test {
+                        moonutil::doc_test::gen_md_test_patch(
+                            module.get_package_by_name(&origin_err.package),
                         )?;
                     }
 
@@ -1124,6 +1131,7 @@ async fn handle_test_result(
                         if let Err(e) = crate::expect::apply_expect(
                             &[etf.message.clone()],
                             origin_err.is_doc_test,
+                            origin_err.is_md_test,
                         ) {
                             eprintln!("{}: {:?}", "failed".red().bold(), e);
                             break;
@@ -1133,6 +1141,11 @@ async fn handle_test_result(
                             moonutil::doc_test::gen_doc_test_patch(
                                 module.get_package_by_name(&origin_err.package),
                                 moonc_opt,
+                            )?;
+                        }
+                        if origin_err.is_md_test {
+                            moonutil::doc_test::gen_md_test_patch(
+                                module.get_package_by_name(&origin_err.package),
                             )?;
                         }
 

@@ -235,6 +235,7 @@ Test the current package
 * `--test-failure-json` — Print failure message in JSON format
 * `--patch-file <PATCH_FILE>` — Path to the patch file
 * `--doc` — Run doc test
+* `--md` — Run test in markdown file
 
 
 
