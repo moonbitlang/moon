@@ -8985,3 +8985,52 @@ fn test_native_stub_in_pkg_json() {
         "#]],
     );
 }
+
+#[test]
+fn test_run_md_test() {
+    let dir = TestDir::new("run_md_test.in");
+
+    check(
+        get_err_stdout(&dir, ["test", "--md", "--sort-input"]),
+        expect![[r#"
+            Hello, world 1!
+            Hello, world 1!
+            Hello, world 2!
+            test username/hello/lib/1.md::2 failed
+            expect test failed at $ROOT/src/lib/1.md:21:11-21:27
+            Diff:
+            ----
+            4234
+            ----
+
+            test username/hello/lib/1.md::md_test 1.md 29 10 failed
+            expect test failed at $ROOT/src/lib/1.md:38:3-38:14
+            Diff:
+            ----
+             all
+             wishes
+
+             come
+             true
+
+            ----
+
+            Total tests: 5, passed: 3, failed: 2.
+        "#]],
+    );
+
+    check(
+        get_stdout(&dir, ["test", "--md", "--update", "--sort-input"]),
+        expect![[r#"
+            Hello, world 1!
+            Hello, world 1!
+            Hello, world 2!
+
+            Auto updating expect tests and retesting ...
+
+            Hello, world 2!
+            Hello, world 2!
+            Total tests: 5, passed: 5, failed: 0.
+        "#]],
+    );
+}

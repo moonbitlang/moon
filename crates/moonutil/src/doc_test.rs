@@ -36,16 +36,15 @@ pub struct DocTestExtractor {
     test_pattern: Regex,
 }
 
-impl Default for DocTestExtractor {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
 impl DocTestExtractor {
-    pub fn new() -> Self {
+    pub fn new(is_md_test: bool) -> Self {
         // \r\n for windows, \n for unix
-        let pattern = r#"///\s*```(?:mbt|moonbit)?\s*(?:\r?\n)((?:///.*(?:\r?\n))*?)///\s*```"#;
+        let pattern = if is_md_test {
+            r#"[ \t]*```(?:mbt|moonbit)[ \t]*\r?\n([\s\S]*?)[ \t]*```"#
+        } else {
+            r#"///\s*```(?:mbt|moonbit)?\s*(?:\r?\n)((?:///.*(?:\r?\n))*?)///\s*```"#
+        };
+
         Self {
             test_pattern: Regex::new(pattern).expect("Invalid regex pattern"),
         }
@@ -152,6 +151,76 @@ impl PatchJSON {
             patches,
         }
     }
+
+    pub fn from_md_tests(md_tests: Vec<Vec<DocTest>>) -> Self {
+        let mut patches = vec![];
+        for doc_test_in_md_file in md_tests.iter() {
+            let mut current_line = 1;
+            let mut content = String::new();
+            for md_test in doc_test_in_md_file {
+                let test_name = format!(
+                    "{} {} {} {}",
+                    "md_test", md_test.file_name, md_test.line_number, md_test.line_count
+                );
+
+                let already_wrapped = md_test
+                    .content
+                    .lines()
+                    .any(|line| line.trim_start().starts_with("test"));
+
+                let processed_content = md_test
+                    .content
+                    .as_str()
+                    .lines()
+                    .map(|line| {
+                        if already_wrapped {
+                            let remove_slash = line.trim_start().to_string();
+                            if remove_slash.starts_with("test") || remove_slash.starts_with("}") {
+                                remove_slash
+                            } else {
+                                format!("  {}", line).to_string()
+                            }
+                        } else {
+                            format!("  {}", line).to_string()
+                        }
+                    })
+                    .collect::<Vec<_>>()
+                    .join("\n");
+
+                let start_line_number = md_test.line_number;
+                let empty_lines = "\n".repeat(start_line_number - current_line);
+
+                if already_wrapped {
+                    content.push_str(&format!("\n{}{}\n", empty_lines, processed_content));
+                } else {
+                    content.push_str(&format!(
+                        "{}test \"{}\" {{\n{}\n}}",
+                        empty_lines, test_name, processed_content
+                    ));
+                }
+
+                // +1 for the }
+                current_line = start_line_number + md_test.line_count + 1;
+
+                // this is for debug
+                // std::fs::write(format!("__md_test_{}.mbt", md_test.file_name), &content).unwrap();
+            }
+            patches.push(PatchItem {
+                // xxx.md -> xxx_md_test.mbt
+                name: format!(
+                    "{}{}.mbt",
+                    doc_test_in_md_file[0].file_name.trim_end_matches(".mbt"),
+                    crate::common::MOON_MD_TEST_POSTFIX,
+                ),
+                content,
+            });
+        }
+
+        PatchJSON {
+            drops: vec![],
+            patches,
+        }
+    }
 }
 
 pub fn gen_doc_test_patch(pkg: &Package, moonc_opt: &MooncOpt) -> anyhow::Result<PathBuf> {
@@ -162,7 +231,7 @@ pub fn gen_doc_test_patch(pkg: &Package, moonc_opt: &MooncOpt) -> anyhow::Result
     );
 
     let mut doc_tests = vec![];
-    let doc_test_extractor = DocTestExtractor::new();
+    let doc_test_extractor = DocTestExtractor::new(false);
     for file in mbt_files {
         let doc_test_in_mbt_file = doc_test_extractor.extract_from_file(&file)?;
         if !doc_test_in_mbt_file.is_empty() {
@@ -171,6 +240,38 @@ pub fn gen_doc_test_patch(pkg: &Package, moonc_opt: &MooncOpt) -> anyhow::Result
     }
 
     let pj = PatchJSON::from_doc_tests(doc_tests);
+    let pj_path = pkg
+        .artifact
+        .with_file_name(format!("{}.json", crate::common::MOON_DOC_TEST_POSTFIX));
+    if !pj_path.parent().unwrap().exists() {
+        std::fs::create_dir_all(pj_path.parent().unwrap())?;
+    }
+    std::fs::write(&pj_path, serde_json_lenient::to_string_pretty(&pj)?)
+        .context(format!("failed to write {}", &pj_path.display()))?;
+
+    Ok(pj_path)
+}
+
+pub fn gen_md_test_patch(pkg: &Package) -> anyhow::Result<PathBuf> {
+    let mut md_files = Vec::new();
+    for entry in walkdir::WalkDir::new(&pkg.root_path) {
+        let entry = entry?;
+        let path = entry.path();
+        if path.is_file() && path.extension().is_some_and(|ext| ext == "md") {
+            md_files.push(path.to_path_buf());
+        }
+    }
+
+    let mut md_tests = vec![];
+    let md_test_extractor = DocTestExtractor::new(true);
+    for file in md_files {
+        let doc_test_in_md_file = md_test_extractor.extract_from_file(&file)?;
+        if !doc_test_in_md_file.is_empty() {
+            md_tests.push(doc_test_in_md_file);
+        }
+    }
+
+    let pj = PatchJSON::from_md_tests(md_tests);
     let pj_path = pkg
         .artifact
         .with_file_name(format!("{}.json", crate::common::MOON_DOC_TEST_POSTFIX));

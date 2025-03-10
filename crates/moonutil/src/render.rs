@@ -22,7 +22,7 @@ use ariadne::Fmt;
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    common::{line_col_to_byte_idx, PatchJSON, MOON_DOC_TEST_POSTFIX},
+    common::{line_col_to_byte_idx, PatchJSON, MOON_DOC_TEST_POSTFIX, MOON_MD_TEST_POSTFIX},
     error_code_docs::get_error_code_doc,
 };
 
@@ -129,8 +129,16 @@ impl MooncDiagnostic {
             return;
         }
 
-        let source_file_path = if diagnostic.location.path.contains(MOON_DOC_TEST_POSTFIX) {
-            diagnostic.location.path.replace(MOON_DOC_TEST_POSTFIX, "")
+        let (is_doc_test, is_md_test) = (
+            diagnostic.location.path.contains(MOON_DOC_TEST_POSTFIX),
+            diagnostic.location.path.contains(MOON_MD_TEST_POSTFIX),
+        );
+        let source_file_path = if is_doc_test || is_md_test {
+            diagnostic
+                .location
+                .path
+                .replace(MOON_DOC_TEST_POSTFIX, "")
+                .replace(&format!("{}.mbt", MOON_MD_TEST_POSTFIX), "")
         } else {
             diagnostic.location.path.clone()
         };
@@ -164,11 +172,13 @@ impl MooncDiagnostic {
         let start_offset = diagnostic
             .location
             .start
-            .calculate_offset(&source_file_content);
+            .calculate_offset(&source_file_content)
+            - if is_md_test { 2 } else { 0 };
         let end_offset = diagnostic
             .location
             .end
-            .calculate_offset(&source_file_content);
+            .calculate_offset(&source_file_content)
+            - if is_md_test { 2 } else { 0 };
 
         // Remapping if there's .map.json file
         // TODO: log reasons for `.map.json` exists but not works.

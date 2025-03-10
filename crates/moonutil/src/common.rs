@@ -58,6 +58,7 @@ pub const WHITEBOX_TEST_PATCH: &str = "_wbtest.json";
 pub const BLACKBOX_TEST_PATCH: &str = "_test.json";
 
 pub const MOON_DOC_TEST_POSTFIX: &str = "__moonbit_internal_doc_test";
+pub const MOON_MD_TEST_POSTFIX: &str = "__moonbit_internal_md_test";
 
 pub const MOON_BIN_DIR: &str = "__moonbin__";
 

@@ -24,7 +24,8 @@ use super::gen;
 use anyhow::{bail, Context};
 use moonutil::common::{
     MoonbuildOpt, MooncOpt, MOON_COVERAGE_DELIMITER_BEGIN, MOON_COVERAGE_DELIMITER_END,
-    MOON_DOC_TEST_POSTFIX, MOON_TEST_DELIMITER_BEGIN, MOON_TEST_DELIMITER_END,
+    MOON_DOC_TEST_POSTFIX, MOON_MD_TEST_POSTFIX, MOON_TEST_DELIMITER_BEGIN,
+    MOON_TEST_DELIMITER_END,
 };
 use moonutil::module::ModuleDB;
 use n2::load::State;
@@ -49,9 +50,15 @@ pub struct TestStatistics {
     pub index: String,
     pub test_name: String,
     pub message: String,
+
     #[serde(skip_serializing)]
     #[serde(default)]
     pub is_doc_test: bool,
+
+    #[serde(skip_serializing)]
+    #[serde(default)]
+    pub is_md_test: bool,
+
     #[serde(skip_serializing)]
     #[serde(default)]
     pub original_filename: Option<String>,
@@ -223,14 +230,20 @@ async fn run(
                 continue;
             }
 
-            if ts.filename.contains(MOON_DOC_TEST_POSTFIX) {
-                ts.is_doc_test = true;
-            }
+            ts.is_doc_test = ts.filename.contains(MOON_DOC_TEST_POSTFIX);
+            ts.is_md_test = ts.filename.contains(MOON_MD_TEST_POSTFIX);
+
             // this is a hack for doc test, make the doc test patch filename be the original file name
-            if ts.is_doc_test {
+            if ts.is_doc_test || ts.is_md_test {
                 ts.original_filename = Some(ts.filename.clone());
-                ts.filename = ts.filename.replace(MOON_DOC_TEST_POSTFIX, "");
-                ts.message = ts.message.replace(MOON_DOC_TEST_POSTFIX, "");
+                ts.filename = ts
+                    .filename
+                    .replace(MOON_DOC_TEST_POSTFIX, "")
+                    .replace(&format!("{}.mbt", MOON_MD_TEST_POSTFIX), "");
+                ts.message = ts
+                    .message
+                    .replace(MOON_DOC_TEST_POSTFIX, "")
+                    .replace(&format!("{}.mbt", MOON_MD_TEST_POSTFIX), "");
             }
 
             test_statistics.push(ts);
@@ -240,11 +253,13 @@ async fn run(
             let filename = &test_statistic.filename;
             let index = &test_statistic.index.parse::<u32>().unwrap();
             let test_name = file_test_info_map
-                .get(&if test_statistic.is_doc_test {
-                    test_statistic.original_filename.clone().unwrap()
-                } else {
-                    filename.to_string()
-                })
+                .get(
+                    &if test_statistic.is_doc_test || test_statistic.is_md_test {
+                        test_statistic.original_filename.clone().unwrap()
+                    } else {
+                        filename.to_string()
+                    },
+                )
                 .and_then(|m| m.get(index))
                 .and_then(|s| s.as_ref())
                 .unwrap_or(&test_statistic.index);
