@@ -17,6 +17,7 @@
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
 use anyhow::Context;
+use colored::Colorize;
 use moonbuild::dry_run;
 use moonbuild::entry;
 use moonbuild::watch::watching;
@@ -26,6 +27,7 @@ use moonutil::common::BuildOpt;
 use moonutil::common::FileLock;
 use moonutil::common::MoonbuildOpt;
 use moonutil::common::RunMode;
+use moonutil::common::TargetBackend;
 use moonutil::dirs::mk_arch_mode_dir;
 use moonutil::dirs::PackageDirs;
 use moonutil::mooncakes::sync::AutoSyncFlags;
@@ -139,6 +141,11 @@ fn run_build_internal(
     let target_dir = mk_arch_mode_dir(source_dir, target_dir, &moonc_opt, run_mode)?;
     let _lock = FileLock::lock(&target_dir)?;
     let sort_input = cmd.build_flags.sort_input;
+
+    // TODO: remove this once LLVM backend is well supported
+    if moonc_opt.build_opt.target_backend == TargetBackend::LLVM {
+        eprintln!("{}: LLVM backend is experimental and only supported on linux and macos with bleeding moonbit toolchain for now", "Warning".yellow());
+    }
 
     let moonbuild_opt = MoonbuildOpt {
         source_dir: source_dir.to_path_buf(),

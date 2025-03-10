@@ -44,7 +44,6 @@ pub use build_matrix::*;
 pub use bundle::*;
 pub use check::*;
 pub use clean::*;
-use colored::Colorize;
 pub use coverage::*;
 pub use deps::*;
 pub use doc::*;
@@ -246,9 +245,6 @@ pub fn get_compiler_flags(src_dir: &Path, build_flags: &BuildFlags) -> anyhow::R
     };
 
     let target_backend = build_flags.target_backend.unwrap_or_default();
-    if target_backend == TargetBackend::LLVM {
-        eprintln!("{}: LLVM backend only supported on linux and macos with bleeding moonbit toolchain for now", "Warning".yellow());
-    }
 
     if target_backend == TargetBackend::Js && output_format == OutputFormat::Wat {
         bail!("--output-wat is not supported for --target js");

@@ -26,6 +26,7 @@ use moonutil::common::FileLock;
 use moonutil::common::GeneratedTestDriver;
 use moonutil::common::MooncOpt;
 use moonutil::common::RunMode;
+use moonutil::common::TargetBackend;
 use moonutil::common::{MoonbuildOpt, TestOpt};
 use moonutil::dirs::mk_arch_mode_dir;
 use moonutil::dirs::PackageDirs;
@@ -176,6 +177,11 @@ fn run_test_internal(
         cmd.build_flags.release
     };
     moonc_opt.link_opt.debug_flag = !cmd.build_flags.release;
+
+    // TODO: remove this once LLVM backend is well supported
+    if moonc_opt.build_opt.target_backend == TargetBackend::LLVM {
+        eprintln!("{}: LLVM backend is experimental and only supported on linux and macos with bleeding moonbit toolchain for now", "Warning".yellow());
+    }
 
     let raw_target_dir = target_dir.to_path_buf();
     let target_dir = mk_arch_mode_dir(source_dir, target_dir, &moonc_opt, run_mode)?;
