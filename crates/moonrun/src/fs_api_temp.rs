@@ -208,6 +208,17 @@ fn path_exists(
     ret.set_bool(exists);
 }
 
+fn current_dir(
+    scope: &mut v8::HandleScope,
+    _args: v8::FunctionCallbackArguments,
+    mut ret: v8::ReturnValue,
+) {
+    let current_dir = std::env::current_dir().unwrap_or_default();
+    let current_dir = current_dir.to_str().unwrap();
+    let current_dir = v8::String::new(scope, current_dir).unwrap();
+    ret.set(current_dir.into());
+}
+
 // new ffi with error handling, use in moonbitlang/core
 
 use once_cell::sync::Lazy;
@@ -549,6 +560,11 @@ pub fn init_fs<'s>(
     let path_exists = path_exists.get_function(scope).unwrap();
     let ident = v8::String::new(scope, "path_exists").unwrap();
     obj.set(scope, ident.into(), path_exists.into());
+
+    let current_dir = v8::FunctionTemplate::new(scope, current_dir);
+    let current_dir = current_dir.get_function(scope).unwrap();
+    let ident = v8::String::new(scope, "current_dir").unwrap();
+    obj.set(scope, ident.into(), current_dir.into());
 
     {
         let read_file_to_bytes_new = v8::FunctionTemplate::new(scope, read_file_to_bytes_new);
