@@ -50,14 +50,14 @@ fn get_args() -> Array[String] {
   res
 }
 
-type JSValue
+extern type JSValue
 
 fn jsvalue_is_string(v : JSValue) -> Bool = "__moonbit_fs_unstable" "jsvalue_is_string"
 
 fn jsvalue_get_string(v : JSValue) -> ExternString = "%identity"
 
 
-type JSArray
+extern type JSArray
 
 fn array_len(arr : JSArray) -> Int = "__moonbit_fs_unstable" "array_len"
 
@@ -69,11 +69,11 @@ fn JSArray::op_get(self : JSArray, idx : Int) -> JSValue {
 
 
 
-type StringCreateHandle
+extern type StringCreateHandle
 
-type StringReadHandle
+extern type StringReadHandle
 
-type ExternString
+extern type ExternString
 
 fn begin_create_string() -> StringCreateHandle = "__moonbit_fs_unstable" "begin_create_string"
 
