@@ -740,12 +740,12 @@ pub fn run_test(
                 let mut result = trace::async_scope(
                     "test",
                     execute_test(
+                        &moonbuild_opt,
                         moonc_opt.build_opt.target_backend,
                         &artifact_path,
                         &moonbuild_opt.target_dir,
                         &test_args,
                         &file_test_info_map,
-                        moonbuild_opt.verbose,
                     ),
                 )
                 .await;
@@ -863,13 +863,14 @@ impl TestArgs {
 }
 
 async fn execute_test(
+    moonbuild_opt: &MoonbuildOpt,
     target_backend: TargetBackend,
     artifact_path: &Path,
     target_dir: &Path,
     args: &TestArgs,
     file_test_info_map: &FileTestInfo,
-    verbose: bool,
 ) -> anyhow::Result<Vec<Result<TestStatistics, TestFailedStatus>>> {
+    let verbose = moonbuild_opt.verbose;
     match target_backend {
         TargetBackend::Wasm | TargetBackend::WasmGC => {
             crate::runtest::run_wat(artifact_path, target_dir, args, file_test_info_map, verbose)
@@ -886,8 +887,15 @@ async fn execute_test(
             .await
         }
         TargetBackend::Native | TargetBackend::LLVM => {
-            crate::runtest::run_native(artifact_path, target_dir, args, file_test_info_map, verbose)
-                .await
+            crate::runtest::run_native(
+                moonbuild_opt,
+                artifact_path,
+                target_dir,
+                args,
+                file_test_info_map,
+                verbose,
+            )
+            .await
         }
     }
 }
@@ -953,12 +961,12 @@ async fn handle_test_result(
                         file_and_index: vec![(stat.filename.clone(), index..(index + 1))],
                     };
                     let rerun = execute_test(
+                        &moonbuild_opt,
                         moonc_opt.build_opt.target_backend,
                         artifact_path,
                         target_dir,
                         &test_args,
                         file_test_info_map,
-                        moonbuild_opt.verbose,
                     )
                     .await?
                     .first()
@@ -979,12 +987,12 @@ async fn handle_test_result(
                     }
 
                     let cur_res = execute_test(
+                        &moonbuild_opt,
                         moonc_opt.build_opt.target_backend,
                         artifact_path,
                         target_dir,
                         &test_args,
                         file_test_info_map,
-                        moonbuild_opt.verbose,
                     )
                     .await?
                     .first()
@@ -1057,12 +1065,12 @@ async fn handle_test_result(
                         file_and_index: vec![(filename, index..(index + 1))],
                     };
                     let rerun = execute_test(
+                        &moonbuild_opt,
                         moonc_opt.build_opt.target_backend,
                         artifact_path,
                         target_dir,
                         &test_args,
                         file_test_info_map,
-                        moonbuild_opt.verbose,
                     )
                     .await?
                     .first()
@@ -1109,12 +1117,12 @@ async fn handle_test_result(
                     }
 
                     let mut cur_res = execute_test(
+                        &moonbuild_opt,
                         moonc_opt.build_opt.target_backend,
                         artifact_path,
                         target_dir,
                         &test_args,
                         file_test_info_map,
-                        moonbuild_opt.verbose,
                     )
                     .await?
                     .first()
@@ -1162,12 +1170,12 @@ async fn handle_test_result(
                         }
 
                         cur_res = execute_test(
+                            &moonbuild_opt,
                             moonc_opt.build_opt.target_backend,
                             artifact_path,
                             target_dir,
                             &test_args,
                             file_test_info_map,
-                            moonbuild_opt.verbose,
                         )
                         .await?
                         .first()

@@ -1100,21 +1100,7 @@ pub fn gen_n2_runtest_state(
 
     let is_native_backend = moonc_opt.link_opt.target_backend == TargetBackend::Native;
 
-    // we have a weaker fast cc mode test here, since it's just
-    // building the shared runtime, and will not have problems
-    // more than an unused dynamic library if following tests
-    // on fast cc mode failed.
-    #[cfg(unix)]
-    let is_native_backend_and_fast_cc_mode = is_native_backend
-        && moonbuild_opt.run_mode == moonutil::common::RunMode::Test
-        && moonc_opt.build_opt.debug_flag;
-
     let mut runtime_o_path = String::new();
-
-    #[cfg(unix)]
-    let mut runtime_so_path = None;
-    #[cfg(windows)]
-    let runtime_so_path: Option<String> = None;
 
     if is_native_backend {
         let (build, path) = gen_compile_runtime_command(&mut graph, &moonbuild_opt.target_dir);
@@ -1122,11 +1108,11 @@ pub fn gen_n2_runtest_state(
         runtime_o_path = path;
 
         #[cfg(unix)]
-        if is_native_backend_and_fast_cc_mode {
+        if moonbuild_opt.use_tcc_run {
             let (build, path) =
                 gen_compile_shared_runtime_command(&mut graph, &moonbuild_opt.target_dir);
             graph.add_build(build)?;
-            runtime_so_path = Some(path);
+            default.push(graph.files.id_from_canonical(path));
         }
     }
     let is_llvm_backend = moonc_opt.link_opt.target_backend == TargetBackend::LLVM;
@@ -1136,11 +1122,7 @@ pub fn gen_n2_runtest_state(
         let mut default_fid = fid;
         graph.add_build(build)?;
 
-        if let Some(ref runtime_so_path) = runtime_so_path {
-            let (build, fid) =
-                gen_compile_exe_command(&mut graph, item, moonc_opt, runtime_so_path.clone());
-            default_fid = fid;
-            graph.add_build(build)?;
+        if moonbuild_opt.use_tcc_run {
         } else if is_native_backend {
             let (build, fid) =
                 gen_compile_exe_command(&mut graph, item, moonc_opt, runtime_o_path.clone());

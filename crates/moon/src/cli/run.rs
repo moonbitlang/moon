@@ -331,6 +331,7 @@ pub fn run_run_internal(cli: &UniversalFlags, cmd: RunSubcommand) -> anyhow::Res
         output_json: false,
         no_parallelize: false,
         parallelism: cmd.build_flags.jobs,
+        use_tcc_run: false,
     };
 
     let mut module = scan_with_pre_build(
@@ -349,6 +350,7 @@ pub fn run_run_internal(cli: &UniversalFlags, cmd: RunSubcommand) -> anyhow::Res
         cmd.build_flags.release,
         cmd.build_flags.target_backend,
         &mut module,
+        moonbuild_opt.use_tcc_run,
     )?;
 
     if cli.dry_run {

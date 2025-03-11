@@ -226,6 +226,7 @@ fn run_test_internal(
         args: vec![],
         output_json: false,
         parallelism: cmd.build_flags.jobs,
+        use_tcc_run: false,
     };
 
     let mut module = moonutil::scan::scan(
@@ -308,9 +309,26 @@ fn run_test_internal(
         (None, moonbuild_opt)
     };
 
+    let mut use_tcc_run = moonc_opt.build_opt.debug_flag && moonbuild_opt.run_mode == RunMode::Test;
+
     for (_, pkg) in module.get_filtered_packages_mut(package_filter) {
         if pkg.is_third_party || pkg.is_main {
             continue;
+        }
+
+        // do a pre-check to ensure that enabling fast cc mode (using tcc for debug testing)
+        // will not break the user's expectation on their control over
+        // c compilers and flags
+        let existing_native = pkg.link.as_ref().and_then(|link| link.native.as_ref());
+        use_tcc_run &= pkg.native_stub.is_none();
+        match existing_native {
+            Some(n) => {
+                use_tcc_run &= n.cc.is_none()
+                    && n.cc_flags.is_none()
+                    && n.cc_link_flags.is_none()
+                    && n.native_stub_deps.is_none();
+            }
+            None => (),
         }
 
         pkg.patch_file = cmd.patch_file.clone();
@@ -347,11 +365,17 @@ fn run_test_internal(
         }
     }
 
+    let moonbuild_opt = MoonbuildOpt {
+        use_tcc_run,
+        ..moonbuild_opt
+    };
+
     moonutil::common::set_native_backend_link_flags(
         run_mode,
         cmd.build_flags.release,
         cmd.build_flags.target_backend,
         &mut module,
+        use_tcc_run,
     )?;
 
     // add coverage libs if needed

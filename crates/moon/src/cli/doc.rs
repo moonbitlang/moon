@@ -102,6 +102,7 @@ pub fn run_doc(cli: UniversalFlags, cmd: DocSubcommand) -> anyhow::Result<i32> {
         no_parallelize: false,
         build_graph: false,
         parallelism: None,
+        use_tcc_run: false,
     };
 
     let module = scan_with_pre_build(

@@ -433,6 +433,7 @@ pub struct MoonbuildOpt {
     pub build_graph: bool,
     /// Max parallel tasks to run in n2; `None` to use default
     pub parallelism: Option<usize>,
+    pub use_tcc_run: bool,
 }
 
 impl MoonbuildOpt {
@@ -933,18 +934,13 @@ pub fn set_native_backend_link_flags(
     release: bool,
     target_backend: Option<TargetBackend>,
     module: &mut crate::module::ModuleDB,
+    tcc_run: bool,
 ) -> anyhow::Result<()> {
     match run_mode {
         // need link-core for build, test and run
         RunMode::Build | RunMode::Test | RunMode::Run => {
             if target_backend == Some(TargetBackend::Native) {
                 // check if c compiler exists in PATH
-                #[cfg(unix)]
-                let mut fast_cc = run_mode == RunMode::Test
-                    && target_backend == Some(TargetBackend::Native)
-                    && !release;
-                #[cfg(windows)]
-                let mut fast_cc = false;
                 #[cfg(unix)]
                 let compiler = "cc";
                 #[cfg(windows)]
@@ -988,31 +984,21 @@ pub fn set_native_backend_link_flags(
 
                 let all_pkgs = module.get_all_packages();
 
-                // do a pre-check to ensure that enabling fast cc mode (using tcc for debug testing)
-                // will not break the user's expectation on their control over
-                // c compilers and flags
-                for (_, pkg) in all_pkgs {
-                    let existing_native = pkg.link.as_ref().and_then(|link| link.native.as_ref());
-                    match existing_native {
-                        Some(n) => {
-                            fast_cc = fast_cc
-                                && n.cc.is_none()
-                                && n.cc_flags.is_none()
-                                && n.cc_link_flags.is_none()
-                                && n.native_stub_deps.is_none();
-                        }
-                        None => (),
-                    }
-                }
-
                 for (_, pkg) in all_pkgs {
                     let existing_native = pkg.link.as_ref().and_then(|link| link.native.as_ref());
 
                     let mut native_config = match existing_native {
                         #[cfg(unix)]
-                        _ if fast_cc => crate::package::NativeLinkConfig {
+                        _ if tcc_run => crate::package::NativeLinkConfig {
                             exports: None,
-                            cc: Some("tcc".to_string()),
+                            cc: Some(
+                                moon_home
+                                    .join("bin")
+                                    .join("internal")
+                                    .join("tcc")
+                                    .display()
+                                    .to_string(),
+                            ),
                             cc_flags: get_fast_cc_flags(),
                             cc_link_flags: None,
                             native_stub_deps: None,

@@ -7757,6 +7757,7 @@ fn test_use_cc_for_native_release() {
         );
 
         // use tcc for debug test
+        #[cfg(target_os = "macos")]
         check(
             get_stdout(
                 &dir,
@@ -7773,12 +7774,33 @@ fn test_use_cc_for_native_release() {
                 moon generate-test-driver --source-dir . --target-dir ./target --package moonbitlang/hello/lib --sort-input --target native --driver-kind whitebox
                 moonc build-package ./lib/hello.mbt ./lib/hello_wbtest.mbt ./target/native/debug/test/lib/__generated_driver_for_whitebox_test.mbt -o ./target/native/debug/test/lib/lib.whitebox_test.core -pkg moonbitlang/hello/lib -is-main -std-path $MOON_HOME/lib/core/target/native/release/bundle -pkg-sources moonbitlang/hello/lib:./lib -target native -g -O0 -whitebox-test -no-mi
                 moonc link-core $MOON_HOME/lib/core/target/native/release/bundle/core.core ./target/native/debug/test/lib/lib.whitebox_test.core -main moonbitlang/hello/lib -o ./target/native/debug/test/lib/lib.whitebox_test.c -test-mode -pkg-config-path ./lib/moon.pkg.json -pkg-sources moonbitlang/hello/lib:./lib -pkg-sources moonbitlang/core:$MOON_HOME/lib/core -exported_functions moonbit_test_driver_internal_execute,moonbit_test_driver_finish -target native -g -O0
-                cc $MOON_HOME/lib/runtime.c -shared -fPIC -I $MOON_HOME/include -o ./target/native/debug/test/runtime.dylib
-                tcc ./target/native/debug/test/lib/lib.whitebox_test.c ./target/native/debug/test/runtime.dylib -I$MOON_HOME/include -L$MOON_HOME/lib -DMOONBIT_NATIVE_NO_SYS_HEADER -o ./target/native/debug/test/lib/lib.whitebox_test.exe
                 moon generate-test-driver --source-dir . --target-dir ./target --package moonbitlang/hello/lib --sort-input --target native --driver-kind internal
                 moonc build-package ./lib/hello.mbt ./target/native/debug/test/lib/__generated_driver_for_internal_test.mbt -o ./target/native/debug/test/lib/lib.internal_test.core -pkg moonbitlang/hello/lib -is-main -std-path $MOON_HOME/lib/core/target/native/release/bundle -pkg-sources moonbitlang/hello/lib:./lib -target native -g -O0 -no-mi
                 moonc link-core $MOON_HOME/lib/core/target/native/release/bundle/core.core ./target/native/debug/test/lib/lib.internal_test.core -main moonbitlang/hello/lib -o ./target/native/debug/test/lib/lib.internal_test.c -test-mode -pkg-config-path ./lib/moon.pkg.json -pkg-sources moonbitlang/hello/lib:./lib -pkg-sources moonbitlang/core:$MOON_HOME/lib/core -exported_functions moonbit_test_driver_internal_execute,moonbit_test_driver_finish -target native -g -O0
-                tcc ./target/native/debug/test/lib/lib.internal_test.c ./target/native/debug/test/runtime.dylib -I$MOON_HOME/include -L$MOON_HOME/lib -DMOONBIT_NATIVE_NO_SYS_HEADER -o ./target/native/debug/test/lib/lib.internal_test.exe
+                cc $MOON_HOME/lib/runtime.c -shared -fPIC -I $MOON_HOME/include -o ./target/native/debug/test/runtime.dylib
+            "#]],
+        );
+        #[cfg(target_os = "linux")]
+        check(
+            get_stdout(
+                &dir,
+                [
+                    "test",
+                    "--target",
+                    "native",
+                    "--debug",
+                    "--sort-input",
+                    "--dry-run",
+                ],
+            ),
+            expect![[r#"
+                moon generate-test-driver --source-dir . --target-dir ./target --package moonbitlang/hello/lib --sort-input --target native --driver-kind whitebox
+                moonc build-package ./lib/hello.mbt ./lib/hello_wbtest.mbt ./target/native/debug/test/lib/__generated_driver_for_whitebox_test.mbt -o ./target/native/debug/test/lib/lib.whitebox_test.core -pkg moonbitlang/hello/lib -is-main -std-path $MOON_HOME/lib/core/target/native/release/bundle -pkg-sources moonbitlang/hello/lib:./lib -target native -g -O0 -whitebox-test -no-mi
+                moonc link-core $MOON_HOME/lib/core/target/native/release/bundle/core.core ./target/native/debug/test/lib/lib.whitebox_test.core -main moonbitlang/hello/lib -o ./target/native/debug/test/lib/lib.whitebox_test.c -test-mode -pkg-config-path ./lib/moon.pkg.json -pkg-sources moonbitlang/hello/lib:./lib -pkg-sources moonbitlang/core:$MOON_HOME/lib/core -exported_functions moonbit_test_driver_internal_execute,moonbit_test_driver_finish -target native -g -O0
+                moon generate-test-driver --source-dir . --target-dir ./target --package moonbitlang/hello/lib --sort-input --target native --driver-kind internal
+                moonc build-package ./lib/hello.mbt ./target/native/debug/test/lib/__generated_driver_for_internal_test.mbt -o ./target/native/debug/test/lib/lib.internal_test.core -pkg moonbitlang/hello/lib -is-main -std-path $MOON_HOME/lib/core/target/native/release/bundle -pkg-sources moonbitlang/hello/lib:./lib -target native -g -O0 -no-mi
+                moonc link-core $MOON_HOME/lib/core/target/native/release/bundle/core.core ./target/native/debug/test/lib/lib.internal_test.core -main moonbitlang/hello/lib -o ./target/native/debug/test/lib/lib.internal_test.c -test-mode -pkg-config-path ./lib/moon.pkg.json -pkg-sources moonbitlang/hello/lib:./lib -pkg-sources moonbitlang/core:$MOON_HOME/lib/core -exported_functions moonbit_test_driver_internal_execute,moonbit_test_driver_finish -target native -g -O0
+                cc $MOON_HOME/lib/runtime.c -shared -fPIC -I $MOON_HOME/include -o ./target/native/debug/test/runtime.so
             "#]],
         );
     }
@@ -7850,8 +7872,8 @@ fn test_native_backend_cc_flags() {
             moon generate-test-driver --source-dir . --target-dir ./target --package moon_new/lib --sort-input --target native --driver-kind internal
             moonc build-package ./lib/hello.mbt ./target/native/debug/test/lib/__generated_driver_for_internal_test.mbt -o ./target/native/debug/test/lib/lib.internal_test.core -pkg moon_new/lib -is-main -std-path $MOON_HOME/lib/core/target/native/release/bundle -pkg-sources moon_new/lib:./lib -target native -g -O0 -no-mi
             moonc link-core $MOON_HOME/lib/core/target/native/release/bundle/core.core ./target/native/debug/test/lib/lib.internal_test.core -main moon_new/lib -o ./target/native/debug/test/lib/lib.internal_test.c -test-mode -pkg-config-path ./lib/moon.pkg.json -pkg-sources moon_new/lib:./lib -pkg-sources moonbitlang/core:$MOON_HOME/lib/core -exported_functions moonbit_test_driver_internal_execute,moonbit_test_driver_finish -target native -g -O0
-            cc $MOON_HOME/lib/runtime.c -shared -fPIC -I $MOON_HOME/include -o ./target/native/debug/test/runtime.dylib
-            cc ./target/native/debug/test/lib/lib.internal_test.c ./target/native/debug/test/runtime.dylib -I$MOON_HOME/include -fwrapv -fno-strict-aliasing ccflags fasd cclinkflags -o ./target/native/debug/test/lib/lib.internal_test.exe
+            cc -c $MOON_HOME/lib/runtime.c -I $MOON_HOME/include -o ./target/native/debug/test/runtime.o
+            cc ./target/native/debug/test/lib/lib.internal_test.c ./target/native/debug/test/runtime.o -I$MOON_HOME/include -fwrapv -fno-strict-aliasing ccflags fasd cclinkflags -o ./target/native/debug/test/lib/lib.internal_test.exe
         "#]],
     );
     // don't pass native cc flags for no native backend
