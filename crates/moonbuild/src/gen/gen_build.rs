@@ -28,7 +28,8 @@ use std::path::{Path, PathBuf};
 use std::rc::Rc;
 
 use moonutil::common::{
-    BuildOpt, MoonbuildOpt, MooncOpt, TargetBackend, MOONBITLANG_CORE, MOON_PKG_JSON, O_EXT,
+    BuildOpt, MoonbuildOpt, MooncOpt, TargetBackend, DYN_EXT, MOONBITLANG_CORE, MOON_PKG_JSON,
+    O_EXT,
 };
 use n2::graph::{self as n2graph, Build, BuildIns, BuildOuts, FileLoc};
 use n2::load::State;
@@ -546,11 +547,63 @@ pub fn gen_compile_runtime_command(
     (build, artifact_output_path)
 }
 
+#[cfg(unix)]
+pub fn gen_compile_shared_runtime_command(
+    graph: &mut n2graph::Graph,
+    target_dir: &Path,
+) -> (Build, String) {
+    let moonc_path = which("moonc").unwrap();
+    let moon_home = moonc_path.parent().unwrap().parent().unwrap();
+    let runtime_dot_c_path = moon_home
+        .join("lib")
+        .join("runtime.c")
+        .display()
+        .to_string();
+
+    let artifact_output_path = target_dir
+        .join(format!("runtime.{}", DYN_EXT))
+        .display()
+        .to_string();
+
+    let ins = BuildIns {
+        ids: vec![graph.files.id_from_canonical(runtime_dot_c_path.clone())],
+        explicit: 1,
+        implicit: 0,
+        order_only: 0,
+    };
+
+    let artifact_id = graph.files.id_from_canonical(artifact_output_path.clone());
+    let outs = BuildOuts {
+        ids: vec![artifact_id],
+        explicit: 1,
+    };
+
+    let cc = if which("cc").is_ok() { "cc" } else { "tcc" };
+
+    let loc = FileLoc {
+        filename: Rc::new(PathBuf::from("compile-shared-runtime")),
+        line: 0,
+    };
+
+    let command = CommandBuilder::new(cc)
+        .arg(&runtime_dot_c_path)
+        .arg("-shared")
+        .arg("-fPIC")
+        .args(vec!["-I", &moon_home.join("include").display().to_string()])
+        .args(vec!["-o", &artifact_output_path])
+        .build();
+    log::debug!("Command: {}", command);
+    let mut build = Build::new(loc, ins, outs);
+    build.cmdline = Some(command);
+    build.desc = Some(format!("compile-shared-runtime: {}", artifact_output_path));
+    (build, artifact_output_path)
+}
+
 pub fn gen_compile_exe_command(
     graph: &mut n2graph::Graph,
     item: &BuildLinkDepItem,
     moonc_opt: &MooncOpt,
-    runtime_o_path: String,
+    runtime_path: String,
 ) -> (Build, n2graph::FileId) {
     let c_artifact_path = PathBuf::from(&item.out)
         .with_extension("c")
@@ -571,7 +624,7 @@ pub fn gen_compile_exe_command(
 
     let mut input_ids = vec![
         graph.files.id_from_canonical(c_artifact_path.clone()),
-        graph.files.id_from_canonical(runtime_o_path.clone()),
+        graph.files.id_from_canonical(runtime_path.clone()),
     ];
     let mut input_cnt = input_ids.len();
     let native_stub_deps = item.native_stub_deps();
@@ -612,7 +665,7 @@ pub fn gen_compile_exe_command(
 
     let command = CommandBuilder::new(native_cc)
         .arg(&c_artifact_path)
-        .arg(&runtime_o_path)
+        .arg(&runtime_path)
         .args_with_cond(!native_cc_flags.is_empty(), native_cc_flags)
         .args_with_cond(!native_cc_link_flags.is_empty(), native_cc_link_flags)
         .lazy_args_with_cond(native_stub_deps.is_some(), || {
@@ -802,14 +855,37 @@ pub fn gen_n2_build_state(
     }
 
     let is_native_backend = moonc_opt.link_opt.target_backend == TargetBackend::Native;
+
+    #[cfg(unix)]
+    let is_native_backend_and_fast_cc_mode = is_native_backend
+        && moonbuild_opt.run_mode == moonutil::common::RunMode::Test
+        && moonc_opt.build_opt.debug_flag;
+
     let is_llvm_backend = moonc_opt.link_opt.target_backend == TargetBackend::LLVM;
 
     // compile runtime.o, it will be the dependency of gen_compile_exe_command
     let mut runtime_o_path = String::new();
+
+    #[cfg(unix)]
+    let mut runtime_so_path = None;
+    #[cfg(windows)]
+    let runtime_so_path: Option<String> = None;
+
     if is_native_backend {
         let (build, path) = gen_compile_runtime_command(&mut graph, target_dir);
         graph.add_build(build)?;
         runtime_o_path = path;
+
+        // we have a weaker fast cc mode test here, since it's just
+        // building the shared runtime, and will not have problems
+        // more than an unused dynamic library if following tests
+        // on fast cc mode failed.
+        #[cfg(unix)]
+        if is_native_backend_and_fast_cc_mode {
+            let (build, path) = gen_compile_shared_runtime_command(&mut graph, target_dir);
+            graph.add_build(build)?;
+            runtime_so_path = Some(path);
+        }
     }
 
     let mut has_link_item = false;
@@ -822,7 +898,12 @@ pub fn gen_n2_build_state(
         let mut default_fid = fid;
         graph.add_build(build)?;
 
-        if is_native_backend {
+        if let Some(ref runtime_so_path) = runtime_so_path {
+            let (build, fid) =
+                gen_compile_exe_command(&mut graph, item, moonc_opt, runtime_so_path.clone());
+            default_fid = fid;
+            graph.add_build(build)?;
+        } else if is_native_backend {
             let (build, fid) =
                 gen_compile_exe_command(&mut graph, item, moonc_opt, runtime_o_path.clone());
             graph.add_build(build)?;
