@@ -1,3 +1,4 @@
 target/
 .mooncakes/
 .DS_Store
+/src/lib/a.mbt
