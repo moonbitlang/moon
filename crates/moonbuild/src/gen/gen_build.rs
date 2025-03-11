@@ -682,22 +682,22 @@ pub fn gen_compile_stub_command(
         let mut build = Build::new(loc, ins, outs);
 
         let native_cc = item.native_cc(moonc_opt.link_opt.target_backend).unwrap();
-        let native_cc_flags = item
-            .native_cc_flags(moonc_opt.link_opt.target_backend)
-            .map(|it| it.split(" ").collect::<Vec<_>>())
-            .unwrap_or_default();
-        let native_cc_link_flags = item
-            .native_cc_link_flags(moonc_opt.link_opt.target_backend)
-            .map(|it| it.split(" ").collect::<Vec<_>>())
-            .unwrap_or_default();
+
+        let moonc_path = which::which("moonc").unwrap();
+        let moon_home = moonc_path.parent().unwrap().parent().unwrap();
+        let moon_include_path = moon_home.join("include");
 
         let windows_with_cl = cfg!(windows) && native_cc == "cl";
 
         let command = CommandBuilder::new(native_cc)
             .arg("-c")
             .arg(&input.display().to_string())
-            .args_with_cond(!native_cc_flags.is_empty(), native_cc_flags)
-            .args_with_cond(!native_cc_link_flags.is_empty(), native_cc_link_flags)
+            .args(&[
+                "-I".to_string(),
+                moon_include_path.display().to_string(),
+                "-fwrapv".to_string(),
+                "-fno-strict-aliasing".to_string(),
+            ])
             .args_with_cond(!windows_with_cl, vec!["-o", &artifact_output_path])
             .arg_with_cond(windows_with_cl, &format!("-Fo{}", artifact_output_path))
             .build();
