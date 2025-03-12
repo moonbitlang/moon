@@ -18,6 +18,7 @@
 
 use anyhow::{bail, Context, Ok};
 use moonutil::module::ModuleDB;
+use moonutil::moon_dir::MOON_DIRS;
 use moonutil::package::{JsFormat, LinkDepItem, Package};
 use which::which;
 
@@ -736,9 +737,7 @@ pub fn gen_compile_stub_command(
 
         let native_cc = item.native_cc(moonc_opt.link_opt.target_backend).unwrap();
 
-        let moonc_path = which::which("moonc").unwrap();
-        let moon_home = moonc_path.parent().unwrap().parent().unwrap();
-        let moon_include_path = moon_home.join("include");
+        let moon_include_path = MOON_DIRS.moon_include_path.clone();
 
         let windows_with_cl = cfg!(windows) && native_cc == "cl";
 
@@ -813,10 +812,8 @@ pub fn gen_link_exe_command(
         .map(|it| it.split(" ").collect::<Vec<_>>())
         .unwrap_or_default();
 
-    let moonc_path = which::which("moonc").unwrap();
-    let moon_home = moonc_path.parent().unwrap().parent().unwrap();
-    let moon_include_path = moon_home.join("include");
-    let moon_lib_path = moon_home.join("lib");
+    let moon_include_path = &MOON_DIRS.moon_include_path;
+    let moon_lib_path = &MOON_DIRS.moon_lib_path;
 
     let runtime_c = moon_lib_path.join("runtime.c").display().to_string();
     let runtime_core = moon_lib_path.join("runtime_core.c").display().to_string();

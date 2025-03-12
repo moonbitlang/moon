@@ -32,6 +32,7 @@ use moonutil::common::{MoonbuildOpt, OutputFormat};
 use moonutil::dirs::check_moon_pkg_exist;
 use moonutil::dirs::mk_arch_mode_dir;
 use moonutil::dirs::PackageDirs;
+use moonutil::moon_dir::MOON_DIRS;
 use moonutil::mooncakes::sync::AutoSyncFlags;
 use moonutil::mooncakes::RegistryConfig;
 use n2::trace;
@@ -156,11 +157,10 @@ fn run_single_mbt_file(cli: &UniversalFlags, cmd: RunSubcommand) -> anyhow::Resu
     ];
 
     let compile_exe_command = if target_backend == TargetBackend::Native {
-        let moonc_path = which::which("moonc").context("moonc not found in PATH")?;
-        let moon_home = moonc_path.parent().unwrap().parent().unwrap();
-        let moon_include_path = moon_home.join("include");
-        let moon_lib_path = moon_home.join("lib");
-        let tcc_path = moon_home.join("bin").join("internal").join("tcc");
+        let moon_lib_path = &MOON_DIRS.moon_lib_path;
+        let moon_include_path = &MOON_DIRS.moon_include_path;
+        let moon_bin_path = &MOON_DIRS.moon_bin_path;
+        let tcc_path = moon_bin_path.join("internal").join("tcc");
 
         Some(vec![
             tcc_path.display().to_string(),

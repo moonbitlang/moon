@@ -28,10 +28,9 @@ use moonutil::common::{
     MOON_TEST_DELIMITER_END,
 };
 use moonutil::module::ModuleDB;
+use moonutil::moon_dir::MOON_DIRS;
 use n2::load::State;
 use serde::{Deserialize, Serialize};
-use std::cell::LazyCell;
-use std::path::PathBuf;
 use std::{path::Path, process::Stdio};
 use tokio::io::AsyncReadExt;
 
@@ -150,15 +149,16 @@ pub async fn run_native(
     if moonbuild_opt.use_tcc_run {
         let path = path.with_extension("c");
         let rt_path = target_dir.join(format!("runtime.{}", DYN_EXT));
-        let tcc_path = MOON_HOME.3.join("internal").join("tcc");
+        let moon_bin_path = &MOON_DIRS.moon_bin_path;
+        let tcc_path = moon_bin_path.join("internal").join("tcc");
         run(
             Some(tcc_path.display().to_string().as_str()),
             &path,
             target_dir,
             &[
-                format!("-I{}", MOON_HOME.1.display()),
-                format!("-L{}", MOON_HOME.2.display()),
-                format!("-L{}", MOON_HOME.3.display()),
+                format!("-I{}", MOON_DIRS.moon_include_path.display()),
+                format!("-L{}", MOON_DIRS.moon_lib_path.display()),
+                format!("-L{}", MOON_DIRS.moon_bin_path.display()),
                 rt_path.display().to_string(),
                 "-DMOONBIT_NATIVE_NO_SYS_HEADER".to_string(),
                 "-run".to_string(),

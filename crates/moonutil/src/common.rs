@@ -19,6 +19,7 @@
 use crate::cond_expr::{CompileCondition, OptLevel};
 pub use crate::dirs::check_moon_mod_exists;
 use crate::module::{MoonMod, MoonModJSON};
+use crate::moon_dir::MOON_DIRS;
 use crate::package::{convert_pkg_json_to_package, MoonPkg, MoonPkgJSON, Package};
 use anyhow::{bail, Context};
 use clap::ValueEnum;
@@ -946,13 +947,12 @@ pub fn set_native_backend_link_flags(
                 #[cfg(windows)]
                 let compiler = "cl";
 
-                let moonc_path = which::which("moonc").context("moonc not found in PATH")?;
-                let moon_home = moonc_path.parent().unwrap().parent().unwrap();
-                let moon_include_path = moon_home.join("include");
-                let moon_lib_path = moon_home.join("lib");
+                let moon_include_path = &MOON_DIRS.moon_include_path;
+                let moon_lib_path = &MOON_DIRS.moon_lib_path;
+                let moon_bin_path = &MOON_DIRS.moon_bin_path;
 
                 // libmoonbitrun.o should under $MOON_HOME/lib
-                let libmoonbitrun_path = moon_home.join("lib").join("libmoonbitrun.o");
+                let libmoonbitrun_path = moon_lib_path.join("libmoonbitrun.o");
 
                 let get_fast_cc_flags = || -> Option<String> {
                     return Some(format!(
@@ -992,8 +992,7 @@ pub fn set_native_backend_link_flags(
                         _ if tcc_run => crate::package::NativeLinkConfig {
                             exports: None,
                             cc: Some(
-                                moon_home
-                                    .join("bin")
+                                moon_bin_path
                                     .join("internal")
                                     .join("tcc")
                                     .display()
@@ -1035,8 +1034,7 @@ pub fn set_native_backend_link_flags(
                         None => crate::package::NativeLinkConfig {
                             exports: None,
                             cc: Some(
-                                moon_home
-                                    .join("bin")
+                                moon_bin_path
                                     .join("internal")
                                     .join("tcc")
                                     .display()
