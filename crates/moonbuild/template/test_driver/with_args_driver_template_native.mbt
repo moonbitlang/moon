@@ -41,41 +41,71 @@ struct Moonbit_Test_Driver_Internal__TestCase {
 let moonbit_test_driver_internal_no_args_tests : Moonbit_Test_Driver_Internal_No_Args_Map = { }  // WILL BE REPLACED
 let moonbit_test_driver_internal_with_args_tests : Moonbit_Test_Driver_Internal_TestDriver_With_Args_Map = { }  // WILL BE REPLACED
 
-pub fn moonbit_test_driver_internal_execute() -> Unit {
-  let all_tests: @moonbitlang/core/builtin.Array[Moonbit_Test_Driver_Internal__TestCase] = [];
-  moonbit_test_driver_internal_with_args_tests.iter().each(fn(tuple_of_filename_and_index_func_map) {
-    let (file_name, index_func_map) = tuple_of_filename_and_index_func_map
-    index_func_map.iter().each(fn(tuple_of_index_and_func) {
-      let (index, (func, attrs)) = tuple_of_index_and_func
-      all_tests.push({
-        f: Moonbit_Test_Driver_Internal__F::F1(func),
-        meta: { filename: file_name, index, attrs }
-      });
-    });
-  });
-  moonbit_test_driver_internal_no_args_tests.iter().each(fn(tuple_of_filename_and_index_func_map) {
-    let (file_name, index_func_map) = tuple_of_filename_and_index_func_map
-    index_func_map.iter().each(fn(tuple_of_index_and_func) {
-      let (index, (func, attrs)) = tuple_of_index_and_func
-      all_tests.push({
-        f: Moonbit_Test_Driver_Internal__F::F0(func),
-        meta: { filename: file_name, index, attrs }
-      });
-    });
-  });
-
-  for item in all_tests {
-    let mut message = ""
-
-    let attrs = item.meta.attrs
-    let file_name = item.meta.filename
-    let index = item.meta.index
-    let name = if attrs.is_empty() { "" } else { attrs[0] }
-    let test_name = if name.length() == 0 {
-      item.meta.index.to_string()
-    } else {
-      name
+fn moonbit_test_driver_internal_apply_filter(
+  no_args_tests : Moonbit_Test_Driver_Internal_No_Args_Map,
+  with_args_tests : Moonbit_Test_Driver_Internal_TestDriver_With_Args_Map,
+  file_filter : String,
+  index_filter : Int
+) -> Option[Moonbit_Test_Driver_Internal__TestCase] {
+  let no_args_filtered_test = match no_args_tests.get(file_filter) {
+    Some(index_func_map) => {
+      match index_func_map.get(index_filter) {
+        Some(func_attrs_tuple) => {
+          let k = {
+            f: Moonbit_Test_Driver_Internal__F::F0(func_attrs_tuple.0),
+            meta: { filename: file_filter, index: index_filter, attrs: func_attrs_tuple.1 },
+          }
+          Some(k)
+        }
+        _ => None
+      }
     }
+    _ => None
+  }
+
+  let with_args_filtered_test = match with_args_tests.get(file_filter) {
+    Some(index_func_map) => {
+      match index_func_map.get(index_filter) {
+        Some(func_attrs_tuple) => {
+          let k = {
+            f: Moonbit_Test_Driver_Internal__F::F1(func_attrs_tuple.0),
+            meta: { filename: file_filter, index: index_filter, attrs: func_attrs_tuple.1 },
+          }
+          Some(k)
+        }
+        _ => None
+      }
+    }
+    _ => None
+  }
+
+  match no_args_filtered_test {
+    Some(it) => Some(it)
+    _ => with_args_filtered_test
+  }
+}
+
+pub fn moonbit_test_driver_internal_execute(filename : String, index : Int) -> Unit {
+  let filtered_test = moonbit_test_driver_internal_apply_filter(
+    moonbit_test_driver_internal_no_args_tests,
+    moonbit_test_driver_internal_with_args_tests,
+    filename,
+    index
+  )
+  let mut test_name = ""
+  let mut file_name = ""
+  let mut message = ""
+
+  match filtered_test {
+    Some(item) => {
+      let attrs = item.meta.attrs
+      file_name = item.meta.filename
+      let name = if attrs.is_empty() { "" } else { attrs[0] }
+      let name = if name.length() == 0 {
+        item.meta.index.to_string()
+      } else {
+        name
+      }
 
     if attrs.iter().any(fn(attr) -> Bool {
       attr.length() >= 5 && attr[0] == 'p' && attr[1] == 'a' && attr[2] == 'n' && attr[3] == 'i' && attr[4] == 'c'
@@ -86,40 +116,48 @@ pub fn moonbit_test_driver_internal_execute() -> Unit {
         "{\"package\": \"{PACKAGE}\", \"filename\": \{file_name.escape()}, \"index\": \"\{index}\", \"test_name\": \{name.escape()}, \"message\": \"skipped test\"}",
       )
       @moonbitlang/core/builtin.println("{END_MOONTEST}")
-      continue
+      return
     }
+      test_name = name
 
-    try {
-      let func = match item.f {
-      Moonbit_Test_Driver_Internal__F::F0(f) => f
-      Moonbit_Test_Driver_Internal__F::F1(f) =>
-          fn() {
-            let it : @moonbitlang/core/test.T = {
-              name,
-              buffer: @moonbitlang/core/builtin.StringBuilder::new(),
+      if test_name.length() >= 5 && test_name[0] == 'p' && test_name[1] == 'a' && test_name[2] == 'n' && test_name[3] == 'i' && test_name[4] == 'c' {
+        @moonbitlang/core/builtin.println("skipped test block: \{filename}: \{test_name}")
+        return
+      }
+
+      try {
+        let func = match item.f {
+        Moonbit_Test_Driver_Internal__F::F0(f) => f
+        Moonbit_Test_Driver_Internal__F::F1(f) =>
+            fn() {
+              let it : @moonbitlang/core/test.T = {
+                name,
+                buffer: @moonbitlang/core/builtin.StringBuilder::new(),
+              }
+              f!(it)
             }
-            f!(it)
-          }
-      }
-      func!()
-    } catch {
-      Failure(e) | InspectError(e) | SnapshotError(e) => {
-        message = e
-      }
-      e => {
-        message = moonbit_test_driver_internal_error_to_string(e)
+        }
+        func!()
+      } catch {
+        Failure(e) | InspectError(e) | SnapshotError(e) => {
+          message = e
+        }
+        e => {
+          message = moonbit_test_driver_internal_error_to_string(e)
+        }
       }
     }
-
-    let file_name = file_name.escape()
-    let test_name = test_name.escape()
-    let message = message.escape()
-    @moonbitlang/core/builtin.println("{BEGIN_MOONTEST}")
-    @moonbitlang/core/builtin.println(
-      "{\"package\": \"{PACKAGE}\", \"filename\": \{file_name}, \"index\": \"\{index}\", \"test_name\": \{test_name}, \"message\": \{message}}",
-    )
-    @moonbitlang/core/builtin.println("{END_MOONTEST}")
+    _ => { message = "internal error: failed to filter test with (\{filename}, \{index})" }
   }
+
+  let file_name = file_name.escape()
+  let test_name = test_name.escape()
+  let message = message.escape()
+  @moonbitlang/core/builtin.println("{BEGIN_MOONTEST}")
+  @moonbitlang/core/builtin.println(
+    "{\"package\": \"{PACKAGE}\", \"filename\": \{file_name}, \"index\": \"\{index}\", \"test_name\": \{test_name}, \"message\": \{message}}",
+  )
+  @moonbitlang/core/builtin.println("{END_MOONTEST}")
 }
 
 pub fn moonbit_test_driver_finish() -> Unit {
@@ -127,5 +165,102 @@ pub fn moonbit_test_driver_finish() -> Unit {
 }
 
 fn main {
-  moonbit_test_driver_internal_execute()
+  fn moonbit_test_driver_internal_parse_int_(s : String) -> Int {
+    let mut res = 0
+    let len = s.length()
+    for i = 0; i < len; i = i + 1 {
+      res = res * 10 + (s[i].to_int() - '0'.to_int())
+    }
+    res
+  }
+
+  fn moonbit_test_driver_internal_get_cli_args_internal() -> Array[String] {
+    let tmp = moonbit_test_driver_internal_get_cli_args_ffi()
+    let res = Array::new(capacity=tmp.length())
+    for i = 0; i < tmp.length(); i = i + 1 {
+      res.push(moonbit_test_driver_internal_utf8_bytes_to_mbt_string(tmp[i]))
+    }
+    res
+  }
+
+  fn moonbit_test_driver_internal_utf8_bytes_to_mbt_string(bytes : Bytes) -> String {
+    let res = StringBuilder::new()
+    let len = bytes.length()
+    let mut i = 0
+    while i < len {
+      let mut c = bytes[i].to_int()
+      if c < 0x80 {
+        res.write_char(Char::from_int(c))
+        i += 1
+      } else if c < 0xE0 {
+        if i + 1 >= len {
+          break
+        }
+        c = ((c & 0x1F) << 6) | (bytes[i + 1].to_int() & 0x3F)
+        res.write_char(Char::from_int(c))
+        i += 2
+      } else if c < 0xF0 {
+        if i + 2 >= len {
+          break
+        }
+        c = ((c & 0x0F) << 12) |
+          ((bytes[i + 1].to_int() & 0x3F) << 6) |
+          (bytes[i + 2].to_int() & 0x3F)
+        res.write_char(Char::from_int(c))
+        i += 3
+      } else {
+        if i + 3 >= len {
+          break
+        }
+        c = ((c & 0x07) << 18) |
+          ((bytes[i + 1].to_int() & 0x3F) << 12) |
+          ((bytes[i + 2].to_int() & 0x3F) << 6) |
+          (bytes[i + 3].to_int() & 0x3F)
+        c -= 0x10000
+        res.write_char(Char::from_int((c >> 10) + 0xD800))
+        res.write_char(Char::from_int((c & 0x3FF) + 0xDC00))
+        i += 4
+      }
+    }
+    res.to_string()
+  }
+
+  fn moonbit_test_driver_internal_split_mbt_string(s : String, sep : Char) -> Array[String] {
+    let res = []
+    let mut i = 0
+    let mut start = 0
+    while i < s.length() {
+      if s[i] == sep {
+        res.push(s.substring(start = start, end = i))
+        start = i + 1
+      }
+      i += 1
+    }
+    if start < s.length() {
+      res.push(s.substring(start = start, end = s.length()))
+    }
+    res
+  }
+
+  let file_and_index = []
+
+  let cli_args = moonbit_test_driver_internal_get_cli_args_internal()
+  let test_args = moonbit_test_driver_internal_split_mbt_string(cli_args[1], '/')
+  for arg in test_args {
+    let file_and_range = moonbit_test_driver_internal_split_mbt_string(arg, ':')
+    let file = file_and_range[0]
+    let range = file_and_range[1]
+    let start_and_end = moonbit_test_driver_internal_split_mbt_string(range, '-')
+    let start = moonbit_test_driver_internal_parse_int_(start_and_end[0])
+    let end = moonbit_test_driver_internal_parse_int_(start_and_end[1])
+    for i = start; i < end; i = i + 1 {
+      file_and_index.push((file, i))
+    }
+  }
+
+  for arg in file_and_index {
+    moonbit_test_driver_internal_execute(arg.0, arg.1)
+  }
 }
+
+fn moonbit_test_driver_internal_get_cli_args_ffi() -> FixedArray[Bytes] = "$moonbit.get_cli_args"

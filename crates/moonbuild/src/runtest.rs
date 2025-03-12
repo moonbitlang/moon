@@ -125,15 +125,8 @@ pub async fn run_native(
     file_test_info_map: &FileTestInfo,
     verbose: bool,
 ) -> anyhow::Result<Vec<Result<TestStatistics, TestFailedStatus>>> {
-    run(
-        None,
-        path,
-        target_dir,
-        &[serde_json_lenient::to_string(args).unwrap()],
-        file_test_info_map,
-        verbose,
-    )
-    .await
+    let args = args.to_cli_args_for_native();
+    run(None, path, target_dir, &[args], file_test_info_map, verbose).await
 }
 
 async fn run(
