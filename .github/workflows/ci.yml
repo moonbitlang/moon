@@ -220,15 +220,11 @@ jobs:
           cargo run --bin moon test --source-dir "$env:USERPROFILE\.moon\lib\core" --release --target wasm
           cargo run --bin moon test --source-dir "$env:USERPROFILE\.moon\lib\core" --doc
 
-      - name: download core for llvm backend
+      - name: Test core on llvm backend (Unix)
         if: ${{ (matrix.os == 'ubuntu-latest') || (matrix.os == 'macos-latest') }}
         run: |
           rm -rf ~/.moon/lib/core
           git clone --depth 1 -b llvm_backend https://github.com/moonbitlang/core.git ~/.moon/lib/core
-
-      - name: Test core on llvm backend (Unix)
-        if: ${{ (matrix.os == 'ubuntu-latest') || (matrix.os == 'macos-latest') }}
-        run: |
           cargo run --bin moon test --source-dir ~/.moon/lib/core --target llvm
           cargo run --bin moon test --source-dir ~/.moon/lib/core --release --target llvm
 
