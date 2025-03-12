@@ -322,14 +322,18 @@ pub fn gen_check(
         let item = pkg_to_check_item(&pkg.root_path, pkgs_to_check, pkg, moonc_opt)?;
         dep_items.push(item);
 
-        if !pkg.wbtest_files.is_empty() {
-            let item =
-                pkg_with_wbtest_to_check_item(&pkg.root_path, pkgs_to_check, pkg, moonc_opt)?;
-            dep_items.push(item);
-        }
-        if !pkg.test_files.is_empty() {
-            let item = pkg_with_test_to_check_item(&pkg.root_path, pkgs_to_check, pkg, moonc_opt)?;
-            dep_items.push(item);
+        // do not check test files for third party packages
+        if !pkg.is_third_party {
+            if !pkg.wbtest_files.is_empty() {
+                let item =
+                    pkg_with_wbtest_to_check_item(&pkg.root_path, pkgs_to_check, pkg, moonc_opt)?;
+                dep_items.push(item);
+            }
+            if !pkg.test_files.is_empty() {
+                let item =
+                    pkg_with_test_to_check_item(&pkg.root_path, pkgs_to_check, pkg, moonc_opt)?;
+                dep_items.push(item);
+            }
         }
     }
 
