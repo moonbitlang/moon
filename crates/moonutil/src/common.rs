@@ -68,6 +68,7 @@ pub const MOD_DIR: &str = "$mod_dir";
 pub const PKG_DIR: &str = "$pkg_dir";
 
 pub const O_EXT: &str = if cfg!(windows) { "obj" } else { "o" };
+#[allow(unused)]
 pub const DYN_EXT: &str = if cfg!(windows) {
     "dll"
 } else if cfg!(target_os = "macos") {
@@ -954,12 +955,13 @@ pub fn set_native_backend_link_flags(
                 // libmoonbitrun.o should under $MOON_HOME/lib
                 let libmoonbitrun_path = moon_lib_path.join("libmoonbitrun.o");
 
+                #[cfg(unix)] // only support tcc on unix
                 let get_fast_cc_flags = || -> Option<String> {
-                    return Some(format!(
+                    Some(format!(
                         "-I{} -L{} -DMOONBIT_NATIVE_NO_SYS_HEADER",
                         moon_include_path.display(),
                         moon_lib_path.display()
-                    ));
+                    ))
                 };
 
                 let get_default_cc_flags = || -> Option<String> {
@@ -988,7 +990,11 @@ pub fn set_native_backend_link_flags(
                     let existing_native = pkg.link.as_ref().and_then(|link| link.native.as_ref());
 
                     let mut native_config = match existing_native {
-                        #[cfg(unix)]
+                        #[cfg(unix)] // only support tcc on unix
+                        // we have set the tcc_run flag outside
+                        // which implies users haven't set the native link config
+                        // so it's fine to override it here regardless of
+                        // the existing native link config
                         _ if tcc_run => crate::package::NativeLinkConfig {
                             exports: None,
                             cc: Some(

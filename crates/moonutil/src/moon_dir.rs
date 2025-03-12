@@ -29,7 +29,7 @@ pub struct MoonDirs {
     pub moon_bin_path: PathBuf,
 }
 
-pub const MOON_DIRS: std::cell::LazyCell<MoonDirs> = std::cell::LazyCell::new(|| {
+pub static MOON_DIRS: std::sync::LazyLock<MoonDirs> = std::sync::LazyLock::new(|| {
     let moonc_path = which::which("moonc")
         .context("moonc not found in PATH")
         .unwrap();

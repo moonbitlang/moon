@@ -75,22 +75,6 @@ impl std::fmt::Display for TestStatistics {
     }
 }
 
-const MOON_HOME: LazyCell<(PathBuf, PathBuf, PathBuf, PathBuf)> = std::cell::LazyCell::new(|| {
-    let moonc_path = which::which("moonc")
-        .context("moonc not found in PATH")
-        .unwrap();
-    let moon_home = moonc_path.parent().unwrap().parent().unwrap();
-    let moon_include_path = moon_home.join("include");
-    let moon_lib_path = moon_home.join("lib");
-    let moon_bin_path = moon_home.join("bin");
-    (
-        moon_home.to_path_buf(),
-        moon_include_path,
-        moon_lib_path,
-        moon_bin_path,
-    )
-});
-
 pub async fn run_wat(
     path: &Path,
     target_dir: &Path,
@@ -105,8 +89,8 @@ pub async fn run_wat(
         Some("moonrun"),
         path,
         target_dir,
-        &[],
-        &_args,
+        &[],    // args before path
+        &_args, // args after path
         file_test_info_map,
         verbose,
     )
@@ -129,8 +113,8 @@ pub async fn run_js(
         node,
         path,
         target_dir,
-        &[],
-        &[serde_json_lenient::to_string(args).unwrap()],
+        &[],                                             // args before path
+        &[serde_json_lenient::to_string(args).unwrap()], // args after path
         file_test_info_map,
         verbose,
     )
@@ -173,8 +157,8 @@ pub async fn run_native(
             None,
             path,
             target_dir,
-            &[],
-            &[args],
+            &[],     // args before path
+            &[args], // args after path
             file_test_info_map,
             verbose,
         )

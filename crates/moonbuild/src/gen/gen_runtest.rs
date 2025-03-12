@@ -1103,16 +1103,37 @@ pub fn gen_n2_runtest_state(
     let mut runtime_o_path = String::new();
 
     if is_native_backend {
-        let (build, path) = gen_compile_runtime_command(&mut graph, &moonbuild_opt.target_dir);
-        graph.add_build(build)?;
-        runtime_o_path = path;
+        #[cfg(unix)]
+        fn gen_shared_runtime(
+            graph: &mut n2graph::Graph,
+            target_dir: &std::path::Path,
+            default: &mut Vec<n2graph::FileId>,
+        ) -> anyhow::Result<String> {
+            let (build, path) = gen_compile_shared_runtime_command(graph, target_dir);
+            graph.add_build(build)?;
+            // we explicitly add it to default because shared runtime is not a target or depended by any target
+            default.push(graph.files.id_from_canonical(path.clone()));
+            Ok(path)
+        }
+
+        fn gen_runtime(
+            graph: &mut n2graph::Graph,
+            target_dir: &std::path::Path,
+        ) -> anyhow::Result<String> {
+            let (build, path) = gen_compile_runtime_command(graph, target_dir);
+            graph.add_build(build)?;
+            Ok(path)
+        }
 
         #[cfg(unix)]
         if moonbuild_opt.use_tcc_run {
-            let (build, path) =
-                gen_compile_shared_runtime_command(&mut graph, &moonbuild_opt.target_dir);
-            graph.add_build(build)?;
-            default.push(graph.files.id_from_canonical(path));
+            gen_shared_runtime(&mut graph, &moonbuild_opt.target_dir, &mut default)?;
+        } else {
+            runtime_o_path = gen_runtime(&mut graph, &moonbuild_opt.target_dir)?;
+        }
+        #[cfg(windows)]
+        {
+            runtime_o_path = gen_runtime(&mut graph, &moonbuild_opt.target_dir)?;
         }
     }
     let is_llvm_backend = moonc_opt.link_opt.target_backend == TargetBackend::LLVM;
@@ -1122,8 +1143,7 @@ pub fn gen_n2_runtest_state(
         let mut default_fid = fid;
         graph.add_build(build)?;
 
-        if moonbuild_opt.use_tcc_run {
-        } else if is_native_backend {
+        if is_native_backend && !moonbuild_opt.use_tcc_run {
             let (build, fid) =
                 gen_compile_exe_command(&mut graph, item, moonc_opt, runtime_o_path.clone());
             default_fid = fid;

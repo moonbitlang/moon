@@ -29,8 +29,7 @@ use std::path::{Path, PathBuf};
 use std::rc::Rc;
 
 use moonutil::common::{
-    BuildOpt, MoonbuildOpt, MooncOpt, TargetBackend, DYN_EXT, MOONBITLANG_CORE, MOON_PKG_JSON,
-    O_EXT,
+    BuildOpt, MoonbuildOpt, MooncOpt, TargetBackend, MOONBITLANG_CORE, MOON_PKG_JSON, O_EXT,
 };
 use n2::graph::{self as n2graph, Build, BuildIns, BuildOuts, FileLoc};
 use n2::load::State;
@@ -562,7 +561,7 @@ pub fn gen_compile_shared_runtime_command(
         .to_string();
 
     let artifact_output_path = target_dir
-        .join(format!("runtime.{}", DYN_EXT))
+        .join(format!("runtime.{}", moonutil::common::DYN_EXT))
         .display()
         .to_string();
 
@@ -859,14 +858,34 @@ pub fn gen_n2_build_state(
     let mut runtime_o_path = String::new();
 
     if is_native_backend {
-        let (build, path) = gen_compile_runtime_command(&mut graph, target_dir);
-        graph.add_build(build)?;
-        runtime_o_path = path;
+        #[cfg(unix)]
+        fn gen_shared_runtime(
+            graph: &mut n2graph::Graph,
+            target_dir: &Path,
+            default: &mut Vec<n2graph::FileId>,
+        ) -> anyhow::Result<String> {
+            let (build, path) = gen_compile_shared_runtime_command(graph, target_dir);
+            graph.add_build(build)?;
+            // we explicitly add it to default because shared runtime is not a target or depended by any target
+            default.push(graph.files.id_from_canonical(path.clone()));
+            Ok(path)
+        }
+
+        fn gen_runtime(graph: &mut n2graph::Graph, target_dir: &Path) -> anyhow::Result<String> {
+            let (build, path) = gen_compile_runtime_command(graph, target_dir);
+            graph.add_build(build)?;
+            Ok(path)
+        }
 
         #[cfg(unix)]
         if moonbuild_opt.use_tcc_run {
-            let (build, _) = gen_compile_shared_runtime_command(&mut graph, target_dir);
-            graph.add_build(build)?;
+            gen_shared_runtime(&mut graph, target_dir, &mut default)?;
+        } else {
+            runtime_o_path = gen_runtime(&mut graph, target_dir)?;
+        }
+        #[cfg(windows)]
+        {
+            runtime_o_path = gen_runtime(&mut graph, target_dir)?;
         }
     }
 
@@ -880,8 +899,7 @@ pub fn gen_n2_build_state(
         let mut default_fid = fid;
         graph.add_build(build)?;
 
-        if moonbuild_opt.use_tcc_run {
-        } else if is_native_backend {
+        if is_native_backend && !moonbuild_opt.use_tcc_run {
             let (build, fid) =
                 gen_compile_exe_command(&mut graph, item, moonc_opt, runtime_o_path.clone());
             graph.add_build(build)?;

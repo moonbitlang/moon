@@ -961,7 +961,7 @@ async fn handle_test_result(
                         file_and_index: vec![(stat.filename.clone(), index..(index + 1))],
                     };
                     let rerun = execute_test(
-                        &moonbuild_opt,
+                        moonbuild_opt,
                         moonc_opt.build_opt.target_backend,
                         artifact_path,
                         target_dir,
@@ -987,7 +987,7 @@ async fn handle_test_result(
                     }
 
                     let cur_res = execute_test(
-                        &moonbuild_opt,
+                        moonbuild_opt,
                         moonc_opt.build_opt.target_backend,
                         artifact_path,
                         target_dir,
@@ -1065,7 +1065,7 @@ async fn handle_test_result(
                         file_and_index: vec![(filename, index..(index + 1))],
                     };
                     let rerun = execute_test(
-                        &moonbuild_opt,
+                        moonbuild_opt,
                         moonc_opt.build_opt.target_backend,
                         artifact_path,
                         target_dir,
@@ -1117,7 +1117,7 @@ async fn handle_test_result(
                     }
 
                     let mut cur_res = execute_test(
-                        &moonbuild_opt,
+                        moonbuild_opt,
                         moonc_opt.build_opt.target_backend,
                         artifact_path,
                         target_dir,
@@ -1170,7 +1170,7 @@ async fn handle_test_result(
                         }
 
                         cur_res = execute_test(
-                            &moonbuild_opt,
+                            moonbuild_opt,
                             moonc_opt.build_opt.target_backend,
                             artifact_path,
                             target_dir,

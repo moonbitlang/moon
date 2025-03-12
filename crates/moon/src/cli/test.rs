@@ -309,6 +309,10 @@ fn run_test_internal(
         (None, moonbuild_opt)
     };
 
+    #[cfg(windows)]
+    let mut use_tcc_run = false;
+
+    #[cfg(unix)]
     let mut use_tcc_run = moonc_opt.build_opt.debug_flag && moonbuild_opt.run_mode == RunMode::Test;
 
     for (_, pkg) in module.get_filtered_packages_mut(package_filter) {
@@ -321,14 +325,11 @@ fn run_test_internal(
         // c compilers and flags
         let existing_native = pkg.link.as_ref().and_then(|link| link.native.as_ref());
         use_tcc_run &= pkg.native_stub.is_none();
-        match existing_native {
-            Some(n) => {
-                use_tcc_run &= n.cc.is_none()
-                    && n.cc_flags.is_none()
-                    && n.cc_link_flags.is_none()
-                    && n.native_stub_deps.is_none();
-            }
-            None => (),
+        if let Some(n) = existing_native {
+            use_tcc_run &= n.cc.is_none()
+                && n.cc_flags.is_none()
+                && n.cc_link_flags.is_none()
+                && n.native_stub_deps.is_none();
         }
 
         pkg.patch_file = cmd.patch_file.clone();
