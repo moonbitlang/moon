@@ -32,6 +32,8 @@ use crate::common::{
     MOON_PID_NAME, MOON_PKG_JSON,
 };
 
+const MOON_DB: &str = "moon.db";
+
 #[derive(Debug, clap::Parser, Serialize, Deserialize, Clone)]
 pub struct SourceTargetDirs {
     /// The source code directory. Defaults to the current directory.
@@ -231,12 +233,12 @@ pub fn clean_dir_in_target(target_dir: &Path) -> anyhow::Result<()> {
 }
 
 pub fn has_moon_db(target_dir: &Path) -> bool {
-    let moon_db = target_dir.join("moon.db");
+    let moon_db = target_dir.join(MOON_DB);
     moon_db.exists()
 }
 
 pub fn recreate_moon_db(source_dir: &Path, target_dir: &Path) -> anyhow::Result<()> {
-    let moon_db = target_dir.join("moon.db");
+    let moon_db = target_dir.join(MOON_DB);
     let _ = std::fs::remove_file(moon_db);
     create_moon_db(source_dir, target_dir)
 }
@@ -249,7 +251,7 @@ fn get_fingerprint(source_dir: &Path) -> Fingerprint {
 }
 
 pub fn create_moon_db(source_dir: &Path, target_dir: &Path) -> anyhow::Result<()> {
-    let moon_db = target_dir.join("moon.db");
+    let moon_db = target_dir.join(MOON_DB);
     let fp = std::fs::File::create(moon_db).context("failed to create `moon.db`")?;
     let mut writer = std::io::BufWriter::new(fp);
     let finger = get_fingerprint(source_dir);
@@ -259,7 +261,7 @@ pub fn create_moon_db(source_dir: &Path, target_dir: &Path) -> anyhow::Result<()
 }
 
 fn load_moon_db(target_dir: &Path) -> anyhow::Result<Fingerprint> {
-    let moon_db = target_dir.join("moon.db");
+    let moon_db = target_dir.join(MOON_DB);
     let fp = std::fs::File::open(moon_db)?;
     let mut reader = std::io::BufReader::new(fp);
     let mut buf = vec![];

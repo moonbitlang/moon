@@ -19,6 +19,7 @@
 use moonbuild::entry::{run_moon_pre_build, MoonPreBuildState};
 use moonutil::{
     common::{MoonbuildOpt, MooncOpt},
+    dirs::recreate_moon_db,
     module::ModuleDB,
     mooncakes::{result::ResolvedEnv, DirSyncResult},
 };
@@ -55,6 +56,9 @@ fn run_pre_build(
 ) -> anyhow::Result<ModuleDB> {
     let pre_build_result = run_moon_pre_build(moonbuild_opt, &module)?;
     let module = if let MoonPreBuildState::WorkDone = pre_build_result {
+        // pre-build tasks may generate new source files
+        // recreate moon.db to reflect the changes
+        recreate_moon_db(&module.source_dir, &moonbuild_opt.target_dir)?;
         moonutil::scan::scan(
             false,
             resolved_env,
