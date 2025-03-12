@@ -6818,6 +6818,13 @@ fn test_snapshot_test() {
             Hello, world!
             ----
 
+            test username/hello/lib/hello.mbt::test inspect 1 failed
+            expect test failed at $ROOT/src/lib/hello.mbt:6:3-6:16
+            Diff:
+            ----
+            a
+            ----
+
             test username/hello/lib/hello.mbt::test snapshot 1 failed
             expect test failed at $ROOT/src/lib/hello.mbt:14:3
             Diff:
@@ -6828,6 +6835,13 @@ fn test_snapshot_test() {
 
             ----
 
+            test username/hello/lib/hello.mbt::test inspect 2 failed
+            expect test failed at $ROOT/src/lib/hello.mbt:18:3-18:16
+            Diff:
+            ----
+            c
+            ----
+
             test username/hello/lib/hello.mbt::test snapshot 2 failed
             expect test failed at $ROOT/src/lib/hello.mbt:26:3
             Diff:
@@ -6836,20 +6850,6 @@ fn test_snapshot_test() {
             be
             work
 
-            ----
-
-            test username/hello/lib/hello.mbt::test inspect 1 failed
-            expect test failed at $ROOT/src/lib/hello.mbt:6:3-6:16
-            Diff:
-            ----
-            a
-            ----
-
-            test username/hello/lib/hello.mbt::test inspect 2 failed
-            expect test failed at $ROOT/src/lib/hello.mbt:18:3-18:16
-            Diff:
-            ----
-            c
             ----
 
             Total tests: 6, passed: 1, failed: 5.
@@ -9057,6 +9057,156 @@ fn test_pre_build_dirty() {
         get_stderr(&dir, ["check"]),
         expect![[r#"
             Finished. moon: no work to do
+        "#]],
+    );
+}
+
+#[test]
+fn native_backend_test_filter() {
+    let dir = TestDir::new("native_backend_test_filter.in");
+
+    check(
+        get_stdout(
+            &dir,
+            [
+                "test",
+                "--target",
+                "native",
+                "-p",
+                "lib",
+                "-f",
+                "hello.mbt",
+                "-i",
+                "3",
+                "--sort-input",
+            ],
+        ),
+        expect![[r#"
+            test C
+            Total tests: 1, passed: 1, failed: 0.
+        "#]],
+    );
+    check(
+        get_stdout(
+            &dir,
+            [
+                "test",
+                "--target",
+                "native",
+                "-p",
+                "lib",
+                "-f",
+                "hello.mbt",
+                "-i",
+                "2",
+                "-u",
+                "--sort-input",
+            ],
+        ),
+        expect![[r#"
+
+            Auto updating expect tests and retesting ...
+
+            Total tests: 1, passed: 1, failed: 0.
+        "#]],
+    );
+
+    check(
+        get_stdout(
+            &dir,
+            [
+                "test",
+                "--target",
+                "native",
+                "-p",
+                "lib",
+                "-f",
+                "hello_wbtest.mbt",
+                "-i",
+                "1",
+                "-u",
+                "--sort-input",
+            ],
+        ),
+        expect![[r#"
+
+            Auto updating expect tests and retesting ...
+
+            Total tests: 1, passed: 1, failed: 0.
+        "#]],
+    );
+    check(
+        get_stdout(
+            &dir,
+            [
+                "test",
+                "--target",
+                "native",
+                "-p",
+                "lib",
+                "-f",
+                "hello_wbtest.mbt",
+                "-i",
+                "0",
+                "--sort-input",
+            ],
+        ),
+        expect![[r#"
+            test hello_0
+            Total tests: 1, passed: 1, failed: 0.
+        "#]],
+    );
+
+    check(
+        get_err_stdout(
+            &dir,
+            [
+                "test",
+                "--target",
+                "native",
+                "-p",
+                "lib",
+                "-f",
+                "hello.mbt",
+                "-i",
+                "4",
+                "--sort-input",
+            ],
+        ),
+        expect![[r#"
+            test username/hello/lib/hello.mbt::D failed
+            expect test failed at $ROOT/lib/hello.mbt:24:3
+            Diff:
+            ----
+            test D
+
+            ----
+
+            Total tests: 1, passed: 0, failed: 1.
+        "#]],
+    );
+    check(
+        get_stdout(
+            &dir,
+            [
+                "test",
+                "--target",
+                "native",
+                "-p",
+                "lib",
+                "-f",
+                "hello.mbt",
+                "-i",
+                "4",
+                "-u",
+                "--sort-input",
+            ],
+        ),
+        expect![[r#"
+
+            Auto updating expect tests and retesting ...
+
+            Total tests: 1, passed: 1, failed: 0.
         "#]],
     );
 }
