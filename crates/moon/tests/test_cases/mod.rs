@@ -9050,7 +9050,7 @@ fn test_pre_build_dirty() {
     check(
         get_stderr(&dir, ["check"]),
         expect![[r#"
-            Finished. moon: ran 3 tasks, now up to date
+            Finished. moon: no work to do
         "#]],
     );
     check(
