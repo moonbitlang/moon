@@ -6672,7 +6672,6 @@ fn test_specify_source_dir_with_deps() {
             moonc check ./deps/hello19/source/lib/hello.mbt -o ./target/wasm-gc/release/check/.mooncakes/just/hello19/lib/lib.mi -pkg just/hello19/lib -std-path $MOON_HOME/lib/core/target/wasm-gc/release/bundle -pkg-sources just/hello19/lib:./deps/hello19/source/lib -target wasm-gc
             moonc check ./anyhow/main/main.mbt -o ./target/wasm-gc/release/check/main/main.mi -pkg username/hello/main -is-main -std-path $MOON_HOME/lib/core/target/wasm-gc/release/bundle -i ./target/wasm-gc/release/check/lib/lib.mi:emmm -i ./target/wasm-gc/release/check/.mooncakes/just/hello19/hello19.mi:hello19 -i ./target/wasm-gc/release/check/.mooncakes/just/hello19/lib/lib.mi:lib -pkg-sources username/hello/main:./anyhow/main -target wasm-gc
             moonc check ./anyhow/lib/hello_test.mbt -o ./target/wasm-gc/release/check/lib/lib.blackbox_test.mi -pkg username/hello/lib_blackbox_test -std-path $MOON_HOME/lib/core/target/wasm-gc/release/bundle -i ./target/wasm-gc/release/check/lib/lib.mi:lib -pkg-sources username/hello/lib_blackbox_test:./anyhow/lib -target wasm-gc -blackbox-test
-            moonc check ./deps/hello19/source/top_test.mbt -o ./target/wasm-gc/release/check/.mooncakes/just/hello19/hello19.blackbox_test.mi -pkg just/hello19_blackbox_test -std-path $MOON_HOME/lib/core/target/wasm-gc/release/bundle -i ./target/wasm-gc/release/check/.mooncakes/just/hello19/hello19.mi:hello19 -pkg-sources just/hello19_blackbox_test:./deps/hello19/source -target wasm-gc -blackbox-test
         "#]],
     );
     check(
@@ -6700,7 +6699,7 @@ fn test_specify_source_dir_with_deps() {
     check(
         get_stderr(&dir, ["check"]),
         expect![[r#"
-            Finished. moon: ran 6 tasks, now up to date
+            Finished. moon: ran 5 tasks, now up to date
         "#]],
     );
     check(
@@ -6731,7 +6730,7 @@ fn test_specify_source_dir_with_deps_002() {
     check(
         get_stderr(&dir, ["check"]),
         expect![[r#"
-            Finished. moon: ran 13 tasks, now up to date
+            Finished. moon: ran 9 tasks, now up to date
         "#]],
     );
     check(
