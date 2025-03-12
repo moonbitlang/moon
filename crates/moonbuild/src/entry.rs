@@ -698,14 +698,6 @@ pub fn run_test(
                 } else {
                     range = 0..(test_count.len() as u32);
                 }
-
-                let mut args = vec![];
-                for index in range.clone() {
-                    args.push(pkgname.clone());
-                    args.push(file_name.clone());
-                    args.push(index.to_string());
-                }
-
                 test_args.file_and_index.push((file_name.clone(), range));
             }
 
@@ -858,6 +850,15 @@ impl TestArgs {
             }
         }
         format!("{:?}", test_params)
+    }
+
+    pub fn to_cli_args_for_native(&self) -> String {
+        let mut args = vec![];
+        let file_and_index = &self.file_and_index;
+        for (file, index) in file_and_index {
+            args.push(format!("{}:{}-{}", file, index.start, index.end));
+        }
+        args.join("/")
     }
 }
 
