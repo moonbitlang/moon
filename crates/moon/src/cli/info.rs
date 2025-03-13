@@ -207,6 +207,7 @@ pub fn run_info_internal(
         no_parallelize: false,
         build_graph: false,
         parallelism: None,
+        use_tcc_run: false,
     };
 
     let mdb = scan_with_pre_build(

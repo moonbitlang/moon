@@ -186,6 +186,7 @@ pub fn generate_test_driver(
         no_parallelize: false,
         build_graph: false,
         parallelism: None,
+        use_tcc_run: false,
     };
 
     let module = scan_with_pre_build(

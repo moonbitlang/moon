@@ -22,6 +22,29 @@ use anyhow::Context;
 
 use crate::common::TargetBackend;
 
+pub struct MoonDirs {
+    pub moon_home: PathBuf,
+    pub moon_include_path: PathBuf,
+    pub moon_lib_path: PathBuf,
+    pub moon_bin_path: PathBuf,
+}
+
+pub static MOON_DIRS: std::sync::LazyLock<MoonDirs> = std::sync::LazyLock::new(|| {
+    let moonc_path = which::which("moonc")
+        .context("moonc not found in PATH")
+        .unwrap();
+    let moon_home = moonc_path.parent().unwrap().parent().unwrap().to_path_buf();
+    let moon_include_path = moon_home.join("include");
+    let moon_lib_path = moon_home.join("lib");
+    let moon_bin_path = moon_home.join("bin");
+    MoonDirs {
+        moon_home,
+        moon_include_path,
+        moon_lib_path,
+        moon_bin_path,
+    }
+});
+
 pub fn home() -> PathBuf {
     if let Ok(moon_home) = std::env::var("MOON_HOME") {
         return PathBuf::from(moon_home);

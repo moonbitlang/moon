@@ -23,11 +23,12 @@ use crate::section_capture::{handle_stdout, SectionCapture};
 use super::gen;
 use anyhow::{bail, Context};
 use moonutil::common::{
-    MoonbuildOpt, MooncOpt, MOON_COVERAGE_DELIMITER_BEGIN, MOON_COVERAGE_DELIMITER_END,
+    MoonbuildOpt, MooncOpt, DYN_EXT, MOON_COVERAGE_DELIMITER_BEGIN, MOON_COVERAGE_DELIMITER_END,
     MOON_DOC_TEST_POSTFIX, MOON_MD_TEST_POSTFIX, MOON_TEST_DELIMITER_BEGIN,
     MOON_TEST_DELIMITER_END,
 };
 use moonutil::module::ModuleDB;
+use moonutil::moon_dir::MOON_DIRS;
 use n2::load::State;
 use serde::{Deserialize, Serialize};
 use std::{path::Path, process::Stdio};
@@ -88,7 +89,8 @@ pub async fn run_wat(
         Some("moonrun"),
         path,
         target_dir,
-        &_args,
+        &[],    // args before path
+        &_args, // args after path
         file_test_info_map,
         verbose,
     )
@@ -111,7 +113,8 @@ pub async fn run_js(
         node,
         path,
         target_dir,
-        &[serde_json_lenient::to_string(args).unwrap()],
+        &[],                                             // args before path
+        &[serde_json_lenient::to_string(args).unwrap()], // args after path
         file_test_info_map,
         verbose,
     )
@@ -119,6 +122,7 @@ pub async fn run_js(
 }
 
 pub async fn run_native(
+    moonbuild_opt: &MoonbuildOpt,
     path: &Path,
     target_dir: &Path,
     args: &TestArgs,
@@ -126,22 +130,67 @@ pub async fn run_native(
     verbose: bool,
 ) -> anyhow::Result<Vec<Result<TestStatistics, TestFailedStatus>>> {
     let args = args.to_cli_args_for_native();
-    run(None, path, target_dir, &[args], file_test_info_map, verbose).await
+    if moonbuild_opt.use_tcc_run {
+        let path = path.with_extension("c");
+        let rt_path = target_dir.join(format!("runtime.{}", DYN_EXT));
+        let moon_bin_path = &MOON_DIRS.moon_bin_path;
+        let tcc_path = moon_bin_path.join("internal").join("tcc");
+        run(
+            Some(tcc_path.display().to_string().as_str()),
+            &path,
+            target_dir,
+            &[
+                format!("-I{}", MOON_DIRS.moon_include_path.display()),
+                format!("-L{}", MOON_DIRS.moon_lib_path.display()),
+                format!("-L{}", MOON_DIRS.moon_bin_path.display()),
+                rt_path.display().to_string(),
+                "-DMOONBIT_NATIVE_NO_SYS_HEADER".to_string(),
+                "-run".to_string(),
+            ],
+            &[args],
+            file_test_info_map,
+            verbose,
+        )
+        .await
+    } else {
+        run(
+            None,
+            path,
+            target_dir,
+            &[],     // args before path
+            &[args], // args after path
+            file_test_info_map,
+            verbose,
+        )
+        .await
+    }
 }
 
 async fn run(
     runtime: Option<&str>,
     path: &Path,
     target_dir: &Path,
+    args_before_path: &[String],
     args: &[String],
     file_test_info_map: &FileTestInfo,
     verbose: bool,
 ) -> anyhow::Result<Vec<Result<TestStatistics, TestFailedStatus>>> {
     if verbose {
         if let Some(runtime) = runtime {
-            eprintln!("{} {} {}", runtime, path.display(), args.join(" "));
+            eprintln!(
+                "{} {} {} {}",
+                runtime,
+                args_before_path.join(" "),
+                path.display(),
+                args.join(" ")
+            );
         } else {
-            eprintln!("{} {}", path.display(), args.join(" "));
+            eprintln!(
+                "{} {} {}",
+                args_before_path.join(" "),
+                path.display(),
+                args.join(" ")
+            );
         }
     }
 
@@ -151,6 +200,7 @@ async fn run(
         path.to_str().unwrap()
     });
 
+    subprocess.args(args_before_path);
     if runtime.is_some() {
         subprocess.arg(path);
     }

@@ -19,6 +19,7 @@
 use crate::cond_expr::{CompileCondition, OptLevel};
 pub use crate::dirs::check_moon_mod_exists;
 use crate::module::{MoonMod, MoonModJSON};
+use crate::moon_dir::MOON_DIRS;
 use crate::package::{convert_pkg_json_to_package, MoonPkg, MoonPkgJSON, Package};
 use anyhow::{bail, Context};
 use clap::ValueEnum;
@@ -67,6 +68,14 @@ pub const MOD_DIR: &str = "$mod_dir";
 pub const PKG_DIR: &str = "$pkg_dir";
 
 pub const O_EXT: &str = if cfg!(windows) { "obj" } else { "o" };
+#[allow(unused)]
+pub const DYN_EXT: &str = if cfg!(windows) {
+    "dll"
+} else if cfg!(target_os = "macos") {
+    "dylib"
+} else {
+    "so"
+};
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct PatchJSON {
@@ -426,6 +435,7 @@ pub struct MoonbuildOpt {
     pub build_graph: bool,
     /// Max parallel tasks to run in n2; `None` to use default
     pub parallelism: Option<usize>,
+    pub use_tcc_run: bool,
 }
 
 impl MoonbuildOpt {
@@ -926,6 +936,7 @@ pub fn set_native_backend_link_flags(
     release: bool,
     target_backend: Option<TargetBackend>,
     module: &mut crate::module::ModuleDB,
+    tcc_run: bool,
 ) -> anyhow::Result<()> {
     match run_mode {
         // need link-core for build, test and run
@@ -937,13 +948,21 @@ pub fn set_native_backend_link_flags(
                 #[cfg(windows)]
                 let compiler = "cl";
 
-                let moonc_path = which::which("moonc").context("moonc not found in PATH")?;
-                let moon_home = moonc_path.parent().unwrap().parent().unwrap();
-                let moon_include_path = moon_home.join("include");
-                let moon_lib_path = moon_home.join("lib");
+                let moon_include_path = &MOON_DIRS.moon_include_path;
+                let moon_lib_path = &MOON_DIRS.moon_lib_path;
+                let moon_bin_path = &MOON_DIRS.moon_bin_path;
 
                 // libmoonbitrun.o should under $MOON_HOME/lib
-                let libmoonbitrun_path = moon_home.join("lib").join("libmoonbitrun.o");
+                let libmoonbitrun_path = moon_lib_path.join("libmoonbitrun.o");
+
+                #[cfg(unix)] // only support tcc on unix
+                let get_fast_cc_flags = || -> Option<String> {
+                    Some(format!(
+                        "-I{} -L{} -DMOONBIT_NATIVE_NO_SYS_HEADER",
+                        moon_include_path.display(),
+                        moon_lib_path.display()
+                    ))
+                };
 
                 let get_default_cc_flags = || -> Option<String> {
                     #[cfg(unix)]
@@ -966,10 +985,29 @@ pub fn set_native_backend_link_flags(
                 let mut link_configs = HashMap::new();
 
                 let all_pkgs = module.get_all_packages();
+
                 for (_, pkg) in all_pkgs {
                     let existing_native = pkg.link.as_ref().and_then(|link| link.native.as_ref());
 
                     let mut native_config = match existing_native {
+                        #[cfg(unix)] // only support tcc on unix
+                        // we have set the tcc_run flag outside
+                        // which implies users haven't set the native link config
+                        // so it's fine to override it here regardless of
+                        // the existing native link config
+                        _ if tcc_run => crate::package::NativeLinkConfig {
+                            exports: None,
+                            cc: Some(
+                                moon_bin_path
+                                    .join("internal")
+                                    .join("tcc")
+                                    .display()
+                                    .to_string(),
+                            ),
+                            cc_flags: get_fast_cc_flags(),
+                            cc_link_flags: None,
+                            native_stub_deps: None,
+                        },
                         Some(n) => crate::package::NativeLinkConfig {
                             exports: n.exports.clone(),
                             cc: n.cc.clone().or(Some(compiler.to_string())),
@@ -1002,8 +1040,7 @@ pub fn set_native_backend_link_flags(
                         None => crate::package::NativeLinkConfig {
                             exports: None,
                             cc: Some(
-                                moon_home
-                                    .join("bin")
+                                moon_bin_path
                                     .join("internal")
                                     .join("tcc")
                                     .display()
