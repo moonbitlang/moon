@@ -6,6 +6,7 @@
   - [name](./module/name.md)
   - [version](./module/version.md)
   - [deps](./module/deps.md)
+  - [bin-deps](./module/bin-deps.md)
   - [readme](./module/readme.md)
   - [repository](./module/repository.md)
   - [license](./module/license.md)
