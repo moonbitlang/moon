@@ -324,7 +324,7 @@ jobs:
 
   coverage:
     needs: bleeding-test
-    runs-on: macos-latest
+    runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -359,7 +359,7 @@ jobs:
       - name: install cargo-tarpaulin ${{ env.CARGO_TARPAULIN_VERSION }}
         run: |
           cd "${CARGO_HOME}/bin"
-          curl -sL https://github.com/xd009642/tarpaulin/releases/download/${CARGO_TARPAULIN_VERSION}/cargo-tarpaulin-aarch64-apple-darwin.tar.gz | tar zxf - -C ${CARGO_HOME:-~/.cargo}/bin
+          curl -sL https://github.com/xd009642/tarpaulin/releases/download/${CARGO_TARPAULIN_VERSION}/cargo-tarpaulin-x86_64-unknown-linux-gnu.tar.gz | tar zxf - -C ${CARGO_HOME:-~/.cargo}/bin
 
       - name: Build
         run: cargo build
@@ -371,7 +371,7 @@ jobs:
         run: cargo run --bin moon bundle --source-dir ~/.moon/lib/core --all
 
       - name: Generate code coverage
-        run: cargo tarpaulin --ignore-tests --out Xml
+        run: cargo tarpaulin -j 3 --ignore-tests --engine llvm --out Xml
 
       - name: Upload coverage reports to Codecov
         if: github.ref == 'refs/heads/main'
