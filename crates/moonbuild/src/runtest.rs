@@ -133,10 +133,9 @@ pub async fn run_native(
     if moonbuild_opt.use_tcc_run {
         let path = path.with_extension("c");
         let rt_path = target_dir.join(format!("runtime.{}", DYN_EXT));
-        let moon_bin_path = &MOON_DIRS.moon_bin_path;
-        let tcc_path = moon_bin_path.join("internal").join("tcc");
+        let internal_tcc_path = &MOON_DIRS.internal_tcc_path;
         run(
-            Some(tcc_path.display().to_string().as_str()),
+            Some(internal_tcc_path.display().to_string().as_str()),
             &path,
             target_dir,
             &[

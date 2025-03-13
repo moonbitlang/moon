@@ -27,6 +27,7 @@ pub struct MoonDirs {
     pub moon_include_path: PathBuf,
     pub moon_lib_path: PathBuf,
     pub moon_bin_path: PathBuf,
+    pub internal_tcc_path: PathBuf,
 }
 
 pub static MOON_DIRS: std::sync::LazyLock<MoonDirs> = std::sync::LazyLock::new(|| {
@@ -37,11 +38,13 @@ pub static MOON_DIRS: std::sync::LazyLock<MoonDirs> = std::sync::LazyLock::new(|
     let moon_include_path = moon_home.join("include");
     let moon_lib_path = moon_home.join("lib");
     let moon_bin_path = moon_home.join("bin");
+    let internal_tcc_path = moon_bin_path.join("internal").join("tcc");
     MoonDirs {
         moon_home,
         moon_include_path,
         moon_lib_path,
         moon_bin_path,
+        internal_tcc_path,
     }
 });
 
