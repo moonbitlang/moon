@@ -511,12 +511,12 @@ pub fn gen_compile_runtime_command(
         if which("cl").is_ok() {
             "cl"
         } else {
-            "tcc"
+            &MOON_DIRS.internal_tcc_path.display().to_string()
         }
     } else if which("cc").is_ok() {
         "cc"
     } else {
-        "tcc"
+        &MOON_DIRS.internal_tcc_path.display().to_string()
     };
 
     let windows_with_cl = cfg!(windows) && cc == "cl";
@@ -578,7 +578,11 @@ pub fn gen_compile_shared_runtime_command(
         explicit: 1,
     };
 
-    let cc = if which("cc").is_ok() { "cc" } else { "tcc" };
+    let cc = if which("cc").is_ok() {
+        "cc"
+    } else {
+        &MOON_DIRS.internal_tcc_path.display().to_string()
+    };
 
     let loc = FileLoc {
         filename: Rc::new(PathBuf::from("compile-shared-runtime")),

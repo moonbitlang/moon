@@ -950,7 +950,6 @@ pub fn set_native_backend_link_flags(
 
                 let moon_include_path = &MOON_DIRS.moon_include_path;
                 let moon_lib_path = &MOON_DIRS.moon_lib_path;
-                let moon_bin_path = &MOON_DIRS.moon_bin_path;
 
                 // libmoonbitrun.o should under $MOON_HOME/lib
                 let libmoonbitrun_path = moon_lib_path.join("libmoonbitrun.o");
@@ -997,13 +996,7 @@ pub fn set_native_backend_link_flags(
                         // the existing native link config
                         _ if tcc_run => crate::package::NativeLinkConfig {
                             exports: None,
-                            cc: Some(
-                                moon_bin_path
-                                    .join("internal")
-                                    .join("tcc")
-                                    .display()
-                                    .to_string(),
-                            ),
+                            cc: Some(MOON_DIRS.internal_tcc_path.display().to_string()),
                             cc_flags: get_fast_cc_flags(),
                             cc_link_flags: None,
                             native_stub_deps: None,
@@ -1039,13 +1032,7 @@ pub fn set_native_backend_link_flags(
                         }
                         None => crate::package::NativeLinkConfig {
                             exports: None,
-                            cc: Some(
-                                moon_bin_path
-                                    .join("internal")
-                                    .join("tcc")
-                                    .display()
-                                    .to_string(),
-                            ),
+                            cc: Some(MOON_DIRS.internal_tcc_path.display().to_string()),
                             cc_flags: Some(format!(
                                 "-L{} -I{} -DMOONBIT_NATIVE_NO_SYS_HEADER",
                                 moon_lib_path.display(),

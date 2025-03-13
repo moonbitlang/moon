@@ -159,11 +159,10 @@ fn run_single_mbt_file(cli: &UniversalFlags, cmd: RunSubcommand) -> anyhow::Resu
     let compile_exe_command = if target_backend == TargetBackend::Native {
         let moon_lib_path = &MOON_DIRS.moon_lib_path;
         let moon_include_path = &MOON_DIRS.moon_include_path;
-        let moon_bin_path = &MOON_DIRS.moon_bin_path;
-        let tcc_path = moon_bin_path.join("internal").join("tcc");
+        let internal_tcc_path = &MOON_DIRS.internal_tcc_path;
 
         Some(vec![
-            tcc_path.display().to_string(),
+            internal_tcc_path.display().to_string(),
             moon_lib_path.join("runtime.c").display().to_string(),
             output_wasm_or_js_path.display().to_string(),
             format!("-L{}", moon_lib_path.display()),
