@@ -6,6 +6,7 @@
   - [模块名](./module/name.md)
   - [版本](./module/version.md)
   - [依赖](./module/deps.md)
+  - [二进制依赖](./module/bin-deps.md)
   - [README 文件](./module/readme.md)
   - [仓库地址](./module/repository.md)
   - [许可证](./module/license.md)
