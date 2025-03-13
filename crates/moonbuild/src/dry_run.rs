@@ -70,16 +70,21 @@ pub fn print_commands(
             for fid in sorted_default.iter() {
                 let mut watfile = state.graph.file(*fid).name.clone();
                 let cmd = match moonc_opt.link_opt.target_backend {
-                    TargetBackend::Wasm => "moonrun",
-                    TargetBackend::WasmGC => "moonrun",
-                    TargetBackend::Js => "node",
-                    TargetBackend::Native | TargetBackend::LLVM => "",
+                    TargetBackend::Wasm | TargetBackend::WasmGC => "moonrun ",
+                    TargetBackend::Js => "node ",
+                    TargetBackend::Native | TargetBackend::LLVM => {
+                        // stub.o would be default for native and llvm, skip them
+                        if !watfile.ends_with(".exe") {
+                            continue;
+                        }
+                        ""
+                    }
                 };
                 if in_same_dir {
                     watfile = watfile.replacen(&source_dir.display().to_string(), ".", 1);
                 }
 
-                let mut moonrun_command = format!("{cmd} {watfile}");
+                let mut moonrun_command = format!("{cmd}{watfile}");
                 if !moonbuild_opt.args.is_empty() {
                     moonrun_command =
                         format!("{moonrun_command} -- {}", moonbuild_opt.args.join(" "));
