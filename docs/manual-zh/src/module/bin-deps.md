@@ -4,9 +4,9 @@
 
 ```json
 "bin-deps": {
-    // simple foramt, install all main package
+    // simple format, install all main package
     "hackwaly/moonyacc": "0.2.0",
-    // detailed foramt, local deps? specificy which main pkg to install?
+    // detailed format, local deps? specify which main pkg to install?
     "username/flash": {
         // local deps
         "path": "/Users/flash/projects/my-project",

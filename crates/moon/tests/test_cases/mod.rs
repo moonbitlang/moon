@@ -7680,7 +7680,7 @@ fn test_use_cc_for_native_release() {
                 moonc link-core $MOON_HOME/lib/core/target/native/release/bundle/core.core ./target/native/release/build/lib/lib.core ./target/native/release/build/main/main.core -main moonbitlang/hello/main -o ./target/native/release/build/main/main.c -pkg-config-path ./main/moon.pkg.json -pkg-sources moonbitlang/hello/lib:./lib -pkg-sources moonbitlang/hello/main:./main -pkg-sources moonbitlang/core:$MOON_HOME/lib/core -target native
                 cc -c $MOON_HOME/lib/runtime.c -I $MOON_HOME/include -o ./target/native/release/build/runtime.o
                 cc ./target/native/release/build/main/main.c ./target/native/release/build/runtime.o -I$MOON_HOME/include -O2 $MOON_HOME/lib/libmoonbitrun.o -fwrapv -fno-strict-aliasing -lm -o ./target/native/release/build/main/main.exe
-                 ./target/native/release/build/main/main.exe
+                ./target/native/release/build/main/main.exe
             "#]],
         );
         // if --release is not specified, it should not use cc
@@ -7702,7 +7702,7 @@ fn test_use_cc_for_native_release() {
                 moonc link-core $MOON_HOME/lib/core/target/native/release/bundle/core.core ./target/native/release/build/lib/lib.core ./target/native/release/build/main/main.core -main moonbitlang/hello/main -o ./target/native/release/build/main/main.c -pkg-config-path ./main/moon.pkg.json -pkg-sources moonbitlang/hello/lib:./lib -pkg-sources moonbitlang/hello/main:./main -pkg-sources moonbitlang/core:$MOON_HOME/lib/core -target native
                 cc -c $MOON_HOME/lib/runtime.c -I $MOON_HOME/include -o ./target/native/release/build/runtime.o
                 cc ./target/native/release/build/main/main.c ./target/native/release/build/runtime.o -I$MOON_HOME/include -O2 $MOON_HOME/lib/libmoonbitrun.o -fwrapv -fno-strict-aliasing -lm -o ./target/native/release/build/main/main.exe
-                 ./target/native/release/build/main/main.exe
+                ./target/native/release/build/main/main.exe
             "#]],
         );
         check(
@@ -7724,7 +7724,7 @@ fn test_use_cc_for_native_release() {
                 moonc link-core $MOON_HOME/lib/core/target/native/release/bundle/core.core ./target/native/debug/build/lib/lib.core ./target/native/debug/build/main/main.core -main moonbitlang/hello/main -o ./target/native/debug/build/main/main.c -pkg-config-path ./main/moon.pkg.json -pkg-sources moonbitlang/hello/lib:./lib -pkg-sources moonbitlang/hello/main:./main -pkg-sources moonbitlang/core:$MOON_HOME/lib/core -target native -g -O0
                 cc -c $MOON_HOME/lib/runtime.c -I $MOON_HOME/include -o ./target/native/debug/build/runtime.o
                 cc ./target/native/debug/build/main/main.c ./target/native/debug/build/runtime.o -I$MOON_HOME/include -O2 $MOON_HOME/lib/libmoonbitrun.o -fwrapv -fno-strict-aliasing -lm -o ./target/native/debug/build/main/main.exe
-                 ./target/native/debug/build/main/main.exe
+                ./target/native/debug/build/main/main.exe
             "#]],
         );
     }
@@ -7906,8 +7906,8 @@ fn test_native_backend_cc_flags() {
             cc ./target/native/release/build/main/main.c ./target/native/release/build/runtime.o -I$MOON_HOME/include -fwrapv -fno-strict-aliasing ccflags fasd cclinkflags -o ./target/native/release/build/main/main.exe
             moonc link-core $MOON_HOME/lib/core/target/native/release/bundle/core.core ./target/native/release/build/lib/lib.core -main moon_new/lib -o ./target/native/release/build/lib/lib.c -pkg-config-path ./lib/moon.pkg.json -pkg-sources moon_new/lib:./lib -pkg-sources moonbitlang/core:$MOON_HOME/lib/core -target native
             cc ./target/native/release/build/lib/lib.c ./target/native/release/build/runtime.o -I$MOON_HOME/include -fwrapv -fno-strict-aliasing ccflags fasd cclinkflags -o ./target/native/release/build/lib/lib.exe
-             ./target/native/release/build/lib/lib.exe
-             ./target/native/release/build/main/main.exe
+            ./target/native/release/build/lib/lib.exe
+            ./target/native/release/build/main/main.exe
         "#]],
     );
     // don't pass native cc flags for no native backend
