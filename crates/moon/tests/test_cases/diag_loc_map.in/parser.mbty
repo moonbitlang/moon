@@ -22,7 +22,7 @@ start
   ;
 
 add
-  : lhs=add "+" rhs=factor  { lhs + 'x' + rhs }
+  : lhs=add "+" rhs=factor  { lhs + "x" + rhs }
   | lhs=add "-" rhs=factor  { lhs - rhs }
   | factor                  { $1 }
   ;
