@@ -886,7 +886,7 @@ async fn execute_test(
             )
             .await
         }
-        TargetBackend::Native | TargetBackend::LLVM => {
+        TargetBackend::Native => {
             crate::runtest::run_native(
                 moonbuild_opt,
                 artifact_path,
@@ -896,6 +896,10 @@ async fn execute_test(
                 verbose,
             )
             .await
+        }
+        TargetBackend::LLVM => {
+            crate::runtest::run_llvm(artifact_path, target_dir, args, file_test_info_map, verbose)
+                .await
         }
     }
 }
