@@ -165,6 +165,26 @@ pub async fn run_native(
     }
 }
 
+pub async fn run_llvm(
+    path: &Path,
+    target_dir: &Path,
+    args: &TestArgs,
+    file_test_info_map: &FileTestInfo,
+    verbose: bool,
+) -> anyhow::Result<Vec<Result<TestStatistics, TestFailedStatus>>> {
+    let args = args.to_cli_args_for_native();
+    run(
+        None,
+        path,
+        target_dir,
+        &[],     // args before path
+        &[args], // args after path
+        file_test_info_map,
+        verbose,
+    )
+    .await
+}
+
 async fn run(
     runtime: Option<&str>,
     path: &Path,
