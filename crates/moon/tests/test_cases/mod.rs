@@ -8867,10 +8867,10 @@ fn test_diag_loc_map() {
             Error: [4014]
                 ╭─[$ROOT/parser.mbty:25:37]
                 │
-             25 │   : lhs=add "+" rhs=factor  { lhs + 'x' + rhs }
+             25 │   : lhs=add "+" rhs=factor  { lhs + "x" + rhs }
                 │                                     ─┬─  
                 │                                      ╰─── Expr Type Mismatch
-                    has type : Char
+                    has type : String
                     wanted   : Int
             ────╯
             error: failed when checking
