@@ -1107,6 +1107,7 @@ async fn handle_test_result(
                     if origin_err.is_md_test {
                         moonutil::doc_test::gen_md_test_patch(
                             module.get_package_by_name(&origin_err.package),
+                            moonc_opt,
                         )?;
                     }
 
@@ -1159,6 +1160,7 @@ async fn handle_test_result(
                         if origin_err.is_md_test {
                             moonutil::doc_test::gen_md_test_patch(
                                 module.get_package_by_name(&origin_err.package),
+                                moonc_opt,
                             )?;
                         }
 

@@ -252,15 +252,12 @@ pub fn gen_doc_test_patch(pkg: &Package, moonc_opt: &MooncOpt) -> anyhow::Result
     Ok(pj_path)
 }
 
-pub fn gen_md_test_patch(pkg: &Package) -> anyhow::Result<PathBuf> {
-    let mut md_files = Vec::new();
-    for entry in walkdir::WalkDir::new(&pkg.root_path) {
-        let entry = entry?;
-        let path = entry.path();
-        if path.is_file() && path.extension().is_some_and(|ext| ext == "md") {
-            md_files.push(path.to_path_buf());
-        }
-    }
+pub fn gen_md_test_patch(pkg: &Package, moonc_opt: &MooncOpt) -> anyhow::Result<PathBuf> {
+    let md_files = backend_filter(
+        &pkg.mbt_md_files,
+        moonc_opt.build_opt.debug_flag,
+        moonc_opt.build_opt.target_backend,
+    );
 
     let mut md_tests = vec![];
     let md_test_extractor = DocTestExtractor::new(true);

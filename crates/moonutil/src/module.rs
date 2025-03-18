@@ -538,6 +538,7 @@ pub fn convert_mdb_to_json(module: &ModuleDB) -> ModuleDBJSON {
         let files = pkg.files.clone();
         let wbtest_files = pkg.wbtest_files.clone();
         let test_files = pkg.test_files.clone();
+        let mbt_md_files = pkg.mbt_md_files.clone();
         let mut deps = vec![];
         for dep in &pkg.imports {
             let alias = match &dep.alias {
@@ -604,6 +605,7 @@ pub fn convert_mdb_to_json(module: &ModuleDB) -> ModuleDBJSON {
             deps,
             wbtest_deps,
             test_deps,
+            mbt_md_files,
             artifact: pkg
                 .artifact
                 .with_extension("mi")

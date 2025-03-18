@@ -1,4 +1,4 @@
 ///|
 fn main {
-  println(@lib.hello())
+  println(@lib.hello1())
 }

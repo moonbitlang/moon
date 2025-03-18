@@ -57,6 +57,7 @@ pub struct Package {
     pub wbtest_files: IndexMap<PathBuf, CompileCondition>,
     //  *_test.mbt
     pub test_files: IndexMap<PathBuf, CompileCondition>,
+    pub mbt_md_files: IndexMap<PathBuf, CompileCondition>,
     pub files_contain_test_block: Vec<PathBuf>,
     pub imports: Vec<ImportComponent>,
     pub wbtest_imports: Vec<ImportComponent>,
@@ -141,6 +142,8 @@ pub struct PackageJSON {
     pub wbtest_files: IndexMap<PathBuf, CompileCondition>,
     // black box test
     pub test_files: IndexMap<PathBuf, CompileCondition>,
+    // *.mbt.md
+    pub mbt_md_files: IndexMap<PathBuf, CompileCondition>,
     pub deps: Vec<AliasJSON>,
     pub wbtest_deps: Vec<AliasJSON>,
     pub test_deps: Vec<AliasJSON>,
