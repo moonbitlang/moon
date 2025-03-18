@@ -510,6 +510,15 @@ impl ModuleDB {
         }
         Ok(())
     }
+
+    pub fn contain_pre_build(&self) -> bool {
+        for (_, pkg) in &self.packages {
+            if pkg.pre_build.is_some() {
+                return true;
+            }
+        }
+        false
+    }
 }
 
 #[derive(Debug, Serialize, Deserialize, PartialEq)]
