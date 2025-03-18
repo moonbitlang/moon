@@ -299,6 +299,14 @@ fn test_hello() {
             Hello, world!
         "#]],
     );
+    check(
+        dir.join("target")
+            .join("common")
+            .join(".moon-lock")
+            .exists()
+            .to_string(),
+        expect!["true"],
+    );
 }
 
 #[test]
