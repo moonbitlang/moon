@@ -264,12 +264,10 @@ fn base64_decode_string_codepoint(s: &str) -> String {
                 | ((buf[i + 2] as u32) << 16)
                 | ((buf[i + 3] as u32) << 24),
         )
-        .expect(&format!(
-            "Error: Invalid Unicode code point detected.\n\
+        .unwrap_or_else(|| panic!("Error: Invalid Unicode code point detected.\n\
              The following byte sequence does not represent a valid character: {:?}\n\
              The reason this happens may be that you constructed an invalid string in the MoonBit inspect test.\n",
-            &buf[i..i + 4]
-        ));
+            &buf[i..i + 4]));
         s.push(c);
     }
     s
