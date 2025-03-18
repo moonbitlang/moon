@@ -38,6 +38,9 @@ pub fn scan_with_pre_build(
         moonc_opt,
         moonbuild_opt,
     )?;
+    if !module.contain_pre_build() {
+        return Ok(module);
+    }
     run_pre_build(
         moonc_opt,
         moonbuild_opt,
