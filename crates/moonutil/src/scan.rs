@@ -68,47 +68,58 @@ fn match_import_to_path(
     }
 }
 
-/// (*.mbt[exclude the following], *_wbtest.mbt, *_test.mbt)
-pub fn get_mbt_and_test_file_paths(dir: &Path) -> (Vec<PathBuf>, Vec<PathBuf>, Vec<PathBuf>) {
+/// (*.mbt[exclude the following], *_wbtest.mbt, *_test.mbt, *.mbt.md)
+pub fn get_mbt_and_test_file_paths(
+    dir: &Path,
+) -> (Vec<PathBuf>, Vec<PathBuf>, Vec<PathBuf>, Vec<PathBuf>) {
     let mut mbt_files = vec![];
     let mut mbt_wbtest_files = vec![];
     let mut mbt_test_files = vec![];
+    let mut mbt_md_files = vec![];
     let entries = std::fs::read_dir(dir).unwrap();
     for entry in entries.flatten() {
         if let Ok(t) = entry.file_type() {
             if (t.is_file() || t.is_symlink())
                 && entry.path().extension().is_some()
-                && entry.path().extension().unwrap() == "mbt"
+                && (entry.path().extension().unwrap() == "mbt"
+                    || entry.path().extension().unwrap() == "md")
             {
                 let p = entry.path();
-                let stem = p.file_stem().unwrap().to_str().unwrap();
 
-                let dot = stem.rfind('.');
-                match dot {
-                    None => {
-                        if stem.ends_with("_wbtest") {
-                            mbt_wbtest_files.push(p);
-                        } else if stem.ends_with("_test") {
-                            mbt_test_files.push(p);
-                        } else {
-                            mbt_files.push(p);
-                        }
+                let p_str = p.to_str().unwrap();
+                if p_str.ends_with("md") {
+                    if p_str.ends_with("mbt.md") {
+                        mbt_md_files.push(p.clone());
                     }
-                    Some(idx) => {
-                        let (filename, _dot_backend_ext) = stem.split_at(idx);
-                        if filename.ends_with("_wbtest") {
-                            mbt_wbtest_files.push(p);
-                        } else if filename.ends_with("_test") {
-                            mbt_test_files.push(p);
-                        } else {
-                            mbt_files.push(p);
+                } else {
+                    let stem = p.file_stem().unwrap().to_str().unwrap();
+                    let dot = stem.rfind('.');
+                    match dot {
+                        None => {
+                            if stem.ends_with("_wbtest") {
+                                mbt_wbtest_files.push(p);
+                            } else if stem.ends_with("_test") {
+                                mbt_test_files.push(p);
+                            } else {
+                                mbt_files.push(p);
+                            }
+                        }
+                        Some(idx) => {
+                            let (filename, _dot_backend_ext) = stem.split_at(idx);
+                            if filename.ends_with("_wbtest") {
+                                mbt_wbtest_files.push(p);
+                            } else if filename.ends_with("_test") {
+                                mbt_test_files.push(p);
+                            } else {
+                                mbt_files.push(p);
+                            }
                         }
                     }
                 }
             }
         }
     }
-    (mbt_files, mbt_wbtest_files, mbt_test_files)
+    (mbt_files, mbt_wbtest_files, mbt_test_files, mbt_md_files)
 }
 
 /// This is to support coverage testing for builtin packages.
@@ -266,7 +277,7 @@ fn scan_one_package(
     let wbtest_imports = get_imports(pkg.wbtest_imports)?;
     let test_imports = get_imports(pkg.test_imports)?;
 
-    let (mut mbt_files, mut wbtest_mbt_files, mut test_mbt_files) =
+    let (mut mbt_files, mut wbtest_mbt_files, mut test_mbt_files, mut mbt_md_files) =
         get_mbt_and_test_file_paths(pkg_path);
 
     // workaround for builtin package testing
@@ -282,6 +293,7 @@ fn scan_one_package(
         mbt_files.sort();
         wbtest_mbt_files.sort();
         test_mbt_files.sort();
+        mbt_md_files.sort();
     }
 
     // append warn_list & alert_list in current moon.pkg.json into the one in moon.mod.json
@@ -359,6 +371,7 @@ fn scan_one_package(
         files_contain_test_block: vec![],
         wbtest_files: file_cond_map(wbtest_mbt_files),
         test_files: file_cond_map(test_mbt_files),
+        mbt_md_files: file_cond_map(mbt_md_files),
         imports,
         wbtest_imports,
         test_imports,

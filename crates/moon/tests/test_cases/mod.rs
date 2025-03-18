@@ -2743,6 +2743,7 @@ fn test_dummy_core() {
                         }
                       },
                       "test-files": {},
+                      "mbt-md-files": {},
                       "deps": [],
                       "wbtest-deps": [],
                       "test-deps": [],
@@ -2808,6 +2809,7 @@ fn test_dummy_core() {
                         }
                       },
                       "test-files": {},
+                      "mbt-md-files": {},
                       "deps": [],
                       "wbtest-deps": [],
                       "test-deps": [],
@@ -2836,6 +2838,7 @@ fn test_dummy_core() {
                       },
                       "wbtest-files": {},
                       "test-files": {},
+                      "mbt-md-files": {},
                       "deps": [
                         {
                           "path": "moonbitlang/core/1",
@@ -2855,6 +2858,7 @@ fn test_dummy_core() {
                       "files": {},
                       "wbtest-files": {},
                       "test-files": {},
+                      "mbt-md-files": {},
                       "deps": [
                         {
                           "path": "moonbitlang/core/coverage",
@@ -2874,6 +2878,7 @@ fn test_dummy_core() {
                       "files": {},
                       "wbtest-files": {},
                       "test-files": {},
+                      "mbt-md-files": {},
                       "deps": [],
                       "wbtest-deps": [],
                       "test-deps": [],
@@ -2888,6 +2893,7 @@ fn test_dummy_core() {
                       "files": {},
                       "wbtest-files": {},
                       "test-files": {},
+                      "mbt-md-files": {},
                       "deps": [
                         {
                           "path": "moonbitlang/core/coverage",
@@ -3018,6 +3024,7 @@ fn test_dummy_core() {
                         }
                       },
                       "test-files": {},
+                      "mbt-md-files": {},
                       "deps": [],
                       "wbtest-deps": [],
                       "test-deps": [],
@@ -3083,6 +3090,7 @@ fn test_dummy_core() {
                         }
                       },
                       "test-files": {},
+                      "mbt-md-files": {},
                       "deps": [],
                       "wbtest-deps": [],
                       "test-deps": [],
@@ -3111,6 +3119,7 @@ fn test_dummy_core() {
                       },
                       "wbtest-files": {},
                       "test-files": {},
+                      "mbt-md-files": {},
                       "deps": [
                         {
                           "path": "moonbitlang/core/1",
@@ -3130,6 +3139,7 @@ fn test_dummy_core() {
                       "files": {},
                       "wbtest-files": {},
                       "test-files": {},
+                      "mbt-md-files": {},
                       "deps": [
                         {
                           "path": "moonbitlang/core/coverage",
@@ -3149,6 +3159,7 @@ fn test_dummy_core() {
                       "files": {},
                       "wbtest-files": {},
                       "test-files": {},
+                      "mbt-md-files": {},
                       "deps": [],
                       "wbtest-deps": [],
                       "test-deps": [],
@@ -3163,6 +3174,7 @@ fn test_dummy_core() {
                       "files": {},
                       "wbtest-files": {},
                       "test-files": {},
+                      "mbt-md-files": {},
                       "deps": [
                         {
                           "path": "moonbitlang/core/coverage",
@@ -5382,6 +5394,7 @@ fn test_blackbox_success() {
                           ]
                         }
                       },
+                      "mbt-md-files": {},
                       "deps": [
                         {
                           "path": "username/hello/D",
@@ -5425,6 +5438,7 @@ fn test_blackbox_success() {
                       },
                       "wbtest-files": {},
                       "test-files": {},
+                      "mbt-md-files": {},
                       "deps": [],
                       "wbtest-deps": [],
                       "test-deps": [],
@@ -5453,6 +5467,7 @@ fn test_blackbox_success() {
                       },
                       "wbtest-files": {},
                       "test-files": {},
+                      "mbt-md-files": {},
                       "deps": [],
                       "wbtest-deps": [],
                       "test-deps": [],
@@ -5481,6 +5496,7 @@ fn test_blackbox_success() {
                       },
                       "wbtest-files": {},
                       "test-files": {},
+                      "mbt-md-files": {},
                       "deps": [],
                       "wbtest-deps": [],
                       "test-deps": [],
@@ -5509,6 +5525,7 @@ fn test_blackbox_success() {
                       },
                       "wbtest-files": {},
                       "test-files": {},
+                      "mbt-md-files": {},
                       "deps": [],
                       "wbtest-deps": [],
                       "test-deps": [],
@@ -6511,6 +6528,7 @@ fn test_specify_source_dir_001() {
                           ]
                         }
                       },
+                      "mbt-md-files": {},
                       "deps": [],
                       "wbtest-deps": [],
                       "test-deps": [],
@@ -6539,6 +6557,7 @@ fn test_specify_source_dir_001() {
                       },
                       "wbtest-files": {},
                       "test-files": {},
+                      "mbt-md-files": {},
                       "deps": [
                         {
                           "path": "username/hello/lib",
@@ -9027,15 +9046,15 @@ fn test_run_md_test() {
             Hello, world 1!
             Hello, world 1!
             Hello, world 2!
-            test username/hello/lib/1.md::2 failed
-            expect test failed at $ROOT/src/lib/1.md:21:11-21:27
+            test username/hello/lib/1.mbt.md::2 failed
+            expect test failed at $ROOT/src/lib/1.mbt.md:21:11-21:27
             Diff:
             ----
             4234
             ----
 
-            test username/hello/lib/1.md::md_test 1.md 29 10 failed
-            expect test failed at $ROOT/src/lib/1.md:38:3-38:14
+            test username/hello/lib/1.mbt.md::md_test 1.mbt.md 29 10 failed
+            expect test failed at $ROOT/src/lib/1.mbt.md:38:3-38:14
             Diff:
             ----
              all
@@ -9064,6 +9083,139 @@ fn test_run_md_test() {
             Total tests: 5, passed: 5, failed: 0.
         "#]],
     );
+
+    #[cfg(unix)]
+    {
+        get_stdout(&dir, ["check", "--sort-input"]);
+        let p = dir.join("target/packages.json");
+        check(
+            replace_dir(&std::fs::read_to_string(p).unwrap(), &dir),
+            expect![[r#"
+                {
+                  "source_dir": "$ROOT",
+                  "name": "username/hello",
+                  "packages": [
+                    {
+                      "is-main": false,
+                      "is-third-party": false,
+                      "root-path": "$ROOT/src/lib",
+                      "root": "username/hello",
+                      "rel": "lib",
+                      "files": {
+                        "$ROOT/src/lib/hello.mbt": {
+                          "backend": [
+                            "Wasm",
+                            "WasmGC",
+                            "Js",
+                            "Native",
+                            "LLVM"
+                          ],
+                          "optlevel": [
+                            "Debug",
+                            "Release"
+                          ]
+                        }
+                      },
+                      "wbtest-files": {},
+                      "test-files": {
+                        "$ROOT/src/lib/hello_test.mbt": {
+                          "backend": [
+                            "Wasm",
+                            "WasmGC",
+                            "Js",
+                            "Native",
+                            "LLVM"
+                          ],
+                          "optlevel": [
+                            "Debug",
+                            "Release"
+                          ]
+                        }
+                      },
+                      "mbt-md-files": {
+                        "$ROOT/src/lib/1.mbt.md": {
+                          "backend": [
+                            "Wasm",
+                            "WasmGC",
+                            "Js",
+                            "Native",
+                            "LLVM"
+                          ],
+                          "optlevel": [
+                            "Debug",
+                            "Release"
+                          ]
+                        },
+                        "$ROOT/src/lib/2.mbt.md": {
+                          "backend": [
+                            "Wasm",
+                            "WasmGC",
+                            "Js",
+                            "Native",
+                            "LLVM"
+                          ],
+                          "optlevel": [
+                            "Debug",
+                            "Release"
+                          ]
+                        },
+                        "$ROOT/src/lib/3.mbt.md": {
+                          "backend": [
+                            "Wasm"
+                          ],
+                          "optlevel": [
+                            "Release",
+                            "Debug"
+                          ]
+                        }
+                      },
+                      "deps": [],
+                      "wbtest-deps": [],
+                      "test-deps": [],
+                      "artifact": "$ROOT/target/wasm-gc/release/check/lib/lib.mi"
+                    },
+                    {
+                      "is-main": true,
+                      "is-third-party": false,
+                      "root-path": "$ROOT/src/main",
+                      "root": "username/hello",
+                      "rel": "main",
+                      "files": {
+                        "$ROOT/src/main/main.mbt": {
+                          "backend": [
+                            "Wasm",
+                            "WasmGC",
+                            "Js",
+                            "Native",
+                            "LLVM"
+                          ],
+                          "optlevel": [
+                            "Debug",
+                            "Release"
+                          ]
+                        }
+                      },
+                      "wbtest-files": {},
+                      "test-files": {},
+                      "mbt-md-files": {},
+                      "deps": [
+                        {
+                          "path": "username/hello/lib",
+                          "alias": "lib"
+                        }
+                      ],
+                      "wbtest-deps": [],
+                      "test-deps": [],
+                      "artifact": "$ROOT/target/wasm-gc/release/check/main/main.mi"
+                    }
+                  ],
+                  "deps": [],
+                  "backend": "wasm-gc",
+                  "opt_level": "release",
+                  "source": "src"
+                }"#]],
+        );
+    }
 }
 
 #[test]

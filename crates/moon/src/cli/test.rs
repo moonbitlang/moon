@@ -340,7 +340,7 @@ fn run_test_internal(
         }
 
         if cmd.md_test {
-            let pj_path = moonutil::doc_test::gen_md_test_patch(pkg)?;
+            let pj_path = moonutil::doc_test::gen_md_test_patch(pkg, &moonc_opt)?;
             pkg.doc_test_patch_file = Some(pj_path.clone());
         }
 

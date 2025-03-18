@@ -229,6 +229,7 @@
             ]
           }
         },
+        "mbt-md-files": {},
         "deps": [],
         "wbtest-deps": [],
         "test-deps": [],
@@ -257,6 +258,7 @@
         },
         "wbtest-files": {},
         "test-files": {},
+        "mbt-md-files": {},
         "deps": [
           {
             "path": "username/hello/lib",
