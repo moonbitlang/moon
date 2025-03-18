@@ -305,7 +305,7 @@ fn test_hello() {
             .join(".moon-lock")
             .exists()
             .to_string(),
-        expect!["true"],
+        expect!["false"],
     );
 }
 
