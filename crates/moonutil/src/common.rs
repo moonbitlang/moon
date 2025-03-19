@@ -952,9 +952,9 @@ pub fn set_native_backend_link_flags(
                 let moon_lib_path = &MOON_DIRS.moon_lib_path;
 
                 // libmoonbitrun.o should under $MOON_HOME/lib
+                #[allow(unused)] // unused on Windows
                 let libmoonbitrun_path = moon_lib_path.join("libmoonbitrun.o");
 
-                #[cfg(unix)] // only support tcc on unix
                 let get_fast_cc_flags = || -> Option<String> {
                     Some(format!(
                         "-I{} -L{} -DMOONBIT_NATIVE_NO_SYS_HEADER",
@@ -989,7 +989,6 @@ pub fn set_native_backend_link_flags(
                     let existing_native = pkg.link.as_ref().and_then(|link| link.native.as_ref());
 
                     let mut native_config = match existing_native {
-                        #[cfg(unix)] // only support tcc on unix
                         // we have set the tcc_run flag outside
                         // which implies users haven't set the native link config
                         // so it's fine to override it here regardless of
