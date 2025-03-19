@@ -539,6 +539,7 @@ pub fn gen_compile_runtime_command(
                 "/nologo".to_string(),
             ],
         )
+        .arg_with_cond(cc.ends_with("tcc"), "-DMOONBIT_NATIVE_NO_SYS_HEADER")
         .build();
     log::debug!("Command: {}", command);
     let mut build = Build::new(loc, ins, outs);
@@ -593,6 +594,7 @@ pub fn gen_compile_shared_runtime_command(
         .arg(&runtime_dot_c_path)
         .arg("-shared")
         .arg("-fPIC")
+        .arg_with_cond(cc.ends_with("tcc"), "-DMOONBIT_NATIVE_NO_SYS_HEADER")
         .args(vec!["-I", &moon_home.join("include").display().to_string()])
         .args(vec!["-o", &artifact_output_path])
         .build();
@@ -753,6 +755,7 @@ pub fn gen_compile_stub_command(
                 "-fwrapv".to_string(),
                 "-fno-strict-aliasing".to_string(),
             ])
+            .arg_with_cond(native_cc.ends_with("tcc"), "-DMOONBIT_NATIVE_NO_SYS_HEADER")
             .args_with_cond(!windows_with_cl, vec!["-o", &artifact_output_path])
             .arg_with_cond(windows_with_cl, &format!("-Fo{}", artifact_output_path))
             .build();
