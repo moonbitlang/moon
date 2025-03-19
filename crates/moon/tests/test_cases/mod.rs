@@ -9394,3 +9394,31 @@ fn native_backend_test_filter() {
         "#]],
     );
 }
+
+#[test]
+fn test_upgrade() -> anyhow::Result<()> {
+    if std::env::var("CI").is_err() {
+        return Ok(());
+    }
+    let tmp_dir = tempfile::TempDir::new()?;
+    let _ = std::process::Command::new(moon_bin())
+        .env("MOON_HOME", tmp_dir.path().to_str().unwrap())
+        .arg("upgrade")
+        .arg("--force")
+        .arg("--non-interactive")
+        .arg("--base-url")
+        .arg("https://cli.moonbitlang.com")
+        .output()?;
+    #[cfg(unix)]
+    let xs = [
+        tmp_dir.path().join("bin").join("moon").exists(),
+        tmp_dir.path().join("bin").join("moonc").exists(),
+    ];
+    #[cfg(windows)]
+    let xs = [
+        tmp_dir.path().join("bin").join("moon.exe").exists(),
+        tmp_dir.path().join("bin").join("moonc.exe").exists(),
+    ];
+    check(format!("{:?}", xs), expect!["[true, true]"]);
+    Ok(())
+}
