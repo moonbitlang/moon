@@ -605,6 +605,67 @@ pub fn gen_compile_shared_runtime_command(
     (build, artifact_output_path)
 }
 
+#[cfg(windows)]
+pub fn gen_compile_shared_runtime_command(
+    graph: &mut n2graph::Graph,
+    target_dir: &Path,
+) -> (Build, String) {
+    let moonc_path = which("moonc").unwrap();
+    let moon_home = moonc_path.parent().unwrap().parent().unwrap();
+    let runtime_dot_c_path = moon_home
+        .join("lib")
+        .join("runtime.c")
+        .display()
+        .to_string();
+
+    let artifact_output_path = target_dir
+        .join(format!("runtime.{}", moonutil::common::DYN_EXT))
+        .display()
+        .to_string();
+
+    let ins = BuildIns {
+        ids: vec![graph.files.id_from_canonical(runtime_dot_c_path.clone())],
+        explicit: 1,
+        implicit: 0,
+        order_only: 0,
+    };
+
+    let artifact_id = graph.files.id_from_canonical(artifact_output_path.clone());
+    let outs = BuildOuts {
+        ids: vec![artifact_id],
+        explicit: 1,
+    };
+
+    let cc = if which("cl").is_ok() {
+        "cl"
+    } else {
+        &MOON_DIRS.internal_tcc_path.display().to_string()
+    };
+
+    let loc = FileLoc {
+        filename: Rc::new(PathBuf::from("compile-shared-runtime")),
+        line: 0,
+    };
+
+    let command = CommandBuilder::new(cc)
+    .arg("/LD")
+    .arg(&runtime_dot_c_path)
+    .args(vec!["/I", &moon_home.join("include").display().to_string()])
+    .args(
+        vec![
+            format!("/Fe{}", artifact_output_path),
+            "/wd4819".to_string(),
+            "/nologo".to_string(),
+        ],
+    )
+    .build();
+    log::debug!("Command: {}", command);
+    let mut build = Build::new(loc, ins, outs);
+    build.cmdline = Some(command);
+    build.desc = Some(format!("compile-shared-runtime: {}", artifact_output_path));
+    (build, artifact_output_path)
+}
+
 pub fn gen_compile_exe_command(
     graph: &mut n2graph::Graph,
     item: &BuildLinkDepItem,
@@ -865,7 +926,6 @@ pub fn gen_n2_build_state(
     let mut runtime_o_path = String::new();
 
     if is_native_backend {
-        #[cfg(unix)]
         fn gen_shared_runtime(
             graph: &mut n2graph::Graph,
             target_dir: &Path,
@@ -884,14 +944,9 @@ pub fn gen_n2_build_state(
             Ok(path)
         }
 
-        #[cfg(unix)]
         if moonbuild_opt.use_tcc_run {
             gen_shared_runtime(&mut graph, target_dir, &mut default)?;
         } else {
-            runtime_o_path = gen_runtime(&mut graph, target_dir)?;
-        }
-        #[cfg(windows)]
-        {
             runtime_o_path = gen_runtime(&mut graph, target_dir)?;
         }
     }
