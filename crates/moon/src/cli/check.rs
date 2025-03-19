@@ -186,6 +186,7 @@ fn run_check_internal(
         no_parallelize: false,
         parallelism: cmd.build_flags.jobs,
         use_tcc_run: false,
+        all_stubs: vec![],
     };
 
     let mut module = scan_with_pre_build(

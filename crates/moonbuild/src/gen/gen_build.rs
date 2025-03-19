@@ -29,7 +29,8 @@ use std::path::{Path, PathBuf};
 use std::rc::Rc;
 
 use moonutil::common::{
-    BuildOpt, MoonbuildOpt, MooncOpt, TargetBackend, MOONBITLANG_CORE, MOON_PKG_JSON, O_EXT,
+    BuildOpt, MoonbuildOpt, MooncOpt, TargetBackend, DYN_EXT, MOONBITLANG_CORE, MOON_PKG_JSON,
+    O_EXT,
 };
 use n2::graph::{self as n2graph, Build, BuildIns, BuildOuts, FileLoc};
 use n2::load::State;
@@ -57,6 +58,98 @@ pub struct N2BuildInput {
     pub build_items: Vec<BuildDepItem>,
     pub link_items: Vec<BuildLinkDepItem>, // entry points
     pub compile_stub_items: Vec<BuildLinkDepItem>,
+}
+
+#[allow(unused)]
+#[derive(Clone)]
+enum OutputType {
+    Object,
+    SharedLib,
+    Executable,
+}
+
+fn gen_cc_command(
+    cc: &str,
+    input: &str,
+    no_sys_header: bool,
+    output_ty: OutputType,
+    output: &str,
+    cl_misc_path: Option<&str>,
+) -> String {
+    let is_tcc = cc.ends_with("tcc");
+    let windows_with_cl = cfg!(windows) && cc == "cl";
+    let ipath = &MOON_DIRS.moon_include_path.display().to_string();
+    let lpath = &MOON_DIRS.moon_lib_path.display().to_string();
+    let include = if windows_with_cl {
+        vec![format!("/I{}", ipath)]
+    } else {
+        vec!["-I".to_string(), ipath.to_string()]
+    };
+    let lib = if windows_with_cl {
+        vec![format!("/link /LIBPATH:{}", lpath)]
+    } else {
+        vec!["-L".to_string(), lpath.to_string()]
+    };
+    let output_misc_to = if windows_with_cl
+        && matches!(output_ty, OutputType::SharedLib | OutputType::Executable)
+        && cl_misc_path.is_some()
+    {
+        vec![format!("/Fo{}", cl_misc_path.unwrap())]
+    } else {
+        vec![]
+    };
+    let output = match output_ty {
+        OutputType::Object => {
+            if windows_with_cl {
+                vec![format!("/Fo{}", output)]
+            } else {
+                vec!["-o".to_string(), output.to_string()]
+            }
+        }
+        OutputType::SharedLib | OutputType::Executable => {
+            if windows_with_cl {
+                vec![format!("/Fo{}", output)]
+            } else {
+                vec!["-o".to_string(), output.to_string()]
+            }
+        }
+    };
+    let shared = match output_ty {
+        OutputType::Object => {
+            if windows_with_cl {
+                vec!["/c".to_string()]
+            } else {
+                vec!["-c".to_string()]
+            }
+        }
+        OutputType::SharedLib => {
+            if windows_with_cl {
+                vec!["/LD".to_string()]
+            } else {
+                vec!["-shared".to_string(), "-fPIC".to_string()]
+            }
+        }
+        OutputType::Executable => {
+            vec![]
+        }
+    };
+    let extra_args = if windows_with_cl {
+        vec!["/wd4819".to_string(), "/nologo".to_string()]
+    } else if !is_tcc {
+        vec!["-fwrapv".to_string(), "-fno-strict-aliasing".to_string()]
+    } else {
+        vec![]
+    };
+    CommandBuilder::new(cc)
+        .arg(input)
+        .arg_with_cond(no_sys_header || is_tcc, "-DMOONBIT_NATIVE_NO_SYS_HEADER")
+        .args(shared)
+        .args(include)
+        .args(lib)
+        .args(&extra_args)
+        .args(output)
+        .args(output_misc_to)
+        .build()
 }
 
 pub fn gen_build_build_item(
@@ -483,8 +576,7 @@ pub fn gen_compile_runtime_command(
     graph: &mut n2graph::Graph,
     target_dir: &Path,
 ) -> (Build, String) {
-    let moonc_path = which("moonc").unwrap();
-    let moon_home = moonc_path.parent().unwrap().parent().unwrap();
+    let moon_home = &MOON_DIRS.moon_home;
     let runtime_dot_c_path = moon_home.join("lib").join("runtime.c");
 
     let ins = BuildIns {
@@ -553,8 +645,7 @@ pub fn gen_compile_shared_runtime_command(
     graph: &mut n2graph::Graph,
     target_dir: &Path,
 ) -> (Build, String) {
-    let moonc_path = which("moonc").unwrap();
-    let moon_home = moonc_path.parent().unwrap().parent().unwrap();
+    let moon_home = &MOON_DIRS.moon_home;
     let runtime_dot_c_path = moon_home
         .join("lib")
         .join("runtime.c")
@@ -589,15 +680,14 @@ pub fn gen_compile_shared_runtime_command(
         filename: Rc::new(PathBuf::from("compile-shared-runtime")),
         line: 0,
     };
-
-    let command = CommandBuilder::new(cc)
-        .arg(&runtime_dot_c_path)
-        .arg("-shared")
-        .arg("-fPIC")
-        .arg_with_cond(cc.ends_with("tcc"), "-DMOONBIT_NATIVE_NO_SYS_HEADER")
-        .args(vec!["-I", &moon_home.join("include").display().to_string()])
-        .args(vec!["-o", &artifact_output_path])
-        .build();
+    let command = gen_cc_command(
+        cc,
+        &runtime_dot_c_path,
+        false,
+        OutputType::SharedLib,
+        &artifact_output_path,
+        None,
+    );
     log::debug!("Command: {}", command);
     let mut build = Build::new(loc, ins, outs);
     build.cmdline = Some(command);
@@ -610,8 +700,7 @@ pub fn gen_compile_shared_runtime_command(
     graph: &mut n2graph::Graph,
     target_dir: &Path,
 ) -> (Build, String) {
-    let moonc_path = which("moonc").unwrap();
-    let moon_home = moonc_path.parent().unwrap().parent().unwrap();
+    let moon_home = &MOON_DIRS.moon_home;
     let runtime_dot_c_path = moon_home
         .join("lib")
         .join("runtime.c")
@@ -647,18 +736,14 @@ pub fn gen_compile_shared_runtime_command(
         line: 0,
     };
 
-    let command = CommandBuilder::new(cc)
-    .arg("/LD")
-    .arg(&runtime_dot_c_path)
-    .args(vec!["/I", &moon_home.join("include").display().to_string()])
-    .args(
-        vec![
-            format!("/Fe{}", artifact_output_path),
-            "/wd4819".to_string(),
-            "/nologo".to_string(),
-        ],
-    )
-    .build();
+    let command = gen_cc_command(
+        cc,
+        &runtime_dot_c_path,
+        false,
+        OutputType::SharedLib,
+        &artifact_output_path,
+        Some(&target_dir.display().to_string()),
+    );
     log::debug!("Command: {}", command);
     let mut build = Build::new(loc, ins, outs);
     build.cmdline = Some(command);
@@ -748,7 +833,7 @@ pub fn gen_compile_exe_command(
             let artifact_output_dir = artifact_output_path.parent().unwrap().display().to_string();
             vec![
                 format!("/Fe{}", artifact_output_path.display().to_string()),
-                format!("-Fo{}\\", artifact_output_dir),
+                format!("/Fo{}\\", artifact_output_dir),
                 "/wd4819".to_string(),
                 "/nologo".to_string(),
             ]
@@ -775,7 +860,8 @@ pub fn gen_compile_stub_command(
     let mut res = vec![];
 
     for input in inputs {
-        let artifact_output_path = PathBuf::from(&item.out)
+        let artifact = PathBuf::from(&item.out);
+        let artifact_output_path = artifact
             .with_file_name(input.with_extension(O_EXT).file_name().unwrap())
             .display()
             .to_string();
@@ -803,23 +889,75 @@ pub fn gen_compile_stub_command(
 
         let native_cc = item.native_cc(moonc_opt.link_opt.target_backend).unwrap();
 
-        let moon_include_path = MOON_DIRS.moon_include_path.clone();
+        let command = gen_cc_command(
+            native_cc,
+            &input.display().to_string(),
+            false,
+            OutputType::Object,
+            &artifact_output_path,
+            Some(&artifact.display().to_string()),
+        );
+        log::debug!("Command: {}", command);
+        build.cmdline = Some(command);
+        build.desc = Some(format!("compile-stub: {}", input.display()));
+        res.push((build, artifact_id));
+    }
 
-        let windows_with_cl = cfg!(windows) && native_cc == "cl";
+    res
+}
 
-        let command = CommandBuilder::new(native_cc)
-            .arg("-c")
-            .arg(&input.display().to_string())
-            .args(&[
-                "-I".to_string(),
-                moon_include_path.display().to_string(),
-                "-fwrapv".to_string(),
-                "-fno-strict-aliasing".to_string(),
-            ])
-            .arg_with_cond(native_cc.ends_with("tcc"), "-DMOONBIT_NATIVE_NO_SYS_HEADER")
-            .args_with_cond(!windows_with_cl, vec!["-o", &artifact_output_path])
-            .arg_with_cond(windows_with_cl, &format!("-Fo{}", artifact_output_path))
-            .build();
+pub fn gen_compile_stub_with_tcc_run_command(
+    graph: &mut n2graph::Graph,
+    item: &LinkDepItem,
+    moonc_opt: &MooncOpt,
+) -> Vec<(Build, n2graph::FileId)> {
+    let inputs = item
+        .native_stub
+        .as_ref()
+        .unwrap()
+        .iter()
+        .map(|f| item.package_path.join(f));
+
+    let mut res = vec![];
+
+    for input in inputs {
+        let artifact_output_dir = PathBuf::from(&item.out);
+        let artifact_output_path = artifact_output_dir
+            .with_file_name(input.with_extension(DYN_EXT).file_name().unwrap())
+            .display()
+            .to_string();
+        let artifact_id = graph.files.id_from_canonical(artifact_output_path.clone());
+
+        let loc = FileLoc {
+            filename: Rc::new(PathBuf::from("compile-stub")),
+            line: 0,
+        };
+
+        let input_ids = vec![graph.files.id_from_canonical(input.display().to_string())];
+        let ins = BuildIns {
+            ids: input_ids,
+            explicit: 1,
+            implicit: 0,
+            order_only: 0,
+        };
+
+        let outs = BuildOuts {
+            ids: vec![artifact_id],
+            explicit: 1,
+        };
+
+        let mut build = Build::new(loc, ins, outs);
+
+        let native_cc = item.native_cc(moonc_opt.link_opt.target_backend).unwrap();
+
+        let command = gen_cc_command(
+            native_cc,
+            &input.display().to_string(),
+            false,
+            OutputType::SharedLib,
+            &artifact_output_path,
+            Some(&artifact_output_dir.display().to_string()),
+        );
         log::debug!("Command: {}", command);
         build.cmdline = Some(command);
         build.desc = Some(format!("compile-stub: {}", input.display()));
@@ -1046,7 +1184,11 @@ pub fn gen_n2_build_state(
 
     if is_native_backend {
         for item in input.compile_stub_items.iter() {
-            let builds = gen_compile_stub_command(&mut graph, item, moonc_opt);
+            let builds = if moonbuild_opt.use_tcc_run {
+                gen_compile_stub_with_tcc_run_command(&mut graph, item, moonc_opt)
+            } else {
+                gen_compile_stub_command(&mut graph, item, moonc_opt)
+            };
             for (build, fid) in builds {
                 graph.add_build(build)?;
                 default.push(fid);

@@ -7804,7 +7804,7 @@ fn test_use_cc_for_native_release() {
                 moon generate-test-driver --source-dir . --target-dir ./target --package moonbitlang/hello/lib --sort-input --target native --driver-kind internal
                 moonc build-package ./lib/hello.mbt ./target/native/debug/test/lib/__generated_driver_for_internal_test.mbt -o ./target/native/debug/test/lib/lib.internal_test.core -pkg moonbitlang/hello/lib -is-main -std-path $MOON_HOME/lib/core/target/native/release/bundle -pkg-sources moonbitlang/hello/lib:./lib -target native -g -O0 -no-mi
                 moonc link-core $MOON_HOME/lib/core/target/native/release/bundle/core.core ./target/native/debug/test/lib/lib.internal_test.core -main moonbitlang/hello/lib -o ./target/native/debug/test/lib/lib.internal_test.c -test-mode -pkg-config-path ./lib/moon.pkg.json -pkg-sources moonbitlang/hello/lib:./lib -pkg-sources moonbitlang/core:$MOON_HOME/lib/core -exported_functions moonbit_test_driver_internal_execute,moonbit_test_driver_finish -target native -g -O0
-                cc $MOON_HOME/lib/runtime.c -shared -fPIC -I $MOON_HOME/include -o ./target/native/debug/test/runtime.dylib
+                cc $MOON_HOME/lib/runtime.c -shared -fPIC -I $MOON_HOME/include -L $MOON_HOME/lib -fwrapv -fno-strict-aliasing -o ./target/native/debug/test/runtime.dylib
             "#]],
         );
         #[cfg(target_os = "linux")]

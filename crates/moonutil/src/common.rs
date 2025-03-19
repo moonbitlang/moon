@@ -436,6 +436,7 @@ pub struct MoonbuildOpt {
     /// Max parallel tasks to run in n2; `None` to use default
     pub parallelism: Option<usize>,
     pub use_tcc_run: bool,
+    pub all_stubs: Vec<String>,
 }
 
 impl MoonbuildOpt {
@@ -932,6 +933,7 @@ impl StringExt for str {
 }
 
 pub fn set_native_backend_link_flags(
+    moonbuild_opt: &mut MoonbuildOpt,
     run_mode: RunMode,
     release: bool,
     target_backend: Option<TargetBackend>,
@@ -1042,25 +1044,30 @@ pub fn set_native_backend_link_flags(
                         },
                     };
 
-                    let mut native_stub_o = Vec::new();
+                    let mut native_stubs = Vec::new();
                     module
                         .get_filtered_packages_and_its_deps_by_pkgname(pkg.full_name().as_str())
                         .unwrap()
                         .iter()
                         .for_each(|(_, pkg)| {
                             if let Some(ref stub_files) = pkg.native_stub {
-                                native_stub_o.extend(stub_files.iter().map(|f| {
-                                    pkg.artifact
-                                        .parent()
-                                        .unwrap()
-                                        .join(f)
-                                        .with_extension(O_EXT)
-                                        .display()
-                                        .to_string()
-                                }));
+                                native_stubs.extend(
+                                    stub_files
+                                        .iter()
+                                        .map(|f| pkg.artifact.parent().unwrap().join(f)),
+                                );
                             }
                         });
 
+                    let native_stub_o = native_stubs
+                        .iter()
+                        .map(|f| f.with_extension(O_EXT).display().to_string())
+                        .collect::<Vec<_>>();
+                    moonbuild_opt.all_stubs.extend(
+                        native_stubs
+                            .iter()
+                            .map(|f| f.with_extension(DYN_EXT).display().to_string()),
+                    );
                     if !native_stub_o.is_empty() {
                         native_config.native_stub_deps = Some(native_stub_o);
                     }

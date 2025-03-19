@@ -43,7 +43,7 @@ use n2::smallmap::SmallMap;
 
 use crate::gen::gen_build::{
     gen_compile_exe_command, gen_compile_runtime_command, gen_compile_shared_runtime_command,
-    gen_compile_stub_command, gen_link_exe_command,
+    gen_compile_stub_command, gen_compile_stub_with_tcc_run_command, gen_link_exe_command,
 };
 use crate::gen::n2_errors::{N2Error, N2ErrorKind};
 use crate::gen::{coverage_args, MiAlias};
@@ -1156,7 +1156,11 @@ pub fn gen_n2_runtest_state(
 
     if is_native_backend {
         for item in input.compile_stub_items.iter() {
-            let builds = gen_compile_stub_command(&mut graph, item, moonc_opt);
+            let builds = if moonbuild_opt.use_tcc_run {
+                gen_compile_stub_with_tcc_run_command(&mut graph, item, moonc_opt)
+            } else {
+                gen_compile_stub_command(&mut graph, item, moonc_opt)
+            };
             for (build, fid) in builds {
                 graph.add_build(build)?;
                 default.push(fid);
