@@ -18,103 +18,67 @@
 
 use anyhow::{bail, Context, Result};
 use colored::Colorize;
-use console::Term;
 use dialoguer::Confirm;
-use futures::stream::{self, StreamExt, TryStreamExt};
-use moonutil::common::{
-    get_moon_version, get_moonc_version, get_moonrun_version, CargoPathExt, VersionItems,
-    MOONBITLANG_CORE,
-};
-use moonutil::moon_dir::{self, moon_tmp_dir};
+use moonutil::common::{get_moon_version, get_moonc_version, get_moonrun_version, VersionItems};
+use moonutil::moon_dir::{self};
 use reqwest;
-use std::io::Write;
-use std::path::{Component, Path, PathBuf};
-use std::sync::{Arc, Mutex};
-use std::time::Duration;
-use tokio;
-use tokio::io::AsyncWriteExt;
-use tokio::signal;
-
-#[cfg(unix)]
-use std::os::unix::fs::PermissionsExt;
-
-#[cfg(unix)]
-use tokio::fs::set_permissions;
+use reqwest::Client;
+use std::time::Instant;
+use tokio::time::timeout;
 
 #[derive(Debug, clap::Parser, Clone)]
 pub struct UpgradeSubcommand {
     /// Force upgrade
     #[clap(long, short)]
     pub force: bool,
+
+    #[clap(long, hide = true)]
+    pub non_interactive: bool,
+
+    #[clap(long, hide = true)]
+    pub base_url: Option<String>,
 }
 
-#[derive(Default)]
-struct DownloadProgress {
-    total_size: u64,
-    downloaded: u64,
-}
+async fn check_latency(url: &str, client: &Client) -> Option<u128> {
+    let start = Instant::now();
+    let result = timeout(std::time::Duration::from_secs(1), client.get(url).send()).await;
 
-/// Copy from: https://github.com/rust-lang/cargo/blob/c21dd51/crates/cargo-util/src/paths.rs#L84
-///
-/// Normalize a path, removing things like `.` and `..`.
-///
-/// CAUTION: This does not resolve symlinks (unlike
-/// [`std::fs::canonicalize`]). This may cause incorrect or surprising
-/// behavior at times. This should be used carefully. Unfortunately,
-/// [`std::fs::canonicalize`] can be hard to use correctly, since it can often
-/// fail, or on Windows returns annoying device paths. This is a problem Cargo
-/// needs to improve on.
-pub fn normalize_path(path: &Path) -> PathBuf {
-    let mut components = path.components().peekable();
-    let mut ret = if let Some(c @ Component::Prefix(..)) = components.peek().cloned() {
-        components.next();
-        PathBuf::from(c.as_os_str())
-    } else {
-        PathBuf::new()
-    };
-
-    for component in components {
-        match component {
-            Component::Prefix(..) => unreachable!(),
-            Component::RootDir => {
-                ret.push(component.as_os_str());
-            }
-            Component::CurDir => {}
-            Component::ParentDir => {
-                ret.pop();
-            }
-            Component::Normal(c) => {
-                ret.push(c);
-            }
-        }
+    match result {
+        Ok(Ok(resp)) if resp.status().is_success() => Some(start.elapsed().as_millis()),
+        _ => None,
     }
-    ret
 }
 
-fn check_connectivity() -> anyhow::Result<&'static str> {
-    let url = "https://www.google.com";
-
-    let client = reqwest::blocking::Client::builder()
-        .timeout(Duration::from_secs(1))
+async fn test_latency() -> Result<&'static str> {
+    let client = Client::builder()
+        .timeout(std::time::Duration::from_secs(1))
         .build()
         .context("Failed to create HTTP client")?;
 
-    let resp = client.get(url).send();
-    if resp.is_ok() && resp.unwrap().status().is_success() {
-        Ok("https://cli.moonbitlang.com")
-    } else {
-        Ok("https://cli.moonbitlang.cn")
+    let url1 = "https://cli.moonbitlang.com";
+    let url2 = "https://cli.moonbitlang.cn";
+
+    let url1_version = format!("{}/version.json", url1);
+    let url2_version = format!("{}/version.json", url2);
+
+    tokio::select! {
+        res1 = check_latency(&url1_version, &client) => {
+            if res1.is_some() {
+                return Ok(url1);
+            }
+        }
+        res2 = check_latency(&url2_version, &client) => {
+            if res2.is_some() {
+                return Ok(url2);
+            }
+        }
     }
+    Ok(url1) // fall back to the first URL
 }
 
-fn os_arch() -> &'static str {
-    match (std::env::consts::ARCH, std::env::consts::OS) {
-        ("x86_64", "macos") => "macos_intel",
-        ("aarch64", "macos") => "macos_m1",
-        ("x86_64", "linux") => "ubuntu_x86",
-        ("x86_64", "windows") => "windows",
-        _ => panic!("unsupported platform"),
-    }
+fn check_connectivity() -> anyhow::Result<&'static str> {
+    let runtime = tokio::runtime::Runtime::new().unwrap();
+    runtime.block_on(async { test_latency().await })
 }
 
 fn extract_date(input: &str) -> Option<String> {
@@ -167,12 +131,15 @@ fn should_upgrade(latest_version_info: &VersionItems) -> Option<bool> {
 }
 
 pub fn upgrade(cmd: UpgradeSubcommand) -> Result<i32> {
-    ctrlc::set_handler(moonutil::common::dialoguer_ctrlc_handler)?;
-
+    ctrlc::set_handler(upgrade_dialoguer_ctrlc_handler)?;
     let h = moon_dir::home();
 
     println!("Checking network ...");
-    let root = check_connectivity()?;
+    let root = if cmd.base_url.is_none() {
+        check_connectivity()?.to_string()
+    } else {
+        cmd.base_url.unwrap().to_string()
+    };
     println!("  Use {}", root);
 
     let download_page = if root.contains("moonbitlang.cn") {
@@ -201,238 +168,96 @@ pub fn upgrade(cmd: UpgradeSubcommand) -> Result<i32> {
         download_page
     );
     println!("{}", msg.bold());
-    let confirm = Confirm::new()
-        .with_prompt(format!(
-            "Will install to {}. Continue?",
-            h.display().to_string().bold()
-        ))
-        .default(true)
-        .interact()?;
-    if confirm {
-        do_upgrade(root)?;
+    if !cmd.non_interactive {
+        let confirm = Confirm::new()
+            .with_prompt(format!(
+                "Will install to {}. Continue?",
+                h.display().to_string().bold()
+            ))
+            .default(true)
+            .interact()?;
+        if confirm {
+            do_upgrade(&root)?;
+        }
+    } else {
+        do_upgrade(&root)?;
     }
     println!("{}", "Done".green().bold());
     Ok(0)
 }
 
-pub fn do_upgrade(root: &'static str) -> Result<i32> {
-    let rt = tokio::runtime::Runtime::new()?;
-    rt.block_on(async {
-        let items = [
-            "include/moonbit.h",
-            "include/moonbit-fundamental.h",
-            "lib/libmoonbitrun.o",
-            "lib/libtcc1.a",
-            "bin/moon",
-            "bin/moonc",
-            "bin/moonfmt",
-            "bin/moonrun",
-            "bin/mooninfo",
-            "bin/moondoc",
-            "bin/moon_cove_report",
-            "bin/mooncake",
-            "bin/internal/tcc",
-            "core.zip",
-        ];
-        let download_items_and_urls = items
-            .iter()
-            .map(|item| {
-                if *item != "core.zip" {
-                    (item.to_string(), format!("{}/{}/{}{}", root, os_arch(), item, if os_arch() == "windows" && !item.contains(".") { ".exe" } else { "" }))
-                } else {
-                    (item.to_string(), format!("{}/{}", root, item))
-                }
-            })
-            .collect::<Vec<(String,String)>>();
+pub fn do_upgrade(root: &str) -> Result<i32> {
+    #[cfg(unix)]
+    do_upgrade_unix(root)?;
 
-        let temp_dir = tempfile::tempdir_in(moon_tmp_dir()?)?;
-        let temp_dir_path = temp_dir.path();
+    #[cfg(windows)]
+    windows::do_upgrade_windows(root)?;
 
-        let progress_map = Arc::new(Mutex::new(indexmap::map::IndexMap::new()));
-
-        let term = Arc::new(Mutex::new(Term::stdout()));
-
-        for (download_item, _) in download_items_and_urls.iter() {
-            let mut map = progress_map.lock().unwrap();
-            map.insert(
-                download_item,
-                DownloadProgress {
-                    total_size: 0,
-                    downloaded: 0,
-                },
-            );
-        }
-
-        let download_futures = download_items_and_urls.iter().map(|(download_item, url)| {
-            let progress_map = Arc::clone(&progress_map);
-            let term = Arc::clone(&term);
-            async move {
-                let filepath = temp_dir_path.join(download_item);
-                if let Some(parent) = filepath.parent() {
-                    if !parent.exists() {
-                        tokio::fs::create_dir_all(parent).await.context(format!("failed to create directory {}", parent.display()))?;
-                    }
-                }
-                let response = reqwest::get(url).await.context(format!("failed to download {}", download_item))?;
-                let total_size = response.content_length().context(format!("failed to download {}: No content length", download_item))?;
-                let mut file = tokio::fs::File::create(&filepath)
-                    .await
-                    .context(format!("failed to create file {}", filepath.display()))?;
-
-                {
-                    let mut map = progress_map.lock().unwrap();
-                    map.insert(
-                        download_item,
-                        DownloadProgress {
-                            total_size,
-                            downloaded: 0,
-                        },
-                    );
-                }
-
-                let mut stream = response.bytes_stream();
-                while let Some(item) = stream.next().await {
-                    let chunk = item.context(format!("error while downloading {}", download_item))?;
-                    file.write_all(&chunk)
-                        .await
-                        .context(format!("error while writing to file {}", filepath.display()))?;
-
-                    {
-                        let mut map = progress_map.lock().unwrap();
-                        if let Some(progress) = map.get_mut(download_item) {
-                            progress.downloaded += chunk.len() as u64;
-                        }
-                    }
-                    display_progress(&term, &progress_map);
-                }
-
-                file.flush().await.context(format!("failed to flush file {}", filepath.display()))?;
-                Ok::<(), anyhow::Error>(())
-            }
-        });
-
-        let downloads = stream::iter(download_futures)
-            .map(Ok)
-            .try_for_each_concurrent(None, |f| f);
-
-        // Listen for Ctrl+C
-        let ctrl_c_handling = signal::ctrl_c();
-
-        // Use tokio::select! to wait for either downloads completion or Ctrl+C signal
-        tokio::select! {
-            _ = ctrl_c_handling => {
-                bail!("upgrade interrupted by Ctrl+C");
-            },
-            result = downloads => {
-                result?;
-
-                println!();
-
-                // post handling
-                for (download_item, _) in download_items_and_urls {
-                    let filepath = temp_dir_path.join(&download_item);
-                    match filepath.extension().and_then(std::ffi::OsStr::to_str) {
-                        Some("zip") => {
-                            // delete old
-                            let lib_dir = moon_dir::home().join("lib");
-                            let core_dir = lib_dir.join("core");
-                            core_dir.rm_rf();
-
-                            // unzip
-                            let data = tokio::fs::read(&filepath).await.context(format!("failed to read {}", filepath.display()))?;
-                            let cursor = std::io::Cursor::new(data);
-                            let mut zip = zip::ZipArchive::new(cursor)?;
-                            for i in 0..zip.len() {
-                                let mut file = zip.by_index(i)?;
-                                let outpath = lib_dir.join(file.mangled_name());
-
-                                if file.is_dir() {
-                                    std::fs::create_dir_all(&outpath)?;
-                                } else {
-                                    if let Some(parent) = outpath.parent() {
-                                        std::fs::create_dir_all(parent)?;
-                                    }
-                                    let mut outfile = std::fs::File::create(&outpath)?;
-                                    std::io::copy(&mut file, &mut outfile)?;
-                                }
-                            }
-
-                            // use new moon to bundle
-                            let moon = moon_dir::home().join("bin").join("moon");
-                            println!("Compiling {} ...", MOONBITLANG_CORE);
-                            let out = std::process::Command::new(&moon).args(["version"]).output()?;
-                            println!("moon version: {}", String::from_utf8_lossy(&out.stdout));
-
-                            let out = std::process::Command::new(moon).args(["bundle", "--all", "--source-dir", &core_dir.display().to_string()]).output()?;
-                            println!("{}", String::from_utf8_lossy(&out.stdout));
-                            match out.status.code() {
-                                Some(0) => {},
-                                Some(code) => bail!("failed to compile core, exit code {}", code),
-                                None => bail!("failed to bundle {}", MOONBITLANG_CORE),
-
-                            }
-                        }
-                        _ => {
-                            let dst = moon_dir::home().join(download_item);
-                            if let Some(parent) = dst.parent() {
-                                if !parent.exists() {
-                                    tokio::fs::create_dir_all(parent).await.context(format!("failed to create directory {}", parent.display()))?;
-                                }
-                            }
-                            let msg = format!("failed to copy {}", dst.display());
-                            let cur_bin = std::env::current_exe().context("failed to get current executable")?;
-                            let cur_bin_norm = normalize_path(&cur_bin);
-                            let dst_norm = normalize_path(&dst);
-                            let replace_self = dst_norm == cur_bin_norm;
-                            if replace_self {
-                                self_replace::self_replace(&filepath).context(format!("failed to replace {}", cur_bin.display()))?;
-                                tokio::fs::remove_file(&filepath).await.context(format!("failed to remove {}", filepath.display()))?;
-                            } else {
-                                if dst.exists() {
-                                    tokio::fs::remove_file(&dst).await.context(format!("failed to remove {}", dst.display()))?;
-                                }
-                                tokio::fs::copy(&filepath, &dst)
-                                    .await
-                                    .with_context(|| msg)?;
-                            }
-
-                            #[cfg(unix)]
-                            {
-                                let mut perms = tokio::fs::metadata(&dst).await.context(format!("failed to get metadata of {}", dst.display()))?.permissions();
-                                perms.set_mode(0o744);
-                                set_permissions(&dst, perms)
-                                    .await
-                                    .context(format!("failed to set execute permissions for {}", filepath.display()))?;
-                            }
-                        }
-                    }
-                }
-
-                let _ = term.lock().unwrap().write_line("");
-                Ok(0)
-            },
-        }
-    })
+    Ok(0)
 }
 
-fn display_progress(
-    term: &Arc<Mutex<Term>>,
-    progress_map: &Arc<Mutex<indexmap::map::IndexMap<&String, DownloadProgress>>>,
-) {
-    let map = progress_map.lock().unwrap();
+pub fn do_upgrade_unix(root: &str) -> Result<i32> {
+    let exe = "sh";
+    let args = [
+        "-c".to_string(),
+        format!("curl -fsSL {}/install/unix.sh | bash", root),
+    ];
+    let command = format!("{} {} '{}'", exe, args[0], args[1..].join(" "));
+    let status = std::process::Command::new(exe)
+        .args(args)
+        .status()
+        .with_context(|| format!("failed to execute command: {}", command))?;
 
-    let mut cur = 0.0;
-    let mut total = 0.0;
-    map.iter().for_each(|(_url, progress)| {
-        cur += progress.downloaded as f64;
-        total += progress.total_size as f64;
-    });
+    match status.code() {
+        Some(0) => Ok(0),
+        _ => bail!("failed to execute command: {}", command),
+    }
+}
 
-    let msg = format!("Downloading {:.1}%", cur / total * 100.0);
+pub fn upgrade_dialoguer_ctrlc_handler() {
+    #[cfg(windows)]
+    windows::copy_moon_back();
 
-    {
-        let mut term = term.lock().unwrap();
-        let _ = term.clear_line();
-        let _ = term.write(msg.as_bytes());
+    moonutil::common::dialoguer_ctrlc_handler();
+}
+
+#[cfg(windows)]
+mod windows {
+    use super::*;
+    pub static MOON_EXE_PATH: std::sync::OnceLock<std::path::PathBuf> = std::sync::OnceLock::new();
+    pub static TEMP_EXE_PATH: std::sync::OnceLock<std::path::PathBuf> = std::sync::OnceLock::new();
+
+    pub fn copy_moon_back() {
+        let _ = std::fs::copy(TEMP_EXE_PATH.get().unwrap(), MOON_EXE_PATH.get().unwrap());
+    }
+
+    pub fn do_upgrade_windows(root: &str) -> Result<i32> {
+        let tmp_dir = tempfile::tempdir().context("failed to create temp dir")?;
+        let current_exe = std::env::current_exe().context("failed to get current moon.exe path")?;
+        let temp_exe = tmp_dir.path().join("moon.exe");
+        std::fs::copy(&current_exe, &temp_exe)
+            .context("failed to copy moon.exe to temp directory")?;
+        let _ = MOON_EXE_PATH.set(current_exe);
+        let _ = TEMP_EXE_PATH.set(temp_exe);
+
+        self_replace::self_delete().context("failed to delete current moon.exe")?;
+        let exe = "powershell";
+        let args = [
+        "-Command".to_string(),
+        format!("Set-ExecutionPolicy RemoteSigned -Scope CurrentUser; irm {}/install/powershell.ps1 | iex", root),
+    ];
+        let command = format!("{} {} \"{}\"", exe, args[0], args[1..].join(" "));
+        let status = std::process::Command::new(exe)
+            .args(&args)
+            .status()
+            .with_context(|| format!("failed to execute command: {}", command))?;
+
+        match status.code() {
+            Some(0) => Ok(0),
+            _ => {
+                copy_moon_back();
+                bail!("failed to execute command: {}", command)
+            }
+        }
     }
 }
