@@ -7647,7 +7647,7 @@ fn test_use_cc_for_native_release() {
                 moonc build-package ./main/main.mbt -o ./target/native/release/build/main/main.core -pkg moonbitlang/hello/main -is-main -std-path $MOON_HOME/lib/core/target/native/release/bundle -i ./target/native/release/build/lib/lib.mi:lib -pkg-sources moonbitlang/hello/main:./main -target native
                 moonc link-core $MOON_HOME/lib/core/target/native/release/bundle/core.core ./target/native/release/build/lib/lib.core ./target/native/release/build/main/main.core -main moonbitlang/hello/main -o ./target/native/release/build/main/main.c -pkg-config-path ./main/moon.pkg.json -pkg-sources moonbitlang/hello/lib:./lib -pkg-sources moonbitlang/hello/main:./main -pkg-sources moonbitlang/core:$MOON_HOME/lib/core -target native
                 cc -c $MOON_HOME/lib/runtime.c -I $MOON_HOME/include -o ./target/native/release/build/runtime.o
-                cc ./target/native/release/build/main/main.c ./target/native/release/build/runtime.o -I$MOON_HOME/include -O2 $MOON_HOME/lib/libmoonbitrun.o -fwrapv -fno-strict-aliasing -lm -o ./target/native/release/build/main/main.exe
+                cc -I$MOON_HOME/include -O2 $MOON_HOME/lib/libmoonbitrun.o -fwrapv -fno-strict-aliasing -lm ./target/native/release/build/runtime.o ./target/native/release/build/main/main.c -o ./target/native/release/build/main/main.exe
             "#]],
         );
         // if --release is not specified, it should not use cc
@@ -7661,7 +7661,7 @@ fn test_use_cc_for_native_release() {
                 moonc build-package ./main/main.mbt -o ./target/native/release/build/main/main.core -pkg moonbitlang/hello/main -is-main -std-path $MOON_HOME/lib/core/target/native/release/bundle -i ./target/native/release/build/lib/lib.mi:lib -pkg-sources moonbitlang/hello/main:./main -target native
                 moonc link-core $MOON_HOME/lib/core/target/native/release/bundle/core.core ./target/native/release/build/lib/lib.core ./target/native/release/build/main/main.core -main moonbitlang/hello/main -o ./target/native/release/build/main/main.c -pkg-config-path ./main/moon.pkg.json -pkg-sources moonbitlang/hello/lib:./lib -pkg-sources moonbitlang/hello/main:./main -pkg-sources moonbitlang/core:$MOON_HOME/lib/core -target native
                 cc -c $MOON_HOME/lib/runtime.c -I $MOON_HOME/include -o ./target/native/release/build/runtime.o
-                cc ./target/native/release/build/main/main.c ./target/native/release/build/runtime.o -I$MOON_HOME/include -O2 $MOON_HOME/lib/libmoonbitrun.o -fwrapv -fno-strict-aliasing -lm -o ./target/native/release/build/main/main.exe
+                cc -I$MOON_HOME/include -O2 $MOON_HOME/lib/libmoonbitrun.o -fwrapv -fno-strict-aliasing -lm ./target/native/release/build/runtime.o ./target/native/release/build/main/main.c -o ./target/native/release/build/main/main.exe
             "#]],
         );
         check(
@@ -7681,7 +7681,7 @@ fn test_use_cc_for_native_release() {
                 moonc build-package ./main/main.mbt -o ./target/native/debug/build/main/main.core -pkg moonbitlang/hello/main -is-main -std-path $MOON_HOME/lib/core/target/native/release/bundle -i ./target/native/debug/build/lib/lib.mi:lib -pkg-sources moonbitlang/hello/main:./main -target native -g -O0
                 moonc link-core $MOON_HOME/lib/core/target/native/release/bundle/core.core ./target/native/debug/build/lib/lib.core ./target/native/debug/build/main/main.core -main moonbitlang/hello/main -o ./target/native/debug/build/main/main.c -pkg-config-path ./main/moon.pkg.json -pkg-sources moonbitlang/hello/lib:./lib -pkg-sources moonbitlang/hello/main:./main -pkg-sources moonbitlang/core:$MOON_HOME/lib/core -target native -g -O0
                 cc -c $MOON_HOME/lib/runtime.c -I $MOON_HOME/include -o ./target/native/debug/build/runtime.o
-                cc ./target/native/debug/build/main/main.c ./target/native/debug/build/runtime.o -I$MOON_HOME/include -O2 $MOON_HOME/lib/libmoonbitrun.o -fwrapv -fno-strict-aliasing -lm -o ./target/native/debug/build/main/main.exe
+                cc -I$MOON_HOME/include -O2 $MOON_HOME/lib/libmoonbitrun.o -fwrapv -fno-strict-aliasing -lm ./target/native/debug/build/runtime.o ./target/native/debug/build/main/main.c -o ./target/native/debug/build/main/main.exe
             "#]],
         );
     }
@@ -7706,7 +7706,7 @@ fn test_use_cc_for_native_release() {
                 moonc build-package ./main/main.mbt -o ./target/native/release/build/main/main.core -pkg moonbitlang/hello/main -is-main -std-path $MOON_HOME/lib/core/target/native/release/bundle -i ./target/native/release/build/lib/lib.mi:lib -pkg-sources moonbitlang/hello/main:./main -target native
                 moonc link-core $MOON_HOME/lib/core/target/native/release/bundle/core.core ./target/native/release/build/lib/lib.core ./target/native/release/build/main/main.core -main moonbitlang/hello/main -o ./target/native/release/build/main/main.c -pkg-config-path ./main/moon.pkg.json -pkg-sources moonbitlang/hello/lib:./lib -pkg-sources moonbitlang/hello/main:./main -pkg-sources moonbitlang/core:$MOON_HOME/lib/core -target native
                 cc -c $MOON_HOME/lib/runtime.c -I $MOON_HOME/include -o ./target/native/release/build/runtime.o
-                cc ./target/native/release/build/main/main.c ./target/native/release/build/runtime.o -I$MOON_HOME/include -O2 $MOON_HOME/lib/libmoonbitrun.o -fwrapv -fno-strict-aliasing -lm -o ./target/native/release/build/main/main.exe
+                cc -I$MOON_HOME/include -O2 $MOON_HOME/lib/libmoonbitrun.o -fwrapv -fno-strict-aliasing -lm ./target/native/release/build/runtime.o ./target/native/release/build/main/main.c -o ./target/native/release/build/main/main.exe
                 ./target/native/release/build/main/main.exe
             "#]],
         );
@@ -7728,7 +7728,7 @@ fn test_use_cc_for_native_release() {
                 moonc build-package ./main/main.mbt -o ./target/native/release/build/main/main.core -pkg moonbitlang/hello/main -is-main -std-path $MOON_HOME/lib/core/target/native/release/bundle -i ./target/native/release/build/lib/lib.mi:lib -pkg-sources moonbitlang/hello/main:./main -target native
                 moonc link-core $MOON_HOME/lib/core/target/native/release/bundle/core.core ./target/native/release/build/lib/lib.core ./target/native/release/build/main/main.core -main moonbitlang/hello/main -o ./target/native/release/build/main/main.c -pkg-config-path ./main/moon.pkg.json -pkg-sources moonbitlang/hello/lib:./lib -pkg-sources moonbitlang/hello/main:./main -pkg-sources moonbitlang/core:$MOON_HOME/lib/core -target native
                 cc -c $MOON_HOME/lib/runtime.c -I $MOON_HOME/include -o ./target/native/release/build/runtime.o
-                cc ./target/native/release/build/main/main.c ./target/native/release/build/runtime.o -I$MOON_HOME/include -O2 $MOON_HOME/lib/libmoonbitrun.o -fwrapv -fno-strict-aliasing -lm -o ./target/native/release/build/main/main.exe
+                cc -I$MOON_HOME/include -O2 $MOON_HOME/lib/libmoonbitrun.o -fwrapv -fno-strict-aliasing -lm ./target/native/release/build/runtime.o ./target/native/release/build/main/main.c -o ./target/native/release/build/main/main.exe
                 ./target/native/release/build/main/main.exe
             "#]],
         );
@@ -7750,7 +7750,7 @@ fn test_use_cc_for_native_release() {
                 moonc build-package ./main/main.mbt -o ./target/native/debug/build/main/main.core -pkg moonbitlang/hello/main -is-main -std-path $MOON_HOME/lib/core/target/native/release/bundle -i ./target/native/debug/build/lib/lib.mi:lib -pkg-sources moonbitlang/hello/main:./main -target native -g -O0
                 moonc link-core $MOON_HOME/lib/core/target/native/release/bundle/core.core ./target/native/debug/build/lib/lib.core ./target/native/debug/build/main/main.core -main moonbitlang/hello/main -o ./target/native/debug/build/main/main.c -pkg-config-path ./main/moon.pkg.json -pkg-sources moonbitlang/hello/lib:./lib -pkg-sources moonbitlang/hello/main:./main -pkg-sources moonbitlang/core:$MOON_HOME/lib/core -target native -g -O0
                 cc -c $MOON_HOME/lib/runtime.c -I $MOON_HOME/include -o ./target/native/debug/build/runtime.o
-                cc ./target/native/debug/build/main/main.c ./target/native/debug/build/runtime.o -I$MOON_HOME/include -O2 $MOON_HOME/lib/libmoonbitrun.o -fwrapv -fno-strict-aliasing -lm -o ./target/native/debug/build/main/main.exe
+                cc -I$MOON_HOME/include -O2 $MOON_HOME/lib/libmoonbitrun.o -fwrapv -fno-strict-aliasing -lm ./target/native/debug/build/runtime.o ./target/native/debug/build/main/main.c -o ./target/native/debug/build/main/main.exe
                 ./target/native/debug/build/main/main.exe
             "#]],
         );
@@ -7775,11 +7775,11 @@ fn test_use_cc_for_native_release() {
                 moonc build-package ./lib/hello.mbt ./lib/hello_wbtest.mbt ./target/native/release/test/lib/__generated_driver_for_whitebox_test.mbt -o ./target/native/release/test/lib/lib.whitebox_test.core -pkg moonbitlang/hello/lib -is-main -std-path $MOON_HOME/lib/core/target/native/release/bundle -pkg-sources moonbitlang/hello/lib:./lib -target native -whitebox-test -no-mi
                 moonc link-core $MOON_HOME/lib/core/target/native/release/bundle/core.core ./target/native/release/test/lib/lib.whitebox_test.core -main moonbitlang/hello/lib -o ./target/native/release/test/lib/lib.whitebox_test.c -test-mode -pkg-config-path ./lib/moon.pkg.json -pkg-sources moonbitlang/hello/lib:./lib -pkg-sources moonbitlang/core:$MOON_HOME/lib/core -exported_functions moonbit_test_driver_internal_execute,moonbit_test_driver_finish -target native
                 cc -c $MOON_HOME/lib/runtime.c -I $MOON_HOME/include -o ./target/native/release/test/runtime.o
-                cc ./target/native/release/test/lib/lib.whitebox_test.c ./target/native/release/test/runtime.o -I$MOON_HOME/include -O2 $MOON_HOME/lib/libmoonbitrun.o -fwrapv -fno-strict-aliasing -lm -o ./target/native/release/test/lib/lib.whitebox_test.exe
+                cc -I$MOON_HOME/include -O2 $MOON_HOME/lib/libmoonbitrun.o -fwrapv -fno-strict-aliasing -lm ./target/native/release/test/runtime.o ./target/native/release/test/lib/lib.whitebox_test.c -o ./target/native/release/test/lib/lib.whitebox_test.exe
                 moon generate-test-driver --source-dir . --target-dir ./target --package moonbitlang/hello/lib --sort-input --target native --driver-kind internal --release
                 moonc build-package ./lib/hello.mbt ./target/native/release/test/lib/__generated_driver_for_internal_test.mbt -o ./target/native/release/test/lib/lib.internal_test.core -pkg moonbitlang/hello/lib -is-main -std-path $MOON_HOME/lib/core/target/native/release/bundle -pkg-sources moonbitlang/hello/lib:./lib -target native -no-mi
                 moonc link-core $MOON_HOME/lib/core/target/native/release/bundle/core.core ./target/native/release/test/lib/lib.internal_test.core -main moonbitlang/hello/lib -o ./target/native/release/test/lib/lib.internal_test.c -test-mode -pkg-config-path ./lib/moon.pkg.json -pkg-sources moonbitlang/hello/lib:./lib -pkg-sources moonbitlang/core:$MOON_HOME/lib/core -exported_functions moonbit_test_driver_internal_execute,moonbit_test_driver_finish -target native
-                cc ./target/native/release/test/lib/lib.internal_test.c ./target/native/release/test/runtime.o -I$MOON_HOME/include -O2 $MOON_HOME/lib/libmoonbitrun.o -fwrapv -fno-strict-aliasing -lm -o ./target/native/release/test/lib/lib.internal_test.exe
+                cc -I$MOON_HOME/include -O2 $MOON_HOME/lib/libmoonbitrun.o -fwrapv -fno-strict-aliasing -lm ./target/native/release/test/runtime.o ./target/native/release/test/lib/lib.internal_test.c -o ./target/native/release/test/lib/lib.internal_test.exe
             "#]],
         );
 
@@ -7871,9 +7871,9 @@ fn test_native_backend_cc_flags() {
             moonc build-package ./main/main.mbt -o ./target/native/release/build/main/main.core -pkg moon_new/main -is-main -std-path $MOON_HOME/lib/core/target/native/release/bundle -i ./target/native/release/build/lib/lib.mi:lib -pkg-sources moon_new/main:./main -target native
             moonc link-core $MOON_HOME/lib/core/target/native/release/bundle/core.core ./target/native/release/build/lib/lib.core ./target/native/release/build/main/main.core -main moon_new/main -o ./target/native/release/build/main/main.c -pkg-config-path ./main/moon.pkg.json -pkg-sources moon_new/lib:./lib -pkg-sources moon_new/main:./main -pkg-sources moonbitlang/core:$MOON_HOME/lib/core -target native
             cc -c $MOON_HOME/lib/runtime.c -I $MOON_HOME/include -o ./target/native/release/build/runtime.o
-            cc ./target/native/release/build/main/main.c ./target/native/release/build/runtime.o -I$MOON_HOME/include -fwrapv -fno-strict-aliasing ccflags fasd cclinkflags -o ./target/native/release/build/main/main.exe
+            cc -I$MOON_HOME/include -fwrapv -fno-strict-aliasing ccflags fasd cclinkflags ./target/native/release/build/runtime.o ./target/native/release/build/main/main.c -o ./target/native/release/build/main/main.exe
             moonc link-core $MOON_HOME/lib/core/target/native/release/bundle/core.core ./target/native/release/build/lib/lib.core -main moon_new/lib -o ./target/native/release/build/lib/lib.c -pkg-config-path ./lib/moon.pkg.json -pkg-sources moon_new/lib:./lib -pkg-sources moonbitlang/core:$MOON_HOME/lib/core -target native
-            cc ./target/native/release/build/lib/lib.c ./target/native/release/build/runtime.o -I$MOON_HOME/include -fwrapv -fno-strict-aliasing ccflags fasd cclinkflags -o ./target/native/release/build/lib/lib.exe
+            cc -I$MOON_HOME/include -fwrapv -fno-strict-aliasing ccflags fasd cclinkflags ./target/native/release/build/runtime.o ./target/native/release/build/lib/lib.c -o ./target/native/release/build/lib/lib.exe
         "#]],
     );
     // don't pass native cc flags for no native backend
@@ -7900,7 +7900,7 @@ fn test_native_backend_cc_flags() {
             moonc build-package ./lib/hello.mbt ./target/native/debug/test/lib/__generated_driver_for_internal_test.mbt -o ./target/native/debug/test/lib/lib.internal_test.core -pkg moon_new/lib -is-main -std-path $MOON_HOME/lib/core/target/native/release/bundle -pkg-sources moon_new/lib:./lib -target native -g -O0 -no-mi
             moonc link-core $MOON_HOME/lib/core/target/native/release/bundle/core.core ./target/native/debug/test/lib/lib.internal_test.core -main moon_new/lib -o ./target/native/debug/test/lib/lib.internal_test.c -test-mode -pkg-config-path ./lib/moon.pkg.json -pkg-sources moon_new/lib:./lib -pkg-sources moonbitlang/core:$MOON_HOME/lib/core -exported_functions moonbit_test_driver_internal_execute,moonbit_test_driver_finish -target native -g -O0
             cc -c $MOON_HOME/lib/runtime.c -I $MOON_HOME/include -o ./target/native/debug/test/runtime.o
-            cc ./target/native/debug/test/lib/lib.internal_test.c ./target/native/debug/test/runtime.o -I$MOON_HOME/include -fwrapv -fno-strict-aliasing ccflags fasd cclinkflags -o ./target/native/debug/test/lib/lib.internal_test.exe
+            cc -I$MOON_HOME/include -fwrapv -fno-strict-aliasing ccflags fasd cclinkflags ./target/native/debug/test/runtime.o ./target/native/debug/test/lib/lib.internal_test.c -o ./target/native/debug/test/lib/lib.internal_test.exe
         "#]],
     );
     // don't pass native cc flags for no native backend
@@ -7930,9 +7930,9 @@ fn test_native_backend_cc_flags() {
             moonc build-package ./main/main.mbt -o ./target/native/release/build/main/main.core -pkg moon_new/main -is-main -std-path $MOON_HOME/lib/core/target/native/release/bundle -i ./target/native/release/build/lib/lib.mi:lib -pkg-sources moon_new/main:./main -target native
             moonc link-core $MOON_HOME/lib/core/target/native/release/bundle/core.core ./target/native/release/build/lib/lib.core ./target/native/release/build/main/main.core -main moon_new/main -o ./target/native/release/build/main/main.c -pkg-config-path ./main/moon.pkg.json -pkg-sources moon_new/lib:./lib -pkg-sources moon_new/main:./main -pkg-sources moonbitlang/core:$MOON_HOME/lib/core -target native
             cc -c $MOON_HOME/lib/runtime.c -I $MOON_HOME/include -o ./target/native/release/build/runtime.o
-            cc ./target/native/release/build/main/main.c ./target/native/release/build/runtime.o -I$MOON_HOME/include -fwrapv -fno-strict-aliasing ccflags fasd cclinkflags -o ./target/native/release/build/main/main.exe
+            cc -I$MOON_HOME/include -fwrapv -fno-strict-aliasing ccflags fasd cclinkflags ./target/native/release/build/runtime.o ./target/native/release/build/main/main.c -o ./target/native/release/build/main/main.exe
             moonc link-core $MOON_HOME/lib/core/target/native/release/bundle/core.core ./target/native/release/build/lib/lib.core -main moon_new/lib -o ./target/native/release/build/lib/lib.c -pkg-config-path ./lib/moon.pkg.json -pkg-sources moon_new/lib:./lib -pkg-sources moonbitlang/core:$MOON_HOME/lib/core -target native
-            cc ./target/native/release/build/lib/lib.c ./target/native/release/build/runtime.o -I$MOON_HOME/include -fwrapv -fno-strict-aliasing ccflags fasd cclinkflags -o ./target/native/release/build/lib/lib.exe
+            cc -I$MOON_HOME/include -fwrapv -fno-strict-aliasing ccflags fasd cclinkflags ./target/native/release/build/runtime.o ./target/native/release/build/lib/lib.c -o ./target/native/release/build/lib/lib.exe
             ./target/native/release/build/lib/lib.exe
             ./target/native/release/build/main/main.exe
         "#]],

@@ -42,7 +42,7 @@ fn get_args() -> Array[String] {
   let res = []
   for i = 0; i < len; i = i + 1 {
     let val = arr[i]
-    if jsvalue_is_string(val).not() {
+    if not(jsvalue_is_string(val)) {
       abort("Expected all strings in array")
     }
     res.push(string_from_extern(jsvalue_get_string(val)))
