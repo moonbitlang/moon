@@ -32,6 +32,9 @@ pub struct UpgradeSubcommand {
     #[clap(long, short)]
     pub force: bool,
 
+    #[clap(long)]
+    pub dev: bool,
+
     #[clap(long, hide = true)]
     pub non_interactive: bool,
 
@@ -138,7 +141,7 @@ pub fn upgrade(cmd: UpgradeSubcommand) -> Result<i32> {
     let root = if cmd.base_url.is_none() {
         check_connectivity()?.to_string()
     } else {
-        cmd.base_url.unwrap().to_string()
+        cmd.base_url.as_deref().unwrap().to_string()
     };
     println!("  Use {}", root);
 
@@ -150,12 +153,12 @@ pub fn upgrade(cmd: UpgradeSubcommand) -> Result<i32> {
 
     println!("Checking latest toolchain version ...");
     let version_url = format!("{}/version.json", root);
-    if !cmd.force {
+    if !cmd.force && !cmd.dev {
         // if any step(network request, serde json...) fail, just do upgrade
         if let Ok(data) = reqwest::blocking::get(version_url) {
             if let Ok(latest_version_info) = data.json::<VersionItems>() {
                 if let Some(false) = should_upgrade(&latest_version_info) {
-                    println!("Your toolchain is up to date.");
+                    println!("Your toolchain is up to date. You can use `moon upgrade --force` to force upgrade.");
                     return Ok(0);
                 }
             }
@@ -177,40 +180,48 @@ pub fn upgrade(cmd: UpgradeSubcommand) -> Result<i32> {
             .default(true)
             .interact()?;
         if confirm {
-            do_upgrade(&root)?;
+            do_upgrade(&cmd, &root)?;
         }
     } else {
-        do_upgrade(&root)?;
+        do_upgrade(&cmd, &root)?;
     }
     println!("{}", "Done".green().bold());
     Ok(0)
 }
 
-pub fn do_upgrade(root: &str) -> Result<i32> {
+pub fn do_upgrade(cmd: &UpgradeSubcommand, root: &str) -> Result<i32> {
     #[cfg(unix)]
-    do_upgrade_unix(root)?;
+    do_upgrade_unix(cmd, root)?;
 
     #[cfg(windows)]
-    windows::do_upgrade_windows(root)?;
+    windows::do_upgrade_windows(cmd, root)?;
 
     Ok(0)
 }
 
-pub fn do_upgrade_unix(root: &str) -> Result<i32> {
+pub fn do_upgrade_unix(cmd: &UpgradeSubcommand, root: &str) -> Result<i32> {
     let exe = "sh";
     let args = [
         "-c".to_string(),
-        format!("curl -fsSL {}/install/unix.sh | bash", root),
+        format!(
+            "curl -fsSL {}/install/unix.sh | {}bash",
+            root,
+            if cmd.dev {
+                "MOONBIT_INSTALL_DEV=1 "
+            } else {
+                ""
+            },
+        ),
     ];
-    let command = format!("{} {} '{}'", exe, args[0], args[1..].join(" "));
+    let hint = format!("{} {} '{}'", exe, args[0], args[1..].join(" "));
     let status = std::process::Command::new(exe)
         .args(args)
         .status()
-        .with_context(|| format!("failed to execute command: {}", command))?;
+        .with_context(|| format!("failed to execute command: {}", hint))?;
 
     match status.code() {
         Some(0) => Ok(0),
-        _ => bail!("failed to execute command: {}", command),
+        _ => bail!("failed to execute command: {}", hint),
     }
 }
 
@@ -231,7 +242,7 @@ mod windows {
         let _ = std::fs::copy(TEMP_EXE_PATH.get().unwrap(), MOON_EXE_PATH.get().unwrap());
     }
 
-    pub fn do_upgrade_windows(root: &str) -> Result<i32> {
+    pub fn do_upgrade_windows(cmd: &UpgradeSubcommand, root: &str) -> Result<i32> {
         let tmp_dir = tempfile::tempdir().context("failed to create temp dir")?;
         let current_exe = std::env::current_exe().context("failed to get current moon.exe path")?;
         let temp_exe = tmp_dir.path().join("moon.exe");
@@ -241,22 +252,29 @@ mod windows {
         let _ = TEMP_EXE_PATH.set(temp_exe);
 
         self_replace::self_delete().context("failed to delete current moon.exe")?;
+
+        let mut script = String::new();
+        if cmd.dev {
+            script.push_str("$env:MOONBIT_INSTALL_DEV=1\n");
+        }
+        script.push_str("Set-ExecutionPolicy RemoteSigned -Scope CurrentUser\n");
+        script.push_str(&format!("irm {}/install/powershell.ps1 | iex\n", root));
+        if cmd.dev {
+            script.push_str("Remove-Item Env:\\MOONBIT_INSTALL_DEV")
+        }
+        let script_path = tmp_dir.path().join("script.ps1");
+        std::fs::write(&script_path, &script).context("failed to write install script")?;
         let exe = "powershell";
-        let args = [
-        "-Command".to_string(),
-        format!("Set-ExecutionPolicy RemoteSigned -Scope CurrentUser; irm {}/install/powershell.ps1 | iex", root),
-    ];
-        let command = format!("{} {} \"{}\"", exe, args[0], args[1..].join(" "));
         let status = std::process::Command::new(exe)
-            .args(&args)
+            .arg(&script_path)
             .status()
-            .with_context(|| format!("failed to execute command: {}", command))?;
+            .with_context(|| format!("failed to execute command:\n{}", script))?;
 
         match status.code() {
             Some(0) => Ok(0),
             _ => {
                 copy_moon_back();
-                bail!("failed to execute command: {}", command)
+                bail!("failed to execute command:\n{}", script)
             }
         }
     }
