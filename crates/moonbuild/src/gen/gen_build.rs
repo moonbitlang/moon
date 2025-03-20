@@ -29,7 +29,7 @@ use std::path::{Path, PathBuf};
 use std::rc::Rc;
 
 use moonutil::common::{
-    BuildOpt, MoonbuildOpt, MooncOpt, TargetBackend, MOONBITLANG_CORE, MOON_PKG_JSON, O_EXT,
+    BuildOpt, MoonbuildOpt, MooncOpt, TargetBackend, A_EXT, MOONBITLANG_CORE, MOON_PKG_JSON, O_EXT,
 };
 use n2::graph::{self as n2graph, Build, BuildIns, BuildOuts, FileLoc};
 use n2::load::State;
@@ -147,7 +147,7 @@ pub fn gen_build_link_item(
         link: pkg.link.clone(),
         install_path: pkg.install_path.clone(),
         bin_name: pkg.bin_name.clone(),
-        native_stub: pkg.native_stub.clone(),
+        stub_static_lib: pkg.stub_static_lib.clone(),
     })
 }
 
@@ -175,7 +175,7 @@ pub fn gen_build(
 
         build_items.push(gen_build_build_item(m, pkg, moonc_opt)?);
 
-        if pkg.native_stub.is_some() {
+        if pkg.stub_static_lib.is_some() {
             compile_stub_items.push(BuildLinkDepItem {
                 out: pkg.artifact.with_extension(O_EXT).display().to_string(),
                 core_deps: vec![],
@@ -185,7 +185,7 @@ pub fn gen_build(
                 link: pkg.link.clone(),
                 install_path: None,
                 bin_name: None,
-                native_stub: pkg.native_stub.clone(),
+                stub_static_lib: pkg.stub_static_lib.clone(),
             });
         }
 
@@ -699,13 +699,82 @@ pub fn gen_compile_exe_command(
     (build, artifact_id)
 }
 
+pub fn gen_archive_stub_to_static_lib_command(
+    graph: &mut n2graph::Graph,
+    item: &LinkDepItem,
+) -> (Build, n2graph::FileId) {
+    let out = PathBuf::from(&item.out);
+
+    let inputs = item
+        .stub_static_lib
+        .as_ref()
+        .unwrap()
+        .iter()
+        .map(|f| {
+            out.parent()
+                .unwrap()
+                .join(f)
+                .with_extension(O_EXT)
+                .display()
+                .to_string()
+        })
+        .collect::<Vec<_>>();
+
+    let pkgname = out.file_stem().unwrap().to_str().unwrap().to_string();
+    let artifact_output_path = out
+        .with_file_name(format!("lib{}.{}", pkgname, A_EXT))
+        .display()
+        .to_string();
+    let artifact_id = graph.files.id_from_canonical(artifact_output_path.clone());
+
+    let loc = FileLoc {
+        filename: Rc::new(PathBuf::from("archive-stub")),
+        line: 0,
+    };
+
+    let input_ids = inputs
+        .iter()
+        .map(|f| graph.files.id_from_canonical(f.clone()))
+        .collect::<Vec<_>>();
+    let ins = BuildIns {
+        ids: input_ids,
+        explicit: inputs.len(),
+        implicit: 0,
+        order_only: 0,
+    };
+
+    let outs = BuildOuts {
+        ids: vec![artifact_id],
+        explicit: 1,
+    };
+
+    let mut build = Build::new(loc, ins, outs);
+
+    let is_windows = cfg!(windows);
+    let archiver = if is_windows { "lib" } else { "ar" };
+
+    let command = CommandBuilder::new(archiver)
+        .args_with_cond(!is_windows, vec!["rcs", &artifact_output_path])
+        .args_with_cond(
+            is_windows,
+            vec![&format!("/Out:{}", &artifact_output_path), "/nologo"],
+        )
+        .args(inputs)
+        .build();
+    log::debug!("Command: {}", command);
+    build.cmdline = Some(command);
+    build.desc = Some(format!("archive-stub: {}", artifact_output_path));
+
+    (build, artifact_id)
+}
+
 pub fn gen_compile_stub_command(
     graph: &mut n2graph::Graph,
     item: &LinkDepItem,
     moonc_opt: &MooncOpt,
 ) -> Vec<(Build, n2graph::FileId)> {
     let inputs = item
-        .native_stub
+        .stub_static_lib
         .as_ref()
         .unwrap()
         .iter()
@@ -749,15 +818,20 @@ pub fn gen_compile_stub_command(
         let command = CommandBuilder::new(native_cc)
             .arg("-c")
             .arg(&input.display().to_string())
-            .args(&[
-                "-I".to_string(),
-                moon_include_path.display().to_string(),
-                "-fwrapv".to_string(),
-                "-fno-strict-aliasing".to_string(),
-            ])
+            .args(&["-I".to_string(), moon_include_path.display().to_string()])
+            .args_with_cond(
+                !windows_with_cl,
+                vec!["-fwrapv".to_string(), "-fno-strict-aliasing".to_string()],
+            )
             .arg_with_cond(native_cc.ends_with("tcc"), "-DMOONBIT_NATIVE_NO_SYS_HEADER")
             .args_with_cond(!windows_with_cl, vec!["-o", &artifact_output_path])
-            .arg_with_cond(windows_with_cl, &format!("-Fo{}", artifact_output_path))
+            .args_with_cond(
+                windows_with_cl,
+                vec![
+                    format!("-Fo{}", artifact_output_path),
+                    "/nologo".to_string(),
+                ],
+            )
             .build();
         log::debug!("Command: {}", command);
         build.cmdline = Some(command);
@@ -994,8 +1068,11 @@ pub fn gen_n2_build_state(
             let builds = gen_compile_stub_command(&mut graph, item, moonc_opt);
             for (build, fid) in builds {
                 graph.add_build(build)?;
+                // add the fid to default, since we want stub.c to be compiled for a non-main package
                 default.push(fid);
             }
+            let (build, _) = gen_archive_stub_to_static_lib_command(&mut graph, item);
+            graph.add_build(build)?;
         }
     }
 

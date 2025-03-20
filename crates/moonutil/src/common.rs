@@ -77,6 +77,8 @@ pub const DYN_EXT: &str = if cfg!(windows) {
     "so"
 };
 
+pub const A_EXT: &str = if cfg!(windows) { "lib" } else { "a" };
+
 #[derive(Debug, Serialize, Deserialize)]
 pub struct PatchJSON {
     pub drops: Vec<String>,
@@ -999,7 +1001,7 @@ pub fn set_native_backend_link_flags(
                             cc: Some(MOON_DIRS.internal_tcc_path.display().to_string()),
                             cc_flags: get_fast_cc_flags(),
                             cc_link_flags: None,
-                            native_stub_deps: None,
+                            stub_static_lib_deps: None,
                         },
                         Some(n) => crate::package::NativeLinkConfig {
                             exports: n.exports.clone(),
@@ -1016,10 +1018,10 @@ pub fn set_native_backend_link_flags(
                                 })
                                 .or(get_default_cc_flags()),
                             cc_link_flags: n.cc_link_flags.clone().or(get_default_cc_link_flag()),
-                            native_stub_deps: None,
+                            stub_static_lib_deps: None,
                         },
                         None if (release
-                            || pkg.native_stub.is_some()
+                            || pkg.stub_static_lib.is_some()
                             || which(compiler).is_ok()) =>
                         {
                             crate::package::NativeLinkConfig {
@@ -1027,7 +1029,7 @@ pub fn set_native_backend_link_flags(
                                 cc: Some(compiler.to_string()),
                                 cc_flags: get_default_cc_flags(),
                                 cc_link_flags: get_default_cc_link_flag(),
-                                native_stub_deps: None,
+                                stub_static_lib_deps: None,
                             }
                         }
                         None => crate::package::NativeLinkConfig {
@@ -1039,31 +1041,28 @@ pub fn set_native_backend_link_flags(
                                 moon_include_path.display()
                             )),
                             cc_link_flags: None,
-                            native_stub_deps: None,
+                            stub_static_lib_deps: None,
                         },
                     };
 
-                    let mut native_stub_o = Vec::new();
+                    let mut stub_static_lib = Vec::new();
                     module
                         .get_filtered_packages_and_its_deps_by_pkgname(pkg.full_name().as_str())
                         .unwrap()
                         .iter()
                         .for_each(|(_, pkg)| {
-                            if let Some(ref stub_files) = pkg.native_stub {
-                                native_stub_o.extend(stub_files.iter().map(|f| {
+                            if pkg.stub_static_lib.is_some() {
+                                stub_static_lib.push(
                                     pkg.artifact
-                                        .parent()
-                                        .unwrap()
-                                        .join(f)
-                                        .with_extension(O_EXT)
+                                        .with_file_name(format!("lib{}.{}", pkg.last_name(), A_EXT))
                                         .display()
-                                        .to_string()
-                                }));
+                                        .to_string(),
+                                );
                             }
                         });
 
-                    if !native_stub_o.is_empty() {
-                        native_config.native_stub_deps = Some(native_stub_o);
+                    if !stub_static_lib.is_empty() {
+                        native_config.stub_static_lib_deps = Some(stub_static_lib);
                     }
 
                     link_configs.insert(
