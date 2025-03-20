@@ -395,7 +395,9 @@ fn scan_one_package(
         bin_target: pkg.bin_target,
         enable_value_tracing: false,
         supported_targets: pkg.supported_targets,
-        native_stub: pkg.native_stub,
+        stub_static_lib: pkg
+            .native_stub
+            .and_then(|x| if x.is_empty() { None } else { Some(x) }),
     };
     if doc_mode {
         // -o <folder>

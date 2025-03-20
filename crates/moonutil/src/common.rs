@@ -75,6 +75,8 @@ pub const DYN_EXT: &str = if cfg!(windows) {
     "so"
 };
 
+pub const A_EXT: &str = if cfg!(windows) { "lib" } else { "a" };
+
 #[derive(Debug, Serialize, Deserialize)]
 pub struct PatchJSON {
     pub drops: Vec<String>,
@@ -945,30 +947,26 @@ pub fn set_native_backend_link_flags(
                 for (_, pkg) in all_pkgs {
                     let existing_native = pkg.link.as_ref().and_then(|link| link.native.as_ref());
 
-                    let mut native_config =
-                        existing_native.map(|nc| nc.clone()).unwrap_or_default();
+                    let mut native_config = existing_native.cloned().unwrap_or_default();
 
-                    let mut native_stub_o = Vec::new();
+                    let mut stub_static_lib = Vec::new();
                     module
                         .get_filtered_packages_and_its_deps_by_pkgname(pkg.full_name().as_str())
                         .unwrap()
                         .iter()
                         .for_each(|(_, pkg)| {
-                            if let Some(ref stub_files) = pkg.native_stub {
-                                native_stub_o.extend(stub_files.iter().map(|f| {
+                            if pkg.stub_static_lib.is_some() {
+                                stub_static_lib.push(
                                     pkg.artifact
-                                        .parent()
-                                        .unwrap()
-                                        .join(f)
-                                        .with_extension(O_EXT)
+                                        .with_file_name(format!("lib{}.{}", pkg.last_name(), A_EXT))
                                         .display()
-                                        .to_string()
-                                }));
+                                        .to_string(),
+                                );
                             }
                         });
 
-                    if !native_stub_o.is_empty() {
-                        native_config.native_stub_deps = Some(native_stub_o);
+                    if !stub_static_lib.is_empty() {
+                        native_config.stub_static_lib_deps = Some(stub_static_lib);
                     }
 
                     link_configs.insert(

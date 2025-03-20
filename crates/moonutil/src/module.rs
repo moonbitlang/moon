@@ -554,6 +554,11 @@ pub fn convert_mdb_to_json(module: &ModuleDB) -> ModuleDBJSON {
             deps.push(AliasJSON {
                 path: dep.path.make_full_path(),
                 alias,
+                fspath: module
+                    .get_package_by_name(&dep.path.make_full_path())
+                    .root_path
+                    .display()
+                    .to_string(),
             });
         }
 
@@ -572,6 +577,11 @@ pub fn convert_mdb_to_json(module: &ModuleDB) -> ModuleDBJSON {
             wbtest_deps.push(AliasJSON {
                 path: dep.path.make_full_path(),
                 alias,
+                fspath: module
+                    .get_package_by_name(&dep.path.make_full_path())
+                    .root_path
+                    .display()
+                    .to_string(),
             });
         }
 
@@ -590,6 +600,11 @@ pub fn convert_mdb_to_json(module: &ModuleDB) -> ModuleDBJSON {
             test_deps.push(AliasJSON {
                 path: dep.path.make_full_path(),
                 alias,
+                fspath: module
+                    .get_package_by_name(&dep.path.make_full_path())
+                    .root_path
+                    .display()
+                    .to_string(),
             });
         }
 

@@ -19,7 +19,7 @@
 use std::path::{Path, PathBuf};
 
 use expect_test::Expect;
-use moonutil::common::StringExt;
+use moonutil::{common::StringExt, compiler_flags::CC};
 
 pub fn check<S: AsRef<str>>(actual: S, expect: Expect) {
     expect.assert_eq(actual.as_ref())
@@ -46,6 +46,10 @@ pub fn replace_dir(s: &str, dir: impl AsRef<std::path::Path>) -> String {
             .unwrap(),
         "$MOON_HOME",
     );
+    let cc_path = CC::default().cc_path;
+    let ar_path = CC::default().ar_path;
+    let s = s.replace(&ar_path, CC::default().ar_name());
+    let s = s.replace(&cc_path, CC::default().cc_name());
     let s = s.replace(moon_bin().to_string_lossy().as_ref(), "moon");
     s.replace("\r\n", "\n").replace('\\', "/")
 }

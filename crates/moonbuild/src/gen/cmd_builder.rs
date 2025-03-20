@@ -21,22 +21,23 @@ pub struct CommandBuilder {
     args: Vec<String>,
 }
 
-impl CommandBuilder {
-    pub fn from_iter<I, S>(command_with_args: I) -> CommandBuilder
-    where
-        I: IntoIterator<Item = S>,
-        S: Into<String>,
-    {
-        let mut iter = command_with_args.into_iter();
-        let command = iter.next().unwrap_or_else(|| panic!("command not found"));
-        let args = iter.collect::<Vec<_>>();
+impl<S> FromIterator<S> for CommandBuilder
+where
+    S: Into<String>,
+{
+    fn from_iter<T: IntoIterator<Item = S>>(iter: T) -> Self {
+        let mut iter = iter.into_iter();
+        let command = iter
+            .next()
+            .unwrap_or_else(|| panic!("command not found"))
+            .into();
+        let args = iter.map(|i| i.into()).collect::<Vec<_>>();
 
-        CommandBuilder {
-            command: command.into(),
-            args: args.into_iter().map(|s| s.into()).collect(),
-        }
+        CommandBuilder { command, args }
     }
+}
 
+impl CommandBuilder {
     pub fn new(command: &str) -> CommandBuilder {
         CommandBuilder {
             command: command.into(),

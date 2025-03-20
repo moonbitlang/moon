@@ -316,7 +316,7 @@ fn run_test_internal(
         // will not break the user's expectation on their control over
         // c compilers and flags
         let existing_native = pkg.link.as_ref().and_then(|link| link.native.as_ref());
-        use_tcc_run &= pkg.native_stub.is_none();
+        use_tcc_run &= pkg.stub_static_lib.is_none();
         if let Some(n) = existing_native {
             use_tcc_run &= n.cc.is_none()
                 && n.cc_flags.is_none()
