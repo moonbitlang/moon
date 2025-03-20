@@ -222,9 +222,9 @@ where
         }
     }
 
-    buf.extend(src.iter().map(|s| s.as_ref().to_string()));
-
     buf.extend(user_link_flags.iter().map(|s| s.as_ref().to_string()));
+
+    buf.extend(src.iter().map(|s| s.as_ref().to_string()));
 
     buf
 }
@@ -386,9 +386,9 @@ where
         }
     }
 
-    buf.extend(src.iter().map(|s| s.as_ref().to_string()));
-
     buf.extend(user_cc_flags.iter().map(|s| s.as_ref().to_string()));
+
+    buf.extend(src.iter().map(|s| s.as_ref().to_string()));
 
     buf
 }
