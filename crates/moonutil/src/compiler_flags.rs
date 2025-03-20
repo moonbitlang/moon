@@ -159,19 +159,6 @@ where
     // as user cannot easily specify them in the configuration file
     let has_user_flags = !user_link_flags.is_empty();
 
-    // Library paths
-    if cc.is_msvc() {
-        buf.push(format!("/link /LIBPATH:{}", lpath));
-    } else if cc.is_gcc_like() {
-        buf.push(format!("-L{}", lpath));
-    };
-
-    // MSVC may throw intermediate files into current directory
-    // Explicitly set the output directory of these files
-    if cc.is_msvc() {
-        buf.push(format!("/Fo{}\\", dest_dir));
-    }
-
     // Output file
     if cc.is_msvc() {
         match config.output_ty {
@@ -185,6 +172,17 @@ where
         buf.push(dest.to_string());
     }
 
+    // Library paths
+    if cc.is_gcc_like() {
+        buf.push(format!("-L{}", lpath));
+    };
+
+    // MSVC may throw intermediate files into current directory
+    // Explicitly set the output directory of these files
+    if cc.is_msvc() {
+        buf.push(format!("/Fo{}\\", dest_dir));
+    }
+
     // Build shared library
     if config.output_ty == OutputType::SharedLib && !has_user_flags {
         if cc.is_msvc() {
@@ -193,11 +191,6 @@ where
             buf.push("-shared".to_string());
             buf.push("-fPIC".to_string());
         }
-    }
-
-    // Link against some common libraries
-    if cc.is_gcc_like() && !has_user_flags {
-        buf.push("-lm".to_string());
     }
 
     // Misc options
@@ -222,9 +215,19 @@ where
         }
     }
 
-    buf.extend(user_link_flags.iter().map(|s| s.as_ref().to_string()));
-
     buf.extend(src.iter().map(|s| s.as_ref().to_string()));
+
+    // Link against some common libraries
+    if cc.is_gcc_like() && !has_user_flags {
+        buf.push("-lm".to_string());
+    }
+
+    if cc.is_msvc() {
+        buf.push("/link".to_string());
+        buf.push(format!("/LIBPATH:{}", MOON_DIRS.moon_lib_path.display()));
+    }
+
+    buf.extend(user_link_flags.iter().map(|s| s.as_ref().to_string()));
 
     buf
 }
@@ -251,10 +254,24 @@ where
     // as user cannot easily specify them in the configuration file
     let has_user_flags = !user_cc_flags.is_empty();
 
+    // Output file
+    if cc.is_msvc() {
+        match config.output_ty {
+            OutputType::Object => {
+                buf.push(format!("/Fo{}", dest));
+            }
+            OutputType::SharedLib | OutputType::Executable | OutputType::StaticLib => {
+                buf.push(format!("/Fe{}", dest));
+            }
+        }
+    } else if cc.is_gcc_like() {
+        buf.push("-o".to_string());
+        buf.push(dest.to_string());
+    }
+
     // Include and lib paths
     if cc.is_msvc() {
         buf.push(format!("/I{}", ipath));
-        buf.push(format!("/link /LIBPATH:{}", lpath));
     } else if cc.is_gcc_like() {
         buf.push(format!("-I{}", ipath));
         buf.push(format!("-L{}", lpath));
@@ -275,21 +292,6 @@ where
         }
     }
 
-    // Output file
-    if cc.is_msvc() {
-        match config.output_ty {
-            OutputType::Object => {
-                buf.push(format!("/Fo{}", dest));
-            }
-            OutputType::SharedLib | OutputType::Executable | OutputType::StaticLib => {
-                buf.push(format!("/Fe{}", dest));
-            }
-        }
-    } else if cc.is_gcc_like() {
-        buf.push("-o".to_string());
-        buf.push(dest.to_string());
-    }
-
     // Build shared library
     if config.output_ty == OutputType::SharedLib {
         if cc.is_msvc() {
@@ -307,11 +309,6 @@ where
         } else if cc.is_gcc_like() {
             buf.push("-c".to_string());
         }
-    }
-
-    // Link against some common libraries
-    if cc.is_gcc_like() && !has_user_flags {
-        buf.push("-lm".to_string());
     }
 
     // Misc options
@@ -385,10 +382,20 @@ where
             );
         }
     }
+    buf.extend(src.iter().map(|s| s.as_ref().to_string()));
+
+    // Link against some common libraries
+    if cc.is_gcc_like() && !has_user_flags {
+        buf.push("-lm".to_string());
+    }
 
     buf.extend(user_cc_flags.iter().map(|s| s.as_ref().to_string()));
 
-    buf.extend(src.iter().map(|s| s.as_ref().to_string()));
+    // MSVC specific linker flags
+    if cc.is_msvc() {
+        buf.push("/link".to_string());
+        buf.push(format!("/LIBPATH:{}", ipath));
+    }
 
     buf
 }
