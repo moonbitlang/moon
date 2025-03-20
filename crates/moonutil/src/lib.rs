@@ -37,3 +37,4 @@ pub mod path;
 pub mod render;
 pub mod scan;
 pub mod version;
+pub mod compiler_flags;

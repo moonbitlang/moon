@@ -193,10 +193,8 @@ fn run_build_internal(
 
     moonutil::common::set_native_backend_link_flags(
         run_mode,
-        cmd.build_flags.release,
         cmd.build_flags.target_backend,
         &mut module,
-        moonbuild_opt.use_tcc_run,
     )?;
 
     if cli.dry_run {

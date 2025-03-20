@@ -19,7 +19,6 @@
 use crate::cond_expr::{CompileCondition, OptLevel};
 pub use crate::dirs::check_moon_mod_exists;
 use crate::module::{MoonMod, MoonModJSON};
-use crate::moon_dir::MOON_DIRS;
 use crate::package::{convert_pkg_json_to_package, MoonPkg, MoonPkgJSON, Package};
 use anyhow::{bail, Context};
 use clap::ValueEnum;
@@ -32,7 +31,6 @@ use std::fs::File;
 use std::io::ErrorKind;
 use std::io::{BufReader, BufWriter};
 use std::path::{Path, PathBuf};
-use which::which;
 
 pub const MOON_MOD_JSON: &str = "moon.mod.json";
 pub const MOON_PKG_JSON: &str = "moon.pkg.json";
@@ -933,54 +931,13 @@ impl StringExt for str {
 
 pub fn set_native_backend_link_flags(
     run_mode: RunMode,
-    release: bool,
     target_backend: Option<TargetBackend>,
     module: &mut crate::module::ModuleDB,
-    tcc_run: bool,
 ) -> anyhow::Result<()> {
     match run_mode {
         // need link-core for build, test and run
         RunMode::Build | RunMode::Test | RunMode::Run => {
             if target_backend == Some(TargetBackend::Native) {
-                // check if c compiler exists in PATH
-                #[cfg(unix)]
-                let compiler = "cc";
-                #[cfg(windows)]
-                let compiler = "cl";
-
-                let moon_include_path = &MOON_DIRS.moon_include_path;
-                let moon_lib_path = &MOON_DIRS.moon_lib_path;
-
-                // libmoonbitrun.o should under $MOON_HOME/lib
-                let libmoonbitrun_path = moon_lib_path.join("libmoonbitrun.o");
-
-                #[cfg(unix)] // only support tcc on unix
-                let get_fast_cc_flags = || -> Option<String> {
-                    Some(format!(
-                        "-I{} -L{} -DMOONBIT_NATIVE_NO_SYS_HEADER",
-                        moon_include_path.display(),
-                        moon_lib_path.display()
-                    ))
-                };
-
-                let get_default_cc_flags = || -> Option<String> {
-                    #[cfg(unix)]
-                    return Some(format!(
-                        "-I{} -O2 {} -fwrapv -fno-strict-aliasing",
-                        moon_include_path.display(),
-                        libmoonbitrun_path.display()
-                    ));
-                    #[cfg(windows)]
-                    return Some(format!("-I{}", moon_include_path.display()));
-                };
-
-                let get_default_cc_link_flag = || -> Option<String> {
-                    #[cfg(unix)]
-                    return Some("-lm".to_string());
-                    #[cfg(windows)]
-                    return None;
-                };
-
                 let mut link_configs = HashMap::new();
 
                 let all_pkgs = module.get_all_packages();
@@ -988,60 +945,8 @@ pub fn set_native_backend_link_flags(
                 for (_, pkg) in all_pkgs {
                     let existing_native = pkg.link.as_ref().and_then(|link| link.native.as_ref());
 
-                    let mut native_config = match existing_native {
-                        #[cfg(unix)] // only support tcc on unix
-                        // we have set the tcc_run flag outside
-                        // which implies users haven't set the native link config
-                        // so it's fine to override it here regardless of
-                        // the existing native link config
-                        _ if tcc_run => crate::package::NativeLinkConfig {
-                            exports: None,
-                            cc: Some(MOON_DIRS.internal_tcc_path.display().to_string()),
-                            cc_flags: get_fast_cc_flags(),
-                            cc_link_flags: None,
-                            native_stub_deps: None,
-                        },
-                        Some(n) => crate::package::NativeLinkConfig {
-                            exports: n.exports.clone(),
-                            cc: n.cc.clone().or(Some(compiler.to_string())),
-                            cc_flags: n
-                                .cc_flags
-                                .as_ref()
-                                .map(|cc_flags| {
-                                    format!(
-                                        "-I{} -fwrapv -fno-strict-aliasing {}",
-                                        moon_include_path.display(),
-                                        cc_flags
-                                    )
-                                })
-                                .or(get_default_cc_flags()),
-                            cc_link_flags: n.cc_link_flags.clone().or(get_default_cc_link_flag()),
-                            native_stub_deps: None,
-                        },
-                        None if (release
-                            || pkg.native_stub.is_some()
-                            || which(compiler).is_ok()) =>
-                        {
-                            crate::package::NativeLinkConfig {
-                                exports: None,
-                                cc: Some(compiler.to_string()),
-                                cc_flags: get_default_cc_flags(),
-                                cc_link_flags: get_default_cc_link_flag(),
-                                native_stub_deps: None,
-                            }
-                        }
-                        None => crate::package::NativeLinkConfig {
-                            exports: None,
-                            cc: Some(MOON_DIRS.internal_tcc_path.display().to_string()),
-                            cc_flags: Some(format!(
-                                "-L{} -I{} -DMOONBIT_NATIVE_NO_SYS_HEADER",
-                                moon_lib_path.display(),
-                                moon_include_path.display()
-                            )),
-                            cc_link_flags: None,
-                            native_stub_deps: None,
-                        },
-                    };
+                    let mut native_config =
+                        existing_native.map(|nc| nc.clone()).unwrap_or_default();
 
                     let mut native_stub_o = Vec::new();
                     module
