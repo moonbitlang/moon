@@ -227,6 +227,7 @@ fn run_test_internal(
         output_json: false,
         parallelism: cmd.build_flags.jobs,
         use_tcc_run: false,
+        all_stubs: vec![],
     };
 
     let mut module = moonutil::scan::scan(
@@ -309,27 +310,29 @@ fn run_test_internal(
         (None, moonbuild_opt)
     };
 
-    #[cfg(windows)]
-    let mut use_tcc_run = false;
-
-    #[cfg(unix)]
+    #[allow(unused_mut)]
     let mut use_tcc_run = moonc_opt.build_opt.debug_flag && moonbuild_opt.run_mode == RunMode::Test;
 
     for (_, pkg) in module.get_filtered_packages_mut(package_filter) {
-        if pkg.is_third_party || pkg.is_main {
-            continue;
-        }
-
         // do a pre-check to ensure that enabling fast cc mode (using tcc for debug testing)
         // will not break the user's expectation on their control over
         // c compilers and flags
         let existing_native = pkg.link.as_ref().and_then(|link| link.native.as_ref());
-        use_tcc_run &= pkg.native_stub.is_none();
         if let Some(n) = existing_native {
-            use_tcc_run &= n.cc.is_none()
-                && n.cc_flags.is_none()
-                && n.cc_link_flags.is_none()
-                && n.native_stub_deps.is_none();
+            let no_user_control =
+                n.cc.is_none() && n.cc_flags.is_none() && n.cc_link_flags.is_none();
+            if !no_user_control {
+                eprintln!(
+                    "{}: package `{}` has native compiler settings, tcc run will be disabled",
+                    "Warning".yellow(),
+                    pkg.full_name()
+                );
+            }
+            use_tcc_run &= no_user_control;
+        }
+
+        if pkg.is_third_party || pkg.is_main {
+            continue;
         }
 
         pkg.patch_file = cmd.patch_file.clone();
@@ -366,12 +369,13 @@ fn run_test_internal(
         }
     }
 
-    let moonbuild_opt = MoonbuildOpt {
+    let mut moonbuild_opt = MoonbuildOpt {
         use_tcc_run,
         ..moonbuild_opt
     };
 
     moonutil::common::set_native_backend_link_flags(
+        &mut moonbuild_opt,
         run_mode,
         cmd.build_flags.release,
         cmd.build_flags.target_backend,

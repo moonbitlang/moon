@@ -331,6 +331,7 @@ pub fn run_run_internal(cli: &UniversalFlags, cmd: RunSubcommand) -> anyhow::Res
         no_parallelize: false,
         parallelism: cmd.build_flags.jobs,
         use_tcc_run: false,
+        all_stubs: vec![],
     };
 
     let mut module = scan_with_pre_build(
@@ -344,12 +345,16 @@ pub fn run_run_internal(cli: &UniversalFlags, cmd: RunSubcommand) -> anyhow::Res
     let pkg = module.get_package_by_path_mut(&package).unwrap();
     pkg.enable_value_tracing = cmd.build_flags.enable_value_tracing;
 
+    let mut moonbuild_opt = moonbuild_opt;
+    let use_tcc_run = moonbuild_opt.use_tcc_run;
+
     moonutil::common::set_native_backend_link_flags(
+        &mut moonbuild_opt,
         run_mode,
         cmd.build_flags.release,
         cmd.build_flags.target_backend,
         &mut module,
-        moonbuild_opt.use_tcc_run,
+        use_tcc_run,
     )?;
 
     if cli.dry_run {

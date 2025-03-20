@@ -208,6 +208,7 @@ pub fn run_info_internal(
         build_graph: false,
         parallelism: None,
         use_tcc_run: false,
+        all_stubs: vec![],
     };
 
     let mdb = scan_with_pre_build(

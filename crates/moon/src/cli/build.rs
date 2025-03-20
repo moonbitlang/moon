@@ -168,6 +168,7 @@ fn run_build_internal(
         no_parallelize: false,
         parallelism: cmd.build_flags.jobs,
         use_tcc_run: false,
+        all_stubs: vec![],
     };
 
     let mut module = scan_with_pre_build(
@@ -191,12 +192,16 @@ fn run_build_internal(
         }
     }
 
+    let mut moonbuild_opt = moonbuild_opt;
+    let use_tcc_run = moonbuild_opt.use_tcc_run;
+
     moonutil::common::set_native_backend_link_flags(
+        &mut moonbuild_opt,
         run_mode,
         cmd.build_flags.release,
         cmd.build_flags.target_backend,
         &mut module,
-        moonbuild_opt.use_tcc_run,
+        use_tcc_run,
     )?;
 
     if cli.dry_run {

@@ -134,18 +134,25 @@ pub async fn run_native(
         let path = path.with_extension("c");
         let rt_path = target_dir.join(format!("runtime.{}", DYN_EXT));
         let internal_tcc_path = &MOON_DIRS.internal_tcc_path;
+        let mut pre_args = vec![
+            format!("-I{}", MOON_DIRS.moon_include_path.display()),
+            format!("-L{}", MOON_DIRS.moon_lib_path.display()),
+            format!("-L{}", MOON_DIRS.moon_bin_path.display()),
+            rt_path.display().to_string(),
+        ];
+        pre_args.extend(moonbuild_opt.all_stubs.iter().cloned());
+        pre_args.extend(
+            [
+                "-DMOONBIT_NATIVE_NO_SYS_HEADER".to_string(),
+                "-run".to_string(),
+            ]
+            .into_iter(),
+        );
         run(
             Some(internal_tcc_path.display().to_string().as_str()),
             &path,
             target_dir,
-            &[
-                format!("-I{}", MOON_DIRS.moon_include_path.display()),
-                format!("-L{}", MOON_DIRS.moon_lib_path.display()),
-                format!("-L{}", MOON_DIRS.moon_bin_path.display()),
-                rt_path.display().to_string(),
-                "-DMOONBIT_NATIVE_NO_SYS_HEADER".to_string(),
-                "-run".to_string(),
-            ],
+            &pre_args,
             &[args],
             file_test_info_map,
             verbose,

@@ -436,6 +436,7 @@ pub struct MoonbuildOpt {
     /// Max parallel tasks to run in n2; `None` to use default
     pub parallelism: Option<usize>,
     pub use_tcc_run: bool,
+    pub all_stubs: Vec<String>,
 }
 
 impl MoonbuildOpt {
@@ -932,6 +933,7 @@ impl StringExt for str {
 }
 
 pub fn set_native_backend_link_flags(
+    moonbuild_opt: &mut MoonbuildOpt,
     run_mode: RunMode,
     release: bool,
     target_backend: Option<TargetBackend>,
@@ -952,9 +954,9 @@ pub fn set_native_backend_link_flags(
                 let moon_lib_path = &MOON_DIRS.moon_lib_path;
 
                 // libmoonbitrun.o should under $MOON_HOME/lib
+                #[allow(unused)] // unused on Windows
                 let libmoonbitrun_path = moon_lib_path.join("libmoonbitrun.o");
 
-                #[cfg(unix)] // only support tcc on unix
                 let get_fast_cc_flags = || -> Option<String> {
                     Some(format!(
                         "-I{} -L{} -DMOONBIT_NATIVE_NO_SYS_HEADER",
@@ -989,7 +991,6 @@ pub fn set_native_backend_link_flags(
                     let existing_native = pkg.link.as_ref().and_then(|link| link.native.as_ref());
 
                     let mut native_config = match existing_native {
-                        #[cfg(unix)] // only support tcc on unix
                         // we have set the tcc_run flag outside
                         // which implies users haven't set the native link config
                         // so it's fine to override it here regardless of
@@ -1043,25 +1044,30 @@ pub fn set_native_backend_link_flags(
                         },
                     };
 
-                    let mut native_stub_o = Vec::new();
+                    let mut native_stubs = Vec::new();
                     module
                         .get_filtered_packages_and_its_deps_by_pkgname(pkg.full_name().as_str())
                         .unwrap()
                         .iter()
                         .for_each(|(_, pkg)| {
                             if let Some(ref stub_files) = pkg.native_stub {
-                                native_stub_o.extend(stub_files.iter().map(|f| {
-                                    pkg.artifact
-                                        .parent()
-                                        .unwrap()
-                                        .join(f)
-                                        .with_extension(O_EXT)
-                                        .display()
-                                        .to_string()
-                                }));
+                                native_stubs.extend(
+                                    stub_files
+                                        .iter()
+                                        .map(|f| pkg.artifact.parent().unwrap().join(f)),
+                                );
                             }
                         });
 
+                    let native_stub_o = native_stubs
+                        .iter()
+                        .map(|f| f.with_extension(O_EXT).display().to_string())
+                        .collect::<Vec<_>>();
+                    moonbuild_opt.all_stubs.extend(
+                        native_stubs
+                            .iter()
+                            .map(|f| f.with_extension(DYN_EXT).display().to_string()),
+                    );
                     if !native_stub_o.is_empty() {
                         native_config.native_stub_deps = Some(native_stub_o);
                     }
