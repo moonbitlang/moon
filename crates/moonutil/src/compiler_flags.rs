@@ -224,7 +224,7 @@ where
 
     if cc.is_msvc() {
         buf.push("/link".to_string());
-        buf.push(format!("/LIBPATH:{}", MOON_DIRS.moon_lib_path.display()));
+        buf.push(format!("/LIBPATH:{}", lpath));
     }
 
     buf.extend(user_link_flags.iter().map(|s| s.as_ref().to_string()));
