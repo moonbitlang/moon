@@ -307,6 +307,11 @@ where
         }
     }
 
+    // Link against some common libraries
+    if cc.is_gcc_like() && !has_user_flags {
+        buf.push("-lm".to_string());
+    }
+
     // Misc options
     if cc.is_msvc() && !has_user_flags {
         buf.push("/utf-8".to_string());
