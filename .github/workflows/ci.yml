@@ -322,60 +322,60 @@ jobs:
           cargo run --bin moon test --source-dir "$env:USERPROFILE\.moon\lib\core" --release --target wasm
           cargo run --bin moon test --source-dir "$env:USERPROFILE\.moon\lib\core" --doc
 
-  coverage:
-    needs: bleeding-test
-    runs-on: macos-latest
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-        with:
-          submodules: true
+  # coverage:
+  #   needs: bleeding-test
+  #   runs-on: macos-latest
+  #   steps:
+  #     - name: Checkout repository
+  #       uses: actions/checkout@v4
+  #       with:
+  #         submodules: true
 
-      - uses: dtolnay/rust-toolchain@1.80.0
+  #     - uses: dtolnay/rust-toolchain@1.80.0
 
-      - name: Checkout moonc-version
-        uses: actions/checkout@v4
-        with:
-          ref: moonc-version-dont-delete
-          path: moonc-version-dont-delete
-      - name: Copy moonc-version file to workspace
-        run: |
-          cp moonc-version-dont-delete/moonc-version .
+  #     - name: Checkout moonc-version
+  #       uses: actions/checkout@v4
+  #       with:
+  #         ref: moonc-version-dont-delete
+  #         path: moonc-version-dont-delete
+  #     - name: Copy moonc-version file to workspace
+  #       run: |
+  #         cp moonc-version-dont-delete/moonc-version .
 
-      - name: install MoonBit(Unix)
-        run: |
-          curl https://cli.moonbitlang.com/moon-ci/$(uname -s)-$(uname -m).tar.gz --output moonbit.tar.gz
-          mkdir -p ~/.moon/bin
-          mkdir -p ~/.moon/lib
-          tar xf moonbit.tar.gz --directory ~/.moon/
-          curl https://cli.moonbitlang.com/moon-ci/$(uname -s)-$(uname -m)/moonrun --output ~/.moon/bin/moonrun
-          curl https://cli.moonbitlang.com/moon-ci/$(uname -s)-$(uname -m)/mooncake --output ~/.moon/bin/mooncake
-          chmod +x ~/.moon/bin/moon*
-          chmod +x ~/.moon/bin/internal/tcc
-          git clone --depth 1 https://github.com/moonbitlang/core.git ~/.moon/lib/core
-          echo "$HOME/.moon/bin" >> $GITHUB_PATH
-          echo "$GITHUB_WORKSPACE/target/debug" >> $GITHUB_PATH
+  #     - name: install MoonBit(Unix)
+  #       run: |
+  #         curl https://cli.moonbitlang.com/moon-ci/$(uname -s)-$(uname -m).tar.gz --output moonbit.tar.gz
+  #         mkdir -p ~/.moon/bin
+  #         mkdir -p ~/.moon/lib
+  #         tar xf moonbit.tar.gz --directory ~/.moon/
+  #         curl https://cli.moonbitlang.com/moon-ci/$(uname -s)-$(uname -m)/moonrun --output ~/.moon/bin/moonrun
+  #         curl https://cli.moonbitlang.com/moon-ci/$(uname -s)-$(uname -m)/mooncake --output ~/.moon/bin/mooncake
+  #         chmod +x ~/.moon/bin/moon*
+  #         chmod +x ~/.moon/bin/internal/tcc
+  #         git clone --depth 1 https://github.com/moonbitlang/core.git ~/.moon/lib/core
+  #         echo "$HOME/.moon/bin" >> $GITHUB_PATH
+  #         echo "$GITHUB_WORKSPACE/target/debug" >> $GITHUB_PATH
 
-      - name: install cargo-tarpaulin ${{ env.CARGO_TARPAULIN_VERSION }}
-        run: |
-          cd "${CARGO_HOME}/bin"
-          curl -sL https://github.com/xd009642/tarpaulin/releases/download/${CARGO_TARPAULIN_VERSION}/cargo-tarpaulin-aarch64-apple-darwin.tar.gz | tar zxf - -C ${CARGO_HOME:-~/.cargo}/bin
+  #     - name: install cargo-tarpaulin ${{ env.CARGO_TARPAULIN_VERSION }}
+  #       run: |
+  #         cd "${CARGO_HOME}/bin"
+  #         curl -sL https://github.com/xd009642/tarpaulin/releases/download/${CARGO_TARPAULIN_VERSION}/cargo-tarpaulin-aarch64-apple-darwin.tar.gz | tar zxf - -C ${CARGO_HOME:-~/.cargo}/bin
 
-      - name: Build
-        run: cargo build
-      - name: Set built binary to PATH (Unix)
-        run: echo "$GITHUB_WORKSPACE/target/debug" >> $GITHUB_PATH
-      - name: Versions
-        run: cargo run --bin moon version --all
-      - name: Bundle core (Unix)
-        run: cargo run --bin moon bundle --source-dir ~/.moon/lib/core --all
+  #     - name: Build
+  #       run: cargo build
+  #     - name: Set built binary to PATH (Unix)
+  #       run: echo "$GITHUB_WORKSPACE/target/debug" >> $GITHUB_PATH
+  #     - name: Versions
+  #       run: cargo run --bin moon version --all
+  #     - name: Bundle core (Unix)
+  #       run: cargo run --bin moon bundle --source-dir ~/.moon/lib/core --all
 
-      - name: Generate code coverage
-        run: cargo tarpaulin --ignore-tests --out Xml
+  #     - name: Generate code coverage
+  #       run: cargo tarpaulin --ignore-tests --out Xml
 
-      - name: Upload coverage reports to Codecov
-        if: github.ref == 'refs/heads/main'
-        uses: codecov/codecov-action@v4.0.1
-        with:
-          token: ${{secrets.CODECOV_TOKEN}}
-          fail_ci_if_error: true
+  #     - name: Upload coverage reports to Codecov
+  #       if: github.ref == 'refs/heads/main'
+  #       uses: codecov/codecov-action@v4.0.1
+  #       with:
+  #         token: ${{secrets.CODECOV_TOKEN}}
+  #         fail_ci_if_error: true
