@@ -279,7 +279,7 @@ where
 
     // MSVC may throw intermediate files into current directory
     // Explicitly set the output directory of these files
-    if cc.is_msvc() {
+    if cc.is_msvc() && config.output_ty != OutputType::Object {
         buf.push(format!("/Fo{}\\", dest_dir));
     }
 
