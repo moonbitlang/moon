@@ -20,6 +20,7 @@
 
 pub mod cli;
 pub mod common;
+pub mod compiler_flags;
 pub mod cond_expr;
 pub mod dependency;
 pub mod dirs;
@@ -37,4 +38,3 @@ pub mod path;
 pub mod render;
 pub mod scan;
 pub mod version;
-pub mod compiler_flags;

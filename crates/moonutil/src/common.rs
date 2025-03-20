@@ -945,8 +945,7 @@ pub fn set_native_backend_link_flags(
                 for (_, pkg) in all_pkgs {
                     let existing_native = pkg.link.as_ref().and_then(|link| link.native.as_ref());
 
-                    let mut native_config =
-                        existing_native.map(|nc| nc.clone()).unwrap_or_default();
+                    let mut native_config = existing_native.cloned().unwrap_or_default();
 
                     let mut native_stub_o = Vec::new();
                     module

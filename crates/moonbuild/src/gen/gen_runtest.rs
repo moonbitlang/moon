@@ -1103,7 +1103,6 @@ pub fn gen_n2_runtest_state(
     let mut runtime_o_path = String::new();
 
     if is_native_backend {
-        #[cfg(unix)]
         fn gen_shared_runtime(
             graph: &mut n2graph::Graph,
             target_dir: &std::path::Path,
@@ -1125,14 +1124,9 @@ pub fn gen_n2_runtest_state(
             Ok(path)
         }
 
-        #[cfg(unix)]
         if moonbuild_opt.use_tcc_run {
             gen_shared_runtime(&mut graph, &moonbuild_opt.target_dir, &mut default)?;
         } else {
-            runtime_o_path = gen_runtime(&mut graph, &moonbuild_opt.target_dir)?;
-        }
-        #[cfg(windows)]
-        {
             runtime_o_path = gen_runtime(&mut graph, &moonbuild_opt.target_dir)?;
         }
     }

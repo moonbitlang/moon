@@ -665,8 +665,8 @@ pub fn gen_compile_exe_command(
         .unwrap_or_default();
 
     let mut native_flags = vec![];
-    native_flags.extend(native_cc_flags.into_iter());
-    native_flags.extend(native_cc_link_flags.into_iter());
+    native_flags.extend(native_cc_flags);
+    native_flags.extend(native_cc_link_flags);
 
     let cpath = &c_artifact_path;
     let rtpath = &runtime_path;
@@ -825,8 +825,8 @@ pub fn gen_link_exe_command(
         .unwrap_or_default();
 
     let mut native_flags = vec![];
-    native_flags.extend(native_cc_flags.into_iter());
-    native_flags.extend(native_cc_link_flags.into_iter());
+    native_flags.extend(native_cc_flags);
+    native_flags.extend(native_cc_link_flags);
 
     let moon_lib_path = &MOON_DIRS.moon_lib_path;
 
@@ -885,7 +885,6 @@ pub fn gen_n2_build_state(
     let mut runtime_o_path = String::new();
 
     if is_native_backend {
-        #[cfg(unix)]
         fn gen_shared_runtime(
             graph: &mut n2graph::Graph,
             target_dir: &Path,
@@ -904,14 +903,9 @@ pub fn gen_n2_build_state(
             Ok(path)
         }
 
-        #[cfg(unix)]
         if moonbuild_opt.use_tcc_run {
             gen_shared_runtime(&mut graph, target_dir, &mut default)?;
         } else {
-            runtime_o_path = gen_runtime(&mut graph, target_dir)?;
-        }
-        #[cfg(windows)]
-        {
             runtime_o_path = gen_runtime(&mut graph, target_dir)?;
         }
     }
