@@ -394,7 +394,7 @@ where
     // MSVC specific linker flags
     if cc.is_msvc() {
         buf.push("/link".to_string());
-        buf.push(format!("/LIBPATH:{}", ipath));
+        buf.push(format!("/LIBPATH:{}", lpath));
     }
 
     buf
