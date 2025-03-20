@@ -462,6 +462,13 @@ pub struct NativeLinkConfig {
     pub cc_link_flags: Option<String>,
 
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub stub_cc: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub stub_cc_flags: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub stub_cc_link_flags: Option<String>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
     #[schemars(skip)]
     pub native_stub_deps: Option<Vec<String>>,
 }

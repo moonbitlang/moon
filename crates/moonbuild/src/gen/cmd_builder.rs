@@ -21,6 +21,22 @@ pub struct CommandBuilder {
     args: Vec<String>,
 }
 
+impl<S> FromIterator<S> for CommandBuilder
+where
+    S: Into<String>,
+{
+    fn from_iter<T: IntoIterator<Item = S>>(iter: T) -> Self {
+        let mut iter = iter.into_iter();
+        let command = iter
+            .next()
+            .unwrap_or_else(|| panic!("command not found"))
+            .into();
+        let args = iter.map(|i| i.into()).collect::<Vec<_>>();
+
+        CommandBuilder { command, args }
+    }
+}
+
 impl CommandBuilder {
     pub fn new(command: &str) -> CommandBuilder {
         CommandBuilder {

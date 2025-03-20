@@ -148,7 +148,7 @@ pub async fn run_native(
             ],
             &[args],
             file_test_info_map,
-            verbose,
+            true,
         )
         .await
     } else {
