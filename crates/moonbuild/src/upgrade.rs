@@ -240,19 +240,37 @@ mod windows {
     pub static TEMP_EXE_PATH: std::sync::OnceLock<std::path::PathBuf> = std::sync::OnceLock::new();
 
     pub fn copy_moon_back() {
-        let _ = std::fs::copy(TEMP_EXE_PATH.get().unwrap(), MOON_EXE_PATH.get().unwrap());
+        if TEMP_EXE_PATH.get().is_some() && MOON_EXE_PATH.get().is_some() {
+            let _ = std::fs::copy(TEMP_EXE_PATH.get().unwrap(), MOON_EXE_PATH.get().unwrap());
+        }
     }
 
     pub fn do_upgrade_windows(cmd: &UpgradeSubcommand, root: &str) -> Result<i32> {
         let tmp_dir = tempfile::tempdir().context("failed to create temp dir")?;
+        match _do_upgrade_windows(cmd, root, tmp_dir.path()) {
+            Ok(0) => Ok(0),
+            e => {
+                copy_moon_back();
+                e
+            }
+        }
+    }
+
+    pub fn _do_upgrade_windows(
+        cmd: &UpgradeSubcommand,
+        root: &str,
+        tmp_dir: &std::path::Path,
+    ) -> Result<i32> {
         let current_exe = std::env::current_exe().context("failed to get current moon.exe path")?;
-        let temp_exe = tmp_dir.path().join("moon.exe");
+        let temp_exe = tmp_dir.join("moon.exe");
         std::fs::copy(&current_exe, &temp_exe)
             .context("failed to copy moon.exe to temp directory")?;
-        let _ = MOON_EXE_PATH.set(current_exe);
+        let _ = MOON_EXE_PATH.set(current_exe.clone());
         let _ = TEMP_EXE_PATH.set(temp_exe);
 
-        self_replace::self_delete().context("failed to delete current moon.exe")?;
+        if current_exe.starts_with(moon_dir::home()) {
+            self_replace::self_delete().context("failed to delete current moon.exe")?;
+        }
 
         let mut script = String::new();
         if cmd.dev {
@@ -263,18 +281,16 @@ mod windows {
         if cmd.dev {
             script.push_str("Remove-Item Env:\\MOONBIT_INSTALL_DEV")
         }
-        let script_path = tmp_dir.path().join("script.ps1");
+        let script_path = tmp_dir.join("script.ps1");
         std::fs::write(&script_path, &script).context("failed to write install script")?;
         let exe = "powershell";
         let status = std::process::Command::new(exe)
             .arg(&script_path)
             .status()
             .with_context(|| format!("failed to execute command:\n{}", script))?;
-
         match status.code() {
             Some(0) => Ok(0),
             _ => {
-                copy_moon_back();
                 bail!("failed to execute command:\n{}", script)
             }
         }
