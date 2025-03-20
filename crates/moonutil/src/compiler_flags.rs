@@ -37,6 +37,12 @@ pub struct CC {
     pub path: String,
 }
 
+impl Default for CC {
+    fn default() -> Self {
+        NATIVE_CC.clone()
+    }
+}
+
 impl CC {
     fn new(kind: CCKind, path: String) -> Self {
         CC { kind, path }
@@ -54,10 +60,6 @@ impl CC {
             Some(_) => Ok(CC::new(CCKind::SystemCC, path.display().to_string())),
             None => Err(anyhow::anyhow!("{} not found", path.display())),
         }
-    }
-
-    pub fn default() -> Self {
-        NATIVE_CC.clone()
     }
 
     pub fn is_gcc_like(&self) -> bool {

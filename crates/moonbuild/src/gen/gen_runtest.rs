@@ -41,11 +41,9 @@ use n2::graph::{self as n2graph, Build, BuildIns, BuildOuts, FileLoc};
 use n2::load::State;
 use n2::smallmap::SmallMap;
 
-#[cfg(unix)]
-use crate::gen::gen_build::gen_compile_shared_runtime_command;
 use crate::gen::gen_build::{
-    gen_compile_exe_command, gen_compile_runtime_command, gen_compile_stub_command,
-    gen_link_exe_command,
+    gen_compile_exe_command, gen_compile_runtime_command, gen_compile_shared_runtime_command,
+    gen_compile_stub_command, gen_link_exe_command,
 };
 use crate::gen::n2_errors::{N2Error, N2ErrorKind};
 use crate::gen::{coverage_args, MiAlias};
