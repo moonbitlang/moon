@@ -284,10 +284,8 @@ where
     }
 
     // Generate debug info
-    if config.debug_info {
-        if cc.is_gcc_like() {
-            buf.push("-g".to_string());
-        }
+    if config.debug_info && cc.is_gcc_like() {
+        buf.push("-g".to_string());
     }
 
     // Build shared library
