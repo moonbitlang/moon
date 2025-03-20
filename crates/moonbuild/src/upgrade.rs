@@ -32,6 +32,7 @@ pub struct UpgradeSubcommand {
     #[clap(long, short)]
     pub force: bool,
 
+    /// Install the latest development version
     #[clap(long)]
     pub dev: bool,
 

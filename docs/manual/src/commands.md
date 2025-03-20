@@ -461,6 +461,7 @@ Upgrade toolchains
 ###### **Options:**
 
 * `-f`, `--force` — Force upgrade
+* `--dev` — Install the latest development version
 
 
 
