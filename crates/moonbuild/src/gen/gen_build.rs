@@ -527,6 +527,7 @@ pub fn gen_compile_runtime_command(
             .output_ty(OutputType::Object)
             .opt_level(OptLevel::Speed)
             .debug_info(true)
+            .link_moonbitrun(true)
             .build()
             .unwrap(),
         &[],
@@ -584,6 +585,7 @@ pub fn gen_compile_shared_runtime_command(
             .output_ty(OutputType::SharedLib)
             .opt_level(OptLevel::Speed)
             .debug_info(true)
+            .link_moonbitrun(false)
             .build()
             .unwrap(),
         &[],
@@ -687,6 +689,7 @@ pub fn gen_compile_exe_command(
                 moonc_opt.build_opt.debug_flag,
             ))
             .debug_info(moonc_opt.build_opt.debug_flag)
+            .link_moonbitrun(true)
             .build()
             .unwrap(),
         &native_flags,
@@ -759,6 +762,7 @@ pub fn gen_compile_stub_command(
                     moonc_opt.build_opt.debug_flag,
                 ))
                 .debug_info(moonc_opt.build_opt.debug_flag)
+                .link_moonbitrun(false)
                 .build()
                 .unwrap(),
             &[],
@@ -846,6 +850,7 @@ pub fn gen_link_exe_command(
                 moonc_opt.build_opt.debug_flag,
             ))
             .debug_info(moonc_opt.build_opt.debug_flag)
+            .link_moonbitrun(true)
             .build()
             .unwrap(),
         &native_flags,
