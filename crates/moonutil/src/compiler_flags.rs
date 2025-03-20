@@ -285,9 +285,7 @@ where
 
     // Generate debug info
     if config.debug_info {
-        if cc.is_msvc() {
-            buf.push("/Zi".to_string());
-        } else if cc.is_gcc_like() {
+        if cc.is_gcc_like() {
             buf.push("-g".to_string());
         }
     }
