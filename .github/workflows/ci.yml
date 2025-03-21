@@ -205,9 +205,11 @@ jobs:
           cargo run --bin moon test --source-dir ~/.moon/lib/core --target wasm-gc
           cargo run --bin moon test --source-dir ~/.moon/lib/core --target js
           cargo run --bin moon test --source-dir ~/.moon/lib/core --target wasm
+          cargo run --bin moon test --source-dir ~/.moon/lib/core --target native
           cargo run --bin moon test --source-dir ~/.moon/lib/core --release --target wasm-gc
           cargo run --bin moon test --source-dir ~/.moon/lib/core --release --target js
           cargo run --bin moon test --source-dir ~/.moon/lib/core --release --target wasm
+          cargo run --bin moon test --source-dir ~/.moon/lib/core --release --target native
           cargo run --bin moon test --source-dir ~/.moon/lib/core --doc
       - name: Test core (Windows)
         if: ${{ matrix.os == 'windows-latest' }}
@@ -215,9 +217,11 @@ jobs:
           cargo run --bin moon test --source-dir "$env:USERPROFILE\.moon\lib\core" --target wasm-gc
           cargo run --bin moon test --source-dir "$env:USERPROFILE\.moon\lib\core" --target js
           cargo run --bin moon test --source-dir "$env:USERPROFILE\.moon\lib\core" --target wasm
+          cargo run --bin moon test --source-dir "$env:USERPROFILE\.moon\lib\core" --target native
           cargo run --bin moon test --source-dir "$env:USERPROFILE\.moon\lib\core" --release --target wasm-gc
           cargo run --bin moon test --source-dir "$env:USERPROFILE\.moon\lib\core" --release --target js
           cargo run --bin moon test --source-dir "$env:USERPROFILE\.moon\lib\core" --release --target wasm
+          cargo run --bin moon test --source-dir "$env:USERPROFILE\.moon\lib\core" --release --target native
           cargo run --bin moon test --source-dir "$env:USERPROFILE\.moon\lib\core" --doc
 
       - name: Test core on llvm backend (Unix)
@@ -307,9 +311,11 @@ jobs:
           cargo run --bin moon test --source-dir ~/.moon/lib/core --target wasm-gc
           cargo run --bin moon test --source-dir ~/.moon/lib/core --target js
           cargo run --bin moon test --source-dir ~/.moon/lib/core --target wasm
+          cargo run --bin moon test --source-dir ~/.moon/lib/core --target native
           cargo run --bin moon test --source-dir ~/.moon/lib/core --release --target wasm-gc
           cargo run --bin moon test --source-dir ~/.moon/lib/core --release --target js
           cargo run --bin moon test --source-dir ~/.moon/lib/core --release --target wasm
+          cargo run --bin moon test --source-dir ~/.moon/lib/core --release --target native
           cargo run --bin moon test --source-dir ~/.moon/lib/core --doc
       - name: Test core (Windows)
         if: ${{ matrix.os == 'windows-latest' }}
@@ -317,9 +323,11 @@ jobs:
           cargo run --bin moon test --source-dir "$env:USERPROFILE\.moon\lib\core" --target wasm-gc
           cargo run --bin moon test --source-dir "$env:USERPROFILE\.moon\lib\core" --target js
           cargo run --bin moon test --source-dir "$env:USERPROFILE\.moon\lib\core" --target wasm
+          cargo run --bin moon test --source-dir "$env:USERPROFILE\.moon\lib\core" --target native
           cargo run --bin moon test --source-dir "$env:USERPROFILE\.moon\lib\core" --release --target wasm-gc
           cargo run --bin moon test --source-dir "$env:USERPROFILE\.moon\lib\core" --release --target js
           cargo run --bin moon test --source-dir "$env:USERPROFILE\.moon\lib\core" --release --target wasm
+          cargo run --bin moon test --source-dir "$env:USERPROFILE\.moon\lib\core" --release --target native
           cargo run --bin moon test --source-dir "$env:USERPROFILE\.moon\lib\core" --doc
 
   # coverage:
