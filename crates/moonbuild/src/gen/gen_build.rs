@@ -671,12 +671,12 @@ pub fn gen_compile_exe_command(
 
     let command = CommandBuilder::new(native_cc)
         .args_with_cond(!native_cc_flags.is_empty(), native_cc_flags)
-        .args_with_cond(!native_cc_link_flags.is_empty(), native_cc_link_flags)
         .arg(&runtime_path)
         .arg(&c_artifact_path)
         .lazy_args_with_cond(native_stub_deps.is_some(), || {
             native_stub_deps.unwrap().into()
         })
+        .args_with_cond(!native_cc_link_flags.is_empty(), native_cc_link_flags)
         .args_with_cond(
             !windows_with_cl,
             vec!["-o", &artifact_output_path.display().to_string()],
@@ -900,12 +900,12 @@ pub fn gen_link_exe_command(
 
     let command = CommandBuilder::new(native_cc)
         .args_with_cond(!native_cc_flags.is_empty(), native_cc_flags)
-        .args_with_cond(!native_cc_link_flags.is_empty(), native_cc_link_flags)
         .arg(&runtime_c)
         .arg(&runtime_core)
         .arg("-I")
         .arg(&moon_include_path.display().to_string())
         .arg(&o_artifact_path)
+        .args_with_cond(!native_cc_link_flags.is_empty(), native_cc_link_flags)
         .arg("-o")
         .arg(&artifact_output_path)
         .build();
