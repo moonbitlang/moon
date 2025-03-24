@@ -96,7 +96,8 @@
         "deps": [
           {
             "path": "username/hello/lib",
-            "alias": "lib"
+            "alias": "lib",
+            "fspath": "${WORK_DIR}/src/lib"
           }
         ],
         "wbtest-deps": [],
