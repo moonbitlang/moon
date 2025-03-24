@@ -2842,7 +2842,8 @@ fn test_dummy_core() {
                       "deps": [
                         {
                           "path": "moonbitlang/core/1",
-                          "alias": "1"
+                          "alias": "1",
+                          "fspath": "$ROOT/1"
                         }
                       ],
                       "wbtest-deps": [],
@@ -2862,7 +2863,8 @@ fn test_dummy_core() {
                       "deps": [
                         {
                           "path": "moonbitlang/core/coverage",
-                          "alias": "coverage"
+                          "alias": "coverage",
+                          "fspath": "$ROOT/coverage"
                         }
                       ],
                       "wbtest-deps": [],
@@ -2897,13 +2899,15 @@ fn test_dummy_core() {
                       "deps": [
                         {
                           "path": "moonbitlang/core/coverage",
-                          "alias": "coverage"
+                          "alias": "coverage",
+                          "fspath": "$ROOT/coverage"
                         }
                       ],
                       "wbtest-deps": [
                         {
                           "path": "moonbitlang/core/char",
-                          "alias": "char"
+                          "alias": "char",
+                          "fspath": "$ROOT/char"
                         }
                       ],
                       "test-deps": [],
@@ -3123,7 +3127,8 @@ fn test_dummy_core() {
                       "deps": [
                         {
                           "path": "moonbitlang/core/1",
-                          "alias": "1"
+                          "alias": "1",
+                          "fspath": "$ROOT/1"
                         }
                       ],
                       "wbtest-deps": [],
@@ -3143,7 +3148,8 @@ fn test_dummy_core() {
                       "deps": [
                         {
                           "path": "moonbitlang/core/coverage",
-                          "alias": "coverage"
+                          "alias": "coverage",
+                          "fspath": "$ROOT/coverage"
                         }
                       ],
                       "wbtest-deps": [],
@@ -3178,13 +3184,15 @@ fn test_dummy_core() {
                       "deps": [
                         {
                           "path": "moonbitlang/core/coverage",
-                          "alias": "coverage"
+                          "alias": "coverage",
+                          "fspath": "$ROOT/coverage"
                         }
                       ],
                       "wbtest-deps": [
                         {
                           "path": "moonbitlang/core/char",
-                          "alias": "char"
+                          "alias": "char",
+                          "fspath": "$ROOT/char"
                         }
                       ],
                       "test-deps": [],
@@ -5398,19 +5406,22 @@ fn test_blackbox_success() {
                       "deps": [
                         {
                           "path": "username/hello/D",
-                          "alias": "D"
+                          "alias": "D",
+                          "fspath": "$ROOT/D"
                         }
                       ],
                       "wbtest-deps": [
                         {
                           "path": "username/hello/B",
-                          "alias": "B"
+                          "alias": "B",
+                          "fspath": "$ROOT/B"
                         }
                       ],
                       "test-deps": [
                         {
                           "path": "username/hello/C",
-                          "alias": "C"
+                          "alias": "C",
+                          "fspath": "$ROOT/C"
                         }
                       ],
                       "artifact": "$ROOT/target/wasm-gc/release/check/A/A.mi"
@@ -6561,7 +6572,8 @@ fn test_specify_source_dir_001() {
                       "deps": [
                         {
                           "path": "username/hello/lib",
-                          "alias": "lib"
+                          "alias": "lib",
+                          "fspath": "$ROOT/src/lib"
                         }
                       ],
                       "wbtest-deps": [],
@@ -9201,7 +9213,8 @@ fn test_run_md_test() {
                       "deps": [
                         {
                           "path": "username/hello/lib",
-                          "alias": "lib"
+                          "alias": "lib",
+                          "fspath": "$ROOT/src/lib"
                         }
                       ],
                       "wbtest-deps": [],

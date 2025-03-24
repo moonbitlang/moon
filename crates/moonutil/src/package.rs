@@ -154,6 +154,7 @@ pub struct PackageJSON {
 pub struct AliasJSON {
     pub path: String,
     pub alias: String,
+    pub fspath: String,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, JsonSchema)]
