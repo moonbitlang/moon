@@ -41,11 +41,9 @@ use n2::graph::{self as n2graph, Build, BuildIns, BuildOuts, FileLoc};
 use n2::load::State;
 use n2::smallmap::SmallMap;
 
-#[cfg(unix)]
-use crate::gen::gen_build::gen_compile_shared_runtime_command;
 use crate::gen::gen_build::{
     gen_archive_stub_to_static_lib_command, gen_compile_exe_command, gen_compile_runtime_command,
-    gen_compile_stub_command, gen_link_exe_command,
+    gen_compile_shared_runtime_command, gen_compile_stub_command, gen_link_exe_command,
 };
 use crate::gen::n2_errors::{N2Error, N2ErrorKind};
 use crate::gen::{coverage_args, MiAlias};
@@ -1104,7 +1102,6 @@ pub fn gen_n2_runtest_state(
     let mut runtime_o_path = String::new();
 
     if is_native_backend {
-        #[cfg(unix)]
         fn gen_shared_runtime(
             graph: &mut n2graph::Graph,
             target_dir: &std::path::Path,
@@ -1126,14 +1123,9 @@ pub fn gen_n2_runtest_state(
             Ok(path)
         }
 
-        #[cfg(unix)]
         if moonbuild_opt.use_tcc_run {
             gen_shared_runtime(&mut graph, &moonbuild_opt.target_dir, &mut default)?;
         } else {
-            runtime_o_path = gen_runtime(&mut graph, &moonbuild_opt.target_dir)?;
-        }
-        #[cfg(windows)]
-        {
             runtime_o_path = gen_runtime(&mut graph, &moonbuild_opt.target_dir)?;
         }
     }
@@ -1145,13 +1137,18 @@ pub fn gen_n2_runtest_state(
         graph.add_build(build)?;
 
         if is_native_backend && !moonbuild_opt.use_tcc_run {
-            let (build, fid) =
-                gen_compile_exe_command(&mut graph, item, moonc_opt, runtime_o_path.clone());
+            let (build, fid) = gen_compile_exe_command(
+                &mut graph,
+                item,
+                moonc_opt,
+                moonbuild_opt,
+                runtime_o_path.clone(),
+            );
             default_fid = fid;
             graph.add_build(build)?;
         }
         if is_llvm_backend {
-            let (build, fid) = gen_link_exe_command(&mut graph, item, moonc_opt);
+            let (build, fid) = gen_link_exe_command(&mut graph, item, moonc_opt, moonbuild_opt);
             graph.add_build(build)?;
             default_fid = fid;
         }
@@ -1165,12 +1162,12 @@ pub fn gen_n2_runtest_state(
 
     if is_native_backend {
         for item in input.compile_stub_items.iter() {
-            let builds = gen_compile_stub_command(&mut graph, item, moonc_opt);
+            let builds = gen_compile_stub_command(&mut graph, item, moonc_opt, moonbuild_opt);
             for (build, _fid) in builds {
                 graph.add_build(build)?;
                 // don't need to add fid to default, since it would be deps of test.exe
             }
-            let (build, _) = gen_archive_stub_to_static_lib_command(&mut graph, item);
+            let (build, _) = gen_archive_stub_to_static_lib_command(&mut graph, item, moonc_opt);
             graph.add_build(build)?;
         }
     }

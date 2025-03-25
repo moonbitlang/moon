@@ -416,6 +416,27 @@ impl LinkDepItem {
         }
     }
 
+    pub fn native_stub_cc(&self, b: TargetBackend) -> Option<&str> {
+        match b {
+            Native => self.link.as_ref()?.native.as_ref()?.stub_cc.as_deref(),
+            _ => None,
+        }
+    }
+
+    pub fn native_stub_cc_flags(&self, b: TargetBackend) -> Option<&str> {
+        match b {
+            Native => self.link.as_ref()?.native.as_ref()?.stub_cc_flags.as_deref(),
+            _ => None,
+        }
+    }
+
+    pub fn native_stub_cc_link_flags(&self, b: TargetBackend) -> Option<&str> {
+        match b {
+            Native => self.link.as_ref()?.native.as_ref()?.stub_cc_link_flags.as_deref(),
+            _ => None,
+        }
+    }   
+
     pub fn native_stub_deps(&self) -> Option<&[String]> {
         self.link.as_ref()?.native.as_ref()?.stub_static_lib_deps.as_deref()
     }
@@ -461,6 +482,13 @@ pub struct NativeLinkConfig {
     pub cc_flags: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub cc_link_flags: Option<String>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub stub_cc: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub stub_cc_flags: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub stub_cc_link_flags: Option<String>,
 
     #[serde(skip_serializing_if = "Option::is_none")]
     #[schemars(skip)]

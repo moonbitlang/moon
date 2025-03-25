@@ -144,6 +144,7 @@ pub async fn run_native(
                 format!("-L{}", MOON_DIRS.moon_bin_path.display()),
                 rt_path.display().to_string(),
                 "-DMOONBIT_NATIVE_NO_SYS_HEADER".to_string(),
+                "-DMOONBIT_USE_SHARED_RUNTIME".to_string(),
                 "-run".to_string(),
             ],
             &[args],
