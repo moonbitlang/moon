@@ -6318,7 +6318,13 @@ fn test_moon_check_json_output() {
         check(
             get_stderr(&dir, ["check", "--output-json"]),
             expect![[r#"
-                Finished. moon: no work to do
+                Finished. moon: ran 1 task, now up to date
+            "#]],
+        );
+        check(
+            get_stderr(&dir, ["check", "--output-json"]),
+            expect![[r#"
+                Finished. moon: ran 1 task, now up to date
             "#]],
         );
     }
@@ -6339,7 +6345,13 @@ fn test_moon_check_json_output() {
         check(
             get_stderr(&dir, ["check", "--output-json"]),
             expect![[r#"
-                Finished. moon: no work to do
+                Finished. moon: ran 1 task, now up to date
+            "#]],
+        );
+        check(
+            get_stderr(&dir, ["check", "--output-json"]),
+            expect![[r#"
+                Finished. moon: ran 1 task, now up to date
             "#]],
         );
     }
