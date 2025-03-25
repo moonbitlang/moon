@@ -48,4 +48,5 @@ excludes = [
     "moon.test",
     "*.js",
     "*.wasm",
+    "crates/moonutil/resources/error_codes/**",
 ]
