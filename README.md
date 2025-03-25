@@ -5,7 +5,7 @@
 
 The build system and package manager for MoonBit.
 
-[Documentation](https://moonbitlang.github.io/moon/) | [中文文档](https://moonbitlang.github.io/moon/zh/)
+[Documentation](https://docs.moonbitlang.com/en/latest/toolchain/index.html) | [中文文档](https://docs.moonbitlang.cn/toolchain/index.html)
 
 ## Installation
 
