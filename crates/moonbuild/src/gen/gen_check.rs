@@ -42,6 +42,7 @@ pub struct CheckDepItem {
     pub warn_list: Option<String>,
     pub alert_list: Option<String>,
     pub is_main: bool,
+    pub is_third_party: bool,
     pub patch_file: Option<PathBuf>,
     pub no_mi: bool,
     pub is_whitebox_test: bool,
@@ -106,6 +107,7 @@ fn pkg_to_check_item(
         warn_list: pkg.warn_list.clone(),
         alert_list: pkg.alert_list.clone(),
         is_main: pkg.is_main,
+        is_third_party: pkg.is_third_party,
         is_whitebox_test: false,
         is_blackbox_test: false,
         patch_file: pkg.patch_file.as_ref().and_then(|p| {
@@ -179,6 +181,7 @@ fn pkg_with_wbtest_to_check_item(
         warn_list: pkg.warn_list.clone(),
         alert_list: pkg.alert_list.clone(),
         is_main: pkg.is_main,
+        is_third_party: pkg.is_third_party,
         is_whitebox_test: true,
         is_blackbox_test: false,
         patch_file: pkg.patch_file.as_ref().and_then(|p| {
@@ -284,6 +287,7 @@ fn pkg_with_test_to_check_item(
         warn_list: pkg.warn_list.clone(),
         alert_list: pkg.alert_list.clone(),
         is_main: pkg.is_main,
+        is_third_party: pkg.is_third_party,
         is_whitebox_test: false,
         is_blackbox_test: true,
         patch_file: pkg.patch_file.as_ref().and_then(|p| {
@@ -408,6 +412,7 @@ pub fn gen_check_command(
         .lazy_args_with_cond(item.alert_list.is_some(), || {
             vec!["-alert".to_string(), item.alert_list.clone().unwrap()]
         })
+        .args_with_cond(item.is_third_party, ["-w", "-a", "-alert", "-all"])
         .arg("-o")
         .arg(&item.mi_out)
         .arg("-pkg")
