@@ -331,6 +331,7 @@ pub fn run_run_internal(cli: &UniversalFlags, cmd: RunSubcommand) -> anyhow::Res
         no_parallelize: false,
         parallelism: cmd.build_flags.jobs,
         use_tcc_run: false,
+        dynamic_stub_libs: None,
     };
 
     let mut module = scan_with_pre_build(

@@ -44,6 +44,7 @@ use n2::smallmap::SmallMap;
 use crate::gen::gen_build::{
     gen_archive_stub_to_static_lib_command, gen_compile_exe_command, gen_compile_runtime_command,
     gen_compile_shared_runtime_command, gen_compile_stub_command, gen_link_exe_command,
+    gen_link_stub_to_dynamic_lib_command,
 };
 use crate::gen::n2_errors::{N2Error, N2ErrorKind};
 use crate::gen::{coverage_args, MiAlias};
@@ -1099,35 +1100,36 @@ pub fn gen_n2_runtest_state(
 
     let is_native_backend = moonc_opt.link_opt.target_backend == TargetBackend::Native;
 
-    let mut runtime_o_path = String::new();
+    // compile runtime.o or libruntime.so
+    let mut runtime_path = None;
 
     if is_native_backend {
         fn gen_shared_runtime(
             graph: &mut n2graph::Graph,
             target_dir: &std::path::Path,
             default: &mut Vec<n2graph::FileId>,
-        ) -> anyhow::Result<String> {
+        ) -> anyhow::Result<PathBuf> {
             let (build, path) = gen_compile_shared_runtime_command(graph, target_dir);
             graph.add_build(build)?;
             // we explicitly add it to default because shared runtime is not a target or depended by any target
-            default.push(graph.files.id_from_canonical(path.clone()));
+            default.push(graph.files.id_from_canonical(path.display().to_string()));
             Ok(path)
         }
 
         fn gen_runtime(
             graph: &mut n2graph::Graph,
             target_dir: &std::path::Path,
-        ) -> anyhow::Result<String> {
+        ) -> anyhow::Result<PathBuf> {
             let (build, path) = gen_compile_runtime_command(graph, target_dir);
             graph.add_build(build)?;
             Ok(path)
         }
 
-        if moonbuild_opt.use_tcc_run {
-            gen_shared_runtime(&mut graph, &moonbuild_opt.target_dir, &mut default)?;
+        runtime_path = Some(if moonbuild_opt.use_tcc_run {
+            gen_shared_runtime(&mut graph, &moonbuild_opt.target_dir, &mut default)?
         } else {
-            runtime_o_path = gen_runtime(&mut graph, &moonbuild_opt.target_dir)?;
-        }
+            gen_runtime(&mut graph, &moonbuild_opt.target_dir)?
+        });
     }
     let is_llvm_backend = moonc_opt.link_opt.target_backend == TargetBackend::LLVM;
 
@@ -1142,7 +1144,7 @@ pub fn gen_n2_runtest_state(
                 item,
                 moonc_opt,
                 moonbuild_opt,
-                runtime_o_path.clone(),
+                runtime_path.as_ref().unwrap().display().to_string(),
             );
             default_fid = fid;
             graph.add_build(build)?;
@@ -1167,8 +1169,21 @@ pub fn gen_n2_runtest_state(
                 graph.add_build(build)?;
                 // don't need to add fid to default, since it would be deps of test.exe
             }
-            let (build, _) = gen_archive_stub_to_static_lib_command(&mut graph, item, moonc_opt);
-            graph.add_build(build)?;
+            if !moonbuild_opt.use_tcc_run {
+                let (build, _) =
+                    gen_archive_stub_to_static_lib_command(&mut graph, item, moonc_opt);
+                graph.add_build(build)?;
+            } else {
+                let (build, fid) = gen_link_stub_to_dynamic_lib_command(
+                    &mut graph,
+                    item,
+                    runtime_path.as_ref().unwrap(),
+                    moonc_opt,
+                    moonbuild_opt,
+                );
+                graph.add_build(build)?;
+                default.push(fid);
+            }
         }
     }
 

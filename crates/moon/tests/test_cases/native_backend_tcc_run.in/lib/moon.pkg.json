@@ -1,0 +1,11 @@
+{
+  "import": {},
+  "native-stub": ["stub.c"],
+  "link": {
+    "native": {
+      "stub-cc": "stubcc",
+      "stub-cc-flags": "stubccflags",
+      "stub-cc-link-flags": "stubcclinkflags"
+    }
+  }
+}

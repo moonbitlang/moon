@@ -184,6 +184,7 @@ fn get_module_db(
         output_json: false,
         parallelism: None, // we don't care about parallelism here
         use_tcc_run: false,
+        dynamic_stub_libs: None,
     };
     let module_db = scan(
         false,

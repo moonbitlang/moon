@@ -437,6 +437,7 @@ pub struct MoonbuildOpt {
     /// Max parallel tasks to run in n2; `None` to use default
     pub parallelism: Option<usize>,
     pub use_tcc_run: bool,
+    pub dynamic_stub_libs: Option<Vec<String>>,
 }
 
 impl MoonbuildOpt {
@@ -936,7 +937,8 @@ pub fn set_native_backend_link_flags(
     run_mode: RunMode,
     target_backend: Option<TargetBackend>,
     module: &mut crate::module::ModuleDB,
-) -> anyhow::Result<()> {
+) -> anyhow::Result<Vec<String>> {
+    let mut all_stubs = Vec::new();
     match run_mode {
         // need link-core for build, test and run
         RunMode::Build | RunMode::Test | RunMode::Run => {
@@ -963,6 +965,16 @@ pub fn set_native_backend_link_flags(
                                         .display()
                                         .to_string(),
                                 );
+                                all_stubs.push(
+                                    pkg.artifact
+                                        .with_file_name(format!(
+                                            "lib{}.{}",
+                                            pkg.last_name(),
+                                            DYN_EXT
+                                        ))
+                                        .display()
+                                        .to_string(),
+                                );
                             }
                         });
 
@@ -983,8 +995,8 @@ pub fn set_native_backend_link_flags(
                     module.get_package_by_name_mut_safe(&pkgname).unwrap().link = link_config;
                 }
             }
-            Ok(())
+            Ok(all_stubs)
         }
-        _ => Ok(()),
+        _ => Ok(all_stubs),
     }
 }
