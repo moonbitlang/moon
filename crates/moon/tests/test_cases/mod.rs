@@ -9074,7 +9074,7 @@ fn test_run_md_test() {
         get_err_stdout(&dir, ["test", "--md", "--sort-input"]),
         expect![[r#"
             Hello, world 1!
-            Hello, world 1!
+            Hello, world 3!
             Hello, world 2!
             test username/hello/lib/1.mbt.md::2 failed
             expect test failed at $ROOT/src/lib/1.mbt.md:21:11-21:27
@@ -9099,11 +9099,33 @@ fn test_run_md_test() {
         "#]],
     );
 
+    // test filter in md test
+    check(
+        get_stdout(
+            &dir,
+            [
+                "test",
+                "--md",
+                "--sort-input",
+                "-p",
+                "lib",
+                "-f",
+                "1.mbt.md",
+                "-i",
+                "1",
+            ],
+        ),
+        expect![[r#"
+            Hello, world 3!
+            Total tests: 1, passed: 1, failed: 0.
+        "#]],
+    );
+
     check(
         get_stdout(&dir, ["test", "--md", "--update", "--sort-input"]),
         expect![[r#"
             Hello, world 1!
-            Hello, world 1!
+            Hello, world 3!
             Hello, world 2!
 
             Auto updating expect tests and retesting ...

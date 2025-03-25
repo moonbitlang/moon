@@ -32,8 +32,8 @@ use std::str::FromStr;
 use walkdir::WalkDir;
 
 use crate::common::{
-    read_module_desc_file_in_dir, MoonbuildOpt, TargetBackend, DEP_PATH, IGNORE_DIRS,
-    MOON_MOD_JSON, MOON_PKG_JSON,
+    read_module_desc_file_in_dir, MoonbuildOpt, TargetBackend, DEP_PATH, DOT_MBT_DOT_MD,
+    IGNORE_DIRS, MOON_MOD_JSON, MOON_PKG_JSON,
 };
 
 /// Matches an import string to scan paths.
@@ -88,7 +88,7 @@ pub fn get_mbt_and_test_file_paths(
 
                 let p_str = p.to_str().unwrap();
                 if p_str.ends_with("md") {
-                    if p_str.ends_with("mbt.md") {
+                    if p_str.ends_with(DOT_MBT_DOT_MD) {
                         mbt_md_files.push(p.clone());
                     }
                 } else {
