@@ -16,47 +16,25 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
-use clap;
-use clap::Parser;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
-mod cmdtest;
-mod sync_docs;
+use anyhow::Context;
 
-#[derive(Debug, clap::Parser)]
-struct Cli {
-    #[clap(subcommand)]
-    pub subcommand: XSubcommands,
+pub fn run(path: &Path) -> anyhow::Result<()> {
+    let moon_root = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    let moon_root = moon_root.parent().context("moon root not found")?;
+    let moon_manual_dir = moon_root.join("docs").join("manual").join("src");
+
+    let moonbit_docs_moon_dir = path.join("next").join("toolchain").join("moon");
+
+    let from = dunce::canonicalize(moon_manual_dir.join("commands.md")).unwrap();
+    let to = dunce::canonicalize(moonbit_docs_moon_dir.join("commands.md")).unwrap();
+    process_commands(&from, &to)
 }
 
-#[derive(Debug, clap::Parser)]
-enum XSubcommands {
-    #[command(name = "cmdtest")]
-    CmdTest(CmdTest),
-
-    #[command(name = "sync-docs")]
-    SyncDocs(SyncDocs),
-}
-
-#[derive(Debug, clap::Parser)]
-struct CmdTest {
-    file: PathBuf,
-
-    #[arg(short, long)]
-    update: bool,
-}
-
-#[derive(Debug, clap::Parser)]
-struct SyncDocs {
-    #[arg(long)]
-    moonbit_docs_dir: PathBuf,
-}
-
-fn main() {
-    let cli = Cli::parse();
-    let code = match cli.subcommand {
-        XSubcommands::CmdTest(t) => cmdtest::run::t(&t.file, t.update),
-        XSubcommands::SyncDocs(t) => sync_docs::run(&t.moonbit_docs_dir).map_or(1, |_| 0),
-    };
-    std::process::exit(code);
+fn process_commands(from: &Path, to: &Path) -> anyhow::Result<()> {
+    let commands_md_content = std::fs::read_to_string(from)?;
+    let commands_md_content = commands_md_content.replace("###### ", "");
+    std::fs::write(to, commands_md_content)?;
+    Ok(())
 }
