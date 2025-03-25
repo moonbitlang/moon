@@ -207,11 +207,7 @@ impl PatchJSON {
             }
             patches.push(PatchItem {
                 // xxx.md -> xxx_md_test.mbt
-                name: format!(
-                    "{}{}.mbt",
-                    doc_test_in_md_file[0].file_name.trim_end_matches(".mbt"),
-                    crate::common::MOON_MD_TEST_POSTFIX,
-                ),
+                name: doc_test_in_md_file[0].file_name.clone(),
                 content,
             });
         }

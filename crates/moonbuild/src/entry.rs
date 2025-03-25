@@ -42,8 +42,8 @@ use crate::runtest::TestStatistics;
 
 use moonutil::common::{
     DriverKind, FileLock, FileName, MoonbuildOpt, MooncGenTestInfo, MooncOpt, TargetBackend,
-    TestArtifacts, TestBlockIndex, TestName, BLACKBOX_TEST_PATCH, MOON_DOC_TEST_POSTFIX,
-    MOON_MD_TEST_POSTFIX, TEST_INFO_FILE, WHITEBOX_TEST_PATCH,
+    TestArtifacts, TestBlockIndex, TestName, BLACKBOX_TEST_PATCH, DOT_MBT_DOT_MD,
+    MOON_DOC_TEST_POSTFIX, TEST_INFO_FILE, WHITEBOX_TEST_PATCH,
 };
 
 use std::sync::{Arc, Mutex};
@@ -603,13 +603,12 @@ fn convert_moonc_test_info(
         // so tests in other files should be filtered out
         if let Some(patch_json) = patch_file {
             if patch_json.to_str().unwrap().contains(MOON_DOC_TEST_POSTFIX)
-                && !(filename.contains(MOON_DOC_TEST_POSTFIX)
-                    || filename.contains(MOON_MD_TEST_POSTFIX))
+                && !(filename.contains(MOON_DOC_TEST_POSTFIX) || filename.ends_with(DOT_MBT_DOT_MD))
             {
                 continue;
             }
         }
-        let test_type = if filename.ends_with("_test.mbt") {
+        let test_type = if filename.ends_with("_test.mbt") || filename.ends_with(DOT_MBT_DOT_MD) {
             DriverKind::Blackbox.to_string()
         } else if filename.ends_with("_wbtest.mbt") {
             DriverKind::Whitebox.to_string()

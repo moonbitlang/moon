@@ -23,8 +23,8 @@ use crate::section_capture::{handle_stdout, SectionCapture};
 use super::gen;
 use anyhow::{bail, Context};
 use moonutil::common::{
-    MoonbuildOpt, MooncOpt, DYN_EXT, MOON_COVERAGE_DELIMITER_BEGIN, MOON_COVERAGE_DELIMITER_END,
-    MOON_DOC_TEST_POSTFIX, MOON_MD_TEST_POSTFIX, MOON_TEST_DELIMITER_BEGIN,
+    MoonbuildOpt, MooncOpt, DOT_MBT_DOT_MD, DYN_EXT, MOON_COVERAGE_DELIMITER_BEGIN,
+    MOON_COVERAGE_DELIMITER_END, MOON_DOC_TEST_POSTFIX, MOON_TEST_DELIMITER_BEGIN,
     MOON_TEST_DELIMITER_END,
 };
 use moonutil::module::ModuleDB;
@@ -294,19 +294,13 @@ async fn run(
             }
 
             ts.is_doc_test = ts.filename.contains(MOON_DOC_TEST_POSTFIX);
-            ts.is_md_test = ts.filename.contains(MOON_MD_TEST_POSTFIX);
+            ts.is_md_test = ts.filename.ends_with(DOT_MBT_DOT_MD);
 
             // this is a hack for doc test, make the doc test patch filename be the original file name
             if ts.is_doc_test || ts.is_md_test {
                 ts.original_filename = Some(ts.filename.clone());
-                ts.filename = ts
-                    .filename
-                    .replace(MOON_DOC_TEST_POSTFIX, "")
-                    .replace(&format!("{}.mbt", MOON_MD_TEST_POSTFIX), "");
-                ts.message = ts
-                    .message
-                    .replace(MOON_DOC_TEST_POSTFIX, "")
-                    .replace(&format!("{}.mbt", MOON_MD_TEST_POSTFIX), "");
+                ts.filename = ts.filename.replace(MOON_DOC_TEST_POSTFIX, "");
+                ts.message = ts.message.replace(MOON_DOC_TEST_POSTFIX, "");
             }
 
             test_statistics.push(ts);

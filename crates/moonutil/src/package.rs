@@ -123,6 +123,7 @@ impl Package {
                 .keys()
                 .chain(self.test_files.keys())
                 .chain(self.wbtest_files.keys())
+                .chain(self.mbt_md_files.keys())
                 .map(|x| x.file_name().unwrap().to_str().unwrap().to_string()),
         );
         files
