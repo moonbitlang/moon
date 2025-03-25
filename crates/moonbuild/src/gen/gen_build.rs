@@ -531,7 +531,8 @@ pub fn gen_compile_runtime_command(
             .output_ty(OutputType::Object)
             .opt_level(OptLevel::Speed)
             .debug_info(true)
-            .link_moonbitrun(false)
+            // always link moonbitrun in this mode
+            .link_moonbitrun(true)
             .use_shared_runtime(false)
             .build()
             .unwrap(),
@@ -590,6 +591,7 @@ pub fn gen_compile_shared_runtime_command(
             .output_ty(OutputType::SharedLib)
             .opt_level(OptLevel::Speed)
             .debug_info(true)
+            // don't link moonbitrun in this mode as it is provided to tcc
             .link_moonbitrun(false)
             .use_shared_runtime(false)
             .build()
@@ -696,7 +698,7 @@ pub fn gen_compile_exe_command(
                 moonc_opt.build_opt.debug_flag,
             ))
             .debug_info(moonc_opt.build_opt.debug_flag)
-            .link_moonbitrun(false)
+            .link_moonbitrun(!moonbuild_opt.use_tcc_run) // if use tcc, we cannot link moonbitrun
             .use_shared_runtime(moonbuild_opt.use_tcc_run)
             .build()
             .unwrap(),
@@ -847,7 +849,7 @@ pub fn gen_compile_stub_command(
                     moonc_opt.build_opt.debug_flag,
                 ))
                 .debug_info(moonc_opt.build_opt.debug_flag)
-                .link_moonbitrun(false)
+                .link_moonbitrun(!moonbuild_opt.use_tcc_run) // if use tcc, we cannot link moonbitrun
                 .use_shared_runtime(moonbuild_opt.use_tcc_run)
                 .build()
                 .unwrap(),
@@ -937,7 +939,7 @@ pub fn gen_link_exe_command(
                 moonc_opt.build_opt.debug_flag,
             ))
             .debug_info(moonc_opt.build_opt.debug_flag)
-            .link_moonbitrun(false)
+            .link_moonbitrun(!moonbuild_opt.use_tcc_run) // if use tcc, we cannot link moonbitrun
             .use_shared_runtime(moonbuild_opt.use_tcc_run)
             .build()
             .unwrap(),
