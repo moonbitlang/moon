@@ -138,6 +138,10 @@ impl CC {
         )
     }
 
+    pub fn is_full_featured_gcc_like(&self) -> bool {
+        matches!(self.cc_kind, CCKind::SystemCC | CCKind::Gcc | CCKind::Clang)
+    }
+
     pub fn is_msvc(&self) -> bool {
         matches!(self.cc_kind, CCKind::Msvc)
     }
@@ -239,7 +243,7 @@ where
         buf.push("-ar".to_string());
         buf.push("rcs".to_string());
         buf.push(dest.to_string());
-    } else if cc.is_gcc_like() {
+    } else if cc.is_full_featured_gcc_like() {
         buf.push("-r".to_string());
         buf.push("-c".to_string());
         buf.push("-s".to_string());
@@ -349,7 +353,7 @@ where
     buf.extend(src.iter().map(|s| s.as_ref().to_string()));
 
     // Link against some common libraries
-    if cc.is_gcc_like() && !has_user_flags {
+    if cc.is_full_featured_gcc_like() && !has_user_flags {
         buf.push("-lm".to_string());
     }
 
@@ -443,7 +447,7 @@ where
         buf.push("/utf-8".to_string());
         buf.push("/wd4819".to_string());
         buf.push("/nologo".to_string());
-    } else if cc.is_gcc_like() && !has_user_flags {
+    } else if cc.is_full_featured_gcc_like() && !has_user_flags {
         buf.push("-fwrapv".to_string());
         buf.push("-fno-strict-aliasing".to_string());
     }
@@ -454,28 +458,28 @@ where
             OptLevel::Speed => {
                 if cc.is_msvc() {
                     buf.push("/O2".to_string());
-                } else if cc.is_gcc_like() {
+                } else if cc.is_full_featured_gcc_like() {
                     buf.push("-O2".to_string());
                 }
             }
             OptLevel::Size => {
                 if cc.is_msvc() {
                     buf.push("/Os".to_string());
-                } else if cc.is_gcc_like() {
+                } else if cc.is_full_featured_gcc_like() {
                     buf.push("-Os".to_string());
                 }
             }
             OptLevel::Debug => {
                 if cc.is_msvc() {
                     buf.push("/Od".to_string());
-                } else if cc.is_gcc_like() {
+                } else if cc.is_full_featured_gcc_like() {
                     buf.push("-Og".to_string());
                 }
             }
             OptLevel::None => {
                 if cc.is_msvc() {
                     buf.push("/Od".to_string());
-                } else if cc.is_gcc_like() {
+                } else if cc.is_full_featured_gcc_like() {
                     buf.push("-O0".to_string());
                 }
             }
@@ -522,7 +526,7 @@ where
     buf.extend(src.iter().map(|s| s.as_ref().to_string()));
 
     // Link against some common libraries
-    if cc.is_gcc_like() && !has_user_flags {
+    if cc.is_full_featured_gcc_like() && !has_user_flags {
         buf.push("-lm".to_string());
     }
 
