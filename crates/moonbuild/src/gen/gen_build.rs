@@ -18,8 +18,8 @@
 
 use anyhow::{bail, Context, Ok};
 use moonutil::compiler_flags::{
-    make_archiver_command, make_cc_command, ArchiverConfigBuilder, CCConfigBuilder, OptLevel,
-    OutputType, CC,
+    make_archiver_command, make_cc_command, make_linker_command, ArchiverConfigBuilder,
+    CCConfigBuilder, LinkerConfigBuilder, OptLevel, OutputType, CC,
 };
 use moonutil::module::ModuleDB;
 use moonutil::moon_dir::MOON_DIRS;
@@ -32,7 +32,8 @@ use std::path::{Path, PathBuf};
 use std::rc::Rc;
 
 use moonutil::common::{
-    BuildOpt, MoonbuildOpt, MooncOpt, TargetBackend, A_EXT, MOONBITLANG_CORE, MOON_PKG_JSON, O_EXT,
+    BuildOpt, MoonbuildOpt, MooncOpt, TargetBackend, A_EXT, DYN_EXT, MOONBITLANG_CORE,
+    MOON_PKG_JSON, O_EXT,
 };
 use n2::graph::{self as n2graph, Build, BuildIns, BuildOuts, FileLoc};
 use n2::load::State;
@@ -495,7 +496,7 @@ pub fn gen_link_command(
 pub fn gen_compile_runtime_command(
     graph: &mut n2graph::Graph,
     target_dir: &Path,
-) -> (Build, String) {
+) -> (Build, PathBuf) {
     let runtime_dot_c_path = &MOON_DIRS.moon_lib_path.join("runtime.c");
 
     let ins = BuildIns {
@@ -507,12 +508,11 @@ pub fn gen_compile_runtime_command(
         order_only: 0,
     };
 
-    let artifact_output_path = target_dir
-        .join(format!("runtime.{}", O_EXT))
-        .display()
-        .to_string();
+    let artifact_output_path = target_dir.join(format!("runtime.{}", O_EXT));
 
-    let artifact_id = graph.files.id_from_canonical(artifact_output_path.clone());
+    let artifact_id = graph
+        .files
+        .id_from_canonical(artifact_output_path.display().to_string());
     let outs = BuildOuts {
         ids: vec![artifact_id],
         explicit: 1,
@@ -533,13 +533,13 @@ pub fn gen_compile_runtime_command(
             .debug_info(true)
             // always link moonbitrun in this mode
             .link_moonbitrun(true)
-            .use_shared_runtime(false)
+            .define_use_shared_runtime_macro(false)
             .build()
             .unwrap(),
         &[],
         &[&runtime_dot_c_path.display().to_string()],
         &target_dir.display().to_string(),
-        &artifact_output_path,
+        &artifact_output_path.display().to_string(),
     );
 
     let command = CommandBuilder::from_iter(cc_cmd).build();
@@ -553,17 +553,14 @@ pub fn gen_compile_runtime_command(
 pub fn gen_compile_shared_runtime_command(
     graph: &mut n2graph::Graph,
     target_dir: &Path,
-) -> (Build, String) {
+) -> (Build, PathBuf) {
     let runtime_dot_c_path = &MOON_DIRS
         .moon_lib_path
         .join("runtime.c")
         .display()
         .to_string();
 
-    let artifact_output_path = target_dir
-        .join(format!("runtime.{}", moonutil::common::DYN_EXT))
-        .display()
-        .to_string();
+    let artifact_output_path = target_dir.join(format!("libruntime.{}", moonutil::common::DYN_EXT));
 
     let ins = BuildIns {
         ids: vec![graph.files.id_from_canonical(runtime_dot_c_path.clone())],
@@ -572,7 +569,9 @@ pub fn gen_compile_shared_runtime_command(
         order_only: 0,
     };
 
-    let artifact_id = graph.files.id_from_canonical(artifact_output_path.clone());
+    let artifact_id = graph
+        .files
+        .id_from_canonical(artifact_output_path.display().to_string());
     let outs = BuildOuts {
         ids: vec![artifact_id],
         explicit: 1,
@@ -593,13 +592,13 @@ pub fn gen_compile_shared_runtime_command(
             .debug_info(true)
             // don't link moonbitrun in this mode as it is provided to tcc
             .link_moonbitrun(false)
-            .use_shared_runtime(false)
+            .define_use_shared_runtime_macro(false)
             .build()
             .unwrap(),
         &[],
         &[&runtime_dot_c_path],
         &target_dir.display().to_string(),
-        &artifact_output_path,
+        &artifact_output_path.display().to_string(),
     );
 
     let command = CommandBuilder::from_iter(cc_cmd).build();
@@ -607,7 +606,10 @@ pub fn gen_compile_shared_runtime_command(
     log::debug!("Command: {}", command);
     let mut build = Build::new(loc, ins, outs);
     build.cmdline = Some(command);
-    build.desc = Some(format!("compile-shared-runtime: {}", artifact_output_path));
+    build.desc = Some(format!(
+        "compile-shared-runtime: {}",
+        artifact_output_path.display()
+    ));
     (build, artifact_output_path)
 }
 
@@ -699,7 +701,7 @@ pub fn gen_compile_exe_command(
             ))
             .debug_info(moonc_opt.build_opt.debug_flag)
             .link_moonbitrun(!moonbuild_opt.use_tcc_run) // if use tcc, we cannot link moonbitrun
-            .use_shared_runtime(moonbuild_opt.use_tcc_run)
+            .define_use_shared_runtime_macro(moonbuild_opt.use_tcc_run)
             .build()
             .unwrap(),
         &native_flags,
@@ -787,6 +789,94 @@ pub fn gen_archive_stub_to_static_lib_command(
     (build, artifact_id)
 }
 
+pub fn gen_link_stub_to_dynamic_lib_command(
+    graph: &mut n2graph::Graph,
+    item: &LinkDepItem,
+    runtime_path: &Path,
+    moonc_opt: &MooncOpt,
+    moonbuild_opt: &MoonbuildOpt,
+) -> (Build, n2graph::FileId) {
+    let out = PathBuf::from(&item.out);
+
+    let mut inputs = item
+        .stub_static_lib
+        .as_ref()
+        .unwrap()
+        .iter()
+        .map(|f| {
+            out.parent()
+                .unwrap()
+                .join(f)
+                .with_extension(O_EXT)
+                .display()
+                .to_string()
+        })
+        .collect::<Vec<_>>();
+    inputs.push(runtime_path.display().to_string());
+
+    let pkgname = out.file_stem().unwrap().to_str().unwrap().to_string();
+    let target_dir = out.parent().unwrap();
+    let artifact_output_path = out
+        .with_file_name(format!("lib{}.{}", pkgname, DYN_EXT))
+        .display()
+        .to_string();
+    let artifact_id = graph.files.id_from_canonical(artifact_output_path.clone());
+
+    let loc = FileLoc {
+        filename: Rc::new(PathBuf::from("link-stub")),
+        line: 0,
+    };
+
+    let input_ids = inputs
+        .iter()
+        .map(|f| graph.files.id_from_canonical(f.clone()))
+        .collect::<Vec<_>>();
+    let ins = BuildIns {
+        ids: input_ids,
+        explicit: inputs.len(),
+        implicit: 0,
+        order_only: 0,
+    };
+
+    // IMPORTANT: pop the last input, it's libruntime{.dylib, .so}
+    inputs.pop();
+
+    let outs = BuildOuts {
+        ids: vec![artifact_id],
+        explicit: 1,
+    };
+
+    let mut build = Build::new(loc, ins, outs);
+
+    let native_stub_cc = item.native_cc(moonc_opt.link_opt.target_backend);
+    let native_stub_cc_link_flags = item
+        .native_stub_cc_link_flags(moonc_opt.link_opt.target_backend)
+        .map(|it| it.split(" ").collect::<Vec<_>>())
+        .unwrap_or_default();
+
+    let shared_runtime_dir = Some(runtime_path.parent().unwrap());
+    let cc_cmd = make_linker_command::<_, &Path>(
+        CC::default(),
+        native_stub_cc.and_then(|cc| CC::try_from_path(cc).ok()),
+        LinkerConfigBuilder::default()
+            .link_moonbitrun(!moonbuild_opt.use_tcc_run)
+            .link_shared_runtime(shared_runtime_dir)
+            .output_ty(OutputType::SharedLib)
+            .build()
+            .unwrap(),
+        &native_stub_cc_link_flags,
+        &inputs.iter().map(|f| f.as_str()).collect::<Vec<_>>(),
+        &target_dir.display().to_string(),
+        &artifact_output_path,
+    );
+
+    let command = CommandBuilder::from_iter(cc_cmd).build();
+    build.cmdline = Some(command);
+    build.desc = Some(format!("link-stub: {}", artifact_output_path));
+
+    (build, artifact_id)
+}
+
 pub fn gen_compile_stub_command(
     graph: &mut n2graph::Graph,
     item: &LinkDepItem,
@@ -850,7 +940,7 @@ pub fn gen_compile_stub_command(
                 ))
                 .debug_info(moonc_opt.build_opt.debug_flag)
                 .link_moonbitrun(!moonbuild_opt.use_tcc_run) // if use tcc, we cannot link moonbitrun
-                .use_shared_runtime(moonbuild_opt.use_tcc_run)
+                .define_use_shared_runtime_macro(moonbuild_opt.use_tcc_run)
                 .build()
                 .unwrap(),
             &native_stub_cc_flags,
@@ -940,7 +1030,7 @@ pub fn gen_link_exe_command(
             ))
             .debug_info(moonc_opt.build_opt.debug_flag)
             .link_moonbitrun(!moonbuild_opt.use_tcc_run) // if use tcc, we cannot link moonbitrun
-            .use_shared_runtime(moonbuild_opt.use_tcc_run)
+            .define_use_shared_runtime_macro(moonbuild_opt.use_tcc_run)
             .build()
             .unwrap(),
         &native_flags,
@@ -976,33 +1066,33 @@ pub fn gen_n2_build_state(
 
     let is_llvm_backend = moonc_opt.link_opt.target_backend == TargetBackend::LLVM;
 
-    // compile runtime.o, it will be the dependency of gen_compile_exe_command
-    let mut runtime_o_path = String::new();
+    // compile runtime.o or libruntime.so
+    let mut runtime_path = None;
 
     if is_native_backend {
         fn gen_shared_runtime(
             graph: &mut n2graph::Graph,
             target_dir: &Path,
             default: &mut Vec<n2graph::FileId>,
-        ) -> anyhow::Result<String> {
+        ) -> anyhow::Result<PathBuf> {
             let (build, path) = gen_compile_shared_runtime_command(graph, target_dir);
             graph.add_build(build)?;
             // we explicitly add it to default because shared runtime is not a target or depended by any target
-            default.push(graph.files.id_from_canonical(path.clone()));
+            default.push(graph.files.id_from_canonical(path.display().to_string()));
             Ok(path)
         }
 
-        fn gen_runtime(graph: &mut n2graph::Graph, target_dir: &Path) -> anyhow::Result<String> {
+        fn gen_runtime(graph: &mut n2graph::Graph, target_dir: &Path) -> anyhow::Result<PathBuf> {
             let (build, path) = gen_compile_runtime_command(graph, target_dir);
             graph.add_build(build)?;
             Ok(path)
         }
 
-        if moonbuild_opt.use_tcc_run {
-            gen_shared_runtime(&mut graph, target_dir, &mut default)?;
+        runtime_path = Some(if moonbuild_opt.use_tcc_run {
+            gen_shared_runtime(&mut graph, target_dir, &mut default)?
         } else {
-            runtime_o_path = gen_runtime(&mut graph, target_dir)?;
-        }
+            gen_runtime(&mut graph, target_dir)?
+        });
     }
 
     let mut has_link_item = false;
@@ -1021,12 +1111,11 @@ pub fn gen_n2_build_state(
                 item,
                 moonc_opt,
                 moonbuild_opt,
-                runtime_o_path.clone(),
+                runtime_path.as_ref().unwrap().display().to_string(),
             );
             graph.add_build(build)?;
             default_fid = fid;
-        }
-        if is_llvm_backend {
+        } else if is_llvm_backend {
             let (build, fid) = gen_link_exe_command(&mut graph, item, moonc_opt, moonbuild_opt);
             graph.add_build(build)?;
             default_fid = fid;
@@ -1111,8 +1200,22 @@ pub fn gen_n2_build_state(
                 // add the fid to default, since we want stub.c to be compiled for a non-main package
                 default.push(fid);
             }
-            let (build, _) = gen_archive_stub_to_static_lib_command(&mut graph, item, moonc_opt);
-            graph.add_build(build)?;
+
+            if !moonbuild_opt.use_tcc_run {
+                let (build, _) =
+                    gen_archive_stub_to_static_lib_command(&mut graph, item, moonc_opt);
+                graph.add_build(build)?;
+            } else {
+                let (build, fid) = gen_link_stub_to_dynamic_lib_command(
+                    &mut graph,
+                    item,
+                    runtime_path.as_ref().unwrap(),
+                    moonc_opt,
+                    moonbuild_opt,
+                );
+                graph.add_build(build)?;
+                default.push(fid);
+            }
         }
     }
 

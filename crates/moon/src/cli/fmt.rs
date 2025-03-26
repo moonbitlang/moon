@@ -85,6 +85,7 @@ pub fn run_fmt(cli: &UniversalFlags, cmd: FmtSubcommand) -> anyhow::Result<i32> 
         no_parallelize: false,
         parallelism: None,
         use_tcc_run: false,
+        dynamic_stub_libs: None,
     };
 
     let module = scan_with_pre_build(

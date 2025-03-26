@@ -53,6 +53,13 @@ impl Default for CC {
     }
 }
 
+#[cfg(target_os = "linux")]
+const CAN_USE_MOONBITRUN: bool = true;
+#[cfg(target_os = "macos")]
+const CAN_USE_MOONBITRUN: bool = true;
+#[cfg(windows)]
+const CAN_USE_MOONBITRUN: bool = false;
+
 impl CC {
     pub fn cc_name(&self) -> &'static str {
         match self.cc_kind {
@@ -204,16 +211,19 @@ pub struct CCConfig {
     pub output_ty: OutputType,
     #[builder(default = OptLevel::Speed)]
     pub opt_level: OptLevel,
-    pub use_shared_runtime: bool,
+    pub define_use_shared_runtime_macro: bool,
 }
 
 #[derive(Clone, PartialEq, Eq, Builder)]
 #[builder(setter(into))]
-pub struct LinkerConfig {
+pub struct LinkerConfig<P: AsRef<Path>> {
     #[builder(default = false)]
     pub link_moonbitrun: bool,
     #[builder(default = OutputType::Executable)]
     pub output_ty: OutputType,
+    #[builder(default = None)]
+    // This is the parent directory to the shared runtime library
+    pub link_shared_runtime: Option<P>,
 }
 
 #[derive(Clone, PartialEq, Eq, Builder)]
@@ -252,7 +262,7 @@ where
         panic!("Unsupported archiver");
     }
 
-    if config.archive_moonbitrun && !cc.is_msvc() {
+    if CAN_USE_MOONBITRUN && config.archive_moonbitrun && !cc.is_msvc() {
         if cc.is_tcc() {
             eprintln!(
                 "{}: Cannot archive libmoonbitrun.o when using tcc",
@@ -274,10 +284,10 @@ where
     buf
 }
 
-pub fn make_linker_command<S>(
+pub fn make_linker_command<S, P>(
     cc: CC,
     user_cc: Option<CC>,
-    config: LinkerConfig,
+    config: LinkerConfig<P>,
     user_link_flags: &[S],
     src: &[S],
     dest_dir: &str,
@@ -285,6 +295,7 @@ pub fn make_linker_command<S>(
 ) -> Vec<String>
 where
     S: AsRef<str>,
+    P: AsRef<Path>,
 {
     let cc = user_cc.unwrap_or(cc);
     let mut buf = vec![cc.cc_path.clone()];
@@ -310,6 +321,9 @@ where
     // Library paths
     if cc.is_gcc_like() {
         buf.push(format!("-L{}", lpath));
+        if let Some(dyn_lib_path) = config.link_shared_runtime.as_ref() {
+            buf.push(format!("-L{}", dyn_lib_path.as_ref().display()));
+        }
     };
 
     // MSVC may throw intermediate files into current directory
@@ -333,7 +347,7 @@ where
         buf.push("/nologo".to_string());
     }
 
-    if config.link_moonbitrun && !cc.is_msvc() {
+    if CAN_USE_MOONBITRUN && config.link_moonbitrun && !cc.is_msvc() {
         if cc.is_tcc() {
             eprintln!(
                 "{}: Cannot link libmoonbitrun.o when using tcc",
@@ -353,11 +367,25 @@ where
     buf.extend(src.iter().map(|s| s.as_ref().to_string()));
 
     // Link against some common libraries
-    if cc.is_full_featured_gcc_like() && !has_user_flags {
-        buf.push("-lm".to_string());
+    if cc.is_gcc_like() {
+        if cc.is_full_featured_gcc_like() {
+            buf.push("-lm".to_string());
+        }
+        if config.link_shared_runtime.is_some() {
+            buf.push("-lruntime".to_string());
+        }
     }
 
     if cc.is_msvc() {
+        if let Some(dyn_lib_path) = config.link_shared_runtime.as_ref() {
+            buf.push(
+                dyn_lib_path
+                    .as_ref()
+                    .join("libruntime.lib")
+                    .display()
+                    .to_string(),
+            );
+        }
         buf.push("/link".to_string());
         buf.push(format!("/LIBPATH:{}", lpath));
     }
@@ -499,7 +527,7 @@ where
 
     // always set this even if user_cc_flags is set
     // user cannot easily know when we use shared runtime
-    if config.use_shared_runtime {
+    if config.define_use_shared_runtime_macro {
         if cc.is_msvc() {
             buf.push("/DMOONBIT_USE_SHARED_RUNTIME".to_string());
         } else if cc.is_gcc_like() {
@@ -507,7 +535,11 @@ where
         }
     }
 
-    if config.output_ty != OutputType::Object && config.link_moonbitrun && !cc.is_msvc() {
+    if config.output_ty != OutputType::Object
+        && CAN_USE_MOONBITRUN
+        && config.link_moonbitrun
+        && !cc.is_msvc()
+    {
         if cc.is_tcc() {
             eprintln!(
                 "{}: Cannot link libmoonbitrun.o when using tcc",
@@ -526,14 +558,14 @@ where
     buf.extend(src.iter().map(|s| s.as_ref().to_string()));
 
     // Link against some common libraries
-    if cc.is_full_featured_gcc_like() && !has_user_flags {
+    if cc.is_full_featured_gcc_like() && config.output_ty != OutputType::Object {
         buf.push("-lm".to_string());
     }
 
     buf.extend(user_cc_flags.iter().map(|s| s.as_ref().to_string()));
 
     // MSVC specific linker flags
-    if cc.is_msvc() {
+    if cc.is_msvc() && config.output_ty != OutputType::Object {
         buf.push("/link".to_string());
         buf.push(format!("/LIBPATH:{}", lpath));
     }

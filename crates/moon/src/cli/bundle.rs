@@ -152,6 +152,7 @@ fn run_bundle_internal(
         build_graph: false,
         parallelism: cmd.build_flags.jobs,
         use_tcc_run: false,
+        dynamic_stub_libs: None,
     };
     let module = scan_with_pre_build(
         false,

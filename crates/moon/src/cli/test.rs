@@ -227,6 +227,7 @@ fn run_test_internal(
         output_json: false,
         parallelism: cmd.build_flags.jobs,
         use_tcc_run: false,
+        dynamic_stub_libs: None,
     };
 
     let mut module = moonutil::scan::scan(
@@ -309,21 +310,25 @@ fn run_test_internal(
         (None, moonbuild_opt)
     };
 
-    let mut use_tcc_run = moonc_opt.build_opt.debug_flag && moonbuild_opt.run_mode == RunMode::Test;
+    let mut use_tcc_run = moonc_opt.build_opt.debug_flag
+        && moonbuild_opt.run_mode == RunMode::Test
+        && moonc_opt.build_opt.target_backend == TargetBackend::Native;
 
     for (_, pkg) in module.get_filtered_packages_mut(package_filter) {
         // do a pre-check to ensure that enabling fast cc mode (using tcc for debug testing)
         // will not break the user's expectation on their control over
         // c compilers and flags
         let existing_native = pkg.link.as_ref().and_then(|link| link.native.as_ref());
-        use_tcc_run &= pkg.stub_static_lib.is_none();
         if let Some(n) = existing_native {
-            use_tcc_run &= n.cc.is_none()
-                && n.cc_flags.is_none()
-                && n.cc_link_flags.is_none()
-                && n.stub_cc.is_none()
-                && n.stub_cc_flags.is_none()
-                && n.stub_cc_link_flags.is_none();
+            let old_flag = use_tcc_run;
+            use_tcc_run &= n.cc.is_none() && n.cc_flags.is_none() && n.cc_link_flags.is_none();
+            if old_flag != use_tcc_run {
+                eprintln!(
+                    "{}: package `{}` has native cc, cc-flags, or cc-link-flags. `tcc run` will be disabled",
+                    "Warning".yellow(),
+                    pkg.full_name()
+                );
+            }
         }
 
         if pkg.is_third_party || pkg.is_main {
@@ -364,16 +369,17 @@ fn run_test_internal(
         }
     }
 
-    let moonbuild_opt = MoonbuildOpt {
-        use_tcc_run,
-        ..moonbuild_opt
-    };
-
-    moonutil::common::set_native_backend_link_flags(
+    let all_stubs_dyn_deps = moonutil::common::set_native_backend_link_flags(
         run_mode,
         cmd.build_flags.target_backend,
         &mut module,
     )?;
+
+    let moonbuild_opt = MoonbuildOpt {
+        use_tcc_run,
+        dynamic_stub_libs: Some(all_stubs_dyn_deps),
+        ..moonbuild_opt
+    };
 
     // add coverage libs if needed
     moonbuild::gen::gen_runtest::add_coverage_to_core_if_needed(&mut module, &moonc_opt)?;

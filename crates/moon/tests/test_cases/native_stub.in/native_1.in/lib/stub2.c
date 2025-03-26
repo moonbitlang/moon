@@ -1,5 +1,7 @@
+#include <moonbit.h>
+
 void say_hello_1_internal();
 
-void say_hello_1() {
+MOONBIT_FFI_EXPORT void say_hello_1() {
     say_hello_1_internal();
 }
