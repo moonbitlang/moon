@@ -8928,12 +8928,18 @@ fn test_diff_mbti() {
 #[test]
 fn moon_info_specific_package() {
     let dir = TestDir::new("moon_new.in");
+
+    // exact match
     get_stdout(&dir, ["info", "--package", "moon_new/main"]);
-    assert!(dir.join("main/main.mbt").exists());
-    assert!(!dir.join("lib/lib.mbt").exists());
+    assert!(dir.join("main/main.mbti").exists());
+    assert!(!dir.join("lib/lib.mbti").exists());
+
+    // fuzzy match
+    get_stdout(&dir, ["info", "--package", "lib"]);
+    assert!(dir.join("lib/lib.mbti").exists());
 
     let content = get_err_stderr(&dir, ["info", "--package", "moon_new/does_not_exist"]);
-    assert!(content.contains("package `moon_new/does_not_exist` not found, make sure you have spelled it correctly, e.g. `moonbitlang/core/hashmap`"));
+    assert!(content.contains("package `moon_new/does_not_exist` not found, make sure you have spelled it correctly, e.g. `moonbitlang/core/hashmap`(exact match) or `hashmap`(fuzzy match)"));
 }
 
 #[test]
