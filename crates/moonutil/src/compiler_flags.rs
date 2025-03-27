@@ -102,7 +102,7 @@ impl CC {
             .expect("cc_path should have a parent directory");
         let (ar_kind, ar_path) = match cc_kind {
             CCKind::Msvc => {
-                let ar = cc_dir.join(ar_name);
+                let ar = cc_dir.join("lib");
                 (ARKind::MsvcLib, ar.display().to_string())
             }
             CCKind::SystemCC => {
@@ -131,16 +131,16 @@ impl CC {
         let path = PathBuf::from(cc);
         let name = path.file_name().and_then(OsStr::to_str).unwrap();
         let replaced_ar = |s: &str| name.replace(s, "ar");
-        if name.contains("cl") {
+        if name.ends_with("cl") {
             CC::try_from_cc_path_and_kind("lib.exe", &path, CCKind::Msvc)
-        } else if name.contains("gcc") {
+        } else if name.ends_with("gcc") {
             CC::try_from_cc_path_and_kind(&replaced_ar("gcc"), &path, CCKind::Gcc)
-        } else if name.contains("clang") {
+        } else if name.ends_with("clang") {
             CC::try_from_cc_path_and_kind(&replaced_ar("clang"), &path, CCKind::Clang)
-        } else if name.contains("cc") {
-            CC::try_from_cc_path_and_kind(&replaced_ar("cc"), &path, CCKind::SystemCC)
-        } else if name.contains("tcc") {
+        } else if name.ends_with("tcc") {
             CC::try_from_cc_path_and_kind("", &path, CCKind::Tcc)
+        } else if name.ends_with("cc") {
+            CC::try_from_cc_path_and_kind(&replaced_ar("cc"), &path, CCKind::SystemCC)
         } else {
             // assume it's a system cc
             CC::try_from_cc_path_and_kind("ar", &path, CCKind::SystemCC)
