@@ -20,7 +20,10 @@ use crate::moon_dir::MOON_DIRS;
 use anyhow::Context;
 use colored::Colorize;
 use derive_builder::Builder;
-use std::{ffi::OsStr, path::Path};
+use std::{
+    ffi::OsStr,
+    path::{Path, PathBuf},
+};
 
 #[derive(Copy, Clone, PartialEq, Eq)]
 pub enum CCKind {
@@ -89,30 +92,30 @@ impl CC {
         }
     }
 
-    pub fn try_from_cc_path_and_kind(cc_path: &Path, cc_kind: CCKind) -> anyhow::Result<Self> {
+    pub fn try_from_cc_path_and_kind(
+        ar_name: &str,
+        cc_path: &Path,
+        cc_kind: CCKind,
+    ) -> anyhow::Result<Self> {
         let cc_dir = cc_path
             .parent()
             .expect("cc_path should have a parent directory");
         let (ar_kind, ar_path) = match cc_kind {
             CCKind::Msvc => {
-                let ar = which::which(cc_dir.join("lib.exe")).context("lib.exe not found")?;
+                let ar = cc_dir.join("lib");
                 (ARKind::MsvcLib, ar.display().to_string())
             }
             CCKind::SystemCC => {
-                let ar = which::which(cc_dir.join("ar")).context("ar not found")?;
+                let ar = cc_dir.join(ar_name);
                 (ARKind::GnuAr, ar.display().to_string())
             }
             CCKind::Gcc => {
-                let ar = which::which(cc_dir.join("ar")).context("ar not found")?;
+                let ar = cc_dir.join(ar_name);
                 (ARKind::GnuAr, ar.display().to_string())
             }
             CCKind::Clang => {
-                if let Ok(ar) = which::which(cc_dir.join("llvm-ar")) {
-                    (ARKind::LlvmAr, ar.display().to_string())
-                } else {
-                    let ar = which::which(cc_dir.join("ar")).context("ar not found")?;
-                    (ARKind::GnuAr, ar.display().to_string())
-                }
+                let ar = cc_dir.join(ar_name);
+                (ARKind::GnuAr, ar.display().to_string())
             }
             CCKind::Tcc => (ARKind::TccAr, cc_path.display().to_string()),
         };
@@ -125,16 +128,22 @@ impl CC {
     }
 
     pub fn try_from_path(cc: &str) -> anyhow::Result<Self> {
-        let path = which::which(cc).context(format!("{} not found", cc))?;
-        match path.file_name().and_then(OsStr::to_str) {
-            Some("cl") => CC::try_from_cc_path_and_kind(&path, CCKind::Msvc),
-            Some("gcc") => CC::try_from_cc_path_and_kind(&path, CCKind::Gcc),
-            Some("clang") => CC::try_from_cc_path_and_kind(&path, CCKind::Clang),
-            Some("cc") => CC::try_from_cc_path_and_kind(&path, CCKind::SystemCC),
-            Some("tcc") => CC::try_from_cc_path_and_kind(&path, CCKind::Tcc),
-            // assume all other names are system cc
-            Some(_) => CC::try_from_cc_path_and_kind(&path, CCKind::SystemCC),
-            None => Err(anyhow::anyhow!("{} not found", path.display())),
+        let path = PathBuf::from(cc);
+        let name = path.file_name().and_then(OsStr::to_str).unwrap();
+        let replaced_ar = |s: &str| name.replace(s, "ar");
+        if name.ends_with("cl") {
+            CC::try_from_cc_path_and_kind("lib.exe", &path, CCKind::Msvc)
+        } else if name.ends_with("gcc") {
+            CC::try_from_cc_path_and_kind(&replaced_ar("gcc"), &path, CCKind::Gcc)
+        } else if name.ends_with("clang") {
+            CC::try_from_cc_path_and_kind(&replaced_ar("clang"), &path, CCKind::Clang)
+        } else if name.ends_with("tcc") {
+            CC::try_from_cc_path_and_kind("", &path, CCKind::Tcc)
+        } else if name.ends_with("cc") {
+            CC::try_from_cc_path_and_kind(&replaced_ar("cc"), &path, CCKind::SystemCC)
+        } else {
+            // assume it's a system cc
+            CC::try_from_cc_path_and_kind("ar", &path, CCKind::SystemCC)
         }
     }
 
@@ -177,7 +186,7 @@ pub static NATIVE_CC: std::sync::LazyLock<CC> = std::sync::LazyLock::new(|| {
         (Tcc, cc)
     };
 
-    CC::try_from_cc_path_and_kind(&cc_path, cc_kind)
+    CC::try_from_cc_path_and_kind("ar", &cc_path, cc_kind)
         .context("failed to find ar")
         .unwrap()
 });
