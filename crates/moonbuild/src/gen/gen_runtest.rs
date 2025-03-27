@@ -1099,11 +1099,12 @@ pub fn gen_n2_runtest_state(
     }
 
     let is_native_backend = moonc_opt.link_opt.target_backend == TargetBackend::Native;
+    let is_llvm_backend = moonc_opt.link_opt.target_backend == TargetBackend::LLVM;
 
     // compile runtime.o or libruntime.so
     let mut runtime_path = None;
 
-    if is_native_backend {
+    if is_native_backend || is_llvm_backend {
         fn gen_shared_runtime(
             graph: &mut n2graph::Graph,
             target_dir: &std::path::Path,
@@ -1131,7 +1132,6 @@ pub fn gen_n2_runtest_state(
             gen_runtime(&mut graph, &moonbuild_opt.target_dir)?
         });
     }
-    let is_llvm_backend = moonc_opt.link_opt.target_backend == TargetBackend::LLVM;
 
     for item in input.link_items.iter() {
         let (build, fid) = gen_runtest_link_command(&mut graph, item, moonc_opt);
@@ -1150,7 +1150,13 @@ pub fn gen_n2_runtest_state(
             graph.add_build(build)?;
         }
         if is_llvm_backend {
-            let (build, fid) = gen_link_exe_command(&mut graph, item, moonc_opt, moonbuild_opt);
+            let (build, fid) = gen_link_exe_command(
+                &mut graph,
+                item,
+                moonc_opt,
+                moonbuild_opt,
+                runtime_path.as_ref().unwrap().display().to_string(),
+            );
             graph.add_build(build)?;
             default_fid = fid;
         }

@@ -224,7 +224,7 @@ impl OutputFormat {
             OutputFormat::Wasm => "wasm",
             OutputFormat::Js => "js",
             OutputFormat::Native => "c",
-            OutputFormat::LLVM => "o",
+            OutputFormat::LLVM => O_EXT,
         }
     }
 }
