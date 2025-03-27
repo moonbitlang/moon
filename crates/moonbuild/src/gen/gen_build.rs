@@ -1014,9 +1014,8 @@ pub fn gen_link_exe_command(
     let moon_lib_path = &MOON_DIRS.moon_lib_path;
 
     let runtime_c = moon_lib_path.join("runtime.c").display().to_string();
-    let runtime_core = moon_lib_path.join("runtime_core.c").display().to_string();
 
-    let sources: Vec<&str> = vec![&runtime_c, &runtime_core, &o_artifact_path];
+    let sources: Vec<&str> = vec![&runtime_c, &o_artifact_path];
 
     let cc_cmd = make_cc_command(
         CC::default(),
