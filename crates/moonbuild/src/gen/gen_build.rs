@@ -17,6 +17,7 @@
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
 use anyhow::{bail, Context, Ok};
+use colored::Colorize;
 use moonutil::compiler_flags::{
     make_archiver_command, make_cc_command, make_linker_command, ArchiverConfigBuilder,
     CCConfigBuilder, LinkerConfigBuilder, OptLevel, OutputType, CC,
@@ -691,7 +692,15 @@ pub fn gen_compile_exe_command(
 
     let cc_cmd = make_cc_command(
         CC::default(),
-        native_cc.and_then(|cc| CC::try_from_path(cc).ok()),
+        native_cc.map(|cc| {
+            CC::try_from_path(cc)
+                .context(format!(
+                    "{}: failed to find native cc: {}",
+                    "Error".red(),
+                    cc
+                ))
+                .unwrap()
+        }),
         CCConfigBuilder::default()
             .no_sys_header(true)
             .output_ty(OutputType::Executable)
@@ -769,11 +778,19 @@ pub fn gen_archive_stub_to_static_lib_command(
 
     let mut build = Build::new(loc, ins, outs);
 
-    let native_cc = item.native_cc(moonc_opt.link_opt.target_backend);
+    let native_stub_cc = item.native_stub_cc(moonc_opt.link_opt.target_backend);
 
     let cc_cmd = make_archiver_command(
         CC::default(),
-        native_cc.and_then(|cc| CC::try_from_path(cc).ok()),
+        native_stub_cc.map(|cc| {
+            CC::try_from_path(cc)
+                .context(format!(
+                    "{}: failed to find native cc: {}",
+                    "Error".red(),
+                    cc
+                ))
+                .unwrap()
+        }),
         ArchiverConfigBuilder::default()
             .archive_moonbitrun(false)
             .build()
@@ -848,7 +865,7 @@ pub fn gen_link_stub_to_dynamic_lib_command(
 
     let mut build = Build::new(loc, ins, outs);
 
-    let native_stub_cc = item.native_cc(moonc_opt.link_opt.target_backend);
+    let native_stub_cc = item.native_stub_cc(moonc_opt.link_opt.target_backend);
     let native_stub_cc_link_flags = item
         .native_stub_cc_link_flags(moonc_opt.link_opt.target_backend)
         .map(|it| it.split(" ").collect::<Vec<_>>())
@@ -857,7 +874,15 @@ pub fn gen_link_stub_to_dynamic_lib_command(
     let shared_runtime_dir = Some(runtime_path.parent().unwrap());
     let cc_cmd = make_linker_command::<_, &Path>(
         CC::default(),
-        native_stub_cc.and_then(|cc| CC::try_from_path(cc).ok()),
+        native_stub_cc.map(|cc| {
+            CC::try_from_path(cc)
+                .context(format!(
+                    "{}: failed to find native cc: {}",
+                    "Error".red(),
+                    cc
+                ))
+                .unwrap()
+        }),
         LinkerConfigBuilder::default()
             .link_moonbitrun(!moonbuild_opt.use_tcc_run)
             .link_shared_runtime(shared_runtime_dir)
@@ -930,7 +955,15 @@ pub fn gen_compile_stub_command(
 
         let cc_cmd = make_cc_command(
             CC::default(),
-            native_stub_cc.and_then(|cc| CC::try_from_path(cc).ok()),
+            native_stub_cc.map(|cc| {
+                CC::try_from_path(cc)
+                    .context(format!(
+                        "{}: failed to find native cc: {}",
+                        "Error".red(),
+                        cc
+                    ))
+                    .unwrap()
+            }),
             CCConfigBuilder::default()
                 .no_sys_header(true)
                 .output_ty(OutputType::Object)
@@ -1019,7 +1052,15 @@ pub fn gen_link_exe_command(
 
     let cc_cmd = make_cc_command(
         CC::default(),
-        native_cc.and_then(|cc| CC::try_from_path(cc).ok()),
+        native_cc.map(|cc| {
+            CC::try_from_path(cc)
+                .context(format!(
+                    "{}: failed to find native cc: {}",
+                    "Error".red(),
+                    cc
+                ))
+                .unwrap()
+        }),
         CCConfigBuilder::default()
             .no_sys_header(true)
             .output_ty(OutputType::Executable)
