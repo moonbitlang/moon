@@ -3,7 +3,7 @@
   Finished. moon: ran 1 task, now up to date
   
   $ xcat lib/lib.mbti
-  package username/hello/lib
+  package "username/hello/lib"
   
   // Values
   fn hello() -> String
