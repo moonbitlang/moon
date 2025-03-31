@@ -540,6 +540,7 @@ where
         if cc.is_msvc() {
             buf.push("/DMOONBIT_USE_SHARED_RUNTIME".to_string());
         } else if cc.is_gcc_like() {
+            buf.push("-fPIC".to_string());
             buf.push("-DMOONBIT_USE_SHARED_RUNTIME".to_string());
         }
     }

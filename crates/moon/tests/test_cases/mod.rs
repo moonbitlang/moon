@@ -8016,7 +8016,7 @@ fn test_native_backend_tcc_run() {
             ["test", "--target", "native", "--dry-run", "--sort-input"],
         ),
         expect![[r#"
-            stubcc -o ./target/native/debug/test/lib/stub.o -I$MOON_HOME/include -L$MOON_HOME/lib -g -c -DMOONBIT_USE_SHARED_RUNTIME ./lib/stub.c stubccflags
+            stubcc -o ./target/native/debug/test/lib/stub.o -I$MOON_HOME/include -L$MOON_HOME/lib -g -c -fPIC -DMOONBIT_USE_SHARED_RUNTIME ./lib/stub.c stubccflags
             cc -o ./target/native/debug/test/libruntime.dylib -I$MOON_HOME/include -L$MOON_HOME/lib -g -shared -fPIC -fwrapv -fno-strict-aliasing -O2 $MOON_HOME/lib/runtime.c -lm
             stubcc -o ./target/native/debug/test/lib/liblib.dylib -L$MOON_HOME/lib -L./target/native/debug/test ./target/native/debug/test/lib/stub.o -lm -lruntime stubcclinkflags
             moon generate-test-driver --source-dir . --target-dir ./target --package moon_new/lib --sort-input --target native --driver-kind internal
@@ -8032,7 +8032,7 @@ fn test_native_backend_tcc_run() {
             ["test", "--target", "native", "--dry-run", "--sort-input"],
         ),
         expect![[r#"
-            stubcc -o ./target/native/debug/test/lib/stub.o -I$MOON_HOME/include -L$MOON_HOME/lib -g -c -DMOONBIT_USE_SHARED_RUNTIME ./lib/stub.c stubccflags
+            stubcc -o ./target/native/debug/test/lib/stub.o -I$MOON_HOME/include -L$MOON_HOME/lib -g -c -fPIC -DMOONBIT_USE_SHARED_RUNTIME ./lib/stub.c stubccflags
             cc -o ./target/native/debug/test/libruntime.so -I$MOON_HOME/include -L$MOON_HOME/lib -g -shared -fPIC -fwrapv -fno-strict-aliasing -O2 $MOON_HOME/lib/runtime.c -lm
             stubcc -o ./target/native/debug/test/lib/liblib.so -L$MOON_HOME/lib -L./target/native/debug/test ./target/native/debug/test/lib/stub.o -lm -lruntime stubcclinkflags
             moon generate-test-driver --source-dir . --target-dir ./target --package moon_new/lib --sort-input --target native --driver-kind internal
