@@ -29,7 +29,6 @@ use moonutil::common::{
 };
 use std::path::Path;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::Arc;
 
 pub fn watching(
     moonc_opt: &MooncOpt,
@@ -41,23 +40,23 @@ pub fn watching(
     run_and_print(moonc_opt, moonbuild_opt, module)?;
 
     let (tx, rx) = std::sync::mpsc::channel();
-    let tx_for_exit = tx.clone();
     let mut watcher = RecommendedWatcher::new(tx, Config::default())?;
 
-    let exit_flag = Arc::new(AtomicBool::new(false));
     {
-        let r = Arc::clone(&exit_flag);
-        ctrlc::set_handler(move || {
-            let exit_signal = notify::Event::new(notify::EventKind::Other);
-            r.store(true, Ordering::SeqCst);
-            let _ = tx_for_exit.send(Ok(exit_signal));
-        })
-        .expect("Error setting Ctrl-C handler");
+        // make sure the handler is only set once when --watch --target all
+        static HANDLER_SET: AtomicBool = AtomicBool::new(false);
+
+        if HANDLER_SET
+            .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
+            .is_ok()
+        {
+            ctrlc::set_handler(moonutil::common::dialoguer_ctrlc_handler)
+                .expect("Error setting Ctrl-C handler");
+        }
     }
 
     {
         // main thread
-        let exit_flag = Arc::clone(&exit_flag);
         watcher.watch(&moonbuild_opt.source_dir, RecursiveMode::Recursive)?;
 
         // in watch mode, moon is a long-running process that should handle errors as much as possible rather than throwing them up and then exiting.
@@ -65,10 +64,6 @@ pub fn watching(
             match res {
                 Ok(event) => {
                     match event.kind {
-                        // receive quit signal (ctrl+c)
-                        EventKind::Other if exit_flag.load(Ordering::SeqCst) => {
-                            break;
-                        }
                         // when a file was modified, multiple events may be received, we only care about data those modified data
                         #[cfg(unix)]
                         EventKind::Modify(notify::event::ModifyKind::Data(_)) => {
