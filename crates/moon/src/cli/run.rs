@@ -158,22 +158,36 @@ fn run_single_mbt_file(cli: &UniversalFlags, cmd: RunSubcommand) -> anyhow::Resu
 
     let compile_exe_command = if target_backend == TargetBackend::Native {
         let moon_lib_path = &MOON_DIRS.moon_lib_path;
-        let moon_include_path = &MOON_DIRS.moon_include_path;
-        let internal_tcc_path = &MOON_DIRS.internal_tcc_path;
 
-        Some(vec![
-            internal_tcc_path.display().to_string(),
-            moon_lib_path.join("runtime.c").display().to_string(),
-            output_wasm_or_js_path.display().to_string(),
-            format!("-L{}", moon_lib_path.display()),
-            format!("-I{}", moon_include_path.display()),
-            "-DMOONBIT_NATIVE_NO_SYS_HEADER".to_string(),
-            "-o".to_string(),
-            output_wasm_or_js_path
+        let cc_cmd = moonutil::compiler_flags::make_cc_command(
+            moonutil::compiler_flags::CC::default(),
+            None,
+            moonutil::compiler_flags::CCConfigBuilder::default()
+                .no_sys_header(true)
+                .output_ty(moonutil::compiler_flags::OutputType::Executable)
+                .opt_level(moonutil::compiler_flags::OptLevel::None)
+                .debug_info(false)
+                .link_moonbitrun(false) // if use tcc, we cannot link moonbitrun
+                .define_use_shared_runtime_macro(false)
+                .build()
+                .unwrap(),
+            &[],
+            &[
+                moon_lib_path.join("runtime.c").display().to_string(),
+                output_wasm_or_js_path.display().to_string(),
+            ],
+            &output_wasm_or_js_path
+                .parent()
+                .unwrap()
+                .display()
+                .to_string(),
+            &output_wasm_or_js_path
                 .with_extension("exe")
                 .display()
                 .to_string(),
-        ])
+        );
+
+        Some(cc_cmd)
     } else {
         None
     };
