@@ -6291,12 +6291,8 @@ fn test_moon_run_single_mbt_file() {
         &dir.join("a").join("b"),
         ["run", "single.mbt", "--target", "native"],
     );
-    check(
-        &output,
-        expect![[r#"
-            I am OK
-            "#]],
-    );
+    // cl have other output
+    assert!(output.contains("I am OK"));
 }
 
 #[test]
