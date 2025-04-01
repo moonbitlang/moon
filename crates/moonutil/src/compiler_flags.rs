@@ -21,9 +21,12 @@ use anyhow::Context;
 use colored::Colorize;
 use derive_builder::Builder;
 use std::{
+    env,
     ffi::OsStr,
     path::{Path, PathBuf},
 };
+
+const ENV_MOON_CC: &str = "MOON_CC";
 
 #[derive(Copy, Clone, PartialEq, Eq)]
 pub enum CCKind {
@@ -48,14 +51,16 @@ pub struct CC {
     pub cc_path: String,
     pub ar_kind: ARKind,
     pub ar_path: String,
+    pub is_env_override: bool,
 }
 
 impl Default for CC {
     fn default() -> Self {
-        NATIVE_CC.clone()
+        NATIVE_CC().clone()
     }
 }
 
+// Used to detect the availability of libmoonbitrun.o on host system
 #[cfg(target_os = "linux")]
 const CAN_USE_MOONBITRUN: bool = true;
 #[cfg(target_os = "macos")]
@@ -89,6 +94,7 @@ impl CC {
             cc_path,
             ar_kind,
             ar_path,
+            is_env_override: false,
         }
     }
 
@@ -165,10 +171,32 @@ impl CC {
     pub fn is_tcc(&self) -> bool {
         matches!(self.cc_kind, CCKind::Tcc)
     }
+
+    pub fn is_libmoonbitrun_o_available(&self) -> bool {
+        // If users set MOON_CC, we believe they know what they are doing
+        // And we conservatively disable libmoonbitrun.o
+        CAN_USE_MOONBITRUN && !self.is_msvc() && !self.is_env_override
+    }
 }
 
-// change all struct construction to CC::new
-pub static NATIVE_CC: std::sync::LazyLock<CC> = std::sync::LazyLock::new(|| {
+pub static ENV_CC: std::sync::LazyLock<Option<CC>> = std::sync::LazyLock::new(|| {
+    let env_cc = env::var(ENV_MOON_CC);
+
+    match env_cc {
+        Ok(cc) => {
+            let cc = CC::try_from_path(&cc)
+                .context(format!("failed to parse cc from env {}", ENV_MOON_CC))
+                .unwrap();
+            Some(CC {
+                is_env_override: true,
+                ..cc
+            })
+        }
+        Err(_) => None,
+    }
+});
+
+pub static DETECTED_CC: std::sync::LazyLock<CC> = std::sync::LazyLock::new(|| {
     use CCKind::*;
 
     let (cc_kind, cc_path) = if let Ok(cc) = which::which("cl") {
@@ -190,6 +218,15 @@ pub static NATIVE_CC: std::sync::LazyLock<CC> = std::sync::LazyLock::new(|| {
         .context("failed to find ar")
         .unwrap()
 });
+
+#[allow(non_snake_case)]
+pub fn NATIVE_CC() -> &'static CC {
+    if let Some(env_cc) = ENV_CC.as_ref() {
+        env_cc
+    } else {
+        &DETECTED_CC
+    }
+}
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum OutputType {
@@ -252,7 +289,7 @@ pub fn make_archiver_command<S>(
 where
     S: AsRef<str>,
 {
-    let cc = user_cc.unwrap_or(cc);
+    let cc = ENV_CC.clone().unwrap_or_else(|| user_cc.unwrap_or(cc));
     let mut buf = vec![cc.ar_path.clone()];
 
     if cc.is_msvc() {
@@ -271,7 +308,7 @@ where
         panic!("Unsupported archiver");
     }
 
-    if CAN_USE_MOONBITRUN && config.archive_moonbitrun && !cc.is_msvc() {
+    if cc.is_libmoonbitrun_o_available() && config.archive_moonbitrun {
         if cc.is_tcc() {
             eprintln!(
                 "{}: Cannot archive libmoonbitrun.o when using tcc",
@@ -306,7 +343,7 @@ where
     S: AsRef<str>,
     P: AsRef<Path>,
 {
-    let cc = user_cc.unwrap_or(cc);
+    let cc = ENV_CC.clone().unwrap_or_else(|| user_cc.unwrap_or(cc));
     let mut buf = vec![cc.cc_path.clone()];
     let lpath = &MOON_DIRS.moon_lib_path.display().to_string();
     // if user_link_flags is set, we only set necessary flags
@@ -342,7 +379,7 @@ where
     }
 
     // Build shared library
-    if config.output_ty == OutputType::SharedLib && !has_user_flags {
+    if config.output_ty == OutputType::SharedLib {
         if cc.is_msvc() {
             buf.push("/LD".to_string());
         } else if cc.is_gcc_like() {
@@ -356,7 +393,7 @@ where
         buf.push("/nologo".to_string());
     }
 
-    if CAN_USE_MOONBITRUN && config.link_moonbitrun && !cc.is_msvc() {
+    if config.link_moonbitrun && cc.is_libmoonbitrun_o_available() {
         if cc.is_tcc() {
             eprintln!(
                 "{}: Cannot link libmoonbitrun.o when using tcc",
@@ -416,7 +453,7 @@ pub fn make_cc_command<S>(
 where
     S: AsRef<str>,
 {
-    let cc = user_cc.unwrap_or(cc);
+    let cc = ENV_CC.clone().unwrap_or_else(|| user_cc.unwrap_or(cc));
     let mut buf = vec![cc.cc_path.clone()];
     let ipath = &MOON_DIRS.moon_include_path.display().to_string();
     let lpath = &MOON_DIRS.moon_lib_path.display().to_string();
@@ -523,7 +560,7 @@ where
         }
     }
 
-    if cc.is_tcc() && !has_user_flags {
+    if cc.is_tcc() {
         if config.no_sys_header {
             buf.push("-DMOONBIT_NATIVE_NO_SYS_HEADER".to_string());
         } else {
@@ -540,14 +577,14 @@ where
         if cc.is_msvc() {
             buf.push("/DMOONBIT_USE_SHARED_RUNTIME".to_string());
         } else if cc.is_gcc_like() {
+            buf.push("-fPIC".to_string());
             buf.push("-DMOONBIT_USE_SHARED_RUNTIME".to_string());
         }
     }
 
     if config.output_ty != OutputType::Object
-        && CAN_USE_MOONBITRUN
         && config.link_moonbitrun
-        && !cc.is_msvc()
+        && cc.is_libmoonbitrun_o_available()
     {
         if cc.is_tcc() {
             eprintln!(
