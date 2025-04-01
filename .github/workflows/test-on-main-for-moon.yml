@@ -16,7 +16,7 @@
 #
 # For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
-name: Test on main(cargo-test)
+name: Test on main(moon)
 
 on:
   workflow_dispatch:

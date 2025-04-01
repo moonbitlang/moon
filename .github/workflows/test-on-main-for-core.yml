@@ -16,7 +16,7 @@
 #
 # For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
-name: Test on main(Core)
+name: Test on main(core)
 
 on:
   workflow_dispatch:
