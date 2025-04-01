@@ -1,0 +1,120 @@
+# moon: The build system and package manager for MoonBit.
+# Copyright (C) 2024 International Digital Economy Academy
+#
+# This program is free software: you can redistribute it and/or modify
+# it under the terms of the GNU Affero General Public License as published by
+# the Free Software Foundation, either version 3 of the License, or
+# (at your option) any later version.
+#
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU Affero General Public License for more details.
+#
+# You should have received a copy of the GNU Affero General Public License
+# along with this program.  If not, see <https://www.gnu.org/licenses/>.
+#
+# For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
+
+name: Test on main(cargo-test)
+
+on:
+  workflow_dispatch:
+
+jobs:
+  test:
+    strategy:
+      fail-fast: false
+      matrix:
+        os:
+          - ubuntu-latest
+          #   - macos-latest
+          #   - macos-13
+          - windows-latest
+    runs-on: ${{ matrix.os }}
+    env:
+      WECOM_ROBOT_KEY: ${{ secrets.WECOM_ROBOT_KEY }}
+      AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+      AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+      AWS_DEFAULT_REGION: ${{ secrets.AWS_DEFAULT_REGION }}
+    steps:
+      - name: Configure git
+        run: git config --global core.autocrlf false
+
+      - uses: actions/checkout@v4
+        with:
+          submodules: true
+
+      - name: Checkout moonc-version
+        uses: actions/checkout@v4
+        with:
+          ref: moonc-version-dont-delete
+          path: moonc-version-dont-delete
+      - name: Copy moonc-version file to workspace
+        run: |
+          cp moonc-version-dont-delete/moonc-version .
+          cat ./moonc-version
+          echo "MOONC_VERSION=$(cat ./moonc-version)" >> $GITHUB_ENV
+
+      - uses: dtolnay/rust-toolchain@1.80.0
+      - name: Cargo cache
+        uses: actions/cache@v4
+        with:
+          key: ${{ runner.os }}-cargo-${{ hashFiles('Cargo.lock') }}
+          path: ~/.cargo/registry
+
+      - name: Setup Rclone
+        uses: AnimMouse/setup-rclone@v1
+        with:
+          rclone_config: ${{ secrets.RCLONE_CONFIG }}
+
+      - name: install MoonBit(Unix)
+        if: ${{ matrix.os != 'windows-latest' }}
+        run: |
+          curl https://cli.moonbitlang.com/moon-ci/$(uname -s)-$(uname -m).tar.gz --output moonbit.tar.gz
+          mkdir -p ~/.moon/bin
+          mkdir -p ~/.moon/lib
+          tar xf moonbit.tar.gz --directory ~/.moon/
+          curl https://cli.moonbitlang.com/moon-ci/$(uname -s)-$(uname -m)/moonrun --output ~/.moon/bin/moonrun
+          curl https://cli.moonbitlang.com/moon-ci/$(uname -s)-$(uname -m)/mooncake --output ~/.moon/bin/mooncake
+          ls -l ~/.moon/bin
+          ls -l ~/.moon/bin/internal
+          chmod +x ~/.moon/bin/moon*
+          chmod +x ~/.moon/bin/internal/tcc
+          git clone --depth 1 https://github.com/moonbitlang/core.git ~/.moon/lib/core
+          echo "$HOME/.moon/bin" >> $GITHUB_PATH
+          echo "$GITHUB_WORKSPACE/target/debug" >> $GITHUB_PATH
+
+      - name: install MoonBit(Windows)
+        if: ${{ matrix.os == 'windows-latest' }}
+        run: |
+          Invoke-WebRequest -Uri https://cli.moonbitlang.com/moon-ci/Windows-x86_64.zip -OutFile moonbit.zip
+          New-Item -ItemType Directory -Force -Path "$env:USERPROFILE/.moon/bin"
+          New-Item -ItemType Directory -Force -Path "$env:USERPROFILE/.moon/lib"
+          Expand-Archive -Path "moonbit.zip" -DestinationPath "$env:USERPROFILE/.moon/" -Force
+          Invoke-WebRequest -Uri https://cli.moonbitlang.com/moon-ci/Windows-x86_64/moonrun.exe -OutFile "$env:USERPROFILE/.moon/bin/moonrun.exe"
+          Invoke-WebRequest -Uri https://cli.moonbitlang.com/moon-ci/Windows-x86_64/mooncake.exe -OutFile "$env:USERPROFILE/.moon/bin/mooncake.exe"
+          Get-ChildItem -Path "$env:USERPROFILE/.moon/bin"
+          Get-ChildItem -Path "$env:USERPROFILE/.moon/bin/internal"
+          git clone --depth 1 https://github.com/moonbitlang/core.git "$env:USERPROFILE/.moon/lib/core"
+          "$env:USERPROFILE\.moon\bin" | Out-File -FilePath $env:GITHUB_PATH -Append
+          "$env:GITHUB_WORKSPACE\target\debug" | Out-File -FilePath $env:GITHUB_PATH -Append
+
+      - name: Setup MSVC
+        if: ${{ matrix.os == 'windows-latest' }}
+        uses: ilammy/msvc-dev-cmd@v1
+
+      - name: Build
+        run: cargo build
+      - name: Versions
+        run: cargo run --bin moon version --all
+      - name: Bundle core (Unix)
+        if: ${{ matrix.os != 'windows-latest' }}
+        run: | 
+          cargo run --bin moon bundle --source-dir ~/.moon/lib/core --all
+      - name: Bundle core (Windows)
+        if: ${{ matrix.os == 'windows-latest' }}
+        run: cargo run --bin moon bundle --source-dir "$env:USERPROFILE\.moon\lib\core" --all
+
+      - name: Run tests
+        run: cargo test
