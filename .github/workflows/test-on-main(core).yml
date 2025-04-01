@@ -16,7 +16,7 @@
 #
 # For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
-name: Test on main
+name: Test on main(Core)
 
 on:
   workflow_dispatch:
@@ -116,9 +116,6 @@ jobs:
         if: ${{ matrix.os == 'windows-latest' }}
         run: cargo run --bin moon bundle --source-dir "$env:USERPROFILE\.moon\lib\core" --all
 
-      - name: Run tests
-        run: cargo test
-
       - name: Test core (Unix)
         if: ${{ matrix.os != 'windows-latest' }}
         run: |
@@ -162,10 +159,12 @@ jobs:
         run: |
           moonc -v > moonc_version.txt
           echo "moonc version: $(cat moonc_version.txt)"
+          git -C "$env:USERPROFILE\.moon\lib\core" rev-parse HEAD > core_version.txt
+          echo "core version: $(cat core_version.txt)"
           $body = @{
               msgtype = "text"
               text = @{
-                  content = "🤣 moon ci on windows-latest failed: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{github.run_id}} moonc version: $(cat moonc_version.txt)"
+                  content = "🤣 moon ci on windows-latest failed: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{github.run_id}} moonc version: $(cat moonc_version.txt), core version: $(cat core_version.txt)"
               }
           } | ConvertTo-Json
 
@@ -184,6 +183,8 @@ jobs:
         run: |
           moonc -v > moonc_version.txt
           echo "moonc version: $(cat moonc_version.txt)"
+          git -C ~/.moon/lib/core rev-parse HEAD > core_version.txt
+          echo "core version: $(cat core_version.txt)"
           last_status=$(curl -s "https://cli.moonbitlang.com/moon-ci/test-on-main-unix-status")
           echo "last_status: $last_status"
           aws s3 cp - s3://cli.moonbitlang.com/moon-ci/test-on-main-unix-status --content-type text/plain <<< "failed"
@@ -196,7 +197,7 @@ jobs:
             {
               "msgtype": "text",
               "text": {
-                "content": "🤣 moon ci on ${{matrix.os}} failed: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }} moonc version: $(cat moonc_version.txt)"
+                "content": "🤣 moon ci on ${{matrix.os}} failed: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }} moonc version: $(cat moonc_version.txt), core version: $(cat core_version.txt)"
               }
             }
             REQUEST_BODY
