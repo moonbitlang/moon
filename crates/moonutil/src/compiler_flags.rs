@@ -342,7 +342,7 @@ where
     }
 
     // Build shared library
-    if config.output_ty == OutputType::SharedLib && !has_user_flags {
+    if config.output_ty == OutputType::SharedLib {
         if cc.is_msvc() {
             buf.push("/LD".to_string());
         } else if cc.is_gcc_like() {
@@ -523,7 +523,7 @@ where
         }
     }
 
-    if cc.is_tcc() && !has_user_flags {
+    if cc.is_tcc() {
         if config.no_sys_header {
             buf.push("-DMOONBIT_NATIVE_NO_SYS_HEADER".to_string());
         } else {
