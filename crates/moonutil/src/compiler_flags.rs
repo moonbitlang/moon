@@ -16,7 +16,7 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
-use crate::moon_dir::MOON_DIRS;
+use crate::{common::DYN_EXT, moon_dir::MOON_DIRS};
 use anyhow::Context;
 use colored::Colorize;
 use derive_builder::Builder;
@@ -30,19 +30,19 @@ const ENV_MOON_CC: &str = "MOON_CC";
 
 #[derive(Copy, Clone, PartialEq, Eq)]
 pub enum CCKind {
-    Msvc,
-    SystemCC,
-    Gcc,
-    Clang,
-    Tcc,
+    Msvc,     // cl.exe
+    SystemCC, // cc
+    Gcc,      // gcc
+    Clang,    // clang
+    Tcc,      // tcc
 }
 
 #[derive(Copy, Clone, PartialEq, Eq)]
 pub enum ARKind {
-    MsvcLib,
-    GnuAr,
-    LlvmAr,
-    TccAr,
+    MsvcLib, // lib.exe
+    GnuAr,   // ar
+    LlvmAr,  // llvm-ar
+    TccAr,   // tcc -ar
 }
 
 #[derive(Clone, PartialEq, Eq)]
@@ -51,7 +51,7 @@ pub struct CC {
     pub cc_path: String,
     pub ar_kind: ARKind,
     pub ar_path: String,
-    pub is_env_override: bool,
+    pub is_env_override: bool, // Whether the cc is set by env MOON_CC
 }
 
 impl Default for CC {
@@ -65,6 +65,9 @@ impl Default for CC {
 const CAN_USE_MOONBITRUN: bool = true;
 #[cfg(target_os = "macos")]
 const CAN_USE_MOONBITRUN: bool = true;
+// Currently, the distribution of libmoonbitrun.o is not available on Windows
+// Once it's supported, we can set this to true but also need to
+// correctly change the compiler flags
 #[cfg(windows)]
 const CAN_USE_MOONBITRUN: bool = false;
 
@@ -230,9 +233,9 @@ pub fn NATIVE_CC() -> &'static CC {
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum OutputType {
-    Object,
-    SharedLib,
-    Executable,
+    Object,     // .o or .obj
+    SharedLib,  // .so or .dll or .dylib
+    Executable, // .exe or no extension
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -247,16 +250,26 @@ pub enum OptLevel {
 #[builder(setter(into))]
 pub struct CCConfig {
     #[builder(default = false)]
+    // indicates -g for gcc-like compilers
+    // we don't set /Zi as it will have concurrency problem
+    // like multiple msvc instances race to write the same .pdb file
     pub debug_info: bool,
-    // Some compilers, like TCC, may not be able to handle the system header
-    // In this case, we need to disable the system header used in the runtime
+    // TCC cannot link libmoonbitrun.o
     pub link_moonbitrun: bool,
     #[builder(default = false)]
+    // Define MOONBIT_NATIVE_NO_SYS_HEADER
+    // Usually used with TCC
+    // TCC may not be able to handle the system header
     pub no_sys_header: bool,
     #[builder(default = OutputType::Object)]
     pub output_ty: OutputType,
     #[builder(default = OptLevel::Speed)]
     pub opt_level: OptLevel,
+    // Define MOONBIT_USE_SHARED_RUNTIME
+    // It's non-op on Linux and MacOS
+    // But on Windows, it will mark runtime function declarations
+    // with extra __declspec(dllimport)
+    // This is needed to use the shared runtime
     pub define_use_shared_runtime_macro: bool,
 }
 
@@ -296,6 +309,8 @@ where
         buf.push("/nologo".to_string());
         buf.push(format!("/Out:{}", dest));
     } else if cc.is_tcc() {
+        // tcc don't have separate ar command
+        // just use tcc -ar
         buf.push("-ar".to_string());
         buf.push("rcs".to_string());
         buf.push(dest.to_string());
@@ -355,6 +370,7 @@ where
     if cc.is_msvc() {
         match config.output_ty {
             OutputType::SharedLib | OutputType::Executable => {
+                // /F(excutable)
                 buf.push(format!("/Fe{}", dest));
             }
             _ => panic!("Linker only supports shared lib, executable and static lib"),
@@ -375,6 +391,7 @@ where
     // MSVC may throw intermediate files into current directory
     // Explicitly set the output directory of these files
     if cc.is_msvc() {
+        // /F(object)
         buf.push(format!("/Fo{}\\", dest_dir));
     }
 
@@ -417,8 +434,15 @@ where
         if cc.is_full_featured_gcc_like() {
             buf.push("-lm".to_string());
         }
-        if config.link_shared_runtime.is_some() {
+        if let Some(dyn_lib_path) = config.link_shared_runtime.as_ref() {
             buf.push("-lruntime".to_string());
+            buf.push(format!(
+                "-Wl,-rpath,{}",
+                dyn_lib_path
+                    .as_ref()
+                    .join(format!("libruntime.{}", DYN_EXT))
+                    .display()
+            ));
         }
     }
 
