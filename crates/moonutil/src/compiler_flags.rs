@@ -27,6 +27,7 @@ use std::{
 };
 
 const ENV_MOON_CC: &str = "MOON_CC";
+const ENV_MOON_AR: &str = "MOON_AR";
 
 #[derive(Copy, Clone, PartialEq, Eq)]
 pub enum CCKind {
@@ -136,6 +137,25 @@ impl CC {
         ))
     }
 
+    pub fn try_from_path_with_ar(cc: &str, ar: &str) -> anyhow::Result<Self> {
+        let path = PathBuf::from(cc);
+        let name = path.file_name().and_then(OsStr::to_str).unwrap();
+        if name.ends_with("cl") {
+            CC::try_from_cc_path_and_kind(ar, &path, CCKind::Msvc)
+        } else if name.ends_with("gcc") {
+            CC::try_from_cc_path_and_kind(ar, &path, CCKind::Gcc)
+        } else if name.ends_with("clang") {
+            CC::try_from_cc_path_and_kind(ar, &path, CCKind::Clang)
+        } else if name.ends_with("tcc") {
+            CC::try_from_cc_path_and_kind(ar, &path, CCKind::Tcc)
+        } else if name.ends_with("cc") {
+            CC::try_from_cc_path_and_kind(ar, &path, CCKind::SystemCC)
+        } else {
+            // assume it's a system cc
+            CC::try_from_cc_path_and_kind(ar, &path, CCKind::SystemCC)
+        }
+    }
+
     pub fn try_from_path(cc: &str) -> anyhow::Result<Self> {
         let path = PathBuf::from(cc);
         let name = path.file_name().and_then(OsStr::to_str).unwrap();
@@ -184,9 +204,19 @@ impl CC {
 
 pub static ENV_CC: std::sync::LazyLock<Option<CC>> = std::sync::LazyLock::new(|| {
     let env_cc = env::var(ENV_MOON_CC);
+    let env_ar = env::var(ENV_MOON_AR);
 
-    match env_cc {
-        Ok(cc) => {
+    match (env_cc, env_ar) {
+        (Ok(cc), Ok(ar)) => {
+            let cc = CC::try_from_path_with_ar(&cc, &ar)
+                .context(format!("failed to parse cc from env {}", ENV_MOON_CC))
+                .unwrap();
+            Some(CC {
+                is_env_override: true,
+                ..cc
+            })
+        }
+        (Ok(cc), _) => {
             let cc = CC::try_from_path(&cc)
                 .context(format!("failed to parse cc from env {}", ENV_MOON_CC))
                 .unwrap();
@@ -195,7 +225,7 @@ pub static ENV_CC: std::sync::LazyLock<Option<CC>> = std::sync::LazyLock::new(||
                 ..cc
             })
         }
-        Err(_) => None,
+        _ => None,
     }
 });
 
