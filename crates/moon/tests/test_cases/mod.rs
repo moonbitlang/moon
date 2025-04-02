@@ -8062,8 +8062,14 @@ fn test_native_backend_cc_flags_with_env_override() {
             &dir,
             ["build", "--target", "native", "--dry-run", "--sort-input"],
             [
-                ("MOON_CC", "/some/path/A/x86_64-unknown-fake_os-fake_libc-gcc"),
-                ("MOON_AR", "/other/path/B/x86_64-unknown-fake_os-fake_libc-ar"),
+                (
+                    "MOON_CC",
+                    "/some/path/A/x86_64-unknown-fake_os-fake_libc-gcc",
+                ),
+                (
+                    "MOON_AR",
+                    "/other/path/B/x86_64-unknown-fake_os-fake_libc-ar",
+                ),
             ],
         ),
         expect![[r#"
@@ -8084,8 +8090,14 @@ fn test_native_backend_cc_flags_with_env_override() {
             &dir,
             ["test", "--target", "native", "--dry-run", "--sort-input"],
             [
-                ("MOON_CC", "/some/path/A/x86_64-unknown-fake_os-fake_libc-gcc"),
-                ("MOON_AR", "/other/path/B/x86_64-unknown-fake_os-fake_libc-ar"),
+                (
+                    "MOON_CC",
+                    "/some/path/A/x86_64-unknown-fake_os-fake_libc-gcc",
+                ),
+                (
+                    "MOON_AR",
+                    "/other/path/B/x86_64-unknown-fake_os-fake_libc-ar",
+                ),
             ],
         ),
         expect![[r#"
@@ -8111,8 +8123,14 @@ fn test_native_backend_cc_flags_with_env_override() {
                 "--sort-input",
             ],
             [
-                ("MOON_CC", "/some/path/A/x86_64-unknown-fake_os-fake_libc-gcc"),
-                ("MOON_AR", "/other/path/B/x86_64-unknown-fake_os-fake_libc-ar"),
+                (
+                    "MOON_CC",
+                    "/some/path/A/x86_64-unknown-fake_os-fake_libc-gcc",
+                ),
+                (
+                    "MOON_AR",
+                    "/other/path/B/x86_64-unknown-fake_os-fake_libc-ar",
+                ),
             ],
         ),
         expect![[r#"
