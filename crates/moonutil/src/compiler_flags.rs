@@ -370,7 +370,7 @@ where
     if cc.is_msvc() {
         match config.output_ty {
             OutputType::SharedLib | OutputType::Executable => {
-                // /F(excutable)
+                // /F(executable)
                 buf.push(format!("/Fe{}", dest));
             }
             _ => panic!("Linker only supports shared lib, executable and static lib"),
