@@ -16,7 +16,7 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
-use crate::{common::DYN_EXT, moon_dir::MOON_DIRS};
+use crate::moon_dir::MOON_DIRS;
 use anyhow::Context;
 use colored::Colorize;
 use derive_builder::Builder;
@@ -436,13 +436,7 @@ where
         }
         if let Some(dyn_lib_path) = config.link_shared_runtime.as_ref() {
             buf.push("-lruntime".to_string());
-            buf.push(format!(
-                "-Wl,-rpath,{}",
-                dyn_lib_path
-                    .as_ref()
-                    .join(format!("libruntime.{}", DYN_EXT))
-                    .display()
-            ));
+            buf.push(format!("-Wl,-rpath,{}", dyn_lib_path.as_ref().display()));
         }
     }
 
