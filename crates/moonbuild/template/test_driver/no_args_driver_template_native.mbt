@@ -92,7 +92,7 @@ fn main {
     let mut res = 0
     let len = s.length()
     for i = 0; i < len; i = i + 1 {
-      res = res * 10 + (s[i].to_int() - '0'.to_int())
+      res = res * 10 + (s.charcode_at(i) - '0')
     }
     res
   }
@@ -153,7 +153,7 @@ fn main {
     let mut i = 0
     let mut start = 0
     while i < s.length() {
-      if s[i] == sep {
+      if Char::from_int(s.charcode_at(i)) == sep {
         res.push(s.substring(start = start, end = i))
         start = i + 1
       }
