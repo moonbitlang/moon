@@ -19,7 +19,9 @@
 use std::path::PathBuf;
 use std::rc::Rc;
 
-use moonutil::common::{MoonbuildOpt, DEP_PATH, MOD_DIR, MOONCAKE_BIN, MOON_BIN_DIR, PKG_DIR};
+use moonutil::common::{
+    MoonbuildOpt, PrePostBuild, DEP_PATH, MOD_DIR, MOONCAKE_BIN, MOON_BIN_DIR, PKG_DIR,
+};
 use moonutil::module::ModuleDB;
 use moonutil::package::StringOrArray;
 use n2::graph::{self as n2graph, Build, BuildIns, BuildOuts, FileId, FileLoc};
@@ -28,9 +30,10 @@ use n2::smallmap::SmallMap;
 
 use crate::gen::n2_errors::{N2Error, N2ErrorKind};
 
-pub fn load_moon_pre_build(
+pub fn load_moon_x_build(
     moonbuild_opt: &MoonbuildOpt,
     module: &ModuleDB,
+    build_type: &PrePostBuild,
 ) -> anyhow::Result<Option<State>> {
     let mut graph = n2graph::Graph::default();
     let mut defaults: Vec<FileId> = vec![];
@@ -39,7 +42,11 @@ pub fn load_moon_pre_build(
         if pkg.is_third_party {
             continue;
         }
-        if let Some(generate) = &pkg.pre_build {
+        let xbuild = match build_type {
+            PrePostBuild::PreBuild => &pkg.pre_build,
+            PrePostBuild::PostBuild => &pkg.post_build,
+        };
+        if let Some(generate) = xbuild {
             for rule in generate {
                 let cwd = &pkg.root_path;
                 let input = &rule.input;
@@ -93,7 +100,7 @@ pub fn load_moon_pre_build(
                 };
 
                 let loc = FileLoc {
-                    filename: Rc::new(PathBuf::from("generate")),
+                    filename: Rc::new(PathBuf::from(build_type.name())),
                     line: 0,
                 };
 
@@ -150,7 +157,7 @@ pub fn load_moon_pre_build(
     let mut hashed = n2graph::Hashes::default();
     let common = moonbuild_opt.raw_target_dir.join("common");
 
-    let n2_db_path = common.join("generate.db");
+    let n2_db_path = common.join(build_type.dbname());
     let db = n2::db::open(&n2_db_path, &mut graph, &mut hashed).map_err(|e| N2Error {
         source: N2ErrorKind::DBOpenError(e),
     })?;

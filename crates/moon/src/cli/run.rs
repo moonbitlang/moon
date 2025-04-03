@@ -22,6 +22,7 @@ use moonbuild::entry;
 use mooncake::pkg::sync::auto_sync;
 use moonutil::common::lower_surface_targets;
 use moonutil::common::FileLock;
+use moonutil::common::PrePostBuild;
 use moonutil::common::RunMode;
 use moonutil::common::SurfaceTarget;
 use moonutil::common::TargetBackend;
@@ -37,7 +38,7 @@ use moonutil::mooncakes::sync::AutoSyncFlags;
 use moonutil::mooncakes::RegistryConfig;
 use n2::trace;
 
-use super::pre_build::scan_with_pre_build;
+use super::pre_build::scan_with_x_build;
 use super::{BuildFlags, UniversalFlags};
 
 /// Run a main package
@@ -348,12 +349,13 @@ pub fn run_run_internal(cli: &UniversalFlags, cmd: RunSubcommand) -> anyhow::Res
         dynamic_stub_libs: None,
     };
 
-    let mut module = scan_with_pre_build(
+    let mut module = scan_with_x_build(
         false,
         &moonc_opt,
         &moonbuild_opt,
         &resolved_env,
         &dir_sync_result,
+        &PrePostBuild::PreBuild,
     )?;
 
     let pkg = module.get_package_by_path_mut(&package).unwrap();
@@ -373,7 +375,14 @@ pub fn run_run_internal(cli: &UniversalFlags, cmd: RunSubcommand) -> anyhow::Res
     if trace_flag {
         trace::open("trace.json").context("failed to open `trace.json`")?;
     }
-
+    let _ = scan_with_x_build(
+        false,
+        &moonc_opt,
+        &moonbuild_opt,
+        &resolved_env,
+        &dir_sync_result,
+        &PrePostBuild::PostBuild,
+    );
     let result = entry::run_run(
         &package_path,
         &moonc_opt,

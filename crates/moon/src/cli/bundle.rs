@@ -22,14 +22,15 @@ use mooncake::pkg::sync::auto_sync;
 use moonutil::{
     cli::UniversalFlags,
     common::{
-        lower_surface_targets, FileLock, MoonbuildOpt, RunMode, SurfaceTarget, TargetBackend,
+        lower_surface_targets, FileLock, MoonbuildOpt, PrePostBuild, RunMode, SurfaceTarget,
+        TargetBackend,
     },
     dirs::{mk_arch_mode_dir, PackageDirs},
     mooncakes::{sync::AutoSyncFlags, RegistryConfig},
 };
 use std::{path::Path, sync::Arc, thread};
 
-use super::{pre_build::scan_with_pre_build, BuildFlags};
+use super::{pre_build::scan_with_x_build, BuildFlags};
 
 /// Bundle the module
 #[derive(Debug, clap::Parser, Clone)]
@@ -154,16 +155,26 @@ fn run_bundle_internal(
         use_tcc_run: false,
         dynamic_stub_libs: None,
     };
-    let module = scan_with_pre_build(
+    let module = scan_with_x_build(
         false,
         &moonc_opt,
         &moonbuild_opt,
         &resolved_env,
         &dir_sync_result,
+        &PrePostBuild::PreBuild,
     )?;
 
     if cli.dry_run {
         return dry_run::print_commands(&module, &moonc_opt, &moonbuild_opt);
     }
-    moonbuild::entry::run_bundle(&module, &moonbuild_opt, &moonc_opt)
+    let res = moonbuild::entry::run_bundle(&module, &moonbuild_opt, &moonc_opt);
+    let _ = scan_with_x_build(
+        false,
+        &moonc_opt,
+        &moonbuild_opt,
+        &resolved_env,
+        &dir_sync_result,
+        &PrePostBuild::PostBuild,
+    );
+    res
 }

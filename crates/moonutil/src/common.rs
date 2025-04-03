@@ -1000,3 +1000,21 @@ pub fn set_native_backend_link_flags(
         _ => Ok(all_stubs),
     }
 }
+
+pub enum PrePostBuild {
+    PreBuild,
+    PostBuild,
+}
+
+impl PrePostBuild {
+    pub fn name(&self) -> String {
+        match self {
+            PrePostBuild::PreBuild => "pre-build".into(),
+            PrePostBuild::PostBuild => "post-build".into(),
+        }
+    }
+
+    pub fn dbname(&self) -> String {
+        format!("{}.db", self.name())
+    }
+}
