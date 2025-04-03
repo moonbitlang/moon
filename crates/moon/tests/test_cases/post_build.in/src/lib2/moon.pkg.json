@@ -1,0 +1,16 @@
+{
+  "pre-build": [
+    {
+      "input": "a.txt",
+      "output": "a.mbt",
+      "command": ":embed --text -i $input -o $output"
+    }
+  ],
+  "post-build": [
+    {
+      "input": "a.mbt",
+      "output": "aa.mbt",
+      "command": ":embed --text -i $input -o $output"
+    }
+  ]
+}

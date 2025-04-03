@@ -519,6 +519,15 @@ impl ModuleDB {
         }
         false
     }
+
+    pub fn contain_post_build(&self) -> bool {
+        for (_, pkg) in &self.packages {
+            if pkg.post_build.is_some() {
+                return true;
+            }
+        }
+        false
+    }
 }
 
 #[derive(Debug, Serialize, Deserialize, PartialEq)]

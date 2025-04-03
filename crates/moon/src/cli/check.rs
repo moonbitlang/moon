@@ -24,11 +24,11 @@ use moonbuild::watcher_is_running;
 use moonbuild::{entry, MOON_PID_NAME};
 use mooncake::pkg::sync::auto_sync;
 use moonutil::cli::UniversalFlags;
-use moonutil::common::MoonbuildOpt;
 use moonutil::common::RunMode;
 use moonutil::common::WATCH_MODE_DIR;
 use moonutil::common::{lower_surface_targets, CheckOpt};
 use moonutil::common::{FileLock, TargetBackend};
+use moonutil::common::{MoonbuildOpt, PrePostBuild};
 use moonutil::dirs::mk_arch_mode_dir;
 use moonutil::dirs::PackageDirs;
 use moonutil::mooncakes::sync::AutoSyncFlags;
@@ -38,7 +38,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::thread;
 
-use super::pre_build::scan_with_pre_build;
+use super::pre_build::scan_with_x_build;
 use super::{get_compiler_flags, BuildFlags};
 
 /// Check the current package, but don't build object files
@@ -189,12 +189,13 @@ fn run_check_internal(
         dynamic_stub_libs: None,
     };
 
-    let mut module = scan_with_pre_build(
+    let mut module = scan_with_x_build(
         false,
         &moonc_opt,
         &moonbuild_opt,
         &resolved_env,
         &dir_sync_result,
+        &PrePostBuild::PreBuild,
     )?;
 
     if let Some(CheckOpt {
@@ -246,6 +247,15 @@ fn run_check_internal(
             entry::run_check(&moonc_opt, &moonbuild_opt, &module)
         }
     };
+
+    let _ = scan_with_x_build(
+        false,
+        &moonc_opt,
+        &moonbuild_opt,
+        &resolved_env,
+        &dir_sync_result,
+        &PrePostBuild::PostBuild,
+    );
 
     if cli.trace {
         trace::close();

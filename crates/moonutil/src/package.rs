@@ -73,6 +73,7 @@ pub struct Package {
 
     pub targets: Option<IndexMap<FileName, CondExpr>>,
     pub pre_build: Option<Vec<MoonPkgGenerate>>,
+    pub post_build: Option<Vec<MoonPkgGenerate>>,
 
     pub patch_file: Option<PathBuf>,
     pub no_mi: bool,
@@ -255,6 +256,11 @@ pub struct MoonPkgJSON {
     #[serde(alias = "pre-build")]
     #[schemars(rename = "pre-build")]
     pub pre_build: Option<Vec<MoonPkgGenerate>>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(alias = "post-build")]
+    #[schemars(rename = "post-build")]
+    pub post_build: Option<Vec<MoonPkgGenerate>>,
 
     #[serde(skip_serializing_if = "Option::is_none")]
     #[serde(alias = "bin-name")]
@@ -603,6 +609,7 @@ pub struct MoonPkg {
     pub targets: Option<RawTargets>,
 
     pub pre_build: Option<Vec<MoonPkgGenerate>>,
+    pub post_build: Option<Vec<MoonPkgGenerate>>,
 
     pub bin_name: Option<String>,
     pub bin_target: TargetBackend,
@@ -798,6 +805,7 @@ pub fn convert_pkg_json_to_package(j: MoonPkgJSON) -> anyhow::Result<MoonPkg> {
         alert_list: j.alert_list,
         targets: j.targets,
         pre_build: j.pre_build,
+        post_build: j.post_build,
         bin_name: j.bin_name,
         bin_target,
         supported_targets: supported_backends,

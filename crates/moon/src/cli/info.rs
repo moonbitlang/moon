@@ -30,14 +30,14 @@ use mooncake::pkg::sync::auto_sync;
 use moonutil::{
     common::{
         lower_surface_targets, read_module_desc_file_in_dir, FileLock, MoonbuildOpt, MooncOpt,
-        RunMode, SurfaceTarget, TargetBackend, MOONBITLANG_CORE, MOON_MOD_JSON,
+        PrePostBuild, RunMode, SurfaceTarget, TargetBackend, MOONBITLANG_CORE, MOON_MOD_JSON,
     },
     dirs::{mk_arch_mode_dir, PackageDirs},
     mooncakes::{sync::AutoSyncFlags, RegistryConfig},
     package::Package,
 };
 
-use super::{pre_build::scan_with_pre_build, UniversalFlags};
+use super::{pre_build::scan_with_x_build, UniversalFlags};
 
 /// Generate public interface (`.mbti`) files for all packages in the module
 #[derive(Debug, Clone, clap::Parser)]
@@ -212,12 +212,13 @@ pub fn run_info_internal(
         dynamic_stub_libs: None,
     };
 
-    let mdb = scan_with_pre_build(
+    let mdb = scan_with_x_build(
         false,
         &moonc_opt,
         &moonbuild_opt,
         &resolved_env,
         &dir_sync_result,
+        &PrePostBuild::PreBuild,
     )?;
 
     let check_result = moonbuild::entry::run_check(&moonc_opt, &moonbuild_opt, &mdb);
@@ -323,6 +324,15 @@ pub fn run_info_internal(
 
     // `try_join_all` will return immediately if anyone task fail
     runtime.block_on(try_join_all(handlers))?;
+
+    let _ = scan_with_x_build(
+        false,
+        &moonc_opt,
+        &moonbuild_opt,
+        &resolved_env,
+        &dir_sync_result,
+        &PrePostBuild::PostBuild,
+    );
 
     let mbti_files = mbti_files.lock().unwrap().clone();
     Ok(mbti_files)

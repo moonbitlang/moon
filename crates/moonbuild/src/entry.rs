@@ -41,8 +41,8 @@ use crate::expect::{apply_snapshot, render_snapshot_fail};
 use crate::runtest::TestStatistics;
 
 use moonutil::common::{
-    DriverKind, FileLock, FileName, MoonbuildOpt, MooncGenTestInfo, MooncOpt, TargetBackend,
-    TestArtifacts, TestBlockIndex, TestName, BLACKBOX_TEST_PATCH, DOT_MBT_DOT_MD,
+    DriverKind, FileLock, FileName, MoonbuildOpt, MooncGenTestInfo, MooncOpt, PrePostBuild,
+    TargetBackend, TestArtifacts, TestBlockIndex, TestName, BLACKBOX_TEST_PATCH, DOT_MBT_DOT_MD,
     MOON_DOC_TEST_POSTFIX, TEST_INFO_FILE, WHITEBOX_TEST_PATCH,
 };
 
@@ -339,42 +339,49 @@ fn vis_build_graph(state: &State, moonbuild_opt: &MoonbuildOpt) {
     eprintln!("generated build graph: {}", path.display());
 }
 
-pub enum MoonPreBuildState {
+#[derive(Copy, Clone)]
+pub enum MoonXBuildState {
     NoWork,
     WorkDone,
 }
 
-pub fn run_moon_pre_build(
+pub fn run_moon_x_build(
     moonbuild_opt: &MoonbuildOpt,
     module: &ModuleDB,
-) -> anyhow::Result<MoonPreBuildState> {
+    build_type: &PrePostBuild,
+) -> anyhow::Result<MoonXBuildState> {
     let common = moonbuild_opt.raw_target_dir.join("common");
     if !common.exists() {
         std::fs::create_dir_all(&common)?;
     }
     let _lock = FileLock::lock(&common)?;
 
-    let pre_build_state = crate::pre_build::load_moon_pre_build(moonbuild_opt, module)?;
-    if let Some(pre_build_state) = pre_build_state {
-        let pre_build_result = n2_simple_run_interface(pre_build_state, moonbuild_opt)?;
-        render_pre_build_result(pre_build_result, moonbuild_opt.quiet)?;
-        Ok(MoonPreBuildState::WorkDone)
+    let x_build_state = crate::pre_build::load_moon_x_build(moonbuild_opt, module, build_type)?;
+    if let Some(x_build_state) = x_build_state {
+        let pre_build_result = n2_simple_run_interface(x_build_state, moonbuild_opt)?;
+        render_x_build_result(pre_build_result, moonbuild_opt.quiet, build_type)?;
+        Ok(MoonXBuildState::WorkDone)
     } else {
-        Ok(MoonPreBuildState::NoWork)
+        Ok(MoonXBuildState::NoWork)
     }
 }
 
-fn render_pre_build_result(result: Option<usize>, quiet: bool) -> anyhow::Result<i32> {
+fn render_x_build_result(
+    result: Option<usize>,
+    quiet: bool,
+    build_type: &PrePostBuild,
+) -> anyhow::Result<i32> {
     match result {
         None => {
-            anyhow::bail!(format!("failed when execute generate"));
+            anyhow::bail!(format!("failed when execute {} task(s)", build_type.name()));
         }
         Some(0) => Ok(0),
         Some(n) => {
             if !quiet {
                 eprintln!(
-                    "Executed {} pre-build task{}, now up to date",
+                    "Executed {} {} task{}, now up to date",
                     n,
+                    build_type.name(),
                     if n == 1 { "" } else { "s" }
                 );
             }

@@ -1,0 +1,21 @@
+{
+  "post-build": [
+    {
+      "input": "a.txt",
+      "output": "a.mbt",
+      "command": ":embed --text -i $input -o $output"
+    },
+    {
+      "input": [
+        "b.txt"
+      ],
+      "output": "b.mbt",
+      "command": ":embed --binary -i $input -o $output --name _b"
+    },
+    {
+      "input": "c.txt",
+      "output": "c.mbt",
+      "command": ":embed -i $input -o $output --name _c"
+    }
+  ]
+}

@@ -383,6 +383,7 @@ fn scan_one_package(
         alert_list,
         targets: cond_targets,
         pre_build: pkg.pre_build,
+        post_build: pkg.post_build,
         patch_file: None,
         no_mi: false,
         doc_test_patch_file: None,
