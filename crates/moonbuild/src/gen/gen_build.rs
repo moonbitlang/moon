@@ -487,6 +487,11 @@ pub fn gen_link_command(
             },
         )
         .args(moonc_opt.extra_link_opt.iter())
+        // note: this is a workaround for windows, x86_64-pc-windows-gnu also need to consider
+        .args_with_cond(
+            cfg!(target_os = "windows") && moonc_opt.link_opt.target_backend == TargetBackend::LLVM,
+            ["-llvm-target", "x86_64-pc-windows-msvc"],
+        )
         .build();
     log::debug!("Command: {}", command);
     build.cmdline = Some(command);
@@ -997,6 +1002,7 @@ pub fn gen_link_exe_command(
     item: &BuildLinkDepItem,
     moonc_opt: &MooncOpt,
     moonbuild_opt: &MoonbuildOpt,
+    runtime_path: String,
 ) -> (Build, n2graph::FileId) {
     let o_artifact_path = PathBuf::from(&item.out)
         .with_extension(O_EXT)
@@ -1015,10 +1021,13 @@ pub fn gen_link_exe_command(
         line: 0,
     };
 
-    let input_ids = vec![graph.files.id_from_canonical(o_artifact_path.clone())];
+    let input_ids = vec![
+        graph.files.id_from_canonical(o_artifact_path.clone()),
+        graph.files.id_from_canonical(runtime_path.clone()),
+    ];
     let ins = BuildIns {
         ids: input_ids,
-        explicit: 1,
+        explicit: 2,
         implicit: 0,
         order_only: 0,
     };
@@ -1044,11 +1053,7 @@ pub fn gen_link_exe_command(
     native_flags.extend(native_cc_flags);
     native_flags.extend(native_cc_link_flags);
 
-    let moon_lib_path = &MOON_DIRS.moon_lib_path;
-
-    let runtime_c = moon_lib_path.join("runtime.c").display().to_string();
-
-    let sources: Vec<&str> = vec![&runtime_c, &o_artifact_path];
+    let sources: Vec<&str> = vec![&runtime_path, &o_artifact_path];
 
     let cc_cmd = make_cc_command(
         CC::default(),
@@ -1075,7 +1080,11 @@ pub fn gen_link_exe_command(
             .unwrap(),
         &native_flags,
         &sources,
-        &moon_lib_path.display().to_string(),
+        &PathBuf::from(&item.out)
+            .parent()
+            .unwrap()
+            .display()
+            .to_string(),
         &artifact_output_path,
     );
 
@@ -1109,7 +1118,7 @@ pub fn gen_n2_build_state(
     // compile runtime.o or libruntime.so
     let mut runtime_path = None;
 
-    if is_native_backend {
+    if is_native_backend || is_llvm_backend {
         fn gen_shared_runtime(
             graph: &mut n2graph::Graph,
             target_dir: &Path,
@@ -1156,7 +1165,13 @@ pub fn gen_n2_build_state(
             graph.add_build(build)?;
             default_fid = fid;
         } else if is_llvm_backend {
-            let (build, fid) = gen_link_exe_command(&mut graph, item, moonc_opt, moonbuild_opt);
+            let (build, fid) = gen_link_exe_command(
+                &mut graph,
+                item,
+                moonc_opt,
+                moonbuild_opt,
+                runtime_path.as_ref().unwrap().display().to_string(),
+            );
             graph.add_build(build)?;
             default_fid = fid;
         }
