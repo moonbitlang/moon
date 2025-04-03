@@ -1,11 +1,4 @@
 {
-  "import": [
-
-  ],
-  "test-import": [
-    {
-      "path": "username/hello/lib3",
-      "value": ["hello"]
-    }
-  ]
+  "import": [],
+  "test-import": []
 }

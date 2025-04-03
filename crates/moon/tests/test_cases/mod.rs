@@ -8787,13 +8787,6 @@ fn test_add_mi_if_self_not_set_in_test_imports() {
     check(
         get_stderr(&dir, ["check"]),
         expect![[r#"
-            Warning: [1027]
-               ╭─[$ROOT/lib3/moon.pkg.json:8:16]
-               │
-             8 │       "value": ["hello"]
-               │                ────┬────  
-               │                    ╰────── Warning: The syntax import value for refering to value without package name is deprecated. Use fnalias instead.
-            ───╯
             Finished. moon: ran 7 tasks, now up to date
         "#]],
     );
