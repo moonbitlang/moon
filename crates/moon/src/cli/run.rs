@@ -99,7 +99,7 @@ fn run_single_mbt_file(cli: &UniversalFlags, cmd: RunSubcommand) -> anyhow::Resu
     let target_backend = lower_surface_targets(&cmd.build_flags.target.unwrap_or_default())
         .first()
         .map_or(TargetBackend::default(), |it| *it);
-    let core_bundle_path = moonutil::moon_dir::core_bundle(target_backend);
+    let core_bundle_path = moonutil::moon_dir::core_bundle(target_backend, None);
 
     let output_artifact_path = mbt_file_parent_path.join("target");
 
@@ -133,7 +133,7 @@ fn run_single_mbt_file(cli: &UniversalFlags, cmd: RunSubcommand) -> anyhow::Resu
     }
     let link_core_command = vec![
         "link-core".to_string(),
-        moonutil::moon_dir::core_core(target_backend)
+        moonutil::moon_dir::core_core(target_backend, None)
             .display()
             .to_string(),
         output_artifact_path

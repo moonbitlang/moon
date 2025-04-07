@@ -27,7 +27,9 @@ use moonutil::package::Package;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
 
-use moonutil::common::{get_desc_name, CheckOpt, MoonbuildOpt, MooncOpt, MOON_PKG_JSON};
+use moonutil::common::{
+    get_desc_name, CheckOpt, MoonbuildOpt, MooncOpt, MOONBITLANG_CORE, MOON_PKG_JSON,
+};
 use n2::graph::{self as n2graph, Build, BuildIns, BuildOuts, FileLoc};
 use n2::load::State;
 use n2::smallmap::SmallMap;
@@ -349,6 +351,8 @@ pub fn gen_check_command(
     graph: &mut n2graph::Graph,
     item: &CheckDepItem,
     moonc_opt: &MooncOpt,
+    // this arg is used to set "bundle core" path for core bbtest
+    raw_target_dir: Option<PathBuf>,
 ) -> Build {
     let mi_output_id = graph.files.id_from_canonical(item.mi_out.clone());
     let loc = FileLoc {
@@ -386,6 +390,9 @@ pub fn gen_check_command(
 
     let mut build = Build::new(loc, ins, outs);
 
+    let is_core_bbtest =
+        item.package_full_name.starts_with(MOONBITLANG_CORE) && item.is_blackbox_test;
+
     let command = CommandBuilder::new("moonc")
         .arg("check")
         .arg_with_cond(item.patch_file.is_some(), "-patch-file")
@@ -419,10 +426,10 @@ pub fn gen_check_command(
         .arg(&item.package_full_name)
         .arg_with_cond(item.is_main, "-is-main")
         .args_with_cond(
-            !moonc_opt.nostd,
+            !moonc_opt.nostd || is_core_bbtest,
             [
                 "-std-path",
-                moonutil::moon_dir::core_bundle(moonc_opt.link_opt.target_backend)
+                moonutil::moon_dir::core_bundle(moonc_opt.link_opt.target_backend, raw_target_dir)
                     .to_str()
                     .unwrap(),
             ],
@@ -452,12 +459,22 @@ pub fn gen_n2_check_state(
     target_dir: &Path,
     moonc_opt: &MooncOpt,
     moonbuild_opt: &MoonbuildOpt,
+    mod_name: String,
 ) -> anyhow::Result<State> {
     let _ = moonbuild_opt;
     let mut graph = n2graph::Graph::default();
 
     for item in input.dep_items.iter() {
-        let build = gen_check_command(&mut graph, item, moonc_opt);
+        let build = gen_check_command(
+            &mut graph,
+            item,
+            moonc_opt,
+            if mod_name == MOONBITLANG_CORE {
+                Some(moonbuild_opt.raw_target_dir.clone())
+            } else {
+                None
+            },
+        );
         graph.add_build(build)?;
     }
 

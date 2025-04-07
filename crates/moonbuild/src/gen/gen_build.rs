@@ -300,7 +300,7 @@ pub fn gen_build_command(
             !moonc_opt.nostd,
             [
                 "-std-path",
-                moonutil::moon_dir::core_bundle(moonc_opt.link_opt.target_backend)
+                moonutil::moon_dir::core_bundle(moonc_opt.link_opt.target_backend, None)
                     .to_str()
                     .unwrap(),
             ],
@@ -383,7 +383,7 @@ pub fn gen_link_command(
         .arg("link-core")
         .arg_with_cond(
             !moonc_opt.nostd,
-            moonutil::moon_dir::core_core(moonc_opt.link_opt.target_backend)
+            moonutil::moon_dir::core_core(moonc_opt.link_opt.target_backend, None)
                 .to_str()
                 .unwrap(),
         )

@@ -308,7 +308,7 @@ pub fn gen_n2_bundle_state(
     let default = graph.get_start_nodes();
 
     let mut hashes = n2graph::Hashes::default();
-    let n2_db_path = &target_dir.join("build.moon_db");
+    let n2_db_path = &target_dir.join("bundle.moon_db");
     let db = n2::db::open(n2_db_path, &mut graph, &mut hashes).map_err(|e| N2Error {
         source: N2ErrorKind::DBOpenError(e),
     })?;

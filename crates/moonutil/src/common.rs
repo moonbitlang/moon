@@ -1018,3 +1018,21 @@ impl PrePostBuild {
         format!("{}.db", self.name())
     }
 }
+
+pub fn bundle_core_for_core_bbtest(backend: TargetBackend) -> anyhow::Result<()> {
+    let mut cmd = std::process::Command::new(
+        std::env::current_exe()
+            .map_or_else(|_| "moon".into(), |x| x.to_string_lossy().into_owned()),
+    );
+    cmd.args([
+        "bundle",
+        "--quiet",
+        "--target",
+        backend.to_string().as_str(),
+    ]);
+    let status = cmd.status()?;
+    if !status.success() {
+        anyhow::bail!("failed to bundle core");
+    }
+    Ok(())
+}

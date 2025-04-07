@@ -91,5 +91,6 @@ pub fn load_moon_proj(
         target_dir,
         moonc_opt,
         moonbuild_opt,
+        module.name.clone(),
     )
 }

@@ -120,7 +120,7 @@ pub fn run_doc(cli: UniversalFlags, cmd: DocSubcommand) -> anyhow::Result<i32> {
         "-o".to_string(),
         static_dir.display().to_string(),
         "-std-path".to_string(),
-        moonutil::moon_dir::core_bundle(moonc_opt.link_opt.target_backend)
+        moonutil::moon_dir::core_bundle(moonc_opt.link_opt.target_backend, None)
             .display()
             .to_string(),
         "-packages-json".to_string(),

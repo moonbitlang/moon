@@ -41,7 +41,7 @@ pub fn load_moon_proj(
 ) -> anyhow::Result<State> {
     let n2_input = gen::gen_runtest::gen_runtest(module, moonc_opt, moonbuild_opt)?;
     log::debug!("n2_input: {:#?}", n2_input);
-    gen::gen_runtest::gen_n2_runtest_state(&n2_input, moonc_opt, moonbuild_opt)
+    gen::gen_runtest::gen_n2_runtest_state(&n2_input, moonc_opt, moonbuild_opt, module.name.clone())
 }
 
 #[derive(Debug, Serialize, Deserialize, Default, Clone)]

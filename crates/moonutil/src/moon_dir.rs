@@ -89,12 +89,15 @@ pub fn core() -> PathBuf {
     home().join("lib").join("core")
 }
 
-pub fn core_bundle(backend: TargetBackend) -> PathBuf {
-    core()
-        .join("target")
-        .join(backend.to_dir_name())
-        .join("release")
-        .join("bundle")
+pub fn core_bundle(backend: TargetBackend, raw_target_dir: Option<PathBuf>) -> PathBuf {
+    if let Some(target_dir) = raw_target_dir {
+        target_dir
+    } else {
+        core().join("target")
+    }
+    .join(backend.to_dir_name())
+    .join("release")
+    .join("bundle")
 }
 
 pub fn core_packages_list(backend: TargetBackend) -> PathBuf {
@@ -106,13 +109,16 @@ pub fn core_packages_list(backend: TargetBackend) -> PathBuf {
         .join("packages.json")
 }
 
-pub fn core_core(backend: TargetBackend) -> PathBuf {
-    core()
-        .join("target")
-        .join(backend.to_dir_name())
-        .join("release")
-        .join("bundle")
-        .join("core.core")
+pub fn core_core(backend: TargetBackend, raw_target_dir: Option<PathBuf>) -> PathBuf {
+    if let Some(raw_target_dir) = raw_target_dir {
+        raw_target_dir
+    } else {
+        core().join("target")
+    }
+    .join(backend.to_dir_name())
+    .join("release")
+    .join("bundle")
+    .join("core.core")
 }
 
 pub fn cache() -> PathBuf {
@@ -155,7 +161,7 @@ fn test_moon_dir() {
 
     let dirs = [
         home(),
-        core_bundle(TargetBackend::default()),
+        core_bundle(TargetBackend::default(), None),
         cache(),
         index(),
         credentials_json(),

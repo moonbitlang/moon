@@ -868,6 +868,8 @@ pub fn gen_runtest_build_command(
     graph: &mut n2graph::Graph,
     item: &RuntestDepItem,
     moonc_opt: &MooncOpt,
+    // this arg is used to set "bundle core" path for core bbtest
+    raw_target_dir: Option<PathBuf>,
 ) -> Build {
     let core_output_id = graph.files.id_from_canonical(item.core_out.clone());
     let mi_output_id = graph.files.id_from_canonical(item.mi_out.clone());
@@ -922,6 +924,9 @@ pub fn gen_runtest_build_command(
         moonc_opt.build_opt.strip_flag,
     );
 
+    let is_core_bbtest =
+        item.package_full_name.starts_with(MOONBITLANG_CORE) && item.is_blackbox_test;
+
     let command = CommandBuilder::new("moonc")
         .arg("build-package")
         .args_with_cond(moonc_opt.render, vec!["-error-format", "json"])
@@ -939,10 +944,10 @@ pub fn gen_runtest_build_command(
         .arg(&item.package_full_name)
         .arg_with_cond(item.is_main, "-is-main")
         .args_with_cond(
-            !moonc_opt.nostd,
+            !moonc_opt.nostd || is_core_bbtest,
             [
                 "-std-path",
-                moonutil::moon_dir::core_bundle(moonc_opt.link_opt.target_backend)
+                moonutil::moon_dir::core_bundle(moonc_opt.link_opt.target_backend, raw_target_dir)
                     .to_str()
                     .unwrap(),
             ],
@@ -985,6 +990,8 @@ pub fn gen_runtest_link_command(
     graph: &mut n2graph::Graph,
     item: &RuntestLinkDepItem,
     moonc_opt: &MooncOpt,
+    // this arg is used to set "bundle core" path for core bbtest
+    raw_target_dir: Option<PathBuf>,
 ) -> (Build, n2graph::FileId) {
     let artifact_output_path = PathBuf::from(&item.out)
         .with_extension(moonc_opt.link_opt.output_format.to_str())
@@ -1024,15 +1031,19 @@ pub fn gen_runtest_link_command(
         moonc_opt.build_opt.strip_flag,
     );
 
+    let is_core_bbtest =
+        item.package_full_name.starts_with(MOONBITLANG_CORE) && item.out.contains("blackbox_test");
+
     let command = CommandBuilder::new("moonc")
         .arg("link-core")
         .arg_with_cond(
-            !moonc_opt.nostd,
-            moonutil::moon_dir::core_core(moonc_opt.link_opt.target_backend)
+            !moonc_opt.nostd || is_core_bbtest,
+            moonutil::moon_dir::core_core(moonc_opt.link_opt.target_backend, raw_target_dir)
                 .to_str()
                 .unwrap(),
         )
-        .args(&item.core_deps)
+        .args_with_cond(!is_core_bbtest, &item.core_deps)
+        .args_with_cond(is_core_bbtest, [item.core_deps.last().unwrap()])
         .arg("-main")
         .arg(&item.package_full_name)
         .arg("-o")
@@ -1086,6 +1097,7 @@ pub fn gen_n2_runtest_state(
     input: &N2RuntestInput,
     moonc_opt: &MooncOpt,
     moonbuild_opt: &MoonbuildOpt,
+    mod_name: String,
 ) -> anyhow::Result<State> {
     let _ = moonbuild_opt;
     let mut graph = n2graph::Graph::default();
@@ -1094,7 +1106,16 @@ pub fn gen_n2_runtest_state(
     log::debug!("input: {:#?}", input);
 
     for item in input.build_items.iter() {
-        let build = gen_runtest_build_command(&mut graph, item, moonc_opt);
+        let build = gen_runtest_build_command(
+            &mut graph,
+            item,
+            moonc_opt,
+            if mod_name == MOONBITLANG_CORE {
+                Some(moonbuild_opt.raw_target_dir.clone())
+            } else {
+                None
+            },
+        );
         graph.add_build(build)?;
     }
 
@@ -1134,7 +1155,16 @@ pub fn gen_n2_runtest_state(
     let is_llvm_backend = moonc_opt.link_opt.target_backend == TargetBackend::LLVM;
 
     for item in input.link_items.iter() {
-        let (build, fid) = gen_runtest_link_command(&mut graph, item, moonc_opt);
+        let (build, fid) = gen_runtest_link_command(
+            &mut graph,
+            item,
+            moonc_opt,
+            if mod_name == MOONBITLANG_CORE {
+                Some(moonbuild_opt.raw_target_dir.clone())
+            } else {
+                None
+            },
+        );
         let mut default_fid = fid;
         graph.add_build(build)?;
 
@@ -1196,7 +1226,7 @@ pub fn gen_n2_runtest_state(
     }
 
     let mut hashes = n2graph::Hashes::default();
-    let n2_db_path = &moonbuild_opt.target_dir.join("build.moon_db");
+    let n2_db_path = &moonbuild_opt.target_dir.join("test.moon_db");
     let db = n2::db::open(n2_db_path, &mut graph, &mut hashes).map_err(|e| N2Error {
         source: N2ErrorKind::DBOpenError(e),
     })?;

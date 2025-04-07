@@ -395,6 +395,11 @@ pub fn run_check(
     moonbuild_opt: &MoonbuildOpt,
     module: &ModuleDB,
 ) -> anyhow::Result<i32> {
+    // bundle core for core bbtest
+    if module.name == moonutil::common::MOONBITLANG_CORE {
+        moonutil::common::bundle_core_for_core_bbtest(moonc_opt.build_opt.target_backend)?;
+    }
+
     let state = trace::scope("moonbit::check::read", || {
         crate::check::normal::load_moon_proj(module, moonc_opt, moonbuild_opt)
     })?;
@@ -654,6 +659,11 @@ pub fn run_test(
     let moonc_opt = Arc::new(moonc_opt);
     let moonbuild_opt = Arc::new(moonbuild_opt);
     let module = Arc::new(module);
+
+    // bundle core for core bbtest
+    if module.name == moonutil::common::MOONBITLANG_CORE {
+        moonutil::common::bundle_core_for_core_bbtest(moonc_opt.build_opt.target_backend)?;
+    }
 
     let state = crate::runtest::load_moon_proj(&module, &moonc_opt, &moonbuild_opt)?;
     let result = n2_run_interface(state, &moonbuild_opt)?;
