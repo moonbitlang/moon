@@ -16,15 +16,15 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
-use super::pre_build::scan_with_pre_build;
+use super::pre_build::scan_with_x_build;
 use super::BuildFlags;
 use anyhow::{bail, Context};
 use colored::Colorize;
 use mooncake::pkg::sync::auto_sync;
 use moonutil::cli::UniversalFlags;
 use moonutil::common::{
-    lower_surface_targets, DriverKind, MoonbuildOpt, MooncGenTestInfo, RunMode, TargetBackend,
-    TestOpt, BLACKBOX_TEST_DRIVER, INTERNAL_TEST_DRIVER, MOONBITLANG_CORE,
+    lower_surface_targets, DriverKind, MoonbuildOpt, MooncGenTestInfo, PrePostBuild, RunMode,
+    TargetBackend, TestOpt, BLACKBOX_TEST_DRIVER, INTERNAL_TEST_DRIVER, MOONBITLANG_CORE,
     MOON_TEST_DELIMITER_BEGIN, MOON_TEST_DELIMITER_END, TEST_INFO_FILE, WHITEBOX_TEST_DRIVER,
 };
 use moonutil::dirs::PackageDirs;
@@ -190,12 +190,13 @@ pub fn generate_test_driver(
         dynamic_stub_libs: None,
     };
 
-    let module = scan_with_pre_build(
+    let module = scan_with_x_build(
         false,
         &moonc_opt,
         &moonbuild_opt,
         &resolved_env,
         &dir_sync_result,
+        &PrePostBuild::PreBuild,
     )?;
 
     if cli.dry_run {
@@ -259,6 +260,15 @@ pub fn generate_test_driver(
         }
         std::fs::write(&generated_file, generated_content)?;
     }
+
+    let _ = scan_with_x_build(
+        false,
+        &moonc_opt,
+        &moonbuild_opt,
+        &resolved_env,
+        &dir_sync_result,
+        &PrePostBuild::PostBuild,
+    );
 
     Ok(0)
 }

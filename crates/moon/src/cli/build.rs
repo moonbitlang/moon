@@ -26,6 +26,7 @@ use moonutil::common::lower_surface_targets;
 use moonutil::common::BuildOpt;
 use moonutil::common::FileLock;
 use moonutil::common::MoonbuildOpt;
+use moonutil::common::PrePostBuild;
 use moonutil::common::RunMode;
 use moonutil::common::TargetBackend;
 use moonutil::dirs::mk_arch_mode_dir;
@@ -38,7 +39,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::thread;
 
-use super::pre_build::scan_with_pre_build;
+use super::pre_build::scan_with_x_build;
 use super::{BuildFlags, UniversalFlags};
 
 /// Build the current package
@@ -171,12 +172,13 @@ fn run_build_internal(
         dynamic_stub_libs: None,
     };
 
-    let mut module = scan_with_pre_build(
+    let mut module = scan_with_x_build(
         false,
         &moonc_opt,
         &moonbuild_opt,
         &resolved_env,
         &dir_sync_result,
+        &PrePostBuild::PreBuild,
     )?;
 
     if let Some(bin_alias) = cmd.bin_alias.clone() {
@@ -223,7 +225,14 @@ fn run_build_internal(
     if trace_flag {
         trace::close();
     }
-
+    let _ = scan_with_x_build(
+        false,
+        &moonc_opt,
+        &moonbuild_opt,
+        &resolved_env,
+        &dir_sync_result,
+        &PrePostBuild::PostBuild,
+    );
     if let (Ok(_), true) = (res.as_ref(), cmd.show_artifacts) {
         // can't use HashMap because the order of the packages is not guaranteed
         // can't use IndexMap because moonc cannot handled ordered map

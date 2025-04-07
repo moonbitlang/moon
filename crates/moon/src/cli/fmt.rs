@@ -19,12 +19,12 @@
 use moonbuild::dry_run;
 use mooncake::pkg::sync::auto_sync;
 use moonutil::{
-    common::{BlockStyle, FileLock, FmtOpt, MoonbuildOpt, MooncOpt, RunMode},
+    common::{BlockStyle, FileLock, FmtOpt, MoonbuildOpt, MooncOpt, PrePostBuild, RunMode},
     dirs::{mk_arch_mode_dir, PackageDirs},
     mooncakes::{sync::AutoSyncFlags, RegistryConfig},
 };
 
-use super::{pre_build::scan_with_pre_build, UniversalFlags};
+use super::{pre_build::scan_with_x_build, UniversalFlags};
 
 /// Format source code
 #[derive(Debug, clap::Parser)]
@@ -88,16 +88,26 @@ pub fn run_fmt(cli: &UniversalFlags, cmd: FmtSubcommand) -> anyhow::Result<i32> 
         dynamic_stub_libs: None,
     };
 
-    let module = scan_with_pre_build(
+    let module = scan_with_x_build(
         false,
         &moonc_opt,
         &moonbuild_opt,
         &resolved_env,
         &dir_sync_result,
+        &PrePostBuild::PreBuild,
     )?;
 
     if cli.dry_run {
         return dry_run::print_commands(&module, &moonc_opt, &moonbuild_opt);
     }
-    moonbuild::entry::run_fmt(&module, &moonc_opt, &moonbuild_opt)
+    let res = moonbuild::entry::run_fmt(&module, &moonc_opt, &moonbuild_opt);
+    let _ = scan_with_x_build(
+        false,
+        &moonc_opt,
+        &moonbuild_opt,
+        &resolved_env,
+        &dir_sync_result,
+        &PrePostBuild::PostBuild,
+    );
+    res
 }

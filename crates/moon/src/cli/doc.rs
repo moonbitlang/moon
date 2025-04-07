@@ -20,14 +20,14 @@ use anyhow::bail;
 use moonbuild::dry_run::print_commands;
 use mooncake::pkg::sync::auto_sync;
 use moonutil::common::{
-    read_module_desc_file_in_dir, CargoPathExt, FileLock, MoonbuildOpt, MooncOpt, RunMode,
-    MOONBITLANG_CORE,
+    read_module_desc_file_in_dir, CargoPathExt, FileLock, MoonbuildOpt, MooncOpt, PrePostBuild,
+    RunMode, MOONBITLANG_CORE,
 };
 use moonutil::dirs::{mk_arch_mode_dir, PackageDirs};
 use moonutil::mooncakes::sync::AutoSyncFlags;
 use moonutil::mooncakes::RegistryConfig;
 
-use super::pre_build::scan_with_pre_build;
+use super::pre_build::scan_with_x_build;
 use super::UniversalFlags;
 
 /// Generate documentation
@@ -106,12 +106,13 @@ pub fn run_doc(cli: UniversalFlags, cmd: DocSubcommand) -> anyhow::Result<i32> {
         dynamic_stub_libs: None,
     };
 
-    let module = scan_with_pre_build(
+    let module = scan_with_x_build(
         false,
         &moonc_opt,
         &moonbuild_opt,
         &resolved_env,
         &dir_sync_result,
+        &PrePostBuild::PreBuild,
     )?;
 
     let mut args = vec![
@@ -138,6 +139,14 @@ pub fn run_doc(cli: UniversalFlags, cmd: DocSubcommand) -> anyhow::Result<i32> {
         return Ok(0);
     }
     moonbuild::entry::run_check(&moonc_opt, &moonbuild_opt, &module)?;
+    let _ = scan_with_x_build(
+        false,
+        &moonc_opt,
+        &moonbuild_opt,
+        &resolved_env,
+        &dir_sync_result,
+        &PrePostBuild::PostBuild,
+    );
     let output = std::process::Command::new("moondoc").args(&args).output()?;
     if output.status.code().unwrap() != 0 {
         eprintln!("{}", String::from_utf8_lossy(&output.stderr));
