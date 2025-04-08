@@ -19,6 +19,7 @@
 #![warn(clippy::clone_on_ref_ptr)]
 
 pub mod bench;
+pub mod benchmark;
 pub mod build;
 pub mod bundle;
 pub mod check;

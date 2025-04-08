@@ -16,6 +16,7 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
+pub mod bench;
 pub mod build;
 pub mod build_matrix;
 pub mod bundle;
@@ -39,6 +40,7 @@ pub mod update;
 pub mod upgrade;
 pub mod version;
 
+pub use bench::*;
 pub use build::*;
 pub use build_matrix::*;
 pub use bundle::*;
@@ -104,6 +106,7 @@ pub enum MoonBuildSubcommands {
     Fmt(FmtSubcommand),
     Doc(DocSubcommand),
     Info(InfoSubcommand),
+    Bench(BenchSubcommand),
 
     // Dependencies
     Add(AddSubcommand),

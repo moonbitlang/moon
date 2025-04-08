@@ -36,6 +36,7 @@ use n2::{trace, work};
 use anyhow::Context;
 use colored::Colorize;
 
+use crate::benchmark::{render_bench_summary, BENCH};
 use crate::check::normal::write_pkg_lst;
 use crate::expect::{apply_snapshot, render_snapshot_fail};
 use crate::runtest::TestStatistics;
@@ -931,7 +932,14 @@ async fn handle_test_result(
     for item in test_res_for_cur_pkg {
         match item {
             Ok(ok_ts) => {
-                if test_verbose_output {
+                if ok_ts.message.starts_with(BENCH) {
+                    let stat = ok_ts;
+                    println!(
+                        "bench {}/{}::{}",
+                        stat.package, stat.filename, stat.test_name,
+                    );
+                    render_bench_summary(&stat.message);
+                } else if test_verbose_output {
                     println!(
                         "test {}/{}::{} {}",
                         ok_ts.package,

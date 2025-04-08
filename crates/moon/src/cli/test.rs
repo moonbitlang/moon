@@ -39,6 +39,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::thread;
 
+use super::BenchSubcommand;
 use super::{BuildFlags, UniversalFlags};
 
 /// Test the current package
@@ -156,16 +157,90 @@ fn run_test_internal(
     target_dir: &Path,
     display_backend_hint: Option<()>,
 ) -> anyhow::Result<i32> {
+    run_test_or_bench_internal(
+        cli,
+        cmd.into(),
+        source_dir,
+        target_dir,
+        display_backend_hint,
+    )
+}
+
+pub(crate) struct TestLikeSubcommand<'a> {
+    pub run_mode: RunMode,
+    pub build_flags: &'a BuildFlags,
+    pub package: &'a Option<Vec<String>>,
+    pub file: &'a Option<String>,
+    pub index: &'a Option<u32>,
+    pub update: bool,
+    pub limit: u32,
+    pub auto_sync_flags: &'a AutoSyncFlags,
+    pub build_only: bool,
+    pub no_parallelize: bool,
+    pub test_failure_json: bool,
+    pub patch_file: &'a Option<PathBuf>,
+    pub doc_test: bool,
+    pub md_test: bool,
+}
+
+impl<'a> From<&'a TestSubcommand> for TestLikeSubcommand<'a> {
+    fn from(cmd: &'a TestSubcommand) -> Self {
+        Self {
+            run_mode: RunMode::Test,
+            build_flags: &cmd.build_flags,
+            package: &cmd.package,
+            file: &cmd.file,
+            index: &cmd.index,
+            update: cmd.update,
+            limit: cmd.limit,
+            auto_sync_flags: &cmd.auto_sync_flags,
+            build_only: cmd.build_only,
+            no_parallelize: cmd.no_parallelize,
+            test_failure_json: cmd.test_failure_json,
+            patch_file: &cmd.patch_file,
+            doc_test: cmd.doc_test,
+            md_test: cmd.md_test,
+        }
+    }
+}
+impl<'a> From<&'a BenchSubcommand> for TestLikeSubcommand<'a> {
+    fn from(cmd: &'a BenchSubcommand) -> Self {
+        Self {
+            run_mode: RunMode::Bench,
+            build_flags: &cmd.build_flags,
+            package: &cmd.package,
+            file: &cmd.file,
+            index: &cmd.index,
+            update: false,
+            limit: 256,
+            auto_sync_flags: &cmd.auto_sync_flags,
+            build_only: cmd.build_only,
+            no_parallelize: cmd.no_parallelize,
+            test_failure_json: false,
+            patch_file: &None,
+            doc_test: false,
+            md_test: false,
+        }
+    }
+}
+
+pub(crate) fn run_test_or_bench_internal(
+    cli: &UniversalFlags,
+    cmd: TestLikeSubcommand,
+    source_dir: &Path,
+    target_dir: &Path,
+    display_backend_hint: Option<()>,
+) -> anyhow::Result<i32> {
     // Run moon install before build
     let (resolved_env, dir_sync_result) = auto_sync(
         source_dir,
-        &cmd.auto_sync_flags,
+        cmd.auto_sync_flags,
         &RegistryConfig::load(),
         cli.quiet,
     )?;
 
-    let run_mode = RunMode::Test;
-    let mut moonc_opt = super::get_compiler_flags(source_dir, &cmd.build_flags)?;
+    let run_mode = cmd.run_mode;
+    let mut moonc_opt = super::get_compiler_flags(source_dir, cmd.build_flags)?;
     // release is 'false' by default, so we will run test at debug mode(to gain more detailed stack trace info), unless `--release` is specified
     // however, other command like build, check, run, etc, will run at release mode by default
     moonc_opt.build_opt.debug_flag = !cmd.build_flags.release;
@@ -199,21 +274,34 @@ fn run_test_internal(
 
     let patch_file = cmd.patch_file.clone();
     let filter_package = cmd.package.clone().map(|it| it.into_iter().collect());
-    let filter_file = &cmd.file;
-    let filter_index = cmd.index;
-    let moonbuild_opt = MoonbuildOpt {
-        source_dir: source_dir.to_path_buf(),
-        raw_target_dir,
-        target_dir: target_dir.clone(),
-        test_opt: Some(TestOpt {
+    let filter_file = cmd.file;
+    let filter_index = *cmd.index;
+    let test_opt = if run_mode == RunMode::Bench {
+        Some(TestOpt {
+            filter_package: filter_package.clone(),
+            filter_file: filter_file.clone(),
+            filter_index,
+            limit,
+            test_failure_json: false,
+            display_backend_hint,
+            patch_file: None,
+        })
+    } else {
+        Some(TestOpt {
             filter_package: filter_package.clone(),
             filter_file: filter_file.clone(),
             filter_index,
             limit,
             test_failure_json: cmd.test_failure_json,
             display_backend_hint,
-            patch_file,
-        }),
+            patch_file: patch_file.clone(),
+        })
+    };
+    let moonbuild_opt = MoonbuildOpt {
+        source_dir: source_dir.to_path_buf(),
+        raw_target_dir,
+        target_dir: target_dir.clone(),
+        test_opt,
         check_opt: None,
         build_opt: None,
         sort_input,
@@ -335,7 +423,7 @@ fn run_test_internal(
             continue;
         }
 
-        pkg.patch_file = cmd.patch_file.clone();
+        pkg.patch_file = patch_file.clone();
 
         if cmd.doc_test {
             let pj_path = moonutil::doc_test::gen_doc_test_patch(pkg, &moonc_opt)?;

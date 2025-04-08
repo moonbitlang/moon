@@ -85,6 +85,16 @@ fn moonbit_test_driver_internal_apply_filter(
   }
 }
 
+fn name_is_bench(name : String) -> Bool {
+  if name.length() < 5 {
+    return false
+  }
+  if name[0] == 'b' && name[1] == 'e' && name[2] == 'n' && name[3] == 'c' && name[4] == 'h' {
+    return true
+  }
+  false
+}
+
 pub fn moonbit_test_driver_internal_execute(filename : String, index : Int) -> Unit {
   let filtered_test = moonbit_test_driver_internal_apply_filter(
     moonbit_test_driver_internal_no_args_tests,
@@ -105,6 +115,27 @@ pub fn moonbit_test_driver_internal_execute(filename : String, index : Int) -> U
         item.meta.index.to_string()
       } else {
         name
+      }
+      let bench_mode = false // WILL BE REPLACED
+      let bench_flag = name_is_bench(name)
+      match (bench_mode, bench_flag) {
+        (true, false) => {
+          @moonbitlang/core/builtin.println("{BEGIN_MOONTEST}")
+          @moonbitlang/core/builtin.println(
+            "{\"package\": \"{PACKAGE}\", \"filename\": \{file_name.escape()}, \"index\": \"\{index}\", \"test_name\": \{name.escape()}, \"message\": \"skipped test\"}",
+          )
+          @moonbitlang/core/builtin.println("{END_MOONTEST}")
+          return
+        }
+        (false, true) => {
+          @moonbitlang/core/builtin.println("{BEGIN_MOONTEST}")
+          @moonbitlang/core/builtin.println(
+            "{\"package\": \"{PACKAGE}\", \"filename\": \{file_name.escape()}, \"index\": \"\{index}\", \"test_name\": \{name.escape()}, \"message\": \"skipped test\"}",
+          )
+          @moonbitlang/core/builtin.println("{END_MOONTEST}")
+          return
+        }
+        _ => ()
       }
 
     if attrs.iter().any(fn(attr) -> Bool {
@@ -139,7 +170,7 @@ pub fn moonbit_test_driver_internal_execute(filename : String, index : Int) -> U
         }
         func!()
       } catch {
-        Failure(e) | InspectError(e) | SnapshotError(e) => {
+        Failure(e) | InspectError(e) | SnapshotError(e) | BenchError(e) => {
           message = e
         }
         e => {

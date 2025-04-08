@@ -21,7 +21,7 @@ use colored::Colorize;
 use indexmap::IndexMap;
 use log::info;
 use moonutil::common::{
-    get_desc_name, DriverKind, GeneratedTestDriver, TargetBackend, BLACKBOX_TEST_PATCH,
+    get_desc_name, DriverKind, GeneratedTestDriver, RunMode, TargetBackend, BLACKBOX_TEST_PATCH,
     MOONBITLANG_CORE, MOONBITLANG_COVERAGE, O_EXT, WHITEBOX_TEST_PATCH,
 };
 use moonutil::module::ModuleDB;
@@ -1283,6 +1283,13 @@ fn gen_generate_test_driver_command(
             patch_file.unwrap().display().to_string(),
         ]
     })
+    .args([
+        "--mode",
+        match moonbuild_opt.run_mode {
+            RunMode::Bench => "bench",
+            _ => "test",
+        },
+    ])
     .build();
 
     build.cmdline = Some(command);
