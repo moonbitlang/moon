@@ -24,7 +24,7 @@ use std::thread;
 
 use super::{BuildFlags, UniversalFlags};
 
-/// Test the current package
+/// Run benchmarks in the current package
 #[derive(Debug, clap::Parser, Clone)]
 pub struct BenchSubcommand {
     #[clap(flatten)]
