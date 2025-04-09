@@ -151,6 +151,8 @@ pub fn write(config: &Config, base_dir: &Path) {
 
         include: None,
         exclude: None,
+
+        scripts: None,
     };
     moonutil::common::write_module_json_to_file(&module, base_dir).unwrap();
     fs::create_dir_all(base_dir.join("main")).unwrap();
