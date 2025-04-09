@@ -119,15 +119,7 @@ pub fn moonbit_test_driver_internal_execute(filename : String, index : Int) -> U
       let bench_mode = false // WILL BE REPLACED
       let bench_flag = name_is_bench(name)
       match (bench_mode, bench_flag) {
-        (true, false) => {
-          @moonbitlang/core/builtin.println("{BEGIN_MOONTEST}")
-          @moonbitlang/core/builtin.println(
-            "{\"package\": \"{PACKAGE}\", \"filename\": \{file_name.escape()}, \"index\": \"\{index}\", \"test_name\": \{name.escape()}, \"message\": \"skipped test\"}",
-          )
-          @moonbitlang/core/builtin.println("{END_MOONTEST}")
-          return
-        }
-        (false, true) => {
+        (true, false) | (false, true) => {
           @moonbitlang/core/builtin.println("{BEGIN_MOONTEST}")
           @moonbitlang/core/builtin.println(
             "{\"package\": \"{PACKAGE}\", \"filename\": \{file_name.escape()}, \"index\": \"\{index}\", \"test_name\": \{name.escape()}, \"message\": \"skipped test\"}",
