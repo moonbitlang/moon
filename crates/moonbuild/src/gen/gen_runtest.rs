@@ -24,6 +24,7 @@ use moonutil::common::{
     get_desc_name, DriverKind, GeneratedTestDriver, RunMode, TargetBackend, BLACKBOX_TEST_PATCH,
     MOONBITLANG_CORE, MOONBITLANG_COVERAGE, O_EXT, WHITEBOX_TEST_PATCH,
 };
+use moonutil::compiler_flags::CC;
 use moonutil::module::ModuleDB;
 use moonutil::package::Package;
 use moonutil::path::{ImportPath, PathComponent};
@@ -1072,9 +1073,11 @@ pub fn gen_runtest_link_command(
         // .arg_with_cond(!debug_flag && strip_flag, "")
         .arg_with_cond(moonc_opt.link_opt.source_map, "-source-map")
         .args(moonc_opt.extra_link_opt.iter())
-        // note: this is a workaround for windows, x86_64-pc-windows-gnu also need to consider
+        // note: this is a workaround for windows cl, x86_64-pc-windows-gnu also need to consider
         .args_with_cond(
-            cfg!(target_os = "windows") && moonc_opt.link_opt.target_backend == TargetBackend::LLVM,
+            cfg!(target_os = "windows")
+                && moonc_opt.link_opt.target_backend == TargetBackend::LLVM
+                && CC::default().is_msvc(),
             ["-llvm-target", "x86_64-pc-windows-msvc"],
         )
         .build();

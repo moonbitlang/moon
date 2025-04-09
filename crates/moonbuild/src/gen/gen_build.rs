@@ -487,9 +487,11 @@ pub fn gen_link_command(
             },
         )
         .args(moonc_opt.extra_link_opt.iter())
-        // note: this is a workaround for windows, x86_64-pc-windows-gnu also need to consider
+        // note: this is a workaround for windows cl, x86_64-pc-windows-gnu also need to consider
         .args_with_cond(
-            cfg!(target_os = "windows") && moonc_opt.link_opt.target_backend == TargetBackend::LLVM,
+            cfg!(target_os = "windows")
+                && moonc_opt.link_opt.target_backend == TargetBackend::LLVM
+                && CC::default().is_msvc(),
             ["-llvm-target", "x86_64-pc-windows-msvc"],
         )
         .build();
