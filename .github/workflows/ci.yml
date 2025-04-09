@@ -224,6 +224,14 @@ jobs:
           cargo run --bin moon test --source-dir "$env:USERPROFILE\.moon\lib\core" --release --target native
           cargo run --bin moon test --source-dir "$env:USERPROFILE\.moon\lib\core" --doc
 
+      - name: Test core on llvm backend (Windows)
+        if: ${{ matrix.os == 'windows-latest' }}
+        run: |
+          Remove-Item -Recurse -Force "$env:USERPROFILE\.moon\lib\core"
+          git clone --depth 1 -b llvm_backend https://github.com/moonbitlang/core.git "$env:USERPROFILE\.moon\lib\core"
+          cargo run --bin moon test --source-dir "$env:USERPROFILE\.moon\lib\core" --target llvm
+          cargo run --bin moon test --source-dir "$env:USERPROFILE\.moon\lib\core" --release --target llvm
+
       - name: Test core on llvm backend (Unix)
         if: ${{ (matrix.os == 'ubuntu-latest') || (matrix.os == 'macos-latest') }}
         run: |
