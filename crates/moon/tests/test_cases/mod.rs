@@ -999,6 +999,36 @@ fn test_moon_test() {
 }
 
 #[test]
+fn test_moon_bench() {
+    let dir = TestDir::new("moon_bench.in");
+
+    check(
+        get_stdout(
+            &dir,
+            [
+                "bench",
+                "--target",
+                "all",
+                "--sort-input",
+                "--dry-run",
+                "--serial",
+            ],
+        ),
+        expect![[r#"
+            moon generate-test-driver --source-dir . --target-dir ./target --package moonbench/lib --sort-input --target wasm --driver-kind internal --mode bench
+            moonc build-package ./lib/hello.mbt ./lib/hello_bench.mbt ./target/wasm/debug/bench/lib/__generated_driver_for_internal_test.mbt -o ./target/wasm/debug/bench/lib/lib.internal_test.core -pkg moonbench/lib -is-main -std-path $MOON_HOME/lib/core/target/wasm/release/bundle -pkg-sources moonbench/lib:./lib -target wasm -g -O0 -no-mi
+            moonc link-core $MOON_HOME/lib/core/target/wasm/release/bundle/core.core ./target/wasm/debug/bench/lib/lib.internal_test.core -main moonbench/lib -o ./target/wasm/debug/bench/lib/lib.internal_test.wasm -test-mode -pkg-config-path ./lib/moon.pkg.json -pkg-sources moonbench/lib:./lib -pkg-sources moonbitlang/core:$MOON_HOME/lib/core -exported_functions moonbit_test_driver_internal_execute,moonbit_test_driver_finish -target wasm -g -O0
+            moon generate-test-driver --source-dir . --target-dir ./target --package moonbench/lib --sort-input --target wasm-gc --driver-kind internal --mode bench
+            moonc build-package ./lib/hello.mbt ./lib/hello_bench.mbt ./target/wasm-gc/debug/bench/lib/__generated_driver_for_internal_test.mbt -o ./target/wasm-gc/debug/bench/lib/lib.internal_test.core -pkg moonbench/lib -is-main -std-path $MOON_HOME/lib/core/target/wasm-gc/release/bundle -pkg-sources moonbench/lib:./lib -target wasm-gc -g -O0 -no-mi
+            moonc link-core $MOON_HOME/lib/core/target/wasm-gc/release/bundle/core.core ./target/wasm-gc/debug/bench/lib/lib.internal_test.core -main moonbench/lib -o ./target/wasm-gc/debug/bench/lib/lib.internal_test.wasm -test-mode -pkg-config-path ./lib/moon.pkg.json -pkg-sources moonbench/lib:./lib -pkg-sources moonbitlang/core:$MOON_HOME/lib/core -exported_functions moonbit_test_driver_internal_execute,moonbit_test_driver_finish -target wasm-gc -g -O0
+            moon generate-test-driver --source-dir . --target-dir ./target --package moonbench/lib --sort-input --target js --driver-kind internal --mode bench
+            moonc build-package ./lib/hello.mbt ./lib/hello_bench.mbt ./target/js/debug/bench/lib/__generated_driver_for_internal_test.mbt -o ./target/js/debug/bench/lib/lib.internal_test.core -pkg moonbench/lib -is-main -std-path $MOON_HOME/lib/core/target/js/release/bundle -pkg-sources moonbench/lib:./lib -target js -g -O0 -no-mi
+            moonc link-core $MOON_HOME/lib/core/target/js/release/bundle/core.core ./target/js/debug/bench/lib/lib.internal_test.core -main moonbench/lib -o ./target/js/debug/bench/lib/lib.internal_test.js -test-mode -pkg-config-path ./lib/moon.pkg.json -pkg-sources moonbench/lib:./lib -pkg-sources moonbitlang/core:$MOON_HOME/lib/core -exported_functions moonbit_test_driver_internal_execute,moonbit_test_driver_finish -js-format cjs -no-dts -target js -g -O0
+        "#]],
+    );
+}
+
+#[test]
 fn test_moon_test_filter_package() {
     let dir = TestDir::new("test_filter.in");
 
