@@ -19,6 +19,7 @@
 use colored::Colorize;
 
 pub const BENCH: &str = "@BENCH ";
+pub const BATCHBENCH: &str = "@BATCH_BENCH ";
 
 #[derive(Debug, Default, serde::Serialize, serde::Deserialize)]
 pub struct BenchSummary {
@@ -35,6 +36,11 @@ pub struct BenchSummary {
     pub iqr: f64,
     pub batch_size: usize,
     pub runs: usize,
+}
+
+#[derive(Debug, Default, serde::Serialize, serde::Deserialize)]
+pub struct BatchBenchSummaries {
+    pub summaries: Vec<BenchSummary>,
 }
 
 fn auto_select_unit(us: f64) -> String {
@@ -63,4 +69,46 @@ pub fn render_bench_summary(msg: &str) {
         summary.runs.to_string().bright_black(),
         summary.batch_size.to_string().bright_black(),
     )
+}
+
+pub fn render_batch_bench_summary(msg: &str) {
+    assert!(msg.starts_with(BATCHBENCH));
+    let msg = &msg[BATCHBENCH.len()..];
+    let summary = serde_json_lenient::from_str::<BatchBenchSummaries>(msg)
+        .unwrap_or_else(|_| panic!("failed to parse batch benchmark summary: {}", msg));
+    match summary.summaries.len() {
+        0 => (),
+        1 => {
+            let single = &summary.summaries[0];
+            println!(
+                "time ({} ± {}) range ({} … {}) in {} × {} runs",
+                auto_select_unit(single.mean).bold().green(),
+                auto_select_unit(single.std_dev).green(),
+                auto_select_unit(single.min).blue(),
+                auto_select_unit(single.max).purple(),
+                single.runs.to_string().bright_black(),
+                single.batch_size.to_string().bright_black(),
+            )
+        }
+        _ => {
+            println!(
+                "time ({} ± {}) range ({} … {}) ",
+                "mean".bold().green(),
+                "σ".green(),
+                "min".blue(),
+                "max".purple(),
+            );
+            for s in summary.summaries {
+                println!(
+                    "{} ± {}, {} … {} in {} × {} runs",
+                    auto_select_unit(s.mean).bold().green(),
+                    auto_select_unit(s.std_dev).green(),
+                    auto_select_unit(s.min).blue(),
+                    auto_select_unit(s.max).purple(),
+                    s.runs.to_string().bright_black(),
+                    s.batch_size.to_string().bright_black(),
+                );
+            }
+        }
+    }
 }

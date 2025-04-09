@@ -284,8 +284,12 @@ fn generate_driver(
     let index = data
         .find("let moonbit_test_driver_internal_with_args_tests =")
         .unwrap_or(data.len());
+    let index2 = data
+        .find("let moonbit_test_driver_internal_with_bench_args_tests =")
+        .unwrap_or(index);
     let no_args = &data[0..index];
-    let with_args = &data[index..];
+    let with_args = &data[index..index2];
+    let with_bench_args = &data[index2..];
 
     let only_no_arg_tests = !data[index..].contains("__test_");
 
@@ -362,12 +366,20 @@ fn generate_driver(
             with_args,
         )
         .replace(
+            "let moonbit_test_driver_internal_with_bench_args_tests : Moonbit_Test_Driver_Internal_TestDriver_With_Bench_Args_Map = { }  // WILL BE REPLACED\n",
+            with_bench_args,
+        )
+        .replace(
             "let moonbit_test_driver_internal_no_args_tests =",
             "let moonbit_test_driver_internal_no_args_tests : Moonbit_Test_Driver_Internal_No_Args_Map =",
         )
         .replace(
             "let moonbit_test_driver_internal_with_args_tests =",
             "let moonbit_test_driver_internal_with_args_tests : Moonbit_Test_Driver_Internal_TestDriver_With_Args_Map =",
+        )
+        .replace(
+            "let moonbit_test_driver_internal_with_bench_args_tests =",
+            "let moonbit_test_driver_internal_with_bench_args_tests : Moonbit_Test_Driver_Internal_TestDriver_With_Bench_Args_Map =",
         )
         .replace("{PACKAGE}", pkgname)
         .replace("{BEGIN_MOONTEST}", MOON_TEST_DELIMITER_BEGIN)
