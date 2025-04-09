@@ -54,6 +54,10 @@ pub struct GenerateTestDriverSubcommand {
     /// Path to the patch file
     #[clap(long)]
     pub patch_file: Option<PathBuf>,
+
+    // Run mode: only `test` and `bench` are supported
+    #[clap(long)]
+    pub mode: String,
 }
 
 fn moonc_gen_test_info(
@@ -138,7 +142,11 @@ pub fn generate_test_driver(
     });
     cmd.build_flags.target_backend = target_backend;
 
-    let run_mode = RunMode::Test;
+    let run_mode = match cmd.mode.as_str() {
+        "test" => RunMode::Test,
+        "bench" => RunMode::Bench,
+        _ => bail!("invalid mode: {}", cmd.mode),
+    };
     let moonc_opt = super::get_compiler_flags(&source_dir, &cmd.build_flags)?;
 
     let sort_input = cmd.build_flags.sort_input;
@@ -159,7 +167,7 @@ pub fn generate_test_driver(
         } else {
             "debug"
         })
-        .join("test");
+        .join(run_mode.to_dir_name());
 
     let moonbuild_opt = MoonbuildOpt {
         source_dir,
@@ -251,6 +259,7 @@ pub fn generate_test_driver(
             pkgname,
             target_backend,
             cmd.build_flags.enable_coverage,
+            run_mode == RunMode::Bench,
             cmd.coverage_package_override.as_deref(),
         );
         let generated_file = target_dir.join(pkg.rel.fs_full_name()).join(driver_name);
@@ -278,6 +287,7 @@ fn generate_driver(
     pkgname: &str,
     target_backend: Option<TargetBackend>,
     enable_coverage: bool,
+    enable_bench: bool,
     coverage_package_override: Option<&str>,
 ) -> String {
     let index = data
@@ -371,6 +381,9 @@ fn generate_driver(
         .replace("{PACKAGE}", pkgname)
         .replace("{BEGIN_MOONTEST}", MOON_TEST_DELIMITER_BEGIN)
         .replace("{END_MOONTEST}", MOON_TEST_DELIMITER_END)
+        .replace("let bench_mode = false // WILL BE REPLACED", &format!(
+            "let bench_mode = {}", enable_bench
+        ))
         .replace("// {COVERAGE_END}", &coverage_end_template);
 
     if pkgname.starts_with(MOONBITLANG_CORE) {

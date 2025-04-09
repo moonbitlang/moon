@@ -593,6 +593,7 @@ impl CargoPathExt for Path {
 
 #[derive(Debug, Clone, PartialEq, Eq, Copy, Default)]
 pub enum RunMode {
+    Bench,
     #[default]
     Build,
     Check,
@@ -605,6 +606,7 @@ pub enum RunMode {
 impl RunMode {
     pub fn to_dir_name(self) -> &'static str {
         match self {
+            Self::Bench => "bench",
             Self::Build | Self::Run => "build",
             Self::Check => "check",
             Self::Test => "test",
