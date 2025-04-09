@@ -679,6 +679,8 @@ pub struct MoonMod {
 
     pub include: Option<Vec<String>>,
     pub exclude: Option<Vec<String>>,
+
+    pub scripts: Option<IndexMap<String, String>>,
 }
 
 #[derive(Debug, Serialize, Deserialize, JsonSchema)]
@@ -764,6 +766,11 @@ pub struct MoonModJSON {
     /// Files to exclude when publishing.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub exclude: Option<Vec<String>>,
+
+    /// Scripts related to the current module.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[schemars(with = "Option<std::collections::HashMap<String, String>>")]
+    pub scripts: Option<IndexMap<String, String>>,
 }
 
 impl TryFrom<MoonModJSON> for MoonMod {
@@ -813,6 +820,8 @@ impl TryFrom<MoonModJSON> for MoonMod {
 
             include: j.include,
             exclude: j.exclude,
+
+            scripts: j.scripts,
         })
     }
 }
@@ -842,6 +851,8 @@ pub fn convert_module_to_mod_json(m: MoonMod) -> MoonModJSON {
 
         include: m.include,
         exclude: m.exclude,
+
+        scripts: m.scripts,
     }
 }
 

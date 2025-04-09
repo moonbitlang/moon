@@ -1020,3 +1020,38 @@ impl PrePostBuild {
         format!("{}.db", self.name())
     }
 }
+
+pub fn execute_postadd_script(dir: &Path) -> anyhow::Result<()> {
+    let m = read_module_desc_file_in_dir(dir)?;
+    match &m.scripts {
+        Some(scripts) => {
+            if scripts.contains_key("postadd") {
+                let postadd = scripts
+                    .get("postadd")
+                    .unwrap()
+                    .split(' ')
+                    .collect::<Vec<_>>();
+                if postadd.len() > 0 {
+                    let command = postadd[0];
+                    let args = &postadd[1..];
+                    let output = std::process::Command::new(command)
+                        .args(args)
+                        .current_dir(dir)
+                        .stdout(std::process::Stdio::inherit())
+                        .stderr(std::process::Stdio::inherit())
+                        .output()?;
+                    if !output.status.success() {
+                        bail!(
+                            "failed to execute postadd script in {},\ncommand: {},\n{}",
+                            dir.display(),
+                            command,
+                            String::from_utf8_lossy(&output.stderr)
+                        );
+                    }
+                }
+            }
+        }
+        None => (),
+    }
+    Ok(())
+}

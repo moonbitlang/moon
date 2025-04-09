@@ -9782,3 +9782,13 @@ fn test_no_warn_deps() {
         "#]],
     );
 }
+
+#[test]
+fn test_postadd_script() {
+    if std::env::var("CI").is_err() {
+        return;
+    }
+    let dir = TestDir::new("test_postadd_script.in");
+    let output = get_stdout(&dir, ["add", "lijunchen/test_postadd"]);
+    assert!(output.contains(".mooncakes/lijunchen/test_postadd"));
+}

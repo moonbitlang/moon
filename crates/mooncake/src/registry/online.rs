@@ -26,7 +26,7 @@ use std::{
 
 use anyhow::bail;
 use moonutil::module::{MoonMod, MoonModJSON};
-use moonutil::mooncakes::ModuleName;
+use moonutil::{common::execute_postadd_script, mooncakes::ModuleName};
 use semver::Version;
 
 pub struct OnlineRegistry {
@@ -243,6 +243,9 @@ impl OnlineRegistry {
                 }
             }
         }
+
+        execute_postadd_script(pkg_install_dir)?;
+
         Ok(())
     }
 }
