@@ -863,6 +863,8 @@ pub struct MbtTestInfo {
 pub struct MooncGenTestInfo {
     pub no_args_tests: IndexMap<FileName, Vec<MbtTestInfo>>,
     pub with_args_tests: IndexMap<FileName, Vec<MbtTestInfo>>,
+    #[serde(default)] // for backward compatibility
+    pub with_bench_args_tests: IndexMap<FileName, Vec<MbtTestInfo>>,
 }
 
 impl MooncGenTestInfo {
@@ -887,6 +889,21 @@ impl MooncGenTestInfo {
 
         result.push_str("let moonbit_test_driver_internal_with_args_tests = {\n");
         for (file, tests) in &self.with_args_tests {
+            result.push_str(&format!("  \"{}\": {{\n", file));
+            for test in tests {
+                result.push_str(&format!(
+                    "    {}: ({}, [\"{}\"]),\n",
+                    test.index,
+                    test.func,
+                    test.name.as_ref().unwrap_or(&default_name)
+                ));
+            }
+            result.push_str("  },\n");
+        }
+        result.push_str("}\n");
+
+        result.push_str("let moonbit_test_driver_internal_with_bench_args_tests = {\n");
+        for (file, tests) in &self.with_bench_args_tests {
             result.push_str(&format!("  \"{}\": {{\n", file));
             for test in tests {
                 result.push_str(&format!(

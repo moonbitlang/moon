@@ -16,7 +16,7 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
-use crate::benchmark::BENCH;
+use crate::benchmark::BATCHBENCH;
 use crate::entry::{FileTestInfo, TestArgs, TestFailedStatus};
 use crate::expect::{snapshot_eq, ERROR, EXPECT_FAILED, FAILED, RUNTIME_ERROR, SNAPSHOT_TESTING};
 use crate::section_capture::{handle_stdout, SectionCapture};
@@ -361,7 +361,7 @@ async fn run(
             } else if return_message.starts_with(RUNTIME_ERROR) || return_message.starts_with(ERROR)
             {
                 res.push(Err(TestFailedStatus::RuntimeError(test_statistic)));
-            } else if return_message.starts_with(BENCH) {
+            } else if return_message.starts_with(BATCHBENCH) {
                 res.push(Ok(test_statistic));
             } else if return_message.starts_with(FAILED) || !return_message.is_empty() {
                 // FAILED(moonbit) or something like "panic is expected"

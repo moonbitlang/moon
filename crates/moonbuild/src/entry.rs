@@ -36,7 +36,7 @@ use n2::{trace, work};
 use anyhow::Context;
 use colored::Colorize;
 
-use crate::benchmark::{render_bench_summary, BENCH};
+use crate::benchmark::{render_batch_bench_summary, BATCHBENCH};
 use crate::check::normal::write_pkg_lst;
 use crate::expect::{apply_snapshot, render_snapshot_fail};
 use crate::runtest::TestStatistics;
@@ -598,6 +598,7 @@ fn convert_moonc_test_info(
     let mut moonc_test_info = MooncGenTestInfo {
         no_args_tests: IndexMap::new(),
         with_args_tests: IndexMap::new(),
+        with_bench_args_tests: IndexMap::new(),
     };
     for test_info_file in test_info_files {
         let content = std::fs::read_to_string(&test_info_file)
@@ -607,6 +608,9 @@ fn convert_moonc_test_info(
             .context(format!("failed to parse {}", test_info_file.display()))?;
         moonc_test_info.no_args_tests.extend(info.no_args_tests);
         moonc_test_info.with_args_tests.extend(info.with_args_tests);
+        moonc_test_info
+            .with_bench_args_tests
+            .extend(info.with_bench_args_tests);
     }
 
     let mut current_pkg_test_info = IndexMap::new();
@@ -615,6 +619,7 @@ fn convert_moonc_test_info(
         .no_args_tests
         .into_iter()
         .chain(moonc_test_info.with_args_tests.into_iter())
+        .chain(moonc_test_info.with_bench_args_tests.into_iter())
     {
         if test_info.is_empty() {
             continue;
@@ -949,13 +954,13 @@ async fn handle_test_result(
     for item in test_res_for_cur_pkg {
         match item {
             Ok(ok_ts) => {
-                if ok_ts.message.starts_with(BENCH) {
+                if ok_ts.message.starts_with(BATCHBENCH) {
                     let stat = ok_ts;
                     println!(
                         "bench {}/{}::{}",
                         stat.package, stat.filename, stat.test_name,
                     );
-                    render_bench_summary(&stat.message);
+                    render_batch_bench_summary(&stat.message);
                 } else if test_verbose_output {
                     println!(
                         "test {}/{}::{} {}",
