@@ -96,6 +96,16 @@
         "null"
       ]
     },
+    "scripts": {
+      "description": "Scripts related to the current module.",
+      "type": [
+        "object",
+        "null"
+      ],
+      "additionalProperties": {
+        "type": "string"
+      }
+    },
     "source": {
       "description": "source code directory of this module",
       "type": [
