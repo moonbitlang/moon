@@ -275,7 +275,20 @@ fn scan_one_package(
 
     let imports = get_imports(pkg.imports)?;
     let wbtest_imports = get_imports(pkg.wbtest_imports)?;
-    let test_imports = get_imports(pkg.test_imports)?;
+    let mut test_imports = get_imports(pkg.test_imports)?;
+    // add prelude to test-import for core
+    if mod_desc.name == crate::common::MOONBITLANG_CORE {
+        test_imports.push(ImportComponent {
+            path: ImportPath {
+                module_name: mod_desc.name.clone(),
+                rel_path: PathComponent {
+                    components: vec!["prelude".to_string()],
+                },
+                is_3rd: false,
+            },
+            alias: Some("prelude".to_string()),
+        });
+    }
 
     let (mut mbt_files, mut wbtest_mbt_files, mut test_mbt_files, mut mbt_md_files) =
         get_mbt_and_test_file_paths(pkg_path);
