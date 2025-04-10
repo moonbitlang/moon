@@ -2407,7 +2407,8 @@ fn test_moon_bundle() {
             moonc build-package ./B/lib.mbt -o ./target/wasm-gc/release/bundle/B/B.core -pkg moonbitlang/core/B -i ./target/wasm-gc/release/bundle/A/A.mi:A -pkg-sources moonbitlang/core/B:./B -target wasm-gc
             moonc build-package ./C/lib.mbt -o ./target/wasm-gc/release/bundle/C/C.core -pkg moonbitlang/core/C -i ./target/wasm-gc/release/bundle/A/A.mi:A -pkg-sources moonbitlang/core/C:./C -target wasm-gc
             moonc build-package ./Orphan/lib.mbt -o ./target/wasm-gc/release/bundle/Orphan/Orphan.core -pkg moonbitlang/core/Orphan -pkg-sources moonbitlang/core/Orphan:./Orphan -target wasm-gc
-            moonc bundle-core ./target/wasm-gc/release/bundle/A/A.core ./target/wasm-gc/release/bundle/B/B.core ./target/wasm-gc/release/bundle/C/C.core ./target/wasm-gc/release/bundle/Orphan/Orphan.core -o ./target/wasm-gc/release/bundle/core.core
+            moonc build-package -o ./target/wasm-gc/release/bundle/prelude/prelude.core -pkg moonbitlang/core/prelude -pkg-sources moonbitlang/core/prelude:./prelude -target wasm-gc
+            moonc bundle-core ./target/wasm-gc/release/bundle/A/A.core ./target/wasm-gc/release/bundle/B/B.core ./target/wasm-gc/release/bundle/C/C.core ./target/wasm-gc/release/bundle/Orphan/Orphan.core ./target/wasm-gc/release/bundle/prelude/prelude.core -o ./target/wasm-gc/release/bundle/core.core
         "#]],
     );
 }
@@ -2749,7 +2750,13 @@ fn test_dummy_core() {
                       "mbt-md-files": {},
                       "deps": [],
                       "wbtest-deps": [],
-                      "test-deps": [],
+                      "test-deps": [
+                        {
+                          "path": "moonbitlang/core/prelude",
+                          "alias": "prelude",
+                          "fspath": "$ROOT/prelude"
+                        }
+                      ],
                       "artifact": "$ROOT/target/wasm-gc/release/check/0/0.mi"
                     },
                     {
@@ -2815,7 +2822,13 @@ fn test_dummy_core() {
                       "mbt-md-files": {},
                       "deps": [],
                       "wbtest-deps": [],
-                      "test-deps": [],
+                      "test-deps": [
+                        {
+                          "path": "moonbitlang/core/prelude",
+                          "alias": "prelude",
+                          "fspath": "$ROOT/prelude"
+                        }
+                      ],
                       "artifact": "$ROOT/target/wasm-gc/release/check/1/1.mi"
                     },
                     {
@@ -2850,7 +2863,13 @@ fn test_dummy_core() {
                         }
                       ],
                       "wbtest-deps": [],
-                      "test-deps": [],
+                      "test-deps": [
+                        {
+                          "path": "moonbitlang/core/prelude",
+                          "alias": "prelude",
+                          "fspath": "$ROOT/prelude"
+                        }
+                      ],
                       "artifact": "$ROOT/target/wasm-gc/release/check/2/2.mi"
                     },
                     {
@@ -2871,7 +2890,13 @@ fn test_dummy_core() {
                         }
                       ],
                       "wbtest-deps": [],
-                      "test-deps": [],
+                      "test-deps": [
+                        {
+                          "path": "moonbitlang/core/prelude",
+                          "alias": "prelude",
+                          "fspath": "$ROOT/prelude"
+                        }
+                      ],
                       "artifact": "$ROOT/target/wasm-gc/release/check/char/char.mi"
                     },
                     {
@@ -2886,7 +2911,13 @@ fn test_dummy_core() {
                       "mbt-md-files": {},
                       "deps": [],
                       "wbtest-deps": [],
-                      "test-deps": [],
+                      "test-deps": [
+                        {
+                          "path": "moonbitlang/core/prelude",
+                          "alias": "prelude",
+                          "fspath": "$ROOT/prelude"
+                        }
+                      ],
                       "artifact": "$ROOT/target/wasm-gc/release/check/coverage/coverage.mi"
                     },
                     {
@@ -2913,8 +2944,35 @@ fn test_dummy_core() {
                           "fspath": "$ROOT/char"
                         }
                       ],
-                      "test-deps": [],
+                      "test-deps": [
+                        {
+                          "path": "moonbitlang/core/prelude",
+                          "alias": "prelude",
+                          "fspath": "$ROOT/prelude"
+                        }
+                      ],
                       "artifact": "$ROOT/target/wasm-gc/release/check/iter/iter.mi"
+                    },
+                    {
+                      "is-main": false,
+                      "is-third-party": false,
+                      "root-path": "$ROOT/prelude",
+                      "root": "moonbitlang/core",
+                      "rel": "prelude",
+                      "files": {},
+                      "wbtest-files": {},
+                      "test-files": {},
+                      "mbt-md-files": {},
+                      "deps": [],
+                      "wbtest-deps": [],
+                      "test-deps": [
+                        {
+                          "path": "moonbitlang/core/prelude",
+                          "alias": "prelude",
+                          "fspath": "$ROOT/prelude"
+                        }
+                      ],
+                      "artifact": "$ROOT/target/wasm-gc/release/check/prelude/prelude.mi"
                     }
                   ],
                   "deps": [],
@@ -3034,7 +3092,13 @@ fn test_dummy_core() {
                       "mbt-md-files": {},
                       "deps": [],
                       "wbtest-deps": [],
-                      "test-deps": [],
+                      "test-deps": [
+                        {
+                          "path": "moonbitlang/core/prelude",
+                          "alias": "prelude",
+                          "fspath": "$ROOT/prelude"
+                        }
+                      ],
                       "artifact": "$ROOT/target/js/release/check/0/0.mi"
                     },
                     {
@@ -3100,7 +3164,13 @@ fn test_dummy_core() {
                       "mbt-md-files": {},
                       "deps": [],
                       "wbtest-deps": [],
-                      "test-deps": [],
+                      "test-deps": [
+                        {
+                          "path": "moonbitlang/core/prelude",
+                          "alias": "prelude",
+                          "fspath": "$ROOT/prelude"
+                        }
+                      ],
                       "artifact": "$ROOT/target/js/release/check/1/1.mi"
                     },
                     {
@@ -3135,7 +3205,13 @@ fn test_dummy_core() {
                         }
                       ],
                       "wbtest-deps": [],
-                      "test-deps": [],
+                      "test-deps": [
+                        {
+                          "path": "moonbitlang/core/prelude",
+                          "alias": "prelude",
+                          "fspath": "$ROOT/prelude"
+                        }
+                      ],
                       "artifact": "$ROOT/target/js/release/check/2/2.mi"
                     },
                     {
@@ -3156,7 +3232,13 @@ fn test_dummy_core() {
                         }
                       ],
                       "wbtest-deps": [],
-                      "test-deps": [],
+                      "test-deps": [
+                        {
+                          "path": "moonbitlang/core/prelude",
+                          "alias": "prelude",
+                          "fspath": "$ROOT/prelude"
+                        }
+                      ],
                       "artifact": "$ROOT/target/js/release/check/char/char.mi"
                     },
                     {
@@ -3171,7 +3253,13 @@ fn test_dummy_core() {
                       "mbt-md-files": {},
                       "deps": [],
                       "wbtest-deps": [],
-                      "test-deps": [],
+                      "test-deps": [
+                        {
+                          "path": "moonbitlang/core/prelude",
+                          "alias": "prelude",
+                          "fspath": "$ROOT/prelude"
+                        }
+                      ],
                       "artifact": "$ROOT/target/js/release/check/coverage/coverage.mi"
                     },
                     {
@@ -3198,8 +3286,35 @@ fn test_dummy_core() {
                           "fspath": "$ROOT/char"
                         }
                       ],
-                      "test-deps": [],
+                      "test-deps": [
+                        {
+                          "path": "moonbitlang/core/prelude",
+                          "alias": "prelude",
+                          "fspath": "$ROOT/prelude"
+                        }
+                      ],
                       "artifact": "$ROOT/target/js/release/check/iter/iter.mi"
+                    },
+                    {
+                      "is-main": false,
+                      "is-third-party": false,
+                      "root-path": "$ROOT/prelude",
+                      "root": "moonbitlang/core",
+                      "rel": "prelude",
+                      "files": {},
+                      "wbtest-files": {},
+                      "test-files": {},
+                      "mbt-md-files": {},
+                      "deps": [],
+                      "wbtest-deps": [],
+                      "test-deps": [
+                        {
+                          "path": "moonbitlang/core/prelude",
+                          "alias": "prelude",
+                          "fspath": "$ROOT/prelude"
+                        }
+                      ],
+                      "artifact": "$ROOT/target/js/release/check/prelude/prelude.mi"
                     }
                   ],
                   "deps": [],
@@ -3213,6 +3328,7 @@ fn test_dummy_core() {
     check(
         get_stdout(&dir, ["check", "--dry-run", "--sort-input"]),
         expect![[r#"
+            moonc check -o ./target/wasm-gc/release/check/prelude/prelude.mi -pkg moonbitlang/core/prelude -pkg-sources moonbitlang/core/prelude:./prelude -target wasm-gc
             moonc check -o ./target/wasm-gc/release/check/coverage/coverage.mi -pkg moonbitlang/core/coverage -pkg-sources moonbitlang/core/coverage:./coverage -target wasm-gc
             moonc check -o ./target/wasm-gc/release/check/iter/iter.mi -pkg moonbitlang/core/iter -i ./target/wasm-gc/release/check/coverage/coverage.mi:coverage -pkg-sources moonbitlang/core/iter:./iter -target wasm-gc
             moonc check -o ./target/wasm-gc/release/check/char/char.mi -pkg moonbitlang/core/char -i ./target/wasm-gc/release/check/coverage/coverage.mi:coverage -pkg-sources moonbitlang/core/char:./char -target wasm-gc
@@ -3229,6 +3345,7 @@ fn test_dummy_core() {
             ["check", "--dry-run", "--target", "wasm", "--sort-input"],
         ),
         expect![[r#"
+            moonc check -o ./target/wasm/release/check/prelude/prelude.mi -pkg moonbitlang/core/prelude -pkg-sources moonbitlang/core/prelude:./prelude -target wasm
             moonc check -o ./target/wasm/release/check/coverage/coverage.mi -pkg moonbitlang/core/coverage -pkg-sources moonbitlang/core/coverage:./coverage -target wasm
             moonc check -o ./target/wasm/release/check/iter/iter.mi -pkg moonbitlang/core/iter -i ./target/wasm/release/check/coverage/coverage.mi:coverage -pkg-sources moonbitlang/core/iter:./iter -target wasm
             moonc check -o ./target/wasm/release/check/char/char.mi -pkg moonbitlang/core/char -i ./target/wasm/release/check/coverage/coverage.mi:coverage -pkg-sources moonbitlang/core/char:./char -target wasm
@@ -3245,6 +3362,7 @@ fn test_dummy_core() {
             ["check", "--dry-run", "--target", "wasm-gc", "--sort-input"],
         ),
         expect![[r#"
+            moonc check -o ./target/wasm-gc/release/check/prelude/prelude.mi -pkg moonbitlang/core/prelude -pkg-sources moonbitlang/core/prelude:./prelude -target wasm-gc
             moonc check -o ./target/wasm-gc/release/check/coverage/coverage.mi -pkg moonbitlang/core/coverage -pkg-sources moonbitlang/core/coverage:./coverage -target wasm-gc
             moonc check -o ./target/wasm-gc/release/check/iter/iter.mi -pkg moonbitlang/core/iter -i ./target/wasm-gc/release/check/coverage/coverage.mi:coverage -pkg-sources moonbitlang/core/iter:./iter -target wasm-gc
             moonc check -o ./target/wasm-gc/release/check/char/char.mi -pkg moonbitlang/core/char -i ./target/wasm-gc/release/check/coverage/coverage.mi:coverage -pkg-sources moonbitlang/core/char:./char -target wasm-gc
@@ -3261,6 +3379,7 @@ fn test_dummy_core() {
             ["check", "--dry-run", "--target", "js", "--sort-input"],
         ),
         expect![[r#"
+            moonc check -o ./target/js/release/check/prelude/prelude.mi -pkg moonbitlang/core/prelude -pkg-sources moonbitlang/core/prelude:./prelude -target js
             moonc check -o ./target/js/release/check/coverage/coverage.mi -pkg moonbitlang/core/coverage -pkg-sources moonbitlang/core/coverage:./coverage -target js
             moonc check -o ./target/js/release/check/iter/iter.mi -pkg moonbitlang/core/iter -i ./target/js/release/check/coverage/coverage.mi:coverage -pkg-sources moonbitlang/core/iter:./iter -target js
             moonc check -o ./target/js/release/check/char/char.mi -pkg moonbitlang/core/char -i ./target/js/release/check/coverage/coverage.mi:coverage -pkg-sources moonbitlang/core/char:./char -target js
@@ -3329,6 +3448,9 @@ fn test_dummy_core() {
     check(
         get_stdout(&dir, ["test", "--dry-run", "--sort-input"]),
         expect![[r#"
+            moon generate-test-driver --source-dir . --target-dir ./target --package moonbitlang/core/prelude --sort-input --target wasm-gc --driver-kind internal --mode test
+            moonc build-package ./target/wasm-gc/debug/test/prelude/__generated_driver_for_internal_test.mbt -o ./target/wasm-gc/debug/test/prelude/prelude.internal_test.core -pkg moonbitlang/core/prelude -is-main -pkg-sources moonbitlang/core/prelude:./prelude -target wasm-gc -g -O0 -no-mi
+            moonc link-core ./target/wasm-gc/debug/test/prelude/prelude.internal_test.core -main moonbitlang/core/prelude -o ./target/wasm-gc/debug/test/prelude/prelude.internal_test.wasm -test-mode -pkg-config-path ./prelude/moon.pkg.json -pkg-sources moonbitlang/core/prelude:./prelude -exported_functions moonbit_test_driver_internal_execute,moonbit_test_driver_finish -target wasm-gc -g -O0
             moon generate-test-driver --source-dir . --target-dir ./target --package moonbitlang/core/iter --sort-input --target wasm-gc --driver-kind internal --mode test
             moonc build-package -o ./target/wasm-gc/debug/test/coverage/coverage.core -pkg moonbitlang/core/coverage -pkg-sources moonbitlang/core/coverage:./coverage -target wasm-gc -g -O0
             moonc build-package ./target/wasm-gc/debug/test/iter/__generated_driver_for_internal_test.mbt -o ./target/wasm-gc/debug/test/iter/iter.internal_test.core -pkg moonbitlang/core/iter -is-main -i ./target/wasm-gc/debug/test/coverage/coverage.mi:coverage -pkg-sources moonbitlang/core/iter:./iter -target wasm-gc -g -O0 -no-mi
@@ -3363,6 +3485,9 @@ fn test_dummy_core() {
             ["test", "--dry-run", "--target", "wasm", "--sort-input"],
         ),
         expect![[r#"
+            moon generate-test-driver --source-dir . --target-dir ./target --package moonbitlang/core/prelude --sort-input --target wasm --driver-kind internal --mode test
+            moonc build-package ./target/wasm/debug/test/prelude/__generated_driver_for_internal_test.mbt -o ./target/wasm/debug/test/prelude/prelude.internal_test.core -pkg moonbitlang/core/prelude -is-main -pkg-sources moonbitlang/core/prelude:./prelude -target wasm -g -O0 -no-mi
+            moonc link-core ./target/wasm/debug/test/prelude/prelude.internal_test.core -main moonbitlang/core/prelude -o ./target/wasm/debug/test/prelude/prelude.internal_test.wasm -test-mode -pkg-config-path ./prelude/moon.pkg.json -pkg-sources moonbitlang/core/prelude:./prelude -exported_functions moonbit_test_driver_internal_execute,moonbit_test_driver_finish -target wasm -g -O0
             moon generate-test-driver --source-dir . --target-dir ./target --package moonbitlang/core/iter --sort-input --target wasm --driver-kind internal --mode test
             moonc build-package -o ./target/wasm/debug/test/coverage/coverage.core -pkg moonbitlang/core/coverage -pkg-sources moonbitlang/core/coverage:./coverage -target wasm -g -O0
             moonc build-package ./target/wasm/debug/test/iter/__generated_driver_for_internal_test.mbt -o ./target/wasm/debug/test/iter/iter.internal_test.core -pkg moonbitlang/core/iter -is-main -i ./target/wasm/debug/test/coverage/coverage.mi:coverage -pkg-sources moonbitlang/core/iter:./iter -target wasm -g -O0 -no-mi
@@ -3397,6 +3522,9 @@ fn test_dummy_core() {
             ["test", "--dry-run", "--target", "wasm-gc", "--sort-input"],
         ),
         expect![[r#"
+            moon generate-test-driver --source-dir . --target-dir ./target --package moonbitlang/core/prelude --sort-input --target wasm-gc --driver-kind internal --mode test
+            moonc build-package ./target/wasm-gc/debug/test/prelude/__generated_driver_for_internal_test.mbt -o ./target/wasm-gc/debug/test/prelude/prelude.internal_test.core -pkg moonbitlang/core/prelude -is-main -pkg-sources moonbitlang/core/prelude:./prelude -target wasm-gc -g -O0 -no-mi
+            moonc link-core ./target/wasm-gc/debug/test/prelude/prelude.internal_test.core -main moonbitlang/core/prelude -o ./target/wasm-gc/debug/test/prelude/prelude.internal_test.wasm -test-mode -pkg-config-path ./prelude/moon.pkg.json -pkg-sources moonbitlang/core/prelude:./prelude -exported_functions moonbit_test_driver_internal_execute,moonbit_test_driver_finish -target wasm-gc -g -O0
             moon generate-test-driver --source-dir . --target-dir ./target --package moonbitlang/core/iter --sort-input --target wasm-gc --driver-kind internal --mode test
             moonc build-package -o ./target/wasm-gc/debug/test/coverage/coverage.core -pkg moonbitlang/core/coverage -pkg-sources moonbitlang/core/coverage:./coverage -target wasm-gc -g -O0
             moonc build-package ./target/wasm-gc/debug/test/iter/__generated_driver_for_internal_test.mbt -o ./target/wasm-gc/debug/test/iter/iter.internal_test.core -pkg moonbitlang/core/iter -is-main -i ./target/wasm-gc/debug/test/coverage/coverage.mi:coverage -pkg-sources moonbitlang/core/iter:./iter -target wasm-gc -g -O0 -no-mi
@@ -3431,6 +3559,9 @@ fn test_dummy_core() {
             ["test", "--dry-run", "--target", "js", "--sort-input"],
         ),
         expect![[r#"
+            moon generate-test-driver --source-dir . --target-dir ./target --package moonbitlang/core/prelude --sort-input --target js --driver-kind internal --mode test
+            moonc build-package ./target/js/debug/test/prelude/__generated_driver_for_internal_test.mbt -o ./target/js/debug/test/prelude/prelude.internal_test.core -pkg moonbitlang/core/prelude -is-main -pkg-sources moonbitlang/core/prelude:./prelude -target js -g -O0 -no-mi
+            moonc link-core ./target/js/debug/test/prelude/prelude.internal_test.core -main moonbitlang/core/prelude -o ./target/js/debug/test/prelude/prelude.internal_test.js -test-mode -pkg-config-path ./prelude/moon.pkg.json -pkg-sources moonbitlang/core/prelude:./prelude -exported_functions moonbit_test_driver_internal_execute,moonbit_test_driver_finish -js-format cjs -no-dts -target js -g -O0
             moon generate-test-driver --source-dir . --target-dir ./target --package moonbitlang/core/iter --sort-input --target js --driver-kind internal --mode test
             moonc build-package -o ./target/js/debug/test/coverage/coverage.core -pkg moonbitlang/core/coverage -pkg-sources moonbitlang/core/coverage:./coverage -target js -g -O0
             moonc build-package ./target/js/debug/test/iter/__generated_driver_for_internal_test.mbt -o ./target/js/debug/test/iter/iter.internal_test.core -pkg moonbitlang/core/iter -is-main -i ./target/js/debug/test/coverage/coverage.mi:coverage -pkg-sources moonbitlang/core/iter:./iter -target js -g -O0 -no-mi
@@ -3465,8 +3596,11 @@ fn test_dummy_core() {
             ["test", "--dry-run", "--enable-coverage", "--sort-input"],
         ),
         expect![[r#"
-            moon generate-test-driver --source-dir . --target-dir ./target --package moonbitlang/core/iter --sort-input --target wasm-gc --driver-kind internal --enable-coverage --mode test
+            moon generate-test-driver --source-dir . --target-dir ./target --package moonbitlang/core/prelude --sort-input --target wasm-gc --driver-kind internal --enable-coverage --mode test
             moonc build-package -o ./target/wasm-gc/debug/test/coverage/coverage.core -pkg moonbitlang/core/coverage -pkg-sources moonbitlang/core/coverage:./coverage -target wasm-gc -g -O0 -enable-coverage -coverage-package-override=@self
+            moonc build-package ./target/wasm-gc/debug/test/prelude/__generated_driver_for_internal_test.mbt -o ./target/wasm-gc/debug/test/prelude/prelude.internal_test.core -pkg moonbitlang/core/prelude -is-main -i ./target/wasm-gc/debug/test/coverage/coverage.mi:coverage -pkg-sources moonbitlang/core/prelude:./prelude -target wasm-gc -g -O0 -enable-coverage -no-mi
+            moonc link-core ./target/wasm-gc/debug/test/coverage/coverage.core ./target/wasm-gc/debug/test/prelude/prelude.internal_test.core -main moonbitlang/core/prelude -o ./target/wasm-gc/debug/test/prelude/prelude.internal_test.wasm -test-mode -pkg-config-path ./prelude/moon.pkg.json -pkg-sources moonbitlang/core/coverage:./coverage -pkg-sources moonbitlang/core/prelude:./prelude -exported_functions moonbit_test_driver_internal_execute,moonbit_test_driver_finish -target wasm-gc -g -O0
+            moon generate-test-driver --source-dir . --target-dir ./target --package moonbitlang/core/iter --sort-input --target wasm-gc --driver-kind internal --enable-coverage --mode test
             moonc build-package ./target/wasm-gc/debug/test/iter/__generated_driver_for_internal_test.mbt -o ./target/wasm-gc/debug/test/iter/iter.internal_test.core -pkg moonbitlang/core/iter -is-main -i ./target/wasm-gc/debug/test/coverage/coverage.mi:coverage -i ./target/wasm-gc/debug/test/coverage/coverage.mi:coverage -pkg-sources moonbitlang/core/iter:./iter -target wasm-gc -g -O0 -enable-coverage -no-mi
             moonc link-core ./target/wasm-gc/debug/test/coverage/coverage.core ./target/wasm-gc/debug/test/iter/iter.internal_test.core -main moonbitlang/core/iter -o ./target/wasm-gc/debug/test/iter/iter.internal_test.wasm -test-mode -pkg-config-path ./iter/moon.pkg.json -pkg-sources moonbitlang/core/coverage:./coverage -pkg-sources moonbitlang/core/iter:./iter -exported_functions moonbit_test_driver_internal_execute,moonbit_test_driver_finish -target wasm-gc -g -O0
             moon generate-test-driver --source-dir . --target-dir ./target --package moonbitlang/core/coverage --sort-input --target wasm-gc --driver-kind internal --enable-coverage --coverage-package-override=@self --mode test
@@ -3502,7 +3636,8 @@ fn test_dummy_core() {
             moonc build-package ./2/lib.mbt -o ./target/wasm-gc/release/bundle/2/2.core -pkg moonbitlang/core/2 -i ./target/wasm-gc/release/bundle/1/1.mi:1 -pkg-sources moonbitlang/core/2:./2 -target wasm-gc
             moonc build-package -o ./target/wasm-gc/release/bundle/char/char.core -pkg moonbitlang/core/char -i ./target/wasm-gc/release/bundle/coverage/coverage.mi:coverage -pkg-sources moonbitlang/core/char:./char -target wasm-gc
             moonc build-package -o ./target/wasm-gc/release/bundle/iter/iter.core -pkg moonbitlang/core/iter -i ./target/wasm-gc/release/bundle/coverage/coverage.mi:coverage -pkg-sources moonbitlang/core/iter:./iter -target wasm-gc
-            moonc bundle-core ./target/wasm-gc/release/bundle/0/0.core ./target/wasm-gc/release/bundle/1/1.core ./target/wasm-gc/release/bundle/2/2.core ./target/wasm-gc/release/bundle/coverage/coverage.core ./target/wasm-gc/release/bundle/char/char.core ./target/wasm-gc/release/bundle/iter/iter.core -o ./target/wasm-gc/release/bundle/core.core
+            moonc build-package -o ./target/wasm-gc/release/bundle/prelude/prelude.core -pkg moonbitlang/core/prelude -pkg-sources moonbitlang/core/prelude:./prelude -target wasm-gc
+            moonc bundle-core ./target/wasm-gc/release/bundle/0/0.core ./target/wasm-gc/release/bundle/1/1.core ./target/wasm-gc/release/bundle/2/2.core ./target/wasm-gc/release/bundle/coverage/coverage.core ./target/wasm-gc/release/bundle/char/char.core ./target/wasm-gc/release/bundle/iter/iter.core ./target/wasm-gc/release/bundle/prelude/prelude.core -o ./target/wasm-gc/release/bundle/core.core
         "#]],
     );
     check(
@@ -3517,7 +3652,8 @@ fn test_dummy_core() {
             moonc build-package ./2/lib.mbt -o ./target/wasm/release/bundle/2/2.core -pkg moonbitlang/core/2 -i ./target/wasm/release/bundle/1/1.mi:1 -pkg-sources moonbitlang/core/2:./2 -target wasm
             moonc build-package -o ./target/wasm/release/bundle/char/char.core -pkg moonbitlang/core/char -i ./target/wasm/release/bundle/coverage/coverage.mi:coverage -pkg-sources moonbitlang/core/char:./char -target wasm
             moonc build-package -o ./target/wasm/release/bundle/iter/iter.core -pkg moonbitlang/core/iter -i ./target/wasm/release/bundle/coverage/coverage.mi:coverage -pkg-sources moonbitlang/core/iter:./iter -target wasm
-            moonc bundle-core ./target/wasm/release/bundle/0/0.core ./target/wasm/release/bundle/1/1.core ./target/wasm/release/bundle/2/2.core ./target/wasm/release/bundle/coverage/coverage.core ./target/wasm/release/bundle/char/char.core ./target/wasm/release/bundle/iter/iter.core -o ./target/wasm/release/bundle/core.core
+            moonc build-package -o ./target/wasm/release/bundle/prelude/prelude.core -pkg moonbitlang/core/prelude -pkg-sources moonbitlang/core/prelude:./prelude -target wasm
+            moonc bundle-core ./target/wasm/release/bundle/0/0.core ./target/wasm/release/bundle/1/1.core ./target/wasm/release/bundle/2/2.core ./target/wasm/release/bundle/coverage/coverage.core ./target/wasm/release/bundle/char/char.core ./target/wasm/release/bundle/iter/iter.core ./target/wasm/release/bundle/prelude/prelude.core -o ./target/wasm/release/bundle/core.core
         "#]],
     );
     check(
@@ -3532,7 +3668,8 @@ fn test_dummy_core() {
             moonc build-package ./2/lib.mbt -o ./target/wasm-gc/release/bundle/2/2.core -pkg moonbitlang/core/2 -i ./target/wasm-gc/release/bundle/1/1.mi:1 -pkg-sources moonbitlang/core/2:./2 -target wasm-gc
             moonc build-package -o ./target/wasm-gc/release/bundle/char/char.core -pkg moonbitlang/core/char -i ./target/wasm-gc/release/bundle/coverage/coverage.mi:coverage -pkg-sources moonbitlang/core/char:./char -target wasm-gc
             moonc build-package -o ./target/wasm-gc/release/bundle/iter/iter.core -pkg moonbitlang/core/iter -i ./target/wasm-gc/release/bundle/coverage/coverage.mi:coverage -pkg-sources moonbitlang/core/iter:./iter -target wasm-gc
-            moonc bundle-core ./target/wasm-gc/release/bundle/0/0.core ./target/wasm-gc/release/bundle/1/1.core ./target/wasm-gc/release/bundle/2/2.core ./target/wasm-gc/release/bundle/coverage/coverage.core ./target/wasm-gc/release/bundle/char/char.core ./target/wasm-gc/release/bundle/iter/iter.core -o ./target/wasm-gc/release/bundle/core.core
+            moonc build-package -o ./target/wasm-gc/release/bundle/prelude/prelude.core -pkg moonbitlang/core/prelude -pkg-sources moonbitlang/core/prelude:./prelude -target wasm-gc
+            moonc bundle-core ./target/wasm-gc/release/bundle/0/0.core ./target/wasm-gc/release/bundle/1/1.core ./target/wasm-gc/release/bundle/2/2.core ./target/wasm-gc/release/bundle/coverage/coverage.core ./target/wasm-gc/release/bundle/char/char.core ./target/wasm-gc/release/bundle/iter/iter.core ./target/wasm-gc/release/bundle/prelude/prelude.core -o ./target/wasm-gc/release/bundle/core.core
         "#]],
     );
     check(
@@ -3547,7 +3684,8 @@ fn test_dummy_core() {
             moonc build-package ./2/lib.mbt -o ./target/js/release/bundle/2/2.core -pkg moonbitlang/core/2 -i ./target/js/release/bundle/1/1.mi:1 -pkg-sources moonbitlang/core/2:./2 -target js
             moonc build-package -o ./target/js/release/bundle/char/char.core -pkg moonbitlang/core/char -i ./target/js/release/bundle/coverage/coverage.mi:coverage -pkg-sources moonbitlang/core/char:./char -target js
             moonc build-package -o ./target/js/release/bundle/iter/iter.core -pkg moonbitlang/core/iter -i ./target/js/release/bundle/coverage/coverage.mi:coverage -pkg-sources moonbitlang/core/iter:./iter -target js
-            moonc bundle-core ./target/js/release/bundle/0/0.core ./target/js/release/bundle/1/1.core ./target/js/release/bundle/2/2.core ./target/js/release/bundle/coverage/coverage.core ./target/js/release/bundle/char/char.core ./target/js/release/bundle/iter/iter.core -o ./target/js/release/bundle/core.core
+            moonc build-package -o ./target/js/release/bundle/prelude/prelude.core -pkg moonbitlang/core/prelude -pkg-sources moonbitlang/core/prelude:./prelude -target js
+            moonc bundle-core ./target/js/release/bundle/0/0.core ./target/js/release/bundle/1/1.core ./target/js/release/bundle/2/2.core ./target/js/release/bundle/coverage/coverage.core ./target/js/release/bundle/char/char.core ./target/js/release/bundle/iter/iter.core ./target/js/release/bundle/prelude/prelude.core -o ./target/js/release/bundle/core.core
         "#]],
     );
     check(
@@ -3569,28 +3707,32 @@ fn test_dummy_core() {
             moonc build-package ./2/lib.mbt -o ./target/wasm/release/bundle/2/2.core -pkg moonbitlang/core/2 -i ./target/wasm/release/bundle/1/1.mi:1 -pkg-sources moonbitlang/core/2:./2 -target wasm
             moonc build-package -o ./target/wasm/release/bundle/char/char.core -pkg moonbitlang/core/char -i ./target/wasm/release/bundle/coverage/coverage.mi:coverage -pkg-sources moonbitlang/core/char:./char -target wasm
             moonc build-package -o ./target/wasm/release/bundle/iter/iter.core -pkg moonbitlang/core/iter -i ./target/wasm/release/bundle/coverage/coverage.mi:coverage -pkg-sources moonbitlang/core/iter:./iter -target wasm
-            moonc bundle-core ./target/wasm/release/bundle/0/0.core ./target/wasm/release/bundle/1/1.core ./target/wasm/release/bundle/2/2.core ./target/wasm/release/bundle/coverage/coverage.core ./target/wasm/release/bundle/char/char.core ./target/wasm/release/bundle/iter/iter.core -o ./target/wasm/release/bundle/core.core
+            moonc build-package -o ./target/wasm/release/bundle/prelude/prelude.core -pkg moonbitlang/core/prelude -pkg-sources moonbitlang/core/prelude:./prelude -target wasm
+            moonc bundle-core ./target/wasm/release/bundle/0/0.core ./target/wasm/release/bundle/1/1.core ./target/wasm/release/bundle/2/2.core ./target/wasm/release/bundle/coverage/coverage.core ./target/wasm/release/bundle/char/char.core ./target/wasm/release/bundle/iter/iter.core ./target/wasm/release/bundle/prelude/prelude.core -o ./target/wasm/release/bundle/core.core
             moonc build-package ./1/lib.mbt ./1/x.wasm-gc.mbt -o ./target/wasm-gc/release/bundle/1/1.core -pkg moonbitlang/core/1 -pkg-sources moonbitlang/core/1:./1 -target wasm-gc
             moonc build-package -o ./target/wasm-gc/release/bundle/coverage/coverage.core -pkg moonbitlang/core/coverage -pkg-sources moonbitlang/core/coverage:./coverage -target wasm-gc
             moonc build-package ./0/lib.mbt ./0/y.wasm-gc.mbt -o ./target/wasm-gc/release/bundle/0/0.core -pkg moonbitlang/core/0 -pkg-sources moonbitlang/core/0:./0 -target wasm-gc
             moonc build-package ./2/lib.mbt -o ./target/wasm-gc/release/bundle/2/2.core -pkg moonbitlang/core/2 -i ./target/wasm-gc/release/bundle/1/1.mi:1 -pkg-sources moonbitlang/core/2:./2 -target wasm-gc
             moonc build-package -o ./target/wasm-gc/release/bundle/char/char.core -pkg moonbitlang/core/char -i ./target/wasm-gc/release/bundle/coverage/coverage.mi:coverage -pkg-sources moonbitlang/core/char:./char -target wasm-gc
             moonc build-package -o ./target/wasm-gc/release/bundle/iter/iter.core -pkg moonbitlang/core/iter -i ./target/wasm-gc/release/bundle/coverage/coverage.mi:coverage -pkg-sources moonbitlang/core/iter:./iter -target wasm-gc
-            moonc bundle-core ./target/wasm-gc/release/bundle/0/0.core ./target/wasm-gc/release/bundle/1/1.core ./target/wasm-gc/release/bundle/2/2.core ./target/wasm-gc/release/bundle/coverage/coverage.core ./target/wasm-gc/release/bundle/char/char.core ./target/wasm-gc/release/bundle/iter/iter.core -o ./target/wasm-gc/release/bundle/core.core
+            moonc build-package -o ./target/wasm-gc/release/bundle/prelude/prelude.core -pkg moonbitlang/core/prelude -pkg-sources moonbitlang/core/prelude:./prelude -target wasm-gc
+            moonc bundle-core ./target/wasm-gc/release/bundle/0/0.core ./target/wasm-gc/release/bundle/1/1.core ./target/wasm-gc/release/bundle/2/2.core ./target/wasm-gc/release/bundle/coverage/coverage.core ./target/wasm-gc/release/bundle/char/char.core ./target/wasm-gc/release/bundle/iter/iter.core ./target/wasm-gc/release/bundle/prelude/prelude.core -o ./target/wasm-gc/release/bundle/core.core
             moonc build-package ./1/lib.mbt ./1/x.js.mbt -o ./target/js/release/bundle/1/1.core -pkg moonbitlang/core/1 -pkg-sources moonbitlang/core/1:./1 -target js
             moonc build-package -o ./target/js/release/bundle/coverage/coverage.core -pkg moonbitlang/core/coverage -pkg-sources moonbitlang/core/coverage:./coverage -target js
             moonc build-package ./0/lib.mbt ./0/y.js.mbt -o ./target/js/release/bundle/0/0.core -pkg moonbitlang/core/0 -pkg-sources moonbitlang/core/0:./0 -target js
             moonc build-package ./2/lib.mbt -o ./target/js/release/bundle/2/2.core -pkg moonbitlang/core/2 -i ./target/js/release/bundle/1/1.mi:1 -pkg-sources moonbitlang/core/2:./2 -target js
             moonc build-package -o ./target/js/release/bundle/char/char.core -pkg moonbitlang/core/char -i ./target/js/release/bundle/coverage/coverage.mi:coverage -pkg-sources moonbitlang/core/char:./char -target js
             moonc build-package -o ./target/js/release/bundle/iter/iter.core -pkg moonbitlang/core/iter -i ./target/js/release/bundle/coverage/coverage.mi:coverage -pkg-sources moonbitlang/core/iter:./iter -target js
-            moonc bundle-core ./target/js/release/bundle/0/0.core ./target/js/release/bundle/1/1.core ./target/js/release/bundle/2/2.core ./target/js/release/bundle/coverage/coverage.core ./target/js/release/bundle/char/char.core ./target/js/release/bundle/iter/iter.core -o ./target/js/release/bundle/core.core
+            moonc build-package -o ./target/js/release/bundle/prelude/prelude.core -pkg moonbitlang/core/prelude -pkg-sources moonbitlang/core/prelude:./prelude -target js
+            moonc bundle-core ./target/js/release/bundle/0/0.core ./target/js/release/bundle/1/1.core ./target/js/release/bundle/2/2.core ./target/js/release/bundle/coverage/coverage.core ./target/js/release/bundle/char/char.core ./target/js/release/bundle/iter/iter.core ./target/js/release/bundle/prelude/prelude.core -o ./target/js/release/bundle/core.core
             moonc build-package ./1/lib.mbt -o ./target/native/release/bundle/1/1.core -pkg moonbitlang/core/1 -pkg-sources moonbitlang/core/1:./1 -target native
             moonc build-package -o ./target/native/release/bundle/coverage/coverage.core -pkg moonbitlang/core/coverage -pkg-sources moonbitlang/core/coverage:./coverage -target native
             moonc build-package ./0/lib.mbt -o ./target/native/release/bundle/0/0.core -pkg moonbitlang/core/0 -pkg-sources moonbitlang/core/0:./0 -target native
             moonc build-package ./2/lib.mbt -o ./target/native/release/bundle/2/2.core -pkg moonbitlang/core/2 -i ./target/native/release/bundle/1/1.mi:1 -pkg-sources moonbitlang/core/2:./2 -target native
             moonc build-package -o ./target/native/release/bundle/char/char.core -pkg moonbitlang/core/char -i ./target/native/release/bundle/coverage/coverage.mi:coverage -pkg-sources moonbitlang/core/char:./char -target native
             moonc build-package -o ./target/native/release/bundle/iter/iter.core -pkg moonbitlang/core/iter -i ./target/native/release/bundle/coverage/coverage.mi:coverage -pkg-sources moonbitlang/core/iter:./iter -target native
-            moonc bundle-core ./target/native/release/bundle/0/0.core ./target/native/release/bundle/1/1.core ./target/native/release/bundle/2/2.core ./target/native/release/bundle/coverage/coverage.core ./target/native/release/bundle/char/char.core ./target/native/release/bundle/iter/iter.core -o ./target/native/release/bundle/core.core
+            moonc build-package -o ./target/native/release/bundle/prelude/prelude.core -pkg moonbitlang/core/prelude -pkg-sources moonbitlang/core/prelude:./prelude -target native
+            moonc bundle-core ./target/native/release/bundle/0/0.core ./target/native/release/bundle/1/1.core ./target/native/release/bundle/2/2.core ./target/native/release/bundle/coverage/coverage.core ./target/native/release/bundle/char/char.core ./target/native/release/bundle/iter/iter.core ./target/native/release/bundle/prelude/prelude.core -o ./target/native/release/bundle/core.core
         "#]],
     );
 }
@@ -5593,15 +5735,22 @@ fn test_blackbox_failed() {
 #[test]
 fn test_blackbox_test_core_override() {
     let dir = TestDir::new("blackbox_test_core_override.in");
-    let output = get_stdout(&dir, ["test", "--enable-coverage", "--dry-run"]);
+    let output = get_stdout(
+        &dir,
+        ["test", "--enable-coverage", "--dry-run", "--sort-input"],
+    );
     check(
         &output,
         expect![[r#"
-            moon generate-test-driver --source-dir . --target-dir ./target --package moonbitlang/core/builtin --target wasm-gc --driver-kind blackbox --enable-coverage --coverage-package-override=@self --mode test
+            moon generate-test-driver --source-dir . --target-dir ./target --package moonbitlang/core/prelude --sort-input --target wasm-gc --driver-kind internal --enable-coverage --mode test
+            moonc build-package ./target/wasm-gc/debug/test/prelude/__generated_driver_for_internal_test.mbt -o ./target/wasm-gc/debug/test/prelude/prelude.internal_test.core -pkg moonbitlang/core/prelude -is-main -pkg-sources moonbitlang/core/prelude:./prelude -target wasm-gc -g -O0 -enable-coverage -no-mi
+            moonc link-core ./target/wasm-gc/debug/test/prelude/prelude.internal_test.core -main moonbitlang/core/prelude -o ./target/wasm-gc/debug/test/prelude/prelude.internal_test.wasm -test-mode -pkg-config-path ./prelude/moon.pkg.json -pkg-sources moonbitlang/core/prelude:./prelude -exported_functions moonbit_test_driver_internal_execute,moonbit_test_driver_finish -target wasm-gc -g -O0
+            moon generate-test-driver --source-dir . --target-dir ./target --package moonbitlang/core/builtin --sort-input --target wasm-gc --driver-kind blackbox --enable-coverage --coverage-package-override=@self --mode test
             moonc build-package ./builtin/main.mbt -o ./target/wasm-gc/debug/test/builtin/builtin.core -pkg moonbitlang/core/builtin -pkg-sources moonbitlang/core/builtin:./builtin -target wasm-gc -g -O0 -enable-coverage -coverage-package-override=@self
-            moonc build-package ./builtin/main_test.mbt ./target/wasm-gc/debug/test/builtin/__generated_driver_for_blackbox_test.mbt -o ./target/wasm-gc/debug/test/builtin/builtin.blackbox_test.core -pkg moonbitlang/core/builtin_blackbox_test -is-main -i ./target/wasm-gc/debug/test/builtin/builtin.mi:builtin -pkg-sources moonbitlang/core/builtin_blackbox_test:./builtin -target wasm-gc -g -O0 -enable-coverage -coverage-package-override=moonbitlang/core/builtin -blackbox-test -no-mi
-            moonc link-core ./target/wasm-gc/debug/test/builtin/builtin.core ./target/wasm-gc/debug/test/builtin/builtin.blackbox_test.core -main moonbitlang/core/builtin_blackbox_test -o ./target/wasm-gc/debug/test/builtin/builtin.blackbox_test.wasm -test-mode -pkg-config-path ./builtin/moon.pkg.json -pkg-sources moonbitlang/core/builtin:./builtin -pkg-sources moonbitlang/core/builtin_blackbox_test:./builtin -exported_functions moonbit_test_driver_internal_execute,moonbit_test_driver_finish -target wasm-gc -g -O0
-            moon generate-test-driver --source-dir . --target-dir ./target --package moonbitlang/core/builtin --target wasm-gc --driver-kind internal --enable-coverage --coverage-package-override=@self --mode test
+            moonc build-package -o ./target/wasm-gc/debug/test/prelude/prelude.core -pkg moonbitlang/core/prelude -pkg-sources moonbitlang/core/prelude:./prelude -target wasm-gc -g -O0 -enable-coverage
+            moonc build-package ./builtin/main_test.mbt ./target/wasm-gc/debug/test/builtin/__generated_driver_for_blackbox_test.mbt -o ./target/wasm-gc/debug/test/builtin/builtin.blackbox_test.core -pkg moonbitlang/core/builtin_blackbox_test -is-main -i ./target/wasm-gc/debug/test/builtin/builtin.mi:builtin -i ./target/wasm-gc/debug/test/prelude/prelude.mi:prelude -pkg-sources moonbitlang/core/builtin_blackbox_test:./builtin -target wasm-gc -g -O0 -enable-coverage -coverage-package-override=moonbitlang/core/builtin -blackbox-test -no-mi
+            moonc link-core ./target/wasm-gc/debug/test/prelude/prelude.core ./target/wasm-gc/debug/test/builtin/builtin.core ./target/wasm-gc/debug/test/builtin/builtin.blackbox_test.core -main moonbitlang/core/builtin_blackbox_test -o ./target/wasm-gc/debug/test/builtin/builtin.blackbox_test.wasm -test-mode -pkg-config-path ./builtin/moon.pkg.json -pkg-sources moonbitlang/core/prelude:./prelude -pkg-sources moonbitlang/core/builtin:./builtin -pkg-sources moonbitlang/core/builtin_blackbox_test:./builtin -exported_functions moonbit_test_driver_internal_execute,moonbit_test_driver_finish -target wasm-gc -g -O0
+            moon generate-test-driver --source-dir . --target-dir ./target --package moonbitlang/core/builtin --sort-input --target wasm-gc --driver-kind internal --enable-coverage --coverage-package-override=@self --mode test
             moonc build-package ./builtin/main.mbt ./target/wasm-gc/debug/test/builtin/__generated_driver_for_internal_test.mbt -o ./target/wasm-gc/debug/test/builtin/builtin.internal_test.core -pkg moonbitlang/core/builtin -is-main -pkg-sources moonbitlang/core/builtin:./builtin -target wasm-gc -g -O0 -enable-coverage -coverage-package-override=@self -no-mi
             moonc link-core ./target/wasm-gc/debug/test/builtin/builtin.internal_test.core -main moonbitlang/core/builtin -o ./target/wasm-gc/debug/test/builtin/builtin.internal_test.wasm -test-mode -pkg-config-path ./builtin/moon.pkg.json -pkg-sources moonbitlang/core/builtin:./builtin -exported_functions moonbit_test_driver_internal_execute,moonbit_test_driver_finish -target wasm-gc -g -O0
         "#]],
