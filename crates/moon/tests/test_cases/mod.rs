@@ -1029,6 +1029,138 @@ fn test_moon_bench() {
 }
 
 #[test]
+fn moon_bench_parallelize_should_success() {
+    let dir = TestDir::new("moon_bench.in");
+
+    let output = get_stdout(&dir, ["bench", "--target", "all", "--sort-input"]);
+
+    assert!(!output.contains("bench moonbench/lib/hello_bench.mbt::non-bench"));
+    assert!(output.contains("bench moonbench/lib/hello_bench.mbt::bench"));
+    assert!(output.contains("bench moonbench/lib/hello_bench.mbt::bench: naive fib"));
+    assert!(output.contains("time "));
+    assert!(output.contains("range "));
+}
+
+#[test]
+fn moon_bench_native_parallelize_should_success() {
+    let dir = TestDir::new("moon_bench.in");
+
+    let output = get_stdout(&dir, ["bench", "--target", "native", "--sort-input"]);
+
+    assert!(!output.contains("bench moonbench/lib/hello_bench.mbt::non-bench"));
+    assert!(output.contains("bench moonbench/lib/hello_bench.mbt::bench"));
+    assert!(output.contains("bench moonbench/lib/hello_bench.mbt::bench: naive fib"));
+    assert!(output.contains("time "));
+    assert!(output.contains("range "));
+}
+
+#[test]
+fn moon_test_on_bench_prefixed() {
+    let dir = TestDir::new("moon_bench.in");
+
+    check(
+        get_stdout(
+            &dir,
+            [
+                "test",
+                "--target",
+                "js",
+                "--sort-input",
+                "--no-parallelize",
+                "-p",
+                "moonbench/lib",
+                "-f",
+                "hello_bench.mbt",
+                "-i",
+                "0",
+            ],
+        ),
+        expect!([r#"
+            Total tests: 0, passed: 0, failed: 0.
+        "#]),
+    );
+}
+
+#[test]
+fn moon_bench_on_non_bench_prefixed() {
+    let dir = TestDir::new("moon_bench.in");
+
+    check(
+        get_stdout(
+            &dir,
+            [
+                "bench",
+                "--target",
+                "js",
+                "--sort-input",
+                "--serial",
+                "-p",
+                "moonbench/lib",
+                "-f",
+                "hello_bench.mbt",
+                "-i",
+                "1",
+            ],
+        ),
+        expect!([r#"
+        Total tests: 0, passed: 0, failed: 0.
+    "#]),
+    );
+}
+
+#[test]
+fn moon_bench_on_no_args_test() {
+    let dir = TestDir::new("moon_bench.in");
+
+    check(
+        get_stdout(
+            &dir,
+            [
+                "bench",
+                "--target",
+                "js",
+                "--sort-input",
+                "--serial",
+                "-p",
+                "moonbench/lib",
+                "-f",
+                "hello_bench.mbt",
+                "-i",
+                "4",
+            ],
+        ),
+        expect!([r#"
+            Total tests: 0, passed: 0, failed: 0.
+        "#]),
+    )
+}
+
+#[test]
+fn moon_bench_filter_bench() {
+    let dir = TestDir::new("moon_bench.in");
+
+    let output = get_stdout(
+        &dir,
+        [
+            "bench",
+            "--target",
+            "all",
+            "--sort-input",
+            "--serial",
+            "-p",
+            "moonbench/lib",
+            "-f",
+            "hello_bench.mbt",
+            "-i",
+            "3",
+        ],
+    );
+    assert!(output.contains("bench moonbench/lib/hello_bench.mbt::bench: naive fib"));
+    assert!(output.contains("time "));
+    assert!(output.contains("range "));
+}
+
+#[test]
 fn test_moon_test_filter_package() {
     let dir = TestDir::new("test_filter.in");
 
