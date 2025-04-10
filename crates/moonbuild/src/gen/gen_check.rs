@@ -290,14 +290,18 @@ fn pkg_with_test_to_check_item(
         is_third_party: pkg.is_third_party,
         is_whitebox_test: false,
         is_blackbox_test: true,
-        patch_file: pkg.patch_file.as_ref().and_then(|p| {
-            p.file_stem()
-                .unwrap()
-                .to_str()
-                .unwrap()
-                .ends_with("_test")
-                .then_some(p.clone())
-        }),
+        patch_file: pkg
+            .patch_file
+            .as_ref()
+            .and_then(|p| {
+                p.file_stem()
+                    .unwrap()
+                    .to_str()
+                    .unwrap()
+                    .ends_with("_test")
+                    .then_some(p.clone())
+            })
+            .or(pkg.doc_test_patch_file.clone()),
         no_mi: pkg.no_mi,
     })
 }

@@ -9664,20 +9664,35 @@ fn test_run_md_test() {
     let dir = TestDir::new("run_md_test.in");
 
     check(
+        get_stderr(&dir, ["check", "--sort-input"]),
+        expect![[r#"
+            Warning: [1002]
+                ╭─[$ROOT/src/lib/1.mbt.md:20:13]
+                │
+             20 │         let a = 1
+                │             ┬  
+                │             ╰── Warning: Unused variable 'a'
+            ────╯
+            Finished. moon: ran 3 tasks, now up to date
+        "#]],
+    );
+
+    check(
         get_err_stdout(&dir, ["test", "--md", "--sort-input"]),
         expect![[r#"
+            hello from hello_test.mbt
             Hello, world 1!
             Hello, world 3!
             Hello, world 2!
             test username/hello/lib/1.mbt.md::2 failed
-            expect test failed at $ROOT/src/lib/1.mbt.md:21:11-21:27
+            expect test failed at $ROOT/src/lib/1.mbt.md:22:11-22:27
             Diff:
             ----
             4234
             ----
 
-            test username/hello/lib/1.mbt.md::md_test 1.mbt.md 29 10 failed
-            expect test failed at $ROOT/src/lib/1.mbt.md:38:3-38:14
+            test username/hello/lib/1.mbt.md::md_test 1.mbt.md 30 10 failed
+            expect test failed at $ROOT/src/lib/1.mbt.md:39:3-39:14
             Diff:
             ----
              all
@@ -9717,6 +9732,7 @@ fn test_run_md_test() {
     check(
         get_stdout(&dir, ["test", "--md", "--update", "--sort-input"]),
         expect![[r#"
+            hello from hello_test.mbt
             Hello, world 1!
             Hello, world 3!
             Hello, world 2!
