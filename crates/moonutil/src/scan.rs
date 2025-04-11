@@ -146,12 +146,13 @@ fn workaround_builtin_get_coverage_mbt_file_paths(dir: &Path, paths: &mut Vec<Pa
 }
 
 fn scan_module_packages(
+    packages: &mut IndexMap<String, Package>,
     env: &ScanPaths,
     is_third_party: bool,
     doc_mode: bool,
     moonbuild_opt: &crate::common::MoonbuildOpt,
     moonc_opt: &crate::common::MooncOpt,
-) -> anyhow::Result<IndexMap<String, Package>> {
+) -> anyhow::Result<()> {
     let (module_source_dir, target_dir) = (&moonbuild_opt.source_dir, &moonbuild_opt.target_dir);
 
     let mod_desc = read_module_desc_file_in_dir(module_source_dir)?;
@@ -167,7 +168,6 @@ fn scan_module_packages(
             })?
         }
     };
-    let mut packages: IndexMap<String, Package> = IndexMap::new();
 
     // scan local packages
     let mut walker = WalkDir::new(&module_source_dir)
@@ -214,10 +214,27 @@ fn scan_module_packages(
                 doc_mode,
             )?;
 
-            packages.insert(cur_pkg.full_name(), cur_pkg);
+            match packages.entry(cur_pkg.full_name()) {
+                indexmap::map::Entry::Occupied(occupied_entry) => {
+                    let existing = occupied_entry.get();
+                    anyhow::bail!(
+                        "Ambiguous package name: {}\nCandidates:\n  {} in {} ({})\n  {} in {} ({})",
+                        cur_pkg.full_name(),
+                        cur_pkg.rel.full_name(),
+                        cur_pkg.root.full_name(),
+                        cur_pkg.root_path.display(),
+                        existing.rel.full_name(),
+                        existing.root.full_name(),
+                        existing.root_path.display()
+                    )
+                }
+                indexmap::map::Entry::Vacant(vacant_entry) => {
+                    vacant_entry.insert(cur_pkg);
+                }
+            }
         }
     }
-    Ok(packages)
+    Ok(())
 }
 
 #[allow(clippy::too_many_arguments)] // FIXME
@@ -473,7 +490,9 @@ pub fn scan(
 
     let module_scan_paths = adapt_modules_into_scan_paths(resolved_modules, module_paths);
 
-    let mut packages = scan_module_packages(
+    let mut packages = IndexMap::new();
+    scan_module_packages(
+        &mut packages,
         &module_scan_paths,
         false,
         doc_mode,
@@ -494,16 +513,19 @@ pub fn scan(
             ..moonbuild_opt.clone()
         };
 
-        let third_packages =
-            scan_module_packages(&module_scan_paths, true, doc_mode, moonbuild_opt, moonc_opt)?;
-        packages.extend(third_packages);
+        scan_module_packages(
+            &mut packages,
+            &module_scan_paths,
+            true,
+            doc_mode,
+            moonbuild_opt,
+            moonc_opt,
+        )?;
     }
 
     let sort_input = moonbuild_opt.sort_input;
     if sort_input {
-        let mut xs: Vec<(String, Package)> = packages.into_iter().collect();
-        xs.sort_by(|a, b| a.0.cmp(&b.0));
-        packages = xs.into_iter().collect();
+        packages.sort_unstable_keys();
     }
 
     let mut graph = DiGraph::<String, usize>::new();
