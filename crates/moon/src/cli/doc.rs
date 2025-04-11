@@ -139,14 +139,6 @@ pub fn run_doc(cli: UniversalFlags, cmd: DocSubcommand) -> anyhow::Result<i32> {
         return Ok(0);
     }
     moonbuild::entry::run_check(&moonc_opt, &moonbuild_opt, &module)?;
-    let _ = scan_with_x_build(
-        false,
-        &moonc_opt,
-        &moonbuild_opt,
-        &resolved_env,
-        &dir_sync_result,
-        &PrePostBuild::PostBuild,
-    );
     let output = std::process::Command::new("moondoc").args(&args).output()?;
     if output.status.code().unwrap() != 0 {
         eprintln!("{}", String::from_utf8_lossy(&output.stderr));

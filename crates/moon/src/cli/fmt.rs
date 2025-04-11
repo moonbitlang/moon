@@ -100,14 +100,6 @@ pub fn run_fmt(cli: &UniversalFlags, cmd: FmtSubcommand) -> anyhow::Result<i32> 
     if cli.dry_run {
         return dry_run::print_commands(&module, &moonc_opt, &moonbuild_opt);
     }
-    let res = moonbuild::entry::run_fmt(&module, &moonc_opt, &moonbuild_opt);
-    let _ = scan_with_x_build(
-        false,
-        &moonc_opt,
-        &moonbuild_opt,
-        &resolved_env,
-        &dir_sync_result,
-        &PrePostBuild::PostBuild,
-    );
-    res
+
+    moonbuild::entry::run_fmt(&module, &moonc_opt, &moonbuild_opt)
 }
