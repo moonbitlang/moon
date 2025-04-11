@@ -10056,6 +10056,19 @@ fn test_postadd_script() {
     let dir = TestDir::new("test_postadd_script.in");
     let output = get_stdout(&dir, ["add", "lijunchen/test_postadd"]);
     assert!(output.contains(".mooncakes/lijunchen/test_postadd"));
+
+    let _ = get_stdout(&dir, ["remove", "lijunchen/test_postadd"]);
+
+    let out = std::process::Command::new(moon_bin())
+        .current_dir(&dir)
+        .env("MOON_IGNORE_POSTADD", "1")
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .args(["add", "lijunchen/test_postadd"])
+        .output()
+        .unwrap();
+    let out = String::from_utf8(out.stderr).unwrap();
+    assert!(!out.contains(".mooncakes/lijunchen/test_postadd"));
 }
 
 #[test]
