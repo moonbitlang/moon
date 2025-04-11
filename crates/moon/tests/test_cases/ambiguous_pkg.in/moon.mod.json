@@ -1,0 +1,15 @@
+{
+  "name": "my/name",
+  "version": "0.1.0",
+  "readme": "README.md",
+  "repository": "",
+  "license": "",
+  "keywords": [],
+  "description": "",
+  "source": "src",
+  "deps": {
+    "my/name/is": {
+      "path": "./deps/ambiguous"
+    }
+  }
+}
