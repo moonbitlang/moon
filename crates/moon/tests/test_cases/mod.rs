@@ -10057,3 +10057,17 @@ fn test_postadd_script() {
     let output = get_stdout(&dir, ["add", "lijunchen/test_postadd"]);
     assert!(output.contains(".mooncakes/lijunchen/test_postadd"));
 }
+
+#[test]
+fn test_ambiguous_pkg() {
+    let dir = TestDir::new("ambiguous_pkg.in");
+    check(
+        get_err_stderr(&dir, ["build"]),
+        expect![[r#"
+            error: Ambiguous package name: my/name/is/ambiguous
+            Candidates:
+              ambiguous in my/name/is ($ROOT/deps/ambiguous/src/ambiguous)
+              is/ambiguous in my/name ($ROOT/src/is/ambiguous)
+        "#]],
+    );
+}
