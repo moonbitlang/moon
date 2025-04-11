@@ -1020,6 +1020,9 @@ impl PrePostBuild {
 }
 
 pub fn execute_postadd_script(dir: &Path) -> anyhow::Result<()> {
+    if std::env::var("MOON_IGNORE_POSTADD").is_ok() {
+        return Ok(());
+    }
     let m = read_module_desc_file_in_dir(dir)?;
     if let Some(scripts) = &m.scripts {
         if scripts.contains_key("postadd") {
