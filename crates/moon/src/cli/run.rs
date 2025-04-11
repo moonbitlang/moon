@@ -375,14 +375,6 @@ pub fn run_run_internal(cli: &UniversalFlags, cmd: RunSubcommand) -> anyhow::Res
     if trace_flag {
         trace::open("trace.json").context("failed to open `trace.json`")?;
     }
-    let _ = scan_with_x_build(
-        false,
-        &moonc_opt,
-        &moonbuild_opt,
-        &resolved_env,
-        &dir_sync_result,
-        &PrePostBuild::PostBuild,
-    );
     let result = entry::run_run(
         &package_path,
         &moonc_opt,

@@ -225,14 +225,6 @@ fn run_build_internal(
     if trace_flag {
         trace::close();
     }
-    let _ = scan_with_x_build(
-        false,
-        &moonc_opt,
-        &moonbuild_opt,
-        &resolved_env,
-        &dir_sync_result,
-        &PrePostBuild::PostBuild,
-    );
     if let (Ok(_), true) = (res.as_ref(), cmd.show_artifacts) {
         // can't use HashMap because the order of the packages is not guaranteed
         // can't use IndexMap because moonc cannot handled ordered map

@@ -270,15 +270,6 @@ pub fn generate_test_driver(
         std::fs::write(&generated_file, generated_content)?;
     }
 
-    let _ = scan_with_x_build(
-        false,
-        &moonc_opt,
-        &moonbuild_opt,
-        &resolved_env,
-        &dir_sync_result,
-        &PrePostBuild::PostBuild,
-    );
-
     Ok(0)
 }
 

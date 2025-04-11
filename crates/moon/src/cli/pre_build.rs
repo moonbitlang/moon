@@ -45,11 +45,6 @@ pub fn scan_with_x_build(
                 return Ok(module);
             }
         }
-        PrePostBuild::PostBuild => {
-            if !module.contain_post_build() {
-                return Ok(module);
-            }
-        }
     }
     run_x_build(
         moonc_opt,

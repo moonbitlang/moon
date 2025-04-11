@@ -324,16 +324,6 @@ pub fn run_info_internal(
 
     // `try_join_all` will return immediately if anyone task fail
     runtime.block_on(try_join_all(handlers))?;
-
-    let _ = scan_with_x_build(
-        false,
-        &moonc_opt,
-        &moonbuild_opt,
-        &resolved_env,
-        &dir_sync_result,
-        &PrePostBuild::PostBuild,
-    );
-
     let mbti_files = mbti_files.lock().unwrap().clone();
     Ok(mbti_files)
 }

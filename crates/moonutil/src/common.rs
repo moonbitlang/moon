@@ -1005,14 +1005,12 @@ pub fn set_native_backend_link_flags(
 
 pub enum PrePostBuild {
     PreBuild,
-    PostBuild,
 }
 
 impl PrePostBuild {
     pub fn name(&self) -> String {
         match self {
             PrePostBuild::PreBuild => "pre-build".into(),
-            PrePostBuild::PostBuild => "post-build".into(),
         }
     }
 

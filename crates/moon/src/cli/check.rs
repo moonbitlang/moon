@@ -257,15 +257,6 @@ fn run_check_internal(
         }
     };
 
-    let _ = scan_with_x_build(
-        false,
-        &moonc_opt,
-        &moonbuild_opt,
-        &resolved_env,
-        &dir_sync_result,
-        &PrePostBuild::PostBuild,
-    );
-
     if cli.trace {
         trace::close();
     }

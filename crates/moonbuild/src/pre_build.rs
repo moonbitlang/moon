@@ -44,7 +44,6 @@ pub fn load_moon_x_build(
         }
         let xbuild = match build_type {
             PrePostBuild::PreBuild => &pkg.pre_build,
-            PrePostBuild::PostBuild => &pkg.post_build,
         };
         if let Some(generate) = xbuild {
             for rule in generate {
