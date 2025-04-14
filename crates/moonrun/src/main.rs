@@ -27,6 +27,7 @@ mod fs_api_temp;
 mod js;
 mod sys_api;
 mod util;
+mod wasmoo_extern;
 
 use rand::rngs::StdRng;
 use rand::Rng;
