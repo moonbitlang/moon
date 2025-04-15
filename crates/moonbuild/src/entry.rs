@@ -1104,11 +1104,8 @@ async fn handle_test_result(
                         _ => &[origin_err.message.clone()],
                     };
 
-                    if let Err(e) = crate::expect::apply_expect(
-                        update_msg,
-                        origin_err.is_doc_test,
-                        origin_err.is_md_test,
-                    ) {
+                    if let Err(e) = crate::expect::apply_expect(update_msg, origin_err.is_doc_test)
+                    {
                         eprintln!("{}: {:?}", "apply expect failed".red().bold(), e);
                     }
                     // if is doc test, after apply_expect, we need to update the doc test patch file
@@ -1159,7 +1156,6 @@ async fn handle_test_result(
                         if let Err(e) = crate::expect::apply_expect(
                             &[etf.message.clone()],
                             origin_err.is_doc_test,
-                            origin_err.is_md_test,
                         ) {
                             eprintln!("{}: {:?}", "failed".red().bold(), e);
                             break;
