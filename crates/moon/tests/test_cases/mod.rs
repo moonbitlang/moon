@@ -9605,11 +9605,11 @@ fn test_run_md_test() {
         get_stderr(&dir, ["check", "--sort-input"]),
         expect![[r#"
             Warning: [1002]
-                ╭─[$ROOT/src/lib/1.mbt.md:20:13]
+                ╭─[$ROOT/src/lib/1.mbt.md:24:9]
                 │
-             20 │         let a = 1
-                │             ┬  
-                │             ╰── Warning: Unused variable 'a'
+             24 │     let a = 1
+                │         ┬  
+                │         ╰── Warning: Unused variable 'a'
             ────╯
             Finished. moon: ran 3 tasks, now up to date
         "#]],
@@ -9623,14 +9623,14 @@ fn test_run_md_test() {
             Hello, world 3!
             Hello, world 2!
             test username/hello/lib/1.mbt.md::2 failed
-            expect test failed at $ROOT/src/lib/1.mbt.md:22:11-22:27
+            expect test failed at $ROOT/src/lib/1.mbt.md:26:5-26:21
             Diff:
             ----
             4234
             ----
 
-            test username/hello/lib/1.mbt.md::md_test 1.mbt.md 30 10 failed
-            expect test failed at $ROOT/src/lib/1.mbt.md:39:3-39:14
+            test username/hello/lib/1.mbt.md::3 failed
+            expect test failed at $ROOT/src/lib/1.mbt.md:43:5-43:16
             Diff:
             ----
              all

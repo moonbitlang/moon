@@ -158,46 +158,17 @@ impl PatchJSON {
             let mut current_line = 1;
             let mut content = String::new();
             for md_test in doc_test_in_md_file {
-                let test_name = format!(
-                    "{} {} {} {}",
-                    "md_test", md_test.file_name, md_test.line_number, md_test.line_count
-                );
-
-                let already_wrapped = md_test
-                    .content
-                    .lines()
-                    .any(|line| line.trim_start().starts_with("test"));
-
                 let processed_content = md_test
                     .content
                     .as_str()
                     .lines()
-                    .map(|line| {
-                        if already_wrapped {
-                            let remove_slash = line.trim_start().to_string();
-                            if remove_slash.starts_with("test") || remove_slash.starts_with("}") {
-                                remove_slash
-                            } else {
-                                format!("  {}", line).to_string()
-                            }
-                        } else {
-                            format!("  {}", line).to_string()
-                        }
-                    })
                     .collect::<Vec<_>>()
                     .join("\n");
 
                 let start_line_number = md_test.line_number;
                 let empty_lines = "\n".repeat(start_line_number - current_line);
 
-                if already_wrapped {
-                    content.push_str(&format!("\n{}{}\n", empty_lines, processed_content));
-                } else {
-                    content.push_str(&format!(
-                        "{}test \"{}\" {{\n{}\n}}",
-                        empty_lines, test_name, processed_content
-                    ));
-                }
+                content.push_str(&format!("\n{}{}\n", empty_lines, processed_content));
 
                 // +1 for the }
                 current_line = start_line_number + md_test.line_count + 1;

@@ -425,12 +425,10 @@ fn parse_loc(loc: &str) -> anyhow::Result<Location> {
     if parts.len() != 4 {
         anyhow::bail!("invalid location: {}", rloc);
     }
-    // loc: "/path/to/README.md:101:13-101:24"
-    let is_md_test = loc.contains(".md:");
     let line_start = parts[0].parse::<u32>()? - 1;
-    let col_start = parts[1].parse::<u32>()? - if is_md_test { 3 } else { 1 };
+    let col_start = parts[1].parse::<u32>()? - 1;
     let line_end = parts[2].parse::<u32>()? - 1;
-    let col_end = parts[3].parse::<u32>()? - if is_md_test { 3 } else { 1 };
+    let col_end = parts[3].parse::<u32>()? - 1;
     Ok(Location {
         raw: loc.to_string(),
         line_start,
@@ -598,10 +596,9 @@ fn push_multi_line_string(
     prev_char: Option<&char>,
     next_char: Option<&char>,
     is_doc_test: bool,
-    is_md_test: bool,
 ) {
     let content = push_multi_line_string_internal(spaces, s, prev_char, next_char);
-    if !is_doc_test && !is_md_test {
+    if !is_doc_test {
         output.push_str(&content);
     } else {
         let lines: Vec<&str> = content.split('\n').collect();
@@ -611,16 +608,10 @@ fn push_multi_line_string(
         for (i, line) in lines.iter().enumerate() {
             if line.trim().starts_with("#|") || line.trim().starts_with("$|") {
                 let spaces = if i == 0 { 2 } else { 0 };
-                if is_doc_test {
-                    output.push_str(&format!("/// {}{}\n", " ".repeat(spaces).as_str(), line));
-                } else {
-                    output.push_str(&format!("{}{}\n", " ".repeat(spaces).as_str(), line));
-                }
+                output.push_str(&format!("/// {}{}\n", " ".repeat(spaces).as_str(), line));
             }
         }
-        if is_doc_test {
-            output.push_str("/// ");
-        }
+        output.push_str("/// ");
     }
 }
 
@@ -680,7 +671,7 @@ fn push_multi_line_string_internal(
     output
 }
 
-fn apply_patch(pp: &PackagePatch, is_doc_test: bool, is_md_test: bool) -> anyhow::Result<()> {
+fn apply_patch(pp: &PackagePatch, is_doc_test: bool) -> anyhow::Result<()> {
     for (filename, patches) in pp.patches.iter() {
         let content = std::fs::read_to_string(filename)?;
         // TODO: share content_chars with gen_patch
@@ -725,7 +716,7 @@ fn apply_patch(pp: &PackagePatch, is_doc_test: bool, is_md_test: bool) -> anyhow
                     output.push_str(padding);
                     if patch.kind == TargetKind::Call && patch.actual.contains('\n') {
                         output.push('\n');
-                        if !is_doc_test && !is_md_test {
+                        if !is_doc_test {
                             output.push_str(" ".repeat(spaces + 2).as_str());
                         }
                     }
@@ -747,7 +738,6 @@ fn apply_patch(pp: &PackagePatch, is_doc_test: bool, is_md_test: bool) -> anyhow
                                 prev_char,
                                 next_char,
                                 is_doc_test,
-                                is_md_test,
                             );
                         }
                     }
@@ -821,17 +811,13 @@ pub fn apply_snapshot(messages: &[String]) -> anyhow::Result<()> {
     Ok(())
 }
 
-pub fn apply_expect(
-    messages: &[String],
-    is_doc_test: bool,
-    is_md_test: bool,
-) -> anyhow::Result<()> {
+pub fn apply_expect(messages: &[String], is_doc_test: bool) -> anyhow::Result<()> {
     // dbg!(&messages);
     let targets = collect(messages)?;
     // dbg!(&targets);
     let patches = gen_patch(targets)?;
     // dbg!(&patches);
-    apply_patch(&patches, is_doc_test, is_md_test)?;
+    apply_patch(&patches, is_doc_test)?;
     Ok(())
 }
 
