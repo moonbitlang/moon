@@ -2,6 +2,8 @@
 
 fn moonbit_test_driver_internal_error_to_string(x : Error) -> String = "%error.to_string"
 
+fn moonbit_unsafe_char_from_int(x : Int) -> Char = "%identity"
+
 typealias Moonbit_Test_Driver_Internal_No_Args_Map = @moonbitlang/core/builtin.Map[
   String,
   @moonbitlang/core/builtin.Map[
@@ -113,14 +115,14 @@ fn main {
     while i < len {
       let mut c = bytes[i].to_int()
       if c < 0x80 {
-        res.write_char(Char::from_int(c))
+        res.write_char(moonbit_unsafe_char_from_int(c))
         i += 1
       } else if c < 0xE0 {
         if i + 1 >= len {
           break
         }
         c = ((c & 0x1F) << 6) | (bytes[i + 1].to_int() & 0x3F)
-        res.write_char(Char::from_int(c))
+        res.write_char(moonbit_unsafe_char_from_int(c))
         i += 2
       } else if c < 0xF0 {
         if i + 2 >= len {
@@ -129,7 +131,7 @@ fn main {
         c = ((c & 0x0F) << 12) |
           ((bytes[i + 1].to_int() & 0x3F) << 6) |
           (bytes[i + 2].to_int() & 0x3F)
-        res.write_char(Char::from_int(c))
+        res.write_char(moonbit_unsafe_char_from_int(c))
         i += 3
       } else {
         if i + 3 >= len {
@@ -140,8 +142,8 @@ fn main {
           ((bytes[i + 2].to_int() & 0x3F) << 6) |
           (bytes[i + 3].to_int() & 0x3F)
         c -= 0x10000
-        res.write_char(Char::from_int((c >> 10) + 0xD800))
-        res.write_char(Char::from_int((c & 0x3FF) + 0xDC00))
+        res.write_char(moonbit_unsafe_char_from_int((c >> 10) + 0xD800))
+        res.write_char(moonbit_unsafe_char_from_int((c & 0x3FF) + 0xDC00))
         i += 4
       }
     }
@@ -153,7 +155,7 @@ fn main {
     let mut i = 0
     let mut start = 0
     while i < s.length() {
-      if Char::from_int(s.charcode_at(i)) == sep {
+      if moonbit_unsafe_char_from_int(s.charcode_at(i)) == sep {
         res.push(s.substring(start = start, end = i))
         start = i + 1
       }
