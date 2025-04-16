@@ -15,6 +15,8 @@ fn moonbit_test_driver_internal_finish_read_string(handle : MoonbitTestDriverInt
 
 fn fixedarray_to_bytes(arr : FixedArray[Byte]) -> Bytes = "%identity"
 
+fn moonbit_unsafe_char_from_int(x : Int) -> Char = "%identity"
+
 fn moonbit_test_driver_internal_string_from_extern(e : MoonbitTestDriverInternalExternString) -> String {
   let buf = FixedArray::make(512, Byte::default())
   let mut len = 0
@@ -24,7 +26,7 @@ fn moonbit_test_driver_internal_string_from_extern(e : MoonbitTestDriverInternal
     if ch == -1 {
       break
     } else {
-      let written_bytes_len = buf.set_utf16le_char(len, Char::from_int(ch))
+      let written_bytes_len = buf.set_utf16le_char(len, moonbit_unsafe_char_from_int(ch))
       len += written_bytes_len
     }
   }
