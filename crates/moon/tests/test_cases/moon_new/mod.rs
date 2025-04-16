@@ -1,6 +1,74 @@
 use super::*;
 
 #[test]
+#[cfg(unix)]
+fn test_moon_new() {
+    let dir = TestDir::new_empty();
+    get_stdout(
+        &dir,
+        [
+            "new",
+            "--path",
+            "hello",
+            "--user",
+            "moonbitlang",
+            "--name",
+            "hello",
+        ],
+    );
+    check(
+        get_stdout(
+            &dir,
+            [
+                "run",
+                "--source-dir",
+                "./hello",
+                "--target-dir",
+                "./hello/target",
+                "src/main",
+            ],
+        ),
+        expect![[r#"
+            Hello, world!
+        "#]],
+    );
+
+    check(
+        get_stdout(
+            &dir,
+            [
+                "run",
+                "--directory",
+                "./hello",
+                "--target-dir",
+                "./hello/target",
+                "src/main",
+            ],
+        ),
+        expect![[r#"
+            Hello, world!
+        "#]],
+    );
+
+    check(
+        get_stdout(
+            &dir,
+            [
+                "run",
+                "-C",
+                "./hello",
+                "--target-dir",
+                "./hello/target",
+                "src/main",
+            ],
+        ),
+        expect![[r#"
+            Hello, world!
+        "#]],
+    );
+}
+
+#[test]
 fn test_moon_new_exist() {
     let dir = TestDir::new("moon_new/exist");
     dir.join("hello").rm_rf();
