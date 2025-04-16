@@ -38,6 +38,7 @@ mod moon_bench;
 mod moon_commands;
 mod moon_new;
 mod moon_test;
+mod simple_pkg;
 mod test_filter;
 
 #[test]
@@ -283,102 +284,6 @@ fn test_output_format() {
         .args(["clean"])
         .assert()
         .success();
-}
-
-#[test]
-fn test_simple_pkg() {
-    let dir = TestDir::new("simple-pkg-A-001.in");
-    check(
-        get_stdout(&dir, ["run", "main"]),
-        expect![[r#"
-            A
-            main
-        "#]],
-    );
-
-    let dir = TestDir::new("simple-pkg-A-002.in");
-    check(
-        get_stdout(&dir, ["run", "main"]),
-        expect![[r#"
-            A
-            main
-        "#]],
-    );
-
-    let dir = TestDir::new("simple-pkg-A-003.in");
-    check(
-        get_stdout(&dir, ["run", "main"]),
-        expect![[r#"
-            A
-            main
-        "#]],
-    );
-
-    let dir = TestDir::new("simple-pkg-A-004.in");
-    check(
-        get_stdout(&dir, ["run", "main"]),
-        expect![[r#"
-            A
-            main
-        "#]],
-    );
-
-    let dir = TestDir::new("simple-pkg-A-005.in");
-    check(
-        get_stdout(&dir, ["run", "main"]),
-        expect![[r#"
-            A
-            main
-        "#]],
-    );
-
-    let dir = TestDir::new("simple-pkg-A-006.in");
-    check(
-        get_stdout(&dir, ["run", "main"]),
-        expect![[r#"
-            main
-        "#]],
-    );
-
-    let dir = TestDir::new("simple-pkg-AB-001.in");
-    check(
-        get_stdout(&dir, ["run", "main"]),
-        expect![[r#"
-            A
-            B
-            main
-        "#]],
-    );
-
-    let dir = TestDir::new("simple-pkg-AB-002.in");
-    check(
-        get_stdout(&dir, ["run", "main"]),
-        expect![[r#"
-            A
-            B
-            main
-        "#]],
-    );
-
-    let dir = TestDir::new("simple-pkg-AB-003.in");
-    check(
-        get_stdout(&dir, ["run", "main"]),
-        expect![[r#"
-            A
-            B
-            main
-        "#]],
-    );
-
-    let dir = TestDir::new("simple-pkg-AB-004.in");
-    check(
-        get_stdout(&dir, ["run", "main"]),
-        expect![[r#"
-            A
-            B
-            main
-        "#]],
-    );
 }
 
 #[test]
