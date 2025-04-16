@@ -1,31 +1,6 @@
 package "username/hello/lib1"
 
-fn f1(Int) -> Int
+fn f1(Int) -> Unit
 
 fn f2(String) -> Unit
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 

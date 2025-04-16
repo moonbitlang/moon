@@ -64,6 +64,8 @@ pub struct BuildDepItem {
     pub is_main: bool,
     pub is_third_party: bool,
     pub enable_value_tracing: bool,
+
+    pub impl_virtual_pkg: Option<String>,
 }
 
 type BuildLinkDepItem = moonutil::package::LinkDepItem;
@@ -209,6 +211,35 @@ pub fn gen_build_build_item(
         });
     }
 
+    let impl_virtual_pkg = if let Some(impl_virtual_pkg) = pkg.implement.as_ref() {
+        let impl_virtual_pkg = if let Some(pkg) = m.get_package_by_name_safe(impl_virtual_pkg) {
+            pkg
+        } else {
+            anyhow::bail!(
+                "{}: could not be found the implemented package `{}`, make sure the package name is correct, e.g. 'moonbitlang/core/double'",
+                m.source_dir.join(pkg.rel.fs_full_name()).join(MOON_PKG_JSON).display(),
+                impl_virtual_pkg
+            );
+        };
+        let virtual_mbti_file_path = impl_virtual_pkg.virtual_mbti_file.as_ref().unwrap();
+        let virtual_mbti_file_name = virtual_mbti_file_path
+            .file_name()
+            .unwrap()
+            .to_str()
+            .unwrap();
+
+        let virtual_pkg_mi = impl_virtual_pkg
+            .artifact
+            .with_file_name(virtual_mbti_file_name)
+            .with_extension("mi")
+            .display()
+            .to_string();
+
+        Some(virtual_pkg_mi)
+    } else {
+        None
+    };
+
     Ok(BuildDepItem {
         core_out: core_out.display().to_string(),
         mi_out: mi_out.display().to_string(),
@@ -221,6 +252,7 @@ pub fn gen_build_build_item(
         is_main: pkg.is_main,
         is_third_party: pkg.is_third_party,
         enable_value_tracing: pkg.enable_value_tracing,
+        impl_virtual_pkg,
     })
 }
 
@@ -329,13 +361,12 @@ pub fn gen_build_interface_command(
         .map(|f| graph.files.id_from_canonical(f))
         .collect::<Vec<_>>();
 
+
     let mi_files_with_alias: Vec<String> = item
         .mi_deps
         .iter()
         .map(|a| format!("{}:{}", a.name, a.alias))
         .collect();
-
-    println!("mi_files_with_alias: {:?}", mi_files_with_alias);
 
     let len = input_ids.len();
 
@@ -406,6 +437,9 @@ pub fn gen_build_command(
                 .display()
                 .to_string(),
         );
+    }
+    if let Some(impl_virtual_pkg) = item.impl_virtual_pkg.as_ref() {
+        inputs.push(impl_virtual_pkg.clone());
     }
     let input_ids = inputs
         .into_iter()
@@ -502,13 +536,21 @@ pub fn gen_build_command(
         .arg_with_cond(self_coverage, "-coverage-package-override=@self")
         .args(moonc_opt.extra_build_opt.iter())
         .arg_with_cond(item.enable_value_tracing, "-enable-value-tracing")
-        .lazy_args_with_cond(need_build_virtual, || {
+        .args_with_cond(
+            need_build_virtual,
             vec![
                 "-check-mi".to_string(),
                 PathBuf::from(&item.core_out)
                     .with_extension("mi")
                     .display()
                     .to_string(),
+            ],
+        )
+        .lazy_args_with_cond(item.impl_virtual_pkg.as_ref().is_some(), || {
+            vec![
+                "-check-mi".to_string(),
+                item.impl_virtual_pkg.as_ref().unwrap().clone(),
+                "-impl-virtual".to_string(),
             ]
         })
         .build();

@@ -442,6 +442,7 @@ fn scan_one_package(
             None
         },
         virtual_pkg: pkg.virtual_pkg,
+        implement: pkg.implement,
     };
     if doc_mode {
         // -o <folder>

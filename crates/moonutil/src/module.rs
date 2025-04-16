@@ -81,6 +81,7 @@ impl ModuleDB {
         &mut self.packages
     }
 
+    #[track_caller]
     pub fn get_package_by_name(&self, name: &str) -> &Package {
         self.packages.get(name).unwrap()
     }
