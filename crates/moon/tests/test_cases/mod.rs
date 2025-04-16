@@ -29,58 +29,7 @@ use moonutil::{
 use serde::{Deserialize, Serialize};
 use walkdir::WalkDir;
 
-#[test]
-fn test_design() {
-    let dir = TestDir::new("design.in");
-    snapbox::cmd::Command::new(moon_bin())
-        .current_dir(&dir)
-        .args(["check"])
-        .assert()
-        .success();
-    snapbox::cmd::Command::new(moon_bin())
-        .current_dir(&dir)
-        .args(["clean"])
-        .assert()
-        .success();
-    snapbox::cmd::Command::new(moon_bin())
-        .current_dir(&dir)
-        .args(["build"])
-        .assert()
-        .success();
-    snapbox::cmd::Command::new(moon_bin())
-        .current_dir(&dir)
-        .args(["clean"])
-        .assert()
-        .success();
-    check(
-        get_stdout(&dir, ["run", "main1"]),
-        expect![[r#"
-            new_list
-            new_queue
-            new_list
-            new_stack
-            new_vector
-            main1
-        "#]],
-    );
-    check(
-        get_stdout(&dir, ["run", "main2"]),
-        expect![[r#"
-            new_list
-            new_queue
-            main2
-        "#]],
-    );
-
-    get_stdout(&dir, ["clean"]);
-    check(
-        get_stdout(&dir, ["run", "main2", "--target", "js", "--build-only"]),
-        expect![[r#"
-            {"artifacts_path":["$ROOT/target/js/release/build/main2/main2.js"]}
-        "#]],
-    );
-    assert!(dir.join("target/js/release/build/main2/main2.js").exists());
-}
+mod design;
 
 #[test]
 fn test_diamond_pkg_001() {
