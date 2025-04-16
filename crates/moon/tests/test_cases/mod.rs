@@ -9605,9 +9605,9 @@ fn test_run_md_test() {
         get_stderr(&dir, ["check", "--sort-input"]),
         expect![[r#"
             Warning: [1002]
-                ╭─[$ROOT/src/lib/1.mbt.md:24:9]
+                ╭─[$ROOT/src/lib/1.mbt.md:31:9]
                 │
-             24 │     let a = 1
+             31 │     let a = 1
                 │         ┬  
                 │         ╰── Warning: Unused variable 'a'
             ────╯
@@ -9619,18 +9619,27 @@ fn test_run_md_test() {
         get_err_stdout(&dir, ["test", "--md", "--sort-input"]),
         expect![[r#"
             hello from hello_test.mbt
+            fn in md test
+            hello from hello_test.mbt
             Hello, world 1!
             Hello, world 3!
             Hello, world 2!
+            test username/hello/lib/hello_test.mbt::inspect in bbtest failed
+            expect test failed at $ROOT/src/lib/hello_test.mbt:12:3-12:32
+            Diff:
+            ----
+            inspect in bbtest
+            ----
+
             test username/hello/lib/1.mbt.md::2 failed
-            expect test failed at $ROOT/src/lib/1.mbt.md:26:5-26:21
+            expect test failed at $ROOT/src/lib/1.mbt.md:33:5-33:21
             Diff:
             ----
             4234
             ----
 
             test username/hello/lib/1.mbt.md::3 failed
-            expect test failed at $ROOT/src/lib/1.mbt.md:43:5-43:16
+            expect test failed at $ROOT/src/lib/1.mbt.md:50:5-50:16
             Diff:
             ----
              all
@@ -9641,7 +9650,7 @@ fn test_run_md_test() {
 
             ----
 
-            Total tests: 5, passed: 3, failed: 2.
+            Total tests: 7, passed: 4, failed: 3.
         "#]],
     );
 
@@ -9671,15 +9680,20 @@ fn test_run_md_test() {
         get_stdout(&dir, ["test", "--md", "--update", "--sort-input"]),
         expect![[r#"
             hello from hello_test.mbt
+            fn in md test
+            hello from hello_test.mbt
             Hello, world 1!
             Hello, world 3!
             Hello, world 2!
 
             Auto updating expect tests and retesting ...
 
+            fn in md test
+            fn in md test
+            fn in md test
             Hello, world 2!
             Hello, world 2!
-            Total tests: 5, passed: 5, failed: 0.
+            Total tests: 7, passed: 7, failed: 0.
         "#]],
     );
 

@@ -238,7 +238,7 @@ pub fn gen_md_test_patch(pkg: &Package, moonc_opt: &MooncOpt) -> anyhow::Result<
     let pj = PatchJSON::from_md_tests(md_tests);
     let pj_path = pkg
         .artifact
-        .with_file_name(format!("{}.json", crate::common::MOON_DOC_TEST_POSTFIX));
+        .with_file_name(format!("{}.json", crate::common::MOON_MD_TEST_POSTFIX));
     if !pj_path.parent().unwrap().exists() {
         std::fs::create_dir_all(pj_path.parent().unwrap())?;
     }

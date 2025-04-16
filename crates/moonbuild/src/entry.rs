@@ -611,7 +611,7 @@ fn convert_moonc_test_info(
         // so tests in other files should be filtered out
         if let Some(patch_json) = patch_file {
             if patch_json.to_str().unwrap().contains(MOON_DOC_TEST_POSTFIX)
-                && !(filename.contains(MOON_DOC_TEST_POSTFIX) || filename.ends_with(DOT_MBT_DOT_MD))
+                && !filename.contains(MOON_DOC_TEST_POSTFIX)
             {
                 continue;
             }

@@ -425,14 +425,20 @@ pub(crate) fn run_test_or_bench_internal(
 
         pkg.patch_file = patch_file.clone();
 
+        if cmd.md_test {
+            eprintln!(
+                "{}: --md flag is deprecated and will be removed in the future, please use `moon test` directly",
+                "Warning".yellow(),
+            );
+        }
+        if !pkg.mbt_md_files.is_empty() {
+            let pj_path = moonutil::doc_test::gen_md_test_patch(pkg, &moonc_opt)?;
+            pkg.doc_test_patch_file = Some(pj_path.clone());
+        }
+
         if cmd.doc_test {
             let pj_path = moonutil::doc_test::gen_doc_test_patch(pkg, &moonc_opt)?;
             pkg.doc_test_patch_file = Some(pj_path);
-        }
-
-        if cmd.md_test {
-            let pj_path = moonutil::doc_test::gen_md_test_patch(pkg, &moonc_opt)?;
-            pkg.doc_test_patch_file = Some(pj_path.clone());
         }
 
         {
