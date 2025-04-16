@@ -64,6 +64,8 @@ pub struct BuildDepItem {
     pub is_main: bool,
     pub is_third_party: bool,
     pub enable_value_tracing: bool,
+
+    pub impl_virtual_pkg: Option<String>,
 }
 
 type BuildLinkDepItem = moonutil::package::LinkDepItem;
@@ -184,6 +186,28 @@ pub fn gen_build_build_item(
     let package_full_name = pkg.full_name();
     let package_source_dir: String = pkg.root_path.to_string_lossy().into_owned();
 
+    let impl_virtual_pkg = if let Some(impl_virtual_pkg) = pkg.implement.as_ref() {
+        let impl_virtual_pkg = if let Some(pkg) = m.get_package_by_name_safe(impl_virtual_pkg) {
+            pkg
+        } else {
+            anyhow::bail!(
+                "{}: could not be found the implemented package `{}`, make sure the package name is correct, e.g. 'moonbitlang/core/double'",
+                m.source_dir.join(pkg.rel.fs_full_name()).join(MOON_PKG_JSON).display(),
+                impl_virtual_pkg
+            );
+        };
+
+        let virtual_pkg_mi = impl_virtual_pkg
+            .artifact
+            .with_extension("mi")
+            .display()
+            .to_string();
+
+        Some(virtual_pkg_mi)
+    } else {
+        None
+    };
+
     Ok(BuildDepItem {
         core_out: core_out.display().to_string(),
         mi_out: mi_out.display().to_string(),
@@ -196,6 +220,7 @@ pub fn gen_build_build_item(
         is_main: pkg.is_main,
         is_third_party: pkg.is_third_party,
         enable_value_tracing: pkg.enable_value_tracing,
+        impl_virtual_pkg,
     })
 }
 
@@ -380,6 +405,9 @@ pub fn gen_build_command(
                 .to_string(),
         );
     }
+    if let Some(impl_virtual_pkg) = item.impl_virtual_pkg.as_ref() {
+        inputs.push(impl_virtual_pkg.clone());
+    }
     let input_ids = inputs
         .into_iter()
         .map(|f| graph.files.id_from_canonical(f))
@@ -475,13 +503,23 @@ pub fn gen_build_command(
         .arg_with_cond(self_coverage, "-coverage-package-override=@self")
         .args(moonc_opt.extra_build_opt.iter())
         .arg_with_cond(item.enable_value_tracing, "-enable-value-tracing")
-        .lazy_args_with_cond(need_build_virtual, || {
+        .args_with_cond(
+            need_build_virtual,
             vec![
                 "-check-mi".to_string(),
                 PathBuf::from(&item.core_out)
                     .with_extension("mi")
                     .display()
                     .to_string(),
+                "-no-mi".to_string(),
+            ],
+        )
+        .lazy_args_with_cond(item.impl_virtual_pkg.as_ref().is_some(), || {
+            vec![
+                "-check-mi".to_string(),
+                item.impl_virtual_pkg.as_ref().unwrap().clone(),
+                "-impl-virtual".to_string(),
+                // implementation package should not been import so here don't emit .mi
                 "-no-mi".to_string(),
             ]
         })

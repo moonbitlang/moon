@@ -93,6 +93,7 @@ pub struct Package {
 
     pub virtual_pkg: Option<VirtualPkg>,
     pub virtual_mbti_file: Option<PathBuf>,
+    pub implement: Option<String>,
 }
 
 impl Package {
@@ -282,6 +283,9 @@ pub struct MoonPkgJSON {
     #[serde(skip_serializing_if = "Option::is_none")]
     #[serde(alias = "virtual")]
     pub virtual_pkg: Option<VirtualPkg>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub implement: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, JsonSchema)]
@@ -626,6 +630,7 @@ pub struct MoonPkg {
     pub native_stub: Option<Vec<String>>,
 
     pub virtual_pkg: Option<VirtualPkg>,
+    pub implement: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -819,6 +824,7 @@ pub fn convert_pkg_json_to_package(j: MoonPkgJSON) -> anyhow::Result<MoonPkg> {
         supported_targets: supported_backends,
         native_stub: j.native_stub,
         virtual_pkg: j.virtual_pkg,
+        implement: j.implement,
     };
     Ok(result)
 }

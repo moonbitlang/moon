@@ -1,4 +1,7 @@
 {
   "is-main": true,
-  "implementations": [{ "virtual": "username/hello/lib_virtual", "implementation": "username/hello/lib_impl" }]
+  "import": [
+    // "username/hello/lib2",
+  ],
+  // "implementations": [{ "virtual": "username/hello/lib_virtual", "implementation": "username/hello/lib_impl" }]
 }
