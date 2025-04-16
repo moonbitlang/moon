@@ -32,45 +32,7 @@ use walkdir::WalkDir;
 mod design;
 mod diamond_pkg;
 mod extra_flags;
-
-#[test]
-fn test_fancy_import() {
-    let dir = TestDir::new("fancy_import.in/import001");
-    check(
-        get_stdout(&dir, ["run", "main"]),
-        expect![[r#"
-            Hello, world!
-        "#]],
-    );
-
-    let dir = TestDir::new("fancy_import.in/import002");
-    check(
-        get_stdout(&dir, ["run", "main"]),
-        expect![[r#"
-            Hello, world!
-        "#]],
-    );
-
-    let dir = TestDir::new("fancy_import.in/import003");
-    check(
-        get_stdout(&dir, ["run", "main"]),
-        expect![[r#"
-            Hello, world!
-            Hello, world2!
-        "#]],
-    );
-
-    let dir = TestDir::new("fancy_import.in/import004");
-    check(
-        get_stdout(&dir, ["run", "main"]),
-        expect![[r#"
-            f1
-            f2
-            f3
-            f4
-        "#]],
-    );
-}
+mod fancy_import;
 
 #[test]
 fn test_hello() {
