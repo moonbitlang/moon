@@ -1,6 +1,17 @@
 use super::*;
 
 #[test]
+fn test_moon_run_main() {
+    let dir = TestDir::new("moon_new/plain");
+    check(
+        get_stdout(&dir, ["run", "main"]),
+        expect![[r#"
+            Hello, world!
+        "#]],
+    );
+}
+
+#[test]
 #[cfg(unix)]
 fn test_moon_new() {
     let dir = TestDir::new_empty();
