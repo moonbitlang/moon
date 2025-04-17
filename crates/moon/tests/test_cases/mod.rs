@@ -35,7 +35,6 @@ mod design;
 mod diamond_pkg;
 mod docs_examples;
 mod dummy_core;
-mod expect_test;
 mod extra_flags;
 mod fancy_import;
 mod hello;
@@ -53,6 +52,7 @@ mod simple_pkg;
 mod target_backend;
 mod targets;
 mod test_error_report;
+mod test_expect_test;
 mod test_filter;
 
 #[test]

@@ -3,7 +3,7 @@ use super::*;
 #[cfg(unix)]
 #[test]
 fn test_expect_test() -> anyhow::Result<()> {
-    let tmp_dir_path = TestDir::new("expect_test/expect_test");
+    let tmp_dir_path = TestDir::new("test_expect_test/expect_test");
 
     let s = snapbox::cmd::Command::new(moon_bin())
         .current_dir(&tmp_dir_path)
@@ -40,7 +40,7 @@ fn test_expect_test() -> anyhow::Result<()> {
 
 #[test]
 fn test_only_update_expect() {
-    let tmp_dir_path = TestDir::new("expect_test/only_update_expect");
+    let tmp_dir_path = TestDir::new("test_expect_test/only_update_expect");
 
     let _ = snapbox::cmd::Command::new(moon_bin())
         .current_dir(&tmp_dir_path)
