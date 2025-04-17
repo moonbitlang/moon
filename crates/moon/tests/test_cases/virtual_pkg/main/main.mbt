@@ -1,4 +1,4 @@
 fn main {
-  println(@lib1.f1(1))
-  println(@lib1.hello())
+  @lib1.f1(1)
+  @lib1.f2("hello")
 }

@@ -133,6 +133,30 @@ impl Package {
         );
         files
     }
+
+    pub fn get_virtual_mi(&self) -> PathBuf {
+        let virtual_mbti_file_path = self.virtual_mbti_file.as_ref().unwrap();
+        let virtual_mbti_file_name = virtual_mbti_file_path
+            .file_name()
+            .unwrap()
+            .to_str()
+            .unwrap();
+        self.artifact
+            .with_file_name(virtual_mbti_file_name)
+            .with_extension("mi")
+    }
+
+    pub fn get_virtual_core(&self) -> PathBuf {
+        let virtual_mbti_file_path = self.virtual_mbti_file.as_ref().unwrap();
+        let virtual_mbti_file_name = virtual_mbti_file_path
+            .file_name()
+            .unwrap()
+            .to_str()
+            .unwrap();
+        self.artifact
+            .with_file_name(virtual_mbti_file_name)
+            .with_extension("core")
+    }
 }
 
 #[derive(Debug, Serialize, Deserialize, PartialEq)]
@@ -303,9 +327,8 @@ pub struct VirtualPkg {
 pub struct Implementation {
     #[serde(alias = "virtual")]
     pub virtual_pkg: String,
-    pub implementation: String,
+    pub implementation: Option<String>,
 }
-
 
 #[derive(Debug, Serialize, Deserialize, Clone, JsonSchema)]
 #[schemars(rename = "import-memory")]

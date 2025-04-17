@@ -75,7 +75,7 @@ type BuildLinkDepItem = moonutil::package::LinkDepItem;
 pub struct N2BuildInput {
     // for virtual pkg
     pub build_interface_items: Vec<BuildInterfaceItem>,
-    pub build_virtual_items: Vec<BuildDepItem>,
+    pub build_default_virtual_items: Vec<BuildDepItem>,
 
     pub build_items: Vec<BuildDepItem>,
     pub link_items: Vec<BuildLinkDepItem>, // entry points
@@ -92,13 +92,6 @@ fn to_opt_level(release: bool, debug: bool) -> OptLevel {
 }
 
 pub fn gen_build_interface_item(m: &ModuleDB, pkg: &Package) -> anyhow::Result<BuildInterfaceItem> {
-    let virtual_mbti_file_path = pkg.virtual_mbti_file.as_ref().unwrap();
-    let virtual_mbti_file_name = virtual_mbti_file_path
-        .file_name()
-        .unwrap()
-        .to_str()
-        .unwrap();
-
     let mut mi_deps = vec![MiAlias {
         name: pkg.artifact.with_extension("mi").display().to_string(),
         alias: pkg.rel.short_name().to_string(),
@@ -124,16 +117,17 @@ pub fn gen_build_interface_item(m: &ModuleDB, pkg: &Package) -> anyhow::Result<B
         });
     }
 
-    let mi_out = pkg
-        .artifact
-        .with_file_name(virtual_mbti_file_name)
-        .with_extension("mi");
     let package_full_name = pkg.full_name();
     let package_source_dir: String = pkg.root_path.to_string_lossy().into_owned();
 
     Ok(BuildInterfaceItem {
-        mi_out: mi_out.display().to_string(),
-        mbti_deps: virtual_mbti_file_path.display().to_string(),
+        mi_out: pkg.get_virtual_mi().display().to_string(),
+        mbti_deps: pkg
+            .virtual_mbti_file
+            .as_ref()
+            .unwrap()
+            .display()
+            .to_string(),
         mi_deps,
         package_full_name,
         package_source_dir,
@@ -145,7 +139,7 @@ pub fn gen_build_build_item(
     m: &ModuleDB,
     pkg: &Package,
     moonc_opt: &MooncOpt,
-    need_build_virtual: bool,
+    need_build_default_virtual: bool,
 ) -> anyhow::Result<BuildDepItem> {
     let mut core_out = pkg.artifact.with_extension("core");
     let mi_out = pkg.artifact.with_extension("mi");
@@ -194,17 +188,8 @@ pub fn gen_build_build_item(
     let package_full_name = pkg.full_name();
     let package_source_dir: String = pkg.root_path.to_string_lossy().into_owned();
 
-    if need_build_virtual {
-        let virtual_mbti_file_path = pkg.virtual_mbti_file.as_ref().unwrap();
-        let virtual_mbti_file_name = virtual_mbti_file_path
-            .file_name()
-            .unwrap()
-            .to_str()
-            .unwrap();
-        core_out = pkg
-            .artifact
-            .with_file_name(virtual_mbti_file_name)
-            .with_extension("core");
+    if need_build_default_virtual {
+        core_out = pkg.get_virtual_core();
 
         mi_deps.push(MiAlias {
             name: pkg.artifact.with_extension("mi").display().to_string(),
@@ -222,19 +207,8 @@ pub fn gen_build_build_item(
                 impl_virtual_pkg
             );
         };
-        let virtual_mbti_file_path = impl_virtual_pkg.virtual_mbti_file.as_ref().unwrap();
-        let virtual_mbti_file_name = virtual_mbti_file_path
-            .file_name()
-            .unwrap()
-            .to_str()
-            .unwrap();
 
-        let virtual_pkg_mi = impl_virtual_pkg
-            .artifact
-            .with_file_name(virtual_mbti_file_name)
-            .with_extension("mi")
-            .display()
-            .to_string();
+        let virtual_pkg_mi = impl_virtual_pkg.get_virtual_mi().display().to_string();
 
         Some(virtual_pkg_mi)
     } else {
@@ -245,20 +219,8 @@ pub fn gen_build_build_item(
         for implementation in implementations {
             let virtual_pkg = m.get_package_by_name_safe(&implementation.virtual_pkg);
             if let Some(virtual_pkg) = virtual_pkg {
-                let virtual_mbti_file_path = virtual_pkg.virtual_mbti_file.as_ref().unwrap();
-                let virtual_mbti_file_name = virtual_mbti_file_path
-                    .file_name()
-                    .unwrap()
-                    .to_str()
-                    .unwrap();
-                let virtual_pkg_mi = virtual_pkg
-                    .artifact
-                    .with_file_name(virtual_mbti_file_name)
-                    .with_extension("mi")
-                    .display()
-                    .to_string();
                 mi_deps.push(MiAlias {
-                    name: virtual_pkg_mi,
+                    name: virtual_pkg.get_virtual_mi().display().to_string(),
                     alias: virtual_pkg.rel.short_name().to_string(),
                 });
             } else {
@@ -300,15 +262,24 @@ pub fn gen_build_link_item(
 
     if let Some(implementations) = pkg.implementations.as_ref() {
         for implementation in implementations {
-            let impl_pkg = m.get_package_by_name_safe(&implementation.implementation);
+            let impl_pkg = m.get_package_by_name_safe(
+                &implementation
+                    .implementation
+                    .as_ref()
+                    .unwrap_or(&implementation.virtual_pkg.clone()),
+            );
             if let Some(impl_pkg) = impl_pkg {
-                core_deps.push(
-                    impl_pkg
-                        .artifact
-                        .with_extension("core")
-                        .display()
-                        .to_string(),
-                );
+                if impl_pkg.full_name() == implementation.virtual_pkg {
+                    core_deps.push(impl_pkg.get_virtual_core().display().to_string())
+                } else {
+                    core_deps.push(
+                        impl_pkg
+                            .artifact
+                            .with_extension("core")
+                            .display()
+                            .to_string(),
+                    );
+                }
             } else {
                 anyhow::bail!("{}: could not be found the implemented package `{}`, make sure the package name is correct, e.g. 'moonbitlang/core/double'",
                     m.source_dir.join(pkg.rel.fs_full_name()).join(MOON_PKG_JSON).display(),
@@ -337,7 +308,7 @@ pub fn gen_build(
     moonbuild_opt: &MoonbuildOpt,
 ) -> anyhow::Result<N2BuildInput> {
     let mut build_interface_items = vec![];
-    let mut build_virtual_items = vec![];
+    let mut build_default_virtual_items = vec![];
     let mut build_items = vec![];
     let mut link_items = vec![];
     let mut compile_stub_items = vec![];
@@ -358,7 +329,7 @@ pub fn gen_build(
         if let Some(v) = pkg.virtual_pkg.as_ref() {
             build_interface_items.push(gen_build_interface_item(m, pkg)?);
             if v.has_default {
-                build_virtual_items.push(gen_build_build_item(m, pkg, moonc_opt, true)?);
+                build_default_virtual_items.push(gen_build_build_item(m, pkg, moonc_opt, true)?);
             }
         }
 
@@ -385,7 +356,7 @@ pub fn gen_build(
     }
     Ok(N2BuildInput {
         build_interface_items,
-        build_virtual_items,
+        build_default_virtual_items,
         build_items,
         link_items,
         compile_stub_items,
@@ -467,7 +438,7 @@ pub fn gen_build_command(
     graph: &mut n2graph::Graph,
     item: &BuildDepItem,
     moonc_opt: &MooncOpt,
-    need_build_virtual: bool,
+    need_build_default_virtual: bool,
 ) -> (Build, n2graph::FileId) {
     let core_output_id = graph.files.id_from_canonical(item.core_out.clone());
     let mi_output_id = graph.files.id_from_canonical(item.mi_out.clone());
@@ -479,7 +450,7 @@ pub fn gen_build_command(
 
     let mut inputs = item.mbt_deps.clone();
     inputs.extend(item.mi_deps.iter().map(|a| a.name.clone()));
-    if need_build_virtual {
+    if need_build_default_virtual {
         inputs.push(
             PathBuf::from(&item.core_out)
                 .with_extension("mi")
@@ -511,7 +482,7 @@ pub fn gen_build_command(
     };
 
     let outs = BuildOuts {
-        ids: if need_build_virtual {
+        ids: if need_build_default_virtual {
             vec![core_output_id]
         } else {
             vec![core_output_id, mi_output_id]
@@ -586,7 +557,7 @@ pub fn gen_build_command(
         .args(moonc_opt.extra_build_opt.iter())
         .arg_with_cond(item.enable_value_tracing, "-enable-value-tracing")
         .args_with_cond(
-            need_build_virtual,
+            need_build_default_virtual,
             vec![
                 "-check-mi".to_string(),
                 PathBuf::from(&item.core_out)
@@ -1535,7 +1506,7 @@ pub fn gen_n2_build_state(
         graph.add_build(build)?;
     }
 
-    for item in input.build_virtual_items.iter() {
+    for item in input.build_default_virtual_items.iter() {
         let (build, _) = gen_build_command(&mut graph, item, moonc_opt, true);
         graph.add_build(build)?;
     }
