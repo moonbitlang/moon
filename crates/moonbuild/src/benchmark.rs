@@ -18,7 +18,6 @@
 
 use colored::Colorize;
 
-pub const BENCH: &str = "@BENCH ";
 pub const BATCHBENCH: &str = "@BATCH_BENCH ";
 
 #[derive(Debug, Default, serde::Serialize, serde::Deserialize)]
@@ -53,22 +52,6 @@ fn auto_select_unit(us: f64) -> String {
     } else {
         format!("{:.2} min", us / 6e10)
     }
-}
-
-pub fn render_bench_summary(msg: &str) {
-    assert!(msg.starts_with(BENCH));
-    let msg = &msg[BENCH.len()..];
-    let summary = serde_json_lenient::from_str::<BenchSummary>(msg)
-        .unwrap_or_else(|_| panic!("failed to parse benchmark summary: {}", msg));
-    println!(
-        "time ({} ± {}) range ({} … {}) in {} × {} runs",
-        auto_select_unit(summary.mean).bold().green(),
-        auto_select_unit(summary.std_dev).green(),
-        auto_select_unit(summary.min).blue(),
-        auto_select_unit(summary.max).purple(),
-        summary.runs.to_string().bright_black(),
-        summary.batch_size.to_string().bright_black(),
-    )
 }
 
 pub fn render_batch_bench_summary(msg: &str) {

@@ -36,7 +36,7 @@ use n2::{trace, work};
 use anyhow::Context;
 use colored::Colorize;
 
-use crate::benchmark::{render_batch_bench_summary, render_bench_summary, BATCHBENCH, BENCH};
+use crate::benchmark::{render_batch_bench_summary, BATCHBENCH};
 use crate::check::normal::write_pkg_lst;
 use crate::expect::{apply_snapshot, render_snapshot_fail};
 use crate::runtest::TestStatistics;
@@ -937,16 +937,7 @@ async fn handle_test_result(
     for item in test_res_for_cur_pkg {
         match item {
             Ok(ok_ts) => {
-                // for backward compatibility
-                // should be removed once the change to core is into stable channel
-                if ok_ts.message.starts_with(BENCH) {
-                    let stat = ok_ts;
-                    println!(
-                        "bench {}/{}::{}",
-                        stat.package, stat.filename, stat.test_name,
-                    );
-                    render_bench_summary(&stat.message);
-                } else if ok_ts.message.starts_with(BATCHBENCH) {
+                if ok_ts.message.starts_with(BATCHBENCH) {
                     let stat = ok_ts;
                     println!(
                         "bench {}/{}::{}",
