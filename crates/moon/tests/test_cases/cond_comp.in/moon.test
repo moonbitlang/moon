@@ -54,14 +54,14 @@
   
   $ moon check --sort-input
   
-  Warning: [2]
+  Warning: [0002]
      ╭─[${WORK_DIR}/src/lib/all.mbt:2:7]
      │
    2 │   let a = 1
      │       ┬  
      │       ╰── Warning: Unused variable 'a'
   ───╯
-  Warning: [29]
+  Warning: [0029]
      ╭─[${WORK_DIR}/src/main/moon.pkg.json:4:5]
      │
    4 │     "username/hello/lib"
