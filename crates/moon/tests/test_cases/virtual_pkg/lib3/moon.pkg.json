@@ -1,0 +1,8 @@
+{
+  "implementations": [
+    {
+      "virtual": "username/hello/lib1",
+      "implementation": "username/hello/lib2"
+    }
+  ]
+}

@@ -65,6 +65,7 @@ pub struct BuildDepItem {
     pub is_third_party: bool,
     pub enable_value_tracing: bool,
 
+    // which virtual pkg to impl
     pub impl_virtual_pkg: Option<String>,
 }
 
@@ -240,6 +241,35 @@ pub fn gen_build_build_item(
         None
     };
 
+    if let Some(implementations) = pkg.implementations.as_ref() {
+        for implementation in implementations {
+            let virtual_pkg = m.get_package_by_name_safe(&implementation.virtual_pkg);
+            if let Some(virtual_pkg) = virtual_pkg {
+                let virtual_mbti_file_path = virtual_pkg.virtual_mbti_file.as_ref().unwrap();
+                let virtual_mbti_file_name = virtual_mbti_file_path
+                    .file_name()
+                    .unwrap()
+                    .to_str()
+                    .unwrap();
+                let virtual_pkg_mi = virtual_pkg
+                    .artifact
+                    .with_file_name(virtual_mbti_file_name)
+                    .with_extension("mi")
+                    .display()
+                    .to_string();
+                mi_deps.push(MiAlias {
+                    name: virtual_pkg_mi,
+                    alias: virtual_pkg.rel.short_name().to_string(),
+                });
+            } else {
+                anyhow::bail!("{}: could not found the virtual package `{}`, make sure the package name is correct, e.g. 'moonbitlang/core/double'",
+                    m.source_dir.join(pkg.rel.fs_full_name()).join(MOON_PKG_JSON).display(),
+                    implementation.virtual_pkg
+                );
+            }
+        }
+    }
+
     Ok(BuildDepItem {
         core_out: core_out.display().to_string(),
         mi_out: mi_out.display().to_string(),
@@ -265,8 +295,28 @@ pub fn gen_build_link_item(
     let package_full_name = pkg.full_name();
 
     let tp = super::util::topo_from_node(m, pkg)?;
-    let core_deps = super::util::nodes_to_cores(m, &tp);
+    let mut core_deps = super::util::nodes_to_cores(m, &tp);
     let package_sources = super::util::nodes_to_pkg_sources(m, &tp);
+
+    if let Some(implementations) = pkg.implementations.as_ref() {
+        for implementation in implementations {
+            let impl_pkg = m.get_package_by_name_safe(&implementation.implementation);
+            if let Some(impl_pkg) = impl_pkg {
+                core_deps.push(
+                    impl_pkg
+                        .artifact
+                        .with_extension("core")
+                        .display()
+                        .to_string(),
+                );
+            } else {
+                anyhow::bail!("{}: could not be found the implemented package `{}`, make sure the package name is correct, e.g. 'moonbitlang/core/double'",
+                    m.source_dir.join(pkg.rel.fs_full_name()).join(MOON_PKG_JSON).display(),
+                    implementation.virtual_pkg
+                );
+            }
+        }
+    }
 
     Ok(BuildLinkDepItem {
         out: out.display().to_string(),
@@ -360,7 +410,6 @@ pub fn gen_build_interface_command(
         .into_iter()
         .map(|f| graph.files.id_from_canonical(f))
         .collect::<Vec<_>>();
-
 
     let mi_files_with_alias: Vec<String> = item
         .mi_deps
@@ -1482,15 +1531,13 @@ pub fn gen_n2_build_state(
     }
 
     for item in input.build_interface_items.iter() {
-        let (build, fid) = gen_build_interface_command(&mut graph, item, moonc_opt);
+        let (build, _) = gen_build_interface_command(&mut graph, item, moonc_opt);
         graph.add_build(build)?;
-        default.push(fid);
     }
 
     for item in input.build_virtual_items.iter() {
-        let (build, fid) = gen_build_command(&mut graph, item, moonc_opt, true);
+        let (build, _) = gen_build_command(&mut graph, item, moonc_opt, true);
         graph.add_build(build)?;
-        default.push(fid);
     }
 
     if is_native_backend {
