@@ -769,8 +769,11 @@ fn moon_test_parallelize_should_success() {
 
     let output = get_stdout(&dir, ["test", "--target", "native"]);
     assert!(output.contains("Total tests: 14, passed: 14, failed: 0."));
+}
 
-    let dir = TestDir::new("test_filter.in");
+#[test]
+fn moon_test_parallelize_test_filter_should_success() {
+    let dir = TestDir::new("test_filter/test_filter");
 
     let output = get_err_stdout(&dir, ["test"]);
     assert!(output.contains("Total tests: 13, passed: 11, failed: 2."));

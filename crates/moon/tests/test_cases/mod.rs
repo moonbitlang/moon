@@ -73,7 +73,7 @@ fn test_need_link() {
 
 #[test]
 fn test_no_work_to_do() {
-    let dir = TestDir::new("moon_new.in");
+    let dir = TestDir::new("moon_new/plain");
     let out = get_stderr(&dir, ["check"]);
     assert!(out.contains("now up to date"));
 
@@ -1587,7 +1587,7 @@ fn test_moon_run_single_mbt_file() {
 
 #[test]
 fn test_moon_check_json_output() {
-    let dir = TestDir::new("alert_list.in");
+    let dir = TestDir::new("warns/alert_list");
 
     #[cfg(unix)]
     {
@@ -2373,7 +2373,7 @@ fn moon_test_with_failure_json() {
 
 #[test]
 fn test_js() {
-    let dir = TestDir::new("test_filter.in");
+    let dir = TestDir::new("test_filter/test_filter");
 
     let output = get_stdout(
         &dir,
@@ -2474,7 +2474,7 @@ fn test_moon_doc() {
 
 #[test]
 fn test_failed_to_fill_whole_buffer() {
-    let dir = TestDir::new("hello.in");
+    let dir = TestDir::new("hello");
     check(
         get_stderr(&dir, ["check"]),
         expect![[r#"
@@ -3565,7 +3565,7 @@ fn test_no_mi_for_test_pkg() {
 
 #[test]
 fn test_moon_test_patch() {
-    let dir = TestDir::new("moon_test_patch.in");
+    let dir = TestDir::new("moon_test/patch");
     check(
         get_stdout(
             &dir,
