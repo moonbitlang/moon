@@ -2569,7 +2569,7 @@ pub struct TraceEvent {
 
 #[test]
 fn test_trace_001() {
-    let dir = TestDir::new("hello.in");
+    let dir = TestDir::new("hello");
     let _ = get_stdout(&dir, ["build", "--trace"]);
     let s = replace_dir(&read(dir.join("trace.json")), &dir);
     let j: TraceResult = serde_json::from_str(&s).unwrap();
@@ -2844,7 +2844,7 @@ fn test_moonfmt() {
 #[cfg(unix)]
 #[test]
 fn test_use_cc_for_native_release() {
-    let dir = TestDir::new("moon_test_hello_exec_fntest.in");
+    let dir = TestDir::new("moon_test/hello_exec_fntest");
     // build
     {
         check(
@@ -3756,7 +3756,7 @@ fn test_moon_test_patch() {
 
 #[test]
 fn test_render_diagnostic_in_patch_file() {
-    let dir = TestDir::new("moon_test_patch.in");
+    let dir = TestDir::new("moon_test/patch");
     check(
         get_stderr(&dir, ["check", "lib", "--patch-file", "./patch_test.json"]),
         expect![[r#"
