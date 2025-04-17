@@ -1,0 +1,126 @@
+Basic Package Testing
+  - test_empty_name
+  - test_error_duplicate_alias
+  - test_core_order
+  - test_find_ancestor_with_mod
+  - test_bad_version
+
+Dummy Core
+  - test_dummy_core
+
+Backend Configuration
+  - test_backend_flag (ignore = "not implemented")
+  - test_source_map
+  - test_js_format
+  - test_many_targets
+  - test_many_targets_auto_update_001
+  - test_many_targets_auto_update_002
+  - test_many_targets_auto_update_003
+  - test_many_targets_auto_update_004
+  - test_many_targets_expect_failed
+  - test_supported_backends_in_pkg_json
+  - test_ambiguous_pkg
+
+Warning and Alert Handling
+  - test_warn_list_dry_run
+  - test_warn_list_real_run
+  - test_alert_list
+  - test_mod_level_warn_alert_list
+  - test_deny_warn
+  - test_no_warn_deps
+
+Build Workflow
+  - test_no_work_to_do
+  - test_moon_test_release
+  - test_backtrace
+  - test_debug_flag_test
+  - test_check_failed_should_write_pkg_json
+  - test_strip_debug
+
+Moon Commands and Tools
+  - test_moon_fmt
+  - test_moon_fmt_002 (unix only)
+  - test_moon_fmt_extra_args
+  - test_moon_fmt_block_style
+  - test_moon_doc_dry_run
+  - test_moon_doc
+  - test_tracing_value
+  - test_diff_mbti
+  - moon_info_specific_package
+  - test_moon_check_json_output
+  - test_moon_package_list
+  - test_moon_run_with_cli_args
+  - test_moon_run_single_mbt_file
+  - test_moon_run_single_mbt_file_inside_a_pkg
+  - test_run_doc_test
+  - test_run_md_test
+
+Memory and Export Configuration
+  - test_export_memory_name
+  - test_no_block_params
+  - test_import_memory_and_heap_start
+  - test_import_shared_memory
+  - test_exports_in_native_backend
+  - test_diag_loc_map
+
+Package Dependencies and Testing
+  - test_panic
+  - test_validate_import
+  - test_multi_process
+  - test_internal_package
+  - test_nonexistent_package
+  - test_blackbox_success
+  - test_blackbox_failed
+  - test_blackbox_test_core_override
+  - test_blackbox_dedup_alias
+  - test_dont_link_third_party
+  - moon_test_parallelize_should_success
+  - test_moon_test_patch
+  - test_render_diagnostic_in_patch_file
+  - test_add_mi_if_self_not_set_in_test_imports
+  - test_no_mi_for_test_pkg
+  - test_moon_coverage
+  - test_native_backend_test_filter
+  - moon_test_with_failure_json
+  - test_snapshot_test
+  - test_snapshot_test_target_js
+  - test_update_expect_failed
+  - test_whitespace_test
+  - test_whitespace_parent_space
+  - test_failed_to_fill_whole_buffer
+
+Native Backend
+  - native_backend_cc_flags (unix only)
+  - native_backend_cc_flags_with_env_override (unix only)
+  - test_native_backend_tcc_run (unix only)
+  - test_native_stub_in_pkg_json
+  - test_use_cc_for_native_release (unix only)
+  - no_main_just_init
+
+Package Source Directory
+  - test_specify_source_dir_001
+  - test_specify_source_dir_002
+  - test_specify_source_dir_003
+  - test_specify_source_dir_004
+  - test_specify_source_dir_005
+  - test_specify_source_dir_with_deps
+  - test_specify_source_dir_with_deps_002
+
+Package Management
+  - mooncakes_io_smoke_test
+  - mooncake_cli_smoke_test (ignored = "where to download mooncake?")
+  - test_moon_check_filter_package
+  - test_moon_check_package_with_patch
+  - test_moon_install_bin
+  - test_postadd_script
+  - test_moonbitlang_x
+  - test_third_party
+  - test_upgrade
+  - bench2_test
+  - cakenew_test
+  - capture_abort_test
+  - circle_pkg_test
+
+Pre-Build Configuration
+  - test_pre_build
+  - test_pre_build_dirty (unix only)
