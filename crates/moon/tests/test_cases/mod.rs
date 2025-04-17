@@ -2626,7 +2626,7 @@ fn test_pre_build() {
         get_stderr(&dir, ["check"]),
         expect![[r#"
             Executed 3 pre-build tasks, now up to date
-            Warning: [1002]
+            Warning: [0002]
                ╭─[$ROOT/src/lib/a.mbt:4:5]
                │
              4 │ let resource : String =
@@ -2639,7 +2639,7 @@ fn test_pre_build() {
     check(
         get_stderr(&dir, ["build"]),
         expect![[r#"
-            Warning: [1002]
+            Warning: [0002]
                ╭─[$ROOT/src/lib/a.mbt:4:5]
                │
              4 │ let resource : String =
@@ -3760,7 +3760,7 @@ fn test_render_diagnostic_in_patch_file() {
     check(
         get_stderr(&dir, ["check", "lib", "--patch-file", "./patch_test.json"]),
         expect![[r#"
-            Warning: [1002]
+            Warning: [0002]
                ╭─[hello_2_test.mbt:2:6]
                │
              2 │  let unused_in_patch_test_json = 1;
@@ -3776,7 +3776,7 @@ fn test_render_diagnostic_in_patch_file() {
             ["check", "lib", "--patch-file", "./patch_wbtest.json"],
         ),
         expect![[r#"
-            Warning: [1002]
+            Warning: [0002]
                ╭─[hello_1_wbtest.mbt:2:6]
                │
              2 │  let unused_in_patch_wbtest_json = 1;
@@ -3789,7 +3789,7 @@ fn test_render_diagnostic_in_patch_file() {
     check(
         get_stderr(&dir, ["check", "lib", "--patch-file", "./patch.json"]),
         expect![[r#"
-            Warning: [1002]
+            Warning: [0002]
                ╭─[hello_0.mbt:2:6]
                │
              2 │  let unused_in_patch_json = 1;
@@ -3813,7 +3813,7 @@ fn test_render_diagnostic_in_patch_file() {
             ],
         ),
         expect![[r#"
-            Warning: # E1002
+            Warning: # E0002
 
             Unused variable.
 
@@ -4487,7 +4487,7 @@ fn test_run_md_test() {
     check(
         get_stderr(&dir, ["check", "--sort-input"]),
         expect![[r#"
-            Warning: [1002]
+            Warning: [0002]
                 ╭─[$ROOT/src/lib/1.mbt.md:31:9]
                 │
              31 │     let a = 1

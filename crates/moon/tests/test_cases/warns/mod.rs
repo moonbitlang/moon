@@ -216,28 +216,28 @@ fn test_deny_warn() {
                 │   ───┬───  
                 │      ╰───── Warning (Alert alert_2): alert_2
             ────╯
-            Warning: [1002]
+            Warning: [0002]
                ╭─[$ROOT/lib/hello.mbt:4:7]
                │
              4 │   let a = 1;
                │       ┬  
                │       ╰── Warning: Unused variable 'a'
             ───╯
-            Warning: [1002]
+            Warning: [0002]
                 ╭─[$ROOT/lib/hello.mbt:11:7]
                 │
              11 │   let 中文 = 2
                 │       ──┬─  
                 │         ╰─── Warning: Unused variable '中文'
             ────╯
-            Warning: [1002]
+            Warning: [0002]
                 ╭─[$ROOT/lib/hello.mbt:12:7]
                 │
              12 │   let 🤣😭🤣😭🤣 = 2
                 │       ────┬─────  
                 │           ╰─────── Warning: Unused variable '🤣😭🤣😭🤣'
             ────╯
-            Warning: [1002]
+            Warning: [0002]
                ╭─[$ROOT/main/main.mbt:2:7]
                │
              2 │   let a = 0
@@ -272,28 +272,28 @@ fn test_deny_warn() {
                 │   ───┬───  
                 │      ╰───── Warning (Alert alert_2): alert_2
             ────╯
-            Warning: [1002]
+            Warning: [0002]
                ╭─[$ROOT/lib/hello.mbt:4:7]
                │
              4 │   let a = 1;
                │       ┬  
                │       ╰── Warning: Unused variable 'a'
             ───╯
-            Warning: [1002]
+            Warning: [0002]
                 ╭─[$ROOT/lib/hello.mbt:11:7]
                 │
              11 │   let 中文 = 2
                 │       ──┬─  
                 │         ╰─── Warning: Unused variable '中文'
             ────╯
-            Warning: [1002]
+            Warning: [0002]
                 ╭─[$ROOT/lib/hello.mbt:12:7]
                 │
              12 │   let 🤣😭🤣😭🤣 = 2
                 │       ────┬─────  
                 │           ╰─────── Warning: Unused variable '🤣😭🤣😭🤣'
             ────╯
-            Warning: [1002]
+            Warning: [0002]
                ╭─[$ROOT/main/main.mbt:2:7]
                │
              2 │   let a = 0

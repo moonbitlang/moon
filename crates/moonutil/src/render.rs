@@ -122,7 +122,9 @@ impl MooncDiagnostic {
                 "{}",
                 format!(
                     "[{}] {}: {}",
-                    diagnostic.error_code, kind, diagnostic.message
+                    diagnostic.formatted_error_code(),
+                    kind,
+                    diagnostic.message
                 )
                 .fg(color)
             );
@@ -152,7 +154,7 @@ impl MooncDiagnostic {
                             eprintln!(
                                 "failed to read file `{}`, [{}] {}: {}",
                                 source_file_path,
-                                diagnostic.error_code,
+                                diagnostic.formatted_error_code(),
                                 diagnostic.level,
                                 diagnostic.message
                             );
@@ -206,11 +208,11 @@ impl MooncDiagnostic {
             );
 
         if explain {
-            let error_code_doc = get_error_code_doc(&diagnostic.error_code.to_string()).unwrap();
+            let error_code_doc = get_error_code_doc(&diagnostic.formatted_error_code()).unwrap();
             report_builder = report_builder.with_message(error_code_doc.fg(color));
         } else {
-            report_builder =
-                report_builder.with_message(format!("[{}]", diagnostic.error_code).fg(color));
+            report_builder = report_builder
+                .with_message(format!("[{}]", diagnostic.formatted_error_code()).fg(color));
         }
 
         if !use_fancy {
@@ -254,5 +256,9 @@ impl MooncDiagnostic {
         } else {
             (ariadne::ReportKind::Advice, ariadne::Color::Blue)
         }
+    }
+
+    pub fn formatted_error_code(&self) -> String {
+        format!("{:04}", self.error_code)
     }
 }
