@@ -2,7 +2,7 @@ use super::*;
 
 #[test]
 fn test_moon_test_filter_package() {
-    let dir = TestDir::new("test_filter/plain");
+    let dir = TestDir::new("test_filter/test_filter");
 
     check(
         get_stdout(
@@ -535,7 +535,7 @@ fn test_moon_parallelism() {
 
 #[test]
 fn test_moon_test_filter_package_dry_run() {
-    let dir = TestDir::new("test_filter/plain");
+    let dir = TestDir::new("test_filter/test_filter");
 
     check(
         get_stdout(
@@ -582,7 +582,7 @@ fn test_moon_test_filter_package_dry_run() {
 
 #[test]
 fn test_moon_test_filter_file() {
-    let dir = TestDir::new("test_filter/plain");
+    let dir = TestDir::new("test_filter/test_filter");
 
     check(
         get_stdout(&dir, ["test", "-p", "username/hello/A", "-f", "hello.mbt"]),
@@ -608,7 +608,7 @@ fn test_moon_test_filter_file() {
 
 #[test]
 fn test_moon_test_filter_index() {
-    let dir = TestDir::new("test_filter/plain");
+    let dir = TestDir::new("test_filter/test_filter");
 
     check(
         get_stdout(
@@ -651,7 +651,7 @@ fn test_moon_test_filter_index() {
 
 #[test]
 fn test_moon_test_filter_index_with_auto_update() {
-    let dir = TestDir::new("test_filter/plain");
+    let dir = TestDir::new("test_filter/test_filter");
 
     let _ = get_stdout(
         &dir,
@@ -687,7 +687,7 @@ fn test_moon_test_filter_index_with_auto_update() {
         "#]],
     );
 
-    let dir = TestDir::new("test_filter/plain");
+    let dir = TestDir::new("test_filter/test_filter");
     let _ = get_err_stderr(
         &dir,
         [
@@ -724,7 +724,7 @@ fn test_moon_test_filter_index_with_auto_update() {
         "#]],
     );
 
-    let dir = TestDir::new("test_filter/plain");
+    let dir = TestDir::new("test_filter/test_filter");
     let _ = get_err_stderr(
         &dir,
         [
