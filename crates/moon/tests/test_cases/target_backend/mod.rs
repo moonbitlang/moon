@@ -2,7 +2,7 @@ use super::*;
 
 #[test]
 fn test_target_backend() {
-    let dir = TestDir::new("target-backend.in");
+    let dir = TestDir::new("target-backend");
     check(
         get_stdout(&dir, ["build", "--dry-run", "--nostd"]),
         expect![[r#"

@@ -3,7 +3,7 @@ use expect_test::expect;
 
 #[test]
 fn test_diamond_pkg_001() {
-    let dir = TestDir::new("001");
+    let dir = TestDir::new("diamond_pkg/001");
     snapbox::cmd::Command::new(moon_bin())
         .current_dir(&dir)
         .args(["check"])
@@ -38,7 +38,7 @@ fn test_diamond_pkg_001() {
 
 #[test]
 fn test_diamond_pkg_002() {
-    let dir = TestDir::new("002");
+    let dir = TestDir::new("diamond_pkg/002");
     snapbox::cmd::Command::new(moon_bin())
         .current_dir(&dir)
         .args(["check"])
@@ -85,7 +85,7 @@ fn test_diamond_pkg_002() {
 
 #[test]
 fn test_diamond_pkg_003() {
-    let dir = TestDir::new("003");
+    let dir = TestDir::new("diamond_pkg/003");
     snapbox::cmd::Command::new(moon_bin())
         .current_dir(&dir)
         .args(["check"])

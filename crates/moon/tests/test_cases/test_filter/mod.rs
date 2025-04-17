@@ -759,3 +759,31 @@ fn test_moon_test_filter_index_with_auto_update() {
         "#]],
     );
 }
+
+#[test]
+fn moon_test_parallelize_should_success() {
+    let dir = TestDir::new("test_filter/pkg_with_test_imports");
+
+    let output = get_stdout(&dir, ["test"]);
+    assert!(output.contains("Total tests: 14, passed: 14, failed: 0."));
+
+    let output = get_stdout(&dir, ["test", "--target", "native"]);
+    assert!(output.contains("Total tests: 14, passed: 14, failed: 0."));
+
+    let dir = TestDir::new("test_filter.in");
+
+    let output = get_err_stdout(&dir, ["test"]);
+    assert!(output.contains("Total tests: 13, passed: 11, failed: 2."));
+
+    let output = get_err_stdout(&dir, ["test", "--target", "native"]);
+    assert!(output.contains("Total tests: 13, passed: 11, failed: 2."));
+
+    let output = get_stdout(&dir, ["test", "-u", "--no-parallelize"]);
+    assert!(output.contains("Total tests: 13, passed: 13, failed: 0."));
+
+    let output = get_stdout(
+        &dir,
+        ["test", "-u", "--no-parallelize", "--target", "native"],
+    );
+    assert!(output.contains("Total tests: 13, passed: 13, failed: 0."));
+}

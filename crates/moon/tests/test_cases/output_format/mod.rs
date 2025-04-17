@@ -2,7 +2,7 @@ use super::*;
 
 #[test]
 fn test_output_format() {
-    let dir = TestDir::new("output_format.in");
+    let dir = TestDir::new("output_format");
 
     snapbox::cmd::Command::new(moon_bin())
         .current_dir(&dir)

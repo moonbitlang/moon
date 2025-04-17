@@ -21,7 +21,7 @@ use expect_test::expect;
 
 #[test]
 fn test_design() {
-    let dir = TestDir::new(".");
+    let dir = TestDir::new("design");
     snapbox::cmd::Command::new(moon_bin())
         .current_dir(&dir)
         .args(["check"])

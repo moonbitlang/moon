@@ -96,7 +96,7 @@ fn test_moon_test_hello_lib() {
 
 #[test]
 fn test_moon_test_with_local_dep() {
-    let dir = TestDir::new("moon_test/with_local_dep");
+    let dir = TestDir::new("moon_test/with_local_deps");
     check(
         get_stdout(&dir, ["test", "-v", "--frozen"]),
         expect![[r#"
@@ -169,7 +169,7 @@ fn test_moon_test_with_local_dep() {
 
 #[test]
 fn test_pkg_source_in() {
-    let dir = TestDir::new("moon_test/with_local_dep");
+    let dir = TestDir::new("moon_test/with_local_deps");
     let out = get_stdout(&dir, ["build", "--dry-run", "--sort-input", "--frozen"]);
     check(
         &out,

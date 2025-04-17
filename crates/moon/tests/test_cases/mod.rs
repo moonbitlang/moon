@@ -375,7 +375,7 @@ fn mooncakes_io_smoke_test() {
     if std::env::var("CI").is_err() {
         return;
     }
-    let dir = TestDir::new("hello.in");
+    let dir = TestDir::new("hello");
     let _ = get_stdout(&dir, ["update"]);
     let _ = get_stdout(&dir, ["add", "lijunchen/hello2@0.1.0"]);
     check(
@@ -1723,34 +1723,6 @@ fn test_moon_run_single_mbt_file_inside_a_pkg() {
             main in lib
         "#]],
     );
-}
-
-#[test]
-fn moon_test_parallelize_should_success() {
-    let dir = TestDir::new("test_filter_pkg_with_test_imports.in");
-
-    let output = get_stdout(&dir, ["test"]);
-    assert!(output.contains("Total tests: 14, passed: 14, failed: 0."));
-
-    let output = get_stdout(&dir, ["test", "--target", "native"]);
-    assert!(output.contains("Total tests: 14, passed: 14, failed: 0."));
-
-    let dir = TestDir::new("test_filter.in");
-
-    let output = get_err_stdout(&dir, ["test"]);
-    assert!(output.contains("Total tests: 13, passed: 11, failed: 2."));
-
-    let output = get_err_stdout(&dir, ["test", "--target", "native"]);
-    assert!(output.contains("Total tests: 13, passed: 11, failed: 2."));
-
-    let output = get_stdout(&dir, ["test", "-u", "--no-parallelize"]);
-    assert!(output.contains("Total tests: 13, passed: 13, failed: 0."));
-
-    let output = get_stdout(
-        &dir,
-        ["test", "-u", "--no-parallelize", "--target", "native"],
-    );
-    assert!(output.contains("Total tests: 13, passed: 13, failed: 0."));
 }
 
 #[test]
@@ -4308,7 +4280,7 @@ fn test_diff_mbti() {
 
 #[test]
 fn moon_info_specific_package() {
-    let dir = TestDir::new("moon_new.in");
+    let dir = TestDir::new("moon_new/plain");
 
     // exact match
     get_stdout(&dir, ["info", "--package", "moon_new/main"]);
