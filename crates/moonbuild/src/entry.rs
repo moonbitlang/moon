@@ -110,6 +110,11 @@ pub fn n2_simple_run_interface(
         .check_opt
         .as_ref()
         .is_some_and(|it| it.explain);
+
+    let (target_dir, source_dir) = (
+        moonbuild_opt.target_dir.clone(),
+        moonbuild_opt.source_dir.clone(),
+    );
     let render_and_catch = move |output: &str| {
         output
             .split('\n')
@@ -124,6 +129,7 @@ pub fn n2_simple_run_interface(
                         use_fancy,
                         check_patch_file.clone(),
                         explain,
+                        (target_dir.clone(), source_dir.clone()),
                     );
                 }
             });
@@ -192,6 +198,11 @@ pub fn n2_run_interface(
         .check_opt
         .as_ref()
         .is_some_and(|it| it.explain);
+
+    let (target_dir, source_dir) = (
+        moonbuild_opt.target_dir.clone(),
+        moonbuild_opt.source_dir.clone(),
+    );
     let render_and_catch = move |output: &str| {
         output.lines().for_each(|content| {
             catcher.lock().unwrap().push(content.to_owned());
@@ -203,6 +214,7 @@ pub fn n2_run_interface(
                     use_fancy,
                     check_patch_file.clone(),
                     explain,
+                    (target_dir.clone(), source_dir.clone()),
                 );
             }
         });
@@ -243,6 +255,10 @@ pub fn n2_run_interface(
     let output_path = moonbuild_opt
         .target_dir
         .join(format!("{}.output", moonbuild_opt.run_mode.to_dir_name()));
+    let (target_dir, source_dir) = (
+        moonbuild_opt.target_dir.clone(),
+        moonbuild_opt.source_dir.clone(),
+    );
     if let Some(0) = res {
         // if no work to do, then do not rewrite (build | check | test ...).output
         // instead, read it and print
@@ -265,6 +281,7 @@ pub fn n2_run_interface(
                         .check_opt
                         .as_ref()
                         .is_some_and(|it| it.explain),
+                    (target_dir.clone(), source_dir.clone()),
                 );
             }
         });

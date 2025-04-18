@@ -105,14 +105,28 @@ impl MooncDiagnostic {
         use_fancy: bool,
         check_patch_file: Option<PathBuf>,
         explain: bool,
+        (target_dir, source_dir): (PathBuf, PathBuf),
     ) {
-        let diagnostic = match serde_json_lenient::from_str::<MooncDiagnostic>(content) {
+        let mut diagnostic = match serde_json_lenient::from_str::<MooncDiagnostic>(content) {
             Ok(d) => d,
             Err(_) => {
                 eprintln!("{}", content);
                 return;
             }
         };
+
+        // a workaround for rendering the diagnostaic and error in generated test driver file correctly
+        if diagnostic.location.path.contains("__generated_driver_for_") {
+            let rel_path = PathBuf::from(
+                diagnostic
+                    .location
+                    .path
+                    .clone()
+                    .replace(&source_dir.display().to_string(), "."),
+            );
+            let mbt_file_path = target_dir.join(rel_path);
+            diagnostic.location.path = mbt_file_path.display().to_string();
+        }
 
         let (kind, color) = diagnostic.get_level_and_color();
 

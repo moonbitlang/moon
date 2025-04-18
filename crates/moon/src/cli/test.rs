@@ -102,6 +102,13 @@ pub fn run_test(cli: UniversalFlags, cmd: TestSubcommand) -> anyhow::Result<i32>
         target_dir,
     } = cli.source_tgt_dir.try_into_package_dirs()?;
 
+    if cmd.md_test {
+        eprintln!(
+            "{}: --md flag is deprecated and will be removed in the future, please use `moon test` directly",
+            "Warning".yellow(),
+        );
+    }
+
     if cmd.build_flags.target.is_none() {
         return run_test_internal(&cli, &cmd, &source_dir, &target_dir, None);
     }
@@ -180,7 +187,6 @@ pub(crate) struct TestLikeSubcommand<'a> {
     pub test_failure_json: bool,
     pub patch_file: &'a Option<PathBuf>,
     pub doc_test: bool,
-    pub md_test: bool,
 }
 
 impl<'a> From<&'a TestSubcommand> for TestLikeSubcommand<'a> {
@@ -199,7 +205,6 @@ impl<'a> From<&'a TestSubcommand> for TestLikeSubcommand<'a> {
             test_failure_json: cmd.test_failure_json,
             patch_file: &cmd.patch_file,
             doc_test: cmd.doc_test,
-            md_test: cmd.md_test,
         }
     }
 }
@@ -219,7 +224,6 @@ impl<'a> From<&'a BenchSubcommand> for TestLikeSubcommand<'a> {
             test_failure_json: false,
             patch_file: &None,
             doc_test: false,
-            md_test: false,
         }
     }
 }
@@ -425,12 +429,6 @@ pub(crate) fn run_test_or_bench_internal(
 
         pkg.patch_file = patch_file.clone();
 
-        if cmd.md_test {
-            eprintln!(
-                "{}: --md flag is deprecated and will be removed in the future, please use `moon test` directly",
-                "Warning".yellow(),
-            );
-        }
         if !pkg.mbt_md_files.is_empty() {
             let pj_path = moonutil::doc_test::gen_md_test_patch(pkg, &moonc_opt)?;
             pkg.doc_test_patch_file = Some(pj_path.clone());
