@@ -31,6 +31,9 @@ use moonutil::path::{ImportPath, PathComponent};
 use petgraph::graph::NodeIndex;
 
 use super::cmd_builder::CommandBuilder;
+use super::gen_build::{
+    gen_build_interface_item, replace_virtual_pkg_core_with_impl_pkg_core, BuildInterfaceItem,
+};
 use super::util::self_in_test_import;
 use super::{is_self_coverage_lib, is_skip_coverage_lib};
 use std::collections::HashSet;
@@ -49,6 +52,7 @@ use crate::gen::gen_build::{
 };
 use crate::gen::n2_errors::{N2Error, N2ErrorKind};
 use crate::gen::{coverage_args, MiAlias};
+use crate::r#gen::gen_build::gen_build_interface_command;
 
 #[derive(Debug)]
 pub struct RuntestDepItem {
@@ -67,6 +71,9 @@ pub struct RuntestDepItem {
     pub is_blackbox_test: bool,
     pub no_mi: bool,
     pub patch_file: Option<PathBuf>,
+
+    // which virtual pkg to implement (this field record the .mi of that virtual pkg)
+    pub impl_virtual_pkg: Option<String>,
 }
 
 type RuntestLinkDepItem = moonutil::package::LinkDepItem;
@@ -82,6 +89,10 @@ pub struct RuntestDriverItem {
 
 #[derive(Debug)]
 pub struct N2RuntestInput {
+    // for virtual pkg
+    pub build_interface_items: Vec<BuildInterfaceItem>,
+    pub build_default_virtual_items: Vec<RuntestDepItem>,
+
     pub build_items: Vec<RuntestDepItem>,
     pub link_items: Vec<RuntestLinkDepItem>, // entry points
     pub test_drivers: Vec<RuntestDriverItem>,
@@ -245,6 +256,28 @@ pub fn gen_package_core(
     let package_full_name = pkg.full_name();
     let package_source_dir = pkg.root_path.to_string_lossy().into_owned();
 
+    let impl_virtual_pkg = if let Some(impl_virtual_pkg) = pkg.implement.as_ref() {
+        let impl_virtual_pkg = if let Some(pkg) = m.get_package_by_name_safe(impl_virtual_pkg) {
+            pkg
+        } else {
+            anyhow::bail!(
+                "{}: could not be found implemented package `{}`, make sure the package name is correct, e.g. 'moonbitlang/core/double'",
+                m.source_dir.join(pkg.rel.fs_full_name()).join(MOON_PKG_JSON).display(),
+                impl_virtual_pkg
+            );
+        };
+
+        let virtual_pkg_mi = impl_virtual_pkg
+            .artifact
+            .with_extension("mi")
+            .display()
+            .to_string();
+
+        Some(virtual_pkg_mi)
+    } else {
+        None
+    };
+
     Ok(RuntestDepItem {
         core_out: core_out.display().to_string(),
         mi_out: mi_out.display().to_string(),
@@ -261,6 +294,7 @@ pub fn gen_package_core(
         is_blackbox_test: false,
         no_mi: false,
         patch_file: None,
+        impl_virtual_pkg,
     })
 }
 
@@ -335,6 +369,7 @@ pub fn gen_package_internal_test(
         is_blackbox_test: false,
         no_mi: true,
         patch_file,
+        impl_virtual_pkg: None,
     })
 }
 
@@ -417,6 +452,7 @@ pub fn gen_package_whitebox_test(
         is_blackbox_test: false,
         no_mi: true,
         patch_file,
+        impl_virtual_pkg: None,
     })
 }
 
@@ -528,6 +564,7 @@ pub fn gen_package_blackbox_test(
         is_blackbox_test: true,
         no_mi: true,
         patch_file,
+        impl_virtual_pkg: None,
     })
 }
 
@@ -624,6 +661,8 @@ pub fn gen_link_internal_test(
 
     let package_full_name = pkg.full_name();
 
+    replace_virtual_pkg_core_with_impl_pkg_core(m, pkg, &mut core_deps)?;
+
     Ok(RuntestLinkDepItem {
         out: out.display().to_string(),
         core_deps,
@@ -663,6 +702,8 @@ pub fn gen_link_whitebox_test(
     let package_sources = get_package_sources(&pkg_topo_order);
 
     let package_full_name = pkg.full_name();
+
+    replace_virtual_pkg_core_with_impl_pkg_core(m, pkg, &mut core_deps)?;
 
     Ok(RuntestLinkDepItem {
         out: out.display().to_string(),
@@ -721,6 +762,8 @@ pub fn gen_link_blackbox_test(
     // this will be passed to link-core `-main`
     let package_full_name = pkg.full_name() + "_blackbox_test";
 
+    replace_virtual_pkg_core_with_impl_pkg_core(m, pkg, &mut core_deps)?;
+
     Ok(RuntestLinkDepItem {
         out: out.display().to_string(),
         core_deps,
@@ -751,6 +794,8 @@ pub fn gen_runtest(
     moonc_opt: &MooncOpt,
     moonbuild_opt: &MoonbuildOpt,
 ) -> anyhow::Result<N2RuntestInput> {
+    let mut build_interface_items = vec![];
+    let mut build_default_virtual_items = vec![];
     let mut build_items = vec![];
     let mut link_items = vec![];
     let mut test_drivers = vec![];
@@ -782,7 +827,14 @@ pub fn gen_runtest(
             continue;
         }
 
-        build_items.push(gen_package_core(m, pkg, moonc_opt)?);
+        if let Some(v) = pkg.virtual_pkg.as_ref() {
+            build_interface_items.push(gen_build_interface_item(m, pkg)?);
+            if v.has_default {
+                build_default_virtual_items.push(gen_package_core(m, pkg, moonc_opt)?);
+            }
+        } else {
+            build_items.push(gen_package_core(m, pkg, moonc_opt)?);
+        }
         if pkg.stub_static_lib.is_some() {
             compile_stub_items.push(RuntestLinkDepItem {
                 out: pkg.artifact.with_extension(O_EXT).display().to_string(),
@@ -858,6 +910,8 @@ pub fn gen_runtest(
     }
 
     Ok(N2RuntestInput {
+        build_interface_items,
+        build_default_virtual_items,
         build_items,
         link_items,
         test_drivers,
@@ -869,6 +923,7 @@ pub fn gen_runtest_build_command(
     graph: &mut n2graph::Graph,
     item: &RuntestDepItem,
     moonc_opt: &MooncOpt,
+    need_build_default_virtual: bool,
 ) -> Build {
     let core_output_id = graph.files.id_from_canonical(item.core_out.clone());
     let mi_output_id = graph.files.id_from_canonical(item.mi_out.clone());
@@ -880,6 +935,18 @@ pub fn gen_runtest_build_command(
 
     let mut inputs = item.mbt_deps.clone();
     inputs.extend(item.mi_deps.iter().map(|a| a.name.clone()));
+    // add $pkgname.mi as imput if need_build_virtual since it is used by --check-mi
+    if need_build_default_virtual {
+        inputs.push(
+            PathBuf::from(&item.core_out)
+                .with_extension("mi")
+                .display()
+                .to_string(),
+        );
+    }
+    if let Some(impl_virtual_pkg) = item.impl_virtual_pkg.as_ref() {
+        inputs.push(impl_virtual_pkg.clone());
+    }
     let input_ids = inputs
         .into_iter()
         .map(|f| graph.files.id_from_canonical(f))
@@ -901,7 +968,7 @@ pub fn gen_runtest_build_command(
     };
 
     let outs = BuildOuts {
-        ids: if item.no_mi {
+        ids: if item.no_mi || need_build_default_virtual {
             vec![core_output_id]
         } else {
             vec![core_output_id, mi_output_id]
@@ -970,6 +1037,26 @@ pub fn gen_runtest_build_command(
             vec![
                 "-patch-file".to_string(),
                 item.patch_file.as_ref().unwrap().display().to_string(),
+            ]
+        })
+        .args_with_cond(
+            need_build_default_virtual,
+            vec![
+                "-check-mi".to_string(),
+                PathBuf::from(&item.core_out)
+                    .with_extension("mi")
+                    .display()
+                    .to_string(),
+                "-no-mi".to_string(),
+            ],
+        )
+        .lazy_args_with_cond(item.impl_virtual_pkg.as_ref().is_some(), || {
+            vec![
+                "-check-mi".to_string(),
+                item.impl_virtual_pkg.as_ref().unwrap().clone(),
+                "-impl-virtual".to_string(),
+                // implementation package should not been import so here don't emit .mi
+                "-no-mi".to_string(),
             ]
         })
         .build();
@@ -1102,7 +1189,7 @@ pub fn gen_n2_runtest_state(
     log::debug!("input: {:#?}", input);
 
     for item in input.build_items.iter() {
-        let build = gen_runtest_build_command(&mut graph, item, moonc_opt);
+        let build = gen_runtest_build_command(&mut graph, item, moonc_opt, false);
         graph.add_build(build)?;
     }
 
@@ -1173,6 +1260,16 @@ pub fn gen_n2_runtest_state(
     }
     for item in input.test_drivers.iter() {
         let build = gen_generate_test_driver_command(&mut graph, item, moonc_opt, moonbuild_opt);
+        graph.add_build(build)?;
+    }
+
+    for item in input.build_interface_items.iter() {
+        let (build, _) = gen_build_interface_command(&mut graph, item, moonc_opt);
+        graph.add_build(build)?;
+    }
+
+    for item in input.build_default_virtual_items.iter() {
+        let build = gen_runtest_build_command(&mut graph, item, moonc_opt, true);
         graph.add_build(build)?;
     }
 
