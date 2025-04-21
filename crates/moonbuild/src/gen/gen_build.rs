@@ -41,6 +41,17 @@ use n2::load::State;
 use n2::smallmap::SmallMap;
 
 #[derive(Debug)]
+pub struct BuildInterfaceItem {
+    pub mi_out: String,
+    pub mbti_deps: String,
+    pub mi_deps: Vec<MiAlias>,
+    pub package_full_name: String,
+    pub package_source_dir: String,
+
+    pub need_build_virtual: bool,
+}
+
+#[derive(Debug)]
 pub struct BuildDepItem {
     pub core_out: String,
     pub mi_out: String,
@@ -59,6 +70,10 @@ type BuildLinkDepItem = moonutil::package::LinkDepItem;
 
 #[derive(Debug)]
 pub struct N2BuildInput {
+    // for virtual pkg
+    pub build_interface_items: Vec<BuildInterfaceItem>,
+    pub build_virtual_items: Vec<BuildDepItem>,
+
     pub build_items: Vec<BuildDepItem>,
     pub link_items: Vec<BuildLinkDepItem>, // entry points
     pub compile_stub_items: Vec<BuildLinkDepItem>,
@@ -71,6 +86,50 @@ fn to_opt_level(release: bool, debug: bool) -> OptLevel {
         (false, true) => OptLevel::Debug,
         (false, false) => OptLevel::None,
     }
+}
+
+pub fn gen_build_interface_item(m: &ModuleDB, pkg: &Package) -> anyhow::Result<BuildInterfaceItem> {
+    let virtual_mbti_file_path = pkg.virtual_mbti_file.as_ref().unwrap();
+
+    let mut mi_deps = vec![
+        // MiAlias {
+        //     name: pkg.artifact.with_extension("mi").display().to_string(),
+        //     alias: pkg.rel.short_name().to_string(),
+        // }
+    ];
+    for dep in pkg.imports.iter() {
+        let full_import_name = dep.path.make_full_path();
+        if !m.contains_package(&full_import_name) {
+            bail!(
+                "{}: the imported package `{}` could not be located.",
+                m.source_dir
+                    .join(pkg.rel.fs_full_name())
+                    .join(MOON_PKG_JSON)
+                    .display(),
+                full_import_name,
+            );
+        }
+        let cur_pkg = m.get_package_by_name(&full_import_name);
+        let d = cur_pkg.artifact.with_extension("mi");
+        let alias = dep.alias.clone().unwrap_or(cur_pkg.last_name().into());
+        mi_deps.push(MiAlias {
+            name: d.display().to_string(),
+            alias,
+        });
+    }
+
+    let mi_out = pkg.artifact.with_extension("mi");
+    let package_full_name = pkg.full_name();
+    let package_source_dir: String = pkg.root_path.to_string_lossy().into_owned();
+
+    Ok(BuildInterfaceItem {
+        mi_out: mi_out.display().to_string(),
+        mbti_deps: virtual_mbti_file_path.display().to_string(),
+        mi_deps,
+        package_full_name,
+        package_source_dir,
+        need_build_virtual: pkg.virtual_pkg.as_ref().is_some_and(|v| v.has_default),
+    })
 }
 
 pub fn gen_build_build_item(
@@ -170,6 +229,8 @@ pub fn gen_build(
     moonc_opt: &MooncOpt,
     moonbuild_opt: &MoonbuildOpt,
 ) -> anyhow::Result<N2BuildInput> {
+    let mut build_interface_items = vec![];
+    let mut build_virtual_items = vec![];
     let mut build_items = vec![];
     let mut link_items = vec![];
     let mut compile_stub_items = vec![];
@@ -187,7 +248,14 @@ pub fn gen_build(
     for (_, pkg) in pkgs_to_build {
         let is_main = pkg.is_main;
 
-        build_items.push(gen_build_build_item(m, pkg, moonc_opt)?);
+        if let Some(v) = pkg.virtual_pkg.as_ref() {
+            build_interface_items.push(gen_build_interface_item(m, pkg)?);
+            if v.has_default {
+                build_virtual_items.push(gen_build_build_item(m, pkg, moonc_opt)?);
+            }
+        } else {
+            build_items.push(gen_build_build_item(m, pkg, moonc_opt)?);
+        }
 
         if pkg.stub_static_lib.is_some() {
             compile_stub_items.push(BuildLinkDepItem {
@@ -209,16 +277,89 @@ pub fn gen_build(
         }
     }
     Ok(N2BuildInput {
+        build_interface_items,
+        build_virtual_items,
         build_items,
         link_items,
         compile_stub_items,
     })
 }
 
+pub fn gen_build_interface_command(
+    graph: &mut n2graph::Graph,
+    item: &BuildInterfaceItem,
+    moonc_opt: &MooncOpt,
+) -> (Build, n2graph::FileId) {
+    let mi_output_id = graph.files.id_from_canonical(item.mi_out.clone());
+
+    let loc = FileLoc {
+        filename: Rc::new(PathBuf::from("build")),
+        line: 0,
+    };
+
+    let mut inputs = vec![item.mbti_deps.clone()];
+    inputs.extend(item.mi_deps.iter().map(|a| a.name.clone()));
+    let input_ids = inputs
+        .into_iter()
+        .map(|f| graph.files.id_from_canonical(f))
+        .collect::<Vec<_>>();
+
+    let mi_files_with_alias: Vec<String> = item
+        .mi_deps
+        .iter()
+        .map(|a| format!("{}:{}", a.name, a.alias))
+        .collect();
+
+    let len = input_ids.len();
+    let ins = BuildIns {
+        ids: input_ids,
+        explicit: len,
+        implicit: 0,
+        order_only: 0,
+    };
+
+    let outs = BuildOuts {
+        ids: vec![mi_output_id],
+        explicit: 1,
+    };
+
+    let mut build = Build::new(loc, ins, outs);
+
+    let command = CommandBuilder::new("moonc")
+        .arg("build-interface")
+        .arg(&item.mbti_deps)
+        .arg("-o")
+        .arg(&item.mi_out)
+        .args_with_prefix_separator(mi_files_with_alias, "-i")
+        .arg("-pkg")
+        .arg(&item.package_full_name)
+        .arg("-pkg-sources")
+        .arg(&format!(
+            "{}:{}",
+            &item.package_full_name, &item.package_source_dir
+        ))
+        .arg("-virtual")
+        .args_with_cond(
+            !moonc_opt.nostd,
+            [
+                "-std-path",
+                moonutil::moon_dir::core_bundle(moonc_opt.link_opt.target_backend)
+                    .to_str()
+                    .unwrap(),
+            ],
+        )
+        .build();
+    log::debug!("Command: {}", command);
+    build.cmdline = Some(command);
+    build.desc = Some(format!("build-interface: {}", item.package_full_name));
+    (build, mi_output_id)
+}
+
 pub fn gen_build_command(
     graph: &mut n2graph::Graph,
     item: &BuildDepItem,
     moonc_opt: &MooncOpt,
+    need_build_virtual: bool,
 ) -> (Build, n2graph::FileId) {
     let core_output_id = graph.files.id_from_canonical(item.core_out.clone());
     let mi_output_id = graph.files.id_from_canonical(item.mi_out.clone());
@@ -230,6 +371,15 @@ pub fn gen_build_command(
 
     let mut inputs = item.mbt_deps.clone();
     inputs.extend(item.mi_deps.iter().map(|a| a.name.clone()));
+    // add $pkgname.mi as imput if need_build_virtual since it is used by --check-mi
+    if need_build_virtual {
+        inputs.push(
+            PathBuf::from(&item.core_out)
+                .with_extension("mi")
+                .display()
+                .to_string(),
+        );
+    }
     let input_ids = inputs
         .into_iter()
         .map(|f| graph.files.id_from_canonical(f))
@@ -251,7 +401,11 @@ pub fn gen_build_command(
     };
 
     let outs = BuildOuts {
-        ids: vec![core_output_id, mi_output_id],
+        ids: if need_build_virtual {
+            vec![core_output_id]
+        } else {
+            vec![core_output_id, mi_output_id]
+        },
         explicit: 1,
     };
 
@@ -321,6 +475,16 @@ pub fn gen_build_command(
         .arg_with_cond(self_coverage, "-coverage-package-override=@self")
         .args(moonc_opt.extra_build_opt.iter())
         .arg_with_cond(item.enable_value_tracing, "-enable-value-tracing")
+        .lazy_args_with_cond(need_build_virtual, || {
+            vec![
+                "-check-mi".to_string(),
+                PathBuf::from(&item.core_out)
+                    .with_extension("mi")
+                    .display()
+                    .to_string(),
+                "-no-mi".to_string(),
+            ]
+        })
         .build();
     log::debug!("Command: {}", command);
     build.cmdline = Some(command);
@@ -1108,7 +1272,7 @@ pub fn gen_n2_build_state(
     let mut default = vec![];
 
     for item in input.build_items.iter() {
-        let (build, fid) = gen_build_command(&mut graph, item, moonc_opt);
+        let (build, fid) = gen_build_command(&mut graph, item, moonc_opt, false);
         graph.add_build(build)?;
         default.push(fid);
     }
@@ -1247,6 +1411,18 @@ pub fn gen_n2_build_state(
                 }
             }
         }
+    }
+
+    for item in input.build_interface_items.iter() {
+        let (build, fid) = gen_build_interface_command(&mut graph, item, moonc_opt);
+        graph.add_build(build)?;
+        default.push(fid);
+    }
+
+    for item in input.build_virtual_items.iter() {
+        let (build, fid) = gen_build_command(&mut graph, item, moonc_opt, true);
+        graph.add_build(build)?;
+        default.push(fid);
     }
 
     if is_native_backend {

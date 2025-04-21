@@ -428,6 +428,20 @@ fn scan_one_package(
         stub_static_lib: pkg
             .native_stub
             .and_then(|x| if x.is_empty() { None } else { Some(x) }),
+
+        virtual_mbti_file: if pkg.virtual_pkg.is_some() {
+            let virtual_mbti_file = pkg_path.join(format!("{}.mbti", rel.display()));
+            if !virtual_mbti_file.exists() {
+                anyhow::bail!(
+                    "virtual mbti file `{}` not found",
+                    virtual_mbti_file.display()
+                );
+            }
+            Some(virtual_mbti_file)
+        } else {
+            None
+        },
+        virtual_pkg: pkg.virtual_pkg,
     };
     if doc_mode {
         // -o <folder>

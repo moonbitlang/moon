@@ -1,0 +1,4 @@
+{
+  "is-main": true,
+  "implementations": [{ "virtual": "username/hello/lib_virtual", "implementation": "username/hello/lib_impl" }]
+}
