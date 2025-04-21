@@ -443,6 +443,7 @@ fn scan_one_package(
         },
         virtual_pkg: pkg.virtual_pkg,
         implement: pkg.implement,
+        implementations: pkg.implementations,
     };
     if doc_mode {
         // -o <folder>

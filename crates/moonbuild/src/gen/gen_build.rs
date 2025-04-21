@@ -47,8 +47,6 @@ pub struct BuildInterfaceItem {
     pub mi_deps: Vec<MiAlias>,
     pub package_full_name: String,
     pub package_source_dir: String,
-
-    pub need_build_virtual: bool,
 }
 
 #[derive(Debug)]
@@ -65,6 +63,7 @@ pub struct BuildDepItem {
     pub is_third_party: bool,
     pub enable_value_tracing: bool,
 
+    // which virtual pkg to implement (this field record the .mi of that virtual pkg)
     pub impl_virtual_pkg: Option<String>,
 }
 
@@ -74,7 +73,7 @@ type BuildLinkDepItem = moonutil::package::LinkDepItem;
 pub struct N2BuildInput {
     // for virtual pkg
     pub build_interface_items: Vec<BuildInterfaceItem>,
-    pub build_virtual_items: Vec<BuildDepItem>,
+    pub build_default_virtual_items: Vec<BuildDepItem>,
 
     pub build_items: Vec<BuildDepItem>,
     pub link_items: Vec<BuildLinkDepItem>, // entry points
@@ -130,7 +129,6 @@ pub fn gen_build_interface_item(m: &ModuleDB, pkg: &Package) -> anyhow::Result<B
         mi_deps,
         package_full_name,
         package_source_dir,
-        need_build_virtual: pkg.virtual_pkg.as_ref().is_some_and(|v| v.has_default),
     })
 }
 
@@ -233,8 +231,10 @@ pub fn gen_build_link_item(
     let package_full_name = pkg.full_name();
 
     let tp = super::util::topo_from_node(m, pkg)?;
-    let core_deps = super::util::nodes_to_cores(m, &tp);
+    let mut core_deps = super::util::nodes_to_cores(m, &tp);
     let package_sources = super::util::nodes_to_pkg_sources(m, &tp);
+
+    replace_virtual_pkg_core_with_impl_pkg_core(m, pkg, &mut core_deps)?;
 
     Ok(BuildLinkDepItem {
         out: out.display().to_string(),
@@ -249,13 +249,64 @@ pub fn gen_build_link_item(
     })
 }
 
+pub fn replace_virtual_pkg_core_with_impl_pkg_core(
+    m: &ModuleDB,
+    pkg: &Package,
+    core_deps: &mut Vec<String>,
+) -> anyhow::Result<()> {
+    if let Some(implementations) = pkg.implementations.as_ref() {
+        for implementation in implementations {
+            let virtual_pkg = m.get_package_by_name_safe(&implementation.virtual_pkg);
+            if virtual_pkg.is_none() {
+                anyhow::bail!("{}: could not found the virtual package `{}`, make sure the package name is correct, e.g. 'moonbitlang/core/double'",
+                    m.source_dir.join(pkg.rel.fs_full_name()).join(MOON_PKG_JSON).display(),
+                    implementation.virtual_pkg
+                );
+            }
+
+            let impl_pkg = m.get_package_by_name_safe(
+                &implementation
+                    .implementation
+                    .as_ref()
+                    .unwrap_or(&implementation.virtual_pkg.clone()),
+            );
+            if let Some(impl_pkg) = impl_pkg {
+                // remove .core of the imported virtual pkg
+                core_deps.retain(|core_dep| {
+                    core_dep
+                        != &virtual_pkg
+                            .unwrap()
+                            .artifact
+                            .with_extension("core")
+                            .display()
+                            .to_string()
+                });
+                // add .core of impl pkg
+                core_deps.push(
+                    impl_pkg
+                        .artifact
+                        .with_extension("core")
+                        .display()
+                        .to_string(),
+                );
+            } else {
+                anyhow::bail!("{}: could not found the implemented package `{}`, make sure the package name is correct, e.g. 'moonbitlang/core/double'",
+                    m.source_dir.join(pkg.rel.fs_full_name()).join(MOON_PKG_JSON).display(),
+                    implementation.virtual_pkg
+                );
+            }
+        }
+    }
+    Ok(())
+}
+
 pub fn gen_build(
     m: &ModuleDB,
     moonc_opt: &MooncOpt,
     moonbuild_opt: &MoonbuildOpt,
 ) -> anyhow::Result<N2BuildInput> {
     let mut build_interface_items = vec![];
-    let mut build_virtual_items = vec![];
+    let mut build_default_virtual_items = vec![];
     let mut build_items = vec![];
     let mut link_items = vec![];
     let mut compile_stub_items = vec![];
@@ -276,7 +327,7 @@ pub fn gen_build(
         if let Some(v) = pkg.virtual_pkg.as_ref() {
             build_interface_items.push(gen_build_interface_item(m, pkg)?);
             if v.has_default {
-                build_virtual_items.push(gen_build_build_item(m, pkg, moonc_opt)?);
+                build_default_virtual_items.push(gen_build_build_item(m, pkg, moonc_opt)?);
             }
         } else {
             build_items.push(gen_build_build_item(m, pkg, moonc_opt)?);
@@ -303,7 +354,7 @@ pub fn gen_build(
     }
     Ok(N2BuildInput {
         build_interface_items,
-        build_virtual_items,
+        build_default_virtual_items,
         build_items,
         link_items,
         compile_stub_items,
@@ -384,7 +435,7 @@ pub fn gen_build_command(
     graph: &mut n2graph::Graph,
     item: &BuildDepItem,
     moonc_opt: &MooncOpt,
-    need_build_virtual: bool,
+    need_build_default_virtual: bool,
 ) -> (Build, n2graph::FileId) {
     let core_output_id = graph.files.id_from_canonical(item.core_out.clone());
     let mi_output_id = graph.files.id_from_canonical(item.mi_out.clone());
@@ -397,7 +448,7 @@ pub fn gen_build_command(
     let mut inputs = item.mbt_deps.clone();
     inputs.extend(item.mi_deps.iter().map(|a| a.name.clone()));
     // add $pkgname.mi as imput if need_build_virtual since it is used by --check-mi
-    if need_build_virtual {
+    if need_build_default_virtual {
         inputs.push(
             PathBuf::from(&item.core_out)
                 .with_extension("mi")
@@ -429,7 +480,7 @@ pub fn gen_build_command(
     };
 
     let outs = BuildOuts {
-        ids: if need_build_virtual {
+        ids: if need_build_default_virtual {
             vec![core_output_id]
         } else {
             vec![core_output_id, mi_output_id]
@@ -504,7 +555,7 @@ pub fn gen_build_command(
         .args(moonc_opt.extra_build_opt.iter())
         .arg_with_cond(item.enable_value_tracing, "-enable-value-tracing")
         .args_with_cond(
-            need_build_virtual,
+            need_build_default_virtual,
             vec![
                 "-check-mi".to_string(),
                 PathBuf::from(&item.core_out)
@@ -1452,15 +1503,13 @@ pub fn gen_n2_build_state(
     }
 
     for item in input.build_interface_items.iter() {
-        let (build, fid) = gen_build_interface_command(&mut graph, item, moonc_opt);
+        let (build, _) = gen_build_interface_command(&mut graph, item, moonc_opt);
         graph.add_build(build)?;
-        default.push(fid);
     }
 
-    for item in input.build_virtual_items.iter() {
-        let (build, fid) = gen_build_command(&mut graph, item, moonc_opt, true);
+    for item in input.build_default_virtual_items.iter() {
+        let (build, _) = gen_build_command(&mut graph, item, moonc_opt, true);
         graph.add_build(build)?;
-        default.push(fid);
     }
 
     if is_native_backend {

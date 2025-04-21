@@ -1,3 +1,5 @@
 fn main {
-  println("hello virtual pkg")
+  @lib1.f1(1)
+  @lib1.f2("2")
+  @lib3.f3()
 }

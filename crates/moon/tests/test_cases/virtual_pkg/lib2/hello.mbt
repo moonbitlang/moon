@@ -1,6 +1,3 @@
-pub fn hello() -> String {
-  "Hello, world!"
-}
 
 pub fn f1(a: Int) -> Unit {
   println("another impl for f1 in lib2: \{a}")
