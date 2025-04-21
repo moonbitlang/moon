@@ -117,12 +117,19 @@ impl MooncDiagnostic {
 
         // a workaround for rendering the diagnostaic and error in generated test driver file correctly
         if diagnostic.location.path.contains("__generated_driver_for_") {
+            let source = crate::common::read_module_desc_file_in_dir(source_dir.as_path())
+                .unwrap()
+                .source;
+            let source_code_dir = match source {
+                Some(source) => source_dir.join(source),
+                None => source_dir,
+            };
             let rel_path = PathBuf::from(
                 diagnostic
                     .location
                     .path
                     .clone()
-                    .replace(&source_dir.display().to_string(), "."),
+                    .replace(&source_code_dir.display().to_string(), "."),
             );
             let mbt_file_path = target_dir.join(rel_path);
             diagnostic.location.path = mbt_file_path.display().to_string();
