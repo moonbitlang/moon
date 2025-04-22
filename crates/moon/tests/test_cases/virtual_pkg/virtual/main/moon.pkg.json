@@ -1,7 +1,8 @@
 {
+  "is-main": true,
   "import": [
     "username/hello/lib1",
-    "username/hello/lib3",
+    "username/hello/lib3"
   ],
   "implementations": [
     {

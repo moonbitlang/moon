@@ -2,16 +2,16 @@
   "is-main": true,
   "import": [
     "username/hello/lib1",
-    "username/hello/lib3",
+    "username/hello/lib3"
   ],
   "implementations": [
     {
       "virtual": "username/hello/lib1",
-      "implementation": "username/hello/lib2"
+      "implementation": "username/xxx/lib"
     },
     {
       "virtual": "username/hello/lib3",
-      // "implementation": "username/hello/lib4"
+      "implementation": "username/hello/lib4"
     }
   ]
 }

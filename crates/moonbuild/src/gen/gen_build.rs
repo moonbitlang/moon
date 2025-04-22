@@ -265,7 +265,7 @@ pub fn replace_virtual_pkg_core_with_impl_pkg_core(
             }
 
             let impl_pkg = m.get_package_by_name_safe(
-                &implementation
+                implementation
                     .implementation
                     .as_ref()
                     .unwrap_or(&implementation.virtual_pkg.clone()),
