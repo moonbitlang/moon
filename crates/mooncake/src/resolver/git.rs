@@ -255,6 +255,17 @@ mod test {
 
         // set default branch back to main
         repo.set_head("refs/heads/main").unwrap();
+
+        // create tag
+        let tag_name = "v1.0.0";
+        repo.tag(
+            tag_name,
+            &commit.into_object(),
+            &repo.signature().unwrap(),
+            "Tagging v1.0.0",
+            false,
+        )
+        .unwrap();
     }
 
     #[cfg(not(feature = "libgit2"))]

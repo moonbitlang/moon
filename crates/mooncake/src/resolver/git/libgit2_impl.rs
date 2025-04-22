@@ -58,6 +58,7 @@ impl GitOps for LibGit2Impl {
         let branch_commit = branch_ref.peel_to_commit()?;
         Ok(branch_commit.id())
     }
+
     fn fetch_default_branch(repo: &Self::Repository) -> Result<Self::Oid, Self::Error> {
         let mut remote = repo.find_remote("origin")?;
 
@@ -86,8 +87,17 @@ impl GitOps for LibGit2Impl {
 
     fn fetch_revision(repo: &Self::Repository, revision: &str) -> Result<Self::Oid, Self::Error> {
         let mut remote = repo.find_remote("origin")?;
-        remote.fetch(&[revision], Some(FetchOptions::new().depth(1)), None)?;
-        let commit = repo.revparse_single(revision)?;
+
+        let mut fetch_options = FetchOptions::new();
+        fetch_options.download_tags(git2::AutotagOption::All);
+        fetch_options.prune(git2::FetchPrune::On);
+        remote.fetch(&[] as &[&str], Some(&mut fetch_options), None)?;
+        remote.disconnect()?;
+
+        let object = repo.revparse_single(revision)?;
+        let commit = object.peel_to_commit()?;
+
+        // Return the commit OID
         Ok(commit.id())
     }
 
