@@ -92,12 +92,7 @@ fn to_opt_level(release: bool, debug: bool) -> OptLevel {
 pub fn gen_build_interface_item(m: &ModuleDB, pkg: &Package) -> anyhow::Result<BuildInterfaceItem> {
     let virtual_mbti_file_path = pkg.virtual_mbti_file.as_ref().unwrap();
 
-    let mut mi_deps = vec![
-        // MiAlias {
-        //     name: pkg.artifact.with_extension("mi").display().to_string(),
-        //     alias: pkg.rel.short_name().to_string(),
-        // }
-    ];
+    let mut mi_deps = vec![];
     for dep in pkg.imports.iter() {
         let full_import_name = dep.path.make_full_path();
         if !m.contains_package(&full_import_name) {
@@ -189,7 +184,7 @@ pub fn gen_build_build_item(
             pkg
         } else {
             anyhow::bail!(
-                "{}: could not be found the implemented package `{}`, make sure the package name is correct, e.g. 'moonbitlang/core/double'",
+                "{}: could not found the implemented package `{}`, make sure the package name is correct, e.g. 'moonbitlang/core/double'",
                 m.source_dir.join(pkg.rel.fs_full_name()).join(MOON_PKG_JSON).display(),
                 impl_virtual_pkg
             );
@@ -447,7 +442,7 @@ pub fn gen_build_command(
 
     let mut inputs = item.mbt_deps.clone();
     inputs.extend(item.mi_deps.iter().map(|a| a.name.clone()));
-    // add $pkgname.mi as imput if need_build_virtual since it is used by --check-mi
+    // add $pkgname.mi as input if need_build_virtual since it is used by --check-mi
     if need_build_default_virtual {
         inputs.push(
             PathBuf::from(&item.core_out)
