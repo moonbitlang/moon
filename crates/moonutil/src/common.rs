@@ -955,14 +955,14 @@ pub fn set_native_backend_link_flags(
 
                     let mut native_config = existing_native.cloned().unwrap_or_default();
 
-                    let mut stub_static_lib = Vec::new();
+                    let mut stub_lib = Vec::new();
                     module
                         .get_filtered_packages_and_its_deps_by_pkgname(pkg.full_name().as_str())
                         .unwrap()
                         .iter()
                         .for_each(|(_, pkg)| {
-                            if pkg.stub_static_lib.is_some() {
-                                stub_static_lib.push(
+                            if pkg.stub_lib.is_some() {
+                                stub_lib.push(
                                     pkg.artifact
                                         .with_file_name(format!("lib{}.{}", pkg.last_name(), A_EXT))
                                         .display()
@@ -981,8 +981,8 @@ pub fn set_native_backend_link_flags(
                             }
                         });
 
-                    if !stub_static_lib.is_empty() {
-                        native_config.stub_static_lib_deps = Some(stub_static_lib);
+                    if !stub_lib.is_empty() {
+                        native_config.stub_lib_deps = Some(stub_lib);
                     }
 
                     link_configs.insert(

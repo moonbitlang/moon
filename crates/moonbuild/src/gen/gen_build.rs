@@ -240,7 +240,7 @@ pub fn gen_build_link_item(
         link: pkg.link.clone(),
         install_path: pkg.install_path.clone(),
         bin_name: pkg.bin_name.clone(),
-        stub_static_lib: pkg.stub_static_lib.clone(),
+        stub_lib: pkg.stub_lib.clone(),
     })
 }
 
@@ -328,7 +328,7 @@ pub fn gen_build(
             build_items.push(gen_build_build_item(m, pkg, moonc_opt)?);
         }
 
-        if pkg.stub_static_lib.is_some() {
+        if pkg.stub_lib.is_some() {
             compile_stub_items.push(BuildLinkDepItem {
                 out: pkg.artifact.with_extension(O_EXT).display().to_string(),
                 core_deps: vec![],
@@ -338,7 +338,7 @@ pub fn gen_build(
                 link: pkg.link.clone(),
                 install_path: None,
                 bin_name: None,
-                stub_static_lib: pkg.stub_static_lib.clone(),
+                stub_lib: pkg.stub_lib.clone(),
             });
         }
 
@@ -989,7 +989,7 @@ pub fn gen_archive_stub_to_static_lib_command(
     let out = PathBuf::from(&item.out);
 
     let inputs = item
-        .stub_static_lib
+        .stub_lib
         .as_ref()
         .unwrap()
         .iter()
@@ -1071,7 +1071,7 @@ pub fn gen_link_stub_to_dynamic_lib_command(
     let out = PathBuf::from(&item.out);
 
     let mut inputs = item
-        .stub_static_lib
+        .stub_lib
         .as_ref()
         .unwrap()
         .iter()
@@ -1164,7 +1164,7 @@ pub fn gen_compile_stub_command(
     moonbuild_opt: &MoonbuildOpt,
 ) -> Vec<(Build, n2graph::FileId)> {
     let inputs = item
-        .stub_static_lib
+        .stub_lib
         .as_ref()
         .unwrap()
         .iter()
