@@ -157,9 +157,24 @@ fn run_single_mbt_file(cli: &UniversalFlags, cmd: RunSubcommand) -> anyhow::Resu
         target_backend.to_flag().to_string(),
     ];
 
-    let compile_exe_command = if target_backend == TargetBackend::Native {
-        let moon_lib_path = &MOON_DIRS.moon_lib_path;
+    let use_tcc_run = target_backend == TargetBackend::Native && cmd.build_flags.release == false;
 
+    let moon_lib_path = &MOON_DIRS.moon_lib_path;
+
+    let compile_exe_command = if use_tcc_run {
+        let tcc_run_command = vec![
+            MOON_DIRS.internal_tcc_path.display().to_string(),
+            format!("-I{}", MOON_DIRS.moon_include_path.display()),
+            format!("-L{}", MOON_DIRS.moon_lib_path.display()),
+            moon_lib_path.join("runtime.c").display().to_string(),
+            "-lm".to_string(),
+            "-DMOONBIT_NATIVE_NO_SYS_HEADER".to_string(),
+            "-DMOONBIT_USE_SHARED_RUNTIME".to_string(),
+            "-run".to_string(),
+            output_wasm_or_js_path.display().to_string(),
+        ];
+        Some(tcc_run_command)
+    } else if target_backend == TargetBackend::Native {
         let cc_cmd = moonutil::compiler_flags::make_cc_command(
             moonutil::compiler_flags::CC::default(),
             None,
@@ -200,12 +215,19 @@ fn run_single_mbt_file(cli: &UniversalFlags, cmd: RunSubcommand) -> anyhow::Resu
             println!("{}", compile_exe_command.join(" "));
         }
         if !cmd.build_only {
-            let runner = match target_backend {
-                TargetBackend::Wasm | TargetBackend::WasmGC => "moonrun",
-                TargetBackend::Js => "node",
-                TargetBackend::Native | TargetBackend::LLVM => "",
-            };
-            println!("{} {}", runner, output_wasm_or_js_path.display());
+            match target_backend {
+                TargetBackend::Wasm | TargetBackend::WasmGC => {
+                    println!("moonrun {}", output_wasm_or_js_path.display());
+                }
+                TargetBackend::Js => {
+                    println!("node {}", output_wasm_or_js_path.display());
+                }
+                TargetBackend::Native | TargetBackend::LLVM => {
+                    if !use_tcc_run {
+                        println!("{}", output_wasm_or_js_path.with_extension("exe").display());
+                    }
+                }
+            }
         }
         return Ok(0);
     }
@@ -260,11 +282,17 @@ fn run_single_mbt_file(cli: &UniversalFlags, cmd: RunSubcommand) -> anyhow::Resu
         TargetBackend::Js => {
             moonbuild::build::run_js(&output_wasm_or_js_path, &cmd.args, cli.verbose)
         }
-        TargetBackend::Native | TargetBackend::LLVM => moonbuild::build::run_native(
-            &output_wasm_or_js_path.with_extension("exe"),
-            &cmd.args,
-            cli.verbose,
-        ),
+        TargetBackend::Native | TargetBackend::LLVM => {
+            if !use_tcc_run {
+                moonbuild::build::run_native(
+                    &output_wasm_or_js_path.with_extension("exe"),
+                    &cmd.args,
+                    cli.verbose,
+                )
+            } else {
+                Ok(())
+            }
+        }
     })?;
 
     Ok(0)
