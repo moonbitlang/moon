@@ -267,7 +267,9 @@ fn map_source_to_dir(dep_dir: &DepDir, module: &ModuleSource) -> PathBuf {
             pkg_to_dir(dep_dir, &module.name.username, &module.name.pkgname)
         }
         ModuleSourceKind::Local(path) => path.clone(),
-        ModuleSourceKind::Git(url) => crate::resolver::git::resolve(url).unwrap(),
+        ModuleSourceKind::Git(url) => {
+            crate::resolver::git::resolve::<crate::resolver::git::DefaultGitOps>(url).unwrap()
+        }
     }
 }
 

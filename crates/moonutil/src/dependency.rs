@@ -175,6 +175,9 @@ pub struct BinaryDependencyInfo {
     /// Git branch to use.
     #[serde(skip_serializing_if = "Option::is_none", rename = "branch")]
     pub git_branch: Option<String>,
+    /// Git revision to use.
+    #[serde(skip_serializing_if = "Option::is_none", rename = "revision")]
+    pub git_revision: Option<String>,
 
     /// Binary packages to compile.
     #[serde(skip_serializing_if = "Option::is_none", alias = "bin-pkg")]
@@ -213,6 +216,7 @@ impl From<BinaryDependencyInfo> for SourceDependencyInfo {
             path: dep.path,
             git: dep.git,
             git_branch: dep.git_branch,
+            git_revision: dep.git_revision,
         }
     }
 }

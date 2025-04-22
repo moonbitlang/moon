@@ -389,7 +389,7 @@ fn resolve_pkg_local(
     path: &String,
     env: &mut ResolverEnv,
     pkg_name: &ModuleName,
-    req: &DependencyInfo,
+    req: &SourceDependencyInfo,
 ) -> Result<(ModuleSource, Rc<MoonMod>), ResolverError> {
     // Try resolving using local dependency
     let root = root_path_of(dependant);
@@ -421,7 +421,7 @@ fn resolve_pkg_local(
 }
 
 fn resolve_pkg_git(
-    info: &DependencyInfo,
+    info: &SourceDependencyInfo,
     env: &mut ResolverEnv,
     pkg_name: &ModuleName,
 ) -> Result<(ModuleSource, Rc<MoonMod>), ResolverError> {

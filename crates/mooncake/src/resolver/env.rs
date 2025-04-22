@@ -120,7 +120,7 @@ impl<'a> ResolverEnv<'a> {
             }
         }
 
-        let checkout = super::git::resolve(git_info)
+        let checkout = super::git::resolve::<super::git::DefaultGitOps>(git_info)
             .with_context(|| format!("Failed to resolve git source {}", git_info))
             .map_err(ResolverError::Other)?;
         let mods = recursively_scan_for_moon_mods(&checkout)
