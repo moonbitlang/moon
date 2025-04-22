@@ -95,7 +95,7 @@ impl PatchJSON {
                 let already_wrapped = doc_test
                     .content
                     .lines()
-                    .any(|line| line.replace("///", "").trim_start().starts_with("test"));
+                    .any(|line| line.replacen("///", "", 1).trim_start().starts_with("test"));
 
                 let processed_content = doc_test
                     .content
@@ -103,11 +103,11 @@ impl PatchJSON {
                     .lines()
                     .map(|line| {
                         if already_wrapped {
-                            let remove_slash = line.replace("///", "").trim_start().to_string();
+                            let remove_slash = line.replacen("///", "", 1).trim_start().to_string();
                             if remove_slash.starts_with("test") || remove_slash.starts_with("}") {
                                 remove_slash
                             } else {
-                                line.to_string().replace("///", "   ")
+                                line.to_string().replacen("///", "   ", 1)
                             }
                         } else {
                             format!("   {}", line.trim_start_matches("///")).to_string()
