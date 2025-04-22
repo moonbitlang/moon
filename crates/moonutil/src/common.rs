@@ -60,6 +60,7 @@ pub const MOON_DOC_TEST_POSTFIX: &str = "__moonbit_internal_doc_test";
 pub const MOON_MD_TEST_POSTFIX: &str = "__moonbit_internal_md_test";
 
 pub const DOT_MBT_DOT_MD: &str = ".mbt.md";
+pub const DOT_MBT_DOT_X: &str = ".mbt.x";
 
 pub const MOON_BIN_DIR: &str = "__moonbin__";
 
