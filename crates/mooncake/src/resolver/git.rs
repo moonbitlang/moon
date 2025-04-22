@@ -323,6 +323,7 @@ mod test {
                     .unwrap()
                     .to_string_lossy()
                     .to_string()
+                    .replace('\\', "/")
             })
             .collect::<Vec<_>>()
             .join("\n")
@@ -352,6 +353,7 @@ mod test {
         let dir_contents = list_dir_contents(&checkout);
         expect![[r#"
 
+            .gitignore
             README.md
             lib
             lib/hello.mbt
@@ -390,6 +392,7 @@ mod test {
         let dir_contents = list_dir_contents(&checkout);
         expect![[r#"
 
+            .gitignore
             README.md
             lib
             lib/hello.mbt
@@ -427,11 +430,14 @@ mod test {
 
         // Check that the checkout is correct.
         let mods = super::recursively_scan_for_moon_mods(&checkout).unwrap();
-        let mods = mods
+        let mut mods = mods
             .into_iter()
             .map(|(_, module)| module.name.clone())
             .collect::<Vec<_>>();
-        assert_eq!(mods, vec!["testing/test", "testing/nonroot-test"]);
+        mods.sort();
+        let mut expected = vec!["testing/nonroot-test", "testing/test"];
+        expected.sort();
+        assert_eq!(mods, expected);
     }
 
     #[test]
