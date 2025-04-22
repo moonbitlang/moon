@@ -7,7 +7,7 @@ pub fn greet1() -> String {
 
 
 /// ```mbt
-/// 
+/// ///|
 /// 
 /// 
 /// test {
