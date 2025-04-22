@@ -1,0 +1,3 @@
+package "username/hello/lib3"
+
+fn f3() -> Unit
