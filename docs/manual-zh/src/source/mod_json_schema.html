@@ -202,6 +202,13 @@
             "null"
           ]
         },
+        "revision": {
+          "description": "Git revision to use.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
         "version": {
           "type": "string"
         }
@@ -236,7 +243,7 @@
           ]
         },
         "git": {
-          "description": "Git repository URL. Overrides the version requirement.",
+          "description": "Git repository URL. Overrides the version requirement unless the dependency comes from a registry.",
           "type": [
             "string",
             "null"
@@ -244,6 +251,13 @@
         },
         "path": {
           "description": "Local path to the dependency. Overrides the version requirement.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "revision": {
+          "description": "Git revision to use.",
           "type": [
             "string",
             "null"
