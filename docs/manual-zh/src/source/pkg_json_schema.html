@@ -61,6 +61,21 @@
         "null"
       ]
     },
+    "implement": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "implementations": {
+      "type": [
+        "array",
+        "null"
+      ],
+      "items": {
+        "$ref": "#/definitions/Implementation"
+      }
+    },
     "import": {
       "description": "Imported packages of the package",
       "anyOf": [
@@ -151,6 +166,16 @@
         "null"
       ]
     },
+    "virtual_pkg": {
+      "anyOf": [
+        {
+          "$ref": "#/definitions/VirtualPkg"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
     "warn-list": {
       "description": "Warn list setting of the package",
       "type": [
@@ -180,6 +205,23 @@
           "$ref": "#/definitions/Link"
         }
       ]
+    },
+    "Implementation": {
+      "type": "object",
+      "required": [
+        "virtual_pkg"
+      ],
+      "properties": {
+        "implementation": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "virtual_pkg": {
+          "type": "string"
+        }
+      }
     },
     "JsFormat": {
       "type": "string",
@@ -392,6 +434,17 @@
           }
         }
       ]
+    },
+    "VirtualPkg": {
+      "type": "object",
+      "required": [
+        "has-default"
+      ],
+      "properties": {
+        "has-default": {
+          "type": "boolean"
+        }
+      }
     },
     "WasmGcLinkConfig": {
       "type": "object",
