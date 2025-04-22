@@ -26,6 +26,7 @@ use anyhow::Context;
 use moonutil::{
     common::read_module_desc_file_in_dir,
     module::MoonMod,
+    moon_dir::home,
     mooncakes::{GitSource, ModuleName, ModuleSource, ModuleSourceKind},
 };
 use semver::Version;
@@ -120,7 +121,7 @@ impl<'a> ResolverEnv<'a> {
             }
         }
 
-        let checkout = super::git::resolve::<super::git::DefaultGitOps>(git_info)
+        let checkout = super::git::resolve::<super::git::DefaultGitOps>(git_info, &home())
             .with_context(|| format!("Failed to resolve git source {}", git_info))
             .map_err(ResolverError::Other)?;
         let mods = recursively_scan_for_moon_mods(&checkout)

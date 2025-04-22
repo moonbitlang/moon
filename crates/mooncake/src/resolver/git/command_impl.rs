@@ -37,6 +37,8 @@ impl Repository {
 }
 
 fn run(command: &mut Command) -> Result<(), std::io::Error> {
+    dbg!(&command);
+
     let output = command.output()?;
     if !output.status.success() {
         let stdout = String::from_utf8_lossy(&output.stdout);
@@ -53,6 +55,8 @@ fn run(command: &mut Command) -> Result<(), std::io::Error> {
 }
 
 fn run_stdout(command: &mut Command) -> Result<String, std::io::Error> {
+    dbg!(&command);
+
     let output = command.output()?;
     if !output.status.success() {
         let stdout = String::from_utf8_lossy(&output.stdout);

@@ -86,18 +86,21 @@ fn repo_name(url: &Url) -> String {
     format!("{}-{:016x}", id, hash)
 }
 
-fn repo_path(url: &Url) -> PathBuf {
-    git_repos_dir().join(repo_name(url))
+fn repo_path(url: &Url, moon_home: &Path) -> PathBuf {
+    git_repos_dir(moon_home).join(repo_name(url))
 }
 
-fn repo_checkout_path<G: GitOps>(url: &Url, commit: &G::Oid) -> PathBuf {
-    git_checkouts_dir()
+fn repo_checkout_path<G: GitOps>(url: &Url, commit: &G::Oid, moon_home: &Path) -> PathBuf {
+    git_checkouts_dir(moon_home)
         .join(repo_name(url))
         .join(G::oid_to_string(&commit))
 }
 
-pub fn init_repo_dir<G: GitOps>(url: &Url) -> anyhow::Result<(PathBuf, G::Repository)> {
-    let path = repo_path(url);
+pub fn init_repo_dir<G: GitOps>(
+    url: &Url,
+    moon_home: &Path,
+) -> anyhow::Result<(PathBuf, G::Repository)> {
+    let path = repo_path(url, moon_home);
     std::fs::create_dir_all(&path).context("failed to create git repository directory")?;
 
     G::init_bare(&path).context("failed to initialize git repository")?;
@@ -106,15 +109,19 @@ pub fn init_repo_dir<G: GitOps>(url: &Url) -> anyhow::Result<(PathBuf, G::Reposi
 
     Ok((path, repo))
 }
-pub fn open_or_init_repo_dir<G: GitOps>(url: &Url) -> anyhow::Result<(PathBuf, G::Repository)>
+
+pub fn open_or_init_repo_dir<G: GitOps>(
+    url: &Url,
+    moon_home: &Path,
+) -> anyhow::Result<(PathBuf, G::Repository)>
 where
 {
-    let path = repo_path(url);
+    let path = repo_path(url, moon_home);
     if path.exists() {
         let repo = G::open_bare(&path).context("failed to open git repository")?;
         Ok((path, repo))
     } else {
-        init_repo_dir::<G>(url)
+        init_repo_dir::<G>(url, moon_home)
     }
 }
 
@@ -128,7 +135,7 @@ pub fn resolve<G: GitOps>(source: &GitSource, moon_home: &Path) -> anyhow::Resul
 
     let source_url = Url::parse(&source.url).context("Malformed git source url")?;
     // Open or initialize the repository.
-    let (_, repo) = open_or_init_repo_dir::<G>(&source_url)?;
+    let (_, repo) = open_or_init_repo_dir::<G>(&source_url, moon_home)?;
     // Find the revision to checkout.
     let commit = if let Some(branch) = &source.branch {
         G::fetch_branch(&repo, branch).context("Failed to fetch branch")?
@@ -138,7 +145,7 @@ pub fn resolve<G: GitOps>(source: &GitSource, moon_home: &Path) -> anyhow::Resul
         G::fetch_default_branch(&repo).context("Failed to fetch default branch")?
     };
     // Checkout the revision to the cache.
-    let checkout_path = repo_checkout_path::<G>(&source_url, &commit);
+    let checkout_path = repo_checkout_path::<G>(&source_url, &commit, moon_home);
     if !checkout_path.exists() {
         std::fs::create_dir_all(&checkout_path)?;
         G::checkout(&repo, &commit, &checkout_path).context("Failed to checkout")?;
@@ -167,9 +174,11 @@ mod test {
     use std::process::Command;
 
     use expect_test::expect;
+    use tempfile::TempDir;
     use walkdir::WalkDir;
 
     use crate::resolver::git::DefaultGitOps;
+    use moonutil::moon_dir;
 
     const SAMPLE_GIT_REPO_DIR: &str = "tests/git_test_template";
 
@@ -250,11 +259,10 @@ mod test {
 
     #[cfg(not(feature = "libgit2"))]
     fn run_git_command(args: &[&str], cwd: &Path) {
-        let output = Command::new("git")
-            .args(args)
-            .current_dir(cwd)
-            .output()
-            .expect("Failed to execute git command");
+        let mut cmd = Command::new("git");
+        cmd.args(args).current_dir(cwd);
+
+        let output = cmd.output().expect("Failed to execute git command");
         if !output.status.success() {
             panic!(
                 "Git command failed: {:?}\nStdout: {}\nStderr: {}",
@@ -329,15 +337,18 @@ mod test {
             .join("\n")
     }
 
+    fn get_temp_dir() -> TempDir {
+        TempDir::new().expect("failed to create temp dir")
+    }
+
     #[test]
     fn test_basic_git_resolver() {
-        let temp_dir = tempfile::tempdir().unwrap();
+        let temp_dir = get_temp_dir();
         let repo_path = temp_dir.path().join("repo");
         make_sample_git_repo(&repo_path);
 
         let test_moon_home = temp_dir.path().join("moon_home");
         std::fs::create_dir_all(&test_moon_home).unwrap();
-        std::env::set_var("MOON_HOME", test_moon_home);
 
         // Try to resolve the git repository.
         let source = moonutil::mooncakes::GitSource {
@@ -346,7 +357,7 @@ mod test {
             revision: None,
         };
 
-        let checkout = super::resolve::<DefaultGitOps>(&source).unwrap();
+        let checkout = super::resolve::<DefaultGitOps>(&source, &test_moon_home).unwrap();
         assert!(checkout.exists());
 
         // Check that the checkout is correct.
@@ -366,17 +377,18 @@ mod test {
             nonroot_pkg/lib/moon.pkg.json
             nonroot_pkg/moon.mod.json"#]]
         .assert_eq(&dir_contents);
+
+        drop(temp_dir);
     }
 
     #[test]
     fn test_git_with_branch_specified() {
-        let temp_dir = tempfile::tempdir().unwrap();
+        let temp_dir = get_temp_dir();
         let repo_path = temp_dir.path().join("repo");
         make_sample_git_repo(&repo_path);
 
         let test_moon_home = temp_dir.path().join("moon_home");
         std::fs::create_dir_all(&test_moon_home).unwrap();
-        std::env::set_var("MOON_HOME", test_moon_home);
 
         // Try to resolve the git repository.
         let source = moonutil::mooncakes::GitSource {
@@ -385,7 +397,7 @@ mod test {
             revision: None,
         };
 
-        let checkout = super::resolve::<DefaultGitOps>(&source).unwrap();
+        let checkout = super::resolve::<DefaultGitOps>(&source, &test_moon_home).unwrap();
         assert!(checkout.exists());
 
         // Check that the checkout is correct.
@@ -406,17 +418,18 @@ mod test {
             nonroot_pkg/moon.mod.json
             other_file"#]]
         .assert_eq(&dir_contents);
+
+        drop(temp_dir);
     }
 
     #[test]
     fn test_find_all_packages() {
-        let temp_dir = tempfile::tempdir().unwrap();
+        let temp_dir = get_temp_dir();
         let repo_path = temp_dir.path().join("repo");
         make_sample_git_repo(&repo_path);
 
         let test_moon_home = temp_dir.path().join("moon_home");
         std::fs::create_dir_all(&test_moon_home).unwrap();
-        std::env::set_var("MOON_HOME", test_moon_home);
 
         // Try to resolve the git repository.
         let source = moonutil::mooncakes::GitSource {
@@ -425,7 +438,7 @@ mod test {
             revision: None,
         };
 
-        let checkout = super::resolve::<DefaultGitOps>(&source).unwrap();
+        let checkout = super::resolve::<DefaultGitOps>(&source, &test_moon_home).unwrap();
         assert!(checkout.exists());
 
         // Check that the checkout is correct.
@@ -442,13 +455,12 @@ mod test {
 
     #[test]
     fn test_git_with_revision_specified() {
-        let temp_dir = tempfile::tempdir().unwrap();
+        let temp_dir = get_temp_dir();
         let repo_path = temp_dir.path().join("repo");
         make_sample_git_repo(&repo_path);
 
         let test_moon_home = temp_dir.path().join("moon_home");
         std::fs::create_dir_all(&test_moon_home).unwrap();
-        std::env::set_var("MOON_HOME", test_moon_home);
 
         // Get the commit hash of the main branch
         let output = Command::new("git")
@@ -466,7 +478,7 @@ mod test {
             revision: Some(revision),
         };
 
-        let checkout = super::resolve::<DefaultGitOps>(&source).unwrap();
+        let checkout = super::resolve::<DefaultGitOps>(&source, &test_moon_home).unwrap();
         assert!(checkout.exists());
 
         // Check that the checkout is correct (should be the same as default branch).
@@ -490,13 +502,12 @@ mod test {
 
     #[test]
     fn test_git_with_non_existent_branch() {
-        let temp_dir = tempfile::tempdir().unwrap();
+        let temp_dir = get_temp_dir();
         let repo_path = temp_dir.path().join("repo");
         make_sample_git_repo(&repo_path);
 
         let test_moon_home = temp_dir.path().join("moon_home");
         std::fs::create_dir_all(&test_moon_home).unwrap();
-        std::env::set_var("MOON_HOME", test_moon_home);
 
         // Try to resolve the git repository using a non-existent branch.
         let source = moonutil::mooncakes::GitSource {
@@ -505,7 +516,7 @@ mod test {
             revision: None,
         };
 
-        let result = super::resolve::<DefaultGitOps>(&source);
+        let result = super::resolve::<DefaultGitOps>(&source, &test_moon_home);
         assert!(result.is_err());
         assert!(result
             .unwrap_err()
@@ -515,13 +526,12 @@ mod test {
 
     #[test]
     fn test_git_with_non_existent_revision() {
-        let temp_dir = tempfile::tempdir().unwrap();
+        let temp_dir = get_temp_dir();
         let repo_path = temp_dir.path().join("repo");
         make_sample_git_repo(&repo_path);
 
         let test_moon_home = temp_dir.path().join("moon_home");
         std::fs::create_dir_all(&test_moon_home).unwrap();
-        std::env::set_var("MOON_HOME", test_moon_home);
 
         // Try to resolve the git repository using a non-existent revision.
         let source = moonutil::mooncakes::GitSource {
@@ -530,17 +540,16 @@ mod test {
             revision: Some("deadbeefdeadbeefdeadbeefdeadbeefdeadbeef".into()), // Highly unlikely revision
         };
 
-        let result = super::resolve::<DefaultGitOps>(&source);
+        let result = super::resolve::<DefaultGitOps>(&source, &test_moon_home);
         assert!(result.is_err());
         eprintln!("error is: {}", result.unwrap_err());
     }
 
     #[test]
     fn test_git_with_non_existent_repo() {
-        let temp_dir = tempfile::tempdir().unwrap();
+        let temp_dir = get_temp_dir();
         let test_moon_home = temp_dir.path().join("moon_home");
         std::fs::create_dir_all(&test_moon_home).unwrap();
-        std::env::set_var("MOON_HOME", test_moon_home);
 
         // Try to resolve a git repository URL that does not exist.
         let source = moonutil::mooncakes::GitSource {
@@ -549,20 +558,19 @@ mod test {
             revision: None,
         };
 
-        let result = super::resolve::<DefaultGitOps>(&source);
+        let result = super::resolve::<DefaultGitOps>(&source, &test_moon_home);
         assert!(result.is_err());
         eprintln!("error is: {}", result.unwrap_err());
     }
 
     #[test]
     fn test_git_with_truncated_revision() {
-        let temp_dir = tempfile::tempdir().unwrap();
+        let temp_dir = get_temp_dir();
         let repo_path = temp_dir.path().join("repo");
         make_sample_git_repo(&repo_path);
 
         let test_moon_home = temp_dir.path().join("moon_home");
         std::fs::create_dir_all(&test_moon_home).unwrap();
-        std::env::set_var("MOON_HOME", test_moon_home);
 
         // Get the full commit hash of the main branch
         let output = Command::new("git")
@@ -581,7 +589,7 @@ mod test {
             revision: Some(truncated_revision),
         };
 
-        let checkout = super::resolve::<DefaultGitOps>(&source).unwrap();
+        let checkout = super::resolve::<DefaultGitOps>(&source, &test_moon_home).unwrap();
         assert!(checkout.exists());
 
         // Check that the checkout is correct (should be the same as default branch).
@@ -605,13 +613,12 @@ mod test {
 
     #[test]
     fn test_git_with_tag_specified() {
-        let temp_dir = tempfile::tempdir().unwrap();
+        let temp_dir = get_temp_dir();
         let repo_path = temp_dir.path().join("repo");
         make_sample_git_repo(&repo_path);
 
         let test_moon_home = temp_dir.path().join("moon_home");
         std::fs::create_dir_all(&test_moon_home).unwrap();
-        std::env::set_var("MOON_HOME", test_moon_home);
 
         // Try to resolve the git repository using the tag.
         let source = moonutil::mooncakes::GitSource {
@@ -620,7 +627,7 @@ mod test {
             revision: Some("v1.0.0".into()), // Use the tag created in make_sample_git_repo
         };
 
-        let checkout = super::resolve::<DefaultGitOps>(&source).unwrap();
+        let checkout = super::resolve::<DefaultGitOps>(&source, &test_moon_home).unwrap();
         assert!(checkout.exists());
 
         // Check that the checkout is correct (should be the same as default branch).

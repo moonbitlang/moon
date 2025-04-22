@@ -149,16 +149,16 @@ pub fn moon_tmp_dir() -> anyhow::Result<PathBuf> {
     Ok(p)
 }
 
-pub fn git_dir() -> PathBuf {
-    home().join("git")
+pub fn git_dir(home: &Path) -> PathBuf {
+    home.join("git")
 }
 
-pub fn git_repos_dir() -> PathBuf {
-    git_dir().join("repos")
+pub fn git_repos_dir(home: &Path) -> PathBuf {
+    git_dir(home).join("repos")
 }
 
-pub fn git_checkouts_dir() -> PathBuf {
-    git_dir().join("checkouts")
+pub fn git_checkouts_dir(home: &Path) -> PathBuf {
+    git_dir(home).join("checkouts")
 }
 
 #[test]

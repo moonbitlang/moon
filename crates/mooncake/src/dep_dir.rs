@@ -25,7 +25,7 @@ use std::{
 
 use moonutil::{
     common::{DEP_PATH, MOONBITLANG_CORE},
-    moon_dir,
+    moon_dir::{self, home},
     mooncakes::{result::ResolvedEnv, DirSyncResult, ModuleSource, ModuleSourceKind},
 };
 use semver::Version;
@@ -268,7 +268,8 @@ fn map_source_to_dir(dep_dir: &DepDir, module: &ModuleSource) -> PathBuf {
         }
         ModuleSourceKind::Local(path) => path.clone(),
         ModuleSourceKind::Git(url) => {
-            crate::resolver::git::resolve::<crate::resolver::git::DefaultGitOps>(url).unwrap()
+            crate::resolver::git::resolve::<crate::resolver::git::DefaultGitOps>(url, &home())
+                .unwrap()
         }
     }
 }
