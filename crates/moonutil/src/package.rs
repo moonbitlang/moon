@@ -89,7 +89,7 @@ pub struct Package {
 
     pub supported_targets: HashSet<TargetBackend>,
 
-    pub stub_static_lib: Option<Vec<String>>,
+    pub stub_lib: Option<Vec<String>>,
 
     pub virtual_pkg: Option<VirtualPkg>,
     pub virtual_mbti_file: Option<PathBuf>,
@@ -331,7 +331,7 @@ pub struct LinkDepItem {
     pub install_path: Option<PathBuf>,
     pub bin_name: Option<String>,
 
-    pub stub_static_lib: Option<Vec<String>>,
+    pub stub_lib: Option<Vec<String>>,
 }
 
 #[rustfmt::skip]
@@ -468,7 +468,7 @@ impl LinkDepItem {
     }   
 
     pub fn native_stub_deps(&self) -> Option<&[String]> {
-        self.link.as_ref()?.native.as_ref()?.stub_static_lib_deps.as_deref()
+        self.link.as_ref()?.native.as_ref()?.stub_lib_deps.as_deref()
     }
 }
 
@@ -522,7 +522,7 @@ pub struct NativeLinkConfig {
 
     #[serde(skip_serializing_if = "Option::is_none")]
     #[schemars(skip)]
-    pub stub_static_lib_deps: Option<Vec<String>>,
+    pub stub_lib_deps: Option<Vec<String>>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, JsonSchema)]

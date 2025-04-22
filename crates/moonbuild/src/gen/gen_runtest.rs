@@ -672,7 +672,7 @@ pub fn gen_link_internal_test(
         link: pkg.link.clone(),
         install_path: None,
         bin_name: None,
-        stub_static_lib: pkg.stub_static_lib.clone(),
+        stub_lib: pkg.stub_lib.clone(),
     })
 }
 
@@ -714,7 +714,7 @@ pub fn gen_link_whitebox_test(
         link: pkg.link.clone(),
         install_path: None,
         bin_name: None,
-        stub_static_lib: pkg.stub_static_lib.clone(),
+        stub_lib: pkg.stub_lib.clone(),
     })
 }
 
@@ -773,7 +773,7 @@ pub fn gen_link_blackbox_test(
         link: pkg.link.clone(),
         install_path: None,
         bin_name: None,
-        stub_static_lib: pkg.stub_static_lib.clone(),
+        stub_lib: pkg.stub_lib.clone(),
     })
 }
 
@@ -823,8 +823,18 @@ pub fn gen_runtest(
         .unwrap_or((None, None, None));
 
     for (pkgname, pkg) in m.get_all_packages().iter() {
-        if pkg.is_main {
-            continue;
+        if pkg.stub_lib.is_some() {
+            compile_stub_items.push(RuntestLinkDepItem {
+                out: pkg.artifact.with_extension(O_EXT).display().to_string(),
+                core_deps: vec![],
+                package_sources: vec![],
+                package_full_name: pkg.full_name(),
+                package_path: pkg.root_path.clone(),
+                link: pkg.link.clone(),
+                install_path: None,
+                bin_name: None,
+                stub_lib: pkg.stub_lib.clone(),
+            });
         }
 
         if let Some(v) = pkg.virtual_pkg.as_ref() {
@@ -835,21 +845,8 @@ pub fn gen_runtest(
         } else {
             build_items.push(gen_package_core(m, pkg, moonc_opt)?);
         }
-        if pkg.stub_static_lib.is_some() {
-            compile_stub_items.push(RuntestLinkDepItem {
-                out: pkg.artifact.with_extension(O_EXT).display().to_string(),
-                core_deps: vec![],
-                package_sources: vec![],
-                package_full_name: pkg.full_name(),
-                package_path: pkg.root_path.clone(),
-                link: pkg.link.clone(),
-                install_path: None,
-                bin_name: None,
-                stub_static_lib: pkg.stub_static_lib.clone(),
-            });
-        }
 
-        if pkg.is_third_party {
+        if pkg.is_main || pkg.is_third_party {
             continue;
         }
 

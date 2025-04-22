@@ -425,7 +425,7 @@ fn scan_one_package(
         bin_target: pkg.bin_target,
         enable_value_tracing: false,
         supported_targets: pkg.supported_targets,
-        stub_static_lib: pkg
+        stub_lib: pkg
             .native_stub
             .and_then(|x| if x.is_empty() { None } else { Some(x) }),
 
