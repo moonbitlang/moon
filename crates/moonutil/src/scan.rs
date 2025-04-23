@@ -33,8 +33,8 @@ use std::str::FromStr;
 use walkdir::WalkDir;
 
 use crate::common::{
-    read_module_desc_file_in_dir, MoonbuildOpt, TargetBackend, DEP_PATH, DOT_MBT_DOT_MD,
-    DOT_MBT_DOT_X, IGNORE_DIRS, MOON_MOD_JSON, MOON_PKG_JSON,
+    read_module_desc_file_in_dir, MoonbuildOpt, TargetBackend, DEP_PATH, DOT_MBL, DOT_MBT_DOT_MD,
+    DOT_MBY, IGNORE_DIRS, MOON_MOD_JSON, MOON_PKG_JSON,
 };
 
 /// Matches an import string to scan paths.
@@ -79,12 +79,14 @@ pub fn get_mbt_and_test_file_paths(
     Vec<PathBuf>,
     Vec<PathBuf>,
     Vec<PathBuf>,
+    Vec<PathBuf>,
 ) {
     let mut mbt_files = vec![];
     let mut mbt_wbtest_files = vec![];
     let mut mbt_test_files = vec![];
     let mut mbt_md_files = vec![];
-    let mut mbt_x_files = vec![];
+    let mut mbl_files = vec![];
+    let mut mby_files: Vec<PathBuf> = vec![];
     let entries = std::fs::read_dir(dir).unwrap();
     for entry in entries.flatten() {
         if let Ok(t) = entry.file_type() {
@@ -92,7 +94,8 @@ pub fn get_mbt_and_test_file_paths(
                 && entry.path().extension().is_some()
                 && (entry.path().extension().unwrap() == "mbt"
                     || entry.path().extension().unwrap() == "md"
-                    || entry.path().extension().unwrap() == "x")
+                    || entry.path().extension().unwrap() == "mbl"
+                    || entry.path().extension().unwrap() == "mby")
             {
                 let p = entry.path();
 
@@ -101,8 +104,10 @@ pub fn get_mbt_and_test_file_paths(
                     if p_str.ends_with(DOT_MBT_DOT_MD) {
                         mbt_md_files.push(p.clone());
                     }
-                } else if p_str.ends_with(DOT_MBT_DOT_X) {
-                    mbt_x_files.push(p.clone());
+                } else if p_str.ends_with(DOT_MBL) {
+                    mbl_files.push(p.clone());
+                } else if p_str.ends_with(DOT_MBY) {
+                    mby_files.push(p.clone())
                 } else {
                     let stem = p.file_stem().unwrap().to_str().unwrap();
                     let dot = stem.rfind('.');
@@ -136,7 +141,8 @@ pub fn get_mbt_and_test_file_paths(
         mbt_wbtest_files,
         mbt_test_files,
         mbt_md_files,
-        mbt_x_files,
+        mbl_files,
+        mby_files,
     )
 }
 
@@ -330,7 +336,8 @@ fn scan_one_package(
         mut wbtest_mbt_files,
         mut test_mbt_files,
         mut mbt_md_files,
-        mut mbt_x_files,
+        mut mbl_files,
+        mut mby_files,
     ) = get_mbt_and_test_file_paths(pkg_path);
 
     // workaround for builtin package testing
@@ -347,7 +354,8 @@ fn scan_one_package(
         wbtest_mbt_files.sort();
         test_mbt_files.sort();
         mbt_md_files.sort();
-        mbt_x_files.sort();
+        mbl_files.sort();
+        mby_files.sort();
     }
 
     // append warn_list & alert_list in current moon.pkg.json into the one in moon.mod.json
@@ -417,17 +425,32 @@ fn scan_one_package(
     };
 
     let mut prebuild = pkg.pre_build.unwrap_or(vec![]);
-    for mbt_x_file in mbt_x_files {
-        // mbt_x_file is a file with extension .mbt.x
+    for mbl_file in mbl_files {
+        // mbl_file is a file with extension .mbl
         // mbt_file is the same file with extension .mbt
-        let mbt_file = mbt_x_file.with_extension("");
+        let mbt_file = mbl_file.with_extension("mbt");
         let generate = MoonPkgGenerate {
-            input: crate::package::StringOrArray::String(mbt_x_file.display().to_string()),
+            input: crate::package::StringOrArray::String(mbl_file.display().to_string()),
             output: crate::package::StringOrArray::String(mbt_file.display().to_string()),
             command: format!(
                 "{} {} -- $input -o $output",
                 MOON_DIRS.moon_bin_path.join("moonrun").display(),
                 MOON_DIRS.moon_bin_path.join("moonlex.wasm").display()
+            ),
+        };
+        prebuild.push(generate);
+    }
+    for mby_file in mby_files {
+        // mby_file is a file with extension .mby
+        // mbt_file is the same file with extension .mbt
+        let mbt_file = mby_file.with_extension("mbt");
+        let generate = MoonPkgGenerate {
+            input: crate::package::StringOrArray::String(mby_file.display().to_string()),
+            output: crate::package::StringOrArray::String(mbt_file.display().to_string()),
+            command: format!(
+                "{} {} -- $input -o $output",
+                MOON_DIRS.moon_bin_path.join("moonrun").display(),
+                MOON_DIRS.moon_bin_path.join("moonyacc.wasm").display()
             ),
         };
         prebuild.push(generate);
