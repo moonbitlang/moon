@@ -34,14 +34,18 @@ const INIT_SYS_API: &str = r#"
 "#;
 
 fn construct_args_list<'s>(
-    _args: &[String],
+    wasm_file_name: &str,
+    args: &[String],
     scope: &mut v8::HandleScope<'s>,
 ) -> v8::Local<'s, v8::Array> {
-    let cli_args: Vec<String> = std::env::args().collect();
-    let arr = v8::Array::new(scope, cli_args.len() as i32);
-    for (i, arg) in cli_args.iter().enumerate() {
+    // argv: [program, ..args]
+    let arr = v8::Array::new(scope, (args.len() + 1) as i32);
+
+    let program = v8::String::new(scope, wasm_file_name).unwrap();
+    arr.set_index(scope, 0, program.into());
+    for (i, arg) in args.iter().enumerate() {
         let arg = v8::String::new(scope, arg).unwrap();
-        arr.set_index(scope, i as u32, arg.into());
+        arr.set_index(scope, (i + 1) as u32, arg.into());
     }
     arr
 }
@@ -106,6 +110,7 @@ fn get_env_vars(
 pub fn init_env<'s>(
     obj: v8::Local<'s, v8::Object>,
     scope: &mut v8::HandleScope<'s>,
+    wasm_file_name: &str,
     args: &[String],
 ) -> v8::Local<'s, v8::Object> {
     let code = v8::String::new(scope, INIT_SYS_API).unwrap();
@@ -115,7 +120,7 @@ pub fn init_env<'s>(
     let func: v8::Local<v8::Function> = func.try_into().unwrap();
 
     // Construct the object to pass to the JS function
-    let args_list = construct_args_list(args, scope);
+    let args_list = construct_args_list(wasm_file_name, args, scope);
     let env_vars = construct_env_vars(scope);
     let env_obj = v8::Object::new(scope);
     let env_vars_key = v8::String::new(scope, "env_vars").unwrap().into();
