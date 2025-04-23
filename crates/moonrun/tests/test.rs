@@ -147,6 +147,10 @@ fn test_moon_run_with_cli_args() {
 
     let wasm_file = dir.join("target/wasm-gc/release/build/main/main.wasm");
 
+    // `argv` passed to CLI is:
+    // <wasm_file> <...rest argv to moonrun>
+
+    // Assert it has the WASM file as argv[0]
     let out = snapbox::cmd::Command::new(snapbox::cmd::cargo_bin("moonrun"))
         .arg(&wasm_file)
         .assert()
@@ -156,9 +160,9 @@ fn test_moon_run_with_cli_args() {
         .to_owned();
     let s = std::str::from_utf8(&out).unwrap().to_string();
 
-    assert!(s.contains("moonrun"));
     assert!(s.contains(".wasm"));
 
+    // Assert it passes the rest verbatim
     let out = snapbox::cmd::Command::new(snapbox::cmd::cargo_bin("moonrun"))
         .arg(&wasm_file)
         .arg("--")
@@ -170,7 +174,23 @@ fn test_moon_run_with_cli_args() {
         .to_owned();
     let s = std::str::from_utf8(&out).unwrap().to_string();
 
-    assert!(s.contains("\"中文\", \"😄👍\", \"hello\", \"1242\""));
+    assert!(!s.contains("--"));
+    assert!(s.contains(r#".wasm", "中文", "😄👍", "hello", "1242""#));
+
+    let out = snapbox::cmd::Command::new(snapbox::cmd::cargo_bin("moonrun"))
+        .arg(&wasm_file)
+        .arg("--no-stack-trace") // this ia an arg accepted by moonrun
+        .arg("--")
+        .args(["--arg1", "--arg2", "arg3"])
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .to_owned();
+    let s = std::str::from_utf8(&out).unwrap().to_string();
+
+    assert!(!s.contains("--no-stack-trace"));
+    assert!(s.contains(r#".wasm", "--arg1", "--arg2", "arg3""#))
 }
 
 #[test]
