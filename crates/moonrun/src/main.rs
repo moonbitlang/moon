@@ -330,7 +330,12 @@ fn exit(
     std::process::exit(code.value());
 }
 
-fn init_env(dtors: &mut Vec<Box<dyn Any>>, scope: &mut v8::HandleScope, args: &[String]) {
+fn init_env(
+    dtors: &mut Vec<Box<dyn Any>>,
+    scope: &mut v8::HandleScope,
+    wasm_file_name: &str,
+    args: &[String],
+) {
     let global_proxy = scope.get_current_context().global(scope);
 
     let print_env_box = Box::<PrintEnv>::default();
@@ -380,7 +385,7 @@ fn init_env(dtors: &mut Vec<Box<dyn Any>>, scope: &mut v8::HandleScope, args: &[
     let identifier = v8::String::new(scope, "__moonbit_fs_unstable").unwrap();
     let obj = v8::Object::new(scope);
     let obj: v8::Local<'_, v8::Object> = js::init_env(obj, scope);
-    let obj = sys_api::init_env(obj, scope, args);
+    let obj = sys_api::init_env(obj, scope, wasm_file_name, args);
     let obj: v8::Local<'_, v8::Object> = fs_api_temp::init_fs(obj, scope);
     global_proxy.set(scope, identifier.into(), obj.into());
 
@@ -486,6 +491,11 @@ fn wasm_mode(
     );
 
     let global_proxy = scope.get_current_context().global(scope);
+    let wasm_file_name = match &source {
+        Source::File(file) => file.to_string_lossy().to_string(),
+        Source::Bytes(_) => "<eval>".to_string(),
+    };
+
     match source {
         Source::File(file) => {
             let module_key = v8::String::new(scope, "module_name").unwrap().into();
@@ -508,7 +518,7 @@ fn wasm_mode(
         }
     }
     let mut dtors = Vec::new();
-    init_env(&mut dtors, scope, args);
+    init_env(&mut dtors, scope, &wasm_file_name, args);
 
     if let Some(ref test_args) = test_args {
         let test_args = serde_json_lenient::from_str::<TestArgs>(test_args).unwrap();
