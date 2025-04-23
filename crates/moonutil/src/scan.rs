@@ -424,6 +424,7 @@ fn scan_one_package(
         }))
     };
 
+    let pkg_prebuild_is_none = pkg.pre_build.is_none();
     let mut prebuild = pkg.pre_build.unwrap_or(vec![]);
     for mbl_file in mbl_files {
         let mbt_file = mbl_file.with_extension("mbt");
@@ -473,7 +474,11 @@ fn scan_one_package(
         warn_list,
         alert_list,
         targets: cond_targets,
-        pre_build: Some(prebuild),
+        pre_build: if pkg_prebuild_is_none && prebuild.is_empty() {
+            None
+        } else {
+            Some(prebuild)
+        },
         patch_file: None,
         no_mi: false,
         doc_test_patch_file: None,
