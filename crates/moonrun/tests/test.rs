@@ -161,6 +161,7 @@ fn test_moon_run_with_cli_args() {
     let s = std::str::from_utf8(&out).unwrap().to_string();
 
     assert!(s.contains(".wasm"));
+    assert!(!s.contains("moonrun"));
 
     // Assert it passes the rest verbatim
     let out = snapbox::cmd::Command::new(snapbox::cmd::cargo_bin("moonrun"))
@@ -174,6 +175,7 @@ fn test_moon_run_with_cli_args() {
         .to_owned();
     let s = std::str::from_utf8(&out).unwrap().to_string();
 
+    assert!(!s.contains("moonrun"));
     assert!(!s.contains("--"));
     assert!(s.contains(r#".wasm", "中文", "😄👍", "hello", "1242""#));
 
@@ -189,6 +191,7 @@ fn test_moon_run_with_cli_args() {
         .to_owned();
     let s = std::str::from_utf8(&out).unwrap().to_string();
 
+    assert!(!s.contains("moonrun"));
     assert!(!s.contains("--no-stack-trace"));
     assert!(s.contains(r#".wasm", "--arg1", "--arg2", "arg3""#))
 }
