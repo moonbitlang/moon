@@ -29,15 +29,6 @@
         "null"
       ]
     },
-    "implementations": {
-      "type": [
-        "array",
-        "null"
-      ],
-      "items": {
-        "$ref": "#/definitions/Implementation"
-      }
-    },
     "import": {
       "description": "Imported packages of the package",
       "anyOf": [
@@ -73,6 +64,15 @@
       ]
     },
     "native-stub": {
+      "type": [
+        "array",
+        "null"
+      ],
+      "items": {
+        "type": "string"
+      }
+    },
+    "overrides": {
       "type": [
         "array",
         "null"
@@ -167,23 +167,6 @@
           "$ref": "#/definitions/Link"
         }
       ]
-    },
-    "Implementation": {
-      "type": "object",
-      "required": [
-        "virtual_pkg"
-      ],
-      "properties": {
-        "implementation": {
-          "type": [
-            "string",
-            "null"
-          ]
-        },
-        "virtual_pkg": {
-          "type": "string"
-        }
-      }
     },
     "JsFormat": {
       "type": "string",
