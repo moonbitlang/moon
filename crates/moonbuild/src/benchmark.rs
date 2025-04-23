@@ -18,10 +18,11 @@
 
 use colored::Colorize;
 
-pub const BENCH: &str = "@BENCH ";
+pub const BATCHBENCH: &str = "@BATCH_BENCH ";
 
 #[derive(Debug, Default, serde::Serialize, serde::Deserialize)]
 pub struct BenchSummary {
+    pub name: Option<String>,
     pub min: f64,
     pub max: f64,
     pub mean: f64,
@@ -37,30 +38,63 @@ pub struct BenchSummary {
     pub runs: usize,
 }
 
+#[derive(Debug, Default, serde::Serialize, serde::Deserialize)]
+pub struct BatchBenchSummaries {
+    pub summaries: Vec<BenchSummary>,
+}
+
 fn auto_select_unit(us: f64) -> String {
     if us < 1e3 {
-        format!("{:.2} µs", us)
+        format!("{:>6.2} µs", us)
     } else if us < 1e6 {
-        format!("{:.2} ms", us / 1e3)
+        format!("{:>6.2} ms", us / 1e3)
     } else if us < 1e9 {
-        format!("{:.2} s", us / 1e6)
+        format!("{:>6.2} s", us / 1e6)
     } else {
-        format!("{:.2} min", us / 6e10)
+        format!("{:>6.2} min", us / 6e10)
     }
 }
 
-pub fn render_bench_summary(msg: &str) {
-    assert!(msg.starts_with(BENCH));
-    let msg = &msg[BENCH.len()..];
-    let summary = serde_json_lenient::from_str::<BenchSummary>(msg)
-        .unwrap_or_else(|_| panic!("failed to parse benchmark summary: {}", msg));
-    println!(
-        "time ({} ± {}) range ({} … {}) in {} × {} runs",
-        auto_select_unit(summary.mean).bold().green(),
-        auto_select_unit(summary.std_dev).green(),
-        auto_select_unit(summary.min).blue(),
-        auto_select_unit(summary.max).purple(),
-        summary.runs.to_string().bright_black(),
-        summary.batch_size.to_string().bright_black(),
-    )
+pub fn render_batch_bench_summary(msg: &str) {
+    assert!(msg.starts_with(BATCHBENCH));
+    let msg = &msg[BATCHBENCH.len()..];
+    let summary = serde_json_lenient::from_str::<BatchBenchSummaries>(msg)
+        .unwrap_or_else(|_| panic!("failed to parse batch benchmark summary: {}", msg));
+    let max_name_len = summary
+        .summaries
+        .iter()
+        .map(|s| s.name.as_ref().map_or(0, |n| n.len()))
+        .max()
+        .unwrap_or(0);
+    if !summary.summaries.is_empty() {
+        if max_name_len != 0 {
+            print!("{:<width$} ", "name", width = max_name_len);
+        }
+        println!(
+            "time ({} ± {})         range ({} … {}) ",
+            "mean".bold().green(),
+            "σ".green(),
+            "min".blue(),
+            "max".purple(),
+        );
+        let unknown_name = "".to_string();
+        for s in summary.summaries {
+            if max_name_len != 0 {
+                print!(
+                    "{:<width$} ",
+                    s.name.as_ref().unwrap_or(&unknown_name),
+                    width = max_name_len
+                );
+            }
+            println!(
+                " {} ± {}   {} … {}  in {} × {:>6} runs",
+                auto_select_unit(s.mean).bold().green(),
+                auto_select_unit(s.std_dev).green(),
+                auto_select_unit(s.min).blue(),
+                auto_select_unit(s.max).purple(),
+                s.runs.to_string().bright_black(),
+                s.batch_size.to_string().bright_black(),
+            );
+        }
+    }
 }
