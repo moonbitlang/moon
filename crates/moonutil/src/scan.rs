@@ -18,9 +18,10 @@
 
 use crate::cond_expr::{parse_cond_exprs, CompileCondition, StringOrArray};
 use crate::module::ModuleDB;
+use crate::moon_dir::MOON_DIRS;
 use crate::mooncakes::result::ResolvedEnv;
 use crate::mooncakes::DirSyncResult;
-use crate::package::{Import, Package};
+use crate::package::{Import, MoonPkgGenerate, Package};
 use crate::path::{ImportComponent, ImportPath, PathComponent};
 use anyhow::{bail, Context};
 use colored::Colorize;
@@ -32,8 +33,8 @@ use std::str::FromStr;
 use walkdir::WalkDir;
 
 use crate::common::{
-    read_module_desc_file_in_dir, MoonbuildOpt, TargetBackend, DEP_PATH, DOT_MBT_DOT_MD,
-    IGNORE_DIRS, MOON_MOD_JSON, MOON_PKG_JSON,
+    read_module_desc_file_in_dir, MoonbuildOpt, TargetBackend, DEP_PATH, DOT_MBL, DOT_MBT_DOT_MD,
+    DOT_MBY, IGNORE_DIRS, MOON_MOD_JSON, MOON_PKG_JSON,
 };
 
 /// Matches an import string to scan paths.
@@ -68,21 +69,33 @@ fn match_import_to_path(
     }
 }
 
-/// (*.mbt[exclude the following], *_wbtest.mbt, *_test.mbt, *.mbt.md)
+/// (*.mbt[exclude the following], *_wbtest.mbt, *_test.mbt, *.mbt.md, *.mbt.x)
+#[allow(clippy::type_complexity)]
 pub fn get_mbt_and_test_file_paths(
     dir: &Path,
-) -> (Vec<PathBuf>, Vec<PathBuf>, Vec<PathBuf>, Vec<PathBuf>) {
+) -> (
+    Vec<PathBuf>,
+    Vec<PathBuf>,
+    Vec<PathBuf>,
+    Vec<PathBuf>,
+    Vec<PathBuf>,
+    Vec<PathBuf>,
+) {
     let mut mbt_files = vec![];
     let mut mbt_wbtest_files = vec![];
     let mut mbt_test_files = vec![];
     let mut mbt_md_files = vec![];
+    let mut mbl_files = vec![];
+    let mut mby_files: Vec<PathBuf> = vec![];
     let entries = std::fs::read_dir(dir).unwrap();
     for entry in entries.flatten() {
         if let Ok(t) = entry.file_type() {
             if (t.is_file() || t.is_symlink())
                 && entry.path().extension().is_some()
                 && (entry.path().extension().unwrap() == "mbt"
-                    || entry.path().extension().unwrap() == "md")
+                    || entry.path().extension().unwrap() == "md"
+                    || entry.path().extension().unwrap() == "mbl"
+                    || entry.path().extension().unwrap() == "mby")
             {
                 let p = entry.path();
 
@@ -91,6 +104,10 @@ pub fn get_mbt_and_test_file_paths(
                     if p_str.ends_with(DOT_MBT_DOT_MD) {
                         mbt_md_files.push(p.clone());
                     }
+                } else if p_str.ends_with(DOT_MBL) {
+                    mbl_files.push(p.clone());
+                } else if p_str.ends_with(DOT_MBY) {
+                    mby_files.push(p.clone())
                 } else {
                     let stem = p.file_stem().unwrap().to_str().unwrap();
                     let dot = stem.rfind('.');
@@ -119,7 +136,14 @@ pub fn get_mbt_and_test_file_paths(
             }
         }
     }
-    (mbt_files, mbt_wbtest_files, mbt_test_files, mbt_md_files)
+    (
+        mbt_files,
+        mbt_wbtest_files,
+        mbt_test_files,
+        mbt_md_files,
+        mbl_files,
+        mby_files,
+    )
 }
 
 /// This is to support coverage testing for builtin packages.
@@ -307,8 +331,14 @@ fn scan_one_package(
         });
     }
 
-    let (mut mbt_files, mut wbtest_mbt_files, mut test_mbt_files, mut mbt_md_files) =
-        get_mbt_and_test_file_paths(pkg_path);
+    let (
+        mut mbt_files,
+        mut wbtest_mbt_files,
+        mut test_mbt_files,
+        mut mbt_md_files,
+        mut mbl_files,
+        mut mby_files,
+    ) = get_mbt_and_test_file_paths(pkg_path);
 
     // workaround for builtin package testing
     if moonc_opt.build_opt.enable_coverage
@@ -324,6 +354,8 @@ fn scan_one_package(
         wbtest_mbt_files.sort();
         test_mbt_files.sort();
         mbt_md_files.sort();
+        mbl_files.sort();
+        mby_files.sort();
     }
 
     // append warn_list & alert_list in current moon.pkg.json into the one in moon.mod.json
@@ -391,6 +423,36 @@ fn scan_one_package(
             )
         }))
     };
+
+    let pkg_prebuild_is_none = pkg.pre_build.is_none();
+    let mut prebuild = pkg.pre_build.unwrap_or(vec![]);
+    for mbl_file in mbl_files {
+        let mbt_file = mbl_file.with_extension("mbt");
+        let generate = MoonPkgGenerate {
+            input: crate::package::StringOrArray::String(mbl_file.display().to_string()),
+            output: crate::package::StringOrArray::String(mbt_file.display().to_string()),
+            command: format!(
+                "{} {} -- $input -o $output",
+                MOON_DIRS.moon_bin_path.join("moonrun").display(),
+                MOON_DIRS.moon_bin_path.join("moonlex.wasm").display()
+            ),
+        };
+        prebuild.push(generate);
+    }
+    for mby_file in mby_files {
+        let mbt_file = mby_file.with_extension("mbt");
+        let generate = MoonPkgGenerate {
+            input: crate::package::StringOrArray::String(mby_file.display().to_string()),
+            output: crate::package::StringOrArray::String(mbt_file.display().to_string()),
+            command: format!(
+                "{} {} -- $input -o $output",
+                MOON_DIRS.moon_bin_path.join("moonrun").display(),
+                MOON_DIRS.moon_bin_path.join("moonyacc.wasm").display()
+            ),
+        };
+        prebuild.push(generate);
+    }
+
     let mut cur_pkg = Package {
         is_main: pkg.is_main,
         need_link: pkg.need_link,
@@ -412,7 +474,11 @@ fn scan_one_package(
         warn_list,
         alert_list,
         targets: cond_targets,
-        pre_build: pkg.pre_build,
+        pre_build: if pkg_prebuild_is_none && prebuild.is_empty() {
+            None
+        } else {
+            Some(prebuild)
+        },
         patch_file: None,
         no_mi: false,
         doc_test_patch_file: None,
