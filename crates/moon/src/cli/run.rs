@@ -157,7 +157,7 @@ fn run_single_mbt_file(cli: &UniversalFlags, cmd: RunSubcommand) -> anyhow::Resu
         target_backend.to_flag().to_string(),
     ];
 
-    let use_tcc_run = target_backend == TargetBackend::Native && cmd.build_flags.release == false;
+    let use_tcc_run = target_backend == TargetBackend::Native && !cmd.build_flags.release;
 
     let moon_lib_path = &MOON_DIRS.moon_lib_path;
 
@@ -169,7 +169,6 @@ fn run_single_mbt_file(cli: &UniversalFlags, cmd: RunSubcommand) -> anyhow::Resu
             moon_lib_path.join("runtime.c").display().to_string(),
             "-lm".to_string(),
             "-DMOONBIT_NATIVE_NO_SYS_HEADER".to_string(),
-            "-DMOONBIT_USE_SHARED_RUNTIME".to_string(),
             "-run".to_string(),
             output_wasm_or_js_path.display().to_string(),
         ];

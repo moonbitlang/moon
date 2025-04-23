@@ -151,6 +151,7 @@ pub async fn run_native(
         );
         pre_args.extend([
             "-DMOONBIT_NATIVE_NO_SYS_HEADER".to_string(),
+            "-DMOONBIT_USE_SHARED_RUNTIME".to_string(),
             "-run".to_string(),
         ]);
         run(
