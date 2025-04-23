@@ -31,10 +31,7 @@ pub struct MoonDirs {
 }
 
 pub static MOON_DIRS: std::sync::LazyLock<MoonDirs> = std::sync::LazyLock::new(|| {
-    let moonc_path = which::which("moonc")
-        .context("moonc not found in PATH")
-        .unwrap();
-    let moon_home = moonc_path.parent().unwrap().parent().unwrap().to_path_buf();
+    let moon_home = home();
     let moon_include_path = moon_home.join("include");
     let moon_lib_path = moon_home.join("lib");
     let moon_bin_path = moon_home.join("bin");
