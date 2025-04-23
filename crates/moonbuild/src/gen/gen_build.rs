@@ -249,28 +249,15 @@ pub fn replace_virtual_pkg_core_with_impl_pkg_core(
     pkg: &Package,
     core_deps: &mut Vec<String>,
 ) -> anyhow::Result<()> {
-    if let Some(implementations) = pkg.implementations.as_ref() {
-        for implementation in implementations {
-            let virtual_pkg = m.get_package_by_name_safe(&implementation.virtual_pkg);
-            if virtual_pkg.is_none() {
-                anyhow::bail!("{}: could not found the virtual package `{}`, make sure the package name is correct, e.g. 'moonbitlang/core/double'",
-                    m.source_dir.join(pkg.rel.fs_full_name()).join(MOON_PKG_JSON).display(),
-                    implementation.virtual_pkg
-                );
-            }
-
-            let impl_pkg = m.get_package_by_name_safe(
-                implementation
-                    .implementation
-                    .as_ref()
-                    .unwrap_or(&implementation.virtual_pkg.clone()),
-            );
+    if let Some(overrides) = pkg.overrides.as_ref() {
+        for implementation in overrides {
+            let impl_pkg = m.get_package_by_name_safe(implementation);
             if let Some(impl_pkg) = impl_pkg {
+                let virtual_pkg = m.get_package_by_name(impl_pkg.implement.as_ref().unwrap());
                 // remove .core of the imported virtual pkg
                 core_deps.retain(|core_dep| {
                     core_dep
                         != &virtual_pkg
-                            .unwrap()
                             .artifact
                             .with_extension("core")
                             .display()
@@ -285,9 +272,9 @@ pub fn replace_virtual_pkg_core_with_impl_pkg_core(
                         .to_string(),
                 );
             } else {
-                anyhow::bail!("{}: could not found the implemented package `{}`, make sure the package name is correct, e.g. 'moonbitlang/core/double'",
+                anyhow::bail!("{}: could not found the package `{}`, make sure the package name is correct, e.g. 'moonbitlang/core/double'",
                     m.source_dir.join(pkg.rel.fs_full_name()).join(MOON_PKG_JSON).display(),
-                    implementation.virtual_pkg
+                    implementation
                 );
             }
         }

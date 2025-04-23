@@ -3,14 +3,8 @@
       "username/hello/lib1",
       "username/hello/lib3"
     ],
-    "implementations": [
-      {
-        "virtual": "username/hello/lib1",
-        // "implementation": "username/hello/lib2"
-      },
-      {
-        "virtual": "username/hello/lib3",
-        "implementation": "username/hello/lib4"
-      }
+    "overrides": [
+      // "username/hello/lib2",
+      "username/hello/lib4"
     ]
   }

@@ -94,7 +94,7 @@ pub struct Package {
     pub virtual_pkg: Option<VirtualPkg>,
     pub virtual_mbti_file: Option<PathBuf>,
     pub implement: Option<String>,
-    pub implementations: Option<Vec<Implementation>>,
+    pub overrides: Option<Vec<String>>,
 }
 
 impl Package {
@@ -289,7 +289,7 @@ pub struct MoonPkgJSON {
     pub implement: Option<String>,
 
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub implementations: Option<Vec<Implementation>>,
+    pub overrides: Option<Vec<String>>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, JsonSchema)]
@@ -297,13 +297,6 @@ pub struct VirtualPkg {
     #[serde(alias = "has-default")]
     #[schemars(rename = "has-default")]
     pub has_default: bool,
-}
-
-#[derive(Debug, Serialize, Deserialize, Clone, JsonSchema)]
-pub struct Implementation {
-    #[serde(alias = "virtual")]
-    pub virtual_pkg: String,
-    pub implementation: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, JsonSchema)]
@@ -642,7 +635,7 @@ pub struct MoonPkg {
 
     pub virtual_pkg: Option<VirtualPkg>,
     pub implement: Option<String>,
-    pub implementations: Option<Vec<Implementation>>,
+    pub overrides: Option<Vec<String>>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -837,7 +830,7 @@ pub fn convert_pkg_json_to_package(j: MoonPkgJSON) -> anyhow::Result<MoonPkg> {
         native_stub: j.native_stub,
         virtual_pkg: j.virtual_pkg,
         implement: j.implement,
-        implementations: j.implementations,
+        overrides: j.overrides,
     };
     Ok(result)
 }
