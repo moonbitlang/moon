@@ -426,8 +426,6 @@ fn scan_one_package(
 
     let mut prebuild = pkg.pre_build.unwrap_or(vec![]);
     for mbl_file in mbl_files {
-        // mbl_file is a file with extension .mbl
-        // mbt_file is the same file with extension .mbt
         let mbt_file = mbl_file.with_extension("mbt");
         let generate = MoonPkgGenerate {
             input: crate::package::StringOrArray::String(mbl_file.display().to_string()),
@@ -441,8 +439,6 @@ fn scan_one_package(
         prebuild.push(generate);
     }
     for mby_file in mby_files {
-        // mby_file is a file with extension .mby
-        // mbt_file is the same file with extension .mbt
         let mbt_file = mby_file.with_extension("mbt");
         let generate = MoonPkgGenerate {
             input: crate::package::StringOrArray::String(mby_file.display().to_string()),
