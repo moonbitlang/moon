@@ -466,7 +466,7 @@ fn create_script_origin<'s>(scope: &mut v8::HandleScope<'s>, name: &str) -> v8::
 
 enum Source<'a> {
     File(&'a Path),
-    Bytes(&'a String),
+    Bytes(Vec<u8>),
 }
 
 fn wasm_mode(
@@ -485,10 +485,9 @@ fn wasm_mode(
         BUILTIN_SCRIPT_ORIGIN_PREFIX
     );
 
+    let global_proxy = scope.get_current_context().global(scope);
     match source {
         Source::File(file) => {
-            let global_proxy = scope.get_current_context().global(scope);
-
             let module_key = v8::String::new(scope, "module_name").unwrap().into();
             let module_name = v8::String::new(scope, file.to_string_lossy().as_ref())
                 .unwrap()
@@ -497,10 +496,17 @@ fn wasm_mode(
             script.push_str("let bytes;");
         }
         Source::Bytes(bytes) => {
-            script.push_str(&format!("let bytes = new Uint8Array([{}]);", bytes));
+            let len = bytes.len();
+
+            let bytes_key = v8::String::new(scope, "bytes").unwrap().into();
+            let buf = v8::ArrayBuffer::new_backing_store_from_vec(bytes);
+            let buf = v8::ArrayBuffer::with_backing_store(scope, &buf.make_shared());
+            let u8arr = v8::Uint8Array::new(scope, buf, 0, len)
+                .expect("Failed to create buffer for WASM program");
+
+            global_proxy.set(scope, bytes_key, u8arr.cast());
         }
     }
-
     let mut dtors = Vec::new();
     init_env(&mut dtors, scope, args);
 
@@ -588,14 +594,7 @@ fn run_interactive() -> anyhow::Result<()> {
         let mut input = vec![0u8; length as usize];
         handle.read_exact(&mut input)?;
 
-        // convert the byte sequence to a string
-        let bytes_string = input
-            .iter()
-            .map(|b| format!("0x{:02X}", b))
-            .collect::<Vec<_>>()
-            .join(", ");
-
-        wasm_mode(Source::Bytes(&bytes_string), &[], false, None)?;
+        wasm_mode(Source::Bytes(input), &[], false, None)?;
         const END_MARKER: [u8; 4] = [0xFF, 0xFE, 0xFD, 0xFC];
         io::stdout().write_all(&END_MARKER)?;
         io::stdout().write_all(b"\n")?;
