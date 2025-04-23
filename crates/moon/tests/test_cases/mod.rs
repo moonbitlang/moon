@@ -49,6 +49,7 @@ mod moon_test;
 mod moon_version;
 mod output_format;
 mod packages;
+mod prebuild;
 mod simple_pkg;
 mod target_backend;
 mod targets;
