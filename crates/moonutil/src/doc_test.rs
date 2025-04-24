@@ -40,9 +40,9 @@ impl DocTestExtractor {
     pub fn new(is_md_test: bool) -> Self {
         // \r\n for windows, \n for unix
         let pattern = if is_md_test {
-            r#"[ \t]*```(?:mbt|moonbit)[ \t]*\r?\n([\s\S]*?)[ \t]*```"#
+            r#"[ \t]*```([^\r\n]*)\s*(?:\r?\n)([\s\S]*?)[ \t]*```"#
         } else {
-            r#"///\s*```(?:mbt|moonbit)?\s*(?:\r?\n)((?:///.*(?:\r?\n))*?)///\s*```"#
+            r#"///\s*```([^\r\n]*)\s*(?:\r?\n)((?:///.*(?:\r?\n))*?)///\s*```"#
         };
 
         Self {
@@ -57,21 +57,24 @@ impl DocTestExtractor {
 
         for cap in self.test_pattern.captures_iter(&content) {
             if let Some(test_match) = cap.get(0) {
-                let line_number = content[..test_match.start()]
-                    .chars()
-                    .filter(|&c| c == '\n')
-                    .count()
-                    + 1;
+                let lang = cap.get(1).map(|m| m.as_str().trim()).unwrap_or("");
+                if lang.is_empty() || lang == "mbt" || lang == "moonbit" {
+                    let line_number = content[..test_match.start()]
+                        .chars()
+                        .filter(|&c| c == '\n')
+                        .count()
+                        + 1;
 
-                if let Some(test_content) = cap.get(1) {
-                    let line_count = test_content.as_str().lines().count();
+                    if let Some(test_content) = cap.get(2) {
+                        let line_count = test_content.as_str().lines().count();
 
-                    tests.push(DocTest {
-                        content: test_content.as_str().to_string(),
-                        file_name: file_path.file_name().unwrap().to_str().unwrap().to_string(),
-                        line_number,
-                        line_count,
-                    });
+                        tests.push(DocTest {
+                            content: test_content.as_str().to_string(),
+                            file_name: file_path.file_name().unwrap().to_str().unwrap().to_string(),
+                            line_number,
+                            line_count,
+                        });
+                    }
                 }
             }
         }

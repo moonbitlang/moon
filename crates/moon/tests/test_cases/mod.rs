@@ -3979,7 +3979,7 @@ fn test_run_doc_test() {
             b"/x54/x00/x65/x00/x73/x00/x74/x00"
             ----
 
-            Total tests: 13, passed: 8, failed: 5.
+            Total tests: 15, passed: 10, failed: 5.
         "#]],
     );
 
@@ -4007,7 +4007,7 @@ fn test_run_doc_test() {
             test block 2
             test block 2
             test username/hello/lib/greet.mbt::3 failed: FAILED: $ROOT/src/lib/greet.mbt:31:7-31:31 another failure
-            Total tests: 13, passed: 11, failed: 2.
+            Total tests: 15, passed: 13, failed: 2.
         "#]],
     );
 
