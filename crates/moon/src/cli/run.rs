@@ -157,7 +157,8 @@ fn run_single_mbt_file(cli: &UniversalFlags, cmd: RunSubcommand) -> anyhow::Resu
         target_backend.to_flag().to_string(),
     ];
 
-    let use_tcc_run = target_backend == TargetBackend::Native && !cmd.build_flags.release;
+    let use_tcc_run =
+        !cfg!(windows) && target_backend == TargetBackend::Native && !cmd.build_flags.release;
 
     let moon_lib_path = &MOON_DIRS.moon_lib_path;
 
