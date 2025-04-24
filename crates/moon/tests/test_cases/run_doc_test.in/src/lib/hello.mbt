@@ -38,3 +38,36 @@ pub fn hello3() -> String {
 pub fn hello() -> String {
   "Hello, wor1ld!"
 }
+
+
+/// ```no-run
+/// 
+/// assert_true!(true)
+/// ```
+/// 
+/// this is comment
+/// 
+/// 
+/// ```python
+/// 
+/// 
+/// ```
+/// 
+/// 
+/// 
+/// 
+/// ```
+/// 
+/// assert_true!(true)
+/// ```
+/// 
+/// this is comment
+/// 
+/// 
+/// ```
+/// 
+/// assert_true!(true)
+/// ```
+pub fn fasd() -> String {
+  "Hello, wor1ld!"
+}
