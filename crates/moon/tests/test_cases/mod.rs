@@ -1493,6 +1493,46 @@ fn test_import_shared_memory() {
     );
 }
 
+#[cfg(unix)]
+#[test]
+fn test_moon_run_native() {
+    let dir = TestDir::new("run_single_mbt_file.in");
+
+    let output = get_stdout(
+        &dir,
+        ["run", "a/b/single.mbt", "--target", "native", "--dry-run"],
+    );
+    check(
+        &output,
+        expect![[r#"
+            moonc build-package $ROOT/a/b/single.mbt -o $ROOT/a/b/target/single.core -std-path $MOON_HOME/lib/core/target/native/release/bundle -is-main -pkg moon/run/single -g -O0 -source-map -target native
+            moonc link-core $MOON_HOME/lib/core/target/native/release/bundle/core.core $ROOT/a/b/target/single.core -o $ROOT/a/b/target/single.c -pkg-sources moon/run/single:$ROOT/a/b -pkg-sources moonbitlang/core:$MOON_HOME/lib/core -g -O0 -source-map -target native
+            $MOON_HOME/bin/internal/tcc -I$MOON_HOME/include -L$MOON_HOME/lib $MOON_HOME/lib/runtime.c -lm -DMOONBIT_NATIVE_NO_SYS_HEADER -run $ROOT/a/b/target/single.c
+        "#]],
+    );
+
+    let output = get_stdout(
+        &dir,
+        [
+            "run",
+            "a/b/single.mbt",
+            "--target",
+            "native",
+            "--dry-run",
+            "--release",
+        ],
+    );
+    check(
+        &output,
+        expect![[r#"
+            moonc build-package $ROOT/a/b/single.mbt -o $ROOT/a/b/target/single.core -std-path $MOON_HOME/lib/core/target/native/release/bundle -is-main -pkg moon/run/single -g -O0 -source-map -target native
+            moonc link-core $MOON_HOME/lib/core/target/native/release/bundle/core.core $ROOT/a/b/target/single.core -o $ROOT/a/b/target/single.c -pkg-sources moon/run/single:$ROOT/a/b -pkg-sources moonbitlang/core:$MOON_HOME/lib/core -g -O0 -source-map -target native
+            cc -o $ROOT/a/b/target/single.exe -I$MOON_HOME/include -L$MOON_HOME/lib -fwrapv -fno-strict-aliasing -O0 $MOON_HOME/lib/runtime.c $ROOT/a/b/target/single.c -lm
+            $ROOT/a/b/target/single.exe
+        "#]],
+    );
+}
+
 #[test]
 fn test_moon_run_single_mbt_file() {
     let dir = TestDir::new("run_single_mbt_file.in");
