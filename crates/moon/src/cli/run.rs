@@ -157,6 +157,9 @@ fn run_single_mbt_file(cli: &UniversalFlags, cmd: RunSubcommand) -> anyhow::Resu
         target_backend.to_flag().to_string(),
     ];
 
+    // runtime.c on Windows cannot be built with tcc
+    // it's expensive to use cl.exe to build one first
+    // and then use tcc to load it
     let use_tcc_run =
         !cfg!(windows) && target_backend == TargetBackend::Native && !cmd.build_flags.release;
 
