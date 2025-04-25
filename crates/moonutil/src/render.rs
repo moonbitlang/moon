@@ -142,9 +142,9 @@ impl MooncDiagnostic {
             eprintln!(
                 "{}",
                 format!(
-                    "[{}] {}: {}",
-                    diagnostic.formatted_error_code(),
+                    "{}: [{}] {}",
                     kind,
+                    diagnostic.formatted_error_code(),
                     diagnostic.message
                 )
                 .fg(color)
