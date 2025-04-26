@@ -312,8 +312,16 @@ impl TargetBackend {
             Self::Wasm => "wasm",
             Self::WasmGC => "wasm",
             Self::Js => "js",
+            
+            #[cfg(target_os = "windows")]
             Self::Native => "exe",
+            #[cfg(target_os = "windows")]
             Self::LLVM => "exe",
+
+            #[cfg(not(target_os = "windows"))]
+            Self::Native => "out",
+            #[cfg(not(target_os = "windows"))]
+            Self::LLVM => "out",
         }
     }
 
