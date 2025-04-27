@@ -227,18 +227,14 @@ jobs:
       - name: Test core on llvm backend (Windows)
         if: ${{ matrix.os == 'windows-latest' }}
         run: |
-          Remove-Item -Recurse -Force "$env:USERPROFILE\.moon\lib\core"
-          git clone --depth 1 -b llvm_backend https://github.com/moonbitlang/core.git "$env:USERPROFILE\.moon\lib\core"
           cargo run --bin moon test --source-dir "$env:USERPROFILE\.moon\lib\core" --target llvm
-          cargo run --bin moon test --source-dir "$env:USERPROFILE\.moon\lib\core" --release --target llvm
+          cargo run --bin moon test --source-dir "$env:USERPROFILE\.moon\lib\core" --target llvm --release
 
       - name: Test core on llvm backend (Unix)
         if: ${{ (matrix.os == 'ubuntu-latest') || (matrix.os == 'macos-latest') }}
         run: |
-          rm -rf ~/.moon/lib/core
-          git clone --depth 1 -b llvm_backend https://github.com/moonbitlang/core.git ~/.moon/lib/core
           cargo run --bin moon test --source-dir ~/.moon/lib/core --target llvm
-          cargo run --bin moon test --source-dir ~/.moon/lib/core --release --target llvm
+          cargo run --bin moon test --source-dir ~/.moon/lib/core --target llvm --release
 
   stable-test:
     needs: [typo-check, license-header-check]
