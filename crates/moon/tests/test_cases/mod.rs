@@ -1515,10 +1515,18 @@ fn test_moon_run_native() {
     );
     check(
         &output,
+        #[cfg(windows)]
         expect![[r#"
             moonc build-package $ROOT/a/b/single.mbt -o $ROOT/a/b/target/single.core -std-path $MOON_HOME/lib/core/target/native/release/bundle -is-main -pkg moon/run/single -g -O0 -source-map -target native
             moonc link-core $MOON_HOME/lib/core/target/native/release/bundle/core.core $ROOT/a/b/target/single.core -o $ROOT/a/b/target/single.c -pkg-sources moon/run/single:$ROOT/a/b -pkg-sources moonbitlang/core:$MOON_HOME/lib/core -g -O0 -source-map -target native
             cc -o $ROOT/a/b/target/single.exe -I$MOON_HOME/include -L$MOON_HOME/lib -fwrapv -fno-strict-aliasing -O0 $MOON_HOME/lib/runtime.c $ROOT/a/b/target/single.c -lm
+            $ROOT/a/b/target/single.exe
+        "#]],
+        #[cfg(not(windows))]
+        expect![[r#"
+            moonc build-package $ROOT/a/b/single.mbt -o $ROOT/a/b/target/single.core -std-path $MOON_HOME/lib/core/target/native/release/bundle -is-main -pkg moon/run/single -g -O0 -source-map -target native
+            moonc link-core $MOON_HOME/lib/core/target/native/release/bundle/core.core $ROOT/a/b/target/single.core -o $ROOT/a/b/target/single.c -pkg-sources moon/run/single:$ROOT/a/b -pkg-sources moonbitlang/core:$MOON_HOME/lib/core -g -O0 -source-map -target native
+            cc -o $ROOT/a/b/target/single.out -I$MOON_HOME/include -L$MOON_HOME/lib -fwrapv -fno-strict-aliasing -O0 $MOON_HOME/lib/runtime.c $ROOT/a/b/target/single.c -lm
             $ROOT/a/b/target/single.exe
         "#]],
     );
