@@ -367,7 +367,8 @@ fn scan_one_package(
         })
         .map_or(moonc_opt.build_opt.warn_list.clone(), |x| {
             Some(x.clone() + &moonc_opt.build_opt.warn_list.clone().unwrap_or_default())
-        });
+        })
+        .filter(|s| !s.is_empty());
     let alert_list = mod_desc
         .alert_list
         .as_ref()
@@ -376,7 +377,8 @@ fn scan_one_package(
         })
         .map_or(moonc_opt.build_opt.alert_list.clone(), |x| {
             Some(x.clone() + &moonc_opt.build_opt.alert_list.clone().unwrap_or_default())
-        });
+        })
+        .filter(|s| !s.is_empty());
 
     let artifact: PathBuf = target_dir.into();
 
