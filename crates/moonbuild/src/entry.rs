@@ -43,8 +43,8 @@ use crate::runtest::TestStatistics;
 
 use moonutil::common::{
     DriverKind, FileLock, FileName, MoonbuildOpt, MooncGenTestInfo, MooncOpt, PrePostBuild,
-    TargetBackend, TestArtifacts, TestBlockIndex, TestName, BLACKBOX_TEST_PATCH, DOT_MBT_DOT_MD,
-    MOON_DOC_TEST_POSTFIX, TEST_INFO_FILE, WHITEBOX_TEST_PATCH,
+    TargetBackend, TestArtifacts, TestBlockIndex, TestName, DOT_MBT_DOT_MD, MOON_DOC_TEST_POSTFIX,
+    TEST_INFO_FILE,
 };
 
 use std::sync::{Arc, Mutex};
@@ -568,30 +568,14 @@ fn convert_moonc_test_info(
     patch_file: &Option<PathBuf>,
 ) -> anyhow::Result<IndexMap<PathBuf, FileTestInfo>> {
     let mut test_info_files = vec![];
-    for (files, driver_kind) in [
-        (&pkg.files, DriverKind::Internal),
-        (&pkg.wbtest_files, DriverKind::Whitebox),
-        (&pkg.test_files, DriverKind::Blackbox),
+    for driver_kind in [
+        DriverKind::Internal,
+        DriverKind::Whitebox,
+        DriverKind::Blackbox,
     ] {
-        let need_test_info = !files.is_empty()
-            || patch_file.as_ref().is_some_and(|pf| {
-                let filename = pf.to_str().unwrap();
-                match driver_kind {
-                    DriverKind::Internal => {
-                        !filename.ends_with(BLACKBOX_TEST_PATCH)
-                            && !filename.ends_with(WHITEBOX_TEST_PATCH)
-                    }
-                    DriverKind::Whitebox => filename.ends_with(WHITEBOX_TEST_PATCH),
-                    DriverKind::Blackbox => filename.ends_with(BLACKBOX_TEST_PATCH),
-                }
-            });
-
-        if need_test_info {
-            test_info_files.push(test_info_file.join(format!(
-                "__{}_{}",
-                driver_kind.to_string(),
-                TEST_INFO_FILE
-            )));
+        let path = test_info_file.join(format!("__{}_{}", driver_kind.to_string(), TEST_INFO_FILE));
+        if path.exists() {
+            test_info_files.push(path);
         }
     }
 
