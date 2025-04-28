@@ -569,7 +569,10 @@ where
         buf.push("/utf-8".to_string());
         buf.push("/wd4819".to_string());
         buf.push("/nologo".to_string());
-    } else if cc.is_full_featured_gcc_like() && !has_user_flags {
+    }
+    
+    // the below flags are needed, ref: https://github.com/moonbitlang/core/issues/1594#issuecomment-2649652455
+    if cc.is_full_featured_gcc_like() {
         buf.push("-fwrapv".to_string());
         buf.push("-fno-strict-aliasing".to_string());
     }
