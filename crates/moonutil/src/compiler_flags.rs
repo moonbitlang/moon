@@ -570,7 +570,7 @@ where
         buf.push("/wd4819".to_string());
         buf.push("/nologo".to_string());
     }
-    
+
     // the below flags are needed, ref: https://github.com/moonbitlang/core/issues/1594#issuecomment-2649652455
     if cc.is_full_featured_gcc_like() {
         buf.push("-fwrapv".to_string());

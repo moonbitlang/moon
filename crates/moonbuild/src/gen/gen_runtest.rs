@@ -856,17 +856,32 @@ pub fn gen_runtest(
             }
         }
 
-        // todo: only generate the test driver when there is test block exist
-        for item in pkg.generated_test_drivers.iter() {
-            if let GeneratedTestDriver::InternalTest(_) = item {
-                test_drivers.push(gen_package_test_driver(item, pkg)?);
-                build_items.push(gen_package_internal_test(
-                    m,
-                    pkg,
-                    moonc_opt,
-                    internal_patch_file.clone(),
-                )?);
-                link_items.push(gen_link_internal_test(m, pkg, moonc_opt)?);
+        let has_internal_test = {
+            let mut res = false;
+            for (path, _) in &pkg.files {
+                let content = std::fs::read_to_string(path)?;
+                for line in content.lines() {
+                    if line.starts_with("test") {
+                        res = true;
+                        break;
+                    }
+                }
+            }
+            res
+        };
+
+        if has_internal_test {
+            for item in pkg.generated_test_drivers.iter() {
+                if let GeneratedTestDriver::InternalTest(_) = item {
+                    test_drivers.push(gen_package_test_driver(item, pkg)?);
+                    build_items.push(gen_package_internal_test(
+                        m,
+                        pkg,
+                        moonc_opt,
+                        internal_patch_file.clone(),
+                    )?);
+                    link_items.push(gen_link_internal_test(m, pkg, moonc_opt)?);
+                }
             }
         }
 

@@ -6,17 +6,17 @@ fn test_many_targets() {
     check(
         get_stdout(&dir, ["test", "--target", "all", "--serial"]),
         expect![[r#"
-            Total tests: 0, passed: 0, failed: 0. [wasm]
-            Total tests: 0, passed: 0, failed: 0. [wasm-gc]
-            Total tests: 0, passed: 0, failed: 0. [js]
+            Total tests: 2, passed: 2, failed: 0. [wasm]
+            Total tests: 2, passed: 2, failed: 0. [wasm-gc]
+            Total tests: 2, passed: 2, failed: 0. [js]
         "#]],
     );
 
     check(
         get_stdout(&dir, ["test", "--target", "js,wasm", "--serial"]),
         expect![[r#"
-            Total tests: 0, passed: 0, failed: 0. [wasm]
-            Total tests: 0, passed: 0, failed: 0. [js]
+            Total tests: 2, passed: 2, failed: 0. [wasm]
+            Total tests: 2, passed: 2, failed: 0. [js]
         "#]],
     );
 
