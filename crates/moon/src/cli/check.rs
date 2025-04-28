@@ -218,7 +218,7 @@ fn run_check_internal(
         }
 
         let pj_path = moonutil::doc_test::gen_md_test_patch(pkg, &moonc_opt)?;
-        pkg.doc_test_patch_file = Some(pj_path.clone());
+        pkg.doc_test_patch_file = pj_path;
     }
 
     if cli.dry_run {

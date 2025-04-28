@@ -193,7 +193,7 @@ impl PatchJSON {
     }
 }
 
-pub fn gen_doc_test_patch(pkg: &Package, moonc_opt: &MooncOpt) -> anyhow::Result<PathBuf> {
+pub fn gen_doc_test_patch(pkg: &Package, moonc_opt: &MooncOpt) -> anyhow::Result<Option<PathBuf>> {
     let mbt_files = backend_filter(
         &pkg.files,
         moonc_opt.build_opt.debug_flag,
@@ -209,6 +209,10 @@ pub fn gen_doc_test_patch(pkg: &Package, moonc_opt: &MooncOpt) -> anyhow::Result
         }
     }
 
+    if doc_tests.is_empty() {
+        return Ok(None);
+    }
+
     let pj = PatchJSON::from_doc_tests(doc_tests);
     let pj_path = pkg
         .artifact
@@ -219,10 +223,10 @@ pub fn gen_doc_test_patch(pkg: &Package, moonc_opt: &MooncOpt) -> anyhow::Result
     std::fs::write(&pj_path, serde_json_lenient::to_string_pretty(&pj)?)
         .context(format!("failed to write {}", &pj_path.display()))?;
 
-    Ok(pj_path)
+    Ok(Some(pj_path))
 }
 
-pub fn gen_md_test_patch(pkg: &Package, moonc_opt: &MooncOpt) -> anyhow::Result<PathBuf> {
+pub fn gen_md_test_patch(pkg: &Package, moonc_opt: &MooncOpt) -> anyhow::Result<Option<PathBuf>> {
     let md_files = backend_filter(
         &pkg.mbt_md_files,
         moonc_opt.build_opt.debug_flag,
@@ -238,6 +242,10 @@ pub fn gen_md_test_patch(pkg: &Package, moonc_opt: &MooncOpt) -> anyhow::Result<
         }
     }
 
+    if md_tests.is_empty() {
+        return Ok(None);
+    }
+
     let pj = PatchJSON::from_md_tests(md_tests);
     let pj_path = pkg
         .artifact
@@ -248,5 +256,5 @@ pub fn gen_md_test_patch(pkg: &Package, moonc_opt: &MooncOpt) -> anyhow::Result<
     std::fs::write(&pj_path, serde_json_lenient::to_string_pretty(&pj)?)
         .context(format!("failed to write {}", &pj_path.display()))?;
 
-    Ok(pj_path)
+    Ok(Some(pj_path))
 }
