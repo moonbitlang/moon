@@ -431,12 +431,12 @@ pub(crate) fn run_test_or_bench_internal(
 
         if !pkg.mbt_md_files.is_empty() {
             let pj_path = moonutil::doc_test::gen_md_test_patch(pkg, &moonc_opt)?;
-            pkg.doc_test_patch_file = Some(pj_path.clone());
+            pkg.doc_test_patch_file = pj_path;
         }
 
         if cmd.doc_test {
             let pj_path = moonutil::doc_test::gen_doc_test_patch(pkg, &moonc_opt)?;
-            pkg.doc_test_patch_file = Some(pj_path);
+            pkg.doc_test_patch_file = pj_path;
         }
 
         {
