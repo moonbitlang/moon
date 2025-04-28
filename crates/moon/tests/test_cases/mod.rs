@@ -1621,58 +1621,28 @@ fn test_moon_run_single_mbt_file() {
 fn test_moon_check_json_output() {
     let dir = TestDir::new("warns/alert_list");
 
-    #[cfg(unix)]
-    {
-        check(
-            get_stdout(&dir, ["check", "--output-json", "-q"]),
-            expect![[r#"
+    check(
+        get_stdout(&dir, ["check", "--output-json", "-q"]),
+        expect![[r#"
                 {"$message_type":"diagnostic","level":"warning","loc":{"path":"$ROOT/main/main.mbt","start":{"line":3,"col":3},"end":{"line":3,"col":10}},"message":"Warning (Alert alert_2): alert_2","error_code":2000}
             "#]],
-        );
-        check(
-            get_stderr(&dir, ["check", "--output-json", "-q"]),
-            expect![""],
-        );
-        check(
-            get_stderr(&dir, ["check", "--output-json"]),
-            expect![[r#"
-                Finished. moon: ran 1 task, now up to date
-            "#]],
-        );
-        check(
-            get_stderr(&dir, ["check", "--output-json"]),
-            expect![[r#"
-                Finished. moon: ran 1 task, now up to date
-            "#]],
-        );
-    }
-
-    // windows crlf(\r\n)
-    #[cfg(windows)]
-    {
-        check(
-            get_stdout(&dir, ["check", "--output-json", "-q"]),
-            expect![[r#"
-            {"$message_type":"diagnostic","level":"warning","loc":{"path":"$ROOT/main/main.mbt","start":{"line":3,"col":3},"end":{"line":3,"col":10}},"message":"Warning (Alert alert_2): alert_2","error_code":2000}
+    );
+    check(
+        get_stderr(&dir, ["check", "--output-json", "-q"]),
+        expect![""],
+    );
+    check(
+        get_stderr(&dir, ["check", "--output-json"]),
+        expect![[r#"
+            Finished. moon: ran 1 task, now up to date
         "#]],
-        );
-        check(
-            get_stderr(&dir, ["check", "--output-json", "-q"]),
-            expect![""],
-        );
-        check(
-            get_stderr(&dir, ["check", "--output-json"]),
-            expect![[r#"
-                Finished. moon: ran 1 task, now up to date
-            "#]],
-        );
-        check(
-            get_stderr(&dir, ["check", "--output-json"]),
-            expect![[r#"
-                Finished. moon: ran 1 task, now up to date
-            "#]],
-        );
-    }
+    );
+    check(
+        get_stderr(&dir, ["check", "--output-json"]),
+        expect![[r#"
+            Finished. moon: ran 1 task, now up to date
+        "#]],
+    );
 }
 
 #[test]

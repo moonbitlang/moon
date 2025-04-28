@@ -131,6 +131,16 @@ fn test_alert_list() {
     std::env::set_var("NO_COLOR", "1");
     let dir = TestDir::new("warns/alert_list");
 
+    // don't set -alert & -w if it's empty string
+    check(
+        get_stdout(&dir, ["check", "--sort-input", "--dry-run"]),
+        expect![[r#"
+            moonc check ./lib/hello.mbt -w -2 -alert -alert_1-alert_2 -o ./target/wasm-gc/release/check/lib/lib.mi -pkg username/hello/lib -std-path $MOON_HOME/lib/core/target/wasm-gc/release/bundle -pkg-sources username/hello/lib:./lib -target wasm-gc
+            moonc check ./main/main.mbt -w -1-2 -alert -alert_1 -o ./target/wasm-gc/release/check/main/main.mi -pkg username/hello/main -is-main -std-path $MOON_HOME/lib/core/target/wasm-gc/release/bundle -i ./target/wasm-gc/release/check/lib/lib.mi:lib -pkg-sources username/hello/main:./main -target wasm-gc
+            moonc check ./lib2/hello.mbt -o ./target/wasm-gc/release/check/lib2/lib2.mi -pkg username/hello/lib2 -std-path $MOON_HOME/lib/core/target/wasm-gc/release/bundle -pkg-sources username/hello/lib2:./lib2 -target wasm-gc
+        "#]],
+    );
+
     check(
         get_stderr(&dir, ["build", "--sort-input"]),
         expect![[r#"
@@ -162,7 +172,7 @@ fn test_alert_list() {
                │   ───┬───  
                │      ╰───── Warning (Alert alert_2): alert_2
             ───╯
-            Finished. moon: ran 3 tasks, now up to date
+            Finished. moon: ran 4 tasks, now up to date
         "#]],
     );
 
@@ -176,7 +186,7 @@ fn test_alert_list() {
                │   ───┬───  
                │      ╰───── Warning (Alert alert_2): alert_2
             ───╯
-            Finished. moon: ran 2 tasks, now up to date
+            Finished. moon: ran 3 tasks, now up to date
         "#]],
     );
 }
