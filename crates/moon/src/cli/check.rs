@@ -158,7 +158,7 @@ fn run_check_internal(
 
     // TODO: remove this once LLVM backend is well supported
     if moonc_opt.build_opt.target_backend == TargetBackend::LLVM {
-        eprintln!("{}: LLVM backend is experimental and only supported on linux and macos with bleeding moonbit toolchain for now", "Warning".yellow());
+        eprintln!("{}: LLVM backend is experimental and only supported on bleeding moonbit toolchain for now", "Warning".yellow());
     }
 
     let sort_input = cmd.build_flags.sort_input;
