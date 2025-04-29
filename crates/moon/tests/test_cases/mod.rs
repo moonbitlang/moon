@@ -4376,14 +4376,14 @@ fn test_update_expect_failed() {
         expect![[r#"
             ///|
             test {
-              inspect!("\x0b", content="\x0b")
-              inspect!("a\x0b", content="a\x0b")
-              inspect!("a\x00b", content="a\x00b")
-              inspect!("a\x00b\x19", content="a\x00b\x19")
+              inspect!("\x0b", content="\u{b}")
+              inspect!("a\x0b", content="a\u{b}")
+              inspect!("a\x00b", content="a\u{0}b")
+              inspect!("a\x00b\x19", content="a\u{0}b\u{19}")
               inspect!("\na\n\x00\nb\n\x19", content=
-                "\x0aa\x0a\x00\x0ab\x0a\x19")
+                "\u{a}a\u{a}\u{0}\u{a}b\u{a}\u{19}")
               inspect!("\n\"a\n\x00\nb\"\n\x19", content=
-                "\x0a\"a\x0a\x00\x0ab\"\x0a\x19")
+                "\u{a}\"a\u{a}\u{0}\u{a}b\"\u{a}\u{19}")
             }
 
             ///|
@@ -4396,7 +4396,7 @@ fn test_update_expect_failed() {
                 #|c"
               )
               inspect!("\x0b\"a\nb\nc\"", content=
-                "\x0b\"a\x0ab\x0ac\"")
+                "\u{b}\"a\u{a}b\u{a}c\"")
             }
         "#]],
     );
