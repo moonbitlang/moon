@@ -231,7 +231,7 @@ jobs:
           cargo run --bin moon test --source-dir "$env:USERPROFILE\.moon\lib\core" --target llvm --release
 
       - name: Test core on llvm backend (Unix)
-        if: ${{ (matrix.os == 'ubuntu-latest') || (matrix.os == 'macos-latest') }}
+        if: ${{ (matrix.os != 'windows-latest') }}
         run: |
           cargo run --bin moon test --source-dir ~/.moon/lib/core --target llvm
           cargo run --bin moon test --source-dir ~/.moon/lib/core --target llvm --release
