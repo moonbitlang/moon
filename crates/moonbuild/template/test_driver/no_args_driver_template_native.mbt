@@ -28,13 +28,6 @@ pub fn moonbit_test_driver_internal_execute(filename : String, index : Int) -> U
     Some(item) => {
       let (func, attrs) = (item.0, item.1)
 
-      if attrs.iter().any(fn(attr) -> Bool {
-        attr.length() >= 5 && attr[0] == 'p' && attr[1] == 'a' && attr[2] == 'n' && attr[3] == 'i' && attr[4] == 'c'
-      }) {
-        @moonbitlang/core/builtin.println("skipped test block: \{filename}: \{attrs[0]}")
-        return
-      }
-
       let name = if attrs.is_empty() { "" } else { attrs[0] }
       let name = if name.length() == 0 {
         index.to_string()
@@ -55,11 +48,6 @@ pub fn moonbit_test_driver_internal_execute(filename : String, index : Int) -> U
       }
 
       test_name = name
-
-      if test_name.length() >= 5 && test_name[0] == 'p' && test_name[1] == 'a' && test_name[2] == 'n' && test_name[3] == 'i' && test_name[4] == 'c' {
-        @moonbitlang/core/builtin.println("skipped test block: \{filename}: \{test_name}")
-        return
-      }
 
       try {
         func!()

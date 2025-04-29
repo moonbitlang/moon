@@ -161,23 +161,18 @@ pub fn moonbit_test_driver_internal_execute(filename : String, index : Int) -> U
         _ => ()
       }
 
-    if attrs.iter().any(fn(attr) -> Bool {
-      attr.length() >= 5 && attr[0] == 'p' && attr[1] == 'a' && attr[2] == 'n' && attr[3] == 'i' && attr[4] == 'c'
-    }) {
-      @moonbitlang/core/builtin.println("skipped test block: \{file_name}: \{attrs[0]}")
-      @moonbitlang/core/builtin.println("{BEGIN_MOONTEST}")
-      @moonbitlang/core/builtin.println(
-        "{\"package\": \"{PACKAGE}\", \"filename\": \{file_name.escape()}, \"index\": \"\{index}\", \"test_name\": \{name.escape()}, \"message\": \"skipped test\"}",
-      )
-      @moonbitlang/core/builtin.println("{END_MOONTEST}")
-      return
-    }
-      test_name = name
-
-      if test_name.length() >= 5 && test_name[0] == 'p' && test_name[1] == 'a' && test_name[2] == 'n' && test_name[3] == 'i' && test_name[4] == 'c' {
-        @moonbitlang/core/builtin.println("skipped test block: \{filename}: \{test_name}")
+      if attrs.iter().any(fn(attr) -> Bool {
+        attr.length() >= 5 && attr[0] == 'p' && attr[1] == 'a' && attr[2] == 'n' && attr[3] == 'i' && attr[4] == 'c'
+      }) {
+        @moonbitlang/core/builtin.println("skipped test block: \{file_name}: \{attrs[0]}")
+        @moonbitlang/core/builtin.println("{BEGIN_MOONTEST}")
+        @moonbitlang/core/builtin.println(
+          "{\"package\": \"{PACKAGE}\", \"filename\": \{file_name.escape()}, \"index\": \"\{index}\", \"test_name\": \{name.escape()}, \"message\": \"skipped test\"}",
+        )
+        @moonbitlang/core/builtin.println("{END_MOONTEST}")
         return
       }
+      test_name = name
 
       try {
         let bench_out = if item_is_bench(item) {
