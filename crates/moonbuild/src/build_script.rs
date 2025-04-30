@@ -19,7 +19,7 @@ use regex::{Captures, Regex};
 
 pub fn run_prebuild_config(
     moonc_opt: &MooncOpt,
-    dir_sync_result: HashMap<ModuleId, PathBuf>,
+    dir_sync_result: &HashMap<ModuleId, PathBuf>,
     build_opt: &MoonbuildOpt,
     mods: &ResolvedEnv,
     mdb: &mut ModuleDB,
