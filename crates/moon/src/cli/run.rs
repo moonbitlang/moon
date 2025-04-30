@@ -133,9 +133,9 @@ fn run_single_mbt_file(cli: &UniversalFlags, cmd: RunSubcommand) -> anyhow::Resu
     }
     let link_core_command = vec![
         "link-core".to_string(),
-        moonutil::moon_dir::core_core(target_backend)
-            .display()
-            .to_string(),
+        // dirty workaround for now
+        moonutil::moon_dir::core_core(target_backend)[0].clone(),
+        moonutil::moon_dir::core_core(target_backend)[1].clone(),
         output_artifact_path
             .join(format!("{}.core", file_name))
             .display()

@@ -1,10 +1,11 @@
 {
-    "import": [
-      "username/hello/lib1",
-      "username/hello/lib3"
-    ],
-    "overrides": [
-      // "username/hello/lib2",
-      "username/hello/lib4"
-    ]
-  }
+  "import": [
+    "username/hello/lib1",
+    "username/hello/lib3"
+  ],
+  "overrides": [
+    // "username/hello/lib2",
+    "username/hello/lib4",
+    "username/xxx/myabort"
+  ]
+}

@@ -19,7 +19,8 @@
 use crate::cond_expr::{CompileCondition, OptLevel};
 pub use crate::dirs::check_moon_mod_exists;
 use crate::module::{MoonMod, MoonModJSON};
-use crate::package::{convert_pkg_json_to_package, MoonPkg, MoonPkgJSON, Package};
+use crate::package::{convert_pkg_json_to_package, MoonPkg, MoonPkgJSON, Package, VirtualPkg};
+use crate::path::PathComponent;
 use anyhow::{bail, Context};
 use clap::ValueEnum;
 use fs4::fs_std::FileExt;
@@ -37,6 +38,7 @@ pub const MOON_PKG_JSON: &str = "moon.pkg.json";
 pub const MOON_PID_NAME: &str = ".moon.pid";
 pub const MOONBITLANG_CORE: &str = "moonbitlang/core";
 pub const MOONBITLANG_COVERAGE: &str = "moonbitlang/core/coverage";
+pub const MOONBITLANG_ABORT: &str = "moonbitlang/core/abort";
 
 pub const MOON_TEST_DELIMITER_BEGIN: &str = "----- BEGIN MOON TEST RESULT -----";
 pub const MOON_TEST_DELIMITER_END: &str = "----- END MOON TEST RESULT -----";
@@ -1072,4 +1074,53 @@ pub fn execute_postadd_script(dir: &Path) -> anyhow::Result<()> {
         }
     }
     Ok(())
+}
+
+pub fn gen_moonbitlang_abort_pkg(moonc_opt: &MooncOpt) -> Package {
+    let path_comp = PathComponent {
+        components: vec!["moonbitlang".to_string(), "core".to_string()],
+    };
+
+    let root_path = crate::moon_dir::core().join("abort");
+
+    Package {
+        is_main: false,
+        need_link: false,
+        is_third_party: true,
+        root_path: root_path.clone(),
+        root: path_comp,
+        rel: PathComponent {
+            components: vec!["abort".to_string()],
+        },
+        files: IndexMap::from([(root_path.join("abort.mbt"), CompileCondition::default())]),
+        wbtest_files: IndexMap::new(),
+        test_files: IndexMap::new(),
+        mbt_md_files: IndexMap::new(),
+        files_contain_test_block: vec![],
+        imports: vec![],
+        wbtest_imports: vec![],
+        test_imports: vec![],
+        generated_test_drivers: vec![],
+        artifact: crate::moon_dir::core_bundle(moonc_opt.link_opt.target_backend)
+            .join("abort")
+            .join("abort.core"),
+        link: None,
+        warn_list: None,
+        alert_list: None,
+        targets: None,
+        pre_build: None,
+        patch_file: None,
+        no_mi: false,
+        doc_test_patch_file: None,
+        install_path: None,
+        bin_name: None,
+        bin_target: moonc_opt.link_opt.target_backend,
+        enable_value_tracing: false,
+        supported_targets: HashSet::from_iter([moonc_opt.link_opt.target_backend]),
+        stub_lib: None,
+        virtual_pkg: Some(VirtualPkg { has_default: true }),
+        virtual_mbti_file: Some(root_path.join("abort.mbti")),
+        implement: None,
+        overrides: None,
+    }
 }

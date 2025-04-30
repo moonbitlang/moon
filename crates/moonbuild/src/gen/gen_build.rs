@@ -220,13 +220,21 @@ pub fn gen_build_build_item(
 pub fn gen_build_link_item(
     m: &ModuleDB,
     pkg: &Package,
-    _moonc_opt: &MooncOpt,
+    moonc_opt: &MooncOpt,
 ) -> anyhow::Result<BuildLinkDepItem> {
     let out = pkg.artifact.with_extension("wat"); // TODO: extension is determined by build option
     let package_full_name = pkg.full_name();
 
+    let mut core_core_and_abort_core = if moonc_opt.nostd {
+        vec![]
+    } else {
+        moonutil::moon_dir::core_core(moonc_opt.link_opt.target_backend)
+    };
     let tp = super::util::topo_from_node(m, pkg)?;
-    let mut core_deps = super::util::nodes_to_cores(m, &tp);
+    let core_deps = super::util::nodes_to_cores(m, &tp);
+    core_core_and_abort_core.extend(core_deps);
+    let mut core_deps = core_core_and_abort_core;
+
     let package_sources = super::util::nodes_to_pkg_sources(m, &tp);
 
     replace_virtual_pkg_core_with_impl_pkg_core(m, pkg, &mut core_deps)?;
@@ -299,9 +307,12 @@ pub fn gen_build(
         let is_main = pkg.is_main;
 
         if let Some(v) = pkg.virtual_pkg.as_ref() {
-            build_interface_items.push(gen_build_interface_item(m, pkg)?);
-            if v.has_default {
-                build_default_virtual_items.push(gen_build_build_item(m, pkg, moonc_opt)?);
+            // don't need to build for virtual pkg in core since it is already bundled
+            if !(pkg.full_name().starts_with(MOONBITLANG_CORE) && pkg.is_third_party) {
+                build_interface_items.push(gen_build_interface_item(m, pkg)?);
+                if v.has_default {
+                    build_default_virtual_items.push(gen_build_build_item(m, pkg, moonc_opt)?);
+                }
             }
         } else {
             build_items.push(gen_build_build_item(m, pkg, moonc_opt)?);
@@ -608,12 +619,6 @@ pub fn gen_link_command(
 
     let command = CommandBuilder::new("moonc")
         .arg("link-core")
-        .arg_with_cond(
-            !moonc_opt.nostd,
-            moonutil::moon_dir::core_core(moonc_opt.link_opt.target_backend)
-                .to_str()
-                .unwrap(),
-        )
         .args(&item.core_deps)
         .arg("-main")
         .arg(&item.package_full_name)

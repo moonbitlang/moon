@@ -34,7 +34,7 @@ use walkdir::WalkDir;
 
 use crate::common::{
     read_module_desc_file_in_dir, MoonbuildOpt, TargetBackend, DEP_PATH, DOT_MBL, DOT_MBT_DOT_MD,
-    DOT_MBY, IGNORE_DIRS, MOON_MOD_JSON, MOON_PKG_JSON,
+    DOT_MBY, IGNORE_DIRS, MOONBITLANG_ABORT, MOON_MOD_JSON, MOON_PKG_JSON,
 };
 
 /// Matches an import string to scan paths.
@@ -605,6 +605,13 @@ pub fn scan(
             moonbuild_opt,
             moonc_opt,
         )?;
+    }
+
+    if !moonc_opt.nostd {
+        packages.insert(
+            MOONBITLANG_ABORT.to_string(),
+            crate::common::gen_moonbitlang_abort_pkg(moonc_opt),
+        );
     }
 
     let sort_input = moonbuild_opt.sort_input;

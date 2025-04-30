@@ -327,6 +327,14 @@ pub fn gen_check(
     };
 
     for (_, pkg) in pkgs_to_check {
+        // skip virtual moonbitlang/core/abort (gen_moonbitlang_abort_pkg)
+        if pkg
+            .full_name()
+            .starts_with(moonutil::common::MOONBITLANG_CORE)
+            && pkg.is_third_party
+        {
+            continue;
+        }
         let item = pkg_to_check_item(&pkg.root_path, pkgs_to_check, pkg, moonc_opt)?;
         dep_items.push(item);
 

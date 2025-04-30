@@ -638,7 +638,7 @@ fn get_package_sources(pkg_topo_order: &[&Package]) -> Vec<(String, String)> {
 pub fn gen_link_internal_test(
     m: &ModuleDB,
     pkg: &Package,
-    _moonc_opt: &MooncOpt,
+    moonc_opt: &MooncOpt,
 ) -> anyhow::Result<RuntestLinkDepItem> {
     let out = pkg
         .artifact
@@ -657,8 +657,16 @@ pub fn gen_link_internal_test(
         };
         core_deps.push(d.display().to_string());
     }
-    let package_sources = get_package_sources(&pkg_topo_order);
 
+    let mut core_core_and_abort_core = if moonc_opt.nostd {
+        vec![]
+    } else {
+        moonutil::moon_dir::core_core(moonc_opt.link_opt.target_backend)
+    };
+    core_core_and_abort_core.extend(core_deps);
+    let mut core_deps = core_core_and_abort_core;
+
+    let package_sources = get_package_sources(&pkg_topo_order);
     let package_full_name = pkg.full_name();
 
     replace_virtual_pkg_core_with_impl_pkg_core(m, pkg, &mut core_deps)?;
@@ -679,7 +687,7 @@ pub fn gen_link_internal_test(
 pub fn gen_link_whitebox_test(
     m: &ModuleDB,
     pkg: &Package,
-    _moonc_opt: &MooncOpt,
+    moonc_opt: &MooncOpt,
 ) -> anyhow::Result<RuntestLinkDepItem> {
     let out = pkg
         .artifact
@@ -699,8 +707,15 @@ pub fn gen_link_whitebox_test(
         core_deps.push(d.display().to_string());
     }
 
-    let package_sources = get_package_sources(&pkg_topo_order);
+    let mut core_core_and_abort_core = if moonc_opt.nostd {
+        vec![]
+    } else {
+        moonutil::moon_dir::core_core(moonc_opt.link_opt.target_backend)
+    };
+    core_core_and_abort_core.extend(core_deps);
+    let mut core_deps = core_core_and_abort_core;
 
+    let package_sources = get_package_sources(&pkg_topo_order);
     let package_full_name = pkg.full_name();
 
     replace_virtual_pkg_core_with_impl_pkg_core(m, pkg, &mut core_deps)?;
@@ -721,7 +736,7 @@ pub fn gen_link_whitebox_test(
 pub fn gen_link_blackbox_test(
     m: &ModuleDB,
     pkg: &Package,
-    _moonc_opt: &MooncOpt,
+    moonc_opt: &MooncOpt,
 ) -> anyhow::Result<RuntestLinkDepItem> {
     let pkgname = pkg.artifact.file_stem().unwrap().to_str().unwrap();
     let out = pkg
@@ -750,6 +765,14 @@ pub fn gen_link_blackbox_test(
         };
         core_deps.push(d.display().to_string());
     }
+
+    let mut core_core_and_abort_core = if moonc_opt.nostd {
+        vec![]
+    } else {
+        moonutil::moon_dir::core_core(moonc_opt.link_opt.target_backend)
+    };
+    core_core_and_abort_core.extend(core_deps);
+    let mut core_deps = core_core_and_abort_core;
 
     let mut package_sources = get_package_sources(&pkg_topo_order);
 
@@ -838,9 +861,12 @@ pub fn gen_runtest(
         }
 
         if let Some(v) = pkg.virtual_pkg.as_ref() {
-            build_interface_items.push(gen_build_interface_item(m, pkg)?);
-            if v.has_default {
-                build_default_virtual_items.push(gen_package_core(m, pkg, moonc_opt)?);
+            // don't need to build for virtual pkg in core since it is already bundled
+            if !(pkg.full_name().starts_with(MOONBITLANG_CORE) && pkg.is_third_party) {
+                build_interface_items.push(gen_build_interface_item(m, pkg)?);
+                if v.has_default {
+                    build_default_virtual_items.push(gen_package_core(m, pkg, moonc_opt)?);
+                }
             }
         } else {
             build_items.push(gen_package_core(m, pkg, moonc_opt)?);
@@ -1126,12 +1152,6 @@ pub fn gen_runtest_link_command(
 
     let command = CommandBuilder::new("moonc")
         .arg("link-core")
-        .arg_with_cond(
-            !moonc_opt.nostd,
-            moonutil::moon_dir::core_core(moonc_opt.link_opt.target_backend)
-                .to_str()
-                .unwrap(),
-        )
         .args(&item.core_deps)
         .arg("-main")
         .arg(&item.package_full_name)
