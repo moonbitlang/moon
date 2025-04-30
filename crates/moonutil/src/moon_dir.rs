@@ -103,13 +103,16 @@ pub fn core_packages_list(backend: TargetBackend) -> PathBuf {
         .join("packages.json")
 }
 
-pub fn core_core(backend: TargetBackend) -> PathBuf {
-    core()
-        .join("target")
-        .join(backend.to_dir_name())
-        .join("release")
-        .join("bundle")
-        .join("core.core")
+// core.core & abort.core(virtual pkg default impl)
+pub fn core_core(backend: TargetBackend) -> Vec<String> {
+    vec![
+        core_bundle(backend)
+            .join("abort")
+            .join("abort.core")
+            .display()
+            .to_string(),
+        core_bundle(backend).join("core.core").display().to_string(),
+    ]
 }
 
 pub fn cache() -> PathBuf {

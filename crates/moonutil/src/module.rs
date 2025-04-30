@@ -639,6 +639,10 @@ pub struct ModuleDBJSON {
 pub fn convert_mdb_to_json(module: &ModuleDB) -> ModuleDBJSON {
     let mut pkgs = vec![];
     for (_, pkg) in &module.packages {
+        // skip virtual moonbitlang/core/abort (gen_moonbitlang_abort_pkg)
+        if pkg.full_name().starts_with(crate::common::MOONBITLANG_CORE) && pkg.is_third_party {
+            continue;
+        }
         let files = pkg.files.clone();
         let wbtest_files = pkg.wbtest_files.clone();
         let test_files = pkg.test_files.clone();
