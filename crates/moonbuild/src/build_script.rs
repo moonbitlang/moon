@@ -50,9 +50,11 @@ pub fn run_prebuild_config(
 
     let pkgs = mdb.get_all_packages_mut();
     // Iterate over all pkgs and apply the vars
-    for (name, pkg) in pkgs.iter_mut() {
+    for (_name, pkg) in pkgs.iter_mut() {
         let root = pkg.root.full_name();
-        if let Some(output) = pkg_outputs.get(name) {}
+        if let Some(output) = pkg_outputs.get(&root) {
+            run_replace_in_package(pkg, &output.vars, &match_regex);
+        }
     }
 
     Ok(())
