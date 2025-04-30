@@ -673,6 +673,8 @@ pub fn scan(
 
     module.validate()?;
 
+    module.validate_virtual_pkg()?;
+
     // todo: if there are only one backend and target backend is not specified by user, set it as the default backend?
     let _ = module.get_project_supported_targets(moonc_opt.build_opt.target_backend)?;
 

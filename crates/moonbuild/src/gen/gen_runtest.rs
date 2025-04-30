@@ -73,7 +73,7 @@ pub struct RuntestDepItem {
     pub patch_file: Option<PathBuf>,
 
     // which virtual pkg to implement (this field record the .mi of that virtual pkg)
-    pub impl_virtual_pkg: Option<String>,
+    pub mi_of_virtual_pkg_to_impl: Option<String>,
 }
 
 type RuntestLinkDepItem = moonutil::package::LinkDepItem;
@@ -294,7 +294,7 @@ pub fn gen_package_core(
         is_blackbox_test: false,
         no_mi: false,
         patch_file: None,
-        impl_virtual_pkg,
+        mi_of_virtual_pkg_to_impl: impl_virtual_pkg,
     })
 }
 
@@ -369,7 +369,7 @@ pub fn gen_package_internal_test(
         is_blackbox_test: false,
         no_mi: true,
         patch_file,
-        impl_virtual_pkg: None,
+        mi_of_virtual_pkg_to_impl: None,
     })
 }
 
@@ -452,7 +452,7 @@ pub fn gen_package_whitebox_test(
         is_blackbox_test: false,
         no_mi: true,
         patch_file,
-        impl_virtual_pkg: None,
+        mi_of_virtual_pkg_to_impl: None,
     })
 }
 
@@ -564,7 +564,7 @@ pub fn gen_package_blackbox_test(
         is_blackbox_test: true,
         no_mi: true,
         patch_file,
-        impl_virtual_pkg: None,
+        mi_of_virtual_pkg_to_impl: None,
     })
 }
 
@@ -956,7 +956,7 @@ pub fn gen_runtest_build_command(
                 .to_string(),
         );
     }
-    if let Some(impl_virtual_pkg) = item.impl_virtual_pkg.as_ref() {
+    if let Some(impl_virtual_pkg) = item.mi_of_virtual_pkg_to_impl.as_ref() {
         inputs.push(impl_virtual_pkg.clone());
     }
     let input_ids = inputs
@@ -1062,10 +1062,10 @@ pub fn gen_runtest_build_command(
                 "-no-mi".to_string(),
             ],
         )
-        .lazy_args_with_cond(item.impl_virtual_pkg.as_ref().is_some(), || {
+        .lazy_args_with_cond(item.mi_of_virtual_pkg_to_impl.as_ref().is_some(), || {
             vec![
                 "-check-mi".to_string(),
-                item.impl_virtual_pkg.as_ref().unwrap().clone(),
+                item.mi_of_virtual_pkg_to_impl.as_ref().unwrap().clone(),
                 "-impl-virtual".to_string(),
                 // implementation package should not been import so here don't emit .mi
                 "-no-mi".to_string(),

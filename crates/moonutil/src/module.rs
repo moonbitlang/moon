@@ -520,6 +520,109 @@ impl ModuleDB {
         }
         false
     }
+
+    // some rules for virtual pkg
+    pub fn validate_virtual_pkg(&self) -> anyhow::Result<()> {
+        for (_, pkg) in &self.packages {
+            // should we ignore third party packages?
+            if pkg.is_third_party {
+                continue;
+            }
+
+            let pkg_json = self
+                .source_dir
+                .join(pkg.rel.fs_full_name())
+                .join(MOON_PKG_JSON);
+
+            // virtual pkg can't implement other packages
+            if pkg.virtual_pkg.is_some() && pkg.implement.is_some() {
+                bail!(
+                    "{}: virtual package `{}` cannot implement other packages",
+                    pkg_json.display(),
+                    pkg.full_name()
+                );
+            }
+
+            if let Some(pkg_to_impl) = &pkg.implement {
+                match self.get_package_by_name_safe(pkg_to_impl) {
+                    // pkg_to_impl must be existed
+                    None => bail!(
+                        "{}: could not found the package `{}` to implemented, make sure the package name is correct, e.g. 'moonbitlang/core/double'",
+                        pkg_json.display(),
+                        pkg_to_impl
+                    ),
+                    // pkg_to_impl must be a virtual pkg
+                    Some(pkg) if pkg.virtual_pkg.is_none() => {
+                        bail!(
+                            "{}: `{}` to implement must be a virtual package",
+                            pkg_json.display(),
+                            pkg_to_impl
+                        )
+                    },
+                    _ => {}
+                }
+
+                // cannot implement and import at the same time
+                if pkg
+                    .imports
+                    .iter()
+                    .any(|i| i.path.make_full_path() == *pkg_to_impl)
+                {
+                    bail!(
+                        "{}: cannot implement and import `{}` at the same time",
+                        pkg_json.display(),
+                        pkg_to_impl
+                    );
+                }
+            }
+
+            if let Some(overrides) = &pkg.overrides {
+                let mut seen = std::collections::HashMap::new();
+
+                for over_ride in overrides {
+                    let override_impl = self.get_package_by_name_safe(over_ride);
+
+                    match override_impl {
+                        Some(impl_pkg) => {
+                            match impl_pkg.implement.as_ref() {
+                                Some(virtual_pkgname) => {
+                                    // one virtual pkg can only have one implementation when link-core
+                                    #[allow(clippy::map_entry)]
+                                    if seen.contains_key(&virtual_pkgname) {
+                                        bail!(
+                                            "{}: duplicate implementation found for virtual package `{}`, both `{}` and `{}` implement it",
+                                            pkg_json.display(),
+                                            virtual_pkgname,
+                                            seen[&virtual_pkgname],
+                                            over_ride
+                                        );
+                                    } else {
+                                        seen.insert(virtual_pkgname, over_ride.clone());
+                                    }
+                                }
+                                None => {
+                                    bail!(
+                                        "{}: package `{}` doesn't implement any virtual package",
+                                        pkg_json.display(),
+                                        over_ride
+                                    )
+                                }
+                            }
+                        }
+                        None => {
+                            // override_impl must exist
+                            bail!(
+                                "{}: could not found the package `{}`, make sure the package name is correct, e.g. 'moonbitlang/core/double'",
+                                pkg_json.display(),
+                                over_ride
+                            )
+                        }
+                    }
+                }
+            }
+        }
+        Ok(())
+    }
 }
 
 #[derive(Debug, Serialize, Deserialize, PartialEq)]
