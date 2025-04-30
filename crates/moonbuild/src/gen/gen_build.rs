@@ -64,7 +64,7 @@ pub struct BuildDepItem {
     pub enable_value_tracing: bool,
 
     // which virtual pkg to implement (this field record the .mi of that virtual pkg)
-    pub impl_virtual_pkg: Option<String>,
+    pub mi_of_virtual_pkg_to_impl: Option<String>,
 }
 
 type BuildLinkDepItem = moonutil::package::LinkDepItem;
@@ -213,7 +213,7 @@ pub fn gen_build_build_item(
         is_main: pkg.is_main,
         is_third_party: pkg.is_third_party,
         enable_value_tracing: pkg.enable_value_tracing,
-        impl_virtual_pkg,
+        mi_of_virtual_pkg_to_impl: impl_virtual_pkg,
     })
 }
 
@@ -247,35 +247,27 @@ pub fn gen_build_link_item(
 pub fn replace_virtual_pkg_core_with_impl_pkg_core(
     m: &ModuleDB,
     pkg: &Package,
-    core_deps: &mut Vec<String>,
+    core_deps: &mut [String],
 ) -> anyhow::Result<()> {
     if let Some(overrides) = pkg.overrides.as_ref() {
         for implementation in overrides {
-            let impl_pkg = m.get_package_by_name_safe(implementation);
-            if let Some(impl_pkg) = impl_pkg {
-                let virtual_pkg = m.get_package_by_name(impl_pkg.implement.as_ref().unwrap());
-                // remove .core of the imported virtual pkg
-                core_deps.retain(|core_dep| {
-                    core_dep
-                        != &virtual_pkg
-                            .artifact
-                            .with_extension("core")
-                            .display()
-                            .to_string()
-                });
-                // add .core of impl pkg
-                core_deps.push(
-                    impl_pkg
+            let impl_pkg = m.get_package_by_name(implementation);
+            let virtual_pkg = m.get_package_by_name(impl_pkg.implement.as_ref().unwrap());
+            // replace .core of the imported virtual pkg with impl pkg
+            for core_dep in core_deps.iter_mut() {
+                if core_dep
+                    == &virtual_pkg
                         .artifact
                         .with_extension("core")
                         .display()
-                        .to_string(),
-                );
-            } else {
-                anyhow::bail!("{}: could not found the package `{}`, make sure the package name is correct, e.g. 'moonbitlang/core/double'",
-                    m.source_dir.join(pkg.rel.fs_full_name()).join(MOON_PKG_JSON).display(),
-                    implementation
-                );
+                        .to_string()
+                {
+                    *core_dep = impl_pkg
+                        .artifact
+                        .with_extension("core")
+                        .display()
+                        .to_string();
+                }
             }
         }
     }
@@ -438,7 +430,7 @@ pub fn gen_build_command(
                 .to_string(),
         );
     }
-    if let Some(impl_virtual_pkg) = item.impl_virtual_pkg.as_ref() {
+    if let Some(impl_virtual_pkg) = item.mi_of_virtual_pkg_to_impl.as_ref() {
         inputs.push(impl_virtual_pkg.clone());
     }
     let input_ids = inputs
@@ -547,10 +539,10 @@ pub fn gen_build_command(
                 "-no-mi".to_string(),
             ],
         )
-        .lazy_args_with_cond(item.impl_virtual_pkg.as_ref().is_some(), || {
+        .lazy_args_with_cond(item.mi_of_virtual_pkg_to_impl.as_ref().is_some(), || {
             vec![
                 "-check-mi".to_string(),
-                item.impl_virtual_pkg.as_ref().unwrap().clone(),
+                item.mi_of_virtual_pkg_to_impl.as_ref().unwrap().clone(),
                 "-impl-virtual".to_string(),
                 // implementation package should not been import so here don't emit .mi
                 "-no-mi".to_string(),
