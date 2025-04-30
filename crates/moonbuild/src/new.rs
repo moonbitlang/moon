@@ -181,6 +181,8 @@ fn common(
             exclude: None,
 
             scripts: None,
+
+            __moonbit_unstable_prebuild: None,
         };
         moonutil::common::write_module_json_to_file(&m, target_dir)
             .context(format!("failed to write `{}`", MOON_MOD_JSON))?;
