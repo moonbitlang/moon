@@ -19,7 +19,7 @@ use regex::{Captures, Regex};
 
 pub fn run_prebuild_config(
     moonc_opt: &MooncOpt,
-    dir_sync_result: HashMap<ModuleId, PathBuf>,
+    dir_sync_result: &HashMap<ModuleId, PathBuf>,
     build_opt: &MoonbuildOpt,
     mods: &ResolvedEnv,
     mdb: &mut ModuleDB,
@@ -42,11 +42,11 @@ pub fn run_prebuild_config(
                 make_prebuild_input_from_module(moonc_opt, build_opt, &def, &dir, &env_vars);
 
             let output = run_build_script_for_module(module, dir, input, prebuild)?;
-            pkg_outputs.insert(module.to_string(), output);
+            pkg_outputs.insert(module.name.to_string(), output);
         }
     }
 
-    let match_regex = Regex::new(r"${build.([a-zA-Z0-9_]+)}").unwrap();
+    let match_regex = Regex::new(r"\$\{build\.([a-zA-Z0-9_]+)\}").unwrap();
 
     let pkgs = mdb.get_all_packages_mut();
     // Iterate over all pkgs and apply the vars

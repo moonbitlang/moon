@@ -59,14 +59,16 @@ pub struct Paths {
     pub out_dir: String,
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Debug)]
 pub struct BuildScriptOutput {
+    #[serde(default)]
     pub rerun_if: Vec<RerunIfKind>,
     // TODO: what about array-like vars? like commandline args
+    #[serde(default)]
     pub vars: HashMap<String, String>,
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Debug)]
 pub enum RerunIfKind {
     /// Rerun if the file at the given path changes.
     File(String),
