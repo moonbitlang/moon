@@ -6,6 +6,6 @@
   "overrides": [
     // "username/hello/lib2",
     "username/hello/lib4",
-    "moonbitlang/dummy_abort/abort"
+    "username/xxx/myabort"
   ]
 }

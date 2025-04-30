@@ -4,7 +4,6 @@
   "deps": {
     "username/hello": {
       "path": "../virtual"
-    },
-    "moonbitlang/dummy_abort": "0.1.0"
+    }
   }
 }
