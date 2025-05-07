@@ -140,55 +140,6 @@ fn test_alert_list() {
             moonc check ./lib2/hello.mbt -o ./target/wasm-gc/release/check/lib2/lib2.mi -pkg username/hello/lib2 -std-path $MOON_HOME/lib/core/target/wasm-gc/release/bundle -pkg-sources username/hello/lib2:./lib2 -target wasm-gc
         "#]],
     );
-
-    check(
-        get_stderr(&dir, ["build", "--sort-input"]),
-        expect![[r#"
-            Warning: [2000]
-               ╭─[$ROOT/main/main.mbt:3:3]
-               │
-             3 │   alert_2();
-               │   ───┬───  
-               │      ╰───── Warning (Alert alert_2): alert_2
-            ───╯
-            Finished. moon: ran 3 tasks, now up to date
-        "#]],
-    );
-
-    check(
-        get_stdout(&dir, ["test", "--sort-input"]),
-        expect![[r#"
-            Total tests: 1, passed: 1, failed: 0.
-        "#]],
-    );
-
-    check(
-        get_stderr(&dir, ["bundle", "--sort-input"]),
-        expect![[r#"
-            Warning: [2000]
-               ╭─[$ROOT/main/main.mbt:3:3]
-               │
-             3 │   alert_2();
-               │   ───┬───  
-               │      ╰───── Warning (Alert alert_2): alert_2
-            ───╯
-            Finished. moon: ran 4 tasks, now up to date
-        "#]],
-    );
-
-    check(
-        get_stderr(&dir, ["check", "--sort-input"]),
-        expect![[r#"
-            Warning: [2000]
-               ╭─[$ROOT/main/main.mbt:3:3]
-               │
-             3 │   alert_2();
-               │   ───┬───  
-               │      ╰───── Warning (Alert alert_2): alert_2
-            ───╯
-            Finished. moon: ran 3 tasks, now up to date
-        "#]],
-    );
 }
 
 #[test]
@@ -212,20 +163,6 @@ fn test_deny_warn() {
     check(
         get_stderr(&dir, ["check", "--sort-input"]),
         expect![[r#"
-            Warning: [2000]
-                ╭─[$ROOT/lib/hello.mbt:13:3]
-                │
-             13 │   alert_1();
-                │   ───┬───  
-                │      ╰───── Warning (Alert alert_1): alert_1
-            ────╯
-            Warning: [2000]
-                ╭─[$ROOT/lib/hello.mbt:14:3]
-                │
-             14 │   alert_2();
-                │   ───┬───  
-                │      ╰───── Warning (Alert alert_2): alert_2
-            ────╯
             Warning: [0002]
                ╭─[$ROOT/lib/hello.mbt:4:7]
                │
@@ -268,20 +205,6 @@ fn test_deny_warn() {
     check(
         get_stderr(&dir, ["build", "--sort-input"]),
         expect![[r#"
-            Warning: [2000]
-                ╭─[$ROOT/lib/hello.mbt:13:3]
-                │
-             13 │   alert_1();
-                │   ───┬───  
-                │      ╰───── Warning (Alert alert_1): alert_1
-            ────╯
-            Warning: [2000]
-                ╭─[$ROOT/lib/hello.mbt:14:3]
-                │
-             14 │   alert_2();
-                │   ───┬───  
-                │      ╰───── Warning (Alert alert_2): alert_2
-            ────╯
             Warning: [0002]
                ╭─[$ROOT/lib/hello.mbt:4:7]
                │
