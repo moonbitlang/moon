@@ -17,6 +17,16 @@
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
 /*
+    *************
+    MAINTAINERS: Please update this BEFORE you add new features, in order
+    to keep this section synced with source code.
+    *************
+*/
+/*!
+    Refactor of the task generation process.
+
+    # Overview of task generation
+
     Different tasks of the building process of a package (compile unit) rely on
     different source files and parent tasks. Here's a layered view of it:
 
@@ -26,10 +36,13 @@
     - Whitebox tests.
     - Blackbox tests.
 
-    Within a single package, there are 3 targets:
+    Within a single package, there are 3 main targets:
     - Source (containing source files Source and C stubs)
     - Whitebox test (containing source file Whitebox tests)
     - Blackbox test (containing source file Blackbox tests)
+
+    For tests, there are also doctests and markdown tests, but that's mostly
+    the same as Blackbox tests.
 
     Each target has the following dependency between tasks:
     - Check: (check of direct dependencies)
@@ -37,6 +50,7 @@
     - Build-C-stubs: (none)
     - Link-core: Build, (build of all direct and indirect dependencies)
     - Make-executable: Link-core, Build-C-stubs (if any)
+    - Generate-MBTI: (either Check or Build)
 
     And both Whitebox test and Blackbox test additionally have an implicit
     direct dependency on Source.
@@ -49,7 +63,12 @@
     - Test, corresponding to all Make-executable tasks of Whitebox tests and
       Blackbox tests. After all tasks are built, we run all executables for
       test.
+    - Generate MBTI, corresponding to all Generate-MBTI tasks of Source.
 */
+
+use std::path::PathBuf;
+
+use arcstr::ArcStr;
 
 /// Represents the target of this build routine.
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -67,4 +86,27 @@ pub enum TargetTask {
     BuildCStubs,
     LinkCore,
     MakeExecutable,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub enum TargetKind {
+    Source,
+    WhiteboxTest,
+    BlackboxTest,
+}
+
+#[derive(Clone, PartialEq, Eq)]
+pub struct TargetSpecifier {
+    kind: TargetKind,
+    package: ArcStr,
+}
+
+/// Represents a single target, like ordinary source, whitebox test files, etc.
+/// This is a smaller unit than `Package`, and is the actual compile unit.
+pub struct Target {
+    name: TargetSpecifier,
+    files: Vec<PathBuf>,
+    c_stubs: Vec<PathBuf>,
+    /// The dependent package names
+    deps: Vec<ArcStr>,
 }
