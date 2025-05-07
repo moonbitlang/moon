@@ -25,6 +25,7 @@ rust-version.workspace = true
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
+arcstr.workspace = true
 moonutil.workspace = true
 mooncake.workspace = true
 n2.workspace = true
