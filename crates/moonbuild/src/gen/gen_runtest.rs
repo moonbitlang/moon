@@ -72,8 +72,8 @@ pub struct RuntestDepItem {
     pub no_mi: bool,
     pub patch_file: Option<PathBuf>,
 
-    // which virtual pkg to implement (this field record the .mi of that virtual pkg)
-    pub mi_of_virtual_pkg_to_impl: Option<String>,
+    // which virtual pkg to implement (mi path, virtual pkg name, virtual pkg path)
+    pub mi_of_virtual_pkg_to_impl: Option<(String, String, String)>,
 }
 
 type RuntestLinkDepItem = moonutil::package::LinkDepItem;
@@ -257,15 +257,7 @@ pub fn gen_package_core(
     let package_source_dir = pkg.root_path.to_string_lossy().into_owned();
 
     let impl_virtual_pkg = if let Some(impl_virtual_pkg) = pkg.implement.as_ref() {
-        let impl_virtual_pkg = if let Some(pkg) = m.get_package_by_name_safe(impl_virtual_pkg) {
-            pkg
-        } else {
-            anyhow::bail!(
-                "{}: could not found implemented package `{}`, make sure the package name is correct, e.g. 'moonbitlang/core/double'",
-                m.source_dir.join(pkg.rel.fs_full_name()).join(MOON_PKG_JSON).display(),
-                impl_virtual_pkg
-            );
-        };
+        let impl_virtual_pkg = m.get_package_by_name(impl_virtual_pkg);
 
         let virtual_pkg_mi = impl_virtual_pkg
             .artifact
@@ -273,7 +265,11 @@ pub fn gen_package_core(
             .display()
             .to_string();
 
-        Some(virtual_pkg_mi)
+        Some((
+            virtual_pkg_mi,
+            impl_virtual_pkg.full_name(),
+            impl_virtual_pkg.root_path.display().to_string(),
+        ))
     } else {
         None
     };
@@ -982,8 +978,8 @@ pub fn gen_runtest_build_command(
                 .to_string(),
         );
     }
-    if let Some(impl_virtual_pkg) = item.mi_of_virtual_pkg_to_impl.as_ref() {
-        inputs.push(impl_virtual_pkg.clone());
+    if let Some((mi_path, _, _)) = item.mi_of_virtual_pkg_to_impl.as_ref() {
+        inputs.push(mi_path.clone());
     }
     let input_ids = inputs
         .into_iter()
@@ -1089,12 +1085,15 @@ pub fn gen_runtest_build_command(
             ],
         )
         .lazy_args_with_cond(item.mi_of_virtual_pkg_to_impl.as_ref().is_some(), || {
+            let (mi_path, pkg_name, pkg_path) = item.mi_of_virtual_pkg_to_impl.as_ref().unwrap();
             vec![
                 "-check-mi".to_string(),
-                item.mi_of_virtual_pkg_to_impl.as_ref().unwrap().clone(),
+                mi_path.clone(),
                 "-impl-virtual".to_string(),
                 // implementation package should not been import so here don't emit .mi
                 "-no-mi".to_string(),
+                "-pkg-sources".to_string(),
+                format!("{}:{}", &pkg_name, &pkg_path,),
             ]
         })
         .build();

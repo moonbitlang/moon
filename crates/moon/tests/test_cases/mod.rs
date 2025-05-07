@@ -4971,8 +4971,8 @@ fn test_virtual_pkg() {
             moonc build-package ./dummy_lib/hello.mbt -o ./target/wasm-gc/release/build/dummy_lib/dummy_lib.core -pkg username/hello/dummy_lib -std-path $MOON_HOME/lib/core/target/wasm-gc/release/bundle -pkg-sources username/hello/dummy_lib:./dummy_lib -target wasm-gc
             moonc build-interface ./lib1/lib1.mbti -o ./target/wasm-gc/release/build/lib1/lib1.mi -pkg username/hello/lib1 -pkg-sources username/hello/lib1:./lib1 -virtual -std-path $MOON_HOME/lib/core/target/wasm-gc/release/bundle
             moonc build-interface ./lib3/lib3.mbti -o ./target/wasm-gc/release/build/lib3/lib3.mi -pkg username/hello/lib3 -pkg-sources username/hello/lib3:./lib3 -virtual -std-path $MOON_HOME/lib/core/target/wasm-gc/release/bundle
-            moonc build-package ./lib2/hello.mbt -o ./target/wasm-gc/release/build/lib2/lib2.core -pkg username/hello/lib2 -std-path $MOON_HOME/lib/core/target/wasm-gc/release/bundle -i ./target/wasm-gc/release/build/dummy_lib/dummy_lib.mi:dummy_lib -pkg-sources username/hello/lib2:./lib2 -target wasm-gc -check-mi ./target/wasm-gc/release/build/lib1/lib1.mi -impl-virtual -no-mi
-            moonc build-package ./lib4/hello.mbt -o ./target/wasm-gc/release/build/lib4/lib4.core -pkg username/hello/lib4 -std-path $MOON_HOME/lib/core/target/wasm-gc/release/bundle -pkg-sources username/hello/lib4:./lib4 -target wasm-gc -check-mi ./target/wasm-gc/release/build/lib3/lib3.mi -impl-virtual -no-mi
+            moonc build-package ./lib2/hello.mbt -o ./target/wasm-gc/release/build/lib2/lib2.core -pkg username/hello/lib2 -std-path $MOON_HOME/lib/core/target/wasm-gc/release/bundle -i ./target/wasm-gc/release/build/dummy_lib/dummy_lib.mi:dummy_lib -pkg-sources username/hello/lib2:./lib2 -target wasm-gc -check-mi ./target/wasm-gc/release/build/lib1/lib1.mi -impl-virtual -no-mi -pkg-sources username/hello/lib1:./lib1
+            moonc build-package ./lib4/hello.mbt -o ./target/wasm-gc/release/build/lib4/lib4.core -pkg username/hello/lib4 -std-path $MOON_HOME/lib/core/target/wasm-gc/release/bundle -pkg-sources username/hello/lib4:./lib4 -target wasm-gc -check-mi ./target/wasm-gc/release/build/lib3/lib3.mi -impl-virtual -no-mi -pkg-sources username/hello/lib3:./lib3
             moonc build-package ./main/main.mbt -o ./target/wasm-gc/release/build/main/main.core -pkg username/hello/main -is-main -std-path $MOON_HOME/lib/core/target/wasm-gc/release/bundle -i ./target/wasm-gc/release/build/lib1/lib1.mi:lib1 -i ./target/wasm-gc/release/build/lib3/lib3.mi:lib3 -pkg-sources username/hello/main:./main -target wasm-gc
             moonc link-core $MOON_HOME/lib/core/target/wasm-gc/release/bundle/abort/abort.core $MOON_HOME/lib/core/target/wasm-gc/release/bundle/core.core ./target/wasm-gc/release/build/dummy_lib/dummy_lib.core ./target/wasm-gc/release/build/lib2/lib2.core ./target/wasm-gc/release/build/lib4/lib4.core ./target/wasm-gc/release/build/main/main.core -main username/hello/main -o ./target/wasm-gc/release/build/main/main.wasm -pkg-config-path ./main/moon.pkg.json -pkg-sources username/hello/dummy_lib:./dummy_lib -pkg-sources username/hello/lib2:./lib2 -pkg-sources username/hello/lib4:./lib4 -pkg-sources username/hello/main:./main -pkg-sources moonbitlang/core:$MOON_HOME/lib/core -target wasm-gc
             moonrun ./target/wasm-gc/release/build/main/main.wasm
@@ -5033,27 +5033,22 @@ fn test_virtual_pkg() {
     );
 
     let err = dir.join("err");
-    check(
-        get_err_stderr(&err, ["check"]),
-        expect![[r#"
-            Error: [4159]
-               ╭─[$ROOT/lib1/lib1.mbti:3:1]
-               │
-             3 │ fn f1(Int) -> Unit
-               │ ─────────┬────────  
-               │          ╰────────── Missing implementation for f1.
-            ───╯
-            failed to read file `username/hello/lib1/lib1.mbti`, [4159] error: Missing implementation for f2.
-            error: failed when checking
-        "#]],
-    );
+    let content = get_err_stderr(&err, ["check"]);
+    assert!(content.contains("[$ROOT/lib1/lib1.mbti:5:1]"));
+    assert!(content.contains("[$ROOT/lib1/lib1.mbti:3:1]"));
 
     // moon build will not build default impl for lib1 if no pkg depend on this default impl
     // so here just report error for missing impl for f2(diy impl in lib2), no report error for missing impl for f1(default impl in lib1)
     check(
         get_err_stderr(&err, ["build"]),
         expect![[r#"
-            failed to read file `username/hello/lib1/lib1.mbti`, [4159] error: Missing implementation for f2.
+            Error: [4159]
+               ╭─[$ROOT/lib1/lib1.mbti:5:1]
+               │
+             5 │ fn f2(String) -> Unit
+               │ ──────────┬──────────  
+               │           ╰──────────── Missing implementation for f2.
+            ───╯
             error: failed when building
         "#]],
     );

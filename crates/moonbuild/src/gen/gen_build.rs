@@ -63,8 +63,8 @@ pub struct BuildDepItem {
     pub is_third_party: bool,
     pub enable_value_tracing: bool,
 
-    // which virtual pkg to implement (this field record the .mi of that virtual pkg)
-    pub mi_of_virtual_pkg_to_impl: Option<String>,
+    // which virtual pkg to implement (mi path, virtual pkg name, virtual pkg path)
+    pub mi_of_virtual_pkg_to_impl: Option<(String, String, String)>,
 }
 
 type BuildLinkDepItem = moonutil::package::LinkDepItem;
@@ -188,7 +188,11 @@ pub fn gen_build_build_item(
             .display()
             .to_string();
 
-        Some(virtual_pkg_mi)
+        Some((
+            virtual_pkg_mi,
+            impl_virtual_pkg.full_name(),
+            impl_virtual_pkg.root_path.display().to_string(),
+        ))
     } else {
         None
     };
@@ -433,8 +437,8 @@ pub fn gen_build_command(
                 .to_string(),
         );
     }
-    if let Some(impl_virtual_pkg) = item.mi_of_virtual_pkg_to_impl.as_ref() {
-        inputs.push(impl_virtual_pkg.clone());
+    if let Some((mi_path, _, _)) = item.mi_of_virtual_pkg_to_impl.as_ref() {
+        inputs.push(mi_path.clone());
     }
     let input_ids = inputs
         .into_iter()
@@ -543,12 +547,15 @@ pub fn gen_build_command(
             ],
         )
         .lazy_args_with_cond(item.mi_of_virtual_pkg_to_impl.as_ref().is_some(), || {
+            let (mi_path, pkg_name, pkg_path) = item.mi_of_virtual_pkg_to_impl.as_ref().unwrap();
             vec![
                 "-check-mi".to_string(),
-                item.mi_of_virtual_pkg_to_impl.as_ref().unwrap().clone(),
+                mi_path.clone(),
                 "-impl-virtual".to_string(),
                 // implementation package should not been import so here don't emit .mi
                 "-no-mi".to_string(),
+                "-pkg-sources".to_string(),
+                format!("{}:{}", &pkg_name, &pkg_path,),
             ]
         })
         .build();
