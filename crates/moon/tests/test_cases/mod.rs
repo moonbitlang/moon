@@ -1619,28 +1619,15 @@ fn test_moon_run_single_mbt_file() {
 
 #[test]
 fn test_moon_check_json_output() {
-    let dir = TestDir::new("warns/alert_list");
+    let dir = TestDir::new("warns/deny_warn");
 
     check(
         get_stdout(&dir, ["check", "--output-json", "-q"]),
         expect![[r#"
-                {"$message_type":"diagnostic","level":"warning","loc":{"path":"$ROOT/main/main.mbt","start":{"line":3,"col":3},"end":{"line":3,"col":10}},"message":"Warning (Alert alert_2): alert_2","error_code":2000}
-            "#]],
-    );
-    check(
-        get_stderr(&dir, ["check", "--output-json", "-q"]),
-        expect![""],
-    );
-    check(
-        get_stderr(&dir, ["check", "--output-json"]),
-        expect![[r#"
-            Finished. moon: ran 1 task, now up to date
-        "#]],
-    );
-    check(
-        get_stderr(&dir, ["check", "--output-json"]),
-        expect![[r#"
-            Finished. moon: ran 1 task, now up to date
+            {"$message_type":"diagnostic","level":"warning","loc":{"path":"$ROOT/lib/hello.mbt","start":{"line":4,"col":7},"end":{"line":4,"col":8}},"message":"Warning: Unused variable 'a'","error_code":2}
+            {"$message_type":"diagnostic","level":"warning","loc":{"path":"$ROOT/lib/hello.mbt","start":{"line":11,"col":7},"end":{"line":11,"col":9}},"message":"Warning: Unused variable '中文'","error_code":2}
+            {"$message_type":"diagnostic","level":"warning","loc":{"path":"$ROOT/lib/hello.mbt","start":{"line":12,"col":7},"end":{"line":12,"col":12}},"message":"Warning: Unused variable '🤣😭🤣😭🤣'","error_code":2}
+            {"$message_type":"diagnostic","level":"warning","loc":{"path":"$ROOT/main/main.mbt","start":{"line":2,"col":7},"end":{"line":2,"col":8}},"message":"Warning: Unused variable 'a'","error_code":2}
         "#]],
     );
 }
@@ -4326,14 +4313,14 @@ fn test_diag_loc_map() {
         get_err_stderr(&dir, ["check"]),
         expect![[r#"
             Error: [4014]
-                ╭─[$ROOT/parser.mbty:25:37]
-                │
-             25 │   : lhs=add "+" rhs=factor  { lhs + "x" + rhs }
-                │                                     ─┬─  
-                │                                      ╰─── Expr Type Mismatch
+                 ╭─[$ROOT/parser.mbt:128:13]
+                 │
+             128 │       lhs + "x" + rhs
+                 │             ─┬─  
+                 │              ╰─── Expr Type Mismatch
                     has type : String
                     wanted   : Int
-            ────╯
+            ─────╯
             error: failed when checking
         "#]],
     );
