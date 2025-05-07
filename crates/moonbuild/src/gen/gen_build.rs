@@ -180,15 +180,7 @@ pub fn gen_build_build_item(
     let package_source_dir: String = pkg.root_path.to_string_lossy().into_owned();
 
     let impl_virtual_pkg = if let Some(impl_virtual_pkg) = pkg.implement.as_ref() {
-        let impl_virtual_pkg = if let Some(pkg) = m.get_package_by_name_safe(impl_virtual_pkg) {
-            pkg
-        } else {
-            anyhow::bail!(
-                "{}: could not found the implemented package `{}`, make sure the package name is correct, e.g. 'moonbitlang/core/double'",
-                m.source_dir.join(pkg.rel.fs_full_name()).join(MOON_PKG_JSON).display(),
-                impl_virtual_pkg
-            );
-        };
+        let impl_virtual_pkg = m.get_package_by_name(impl_virtual_pkg);
 
         let virtual_pkg_mi = impl_virtual_pkg
             .artifact
@@ -1487,6 +1479,7 @@ pub fn gen_n2_build_state(
     }
 
     for item in input.build_default_virtual_items.iter() {
+        // here we don't put the fid to default, if nobody depends on the default virtual pkg impl, it will not be built
         let (build, _) = gen_build_command(&mut graph, item, moonc_opt, true);
         graph.add_build(build)?;
     }

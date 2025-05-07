@@ -1,0 +1,9 @@
+{
+  "is-main": true,
+  "import": [
+    "username/hello/lib1"
+  ],
+  "overrides": [
+    "username/hello/lib2"
+  ]
+}
