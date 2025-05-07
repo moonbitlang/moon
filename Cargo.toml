@@ -116,6 +116,3 @@ codegen-units = 1
 
 # terminate the process upon panic, panic = 'abort' reduced by 0.6M, but it will lose stack information
 # panic = 'abort'
-
-[patch.crates-io]
-n2 = { path = "../n2" }
