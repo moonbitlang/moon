@@ -17,6 +17,7 @@
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
 use super::cmd_builder::CommandBuilder;
+use super::gen_build::{gen_build_interface_command, gen_build_interface_item, BuildInterfaceItem};
 use super::n2_errors::{N2Error, N2ErrorKind};
 use super::util::self_in_test_import;
 use crate::gen::MiAlias;
@@ -47,20 +48,34 @@ pub struct CheckDepItem {
     pub no_mi: bool,
     pub is_whitebox_test: bool,
     pub is_blackbox_test: bool,
+
+    pub need_check_default_virtual: bool,
+    pub mi_of_virtual_pkg_to_impl: Option<String>,
 }
 
 #[derive(Debug)]
 pub struct N2CheckInput {
     pub dep_items: Vec<CheckDepItem>,
+    pub check_interface_items: Vec<BuildInterfaceItem>,
 }
 
 fn pkg_to_check_item(
+    m: &ModuleDB,
     source_dir: &Path,
     packages: &IndexMap<String, Package>,
     pkg: &Package,
     moonc_opt: &MooncOpt,
+    need_check_default_virtual: bool,
 ) -> anyhow::Result<CheckDepItem> {
-    let out = pkg.artifact.with_extension("mi");
+    let mut out = pkg.artifact.with_extension("mi");
+    if need_check_default_virtual {
+        let file_stem = format!(
+            "{}_{}",
+            out.file_stem().unwrap().to_str().unwrap(),
+            "default.mi"
+        );
+        out = out.with_file_name(file_stem);
+    }
 
     let backend_filtered = moonutil::common::backend_filter(
         &pkg.files,
@@ -98,6 +113,20 @@ fn pkg_to_check_item(
     let package_full_name = pkg.full_name();
     let package_source_dir: String = pkg.root_path.to_string_lossy().into_owned();
 
+    let impl_virtual_pkg = if let Some(impl_virtual_pkg) = pkg.implement.as_ref() {
+        let impl_virtual_pkg = m.get_package_by_name(impl_virtual_pkg);
+
+        let virtual_pkg_mi = impl_virtual_pkg
+            .artifact
+            .with_extension("mi")
+            .display()
+            .to_string();
+
+        Some(virtual_pkg_mi)
+    } else {
+        None
+    };
+
     Ok(CheckDepItem {
         mi_out: out.display().to_string(),
         mbt_deps,
@@ -115,6 +144,8 @@ fn pkg_to_check_item(
             (!file_stem.ends_with("_wbtest") && !file_stem.ends_with("_test")).then_some(p.clone())
         }),
         no_mi: pkg.no_mi,
+        mi_of_virtual_pkg_to_impl: impl_virtual_pkg,
+        need_check_default_virtual,
     })
 }
 
@@ -193,6 +224,8 @@ fn pkg_with_wbtest_to_check_item(
                 .then_some(p.clone())
         }),
         no_mi: pkg.no_mi,
+        mi_of_virtual_pkg_to_impl: None,
+        need_check_default_virtual: false,
     })
 }
 
@@ -303,6 +336,8 @@ fn pkg_with_test_to_check_item(
             })
             .or(pkg.doc_test_patch_file.clone()),
         no_mi: pkg.no_mi,
+        mi_of_virtual_pkg_to_impl: None,
+        need_check_default_virtual: false,
     })
 }
 
@@ -314,6 +349,7 @@ pub fn gen_check(
     let _ = moonc_opt;
     let _ = moonbuild_opt;
     let mut dep_items = vec![];
+    let mut check_interface_items = vec![];
 
     // if pkg is specified, check that pkg and it's deps; if no pkg specified, check all pkgs
     let pkgs_to_check = if let Some(CheckOpt {
@@ -335,8 +371,18 @@ pub fn gen_check(
         {
             continue;
         }
-        let item = pkg_to_check_item(&pkg.root_path, pkgs_to_check, pkg, moonc_opt)?;
-        dep_items.push(item);
+
+        if pkg.virtual_pkg.is_none() {
+            let item = pkg_to_check_item(m, &pkg.root_path, pkgs_to_check, pkg, moonc_opt, false)?;
+            dep_items.push(item);
+        } else {
+            check_interface_items.push(gen_build_interface_item(m, pkg)?);
+            if pkg.virtual_pkg.as_ref().map_or(false, |v| v.has_default) {
+                let item =
+                    pkg_to_check_item(m, &pkg.root_path, pkgs_to_check, pkg, moonc_opt, true)?;
+                dep_items.push(item);
+            }
+        }
 
         // do not check test files for third party packages
         if !pkg.is_third_party {
@@ -354,13 +400,17 @@ pub fn gen_check(
     }
 
     // dbg!(&dep_items);
-    Ok(N2CheckInput { dep_items })
+    Ok(N2CheckInput {
+        dep_items,
+        check_interface_items,
+    })
 }
 
 pub fn gen_check_command(
     graph: &mut n2graph::Graph,
     item: &CheckDepItem,
     moonc_opt: &MooncOpt,
+    need_check_default_virtual: bool,
 ) -> Build {
     let mi_output_id = graph.files.id_from_canonical(item.mi_out.clone());
     let loc = FileLoc {
@@ -368,8 +418,17 @@ pub fn gen_check_command(
         line: 0,
     };
 
+    let original_mi_out = item.mi_out.replace("_default", "");
+
     let mut inputs = item.mbt_deps.clone();
     inputs.extend(item.mi_deps.iter().map(|a| a.name.clone()));
+    // add $pkgname.mi as input if need_build_virtual since it is used by --check-mi
+    if need_check_default_virtual {
+        inputs.push(original_mi_out.clone());
+    }
+    if let Some(impl_virtual_pkg) = item.mi_of_virtual_pkg_to_impl.as_ref() {
+        inputs.push(impl_virtual_pkg.clone());
+    }
 
     let input_ids = inputs
         .into_iter()
@@ -448,6 +507,16 @@ pub fn gen_check_command(
         .args(["-target", moonc_opt.build_opt.target_backend.to_flag()])
         .arg_with_cond(item.is_whitebox_test, "-whitebox-test")
         .arg_with_cond(item.is_blackbox_test, "-blackbox-test")
+        .args_with_cond(
+            need_check_default_virtual,
+            vec!["-check-mi".to_string(), original_mi_out],
+        )
+        .lazy_args_with_cond(item.mi_of_virtual_pkg_to_impl.as_ref().is_some(), || {
+            vec![
+                "-check-mi".to_string(),
+                item.mi_of_virtual_pkg_to_impl.as_ref().unwrap().clone(),
+            ]
+        })
         .build();
     log::debug!("Command: {}", command);
     build.cmdline = Some(command);
@@ -469,7 +538,12 @@ pub fn gen_n2_check_state(
     let mut graph = n2graph::Graph::default();
 
     for item in input.dep_items.iter() {
-        let build = gen_check_command(&mut graph, item, moonc_opt);
+        let build = gen_check_command(&mut graph, item, moonc_opt, item.need_check_default_virtual);
+        graph.add_build(build)?;
+    }
+
+    for item in input.check_interface_items.iter() {
+        let (build, _) = gen_build_interface_command(&mut graph, item, moonc_opt);
         graph.add_build(build)?;
     }
 

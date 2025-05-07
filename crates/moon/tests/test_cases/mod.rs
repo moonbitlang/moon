@@ -5031,4 +5031,30 @@ fn test_virtual_pkg() {
             test username/xxx/lib2/hello_test.mbt::0 failed: Error
         "#]],
     );
+
+    let err = dir.join("err");
+    check(
+        get_err_stderr(&err, ["check"]),
+        expect![[r#"
+            Error: [4159]
+               ╭─[$ROOT/lib1/lib1.mbti:3:1]
+               │
+             3 │ fn f1(Int) -> Unit
+               │ ─────────┬────────  
+               │          ╰────────── Missing implementation for f1.
+            ───╯
+            failed to read file `username/hello/lib1/lib1.mbti`, [4159] error: Missing implementation for f2.
+            error: failed when checking
+        "#]],
+    );
+
+    // moon build will not build default impl for lib1 if no pkg depend on this default impl
+    // so here just report error for missing impl for f2(diy impl in lib2), no report error for missing impl for f1(default impl in lib1)
+    check(
+        get_err_stderr(&err, ["build"]),
+        expect![[r#"
+            failed to read file `username/hello/lib1/lib1.mbti`, [4159] error: Missing implementation for f2.
+            error: failed when building
+        "#]],
+    );
 }
