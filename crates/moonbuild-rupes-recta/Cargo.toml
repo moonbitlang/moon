@@ -1,0 +1,22 @@
+[package]
+name = "moonbuild-rupes-recta"
+version = "0.1.0"
+rust-version.workspace = true
+edition.workspace = true
+
+[dependencies]
+moonutil.workspace = true
+mooncake.workspace = true
+
+n2.workspace = true
+
+anyhow.workspace = true
+arcstr.workspace = true
+log.workspace = true
+relative-path.workspace = true
+slotmap.workspace = true
+thiserror.workspace = true
+walkdir.workspace = true
+petgraph.workspace = true
+indexmap.workspace = true
+shlex.workspace = true
