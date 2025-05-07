@@ -3196,7 +3196,3 @@ dependencies = [
  "crossbeam-utils",
  "flate2",
 ]
-
-[[patch.unused]]
-name = "n2"
-version = "0.1.5"
