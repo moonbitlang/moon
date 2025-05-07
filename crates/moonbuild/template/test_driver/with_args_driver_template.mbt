@@ -193,7 +193,7 @@ pub fn moonbit_test_driver_internal_execute(file_name: MoonbitTestDriverInternal
           None => ()
         }
       } catch {
-        Failure(e) | InspectError(e) | SnapshotError(e) | BenchError(e) => {
+        @builtin.Failure(e) | @builtin.InspectError(e) | @builtin.SnapshotError(e) | @builtin.BenchError(e) => {
           message = e
         }
         e => {
