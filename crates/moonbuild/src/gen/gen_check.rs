@@ -50,7 +50,8 @@ pub struct CheckDepItem {
     pub is_blackbox_test: bool,
 
     pub need_check_default_virtual: bool,
-    pub mi_of_virtual_pkg_to_impl: Option<String>,
+    // which virtual pkg to implement (mi path, virtual pkg name, virtual pkg path)
+    pub mi_of_virtual_pkg_to_impl: Option<(String, String, String)>,
 }
 
 #[derive(Debug)]
@@ -122,7 +123,11 @@ fn pkg_to_check_item(
             .display()
             .to_string();
 
-        Some(virtual_pkg_mi)
+        Some((
+            virtual_pkg_mi,
+            impl_virtual_pkg.full_name(),
+            impl_virtual_pkg.root_path.display().to_string(),
+        ))
     } else {
         None
     };
@@ -426,8 +431,8 @@ pub fn gen_check_command(
     if need_check_default_virtual {
         inputs.push(original_mi_out.clone());
     }
-    if let Some(impl_virtual_pkg) = item.mi_of_virtual_pkg_to_impl.as_ref() {
-        inputs.push(impl_virtual_pkg.clone());
+    if let Some((mi_path, _, _)) = item.mi_of_virtual_pkg_to_impl.as_ref() {
+        inputs.push(mi_path.clone());
     }
 
     let input_ids = inputs
@@ -512,9 +517,12 @@ pub fn gen_check_command(
             vec!["-check-mi".to_string(), original_mi_out],
         )
         .lazy_args_with_cond(item.mi_of_virtual_pkg_to_impl.as_ref().is_some(), || {
+            let (mi_path, pkg_name, pkg_path) = item.mi_of_virtual_pkg_to_impl.as_ref().unwrap();
             vec![
                 "-check-mi".to_string(),
-                item.mi_of_virtual_pkg_to_impl.as_ref().unwrap().clone(),
+                mi_path.clone(),
+                "-pkg-sources".to_string(),
+                format!("{}:{}", &pkg_name, &pkg_path,),
             ]
         })
         .build();
