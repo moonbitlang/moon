@@ -504,7 +504,10 @@ pub fn run_run(
             crate::build::run_js(&wat_path, &moonbuild_opt.args, moonbuild_opt.verbose)
         }
         TargetBackend::Native | TargetBackend::LLVM => crate::build::run_native(
+            #[cfg(windows)]
             &wat_path.with_extension("exe"),
+            #[cfg(not(windows))]
+            &wat_path.with_extension("out"),
             &moonbuild_opt.args,
             moonbuild_opt.verbose,
         ),
