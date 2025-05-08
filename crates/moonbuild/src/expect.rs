@@ -305,7 +305,7 @@ fn to_moonbit_style(s: &str, with_quote: bool) -> String {
     for c in s.chars() {
         match c {
             c if (c as u32) < 0x20 => {
-                buf.push_str(&format!("\\x{:02x}", c as u32));
+                buf.push_str(&format!("\\u{{{:x}}}", c as u32));
             }
             '"' => buf.push_str("\\\""),
             '\\' => buf.push_str("\\\\"),
