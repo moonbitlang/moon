@@ -66,12 +66,12 @@
     - Generate MBTI, corresponding to all Generate-MBTI tasks of Source.
 */
 
-use std::path::PathBuf;
+use std::{collections::HashMap, path::PathBuf};
 
 use arcstr::ArcStr;
 
 /// Represents the target of this build routine.
-#[derive(Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Debug, Copy, PartialEq, Eq)]
 pub enum RunTask {
     Build,
     Bundle,
@@ -79,7 +79,7 @@ pub enum RunTask {
     Test,
 }
 
-#[derive(Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Debug, Copy, PartialEq, Eq)]
 pub enum TargetTask {
     Check,
     Build,
@@ -88,14 +88,14 @@ pub enum TargetTask {
     MakeExecutable,
 }
 
-#[derive(Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Debug, Copy, PartialEq, Eq)]
 pub enum TargetKind {
     Source,
     WhiteboxTest,
     BlackboxTest,
 }
 
-#[derive(Clone, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct TargetSpecifier {
     kind: TargetKind,
     package: ArcStr,
@@ -103,10 +103,23 @@ pub struct TargetSpecifier {
 
 /// Represents a single target, like ordinary source, whitebox test files, etc.
 /// This is a smaller unit than `Package`, and is the actual compile unit.
+#[derive(Clone, Debug, Default)]
 pub struct Target {
-    name: TargetSpecifier,
     files: Vec<PathBuf>,
     c_stubs: Vec<PathBuf>,
     /// The dependent package names
-    deps: Vec<ArcStr>,
+    deps: Vec<TargetSpecifier>,
+}
+
+#[derive(Clone, Debug, Default)]
+pub struct PackageTargets {
+    source_target: Target,
+    whitebox_test: Target,
+    blackbox_test: Target,
+}
+
+/// The list of all targets
+#[derive(Clone, Debug, Default)]
+pub struct AllTargets {
+    map: HashMap<ArcStr, PackageTargets>,
 }
