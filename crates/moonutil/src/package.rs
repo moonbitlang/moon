@@ -95,6 +95,13 @@ pub struct Package {
     pub virtual_mbti_file: Option<PathBuf>,
     pub implement: Option<String>,
     pub overrides: Option<Vec<String>>,
+
+    /// Additional link flags to pass to all dependents
+    pub link_flags: Option<String>,
+    /// Libraries to link to pass to all dependents
+    pub link_libs: Vec<String>,
+    /// Additional link search paths to pass to all dependents
+    pub link_search_paths: Vec<String>,
 }
 
 impl Package {

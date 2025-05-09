@@ -512,6 +512,9 @@ fn scan_one_package(
         virtual_pkg: pkg.virtual_pkg,
         implement: pkg.implement,
         overrides: pkg.overrides,
+        link_libs: vec![],
+        link_search_paths: vec![],
+        link_flags: None,
     };
     if doc_mode {
         // -o <folder>
