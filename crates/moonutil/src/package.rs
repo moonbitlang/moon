@@ -39,7 +39,7 @@ use crate::{
 #[derive(Debug, Clone)]
 pub struct Package {
     pub is_main: bool,
-    pub need_link: bool,
+    pub force_link: bool,
     pub is_third_party: bool,
     // Absolute fs path to the root directory of the package, already consider
     // `source` field in moon.mod.json
@@ -95,6 +95,13 @@ pub struct Package {
     pub virtual_mbti_file: Option<PathBuf>,
     pub implement: Option<String>,
     pub overrides: Option<Vec<String>>,
+
+    /// Additional link flags to pass to all dependents
+    pub link_flags: Option<String>,
+    /// Libraries to link to pass to all dependents
+    pub link_libs: Vec<String>,
+    /// Additional link search paths to pass to all dependents
+    pub link_search_paths: Vec<String>,
 }
 
 impl Package {
@@ -497,6 +504,7 @@ pub struct WasmLinkConfig {
 #[derive(Debug, Serialize, Deserialize, Clone, JsonSchema, Default)]
 #[serde(rename_all = "kebab-case")]
 pub struct NativeLinkConfig {
+    // FIXME: We have no way to force link a native library when not `is_main`
     #[serde(skip_serializing_if = "Option::is_none")]
     pub exports: Option<Vec<String>>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -595,6 +603,22 @@ pub struct Link {
     pub native: Option<NativeLinkConfig>,
 }
 
+impl Link {
+    pub fn need_link(&self, target: TargetBackend) -> bool {
+        match target {
+            Wasm => self.wasm.is_some(),
+            WasmGC => self.wasm_gc.is_some(),
+            Js => self.js.is_some(),
+            Native | LLVM => self.native.as_ref().is_some_and(|n| {
+                n.cc.is_some()
+                    || n.cc_flags.is_some()
+                    || n.cc_link_flags.is_some()
+                    || n.exports.is_some()
+            }),
+        }
+    }
+}
+
 #[derive(Debug, Serialize, Deserialize, Clone, JsonSchema)]
 pub struct MoonPkgGenerate {
     pub input: StringOrArray,
@@ -613,7 +637,7 @@ pub enum StringOrArray {
 pub struct MoonPkg {
     pub name: Option<String>,
     pub is_main: bool,
-    pub need_link: bool,
+    pub force_link: bool,
     pub imports: Vec<Import>,
     pub wbtest_imports: Vec<Import>,
     pub test_imports: Vec<Import>,
@@ -714,10 +738,10 @@ pub fn convert_pkg_json_to_package(j: MoonPkgJSON) -> anyhow::Result<MoonPkg> {
             );
         }
     }
-    let need_link = match &j.link {
+    let force_link = match &j.link {
         None => false,
         Some(BoolOrLink::Bool(b)) => *b,
-        Some(BoolOrLink::Link(_)) => true,
+        Some(BoolOrLink::Link(_)) => false,
     };
 
     // TODO: check on the fly
@@ -811,7 +835,7 @@ pub fn convert_pkg_json_to_package(j: MoonPkgJSON) -> anyhow::Result<MoonPkg> {
     let result = MoonPkg {
         name: None,
         is_main,
-        need_link,
+        force_link,
         imports,
         wbtest_imports,
         test_imports,

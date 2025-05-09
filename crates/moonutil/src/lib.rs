@@ -18,6 +18,7 @@
 
 #![warn(clippy::clone_on_ref_ptr)]
 
+pub mod build_script;
 pub mod cli;
 pub mod common;
 pub mod compiler_flags;

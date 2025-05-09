@@ -21,6 +21,7 @@
 pub mod bench;
 pub mod benchmark;
 pub mod build;
+pub mod build_script;
 pub mod bundle;
 pub mod check;
 pub mod doc_http;

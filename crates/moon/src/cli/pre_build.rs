@@ -16,7 +16,10 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
-use moonbuild::entry::{run_moon_x_build, MoonXBuildState};
+use moonbuild::{
+    build_script::run_prebuild_config,
+    entry::{run_moon_x_build, MoonXBuildState},
+};
 use moonutil::{
     common::{MoonbuildOpt, MooncOpt, PrePostBuild},
     dirs::recreate_moon_db,
@@ -32,12 +35,19 @@ pub fn scan_with_x_build(
     dir_sync_result: &DirSyncResult,
     build_type: &PrePostBuild,
 ) -> anyhow::Result<ModuleDB> {
-    let module = moonutil::scan::scan(
+    let mut module = moonutil::scan::scan(
         doc_mode,
         resolved_env,
         dir_sync_result,
         moonc_opt,
         moonbuild_opt,
+    )?;
+    run_prebuild_config(
+        moonc_opt,
+        dir_sync_result,
+        moonbuild_opt,
+        resolved_env,
+        &mut module,
     )?;
     match build_type {
         PrePostBuild::PreBuild => {

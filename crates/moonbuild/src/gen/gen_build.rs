@@ -28,6 +28,7 @@ use moonutil::package::{JsFormat, LinkDepItem, Package};
 
 use super::cmd_builder::CommandBuilder;
 use super::n2_errors::{N2Error, N2ErrorKind};
+use super::util::calc_link_args;
 use crate::gen::MiAlias;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
@@ -241,7 +242,7 @@ pub fn gen_build_link_item(
         package_sources,
         package_full_name,
         package_path: pkg.root_path.clone(),
-        link: pkg.link.clone(),
+        link: Some(calc_link_args(m, pkg)),
         install_path: pkg.install_path.clone(),
         bin_name: pkg.bin_name.clone(),
         stub_lib: pkg.stub_lib.clone(),
@@ -328,7 +329,14 @@ pub fn gen_build(
             });
         }
 
-        if (is_main || pkg.need_link) && !pkg.is_third_party {
+        if (is_main
+            || pkg.force_link
+            || pkg
+                .link
+                .as_ref()
+                .is_some_and(|l| l.need_link(moonc_opt.build_opt.target_backend)))
+            && !pkg.is_third_party
+        {
             // link need add *.core files recursively
             link_items.push(gen_build_link_item(m, pkg, moonc_opt)?);
         }
