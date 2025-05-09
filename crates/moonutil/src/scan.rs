@@ -457,7 +457,7 @@ fn scan_one_package(
 
     let mut cur_pkg = Package {
         is_main: pkg.is_main,
-        need_link: pkg.need_link,
+        force_link: pkg.force_link,
         is_third_party,
         root_path: pkg_path.to_owned(),
         root: PathComponent::from_str(&mod_desc.name)?,

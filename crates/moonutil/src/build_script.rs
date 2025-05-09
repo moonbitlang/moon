@@ -92,15 +92,18 @@ pub struct LinkConfig {
     /// Link flags that needs to be propagated to dependents
     ///
     /// Reference: `cargo::rustc-link-arg=FLAG`
+    #[serde(default)]
     pub link_flags: Option<String>,
 
     /// Libraries that need linking, propagated to dependents
     ///
     /// Reference: `cargo::rustc-link-lib=LIB`
+    #[serde(default)]
     pub link_libs: Vec<String>,
 
     /// Paths that needs to be searched during linking, propagated to dependents
     ///
     /// `cargo::rustc-link-search=[KIND=]PATH`
+    #[serde(default)]
     pub link_search_paths: Vec<String>,
 }

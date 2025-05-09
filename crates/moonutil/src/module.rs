@@ -26,7 +26,8 @@ use crate::package::{AliasJSON, Package, PackageJSON};
 use crate::path::ImportPath;
 use anyhow::bail;
 use indexmap::map::IndexMap;
-use petgraph::graph::DiGraph;
+use petgraph::graph::{DiGraph, NodeIndex};
+use petgraph::visit::{Dfs, Walker};
 use schemars::JsonSchema;
 use semver::Version;
 use serde::{Deserialize, Serialize};
@@ -365,6 +366,19 @@ impl ModuleDB {
                 true
             }
         })
+    }
+
+    /// Get an iterator returning all dependencies of a certain package. The
+    /// order is unspecified.
+    pub fn all_deps_of_pkg(&self, pkg: &str) -> Option<impl Iterator<Item = &Package>> {
+        let start_node = self.packages.get_index_of(pkg)?;
+        let dfs = Dfs::new(&self.graph, NodeIndex::new(start_node));
+        Some(dfs.iter(&self.graph).map(|idx| {
+            self.packages
+                .get_index(idx.index())
+                .expect("Mismatch between graph and map")
+                .1
+        }))
     }
 }
 

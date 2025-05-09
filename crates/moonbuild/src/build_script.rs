@@ -51,13 +51,34 @@ pub fn run_prebuild_config(
     let pkgs = mdb.get_all_packages_mut();
     // Iterate over all pkgs and apply the vars
     for (_name, pkg) in pkgs.iter_mut() {
+        // TODO: this is inefficient
         let root = pkg.root.full_name();
         if let Some(output) = pkg_outputs.get(&root) {
             run_replace_in_package(pkg, &output.vars, &match_regex);
         }
     }
 
+    // Apply link configs to packages
+    for (_mod, output) in pkg_outputs {
+        apply_output(output, mdb);
+    }
+
     Ok(())
+}
+
+fn apply_output(output: BuildScriptOutput, mdb: &mut ModuleDB) {
+    // Set the link flags and stuff
+    for link_cfg in output.link_configs {
+        // FIXME: We don't check whether the package and outputs match yet. This
+        // means a module might be able to modify some other package's link config.
+        // This is a bug that needs to be address further down the polish.
+        let Some(pkg) = mdb.get_package_by_name_mut_safe(&link_cfg.package) else {
+            continue;
+        };
+        pkg.link_flags = link_cfg.link_flags;
+        pkg.link_libs = link_cfg.link_libs;
+        pkg.link_search_paths = link_cfg.link_search_paths;
+    }
 }
 
 fn run_replace_in_package(
