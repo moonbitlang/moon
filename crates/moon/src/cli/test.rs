@@ -305,7 +305,7 @@ pub fn get_module_for_single_file_test(
 
         Package {
             is_main: false,
-            need_link: false,
+            force_link: false,
             is_third_party: false,
             root_path: source_dir.clone(),
             root: path_comp,
@@ -361,6 +361,9 @@ pub fn get_module_for_single_file_test(
             virtual_mbti_file: None,
             implement: None,
             overrides: None,
+            link_flags: None,
+            link_libs: vec![],
+            link_search_paths: vec![],
         }
     };
     let mut package = gen_single_file_test_pkg(moonc_opt, single_file_path);

@@ -457,7 +457,7 @@ fn scan_one_package(
 
     let mut cur_pkg = Package {
         is_main: pkg.is_main,
-        need_link: pkg.need_link,
+        force_link: pkg.force_link,
         is_third_party,
         root_path: pkg_path.to_owned(),
         root: PathComponent::from_str(&mod_desc.name)?,
@@ -512,6 +512,9 @@ fn scan_one_package(
         virtual_pkg: pkg.virtual_pkg,
         implement: pkg.implement,
         overrides: pkg.overrides,
+        link_libs: vec![],
+        link_search_paths: vec![],
+        link_flags: None,
     };
     if doc_mode {
         // -o <folder>

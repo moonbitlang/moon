@@ -6,6 +6,7 @@ use std::{
     io::Write,
     path::{Path, PathBuf},
     process::{Command, Stdio},
+    str::FromStr,
 };
 
 use anyhow::Context;
@@ -14,6 +15,7 @@ use moonutil::{
     common::{MoonbuildOpt, MooncOpt},
     module::{ModuleDB, MoonMod},
     mooncakes::{result::ResolvedEnv, ModuleId},
+    path::PathComponent,
 };
 use regex::{Captures, Regex};
 
@@ -28,8 +30,8 @@ pub fn run_prebuild_config(
     // achieve the goals.
     // TODO: refactor and make it efficient and cleaner
 
-    let env_vars = std::env::vars().collect::<HashMap<_, _>>();
-    let mut pkg_outputs = HashMap::<String, BuildScriptOutput>::new();
+    let env_vars: HashMap<String, String> = std::env::vars().collect();
+    let mut pkg_outputs = HashMap::<PathComponent, BuildScriptOutput>::new();
 
     for module in mods.all_packages() {
         let id = mods.id_from_mod_name(module).expect("module not found");
@@ -42,7 +44,12 @@ pub fn run_prebuild_config(
                 make_prebuild_input_from_module(moonc_opt, build_opt, &def, &dir, &env_vars);
 
             let output = run_build_script_for_module(module, dir, input, prebuild)?;
-            pkg_outputs.insert(module.name.to_string(), output);
+            pkg_outputs.insert(
+                PathComponent::from_str(&module.name.to_string()).with_context(|| {
+                    format!("Name of module `{}` cannot be parsed", &module.name)
+                })?,
+                output,
+            );
         }
     }
 
@@ -51,49 +58,87 @@ pub fn run_prebuild_config(
     let pkgs = mdb.get_all_packages_mut();
     // Iterate over all pkgs and apply the vars
     for (_name, pkg) in pkgs.iter_mut() {
-        let root = pkg.root.full_name();
-        if let Some(output) = pkg_outputs.get(&root) {
-            run_replace_in_package(pkg, &output.vars, &match_regex);
+        if let Some(output) = pkg_outputs.get(&pkg.root) {
+            run_replace_in_package(pkg, &output.vars, &match_regex).with_context(|| {
+                format!(
+                    "when handling replace in package {} from build script output of {:?}",
+                    _name, &pkg.root
+                )
+            })?;
         }
     }
 
+    // Apply link configs to packages
+    for (_mod, output) in pkg_outputs {
+        apply_output(output, mdb);
+    }
+
     Ok(())
+}
+
+fn apply_output(output: BuildScriptOutput, mdb: &mut ModuleDB) {
+    // Set the link flags and stuff
+    for link_cfg in output.link_configs {
+        // FIXME: We don't check whether the package and outputs match yet. This
+        // means a module might be able to modify some other package's link config.
+        // This is a bug that needs to be address further down the polish.
+        let Some(pkg) = mdb.get_package_by_name_mut_safe(&link_cfg.package) else {
+            continue;
+        };
+        pkg.link_flags = link_cfg.link_flags;
+        pkg.link_libs = link_cfg.link_libs;
+        pkg.link_search_paths = link_cfg.link_search_paths;
+    }
 }
 
 fn run_replace_in_package(
     pkg: &mut moonutil::package::Package,
     env_vars: &HashMap<String, String>,
     regex: &Regex,
-) {
-    pkg.link.as_mut().map(|link| {
-        link.native.as_mut().map(|native| {
+) -> anyhow::Result<()> {
+    if let Some(link) = pkg.link.as_mut() {
+        if let Some(native) = link.native.as_mut() {
             if let Some(cc) = native.cc.as_mut() {
-                string_match_and_replace(cc, env_vars, regex);
+                string_match_and_replace(cc, env_vars, regex).context("when replacing cc")?;
             }
             if let Some(cc_flags) = native.cc_flags.as_mut() {
-                string_match_and_replace(cc_flags, env_vars, regex);
+                string_match_and_replace(cc_flags, env_vars, regex)
+                    .context("when replacing cc_flags")?;
             }
             if let Some(cc_link_flags) = native.cc_link_flags.as_mut() {
-                string_match_and_replace(cc_link_flags, env_vars, regex);
+                string_match_and_replace(cc_link_flags, env_vars, regex)
+                    .context("when replacing cc_link_flags")?;
             }
             if let Some(stub_cc) = native.stub_cc.as_mut() {
-                string_match_and_replace(stub_cc, env_vars, regex);
+                string_match_and_replace(stub_cc, env_vars, regex)
+                    .context("when replacing stub_cc")?;
             }
             if let Some(stub_cc_flags) = native.stub_cc_flags.as_mut() {
-                string_match_and_replace(stub_cc_flags, env_vars, regex);
+                string_match_and_replace(stub_cc_flags, env_vars, regex)
+                    .context("when replacing stub_cc_flags")?;
             }
             if let Some(stub_cc_link_flags) = native.stub_cc_link_flags.as_mut() {
-                string_match_and_replace(stub_cc_link_flags, env_vars, regex);
+                string_match_and_replace(stub_cc_link_flags, env_vars, regex)
+                    .context("when replacing stub_cc_link_flags")?;
             }
-        });
-    });
+        }
+    }
+    Ok(())
 }
 
-fn string_match_and_replace(s: &mut String, env_vars: &HashMap<String, String>, regex: &Regex) {
+fn string_match_and_replace(
+    s: &mut String,
+    env_vars: &HashMap<String, String>,
+    regex: &Regex,
+) -> anyhow::Result<()> {
+    let mut err = None;
     let out = regex.replace_all(s, |cap: &Captures| {
         let name = cap.get(1).expect("failed to get capture group");
         let name = name.as_str();
-        let value = env_vars.get(name).expect("failed to get env var"); // TODO: handle error
+        let Some(value) = env_vars.get(name) else {
+            err = Some(anyhow::anyhow!("Unable to find env var `{}`", name));
+            return "";
+        };
         value
     });
     match out {
@@ -104,6 +149,7 @@ fn string_match_and_replace(s: &mut String, env_vars: &HashMap<String, String>, 
             *s = new_s;
         }
     }
+    Ok(())
 }
 
 fn run_build_script_for_module(
@@ -112,6 +158,9 @@ fn run_build_script_for_module(
     input: BuildScriptEnvironment,
     prebuild: &String,
 ) -> Result<BuildScriptOutput, anyhow::Error> {
+    // TODO: This executes arbitrary scripts. It's essentially the same as
+    // `build.rs` -- the user must check for the safeness of the build script
+    // themselves.
     let mut cmd = Command::new("node")
         .arg(prebuild)
         .current_dir(dir)

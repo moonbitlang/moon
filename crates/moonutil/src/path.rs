@@ -23,7 +23,7 @@ use std::{
     path::{Component, Path, PathBuf},
 };
 
-#[derive(Clone)]
+#[derive(Clone, PartialEq, Eq, Hash)]
 pub struct PathComponent {
     pub components: Vec<String>,
 }

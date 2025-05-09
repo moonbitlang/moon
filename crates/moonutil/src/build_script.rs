@@ -61,11 +61,18 @@ pub struct Paths {
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct BuildScriptOutput {
+    /// Rerun conditions. **DOES NOT WORK NOW**
     #[serde(default)]
     pub rerun_if: Vec<RerunIfKind>,
+    // TODO: How much of these vars are useful? We don't fetch link flags from
+    // here any more. However, they might still be useful for future
+    // match-replace in code.
     // TODO: what about array-like vars? like commandline args
     #[serde(default)]
     pub vars: HashMap<String, String>,
+    #[serde(default)]
+    /// Configurations to linking
+    pub link_configs: Vec<LinkConfig>,
 }
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -76,4 +83,27 @@ pub enum RerunIfKind {
     Dir(String),
     /// Rerun if the environment variable with the given name changes.
     Env(String),
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+pub struct LinkConfig {
+    pub package: String,
+    // TODO: these are merely a POC, more polishing needed
+    /// Link flags that needs to be propagated to dependents
+    ///
+    /// Reference: `cargo::rustc-link-arg=FLAG`
+    #[serde(default)]
+    pub link_flags: Option<String>,
+
+    /// Libraries that need linking, propagated to dependents
+    ///
+    /// Reference: `cargo::rustc-link-lib=LIB`
+    #[serde(default)]
+    pub link_libs: Vec<String>,
+
+    /// Paths that needs to be searched during linking, propagated to dependents
+    ///
+    /// `cargo::rustc-link-search=[KIND=]PATH`
+    #[serde(default)]
+    pub link_search_paths: Vec<String>,
 }
