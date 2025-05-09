@@ -35,12 +35,17 @@ pub struct SourceDependencyInfo {
     /// Local path to the dependency. Overrides the version requirement.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub path: Option<String>,
-    /// Git repository URL. Overrides the version requirement.
+
+    /// Git repository URL. Overrides the version requirement unless the dependency comes from a
+    /// registry.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub git: Option<String>,
     /// Git branch to use.
     #[serde(skip_serializing_if = "Option::is_none", rename = "branch")]
     pub git_branch: Option<String>,
+    /// Git revision to use.
+    #[serde(skip_serializing_if = "Option::is_none", rename = "revision")]
+    pub git_revision: Option<String>,
 }
 
 fn version_is_default(version: &VersionReq) -> bool {
@@ -73,7 +78,10 @@ pub enum SourceDependencyInfoJson {
 impl SourceDependencyInfo {
     /// Check if the requirement is simple. That is, it only contains a version requirement
     fn is_simple(&self) -> bool {
-        self.path.is_none() && self.git.is_none() && self.git_branch.is_none()
+        self.path.is_none()
+            && self.git.is_none()
+            && self.git_branch.is_none()
+            && self.git_revision.is_none()
     }
 
     #[allow(clippy::needless_update)] // More fields will be added later
@@ -167,6 +175,9 @@ pub struct BinaryDependencyInfo {
     /// Git branch to use.
     #[serde(skip_serializing_if = "Option::is_none", rename = "branch")]
     pub git_branch: Option<String>,
+    /// Git revision to use.
+    #[serde(skip_serializing_if = "Option::is_none", rename = "revision")]
+    pub git_revision: Option<String>,
 
     /// Binary packages to compile.
     #[serde(skip_serializing_if = "Option::is_none", alias = "bin-pkg")]
@@ -205,6 +216,7 @@ impl From<BinaryDependencyInfo> for SourceDependencyInfo {
             path: dep.path,
             git: dep.git,
             git_branch: dep.git_branch,
+            git_revision: dep.git_revision,
         }
     }
 }

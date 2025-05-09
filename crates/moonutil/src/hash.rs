@@ -16,26 +16,18 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
-#![warn(clippy::clone_on_ref_ptr)]
+use std::hash::{Hash, Hasher};
 
-pub mod cli;
-pub mod common;
-pub mod compiler_flags;
-pub mod cond_expr;
-pub mod dependency;
-pub mod dirs;
-pub mod doc_test;
-pub mod error_code_docs;
-pub mod fuzzy_match;
-pub mod git;
-pub mod graph;
-pub mod hash;
-pub mod module;
-pub mod moon_dir;
-pub mod mooncake_bin;
-pub mod mooncakes;
-pub mod package;
-pub mod path;
-pub mod render;
-pub mod scan;
-pub mod version;
+use twox_hash::xxh3;
+
+/// A 64-bit stable hash of the given data.
+pub fn short_hash(data: impl Hash) -> u64 {
+    let mut hasher = xxh3::Hash64::with_seed(0);
+    data.hash(&mut hasher);
+    hasher.finish()
+}
+
+/// A 16-character hexadecimal representation of the hash of the given data.
+pub fn short_hash_str(data: impl Hash) -> String {
+    format!("{:016x}", short_hash(data))
+}
