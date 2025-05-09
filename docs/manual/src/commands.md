@@ -201,7 +201,11 @@ Run a main package
 
 Test the current package
 
-**Usage:** `moon test [OPTIONS]`
+**Usage:** `moon test [OPTIONS] [SINGLE_FILE]`
+
+###### **Arguments:**
+
+* `<SINGLE_FILE>` — Run test in single file (.mbt or .mbt.md)
 
 ###### **Options:**
 

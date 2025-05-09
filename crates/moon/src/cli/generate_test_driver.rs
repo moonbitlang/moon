@@ -16,6 +16,8 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
+use crate::cli::get_module_for_single_file_test;
+
 use super::pre_build::scan_with_x_build;
 use super::BuildFlags;
 use anyhow::{bail, Context};
@@ -23,11 +25,10 @@ use colored::Colorize;
 use mooncake::pkg::sync::auto_sync;
 use moonutil::cli::UniversalFlags;
 use moonutil::common::{
-    lower_surface_targets, DriverKind, MoonbuildOpt, MooncGenTestInfo, PrePostBuild, RunMode,
-    TargetBackend, TestOpt, BLACKBOX_TEST_DRIVER, INTERNAL_TEST_DRIVER, MOONBITLANG_CORE,
+    lower_surface_targets, DriverKind, MoonbuildOpt, MooncGenTestInfo, OutputFormat, PrePostBuild,
+    RunMode, TargetBackend, TestOpt, BLACKBOX_TEST_DRIVER, INTERNAL_TEST_DRIVER, MOONBITLANG_CORE,
     MOON_TEST_DELIMITER_BEGIN, MOON_TEST_DELIMITER_END, TEST_INFO_FILE, WHITEBOX_TEST_DRIVER,
 };
-use moonutil::dirs::PackageDirs;
 use moonutil::mooncakes::sync::AutoSyncFlags;
 use moonutil::mooncakes::RegistryConfig;
 use std::io::{Read, Write};
@@ -58,6 +59,10 @@ pub struct GenerateTestDriverSubcommand {
     // Run mode: only `test` and `bench` are supported
     #[clap(long)]
     pub mode: String,
+
+    /// Path to the single test file
+    #[clap(long)]
+    pub single_test_file: Option<PathBuf>,
 }
 
 fn moonc_gen_test_info(
@@ -127,10 +132,16 @@ pub fn generate_test_driver(
     cli: UniversalFlags,
     cmd: GenerateTestDriverSubcommand,
 ) -> anyhow::Result<i32> {
-    let PackageDirs {
-        source_dir,
-        target_dir,
-    } = cli.source_tgt_dir.try_into_package_dirs()?;
+    let (source_dir, target_dir) = if let Some(_) = cmd.single_test_file {
+        // just use the source_dir and target_dir from the cli, there were set in the test.rs
+        (
+            cli.source_tgt_dir.source_dir.unwrap().clone(),
+            cli.source_tgt_dir.target_dir.unwrap().clone(),
+        )
+    } else {
+        let dir = cli.source_tgt_dir.try_into_package_dirs()?;
+        (dir.source_dir, dir.target_dir)
+    };
 
     let mut cmd = cmd;
     let target_backend = cmd.build_flags.target.as_ref().map(|surface_targets| {
@@ -147,18 +158,40 @@ pub fn generate_test_driver(
         "bench" => RunMode::Bench,
         _ => bail!("invalid mode: {}", cmd.mode),
     };
-    let moonc_opt = super::get_compiler_flags(&source_dir, &cmd.build_flags)?;
+    let debug_flag = !cmd.build_flags.release;
+    // here we don't use `get_compiler_flags` since it will require moon.mod.json exists
+    let moonc_opt = moonutil::common::MooncOpt {
+        build_opt: moonutil::common::BuildPackageFlags {
+            debug_flag,
+            strip_flag: false,
+            source_map: false,
+            enable_coverage: false,
+            deny_warn: false,
+            target_backend: target_backend.unwrap_or(TargetBackend::WasmGC),
+            warn_list: None,
+            alert_list: None,
+            enable_value_tracing: false,
+        },
+        link_opt: moonutil::common::LinkCoreFlags {
+            debug_flag,
+            source_map: false,
+            output_format: match target_backend.unwrap_or(TargetBackend::WasmGC) {
+                TargetBackend::Js => OutputFormat::Js,
+                TargetBackend::Native => OutputFormat::Native,
+                TargetBackend::LLVM => OutputFormat::LLVM,
+                _ => OutputFormat::Wasm,
+            },
+            target_backend: target_backend.unwrap_or(TargetBackend::WasmGC),
+        },
+        extra_build_opt: vec![],
+        extra_link_opt: vec![],
+        nostd: false,
+        render: true,
+    };
 
     let sort_input = cmd.build_flags.sort_input;
     let filter_package = cmd.package.map(|it| it.into_iter().collect());
 
-    // Resolve dependencies, but don't download anything
-    let (resolved_env, dir_sync_result) = auto_sync(
-        &source_dir,
-        &AutoSyncFlags { frozen: true },
-        &RegistryConfig::load(),
-        cli.quiet,
-    )?;
     let raw_target_dir = target_dir.to_path_buf();
     let target_dir = target_dir
         .join(target_backend.unwrap().to_dir_name())
@@ -170,7 +203,7 @@ pub fn generate_test_driver(
         .join(run_mode.to_dir_name());
 
     let moonbuild_opt = MoonbuildOpt {
-        source_dir,
+        source_dir: source_dir.clone(),
         raw_target_dir,
         target_dir: target_dir.clone(),
         test_opt: Some(TestOpt {
@@ -198,14 +231,26 @@ pub fn generate_test_driver(
         dynamic_stub_libs: None,
     };
 
-    let module = scan_with_x_build(
-        false,
-        &moonc_opt,
-        &moonbuild_opt,
-        &resolved_env,
-        &dir_sync_result,
-        &PrePostBuild::PreBuild,
-    )?;
+    let module = if let Some(single_test_file) = cmd.single_test_file {
+        get_module_for_single_file_test(&single_test_file, &moonc_opt, &moonbuild_opt)?
+    } else {
+        // Resolve dependencies, but don't download anything
+        let (resolved_env, dir_sync_result) = auto_sync(
+            &source_dir,
+            &AutoSyncFlags { frozen: true },
+            &RegistryConfig::load(),
+            cli.quiet,
+        )?;
+
+        scan_with_x_build(
+            false,
+            &moonc_opt,
+            &moonbuild_opt,
+            &resolved_env,
+            &dir_sync_result,
+            &PrePostBuild::PreBuild,
+        )?
+    };
 
     if cli.dry_run {
         bail!("dry-run is not implemented for generate-test-driver");
