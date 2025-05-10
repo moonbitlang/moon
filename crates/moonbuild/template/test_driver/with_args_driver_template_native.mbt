@@ -231,6 +231,7 @@ pub fn moonbit_test_driver_finish() -> Unit {
   // {COVERAGE_END}
 }
 
+#test_entry
 fn main {
   fn moonbit_test_driver_internal_parse_int_(s : String) -> Int {
     let mut res = 0

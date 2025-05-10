@@ -67,6 +67,7 @@ pub struct RuntestDepItem {
     pub alert_list: Option<String>,
     pub is_main: bool,
     pub is_third_party: bool,
+    pub is_internal_test: bool,
     pub is_whitebox_test: bool,
     pub is_blackbox_test: bool,
     pub no_mi: bool,
@@ -85,6 +86,7 @@ pub struct RuntestDriverItem {
     pub driver_file: String,
     pub files_may_contain_test_block: Vec<String>,
     pub patch_file: Option<PathBuf>,
+    pub single_test_file: Option<PathBuf>,
 }
 
 #[derive(Debug)]
@@ -172,6 +174,7 @@ pub fn gen_package_test_driver(
                 files_may_contain_test_block,
                 driver_kind: DriverKind::Internal,
                 patch_file: pkg.patch_file.clone(),
+                single_test_file: None,
             })
         }
         GeneratedTestDriver::BlackboxTest(it) => {
@@ -191,6 +194,15 @@ pub fn gen_package_test_driver(
                 files_may_contain_test_block,
                 driver_kind: DriverKind::Blackbox,
                 patch_file: pkg.patch_file.clone().or(pkg.doc_test_patch_file.clone()),
+                single_test_file: if pkg.full_name() == moonutil::common::SINGLE_FILE_TEST_PACKAGE {
+                    if pkg.doc_test_patch_file.is_some() {
+                        pkg.doc_test_patch_file.clone()
+                    } else {
+                        Some(pkg.test_files.keys().next().unwrap().clone())
+                    }
+                } else {
+                    None
+                },
             })
         }
         GeneratedTestDriver::WhiteboxTest(it) => {
@@ -208,6 +220,7 @@ pub fn gen_package_test_driver(
                 files_may_contain_test_block,
                 driver_kind: DriverKind::Whitebox,
                 patch_file: pkg.patch_file.clone(),
+                single_test_file: None,
             })
         }
     }
@@ -286,6 +299,7 @@ pub fn gen_package_core(
         alert_list: pkg.alert_list.clone(),
         is_main: false,
         is_third_party: pkg.is_third_party,
+        is_internal_test: false,
         is_whitebox_test: false,
         is_blackbox_test: false,
         no_mi: false,
@@ -361,6 +375,7 @@ pub fn gen_package_internal_test(
         alert_list: pkg.alert_list.clone(),
         is_main: true,
         is_third_party: pkg.is_third_party,
+        is_internal_test: true,
         is_whitebox_test: false,
         is_blackbox_test: false,
         no_mi: true,
@@ -444,6 +459,7 @@ pub fn gen_package_whitebox_test(
         alert_list: pkg.alert_list.clone(),
         is_main: true,
         is_third_party: pkg.is_third_party,
+        is_internal_test: false,
         is_whitebox_test: true,
         is_blackbox_test: false,
         no_mi: true,
@@ -556,6 +572,7 @@ pub fn gen_package_blackbox_test(
         alert_list: pkg.alert_list.clone(),
         is_main: true,
         is_third_party: pkg.is_third_party,
+        is_internal_test: false,
         is_whitebox_test: false,
         is_blackbox_test: true,
         no_mi: true,
@@ -1096,6 +1113,10 @@ pub fn gen_runtest_build_command(
                 format!("{}:{}", &pkg_name, &pkg_path,),
             ]
         })
+        .arg_with_cond(
+            item.is_internal_test || item.is_whitebox_test || item.is_blackbox_test,
+            "-test-mode",
+        )
         .build();
     log::debug!("Command: {}", command);
     build.cmdline = Some(command);
@@ -1339,6 +1360,9 @@ pub fn gen_n2_runtest_state(
 
     let mut hashes = n2graph::Hashes::default();
     let n2_db_path = &moonbuild_opt.target_dir.join("build.moon_db");
+    if !n2_db_path.parent().unwrap().exists() {
+        std::fs::create_dir_all(n2_db_path.parent().unwrap()).unwrap();
+    }
     let db = n2::db::open(n2_db_path, &mut graph, &mut hashes).map_err(|e| N2Error {
         source: N2ErrorKind::DBOpenError(e),
     })?;
@@ -1432,6 +1456,16 @@ fn gen_generate_test_driver_command(
             _ => "test",
         },
     ])
+    .lazy_args_with_cond(item.single_test_file.is_some(), || {
+        vec![
+            "--single-test-file".to_string(),
+            item.single_test_file
+                .as_ref()
+                .unwrap()
+                .display()
+                .to_string(),
+        ]
+    })
     .build();
 
     build.cmdline = Some(command);

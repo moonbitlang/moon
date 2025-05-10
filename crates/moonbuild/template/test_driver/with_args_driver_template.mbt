@@ -218,6 +218,7 @@ pub fn moonbit_test_driver_finish() -> Unit {
   // {COVERAGE_END}
 }
 
+#test_entry
 fn main {
   ()
 }

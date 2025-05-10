@@ -97,6 +97,7 @@ fn get_stderr_without_replace(
     s
 }
 
+#[track_caller]
 fn get_err_stdout_without_replace(
     dir: &impl AsRef<std::path::Path>,
     args: impl IntoIterator<Item = impl AsRef<std::ffi::OsStr>>,

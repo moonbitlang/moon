@@ -1431,6 +1431,7 @@ dependencies = [
  "moonutil",
  "n2",
  "openssl",
+ "petgraph",
  "semver",
  "serde",
  "serde_json",

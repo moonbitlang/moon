@@ -180,20 +180,6 @@ jobs:
         if: ${{ matrix.os == 'windows-latest' }}
         run: Add-Content $env:GITHUB_PATH "$env:GITHUB_WORKSPACE\target\debug"
 
-      - name: use "virtual_abort_pkg" branch core (Unix)
-        if: ${{ matrix.os != 'windows-latest' }}
-        run: |
-          rm -rf ~/.moon/lib/core
-          git clone --depth 1 -b virtual_abort_pkg https://github.com/moonbitlang/core.git ~/.moon/lib/core
-          moon bundle --source-dir ~/.moon/lib/core --all
-
-      - name: use "virtual_abort_pkg" branch core (Windows)
-        if: ${{ matrix.os == 'windows-latest' }}
-        run: |
-          Remove-Item -Recurse -Force "$env:USERPROFILE\.moon\lib\core"
-          git clone --depth 1 -b virtual_abort_pkg https://github.com/moonbitlang/core.git "$env:USERPROFILE\.moon\lib\core"
-          moon bundle --source-dir "$env:USERPROFILE\.moon\lib\core" --all
-
       - name: Versions
         run: cargo run --bin moon version --all
       - name: Bundle core (Unix)
@@ -303,20 +289,6 @@ jobs:
       - name: Set built binary to PATH (Windows)
         if: ${{ matrix.os == 'windows-latest' }}
         run: Add-Content $env:GITHUB_PATH "$env:GITHUB_WORKSPACE\target\debug"
-
-      - name: use "virtual_abort_pkg" branch core (Unix)
-        if: ${{ matrix.os != 'windows-latest' }}
-        run: |
-          rm -rf ~/.moon/lib/core
-          git clone --depth 1 -b virtual_abort_pkg https://github.com/moonbitlang/core.git ~/.moon/lib/core
-          moon bundle --source-dir ~/.moon/lib/core --all
-
-      - name: use "virtual_abort_pkg" branch core (Windows)
-        if: ${{ matrix.os == 'windows-latest' }}
-        run: |
-          Remove-Item -Recurse -Force "$env:USERPROFILE\.moon\lib\core"
-          git clone --depth 1 -b virtual_abort_pkg https://github.com/moonbitlang/core.git "$env:USERPROFILE\.moon\lib\core"
-          moon bundle --source-dir "$env:USERPROFILE\.moon\lib\core" --all
 
       - name: Versions
         run: cargo run --bin moon version --all
