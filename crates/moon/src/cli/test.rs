@@ -258,7 +258,7 @@ fn run_test_in_single_file(cli: &UniversalFlags, cmd: &TestSubcommand) -> anyhow
         },
         link_opt: moonutil::common::LinkCoreFlags {
             debug_flag,
-            source_map: false,
+            source_map: debug_flag,
             output_format: match target_backend {
                 TargetBackend::Js => OutputFormat::Js,
                 TargetBackend::Native => OutputFormat::Native,
@@ -281,7 +281,7 @@ fn run_test_in_single_file(cli: &UniversalFlags, cmd: &TestSubcommand) -> anyhow
     do_run_test(
         moonc_opt,
         moonbuild_opt,
-        false,
+        cmd.build_only,
         cmd.update,
         module,
         cli.verbose,
