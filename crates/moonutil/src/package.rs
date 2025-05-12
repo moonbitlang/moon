@@ -606,9 +606,7 @@ pub struct Link {
 impl Link {
     pub fn need_link(&self, target: TargetBackend) -> bool {
         match target {
-            Wasm => self.wasm.is_some(),
-            WasmGC => self.wasm_gc.is_some(),
-            Js => self.js.is_some(),
+            Wasm | WasmGC | Js => true,
             Native | LLVM => self.native.as_ref().is_some_and(|n| {
                 n.cc.is_some()
                     || n.cc_flags.is_some()
