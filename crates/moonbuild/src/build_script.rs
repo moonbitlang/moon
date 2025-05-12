@@ -25,14 +25,16 @@ use std::{
     path::{Path, PathBuf},
     process::{Command, Stdio},
     str::FromStr,
+    sync::LazyLock,
 };
 
-use anyhow::Context;
+use anyhow::{anyhow, Context};
+use log::warn;
 use moonutil::{
     build_script::{BuildScriptEnvironment, BuildScriptOutput},
     common::{MoonbuildOpt, MooncOpt},
     module::{ModuleDB, MoonMod},
-    mooncakes::{result::ResolvedEnv, ModuleId},
+    mooncakes::{result::ResolvedEnv, ModuleId, ModuleName},
     path::PathComponent,
 };
 use regex::{Captures, Regex};
@@ -170,6 +172,56 @@ fn string_match_and_replace(
     Ok(())
 }
 
+static NODE_EXECUTABLE: LazyLock<Option<&str>> = LazyLock::new(|| {
+    if which::which("node").is_ok() {
+        Some("node")
+    } else {
+        None
+    }
+});
+static PYTHON_EXECUTABLE: LazyLock<Option<&str>> = LazyLock::new(|| {
+    if which::which("python3").is_ok() {
+        Some("python3")
+    } else if which::which("python").is_ok() {
+        Some("python")
+    } else {
+        None
+    }
+});
+
+fn run_script_cmd(prebuild: &String, m: &ModuleName) -> anyhow::Result<Command> {
+    if prebuild.ends_with(".js") || prebuild.ends_with(".cjs") || prebuild.ends_with(".mjs") {
+        let Some(node) = NODE_EXECUTABLE.as_ref() else {
+            anyhow::bail!(
+                "Running prebuild script for module {} needs `node` executable in PATH",
+                m
+            )
+        };
+        let mut cmd = Command::new(node);
+        cmd.arg("--").arg(prebuild);
+        Ok(cmd)
+    } else if prebuild.ends_with(".py") {
+        let Some(py) = PYTHON_EXECUTABLE.as_ref() else {
+            anyhow::bail!(
+                "Running prebuild script for module {} needs `python` or `python3` executable in PATH",
+                m
+            )
+        };
+        let mut cmd = Command::new(py);
+        cmd.arg("--").arg(prebuild);
+        Ok(cmd)
+    } else {
+        Err(anyhow!(
+            "Unknown extension for build script `{}` of module {}.
+                Currently allowed:
+                  (running with node) .js, .cjs, .mjs
+                  (running with python) .py",
+            prebuild,
+            m
+        ))
+    }
+}
+
 fn run_build_script_for_module(
     module: &moonutil::mooncakes::ModuleSource,
     dir: &Path,
@@ -179,8 +231,11 @@ fn run_build_script_for_module(
     // TODO: This executes arbitrary scripts. It's essentially the same as
     // `build.rs` -- the user must check for the safeness of the build script
     // themselves.
-    let mut cmd = Command::new("node")
-        .arg(prebuild)
+    warn!(
+        "Running external prebuild config at `{}`. The script can execute arbitrary code.",
+        prebuild
+    );
+    let mut cmd = run_script_cmd(prebuild, &module.name)?
         .current_dir(dir)
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
