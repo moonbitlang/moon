@@ -44,7 +44,7 @@ use crate::runtest::TestStatistics;
 use moonutil::common::{
     DriverKind, FileLock, FileName, MoonbuildOpt, MooncGenTestInfo, MooncOpt, PrePostBuild,
     TargetBackend, TestArtifacts, TestBlockIndex, TestName, DOT_MBT_DOT_MD, MOON_DOC_TEST_POSTFIX,
-    TEST_INFO_FILE,
+    SINGLE_FILE_TEST_PACKAGE, TEST_INFO_FILE,
 };
 
 use std::sync::{Arc, Mutex};
@@ -622,7 +622,10 @@ fn convert_moonc_test_info(
                 continue;
             }
         }
-        let test_type = if filename.ends_with("_test.mbt") || filename.ends_with(DOT_MBT_DOT_MD) {
+        let test_type = if filename.ends_with("_test.mbt")
+            || filename.ends_with(DOT_MBT_DOT_MD)
+            || pkg.full_name() == SINGLE_FILE_TEST_PACKAGE
+        {
             DriverKind::Blackbox.to_string()
         } else if filename.ends_with("_wbtest.mbt") {
             DriverKind::Whitebox.to_string()

@@ -38,11 +38,11 @@ const MOON_DB: &str = "moon.db";
 pub struct SourceTargetDirs {
     /// The source code directory. Defaults to the current directory.
     #[arg(long = "directory", global = true, alias = "source-dir", short = 'C')]
-    source_dir: Option<PathBuf>,
+    pub source_dir: Option<PathBuf>,
 
     /// The target directory. Defaults to `source_dir/target`.
     #[clap(long, global = true)]
-    target_dir: Option<PathBuf>,
+    pub target_dir: Option<PathBuf>,
 }
 
 impl SourceTargetDirs {

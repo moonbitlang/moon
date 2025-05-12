@@ -18,6 +18,7 @@
 
 use anyhow::Context;
 use colored::Colorize;
+use indexmap::IndexMap;
 use moonbuild::dry_run;
 use moonbuild::entry;
 use mooncake::pkg::sync::auto_sync;
@@ -25,16 +26,20 @@ use moonutil::common::lower_surface_targets;
 use moonutil::common::FileLock;
 use moonutil::common::GeneratedTestDriver;
 use moonutil::common::MooncOpt;
+use moonutil::common::OutputFormat;
 use moonutil::common::RunMode;
 use moonutil::common::TargetBackend;
 use moonutil::common::{MoonbuildOpt, TestOpt};
+use moonutil::common::{BLACKBOX_TEST_DRIVER, DOT_MBT_DOT_MD, SINGLE_FILE_TEST_PACKAGE};
+use moonutil::cond_expr::CompileCondition;
 use moonutil::dirs::mk_arch_mode_dir;
-use moonutil::dirs::PackageDirs;
 use moonutil::module::ModuleDB;
 use moonutil::mooncakes::sync::AutoSyncFlags;
 use moonutil::mooncakes::RegistryConfig;
 use moonutil::package::Package;
+use moonutil::path::PathComponent;
 use n2::trace;
+use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::thread;
@@ -53,11 +58,11 @@ pub struct TestSubcommand {
     pub package: Option<Vec<String>>,
 
     /// Run test in the specified file. Only valid when `--package` is also specified.
-    #[clap(short, long, requires("package"))]
+    #[clap(short, long)]
     pub file: Option<String>,
 
     /// Run only the index-th test in the file. Only valid when `--file` is also specified.
-    #[clap(short, long, requires("file"))]
+    #[clap(short, long)]
     pub index: Option<u32>,
 
     /// Update the test snapshot
@@ -94,13 +99,21 @@ pub struct TestSubcommand {
     /// Run test in markdown file
     #[clap(long = "md", conflicts_with = "doc_test")]
     pub md_test: bool,
+
+    /// Run test in single file (.mbt or .mbt.md)
+    pub single_file: Option<PathBuf>,
 }
 
 pub fn run_test(cli: UniversalFlags, cmd: TestSubcommand) -> anyhow::Result<i32> {
-    let PackageDirs {
-        source_dir,
-        target_dir,
-    } = cli.source_tgt_dir.try_into_package_dirs()?;
+    let (source_dir, target_dir) = if let Some(ref single_file_path) = cmd.single_file {
+        let single_file_path = &dunce::canonicalize(single_file_path).unwrap();
+        let source_dir = single_file_path.parent().unwrap().to_path_buf();
+        let target_dir = source_dir.join("target");
+        (source_dir, target_dir)
+    } else {
+        let dir = cli.source_tgt_dir.try_into_package_dirs()?;
+        (dir.source_dir, dir.target_dir)
+    };
 
     if cmd.md_test {
         eprintln!(
@@ -164,13 +177,209 @@ fn run_test_internal(
     target_dir: &Path,
     display_backend_hint: Option<()>,
 ) -> anyhow::Result<i32> {
-    run_test_or_bench_internal(
-        cli,
-        cmd.into(),
-        source_dir,
-        target_dir,
-        display_backend_hint,
+    if cmd.single_file.is_some() {
+        run_test_in_single_file(cli, cmd)
+    } else {
+        run_test_or_bench_internal(
+            cli,
+            cmd.into(),
+            source_dir,
+            target_dir,
+            display_backend_hint,
+        )
+    }
+}
+
+fn run_test_in_single_file(cli: &UniversalFlags, cmd: &TestSubcommand) -> anyhow::Result<i32> {
+    let target_backend = cmd
+        .build_flags
+        .target_backend
+        .unwrap_or(TargetBackend::WasmGC);
+
+    let single_file_path = &dunce::canonicalize(cmd.single_file.as_ref().unwrap()).unwrap();
+    let single_file_string = single_file_path.display().to_string();
+    let source_dir = single_file_path.parent().unwrap().to_path_buf();
+    let raw_target_dir = source_dir.join("target");
+
+    let debug_flag = !cmd.build_flags.release;
+
+    let target_dir = raw_target_dir
+        .join(target_backend.to_dir_name())
+        .join(if debug_flag { "debug" } else { "release" })
+        .join(RunMode::Test.to_dir_name());
+
+    let moonbuild_opt = MoonbuildOpt {
+        source_dir: source_dir.clone(),
+        target_dir: target_dir.clone(),
+        raw_target_dir: raw_target_dir.clone(),
+        test_opt: Some(TestOpt {
+            filter_package: Some(HashSet::from([SINGLE_FILE_TEST_PACKAGE.to_string()])),
+            filter_file: cmd.file.clone(),
+            filter_index: cmd.index,
+            limit: 256,
+            test_failure_json: false,
+            display_backend_hint: None,
+            patch_file: if single_file_string.ends_with(DOT_MBT_DOT_MD) {
+                Some(
+                    target_dir
+                        .join("single")
+                        .join(format!("{}.json", moonutil::common::MOON_MD_TEST_POSTFIX)),
+                )
+            } else {
+                None
+            },
+        }),
+        check_opt: None,
+        build_opt: None,
+        sort_input: cmd.build_flags.sort_input,
+        run_mode: RunMode::Test,
+        quiet: true,
+        verbose: cli.verbose,
+        no_parallelize: cmd.no_parallelize,
+        build_graph: cli.build_graph,
+        fmt_opt: None,
+        args: vec![],
+        output_json: false,
+        parallelism: cmd.build_flags.jobs,
+        use_tcc_run: false,
+        dynamic_stub_libs: None,
+    };
+    let moonc_opt = MooncOpt {
+        build_opt: moonutil::common::BuildPackageFlags {
+            debug_flag,
+            strip_flag: false,
+            source_map: false,
+            enable_coverage: false,
+            deny_warn: false,
+            target_backend,
+            warn_list: None,
+            alert_list: None,
+            enable_value_tracing: false,
+        },
+        link_opt: moonutil::common::LinkCoreFlags {
+            debug_flag,
+            source_map: debug_flag,
+            output_format: match target_backend {
+                TargetBackend::Js => OutputFormat::Js,
+                TargetBackend::Native => OutputFormat::Native,
+                TargetBackend::LLVM => OutputFormat::LLVM,
+                _ => OutputFormat::Wasm,
+            },
+            target_backend,
+        },
+        extra_build_opt: vec![],
+        extra_link_opt: vec![],
+        nostd: false,
+        render: true,
+    };
+    let module = get_module_for_single_file_test(single_file_path, &moonc_opt, &moonbuild_opt)?;
+
+    if cli.dry_run {
+        return dry_run::print_commands(&module, &moonc_opt, &moonbuild_opt);
+    }
+
+    do_run_test(
+        moonc_opt,
+        moonbuild_opt,
+        cmd.build_only,
+        cmd.update,
+        module,
+        cli.verbose,
     )
+}
+
+pub fn get_module_for_single_file_test(
+    single_file_path: &Path,
+    moonc_opt: &MooncOpt,
+    moonbuild_opt: &MoonbuildOpt,
+) -> anyhow::Result<ModuleDB> {
+    let gen_single_file_test_pkg = |moonc_opt: &MooncOpt, single_file_path: &Path| -> Package {
+        let path_comp = PathComponent {
+            components: vec!["moon".to_string(), "test".to_string()],
+        };
+        let pkg_rel_name = "single";
+
+        let single_file_string = single_file_path.display().to_string();
+        let source_dir = single_file_path.parent().unwrap().to_path_buf();
+        let target_dir = &moonbuild_opt.target_dir;
+
+        Package {
+            is_main: false,
+            need_link: false,
+            is_third_party: false,
+            root_path: source_dir.clone(),
+            root: path_comp,
+            rel: PathComponent {
+                components: vec![pkg_rel_name.to_string()],
+            },
+            files: IndexMap::new(),
+            wbtest_files: IndexMap::new(),
+            test_files: if single_file_string.ends_with(".mbt") {
+                IndexMap::from([(single_file_path.to_path_buf(), CompileCondition::default())])
+            } else {
+                IndexMap::new()
+            },
+            mbt_md_files: if single_file_string.ends_with(DOT_MBT_DOT_MD) {
+                IndexMap::from([(single_file_path.to_path_buf(), CompileCondition::default())])
+            } else {
+                IndexMap::new()
+            },
+            files_contain_test_block: vec![single_file_path.to_path_buf()],
+            imports: vec![],
+            wbtest_imports: vec![],
+            test_imports: vec![],
+            generated_test_drivers: if single_file_string.ends_with(DOT_MBT_DOT_MD) {
+                vec![GeneratedTestDriver::BlackboxTest(
+                    target_dir.join(pkg_rel_name).join(BLACKBOX_TEST_DRIVER),
+                )]
+            } else {
+                // vec![GeneratedTestDriver::InternalTest(
+                //     target_dir.join(pkg_rel_name).join(INTERNAL_TEST_DRIVER),
+                // )]
+                vec![GeneratedTestDriver::BlackboxTest(
+                    target_dir.join(pkg_rel_name).join(BLACKBOX_TEST_DRIVER),
+                )]
+            },
+            artifact: target_dir
+                .join(pkg_rel_name)
+                .join(format!("{}.core", pkg_rel_name)),
+            link: None,
+            warn_list: None,
+            alert_list: None,
+            targets: None,
+            pre_build: None,
+            patch_file: None,
+            no_mi: false,
+            doc_test_patch_file: None,
+            install_path: None,
+            bin_name: None,
+            bin_target: moonc_opt.link_opt.target_backend,
+            enable_value_tracing: false,
+            supported_targets: HashSet::from_iter([moonc_opt.link_opt.target_backend]),
+            stub_lib: None,
+            virtual_pkg: None,
+            virtual_mbti_file: None,
+            implement: None,
+            overrides: None,
+        }
+    };
+    let mut package = gen_single_file_test_pkg(moonc_opt, single_file_path);
+    if !package.mbt_md_files.is_empty() {
+        let pj_path = moonutil::doc_test::gen_md_test_patch(&package, moonc_opt)?;
+        package.doc_test_patch_file = pj_path;
+    }
+
+    Ok(ModuleDB::new(
+        moonbuild_opt.source_dir.clone(),
+        "moon/test".to_string(),
+        indexmap::IndexMap::from([(package.full_name(), package)]),
+        vec![],
+        vec![],
+        petgraph::graph::DiGraph::<String, usize>::new(),
+        moonc_opt.link_opt.target_backend.to_string(),
+        "debug".to_string(),
+        None,
+    ))
 }
 
 pub(crate) struct TestLikeSubcommand<'a> {
@@ -242,6 +451,14 @@ pub(crate) fn run_test_or_bench_internal(
         &RegistryConfig::load(),
         cli.quiet,
     )?;
+
+    // move the conflict detection logic here since we want specific `index` only for single file test
+    if cmd.package.is_none() && cmd.file.is_some() {
+        anyhow::bail!("`--file` must be used with `--package`");
+    }
+    if cmd.file.is_none() && cmd.index.is_some() {
+        anyhow::bail!("`--index` must be used with `--file`");
+    }
 
     let run_mode = cmd.run_mode;
     let mut moonc_opt = super::get_compiler_flags(source_dir, cmd.build_flags)?;

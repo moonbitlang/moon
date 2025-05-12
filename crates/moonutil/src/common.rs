@@ -71,6 +71,8 @@ pub const MOONCAKE_BIN: &str = "$mooncake_bin";
 pub const MOD_DIR: &str = "$mod_dir";
 pub const PKG_DIR: &str = "$pkg_dir";
 
+pub const SINGLE_FILE_TEST_PACKAGE: &str = "moon/test/single";
+
 pub const O_EXT: &str = if cfg!(windows) { "obj" } else { "o" };
 #[allow(unused)]
 pub const DYN_EXT: &str = if cfg!(windows) {
