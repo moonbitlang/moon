@@ -215,7 +215,7 @@ fn run_test_in_single_file(cli: &UniversalFlags, cmd: &TestSubcommand) -> anyhow
         test_opt: Some(TestOpt {
             filter_package: Some(HashSet::from([SINGLE_FILE_TEST_PACKAGE.to_string()])),
             filter_file: cmd.file.clone(),
-            filter_index: cmd.index.clone(),
+            filter_index: cmd.index,
             limit: 256,
             test_failure_json: false,
             display_backend_hint: None,
@@ -363,9 +363,9 @@ pub fn get_module_for_single_file_test(
             overrides: None,
         }
     };
-    let mut package = gen_single_file_test_pkg(&moonc_opt, &single_file_path);
+    let mut package = gen_single_file_test_pkg(moonc_opt, single_file_path);
     if !package.mbt_md_files.is_empty() {
-        let pj_path = moonutil::doc_test::gen_md_test_patch(&package, &moonc_opt)?;
+        let pj_path = moonutil::doc_test::gen_md_test_patch(&package, moonc_opt)?;
         package.doc_test_patch_file = pj_path;
     }
 

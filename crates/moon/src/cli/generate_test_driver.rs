@@ -132,7 +132,7 @@ pub fn generate_test_driver(
     cli: UniversalFlags,
     cmd: GenerateTestDriverSubcommand,
 ) -> anyhow::Result<i32> {
-    let (source_dir, target_dir) = if let Some(_) = cmd.single_test_file {
+    let (source_dir, target_dir) = if cmd.single_test_file.is_some() {
         // just use the source_dir and target_dir from the cli, there were set in the test.rs
         (
             cli.source_tgt_dir.source_dir.unwrap().clone(),
