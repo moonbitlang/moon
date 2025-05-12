@@ -39,6 +39,12 @@ where
 
 impl CommandBuilder {
     pub fn new(command: &str) -> CommandBuilder {
+        // don't always quote the `command` since moon in windows will be quoted into 'moon'
+        let command = if command.contains(|c: char| c.is_whitespace()) {
+            shlex::try_quote(command).unwrap()
+        } else {
+            command.into()
+        };
         CommandBuilder {
             command: command.into(),
             args: Vec::new(),

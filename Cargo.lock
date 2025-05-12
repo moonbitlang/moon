@@ -1479,6 +1479,7 @@ dependencies = [
  "semver",
  "serde",
  "serde_json_lenient",
+ "shlex",
  "sysinfo",
  "tempfile",
  "text-size",
