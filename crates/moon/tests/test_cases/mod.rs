@@ -50,6 +50,7 @@ mod moon_version;
 mod output_format;
 mod packages;
 mod prebuild;
+mod prebuild_config_script;
 mod simple_pkg;
 mod target_backend;
 mod targets;
