@@ -780,6 +780,7 @@ pub struct MoonMod {
     pub exclude: Option<Vec<String>>,
 
     pub scripts: Option<IndexMap<String, String>>,
+    pub __moonbit_unstable_prebuild: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize, JsonSchema)]
@@ -870,6 +871,14 @@ pub struct MoonModJSON {
     #[serde(skip_serializing_if = "Option::is_none")]
     #[schemars(with = "Option<std::collections::HashMap<String, String>>")]
     pub scripts: Option<IndexMap<String, String>>,
+
+    /// **Experimental:** A relative path to the pre-build configuration script.
+    ///
+    /// The script should be a **JavaScript or Python** file that is able to be
+    /// executed with vanilla Node.JS or Python interpreter. Since this is
+    /// experimental, the API may change at any time without warning.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub __moonbit_unstable_prebuild: Option<String>,
 }
 
 impl TryFrom<MoonModJSON> for MoonMod {
@@ -921,6 +930,8 @@ impl TryFrom<MoonModJSON> for MoonMod {
             exclude: j.exclude,
 
             scripts: j.scripts,
+
+            __moonbit_unstable_prebuild: j.__moonbit_unstable_prebuild,
         })
     }
 }
@@ -952,6 +963,8 @@ pub fn convert_module_to_mod_json(m: MoonMod) -> MoonModJSON {
         exclude: m.exclude,
 
         scripts: m.scripts,
+
+        __moonbit_unstable_prebuild: m.__moonbit_unstable_prebuild,
     }
 }
 

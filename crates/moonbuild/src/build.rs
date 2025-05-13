@@ -16,6 +16,8 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
+use crate::NODE_EXECUTABLE;
+
 use super::gen;
 use anyhow::Context;
 use moonutil::common::MoonbuildOpt;
@@ -43,11 +45,7 @@ pub fn run_wat(path: &Path, args: &[String], verbose: bool) -> anyhow::Result<()
 }
 
 pub fn run_js(path: &Path, args: &[String], verbose: bool) -> anyhow::Result<()> {
-    let node = if which::which("node.cmd").is_ok() {
-        Some("node.cmd")
-    } else {
-        Some("node")
-    };
+    let node = NODE_EXECUTABLE.as_deref();
     run(node, path, args, verbose)
 }
 

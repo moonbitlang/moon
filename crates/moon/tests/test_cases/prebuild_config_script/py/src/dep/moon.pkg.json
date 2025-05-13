@@ -1,0 +1,1 @@
+{ "native-stub": ["stub.c"], "link": { "native": { "stub-cc-flags": "-D HELLO=${build.HELLO}" } } }

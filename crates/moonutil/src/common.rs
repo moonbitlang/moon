@@ -1087,7 +1087,7 @@ pub fn gen_moonbitlang_abort_pkg(moonc_opt: &MooncOpt) -> Package {
 
     Package {
         is_main: false,
-        need_link: false,
+        force_link: false,
         is_third_party: true,
         root_path: root_path.clone(),
         root: path_comp,
@@ -1124,5 +1124,8 @@ pub fn gen_moonbitlang_abort_pkg(moonc_opt: &MooncOpt) -> Package {
         virtual_mbti_file: Some(root_path.join("abort.mbti")),
         implement: None,
         overrides: None,
+        link_flags: None,
+        link_libs: vec![],
+        link_search_paths: vec![],
     }
 }

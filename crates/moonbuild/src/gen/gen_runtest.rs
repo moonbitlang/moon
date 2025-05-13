@@ -34,7 +34,7 @@ use super::cmd_builder::CommandBuilder;
 use super::gen_build::{
     gen_build_interface_item, replace_virtual_pkg_core_with_impl_pkg_core, BuildInterfaceItem,
 };
-use super::util::self_in_test_import;
+use super::util::{calc_link_args, self_in_test_import};
 use super::{is_self_coverage_lib, is_skip_coverage_lib};
 use std::collections::HashSet;
 use std::path::PathBuf;
@@ -690,7 +690,7 @@ pub fn gen_link_internal_test(
         package_full_name,
         package_sources,
         package_path: pkg.root_path.clone(),
-        link: pkg.link.clone(),
+        link: Some(calc_link_args(m, pkg)),
         install_path: None,
         bin_name: None,
         stub_lib: pkg.stub_lib.clone(),
@@ -739,7 +739,7 @@ pub fn gen_link_whitebox_test(
         package_full_name,
         package_sources,
         package_path: pkg.root_path.clone(),
-        link: pkg.link.clone(),
+        link: Some(calc_link_args(m, pkg)),
         install_path: None,
         bin_name: None,
         stub_lib: pkg.stub_lib.clone(),
@@ -806,7 +806,7 @@ pub fn gen_link_blackbox_test(
         package_full_name,
         package_sources,
         package_path: pkg.root_path.clone(),
-        link: pkg.link.clone(),
+        link: Some(calc_link_args(m, pkg)),
         install_path: None,
         bin_name: None,
         stub_lib: pkg.stub_lib.clone(),

@@ -305,7 +305,7 @@ pub fn get_module_for_single_file_test(
 
         Package {
             is_main: false,
-            need_link: false,
+            force_link: false,
             is_third_party: false,
             root_path: source_dir.clone(),
             root: path_comp,
@@ -361,6 +361,9 @@ pub fn get_module_for_single_file_test(
             virtual_mbti_file: None,
             implement: None,
             overrides: None,
+            link_flags: None,
+            link_libs: vec![],
+            link_search_paths: vec![],
         }
     };
     let mut package = gen_single_file_test_pkg(moonc_opt, single_file_path);
@@ -368,14 +371,16 @@ pub fn get_module_for_single_file_test(
         let pj_path = moonutil::doc_test::gen_md_test_patch(&package, moonc_opt)?;
         package.doc_test_patch_file = pj_path;
     }
+    let mut graph = petgraph::graph::DiGraph::new();
+    graph.add_node(package.full_name());
 
     Ok(ModuleDB::new(
         moonbuild_opt.source_dir.clone(),
         "moon/test".to_string(),
         indexmap::IndexMap::from([(package.full_name(), package)]),
+        vec![0],
         vec![],
-        vec![],
-        petgraph::graph::DiGraph::<String, usize>::new(),
+        graph,
         moonc_opt.link_opt.target_backend.to_string(),
         "debug".to_string(),
         None,
