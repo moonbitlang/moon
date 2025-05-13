@@ -37,6 +37,8 @@ pub mod section_capture;
 pub mod upgrade;
 pub mod watch;
 
+use std::sync::LazyLock;
+
 use sysinfo::{ProcessExt, System, SystemExt};
 
 pub const MOON_PID_NAME: &str = ".moon.pid";
@@ -61,3 +63,22 @@ pub fn watcher_is_running(pid_path: &std::path::Path) -> anyhow::Result<bool> {
         Ok(false)
     }
 }
+
+static NODE_EXECUTABLE: LazyLock<Option<&str>> = LazyLock::new(|| {
+    if which::which("node.cmd").is_ok() {
+        Some("node.cmd")
+    } else if which::which("node").is_ok() {
+        Some("node")
+    } else {
+        None
+    }
+});
+static PYTHON_EXECUTABLE: LazyLock<Option<&str>> = LazyLock::new(|| {
+    if which::which("python3").is_ok() {
+        Some("python3")
+    } else if which::which("python").is_ok() {
+        Some("python")
+    } else {
+        None
+    }
+});

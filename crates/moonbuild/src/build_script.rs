@@ -25,7 +25,6 @@ use std::{
     path::{Path, PathBuf},
     process::{Command, Stdio},
     str::FromStr,
-    sync::LazyLock,
 };
 
 use anyhow::{anyhow, Context};
@@ -38,6 +37,8 @@ use moonutil::{
     path::PathComponent,
 };
 use regex::{Captures, Regex};
+
+use crate::{NODE_EXECUTABLE, PYTHON_EXECUTABLE};
 
 pub fn run_prebuild_config(
     moonc_opt: &MooncOpt,
@@ -60,8 +61,7 @@ pub fn run_prebuild_config(
         if let Some(prebuild) = &def.__moonbit_unstable_prebuild {
             // just run `node {prebuild.js}` and read the output
             let dir = dir_sync_result.get(&id).expect("module not found");
-            let input =
-                make_prebuild_input_from_module(moonc_opt, build_opt, def, dir, &env_vars);
+            let input = make_prebuild_input_from_module(moonc_opt, build_opt, def, dir, &env_vars);
 
             let output = run_build_script_for_module(module, dir, input, prebuild)?;
             pkg_outputs.insert(
@@ -171,23 +171,6 @@ fn string_match_and_replace(
     }
     Ok(())
 }
-
-static NODE_EXECUTABLE: LazyLock<Option<&str>> = LazyLock::new(|| {
-    if which::which("node").is_ok() {
-        Some("node")
-    } else {
-        None
-    }
-});
-static PYTHON_EXECUTABLE: LazyLock<Option<&str>> = LazyLock::new(|| {
-    if which::which("python3").is_ok() {
-        Some("python3")
-    } else if which::which("python").is_ok() {
-        Some("python")
-    } else {
-        None
-    }
-});
 
 fn run_script_cmd(prebuild: &String, m: &ModuleName) -> anyhow::Result<Command> {
     if prebuild.ends_with(".js") || prebuild.ends_with(".cjs") || prebuild.ends_with(".mjs") {
