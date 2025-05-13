@@ -329,14 +329,12 @@ pub fn gen_build(
             });
         }
 
-        if (is_main
-            || pkg.force_link
-            || pkg
-                .link
-                .as_ref()
-                .is_some_and(|l| l.need_link(moonc_opt.build_opt.target_backend)))
-            && !pkg.is_third_party
-        {
+        let force_link = pkg.force_link;
+        let needs_link = pkg
+            .link
+            .as_ref()
+            .is_some_and(|l| l.need_link(moonc_opt.build_opt.target_backend));
+        if (is_main || force_link || needs_link) && !pkg.is_third_party {
             // link need add *.core files recursively
             link_items.push(gen_build_link_item(m, pkg, moonc_opt)?);
         }
