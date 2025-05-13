@@ -156,10 +156,16 @@ fn fmt_link_flags(pkg: &Package) -> String {
         out_str.push_str(flags);
     }
     for link_search_path in &pkg.link_search_paths {
+        #[cfg(not(windows))]
         write!(out_str, " -L{}", link_search_path).unwrap();
+        #[cfg(windows)]
+        write!(out_str, " /LIBPATH:{}", link_search_path).unwrap();
     }
     for link_lib in &pkg.link_libs {
+        #[cfg(not(windows))]
         write!(out_str, " -l{}", link_lib).unwrap();
+        #[cfg(windows)]
+        write!(out_str, " {}.lib", link_lib).unwrap();
     }
     out_str
 }

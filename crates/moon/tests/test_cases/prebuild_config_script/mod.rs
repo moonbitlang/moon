@@ -29,11 +29,19 @@ fn test_prebuild_config_common(dir: TestDir) {
                 .expect("c stub compilation found twice");
             assert!(line.contains("-D HELLO=------this-is-added-by-config-script------"));
         }
-        if line.contains("cc -o ./target/native/release/build/main/main") {
+
+        if line.contains("cc -o ./target/native/release/build/main/main") && cfg!(unix) {
             found_link_flags.set(()).expect("final linking found twice");
             assert!(line.contains("-l______this_is_added_by_config_script_______"));
             assert!(line.contains("-lmylib"));
             assert!(line.contains("-L/my-search-path"));
+        } else if line.contains("cl.exe /Fe./target/native/release/build/main/main.exe")
+            && cfg!(windows)
+        {
+            found_link_flags.set(()).expect("final linking found twice");
+            assert!(line.contains("-l______this_is_added_by_config_script_______"));
+            assert!(line.contains("mylib"));
+            assert!(line.contains("/LIBPATH:/my-search-path"));
         }
     }
     found_c_flags_replacement
