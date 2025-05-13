@@ -129,7 +129,7 @@ pub fn self_in_test_import(pkg: &Package) -> bool {
 }
 
 pub fn calc_link_args(m: &ModuleDB, pkg: &Package) -> Link {
-    let mut link = pkg.link.clone().unwrap_or_else(|| Link::default());
+    let mut link = pkg.link.clone().unwrap_or_default();
     // Add native link flags
     for (_name, pkg) in m
         .get_filtered_packages_and_its_deps_by_pkgname(&pkg.full_name())

@@ -61,7 +61,7 @@ pub fn run_prebuild_config(
             // just run `node {prebuild.js}` and read the output
             let dir = dir_sync_result.get(&id).expect("module not found");
             let input =
-                make_prebuild_input_from_module(moonc_opt, build_opt, &def, &dir, &env_vars);
+                make_prebuild_input_from_module(moonc_opt, build_opt, def, dir, &env_vars);
 
             let output = run_build_script_for_module(module, dir, input, prebuild)?;
             pkg_outputs.insert(
