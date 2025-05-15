@@ -36,7 +36,7 @@ pub fn moonbit_test_driver_internal_execute(filename : String, index : Int) -> U
       }
 
       if attrs.iter().any(fn(attr) -> Bool {
-        attr.length() >= 5 && attr[0] == 'p' && attr[1] == 'a' && attr[2] == 'n' && attr[3] == 'i' && attr[4] == 'c'
+        attr.length() >= 5 && attr.charcode_at(0) == 'p' && attr.charcode_at(1) == 'a' && attr.charcode_at(2) == 'n' && attr.charcode_at(3) == 'i' && attr.charcode_at(4) == 'c'
       }) {
         @moonbitlang/core/builtin.println("skipped test block: \{filename}: \{attrs[0]}")
         @moonbitlang/core/builtin.println("{BEGIN_MOONTEST}")
