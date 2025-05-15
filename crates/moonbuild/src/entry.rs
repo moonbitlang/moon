@@ -737,7 +737,7 @@ pub fn run_test(
                 );
 
                 std::fs::write(&wrapper_js_driver_path, js_driver)?;
-                // prevent node use the outer layer package.json with `"type": : "module"`, 
+                // prevent node use the outer layer package.json with `"type": "module"`
                 std::fs::write(moonbuild_opt.target_dir.join("package.json"), "{}")?;
                 test_artifacts
                     .artifacts_path
