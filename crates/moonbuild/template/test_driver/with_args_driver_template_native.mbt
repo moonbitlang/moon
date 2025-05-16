@@ -50,7 +50,7 @@ struct Moonbit_Test_Driver_Internal__TestCase {
   meta : Moonbit_Test_Driver_Internal_Meta
 }
 
-fn item_is_bench(item : Moonbit_Test_Driver_Internal__TestCase) -> Bool {
+fn moonbit_test_item_is_bench(item : Moonbit_Test_Driver_Internal__TestCase) -> Bool {
   match item.f {
     Moonbit_Test_Driver_Internal__F::F0(_) => false
     Moonbit_Test_Driver_Internal__F::F1(_) => false
@@ -149,7 +149,7 @@ pub fn moonbit_test_driver_internal_execute(filename : String, index : Int) -> U
         name
       }
       let bench_mode = false // WILL BE REPLACED
-      match (bench_mode, item_is_bench(item)) {
+      match (bench_mode, moonbit_test_item_is_bench(item)) {
         (true, false) | (false, true) => {
           @moonbitlang/core/builtin.println("{BEGIN_MOONTEST}")
           @moonbitlang/core/builtin.println(
@@ -175,7 +175,7 @@ pub fn moonbit_test_driver_internal_execute(filename : String, index : Int) -> U
       test_name = name
 
       try {
-        let bench_out = if item_is_bench(item) {
+        let bench_out = if moonbit_test_item_is_bench(item) {
           let it = @moonbitlang/core/bench.new()
           Some(it)
         } else {
@@ -206,7 +206,7 @@ pub fn moonbit_test_driver_internal_execute(filename : String, index : Int) -> U
           None => ()
         }
       } catch {
-        Failure(e) | InspectError(e) | SnapshotError(e) | BenchError(e) => {
+        @moonbitlang/core/builtin.Failure(e) | @moonbitlang/core/builtin.InspectError(e) | @moonbitlang/core/builtin.SnapshotError(e) | @moonbitlang/core/builtin.BenchError(e) => {
           message = e
         }
         e => {
