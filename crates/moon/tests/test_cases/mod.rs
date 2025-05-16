@@ -4180,7 +4180,7 @@ fn test_strip_debug() {
 }
 
 #[test]
-fn test_tracing_value() {
+fn test_tracing_value_for_maiun_func() {
     let dir = TestDir::new("tracing_value.in");
 
     // main.mbt in package
@@ -4245,6 +4245,41 @@ fn test_tracing_value() {
             3
         "#######]],
     );
+}
+
+#[test]
+fn test_tracing_value_for_test_block() {
+    let dir = TestDir::new("tracing_value_for_test_block.in");
+
+    check(
+        get_stdout(
+            &dir,
+            [
+                "test",
+                "--enable-value-tracing",
+                "-p",
+                "moon_new/lib1",
+                "--dry-run",
+            ],
+        ),
+        expect![[r#"
+            moon generate-test-driver --source-dir . --target-dir ./target --package moon_new/lib1 --target wasm-gc --driver-kind internal --mode test
+            moonc build-package ./lib2/hello.mbt -o ./target/wasm-gc/debug/test/lib2/lib2.core -pkg moon_new/lib2 -std-path $MOON_HOME/lib/core/target/wasm-gc/release/bundle -pkg-sources moon_new/lib2:./lib2 -target wasm-gc -g -O0
+            moonc build-package ./lib1/hello.mbt ./target/wasm-gc/debug/test/lib1/__generated_driver_for_internal_test.mbt -o ./target/wasm-gc/debug/test/lib1/lib1.internal_test.core -pkg moon_new/lib1 -is-main -std-path $MOON_HOME/lib/core/target/wasm-gc/release/bundle -i ./target/wasm-gc/debug/test/lib2/lib2.mi:lib2 -pkg-sources moon_new/lib1:./lib1 -target wasm-gc -g -O0 -no-mi -test-mode -enable-value-tracing
+            moonc link-core $MOON_HOME/lib/core/target/wasm-gc/release/bundle/abort/abort.core $MOON_HOME/lib/core/target/wasm-gc/release/bundle/core.core ./target/wasm-gc/debug/test/lib2/lib2.core ./target/wasm-gc/debug/test/lib1/lib1.internal_test.core -main moon_new/lib1 -o ./target/wasm-gc/debug/test/lib1/lib1.internal_test.wasm -test-mode -pkg-config-path ./lib1/moon.pkg.json -pkg-sources moon_new/lib2:./lib2 -pkg-sources moon_new/lib1:./lib1 -pkg-sources moonbitlang/core:$MOON_HOME/lib/core -exported_functions moonbit_test_driver_internal_execute,moonbit_test_driver_finish -target wasm-gc -g -O0
+        "#]],
+    );
+
+    // todo: enable this when trace out stable for driver
+    // check(
+    //     get_stdout(
+    //         &dir,
+    //         ["test", "-p", "moon_new/lib1", "--enable-value-tracing"],
+    //     ),
+    //     expect![[r#""#]],
+    // );
+
+    // single file
 }
 
 #[test]
