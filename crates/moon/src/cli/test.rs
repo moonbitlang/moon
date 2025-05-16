@@ -254,7 +254,7 @@ fn run_test_in_single_file(cli: &UniversalFlags, cmd: &TestSubcommand) -> anyhow
             target_backend,
             warn_list: None,
             alert_list: None,
-            enable_value_tracing: false,
+            enable_value_tracing: cmd.build_flags.enable_value_tracing,
         },
         link_opt: moonutil::common::LinkCoreFlags {
             debug_flag,
@@ -333,9 +333,6 @@ pub fn get_module_for_single_file_test(
                     target_dir.join(pkg_rel_name).join(BLACKBOX_TEST_DRIVER),
                 )]
             } else {
-                // vec![GeneratedTestDriver::InternalTest(
-                //     target_dir.join(pkg_rel_name).join(INTERNAL_TEST_DRIVER),
-                // )]
                 vec![GeneratedTestDriver::BlackboxTest(
                     target_dir.join(pkg_rel_name).join(BLACKBOX_TEST_DRIVER),
                 )]
@@ -354,7 +351,7 @@ pub fn get_module_for_single_file_test(
             install_path: None,
             bin_name: None,
             bin_target: moonc_opt.link_opt.target_backend,
-            enable_value_tracing: false,
+            enable_value_tracing: moonc_opt.build_opt.enable_value_tracing,
             supported_targets: HashSet::from_iter([moonc_opt.link_opt.target_backend]),
             stub_lib: None,
             virtual_pkg: None,
@@ -470,6 +467,7 @@ pub(crate) fn run_test_or_bench_internal(
     // release is 'false' by default, so we will run test at debug mode(to gain more detailed stack trace info), unless `--release` is specified
     // however, other command like build, check, run, etc, will run at release mode by default
     moonc_opt.build_opt.debug_flag = !cmd.build_flags.release;
+    moonc_opt.build_opt.enable_value_tracing = cmd.build_flags.enable_value_tracing;
     moonc_opt.build_opt.strip_flag = if cmd.build_flags.strip {
         true
     } else if cmd.build_flags.no_strip {
@@ -647,6 +645,21 @@ pub(crate) fn run_test_or_bench_internal(
 
         if pkg.is_third_party || pkg.is_main {
             continue;
+        }
+
+        if cmd.build_flags.enable_value_tracing {
+            match moonbuild_opt
+                .test_opt
+                .as_ref()
+                .and_then(|it| it.filter_package.as_ref())
+            {
+                Some(filter_package) => {
+                    if filter_package.contains(&pkg.full_name()) {
+                        pkg.enable_value_tracing = true;
+                    }
+                }
+                None => {}
+            }
         }
 
         pkg.patch_file = patch_file.clone();

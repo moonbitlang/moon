@@ -75,6 +75,8 @@ pub struct RuntestDepItem {
 
     // which virtual pkg to implement (mi path, virtual pkg name, virtual pkg path)
     pub mi_of_virtual_pkg_to_impl: Option<(String, String, String)>,
+
+    pub enable_value_tracing: bool,
 }
 
 type RuntestLinkDepItem = moonutil::package::LinkDepItem;
@@ -305,6 +307,7 @@ pub fn gen_package_core(
         no_mi: false,
         patch_file: None,
         mi_of_virtual_pkg_to_impl: impl_virtual_pkg,
+        enable_value_tracing: pkg.enable_value_tracing,
     })
 }
 
@@ -381,6 +384,7 @@ pub fn gen_package_internal_test(
         no_mi: true,
         patch_file,
         mi_of_virtual_pkg_to_impl: None,
+        enable_value_tracing: pkg.enable_value_tracing,
     })
 }
 
@@ -465,6 +469,7 @@ pub fn gen_package_whitebox_test(
         no_mi: true,
         patch_file,
         mi_of_virtual_pkg_to_impl: None,
+        enable_value_tracing: pkg.enable_value_tracing,
     })
 }
 
@@ -578,6 +583,7 @@ pub fn gen_package_blackbox_test(
         no_mi: true,
         patch_file,
         mi_of_virtual_pkg_to_impl: None,
+        enable_value_tracing: pkg.enable_value_tracing,
     })
 }
 
@@ -1117,6 +1123,7 @@ pub fn gen_runtest_build_command(
             item.is_internal_test || item.is_whitebox_test || item.is_blackbox_test,
             "-test-mode",
         )
+        .arg_with_cond(item.enable_value_tracing, "-enable-value-tracing")
         .build();
     log::debug!("Command: {}", command);
     build.cmdline = Some(command);
