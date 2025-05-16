@@ -206,7 +206,7 @@ pub fn moonbit_test_driver_internal_execute(filename : String, index : Int) -> U
           None => ()
         }
       } catch {
-        @builtin.Failure(e) | @builtin.InspectError(e) | @builtin.SnapshotError(e) | @builtin.BenchError(e) => {
+        @moonbitlang/core/builtin.Failure(e) | @moonbitlang/core/builtin.InspectError(e) | @moonbitlang/core/builtin.SnapshotError(e) | @moonbitlang/core/builtin.BenchError(e) => {
           message = e
         }
         e => {

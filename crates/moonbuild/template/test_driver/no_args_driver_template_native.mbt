@@ -52,7 +52,7 @@ pub fn moonbit_test_driver_internal_execute(filename : String, index : Int) -> U
       try {
         func!()
       } catch {
-        @builtin.Failure(e) | @builtin.InspectError(e) | @builtin.SnapshotError(e) => {
+        @moonbitlang/core/builtin.Failure(e) | @moonbitlang/core/builtin.InspectError(e) | @moonbitlang/core/builtin.SnapshotError(e) => {
           message = e
         }
         e => {
