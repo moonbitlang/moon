@@ -4464,9 +4464,9 @@ fn test_run_md_test() {
         get_stderr(&dir, ["check", "--sort-input"]),
         expect![[r#"
             Warning: [0002]
-                ╭─[$ROOT/src/lib/1.mbt.md:31:9]
+                ╭─[$ROOT/src/lib/1.mbt.md:42:9]
                 │
-             31 │     let a = 1
+             42 │     let a = 1
                 │         ┬  
                 │         ╰── Warning: Unused variable 'a'
             ────╯
@@ -4482,6 +4482,11 @@ fn test_run_md_test() {
             hello from hello_test.mbt
             Hello, world 1!
             Hello, world 3!
+            ```moonbit
+            fn main {
+              println("Hello")
+            }
+            ```
             Hello, world 2!
             test username/hello/lib/hello_test.mbt::inspect in bbtest failed
             expect test failed at $ROOT/src/lib/hello_test.mbt:12:3-12:32
@@ -4491,14 +4496,14 @@ fn test_run_md_test() {
             ----
 
             test username/hello/lib/1.mbt.md::2 failed
-            expect test failed at $ROOT/src/lib/1.mbt.md:33:5-33:21
+            expect test failed at $ROOT/src/lib/1.mbt.md:44:5-44:21
             Diff:
             ----
             4234
             ----
 
             test username/hello/lib/1.mbt.md::3 failed
-            expect test failed at $ROOT/src/lib/1.mbt.md:50:5-50:16
+            expect test failed at $ROOT/src/lib/1.mbt.md:61:5-61:16
             Diff:
             ----
              all
@@ -4543,6 +4548,11 @@ fn test_run_md_test() {
             hello from hello_test.mbt
             Hello, world 1!
             Hello, world 3!
+            ```moonbit
+            fn main {
+              println("Hello")
+            }
+            ```
             Hello, world 2!
 
             Auto updating expect tests and retesting ...
@@ -4550,7 +4560,17 @@ fn test_run_md_test() {
             fn in md test
             fn in md test
             fn in md test
+            ```moonbit
+            fn main {
+              println("Hello")
+            }
+            ```
             Hello, world 2!
+            ```moonbit
+            fn main {
+              println("Hello")
+            }
+            ```
             Hello, world 2!
             Total tests: 7, passed: 7, failed: 0.
         "#]],
