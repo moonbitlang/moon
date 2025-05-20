@@ -24,6 +24,8 @@ use std::path::{Path, PathBuf};
 use crate::common::{backend_filter, MooncOpt, PatchItem, PatchJSON};
 use crate::package::Package;
 
+use pulldown_cmark::{CodeBlockKind, Event, Parser, Tag};
+
 #[derive(Debug)]
 pub struct DocTest {
     pub content: String,
@@ -32,30 +34,20 @@ pub struct DocTest {
     pub line_count: usize,
 }
 
-pub struct DocTestExtractor {
-    test_pattern: Regex,
-}
+#[derive(Default)]
+pub struct DocTestExtractor {}
 
 impl DocTestExtractor {
-    pub fn new(is_md_test: bool) -> Self {
-        // \r\n for windows, \n for unix
-        let pattern = if is_md_test {
-            r#"[ \t]*```([^\r\n]*)\s*(?:\r?\n)([\s\S]*?)[ \t]*```"#
-        } else {
-            r#"///\s*```([^\r\n]*)\s*(?:\r?\n)((?:///.*(?:\r?\n))*?)///\s*```"#
-        };
-
-        Self {
-            test_pattern: Regex::new(pattern).expect("Invalid regex pattern"),
-        }
-    }
-
-    pub fn extract_from_file(&self, file_path: &Path) -> anyhow::Result<Vec<DocTest>> {
+    pub fn extract_doc_test_from_file(&self, file_path: &Path) -> anyhow::Result<Vec<DocTest>> {
         let content = fs::read_to_string(file_path)?;
 
         let mut tests = Vec::new();
 
-        for cap in self.test_pattern.captures_iter(&content) {
+        // \r\n for windows, \n for unix
+        let pattern =
+            Regex::new(r#"///\s*```([^\r\n]*)\s*(?:\r?\n)((?:///.*(?:\r?\n))*?)///\s*```"#)
+                .expect("Invalid regex pattern");
+        for cap in pattern.captures_iter(&content) {
             if let Some(test_match) = cap.get(0) {
                 let lang = cap.get(1).map(|m| m.as_str().trim()).unwrap_or("");
                 if lang.is_empty() || lang == "mbt" || lang == "moonbit" {
@@ -76,6 +68,61 @@ impl DocTestExtractor {
                         });
                     }
                 }
+            }
+        }
+
+        Ok(tests)
+    }
+
+    pub fn extract_md_test_from_file(&self, file_path: &Path) -> anyhow::Result<Vec<DocTest>> {
+        let content = fs::read_to_string(file_path)?;
+
+        let mut tests = Vec::new();
+
+        let parser = Parser::new(&content);
+
+        let mut current_code = String::new();
+        let mut in_moonbit_block = false;
+        let mut block_start_line = 0;
+        let mut current_indent = String::new();
+
+        for (event, range) in parser.into_offset_iter() {
+            let current_line = content[..range.start]
+                .chars()
+                .filter(|c| *c == '\n')
+                .count()
+                + 1;
+
+            match event {
+                Event::Start(Tag::CodeBlock(CodeBlockKind::Fenced(lang))) => {
+                    if lang.as_ref() == "moonbit" || lang.as_ref() == "mbt" {
+                        in_moonbit_block = true;
+                        block_start_line = current_line;
+                        current_code.clear();
+                        current_indent = content
+                            .lines()
+                            .nth(current_line - 1)
+                            .unwrap_or("")
+                            .split("`")
+                            .next()
+                            .unwrap_or("")
+                            .to_string();
+                    }
+                }
+                Event::Text(text) if in_moonbit_block => {
+                    current_code.push_str(&current_indent);
+                    current_code.push_str(&text);
+                }
+                Event::End(_) if in_moonbit_block => {
+                    tests.push(DocTest {
+                        content: current_code.clone(),
+                        file_name: file_path.file_name().unwrap().to_str().unwrap().to_string(),
+                        line_number: block_start_line,
+                        line_count: current_code.lines().count(),
+                    });
+                    in_moonbit_block = false;
+                }
+                _ => {}
             }
         }
 
@@ -201,9 +248,9 @@ pub fn gen_doc_test_patch(pkg: &Package, moonc_opt: &MooncOpt) -> anyhow::Result
     );
 
     let mut doc_tests = vec![];
-    let doc_test_extractor = DocTestExtractor::new(false);
+    let doc_test_extractor = DocTestExtractor::default();
     for file in mbt_files {
-        let doc_test_in_mbt_file = doc_test_extractor.extract_from_file(&file)?;
+        let doc_test_in_mbt_file = doc_test_extractor.extract_doc_test_from_file(&file)?;
         if !doc_test_in_mbt_file.is_empty() {
             doc_tests.push(doc_test_in_mbt_file);
         }
@@ -234,9 +281,9 @@ pub fn gen_md_test_patch(pkg: &Package, moonc_opt: &MooncOpt) -> anyhow::Result<
     );
 
     let mut md_tests = vec![];
-    let md_test_extractor = DocTestExtractor::new(true);
+    let md_test_extractor = DocTestExtractor::default();
     for file in md_files {
-        let doc_test_in_md_file = md_test_extractor.extract_from_file(&file)?;
+        let doc_test_in_md_file = md_test_extractor.extract_md_test_from_file(&file)?;
         if !doc_test_in_md_file.is_empty() {
             md_tests.push(doc_test_in_md_file);
         }
