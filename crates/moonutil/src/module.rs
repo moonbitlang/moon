@@ -653,7 +653,13 @@ pub fn convert_mdb_to_json(module: &ModuleDB) -> ModuleDBJSON {
                 None => {
                     let alias = dep.path.rel_path.components.last();
                     match alias {
-                        None => dep.path.module_name.split('/').last().unwrap().to_string(),
+                        None => dep
+                            .path
+                            .module_name
+                            .split('/')
+                            .next_back()
+                            .unwrap()
+                            .to_string(),
                         Some(x) => x.to_string(),
                     }
                 }
@@ -676,7 +682,13 @@ pub fn convert_mdb_to_json(module: &ModuleDB) -> ModuleDBJSON {
                 None => {
                     let alias = dep.path.rel_path.components.last();
                     match alias {
-                        None => dep.path.module_name.split('/').last().unwrap().to_string(),
+                        None => dep
+                            .path
+                            .module_name
+                            .split('/')
+                            .next_back()
+                            .unwrap()
+                            .to_string(),
                         Some(x) => x.to_string(),
                     }
                 }
@@ -699,7 +711,13 @@ pub fn convert_mdb_to_json(module: &ModuleDB) -> ModuleDBJSON {
                 None => {
                     let alias = dep.path.rel_path.components.last();
                     match alias {
-                        None => dep.path.module_name.split('/').last().unwrap().to_string(),
+                        None => dep
+                            .path
+                            .module_name
+                            .split('/')
+                            .next_back()
+                            .unwrap()
+                            .to_string(),
                         Some(x) => x.to_string(),
                     }
                 }

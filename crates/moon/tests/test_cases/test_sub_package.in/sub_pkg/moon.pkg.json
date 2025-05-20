@@ -1,0 +1,11 @@
+{
+    "sub-package": {
+        "files": [
+            "111.mbt",
+            "dir/222.mbt"
+        ],
+        "import": [
+            "moon_new/dep"
+        ]
+    }
+}

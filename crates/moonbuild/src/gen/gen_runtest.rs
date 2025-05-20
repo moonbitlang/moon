@@ -22,7 +22,7 @@ use indexmap::IndexMap;
 use log::info;
 use moonutil::common::{
     get_desc_name, DriverKind, GeneratedTestDriver, RunMode, TargetBackend, BLACKBOX_TEST_PATCH,
-    MOONBITLANG_CORE, MOONBITLANG_COVERAGE, O_EXT, WHITEBOX_TEST_PATCH,
+    MOONBITLANG_CORE, MOONBITLANG_COVERAGE, O_EXT, SUB_PKG_POSTFIX, WHITEBOX_TEST_PATCH,
 };
 use moonutil::compiler_flags::CC;
 use moonutil::module::ModuleDB;
@@ -131,6 +131,7 @@ pub fn add_coverage_to_core_if_needed(
                         is_3rd: false,
                     },
                     alias: None,
+                    sub_package: false,
                 });
             }
 
@@ -246,7 +247,7 @@ pub fn gen_package_core(
 
     let mut mi_deps = vec![];
     for dep in pkg.imports.iter() {
-        let full_import_name = dep.path.make_full_path();
+        let mut full_import_name = dep.path.make_full_path();
         if !m.contains_package(&full_import_name) {
             bail!(
                 "{}: the imported package `{}` could not be located.",
@@ -256,6 +257,9 @@ pub fn gen_package_core(
                     .display(),
                 full_import_name,
             );
+        }
+        if dep.sub_package {
+            full_import_name = format!("{}{}", full_import_name, SUB_PKG_POSTFIX);
         }
         let cur_pkg = m.get_package_by_name(&full_import_name);
         let d = cur_pkg.artifact.with_extension("mi");
@@ -340,7 +344,7 @@ pub fn gen_package_internal_test(
 
     let mut mi_deps = vec![];
     for dep in pkg.imports.iter() {
-        let full_import_name = dep.path.make_full_path();
+        let mut full_import_name = dep.path.make_full_path();
         if !m.contains_package(&full_import_name) {
             bail!(
                 "{}: the imported package `{}` could not be located.",
@@ -350,6 +354,9 @@ pub fn gen_package_internal_test(
                     .display(),
                 full_import_name,
             );
+        }
+        if dep.sub_package {
+            full_import_name = format!("{}{}", full_import_name, SUB_PKG_POSTFIX);
         }
         let cur_pkg = m.get_package_by_name(&full_import_name);
         let d = cur_pkg.artifact.with_extension("mi");
@@ -424,7 +431,7 @@ pub fn gen_package_whitebox_test(
 
     let mut mi_deps = vec![];
     for dep in pkg.imports.iter().chain(pkg.wbtest_imports.iter()) {
-        let full_import_name = dep.path.make_full_path();
+        let mut full_import_name = dep.path.make_full_path();
         if !m.contains_package(&full_import_name) {
             bail!(
                 "{}: the imported package `{}` could not be located.",
@@ -434,6 +441,9 @@ pub fn gen_package_whitebox_test(
                     .display(),
                 full_import_name,
             );
+        }
+        if dep.sub_package {
+            full_import_name = format!("{}{}", full_import_name, SUB_PKG_POSTFIX);
         }
         let cur_pkg = m.get_package_by_name(&full_import_name);
         let d = cur_pkg.artifact.with_extension("mi");
@@ -535,7 +545,7 @@ pub fn gen_package_blackbox_test(
     }
 
     for dep in pkg.imports.iter().chain(pkg.test_imports.iter()) {
-        let full_import_name = dep.path.make_full_path();
+        let mut full_import_name = dep.path.make_full_path();
         if !m.contains_package(&full_import_name) {
             bail!(
                 "{}: the imported package `{}` could not be located.",
@@ -545,6 +555,9 @@ pub fn gen_package_blackbox_test(
                     .display(),
                 full_import_name,
             );
+        }
+        if dep.sub_package {
+            full_import_name = format!("{}{}", full_import_name, SUB_PKG_POSTFIX);
         }
         let cur_pkg = m.get_package_by_name(&full_import_name);
         let d = cur_pkg.artifact.with_extension("mi");

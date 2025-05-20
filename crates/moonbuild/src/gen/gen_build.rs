@@ -35,7 +35,7 @@ use std::rc::Rc;
 
 use moonutil::common::{
     BuildOpt, MoonbuildOpt, MooncOpt, TargetBackend, A_EXT, DYN_EXT, MOONBITLANG_CORE,
-    MOON_PKG_JSON, O_EXT,
+    MOON_PKG_JSON, O_EXT, SUB_PKG_POSTFIX,
 };
 use n2::graph::{self as n2graph, Build, BuildIns, BuildOuts, FileLoc};
 use n2::load::State;
@@ -157,7 +157,7 @@ pub fn gen_build_build_item(
     let mut mi_deps = vec![];
 
     for dep in pkg.imports.iter() {
-        let full_import_name = dep.path.make_full_path();
+        let mut full_import_name = dep.path.make_full_path();
         if !m.contains_package(&full_import_name) {
             bail!(
                 "{}: the imported package `{}` could not be located.",
@@ -167,6 +167,9 @@ pub fn gen_build_build_item(
                     .display(),
                 full_import_name,
             );
+        }
+        if dep.sub_package {
+            full_import_name = format!("{}{}", full_import_name, SUB_PKG_POSTFIX);
         }
         let cur_pkg = m.get_package_by_name(&full_import_name);
         let d = cur_pkg.artifact.with_extension("mi");

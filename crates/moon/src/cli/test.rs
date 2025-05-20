@@ -325,6 +325,7 @@ pub fn get_module_for_single_file_test(
                 IndexMap::new()
             },
             files_contain_test_block: vec![single_file_path.to_path_buf()],
+            sub_package: None,
             imports: vec![],
             wbtest_imports: vec![],
             test_imports: vec![],

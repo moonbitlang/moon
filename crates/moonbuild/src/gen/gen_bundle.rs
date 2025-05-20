@@ -96,7 +96,12 @@ pub fn gen_bundle(
         bundle_items: dep_items,
         bundle_order: N2BundleAll {
             order,
-            name: m.name.split('/').last().unwrap_or("bundle").to_string(),
+            name: m
+                .name
+                .split('/')
+                .next_back()
+                .unwrap_or("bundle")
+                .to_string(),
         },
     })
 }

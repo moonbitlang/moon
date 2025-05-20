@@ -80,6 +80,7 @@ pub fn moon_new_exec(
             virtual_pkg: None,
             implement: None,
             overrides: None,
+            sub_package: None,
         };
         moonutil::common::write_package_json_to_file(&j, &main_moon_pkg)?;
     }
@@ -240,6 +241,7 @@ fn common(
             virtual_pkg: None,
             implement: None,
             overrides: None,
+            sub_package: None,
         };
         moonutil::common::write_package_json_to_file(&j, &lib_moon_pkg)?;
     }

@@ -21,7 +21,7 @@ use crate::module::ModuleDB;
 use crate::moon_dir::MOON_DIRS;
 use crate::mooncakes::result::ResolvedEnv;
 use crate::mooncakes::DirSyncResult;
-use crate::package::{Import, MoonPkgGenerate, Package};
+use crate::package::{Import, MoonPkgGenerate, Package, SubPackageInPackage};
 use crate::path::{ImportComponent, ImportPath, PathComponent};
 use anyhow::{bail, Context};
 use colored::Colorize;
@@ -34,7 +34,7 @@ use walkdir::WalkDir;
 
 use crate::common::{
     read_module_desc_file_in_dir, MoonbuildOpt, TargetBackend, DEP_PATH, DOT_MBL, DOT_MBT_DOT_MD,
-    DOT_MBY, IGNORE_DIRS, MOONBITLANG_ABORT, MOON_MOD_JSON, MOON_PKG_JSON,
+    DOT_MBY, IGNORE_DIRS, MOONBITLANG_ABORT, MOON_MOD_JSON, MOON_PKG_JSON, SUB_PKG_POSTFIX,
 };
 
 /// Matches an import string to scan paths.
@@ -238,6 +238,48 @@ fn scan_module_packages(
                 doc_mode,
             )?;
 
+            if let Some(sub_package) = cur_pkg.sub_package.as_ref() {
+                let mut components = cur_pkg.rel.clone().components;
+                if let Some(last) = components.last_mut() {
+                    *last = format!("{}{}", last, SUB_PKG_POSTFIX);
+                }
+                let rel = PathComponent { components };
+
+                let artifact = cur_pkg.artifact.parent().unwrap().join(format!(
+                    "{}.?",
+                    if rel.components.is_empty() {
+                        cur_pkg.root.components.last().unwrap()
+                    } else {
+                        rel.components.last().unwrap()
+                    }
+                ));
+
+                let sub_pkg = Package {
+                    rel,
+                    files: sub_package.files.clone(),
+                    sub_package: None,
+                    imports: sub_package.import.clone(),
+                    artifact: artifact.clone(),
+
+                    wbtest_files: IndexMap::new(),
+                    test_files: IndexMap::new(),
+                    mbt_md_files: IndexMap::new(),
+                    files_contain_test_block: vec![],
+                    wbtest_imports: vec![],
+                    test_imports: vec![],
+                    generated_test_drivers: vec![],
+                    patch_file: None,
+                    no_mi: false,
+                    doc_test_patch_file: None,
+                    install_path: None,
+                    bin_name: None,
+
+                    ..cur_pkg.clone()
+                };
+
+                packages.insert(sub_pkg.full_name(), sub_pkg);
+            }
+
             match packages.entry(cur_pkg.full_name()) {
                 indexmap::map::Entry::Occupied(occupied_entry) => {
                     let existing = occupied_entry.get();
@@ -294,13 +336,19 @@ fn scan_one_package(
                     Ok(ImportComponent {
                         path: ic,
                         alias: Some(alias),
+                        sub_package: false,
                     })
                 }
-                crate::package::Import::Alias { path, alias } => {
+                crate::package::Import::Alias {
+                    path,
+                    alias,
+                    sub_package,
+                } => {
                     let ic = match_import_to_path(env, &mod_desc.name, &path)?;
                     Ok(ImportComponent {
                         path: ic,
                         alias: Some(alias),
+                        sub_package,
                     })
                 }
             };
@@ -328,6 +376,7 @@ fn scan_one_package(
                 is_3rd: false,
             },
             alias: Some("prelude".to_string()),
+            sub_package: false,
         });
     }
 
@@ -426,6 +475,14 @@ fn scan_one_package(
         }))
     };
 
+    let sub_package = pkg.sub_package.and_then(|s| {
+        let imports = get_imports(s.import).ok()?;
+        Some(SubPackageInPackage {
+            files: file_cond_map(s.files.iter().map(|p| pkg_path.join(p)).collect()),
+            import: imports,
+        })
+    });
+
     let pkg_prebuild_is_none = pkg.pre_build.is_none();
     let mut prebuild = pkg.pre_build.unwrap_or(vec![]);
     for mbl_file in mbl_files {
@@ -466,6 +523,7 @@ fn scan_one_package(
         wbtest_files: file_cond_map(wbtest_mbt_files),
         test_files: file_cond_map(test_mbt_files),
         mbt_md_files: file_cond_map(mbt_md_files),
+        sub_package,
         imports,
         wbtest_imports,
         test_imports,

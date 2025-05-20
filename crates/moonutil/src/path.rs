@@ -88,6 +88,7 @@ fn test_import_component_1() {
             is_3rd: true,
         },
         alias: None,
+        sub_package: false,
     };
     assert!(ic.path.make_full_path() == "a/b");
     let ic = ImportComponent {
@@ -99,6 +100,7 @@ fn test_import_component_1() {
             is_3rd: true,
         },
         alias: None,
+        sub_package: false,
     };
     assert!(ic.path.make_full_path() == "a/b");
 }
@@ -193,6 +195,7 @@ impl Debug for ImportPath {
 pub struct ImportComponent {
     pub path: ImportPath,
     pub alias: Option<String>,
+    pub sub_package: bool,
 }
 
 impl ImportComponent {

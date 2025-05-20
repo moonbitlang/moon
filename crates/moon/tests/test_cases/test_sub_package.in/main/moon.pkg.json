@@ -1,0 +1,9 @@
+{
+  "is-main": true,
+  "import": [
+    {
+      "path": "moon_new/sub_pkg",
+      "sub-package": true
+    }
+  ]
+}

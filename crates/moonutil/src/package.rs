@@ -37,6 +37,12 @@ use crate::{
 };
 
 #[derive(Debug, Clone)]
+pub struct SubPackageInPackage {
+    pub files: IndexMap<PathBuf, CompileCondition>,
+    pub import: Vec<ImportComponent>,
+}
+
+#[derive(Debug, Clone)]
 pub struct Package {
     pub is_main: bool,
     pub force_link: bool,
@@ -59,6 +65,9 @@ pub struct Package {
     pub test_files: IndexMap<PathBuf, CompileCondition>,
     pub mbt_md_files: IndexMap<PathBuf, CompileCondition>,
     pub files_contain_test_block: Vec<PathBuf>,
+
+    pub sub_package: Option<SubPackageInPackage>,
+
     pub imports: Vec<ImportComponent>,
     pub wbtest_imports: Vec<ImportComponent>,
     pub test_imports: Vec<ImportComponent>,
@@ -187,6 +196,11 @@ pub enum PkgJSONImportItem {
         path: String,
         alias: Option<String>,
         value: Option<Vec<String>>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        #[serde(alias = "sub-package")]
+        #[serde(rename(serialize = "sub-package"))]
+        #[schemars(rename = "sub-package")]
+        sub_package: Option<bool>,
     },
 }
 
@@ -195,6 +209,12 @@ pub enum PkgJSONImportItem {
 pub enum BoolOrLink {
     Bool(bool),
     Link(Box<Link>),
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+pub struct SubPackageInMoonPkgJSON {
+    pub files: Vec<String>,
+    pub import: Option<PkgJSONImport>,
 }
 
 #[derive(Debug, Serialize, Deserialize, JsonSchema)]
@@ -213,6 +233,13 @@ pub struct MoonPkgJSON {
     #[serde(rename(serialize = "is-main"))]
     #[schemars(rename = "is-main")]
     pub is_main: Option<bool>,
+
+    /// Specify whether this package is a sub package or not
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(alias = "sub-package")]
+    #[serde(rename(serialize = "sub-package"))]
+    #[schemars(rename = "sub-package")]
+    pub sub_package: Option<SubPackageInMoonPkgJSON>,
 
     /// Imported packages of the package
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -632,10 +659,17 @@ pub enum StringOrArray {
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct SubPackageInMoonPkg {
+    pub files: Vec<String>,
+    pub import: Vec<Import>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct MoonPkg {
     pub name: Option<String>,
     pub is_main: bool,
     pub force_link: bool,
+    pub sub_package: Option<SubPackageInMoonPkg>,
     pub imports: Vec<Import>,
     pub wbtest_imports: Vec<Import>,
     pub test_imports: Vec<Import>,
@@ -664,14 +698,22 @@ pub struct MoonPkg {
 #[serde(untagged)]
 pub enum Import {
     Simple(String),
-    Alias { path: String, alias: String },
+    Alias {
+        path: String,
+        alias: String,
+        sub_package: bool,
+    },
 }
 
 impl Import {
     pub fn get_path(&self) -> &str {
         match self {
             Self::Simple(v) => v,
-            Self::Alias { path, alias: _ } => path,
+            Self::Alias {
+                path,
+                alias: _,
+                sub_package: _,
+            } => path,
         }
     }
 }
@@ -692,6 +734,7 @@ pub fn convert_pkg_json_to_package(j: MoonPkgJSON) -> anyhow::Result<MoonPkg> {
                                     imports.push(Import::Alias {
                                         path: k,
                                         alias: v.unwrap(),
+                                        sub_package: false,
                                     })
                                 }
                             }
@@ -706,12 +749,22 @@ pub fn convert_pkg_json_to_package(j: MoonPkgJSON) -> anyhow::Result<MoonPkg> {
                                 path,
                                 alias,
                                 value: _,
-                            } => match alias {
-                                None => imports.push(Import::Simple(path)),
-                                Some(alias) if alias.is_empty() => {
+                                sub_package,
+                            } => match (alias, sub_package) {
+                                (None, None) => imports.push(Import::Simple(path)),
+                                (Some(alias), None) if alias.is_empty() => {
                                     imports.push(Import::Simple(path))
                                 }
-                                Some(alias) => imports.push(Import::Alias { path, alias }),
+                                (Some(alias), _) => imports.push(Import::Alias {
+                                    path,
+                                    alias,
+                                    sub_package: sub_package.unwrap_or(false),
+                                }),
+                                (_, Some(sub_package)) => imports.push(Import::Alias {
+                                    path: path.clone(),
+                                    alias: path.split('/').next_back().unwrap().to_string(),
+                                    sub_package,
+                                }),
                             },
                         }
                     }
@@ -721,6 +774,10 @@ pub fn convert_pkg_json_to_package(j: MoonPkgJSON) -> anyhow::Result<MoonPkg> {
         imports
     };
 
+    let sub_package = j.sub_package.map(|s| SubPackageInMoonPkg {
+        files: s.files,
+        import: get_imports(s.import),
+    });
     let imports = get_imports(j.import);
     let wbtest_imports = get_imports(j.wbtest_import);
     let test_imports = get_imports(j.test_import);
@@ -755,7 +812,11 @@ pub fn convert_pkg_json_to_package(j: MoonPkgJSON) -> anyhow::Result<MoonPkg> {
                     .to_string();
                 alias
             }
-            Import::Alias { path: _path, alias } => alias.clone(),
+            Import::Alias {
+                path: _,
+                alias,
+                sub_package: _,
+            } => alias.clone(),
         };
         if alias_dedup.contains(&alias) {
             bail!("Duplicate alias `{}`", alias);
@@ -777,7 +838,11 @@ pub fn convert_pkg_json_to_package(j: MoonPkgJSON) -> anyhow::Result<MoonPkg> {
                     .to_string();
                 alias
             }
-            Import::Alias { path: _path, alias } => alias.clone(),
+            Import::Alias {
+                path: _,
+                alias,
+                sub_package: _,
+            } => alias.clone(),
         };
         if alias_dedup.contains(&alias) {
             bail!("Duplicate alias `{}`", alias);
@@ -799,7 +864,11 @@ pub fn convert_pkg_json_to_package(j: MoonPkgJSON) -> anyhow::Result<MoonPkg> {
                     .to_string();
                 alias
             }
-            Import::Alias { path: _path, alias } => alias.clone(),
+            Import::Alias {
+                path: _,
+                alias,
+                sub_package: _,
+            } => alias.clone(),
         };
         if alias_dedup.contains(&alias) {
             bail!("Duplicate alias `{}`", alias);
@@ -834,6 +903,7 @@ pub fn convert_pkg_json_to_package(j: MoonPkgJSON) -> anyhow::Result<MoonPkg> {
         name: None,
         is_main,
         force_link,
+        sub_package,
         imports,
         wbtest_imports,
         test_imports,

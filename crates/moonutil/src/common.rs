@@ -73,6 +73,8 @@ pub const PKG_DIR: &str = "$pkg_dir";
 
 pub const SINGLE_FILE_TEST_PACKAGE: &str = "moon/test/single";
 
+pub const SUB_PKG_POSTFIX: &str = "_sub";
+
 pub const O_EXT: &str = if cfg!(windows) { "obj" } else { "o" };
 #[allow(unused)]
 pub const DYN_EXT: &str = if cfg!(windows) {
@@ -1099,6 +1101,7 @@ pub fn gen_moonbitlang_abort_pkg(moonc_opt: &MooncOpt) -> Package {
         test_files: IndexMap::new(),
         mbt_md_files: IndexMap::new(),
         files_contain_test_block: vec![],
+        sub_package: None,
         imports: vec![],
         wbtest_imports: vec![],
         test_imports: vec![],
