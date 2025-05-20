@@ -3,7 +3,7 @@ name: Bug report
 about: Create a bug report for moon.
 title: ''
 assignees: ''
-
+labels: bug
 ---
 
 # Bug Report
