@@ -27,6 +27,7 @@ mod fs_api_temp;
 mod js;
 mod sys_api;
 mod util;
+mod wasmoo_extern;
 
 use rand::rngs::StdRng;
 use rand::Rng;
@@ -474,6 +475,56 @@ enum Source<'a> {
     Bytes(Vec<u8>),
 }
 
+fn run_wasmoo(module_name: &str, argv: Vec<String>) -> anyhow::Result<()> {
+    let isolate = &mut v8::Isolate::new(Default::default());
+    isolate.set_capture_stack_trace_for_uncaught_exceptions(true, 10);
+    let scope = &mut v8::HandleScope::new(isolate);
+    let context = v8::Context::new(scope, Default::default());
+    // setup file descriptor table
+    context.set_slot(wasmoo_extern::FdTable::new());
+    // setup directory table
+    // context.set_slot(wasmoo_extern::DirTable::new());
+    let scope = &mut v8::ContextScope::new(scope, context);
+
+    let global_proxy = scope.get_current_context().global(scope);
+    wasmoo_extern::init_wasmoo(global_proxy, scope);
+
+    let process_argv = v8::Array::new(scope, (argv.len() as i32) + 1);
+    let execname = v8::String::new(scope, module_name).unwrap();
+    process_argv.set_index(scope, 0, execname.into());
+    for (i, s) in argv.iter().enumerate() {
+        let s = v8::String::new(scope, s).unwrap();
+        process_argv.set_index(scope, (i as u32) + 1, s.into());
+    }
+    let ident = v8::String::new(scope, "process_argv").unwrap();
+    global_proxy.set(scope, ident.into(), process_argv.into());
+
+    let mut script = format!("const module_name = '{}';", module_name);
+    let js_glue = include_str!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/src/template/js_glue_for_wasmoo.js"
+    ));
+    script.push_str(js_glue);
+    let code = v8::String::new(scope, &script).unwrap();
+    let name = v8::String::new(scope, "moonc").unwrap();
+    let origin = v8::ScriptOrigin::new(
+        scope,
+        name.into(),
+        0,
+        0,
+        false,
+        0,
+        None,
+        false,
+        false,
+        false,
+        None,
+    );
+    let code = v8::Script::compile(scope, code, Some(&origin)).unwrap();
+    code.run(scope);
+    Ok(())
+}
+
 fn wasm_mode(
     source: Source,
     args: &[String],
@@ -581,6 +632,9 @@ struct Commandline {
     no_stack_trace: bool,
 
     #[clap(long)]
+    wasmoo: bool,
+
+    #[clap(long)]
     test_args: Option<String>,
 
     #[clap(long)]
@@ -630,12 +684,18 @@ fn main() -> anyhow::Result<()> {
 
     let matches = Commandline::parse();
 
-    if matches.interactive {
+    if matches.wasmoo {
+        set_flags_from_string(&format!("--stack-size={}", 102400));
+        initialize_v8()?;
+        run_wasmoo(
+            matches.path.unwrap().to_string_lossy().as_ref(),
+            matches.args,
+        )
+    } else if matches.interactive {
         initialize_v8()?;
         run_interactive()
     } else {
         let file = matches.path.as_ref().unwrap();
-
         if !file.exists() {
             anyhow::bail!("no such file");
         }
