@@ -34,27 +34,20 @@ pub struct DocTest {
     pub line_count: usize,
 }
 
-pub struct DocTestExtractor {
-    test_pattern: Regex,
-}
+#[derive(Default)]
+pub struct DocTestExtractor {}
 
 impl DocTestExtractor {
-    #[allow(clippy::new_without_default)]
-    pub fn new() -> Self {
-        // \r\n for windows, \n for unix
-        let pattern = r#"///\s*```([^\r\n]*)\s*(?:\r?\n)((?:///.*(?:\r?\n))*?)///\s*```"#;
-
-        Self {
-            test_pattern: Regex::new(pattern).expect("Invalid regex pattern"),
-        }
-    }
-
     pub fn extract_doc_test_from_file(&self, file_path: &Path) -> anyhow::Result<Vec<DocTest>> {
         let content = fs::read_to_string(file_path)?;
 
         let mut tests = Vec::new();
 
-        for cap in self.test_pattern.captures_iter(&content) {
+        // \r\n for windows, \n for unix
+        let pattern =
+            Regex::new(r#"///\s*```([^\r\n]*)\s*(?:\r?\n)((?:///.*(?:\r?\n))*?)///\s*```"#)
+                .expect("Invalid regex pattern");
+        for cap in pattern.captures_iter(&content) {
             if let Some(test_match) = cap.get(0) {
                 let lang = cap.get(1).map(|m| m.as_str().trim()).unwrap_or("");
                 if lang.is_empty() || lang == "mbt" || lang == "moonbit" {
@@ -255,7 +248,7 @@ pub fn gen_doc_test_patch(pkg: &Package, moonc_opt: &MooncOpt) -> anyhow::Result
     );
 
     let mut doc_tests = vec![];
-    let doc_test_extractor = DocTestExtractor::new();
+    let doc_test_extractor = DocTestExtractor::default();
     for file in mbt_files {
         let doc_test_in_mbt_file = doc_test_extractor.extract_doc_test_from_file(&file)?;
         if !doc_test_in_mbt_file.is_empty() {
@@ -288,7 +281,7 @@ pub fn gen_md_test_patch(pkg: &Package, moonc_opt: &MooncOpt) -> anyhow::Result<
     );
 
     let mut md_tests = vec![];
-    let md_test_extractor = DocTestExtractor::new();
+    let md_test_extractor = DocTestExtractor::default();
     for file in md_files {
         let doc_test_in_md_file = md_test_extractor.extract_md_test_from_file(&file)?;
         if !doc_test_in_md_file.is_empty() {
