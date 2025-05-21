@@ -129,6 +129,17 @@
         "$ref": "#/definitions/MoonPkgGenerate"
       }
     },
+    "sub-package": {
+      "description": "Specify whether this package is a sub package or not",
+      "anyOf": [
+        {
+          "$ref": "#/definitions/SubPackageInMoonPkgJSON"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
     "supported-targets": {
       "type": [
         "array",
@@ -392,6 +403,12 @@
             "path": {
               "type": "string"
             },
+            "sub-package": {
+              "type": [
+                "boolean",
+                "null"
+              ]
+            },
             "value": {
               "type": [
                 "array",
@@ -417,6 +434,30 @@
           }
         }
       ]
+    },
+    "SubPackageInMoonPkgJSON": {
+      "type": "object",
+      "required": [
+        "files"
+      ],
+      "properties": {
+        "files": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "import": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/PkgJSONImport"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      }
     },
     "VirtualPkg": {
       "type": "object",

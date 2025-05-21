@@ -22,7 +22,7 @@ use indexmap::IndexMap;
 use log::info;
 use moonutil::common::{
     get_desc_name, DriverKind, GeneratedTestDriver, RunMode, TargetBackend, BLACKBOX_TEST_PATCH,
-    MOONBITLANG_CORE, MOONBITLANG_COVERAGE, O_EXT, WHITEBOX_TEST_PATCH,
+    MOONBITLANG_CORE, MOONBITLANG_COVERAGE, O_EXT, SUB_PKG_POSTFIX, WHITEBOX_TEST_PATCH,
 };
 use moonutil::compiler_flags::CC;
 use moonutil::module::ModuleDB;
@@ -131,6 +131,7 @@ pub fn add_coverage_to_core_if_needed(
                         is_3rd: false,
                     },
                     alias: None,
+                    sub_package: false,
                 });
             }
 
@@ -246,7 +247,7 @@ pub fn gen_package_core(
 
     let mut mi_deps = vec![];
     for dep in pkg.imports.iter() {
-        let full_import_name = dep.path.make_full_path();
+        let mut full_import_name = dep.path.make_full_path();
         if !m.contains_package(&full_import_name) {
             bail!(
                 "{}: the imported package `{}` could not be located.",
@@ -257,6 +258,9 @@ pub fn gen_package_core(
                 full_import_name,
             );
         }
+        if dep.sub_package {
+            full_import_name = format!("{}{}", full_import_name, SUB_PKG_POSTFIX);
+        }
         let cur_pkg = m.get_package_by_name(&full_import_name);
         let d = cur_pkg.artifact.with_extension("mi");
         let alias = dep.alias.clone().unwrap_or(cur_pkg.last_name().into());
@@ -266,7 +270,12 @@ pub fn gen_package_core(
         });
     }
 
-    let package_full_name = pkg.full_name();
+    let package_full_name = if pkg.is_sub_package {
+        pkg.full_name().replace(SUB_PKG_POSTFIX, "")
+    } else {
+        pkg.full_name()
+    };
+
     let package_source_dir = pkg.root_path.to_string_lossy().into_owned();
 
     let impl_virtual_pkg = if let Some(impl_virtual_pkg) = pkg.implement.as_ref() {
@@ -340,7 +349,7 @@ pub fn gen_package_internal_test(
 
     let mut mi_deps = vec![];
     for dep in pkg.imports.iter() {
-        let full_import_name = dep.path.make_full_path();
+        let mut full_import_name = dep.path.make_full_path();
         if !m.contains_package(&full_import_name) {
             bail!(
                 "{}: the imported package `{}` could not be located.",
@@ -351,6 +360,9 @@ pub fn gen_package_internal_test(
                 full_import_name,
             );
         }
+        if dep.sub_package {
+            full_import_name = format!("{}{}", full_import_name, SUB_PKG_POSTFIX);
+        }
         let cur_pkg = m.get_package_by_name(&full_import_name);
         let d = cur_pkg.artifact.with_extension("mi");
         let alias = dep.alias.clone().unwrap_or(cur_pkg.last_name().into());
@@ -360,7 +372,12 @@ pub fn gen_package_internal_test(
         });
     }
 
-    let package_full_name = pkg.full_name();
+    let package_full_name = if pkg.is_sub_package {
+        pkg.full_name().replace(SUB_PKG_POSTFIX, "")
+    } else {
+        pkg.full_name()
+    };
+
     let package_source_dir = pkg.root_path.to_string_lossy().into_owned();
 
     Ok(RuntestDepItem {
@@ -424,7 +441,7 @@ pub fn gen_package_whitebox_test(
 
     let mut mi_deps = vec![];
     for dep in pkg.imports.iter().chain(pkg.wbtest_imports.iter()) {
-        let full_import_name = dep.path.make_full_path();
+        let mut full_import_name = dep.path.make_full_path();
         if !m.contains_package(&full_import_name) {
             bail!(
                 "{}: the imported package `{}` could not be located.",
@@ -435,6 +452,9 @@ pub fn gen_package_whitebox_test(
                 full_import_name,
             );
         }
+        if dep.sub_package {
+            full_import_name = format!("{}{}", full_import_name, SUB_PKG_POSTFIX);
+        }
         let cur_pkg = m.get_package_by_name(&full_import_name);
         let d = cur_pkg.artifact.with_extension("mi");
         let alias = dep.alias.clone().unwrap_or(cur_pkg.last_name().into());
@@ -444,7 +464,12 @@ pub fn gen_package_whitebox_test(
         });
     }
 
-    let package_full_name = pkg.full_name();
+    let package_full_name = if pkg.is_sub_package {
+        pkg.full_name().replace(SUB_PKG_POSTFIX, "")
+    } else {
+        pkg.full_name()
+    };
+
     let package_source_dir = pkg.root_path.to_string_lossy().into_owned();
 
     Ok(RuntestDepItem {
@@ -535,7 +560,7 @@ pub fn gen_package_blackbox_test(
     }
 
     for dep in pkg.imports.iter().chain(pkg.test_imports.iter()) {
-        let full_import_name = dep.path.make_full_path();
+        let mut full_import_name = dep.path.make_full_path();
         if !m.contains_package(&full_import_name) {
             bail!(
                 "{}: the imported package `{}` could not be located.",
@@ -545,6 +570,9 @@ pub fn gen_package_blackbox_test(
                     .display(),
                 full_import_name,
             );
+        }
+        if dep.sub_package {
+            full_import_name = format!("{}{}", full_import_name, SUB_PKG_POSTFIX);
         }
         let cur_pkg = m.get_package_by_name(&full_import_name);
         let d = cur_pkg.artifact.with_extension("mi");
@@ -680,7 +708,11 @@ pub fn gen_link_internal_test(
     let mut core_deps = core_core_and_abort_core;
 
     let package_sources = get_package_sources(&pkg_topo_order);
-    let package_full_name = pkg.full_name();
+    let package_full_name = if pkg.is_sub_package {
+        pkg.full_name().replace(SUB_PKG_POSTFIX, "")
+    } else {
+        pkg.full_name()
+    };
 
     replace_virtual_pkg_core_with_impl_pkg_core(m, pkg, &mut core_deps)?;
 
@@ -729,7 +761,11 @@ pub fn gen_link_whitebox_test(
     let mut core_deps = core_core_and_abort_core;
 
     let package_sources = get_package_sources(&pkg_topo_order);
-    let package_full_name = pkg.full_name();
+    let package_full_name = if pkg.is_sub_package {
+        pkg.full_name().replace(SUB_PKG_POSTFIX, "")
+    } else {
+        pkg.full_name()
+    };
 
     replace_virtual_pkg_core_with_impl_pkg_core(m, pkg, &mut core_deps)?;
 
@@ -796,7 +832,11 @@ pub fn gen_link_blackbox_test(
     ));
 
     // this will be passed to link-core `-main`
-    let package_full_name = pkg.full_name() + "_blackbox_test";
+    let package_full_name = if pkg.is_sub_package {
+        pkg.full_name().replace(SUB_PKG_POSTFIX, "")
+    } else {
+        pkg.full_name()
+    } + "_blackbox_test";
 
     replace_virtual_pkg_core_with_impl_pkg_core(m, pkg, &mut core_deps)?;
 

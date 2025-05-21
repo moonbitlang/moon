@@ -28,7 +28,9 @@ use moonutil::package::Package;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
 
-use moonutil::common::{get_desc_name, CheckOpt, MoonbuildOpt, MooncOpt, MOON_PKG_JSON};
+use moonutil::common::{
+    get_desc_name, CheckOpt, MoonbuildOpt, MooncOpt, MOON_PKG_JSON, SUB_PKG_POSTFIX,
+};
 use n2::graph::{self as n2graph, Build, BuildIns, BuildOuts, FileLoc};
 use n2::load::State;
 use n2::smallmap::SmallMap;
@@ -91,7 +93,7 @@ fn pkg_to_check_item(
     let mut mi_deps = vec![];
 
     for dep in pkg.imports.iter() {
-        let full_import_name = dep.path.make_full_path();
+        let mut full_import_name = dep.path.make_full_path();
         if !packages.contains_key(&full_import_name) {
             bail!(
                 "{}: the imported package `{}` could not be located.",
@@ -102,6 +104,9 @@ fn pkg_to_check_item(
                 full_import_name,
             );
         }
+        if dep.sub_package {
+            full_import_name = format!("{}{}", full_import_name, SUB_PKG_POSTFIX);
+        }
         let cur_pkg = &packages[&full_import_name];
         let d = cur_pkg.artifact.with_extension("mi");
         let alias = dep.alias.clone().unwrap_or(cur_pkg.last_name().into());
@@ -111,7 +116,11 @@ fn pkg_to_check_item(
         });
     }
 
-    let package_full_name = pkg.full_name();
+    let package_full_name = if pkg.is_sub_package {
+        pkg.full_name().replace(SUB_PKG_POSTFIX, "")
+    } else {
+        pkg.full_name()
+    };
     let package_source_dir: String = pkg.root_path.to_string_lossy().into_owned();
 
     let impl_virtual_pkg = if let Some(impl_virtual_pkg) = pkg.implement.as_ref() {
@@ -185,7 +194,7 @@ fn pkg_with_wbtest_to_check_item(
     let mut mi_deps = vec![];
 
     for dep in pkg.imports.iter().chain(pkg.wbtest_imports.iter()) {
-        let full_import_name = dep.path.make_full_path();
+        let mut full_import_name = dep.path.make_full_path();
         if !packages.contains_key(&full_import_name) {
             bail!(
                 "{}: the imported package `{}` could not be located.",
@@ -196,6 +205,9 @@ fn pkg_with_wbtest_to_check_item(
                 full_import_name,
             );
         }
+        if dep.sub_package {
+            full_import_name = format!("{}{}", full_import_name, SUB_PKG_POSTFIX);
+        }
         let cur_pkg = &packages[&full_import_name];
         let d = cur_pkg.artifact.with_extension("mi");
         let alias = dep.alias.clone().unwrap_or(cur_pkg.last_name().into());
@@ -205,7 +217,11 @@ fn pkg_with_wbtest_to_check_item(
         });
     }
 
-    let package_full_name = pkg.full_name();
+    let package_full_name = if pkg.is_sub_package {
+        pkg.full_name().replace(SUB_PKG_POSTFIX, "")
+    } else {
+        pkg.full_name()
+    };
     let package_source_dir: String = pkg.root_path.to_string_lossy().into_owned();
 
     Ok(CheckDepItem {
@@ -291,7 +307,7 @@ fn pkg_with_test_to_check_item(
     }
 
     for dep in pkg.imports.iter().chain(pkg.test_imports.iter()) {
-        let full_import_name = dep.path.make_full_path();
+        let mut full_import_name = dep.path.make_full_path();
         if !packages.contains_key(&full_import_name) {
             bail!(
                 "{}: the imported package `{}` could not be located.",
@@ -301,6 +317,9 @@ fn pkg_with_test_to_check_item(
                     .display(),
                 full_import_name,
             );
+        }
+        if dep.sub_package {
+            full_import_name = format!("{}{}", full_import_name, SUB_PKG_POSTFIX);
         }
         let cur_pkg = &packages[&full_import_name];
         let d = cur_pkg.artifact.with_extension("mi");
@@ -313,7 +332,11 @@ fn pkg_with_test_to_check_item(
 
     // this is used for `-pkg` flag in `moonc check`, shouldn't be `pkg.full_name()` since we aren't check that package, otherwise we might encounter an error like "4015] Error: Type StructName has no method method_name"(however, StructName does has method method_name).
     // actually, `-pkg` flag is not necessary for blackbox test, but we still keep it for consistency
-    let package_full_name = pkg.full_name() + "_blackbox_test";
+    let package_full_name = if pkg.is_sub_package {
+        pkg.full_name().replace(SUB_PKG_POSTFIX, "")
+    } else {
+        pkg.full_name()
+    } + "_blackbox_test";
     let package_source_dir: String = pkg.root_path.to_string_lossy().into_owned();
 
     Ok(CheckDepItem {
@@ -382,7 +405,7 @@ pub fn gen_check(
             dep_items.push(item);
         } else {
             check_interface_items.push(gen_build_interface_item(m, pkg)?);
-            if pkg.virtual_pkg.as_ref().map_or(false, |v| v.has_default) {
+            if pkg.virtual_pkg.as_ref().is_some_and(|v| v.has_default) {
                 let item =
                     pkg_to_check_item(m, &pkg.root_path, pkgs_to_check, pkg, moonc_opt, true)?;
                 dep_items.push(item);
