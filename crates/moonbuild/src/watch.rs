@@ -25,7 +25,7 @@ use moonutil::mooncakes::RegistryConfig;
 use notify::{Config, EventKind, RecommendedWatcher, RecursiveMode, Watcher};
 
 use moonutil::common::{
-    MoonbuildOpt, MooncOpt, RunMode, MOON_MOD_JSON, MOON_PKG_JSON, WATCH_MODE_DIR,
+    MoonbuildOpt, MooncOpt, RunMode, DOT_MBT_DOT_MD, MOON_MOD_JSON, MOON_PKG_JSON, WATCH_MODE_DIR,
 };
 use std::path::Path;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -143,11 +143,11 @@ fn handle_file_change(
         ))?;
     }
 
-    if event
-        .paths
-        .iter()
-        .any(|p| p.ends_with(MOON_MOD_JSON) || p.ends_with(MOON_PKG_JSON))
-    {
+    if event.paths.iter().any(|p| {
+        p.ends_with(MOON_MOD_JSON)
+            || p.ends_with(MOON_PKG_JSON)
+            || p.display().to_string().ends_with(DOT_MBT_DOT_MD)
+    }) {
         // we need to get the latest ModuleDB when moon.pkg.json || moon.mod.json is changed
         let (resolved_env, dir_sync_result) = match auto_sync(
             source_dir,
