@@ -270,7 +270,12 @@ pub fn gen_package_core(
         });
     }
 
-    let package_full_name = pkg.full_name();
+    let package_full_name = if pkg.is_sub_package {
+        pkg.full_name().replace(SUB_PKG_POSTFIX, "")
+    } else {
+        pkg.full_name()
+    };
+
     let package_source_dir = pkg.root_path.to_string_lossy().into_owned();
 
     let impl_virtual_pkg = if let Some(impl_virtual_pkg) = pkg.implement.as_ref() {
@@ -367,7 +372,12 @@ pub fn gen_package_internal_test(
         });
     }
 
-    let package_full_name = pkg.full_name();
+    let package_full_name = if pkg.is_sub_package {
+        pkg.full_name().replace(SUB_PKG_POSTFIX, "")
+    } else {
+        pkg.full_name()
+    };
+
     let package_source_dir = pkg.root_path.to_string_lossy().into_owned();
 
     Ok(RuntestDepItem {
@@ -454,7 +464,12 @@ pub fn gen_package_whitebox_test(
         });
     }
 
-    let package_full_name = pkg.full_name();
+    let package_full_name = if pkg.is_sub_package {
+        pkg.full_name().replace(SUB_PKG_POSTFIX, "")
+    } else {
+        pkg.full_name()
+    };
+
     let package_source_dir = pkg.root_path.to_string_lossy().into_owned();
 
     Ok(RuntestDepItem {
@@ -693,7 +708,11 @@ pub fn gen_link_internal_test(
     let mut core_deps = core_core_and_abort_core;
 
     let package_sources = get_package_sources(&pkg_topo_order);
-    let package_full_name = pkg.full_name();
+    let package_full_name = if pkg.is_sub_package {
+        pkg.full_name().replace(SUB_PKG_POSTFIX, "")
+    } else {
+        pkg.full_name()
+    };
 
     replace_virtual_pkg_core_with_impl_pkg_core(m, pkg, &mut core_deps)?;
 
@@ -742,7 +761,11 @@ pub fn gen_link_whitebox_test(
     let mut core_deps = core_core_and_abort_core;
 
     let package_sources = get_package_sources(&pkg_topo_order);
-    let package_full_name = pkg.full_name();
+    let package_full_name = if pkg.is_sub_package {
+        pkg.full_name().replace(SUB_PKG_POSTFIX, "")
+    } else {
+        pkg.full_name()
+    };
 
     replace_virtual_pkg_core_with_impl_pkg_core(m, pkg, &mut core_deps)?;
 
@@ -809,7 +832,11 @@ pub fn gen_link_blackbox_test(
     ));
 
     // this will be passed to link-core `-main`
-    let package_full_name = pkg.full_name() + "_blackbox_test";
+    let package_full_name = if pkg.is_sub_package {
+        pkg.full_name().replace(SUB_PKG_POSTFIX, "")
+    } else {
+        pkg.full_name()
+    } + "_blackbox_test";
 
     replace_virtual_pkg_core_with_impl_pkg_core(m, pkg, &mut core_deps)?;
 

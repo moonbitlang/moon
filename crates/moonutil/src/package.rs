@@ -66,7 +66,10 @@ pub struct Package {
     pub mbt_md_files: IndexMap<PathBuf, CompileCondition>,
     pub files_contain_test_block: Vec<PathBuf>,
 
-    pub sub_package: Option<SubPackageInPackage>,
+    // there is a sub_package definition in this package
+    pub with_sub_package: Option<SubPackageInPackage>,
+    // this package is a sub_package
+    pub is_sub_package: bool,
 
     pub imports: Vec<ImportComponent>,
     pub wbtest_imports: Vec<ImportComponent>,

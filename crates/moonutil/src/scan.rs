@@ -238,7 +238,7 @@ fn scan_module_packages(
                 doc_mode,
             )?;
 
-            if let Some(sub_package) = cur_pkg.sub_package.as_ref() {
+            if let Some(sub_package) = cur_pkg.with_sub_package.as_ref() {
                 let mut components = cur_pkg.rel.clone().components;
                 if let Some(last) = components.last_mut() {
                     *last = format!("{}{}", last, SUB_PKG_POSTFIX);
@@ -257,7 +257,8 @@ fn scan_module_packages(
                 let sub_pkg = Package {
                     rel,
                     files: sub_package.files.clone(),
-                    sub_package: None,
+                    with_sub_package: None,
+                    is_sub_package: true,
                     imports: sub_package.import.clone(),
                     artifact: artifact.clone(),
 
@@ -523,7 +524,8 @@ fn scan_one_package(
         wbtest_files: file_cond_map(wbtest_mbt_files),
         test_files: file_cond_map(test_mbt_files),
         mbt_md_files: file_cond_map(mbt_md_files),
-        sub_package,
+        with_sub_package: sub_package,
+        is_sub_package: false,
         imports,
         wbtest_imports,
         test_imports,

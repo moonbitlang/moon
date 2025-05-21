@@ -116,7 +116,11 @@ fn pkg_to_check_item(
         });
     }
 
-    let package_full_name = pkg.full_name();
+    let package_full_name = if pkg.is_sub_package {
+        pkg.full_name().replace(SUB_PKG_POSTFIX, "")
+    } else {
+        pkg.full_name()
+    };
     let package_source_dir: String = pkg.root_path.to_string_lossy().into_owned();
 
     let impl_virtual_pkg = if let Some(impl_virtual_pkg) = pkg.implement.as_ref() {
@@ -213,7 +217,11 @@ fn pkg_with_wbtest_to_check_item(
         });
     }
 
-    let package_full_name = pkg.full_name();
+    let package_full_name = if pkg.is_sub_package {
+        pkg.full_name().replace(SUB_PKG_POSTFIX, "")
+    } else {
+        pkg.full_name()
+    };
     let package_source_dir: String = pkg.root_path.to_string_lossy().into_owned();
 
     Ok(CheckDepItem {
@@ -324,7 +332,11 @@ fn pkg_with_test_to_check_item(
 
     // this is used for `-pkg` flag in `moonc check`, shouldn't be `pkg.full_name()` since we aren't check that package, otherwise we might encounter an error like "4015] Error: Type StructName has no method method_name"(however, StructName does has method method_name).
     // actually, `-pkg` flag is not necessary for blackbox test, but we still keep it for consistency
-    let package_full_name = pkg.full_name() + "_blackbox_test";
+    let package_full_name = if pkg.is_sub_package {
+        pkg.full_name().replace(SUB_PKG_POSTFIX, "")
+    } else {
+        pkg.full_name()
+    } + "_blackbox_test";
     let package_source_dir: String = pkg.root_path.to_string_lossy().into_owned();
 
     Ok(CheckDepItem {

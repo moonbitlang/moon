@@ -180,7 +180,11 @@ pub fn gen_build_build_item(
         });
     }
 
-    let package_full_name = pkg.full_name();
+    let package_full_name = if pkg.is_sub_package {
+        pkg.full_name().replace(SUB_PKG_POSTFIX, "")
+    } else {
+        pkg.full_name()
+    };
     let package_source_dir: String = pkg.root_path.to_string_lossy().into_owned();
 
     let impl_virtual_pkg = if let Some(impl_virtual_pkg) = pkg.implement.as_ref() {
@@ -223,7 +227,11 @@ pub fn gen_build_link_item(
     moonc_opt: &MooncOpt,
 ) -> anyhow::Result<BuildLinkDepItem> {
     let out = pkg.artifact.with_extension("wat"); // TODO: extension is determined by build option
-    let package_full_name = pkg.full_name();
+    let package_full_name = if pkg.is_sub_package {
+        pkg.full_name().replace(SUB_PKG_POSTFIX, "")
+    } else {
+        pkg.full_name()
+    };
 
     let mut core_core_and_abort_core = if moonc_opt.nostd {
         vec![]
