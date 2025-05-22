@@ -4475,7 +4475,7 @@ fn test_run_md_test() {
     );
 
     check(
-        get_err_stdout(&dir, ["test", "--md", "--sort-input"]),
+        get_err_stdout(&dir, ["test", "--sort-input"]),
         expect![[r#"
             hello from hello_test.mbt
             fn in md test
@@ -4524,7 +4524,6 @@ fn test_run_md_test() {
             &dir,
             [
                 "test",
-                "--md",
                 "--sort-input",
                 "-p",
                 "lib",
@@ -4541,7 +4540,7 @@ fn test_run_md_test() {
     );
 
     check(
-        get_stdout(&dir, ["test", "--md", "--update", "--sort-input"]),
+        get_stdout(&dir, ["test", "--update", "--sort-input"]),
         expect![[r#"
             hello from hello_test.mbt
             fn in md test
