@@ -842,7 +842,7 @@ fn debug_flag_test() {
             expect![[r#"
                 error: the argument '--release' cannot be used with '--debug'
 
-                Usage: moon check --release [PACKAGE_PATH]
+                Usage: moon check --release [SINGLE_FILE]
 
                 For more information, try '--help'.
             "#]],
@@ -3380,7 +3380,7 @@ fn test_moon_check_filter_package() {
     let dir = TestDir::new("test_check_filter.in");
 
     check(
-        get_stdout(&dir, ["check", "A", "--dry-run", "--sort-input"]),
+        get_stdout(&dir, ["check", "-p", "A", "--dry-run", "--sort-input"]),
         expect![[r#"
             moonc check ./A/hello.mbt ./A/test.mbt -o ./target/wasm-gc/release/check/A/A.mi -pkg username/hello/A -std-path $MOON_HOME/lib/core/target/wasm-gc/release/bundle -pkg-sources username/hello/A:./A -target wasm-gc
             moonc check ./A/hello_test.mbt -o ./target/wasm-gc/release/check/A/A.blackbox_test.mi -pkg username/hello/A_blackbox_test -std-path $MOON_HOME/lib/core/target/wasm-gc/release/bundle -i ./target/wasm-gc/release/check/A/A.mi:A -pkg-sources username/hello/A_blackbox_test:./A -target wasm-gc -blackbox-test
@@ -3389,7 +3389,7 @@ fn test_moon_check_filter_package() {
     );
 
     check(
-        get_stdout(&dir, ["check", "main", "--dry-run", "--sort-input"]),
+        get_stdout(&dir, ["check", "-p", "main", "--dry-run", "--sort-input"]),
         expect![[r#"
             moonc check ./lib2/lib.mbt -o ./target/wasm-gc/release/check/lib2/lib2.mi -pkg username/hello/lib2 -std-path $MOON_HOME/lib/core/target/wasm-gc/release/bundle -pkg-sources username/hello/lib2:./lib2 -target wasm-gc
             moonc check ./lib/hello.mbt -o ./target/wasm-gc/release/check/lib/lib.mi -pkg username/hello/lib -std-path $MOON_HOME/lib/core/target/wasm-gc/release/bundle -i ./target/wasm-gc/release/check/lib2/lib2.mi:lib2 -pkg-sources username/hello/lib:./lib -target wasm-gc
@@ -3398,7 +3398,7 @@ fn test_moon_check_filter_package() {
     );
 
     check(
-        get_stdout(&dir, ["check", "lib", "--dry-run", "--sort-input"]),
+        get_stdout(&dir, ["check", "-p", "lib", "--dry-run", "--sort-input"]),
         expect![[r#"
             moonc check ./lib2/lib.mbt -o ./target/wasm-gc/release/check/lib2/lib2.mi -pkg username/hello/lib2 -std-path $MOON_HOME/lib/core/target/wasm-gc/release/bundle -pkg-sources username/hello/lib2:./lib2 -target wasm-gc
             moonc check ./lib/hello.mbt -o ./target/wasm-gc/release/check/lib/lib.mi -pkg username/hello/lib -std-path $MOON_HOME/lib/core/target/wasm-gc/release/bundle -i ./target/wasm-gc/release/check/lib2/lib2.mi:lib2 -pkg-sources username/hello/lib:./lib -target wasm-gc
@@ -3416,6 +3416,7 @@ fn test_moon_check_package_with_patch() {
             &dir,
             [
                 "check",
+                "-p",
                 "A",
                 "--patch-file",
                 "/path/to/patch.json",
@@ -3434,6 +3435,7 @@ fn test_moon_check_package_with_patch() {
             &dir,
             [
                 "check",
+                "-p",
                 "A",
                 "--patch-file",
                 "/path/to/patch_wbtest.json",
@@ -3452,6 +3454,7 @@ fn test_moon_check_package_with_patch() {
             &dir,
             [
                 "check",
+                "-p",
                 "A",
                 "--patch-file",
                 "/path/to/patch_test.json",
@@ -3472,6 +3475,7 @@ fn test_moon_check_package_with_patch() {
             &dir,
             [
                 "check",
+                "-p",
                 "lib",
                 "--patch-file",
                 "/path/to/patch.json",
@@ -3489,6 +3493,7 @@ fn test_moon_check_package_with_patch() {
             &dir,
             [
                 "check",
+                "-p",
                 "lib",
                 "--patch-file",
                 "/path/to/patch_test.json",
@@ -3508,6 +3513,7 @@ fn test_moon_check_package_with_patch() {
             &dir,
             [
                 "check",
+                "-p",
                 "main",
                 "--patch-file",
                 "/path/to/patch.json",
@@ -3734,7 +3740,10 @@ fn test_moon_test_patch() {
 fn test_render_diagnostic_in_patch_file() {
     let dir = TestDir::new("moon_test/patch");
     check(
-        get_stderr(&dir, ["check", "lib", "--patch-file", "./patch_test.json"]),
+        get_stderr(
+            &dir,
+            ["check", "-p", "lib", "--patch-file", "./patch_test.json"],
+        ),
         expect![[r#"
             Warning: [0002]
                ╭─[hello_2_test.mbt:2:6]
@@ -3749,7 +3758,7 @@ fn test_render_diagnostic_in_patch_file() {
     check(
         get_stderr(
             &dir,
-            ["check", "lib", "--patch-file", "./patch_wbtest.json"],
+            ["check", "-p", "lib", "--patch-file", "./patch_wbtest.json"],
         ),
         expect![[r#"
             Warning: [0002]
@@ -3763,7 +3772,7 @@ fn test_render_diagnostic_in_patch_file() {
         "#]],
     );
     check(
-        get_stderr(&dir, ["check", "lib", "--patch-file", "./patch.json"]),
+        get_stderr(&dir, ["check", "-p", "lib", "--patch-file", "./patch.json"]),
         expect![[r#"
             Warning: [0002]
                ╭─[hello_0.mbt:2:6]
@@ -3782,6 +3791,7 @@ fn test_render_diagnostic_in_patch_file() {
             &dir,
             [
                 "check",
+                "-p",
                 "lib",
                 "--patch-file",
                 "./patch_test.json",
@@ -5091,7 +5101,7 @@ fn moon_test_single_file() {
             get_err_stdout(&dir, ["test", "single.mbt", "-i", "1"]),
             expect![[r#"
                 test moon/test/single/single.mbt::1 failed
-                expect test failed at $ROOT/single.mbt:12:3-12:19
+                expect test failed at $ROOT/single.mbt:13:3-13:19
                 Diff:
                 ----
                 234523
@@ -5118,6 +5128,34 @@ fn moon_test_single_file() {
                 Total tests: 1, passed: 1, failed: 0.
             "#]],
         );
+
+        check(
+            get_stderr(&dir, ["check", "single.mbt"]),
+            expect![[r#"
+                Warning: [0002]
+                   ╭─[$ROOT/single.mbt:8:7]
+                   │
+                 8 │   let single_mbt = 1
+                   │       ─────┬────  
+                   │            ╰────── Warning: Unused variable 'single_mbt'
+                ───╯
+                Finished. moon: ran 2 tasks, now up to date
+            "#]],
+        );
+        // abs path
+        check(
+            get_stderr(&dir, ["check", &single_mbt]),
+            expect![[r#"
+                Warning: [0002]
+                   ╭─[$ROOT/single.mbt:8:7]
+                   │
+                 8 │   let single_mbt = 1
+                   │       ─────┬────  
+                   │            ╰────── Warning: Unused variable 'single_mbt'
+                ───╯
+                Finished. moon: ran 1 task, now up to date
+            "#]],
+        );
     }
 
     {
@@ -5133,7 +5171,7 @@ fn moon_test_single_file() {
             get_err_stdout(&dir, ["test", "111.mbt.md", "-i", "1"]),
             expect![[r#"
                 test moon/test/single/111.mbt.md::1 failed
-                expect test failed at $ROOT/111.mbt.md:18:5-18:21
+                expect test failed at $ROOT/111.mbt.md:19:5-19:21
                 Diff:
                 ----
                 234523
@@ -5158,6 +5196,35 @@ fn moon_test_single_file() {
     
                 222
                 Total tests: 1, passed: 1, failed: 0.
+            "#]],
+        );
+
+        // rel path
+        check(
+            get_stderr(&dir, ["check", "111.mbt.md"]),
+            expect![[r#"
+                Warning: [0002]
+                    ╭─[$ROOT/111.mbt.md:18:9]
+                    │
+                 18 │     let single_mbt_md = 1
+                    │         ──────┬──────  
+                    │               ╰──────── Warning: Unused variable 'single_mbt_md'
+                ────╯
+                Finished. moon: ran 1 task, now up to date
+            "#]],
+        );
+        // abs path
+        check(
+            get_stderr(&dir, ["check", &single_mbt_md]),
+            expect![[r#"
+                Warning: [0002]
+                    ╭─[$ROOT/111.mbt.md:18:9]
+                    │
+                 18 │     let single_mbt_md = 1
+                    │         ──────┬──────  
+                    │               ╰──────── Warning: Unused variable 'single_mbt_md'
+                ────╯
+                Finished. moon: ran 1 task, now up to date
             "#]],
         );
     }

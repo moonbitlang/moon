@@ -18,7 +18,7 @@
 
 use anyhow::Context;
 
-use moonutil::common::{FileLock, MoonbuildOpt, MooncOpt};
+use moonutil::common::{FileLock, MoonbuildOpt, MooncOpt, SINGLE_FILE_TEST_PACKAGE};
 use moonutil::module::{convert_mdb_to_json, ModuleDB, ModuleDBJSON};
 use n2::load::State;
 use std::io::BufWriter;
@@ -42,7 +42,24 @@ pub fn write_pkg_lst(module: &ModuleDB, target_dir: &Path) -> anyhow::Result<()>
         };
 
     let mj = convert_mdb_to_json(module);
-    let pkg_json = target_dir.join("packages.json");
+    let mbt_md_file_name = if module.name == "moon/test" {
+        // Get .mbt.md file path from SINGLE_FILE_TEST_PACKAGE
+        module
+            .get_all_packages()
+            .get(SINGLE_FILE_TEST_PACKAGE)
+            .and_then(|pkg| pkg.mbt_md_files.keys().next())
+            .and_then(|path| path.file_name())
+            .and_then(|name| name.to_str())
+            .map(String::from)
+            .unwrap_or_default()
+    } else {
+        String::new()
+    };
+    let pkg_json = if mbt_md_file_name.is_empty() {
+        target_dir.join("packages.json")
+    } else {
+        target_dir.join(format!("{}.packages.json", mbt_md_file_name))
+    };
     // packages.json now placed in target/, should be protected for mutil-thread write
     let _lock = FileLock::lock(target_dir)?;
 

@@ -124,11 +124,11 @@ Build the current package
 
 Check the current package, but don't build object files
 
-**Usage:** `moon check [OPTIONS] [PACKAGE_PATH]`
+**Usage:** `moon check [OPTIONS] [SINGLE_FILE]`
 
 ###### **Arguments:**
 
-* `<PACKAGE_PATH>` — The package(and it's deps) to check
+* `<SINGLE_FILE>` — Check single file (.mbt or .mbt.md)
 
 ###### **Options:**
 
@@ -154,6 +154,7 @@ Check the current package, but don't build object files
 * `--output-json` — Output in json format
 * `--frozen` — Do not sync dependencies, assuming local dependencies are up-to-date
 * `-w`, `--watch` — Monitor the file system and automatically check files
+* `-p`, `--package-path <PACKAGE_PATH>` — The package(and it's deps) to check
 * `--patch-file <PATCH_FILE>` — The patch file to check, Only valid when checking specified package
 * `--no-mi` — Whether to skip the mi generation, Only valid when checking specified package
 * `--explain` — Whether to explain the error code with details

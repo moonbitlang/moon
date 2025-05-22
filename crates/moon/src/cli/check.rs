@@ -24,19 +24,20 @@ use moonbuild::watcher_is_running;
 use moonbuild::{entry, MOON_PID_NAME};
 use mooncake::pkg::sync::auto_sync;
 use moonutil::cli::UniversalFlags;
-use moonutil::common::RunMode;
 use moonutil::common::WATCH_MODE_DIR;
 use moonutil::common::{lower_surface_targets, CheckOpt};
 use moonutil::common::{FileLock, TargetBackend};
 use moonutil::common::{MoonbuildOpt, PrePostBuild};
+use moonutil::common::{MooncOpt, OutputFormat, RunMode, DOT_MBT_DOT_MD};
 use moonutil::dirs::mk_arch_mode_dir;
-use moonutil::dirs::PackageDirs;
 use moonutil::mooncakes::sync::AutoSyncFlags;
 use moonutil::mooncakes::RegistryConfig;
 use n2::trace;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::thread;
+
+use crate::cli::get_module_for_single_file_test;
 
 use super::pre_build::scan_with_x_build;
 use super::{get_compiler_flags, BuildFlags};
@@ -59,6 +60,7 @@ pub struct CheckSubcommand {
     pub watch: bool,
 
     /// The package(and it's deps) to check
+    #[clap(long, short)]
     pub package_path: Option<PathBuf>,
 
     /// The patch file to check, Only valid when checking specified package.
@@ -72,13 +74,22 @@ pub struct CheckSubcommand {
     /// Whether to explain the error code with details.
     #[clap(long)]
     pub explain: bool,
+
+    /// Check single file (.mbt or .mbt.md)
+    #[clap(conflicts_with = "watch")]
+    pub single_file: Option<PathBuf>,
 }
 
 pub fn run_check(cli: &UniversalFlags, cmd: &CheckSubcommand) -> anyhow::Result<i32> {
-    let PackageDirs {
-        source_dir,
-        mut target_dir,
-    } = cli.source_tgt_dir.try_into_package_dirs()?;
+    let (source_dir, mut target_dir) = if let Some(ref single_file_path) = cmd.single_file {
+        let single_file_path = &dunce::canonicalize(single_file_path).unwrap();
+        let source_dir = single_file_path.parent().unwrap().to_path_buf();
+        let target_dir = source_dir.join("target");
+        (source_dir, target_dir)
+    } else {
+        let dir = cli.source_tgt_dir.try_into_package_dirs()?;
+        (dir.source_dir, dir.target_dir)
+    };
 
     // make a dedicated directory for the watch mode so that we don't block(MOON_LOCK) the normal no-watch mode(automatically trigger by ide in background)
     if cmd.watch {
@@ -136,6 +147,107 @@ pub fn run_check(cli: &UniversalFlags, cmd: &CheckSubcommand) -> anyhow::Result<
 }
 
 fn run_check_internal(
+    cli: &UniversalFlags,
+    cmd: &CheckSubcommand,
+    source_dir: &Path,
+    target_dir: &Path,
+) -> anyhow::Result<i32> {
+    if cmd.single_file.is_some() {
+        run_check_for_single_file(cli, cmd)
+    } else {
+        run_check_normal_internal(cli, cmd.into(), source_dir, target_dir)
+    }
+}
+
+fn run_check_for_single_file(cli: &UniversalFlags, cmd: &CheckSubcommand) -> anyhow::Result<i32> {
+    let target_backend = cmd
+        .build_flags
+        .target_backend
+        .unwrap_or(TargetBackend::WasmGC);
+
+    let single_file_path = &dunce::canonicalize(cmd.single_file.as_ref().unwrap()).unwrap();
+    let single_file_string = single_file_path.display().to_string();
+    let source_dir = single_file_path.parent().unwrap().to_path_buf();
+    let raw_target_dir = source_dir.join("target");
+
+    let release_flag = !cmd.build_flags.debug;
+
+    let target_dir = raw_target_dir
+        .join(target_backend.to_dir_name())
+        .join(if release_flag { "release" } else { "debug" })
+        .join(RunMode::Check.to_dir_name());
+
+    let moonbuild_opt = MoonbuildOpt {
+        source_dir: source_dir.clone(),
+        target_dir: target_dir.clone(),
+        raw_target_dir: raw_target_dir.clone(),
+        test_opt: None,
+        check_opt: Some(CheckOpt {
+            package_path: cmd.package_path.clone(), // todo
+            patch_file: if single_file_string.ends_with(DOT_MBT_DOT_MD) {
+                Some(
+                    target_dir
+                        .join("single")
+                        .join(format!("{}.json", moonutil::common::MOON_MD_TEST_POSTFIX)),
+                )
+            } else {
+                None
+            },
+            no_mi: cmd.no_mi,
+            explain: cmd.explain,
+        }),
+        build_opt: None,
+        sort_input: cmd.build_flags.sort_input,
+        run_mode: RunMode::Check,
+        quiet: cli.quiet,
+        verbose: cli.verbose,
+        no_parallelize: false,
+        build_graph: cli.build_graph,
+        fmt_opt: None,
+        args: vec![],
+        output_json: false,
+        parallelism: cmd.build_flags.jobs,
+        use_tcc_run: false,
+        dynamic_stub_libs: None,
+    };
+    let moonc_opt = MooncOpt {
+        build_opt: moonutil::common::BuildPackageFlags {
+            debug_flag: !release_flag,
+            strip_flag: false,
+            source_map: false,
+            enable_coverage: false,
+            deny_warn: false,
+            target_backend,
+            warn_list: None,
+            alert_list: None,
+            enable_value_tracing: false,
+        },
+        link_opt: moonutil::common::LinkCoreFlags {
+            debug_flag: !release_flag,
+            source_map: !release_flag,
+            output_format: match target_backend {
+                TargetBackend::Js => OutputFormat::Js,
+                TargetBackend::Native => OutputFormat::Native,
+                TargetBackend::LLVM => OutputFormat::LLVM,
+                _ => OutputFormat::Wasm,
+            },
+            target_backend,
+        },
+        extra_build_opt: vec![],
+        extra_link_opt: vec![],
+        nostd: false,
+        render: true,
+    };
+    let module = get_module_for_single_file_test(single_file_path, &moonc_opt, &moonbuild_opt)?;
+
+    if cli.dry_run {
+        return dry_run::print_commands(&module, &moonc_opt, &moonbuild_opt);
+    }
+
+    entry::run_check(&moonc_opt, &moonbuild_opt, &module)
+}
+
+fn run_check_normal_internal(
     cli: &UniversalFlags,
     cmd: &CheckSubcommand,
     source_dir: &Path,

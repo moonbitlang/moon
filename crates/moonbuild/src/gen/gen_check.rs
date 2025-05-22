@@ -580,6 +580,9 @@ pub fn gen_n2_check_state(
 
     let mut hashes = n2graph::Hashes::default();
     let n2_db_path = &target_dir.join("check.moon_db");
+    if !n2_db_path.parent().unwrap().exists() {
+        std::fs::create_dir_all(n2_db_path.parent().unwrap()).unwrap();
+    }
     let db = n2::db::open(n2_db_path, &mut graph, &mut hashes).map_err(|e| N2Error {
         source: N2ErrorKind::DBOpenError(e),
     })?;
