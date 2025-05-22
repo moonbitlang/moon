@@ -96,10 +96,6 @@ pub struct TestSubcommand {
     #[clap(long = "doc")]
     pub doc_test: bool,
 
-    /// Run test in markdown file
-    #[clap(long = "md", conflicts_with = "doc_test")]
-    pub md_test: bool,
-
     /// Run test in single file (.mbt or .mbt.md)
     pub single_file: Option<PathBuf>,
 }
@@ -114,13 +110,6 @@ pub fn run_test(cli: UniversalFlags, cmd: TestSubcommand) -> anyhow::Result<i32>
         let dir = cli.source_tgt_dir.try_into_package_dirs()?;
         (dir.source_dir, dir.target_dir)
     };
-
-    if cmd.md_test {
-        eprintln!(
-            "{}: --md flag is deprecated and will be removed in the future, please use `moon test` directly",
-            "Warning".yellow(),
-        );
-    }
 
     if cmd.build_flags.target.is_none() {
         return run_test_internal(&cli, &cmd, &source_dir, &target_dir, None);
