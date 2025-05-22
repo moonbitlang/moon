@@ -155,7 +155,7 @@ fn run_check_internal(
     if cmd.single_file.is_some() {
         run_check_for_single_file(cli, cmd)
     } else {
-        run_check_normal_internal(cli, cmd.into(), source_dir, target_dir)
+        run_check_normal_internal(cli, cmd, source_dir, target_dir)
     }
 }
 
@@ -183,7 +183,7 @@ fn run_check_for_single_file(cli: &UniversalFlags, cmd: &CheckSubcommand) -> any
         raw_target_dir: raw_target_dir.clone(),
         test_opt: None,
         check_opt: Some(CheckOpt {
-            package_path: cmd.package_path.clone(), // todo
+            package_path: None,
             patch_file: if single_file_string.ends_with(DOT_MBT_DOT_MD) {
                 Some(
                     target_dir
