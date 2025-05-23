@@ -250,7 +250,7 @@ impl ModuleDB {
             let to_idx = name_to_idx[to_node];
 
             for dep in pkg.imports.iter() {
-                let from_node = dep.path.make_full_path();
+                let from_node = dep.make_full_path();
                 if !name_to_idx.contains_key(&from_node) {
                     let to_idx = graph.add_node(from_node.clone());
                     name_to_idx.insert(from_node.clone(), to_idx);

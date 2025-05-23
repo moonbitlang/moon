@@ -704,7 +704,7 @@ pub fn scan(
         let from_idx = name_to_idx[from_node];
 
         for dep in pkg.imports.iter() {
-            let to_node = dep.path.make_full_path();
+            let to_node = dep.make_full_path();
             if !name_to_idx.contains_key(&to_node) {
                 let to_idx = graph.add_node(to_node.clone());
                 name_to_idx.insert(to_node.clone(), to_idx);
