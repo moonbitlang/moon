@@ -72,6 +72,7 @@ pub const MOD_DIR: &str = "$mod_dir";
 pub const PKG_DIR: &str = "$pkg_dir";
 
 pub const SINGLE_FILE_TEST_PACKAGE: &str = "moon/test/single";
+pub const SINGLE_FILE_TEST_MODULE: &str = "moon/test";
 
 pub const SUB_PKG_POSTFIX: &str = "_sub";
 

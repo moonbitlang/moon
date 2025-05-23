@@ -22,7 +22,7 @@ use moonbuild::dry_run;
 use moonbuild::watch::watching;
 use moonbuild::watcher_is_running;
 use moonbuild::{entry, MOON_PID_NAME};
-use mooncake::pkg::sync::auto_sync;
+use mooncake::pkg::sync::{auto_sync, auto_sync_for_single_mbt_md};
 use moonutil::cli::UniversalFlags;
 use moonutil::common::WATCH_MODE_DIR;
 use moonutil::common::{lower_surface_targets, CheckOpt};
@@ -218,9 +218,9 @@ fn run_check_for_single_file(cli: &UniversalFlags, cmd: &CheckSubcommand) -> any
             enable_coverage: false,
             deny_warn: false,
             target_backend,
-            warn_list: None,
-            alert_list: None,
-            enable_value_tracing: false,
+            warn_list: cmd.build_flags.warn_list.clone(),
+            alert_list: cmd.build_flags.alert_list.clone(),
+            enable_value_tracing: cmd.build_flags.enable_value_tracing,
         },
         link_opt: moonutil::common::LinkCoreFlags {
             debug_flag: !release_flag,
@@ -236,7 +236,7 @@ fn run_check_for_single_file(cli: &UniversalFlags, cmd: &CheckSubcommand) -> any
         extra_build_opt: vec![],
         extra_link_opt: vec![],
         nostd: false,
-        render: true,
+        render: !cmd.build_flags.no_render,
     };
     let module = get_module_for_single_file_test(single_file_path, &moonc_opt, &moonbuild_opt)?;
 

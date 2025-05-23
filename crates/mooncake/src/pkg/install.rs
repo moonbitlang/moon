@@ -36,22 +36,22 @@ pub struct InstallSubcommand {}
 pub fn install(
     source_dir: &Path,
     _target_dir: &Path,
-    registry_config: &RegistryConfig,
+    _registry_config: &RegistryConfig,
     quiet: bool,
     verbose: bool,
 ) -> anyhow::Result<i32> {
-    install_impl(source_dir, registry_config, quiet, verbose, false).map(|_| 0)
+    let m = read_module_desc_file_in_dir(source_dir)?;
+    let m = Rc::new(m);
+    install_impl(source_dir, m, quiet, verbose, false).map(|_| 0)
 }
 
 pub(crate) fn install_impl(
     source_dir: &Path,
-    _registry_config: &RegistryConfig,
+    m: Rc<moonutil::module::MoonMod>,
     quiet: bool,
     verbose: bool,
     dont_sync: bool,
 ) -> anyhow::Result<(ResolvedEnv, DepDir)> {
-    let m = read_module_desc_file_in_dir(source_dir)?;
-    let m = Rc::new(m);
     let registry = crate::registry::RegistryList::with_default_registry();
     let ms = ModuleSource::from_local_module(&m, source_dir).expect("Malformed module manifest");
     let res = resolve_single_root_with_defaults(&registry, ms, Rc::clone(&m))?;
@@ -188,6 +188,7 @@ fn get_module_db(
     };
     let module_db = scan(
         false,
+        None,
         resolved_env,
         &dir_sync_result,
         &moonutil::common::MooncOpt::default(),

@@ -64,6 +64,10 @@ impl PathComponent {
         }
         true
     }
+
+    pub fn to_string(&self) -> String {
+        self.components.join("/")
+    }
 }
 
 #[test]
