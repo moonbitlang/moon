@@ -19,6 +19,8 @@
 use anyhow::Context;
 use regex::Regex;
 use std::fs;
+use std::fs::File;
+use std::io::Write;
 use std::path::{Path, PathBuf};
 
 use crate::common::{backend_filter, MooncOpt, PatchItem, PatchJSON};
@@ -267,8 +269,15 @@ pub fn gen_doc_test_patch(pkg: &Package, moonc_opt: &MooncOpt) -> anyhow::Result
     if !pj_path.parent().unwrap().exists() {
         std::fs::create_dir_all(pj_path.parent().unwrap())?;
     }
-    std::fs::write(&pj_path, serde_json_lenient::to_string_pretty(&pj)?)
-        .context(format!("failed to write {}", &pj_path.display()))?;
+
+    let mut file =
+        File::create(&pj_path).context(format!("failed to create file {}", pj_path.display()))?;
+
+    let content = serde_json_lenient::to_string_pretty(&pj)?;
+    file.write_all(content.as_bytes())
+        .context(format!("failed to write to {}", pj_path.display()))?;
+    file.flush()
+        .context(format!("failed to flush {}", pj_path.display()))?;
 
     Ok(Some(pj_path))
 }
@@ -300,8 +309,15 @@ pub fn gen_md_test_patch(pkg: &Package, moonc_opt: &MooncOpt) -> anyhow::Result<
     if !pj_path.parent().unwrap().exists() {
         std::fs::create_dir_all(pj_path.parent().unwrap())?;
     }
-    std::fs::write(&pj_path, serde_json_lenient::to_string_pretty(&pj)?)
-        .context(format!("failed to write {}", &pj_path.display()))?;
+
+    let mut file =
+        File::create(&pj_path).context(format!("failed to create file {}", pj_path.display()))?;
+
+    let content = serde_json_lenient::to_string_pretty(&pj)?;
+    file.write_all(content.as_bytes())
+        .context(format!("failed to write to {}", pj_path.display()))?;
+    file.flush()
+        .context(format!("failed to flush {}", pj_path.display()))?;
 
     Ok(Some(pj_path))
 }
