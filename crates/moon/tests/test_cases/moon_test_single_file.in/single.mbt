@@ -1,10 +1,11 @@
 
-fn main {
+fn _hello() -> Unit {
   println("------------------ in main ------------------")
 }
 
 
 test {
+  let single_mbt = 1
   println("------------------ 11111111 ------------------")
 }
 
