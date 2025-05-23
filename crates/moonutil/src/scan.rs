@@ -674,7 +674,7 @@ pub fn scan(
         )?;
     }
 
-    if !moonc_opt.nostd {
+    if !moonc_opt.nostd && mod_desc.name != crate::common::MOONBITLANG_CORE {
         packages.insert(
             MOONBITLANG_ABORT.to_string(),
             crate::common::gen_moonbitlang_abort_pkg(moonc_opt),
