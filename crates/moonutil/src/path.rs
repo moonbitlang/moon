@@ -23,6 +23,8 @@ use std::{
     path::{Component, Path, PathBuf},
 };
 
+use crate::common::SUB_PKG_POSTFIX;
+
 #[derive(Clone, PartialEq, Eq, Hash)]
 pub struct PathComponent {
     pub components: Vec<String>,
@@ -206,6 +208,14 @@ impl ImportComponent {
             .collect();
         components.extend(self.path.rel_path.components.iter().cloned());
         PathComponent { components }
+    }
+
+    pub fn make_full_path(&self) -> String {
+        if self.sub_package {
+            format!("{}{}", self.path.make_full_path(), SUB_PKG_POSTFIX)
+        } else {
+            self.path.make_full_path()
+        }
     }
 }
 
