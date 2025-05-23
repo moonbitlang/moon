@@ -26,6 +26,7 @@ use mooncake::pkg::sync::auto_sync_for_single_mbt_md;
 use moonutil::common::lower_surface_targets;
 use moonutil::common::FileLock;
 use moonutil::common::GeneratedTestDriver;
+use moonutil::common::MoonbitConfig;
 use moonutil::common::MooncOpt;
 use moonutil::common::OutputFormat;
 use moonutil::common::RunMode;
@@ -41,7 +42,10 @@ use moonutil::mooncakes::RegistryConfig;
 use moonutil::package::Package;
 use moonutil::path::PathComponent;
 use n2::trace;
+use pulldown_cmark::Event;
+use pulldown_cmark::Tag;
 use std::collections::HashSet;
+use std::io::Read;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::thread;
@@ -279,18 +283,62 @@ fn run_test_in_single_file(cli: &UniversalFlags, cmd: &TestSubcommand) -> anyhow
     )
 }
 
+
+
+// #[test]
+// fn extract_md_header() -> anyhow::Result<()> {
+//     let file_path = PathBuf::from("/Users/flash/projects/moonbuild/crates/moon/tests/test_cases/moon_test_single_file.in/111.mbt.md");
+//     let mut file = std::fs::File::open(file_path)?;
+//     let mut content = String::new();
+//     file.read_to_string(&mut content)?;
+
+//     let parser = pulldown_cmark::Parser::new(&content);
+//     let mut in_front_matter = false;
+//     let mut yaml_content = String::new();
+
+//     // for event in parser {
+//     //     match event {
+//     //         Event::Start(MetadataBlock) => {
+//     //             in_front_matter = true;
+//     //         }
+//     //         Event::Text(text) if in_front_matter => {
+//     //             yaml_content.push_str(&text);
+//     //             yaml_content.push_str("\n");
+//     //         }
+//     //         Event::End(_) => {
+//     //             in_front_matter = false;
+//     //             // 找到第一个 front matter 后就退出
+//     //             break;
+//     //         }
+//     //         _ => {}
+//     //     }
+//     // }
+//     let pattern = regex::Regex::new(r"(?s)^---\s*\n((?:[^\n]+\n)*?)---\s*\n")?;
+
+//     if let Some(cap) = pattern.captures(&content) {
+//         let yaml_content = cap.get(1).unwrap().as_str();
+//         println!("---yaml_content: {:?}", yaml_content);
+//         let config: MoonbitConfig = serde_yaml::from_str(yaml_content)?;
+//         println!("---config: {:?}", config);
+//     }
+
+//     Ok(())
+// }
+
 pub fn get_module_for_single_file_test(
     single_file_path: &Path,
     moonc_opt: &MooncOpt,
     moonbuild_opt: &MoonbuildOpt,
 ) -> anyhow::Result<ModuleDB> {
+
+
     let gen_single_file_test_pkg = |moonc_opt: &MooncOpt, single_file_path: &Path| -> Package {
         let path_comp = PathComponent {
             components: vec!["moon".to_string(), "test".to_string()],
         };
         let pkg_rel_name = "single";
 
-        let single_file_string = single_file_path.display().to_string();
+        
         let source_dir = single_file_path.parent().unwrap().to_path_buf();
         let target_dir = &moonbuild_opt.target_dir;
 
@@ -360,8 +408,10 @@ pub fn get_module_for_single_file_test(
         }
     };
 
+
+
     let (resolved_env, dir_sync_result, moon_mod) =
-        auto_sync_for_single_mbt_md(moonc_opt, moonbuild_opt)?;
+        auto_sync_for_single_mbt_md(moonc_opt, moonbuild_opt, single_file_path)?;
 
     let mut module = moonutil::scan::scan(
         false,

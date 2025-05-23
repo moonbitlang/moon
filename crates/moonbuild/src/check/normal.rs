@@ -18,7 +18,9 @@
 
 use anyhow::Context;
 
-use moonutil::common::{FileLock, MoonbuildOpt, MooncOpt, SINGLE_FILE_TEST_MODULE, SINGLE_FILE_TEST_PACKAGE};
+use moonutil::common::{
+    FileLock, MoonbuildOpt, MooncOpt, SINGLE_FILE_TEST_MODULE, SINGLE_FILE_TEST_PACKAGE,
+};
 use moonutil::module::{convert_mdb_to_json, ModuleDB, ModuleDBJSON};
 use n2::load::State;
 use std::io::BufWriter;

@@ -46,6 +46,8 @@ indexmap.workspace = true
 petgraph.workspace = true
 thiserror.workspace = true
 dunce.workspace = true
+regex.workspace = true
+serde_yaml.workspace = true
 
 [dev-dependencies]
 expect-test.workspace = true

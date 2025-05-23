@@ -231,6 +231,7 @@ pub fn generate_test_driver(
         dynamic_stub_libs: None,
     };
 
+    println!("111");
     let module = if let Some(single_test_file) = cmd.single_test_file {
         get_module_for_single_file_test(&single_test_file, &moonc_opt, &moonbuild_opt)?
     } else {

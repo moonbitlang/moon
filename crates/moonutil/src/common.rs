@@ -1134,3 +1134,14 @@ pub fn gen_moonbitlang_abort_pkg(moonc_opt: &MooncOpt) -> Package {
         link_search_paths: vec![],
     }
 }
+
+#[derive(Debug, serde::Deserialize)]
+pub struct MoonbitConfig {
+    pub moonbit: MoonbitSection,
+}
+
+#[derive(Debug, serde::Deserialize)]
+pub struct MoonbitSection {
+    pub deps: Option<IndexMap<String, String>>,
+    pub backend: Option<String>,
+}

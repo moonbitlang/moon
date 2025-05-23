@@ -22,7 +22,7 @@ use std::path::Path;
 
 use indexmap::IndexMap;
 use moonutil::{
-    common::{MoonbuildOpt, MooncOpt},
+    common::{MoonbitConfig, MoonbuildOpt, MooncOpt, DOT_MBT_DOT_MD},
     module::MoonMod,
     mooncakes::{result::ResolvedEnv, sync::AutoSyncFlags, DirSyncResult, RegistryConfig},
 };
@@ -48,15 +48,55 @@ pub fn auto_sync(
 pub fn auto_sync_for_single_mbt_md(
     moonc_opt: &MooncOpt,
     moonbuild_opt: &MoonbuildOpt,
+    single_file_path: &Path,
 ) -> anyhow::Result<(ResolvedEnv, DirSyncResult, MoonMod)> {
+    // extract the front matter
+    let single_file_string = single_file_path.display().to_string();
+    let front_matter_config: Option<MoonbitConfig> = if single_file_string.ends_with(DOT_MBT_DOT_MD)
+    {
+        let content = std::fs::read_to_string(single_file_path)?;
+        let pattern = regex::Regex::new(r"(?s)^---\s*\n((?:[^\n]+\n)*?)---\s*\n")?;
+        if let Some(cap) = pattern.captures(&content) {
+            let yaml_content = cap.get(1).unwrap().as_str();
+            let config: MoonbitConfig = serde_yaml::from_str(yaml_content)
+                .context("Failed to parse front matter in markdown file")?;
+
+            Some(config)
+        } else {
+            None
+        }
+    } else {
+        None
+    };
+    println!("single_file_path: {:?}", single_file_path);
+    println!("front_matter_config: {:?}", front_matter_config);
+
     let mut deps = IndexMap::new();
-    deps.insert(
-        "moonbitlang/x".to_string(),
-        moonutil::dependency::SourceDependencyInfo {
-            version: VersionReq::parse("0.4.23")?,
-            ..Default::default()
-        },
-    );
+    // deps.insert(
+    //     "moonbitlang/x".to_string(),
+    //     moonutil::dependency::SourceDependencyInfo {
+    //         version: VersionReq::parse("0.4.23")?,
+    //         ..Default::default()
+    //     },
+    // );
+
+    // match front_matter_config.and_then(|config| config.moonbit.deps) {
+    //     Some(deps_map) => {
+    //         for (k, v) in deps_map.iter() {
+    //             println!("k: {:?} v: {:?}", k, v);
+    //             deps.insert(k.to_string(), moonutil::dependency::SourceDependencyInfo {
+    //                 version: VersionReq::parse(v).unwrap_or_default(),
+    //                 ..Default::default()
+    //             });
+    //         }
+    //     }
+    //     None => {}
+    // }
+    println!("deps: {:?}", deps);
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default();
+    println!("Current timestamp: {:?}", now);
     let m = MoonMod {
         name: moonutil::common::SINGLE_FILE_TEST_MODULE.to_string(),
         version: Some(Version::new(0, 0, 1)),

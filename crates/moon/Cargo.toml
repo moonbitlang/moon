@@ -52,6 +52,9 @@ futures.workspace = true
 clap_complete.workspace = true
 indexmap.workspace = true
 petgraph.workspace = true
+pulldown-cmark.workspace = true
+serde_yaml.workspace = true
+regex.workspace = true
 
 [target.'cfg(not(windows))'.dependencies]
 openssl = { version = "0.10.66", features = ["vendored"] }
