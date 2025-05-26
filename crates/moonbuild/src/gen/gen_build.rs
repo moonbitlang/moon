@@ -422,6 +422,7 @@ pub fn gen_build_interface_command(
                     .unwrap(),
             ],
         )
+        .arg("-error-format=json")
         .build();
     log::debug!("Command: {}", command);
     build.cmdline = Some(command);
