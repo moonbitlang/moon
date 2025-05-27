@@ -1,0 +1,6 @@
+package "username/hello/deep/lib"
+
+fn f1(Int) -> Unit
+
+fn f2(String) -> Unit
+
