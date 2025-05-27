@@ -558,7 +558,17 @@ fn scan_one_package(
             .and_then(|x| if x.is_empty() { None } else { Some(x) }),
 
         virtual_mbti_file: if pkg.virtual_pkg.is_some() {
-            let virtual_mbti_file = pkg_path.join(format!("{}.mbti", rel.display()));
+            let virtual_mbti_file = pkg_path.join(format!(
+                "{}.mbti",
+                rel.file_name()
+                    .map(|x| x.to_string_lossy())
+                    .unwrap_or_else(|| mod_desc
+                        .name
+                        .rsplit('/')
+                        .next()
+                        .expect("Empty module name")
+                        .into())
+            ));
             if !virtual_mbti_file.exists() {
                 anyhow::bail!(
                     "virtual mbti file `{}` not found",
