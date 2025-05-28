@@ -232,7 +232,7 @@ pub fn generate_test_driver(
     };
 
     let module = if let Some(single_test_file) = cmd.single_test_file {
-        get_module_for_single_file_test(&single_test_file, &moonc_opt, &moonbuild_opt)?
+        get_module_for_single_file_test(&single_test_file, &moonc_opt, &moonbuild_opt, None)?
     } else {
         // Resolve dependencies, but don't download anything
         let (resolved_env, dir_sync_result) = auto_sync(

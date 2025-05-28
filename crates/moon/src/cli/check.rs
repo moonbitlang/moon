@@ -24,8 +24,8 @@ use moonbuild::watcher_is_running;
 use moonbuild::{entry, MOON_PID_NAME};
 use mooncake::pkg::sync::auto_sync;
 use moonutil::cli::UniversalFlags;
-use moonutil::common::WATCH_MODE_DIR;
 use moonutil::common::{lower_surface_targets, CheckOpt};
+use moonutil::common::{parse_front_matter_config, WATCH_MODE_DIR};
 use moonutil::common::{FileLock, TargetBackend};
 use moonutil::common::{MoonbuildOpt, PrePostBuild};
 use moonutil::common::{MooncOpt, OutputFormat, RunMode, DOT_MBT_DOT_MD};
@@ -160,15 +160,26 @@ fn run_check_internal(
 }
 
 fn run_check_for_single_file(cli: &UniversalFlags, cmd: &CheckSubcommand) -> anyhow::Result<i32> {
-    let target_backend = cmd
-        .build_flags
-        .target_backend
-        .unwrap_or(TargetBackend::WasmGC);
-
     let single_file_path = &dunce::canonicalize(cmd.single_file.as_ref().unwrap()).unwrap();
     let single_file_string = single_file_path.display().to_string();
     let source_dir = single_file_path.parent().unwrap().to_path_buf();
     let raw_target_dir = source_dir.join("target");
+
+    let mbt_md_header = parse_front_matter_config(single_file_path)?;
+    let target_backend = if let Some(moonutil::common::MbtMdHeader {
+        moonbit:
+            moonutil::common::MbtMdSection {
+                backend: Some(backend),
+                ..
+            },
+    }) = &mbt_md_header
+    {
+        TargetBackend::str_to_backend(backend)?
+    } else {
+        cmd.build_flags
+            .target_backend
+            .unwrap_or(TargetBackend::WasmGC)
+    };
 
     let release_flag = !cmd.build_flags.debug;
 
@@ -218,9 +229,9 @@ fn run_check_for_single_file(cli: &UniversalFlags, cmd: &CheckSubcommand) -> any
             enable_coverage: false,
             deny_warn: false,
             target_backend,
-            warn_list: None,
-            alert_list: None,
-            enable_value_tracing: false,
+            warn_list: cmd.build_flags.warn_list.clone(),
+            alert_list: cmd.build_flags.alert_list.clone(),
+            enable_value_tracing: cmd.build_flags.enable_value_tracing,
         },
         link_opt: moonutil::common::LinkCoreFlags {
             debug_flag: !release_flag,
@@ -236,9 +247,14 @@ fn run_check_for_single_file(cli: &UniversalFlags, cmd: &CheckSubcommand) -> any
         extra_build_opt: vec![],
         extra_link_opt: vec![],
         nostd: false,
-        render: true,
+        render: !cmd.build_flags.no_render,
     };
-    let module = get_module_for_single_file_test(single_file_path, &moonc_opt, &moonbuild_opt)?;
+    let module = get_module_for_single_file_test(
+        single_file_path,
+        &moonc_opt,
+        &moonbuild_opt,
+        mbt_md_header,
+    )?;
 
     if cli.dry_run {
         return dry_run::print_commands(&module, &moonc_opt, &moonbuild_opt);

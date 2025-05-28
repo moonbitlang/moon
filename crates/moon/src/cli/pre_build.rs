@@ -37,6 +37,7 @@ pub fn scan_with_x_build(
 ) -> anyhow::Result<ModuleDB> {
     let mut module = moonutil::scan::scan(
         doc_mode,
+        None,
         resolved_env,
         dir_sync_result,
         moonc_opt,
@@ -81,6 +82,7 @@ fn run_x_build(
         recreate_moon_db(&module.source_dir, &moonbuild_opt.target_dir)?;
         moonutil::scan::scan(
             false,
+            None,
             resolved_env,
             dir_sync_result,
             moonc_opt,

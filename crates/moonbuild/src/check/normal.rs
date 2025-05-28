@@ -18,7 +18,9 @@
 
 use anyhow::Context;
 
-use moonutil::common::{FileLock, MoonbuildOpt, MooncOpt, SINGLE_FILE_TEST_PACKAGE};
+use moonutil::common::{
+    FileLock, MoonbuildOpt, MooncOpt, SINGLE_FILE_TEST_MODULE, SINGLE_FILE_TEST_PACKAGE,
+};
 use moonutil::module::{convert_mdb_to_json, ModuleDB, ModuleDBJSON};
 use n2::load::State;
 use std::io::BufWriter;
@@ -42,7 +44,7 @@ pub fn write_pkg_lst(module: &ModuleDB, target_dir: &Path) -> anyhow::Result<()>
         };
 
     let mj = convert_mdb_to_json(module);
-    let mbt_md_file_name = if module.name == "moon/test" {
+    let mbt_md_file_name = if module.name == SINGLE_FILE_TEST_MODULE {
         // Get .mbt.md file path from SINGLE_FILE_TEST_PACKAGE
         module
             .get_all_packages()
