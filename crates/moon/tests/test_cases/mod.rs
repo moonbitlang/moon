@@ -5088,6 +5088,7 @@ fn moon_test_single_file() {
     let single_mbt = dir.join("single.mbt").display().to_string();
     let single_mbt_md = dir.join("111.mbt.md").display().to_string();
 
+    // .mbt
     {
         // rel path
         check(
@@ -5158,6 +5159,7 @@ fn moon_test_single_file() {
         );
     }
 
+    // .mbt.md
     {
         // rel path
         check(
