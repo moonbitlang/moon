@@ -1142,7 +1142,7 @@ pub struct MbtMdHeader {
 
 #[derive(Debug, serde::Deserialize)]
 pub struct MbtMdSection {
-    pub deps: Option<IndexMap<String, String>>,
+    pub deps: Option<IndexMap<String, crate::dependency::SourceDependencyInfoJson>>,
     pub backend: Option<String>,
 }
 

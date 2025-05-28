@@ -5173,7 +5173,7 @@ fn moon_test_single_file() {
             get_err_stdout(&dir, ["test", "111.mbt.md", "-i", "1"]),
             expect![[r#"
                 test moon/test/single/111.mbt.md::1 failed
-                expect test failed at $ROOT/111.mbt.md:32:5-32:21
+                expect test failed at $ROOT/111.mbt.md:34:5-34:21
                 Diff:
                 ----
                 234523
@@ -5206,9 +5206,9 @@ fn moon_test_single_file() {
             get_stderr(&dir, ["check", "111.mbt.md"]),
             expect![[r#"
                 Warning: [0002]
-                    ╭─[$ROOT/111.mbt.md:26:9]
+                    ╭─[$ROOT/111.mbt.md:28:9]
                     │
-                 26 │     let single_mbt_md = 1
+                 28 │     let single_mbt_md = 1
                     │         ──────┬──────  
                     │               ╰──────── Warning: Unused variable 'single_mbt_md'
                 ────╯
@@ -5220,9 +5220,9 @@ fn moon_test_single_file() {
             get_stderr(&dir, ["check", &single_mbt_md]),
             expect![[r#"
                 Warning: [0002]
-                    ╭─[$ROOT/111.mbt.md:26:9]
+                    ╭─[$ROOT/111.mbt.md:28:9]
                     │
-                 26 │     let single_mbt_md = 1
+                 28 │     let single_mbt_md = 1
                     │         ──────┬──────  
                     │               ╰──────── Warning: Unused variable 'single_mbt_md'
                 ────╯

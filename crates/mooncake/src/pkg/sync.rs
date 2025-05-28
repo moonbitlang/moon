@@ -26,7 +26,7 @@ use moonutil::{
     module::MoonMod,
     mooncakes::{result::ResolvedEnv, sync::AutoSyncFlags, DirSyncResult, RegistryConfig},
 };
-use semver::{Version, VersionReq};
+use semver::Version;
 
 use crate::dep_dir::resolve_dep_dirs;
 
@@ -57,13 +57,7 @@ pub fn auto_sync_for_single_mbt_md(
         .and_then(|config| config.moonbit.deps.as_ref())
     {
         for (k, v) in deps_map.iter() {
-            deps.insert(
-                k.to_string(),
-                moonutil::dependency::SourceDependencyInfo {
-                    version: VersionReq::parse(v).unwrap_or_default(),
-                    ..Default::default()
-                },
-            );
+            deps.insert(k.to_string(), v.clone().into());
         }
     }
 
