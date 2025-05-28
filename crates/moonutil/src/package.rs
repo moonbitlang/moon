@@ -320,6 +320,7 @@ pub struct MoonPkgJSON {
 
     #[serde(skip_serializing_if = "Option::is_none")]
     #[serde(alias = "virtual")]
+    #[schemars(rename = "virtual")]
     pub virtual_pkg: Option<VirtualPkg>,
 
     #[serde(skip_serializing_if = "Option::is_none")]
