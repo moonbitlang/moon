@@ -72,6 +72,7 @@ pub const MOD_DIR: &str = "$mod_dir";
 pub const PKG_DIR: &str = "$pkg_dir";
 
 pub const SINGLE_FILE_TEST_PACKAGE: &str = "moon/test/single";
+pub const SINGLE_FILE_TEST_MODULE: &str = "moon/test";
 
 pub const SUB_PKG_POSTFIX: &str = "_sub";
 
@@ -1132,4 +1133,36 @@ pub fn gen_moonbitlang_abort_pkg(moonc_opt: &MooncOpt) -> Package {
         link_libs: vec![],
         link_search_paths: vec![],
     }
+}
+
+#[derive(Debug, serde::Deserialize)]
+pub struct MbtMdHeader {
+    pub moonbit: MbtMdSection,
+}
+
+#[derive(Debug, serde::Deserialize)]
+pub struct MbtMdSection {
+    pub deps: Option<IndexMap<String, String>>,
+    pub backend: Option<String>,
+}
+
+pub fn parse_front_matter_config(single_file_path: &Path) -> anyhow::Result<Option<MbtMdHeader>> {
+    let single_file_string = single_file_path.display().to_string();
+    let front_matter_config: Option<MbtMdHeader> = if single_file_string.ends_with(DOT_MBT_DOT_MD) {
+        let content = std::fs::read_to_string(single_file_path)?;
+        let pattern = regex::Regex::new(r"(?s)^---\s*\n((?:[^\n]+\n)*?)---\s*\n")?;
+        if let Some(cap) = pattern.captures(&content) {
+            let yaml_content = cap.get(1).unwrap().as_str();
+            let config: MbtMdHeader = serde_yaml::from_str(yaml_content).map_err(|e| {
+                anyhow::anyhow!("Failed to parse front matter in markdown file: {}", e)
+            })?;
+
+            Some(config)
+        } else {
+            None
+        }
+    } else {
+        None
+    };
+    Ok(front_matter_config)
 }

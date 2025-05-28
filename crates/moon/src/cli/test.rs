@@ -22,14 +22,11 @@ use indexmap::IndexMap;
 use moonbuild::dry_run;
 use moonbuild::entry;
 use mooncake::pkg::sync::auto_sync;
-use moonutil::common::lower_surface_targets;
-use moonutil::common::FileLock;
-use moonutil::common::GeneratedTestDriver;
-use moonutil::common::MooncOpt;
-use moonutil::common::OutputFormat;
-use moonutil::common::RunMode;
-use moonutil::common::TargetBackend;
-use moonutil::common::{MoonbuildOpt, TestOpt};
+use mooncake::pkg::sync::auto_sync_for_single_mbt_md;
+use moonutil::common::{
+    lower_surface_targets, parse_front_matter_config, FileLock, GeneratedTestDriver, MbtMdHeader,
+    MoonbuildOpt, MooncOpt, OutputFormat, RunMode, TargetBackend, TestOpt, MOONBITLANG_CORE,
+};
 use moonutil::common::{BLACKBOX_TEST_DRIVER, DOT_MBT_DOT_MD, SINGLE_FILE_TEST_PACKAGE};
 use moonutil::cond_expr::CompileCondition;
 use moonutil::dirs::mk_arch_mode_dir;
@@ -180,15 +177,26 @@ fn run_test_internal(
 }
 
 fn run_test_in_single_file(cli: &UniversalFlags, cmd: &TestSubcommand) -> anyhow::Result<i32> {
-    let target_backend = cmd
-        .build_flags
-        .target_backend
-        .unwrap_or(TargetBackend::WasmGC);
-
     let single_file_path = &dunce::canonicalize(cmd.single_file.as_ref().unwrap()).unwrap();
     let single_file_string = single_file_path.display().to_string();
     let source_dir = single_file_path.parent().unwrap().to_path_buf();
     let raw_target_dir = source_dir.join("target");
+
+    let mbt_md_header = parse_front_matter_config(single_file_path)?;
+    let target_backend = if let Some(moonutil::common::MbtMdHeader {
+        moonbit:
+            moonutil::common::MbtMdSection {
+                backend: Some(backend),
+                ..
+            },
+    }) = &mbt_md_header
+    {
+        TargetBackend::str_to_backend(backend)?
+    } else {
+        cmd.build_flags
+            .target_backend
+            .unwrap_or(TargetBackend::WasmGC)
+    };
 
     let debug_flag = !cmd.build_flags.release;
 
@@ -237,13 +245,13 @@ fn run_test_in_single_file(cli: &UniversalFlags, cmd: &TestSubcommand) -> anyhow
         build_opt: moonutil::common::BuildPackageFlags {
             debug_flag,
             strip_flag: false,
-            source_map: false,
+            source_map: debug_flag,
             enable_coverage: false,
             deny_warn: false,
             target_backend,
-            warn_list: None,
-            alert_list: None,
-            enable_value_tracing: false,
+            warn_list: cmd.build_flags.warn_list.clone(),
+            alert_list: cmd.build_flags.alert_list.clone(),
+            enable_value_tracing: cmd.build_flags.enable_value_tracing,
         },
         link_opt: moonutil::common::LinkCoreFlags {
             debug_flag,
@@ -259,9 +267,14 @@ fn run_test_in_single_file(cli: &UniversalFlags, cmd: &TestSubcommand) -> anyhow
         extra_build_opt: vec![],
         extra_link_opt: vec![],
         nostd: false,
-        render: true,
+        render: !cmd.build_flags.no_render,
     };
-    let module = get_module_for_single_file_test(single_file_path, &moonc_opt, &moonbuild_opt)?;
+    let module = get_module_for_single_file_test(
+        single_file_path,
+        &moonc_opt,
+        &moonbuild_opt,
+        mbt_md_header,
+    )?;
 
     if cli.dry_run {
         return dry_run::print_commands(&module, &moonc_opt, &moonbuild_opt);
@@ -281,6 +294,7 @@ pub fn get_module_for_single_file_test(
     single_file_path: &Path,
     moonc_opt: &MooncOpt,
     moonbuild_opt: &MoonbuildOpt,
+    front_matter_config: Option<MbtMdHeader>,
 ) -> anyhow::Result<ModuleDB> {
     let gen_single_file_test_pkg = |moonc_opt: &MooncOpt, single_file_path: &Path| -> Package {
         let path_comp = PathComponent {
@@ -335,8 +349,8 @@ pub fn get_module_for_single_file_test(
                 .join(pkg_rel_name)
                 .join(format!("{}.core", pkg_rel_name)),
             link: None,
-            warn_list: None,
-            alert_list: None,
+            warn_list: moonc_opt.build_opt.warn_list.clone(),
+            alert_list: moonc_opt.build_opt.alert_list.clone(),
             targets: None,
             pre_build: None,
             patch_file: None,
@@ -357,25 +371,51 @@ pub fn get_module_for_single_file_test(
             link_search_paths: vec![],
         }
     };
+
+    let (resolved_env, dir_sync_result, moon_mod) =
+        auto_sync_for_single_mbt_md(moonc_opt, moonbuild_opt, front_matter_config)?;
+
+    let mut module = moonutil::scan::scan(
+        false,
+        Some(moon_mod),
+        &resolved_env,
+        &dir_sync_result,
+        moonc_opt,
+        moonbuild_opt,
+    )?;
+
     let mut package = gen_single_file_test_pkg(moonc_opt, single_file_path);
     if !package.mbt_md_files.is_empty() {
         let pj_path = moonutil::doc_test::gen_md_test_patch(&package, moonc_opt)?;
         package.doc_test_patch_file = pj_path;
     }
-    let mut graph = petgraph::graph::DiGraph::new();
-    graph.add_node(package.full_name());
+    let imports = module
+        .get_all_packages()
+        .iter()
+        .map(|(_, pkg)| moonutil::path::ImportComponent {
+            path: moonutil::path::ImportPath {
+                module_name: pkg.root.to_string(),
+                rel_path: pkg.rel.clone(),
+                is_3rd: true,
+            },
+            alias: None,
+            sub_package: pkg.is_sub_package,
+        })
+        // we put "moonbitlang/core/abort" in ModuleDB.packages in scan step, it's logical, so we need to filter it out
+        .filter(|import| import.path.module_name != MOONBITLANG_CORE)
+        .collect::<Vec<_>>();
+    package.imports = imports;
 
-    Ok(ModuleDB::new(
-        moonbuild_opt.source_dir.clone(),
-        "moon/test".to_string(),
-        indexmap::IndexMap::from([(package.full_name(), package)]),
-        vec![0],
-        vec![],
-        graph,
-        moonc_opt.link_opt.target_backend.to_string(),
-        "debug".to_string(),
-        None,
-    ))
+    let packages = module.get_all_packages_mut();
+    packages.insert(package.full_name(), package.clone());
+
+    let mut graph = petgraph::graph::DiGraph::new();
+    for (_, pkg) in packages.iter() {
+        graph.add_node(pkg.full_name());
+    }
+    module.graph = graph;
+
+    Ok(module)
 }
 
 pub(crate) struct TestLikeSubcommand<'a> {
@@ -537,6 +577,7 @@ pub(crate) fn run_test_or_bench_internal(
 
     let mut module = moonutil::scan::scan(
         false,
+        None,
         &resolved_env,
         &dir_sync_result,
         &moonc_opt,

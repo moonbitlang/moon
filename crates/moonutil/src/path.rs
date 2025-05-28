@@ -66,6 +66,12 @@ impl PathComponent {
     }
 }
 
+impl std::fmt::Display for PathComponent {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.components.join("/"))
+    }
+}
+
 #[test]
 #[cfg(unix)]
 fn test_path_component_1() {

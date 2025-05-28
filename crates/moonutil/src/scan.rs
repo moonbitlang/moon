@@ -17,7 +17,7 @@
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
 use crate::cond_expr::{parse_cond_exprs, CompileCondition, StringOrArray};
-use crate::module::ModuleDB;
+use crate::module::{ModuleDB, MoonMod};
 use crate::moon_dir::MOON_DIRS;
 use crate::mooncakes::result::ResolvedEnv;
 use crate::mooncakes::DirSyncResult;
@@ -639,6 +639,7 @@ fn adapt_modules_into_scan_paths(
 
 pub fn scan(
     doc_mode: bool,
+    moon_mod_for_single_file_test: Option<MoonMod>,
     resolved_modules: &ResolvedEnv,
     module_paths: &DirSyncResult,
     moonc_opt: &crate::common::MooncOpt,
@@ -646,20 +647,25 @@ pub fn scan(
 ) -> anyhow::Result<ModuleDB> {
     let source_dir = &moonbuild_opt.source_dir;
 
-    let mod_desc = read_module_desc_file_in_dir(source_dir)?;
-    let deps: Vec<String> = mod_desc.deps.iter().map(|(name, _)| name.clone()).collect();
-
     let module_scan_paths = adapt_modules_into_scan_paths(resolved_modules, module_paths);
-
     let mut packages = IndexMap::new();
-    scan_module_packages(
-        &mut packages,
-        &module_scan_paths,
-        false,
-        doc_mode,
-        moonbuild_opt,
-        moonc_opt,
-    )?;
+    if moon_mod_for_single_file_test.is_none() {
+        scan_module_packages(
+            &mut packages,
+            &module_scan_paths,
+            false,
+            doc_mode,
+            moonbuild_opt,
+            moonc_opt,
+        )?;
+    }
+
+    let mod_desc = if let Some(moon_mod) = moon_mod_for_single_file_test {
+        moon_mod
+    } else {
+        read_module_desc_file_in_dir(source_dir)?
+    };
+    let deps: Vec<String> = mod_desc.deps.iter().map(|(name, _)| name.clone()).collect();
 
     // scan third party packages in DEP_PATH according to deps field
     for (module_id, _) in resolved_modules.all_packages_and_id() {
