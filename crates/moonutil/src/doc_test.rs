@@ -276,8 +276,7 @@ pub fn gen_doc_test_patch(pkg: &Package, moonc_opt: &MooncOpt) -> anyhow::Result
     let content = serde_json_lenient::to_string_pretty(&pj)?;
     file.write_all(content.as_bytes())
         .context(format!("failed to write to {}", pj_path.display()))?;
-    file.flush()
-        .context(format!("failed to flush {}", pj_path.display()))?;
+    file.sync_all()?;
 
     Ok(Some(pj_path))
 }
@@ -316,8 +315,7 @@ pub fn gen_md_test_patch(pkg: &Package, moonc_opt: &MooncOpt) -> anyhow::Result<
     let content = serde_json_lenient::to_string_pretty(&pj)?;
     file.write_all(content.as_bytes())
         .context(format!("failed to write to {}", pj_path.display()))?;
-    file.flush()
-        .context(format!("failed to flush {}", pj_path.display()))?;
+    file.sync_all()?;
 
     Ok(Some(pj_path))
 }
