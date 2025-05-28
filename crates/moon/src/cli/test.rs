@@ -497,7 +497,12 @@ pub(crate) fn run_test_or_bench_internal(
     }
 
     let run_mode = cmd.run_mode;
-    let mut moonc_opt = super::get_compiler_flags(source_dir, cmd.build_flags)?;
+
+    let build_flags = BuildFlags {
+        debug: true,
+        ..cmd.build_flags.clone()
+    };
+    let mut moonc_opt = super::get_compiler_flags(source_dir, &build_flags)?;
     // release is 'false' by default, so we will run test at debug mode(to gain more detailed stack trace info), unless `--release` is specified
     // however, other command like build, check, run, etc, will run at release mode by default
     moonc_opt.build_opt.debug_flag = !cmd.build_flags.release;
