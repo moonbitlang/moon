@@ -5161,6 +5161,14 @@ fn moon_test_single_file() {
 
     // .mbt.md
     {
+        check(
+            get_stdout(&dir, ["test", "222.mbt.md"]),
+            expect![[r#"
+                222
+                Total tests: 1, passed: 1, failed: 0.
+            "#]],
+        );
+
         // rel path
         check(
             get_stdout(&dir, ["test", "111.mbt.md", "-i", "0"]),
