@@ -1137,10 +1137,10 @@ pub fn gen_moonbitlang_abort_pkg(moonc_opt: &MooncOpt) -> Package {
 
 #[derive(Debug, serde::Deserialize)]
 pub struct MbtMdHeader {
-    pub moonbit: MbtMdSection,
+    pub moonbit: Option<MbtMdSection>,
 }
 
-#[derive(Debug, serde::Deserialize)]
+#[derive(Debug, serde::Deserialize, Default)]
 pub struct MbtMdSection {
     pub deps: Option<IndexMap<String, crate::dependency::SourceDependencyInfoJson>>,
     pub backend: Option<String>,

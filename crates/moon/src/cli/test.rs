@@ -185,10 +185,10 @@ fn run_test_in_single_file(cli: &UniversalFlags, cmd: &TestSubcommand) -> anyhow
     let mbt_md_header = parse_front_matter_config(single_file_path)?;
     let target_backend = if let Some(moonutil::common::MbtMdHeader {
         moonbit:
-            moonutil::common::MbtMdSection {
+            Some(moonutil::common::MbtMdSection {
                 backend: Some(backend),
                 ..
-            },
+            }),
     }) = &mbt_md_header
     {
         TargetBackend::str_to_backend(backend)?

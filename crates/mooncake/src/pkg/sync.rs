@@ -52,9 +52,11 @@ pub fn auto_sync_for_single_mbt_md(
 ) -> anyhow::Result<(ResolvedEnv, DirSyncResult, MoonMod)> {
     let mut deps = IndexMap::new();
 
-    if let Some(deps_map) = front_matter_config
-        .as_ref()
-        .and_then(|config| config.moonbit.deps.as_ref())
+    // don't sync for gen-test-driver
+    let dont_sync = front_matter_config.is_none();
+
+    if let Some(deps_map) =
+        front_matter_config.and_then(|config| config.moonbit.unwrap_or_default().deps)
     {
         for (k, v) in deps_map.iter() {
             deps.insert(k.to_string(), v.clone().into());
@@ -75,8 +77,7 @@ pub fn auto_sync_for_single_mbt_md(
         std::rc::Rc::new(m.clone()),
         moonbuild_opt.quiet,
         moonbuild_opt.verbose,
-        // don't sync for gen-test-driver
-        front_matter_config.is_none(),
+        dont_sync,
     )?;
     let dir_sync_result = resolve_dep_dirs(&dep_dir, &resolved_env);
     log::debug!("Dir sync result: {:?}", dir_sync_result);
