@@ -3,7 +3,7 @@ name: Feature Request
 about: Create a feature request for moon.
 title: ''
 assignees: ''
-
+labels: feature request
 ---
 
 
