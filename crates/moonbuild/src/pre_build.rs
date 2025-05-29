@@ -35,6 +35,9 @@ pub fn load_moon_x_build(
     module: &ModuleDB,
     build_type: &PrePostBuild,
 ) -> anyhow::Result<Option<State>> {
+    if std::env::var("MOON_IGNORE_PREBUILD").is_ok() {
+        return Ok(None);
+    }
     let mut graph = n2graph::Graph::default();
     let mut defaults: Vec<FileId> = vec![];
 
