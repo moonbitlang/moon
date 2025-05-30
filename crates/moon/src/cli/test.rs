@@ -23,6 +23,7 @@ use moonbuild::dry_run;
 use moonbuild::entry;
 use mooncake::pkg::sync::auto_sync;
 use mooncake::pkg::sync::auto_sync_for_single_mbt_md;
+use moonutil::common::PrePostBuild;
 use moonutil::common::{
     lower_surface_targets, parse_front_matter_config, FileLock, GeneratedTestDriver, MbtMdHeader,
     MoonbuildOpt, MooncOpt, OutputFormat, RunMode, TargetBackend, TestOpt, MOONBITLANG_CORE,
@@ -40,6 +41,8 @@ use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::thread;
+
+use crate::cli::pre_build::scan_with_x_build;
 
 use super::BenchSubcommand;
 use super::{BuildFlags, UniversalFlags};
@@ -587,13 +590,13 @@ pub(crate) fn run_test_or_bench_internal(
         dynamic_stub_libs: None,
     };
 
-    let mut module = moonutil::scan::scan(
+    let mut module = scan_with_x_build(
         false,
-        None,
-        &resolved_env,
-        &dir_sync_result,
         &moonc_opt,
         &moonbuild_opt,
+        &resolved_env,
+        &dir_sync_result,
+        &PrePostBuild::PreBuild,
     )?;
 
     let (package_filter, moonbuild_opt) = if let Some(filter_package) = moonbuild_opt
