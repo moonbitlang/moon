@@ -34,7 +34,8 @@ use walkdir::WalkDir;
 
 use crate::common::{
     read_module_desc_file_in_dir, MoonbuildOpt, TargetBackend, DEP_PATH, DOT_MBL, DOT_MBT_DOT_MD,
-    DOT_MBY, IGNORE_DIRS, MOONBITLANG_ABORT, MOON_MOD_JSON, MOON_PKG_JSON, SUB_PKG_POSTFIX,
+    DOT_MBX, DOT_MBY, IGNORE_DIRS, MOONBITLANG_ABORT, MOON_MOD_JSON, MOON_PKG_JSON,
+    SUB_PKG_POSTFIX,
 };
 
 /// Matches an import string to scan paths.
@@ -80,12 +81,14 @@ pub fn get_mbt_and_test_file_paths(
     Vec<PathBuf>,
     Vec<PathBuf>,
     Vec<PathBuf>,
+    Vec<PathBuf>,
 ) {
     let mut mbt_files = vec![];
     let mut mbt_wbtest_files = vec![];
     let mut mbt_test_files = vec![];
     let mut mbt_md_files = vec![];
     let mut mbl_files = vec![];
+    let mut mbx_files = vec![];
     let mut mby_files: Vec<PathBuf> = vec![];
     let entries = std::fs::read_dir(dir).unwrap();
     for entry in entries.flatten() {
@@ -95,6 +98,7 @@ pub fn get_mbt_and_test_file_paths(
                 && (entry.path().extension().unwrap() == "mbt"
                     || entry.path().extension().unwrap() == "md"
                     || entry.path().extension().unwrap() == "mbl"
+                    || entry.path().extension().unwrap() == "mbx"
                     || entry.path().extension().unwrap() == "mby")
             {
                 let p = entry.path();
@@ -106,6 +110,8 @@ pub fn get_mbt_and_test_file_paths(
                     }
                 } else if p_str.ends_with(DOT_MBL) {
                     mbl_files.push(p.clone());
+                } else if p_str.ends_with(DOT_MBX) {
+                    mbx_files.push(p.clone());
                 } else if p_str.ends_with(DOT_MBY) {
                     mby_files.push(p.clone())
                 } else {
@@ -142,6 +148,7 @@ pub fn get_mbt_and_test_file_paths(
         mbt_test_files,
         mbt_md_files,
         mbl_files,
+        mbx_files,
         mby_files,
     )
 }
@@ -387,6 +394,7 @@ fn scan_one_package(
         mut test_mbt_files,
         mut mbt_md_files,
         mut mbl_files,
+        mut mbx_files,
         mut mby_files,
     ) = get_mbt_and_test_file_paths(pkg_path);
 
@@ -405,6 +413,7 @@ fn scan_one_package(
         test_mbt_files.sort();
         mbt_md_files.sort();
         mbl_files.sort();
+        mbx_files.sort();
         mby_files.sort();
     }
 
@@ -493,6 +502,19 @@ fn scan_one_package(
             output: crate::package::StringOrArray::String(mbt_file.display().to_string()),
             command: format!(
                 "{} {} -- $input -o $output",
+                MOON_DIRS.moon_bin_path.join("moonrun").display(),
+                MOON_DIRS.moon_bin_path.join("moonlex.wasm").display()
+            ),
+        };
+        prebuild.push(generate);
+    }
+    for mbl_file in mbx_files {
+        let mbt_file = mbl_file.with_extension("mbt");
+        let generate = MoonPkgGenerate {
+            input: crate::package::StringOrArray::String(mbl_file.display().to_string()),
+            output: crate::package::StringOrArray::String(mbt_file.display().to_string()),
+            command: format!(
+                "{} {} -- --new-syntax $input -o $output",
                 MOON_DIRS.moon_bin_path.join("moonrun").display(),
                 MOON_DIRS.moon_bin_path.join("moonlex.wasm").display()
             ),
