@@ -925,7 +925,7 @@ pub fn gen_runtest(
             build_items.push(gen_package_core(m, pkg, moonc_opt)?);
         }
 
-        if pkg.is_main || pkg.is_third_party {
+        if pkg.is_third_party {
             continue;
         }
 
@@ -1391,10 +1391,7 @@ pub fn gen_n2_runtest_state(
     }
 
     if default.is_empty() {
-        eprintln!(
-            "{}: no test entry found(test block in main package is not support for now)",
-            "Warning".yellow().bold()
-        );
+        eprintln!("{}: no test entry found.", "Warning".yellow().bold());
         std::process::exit(0);
     }
 

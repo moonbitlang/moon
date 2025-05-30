@@ -682,7 +682,7 @@ pub(crate) fn run_test_or_bench_internal(
             }
         }
 
-        if pkg.is_third_party || pkg.is_main {
+        if pkg.is_third_party {
             continue;
         }
 

@@ -5292,3 +5292,39 @@ fn test_sub_package() {
         "#]],
     );
 }
+
+#[test]
+fn test_in_main_pkg() {
+    let dir = TestDir::new("test_in_main_pkg.in");
+
+    check(
+        get_stdout(
+            &dir,
+            ["test", "-p", "main", "--sort-input", "--no-parallelize"],
+        ),
+        expect![[r#"
+            hello from lib pkg
+            ------------------bb test in main pkg ------------------
+            hello from lib pkg
+            ------------------internal test in main pkg ------------------
+            hello from lib pkg
+            ------------------ wb test in main pkg ------------------
+            Total tests: 3, passed: 3, failed: 0.
+        "#]],
+    );
+    check(
+        get_stdout(&dir, ["test", "--sort-input", "--no-parallelize"]),
+        expect![[r#"
+            ------------------bb test in lib pkg ------------------
+            ------------------internal test in lib pkg ------------------
+            ------------------ wb test in lib pkg ------------------
+            hello from lib pkg
+            ------------------bb test in main pkg ------------------
+            hello from lib pkg
+            ------------------internal test in main pkg ------------------
+            hello from lib pkg
+            ------------------ wb test in main pkg ------------------
+            Total tests: 6, passed: 6, failed: 0.
+        "#]],
+    );
+}
