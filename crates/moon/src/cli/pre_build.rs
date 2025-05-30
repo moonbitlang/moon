@@ -27,6 +27,7 @@ use moonutil::{
     mooncakes::{result::ResolvedEnv, DirSyncResult},
 };
 
+// x_build: prebuild or postbuild
 pub fn scan_with_x_build(
     doc_mode: bool,
     moonc_opt: &MooncOpt,

@@ -19,6 +19,7 @@
 use crate::benchmark::BATCHBENCH;
 use crate::entry::{FileTestInfo, TestArgs, TestFailedStatus};
 use crate::expect::{snapshot_eq, ERROR, EXPECT_FAILED, FAILED, RUNTIME_ERROR, SNAPSHOT_TESTING};
+use crate::r#gen::util::calc_link_args;
 use crate::section_capture::{handle_stdout, SectionCapture};
 
 use super::gen;
@@ -30,6 +31,7 @@ use moonutil::common::{
 };
 use moonutil::module::ModuleDB;
 use moonutil::moon_dir::MOON_DIRS;
+use moonutil::package::Package;
 use n2::load::State;
 use serde::{Deserialize, Serialize};
 use std::{path::Path, process::Stdio};
@@ -129,11 +131,16 @@ pub async fn run_native(
     args: &TestArgs,
     file_test_info_map: &FileTestInfo,
     verbose: bool,
+    module: &ModuleDB,
+    pkg: &Package,
 ) -> anyhow::Result<Vec<Result<TestStatistics, TestFailedStatus>>> {
     let args = args.to_cli_args_for_native();
     if moonbuild_opt.use_tcc_run {
         let path = path.with_extension("c");
-        // TODO
+
+        let linking_flags = calc_link_args(module, pkg);
+        let cc_link_flags = linking_flags.native.unwrap().cc_link_flags;
+
         let rt_path = target_dir.join(format!("libruntime.{}", DYN_EXT));
         let internal_tcc_path = &MOON_DIRS.internal_tcc_path;
         let mut pre_args = vec![
@@ -149,6 +156,9 @@ pub async fn run_native(
                 .iter()
                 .map(String::to_string),
         );
+        if let Some(flags) = cc_link_flags {
+            pre_args.extend(flags.split(" ").map(|x| x.to_owned()));
+        }
         pre_args.extend([
             "-DMOONBIT_NATIVE_NO_SYS_HEADER".to_string(),
             "-DMOONBIT_USE_SHARED_RUNTIME".to_string(),
