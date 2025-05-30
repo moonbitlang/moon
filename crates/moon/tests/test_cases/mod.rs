@@ -5075,7 +5075,7 @@ fn test_virtual_pkg() {
                │
              5 │ fn f2(String) -> Unit
                │ ──────────┬──────────  
-               │           ╰──────────── Missing implementation for f2.
+               │           ╰──────────── Missing implementation for function f2.
             ───╯
             error: failed when building
         "#]],
