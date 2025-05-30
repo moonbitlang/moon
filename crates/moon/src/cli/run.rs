@@ -200,8 +200,14 @@ fn run_single_mbt_file(cli: &UniversalFlags, cmd: RunSubcommand) -> anyhow::Resu
                 .unwrap()
                 .display()
                 .to_string(),
+            #[cfg(windows)]
             &output_wasm_or_js_path
                 .with_extension("exe")
+                .display()
+                .to_string(),
+            #[cfg(not(windows))]
+            &output_wasm_or_js_path
+                .with_extension("out")
                 .display()
                 .to_string(),
         );
