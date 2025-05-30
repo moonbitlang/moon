@@ -683,7 +683,7 @@ pub fn run_test(
     for (pkgname, pkg) in module
         .get_all_packages()
         .iter()
-        .filter(|(_, p)| !(p.is_main || p.is_third_party))
+        .filter(|(_, p)| !p.is_third_party)
     {
         if let Some(package) = filter_package {
             if !package.contains(pkgname) {

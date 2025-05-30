@@ -140,6 +140,34 @@ fn test_alert_list() {
             moonc check ./lib2/hello.mbt -o ./target/wasm-gc/release/check/lib2/lib2.mi -pkg username/hello/lib2 -std-path $MOON_HOME/lib/core/target/wasm-gc/release/bundle -pkg-sources username/hello/lib2:./lib2 -target wasm-gc
         "#]],
     );
+
+    check(
+        get_stderr(&dir, ["build", "--sort-input"]),
+        expect![[r#"
+            Finished. moon: ran 3 tasks, now up to date
+        "#]],
+    );
+
+    check(
+        get_stdout(&dir, ["test", "--sort-input"]),
+        expect![[r#"
+            Total tests: 1, passed: 1, failed: 0.
+        "#]],
+    );
+
+    check(
+        get_stderr(&dir, ["bundle", "--sort-input"]),
+        expect![[r#"
+            Finished. moon: ran 4 tasks, now up to date
+        "#]],
+    );
+
+    check(
+        get_stderr(&dir, ["check", "--sort-input"]),
+        expect![[r#"
+            Finished. moon: ran 3 tasks, now up to date
+        "#]],
+    );
 }
 
 #[test]

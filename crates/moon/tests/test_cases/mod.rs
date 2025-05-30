@@ -5075,7 +5075,7 @@ fn test_virtual_pkg() {
                │
              5 │ fn f2(String) -> Unit
                │ ──────────┬──────────  
-               │           ╰──────────── Missing implementation for f2.
+               │           ╰──────────── Missing implementation for function f2.
             ───╯
             error: failed when building
         "#]],
@@ -5289,6 +5289,42 @@ fn test_sub_package() {
             moonc build-package ./main/main.mbt -o ./target/wasm-gc/release/build/main/main.core -pkg moon_new/main -is-main -std-path $MOON_HOME/lib/core/target/wasm-gc/release/bundle -i ./target/wasm-gc/release/build/sub_pkg/sub_pkg_sub.mi:sub_pkg -pkg-sources moon_new/main:./main -target wasm-gc
             moonc link-core $MOON_HOME/lib/core/target/wasm-gc/release/bundle/abort/abort.core $MOON_HOME/lib/core/target/wasm-gc/release/bundle/core.core ./target/wasm-gc/release/build/dep2/dep2.core ./target/wasm-gc/release/build/sub_pkg/sub_pkg.core ./target/wasm-gc/release/build/main/main.core -main moon_new/main -o ./target/wasm-gc/release/build/main/main.wasm -pkg-config-path ./main/moon.pkg.json -pkg-sources moon_new/dep2:./dep2 -pkg-sources moon_new/sub_pkg:./sub_pkg -pkg-sources moon_new/main:./main -pkg-sources moonbitlang/core:$MOON_HOME/lib/core -target wasm-gc
             moonrun ./target/wasm-gc/release/build/main/main.wasm
+        "#]],
+    );
+}
+
+#[test]
+fn test_in_main_pkg() {
+    let dir = TestDir::new("test_in_main_pkg.in");
+
+    check(
+        get_stdout(
+            &dir,
+            ["test", "-p", "main", "--sort-input", "--no-parallelize"],
+        ),
+        expect![[r#"
+            hello from lib pkg
+            ------------------bb test in main pkg ------------------
+            hello from lib pkg
+            ------------------internal test in main pkg ------------------
+            hello from lib pkg
+            ------------------ wb test in main pkg ------------------
+            Total tests: 3, passed: 3, failed: 0.
+        "#]],
+    );
+    check(
+        get_stdout(&dir, ["test", "--sort-input", "--no-parallelize"]),
+        expect![[r#"
+            ------------------bb test in lib pkg ------------------
+            ------------------internal test in lib pkg ------------------
+            ------------------ wb test in lib pkg ------------------
+            hello from lib pkg
+            ------------------bb test in main pkg ------------------
+            hello from lib pkg
+            ------------------internal test in main pkg ------------------
+            hello from lib pkg
+            ------------------ wb test in main pkg ------------------
+            Total tests: 6, passed: 6, failed: 0.
         "#]],
     );
 }

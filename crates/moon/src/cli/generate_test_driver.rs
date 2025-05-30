@@ -21,7 +21,6 @@ use crate::cli::get_module_for_single_file_test;
 use super::pre_build::scan_with_x_build;
 use super::BuildFlags;
 use anyhow::{bail, Context};
-use colored::Colorize;
 use mooncake::pkg::sync::auto_sync;
 use moonutil::cli::UniversalFlags;
 use moonutil::common::{
@@ -292,13 +291,6 @@ pub fn generate_test_driver(
             cmd.patch_file.clone(),
         )?;
 
-        if pkg.is_main && mbts_test_data.contains("(__test_") {
-            eprintln!(
-                "{}: tests in the main package `{}` will be ignored",
-                "Warning".yellow().bold(),
-                pkgname
-            )
-        }
         let generated_content = generate_driver(
             &mbts_test_data,
             pkgname,
