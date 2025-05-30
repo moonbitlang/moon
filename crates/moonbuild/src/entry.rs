@@ -750,7 +750,9 @@ pub fn run_test(
             let moonc_opt = Arc::clone(&moonc_opt);
             let moonbuild_opt = Arc::clone(&moonbuild_opt);
             let module = Arc::clone(&module);
+            let pkgname = pkgname.clone();
             handlers.push(async move {
+                let module = module;
                 let mut result = trace::async_scope(
                     "test",
                     execute_test(
@@ -760,6 +762,8 @@ pub fn run_test(
                         &moonbuild_opt.target_dir,
                         &test_args,
                         &file_test_info_map,
+                        &pkgname,
+                        &module,
                     ),
                 )
                 .await;
@@ -883,6 +887,8 @@ async fn execute_test(
     target_dir: &Path,
     args: &TestArgs,
     file_test_info_map: &FileTestInfo,
+    pkgname: &str,
+    module: &ModuleDB,
 ) -> anyhow::Result<Vec<Result<TestStatistics, TestFailedStatus>>> {
     let verbose = moonbuild_opt.verbose;
     match target_backend {
@@ -901,6 +907,7 @@ async fn execute_test(
             .await
         }
         TargetBackend::Native => {
+            let pkg = module.get_package_by_name(&pkgname);
             crate::runtest::run_native(
                 moonbuild_opt,
                 artifact_path,
@@ -908,6 +915,8 @@ async fn execute_test(
                 args,
                 file_test_info_map,
                 verbose,
+                module,
+                pkg,
             )
             .await
         }
@@ -992,6 +1001,8 @@ async fn handle_test_result(
                         target_dir,
                         &test_args,
                         file_test_info_map,
+                        &stat.package,
+                        module,
                     )
                     .await?
                     .first()
@@ -1018,6 +1029,8 @@ async fn handle_test_result(
                         target_dir,
                         &test_args,
                         file_test_info_map,
+                        &stat.package,
+                        module,
                     )
                     .await?
                     .first()
@@ -1096,6 +1109,8 @@ async fn handle_test_result(
                         target_dir,
                         &test_args,
                         file_test_info_map,
+                        &origin_err.package,
+                        module,
                     )
                     .await?
                     .first()
@@ -1146,6 +1161,8 @@ async fn handle_test_result(
                         target_dir,
                         &test_args,
                         file_test_info_map,
+                        &origin_err.package,
+                        module,
                     )
                     .await?
                     .first()
@@ -1199,6 +1216,8 @@ async fn handle_test_result(
                             target_dir,
                             &test_args,
                             file_test_info_map,
+                            &origin_err.package,
+                            module,
                         )
                         .await?
                         .first()
