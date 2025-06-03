@@ -1121,16 +1121,31 @@ pub fn gen_link_stub_to_dynamic_lib_command(
 
     let mut build = Build::new(loc, ins, outs);
 
-    let native_stub_cc = item.native_stub_cc(moonc_opt.link_opt.target_backend);
+    let native_cc = item.native_cc(moonc_opt.link_opt.target_backend);
     let native_stub_cc_link_flags = item
         .native_stub_cc_link_flags(moonc_opt.link_opt.target_backend)
         .map(|it| it.split(" ").collect::<Vec<_>>())
         .unwrap_or_default();
 
+    let native_cc_flags = item
+        .native_cc_flags(moonc_opt.link_opt.target_backend)
+        .map(|it| it.split(" ").collect::<Vec<_>>())
+        .unwrap_or_default();
+    let native_cc_link_flags = item
+        .native_cc_link_flags(moonc_opt.link_opt.target_backend)
+        .map(|it| it.split(" ").collect::<Vec<_>>())
+        .unwrap_or_default();
+
+    let cc_flags = native_stub_cc_link_flags
+        .into_iter()
+        .chain(native_cc_flags.into_iter())
+        .chain(native_cc_link_flags.into_iter())
+        .collect::<Vec<_>>();
+
     let shared_runtime_dir = Some(runtime_path.parent().unwrap());
     let cc_cmd = make_linker_command::<_, &Path>(
         CC::default(),
-        native_stub_cc.map(|cc| {
+        native_cc.map(|cc| {
             CC::try_from_path(cc)
                 .context(format!(
                     "{}: failed to find native cc: {}",
@@ -1145,7 +1160,7 @@ pub fn gen_link_stub_to_dynamic_lib_command(
             .output_ty(OutputType::SharedLib)
             .build()
             .unwrap(),
-        &native_stub_cc_link_flags,
+        &cc_flags,
         &inputs.iter().map(|f| f.as_str()).collect::<Vec<_>>(),
         &target_dir.display().to_string(),
         &artifact_output_path,
