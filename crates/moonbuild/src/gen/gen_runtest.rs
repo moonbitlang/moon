@@ -906,7 +906,7 @@ pub fn gen_runtest(
                 package_sources: vec![],
                 package_full_name: pkg.full_name(),
                 package_path: pkg.root_path.clone(),
-                link: pkg.link.clone(),
+                link: Some(calc_link_args(m, pkg)),
                 install_path: None,
                 bin_name: None,
                 stub_lib: pkg.stub_lib.clone(),
