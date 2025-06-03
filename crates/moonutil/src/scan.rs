@@ -611,10 +611,6 @@ fn scan_one_package(
                 .with_extension("?")
         };
     }
-    if !cur_pkg.is_third_party && !cur_pkg.mbt_md_files.is_empty() {
-        let pj_path = crate::doc_test::gen_md_test_patch(&cur_pkg, moonc_opt)?;
-        cur_pkg.doc_test_patch_file = pj_path;
-    }
     Ok(cur_pkg)
 }
 
