@@ -969,8 +969,8 @@ pub fn set_native_backend_link_flags(
 ) -> anyhow::Result<Vec<String>> {
     let mut all_stubs = Vec::new();
     match run_mode {
-        // need link-core for build, test and run
-        RunMode::Build | RunMode::Test | RunMode::Run => {
+        // need link-core for build, test, bench, and run
+        RunMode::Build | RunMode::Test | RunMode::Bench | RunMode::Run => {
             if target_backend == Some(TargetBackend::Native) {
                 let mut link_configs = HashMap::new();
 
@@ -1026,7 +1026,8 @@ pub fn set_native_backend_link_flags(
             }
             Ok(all_stubs)
         }
-        _ => Ok(all_stubs),
+        // don't use wildcard here to avoid possible mishandling if we add more modes in the future
+        RunMode::Bundle | RunMode::Check | RunMode::Format => Ok(all_stubs),
     }
 }
 
