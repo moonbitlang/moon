@@ -143,12 +143,20 @@ fn handle_file_change(
         ))?;
     }
 
-    if event.paths.iter().any(|p| {
-        p.ends_with(MOON_MOD_JSON)
-            || p.ends_with(MOON_PKG_JSON)
-            || p.display().to_string().ends_with(DOT_MBT_DOT_MD)
-    }) {
+    let mut need_new_module = false;
+    let mut cur_mbt_md_path = String::new();
+    for p in &event.paths {
+        if p.display().to_string().ends_with(DOT_MBT_DOT_MD) {
+            cur_mbt_md_path = p.display().to_string();
+        }
         // we need to get the latest ModuleDB when moon.pkg.json || moon.mod.json is changed
+        if p.ends_with(MOON_MOD_JSON) || p.ends_with(MOON_PKG_JSON) {
+            need_new_module = true;
+            break;
+        }
+    }
+
+    if need_new_module {
         let (resolved_env, dir_sync_result) = match auto_sync(
             source_dir,
             &AutoSyncFlags { frozen: false },
@@ -177,6 +185,15 @@ fn handle_file_change(
         };
         run_and_print(moonc_opt, moonbuild_opt, &module)?;
     } else {
+        if cur_mbt_md_path.ends_with(DOT_MBT_DOT_MD) {
+            for (_, pkg) in module.get_all_packages() {
+                for (p, _) in &pkg.mbt_md_files {
+                    if p.display().to_string() == cur_mbt_md_path {
+                        let _ = moonutil::doc_test::gen_md_test_patch(pkg, moonc_opt)?;
+                    }
+                }
+            }
+        }
         run_and_print(moonc_opt, moonbuild_opt, module)?;
     }
     Ok(Some(()))

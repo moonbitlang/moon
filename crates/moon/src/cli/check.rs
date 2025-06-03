@@ -340,6 +340,15 @@ fn run_check_normal_internal(
         }
     };
 
+    for (_, pkg) in module.get_all_packages_mut() {
+        if pkg.is_third_party || pkg.mbt_md_files.is_empty() {
+            continue;
+        }
+
+        let pj_path = moonutil::doc_test::gen_md_test_patch(pkg, &moonc_opt)?;
+        pkg.doc_test_patch_file = pj_path;
+    }
+
     if cli.dry_run {
         return dry_run::print_commands(&module, &moonc_opt, &moonbuild_opt);
     }
