@@ -1135,7 +1135,7 @@ pub fn gen_link_stub_to_dynamic_lib_command(
     // TODO: There's too many kinds of flags, need to document what each one do
     let cc_flags = native_stub_cc_link_flags
         .into_iter()
-        .chain(native_cc_link_flags.into_iter())
+        .chain(native_cc_link_flags)
         .collect::<Vec<_>>();
 
     let shared_runtime_dir = Some(runtime_path.parent().unwrap());
