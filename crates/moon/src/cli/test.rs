@@ -415,6 +415,13 @@ pub fn get_module_for_single_file_test(
     }
     module.graph = graph;
 
+    // for native backend
+    let _ = moonutil::common::set_native_backend_link_flags(
+        moonbuild_opt.run_mode,
+        Some(moonc_opt.link_opt.target_backend),
+        &mut module,
+    )?;
+
     Ok(module)
 }
 
