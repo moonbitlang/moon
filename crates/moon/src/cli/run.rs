@@ -177,7 +177,7 @@ fn run_single_mbt_file(cli: &UniversalFlags, cmd: RunSubcommand) -> anyhow::Resu
             output_wasm_or_js_path.display().to_string(),
         ];
         Some(tcc_run_command)
-    } else if target_backend == TargetBackend::Native {
+    } else if target_backend == TargetBackend::Native || target_backend == TargetBackend::LLVM {
         let cc_cmd = moonutil::compiler_flags::make_cc_command(
             moonutil::compiler_flags::CC::default(),
             None,
