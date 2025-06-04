@@ -1509,6 +1509,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "moonbuild-rupes-recta"
+version = "0.1.0"
+
+[[package]]
 name = "mooncake"
 version = "0.1.0"
 dependencies = [
