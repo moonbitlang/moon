@@ -17,7 +17,7 @@
 # For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
 [workspace]
-members = ["xtask", "./crates/*"]
+members = ["xtask", "./crates/*", "crates/moonbuild-rupes-recta"]
 resolver = "2"
 default-members = ["./crates/*"]
 
