@@ -1127,10 +1127,6 @@ pub fn gen_link_stub_to_dynamic_lib_command(
         .map(|it| it.split(" ").collect::<Vec<_>>())
         .unwrap_or_default();
 
-    let native_cc_flags = item
-        .native_cc_flags(moonc_opt.link_opt.target_backend)
-        .map(|it| it.split(" ").collect::<Vec<_>>())
-        .unwrap_or_default();
     let native_cc_link_flags = item
         .native_cc_link_flags(moonc_opt.link_opt.target_backend)
         .map(|it| it.split(" ").collect::<Vec<_>>())
@@ -1139,7 +1135,6 @@ pub fn gen_link_stub_to_dynamic_lib_command(
     // TODO: There's too many kinds of flags, need to document what each one do
     let cc_flags = native_stub_cc_link_flags
         .into_iter()
-        .chain(native_cc_flags.into_iter())
         .chain(native_cc_link_flags.into_iter())
         .collect::<Vec<_>>();
 
