@@ -131,7 +131,7 @@ fn run_single_mbt_file(cli: &UniversalFlags, cmd: RunSubcommand) -> anyhow::Resu
     if cmd.build_flags.enable_value_tracing {
         build_package_command.push("-enable-value-tracing".to_string());
     }
-    let link_core_command = vec![
+    let mut link_core_command = vec![
         "link-core".to_string(),
         // dirty workaround for now
         moonutil::moon_dir::core_core(target_backend)[0].clone(),
@@ -157,6 +157,14 @@ fn run_single_mbt_file(cli: &UniversalFlags, cmd: RunSubcommand) -> anyhow::Resu
         target_backend.to_flag().to_string(),
     ];
 
+    let cc_default = moonutil::compiler_flags::CC::default();
+    if cc_default.is_msvc() && target_backend == TargetBackend::LLVM {
+        link_core_command.extend([
+            "-llvm-target".to_string(),
+            "x86_64-pc-windows-msvc".to_string(),
+        ]);
+    }
+
     // runtime.c on Windows cannot be built with tcc
     // it's expensive to use cl.exe to build one first
     // and then use tcc to load it
@@ -179,7 +187,7 @@ fn run_single_mbt_file(cli: &UniversalFlags, cmd: RunSubcommand) -> anyhow::Resu
         Some(tcc_run_command)
     } else if target_backend == TargetBackend::Native || target_backend == TargetBackend::LLVM {
         let cc_cmd = moonutil::compiler_flags::make_cc_command(
-            moonutil::compiler_flags::CC::default(),
+            cc_default,
             None,
             moonutil::compiler_flags::CCConfigBuilder::default()
                 .no_sys_header(true)
