@@ -70,6 +70,8 @@ use std::{collections::HashMap, path::PathBuf};
 
 use arcstr::ArcStr;
 
+mod discover;
+
 /// Represents the target of this build routine.
 #[derive(Clone, Debug, Copy, PartialEq, Eq)]
 pub enum RunTask {
@@ -97,8 +99,8 @@ pub enum TargetKind {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct TargetSpecifier {
-    kind: TargetKind,
-    package: ArcStr,
+    pub kind: TargetKind,
+    pub package: ArcStr,
 }
 
 /// Represents a single target, like ordinary source, whitebox test files, etc.
@@ -114,8 +116,8 @@ pub struct Target {
 #[derive(Clone, Debug, Default)]
 pub struct PackageTargets {
     source_target: Target,
-    whitebox_test: Target,
-    blackbox_test: Target,
+    whitebox_test: Option<Target>,
+    blackbox_test: Option<Target>,
 }
 
 /// The list of all targets
