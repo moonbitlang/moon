@@ -54,6 +54,13 @@ each with its own list of source files (and thus acting like a package):
 | **Whitebox test** |        | x        |          |        | Depend on Source; Sees all private defs |
 | **Blackbox test** |        |          | x        |        | Depend on Source                        |
 
+### Imports
+
+The imported packages are specified in the `imports` field in `moon.mod.json`,
+and are available to all three build targets.
+Test targets (whitebox and blackbox) can also have imports that are not used in regular targets,
+specified in an additional import field named `test_import`.
+
 ### Build results
 
 Building a compile unit results mainly in 3 files:
