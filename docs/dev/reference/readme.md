@@ -2,6 +2,17 @@
 
 This is a reference documentation of the current MoonBuild behavior.
 
+## Core features
+
 - [Package build process](./build.md)
 - [Conditional compilation](./cond-comp.md)
 - [Virtual packages](./virtual-pkg.md)
+
+## Testing
+
+- TODO: Doc tests
+- TODO: Snapshot testing
+
+## Documentation-oriented programming
+
+- TODO: Markdown checks and tests
