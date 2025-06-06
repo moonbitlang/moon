@@ -284,14 +284,14 @@ pub mod result {
                 .count()
         }
 
-        pub fn all_packages_and_id(&self) -> impl Iterator<Item = (ModuleId, &ModuleSource)> {
+        pub fn all_modules_and_id(&self) -> impl Iterator<Item = (ModuleId, &ModuleSource)> {
             self.mapping
                 .iter()
                 .enumerate()
                 .map(|(id, pkg)| (ModuleId::new_usize(id), pkg))
         }
 
-        pub fn all_packages(&self) -> impl Iterator<Item = &ModuleSource> {
+        pub fn all_modules(&self) -> impl Iterator<Item = &ModuleSource> {
             self.mapping.iter()
         }
 
