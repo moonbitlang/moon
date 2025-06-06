@@ -23,6 +23,7 @@ use std::{
     str::FromStr,
 };
 
+use arcstr::ArcStr;
 use clap::Subcommand;
 use semver::Version;
 use serde::{Deserialize, Serialize};
@@ -38,9 +39,9 @@ pub type DirSyncResult = SecondaryMap<ModuleId, PathBuf>;
 #[derive(Clone, Serialize, Deserialize, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct ModuleName {
     /// The username part of the module name
-    pub username: String,
+    pub username: ArcStr,
     /// The unqualified name part of the module name
-    pub unqual: String,
+    pub unqual: ArcStr,
 }
 
 impl ModuleName {
@@ -83,12 +84,12 @@ impl FromStr for ModuleName {
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s.split_once('/') {
             Some((username, pkgname)) => Ok(ModuleName {
-                username: username.to_string(),
-                unqual: pkgname.to_string(),
+                username: username.into(),
+                unqual: pkgname.into(),
             }),
             None => Ok(ModuleName {
-                username: String::new(),
-                unqual: s.to_string(),
+                username: ArcStr::new(),
+                unqual: s.into(),
             }),
         }
     }

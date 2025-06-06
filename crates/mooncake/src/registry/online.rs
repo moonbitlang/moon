@@ -52,7 +52,7 @@ impl OnlineRegistry {
     fn index_file_of(&self, name: &ModuleName) -> std::path::PathBuf {
         self.index
             .join("user")
-            .join(&name.username)
+            .join(name.username.as_str())
             .join(format!("{}.index", name.unqual))
     }
 }
@@ -254,8 +254,8 @@ fn cache_of(name: &ModuleName, version: &Version) -> std::path::PathBuf {
     let cache_dir = moonutil::moon_dir::cache();
 
     cache_dir
-        .join(&name.username)
-        .join(&name.unqual)
+        .join(name.username.as_str())
+        .join(name.unqual.as_str())
         .join(format!("{version}.zip"))
 }
 
