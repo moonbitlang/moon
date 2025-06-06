@@ -110,6 +110,7 @@ Build the current package
 * `--enable-coverage` — Enable coverage instrumentation
 * `--sort-input` — Sort input files
 * `--output-wat` — Output WAT instead of WASM
+* `--no-dedup` — disable dedup wasm
 * `-d`, `--deny-warn` — Treat all warnings as errors
 * `--no-render` — Don't render diagnostics from moonc (don't pass '-error-format json' to moonc)
 * `--warn-list <WARN_LIST>` — Warn list config
@@ -146,6 +147,7 @@ Check the current package, but don't build object files
 * `--enable-coverage` — Enable coverage instrumentation
 * `--sort-input` — Sort input files
 * `--output-wat` — Output WAT instead of WASM
+* `--no-dedup` — disable dedup wasm
 * `-d`, `--deny-warn` — Treat all warnings as errors
 * `--no-render` — Don't render diagnostics from moonc (don't pass '-error-format json' to moonc)
 * `--warn-list <WARN_LIST>` — Warn list config
@@ -188,6 +190,7 @@ Run a main package
 * `--enable-coverage` — Enable coverage instrumentation
 * `--sort-input` — Sort input files
 * `--output-wat` — Output WAT instead of WASM
+* `--no-dedup` — disable dedup wasm
 * `-d`, `--deny-warn` — Treat all warnings as errors
 * `--no-render` — Don't render diagnostics from moonc (don't pass '-error-format json' to moonc)
 * `--warn-list <WARN_LIST>` — Warn list config
@@ -224,6 +227,7 @@ Test the current package
 * `--enable-coverage` — Enable coverage instrumentation
 * `--sort-input` — Sort input files
 * `--output-wat` — Output WAT instead of WASM
+* `--no-dedup` — disable dedup wasm
 * `-d`, `--deny-warn` — Treat all warnings as errors
 * `--no-render` — Don't render diagnostics from moonc (don't pass '-error-format json' to moonc)
 * `--warn-list <WARN_LIST>` — Warn list config
@@ -333,6 +337,7 @@ Run benchmarks in the current package
 * `--enable-coverage` — Enable coverage instrumentation
 * `--sort-input` — Sort input files
 * `--output-wat` — Output WAT instead of WASM
+* `--no-dedup` — disable dedup wasm
 * `-d`, `--deny-warn` — Treat all warnings as errors
 * `--no-render` — Don't render diagnostics from moonc (don't pass '-error-format json' to moonc)
 * `--warn-list <WARN_LIST>` — Warn list config

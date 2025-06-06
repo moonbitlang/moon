@@ -1,0 +1,321 @@
+
+running 2 tests
+test cli::generate_test_driver::test_base16 ... ok
+test cli::gen_docs_for_moon_help_page ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 1 test
+test cmd_test ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.52s
+
+
+running 188 tests
+test test_cases::backend::test_backend_flag ... ignored, not implemented
+test test_cases::capture_abort_test ... ok
+test test_cases::circle_pkg_test ... ok
+test test_cases::docs_examples::test_multidimensional_arrays ... ok
+test test_cases::docs_examples::test_docstring_demo ... ok
+test test_cases::docs_examples::test_palindrome_string ... ok
+test test_cases::cakenew_test ... ok
+test test_cases::backend_config::test_backend_config ... ok
+test test_cases::backend::test_js_format ... ok
+test test_cases::docs_examples::test_unicode_demo ... ok
+test test_cases::fmt::test_moon_fmt ... ok
+test test_cases::docs_examples::test_avl_tree ... ok
+test test_cases::extra_flags::test_extra_flags ... ok
+test test_cases::bench2_test ... ok
+test test_cases::fmt::test_moon_fmt_002 ... ok
+test test_cases::fancy_import::test_import001 ... ok
+test test_cases::fancy_import::test_import002 ... ok
+test test_cases::fancy_import::test_import003 ... ok
+test test_cases::fancy_import::test_import004 ... ok
+test test_cases::fmt::test_moon_fmt_block_style ... ok
+test test_cases::fmt::test_moon_fmt_extra_args ... ok
+test test_cases::debug_flag_test ... ok
+test test_cases::hello::test_source_map ... ok
+test test_cases::hello::test_hello ... ok
+test test_cases::moon_commands::test_bench4 ... ignored
+test test_cases::moon_bundle::test_moon_bundle ... ok
+test test_cases::moon_commands::test_moon_help ... ok
+test test_cases::inline_test::test_inline_test_004 ... ok
+test test_cases::hello::test_find_ancestor_with_mod ... ok
+test test_cases::diamond_pkg::test_diamond_pkg_001 ... ok
+test test_cases::moon_new::test_moon_new_interactive ... ignored, todo
+test test_cases::moon_commands::test_moon_cmd ... ok
+test test_cases::inline_test::test_inline_test_002 ... ok
+test test_cases::inline_test::test_inline_test_001 ... ok
+test test_cases::mbti::test_mbti ... ok
+test test_cases::moon_new::test_moon_new_exist ... ok
+test test_cases::moon_test::test_generate_test_driver_incremental ... ignored
+test test_cases::moon_new::test_moon_new_snapshot_lib ... ok
+test test_cases::inline_test::test_inline_test_003 ... ok
+test test_cases::mbti::test_mbti_no_alias ... ok
+test test_cases::moon_new::test_moon_new_snapshot ... ok
+test test_cases::moon_new::test_moon_new_snapshot_lib_no_license ... ok
+test test_cases::moon_test::test_moon_test_no_entry_warning ... ok
+test test_cases::diamond_pkg::test_diamond_pkg_002 ... ok
+test test_cases::moon_test::test_pkg_source_in ... ok
+test test_cases::moon_new::test_moon_run_main ... ok
+test test_cases::moon_info_specific_package ... ok
+test test_cases::moon_new::test_moon_new ... ok
+test test_cases::mooncake_cli_smoke_test ... ignored, where to download mooncake?
+test test_cases::mooncakes_io_smoke_test ... ok
+test test_cases::diamond_pkg::test_diamond_pkg_003 ... ok
+test test_cases::moon_test::test_moon_test_hello_lib ... ok
+test test_cases::moon_version::test_moon_version ... ok
+test test_cases::design::test_design ... ok
+test test_cases::moon_version::test_moon_version_json ... ok
+test test_cases::packages::test_empty_name ... ok
+test test_cases::prebuild::test_moonlex ... ok
+test test_cases::moon_test::test_moon_test_succ ... ok
+test test_cases::packages::test_core_order ... ok
+test test_cases::moon_test_with_failure_json ... ok
+test test_cases::inline_test::test_inline_test_order ... ok
+test test_cases::packages::test_error_duplicate_alias ... ok
+test test_cases::no_main_just_init ... ok
+test test_cases::moon_test::test_moon_test_hello_exec ... ok
+test test_cases::moon_test::test_moon_test_hello_exec_fntest ... ok
+test test_cases::simple_pkg::test_a_006 ... ok
+test test_cases::prebuild_config_script::test_prebuild_config_py ... ok
+test test_cases::simple_pkg::test_a_001 ... ok
+test test_cases::simple_pkg::test_a_003 ... ok
+test test_cases::prebuild_config_script::test_prebuild_config_js ... ok
+test test_cases::simple_pkg::test_a_002 ... ok
+test test_cases::simple_pkg::test_a_004 ... ok
+test test_cases::simple_pkg::test_a_005 ... ok
+test test_cases::dummy_core::test_dummy_core ... ok
+test test_cases::simple_pkg::test_ab_001 ... ok
+test test_cases::moon_test::test_moon_test_with_local_dep ... ok
+test test_cases::simple_pkg::test_ab_003 ... ok
+test test_cases::simple_pkg::test_ab_004 ... ok
+test test_cases::test_ambiguous_pkg ... ok
+test test_cases::test_bad_version ... ok
+test test_cases::simple_pkg::test_ab_002 ... ok
+test test_cases::test_blackbox_dedup_alias ... ok
+test test_cases::target_backend::test_target_backend ... ok
+test test_cases::output_format::test_output_format ... ok
+test test_cases::test_blackbox_test_core_override ... ok
+test cmd_test::cmd_test ... ok
+test test_cases::test_check_failed_should_write_pkg_json ... ok
+test test_cases::moon_new::test_moon_new_new ... ok
+test test_cases::test_diag_loc_map ... ok
+test test_cases::test_dont_link_third_party ... ok
+test test_cases::test_error_report::test_test_error_report ... ok
+test test_cases::targets::test_many_targets_auto_update_001 ... ok
+test test_cases::test_backtrace ... ok
+test test_cases::test_diff_mbti ... ok
+test test_cases::test_blackbox_failed ... ok
+test test_cases::test_failed_to_fill_whole_buffer ... ok
+test test_cases::test_expect_test::test_only_update_expect ... ok
+test test_cases::test_export_memory_name ... ok
+test test_cases::test_add_mi_if_self_not_set_in_test_imports ... ok
+test test_cases::test_blackbox_success ... ok
+test test_cases::test_exports_in_native_backend ... ok
+test test_cases::test_filter::test_moon_test_filter_index ... ok
+test test_cases::test_filter::test_moon_test_filter_file ... ok
+test test_cases::test_filter::test_moon_test_filter_package_dry_run ... ok
+test test_cases::test_filter::moon_test_parallelize_should_success ... ok
+test test_cases::targets::test_many_targets_auto_update_003 ... ok
+test test_cases::targets::test_many_targets ... ok
+test test_cases::test_import_shared_memory ... ok
+test test_cases::test_import_memory_and_heap_start ... ok
+test test_cases::test_internal_package ... ok
+test test_cases::test_filter::test_moon_test_filter_package ... ok
+test test_cases::test_moon_check_filter_package ... ok
+test test_cases::targets::test_many_targets_auto_update_002 ... ok
+test test_cases::native_backend_test_filter ... ok
+test test_cases::test_moon_check_json_output ... ok
+test test_cases::test_filter::test_moon_test_filter_multi_package ... ok
+test test_cases::test_moon_doc_dry_run ... ok
+test test_cases::test_moon_doc ... ok
+test test_cases::test_moon_query ... ignored, moon query may no support anymore
+test test_cases::targets::test_many_targets_auto_update_004 ... ok
+test test_cases::test_moon_check_package_with_patch ... ok
+test test_cases::test_filter::test_moon_test_filter_package_with_deps ... ok
+test test_cases::test_moon_package_list ... ok
+test test_cases::targets::test_many_targets_expect_failed ... ok
+test test_cases::test_moon_run_native ... ok
+test test_cases::test_moon_update_failed ... ok
+test test_cases::test_moonbitlang_x ... ok
+test test_cases::test_moonfmt ... ok
+test test_cases::test_js ... ok
+test test_cases::test_moon_test_release ... ok
+test test_cases::test_in_main_pkg ... ok
+test test_cases::test_moon_run_with_cli_args ... ok
+test test_cases::test_native_backend_cc_flags_with_env_override ... ok
+test test_cases::test_need_link ... ok
+test test_cases::test_moon_coverage ... ok
+test test_cases::test_native_backend_tcc_run ... ok
+test test_cases::test_native_backend_cc_flags ... ok
+test test_cases::test_no_block_params ... ok
+test test_cases::test_nonexistent_package ... ok
+test test_cases::test_no_mi_for_test_pkg ... ok
+test test_cases::test_postadd_script ... ok
+test test_cases::test_no_warn_deps ... ok
+test test_cases::test_filter::moon_test_parallelize_test_filter_should_success ... ok
+test test_cases::test_moon_run_single_mbt_file ... ok
+test test_cases::test_panic ... ok
+test test_cases::test_no_work_to_do ... ok
+test test_cases::test_filter::test_moon_test_filter_index_with_auto_update ... ok
+test test_cases::moon_test_single_file ... ok
+test test_cases::test_pre_build_dirty ... ok
+test test_cases::test_moon_run_single_mbt_file_inside_a_pkg ... ok
+test test_cases::test_pre_build ... ok
+test test_cases::test_moon_test_patch ... ok
+test test_cases::test_specify_source_dir_003 ... ok
+test test_cases::test_specify_source_dir_005 ... ok
+test test_cases::test_filter::test_moon_parallelism ... ok
+test test_cases::test_filter::test_moon_test_filter_package_with_test_imports ... ok
+test test_cases::test_render_diagnostic_in_patch_file ... ok
+test test_cases::test_supported_backends_in_pkg_json ... ok
+test test_cases::test_third_party ... ok
+test test_cases::test_sub_package ... ok
+test test_cases::test_trace_001 ... ok
+test test_cases::test_strip_debug ... ok
+test test_cases::test_specify_source_dir_004 ... ok
+test test_cases::test_upgrade ... ok
+test test_cases::test_specify_source_dir_001 ... ok
+test test_cases::test_specify_source_dir_002 ... ok
+test test_cases::test_specify_source_dir_with_deps_002 ... ok
+test test_cases::test_validate_import ... ok
+test test_cases::test_specify_source_dir_with_deps ... ok
+test test_cases::test_whitespace_parent_space ... ok
+test test_cases::warns::test_mod_level_warn_alert_list ... ok
+test test_cases::test_tracing_value ... ok
+test test_cases::warns::test_deny_warn ... ok
+test test_cases::test_moon_install_bin ... ok
+test test_cases::warns::test_warn_list_dry_run ... ok
+test test_cases::test_use_cc_for_native_release ... ok
+test test_cases::warns::test_alert_list ... ok
+test test_cases::whitespace_test ... ok
+test test_cases::test_run_md_test ... ok
+test test_cases::warns::test_warn_list_real_run ... ok
+test test_cases::test_virtual_pkg ... ok
+test test_cases::test_snapshot_test ... ok
+test test_cases::test_update_expect_failed ... ok
+test test_cases::test_snapshot_test_target_js ... ok
+test test_cases::test_run_doc_test ... ok
+test test_cases::test_native_stub_in_pkg_json ... ok
+test test_cases::test_expect_test::test_expect_test ... ok
+test test_cases::test_multi_process ... ok
+
+test result: ok. 182 passed; 0 failed; 6 ignored; 0 measured; 0 filtered out; finished in 9.59s
+
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 8 tests
+test expect::test_split ... ok
+test expect::test_x ... ok
+test section_capture::test_handle_intermixed_output ... ok
+test expect::test_decode ... ok
+test section_capture::test_handle_output ... ok
+test upgrade::test_extract_date ... ok
+test gen::test_start_with ... ok
+test section_capture::test_handle_wrong_output ... ok
+
+test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 43 tests
+test pkg::add::test_module_name ... ok
+test registry::online::test_urlencode ... ok
+test dep_dir::test::test_diff_state ... ok
+test dep_dir::test::test_diff_state_2 ... ok
+test registry::mock::test::test_mock_registry_add ... ok
+test resolver::mvs::test::test_basic_resolve ... ok
+test resolver::mvs::test::test_cycle1 ... ignored, Cyclic dependency detection is not supported yet
+test resolver::mvs::test::test_cycle2 ... ignored, Cyclic dependency detection is not supported yet
+test resolver::mvs::test::test_cycle3 ... ignored, Cyclic dependency detection is not supported yet
+test resolver::mvs::test::test_cross1r ... ok
+test resolver::mvs::test::test_cross1u ... ok
+test resolver::mvs::test::test_cross1 ... ok
+test resolver::mvs::test::api_walkthrough ... ok
+test resolver::mvs::test::test_cross2 ... ok
+test resolver::mvs::test::test_cross5 ... ok
+test resolver::mvs::test::test_cross3 ... ok
+test resolver::mvs::test::test_cross1v ... ok
+test resolver::mvs::test::test_cross6 ... ok
+test resolver::mvs::test::test_cross2x ... ok
+test resolver::mvs::test::test_cross1x ... ok
+test resolver::mvs::test::test_blog ... ok
+test resolver::mvs::test::test_dependency_should_be_max_among_requested_version ... ok
+test resolver::mvs::test::test_cross4 ... ok
+test resolver::mvs::test::test_downhiddenartifact ... ignored, not support hidden
+test resolver::mvs::test::test_downhiddencross ... ignored, not support hidden
+test resolver::mvs::test::test_cross7 ... ok
+test resolver::mvs::test::test_down1 ... ok
+test resolver::mvs::test::test_noprev1 ... ignored, not support hidden
+test resolver::mvs::test::test_noprev2 ... ignored, not support hidden
+test resolver::mvs::test::test_noprev3 ... ignored, not support hidden
+test resolver::mvs::test::test_downcross1 ... ok
+test resolver::mvs::test::test_cross8 ... ok
+test resolver::mvs::test::test_downcycle ... ok
+test resolver::mvs::test::test_downcross2 ... ok
+test resolver::mvs::test::test_up1 ... ignored, not support hidden
+test resolver::mvs::test::test_up2 ... ignored, not support hidden
+test resolver::mvs::test::test_drop ... ok
+test resolver::mvs::test::test_nonexistent_modules ... ok
+test resolver::mvs::test::test_incompatible_versions ... ok
+test resolver::mvs::test::test_down2 ... ok
+test resolver::mvs::test::test_trim ... ok
+test resolver::mvs::test::test_simplify ... ok
+test resolver::mvs::test::test_transitive_dependencies ... ok
+
+test result: ok. 33 passed; 0 failed; 10 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 4 tests
+test test_moonrun_version ... ok
+test test_moonrun_wasm_stack_trace ... ok
+test test_moon_run_with_read_bytes_from_stdin ... ok
+test test_moon_run_with_cli_args ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.08s
+
+
+running 15 tests
+test cond_expr::test_eval_001 ... ok
+test cond_expr::test_001 ... ok
+test cond_expr::test_eval_002 ... ok
+test common::test_backend_filter ... ok
+test cond_expr::test_eval_003 ... ok
+test moon_dir::test_moon_dir ... ok
+test path::test_import_component_1 ... ok
+test path::test_internal ... ok
+test path::test_path_component_1 ... ok
+test fuzzy_match::test_fuzzy ... ok
+test scan::test::test_match_import ... ok
+test module::validate_mod_json_schema ... ok
+test package::validate_pkg_json_schema ... ok
+test common::test_get_version ... ok
+test git::test_bad_git_command ... ok
+
+test result: ok. 15 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.02s
+
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
