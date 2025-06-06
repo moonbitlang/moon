@@ -73,8 +73,8 @@ pub fn add_cli(cli: UniversalFlags, cmd: AddSubcommand) -> anyhow::Result<i32> {
     let username = author_pkg[0];
     let pkgname = author_pkg[1];
     let pkg_name = ModuleName {
-        username: username.to_string(),
-        unqual: pkgname.to_string(),
+        username: username.into(),
+        unqual: pkgname.into(),
     };
 
     if parts.len() == 2 {
