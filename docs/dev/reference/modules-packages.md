@@ -1,4 +1,4 @@
-# Module and pacakges
+# Module and packages
 
 ## High-level constructs
 
@@ -78,6 +78,28 @@ the build system should abort and return an error.
 Although technically module and package name components are allowed to contain any character execpt `/`,
 we recommend and plan to restrict the character set to ASCII identifiers,
 to prevent causing issues on other parts of the toolchain and compiler.
+
+## Dependency resolving
+
+Modules are versioned using [SemVer][] (Semantic Versioning),
+with the (common) extension of breaking change happens on the first non-zero version component.
+Currently, the major part of module versions are restricted to 0
+(i.e. modules may only have `0.x.y` version).
+
+Dependencies are currently resolved using the [MVS][] algorithm.
+In consequence, only caret version requirements (`^version`) are supported.
+Caret version requirements only allow the dependency to be resolved to
+a version larger or equal to the specified version,
+_and_ less than the next incompatible version (see SemVer spec for more info).
+According to the MVS algorithm,
+the smallest version among all applicable versions is selected.
+
+Currently, if two different, incompatible version of the same module
+are resolved into the module dependency graph,
+the build system will reject such graph with an error.
+
+[semver]: https://semver.org/
+[mvs]: https://go.dev/ref/mod#minimal-version-selection
 
 ## Package discovery
 
