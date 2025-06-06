@@ -412,6 +412,7 @@ impl BuildPackageFlags {
 pub struct LinkCoreFlags {
     pub debug_flag: bool,
     pub source_map: bool,
+    pub no_dedup: bool,
     pub output_format: OutputFormat,
     pub target_backend: TargetBackend,
 }
@@ -421,6 +422,7 @@ impl LinkCoreFlags {
         Self {
             debug_flag: false,
             source_map: false,
+            no_dedup: false,
             output_format: OutputFormat::Wasm,
             target_backend: TargetBackend::default(),
         }
