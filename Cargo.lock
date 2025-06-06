@@ -1520,6 +1520,7 @@ name = "mooncake"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "arcstr",
  "bytes",
  "clap",
  "colored",
@@ -1570,6 +1571,7 @@ name = "moonutil"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "arcstr",
  "ariadne",
  "bincode",
  "chrono",

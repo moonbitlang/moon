@@ -27,7 +27,7 @@ edition = "2021"
 
 [workspace.dependencies]
 n2 = { git = "https://github.com/moonbitlang/n2.git", rev = "7fb72d14baba93aeff637f6199cd8145921fd715" }
-arcstr = "1.2"
+arcstr = { version = "1.2", features = ["serde"] }
 moonbuild = { path = "./crates/moonbuild", version = "*" }
 mooncake = { path = "./crates/mooncake", version = "*" }
 moonutil = { path = "./crates/moonutil", version = "*" }
