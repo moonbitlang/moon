@@ -55,4 +55,9 @@ pub struct UniversalFlags {
     /// Generate build graph
     #[clap(long, global = true, conflicts_with = "dry_run")]
     pub build_graph: bool,
+
+    /// Enable unstable features for Moon.
+    /// Should be supplied with a comma-separated list of feature name values.
+    #[clap(long, short = 'Z', default_value = "")]
+    pub unstable_feature: Box<crate::features::FeatureGate>,
 }
