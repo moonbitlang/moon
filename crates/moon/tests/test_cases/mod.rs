@@ -5298,6 +5298,20 @@ fn test_in_main_pkg() {
     let dir = TestDir::new("test_in_main_pkg.in");
 
     check(
+        get_stderr(&dir, ["check"]),
+        expect![[r#"
+            Warning: [0002]
+               ╭─[$ROOT/lib/1_test.mbt:2:7]
+               │
+             2 │   let a = 1
+               │       ┬  
+               │       ╰── Warning: Unused variable 'a'
+            ───╯
+            Finished. moon: ran 6 tasks, now up to date
+        "#]],
+    );
+
+    check(
         get_stdout(
             &dir,
             ["test", "-p", "main", "--sort-input", "--no-parallelize"],
