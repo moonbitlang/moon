@@ -45,6 +45,9 @@ There are 4 kinds of source files within each package:
 - **C stub**. These are C files manually specified in each package,
   and recognized by the build system to be built.
 
+Source files may also be conditionally included into the build --
+see [Conditional Compilation](./cond-comp.md) for more information.
+
 There are 3 major build targets within each package,
 each with its own list of source files (and thus acting like a package):
 
