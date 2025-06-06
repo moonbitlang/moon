@@ -53,7 +53,7 @@ impl OnlineRegistry {
         self.index
             .join("user")
             .join(&name.username)
-            .join(format!("{}.index", name.pkgname))
+            .join(format!("{}.index", name.unqual))
     }
 }
 
@@ -193,7 +193,7 @@ impl OnlineRegistry {
             println!("Downloading {name}");
         }
         let filepath = form_urlencoded::Serializer::new(String::new())
-            .append_key_only(&format!("{}/{}/{}", name.username, name.pkgname, version))
+            .append_key_only(&format!("{}/{}/{}", name.username, name.unqual, version))
             .finish();
         let url = format!("{}/{}.zip", self.url_base, filepath);
         let data = reqwest::blocking::get(url)?.error_for_status()?.bytes()?;
@@ -255,7 +255,7 @@ fn cache_of(name: &ModuleName, version: &Version) -> std::path::PathBuf {
 
     cache_dir
         .join(&name.username)
-        .join(&name.pkgname)
+        .join(&name.unqual)
         .join(format!("{version}.zip"))
 }
 

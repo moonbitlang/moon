@@ -37,16 +37,32 @@ pub type DirSyncResult = SecondaryMap<ModuleId, PathBuf>;
 
 #[derive(Clone, Serialize, Deserialize, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct ModuleName {
+    /// The username part of the module name
     pub username: String,
-    pub pkgname: String,
+    /// The unqualified name part of the module name
+    pub unqual: String,
+}
+
+impl ModuleName {
+    /// Returns whether the module's name is in legacy format, either having
+    /// empty username or containing multiple segments in the unqualified name.
+    pub fn is_legacy(&self) -> bool {
+        if self.username.is_empty() {
+            return true;
+        }
+        if self.unqual.contains('/') {
+            return true;
+        }
+        false
+    }
 }
 
 impl std::fmt::Debug for ModuleName {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         if self.username.is_empty() {
-            f.write_fmt(format_args!("{}", self.pkgname))
+            f.write_fmt(format_args!("{}", self.unqual))
         } else {
-            f.write_fmt(format_args!("{}/{}", self.username, self.pkgname))
+            f.write_fmt(format_args!("{}/{}", self.username, self.unqual))
         }
     }
 }
@@ -54,9 +70,9 @@ impl std::fmt::Debug for ModuleName {
 impl std::fmt::Display for ModuleName {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         if self.username.is_empty() {
-            f.write_fmt(format_args!("{}", self.pkgname))
+            f.write_fmt(format_args!("{}", self.unqual))
         } else {
-            f.write_fmt(format_args!("{}/{}", self.username, self.pkgname))
+            f.write_fmt(format_args!("{}/{}", self.username, self.unqual))
         }
     }
 }
@@ -68,11 +84,11 @@ impl FromStr for ModuleName {
         match s.split_once('/') {
             Some((username, pkgname)) => Ok(ModuleName {
                 username: username.to_string(),
-                pkgname: pkgname.to_string(),
+                unqual: pkgname.to_string(),
             }),
             None => Ok(ModuleName {
                 username: String::new(),
-                pkgname: s.to_string(),
+                unqual: s.to_string(),
             }),
         }
     }
