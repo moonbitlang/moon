@@ -70,8 +70,6 @@ use std::{collections::HashMap, path::PathBuf};
 
 use arcstr::ArcStr;
 
-mod discover;
-
 /// Represents the target of this build routine.
 #[derive(Clone, Debug, Copy, PartialEq, Eq)]
 pub enum RunTask {
