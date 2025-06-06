@@ -27,6 +27,7 @@ pub mod dependency;
 pub mod dirs;
 pub mod doc_test;
 pub mod error_code_docs;
+pub mod features;
 pub mod fuzzy_match;
 pub mod git;
 pub mod graph;
