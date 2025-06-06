@@ -538,7 +538,7 @@ mod test {
         let dep_count = result.dep_count(id);
         expect!["1"].assert_eq(&dep_count.to_string());
 
-        let all_packages = result.all_packages().collect::<Vec<_>>();
+        let all_packages = result.all_modules().collect::<Vec<_>>();
         expect![[r#"
             [
                 dep/three@0.1.0,
@@ -548,7 +548,7 @@ mod test {
         "#]]
         .assert_debug_eq(&all_packages);
 
-        let all_packages_and_id = result.all_packages_and_id().collect::<Vec<_>>();
+        let all_packages_and_id = result.all_modules_and_id().collect::<Vec<_>>();
         expect![[r#"
             [
                 (
@@ -722,7 +722,7 @@ mod test {
         let result = resolver.resolve(&mut env, &roots);
         match result {
             Some(result) => {
-                let pkgs = result.all_packages().cloned().collect::<Vec<_>>();
+                let pkgs = result.all_modules().cloned().collect::<Vec<_>>();
                 pkgs
             }
             None => {

@@ -54,7 +54,7 @@ pub fn run_prebuild_config(
     let env_vars: HashMap<String, String> = std::env::vars().collect();
     let mut pkg_outputs = HashMap::<PathComponent, BuildScriptOutput>::new();
 
-    for module in mods.all_packages() {
+    for module in mods.all_modules() {
         let id = mods.id_from_mod_name(module).expect("module not found");
         let def = mods.module_info(id);
 

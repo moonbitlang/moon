@@ -202,7 +202,7 @@ pub fn sync_deps(
     // Ensure the directory exists.
     std::fs::create_dir_all(dep_dir.path())?;
 
-    let target_dep_dir = pkg_list_to_dep_dir_state(pkg_list.all_packages());
+    let target_dep_dir = pkg_list_to_dep_dir_state(pkg_list.all_modules());
     let current_dep_dir = dep_dir.get_current_state()?;
 
     let diff = diff_dep_dir_state(&current_dep_dir, &target_dep_dir);
@@ -279,7 +279,7 @@ fn map_source_to_dir(dep_dir: &DepDir, module: &ModuleSource) -> PathBuf {
 /// directories that don't exist yet because they are not synced yet.
 pub fn resolve_dep_dirs(dep_dir: &DepDir, pkg_list: &ResolvedEnv) -> DirSyncResult {
     let mut res = DirSyncResult::default();
-    for (id, module) in pkg_list.all_packages_and_id() {
+    for (id, module) in pkg_list.all_modules_and_id() {
         res.insert(id, map_source_to_dir(dep_dir, module));
     }
     res
