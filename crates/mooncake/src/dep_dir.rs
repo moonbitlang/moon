@@ -108,7 +108,7 @@ fn pkg_list_to_dep_dir_state<'a>(
             ModuleSourceKind::Git(_) => continue, // TODO: git registries are resolved differently
         }
         let user = &pkg.name.username;
-        let pkg_name = &pkg.name.pkgname;
+        let pkg_name = &pkg.name.unqual;
         let pkg_list: &mut HashMap<String, _> = user_list.entry(user.to_owned()).or_default();
         pkg_list.insert(pkg_name.to_owned(), pkg);
     }
@@ -264,7 +264,7 @@ fn pkg_to_dir(dep_dir: &DepDir, username: &str, pkgname: &str) -> PathBuf {
 fn map_source_to_dir(dep_dir: &DepDir, module: &ModuleSource) -> PathBuf {
     match &module.source {
         ModuleSourceKind::Registry(_) => {
-            pkg_to_dir(dep_dir, &module.name.username, &module.name.pkgname)
+            pkg_to_dir(dep_dir, &module.name.username, &module.name.unqual)
         }
         ModuleSourceKind::Local(path) => path.clone(),
         ModuleSourceKind::Git(url) => {
@@ -325,7 +325,7 @@ mod test {
                         let res = ModuleSource {
                             name: ModuleName {
                                 username: user.clone(),
-                                pkgname: module.clone(),
+                                unqual: module.clone(),
                             },
                             version,
                             source: ModuleSourceKind::Registry(None),
@@ -352,7 +352,7 @@ mod test {
                         let res = ModuleSource {
                             name: ModuleName {
                                 username: user.to_owned(),
-                                pkgname: pkg.to_owned(),
+                                unqual: pkg.to_owned(),
                             },
                             version,
                             source: ModuleSourceKind::Registry(None),
