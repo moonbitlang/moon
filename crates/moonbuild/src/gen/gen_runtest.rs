@@ -306,7 +306,7 @@ pub fn gen_package_core(
         package_source_dir,
         warn_list: pkg.warn_list.clone(),
         alert_list: pkg.alert_list.clone(),
-        is_main: false,
+        is_main: pkg.is_main,
         is_third_party: pkg.is_third_party,
         is_internal_test: false,
         is_whitebox_test: false,

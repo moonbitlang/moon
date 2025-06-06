@@ -516,7 +516,7 @@ pub fn gen_check_command(
         .arg(&item.mi_out)
         .arg("-pkg")
         .arg(&item.package_full_name)
-        .arg_with_cond(item.is_main, "-is-main")
+        .arg_with_cond(item.is_main && !item.is_blackbox_test, "-is-main")
         .args_with_cond(
             !moonc_opt.nostd,
             [
