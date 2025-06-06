@@ -15,10 +15,11 @@ All the code within a single package is compiled at once using the `moonc` compi
 while different packages are compiled in different calls to the compiler.
 
 A module may depend on other modules,
-which in turn fetches the packages contained by the module.
-A package may depend on other packages within its containing module,
+which in turn makes all packages contained by the depended module available for import.
+A package may import other packages within its containing module,
 or within the modules its containing module depends on.
 Cyclic dependencies are currently prohibited both in module and package level.
+
 A package can be **internal** to restrict importing,
 see the [Internal Packages](#internal-packages) section for details.
 
@@ -52,13 +53,13 @@ The following table shows the module name string and its parts.
 | containers            | N/A      | containers       | No (legacy) |
 | rabbit/containers/new | rabbit   | containers/new   | No (legacy) |
 
-A package's (fully-qualified) name consists of its parent module,
+A package's (fully-qualified) name consists of its containing module,
 and an unqualified _package path_ within the module.
 The package path may be empty, or a path with components separated by a forward slash.
 The two parts are separated by a forward slash if the package path is not empty.
 
-Currently, the package's full name is derived from its path and its parent module,
-specified in the following _Package discovery_ section.
+Currently, the package's full name is derived from its path and its containing module,
+specified in the following [Package discovery](#package-discovery) section.
 
 The following table shows the package's full name in relationship with its module name and path.
 
@@ -69,27 +70,27 @@ The following table shows the package's full name in relationship with its modul
 | rabbit/containers | hashmap/raw  | rabbit/containers/hashmap/raw |
 | octocat/list      | linked       | octocat/list/linked           |
 
-With legacy modules, packages from different modules may share the same name.
+With legacy modules, packages from different modules may share the same full name.
 Currently, no ambiguity is allowed when resolving package names.
-If two packages resolves to the same name when building,
+If two packages resolves to the same full name when building,
 the build system should abort and return an error.
 
-Although technically module and package name components may contain any character execpt `/`,
+Although technically module and package name components are allowed to contain any character execpt `/`,
 we recommend and plan to restrict the character set to ASCII identifiers,
 to prevent causing issues on other parts of the toolchain and compiler.
 
 ## Package discovery
 
-The `source` field in `moon.mod.json` specifies where the root of the module is,
+The `source` field in `moon.mod.json` specifies where package scanning starts,
 relative to the folder containing `moon.mod.json`.
 Package paths are the relative path (normalized to forward slash) relative to this root path.
 
-If not specified, the root path is `.`,
-meaning the packages are relative to the root folder of the module.
+If not specified, the package scanning root path is `.`,
+meaning the packages are relative to the root of the module.
 Newer modules created by `moon new` by default sets this to `src`.
 
 To discover all package within the module,
-one recursively search from the root of the module for files named `moon.pkg.json`,
+one recursively search from the scanning root for files named `moon.pkg.json`,
 unless the folder contains `moon.mod.json`.
 Common non-code folders will be skipped during this process,
 such as `.git`, `node_modules` and `target`.
@@ -121,7 +122,7 @@ for common folder layouts with root `.` and root `src`:
   moon.mod.json       (root of module)
     Assuming { source: "src", name: "rabbit/containers" }
 
-  src/
+  src/                  (root of package scanning)
     moon.pkg.json       (package "rabbit/containers")
     linked_list/
       moon.pkg.json     (package "rabbit/containers/linked_list")
