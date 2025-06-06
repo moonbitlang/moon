@@ -1251,6 +1251,7 @@ pub fn gen_runtest_link_command(
         .arg_with_cond(!debug_flag && !strip_flag, "-g")
         // .arg_with_cond(!debug_flag && strip_flag, "")
         .arg_with_cond(moonc_opt.link_opt.source_map, "-source-map")
+        .arg_with_cond(moonc_opt.link_opt.no_dedup, "-no-dedup")
         .args(moonc_opt.extra_link_opt.iter())
         // note: this is a workaround for windows cl, x86_64-pc-windows-gnu also need to consider
         .args_with_cond(

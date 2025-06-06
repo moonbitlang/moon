@@ -549,6 +549,7 @@ pub fn gen_build_command(
         .arg_with_cond(!debug_flag && !strip_flag, "-g")
         // .arg_with_cond(!debug_flag && strip_flag, "")
         .arg_with_cond(moonc_opt.link_opt.source_map, "-source-map")
+        .arg_with_cond(moonc_opt.link_opt.no_dedup, "-no-dedup")
         .arg_with_cond(enable_coverage, "-enable-coverage")
         .arg_with_cond(self_coverage, "-coverage-package-override=@self")
         .args(moonc_opt.extra_build_opt.iter())
@@ -666,6 +667,7 @@ pub fn gen_link_command(
         .arg_with_cond(!debug_flag && !strip_flag, "-g")
         // .arg_with_cond(!debug_flag && strip_flag, "")
         .arg_with_cond(moonc_opt.link_opt.source_map, "-source-map")
+        .arg_with_cond(moonc_opt.link_opt.no_dedup, "-no-dedup")
         .lazy_args_with_cond(exports.is_some(), || {
             let es = exports.unwrap();
             if es.is_empty() {

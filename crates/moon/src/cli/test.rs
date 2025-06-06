@@ -259,6 +259,7 @@ fn run_test_in_single_file(cli: &UniversalFlags, cmd: &TestSubcommand) -> anyhow
         link_opt: moonutil::common::LinkCoreFlags {
             debug_flag,
             source_map: debug_flag,
+            no_dedup: cmd.build_flags.no_dedup,
             output_format: match target_backend {
                 TargetBackend::Js => OutputFormat::Js,
                 TargetBackend::Native => OutputFormat::Native,

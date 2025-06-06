@@ -236,6 +236,7 @@ fn run_check_for_single_file(cli: &UniversalFlags, cmd: &CheckSubcommand) -> any
         link_opt: moonutil::common::LinkCoreFlags {
             debug_flag: !release_flag,
             source_map: !release_flag,
+            no_dedup: cmd.build_flags.no_dedup,
             output_format: match target_backend {
                 TargetBackend::Js => OutputFormat::Js,
                 TargetBackend::Native => OutputFormat::Native,
