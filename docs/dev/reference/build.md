@@ -1,32 +1,5 @@
 # How a MoonBit package is built
 
-## High-level constructs
-
-A **module** in MoonBit is the unit of dependency version resolution.
-The root of a module is signified by a file named `moon.mod.json`.
-A module recursively contain all directories and files under its root,
-until another module is met.
-
-A module may contain one or more **package**s,
-which is the unit of compilation in MoonBit.
-A package contains all files (not directories) within its containing directory,
-and signified by a file named `moon.pkg.json`.
-All the code within a single package is compiled at once using the `moonc` compiler,
-while different packages are compiled in different calls to the compiler.
-
-A module may depend on other modules,
-which in turn fetches the packages contained by the module.
-A package may depend on other packages within its containing module,
-or within the modules its containing module depends on.
-Cyclic dependencies are currently prohibited both in module and package level.
-
-A package can be **virtual**,
-which is similar to virtual modules in OCaml.
-A virtual package by default has only the public members as an interface,
-but no implementation.
-The package can be **implemented** by another package or itself.
-See [Virtual Packages](./virtual-pkg.md) for details.
-
 ## Anatomy of a package
 
 There are a lot of knobs to tweak within a package,
