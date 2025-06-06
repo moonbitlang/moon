@@ -32,5 +32,9 @@ The condition may either be:
   The file will be included iff compiled with the given platform targets.
   e.g. `["native"]`, `["js", "wasm-gc"]`.
 - An array with `not` as the first element, and platform target names in the rest.
-  The file will be included iff **not** compied with the given platform targets.
+  The file will be included iff **not** compiled with the given platform targets.
   e.g. `["not", "wasm", "wasm-gc"]`.
+
+The `_test`/`_wbtest` magic suffixes on these files
+still applies to the source file categorization,
+regardless of the target platforms specified to the file.
