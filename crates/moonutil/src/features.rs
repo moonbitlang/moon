@@ -6,6 +6,7 @@ pub enum FeatureGateParseError {
     UnknownFeature(String),
 }
 
+#[allow(unused)]
 macro_rules! stable_to_bool {
     (stable) => {
         true
@@ -97,7 +98,9 @@ macro_rules! features {
     };
 }
 
-features! {}
+features! {
+    // This is intentionally left blank, will be populated in the future
+}
 
 impl FromStr for Box<FeatureGate> {
     type Err = FeatureGateParseError;
