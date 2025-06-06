@@ -4,6 +4,7 @@ This is a reference documentation of the current MoonBuild behavior.
 
 ## Core features
 
+- [Modules and packages](./modules-packages.md)
 - [Package build process](./build.md)
 - [Conditional compilation](./cond-comp.md)
 - [Virtual packages](./virtual-pkg.md)
@@ -14,6 +15,7 @@ This is a reference documentation of the current MoonBuild behavior.
 - TODO: Doc tests
 - TODO: Snapshot testing
 
-## Documentation-oriented programming
+## Auxiliary modes
 
+- TODO: Single-file mode
 - TODO: Markdown checks and tests
