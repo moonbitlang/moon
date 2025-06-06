@@ -3,11 +3,11 @@
 fn moonbit_test_driver_internal_error_to_string(x : Error) -> String = "%error.to_string"
 
 fn moonbit_unsafe_char_from_int(x : Int) -> Char = "%identity"
-typealias Moonbit_Test_Driver_Internal_No_Args_Function = () -> Unit!Error
+pub(all) type Moonbit_Test_Driver_Internal_No_Args_Function () -> Unit!Error
 
-typealias Moonbit_Test_Driver_Internal_With_Args_Function = (@moonbitlang/core/test.T) -> Unit!Error
+pub(all) type Moonbit_Test_Driver_Internal_With_Args_Function (@moonbitlang/core/test.T) -> Unit!Error
 
-typealias Moonbit_Test_Driver_Internal_With_Bench_Args_Function = (@moonbitlang/core/bench.T) -> Unit!Error
+pub(all) type Moonbit_Test_Driver_Internal_With_Bench_Args_Function (@moonbitlang/core/bench.T) -> Unit!Error
 
 typealias Moonbit_Test_Driver_Internal_No_Args_Map = @moonbitlang/core/builtin.Map[
   String,
@@ -186,7 +186,7 @@ pub fn moonbit_test_driver_internal_execute(filename : String, index : Int) -> U
         Moonbit_Test_Driver_Internal__F::F1(f) =>
             fn() {
               let it = @moonbitlang/core/test.new(name)
-              f!(it)
+              (f._)(it)
             }
         Moonbit_Test_Driver_Internal__F::F2(f) =>
             fn() {
@@ -194,10 +194,10 @@ pub fn moonbit_test_driver_internal_execute(filename : String, index : Int) -> U
                 Some(inner) => inner
                 _ => panic() // unreachable
               }
-              f!(it)
+              (f._)(it)
             }
         }
-        func!()
+        (func._)()
         match bench_out {
           Some(inner) => {
             let s = inner.dump_summaries()
