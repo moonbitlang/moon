@@ -186,6 +186,10 @@ pub struct BuildFlags {
     #[clap(long)]
     pub output_wat: bool,
 
+    /// disable dedup wasm
+    #[clap(long)]
+    pub no_dedup: bool,
+
     /// Treat all warnings as errors
     #[clap(long, short)]
     pub deny_warn: bool,
@@ -249,8 +253,24 @@ pub fn get_compiler_flags(src_dir: &Path, build_flags: &BuildFlags) -> anyhow::R
 
     let target_backend = build_flags.target_backend.unwrap_or_default();
 
-    if target_backend == TargetBackend::Js && output_format == OutputFormat::Wat {
-        bail!("--output-wat is not supported for --target js");
+    if !(target_backend == TargetBackend::Wasm || target_backend == TargetBackend::WasmGC)
+        && output_format == OutputFormat::Wat
+    {
+        bail!(
+            "--output-wat is not supported for --target {}",
+            target_backend
+        );
+    }
+
+    let no_dedup = build_flags.no_dedup;
+
+    if !(target_backend == TargetBackend::Wasm || target_backend == TargetBackend::WasmGC)
+        && build_flags.no_dedup
+    {
+        bail!(
+            "--no-dedup is not supported for --target {}",
+            target_backend
+        )
     }
 
     let output_format = match target_backend {
@@ -280,6 +300,7 @@ pub fn get_compiler_flags(src_dir: &Path, build_flags: &BuildFlags) -> anyhow::R
     let link_opt = LinkCoreFlags {
         debug_flag,
         source_map,
+        no_dedup,
         output_format,
         target_backend,
     };

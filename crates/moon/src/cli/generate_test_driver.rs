@@ -174,6 +174,7 @@ pub fn generate_test_driver(
         link_opt: moonutil::common::LinkCoreFlags {
             debug_flag,
             source_map: false,
+            no_dedup: cmd.build_flags.no_dedup,
             output_format: match target_backend.unwrap_or(TargetBackend::WasmGC) {
                 TargetBackend::Js => OutputFormat::Js,
                 TargetBackend::Native => OutputFormat::Native,

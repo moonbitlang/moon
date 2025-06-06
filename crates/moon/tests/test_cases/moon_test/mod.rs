@@ -132,6 +132,7 @@ fn test_moon_test_with_local_dep() {
         expect![[r#"
 
             .gitignore
+            .mooncakes
             lib
             lib/hello.mbt
             lib/hello_wbtest.mbt
