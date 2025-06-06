@@ -241,13 +241,15 @@ impl MooncDiagnostic {
                 report_builder.with_config(ariadne::Config::default().with_color(false));
         }
 
-        report_builder
-            .finish()
-            .eprint((
-                &display_filename,
-                ariadne::Source::from(source_file_content),
-            ))
-            .unwrap();
+        match report_builder.finish().eprint((
+            &display_filename,
+            ariadne::Source::from(source_file_content),
+        )) {
+            Ok(_) => {}
+            Err(e) => {
+                eprintln!("internal rendering error: {:?}", e);
+            }
+        };
     }
 
     fn get_content_and_filename_from_diagnostic_patch_file(
