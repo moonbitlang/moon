@@ -47,6 +47,9 @@ impl ModuleId {
 
 pub type DirSyncResult = HashMap<ModuleId, PathBuf>;
 
+/// The name of a module.
+///
+/// This type is cheaply clonable.
 #[derive(Clone, Serialize, Deserialize, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct ModuleName {
     /// The username part of the module name
@@ -66,6 +69,16 @@ impl ModuleName {
             return true;
         }
         return false;
+    }
+
+    /// Return the last segment of the name, that may be used as a short name
+    /// of a package.
+    pub fn last_segment(&self) -> &str {
+        if let Some((_, r)) = self.unqual.rsplit_once('/') {
+            r
+        } else {
+            &self.unqual
+        }
     }
 }
 

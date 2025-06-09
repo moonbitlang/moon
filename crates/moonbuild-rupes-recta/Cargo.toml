@@ -5,4 +5,8 @@ rust-version.workspace = true
 edition.workspace = true
 
 [dependencies]
+anyhow.workspace = true
 arcstr.workspace = true
+moonutil.workspace = true
+mooncake.workspace = true
+thiserror.workspace = true
