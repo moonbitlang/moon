@@ -19,7 +19,7 @@
 use std::{
     collections::{BTreeMap, HashMap},
     path::{Path, PathBuf},
-    rc::Rc,
+    sync::Arc,
 };
 
 use moonutil::{
@@ -36,7 +36,7 @@ use super::ResolverError;
 pub struct ResolverEnv<'a> {
     registries: &'a RegistryList,
     errors: Vec<super::ResolverError>,
-    local_module_cache: HashMap<PathBuf, Rc<MoonMod>>,
+    local_module_cache: HashMap<PathBuf, Arc<MoonMod>>,
 }
 
 impl<'a> ResolverEnv<'a> {
@@ -64,7 +64,7 @@ impl<'a> ResolverEnv<'a> {
         &mut self,
         name: &ModuleName,
         registry: Option<&str>,
-    ) -> Option<Rc<BTreeMap<Version, Rc<MoonMod>>>> {
+    ) -> Option<Arc<BTreeMap<Version, Arc<MoonMod>>>> {
         self.registries
             .get_registry(registry)?
             .all_versions_of(name)
@@ -76,13 +76,13 @@ impl<'a> ResolverEnv<'a> {
         name: &ModuleName,
         version: &Version,
         registry: Option<&str>,
-    ) -> Option<Rc<MoonMod>> {
+    ) -> Option<Arc<MoonMod>> {
         self.registries
             .get_registry(registry)?
             .get_module_version(name, version)
     }
 
-    pub fn get(&mut self, ms: &ModuleSource) -> Option<Rc<MoonMod>> {
+    pub fn get(&mut self, ms: &ModuleSource) -> Option<Arc<MoonMod>> {
         match &ms.source {
             ModuleSourceKind::Registry(reg) => {
                 self.get_module_version(&ms.name, &ms.version, reg.as_deref())
@@ -93,15 +93,15 @@ impl<'a> ResolverEnv<'a> {
     }
 
     /// Resolve a local module from its **canonical** path.
-    pub fn resolve_local_module(&mut self, path: &Path) -> Result<Rc<MoonMod>, ResolverError> {
+    pub fn resolve_local_module(&mut self, path: &Path) -> Result<Arc<MoonMod>, ResolverError> {
         if let Some(module) = self.local_module_cache.get(path) {
-            return Ok(Rc::clone(module));
+            return Ok(Arc::clone(module));
         }
 
         let module = read_module_desc_file_in_dir(path).map_err(ResolverError::Other)?;
-        let rc_module = Rc::new(module);
+        let rc_module = Arc::new(module);
         self.local_module_cache
-            .insert(path.to_owned(), Rc::clone(&rc_module));
+            .insert(path.to_owned(), Arc::clone(&rc_module));
         Ok(rc_module)
     }
 }

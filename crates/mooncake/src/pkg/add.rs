@@ -23,7 +23,7 @@ use moonutil::module::convert_module_to_mod_json;
 use moonutil::mooncakes::{ModuleName, ModuleSource};
 use semver::Version;
 use std::path::Path;
-use std::rc::Rc;
+use std::sync::Arc;
 
 use crate::registry::{self, Registry, RegistryList};
 use crate::resolver::resolve_single_root_with_defaults;
@@ -122,15 +122,15 @@ pub fn add(
     }
     let ms = ModuleSource::from_local_module(&m, source_dir).expect("Malformed module manifest");
     let registries = RegistryList::with_default_registry();
-    let m = Rc::new(m);
-    let result = resolve_single_root_with_defaults(&registries, ms, Rc::clone(&m))?;
+    let m = Arc::new(m);
+    let result = resolve_single_root_with_defaults(&registries, ms, Arc::clone(&m))?;
 
     let dep_dir = crate::dep_dir::DepDir::of_source(source_dir);
     crate::dep_dir::sync_deps(&dep_dir, &registries, &result, quiet)?;
 
     drop(result);
 
-    let new_j = convert_module_to_mod_json(Rc::into_inner(m).unwrap());
+    let new_j = convert_module_to_mod_json(Arc::into_inner(m).unwrap());
     write_module_json_to_file(&new_j, source_dir)?;
 
     Ok(0)

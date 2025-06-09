@@ -18,7 +18,7 @@
 
 //! Sync dependencies with mod/pkg definition
 
-use std::path::Path;
+use std::{path::Path, sync::Arc};
 
 use indexmap::IndexMap;
 use moonutil::{
@@ -37,7 +37,7 @@ pub fn auto_sync(
     quiet: bool,
 ) -> anyhow::Result<(ResolvedEnv, DirSyncResult)> {
     let m = moonutil::common::read_module_desc_file_in_dir(source_dir)?;
-    let m = std::rc::Rc::new(m);
+    let m = Arc::new(m);
     let (resolved_env, dep_dir) =
         super::install::install_impl(source_dir, m, quiet, false, cli.dont_sync())?;
     let dir_sync_result = resolve_dep_dirs(&dep_dir, &resolved_env);
@@ -74,7 +74,7 @@ pub fn auto_sync_for_single_mbt_md(
 
     let (resolved_env, dep_dir) = super::install::install_impl(
         &moonbuild_opt.source_dir,
-        std::rc::Rc::new(m.clone()),
+        Arc::new(m.clone()),
         moonbuild_opt.quiet,
         moonbuild_opt.verbose,
         dont_sync,

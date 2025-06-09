@@ -623,7 +623,7 @@ fn adapt_modules_into_scan_paths(
     let mut result = HashMap::new();
     for (id, module) in resolved_modules.all_packages_and_id() {
         let path = module_paths
-            .get(&id)
+            .get(id)
             .expect("All modules should be resolved");
         let module_name = module.name.to_string();
         result.insert(module_name, path.clone());
@@ -667,7 +667,7 @@ pub fn scan(
             continue; // skip self
         }
 
-        let dir = module_paths.get(&module_id).unwrap();
+        let dir = module_paths.get(module_id).unwrap();
 
         let moonbuild_opt = &MoonbuildOpt {
             source_dir: dir.clone(),
