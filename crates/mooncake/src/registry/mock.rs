@@ -20,7 +20,7 @@
 
 use std::{
     collections::{BTreeMap, HashMap},
-    rc::Rc,
+    sync::Arc,
 };
 
 use moonutil::{dependency::SourceDependencyInfo, module::MoonMod, mooncakes::ModuleName};
@@ -30,7 +30,7 @@ use super::Registry;
 
 /// A mock registry, primarily used in tests.
 pub struct MockRegistry {
-    modules: HashMap<ModuleName, Rc<BTreeMap<Version, Rc<MoonMod>>>>,
+    modules: HashMap<ModuleName, Arc<BTreeMap<Version, Arc<MoonMod>>>>,
 }
 
 impl MockRegistry {
@@ -87,12 +87,12 @@ impl MockRegistry {
         }
     }
 
-    pub fn get_module(&self, name: &str, version: &str) -> Rc<MoonMod> {
+    pub fn get_module(&self, name: &str, version: &str) -> Arc<MoonMod> {
         self.try_get_module(name, version).unwrap()
     }
 
-    pub fn try_get_module(&self, name: &str, version: &str) -> Option<Rc<MoonMod>> {
-        Some(Rc::clone(
+    pub fn try_get_module(&self, name: &str, version: &str) -> Option<Arc<MoonMod>> {
+        Some(Arc::clone(
             self.modules
                 .get(&name.parse().unwrap())?
                 .get(&Version::parse(version).unwrap())?,
@@ -100,15 +100,15 @@ impl MockRegistry {
     }
 
     /// Add a module to the mock registry. Only available when the mock registry
-    /// is not used, since modifying a [`Rc`] is only possible when it is not
+    /// is not used, since modifying a [`Arc`] is only possible when it is not
     /// shared.
     pub fn add_module(&mut self, module: MoonMod) -> &mut Self {
         let name = module.name.parse().unwrap();
         let version = module.version.clone().unwrap();
         let entry = self.modules.entry(name).or_default();
-        Rc::get_mut(entry)
+        Arc::get_mut(entry)
             .expect("This mock registry is already shared")
-            .insert(version, Rc::new(module));
+            .insert(version, Arc::new(module));
         self
     }
 
@@ -157,7 +157,7 @@ impl Registry for MockRegistry {
     fn all_versions_of(
         &self,
         name: &ModuleName,
-    ) -> anyhow::Result<std::rc::Rc<BTreeMap<Version, std::rc::Rc<MoonMod>>>> {
+    ) -> anyhow::Result<Arc<BTreeMap<Version, Arc<MoonMod>>>> {
         self.modules
             .get(name)
             .ok_or_else(|| anyhow::anyhow!("module not found in mock registry"))
