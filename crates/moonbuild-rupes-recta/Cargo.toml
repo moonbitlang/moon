@@ -5,8 +5,13 @@ rust-version.workspace = true
 edition.workspace = true
 
 [dependencies]
-anyhow.workspace = true
-arcstr.workspace = true
 moonutil.workspace = true
 mooncake.workspace = true
+
+anyhow.workspace = true
+arcstr.workspace = true
+log.workspace = true
+relative-path.workspace = true
+slotmap.workspace = true
 thiserror.workspace = true
+walkdir.workspace = true
