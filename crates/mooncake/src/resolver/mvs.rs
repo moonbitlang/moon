@@ -19,7 +19,7 @@
 use std::{
     collections::{BTreeSet, HashMap, HashSet},
     path::PathBuf,
-    rc::Rc,
+    sync::Arc,
 };
 
 use anyhow::anyhow;
@@ -43,7 +43,7 @@ impl Resolver for MvsSolver {
     fn resolve(
         &mut self,
         env: &mut ResolverEnv,
-        root: &[(ModuleSource, Rc<MoonMod>)],
+        root: &[(ModuleSource, Arc<MoonMod>)],
     ) -> Option<super::result::ResolvedEnv> {
         mvs_resolve(env, root)
     }
@@ -86,7 +86,7 @@ fn select_min_version_satisfying_in_env(
     env: &mut ResolverEnv,
     name: &ModuleName,
     req: &SourceDependencyInfo,
-) -> Result<(Version, Rc<MoonMod>), ResolverError> {
+) -> Result<(Version, Arc<MoonMod>), ResolverError> {
     let all_versions = env
         .all_versions_of(name, None) // todo: registry
         .ok_or_else(|| {
@@ -100,7 +100,7 @@ fn select_min_version_satisfying_in_env(
     let min_version_satisfying = select_min_version_satisfying(name, req, all_versions.keys());
     match min_version_satisfying {
         Ok(version) => {
-            let module = Rc::clone(&all_versions[&version]);
+            let module = Arc::clone(&all_versions[&version]);
             Ok((version, module))
         }
         Err(err) => Err(err),
@@ -192,7 +192,7 @@ fn warn_about_skipped_local_or_git_dep(ms: &ModuleSource) {
 
 fn mvs_resolve(
     env: &mut ResolverEnv,
-    root: &[(ModuleSource, Rc<MoonMod>)],
+    root: &[(ModuleSource, Arc<MoonMod>)],
 ) -> Option<super::result::ResolvedEnv> {
     // Ordered set used to ensure they are iterated in order later.
     let mut gathered_versions = HashMap::<ModuleName, BTreeSet<ModuleSourceOrdWrapper>>::new();
@@ -309,9 +309,9 @@ fn mvs_resolve(
     log::debug!("-- Inserting root modules");
     // Insert ID for root modules
     for (ms, module) in root {
-        let id = builder.add_module(ms.clone(), Rc::clone(module));
+        let id = builder.add_module(ms.clone(), Arc::clone(module));
         log::debug!("---- {} -> {:?}", ms, id);
-        working_list.push((Rc::clone(module), ms.clone()));
+        working_list.push((Arc::clone(module), ms.clone()));
         visited.insert(ms, id);
     }
 
@@ -345,7 +345,7 @@ fn mvs_resolve(
                 *id
             } else {
                 let dep_module = env.get(resolved).unwrap();
-                let id = builder.add_module(resolved.clone(), Rc::clone(&dep_module));
+                let id = builder.add_module(resolved.clone(), Arc::clone(&dep_module));
                 log::debug!("---- {} -> {:?}", resolved, id);
                 visited.insert(resolved, id);
                 working_list.push((dep_module, resolved.clone()));
@@ -368,7 +368,7 @@ fn resolve_pkg(
     dependant: &ModuleSource,
     env: &mut ResolverEnv,
     pkg_name: &ModuleName,
-) -> Result<(ModuleSource, Rc<MoonMod>), ResolverError> {
+) -> Result<(ModuleSource, Arc<MoonMod>), ResolverError> {
     if let Some(path) = &req.path {
         if local_dep_allowed(dependant) {
             // Try resolving using local dependency
@@ -426,6 +426,7 @@ fn resolve_pkg(
 #[cfg(test)]
 mod test {
     use expect_test::expect;
+    use moonutil::mooncakes::ModuleId;
     use petgraph::dot::{Config, Dot};
     use test_log::test;
 
@@ -476,7 +477,11 @@ mod test {
         let mut env = ResolverEnv::new(&registry);
         let result = resolver.resolve(&mut env, &roots).expect("Resolve failed");
 
-        let id = result.id_from_mod_name(&root_ms).unwrap();
+        let id = result
+            .all_modules_and_id()
+            .find(|(_, ms)| ms.name == module_name && ms.version == version)
+            .map(|(id, _)| id)
+            .expect("Module not found");
         expect!["ModuleId(0)"].assert_eq(&format!("{:?}", &id));
         let mt = result.mod_name_from_id(id);
         expect!["dep/three@0.1.0"].assert_eq(&format!("{mt:?}"));
@@ -589,11 +594,20 @@ mod test {
         ));
     }
 
+    fn id_from_mod_name(result: &ResolvedEnv, mod_name: &ModuleName) -> Option<ModuleId> {
+        result
+            .all_modules_and_id()
+            .find(|(_, m)| m.name == *mod_name)
+            .map(|(id, _)| id)
+    }
+
     fn assert_depends_on(result: &ResolvedEnv, pkg1: &str, pkg2: &str) {
         let pkg1 = pkg1.parse().expect("Invalid pkg1");
         let pkg2 = pkg2.parse().expect("Invalid pkg2");
-        let id1 = result.id_from_mod_name(&pkg1).expect("pkg1 not found");
-        let id2 = result.id_from_mod_name(&pkg2).expect("pkg2 not found");
+        // we're writing tests, so we can use a slightly inefficient way to get IDs
+        // from module names, since we don't have a lot of modules in tests
+        let id1 = id_from_mod_name(result, &pkg1).expect("pkg1 not found in the result");
+        let id2 = id_from_mod_name(result, &pkg2).expect("pkg2 not found in the result");
         assert!(
             result.graph().contains_edge(id1, id2),
             "{pkg1} does not depend on {pkg2}"
@@ -603,8 +617,8 @@ mod test {
     fn assert_no_depends_on(result: &ResolvedEnv, pkg1: &str, pkg2: &str) {
         let pkg1 = pkg1.parse().expect("Invalid pkg1");
         let pkg2 = pkg2.parse().expect("Invalid pkg2");
-        let id1 = result.id_from_mod_name(&pkg1);
-        let id2 = result.id_from_mod_name(&pkg2);
+        let id1 = id_from_mod_name(result, &pkg1);
+        let id2 = id_from_mod_name(result, &pkg2);
         if let (Some(id1), Some(id2)) = (id1, id2) {
             assert!(
                 !result.graph().contains_edge(id1, id2),
@@ -622,7 +636,7 @@ mod test {
         )
     }
 
-    fn create_mock_root(root: impl Into<Rc<MoonMod>>) -> Vec<(ModuleSource, Rc<MoonMod>)> {
+    fn create_mock_root(root: impl Into<Arc<MoonMod>>) -> Vec<(ModuleSource, Arc<MoonMod>)> {
         let root = root.into();
         let root_src = create_mock_local_source(&root);
         let roots = vec![(root_src, root)];
@@ -711,7 +725,7 @@ mod test {
         assert_no_depends_on(&result, "root/module@0.1.0", "dep/two@0.2.0");
     }
 
-    fn resolve(registry: &RegistryList, root: Rc<MoonMod>) -> Vec<ModuleSource> {
+    fn resolve(registry: &RegistryList, root: Arc<MoonMod>) -> Vec<ModuleSource> {
         let mut resolver = MvsSolver;
         let mut env = ResolverEnv::new(registry);
         let roots = create_mock_root(root);
@@ -728,7 +742,7 @@ mod test {
         }
     }
 
-    fn check_resolve_result(reg: &RegistryList, root: Rc<MoonMod>, expected: expect_test::Expect) {
+    fn check_resolve_result(reg: &RegistryList, root: Arc<MoonMod>, expected: expect_test::Expect) {
         expected.assert_debug_eq(&resolve(reg, root));
     }
 

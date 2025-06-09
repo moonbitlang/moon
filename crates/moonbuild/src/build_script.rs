@@ -33,7 +33,7 @@ use moonutil::{
     build_script::{BuildScriptEnvironment, BuildScriptOutput},
     common::{MoonbuildOpt, MooncOpt},
     module::{ModuleDB, MoonMod},
-    mooncakes::{result::ResolvedEnv, ModuleId, ModuleName},
+    mooncakes::{result::ResolvedEnv, DirSyncResult, ModuleName},
     path::PathComponent,
 };
 use regex::{Captures, Regex};
@@ -42,7 +42,7 @@ use crate::{NODE_EXECUTABLE, PYTHON_EXECUTABLE};
 
 pub fn run_prebuild_config(
     moonc_opt: &MooncOpt,
-    dir_sync_result: &HashMap<ModuleId, PathBuf>,
+    dir_sync_result: &DirSyncResult,
     build_opt: &MoonbuildOpt,
     mods: &ResolvedEnv,
     mdb: &mut ModuleDB,
@@ -54,13 +54,12 @@ pub fn run_prebuild_config(
     let env_vars: HashMap<String, String> = std::env::vars().collect();
     let mut pkg_outputs = HashMap::<PathComponent, BuildScriptOutput>::new();
 
-    for module in mods.all_packages() {
-        let id = mods.id_from_mod_name(module).expect("module not found");
+    for (id, module) in mods.all_modules_and_id() {
         let def = mods.module_info(id);
 
         if let Some(prebuild) = &def.__moonbit_unstable_prebuild {
             // just run `node {prebuild.js}` and read the output
-            let dir = dir_sync_result.get(&id).expect("module not found");
+            let dir = dir_sync_result.get(id).expect("module not found");
             let input = make_prebuild_input_from_module(moonc_opt, build_opt, def, dir, &env_vars);
 
             let output = run_build_script_for_module(module, dir, input, prebuild)?;

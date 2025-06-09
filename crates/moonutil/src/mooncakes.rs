@@ -17,7 +17,6 @@
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
 use std::{
-    collections::HashMap,
     fs::File,
     io::BufReader,
     path::{Path, PathBuf},
@@ -27,24 +26,14 @@ use std::{
 use clap::Subcommand;
 use semver::Version;
 use serde::{Deserialize, Serialize};
+use slotmap::SecondaryMap;
 use sync::AutoSyncFlags;
 
 use crate::module::MoonMod;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
-pub struct ModuleId(u32);
+slotmap::new_key_type! {pub struct ModuleId;}
 
-impl ModuleId {
-    pub fn new_usize(id: usize) -> Self {
-        Self(id as u32)
-    }
-
-    pub fn as_usize(&self) -> usize {
-        self.0 as usize
-    }
-}
-
-pub type DirSyncResult = HashMap<ModuleId, PathBuf>;
+pub type DirSyncResult = SecondaryMap<ModuleId, PathBuf>;
 
 #[derive(Clone, Serialize, Deserialize, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct ModuleName {
@@ -211,10 +200,10 @@ impl std::str::FromStr for ModuleSource {
 pub static DEFAULT_VERSION: Version = Version::new(0, 0, 0);
 
 pub mod result {
-    use std::rc::Rc;
+    use std::{collections::HashMap, sync::Arc};
 
-    use indexmap::IndexSet;
     use petgraph::graphmap::DiGraphMap;
+    use slotmap::{SecondaryMap, SlotMap};
 
     use crate::module::MoonMod;
 
@@ -225,29 +214,25 @@ pub mod result {
     /// The result of a dependency resolution.
     #[derive(Debug)]
     pub struct ResolvedEnv {
-        mapping: IndexSet<ModuleSource>,
+        /// The mapping from the unique IDs of modules to their source.
+        ///
+        /// Note that once we're out of the resolver, reverse-finding the ID
+        /// from [`ModuleSource`]s is no longer needed, so this mapping is
+        /// single-directional (even though `ModuleSource`s are unique).
+        mapping: SlotMap<ModuleId, ModuleSource>,
         /// List of all modules in the environment.
-        modules: Vec<Rc<MoonMod>>,
+        modules: SecondaryMap<ModuleId, Arc<MoonMod>>,
         /// The real dependency graph. Edges are labelled with the key of the dependency.
-        // FIXME: Using module names for dependency keys is not very efficient, both
-        // in terms of memory and speed. We should change the graph into a hashmap
-        // or something similar.
         dep_graph: DiGraphMap<ModuleId, DependencyKey>,
     }
 
     impl ResolvedEnv {
         pub fn mod_name_from_id(&self, id: ModuleId) -> &ModuleSource {
-            &self.mapping[id.as_usize()]
+            &self.mapping[id]
         }
 
-        pub fn id_from_mod_name(&self, pkg: &ModuleSource) -> Option<ModuleId> {
-            self.mapping
-                .get_full(pkg)
-                .map(|(id, _)| ModuleId::new_usize(id))
-        }
-
-        pub fn module_info(&self, id: ModuleId) -> &Rc<MoonMod> {
-            &self.modules[id.as_usize()]
+        pub fn module_info(&self, id: ModuleId) -> &Arc<MoonMod> {
+            &self.modules[id]
         }
 
         pub fn graph(&self) -> &DiGraphMap<ModuleId, DependencyKey> {
@@ -284,15 +269,12 @@ pub mod result {
                 .count()
         }
 
-        pub fn all_packages_and_id(&self) -> impl Iterator<Item = (ModuleId, &ModuleSource)> {
-            self.mapping
-                .iter()
-                .enumerate()
-                .map(|(id, pkg)| (ModuleId::new_usize(id), pkg))
+        pub fn all_modules_and_id(&self) -> impl Iterator<Item = (ModuleId, &ModuleSource)> {
+            self.mapping.iter()
         }
 
-        pub fn all_packages(&self) -> impl Iterator<Item = &ModuleSource> {
-            self.mapping.iter()
+        pub fn all_modules(&self) -> impl Iterator<Item = &ModuleSource> {
+            self.mapping.iter().map(|(_id, src)| src)
         }
 
         pub fn builder() -> ResolvedEnvBuilder {
@@ -301,32 +283,38 @@ pub mod result {
 
         pub fn only_one_module(ms: ModuleSource, module: MoonMod) -> ResolvedEnv {
             let mut builder = Self::builder();
-            builder.add_module(ms, Rc::new(module));
+            builder.add_module(ms, Arc::new(module));
             builder.build()
         }
     }
 
     pub struct ResolvedEnvBuilder {
         env: ResolvedEnv,
+        rev_mapping: HashMap<ModuleSource, ModuleId>,
     }
 
     impl ResolvedEnvBuilder {
         pub fn new() -> Self {
             Self {
                 env: ResolvedEnv {
-                    mapping: IndexSet::new(),
-                    modules: Vec::new(),
+                    mapping: SlotMap::with_key(),
+                    modules: SecondaryMap::new(),
                     dep_graph: DiGraphMap::new(),
                 },
+                rev_mapping: HashMap::new(),
             }
         }
 
-        pub fn add_module(&mut self, pkg: ModuleSource, module: Rc<MoonMod>) -> ModuleId {
-            let id = ModuleId::new_usize(self.env.mapping.len());
-            self.env.mapping.insert(pkg);
-            self.env.modules.push(module);
-            assert_eq!(self.env.mapping.len(), self.env.modules.len());
-            id
+        pub fn add_module(&mut self, pkg: ModuleSource, module: Arc<MoonMod>) -> ModuleId {
+            // check if it's already inserted
+            if let Some(id) = self.rev_mapping.get(&pkg) {
+                *id
+            } else {
+                let id = self.env.mapping.insert(pkg.clone());
+                self.env.modules.insert(id, module);
+                self.rev_mapping.insert(pkg, id);
+                id
+            }
         }
 
         pub fn add_dependency(&mut self, from: ModuleId, to: ModuleId, key: &DependencyKey) {

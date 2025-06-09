@@ -21,7 +21,7 @@ use std::{
     collections::{BTreeMap, HashMap},
     io::BufRead,
     path::Path,
-    rc::Rc,
+    sync::Arc,
 };
 
 use anyhow::bail;
@@ -33,7 +33,7 @@ pub struct OnlineRegistry {
     index: std::path::PathBuf,
     url_base: String, // TODO: add download feature to registry interface
     #[allow(clippy::type_complexity)] // Isn't it still pretty clear?
-    cache: RefCell<HashMap<ModuleName, Rc<BTreeMap<Version, Rc<MoonMod>>>>>,
+    cache: RefCell<HashMap<ModuleName, Arc<BTreeMap<Version, Arc<MoonMod>>>>>,
 }
 
 impl OnlineRegistry {
@@ -61,10 +61,10 @@ impl super::Registry for OnlineRegistry {
     fn all_versions_of(
         &self,
         name: &ModuleName,
-    ) -> anyhow::Result<Rc<BTreeMap<Version, Rc<MoonMod>>>> {
+    ) -> anyhow::Result<Arc<BTreeMap<Version, Arc<MoonMod>>>> {
         // check cache
         if let Some(v) = self.cache.borrow().get(name) {
-            return Ok(Rc::clone(v));
+            return Ok(Arc::clone(v));
         }
 
         let index_file = self.index_file_of(name);
@@ -85,15 +85,15 @@ impl super::Registry for OnlineRegistry {
             };
             let module: MoonMod = module.try_into()?;
             if let Some(v) = &module.version {
-                res.insert(v.clone(), Rc::new(module));
+                res.insert(v.clone(), Arc::new(module));
             }
         }
 
         // put in cache
-        let res = Rc::new(res);
+        let res = Arc::new(res);
         self.cache
             .borrow_mut()
-            .insert(name.clone(), Rc::clone(&res));
+            .insert(name.clone(), Arc::clone(&res));
 
         Ok(res)
     }

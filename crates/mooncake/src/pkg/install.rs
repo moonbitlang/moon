@@ -26,7 +26,7 @@ use moonutil::{
 };
 use std::{
     path::{Path, PathBuf},
-    rc::Rc,
+    sync::Arc,
 };
 
 /// Install dependencies
@@ -40,20 +40,20 @@ pub fn install(
     verbose: bool,
 ) -> anyhow::Result<i32> {
     let m = read_module_desc_file_in_dir(source_dir)?;
-    let m = Rc::new(m);
+    let m = Arc::new(m);
     install_impl(source_dir, m, quiet, verbose, false).map(|_| 0)
 }
 
 pub(crate) fn install_impl(
     source_dir: &Path,
-    m: Rc<moonutil::module::MoonMod>,
+    m: Arc<moonutil::module::MoonMod>,
     quiet: bool,
     verbose: bool,
     dont_sync: bool,
 ) -> anyhow::Result<(ResolvedEnv, DepDir)> {
     let registry = crate::registry::RegistryList::with_default_registry();
     let ms = ModuleSource::from_local_module(&m, source_dir).expect("Malformed module manifest");
-    let res = resolve_single_root_with_defaults(&registry, ms, Rc::clone(&m))?;
+    let res = resolve_single_root_with_defaults(&registry, ms, Arc::clone(&m))?;
     let dep_dir = crate::dep_dir::DepDir::of_source(source_dir);
     if !dont_sync {
         crate::dep_dir::sync_deps(&dep_dir, &registry, &res, quiet)

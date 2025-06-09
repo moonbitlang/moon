@@ -17,7 +17,7 @@
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
 use anyhow::bail;
-use std::{path::Path, rc::Rc};
+use std::{path::Path, sync::Arc};
 
 use moonutil::{
     common::{read_module_desc_file_in_dir, write_module_json_to_file},
@@ -51,17 +51,17 @@ pub fn remove(
             pkgname,
         )
     }
-    let m = Rc::new(m);
+    let m = Arc::new(m);
     let ms = ModuleSource::from_local_module(&m, source_dir).expect("Malformed module manifest");
     let registry = crate::registry::RegistryList::with_default_registry();
-    let res = resolve_single_root_with_defaults(&registry, ms, Rc::clone(&m))?;
+    let res = resolve_single_root_with_defaults(&registry, ms, Arc::clone(&m))?;
 
     let dep_dir = crate::dep_dir::DepDir::of_source(source_dir);
     crate::dep_dir::sync_deps(&dep_dir, &registry, &res, false)?;
 
     drop(res);
 
-    let new_j = convert_module_to_mod_json(Rc::into_inner(m).unwrap());
+    let new_j = convert_module_to_mod_json(Arc::into_inner(m).unwrap());
     write_module_json_to_file(&new_j, source_dir)?;
     Ok(0)
 }
