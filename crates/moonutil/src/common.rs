@@ -22,7 +22,7 @@ use crate::module::{MoonMod, MoonModJSON};
 use crate::package::{convert_pkg_json_to_package, MoonPkg, MoonPkgJSON, Package, VirtualPkg};
 use crate::path::PathComponent;
 use anyhow::{bail, Context};
-use clap::ValueEnum;
+use clap::{error, ValueEnum};
 use fs4::fs_std::FileExt;
 use indexmap::IndexMap;
 use serde::{Deserialize, Serialize};
@@ -146,6 +146,8 @@ pub enum MoonModJSONFormatErrorKind {
     Source(#[from] SourceError),
     #[error("`version` bad format")]
     Version(#[from] semver::Error),
+    #[error("`preferred-backend` is not a valid backend")]
+    PreferredBackend(anyhow::Error),
 }
 
 pub fn read_module_from_json(path: &Path) -> Result<MoonMod, MoonModJSONFormatError> {

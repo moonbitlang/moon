@@ -182,6 +182,7 @@ fn common(
             exclude: None,
 
             scripts: None,
+            preferred_target: None,
 
             __moonbit_unstable_prebuild: None,
         };
