@@ -156,6 +156,7 @@ pub fn write(config: &Config, base_dir: &Path) {
         exclude: None,
 
         scripts: None,
+        preferred_target: None,
 
         __moonbit_unstable_prebuild: None,
     };

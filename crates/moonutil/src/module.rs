@@ -797,6 +797,8 @@ pub struct MoonMod {
     pub include: Option<Vec<String>>,
     pub exclude: Option<Vec<String>>,
 
+    pub preferred_target: Option<TargetBackend>,
+
     pub scripts: Option<IndexMap<String, String>>,
     pub __moonbit_unstable_prebuild: Option<String>,
 }
@@ -890,6 +892,15 @@ pub struct MoonModJSON {
     #[schemars(with = "Option<std::collections::HashMap<String, String>>")]
     pub scripts: Option<IndexMap<String, String>>,
 
+    /// The preferred target backend of this module.
+    ///
+    /// Toolchains are recommended to use this target as the default target
+    /// when the user is not specifying or overriding in any other ways.
+    /// However, this is merely a recommendation, and tools may deviate from
+    /// this value at any time.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub preferred_target: Option<String>,
+
     /// **Experimental:** A relative path to the pre-build configuration script.
     ///
     /// The script should be a **JavaScript or Python** file that is able to be
@@ -923,6 +934,11 @@ impl TryFrom<MoonModJSON> for MoonMod {
             .map(|d| d.into_iter().map(|(k, v)| (k, v.into())).collect());
 
         let source = j.source.map(|s| if s.is_empty() { ".".into() } else { s });
+        let preferred_target = j
+            .preferred_target
+            .map(|x| TargetBackend::str_to_backend(&x))
+            .transpose()
+            .map_err(MoonModJSONFormatErrorKind::PreferredBackend)?;
 
         Ok(MoonMod {
             name: j.name,
@@ -948,6 +964,7 @@ impl TryFrom<MoonModJSON> for MoonMod {
             exclude: j.exclude,
 
             scripts: j.scripts,
+            preferred_target,
 
             __moonbit_unstable_prebuild: j.__moonbit_unstable_prebuild,
         })
@@ -981,6 +998,8 @@ pub fn convert_module_to_mod_json(m: MoonMod) -> MoonModJSON {
         exclude: m.exclude,
 
         scripts: m.scripts,
+
+        preferred_target: m.preferred_target.map(|x| x.to_flag().to_owned()),
 
         __moonbit_unstable_prebuild: m.__moonbit_unstable_prebuild,
     }
