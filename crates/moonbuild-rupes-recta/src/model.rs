@@ -69,6 +69,7 @@
 use std::{collections::HashMap, path::PathBuf};
 
 use arcstr::ArcStr;
+use moonutil::mooncakes::ModuleId;
 
 /// Represents the target of this build routine.
 #[derive(Clone, Debug, Copy, PartialEq, Eq)]
@@ -98,6 +99,7 @@ pub enum TargetKind {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct TargetSpecifier {
     pub kind: TargetKind,
+    pub module: ModuleId,
     pub package: ArcStr,
 }
 
