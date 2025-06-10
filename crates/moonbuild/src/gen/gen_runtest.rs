@@ -440,7 +440,8 @@ pub fn gen_package_whitebox_test(
     }
 
     let mut mi_deps = vec![];
-    for dep in pkg.imports.iter().chain(pkg.wbtest_imports.iter()) {
+    let imports_and_wbtest_imports = get_imports(pkg, false);
+    for dep in imports_and_wbtest_imports.iter() {
         let mut full_import_name = dep.path.make_full_path();
         if !m.contains_package(&full_import_name) {
             bail!(
@@ -559,7 +560,9 @@ pub fn gen_package_blackbox_test(
         });
     }
 
-    for dep in pkg.imports.iter().chain(pkg.test_imports.iter()) {
+    let imports_and_test_imports = get_imports(pkg, true);
+
+    for dep in imports_and_test_imports.iter() {
         let mut full_import_name = dep.path.make_full_path();
         if !m.contains_package(&full_import_name) {
             bail!(
@@ -607,6 +610,38 @@ pub fn gen_package_blackbox_test(
         patch_file,
         mi_of_virtual_pkg_to_impl: None,
     })
+}
+
+// Filter out sub-package imports from pkg.imports if their non-sub-package version exists in pkg.test_imports or pkg.wbtest_imports
+pub fn get_imports(pkg: &Package, with_test_import: bool) -> Vec<&moonutil::path::ImportComponent> {
+    let mut imports = Vec::new();
+    let other_imports = if with_test_import {
+        &pkg.test_imports
+    } else {
+        &pkg.wbtest_imports
+    };
+
+    // Add filtered imports from pkg.imports
+    for import_item in pkg.imports.iter() {
+        // If this is not a sub-package import, keep it
+        if !import_item.sub_package {
+            imports.push(import_item);
+        } else {
+            // For sub-package imports, check if the same package (non-sub-package) exists in test_imports or wbtest_imports
+            let base_path = import_item.path.make_full_path();
+            let exists_in_other_imports = other_imports.iter().any(|test_import| {
+                test_import.path.make_full_path() == base_path && !test_import.sub_package
+            });
+
+            // Keep the import only if it doesn't exist in test_imports as non-sub-package
+            if !exists_in_other_imports {
+                imports.push(import_item);
+            }
+        }
+    }
+    // Add other imports
+    imports.extend(other_imports.iter());
+    imports
 }
 
 fn get_pkg_topo_order<'a>(

@@ -1,3 +1,3 @@
 pub fn func() -> Unit  {
-  "Hello, world!" |> println
+  @dep2.hello() |> println
 }

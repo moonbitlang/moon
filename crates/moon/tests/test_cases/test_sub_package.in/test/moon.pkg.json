@@ -4,5 +4,11 @@
       "path": "moon_new/sub_pkg",
       "sub-package": true
     }
+  ],
+  "test-import": [
+    "moon_new/sub_pkg"
+  ],
+  "wbtest-import": [
+    "moon_new/sub_pkg"
   ]
 }

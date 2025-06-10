@@ -1,6 +1,4 @@
 fn main {
-  let a = 1
-  let b = 2
-  let c = a + b
-  println(c)
+  let a = @sub_pkg.A::{ a: 1 }
+  println(a.a)
 }
