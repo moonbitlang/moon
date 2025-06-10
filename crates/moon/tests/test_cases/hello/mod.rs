@@ -95,3 +95,59 @@ fn test_find_ancestor_with_mod() {
         "#]],
     );
 }
+
+#[test]
+fn test_preferred_target() {
+    use serde_json_lenient::Value;
+    let dir = TestDir::new("hello");
+
+    // Replace the preferred backend in moon.mod.json
+    let mod_json_path = dir.join("moon.mod.json");
+    let mut mod_json: Value =
+        serde_json_lenient::from_slice(&std::fs::read(&mod_json_path).unwrap()).unwrap();
+
+    // Helper function to test a specific target
+    fn test_target(
+        dir: &TestDir,
+        mod_json_path: &std::path::Path,
+        mod_json: &mut Value,
+        target: &str,
+    ) {
+        mod_json["preferred-target"] = target.into();
+        std::fs::write(
+            mod_json_path,
+            serde_json_lenient::to_string(mod_json).unwrap(),
+        )
+        .unwrap();
+        let target_flag = format!("-target {}", target);
+
+        let build_output = get_stdout(dir, ["build", "--dry-run"]);
+        let test_output = get_stdout(dir, ["test", "--dry-run"]);
+        let check_output = get_stdout(dir, ["check", "--dry-run"]);
+
+        assert!(
+            build_output.contains(&target_flag),
+            "build output doesn't contain '{}': {:?}",
+            target_flag,
+            build_output
+        );
+        assert!(
+            test_output.contains(&target_flag),
+            "test output doesn't contain '{}': {:?}",
+            target_flag,
+            test_output
+        );
+        assert!(
+            check_output.contains(&target_flag),
+            "check output doesn't contain '{}': {:?}",
+            target_flag,
+            check_output
+        );
+    }
+
+    // Test different target values
+    test_target(&dir, &mod_json_path, &mut mod_json, "js");
+    test_target(&dir, &mod_json_path, &mut mod_json, "wasm");
+    test_target(&dir, &mod_json_path, &mut mod_json, "wasm-gc");
+    test_target(&dir, &mod_json_path, &mut mod_json, "native");
+}
