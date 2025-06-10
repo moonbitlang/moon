@@ -1,9 +1,10 @@
 //! Package and module name related structures
 
-use std::{fmt::Write, str::FromStr, sync::Arc};
+use std::{borrow::Cow, fmt::Write, path::Path, str::FromStr, sync::Arc};
 
 use arcstr::ArcStr;
 use moonutil::mooncakes::ModuleName;
+use relative_path::RelativePath;
 
 pub const PACKAGE_SEGMENT_SEP: char = '/';
 
@@ -87,9 +88,15 @@ impl PackagePath {
         if s.is_empty() {
             return Ok(());
         }
-        if s.split(PACKAGE_SEGMENT_SEP).any(|x| x.is_empty()) {
-            return Err(PackagePathParseError::EmptySegment);
+        for seg in s.split(PACKAGE_SEGMENT_SEP) {
+            if seg.is_empty() {
+                return Err(PackagePathParseError::EmptySegment);
+            }
+            if seg == "." || seg == ".." {
+                return Err(PackagePathParseError::PathNotNormalized);
+            }
         }
+
         Ok(())
     }
 
@@ -125,6 +132,26 @@ impl PackagePath {
     pub fn new_no_copy(s: ArcStr) -> Result<Self, PackagePathParseError> {
         Self::validate(&s)?;
         Ok(unsafe { Self::new_no_copy_unchecked(s) })
+    }
+
+    /// Construct a new package path from a [`RelativePath`]. This process
+    /// normalizes the path.
+    pub fn new_from_rel_path(path: &RelativePath) -> Result<Self, PackagePathParseError> {
+        let normalized = if path.is_normalized() {
+            Cow::Borrowed(path)
+        } else {
+            Cow::Owned(path.normalize())
+        };
+        // Check for parent segments `../`
+        // If a normalized path actually descends into its parent directory,
+        // checking whether it **starts with** `..` should be enough, because
+        // any other will be already normalized out.
+        if normalized.starts_with("..") {
+            return Err(PackagePathParseError::PathDescendsIntoParent);
+        }
+        // Note: Specifically, ".".normalize() == "", so we do not need to
+        // specially handle the current directory path ".".
+        unsafe { Ok(Self::new_unchecked(path.as_str())) }
     }
 
     /// Whether this is an empty package path (i.e. root package within a module)
@@ -185,6 +212,12 @@ impl FromStr for PackagePath {
 pub enum PackagePathParseError {
     #[error("The package path being parsed contains an empty segment")]
     EmptySegment,
+
+    #[error("The provided path is not normalized")]
+    PathNotNormalized,
+
+    #[error("The provided path descends into its parent directory `..`")]
+    PathDescendsIntoParent,
 }
 
 #[cfg(test)]
