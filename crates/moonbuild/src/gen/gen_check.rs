@@ -193,7 +193,8 @@ fn pkg_with_wbtest_to_check_item(
 
     let mut mi_deps = vec![];
 
-    for dep in pkg.imports.iter().chain(pkg.wbtest_imports.iter()) {
+    let imports_and_wbtest_imports = super::gen_runtest::get_imports(pkg, false);
+    for dep in imports_and_wbtest_imports.iter() {
         let mut full_import_name = dep.path.make_full_path();
         if !packages.contains_key(&full_import_name) {
             bail!(
@@ -306,7 +307,8 @@ fn pkg_with_test_to_check_item(
         });
     }
 
-    for dep in pkg.imports.iter().chain(pkg.test_imports.iter()) {
+    let imports_and_test_imports = super::gen_runtest::get_imports(pkg, true);
+    for dep in imports_and_test_imports.iter() {
         let mut full_import_name = dep.path.make_full_path();
         if !packages.contains_key(&full_import_name) {
             bail!(
