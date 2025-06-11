@@ -30,7 +30,7 @@ home.workspace = true
 anyhow.workspace = true
 colored.workspace = true
 indexmap.workspace = true
-serde.workspace = true
+serde = { workspace = true, features = ["rc"] }
 serde_json_lenient.workspace = true
 walkdir.workspace = true
 clap.workspace = true

@@ -64,8 +64,8 @@ pub fn run_prebuild_config(
 
             let output = run_build_script_for_module(module, dir, input, prebuild)?;
             pkg_outputs.insert(
-                PathComponent::from_str(&module.name.to_string()).with_context(|| {
-                    format!("Name of module `{}` cannot be parsed", &module.name)
+                PathComponent::from_str(&module.name().to_string()).with_context(|| {
+                    format!("Name of module `{}` cannot be parsed", &module.name())
                 })?,
                 output,
             );
@@ -217,7 +217,7 @@ fn run_build_script_for_module(
         "Running external prebuild config at `{}`. The script can execute arbitrary code.",
         prebuild
     );
-    let mut cmd = run_script_cmd(prebuild, &module.name)?
+    let mut cmd = run_script_cmd(prebuild, module.name())?
         .current_dir(dir)
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())

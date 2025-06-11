@@ -109,7 +109,7 @@ fn select_min_version_satisfying_in_env(
 
 /// Checks whether resolving local dependency is allowed for the dependant package
 fn local_dep_allowed(dependant: &ModuleSource) -> bool {
-    match &dependant.source {
+    match dependant.source() {
         ModuleSourceKind::Registry(_) => false,
         ModuleSourceKind::Local(_) => true,
         ModuleSourceKind::Git(_) => true,
@@ -118,7 +118,7 @@ fn local_dep_allowed(dependant: &ModuleSource) -> bool {
 
 /// Checks whether resolving git dependency is allowed for the dependant package
 fn git_dep_allowed(dependant: &ModuleSource) -> bool {
-    match &dependant.source {
+    match dependant.source() {
         ModuleSourceKind::Registry(_) => false,
         ModuleSourceKind::Local(_) => true,
         ModuleSourceKind::Git(_) => true,
@@ -128,7 +128,7 @@ fn git_dep_allowed(dependant: &ModuleSource) -> bool {
 /// Returns the root path of the dependant, to be used with local dependencies.
 /// Panics if [`local_dep_allowed(dependant)`] is false.
 fn root_path_of(dependant: &ModuleSource) -> PathBuf {
-    match &dependant.source {
+    match dependant.source() {
         ModuleSourceKind::Registry(_) => {
             panic!("Registry dependencies don't have a local root path!")
         }
@@ -146,11 +146,11 @@ struct ModuleSourceOrdWrapper(ModuleSource);
 
 impl Ord for ModuleSourceOrdWrapper {
     fn cmp(&self, other: &Self) -> std::cmp::Ordering {
-        let version_cmp = self.0.version.cmp(&other.0.version);
+        let version_cmp = self.0.version().cmp(other.0.version());
         if !version_cmp.is_eq() {
             return version_cmp;
         }
-        self.0.source.cmp(&other.0.source)
+        self.0.source().cmp(other.0.source())
     }
 }
 
@@ -173,7 +173,7 @@ impl From<ModuleSourceOrdWrapper> for ModuleSource {
 }
 
 fn warn_about_skipped_local_or_git_dep(ms: &ModuleSource) {
-    match &ms.source {
+    match ms.source() {
         ModuleSourceKind::Local(_) => {
             log::warn!(
                 "A git dependency was skipped during version resolution: {}",
@@ -272,8 +272,8 @@ fn mvs_resolve(
         let mut curr = versions.next().unwrap();
         log::debug!("---- seen {}", curr);
         for v in versions {
-            let caret_curr = as_caret_comparator(curr.version.clone());
-            if caret_curr.matches(&v.version) {
+            let caret_curr = as_caret_comparator(curr.version().clone());
+            if caret_curr.matches(v.version()) {
                 // v >= curr, as implied by btreeset
                 // Emit a warning if the skipped dep is local or git, as they are manually specified
                 warn_about_skipped_local_or_git_dep(&curr);
@@ -337,7 +337,7 @@ fn mvs_resolve(
             let dep_versions = &settled_versions[&dep_name];
             let resolved = dep_versions
                 .iter()
-                .find(|v| req.version.matches(&v.0.version))
+                .find(|v| req.version.matches(v.0.version()))
                 .expect("There should be at least one version available, otherwise previous steps will fail");
             let resolved = &resolved.0;
 
@@ -383,11 +383,11 @@ fn resolve_pkg(
             let dep_path =
                 dunce::canonicalize(dep_path).map_err(|err| ResolverError::Other(err.into()))?;
             let res = env.resolve_local_module(&dep_path)?;
-            let ms = ModuleSource {
-                name: pkg_name.clone(),
-                version: res.version.clone().expect("Expected version in module"),
-                source: ModuleSourceKind::Local(dep_path),
-            };
+            let ms = ModuleSource::new_full(
+                pkg_name.clone(),
+                res.version.clone().expect("Expected version in module"),
+                ModuleSourceKind::Local(dep_path),
+            );
             // Assert version matches
             if let Some(v) = &res.version {
                 if !req.version.matches(v) {
@@ -415,11 +415,7 @@ fn resolve_pkg(
         req,
         version
     );
-    let ms = ModuleSource {
-        name: pkg_name.clone(),
-        version,
-        source: ModuleSourceKind::Registry(None),
-    };
+    let ms = ModuleSource::new_full(pkg_name.clone(), version, ModuleSourceKind::Registry(None));
     Ok((ms, module))
 }
 
@@ -479,7 +475,7 @@ mod test {
 
         let id = result
             .all_modules_and_id()
-            .find(|(_, ms)| ms.name == module_name && ms.version == version)
+            .find(|(_, ms)| ms.name() == &module_name && ms.version() == &version)
             .map(|(id, _)| id)
             .expect("Module not found");
         expect!["ModuleId(1v1)"].assert_eq(&format!("{:?}", &id));

@@ -625,7 +625,7 @@ fn adapt_modules_into_scan_paths(
         let path = module_paths
             .get(id)
             .expect("All modules should be resolved");
-        let module_name = module.name.to_string();
+        let module_name = module.name().to_string();
         result.insert(module_name, path.clone());
     }
     result
