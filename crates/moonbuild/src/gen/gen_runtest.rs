@@ -186,7 +186,7 @@ pub fn gen_package_test_driver(
                 .iter()
                 .map(|(f, _)| f.display().to_string())
                 .collect();
-            if let Some(doc_test_patch_file) = pkg.doc_test_patch_file.clone() {
+            if let Some(doc_test_patch_file) = pkg.test_patch_json_file.clone() {
                 files_may_contain_test_block.push(doc_test_patch_file.display().to_string());
             }
             Ok(RuntestDriverItem {
@@ -194,10 +194,10 @@ pub fn gen_package_test_driver(
                 driver_file,
                 files_may_contain_test_block,
                 driver_kind: DriverKind::Blackbox,
-                patch_file: pkg.patch_file.clone().or(pkg.doc_test_patch_file.clone()),
+                patch_file: pkg.patch_file.clone().or(pkg.test_patch_json_file.clone()),
                 single_test_file: if pkg.full_name() == moonutil::common::SINGLE_FILE_TEST_PACKAGE {
-                    if pkg.doc_test_patch_file.is_some() {
-                        pkg.doc_test_patch_file.clone()
+                    if pkg.test_patch_json_file.is_some() {
+                        pkg.test_patch_json_file.clone()
                     } else {
                         Some(pkg.test_files.keys().next().unwrap().clone())
                     }
@@ -1016,7 +1016,7 @@ pub fn gen_runtest(
 
         if !pkg.test_files.is_empty()
             || blackbox_patch_file.is_some()
-            || pkg.doc_test_patch_file.is_some()
+            || pkg.test_patch_json_file.is_some()
         {
             for item in pkg.generated_test_drivers.iter() {
                 if let GeneratedTestDriver::BlackboxTest(_) = item {
@@ -1027,7 +1027,7 @@ pub fn gen_runtest(
                         moonc_opt,
                         blackbox_patch_file
                             .clone()
-                            .or(pkg.doc_test_patch_file.clone()),
+                            .or(pkg.test_patch_json_file.clone()),
                     )?);
                     link_items.push(gen_link_blackbox_test(m, pkg, moonc_opt)?);
                 }

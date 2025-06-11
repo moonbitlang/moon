@@ -33,7 +33,7 @@ pub fn hello3() -> String {
 /// 
 /// 
 /// 
-/// assert_true!(true)
+/// assert_true(true)
 /// ```
 pub fn hello() -> String {
   "Hello, wor1ld!"
@@ -42,7 +42,7 @@ pub fn hello() -> String {
 
 /// ```no-run
 /// 
-/// assert_true!(true)
+/// assert_true(true)
 /// ```
 /// 
 /// this is comment
@@ -58,7 +58,7 @@ pub fn hello() -> String {
 /// 
 /// ```
 /// 
-/// assert_true!(true)
+/// assert_true(true)
 /// ```
 /// 
 /// this is comment
@@ -66,7 +66,7 @@ pub fn hello() -> String {
 /// 
 /// ```
 /// 
-/// assert_true!(true)
+/// assert_true(true)
 /// ```
 pub fn fasd() -> String {
   "Hello, wor1ld!"

@@ -43,7 +43,7 @@ use crate::runtest::TestStatistics;
 
 use moonutil::common::{
     DriverKind, FileLock, FileName, MoonbuildOpt, MooncGenTestInfo, MooncOpt, PrePostBuild,
-    TargetBackend, TestArtifacts, TestBlockIndex, TestName, DOT_MBT_DOT_MD, MOON_DOC_TEST_POSTFIX,
+    TargetBackend, TestArtifacts, TestBlockIndex, TestName, DOT_MBT_DOT_MD,
     SINGLE_FILE_TEST_PACKAGE, TEST_INFO_FILE,
 };
 
@@ -565,7 +565,6 @@ fn convert_moonc_test_info(
     output_format: &str,
     filter_file: Option<&String>,
     sort_input: bool,
-    patch_file: &Option<PathBuf>,
 ) -> anyhow::Result<IndexMap<PathBuf, FileTestInfo>> {
     let mut test_info_files = vec![];
     for driver_kind in [
@@ -613,15 +612,7 @@ fn convert_moonc_test_info(
                 continue;
             }
         }
-        // if doc test patch json is given, we should just running doc test
-        // so tests in other files should be filtered out
-        if let Some(patch_json) = patch_file {
-            if patch_json.to_str().unwrap().contains(MOON_DOC_TEST_POSTFIX)
-                && !filename.contains(MOON_DOC_TEST_POSTFIX)
-            {
-                continue;
-            }
-        }
+
         let test_type = if filename.ends_with("_test.mbt")
             || filename.ends_with(DOT_MBT_DOT_MD)
             || pkg.full_name() == SINGLE_FILE_TEST_PACKAGE
@@ -699,7 +690,6 @@ pub fn run_test(
             moonc_opt.link_opt.target_backend.to_extension(),
             filter_file,
             moonbuild_opt.sort_input,
-            &pkg.patch_file.clone().or(pkg.doc_test_patch_file.clone()),
         )?;
 
         for (artifact_path, file_test_info_map) in current_pkg_test_info {
@@ -1117,16 +1107,27 @@ async fn handle_test_result(
                     }
                     // if is doc test, after apply_expect, we need to update the doc test patch file
                     if origin_err.is_doc_test {
-                        moonutil::doc_test::gen_doc_test_patch(
-                            module.get_package_by_name(&origin_err.package),
-                            moonc_opt,
-                        )?;
+                        let pkg = module.get_package_by_name(&origin_err.package);
+                        let doc_test_patch =
+                            moonutil::doc_test::gen_doc_test_patch(pkg, moonc_opt)?;
+                        if let Some(doc_test_patch) = doc_test_patch {
+                            let pj_path = pkg.artifact.with_file_name(format!(
+                                "{}.json",
+                                moonutil::common::MOON_MD_TEST_POSTFIX
+                            ));
+                            doc_test_patch.write_to_path(&pj_path)?;
+                        }
                     }
                     if origin_err.is_md_test {
-                        moonutil::doc_test::gen_md_test_patch(
-                            module.get_package_by_name(&origin_err.package),
-                            moonc_opt,
-                        )?;
+                        let pkg = module.get_package_by_name(&origin_err.package);
+                        let md_test_patch = moonutil::doc_test::gen_md_test_patch(pkg, moonc_opt)?;
+                        if let Some(doc_test_patch) = md_test_patch {
+                            let pj_path = pkg.artifact.with_file_name(format!(
+                                "{}.json",
+                                moonutil::common::MOON_MD_TEST_POSTFIX
+                            ));
+                            doc_test_patch.write_to_path(&pj_path)?;
+                        }
                     }
 
                     // recompile after apply expect
@@ -1169,16 +1170,28 @@ async fn handle_test_result(
                         }
                         // if is doc test, after apply_expect, we need to update the doc test patch file
                         if origin_err.is_doc_test {
-                            moonutil::doc_test::gen_doc_test_patch(
-                                module.get_package_by_name(&origin_err.package),
-                                moonc_opt,
-                            )?;
+                            let pkg = module.get_package_by_name(&origin_err.package);
+                            let doc_test_patch =
+                                moonutil::doc_test::gen_doc_test_patch(pkg, moonc_opt)?;
+                            if let Some(doc_test_patch) = doc_test_patch {
+                                let pj_path = pkg.artifact.with_file_name(format!(
+                                    "{}.json",
+                                    moonutil::common::MOON_MD_TEST_POSTFIX
+                                ));
+                                doc_test_patch.write_to_path(&pj_path)?;
+                            }
                         }
                         if origin_err.is_md_test {
-                            moonutil::doc_test::gen_md_test_patch(
-                                module.get_package_by_name(&origin_err.package),
-                                moonc_opt,
-                            )?;
+                            let pkg = module.get_package_by_name(&origin_err.package);
+                            let md_test_patch =
+                                moonutil::doc_test::gen_md_test_patch(pkg, moonc_opt)?;
+                            if let Some(doc_test_patch) = md_test_patch {
+                                let pj_path = pkg.artifact.with_file_name(format!(
+                                    "{}.json",
+                                    moonutil::common::MOON_MD_TEST_POSTFIX
+                                ));
+                                doc_test_patch.write_to_path(&pj_path)?;
+                            }
                         }
 
                         // recompile after apply expect

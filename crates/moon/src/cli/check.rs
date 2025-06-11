@@ -345,8 +345,21 @@ fn run_check_normal_internal(
             continue;
         }
 
-        let pj_path = moonutil::doc_test::gen_md_test_patch(pkg, &moonc_opt)?;
-        pkg.doc_test_patch_file = pj_path;
+        let (mut md_test_patch, doc_test_patch) = (
+            None,
+            moonutil::doc_test::gen_doc_test_patch(pkg, &moonc_opt)?,
+        );
+        if !pkg.mbt_md_files.is_empty() {
+            md_test_patch = moonutil::doc_test::gen_md_test_patch(pkg, &moonc_opt)?;
+        }
+        let patch_json = moonutil::common::PatchJSON::merge_patches(md_test_patch, doc_test_patch);
+        if let Some(patch_json) = patch_json {
+            let pj_path = pkg
+                .artifact
+                .with_file_name(format!("{}.json", moonutil::common::MOON_MD_TEST_POSTFIX));
+            patch_json.write_to_path(&pj_path)?;
+            pkg.test_patch_json_file = Some(pj_path);
+        }
     }
 
     if cli.dry_run {
