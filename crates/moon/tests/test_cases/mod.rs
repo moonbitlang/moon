@@ -1872,7 +1872,7 @@ fn test_specify_source_dir_002() {
         get_err_stdout(&dir, ["test"]),
         expect![[r#"
             test username/hello/lib/hello_test.mbt::hello failed
-            expect test failed at $ROOT/src/lib/hello_test.mbt:2:3-2:25
+            expect test failed at $ROOT/src/lib/hello_test.mbt:2:3-2:24
             Diff:
             ----
             Hello, world!
@@ -2056,7 +2056,7 @@ fn test_snapshot_test() {
             ----
 
             test username/hello/lib/hello.mbt::test inspect 1 failed
-            expect test failed at $ROOT/src/lib/hello.mbt:6:3-6:16
+            expect test failed at $ROOT/src/lib/hello.mbt:6:3-6:15
             Diff:
             ----
             a
@@ -2073,7 +2073,7 @@ fn test_snapshot_test() {
             ----
 
             test username/hello/lib/hello.mbt::test inspect 2 failed
-            expect test failed at $ROOT/src/lib/hello.mbt:18:3-18:16
+            expect test failed at $ROOT/src/lib/hello.mbt:18:3-18:15
             Diff:
             ----
             c
@@ -2112,7 +2112,7 @@ fn test_snapshot_test() {
             ----
 
             test username/hello/lib/hello.mbt::test inspect 1 failed
-            expect test failed at $ROOT/src/lib/hello.mbt:6:3-6:16
+            expect test failed at $ROOT/src/lib/hello.mbt:6:3-6:15
             Diff:
             ----
             a
@@ -2129,7 +2129,7 @@ fn test_snapshot_test() {
             ----
 
             test username/hello/lib/hello.mbt::test inspect 2 failed
-            expect test failed at $ROOT/src/lib/hello.mbt:18:3-18:16
+            expect test failed at $ROOT/src/lib/hello.mbt:18:3-18:15
             Diff:
             ----
             c
@@ -2229,7 +2229,7 @@ fn test_snapshot_test_target_js() {
             ----
 
             test username/hello/lib/hello.mbt::test inspect 1 failed
-            expect test failed at $ROOT/src/lib/hello.mbt:6:3-6:16
+            expect test failed at $ROOT/src/lib/hello.mbt:6:3-6:15
             Diff:
             ----
             a
@@ -2246,7 +2246,7 @@ fn test_snapshot_test_target_js() {
             ----
 
             test username/hello/lib/hello.mbt::test inspect 2 failed
-            expect test failed at $ROOT/src/lib/hello.mbt:18:3-18:16
+            expect test failed at $ROOT/src/lib/hello.mbt:18:3-18:15
             Diff:
             ----
             c
@@ -2349,7 +2349,7 @@ fn moon_test_with_failure_json() {
         &output,
         // should keep in this format, it's used in ide test explorer
         expect![[r#"
-            {"package":"username/hello/lib1","filename":"hello.mbt","index":"0","test_name":"test_1","message":"FAILED: $ROOT/src/lib1/hello.mbt:7:3-7:25 test_1 failed"}
+            {"package":"username/hello/lib1","filename":"hello.mbt","index":"0","test_name":"test_1","message":"FAILED: $ROOT/src/lib1/hello.mbt:7:3-7:24 test_1 failed"}
             Total tests: 2, passed: 1, failed: 1.
         "#]],
     );
@@ -3942,23 +3942,23 @@ fn test_run_doc_test() {
             test block 5
             doc_test 5 from greet.mbt
             test username/hello/lib/hello.mbt::doc_test hello.mbt 9 4 failed
-            expect test failed at $ROOT/src/lib/hello.mbt:12:5-12:19
+            expect test failed at $ROOT/src/lib/hello.mbt:12:5-12:18
             Diff:
             ----
             1256
             ----
 
-            test username/hello/lib/hello.mbt::doc_test hello.mbt 19 4 failed: FAILED: $ROOT/src/lib/hello.mbt:22:5-22:31 this is a failure
+            test username/hello/lib/hello.mbt::doc_test hello.mbt 19 4 failed: FAILED: $ROOT/src/lib/hello.mbt:22:5-22:30 this is a failure
             test username/hello/lib/greet.mbt::2 failed
-            expect test failed at $ROOT/src/lib/greet.mbt:22:7-22:21
+            expect test failed at $ROOT/src/lib/greet.mbt:22:7-22:20
             Diff:
             ----
             1256
             ----
 
-            test username/hello/lib/greet.mbt::3 failed: FAILED: $ROOT/src/lib/greet.mbt:31:7-31:31 another failure
+            test username/hello/lib/greet.mbt::3 failed: FAILED: $ROOT/src/lib/greet.mbt:31:7-31:30 another failure
             test username/hello/lib/greet.mbt::doc_test greet.mbt 92 38 failed
-            expect test failed at $ROOT/src/lib/greet.mbt:96:5-96:41
+            expect test failed at $ROOT/src/lib/greet.mbt:96:5-96:40
             Diff:
             ----
             b"/x54/x00/x65/x00/x73/x00/x74/x00"
@@ -3988,10 +3988,10 @@ fn test_run_doc_test() {
 
             doc_test 2 from hello.mbt
             doc_test 2 from hello.mbt
-            test username/hello/lib/hello.mbt::doc_test hello.mbt 19 4 failed: FAILED: $ROOT/src/lib/hello.mbt:22:5-22:31 this is a failure
+            test username/hello/lib/hello.mbt::doc_test hello.mbt 19 4 failed: FAILED: $ROOT/src/lib/hello.mbt:22:5-22:30 this is a failure
             test block 2
             test block 2
-            test username/hello/lib/greet.mbt::3 failed: FAILED: $ROOT/src/lib/greet.mbt:31:7-31:31 another failure
+            test username/hello/lib/greet.mbt::3 failed: FAILED: $ROOT/src/lib/greet.mbt:31:7-31:30 another failure
             Total tests: 15, passed: 13, failed: 2.
         "#]],
     );
@@ -4499,21 +4499,21 @@ fn test_run_md_test() {
             ```
             Hello, world 2!
             test username/hello/lib/hello_test.mbt::inspect in bbtest failed
-            expect test failed at $ROOT/src/lib/hello_test.mbt:12:3-12:32
+            expect test failed at $ROOT/src/lib/hello_test.mbt:12:3-12:31
             Diff:
             ----
             inspect in bbtest
             ----
 
             test username/hello/lib/1.mbt.md::2 failed
-            expect test failed at $ROOT/src/lib/1.mbt.md:44:5-44:21
+            expect test failed at $ROOT/src/lib/1.mbt.md:44:5-44:20
             Diff:
             ----
             4234
             ----
 
             test username/hello/lib/1.mbt.md::3 failed
-            expect test failed at $ROOT/src/lib/1.mbt.md:61:5-61:16
+            expect test failed at $ROOT/src/lib/1.mbt.md:61:5-61:15
             Diff:
             ----
              all
@@ -5102,7 +5102,7 @@ fn moon_test_single_file() {
             get_err_stdout(&dir, ["test", "single.mbt", "-i", "1"]),
             expect![[r#"
                 test moon/test/single/single.mbt::1 failed
-                expect test failed at $ROOT/single.mbt:13:3-13:19
+                expect test failed at $ROOT/single.mbt:13:3-13:18
                 Diff:
                 ----
                 234523
@@ -5181,7 +5181,7 @@ fn moon_test_single_file() {
             get_err_stdout(&dir, ["test", "111.mbt.md", "-i", "1"]),
             expect![[r#"
                 test moon/test/single/111.mbt.md::1 failed
-                expect test failed at $ROOT/111.mbt.md:34:5-34:21
+                expect test failed at $ROOT/111.mbt.md:34:5-34:20
                 Diff:
                 ----
                 234523
