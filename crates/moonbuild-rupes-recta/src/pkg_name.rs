@@ -3,71 +3,119 @@
 use std::{borrow::Cow, fmt::Write, path::Path, str::FromStr, sync::Arc};
 
 use arcstr::ArcStr;
-use moonutil::mooncakes::ModuleName;
+use moonutil::mooncakes::{ModuleName, ModuleSource};
 use relative_path::RelativePath;
 
 pub const PACKAGE_SEGMENT_SEP: char = '/';
 
-/// A fully-qualified package name, representing the full name of a package.
-/// For example, `moonbitlang/core/builtin`. This type does *not* contain the
-/// leading `@` that may occur in MoonBit source code.
-///
-/// This type is explicitly designed to not be parsable from a string, because
-/// legacy module names and future extension may introduce module names of
-/// different length, thus the separation point between module and package name
-/// is unclear. To construct a fully-qualified package name, use
-/// [`PackageFQN::new`] and supply the module and package parts of this name.
+/// A fully-qualified package name, representing the full name of a package. For
+/// example, `moonbitlang/core/builtin`. This type does *not* contain the
+/// leading `@` that may occur in MoonBit source code. This type also contains
+/// the version information of the module, although it is not by default
+/// displayed.
 ///
 /// This type is cheaply clonable.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct PackageFQN {
-    inner: Arc<PackageFQNInner>,
+    module: ModuleSource,
+    package: PackagePath,
 }
 
 impl PackageFQN {
     /// Construct a package FQN from its parts.
-    pub fn new(module: ModuleName, package: PackagePath) -> Self {
-        Self {
-            inner: Arc::new(PackageFQNInner { module, package }),
-        }
+    pub fn new(module: ModuleSource, package: PackagePath) -> Self {
+        Self { module, package }
     }
 
     /// Get the module name part of the fully-qualified name
-    pub fn module(&self) -> &ModuleName {
-        &self.inner.module
+    pub fn module(&self) -> &ModuleSource {
+        &self.module
     }
 
     /// Get the unqualified package path part of the fully-qualified name.
     pub fn package(&self) -> &PackagePath {
-        &self.inner.package
+        &self.package
     }
 
     /// Get the short name alias for this fully-qualified name.
     pub fn shortname(&self) -> &str {
-        self.inner
-            .package
+        self.package
             .short_name()
-            .unwrap_or_else(|| self.inner.module.last_segment())
+            .unwrap_or_else(|| self.module.name().last_segment())
     }
 }
 
 impl std::fmt::Display for PackageFQN {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let inner = &*self.inner;
-        write!(f, "{}", &inner.module)?;
-        if inner.package.is_empty() {
-            Ok(())
-        } else {
-            f.write_char(PACKAGE_SEGMENT_SEP)?;
-            write!(f, "{}", &inner.package)
-        }
+        write_package_fqn_to(f, self.module.name(), &self.package)
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-struct PackageFQNInner {
-    module: ModuleName,
-    package: PackagePath,
+/// Write a package FQN to a formatter given module and package parts
+pub fn write_package_fqn_to<W: std::fmt::Write>(
+    f: &mut W,
+    module: &ModuleName,
+    package: &PackagePath,
+) -> std::fmt::Result {
+    write!(f, "{}", module)?;
+    if package.is_empty() {
+        Ok(())
+    } else {
+        f.write_char(PACKAGE_SEGMENT_SEP)?;
+        write!(f, "{}", package)
+    }
+}
+
+/// Format a package FQN as a string given module and package parts, without
+/// constructing a PackageFQN.
+pub fn format_package_fqn(module: &ModuleName, package: &PackagePath) -> String {
+    let mut result = String::new();
+    write_package_fqn_to(&mut result, module, package)
+        .expect("writing to String should never fail");
+    result
+}
+
+/// A wrapper around [`PackageFQN`] that displays the module source and version
+/// information instead of just the module name when formatted.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct PackageFQNWithSource {
+    fqn: PackageFQN,
+}
+
+impl PackageFQNWithSource {
+    /// Construct a package FQN with source from its parts.
+    pub fn new(module: ModuleSource, package: PackagePath) -> Self {
+        Self {
+            fqn: PackageFQN::new(module, package),
+        }
+    }
+
+    /// Construct from an existing PackageFQN.
+    pub fn from_fqn(fqn: PackageFQN) -> Self {
+        Self { fqn }
+    }
+
+    /// Get the underlying PackageFQN.
+    pub fn fqn(&self) -> &PackageFQN {
+        &self.fqn
+    }
+}
+
+impl std::fmt::Display for PackageFQNWithSource {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "{{ module: {}, package: {} }}",
+            self.fqn.module(),
+            self.fqn.package()
+        )
+    }
+}
+
+impl From<PackageFQN> for PackageFQNWithSource {
+    fn from(fqn: PackageFQN) -> Self {
+        Self::from_fqn(fqn)
+    }
 }
 
 /// An unqualified package path, representing the non-module portion of the
@@ -359,65 +407,65 @@ mod test {
     #[test]
     fn test_package_fqn_shortname() {
         // Helper to create ModuleName
-        let create_module = |s: &str| ModuleName::from_str(s).unwrap();
+        let create_module = |s: &str| ModuleSource::from_str(s).unwrap();
 
         // Package with non-empty path - should use package short name
-        let module = create_module("moonbitlang/core");
+        let module = create_module("moonbitlang/core@0.1.0");
         let package = assert_valid_pkg_path("collections/list");
         let fqn = PackageFQN::new(module, package);
         assert_eq!(fqn.shortname(), "list");
 
         // Package with empty path - should use module last segment
-        let module = create_module("moonbitlang/core");
+        let module = create_module("moonbitlang/core@0.1.0");
         let package = assert_valid_pkg_path("");
         let fqn = PackageFQN::new(module, package);
         assert_eq!(fqn.shortname(), "core");
 
         // Single segment package path
-        let module = create_module("myorg/mymodule");
+        let module = create_module("myorg/mymodule@1.2.3");
         let package = assert_valid_pkg_path("utils");
         let fqn = PackageFQN::new(module, package);
         assert_eq!(fqn.shortname(), "utils");
 
         // Deep package path
-        let module = create_module("company/project");
+        let module = create_module("company/project@2.0.0");
         let package = assert_valid_pkg_path("internal/data/structures");
         let fqn = PackageFQN::new(module, package);
         assert_eq!(fqn.shortname(), "structures");
 
         // Edge cases -- legacy module names
         // Single segment module name with empty package
-        let module = create_module("single");
+        let module = create_module("single@1.0.0");
         let package = assert_valid_pkg_path("");
         let fqn = PackageFQN::new(module, package);
         assert_eq!(fqn.shortname(), "single");
 
         // Single segment module name with package
-        let module = create_module("single");
+        let module = create_module("single@1.0.0");
         let package = assert_valid_pkg_path("subpackage");
         let fqn = PackageFQN::new(module, package);
         assert_eq!(fqn.shortname(), "subpackage");
 
         // Triple segment module name with empty package
-        let module = create_module("org/project/module");
+        let module = create_module("org/project/module@1.5.2");
         let package = assert_valid_pkg_path("");
         let fqn = PackageFQN::new(module, package);
         assert_eq!(fqn.shortname(), "module");
 
         // Triple segment module name with package
-        let module = create_module("org/project/module");
+        let module = create_module("org/project/module@1.5.2");
         let package = assert_valid_pkg_path("utils/helpers");
         let fqn = PackageFQN::new(module, package);
         assert_eq!(fqn.shortname(), "helpers");
 
         // Four segment module name with empty package
-        let module = create_module("company/division/project/module");
+        let module = create_module("company/division/project/module@3.1.4");
         let package = assert_valid_pkg_path("");
         let fqn = PackageFQN::new(module, package);
         assert_eq!(fqn.shortname(), "module");
 
         // Four segment module name with single segment package
-        let module = create_module("company/division/project/module");
+        let module = create_module("company/division/project/module@3.1.4");
         let package = assert_valid_pkg_path("core");
         let fqn = PackageFQN::new(module, package);
         assert_eq!(fqn.shortname(), "core");

@@ -21,14 +21,17 @@ use relative_path::{PathExt, RelativePath};
 use slotmap::{SecondaryMap, SlotMap};
 use walkdir::WalkDir;
 
-use crate::pkg_name::PackagePath;
+use crate::{
+    model::PackageId,
+    pkg_name::{PackageFQN, PackagePath},
+};
 
 /// Discover packages contained by all dependencies from their paths
 pub fn discover_packages(
     env: &ResolvedEnv,
     dirs: &DirSyncResult,
-) -> Result<PackageDiscoverResult, DiscoverError> {
-    let mut res = PackageDiscoverResult::default();
+) -> Result<DiscoverResult, DiscoverError> {
+    let mut res = DiscoverResult::default();
 
     for (id, m) in env.all_modules_and_id() {
         discover_packages_for_mod(&mut res, env, dirs, id, m)?;
@@ -39,7 +42,7 @@ pub fn discover_packages(
 
 /// Discover packages within the given module directory
 fn discover_packages_for_mod(
-    res: &mut PackageDiscoverResult,
+    res: &mut DiscoverResult,
     env: &ResolvedEnv,
     dirs: &DirSyncResult,
     id: ModuleId,
@@ -126,8 +129,8 @@ fn discover_packages_for_mod(
         }
 
         // Begin discovering the package
-        let pkg = discover_one_package(module_source, abs_path, &rel_path)?;
-        res.add_package(id, pkg.path.clone(), pkg);
+        let pkg = discover_one_package(id, module_source, abs_path, &rel_path)?;
+        res.add_package(id, pkg.fqn.package().clone(), pkg);
     }
 
     Ok(())
@@ -136,6 +139,7 @@ fn discover_packages_for_mod(
 /// Discover one package and get its basic information. This does *not* create
 /// e.g. subpackages.
 fn discover_one_package(
+    mid: ModuleId,
     m: &ModuleSource,
     abs: &Path,
     rel: &RelativePath,
@@ -226,7 +230,8 @@ fn discover_one_package(
 
     Ok(DiscoveredPackage {
         root_path: abs.to_path_buf(),
-        path: pkg_path,
+        module: mid,
+        fqn: PackageFQN::new(m.clone(), pkg_path),
         raw: Box::new(pkg_json),
         source_files,
         mbt_lex_files,
@@ -242,8 +247,10 @@ fn discover_one_package(
 pub struct DiscoveredPackage {
     /// The root path of the package
     pub root_path: PathBuf,
-    /// The unqualified path of the package
-    pub path: PackagePath,
+    /// The ID of the module this package is in
+    pub module: ModuleId,
+    /// The fully-qualified name of the package
+    pub fqn: PackageFQN,
 
     /// The raw `moon.pkg.json` of this package.
     pub raw: Box<MoonPkg>,
@@ -271,11 +278,9 @@ pub struct DiscoveredPackage {
     pub c_stub_files: Vec<PathBuf>,
 }
 
-slotmap::new_key_type! {pub struct PackageId;}
-
 /// The result of a package discovery process.
 #[derive(Debug, Default)]
-pub struct PackageDiscoverResult {
+pub struct DiscoverResult {
     /// The directory of all discovered packages
     packages: SlotMap<PackageId, DiscoveredPackage>,
 
@@ -283,7 +288,7 @@ pub struct PackageDiscoverResult {
     module_map: SecondaryMap<ModuleId, HashMap<PackagePath, PackageId>>,
 }
 
-impl PackageDiscoverResult {
+impl DiscoverResult {
     fn add_package(&mut self, m: ModuleId, path: PackagePath, data: DiscoveredPackage) {
         let id = self.packages.insert(data);
         self.module_map
@@ -320,6 +325,12 @@ impl PackageDiscoverResult {
     /// Get the number of discovered packages.
     pub fn package_count(&self) -> usize {
         self.packages.len()
+    }
+
+    /// Get the FQN of a package by its ID.
+    pub fn fqn(&self, id: PackageId) -> PackageFQN {
+        let pkg = &self.packages[id];
+        pkg.fqn.clone()
     }
 }
 
