@@ -17,13 +17,16 @@
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
 ///|
-pub(all) extern type XByteArrayCreateHandle
+#external
+type XByteArrayCreateHandle
 
 ///|
-pub(all) extern type XByteArrayReadHandle
+#external
+type XByteArrayReadHandle
 
 ///|
-pub(all) extern type XExternByteArray
+#external
+type XExternByteArray
 
 fn read_bytes_from_stdin_ffi() -> XExternByteArray  = "__moonbit_io_unstable" "read_bytes_from_stdin"
 fn read_bytes_from_stdin() -> Bytes {
