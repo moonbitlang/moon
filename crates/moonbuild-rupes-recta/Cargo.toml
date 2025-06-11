@@ -15,3 +15,4 @@ relative-path.workspace = true
 slotmap.workspace = true
 thiserror.workspace = true
 walkdir.workspace = true
+petgraph.workspace = true
