@@ -103,13 +103,13 @@ fn pkg_list_to_dep_dir_state<'a>(
 ) -> NewDepDirState<'a> {
     let mut user_list = HashMap::new();
     for pkg in pkg_list {
-        match &pkg.source {
+        match pkg.source() {
             ModuleSourceKind::Registry(_) => {}
             ModuleSourceKind::Local(_) => continue,
             ModuleSourceKind::Git(_) => continue, // TODO: git registries are resolved differently
         }
-        let user = &pkg.name.username;
-        let pkg_name = &pkg.name.unqual;
+        let user = &pkg.name().username;
+        let pkg_name = &pkg.name().unqual;
         let pkg_list: &mut HashMap<ArcStr, _> = user_list.entry(user.to_owned()).or_default();
         pkg_list.insert(pkg_name.to_owned(), pkg);
     }
@@ -160,7 +160,7 @@ fn diff_dep_dir_state<'a>(
                 }
                 Some(current_version) => {
                     if current_version.is_none()
-                        || current_version.as_ref().unwrap() != &new_source.version
+                        || current_version.as_ref().unwrap() != new_source.version()
                     {
                         // On version mismatch, we remove and re-add the package.
                         remove_pkg_list.insert(pkg.clone());
@@ -238,13 +238,13 @@ pub fn sync_deps(
                 &version,
                 pkg_path.display()
             );
-            let ModuleSourceKind::Registry(registry) = &version.source else {
+            let ModuleSourceKind::Registry(registry) = version.source() else {
                 unreachable!()
             };
             registries
                 .get_registry(registry.as_deref())
                 .expect("Registry not found")
-                .install_to(&version.name, &version.version, &pkg_path, quiet)?;
+                .install_to(version.name(), version.version(), &pkg_path, quiet)?;
             // TODO: parallelize this
         }
     }
@@ -263,9 +263,9 @@ fn pkg_to_dir(dep_dir: &DepDir, username: &str, pkgname: &str) -> PathBuf {
 
 /// The result of a directory sync.
 fn map_source_to_dir(dep_dir: &DepDir, module: &ModuleSource) -> PathBuf {
-    match &module.source {
+    match module.source() {
         ModuleSourceKind::Registry(_) => {
-            pkg_to_dir(dep_dir, &module.name.username, &module.name.unqual)
+            pkg_to_dir(dep_dir, &module.name().username, &module.name().unqual)
         }
         ModuleSourceKind::Local(path) => path.clone(),
         ModuleSourceKind::Git(url) => {
@@ -324,14 +324,14 @@ mod test {
                     .into_iter()
                     .map(|(module, v)| {
                         let version = v.unwrap();
-                        let res = ModuleSource {
-                            name: ModuleName {
+                        let res = ModuleSource::new_full(
+                            ModuleName {
                                 username: user.clone(),
                                 unqual: module.clone(),
                             },
                             version,
-                            source: ModuleSourceKind::Registry(None),
-                        };
+                            ModuleSourceKind::Registry(None),
+                        );
                         let leaked = Box::leak(Box::new(res));
                         (module, &*leaked)
                     })
@@ -351,14 +351,14 @@ mod test {
                     .into_iter()
                     .map(|(pkg, ver)| {
                         let version = ver.parse().unwrap();
-                        let res = ModuleSource {
-                            name: ModuleName {
+                        let res = ModuleSource::new_full(
+                            ModuleName {
                                 username: user.into(),
                                 unqual: pkg.into(),
                             },
                             version,
-                            source: ModuleSourceKind::Registry(None),
-                        };
+                            ModuleSourceKind::Registry(None),
+                        );
                         let leaked = Box::leak(Box::new(res));
                         (pkg.into(), &*leaked)
                     })

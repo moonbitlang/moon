@@ -89,9 +89,9 @@ fn assert_no_duplicate_module_names(result: &result::ResolvedEnv) -> Result<(), 
     let mut module_name_versions: HashMap<_, Vec<_>> = HashMap::new();
     for it in result.all_modules() {
         module_name_versions
-            .entry(&it.name)
+            .entry(it.name())
             .or_default()
-            .push(&it.version);
+            .push(it.version());
     }
     let mut errs = vec![];
     for (name, versions) in module_name_versions {
