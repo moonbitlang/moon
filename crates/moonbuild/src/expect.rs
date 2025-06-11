@@ -187,13 +187,13 @@ impl Location {
 struct Replace {
     pub filename: String,
 
-    // inspect!(1234)
+    // inspect(1234)
     // ^............^
     pub loc: Location,
 
     // "1234"
     pub actual: String,
-    // inspect!(1234)
+    // inspect(1234)
     //          ^..^
     pub actual_loc: Location,
 

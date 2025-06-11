@@ -1895,7 +1895,7 @@ fn test_specify_source_dir_002() {
         read(dir.join("src").join("lib").join("hello_test.mbt")),
         expect![[r#"
             test "hello" {
-              inspect!(@lib.hello(), content="Hello, world!")
+              inspect(@lib.hello(), content="Hello, world!")
             }
         "#]],
     );
@@ -2166,8 +2166,8 @@ fn test_snapshot_test() {
             }
 
             test "test inspect 1" {
-              inspect!("a", content="a")
-              inspect!("b", content="b")
+              inspect("a", content="a")
+              inspect("b", content="b")
             }
 
             test "test snapshot 1" (it : @test.T) {
@@ -2178,8 +2178,8 @@ fn test_snapshot_test() {
             }
 
             test "test inspect 2" {
-              inspect!("c", content="c")
-              inspect!("d", content="d")
+              inspect("c", content="c")
+              inspect("d", content="d")
             }
 
             test "test snapshot 2" (it : @test.T) {
@@ -2294,8 +2294,8 @@ fn test_snapshot_test_target_js() {
             }
 
             test "test inspect 1" {
-              inspect!("a", content="a")
-              inspect!("b", content="b")
+              inspect("a", content="a")
+              inspect("b", content="b")
             }
 
             test "test snapshot 1" (it : @test.T) {
@@ -2306,8 +2306,8 @@ fn test_snapshot_test_target_js() {
             }
 
             test "test inspect 2" {
-              inspect!("c", content="c")
-              inspect!("d", content="d")
+              inspect("c", content="c")
+              inspect("d", content="d")
             }
 
             test "test snapshot 2" (it : @test.T) {
@@ -4386,26 +4386,26 @@ fn test_update_expect_failed() {
         expect![[r#"
             ///|
             test {
-              inspect!("\x0b", content="\u{b}")
-              inspect!("a\x0b", content="a\u{b}")
-              inspect!("a\x00b", content="a\u{0}b")
-              inspect!("a\x00b\x19", content="a\u{0}b\u{19}")
-              inspect!("\na\n\x00\nb\n\x19", content=
+              inspect("\x0b", content="\u{b}")
+              inspect("a\x0b", content="a\u{b}")
+              inspect("a\x00b", content="a\u{0}b")
+              inspect("a\x00b\x19", content="a\u{0}b\u{19}")
+              inspect("\na\n\x00\nb\n\x19", content=
                 "\u{a}a\u{a}\u{0}\u{a}b\u{a}\u{19}")
-              inspect!("\n\"a\n\x00\nb\"\n\x19", content=
+              inspect("\n\"a\n\x00\nb\"\n\x19", content=
                 "\u{a}\"a\u{a}\u{0}\u{a}b\"\u{a}\u{19}")
             }
 
             ///|
             test {
-              inspect!("\"abc\"", content=#|"abc"
+              inspect("\"abc\"", content=#|"abc"
               )
-              inspect!("\"a\nb\nc\"", content=
+              inspect("\"a\nb\nc\"", content=
                 #|"a
                 #|b
                 #|c"
               )
-              inspect!("\x0b\"a\nb\nc\"", content=
+              inspect("\x0b\"a\nb\nc\"", content=
                 "\u{b}\"a\u{a}b\u{a}c\"")
             }
         "#]],

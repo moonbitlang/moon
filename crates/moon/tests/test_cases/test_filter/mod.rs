@@ -675,14 +675,14 @@ fn test_moon_test_filter_index_with_auto_update() {
             }
 
             test {
-              inspect!(1, content="1")
-              inspect!(1 + 2, content="3")
-              inspect!("hello", content="hello")
-              inspect!([1, 2, 3], content="[1, 2, 3]")
+              inspect(1, content="1")
+              inspect(1 + 2, content="3")
+              inspect("hello", content="hello")
+              inspect([1, 2, 3], content="[1, 2, 3]")
             }
 
             test {
-              inspect!(2)
+              inspect(2)
             }
         "#]],
     );
@@ -712,14 +712,14 @@ fn test_moon_test_filter_index_with_auto_update() {
             }
 
             test {
-              inspect!(1, content="1")
-              inspect!(1 + 2, content="3")
-              inspect!("hello")
-              inspect!([1, 2, 3])
+              inspect(1, content="1")
+              inspect(1 + 2, content="3")
+              inspect("hello")
+              inspect([1, 2, 3])
             }
 
             test {
-              inspect!(2)
+              inspect(2)
             }
         "#]],
     );
@@ -747,14 +747,14 @@ fn test_moon_test_filter_index_with_auto_update() {
             }
 
             test {
-              inspect!(1, content="1")
-              inspect!(1 + 2)
-              inspect!("hello")
-              inspect!([1, 2, 3])
+              inspect(1, content="1")
+              inspect(1 + 2)
+              inspect("hello")
+              inspect([1, 2, 3])
             }
 
             test {
-              inspect!(2, content="2")
+              inspect(2, content="2")
             }
         "#]],
     );

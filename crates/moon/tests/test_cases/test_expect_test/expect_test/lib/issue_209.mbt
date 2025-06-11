@@ -1,4 +1,4 @@
 test "trailing comma" {
   // 🤣
-  inspect!(1234)
+  inspect(1234)
 } // ,,,,,,,,,,,,,,,,,,,,

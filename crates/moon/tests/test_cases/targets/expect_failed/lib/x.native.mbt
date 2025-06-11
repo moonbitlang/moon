@@ -1,3 +1,3 @@
 test {
-  inspect!("native", content="3")
+  inspect("native", content="3")
 }

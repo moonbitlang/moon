@@ -34,6 +34,6 @@ test "bench: naive fib" (it : @test.T) {
 ///|
 test {
   if hello() != "Hello, world!" {
-    fail!("not ok")
+    fail("not ok")
   }
 }

@@ -9,7 +9,7 @@ pub fn hello1() -> String {
 /// ```mbt
 /// println("doc_test 2 from hello.mbt")
 /// 
-/// inspect!(1256)
+/// inspect(1256)
 /// 
 /// ```
 pub fn hello2() -> String {
@@ -19,7 +19,7 @@ pub fn hello2() -> String {
 /// ```
 /// println("doc_test 3 from hello.mbt")
 /// 
-/// fail!("this is a failure")
+/// fail("this is a failure")
 /// 
 /// ```
 pub fn hello3() -> String {

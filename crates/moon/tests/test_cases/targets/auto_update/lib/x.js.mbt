@@ -1,3 +1,3 @@
 test {
-  inspect!("js")
+  inspect("js")
 }

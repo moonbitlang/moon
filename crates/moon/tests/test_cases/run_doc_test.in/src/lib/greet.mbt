@@ -19,7 +19,7 @@ pub fn greet1() -> String {
 /// 
 ///   println("test block 2")
 /// 
-///   inspect!(1256)
+///   inspect(1256)
 /// 
 /// 
 /// 
@@ -28,7 +28,7 @@ pub fn greet1() -> String {
 /// test {
 ///   println("test block 3")
 /// 
-///   fail!("another failure")
+///   fail("another failure")
 /// }
 /// 
 /// ```
@@ -93,8 +93,8 @@ pub fn greet5() -> String {
 /// let buf = @buffer.new(size_hint=100)
 /// buf.write_string("Tes")
 /// buf.write_char('t')
-/// inspect!(buf.contents(), content="")
-/// inspect!(buf.contents())
+/// inspect(buf.contents(), content="")
+/// inspect(buf.contents())
 /// 
 ///  let multi_line_string_1 = 
 ///     #|1
@@ -104,29 +104,29 @@ pub fn greet5() -> String {
 ///     #|5
 ///     #|
 /// 
-///  inspect!(multi_line_string_1)
-///  inspect!(multi_line_string_1, content="")
+///  inspect(multi_line_string_1)
+///  inspect(multi_line_string_1, content="")
 /// 
 ///  let multi_line_string_2 = 
 ///     #|1
 ///     #|2
 ///     #|3
 /// 
-///  inspect!(multi_line_string_2)
-///  inspect!(multi_line_string_2, content="")
+///  inspect(multi_line_string_2)
+///  inspect(multi_line_string_2, content="")
 /// 
 ///  let multi_line_string_3 = 
 ///     #|1
 ///     #|2
 /// 
-///  inspect!(multi_line_string_3)
-///  inspect!(multi_line_string_3, content="")
+///  inspect(multi_line_string_3)
+///  inspect(multi_line_string_3, content="")
 /// 
 ///  let multi_line_string_4 = 
 ///     #|1
 /// 
-///  inspect!(multi_line_string_4)
-///  inspect!(multi_line_string_4, content="")
+///  inspect(multi_line_string_4)
+///  inspect(multi_line_string_4, content="")
 /// 
 /// ```
 pub fn greet6() -> String {

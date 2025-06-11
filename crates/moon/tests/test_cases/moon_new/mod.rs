@@ -336,7 +336,7 @@ fn test_moon_new_snapshot() {
         expect![[r#"
             test "hello" {
               if @lib.hello() != "Hello, world!" {
-                fail!("@lib.hello() != \"Hello, world!\"")
+                fail("@lib.hello() != \"Hello, world!\"")
               }
             }
         "#]],
@@ -461,7 +461,7 @@ fn test_moon_new_snapshot_lib_no_license() {
         expect![[r#"
             test "hello" {
               if @lib.hello() != "Hello, world!" {
-                fail!("@lib.hello() != \"Hello, world!\"")
+                fail("@lib.hello() != \"Hello, world!\"")
               }
             }
         "#]],

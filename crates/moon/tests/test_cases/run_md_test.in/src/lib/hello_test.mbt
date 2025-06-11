@@ -9,13 +9,13 @@ fn test_hello() -> String {
 
 test "inspect in bbtest" {
   fn_in_md_test()
-  inspect!("inspect in bbtest")
+  inspect("inspect in bbtest")
   let a = #| all
         #| wishes
         #|
         #| come
         #| true
         #|
-  inspect!(a)
+  inspect(a)
 }
 

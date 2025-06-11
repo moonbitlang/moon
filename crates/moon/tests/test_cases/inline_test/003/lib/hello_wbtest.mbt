@@ -1,3 +1,3 @@
 test {
-  fail!("some msg")
+  fail("some msg")
 }

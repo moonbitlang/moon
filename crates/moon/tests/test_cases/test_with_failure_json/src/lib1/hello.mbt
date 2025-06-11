@@ -4,5 +4,5 @@ pub fn hello() -> String {
 
 
 test "test_1" {
-  fail!("test_1 failed")
+  fail("test_1 failed")
 }
