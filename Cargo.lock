@@ -1520,6 +1520,7 @@ dependencies = [
  "log",
  "mooncake",
  "moonutil",
+ "petgraph",
  "relative-path",
  "slotmap",
  "thiserror",
