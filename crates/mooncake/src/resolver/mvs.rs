@@ -98,7 +98,7 @@ fn select_min_version_satisfying_in_env(
 
 /// Checks whether resolving local dependency is allowed for the dependant package
 fn local_dep_allowed(dependant: &ModuleSource) -> bool {
-    match &dependant.source {
+    match dependant.source() {
         ModuleSourceKind::Registry(_) => false,
         ModuleSourceKind::Local(_) => true,
         ModuleSourceKind::Git(_) => true,
@@ -107,7 +107,7 @@ fn local_dep_allowed(dependant: &ModuleSource) -> bool {
 
 /// Checks whether resolving git dependency is allowed for the dependant package
 fn git_dep_allowed(dependant: &ModuleSource) -> bool {
-    match &dependant.source {
+    match dependant.source() {
         ModuleSourceKind::Registry(_) => false,
         ModuleSourceKind::Local(_) => true,
         ModuleSourceKind::Git(_) => true,
@@ -117,7 +117,7 @@ fn git_dep_allowed(dependant: &ModuleSource) -> bool {
 /// Returns the root path of the dependant, to be used with local dependencies.
 /// Panics if [`local_dep_allowed(dependant)`] is false.
 fn root_path_of(dependant: &ModuleSource) -> PathBuf {
-    match &dependant.source {
+    match dependant.source() {
         ModuleSourceKind::Registry(_) => {
             panic!("Registry dependencies don't have a local root path!")
         }
@@ -135,11 +135,11 @@ struct ModuleSourceOrdWrapper(ModuleSource);
 
 impl Ord for ModuleSourceOrdWrapper {
     fn cmp(&self, other: &Self) -> std::cmp::Ordering {
-        let version_cmp = self.0.version.cmp(&other.0.version);
+        let version_cmp = self.0.version().cmp(other.0.version());
         if !version_cmp.is_eq() {
             return version_cmp;
         }
-        self.0.source.cmp(&other.0.source)
+        self.0.source().cmp(other.0.source())
     }
 }
 
@@ -162,7 +162,7 @@ impl From<ModuleSourceOrdWrapper> for ModuleSource {
 }
 
 fn warn_about_skipped_local_or_git_dep(ms: &ModuleSource) {
-    match &ms.source {
+    match ms.source() {
         ModuleSourceKind::Local(_) => {
             log::warn!(
                 "A git dependency was skipped during version resolution: {}",
@@ -261,8 +261,8 @@ fn mvs_resolve(
         let mut curr = versions.next().unwrap();
         log::debug!("---- seen {}", curr);
         for v in versions {
-            let caret_curr = as_caret_comparator(curr.version.clone());
-            if caret_curr.matches(&v.version) {
+            let caret_curr = as_caret_comparator(curr.version().clone());
+            if caret_curr.matches(v.version()) {
                 // v >= curr, as implied by btreeset
                 // Emit a warning if the skipped dep is local or git, as they are manually specified
                 warn_about_skipped_local_or_git_dep(&curr);
@@ -326,7 +326,7 @@ fn mvs_resolve(
             let dep_versions = &settled_versions[&dep_name];
             let resolved = dep_versions
                 .iter()
-                .find(|v| req.version.matches(&v.0.version))
+                .find(|v| req.version.matches(v.0.version()))
                 .expect("There should be at least one version available, otherwise previous steps will fail");
             let resolved = &resolved.0;
 
@@ -372,11 +372,11 @@ fn resolve_pkg(
             let dep_path =
                 dunce::canonicalize(dep_path).map_err(|err| ResolverError::Other(err.into()))?;
             let res = env.resolve_local_module(&dep_path)?;
-            let ms = ModuleSource {
-                name: pkg_name.clone(),
-                version: res.version.clone().expect("Expected version in module"),
-                source: ModuleSourceKind::Local(dep_path),
-            };
+            let ms = ModuleSource::new_full(
+                pkg_name.clone(),
+                res.version.clone().expect("Expected version in module"),
+                ModuleSourceKind::Local(dep_path),
+            );
             // Assert version matches
             if let Some(v) = &res.version {
                 if !req.version.matches(v) {
@@ -404,11 +404,7 @@ fn resolve_pkg(
         req,
         version
     );
-    let ms = ModuleSource {
-        name: pkg_name.clone(),
-        version,
-        source: ModuleSourceKind::Registry(None),
-    };
+    let ms = ModuleSource::new_full(pkg_name.clone(), version, ModuleSourceKind::Registry(None));
     Ok((ms, module))
 }
 
@@ -468,11 +464,11 @@ mod test {
 
         let id = result
             .all_modules_and_id()
-            .filter(|(_, ms)| ms.name == module_name && ms.version == version)
+            .filter(|(_, ms)| ms.name() == &module_name && ms.version() == &version)
             .next()
             .map(|(id, _)| id)
             .expect("Module not found");
-        expect!["ModuleId(0)"].assert_eq(&format!("{:?}", &id));
+        expect!["ModuleId(1v1)"].assert_eq(&format!("{:?}", &id));
         let mt = result.mod_name_from_id(id);
         expect!["dep/three@0.1.0"].assert_eq(&format!("{:?}", mt));
 
@@ -513,13 +509,13 @@ mod test {
 
         let deps = result.deps(id).collect::<Vec<_>>();
         expect![[r#"
-            "[ModuleId(1)]"
+            "[ModuleId(2v1)]"
         "#]]
         .assert_debug_eq(&format!("{:?}", &deps));
 
         let deps_keyed = result.deps_keyed(id).collect::<Vec<_>>();
         expect![[r#"
-            "[(ModuleId(1), dep/two)]"
+            "[(ModuleId(2v1), dep/two)]"
         "#]]
         .assert_debug_eq(&format!("{:?}", &deps_keyed));
 
@@ -527,7 +523,7 @@ mod test {
         let key2 = "dep/three".parse::<DependencyKey>().unwrap();
         let x1 = result.dep_with_key(id, &key1);
         let x2 = result.dep_with_key(id, &key2);
-        expect!["(Some(ModuleId(1)), None)"].assert_eq(&format!("{:?}", (x1, x2)));
+        expect!["(Some(ModuleId(2v1)), None)"].assert_eq(&format!("{:?}", (x1, x2)));
 
         let dep_count = result.dep_count(id);
         expect!["1"].assert_eq(&dep_count.to_string());
@@ -547,19 +543,19 @@ mod test {
             [
                 (
                     ModuleId(
-                        0,
+                        1v1,
                     ),
                     dep/three@0.1.0,
                 ),
                 (
                     ModuleId(
-                        1,
+                        2v1,
                     ),
                     dep/two@0.1.0,
                 ),
                 (
                     ModuleId(
-                        2,
+                        3v1,
                     ),
                     dep/one@0.1.2,
                 ),
@@ -570,9 +566,9 @@ mod test {
         let graph = result.graph();
         expect![[r#"
             digraph {
-                0 [ label = "ModuleId(0)" ]
-                1 [ label = "ModuleId(1)" ]
-                2 [ label = "ModuleId(2)" ]
+                0 [ label = "ModuleId(1v1)" ]
+                1 [ label = "ModuleId(2v1)" ]
+                2 [ label = "ModuleId(3v1)" ]
                 0 -> 1 [ ]
                 1 -> 2 [ ]
             }
@@ -583,10 +579,10 @@ mod test {
         ));
     }
 
-    fn id_from_mod_name(result: &ResolvedEnv, mod_name: &ModuleName) -> Option<ModuleId> {
+    fn id_from_mod_name(result: &ResolvedEnv, mod_name: &ModuleSource) -> Option<ModuleId> {
         result
             .all_modules_and_id()
-            .find(|(_, m)| m.name == *mod_name)
+            .find(|(_, m)| *m == mod_name)
             .map(|(id, _)| id)
     }
 

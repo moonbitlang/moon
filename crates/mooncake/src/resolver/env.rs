@@ -83,9 +83,9 @@ impl<'a> ResolverEnv<'a> {
     }
 
     pub fn get(&mut self, ms: &ModuleSource) -> Option<Arc<MoonMod>> {
-        match &ms.source {
+        match ms.source() {
             ModuleSourceKind::Registry(reg) => {
-                self.get_module_version(&ms.name, &ms.version, reg.as_deref())
+                self.get_module_version(ms.name(), ms.version(), reg.as_deref())
             }
             ModuleSourceKind::Git(_) => todo!("Resolve git module"),
             ModuleSourceKind::Local(path) => self.resolve_local_module(path).ok(),
