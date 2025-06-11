@@ -8,29 +8,29 @@ pub(all) type Moonbit_Test_Driver_Internal_With_Args_Function (@moonbitlang/core
 
 pub(all) type Moonbit_Test_Driver_Internal_With_Bench_Args_Function (@moonbitlang/core/bench.T) -> Unit!Error
 
-typealias Moonbit_Test_Driver_Internal_No_Args_Map = @moonbitlang/core/builtin.Map[
+typealias @moonbitlang/core/builtin.Map[
   String,
   @moonbitlang/core/builtin.Map[
     Int,
     (Moonbit_Test_Driver_Internal_No_Args_Function, @moonbitlang/core/builtin.Array[String]),
   ],
-]
+] as Moonbit_Test_Driver_Internal_No_Args_Map
 
-typealias Moonbit_Test_Driver_Internal_TestDriver_With_Args_Map = @moonbitlang/core/builtin.Map[
+typealias @moonbitlang/core/builtin.Map[
   String,
   @moonbitlang/core/builtin.Map[
     Int,
     (Moonbit_Test_Driver_Internal_With_Args_Function, @moonbitlang/core/builtin.Array[String]),
   ],
-]
+] as Moonbit_Test_Driver_Internal_TestDriver_With_Args_Map
 
-typealias Moonbit_Test_Driver_Internal_TestDriver_With_Bench_Args_Map = @moonbitlang/core/builtin.Map[
+typealias @moonbitlang/core/builtin.Map[
   String,
   @moonbitlang/core/builtin.Map[
     Int,
     (Moonbit_Test_Driver_Internal_With_Bench_Args_Function, @moonbitlang/core/builtin.Array[String]),
   ],
-]
+] as Moonbit_Test_Driver_Internal_TestDriver_With_Bench_Args_Map
 
 struct Moonbit_Test_Driver_Internal_Meta {
   filename : String
