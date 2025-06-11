@@ -1,3 +1,3 @@
 test "hello" {
-  inspect!(@lib.hello())
+  inspect(@lib.hello())
 }

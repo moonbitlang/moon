@@ -4,13 +4,13 @@ fn moonbit_test_driver_internal_error_to_string(x : Error) -> String = "%error.t
 
 fn moonbit_unsafe_char_from_int(x : Int) -> Char = "%identity"
 
-typealias Moonbit_Test_Driver_Internal_No_Args_Map = @moonbitlang/core/builtin.Map[
+typealias @moonbitlang/core/builtin.Map[
   String,
   @moonbitlang/core/builtin.Map[
     Int,
     (() -> Unit!Error, @moonbitlang/core/builtin.Array[String]),
   ],
-]
+] as Moonbit_Test_Driver_Internal_No_Args_Map
 
 let moonbit_test_driver_internal_no_args_tests : Moonbit_Test_Driver_Internal_No_Args_Map = { }  // WILL BE REPLACED
 

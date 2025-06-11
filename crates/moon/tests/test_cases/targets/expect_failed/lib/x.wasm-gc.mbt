@@ -1,3 +1,3 @@
 test {
-  inspect!("wasm-gc", content="1")
+  inspect("wasm-gc", content="1")
 }

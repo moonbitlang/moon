@@ -3,8 +3,8 @@ pub fn hello() -> String {
 }
 
 test "test inspect 1" {
-  inspect!("a")
-  inspect!("b")
+  inspect("a")
+  inspect("b")
 }
 
 test "test snapshot 1" (it : @test.T) {
@@ -15,8 +15,8 @@ test "test snapshot 1" (it : @test.T) {
 }
 
 test "test inspect 2" {
-  inspect!("c")
-  inspect!("d")
+  inspect("c")
+  inspect("d")
 }
 
 test "test snapshot 2" (it : @test.T) {

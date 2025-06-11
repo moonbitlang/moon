@@ -31,13 +31,15 @@ pub fn get_args() -> Array[String] {
   res
 }
 
-extern type JSValue
+#external
+type JSValue
 
 pub fn jsvalue_is_string(v : JSValue) -> Bool = "__moonbit_fs_unstable" "jsvalue_is_string"
 
 pub fn jsvalue_get_string(v : JSValue) -> ExternString = "%identity"
 
-pub extern type JSArray
+#external 
+type JSArray
 
 pub fn array_len(arr : JSArray) -> Int = "__moonbit_fs_unstable" "array_len"
 
@@ -47,11 +49,14 @@ pub fn JSArray::op_get(self : JSArray, idx : Int) -> JSValue {
   return array_get(self, idx)
 }
 
-extern type StringCreateHandle
+#external
+type StringCreateHandle
 
-extern type StringReadHandle
+#external
+type StringReadHandle
 
-pub extern type ExternString
+#external
+type ExternString
 
 fn begin_create_string() -> StringCreateHandle = "__moonbit_fs_unstable" "begin_create_string"
 

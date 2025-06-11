@@ -1,5 +1,5 @@
 test {
   if hello() != "hello" {
-    fail!("failed")
+    fail("failed")
   }
 }

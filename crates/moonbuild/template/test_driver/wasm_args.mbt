@@ -3,9 +3,11 @@ fn moonbit_test_driver_internal_get_file_name(file_name : MoonbitTestDriverInter
   moonbit_test_driver_internal_string_from_extern(file_name)
 }
 
-extern type MoonbitTestDriverInternalStringReadHandle
+#external
+type MoonbitTestDriverInternalStringReadHandle
 
-extern type MoonbitTestDriverInternalExternString
+#external
+type MoonbitTestDriverInternalExternString
 
 fn moonbit_test_driver_internal_begin_read_string(s : MoonbitTestDriverInternalExternString) -> MoonbitTestDriverInternalStringReadHandle = "__moonbit_fs_unstable" "begin_read_string"
 

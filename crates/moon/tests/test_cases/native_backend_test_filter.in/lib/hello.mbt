@@ -11,8 +11,8 @@ test "B" {
 }
 
 test "inspect" {
-  inspect!(523)
-  inspect!("asdfhjas")
+  inspect(523)
+  inspect("asdfhjas")
 }
 
 test "C" {

@@ -2,13 +2,13 @@
 
 fn moonbit_test_driver_internal_error_to_string(x : Error) -> String = "%error.to_string"
 
-typealias Moonbit_Test_Driver_Internal_No_Args_Map = @moonbitlang/core/builtin.Map[
+typealias @moonbitlang/core/builtin.Map[
   String,
   @moonbitlang/core/builtin.Map[
     Int,
     (() -> Unit!Error, @moonbitlang/core/builtin.Array[String]),
   ],
-]
+] as Moonbit_Test_Driver_Internal_No_Args_Map
 
 let moonbit_test_driver_internal_no_args_tests : Moonbit_Test_Driver_Internal_No_Args_Map = { }  // WILL BE REPLACED
 
@@ -67,4 +67,6 @@ fn main {
 }
 
 fn moonbit_test_driver_internal_get_file_name(file_name : MoonbitTestDriverInternalExternString) -> String { panic() }
-extern type MoonbitTestDriverInternalExternString
+
+#external
+type MoonbitTestDriverInternalExternString

@@ -3,7 +3,7 @@ test "hello_0" {
 }
 
 test "inspect" {
-  inspect!(1256)
+  inspect(1256)
 }
 
 test "hello_1" {
