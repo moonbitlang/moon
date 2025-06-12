@@ -347,7 +347,7 @@ fn scan_one_package(
                     let ic = match_import_to_path(env, &mod_desc.name, &path)?;
                     Ok(ImportComponent {
                         path: ic,
-                        alias: Some(alias),
+                        alias,
                         sub_package,
                     })
                 }
@@ -361,6 +361,9 @@ fn scan_one_package(
     let pkg = crate::common::read_package_desc_file_in_dir(pkg_path)?;
     let rel = pkg_path.strip_prefix(module_source_dir)?;
     let rel_path = PathComponent::from_path(rel)?;
+
+    // FIXME: This is merely a workaround for the whole thing to work for now
+    alias_dedup(&pkg.imports, &pkg.wbtest_imports, &pkg.test_imports)?;
 
     let imports = get_imports(pkg.imports)?;
     let wbtest_imports = get_imports(pkg.wbtest_imports)?;
@@ -610,6 +613,70 @@ fn scan_one_package(
         };
     }
     Ok(cur_pkg)
+}
+
+/// Check if import aliases within the package imports have any duplicates
+///
+/// This piece of code originally lived in
+/// [`crate::package::convert_pkg_json_to_package`], but moved here since alias
+/// is now optional.
+fn alias_dedup(
+    imports: &[Import],
+    wbtest_imports: &[Import],
+    test_imports: &[Import],
+) -> anyhow::Result<()> {
+    use std::collections::HashSet;
+    // TODO: check on the fly
+    let mut alias_dedup = HashSet::new();
+    for item in imports.iter() {
+        let alias = alias_from_import_item(item);
+        if alias_dedup.contains(&alias) {
+            bail!("Duplicate alias `{}`", alias);
+        } else {
+            alias_dedup.insert(alias);
+        }
+    }
+
+    // TODO: check on the fly
+    let mut alias_dedup = HashSet::new();
+    for item in wbtest_imports.iter() {
+        let alias = alias_from_import_item(item);
+        if alias_dedup.contains(&alias) {
+            bail!("Duplicate alias `{}`", alias);
+        } else {
+            alias_dedup.insert(alias);
+        }
+    }
+
+    // TODO: check on the fly
+    let mut alias_dedup = HashSet::new();
+    for item in test_imports.iter() {
+        let alias = alias_from_import_item(item);
+        if alias_dedup.contains(&alias) {
+            bail!("Duplicate alias `{}`", alias);
+        } else {
+            alias_dedup.insert(alias);
+        }
+    }
+
+    Ok(())
+}
+
+fn alias_from_import_item(item: &Import) -> &str {
+    match item {
+        Import::Simple(p) => alias_from_package_name(p),
+        Import::Alias {
+            path,
+            alias,
+            sub_package: _,
+        } => alias
+            .as_deref()
+            .unwrap_or_else(|| alias_from_package_name(path)),
+    }
+}
+
+pub fn alias_from_package_name(package: &str) -> &str {
+    package.rsplit_once('/').map(|x| x.1).unwrap_or(package)
 }
 
 type ScanPaths = HashMap<String, PathBuf>;

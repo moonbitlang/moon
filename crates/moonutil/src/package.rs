@@ -16,12 +16,8 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
-use std::{
-    collections::HashSet,
-    path::{Path, PathBuf},
-};
+use std::{collections::HashSet, path::PathBuf};
 
-use anyhow::{bail, Context};
 use colored::Colorize;
 use indexmap::IndexMap;
 use schemars::JsonSchema;
@@ -703,7 +699,7 @@ pub enum Import {
     Simple(String),
     Alias {
         path: String,
-        alias: String,
+        alias: Option<String>,
         sub_package: bool,
     },
 }
@@ -736,7 +732,7 @@ pub fn convert_pkg_json_to_package(j: MoonPkgJSON) -> anyhow::Result<MoonPkg> {
                                 } else {
                                     imports.push(Import::Alias {
                                         path: k,
-                                        alias: v.unwrap(),
+                                        alias: v,
                                         sub_package: false,
                                     })
                                 }
@@ -760,12 +756,12 @@ pub fn convert_pkg_json_to_package(j: MoonPkgJSON) -> anyhow::Result<MoonPkg> {
                                 }
                                 (Some(alias), _) => imports.push(Import::Alias {
                                     path,
-                                    alias,
+                                    alias: Some(alias),
                                     sub_package: sub_package.unwrap_or(false),
                                 }),
                                 (_, Some(sub_package)) => imports.push(Import::Alias {
                                     path: path.clone(),
-                                    alias: path.split('/').next_back().unwrap().to_string(),
+                                    alias: Some(path.split('/').next_back().unwrap().to_string()),
                                     sub_package,
                                 }),
                             },
@@ -801,84 +797,6 @@ pub fn convert_pkg_json_to_package(j: MoonPkgJSON) -> anyhow::Result<MoonPkg> {
         Some(BoolOrLink::Bool(b)) => *b,
         Some(BoolOrLink::Link(_)) => false,
     };
-
-    // TODO: check on the fly
-    let mut alias_dedup: HashSet<String> = HashSet::new();
-    for item in imports.iter() {
-        let alias = match item {
-            Import::Simple(p) => {
-                let alias = Path::new(p)
-                    .file_stem()
-                    .context(format!("failed to get alias of `{p}`"))?
-                    .to_str()
-                    .unwrap()
-                    .to_string();
-                alias
-            }
-            Import::Alias {
-                path: _,
-                alias,
-                sub_package: _,
-            } => alias.clone(),
-        };
-        if alias_dedup.contains(&alias) {
-            bail!("Duplicate alias `{}`", alias);
-        } else {
-            alias_dedup.insert(alias.clone());
-        }
-    }
-
-    // TODO: check on the fly
-    let mut alias_dedup: HashSet<String> = HashSet::new();
-    for item in wbtest_imports.iter() {
-        let alias = match item {
-            Import::Simple(p) => {
-                let alias = Path::new(p)
-                    .file_stem()
-                    .context(format!("failed to get alias of `{p}`"))?
-                    .to_str()
-                    .unwrap()
-                    .to_string();
-                alias
-            }
-            Import::Alias {
-                path: _,
-                alias,
-                sub_package: _,
-            } => alias.clone(),
-        };
-        if alias_dedup.contains(&alias) {
-            bail!("Duplicate alias `{}`", alias);
-        } else {
-            alias_dedup.insert(alias.clone());
-        }
-    }
-
-    // TODO: check on the fly
-    let mut alias_dedup: HashSet<String> = HashSet::new();
-    for item in test_imports.iter() {
-        let alias = match item {
-            Import::Simple(p) => {
-                let alias = Path::new(p)
-                    .file_stem()
-                    .context(format!("failed to get alias of `{p}`"))?
-                    .to_str()
-                    .unwrap()
-                    .to_string();
-                alias
-            }
-            Import::Alias {
-                path: _,
-                alias,
-                sub_package: _,
-            } => alias.clone(),
-        };
-        if alias_dedup.contains(&alias) {
-            bail!("Duplicate alias `{}`", alias);
-        } else {
-            alias_dedup.insert(alias.clone());
-        }
-    }
 
     let bin_target = if let Some(ref b) = j.bin_target {
         TargetBackend::str_to_backend(b)?
