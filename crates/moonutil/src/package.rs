@@ -86,10 +86,12 @@ pub struct Package {
     pub targets: Option<IndexMap<FileName, CondExpr>>,
     pub pre_build: Option<Vec<MoonPkgGenerate>>,
 
+    // for ide moon check
     pub patch_file: Option<PathBuf>,
     pub no_mi: bool,
 
-    pub doc_test_patch_file: Option<PathBuf>,
+    // for doc test & md test
+    pub test_patch_json_file: Option<PathBuf>,
 
     pub install_path: Option<PathBuf>,
 

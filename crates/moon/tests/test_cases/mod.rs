@@ -3929,6 +3929,7 @@ fn test_run_doc_test() {
     check(
         get_err_stdout(&dir, ["test", "--sort-input", "--doc"]),
         expect![[r#"
+            hello from hello_test.mbt
             doc_test 1 from hello.mbt
             doc_test 2 from hello.mbt
             doc_test 3 from hello.mbt
@@ -3964,13 +3965,14 @@ fn test_run_doc_test() {
             b"/x54/x00/x65/x00/x73/x00/x74/x00"
             ----
 
-            Total tests: 15, passed: 10, failed: 5.
+            Total tests: 16, passed: 11, failed: 5.
         "#]],
     );
 
     check(
-        get_err_stdout(&dir, ["test", "--sort-input", "--doc", "--update"]),
+        get_err_stdout(&dir, ["test", "--sort-input", "--update"]),
         expect![[r#"
+            hello from hello_test.mbt
             doc_test 1 from hello.mbt
             doc_test 2 from hello.mbt
             doc_test 3 from hello.mbt
@@ -3992,16 +3994,7 @@ fn test_run_doc_test() {
             test block 2
             test block 2
             test username/hello/lib/greet.mbt::3 failed: FAILED: $ROOT/src/lib/greet.mbt:31:7-31:30 another failure
-            Total tests: 15, passed: 13, failed: 2.
-        "#]],
-    );
-
-    // `moon test` will not run doc test
-    check(
-        get_stdout(&dir, ["test", "--sort-input"]),
-        expect![[r#"
-            hello from hello_test.mbt
-            Total tests: 1, passed: 1, failed: 0.
+            Total tests: 16, passed: 14, failed: 2.
         "#]],
     );
 }
@@ -5350,4 +5343,35 @@ fn test_in_main_pkg() {
             Total tests: 6, passed: 6, failed: 0.
         "#]],
     );
+}
+
+#[test]
+fn merge_doc_test_and_md_test() {
+    let dir = TestDir::new("all_kind_test.in");
+
+    check(
+        get_stderr(&dir, ["check"]),
+        expect![[r#"
+            Warning: [0002]
+               ╭─[$ROOT/lib/README.mbt.md:5:9]
+               │
+             5 │     let unused_in_lib_md_test = 1
+               │         ──────────┬──────────  
+               │                   ╰──────────── Warning: Unused variable 'unused_in_lib_md_test'
+            ───╯
+            Warning: [0002]
+               ╭─[$ROOT/lib/hello.mbt:4:11]
+               │
+             4 │ ///   let unused_in_lib_doc_test = 1
+               │           ───────────┬──────────  
+               │                      ╰──────────── Warning: Unused variable 'unused_in_lib_doc_test'
+            ───╯
+            Finished. moon: ran 3 tasks, now up to date
+        "#]],
+    );
+
+    assert!(get_err_stdout(&dir, ["test"]).contains("Total tests: 4, passed: 1, failed: 3."));
+
+    // should be ok if run with update
+    get_stdout(&dir, ["test", "-u"]);
 }

@@ -111,6 +111,13 @@ pub fn run_test(cli: UniversalFlags, cmd: TestSubcommand) -> anyhow::Result<i32>
         (dir.source_dir, dir.target_dir)
     };
 
+    if cmd.doc_test {
+        eprintln!(
+            "{}: --doc flag is deprecated and will be removed in the future, please use `moon test` directly",
+            "Warning".yellow(),
+        );
+    }
+
     if cmd.build_flags.target.is_none() {
         return run_test_internal(&cli, &cmd, &source_dir, &target_dir, None);
     }
@@ -358,7 +365,7 @@ pub fn get_module_for_single_file_test(
             pre_build: None,
             patch_file: None,
             no_mi: false,
-            doc_test_patch_file: None,
+            test_patch_json_file: None,
             install_path: None,
             bin_name: None,
             bin_target: moonc_opt.link_opt.target_backend,
@@ -389,8 +396,14 @@ pub fn get_module_for_single_file_test(
 
     let mut package = gen_single_file_test_pkg(moonc_opt, single_file_path);
     if !package.mbt_md_files.is_empty() {
-        let pj_path = moonutil::doc_test::gen_md_test_patch(&package, moonc_opt)?;
-        package.doc_test_patch_file = pj_path;
+        let patch_json = moonutil::doc_test::gen_md_test_patch(&package, moonc_opt)?;
+        if let Some(patch_json) = patch_json {
+            let pj_path = package
+                .artifact
+                .with_file_name(format!("{}.json", moonutil::common::MOON_MD_TEST_POSTFIX));
+            patch_json.write_to_path(&pj_path)?;
+            package.test_patch_json_file = Some(pj_path);
+        }
     }
     let imports = module
         .get_all_packages()
@@ -441,7 +454,6 @@ pub(crate) struct TestLikeSubcommand<'a> {
     pub no_parallelize: bool,
     pub test_failure_json: bool,
     pub patch_file: &'a Option<PathBuf>,
-    pub doc_test: bool,
 }
 
 impl<'a> From<&'a TestSubcommand> for TestLikeSubcommand<'a> {
@@ -459,7 +471,6 @@ impl<'a> From<&'a TestSubcommand> for TestLikeSubcommand<'a> {
             no_parallelize: cmd.no_parallelize,
             test_failure_json: cmd.test_failure_json,
             patch_file: &cmd.patch_file,
-            doc_test: cmd.doc_test,
         }
     }
 }
@@ -478,7 +489,6 @@ impl<'a> From<&'a BenchSubcommand> for TestLikeSubcommand<'a> {
             no_parallelize: cmd.no_parallelize,
             test_failure_json: false,
             patch_file: &None,
-            doc_test: false,
         }
     }
 }
@@ -698,14 +708,20 @@ pub(crate) fn run_test_or_bench_internal(
 
         pkg.patch_file = patch_file.clone();
 
+        let (mut md_test_patch, doc_test_patch) = (
+            None,
+            moonutil::doc_test::gen_doc_test_patch(pkg, &moonc_opt)?,
+        );
         if !pkg.mbt_md_files.is_empty() {
-            let pj_path = moonutil::doc_test::gen_md_test_patch(pkg, &moonc_opt)?;
-            pkg.doc_test_patch_file = pj_path;
+            md_test_patch = moonutil::doc_test::gen_md_test_patch(pkg, &moonc_opt)?;
         }
-
-        if cmd.doc_test {
-            let pj_path = moonutil::doc_test::gen_doc_test_patch(pkg, &moonc_opt)?;
-            pkg.doc_test_patch_file = pj_path;
+        let patch_json = moonutil::common::PatchJSON::merge_patches(md_test_patch, doc_test_patch);
+        if let Some(patch_json) = patch_json {
+            let pj_path = pkg
+                .artifact
+                .with_file_name(format!("{}.json", moonutil::common::MOON_MD_TEST_POSTFIX));
+            patch_json.write_to_path(&pj_path)?;
+            pkg.test_patch_json_file = Some(pj_path);
         }
 
         {

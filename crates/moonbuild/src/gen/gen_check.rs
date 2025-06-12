@@ -364,7 +364,7 @@ fn pkg_with_test_to_check_item(
                     .ends_with("_test")
                     .then_some(p.clone())
             })
-            .or(pkg.doc_test_patch_file.clone()),
+            .or(pkg.test_patch_json_file.clone()),
         no_mi: pkg.no_mi,
         mi_of_virtual_pkg_to_impl: None,
         need_check_default_virtual: false,
@@ -421,7 +421,7 @@ pub fn gen_check(
                     pkg_with_wbtest_to_check_item(&pkg.root_path, pkgs_to_check, pkg, moonc_opt)?;
                 dep_items.push(item);
             }
-            if !pkg.test_files.is_empty() || pkg.doc_test_patch_file.is_some() {
+            if !pkg.test_files.is_empty() || pkg.test_patch_json_file.is_some() {
                 let item =
                     pkg_with_test_to_check_item(&pkg.root_path, pkgs_to_check, pkg, moonc_opt)?;
                 dep_items.push(item);

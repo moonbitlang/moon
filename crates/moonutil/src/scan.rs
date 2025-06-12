@@ -271,7 +271,7 @@ fn scan_module_packages(
                     generated_test_drivers: vec![],
                     patch_file: None,
                     no_mi: false,
-                    doc_test_patch_file: None,
+                    test_patch_json_file: None,
                     install_path: None,
                     bin_name: None,
 
@@ -543,7 +543,7 @@ fn scan_one_package(
         },
         patch_file: None,
         no_mi: false,
-        doc_test_patch_file: None,
+        test_patch_json_file: None,
         install_path: moonbuild_opt
             .build_opt
             .as_ref()

@@ -19,9 +19,7 @@
 use anyhow::Context;
 use regex::Regex;
 use std::fs;
-use std::fs::File;
-use std::io::Write;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 use crate::common::{backend_filter, MooncOpt, PatchItem, PatchJSON};
 use crate::package::Package;
@@ -240,9 +238,46 @@ impl PatchJSON {
             patches,
         }
     }
+
+    pub fn write_to_path(&self, path: &Path) -> anyhow::Result<()> {
+        if !path.parent().unwrap().exists() {
+            std::fs::create_dir_all(path.parent().unwrap()).with_context(|| {
+                format!(
+                    "failed to create directory {}",
+                    path.parent().unwrap().display()
+                )
+            })?;
+        }
+        let content = serde_json_lenient::to_string_pretty(self)?;
+        std::fs::write(path, content)
+            .with_context(|| format!("failed to write to {}", path.display()))?;
+        Ok(())
+    }
+
+    pub fn merge_patches(
+        md_test_patch: Option<PatchJSON>,
+        doc_test_patch: Option<PatchJSON>,
+    ) -> Option<Self> {
+        match (md_test_patch, doc_test_patch) {
+            (Some(md), Some(doc)) => {
+                let mut patches = md.patches;
+                patches.extend(doc.patches);
+                Some(PatchJSON {
+                    drops: vec![],
+                    patches,
+                })
+            }
+            (None, Some(doc)) => Some(doc),
+            (Some(md), None) => Some(md),
+            (None, None) => None,
+        }
+    }
 }
 
-pub fn gen_doc_test_patch(pkg: &Package, moonc_opt: &MooncOpt) -> anyhow::Result<Option<PathBuf>> {
+pub fn gen_doc_test_patch(
+    pkg: &Package,
+    moonc_opt: &MooncOpt,
+) -> anyhow::Result<Option<PatchJSON>> {
     let mbt_files = backend_filter(
         &pkg.files,
         moonc_opt.build_opt.debug_flag,
@@ -263,26 +298,10 @@ pub fn gen_doc_test_patch(pkg: &Package, moonc_opt: &MooncOpt) -> anyhow::Result
     }
 
     let pj = PatchJSON::from_doc_tests(doc_tests);
-    let pj_path = pkg
-        .artifact
-        .with_file_name(format!("{}.json", crate::common::MOON_DOC_TEST_POSTFIX));
-    if !pj_path.parent().unwrap().exists() {
-        std::fs::create_dir_all(pj_path.parent().unwrap())?;
-    }
-
-    let mut file =
-        File::create(&pj_path).context(format!("failed to create file {}", pj_path.display()))?;
-
-    let content = serde_json_lenient::to_string_pretty(&pj)?;
-    file.write_all(content.as_bytes())
-        .context(format!("failed to write to {}", pj_path.display()))?;
-    file.flush()
-        .context(format!("failed to flush {}", pj_path.display()))?;
-
-    Ok(Some(pj_path))
+    Ok(Some(pj))
 }
 
-pub fn gen_md_test_patch(pkg: &Package, moonc_opt: &MooncOpt) -> anyhow::Result<Option<PathBuf>> {
+pub fn gen_md_test_patch(pkg: &Package, moonc_opt: &MooncOpt) -> anyhow::Result<Option<PatchJSON>> {
     let md_files = backend_filter(
         &pkg.mbt_md_files,
         moonc_opt.build_opt.debug_flag,
@@ -303,21 +322,5 @@ pub fn gen_md_test_patch(pkg: &Package, moonc_opt: &MooncOpt) -> anyhow::Result<
     }
 
     let pj = PatchJSON::from_md_tests(md_tests);
-    let pj_path = pkg
-        .artifact
-        .with_file_name(format!("{}.json", crate::common::MOON_MD_TEST_POSTFIX));
-    if !pj_path.parent().unwrap().exists() {
-        std::fs::create_dir_all(pj_path.parent().unwrap())?;
-    }
-
-    let mut file =
-        File::create(&pj_path).context(format!("failed to create file {}", pj_path.display()))?;
-
-    let content = serde_json_lenient::to_string_pretty(&pj)?;
-    file.write_all(content.as_bytes())
-        .context(format!("failed to write to {}", pj_path.display()))?;
-    file.flush()
-        .context(format!("failed to flush {}", pj_path.display()))?;
-
-    Ok(Some(pj_path))
+    Ok(Some(pj))
 }

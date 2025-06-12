@@ -1119,7 +1119,7 @@ pub fn gen_moonbitlang_abort_pkg(moonc_opt: &MooncOpt) -> Package {
         pre_build: None,
         patch_file: None,
         no_mi: false,
-        doc_test_patch_file: None,
+        test_patch_json_file: None,
         install_path: None,
         bin_name: None,
         bin_target: moonc_opt.link_opt.target_backend,
