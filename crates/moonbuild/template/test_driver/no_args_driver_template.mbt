@@ -6,7 +6,7 @@ typealias @moonbitlang/core/builtin.Map[
   String,
   @moonbitlang/core/builtin.Map[
     Int,
-    (() -> Unit!Error, @moonbitlang/core/builtin.Array[String]),
+    (() -> Unit raise Error, @moonbitlang/core/builtin.Array[String]),
   ],
 ] as Moonbit_Test_Driver_Internal_No_Args_Map
 
