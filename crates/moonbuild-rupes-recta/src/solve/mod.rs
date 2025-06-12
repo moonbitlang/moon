@@ -2,8 +2,9 @@
 
 mod model;
 mod solve;
+mod verify;
 
-use crate::discover::DiscoverResult;
+use crate::{discover::DiscoverResult, solve::verify::verify};
 use log::info;
 use moonutil::mooncakes::result::ResolvedEnv;
 
@@ -19,7 +20,7 @@ pub fn solve(
     info!("Starting dependency resolution");
 
     let res = solve_only(modules, packages)?;
-    // TODO: validate
+    verify(&res, packages)?;
 
     info!("Dependency resolution completed successfully");
     Ok(res)
