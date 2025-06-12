@@ -18,24 +18,27 @@ There are 4 kinds of source files within each package:
 - **C stub**. These are C files manually specified in each package,
   and recognized by the build system to be built.
 
+### Build targets
+
 Source files may also be conditionally included into the build --
 see [Conditional Compilation](./cond-comp.md) for more information.
 
-There are 3 major build targets within each package,
+There are 4 major build targets within each package,
 each with its own list of source files (and thus acting like a package):
 
-| Build target      | Source | Whitebox | Blackbox | C stub | Note                                    |
-| ----------------- | ------ | -------- | -------- | ------ | --------------------------------------- |
-| **Source**        | x      |          |          | x      | The package itself                      |
-| **Whitebox test** |        | x        |          |        | Depend on Source; Sees all private defs |
-| **Blackbox test** |        |          | x        |        | Depend on Source                        |
+| Build target      | Source | Whitebox | Blackbox | C stub | Enable test | Note                          |
+| ----------------- | ------ | -------- | -------- | ------ | ----------- | ----------------------------- |
+| **Source**        | ☑️     |          |          | ☑️     | no          | The package itself            |
+| **Inline test**   | ☑️     |          |          | ☑️     | yes         | Tests written in source files |
+| **Whitebox test** | ☑️     | ☑️       |          | ☑️     | yes         | Sees private defs in source   |
+| **Blackbox test** |        |          | ☑️       |        | yes         | Depend on Source              |
 
 ### Imports
 
 The imported packages are specified in the `imports` field in `moon.mod.json`,
 and are available to all three build targets.
 Test targets (whitebox and blackbox) can also have imports that are not used in regular targets,
-specified in an additional import field named `test_import`.
+specified in an additional import field named `wbtest-import` and `test-import`.
 
 ### Build results
 
@@ -146,3 +149,64 @@ Only used in the standard library `moonbitlang/core`.
   - _Build_ of all _Source_ of packages within the module.
 - Executes:
   - `moonc bundle-core`
+
+## Solving import loops
+
+### ... in whitebox tests
+
+Whitebox tests are the more special kind of test within them.
+While source is just source code itself,
+and blackbox test is just another package depending on the source files,
+whitebox tests can see private definitions within the source files.
+
+This requirement, in reality,
+is implemented with whitebox tests compiling _with_ the regular source files,
+so it takes no further effort to reveal private defs.
+This whitebox-aided test _replaces_ the original package's position within the original graph.
+
+There _might_ be import loops between whitebox tests and its test dependencies,
+as we can already seen in `moonbitlang/core`.
+(More practically, it's `A(whitebox) -> B -> A(source)`,
+so it's technically not a loop.
+However, only one version of each package can be linked into the final executable,
+so you will encounter a loop when linking.)
+Such "loop"s should be accepted.
+
+Practically, you may continue using the regular build graph
+with source and test targets separated.
+When performing _Link-core_ of whitebox tests (no action is needed in other stages),
+replace the source node in the topo-sorted import list with the whitebox one.
+No other actions should be needed.
+
+#### Example
+
+The following is an example build graph generated for whitebox test of A,
+written as A', with whitebox and regular build separated into different nodes:
+
+```mermaid
+graph BT;
+
+A --> E
+B --> A
+C --> A
+C --> D
+A' -- regular--> E
+A' -- test --> B
+A' -- test --> C
+
+A["A (Source)"]
+A'["A' (A with whitebox test)"]
+```
+
+It should be topo-sorted when performing _Link-core_ as if it was:
+
+```mermaid
+graph BT;
+
+A' --> E
+B --> A'
+C --> A'
+C --> D
+```
+
+An example resulting sort is: E, A', B, D, C.
