@@ -3,11 +3,11 @@
 fn moonbit_test_driver_internal_error_to_string(x : Error) -> String = "%error.to_string"
 
 fn moonbit_unsafe_char_from_int(x : Int) -> Char = "%identity"
-pub(all) type Moonbit_Test_Driver_Internal_No_Args_Function () -> Unit!Error
+pub(all) type Moonbit_Test_Driver_Internal_No_Args_Function () -> Unit raise Error
 
-pub(all) type Moonbit_Test_Driver_Internal_With_Args_Function (@moonbitlang/core/test.T) -> Unit!Error
+pub(all) type Moonbit_Test_Driver_Internal_With_Args_Function (@moonbitlang/core/test.T) -> Unit raise Error
 
-pub(all) type Moonbit_Test_Driver_Internal_With_Bench_Args_Function (@moonbitlang/core/bench.T) -> Unit!Error
+pub(all) type Moonbit_Test_Driver_Internal_With_Bench_Args_Function (@moonbitlang/core/bench.T) -> Unit raise Error
 
 typealias @moonbitlang/core/builtin.Map[
   String,
