@@ -38,7 +38,7 @@ impl PackageFQN {
     }
 
     /// Get the short name alias for this fully-qualified name.
-    pub fn shortname(&self) -> &str {
+    pub fn short_alias(&self) -> &str {
         self.package
             .short_name()
             .unwrap_or_else(|| self.module.name().last_segment())
@@ -413,61 +413,61 @@ mod test {
         let module = create_module("moonbitlang/core@0.1.0");
         let package = assert_valid_pkg_path("collections/list");
         let fqn = PackageFQN::new(module, package);
-        assert_eq!(fqn.shortname(), "list");
+        assert_eq!(fqn.short_alias(), "list");
 
         // Package with empty path - should use module last segment
         let module = create_module("moonbitlang/core@0.1.0");
         let package = assert_valid_pkg_path("");
         let fqn = PackageFQN::new(module, package);
-        assert_eq!(fqn.shortname(), "core");
+        assert_eq!(fqn.short_alias(), "core");
 
         // Single segment package path
         let module = create_module("myorg/mymodule@1.2.3");
         let package = assert_valid_pkg_path("utils");
         let fqn = PackageFQN::new(module, package);
-        assert_eq!(fqn.shortname(), "utils");
+        assert_eq!(fqn.short_alias(), "utils");
 
         // Deep package path
         let module = create_module("company/project@2.0.0");
         let package = assert_valid_pkg_path("internal/data/structures");
         let fqn = PackageFQN::new(module, package);
-        assert_eq!(fqn.shortname(), "structures");
+        assert_eq!(fqn.short_alias(), "structures");
 
         // Edge cases -- legacy module names
         // Single segment module name with empty package
         let module = create_module("single@1.0.0");
         let package = assert_valid_pkg_path("");
         let fqn = PackageFQN::new(module, package);
-        assert_eq!(fqn.shortname(), "single");
+        assert_eq!(fqn.short_alias(), "single");
 
         // Single segment module name with package
         let module = create_module("single@1.0.0");
         let package = assert_valid_pkg_path("subpackage");
         let fqn = PackageFQN::new(module, package);
-        assert_eq!(fqn.shortname(), "subpackage");
+        assert_eq!(fqn.short_alias(), "subpackage");
 
         // Triple segment module name with empty package
         let module = create_module("org/project/module@1.5.2");
         let package = assert_valid_pkg_path("");
         let fqn = PackageFQN::new(module, package);
-        assert_eq!(fqn.shortname(), "module");
+        assert_eq!(fqn.short_alias(), "module");
 
         // Triple segment module name with package
         let module = create_module("org/project/module@1.5.2");
         let package = assert_valid_pkg_path("utils/helpers");
         let fqn = PackageFQN::new(module, package);
-        assert_eq!(fqn.shortname(), "helpers");
+        assert_eq!(fqn.short_alias(), "helpers");
 
         // Four segment module name with empty package
         let module = create_module("company/division/project/module@3.1.4");
         let package = assert_valid_pkg_path("");
         let fqn = PackageFQN::new(module, package);
-        assert_eq!(fqn.shortname(), "module");
+        assert_eq!(fqn.short_alias(), "module");
 
         // Four segment module name with single segment package
         let module = create_module("company/division/project/module@3.1.4");
         let package = assert_valid_pkg_path("core");
         let fqn = PackageFQN::new(module, package);
-        assert_eq!(fqn.shortname(), "core");
+        assert_eq!(fqn.short_alias(), "core");
     }
 }

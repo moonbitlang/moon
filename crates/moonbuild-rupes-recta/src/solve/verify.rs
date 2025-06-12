@@ -1,0 +1,127 @@
+//! Verify the validity of the package dependency graph.
+
+use std::collections::{hash_map::Entry, HashMap, HashSet};
+
+use indexmap::IndexSet;
+use petgraph::visit::IntoNodeIdentifiers;
+
+use crate::{
+    discover::DiscoverResult,
+    model::BuildTarget,
+    solve::model::{DepRelationship, SolveError},
+};
+
+/// Verify that this package dependency graph is valid.
+///
+/// This function checks the following:
+/// - No loops (except test imports, which don't currently have a workaround)
+/// - Aliases are unique within one package
+pub fn verify(dep: &DepRelationship, packages: &DiscoverResult) -> Result<(), SolveError> {
+    verify_no_loop(dep)?;
+    verify_no_duplicated_alias(dep, packages)?;
+
+    Ok(())
+}
+
+/// Verify there's no loops within the dependency graph. If there's any import
+/// loop, return an error.
+fn verify_no_loop(dep: &DepRelationship) -> Result<(), SolveError> {
+    // An indexed current-visiting path, for finding loops
+    let mut path = IndexSet::new();
+    // Work stack. Only items with
+    let mut stack = Vec::new();
+    // The visited list
+    let mut vis = HashSet::new();
+    let graph = &dep.dep_graph;
+
+    // Loop through all nodes for starting
+    for starting_node in graph.node_identifiers() {
+        if vis.contains(&starting_node) {
+            continue;
+        }
+        assert!(stack.is_empty(), "DFS starting with non-empty stack");
+
+        // Begin DFS
+        stack.push(WorkStackItem::new(starting_node));
+
+        while let Some(it) = stack.pop() {
+            if it.pop {
+                assert_eq!(path.pop(), Some(it.node), "DFS path mismatch");
+                continue;
+            }
+            let node = it.node;
+
+            // Check for loops
+            if path.contains(&node) {
+                // We found a loop, return an error
+                // TODO: handle white box testing should not cause loop
+                let loop_path: Vec<_> = path.iter().cloned().collect();
+                return Err(SolveError::ImportLoop { loop_path });
+            }
+            // Set visibility
+            vis.insert(node);
+            // Add to the path
+            path.insert(node);
+
+            // Visit the node, which is currently no-op here
+            // (we may want to do something with the node in the future)
+            stack.push(WorkStackItem::pop(node));
+
+            // Push outgoing edges
+            for target in graph.neighbors(node) {
+                // If the target is not visited, push it to the stack
+                if !vis.contains(&target) {
+                    stack.push(WorkStackItem::new(target));
+                }
+            }
+        }
+    }
+
+    Ok(())
+}
+
+struct WorkStackItem {
+    node: BuildTarget,
+    pop: bool,
+}
+
+impl WorkStackItem {
+    /// A new item is pushed onto the stack
+    fn new(node: BuildTarget) -> Self {
+        Self { node, pop: false }
+    }
+    /// The item has been visited, the next visit should pop it from path
+    fn pop(node: BuildTarget) -> Self {
+        Self { node, pop: true }
+    }
+}
+
+/// Verify that there's no duplicated alias for each build node within the graph.
+fn verify_no_duplicated_alias(
+    dep: &DepRelationship,
+    packages: &DiscoverResult,
+) -> Result<(), SolveError> {
+    for node in dep.dep_graph.node_identifiers() {
+        // The alias map for the current node
+        let mut map: HashMap<&String, BuildTarget> = HashMap::new();
+
+        for (_, to, edge) in dep.dep_graph.edges(node) {
+            match map.entry(&edge.short_alias) {
+                Entry::Occupied(e) => {
+                    return Err(SolveError::ConflictingImportAlias {
+                        alias: edge.short_alias.clone(),
+                        package_fqn: packages.fqn(node.package).into(),
+                        first_import: packages.fqn(e.get().package).into(),
+                        second_import: packages.fqn(to.package).into(),
+                    })
+                }
+
+                Entry::Vacant(vacant_entry) => {
+                    vacant_entry.insert(to);
+                }
+            }
+        }
+    }
+
+    Ok(())
+}

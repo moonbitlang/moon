@@ -179,10 +179,10 @@ fn resolve_import(
     // Okay, now let's add this package to our package's import in deps
     // TODO: the import alias determination part is a mess, will need to refactor later
     //     Currently this part is just for making the whole thing work.
-    let shortname = match import {
-        moonutil::package::Import::Simple(_) => imported.fqn.shortname(),
+    let short_alias = match import {
+        moonutil::package::Import::Simple(_) => imported.fqn.short_alias(),
         moonutil::package::Import::Alias { alias, .. } => {
-            alias.as_deref().unwrap_or(imported.fqn.shortname())
+            alias.as_deref().unwrap_or(imported.fqn.short_alias())
         }
     };
     let is_import_target_subpackage = match import {
@@ -192,7 +192,7 @@ fn resolve_import(
 
     trace!(
         "Import alias determined as '{}', is_subpackage={}",
-        shortname,
+        short_alias,
         is_import_target_subpackage
     );
 
@@ -214,17 +214,17 @@ fn resolve_import(
         let dest_target = import_pid.build_target(import_kind);
 
         trace!(
-            "Adding edge: {:?} -> {:?} (shortname: '{}')",
+            "Adding edge: {:?} -> {:?} (short alias: '{}')",
             source_target,
             dest_target,
-            shortname
+            short_alias
         );
 
         res.dep_graph.add_edge(
             source_target,
             dest_target,
             DepEdge {
-                shortname: shortname.into(),
+                short_alias: short_alias.into(),
             },
         );
     }
