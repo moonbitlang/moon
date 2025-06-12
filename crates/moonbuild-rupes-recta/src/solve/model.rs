@@ -8,7 +8,9 @@ use crate::{
 
 #[derive(Debug, Clone)]
 pub struct DepEdge {
-    pub shortname: arcstr::Substr,
+    /// The short alias for this import item. This should be unique among all
+    /// imports available to the current build target.
+    pub short_alias: String,
 }
 
 /// The dependency relationship between build targets
@@ -47,7 +49,16 @@ pub enum SolveError {
     },
 
     #[error("Import loop detected: {loop_path:?}")]
-    ImportLoop {
-        loop_path: Vec<PackageFQNWithSource>,
+    ImportLoop { loop_path: Vec<BuildTarget> },
+
+    #[error(
+        "Conflicting import alias '{alias}' found in package {package_fqn}. \
+        Both {first_import} and {second_import} use the same alias"
+    )]
+    ConflictingImportAlias {
+        alias: String,
+        package_fqn: PackageFQNWithSource,
+        first_import: PackageFQNWithSource,
+        second_import: PackageFQNWithSource,
     },
 }
