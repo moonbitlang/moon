@@ -127,6 +127,13 @@
       "description": "name of the module",
       "type": "string"
     },
+    "preferred-target": {
+      "description": "The preferred target backend of this module.\n\nToolchains are recommended to use this target as the default target when the user is not specifying or overriding in any other ways. However, this is merely a recommendation, and tools may deviate from this value at any time.",
+      "type": [
+        "string",
+        "null"
+      ]
+    },
     "readme": {
       "description": "path to module's README file",
       "type": [

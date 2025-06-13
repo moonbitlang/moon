@@ -499,6 +499,7 @@ mod test {
                 alert_list: None,
                 include: None,
                 exclude: None,
+                preferred_target: None,
                 scripts: None,
                 __moonbit_unstable_prebuild: None,
             }
