@@ -43,7 +43,7 @@ use crate::runtest::TestStatistics;
 
 use moonutil::common::{
     DriverKind, FileLock, FileName, MoonbuildOpt, MooncGenTestInfo, MooncOpt, PrePostBuild,
-    TargetBackend, TestArtifacts, TestBlockIndex, TestName, DOT_MBT_DOT_MD,
+    TargetBackend, TestArtifacts, TestBlockIndex, TestName, DOT_MBT_DOT_MD, MOON_DOC_TEST_POSTFIX,
     SINGLE_FILE_TEST_PACKAGE, TEST_INFO_FILE,
 };
 
@@ -207,6 +207,7 @@ pub fn n2_run_interface(
         output.lines().for_each(|content| {
             catcher.lock().unwrap().push(content.to_owned());
             if output_json {
+                let content = content.replace(MOON_DOC_TEST_POSTFIX, "");
                 println!("{content}");
             } else {
                 moonutil::render::MooncDiagnostic::render(
