@@ -41,6 +41,8 @@
     graph instead of requiring to lower every command beforehand.
 */
 
+pub mod abs_build_graph;
+pub mod build_graph_lower;
 mod cond_comp;
 pub mod discover;
 pub mod model;
