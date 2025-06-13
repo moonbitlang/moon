@@ -23,7 +23,7 @@ pub mod online;
 use std::{
     collections::{BTreeMap, HashMap},
     path::Path,
-    rc::Rc,
+    sync::Arc,
 };
 
 use moonutil::module::MoonMod;
@@ -36,14 +36,14 @@ pub trait Registry {
     fn all_versions_of(
         &self,
         name: &ModuleName,
-    ) -> anyhow::Result<Rc<BTreeMap<Version, Rc<MoonMod>>>>;
+    ) -> anyhow::Result<Arc<BTreeMap<Version, Arc<MoonMod>>>>;
 
-    fn get_module_version(&self, name: &ModuleName, version: &Version) -> Option<Rc<MoonMod>> {
+    fn get_module_version(&self, name: &ModuleName, version: &Version) -> Option<Arc<MoonMod>> {
         let all_versions = self.all_versions_of(name).ok()?;
         all_versions.get(version).cloned()
     }
 
-    fn get_latest_version(&self, name: &ModuleName) -> Option<Rc<MoonMod>> {
+    fn get_latest_version(&self, name: &ModuleName) -> Option<Arc<MoonMod>> {
         let all_versions = self.all_versions_of(name).ok()?;
         all_versions.values().last().cloned()
     }
@@ -64,7 +64,7 @@ where
     fn all_versions_of(
         &self,
         name: &ModuleName,
-    ) -> anyhow::Result<Rc<BTreeMap<Version, Rc<MoonMod>>>> {
+    ) -> anyhow::Result<Arc<BTreeMap<Version, Arc<MoonMod>>>> {
         (**self).all_versions_of(name)
     }
 
@@ -78,11 +78,11 @@ where
         (**self).install_to(name, version, to, quiet)
     }
 
-    fn get_module_version(&self, name: &ModuleName, version: &Version) -> Option<Rc<MoonMod>> {
+    fn get_module_version(&self, name: &ModuleName, version: &Version) -> Option<Arc<MoonMod>> {
         (**self).get_module_version(name, version)
     }
 
-    fn get_latest_version(&self, name: &ModuleName) -> Option<Rc<MoonMod>> {
+    fn get_latest_version(&self, name: &ModuleName) -> Option<Arc<MoonMod>> {
         (**self).get_latest_version(name)
     }
 }
