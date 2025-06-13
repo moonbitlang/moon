@@ -188,6 +188,7 @@ fn get_module_db(
     let module_db = scan(
         false,
         None,
+        None,
         resolved_env,
         &dir_sync_result,
         &moonutil::common::MooncOpt::default(),

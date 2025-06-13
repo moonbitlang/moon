@@ -387,6 +387,7 @@ pub fn get_module_for_single_file_test(
 
     let mut module = moonutil::scan::scan(
         false,
+        None,
         Some(moon_mod),
         &resolved_env,
         &dir_sync_result,

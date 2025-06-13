@@ -172,6 +172,7 @@ fn handle_file_change(
         let module = match moonutil::scan::scan(
             false,
             None,
+            None,
             &resolved_env,
             &dir_sync_result,
             moonc_opt,

@@ -304,6 +304,89 @@ fn scan_module_packages(
     Ok(())
 }
 
+fn scan_module_single_package(
+    packages: &mut IndexMap<String, Package>,
+    env: &ScanPaths,
+    is_third_party: bool,
+    doc_mode: bool,
+    moonbuild_opt: &MoonbuildOpt,
+    moonc_opt: &crate::common::MooncOpt,
+    pkg_path: &Path,
+    module_source_dir: &PathBuf,
+) -> anyhow::Result<()> {
+    let mod_desc = read_module_desc_file_in_dir(module_source_dir)?;
+
+    let module_source_dir = match &mod_desc.source {
+        None => module_source_dir.to_path_buf(),
+        Some(p) => {
+            let src_dir = module_source_dir.join(p);
+            dunce::canonicalize(src_dir.clone()).with_context(|| {
+                format!(
+                    "failed to canonicalize source directory: {}",
+                    src_dir.display()
+                )
+            })?
+        }
+    };
+
+    let pkg = scan_one_package(
+        env,
+        pkg_path,
+        &module_source_dir,
+        &mod_desc,
+        moonbuild_opt,
+        moonc_opt,
+        &moonbuild_opt.target_dir,
+        is_third_party,
+        doc_mode,
+    )?;
+    if let Some(sub_package) = pkg.with_sub_package.as_ref() {
+        let mut components = pkg.rel.clone().components;
+        if let Some(last) = components.last_mut() {
+            *last = format!("{}{}", last, SUB_PKG_POSTFIX);
+        }
+        let rel = PathComponent { components };
+
+        let artifact = pkg.artifact.parent().unwrap().join(format!(
+            "{}.?",
+            if rel.components.is_empty() {
+                pkg.root.components.last().unwrap()
+            } else {
+                rel.components.last().unwrap()
+            }
+        ));
+
+        let sub_pkg = Package {
+            rel,
+            files: sub_package.files.clone(),
+            with_sub_package: None,
+            is_sub_package: true,
+            imports: sub_package.import.clone(),
+            artifact: artifact.clone(),
+
+            wbtest_files: IndexMap::new(),
+            test_files: IndexMap::new(),
+            mbt_md_files: IndexMap::new(),
+            files_contain_test_block: vec![],
+            wbtest_imports: vec![],
+            test_imports: vec![],
+            generated_test_drivers: vec![],
+            patch_file: None,
+            no_mi: false,
+            doc_test_patch_file: None,
+            install_path: None,
+            bin_name: None,
+
+            ..pkg.clone()
+        };
+
+        packages.insert(sub_pkg.full_name(), sub_pkg);
+    }
+
+    packages.insert(pkg.full_name(), pkg);
+    Ok(())
+}
+
 #[allow(clippy::too_many_arguments)] // FIXME
 fn scan_one_package(
     env: &ScanPaths,
@@ -635,6 +718,7 @@ fn adapt_modules_into_scan_paths(
 
 pub fn scan(
     doc_mode: bool,
+    moon_mod_for_single_package_test: Option<&PathBuf>,
     moon_mod_for_single_file_test: Option<MoonMod>,
     resolved_modules: &ResolvedEnv,
     module_paths: &DirSyncResult,
@@ -646,14 +730,27 @@ pub fn scan(
     let module_scan_paths = adapt_modules_into_scan_paths(resolved_modules, module_paths);
     let mut packages = IndexMap::new();
     if moon_mod_for_single_file_test.is_none() {
-        scan_module_packages(
-            &mut packages,
-            &module_scan_paths,
-            false,
-            doc_mode,
-            moonbuild_opt,
-            moonc_opt,
-        )?;
+        if let Some(package_path) = moon_mod_for_single_package_test {
+            scan_module_single_package(
+                &mut packages,
+                &module_scan_paths,
+                false,
+                doc_mode,
+                moonbuild_opt,
+                moonc_opt,
+                package_path,
+                source_dir,
+            )?;
+        } else {
+            scan_module_packages(
+                &mut packages,
+                &module_scan_paths,
+                false,
+                doc_mode,
+                moonbuild_opt,
+                moonc_opt,
+            )?;
+        }
     }
 
     let mod_desc = if let Some(moon_mod) = moon_mod_for_single_file_test {

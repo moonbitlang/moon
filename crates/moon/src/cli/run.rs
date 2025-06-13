@@ -38,7 +38,7 @@ use moonutil::mooncakes::sync::AutoSyncFlags;
 use moonutil::mooncakes::RegistryConfig;
 use n2::trace;
 
-use super::pre_build::scan_with_x_build;
+use super::pre_build::scan_with_x_build_single_package;
 use super::{BuildFlags, UniversalFlags};
 
 /// Run a main package
@@ -388,13 +388,14 @@ pub fn run_run_internal(cli: &UniversalFlags, cmd: RunSubcommand) -> anyhow::Res
         dynamic_stub_libs: None,
     };
 
-    let mut module = scan_with_x_build(
+    let mut module = scan_with_x_build_single_package(
         false,
         &moonc_opt,
         &moonbuild_opt,
         &resolved_env,
         &dir_sync_result,
         &PrePostBuild::PreBuild,
+        &package,
     )?;
 
     let pkg = module.get_package_by_path_mut(&package).unwrap();

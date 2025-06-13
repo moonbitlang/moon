@@ -16,6 +16,8 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
+use std::path::PathBuf;
+
 use moonbuild::{
     build_script::run_prebuild_config,
     entry::{run_moon_x_build, MoonXBuildState},
@@ -38,6 +40,7 @@ pub fn scan_with_x_build(
 ) -> anyhow::Result<ModuleDB> {
     let mut module = moonutil::scan::scan(
         doc_mode,
+        None,
         None,
         resolved_env,
         dir_sync_result,
@@ -68,6 +71,50 @@ pub fn scan_with_x_build(
     )
 }
 
+pub fn scan_with_x_build_single_package(
+    doc_mode: bool,
+    moonc_opt: &MooncOpt,
+    moonbuild_opt: &MoonbuildOpt,
+    resolved_env: &ResolvedEnv,
+    dir_sync_result: &DirSyncResult,
+    build_type: &PrePostBuild,
+    package_path: &PathBuf,
+) -> anyhow::Result<ModuleDB> {
+    let mut module = moonutil::scan::scan(
+        doc_mode,
+        Some(package_path),
+        None,
+        resolved_env,
+        dir_sync_result,
+        moonc_opt,
+        moonbuild_opt,
+    )?;
+
+    run_prebuild_config(
+        moonc_opt,
+        dir_sync_result,
+        moonbuild_opt,
+        resolved_env,
+        &mut module,
+    )?;
+    match build_type {
+        PrePostBuild::PreBuild => {
+            if !module.contain_pre_build() {
+                return Ok(module);
+            }
+        }
+    }
+    run_x_build_single_package(
+        moonc_opt,
+        moonbuild_opt,
+        module,
+        resolved_env,
+        dir_sync_result,
+        build_type,
+        &package_path,
+    )
+}
+
 fn run_x_build(
     moonc_opt: &MooncOpt,
     moonbuild_opt: &MoonbuildOpt,
@@ -83,6 +130,36 @@ fn run_x_build(
         recreate_moon_db(&module.source_dir, &moonbuild_opt.target_dir)?;
         moonutil::scan::scan(
             false,
+            None,
+            None,
+            resolved_env,
+            dir_sync_result,
+            moonc_opt,
+            moonbuild_opt,
+        )?
+    } else {
+        module
+    };
+    Ok(module)
+}
+
+fn run_x_build_single_package(
+    moonc_opt: &MooncOpt,
+    moonbuild_opt: &MoonbuildOpt,
+    module: ModuleDB,
+    resolved_env: &ResolvedEnv,
+    dir_sync_result: &DirSyncResult,
+    build_type: &PrePostBuild,
+    package_path: &PathBuf,
+) -> anyhow::Result<ModuleDB> {
+    let x_build_result = run_moon_x_build(moonbuild_opt, &module, build_type)?;
+    let module = if let MoonXBuildState::WorkDone = x_build_result {
+        // x-build tasks may generate new source files
+        // recreate moon.db to reflect the changes
+        recreate_moon_db(&module.source_dir, &moonbuild_opt.target_dir)?;
+        moonutil::scan::scan(
+            false,
+            Some(package_path),
             None,
             resolved_env,
             dir_sync_result,
