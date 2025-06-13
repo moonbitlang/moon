@@ -77,17 +77,18 @@ slotmap::new_key_type! {
     pub struct PackageId;
 }
 
-/// Represents the target of this build routine.
+/// Represents the overall action of this build tool call
 #[derive(Clone, Debug, Copy, PartialEq, Eq)]
-pub enum RunTask {
+pub enum RunAction {
     Build,
     Bundle,
     Check,
     Test,
 }
 
-#[derive(Clone, Debug, Copy, PartialEq, Eq)]
-pub enum TargetTask {
+/// Represents the actions performed on a single build target.
+#[derive(Clone, Debug, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum TargetAction {
     Check,
     Build,
     BuildCStubs,
@@ -124,21 +125,4 @@ impl PackageId {
             kind,
         }
     }
-}
-
-/// Represents a single target, like ordinary source, whitebox test files, etc.
-/// This is a smaller unit than `Package`, and is the actual compile unit.
-#[derive(Clone, Debug, Default)]
-pub struct Target {
-    files: Vec<PathBuf>,
-    c_stubs: Vec<PathBuf>,
-    /// The dependent package names
-    deps: Vec<BuildTarget>,
-}
-
-#[derive(Clone, Debug, Default)]
-pub struct PackageTargets {
-    source_target: Target,
-    whitebox_test: Option<Target>,
-    blackbox_test: Option<Target>,
 }
