@@ -120,6 +120,7 @@ fn solve_one_package(
             resolve(import, TargetKind::SubPackage)?;
         }
     }
+    // TODO: Add heuristic to not generate white box test targets for external packages
 
     trace!("Completed solving package {:?}", pid);
     Ok(())
