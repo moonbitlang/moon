@@ -24,6 +24,7 @@ use moonbuild::entry;
 use mooncake::pkg::sync::auto_sync;
 use mooncake::pkg::sync::auto_sync_for_single_mbt_md;
 use moonutil::common::PrePostBuild;
+use moonutil::common::MOON_DOC_TEST_POSTFIX;
 use moonutil::common::{
     lower_surface_targets, parse_front_matter_config, FileLock, GeneratedTestDriver, MbtMdHeader,
     MoonbuildOpt, MooncOpt, OutputFormat, RunMode, TargetBackend, TestOpt, MOONBITLANG_CORE,
@@ -647,7 +648,7 @@ pub(crate) fn run_test_or_bench_internal(
                 files.iter().any(|file| file == file_filter)
             });
 
-            if !find {
+            if !find && !file_filter.contains(MOON_DOC_TEST_POSTFIX) {
                 eprintln!(
                     "{}: cannot find file `{}` in package {}, --file only support exact matching",
                     "Warning".yellow(),
