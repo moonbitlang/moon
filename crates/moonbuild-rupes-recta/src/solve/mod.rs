@@ -8,7 +8,7 @@ use crate::{discover::DiscoverResult, solve::verify::verify};
 use log::info;
 use moonutil::mooncakes::result::ResolvedEnv;
 
-use model::{DepRelationship, SolveError};
+pub use model::{DepEdge, DepRelationship, SolveError};
 use solve::solve_only;
 
 /// Solves the dependency relationship between packages, and validate the graph
