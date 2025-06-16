@@ -374,6 +374,10 @@ impl TargetBackend {
         backends.sort();
         format!("[{}]", backends.join(", "))
     }
+
+    pub fn is_native(self) -> bool {
+        self == Self::Native || self == Self::LLVM
+    }
 }
 
 #[derive(Debug, Clone, Default)]
