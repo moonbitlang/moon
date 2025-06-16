@@ -8,12 +8,26 @@ use moonutil::{
     package::MoonPkg,
 };
 
+use crate::{model, solve};
+
 /// Which kind of test (if any) are we compiling the current package for.
 #[derive(Clone, Copy)]
 pub enum TestKind {
     Inline,
     Whitebox,
     Blackbox,
+}
+
+impl From<model::TargetKind> for Option<TestKind> {
+    fn from(value: model::TargetKind) -> Self {
+        match value {
+            model::TargetKind::Source => None,
+            model::TargetKind::WhiteboxTest => Some(TestKind::Whitebox),
+            model::TargetKind::BlackboxTest => Some(TestKind::Blackbox),
+            model::TargetKind::InlineTest => Some(TestKind::Inline),
+            model::TargetKind::SubPackage => None,
+        }
+    }
 }
 
 /// A collection of conditions that affect compilation behavior.
