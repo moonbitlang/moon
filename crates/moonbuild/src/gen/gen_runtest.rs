@@ -1073,6 +1073,10 @@ pub fn gen_runtest_build_command(
     if let Some((mi_path, _, _)) = item.mi_of_virtual_pkg_to_impl.as_ref() {
         inputs.push(mi_path.clone());
     }
+    if let Some(ref patch_file) = item.patch_file {
+        inputs.push(patch_file.display().to_string());
+    }
+
     let input_ids = inputs
         .into_iter()
         .map(|f| graph.files.id_from_canonical(f))
