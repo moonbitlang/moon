@@ -110,6 +110,7 @@ pub enum TargetKind {
 pub struct BuildTarget {
     pub package: PackageId,
     pub kind: TargetKind,
+    // TODO: Target backend need to be added here!
 }
 
 impl PackageId {
