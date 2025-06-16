@@ -43,8 +43,8 @@
 
 #![warn(clippy::unwrap_used)] // We prefer clear panic messages
 
-pub mod abs_build_graph;
 pub mod build_graph_lower;
+pub mod build_plan;
 mod cond_comp;
 pub mod discover;
 pub mod model;
