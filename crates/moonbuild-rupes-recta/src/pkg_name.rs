@@ -1,6 +1,6 @@
 //! Package and module name related structures
 
-use std::{borrow::Cow, fmt::Write, path::Path, str::FromStr, sync::Arc};
+use std::{borrow::Cow, str::FromStr};
 
 use arcstr::ArcStr;
 use moonutil::mooncakes::{ModuleName, ModuleSource};
