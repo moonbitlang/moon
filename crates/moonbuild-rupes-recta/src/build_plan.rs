@@ -348,9 +348,9 @@ impl<'a> BuildPlanConstructor<'a> {
 
             // Regular package
             link_core_deps.insert(next);
-            // If there's any C stubs, add it
+            // If there's any C stubs, add it (native only)
             let pkg = self.packages.get_package(next.package);
-            if !pkg.c_stub_files.is_empty() {
+            if self.build_env.target_backend.is_native() && !pkg.c_stub_files.is_empty() {
                 c_stub_deps.push(next);
             }
         }
