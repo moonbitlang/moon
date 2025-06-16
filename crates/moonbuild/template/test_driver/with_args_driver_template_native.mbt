@@ -186,7 +186,7 @@ pub fn moonbit_test_driver_internal_execute(filename : String, index : Int) -> U
         Moonbit_Test_Driver_Internal__F::F1(f) =>
             fn() {
               let it = @moonbitlang/core/test.new(name)
-              (f._)(it)
+              (f.inner())(it)
             }
         Moonbit_Test_Driver_Internal__F::F2(f) =>
             fn() {
@@ -194,10 +194,10 @@ pub fn moonbit_test_driver_internal_execute(filename : String, index : Int) -> U
                 Some(inner) => inner
                 _ => panic() // unreachable
               }
-              (f._)(it)
+              (f.inner())(it)
             }
         }
-        (func._)()
+        (func.inner())()
         match bench_out {
           Some(inner) => {
             let s = inner.dump_summaries()
