@@ -1521,6 +1521,7 @@ dependencies = [
  "log",
  "mooncake",
  "moonutil",
+ "n2",
  "petgraph",
  "relative-path",
  "slotmap",
