@@ -66,12 +66,6 @@
     - Generate MBTI, corresponding to all Generate-MBTI tasks of Source.
 */
 
-use std::{collections::HashMap, path::PathBuf};
-
-use arcstr::ArcStr;
-use moonutil::mooncakes::ModuleId;
-use petgraph::prelude::DiGraphMap;
-
 slotmap::new_key_type! {
     /// An unique identifier pointing to a package currently discovered from imported modules.
     pub struct PackageId;
