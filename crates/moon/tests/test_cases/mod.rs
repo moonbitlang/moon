@@ -3942,24 +3942,24 @@ fn test_run_doc_test() {
             test block 4
             test block 5
             doc_test 5 from greet.mbt
-            test username/hello/lib/hello.mbt::doc_test hello.mbt 9 4 failed
-            expect test failed at $ROOT/src/lib/hello.mbt:12:5-12:18
+            test username/hello/lib/hello.mbt::1 failed
+            expect test failed at $ROOT/src/lib/hello.mbt:15:7-15:20
             Diff:
             ----
             1256
             ----
 
-            test username/hello/lib/hello.mbt::doc_test hello.mbt 19 4 failed: FAILED: $ROOT/src/lib/hello.mbt:22:5-22:30 this is a failure
+            test username/hello/lib/hello.mbt::2 failed: FAILED: $ROOT/src/lib/hello.mbt:27:7-27:32 this is a failure
             test username/hello/lib/greet.mbt::2 failed
-            expect test failed at $ROOT/src/lib/greet.mbt:22:7-22:20
+            expect test failed at $ROOT/src/lib/greet.mbt:24:7-24:20
             Diff:
             ----
             1256
             ----
 
-            test username/hello/lib/greet.mbt::3 failed: FAILED: $ROOT/src/lib/greet.mbt:31:7-31:30 another failure
-            test username/hello/lib/greet.mbt::doc_test greet.mbt 92 38 failed
-            expect test failed at $ROOT/src/lib/greet.mbt:96:5-96:40
+            test username/hello/lib/greet.mbt::3 failed: FAILED: $ROOT/src/lib/greet.mbt:33:7-33:30 another failure
+            test username/hello/lib/greet.mbt::8 failed
+            expect test failed at $ROOT/src/lib/greet.mbt:104:7-104:42
             Diff:
             ----
             b"/x54/x00/x65/x00/x73/x00/x74/x00"
@@ -3990,10 +3990,10 @@ fn test_run_doc_test() {
 
             doc_test 2 from hello.mbt
             doc_test 2 from hello.mbt
-            test username/hello/lib/hello.mbt::doc_test hello.mbt 19 4 failed: FAILED: $ROOT/src/lib/hello.mbt:22:5-22:30 this is a failure
+            test username/hello/lib/hello.mbt::2 failed: FAILED: $ROOT/src/lib/hello.mbt:27:7-27:32 this is a failure
             test block 2
             test block 2
-            test username/hello/lib/greet.mbt::3 failed: FAILED: $ROOT/src/lib/greet.mbt:31:7-31:30 another failure
+            test username/hello/lib/greet.mbt::3 failed: FAILED: $ROOT/src/lib/greet.mbt:33:7-33:30 another failure
             Total tests: 16, passed: 14, failed: 2.
         "#]],
     );
