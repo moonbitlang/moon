@@ -17,6 +17,7 @@
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
 use anyhow::Context;
+use colored::Colorize;
 use regex::Regex;
 use std::fs;
 use std::path::Path;
@@ -146,6 +147,10 @@ impl PatchJSON {
                     .content
                     .lines()
                     .any(|line| line.replacen("///", "", 1).trim_start().starts_with("test"));
+
+                if already_wrapped {
+                    eprintln!("{}: don't need to wrap code in test block at `{}` line {}", "Warning".yellow(), doc_test.file_name, doc_test.line_number);
+                }
 
                 let processed_content = doc_test
                     .content
