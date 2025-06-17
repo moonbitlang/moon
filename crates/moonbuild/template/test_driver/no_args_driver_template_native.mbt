@@ -88,15 +88,6 @@ fn main {
     res
   }
 
-  fn moonbit_test_driver_internal_get_cli_args_internal() -> @moonbitlang/core/builtin.Array[String] {
-    let tmp = moonbit_test_driver_internal_get_cli_args_ffi()
-    let res = @moonbitlang/core/builtin.Array::new(capacity=tmp.length())
-    for i = 0; i < tmp.length(); i = i + 1 {
-      res.push(moonbit_test_driver_internal_utf8_bytes_to_mbt_string(tmp[i]))
-    }
-    res
-  }
-
   fn moonbit_test_driver_internal_utf8_bytes_to_mbt_string(bytes : Bytes) -> String {
     let res = @moonbitlang/core/builtin.StringBuilder::new()
     let len = bytes.length()
@@ -137,6 +128,15 @@ fn main {
       }
     }
     res.to_string()
+  }
+
+  fn moonbit_test_driver_internal_get_cli_args_internal() -> @moonbitlang/core/builtin.Array[String] {
+    let tmp = moonbit_test_driver_internal_get_cli_args_ffi()
+    let res = @moonbitlang/core/builtin.Array::new(capacity=tmp.length())
+    for i = 0; i < tmp.length(); i = i + 1 {
+      res.push(moonbit_test_driver_internal_utf8_bytes_to_mbt_string(tmp[i]))
+    }
+    res
   }
 
   fn moonbit_test_driver_internal_split_mbt_string(s : String, sep : Char) -> @moonbitlang/core/builtin.Array[String] {
