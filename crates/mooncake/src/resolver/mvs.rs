@@ -23,6 +23,7 @@ use std::{
 };
 
 use anyhow::anyhow;
+use colored::Colorize;
 use moonutil::{
     dependency::SourceDependencyInfo,
     module::MoonMod,
@@ -71,6 +72,10 @@ fn select_min_version_satisfying<'a>(
         }
     }
 
+    eprintln!(
+        "{}: you may need to run `moon update` to update the registry",
+        "Hint".yellow()
+    );
     Err(ResolverError::NoSatisfiedVersion(
         name.clone(),
         req.version.clone(),
@@ -84,7 +89,13 @@ fn select_min_version_satisfying_in_env(
 ) -> Result<(Version, Rc<MoonMod>), ResolverError> {
     let all_versions = env
         .all_versions_of(name, None) // todo: registry
-        .ok_or_else(|| ResolverError::ModuleMissing(name.clone()))?;
+        .ok_or_else(|| {
+            eprintln!(
+                "{}: you may need to run `moon update` to update the registry",
+                "Hint".yellow()
+            );
+            ResolverError::ModuleMissing(name.clone())
+        })?;
 
     let min_version_satisfying = select_min_version_satisfying(name, req, all_versions.keys());
     match min_version_satisfying {
