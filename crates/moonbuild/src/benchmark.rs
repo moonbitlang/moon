@@ -27,7 +27,7 @@ pub struct BenchSummary {
     pub max: f64,
     pub mean: f64,
     pub median: f64,
-    pub var: f64,
+    pub variance: f64,
     pub std_dev: f64,
     pub std_dev_pct: f64,
     pub median_abs_dev: f64,
@@ -59,7 +59,7 @@ pub fn render_batch_bench_summary(msg: &str) {
     assert!(msg.starts_with(BATCHBENCH));
     let msg = &msg[BATCHBENCH.len()..];
     let summary = serde_json_lenient::from_str::<BatchBenchSummaries>(msg)
-        .unwrap_or_else(|_| panic!("failed to parse batch benchmark summary: {}", msg));
+        .unwrap_or_else(|e| panic!("failed to parse batch benchmark summary: {e}\n {}", msg));
     let max_name_len = summary
         .summaries
         .iter()
