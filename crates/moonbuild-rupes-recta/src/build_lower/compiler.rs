@@ -57,8 +57,10 @@ pub struct CompilationFlags {
 }
 
 /// Configuration for either warning or alert
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Default)]
+#[allow(unused)]
 pub enum WarnAlertConfig<'a> {
+    #[default]
     Default,
     List(&'a str),
     DenyAll,
@@ -70,6 +72,8 @@ pub enum WarnAlertConfig<'a> {
 /// FIXME: This is a shallow abstraction that tries to mimic the legacy
 /// behavior as much as possible. It definitely contains some suboptimal
 /// abstractions, which needs to be fixed in the future.
+///
+/// FIXME: Avoid laying everything out flat
 #[derive(Debug)]
 pub struct MooncBuildPackage<'a> {
     // Basic command structure
@@ -80,7 +84,7 @@ pub struct MooncBuildPackage<'a> {
     pub alert_config: WarnAlertConfig<'a>,
 
     // Input files
-    pub mbt_sources: &'a [&'a Path],
+    pub mbt_sources: &'a [PathBuf],
     pub mi_deps: &'a [MiDependency<'a>],
 
     // Output configuration
@@ -115,10 +119,47 @@ pub struct MooncBuildPackage<'a> {
 }
 
 impl<'a> MooncBuildPackage<'a> {
+    /// Create a new instance with only necessary fields populated, others as default
+    pub fn new(
+        mbt_sources: &'a [PathBuf],
+        core_out: &'a Path,
+        mi_out: &'a Path,
+        package_name: &'a PackageFQN,
+        package_source: &'a Path,
+        target_backend: TargetBackend,
+    ) -> Self {
+        Self {
+            error_format: ErrorFormat::Regular,
+            warn_config: WarnAlertConfig::Default,
+            alert_config: WarnAlertConfig::Default,
+            mbt_sources,
+            mi_deps: &[],
+            core_out,
+            mi_out,
+            no_mi: false,
+            package_name,
+            package_source,
+            is_main: false,
+            stdlib_core_file: None,
+            target_backend,
+            flags: CompilationFlags {
+                no_opt: false,
+                symbols: false,
+                source_map: false,
+                enable_coverage: false,
+                self_coverage: false,
+                enable_value_tracing: false,
+            },
+            extra_build_opts: &[],
+            check_mi: None,
+            virtual_implementation: None,
+        }
+    }
+
     /// Convert this to list of args. The behavior tries to mimic the legacy
     /// behavior as much as possible.
-    pub fn to_args_legacy(&self) -> Vec<String> {
-        let mut args = vec!["build-package".to_string()];
+    pub fn to_args_legacy(&self, args: &mut Vec<String>) {
+        args.push("build-package".into());
 
         // Error format
         if matches!(self.error_format, ErrorFormat::Json) {
@@ -147,10 +188,10 @@ impl<'a> MooncBuildPackage<'a> {
         }
         // Third-party package handling
         if matches!(self.warn_config, WarnAlertConfig::AllowAll) {
-            args.extend(["-w".to_string(), "-a".to_string()]);
+            args.extend(["-w".to_string(), MOONC_ALLOW_WARNING_SET.into()]);
         }
         if matches!(self.alert_config, WarnAlertConfig::AllowAll) {
-            args.extend(["-alert".to_string(), "-all".to_string()]);
+            args.extend(["-alert".to_string(), MOONC_ALLOW_ALERT_SET.into()]);
         }
 
         // Output
@@ -236,8 +277,6 @@ impl<'a> MooncBuildPackage<'a> {
                 ),
             ]);
         }
-
-        args
     }
 }
 

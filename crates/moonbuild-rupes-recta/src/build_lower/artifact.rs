@@ -2,9 +2,9 @@
 
 use std::path::PathBuf;
 
-use moonutil::{common::TargetBackend, mooncakes::ModuleName};
+use moonutil::{common::TargetBackend, mooncakes::ModuleSource};
 
-use crate::pkg_name::{PackageFQN, PackageFQNWithSource};
+use crate::{model::TargetKind, pkg_name::PackageFQN};
 
 /// The extension of the intermediate representation emitted by the Build action
 const CORE_EXTENSION: &str = ".core";
@@ -17,14 +17,14 @@ pub struct LegacyLayout {
     target_base_dir: PathBuf,
     /// The name of the main module, so that packages from the main module will
     /// not be put into nested directories.
-    main_module: ModuleName,
+    main_module: ModuleSource,
 }
 
 const LEGACY_NON_MAIN_MODULE_DIR: &str = ".mooncakes";
 
 impl LegacyLayout {
     /// Creates a new legacy layout instance.
-    pub fn new(target_base_dir: PathBuf, main_module: ModuleName) -> Self {
+    pub fn new(target_base_dir: PathBuf, main_module: ModuleSource) -> Self {
         Self {
             target_base_dir,
             main_module,
@@ -40,7 +40,7 @@ impl LegacyLayout {
         let mut dir = self.target_base_dir.clone();
         push_backend(&mut dir, backend);
 
-        if pkg.module().name() == &self.main_module {
+        if pkg.module() == &self.main_module {
             dir.extend(pkg.package().segments());
         } else {
             dir.push(LEGACY_NON_MAIN_MODULE_DIR);
@@ -51,12 +51,22 @@ impl LegacyLayout {
         dir
     }
 
-    pub fn pkg_core_basename(&self, pkg: &PackageFQN) -> String {
-        format!("{}{}", pkg.short_alias(), CORE_EXTENSION)
+    pub fn pkg_core_basename(&self, pkg: &PackageFQN, kind: TargetKind) -> String {
+        format!(
+            "{}{}{}",
+            pkg.short_alias(),
+            build_kind_suffix(kind),
+            CORE_EXTENSION
+        )
     }
 
-    pub fn pkg_mi_basename(&self, pkg: &PackageFQN) -> String {
-        format!("{}{}", pkg.short_alias(), MI_EXTENSION)
+    pub fn pkg_mi_basename(&self, pkg: &PackageFQN, kind: TargetKind) -> String {
+        format!(
+            "{}{}{}",
+            pkg.short_alias(),
+            build_kind_suffix(kind),
+            MI_EXTENSION
+        )
     }
 
     pub fn pkg_linked_core_artifact_basename(
@@ -89,6 +99,16 @@ impl LegacyLayout {
 
 fn push_backend(path: &mut PathBuf, backend: TargetBackend) {
     path.push(backend.to_dir_name())
+}
+
+fn build_kind_suffix(kind: TargetKind) -> &'static str {
+    match kind {
+        TargetKind::Source => "",
+        TargetKind::WhiteboxTest => "_whitebox_test",
+        TargetKind::BlackboxTest => "_blackbox_test",
+        TargetKind::InlineTest => "_inline_test",
+        TargetKind::SubPackage => "_sub",
+    }
 }
 
 fn linked_core_artifact_ext(backend: TargetBackend, os: &str) -> &'static str {
