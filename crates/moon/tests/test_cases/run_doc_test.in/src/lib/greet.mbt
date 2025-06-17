@@ -6,16 +6,17 @@ pub fn greet1() -> String {
 }
 
 
+///|
 /// ```mbt
-/// ///|
 /// 
 /// 
-/// test {
+///
 ///   println("test block 1")
-/// }
+///
+/// ```
 /// 
-/// 
-/// test {
+/// ```mbt
+///
 /// 
 ///   println("test block 2")
 /// 
@@ -23,13 +24,15 @@ pub fn greet1() -> String {
 /// 
 /// 
 /// 
-/// }
+///
+/// ```
 /// 
-/// test {
+/// ```mbt
+///
 ///   println("test block 3")
 /// 
 ///   fail("another failure")
-/// }
+///
 /// 
 /// ```
 pub fn greet2() -> String {
@@ -48,13 +51,13 @@ pub fn greet3() -> String {
 }
 
 /// ```moonbit
-/// test "panic test" { 
+///
 /// 
 /// 
 /// 
 ///   println("test block 4")
-///   panic()
-/// }
+///
+///
 /// 
 /// 
 /// ```
@@ -64,12 +67,12 @@ pub fn greet() -> String {
 
 
 /// ```
-/// test {
+///
 /// 
 ///   println("test block 5")
 /// 
 /// 
-/// }
+///
 /// 
 /// 
 /// 

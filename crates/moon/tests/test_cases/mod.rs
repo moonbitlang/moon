@@ -3950,16 +3950,16 @@ fn test_run_doc_test() {
             ----
 
             test username/hello/lib/hello.mbt::doc_test hello.mbt 19 4 failed: FAILED: $ROOT/src/lib/hello.mbt:22:5-22:30 this is a failure
-            test username/hello/lib/greet.mbt::2 failed
-            expect test failed at $ROOT/src/lib/greet.mbt:22:7-22:20
+            test username/hello/lib/greet.mbt::doc_test greet.mbt 18 9 failed
+            expect test failed at $ROOT/src/lib/greet.mbt:23:7-23:20
             Diff:
             ----
             1256
             ----
 
-            test username/hello/lib/greet.mbt::3 failed: FAILED: $ROOT/src/lib/greet.mbt:31:7-31:30 another failure
-            test username/hello/lib/greet.mbt::doc_test greet.mbt 92 38 failed
-            expect test failed at $ROOT/src/lib/greet.mbt:96:5-96:40
+            test username/hello/lib/greet.mbt::doc_test greet.mbt 30 6 failed: FAILED: $ROOT/src/lib/greet.mbt:34:7-34:30 another failure
+            test username/hello/lib/greet.mbt::doc_test greet.mbt 95 38 failed
+            expect test failed at $ROOT/src/lib/greet.mbt:99:5-99:40
             Diff:
             ----
             b"/x54/x00/x65/x00/x73/x00/x74/x00"
@@ -3993,7 +3993,7 @@ fn test_run_doc_test() {
             test username/hello/lib/hello.mbt::doc_test hello.mbt 19 4 failed: FAILED: $ROOT/src/lib/hello.mbt:22:5-22:30 this is a failure
             test block 2
             test block 2
-            test username/hello/lib/greet.mbt::3 failed: FAILED: $ROOT/src/lib/greet.mbt:31:7-31:30 another failure
+            test username/hello/lib/greet.mbt::doc_test greet.mbt 30 6 failed: FAILED: $ROOT/src/lib/greet.mbt:34:7-34:30 another failure
             Total tests: 16, passed: 14, failed: 2.
         "#]],
     );
@@ -5360,9 +5360,9 @@ fn merge_doc_test_and_md_test() {
                │                   ╰──────────── Warning: Unused variable 'unused_in_lib_md_test'
             ───╯
             Warning: [0002]
-               ╭─[$ROOT/lib/hello.mbt:4:11]
+               ╭─[$ROOT/lib/hello.mbt:3:11]
                │
-             4 │ ///   let unused_in_lib_doc_test = 1
+             3 │ ///   let unused_in_lib_doc_test = 1
                │           ───────────┬──────────  
                │                      ╰──────────── Warning: Unused variable 'unused_in_lib_doc_test'
             ───╯

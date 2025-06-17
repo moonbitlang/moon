@@ -5,9 +5,7 @@ fn main {
 }
 
 /// ```mbt
-/// test {
 ///   println("doc test in main pkg")
-/// }
 /// ```
 
 test {
