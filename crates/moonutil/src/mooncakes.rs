@@ -70,6 +70,11 @@ impl ModuleName {
             &self.unqual
         }
     }
+
+    /// Return segments of the module name.
+    pub fn segments(&self) -> impl Iterator<Item = &str> {
+        std::iter::once(&*self.username).chain(self.unqual.split('/'))
+    }
 }
 
 impl std::fmt::Debug for ModuleName {
