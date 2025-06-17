@@ -19,3 +19,4 @@ thiserror.workspace = true
 walkdir.workspace = true
 petgraph.workspace = true
 indexmap.workspace = true
+shlex.workspace = true

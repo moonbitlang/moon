@@ -1524,6 +1524,7 @@ dependencies = [
  "n2",
  "petgraph",
  "relative-path",
+ "shlex",
  "slotmap",
  "thiserror",
  "walkdir",
