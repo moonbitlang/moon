@@ -16,56 +16,6 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
-/*
-    *************
-    MAINTAINERS: Please update this BEFORE you add new features, in order
-    to keep this section synced with source code.
-    *************
-*/
-/*!
-    Refactor of the task generation process.
-
-    # Overview of task generation
-
-    Different tasks of the building process of a package (compile unit) rely on
-    different source files and parent tasks. Here's a layered view of it:
-
-    There are 4 kinds of source files in the within each package:
-    - Source. These are the default kind of MoonBit files.
-    - C stubs. These are the C files that reside beside MoonBit files.
-    - Whitebox tests.
-    - Blackbox tests.
-
-    Within a single package, there are 3 main targets:
-    - Source (containing source files Source and C stubs)
-    - Whitebox test (containing source file Whitebox tests)
-    - Blackbox test (containing source file Blackbox tests)
-
-    For tests, there are also doctests and markdown tests, but that's mostly
-    the same as Blackbox tests.
-
-    Each target has the following dependency between tasks:
-    - Check: (check of direct dependencies)
-    - Build: (build of direct dependencies)
-    - Build-C-stubs: (none)
-    - Link-core: Build, (build of all direct and indirect dependencies)
-    - Make-executable: Link-core, Build-C-stubs (if any)
-    - Generate-MBTI: (either Check or Build)
-
-    And both Whitebox test and Blackbox test additionally have an implicit
-    direct dependency on Source.
-
-    From external view, there are 4 ultimate tasks of the project:
-    - Check, corresponding to all Check tasks of all targets.
-    - Build, corresponding to all Make-executable tasks of Source
-    - Bundle, corresponding to all Build tasks of non-main sources, and in
-      addition a commandline call to `moon bundle`.
-    - Test, corresponding to all Make-executable tasks of Whitebox tests and
-      Blackbox tests. After all tasks are built, we run all executables for
-      test.
-    - Generate MBTI, corresponding to all Generate-MBTI tasks of Source.
-*/
-
 slotmap::new_key_type! {
     /// An unique identifier pointing to a package currently discovered from imported modules.
     pub struct PackageId;
