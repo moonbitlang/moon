@@ -11,6 +11,8 @@
 //! nor does irrelevant actions.
 //!
 //! The result of this module is analogous to Rust Cargo's [Compile unit graph][cu].
+//! The reason why this is two graphs here in MoonBuild and only one graph in
+//! Cargo is because our build procedure is a little more verbose than Cargo.
 //!
 //! [cu]: https://github.com/rust-lang/cargo/blob/master/src/cargo/core/compiler/unit.rs
 
@@ -24,6 +26,7 @@ use moonutil::{
 use petgraph::{
     csr::DefaultIx,
     graph::{DiGraph, NodeIndex},
+    prelude::DiGraphMap,
     visit::DfsPostOrder,
 };
 
@@ -34,11 +37,6 @@ use crate::{
     solve::DepRelationship,
 };
 
-#[derive(Clone, Copy, PartialEq, PartialOrd, Ord, Eq, Hash)]
-pub struct BuildNodeId(NodeIndex<DefaultIx>);
-
-type BuildActionGraph = DiGraph<BuildActionSpec, ()>;
-
 /// A directed graph representation of build dependencies and targets.
 ///
 /// `AbstractBuildGraph` maintains a directed graph where nodes represent build
@@ -47,18 +45,29 @@ type BuildActionGraph = DiGraph<BuildActionSpec, ()>;
 /// configuration and requirements.
 #[derive(Default)]
 pub struct BuildPlan {
-    graph: BuildActionGraph,
-    target_map: HashMap<BuildPlanNode, BuildNodeId>,
+    graph: DiGraphMap<BuildPlanNode, ()>,
+    spec: HashMap<BuildPlanNode, BuildActionSpec>,
 }
 
 impl BuildPlan {
-    pub fn get_id_from_node(&self, node: BuildPlanNode) -> Option<BuildNodeId> {
-        self.target_map.get(&node).copied()
+    pub fn get_spec(&self, node: BuildPlanNode) -> Option<&BuildActionSpec> {
+        self.spec.get(&node)
+    }
+
+    pub fn incoming_nodes(&self, node: BuildPlanNode) -> impl Iterator<Item = BuildPlanNode> + '_ {
+        self.graph
+            .neighbors_directed(node, petgraph::Direction::Incoming)
+    }
+
+    pub fn all_nodes(&self) -> impl Iterator<Item = BuildPlanNode> + '_ {
+        self.graph.nodes()
     }
 }
 
 /// A node in the build dependency graph, containing a build target and the
 /// corresponding action that should be performed on that target.
+///
+/// TODO: This type is a little big in size to be copied and used as an ID.
 #[derive(Debug, Clone, Copy, PartialEq, PartialOrd, Eq, Ord, Hash)]
 pub struct BuildPlanNode {
     pub target: BuildTarget,
@@ -78,10 +87,6 @@ pub enum BuildActionSpec {
     /// if any.
     MakeExecutable(Vec<BuildTarget>),
     GenerateMbti,
-
-    /// A placeholder for pending nodes that are not yet resolved.
-    #[doc(hidden)]
-    Pending,
 }
 
 /// Represents the environment in which the build is being performed.
@@ -156,14 +161,17 @@ impl<'a> BuildPlanConstructor<'a> {
             self.pending.is_empty(),
             "Pending nodes should be empty before starting the build"
         );
-        self.pending.extend_from_slice(input);
+
+        // Add the input node to the pending list
+        for i in input {
+            self.need_node(*i);
+        }
+
         while let Some(node) = self.pending.pop() {
             // check if the node is already resolved
-            if let Some(node_id) = self.res.target_map.get(&node) {
-                if !matches!(self.res.graph[node_id.0], BuildActionSpec::Pending) {
-                    // Already resolved, skip
-                    continue;
-                }
+            if self.res.spec.contains_key(&node) {
+                // Already resolved, skip
+                continue;
             }
 
             self.build_action_dependencies(node)?;
@@ -175,25 +183,32 @@ impl<'a> BuildPlanConstructor<'a> {
     /// new node. To deduplicate pending nodes, this should be called before
     /// adding relevant edges to the graph (since the latter will also add the
     /// node into the graph).
-    fn need_node(&mut self, node: BuildPlanNode) -> BuildNodeId {
-        if let Some(node_id) = self.res.target_map.get(&node) {
-            *node_id
-        } else {
+    fn need_node(&mut self, node: BuildPlanNode) {
+        if !self.res.spec.contains_key(&node) {
             self.pending.push(node);
-            let node_id = self.res.graph.add_node(BuildActionSpec::Pending);
-            self.res.target_map.insert(node, BuildNodeId(node_id));
-            BuildNodeId(node_id)
+            self.res.graph.add_node(node);
         }
     }
 
     /// Tell the build graph that the given node has been resolved into a
     /// concrete action specification.
-    fn resolved_node(&mut self, node_id: BuildNodeId, spec: BuildActionSpec) {
-        self.res.graph[node_id.0] = spec;
+    fn resolved_node(&mut self, node_id: BuildPlanNode, spec: BuildActionSpec) {
+        debug_assert!(
+            !self.res.spec.contains_key(&node_id),
+            "Node {:?} should not be resolved twice",
+            node_id
+        );
+        debug_assert!(
+            self.res.graph.contains_node(node_id),
+            "Node {:?} should be in the graph before resolving",
+            node_id
+        );
+        // Insert the node into the spec map
+        self.res.spec.insert(node_id, spec);
     }
 
-    fn add_edge(&mut self, start: BuildNodeId, end: BuildNodeId) {
-        self.res.graph.add_edge(start.0, end.0, ());
+    fn add_edge(&mut self, start: BuildPlanNode, end: BuildPlanNode) {
+        self.res.graph.add_edge(start, end, ());
     }
 
     /// Calculate the build action's dependencies and insert relevant edges to the
@@ -220,7 +235,6 @@ impl<'a> BuildPlanConstructor<'a> {
     fn build_check(&mut self, node: BuildPlanNode) -> Result<(), BuildPlanConstructError> {
         // Check depends on `.mi` of all dependencies, which practically
         // means the Check of all dependencies.
-        let self_id = self.need_node(node);
         for dep in self
             .build_deps
             .dep_graph
@@ -230,13 +244,13 @@ impl<'a> BuildPlanConstructor<'a> {
                 target: dep,
                 action: TargetAction::Check,
             };
-            let dep_node = self.need_node(dep_node);
-            self.add_edge(self_id, dep_node);
+            self.need_node(dep_node);
+            self.add_edge(node, dep_node);
         }
 
         // Resolve the source files
         let source_files = self.resolve_mbt_files_for_node(node)?;
-        self.resolved_node(self_id, BuildActionSpec::Check(source_files));
+        self.resolved_node(node, BuildActionSpec::Check(source_files));
 
         Ok(())
     }
@@ -245,7 +259,7 @@ impl<'a> BuildPlanConstructor<'a> {
         // Build depends on `.mi`` of all dependencies. Although Check can
         // also emit `.mi` files, since we're building, this action actually
         // means we need to build all dependencies.
-        let self_id = self.need_node(node);
+        self.need_node(node);
         for dep in self
             .build_deps
             .dep_graph
@@ -255,13 +269,13 @@ impl<'a> BuildPlanConstructor<'a> {
                 target: dep,
                 action: TargetAction::Build,
             };
-            let dep_node = self.need_node(dep_node);
-            self.add_edge(self_id, dep_node);
+            self.need_node(dep_node);
+            self.add_edge(node, dep_node);
         }
 
         // Resolve the source files
         let source_files = self.resolve_mbt_files_for_node(node)?;
-        self.resolved_node(self_id, BuildActionSpec::BuildMbt(source_files));
+        self.resolved_node(node, BuildActionSpec::BuildMbt(source_files));
 
         Ok(())
     }
@@ -287,12 +301,12 @@ impl<'a> BuildPlanConstructor<'a> {
 
     fn build_build_c_stubs(&mut self, node: BuildPlanNode) -> Result<(), BuildPlanConstructError> {
         // Depends on nothing, but anyway needs to be inserted into the graph.
-        let self_id = self.need_node(node);
+        self.need_node(node);
 
         // Resolve the C stub files
         let pkg = self.packages.get_package(node.target.package);
         let c_source = pkg.c_stub_files.clone();
-        self.resolved_node(self_id, BuildActionSpec::BuildC(c_source));
+        self.resolved_node(node, BuildActionSpec::BuildC(c_source));
 
         Ok(())
     }
@@ -359,26 +373,25 @@ impl<'a> BuildPlanConstructor<'a> {
             target: make_exec_node.target,
             action: TargetAction::LinkCore,
         };
+        self.need_node(link_core_node);
 
         // Add edges to all dependencies
         // Note that we have already replaced unnecessary dependencies
-        let link_core_id = self.need_node(link_core_node);
         for target in &link_core_deps {
             let dep_node = BuildPlanNode {
                 target: *target,
                 action: TargetAction::Build,
             };
-            let dep_id = self.need_node(dep_node);
-            self.add_edge(link_core_id, dep_id);
+            self.need_node(dep_node);
+            self.add_edge(link_core_node, dep_node);
         }
 
         let targets = link_core_deps.into_iter().collect();
         let spec = BuildActionSpec::LinkCore(targets);
-        self.resolved_node(link_core_id, spec);
+        self.resolved_node(link_core_node, spec);
 
         // Add edge from make exec to link core
-        let make_exec_id = self.need_node(make_exec_node);
-        self.add_edge(make_exec_id, link_core_id);
+        self.add_edge(make_exec_node, link_core_node);
 
         // Add dependencies of make exec
         for target in &c_stub_deps {
@@ -386,10 +399,10 @@ impl<'a> BuildPlanConstructor<'a> {
                 target: *target,
                 action: TargetAction::BuildCStubs,
             };
-            let dep_id = self.need_node(dep_node);
-            self.add_edge(make_exec_id, dep_id);
+            self.need_node(dep_node);
+            self.add_edge(make_exec_node, dep_node);
         }
-        self.resolved_node(make_exec_id, BuildActionSpec::MakeExecutable(c_stub_deps));
+        self.resolved_node(make_exec_node, BuildActionSpec::MakeExecutable(c_stub_deps));
 
         Ok(())
     }
