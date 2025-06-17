@@ -1,7 +1,5 @@
-/// ```moonbit
-/// test {
-///   println("doc_test 1 from greet.mbt")
-/// }
+/// ```
+/// println("doc_test 1 from greet.mbt")
 /// ```
 pub fn greet1() -> String {
   "greet, world!"
@@ -40,11 +38,8 @@ pub fn greet2() -> String {
 
 /// ```moonbit
 /// 
+/// println("doc_test 3 from greet.mbt")
 /// 
-/// 
-/// test {
-///   println("doc_test 3 from greet.mbt")
-/// }
 /// 
 /// 
 /// ```
@@ -68,7 +63,7 @@ pub fn greet() -> String {
 }
 
 
-/// ```mbt
+/// ```
 /// test {
 /// 
 ///   println("test block 5")
@@ -84,10 +79,8 @@ pub fn greet4() -> String {
 }
 
 
-/// ```moonbit
-/// test {
+/// ```
 ///   println("doc_test 5 from greet.mbt")
-/// }
 /// 
 /// 
 /// 
@@ -96,47 +89,45 @@ pub fn greet5() -> String {
   "greet, wor1ld!"
 }
 
-/// ```moonbit
-/// test {
-///   let buf = @buffer.new(size_hint=100)
-///   buf.write_string("Tes")
-///   buf.write_char('t')
-///   inspect(buf.contents(), content="")
-///   inspect(buf.contents())
+/// ```
+/// let buf = @buffer.new(size_hint=100)
+/// buf.write_string("Tes")
+/// buf.write_char('t')
+/// inspect(buf.contents(), content="")
+/// inspect(buf.contents())
 /// 
-///   let multi_line_string_1 = 
-///      #|1
-///      #|2
-///      #|3
-///      #|4
-///      #|5
-///      #|
+///  let multi_line_string_1 = 
+///     #|1
+///     #|2
+///     #|3
+///     #|4
+///     #|5
+///     #|
 /// 
-///   inspect(multi_line_string_1)
-///   inspect(multi_line_string_1, content="")
+///  inspect(multi_line_string_1)
+///  inspect(multi_line_string_1, content="")
 /// 
-///   let multi_line_string_2 = 
+///  let multi_line_string_2 = 
 ///     #|1
 ///     #|2
 ///     #|3
 /// 
-///   inspect(multi_line_string_2)
-///   inspect(multi_line_string_2, content="")
+///  inspect(multi_line_string_2)
+///  inspect(multi_line_string_2, content="")
 /// 
-///   let multi_line_string_3 = 
+///  let multi_line_string_3 = 
 ///     #|1
 ///     #|2
 /// 
-///   inspect(multi_line_string_3)
-///   inspect(multi_line_string_3, content="")
+///  inspect(multi_line_string_3)
+///  inspect(multi_line_string_3, content="")
 /// 
-///   let multi_line_string_4 = 
+///  let multi_line_string_4 = 
 ///     #|1
 /// 
-///   inspect(multi_line_string_4)
-///   inspect(multi_line_string_4, content="")
+///  inspect(multi_line_string_4)
+///  inspect(multi_line_string_4, content="")
 /// 
-/// }
 /// ```
 pub fn greet6() -> String {
   "greet, wor1ld!"

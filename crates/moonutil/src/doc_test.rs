@@ -50,7 +50,7 @@ impl DocTestExtractor {
         for cap in pattern.captures_iter(&content) {
             if let Some(test_match) = cap.get(0) {
                 let lang = cap.get(1).map(|m| m.as_str().trim()).unwrap_or("");
-                if lang == "mbt" || lang == "moonbit" {
+                if lang.is_empty() || lang == "mbt" || lang == "moonbit" {
                     let line_number = content[..test_match.start()]
                         .chars()
                         .filter(|&c| c == '\n')
@@ -137,16 +137,30 @@ impl PatchJSON {
             let mut current_line = 1;
             let mut content = String::new();
             for doc_test in doc_tests_in_mbt_file {
+                let test_name = format!(
+                    "{} {} {} {}",
+                    "doc_test", doc_test.file_name, doc_test.line_number, doc_test.line_count
+                );
+
+                let already_wrapped = doc_test
+                    .content
+                    .lines()
+                    .any(|line| line.replacen("///", "", 1).trim_start().starts_with("test"));
+
                 let processed_content = doc_test
                     .content
                     .as_str()
                     .lines()
                     .map(|line| {
-                        let remove_slash = line.replacen("///", "", 1).trim_start().to_string();
-                        if remove_slash.starts_with("test") || remove_slash.starts_with("}") {
-                            remove_slash
+                        if already_wrapped {
+                            let remove_slash = line.replacen("///", "", 1).trim_start().to_string();
+                            if remove_slash.starts_with("test") || remove_slash.starts_with("}") {
+                                remove_slash
+                            } else {
+                                line.to_string().replacen("///", "   ", 1)
+                            }
                         } else {
-                            line.to_string().replacen("///", "   ", 1)
+                            format!("   {}", line.trim_start_matches("///")).to_string()
                         }
                     })
                     .collect::<Vec<_>>()
@@ -155,7 +169,14 @@ impl PatchJSON {
                 let start_line_number = doc_test.line_number;
                 let empty_lines = "\n".repeat(start_line_number - current_line);
 
-                content.push_str(&format!("\n{}{}\n", empty_lines, processed_content));
+                if already_wrapped {
+                    content.push_str(&format!("\n{}{}\n", empty_lines, processed_content));
+                } else {
+                    content.push_str(&format!(
+                        "{}test \"{}\" {{\n{}\n}}",
+                        empty_lines, test_name, processed_content
+                    ));
+                }
 
                 // +1 for the }
                 current_line = start_line_number + doc_test.line_count + 1;
