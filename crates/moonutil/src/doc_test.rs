@@ -132,7 +132,7 @@ impl DocTestExtractor {
 }
 
 impl PatchJSON {
-    pub fn from_doc_tests(doc_tests: Vec<Vec<DocTest>>) -> Self {
+    pub fn from_doc_tests(doc_tests: Vec<Vec<DocTest>>, pkg_dir: &Path) -> Self {
         let mut patches = vec![];
         for doc_tests_in_mbt_file in doc_tests.iter() {
             let mut current_line = 1;
@@ -149,7 +149,12 @@ impl PatchJSON {
                     .any(|line| line.replacen("///", "", 1).trim_start().starts_with("test"));
 
                 if already_wrapped {
-                    eprintln!("{}: don't need to wrap code in test block at `{}` line {}", "Warning".yellow(), doc_test.file_name, doc_test.line_number);
+                    eprintln!(
+                        "{}: don't need to wrap code in test block at {}:{}",
+                        "Warning".yellow(),
+                        pkg_dir.join(&doc_test.file_name).display(),
+                        doc_test.line_number
+                    );
                 }
 
                 let processed_content = doc_test
@@ -302,7 +307,7 @@ pub fn gen_doc_test_patch(
         return Ok(None);
     }
 
-    let pj = PatchJSON::from_doc_tests(doc_tests);
+    let pj = PatchJSON::from_doc_tests(doc_tests, &pkg.root_path);
     Ok(Some(pj))
 }
 
