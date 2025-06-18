@@ -245,7 +245,7 @@ fn discover_one_package(
 // consider calculating it on-demand instead of storing it.
 #[derive(Debug)]
 pub struct DiscoveredPackage {
-    /// The root path of the package
+    /// The folder of the package in source tree
     pub root_path: PathBuf,
     /// The ID of the module this package is in
     pub module: ModuleId,
@@ -276,6 +276,15 @@ pub struct DiscoveredPackage {
     /// is generated from the package json, instead of directly collected from
     /// the folder.
     pub c_stub_files: Vec<PathBuf>,
+}
+
+impl DiscoveredPackage {
+    /// Get the configuration file `moon.pkg.json` of this package
+    ///
+    /// This function assumes regular project layout.
+    pub fn config_path(&self) -> PathBuf {
+        self.root_path.join(MOON_PKG_JSON)
+    }
 }
 
 /// The result of a package discovery process.
