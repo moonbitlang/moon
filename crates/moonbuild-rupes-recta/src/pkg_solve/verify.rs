@@ -8,7 +8,7 @@ use petgraph::visit::IntoNodeIdentifiers;
 use crate::{
     discover::DiscoverResult,
     model::BuildTarget,
-    solve::model::{DepRelationship, SolveError},
+    pkg_solve::model::{DepRelationship, SolveError},
 };
 
 /// Verify that this package dependency graph is valid.
@@ -28,7 +28,7 @@ pub fn verify(dep: &DepRelationship, packages: &DiscoverResult) -> Result<(), So
 fn verify_no_loop(dep: &DepRelationship) -> Result<(), SolveError> {
     // An indexed current-visiting path, for finding loops
     let mut path = IndexSet::new();
-    // Work stack. Only items with
+    // Work stack.
     let mut stack = Vec::new();
     // The visited list
     let mut vis = HashSet::new();
@@ -55,7 +55,7 @@ fn verify_no_loop(dep: &DepRelationship) -> Result<(), SolveError> {
             if path.contains(&node) {
                 // We found a loop, return an error
                 // TODO: handle white box testing should not cause loop
-                let loop_path: Vec<_> = path.iter().cloned().collect();
+                let loop_path: Vec<_> = path.into_iter().collect();
                 return Err(SolveError::ImportLoop { loop_path });
             }
             // Set visibility

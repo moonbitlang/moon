@@ -34,7 +34,7 @@ use crate::{
     cond_comp::{self, CompileCondition},
     discover::DiscoverResult,
     model::{BuildTarget, TargetAction, TargetKind},
-    solve::DepRelationship,
+    pkg_solve::DepRelationship,
 };
 
 /// A directed graph representation of build dependencies and targets.

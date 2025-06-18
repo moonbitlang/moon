@@ -21,7 +21,7 @@ pub fn solve_only(
 
     // To convert the Package FQNs within `moon.pkg.json` into actual resolved
     // package instances, we will need to construct a reversed mapping from
-    // FQNs we will see in the import list with that of actual packages in scope.
+    // FQNs we will see in the import list to that of actual packages in scope.
     //
     // `moonc` currently cannot disambiguate between packages of the same FQN.
     // Thus, this mapping needs to be constructed globally. (And thankfully we
@@ -35,7 +35,7 @@ pub fn solve_only(
     for (pid, pkg_val) in packages.all_packages() {
         let mid = pkg_val.module;
         let m_name = modules.mod_name_from_id(mid);
-        let fqn = format_package_fqn(m_name.name(), &pkg_val.fqn.package());
+        let fqn = format_package_fqn(m_name.name(), pkg_val.fqn.package());
 
         trace!(
             "Mapping package FQN '{}' to pid={:?}, mid={:?}",
@@ -68,7 +68,7 @@ pub fn solve_only(
         };
 
         trace!("Processing packages for module {:?}", mid);
-        for (_, &pid) in pkgs {
+        for &pid in pkgs.values() {
             solve_one_package(&mut res, modules, packages, &rev_map, mid, pid)?;
         }
     }
@@ -126,6 +126,7 @@ fn solve_one_package(
     Ok(())
 }
 
+#[allow(clippy::too_many_arguments)]
 fn resolve_import(
     res: &mut DepRelationship,
     modules: &ResolvedEnv,
@@ -165,7 +166,7 @@ fn resolve_import(
 
     // Check if the import actually belongs to the current module's import
     let imported = packages.get_package(*import_pid);
-    if modules.graph().edge_weight(mid, *import_mid).is_none() {
+    if *import_mid != mid && modules.graph().edge_weight(mid, *import_mid).is_none() {
         debug!(
             "Import '{}' module {:?} not imported by current module {:?}",
             import_source, import_mid, mid
@@ -182,9 +183,9 @@ fn resolve_import(
     //     Currently this part is just for making the whole thing work.
     let short_alias = match import {
         moonutil::package::Import::Simple(_) => imported.fqn.short_alias(),
-        moonutil::package::Import::Alias { alias, .. } => {
-            alias.as_deref().unwrap_or(imported.fqn.short_alias())
-        }
+        moonutil::package::Import::Alias { alias, .. } => alias
+            .as_deref()
+            .unwrap_or_else(|| imported.fqn.short_alias()),
     };
     let is_import_target_subpackage = match import {
         moonutil::package::Import::Simple(_) => false,

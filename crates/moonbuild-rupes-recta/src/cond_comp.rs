@@ -8,7 +8,7 @@ use moonutil::{
     package::MoonPkg,
 };
 
-use crate::{model, solve};
+use crate::model;
 
 /// Which kind of test (if any) are we compiling the current package for.
 #[derive(Clone, Copy)]

@@ -21,7 +21,7 @@
     3. Discover packages within modules ([`crate::discover`]). This is different
         from many package managers -- the package distribution unit ("module")
         is different from the compile unit ("package").
-    4. Resolve the *package* dependency graph ([`crate::solve`]).
+    4. Resolve the *package* dependency graph ([`crate::pkg_solve`]).
     5. Get the list of top-level build actions from user input.
     6. From this list of build actions, resolve the whole abstract build graph
         that represents the list of actions to be executed
@@ -49,4 +49,4 @@ mod cond_comp;
 pub mod discover;
 pub mod model;
 pub mod pkg_name;
-pub mod solve;
+pub mod pkg_solve;
