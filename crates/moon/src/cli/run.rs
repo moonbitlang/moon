@@ -16,6 +16,8 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
+use std::path::PathBuf;
+
 use anyhow::{bail, Context};
 use moonbuild::dry_run;
 use moonbuild::entry;
@@ -367,7 +369,7 @@ pub fn run_run_internal(cli: &UniversalFlags, cmd: RunSubcommand) -> anyhow::Res
     if !pkg.is_main {
         bail!("`{}` is not a main package", package_path);
     }
-    let moonbuild_opt = MoonbuildOpt {
+    let mut moonbuild_opt = MoonbuildOpt {
         source_dir,
         raw_target_dir,
         target_dir,
@@ -396,6 +398,14 @@ pub fn run_run_internal(cli: &UniversalFlags, cmd: RunSubcommand) -> anyhow::Res
         &dir_sync_result,
         &PrePostBuild::PreBuild,
     )?;
+
+    let selected_pkg = module
+        .get_package_by_path(&PathBuf::from(&package))
+        .unwrap();
+    moonbuild_opt.build_opt = Some(moonutil::common::BuildOpt {
+        filter_package: Some(selected_pkg.full_name()),
+        ..Default::default()
+    });
 
     let pkg = module.get_package_by_path_mut(&package).unwrap();
     pkg.enable_value_tracing = cmd.build_flags.enable_value_tracing;
