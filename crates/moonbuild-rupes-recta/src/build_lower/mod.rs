@@ -6,12 +6,16 @@ use std::{
 };
 
 use moonutil::{common::TargetBackend, cond_expr::OptLevel, mooncakes::ModuleSource};
-use n2::graph::{Build, BuildId, BuildIns, BuildOuts, FileId, FileLoc, Graph as N2Graph};
+use n2::graph::{Build, BuildIns, BuildOuts, FileId, FileLoc, Graph as N2Graph};
 
 use crate::{
-    build_lower::artifact::LegacyLayout,
+    build_lower::{
+        artifact::LegacyLayout,
+        compiler::{CmdlineAbstraction, PackageSource},
+    },
     build_plan::{self, BuildPlan, BuildPlanNode},
     discover::{DiscoverResult, DiscoveredPackage},
+    model::BuildTarget,
 };
 
 mod artifact;
@@ -37,70 +41,145 @@ pub fn lower_build_plan(
 ) -> anyhow::Result<N2Graph> {
     let layout = LegacyLayout::new(opt.target_dir_root.clone(), opt.main_module.clone());
 
-    let mut graph = N2Graph::default();
+    let mut ctx = BuildPlanLowerContext {
+        graph: N2Graph::default(),
+        layout,
+        packages,
+        build_plan,
+        opt,
+    };
+
     for node in build_plan.all_nodes() {
-        lower_node(&mut graph, &layout, packages, build_plan, opt, node)?;
+        ctx.lower_node(node)?;
     }
 
-    Ok(graph)
+    Ok(ctx.graph)
 }
 
-fn lower_node(
-    graph: &mut N2Graph,
-    layout: &LegacyLayout,
-    packages: &DiscoverResult,
-    build_plan: &BuildPlan,
-    opt: &BuildOptions,
-    node: BuildPlanNode,
-) -> anyhow::Result<()> {
-    let target = build_plan.get_spec(node).expect("Node should be valid");
-    let package = packages.get_package(node.target.package);
-    let base_dir = layout.package_dir(&package.fqn, opt.target_backend);
+struct BuildPlanLowerContext<'a> {
+    // What we're building
+    graph: N2Graph,
 
-    match target {
-        build_plan::BuildActionSpec::Check(path_bufs) => todo!(),
-        build_plan::BuildActionSpec::BuildMbt(path_bufs) => {
-            lower_build_mbt(graph, layout, node, package, opt, base_dir, path_bufs)
+    // folder layout
+    layout: LegacyLayout,
+
+    // External state
+    packages: &'a DiscoverResult,
+    build_plan: &'a BuildPlan,
+    opt: &'a BuildOptions,
+}
+
+impl<'a> BuildPlanLowerContext<'a> {
+    fn lower_node(&mut self, node: BuildPlanNode) -> anyhow::Result<()> {
+        let target = self
+            .build_plan
+            .get_spec(node)
+            .expect("Node should be valid");
+        let package = self.packages.get_package(node.target.package);
+        let base_dir = self
+            .layout
+            .package_dir(&package.fqn, self.opt.target_backend);
+
+        match target {
+            build_plan::BuildActionSpec::Check(_path_bufs) => todo!(),
+            build_plan::BuildActionSpec::BuildMbt(path_bufs) => {
+                self.lower_build_mbt(node, package, base_dir, path_bufs)
+            }
+            build_plan::BuildActionSpec::BuildC(_path_bufs) => todo!(),
+            build_plan::BuildActionSpec::LinkCore(core_inputs) => {
+                self.lower_link_core(node, package, base_dir, core_inputs)
+            }
+            build_plan::BuildActionSpec::MakeExecutable(_build_targets) => {
+                // TODO: Local targets need another linking step
+                Ok(())
+            }
+            build_plan::BuildActionSpec::GenerateMbti => todo!(),
         }
-        build_plan::BuildActionSpec::BuildC(path_bufs) => todo!(),
-        build_plan::BuildActionSpec::LinkCore(build_targets) => todo!(),
-        build_plan::BuildActionSpec::MakeExecutable(build_targets) => todo!(),
-        build_plan::BuildActionSpec::GenerateMbti => todo!(),
     }
-}
 
-fn lower_build_mbt(
-    graph: &mut N2Graph,
-    layout: &LegacyLayout,
-    node: BuildPlanNode,
-    package: &DiscoveredPackage,
-    opt: &BuildOptions,
-    base_dir: PathBuf,
-    path_bufs: &Vec<PathBuf>,
-) -> anyhow::Result<()> {
-    let core_output = base_dir.join(layout.pkg_core_basename(&package.fqn, node.target.kind));
-    let mi_output = base_dir.join(layout.pkg_mi_basename(&package.fqn, node.target.kind));
+    fn lower_build_mbt(
+        &mut self,
+        node: BuildPlanNode,
+        package: &DiscoveredPackage,
+        base_dir: PathBuf,
+        path_bufs: &Vec<PathBuf>,
+    ) -> anyhow::Result<()> {
+        let core_output = base_dir.join(
+            self.layout
+                .pkg_core_basename(&package.fqn, node.target.kind),
+        );
+        let mi_output = base_dir.join(self.layout.pkg_mi_basename(&package.fqn, node.target.kind));
 
-    let ins = build_ins(graph, path_bufs);
-    let outs = build_outs(graph, [&core_output, &mi_output]);
+        let ins = build_ins(&mut self.graph, path_bufs);
+        let outs = build_outs(&mut self.graph, [&core_output, &mi_output]);
 
-    let cmd = compiler::MooncBuildPackage::new(
-        path_bufs.as_ref(),
-        &core_output,
-        &mi_output,
-        &package.fqn,
-        &package.root_path,
-        opt.target_backend,
-    );
-    // TODO: a lot of knobs are not controlled here
-    let mut args = vec!["moonc".into()]; // TODO: resolve to actual moonc
-    cmd.to_args_legacy(&mut args);
-    let build_cmdline =
-        shlex::try_join(args.iter().map(|x| x.as_ref())).expect("No nul should be in here");
+        let cmd = compiler::MooncBuildPackage::new(
+            path_bufs.as_ref(),
+            &core_output,
+            &mi_output,
+            &package.fqn,
+            &package.root_path,
+            self.opt.target_backend,
+        );
+        // TODO: a lot of knobs are not controlled here
 
-    let mut build = Build::new(build_n2_fileloc("build_mbt"), ins, outs);
-    build.cmdline = Some(build_cmdline);
-    graph.add_build(build)
+        let mut build = Build::new(build_n2_fileloc("build_mbt"), ins, outs);
+        build.cmdline = Some(build_cmdline("moonc".into(), &cmd)); // TODO: resolve moonc
+        self.graph.add_build(build)
+    }
+
+    fn lower_link_core(
+        &mut self,
+        node: BuildPlanNode,
+        package: &DiscoveredPackage,
+        base_dir: PathBuf,
+        core_inputs: &[BuildTarget],
+    ) -> anyhow::Result<()> {
+        let mut core_input_files = Vec::new();
+        for target in core_inputs {
+            let dep_pkg = self.packages.get_package(target.package);
+            let base_path = self
+                .layout
+                .package_dir(&dep_pkg.fqn, self.opt.target_backend);
+            let core_path =
+                base_path.join(self.layout.pkg_core_basename(&dep_pkg.fqn, target.kind));
+            core_input_files.push(core_path);
+        }
+
+        let out_file = base_dir.join(
+            self.layout
+                .pkg_core_basename(&package.fqn, node.target.kind),
+        );
+
+        let package_sources = core_inputs
+            .iter()
+            .map(|target| {
+                let pkg = self.packages.get_package(target.package);
+                PackageSource {
+                    package_name: &pkg.fqn,
+                    source_dir: &pkg.root_path,
+                }
+            })
+            .collect::<Vec<_>>();
+
+        let ins = build_ins(&mut self.graph, &core_input_files);
+        let outs = build_outs(&mut self.graph, [&out_file]);
+        let loc = build_n2_fileloc("link_core");
+
+        let config_path = package.config_path();
+        let cmd = compiler::MooncLinkCore::new(
+            &core_input_files,
+            &package.fqn,
+            &out_file,
+            &config_path,
+            &package_sources,
+            self.opt.target_backend,
+        );
+
+        let mut build = Build::new(loc, ins, outs);
+        build.cmdline = Some(build_cmdline("moonc".into(), &cmd));
+        self.graph.add_build(build)
+    }
 }
 
 /// Create a [`n2::graph::BuildIns`] with all explicit input (because why not?).
@@ -146,4 +225,10 @@ fn register_file(graph: &mut N2Graph, path: &Path) -> FileId {
     graph
         .files
         .id_from_canonical(path.to_string_lossy().into_owned())
+}
+
+fn build_cmdline(moonc: String, cmdline: &dyn CmdlineAbstraction) -> String {
+    let mut args = vec![moonc];
+    cmdline.to_args(&mut args);
+    shlex::try_join(args.iter().map(|x| x.as_ref())).expect("No nul should be in here")
 }
