@@ -28,19 +28,23 @@ pub struct BuildOptions {
     // FIXME: This overlaps with `crate::build_plan::BuildEnvironment`
     target_backend: TargetBackend,
     opt_level: OptLevel,
+    debug: bool,
+}
+
+/// An error that may be raised during build plan lowering
+#[derive(thiserror::Error, Debug)]
+pub enum LoweringError {
+    #[error("An error was reported by n2 (the build graph executor): {0}")]
+    N2(anyhow::Error),
 }
 
 /// Lowers a [`BuildPlan`] into a n2 [Build Graph](n2::graph::Graph).
-///
-/// This function returns an [`anyhow::Result`], which is worse than optimal for
-/// a library like this, but since `n2` uses it, we have no better choice.
 pub fn lower_build_plan(
     packages: &DiscoverResult,
     build_plan: &BuildPlan,
     opt: &BuildOptions,
-) -> anyhow::Result<N2Graph> {
-    let layout = LegacyLayout::new(opt.target_dir_root.clone(), opt.main_module.clone());
-
+) -> Result<N2Graph, LoweringError> {
+    let layout = LegacyLayout::new(opt.target_dir_root.to_owned(), opt.main_module.clone());
     let mut ctx = BuildPlanLowerContext {
         graph: N2Graph::default(),
         layout,
@@ -70,7 +74,7 @@ struct BuildPlanLowerContext<'a> {
 }
 
 impl<'a> BuildPlanLowerContext<'a> {
-    fn lower_node(&mut self, node: BuildPlanNode) -> anyhow::Result<()> {
+    fn lower_node(&mut self, node: BuildPlanNode) -> Result<(), LoweringError> {
         let target = self
             .build_plan
             .get_spec(node)
@@ -103,7 +107,7 @@ impl<'a> BuildPlanLowerContext<'a> {
         package: &DiscoveredPackage,
         base_dir: PathBuf,
         path_bufs: &Vec<PathBuf>,
-    ) -> anyhow::Result<()> {
+    ) -> Result<(), LoweringError> {
         let core_output = base_dir.join(
             self.layout
                 .pkg_core_basename(&package.fqn, node.target.kind),
@@ -113,7 +117,7 @@ impl<'a> BuildPlanLowerContext<'a> {
         let ins = build_ins(&mut self.graph, path_bufs);
         let outs = build_outs(&mut self.graph, [&core_output, &mi_output]);
 
-        let cmd = compiler::MooncBuildPackage::new(
+        let mut cmd = compiler::MooncBuildPackage::new(
             path_bufs.as_ref(),
             &core_output,
             &mi_output,
@@ -121,11 +125,13 @@ impl<'a> BuildPlanLowerContext<'a> {
             &package.root_path,
             self.opt.target_backend,
         );
+        cmd.flags.no_opt = self.opt.opt_level == OptLevel::Debug;
+        cmd.flags.symbols = self.opt.debug;
         // TODO: a lot of knobs are not controlled here
 
         let mut build = Build::new(build_n2_fileloc("build_mbt"), ins, outs);
         build.cmdline = Some(build_cmdline("moonc".into(), &cmd)); // TODO: resolve moonc
-        self.graph.add_build(build)
+        self.graph.add_build(build).map_err(LoweringError::N2)
     }
 
     fn lower_link_core(
@@ -134,7 +140,7 @@ impl<'a> BuildPlanLowerContext<'a> {
         package: &DiscoveredPackage,
         base_dir: PathBuf,
         core_inputs: &[BuildTarget],
-    ) -> anyhow::Result<()> {
+    ) -> Result<(), LoweringError> {
         let mut core_input_files = Vec::new();
         for target in core_inputs {
             let dep_pkg = self.packages.get_package(target.package);
@@ -167,7 +173,7 @@ impl<'a> BuildPlanLowerContext<'a> {
         let loc = build_n2_fileloc("link_core");
 
         let config_path = package.config_path();
-        let cmd = compiler::MooncLinkCore::new(
+        let mut cmd = compiler::MooncLinkCore::new(
             &core_input_files,
             &package.fqn,
             &out_file,
@@ -175,10 +181,12 @@ impl<'a> BuildPlanLowerContext<'a> {
             &package_sources,
             self.opt.target_backend,
         );
+        cmd.flags.no_opt = self.opt.opt_level == OptLevel::Debug;
+        cmd.flags.symbols = self.opt.debug;
 
         let mut build = Build::new(loc, ins, outs);
         build.cmdline = Some(build_cmdline("moonc".into(), &cmd));
-        self.graph.add_build(build)
+        self.graph.add_build(build).map_err(LoweringError::N2)
     }
 }
 
