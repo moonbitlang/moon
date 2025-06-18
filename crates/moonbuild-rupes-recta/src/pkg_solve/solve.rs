@@ -35,7 +35,7 @@ pub fn solve_only(
     for (pid, pkg_val) in packages.all_packages() {
         let mid = pkg_val.module;
         let m_name = modules.mod_name_from_id(mid);
-        let fqn = format_package_fqn(m_name.name(), &pkg_val.fqn.package());
+        let fqn = format_package_fqn(m_name.name(), pkg_val.fqn.package());
 
         trace!(
             "Mapping package FQN '{}' to pid={:?}, mid={:?}",
@@ -68,7 +68,7 @@ pub fn solve_only(
         };
 
         trace!("Processing packages for module {:?}", mid);
-        for (_, &pid) in pkgs {
+        for &pid in pkgs.values() {
             solve_one_package(&mut res, modules, packages, &rev_map, mid, pid)?;
         }
     }
@@ -126,6 +126,7 @@ fn solve_one_package(
     Ok(())
 }
 
+#[allow(clippy::too_many_arguments)]
 fn resolve_import(
     res: &mut DepRelationship,
     modules: &ResolvedEnv,
@@ -165,7 +166,7 @@ fn resolve_import(
 
     // Check if the import actually belongs to the current module's import
     let imported = packages.get_package(*import_pid);
-    if modules.graph().edge_weight(mid, *import_mid).is_none() {
+    if *import_mid != mid && modules.graph().edge_weight(mid, *import_mid).is_none() {
         debug!(
             "Import '{}' module {:?} not imported by current module {:?}",
             import_source, import_mid, mid

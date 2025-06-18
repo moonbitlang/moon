@@ -8,7 +8,7 @@ use petgraph::visit::IntoNodeIdentifiers;
 use crate::{
     discover::DiscoverResult,
     model::BuildTarget,
-    solve::model::{DepRelationship, SolveError},
+    pkg_solve::model::{DepRelationship, SolveError},
 };
 
 /// Verify that this package dependency graph is valid.
