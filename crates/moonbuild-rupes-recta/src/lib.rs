@@ -1,6 +1,22 @@
 /*!
     Rupes Recta is the new build graph generator for MoonBuild.
 
+    ## Quickstart
+
+    You can find high-level abstractions in modules [`resolve`] and [`compile`],
+    which splits the compilation process in two parts:
+
+    - [`resolve`] Builds an in-memory representation of all modules and packages
+        that needs to be used during the compile process, as well as the
+        dependency relationship between them. This part is always performed
+        without affected by the user input.
+
+    - [`compile`] takes in the resolved environment, and builds a [`n2`] build
+        graph for execution. This part converts the intent of the user into the
+        actual build commands.
+
+    ## Design
+
     The overall design of Rupes Recta is very similar to that of Rust's build
     system, [Cargo](https://docs.rs/cargo/latest/cargo/), although it is
     designed independently without referencing much from it.
@@ -50,3 +66,7 @@ pub mod discover;
 pub mod model;
 pub mod pkg_name;
 pub mod pkg_solve;
+
+// High-level actions
+pub mod compile;
+pub mod resolve;
