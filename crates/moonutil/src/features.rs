@@ -129,7 +129,7 @@ macro_rules! features {
 }
 
 features! {
-    // This is intentionally left blank, will be populated in the future
+    (unstable, rupes_recta, "Use the new Rupes Recta build script generator")
 }
 
 impl FromStr for Box<FeatureGate> {
