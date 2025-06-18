@@ -4,7 +4,7 @@ mod model;
 mod solve;
 mod verify;
 
-use crate::{discover::DiscoverResult, solve::verify::verify};
+use crate::{discover::DiscoverResult, pkg_solve::verify::verify};
 use log::info;
 use moonutil::mooncakes::result::ResolvedEnv;
 
