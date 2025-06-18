@@ -58,6 +58,6 @@ pub struct UniversalFlags {
 
     /// Enable unstable features for Moon.
     /// Should be supplied with a comma-separated list of feature name values.
-    #[clap(long, short = 'Z', default_value = "")]
+    #[clap(long, short = 'Z', default_value = "", env = "MOON_UNSTABLE")]
     pub unstable_feature: Box<crate::features::FeatureGate>,
 }
