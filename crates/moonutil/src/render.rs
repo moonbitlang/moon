@@ -22,7 +22,7 @@ use ariadne::Fmt;
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    common::{line_col_to_byte_idx, PatchJSON, MOON_DOC_TEST_POSTFIX},
+    common::{line_col_to_byte_idx, PatchJSON},
     error_code_docs::get_error_code_doc,
 };
 
@@ -152,13 +152,7 @@ impl MooncDiagnostic {
             return;
         }
 
-        let is_doc_test = diagnostic.location.path.contains(MOON_DOC_TEST_POSTFIX);
-        let source_file_path = if is_doc_test {
-            diagnostic.location.path.replace(MOON_DOC_TEST_POSTFIX, "")
-        } else {
-            diagnostic.location.path.clone()
-        };
-
+        let source_file_path = diagnostic.location.path.clone();
         let (source_file_content, display_filename) =
             match std::fs::read_to_string(&source_file_path) {
                 Ok(content) => (content, source_file_path.clone()),

@@ -232,6 +232,7 @@ Test the current package
 * `-p`, `--package <PACKAGE>` — Run test in the specified package
 * `-f`, `--file <FILE>` — Run test in the specified file. Only valid when `--package` is also specified
 * `-i`, `--index <INDEX>` — Run only the index-th test in the file. Only valid when `--file` is also specified
+* `--doc-index <DOC_INDEX>` — Run only the index-th doc test in the file. Only valid when `--file` is also specified
 * `-u`, `--update` — Update the test snapshot
 * `-l`, `--limit <LIMIT>` — Limit of expect test update passes to run, in order to avoid infinite loops
 

@@ -196,12 +196,7 @@ impl PatchJSON {
             }
 
             patches.push(PatchItem {
-                // xxx.mbt -> xxx_doc_test.mbt
-                name: format!(
-                    "{}{}.mbt",
-                    doc_tests_in_mbt_file[0].file_name.trim_end_matches(".mbt"),
-                    crate::common::MOON_DOC_TEST_POSTFIX,
-                ),
+                name: doc_tests_in_mbt_file[0].file_name.clone(),
                 content,
             });
         }
@@ -237,7 +232,6 @@ impl PatchJSON {
                 // std::fs::write(format!("__md_test_{}.mbt", md_test.file_name), &content).unwrap();
             }
             patches.push(PatchItem {
-                // xxx.md -> xxx_md_test.mbt
                 name: doc_test_in_md_file[0].file_name.clone(),
                 content,
             });

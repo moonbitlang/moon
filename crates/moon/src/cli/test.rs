@@ -24,7 +24,6 @@ use moonbuild::entry;
 use mooncake::pkg::sync::auto_sync;
 use mooncake::pkg::sync::auto_sync_for_single_mbt_md;
 use moonutil::common::PrePostBuild;
-use moonutil::common::MOON_DOC_TEST_POSTFIX;
 use moonutil::common::{
     lower_surface_targets, parse_front_matter_config, FileLock, GeneratedTestDriver, MbtMdHeader,
     MoonbuildOpt, MooncOpt, OutputFormat, RunMode, TargetBackend, TestOpt, MOONBITLANG_CORE,
@@ -65,6 +64,10 @@ pub struct TestSubcommand {
     /// Run only the index-th test in the file. Only valid when `--file` is also specified.
     #[clap(short, long)]
     pub index: Option<u32>,
+
+    /// Run only the index-th doc test in the file. Only valid when `--file` is also specified.
+    #[clap(long, conflicts_with = "index")]
+    pub doc_index: Option<u32>,
 
     /// Update the test snapshot
     #[clap(short, long)]
@@ -224,6 +227,7 @@ fn run_test_in_single_file(cli: &UniversalFlags, cmd: &TestSubcommand) -> anyhow
             filter_package: Some(HashSet::from([SINGLE_FILE_TEST_PACKAGE.to_string()])),
             filter_file: cmd.file.clone(),
             filter_index: cmd.index,
+            filter_doc_index: cmd.doc_index,
             limit: 256,
             test_failure_json: false,
             display_backend_hint: None,
@@ -231,7 +235,7 @@ fn run_test_in_single_file(cli: &UniversalFlags, cmd: &TestSubcommand) -> anyhow
                 Some(
                     target_dir
                         .join("single")
-                        .join(format!("{}.json", moonutil::common::MOON_MD_TEST_POSTFIX)),
+                        .join(moonutil::common::MOON_INTERNAL_PATCH_JSON_FILE),
                 )
             } else {
                 None
@@ -398,7 +402,7 @@ pub fn get_module_for_single_file(
         if let Some(patch_json) = patch_json {
             let pj_path = package
                 .artifact
-                .with_file_name(format!("{}.json", moonutil::common::MOON_MD_TEST_POSTFIX));
+                .with_file_name(moonutil::common::MOON_INTERNAL_PATCH_JSON_FILE);
             patch_json.write_to_path(&pj_path)?;
             package.test_patch_json_file = Some(pj_path);
         }
@@ -445,6 +449,7 @@ pub(crate) struct TestLikeSubcommand<'a> {
     pub package: &'a Option<Vec<String>>,
     pub file: &'a Option<String>,
     pub index: &'a Option<u32>,
+    pub doc_index: &'a Option<u32>,
     pub update: bool,
     pub limit: u32,
     pub auto_sync_flags: &'a AutoSyncFlags,
@@ -462,6 +467,7 @@ impl<'a> From<&'a TestSubcommand> for TestLikeSubcommand<'a> {
             package: &cmd.package,
             file: &cmd.file,
             index: &cmd.index,
+            doc_index: &cmd.doc_index,
             update: cmd.update,
             limit: cmd.limit,
             auto_sync_flags: &cmd.auto_sync_flags,
@@ -480,6 +486,7 @@ impl<'a> From<&'a BenchSubcommand> for TestLikeSubcommand<'a> {
             package: &cmd.package,
             file: &cmd.file,
             index: &cmd.index,
+            doc_index: &None,
             update: false,
             limit: 256,
             auto_sync_flags: &cmd.auto_sync_flags,
@@ -556,11 +563,14 @@ pub(crate) fn run_test_or_bench_internal(
     let filter_package = cmd.package.clone().map(|it| it.into_iter().collect());
     let filter_file = cmd.file;
     let filter_index = *cmd.index;
+    let filter_doc_index = *cmd.doc_index;
+
     let test_opt = if run_mode == RunMode::Bench {
         Some(TestOpt {
             filter_package: filter_package.clone(),
             filter_file: filter_file.clone(),
             filter_index,
+            filter_doc_index,
             limit,
             test_failure_json: false,
             display_backend_hint,
@@ -571,6 +581,7 @@ pub(crate) fn run_test_or_bench_internal(
             filter_package: filter_package.clone(),
             filter_file: filter_file.clone(),
             filter_index,
+            filter_doc_index,
             limit,
             test_failure_json: cmd.test_failure_json,
             display_backend_hint,
@@ -645,7 +656,7 @@ pub(crate) fn run_test_or_bench_internal(
                 files.iter().any(|file| file == file_filter)
             });
 
-            if !find && !file_filter.contains(MOON_DOC_TEST_POSTFIX) {
+            if !find {
                 eprintln!(
                     "{}: cannot find file `{}` in package {}, --file only support exact matching",
                     "Warning".yellow(),
@@ -717,7 +728,7 @@ pub(crate) fn run_test_or_bench_internal(
         if let Some(patch_json) = patch_json {
             let pj_path = pkg
                 .artifact
-                .with_file_name(format!("{}.json", moonutil::common::MOON_MD_TEST_POSTFIX));
+                .with_file_name(moonutil::common::MOON_INTERNAL_PATCH_JSON_FILE);
             patch_json.write_to_path(&pj_path)?;
             pkg.test_patch_json_file = Some(pj_path);
         }
