@@ -313,6 +313,7 @@ fn mvs_resolve(
         log::debug!("---- {} -> {:?}", ms, id);
         working_list.push((Arc::clone(module), ms.clone()));
         visited.insert(ms, id);
+        builder.push_root_module(id);
     }
 
     log::debug!("-- Inserting dependencies");

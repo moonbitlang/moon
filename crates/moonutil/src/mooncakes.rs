@@ -258,7 +258,7 @@ pub mod result {
     use std::{collections::HashMap, sync::Arc};
 
     use petgraph::graphmap::DiGraphMap;
-    use slotmap::{SecondaryMap, SlotMap};
+    use slotmap::SlotMap;
 
     use crate::module::MoonMod;
 
@@ -275,6 +275,10 @@ pub mod result {
     /// The result of a dependency resolution.
     #[derive(Debug)]
     pub struct ResolvedEnv {
+        /// The list of module IDs that are provided as the input to the resolver.
+        input_module_ids: Vec<ModuleId>,
+        /// A reverse mapping to query the unique ID of a module from its source.
+        rev_map: HashMap<ModuleSource, ModuleId>,
         /// The mapping from the unique IDs of modules to their source.
         ///
         /// Note that once we're out of the resolver, reverse-finding the ID
@@ -286,6 +290,14 @@ pub mod result {
     }
 
     impl ResolvedEnv {
+        pub fn input_module_ids(&self) -> &[ModuleId] {
+            &self.input_module_ids
+        }
+
+        pub fn mod_from_name(&self, ms: &ModuleSource) -> Option<ModuleId> {
+            self.rev_map.get(ms).cloned()
+        }
+
         pub fn mod_name_from_id(&self, id: ModuleId) -> &ModuleSource {
             &self.mapping[id].source
         }
@@ -349,23 +361,27 @@ pub mod result {
 
     pub struct ResolvedEnvBuilder {
         env: ResolvedEnv,
-        rev_mapping: HashMap<ModuleSource, ModuleId>,
     }
 
     impl ResolvedEnvBuilder {
         pub fn new() -> Self {
             Self {
                 env: ResolvedEnv {
+                    input_module_ids: Vec::new(),
                     mapping: SlotMap::with_key(),
                     dep_graph: DiGraphMap::new(),
+                    rev_map: HashMap::new(),
                 },
-                rev_mapping: HashMap::new(),
             }
+        }
+
+        pub fn push_root_module(&mut self, id: ModuleId) {
+            self.env.input_module_ids.push(id);
         }
 
         pub fn add_module(&mut self, mod_source: ModuleSource, module: Arc<MoonMod>) -> ModuleId {
             // check if it's already inserted
-            if let Some(id) = self.rev_mapping.get(&mod_source) {
+            if let Some(id) = self.env.rev_map.get(&mod_source) {
                 *id
             } else {
                 let val = ResolvedModule {
@@ -373,7 +389,7 @@ pub mod result {
                     value: module,
                 };
                 let id = self.env.mapping.insert(val);
-                self.rev_mapping.insert(mod_source, id);
+                self.env.rev_map.insert(mod_source, id);
                 id
             }
         }
