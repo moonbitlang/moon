@@ -55,6 +55,17 @@
     An alternative is proposed, but not implemented, with replacing `n2` with
     a hand-rolled, in-process executor that directly works on the abstract build
     graph instead of requiring to lower every command beforehand.
+
+    ## Logging
+
+    This crate uses the `log` crate for structured logging. Enable logging to see
+    detailed information about the build process:
+
+    - `info` level: High-level progress and completion messages
+    - `debug` level: Detailed operation information, counts, and intermediate results
+    - `trace` level: Very detailed information about individual operations
+
+    Initialize a logger (such as `env_logger`) to see these messages.
 */
 
 #![warn(clippy::unwrap_used)] // We prefer clear panic messages

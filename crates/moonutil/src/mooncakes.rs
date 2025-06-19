@@ -375,6 +375,10 @@ pub mod result {
             builder.add_module(ms, Arc::new(module));
             builder.build()
         }
+
+        pub fn module_count(&self) -> usize {
+            self.mapping.len()
+        }
     }
 
     pub struct ResolvedEnvBuilder {

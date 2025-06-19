@@ -8,6 +8,8 @@
 
 use std::path::Path;
 
+use log::{debug, info};
+
 use mooncake::pkg::sync::auto_sync;
 use moonutil::mooncakes::{
     result::ResolvedEnv, sync::AutoSyncFlags, DirSyncResult, ModuleId, RegistryConfig,
@@ -78,13 +80,33 @@ pub enum ResolveError {
 /// Performs the resolving process from a raw working directory, until all of
 /// the modules and packages affected are resolved.
 pub fn resolve(cfg: &ResolveConfig, source_dir: &Path) -> Result<ResolveOutput, ResolveError> {
+    info!(
+        "Starting resolve process for source directory: {}",
+        source_dir.display()
+    );
+    debug!("Resolve config: sync_flags={:?}", cfg.sync_flags);
+
     let (resolved_env, dir_sync_result) =
         auto_sync(source_dir, &cfg.sync_flags, &cfg.registry_config, false)
             .map_err(ResolveError::SyncModulesError)?;
 
+    info!("Module dependency resolution completed successfully");
+    debug!("Resolved {} modules", resolved_env.module_count());
+
     let discover_result = discover_packages(&resolved_env, &dir_sync_result)?;
 
+    info!(
+        "Package discovery completed, found {} packages",
+        discover_result.package_count()
+    );
+
     let dep_relationship = pkg_solve::solve(&resolved_env, &discover_result)?;
+
+    info!("Package dependency resolution completed successfully");
+    debug!(
+        "Package dependency graph has {} nodes",
+        dep_relationship.dep_graph.node_count()
+    );
 
     Ok(ResolveOutput {
         module_rel: resolved_env,

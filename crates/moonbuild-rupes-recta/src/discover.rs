@@ -31,11 +31,20 @@ pub fn discover_packages(
     env: &ResolvedEnv,
     dirs: &DirSyncResult,
 ) -> Result<DiscoverResult, DiscoverError> {
+    info!("Starting package discovery across all modules");
     let mut res = DiscoverResult::default();
+
+    debug!("Discovering packages in {} modules", env.module_count());
 
     for (id, m) in env.all_modules_and_id() {
         discover_packages_for_mod(&mut res, env, dirs, id, m)?;
     }
+
+    info!(
+        "Package discovery completed: found {} packages across {} modules",
+        res.package_count(),
+        env.module_count()
+    );
 
     Ok(res)
 }
@@ -129,7 +138,13 @@ fn discover_packages_for_mod(
         }
 
         // Begin discovering the package
+        debug!("Discovering package at {}", abs_path.display());
         let pkg = discover_one_package(id, module_source, abs_path, &rel_path)?;
+        debug!(
+            "Found package: {} with {} source files",
+            pkg.fqn,
+            pkg.source_files.len()
+        );
         res.add_package(id, pkg.fqn.package().clone(), pkg);
     }
 

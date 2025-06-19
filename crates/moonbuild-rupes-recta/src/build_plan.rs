@@ -19,6 +19,7 @@
 use std::{collections::HashMap, path::PathBuf};
 
 use indexmap::{set::MutableValues, IndexSet};
+use log::{debug, info};
 use moonutil::{
     common::TargetBackend,
     cond_expr::{OptLevel, ParseCondExprError},
@@ -118,9 +119,21 @@ pub fn build_plan(
     build_env: &BuildEnvironment,
     input: &[BuildPlanNode],
 ) -> Result<BuildPlan, BuildPlanConstructError> {
+    info!("Constructing build plan with {} input nodes", input.len());
+    debug!(
+        "Build environment: backend={:?}, opt_level={:?}",
+        build_env.target_backend, build_env.opt_level
+    );
+
     let mut constructor = BuildPlanConstructor::new(packages, build_deps, build_env);
     constructor.build(input)?;
-    Ok(constructor.finish())
+    let result = constructor.finish();
+
+    info!(
+        "Build plan construction completed with {} total nodes",
+        result.all_nodes().count()
+    );
+    Ok(result)
 }
 
 /// The struct responsible for holding the states and dependencies used during

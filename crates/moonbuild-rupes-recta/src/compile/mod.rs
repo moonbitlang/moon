@@ -1,5 +1,6 @@
 use std::path::PathBuf;
 
+use log::{debug, info};
 use moonutil::{common::TargetBackend, cond_expr::OptLevel, mooncakes::ModuleId};
 
 use crate::{
@@ -74,10 +75,22 @@ pub fn compile(
     cx: &CompileContext,
     intents: &[UserIntent],
 ) -> Result<CompileOutput, CompileGraphError> {
+    info!("Starting compilation with user intents {:?}", intents);
+    debug!(
+        "Target backend: {:?}, optimization level: {:?}",
+        cx.target_backend, cx.opt_level
+    );
+
     let input = intents
         .iter()
         .flat_map(translate_intent)
         .collect::<Vec<_>>();
+
+    debug!(
+        "Translated {} intents into {} build plan nodes",
+        intents.len(),
+        input.len()
+    );
 
     compile_with_raw_nodes(cx, &input)
 }
@@ -86,6 +99,11 @@ pub fn compile_with_raw_nodes(
     cx: &CompileContext,
     input_nodes: &[BuildPlanNode],
 ) -> Result<CompileOutput, CompileGraphError> {
+    info!(
+        "Building compilation plan for {} build nodes",
+        input_nodes.len()
+    );
+
     let build_env = BuildEnvironment {
         target_backend: cx.target_backend,
         opt_level: cx.opt_level,
@@ -96,6 +114,9 @@ pub fn compile_with_raw_nodes(
         &build_env,
         input_nodes,
     )?;
+
+    info!("Build plan created successfully");
+    debug!("Build plan contains {} nodes", plan.node_count());
 
     let lower_env = build_lower::BuildOptions {
         main_module: if let &[module] = cx.resolve_output.module_rel.input_module_ids() {
@@ -115,6 +136,9 @@ pub fn compile_with_raw_nodes(
     };
     let res = build_lower::lower_build_plan(&cx.resolve_output.pkg_dirs, &plan, &lower_env)?;
 
+    info!("Build graph lowering completed successfully");
+    debug!("Final build graph created with n2");
+
     Ok(CompileOutput {
         build_graph: res,
         // artifacts: todo!(),
@@ -123,29 +147,47 @@ pub fn compile_with_raw_nodes(
 
 pub fn translate_intent(intent: &UserIntent) -> Vec<BuildPlanNode> {
     match intent {
-        UserIntent::Check(targets) => targets
-            .iter()
-            .map(|&target| BuildPlanNode {
-                target,
-                action: TargetAction::Check,
-            })
-            .collect(),
-        UserIntent::BuildCore(targets) => targets
-            .iter()
-            .map(|&target| BuildPlanNode {
-                target,
-                action: TargetAction::Build,
-            })
-            .collect(),
-        UserIntent::BuildExecutable(targets) => targets
-            .iter()
-            .map(|&target| BuildPlanNode {
-                target,
-                action: TargetAction::MakeExecutable,
-            })
-            .collect(),
-        UserIntent::Format(_ids) => todo!(),
-        UserIntent::Info(_targets) => todo!(),
-        UserIntent::Bundle(_module_id) => todo!(),
+        UserIntent::Check(targets) => {
+            debug!("Translating Check intent for {} targets", targets.len());
+            targets
+                .iter()
+                .map(|&target| BuildPlanNode {
+                    target,
+                    action: TargetAction::Check,
+                })
+                .collect()
+        }
+        UserIntent::BuildCore(targets) => {
+            debug!("Translating BuildCore intent for {} targets", targets.len());
+            targets
+                .iter()
+                .map(|&target| BuildPlanNode {
+                    target,
+                    action: TargetAction::Build,
+                })
+                .collect()
+        }
+        UserIntent::BuildExecutable(targets) => {
+            debug!(
+                "Translating BuildExecutable intent for {} targets",
+                targets.len()
+            );
+            targets
+                .iter()
+                .map(|&target| BuildPlanNode {
+                    target,
+                    action: TargetAction::MakeExecutable,
+                })
+                .collect()
+        }
+        UserIntent::Format(_ids) => {
+            todo!()
+        }
+        UserIntent::Info(_targets) => {
+            todo!()
+        }
+        UserIntent::Bundle(_module_id) => {
+            todo!()
+        }
     }
 }
