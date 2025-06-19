@@ -19,7 +19,7 @@ use crate::{
 };
 
 /// Represents the overall result of a resolve process.
-pub struct ResolveResult {
+pub struct ResolveOutput {
     /// Module dependency relationship
     pub module_rel: ResolvedEnv,
     /// Module directories
@@ -30,7 +30,7 @@ pub struct ResolveResult {
     pub pkg_rel: DepRelationship,
 }
 
-impl ResolveResult {
+impl ResolveOutput {
     pub fn local_modules(&self) -> &[ModuleId] {
         self.module_rel.input_module_ids()
     }
@@ -77,7 +77,7 @@ pub enum ResolveError {
 
 /// Performs the resolving process from a raw working directory, until all of
 /// the modules and packages affected are resolved.
-pub fn resolve(cfg: &ResolveConfig, source_dir: &Path) -> Result<ResolveResult, ResolveError> {
+pub fn resolve(cfg: &ResolveConfig, source_dir: &Path) -> Result<ResolveOutput, ResolveError> {
     let (resolved_env, dir_sync_result) =
         auto_sync(source_dir, &cfg.sync_flags, &cfg.registry_config, false)
             .map_err(ResolveError::SyncModulesError)?;
@@ -86,7 +86,7 @@ pub fn resolve(cfg: &ResolveConfig, source_dir: &Path) -> Result<ResolveResult, 
 
     let dep_relationship = pkg_solve::solve(&resolved_env, &discover_result)?;
 
-    Ok(ResolveResult {
+    Ok(ResolveOutput {
         module_rel: resolved_env,
         module_dirs: dir_sync_result,
         pkg_dirs: discover_result,
