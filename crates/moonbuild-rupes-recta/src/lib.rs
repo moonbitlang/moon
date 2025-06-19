@@ -82,6 +82,9 @@ pub mod pkg_solve;
 pub mod compile;
 pub mod resolve;
 
+// Random utilities
+pub mod util;
+
 // Reexports
 pub use compile::{compile, CompileContext, CompileOutput};
 pub use resolve::{resolve, ResolveConfig, ResolveOutput};
