@@ -210,6 +210,7 @@ pub fn generate_test_driver(
             filter_package: filter_package.clone(),
             filter_file: None,
             filter_index: None,
+            filter_doc_index: None,
             limit: 256,
             test_failure_json: false,
             display_backend_hint: None,

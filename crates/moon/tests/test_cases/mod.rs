@@ -5409,8 +5409,90 @@ fn merge_doc_test_and_md_test() {
         "#]],
     );
 
-    assert!(get_err_stdout(&dir, ["test"]).contains("Total tests: 4, passed: 1, failed: 3."));
+    assert!(get_err_stdout(&dir, ["test"]).contains("Total tests: 9, passed: 6, failed: 3."));
 
     // should be ok if run with update
     get_stdout(&dir, ["test", "-u"]);
+
+    // -f should run internal test & doc test in that file
+    check(
+        get_stdout(
+            &dir,
+            ["test", "-p", "lib", "-f", "hello.mbt", "--sort-input"],
+        )
+        .split("\n")
+        .collect::<Vec<&str>>()
+        .iter()
+        .take(5)
+        .next_back()
+        .unwrap(),
+        expect!["Total tests: 4, passed: 4, failed: 0."],
+    );
+    // -i should run internal test only
+    check(
+        get_stdout(&dir, ["test", "-p", "lib", "-f", "hello.mbt", "-i", "0"]),
+        expect![[r#"
+            internal test 1
+            Total tests: 1, passed: 1, failed: 0.
+        "#]],
+    );
+    // --doc-index should run doc test only
+    check(
+        get_stdout(
+            &dir,
+            ["test", "-p", "lib", "-f", "hello.mbt", "--doc-index", "0"],
+        ),
+        expect![[r#"
+            doc test 1
+            Total tests: 1, passed: 1, failed: 0.
+        "#]],
+    );
+    // should run bb test only
+    check(
+        get_stdout(
+            &dir,
+            ["test", "-p", "lib", "-f", "hello_test.mbt", "-i", "0"],
+        ),
+        expect![[r#"
+            blackbox test 1
+            Total tests: 1, passed: 1, failed: 0.
+        "#]],
+    );
+    // doc test is ignored for _test.mbt & .mbt.md
+    {
+        check(
+            get_stdout(
+                &dir,
+                [
+                    "test",
+                    "-p",
+                    "lib",
+                    "-f",
+                    "hello_test.mbt",
+                    "--doc-index",
+                    "0",
+                ],
+            ),
+            expect![[r#"
+            Total tests: 0, passed: 0, failed: 0.
+        "#]],
+        );
+        check(
+            get_stdout(
+                &dir,
+                [
+                    "test",
+                    "-p",
+                    "lib",
+                    "-f",
+                    "README.mbt.md",
+                    "--doc-index",
+                    "0",
+                ],
+            ),
+            expect![[r#"
+            Total tests: 0, passed: 0, failed: 0.
+        "#]],
+        );
+    }
 }

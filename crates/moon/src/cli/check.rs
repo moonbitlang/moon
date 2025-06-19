@@ -199,7 +199,7 @@ fn run_check_for_single_file(cli: &UniversalFlags, cmd: &CheckSubcommand) -> any
                 Some(
                     target_dir
                         .join("single")
-                        .join(format!("{}.json", moonutil::common::MOON_MD_TEST_POSTFIX)),
+                        .join(moonutil::common::MOON_INTERNAL_PATCH_JSON_FILE),
                 )
             } else {
                 None
@@ -353,7 +353,7 @@ fn run_check_normal_internal(
         if let Some(patch_json) = patch_json {
             let pj_path = pkg
                 .artifact
-                .with_file_name(format!("{}.json", moonutil::common::MOON_MD_TEST_POSTFIX));
+                .with_file_name(moonutil::common::MOON_INTERNAL_PATCH_JSON_FILE);
             patch_json.write_to_path(&pj_path)?;
             pkg.test_patch_json_file = Some(pj_path);
         }

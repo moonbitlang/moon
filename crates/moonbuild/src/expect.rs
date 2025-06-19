@@ -58,6 +58,7 @@ pub struct BufferExpect {
     actual: String,
     kind: TargetKind,
     mode: Option<String>,
+    is_doc_test: bool,
 }
 
 // something like array out of bounds, moonbit panic & abort catch by js
@@ -561,6 +562,10 @@ fn gen_patch(targets: HashMap<String, BTreeSet<Target>>) -> anyhow::Result<Packa
                 }
             };
 
+            let is_doc_test = lines[(t.line_start as usize)..((t.line_end as usize) + 1)]
+                .iter()
+                .all(|line| line.starts_with("///"));
+
             for line in lines[t.line_start as usize..].iter() {
                 if line.trim().ends_with(")?")
                     && !line.trim().starts_with("#|")
@@ -581,6 +586,7 @@ fn gen_patch(targets: HashMap<String, BTreeSet<Target>>) -> anyhow::Result<Packa
                 actual: t.actual,
                 kind: t.kind,
                 mode: t.mode.clone(),
+                is_doc_test,
             });
         }
 
@@ -671,7 +677,7 @@ fn push_multi_line_string_internal(
     output
 }
 
-fn apply_patch(pp: &PackagePatch, is_doc_test: bool) -> anyhow::Result<()> {
+fn apply_patch(pp: &PackagePatch) -> anyhow::Result<()> {
     for (filename, patches) in pp.patches.iter() {
         let content = std::fs::read_to_string(filename)?;
         // TODO: share content_chars with gen_patch
@@ -692,6 +698,7 @@ fn apply_patch(pp: &PackagePatch, is_doc_test: bool) -> anyhow::Result<()> {
         let mut i = 0u32;
         let mut k = 0usize;
         while k < patches.len() {
+            let is_doc_test = patches[k].is_doc_test;
             let patch = &patches[k];
             let start = patch.range.start();
             let end = patch.range.end();
@@ -811,13 +818,13 @@ pub fn apply_snapshot(messages: &[String]) -> anyhow::Result<()> {
     Ok(())
 }
 
-pub fn apply_expect(messages: &[String], is_doc_test: bool) -> anyhow::Result<()> {
+pub fn apply_expect(messages: &[String]) -> anyhow::Result<()> {
     // dbg!(&messages);
     let targets = collect(messages)?;
     // dbg!(&targets);
     let patches = gen_patch(targets)?;
     // dbg!(&patches);
-    apply_patch(&patches, is_doc_test)?;
+    apply_patch(&patches)?;
     Ok(())
 }
 

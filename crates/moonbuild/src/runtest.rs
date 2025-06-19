@@ -24,9 +24,8 @@ use crate::section_capture::{handle_stdout, SectionCapture};
 use super::gen;
 use anyhow::{bail, Context};
 use moonutil::common::{
-    MoonbuildOpt, MooncOpt, DOT_MBT_DOT_MD, DYN_EXT, MOON_COVERAGE_DELIMITER_BEGIN,
-    MOON_COVERAGE_DELIMITER_END, MOON_DOC_TEST_POSTFIX, MOON_TEST_DELIMITER_BEGIN,
-    MOON_TEST_DELIMITER_END,
+    MoonbuildOpt, MooncOpt, DYN_EXT, MOON_COVERAGE_DELIMITER_BEGIN, MOON_COVERAGE_DELIMITER_END,
+    MOON_TEST_DELIMITER_BEGIN, MOON_TEST_DELIMITER_END,
 };
 use moonutil::module::ModuleDB;
 use moonutil::moon_dir::MOON_DIRS;
@@ -52,18 +51,6 @@ pub struct TestStatistics {
     pub index: String,
     pub test_name: String,
     pub message: String,
-
-    #[serde(skip_serializing)]
-    #[serde(default)]
-    pub is_doc_test: bool,
-
-    #[serde(skip_serializing)]
-    #[serde(default)]
-    pub is_md_test: bool,
-
-    #[serde(skip_serializing)]
-    #[serde(default)]
-    pub original_filename: Option<String>,
 }
 
 impl std::fmt::Display for TestStatistics {
@@ -298,21 +285,11 @@ async fn run(
             if s.is_empty() {
                 continue;
             }
-            let mut ts: TestStatistics = serde_json_lenient::from_str(s.trim())
+            let ts: TestStatistics = serde_json_lenient::from_str(s.trim())
                 .context(format!("failed to parse test summary: {}", s))?;
 
             if ts.message == "skipped test" {
                 continue;
-            }
-
-            ts.is_doc_test = ts.filename.contains(MOON_DOC_TEST_POSTFIX);
-            ts.is_md_test = ts.filename.ends_with(DOT_MBT_DOT_MD);
-
-            // this is a hack for doc test, make the doc test patch filename be the original file name
-            if ts.is_doc_test || ts.is_md_test {
-                ts.original_filename = Some(ts.filename.clone());
-                ts.filename = ts.filename.replace(MOON_DOC_TEST_POSTFIX, "");
-                ts.message = ts.message.replace(MOON_DOC_TEST_POSTFIX, "");
             }
 
             test_statistics.push(ts);
@@ -322,13 +299,7 @@ async fn run(
             let filename = &test_statistic.filename;
             let index = &test_statistic.index.parse::<u32>().unwrap();
             let test_name = file_test_info_map
-                .get(
-                    &if test_statistic.is_doc_test || test_statistic.is_md_test {
-                        test_statistic.original_filename.clone().unwrap()
-                    } else {
-                        filename.to_string()
-                    },
-                )
+                .get(filename)
                 .and_then(|m| m.get(index))
                 .and_then(|s| s.as_ref())
                 .unwrap_or(&test_statistic.index);

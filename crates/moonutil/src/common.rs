@@ -58,8 +58,7 @@ pub const TEST_INFO_FILE: &str = "test_info.json";
 pub const WHITEBOX_TEST_PATCH: &str = "_wbtest.json";
 pub const BLACKBOX_TEST_PATCH: &str = "_test.json";
 
-pub const MOON_DOC_TEST_POSTFIX: &str = "__moonbit_internal_doc_test";
-pub const MOON_MD_TEST_POSTFIX: &str = "__moonbit_internal_md_test";
+pub const MOON_INTERNAL_PATCH_JSON_FILE: &str = "__moonbit_internal_patch_test.json";
 
 pub const DOT_MBT_DOT_MD: &str = ".mbt.md";
 pub const DOT_MBL: &str = ".mbl";
@@ -478,6 +477,7 @@ pub struct TestOpt {
     pub filter_package: Option<HashSet<String>>,
     pub filter_file: Option<String>,
     pub filter_index: Option<u32>,
+    pub filter_doc_index: Option<u32>,
     pub limit: u32,
     pub test_failure_json: bool,
     pub display_backend_hint: Option<()>, // use Option to avoid if else
@@ -840,7 +840,7 @@ pub enum GeneratedTestDriver {
     BlackboxTest(PathBuf),
 }
 
-#[derive(Debug, ValueEnum, Clone)]
+#[derive(Debug, ValueEnum, Clone, Hash, Eq, PartialEq, Copy, Ord, PartialOrd)]
 pub enum DriverKind {
     Internal,
     Whitebox,

@@ -43,8 +43,7 @@ use crate::runtest::TestStatistics;
 
 use moonutil::common::{
     DriverKind, FileLock, FileName, MoonbuildOpt, MooncGenTestInfo, MooncOpt, PrePostBuild,
-    TargetBackend, TestArtifacts, TestBlockIndex, TestName, DOT_MBT_DOT_MD, MOON_DOC_TEST_POSTFIX,
-    SINGLE_FILE_TEST_PACKAGE, TEST_INFO_FILE,
+    TargetBackend, TestArtifacts, TestBlockIndex, TestName, DOT_MBT_DOT_MD, TEST_INFO_FILE,
 };
 
 use std::sync::{Arc, Mutex};
@@ -207,7 +206,6 @@ pub fn n2_run_interface(
         output.lines().for_each(|content| {
             catcher.lock().unwrap().push(content.to_owned());
             if output_json {
-                let content = content.replace(MOON_DOC_TEST_POSTFIX, "");
                 println!("{content}");
             } else {
                 moonutil::render::MooncDiagnostic::render(
@@ -566,7 +564,7 @@ fn convert_moonc_test_info(
     output_format: &str,
     filter_file: Option<&String>,
     sort_input: bool,
-) -> anyhow::Result<IndexMap<PathBuf, FileTestInfo>> {
+) -> anyhow::Result<IndexMap<(PathBuf, DriverKind), FileTestInfo>> {
     let mut test_info_files = vec![];
     for driver_kind in [
         DriverKind::Internal,
@@ -575,66 +573,48 @@ fn convert_moonc_test_info(
     ] {
         let path = test_info_file.join(format!("__{}_{}", driver_kind.to_string(), TEST_INFO_FILE));
         if path.exists() {
-            test_info_files.push(path);
+            test_info_files.push((driver_kind, path));
         }
     }
 
-    let mut moonc_test_info = MooncGenTestInfo {
-        no_args_tests: IndexMap::new(),
-        with_args_tests: IndexMap::new(),
-        with_bench_args_tests: IndexMap::new(),
-    };
-    for test_info_file in test_info_files {
+    let mut current_pkg_test_info = IndexMap::new();
+    for (driver_kind, test_info_file) in test_info_files {
         let content = std::fs::read_to_string(&test_info_file)
             .context(format!("failed to read {}", test_info_file.display()))?;
 
         let info = serde_json_lenient::from_str::<MooncGenTestInfo>(&content)
             .context(format!("failed to parse {}", test_info_file.display()))?;
-        moonc_test_info.no_args_tests.extend(info.no_args_tests);
-        moonc_test_info.with_args_tests.extend(info.with_args_tests);
-        moonc_test_info
-            .with_bench_args_tests
-            .extend(info.with_bench_args_tests);
-    }
 
-    let mut current_pkg_test_info = IndexMap::new();
-
-    for (filename, test_info) in moonc_test_info
-        .no_args_tests
-        .into_iter()
-        .chain(moonc_test_info.with_args_tests.into_iter())
-        .chain(moonc_test_info.with_bench_args_tests.into_iter())
-    {
-        if test_info.is_empty() {
-            continue;
-        }
-        if let Some(filter_file) = filter_file {
-            if filename != *filter_file {
-                continue;
-            }
-        }
-
-        let test_type = if filename.ends_with("_test.mbt")
-            || filename.ends_with(DOT_MBT_DOT_MD)
-            || pkg.full_name() == SINGLE_FILE_TEST_PACKAGE
-        {
-            DriverKind::Blackbox.to_string()
-        } else if filename.ends_with("_wbtest.mbt") {
-            DriverKind::Whitebox.to_string()
-        } else {
-            DriverKind::Internal.to_string()
-        };
         let artifact_path = pkg
             .artifact
-            .with_file_name(format!("{}.{test_type}_test.wat", pkg.last_name()))
+            .with_file_name(format!(
+                "{}.{}_test.wat",
+                pkg.last_name(),
+                driver_kind.to_string()
+            ))
             .with_extension(output_format);
 
-        current_pkg_test_info
-            .entry(artifact_path)
-            .or_insert(IndexMap::new())
-            .entry(filename)
-            .or_insert(IndexMap::new())
-            .extend(test_info.iter().map(|it| (it.index, it.name.clone())));
+        for (filename, test_info) in info
+            .no_args_tests
+            .into_iter()
+            .chain(info.with_args_tests.into_iter())
+            .chain(info.with_bench_args_tests.into_iter())
+        {
+            if test_info.is_empty() {
+                continue;
+            }
+            if let Some(filter_file) = filter_file {
+                if filename != *filter_file {
+                    continue;
+                }
+            }
+            current_pkg_test_info
+                .entry((artifact_path.clone(), driver_kind))
+                .or_insert(IndexMap::new())
+                .entry(filename)
+                .or_insert(IndexMap::new())
+                .extend(test_info.iter().map(|it| (it.index, it.name.clone())));
+        }
     }
 
     if sort_input {
@@ -667,6 +647,7 @@ pub fn run_test(
     let filter_package = test_opt.as_ref().and_then(|it| it.filter_package.as_ref());
     let filter_file = test_opt.as_ref().and_then(|it| it.filter_file.as_ref());
     let filter_index = test_opt.as_ref().and_then(|it| it.filter_index);
+    let filter_doc_index = test_opt.as_ref().and_then(|it| it.filter_doc_index);
 
     let printed = Arc::new(AtomicBool::new(false));
     let mut test_artifacts = TestArtifacts {
@@ -693,13 +674,33 @@ pub fn run_test(
             moonbuild_opt.sort_input,
         )?;
 
-        for (artifact_path, file_test_info_map) in current_pkg_test_info {
+        for ((artifact_path, driver_kind), file_test_info_map) in current_pkg_test_info {
+            match (driver_kind, filter_file, filter_doc_index, filter_index) {
+                // internal test can't be filtered by --doc-index
+                (DriverKind::Internal, _, Some(_), _) => {
+                    continue;
+                }
+                // blackbox test only valid for _test.mbt and .mbt.md
+                (DriverKind::Blackbox, Some(filename), _, Some(_))
+                    if !filename.ends_with("_test.mbt") && !filename.ends_with(DOT_MBT_DOT_MD) =>
+                {
+                    continue;
+                }
+                // blackbox test in _test.mbt or .mbt.md can't run doc test
+                (DriverKind::Blackbox, Some(filename), Some(_), _)
+                    if filename.ends_with("_test.mbt") || filename.ends_with(DOT_MBT_DOT_MD) =>
+                {
+                    continue;
+                }
+                _ => {}
+            }
             let mut test_args = TestArgs {
                 package: pkgname.clone(),
                 file_and_index: vec![],
             };
             for (file_name, test_count) in &file_test_info_map {
                 let range;
+                let filter_index = filter_index.or(filter_doc_index);
                 if let Some(filter_index) = filter_index {
                     range = filter_index..(filter_index + 1);
                 } else {
@@ -1070,11 +1071,7 @@ async fn handle_test_result(
                     // here need to rerun the test to get the new error message
                     // since the previous apply expect may add or delete some line, which make the error message out of date
                     let index = origin_err.index.clone().parse::<u32>().unwrap();
-                    let filename = if origin_err.is_doc_test || origin_err.is_md_test {
-                        origin_err.original_filename.clone().unwrap()
-                    } else {
-                        origin_err.filename.clone()
-                    };
+                    let filename = origin_err.filename.clone();
 
                     let test_args = TestArgs {
                         package: origin_err.package.clone(),
@@ -1102,31 +1099,29 @@ async fn handle_test_result(
                         _ => &[origin_err.message.clone()],
                     };
 
-                    if let Err(e) = crate::expect::apply_expect(update_msg, origin_err.is_doc_test)
-                    {
+                    if let Err(e) = crate::expect::apply_expect(update_msg) {
                         eprintln!("{}: {:?}", "apply expect failed".red().bold(), e);
                     }
                     // if is doc test, after apply_expect, we need to update the doc test patch file
-                    if origin_err.is_doc_test {
+                    // todo: gen_doc_test_patch when the cur running test is doc test
+                    {
                         let pkg = module.get_package_by_name(&origin_err.package);
                         let doc_test_patch =
                             moonutil::doc_test::gen_doc_test_patch(pkg, moonc_opt)?;
                         if let Some(doc_test_patch) = doc_test_patch {
-                            let pj_path = pkg.artifact.with_file_name(format!(
-                                "{}.json",
-                                moonutil::common::MOON_MD_TEST_POSTFIX
-                            ));
+                            let pj_path = pkg
+                                .artifact
+                                .with_file_name(moonutil::common::MOON_INTERNAL_PATCH_JSON_FILE);
                             doc_test_patch.write_to_path(&pj_path)?;
                         }
                     }
-                    if origin_err.is_md_test {
+                    if origin_err.filename.ends_with(DOT_MBT_DOT_MD) {
                         let pkg = module.get_package_by_name(&origin_err.package);
                         let md_test_patch = moonutil::doc_test::gen_md_test_patch(pkg, moonc_opt)?;
                         if let Some(doc_test_patch) = md_test_patch {
-                            let pj_path = pkg.artifact.with_file_name(format!(
-                                "{}.json",
-                                moonutil::common::MOON_MD_TEST_POSTFIX
-                            ));
+                            let pj_path = pkg
+                                .artifact
+                                .with_file_name(moonutil::common::MOON_INTERNAL_PATCH_JSON_FILE);
                             doc_test_patch.write_to_path(&pj_path)?;
                         }
                     }
@@ -1162,35 +1157,31 @@ async fn handle_test_result(
                             break;
                         }
 
-                        if let Err(e) = crate::expect::apply_expect(
-                            &[etf.message.clone()],
-                            origin_err.is_doc_test,
-                        ) {
+                        if let Err(e) = crate::expect::apply_expect(&[etf.message.clone()]) {
                             eprintln!("{}: {:?}", "failed".red().bold(), e);
                             break;
                         }
                         // if is doc test, after apply_expect, we need to update the doc test patch file
-                        if origin_err.is_doc_test {
+                        // todo: gen_doc_test_patch when the cur running test is doc test
+                        {
                             let pkg = module.get_package_by_name(&origin_err.package);
                             let doc_test_patch =
                                 moonutil::doc_test::gen_doc_test_patch(pkg, moonc_opt)?;
                             if let Some(doc_test_patch) = doc_test_patch {
-                                let pj_path = pkg.artifact.with_file_name(format!(
-                                    "{}.json",
-                                    moonutil::common::MOON_MD_TEST_POSTFIX
-                                ));
+                                let pj_path = pkg.artifact.with_file_name(
+                                    moonutil::common::MOON_INTERNAL_PATCH_JSON_FILE,
+                                );
                                 doc_test_patch.write_to_path(&pj_path)?;
                             }
                         }
-                        if origin_err.is_md_test {
+                        if origin_err.filename.ends_with(DOT_MBT_DOT_MD) {
                             let pkg = module.get_package_by_name(&origin_err.package);
                             let md_test_patch =
                                 moonutil::doc_test::gen_md_test_patch(pkg, moonc_opt)?;
                             if let Some(doc_test_patch) = md_test_patch {
-                                let pj_path = pkg.artifact.with_file_name(format!(
-                                    "{}.json",
-                                    moonutil::common::MOON_MD_TEST_POSTFIX
-                                ));
+                                let pj_path = pkg.artifact.with_file_name(
+                                    moonutil::common::MOON_INTERNAL_PATCH_JSON_FILE,
+                                );
                                 doc_test_patch.write_to_path(&pj_path)?;
                             }
                         }
