@@ -72,7 +72,7 @@ fn test_moon_help() {
                   --build-graph
                       Generate build graph
               -Z, --unstable-feature <UNSTABLE_FEATURE>
-                      Unstable flags to MoonBuild [default: ]
+                      Unstable flags to MoonBuild [env: MOON_UNSTABLE=] [default: ]
         "#]],
     );
 }
