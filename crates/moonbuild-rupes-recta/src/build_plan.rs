@@ -87,13 +87,14 @@ pub enum BuildActionSpec {
     /// if any.
     MakeExecutable(Vec<BuildTarget>),
     GenerateMbti,
+    Bundle,
 }
 
 /// Represents the environment in which the build is being performed.
 pub struct BuildEnvironment {
     // FIXME: Target backend should go into the solver, not here
-    target_backend: TargetBackend,
-    opt_level: OptLevel,
+    pub target_backend: TargetBackend,
+    pub opt_level: OptLevel,
     // Can have more, e.g. cross compile
 }
 

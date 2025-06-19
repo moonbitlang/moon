@@ -23,12 +23,12 @@ mod compiler;
 
 /// Knobs to tweak during build. Affects behaviors during lowering.
 pub struct BuildOptions {
-    main_module: ModuleSource,
-    target_dir_root: PathBuf,
+    pub main_module: Option<ModuleSource>,
+    pub target_dir_root: PathBuf,
     // FIXME: This overlaps with `crate::build_plan::BuildEnvironment`
-    target_backend: TargetBackend,
-    opt_level: OptLevel,
-    debug: bool,
+    pub target_backend: TargetBackend,
+    pub opt_level: OptLevel,
+    pub debug_symbols: bool,
 }
 
 /// An error that may be raised during build plan lowering
@@ -98,6 +98,7 @@ impl<'a> BuildPlanLowerContext<'a> {
                 Ok(())
             }
             build_plan::BuildActionSpec::GenerateMbti => todo!(),
+            build_plan::BuildActionSpec::Bundle => todo!(),
         }
     }
 
@@ -126,7 +127,7 @@ impl<'a> BuildPlanLowerContext<'a> {
             self.opt.target_backend,
         );
         cmd.flags.no_opt = self.opt.opt_level == OptLevel::Debug;
-        cmd.flags.symbols = self.opt.debug;
+        cmd.flags.symbols = self.opt.debug_symbols;
         // TODO: a lot of knobs are not controlled here
 
         let mut build = Build::new(build_n2_fileloc("build_mbt"), ins, outs);
@@ -182,7 +183,7 @@ impl<'a> BuildPlanLowerContext<'a> {
             self.opt.target_backend,
         );
         cmd.flags.no_opt = self.opt.opt_level == OptLevel::Debug;
-        cmd.flags.symbols = self.opt.debug;
+        cmd.flags.symbols = self.opt.debug_symbols;
 
         let mut build = Build::new(loc, ins, outs);
         build.cmdline = Some(build_cmdline("moonc".into(), &cmd));
