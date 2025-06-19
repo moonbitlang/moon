@@ -12,7 +12,8 @@
         without affected by the user input.
 
     - [`compile`] takes in the resolved environment, and builds a [`n2`] build
-        graph for execution.
+        graph for execution. This part converts the intent of the user into the
+        actual build commands.
 
     ## Design
 
