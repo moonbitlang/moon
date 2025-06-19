@@ -16,7 +16,7 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
-use crate::cli::get_module_for_single_file_test;
+use crate::cli::get_module_for_single_file;
 
 use super::pre_build::scan_with_x_build;
 use super::BuildFlags;
@@ -186,6 +186,7 @@ pub fn generate_test_driver(
         extra_link_opt: vec![],
         nostd: false,
         render: true,
+        single_file: false,
     };
 
     let sort_input = cmd.build_flags.sort_input;
@@ -231,7 +232,7 @@ pub fn generate_test_driver(
     };
 
     let module = if let Some(single_test_file) = cmd.single_test_file {
-        get_module_for_single_file_test(&single_test_file, &moonc_opt, &moonbuild_opt, None)?
+        get_module_for_single_file(&single_test_file, &moonc_opt, &moonbuild_opt, None)?
     } else {
         // Resolve dependencies, but don't download anything
         let (resolved_env, dir_sync_result) = auto_sync(

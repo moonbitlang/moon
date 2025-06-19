@@ -37,7 +37,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::thread;
 
-use crate::cli::get_module_for_single_file_test;
+use crate::cli::get_module_for_single_file;
 
 use super::pre_build::scan_with_x_build;
 use super::{get_compiler_flags, BuildFlags};
@@ -248,13 +248,10 @@ fn run_check_for_single_file(cli: &UniversalFlags, cmd: &CheckSubcommand) -> any
         extra_link_opt: vec![],
         nostd: false,
         render: !cmd.build_flags.no_render,
+        single_file: true,
     };
-    let module = get_module_for_single_file_test(
-        single_file_path,
-        &moonc_opt,
-        &moonbuild_opt,
-        mbt_md_header,
-    )?;
+    let module =
+        get_module_for_single_file(single_file_path, &moonc_opt, &moonbuild_opt, mbt_md_header)?;
 
     if cli.dry_run {
         return dry_run::print_commands(&module, &moonc_opt, &moonbuild_opt);
