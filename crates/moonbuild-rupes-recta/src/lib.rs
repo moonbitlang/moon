@@ -6,9 +6,11 @@
     You can find high-level abstractions in modules [`resolve`] and [`compile`],
     which splits the compilation process in two parts:
 
-    - [`resolve`] handles the process from having no information about the
-        build environment, until all modules and packages and their dependency
-        relationships are fully resolved.
+    - [`resolve`] Builds an in-memory representation of all modules and packages
+        that needs to be used during the compile process, as well as the
+        dependency relationship between them. This part is always performed
+        without affected by the user input.
+
     - [`compile`] takes in the resolved environment, and builds a [`n2`] build
         graph for execution.
 
