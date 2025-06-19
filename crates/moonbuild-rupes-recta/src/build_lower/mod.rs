@@ -5,6 +5,7 @@ use std::{
     rc::Rc,
 };
 
+use log::{debug, info};
 use moonutil::{common::TargetBackend, cond_expr::OptLevel, mooncakes::ModuleSource};
 use n2::graph::{Build, BuildIns, BuildOuts, FileId, FileLoc, Graph as N2Graph};
 
@@ -44,6 +45,12 @@ pub fn lower_build_plan(
     build_plan: &BuildPlan,
     opt: &BuildOptions,
 ) -> Result<N2Graph, LoweringError> {
+    info!("Starting build plan lowering to n2 graph");
+    debug!(
+        "Build options: backend={:?}, opt_level={:?}, debug_symbols={}",
+        opt.target_backend, opt.opt_level, opt.debug_symbols
+    );
+
     let layout = LegacyLayout::new(opt.target_dir_root.to_owned(), opt.main_module.clone());
     let mut ctx = BuildPlanLowerContext {
         graph: N2Graph::default(),
@@ -54,9 +61,11 @@ pub fn lower_build_plan(
     };
 
     for node in build_plan.all_nodes() {
+        debug!("Lowering build node: {:?}", node);
         ctx.lower_node(node)?;
     }
 
+    info!("Build plan lowering completed successfully");
     Ok(ctx.graph)
 }
 
@@ -83,6 +92,20 @@ impl<'a> BuildPlanLowerContext<'a> {
         let base_dir = self
             .layout
             .package_dir(&package.fqn, self.opt.target_backend);
+
+        debug!(
+            "Lowering {} action for package {}",
+            match target {
+                build_plan::BuildActionSpec::Check(_) => "Check",
+                build_plan::BuildActionSpec::BuildMbt(_) => "BuildMbt",
+                build_plan::BuildActionSpec::BuildC(_) => "BuildC",
+                build_plan::BuildActionSpec::LinkCore(_) => "LinkCore",
+                build_plan::BuildActionSpec::MakeExecutable(_) => "MakeExecutable",
+                build_plan::BuildActionSpec::GenerateMbti => "GenerateMbti",
+                build_plan::BuildActionSpec::Bundle => "Bundle",
+            },
+            package.fqn
+        );
 
         match target {
             build_plan::BuildActionSpec::Check(_path_bufs) => todo!(),
