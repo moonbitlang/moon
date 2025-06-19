@@ -173,7 +173,7 @@ fn resolve_import(
 
     // Check if the import actually belongs to the current module's import
     let imported = packages.get_package(*import_pid);
-    if modules.graph().edge_weight(mid, *import_mid).is_none() {
+    if *import_mid != mid && modules.graph().edge_weight(mid, *import_mid).is_none() {
         debug!(
             "Import '{}' module {:?} not imported by current module {:?}",
             import_source, import_mid, mid
