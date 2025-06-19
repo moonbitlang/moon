@@ -70,3 +70,7 @@ pub mod pkg_solve;
 // High-level actions
 pub mod compile;
 pub mod resolve;
+
+// Reexports
+pub use compile::{compile, CompileContext, CompileOutput};
+pub use resolve::{resolve, ResolveConfig, ResolveOutput};
