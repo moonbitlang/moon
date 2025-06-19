@@ -56,11 +56,17 @@ pub enum TargetKind {
 
 /// Represents a single compile target that may be separately checked, built,
 /// linked, etc.
-#[derive(Clone, Debug, PartialEq, Eq, Hash, Copy, PartialOrd, Ord)]
+#[derive(Clone, PartialEq, Eq, Hash, Copy, PartialOrd, Ord)]
 pub struct BuildTarget {
     pub package: PackageId,
     pub kind: TargetKind,
     // TODO: Target backend need to be added here!
+}
+
+impl std::fmt::Debug for BuildTarget {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{:?}@{:?}", self.package, self.kind)
+    }
 }
 
 impl PackageId {
