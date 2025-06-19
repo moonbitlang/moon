@@ -118,7 +118,7 @@ fn discover_packages_for_mod(
 
         // Avoid descending into another module
         let mod_json_path = abs_path.join(MOON_MOD_JSON);
-        if mod_json_path.exists() {
+        if mod_json_path.exists() && rel_path != "" {
             debug!(
                 "Skipping {} recursively because it contains {}",
                 abs_path.display(),
