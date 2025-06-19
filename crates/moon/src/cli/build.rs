@@ -242,6 +242,12 @@ fn run_build_internal_rupes_recta(
     let cfg = ResolveConfig::new_with_load_defaults(cmd.auto_sync_flags.frozen);
     let resolve_output = moonbuild_rupes_recta::resolve(&cfg, source_dir)?;
 
+    assert_eq!(
+        resolve_output.local_modules().len(),
+        1,
+        "There should be exactly one main local module, got {:?}",
+        resolve_output.local_modules()
+    );
     let main_module_id = resolve_output.local_modules()[0];
     let main_module = resolve_output.module_rel.module_info(main_module_id);
 
@@ -271,14 +277,18 @@ fn run_build_internal_rupes_recta(
     // FIXME: This is extremely verbose and barebones, only for testing purpose
     let mut graph = graph.build_graph;
     let mut hashes = n2::graph::Hashes::default();
-    let n2_db = n2::db::open(&PathBuf::from("/dev/null"), &mut graph, &mut hashes)?;
+    let n2_db = n2::db::open(
+        &target_dir.join("moon.rupes-recta.db"),
+        &mut graph,
+        &mut hashes,
+    )?;
     let mut prog_console = n2::progress::DumbConsoleProgress::new(false, None);
     let mut work = n2::work::Work::new(
         graph,
         hashes,
         n2_db,
         &n2::work::Options {
-            failures_left: None,
+            failures_left: Some(1),
             parallelism: 1,
             explain: false,
             adopt: false,
@@ -287,6 +297,7 @@ fn run_build_internal_rupes_recta(
         &mut prog_console,
         n2::smallmap::SmallMap::default(),
     );
+    work.want_every_file(None)?;
     let res = work.run()?;
     if let Some(n) = res {
         println!("{n} tasks executed");
@@ -307,7 +318,7 @@ fn calc_user_intent(
     let packages = resolve_output
         .pkg_dirs
         .packages_for_module(main_module_id)
-        .ok_or_else(|| anyhow!("The main local module does not contain any package!"))?;
+        .ok_or_else(|| anyhow!("Cannot find the local module!"))?;
     let mut linkable_pkgs = vec![];
     for &pkg_id in packages.values() {
         let pkg = resolve_output.pkg_dirs.get_package(pkg_id);
