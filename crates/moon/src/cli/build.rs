@@ -242,6 +242,21 @@ fn run_build_internal_rupes_recta(
     let cfg = ResolveConfig::new_with_load_defaults(cmd.auto_sync_flags.frozen);
     let resolve_output = moonbuild_rupes_recta::resolve(&cfg, source_dir)?;
 
+    // A couple of debug things:
+    if cli.unstable_feature.rr_export_module_graph {
+        moonbuild_rupes_recta::util::print_resolved_env_dot(
+            &resolve_output.module_rel,
+            &mut std::fs::File::create(target_dir.join("module_graph.dot"))?,
+        )?;
+    }
+    if cli.unstable_feature.rr_export_package_graph {
+        moonbuild_rupes_recta::util::print_dep_relationship_dot(
+            &resolve_output.pkg_rel,
+            &resolve_output.pkg_dirs,
+            &mut std::fs::File::create(target_dir.join("package_graph.dot"))?,
+        )?;
+    }
+
     assert_eq!(
         resolve_output.local_modules().len(),
         1,
