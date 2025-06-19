@@ -6,21 +6,22 @@ use crate::{
     build_lower,
     build_plan::{self, BuildEnvironment, BuildPlanNode},
     model::{BuildTarget, PackageId, TargetAction},
-    resolve::ResolveResult,
+    resolve::ResolveOutput,
 };
 
 /// The context that encapsulates all the data needed for the building process.
 pub struct CompileContext<'a> {
     /// The resolved environment for compiling
-    resolve_result: &'a ResolveResult,
+    pub resolve_output: &'a ResolveOutput,
     /// Target directory, i.e. `target/`
-    target_dir: PathBuf,
+    pub target_dir: PathBuf,
     /// The backend to use for the compilation.
-    target_backend: TargetBackend,
+    pub target_backend: TargetBackend,
     /// The optimization level to use for the compilation.
-    opt_level: OptLevel,
+    pub opt_level: OptLevel,
     /// Whether to emit debug symbols.
-    debug_symbols: bool,
+    pub debug_symbols: bool,
+    // TODO: more knobs
 }
 
 /// The output information of the compilation.
@@ -90,16 +91,16 @@ pub fn compile_with_raw_nodes(
         opt_level: cx.opt_level,
     };
     let plan = build_plan::build_plan(
-        &cx.resolve_result.pkg_dirs,
-        &cx.resolve_result.pkg_rel,
+        &cx.resolve_output.pkg_dirs,
+        &cx.resolve_output.pkg_rel,
         &build_env,
         input_nodes,
     )?;
 
     let lower_env = build_lower::BuildOptions {
-        main_module: if let &[module] = cx.resolve_result.module_rel.input_module_ids() {
+        main_module: if let &[module] = cx.resolve_output.module_rel.input_module_ids() {
             Some(
-                cx.resolve_result
+                cx.resolve_output
                     .module_rel
                     .mod_name_from_id(module)
                     .clone(),
@@ -112,7 +113,7 @@ pub fn compile_with_raw_nodes(
         opt_level: cx.opt_level,
         debug_symbols: cx.debug_symbols,
     };
-    let res = build_lower::lower_build_plan(&cx.resolve_result.pkg_dirs, &plan, &lower_env)?;
+    let res = build_lower::lower_build_plan(&cx.resolve_output.pkg_dirs, &plan, &lower_env)?;
 
     Ok(CompileOutput {
         build_graph: res,
