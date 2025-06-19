@@ -69,7 +69,20 @@ pub fn run_info(cli: UniversalFlags, cmd: InfoSubcommand) -> anyhow::Result<i32>
     } = cli.source_tgt_dir.try_into_package_dirs()?;
 
     let targets = if cmd.target.is_none() {
-        vec![TargetBackend::WasmGC]
+        let preferred_target = read_module_desc_file_in_dir(&source_dir)
+            .with_context(|| {
+                format!(
+                    "failed to read module description file: {}",
+                    source_dir
+                        .join(MOON_MOD_JSON)
+                        .display()
+                        .to_string()
+                        .bold()
+                        .red()
+                )
+            })?
+            .preferred_target;
+        vec![preferred_target.unwrap_or_default()]
     } else {
         lower_surface_targets(&cmd.target.clone().unwrap())
     };
