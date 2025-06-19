@@ -522,6 +522,7 @@ pub fn gen_check_command(
         .arg("-pkg")
         .arg(&item.package_full_name)
         .arg_with_cond(item.is_main && !item.is_blackbox_test, "-is-main")
+        .arg_with_cond(moonc_opt.single_file, "-single-file")
         .args_with_cond(
             !moonc_opt.nostd,
             [

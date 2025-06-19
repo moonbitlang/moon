@@ -5076,7 +5076,7 @@ fn test_virtual_pkg() {
 }
 
 #[test]
-fn moon_test_single_file() {
+fn moon_check_and_test_single_file() {
     let dir = TestDir::new("moon_test_single_file.in");
     let single_mbt = dir.join("single.mbt").display().to_string();
     let single_mbt_md = dir.join("111.mbt.md").display().to_string();
@@ -5227,6 +5227,45 @@ fn moon_test_single_file() {
                     │         ──────┬──────  
                     │               ╰──────── Warning: Unused variable 'single_mbt_md'
                 ────╯
+                Finished. moon: ran 1 task, now up to date
+            "#]],
+        );
+    }
+
+    // check single file (with or without main func)
+    {
+        let with_main = dir.join("with_main.mbt").display().to_string();
+        check(
+            get_stderr(&dir, ["check", &with_main]),
+            expect![[r#"
+                Warning: [0002]
+                   ╭─[$ROOT/with_main.mbt:2:7]
+                   │
+                 2 │   let with_main = 1
+                   │       ────┬────  
+                   │           ╰────── Warning: Unused variable 'with_main'
+                ───╯
+                Finished. moon: ran 1 task, now up to date
+            "#]],
+        );
+        let without_main = dir.join("without_main.mbt").display().to_string();
+        check(
+            get_stderr(&dir, ["check", &without_main]),
+            expect![[r#"
+                Warning: [0001]
+                   ╭─[$ROOT/without_main.mbt:1:4]
+                   │
+                 1 │ fn func() -> Unit {
+                   │    ──┬─  
+                   │      ╰─── Warning: Unused function 'func'
+                ───╯
+                Warning: [0002]
+                   ╭─[$ROOT/without_main.mbt:2:7]
+                   │
+                 2 │   let without_main = 1
+                   │       ──────┬─────  
+                   │             ╰─────── Warning: Unused variable 'without_main'
+                ───╯
                 Finished. moon: ran 1 task, now up to date
             "#]],
         );

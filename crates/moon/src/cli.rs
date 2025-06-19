@@ -298,6 +298,7 @@ pub fn get_compiler_flags(src_dir: &Path, build_flags: &BuildFlags) -> anyhow::R
         extra_link_opt,
         nostd,
         render,
+        single_file: false,
     })
 }
 

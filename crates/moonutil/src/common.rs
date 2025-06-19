@@ -529,6 +529,7 @@ pub struct MooncOpt {
     pub extra_link_opt: Vec<String>,
     pub nostd: bool,
     pub render: bool,
+    pub single_file: bool,
 }
 
 impl Default for MooncOpt {
@@ -546,6 +547,7 @@ impl MooncOpt {
             extra_link_opt: vec![],
             nostd: false,
             render: false,
+            single_file: false,
         }
     }
 }

@@ -279,13 +279,10 @@ fn run_test_in_single_file(cli: &UniversalFlags, cmd: &TestSubcommand) -> anyhow
         extra_link_opt: vec![],
         nostd: false,
         render: !cmd.build_flags.no_render,
+        single_file: true,
     };
-    let module = get_module_for_single_file_test(
-        single_file_path,
-        &moonc_opt,
-        &moonbuild_opt,
-        mbt_md_header,
-    )?;
+    let module =
+        get_module_for_single_file(single_file_path, &moonc_opt, &moonbuild_opt, mbt_md_header)?;
 
     if cli.dry_run {
         return dry_run::print_commands(&module, &moonc_opt, &moonbuild_opt);
@@ -301,13 +298,13 @@ fn run_test_in_single_file(cli: &UniversalFlags, cmd: &TestSubcommand) -> anyhow
     )
 }
 
-pub fn get_module_for_single_file_test(
+pub fn get_module_for_single_file(
     single_file_path: &Path,
     moonc_opt: &MooncOpt,
     moonbuild_opt: &MoonbuildOpt,
     front_matter_config: Option<MbtMdHeader>,
 ) -> anyhow::Result<ModuleDB> {
-    let gen_single_file_test_pkg = |moonc_opt: &MooncOpt, single_file_path: &Path| -> Package {
+    let gen_single_file_pkg = |moonc_opt: &MooncOpt, single_file_path: &Path| -> Package {
         let path_comp = PathComponent {
             components: vec!["moon".to_string(), "test".to_string()],
         };
@@ -395,7 +392,7 @@ pub fn get_module_for_single_file_test(
         moonbuild_opt,
     )?;
 
-    let mut package = gen_single_file_test_pkg(moonc_opt, single_file_path);
+    let mut package = gen_single_file_pkg(moonc_opt, single_file_path);
     if !package.mbt_md_files.is_empty() {
         let patch_json = moonutil::doc_test::gen_md_test_patch(&package, moonc_opt)?;
         if let Some(patch_json) = patch_json {
