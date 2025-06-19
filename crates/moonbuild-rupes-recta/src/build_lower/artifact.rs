@@ -17,14 +17,14 @@ pub struct LegacyLayout {
     target_base_dir: PathBuf,
     /// The name of the main module, so that packages from the main module will
     /// not be put into nested directories.
-    main_module: ModuleSource,
+    main_module: Option<ModuleSource>,
 }
 
 const LEGACY_NON_MAIN_MODULE_DIR: &str = ".mooncakes";
 
 impl LegacyLayout {
     /// Creates a new legacy layout instance.
-    pub fn new(target_base_dir: PathBuf, main_module: ModuleSource) -> Self {
+    pub fn new(target_base_dir: PathBuf, main_module: Option<ModuleSource>) -> Self {
         Self {
             target_base_dir,
             main_module,
@@ -40,7 +40,7 @@ impl LegacyLayout {
         let mut dir = self.target_base_dir.clone();
         push_backend(&mut dir, backend);
 
-        if pkg.module() == &self.main_module {
+        if self.main_module.as_ref().is_some_and(|m| pkg.module() == m) {
             dir.extend(pkg.package().segments());
         } else {
             dir.push(LEGACY_NON_MAIN_MODULE_DIR);
