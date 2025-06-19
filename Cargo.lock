@@ -1445,6 +1445,7 @@ dependencies = [
  "indexmap",
  "log",
  "moonbuild",
+ "moonbuild-rupes-recta",
  "mooncake",
  "moonutil",
  "n2",
