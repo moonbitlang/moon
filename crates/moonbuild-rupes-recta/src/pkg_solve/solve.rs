@@ -16,7 +16,11 @@ pub fn solve_only(
     modules: &ResolvedEnv,
     packages: &DiscoverResult,
 ) -> Result<DepRelationship, SolveError> {
-    debug!("Building dependency resolution structures");
+    let total_packages = packages.all_packages().count();
+    debug!(
+        "Building dependency resolution structures for {} packages",
+        total_packages
+    );
     let mut res = DepRelationship::default();
 
     // To convert the Package FQNs within `moon.pkg.json` into actual resolved
@@ -74,7 +78,11 @@ pub fn solve_only(
     }
     debug!("Processed packages");
 
-    debug!("Dependency resolution completed");
+    debug!(
+        "Dependency resolution completed with {} nodes and {} edges",
+        res.dep_graph.node_count(),
+        res.dep_graph.edge_count()
+    );
     Ok(res)
 }
 

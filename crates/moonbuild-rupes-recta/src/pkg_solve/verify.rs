@@ -3,6 +3,7 @@
 use std::collections::{hash_map::Entry, HashMap, HashSet};
 
 use indexmap::IndexSet;
+use log::debug;
 use petgraph::visit::IntoNodeIdentifiers;
 
 use crate::{
@@ -17,9 +18,15 @@ use crate::{
 /// - No loops (except test imports, which don't currently have a workaround)
 /// - Aliases are unique within one package
 pub fn verify(dep: &DepRelationship, packages: &DiscoverResult) -> Result<(), SolveError> {
-    verify_no_loop(dep)?;
-    verify_no_duplicated_alias(dep, packages)?;
+    debug!("Verifying package dependency graph integrity");
 
+    verify_no_loop(dep)?;
+    debug!("Loop verification passed");
+
+    verify_no_duplicated_alias(dep, packages)?;
+    debug!("Alias uniqueness verification passed");
+
+    debug!("Package dependency graph verification completed successfully");
     Ok(())
 }
 
