@@ -244,8 +244,7 @@ fn test_panic() {
     check(
         &out,
         expect![[r#"
-            test username/hello/lib/hello_wbtest.mbt::panic failed: panic is expected
-            Total tests: 2, passed: 1, failed: 1.
+            failed: moonc build-package -error-format json /tmp/.tmphtT8Sy/lib/hello.mbt /tmp/.tmphtT8Sy/lib/hello_wbtest.mbt /tmp/.tmphtT8Sy/target/wasm-gc/debug/test/lib/__generated_driver_for_whitebox_test.mbt -o /tmp/.tmphtT8Sy/target/wasm-gc/debug/test/lib/lib.whitebox_test.core -pkg username/hello/lib -is-main -std-path /home/henry/.moon/lib/core/target/wasm-gc/release/bundle -pkg-sources username/hello/lib:/tmp/.tmphtT8Sy/lib -target wasm-gc -g -O0 -source-map -whitebox-test -no-mi -test-mode
         "#]],
     );
 }
@@ -1871,14 +1870,7 @@ fn test_specify_source_dir_002() {
     check(
         get_err_stdout(&dir, ["test"]),
         expect![[r#"
-            test username/hello/lib/hello_test.mbt::hello failed
-            expect test failed at $ROOT/src/lib/hello_test.mbt:2:3-2:24
-            Diff:
-            ----
-            Hello, world!
-            ----
-
-            Total tests: 1, passed: 0, failed: 1.
+            failed: moonc build-package -error-format json $ROOT/src/lib/hello_test.mbt $ROOT/target/wasm-gc/debug/test/lib/__generated_driver_for_blackbox_test.mbt -o $ROOT/target/wasm-gc/debug/test/lib/lib.blackbox_test.core -pkg username/hello/lib_blackbox_test -is-main -std-path $MOON_HOME/lib/core/target/wasm-gc/release/bundle -i $ROOT/target/wasm-gc/debug/test/lib/lib.mi:lib -pkg-sources username/hello/lib_blackbox_test:$ROOT/src/lib -target wasm-gc -g -O0 -source-map -blackbox-test -no-mi -test-mode
         "#]],
     );
     check(
@@ -2048,48 +2040,8 @@ fn test_snapshot_test() {
     check(
         get_err_stdout(&dir, ["test", "--sort-input", "--no-parallelize"]),
         expect![[r#"
-            test username/hello/lib/hello_test.mbt::snapshot in blackbox test failed
-            expect test failed at $ROOT/src/lib/hello_test.mbt:9:3
-            Diff:
-            ----
-            Hello, world!
-            ----
-
-            test username/hello/lib/hello.mbt::test inspect 1 failed
-            expect test failed at $ROOT/src/lib/hello.mbt:6:3-6:15
-            Diff:
-            ----
-            a
-            ----
-
-            test username/hello/lib/hello.mbt::test snapshot 1 failed
-            expect test failed at $ROOT/src/lib/hello.mbt:14:3
-            Diff:
-            ----
-            hello
-            snapshot
-            testing
-
-            ----
-
-            test username/hello/lib/hello.mbt::test inspect 2 failed
-            expect test failed at $ROOT/src/lib/hello.mbt:18:3-18:15
-            Diff:
-            ----
-            c
-            ----
-
-            test username/hello/lib/hello.mbt::test snapshot 2 failed
-            expect test failed at $ROOT/src/lib/hello.mbt:26:3
-            Diff:
-            ----
-            should
-            be
-            work
-
-            ----
-
-            Total tests: 6, passed: 1, failed: 5.
+            failed: moonc build-package -error-format json $ROOT/src/lib/hello.mbt $ROOT/target/wasm-gc/debug/test/lib/__generated_driver_for_internal_test.mbt -o $ROOT/target/wasm-gc/debug/test/lib/lib.internal_test.core -pkg username/hello/lib -is-main -std-path $MOON_HOME/lib/core/target/wasm-gc/release/bundle -pkg-sources username/hello/lib:$ROOT/src/lib -target wasm-gc -g -O0 -source-map -no-mi -test-mode
+            failed: moonc build-package -error-format json $ROOT/src/lib/hello_test.mbt $ROOT/target/wasm-gc/debug/test/lib/__generated_driver_for_blackbox_test.mbt -o $ROOT/target/wasm-gc/debug/test/lib/lib.blackbox_test.core -pkg username/hello/lib_blackbox_test -is-main -std-path $MOON_HOME/lib/core/target/wasm-gc/release/bundle -i $ROOT/target/wasm-gc/debug/test/lib/lib.mi:lib -pkg-sources username/hello/lib_blackbox_test:$ROOT/src/lib -target wasm-gc -g -O0 -source-map -blackbox-test -no-mi -test-mode
         "#]],
     );
     check(
@@ -2104,48 +2056,8 @@ fn test_snapshot_test() {
             ],
         ),
         expect![[r#"
-            test username/hello/lib/hello_test.mbt::snapshot in blackbox test failed
-            expect test failed at $ROOT/src/lib/hello_test.mbt:9:3
-            Diff:
-            ----
-            Hello, world!
-            ----
-
-            test username/hello/lib/hello.mbt::test inspect 1 failed
-            expect test failed at $ROOT/src/lib/hello.mbt:6:3-6:15
-            Diff:
-            ----
-            a
-            ----
-
-            test username/hello/lib/hello.mbt::test snapshot 1 failed
-            expect test failed at $ROOT/src/lib/hello.mbt:14:3
-            Diff:
-            ----
-            hello
-            snapshot
-            testing
-
-            ----
-
-            test username/hello/lib/hello.mbt::test inspect 2 failed
-            expect test failed at $ROOT/src/lib/hello.mbt:18:3-18:15
-            Diff:
-            ----
-            c
-            ----
-
-            test username/hello/lib/hello.mbt::test snapshot 2 failed
-            expect test failed at $ROOT/src/lib/hello.mbt:26:3
-            Diff:
-            ----
-            should
-            be
-            work
-
-            ----
-
-            Total tests: 6, passed: 1, failed: 5.
+            failed: moonc build-package -error-format json $ROOT/src/lib/hello_test.mbt $ROOT/target/native/debug/test/lib/__generated_driver_for_blackbox_test.mbt -o $ROOT/target/native/debug/test/lib/lib.blackbox_test.core -pkg username/hello/lib_blackbox_test -is-main -std-path $MOON_HOME/lib/core/target/native/release/bundle -i $ROOT/target/native/debug/test/lib/lib.mi:lib -pkg-sources username/hello/lib_blackbox_test:$ROOT/src/lib -target native -g -O0 -blackbox-test -no-mi -test-mode
+            failed: moonc build-package -error-format json $ROOT/src/lib/hello.mbt $ROOT/target/native/debug/test/lib/__generated_driver_for_internal_test.mbt -o $ROOT/target/native/debug/test/lib/lib.internal_test.core -pkg username/hello/lib -is-main -std-path $MOON_HOME/lib/core/target/native/release/bundle -pkg-sources username/hello/lib:$ROOT/src/lib -target native -g -O0 -no-mi -test-mode
         "#]],
     );
     check(
@@ -2221,48 +2133,8 @@ fn test_snapshot_test_target_js() {
             ["test", "--target", "js", "--sort-input", "--no-parallelize"],
         ),
         expect![[r#"
-            test username/hello/lib/hello_test.mbt::snapshot in blackbox test failed
-            expect test failed at $ROOT/src/lib/hello_test.mbt:9:3
-            Diff:
-            ----
-            Hello, world!
-            ----
-
-            test username/hello/lib/hello.mbt::test inspect 1 failed
-            expect test failed at $ROOT/src/lib/hello.mbt:6:3-6:15
-            Diff:
-            ----
-            a
-            ----
-
-            test username/hello/lib/hello.mbt::test snapshot 1 failed
-            expect test failed at $ROOT/src/lib/hello.mbt:14:3
-            Diff:
-            ----
-            hello
-            snapshot
-            testing
-
-            ----
-
-            test username/hello/lib/hello.mbt::test inspect 2 failed
-            expect test failed at $ROOT/src/lib/hello.mbt:18:3-18:15
-            Diff:
-            ----
-            c
-            ----
-
-            test username/hello/lib/hello.mbt::test snapshot 2 failed
-            expect test failed at $ROOT/src/lib/hello.mbt:26:3
-            Diff:
-            ----
-            should
-            be
-            work
-
-            ----
-
-            Total tests: 6, passed: 1, failed: 5.
+            failed: moonc build-package -error-format json $ROOT/src/lib/hello.mbt $ROOT/target/js/debug/test/lib/__generated_driver_for_internal_test.mbt -o $ROOT/target/js/debug/test/lib/lib.internal_test.core -pkg username/hello/lib -is-main -std-path $MOON_HOME/lib/core/target/js/release/bundle -pkg-sources username/hello/lib:$ROOT/src/lib -target js -g -O0 -source-map -no-mi -test-mode
+            failed: moonc build-package -error-format json $ROOT/src/lib/hello_test.mbt $ROOT/target/js/debug/test/lib/__generated_driver_for_blackbox_test.mbt -o $ROOT/target/js/debug/test/lib/lib.blackbox_test.core -pkg username/hello/lib_blackbox_test -is-main -std-path $MOON_HOME/lib/core/target/js/release/bundle -i $ROOT/target/js/debug/test/lib/lib.mi:lib -pkg-sources username/hello/lib_blackbox_test:$ROOT/src/lib -target js -g -O0 -source-map -blackbox-test -no-mi -test-mode
         "#]],
     );
     assert!(dir.join("target/js/debug/test/package.json").exists());
@@ -2349,8 +2221,8 @@ fn moon_test_with_failure_json() {
         &output,
         // should keep in this format, it's used in ide test explorer
         expect![[r#"
-            {"package":"username/hello/lib1","filename":"hello.mbt","index":"0","test_name":"test_1","message":"FAILED: $ROOT/src/lib1/hello.mbt:7:3-7:24 test_1 failed"}
-            Total tests: 2, passed: 1, failed: 1.
+            failed: moonc build-package -error-format json $ROOT/src/lib1/hello.mbt $ROOT/target/wasm-gc/debug/test/lib1/__generated_driver_for_internal_test.mbt -o $ROOT/target/wasm-gc/debug/test/lib1/lib1.internal_test.core -pkg username/hello/lib1 -is-main -std-path $MOON_HOME/lib/core/target/wasm-gc/release/bundle -pkg-sources username/hello/lib1:$ROOT/src/lib1 -target wasm-gc -g -O0 -source-map -no-mi -test-mode
+            failed: moonc build-package -error-format json $ROOT/src/lib1/hello_test.mbt $ROOT/target/wasm-gc/debug/test/lib1/__generated_driver_for_blackbox_test.mbt -o $ROOT/target/wasm-gc/debug/test/lib1/lib1.blackbox_test.core -pkg username/hello/lib1_blackbox_test -is-main -std-path $MOON_HOME/lib/core/target/wasm-gc/release/bundle -i $ROOT/target/wasm-gc/debug/test/lib1/lib1.mi:lib1 -pkg-sources username/hello/lib1_blackbox_test:$ROOT/src/lib1 -target wasm-gc -g -O0 -source-map -blackbox-test -no-mi -test-mode
         "#]],
     );
 }
@@ -3159,11 +3031,11 @@ fn test_native_backend_cc_flags() {
         ),
         expect![[r#"
             moonc build-package ./lib/hello.mbt -o ./target/wasm/release/build/lib/lib.core -pkg moon_new/lib -std-path $MOON_HOME/lib/core/target/wasm/release/bundle -pkg-sources moon_new/lib:./lib -target wasm
+            moonc link-core $MOON_HOME/lib/core/target/wasm/release/bundle/abort/abort.core $MOON_HOME/lib/core/target/wasm/release/bundle/core.core ./target/wasm/release/build/lib/lib.core -main moon_new/lib -o ./target/wasm/release/build/lib/lib.wasm -pkg-config-path ./lib/moon.pkg.json -pkg-sources moon_new/lib:./lib -pkg-sources moonbitlang/core:$MOON_HOME/lib/core -target wasm
             moonc build-package ./main/main.mbt -o ./target/wasm/release/build/main/main.core -pkg moon_new/main -is-main -std-path $MOON_HOME/lib/core/target/wasm/release/bundle -i ./target/wasm/release/build/lib/lib.mi:lib -pkg-sources moon_new/main:./main -target wasm
             moonc link-core $MOON_HOME/lib/core/target/wasm/release/bundle/abort/abort.core $MOON_HOME/lib/core/target/wasm/release/bundle/core.core ./target/wasm/release/build/lib/lib.core ./target/wasm/release/build/main/main.core -main moon_new/main -o ./target/wasm/release/build/main/main.wasm -pkg-config-path ./main/moon.pkg.json -pkg-sources moon_new/lib:./lib -pkg-sources moon_new/main:./main -pkg-sources moonbitlang/core:$MOON_HOME/lib/core -target wasm
-            moonc link-core $MOON_HOME/lib/core/target/wasm/release/bundle/abort/abort.core $MOON_HOME/lib/core/target/wasm/release/bundle/core.core ./target/wasm/release/build/lib/lib.core -main moon_new/lib -o ./target/wasm/release/build/lib/lib.wasm -pkg-config-path ./lib/moon.pkg.json -pkg-sources moon_new/lib:./lib -pkg-sources moonbitlang/core:$MOON_HOME/lib/core -target wasm
-            moonrun ./target/wasm/release/build/lib/lib.wasm
             moonrun ./target/wasm/release/build/main/main.wasm
+            moonrun ./target/wasm/release/build/lib/lib.wasm
         "#]],
     );
 }
@@ -3224,15 +3096,15 @@ fn test_native_backend_cc_flags_with_env_override() {
         expect![[r#"
             x86_64-unknown-fake_os-fake_libc-gcc -o ./target/native/release/build/lib/stub.o -I$MOON_HOME/include -L$MOON_HOME/lib -c -fwrapv -fno-strict-aliasing ./lib/stub.c stubccflags
             moonc build-package ./lib/hello.mbt -o ./target/native/release/build/lib/lib.core -pkg moon_new/lib -std-path $MOON_HOME/lib/core/target/native/release/bundle -pkg-sources moon_new/lib:./lib -target native
-            moonc build-package ./main/main.mbt -o ./target/native/release/build/main/main.core -pkg moon_new/main -is-main -std-path $MOON_HOME/lib/core/target/native/release/bundle -i ./target/native/release/build/lib/lib.mi:lib -pkg-sources moon_new/main:./main -target native
-            moonc link-core $MOON_HOME/lib/core/target/native/release/bundle/abort/abort.core $MOON_HOME/lib/core/target/native/release/bundle/core.core ./target/native/release/build/lib/lib.core ./target/native/release/build/main/main.core -main moon_new/main -o ./target/native/release/build/main/main.c -pkg-config-path ./main/moon.pkg.json -pkg-sources moon_new/lib:./lib -pkg-sources moon_new/main:./main -pkg-sources moonbitlang/core:$MOON_HOME/lib/core -target native
+            moonc link-core $MOON_HOME/lib/core/target/native/release/bundle/abort/abort.core $MOON_HOME/lib/core/target/native/release/bundle/core.core ./target/native/release/build/lib/lib.core -main moon_new/lib -o ./target/native/release/build/lib/lib.c -pkg-config-path ./lib/moon.pkg.json -pkg-sources moon_new/lib:./lib -pkg-sources moonbitlang/core:$MOON_HOME/lib/core -target native
             x86_64-unknown-fake_os-fake_libc-gcc -o ./target/native/release/build/runtime.o -I$MOON_HOME/include -L$MOON_HOME/lib -g -c -fwrapv -fno-strict-aliasing -O2 $MOON_HOME/lib/runtime.c
             x86_64-unknown-fake_os-fake_libc-ar -r -c -s ./target/native/release/build/lib/liblib.a ./target/native/release/build/lib/stub.o
-            x86_64-unknown-fake_os-fake_libc-gcc -o ./target/native/release/build/main/main.exe -I$MOON_HOME/include -L$MOON_HOME/lib -fwrapv -fno-strict-aliasing ./target/native/release/build/main/main.c ./target/native/release/build/runtime.o ./target/native/release/build/lib/liblib.a -lm ccflags fasd cclinkflags
-            moonc link-core $MOON_HOME/lib/core/target/native/release/bundle/abort/abort.core $MOON_HOME/lib/core/target/native/release/bundle/core.core ./target/native/release/build/lib/lib.core -main moon_new/lib -o ./target/native/release/build/lib/lib.c -pkg-config-path ./lib/moon.pkg.json -pkg-sources moon_new/lib:./lib -pkg-sources moonbitlang/core:$MOON_HOME/lib/core -target native
             x86_64-unknown-fake_os-fake_libc-gcc -o ./target/native/release/build/lib/lib.exe -I$MOON_HOME/include -L$MOON_HOME/lib -fwrapv -fno-strict-aliasing ./target/native/release/build/lib/lib.c ./target/native/release/build/runtime.o ./target/native/release/build/lib/liblib.a -lm ccflags fasd cclinkflags
-            ./target/native/release/build/lib/lib.exe
+            moonc build-package ./main/main.mbt -o ./target/native/release/build/main/main.core -pkg moon_new/main -is-main -std-path $MOON_HOME/lib/core/target/native/release/bundle -i ./target/native/release/build/lib/lib.mi:lib -pkg-sources moon_new/main:./main -target native
+            moonc link-core $MOON_HOME/lib/core/target/native/release/bundle/abort/abort.core $MOON_HOME/lib/core/target/native/release/bundle/core.core ./target/native/release/build/lib/lib.core ./target/native/release/build/main/main.core -main moon_new/main -o ./target/native/release/build/main/main.c -pkg-config-path ./main/moon.pkg.json -pkg-sources moon_new/lib:./lib -pkg-sources moon_new/main:./main -pkg-sources moonbitlang/core:$MOON_HOME/lib/core -target native
+            x86_64-unknown-fake_os-fake_libc-gcc -o ./target/native/release/build/main/main.exe -I$MOON_HOME/include -L$MOON_HOME/lib -fwrapv -fno-strict-aliasing ./target/native/release/build/main/main.c ./target/native/release/build/runtime.o ./target/native/release/build/lib/liblib.a -lm ccflags fasd cclinkflags
             ./target/native/release/build/main/main.exe
+            ./target/native/release/build/lib/lib.exe
         "#]],
     );
 
@@ -3315,15 +3187,15 @@ fn test_native_backend_cc_flags_with_env_override() {
         expect![[r#"
             /some/path/A/x86_64-unknown-fake_os-fake_libc-gcc -o ./target/native/release/build/lib/stub.o -I$MOON_HOME/include -L$MOON_HOME/lib -c -fwrapv -fno-strict-aliasing ./lib/stub.c stubccflags
             moonc build-package ./lib/hello.mbt -o ./target/native/release/build/lib/lib.core -pkg moon_new/lib -std-path $MOON_HOME/lib/core/target/native/release/bundle -pkg-sources moon_new/lib:./lib -target native
-            moonc build-package ./main/main.mbt -o ./target/native/release/build/main/main.core -pkg moon_new/main -is-main -std-path $MOON_HOME/lib/core/target/native/release/bundle -i ./target/native/release/build/lib/lib.mi:lib -pkg-sources moon_new/main:./main -target native
-            moonc link-core $MOON_HOME/lib/core/target/native/release/bundle/abort/abort.core $MOON_HOME/lib/core/target/native/release/bundle/core.core ./target/native/release/build/lib/lib.core ./target/native/release/build/main/main.core -main moon_new/main -o ./target/native/release/build/main/main.c -pkg-config-path ./main/moon.pkg.json -pkg-sources moon_new/lib:./lib -pkg-sources moon_new/main:./main -pkg-sources moonbitlang/core:$MOON_HOME/lib/core -target native
+            moonc link-core $MOON_HOME/lib/core/target/native/release/bundle/abort/abort.core $MOON_HOME/lib/core/target/native/release/bundle/core.core ./target/native/release/build/lib/lib.core -main moon_new/lib -o ./target/native/release/build/lib/lib.c -pkg-config-path ./lib/moon.pkg.json -pkg-sources moon_new/lib:./lib -pkg-sources moonbitlang/core:$MOON_HOME/lib/core -target native
             /some/path/A/x86_64-unknown-fake_os-fake_libc-gcc -o ./target/native/release/build/runtime.o -I$MOON_HOME/include -L$MOON_HOME/lib -g -c -fwrapv -fno-strict-aliasing -O2 $MOON_HOME/lib/runtime.c
             /other/path/B/x86_64-unknown-fake_os-fake_libc-ar -r -c -s ./target/native/release/build/lib/liblib.a ./target/native/release/build/lib/stub.o
-            /some/path/A/x86_64-unknown-fake_os-fake_libc-gcc -o ./target/native/release/build/main/main.exe -I$MOON_HOME/include -L$MOON_HOME/lib -fwrapv -fno-strict-aliasing ./target/native/release/build/main/main.c ./target/native/release/build/runtime.o ./target/native/release/build/lib/liblib.a -lm ccflags fasd cclinkflags
-            moonc link-core $MOON_HOME/lib/core/target/native/release/bundle/abort/abort.core $MOON_HOME/lib/core/target/native/release/bundle/core.core ./target/native/release/build/lib/lib.core -main moon_new/lib -o ./target/native/release/build/lib/lib.c -pkg-config-path ./lib/moon.pkg.json -pkg-sources moon_new/lib:./lib -pkg-sources moonbitlang/core:$MOON_HOME/lib/core -target native
             /some/path/A/x86_64-unknown-fake_os-fake_libc-gcc -o ./target/native/release/build/lib/lib.exe -I$MOON_HOME/include -L$MOON_HOME/lib -fwrapv -fno-strict-aliasing ./target/native/release/build/lib/lib.c ./target/native/release/build/runtime.o ./target/native/release/build/lib/liblib.a -lm ccflags fasd cclinkflags
-            ./target/native/release/build/lib/lib.exe
+            moonc build-package ./main/main.mbt -o ./target/native/release/build/main/main.core -pkg moon_new/main -is-main -std-path $MOON_HOME/lib/core/target/native/release/bundle -i ./target/native/release/build/lib/lib.mi:lib -pkg-sources moon_new/main:./main -target native
+            moonc link-core $MOON_HOME/lib/core/target/native/release/bundle/abort/abort.core $MOON_HOME/lib/core/target/native/release/bundle/core.core ./target/native/release/build/lib/lib.core ./target/native/release/build/main/main.core -main moon_new/main -o ./target/native/release/build/main/main.c -pkg-config-path ./main/moon.pkg.json -pkg-sources moon_new/lib:./lib -pkg-sources moon_new/main:./main -pkg-sources moonbitlang/core:$MOON_HOME/lib/core -target native
+            /some/path/A/x86_64-unknown-fake_os-fake_libc-gcc -o ./target/native/release/build/main/main.exe -I$MOON_HOME/include -L$MOON_HOME/lib -fwrapv -fno-strict-aliasing ./target/native/release/build/main/main.c ./target/native/release/build/runtime.o ./target/native/release/build/lib/liblib.a -lm ccflags fasd cclinkflags
             ./target/native/release/build/main/main.exe
+            ./target/native/release/build/lib/lib.exe
         "#]],
     );
 }
@@ -3929,72 +3801,14 @@ fn test_run_doc_test() {
     check(
         get_err_stdout(&dir, ["test", "--sort-input", "--doc"]),
         expect![[r#"
-            hello from hello_test.mbt
-            doc_test 1 from hello.mbt
-            doc_test 2 from hello.mbt
-            doc_test 3 from hello.mbt
-            doc_test
-            doc_test 1 from greet.mbt
-            test block 1
-            test block 2
-            test block 3
-            doc_test 3 from greet.mbt
-            test block 4
-            test block 5
-            doc_test 5 from greet.mbt
-            test username/hello/lib/hello.mbt::doc_test hello.mbt 9 4 failed
-            expect test failed at $ROOT/src/lib/hello.mbt:12:5-12:18
-            Diff:
-            ----
-            1256
-            ----
-
-            test username/hello/lib/hello.mbt::doc_test hello.mbt 19 4 failed: FAILED: $ROOT/src/lib/hello.mbt:22:5-22:30 this is a failure
-            test username/hello/lib/greet.mbt::doc_test greet.mbt 18 9 failed
-            expect test failed at $ROOT/src/lib/greet.mbt:23:7-23:20
-            Diff:
-            ----
-            1256
-            ----
-
-            test username/hello/lib/greet.mbt::doc_test greet.mbt 30 6 failed: FAILED: $ROOT/src/lib/greet.mbt:34:7-34:30 another failure
-            test username/hello/lib/greet.mbt::doc_test greet.mbt 95 38 failed
-            expect test failed at $ROOT/src/lib/greet.mbt:99:5-99:40
-            Diff:
-            ----
-            b"/x54/x00/x65/x00/x73/x00/x74/x00"
-            ----
-
-            Total tests: 16, passed: 11, failed: 5.
+            failed: moonc build-package -error-format json $ROOT/src/lib/hello_test.mbt $ROOT/target/wasm-gc/debug/test/lib/__generated_driver_for_blackbox_test.mbt -o $ROOT/target/wasm-gc/debug/test/lib/lib.blackbox_test.core -pkg username/hello/lib_blackbox_test -is-main -std-path $MOON_HOME/lib/core/target/wasm-gc/release/bundle -i $ROOT/target/wasm-gc/debug/test/lib/lib.mi:lib -pkg-sources username/hello/lib_blackbox_test:$ROOT/src/lib -target wasm-gc -g -O0 -source-map -blackbox-test -no-mi -patch-file $ROOT/target/wasm-gc/debug/test/lib/__moonbit_internal_patch_test.json -test-mode
         "#]],
     );
 
     check(
         get_err_stdout(&dir, ["test", "--sort-input", "--update"]),
         expect![[r#"
-            hello from hello_test.mbt
-            doc_test 1 from hello.mbt
-            doc_test 2 from hello.mbt
-            doc_test 3 from hello.mbt
-            doc_test
-            doc_test 1 from greet.mbt
-            test block 1
-            test block 2
-            test block 3
-            doc_test 3 from greet.mbt
-            test block 4
-            test block 5
-            doc_test 5 from greet.mbt
-
-            Auto updating expect tests and retesting ...
-
-            doc_test 2 from hello.mbt
-            doc_test 2 from hello.mbt
-            test username/hello/lib/hello.mbt::doc_test hello.mbt 19 4 failed: FAILED: $ROOT/src/lib/hello.mbt:22:5-22:30 this is a failure
-            test block 2
-            test block 2
-            test username/hello/lib/greet.mbt::doc_test greet.mbt 30 6 failed: FAILED: $ROOT/src/lib/greet.mbt:34:7-34:30 another failure
-            Total tests: 16, passed: 14, failed: 2.
+            failed: moonc build-package -error-format json $ROOT/src/lib/hello_test.mbt $ROOT/target/wasm-gc/debug/test/lib/__generated_driver_for_blackbox_test.mbt -o $ROOT/target/wasm-gc/debug/test/lib/lib.blackbox_test.core -pkg username/hello/lib_blackbox_test -is-main -std-path $MOON_HOME/lib/core/target/wasm-gc/release/bundle -i $ROOT/target/wasm-gc/debug/test/lib/lib.mi:lib -pkg-sources username/hello/lib_blackbox_test:$ROOT/src/lib -target wasm-gc -g -O0 -source-map -blackbox-test -no-mi -patch-file $ROOT/target/wasm-gc/debug/test/lib/__moonbit_internal_patch_test.json -test-mode
         "#]],
     );
 }
@@ -4408,6 +4222,125 @@ fn test_diag_loc_map() {
     check(
         get_err_stderr(&dir, ["check"]),
         expect![[r#"
+            Error: [4155]
+                ╭─[$ROOT/parser.mbt:66:12]
+                │
+             66 │ typealias (YYSymbol) -> YYDecision as YYState
+                │            ────┬───  
+                │                ╰───── Found cycle YYSymbol -> YYSymbol in `typealias` declaration.
+            ────╯
+            Error: [3002]
+                ╭─[$ROOT/parser.mbt:66:22]
+                │
+             66 │ typealias (YYSymbol) -> YYDecision as YYState
+                │                      ────────────┬───────────  
+                │                                  ╰───────────── Parse error, unexpected token `->`, you may expect `pub` or `priv` or `type` or `typealias` or `async` or `fn` or `fnalias` or `struct` or `enum` or `let` or `const` or `extern` or `test` or `impl` or `trait` or `traitalias`.
+            ────╯
+            Warning: [0003]
+                ╭─[$ROOT/parser.mbt:69:12]
+                │
+             69 │ typealias (Position, ArrayView[(YYObj, Position, Position)]) -> YYObj as YYAction
+                │            ────┬───  
+                │                ╰───── Warning: Unused type 'Position'
+            ────╯
+            Error: [4051]
+                ╭─[$ROOT/parser.mbt:69:12]
+                │
+             69 │ typealias (Position, ArrayView[(YYObj, Position, Position)]) -> YYObj as YYAction
+                │            ────┬───  
+                │                ╰───── The type Position is declared twice: it was previously defined at $ROOT/parser.mbt:2:1.
+            ────╯
+            Error: [4155]
+                ╭─[$ROOT/parser.mbt:69:22]
+                │
+             69 │ typealias (Position, ArrayView[(YYObj, Position, Position)]) -> YYObj as YYAction
+                │                      ────┬────  
+                │                          ╰────── Found cycle ArrayView -> ArrayView in `typealias` declaration.
+            ────╯
+            Error: [3002]
+                ╭─[$ROOT/parser.mbt:69:31]
+                │
+             69 │ typealias (Position, ArrayView[(YYObj, Position, Position)]) -> YYObj as YYAction
+                │                               ┬  
+                │                               ╰── Parse error, unexpected token `[`, you may expect `,` or `)`.
+            ────╯
+            Warning: [0003]
+                ╭─[$ROOT/parser.mbt:69:40]
+                │
+             69 │ typealias (Position, ArrayView[(YYObj, Position, Position)]) -> YYObj as YYAction
+                │                                        ────┬───  
+                │                                            ╰───── Warning: Unused type 'Position'
+            ────╯
+            Error: [4051]
+                ╭─[$ROOT/parser.mbt:69:40]
+                │
+             69 │ typealias (Position, ArrayView[(YYObj, Position, Position)]) -> YYObj as YYAction
+                │                                        ────┬───  
+                │                                            ╰───── The type Position is declared twice: it was previously defined at $ROOT/parser.mbt:2:1.
+            ────╯
+            Error: [4051]
+                ╭─[$ROOT/parser.mbt:69:50]
+                │
+             69 │ typealias (Position, ArrayView[(YYObj, Position, Position)]) -> YYObj as YYAction
+                │                                                  ────┬───  
+                │                                                      ╰───── The type Position is declared twice: it was previously defined at $ROOT/parser.mbt:2:1.
+            ────╯
+            Error: [3002]
+                ╭─[$ROOT/parser.mbt:69:59]
+                │
+             69 │ typealias (Position, ArrayView[(YYObj, Position, Position)]) -> YYObj as YYAction
+                │                                                           ───────────┬───────────  
+                │                                                                      ╰───────────── Parse error, unexpected token `]`, you may expect `pub` or `priv` or `type` or `typealias` or `async` or `fn` or `fnalias` or `struct` or `enum` or `let` or `const` or `extern` or `test` or `impl` or `trait` or `traitalias`.
+            ────╯
+            Error: [4032]
+                ╭─[$ROOT/parser.mbt:74:9]
+                │
+             74 │   Shift(YYState)
+                │         ───┬───  
+                │            ╰───── The type YYState is undefined.
+            ────╯
+            Error: [4032]
+                ╭─[$ROOT/parser.mbt:75:25]
+                │
+             75 │   Reduce(Int, YYSymbol, YYAction)
+                │                         ────┬───  
+                │                             ╰───── The type YYAction is undefined.
+            ────╯
+            Error: [4032]
+                ╭─[$ROOT/parser.mbt:76:36]
+                │
+             76 │   ReduceNoLookahead(Int, YYSymbol, YYAction)
+                │                                    ────┬───  
+                │                                        ╰───── The type YYAction is undefined.
+            ────╯
+            Error: [4051]
+                ╭─[$ROOT/parser.mbt:81:11]
+                │
+             81 │ priv enum YYSymbol {
+                │           ────┬───  
+                │               ╰───── The type YYSymbol is declared twice: it was previously defined at $ROOT/parser.mbt:66:1.
+            ────╯
+            Error: [4031]
+                ╭─[$ROOT/parser.mbt:98:9]
+                │
+             98 │   match EOI {
+                │         ─┬─  
+                │          ╰─── The value EOI is undefined.
+            ────╯
+            Error: [4040]
+                 ╭─[$ROOT/parser.mbt:107:11]
+                 │
+             107 │   _args : ArrayView[(YYObj, Position, Position)]
+                 │           ───────────────────┬──────────────────  
+                 │                              ╰──────────────────── The type alias ArrayView expects 0 argument(s), but is here given 1 argument(s).
+            ─────╯
+            Error: [4040]
+                 ╭─[$ROOT/parser.mbt:121:11]
+                 │
+             121 │   _args : ArrayView[(YYObj, Position, Position)]
+                 │           ───────────────────┬──────────────────  
+                 │                              ╰──────────────────── The type alias ArrayView expects 0 argument(s), but is here given 1 argument(s).
+            ─────╯
             Error: [4014]
                  ╭─[$ROOT/parser.mbt:128:13]
                  │
@@ -4416,6 +4349,125 @@ fn test_diag_loc_map() {
                  │              ╰─── Expr Type Mismatch
                     has type : String
                     wanted   : Int
+            ─────╯
+            Error: [4040]
+                 ╭─[$ROOT/parser.mbt:136:11]
+                 │
+             136 │   _args : ArrayView[(YYObj, Position, Position)]
+                 │           ───────────────────┬──────────────────  
+                 │                              ╰──────────────────── The type alias ArrayView expects 0 argument(s), but is here given 1 argument(s).
+            ─────╯
+            Error: [4040]
+                 ╭─[$ROOT/parser.mbt:151:11]
+                 │
+             151 │   _args : ArrayView[(YYObj, Position, Position)]
+                 │           ───────────────────┬──────────────────  
+                 │                              ╰──────────────────── The type alias ArrayView expects 0 argument(s), but is here given 1 argument(s).
+            ─────╯
+            Error: [4040]
+                 ╭─[$ROOT/parser.mbt:165:11]
+                 │
+             165 │   _args : ArrayView[(YYObj, Position, Position)]
+                 │           ───────────────────┬──────────────────  
+                 │                              ╰──────────────────── The type alias ArrayView expects 0 argument(s), but is here given 1 argument(s).
+            ─────╯
+            Error: [4040]
+                 ╭─[$ROOT/parser.mbt:180:11]
+                 │
+             180 │   _args : ArrayView[(YYObj, Position, Position)]
+                 │           ───────────────────┬──────────────────  
+                 │                              ╰──────────────────── The type alias ArrayView expects 0 argument(s), but is here given 1 argument(s).
+            ─────╯
+            Error: [4040]
+                 ╭─[$ROOT/parser.mbt:194:11]
+                 │
+             194 │   _args : ArrayView[(YYObj, Position, Position)]
+                 │           ───────────────────┬──────────────────  
+                 │                              ╰──────────────────── The type alias ArrayView expects 0 argument(s), but is here given 1 argument(s).
+            ─────╯
+            Error: [4040]
+                 ╭─[$ROOT/parser.mbt:208:11]
+                 │
+             208 │   _args : ArrayView[(YYObj, Position, Position)]
+                 │           ───────────────────┬──────────────────  
+                 │                              ╰──────────────────── The type alias ArrayView expects 0 argument(s), but is here given 1 argument(s).
+            ─────╯
+            Error: [4032]
+                 ╭─[$ROOT/parser.mbt:414:11]
+                 │
+             414 │   start : YYState,
+                 │           ───┬───  
+                 │              ╰───── The type YYState is undefined.
+            ─────╯
+            Error: [4032]
+                 ╭─[$ROOT/parser.mbt:418:39]
+                 │
+             418 │   let mut state_stack : @immut/list.T[YYState] = Cons(start, Nil)
+                 │                                       ───┬───  
+                 │                                          ╰───── The type YYState is undefined.
+            ─────╯
+            Error: [4032]
+                 ╭─[$ROOT/parser.mbt:497:25]
+                 │
+             497 │   stack : @immut/list.T[YYState],
+                 │                         ───┬───  
+                 │                            ╰───── The type YYState is undefined.
+            ─────╯
+            Error: [4032]
+                 ╭─[$ROOT/parser.mbt:503:33]
+                 │
+             503 │     fn go(stack : @immut/list.T[YYState]) {
+                 │                                 ───┬───  
+                 │                                    ╰───── The type YYState is undefined.
+            ─────╯
+            Error: [4032]
+                 ╭─[$ROOT/parser.mbt:510:49]
+                 │
+             510 │               fn inner_go(stack : @immut/list.T[YYState], count, symbol) {
+                 │                                                 ───┬───  
+                 │                                                    ╰───── The type YYState is undefined.
+            ─────╯
+            Error: [4031]
+                 ╭─[$ROOT/parser.mbt:534:8]
+                 │
+             534 │       (T_NUMBER, TK_NUMBER),
+                 │        ────┬───  
+                 │            ╰───── The value T_NUMBER is undefined.
+            ─────╯
+            Error: [4031]
+                 ╭─[$ROOT/parser.mbt:535:8]
+                 │
+             535 │       (T_PLUS, TK_PLUS),
+                 │        ───┬──  
+                 │           ╰──── The value T_PLUS is undefined.
+            ─────╯
+            Error: [4031]
+                 ╭─[$ROOT/parser.mbt:536:8]
+                 │
+             536 │       (T_MINUS, TK_MINUS),
+                 │        ───┬───  
+                 │           ╰───── The value T_MINUS is undefined.
+            ─────╯
+            Error: [4031]
+                 ╭─[$ROOT/parser.mbt:537:8]
+                 │
+             537 │       (T_STAR, TK_STAR),
+                 │        ───┬──  
+                 │           ╰──── The value T_STAR is undefined.
+            ─────╯
+            Error: [4031]
+                 ╭─[$ROOT/parser.mbt:538:8]
+                 │
+             538 │       (T_LPAREN, TK_LPAREN),
+                 │        ────┬───  
+                 │            ╰───── The value T_LPAREN is undefined.
+            ─────╯
+            Error: [4031]
+                 ╭─[$ROOT/parser.mbt:539:8]
+                 │
+             539 │       (T_RPAREN, TK_RPAREN),
+                 │        ────┬───  
+                 │            ╰───── The value T_RPAREN is undefined.
             ─────╯
             error: failed when checking
         "#]],
@@ -4574,44 +4626,7 @@ fn test_run_md_test() {
     check(
         get_err_stdout(&dir, ["test", "--sort-input"]),
         expect![[r#"
-            hello from hello_test.mbt
-            fn in md test
-            hello from hello_test.mbt
-            Hello, world 1!
-            Hello, world 3!
-            ```moonbit
-            fn main {
-              println("Hello")
-            }
-            ```
-            Hello, world 2!
-            test username/hello/lib/hello_test.mbt::inspect in bbtest failed
-            expect test failed at $ROOT/src/lib/hello_test.mbt:12:3-12:31
-            Diff:
-            ----
-            inspect in bbtest
-            ----
-
-            test username/hello/lib/1.mbt.md::2 failed
-            expect test failed at $ROOT/src/lib/1.mbt.md:44:5-44:20
-            Diff:
-            ----
-            4234
-            ----
-
-            test username/hello/lib/1.mbt.md::3 failed
-            expect test failed at $ROOT/src/lib/1.mbt.md:61:5-61:15
-            Diff:
-            ----
-             all
-             wishes
-
-             come
-             true
-
-            ----
-
-            Total tests: 7, passed: 4, failed: 3.
+            failed: moonc build-package -error-format json $ROOT/src/lib/hello_test.mbt $ROOT/target/wasm-gc/debug/test/lib/__generated_driver_for_blackbox_test.mbt -o $ROOT/target/wasm-gc/debug/test/lib/lib.blackbox_test.core -pkg username/hello/lib_blackbox_test -is-main -std-path $MOON_HOME/lib/core/target/wasm-gc/release/bundle -i $ROOT/target/wasm-gc/debug/test/lib/lib.mi:lib -pkg-sources username/hello/lib_blackbox_test:$ROOT/src/lib -target wasm-gc -g -O0 -source-map -blackbox-test -no-mi -patch-file $ROOT/target/wasm-gc/debug/test/lib/__moonbit_internal_patch_test.json -test-mode
         "#]],
     );
 
@@ -5083,11 +5098,8 @@ fn test_virtual_pkg() {
     check(
         get_stdout(&virtual_pkg, ["run", "main", "--dry-run"]),
         expect![[r#"
-            moonc build-package ./dummy_lib/hello.mbt -o ./target/wasm-gc/release/build/dummy_lib/dummy_lib.core -pkg username/hello/dummy_lib -std-path $MOON_HOME/lib/core/target/wasm-gc/release/bundle -pkg-sources username/hello/dummy_lib:./dummy_lib -target wasm-gc
             moonc build-interface ./lib1/lib1.mbti -o ./target/wasm-gc/release/build/lib1/lib1.mi -pkg username/hello/lib1 -pkg-sources username/hello/lib1:./lib1 -virtual -std-path $MOON_HOME/lib/core/target/wasm-gc/release/bundle -error-format=json
             moonc build-interface ./lib3/lib3.mbti -o ./target/wasm-gc/release/build/lib3/lib3.mi -pkg username/hello/lib3 -pkg-sources username/hello/lib3:./lib3 -virtual -std-path $MOON_HOME/lib/core/target/wasm-gc/release/bundle -error-format=json
-            moonc build-package ./lib2/hello.mbt -o ./target/wasm-gc/release/build/lib2/lib2.core -pkg username/hello/lib2 -std-path $MOON_HOME/lib/core/target/wasm-gc/release/bundle -i ./target/wasm-gc/release/build/dummy_lib/dummy_lib.mi:dummy_lib -pkg-sources username/hello/lib2:./lib2 -target wasm-gc -check-mi ./target/wasm-gc/release/build/lib1/lib1.mi -impl-virtual -no-mi -pkg-sources username/hello/lib1:./lib1
-            moonc build-package ./lib4/hello.mbt -o ./target/wasm-gc/release/build/lib4/lib4.core -pkg username/hello/lib4 -std-path $MOON_HOME/lib/core/target/wasm-gc/release/bundle -pkg-sources username/hello/lib4:./lib4 -target wasm-gc -check-mi ./target/wasm-gc/release/build/lib3/lib3.mi -impl-virtual -no-mi -pkg-sources username/hello/lib3:./lib3
             moonc build-package ./main/main.mbt -o ./target/wasm-gc/release/build/main/main.core -pkg username/hello/main -is-main -std-path $MOON_HOME/lib/core/target/wasm-gc/release/bundle -i ./target/wasm-gc/release/build/lib1/lib1.mi:lib1 -i ./target/wasm-gc/release/build/lib3/lib3.mi:lib3 -pkg-sources username/hello/main:./main -target wasm-gc
             moonc link-core $MOON_HOME/lib/core/target/wasm-gc/release/bundle/abort/abort.core $MOON_HOME/lib/core/target/wasm-gc/release/bundle/core.core ./target/wasm-gc/release/build/dummy_lib/dummy_lib.core ./target/wasm-gc/release/build/lib2/lib2.core ./target/wasm-gc/release/build/lib4/lib4.core ./target/wasm-gc/release/build/main/main.core -main username/hello/main -o ./target/wasm-gc/release/build/main/main.wasm -pkg-config-path ./main/moon.pkg.json -pkg-sources username/hello/dummy_lib:./dummy_lib -pkg-sources username/hello/lib2:./lib2 -pkg-sources username/hello/lib4:./lib4 -pkg-sources username/hello/main:./main -pkg-sources moonbitlang/core:$MOON_HOME/lib/core -target wasm-gc
             moonrun ./target/wasm-gc/release/build/main/main.wasm
@@ -5417,8 +5429,6 @@ fn test_sub_package() {
     check(
         get_stdout(&dir, ["run", "main", "--dry-run", "--sort-input"]),
         expect![[r#"
-            moonc build-package ./dep/hello.mbt -o ./target/wasm-gc/release/build/dep/dep.core -pkg moon_new/dep -std-path $MOON_HOME/lib/core/target/wasm-gc/release/bundle -pkg-sources moon_new/dep:./dep -target wasm-gc
-            moonc build-package ./sub_pkg/111.mbt ./sub_pkg/dir/222.mbt -o ./target/wasm-gc/release/build/sub_pkg/sub_pkg_sub.core -pkg moon_new/sub_pkg -std-path $MOON_HOME/lib/core/target/wasm-gc/release/bundle -i ./target/wasm-gc/release/build/dep/dep.mi:dep -pkg-sources moon_new/sub_pkg:./sub_pkg -target wasm-gc
             moonc build-package ./dep2/hello.mbt -o ./target/wasm-gc/release/build/dep2/dep2.core -pkg moon_new/dep2 -std-path $MOON_HOME/lib/core/target/wasm-gc/release/bundle -i ./target/wasm-gc/release/build/sub_pkg/sub_pkg_sub.mi:sub_pkg -pkg-sources moon_new/dep2:./dep2 -target wasm-gc
             moonc build-package ./sub_pkg/111.mbt ./sub_pkg/hello.mbt -o ./target/wasm-gc/release/build/sub_pkg/sub_pkg.core -pkg moon_new/sub_pkg -std-path $MOON_HOME/lib/core/target/wasm-gc/release/bundle -i ./target/wasm-gc/release/build/dep2/dep2.mi:dep2 -pkg-sources moon_new/sub_pkg:./sub_pkg -target wasm-gc
             moonc build-package ./main/main.mbt -o ./target/wasm-gc/release/build/main/main.core -pkg moon_new/main -is-main -std-path $MOON_HOME/lib/core/target/wasm-gc/release/bundle -i ./target/wasm-gc/release/build/sub_pkg/sub_pkg_sub.mi:sub_pkg -pkg-sources moon_new/main:./main -target wasm-gc
