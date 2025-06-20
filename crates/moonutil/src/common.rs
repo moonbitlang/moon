@@ -304,6 +304,9 @@ impl std::fmt::Display for TargetBackend {
     }
 }
 
+/// Returns the appropriate file extension for the target backend.
+/// On Windows, native and LLVM targets use '.exe'
+/// On other platforms, native and LLVM targets use '.out'
 impl TargetBackend {
     pub fn to_flag(self) -> &'static str {
         match self {
@@ -320,8 +323,11 @@ impl TargetBackend {
             Self::Wasm => "wasm",
             Self::WasmGC => "wasm",
             Self::Js => "js",
-            Self::Native => "exe",
-            Self::LLVM => "exe",
+
+            #[cfg(target_os = "windows")]
+            Self::Native | Self::LLVM => "exe",
+            #[cfg(not(target_os = "windows"))]
+            Self::Native | Self::LLVM => "out",
         }
     }
 
