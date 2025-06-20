@@ -112,7 +112,121 @@
   Finished. moon: ran 3 tasks, now up to date
   
   $ moon test
-  Total tests: 1, passed: 1, failed: 0.
+  [255]
+  failed: moonc build-package -error-format json ${WORK_DIR}/src/lib/hello_test.mbt ${WORK_DIR}/target/wasm-gc/debug/test/lib/__generated_driver_for_blackbox_test.mbt -o ${WORK_DIR}/target/wasm-gc/debug/test/lib/lib.blackbox_test.core -pkg username/hello/lib_blackbox_test -is-main -std-path $MOON_HOME/lib/core/target/wasm-gc/release/bundle -i ${WORK_DIR}/target/wasm-gc/debug/test/lib/lib.mi:lib -pkg-sources username/hello/lib_blackbox_test:${WORK_DIR}/src/lib -target wasm-gc -g -O0 -source-map -blackbox-test -no-mi -test-mode
+  
+  Warning: [0003]
+     ╭─[${WORK_DIR}/target/wasm-gc/debug/test/./lib/__generated_driver_for_blackbox_test.mbt:5:37]
+     │
+   5 │ typealias @moonbitlang/core/builtin.Map[
+     │                                     ─┬─  
+     │                                      ╰─── Warning: Unused type 'Map'
+  ───╯
+  Error: [3002]
+      ╭─[${WORK_DIR}/target/wasm-gc/debug/test/./lib/__generated_driver_for_blackbox_test.mbt:5:40]
+      │
+    5 │ ╭─▶ typealias @moonbitlang/core/builtin.Map[
+      ┆ ┆   
+   11 │ ├─▶ ] as Moonbit_Test_Driver_Internal_No_Args_Map
+      │ │                                                   
+      │ ╰─────────────────────────────────────────────────── Parse error, unexpected token `[`, you may expect `pub` or `priv` or `type` or `typealias` or `async` or `fn` or `fnalias` or `struct` or `enum` or `let` or `const` or `extern` or `test` or `impl` or `trait` or `traitalias`.
+  ────╯
+  Error: [4032]
+      ╭─[${WORK_DIR}/target/wasm-gc/debug/test/./lib/__generated_driver_for_blackbox_test.mbt:13:50]
+      │
+   13 │ let moonbit_test_driver_internal_no_args_tests : Moonbit_Test_Driver_Internal_No_Args_Map = {
+      │                                                  ────────────────────┬───────────────────  
+      │                                                                      ╰───────────────────── The type Moonbit_Test_Driver_Internal_No_Args_Map is undefined.
+  ────╯
+  Warning: [0013]
+      ╭─[${WORK_DIR}/target/wasm-gc/debug/test/./lib/__generated_driver_for_blackbox_test.mbt:23:72]
+      │
+   23 │   let filtered_test = match moonbit_test_driver_internal_no_args_tests.get(file_filter) {
+      │                                                                        ─┬─  
+      │                                                                         ╰─── Warning: The type of this expression is (String) -> _/0?, which contains unresolved type variables. The type variable is default to Unit.
+  ────╯
+  Warning: [0013]
+      ╭─[${WORK_DIR}/target/wasm-gc/debug/test/./lib/__generated_driver_for_blackbox_test.mbt:25:22]
+      │
+   25 │       index_func_map.get(index_filter)
+      │                      ─┬─  
+      │                       ╰─── Warning: The type of this expression is (Int) -> _/0?, which contains unresolved type variables. The type variable is default to Unit.
+  ────╯
+  Error: [4015]
+      ╭─[${WORK_DIR}/target/wasm-gc/debug/test/./lib/__generated_driver_for_blackbox_test.mbt:25:22]
+      │
+   25 │       index_func_map.get(index_filter)
+      │                      ─┬─  
+      │                       ╰─── Type _/0 has no method get.
+  ────╯
+  Error: [4014]
+      ╭─[${WORK_DIR}/target/wasm-gc/debug/test/./lib/__generated_driver_for_blackbox_test.mbt:33:28]
+      │
+   33 │       let (func, attrs) = (item.0, item.1)
+      │                            ───┬──  
+      │                               ╰──── Type Mismatch
+          has type : _/0
+          wanted   : tuple
+  ────╯
+  Error: [4014]
+      ╭─[${WORK_DIR}/target/wasm-gc/debug/test/./lib/__generated_driver_for_blackbox_test.mbt:33:36]
+      │
+   33 │       let (func, attrs) = (item.0, item.1)
+      │                                    ───┬──  
+      │                                       ╰──── Type Mismatch
+          has type : _/0
+          wanted   : tuple
+  ────╯
+  Error: [0023]
+      ╭─[${WORK_DIR}/target/wasm-gc/debug/test/./lib/__generated_driver_for_blackbox_test.mbt:41:7]
+      │
+   41 │       try {
+      │       ─┬─  
+      │        ╰─── Error (warning): The body of this try expression never raises any error.
+  ────╯
+  Warning: [0042]
+      ╭─[${WORK_DIR}/target/wasm-gc/debug/test/./lib/__generated_driver_for_blackbox_test.mbt:80:1]
+      │
+   80 │ #external
+      │ ────┬────  
+      │     ╰────── Warning: unknown attribute external
+  ────╯
+  Warning: [0042]
+      ╭─[${WORK_DIR}/target/wasm-gc/debug/test/./lib/__generated_driver_for_blackbox_test.mbt:83:1]
+      │
+   83 │ #external
+      │ ────┬────  
+      │     ╰────── Warning: unknown attribute external
+  ────╯
+  Error: [4042]
+      ╭─[${WORK_DIR}/target/wasm-gc/debug/test/./lib/__generated_driver_for_blackbox_test.mbt:86:55]
+      │
+   86 │ fn moonbit_test_driver_internal_begin_read_string(s : MoonbitTestDriverInternalExternString) -> MoonbitTestDriverInternalStringReadHandle = "__moonbit_fs_unstable" "begin_read_string"
+      │                                                       ──────────────────┬──────────────────  
+      │                                                                         ╰──────────────────── Invalid stub type.
+  ────╯
+  Error: [4042]
+      ╭─[${WORK_DIR}/target/wasm-gc/debug/test/./lib/__generated_driver_for_blackbox_test.mbt:86:97]
+      │
+   86 │ fn moonbit_test_driver_internal_begin_read_string(s : MoonbitTestDriverInternalExternString) -> MoonbitTestDriverInternalStringReadHandle = "__moonbit_fs_unstable" "begin_read_string"
+      │                                                                                                 ────────────────────┬────────────────────  
+      │                                                                                                                     ╰────────────────────── Invalid stub type.
+  ────╯
+  Error: [4042]
+      ╭─[${WORK_DIR}/target/wasm-gc/debug/test/./lib/__generated_driver_for_blackbox_test.mbt:88:59]
+      │
+   88 │ fn moonbit_test_driver_internal_string_read_char(handle : MoonbitTestDriverInternalStringReadHandle) -> Int = "__moonbit_fs_unstable" "string_read_char"
+      │                                                           ────────────────────┬────────────────────  
+      │                                                                               ╰────────────────────── Invalid stub type.
+  ────╯
+  Error: [4042]
+      ╭─[${WORK_DIR}/target/wasm-gc/debug/test/./lib/__generated_driver_for_blackbox_test.mbt:90:61]
+      │
+   90 │ fn moonbit_test_driver_internal_finish_read_string(handle : MoonbitTestDriverInternalStringReadHandle) = "__moonbit_fs_unstable" "finish_read_string"
+      │                                                             ────────────────────┬────────────────────  
+      │                                                                                 ╰────────────────────── Invalid stub type.
+  ────╯
+  error: failed when testing
   
   $ moon run ./src/main
   Hello, world!
