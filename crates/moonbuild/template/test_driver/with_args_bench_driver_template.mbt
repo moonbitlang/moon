@@ -83,7 +83,7 @@ pub fn moonbit_test_driver_internal_execute(file_name: MoonbitTestDriverInternal
         }
       }
     }
-    _ => { message = "internal error: failed to filter test with (\{file_filter}, \{index_filter})" }
+    _ => { message = "skipped test" }
   }
 
   let file_name = file_name.escape()
