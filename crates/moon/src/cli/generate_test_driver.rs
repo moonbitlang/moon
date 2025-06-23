@@ -431,9 +431,6 @@ fn generate_driver(
         .replace("{PACKAGE}", pkgname)
         .replace("{BEGIN_MOONTEST}", MOON_TEST_DELIMITER_BEGIN)
         .replace("{END_MOONTEST}", MOON_TEST_DELIMITER_END)
-        .replace("let bench_mode = false // WILL BE REPLACED", &format!(
-            "let bench_mode = {}", enable_bench
-        ))
         .replace("// {COVERAGE_END}", &coverage_end_template);
 
     if pkgname.starts_with(MOONBITLANG_CORE) {
