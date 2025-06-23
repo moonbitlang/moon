@@ -3,25 +3,15 @@
 fn moonbit_test_driver_internal_error_to_string(x : Error) -> String = "%error.to_string"
 
 fn moonbit_unsafe_char_from_int(x : Int) -> Char = "%identity"
-pub(all) type Moonbit_Test_Driver_Internal_No_Args_Function () -> Unit raise Error
-
-pub(all) type Moonbit_Test_Driver_Internal_With_Args_Function (@moonbitlang/core/test.T) -> Unit raise Error
+pub(all) type Moonbit_Test_Driver_Internal_With_Bench_Args_Function (@moonbitlang/core/bench.T) -> Unit raise Error
 
 typealias @moonbitlang/core/builtin.Map[
   String,
   @moonbitlang/core/builtin.Map[
     Int,
-    (Moonbit_Test_Driver_Internal_No_Args_Function, @moonbitlang/core/builtin.Array[String]),
+    (Moonbit_Test_Driver_Internal_With_Bench_Args_Function, @moonbitlang/core/builtin.Array[String]),
   ],
-] as Moonbit_Test_Driver_Internal_No_Args_Map
-
-typealias @moonbitlang/core/builtin.Map[
-  String,
-  @moonbitlang/core/builtin.Map[
-    Int,
-    (Moonbit_Test_Driver_Internal_With_Args_Function, @moonbitlang/core/builtin.Array[String]),
-  ],
-] as Moonbit_Test_Driver_Internal_TestDriver_With_Args_Map
+] as Moonbit_Test_Driver_Internal_TestDriver_With_Bench_Args_Map
 
 struct Moonbit_Test_Driver_Internal_Meta {
   filename : String
@@ -30,8 +20,7 @@ struct Moonbit_Test_Driver_Internal_Meta {
 }
 
 enum Moonbit_Test_Driver_Internal__F {
-  F0(Moonbit_Test_Driver_Internal_No_Args_Function)
-  F1(Moonbit_Test_Driver_Internal_With_Args_Function)
+  F2(Moonbit_Test_Driver_Internal_With_Bench_Args_Function)
 }
 
 struct Moonbit_Test_Driver_Internal__TestCase {
@@ -39,21 +28,25 @@ struct Moonbit_Test_Driver_Internal__TestCase {
   meta : Moonbit_Test_Driver_Internal_Meta
 }
 
-let moonbit_test_driver_internal_no_args_tests : Moonbit_Test_Driver_Internal_No_Args_Map = { }  // WILL BE REPLACED
-let moonbit_test_driver_internal_with_args_tests : Moonbit_Test_Driver_Internal_TestDriver_With_Args_Map = { }  // WILL BE REPLACED
+fn moonbit_test_item_is_bench(item : Moonbit_Test_Driver_Internal__TestCase) -> Bool {
+  match item.f {
+    Moonbit_Test_Driver_Internal__F::F2(_) => true
+  }
+}
+
+let moonbit_test_driver_internal_with_bench_args_tests : Moonbit_Test_Driver_Internal_TestDriver_With_Bench_Args_Map = { }  // WILL BE REPLACED
 
 fn moonbit_test_driver_internal_apply_filter(
-  no_args_tests : Moonbit_Test_Driver_Internal_No_Args_Map,
-  with_args_tests : Moonbit_Test_Driver_Internal_TestDriver_With_Args_Map,
+  with_bench_args_tests : Moonbit_Test_Driver_Internal_TestDriver_With_Bench_Args_Map,
   file_filter : String,
   index_filter : Int
 ) -> Option[Moonbit_Test_Driver_Internal__TestCase] {
-  let no_args_filtered_test = match no_args_tests.get(file_filter) {
+  let with_bench_args_filtered_test = match with_bench_args_tests.get(file_filter) {
     Some(index_func_map) => {
       match index_func_map.get(index_filter) {
         Some(func_attrs_tuple) => {
           let k = {
-            f: Moonbit_Test_Driver_Internal__F::F0(func_attrs_tuple.0),
+            f: Moonbit_Test_Driver_Internal__F::F2(func_attrs_tuple.0),
             meta: { filename: file_filter, index: index_filter, attrs: func_attrs_tuple.1 },
           }
           Some(k)
@@ -64,34 +57,12 @@ fn moonbit_test_driver_internal_apply_filter(
     _ => None
   }
 
-  let with_args_filtered_test = match with_args_tests.get(file_filter) {
-    Some(index_func_map) => {
-      match index_func_map.get(index_filter) {
-        Some(func_attrs_tuple) => {
-          let k = {
-            f: Moonbit_Test_Driver_Internal__F::F1(func_attrs_tuple.0),
-            meta: { filename: file_filter, index: index_filter, attrs: func_attrs_tuple.1 },
-          }
-          Some(k)
-        }
-        _ => None
-      }
-    }
-    _ => None
-  }
-
-
-  if no_args_filtered_test is Some(_) {
-     no_args_filtered_test
-  } else {
-     with_args_filtered_test
-  }
+  with_bench_args_filtered_test
 }
 
 pub fn moonbit_test_driver_internal_execute(filename : String, index : Int) -> Unit {
   let filtered_test = moonbit_test_driver_internal_apply_filter(
-    moonbit_test_driver_internal_no_args_tests,
-    moonbit_test_driver_internal_with_args_tests,
+    moonbit_test_driver_internal_with_bench_args_tests,
     filename,
     index
   )
@@ -109,6 +80,18 @@ pub fn moonbit_test_driver_internal_execute(filename : String, index : Int) -> U
       } else {
         name
       }
+      let bench_mode = false // WILL BE REPLACED
+      match (bench_mode, moonbit_test_item_is_bench(item)) {
+        (true, false) | (false, true) => {
+          @moonbitlang/core/builtin.println("{BEGIN_MOONTEST}")
+          @moonbitlang/core/builtin.println(
+            "{\"package\": \"{PACKAGE}\", \"filename\": \{file_name.escape()}, \"index\": \"\{index}\", \"test_name\": \{name.escape()}, \"message\": \"skipped test\"}",
+          )
+          @moonbitlang/core/builtin.println("{END_MOONTEST}")
+          return
+        }
+        _ => ()
+      }
 
       if attrs.iter().any(fn(attr) -> Bool {
         attr.length() >= 5 && attr.charcode_at(0) == 'p' && attr.charcode_at(1) == 'a' && attr.charcode_at(2) == 'n' && attr.charcode_at(3) == 'i' && attr.charcode_at(4) == 'c'
@@ -124,17 +107,32 @@ pub fn moonbit_test_driver_internal_execute(filename : String, index : Int) -> U
       test_name = name
 
       try {
+        let bench_out = if moonbit_test_item_is_bench(item) {
+          let it = @moonbitlang/core/bench.new()
+          Some(it)
+        } else {
+          None
+        }
         let func = match item.f {
-        Moonbit_Test_Driver_Internal__F::F0(f) => f
-        Moonbit_Test_Driver_Internal__F::F1(f) =>
-            fn() {
-              let it = @moonbitlang/core/test.new(name)
+        Moonbit_Test_Driver_Internal__F::F2(f) =>
+            fn() raise Error {
+              let it = match bench_out {
+                Some(inner) => inner
+                _ => panic() // unreachable
+              }
               (f.inner())(it)
             }
         }
-        (func.inner())()
+        func()
+        match bench_out {
+          Some(inner) => {
+            let s = inner.dump_summaries()
+            message = "@BATCH_BENCH { \"summaries\": \{s} }"
+          }
+          None => ()
+        }
       } catch {
-        @moonbitlang/core/builtin.Failure(e) | @moonbitlang/core/builtin.InspectError(e) | @moonbitlang/core/builtin.SnapshotError(e) => {
+        @moonbitlang/core/builtin.Failure(e) | @moonbitlang/core/builtin.InspectError(e) | @moonbitlang/core/builtin.SnapshotError(e) | @moonbitlang/core/builtin.BenchError(e) => {
           message = e
         }
         e => {

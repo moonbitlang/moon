@@ -362,10 +362,18 @@ fn generate_driver(
         }
     }
     else {
-        match target_backend.unwrap_or_default() {
-            TargetBackend::Native | TargetBackend::LLVM => include_str!(concat!(
+        match (target_backend.unwrap_or_default(), enable_bench) {
+            (TargetBackend::Native | TargetBackend::LLVM, true) => include_str!(concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/../moonbuild/template/test_driver/with_args_bench_driver_template_native.mbt"
+            )).to_string(),
+            (TargetBackend::Native | TargetBackend::LLVM, false) => include_str!(concat!(
                 env!("CARGO_MANIFEST_DIR"),
                 "/../moonbuild/template/test_driver/with_args_driver_template_native.mbt"
+            )).to_string(),
+            (_, true) => include_str!(concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/../moonbuild/template/test_driver/with_args_bench_driver_template.mbt"
             )).to_string(),
             _ => include_str!(concat!(
                 env!("CARGO_MANIFEST_DIR"),
