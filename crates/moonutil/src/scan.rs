@@ -735,7 +735,8 @@ pub fn scan(
                 .into_iter()
                 .map(|n| idx_to_name[&n].clone())
                 .collect::<Vec<_>>();
-            bail!("cyclic dependency detected: {:?}", cycle);
+            let cycle_str = cycle.join(" -> ");
+            bail!("cyclic dependency detected: {}", cycle_str);
         }
     }
 

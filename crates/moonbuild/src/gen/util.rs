@@ -40,7 +40,8 @@ pub fn toposort(m: &ModuleDB) -> anyhow::Result<Vec<String>> {
                 .into_iter()
                 .map(|n| m.get_package_by_index(n.index()).full_name())
                 .collect::<Vec<_>>();
-            bail!("cyclic dependency detected: {:?}", cycle);
+            let cycle_str = cycle.join(" -> ");
+            bail!("cyclic dependency detected: {}", cycle_str);
         }
     };
     Ok(topo)
