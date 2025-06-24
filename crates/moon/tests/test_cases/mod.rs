@@ -4180,7 +4180,7 @@ fn test_strip_debug() {
 }
 
 #[test]
-fn test_tracing_value_for_maiun_func() {
+fn test_tracing_value_for_main_func() {
     let dir = TestDir::new("tracing_value.in");
 
     // main.mbt in package
@@ -4201,18 +4201,35 @@ fn test_tracing_value_for_maiun_func() {
             moonrun ./target/wasm-gc/release/build/main/main.wasm
         "#]],
     );
+    let content = get_stdout(&dir, ["run", "./main/main.mbt", "--enable-value-tracing"])
+        .split("######MOONBIT_VALUE_TRACING_START######")
+        .filter(|l| !(l.contains("__generated_driver_for")))
+        .collect::<Vec<_>>()
+        .join("\n");
     check(
-        get_stdout(&dir, ["run", "./main/main.mbt", "--enable-value-tracing"]),
+        content,
         expect![[r#"
             Hello, world!
-            ######MOONBIT_VALUE_TRACING_START######
-            {"name":"a","value":"1","line":"3","start_column":"7","end_column":"8"}
+
+
+            {"name": "a", "line": 3, "start_column": 7, "end_column": 8, "filepath": "$ROOT/main/main.mbt", "value": "$placeholder"}
+            ######MOONBIT_VALUE_TRACING_CONTENT_START######
+            1
+            ######MOONBIT_VALUE_TRACING_CONTENT_END######
             ######MOONBIT_VALUE_TRACING_END######
-            ######MOONBIT_VALUE_TRACING_START######
-            {"name":"b","value":"2","line":"4","start_column":"7","end_column":"8"}
+
+
+            {"name": "b", "line": 4, "start_column": 7, "end_column": 8, "filepath": "$ROOT/main/main.mbt", "value": "$placeholder"}
+            ######MOONBIT_VALUE_TRACING_CONTENT_START######
+            2
+            ######MOONBIT_VALUE_TRACING_CONTENT_END######
             ######MOONBIT_VALUE_TRACING_END######
-            ######MOONBIT_VALUE_TRACING_START######
-            {"name":"c","value":"3","line":"5","start_column":"7","end_column":"8"}
+
+
+            {"name": "c", "line": 5, "start_column": 7, "end_column": 8, "filepath": "$ROOT/main/main.mbt", "value": "$placeholder"}
+            ######MOONBIT_VALUE_TRACING_CONTENT_START######
+            3
+            ######MOONBIT_VALUE_TRACING_CONTENT_END######
             ######MOONBIT_VALUE_TRACING_END######
             3
         "#]],
@@ -4230,20 +4247,37 @@ fn test_tracing_value_for_maiun_func() {
             moonrun $ROOT/target/main.wasm
         "#]],
     );
+    let content = get_stdout(&dir, ["run", "./main.mbt", "--enable-value-tracing"])
+        .split("######MOONBIT_VALUE_TRACING_START######")
+        .filter(|l| !(l.contains("__generated_driver_for")))
+        .collect::<Vec<_>>()
+        .join("\n");
     check(
-        get_stdout(&dir, ["run", "./main.mbt", "--enable-value-tracing"]),
-        expect![[r#######"
-            ######MOONBIT_VALUE_TRACING_START######
-            {"name":"a","value":"1","line":"2","start_column":"7","end_column":"8"}
+        content,
+        expect![[r#"
+
+
+            {"name": "a", "line": 2, "start_column": 7, "end_column": 8, "filepath": "moon/run/single/main.mbt", "value": "$placeholder"}
+            ######MOONBIT_VALUE_TRACING_CONTENT_START######
+            1
+            ######MOONBIT_VALUE_TRACING_CONTENT_END######
             ######MOONBIT_VALUE_TRACING_END######
-            ######MOONBIT_VALUE_TRACING_START######
-            {"name":"b","value":"2","line":"3","start_column":"7","end_column":"8"}
+
+
+            {"name": "b", "line": 3, "start_column": 7, "end_column": 8, "filepath": "moon/run/single/main.mbt", "value": "$placeholder"}
+            ######MOONBIT_VALUE_TRACING_CONTENT_START######
+            2
+            ######MOONBIT_VALUE_TRACING_CONTENT_END######
             ######MOONBIT_VALUE_TRACING_END######
-            ######MOONBIT_VALUE_TRACING_START######
-            {"name":"c","value":"3","line":"4","start_column":"7","end_column":"8"}
+
+
+            {"name": "c", "line": 4, "start_column": 7, "end_column": 8, "filepath": "moon/run/single/main.mbt", "value": "$placeholder"}
+            ######MOONBIT_VALUE_TRACING_CONTENT_START######
+            3
+            ######MOONBIT_VALUE_TRACING_CONTENT_END######
             ######MOONBIT_VALUE_TRACING_END######
             3
-        "#######]],
+        "#]],
     );
 }
 
@@ -4264,22 +4298,47 @@ fn test_tracing_value_for_test_block() {
         ),
         expect![[r#"
             moon generate-test-driver --source-dir . --target-dir ./target --package moon_new/lib1 --target wasm-gc --driver-kind internal --mode test
-            moonc build-package ./lib2/hello.mbt -o ./target/wasm-gc/debug/test/lib2/lib2.core -pkg moon_new/lib2 -std-path $MOON_HOME/lib/core/target/wasm-gc/release/bundle -pkg-sources moon_new/lib2:./lib2 -target wasm-gc -g -O0
-            moonc build-package ./lib1/hello.mbt ./target/wasm-gc/debug/test/lib1/__generated_driver_for_internal_test.mbt -o ./target/wasm-gc/debug/test/lib1/lib1.internal_test.core -pkg moon_new/lib1 -is-main -std-path $MOON_HOME/lib/core/target/wasm-gc/release/bundle -i ./target/wasm-gc/debug/test/lib2/lib2.mi:lib2 -pkg-sources moon_new/lib1:./lib1 -target wasm-gc -g -O0 -no-mi -test-mode -enable-value-tracing
-            moonc link-core $MOON_HOME/lib/core/target/wasm-gc/release/bundle/abort/abort.core $MOON_HOME/lib/core/target/wasm-gc/release/bundle/core.core ./target/wasm-gc/debug/test/lib2/lib2.core ./target/wasm-gc/debug/test/lib1/lib1.internal_test.core -main moon_new/lib1 -o ./target/wasm-gc/debug/test/lib1/lib1.internal_test.wasm -test-mode -pkg-config-path ./lib1/moon.pkg.json -pkg-sources moon_new/lib2:./lib2 -pkg-sources moon_new/lib1:./lib1 -pkg-sources moonbitlang/core:$MOON_HOME/lib/core -exported_functions moonbit_test_driver_internal_execute,moonbit_test_driver_finish -target wasm-gc -g -O0
+            moonc build-package ./lib2/hello.mbt -o ./target/wasm-gc/debug/test/lib2/lib2.core -pkg moon_new/lib2 -std-path $MOON_HOME/lib/core/target/wasm-gc/release/bundle -pkg-sources moon_new/lib2:./lib2 -target wasm-gc -g -O0 -source-map
+            moonc build-package ./lib1/hello.mbt ./target/wasm-gc/debug/test/lib1/__generated_driver_for_internal_test.mbt -o ./target/wasm-gc/debug/test/lib1/lib1.internal_test.core -pkg moon_new/lib1 -is-main -std-path $MOON_HOME/lib/core/target/wasm-gc/release/bundle -i ./target/wasm-gc/debug/test/lib2/lib2.mi:lib2 -pkg-sources moon_new/lib1:./lib1 -target wasm-gc -g -O0 -source-map -no-mi -test-mode -enable-value-tracing
+            moonc link-core $MOON_HOME/lib/core/target/wasm-gc/release/bundle/abort/abort.core $MOON_HOME/lib/core/target/wasm-gc/release/bundle/core.core ./target/wasm-gc/debug/test/lib2/lib2.core ./target/wasm-gc/debug/test/lib1/lib1.internal_test.core -main moon_new/lib1 -o ./target/wasm-gc/debug/test/lib1/lib1.internal_test.wasm -test-mode -pkg-config-path ./lib1/moon.pkg.json -pkg-sources moon_new/lib2:./lib2 -pkg-sources moon_new/lib1:./lib1 -pkg-sources moonbitlang/core:$MOON_HOME/lib/core -exported_functions moonbit_test_driver_internal_execute,moonbit_test_driver_finish -target wasm-gc -g -O0 -source-map
         "#]],
     );
 
-    // todo: enable this when trace out stable for driver
-    // check(
-    //     get_stdout(
-    //         &dir,
-    //         ["test", "-p", "moon_new/lib1", "--enable-value-tracing"],
-    //     ),
-    //     expect![[r#""#]],
-    // );
+    let content = get_stdout(
+        &dir,
+        ["test", "-p", "moon_new/lib1", "--enable-value-tracing"],
+    )
+    .split("######MOONBIT_VALUE_TRACING_START######")
+    .filter(|l| !(l.contains("__generated_driver_for")))
+    .collect::<Vec<_>>()
+    .join("\n");
+    check(
+        content,
+        expect![[r#"
 
-    // single file
+
+            {"name": "a", "line": 6, "start_column": 7, "end_column": 8, "filepath": "$ROOT/lib1/hello.mbt", "value": "$placeholder"}
+            ######MOONBIT_VALUE_TRACING_CONTENT_START######
+            1
+            ######MOONBIT_VALUE_TRACING_CONTENT_END######
+            ######MOONBIT_VALUE_TRACING_END######
+
+
+            {"name": "b", "line": 7, "start_column": 7, "end_column": 8, "filepath": "$ROOT/lib1/hello.mbt", "value": "$placeholder"}
+            ######MOONBIT_VALUE_TRACING_CONTENT_START######
+            2
+            ######MOONBIT_VALUE_TRACING_CONTENT_END######
+            ######MOONBIT_VALUE_TRACING_END######
+
+
+            {"name": "c", "line": 8, "start_column": 7, "end_column": 8, "filepath": "$ROOT/lib1/hello.mbt", "value": "$placeholder"}
+            ######MOONBIT_VALUE_TRACING_CONTENT_START######
+            3
+            ######MOONBIT_VALUE_TRACING_CONTENT_END######
+            ######MOONBIT_VALUE_TRACING_END######
+            Hello, world!
+        "#]],
+    );
 }
 
 #[test]

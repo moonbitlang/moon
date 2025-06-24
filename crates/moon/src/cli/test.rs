@@ -345,15 +345,9 @@ pub fn get_module_for_single_file(
             imports: vec![],
             wbtest_imports: vec![],
             test_imports: vec![],
-            generated_test_drivers: if single_file_string.ends_with(DOT_MBT_DOT_MD) {
-                vec![GeneratedTestDriver::BlackboxTest(
-                    target_dir.join(pkg_rel_name).join(BLACKBOX_TEST_DRIVER),
-                )]
-            } else {
-                vec![GeneratedTestDriver::BlackboxTest(
-                    target_dir.join(pkg_rel_name).join(BLACKBOX_TEST_DRIVER),
-                )]
-            },
+            generated_test_drivers: vec![GeneratedTestDriver::BlackboxTest(
+                target_dir.join(pkg_rel_name).join(BLACKBOX_TEST_DRIVER),
+            )],
             artifact: target_dir
                 .join(pkg_rel_name)
                 .join(format!("{}.core", pkg_rel_name)),
@@ -714,17 +708,14 @@ pub(crate) fn run_test_or_bench_internal(
         }
 
         if cmd.build_flags.enable_value_tracing {
-            match moonbuild_opt
+            if let Some(filter_package) = moonbuild_opt
                 .test_opt
                 .as_ref()
                 .and_then(|it| it.filter_package.as_ref())
             {
-                Some(filter_package) => {
-                    if filter_package.contains(&pkg.full_name()) {
-                        pkg.enable_value_tracing = true;
-                    }
+                if filter_package.contains(&pkg.full_name()) {
+                    pkg.enable_value_tracing = true;
                 }
-                None => {}
             }
         }
 
