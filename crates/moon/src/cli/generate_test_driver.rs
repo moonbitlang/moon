@@ -362,10 +362,18 @@ fn generate_driver(
         }
     }
     else {
-        match target_backend.unwrap_or_default() {
-            TargetBackend::Native | TargetBackend::LLVM => include_str!(concat!(
+        match (target_backend.unwrap_or_default(), enable_bench) {
+            (TargetBackend::Native | TargetBackend::LLVM, true) => include_str!(concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/../moonbuild/template/test_driver/with_args_bench_driver_template_native.mbt"
+            )).to_string(),
+            (TargetBackend::Native | TargetBackend::LLVM, false) => include_str!(concat!(
                 env!("CARGO_MANIFEST_DIR"),
                 "/../moonbuild/template/test_driver/with_args_driver_template_native.mbt"
+            )).to_string(),
+            (_, true) => include_str!(concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/../moonbuild/template/test_driver/with_args_bench_driver_template.mbt"
             )).to_string(),
             _ => include_str!(concat!(
                 env!("CARGO_MANIFEST_DIR"),
@@ -423,9 +431,6 @@ fn generate_driver(
         .replace("{PACKAGE}", pkgname)
         .replace("{BEGIN_MOONTEST}", MOON_TEST_DELIMITER_BEGIN)
         .replace("{END_MOONTEST}", MOON_TEST_DELIMITER_END)
-        .replace("let bench_mode = false // WILL BE REPLACED", &format!(
-            "let bench_mode = {}", enable_bench
-        ))
         .replace("// {COVERAGE_END}", &coverage_end_template);
 
     if pkgname.starts_with(MOONBITLANG_CORE) {

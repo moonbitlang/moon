@@ -1102,27 +1102,23 @@ async fn handle_test_result(
                     if let Err(e) = crate::expect::apply_expect(update_msg) {
                         eprintln!("{}: {:?}", "apply expect failed".red().bold(), e);
                     }
-                    // if is doc test, after apply_expect, we need to update the doc test patch file
-                    // todo: gen_doc_test_patch when the cur running test is doc test
+
+                    // update patch test json
                     {
                         let pkg = module.get_package_by_name(&origin_err.package);
-                        let doc_test_patch =
-                            moonutil::doc_test::gen_doc_test_patch(pkg, moonc_opt)?;
-                        if let Some(doc_test_patch) = doc_test_patch {
+                        let (doc_test_patch, md_test_patch) = (
+                            moonutil::doc_test::gen_doc_test_patch(pkg, moonc_opt)?,
+                            moonutil::doc_test::gen_md_test_patch(pkg, moonc_opt)?,
+                        );
+                        let merged_patch = moonutil::common::PatchJSON::merge_patches(
+                            doc_test_patch,
+                            md_test_patch,
+                        );
+                        if let Some(patch) = merged_patch {
                             let pj_path = pkg
                                 .artifact
                                 .with_file_name(moonutil::common::MOON_INTERNAL_PATCH_JSON_FILE);
-                            doc_test_patch.write_to_path(&pj_path)?;
-                        }
-                    }
-                    if origin_err.filename.ends_with(DOT_MBT_DOT_MD) {
-                        let pkg = module.get_package_by_name(&origin_err.package);
-                        let md_test_patch = moonutil::doc_test::gen_md_test_patch(pkg, moonc_opt)?;
-                        if let Some(doc_test_patch) = md_test_patch {
-                            let pj_path = pkg
-                                .artifact
-                                .with_file_name(moonutil::common::MOON_INTERNAL_PATCH_JSON_FILE);
-                            doc_test_patch.write_to_path(&pj_path)?;
+                            patch.write_to_path(&pj_path)?;
                         }
                     }
 
@@ -1161,28 +1157,23 @@ async fn handle_test_result(
                             eprintln!("{}: {:?}", "failed".red().bold(), e);
                             break;
                         }
-                        // if is doc test, after apply_expect, we need to update the doc test patch file
-                        // todo: gen_doc_test_patch when the cur running test is doc test
+
+                        // update patch test json
                         {
                             let pkg = module.get_package_by_name(&origin_err.package);
-                            let doc_test_patch =
-                                moonutil::doc_test::gen_doc_test_patch(pkg, moonc_opt)?;
-                            if let Some(doc_test_patch) = doc_test_patch {
+                            let (doc_test_patch, md_test_patch) = (
+                                moonutil::doc_test::gen_doc_test_patch(pkg, moonc_opt)?,
+                                moonutil::doc_test::gen_md_test_patch(pkg, moonc_opt)?,
+                            );
+                            let merged_patch = moonutil::common::PatchJSON::merge_patches(
+                                doc_test_patch,
+                                md_test_patch,
+                            );
+                            if let Some(patch) = merged_patch {
                                 let pj_path = pkg.artifact.with_file_name(
                                     moonutil::common::MOON_INTERNAL_PATCH_JSON_FILE,
                                 );
-                                doc_test_patch.write_to_path(&pj_path)?;
-                            }
-                        }
-                        if origin_err.filename.ends_with(DOT_MBT_DOT_MD) {
-                            let pkg = module.get_package_by_name(&origin_err.package);
-                            let md_test_patch =
-                                moonutil::doc_test::gen_md_test_patch(pkg, moonc_opt)?;
-                            if let Some(doc_test_patch) = md_test_patch {
-                                let pj_path = pkg.artifact.with_file_name(
-                                    moonutil::common::MOON_INTERNAL_PATCH_JSON_FILE,
-                                );
-                                doc_test_patch.write_to_path(&pj_path)?;
+                                patch.write_to_path(&pj_path)?;
                             }
                         }
 
