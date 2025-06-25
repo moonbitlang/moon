@@ -546,7 +546,7 @@ impl MooncOpt {
             extra_build_opt: vec![],
             extra_link_opt: vec![],
             nostd: false,
-            render: false,
+            render: true,
             single_file: false,
         }
     }
