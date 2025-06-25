@@ -968,16 +968,14 @@ impl StringExt for str {
 
 pub fn set_native_backend_link_flags(
     run_mode: RunMode,
-    target_backend: Option<TargetBackend>,
+    target_backend: TargetBackend,
     module: &mut crate::module::ModuleDB,
 ) -> anyhow::Result<Vec<String>> {
     let mut all_stubs = Vec::new();
     match run_mode {
         // need link-core for build, test, bench, and run
         RunMode::Build | RunMode::Test | RunMode::Bench | RunMode::Run => {
-            if target_backend == Some(TargetBackend::Native)
-                || target_backend == Some(TargetBackend::LLVM)
-            {
+            if matches!(target_backend, TargetBackend::Native | TargetBackend::LLVM) {
                 let mut link_configs = HashMap::new();
 
                 let all_pkgs = module.get_all_packages();
