@@ -280,8 +280,8 @@ pub fn run_info_internal(
     let mbti_files = Arc::new(Mutex::new(vec![]));
 
     for (name, pkg) in packages_to_emit_mbti {
-        // Skip if pkg is not part of the module
-        if pkg.is_third_party {
+        // Skip 3-rd party packages and virtual packages(it's .mbti should be written by user)
+        if pkg.is_third_party || pkg.virtual_pkg.is_some() {
             continue;
         }
 
