@@ -975,7 +975,9 @@ pub fn set_native_backend_link_flags(
     match run_mode {
         // need link-core for build, test, bench, and run
         RunMode::Build | RunMode::Test | RunMode::Bench | RunMode::Run => {
-            if target_backend == Some(TargetBackend::Native) {
+            if target_backend == Some(TargetBackend::Native)
+                || target_backend == Some(TargetBackend::LLVM)
+            {
                 let mut link_configs = HashMap::new();
 
                 let all_pkgs = module.get_all_packages();
