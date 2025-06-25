@@ -1411,7 +1411,7 @@ pub fn gen_n2_runtest_state(
         graph.add_build(build)?;
     }
 
-    if is_native_backend {
+    if is_native_backend || is_llvm_backend {
         for item in input.compile_stub_items.iter() {
             let builds = gen_compile_stub_command(&mut graph, item, moonc_opt, moonbuild_opt);
             for (build, _fid) in builds {

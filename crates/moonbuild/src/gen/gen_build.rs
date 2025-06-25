@@ -1283,13 +1283,24 @@ pub fn gen_link_exe_command(
         line: 0,
     };
 
-    let input_ids = vec![
+    let mut input_ids = vec![
         graph.files.id_from_canonical(o_artifact_path.clone()),
         graph.files.id_from_canonical(runtime_path.clone()),
     ];
+    let mut input_cnt = input_ids.len();
+    let native_stub_deps = item.native_stub_deps();
+    if let Some(native_stub_deps) = native_stub_deps {
+        input_cnt += native_stub_deps.len();
+        input_ids.extend(
+            native_stub_deps
+                .iter()
+                .map(|f| graph.files.id_from_canonical(f.clone())),
+        );
+    }
+
     let ins = BuildIns {
         ids: input_ids,
-        explicit: 2,
+        explicit: input_cnt,
         implicit: 0,
         order_only: 0,
     };
@@ -1315,7 +1326,10 @@ pub fn gen_link_exe_command(
     native_flags.extend(native_cc_flags);
     native_flags.extend(native_cc_link_flags);
 
-    let sources: Vec<&str> = vec![&runtime_path, &o_artifact_path];
+    let mut sources: Vec<&str> = vec![&runtime_path, &o_artifact_path];
+    if let Some(native_stub_deps) = native_stub_deps {
+        sources.extend(native_stub_deps.iter().map(|f| f.as_str()));
+    }
 
     let cc_cmd = make_cc_command(
         CC::default(),
@@ -1520,7 +1534,7 @@ pub fn gen_n2_build_state(
         graph.add_build(build)?;
     }
 
-    if is_native_backend {
+    if is_native_backend || is_llvm_backend {
         for item in input.compile_stub_items.iter() {
             let builds = gen_compile_stub_command(&mut graph, item, moonc_opt, moonbuild_opt);
             for (build, fid) in builds {
