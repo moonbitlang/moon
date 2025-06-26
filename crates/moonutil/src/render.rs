@@ -224,7 +224,7 @@ impl MooncDiagnostic {
 
         if explain {
             let error_code_doc = get_error_code_doc(&diagnostic.formatted_error_code()).unwrap();
-            report_builder = report_builder.with_message(error_code_doc.fg(color));
+            report_builder = report_builder.with_help(error_code_doc.fg(color));
         } else {
             report_builder = report_builder
                 .with_message(format!("[{}]", diagnostic.formatted_error_code()).fg(color));
