@@ -16,52 +16,59 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
-use crate::cli::get_module_for_single_file;
-
-use super::pre_build::scan_with_x_build;
-use super::BuildFlags;
 use anyhow::{bail, Context};
-use mooncake::pkg::sync::auto_sync;
 use moonutil::cli::UniversalFlags;
 use moonutil::common::{
-    lower_surface_targets, DriverKind, MoonbuildOpt, MooncGenTestInfo, OutputFormat, PrePostBuild,
-    RunMode, TargetBackend, TestOpt, BLACKBOX_TEST_DRIVER, INTERNAL_TEST_DRIVER, MOONBITLANG_CORE,
-    MOON_TEST_DELIMITER_BEGIN, MOON_TEST_DELIMITER_END, TEST_INFO_FILE, WHITEBOX_TEST_DRIVER,
+    DriverKind, MooncGenTestInfo, TargetBackend, MOONBITLANG_CORE, MOON_TEST_DELIMITER_BEGIN,
+    MOON_TEST_DELIMITER_END,
 };
-use moonutil::mooncakes::sync::AutoSyncFlags;
-use moonutil::mooncakes::RegistryConfig;
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 
-/// Generate tests for the provided packages
+/// Generate tests for a provided package. This is a thin wrapper around
+/// `moonc gen-test-info`, which does the actual parsing and generation.
 #[derive(Debug, clap::Parser)]
 pub struct GenerateTestDriverSubcommand {
-    #[clap(flatten)]
-    pub build_flags: BuildFlags,
+    /// The paths of the source files to be mapped
+    files: Vec<PathBuf>,
 
-    /// The paths of the packages
-    #[clap(short, long, num_args(0..))]
-    pub package: Option<Vec<String>>,
+    /// The output test driver `.mbt` file
+    #[clap(long)]
+    output_driver: PathBuf,
+
+    /// The output test metadata file
+    #[clap(long)]
+    output_metadata: PathBuf,
+
+    /// The target backend for the generated test driver.
+    #[clap(long = "target")]
+    target_backend: TargetBackend,
+
+    /// The name of the package for which the test driver is generated for.
+    #[clap(long)]
+    pkg_name: String,
+
+    /// Whether to generate the test driver in bench mode. Not providing this
+    /// option will result in test mode.
+    #[clap(long)]
+    bench: bool,
+
+    /// Whether coverage is enabled in this build. Enabling it will insert
+    /// coverage-custom code at the end of the test..
+    #[clap(long)]
+    enable_coverage: bool,
 
     /// Override coverage package name; `@self` is a special value that means the package itself
     #[clap(long)]
-    pub coverage_package_override: Option<String>,
+    coverage_package_override: Option<String>,
 
     /// The test driver kind
     #[clap(long)]
-    pub driver_kind: DriverKind,
+    driver_kind: DriverKind,
 
     /// Path to the patch file
     #[clap(long)]
-    pub patch_file: Option<PathBuf>,
-
-    // Run mode: only `test` and `bench` are supported
-    #[clap(long)]
-    pub mode: String,
-
-    /// Path to the single test file
-    #[clap(long)]
-    pub single_test_file: Option<PathBuf>,
+    patch_file: Option<PathBuf>,
 }
 
 fn moonc_gen_test_info(
@@ -131,183 +138,60 @@ pub fn generate_test_driver(
     cli: UniversalFlags,
     cmd: GenerateTestDriverSubcommand,
 ) -> anyhow::Result<i32> {
-    let (source_dir, target_dir) = if cmd.single_test_file.is_some() {
-        // just use the source_dir and target_dir from the cli, there were set in the test.rs
-        (
-            cli.source_tgt_dir.source_dir.unwrap().clone(),
-            cli.source_tgt_dir.target_dir.unwrap().clone(),
-        )
-    } else {
-        let dir = cli.source_tgt_dir.try_into_package_dirs()?;
-        (dir.source_dir, dir.target_dir)
-    };
-
-    let mut cmd = cmd;
-    let target_backend = cmd.build_flags.target.as_ref().map(|surface_targets| {
-        if surface_targets.is_empty() {
-            TargetBackend::WasmGC
-        } else {
-            lower_surface_targets(surface_targets)[0]
-        }
-    });
-    cmd.build_flags.target_backend = target_backend;
-
-    let run_mode = match cmd.mode.as_str() {
-        "test" => RunMode::Test,
-        "bench" => RunMode::Bench,
-        _ => bail!("invalid mode: {}", cmd.mode),
-    };
-    let debug_flag = !cmd.build_flags.release;
-    // here we don't use `get_compiler_flags` since it will require moon.mod.json exists
-    let moonc_opt = moonutil::common::MooncOpt {
-        build_opt: moonutil::common::BuildPackageFlags {
-            debug_flag,
-            strip_flag: false,
-            source_map: false,
-            enable_coverage: false,
-            deny_warn: false,
-            target_backend: target_backend.unwrap_or(TargetBackend::WasmGC),
-            warn_list: None,
-            alert_list: None,
-            enable_value_tracing: false,
-        },
-        link_opt: moonutil::common::LinkCoreFlags {
-            debug_flag,
-            source_map: false,
-            output_format: match target_backend.unwrap_or(TargetBackend::WasmGC) {
-                TargetBackend::Js => OutputFormat::Js,
-                TargetBackend::Native => OutputFormat::Native,
-                TargetBackend::LLVM => OutputFormat::LLVM,
-                _ => OutputFormat::Wasm,
-            },
-            target_backend: target_backend.unwrap_or(TargetBackend::WasmGC),
-        },
-        extra_build_opt: vec![],
-        extra_link_opt: vec![],
-        nostd: false,
-        render: true,
-        single_file: false,
-    };
-
-    let sort_input = cmd.build_flags.sort_input;
-    let filter_package = cmd.package.map(|it| it.into_iter().collect());
-
-    let raw_target_dir = target_dir.to_path_buf();
-    let target_dir = target_dir
-        .join(target_backend.unwrap().to_dir_name())
-        .join(if cmd.build_flags.release {
-            "release"
-        } else {
-            "debug"
-        })
-        .join(run_mode.to_dir_name());
-
-    let moonbuild_opt = MoonbuildOpt {
-        source_dir: source_dir.clone(),
-        raw_target_dir,
-        target_dir: target_dir.clone(),
-        test_opt: Some(TestOpt {
-            filter_package: filter_package.clone(),
-            filter_file: None,
-            filter_index: None,
-            filter_doc_index: None,
-            limit: 256,
-            test_failure_json: false,
-            display_backend_hint: None,
-            patch_file: cmd.patch_file.clone(),
-        }),
-        check_opt: None,
-        build_opt: None,
-        fmt_opt: None,
-        sort_input,
-        run_mode,
-        args: vec![],
-        verbose: cli.verbose,
-        quiet: cli.quiet,
-        output_json: false,
-        no_parallelize: false,
-        build_graph: false,
-        parallelism: None,
-        use_tcc_run: false,
-        dynamic_stub_libs: None,
-    };
-
-    let module = if let Some(single_test_file) = cmd.single_test_file {
-        get_module_for_single_file(&single_test_file, &moonc_opt, &moonbuild_opt, None)?
-    } else {
-        // Resolve dependencies, but don't download anything
-        let (resolved_env, dir_sync_result) = auto_sync(
-            &source_dir,
-            &AutoSyncFlags { frozen: true },
-            &RegistryConfig::load(),
-            cli.quiet,
-        )?;
-
-        scan_with_x_build(
-            false,
-            &moonc_opt,
-            &moonbuild_opt,
-            &resolved_env,
-            &dir_sync_result,
-            &PrePostBuild::PreBuild,
-        )?
-    };
-
     if cli.dry_run {
         bail!("dry-run is not implemented for generate-test-driver");
     }
 
-    let package_filter = moonbuild_opt.get_package_filter();
-    for (pkgname, pkg) in module.get_filtered_packages(package_filter) {
-        if pkg.is_third_party {
-            continue;
-        }
+    // let (files, driver_name) = match cmd.driver_kind {
+    //     DriverKind::Internal => (&pkg.files, INTERNAL_TEST_DRIVER),
+    //     DriverKind::Whitebox => (&pkg.wbtest_files, WHITEBOX_TEST_DRIVER),
+    //     DriverKind::Blackbox => (&pkg.test_files, BLACKBOX_TEST_DRIVER),
+    // };
 
-        let (files, driver_name) = match cmd.driver_kind {
-            DriverKind::Internal => (&pkg.files, INTERNAL_TEST_DRIVER),
-            DriverKind::Whitebox => (&pkg.wbtest_files, WHITEBOX_TEST_DRIVER),
-            DriverKind::Blackbox => (&pkg.test_files, BLACKBOX_TEST_DRIVER),
-        };
+    // let backend_filtered: Vec<PathBuf> = moonutil::common::backend_filter(
+    //     files,
+    //     moonc_opt.build_opt.debug_flag,
+    //     moonc_opt.build_opt.target_backend,
+    // )
+    // .into_iter()
+    // .filter(|file| {
+    //     // workaround for skip test coverage.mbt in builtin when --enable-coverage is specified
+    //     !(moonc_opt.build_opt.enable_coverage
+    //         && pkgname == "moonbitlang/core/builtin"
+    //         && file.to_str().unwrap().contains("coverage.mbt"))
+    // })
+    // .collect();
 
-        let backend_filtered: Vec<PathBuf> = moonutil::common::backend_filter(
-            files,
-            moonc_opt.build_opt.debug_flag,
-            moonc_opt.build_opt.target_backend,
-        )
-        .into_iter()
-        .filter(|file| {
-            // workaround for skip test coverage.mbt in builtin when --enable-coverage is specified
-            !(moonc_opt.build_opt.enable_coverage
-                && pkgname == "moonbitlang/core/builtin"
-                && file.to_str().unwrap().contains("coverage.mbt"))
-        })
-        .collect();
+    // Create directories if not exists
+    cmd.output_metadata
+        .parent()
+        .map(std::fs::create_dir_all)
+        .transpose()?;
+    cmd.output_driver
+        .parent()
+        .map(std::fs::create_dir_all)
+        .transpose()?;
 
-        let mbts_test_data = moonc_gen_test_info(
-            &backend_filtered,
-            &target_dir.join(pkg.rel.fs_full_name()).join(format!(
-                "__{}_{}",
-                cmd.driver_kind.to_string(),
-                TEST_INFO_FILE,
-            )),
-            cmd.patch_file.clone(),
-        )?;
+    let mbts_test_data = moonc_gen_test_info(
+        &cmd.files,
+        // &target_dir.join(pkg.rel.fs_full_name()).join(format!(
+        //     "__{}_{}",
+        //     cmd.driver_kind.to_string(),
+        //     TEST_INFO_FILE,
+        // )),
+        &cmd.output_metadata,
+        cmd.patch_file.clone(),
+    )?;
 
-        let generated_content = generate_driver(
-            &mbts_test_data,
-            pkgname,
-            target_backend,
-            cmd.build_flags.enable_coverage,
-            run_mode == RunMode::Bench,
-            cmd.coverage_package_override.as_deref(),
-        );
-        let generated_file = target_dir.join(pkg.rel.fs_full_name()).join(driver_name);
-
-        if !generated_file.parent().unwrap().exists() {
-            std::fs::create_dir_all(generated_file.parent().unwrap())?;
-        }
-        std::fs::write(&generated_file, generated_content)?;
-    }
+    let generated_content = generate_driver(
+        &mbts_test_data,
+        &cmd.pkg_name,
+        cmd.target_backend,
+        cmd.enable_coverage,
+        cmd.bench,
+        cmd.coverage_package_override.as_deref(),
+    );
+    std::fs::write(&cmd.output_driver, generated_content)?;
 
     Ok(0)
 }
@@ -315,7 +199,7 @@ pub fn generate_test_driver(
 fn generate_driver(
     data: &str,
     pkgname: &str,
-    target_backend: Option<TargetBackend>,
+    target_backend: TargetBackend,
     enable_coverage: bool,
     enable_bench: bool,
     coverage_package_override: Option<&str>,
@@ -332,7 +216,7 @@ fn generate_driver(
 
     let only_no_arg_tests = !data[index..].contains("__test_");
 
-    let args_processing = match target_backend.unwrap_or_default() {
+    let args_processing = match target_backend {
         TargetBackend::Wasm | TargetBackend::WasmGC => {
             include_str!(concat!(
                 env!("CARGO_MANIFEST_DIR"),
@@ -350,7 +234,7 @@ fn generate_driver(
 
     #[allow(clippy::collapsible_else_if)]
     let mut template = if only_no_arg_tests {
-        match target_backend.unwrap_or_default() {
+        match target_backend {
             TargetBackend::Native | TargetBackend::LLVM => include_str!(concat!(
                 env!("CARGO_MANIFEST_DIR"),
                 "/../moonbuild/template/test_driver/no_args_driver_template_native.mbt"
@@ -362,7 +246,7 @@ fn generate_driver(
         }
     }
     else {
-        match (target_backend.unwrap_or_default(), enable_bench) {
+        match (target_backend, enable_bench) {
             (TargetBackend::Native | TargetBackend::LLVM, true) => include_str!(concat!(
                 env!("CARGO_MANIFEST_DIR"),
                 "/../moonbuild/template/test_driver/with_args_bench_driver_template_native.mbt"
