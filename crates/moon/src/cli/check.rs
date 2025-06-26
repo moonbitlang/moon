@@ -337,28 +337,6 @@ fn run_check_normal_internal(
         }
     };
 
-    for (_, pkg) in module.get_all_packages_mut() {
-        if pkg.is_third_party || pkg.mbt_md_files.is_empty() {
-            continue;
-        }
-
-        let (mut md_test_patch, doc_test_patch) = (
-            None,
-            moonutil::doc_test::gen_doc_test_patch(pkg, &moonc_opt)?,
-        );
-        if !pkg.mbt_md_files.is_empty() {
-            md_test_patch = moonutil::doc_test::gen_md_test_patch(pkg, &moonc_opt)?;
-        }
-        let patch_json = moonutil::common::PatchJSON::merge_patches(md_test_patch, doc_test_patch);
-        if let Some(patch_json) = patch_json {
-            let pj_path = pkg
-                .artifact
-                .with_file_name(moonutil::common::MOON_INTERNAL_PATCH_JSON_FILE);
-            patch_json.write_to_path(&pj_path)?;
-            pkg.test_patch_json_file = Some(pj_path);
-        }
-    }
-
     if cli.dry_run {
         return dry_run::print_commands(&module, &moonc_opt, &moonbuild_opt);
     }

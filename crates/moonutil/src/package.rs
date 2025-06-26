@@ -90,9 +90,6 @@ pub struct Package {
     pub patch_file: Option<PathBuf>,
     pub no_mi: bool,
 
-    // for doc test & md test
-    pub test_patch_json_file: Option<PathBuf>,
-
     pub install_path: Option<PathBuf>,
 
     pub bin_name: Option<String>,
