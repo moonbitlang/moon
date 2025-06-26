@@ -2611,7 +2611,7 @@ fn test_pre_build() {
         expect![[r#"
             Executed 3 pre-build tasks, now up to date
             Warning: [0002]
-               ╭─[$ROOT/src/lib/a.mbt:4:5]
+               ╭─[ $ROOT/src/lib/a.mbt:4:5 ]
                │
              4 │ let resource : String =
                │     ────┬───  
@@ -2624,7 +2624,7 @@ fn test_pre_build() {
         get_stderr(&dir, ["build"]),
         expect![[r#"
             Warning: [0002]
-               ╭─[$ROOT/src/lib/a.mbt:4:5]
+               ╭─[ $ROOT/src/lib/a.mbt:4:5 ]
                │
              4 │ let resource : String =
                │     ────┬───  
@@ -3746,7 +3746,7 @@ fn test_render_diagnostic_in_patch_file() {
         ),
         expect![[r#"
             Warning: [0002]
-               ╭─[hello_2_test.mbt:2:6]
+               ╭─[ hello_2_test.mbt:2:6 ]
                │
              2 │  let unused_in_patch_test_json = 1;
                │      ────────────┬────────────  
@@ -3762,7 +3762,7 @@ fn test_render_diagnostic_in_patch_file() {
         ),
         expect![[r#"
             Warning: [0002]
-               ╭─[hello_1_wbtest.mbt:2:6]
+               ╭─[ hello_1_wbtest.mbt:2:6 ]
                │
              2 │  let unused_in_patch_wbtest_json = 1;
                │      ─────────────┬─────────────  
@@ -3775,7 +3775,7 @@ fn test_render_diagnostic_in_patch_file() {
         get_stderr(&dir, ["check", "-p", "lib", "--patch-file", "./patch.json"]),
         expect![[r#"
             Warning: [0002]
-               ╭─[hello_0.mbt:2:6]
+               ╭─[ hello_0.mbt:2:6 ]
                │
              2 │  let unused_in_patch_json = 1;
                │      ──────────┬─────────  
@@ -3799,85 +3799,86 @@ fn test_render_diagnostic_in_patch_file() {
             ],
         ),
         expect![[r#"
-            Warning: # E0002
-
-            Unused variable.
-
-            This variable is unused by any other part of your code, nor marked with `pub`
-            visibility.
-
-            Note that this warning might uncover other bugs in your code. For example, if
-            there are two variables in your codebase that has similar name, you might just
-            use the other variable by mistake.
-
-            Specifically, if the variable is at the toplevel, and the body of the module
-            contains side effects, the side effects will not happen.
-
-            ## Erroneous example
-
-            ```moonbit
-            let p : Int = {
-            //  ^ Warning: Unused toplevel variable 'p'.
-            //             Note if the body contains side effect, it will not happen.
-            //             Use `fn init { .. }` to wrap the effect.
-              println("Side effect")
-              42
-            }
-
-            fn main {
-              let x = 42 // Warning: Unused variable 'x'
-            }
-            ```
-
-            ## Suggestion
-
-            There are multiple ways to fix this warning:
-
-            - If the variable is indeed useless, you can remove the definition of the
-              variable.
-            - If this variable is at the toplevel (i.e., not local), and is part of the
-              public API of your module, you can add the `pub` keyword to the variable.
-
-              ```moonbit
-              pub let p = 42
-              ```
-
-            - If you made a typo in the variable name, you can rename the variable to the
-              correct name at the use site.
-            - If your code depends on the side-effect of the variable, you can wrap the
-              side-effect in a `fn init` block.
-
-              ```moonbit
-              fn init {
-                println("Side effect")
-              }
-              ```
-
-            There are some cases where you might want to keep the variable private and
-            unused at the same time. In this case, you can call `ignore()` on the variable
-            to force the use of it.
-
-            ```moonbit
-            let p : Int = {
-              println("Side effect")
-              42
-            }
-
-            fn init {
-              ignore(p)
-            }
-
-            fn main {
-              let x = 42
-              ignore(x)
-            }
-            ```
-
-               ╭─[hello_2_test.mbt:2:6]
+            Warning: 
+               ╭─[ hello_2_test.mbt:2:6 ]
                │
              2 │  let unused_in_patch_test_json = 1;
                │      ────────────┬────────────  
                │                  ╰────────────── Warning: Unused variable 'unused_in_patch_test_json'
+               │ 
+               │ Help: # E0002
+               │       
+               │       Unused variable.
+               │       
+               │       This variable is unused by any other part of your code, nor marked with `pub`
+               │       visibility.
+               │       
+               │       Note that this warning might uncover other bugs in your code. For example, if
+               │       there are two variables in your codebase that has similar name, you might just
+               │       use the other variable by mistake.
+               │       
+               │       Specifically, if the variable is at the toplevel, and the body of the module
+               │       contains side effects, the side effects will not happen.
+               │       
+               │       ## Erroneous example
+               │       
+               │       ```moonbit
+               │       let p : Int = {
+               │       //  ^ Warning: Unused toplevel variable 'p'.
+               │       //             Note if the body contains side effect, it will not happen.
+               │       //             Use `fn init { .. }` to wrap the effect.
+               │         println("Side effect")
+               │         42
+               │       }
+               │       
+               │       fn main {
+               │         let x = 42 // Warning: Unused variable 'x'
+               │       }
+               │       ```
+               │       
+               │       ## Suggestion
+               │       
+               │       There are multiple ways to fix this warning:
+               │       
+               │       - If the variable is indeed useless, you can remove the definition of the
+               │         variable.
+               │       - If this variable is at the toplevel (i.e., not local), and is part of the
+               │         public API of your module, you can add the `pub` keyword to the variable.
+               │       
+               │         ```moonbit
+               │         pub let p = 42
+               │         ```
+               │       
+               │       - If you made a typo in the variable name, you can rename the variable to the
+               │         correct name at the use site.
+               │       - If your code depends on the side-effect of the variable, you can wrap the
+               │         side-effect in a `fn init` block.
+               │       
+               │         ```moonbit
+               │         fn init {
+               │           println("Side effect")
+               │         }
+               │         ```
+               │       
+               │       There are some cases where you might want to keep the variable private and
+               │       unused at the same time. In this case, you can call `ignore()` on the variable
+               │       to force the use of it.
+               │       
+               │       ```moonbit
+               │       let p : Int = {
+               │         println("Side effect")
+               │         42
+               │       }
+               │       
+               │       fn init {
+               │         ignore(p)
+               │       }
+               │       
+               │       fn main {
+               │         let x = 42
+               │         ignore(x)
+               │       }
+               │       ```
             ───╯
             Finished. moon: ran 2 tasks, now up to date
         "#]],
@@ -4409,7 +4410,7 @@ fn test_diag_loc_map() {
         get_err_stderr(&dir, ["check"]),
         expect![[r#"
             Error: [4014]
-                 ╭─[$ROOT/parser.mbt:128:13]
+                 ╭─[ $ROOT/parser.mbt:128:13 ]
                  │
              128 │       lhs + "x" + rhs
                  │             ─┬─  
@@ -4561,7 +4562,7 @@ fn test_run_md_test() {
         get_stderr(&dir, ["check", "--sort-input"]),
         expect![[r#"
             Warning: [0002]
-                ╭─[$ROOT/src/lib/1.mbt.md:42:9]
+                ╭─[ $ROOT/src/lib/1.mbt.md:42:9 ]
                 │
              42 │     let a = 1
                 │         ┬  
@@ -5149,8 +5150,8 @@ fn test_virtual_pkg() {
 
     let err = dir.join("err");
     let content = get_err_stderr(&err, ["check"]);
-    assert!(content.contains("[$ROOT/lib1/lib1.mbti:5:1]"));
-    assert!(content.contains("[$ROOT/lib1/lib1.mbti:3:1]"));
+    assert!(content.contains("$ROOT/lib1/lib1.mbti:5:1"));
+    assert!(content.contains("$ROOT/lib1/lib1.mbti:3:1"));
 
     // moon build will not build default impl for lib1 if no pkg depend on this default impl
     // so here just report error for missing impl for f2(diy impl in lib2), no report error for missing impl for f1(default impl in lib1)
@@ -5158,7 +5159,7 @@ fn test_virtual_pkg() {
         get_err_stderr(&err, ["build"]),
         expect![[r#"
             Error: [4159]
-               ╭─[$ROOT/lib1/lib1.mbti:5:1]
+               ╭─[ $ROOT/lib1/lib1.mbti:5:1 ]
                │
              5 │ fn f2(String) -> Unit
                │ ──────────┬──────────  
@@ -5221,7 +5222,7 @@ fn moon_check_and_test_single_file() {
             get_stderr(&dir, ["check", "single.mbt"]),
             expect![[r#"
                 Warning: [0002]
-                   ╭─[$ROOT/single.mbt:8:7]
+                   ╭─[ $ROOT/single.mbt:8:7 ]
                    │
                  8 │   let single_mbt = 1
                    │       ─────┬────  
@@ -5235,7 +5236,7 @@ fn moon_check_and_test_single_file() {
             get_stderr(&dir, ["check", &single_mbt]),
             expect![[r#"
                 Warning: [0002]
-                   ╭─[$ROOT/single.mbt:8:7]
+                   ╭─[ $ROOT/single.mbt:8:7 ]
                    │
                  8 │   let single_mbt = 1
                    │       ─────┬────  
@@ -5301,7 +5302,7 @@ fn moon_check_and_test_single_file() {
             get_stderr(&dir, ["check", "111.mbt.md"]),
             expect![[r#"
                 Warning: [0002]
-                    ╭─[$ROOT/111.mbt.md:28:9]
+                    ╭─[ $ROOT/111.mbt.md:28:9 ]
                     │
                  28 │     let single_mbt_md = 1
                     │         ──────┬──────  
@@ -5315,7 +5316,7 @@ fn moon_check_and_test_single_file() {
             get_stderr(&dir, ["check", &single_mbt_md]),
             expect![[r#"
                 Warning: [0002]
-                    ╭─[$ROOT/111.mbt.md:28:9]
+                    ╭─[ $ROOT/111.mbt.md:28:9 ]
                     │
                  28 │     let single_mbt_md = 1
                     │         ──────┬──────  
@@ -5333,7 +5334,7 @@ fn moon_check_and_test_single_file() {
             get_stderr(&dir, ["check", &with_main]),
             expect![[r#"
                 Warning: [0002]
-                   ╭─[$ROOT/with_main.mbt:2:7]
+                   ╭─[ $ROOT/with_main.mbt:2:7 ]
                    │
                  2 │   let with_main = 1
                    │       ────┬────  
@@ -5347,14 +5348,14 @@ fn moon_check_and_test_single_file() {
             get_stderr(&dir, ["check", &without_main]),
             expect![[r#"
                 Warning: [0001]
-                   ╭─[$ROOT/without_main.mbt:1:4]
+                   ╭─[ $ROOT/without_main.mbt:1:4 ]
                    │
                  1 │ fn func() -> Unit {
                    │    ──┬─  
                    │      ╰─── Warning: Unused function 'func'
                 ───╯
                 Warning: [0002]
-                   ╭─[$ROOT/without_main.mbt:2:7]
+                   ╭─[ $ROOT/without_main.mbt:2:7 ]
                    │
                  2 │   let without_main = 1
                    │       ──────┬─────  
@@ -5436,7 +5437,7 @@ fn test_in_main_pkg() {
         get_stderr(&dir, ["check"]),
         expect![[r#"
             Warning: [0002]
-               ╭─[$ROOT/lib/1_test.mbt:2:7]
+               ╭─[ $ROOT/lib/1_test.mbt:2:7 ]
                │
              2 │   let a = 1
                │       ┬  
@@ -5486,14 +5487,14 @@ fn merge_doc_test_and_md_test() {
         get_stderr(&dir, ["check"]),
         expect![[r#"
             Warning: [0002]
-               ╭─[$ROOT/lib/README.mbt.md:5:9]
+               ╭─[ $ROOT/lib/README.mbt.md:5:9 ]
                │
              5 │     let unused_in_lib_md_test = 1
                │         ──────────┬──────────  
                │                   ╰──────────── Warning: Unused variable 'unused_in_lib_md_test'
             ───╯
             Warning: [0002]
-               ╭─[$ROOT/lib/hello.mbt:3:11]
+               ╭─[ $ROOT/lib/hello.mbt:3:11 ]
                │
              3 │ ///   let unused_in_lib_doc_test = 1
                │           ───────────┬──────────  
