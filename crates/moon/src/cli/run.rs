@@ -402,7 +402,7 @@ pub fn run_run_internal(cli: &UniversalFlags, cmd: RunSubcommand) -> anyhow::Res
 
     moonutil::common::set_native_backend_link_flags(
         run_mode,
-        cmd.build_flags.target_backend,
+        moonc_opt.build_opt.target_backend,
         &mut module,
     )?;
 

@@ -427,7 +427,7 @@ pub fn get_module_for_single_file(
     // for native backend
     let _ = moonutil::common::set_native_backend_link_flags(
         moonbuild_opt.run_mode,
-        Some(moonc_opt.link_opt.target_backend),
+        moonc_opt.build_opt.target_backend,
         &mut module,
     )?;
 
@@ -761,7 +761,7 @@ pub(crate) fn run_test_or_bench_internal(
 
     let all_stubs_dyn_deps = moonutil::common::set_native_backend_link_flags(
         run_mode,
-        cmd.build_flags.target_backend,
+        moonc_opt.build_opt.target_backend,
         &mut module,
     )?;
 
