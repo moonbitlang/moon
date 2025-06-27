@@ -21,10 +21,12 @@ use colored::Colorize;
 use indexmap::IndexMap;
 use log::info;
 use moonutil::common::{
-    get_desc_name, DriverKind, GeneratedTestDriver, RunMode, TargetBackend, BLACKBOX_TEST_PATCH,
-    MOONBITLANG_CORE, MOONBITLANG_COVERAGE, O_EXT, SUB_PKG_POSTFIX, WHITEBOX_TEST_PATCH,
+    get_desc_name, BuildOpt, DriverKind, GeneratedTestDriver, RunMode, TargetBackend,
+    BLACKBOX_TEST_PATCH, MOONBITLANG_CORE, MOONBITLANG_COVERAGE, O_EXT, SUB_PKG_POSTFIX,
+    TEST_INFO_FILE, WHITEBOX_TEST_PATCH,
 };
 use moonutil::compiler_flags::CC;
+use moonutil::cond_expr::OptLevel;
 use moonutil::module::ModuleDB;
 use moonutil::package::Package;
 use moonutil::path::{ImportPath, PathComponent};
@@ -37,7 +39,7 @@ use super::gen_build::{
 use super::util::{calc_link_args, self_in_test_import};
 use super::{is_self_coverage_lib, is_skip_coverage_lib};
 use std::collections::HashSet;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::rc::Rc;
 
 use moonutil::common::{MoonbuildOpt, MooncOpt, MOON_PKG_JSON};
@@ -85,7 +87,8 @@ type RuntestLinkDepItem = moonutil::package::LinkDepItem;
 pub struct RuntestDriverItem {
     pub driver_kind: DriverKind,
     pub package_name: String,
-    pub driver_file: String,
+    pub driver_file: PathBuf,
+    pub info_file: PathBuf,
     pub files_may_contain_test_block: Vec<String>,
     pub patch_file: Option<PathBuf>,
     pub single_test_file: Option<PathBuf>,
@@ -159,74 +162,54 @@ pub fn add_coverage_to_core_if_needed(
 }
 
 pub fn gen_package_test_driver(
+    moonc_opt: &MooncOpt,
+    target_dir: &Path,
     g: &GeneratedTestDriver,
     pkg: &Package,
 ) -> anyhow::Result<RuntestDriverItem> {
-    match g {
-        GeneratedTestDriver::InternalTest(it) => {
-            let package_name = pkg.full_name();
-            let driver_file = it.display().to_string();
-            let files_may_contain_test_block = pkg
-                .files
-                .iter()
-                .map(|(f, _)| f.display().to_string())
-                .collect();
-            Ok(RuntestDriverItem {
-                package_name,
-                driver_file,
-                files_may_contain_test_block,
-                driver_kind: DriverKind::Internal,
-                patch_file: pkg.patch_file.clone(),
-                single_test_file: None,
-            })
-        }
-        GeneratedTestDriver::BlackboxTest(it) => {
-            let package_name = pkg.full_name();
-            let driver_file = it.display().to_string();
-            let mut files_may_contain_test_block: Vec<String> = pkg
-                .test_files
-                .iter()
-                .map(|(f, _)| f.display().to_string())
-                .collect();
-            if let Some(doc_test_patch_file) = pkg.test_patch_json_file.clone() {
-                files_may_contain_test_block.push(doc_test_patch_file.display().to_string());
-            }
-            Ok(RuntestDriverItem {
-                package_name,
-                driver_file,
-                files_may_contain_test_block,
-                driver_kind: DriverKind::Blackbox,
-                patch_file: pkg.patch_file.clone().or(pkg.test_patch_json_file.clone()),
-                single_test_file: if pkg.full_name() == moonutil::common::SINGLE_FILE_TEST_PACKAGE {
-                    if pkg.test_patch_json_file.is_some() {
-                        pkg.test_patch_json_file.clone()
-                    } else {
-                        Some(pkg.test_files.keys().next().unwrap().clone())
-                    }
-                } else {
-                    None
-                },
-            })
-        }
-        GeneratedTestDriver::WhiteboxTest(it) => {
-            let package_name = pkg.full_name();
-            let driver_file = it.display().to_string();
-            let files_may_contain_test_block = pkg
-                .files
-                .iter()
-                .chain(pkg.wbtest_files.iter())
-                .map(|(f, _)| f.display().to_string())
-                .collect();
-            Ok(RuntestDriverItem {
-                package_name,
-                driver_file,
-                files_may_contain_test_block,
-                driver_kind: DriverKind::Whitebox,
-                patch_file: pkg.patch_file.clone(),
-                single_test_file: None,
-            })
-        }
+    let package_name = pkg.full_name();
+
+    let driver_kind = match g {
+        GeneratedTestDriver::InternalTest(_) => DriverKind::Internal,
+        GeneratedTestDriver::BlackboxTest(_) => DriverKind::Blackbox,
+        GeneratedTestDriver::WhiteboxTest(_) => DriverKind::Whitebox,
+    };
+    let files_that_may_contain_test_block = match driver_kind {
+        DriverKind::Internal => &pkg.files,
+        DriverKind::Blackbox => &pkg.test_files,
+        DriverKind::Whitebox => &pkg.wbtest_files,
     }
+    .iter()
+    .filter(|(_, v)| {
+        v.eval(
+            OptLevel::from_debug_flag(moonc_opt.build_opt.debug_flag),
+            moonc_opt.build_opt.target_backend,
+        )
+    })
+    .map(|(f, _)| f.display().to_string())
+    .collect();
+
+    let test_info = target_dir
+        .join(pkg.rel.fs_full_name())
+        .join(format!("__{}_{}", driver_kind, TEST_INFO_FILE));
+    let driver_file = match g {
+        GeneratedTestDriver::InternalTest(it) => it.clone(),
+        GeneratedTestDriver::BlackboxTest(it) => it.clone(),
+        GeneratedTestDriver::WhiteboxTest(it) => it.clone(),
+    };
+
+    Ok(RuntestDriverItem {
+        package_name,
+        driver_file,
+        info_file: test_info,
+        files_may_contain_test_block: files_that_may_contain_test_block,
+        driver_kind,
+        patch_file: pkg
+            .patch_file
+            .clone()
+            .or_else(|| pkg.test_patch_json_file.clone()),
+        single_test_file: None,
+    })
 }
 
 pub fn gen_package_core(
@@ -993,7 +976,12 @@ pub fn gen_runtest(
         if has_internal_test {
             for item in pkg.generated_test_drivers.iter() {
                 if let GeneratedTestDriver::InternalTest(_) = item {
-                    test_drivers.push(gen_package_test_driver(item, pkg)?);
+                    test_drivers.push(gen_package_test_driver(
+                        moonc_opt,
+                        &moonbuild_opt.target_dir,
+                        item,
+                        pkg,
+                    )?);
                     build_items.push(gen_package_internal_test(
                         m,
                         pkg,
@@ -1008,7 +996,12 @@ pub fn gen_runtest(
         if !pkg.wbtest_files.is_empty() || whitebox_patch_file.is_some() {
             for item in pkg.generated_test_drivers.iter() {
                 if let GeneratedTestDriver::WhiteboxTest(_) = item {
-                    test_drivers.push(gen_package_test_driver(item, pkg)?);
+                    test_drivers.push(gen_package_test_driver(
+                        moonc_opt,
+                        &moonbuild_opt.target_dir,
+                        item,
+                        pkg,
+                    )?);
                     build_items.push(gen_package_whitebox_test(
                         m,
                         pkg,
@@ -1026,7 +1019,12 @@ pub fn gen_runtest(
         {
             for item in pkg.generated_test_drivers.iter() {
                 if let GeneratedTestDriver::BlackboxTest(_) = item {
-                    test_drivers.push(gen_package_test_driver(item, pkg)?);
+                    test_drivers.push(gen_package_test_driver(
+                        moonc_opt,
+                        &moonbuild_opt.target_dir,
+                        item,
+                        pkg,
+                    )?);
                     build_items.push(gen_package_blackbox_test(
                         m,
                         pkg,
@@ -1479,7 +1477,9 @@ fn gen_generate_test_driver_command(
     };
     let outs = BuildOuts {
         explicit: 0,
-        ids: vec![graph.files.id_from_canonical(driver_file.to_string())],
+        ids: vec![graph
+            .files
+            .id_from_canonical(driver_file.display().to_string())],
     };
 
     let loc = FileLoc {
@@ -1516,46 +1516,35 @@ fn gen_generate_test_driver_command(
             .map_or_else(|_| "moon".into(), |x| x.to_string_lossy().into_owned()),
     )
     .arg("generate-test-driver")
-    .arg("--source-dir")
-    .arg(&moonbuild_opt.source_dir.display().to_string())
-    .arg("--target-dir")
-    .arg(&moonbuild_opt.raw_target_dir.display().to_string())
-    .args(["--package", &item.package_name])
-    .arg_with_cond(moonbuild_opt.sort_input, "--sort-input")
-    .args(["--target", moonc_opt.build_opt.target_backend.to_flag()])
-    .args(["--driver-kind", item.driver_kind.to_string()])
-    .args(coverage_args.iter())
-    .arg_with_cond(!moonc_opt.build_opt.debug_flag, "--release")
+    // Output files
+    .arg("--output-driver")
+    .arg(&driver_file.display().to_string())
+    .arg("--output-metadata")
+    .arg(&item.info_file.display().to_string())
+    // Input files
+    .args(&item.files_may_contain_test_block)
+    // Patch file
     .lazy_args_with_cond(patch_file.is_some(), || {
         vec![
             "--patch-file".to_string(),
             patch_file.unwrap().display().to_string(),
         ]
     })
-    .args([
-        "--mode",
-        match moonbuild_opt.run_mode {
-            RunMode::Bench => "bench",
-            _ => "test",
-        },
-    ])
-    .lazy_args_with_cond(item.single_test_file.is_some(), || {
-        vec![
-            "--single-test-file".to_string(),
-            item.single_test_file
-                .as_ref()
-                .unwrap()
-                .display()
-                .to_string(),
-        ]
-    })
+    // Configuration
+    .args(["--target", moonc_opt.build_opt.target_backend.to_flag()])
+    .args(["--pkg-name", &item.package_name])
+    .arg_with_cond(matches!(moonbuild_opt.run_mode, RunMode::Bench), "--bench")
+    // coverage args directly from our friendly function
+    .args(coverage_args)
+    // Driver kind
+    .arg("--driver-kind")
+    .arg(&item.driver_kind.to_string())
     .build();
 
     build.cmdline = Some(command);
     build.desc = Some(format!(
         "gen-test-driver: {}_{}_test",
-        item.package_name,
-        item.driver_kind.to_string()
+        item.package_name, item.driver_kind
     ));
     build
 }

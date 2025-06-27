@@ -847,13 +847,14 @@ pub enum DriverKind {
     Blackbox,
 }
 
-impl DriverKind {
-    pub fn to_string(&self) -> &'static str {
-        match self {
+impl std::fmt::Display for DriverKind {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let kind = match self {
             Self::Internal => "internal",
             Self::Whitebox => "whitebox",
             Self::Blackbox => "blackbox",
-        }
+        };
+        write!(f, "{}", kind)
     }
 }
 
