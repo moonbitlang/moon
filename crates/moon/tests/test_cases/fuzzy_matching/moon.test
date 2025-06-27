@@ -35,11 +35,13 @@
   Total tests: 6, passed: 6, failed: 0.
   
   $ moon test -p asdf --sort-input --no-parallelize
+  [255]
   
-  Warning: no test entry found.
+  error: Cannot find tests to run. Please check if you have supplied the correct package name for testing.
   
   $ moon test -p y -f asdf --sort-input --no-parallelize
   Total tests: 0, passed: 0, failed: 0.
   
   Warning: cannot find file `asdf` in package `username/hello/x/y`, `username/hello/y`, --file only support exact matching
+  Warning: no test entry found.
   
