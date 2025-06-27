@@ -142,26 +142,6 @@ pub fn generate_test_driver(
         bail!("dry-run is not implemented for generate-test-driver");
     }
 
-    // let (files, driver_name) = match cmd.driver_kind {
-    //     DriverKind::Internal => (&pkg.files, INTERNAL_TEST_DRIVER),
-    //     DriverKind::Whitebox => (&pkg.wbtest_files, WHITEBOX_TEST_DRIVER),
-    //     DriverKind::Blackbox => (&pkg.test_files, BLACKBOX_TEST_DRIVER),
-    // };
-
-    // let backend_filtered: Vec<PathBuf> = moonutil::common::backend_filter(
-    //     files,
-    //     moonc_opt.build_opt.debug_flag,
-    //     moonc_opt.build_opt.target_backend,
-    // )
-    // .into_iter()
-    // .filter(|file| {
-    //     // workaround for skip test coverage.mbt in builtin when --enable-coverage is specified
-    //     !(moonc_opt.build_opt.enable_coverage
-    //         && pkgname == "moonbitlang/core/builtin"
-    //         && file.to_str().unwrap().contains("coverage.mbt"))
-    // })
-    // .collect();
-
     // Create directories if not exists
     cmd.output_metadata
         .parent()
@@ -172,16 +152,8 @@ pub fn generate_test_driver(
         .map(std::fs::create_dir_all)
         .transpose()?;
 
-    let mbts_test_data = moonc_gen_test_info(
-        &cmd.files,
-        // &target_dir.join(pkg.rel.fs_full_name()).join(format!(
-        //     "__{}_{}",
-        //     cmd.driver_kind.to_string(),
-        //     TEST_INFO_FILE,
-        // )),
-        &cmd.output_metadata,
-        cmd.patch_file.clone(),
-    )?;
+    let mbts_test_data =
+        moonc_gen_test_info(&cmd.files, &cmd.output_metadata, cmd.patch_file.clone())?;
 
     let generated_content = generate_driver(
         &mbts_test_data,
