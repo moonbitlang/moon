@@ -812,10 +812,10 @@ fn test_dummy_core() {
     check(
         get_stdout(&dir, ["test", "--dry-run", "--sort-input"]),
         expect![[r#"
-            moon generate-test-driver --source-dir . --target-dir ./target --package moonbitlang/core/1 --sort-input --target wasm-gc --driver-kind whitebox --mode test
+            moon generate-test-driver --output-driver ./target/wasm-gc/debug/test/1/__generated_driver_for_whitebox_test.mbt --output-metadata ./target/wasm-gc/debug/test/1/__whitebox_test_info.json ./1/x_wbtest.wasm-gc.mbt --target wasm-gc --pkg-name moonbitlang/core/1 --driver-kind whitebox
             moonc build-package ./1/lib.mbt ./1/x.wasm-gc.mbt ./1/x_wbtest.wasm-gc.mbt ./target/wasm-gc/debug/test/1/__generated_driver_for_whitebox_test.mbt -o ./target/wasm-gc/debug/test/1/1.whitebox_test.core -pkg moonbitlang/core/1 -is-main -pkg-sources moonbitlang/core/1:./1 -target wasm-gc -g -O0 -source-map -whitebox-test -no-mi -test-mode
             moonc link-core ./target/wasm-gc/debug/test/1/1.whitebox_test.core -main moonbitlang/core/1 -o ./target/wasm-gc/debug/test/1/1.whitebox_test.wasm -test-mode -pkg-config-path ./1/moon.pkg.json -pkg-sources moonbitlang/core/1:./1 -exported_functions moonbit_test_driver_internal_execute,moonbit_test_driver_finish -target wasm-gc -g -O0 -source-map
-            moon generate-test-driver --source-dir . --target-dir ./target --package moonbitlang/core/0 --sort-input --target wasm-gc --driver-kind whitebox --mode test
+            moon generate-test-driver --output-driver ./target/wasm-gc/debug/test/0/__generated_driver_for_whitebox_test.mbt --output-metadata ./target/wasm-gc/debug/test/0/__whitebox_test_info.json ./0/y_wbtest.mbt ./0/y_wbtest.wasm-gc.mbt --target wasm-gc --pkg-name moonbitlang/core/0 --driver-kind whitebox
             moonc build-package ./0/lib.mbt ./0/y.wasm-gc.mbt ./0/y_wbtest.mbt ./0/y_wbtest.wasm-gc.mbt ./target/wasm-gc/debug/test/0/__generated_driver_for_whitebox_test.mbt -o ./target/wasm-gc/debug/test/0/0.whitebox_test.core -pkg moonbitlang/core/0 -is-main -pkg-sources moonbitlang/core/0:./0 -target wasm-gc -g -O0 -source-map -whitebox-test -no-mi -test-mode
             moonc link-core ./target/wasm-gc/debug/test/0/0.whitebox_test.core -main moonbitlang/core/0 -o ./target/wasm-gc/debug/test/0/0.whitebox_test.wasm -test-mode -pkg-config-path ./0/moon.pkg.json -pkg-sources moonbitlang/core/0:./0 -exported_functions moonbit_test_driver_internal_execute,moonbit_test_driver_finish -target wasm-gc -g -O0 -source-map
         "#]],
@@ -826,10 +826,10 @@ fn test_dummy_core() {
             ["test", "--dry-run", "--target", "wasm", "--sort-input"],
         ),
         expect![[r#"
-            moon generate-test-driver --source-dir . --target-dir ./target --package moonbitlang/core/1 --sort-input --target wasm --driver-kind whitebox --mode test
+            moon generate-test-driver --output-driver ./target/wasm/debug/test/1/__generated_driver_for_whitebox_test.mbt --output-metadata ./target/wasm/debug/test/1/__whitebox_test_info.json --target wasm --pkg-name moonbitlang/core/1 --driver-kind whitebox
             moonc build-package ./1/lib.mbt ./1/x.wasm.mbt ./target/wasm/debug/test/1/__generated_driver_for_whitebox_test.mbt -o ./target/wasm/debug/test/1/1.whitebox_test.core -pkg moonbitlang/core/1 -is-main -pkg-sources moonbitlang/core/1:./1 -target wasm -g -O0 -whitebox-test -no-mi -test-mode
             moonc link-core ./target/wasm/debug/test/1/1.whitebox_test.core -main moonbitlang/core/1 -o ./target/wasm/debug/test/1/1.whitebox_test.wasm -test-mode -pkg-config-path ./1/moon.pkg.json -pkg-sources moonbitlang/core/1:./1 -exported_functions moonbit_test_driver_internal_execute,moonbit_test_driver_finish -target wasm -g -O0
-            moon generate-test-driver --source-dir . --target-dir ./target --package moonbitlang/core/0 --sort-input --target wasm --driver-kind whitebox --mode test
+            moon generate-test-driver --output-driver ./target/wasm/debug/test/0/__generated_driver_for_whitebox_test.mbt --output-metadata ./target/wasm/debug/test/0/__whitebox_test_info.json ./0/y_wbtest.mbt ./0/y_wbtest.wasm.mbt --target wasm --pkg-name moonbitlang/core/0 --driver-kind whitebox
             moonc build-package ./0/lib.mbt ./0/y.wasm.mbt ./0/y_wbtest.mbt ./0/y_wbtest.wasm.mbt ./target/wasm/debug/test/0/__generated_driver_for_whitebox_test.mbt -o ./target/wasm/debug/test/0/0.whitebox_test.core -pkg moonbitlang/core/0 -is-main -pkg-sources moonbitlang/core/0:./0 -target wasm -g -O0 -whitebox-test -no-mi -test-mode
             moonc link-core ./target/wasm/debug/test/0/0.whitebox_test.core -main moonbitlang/core/0 -o ./target/wasm/debug/test/0/0.whitebox_test.wasm -test-mode -pkg-config-path ./0/moon.pkg.json -pkg-sources moonbitlang/core/0:./0 -exported_functions moonbit_test_driver_internal_execute,moonbit_test_driver_finish -target wasm -g -O0
         "#]],
@@ -840,10 +840,10 @@ fn test_dummy_core() {
             ["test", "--dry-run", "--target", "wasm-gc", "--sort-input"],
         ),
         expect![[r#"
-            moon generate-test-driver --source-dir . --target-dir ./target --package moonbitlang/core/1 --sort-input --target wasm-gc --driver-kind whitebox --mode test
+            moon generate-test-driver --output-driver ./target/wasm-gc/debug/test/1/__generated_driver_for_whitebox_test.mbt --output-metadata ./target/wasm-gc/debug/test/1/__whitebox_test_info.json ./1/x_wbtest.wasm-gc.mbt --target wasm-gc --pkg-name moonbitlang/core/1 --driver-kind whitebox
             moonc build-package ./1/lib.mbt ./1/x.wasm-gc.mbt ./1/x_wbtest.wasm-gc.mbt ./target/wasm-gc/debug/test/1/__generated_driver_for_whitebox_test.mbt -o ./target/wasm-gc/debug/test/1/1.whitebox_test.core -pkg moonbitlang/core/1 -is-main -pkg-sources moonbitlang/core/1:./1 -target wasm-gc -g -O0 -source-map -whitebox-test -no-mi -test-mode
             moonc link-core ./target/wasm-gc/debug/test/1/1.whitebox_test.core -main moonbitlang/core/1 -o ./target/wasm-gc/debug/test/1/1.whitebox_test.wasm -test-mode -pkg-config-path ./1/moon.pkg.json -pkg-sources moonbitlang/core/1:./1 -exported_functions moonbit_test_driver_internal_execute,moonbit_test_driver_finish -target wasm-gc -g -O0 -source-map
-            moon generate-test-driver --source-dir . --target-dir ./target --package moonbitlang/core/0 --sort-input --target wasm-gc --driver-kind whitebox --mode test
+            moon generate-test-driver --output-driver ./target/wasm-gc/debug/test/0/__generated_driver_for_whitebox_test.mbt --output-metadata ./target/wasm-gc/debug/test/0/__whitebox_test_info.json ./0/y_wbtest.mbt ./0/y_wbtest.wasm-gc.mbt --target wasm-gc --pkg-name moonbitlang/core/0 --driver-kind whitebox
             moonc build-package ./0/lib.mbt ./0/y.wasm-gc.mbt ./0/y_wbtest.mbt ./0/y_wbtest.wasm-gc.mbt ./target/wasm-gc/debug/test/0/__generated_driver_for_whitebox_test.mbt -o ./target/wasm-gc/debug/test/0/0.whitebox_test.core -pkg moonbitlang/core/0 -is-main -pkg-sources moonbitlang/core/0:./0 -target wasm-gc -g -O0 -source-map -whitebox-test -no-mi -test-mode
             moonc link-core ./target/wasm-gc/debug/test/0/0.whitebox_test.core -main moonbitlang/core/0 -o ./target/wasm-gc/debug/test/0/0.whitebox_test.wasm -test-mode -pkg-config-path ./0/moon.pkg.json -pkg-sources moonbitlang/core/0:./0 -exported_functions moonbit_test_driver_internal_execute,moonbit_test_driver_finish -target wasm-gc -g -O0 -source-map
         "#]],
@@ -854,10 +854,10 @@ fn test_dummy_core() {
             ["test", "--dry-run", "--target", "js", "--sort-input"],
         ),
         expect![[r#"
-            moon generate-test-driver --source-dir . --target-dir ./target --package moonbitlang/core/1 --sort-input --target js --driver-kind whitebox --mode test
+            moon generate-test-driver --output-driver ./target/js/debug/test/1/__generated_driver_for_whitebox_test.mbt --output-metadata ./target/js/debug/test/1/__whitebox_test_info.json --target js --pkg-name moonbitlang/core/1 --driver-kind whitebox
             moonc build-package ./1/lib.mbt ./1/x.js.mbt ./target/js/debug/test/1/__generated_driver_for_whitebox_test.mbt -o ./target/js/debug/test/1/1.whitebox_test.core -pkg moonbitlang/core/1 -is-main -pkg-sources moonbitlang/core/1:./1 -target js -g -O0 -source-map -whitebox-test -no-mi -test-mode
             moonc link-core ./target/js/debug/test/1/1.whitebox_test.core -main moonbitlang/core/1 -o ./target/js/debug/test/1/1.whitebox_test.js -test-mode -pkg-config-path ./1/moon.pkg.json -pkg-sources moonbitlang/core/1:./1 -exported_functions moonbit_test_driver_internal_execute,moonbit_test_driver_finish -js-format cjs -no-dts -target js -g -O0 -source-map
-            moon generate-test-driver --source-dir . --target-dir ./target --package moonbitlang/core/0 --sort-input --target js --driver-kind whitebox --mode test
+            moon generate-test-driver --output-driver ./target/js/debug/test/0/__generated_driver_for_whitebox_test.mbt --output-metadata ./target/js/debug/test/0/__whitebox_test_info.json ./0/y_wbtest.js.mbt ./0/y_wbtest.mbt --target js --pkg-name moonbitlang/core/0 --driver-kind whitebox
             moonc build-package ./0/lib.mbt ./0/y.js.mbt ./0/y_wbtest.js.mbt ./0/y_wbtest.mbt ./target/js/debug/test/0/__generated_driver_for_whitebox_test.mbt -o ./target/js/debug/test/0/0.whitebox_test.core -pkg moonbitlang/core/0 -is-main -pkg-sources moonbitlang/core/0:./0 -target js -g -O0 -source-map -whitebox-test -no-mi -test-mode
             moonc link-core ./target/js/debug/test/0/0.whitebox_test.core -main moonbitlang/core/0 -o ./target/js/debug/test/0/0.whitebox_test.js -test-mode -pkg-config-path ./0/moon.pkg.json -pkg-sources moonbitlang/core/0:./0 -exported_functions moonbit_test_driver_internal_execute,moonbit_test_driver_finish -js-format cjs -no-dts -target js -g -O0 -source-map
         "#]],
@@ -868,11 +868,11 @@ fn test_dummy_core() {
             ["test", "--dry-run", "--enable-coverage", "--sort-input"],
         ),
         expect![[r#"
-            moon generate-test-driver --source-dir . --target-dir ./target --package moonbitlang/core/1 --sort-input --target wasm-gc --driver-kind whitebox --enable-coverage --mode test
+            moon generate-test-driver --output-driver ./target/wasm-gc/debug/test/1/__generated_driver_for_whitebox_test.mbt --output-metadata ./target/wasm-gc/debug/test/1/__whitebox_test_info.json ./1/x_wbtest.wasm-gc.mbt --target wasm-gc --pkg-name moonbitlang/core/1 --enable-coverage --driver-kind whitebox
             moonc build-package -o ./target/wasm-gc/debug/test/coverage/coverage.core -pkg moonbitlang/core/coverage -pkg-sources moonbitlang/core/coverage:./coverage -target wasm-gc -g -O0 -source-map -enable-coverage -coverage-package-override=@self
             moonc build-package ./1/lib.mbt ./1/x.wasm-gc.mbt ./1/x_wbtest.wasm-gc.mbt ./target/wasm-gc/debug/test/1/__generated_driver_for_whitebox_test.mbt -o ./target/wasm-gc/debug/test/1/1.whitebox_test.core -pkg moonbitlang/core/1 -is-main -i ./target/wasm-gc/debug/test/coverage/coverage.mi:coverage -pkg-sources moonbitlang/core/1:./1 -target wasm-gc -g -O0 -source-map -enable-coverage -whitebox-test -no-mi -test-mode
             moonc link-core ./target/wasm-gc/debug/test/coverage/coverage.core ./target/wasm-gc/debug/test/1/1.whitebox_test.core -main moonbitlang/core/1 -o ./target/wasm-gc/debug/test/1/1.whitebox_test.wasm -test-mode -pkg-config-path ./1/moon.pkg.json -pkg-sources moonbitlang/core/coverage:./coverage -pkg-sources moonbitlang/core/1:./1 -exported_functions moonbit_test_driver_internal_execute,moonbit_test_driver_finish -target wasm-gc -g -O0 -source-map
-            moon generate-test-driver --source-dir . --target-dir ./target --package moonbitlang/core/0 --sort-input --target wasm-gc --driver-kind whitebox --enable-coverage --mode test
+            moon generate-test-driver --output-driver ./target/wasm-gc/debug/test/0/__generated_driver_for_whitebox_test.mbt --output-metadata ./target/wasm-gc/debug/test/0/__whitebox_test_info.json ./0/y_wbtest.mbt ./0/y_wbtest.wasm-gc.mbt --target wasm-gc --pkg-name moonbitlang/core/0 --enable-coverage --driver-kind whitebox
             moonc build-package ./0/lib.mbt ./0/y.wasm-gc.mbt ./0/y_wbtest.mbt ./0/y_wbtest.wasm-gc.mbt ./target/wasm-gc/debug/test/0/__generated_driver_for_whitebox_test.mbt -o ./target/wasm-gc/debug/test/0/0.whitebox_test.core -pkg moonbitlang/core/0 -is-main -i ./target/wasm-gc/debug/test/coverage/coverage.mi:coverage -pkg-sources moonbitlang/core/0:./0 -target wasm-gc -g -O0 -source-map -enable-coverage -whitebox-test -no-mi -test-mode
             moonc link-core ./target/wasm-gc/debug/test/coverage/coverage.core ./target/wasm-gc/debug/test/0/0.whitebox_test.core -main moonbitlang/core/0 -o ./target/wasm-gc/debug/test/0/0.whitebox_test.wasm -test-mode -pkg-config-path ./0/moon.pkg.json -pkg-sources moonbitlang/core/coverage:./coverage -pkg-sources moonbitlang/core/0:./0 -exported_functions moonbit_test_driver_internal_execute,moonbit_test_driver_finish -target wasm-gc -g -O0 -source-map
         "#]],
