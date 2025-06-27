@@ -525,6 +525,16 @@ pub fn gen_package_blackbox_test(
         .artifact
         .with_file_name(format!("{}.blackbox_test.mi", pkgname));
 
+    let mbt_files_filtered = moonutil::common::backend_filter(
+        &pkg.files,
+        moonc_opt.build_opt.debug_flag,
+        moonc_opt.build_opt.target_backend,
+    );
+    let doctest_only_mbt_deps = mbt_files_filtered
+        .iter()
+        .map(|f| f.display().to_string())
+        .collect();
+
     let backend_filtered = moonutil::common::backend_filter(
         &pkg.test_files,
         moonc_opt.build_opt.debug_flag,
@@ -540,6 +550,11 @@ pub fn gen_package_blackbox_test(
             mbt_deps.push(path.display().to_string());
         }
     }
+    let mbt_md_deps = pkg
+        .mbt_md_files
+        .keys()
+        .map(|f| f.display().to_string())
+        .collect();
 
     let mut mi_deps = vec![];
 
@@ -590,8 +605,8 @@ pub fn gen_package_blackbox_test(
         core_out: core_out.display().to_string(),
         mi_out: mi_out.display().to_string(),
         mbt_deps,
-        doctest_only_mbt_deps: todo!("add these tests"),
-        mbt_md_deps: vec![],
+        doctest_only_mbt_deps,
+        mbt_md_deps,
         mi_deps,
         package_full_name,
         original_package_full_name: Some(pkg.full_name()),
@@ -1132,6 +1147,12 @@ pub fn gen_runtest_build_command(
         .arg("build-package")
         .args_with_cond(moonc_opt.render, vec!["-error-format", "json"])
         .args(&item.mbt_deps)
+        .args(&item.mbt_md_deps)
+        .args(
+            item.doctest_only_mbt_deps
+                .iter()
+                .flat_map(|x| ["-doctest-only", x]),
+        )
         .lazy_args_with_cond(item.warn_list.is_some(), || {
             vec!["-w".to_string(), item.warn_list.clone().unwrap()]
         })
