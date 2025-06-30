@@ -178,7 +178,7 @@ pub fn gen_package_test_driver(
         GeneratedTestDriver::BlackboxTest(_) => DriverKind::Blackbox,
         GeneratedTestDriver::WhiteboxTest(_) => DriverKind::Whitebox,
     };
-    let files_that_may_contain_test_block = match driver_kind {
+    let mut files_that_may_contain_test_block: Vec<String> = match driver_kind {
         DriverKind::Internal => &pkg.files,
         DriverKind::Blackbox => &pkg.test_files,
         DriverKind::Whitebox => &pkg.wbtest_files,
@@ -192,6 +192,10 @@ pub fn gen_package_test_driver(
     })
     .map(|(f, _)| f.display().to_string())
     .collect();
+    if matches!(driver_kind, DriverKind::Blackbox) {
+        files_that_may_contain_test_block
+            .extend(pkg.mbt_md_files.keys().map(|x| x.display().to_string()));
+    }
 
     let test_info = target_dir
         .join(pkg.rel.fs_full_name())

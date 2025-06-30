@@ -195,15 +195,7 @@ fn run_check_for_single_file(cli: &UniversalFlags, cmd: &CheckSubcommand) -> any
         test_opt: None,
         check_opt: Some(CheckOpt {
             package_path: None,
-            patch_file: if single_file_string.ends_with(DOT_MBT_DOT_MD) {
-                Some(
-                    target_dir
-                        .join("single")
-                        .join(moonutil::common::MOON_INTERNAL_PATCH_JSON_FILE),
-                )
-            } else {
-                None
-            },
+            patch_file: None,
             no_mi: cmd.no_mi,
             explain: cmd.explain,
         }),
