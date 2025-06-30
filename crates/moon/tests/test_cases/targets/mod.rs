@@ -380,30 +380,7 @@ fn test_many_targets_expect_failed() {
             ["test", "--target", "all", "--serial", "--sort-input"],
         ),
         expect![[r#"
-            test username/hello/lib/x.wasm.mbt::0 failed
-            expect test failed at $ROOT/lib/x.wasm.mbt:2:3-2:31
-            Diff:
-            ----
-            0wasm
-            ----
-
-            Total tests: 1, passed: 0, failed: 1. [wasm]
-            test username/hello/lib/x.wasm-gc.mbt::0 failed
-            expect test failed at $ROOT/lib/x.wasm-gc.mbt:2:3-2:34
-            Diff:
-            ----
-            1wasm-gc
-            ----
-
-            Total tests: 1, passed: 0, failed: 1. [wasm-gc]
-            test username/hello/lib/x.js.mbt::0 failed
-            expect test failed at $ROOT/lib/x.js.mbt:2:3-2:29
-            Diff:
-            ----
-            2js
-            ----
-
-            Total tests: 1, passed: 0, failed: 1. [js]
+            failed: moonc build-package -error-format json $ROOT/lib/x.wasm.mbt $ROOT/target/wasm/debug/test/lib/__generated_driver_for_internal_test.mbt -o $ROOT/target/wasm/debug/test/lib/lib.internal_test.core -pkg username/hello/lib -is-main -std-path $MOON_HOME/lib/core/target/wasm/release/bundle -pkg-sources username/hello/lib:$ROOT/lib -target wasm -g -O0 -no-mi -test-mode
         "#]],
     );
     check(
@@ -412,22 +389,7 @@ fn test_many_targets_expect_failed() {
             ["test", "--target", "js,wasm", "--sort-input", "--serial"],
         ),
         expect![[r#"
-            test username/hello/lib/x.wasm.mbt::0 failed
-            expect test failed at $ROOT/lib/x.wasm.mbt:2:3-2:31
-            Diff:
-            ----
-            0wasm
-            ----
-
-            Total tests: 1, passed: 0, failed: 1. [wasm]
-            test username/hello/lib/x.js.mbt::0 failed
-            expect test failed at $ROOT/lib/x.js.mbt:2:3-2:29
-            Diff:
-            ----
-            2js
-            ----
-
-            Total tests: 1, passed: 0, failed: 1. [js]
+            failed: moonc build-package -error-format json $ROOT/lib/x.wasm.mbt $ROOT/target/wasm/debug/test/lib/__generated_driver_for_internal_test.mbt -o $ROOT/target/wasm/debug/test/lib/lib.internal_test.core -pkg username/hello/lib -is-main -std-path $MOON_HOME/lib/core/target/wasm/release/bundle -pkg-sources username/hello/lib:$ROOT/lib -target wasm -g -O0 -no-mi -test-mode
         "#]],
     );
 
@@ -443,30 +405,7 @@ fn test_many_targets_expect_failed() {
             ],
         ),
         expect![[r#"
-            test username/hello/lib/x.wasm.mbt::0 failed
-            expect test failed at $ROOT/lib/x.wasm.mbt:2:3-2:31
-            Diff:
-            ----
-            0wasm
-            ----
-
-            Total tests: 1, passed: 0, failed: 1. [wasm]
-            test username/hello/lib/x.js.mbt::0 failed
-            expect test failed at $ROOT/lib/x.js.mbt:2:3-2:29
-            Diff:
-            ----
-            2js
-            ----
-
-            Total tests: 1, passed: 0, failed: 1. [js]
-            test username/hello/lib/x.native.mbt::0 failed
-            expect test failed at $ROOT/lib/x.native.mbt:2:3-2:33
-            Diff:
-            ----
-            3native
-            ----
-
-            Total tests: 1, passed: 0, failed: 1. [native]
+            failed: moonc build-package -error-format json $ROOT/lib/x.wasm.mbt $ROOT/target/wasm/debug/test/lib/__generated_driver_for_internal_test.mbt -o $ROOT/target/wasm/debug/test/lib/lib.internal_test.core -pkg username/hello/lib -is-main -std-path $MOON_HOME/lib/core/target/wasm/release/bundle -pkg-sources username/hello/lib:$ROOT/lib -target wasm -g -O0 -no-mi -test-mode
         "#]],
     );
 }
