@@ -577,15 +577,26 @@ pub fn gen_package_blackbox_test(
     let mut mi_deps = vec![];
 
     // add cur pkg as .mi dependency at build-package stage if it's not set in test_imports
+    // The current package might be an implementation of a virtual package, which
+    // in this case the mi of the virtual package should be used instead.
     if !self_in_test_import {
-        mi_deps.push(MiAlias {
-            name: pkg
-                .artifact
-                .with_file_name(format!("{}.mi", pkgname))
-                .display()
-                .to_string(),
-            alias: pkg.last_name().into(),
-        });
+        if let Some(implement) = pkg.implement.as_ref() {
+            let impl_pkg = m.get_package_by_name(implement);
+            let virtual_pkg_mi = impl_pkg.artifact.with_extension("mi").display().to_string();
+            mi_deps.push(MiAlias {
+                name: virtual_pkg_mi,
+                alias: impl_pkg.last_name().into(),
+            });
+        } else {
+            mi_deps.push(MiAlias {
+                name: pkg
+                    .artifact
+                    .with_file_name(format!("{}.mi", pkgname))
+                    .display()
+                    .to_string(),
+                alias: pkg.last_name().into(),
+            });
+        }
     }
 
     let imports_and_test_imports = get_imports(pkg, true);
@@ -1055,7 +1066,11 @@ pub fn gen_runtest(
             }
         }
 
-        if !pkg.test_files.is_empty() || blackbox_patch_file.is_some() {
+        if !pkg.test_files.is_empty()
+            || !pkg.mbt_md_files.is_empty()
+            || !pkg.files.is_empty()
+            || blackbox_patch_file.is_some()
+        {
             for item in pkg.generated_test_drivers.iter() {
                 if let GeneratedTestDriver::BlackboxTest(_) = item {
                     test_drivers.push(gen_package_test_driver(
