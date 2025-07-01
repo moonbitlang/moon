@@ -791,6 +791,10 @@ fn do_run_test(
     let total = test_res.len();
     let passed = test_res.iter().filter(|r| r.is_ok()).count();
 
+    if total == 0 {
+        eprintln!("{}: no test entry found.", "Warning".yellow().bold());
+    }
+
     let failed = total - passed;
     println!(
         "Total tests: {}, passed: {}, failed: {}.{}",
