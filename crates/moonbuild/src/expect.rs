@@ -20,7 +20,6 @@ use anyhow::Context;
 use base64::Engine;
 use colored::Colorize;
 use moonutil::common::line_col_to_byte_idx;
-use regex::escape;
 use std::collections::BTreeSet;
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -774,7 +773,7 @@ fn apply_patch(pp: &PackagePatch) -> anyhow::Result<()> {
                 let spaces = line.find(|c| c != ' ').unwrap_or(0);
 
                 if let Some(padding) = &patch.left_padding {
-                    output.push_str(&padding);
+                    output.push_str(padding);
                     if patch.kind == TargetKind::Call && patch.actual.contains('\n') {
                         output.push('\n');
                         if !is_doc_test {
@@ -811,7 +810,7 @@ fn apply_patch(pp: &PackagePatch) -> anyhow::Result<()> {
                 }
 
                 if let Some(padding) = &patch.right_padding {
-                    output.push_str(&padding);
+                    output.push_str(padding);
                 }
 
                 i = u32::from(end);
