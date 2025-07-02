@@ -227,13 +227,13 @@ fn main {
     let mut start = 0
     while i < s.length() {
       if moonbit_unsafe_char_from_int(s.charcode_at(i)) == sep {
-        res.push(s.charcodes(start = start, end = i).to_string())
+        res.push(s.substring(start = start, end = i))
         start = i + 1
       }
       i += 1
     }
     if start < s.length() {
-      res.push(s.charcodes(start = start, end = s.length()).to_string())
+      res.push(s.substring(start = start, end = s.length()))
     }
     res
   }
