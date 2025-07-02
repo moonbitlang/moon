@@ -54,7 +54,7 @@ use crate::gen::gen_build::{
     gen_link_stub_to_dynamic_lib_command,
 };
 use crate::gen::n2_errors::{N2Error, N2ErrorKind};
-use crate::gen::{coverage_args, MiAlias};
+use crate::gen::{coverage_args, MiAlias, SKIP_TEST_LIBS};
 
 #[derive(Debug)]
 pub struct RuntestDepItem {
@@ -1066,10 +1066,12 @@ pub fn gen_runtest(
             }
         }
 
-        if !pkg.test_files.is_empty()
-            || !pkg.mbt_md_files.is_empty()
-            || !pkg.files.is_empty()
-            || blackbox_patch_file.is_some()
+        if pkg.virtual_pkg.as_ref().map_or(true, |x| x.has_default)
+            && !SKIP_TEST_LIBS.contains(&pkg.full_name().as_str()) // FIXME: not efficient
+            && (!pkg.test_files.is_empty()
+                || !pkg.mbt_md_files.is_empty()
+                || !pkg.files.is_empty()
+                || blackbox_patch_file.is_some())
         {
             for item in pkg.generated_test_drivers.iter() {
                 if let GeneratedTestDriver::BlackboxTest(_) = item {
