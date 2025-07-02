@@ -53,7 +53,7 @@ let {} : String =
         name
     );
     for line in input.split('\n') {
-        content.push_str(&format!("  #|{}\n", line));
+        content.push_str(&format!("  #|{line}\n"));
     }
     std::fs::write(cmd.output, content).context("write output file")?;
     Ok(0)
@@ -83,7 +83,7 @@ let {} : Bytes = Bytes::of([
             }
             content.push_str("  ");
         }
-        content.push_str(&format!("0x{:02x}, ", byte));
+        content.push_str(&format!("0x{byte:02x}, "));
     }
     content.push_str("\n])\n");
     std::fs::write(cmd.output, content).context("write output file")?;

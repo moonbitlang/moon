@@ -180,11 +180,10 @@ impl PatchJSON {
                 let empty_lines = "\n".repeat(start_line_number - current_line);
 
                 if already_wrapped {
-                    content.push_str(&format!("\n{}{}\n", empty_lines, processed_content));
+                    content.push_str(&format!("\n{empty_lines}{processed_content}\n"));
                 } else {
                     content.push_str(&format!(
-                        "{}test \"{}\" {{\n{}\n}}",
-                        empty_lines, test_name, processed_content
+                        "{empty_lines}test \"{test_name}\" {{\n{processed_content}\n}}"
                     ));
                 }
 
@@ -223,7 +222,7 @@ impl PatchJSON {
                 let start_line_number = md_test.line_number;
                 let empty_lines = "\n".repeat(start_line_number - current_line);
 
-                content.push_str(&format!("\n{}{}\n", empty_lines, processed_content));
+                content.push_str(&format!("\n{empty_lines}{processed_content}\n"));
 
                 // +1 for the }
                 current_line = start_line_number + md_test.line_count + 1;

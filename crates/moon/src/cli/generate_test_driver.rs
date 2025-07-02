@@ -269,12 +269,12 @@ fn generate_driver(
                 if coverage_package_override == "@self" {
                     "".into()
                 } else {
-                    format!("@{}.", coverage_package_override)
+                    format!("@{coverage_package_override}.")
                 }
             } else {
                 "@moonbitlang/core/coverage.".into()
             };
-        format!("{}end();", coverage_package_name)
+        format!("{coverage_package_name}end();")
     } else {
         "".into()
     };
@@ -312,7 +312,7 @@ fn generate_driver(
         .replace("// {COVERAGE_END}", &coverage_end_template);
 
     if pkgname.starts_with(MOONBITLANG_CORE) {
-        template.replace(&format!("@{}/builtin.", MOONBITLANG_CORE), "")
+        template.replace(&format!("@{MOONBITLANG_CORE}/builtin."), "")
     } else {
         template
     }

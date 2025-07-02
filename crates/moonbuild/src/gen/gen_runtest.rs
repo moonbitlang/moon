@@ -17,13 +17,12 @@
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
 use anyhow::{bail, Ok};
-use colored::Colorize;
 use indexmap::IndexMap;
 use log::info;
 use moonutil::common::{
-    get_desc_name, BuildOpt, DriverKind, GeneratedTestDriver, RunMode, TargetBackend,
-    BLACKBOX_TEST_PATCH, MOONBITLANG_CORE, MOONBITLANG_COVERAGE, O_EXT, SUB_PKG_POSTFIX,
-    TEST_INFO_FILE, WHITEBOX_TEST_PATCH,
+    get_desc_name, DriverKind, GeneratedTestDriver, RunMode, TargetBackend, BLACKBOX_TEST_PATCH,
+    MOONBITLANG_CORE, MOONBITLANG_COVERAGE, O_EXT, SUB_PKG_POSTFIX, TEST_INFO_FILE,
+    WHITEBOX_TEST_PATCH,
 };
 use moonutil::compiler_flags::CC;
 use moonutil::cond_expr::OptLevel;
@@ -213,7 +212,7 @@ pub fn gen_package_test_driver(
 
     let test_info = target_dir
         .join(pkg.rel.fs_full_name())
-        .join(format!("__{}_{}", driver_kind, TEST_INFO_FILE));
+        .join(format!("__{driver_kind}_{TEST_INFO_FILE}"));
     let driver_file = match g {
         GeneratedTestDriver::InternalTest(it) => it.clone(),
         GeneratedTestDriver::BlackboxTest(it) => it.clone(),
@@ -263,7 +262,7 @@ pub fn gen_package_core(
             );
         }
         if dep.sub_package {
-            full_import_name = format!("{}{}", full_import_name, SUB_PKG_POSTFIX);
+            full_import_name = format!("{full_import_name}{SUB_PKG_POSTFIX}");
         }
         let cur_pkg = m.get_package_by_name(&full_import_name);
         let d = cur_pkg.artifact.with_extension("mi");
@@ -333,10 +332,10 @@ pub fn gen_package_internal_test(
     let pkgname = pkg.artifact.file_stem().unwrap().to_str().unwrap();
     let core_out = pkg
         .artifact
-        .with_file_name(format!("{}.internal_test.core", pkgname));
+        .with_file_name(format!("{pkgname}.internal_test.core"));
     let mi_out = pkg
         .artifact
-        .with_file_name(format!("{}.internal_test.mi", pkgname));
+        .with_file_name(format!("{pkgname}.internal_test.mi"));
 
     let backend_filtered = moonutil::common::backend_filter(
         &pkg.files,
@@ -368,7 +367,7 @@ pub fn gen_package_internal_test(
             );
         }
         if dep.sub_package {
-            full_import_name = format!("{}{}", full_import_name, SUB_PKG_POSTFIX);
+            full_import_name = format!("{full_import_name}{SUB_PKG_POSTFIX}");
         }
         let cur_pkg = m.get_package_by_name(&full_import_name);
         let d = cur_pkg.artifact.with_extension("mi");
@@ -420,10 +419,10 @@ pub fn gen_package_whitebox_test(
     let pkgname = pkg.artifact.file_stem().unwrap().to_str().unwrap();
     let core_out = pkg
         .artifact
-        .with_file_name(format!("{}.whitebox_test.core", pkgname));
+        .with_file_name(format!("{pkgname}.whitebox_test.core"));
     let mi_out = pkg
         .artifact
-        .with_file_name(format!("{}.whitebox_test.mi", pkgname));
+        .with_file_name(format!("{pkgname}.whitebox_test.mi"));
 
     let mut files_and_con = IndexMap::new();
     files_and_con.extend(
@@ -464,7 +463,7 @@ pub fn gen_package_whitebox_test(
             );
         }
         if dep.sub_package {
-            full_import_name = format!("{}{}", full_import_name, SUB_PKG_POSTFIX);
+            full_import_name = format!("{full_import_name}{SUB_PKG_POSTFIX}");
         }
         let cur_pkg = m.get_package_by_name(&full_import_name);
         let d = cur_pkg.artifact.with_extension("mi");
@@ -542,10 +541,10 @@ pub fn gen_package_blackbox_test(
     let pkgname = pkg.artifact.file_stem().unwrap().to_str().unwrap();
     let core_out = pkg
         .artifact
-        .with_file_name(format!("{}.blackbox_test.core", pkgname));
+        .with_file_name(format!("{pkgname}.blackbox_test.core"));
     let mi_out = pkg
         .artifact
-        .with_file_name(format!("{}.blackbox_test.mi", pkgname));
+        .with_file_name(format!("{pkgname}.blackbox_test.mi"));
 
     let mbt_files_filtered = moonutil::common::backend_filter(
         &pkg.files,
@@ -595,7 +594,7 @@ pub fn gen_package_blackbox_test(
             mi_deps.push(MiAlias {
                 name: pkg
                     .artifact
-                    .with_file_name(format!("{}.mi", pkgname))
+                    .with_file_name(format!("{pkgname}.mi"))
                     .display()
                     .to_string(),
                 alias: pkg.last_name().into(),
@@ -618,7 +617,7 @@ pub fn gen_package_blackbox_test(
             );
         }
         if dep.sub_package {
-            full_import_name = format!("{}{}", full_import_name, SUB_PKG_POSTFIX);
+            full_import_name = format!("{full_import_name}{SUB_PKG_POSTFIX}");
         }
         let cur_pkg = m.get_package_by_name(&full_import_name);
         let d = cur_pkg.artifact.with_extension("mi");
@@ -882,7 +881,7 @@ pub fn gen_link_blackbox_test(
             // make sure that the current package `.core` is placed before `blackbox_test.core`
             core_deps.push(
                 pkg.artifact
-                    .with_file_name(format!("{}.core", pkgname))
+                    .with_file_name(format!("{pkgname}.core"))
                     .display()
                     .to_string(),
             );
@@ -1334,7 +1333,7 @@ pub fn gen_runtest_link_command(
         .args_with_prefix_separator(
             item.package_sources
                 .iter()
-                .map(|(pkg, src)| format!("{}:{}", pkg, src)),
+                .map(|(pkg, src)| format!("{pkg}:{src}")),
             "-pkg-sources",
         )
         .args_with_cond(

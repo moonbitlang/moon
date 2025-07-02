@@ -1026,7 +1026,7 @@ fn validate_mod_json_schema() {
         "/../moonbuild/template/mod_json_schema.html"
     );
     let html_template = std::fs::read_to_string(html_template_path).unwrap();
-    let content = html_template.replace("const schema = {}", &format!("const schema = {}", actual));
+    let content = html_template.replace("const schema = {}", &format!("const schema = {actual}"));
     let html_path = concat!(
         env!("CARGO_MANIFEST_DIR"),
         "/../../docs/manual/src/source/mod_json_schema.html"

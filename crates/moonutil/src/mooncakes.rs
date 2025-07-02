@@ -117,9 +117,9 @@ impl std::fmt::Display for ModuleSourceKind {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             ModuleSourceKind::Registry(None) => write!(f, "default registry"),
-            ModuleSourceKind::Registry(Some(name)) => write!(f, "registry {}", name),
+            ModuleSourceKind::Registry(Some(name)) => write!(f, "registry {name}"),
             ModuleSourceKind::Local(path) => write!(f, "local {}", path.display()),
-            ModuleSourceKind::Git(url) => write!(f, "git {}", url),
+            ModuleSourceKind::Git(url) => write!(f, "git {url}"),
         }
     }
 }
@@ -378,7 +378,7 @@ impl RegistryConfig {
     pub fn new() -> Self {
         if let Ok(v) = std::env::var("MOONCAKES_REGISTRY") {
             RegistryConfig {
-                index: format!("{}/git/index", v),
+                index: format!("{v}/git/index"),
                 registry: v,
             }
         } else {

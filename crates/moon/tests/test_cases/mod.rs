@@ -345,7 +345,7 @@ fn test_multi_process() {
                 } else {
                     println!("moon output: {:?}", String::from_utf8(output.stdout));
                     let error_message = String::from_utf8_lossy(&output.stderr);
-                    println!("{}", error_message);
+                    println!("{error_message}");
                 }
             }
         });
@@ -707,7 +707,7 @@ fn test_whitespace_parent_space() -> anyhow::Result<()> {
 fn circle_pkg_test() {
     let dir = TestDir::new("circle_pkg_AB_001_test.in");
     let stderr = get_err_stderr(&dir, ["run", "main", "--nostd"]);
-    assert!(stderr.contains("cyclic dependency"), "stderr: {}", stderr);
+    assert!(stderr.contains("cyclic dependency"), "stderr: {stderr}");
 }
 
 #[test]
@@ -1394,20 +1394,17 @@ fn test_blackbox_test_core_override() {
             // it should have the -enable-coverage flag
             assert!(
                 line.contains("-enable-coverage"),
-                "No -enable-coverage flag found in the command: {}",
-                line
+                "No -enable-coverage flag found in the command: {line}"
             );
             // and -coverage-package-override to the original package
             assert!(
                 line.contains("-coverage-package-override=moonbitlang/core/builtin"),
-                "No -coverage-package-override=moonbitlang/core/builtin found in the command: {}",
-                line
+                "No -coverage-package-override=moonbitlang/core/builtin found in the command: {line}"
             );
             // and should not contain -coverage-package-override to itself
             assert!(
                 !line.contains("-coverage-package-override=@self"),
-                "Unexpected -coverage-package-override=@self found in the command: {}",
-                line
+                "Unexpected -coverage-package-override=@self found in the command: {line}"
             );
         }
     }
@@ -2602,7 +2599,7 @@ fn test_trace_001() {
     let j: TraceResult = serde_json::from_str(&s).unwrap();
     let event_names = j.0.iter().map(|e| e.name.clone()).collect::<Vec<_>>();
     check(
-        format!("{:#?}", event_names),
+        format!("{event_names:#?}"),
         expect![[r#"
             [
                 "moonbit::build::read",
@@ -5167,7 +5164,7 @@ fn test_upgrade() -> anyhow::Result<()> {
         tmp_dir.path().join("bin").join("moon.exe").exists(),
         tmp_dir.path().join("bin").join("moonc.exe").exists(),
     ];
-    check(format!("{:?}", xs), expect!["[true, true]"]);
+    check(format!("{xs:?}"), expect!["[true, true]"]);
     Ok(())
 }
 

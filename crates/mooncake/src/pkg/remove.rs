@@ -43,7 +43,7 @@ pub fn remove(
 ) -> anyhow::Result<i32> {
     let _ = target_dir;
     let mut m = read_module_desc_file_in_dir(source_dir)?;
-    let removed = m.deps.shift_remove(&format!("{}/{}", username, pkgname));
+    let removed = m.deps.shift_remove(&format!("{username}/{pkgname}"));
     if removed.is_none() {
         bail!(
             "the dependency `{}/{}` could not be found",

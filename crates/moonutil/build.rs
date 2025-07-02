@@ -30,7 +30,7 @@ pub fn main() -> Result<(), Box<dyn Error>> {
     let time = SystemTime::now().duration_since(UNIX_EPOCH).unwrap();
     let datetime = DateTime::from_timestamp(time.as_secs() as i64, 0).unwrap();
     let date_str = datetime.format("%Y%m%d").to_string();
-    println!("cargo:rustc-env=CARGO_PKG_VERSION=0.1.{}", date_str);
+    println!("cargo:rustc-env=CARGO_PKG_VERSION=0.1.{date_str}");
 
     println!("cargo:rerun-if-changed=resources/error_codes");
 
@@ -47,8 +47,7 @@ pub fn main() -> Result<(), Box<dyn Error>> {
                     if let Ok(content) = fs::read_to_string(entry.path()) {
                         let error_code = file_name.trim_end_matches(".md").replace("E", "");
                         docs_map.push_str(&format!(
-                            "    m.insert(\"{}\", r#\"{}\"#);\n",
-                            error_code, content
+                            "    m.insert(\"{error_code}\", r#\"{content}\"#);\n"
                         ));
                     }
                 }
@@ -61,8 +60,7 @@ pub fn main() -> Result<(), Box<dyn Error>> {
     fs::write(
         dest_path,
         format!(
-            "pub static ERROR_DOCS: Lazy<HashMap<&'static str, &'static str>> = Lazy::new(|| {});",
-            docs_map
+            "pub static ERROR_DOCS: Lazy<HashMap<&'static str, &'static str>> = Lazy::new(|| {docs_map});"
         ),
     )
     .unwrap();
