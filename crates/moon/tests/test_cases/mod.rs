@@ -4633,15 +4633,49 @@ fn test_update_expect_failed() {
 
             ///|
             test {
-              inspect("\"abc\"", content=#|"abc"
-              )
-              inspect("\"a\nb\nc\"", content=
+              inspect("\"abc\"", content=(#|"abc"
+              ))
+              inspect("\"a\nb\nc\"", content=(
                 #|"a
                 #|b
                 #|c"
-              )
+              ))
               inspect("\x0b\"a\nb\nc\"", content=
                 "\u{b}\"a\u{a}b\u{a}c\"")
+            }
+        "#]],
+    );
+}
+
+#[test]
+fn test_update_expect_failed_with_multiline_string() {
+    let dir = TestDir::new("test_expect_with_multiline_string_content.in");
+    let _ = get_stdout(&dir, ["test", "-u"]);
+    check(
+        read(dir.join("src").join("lib").join("hello.mbt")),
+        expect![[r#"
+            ///|
+            test {
+              inspect("\"abc\"", content=(#|"abc"
+              ))
+              inspect("\"abc\"", 
+                content=(
+                  #|"abc"
+            )
+              )
+              inspect("\"abc\"", content=(
+                #|"abc"
+
+              ))
+              inspect(
+                "\"a\nb\nc\"",
+                content=(
+                  #|"a
+                  #|b
+                  #|c"
+
+                ),
+              )
             }
         "#]],
     );
