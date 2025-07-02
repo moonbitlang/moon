@@ -143,7 +143,7 @@ pub fn n2_simple_run_interface(
         failures_left: Some(10),
         explain: false,
         adopt: false,
-        dirty_on_output: true,
+        dirty_on_output: false,
     };
     let mut work = work::Work::new(
         state.graph,
@@ -230,7 +230,7 @@ pub fn n2_run_interface(
         failures_left: Some(10),
         explain: false,
         adopt: false,
-        dirty_on_output: true,
+        dirty_on_output: false,
     };
     let mut work = work::Work::new(
         state.graph,
