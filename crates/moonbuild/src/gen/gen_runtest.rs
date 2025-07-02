@@ -1542,19 +1542,20 @@ fn gen_generate_test_driver_command(
     in_files.extend_from_slice(&item.doctest_only_files);
 
     let ins = BuildIns {
+        explicit: in_files.len(),
         ids: in_files
             .into_iter()
             .map(|f| graph.files.id_from_canonical(f.to_string()))
             .collect(),
-        explicit: files_contain_test_block.len(),
         implicit: 0,
         order_only: 0,
     };
     let outs = BuildOuts {
         explicit: 0,
-        ids: vec![graph
-            .files
-            .id_from_canonical(driver_file.display().to_string())],
+        ids: [driver_file, &item.info_file]
+            .into_iter()
+            .map(|x| graph.files.id_from_canonical(x.display().to_string()))
+            .collect(),
     };
 
     let loc = FileLoc {
