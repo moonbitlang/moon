@@ -20,6 +20,7 @@ use anyhow::Context;
 use base64::Engine;
 use colored::Colorize;
 use moonutil::common::line_col_to_byte_idx;
+use regex::escape;
 use std::collections::BTreeSet;
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -51,8 +52,10 @@ pub struct BufferExpect {
     line_end: i32,
     col_end: i32,
     // end
-    left_padding: Option<&'static str>,
-    right_padding: Option<&'static str>,
+    left_padding: Option<String>,
+    right_padding: Option<String>,
+    // Indicates whether the expect content starts with a left parenthesis `(`
+    // immediately following `content=` in the inspect function call.
     #[allow(unused)]
     expect: String,
     actual: String,
@@ -495,7 +498,41 @@ fn gen_patch(targets: HashMap<String, BTreeSet<Target>>) -> anyhow::Result<Packa
             let mut rg = line_index::TextRange::new(offset_start, offset_end);
 
             let (left_padding, right_padding) = match t.kind {
-                TargetKind::Trivial => (None, None),
+                TargetKind::Trivial => {
+                    let mut i = usize::from(offset_start);
+                    let left_border_start = line_col_to_byte_idx(
+                        &line_index,
+                        t.left_border_line_start,
+                        t.left_border_col_start,
+                    )
+                    .unwrap();
+                    let left_border_start = byte_offset_to_char_offset[&left_border_start];
+                    let mut find_lparen = false;
+
+                    // CR: The left_border_start may be the start position of the `inspect(actual, content="...")` function call.
+                    // trying to find the the left parenthesis `(` after the equal sign `=`.
+                    while i >= left_border_start {
+                        match content_chars[i] {
+                            '=' => break,
+                            '(' => {
+                                find_lparen = true;
+                                break;
+                            }
+                            _ => i -= 1,
+                        }
+                    }
+                    let escape_info = detect_escape_info(&t.actual);
+                    let is_double_quoted_string =
+                        (!escape_info.newline && !escape_info.quote) || escape_info.ascii_control;
+
+                    // If the left parenthesis `(` is not found, and the promoted content is a multi-line string,
+                    // parentheses `(` and `)` need to be added around the promoted content.
+                    if !find_lparen && !is_double_quoted_string {
+                        (Some("(".to_string()), Some(")".to_string()))
+                    } else {
+                        (None, None)
+                    }
+                }
                 TargetKind::Pipe => {
                     let mut find_paren = false;
                     let mut i = usize::from(offset_start);
@@ -516,7 +553,7 @@ fn gen_patch(targets: HashMap<String, BTreeSet<Target>>) -> anyhow::Result<Packa
                         i -= 1;
                     }
                     if find_paren {
-                        (Some("content="), None)
+                        (Some("content=".to_string()), None)
                     } else {
                         let offset_start =
                             line_col_to_byte_idx(&line_index, t.line_start, t.col_start + 1)
@@ -533,7 +570,7 @@ fn gen_patch(targets: HashMap<String, BTreeSet<Target>>) -> anyhow::Result<Packa
                         );
 
                         rg = line_index::TextRange::new(offset_start, offset_end);
-                        (Some("(content="), Some(")"))
+                        (Some("(content=".to_string()), Some(")".to_string()))
                     }
                 }
                 TargetKind::Call => {
@@ -547,18 +584,33 @@ fn gen_patch(targets: HashMap<String, BTreeSet<Target>>) -> anyhow::Result<Packa
                     let left_border_start = byte_offset_to_char_offset[&left_border_start];
 
                     let mut find_comma = false;
-                    while i >= left_border_start {
-                        if content_chars[i] == ',' {
-                            find_comma = true;
-                            break;
+                    let mut find_lparen = false;
+                    // CR: This approach is fragile and may fail in edge cases. For example:
+                    //
+                    // ```
+                    //  inspect(123 // ,
+                    //  )
+                    // ```
+                    while i >= left_border_start && !(find_comma && find_lparen) {
+                        match content_chars[i] {
+                            ',' => find_comma = true,
+                            '(' => find_lparen = true,
+                            _ => (),
                         }
-                        i -= 1;
+                        i -= 1
                     }
-                    if find_comma {
-                        (Some("content="), None)
-                    } else {
-                        (Some(", content="), None)
+                    let mut left_padding = String::new();
+                    let mut right_padding = String::new();
+                    left_padding.push_str(if find_comma { "content=" } else { ", content=" });
+                    let escape_info = detect_escape_info(&t.actual);
+                    let is_double_quoted_string =
+                        (!escape_info.newline && !escape_info.quote) || escape_info.ascii_control;
+                    if !is_double_quoted_string {
+                        left_padding.push('(');
+                        right_padding.push(')');
                     }
+
+                    (Some(left_padding), Some(right_padding))
                 }
             };
 
@@ -566,6 +618,7 @@ fn gen_patch(targets: HashMap<String, BTreeSet<Target>>) -> anyhow::Result<Packa
                 .iter()
                 .all(|line| line.starts_with("///"));
 
+            // CR: unused loop?
             for line in lines[t.line_start as usize..].iter() {
                 if line.trim().ends_with(")?")
                     && !line.trim().starts_with("#|")
@@ -574,6 +627,7 @@ fn gen_patch(targets: HashMap<String, BTreeSet<Target>>) -> anyhow::Result<Packa
                     break;
                 }
             }
+
             file_patches.push(BufferExpect {
                 range: rg,
                 line_start: t.line_start as i32,
@@ -719,8 +773,8 @@ fn apply_patch(pp: &PackagePatch) -> anyhow::Result<()> {
                 let line = lines[start_point.line as usize];
                 let spaces = line.find(|c| c != ' ').unwrap_or(0);
 
-                if let Some(padding) = patch.left_padding {
-                    output.push_str(padding);
+                if let Some(padding) = &patch.left_padding {
+                    output.push_str(&padding);
                     if patch.kind == TargetKind::Call && patch.actual.contains('\n') {
                         output.push('\n');
                         if !is_doc_test {
@@ -756,8 +810,8 @@ fn apply_patch(pp: &PackagePatch) -> anyhow::Result<()> {
                     }
                 }
 
-                if let Some(padding) = patch.right_padding {
-                    output.push_str(padding);
+                if let Some(padding) = &patch.right_padding {
+                    output.push_str(&padding);
                 }
 
                 i = u32::from(end);
