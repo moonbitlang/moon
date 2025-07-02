@@ -1116,6 +1116,8 @@ pub fn gen_runtest_build_command(
     };
 
     let mut inputs = item.mbt_deps.clone();
+    inputs.extend_from_slice(&item.doctest_only_mbt_deps);
+    inputs.extend_from_slice(&item.mbt_md_deps);
     inputs.extend(item.mi_deps.iter().map(|a| a.name.clone()));
     // add $pkgname.mi as input if need_build_virtual since it is used by --check-mi
     if need_build_default_virtual {
@@ -1531,9 +1533,12 @@ fn gen_generate_test_driver_command(
     let (driver_file, files_contain_test_block) =
         (&item.driver_file, &item.files_may_contain_test_block);
 
+    let mut in_files = files_contain_test_block.clone();
+    in_files.extend_from_slice(&item.doctest_only_files);
+
     let ins = BuildIns {
-        ids: files_contain_test_block
-            .iter()
+        ids: in_files
+            .into_iter()
             .map(|f| graph.files.id_from_canonical(f.to_string()))
             .collect(),
         explicit: files_contain_test_block.len(),

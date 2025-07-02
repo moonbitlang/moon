@@ -474,6 +474,8 @@ pub fn gen_check_command(
     let original_mi_out = item.mi_out.replace("_default", "");
 
     let mut inputs = item.mbt_deps.clone();
+    inputs.extend_from_slice(&item.doctest_only_mbt_deps);
+    inputs.extend_from_slice(&item.mbt_md_deps);
     inputs.extend(item.mi_deps.iter().map(|a| a.name.clone()));
     // add $pkgname.mi as input if need_build_virtual since it is used by --check-mi
     if need_check_default_virtual {
