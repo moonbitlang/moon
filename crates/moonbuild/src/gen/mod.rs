@@ -36,6 +36,7 @@ fn test_start_with() {
     assert!(MOON_CORE_BUILTIN_LIB.starts_with(MOONBITLANG_CORE));
 }
 
+static SKIP_TEST_LIBS: &[&str] = &[MOON_CORE_ABORT_LIB];
 static SKIP_COVERAGE_LIBS: &[&str] = &[MOON_CORE_ABORT_LIB];
 static SELF_COVERAGE_LIBS: &[&str] = &[MOON_CORE_BUILTIN_LIB, MOON_CORE_COVERAGE_LIB];
 
