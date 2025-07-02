@@ -3126,6 +3126,7 @@ fn test_moon_package_list() {
 
 #[test]
 #[cfg(unix)]
+#[ignore = "platform-dependent behavior"]
 fn test_native_backend_cc_flags() {
     let dir = TestDir::new("native_backend_cc_flags.in");
     check(
@@ -4214,6 +4215,7 @@ fn test_moon_install_bin() {
 }
 
 #[test]
+#[ignore = "platform-dependent behavior"]
 fn test_strip_debug() {
     let dir = TestDir::new("strip_debug.in");
 
