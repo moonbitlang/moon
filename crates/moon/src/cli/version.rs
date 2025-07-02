@@ -85,11 +85,11 @@ pub fn run_version(cmd: VersionSubcommand) -> anyhow::Result<i32> {
 
     match (all_flag, json_flag) {
         (false, false) => {
-            println!("moon {}", moon_version);
+            println!("moon {moon_version}");
         }
         (true, false) => {
             if nopath_flag {
-                println!("moon {}", moon_version);
+                println!("moon {moon_version}");
                 println!("moonc {}", moonc_version?);
                 println!("moonc {}", moonrun_version?);
             } else {
@@ -113,8 +113,7 @@ pub fn run_version(cmd: VersionSubcommand) -> anyhow::Result<i32> {
             println!(
                 "{}",
                 serde_json_lenient::to_string(&items).context(format!(
-                    "failed to serialize version info to JSON: {:#?}",
-                    items
+                    "failed to serialize version info to JSON: {items:#?}"
                 ))?
             );
         }
@@ -153,8 +152,7 @@ pub fn run_version(cmd: VersionSubcommand) -> anyhow::Result<i32> {
             println!(
                 "{}",
                 serde_json_lenient::to_string(&items).context(format!(
-                    "failed to serialize version info to JSON: {:#?}",
-                    items
+                    "failed to serialize version info to JSON: {items:#?}"
                 ))?
             );
         }

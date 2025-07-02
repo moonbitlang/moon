@@ -479,7 +479,7 @@ mod test {
         let id = result.id_from_mod_name(&root_ms).unwrap();
         expect!["ModuleId(0)"].assert_eq(&format!("{:?}", &id));
         let mt = result.mod_name_from_id(id);
-        expect!["dep/three@0.1.0"].assert_eq(&format!("{:?}", mt));
+        expect!["dep/three@0.1.0"].assert_eq(&format!("{mt:?}"));
 
         let module_info = result.module_info(id);
         expect![[r#"
@@ -596,9 +596,7 @@ mod test {
         let id2 = result.id_from_mod_name(&pkg2).expect("pkg2 not found");
         assert!(
             result.graph().contains_edge(id1, id2),
-            "{} does not depend on {}",
-            pkg1,
-            pkg2
+            "{pkg1} does not depend on {pkg2}"
         );
     }
 
@@ -610,9 +608,7 @@ mod test {
         if let (Some(id1), Some(id2)) = (id1, id2) {
             assert!(
                 !result.graph().contains_edge(id1, id2),
-                "{} depends on {}",
-                pkg1,
-                pkg2
+                "{pkg1} depends on {pkg2}"
             );
         } else {
             // Ok, since at least one of the nodes don't exist at all

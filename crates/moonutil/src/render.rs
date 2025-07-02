@@ -110,7 +110,7 @@ impl MooncDiagnostic {
         let mut diagnostic = match serde_json_lenient::from_str::<MooncDiagnostic>(content) {
             Ok(d) => d,
             Err(_) => {
-                eprintln!("{}", content);
+                eprintln!("{content}");
                 return;
             }
         };
@@ -241,7 +241,7 @@ impl MooncDiagnostic {
         )) {
             Ok(_) => {}
             Err(e) => {
-                eprintln!("internal rendering error: {:?}", e);
+                eprintln!("internal rendering error: {e:?}");
             }
         };
     }

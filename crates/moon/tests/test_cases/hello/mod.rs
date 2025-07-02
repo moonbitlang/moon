@@ -119,7 +119,7 @@ fn test_preferred_target() {
             serde_json_lenient::to_string(mod_json).unwrap(),
         )
         .unwrap();
-        let target_flag = format!("-target {}", target);
+        let target_flag = format!("-target {target}");
 
         let build_output = get_stdout(dir, ["build", "--dry-run"]);
         let test_output = get_stdout(dir, ["test", "--dry-run"]);
@@ -127,21 +127,15 @@ fn test_preferred_target() {
 
         assert!(
             build_output.contains(&target_flag),
-            "build output doesn't contain '{}': {:?}",
-            target_flag,
-            build_output
+            "build output doesn't contain '{target_flag}': {build_output:?}"
         );
         assert!(
             test_output.contains(&target_flag),
-            "test output doesn't contain '{}': {:?}",
-            target_flag,
-            test_output
+            "test output doesn't contain '{target_flag}': {test_output:?}"
         );
         assert!(
             check_output.contains(&target_flag),
-            "check output doesn't contain '{}': {:?}",
-            target_flag,
-            check_output
+            "check output doesn't contain '{target_flag}': {check_output:?}"
         );
     }
 

@@ -98,7 +98,7 @@ pub fn watching(
                     }
                 }
                 Err(e) => {
-                    println!("failed: {:?}", e);
+                    println!("failed: {e:?}");
                     continue;
                 }
             }
@@ -165,7 +165,7 @@ fn handle_file_change(
         ) {
             Ok((r, d)) => (r, d),
             Err(e) => {
-                println!("failed at auto sync: {:?}", e);
+                println!("failed at auto sync: {e:?}");
                 return Ok(None);
             }
         };
@@ -179,7 +179,7 @@ fn handle_file_change(
         ) {
             Ok(m) => m,
             Err(e) => {
-                println!("failed at scan: {:?}", e);
+                println!("failed at scan: {e:?}");
                 return Ok(None);
             }
         };

@@ -809,7 +809,7 @@ pub fn convert_pkg_json_to_package(j: MoonPkgJSON) -> anyhow::Result<MoonPkg> {
             Import::Simple(p) => {
                 let alias = Path::new(p)
                     .file_stem()
-                    .context(format!("failed to get alias of `{}`", p))?
+                    .context(format!("failed to get alias of `{p}`"))?
                     .to_str()
                     .unwrap()
                     .to_string();
@@ -835,7 +835,7 @@ pub fn convert_pkg_json_to_package(j: MoonPkgJSON) -> anyhow::Result<MoonPkg> {
             Import::Simple(p) => {
                 let alias = Path::new(p)
                     .file_stem()
-                    .context(format!("failed to get alias of `{}`", p))?
+                    .context(format!("failed to get alias of `{p}`"))?
                     .to_str()
                     .unwrap()
                     .to_string();
@@ -861,7 +861,7 @@ pub fn convert_pkg_json_to_package(j: MoonPkgJSON) -> anyhow::Result<MoonPkg> {
             Import::Simple(p) => {
                 let alias = Path::new(p)
                     .file_stem()
-                    .context(format!("failed to get alias of `{}`", p))?
+                    .context(format!("failed to get alias of `{p}`"))?
                     .to_str()
                     .unwrap()
                     .to_string();
@@ -945,7 +945,7 @@ fn validate_pkg_json_schema() {
         "/../moonbuild/template/pkg_json_schema.html"
     );
     let html_template = std::fs::read_to_string(html_template_path).unwrap();
-    let content = html_template.replace("const schema = {}", &format!("const schema = {}", actual));
+    let content = html_template.replace("const schema = {}", &format!("const schema = {actual}"));
     let html_path = concat!(
         env!("CARGO_MANIFEST_DIR"),
         "/../../docs/manual/src/source/pkg_json_schema.html"

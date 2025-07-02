@@ -128,7 +128,7 @@ pub fn calc_sha2(p: &Path) -> anyhow::Result<String> {
 
     // read hash digest and consume hasher
     let result = hasher.finalize();
-    Ok(format!("{:x}", result))
+    Ok(format!("{result:x}"))
 }
 
 impl OnlineRegistry {
@@ -184,13 +184,13 @@ impl OnlineRegistry {
         }
         if checksum_ok {
             if !quiet {
-                println!("Using cached {}@{}", name, version);
+                println!("Using cached {name}@{version}");
             }
             let data = std::fs::read(cache_file)?;
             return Ok(bytes::Bytes::from(data));
         }
         if !quiet {
-            println!("Downloading {}", name);
+            println!("Downloading {name}");
         }
         let filepath = form_urlencoded::Serializer::new(String::new())
             .append_key_only(&format!("{}/{}/{}", name.username, name.pkgname, version))
@@ -256,7 +256,7 @@ fn cache_of(name: &ModuleName, version: &Version) -> std::path::PathBuf {
     cache_dir
         .join(&name.username)
         .join(&name.pkgname)
-        .join(format!("{}.zip", version))
+        .join(format!("{version}.zip"))
 }
 
 #[test]

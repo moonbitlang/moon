@@ -64,7 +64,7 @@ pub fn print_commands(
                         cmdline.replace(&source_dir.display().to_string(), ".")
                     );
                 } else {
-                    println!("{}", cmdline);
+                    println!("{cmdline}");
                 }
             }
         }

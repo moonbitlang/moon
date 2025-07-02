@@ -62,8 +62,8 @@ async fn test_latency() -> Result<&'static str> {
     let url1 = "https://cli.moonbitlang.com";
     let url2 = "https://cli.moonbitlang.cn";
 
-    let url1_version = format!("{}/version.json", url1);
-    let url2_version = format!("{}/version.json", url2);
+    let url1_version = format!("{url1}/version.json");
+    let url2_version = format!("{url2}/version.json");
 
     tokio::select! {
         res1 = check_latency(&url1_version, &client) => {
@@ -144,7 +144,7 @@ pub fn upgrade(cmd: UpgradeSubcommand) -> Result<i32> {
     } else {
         cmd.base_url.as_deref().unwrap().to_string()
     };
-    println!("  Use {}", root);
+    println!("  Use {root}");
 
     let download_page = if root.contains("moonbitlang.cn") {
         "https://www.moonbitlang.cn/download"
@@ -153,7 +153,7 @@ pub fn upgrade(cmd: UpgradeSubcommand) -> Result<i32> {
     };
 
     println!("Checking latest toolchain version ...");
-    let version_url = format!("{}/version.json", root);
+    let version_url = format!("{root}/version.json");
     if !cmd.force && !cmd.dev {
         // if any step(network request, serde json...) fail, just do upgrade
         if let Ok(data) = reqwest::blocking::get(version_url) {
@@ -167,10 +167,7 @@ pub fn upgrade(cmd: UpgradeSubcommand) -> Result<i32> {
     }
 
     println!("{}", "Warning: moon upgrade is highly experimental.".bold());
-    let msg = format!(
-        "If you encounter any problems, please reinstall by visit {}",
-        download_page
-    );
+    let msg = format!("If you encounter any problems, please reinstall by visit {download_page}");
     println!("{}", msg.bold());
     if !cmd.non_interactive {
         let confirm = Confirm::new()
@@ -218,7 +215,7 @@ pub fn do_upgrade_unix(cmd: &UpgradeSubcommand, root: &str) -> Result<i32> {
     let status = std::process::Command::new(exe)
         .args(args)
         .status()
-        .with_context(|| format!("failed to execute command: {}", hint))?;
+        .with_context(|| format!("failed to execute command: {hint}"))?;
 
     match status.code() {
         Some(0) => Ok(0),

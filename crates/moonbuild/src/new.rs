@@ -50,7 +50,7 @@ pub fn moon_new_exec(
     name: String,
     license: Option<&str>,
 ) -> anyhow::Result<i32> {
-    let cake_full_name = format!("{}/{}", user, name);
+    let cake_full_name = format!("{user}/{name}");
     let source = target_dir.join("src");
     common(target_dir, &source, &cake_full_name, license)?;
 
@@ -63,7 +63,7 @@ pub fn moon_new_exec(
             name: None,
             is_main: Some(true),
             import: Some(moonutil::package::PkgJSONImport::List(vec![
-                PkgJSONImportItem::String(format!("{}/lib", cake_full_name)),
+                PkgJSONImportItem::String(format!("{cake_full_name}/lib")),
             ])),
             wbtest_import: None,
             test_import: None,
@@ -107,7 +107,7 @@ pub fn moon_new_lib(
     name: String,
     license: Option<&str>,
 ) -> anyhow::Result<i32> {
-    let cake_full_name = format!("{}/{}", user, name);
+    let cake_full_name = format!("{user}/{name}");
     let source = target_dir.join("src");
     common(target_dir, &source, &cake_full_name, license)?;
 
@@ -128,11 +128,10 @@ pub fn moon_new_lib(
         let content = format!(
             r#"{{
   "import": [
-    "{}/lib"
+    "{cake_full_name}/lib"
   ]
 }}
-"#,
-            cake_full_name
+"#
         );
         let mut file = std::fs::File::create(moon_pkg_json).unwrap();
         file.write_all(content.as_bytes()).unwrap();
@@ -187,7 +186,7 @@ fn common(
             __moonbit_unstable_prebuild: None,
         };
         moonutil::common::write_module_json_to_file(&m, target_dir)
-            .context(format!("failed to write `{}`", MOON_MOD_JSON))?;
+            .context(format!("failed to write `{MOON_MOD_JSON}`"))?;
     }
     // .gitignore
     {
@@ -250,7 +249,7 @@ fn common(
     // READMD.md
     {
         let md_file = target_dir.join("README.md");
-        let content = format!("# {}", cake_full_name);
+        let content = format!("# {cake_full_name}");
         let mut file = std::fs::File::create(md_file).unwrap();
         file.write_all(content.as_bytes()).unwrap();
     }

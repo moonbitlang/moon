@@ -69,7 +69,7 @@ fn cmd_test() {
         let entry = match entry {
             Ok(e) => e,
             Err(err) => {
-                eprintln!("Error reading entry: {}", err);
+                eprintln!("Error reading entry: {err}");
                 continue;
             }
         };

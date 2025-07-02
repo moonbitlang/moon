@@ -163,7 +163,7 @@ pub fn run_test(cli: UniversalFlags, cmd: TestSubcommand) -> anyhow::Result<i32>
             let x = handle
                 .join()
                 .unwrap()
-                .context(format!("failed to run test for target {:?}", backend))?;
+                .context(format!("failed to run test for target {backend:?}"))?;
             ret_value = ret_value.max(x);
         }
     }
@@ -192,7 +192,6 @@ fn run_test_internal(
 
 fn run_test_in_single_file(cli: &UniversalFlags, cmd: &TestSubcommand) -> anyhow::Result<i32> {
     let single_file_path = &dunce::canonicalize(cmd.single_file.as_ref().unwrap()).unwrap();
-    let single_file_string = single_file_path.display().to_string();
     let source_dir = single_file_path.parent().unwrap().to_path_buf();
     let raw_target_dir = source_dir.join("target");
 
@@ -342,7 +341,7 @@ pub fn get_module_for_single_file(
             )],
             artifact: target_dir
                 .join(pkg_rel_name)
-                .join(format!("{}.core", pkg_rel_name)),
+                .join(format!("{pkg_rel_name}.core")),
             link: None,
             warn_list: moonc_opt.build_opt.warn_list.clone(),
             alert_list: moonc_opt.build_opt.alert_list.clone(),
@@ -636,7 +635,7 @@ pub(crate) fn run_test_or_bench_internal(
                     file_filter,
                     final_set
                         .iter()
-                        .map(|p| format!("`{}`", p))
+                        .map(|p| format!("`{p}`"))
                         .collect::<Vec<String>>()
                         .join(", "),
                 );

@@ -113,7 +113,7 @@ impl std::str::FromStr for ExpectFailedRaw {
     fn from_str(s: &str) -> anyhow::Result<Self> {
         let expect_index = s
             .find("\"expect\":")
-            .context(format!("expect field not found: {}", s))?;
+            .context(format!("expect field not found: {s}"))?;
         let expect_base64_index = s.find("\"expect_base64\":");
         (if let Some(expect_base64_index) = expect_base64_index {
             let s2 = format!("{}{}", &s[..expect_index], &s[expect_base64_index..]);
@@ -121,7 +121,7 @@ impl std::str::FromStr for ExpectFailedRaw {
         } else {
             serde_json_lenient::from_str(s)
         })
-        .context(format!("parse expect test result failed: {}", s))
+        .context(format!("parse expect test result failed: {s}"))
     }
 }
 
@@ -622,7 +622,7 @@ fn push_multi_line_string(
 }
 
 fn to_moonbit_multi_line_string(s: &str) -> String {
-    format!("#|{}", s)
+    format!("#|{s}")
 }
 
 fn push_multi_line_string_internal(
@@ -652,7 +652,7 @@ fn push_multi_line_string_internal(
                 Some(' ') => {
                     output.push_str(&format!(
                         "{}{}",
-                        " ".repeat(if spaces > 2 { spaces - 2 } else { 0 }),
+                        " ".repeat(spaces.saturating_sub(2)),
                         to_moonbit_multi_line_string(line),
                     ));
                 }
@@ -668,7 +668,7 @@ fn push_multi_line_string_internal(
         if i == lines.len() - 1 {
             output.push('\n');
             if let Some(')' | ',') = next_char {
-                output.push_str(" ".repeat(if spaces > 2 { spaces - 2 } else { 0 }).as_str());
+                output.push_str(" ".repeat(spaces.saturating_sub(2)).as_str());
             }
         } else {
             output.push('\n');
@@ -784,7 +784,7 @@ pub fn apply_snapshot(messages: &[String]) -> anyhow::Result<()> {
         .map(|msg| {
             let json_str = &msg[SNAPSHOT_TESTING.len()..];
             let rep: ExpectFailedRaw = ExpectFailedRaw::from_str(json_str)
-                .context(format!("parse snapshot test result failed: {}", json_str))
+                .context(format!("parse snapshot test result failed: {json_str}"))
                 .unwrap();
             rep
         })
@@ -854,7 +854,7 @@ pub fn render_expect_fail(msg: &str) -> anyhow::Result<()> {
             let diffs = json_structural_diff::colorize(&diff, true);
             println!("inspect failed at {}", rep.loc.raw);
             println!("{}", "Diff:".bold());
-            println!("{}", diffs);
+            println!("{diffs}");
         }
         return Ok(());
     }
@@ -879,7 +879,7 @@ pub fn snapshot_eq(msg: &str) -> anyhow::Result<bool> {
     let json_str = &msg[SNAPSHOT_TESTING.len()..];
 
     let e: ExpectFailedRaw = ExpectFailedRaw::from_str(json_str)
-        .context(format!("parse snapshot test result failed: {}", json_str))?;
+        .context(format!("parse snapshot test result failed: {json_str}"))?;
     let snapshot = expect_failed_to_snapshot_result(e);
 
     let filename = parse_filename(&snapshot.loc)?;
@@ -909,7 +909,7 @@ pub fn render_snapshot_fail(msg: &str) -> anyhow::Result<(bool, String, String)>
     let json_str = &msg[SNAPSHOT_TESTING.len()..];
 
     let e: ExpectFailedRaw = ExpectFailedRaw::from_str(json_str)
-        .context(format!("parse snapshot test result failed: {}", json_str))?;
+        .context(format!("parse snapshot test result failed: {json_str}"))?;
     let snapshot = expect_failed_to_snapshot_result(e);
 
     let filename = parse_filename(&snapshot.loc)?;
@@ -981,6 +981,6 @@ test {
 "#;
     let chars = input.char_indices().collect::<Vec<(usize, char)>>();
     for (i, c) in chars {
-        println!("{}: {}", i, c);
+        println!("{i}: {c}");
     }
 }

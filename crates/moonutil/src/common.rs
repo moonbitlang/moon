@@ -180,8 +180,7 @@ pub fn read_module_from_json(path: &Path) -> Result<MoonMod, MoonModJSONFormatEr
 fn read_package_from_json(path: &Path) -> anyhow::Result<MoonPkg> {
     let file = File::open(path)?;
     let reader = BufReader::new(file);
-    let j =
-        serde_json_lenient::from_reader(reader).context(format!("Failed to parse {:?}", path))?;
+    let j = serde_json_lenient::from_reader(reader).context(format!("Failed to parse {path:?}"))?;
     convert_pkg_json_to_package(j)
 }
 
@@ -587,7 +586,7 @@ impl CargoPathExt for Path {
                 if e.kind() == ErrorKind::NotFound {
                     return;
                 }
-                panic!("failed to remove {:?}, could not read: {:?}", self, e);
+                panic!("failed to remove {self:?}, could not read: {e:?}");
             }
         };
         // There is a race condition between fetching the metadata and
@@ -595,10 +594,10 @@ impl CargoPathExt for Path {
         // for our tests.
         if meta.is_dir() {
             if let Err(e) = fs::remove_dir_all(self) {
-                panic!("failed to remove {:?}: {:?}", self, e)
+                panic!("failed to remove {self:?}: {e:?}")
             }
         } else if let Err(e) = fs::remove_file(self) {
-            panic!("failed to remove {:?}: {:?}", self, e)
+            panic!("failed to remove {self:?}: {e:?}")
         }
     }
 }
@@ -795,10 +794,10 @@ pub fn get_moonrun_version() -> anyhow::Result<String> {
 #[test]
 fn test_get_version() {
     let v = get_moon_version();
-    println!("moon_version: {}", v);
+    println!("moon_version: {v}");
     assert!(!v.is_empty());
     let v = get_moonc_version().unwrap();
-    println!("moonc_version: {}", v);
+    println!("moonc_version: {v}");
     assert!(!v.is_empty());
 }
 
@@ -852,7 +851,7 @@ impl std::fmt::Display for DriverKind {
             Self::Whitebox => "whitebox",
             Self::Blackbox => "blackbox",
         };
-        write!(f, "{}", kind)
+        write!(f, "{kind}")
     }
 }
 
@@ -886,7 +885,7 @@ impl MooncGenTestInfo {
 
         result.push_str("let moonbit_test_driver_internal_no_args_tests = {\n");
         for (file, tests) in &self.no_args_tests {
-            result.push_str(&format!("  \"{}\": {{\n", file));
+            result.push_str(&format!("  \"{file}\": {{\n"));
             for test in tests {
                 result.push_str(&format!(
                     "    {}: ({}, [\"{}\"]),\n",
@@ -901,7 +900,7 @@ impl MooncGenTestInfo {
 
         result.push_str("let moonbit_test_driver_internal_with_args_tests = {\n");
         for (file, tests) in &self.with_args_tests {
-            result.push_str(&format!("  \"{}\": {{\n", file));
+            result.push_str(&format!("  \"{file}\": {{\n"));
             for test in tests {
                 result.push_str(&format!(
                     "    {}: ({}, [\"{}\"]),\n",
@@ -916,7 +915,7 @@ impl MooncGenTestInfo {
 
         result.push_str("let moonbit_test_driver_internal_with_bench_args_tests = {\n");
         for (file, tests) in &self.with_bench_args_tests {
-            result.push_str(&format!("  \"{}\": {{\n", file));
+            result.push_str(&format!("  \"{file}\": {{\n"));
             for test in tests {
                 result.push_str(&format!(
                     "    {}: ({}, [\"{}\"]),\n",
