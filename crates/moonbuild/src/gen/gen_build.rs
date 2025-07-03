@@ -55,8 +55,6 @@ pub struct BuildDepItem {
     pub core_out: String,
     pub mi_out: String,
     pub mbt_deps: Vec<String>,
-    /// `mbt.md` files
-    pub mbt_md_deps: Vec<String>,
     pub mi_deps: Vec<MiAlias>, // do not need add parent's mi files
     pub package_full_name: String,
     pub package_source_dir: String,
@@ -212,7 +210,6 @@ pub fn gen_build_build_item(
         mi_out: mi_out.display().to_string(),
         mbt_deps,
         mi_deps,
-        mbt_md_deps: vec![],
         package_full_name,
         package_source_dir,
         warn_list: pkg.warn_list.clone(),

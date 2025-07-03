@@ -358,6 +358,7 @@ pub fn get_module_for_single_file(
             pre_build: None,
             patch_file: None,
             no_mi: false,
+            test_patch_json_file: None,
             install_path: None,
             bin_name: None,
             bin_target: moonc_opt.link_opt.target_backend,
@@ -387,6 +388,16 @@ pub fn get_module_for_single_file(
     )?;
 
     let mut package = gen_single_file_pkg(moonc_opt, single_file_path);
+    if !package.mbt_md_files.is_empty() {
+        let patch_json = moonutil::doc_test::gen_md_test_patch(&package, moonc_opt)?;
+        if let Some(patch_json) = patch_json {
+            let pj_path = package
+                .artifact
+                .with_file_name(moonutil::common::MOON_INTERNAL_PATCH_JSON_FILE);
+            patch_json.write_to_path(&pj_path)?;
+            package.test_patch_json_file = Some(pj_path);
+        }
+    }
     let imports = module
         .get_all_packages()
         .iter()
@@ -709,6 +720,22 @@ pub(crate) fn run_test_or_bench_internal(
         }
 
         pkg.patch_file = patch_file.clone();
+
+        let (mut md_test_patch, doc_test_patch) = (
+            None,
+            moonutil::doc_test::gen_doc_test_patch(pkg, &moonc_opt)?,
+        );
+        if !pkg.mbt_md_files.is_empty() {
+            md_test_patch = moonutil::doc_test::gen_md_test_patch(pkg, &moonc_opt)?;
+        }
+        let patch_json = moonutil::common::PatchJSON::merge_patches(md_test_patch, doc_test_patch);
+        if let Some(patch_json) = patch_json {
+            let pj_path = pkg
+                .artifact
+                .with_file_name(moonutil::common::MOON_INTERNAL_PATCH_JSON_FILE);
+            patch_json.write_to_path(&pj_path)?;
+            pkg.test_patch_json_file = Some(pj_path);
+        }
 
         {
             // test driver file will be generated via `moon generate-test-driver` command

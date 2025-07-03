@@ -61,10 +61,6 @@ pub struct RuntestDepItem {
     pub core_out: String,
     pub mi_out: String,
     pub mbt_deps: Vec<String>,
-    /// MoonBit source files that only need doc testing
-    pub doctest_only_mbt_deps: Vec<String>,
-    /// `mbt.md` files
-    pub mbt_md_deps: Vec<String>,
     pub mi_deps: Vec<MiAlias>, // do not need add parent's mi files
     pub package_full_name: String,
     pub original_package_full_name: Option<String>,
@@ -208,7 +204,10 @@ pub fn gen_package_test_driver(
         info_file: test_info,
         files_may_contain_test_block: files_that_may_contain_test_block,
         driver_kind,
-        patch_file: pkg.patch_file.clone(),
+        patch_file: pkg
+            .patch_file
+            .clone()
+            .or_else(|| pkg.test_patch_json_file.clone()),
         single_test_file: None,
     })
 }
@@ -286,8 +285,6 @@ pub fn gen_package_core(
         core_out: core_out.display().to_string(),
         mi_out: mi_out.display().to_string(),
         mbt_deps,
-        doctest_only_mbt_deps: vec![],
-        mbt_md_deps: vec![],
         mi_deps,
         package_full_name,
         original_package_full_name: None,
@@ -373,8 +370,6 @@ pub fn gen_package_internal_test(
         core_out: core_out.display().to_string(),
         mi_out: mi_out.display().to_string(),
         mbt_deps,
-        doctest_only_mbt_deps: vec![],
-        mbt_md_deps: vec![],
         mi_deps,
         package_full_name,
         original_package_full_name: None,
@@ -469,8 +464,6 @@ pub fn gen_package_whitebox_test(
         core_out: core_out.display().to_string(),
         mi_out: mi_out.display().to_string(),
         mbt_deps,
-        doctest_only_mbt_deps: vec![],
-        mbt_md_deps: vec![],
         mi_deps,
         package_full_name,
         original_package_full_name: None,
@@ -590,8 +583,6 @@ pub fn gen_package_blackbox_test(
         core_out: core_out.display().to_string(),
         mi_out: mi_out.display().to_string(),
         mbt_deps,
-        doctest_only_mbt_deps: todo!("add these tests"),
-        mbt_md_deps: vec![],
         mi_deps,
         package_full_name,
         original_package_full_name: Some(pkg.full_name()),
@@ -1022,7 +1013,10 @@ pub fn gen_runtest(
             }
         }
 
-        if !pkg.test_files.is_empty() || blackbox_patch_file.is_some() {
+        if !pkg.test_files.is_empty()
+            || blackbox_patch_file.is_some()
+            || pkg.test_patch_json_file.is_some()
+        {
             for item in pkg.generated_test_drivers.iter() {
                 if let GeneratedTestDriver::BlackboxTest(_) = item {
                     test_drivers.push(gen_package_test_driver(
@@ -1035,7 +1029,9 @@ pub fn gen_runtest(
                         m,
                         pkg,
                         moonc_opt,
-                        blackbox_patch_file.clone(),
+                        blackbox_patch_file
+                            .clone()
+                            .or(pkg.test_patch_json_file.clone()),
                     )?);
                     link_items.push(gen_link_blackbox_test(m, pkg, moonc_opt)?);
                 }
