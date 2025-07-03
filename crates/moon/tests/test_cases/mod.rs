@@ -1419,7 +1419,22 @@ fn test_blackbox_dedup_alias() {
     check(
         &output,
         expect![[r#"
-            error: Duplicate alias `lib` at "$ROOT/lib/moon.pkg.json". "test-import" will automatically add "import" and current pkg as dependency so you don't need to add it manually. If you're test-importing a dependency with the same default alias as your current package, considering give it a different alias. Violating import: `username/hello/dir/lib`
+            Warning: Duplicate alias `lib` at "$ROOT/lib/moon.pkg.json". "test-import" will automatically add "import" and current package as dependency so you don't need to add it manually. If you're test-importing a dependency with the same default alias as your current package, considering give it a different alias than the current package. Violating import: `username/hello/dir/lib`
+            Error: [4021]
+               ╭─[ $ROOT/lib/hello_test.mbt:3:3 ]
+               │
+             3 │   @lib.hello()
+               │   ─────┬────  
+               │        ╰────── Value hello not found in package `lib`.
+            ───╯
+            Warning: [0029]
+               ╭─[ $ROOT/lib/moon.pkg.json:3:5 ]
+               │
+             3 │     "username/hello/dir/lib"
+               │     ────────────┬───────────  
+               │                 ╰───────────── Warning: Unused package 'username/hello/dir/lib'
+            ───╯
+            error: failed when testing
         "#]],
     );
 }
