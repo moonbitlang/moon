@@ -44,6 +44,7 @@ mod mbti;
 mod moon_bench;
 mod moon_bundle;
 mod moon_commands;
+mod moon_coverage;
 mod moon_new;
 mod moon_test;
 mod moon_version;
@@ -2743,41 +2744,6 @@ fn test_pre_build() {
               #|world
               #|
         "#]],
-    );
-}
-
-#[test]
-fn test_moon_coverage() {
-    let dir = TestDir::new("test_coverage.in");
-
-    get_stdout(&dir, ["test", "--enable-coverage", "--target", "wasm-gc"]);
-    // just get the last line, since other output contains path sequence which is not stable
-    check(
-        get_stdout(&dir, ["coverage", "report", "-f", "summary"])
-            .lines()
-            .last()
-            .unwrap(),
-        expect!["Total: 3/7"],
-    );
-
-    get_stdout(&dir, ["clean"]);
-    get_stdout(&dir, ["test", "--enable-coverage", "--target", "wasm"]);
-    check(
-        get_stdout(&dir, ["coverage", "report", "-f", "summary"])
-            .lines()
-            .last()
-            .unwrap(),
-        expect!["Total: 3/7"],
-    );
-
-    get_stdout(&dir, ["clean"]);
-    get_stdout(&dir, ["test", "--enable-coverage", "--target", "js"]);
-    check(
-        get_stdout(&dir, ["coverage", "report", "-f", "summary"])
-            .lines()
-            .last()
-            .unwrap(),
-        expect!["Total: 3/7"],
     );
 }
 
