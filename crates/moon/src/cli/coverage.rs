@@ -110,6 +110,7 @@ fn run_coverage_report(cli: UniversalFlags, args: CoverageReportSubcommand) -> a
         return run_coverage_report_command(
             std::iter::once("--help"),
             &std::env::current_dir().unwrap_or(".".into()),
+            false,
         )
         .context("Unable to get help from coverage utility")?
         .code()
@@ -121,7 +122,7 @@ fn run_coverage_report(cli: UniversalFlags, args: CoverageReportSubcommand) -> a
         target_dir: _tgt,
     } = cli.source_tgt_dir.try_into_package_dirs()?;
 
-    let res = run_coverage_report_command(args.args, &src);
+    let res = run_coverage_report_command(args.args, &src, cli.dry_run);
     res.context("Unable to run coverage report")?
         .code()
         .ok_or_else(|| anyhow::anyhow!("Coverage report command exited without a status code"))
@@ -143,9 +144,18 @@ fn clean_coverage_artifacts(_src: &Path, tgt: &Path) -> anyhow::Result<()> {
 fn run_coverage_report_command(
     args: impl IntoIterator<Item = impl AsRef<OsStr>>,
     cwd: &Path,
+    dry_run: bool,
 ) -> std::io::Result<std::process::ExitStatus> {
     let mut cmd = std::process::Command::new("moon_cove_report");
     cmd.current_dir(cwd);
     cmd.args(args);
+    if dry_run {
+        let args = std::iter::once(cmd.get_program())
+            .chain(cmd.get_args())
+            .map(|s| s.to_string_lossy().clone())
+            .collect::<Vec<_>>();
+        println!("(cd {} && {})", cwd.display(), args.join(" "));
+        return Ok(Default::default());
+    }
     cmd.status()
 }
