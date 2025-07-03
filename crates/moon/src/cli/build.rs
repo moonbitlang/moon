@@ -88,7 +88,7 @@ pub fn run_build(cli: &UniversalFlags, cmd: &BuildSubcommand) -> anyhow::Result<
             let mut cmd = (*cmd).clone();
             cmd.build_flags.target_backend = Some(t);
             let x = run_build_internal(cli, &cmd, &source_dir, &target_dir)
-                .context(format!("failed to run build for target {t:?}"))?;
+                .context(format!("failed to run build for target {:?}", t))?;
             ret_value = ret_value.max(x);
         }
     } else {
@@ -114,7 +114,7 @@ pub fn run_build(cli: &UniversalFlags, cmd: &BuildSubcommand) -> anyhow::Result<
             let x = handle
                 .join()
                 .unwrap()
-                .context(format!("failed to run build for target {backend:?}"))?;
+                .context(format!("failed to run build for target {:?}", backend))?;
             ret_value = ret_value.max(x);
         }
     }

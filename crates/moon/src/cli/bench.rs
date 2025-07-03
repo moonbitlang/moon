@@ -98,7 +98,7 @@ pub fn run_bench(cli: UniversalFlags, cmd: BenchSubcommand) -> anyhow::Result<i3
             let x = handle
                 .join()
                 .unwrap()
-                .context(format!("failed to run bench for target {backend:?}"))?;
+                .context(format!("failed to run bench for target {:?}", backend))?;
             ret_value = ret_value.max(x);
         }
     }

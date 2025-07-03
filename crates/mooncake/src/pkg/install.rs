@@ -146,15 +146,15 @@ fn build_and_install_bin_package(
     }
 
     if verbose {
-        eprintln!("Installing binary package `{full_pkg_name}`");
+        eprintln!("Installing binary package `{}`", full_pkg_name);
     }
 
     std::process::Command::new(moon_path)
         .args(&build_args)
         .spawn()
-        .with_context(|| format!("Failed to spawn build process for {full_pkg_name}"))?
+        .with_context(|| format!("Failed to spawn build process for {}", full_pkg_name))?
         .wait()
-        .with_context(|| format!("Failed to wait for build process of {full_pkg_name}"))?;
+        .with_context(|| format!("Failed to wait for build process of {}", full_pkg_name))?;
 
     Ok(())
 }

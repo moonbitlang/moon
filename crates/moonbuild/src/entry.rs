@@ -320,7 +320,8 @@ fn vis_build_graph(state: &State, moonbuild_opt: &MoonbuildOpt) {
             ("color=black", "")
         };
         dot.push_str(&format!(
-            "    \"{file_name}\" [shape=box, {style}, {fontcolor}];\n"
+            "    \"{}\" [shape=box, {}, {}];\n",
+            file_name, style, fontcolor
         ));
     }
 
@@ -331,17 +332,21 @@ fn vis_build_graph(state: &State, moonbuild_opt: &MoonbuildOpt) {
             .as_ref()
             .unwrap_or(&default_desc)
             .replace(&source_dir, ".");
-        dot.push_str(&format!("    \"{build_desc}\" [shape=ellipse];\n"));
+        dot.push_str(&format!("    \"{}\" [shape=ellipse];\n", build_desc));
 
         for &input_id in build.ins.ids.iter() {
             let input_file_name = &files.by_id[input_id].name.replace(&source_dir, ".");
-            dot.push_str(&format!("    \"{input_file_name}\" -> \"{build_desc}\";\n"));
+            dot.push_str(&format!(
+                "    \"{}\" -> \"{}\";\n",
+                input_file_name, build_desc
+            ));
         }
 
         for &output_id in build.outs() {
             let output_file_name = &files.by_id[output_id].name.replace(&source_dir, ".");
             dot.push_str(&format!(
-                "    \"{build_desc}\" -> \"{output_file_name}\";\n"
+                "    \"{}\" -> \"{}\";\n",
+                build_desc, output_file_name
             ));
         }
     }
@@ -443,7 +448,7 @@ pub fn run_run(
     let package_path = {
         let root = if let Some(src) = &moon_mod.source {
             dunce::canonicalize(moonbuild_opt.source_dir.join(src))
-                .with_context(|| format!("cannot find root dir `{src}`"))?
+                .with_context(|| format!("cannot find root dir `{}`", src))?
         } else {
             dunce::canonicalize(&moonbuild_opt.source_dir).with_context(|| {
                 format!(
@@ -454,7 +459,7 @@ pub fn run_run(
         };
 
         let p = dunce::canonicalize(moonbuild_opt.source_dir.join(package_path))
-            .with_context(|| format!("cannot find package dir `{package_path}`"))?;
+            .with_context(|| format!("cannot find package dir `{}`", package_path))?;
 
         let rel = p.strip_prefix(&root)?;
         let path_comp = PathComponent::from_path(rel)?;
@@ -566,7 +571,7 @@ fn convert_moonc_test_info(
         DriverKind::Whitebox,
         DriverKind::Blackbox,
     ] {
-        let path = test_info_file.join(format!("__{driver_kind}_{TEST_INFO_FILE}"));
+        let path = test_info_file.join(format!("__{}_{}", driver_kind.to_string(), TEST_INFO_FILE));
         if path.exists() {
             test_info_files.push((driver_kind, path));
         }
@@ -582,7 +587,11 @@ fn convert_moonc_test_info(
 
         let artifact_path = pkg
             .artifact
-            .with_file_name(format!("{}.{}_test.wat", pkg.last_name(), driver_kind))
+            .with_file_name(format!(
+                "{}.{}_test.wat",
+                pkg.last_name(),
+                driver_kind.to_string()
+            ))
             .with_extension(output_format);
 
         for (filename, test_info) in info
@@ -846,7 +855,7 @@ impl TestArgs {
                 test_params.push([file.clone(), i.to_string()]);
             }
         }
-        format!("{test_params:?}")
+        format!("{:?}", test_params)
     }
 
     pub fn to_cli_args_for_native(&self) -> String {

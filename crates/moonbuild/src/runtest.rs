@@ -121,7 +121,7 @@ pub async fn run_native(
     if moonbuild_opt.use_tcc_run {
         let path = path.with_extension("c");
         // TODO
-        let rt_path = target_dir.join(format!("libruntime.{DYN_EXT}"));
+        let rt_path = target_dir.join(format!("libruntime.{}", DYN_EXT));
         let internal_tcc_path = &MOON_DIRS.internal_tcc_path;
         let mut pre_args = vec![
             format!("-I{}", MOON_DIRS.moon_include_path.display()),
@@ -261,7 +261,7 @@ async fn run(
     handle_stdout(
         &mut std::io::BufReader::new(stdout_buffer.as_slice()),
         &mut [&mut test_capture, &mut coverage_capture],
-        |line| print!("{line}"),
+        |line| print!("{}", line),
     )?;
     let output = execution.wait().await?;
 
@@ -273,7 +273,7 @@ async fn run(
         // TODO: do we need to move this out of the runtest module?
         let time = chrono::Local::now().timestamp_micros();
         let rnd = rand::random::<u32>();
-        let filename = target_dir.join(format!("moonbit_coverage_{time}_{rnd:08x}.txt"));
+        let filename = target_dir.join(format!("moonbit_coverage_{}_{:08x}.txt", time, rnd));
         std::fs::write(&filename, coverage_output)
             .context(format!("failed to write {}", filename.to_string_lossy()))?;
     }
@@ -286,7 +286,7 @@ async fn run(
                 continue;
             }
             let ts: TestStatistics = serde_json_lenient::from_str(s.trim())
-                .context(format!("failed to parse test summary: {s}"))?;
+                .context(format!("failed to parse test summary: {}", s))?;
 
             if ts.message == "skipped test" {
                 continue;

@@ -45,7 +45,7 @@ pub struct BatchBenchSummaries {
 
 fn auto_select_unit(us: f64) -> String {
     if us < 1e3 {
-        format!("{us:>6.2} µs")
+        format!("{:>6.2} µs", us)
     } else if us < 1e6 {
         format!("{:>6.2} ms", us / 1e3)
     } else if us < 1e9 {
@@ -59,7 +59,7 @@ pub fn render_batch_bench_summary(msg: &str) {
     assert!(msg.starts_with(BATCHBENCH));
     let msg = &msg[BATCHBENCH.len()..];
     let summary = serde_json_lenient::from_str::<BatchBenchSummaries>(msg)
-        .unwrap_or_else(|e| panic!("failed to parse batch benchmark summary: {e}\n {msg}"));
+        .unwrap_or_else(|e| panic!("failed to parse batch benchmark summary: {e}\n {}", msg));
     let max_name_len = summary
         .summaries
         .iter()

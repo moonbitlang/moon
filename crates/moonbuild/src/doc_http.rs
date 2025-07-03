@@ -54,19 +54,22 @@ pub fn start_server(
     runtime.block_on(async {
         let static_ = Static::new(root_dir);
 
-        let addr = format!("{bind}:{port}")
+        let addr = format!("{}:{}", bind, port)
             .parse::<SocketAddr>()
-            .context(format!("failed to parse address {bind}:{port}"))?;
+            .context(format!("failed to parse address {}:{}", bind, port))?;
 
         let listener = TcpListener::bind(addr)
             .await
-            .context(format!("failed to bind to address {addr}"))?;
+            .context(format!("failed to bind to address {}", addr))?;
 
         eprintln!(
             "{}",
-            format!("Doc server running on http://{addr}/index.html#/{cake_full_name}/")
-                .bold()
-                .green()
+            format!(
+                "Doc server running on http://{}/index.html#/{}/",
+                addr, cake_full_name
+            )
+            .bold()
+            .green()
         );
         loop {
             let (stream, _) = listener
@@ -83,7 +86,7 @@ pub fn start_server(
                     )
                     .await
                 {
-                    eprintln!("Error serving connection: {err:?}");
+                    eprintln!("Error serving connection: {:?}", err);
                 }
             });
         }

@@ -119,9 +119,9 @@ impl std::fmt::Display for ComparatorFormatWrapper<'_> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}", self.0.major)?;
         if let Some(minor) = &self.0.minor {
-            write!(f, ".{minor}")?;
+            write!(f, ".{}", minor)?;
             if let Some(patch) = &self.0.patch {
-                write!(f, ".{patch}")?;
+                write!(f, ".{}", patch)?;
                 if !self.0.pre.is_empty() {
                     write!(f, "-{}", self.0.pre)?;
                 }

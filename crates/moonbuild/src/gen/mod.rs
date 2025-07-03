@@ -64,10 +64,13 @@ fn coverage_args(
     let mut args = vec![format!("{}enable-coverage", dashes)];
     // WORKAROUND: lang core/builtin and core/coverage should be able to cover themselves
     if is_self_coverage_lib(package_name) {
-        args.push(format!("{dashes}coverage-package-override=@self"));
+        args.push(format!("{}coverage-package-override=@self", dashes));
     } else if let Some(original_name) = package_original_name {
         if is_self_coverage_lib(original_name) {
-            args.push(format!("{dashes}coverage-package-override={original_name}"));
+            args.push(format!(
+                "{}coverage-package-override={}",
+                dashes, original_name
+            ));
         }
     }
     args

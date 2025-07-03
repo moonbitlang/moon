@@ -45,7 +45,7 @@ impl Config {
 }
 
 fn write_directory(config: &Config, base_dir: &Path, dr: u32, dc: u32) {
-    let dir_name = base_dir.join(format!("dir_{dr}_{dc}"));
+    let dir_name = base_dir.join(format!("dir_{}_{}", dr, dc));
     fs::create_dir_all(&dir_name).unwrap();
 
     for mr in 0..config.mod_rows {
@@ -80,7 +80,7 @@ pub fn f() -> Unit {{
                 "X".repeat(config.comment_size as usize),
                 dep_str,
             );
-            let mod_name = dir_name.join(format!("m_{dr}_{dc}_{mr}_{mc}"));
+            let mod_name = dir_name.join(format!("m_{}_{}_{}_{}", dr, dc, mr, mc));
             fs::create_dir_all(&mod_name).unwrap();
             let mod_main = mod_name.join("main.mbt");
             fs::write(&mod_main, mod_content).unwrap();
@@ -184,7 +184,10 @@ pub fn write(config: &Config, base_dir: &Path) {
             for mr in 0..config.mod_rows {
                 for mc in 0..config.mod_cols {
                     import.insert(
-                        format!("build_matrix/dir_{dr}_{dc}/m_{dr}_{dc}_{mr}_{mc}"),
+                        format!(
+                            "build_matrix/dir_{}_{}/m_{}_{}_{}_{}",
+                            dr, dc, dr, dc, mr, mc
+                        ),
                         Some("".to_string()),
                     );
                 }

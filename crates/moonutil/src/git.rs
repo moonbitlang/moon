@@ -139,7 +139,7 @@ fn test_bad_git_command() {
     let child = fake_git_command(&["pull"], Stdios::inherit());
     let e = child.unwrap_err();
     let err = anyhow::anyhow!(e);
-    let err_msg = format!("{err:?}");
+    let err_msg = format!("{:?}", err);
     assert!(err_msg.contains("git command failed: `git pull`"));
     assert!(err_msg.contains("Caused by:"));
 }

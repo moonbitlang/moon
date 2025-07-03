@@ -130,7 +130,7 @@ fn print_char(
             }
         };
         let c = std::char::from_u32(c).unwrap();
-        print!("{c}");
+        print!("{}", c);
     }
     ret.set_undefined()
 }
@@ -143,7 +143,7 @@ fn console_elog(
     let arg = args.get(0);
     let arg = arg.to_string(scope).unwrap();
     let arg = arg.to_rust_string_lossy(scope);
-    eprintln!("{arg}");
+    eprintln!("{}", arg);
 }
 
 fn console_log(
@@ -154,7 +154,7 @@ fn console_log(
     let arg = args.get(0);
     let arg = arg.to_string(scope).unwrap();
     let arg = arg.to_rust_string_lossy(scope);
-    println!("{arg}");
+    println!("{}", arg);
 }
 
 pub fn get_array_buffer_ptr(ab: v8::Local<v8::ArrayBuffer>) -> *mut u8 {
@@ -263,8 +263,8 @@ fn write_char(
     let c = args.get(1).integer_value(scope).unwrap() as u32;
     let c = std::char::from_u32(c).unwrap();
     match fd {
-        1 => print!("{c}"),
-        2 => eprint!("{c}"),
+        1 => print!("{}", c),
+        2 => eprint!("{}", c),
         _ => {}
     }
 }
@@ -452,7 +452,7 @@ fn init_env(
 }
 
 fn create_script_origin<'s>(scope: &mut v8::HandleScope<'s>, name: &str) -> v8::ScriptOrigin<'s> {
-    let name = format!("{BUILTIN_SCRIPT_ORIGIN_PREFIX}{name}");
+    let name = format!("{}{}", BUILTIN_SCRIPT_ORIGIN_PREFIX, name);
     let name = v8::String::new(scope, &name).unwrap();
     v8::ScriptOrigin::new(
         scope,
@@ -485,8 +485,10 @@ fn wasm_mode(
     let context = v8::Context::new(scope, Default::default());
     let scope = &mut v8::ContextScope::new(scope, context);
 
-    let mut script =
-        format!(r#"const BUILTIN_SCRIPT_ORIGIN_PREFIX = "{BUILTIN_SCRIPT_ORIGIN_PREFIX}";"#);
+    let mut script = format!(
+        r#"const BUILTIN_SCRIPT_ORIGIN_PREFIX = "{}";"#,
+        BUILTIN_SCRIPT_ORIGIN_PREFIX
+    );
 
     let global_proxy = scope.get_current_context().global(scope);
     let wasm_file_name = match &source {
@@ -529,9 +531,9 @@ fn wasm_mode(
             }
         }
         script.push_str(&format!("const packageName = {:?};", test_args.package));
-        script.push_str(&format!("const testParams = {test_params:?};"));
+        script.push_str(&format!("const testParams = {:?};", test_params));
     }
-    script.push_str(&format!("const no_stack_trace = {no_stack_trace};"));
+    script.push_str(&format!("const no_stack_trace = {};", no_stack_trace));
     script.push_str(&format!("const test_mode = {};", test_args.is_some()));
     let js_glue = include_str!(concat!(
         env!("CARGO_MANIFEST_DIR"),
@@ -639,7 +641,7 @@ fn main() -> anyhow::Result<()> {
         }
 
         if let Some(stack_size) = matches.stack_size {
-            set_flags_from_string(&format!("--stack-size={stack_size}"));
+            set_flags_from_string(&format!("--stack-size={}", stack_size));
         }
 
         match file.extension().unwrap().to_str() {

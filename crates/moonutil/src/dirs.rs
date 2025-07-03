@@ -120,7 +120,7 @@ pub fn mk_arch_mode_dir(
     };
     if !arch_mode_dir.exists() {
         std::fs::create_dir_all(&arch_mode_dir)
-            .context(format!("failed to create directory {arch_mode_dir:?}"))?;
+            .context(format!("failed to create directory {:?}", arch_mode_dir))?;
     }
 
     let arch_mode_dir = arch_mode_dir.join(mode.to_dir_name());

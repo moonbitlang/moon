@@ -28,7 +28,7 @@ use moonutil::common::{lower_surface_targets, CheckOpt};
 use moonutil::common::{parse_front_matter_config, WATCH_MODE_DIR};
 use moonutil::common::{FileLock, TargetBackend};
 use moonutil::common::{MoonbuildOpt, PrePostBuild};
-use moonutil::common::{MooncOpt, OutputFormat, RunMode};
+use moonutil::common::{MooncOpt, OutputFormat, RunMode, DOT_MBT_DOT_MD};
 use moonutil::dirs::mk_arch_mode_dir;
 use moonutil::mooncakes::sync::AutoSyncFlags;
 use moonutil::mooncakes::RegistryConfig;
@@ -113,7 +113,7 @@ pub fn run_check(cli: &UniversalFlags, cmd: &CheckSubcommand) -> anyhow::Result<
             let mut cmd = (*cmd).clone();
             cmd.build_flags.target_backend = Some(t);
             let x = run_check_internal(cli, &cmd, &source_dir, &target_dir)
-                .context(format!("failed to run check for target {t:?}"))?;
+                .context(format!("failed to run check for target {:?}", t))?;
             ret_value = ret_value.max(x);
         }
     } else {
@@ -139,7 +139,7 @@ pub fn run_check(cli: &UniversalFlags, cmd: &CheckSubcommand) -> anyhow::Result<
             let x = handle
                 .join()
                 .unwrap()
-                .context(format!("failed to run check for target {backend:?}"))?;
+                .context(format!("failed to run check for target {:?}", backend))?;
             ret_value = ret_value.max(x);
         }
     }
@@ -161,6 +161,7 @@ fn run_check_internal(
 
 fn run_check_for_single_file(cli: &UniversalFlags, cmd: &CheckSubcommand) -> anyhow::Result<i32> {
     let single_file_path = &dunce::canonicalize(cmd.single_file.as_ref().unwrap()).unwrap();
+    let single_file_string = single_file_path.display().to_string();
     let source_dir = single_file_path.parent().unwrap().to_path_buf();
     let raw_target_dir = source_dir.join("target");
 

@@ -225,7 +225,10 @@ fn run_build_script_for_module(
         .stderr(Stdio::inherit())
         .spawn()
         .with_context(|| {
-            format!("failed to spawn prebuild script `{prebuild}` for module `{module}`")
+            format!(
+                "failed to spawn prebuild script `{}` for module `{}`",
+                prebuild, module
+            )
         })?;
     let stdin = cmd.stdin.take().expect("Didn't get stdin");
     let join = std::thread::spawn(move || {
@@ -234,7 +237,10 @@ fn run_build_script_for_module(
         let _ = stdin.write_all(input.as_bytes());
     });
     let output = cmd.wait_with_output().with_context(|| {
-        format!("failed to run prebuild script `{prebuild}` for module `{module}`")
+        format!(
+            "failed to run prebuild script `{}` for module `{}`",
+            prebuild, module
+        )
     })?;
     join.join().map_err(|_| {
         anyhow::anyhow!(
@@ -252,7 +258,10 @@ fn run_build_script_for_module(
     }
     let output =
         serde_json::from_slice::<BuildScriptOutput>(&output.stdout).with_context(|| {
-            format!("failed to deserialize prebuild script `{prebuild}` for module `{module}`")
+            format!(
+                "failed to deserialize prebuild script `{}` for module `{}`",
+                prebuild, module
+            )
         })?;
 
     Ok(output)

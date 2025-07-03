@@ -104,7 +104,7 @@ fn run_single_mbt_file(cli: &UniversalFlags, cmd: RunSubcommand) -> anyhow::Resu
     let output_artifact_path = mbt_file_parent_path.join("target");
 
     let output_core_path = &(output_artifact_path
-        .join(format!("{file_name}.core"))
+        .join(format!("{}.core", file_name))
         .display()
         .to_string());
 
@@ -137,7 +137,7 @@ fn run_single_mbt_file(cli: &UniversalFlags, cmd: RunSubcommand) -> anyhow::Resu
         moonutil::moon_dir::core_core(target_backend)[0].clone(),
         moonutil::moon_dir::core_core(target_backend)[1].clone(),
         output_artifact_path
-            .join(format!("{file_name}.core"))
+            .join(format!("{}.core", file_name))
             .display()
             .to_string(),
         "-o".to_string(),

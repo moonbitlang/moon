@@ -241,7 +241,7 @@ fn scan_module_packages(
             if let Some(sub_package) = cur_pkg.with_sub_package.as_ref() {
                 let mut components = cur_pkg.rel.clone().components;
                 if let Some(last) = components.last_mut() {
-                    *last = format!("{last}{SUB_PKG_POSTFIX}");
+                    *last = format!("{}{}", last, SUB_PKG_POSTFIX);
                 }
                 let rel = PathComponent { components };
 
@@ -329,7 +329,7 @@ fn scan_one_package(
                         })?;
                     let alias = Path::new(&path)
                         .file_stem()
-                        .context(format!("failed to get alias of `{path}`"))?
+                        .context(format!("failed to get alias of `{}`", path))?
                         .to_str()
                         .unwrap()
                         .to_string();

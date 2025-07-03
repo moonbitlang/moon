@@ -171,7 +171,7 @@ pub fn gen_build_build_item(
             );
         }
         if dep.sub_package {
-            full_import_name = format!("{full_import_name}{SUB_PKG_POSTFIX}");
+            full_import_name = format!("{}{}", full_import_name, SUB_PKG_POSTFIX);
         }
         let cur_pkg = m.get_package_by_name(&full_import_name);
         let d = cur_pkg.artifact.with_extension("mi");
@@ -650,7 +650,7 @@ pub fn gen_link_command(
         .args_with_prefix_separator(
             item.package_sources
                 .iter()
-                .map(|(pkg, src)| format!("{pkg}:{src}")),
+                .map(|(pkg, src)| format!("{}:{}", pkg, src)),
             "-pkg-sources",
         )
         .args_with_cond(
@@ -769,7 +769,7 @@ pub fn gen_compile_runtime_command(
         order_only: 0,
     };
 
-    let artifact_output_path = target_dir.join(format!("runtime.{O_EXT}"));
+    let artifact_output_path = target_dir.join(format!("runtime.{}", O_EXT));
 
     let artifact_id = graph
         .files
@@ -1010,7 +1010,7 @@ pub fn gen_archive_stub_to_static_lib_command(
 
     let pkgname = out.file_stem().unwrap().to_str().unwrap().to_string();
     let artifact_output_path = out
-        .with_file_name(format!("lib{pkgname}.{A_EXT}"))
+        .with_file_name(format!("lib{}.{}", pkgname, A_EXT))
         .display()
         .to_string();
     let artifact_id = graph.files.id_from_canonical(artifact_output_path.clone());
@@ -1061,7 +1061,7 @@ pub fn gen_archive_stub_to_static_lib_command(
 
     let command = CommandBuilder::from_iter(cc_cmd).build();
     build.cmdline = Some(command);
-    build.desc = Some(format!("archive-stub: {artifact_output_path}"));
+    build.desc = Some(format!("archive-stub: {}", artifact_output_path));
 
     (build, artifact_id)
 }
@@ -1094,7 +1094,7 @@ pub fn gen_link_stub_to_dynamic_lib_command(
     let pkgname = out.file_stem().unwrap().to_str().unwrap().to_string();
     let target_dir = out.parent().unwrap();
     let artifact_output_path = out
-        .with_file_name(format!("lib{pkgname}.{DYN_EXT}"))
+        .with_file_name(format!("lib{}.{}", pkgname, DYN_EXT))
         .display()
         .to_string();
     let artifact_id = graph.files.id_from_canonical(artifact_output_path.clone());
@@ -1168,7 +1168,7 @@ pub fn gen_link_stub_to_dynamic_lib_command(
 
     let command = CommandBuilder::from_iter(cc_cmd).build();
     build.cmdline = Some(command);
-    build.desc = Some(format!("link-stub: {artifact_output_path}"));
+    build.desc = Some(format!("link-stub: {}", artifact_output_path));
 
     (build, artifact_id)
 }
@@ -1511,7 +1511,7 @@ pub fn gen_n2_build_state(
                     .replace("$artifact_output_path", &artifact_output_path);
 
                 std::fs::write(&bin_script_path, bin_script_content).with_context(|| {
-                    format!("Failed to write bin script to {bin_script_path:?}")
+                    format!("Failed to write bin script to {:?}", bin_script_path)
                 })?;
                 #[cfg(unix)]
                 {
@@ -1520,7 +1520,7 @@ pub fn gen_n2_build_state(
                         std::os::unix::fs::PermissionsExt::from_mode(0o755),
                     )
                     .with_context(|| {
-                        format!("Failed to set permissions for {bin_script_path:?}")
+                        format!("Failed to set permissions for {:?}", bin_script_path)
                     })?;
                 }
             }

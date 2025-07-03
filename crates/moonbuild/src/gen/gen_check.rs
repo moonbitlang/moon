@@ -109,7 +109,7 @@ fn pkg_to_check_item(
             );
         }
         if dep.sub_package {
-            full_import_name = format!("{full_import_name}{SUB_PKG_POSTFIX}");
+            full_import_name = format!("{}{}", full_import_name, SUB_PKG_POSTFIX);
         }
         let cur_pkg = &packages[&full_import_name];
         let d = cur_pkg.artifact.with_extension("mi");
@@ -213,7 +213,7 @@ fn pkg_with_wbtest_to_check_item(
             );
         }
         if dep.sub_package {
-            full_import_name = format!("{full_import_name}{SUB_PKG_POSTFIX}");
+            full_import_name = format!("{}{}", full_import_name, SUB_PKG_POSTFIX);
         }
         let cur_pkg = &packages[&full_import_name];
         let d = cur_pkg.artifact.with_extension("mi");
@@ -350,7 +350,7 @@ fn pkg_with_test_to_check_item(
             );
         }
         if dep.sub_package {
-            full_import_name = format!("{full_import_name}{SUB_PKG_POSTFIX}");
+            full_import_name = format!("{}{}", full_import_name, SUB_PKG_POSTFIX);
         }
         let cur_pkg = &packages[&full_import_name];
         let d = cur_pkg.artifact.with_extension("mi");

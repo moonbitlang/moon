@@ -76,7 +76,7 @@ pub fn run_format_and_diff(cmd: FormatAndDiffSubcommand) -> anyhow::Result<i32> 
     let mut bufread = std::io::BufReader::new(child_stdout);
     while let Ok(n) = bufread.read_line(&mut buf) {
         if n > 0 {
-            print!("{buf}");
+            print!("{}", buf);
             buf.clear()
         } else {
             break;

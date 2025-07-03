@@ -109,7 +109,7 @@ pub fn run_info(cli: UniversalFlags, cmd: InfoSubcommand) -> anyhow::Result<i32>
         let mut x = handle
             .join()
             .unwrap()
-            .context(format!("failed to run moon info for target {backend:?}"))?;
+            .context(format!("failed to run moon info for target {:?}", backend))?;
         x.sort_by(|a, b| a.0.cmp(&b.0));
         mbti_files_for_targets.push((backend, x));
     }

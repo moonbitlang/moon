@@ -60,7 +60,7 @@ pub fn write_pkg_lst(module: &ModuleDB, target_dir: &Path) -> anyhow::Result<()>
     let pkg_json = if mbt_md_file_name.is_empty() {
         target_dir.join("packages.json")
     } else {
-        target_dir.join(format!("{mbt_md_file_name}.packages.json"))
+        target_dir.join(format!("{}.packages.json", mbt_md_file_name))
     };
     // packages.json now placed in target/, should be protected for mutil-thread write
     let _lock = FileLock::lock(target_dir)?;

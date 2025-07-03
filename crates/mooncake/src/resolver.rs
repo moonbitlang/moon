@@ -59,7 +59,7 @@ pub struct ResolverErrors(pub Vec<ResolverError>);
 impl std::fmt::Display for ResolverErrors {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         for error in &self.0 {
-            writeln!(f, "{error}")?;
+            writeln!(f, "{}", error)?;
         }
         Ok(())
     }

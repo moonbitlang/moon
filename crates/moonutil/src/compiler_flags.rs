@@ -209,7 +209,7 @@ pub static ENV_CC: std::sync::LazyLock<Option<CC>> = std::sync::LazyLock::new(||
     match (env_cc, env_ar) {
         (Ok(cc), Ok(ar)) => {
             let cc = CC::try_from_path_with_ar(&cc, &ar)
-                .context(format!("failed to parse cc from env {ENV_MOON_CC}"))
+                .context(format!("failed to parse cc from env {}", ENV_MOON_CC))
                 .unwrap();
             Some(CC {
                 is_env_override: true,
@@ -218,7 +218,7 @@ pub static ENV_CC: std::sync::LazyLock<Option<CC>> = std::sync::LazyLock::new(||
         }
         (Ok(cc), _) => {
             let cc = CC::try_from_path(&cc)
-                .context(format!("failed to parse cc from env {ENV_MOON_CC}"))
+                .context(format!("failed to parse cc from env {}", ENV_MOON_CC))
                 .unwrap();
             Some(CC {
                 is_env_override: true,
@@ -337,7 +337,7 @@ where
 
     if cc.is_msvc() {
         buf.push("/nologo".to_string());
-        buf.push(format!("/Out:{dest}"));
+        buf.push(format!("/Out:{}", dest));
     } else if cc.is_tcc() {
         // tcc don't have separate ar command
         // just use tcc -ar
@@ -401,7 +401,7 @@ where
         match config.output_ty {
             OutputType::SharedLib | OutputType::Executable => {
                 // /F(executable)
-                buf.push(format!("/Fe{dest}"));
+                buf.push(format!("/Fe{}", dest));
             }
             _ => panic!("Linker only supports shared lib, executable and static lib"),
         }
@@ -412,7 +412,7 @@ where
 
     // Library paths
     if cc.is_gcc_like() {
-        buf.push(format!("-L{lpath}"));
+        buf.push(format!("-L{}", lpath));
         if let Some(dyn_lib_path) = config.link_shared_runtime.as_ref() {
             buf.push(format!("-L{}", dyn_lib_path.as_ref().display()));
         }
@@ -422,7 +422,7 @@ where
     // Explicitly set the output directory of these files
     if cc.is_msvc() {
         // /F(object)
-        buf.push(format!("/Fo{dest_dir}\\"));
+        buf.push(format!("/Fo{}\\", dest_dir));
     }
 
     // Build shared library
@@ -481,7 +481,7 @@ where
             );
         }
         buf.push("/link".to_string());
-        buf.push(format!("/LIBPATH:{lpath}"));
+        buf.push(format!("/LIBPATH:{}", lpath));
     }
 
     buf.extend(user_link_flags.iter().map(|s| s.as_ref().to_string()));
@@ -515,10 +515,10 @@ where
     if cc.is_msvc() {
         match config.output_ty {
             OutputType::Object => {
-                buf.push(format!("/Fo{dest}"));
+                buf.push(format!("/Fo{}", dest));
             }
             OutputType::SharedLib | OutputType::Executable => {
-                buf.push(format!("/Fe{dest}"));
+                buf.push(format!("/Fe{}", dest));
             }
         }
     } else if cc.is_gcc_like() {
@@ -528,16 +528,16 @@ where
 
     // Include and lib paths
     if cc.is_msvc() {
-        buf.push(format!("/I{ipath}"));
+        buf.push(format!("/I{}", ipath));
     } else if cc.is_gcc_like() {
-        buf.push(format!("-I{ipath}"));
-        buf.push(format!("-L{lpath}"));
+        buf.push(format!("-I{}", ipath));
+        buf.push(format!("-L{}", lpath));
     };
 
     // MSVC may throw intermediate files into current directory
     // Explicitly set the output directory of these files
     if cc.is_msvc() && config.output_ty != OutputType::Object {
-        buf.push(format!("/Fo{dest_dir}\\"));
+        buf.push(format!("/Fo{}\\", dest_dir));
     }
 
     // Generate debug info
@@ -664,7 +664,7 @@ where
     // MSVC specific linker flags
     if cc.is_msvc() && config.output_ty != OutputType::Object {
         buf.push("/link".to_string());
-        buf.push(format!("/LIBPATH:{lpath}"));
+        buf.push(format!("/LIBPATH:{}", lpath));
     }
 
     buf

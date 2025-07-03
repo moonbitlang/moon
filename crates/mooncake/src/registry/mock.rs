@@ -46,7 +46,7 @@ impl MockRegistry {
             let deps: Vec<(String, String)> = dep_item
                 .iter()
                 .skip(1)
-                .map(|(name, v)| (format!("t/{name}"), format!("0.1.{v}")))
+                .map(|(name, v)| (format!("t/{}", name), format!("0.1.{}", v)))
                 .collect();
 
             for (name, version) in &deps {
@@ -56,8 +56,8 @@ impl MockRegistry {
             }
 
             self.add_module_full(
-                &format!("t/{name}"),
-                &format!("0.1.{v}"),
+                &format!("t/{}", name),
+                &format!("0.1.{}", v),
                 deps.iter().map(|x| (x.0.as_str(), x.1.as_str())),
             );
         }
