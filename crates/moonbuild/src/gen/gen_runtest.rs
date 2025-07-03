@@ -94,8 +94,8 @@ pub struct RuntestDriverItem {
     pub driver_file: PathBuf,
     pub info_file: PathBuf,
     pub files_may_contain_test_block: Vec<String>,
-    pub doctest_only_files: Vec<String>,
     pub patch_file: Option<PathBuf>,
+    pub single_test_file: Option<PathBuf>,
 }
 
 #[derive(Debug)]
@@ -196,20 +196,6 @@ pub fn gen_package_test_driver(
         files_that_may_contain_test_block
             .extend(pkg.mbt_md_files.keys().map(|x| x.display().to_string()));
     }
-    let doctest_only_files = match driver_kind {
-        DriverKind::Blackbox => pkg
-            .files
-            .iter()
-            .filter(|(_, v)| {
-                v.eval(
-                    OptLevel::from_debug_flag(moonc_opt.build_opt.debug_flag),
-                    moonc_opt.build_opt.target_backend,
-                )
-            })
-            .map(|(f, _)| f.display().to_string())
-            .collect(),
-        DriverKind::Internal | DriverKind::Whitebox => vec![],
-    };
 
     let test_info = target_dir
         .join(pkg.rel.fs_full_name())
@@ -224,10 +210,10 @@ pub fn gen_package_test_driver(
         package_name,
         driver_file,
         info_file: test_info,
-        doctest_only_files,
         files_may_contain_test_block: files_that_may_contain_test_block,
         driver_kind,
         patch_file: pkg.patch_file.clone(),
+        single_test_file: None,
     })
 }
 
@@ -1209,7 +1195,6 @@ pub fn gen_runtest_build_command(
         .args(moonc_opt.extra_build_opt.iter())
         .arg_with_cond(item.is_whitebox_test, "-whitebox-test")
         .arg_with_cond(item.is_blackbox_test, "-blackbox-test")
-        .arg_with_cond(item.is_blackbox_test, "-include-doctests")
         .arg_with_cond(item.no_mi, "-no-mi")
         .lazy_args_with_cond(item.patch_file.is_some(), || {
             vec![
@@ -1567,11 +1552,6 @@ fn gen_generate_test_driver_command(
     .arg(&item.info_file.display().to_string())
     // Input files
     .args(&item.files_may_contain_test_block)
-    .args(
-        item.doctest_only_files
-            .iter()
-            .flat_map(|x| ["--doctest-only", x]),
-    )
     // Patch file
     .lazy_args_with_cond(patch_file.is_some(), || {
         vec![

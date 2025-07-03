@@ -22,7 +22,6 @@ use moonutil::common::{
     DriverKind, MooncGenTestInfo, TargetBackend, MOONBITLANG_CORE, MOON_TEST_DELIMITER_BEGIN,
     MOON_TEST_DELIMITER_END,
 };
-use std::ffi::OsStr;
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 
@@ -32,10 +31,6 @@ use std::path::{Path, PathBuf};
 pub struct GenerateTestDriverSubcommand {
     /// The paths of the source files to be mapped
     files: Vec<PathBuf>,
-
-    /// Files that need to be mapped, but only extract the doctests, not main contents
-    #[clap(long = "doctest-only")]
-    doctest_only_files: Vec<PathBuf>,
 
     /// The output test driver `.mbt` file
     #[clap(long)]
@@ -78,8 +73,6 @@ pub struct GenerateTestDriverSubcommand {
 
 fn moonc_gen_test_info(
     files: &[PathBuf],
-    doctest_only_files: &[PathBuf],
-    driver_kind: DriverKind,
     output_path: &Path,
     patch_file: Option<PathBuf>,
 ) -> anyhow::Result<String> {
@@ -88,21 +81,11 @@ fn moonc_gen_test_info(
     } else {
         vec![]
     };
-    let include_doctests = match driver_kind {
-        DriverKind::Blackbox => Some("-include-doctests"),
-        _ => None,
-    };
     let mut generated = std::process::Command::new("moonc")
         .arg("gen-test-info")
         .arg("-json")
         .args(files)
-        .args(
-            doctest_only_files
-                .iter()
-                .flat_map(|x| [OsStr::new("-doctest-only"), x.as_os_str()]),
-        )
         .args(patch_args)
-        .args(include_doctests)
         .stdout(std::process::Stdio::piped())
         .spawn()
         .with_context(|| gen_error_message(files))?;
@@ -169,13 +152,8 @@ pub fn generate_test_driver(
         .map(std::fs::create_dir_all)
         .transpose()?;
 
-    let mbts_test_data = moonc_gen_test_info(
-        &cmd.files,
-        &cmd.doctest_only_files,
-        cmd.driver_kind,
-        &cmd.output_metadata,
-        cmd.patch_file.clone(),
-    )?;
+    let mbts_test_data =
+        moonc_gen_test_info(&cmd.files, &cmd.output_metadata, cmd.patch_file.clone())?;
 
     let generated_content = generate_driver(
         &mbts_test_data,
