@@ -5,15 +5,14 @@
 ///   inspect("update in doc test")
 /// ```
 pub fn hello() -> String {
-  S::{} |> ignore
- "Hello, world!"
+  "Hello, world!"
 }
 
 /// ```mbt
 ///   println("doc test 2")
 /// ```
 ///
-priv struct S {}
+
 
 test {
   println("internal test 1")
