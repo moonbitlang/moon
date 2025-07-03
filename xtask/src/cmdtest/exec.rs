@@ -26,7 +26,7 @@ use std::{
 pub struct ExecResult {
     stdout: String,
     stderr: String,
-    exit_code: u8,
+    exit_code: i32,
 }
 
 fn moon_bin() -> PathBuf {
@@ -134,7 +134,7 @@ where
                 return ExecResult {
                     stdout: String::new(),
                     stderr: err.to_string(),
-                    exit_code: err.raw_os_error().map_or(255, |x| x as u8),
+                    exit_code: err.raw_os_error().unwrap_or(-1),
                 }
             }
         };
@@ -159,7 +159,7 @@ where
         ExecResult {
             stdout,
             stderr,
-            exit_code: exit_status.code().map_or(255, |x| x as u8),
+            exit_code: exit_status.code().unwrap_or(-1),
         }
     }
 }
