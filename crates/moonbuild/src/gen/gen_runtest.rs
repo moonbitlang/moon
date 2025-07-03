@@ -1383,10 +1383,6 @@ pub fn gen_n2_runtest_state(
 
     log::debug!("input: {:#?}", input);
 
-    if input.link_items.is_empty() {
-        anyhow::bail!("Cannot find tests to run. Please check if you have supplied the correct package name for testing.");
-    }
-
     for item in input.build_items.iter() {
         let build = gen_runtest_build_command(&mut graph, item, moonc_opt, false);
         graph.add_build(build)?;
@@ -1498,10 +1494,8 @@ pub fn gen_n2_runtest_state(
     }
 
     if default.is_empty() {
-        anyhow::bail!(
-            "No default build found. This should be already handled \
-            by previous checks, might be a build system bug."
-        );
+        eprintln!("{}: no test entry found.", "Warning".yellow().bold());
+        std::process::exit(0);
     }
 
     let mut hashes = n2graph::Hashes::default();
