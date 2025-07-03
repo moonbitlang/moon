@@ -39,10 +39,6 @@ use n2::smallmap::SmallMap;
 pub struct CheckDepItem {
     pub mi_out: String,
     pub mbt_deps: Vec<String>,
-    /// MoonBit source files that only need doc testing
-    pub doctest_only_mbt_deps: Vec<String>,
-    /// `mbt.md` files
-    pub mbt_md_deps: Vec<String>,
     pub mi_deps: Vec<MiAlias>,
     pub package_full_name: String,
     pub package_source_dir: String,
@@ -149,8 +145,6 @@ fn pkg_to_check_item(
         mi_out: out.display().to_string(),
         mbt_deps,
         mi_deps,
-        doctest_only_mbt_deps: vec![],
-        mbt_md_deps: vec![],
         package_full_name,
         package_source_dir,
         warn_list: pkg.warn_list.clone(),
@@ -235,8 +229,6 @@ fn pkg_with_wbtest_to_check_item(
         mi_out: out.display().to_string(),
         mbt_deps,
         mi_deps,
-        doctest_only_mbt_deps: vec![],
-        mbt_md_deps: vec![],
         package_full_name,
         package_source_dir,
         warn_list: pkg.warn_list.clone(),
@@ -291,17 +283,6 @@ fn pkg_with_test_to_check_item(
         .artifact
         .with_file_name(format!("{}.blackbox_test.mi", pkg.last_name()));
 
-    // FIXME: This part is exactly the same as `gen_runtest::gen_package_blackbox_test`.
-    let mbt_files_filtered = moonutil::common::backend_filter(
-        &pkg.files,
-        moonc_opt.build_opt.debug_flag,
-        moonc_opt.build_opt.target_backend,
-    );
-    let doctest_only_mbt_deps = mbt_files_filtered
-        .iter()
-        .map(|f| f.display().to_string())
-        .collect();
-
     let backend_filtered = moonutil::common::backend_filter(
         &pkg.test_files,
         moonc_opt.build_opt.debug_flag,
@@ -311,12 +292,6 @@ fn pkg_with_test_to_check_item(
         .iter()
         .map(|f| f.display().to_string())
         .collect::<Vec<_>>();
-
-    let mbt_md_deps = pkg
-        .mbt_md_files
-        .keys()
-        .map(|f| f.display().to_string())
-        .collect();
 
     let mut mi_deps = vec![];
 
@@ -370,8 +345,6 @@ fn pkg_with_test_to_check_item(
         mi_out: out.display().to_string(),
         mbt_deps,
         mi_deps,
-        doctest_only_mbt_deps,
-        mbt_md_deps,
         package_full_name,
         package_source_dir,
         warn_list: pkg.warn_list.clone(),
@@ -533,12 +506,6 @@ pub fn gen_check_command(
             ],
         )
         .args(&item.mbt_deps)
-        .args(&item.mbt_md_deps)
-        .args(
-            item.doctest_only_mbt_deps
-                .iter()
-                .flat_map(|v| ["-doctest-only", v]),
-        )
         .lazy_args_with_cond(item.warn_list.is_some(), || {
             vec!["-w".to_string(), item.warn_list.clone().unwrap()]
         })
