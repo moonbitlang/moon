@@ -22,6 +22,7 @@ use super::n2_errors::{N2Error, N2ErrorKind};
 use super::util::self_in_test_import;
 use crate::gen::MiAlias;
 use anyhow::bail;
+use colored::Colorize;
 use indexmap::map::IndexMap;
 use moonutil::module::ModuleDB;
 use moonutil::package::Package;
@@ -259,14 +260,7 @@ fn pkg_with_wbtest_to_check_item(
     })
 }
 
-fn pkg_with_test_to_check_item(
-    source_dir: &Path,
-    packages: &IndexMap<String, Package>,
-    pkg: &Package,
-    moonc_opt: &MooncOpt,
-) -> anyhow::Result<CheckDepItem> {
-    let self_in_test_import = self_in_test_import(pkg);
-
+pub(super) fn warn_about_alias_duplication(self_in_test_import: bool, pkg: &Package) {
     if !self_in_test_import {
         if let Some(violating) = pkg
             .test_imports
@@ -279,17 +273,32 @@ fn pkg_with_test_to_check_item(
                     .is_some_and(|alias| alias.eq(pkg.last_name()))
             })
         {
-            bail!(
-                "Duplicate alias `{}` at \"{}\". \
-                \"test-import\" will automatically add \"import\" and current pkg as dependency so you don't need to add it manually. \
-                If you're test-importing a dependency with the same default alias as your current package, considering give it a different alias. \
+            eprintln!(
+                "{}: Duplicate alias `{}` at \"{}\". \
+                \"test-import\" will automatically add \"import\" and current \
+                package as dependency so you don't need to add it manually. \
+                If you're test-importing a dependency with the same default \
+                alias as your current package, considering give it a different \
+                alias than the current package. \
                 Violating import: `{}`",
+                "Warning".yellow(),
                 pkg.last_name(),
                 pkg.root_path.join(MOON_PKG_JSON).display(),
                 violating.path.make_full_path()
             );
         }
     }
+}
+
+fn pkg_with_test_to_check_item(
+    source_dir: &Path,
+    packages: &IndexMap<String, Package>,
+    pkg: &Package,
+    moonc_opt: &MooncOpt,
+) -> anyhow::Result<CheckDepItem> {
+    let self_in_test_import = self_in_test_import(pkg);
+
+    warn_about_alias_duplication(self_in_test_import, pkg);
 
     let out = pkg
         .artifact

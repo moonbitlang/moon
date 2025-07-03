@@ -52,6 +52,7 @@ use crate::gen::gen_build::{
     gen_compile_shared_runtime_command, gen_compile_stub_command, gen_link_exe_command,
     gen_link_stub_to_dynamic_lib_command,
 };
+use crate::gen::gen_check::warn_about_alias_duplication;
 use crate::gen::n2_errors::{N2Error, N2ErrorKind};
 use crate::gen::{coverage_args, MiAlias, SKIP_TEST_LIBS};
 
@@ -514,29 +515,7 @@ pub fn gen_package_blackbox_test(
 ) -> anyhow::Result<RuntestDepItem> {
     let self_in_test_import = self_in_test_import(pkg);
 
-    if !self_in_test_import {
-        if let Some(violating) = pkg
-            .test_imports
-            .iter()
-            .chain(pkg.imports.iter())
-            .find(|import| {
-                import
-                    .alias
-                    .as_ref()
-                    .is_some_and(|alias| alias.eq(pkg.last_name()))
-            })
-        {
-            bail!(
-                "Duplicate alias `{}` at \"{}\". \
-                \"test-import\" will automatically add \"import\" and current pkg as dependency so you don't need to add it manually. \
-                If you're test-importing a dependency with the same default alias as your current package, considering give it a different alias. \
-                Violating import: `{}`",
-                pkg.last_name(),
-                pkg.root_path.join(MOON_PKG_JSON).display(),
-                violating.path.make_full_path()
-            );
-        }
-    }
+    warn_about_alias_duplication(self_in_test_import, pkg);
 
     let pkgname = pkg.artifact.file_stem().unwrap().to_str().unwrap();
     let core_out = pkg
@@ -601,6 +580,7 @@ pub fn gen_package_blackbox_test(
             });
         }
     }
+    let self_alias = pkg.last_name();
 
     let imports_and_test_imports = get_imports(pkg, true);
 
@@ -622,6 +602,17 @@ pub fn gen_package_blackbox_test(
         let cur_pkg = m.get_package_by_name(&full_import_name);
         let d = cur_pkg.artifact.with_extension("mi");
         let alias = dep.alias.clone().unwrap_or(cur_pkg.last_name().into());
+        let alias = if alias == self_alias {
+            // This behavior is temporary -- remove the alias if it is the same
+            // as the current package name, since the current package must take
+            // precedence over the imported package in blackbox tests.
+            //
+            // To remove the alias, we insert the full name of the package
+            // instead of the alias, in the alias field.
+            full_import_name.clone()
+        } else {
+            alias
+        };
         mi_deps.push(MiAlias {
             name: d.display().to_string(),
             alias,
