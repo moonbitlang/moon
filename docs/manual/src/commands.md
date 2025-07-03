@@ -25,6 +25,7 @@ This document contains the help content for the `moon` command-line program.
 * [`moon package`↴](#moon-package)
 * [`moon update`↴](#moon-update)
 * [`moon coverage`↴](#moon-coverage)
+* [`moon coverage analyze`↴](#moon-coverage-analyze)
 * [`moon coverage report`↴](#moon-coverage-report)
 * [`moon coverage clean`↴](#moon-coverage-clean)
 * [`moon generate-build-matrix`↴](#moon-generate-build-matrix)
@@ -449,8 +450,58 @@ Code coverage utilities
 
 ###### **Subcommands:**
 
+* `analyze` — Run test with instrumentation and report coverage
 * `report` — Generate code coverage report
 * `clean` — Clean up coverage artifacts
+
+
+
+## `moon coverage analyze`
+
+Run test with instrumentation and report coverage
+
+**Usage:** `moon coverage analyze [OPTIONS] [SINGLE_FILE] [-- <EXTRA_FLAGS>...]`
+
+###### **Arguments:**
+
+* `<SINGLE_FILE>` — Run test in single file (.mbt or .mbt.md)
+* `<EXTRA_FLAGS>` — Extra flags passed directly to `moon_cove_report`
+
+###### **Options:**
+
+* `--std` — Enable the standard library (default)
+* `--nostd` — Disable the standard library
+* `-g`, `--debug` — Emit debug information
+* `--release` — Compile in release mode
+* `--strip` — Enable stripping debug information
+* `--no-strip` — Disable stripping debug information
+* `--target <TARGET>` — Select output target
+
+  Possible values: `wasm`, `wasm-gc`, `js`, `native`, `llvm`, `all`
+
+* `--serial` — Handle the selected targets sequentially
+* `--enable-coverage` — Enable coverage instrumentation
+* `--sort-input` — Sort input files
+* `--output-wat` — Output WAT instead of WASM
+* `-d`, `--deny-warn` — Treat all warnings as errors
+* `--no-render` — Don't render diagnostics from moonc (don't pass '-error-format json' to moonc)
+* `--warn-list <WARN_LIST>` — Warn list config
+* `--alert-list <ALERT_LIST>` — Alert list config
+* `-j`, `--jobs <JOBS>` — Set the max number of jobs to run in parallel
+* `-p`, `--package <PACKAGE>` — Run test in the specified package
+* `-f`, `--file <FILE>` — Run test in the specified file. Only valid when `--package` is also specified
+* `-i`, `--index <INDEX>` — Run only the index-th test in the file. Only valid when `--file` is also specified
+* `--doc-index <DOC_INDEX>` — Run only the index-th doc test in the file. Only valid when `--file` is also specified
+* `-u`, `--update` — Update the test snapshot
+* `-l`, `--limit <LIMIT>` — Limit of expect test update passes to run, in order to avoid infinite loops
+
+  Default value: `256`
+* `--frozen` — Do not sync dependencies, assuming local dependencies are up-to-date
+* `--build-only` — Only build, do not run the tests
+* `--no-parallelize` — Run the tests in a target backend sequentially
+* `--test-failure-json` — Print failure message in JSON format
+* `--patch-file <PATCH_FILE>` — Path to the patch file
+* `--doc` — Run doc test
 
 
 

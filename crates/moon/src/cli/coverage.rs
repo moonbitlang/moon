@@ -24,9 +24,9 @@ use anyhow::Context;
 use moonutil::dirs::PackageDirs;
 use walkdir::WalkDir;
 
-use super::UniversalFlags;
+use super::{run_test, TestSubcommand, UniversalFlags};
 
-#[derive(Debug, clap::Parser)]
+#[derive(Debug, clap::Parser, Default)]
 #[clap(
     allow_external_subcommands(true),
     disable_help_flag(true),
@@ -44,6 +44,8 @@ pub struct CoverageReportSubcommand {
 
 #[derive(Debug, clap::Parser)]
 pub enum CoverageSubcommands {
+    /// Run test with instrumentation and report coverage
+    Analyze(CoverageAnalyzeSubcommand),
     /// Generate code coverage report
     Report(CoverageReportSubcommand),
     /// Clean up coverage artifacts
@@ -57,12 +59,40 @@ pub struct CoverageSubcommand {
     pub cmd: CoverageSubcommands,
 }
 
+#[derive(Debug, clap::Parser)]
+pub struct CoverageAnalyzeSubcommand {
+    #[clap(flatten)]
+    pub test_flags: Box<TestSubcommand>,
+
+    /// Extra flags passed directly to `moon_cove_report`
+    #[arg(last = true, global = true, name = "EXTRA_FLAGS")]
+    extra_flags: Vec<String>,
+}
+
 pub fn run_coverage(cli: UniversalFlags, cmd: CoverageSubcommand) -> anyhow::Result<i32> {
     let res = match cmd.cmd {
+        CoverageSubcommands::Analyze(args) => run_coverage_analyze(cli, args),
         CoverageSubcommands::Report(args) => run_coverage_report(cli, args),
         CoverageSubcommands::Clean => run_coverage_clean(cli),
     };
     res.context("Unable to run coverage command")
+}
+
+fn run_coverage_analyze(
+    cli: UniversalFlags,
+    args: CoverageAnalyzeSubcommand,
+) -> anyhow::Result<i32> {
+    run_coverage_clean(cli.clone())?;
+
+    let mut test_flags = *args.test_flags;
+    test_flags.build_flags.enable_coverage = true;
+    run_test(cli.clone(), test_flags)?;
+    println!();
+
+    let mut report_flags = CoverageReportSubcommand::default();
+    report_flags.args.push("-f=caret".into());
+    report_flags.args.extend(args.extra_flags);
+    run_coverage_report(cli, report_flags)
 }
 
 fn run_coverage_clean(cli: UniversalFlags) -> Result<i32, anyhow::Error> {
