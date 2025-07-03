@@ -58,6 +58,8 @@ pub const TEST_INFO_FILE: &str = "test_info.json";
 pub const WHITEBOX_TEST_PATCH: &str = "_wbtest.json";
 pub const BLACKBOX_TEST_PATCH: &str = "_test.json";
 
+pub const MOON_INTERNAL_PATCH_JSON_FILE: &str = "__moonbit_internal_patch_test.json";
+
 pub const DOT_MBT_DOT_MD: &str = ".mbt.md";
 pub const DOT_MBL: &str = ".mbl";
 pub const DOT_MBY: &str = ".mby";

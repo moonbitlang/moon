@@ -231,7 +231,15 @@ fn run_test_in_single_file(cli: &UniversalFlags, cmd: &TestSubcommand) -> anyhow
             limit: 256,
             test_failure_json: false,
             display_backend_hint: None,
-            patch_file: None,
+            patch_file: if single_file_string.ends_with(DOT_MBT_DOT_MD) {
+                Some(
+                    target_dir
+                        .join("single")
+                        .join(moonutil::common::MOON_INTERNAL_PATCH_JSON_FILE),
+                )
+            } else {
+                None
+            },
         }),
         check_opt: None,
         build_opt: None,

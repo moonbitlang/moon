@@ -1103,6 +1103,25 @@ async fn handle_test_result(
                         eprintln!("{}: {:?}", "apply expect failed".red().bold(), e);
                     }
 
+                    // update patch test json
+                    {
+                        let pkg = module.get_package_by_name(&origin_err.package);
+                        let (doc_test_patch, md_test_patch) = (
+                            moonutil::doc_test::gen_doc_test_patch(pkg, moonc_opt)?,
+                            moonutil::doc_test::gen_md_test_patch(pkg, moonc_opt)?,
+                        );
+                        let merged_patch = moonutil::common::PatchJSON::merge_patches(
+                            doc_test_patch,
+                            md_test_patch,
+                        );
+                        if let Some(patch) = merged_patch {
+                            let pj_path = pkg
+                                .artifact
+                                .with_file_name(moonutil::common::MOON_INTERNAL_PATCH_JSON_FILE);
+                            patch.write_to_path(&pj_path)?;
+                        }
+                    }
+
                     // recompile after apply expect
                     {
                         let state =
@@ -1137,6 +1156,25 @@ async fn handle_test_result(
                         if let Err(e) = crate::expect::apply_expect(&[etf.message.clone()]) {
                             eprintln!("{}: {:?}", "failed".red().bold(), e);
                             break;
+                        }
+
+                        // update patch test json
+                        {
+                            let pkg = module.get_package_by_name(&origin_err.package);
+                            let (doc_test_patch, md_test_patch) = (
+                                moonutil::doc_test::gen_doc_test_patch(pkg, moonc_opt)?,
+                                moonutil::doc_test::gen_md_test_patch(pkg, moonc_opt)?,
+                            );
+                            let merged_patch = moonutil::common::PatchJSON::merge_patches(
+                                doc_test_patch,
+                                md_test_patch,
+                            );
+                            if let Some(patch) = merged_patch {
+                                let pj_path = pkg.artifact.with_file_name(
+                                    moonutil::common::MOON_INTERNAL_PATCH_JSON_FILE,
+                                );
+                                patch.write_to_path(&pj_path)?;
+                            }
                         }
 
                         // recompile after apply expect
