@@ -515,28 +515,24 @@ pub fn gen_package_blackbox_test(
 ) -> anyhow::Result<RuntestDepItem> {
     let self_in_test_import = self_in_test_import(pkg);
 
-    if !self_in_test_import {
-        if let Some(violating) = pkg
+    if !self_in_test_import
+        && pkg
             .test_imports
             .iter()
             .chain(pkg.imports.iter())
-            .find(|import| {
+            .any(|import| {
                 import
                     .alias
                     .as_ref()
                     .is_some_and(|alias| alias.eq(pkg.last_name()))
             })
-        {
-            bail!(
-                "Duplicate alias `{}` at \"{}\". \
-                \"test-import\" will automatically add \"import\" and current pkg as dependency so you don't need to add it manually. \
-                If you're test-importing a dependency with the same default alias as your current package, considering give it a different alias. \
-                Violating import: `{}`",
-                pkg.last_name(),
-                pkg.root_path.join(MOON_PKG_JSON).display(),
-                violating.path.make_full_path()
-            );
-        }
+    {
+        bail!(
+            "Duplicate alias `{}` at \"{}\". \
+            \"test-import\" will automatically add \"import\" and current pkg as dependency so you don't need to add it manually. \
+            If you're test-importing a dependency with the same default alias as your current package, considering give it a different alias.",
+            pkg.last_name(), pkg.root_path.join(MOON_PKG_JSON).display()
+        );
     }
 
     let pkgname = pkg.artifact.file_stem().unwrap().to_str().unwrap();
