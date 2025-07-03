@@ -448,7 +448,6 @@ pub fn gen_build_command(
     };
 
     let mut inputs = item.mbt_deps.clone();
-    inputs.extend_from_slice(&item.mbt_md_deps);
     inputs.extend(item.mi_deps.iter().map(|a| a.name.clone()));
     // add $pkgname.mi as input if need_build_virtual since it is used by --check-mi
     if need_build_default_virtual {
