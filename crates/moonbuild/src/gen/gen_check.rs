@@ -554,6 +554,7 @@ pub fn gen_check_command(
                 .iter()
                 .flat_map(|v| ["-doctest-only", v]),
         )
+        .arg_with_cond(item.is_blackbox_test, "-include-doctests")
         .lazy_args_with_cond(item.warn_list.is_some(), || {
             vec!["-w".to_string(), item.warn_list.clone().unwrap()]
         })
