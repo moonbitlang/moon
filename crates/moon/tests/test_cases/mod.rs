@@ -5414,7 +5414,7 @@ fn moon_check_and_test_single_file() {
                    │       ─────┬────  
                    │            ╰────── Warning: Unused variable 'single_mbt'
                 ───╯
-                Finished. moon: no work to do
+                Finished. moon: ran 1 task, now up to date
             "#]],
         );
     }
