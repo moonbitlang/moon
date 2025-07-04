@@ -35,7 +35,6 @@ env:
 
 jobs:
   bleeding-test:
-    needs: [typo-check, license-header-check]
     strategy:
       fail-fast: false
       matrix:
