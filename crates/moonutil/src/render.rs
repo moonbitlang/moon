@@ -19,7 +19,9 @@
 use std::path::{Path, PathBuf};
 
 use ariadne::Fmt;
+use libc::{fcntl, F_GETFL, O_NONBLOCK};
 use serde::{Deserialize, Serialize};
+use std::os::unix::io::AsRawFd;
 
 use crate::{
     common::{line_col_to_byte_idx, PatchJSON},
@@ -228,6 +230,32 @@ impl MooncDiagnostic {
         } else {
             report_builder = report_builder
                 .with_message(format!("[{}]", diagnostic.formatted_error_code()).fg(color));
+        }
+
+        #[cfg(unix)]
+        {
+            let stdout_fd = std::io::stdout().as_raw_fd();
+            let stderr_fd = std::io::stderr().as_raw_fd();
+
+            let stdout_flags = unsafe { fcntl(stdout_fd, F_GETFL) };
+            let stderr_flags = unsafe { fcntl(stderr_fd, F_GETFL) };
+
+            let stdout_blocking = if stdout_flags & O_NONBLOCK == 0 {
+                "blocking"
+            } else {
+                "non-blocking"
+            };
+            let stderr_blocking = if stderr_flags & O_NONBLOCK == 0 {
+                "blocking"
+            } else {
+                "non-blocking"
+            };
+
+            eprintln!(
+                "{}",
+                format!("stdout: {}, stderr: {}", stdout_blocking, stderr_blocking)
+                    .fg(ariadne::Color::Cyan)
+            );
         }
 
         if !use_fancy {

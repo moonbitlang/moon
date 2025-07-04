@@ -1569,6 +1569,7 @@ dependencies = [
  "fs4",
  "home",
  "indexmap",
+ "libc",
  "line-index",
  "log",
  "nucleo-matcher",
