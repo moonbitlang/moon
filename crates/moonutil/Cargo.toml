@@ -52,6 +52,7 @@ once_cell.workspace = true
 derive_builder.workspace = true
 pulldown-cmark.workspace = true
 serde_yaml.workspace = true
+libc = "*"
 
 [dev-dependencies]
 expect-test.workspace = true
