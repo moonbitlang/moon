@@ -62,7 +62,7 @@ pub fn filter_files<'a>(
             .and_then(|targets| targets.get(&*str_filename))
         {
             // We have a condition for this file
-            should_compile_using_pkg_cond_expr(expect_cond, cond, pkg_file_path)?
+            should_compile_using_pkg_cond_expr(&str_filename, expect_cond, cond, pkg_file_path)?
         } else {
             // We don't, evaluate file name
             should_compile_using_filename(&str_filename, cond)
@@ -77,20 +77,25 @@ pub fn filter_files<'a>(
 }
 
 fn should_compile_using_pkg_cond_expr(
+    name: &str,
     expect: &StringOrArray,
     actual: &CompileCondition,
     pkg_file_path: &Path,
 ) -> Result<bool, ParseCondExprError> {
     // TODO: Put the parsing earlier, not here
     let cond_expr = parse_cond_expr(pkg_file_path, expect)?;
-    Ok(cond_expr.eval(actual.optlevel, actual.backend))
+    if !cond_expr.eval(actual.optlevel, actual.backend) {
+        Ok(false) // Fails the condition in pkg.json
+    } else if let Some(stripped) = name.strip_suffix(".mbt") {
+        Ok(check_test_suffix(stripped, actual.test_kind))
+    } else {
+        panic!("File name '{}' does not end with '.mbt'", name);
+    }
 }
 
 fn should_compile_using_filename(name: &str, actual: &CompileCondition) -> bool {
-    use FileTestSpec::*;
-
     let Some(filename) = name.strip_suffix(".mbt") else {
-        return false;
+        panic!("File name '{}' does not end with '.mbt'", name);
     };
 
     // Target backend checking -- check the suffix of the file name
@@ -106,17 +111,25 @@ fn should_compile_using_filename(name: &str, actual: &CompileCondition) -> bool 
         None => filename, // No dot in filename, keep the filename as is
     };
 
+    check_test_suffix(remaining, actual.test_kind)
+}
+
+/// Check the suffix of the stripped filename against the actual test condition
+fn check_test_suffix(stripped: &str, test_kind: Option<TestKind>) -> bool {
+    use FileTestSpec::*;
+
     // Check test suffixes
-    let file_test_spec = if remaining.ends_with("_wbtest") {
+    let file_test_spec = if stripped.ends_with("_wbtest") {
         Whitebox
-    } else if remaining.ends_with("_test") {
+    } else if stripped.ends_with("_test") {
         Blackbox
     } else {
         NoTest
     };
     // White box tests are implemented with compiling with source code, and
     // black box tests are implemented without
-    match (actual.test_kind, file_test_spec) {
+    #[allow(clippy::match_like_matches_macro)] // This is more readable
+    match (test_kind, file_test_spec) {
         (None, NoTest) => true,
         (Some(TestKind::Whitebox), NoTest | Whitebox) => true,
         (Some(TestKind::Blackbox), Blackbox) => true,
@@ -124,6 +137,7 @@ fn should_compile_using_filename(name: &str, actual: &CompileCondition) -> bool 
     }
 }
 
+#[derive(Clone, Copy)]
 enum FileTestSpec {
     NoTest,
     Whitebox,
