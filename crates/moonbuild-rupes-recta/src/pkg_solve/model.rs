@@ -2,7 +2,7 @@ use moonutil::mooncakes::ModuleSource;
 use petgraph::prelude::DiGraphMap;
 
 use crate::{
-    model::BuildTarget,
+    model::{BuildTarget, TargetKind},
     pkg_name::{PackageFQNWithSource, PackagePath},
 };
 
@@ -11,6 +11,8 @@ pub struct DepEdge {
     /// The short alias for this import item. This should be unique among all
     /// imports available to the current build target.
     pub short_alias: String,
+    /// The kind of the import, whether it's a imported for source, test, or others.
+    pub kind: TargetKind,
 }
 
 /// The dependency relationship between build targets
@@ -52,13 +54,21 @@ pub enum SolveError {
     ImportLoop { loop_path: Vec<BuildTarget> },
 
     #[error(
-        "Conflicting import alias '{alias}' found in package {package_fqn}. \
-        Both {first_import} and {second_import} use the same alias"
+        "Conflicting import alias '{alias}' found \
+        in package {package_fqn} ({package_node:?}). \
+        Both {first_import_node:?} {first_import} (in {first_import_kind:?} import) \
+        and {second_import_node:?} {second_import} (in {second_import_kind:?} import) \
+        use the same alias."
     )]
     ConflictingImportAlias {
         alias: String,
+        package_node: BuildTarget,
         package_fqn: PackageFQNWithSource,
+        first_import_node: BuildTarget,
         first_import: PackageFQNWithSource,
+        first_import_kind: TargetKind,
+        second_import_node: BuildTarget,
         second_import: PackageFQNWithSource,
+        second_import_kind: TargetKind,
     },
 }

@@ -104,7 +104,15 @@ fn solve_one_package(
     let mut resolve =
         |import, kind| resolve_import(res, modules, packages, rev_map, mid, pid, import, kind);
 
-    // Insert edges on:
+    // Gotcha: This part adds import edges based on different fields of the
+    // package declaration, i.e. given each import list (regular imports,
+    // whitebox test imports, etc.), which packages should use this import list.
+    // This is a transpose of what we usually do (given a package kind, import
+    // from the given fields).
+    //
+    // The reason for this is mainly the efficiency. Adding the same import into
+    // multiple targets reduces redundant calculation about the alias,
+
     // regular imports
     trace!("Processing regular imports");
     for import in &pkg_data.raw.imports {
@@ -219,21 +227,22 @@ fn resolve_import(
             TargetKind::Source
         };
 
-        let source_target = pid.build_target(outgoing_target.clone());
-        let dest_target = import_pid.build_target(import_kind);
+        let dependency = import_pid.build_target(import_kind);
+        let package = pid.build_target(*outgoing_target);
 
         trace!(
             "Adding edge: {:?} -> {:?} (short alias: '{}')",
-            source_target,
-            dest_target,
+            dependency,
+            package,
             short_alias
         );
 
         res.dep_graph.add_edge(
-            source_target,
-            dest_target,
+            dependency,
+            package,
             DepEdge {
                 short_alias: short_alias.into(),
+                kind: import_source_kind,
             },
         );
     }
@@ -243,7 +252,7 @@ fn resolve_import(
 }
 
 /// Get the source nodes that will need to be added, depending on the import
-/// field kind.
+/// field kind. See body of [`solve_one_package`] for more info.
 ///
 /// We're reusing the [`TargetKind`] enum here, which might not be a good idea.
 /// Specifically, Inline Tests don't have their own import. Maybe we should use
