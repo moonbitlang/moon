@@ -103,12 +103,7 @@ impl PackageFQNWithSource {
 
 impl std::fmt::Display for PackageFQNWithSource {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(
-            f,
-            "{{ module: {}, package: {} }}",
-            self.fqn.module(),
-            self.fqn.package()
-        )
+        write!(f, "{{ {} in {} }}", self.fqn, self.fqn.module(),)
     }
 }
 
