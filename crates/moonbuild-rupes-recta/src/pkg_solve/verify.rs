@@ -9,7 +9,10 @@ use petgraph::visit::IntoNodeIdentifiers;
 use crate::{
     discover::DiscoverResult,
     model::BuildTarget,
-    pkg_solve::model::{DepRelationship, SolveError},
+    pkg_solve::{
+        model::{DepRelationship, SolveError},
+        DepEdge,
+    },
 };
 
 /// Verify that this package dependency graph is valid.
@@ -110,21 +113,30 @@ fn verify_no_duplicated_alias(
 ) -> Result<(), SolveError> {
     for node in dep.dep_graph.node_identifiers() {
         // The alias map for the current node
-        let mut map: HashMap<&String, BuildTarget> = HashMap::new();
+        let mut map: HashMap<&String, (BuildTarget, &DepEdge)> = HashMap::new();
 
-        for (_, to, edge) in dep.dep_graph.edges(node) {
+        for (from, _, edge) in dep
+            .dep_graph
+            .edges_directed(node, petgraph::Direction::Incoming)
+        {
             match map.entry(&edge.short_alias) {
                 Entry::Occupied(e) => {
+                    let (first_from, first_edge) = e.get();
                     return Err(SolveError::ConflictingImportAlias {
                         alias: edge.short_alias.clone(),
+                        package_node: node,
                         package_fqn: packages.fqn(node.package).into(),
-                        first_import: packages.fqn(e.get().package).into(),
-                        second_import: packages.fqn(to.package).into(),
-                    })
+                        first_import_node: *first_from,
+                        first_import: packages.fqn(first_from.package).into(),
+                        first_import_kind: first_edge.kind,
+                        second_import_node: from,
+                        second_import: packages.fqn(from.package).into(),
+                        second_import_kind: edge.kind,
+                    });
                 }
 
                 Entry::Vacant(vacant_entry) => {
-                    vacant_entry.insert(to);
+                    vacant_entry.insert((from, edge));
                 }
             }
         }
