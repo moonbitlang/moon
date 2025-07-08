@@ -24,12 +24,7 @@ use moonutil::{
     common::TargetBackend,
     cond_expr::{OptLevel, ParseCondExprError},
 };
-use petgraph::{
-    csr::DefaultIx,
-    graph::{DiGraph, NodeIndex},
-    prelude::DiGraphMap,
-    visit::DfsPostOrder,
-};
+use petgraph::{prelude::DiGraphMap, visit::DfsPostOrder};
 
 use crate::{
     cond_comp::{self, CompileCondition},
@@ -40,7 +35,7 @@ use crate::{
 
 /// A directed graph representation of build dependencies and targets.
 ///
-/// `AbstractBuildGraph` maintains a directed graph where nodes represent build
+/// `BuildPlan` maintains a directed graph where nodes represent build
 /// components and edges represent dependencies between them. It also stores
 /// specifications for each build target, mapping targets to their detailed
 /// configuration and requirements.
@@ -62,6 +57,10 @@ impl BuildPlan {
 
     pub fn all_nodes(&self) -> impl Iterator<Item = BuildPlanNode> + '_ {
         self.graph.nodes()
+    }
+
+    pub fn node_count(&self) -> usize {
+        self.graph.node_count()
     }
 }
 
@@ -131,7 +130,7 @@ pub fn build_plan(
 
     info!(
         "Build plan construction completed with {} total nodes",
-        result.all_nodes().count()
+        result.graph.node_count()
     );
     Ok(result)
 }
