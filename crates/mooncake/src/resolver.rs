@@ -87,7 +87,7 @@ pub trait Resolver {
 /// (implying incompatible versions of the same module are resolved) are found.
 fn assert_no_duplicate_module_names(result: &result::ResolvedEnv) -> Result<(), ResolverErrors> {
     let mut module_name_versions: HashMap<_, Vec<_>> = HashMap::new();
-    for it in result.all_packages() {
+    for it in result.all_modules() {
         module_name_versions
             .entry(&it.name)
             .or_default()
