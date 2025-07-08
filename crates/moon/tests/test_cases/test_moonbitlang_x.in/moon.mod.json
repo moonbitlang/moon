@@ -2,7 +2,7 @@
   "name": "username/hello",
   "version": "0.1.0",
   "deps": {
-    "moonbitlang/x": "0.4.22"
+    "moonbitlang/x": "0.4.29"
   },
   "readme": "README.md",
   "repository": "",
