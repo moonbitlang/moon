@@ -57,13 +57,22 @@ fn test_moon_help() {
               -h, --help  Print help
 
             Common Options:
-              -C, --directory <SOURCE_DIR>   The source code directory. Defaults to the current directory
-                  --target-dir <TARGET_DIR>  The target directory. Defaults to `source_dir/target`
-              -q, --quiet                    Suppress output
-              -v, --verbose                  Increase verbosity
-                  --trace                    Trace the execution of the program
-                  --dry-run                  Do not actually run the command
-                  --build-graph              Generate build graph
+              -C, --directory <SOURCE_DIR>
+                      The source code directory. Defaults to the current directory
+                  --target-dir <TARGET_DIR>
+                      The target directory. Defaults to `source_dir/target`
+              -q, --quiet
+                      Suppress output
+              -v, --verbose
+                      Increase verbosity
+                  --trace
+                      Trace the execution of the program
+                  --dry-run
+                      Do not actually run the command
+                  --build-graph
+                      Generate build graph
+              -Z, --unstable-feature <UNSTABLE_FEATURE>
+                      Unstable flags to MoonBuild [default: ]
         "#]],
     );
 }
