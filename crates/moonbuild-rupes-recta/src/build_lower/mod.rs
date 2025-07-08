@@ -5,18 +5,20 @@ use std::{
     rc::Rc,
 };
 
-use log::{debug, info};
+use log::{debug, info, trace};
 use moonutil::{common::TargetBackend, cond_expr::OptLevel, mooncakes::ModuleSource};
 use n2::graph::{Build, BuildIns, BuildOuts, FileId, FileLoc, Graph as N2Graph};
+use petgraph::Direction;
 
 use crate::{
     build_lower::{
         artifact::LegacyLayout,
-        compiler::{CmdlineAbstraction, PackageSource},
+        compiler::{CmdlineAbstraction, MiDependency, PackageSource},
     },
     build_plan::{self, BuildPlan, BuildPlanNode},
     discover::{DiscoverResult, DiscoveredPackage},
     model::BuildTarget,
+    pkg_solve::DepRelationship,
 };
 
 mod artifact;
@@ -42,6 +44,7 @@ pub enum LoweringError {
 /// Lowers a [`BuildPlan`] into a n2 [Build Graph](n2::graph::Graph).
 pub fn lower_build_plan(
     packages: &DiscoverResult,
+    rel: &DepRelationship,
     build_plan: &BuildPlan,
     opt: &BuildOptions,
 ) -> Result<N2Graph, LoweringError> {
@@ -55,6 +58,7 @@ pub fn lower_build_plan(
     let mut ctx = BuildPlanLowerContext {
         graph: N2Graph::default(),
         layout,
+        rel,
         packages,
         build_plan,
         opt,
@@ -78,6 +82,7 @@ struct BuildPlanLowerContext<'a> {
 
     // External state
     packages: &'a DiscoverResult,
+    rel: &'a DepRelationship,
     build_plan: &'a BuildPlan,
     opt: &'a BuildOptions,
 }
@@ -89,11 +94,8 @@ impl<'a> BuildPlanLowerContext<'a> {
             .get_spec(node)
             .expect("Node should be valid");
         let package = self.packages.get_package(node.target.package);
-        let base_dir = self
-            .layout
-            .package_dir(&package.fqn, self.opt.target_backend);
 
-        debug!(
+        trace!(
             "Lowering {} action for package {}",
             match target {
                 build_plan::BuildActionSpec::Check(_) => "Check",
@@ -110,11 +112,11 @@ impl<'a> BuildPlanLowerContext<'a> {
         match target {
             build_plan::BuildActionSpec::Check(_path_bufs) => todo!(),
             build_plan::BuildActionSpec::BuildMbt(path_bufs) => {
-                self.lower_build_mbt(node, package, base_dir, path_bufs)
+                self.lower_build_mbt(node, package, path_bufs)
             }
             build_plan::BuildActionSpec::BuildC(_path_bufs) => todo!(),
             build_plan::BuildActionSpec::LinkCore(core_inputs) => {
-                self.lower_link_core(node, package, base_dir, core_inputs)
+                self.lower_link_core(node, package, core_inputs)
             }
             build_plan::BuildActionSpec::MakeExecutable(_build_targets) => {
                 // TODO: Local targets need another linking step
@@ -125,26 +127,85 @@ impl<'a> BuildPlanLowerContext<'a> {
         }
     }
 
+    fn lowered(&mut self, node: BuildPlanNode, build: Build) -> Result<(), LoweringError> {
+        // Debug the lowered build
+        if log::log_enabled!(log::Level::Debug) {
+            let in_files = build
+                .ins
+                .ids
+                .iter()
+                .map(|id| {
+                    &self
+                        .graph
+                        .files
+                        .by_id
+                        .lookup(*id)
+                        .expect("Input file should exist")
+                        .name
+                })
+                .collect::<Vec<_>>();
+            let out_files = build
+                .outs
+                .ids
+                .iter()
+                .map(|id| {
+                    &self
+                        .graph
+                        .files
+                        .by_id
+                        .lookup(*id)
+                        .expect("Output file should exist")
+                        .name
+                })
+                .collect::<Vec<_>>();
+
+            debug!(
+                "lowered: {:?}\n into {:?};\n ins: {:?};\n outs: {:?}",
+                node, build.cmdline, in_files, out_files
+            );
+        }
+        self.graph.add_build(build).map_err(LoweringError::N2)
+    }
+
     fn lower_build_mbt(
         &mut self,
         node: BuildPlanNode,
         package: &DiscoveredPackage,
-        base_dir: PathBuf,
         path_bufs: &Vec<PathBuf>,
     ) -> Result<(), LoweringError> {
-        let core_output = base_dir.join(
+        let core_output =
             self.layout
-                .pkg_core_basename(&package.fqn, node.target.kind),
-        );
-        let mi_output = base_dir.join(self.layout.pkg_mi_basename(&package.fqn, node.target.kind));
+                .core_of_build_target(self.packages, &node.target, self.opt.target_backend);
+        let mi_output =
+            self.layout
+                .mi_of_build_target(self.packages, &node.target, self.opt.target_backend);
 
-        let ins = build_ins(&mut self.graph, path_bufs);
+        let mi_inputs = self
+            .rel
+            .dep_graph
+            .edges_directed(node.target, Direction::Incoming)
+            .map(|(it, _, w)| {
+                let in_file =
+                    self.layout
+                        .mi_of_build_target(self.packages, &it, self.opt.target_backend);
+                MiDependency::new(in_file, &w.short_alias)
+            })
+            .collect::<Vec<_>>();
+
+        let ins = build_ins(
+            &mut self.graph,
+            path_bufs
+                .iter()
+                .map(|x| x.as_path())
+                .chain(mi_inputs.iter().map(|x| x.path.as_ref())),
+        );
         let outs = build_outs(&mut self.graph, [&core_output, &mi_output]);
 
         let mut cmd = compiler::MooncBuildPackage::new(
             path_bufs.as_ref(),
             &core_output,
             &mi_output,
+            &mi_inputs,
             &package.fqn,
             &package.root_path,
             self.opt.target_backend,
@@ -155,31 +216,26 @@ impl<'a> BuildPlanLowerContext<'a> {
 
         let mut build = Build::new(build_n2_fileloc("build_mbt"), ins, outs);
         build.cmdline = Some(build_cmdline("moonc".into(), &cmd)); // TODO: resolve moonc
-        self.graph.add_build(build).map_err(LoweringError::N2)
+        self.lowered(node, build)
     }
 
     fn lower_link_core(
         &mut self,
         node: BuildPlanNode,
         package: &DiscoveredPackage,
-        base_dir: PathBuf,
         core_inputs: &[BuildTarget],
     ) -> Result<(), LoweringError> {
         let mut core_input_files = Vec::new();
         for target in core_inputs {
-            let dep_pkg = self.packages.get_package(target.package);
-            let base_path = self
-                .layout
-                .package_dir(&dep_pkg.fqn, self.opt.target_backend);
             let core_path =
-                base_path.join(self.layout.pkg_core_basename(&dep_pkg.fqn, target.kind));
+                self.layout
+                    .core_of_build_target(self.packages, target, self.opt.target_backend);
             core_input_files.push(core_path);
         }
 
-        let out_file = base_dir.join(
+        let out_file =
             self.layout
-                .pkg_core_basename(&package.fqn, node.target.kind),
-        );
+                .core_of_build_target(self.packages, &node.target, self.opt.target_backend);
 
         let package_sources = core_inputs
             .iter()
@@ -187,7 +243,7 @@ impl<'a> BuildPlanLowerContext<'a> {
                 let pkg = self.packages.get_package(target.package);
                 PackageSource {
                     package_name: &pkg.fqn,
-                    source_dir: &pkg.root_path,
+                    source_dir: pkg.root_path.as_path().into(),
                 }
             })
             .collect::<Vec<_>>();
@@ -210,7 +266,7 @@ impl<'a> BuildPlanLowerContext<'a> {
 
         let mut build = Build::new(loc, ins, outs);
         build.cmdline = Some(build_cmdline("moonc".into(), &cmd));
-        self.graph.add_build(build).map_err(LoweringError::N2)
+        self.lowered(node, build)
     }
 }
 

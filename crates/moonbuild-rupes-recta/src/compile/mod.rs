@@ -134,7 +134,12 @@ pub fn compile_with_raw_nodes(
         opt_level: cx.opt_level,
         debug_symbols: cx.debug_symbols,
     };
-    let res = build_lower::lower_build_plan(&cx.resolve_output.pkg_dirs, &plan, &lower_env)?;
+    let res = build_lower::lower_build_plan(
+        &cx.resolve_output.pkg_dirs,
+        &cx.resolve_output.pkg_rel,
+        &plan,
+        &lower_env,
+    )?;
 
     info!("Build graph lowering completed successfully");
     debug!("Final build graph created with n2");

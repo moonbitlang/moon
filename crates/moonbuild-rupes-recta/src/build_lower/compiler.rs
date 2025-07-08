@@ -1,5 +1,6 @@
 //! Compiler command abstraction
 
+use std::borrow::Cow;
 use std::path::{Path, PathBuf};
 
 use moonutil::common::TargetBackend;
@@ -16,20 +17,39 @@ pub enum ErrorFormat {
 
 #[derive(Clone, Debug)]
 pub struct MiDependency<'a> {
-    pub name: &'a Path,
-    pub alias: &'a str,
+    pub path: Cow<'a, Path>,
+    pub alias: Option<Cow<'a, str>>,
 }
 
 impl<'a> MiDependency<'a> {
     pub fn to_alias_arg(&self) -> String {
-        format!("{}:{}", self.name.display(), self.alias)
+        if let Some(alias) = &self.alias {
+            format!("{}:{}", self.path.display(), alias)
+        } else {
+            format!("{}:{}", self.path.display(), self.path.display())
+        }
+    }
+
+    pub fn new(path: impl Into<Cow<'a, Path>>, alias: impl Into<Cow<'a, str>>) -> Self {
+        Self {
+            path: path.into(),
+            alias: Some(alias.into()),
+        }
+    }
+
+    #[allow(unused)]
+    pub fn no_alias(path: impl Into<Cow<'a, Path>>) -> Self {
+        Self {
+            path: path.into(),
+            alias: None,
+        }
     }
 }
 
 #[derive(Clone, Debug)]
 pub struct PackageSource<'a> {
     pub package_name: &'a PackageFQN,
-    pub source_dir: &'a Path,
+    pub source_dir: Cow<'a, Path>,
 }
 
 impl<'a> PackageSource<'a> {
@@ -40,9 +60,9 @@ impl<'a> PackageSource<'a> {
 
 #[derive(Clone, Debug)]
 pub struct VirtualPackageImplementation<'a> {
-    pub mi_path: &'a Path,
+    pub mi_path: Cow<'a, Path>,
     pub package_name: &'a PackageFQN,
-    pub package_path: &'a Path,
+    pub package_path: Cow<'a, Path>,
 }
 
 #[derive(Clone, Debug)]
@@ -63,7 +83,7 @@ pub struct CompilationFlags {
 pub enum WarnAlertConfig<'a> {
     #[default]
     Default,
-    List(&'a str),
+    List(Cow<'a, str>),
     DenyAll,
     AllowAll,
 }
@@ -93,20 +113,21 @@ pub struct MooncBuildPackage<'a> {
     pub mi_deps: &'a [MiDependency<'a>],
 
     // Output configuration
-    pub core_out: &'a Path,
-    pub mi_out: &'a Path,
+    pub core_out: Cow<'a, Path>,
+    #[allow(unused)]
+    pub mi_out: Cow<'a, Path>,
     pub no_mi: bool,
 
     // Package configuration
     /// The name of the current package
     pub package_name: &'a PackageFQN,
     /// The source directory of the current package
-    pub package_source: &'a Path,
+    pub package_source: Cow<'a, Path>,
     pub is_main: bool,
 
     // Standard library
     /// Pass [None] for no_std
-    pub stdlib_core_file: Option<&'a Path>,
+    pub stdlib_core_file: Option<Cow<'a, Path>>,
 
     // Target configuration
     pub target_backend: TargetBackend,
@@ -119,7 +140,7 @@ pub struct MooncBuildPackage<'a> {
 
     // Virtual package handling
     // FIXME: better abstraction
-    pub check_mi: Option<&'a Path>,
+    pub check_mi: Option<Cow<'a, Path>>,
     pub virtual_implementation: Option<VirtualPackageImplementation<'a>>,
 }
 
@@ -127,10 +148,11 @@ impl<'a> MooncBuildPackage<'a> {
     /// Create a new instance with only necessary fields populated, others as default
     pub fn new(
         mbt_sources: &'a [PathBuf],
-        core_out: &'a Path,
-        mi_out: &'a Path,
+        core_out: impl Into<Cow<'a, Path>>,
+        mi_out: impl Into<Cow<'a, Path>>,
+        mi_deps: &'a [MiDependency<'a>],
         package_name: &'a PackageFQN,
-        package_source: &'a Path,
+        package_source: impl Into<Cow<'a, Path>>,
         target_backend: TargetBackend,
     ) -> Self {
         Self {
@@ -138,12 +160,12 @@ impl<'a> MooncBuildPackage<'a> {
             warn_config: WarnAlertConfig::Default,
             alert_config: WarnAlertConfig::Default,
             mbt_sources,
-            mi_deps: &[],
-            core_out,
-            mi_out,
+            mi_deps,
+            core_out: core_out.into(),
+            mi_out: mi_out.into(),
             no_mi: false,
             package_name,
-            package_source,
+            package_source: package_source.into(),
             is_main: false,
             stdlib_core_file: None,
             target_backend,
@@ -185,10 +207,10 @@ impl<'a> MooncBuildPackage<'a> {
         }
 
         // Custom warning/alert lists
-        if let WarnAlertConfig::List(warn_list) = self.warn_config {
+        if let WarnAlertConfig::List(warn_list) = &self.warn_config {
             args.extend(["-w".to_string(), warn_list.to_string()]);
         }
-        if let WarnAlertConfig::List(alert_list) = self.alert_config {
+        if let WarnAlertConfig::List(alert_list) = &self.alert_config {
             args.extend(["-alert".to_string(), alert_list.to_string()]);
         }
         // Third-party package handling
@@ -210,7 +232,7 @@ impl<'a> MooncBuildPackage<'a> {
         }
 
         // Standard library
-        if let Some(stdlib_path) = self.stdlib_core_file {
+        if let Some(stdlib_path) = &self.stdlib_core_file {
             args.extend(["-std-path".to_string(), stdlib_path.display().to_string()]);
         }
 
@@ -259,7 +281,7 @@ impl<'a> MooncBuildPackage<'a> {
         }
 
         // Virtual package check
-        if let Some(check_mi_path) = self.check_mi {
+        if let Some(check_mi_path) = &self.check_mi {
             args.extend(["-check-mi".to_string(), check_mi_path.display().to_string()]);
 
             if self.no_mi {
@@ -310,8 +332,8 @@ pub struct MooncLinkCore<'a> {
     // Input/Output configuration
     pub core_deps: &'a [PathBuf],
     pub main_package: &'a PackageFQN,
-    pub output_path: &'a Path,
-    pub pkg_config_path: &'a Path,
+    pub output_path: Cow<'a, Path>,
+    pub pkg_config_path: Cow<'a, Path>,
 
     // Package configuration
     pub package_sources: &'a [PackageSource<'a>],
@@ -337,7 +359,7 @@ pub struct MooncLinkCore<'a> {
 #[derive(Debug, Default)]
 pub struct WasmConfig<'a> {
     pub exports: Option<&'a [String]>,
-    pub export_memory_name: Option<&'a str>,
+    pub export_memory_name: Option<Cow<'a, str>>,
     pub import_memory: Option<&'a ImportMemory>,
     pub memory_limits: Option<&'a MemoryLimits>,
     pub shared_memory: Option<bool>,
@@ -350,16 +372,16 @@ impl<'a> MooncLinkCore<'a> {
     pub fn new(
         core_deps: &'a [PathBuf],
         main_package: &'a PackageFQN,
-        output_path: &'a Path,
-        pkg_config_path: &'a Path,
+        output_path: impl Into<Cow<'a, Path>>,
+        pkg_config_path: impl Into<Cow<'a, Path>>,
         package_sources: &'a [PackageSource<'a>],
         target_backend: TargetBackend,
     ) -> Self {
         Self {
             core_deps,
             main_package,
-            output_path,
-            pkg_config_path,
+            output_path: output_path.into(),
+            pkg_config_path: pkg_config_path.into(),
             package_sources,
             stdlib_core_source: None,
             target_backend,
@@ -446,7 +468,7 @@ impl<'a> MooncLinkCore<'a> {
             }
 
             // Export memory name
-            if let Some(export_memory_name) = self.wasm_config.export_memory_name {
+            if let Some(export_memory_name) = &self.wasm_config.export_memory_name {
                 args.push("-export-memory-name".to_string());
                 args.push(export_memory_name.to_string());
             }
