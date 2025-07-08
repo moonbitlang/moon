@@ -24,12 +24,7 @@ use moonutil::{
     common::TargetBackend,
     cond_expr::{OptLevel, ParseCondExprError},
 };
-use petgraph::{
-    csr::DefaultIx,
-    graph::{DiGraph, NodeIndex},
-    prelude::DiGraphMap,
-    visit::DfsPostOrder,
-};
+use petgraph::{prelude::DiGraphMap, visit::DfsPostOrder};
 
 use crate::{
     cond_comp::{self, CompileCondition},
