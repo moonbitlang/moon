@@ -621,7 +621,7 @@ fn adapt_modules_into_scan_paths(
     module_paths: &DirSyncResult,
 ) -> ScanPaths {
     let mut result = HashMap::new();
-    for (id, module) in resolved_modules.all_packages_and_id() {
+    for (id, module) in resolved_modules.all_modules_and_id() {
         let path = module_paths
             .get(id)
             .expect("All modules should be resolved");
@@ -662,7 +662,7 @@ pub fn scan(
     let deps: Vec<String> = mod_desc.deps.iter().map(|(name, _)| name.clone()).collect();
 
     // scan third party packages in DEP_PATH according to deps field
-    for (module_id, _) in resolved_modules.all_packages_and_id() {
+    for (module_id, _) in resolved_modules.all_modules_and_id() {
         if resolved_modules.module_info(module_id).name == mod_desc.name {
             continue; // skip self
         }
