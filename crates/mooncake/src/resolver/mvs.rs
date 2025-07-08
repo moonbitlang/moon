@@ -482,7 +482,7 @@ mod test {
             .find(|(_, ms)| ms.name == module_name && ms.version == version)
             .map(|(id, _)| id)
             .expect("Module not found");
-        expect!["ModuleId(0)"].assert_eq(&format!("{:?}", &id));
+        expect!["ModuleId(1v1)"].assert_eq(&format!("{:?}", &id));
         let mt = result.mod_name_from_id(id);
         expect!["dep/three@0.1.0"].assert_eq(&format!("{mt:?}"));
 
@@ -524,13 +524,13 @@ mod test {
 
         let deps = result.deps(id).collect::<Vec<_>>();
         expect![[r#"
-            "[ModuleId(1)]"
+            "[ModuleId(2v1)]"
         "#]]
         .assert_debug_eq(&format!("{:?}", &deps));
 
         let deps_keyed = result.deps_keyed(id).collect::<Vec<_>>();
         expect![[r#"
-            "[(ModuleId(1), dep/two)]"
+            "[(ModuleId(2v1), dep/two)]"
         "#]]
         .assert_debug_eq(&format!("{:?}", &deps_keyed));
 
@@ -538,12 +538,12 @@ mod test {
         let key2 = "dep/three".parse::<DependencyKey>().unwrap();
         let x1 = result.dep_with_key(id, &key1);
         let x2 = result.dep_with_key(id, &key2);
-        expect!["(Some(ModuleId(1)), None)"].assert_eq(&format!("{:?}", (x1, x2)));
+        expect!["(Some(ModuleId(2v1)), None)"].assert_eq(&format!("{:?}", (x1, x2)));
 
         let dep_count = result.dep_count(id);
         expect!["1"].assert_eq(&dep_count.to_string());
 
-        let all_packages = result.all_packages().collect::<Vec<_>>();
+        let all_packages = result.all_modules().collect::<Vec<_>>();
         expect![[r#"
             [
                 dep/three@0.1.0,
@@ -553,24 +553,24 @@ mod test {
         "#]]
         .assert_debug_eq(&all_packages);
 
-        let all_packages_and_id = result.all_packages_and_id().collect::<Vec<_>>();
+        let all_packages_and_id = result.all_modules_and_id().collect::<Vec<_>>();
         expect![[r#"
             [
                 (
                     ModuleId(
-                        0,
+                        1v1,
                     ),
                     dep/three@0.1.0,
                 ),
                 (
                     ModuleId(
-                        1,
+                        2v1,
                     ),
                     dep/two@0.1.0,
                 ),
                 (
                     ModuleId(
-                        2,
+                        3v1,
                     ),
                     dep/one@0.1.2,
                 ),
@@ -581,9 +581,9 @@ mod test {
         let graph = result.graph();
         expect![[r#"
             digraph {
-                0 [ label = "ModuleId(0)" ]
-                1 [ label = "ModuleId(1)" ]
-                2 [ label = "ModuleId(2)" ]
+                0 [ label = "ModuleId(1v1)" ]
+                1 [ label = "ModuleId(2v1)" ]
+                2 [ label = "ModuleId(3v1)" ]
                 0 -> 1 [ ]
                 1 -> 2 [ ]
             }
@@ -594,10 +594,10 @@ mod test {
         ));
     }
 
-    fn id_from_mod_name(result: &ResolvedEnv, mod_name: &ModuleName) -> Option<ModuleId> {
+    fn id_from_mod_name(result: &ResolvedEnv, mod_name: &ModuleSource) -> Option<ModuleId> {
         result
             .all_modules_and_id()
-            .find(|(_, m)| m.name == *mod_name)
+            .find(|(_, m)| *m == mod_name)
             .map(|(id, _)| id)
     }
 
@@ -732,7 +732,7 @@ mod test {
         let result = resolver.resolve(&mut env, &roots);
         match result {
             Some(result) => {
-                let pkgs = result.all_packages().cloned().collect::<Vec<_>>();
+                let pkgs = result.all_modules().cloned().collect::<Vec<_>>();
                 pkgs
             }
             None => {
