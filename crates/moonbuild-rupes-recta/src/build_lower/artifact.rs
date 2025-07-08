@@ -4,7 +4,11 @@ use std::path::PathBuf;
 
 use moonutil::{common::TargetBackend, mooncakes::ModuleSource};
 
-use crate::{model::TargetKind, pkg_name::PackageFQN};
+use crate::{
+    discover::DiscoverResult,
+    model::{BuildTarget, TargetKind},
+    pkg_name::PackageFQN,
+};
 
 /// The extension of the intermediate representation emitted by the Build action
 const CORE_EXTENSION: &str = ".core";
@@ -51,7 +55,7 @@ impl LegacyLayout {
         dir
     }
 
-    pub fn pkg_core_basename(&self, pkg: &PackageFQN, kind: TargetKind) -> String {
+    fn pkg_core_basename(&self, pkg: &PackageFQN, kind: TargetKind) -> String {
         format!(
             "{}{}{}",
             pkg.short_alias(),
@@ -60,7 +64,19 @@ impl LegacyLayout {
         )
     }
 
-    pub fn pkg_mi_basename(&self, pkg: &PackageFQN, kind: TargetKind) -> String {
+    pub fn core_of_build_target(
+        &self,
+        pkg_list: &DiscoverResult,
+        target: &BuildTarget,
+        backend: TargetBackend,
+    ) -> PathBuf {
+        let pkg_fqn = &pkg_list.get_package(target.package).fqn;
+        let mut base_dir = self.package_dir(pkg_fqn, backend);
+        base_dir.push(self.pkg_core_basename(pkg_fqn, target.kind));
+        base_dir
+    }
+
+    fn pkg_mi_basename(&self, pkg: &PackageFQN, kind: TargetKind) -> String {
         format!(
             "{}{}{}",
             pkg.short_alias(),
@@ -69,7 +85,49 @@ impl LegacyLayout {
         )
     }
 
-    pub fn pkg_linked_core_artifact_basename(
+    pub fn mi_of_build_target(
+        &self,
+        pkg_list: &DiscoverResult,
+        target: &BuildTarget,
+        backend: TargetBackend,
+    ) -> PathBuf {
+        let pkg_fqn = &pkg_list.get_package(target.package).fqn;
+        let mut base_dir = self.package_dir(pkg_fqn, backend);
+        base_dir.push(self.pkg_mi_basename(pkg_fqn, target.kind));
+        base_dir
+    }
+
+    #[allow(unused)] // reserved for later use
+    pub fn linked_core_of_build_target(
+        &self,
+        pkg_list: &DiscoverResult,
+        target: &BuildTarget,
+        backend: TargetBackend,
+        os: &str,
+    ) -> PathBuf {
+        let pkg_fqn = &pkg_list.get_package(target.package).fqn;
+        let mut base_dir = self.package_dir(pkg_fqn, backend);
+        base_dir.push(self.pkg_linked_core_artifact_basename(pkg_fqn, backend, os));
+        base_dir
+    }
+
+    #[allow(unused)]
+    pub fn executable_of_build_target(
+        &self,
+        pkg_list: &DiscoverResult,
+        target: &BuildTarget,
+        backend: TargetBackend,
+        os: &str,
+        legacy_behavior: bool,
+    ) -> PathBuf {
+        let pkg_fqn = &pkg_list.get_package(target.package).fqn;
+        let mut base_dir = self.package_dir(pkg_fqn, backend);
+        base_dir.push(self.pkg_executable_artifact_basename(pkg_fqn, backend, os, legacy_behavior));
+        base_dir
+    }
+
+    #[allow(unused)]
+    fn pkg_linked_core_artifact_basename(
         &self,
         pkg: &PackageFQN,
         backend: TargetBackend,
@@ -82,7 +140,7 @@ impl LegacyLayout {
         )
     }
 
-    pub fn pkg_executable_artifact_basename(
+    fn pkg_executable_artifact_basename(
         &self,
         pkg: &PackageFQN,
         backend: TargetBackend,
