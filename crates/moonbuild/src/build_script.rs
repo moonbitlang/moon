@@ -22,7 +22,7 @@
 use std::{
     collections::HashMap,
     io::Write,
-    path::{Path, PathBuf},
+    path::Path,
     process::{Command, Stdio},
     str::FromStr,
 };
