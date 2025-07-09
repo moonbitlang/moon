@@ -23,6 +23,7 @@ use std::{
     path::{Path, PathBuf},
 };
 
+use arcstr::ArcStr;
 use moonutil::{
     common::{DEP_PATH, MOONBITLANG_CORE},
     moon_dir,
@@ -36,8 +37,8 @@ fn dep_dir_of(source_dir: &Path) -> PathBuf {
     source_dir.join(DEP_PATH)
 }
 
-type DepDirState = HashMap<String, HashMap<String, Option<Version>>>;
-type NewDepDirState<'a> = HashMap<String, HashMap<String, &'a ModuleSource>>;
+type DepDirState = HashMap<ArcStr, HashMap<ArcStr, Option<Version>>>;
+type NewDepDirState<'a> = HashMap<ArcStr, HashMap<ArcStr, &'a ModuleSource>>;
 
 /// The dependencies directory
 ///
@@ -85,7 +86,7 @@ impl DepDir {
                 if !pkg.file_type()?.is_dir() {
                     continue;
                 }
-                let pkg_name = pkg.file_name().to_string_lossy().replace('+', "/");
+                let pkg_name = pkg.file_name().to_string_lossy().replace('+', "/").into();
                 let module = moonutil::common::read_module_desc_file_in_dir(&pkg.path());
                 let version = module.map(|m| m.version).ok().flatten();
                 pkg_list.insert(pkg_name, version);
@@ -102,24 +103,24 @@ fn pkg_list_to_dep_dir_state<'a>(
 ) -> NewDepDirState<'a> {
     let mut user_list = HashMap::new();
     for pkg in pkg_list {
-        match &pkg.source {
+        match pkg.source() {
             ModuleSourceKind::Registry(_) => {}
             ModuleSourceKind::Local(_) => continue,
             ModuleSourceKind::Git(_) => continue, // TODO: git registries are resolved differently
         }
-        let user = &pkg.name.username;
-        let pkg_name = &pkg.name.pkgname;
-        let pkg_list: &mut HashMap<String, _> = user_list.entry(user.to_owned()).or_default();
+        let user = &pkg.name().username;
+        let pkg_name = &pkg.name().unqual;
+        let pkg_list: &mut HashMap<ArcStr, _> = user_list.entry(user.to_owned()).or_default();
         pkg_list.insert(pkg_name.to_owned(), pkg);
     }
     user_list
 }
 
 struct DepDirStateDiff<'a> {
-    add_user: HashSet<String>,
-    remove_user: HashSet<String>,
-    add_pkg: HashMap<String, HashMap<String, &'a ModuleSource>>,
-    remove_pkg: HashMap<String, HashSet<String>>,
+    add_user: HashSet<ArcStr>,
+    remove_user: HashSet<ArcStr>,
+    add_pkg: HashMap<ArcStr, HashMap<ArcStr, &'a ModuleSource>>,
+    remove_pkg: HashMap<ArcStr, HashSet<ArcStr>>,
 }
 
 fn diff_dep_dir_state<'a>(
@@ -159,7 +160,7 @@ fn diff_dep_dir_state<'a>(
                 }
                 Some(current_version) => {
                     if current_version.is_none()
-                        || current_version.as_ref().unwrap() != &new_source.version
+                        || current_version.as_ref().unwrap() != new_source.version()
                     {
                         // On version mismatch, we remove and re-add the package.
                         remove_pkg_list.insert(pkg.clone());
@@ -210,21 +211,21 @@ pub fn sync_deps(
     // First, remove all packages that are no longer needed.
     for (user, pkgs) in diff.remove_pkg {
         for pkg in pkgs {
-            let pkg_path = dep_dir.path().join(&user).join(&pkg);
+            let pkg_path = dep_dir.path().join(user.as_str()).join(pkg.as_str());
             log::info!("Removing package {} at {}", &pkg, pkg_path.display());
             std::fs::remove_dir_all(pkg_path)?; // TODO: use async
         }
     }
     // Remove users that are no longer needed.
     for user in diff.remove_user {
-        let user_path = dep_dir.path().join(&user);
+        let user_path = dep_dir.path().join(user.as_str());
         log::info!("Removing user {} at {}", &user, user_path.display());
         std::fs::remove_dir_all(user_path)?;
     }
 
     // Then, create all users that are needed.
     for user in diff.add_user {
-        let user_path = dep_dir.path().join(&user);
+        let user_path = dep_dir.path().join(user.as_str());
         log::info!("Creating user {} at {}", &user, user_path.display());
         std::fs::create_dir_all(user_path)?;
     }
@@ -237,13 +238,13 @@ pub fn sync_deps(
                 &version,
                 pkg_path.display()
             );
-            let ModuleSourceKind::Registry(registry) = &version.source else {
+            let ModuleSourceKind::Registry(registry) = version.source() else {
                 unreachable!()
             };
             registries
                 .get_registry(registry.as_deref())
                 .expect("Registry not found")
-                .install_to(&version.name, &version.version, &pkg_path, quiet)?;
+                .install_to(version.name(), version.version(), &pkg_path, quiet)?;
             // TODO: parallelize this
         }
     }
@@ -262,9 +263,9 @@ fn pkg_to_dir(dep_dir: &DepDir, username: &str, pkgname: &str) -> PathBuf {
 
 /// The result of a directory sync.
 fn map_source_to_dir(dep_dir: &DepDir, module: &ModuleSource) -> PathBuf {
-    match &module.source {
+    match module.source() {
         ModuleSourceKind::Registry(_) => {
-            pkg_to_dir(dep_dir, &module.name.username, &module.name.pkgname)
+            pkg_to_dir(dep_dir, &module.name().username, &module.name().unqual)
         }
         ModuleSourceKind::Local(path) => path.clone(),
         ModuleSourceKind::Git(url) => {
@@ -289,6 +290,7 @@ pub fn resolve_dep_dirs(dep_dir: &DepDir, pkg_list: &ResolvedEnv) -> DirSyncResu
 mod test {
     use std::collections::{HashMap, HashSet};
 
+    use arcstr::ArcStr;
     use moonutil::mooncakes::{ModuleName, ModuleSource, ModuleSourceKind};
 
     fn to_state(s: &str) -> super::DepDirState {
@@ -299,12 +301,12 @@ mod test {
                 continue;
             }
             let mut parts = line.split(':');
-            let user = parts.next().unwrap().to_owned();
+            let user = parts.next().unwrap().into();
             let pkgs = parts.next().unwrap();
             let mut pkg_set = HashMap::new();
             for pkg in pkgs.split(',') {
                 let (pkg_name, version) = pkg.split_once('@').unwrap();
-                let pkg_name = pkg_name.to_owned();
+                let pkg_name = pkg_name.into();
                 let version = version.parse().unwrap();
                 pkg_set.insert(pkg_name, Some(version));
             }
@@ -322,14 +324,14 @@ mod test {
                     .into_iter()
                     .map(|(module, v)| {
                         let version = v.unwrap();
-                        let res = ModuleSource {
-                            name: ModuleName {
+                        let res = ModuleSource::new_full(
+                            ModuleName {
                                 username: user.clone(),
-                                pkgname: module.clone(),
+                                unqual: module.clone(),
                             },
                             version,
-                            source: ModuleSourceKind::Registry(None),
-                        };
+                            ModuleSourceKind::Registry(None),
+                        );
                         let leaked = Box::leak(Box::new(res));
                         (module, &*leaked)
                     })
@@ -341,7 +343,7 @@ mod test {
 
     fn to_add_pkg(
         input: Vec<(&str, Vec<(&str, &str)>)>,
-    ) -> HashMap<String, HashMap<String, &'static ModuleSource>> {
+    ) -> HashMap<ArcStr, HashMap<ArcStr, &'static ModuleSource>> {
         input
             .into_iter()
             .map(|(user, v)| {
@@ -349,29 +351,29 @@ mod test {
                     .into_iter()
                     .map(|(pkg, ver)| {
                         let version = ver.parse().unwrap();
-                        let res = ModuleSource {
-                            name: ModuleName {
-                                username: user.to_owned(),
-                                pkgname: pkg.to_owned(),
+                        let res = ModuleSource::new_full(
+                            ModuleName {
+                                username: user.into(),
+                                unqual: pkg.into(),
                             },
                             version,
-                            source: ModuleSourceKind::Registry(None),
-                        };
+                            ModuleSourceKind::Registry(None),
+                        );
                         let leaked = Box::leak(Box::new(res));
-                        (pkg.to_owned(), &*leaked)
+                        (pkg.into(), &*leaked)
                     })
                     .collect();
-                (user.to_owned(), new_v)
+                (user.into(), new_v)
             })
             .collect()
     }
 
-    fn to_remove_pkg(input: Vec<(&str, Vec<&str>)>) -> HashMap<String, HashSet<String>> {
+    fn to_remove_pkg(input: Vec<(&str, Vec<&str>)>) -> HashMap<ArcStr, HashSet<ArcStr>> {
         input
             .into_iter()
             .map(|(user, pkgs)| {
-                let pkgs_set = pkgs.into_iter().map(|pkg| pkg.to_owned()).collect();
-                (user.to_owned(), pkgs_set)
+                let pkgs_set = pkgs.into_iter().map(|pkg| pkg.into()).collect();
+                (user.into(), pkgs_set)
             })
             .collect()
     }
@@ -393,12 +395,12 @@ mod test {
         let diff = super::diff_dep_dir_state(&original, &target);
         assert_eq!(
             diff.add_user,
-            vec!["user3"].into_iter().map(|x| x.to_owned()).collect(),
+            vec!["user3"].into_iter().map(|x| x.into()).collect(),
             "add user"
         );
         assert_eq!(
             diff.remove_user,
-            vec!["user2"].into_iter().map(|x| x.to_owned()).collect(),
+            vec!["user2"].into_iter().map(|x| x.into()).collect(),
             "remove user"
         );
         assert_eq!(

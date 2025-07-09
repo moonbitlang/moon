@@ -21,8 +21,10 @@ use std::{
     io::BufReader,
     path::{Path, PathBuf},
     str::FromStr,
+    sync::Arc,
 };
 
+use arcstr::ArcStr;
 use clap::Subcommand;
 use semver::Version;
 use serde::{Deserialize, Serialize};
@@ -37,16 +39,32 @@ pub type DirSyncResult = SecondaryMap<ModuleId, PathBuf>;
 
 #[derive(Clone, Serialize, Deserialize, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct ModuleName {
-    pub username: String,
-    pub pkgname: String,
+    /// The username part of the module name
+    pub username: ArcStr,
+    /// The unqualified name part of the module name
+    pub unqual: ArcStr,
+}
+
+impl ModuleName {
+    /// Returns whether the module's name is in legacy format, either having
+    /// empty username or containing multiple segments in the unqualified name.
+    pub fn is_legacy(&self) -> bool {
+        if self.username.is_empty() {
+            return true;
+        }
+        if self.unqual.contains('/') {
+            return true;
+        }
+        false
+    }
 }
 
 impl std::fmt::Debug for ModuleName {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         if self.username.is_empty() {
-            f.write_fmt(format_args!("{}", self.pkgname))
+            f.write_fmt(format_args!("{}", self.unqual))
         } else {
-            f.write_fmt(format_args!("{}/{}", self.username, self.pkgname))
+            f.write_fmt(format_args!("{}/{}", self.username, self.unqual))
         }
     }
 }
@@ -54,9 +72,9 @@ impl std::fmt::Debug for ModuleName {
 impl std::fmt::Display for ModuleName {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         if self.username.is_empty() {
-            f.write_fmt(format_args!("{}", self.pkgname))
+            f.write_fmt(format_args!("{}", self.unqual))
         } else {
-            f.write_fmt(format_args!("{}/{}", self.username, self.pkgname))
+            f.write_fmt(format_args!("{}/{}", self.username, self.unqual))
         }
     }
 }
@@ -67,12 +85,12 @@ impl FromStr for ModuleName {
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s.split_once('/') {
             Some((username, pkgname)) => Ok(ModuleName {
-                username: username.to_string(),
-                pkgname: pkgname.to_string(),
+                username: username.into(),
+                unqual: pkgname.into(),
             }),
             None => Ok(ModuleName {
-                username: String::new(),
-                pkgname: s.to_string(),
+                username: ArcStr::new(),
+                unqual: s.into(),
             }),
         }
     }
@@ -113,63 +131,100 @@ impl std::fmt::Display for ModuleSourceKind {
     }
 }
 
+/// Represents the information that fully-qualifies a module.
+///
+/// This type is cheaply clonable.
 #[derive(Clone, Serialize, Deserialize, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct ModuleSource {
-    pub name: ModuleName,
-    pub version: Version,
-    pub source: ModuleSourceKind,
+    // Note: Serialization & deserialization of `Arc` does not retain identity.
+    // This is generally not an issue, but I'm writing it here to prevent confusion.
+    /// The inner representation of the module source.
+    inner: Arc<ModuleSourceInner>,
+}
+
+#[derive(Clone, Serialize, Deserialize, PartialEq, Eq, Hash, PartialOrd, Ord)]
+struct ModuleSourceInner {
+    name: ModuleName,
+    version: Version,
+    source: ModuleSourceKind,
 }
 
 impl ModuleSource {
+    pub fn name(&self) -> &ModuleName {
+        &self.inner.name
+    }
+
+    pub fn version(&self) -> &Version {
+        &self.inner.version
+    }
+
+    pub fn source(&self) -> &ModuleSourceKind {
+        &self.inner.source
+    }
+
+    pub fn new_full(name: ModuleName, version: Version, source: ModuleSourceKind) -> Self {
+        Self::new_inner(ModuleSourceInner {
+            name,
+            version,
+            source,
+        })
+    }
+
     pub fn from_version(name: ModuleName, version: Version) -> Self {
-        ModuleSource {
+        Self::new_inner(ModuleSourceInner {
             name,
             version,
             source: Default::default(),
-        }
+        })
     }
 
     pub fn from_registry_and_version(name: ModuleName, registry: &str, version: Version) -> Self {
-        ModuleSource {
+        Self::new_inner(ModuleSourceInner {
             name,
             version,
             source: ModuleSourceKind::Registry(Some(registry.to_owned())),
-        }
+        })
     }
 
     pub fn local_path(name: ModuleName, path: PathBuf, version: Version) -> Self {
-        ModuleSource {
+        Self::new_inner(ModuleSourceInner {
             name,
             version,
             source: ModuleSourceKind::Local(path),
-        }
+        })
     }
 
     pub fn from_local_module(module: &MoonMod, path: &Path) -> Option<Self> {
-        Some(ModuleSource {
+        Some(Self::new_inner(ModuleSourceInner {
             name: module.name.parse().ok()?,
             version: module
                 .version
                 .clone()
                 .unwrap_or_else(|| DEFAULT_VERSION.clone()),
             source: ModuleSourceKind::Local(path.to_owned()),
-        })
+        }))
     }
 
     pub fn git(name: ModuleName, url: String, version: Version) -> Self {
-        ModuleSource {
+        Self::new_inner(ModuleSourceInner {
             name,
             version,
             source: ModuleSourceKind::Git(url),
+        })
+    }
+
+    fn new_inner(inner: ModuleSourceInner) -> Self {
+        ModuleSource {
+            inner: Arc::new(inner),
         }
     }
 }
 
 impl std::fmt::Display for ModuleSource {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}@{}", self.name, self.version)?;
-        if !self.source.is_default() {
-            write!(f, " ({})", self.source)?;
+        write!(f, "{}@{}", self.name(), self.version())?;
+        if !self.source().is_default() {
+            write!(f, " ({})", self.source())?;
         }
         Ok(())
     }
@@ -188,11 +243,11 @@ impl std::str::FromStr for ModuleSource {
         let parts = s.split_once('@').ok_or("missing version")?;
         let version = Version::parse(parts.1).map_err(|e| e.to_string())?;
         let name = parts.0.parse()?;
-        Ok(ModuleSource {
+        Ok(ModuleSource::new_inner(ModuleSourceInner {
             name,
             version,
             source: Default::default(),
-        })
+        }))
     }
 }
 
@@ -203,7 +258,7 @@ pub mod result {
     use std::{collections::HashMap, sync::Arc};
 
     use petgraph::graphmap::DiGraphMap;
-    use slotmap::{SecondaryMap, SlotMap};
+    use slotmap::SlotMap;
 
     use crate::module::MoonMod;
 
@@ -211,28 +266,44 @@ pub mod result {
 
     pub type DependencyKey = ModuleName;
 
+    #[derive(Debug)]
+    struct ResolvedModule {
+        source: ModuleSource,
+        value: Arc<MoonMod>,
+    }
+
     /// The result of a dependency resolution.
     #[derive(Debug)]
     pub struct ResolvedEnv {
+        /// The list of module IDs that are provided as the input to the resolver.
+        input_module_ids: Vec<ModuleId>,
+        /// A reverse mapping to query the unique ID of a module from its source.
+        rev_map: HashMap<ModuleSource, ModuleId>,
         /// The mapping from the unique IDs of modules to their source.
         ///
         /// Note that once we're out of the resolver, reverse-finding the ID
         /// from [`ModuleSource`]s is no longer needed, so this mapping is
-        /// single-directional (even though `ModuleSource`s are unique).
-        mapping: SlotMap<ModuleId, ModuleSource>,
-        /// List of all modules in the environment.
-        modules: SecondaryMap<ModuleId, Arc<MoonMod>>,
+        /// unidirectional (even though `ModuleSource`s are unique).
+        mapping: SlotMap<ModuleId, ResolvedModule>,
         /// The real dependency graph. Edges are labelled with the key of the dependency.
         dep_graph: DiGraphMap<ModuleId, DependencyKey>,
     }
 
     impl ResolvedEnv {
+        pub fn input_module_ids(&self) -> &[ModuleId] {
+            &self.input_module_ids
+        }
+
+        pub fn mod_from_name(&self, ms: &ModuleSource) -> Option<ModuleId> {
+            self.rev_map.get(ms).cloned()
+        }
+
         pub fn mod_name_from_id(&self, id: ModuleId) -> &ModuleSource {
-            &self.mapping[id]
+            &self.mapping[id].source
         }
 
         pub fn module_info(&self, id: ModuleId) -> &Arc<MoonMod> {
-            &self.modules[id]
+            &self.mapping[id].value
         }
 
         pub fn graph(&self) -> &DiGraphMap<ModuleId, DependencyKey> {
@@ -270,11 +341,11 @@ pub mod result {
         }
 
         pub fn all_modules_and_id(&self) -> impl Iterator<Item = (ModuleId, &ModuleSource)> {
-            self.mapping.iter()
+            self.mapping.iter().map(|x| (x.0, &x.1.source))
         }
 
         pub fn all_modules(&self) -> impl Iterator<Item = &ModuleSource> {
-            self.mapping.iter().map(|(_id, src)| src)
+            self.mapping.iter().map(|(_id, src)| &src.source)
         }
 
         pub fn builder() -> ResolvedEnvBuilder {
@@ -290,29 +361,35 @@ pub mod result {
 
     pub struct ResolvedEnvBuilder {
         env: ResolvedEnv,
-        rev_mapping: HashMap<ModuleSource, ModuleId>,
     }
 
     impl ResolvedEnvBuilder {
         pub fn new() -> Self {
             Self {
                 env: ResolvedEnv {
+                    input_module_ids: Vec::new(),
                     mapping: SlotMap::with_key(),
-                    modules: SecondaryMap::new(),
                     dep_graph: DiGraphMap::new(),
+                    rev_map: HashMap::new(),
                 },
-                rev_mapping: HashMap::new(),
             }
         }
 
-        pub fn add_module(&mut self, pkg: ModuleSource, module: Arc<MoonMod>) -> ModuleId {
+        pub fn push_root_module(&mut self, id: ModuleId) {
+            self.env.input_module_ids.push(id);
+        }
+
+        pub fn add_module(&mut self, mod_source: ModuleSource, module: Arc<MoonMod>) -> ModuleId {
             // check if it's already inserted
-            if let Some(id) = self.rev_mapping.get(&pkg) {
+            if let Some(id) = self.env.rev_map.get(&mod_source) {
                 *id
             } else {
-                let id = self.env.mapping.insert(pkg.clone());
-                self.env.modules.insert(id, module);
-                self.rev_mapping.insert(pkg, id);
+                let val = ResolvedModule {
+                    source: mod_source.clone(),
+                    value: module,
+                };
+                let id = self.env.mapping.insert(val);
+                self.env.rev_map.insert(mod_source, id);
                 id
             }
         }
