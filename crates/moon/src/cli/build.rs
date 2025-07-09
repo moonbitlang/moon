@@ -36,8 +36,6 @@ use moonutil::mooncakes::RegistryConfig;
 use n2::trace;
 use std::path::Path;
 use std::path::PathBuf;
-use std::sync::Arc;
-use std::thread;
 
 use super::pre_build::scan_with_x_build;
 use super::{BuildFlags, UniversalFlags};
@@ -83,40 +81,12 @@ pub fn run_build(cli: &UniversalFlags, cmd: &BuildSubcommand) -> anyhow::Result<
     let targets = lower_surface_targets(&surface_targets);
 
     let mut ret_value = 0;
-    if cmd.build_flags.serial {
-        for t in targets {
-            let mut cmd = (*cmd).clone();
-            cmd.build_flags.target_backend = Some(t);
-            let x = run_build_internal(cli, &cmd, &source_dir, &target_dir)
-                .context(format!("failed to run build for target {t:?}"))?;
-            ret_value = ret_value.max(x);
-        }
-    } else {
-        let cli = Arc::new(cli.clone());
-        let source_dir = Arc::new(source_dir);
-        let target_dir = Arc::new(target_dir);
-        let mut handles = Vec::new();
-
-        for t in targets {
-            let cli = Arc::clone(&cli);
-            let mut cmd = (*cmd).clone();
-            cmd.build_flags.target_backend = Some(t);
-            let source_dir = Arc::clone(&source_dir);
-            let target_dir = Arc::clone(&target_dir);
-
-            let handle =
-                thread::spawn(move || run_build_internal(&cli, &cmd, &source_dir, &target_dir));
-
-            handles.push((t, handle));
-        }
-
-        for (backend, handle) in handles {
-            let x = handle
-                .join()
-                .unwrap()
-                .context(format!("failed to run build for target {backend:?}"))?;
-            ret_value = ret_value.max(x);
-        }
+    for t in targets {
+        let mut cmd = (*cmd).clone();
+        cmd.build_flags.target_backend = Some(t);
+        let x = run_build_internal(cli, &cmd, &source_dir, &target_dir)
+            .context(format!("failed to run build for target {t:?}"))?;
+        ret_value = ret_value.max(x);
     }
     Ok(ret_value)
 }

@@ -39,8 +39,6 @@ use moonutil::path::PathComponent;
 use n2::trace;
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
-use std::thread;
 
 use crate::cli::pre_build::scan_with_x_build;
 
@@ -131,41 +129,14 @@ pub fn run_test(cli: UniversalFlags, cmd: TestSubcommand) -> anyhow::Result<i32>
         return Err(anyhow::anyhow!("cannot update test on multiple targets"));
     }
     let display_backend_hint = if targets.len() > 1 { Some(()) } else { None };
-    let cli = Arc::new(cli);
-    let source_dir = Arc::new(source_dir);
-    let target_dir = Arc::new(target_dir);
-    let mut handles = Vec::new();
 
     let mut ret_value = 0;
-    if cmd.build_flags.serial {
-        for t in targets {
-            let mut cmd = cmd.clone();
-            cmd.build_flags.target_backend = Some(t);
-            let x = run_test_internal(&cli, &cmd, &source_dir, &target_dir, display_backend_hint)?;
-            ret_value = ret_value.max(x);
-        }
-    } else {
-        for t in targets {
-            let cli = Arc::clone(&cli);
-            let mut cmd = cmd.clone();
-            cmd.build_flags.target_backend = Some(t);
-            let source_dir = Arc::clone(&source_dir);
-            let target_dir = Arc::clone(&target_dir);
-
-            let handle = thread::spawn(move || {
-                run_test_internal(&cli, &cmd, &source_dir, &target_dir, display_backend_hint)
-            });
-
-            handles.push((t, handle));
-        }
-
-        for (backend, handle) in handles {
-            let x = handle
-                .join()
-                .unwrap()
-                .context(format!("failed to run test for target {backend:?}"))?;
-            ret_value = ret_value.max(x);
-        }
+    for t in targets {
+        let mut cmd = cmd.clone();
+        cmd.build_flags.target_backend = Some(t);
+        let x = run_test_internal(&cli, &cmd, &source_dir, &target_dir, display_backend_hint)
+            .context(format!("failed to run test for target {t:?}"))?;
+        ret_value = ret_value.max(x);
     }
     Ok(ret_value)
 }

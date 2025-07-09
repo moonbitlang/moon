@@ -19,8 +19,6 @@
 use anyhow::Context;
 use moonutil::{common::lower_surface_targets, dirs::PackageDirs, mooncakes::sync::AutoSyncFlags};
 use std::path::Path;
-use std::sync::Arc;
-use std::thread;
 
 use super::{BuildFlags, UniversalFlags};
 
@@ -66,41 +64,14 @@ pub fn run_bench(cli: UniversalFlags, cmd: BenchSubcommand) -> anyhow::Result<i3
     let surface_targets = cmd.build_flags.target.clone().unwrap();
     let targets = lower_surface_targets(&surface_targets);
     let display_backend_hint = if targets.len() > 1 { Some(()) } else { None };
-    let cli = Arc::new(cli);
-    let source_dir = Arc::new(source_dir);
-    let target_dir = Arc::new(target_dir);
-    let mut handles = Vec::new();
 
     let mut ret_value = 0;
-    if cmd.build_flags.serial {
-        for t in targets {
-            let mut cmd = cmd.clone();
-            cmd.build_flags.target_backend = Some(t);
-            let x = run_bench_internal(&cli, &cmd, &source_dir, &target_dir, display_backend_hint)?;
-            ret_value = ret_value.max(x);
-        }
-    } else {
-        for t in targets {
-            let cli = Arc::clone(&cli);
-            let mut cmd = cmd.clone();
-            cmd.build_flags.target_backend = Some(t);
-            let source_dir = Arc::clone(&source_dir);
-            let target_dir = Arc::clone(&target_dir);
-
-            let handle = thread::spawn(move || {
-                run_bench_internal(&cli, &cmd, &source_dir, &target_dir, display_backend_hint)
-            });
-
-            handles.push((t, handle));
-        }
-
-        for (backend, handle) in handles {
-            let x = handle
-                .join()
-                .unwrap()
-                .context(format!("failed to run bench for target {backend:?}"))?;
-            ret_value = ret_value.max(x);
-        }
+    for t in targets {
+        let mut cmd = cmd.clone();
+        cmd.build_flags.target_backend = Some(t);
+        let x = run_bench_internal(&cli, &cmd, &source_dir, &target_dir, display_backend_hint)
+            .context(format!("failed to run bench for target {t:?}"))?;
+        ret_value = ret_value.max(x);
     }
     Ok(ret_value)
 }

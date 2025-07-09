@@ -28,7 +28,7 @@ use moonutil::{
     dirs::{mk_arch_mode_dir, PackageDirs},
     mooncakes::{sync::AutoSyncFlags, RegistryConfig},
 };
-use std::{path::Path, sync::Arc, thread};
+use std::path::Path;
 
 use super::{pre_build::scan_with_x_build, BuildFlags};
 
@@ -75,40 +75,12 @@ pub fn run_bundle(cli: UniversalFlags, cmd: BundleSubcommand) -> anyhow::Result<
     }
 
     let mut ret_value = 0;
-    if cmd.build_flags.serial {
-        for t in targets {
-            let mut cmd = cmd.clone();
-            cmd.build_flags.target_backend = Some(t);
-            let x = run_bundle_internal(&cli, &cmd, &source_dir, &target_dir)
-                .context(format!("failed to run bundle for target {t:?}"))?;
-            ret_value = ret_value.max(x);
-        }
-    } else {
-        let cli = Arc::new(cli);
-        let source_dir = Arc::new(source_dir);
-        let target_dir = Arc::new(target_dir);
-        let mut handles = Vec::new();
-
-        for t in targets {
-            let cli = Arc::clone(&cli);
-            let mut cmd = cmd.clone();
-            cmd.build_flags.target_backend = Some(t);
-            let source_dir = Arc::clone(&source_dir);
-            let target_dir = Arc::clone(&target_dir);
-
-            let handle =
-                thread::spawn(move || run_bundle_internal(&cli, &cmd, &source_dir, &target_dir));
-
-            handles.push((t, handle));
-        }
-
-        for (backend, handle) in handles {
-            let x = handle
-                .join()
-                .unwrap()
-                .context(format!("failed to run bundle for target {backend:?}"))?;
-            ret_value = ret_value.max(x);
-        }
+    for t in targets {
+        let mut cmd = cmd.clone();
+        cmd.build_flags.target_backend = Some(t);
+        let x = run_bundle_internal(&cli, &cmd, &source_dir, &target_dir)
+            .context(format!("failed to run bundle for target {t:?}"))?;
+        ret_value = ret_value.max(x);
     }
     Ok(ret_value)
 }

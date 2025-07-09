@@ -20,7 +20,6 @@ use std::{
     collections::HashMap,
     path::{Path, PathBuf},
     sync::{Arc, Mutex},
-    thread,
 };
 
 use anyhow::{bail, Context};
@@ -87,31 +86,14 @@ pub fn run_info(cli: UniversalFlags, cmd: InfoSubcommand) -> anyhow::Result<i32>
         lower_surface_targets(&cmd.target.clone().unwrap())
     };
 
-    let cli = Arc::new(cli.clone());
-    let source_dir = Arc::new(source_dir);
-    let target_dir = Arc::new(target_dir);
-    let mut handles = Vec::new();
-
+    let mut mbti_files_for_targets = vec![];
     for t in &targets {
-        let cli = Arc::clone(&cli);
         let mut cmd = cmd.clone();
         cmd.target_backend = Some(*t);
-        let source_dir = Arc::clone(&source_dir);
-        let target_dir = Arc::clone(&target_dir);
-
-        let handle = thread::spawn(move || run_info_internal(&cli, &cmd, &source_dir, &target_dir));
-
-        handles.push((*t, handle));
-    }
-
-    let mut mbti_files_for_targets = vec![];
-    for (backend, handle) in handles {
-        let mut x = handle
-            .join()
-            .unwrap()
-            .context(format!("failed to run moon info for target {backend:?}"))?;
+        let mut x = run_info_internal(&cli, &cmd, &source_dir, &target_dir)
+            .context(format!("failed to run moon info for target {t:?}"))?;
         x.sort_by(|a, b| a.0.cmp(&b.0));
-        mbti_files_for_targets.push((backend, x));
+        mbti_files_for_targets.push((*t, x));
     }
 
     // check consistency if there are multiple targets

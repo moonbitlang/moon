@@ -169,8 +169,12 @@ pub struct BuildFlags {
     #[clap(skip)]
     pub target_backend: Option<TargetBackend>,
 
-    /// Handle the selected targets sequentially
-    #[clap(long, requires = "target")]
+    /// [Deprecated] Handle the selected targets sequentially
+    ///
+    /// This flag is deprecated, because all targets are handled sequentially
+    /// for now, until multi-target compilation is implemented (if any).
+    #[clap(long, requires = "target", hide = true)]
+    #[deprecated]
     pub serial: bool,
 
     /// Enable coverage instrumentation
