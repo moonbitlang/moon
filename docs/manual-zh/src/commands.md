@@ -107,7 +107,6 @@ Build the current package
 
   Possible values: `wasm`, `wasm-gc`, `js`, `native`, `llvm`, `all`
 
-* `--serial` — Handle the selected targets sequentially
 * `--enable-coverage` — Enable coverage instrumentation
 * `--sort-input` — Sort input files
 * `--output-wat` — Output WAT instead of WASM
@@ -143,7 +142,6 @@ Check the current package, but don't build object files
 
   Possible values: `wasm`, `wasm-gc`, `js`, `native`, `llvm`, `all`
 
-* `--serial` — Handle the selected targets sequentially
 * `--enable-coverage` — Enable coverage instrumentation
 * `--sort-input` — Sort input files
 * `--output-wat` — Output WAT instead of WASM
@@ -185,7 +183,6 @@ Run a main package
 
   Possible values: `wasm`, `wasm-gc`, `js`, `native`, `llvm`, `all`
 
-* `--serial` — Handle the selected targets sequentially
 * `--enable-coverage` — Enable coverage instrumentation
 * `--sort-input` — Sort input files
 * `--output-wat` — Output WAT instead of WASM
@@ -221,7 +218,6 @@ Test the current package
 
   Possible values: `wasm`, `wasm-gc`, `js`, `native`, `llvm`, `all`
 
-* `--serial` — Handle the selected targets sequentially
 * `--enable-coverage` — Enable coverage instrumentation
 * `--sort-input` — Sort input files
 * `--output-wat` — Output WAT instead of WASM
@@ -331,7 +327,6 @@ Run benchmarks in the current package
 
   Possible values: `wasm`, `wasm-gc`, `js`, `native`, `llvm`, `all`
 
-* `--serial` — Handle the selected targets sequentially
 * `--enable-coverage` — Enable coverage instrumentation
 * `--sort-input` — Sort input files
 * `--output-wat` — Output WAT instead of WASM
@@ -479,7 +474,6 @@ Run test with instrumentation and report coverage
 
   Possible values: `wasm`, `wasm-gc`, `js`, `native`, `llvm`, `all`
 
-* `--serial` — Handle the selected targets sequentially
 * `--enable-coverage` — Enable coverage instrumentation
 * `--sort-input` — Sort input files
 * `--output-wat` — Output WAT instead of WASM
