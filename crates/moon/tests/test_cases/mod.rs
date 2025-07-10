@@ -1379,7 +1379,7 @@ fn test_blackbox_test_core_override() {
             moon generate-test-driver --output-driver ./target/wasm-gc/debug/test/builtin/__generated_driver_for_blackbox_test.mbt --output-metadata ./target/wasm-gc/debug/test/builtin/__blackbox_test_info.json ./builtin/main_test.mbt --doctest-only ./builtin/main.mbt --target wasm-gc --pkg-name moonbitlang/core/builtin --enable-coverage --coverage-package-override=@self --driver-kind blackbox
             moonc build-package ./builtin/main.mbt -o ./target/wasm-gc/debug/test/builtin/builtin.core -pkg moonbitlang/core/builtin -pkg-sources moonbitlang/core/builtin:./builtin -target wasm-gc -g -O0 -source-map -enable-coverage -coverage-package-override=@self
             moonc build-package -o ./target/wasm-gc/debug/test/prelude/prelude.core -pkg moonbitlang/core/prelude -pkg-sources moonbitlang/core/prelude:./prelude -target wasm-gc -g -O0 -source-map -enable-coverage
-            moonc build-package ./builtin/main_test.mbt ./target/wasm-gc/debug/test/builtin/__generated_driver_for_blackbox_test.mbt -doctest-only ./builtin/main.mbt -o ./target/wasm-gc/debug/test/builtin/builtin.blackbox_test.core -pkg moonbitlang/core/builtin_blackbox_test -is-main -i ./target/wasm-gc/debug/test/builtin/builtin.mi:builtin -i ./target/wasm-gc/debug/test/prelude/prelude.mi:prelude -pkg-sources moonbitlang/core/builtin_blackbox_test:./builtin -target wasm-gc -g -O0 -source-map -enable-coverage -coverage-package-override=moonbitlang/core/builtin -blackbox-test -include-doctests -no-mi -test-mode
+            moonc build-package ./builtin/main_test.mbt ./target/wasm-gc/debug/test/builtin/__generated_driver_for_blackbox_test.mbt -doctest-only ./builtin/main.mbt -o ./target/wasm-gc/debug/test/builtin/builtin.blackbox_test.core -pkg moonbitlang/core/builtin_blackbox_test -is-main -i ./target/wasm-gc/debug/test/builtin/builtin.mi:builtin -i ./target/wasm-gc/debug/test/prelude/prelude.mi:prelude -pkg-sources moonbitlang/core/builtin_blackbox_test:./builtin -target wasm-gc -g -O0 -source-map -blackbox-test -include-doctests -no-mi -test-mode
             moonc link-core ./target/wasm-gc/debug/test/prelude/prelude.core ./target/wasm-gc/debug/test/builtin/builtin.core ./target/wasm-gc/debug/test/builtin/builtin.blackbox_test.core -main moonbitlang/core/builtin_blackbox_test -o ./target/wasm-gc/debug/test/builtin/builtin.blackbox_test.wasm -test-mode -pkg-config-path ./builtin/moon.pkg.json -pkg-sources moonbitlang/core/prelude:./prelude -pkg-sources moonbitlang/core/builtin:./builtin -pkg-sources moonbitlang/core/builtin_blackbox_test:./builtin -exported_functions moonbit_test_driver_internal_execute,moonbit_test_driver_finish -target wasm-gc -g -O0 -source-map
             moon generate-test-driver --output-driver ./target/wasm-gc/debug/test/builtin/__generated_driver_for_internal_test.mbt --output-metadata ./target/wasm-gc/debug/test/builtin/__internal_test_info.json ./builtin/main.mbt --target wasm-gc --pkg-name moonbitlang/core/builtin --enable-coverage --coverage-package-override=@self --driver-kind internal
             moonc build-package ./builtin/main.mbt ./target/wasm-gc/debug/test/builtin/__generated_driver_for_internal_test.mbt -o ./target/wasm-gc/debug/test/builtin/builtin.internal_test.core -pkg moonbitlang/core/builtin -is-main -pkg-sources moonbitlang/core/builtin:./builtin -target wasm-gc -g -O0 -source-map -enable-coverage -coverage-package-override=@self -no-mi -test-mode
@@ -1392,15 +1392,10 @@ fn test_blackbox_test_core_override() {
         // For the command compiling builtin's blackbox tests,
         if line.contains("moonc build-package") && line.contains("builtin_blackbox_test") {
             found = true;
-            // it should have the -enable-coverage flag
+            // it should not have the -enable-coverage flag
             assert!(
-                line.contains("-enable-coverage"),
-                "No -enable-coverage flag found in the command: {line}"
-            );
-            // and -coverage-package-override to the original package
-            assert!(
-                line.contains("-coverage-package-override=moonbitlang/core/builtin"),
-                "No -coverage-package-override=moonbitlang/core/builtin found in the command: {line}"
+                !line.contains("-enable-coverage"),
+                "Black box tests themselves should not contain coverage, since all they contain are tests of various kinds. {line}"
             );
             // and should not contain -coverage-package-override to itself
             assert!(
