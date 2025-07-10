@@ -221,6 +221,14 @@ impl<'a> BuildPlanConstructor<'a> {
         }
     }
 
+    /// Tell the build graph that we need to calculate the graph portion of a
+    /// new node, and return that node for later usage. See [`Self::need_node`].
+    fn need(&mut self, target: BuildTarget, action: TargetAction) -> BuildPlanNode {
+        let node = BuildPlanNode { target, action };
+        self.need_node(node);
+        node
+    }
+
     /// Tell the build graph that the given node has been resolved into a
     /// concrete action specification.
     fn resolved_node(&mut self, node_id: BuildPlanNode, spec: BuildActionSpec) {
@@ -271,11 +279,7 @@ impl<'a> BuildPlanConstructor<'a> {
             .dep_graph
             .neighbors_directed(node.target, petgraph::Direction::Incoming)
         {
-            let dep_node = BuildPlanNode {
-                target: dep,
-                action: TargetAction::Check,
-            };
-            self.need_node(dep_node);
+            let dep_node = self.need(dep, TargetAction::Check);
             self.add_edge(node, dep_node);
         }
 
@@ -296,11 +300,7 @@ impl<'a> BuildPlanConstructor<'a> {
             .dep_graph
             .neighbors_directed(node.target, petgraph::Direction::Incoming)
         {
-            let dep_node = BuildPlanNode {
-                target: dep,
-                action: TargetAction::Build,
-            };
-            self.need_node(dep_node);
+            let dep_node = self.need(dep, TargetAction::Build);
             self.add_edge(node, dep_node);
         }
 
@@ -400,11 +400,7 @@ impl<'a> BuildPlanConstructor<'a> {
             }
         }
 
-        let link_core_node = BuildPlanNode {
-            target: make_exec_node.target,
-            action: TargetAction::LinkCore,
-        };
-        self.need_node(link_core_node);
+        let link_core_node = self.need(make_exec_node.target, TargetAction::LinkCore);
 
         // Add edges to all dependencies
         // Note that we have already replaced unnecessary dependencies
@@ -426,11 +422,7 @@ impl<'a> BuildPlanConstructor<'a> {
 
         // Add dependencies of make exec
         for target in &c_stub_deps {
-            let dep_node = BuildPlanNode {
-                target: *target,
-                action: TargetAction::BuildCStubs,
-            };
-            self.need_node(dep_node);
+            let dep_node = self.need(*target, TargetAction::BuildCStubs);
             self.add_edge(make_exec_node, dep_node);
         }
         self.resolved_node(make_exec_node, BuildActionSpec::MakeExecutable(c_stub_deps));
