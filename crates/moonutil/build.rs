@@ -37,7 +37,7 @@ pub fn main() -> Result<(), Box<dyn Error>> {
     let out_dir = env::var_os("OUT_DIR").unwrap();
     let dest_path = Path::new(&out_dir).join("error_code_docs.rs");
 
-    let mut docs_map = String::from("{\n    let mut m = HashMap::new();\n");
+    let mut docs_map = String::from("{\n    #[allow(unused_mut)] let mut m = HashMap::new();\n");
 
     let docs_dir = Path::new("resources/error_codes/next/language/error_codes");
     if let Ok(entries) = fs::read_dir(docs_dir) {

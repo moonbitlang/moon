@@ -7,6 +7,7 @@ fn test_mbti() {
     let _ = get_stdout(&dir, ["info"]);
     let lib_mi_out = &std::fs::read_to_string(dir.join("lib").join("lib.mbti")).unwrap();
     expect![[r#"
+        // Generated using `moon info`, DON'T EDIT IT
         package "username/hello/lib"
 
         import(
@@ -29,6 +30,7 @@ fn test_mbti() {
 
     let main_mi_out = &std::fs::read_to_string(dir.join("main").join("main.mbti")).unwrap();
     expect![[r#"
+        // Generated using `moon info`, DON'T EDIT IT
         package "username/hello/main"
 
         // Values
@@ -50,6 +52,7 @@ fn test_mbti_no_alias() {
     let _ = get_stdout(&dir, ["info", "--no-alias"]);
     let lib_mi_out = &std::fs::read_to_string(dir.join("lib").join("lib.mbti")).unwrap();
     expect![[r#"
+        // Generated using `moon info`, DON'T EDIT IT
         package "username/hello/lib"
 
         // Values
@@ -68,6 +71,7 @@ fn test_mbti_no_alias() {
 
     let main_mi_out = &std::fs::read_to_string(dir.join("main").join("main.mbti")).unwrap();
     expect![[r#"
+        // Generated using `moon info`, DON'T EDIT IT
         package "username/hello/main"
 
         // Values

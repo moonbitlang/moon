@@ -104,8 +104,17 @@ pub struct TestSubcommand {
 
 pub fn run_test(cli: UniversalFlags, cmd: TestSubcommand) -> anyhow::Result<i32> {
     let (source_dir, target_dir) = if let Some(ref single_file_path) = cmd.single_file {
-        let single_file_path = &dunce::canonicalize(single_file_path).unwrap();
-        let source_dir = single_file_path.parent().unwrap().to_path_buf();
+        let single_file_path = &dunce::canonicalize(single_file_path).context(format!(
+            "failed to run tests for a nonexistent file '{}'",
+            single_file_path.display()
+        ))?;
+        let source_dir = single_file_path
+            .parent()
+            .context(format!(
+                "impossible to run tests for a non-file '{}'",
+                single_file_path.display(),
+            ))?
+            .to_path_buf();
         let target_dir = source_dir.join("target");
         (source_dir, target_dir)
     } else {
@@ -120,11 +129,10 @@ pub fn run_test(cli: UniversalFlags, cmd: TestSubcommand) -> anyhow::Result<i32>
         );
     }
 
-    if cmd.build_flags.target.is_none() {
+    let Some(surface_targets) = &cmd.build_flags.target else {
         return run_test_internal(&cli, &cmd, &source_dir, &target_dir, None);
-    }
-    let surface_targets = cmd.build_flags.target.clone().unwrap();
-    let targets = lower_surface_targets(&surface_targets);
+    };
+    let targets = lower_surface_targets(surface_targets);
     if cmd.update && targets.len() > 1 {
         return Err(anyhow::anyhow!("cannot update test on multiple targets"));
     }

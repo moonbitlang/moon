@@ -3,6 +3,7 @@
   Finished. moon: ran 2 tasks, now up to date
   
   $ xcat src/lib/lib.mbti
+  // Generated using `moon info`, DON'T EDIT IT
   package "username/hello/lib"
   
   // Values
