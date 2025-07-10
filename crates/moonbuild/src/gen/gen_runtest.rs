@@ -1161,7 +1161,7 @@ pub fn gen_runtest_build_command(
     };
 
     let coverage_args = coverage_args(
-        moonc_opt.build_opt.enable_coverage && !item.is_third_party,
+        enable_coverage_during_compile(moonc_opt, item.is_blackbox_test, item.is_third_party),
         &item.package_full_name,
         item.original_package_full_name.as_deref(),
         false,
@@ -1554,6 +1554,9 @@ fn gen_generate_test_driver_command(
         line: 0,
     };
 
+    // Note: this controls whether to emit the coverage collection command in
+    // the generated test driver, so it's always the same as `enable_coverage`,
+    // unlike the body of black box tests which don't need such.
     let coverage_args = coverage_args(
         moonc_opt.build_opt.enable_coverage,
         &item.package_name,
@@ -1619,4 +1622,15 @@ fn gen_generate_test_driver_command(
         item.package_name, item.driver_kind
     ));
     build
+}
+
+/// This is part of the easier quick fix for the coverage racing condition.
+/// `moonc` can't tell between an extracted doctest in blackbox test and a
+/// regular file, so we can just disable coverage for blackbox tests altogether.
+fn enable_coverage_during_compile(
+    moonc_opt: &MooncOpt,
+    is_blackbox: bool,
+    is_3rd_party: bool,
+) -> bool {
+    moonc_opt.build_opt.enable_coverage && !is_blackbox && !is_3rd_party
 }
