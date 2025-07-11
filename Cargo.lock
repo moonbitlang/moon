@@ -1445,6 +1445,7 @@ dependencies = [
  "indexmap",
  "log",
  "moonbuild",
+ "moonbuild-rupes-recta",
  "mooncake",
  "moonutil",
  "n2",
@@ -1466,6 +1467,7 @@ name = "moonbuild"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "arcstr",
  "base64 0.22.1",
  "chrono",
  "clap",
@@ -1508,6 +1510,25 @@ dependencies = [
  "walkdir",
  "which 6.0.2",
  "zip",
+]
+
+[[package]]
+name = "moonbuild-rupes-recta"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "arcstr",
+ "indexmap",
+ "log",
+ "mooncake",
+ "moonutil",
+ "n2",
+ "petgraph",
+ "relative-path",
+ "shlex",
+ "slotmap",
+ "thiserror",
+ "walkdir",
 ]
 
 [[package]]
@@ -2014,6 +2035,15 @@ name = "regex-syntax"
 version = "0.8.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "2b15c43186be67a4fd63bee50d0303afffcef381492ebe2c5d87f324e1b8815c"
+
+[[package]]
+name = "relative-path"
+version = "2.0.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "bca40a312222d8ba74837cb474edef44b37f561da5f773981007a10bbaa992b0"
+dependencies = [
+ "serde",
+]
 
 [[package]]
 name = "reqwest"

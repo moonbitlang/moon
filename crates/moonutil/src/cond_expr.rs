@@ -295,7 +295,7 @@ pub fn parse_cond_exprs(file: &Path, map: &RawTargets) -> Result<CondExprs, Pars
         .collect()
 }
 
-fn parse_cond_expr(file: &Path, value: &StringOrArray) -> Result<CondExpr, ParseCondExprError> {
+pub fn parse_cond_expr(file: &Path, value: &StringOrArray) -> Result<CondExpr, ParseCondExprError> {
     match value {
         StringOrArray::String(s) => parse_cond_target(s).map_err(|e| ParseCondExprError {
             file: file.to_path_buf(),

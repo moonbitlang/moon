@@ -240,6 +240,12 @@ jobs:
           cargo run --bin moon test --source-dir ~/.moon/lib/core --target llvm
           cargo run --bin moon test --source-dir ~/.moon/lib/core --target llvm --release
 
+      - name: Test core compilation (Rupes Recta builder, Unix)
+        if: ${{ matrix.os != 'windows-latest' }}
+        run: |
+          cargo run --bin moon -- -C ~/.moon/lib/core clean
+          cargo run --bin moon -- -Z rupes_recta -C ~/.moon/lib/core build --target wasm-gc
+
   stable-test:
     needs: [typo-check, license-header-check]
     strategy:

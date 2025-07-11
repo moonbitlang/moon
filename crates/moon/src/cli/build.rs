@@ -16,11 +16,17 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
+use anyhow::anyhow;
 use anyhow::Context;
 use colored::Colorize;
 use moonbuild::dry_run;
 use moonbuild::entry;
 use moonbuild::watch::watching;
+use moonbuild_rupes_recta::compile::UserIntent;
+use moonbuild_rupes_recta::model::BuildTarget;
+use moonbuild_rupes_recta::model::TargetKind;
+use moonbuild_rupes_recta::resolve::ResolveConfig;
+use moonbuild_rupes_recta::CompileContext;
 use mooncake::pkg::sync::auto_sync;
 use moonutil::common::lower_surface_targets;
 use moonutil::common::BuildOpt;
@@ -29,6 +35,7 @@ use moonutil::common::MoonbuildOpt;
 use moonutil::common::PrePostBuild;
 use moonutil::common::RunMode;
 use moonutil::common::TargetBackend;
+use moonutil::cond_expr::OptLevel;
 use moonutil::dirs::mk_arch_mode_dir;
 use moonutil::dirs::PackageDirs;
 use moonutil::mooncakes::sync::AutoSyncFlags;
@@ -92,6 +99,19 @@ pub fn run_build(cli: &UniversalFlags, cmd: &BuildSubcommand) -> anyhow::Result<
 }
 
 fn run_build_internal(
+    cli: &UniversalFlags,
+    cmd: &BuildSubcommand,
+    source_dir: &Path,
+    target_dir: &Path,
+) -> anyhow::Result<i32> {
+    if cli.unstable_feature.rupes_recta {
+        run_build_internal_rupes_recta(cli, cmd, source_dir, target_dir)
+    } else {
+        run_build_internal_legacy(cli, cmd, source_dir, target_dir)
+    }
+}
+
+fn run_build_internal_legacy(
     cli: &UniversalFlags,
     cmd: &BuildSubcommand,
     source_dir: &Path,
@@ -211,4 +231,136 @@ fn run_build_internal(
         println!("{}", serde_json::to_string(&artifacts).unwrap());
     }
     res
+}
+
+fn run_build_internal_rupes_recta(
+    cli: &UniversalFlags,
+    cmd: &BuildSubcommand,
+    source_dir: &Path,
+    target_dir: &Path,
+) -> anyhow::Result<i32> {
+    let cfg = ResolveConfig::new_with_load_defaults(cmd.auto_sync_flags.frozen);
+    let resolve_output = moonbuild_rupes_recta::resolve(&cfg, source_dir)?;
+
+    // A couple of debug things:
+    if cli.unstable_feature.rr_export_module_graph {
+        moonbuild_rupes_recta::util::print_resolved_env_dot(
+            &resolve_output.module_rel,
+            &mut std::fs::File::create(target_dir.join("module_graph.dot"))?,
+        )?;
+    }
+    if cli.unstable_feature.rr_export_package_graph {
+        moonbuild_rupes_recta::util::print_dep_relationship_dot(
+            &resolve_output.pkg_rel,
+            &resolve_output.pkg_dirs,
+            &mut std::fs::File::create(target_dir.join("package_graph.dot"))?,
+        )?;
+    }
+
+    assert_eq!(
+        resolve_output.local_modules().len(),
+        1,
+        "There should be exactly one main local module, got {:?}",
+        resolve_output.local_modules()
+    );
+    let main_module_id = resolve_output.local_modules()[0];
+    let main_module = resolve_output.module_rel.module_info(main_module_id);
+
+    // Preferred backend
+    let preferred_backend = main_module.preferred_target;
+
+    let intent = calc_user_intent(&resolve_output, main_module_id)?;
+
+    let cx = CompileContext {
+        resolve_output: &resolve_output,
+        target_dir: target_dir.to_owned(),
+        target_backend: cmd
+            .build_flags
+            .target_backend
+            .or(preferred_backend)
+            .unwrap_or_default(),
+        opt_level: if cmd.build_flags.release {
+            OptLevel::Release
+        } else {
+            OptLevel::Debug
+        },
+        debug_symbols: !cmd.build_flags.release || cmd.build_flags.debug,
+    };
+    let graph = moonbuild_rupes_recta::compile(&cx, &[intent])?;
+
+    // Generate n2 state
+    // FIXME: This is extremely verbose and barebones, only for testing purpose
+    let mut graph = graph.build_graph;
+    let mut hashes = n2::graph::Hashes::default();
+    let n2_db = n2::db::open(
+        &target_dir.join("moon.rupes-recta.db"),
+        &mut graph,
+        &mut hashes,
+    )?;
+    let mut prog_console = n2::progress::DumbConsoleProgress::new(false, None);
+    let mut work = n2::work::Work::new(
+        graph,
+        hashes,
+        n2_db,
+        &n2::work::Options {
+            failures_left: Some(1),
+            parallelism: 1,
+            explain: false,
+            adopt: false,
+            dirty_on_output: true,
+        },
+        &mut prog_console,
+        n2::smallmap::SmallMap::default(),
+    );
+    work.want_every_file(None)?;
+    let res = work.run()?;
+    if let Some(n) = res {
+        println!("{n} tasks executed");
+        Ok(0)
+    } else {
+        println!("Build failed");
+        Ok(1)
+    }
+}
+
+/// Generate user intent
+/// If any packages are linkable, compile those; otherwise, compile everything
+/// to core.
+fn calc_user_intent(
+    resolve_output: &moonbuild_rupes_recta::ResolveOutput,
+    main_module_id: moonutil::mooncakes::ModuleId,
+) -> Result<UserIntent, anyhow::Error> {
+    let packages = resolve_output
+        .pkg_dirs
+        .packages_for_module(main_module_id)
+        .ok_or_else(|| anyhow!("Cannot find the local module!"))?;
+    let mut linkable_pkgs = vec![];
+    for &pkg_id in packages.values() {
+        let pkg = resolve_output.pkg_dirs.get_package(pkg_id);
+        if pkg.raw.force_link || pkg.raw.link.is_some() || pkg.raw.is_main {
+            linkable_pkgs.push(pkg_id)
+        }
+    }
+    let intent = if linkable_pkgs.is_empty() {
+        UserIntent::BuildCore(
+            packages
+                .iter()
+                .map(|(_, &pkg_id)| BuildTarget {
+                    package: pkg_id,
+                    kind: TargetKind::Source,
+                })
+                .collect(),
+        )
+    } else {
+        UserIntent::BuildExecutable(
+            linkable_pkgs
+                .into_iter()
+                .map(|pkg_id| BuildTarget {
+                    package: pkg_id,
+                    kind: TargetKind::Source,
+                })
+                .collect(),
+        )
+    };
+    Ok(intent)
 }
