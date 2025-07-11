@@ -1,0 +1,1044 @@
+<!DOCTYPE HTML>
+<html lang="en" class="light sidebar-visible" dir="ltr">
+    <head>
+        <!-- Book generated using mdBook -->
+        <meta charset="UTF-8">
+        <title>Moon Manual</title>
+        <meta name="robots" content="noindex">
+
+
+        <!-- Custom HTML head -->
+
+        <meta name="description" content="">
+        <meta name="viewport" content="width=device-width, initial-scale=1">
+        <meta name="theme-color" content="#ffffff">
+
+        <link rel="icon" href="favicon.svg">
+        <link rel="shortcut icon" href="favicon.png">
+        <link rel="stylesheet" href="css/variables.css">
+        <link rel="stylesheet" href="css/general.css">
+        <link rel="stylesheet" href="css/chrome.css">
+        <link rel="stylesheet" href="css/print.css" media="print">
+
+        <!-- Fonts -->
+        <link rel="stylesheet" href="FontAwesome/css/font-awesome.css">
+        <link rel="stylesheet" href="fonts/fonts.css">
+
+        <!-- Highlight.js Stylesheets -->
+        <link rel="stylesheet" id="highlight-css" href="highlight.css">
+        <link rel="stylesheet" id="tomorrow-night-css" href="tomorrow-night.css">
+        <link rel="stylesheet" id="ayu-highlight-css" href="ayu-highlight.css">
+
+        <!-- Custom theme stylesheets -->
+
+
+        <!-- Provide site root and default themes to javascript -->
+        <script>
+            const path_to_root = "";
+            const default_light_theme = "light";
+            const default_dark_theme = "navy";
+        </script>
+        <!-- Start loading toc.js asap -->
+        <script src="toc.js"></script>
+    </head>
+    <body>
+    <div id="mdbook-help-container">
+        <div id="mdbook-help-popup">
+            <h2 class="mdbook-help-title">Keyboard shortcuts</h2>
+            <div>
+                <p>Press <kbd>←</kbd> or <kbd>→</kbd> to navigate between chapters</p>
+                <p>Press <kbd>S</kbd> or <kbd>/</kbd> to search in the book</p>
+                <p>Press <kbd>?</kbd> to show this help</p>
+                <p>Press <kbd>Esc</kbd> to hide this help</p>
+            </div>
+        </div>
+    </div>
+    <div id="body-container">
+        <!-- Work around some values being stored in localStorage wrapped in quotes -->
+        <script>
+            try {
+                let theme = localStorage.getItem('mdbook-theme');
+                let sidebar = localStorage.getItem('mdbook-sidebar');
+
+                if (theme.startsWith('"') && theme.endsWith('"')) {
+                    localStorage.setItem('mdbook-theme', theme.slice(1, theme.length - 1));
+                }
+
+                if (sidebar.startsWith('"') && sidebar.endsWith('"')) {
+                    localStorage.setItem('mdbook-sidebar', sidebar.slice(1, sidebar.length - 1));
+                }
+            } catch (e) { }
+        </script>
+
+        <!-- Set the theme before any content is loaded, prevents flash -->
+        <script>
+            const default_theme = window.matchMedia("(prefers-color-scheme: dark)").matches ? default_dark_theme : default_light_theme;
+            let theme;
+            try { theme = localStorage.getItem('mdbook-theme'); } catch(e) { }
+            if (theme === null || theme === undefined) { theme = default_theme; }
+            const html = document.documentElement;
+            html.classList.remove('light')
+            html.classList.add(theme);
+            html.classList.add("js");
+        </script>
+
+        <input type="checkbox" id="sidebar-toggle-anchor" class="hidden">
+
+        <!-- Hide / unhide sidebar before it is displayed -->
+        <script>
+            let sidebar = null;
+            const sidebar_toggle = document.getElementById("sidebar-toggle-anchor");
+            if (document.body.clientWidth >= 1080) {
+                try { sidebar = localStorage.getItem('mdbook-sidebar'); } catch(e) { }
+                sidebar = sidebar || 'visible';
+            } else {
+                sidebar = 'hidden';
+            }
+            sidebar_toggle.checked = sidebar === 'visible';
+            html.classList.remove('sidebar-visible');
+            html.classList.add("sidebar-" + sidebar);
+        </script>
+
+        <nav id="sidebar" class="sidebar" aria-label="Table of contents">
+            <!-- populated by js -->
+            <mdbook-sidebar-scrollbox class="sidebar-scrollbox"></mdbook-sidebar-scrollbox>
+            <noscript>
+                <iframe class="sidebar-iframe-outer" src="toc.html"></iframe>
+            </noscript>
+            <div id="sidebar-resize-handle" class="sidebar-resize-handle">
+                <div class="sidebar-resize-indicator"></div>
+            </div>
+        </nav>
+
+        <div id="page-wrapper" class="page-wrapper">
+
+            <div class="page">
+                <div id="menu-bar-hover-placeholder"></div>
+                <div id="menu-bar" class="menu-bar sticky">
+                    <div class="left-buttons">
+                        <label id="sidebar-toggle" class="icon-button" for="sidebar-toggle-anchor" title="Toggle Table of Contents" aria-label="Toggle Table of Contents" aria-controls="sidebar">
+                            <i class="fa fa-bars"></i>
+                        </label>
+                        <button id="theme-toggle" class="icon-button" type="button" title="Change theme" aria-label="Change theme" aria-haspopup="true" aria-expanded="false" aria-controls="theme-list">
+                            <i class="fa fa-paint-brush"></i>
+                        </button>
+                        <ul id="theme-list" class="theme-popup" aria-label="Themes" role="menu">
+                            <li role="none"><button role="menuitem" class="theme" id="default_theme">Auto</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="light">Light</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="rust">Rust</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="coal">Coal</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="navy">Navy</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="ayu">Ayu</button></li>
+                        </ul>
+                        <button id="search-toggle" class="icon-button" type="button" title="Search (`/`)" aria-label="Toggle Searchbar" aria-expanded="false" aria-keyshortcuts="/ s" aria-controls="searchbar">
+                            <i class="fa fa-search"></i>
+                        </button>
+                    </div>
+
+                    <h1 class="menu-title">Moon Manual</h1>
+
+                    <div class="right-buttons">
+                        <a href="print.html" title="Print this book" aria-label="Print this book">
+                            <i id="print-button" class="fa fa-print"></i>
+                        </a>
+
+                    </div>
+                </div>
+
+                <div id="search-wrapper" class="hidden">
+                    <form id="searchbar-outer" class="searchbar-outer">
+                        <input type="search" id="searchbar" name="searchbar" placeholder="Search this book ..." aria-controls="searchresults-outer" aria-describedby="searchresults-header">
+                    </form>
+                    <div id="searchresults-outer" class="searchresults-outer hidden">
+                        <div id="searchresults-header" class="searchresults-header"></div>
+                        <ul id="searchresults">
+                        </ul>
+                    </div>
+                </div>
+
+                <!-- Apply ARIA attributes after the sidebar and the sidebar toggle button are added to the DOM -->
+                <script>
+                    document.getElementById('sidebar-toggle').setAttribute('aria-expanded', sidebar === 'visible');
+                    document.getElementById('sidebar').setAttribute('aria-hidden', sidebar !== 'visible');
+                    Array.from(document.querySelectorAll('#sidebar a')).forEach(function(link) {
+                        link.setAttribute('tabIndex', sidebar === 'visible' ? 0 : -1);
+                    });
+                </script>
+
+                <div id="content" class="content">
+                    <main>
+                        <h1 id="moved-to-httpsdocsmoonbitlangcomenlatesttoolchainindexhtml"><a class="header" href="#moved-to-httpsdocsmoonbitlangcomenlatesttoolchainindexhtml">Moved to <a href="https://docs.moonbitlang.com/en/latest/toolchain/index.html">https://docs.moonbitlang.com/en/latest/toolchain/index.html</a></a></h1>
+<p>This page only retains the command-line documentation and the configuration JSON Schema.</p>
+<div style="break-before: page; page-break-before: always;"></div><h1 id="command-line-help-for-moon"><a class="header" href="#command-line-help-for-moon">Command-Line Help for <code>moon</code></a></h1>
+<p>This document contains the help content for the <code>moon</code> command-line program.</p>
+<p><strong>Command Overview:</strong></p>
+<ul>
+<li><a href="commands.html#moon"><code>moon</code>↴</a></li>
+<li><a href="commands.html#moon-new"><code>moon new</code>↴</a></li>
+<li><a href="commands.html#moon-build"><code>moon build</code>↴</a></li>
+<li><a href="commands.html#moon-check"><code>moon check</code>↴</a></li>
+<li><a href="commands.html#moon-run"><code>moon run</code>↴</a></li>
+<li><a href="commands.html#moon-test"><code>moon test</code>↴</a></li>
+<li><a href="commands.html#moon-clean"><code>moon clean</code>↴</a></li>
+<li><a href="commands.html#moon-fmt"><code>moon fmt</code>↴</a></li>
+<li><a href="commands.html#moon-doc"><code>moon doc</code>↴</a></li>
+<li><a href="commands.html#moon-info"><code>moon info</code>↴</a></li>
+<li><a href="commands.html#moon-bench"><code>moon bench</code>↴</a></li>
+<li><a href="commands.html#moon-add"><code>moon add</code>↴</a></li>
+<li><a href="commands.html#moon-remove"><code>moon remove</code>↴</a></li>
+<li><a href="commands.html#moon-install"><code>moon install</code>↴</a></li>
+<li><a href="commands.html#moon-tree"><code>moon tree</code>↴</a></li>
+<li><a href="commands.html#moon-login"><code>moon login</code>↴</a></li>
+<li><a href="commands.html#moon-register"><code>moon register</code>↴</a></li>
+<li><a href="commands.html#moon-publish"><code>moon publish</code>↴</a></li>
+<li><a href="commands.html#moon-package"><code>moon package</code>↴</a></li>
+<li><a href="commands.html#moon-update"><code>moon update</code>↴</a></li>
+<li><a href="commands.html#moon-coverage"><code>moon coverage</code>↴</a></li>
+<li><a href="commands.html#moon-coverage-analyze"><code>moon coverage analyze</code>↴</a></li>
+<li><a href="commands.html#moon-coverage-report"><code>moon coverage report</code>↴</a></li>
+<li><a href="commands.html#moon-coverage-clean"><code>moon coverage clean</code>↴</a></li>
+<li><a href="commands.html#moon-generate-build-matrix"><code>moon generate-build-matrix</code>↴</a></li>
+<li><a href="commands.html#moon-upgrade"><code>moon upgrade</code>↴</a></li>
+<li><a href="commands.html#moon-shell-completion"><code>moon shell-completion</code>↴</a></li>
+<li><a href="commands.html#moon-version"><code>moon version</code>↴</a></li>
+</ul>
+<h2 id="moon"><a class="header" href="#moon"><code>moon</code></a></h2>
+<p><strong>Usage:</strong> <code>moon &lt;COMMAND&gt;</code></p>
+<h6 id="subcommands"><a class="header" href="#subcommands"><strong>Subcommands:</strong></a></h6>
+<ul>
+<li><code>new</code> — Create a new MoonBit module</li>
+<li><code>build</code> — Build the current package</li>
+<li><code>check</code> — Check the current package, but don't build object files</li>
+<li><code>run</code> — Run a main package</li>
+<li><code>test</code> — Test the current package</li>
+<li><code>clean</code> — Remove the target directory</li>
+<li><code>fmt</code> — Format source code</li>
+<li><code>doc</code> — Generate documentation</li>
+<li><code>info</code> — Generate public interface (<code>.mbti</code>) files for all packages in the module</li>
+<li><code>bench</code> — Run benchmarks in the current package</li>
+<li><code>add</code> — Add a dependency</li>
+<li><code>remove</code> — Remove a dependency</li>
+<li><code>install</code> — Install dependencies</li>
+<li><code>tree</code> — Display the dependency tree</li>
+<li><code>login</code> — Log in to your account</li>
+<li><code>register</code> — Register an account at mooncakes.io</li>
+<li><code>publish</code> — Publish the current module</li>
+<li><code>package</code> — Package the current module</li>
+<li><code>update</code> — Update the package registry index</li>
+<li><code>coverage</code> — Code coverage utilities</li>
+<li><code>generate-build-matrix</code> — Generate build matrix for benchmarking (legacy feature)</li>
+<li><code>upgrade</code> — Upgrade toolchains</li>
+<li><code>shell-completion</code> — Generate shell completion for bash/elvish/fish/pwsh/zsh to stdout</li>
+<li><code>version</code> — Print version information and exit</li>
+</ul>
+<h2 id="moon-new"><a class="header" href="#moon-new"><code>moon new</code></a></h2>
+<p>Create a new MoonBit module</p>
+<p><strong>Usage:</strong> <code>moon new [OPTIONS] [PACKAGE_NAME]</code></p>
+<h6 id="arguments"><a class="header" href="#arguments"><strong>Arguments:</strong></a></h6>
+<ul>
+<li><code>&lt;PACKAGE_NAME&gt;</code> — The name of the package</li>
+</ul>
+<h6 id="options"><a class="header" href="#options"><strong>Options:</strong></a></h6>
+<ul>
+<li>
+<p><code>--lib</code> — Create a library package instead of an executable</p>
+</li>
+<li>
+<p><code>--path &lt;PATH&gt;</code> — Output path of the package</p>
+</li>
+<li>
+<p><code>--user &lt;USER&gt;</code> — The user name of the package</p>
+</li>
+<li>
+<p><code>--name &lt;NAME&gt;</code> — The name part of the package</p>
+</li>
+<li>
+<p><code>--license &lt;LICENSE&gt;</code> — The license of the package</p>
+<p>Default value: <code>Apache-2.0</code></p>
+</li>
+<li>
+<p><code>--no-license</code> — Do not set a license for the package</p>
+</li>
+</ul>
+<h2 id="moon-build"><a class="header" href="#moon-build"><code>moon build</code></a></h2>
+<p>Build the current package</p>
+<p><strong>Usage:</strong> <code>moon build [OPTIONS]</code></p>
+<h6 id="options-1"><a class="header" href="#options-1"><strong>Options:</strong></a></h6>
+<ul>
+<li>
+<p><code>--std</code> — Enable the standard library (default)</p>
+</li>
+<li>
+<p><code>--nostd</code> — Disable the standard library</p>
+</li>
+<li>
+<p><code>-g</code>, <code>--debug</code> — Emit debug information</p>
+</li>
+<li>
+<p><code>--release</code> — Compile in release mode</p>
+</li>
+<li>
+<p><code>--strip</code> — Enable stripping debug information</p>
+</li>
+<li>
+<p><code>--no-strip</code> — Disable stripping debug information</p>
+</li>
+<li>
+<p><code>--target &lt;TARGET&gt;</code> — Select output target</p>
+<p>Possible values: <code>wasm</code>, <code>wasm-gc</code>, <code>js</code>, <code>native</code>, <code>llvm</code>, <code>all</code></p>
+</li>
+<li>
+<p><code>--enable-coverage</code> — Enable coverage instrumentation</p>
+</li>
+<li>
+<p><code>--sort-input</code> — Sort input files</p>
+</li>
+<li>
+<p><code>--output-wat</code> — Output WAT instead of WASM</p>
+</li>
+<li>
+<p><code>-d</code>, <code>--deny-warn</code> — Treat all warnings as errors</p>
+</li>
+<li>
+<p><code>--no-render</code> — Don't render diagnostics from moonc (don't pass '-error-format json' to moonc)</p>
+</li>
+<li>
+<p><code>--warn-list &lt;WARN_LIST&gt;</code> — Warn list config</p>
+</li>
+<li>
+<p><code>--alert-list &lt;ALERT_LIST&gt;</code> — Alert list config</p>
+</li>
+<li>
+<p><code>-j</code>, <code>--jobs &lt;JOBS&gt;</code> — Set the max number of jobs to run in parallel</p>
+</li>
+<li>
+<p><code>--frozen</code> — Do not sync dependencies, assuming local dependencies are up-to-date</p>
+</li>
+<li>
+<p><code>-w</code>, <code>--watch</code> — Monitor the file system and automatically build artifacts</p>
+</li>
+</ul>
+<h2 id="moon-check"><a class="header" href="#moon-check"><code>moon check</code></a></h2>
+<p>Check the current package, but don't build object files</p>
+<p><strong>Usage:</strong> <code>moon check [OPTIONS] [SINGLE_FILE]</code></p>
+<h6 id="arguments-1"><a class="header" href="#arguments-1"><strong>Arguments:</strong></a></h6>
+<ul>
+<li><code>&lt;SINGLE_FILE&gt;</code> — Check single file (.mbt or .mbt.md)</li>
+</ul>
+<h6 id="options-2"><a class="header" href="#options-2"><strong>Options:</strong></a></h6>
+<ul>
+<li>
+<p><code>--std</code> — Enable the standard library (default)</p>
+</li>
+<li>
+<p><code>--nostd</code> — Disable the standard library</p>
+</li>
+<li>
+<p><code>-g</code>, <code>--debug</code> — Emit debug information</p>
+</li>
+<li>
+<p><code>--release</code> — Compile in release mode</p>
+</li>
+<li>
+<p><code>--strip</code> — Enable stripping debug information</p>
+</li>
+<li>
+<p><code>--no-strip</code> — Disable stripping debug information</p>
+</li>
+<li>
+<p><code>--target &lt;TARGET&gt;</code> — Select output target</p>
+<p>Possible values: <code>wasm</code>, <code>wasm-gc</code>, <code>js</code>, <code>native</code>, <code>llvm</code>, <code>all</code></p>
+</li>
+<li>
+<p><code>--enable-coverage</code> — Enable coverage instrumentation</p>
+</li>
+<li>
+<p><code>--sort-input</code> — Sort input files</p>
+</li>
+<li>
+<p><code>--output-wat</code> — Output WAT instead of WASM</p>
+</li>
+<li>
+<p><code>-d</code>, <code>--deny-warn</code> — Treat all warnings as errors</p>
+</li>
+<li>
+<p><code>--no-render</code> — Don't render diagnostics from moonc (don't pass '-error-format json' to moonc)</p>
+</li>
+<li>
+<p><code>--warn-list &lt;WARN_LIST&gt;</code> — Warn list config</p>
+</li>
+<li>
+<p><code>--alert-list &lt;ALERT_LIST&gt;</code> — Alert list config</p>
+</li>
+<li>
+<p><code>-j</code>, <code>--jobs &lt;JOBS&gt;</code> — Set the max number of jobs to run in parallel</p>
+</li>
+<li>
+<p><code>--output-json</code> — Output in json format</p>
+</li>
+<li>
+<p><code>--frozen</code> — Do not sync dependencies, assuming local dependencies are up-to-date</p>
+</li>
+<li>
+<p><code>-w</code>, <code>--watch</code> — Monitor the file system and automatically check files</p>
+</li>
+<li>
+<p><code>-p</code>, <code>--package-path &lt;PACKAGE_PATH&gt;</code> — The package(and it's deps) to check</p>
+</li>
+<li>
+<p><code>--patch-file &lt;PATCH_FILE&gt;</code> — The patch file to check, Only valid when checking specified package</p>
+</li>
+<li>
+<p><code>--no-mi</code> — Whether to skip the mi generation, Only valid when checking specified package</p>
+</li>
+<li>
+<p><code>--explain</code> — Whether to explain the error code with details</p>
+</li>
+</ul>
+<h2 id="moon-run"><a class="header" href="#moon-run"><code>moon run</code></a></h2>
+<p>Run a main package</p>
+<p><strong>Usage:</strong> <code>moon run [OPTIONS] &lt;PACKAGE_OR_MBT_FILE&gt; [ARGS]...</code></p>
+<h6 id="arguments-2"><a class="header" href="#arguments-2"><strong>Arguments:</strong></a></h6>
+<ul>
+<li><code>&lt;PACKAGE_OR_MBT_FILE&gt;</code> — The package or .mbt file to run</li>
+<li><code>&lt;ARGS&gt;</code> — The arguments provided to the program to be run</li>
+</ul>
+<h6 id="options-3"><a class="header" href="#options-3"><strong>Options:</strong></a></h6>
+<ul>
+<li>
+<p><code>--std</code> — Enable the standard library (default)</p>
+</li>
+<li>
+<p><code>--nostd</code> — Disable the standard library</p>
+</li>
+<li>
+<p><code>-g</code>, <code>--debug</code> — Emit debug information</p>
+</li>
+<li>
+<p><code>--release</code> — Compile in release mode</p>
+</li>
+<li>
+<p><code>--strip</code> — Enable stripping debug information</p>
+</li>
+<li>
+<p><code>--no-strip</code> — Disable stripping debug information</p>
+</li>
+<li>
+<p><code>--target &lt;TARGET&gt;</code> — Select output target</p>
+<p>Possible values: <code>wasm</code>, <code>wasm-gc</code>, <code>js</code>, <code>native</code>, <code>llvm</code>, <code>all</code></p>
+</li>
+<li>
+<p><code>--enable-coverage</code> — Enable coverage instrumentation</p>
+</li>
+<li>
+<p><code>--sort-input</code> — Sort input files</p>
+</li>
+<li>
+<p><code>--output-wat</code> — Output WAT instead of WASM</p>
+</li>
+<li>
+<p><code>-d</code>, <code>--deny-warn</code> — Treat all warnings as errors</p>
+</li>
+<li>
+<p><code>--no-render</code> — Don't render diagnostics from moonc (don't pass '-error-format json' to moonc)</p>
+</li>
+<li>
+<p><code>--warn-list &lt;WARN_LIST&gt;</code> — Warn list config</p>
+</li>
+<li>
+<p><code>--alert-list &lt;ALERT_LIST&gt;</code> — Alert list config</p>
+</li>
+<li>
+<p><code>-j</code>, <code>--jobs &lt;JOBS&gt;</code> — Set the max number of jobs to run in parallel</p>
+</li>
+<li>
+<p><code>--frozen</code> — Do not sync dependencies, assuming local dependencies are up-to-date</p>
+</li>
+<li>
+<p><code>--build-only</code> — Only build, do not run the code</p>
+</li>
+</ul>
+<h2 id="moon-test"><a class="header" href="#moon-test"><code>moon test</code></a></h2>
+<p>Test the current package</p>
+<p><strong>Usage:</strong> <code>moon test [OPTIONS] [SINGLE_FILE]</code></p>
+<h6 id="arguments-3"><a class="header" href="#arguments-3"><strong>Arguments:</strong></a></h6>
+<ul>
+<li><code>&lt;SINGLE_FILE&gt;</code> — Run test in single file (.mbt or .mbt.md)</li>
+</ul>
+<h6 id="options-4"><a class="header" href="#options-4"><strong>Options:</strong></a></h6>
+<ul>
+<li>
+<p><code>--std</code> — Enable the standard library (default)</p>
+</li>
+<li>
+<p><code>--nostd</code> — Disable the standard library</p>
+</li>
+<li>
+<p><code>-g</code>, <code>--debug</code> — Emit debug information</p>
+</li>
+<li>
+<p><code>--release</code> — Compile in release mode</p>
+</li>
+<li>
+<p><code>--strip</code> — Enable stripping debug information</p>
+</li>
+<li>
+<p><code>--no-strip</code> — Disable stripping debug information</p>
+</li>
+<li>
+<p><code>--target &lt;TARGET&gt;</code> — Select output target</p>
+<p>Possible values: <code>wasm</code>, <code>wasm-gc</code>, <code>js</code>, <code>native</code>, <code>llvm</code>, <code>all</code></p>
+</li>
+<li>
+<p><code>--enable-coverage</code> — Enable coverage instrumentation</p>
+</li>
+<li>
+<p><code>--sort-input</code> — Sort input files</p>
+</li>
+<li>
+<p><code>--output-wat</code> — Output WAT instead of WASM</p>
+</li>
+<li>
+<p><code>-d</code>, <code>--deny-warn</code> — Treat all warnings as errors</p>
+</li>
+<li>
+<p><code>--no-render</code> — Don't render diagnostics from moonc (don't pass '-error-format json' to moonc)</p>
+</li>
+<li>
+<p><code>--warn-list &lt;WARN_LIST&gt;</code> — Warn list config</p>
+</li>
+<li>
+<p><code>--alert-list &lt;ALERT_LIST&gt;</code> — Alert list config</p>
+</li>
+<li>
+<p><code>-j</code>, <code>--jobs &lt;JOBS&gt;</code> — Set the max number of jobs to run in parallel</p>
+</li>
+<li>
+<p><code>-p</code>, <code>--package &lt;PACKAGE&gt;</code> — Run test in the specified package</p>
+</li>
+<li>
+<p><code>-f</code>, <code>--file &lt;FILE&gt;</code> — Run test in the specified file. Only valid when <code>--package</code> is also specified</p>
+</li>
+<li>
+<p><code>-i</code>, <code>--index &lt;INDEX&gt;</code> — Run only the index-th test in the file. Only valid when <code>--file</code> is also specified</p>
+</li>
+<li>
+<p><code>--doc-index &lt;DOC_INDEX&gt;</code> — Run only the index-th doc test in the file. Only valid when <code>--file</code> is also specified</p>
+</li>
+<li>
+<p><code>-u</code>, <code>--update</code> — Update the test snapshot</p>
+</li>
+<li>
+<p><code>-l</code>, <code>--limit &lt;LIMIT&gt;</code> — Limit of expect test update passes to run, in order to avoid infinite loops</p>
+<p>Default value: <code>256</code></p>
+</li>
+<li>
+<p><code>--frozen</code> — Do not sync dependencies, assuming local dependencies are up-to-date</p>
+</li>
+<li>
+<p><code>--build-only</code> — Only build, do not run the tests</p>
+</li>
+<li>
+<p><code>--no-parallelize</code> — Run the tests in a target backend sequentially</p>
+</li>
+<li>
+<p><code>--test-failure-json</code> — Print failure message in JSON format</p>
+</li>
+<li>
+<p><code>--patch-file &lt;PATCH_FILE&gt;</code> — Path to the patch file</p>
+</li>
+<li>
+<p><code>--doc</code> — Run doc test</p>
+</li>
+</ul>
+<h2 id="moon-clean"><a class="header" href="#moon-clean"><code>moon clean</code></a></h2>
+<p>Remove the target directory</p>
+<p><strong>Usage:</strong> <code>moon clean</code></p>
+<h2 id="moon-fmt"><a class="header" href="#moon-fmt"><code>moon fmt</code></a></h2>
+<p>Format source code</p>
+<p><strong>Usage:</strong> <code>moon fmt [OPTIONS] [ARGS]...</code></p>
+<h6 id="arguments-4"><a class="header" href="#arguments-4"><strong>Arguments:</strong></a></h6>
+<ul>
+<li><code>&lt;ARGS&gt;</code></li>
+</ul>
+<h6 id="options-5"><a class="header" href="#options-5"><strong>Options:</strong></a></h6>
+<ul>
+<li>
+<p><code>--check</code> — Check only and don't change the source code</p>
+</li>
+<li>
+<p><code>--sort-input</code> — Sort input files</p>
+</li>
+<li>
+<p><code>--block-style &lt;BLOCK_STYLE&gt;</code> — Add separator between each segments</p>
+<p>Possible values: <code>false</code>, <code>true</code></p>
+</li>
+</ul>
+<h2 id="moon-doc"><a class="header" href="#moon-doc"><code>moon doc</code></a></h2>
+<p>Generate documentation</p>
+<p><strong>Usage:</strong> <code>moon doc [OPTIONS]</code></p>
+<h6 id="options-6"><a class="header" href="#options-6"><strong>Options:</strong></a></h6>
+<ul>
+<li>
+<p><code>--serve</code> — Start a web server to serve the documentation</p>
+</li>
+<li>
+<p><code>-b</code>, <code>--bind &lt;BIND&gt;</code> — The address of the server</p>
+<p>Default value: <code>127.0.0.1</code></p>
+</li>
+<li>
+<p><code>-p</code>, <code>--port &lt;PORT&gt;</code> — The port of the server</p>
+<p>Default value: <code>3000</code></p>
+</li>
+<li>
+<p><code>--frozen</code> — Do not sync dependencies, assuming local dependencies are up-to-date</p>
+</li>
+</ul>
+<h2 id="moon-info"><a class="header" href="#moon-info"><code>moon info</code></a></h2>
+<p>Generate public interface (<code>.mbti</code>) files for all packages in the module</p>
+<p><strong>Usage:</strong> <code>moon info [OPTIONS]</code></p>
+<h6 id="options-7"><a class="header" href="#options-7"><strong>Options:</strong></a></h6>
+<ul>
+<li>
+<p><code>--frozen</code> — Do not sync dependencies, assuming local dependencies are up-to-date</p>
+</li>
+<li>
+<p><code>--no-alias</code> — Do not use alias to shorten package names in the output</p>
+</li>
+<li>
+<p><code>--target &lt;TARGET&gt;</code> — Select output target</p>
+<p>Possible values: <code>wasm</code>, <code>wasm-gc</code>, <code>js</code>, <code>native</code>, <code>llvm</code>, <code>all</code></p>
+</li>
+<li>
+<p><code>-p</code>, <code>--package &lt;PACKAGE&gt;</code> — only emit mbti files for the specified package</p>
+</li>
+</ul>
+<h2 id="moon-bench"><a class="header" href="#moon-bench"><code>moon bench</code></a></h2>
+<p>Run benchmarks in the current package</p>
+<p><strong>Usage:</strong> <code>moon bench [OPTIONS]</code></p>
+<h6 id="options-8"><a class="header" href="#options-8"><strong>Options:</strong></a></h6>
+<ul>
+<li>
+<p><code>--std</code> — Enable the standard library (default)</p>
+</li>
+<li>
+<p><code>--nostd</code> — Disable the standard library</p>
+</li>
+<li>
+<p><code>-g</code>, <code>--debug</code> — Emit debug information</p>
+</li>
+<li>
+<p><code>--release</code> — Compile in release mode</p>
+</li>
+<li>
+<p><code>--strip</code> — Enable stripping debug information</p>
+</li>
+<li>
+<p><code>--no-strip</code> — Disable stripping debug information</p>
+</li>
+<li>
+<p><code>--target &lt;TARGET&gt;</code> — Select output target</p>
+<p>Possible values: <code>wasm</code>, <code>wasm-gc</code>, <code>js</code>, <code>native</code>, <code>llvm</code>, <code>all</code></p>
+</li>
+<li>
+<p><code>--enable-coverage</code> — Enable coverage instrumentation</p>
+</li>
+<li>
+<p><code>--sort-input</code> — Sort input files</p>
+</li>
+<li>
+<p><code>--output-wat</code> — Output WAT instead of WASM</p>
+</li>
+<li>
+<p><code>-d</code>, <code>--deny-warn</code> — Treat all warnings as errors</p>
+</li>
+<li>
+<p><code>--no-render</code> — Don't render diagnostics from moonc (don't pass '-error-format json' to moonc)</p>
+</li>
+<li>
+<p><code>--warn-list &lt;WARN_LIST&gt;</code> — Warn list config</p>
+</li>
+<li>
+<p><code>--alert-list &lt;ALERT_LIST&gt;</code> — Alert list config</p>
+</li>
+<li>
+<p><code>-j</code>, <code>--jobs &lt;JOBS&gt;</code> — Set the max number of jobs to run in parallel</p>
+</li>
+<li>
+<p><code>-p</code>, <code>--package &lt;PACKAGE&gt;</code> — Run test in the specified package</p>
+</li>
+<li>
+<p><code>-f</code>, <code>--file &lt;FILE&gt;</code> — Run test in the specified file. Only valid when <code>--package</code> is also specified</p>
+</li>
+<li>
+<p><code>-i</code>, <code>--index &lt;INDEX&gt;</code> — Run only the index-th test in the file. Only valid when <code>--file</code> is also specified</p>
+</li>
+<li>
+<p><code>--frozen</code> — Do not sync dependencies, assuming local dependencies are up-to-date</p>
+</li>
+<li>
+<p><code>--build-only</code> — Only build, do not bench</p>
+</li>
+<li>
+<p><code>--no-parallelize</code> — Run the benchmarks in a target backend sequentially</p>
+</li>
+</ul>
+<h2 id="moon-add"><a class="header" href="#moon-add"><code>moon add</code></a></h2>
+<p>Add a dependency</p>
+<p><strong>Usage:</strong> <code>moon add [OPTIONS] &lt;PACKAGE_PATH&gt;</code></p>
+<h6 id="arguments-5"><a class="header" href="#arguments-5"><strong>Arguments:</strong></a></h6>
+<ul>
+<li><code>&lt;PACKAGE_PATH&gt;</code> — The package path to add</li>
+</ul>
+<h6 id="options-9"><a class="header" href="#options-9"><strong>Options:</strong></a></h6>
+<ul>
+<li><code>--bin</code> — Whether to add the dependency as a binary</li>
+</ul>
+<h2 id="moon-remove"><a class="header" href="#moon-remove"><code>moon remove</code></a></h2>
+<p>Remove a dependency</p>
+<p><strong>Usage:</strong> <code>moon remove &lt;PACKAGE_PATH&gt;</code></p>
+<h6 id="arguments-6"><a class="header" href="#arguments-6"><strong>Arguments:</strong></a></h6>
+<ul>
+<li><code>&lt;PACKAGE_PATH&gt;</code> — The package path to remove</li>
+</ul>
+<h2 id="moon-install"><a class="header" href="#moon-install"><code>moon install</code></a></h2>
+<p>Install dependencies</p>
+<p><strong>Usage:</strong> <code>moon install</code></p>
+<h2 id="moon-tree"><a class="header" href="#moon-tree"><code>moon tree</code></a></h2>
+<p>Display the dependency tree</p>
+<p><strong>Usage:</strong> <code>moon tree</code></p>
+<h2 id="moon-login"><a class="header" href="#moon-login"><code>moon login</code></a></h2>
+<p>Log in to your account</p>
+<p><strong>Usage:</strong> <code>moon login</code></p>
+<h2 id="moon-register"><a class="header" href="#moon-register"><code>moon register</code></a></h2>
+<p>Register an account at mooncakes.io</p>
+<p><strong>Usage:</strong> <code>moon register</code></p>
+<h2 id="moon-publish"><a class="header" href="#moon-publish"><code>moon publish</code></a></h2>
+<p>Publish the current module</p>
+<p><strong>Usage:</strong> <code>moon publish [OPTIONS]</code></p>
+<h6 id="options-10"><a class="header" href="#options-10"><strong>Options:</strong></a></h6>
+<ul>
+<li><code>--frozen</code> — Do not sync dependencies, assuming local dependencies are up-to-date</li>
+</ul>
+<h2 id="moon-package"><a class="header" href="#moon-package"><code>moon package</code></a></h2>
+<p>Package the current module</p>
+<p><strong>Usage:</strong> <code>moon package [OPTIONS]</code></p>
+<h6 id="options-11"><a class="header" href="#options-11"><strong>Options:</strong></a></h6>
+<ul>
+<li><code>--frozen</code> — Do not sync dependencies, assuming local dependencies are up-to-date</li>
+<li><code>--list</code></li>
+</ul>
+<h2 id="moon-update"><a class="header" href="#moon-update"><code>moon update</code></a></h2>
+<p>Update the package registry index</p>
+<p><strong>Usage:</strong> <code>moon update</code></p>
+<h2 id="moon-coverage"><a class="header" href="#moon-coverage"><code>moon coverage</code></a></h2>
+<p>Code coverage utilities</p>
+<p><strong>Usage:</strong> <code>moon coverage &lt;COMMAND&gt;</code></p>
+<h6 id="subcommands-1"><a class="header" href="#subcommands-1"><strong>Subcommands:</strong></a></h6>
+<ul>
+<li><code>analyze</code> — Run test with instrumentation and report coverage</li>
+<li><code>report</code> — Generate code coverage report</li>
+<li><code>clean</code> — Clean up coverage artifacts</li>
+</ul>
+<h2 id="moon-coverage-analyze"><a class="header" href="#moon-coverage-analyze"><code>moon coverage analyze</code></a></h2>
+<p>Run test with instrumentation and report coverage</p>
+<p><strong>Usage:</strong> <code>moon coverage analyze [OPTIONS] [SINGLE_FILE] [-- &lt;EXTRA_FLAGS&gt;...]</code></p>
+<h6 id="arguments-7"><a class="header" href="#arguments-7"><strong>Arguments:</strong></a></h6>
+<ul>
+<li><code>&lt;SINGLE_FILE&gt;</code> — Run test in single file (.mbt or .mbt.md)</li>
+<li><code>&lt;EXTRA_FLAGS&gt;</code> — Extra flags passed directly to <code>moon_cove_report</code></li>
+</ul>
+<h6 id="options-12"><a class="header" href="#options-12"><strong>Options:</strong></a></h6>
+<ul>
+<li>
+<p><code>--std</code> — Enable the standard library (default)</p>
+</li>
+<li>
+<p><code>--nostd</code> — Disable the standard library</p>
+</li>
+<li>
+<p><code>-g</code>, <code>--debug</code> — Emit debug information</p>
+</li>
+<li>
+<p><code>--release</code> — Compile in release mode</p>
+</li>
+<li>
+<p><code>--strip</code> — Enable stripping debug information</p>
+</li>
+<li>
+<p><code>--no-strip</code> — Disable stripping debug information</p>
+</li>
+<li>
+<p><code>--target &lt;TARGET&gt;</code> — Select output target</p>
+<p>Possible values: <code>wasm</code>, <code>wasm-gc</code>, <code>js</code>, <code>native</code>, <code>llvm</code>, <code>all</code></p>
+</li>
+<li>
+<p><code>--enable-coverage</code> — Enable coverage instrumentation</p>
+</li>
+<li>
+<p><code>--sort-input</code> — Sort input files</p>
+</li>
+<li>
+<p><code>--output-wat</code> — Output WAT instead of WASM</p>
+</li>
+<li>
+<p><code>-d</code>, <code>--deny-warn</code> — Treat all warnings as errors</p>
+</li>
+<li>
+<p><code>--no-render</code> — Don't render diagnostics from moonc (don't pass '-error-format json' to moonc)</p>
+</li>
+<li>
+<p><code>--warn-list &lt;WARN_LIST&gt;</code> — Warn list config</p>
+</li>
+<li>
+<p><code>--alert-list &lt;ALERT_LIST&gt;</code> — Alert list config</p>
+</li>
+<li>
+<p><code>-j</code>, <code>--jobs &lt;JOBS&gt;</code> — Set the max number of jobs to run in parallel</p>
+</li>
+<li>
+<p><code>-p</code>, <code>--package &lt;PACKAGE&gt;</code> — Run test in the specified package</p>
+</li>
+<li>
+<p><code>-f</code>, <code>--file &lt;FILE&gt;</code> — Run test in the specified file. Only valid when <code>--package</code> is also specified</p>
+</li>
+<li>
+<p><code>-i</code>, <code>--index &lt;INDEX&gt;</code> — Run only the index-th test in the file. Only valid when <code>--file</code> is also specified</p>
+</li>
+<li>
+<p><code>--doc-index &lt;DOC_INDEX&gt;</code> — Run only the index-th doc test in the file. Only valid when <code>--file</code> is also specified</p>
+</li>
+<li>
+<p><code>-u</code>, <code>--update</code> — Update the test snapshot</p>
+</li>
+<li>
+<p><code>-l</code>, <code>--limit &lt;LIMIT&gt;</code> — Limit of expect test update passes to run, in order to avoid infinite loops</p>
+<p>Default value: <code>256</code></p>
+</li>
+<li>
+<p><code>--frozen</code> — Do not sync dependencies, assuming local dependencies are up-to-date</p>
+</li>
+<li>
+<p><code>--build-only</code> — Only build, do not run the tests</p>
+</li>
+<li>
+<p><code>--no-parallelize</code> — Run the tests in a target backend sequentially</p>
+</li>
+<li>
+<p><code>--test-failure-json</code> — Print failure message in JSON format</p>
+</li>
+<li>
+<p><code>--patch-file &lt;PATCH_FILE&gt;</code> — Path to the patch file</p>
+</li>
+<li>
+<p><code>--doc</code> — Run doc test</p>
+</li>
+</ul>
+<h2 id="moon-coverage-report"><a class="header" href="#moon-coverage-report"><code>moon coverage report</code></a></h2>
+<p>Generate code coverage report</p>
+<p><strong>Usage:</strong> <code>moon coverage report [args]... [COMMAND]</code></p>
+<h6 id="arguments-8"><a class="header" href="#arguments-8"><strong>Arguments:</strong></a></h6>
+<ul>
+<li><code>&lt;args&gt;</code> — Arguments to pass to the coverage utility</li>
+</ul>
+<h6 id="options-13"><a class="header" href="#options-13"><strong>Options:</strong></a></h6>
+<ul>
+<li><code>-h</code>, <code>--help</code> — Show help for the coverage utility</li>
+</ul>
+<h2 id="moon-coverage-clean"><a class="header" href="#moon-coverage-clean"><code>moon coverage clean</code></a></h2>
+<p>Clean up coverage artifacts</p>
+<p><strong>Usage:</strong> <code>moon coverage clean</code></p>
+<h2 id="moon-generate-build-matrix"><a class="header" href="#moon-generate-build-matrix"><code>moon generate-build-matrix</code></a></h2>
+<p>Generate build matrix for benchmarking (legacy feature)</p>
+<p><strong>Usage:</strong> <code>moon generate-build-matrix [OPTIONS] --output-dir &lt;OUT_DIR&gt;</code></p>
+<h6 id="options-14"><a class="header" href="#options-14"><strong>Options:</strong></a></h6>
+<ul>
+<li><code>-n &lt;NUMBER&gt;</code> — Set all of <code>drow</code>, <code>dcol</code>, <code>mrow</code>, <code>mcol</code> to the same value</li>
+<li><code>--drow &lt;DIR_ROWS&gt;</code> — Number of directory rows</li>
+<li><code>--dcol &lt;DIR_COLS&gt;</code> — Number of directory columns</li>
+<li><code>--mrow &lt;MOD_ROWS&gt;</code> — Number of module rows</li>
+<li><code>--mcol &lt;MOD_COLS&gt;</code> — Number of module columns</li>
+<li><code>-o</code>, <code>--output-dir &lt;OUT_DIR&gt;</code> — The output directory</li>
+</ul>
+<h2 id="moon-upgrade"><a class="header" href="#moon-upgrade"><code>moon upgrade</code></a></h2>
+<p>Upgrade toolchains</p>
+<p><strong>Usage:</strong> <code>moon upgrade [OPTIONS]</code></p>
+<h6 id="options-15"><a class="header" href="#options-15"><strong>Options:</strong></a></h6>
+<ul>
+<li><code>-f</code>, <code>--force</code> — Force upgrade</li>
+<li><code>--dev</code> — Install the latest development version</li>
+</ul>
+<h2 id="moon-shell-completion"><a class="header" href="#moon-shell-completion"><code>moon shell-completion</code></a></h2>
+<p>Generate shell completion for bash/elvish/fish/pwsh/zsh to stdout</p>
+<p><strong>Usage:</strong> <code>moon shell-completion [OPTIONS]</code></p>
+<p>Discussion:
+Enable tab completion for Bash, Elvish, Fish, Zsh, or PowerShell
+The script is output on <code>stdout</code>, allowing one to re-direct the
+output to the file of their choosing. Where you place the file
+will depend on which shell, and which operating system you are
+using. Your particular configuration may also determine where
+these scripts need to be placed.</p>
+<p>The completion scripts won't update itself, so you may need to
+periodically run this command to get the latest completions.
+Or you may put <code>eval "$(moon shell-completion --shell &lt;SHELL&gt;)"</code>
+in your shell's rc file to always load newest completions on startup.
+Although it's considered not as efficient as having the completions
+script installed.</p>
+<p>Here are some common set ups for the three supported shells under
+Unix and similar operating systems (such as GNU/Linux).</p>
+<p>Bash:</p>
+<p>Completion files are commonly stored in <code>/etc/bash_completion.d/</code> for
+system-wide commands, but can be stored in
+<code>~/.local/share/bash-completion/completions</code> for user-specific commands.
+Run the command:</p>
+<pre><code>$ mkdir -p ~/.local/share/bash-completion/completions
+$ moon shell-completion --shell bash &gt;&gt; ~/.local/share/bash-completion/completions/moon
+</code></pre>
+<p>This installs the completion script. You may have to log out and
+log back in to your shell session for the changes to take effect.</p>
+<p>Bash (macOS/Homebrew):</p>
+<p>Homebrew stores bash completion files within the Homebrew directory.
+With the <code>bash-completion</code> brew formula installed, run the command:</p>
+<pre><code>$ mkdir -p $(brew --prefix)/etc/bash_completion.d
+$ moon shell-completion --shell bash &gt; $(brew --prefix)/etc/bash_completion.d/moon.bash-completion
+</code></pre>
+<p>Fish:</p>
+<p>Fish completion files are commonly stored in
+<code>$HOME/.config/fish/completions</code>. Run the command:</p>
+<pre><code>$ mkdir -p ~/.config/fish/completions
+$ moon shell-completion --shell fish &gt; ~/.config/fish/completions/moon.fish
+</code></pre>
+<p>This installs the completion script. You may have to log out and
+log back in to your shell session for the changes to take effect.</p>
+<p>Elvish:</p>
+<p>Elvish completions are commonly stored in a single <code>completers</code> module.
+A typical module search path is <code>~/.config/elvish/lib</code>, and
+running the command:</p>
+<pre><code>$ moon shell-completion --shell elvish &gt;&gt; ~/.config/elvish/lib/completers.elv
+</code></pre>
+<p>will install the completions script. Note that use <code>&gt;&gt;</code> (append)
+instead of <code>&gt;</code> (overwrite) to prevent overwriting the existing completions
+for other commands. Then prepend your rc.elv with:</p>
+<pre><code>`use completers`
+</code></pre>
+<p>to load the <code>completers</code> module and enable completions.</p>
+<p>Zsh:</p>
+<p>ZSH completions are commonly stored in any directory listed in
+your <code>$fpath</code> variable. To use these completions, you must either
+add the generated script to one of those directories, or add your
+own to this list.</p>
+<p>Adding a custom directory is often the safest bet if you are
+unsure of which directory to use. First create the directory; for
+this example we'll create a hidden directory inside our <code>$HOME</code>
+directory:</p>
+<pre><code>$ mkdir ~/.zfunc
+</code></pre>
+<p>Then add the following lines to your <code>.zshrc</code> just before
+<code>compinit</code>:</p>
+<pre><code>fpath+=~/.zfunc
+</code></pre>
+<p>Now you can install the completions script using the following
+command:</p>
+<pre><code>$ moon shell-completion --shell zsh &gt; ~/.zfunc/_moon
+</code></pre>
+<p>You must then open a new zsh session, or simply run</p>
+<pre><code>$ . ~/.zshrc
+</code></pre>
+<p>for the new completions to take effect.</p>
+<p>Custom locations:</p>
+<p>Alternatively, you could save these files to the place of your
+choosing, such as a custom directory inside your $HOME. Doing so
+will require you to add the proper directives, such as <code>source</code>ing
+inside your login script. Consult your shells documentation for
+how to add such directives.</p>
+<p>PowerShell:</p>
+<p>The powershell completion scripts require PowerShell v5.0+ (which
+comes with Windows 10, but can be downloaded separately for windows 7
+or 8.1).</p>
+<p>First, check if a profile has already been set</p>
+<pre><code>PS C:\&gt; Test-Path $profile
+</code></pre>
+<p>If the above command returns <code>False</code> run the following</p>
+<pre><code>PS C:\&gt; New-Item -path $profile -type file -force
+</code></pre>
+<p>Now open the file provided by <code>$profile</code> (if you used the
+<code>New-Item</code> command it will be
+<code>${env:USERPROFILE}\Documents\WindowsPowerShell\Microsoft.PowerShell_profile.ps1</code></p>
+<p>Next, we either save the completions file into our profile, or
+into a separate file and source it inside our profile. To save the
+completions into our profile simply use</p>
+<pre><code>PS C:\&gt; moon shell-completion --shell powershell &gt;&gt;
+${env:USERPROFILE}\Documents\WindowsPowerShell\Microsoft.PowerShell_profile.ps1
+</code></pre>
+<p>This discussion is taken from <code>rustup completions</code> command with some changes.</p>
+<h6 id="options-16"><a class="header" href="#options-16"><strong>Options:</strong></a></h6>
+<ul>
+<li>
+<p><code>--shell &lt;SHELL&gt;</code> — The shell to generate completion for</p>
+<p>Default value: <code>&lt;your shell&gt;</code></p>
+<p>Possible values: <code>bash</code>, <code>elvish</code>, <code>fish</code>, <code>powershell</code>, <code>zsh</code></p>
+</li>
+</ul>
+<h2 id="moon-version"><a class="header" href="#moon-version"><code>moon version</code></a></h2>
+<p>Print version information and exit</p>
+<p><strong>Usage:</strong> <code>moon version [OPTIONS]</code></p>
+<h6 id="options-17"><a class="header" href="#options-17"><strong>Options:</strong></a></h6>
+<ul>
+<li><code>--all</code> — Print all version information</li>
+<li><code>--json</code> — Print version information in JSON format</li>
+<li><code>--no-path</code> — Do not print the path</li>
+</ul>
+<hr/>
+<p><small><i>
+This document was generated automatically by
+<a href="https://crates.io/crates/clap-markdown"><code>clap-markdown</code></a>.
+</i></small></p>
+<div style="break-before: page; page-break-before: always;"></div><h1 id="config-json-schema"><a class="header" href="#config-json-schema">Config JSON Schema</a></h1>
+<h2 id="moonmodjson"><a class="header" href="#moonmodjson">moon.mod.json</a></h2>
+<iframe src="source/mod_json_schema.html" width="100%" height="500px" frameborder="0"></iframe>
+<h2 id="moonpkgjson"><a class="header" href="#moonpkgjson">moon.pkg.json</a></h2>
+<iframe src="source/pkg_json_schema.html" width="100%" height="500px" frameborder="0"></iframe>
+                    </main>
+
+                    <nav class="nav-wrapper" aria-label="Page navigation">
+                        <!-- Mobile navigation buttons -->
+
+
+                        <div style="clear: both"></div>
+                    </nav>
+                </div>
+            </div>
+
+            <nav class="nav-wide-wrapper" aria-label="Page navigation">
+
+            </nav>
+
+        </div>
+
+
+
+
+        <script>
+            window.playground_copyable = true;
+        </script>
+
+
+        <script src="elasticlunr.min.js"></script>
+        <script src="mark.min.js"></script>
+        <script src="searcher.js"></script>
+
+        <script src="clipboard.min.js"></script>
+        <script src="highlight.js"></script>
+        <script src="book.js"></script>
+
+        <!-- Custom JS scripts -->
+
+        <script>
+        window.addEventListener('load', function() {
+            window.setTimeout(window.print, 100);
+        });
+        </script>
+
+    </div>
+    </body>
+</html>
