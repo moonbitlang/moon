@@ -268,7 +268,12 @@ pub fn n2_run_interface(
             .check_opt
             .as_ref()
             .and_then(|it| it.patch_file.clone());
+        let mut seen = HashSet::new();
+
         raw_json.lines().for_each(|content| {
+            if !seen.insert(content) {
+                return;
+            }
             if output_json {
                 println!("{content}");
             } else {
@@ -287,9 +292,12 @@ pub fn n2_run_interface(
     } else {
         let mut output_file = std::fs::File::create(output_path)?;
 
+        let mut seen = HashSet::new();
         for item in logger.lock().unwrap().iter() {
-            output_file.write_all(item.as_bytes())?;
-            output_file.write_all("\n".as_bytes())?;
+            if seen.insert(item) {
+                output_file.write_all(item.as_bytes())?;
+                output_file.write_all("\n".as_bytes())?;
+            }
         }
     }
 
