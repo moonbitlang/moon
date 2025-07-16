@@ -28,8 +28,9 @@ use futures::future::try_join_all;
 use mooncake::pkg::sync::auto_sync;
 use moonutil::{
     common::{
-        lower_surface_targets, read_module_desc_file_in_dir, FileLock, MoonbuildOpt, MooncOpt,
-        PrePostBuild, RunMode, SurfaceTarget, TargetBackend, MOONBITLANG_CORE, MOON_MOD_JSON,
+        lower_surface_targets, read_module_desc_file_in_dir, DiagnosticLevel, FileLock,
+        MoonbuildOpt, MooncOpt, PrePostBuild, RunMode, SurfaceTarget, TargetBackend,
+        MOONBITLANG_CORE, MOON_MOD_JSON,
     },
     dirs::{mk_arch_mode_dir, PackageDirs},
     mooncakes::{sync::AutoSyncFlags, RegistryConfig},
@@ -205,6 +206,7 @@ pub fn run_info_internal(
         parallelism: None,
         use_tcc_run: false,
         dynamic_stub_libs: None,
+        render_no_loc: DiagnosticLevel::default(),
     };
 
     let mdb = scan_with_x_build(

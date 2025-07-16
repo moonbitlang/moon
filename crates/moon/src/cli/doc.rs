@@ -20,8 +20,8 @@ use anyhow::bail;
 use moonbuild::dry_run::print_commands;
 use mooncake::pkg::sync::auto_sync;
 use moonutil::common::{
-    read_module_desc_file_in_dir, CargoPathExt, FileLock, MoonbuildOpt, MooncOpt, PrePostBuild,
-    RunMode, MOONBITLANG_CORE,
+    read_module_desc_file_in_dir, CargoPathExt, DiagnosticLevel, FileLock, MoonbuildOpt, MooncOpt,
+    PrePostBuild, RunMode, MOONBITLANG_CORE,
 };
 use moonutil::dirs::{mk_arch_mode_dir, PackageDirs};
 use moonutil::mooncakes::sync::AutoSyncFlags;
@@ -104,6 +104,7 @@ pub fn run_doc(cli: UniversalFlags, cmd: DocSubcommand) -> anyhow::Result<i32> {
         parallelism: None,
         use_tcc_run: false,
         dynamic_stub_libs: None,
+        render_no_loc: DiagnosticLevel::default(),
     };
 
     let module = scan_with_x_build(

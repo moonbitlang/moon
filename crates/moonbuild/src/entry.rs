@@ -114,6 +114,7 @@ pub fn n2_simple_run_interface(
         moonbuild_opt.target_dir.clone(),
         moonbuild_opt.source_dir.clone(),
     );
+    let render_no_loc = moonbuild_opt.render_no_loc;
     let render_and_catch = move |output: &str| {
         output
             .split('\n')
@@ -128,6 +129,7 @@ pub fn n2_simple_run_interface(
                         use_fancy,
                         check_patch_file.clone(),
                         explain,
+                        render_no_loc,
                         (target_dir.clone(), source_dir.clone()),
                     );
                 }
@@ -202,6 +204,7 @@ pub fn n2_run_interface(
         moonbuild_opt.target_dir.clone(),
         moonbuild_opt.source_dir.clone(),
     );
+    let render_no_loc = moonbuild_opt.render_no_loc;
     let render_and_catch = move |output: &str| {
         output.lines().for_each(|content| {
             catcher.lock().unwrap().push(content.to_owned());
@@ -213,6 +216,7 @@ pub fn n2_run_interface(
                     use_fancy,
                     check_patch_file.clone(),
                     explain,
+                    render_no_loc,
                     (target_dir.clone(), source_dir.clone()),
                 );
             }
@@ -280,6 +284,7 @@ pub fn n2_run_interface(
                         .check_opt
                         .as_ref()
                         .is_some_and(|it| it.explain),
+                    moonbuild_opt.render_no_loc,
                     (target_dir.clone(), source_dir.clone()),
                 );
             }

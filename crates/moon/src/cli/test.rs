@@ -225,6 +225,7 @@ fn run_test_in_single_file(cli: &UniversalFlags, cmd: &TestSubcommand) -> anyhow
         parallelism: cmd.build_flags.jobs,
         use_tcc_run: false,
         dynamic_stub_libs: None,
+        render_no_loc: cmd.build_flags.render_no_loc,
     };
     let moonc_opt = MooncOpt {
         build_opt: moonutil::common::BuildPackageFlags {
@@ -558,6 +559,7 @@ pub(crate) fn run_test_or_bench_internal(
         parallelism: cmd.build_flags.jobs,
         use_tcc_run: false,
         dynamic_stub_libs: None,
+        render_no_loc: cmd.build_flags.render_no_loc,
     };
 
     let mut module = scan_with_x_build(

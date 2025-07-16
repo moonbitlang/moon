@@ -450,6 +450,7 @@ pub struct MoonbuildOpt {
     pub parallelism: Option<usize>,
     pub use_tcc_run: bool,
     pub dynamic_stub_libs: Option<Vec<String>>,
+    pub render_no_loc: DiagnosticLevel,
 }
 
 impl MoonbuildOpt {
@@ -856,6 +857,24 @@ impl std::fmt::Display for DriverKind {
             Self::Blackbox => "blackbox",
         };
         write!(f, "{kind}")
+    }
+}
+
+#[derive(Debug, Default, ValueEnum, Clone, Hash, Eq, PartialEq, Copy, Ord, PartialOrd)]
+pub enum DiagnosticLevel {
+    Info,
+    Warn,
+    #[default]
+    Error,
+}
+
+impl std::fmt::Display for DiagnosticLevel {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(match self {
+            Self::Error => "error",
+            Self::Warn => "warn",
+            Self::Info => "info",
+        })
     }
 }
 

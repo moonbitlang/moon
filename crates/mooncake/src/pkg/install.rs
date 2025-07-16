@@ -20,7 +20,7 @@ use crate::{dep_dir::DepDir, resolver::resolve_single_root_with_defaults};
 
 use anyhow::Context;
 use moonutil::{
-    common::read_module_desc_file_in_dir,
+    common::{read_module_desc_file_in_dir, DiagnosticLevel},
     mooncakes::{result::ResolvedEnv, ModuleSource},
     scan::scan,
 };
@@ -184,6 +184,7 @@ fn get_module_db(
         parallelism: None, // we don't care about parallelism here
         use_tcc_run: false,
         dynamic_stub_libs: None,
+        render_no_loc: DiagnosticLevel::default(),
     };
     let module_db = scan(
         false,

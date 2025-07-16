@@ -19,7 +19,10 @@
 use moonbuild::dry_run;
 use mooncake::pkg::sync::auto_sync;
 use moonutil::{
-    common::{BlockStyle, FileLock, FmtOpt, MoonbuildOpt, MooncOpt, PrePostBuild, RunMode},
+    common::{
+        BlockStyle, DiagnosticLevel, FileLock, FmtOpt, MoonbuildOpt, MooncOpt, PrePostBuild,
+        RunMode,
+    },
     dirs::{mk_arch_mode_dir, PackageDirs},
     mooncakes::{sync::AutoSyncFlags, RegistryConfig},
 };
@@ -86,6 +89,7 @@ pub fn run_fmt(cli: &UniversalFlags, cmd: FmtSubcommand) -> anyhow::Result<i32> 
         parallelism: None,
         use_tcc_run: false,
         dynamic_stub_libs: None,
+        render_no_loc: DiagnosticLevel::default(),
     };
 
     let module = scan_with_x_build(

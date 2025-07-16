@@ -19,10 +19,11 @@
 use std::path::{Path, PathBuf};
 
 use ariadne::Fmt;
+use clap::ValueEnum;
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    common::{line_col_to_byte_idx, PatchJSON},
+    common::{line_col_to_byte_idx, DiagnosticLevel, PatchJSON},
     error_code_docs::get_error_code_doc,
 };
 
@@ -105,6 +106,7 @@ impl MooncDiagnostic {
         use_fancy: bool,
         check_patch_file: Option<PathBuf>,
         explain: bool,
+        render_no_loc_level: DiagnosticLevel,
         (target_dir, source_dir): (PathBuf, PathBuf),
     ) {
         let mut diagnostic = match serde_json_lenient::from_str::<MooncDiagnostic>(content) {
@@ -139,16 +141,21 @@ impl MooncDiagnostic {
 
         // for no-location diagnostic, like Missing main function in the main package(4067)
         if diagnostic.location.path.is_empty() {
-            eprintln!(
-                "{}",
-                format!(
-                    "{}: [{}] {}",
-                    kind,
-                    diagnostic.formatted_error_code(),
-                    diagnostic.message
-                )
-                .fg(color)
-            );
+            // Check if this diagnostic level should be rendered based on the threshold
+            if DiagnosticLevel::from_str(&diagnostic.level, true)
+                .is_ok_and(|l| l >= render_no_loc_level)
+            {
+                eprintln!(
+                    "{}",
+                    format!(
+                        "{}: [{}] {}",
+                        kind,
+                        diagnostic.formatted_error_code(),
+                        diagnostic.message
+                    )
+                    .fg(color)
+                );
+            }
             return;
         }
 
