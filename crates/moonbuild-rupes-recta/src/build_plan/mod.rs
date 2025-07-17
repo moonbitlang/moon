@@ -59,7 +59,14 @@ use crate::{
 /// configuration and requirements.
 #[derive(Default)]
 pub struct BuildPlan {
+    /// The build dependency graph.
+    ///
+    /// Each node in this graph represents a step in building, and edges
+    /// represent the dependencies between build steps, pointing **from each
+    /// step to what it depends on**.
     graph: DiGraphMap<BuildPlanNode, ()>,
+
+    /// The specification of each build target.
     spec: HashMap<BuildPlanNode, BuildActionSpec>,
 }
 
@@ -94,17 +101,34 @@ pub struct BuildPlanNode {
 
 /// The specification of the specific build target, e.g. its files.
 pub enum BuildActionSpec {
+    /// Check the given list of MoonBit source files.
+    ///
+    /// Outgoing edges of this node represents the direct dependencies.
     Check(Vec<PathBuf>),
+
     /// Build the given list of MoonBit source files.
+    ///
+    /// Outgoing edges of this node represents the direct dependencies.
     BuildMbt(Vec<PathBuf>),
+
     /// Build the given list of C source files.
     BuildC(Vec<PathBuf>),
+
     /// Link the core files from the given list of targets, **in order**.
+    ///
+    /// Outgoing edges of this node represents the build targets it depends on,
+    /// but there's another copy of it, **ordered**, in the value's payloads,
+    /// since the build command will need to use it.
     LinkCore(Vec<BuildTarget>),
+
     /// Make executable; link with the C artifacts of the given list of targets,
     /// if any.
-    MakeExecutable(Vec<BuildTarget>),
+    MakeExecutable { link_c_stubs: Vec<BuildTarget> },
+
+    /// Generate the MBTI file for the given package.
     GenerateMbti,
+
+    /// Bundle the packages specified by the outgoing edges.
     Bundle,
 }
 
@@ -425,7 +449,12 @@ impl<'a> BuildPlanConstructor<'a> {
             let dep_node = self.need(*target, TargetAction::BuildCStubs);
             self.add_edge(make_exec_node, dep_node);
         }
-        self.resolved_node(make_exec_node, BuildActionSpec::MakeExecutable(c_stub_deps));
+        self.resolved_node(
+            make_exec_node,
+            BuildActionSpec::MakeExecutable {
+                link_c_stubs: c_stub_deps,
+            },
+        );
 
         Ok(())
     }
