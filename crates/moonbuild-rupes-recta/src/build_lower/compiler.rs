@@ -19,6 +19,7 @@
 //! Compiler command abstraction
 
 mod build_package;
+mod check;
 mod link_core;
 
 use std::borrow::Cow;
@@ -27,6 +28,7 @@ use std::path::Path;
 use crate::pkg_name::PackageFQN;
 
 pub use self::build_package::MooncBuildPackage;
+pub use self::check::MooncCheck;
 pub use self::link_core::MooncLinkCore;
 
 #[allow(unused)]
