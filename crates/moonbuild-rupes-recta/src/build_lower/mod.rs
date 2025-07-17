@@ -33,9 +33,8 @@ use crate::{
         artifact::LegacyLayout,
         compiler::{CmdlineAbstraction, MiDependency, PackageSource},
     },
-    build_plan::{self, BuildPlan, BuildPlanNode},
+    build_plan::{self, BuildPlan, BuildPlanNode, BuildTargetInfo, LinkCoreInfo},
     discover::{DiscoverResult, DiscoveredPackage},
-    model::BuildTarget,
     pkg_name::PackageFQNWithSource,
     pkg_solve::DepRelationship,
 };
@@ -51,6 +50,8 @@ pub struct BuildOptions {
     pub target_backend: TargetBackend,
     pub opt_level: OptLevel,
     pub debug_symbols: bool,
+    /// Only `Some` if we import standard library.
+    pub stdlib_path: Option<PathBuf>,
 }
 
 /// An error that may be raised during build plan lowering
@@ -144,15 +145,13 @@ impl<'a> BuildPlanLowerContext<'a> {
 
         // Lower the action to its commands. This step should be infallible.
         let cmd = match target {
-            build_plan::BuildActionSpec::Check(path_bufs) => {
-                self.lower_check(node, package, path_bufs)
-            }
-            build_plan::BuildActionSpec::BuildMbt(path_bufs) => {
-                self.lower_build_mbt(node, package, path_bufs)
+            build_plan::BuildActionSpec::Check(info) => self.lower_check(node, package, info),
+            build_plan::BuildActionSpec::BuildMbt(info) => {
+                self.lower_build_mbt(node, package, info)
             }
             build_plan::BuildActionSpec::BuildC(_path_bufs) => todo!(),
-            build_plan::BuildActionSpec::LinkCore(core_inputs) => {
-                self.lower_link_core(node, package, core_inputs)
+            build_plan::BuildActionSpec::LinkCore(info) => {
+                self.lower_link_core(node, package, info)
             }
             build_plan::BuildActionSpec::MakeExecutable { link_c_stubs: _ } => {
                 // TODO: Native targets need another linking step
@@ -235,28 +234,38 @@ impl<'a> BuildPlanLowerContext<'a> {
         self.graph.add_build(build)
     }
 
+    fn set_commons(&self, package: &DiscoveredPackage, common: &mut compiler::BuildCommonArgs) {
+        common.stdlib_core_file = self
+            .opt
+            .stdlib_path
+            .as_ref()
+            .map(|x| artifact::core_bundle_path(x, self.opt.target_backend).into());
+        common.is_main = package.raw.is_main;
+    }
+
     fn lower_check(
         &self,
         node: BuildPlanNode,
         package: &DiscoveredPackage,
-        path_bufs: &Vec<PathBuf>,
+        info: &BuildTargetInfo,
     ) -> BuildCommand {
         let mi_output =
             self.layout
                 .mi_of_build_target(self.packages, &node.target, self.opt.target_backend);
         let mi_inputs = self.mi_inputs_of(node);
 
-        let cmd = compiler::MooncCheck::new(
-            path_bufs.as_ref(),
+        let mut cmd = compiler::MooncCheck::new(
+            &info.files,
             &mi_output,
             &mi_inputs,
             &package.fqn,
             &package.root_path,
             self.opt.target_backend,
         );
+        self.set_commons(package, &mut cmd.common);
 
         BuildCommand {
-            extra_inputs: path_bufs.clone(),
+            extra_inputs: info.files.clone(),
             commandline: cmd.build_command("moonc"),
         }
     }
@@ -265,7 +274,7 @@ impl<'a> BuildPlanLowerContext<'a> {
         &self,
         node: BuildPlanNode,
         package: &DiscoveredPackage,
-        path_bufs: &Vec<PathBuf>,
+        info: &BuildTargetInfo,
     ) -> BuildCommand {
         let core_output =
             self.layout
@@ -277,7 +286,7 @@ impl<'a> BuildPlanLowerContext<'a> {
         let mi_inputs = self.mi_inputs_of(node);
 
         let mut cmd = compiler::MooncBuildPackage::new(
-            path_bufs.as_ref(),
+            &info.files,
             &core_output,
             &mi_output,
             &mi_inputs,
@@ -287,10 +296,12 @@ impl<'a> BuildPlanLowerContext<'a> {
         );
         cmd.flags.no_opt = self.opt.opt_level == OptLevel::Debug;
         cmd.flags.symbols = self.opt.debug_symbols;
+        self.set_commons(package, &mut cmd.common);
+
         // TODO: a lot of knobs are not controlled here
 
         BuildCommand {
-            extra_inputs: path_bufs.clone(),
+            extra_inputs: info.files.clone(),
             commandline: cmd.build_command("moonc"),
         }
     }
@@ -312,10 +323,18 @@ impl<'a> BuildPlanLowerContext<'a> {
         &mut self,
         node: BuildPlanNode,
         package: &DiscoveredPackage,
-        core_inputs: &[BuildTarget],
+        info: &LinkCoreInfo,
     ) -> BuildCommand {
         let mut core_input_files = Vec::new();
-        for target in core_inputs {
+        // Add core for the standard library
+        if let Some(stdlib) = &self.opt.stdlib_path {
+            // The two stdlib core files must be linked in the correct order,
+            // in order to get the correct order of initialization.
+            core_input_files.push(artifact::abort_core_path(stdlib, self.opt.target_backend));
+            core_input_files.push(artifact::core_core_path(stdlib, self.opt.target_backend));
+        }
+        // Linked core targets
+        for target in &info.linked_order {
             let core_path =
                 self.layout
                     .core_of_build_target(self.packages, target, self.opt.target_backend);
@@ -329,7 +348,8 @@ impl<'a> BuildPlanLowerContext<'a> {
             "todo: os not supported yet",
         );
 
-        let package_sources = core_inputs
+        let package_sources = info
+            .linked_order
             .iter()
             .map(|target| {
                 let pkg = self.packages.get_package(target.package);
