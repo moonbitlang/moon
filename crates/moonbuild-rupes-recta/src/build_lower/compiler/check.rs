@@ -23,10 +23,7 @@ use std::path::{Path, PathBuf};
 
 use moonutil::common::TargetBackend;
 
-use crate::build_lower::compiler::{
-    CmdlineAbstraction, ErrorFormat, MiDependency, VirtualPackageImplementation, WarnAlertConfig,
-    MOONC_DENY_ALERT_SET, MOONC_DENY_WARNING_SET,
-};
+use crate::build_lower::compiler::{BuildCommonArgs, CmdlineAbstraction, MiDependency};
 use crate::pkg_name::PackageFQN;
 
 /// Abstraction for `moonc check`.
@@ -38,54 +35,20 @@ use crate::pkg_name::PackageFQN;
 /// FIXME: Avoid laying everything out flat
 #[derive(Debug)]
 pub struct MooncCheck<'a> {
-    // Basic command structure
-    pub error_format: ErrorFormat,
+    // Common arguments
+    pub common: BuildCommonArgs<'a>,
 
-    // Warning and alert configuration
-    pub warn_config: WarnAlertConfig<'a>,
-    pub alert_config: WarnAlertConfig<'a>,
-
-    // Input files
-    pub mbt_sources: &'a [PathBuf],
     pub doctest_only_mbt_sources: &'a [PathBuf],
     pub mbt_md_sources: &'a [PathBuf],
-    pub mi_deps: &'a [MiDependency<'a>],
-
-    // Output configuration
     pub mi_out: Cow<'a, Path>,
     pub no_mi: bool,
 
-    // Package configuration
-    /// The name of the current package
-    pub package_name: &'a PackageFQN,
-    /// The source directory of the current package
-    pub package_source: Cow<'a, Path>,
-    pub is_main: bool,
-
-    // Standard library
-    /// Pass [None] for no_std
-    pub stdlib_core_file: Option<Cow<'a, Path>>,
-
-    // Target configuration
-    pub target_backend: TargetBackend,
-
-    // Test configuration
     pub is_whitebox_test: bool,
     pub is_blackbox_test: bool,
 
-    // Third party configuration
     pub is_third_party: bool,
-
-    // Single file mode
     pub single_file: bool,
-
-    // Patch file support
     pub patch_file: Option<Cow<'a, Path>>,
-
-    // Virtual package handling
-    // FIXME: better abstraction
-    pub check_mi: Option<Cow<'a, Path>>,
-    pub virtual_implementation: Option<VirtualPackageImplementation<'a>>,
 }
 
 impl<'a> MooncCheck<'a> {
@@ -99,27 +62,22 @@ impl<'a> MooncCheck<'a> {
         target_backend: TargetBackend,
     ) -> Self {
         Self {
-            error_format: ErrorFormat::Regular,
-            warn_config: WarnAlertConfig::Default,
-            alert_config: WarnAlertConfig::Default,
-            mbt_sources,
+            common: BuildCommonArgs::new(
+                mbt_sources,
+                mi_deps,
+                package_name,
+                package_source,
+                target_backend,
+            ),
             doctest_only_mbt_sources: &[],
             mbt_md_sources: &[],
-            mi_deps,
             mi_out: mi_out.into(),
             no_mi: false,
-            package_name,
-            package_source: package_source.into(),
-            is_main: false,
-            stdlib_core_file: None,
-            target_backend,
             is_whitebox_test: false,
             is_blackbox_test: false,
             is_third_party: false,
             single_file: false,
             patch_file: None,
-            check_mi: None,
-            virtual_implementation: None,
         }
     }
 
@@ -139,24 +97,13 @@ impl<'a> MooncCheck<'a> {
         }
 
         // Error format
-        if matches!(self.error_format, ErrorFormat::Json) {
-            args.extend(["-error-format".to_string(), "json".to_string()]);
-        }
+        self.common.add_error_format(args);
 
-        // Warning and alert handling (deny all)
-        if matches!(self.warn_config, WarnAlertConfig::DenyAll) {
-            args.extend([
-                "-w".to_string(),
-                MOONC_DENY_WARNING_SET.to_string(),
-                "-alert".to_string(),
-                MOONC_DENY_ALERT_SET.to_string(),
-            ]);
-        }
+        // Warning and alert handling (deny all combined)
+        self.common.add_warn_alert_deny_all_combined(args);
 
         // MBT source files
-        for mbt_file in self.mbt_sources {
-            args.push(mbt_file.display().to_string());
-        }
+        self.common.add_mbt_sources(args);
 
         // MBT.md files
         for mbt_md_file in self.mbt_md_sources {
@@ -177,12 +124,7 @@ impl<'a> MooncCheck<'a> {
         }
 
         // Custom warning/alert lists
-        if let WarnAlertConfig::List(warn_list) = &self.warn_config {
-            args.extend(["-w".to_string(), warn_list.to_string()]);
-        }
-        if let WarnAlertConfig::List(alert_list) = &self.alert_config {
-            args.extend(["-alert".to_string(), alert_list.to_string()]);
-        }
+        self.common.add_custom_warn_alert_lists(args);
 
         // Third-party package handling
         if self.is_third_party {
@@ -198,11 +140,11 @@ impl<'a> MooncCheck<'a> {
         args.extend(["-o".to_string(), self.mi_out.display().to_string()]);
 
         // Package configuration
-        args.extend(["-pkg".to_string(), self.package_name.to_string()]);
+        self.common.add_package_config(args);
 
-        if self.is_main && !self.is_blackbox_test {
-            args.push("-is-main".to_string());
-        }
+        // is-main with blackbox test condition
+        self.common
+            .add_is_main_with_condition(args, !self.is_blackbox_test);
 
         // Single file mode
         if self.single_file {
@@ -210,26 +152,16 @@ impl<'a> MooncCheck<'a> {
         }
 
         // Standard library
-        if let Some(stdlib_path) = &self.stdlib_core_file {
-            args.extend(["-std-path".to_string(), stdlib_path.display().to_string()]);
-        }
+        self.common.add_stdlib_path(args);
 
         // MI dependencies
-        for mi_dep in self.mi_deps {
-            args.extend(["-i".to_string(), mi_dep.to_alias_arg()]);
-        }
+        self.common.add_mi_dependencies(args);
 
         // Package source definition
-        args.extend([
-            "-pkg-sources".to_string(),
-            format!("{}:{}", self.package_name, self.package_source.display()),
-        ]);
+        self.common.add_package_sources(args);
 
         // Target backend
-        args.extend([
-            "-target".to_string(),
-            self.target_backend.to_flag().to_string(),
-        ]);
+        self.common.add_target_backend(args);
 
         // Test type flags
         if self.is_whitebox_test {
@@ -240,23 +172,10 @@ impl<'a> MooncCheck<'a> {
         }
 
         // Virtual package check
-        if let Some(check_mi_path) = &self.check_mi {
-            args.extend(["-check-mi".to_string(), check_mi_path.display().to_string()]);
-        }
+        self.common.add_virtual_package_check(args);
 
         // Virtual package implementation
-        if let Some(impl_virtual) = &self.virtual_implementation {
-            args.extend([
-                "-check-mi".to_string(),
-                impl_virtual.mi_path.display().to_string(),
-                "-pkg-sources".to_string(),
-                format!(
-                    "{}:{}",
-                    impl_virtual.package_name,
-                    impl_virtual.package_path.display()
-                ),
-            ]);
-        }
+        self.common.add_virtual_package_implementation_check(args);
     }
 }
 
