@@ -24,9 +24,7 @@ use std::path::{Path, PathBuf};
 use moonutil::common::TargetBackend;
 
 use crate::build_lower::compiler::{
-    CmdlineAbstraction, CompilationFlags, ErrorFormat, MiDependency, VirtualPackageImplementation,
-    WarnAlertConfig, MOONC_ALLOW_ALERT_SET, MOONC_ALLOW_WARNING_SET, MOONC_DENY_ALERT_SET,
-    MOONC_DENY_WARNING_SET,
+    BuildCommonArgs, CmdlineAbstraction, CompilationFlags, MiDependency,
 };
 use crate::pkg_name::PackageFQN;
 
@@ -39,47 +37,15 @@ use crate::pkg_name::PackageFQN;
 /// FIXME: Avoid laying everything out flat
 #[derive(Debug)]
 pub struct MooncBuildPackage<'a> {
-    // Basic command structure
-    pub error_format: ErrorFormat,
+    // Common arguments
+    pub common: BuildCommonArgs<'a>,
 
-    // Warning and alert configuration
-    pub warn_config: WarnAlertConfig<'a>,
-    pub alert_config: WarnAlertConfig<'a>,
-
-    // Input files
-    pub mbt_sources: &'a [PathBuf],
-    pub mi_deps: &'a [MiDependency<'a>],
-
-    // Output configuration
     pub core_out: Cow<'a, Path>,
     #[allow(unused)]
     pub mi_out: Cow<'a, Path>,
     pub no_mi: bool,
-
-    // Package configuration
-    /// The name of the current package
-    pub package_name: &'a PackageFQN,
-    /// The source directory of the current package
-    pub package_source: Cow<'a, Path>,
-    pub is_main: bool,
-
-    // Standard library
-    /// Pass [None] for no_std
-    pub stdlib_core_file: Option<Cow<'a, Path>>,
-
-    // Target configuration
-    pub target_backend: TargetBackend,
-
-    // Compilation flags
     pub flags: CompilationFlags,
-
-    // Extra options
     pub extra_build_opts: &'a [&'a str],
-
-    // Virtual package handling
-    // FIXME: better abstraction
-    pub check_mi: Option<Cow<'a, Path>>,
-    pub virtual_implementation: Option<VirtualPackageImplementation<'a>>,
 }
 
 impl<'a> MooncBuildPackage<'a> {
@@ -94,19 +60,16 @@ impl<'a> MooncBuildPackage<'a> {
         target_backend: TargetBackend,
     ) -> Self {
         Self {
-            error_format: ErrorFormat::Regular,
-            warn_config: WarnAlertConfig::Default,
-            alert_config: WarnAlertConfig::Default,
-            mbt_sources,
-            mi_deps,
+            common: BuildCommonArgs::new(
+                mbt_sources,
+                mi_deps,
+                package_name,
+                package_source,
+                target_backend,
+            ),
             core_out: core_out.into(),
             mi_out: mi_out.into(),
             no_mi: false,
-            package_name,
-            package_source: package_source.into(),
-            is_main: false,
-            stdlib_core_file: None,
-            target_backend,
             flags: CompilationFlags {
                 no_opt: false,
                 symbols: false,
@@ -116,8 +79,6 @@ impl<'a> MooncBuildPackage<'a> {
                 enable_value_tracing: false,
             },
             extra_build_opts: &[],
-            check_mi: None,
-            virtual_implementation: None,
         }
     }
 
@@ -127,69 +88,40 @@ impl<'a> MooncBuildPackage<'a> {
         args.push("build-package".into());
 
         // Error format
-        if matches!(self.error_format, ErrorFormat::Json) {
-            args.extend(["-error-format".to_string(), "json".to_string()]);
-        }
+        self.common.add_error_format(args);
 
-        // Warning and alert handling
-        if matches!(self.warn_config, WarnAlertConfig::DenyAll) {
-            args.extend(["-w".to_string(), MOONC_DENY_WARNING_SET.to_string()]);
-        }
-        if matches!(self.alert_config, WarnAlertConfig::DenyAll) {
-            args.extend(["-alert".to_string(), MOONC_DENY_ALERT_SET.to_string()]);
-        }
+        // Warning and alert handling (separate)
+        self.common.add_warn_alert_deny_all_separate(args);
 
         // Input files
-        for mbt_file in self.mbt_sources {
-            args.push(mbt_file.display().to_string());
-        }
+        self.common.add_mbt_sources(args);
 
         // Custom warning/alert lists
-        if let WarnAlertConfig::List(warn_list) = &self.warn_config {
-            args.extend(["-w".to_string(), warn_list.to_string()]);
-        }
-        if let WarnAlertConfig::List(alert_list) = &self.alert_config {
-            args.extend(["-alert".to_string(), alert_list.to_string()]);
-        }
-        // Third-party package handling
-        if matches!(self.warn_config, WarnAlertConfig::AllowAll) {
-            args.extend(["-w".to_string(), MOONC_ALLOW_WARNING_SET.into()]);
-        }
-        if matches!(self.alert_config, WarnAlertConfig::AllowAll) {
-            args.extend(["-alert".to_string(), MOONC_ALLOW_ALERT_SET.into()]);
-        }
+        self.common.add_custom_warn_alert_lists(args);
+
+        // Third-party package handling (allow all)
+        self.common.add_warn_alert_allow_all(args);
 
         // Output
         args.extend(["-o".to_string(), self.core_out.display().to_string()]);
 
         // Package configuration
-        args.extend(["-pkg".to_string(), self.package_name.to_string()]);
+        self.common.add_package_config(args);
 
-        if self.is_main {
-            args.push("-is-main".to_string());
-        }
+        // is-main (no condition)
+        self.common.add_is_main(args);
 
         // Standard library
-        if let Some(stdlib_path) = &self.stdlib_core_file {
-            args.extend(["-std-path".to_string(), stdlib_path.display().to_string()]);
-        }
+        self.common.add_stdlib_path(args);
 
         // MI dependencies
-        for mi_dep in self.mi_deps {
-            args.extend(["-i".to_string(), mi_dep.to_alias_arg()]);
-        }
+        self.common.add_mi_dependencies(args);
 
-        // self package source definition
-        args.extend([
-            "-pkg-sources".to_string(),
-            format!("{}:{}", self.package_name, self.package_source.display()),
-        ]);
+        // Package source definition
+        self.common.add_package_sources(args);
 
         // Target backend
-        args.extend([
-            "-target".to_string(),
-            self.target_backend.to_flag().to_string(),
-        ]);
+        self.common.add_target_backend(args);
 
         // Debug and optimization flags
         if self.flags.symbols {
@@ -219,29 +151,15 @@ impl<'a> MooncBuildPackage<'a> {
         }
 
         // Virtual package check
-        if let Some(check_mi_path) = &self.check_mi {
-            args.extend(["-check-mi".to_string(), check_mi_path.display().to_string()]);
+        self.common.add_virtual_package_check(args);
 
-            if self.no_mi {
-                args.push("-no-mi".to_string());
-            }
+        // Virtual package check with no-mi flag
+        if self.common.check_mi.is_some() && self.no_mi {
+            args.push("-no-mi".to_string());
         }
 
         // Virtual package implementation
-        if let Some(impl_virtual) = &self.virtual_implementation {
-            args.extend([
-                "-check-mi".to_string(),
-                impl_virtual.mi_path.display().to_string(),
-                "-impl-virtual".to_string(),
-                "-no-mi".to_string(),
-                "-pkg-sources".to_string(),
-                format!(
-                    "{}:{}",
-                    impl_virtual.package_name,
-                    impl_virtual.package_path.display()
-                ),
-            ]);
-        }
+        self.common.add_virtual_package_implementation_build(args);
     }
 }
 
