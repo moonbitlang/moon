@@ -104,17 +104,36 @@ pub struct BuildPlanNode {
     pub action: TargetAction,
 }
 
+/// Common information about a moonbit package being built
+pub struct BuildTargetInfo {
+    pub files: Vec<PathBuf>,
+    // we currently don't need this, as it's controlled by build-wise options
+    // /// Whether compiling this target needs the standard library
+    // pub std: bool,
+
+    // we currently don't need this, as it's directly copied from mod.json.
+    // pub is_main: bool,
+}
+
+pub struct LinkCoreInfo {
+    /// The targets in **initialization order**.
+    pub linked_order: Vec<BuildTarget>,
+    // we currently don't need this, as it's controlled by build-wise options
+    // /// Whether linking this target needs the standard library
+    // pub std: bool,
+}
+
 /// The specification of the specific build target, e.g. its files.
 pub enum BuildActionSpec {
     /// Check the given list of MoonBit source files.
     ///
     /// Outgoing edges of this node represents the direct dependencies.
-    Check(Vec<PathBuf>),
+    Check(BuildTargetInfo),
 
     /// Build the given list of MoonBit source files.
     ///
     /// Outgoing edges of this node represents the direct dependencies.
-    BuildMbt(Vec<PathBuf>),
+    BuildMbt(BuildTargetInfo),
 
     /// Build the given list of C source files.
     BuildC(Vec<PathBuf>),
@@ -124,7 +143,7 @@ pub enum BuildActionSpec {
     /// Outgoing edges of this node represents the build targets it depends on,
     /// but there's another copy of it, **ordered**, in the value's payloads,
     /// since the build command will need to use it.
-    LinkCore(Vec<BuildTarget>),
+    LinkCore(LinkCoreInfo),
 
     /// Make executable; link with the C artifacts of the given list of targets,
     /// if any.
@@ -142,6 +161,10 @@ pub struct BuildEnvironment {
     // FIXME: Target backend should go into the solver, not here
     pub target_backend: TargetBackend,
     pub opt_level: OptLevel,
+    /// Whether compiling requires the standard library.
+    ///
+    /// TODO: Move this to per-package/module.
+    pub std: bool,
     // Can have more, e.g. cross compile
 }
 
@@ -300,6 +323,19 @@ impl<'a> BuildPlanConstructor<'a> {
         }
     }
 
+    fn target_info_of(
+        &self,
+        node: BuildPlanNode,
+    ) -> Result<BuildTargetInfo, BuildPlanConstructError> {
+        // Resolve the source files
+        let source_files = self.resolve_mbt_files_for_node(node)?;
+        Ok(BuildTargetInfo {
+            files: source_files,
+            // is_main: pkg.raw.is_main,
+            // std: self.build_env.std, // TODO: move to per-package
+        })
+    }
+
     fn build_check(&mut self, node: BuildPlanNode) -> Result<(), BuildPlanConstructError> {
         // Check depends on `.mi` of all dependencies, which practically
         // means the Check of all dependencies.
@@ -312,9 +348,7 @@ impl<'a> BuildPlanConstructor<'a> {
             self.add_edge(node, dep_node);
         }
 
-        // Resolve the source files
-        let source_files = self.resolve_mbt_files_for_node(node)?;
-        self.resolved_node(node, BuildActionSpec::Check(source_files));
+        self.resolved_node(node, BuildActionSpec::Check(self.target_info_of(node)?));
 
         Ok(())
     }
@@ -333,15 +367,13 @@ impl<'a> BuildPlanConstructor<'a> {
             self.add_edge(node, dep_node);
         }
 
-        // Resolve the source files
-        let source_files = self.resolve_mbt_files_for_node(node)?;
-        self.resolved_node(node, BuildActionSpec::BuildMbt(source_files));
+        self.resolved_node(node, BuildActionSpec::BuildMbt(self.target_info_of(node)?));
 
         Ok(())
     }
 
     fn resolve_mbt_files_for_node(
-        &mut self,
+        &self,
         node: BuildPlanNode,
     ) -> Result<Vec<PathBuf>, BuildPlanConstructError> {
         let pkg = self.packages.get_package(node.target.package);
@@ -443,7 +475,10 @@ impl<'a> BuildPlanConstructor<'a> {
         }
 
         let targets = link_core_deps.into_iter().collect();
-        let spec = BuildActionSpec::LinkCore(targets);
+        let spec = BuildActionSpec::LinkCore(LinkCoreInfo {
+            linked_order: targets,
+            // std: self.build_env.std, // TODO: move to per-package
+        });
         self.resolved_node(link_core_node, spec);
 
         // Add edge from make exec to link core
