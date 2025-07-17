@@ -144,7 +144,9 @@ impl<'a> BuildPlanLowerContext<'a> {
 
         // Lower the action to its commands. This step should be infallible.
         let cmd = match target {
-            build_plan::BuildActionSpec::Check(_path_bufs) => todo!(),
+            build_plan::BuildActionSpec::Check(path_bufs) => {
+                self.lower_check(node, package, path_bufs)
+            }
             build_plan::BuildActionSpec::BuildMbt(path_bufs) => {
                 self.lower_build_mbt(node, package, path_bufs)
             }
@@ -233,6 +235,32 @@ impl<'a> BuildPlanLowerContext<'a> {
         self.graph.add_build(build)
     }
 
+    fn lower_check(
+        &self,
+        node: BuildPlanNode,
+        package: &DiscoveredPackage,
+        path_bufs: &Vec<PathBuf>,
+    ) -> BuildCommand {
+        let mi_output =
+            self.layout
+                .mi_of_build_target(self.packages, &node.target, self.opt.target_backend);
+        let mi_inputs = self.mi_inputs_of(node);
+
+        let cmd = compiler::MooncCheck::new(
+            path_bufs.as_ref(),
+            &mi_output,
+            &mi_inputs,
+            &package.fqn,
+            &package.root_path,
+            self.opt.target_backend,
+        );
+
+        BuildCommand {
+            extra_inputs: path_bufs.clone(),
+            commandline: cmd.build_command("moonc"),
+        }
+    }
+
     fn lower_build_mbt(
         &self,
         node: BuildPlanNode,
@@ -246,17 +274,7 @@ impl<'a> BuildPlanLowerContext<'a> {
             self.layout
                 .mi_of_build_target(self.packages, &node.target, self.opt.target_backend);
 
-        let mi_inputs = self
-            .rel
-            .dep_graph
-            .edges_directed(node.target, Direction::Incoming)
-            .map(|(it, _, w)| {
-                let in_file =
-                    self.layout
-                        .mi_of_build_target(self.packages, &it, self.opt.target_backend);
-                MiDependency::new(in_file, &w.short_alias)
-            })
-            .collect::<Vec<_>>();
+        let mi_inputs = self.mi_inputs_of(node);
 
         let mut cmd = compiler::MooncBuildPackage::new(
             path_bufs.as_ref(),
@@ -275,6 +293,19 @@ impl<'a> BuildPlanLowerContext<'a> {
             extra_inputs: path_bufs.clone(),
             commandline: cmd.build_command("moonc"),
         }
+    }
+
+    fn mi_inputs_of(&self, node: BuildPlanNode) -> Vec<MiDependency<'_>> {
+        self.rel
+            .dep_graph
+            .edges_directed(node.target, Direction::Incoming)
+            .map(|(it, _, w)| {
+                let in_file =
+                    self.layout
+                        .mi_of_build_target(self.packages, &it, self.opt.target_backend);
+                MiDependency::new(in_file, &w.short_alias)
+            })
+            .collect::<Vec<_>>()
     }
 
     fn lower_link_core(
