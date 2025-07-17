@@ -70,8 +70,8 @@ use anyhow::bail;
 use moonutil::{
     cli::UniversalFlags,
     common::{
-        read_module_desc_file_in_dir, BuildPackageFlags, LinkCoreFlags, MooncOpt, OutputFormat,
-        SurfaceTarget, TargetBackend, MOONBITLANG_CORE, MOON_MOD_JSON,
+        read_module_desc_file_in_dir, BuildPackageFlags, DiagnosticLevel, LinkCoreFlags, MooncOpt,
+        OutputFormat, SurfaceTarget, TargetBackend, MOONBITLANG_CORE, MOON_MOD_JSON,
     },
     mooncakes::{LoginSubcommand, PackageSubcommand, PublishSubcommand, RegisterSubcommand},
 };
@@ -213,6 +213,10 @@ pub struct BuildFlags {
     /// Set the max number of jobs to run in parallel
     #[clap(short = 'j', long)]
     pub jobs: Option<usize>,
+
+    /// Render no-location diagnostics starting from a certain level
+    #[clap(long, value_name = "MIN_LEVEL", default_value = "error")]
+    pub render_no_loc: DiagnosticLevel,
 }
 
 impl BuildFlags {

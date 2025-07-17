@@ -126,6 +126,7 @@ fn run_bundle_internal(
         parallelism: cmd.build_flags.jobs,
         use_tcc_run: false,
         dynamic_stub_libs: None,
+        render_no_loc: cmd.build_flags.render_no_loc,
     };
     let module = scan_with_x_build(
         false,

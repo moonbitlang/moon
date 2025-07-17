@@ -1,5 +1,5 @@
 ///|
-pub(all) typealias Int as Position
+pub typealias Int as Position
 
 ///|
 pub(all) enum Token {
@@ -48,7 +48,7 @@ pub impl Show for TokenKind with output(self, logger) {
 }
 
 ///|
-pub type! ParseError {
+pub suberror ParseError {
   UnexpectedToken(Token, (Position, Position), Array[TokenKind])
   UnexpectedEndOfInput(Position, Array[TokenKind])
 } derive(Show)
@@ -57,10 +57,10 @@ pub type! ParseError {
 typealias Error as YYObj
 
 ///|
-priv type! YYObj_Void
+priv suberror YYObj_Void
 
 ///|
-priv type! YYObj_Int Int
+priv suberror YYObj_Int Int
 
 ///|
 typealias (YYSymbol) -> YYDecision as YYState
@@ -93,6 +93,7 @@ priv enum YYSymbol {
 }
 
 // Workaround for EOI unused warning
+
 ///|
 fn init {
   match EOI {
@@ -104,7 +105,7 @@ fn init {
 ///|
 fn yy_action_0(
   _last_pos : Position,
-  _args : ArrayView[(YYObj, Position, Position)]
+  _args : ArrayView[(YYObj, Position, Position)],
 ) -> YYObj {
   guard _args[0].0 is YYObj_Int(_dollar1)
   YYObj_Int(
@@ -118,7 +119,7 @@ fn yy_action_0(
 ///|
 fn yy_action_1(
   _last_pos : Position,
-  _args : ArrayView[(YYObj, Position, Position)]
+  _args : ArrayView[(YYObj, Position, Position)],
 ) -> YYObj {
   guard _args[0].0 is YYObj_Int(lhs)
   guard _args[2].0 is YYObj_Int(rhs)
@@ -133,7 +134,7 @@ fn yy_action_1(
 ///|
 fn yy_action_2(
   _last_pos : Position,
-  _args : ArrayView[(YYObj, Position, Position)]
+  _args : ArrayView[(YYObj, Position, Position)],
 ) -> YYObj {
   guard _args[0].0 is YYObj_Int(lhs)
   guard _args[2].0 is YYObj_Int(rhs)
@@ -148,7 +149,7 @@ fn yy_action_2(
 ///|
 fn yy_action_3(
   _last_pos : Position,
-  _args : ArrayView[(YYObj, Position, Position)]
+  _args : ArrayView[(YYObj, Position, Position)],
 ) -> YYObj {
   guard _args[0].0 is YYObj_Int(_dollar1)
   YYObj_Int(
@@ -162,7 +163,7 @@ fn yy_action_3(
 ///|
 fn yy_action_4(
   _last_pos : Position,
-  _args : ArrayView[(YYObj, Position, Position)]
+  _args : ArrayView[(YYObj, Position, Position)],
 ) -> YYObj {
   guard _args[0].0 is YYObj_Int(lhs)
   guard _args[2].0 is YYObj_Int(rhs)
@@ -177,7 +178,7 @@ fn yy_action_4(
 ///|
 fn yy_action_5(
   _last_pos : Position,
-  _args : ArrayView[(YYObj, Position, Position)]
+  _args : ArrayView[(YYObj, Position, Position)],
 ) -> YYObj {
   guard _args[0].0 is YYObj_Int(_dollar1)
   YYObj_Int(
@@ -191,7 +192,7 @@ fn yy_action_5(
 ///|
 fn yy_action_6(
   _last_pos : Position,
-  _args : ArrayView[(YYObj, Position, Position)]
+  _args : ArrayView[(YYObj, Position, Position)],
 ) -> YYObj {
   guard _args[0].0 is YYObj_Int(_dollar1)
   YYObj_Int(
@@ -205,7 +206,7 @@ fn yy_action_6(
 ///|
 fn yy_action_7(
   _last_pos : Position,
-  _args : ArrayView[(YYObj, Position, Position)]
+  _args : ArrayView[(YYObj, Position, Position)],
 ) -> YYObj {
   guard _args[1].0 is YYObj_Int(_dollar2)
   YYObj_Int(
@@ -220,7 +221,7 @@ fn yy_action_7(
 fn yy_input(
   token : Token,
   _start_pos : Position,
-  _end_pos : Position
+  _end_pos : Position,
 ) -> (YYSymbol, YYObj) {
   match token {
     NUMBER(data) => (T_NUMBER, YYObj_Int(data))
@@ -241,6 +242,7 @@ fn yy_input(
 // [6, term → • NUMBER, $ / PLUS / MINUS / STAR]
 // [7, term → • LPAREN add RPAREN, $ / PLUS / MINUS / STAR]
 // [8, start_prime → • start, $]
+
 ///|
 fn yy_state_0(_lookahead : YYSymbol) -> YYDecision {
   match _lookahead {
@@ -255,6 +257,7 @@ fn yy_state_0(_lookahead : YYSymbol) -> YYDecision {
 }
 
 // [8, start_prime → start •, $]
+
 ///|
 fn yy_state_1(_lookahead : YYSymbol) -> YYDecision {
   Accept
@@ -268,6 +271,7 @@ fn yy_state_1(_lookahead : YYSymbol) -> YYDecision {
 // [6, term → • NUMBER, PLUS / MINUS / STAR / RPAREN]
 // [7, term → • LPAREN add RPAREN, PLUS / MINUS / STAR / RPAREN]
 // [7, term → LPAREN • add RPAREN, $ / PLUS / MINUS / STAR / RPAREN]
+
 ///|
 fn yy_state_2(_lookahead : YYSymbol) -> YYDecision {
   match _lookahead {
@@ -281,12 +285,14 @@ fn yy_state_2(_lookahead : YYSymbol) -> YYDecision {
 }
 
 // [6, term → NUMBER •, $ / PLUS / MINUS / STAR / RPAREN]
+
 ///|
 fn yy_state_3(_lookahead : YYSymbol) -> YYDecision {
   ReduceNoLookahead(1, NT_term, yy_action_6)
 }
 
 // [5, factor → term •, $ / PLUS / MINUS / STAR / RPAREN]
+
 ///|
 fn yy_state_4(_lookahead : YYSymbol) -> YYDecision {
   ReduceNoLookahead(1, NT_factor, yy_action_5)
@@ -294,6 +300,7 @@ fn yy_state_4(_lookahead : YYSymbol) -> YYDecision {
 
 // [3, add → factor •, $ / PLUS / MINUS / RPAREN]
 // [4, factor → factor • STAR term, $ / PLUS / MINUS / STAR / RPAREN]
+
 ///|
 fn yy_state_5(_lookahead : YYSymbol) -> YYDecision {
   match _lookahead {
@@ -306,6 +313,7 @@ fn yy_state_5(_lookahead : YYSymbol) -> YYDecision {
 // [4, factor → factor STAR • term, $ / PLUS / MINUS / STAR / RPAREN]
 // [6, term → • NUMBER, $ / PLUS / MINUS / STAR / RPAREN]
 // [7, term → • LPAREN add RPAREN, $ / PLUS / MINUS / STAR / RPAREN]
+
 ///|
 fn yy_state_6(_lookahead : YYSymbol) -> YYDecision {
   match _lookahead {
@@ -317,6 +325,7 @@ fn yy_state_6(_lookahead : YYSymbol) -> YYDecision {
 }
 
 // [4, factor → factor STAR term •, $ / PLUS / MINUS / STAR / RPAREN]
+
 ///|
 fn yy_state_7(_lookahead : YYSymbol) -> YYDecision {
   ReduceNoLookahead(3, NT_factor, yy_action_4)
@@ -325,6 +334,7 @@ fn yy_state_7(_lookahead : YYSymbol) -> YYDecision {
 // [1, add → add • PLUS factor, PLUS / MINUS / RPAREN]
 // [2, add → add • MINUS factor, PLUS / MINUS / RPAREN]
 // [7, term → LPAREN add • RPAREN, $ / PLUS / MINUS / STAR / RPAREN]
+
 ///|
 fn yy_state_8(_lookahead : YYSymbol) -> YYDecision {
   match _lookahead {
@@ -336,6 +346,7 @@ fn yy_state_8(_lookahead : YYSymbol) -> YYDecision {
 }
 
 // [7, term → LPAREN add RPAREN •, $ / PLUS / MINUS / STAR / RPAREN]
+
 ///|
 fn yy_state_9(_lookahead : YYSymbol) -> YYDecision {
   ReduceNoLookahead(3, NT_term, yy_action_7)
@@ -346,6 +357,7 @@ fn yy_state_9(_lookahead : YYSymbol) -> YYDecision {
 // [5, factor → • term, $ / PLUS / MINUS / STAR / RPAREN]
 // [6, term → • NUMBER, $ / PLUS / MINUS / STAR / RPAREN]
 // [7, term → • LPAREN add RPAREN, $ / PLUS / MINUS / STAR / RPAREN]
+
 ///|
 fn yy_state_10(_lookahead : YYSymbol) -> YYDecision {
   match _lookahead {
@@ -359,6 +371,7 @@ fn yy_state_10(_lookahead : YYSymbol) -> YYDecision {
 
 // [2, add → add MINUS factor •, $ / PLUS / MINUS / RPAREN]
 // [4, factor → factor • STAR term, $ / PLUS / MINUS / STAR / RPAREN]
+
 ///|
 fn yy_state_11(_lookahead : YYSymbol) -> YYDecision {
   match _lookahead {
@@ -373,6 +386,7 @@ fn yy_state_11(_lookahead : YYSymbol) -> YYDecision {
 // [5, factor → • term, $ / PLUS / MINUS / STAR / RPAREN]
 // [6, term → • NUMBER, $ / PLUS / MINUS / STAR / RPAREN]
 // [7, term → • LPAREN add RPAREN, $ / PLUS / MINUS / STAR / RPAREN]
+
 ///|
 fn yy_state_12(_lookahead : YYSymbol) -> YYDecision {
   match _lookahead {
@@ -386,6 +400,7 @@ fn yy_state_12(_lookahead : YYSymbol) -> YYDecision {
 
 // [1, add → add PLUS factor •, $ / PLUS / MINUS / RPAREN]
 // [4, factor → factor • STAR term, $ / PLUS / MINUS / STAR / RPAREN]
+
 ///|
 fn yy_state_13(_lookahead : YYSymbol) -> YYDecision {
   match _lookahead {
@@ -398,6 +413,7 @@ fn yy_state_13(_lookahead : YYSymbol) -> YYDecision {
 // [0, start → add •, $]
 // [1, add → add • PLUS factor, $ / PLUS / MINUS]
 // [2, add → add • MINUS factor, $ / PLUS / MINUS]
+
 ///|
 fn yy_state_14(_lookahead : YYSymbol) -> YYDecision {
   match _lookahead {
@@ -409,13 +425,13 @@ fn yy_state_14(_lookahead : YYSymbol) -> YYDecision {
 }
 
 ///|
-fn yy_parse[T](
+fn[T] yy_parse(
   tokens : Array[(Token, Position, Position)],
   start : YYState,
-  return_ : (YYObj) -> T
-) -> T!ParseError {
+  return_ : (YYObj) -> T,
+) -> T raise ParseError {
   let mut cursor = 0
-  let mut state_stack : @immut/list.T[YYState] = Cons(start, Nil)
+  let mut state_stack = @list.singleton(start)
   let data_stack : Array[(YYObj, Position, Position)] = []
   let mut last_pos = tokens[0].1
   let mut state = start
@@ -447,7 +463,7 @@ fn yy_parse[T](
       Shift(next_state) => {
         guard lookahead is Some(la)
         data_stack.push(la.1)
-        state_stack = Cons(next_state, state_stack)
+        state_stack = state_stack.add(next_state)
         last_shifted_state_stack = state_stack
         state = next_state
         last_pos = la.1.2
@@ -466,14 +482,14 @@ fn yy_parse[T](
             }
             for i in 0..<count {
               ignore(data_stack.unsafe_pop())
-              state_stack = state_stack.tail()
+              state_stack = state_stack.unsafe_tail()
             }
             state = state_stack.unsafe_head()
             data_stack.push((data, start_pos, end_pos))
             match state(symbol) {
               Accept => return return_(data_stack.unsafe_pop().0)
               Shift(next_state) => {
-                state_stack = Cons(next_state, state_stack)
+                state_stack = state_stack.add(next_state)
                 state = next_state
               }
               Reduce(count, symbol, action)
@@ -485,7 +501,7 @@ fn yy_parse[T](
         }
       Error => {
         let (_, (_, start_pos, end_pos), token) = lookahead.unwrap()
-        error!(last_shifted_state_stack, token, (start_pos, end_pos))
+        error(last_shifted_state_stack, token, (start_pos, end_pos))
       }
     }
   }
@@ -494,24 +510,24 @@ fn yy_parse[T](
 
 ///|
 fn error(
-  stack : @immut/list.T[YYState],
+  stack : @list.T[YYState],
   token : Token?,
-  loc : (Position, Position)
-) -> Unit!ParseError {
+  loc : (Position, Position),
+) -> Unit raise ParseError {
   let expected = []
   fn try_add(symbol : YYSymbol, kind : TokenKind) {
-    fn go(stack : @immut/list.T[YYState]) {
+    fn go(stack : @list.T[YYState]) {
       match stack {
-        Nil => ()
-        Cons(state, _) =>
+        Empty => ()
+        More(state, ..) =>
           match state(symbol) {
             Accept | Shift(_) => expected.push(kind)
             Reduce(count, symbol, _) | ReduceNoLookahead(count, symbol, _) => {
-              fn inner_go(stack : @immut/list.T[YYState], count, symbol) {
+              fn inner_go(stack : @list.T[YYState], count, symbol) {
                 let stack = stack.drop(count)
-                guard stack is Cons(state, _)
+                guard stack is More(state, ..)
                 match state(symbol) {
-                  Shift(state) => go(Cons(state, stack))
+                  Shift(state) => go(stack.add(state))
                   Reduce(count, symbol, _)
                   | ReduceNoLookahead(count, symbol, _) =>
                     inner_go(stack, count, symbol)
@@ -547,8 +563,10 @@ fn error(
 }
 
 ///|
-pub fn start(tokens : Array[(Token, Position, Position)]) -> Int!ParseError {
-  yy_parse!(tokens, yy_state_0, fn {
+pub fn start(
+  tokens : Array[(Token, Position, Position)],
+) -> Int raise ParseError {
+  yy_parse(tokens, yy_state_0, fn {
     YYObj_Int(result) => result
     _ => panic()
   })

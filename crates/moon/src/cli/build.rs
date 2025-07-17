@@ -160,6 +160,7 @@ fn run_build_internal_legacy(
         parallelism: cmd.build_flags.jobs,
         use_tcc_run: false,
         dynamic_stub_libs: None,
+        render_no_loc: cmd.build_flags.render_no_loc,
     };
 
     let mut module = scan_with_x_build(

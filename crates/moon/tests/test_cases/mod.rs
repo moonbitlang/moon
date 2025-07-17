@@ -4552,9 +4552,9 @@ fn test_diag_loc_map() {
         get_err_stderr(&dir, ["check"]),
         expect![[r#"
             Error: [4014]
-                 ╭─[ $ROOT/parser.mbt:128:13 ]
+                 ╭─[ $ROOT/parser.mbt:129:13 ]
                  │
-             128 │       lhs + "x" + rhs
+             129 │       lhs + "x" + rhs
                  │             ─┬─  
                  │              ╰─── Expr Type Mismatch
                     has type : String

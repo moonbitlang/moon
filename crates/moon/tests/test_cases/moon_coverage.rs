@@ -27,19 +27,19 @@ fn test_moon_coverage_analyze() {
             Total tests: 3, passed: 3, failed: 0.
 
             warning: this line has no test coverage
-             --> lib/hello.mbt:2
-            1 | fn hello_1() -> String {
+             --> lib2/hello.mbt:2
+            1 | fn hello_uncovered_1() -> String {
             2 |   "Hello, world!"
               |   ^^^^^^^^^^^^^^^
             3 | }
             4 | 
-            5 | fn hello_2() -> String {
+            5 | fn hello_uncovered_2() -> String {
 
 
             warning: this line has no test coverage
-             --> lib/hello.mbt:6
+             --> lib2/hello.mbt:6
             4 | 
-            5 | fn hello_2() -> String {
+            5 | fn hello_uncovered_2() -> String {
             6 |   "Hello, world!"
               |   ^^^^^^^^^^^^^^^
             7 | }
@@ -47,13 +47,21 @@ fn test_moon_coverage_analyze() {
 
 
             warning: this line has no test coverage
-             --> lib/hello.mbt:10
+             --> lib2/hello.mbt:10
              7 | }
              8 | 
-             9 | fn hello_3() -> String {
+             9 | fn hello_uncovered_3() -> String {
             10 |   "Hello, world!"
                |   ^^^^^^^^^^^^^^^
             11 | }
+
+
+            warning: this line has no test coverage
+             --> main/main.mbt:2
+            1 | fn main {
+            2 |   println("main")
+              |   ^^^^^^^^^^^^^^^
+            3 | }
 
 
         "#]],
