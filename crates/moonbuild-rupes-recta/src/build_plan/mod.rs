@@ -80,6 +80,11 @@ impl BuildPlan {
             .neighbors_directed(node, petgraph::Direction::Incoming)
     }
 
+    pub fn outgoing_nodes(&self, node: BuildPlanNode) -> impl Iterator<Item = BuildPlanNode> + '_ {
+        self.graph
+            .neighbors_directed(node, petgraph::Direction::Outgoing)
+    }
+
     pub fn all_nodes(&self) -> impl Iterator<Item = BuildPlanNode> + '_ {
         self.graph.nodes()
     }

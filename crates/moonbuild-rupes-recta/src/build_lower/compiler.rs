@@ -111,6 +111,12 @@ pub enum WarnAlertConfig<'a> {
 
 pub trait CmdlineAbstraction {
     fn to_args(&self, args: &mut Vec<String>);
+
+    fn build_command(&self, executable: impl Into<String>) -> Vec<String> {
+        let mut args = vec![executable.into()];
+        self.to_args(&mut args);
+        args
+    }
 }
 
 #[allow(unused)]
