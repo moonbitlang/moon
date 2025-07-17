@@ -63,7 +63,7 @@ impl LegacyLayout {
         push_backend(&mut dir, backend);
 
         if self.main_module.as_ref().is_some_and(|m| pkg.module() == m) {
-            dir.extend(pkg.package().segments());
+            // no nested directory for the working module
         } else {
             dir.push(LEGACY_NON_MAIN_MODULE_DIR);
             dir.extend(pkg.module().name().segments());
