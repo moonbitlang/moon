@@ -115,6 +115,12 @@ Build the current package
 * `--warn-list <WARN_LIST>` — Warn list config
 * `--alert-list <ALERT_LIST>` — Alert list config
 * `-j`, `--jobs <JOBS>` — Set the max number of jobs to run in parallel
+* `--render-no-loc <MIN_LEVEL>` — Render no-location diagnostics starting from a certain level
+
+  Default value: `error`
+
+  Possible values: `info`, `warn`, `error`
+
 * `--frozen` — Do not sync dependencies, assuming local dependencies are up-to-date
 * `-w`, `--watch` — Monitor the file system and automatically build artifacts
 
@@ -150,6 +156,12 @@ Check the current package, but don't build object files
 * `--warn-list <WARN_LIST>` — Warn list config
 * `--alert-list <ALERT_LIST>` — Alert list config
 * `-j`, `--jobs <JOBS>` — Set the max number of jobs to run in parallel
+* `--render-no-loc <MIN_LEVEL>` — Render no-location diagnostics starting from a certain level
+
+  Default value: `error`
+
+  Possible values: `info`, `warn`, `error`
+
 * `--output-json` — Output in json format
 * `--frozen` — Do not sync dependencies, assuming local dependencies are up-to-date
 * `-w`, `--watch` — Monitor the file system and automatically check files
@@ -191,6 +203,12 @@ Run a main package
 * `--warn-list <WARN_LIST>` — Warn list config
 * `--alert-list <ALERT_LIST>` — Alert list config
 * `-j`, `--jobs <JOBS>` — Set the max number of jobs to run in parallel
+* `--render-no-loc <MIN_LEVEL>` — Render no-location diagnostics starting from a certain level
+
+  Default value: `error`
+
+  Possible values: `info`, `warn`, `error`
+
 * `--frozen` — Do not sync dependencies, assuming local dependencies are up-to-date
 * `--build-only` — Only build, do not run the code
 
@@ -226,6 +244,12 @@ Test the current package
 * `--warn-list <WARN_LIST>` — Warn list config
 * `--alert-list <ALERT_LIST>` — Alert list config
 * `-j`, `--jobs <JOBS>` — Set the max number of jobs to run in parallel
+* `--render-no-loc <MIN_LEVEL>` — Render no-location diagnostics starting from a certain level
+
+  Default value: `error`
+
+  Possible values: `info`, `warn`, `error`
+
 * `-p`, `--package <PACKAGE>` — Run test in the specified package
 * `-f`, `--file <FILE>` — Run test in the specified file. Only valid when `--package` is also specified
 * `-i`, `--index <INDEX>` — Run only the index-th test in the file. Only valid when `--file` is also specified
@@ -335,6 +359,12 @@ Run benchmarks in the current package
 * `--warn-list <WARN_LIST>` — Warn list config
 * `--alert-list <ALERT_LIST>` — Alert list config
 * `-j`, `--jobs <JOBS>` — Set the max number of jobs to run in parallel
+* `--render-no-loc <MIN_LEVEL>` — Render no-location diagnostics starting from a certain level
+
+  Default value: `error`
+
+  Possible values: `info`, `warn`, `error`
+
 * `-p`, `--package <PACKAGE>` — Run test in the specified package
 * `-f`, `--file <FILE>` — Run test in the specified file. Only valid when `--package` is also specified
 * `-i`, `--index <INDEX>` — Run only the index-th test in the file. Only valid when `--file` is also specified
@@ -482,6 +512,12 @@ Run test with instrumentation and report coverage
 * `--warn-list <WARN_LIST>` — Warn list config
 * `--alert-list <ALERT_LIST>` — Alert list config
 * `-j`, `--jobs <JOBS>` — Set the max number of jobs to run in parallel
+* `--render-no-loc <MIN_LEVEL>` — Render no-location diagnostics starting from a certain level
+
+  Default value: `error`
+
+  Possible values: `info`, `warn`, `error`
+
 * `-p`, `--package <PACKAGE>` — Run test in the specified package
 * `-f`, `--file <FILE>` — Run test in the specified file. Only valid when `--package` is also specified
 * `-i`, `--index <INDEX>` — Run only the index-th test in the file. Only valid when `--file` is also specified
