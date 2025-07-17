@@ -83,9 +83,9 @@ pub enum UserIntent {
 
 #[derive(Debug, thiserror::Error)]
 pub enum CompileGraphError {
-    #[error("Failed to build the plan: {0}")]
+    #[error("Failed to build a build plan for the modules")]
     BuildPlanError(#[from] build_plan::BuildPlanConstructError),
-    #[error("Failed to lower the build plan: {0}")]
+    #[error("Failed to lower the build plan")]
     LowerError(#[from] build_lower::LoweringError),
 }
 
