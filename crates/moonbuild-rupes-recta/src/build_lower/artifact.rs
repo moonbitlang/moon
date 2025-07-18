@@ -115,7 +115,6 @@ impl LegacyLayout {
         base_dir
     }
 
-    #[allow(unused)] // reserved for later use
     pub fn linked_core_of_build_target(
         &self,
         pkg_list: &DiscoverResult,
