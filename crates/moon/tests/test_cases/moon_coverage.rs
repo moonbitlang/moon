@@ -24,8 +24,6 @@ fn test_moon_coverage_analyze() {
     check(
         get_stdout(&dir, ["coverage", "analyze", "--sort-input"]),
         expect![[r#"
-            Total tests: 3, passed: 3, failed: 0.
-
             warning: this line has no test coverage
              --> lib2/hello.mbt:2
             1 | fn hello_uncovered_1() -> String {
