@@ -22,6 +22,7 @@ use clap::Parser;
 use cli::MoonBuildSubcommands;
 
 mod cli;
+pub mod rr_build;
 
 use colored::*;
 
