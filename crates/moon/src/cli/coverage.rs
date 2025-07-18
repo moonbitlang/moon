@@ -21,6 +21,7 @@
 use std::{ffi::OsStr, path::Path};
 
 use anyhow::Context;
+use clap::Parser;
 use moonutil::dirs::PackageDirs;
 use walkdir::WalkDir;
 
@@ -61,8 +62,13 @@ pub struct CoverageSubcommand {
 
 #[derive(Debug, clap::Parser)]
 pub struct CoverageAnalyzeSubcommand {
-    #[clap(flatten)]
-    pub test_flags: Box<TestSubcommand>,
+    /// Analyze coverage for a specific package.
+    #[clap(short, long)]
+    package: Option<String>,
+
+    /// Extra flags passed directly to `moon test`
+    #[clap(short, long, hide = true, allow_hyphen_values = true)]
+    pub test_flag: Vec<String>,
 
     /// Extra flags passed directly to `moon_cove_report`
     #[arg(last = true, global = true, name = "EXTRA_FLAGS")]
@@ -84,13 +90,18 @@ fn run_coverage_analyze(
 ) -> anyhow::Result<i32> {
     run_coverage_clean(cli.clone())?;
 
-    let mut test_flags = *args.test_flags;
+    let mut test_args = vec!["test".to_owned()];
+    test_args.extend(args.test_flag);
+    let mut test_flags = TestSubcommand::try_parse_from(test_args)?;
     test_flags.build_flags.enable_coverage = true;
     run_test(cli.clone(), test_flags)?;
     println!();
 
     let mut report_flags = CoverageReportSubcommand::default();
     report_flags.args.push("-f=caret".into());
+    if let Some(package) = &args.package {
+        report_flags.args.push(format!("-p={package}"));
+    }
     report_flags.args.extend(args.extra_flags);
     run_coverage_report(cli, report_flags)
 }
