@@ -70,7 +70,7 @@ pub fn moonbit_test_driver_internal_execute(filename : String, index : Int) -> U
       }
 
       if attrs.iter().any(fn(attr) -> Bool {
-        attr.length() >= 5 && attr.charcode_at(0) == 'p' && attr.charcode_at(1) == 'a' && attr.charcode_at(2) == 'n' && attr.charcode_at(3) == 'i' && attr.charcode_at(4) == 'c'
+        attr.length() >= 5 && attr[0] == 'p' && attr[1] == 'a' && attr[2] == 'n' && attr[3] == 'i' && attr[4] == 'c'
       }) {
         @moonbitlang/core/builtin.println("skipped test block: \{file_name}: \{attrs[0]}")
         @moonbitlang/core/builtin.println("{BEGIN_MOONTEST}")
@@ -118,7 +118,7 @@ fn main {
     let mut res = 0
     let len = s.length()
     for i = 0; i < len; i = i + 1 {
-      res = res * 10 + (s.charcode_at(i) - '0'.to_int())
+      res = res * 10 + (s[i] - '0'.to_int())
     }
     res
   }
@@ -179,7 +179,7 @@ fn main {
     let mut i = 0
     let mut start = 0
     while i < s.length() {
-      if moonbit_unsafe_char_from_int(s.charcode_at(i)) == sep {
+      if moonbit_unsafe_char_from_int(s[i]) == sep {
         res.push(s.substring(start = start, end = i))
         start = i + 1
       }
