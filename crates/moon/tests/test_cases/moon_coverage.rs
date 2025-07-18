@@ -22,7 +22,7 @@ use super::*;
 fn test_moon_coverage_analyze() {
     let dir = TestDir::new("test_coverage.in");
     check(
-        get_stdout(&dir, ["coverage", "analyze", "--sort-input"]),
+        get_stdout(&dir, ["coverage", "analyze", "--test-flag=--sort-input"]),
         expect![[r#"
             Total tests: 3, passed: 3, failed: 0.
 
@@ -78,8 +78,8 @@ fn test_moon_coverage_analyze_dry_run() {
                 "coverage",
                 "analyze",
                 "--dry-run",
-                "--nostd",
-                "--sort-input",
+                "--test-flag=--nostd",
+                "--test-flag=--sort-input",
             ],
         ),
         expect![[r#"
