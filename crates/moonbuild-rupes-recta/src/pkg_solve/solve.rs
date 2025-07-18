@@ -238,7 +238,7 @@ fn resolve_import(
         import_source,
         targets
     );
-    for outgoing_target in targets {
+    for package_target in targets {
         let import_kind = if is_import_target_subpackage {
             TargetKind::SubPackage
         } else {
@@ -246,18 +246,18 @@ fn resolve_import(
         };
 
         let dependency = import_pid.build_target(import_kind);
-        let package = pid.build_target(*outgoing_target);
+        let package = pid.build_target(*package_target);
 
         trace!(
             "Adding edge: {:?} -> {:?} (short alias: '{}')",
-            dependency,
             package,
+            dependency,
             short_alias
         );
 
         res.dep_graph.add_edge(
-            dependency,
             package,
+            dependency,
             DepEdge {
                 short_alias: short_alias.into(),
                 kind: import_source_kind,

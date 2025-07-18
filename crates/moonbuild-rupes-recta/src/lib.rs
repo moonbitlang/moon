@@ -84,6 +84,11 @@
     - `trace` level: Very detailed information about individual operations
 
     Initialize a logger (such as `env_logger`) to see these messages.
+
+    ## Maintainers
+
+    Except for code the [`discover`] module, **no** file I/O operation should be
+    done in this crate.
 */
 
 #![warn(clippy::unwrap_used)] // We prefer clear panic messages

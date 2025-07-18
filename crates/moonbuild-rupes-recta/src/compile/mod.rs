@@ -40,6 +40,13 @@ pub struct CompileContext<'a> {
     pub opt_level: OptLevel,
     /// Whether to emit debug symbols.
     pub debug_symbols: bool,
+
+    /// The path to the standard library's project root, or `None` if to not
+    /// import the standard library during compilation.
+    ///
+    /// TODO: This should be a per-module or per-package setting, instead of a
+    /// global one.
+    pub stdlib_path: Option<PathBuf>,
     // TODO: more knobs
 }
 
@@ -83,9 +90,9 @@ pub enum UserIntent {
 
 #[derive(Debug, thiserror::Error)]
 pub enum CompileGraphError {
-    #[error("Failed to build the plan: {0}")]
+    #[error("Failed to build a build plan for the modules")]
     BuildPlanError(#[from] build_plan::BuildPlanConstructError),
-    #[error("Failed to lower the build plan: {0}")]
+    #[error("Failed to lower the build plan")]
     LowerError(#[from] build_lower::LoweringError),
 }
 
@@ -125,6 +132,7 @@ pub fn compile_with_raw_nodes(
     let build_env = BuildEnvironment {
         target_backend: cx.target_backend,
         opt_level: cx.opt_level,
+        std: cx.stdlib_path.is_some(),
     };
     let plan = build_plan::build_plan(
         &cx.resolve_output.pkg_dirs,
@@ -151,6 +159,7 @@ pub fn compile_with_raw_nodes(
         target_backend: cx.target_backend,
         opt_level: cx.opt_level,
         debug_symbols: cx.debug_symbols,
+        stdlib_path: cx.stdlib_path.clone(),
     };
     let res = build_lower::lower_build_plan(
         &cx.resolve_output.pkg_dirs,

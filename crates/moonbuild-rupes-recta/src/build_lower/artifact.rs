@@ -18,7 +18,7 @@
 
 //! Build artifact path calculation and relevant information
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use moonutil::{common::TargetBackend, mooncakes::ModuleSource};
 
@@ -63,7 +63,7 @@ impl LegacyLayout {
         push_backend(&mut dir, backend);
 
         if self.main_module.as_ref().is_some_and(|m| pkg.module() == m) {
-            dir.extend(pkg.package().segments());
+            // no nested directory for the working module
         } else {
             dir.push(LEGACY_NON_MAIN_MODULE_DIR);
             dir.extend(pkg.module().name().segments());
@@ -115,7 +115,6 @@ impl LegacyLayout {
         base_dir
     }
 
-    #[allow(unused)] // reserved for later use
     pub fn linked_core_of_build_target(
         &self,
         pkg_list: &DiscoverResult,
@@ -249,4 +248,32 @@ fn object_file_ext(os: &str) -> &'static str {
         "linux" | "macos" => ".o",
         _ => panic!("Unsupported OS {os}"),
     }
+}
+
+/// Get the bundled core bundle path for the given backend.
+///
+/// This is a recreation of [`moonutil::moon_dir::core`], which we hope will be
+/// removed in the future.
+pub fn core_bundle_path(core_root: &Path, backend: TargetBackend) -> PathBuf {
+    let mut path = PathBuf::from(core_root);
+    path.push("target");
+    path.push(backend.to_dir_name());
+    path.push("release");
+    path.push("bundle");
+    path
+}
+
+/// Returns the path to abort.core for the given backend.
+pub fn abort_core_path(core_root: &Path, backend: TargetBackend) -> PathBuf {
+    let mut path = core_bundle_path(core_root, backend);
+    path.push("abort");
+    path.push("abort.core");
+    path
+}
+
+/// Returns the path to core.core for the given backend.
+pub fn core_core_path(core_root: &Path, backend: TargetBackend) -> PathBuf {
+    let mut path = core_bundle_path(core_root, backend);
+    path.push("core.core");
+    path
 }
