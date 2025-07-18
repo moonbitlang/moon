@@ -37,7 +37,7 @@
 use std::{collections::HashMap, path::PathBuf};
 
 use indexmap::{set::MutableValues, IndexSet};
-use log::{debug, info};
+use log::{debug, info, trace};
 use moonutil::{
     common::TargetBackend,
     cond_expr::{OptLevel, ParseCondExprError},
@@ -75,14 +75,19 @@ impl BuildPlan {
         self.spec.get(&node)
     }
 
-    pub fn incoming_nodes(&self, node: BuildPlanNode) -> impl Iterator<Item = BuildPlanNode> + '_ {
-        self.graph
-            .neighbors_directed(node, petgraph::Direction::Incoming)
-    }
-
-    pub fn outgoing_nodes(&self, node: BuildPlanNode) -> impl Iterator<Item = BuildPlanNode> + '_ {
+    /// Get the list of nodes that **the given node depends on**.
+    pub fn dependency_nodes(
+        &self,
+        node: BuildPlanNode,
+    ) -> impl Iterator<Item = BuildPlanNode> + '_ {
         self.graph
             .neighbors_directed(node, petgraph::Direction::Outgoing)
+    }
+
+    /// Get the list of nodes that **depend on the given node**.
+    pub fn consumer_nodes(&self, node: BuildPlanNode) -> impl Iterator<Item = BuildPlanNode> + '_ {
+        self.graph
+            .neighbors_directed(node, petgraph::Direction::Incoming)
     }
 
     pub fn all_nodes(&self) -> impl Iterator<Item = BuildPlanNode> + '_ {
@@ -105,6 +110,7 @@ pub struct BuildPlanNode {
 }
 
 /// Common information about a moonbit package being built
+#[derive(Debug)]
 pub struct BuildTargetInfo {
     pub files: Vec<PathBuf>,
     // we currently don't need this, as it's controlled by build-wise options
@@ -115,6 +121,7 @@ pub struct BuildTargetInfo {
     // pub is_main: bool,
 }
 
+#[derive(Debug)]
 pub struct LinkCoreInfo {
     /// The targets in **initialization order**.
     pub linked_order: Vec<BuildTarget>,
@@ -124,6 +131,7 @@ pub struct LinkCoreInfo {
 }
 
 /// The specification of the specific build target, e.g. its files.
+#[derive(Debug)]
 pub enum BuildActionSpec {
     /// Check the given list of MoonBit source files.
     ///
@@ -342,7 +350,7 @@ impl<'a> BuildPlanConstructor<'a> {
         for dep in self
             .build_deps
             .dep_graph
-            .neighbors_directed(node.target, petgraph::Direction::Incoming)
+            .neighbors_directed(node.target, petgraph::Direction::Outgoing)
         {
             let dep_node = self.need(dep, TargetAction::Check);
             self.add_edge(node, dep_node);
@@ -361,7 +369,7 @@ impl<'a> BuildPlanConstructor<'a> {
         for dep in self
             .build_deps
             .dep_graph
-            .neighbors_directed(node.target, petgraph::Direction::Incoming)
+            .neighbors_directed(node.target, petgraph::Direction::Outgoing)
         {
             let dep_node = self.need(dep, TargetAction::Build);
             self.add_edge(node, dep_node);
@@ -430,6 +438,11 @@ impl<'a> BuildPlanConstructor<'a> {
                 TODO: virtual packages are not yet implemented here.
         */
 
+        debug!(
+            "Building MakeExecutable for target: {:?}",
+            make_exec_node.target
+        );
+        debug!("Performing DFS post-order traversal to collect dependencies");
         // This DFS is shared by both LinkCore and MakeExecutable actions.
         let mut dfs = DfsPostOrder::new(&self.build_deps.dep_graph, make_exec_node.target);
         // This is the link core sources
@@ -456,6 +469,7 @@ impl<'a> BuildPlanConstructor<'a> {
             link_core_deps.insert(next);
             // If there's any C stubs, add it (native only)
             let pkg = self.packages.get_package(next.package);
+            trace!("DFS post iterated: {}", pkg.fqn);
             if self.build_env.target_backend.is_native() && !pkg.c_stub_files.is_empty() {
                 c_stub_deps.push(next);
             }

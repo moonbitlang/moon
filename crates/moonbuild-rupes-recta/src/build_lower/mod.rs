@@ -33,7 +33,7 @@ use crate::{
         artifact::LegacyLayout,
         compiler::{CmdlineAbstraction, MiDependency, PackageSource},
     },
-    build_plan::{self, BuildPlan, BuildPlanNode, BuildTargetInfo, LinkCoreInfo},
+    build_plan::{self, BuildActionSpec, BuildPlan, BuildPlanNode, BuildTargetInfo, LinkCoreInfo},
     discover::{DiscoverResult, DiscoveredPackage},
     pkg_name::PackageFQNWithSource,
     pkg_solve::DepRelationship,
@@ -137,14 +137,14 @@ impl<'a> BuildPlanLowerContext<'a> {
             return Ok(());
         }
 
-        let target = self
+        let spec = self
             .build_plan
             .get_spec(node)
             .expect("Node should be valid");
         let package = self.packages.get_package(node.target.package);
 
         // Lower the action to its commands. This step should be infallible.
-        let cmd = match target {
+        let cmd = match spec {
             build_plan::BuildActionSpec::Check(info) => self.lower_check(node, package, info),
             build_plan::BuildActionSpec::BuildMbt(info) => {
                 self.lower_build_mbt(node, package, info)
@@ -166,7 +166,7 @@ impl<'a> BuildPlanLowerContext<'a> {
         // TODO: some of the inputs and outputs might be calculated twice,
         // once for the commandline and another here. Will this hurt perf?
         let mut ins = vec![];
-        for n in self.build_plan.outgoing_nodes(node) {
+        for n in self.build_plan.dependency_nodes(node) {
             self.append_artifact_of(n, &mut ins);
         }
         ins.extend(cmd.extra_inputs);
@@ -183,7 +183,8 @@ impl<'a> BuildPlanLowerContext<'a> {
                 .expect("No `nul` should occur here"),
         );
 
-        self.lowered(node, build).map_err(|e| LoweringError::N2 {
+        self.debug_print_command_and_files(node, spec, &build);
+        self.lowered(build).map_err(|e| LoweringError::N2 {
             package: package.fqn.clone().into(),
             node,
             source: e,
@@ -227,10 +228,7 @@ impl<'a> BuildPlanLowerContext<'a> {
         }
     }
 
-    fn lowered(&mut self, node: BuildPlanNode, build: Build) -> Result<(), anyhow::Error> {
-        // v-- only has effect when debug mode is on.
-        self.debug_print_command_and_files(node, &build);
-
+    fn lowered(&mut self, build: Build) -> Result<(), anyhow::Error> {
         self.graph.add_build(build)
     }
 
@@ -309,8 +307,8 @@ impl<'a> BuildPlanLowerContext<'a> {
     fn mi_inputs_of(&self, node: BuildPlanNode) -> Vec<MiDependency<'_>> {
         self.rel
             .dep_graph
-            .edges_directed(node.target, Direction::Incoming)
-            .map(|(it, _, w)| {
+            .edges_directed(node.target, Direction::Outgoing)
+            .map(|(_, it, w)| {
                 let in_file =
                     self.layout
                         .mi_of_build_target(self.packages, &it, self.opt.target_backend);
@@ -382,7 +380,12 @@ impl<'a> BuildPlanLowerContext<'a> {
     /// plan node, the n2 build it's mapped into, and the input and output files
     /// of it.
     #[doc(hidden)]
-    fn debug_print_command_and_files(&mut self, node: BuildPlanNode, build: &Build) {
+    fn debug_print_command_and_files(
+        &mut self,
+        node: BuildPlanNode,
+        spec: &BuildActionSpec,
+        build: &Build,
+    ) {
         if log::log_enabled!(log::Level::Debug) {
             let in_files = build
                 .ins
@@ -414,8 +417,8 @@ impl<'a> BuildPlanLowerContext<'a> {
                 .collect::<Vec<_>>();
 
             debug!(
-                "lowered: {:?}\n into {:?};\n ins: {:?};\n outs: {:?}",
-                node, build.cmdline, in_files, out_files
+                "lowered: {:?}\n spec {:?};\n into {:?};\n ins: {:?};\n outs: {:?}",
+                node, spec, build.cmdline, in_files, out_files
             );
         }
     }
