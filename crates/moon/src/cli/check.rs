@@ -22,6 +22,8 @@ use moonbuild::dry_run;
 use moonbuild::watch::watching;
 use moonbuild::watcher_is_running;
 use moonbuild::{entry, MOON_PID_NAME};
+use moonbuild_rupes_recta::compile::UserIntent;
+use moonbuild_rupes_recta::model::{BuildTarget, TargetKind};
 use mooncake::pkg::sync::auto_sync;
 use moonutil::cli::UniversalFlags;
 use moonutil::common::{lower_surface_targets, CheckOpt};
@@ -36,6 +38,7 @@ use n2::trace;
 use std::path::{Path, PathBuf};
 
 use crate::cli::get_module_for_single_file;
+use crate::rr_build;
 
 use super::pre_build::scan_with_x_build;
 use super::{get_compiler_flags, BuildFlags};
@@ -228,6 +231,26 @@ fn run_check_normal_internal(
     source_dir: &Path,
     target_dir: &Path,
 ) -> anyhow::Result<i32> {
+    if cli.unstable_feature.rupes_recta {
+        rr_build::compile(
+            cli,
+            &cmd.auto_sync_flags,
+            &cmd.build_flags,
+            source_dir,
+            target_dir,
+            Box::new(calc_user_intent),
+        )
+    } else {
+        run_check_normal_internal_legacy(cli, cmd, source_dir, target_dir)
+    }
+}
+
+fn run_check_normal_internal_legacy(
+    cli: &UniversalFlags,
+    cmd: &CheckSubcommand,
+    source_dir: &Path,
+    target_dir: &Path,
+) -> anyhow::Result<i32> {
     // Run moon install before build
     let (resolved_env, dir_sync_result) = auto_sync(
         source_dir,
@@ -341,4 +364,40 @@ fn run_check_normal_internal(
     }
 
     res
+}
+
+/// Generate user intent
+///
+/// Check all packages in the current module.
+fn calc_user_intent(
+    resolve_output: &moonbuild_rupes_recta::ResolveOutput,
+    main_modules: &[moonutil::mooncakes::ModuleId],
+) -> Result<Vec<UserIntent>, anyhow::Error> {
+    let &[main_module_id] = main_modules else {
+        panic!("No multiple main modules are supported");
+    };
+
+    let packages = resolve_output
+        .pkg_dirs
+        .packages_for_module(main_module_id)
+        .ok_or_else(|| anyhow::anyhow!("Cannot find the local module!"))?;
+
+    let intent = UserIntent::BuildCore(
+        packages
+            .iter()
+            .flat_map(|(_, &pkg_id)| {
+                [
+                    TargetKind::Source,
+                    TargetKind::WhiteboxTest,
+                    TargetKind::BlackboxTest,
+                ]
+                .map(|x| BuildTarget {
+                    package: pkg_id,
+                    kind: x,
+                })
+            })
+            .collect(),
+    );
+
+    Ok(vec![intent])
 }
