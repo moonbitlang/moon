@@ -94,8 +94,13 @@ fn run_coverage_analyze(
     test_args.extend(args.test_flag);
     let mut test_flags = TestSubcommand::try_parse_from(test_args)?;
     test_flags.build_flags.enable_coverage = true;
-    run_test(cli.clone(), test_flags)?;
-    println!();
+    run_test(
+        UniversalFlags {
+            quiet: true, // Disable output for `moon test` on success
+            ..cli.clone()
+        },
+        test_flags,
+    )?;
 
     let mut report_flags = CoverageReportSubcommand::default();
     report_flags.args.push("-f=caret".into());
