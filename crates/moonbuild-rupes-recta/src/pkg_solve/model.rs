@@ -36,6 +36,9 @@ pub struct DepEdge {
 /// The dependency relationship between build targets
 #[derive(Clone, Debug, Default)]
 pub struct DepRelationship {
+    /// A graph with build targets as nodes and dependency relationship as edges.
+    ///
+    /// The edges should point from dependent (downstream) to dependency (upstream).
     pub dep_graph: DiGraphMap<BuildTarget, DepEdge>,
 }
 

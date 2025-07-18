@@ -303,7 +303,10 @@ pub mod result {
         /// from [`ModuleSource`]s is no longer needed, so this mapping is
         /// unidirectional (even though `ModuleSource`s are unique).
         mapping: SlotMap<ModuleId, ResolvedModule>,
+
         /// The real dependency graph. Edges are labelled with the key of the dependency.
+        ///
+        /// Edges should point from dependents (downstream) to dependencies (upstream).
         dep_graph: DiGraphMap<ModuleId, DependencyKey>,
     }
 
