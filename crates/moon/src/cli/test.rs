@@ -270,6 +270,7 @@ fn run_test_in_single_file(cli: &UniversalFlags, cmd: &TestSubcommand) -> anyhow
         cmd.update,
         module,
         cli.verbose,
+        cli.quiet,
     )
 }
 
@@ -730,6 +731,7 @@ pub(crate) fn run_test_or_bench_internal(
         auto_update,
         module,
         verbose,
+        cli.quiet,
     );
 
     if cli.trace {
@@ -746,6 +748,7 @@ fn do_run_test(
     auto_update: bool,
     module: ModuleDB,
     verbose: bool,
+    quiet: bool,
 ) -> anyhow::Result<i32> {
     let backend_hint = moonbuild_opt
         .test_opt
@@ -776,17 +779,20 @@ fn do_run_test(
     }
 
     let failed = total - passed;
-    println!(
-        "Total tests: {}, passed: {}, failed: {}.{}",
-        total,
-        passed,
-        if failed > 0 {
-            failed.to_string().red().to_string()
-        } else {
-            failed.to_string()
-        },
-        backend_hint,
-    );
+    let has_failures = failed > 0;
+    if !quiet || has_failures {
+        println!(
+            "Total tests: {}, passed: {}, failed: {}.{}",
+            total,
+            passed,
+            if has_failures {
+                failed.to_string().red().to_string()
+            } else {
+                failed.to_string()
+            },
+            backend_hint,
+        );
+    }
 
     if passed == total {
         Ok(0)
