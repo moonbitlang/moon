@@ -863,6 +863,7 @@ impl std::fmt::Display for DriverKind {
 #[derive(Debug, Default, ValueEnum, Clone, Hash, Eq, PartialEq, Copy, Ord, PartialOrd)]
 pub enum DiagnosticLevel {
     Info,
+    #[value(alias = "warning")]
     Warn,
     #[default]
     Error,
