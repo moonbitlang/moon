@@ -59,6 +59,10 @@ pub fn moonbit_test_driver_internal_execute(filename : String, index : Int) -> U
           message = moonbit_test_driver_internal_error_to_string(e)
         }
       }
+
+      // In WASM, this function is called by the external test driver, but here
+      // in native mode there's nothing that calls it, so we call it manually.
+      moonbit_test_driver_finish()
     }
     _ => { message = "skipped test" }
   }
