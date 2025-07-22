@@ -19,6 +19,8 @@ fn test_mbti() {
 
         let hello_list : @list.T[String]
 
+        // Errors
+
         // Types and methods
 
         // Type aliases
@@ -34,6 +36,8 @@ fn test_mbti() {
         package "username/hello/main"
 
         // Values
+
+        // Errors
 
         // Types and methods
 
@@ -60,6 +64,8 @@ fn test_mbti_no_alias() {
 
         let hello_list : @moonbitlang/core/immut/list.T[String]
 
+        // Errors
+
         // Types and methods
 
         // Type aliases
@@ -75,6 +81,8 @@ fn test_mbti_no_alias() {
         package "username/hello/main"
 
         // Values
+
+        // Errors
 
         // Types and methods
 

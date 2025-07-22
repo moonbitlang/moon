@@ -9,6 +9,8 @@
   // Values
   fn hello() -> String
   
+  // Errors
+  
   // Types and methods
   
   // Type aliases
