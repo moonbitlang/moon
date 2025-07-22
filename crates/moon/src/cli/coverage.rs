@@ -103,7 +103,7 @@ fn run_coverage_analyze(
     )?;
 
     let mut report_flags = CoverageReportSubcommand::default();
-    report_flags.args.push("-f=caret".into());
+    report_flags.args.push("-f=simp_caret".into());
     if let Some(package) = &args.package {
         report_flags.args.push(format!("-p={package}"));
     }
