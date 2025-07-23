@@ -26,7 +26,6 @@ use moonutil::common::TargetBackend;
 use crate::build_lower::compiler::{
     BuildCommonArgs, CmdlineAbstraction, CompilationFlags, MiDependency,
 };
-use crate::pkg_name::PackageFQN;
 
 /// Abstraction for `moonc build-package`.
 ///
@@ -55,7 +54,7 @@ impl<'a> MooncBuildPackage<'a> {
         core_out: impl Into<Cow<'a, Path>>,
         mi_out: impl Into<Cow<'a, Path>>,
         mi_deps: &'a [MiDependency<'a>],
-        package_name: &'a PackageFQN,
+        package_name: super::PackageFqnWithKind<'a>,
         package_source: impl Into<Cow<'a, Path>>,
         target_backend: TargetBackend,
     ) -> Self {
