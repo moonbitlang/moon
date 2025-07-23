@@ -23,8 +23,9 @@ use std::path::{Path, PathBuf};
 
 use moonutil::common::TargetBackend;
 
-use crate::build_lower::compiler::{BuildCommonArgs, CmdlineAbstraction, MiDependency};
-use crate::pkg_name::PackageFQN;
+use crate::build_lower::compiler::{
+    BuildCommonArgs, CmdlineAbstraction, MiDependency, PackageFqnWithKind,
+};
 
 /// Abstraction for `moonc check`.
 ///
@@ -57,7 +58,7 @@ impl<'a> MooncCheck<'a> {
         mbt_sources: &'a [PathBuf],
         mi_out: impl Into<Cow<'a, Path>>,
         mi_deps: &'a [MiDependency<'a>],
-        package_name: &'a PackageFQN,
+        package_name: PackageFqnWithKind<'a>,
         package_source: impl Into<Cow<'a, Path>>,
         target_backend: TargetBackend,
     ) -> Self {

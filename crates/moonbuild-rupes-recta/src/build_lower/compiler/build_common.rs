@@ -24,10 +24,9 @@ use std::path::{Path, PathBuf};
 use moonutil::common::TargetBackend;
 
 use crate::build_lower::compiler::{
-    ErrorFormat, MiDependency, VirtualPackageImplementation, WarnAlertConfig,
+    ErrorFormat, MiDependency, PackageFqnWithKind, VirtualPackageImplementation, WarnAlertConfig,
     MOONC_ALLOW_ALERT_SET, MOONC_ALLOW_WARNING_SET, MOONC_DENY_ALERT_SET, MOONC_DENY_WARNING_SET,
 };
-use crate::pkg_name::PackageFQN;
 
 /// Common fields shared between different build-like commands of `moonc`
 #[derive(Debug)]
@@ -45,7 +44,7 @@ pub struct BuildCommonArgs<'a> {
 
     // Package configuration
     /// The name of the current package
-    pub package_name: &'a PackageFQN,
+    pub package_name: PackageFqnWithKind<'a>,
     /// The source directory of the current package
     pub package_source: Cow<'a, Path>,
     pub is_main: bool,
@@ -68,7 +67,7 @@ impl<'a> BuildCommonArgs<'a> {
     pub fn new(
         mbt_sources: &'a [PathBuf],
         mi_deps: &'a [MiDependency<'a>],
-        package_name: &'a PackageFQN,
+        package_name: PackageFqnWithKind<'a>,
         package_source: impl Into<Cow<'a, Path>>,
         target_backend: TargetBackend,
     ) -> Self {
