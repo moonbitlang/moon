@@ -153,6 +153,15 @@ fn solve_one_package(
             resolve(import, TargetKind::SubPackage)?;
         }
     }
+    // black box tests also add the source package as an import
+    res.dep_graph.add_edge(
+        pid.build_target(TargetKind::BlackboxTest),
+        pid.build_target(TargetKind::Source),
+        DepEdge {
+            short_alias: pkg_data.fqn.short_alias().into(),
+            kind: TargetKind::BlackboxTest,
+        },
+    );
     // TODO: Add heuristic to not generate white box test targets for external packages
 
     trace!("Completed solving package {:?}", pid);
