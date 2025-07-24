@@ -35,6 +35,7 @@ use crate::{
     },
     build_plan::{self, BuildActionSpec, BuildPlan, BuildPlanNode, BuildTargetInfo, LinkCoreInfo},
     discover::{DiscoverResult, DiscoveredPackage},
+    model::TargetKind,
     pkg_name::PackageFQNWithSource,
     pkg_solve::DepRelationship,
 };
@@ -232,13 +233,12 @@ impl<'a> BuildPlanLowerContext<'a> {
         self.graph.add_build(build)
     }
 
-    fn set_commons(&self, package: &DiscoveredPackage, common: &mut compiler::BuildCommonArgs) {
+    fn set_commons(&self, common: &mut compiler::BuildCommonArgs) {
         common.stdlib_core_file = self
             .opt
             .stdlib_path
             .as_ref()
             .map(|x| artifact::core_bundle_path(x, self.opt.target_backend).into());
-        common.is_main = package.raw.is_main;
     }
 
     fn lower_check(
@@ -260,7 +260,23 @@ impl<'a> BuildPlanLowerContext<'a> {
             &package.root_path,
             self.opt.target_backend,
         );
-        self.set_commons(package, &mut cmd.common);
+        self.set_commons(&mut cmd.common);
+
+        // Determine whether the checked package is a main package.
+        //
+        // Black box tests does not include the source files of the original
+        // package, while other kinds of package include those. Additionally,
+        // no test drivers will be used in checking packages. Thus, black box
+        // tests will definitely not contain a main function, while other
+        // build targets will have the same kind of main function as the
+        // original package.
+        cmd.common.is_main = match node.target.kind {
+            TargetKind::BlackboxTest => false,
+            TargetKind::Source
+            | TargetKind::WhiteboxTest
+            | TargetKind::InlineTest
+            | TargetKind::SubPackage => package.raw.is_main,
+        };
 
         BuildCommand {
             extra_inputs: info.files.clone(),
@@ -294,7 +310,16 @@ impl<'a> BuildPlanLowerContext<'a> {
         );
         cmd.flags.no_opt = self.opt.opt_level == OptLevel::Debug;
         cmd.flags.symbols = self.opt.debug_symbols;
-        self.set_commons(package, &mut cmd.common);
+        self.set_commons(&mut cmd.common);
+
+        // Determine whether the built package is a main package.
+        //
+        // Different from checking, building test packages will always include
+        // the test driver files, which will include the main function.
+        cmd.common.is_main = match node.target.kind {
+            TargetKind::Source | TargetKind::SubPackage => package.raw.is_main,
+            TargetKind::InlineTest | TargetKind::WhiteboxTest | TargetKind::BlackboxTest => true,
+        };
 
         // TODO: a lot of knobs are not controlled here
 
