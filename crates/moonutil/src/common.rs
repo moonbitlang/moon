@@ -903,54 +903,34 @@ pub struct MooncGenTestInfo {
 }
 
 impl MooncGenTestInfo {
-    pub fn to_mbt(&self) -> String {
+    /// Convert part of the driver metadata into MoonBit declaraction code for
+    /// the test driver to use.
+    pub fn section_to_mbt(
+        var_name: &str,
+        section: &IndexMap<FileName, Vec<MbtTestInfo>>,
+    ) -> String {
+        use std::fmt::Write;
+
         let mut result = String::new();
-        let default_name = "".to_string();
+        let default_name = "";
 
-        result.push_str("let moonbit_test_driver_internal_no_args_tests = {\n");
-        for (file, tests) in &self.no_args_tests {
-            result.push_str(&format!("  \"{file}\": {{\n"));
+        // Writing to string cannot fail, so unwrap() is safe here.
+        writeln!(result, "let {var_name} = {{").unwrap();
+        for (file, tests) in section {
+            writeln!(result, "  \"{file}\": {{").unwrap();
             for test in tests {
-                result.push_str(&format!(
-                    "    {}: ({}, [\"{}\"]),\n",
+                writeln!(
+                    result,
+                    "    {}: ({}, [\"{}\"]),",
                     test.index,
                     test.func,
-                    test.name.as_ref().unwrap_or(&default_name)
-                ));
+                    test.name.as_deref().unwrap_or(default_name)
+                )
+                .unwrap();
             }
-            result.push_str("  },\n");
+            writeln!(result, "  }},").unwrap();
         }
-        result.push_str("}\n\n");
-
-        result.push_str("let moonbit_test_driver_internal_with_args_tests = {\n");
-        for (file, tests) in &self.with_args_tests {
-            result.push_str(&format!("  \"{file}\": {{\n"));
-            for test in tests {
-                result.push_str(&format!(
-                    "    {}: ({}, [\"{}\"]),\n",
-                    test.index,
-                    test.func,
-                    test.name.as_ref().unwrap_or(&default_name)
-                ));
-            }
-            result.push_str("  },\n");
-        }
-        result.push_str("}\n");
-
-        result.push_str("let moonbit_test_driver_internal_with_bench_args_tests = {\n");
-        for (file, tests) in &self.with_bench_args_tests {
-            result.push_str(&format!("  \"{file}\": {{\n"));
-            for test in tests {
-                result.push_str(&format!(
-                    "    {}: ({}, [\"{}\"]),\n",
-                    test.index,
-                    test.func,
-                    test.name.as_ref().unwrap_or(&default_name)
-                ));
-            }
-            result.push_str("  },\n");
-        }
-        result.push_str("}\n");
+        writeln!(result, "}}").unwrap();
 
         result
     }
