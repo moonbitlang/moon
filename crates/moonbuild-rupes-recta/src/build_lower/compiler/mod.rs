@@ -21,6 +21,7 @@
 mod build_common;
 mod build_package;
 mod check;
+mod gen_test_driver;
 mod link_core;
 
 use std::borrow::Cow;
