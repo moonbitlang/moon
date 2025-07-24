@@ -256,7 +256,7 @@ impl<'a> BuildPlanLowerContext<'a> {
             &info.files,
             &mi_output,
             &mi_inputs,
-            compiler::PackageFqnWithKind::new(&package.fqn, node.target),
+            compiler::CompiledPackageName::new(&package.fqn, node.target),
             &package.root_path,
             self.opt.target_backend,
         );
@@ -304,7 +304,7 @@ impl<'a> BuildPlanLowerContext<'a> {
             &core_output,
             &mi_output,
             &mi_inputs,
-            compiler::PackageFqnWithKind::new(&package.fqn, node.target),
+            compiler::CompiledPackageName::new(&package.fqn, node.target),
             &package.root_path,
             self.opt.target_backend,
         );
@@ -377,7 +377,7 @@ impl<'a> BuildPlanLowerContext<'a> {
             .map(|target| {
                 let pkg = self.packages.get_package(target.package);
                 PackageSource {
-                    package_name: compiler::PackageFqnWithKind::new(&pkg.fqn, *target),
+                    package_name: compiler::CompiledPackageName::new(&pkg.fqn, *target),
                     source_dir: pkg.root_path.as_path().into(),
                 }
             })

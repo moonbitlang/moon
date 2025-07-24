@@ -54,7 +54,7 @@ impl<'a> MooncBuildPackage<'a> {
         core_out: impl Into<Cow<'a, Path>>,
         mi_out: impl Into<Cow<'a, Path>>,
         mi_deps: &'a [MiDependency<'a>],
-        package_name: super::PackageFqnWithKind<'a>,
+        package_name: super::CompiledPackageName<'a>,
         package_source: impl Into<Cow<'a, Path>>,
         target_backend: TargetBackend,
     ) -> Self {
