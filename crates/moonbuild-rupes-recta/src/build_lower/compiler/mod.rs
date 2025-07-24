@@ -73,13 +73,17 @@ impl<'a> MiDependency<'a> {
 }
 
 /// Represents a package name of a specific kind passed to the compiler.
+/// Used to create the actual package name of the compiled package.
+///
+/// Since tests are not dependencies of any other packages, adding a suffix to
+/// test packages will not interfere with the names of other packages.
 #[derive(Clone, Debug)]
-pub struct PackageFqnWithKind<'a> {
+pub struct CompiledPackageName<'a> {
     pub fqn: &'a PackageFQN,
     pub kind: TargetKind,
 }
 
-impl<'a> PackageFqnWithKind<'a> {
+impl<'a> CompiledPackageName<'a> {
     pub fn new(fqn: &'a PackageFQN, target: BuildTarget) -> Self {
         Self {
             fqn,
@@ -88,7 +92,7 @@ impl<'a> PackageFqnWithKind<'a> {
     }
 }
 
-impl<'a> std::fmt::Display for PackageFqnWithKind<'a> {
+impl<'a> std::fmt::Display for CompiledPackageName<'a> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let suffix = match self.kind {
             TargetKind::Source => "",
@@ -103,7 +107,7 @@ impl<'a> std::fmt::Display for PackageFqnWithKind<'a> {
 
 #[derive(Clone, Debug)]
 pub struct PackageSource<'a> {
-    pub package_name: PackageFqnWithKind<'a>,
+    pub package_name: CompiledPackageName<'a>,
     pub source_dir: Cow<'a, Path>,
 }
 
