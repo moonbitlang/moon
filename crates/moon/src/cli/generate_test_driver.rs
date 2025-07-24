@@ -82,7 +82,7 @@ fn moonc_gen_test_info(
     driver_kind: DriverKind,
     output_path: &Path,
     patch_file: Option<PathBuf>,
-) -> anyhow::Result<String> {
+) -> anyhow::Result<MooncGenTestInfo> {
     let patch_args = if let Some(patch_file) = patch_file {
         vec!["-patch-file".to_string(), patch_file.display().to_string()]
     } else {
@@ -137,7 +137,7 @@ fn moonc_gen_test_info(
         ))?;
 
     let t: MooncGenTestInfo = serde_json_lenient::from_str(&out)?;
-    return Ok(t.to_mbt());
+    return Ok(t);
 
     fn gen_error_message(files: &[PathBuf]) -> String {
         format!(
@@ -190,25 +190,74 @@ pub fn generate_test_driver(
     Ok(0)
 }
 
+const NO_ARGS_DRIVER_TEMPLATE_NATIVE: &str = include_str!(concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/../moonbuild/template/test_driver/no_args_driver_template_native.mbt"
+));
+
+const NO_ARGS_DRIVER_TEMPLATE: &str = include_str!(concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/../moonbuild/template/test_driver/no_args_driver_template.mbt"
+));
+
+const WITH_ARGS_BENCH_DRIVER_TEMPLATE_NATIVE: &str = include_str!(concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/../moonbuild/template/test_driver/with_args_bench_driver_template_native.mbt"
+));
+
+const WITH_ARGS_DRIVER_TEMPLATE_NATIVE: &str = include_str!(concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/../moonbuild/template/test_driver/with_args_driver_template_native.mbt"
+));
+
+const WITH_ARGS_BENCH_DRIVER_TEMPLATE: &str = include_str!(concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/../moonbuild/template/test_driver/with_args_bench_driver_template.mbt"
+));
+
+const WITH_ARGS_DRIVER_TEMPLATE: &str = include_str!(concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/../moonbuild/template/test_driver/with_args_driver_template.mbt"
+));
+
+/// Choose a driver template based on the provided parameters.
+///
+/// - `enable_bench`: This driver is intended for benchmarking, not testing
+/// - `only_no_arg_tests`: This driver does not have tests that needs passing
+///   args into it (benches does not matter).
+/// - `backend_is_native`: The target backend is either Native (C) or LLVM,
+///   requiring native argument collection and an internal main test driver.
+fn choose_template(
+    enable_bench: bool,
+    only_no_arg_tests: bool,
+    backend_is_native: bool,
+) -> &'static str {
+    match (enable_bench, backend_is_native, only_no_arg_tests) {
+        (true, true, _) => WITH_ARGS_BENCH_DRIVER_TEMPLATE_NATIVE,
+        (true, false, _) => WITH_ARGS_BENCH_DRIVER_TEMPLATE,
+        (false, true, true) => NO_ARGS_DRIVER_TEMPLATE_NATIVE,
+        (false, false, true) => NO_ARGS_DRIVER_TEMPLATE,
+        (false, true, false) => WITH_ARGS_DRIVER_TEMPLATE_NATIVE,
+        (false, false, false) => WITH_ARGS_DRIVER_TEMPLATE,
+    }
+}
+
 fn generate_driver(
-    data: &str,
+    data: &MooncGenTestInfo,
     pkgname: &str,
     target_backend: TargetBackend,
     enable_coverage: bool,
     enable_bench: bool,
     coverage_package_override: Option<&str>,
 ) -> String {
-    let index = data
-        .find("let moonbit_test_driver_internal_with_args_tests =")
-        .unwrap_or(data.len());
-    let index2 = data
-        .find("let moonbit_test_driver_internal_with_bench_args_tests =")
-        .unwrap_or(index);
-    let no_args = &data[0..index];
-    let with_args = &data[index..index2];
-    let with_bench_args = &data[index2..];
+    // Drivers selection:
+    // enable_bench -> only bench tests
+    // !enable_bench ->
+    //   only no_arg tests are present -> no_arg_test
+    //   otherwise -> no_arg_test and with_arg_test
 
-    let only_no_arg_tests = !data[index..].contains("__test_");
+    let only_no_arg_tests = data.with_args_tests.iter().all(|x| x.1.is_empty());
+    let backend_is_native = target_backend.is_native();
 
     let args_processing = match target_backend {
         TargetBackend::Wasm | TargetBackend::WasmGC => {
@@ -226,42 +275,11 @@ fn generate_driver(
         TargetBackend::Native | TargetBackend::LLVM => "",
     };
 
-    #[allow(clippy::collapsible_else_if)]
-    let mut template = if only_no_arg_tests {
-        match target_backend {
-            TargetBackend::Native | TargetBackend::LLVM => include_str!(concat!(
-                env!("CARGO_MANIFEST_DIR"),
-                "/../moonbuild/template/test_driver/no_args_driver_template_native.mbt"
-            )).to_string(),
-            _ => include_str!(concat!(
-                env!("CARGO_MANIFEST_DIR"),
-                "/../moonbuild/template/test_driver/no_args_driver_template.mbt"
-            )).to_string()
-        }
-    }
-    else {
-        match (target_backend, enable_bench) {
-            (TargetBackend::Native | TargetBackend::LLVM, true) => include_str!(concat!(
-                env!("CARGO_MANIFEST_DIR"),
-                "/../moonbuild/template/test_driver/with_args_bench_driver_template_native.mbt"
-            )).to_string(),
-            (TargetBackend::Native | TargetBackend::LLVM, false) => include_str!(concat!(
-                env!("CARGO_MANIFEST_DIR"),
-                "/../moonbuild/template/test_driver/with_args_driver_template_native.mbt"
-            )).to_string(),
-            (_, true) => include_str!(concat!(
-                env!("CARGO_MANIFEST_DIR"),
-                "/../moonbuild/template/test_driver/with_args_bench_driver_template.mbt"
-            )).to_string(),
-            _ => include_str!(concat!(
-                env!("CARGO_MANIFEST_DIR"),
-                "/../moonbuild/template/test_driver/with_args_driver_template.mbt"
-            )).to_string()
-        }
-    }
-    .replace("\r\n", "\n")
-    .replace("fn moonbit_test_driver_internal_get_file_name(file_name : MoonbitTestDriverInternalExternString) -> String { panic() }\n", "")
-    .replace("#external\ntype MoonbitTestDriverInternalExternString\n", "");
+    let template = choose_template(enable_bench, only_no_arg_tests, backend_is_native);
+    let mut template = template.to_string();
+    template.push_str(args_processing);
+
+    let template = template.replace("\r\n", "\n");
 
     let coverage_end_template = if enable_coverage {
         let coverage_package_name =
@@ -279,21 +297,27 @@ fn generate_driver(
         "".into()
     };
 
-    template.push_str(args_processing);
-    template = template
-        .replace("\r\n", "\n")
-        .replace(
-            "let moonbit_test_driver_internal_no_args_tests : Moonbit_Test_Driver_Internal_No_Args_Map = { }  // WILL BE REPLACED\n",
-            no_args,
-        )
-        .replace(
-            "let moonbit_test_driver_internal_with_args_tests : Moonbit_Test_Driver_Internal_TestDriver_With_Args_Map = { }  // WILL BE REPLACED\n",
-            with_args,
-        )
-        .replace(
+    let template = if enable_bench {
+        template.replace(
             "let moonbit_test_driver_internal_with_bench_args_tests : Moonbit_Test_Driver_Internal_TestDriver_With_Bench_Args_Map = { }  // WILL BE REPLACED\n",
-            with_bench_args,
+            &   MooncGenTestInfo::section_to_mbt("moonbit_test_driver_internal_with_bench_args_tests", &data.with_bench_args_tests),
         )
+    } else {
+        let template = template.replace(
+            "let moonbit_test_driver_internal_no_args_tests : Moonbit_Test_Driver_Internal_No_Args_Map = { }  // WILL BE REPLACED\n",
+            &MooncGenTestInfo::section_to_mbt("moonbit_test_driver_internal_no_args_tests", &data.no_args_tests),
+        );
+        if only_no_arg_tests {
+            template
+        } else {
+            template.replace(
+                "let moonbit_test_driver_internal_with_args_tests : Moonbit_Test_Driver_Internal_TestDriver_With_Args_Map = { }  // WILL BE REPLACED\n",
+                &MooncGenTestInfo::section_to_mbt("moonbit_test_driver_internal_with_args_tests", &data.with_args_tests),
+            )
+        }
+    };
+
+    let template =  template
         .replace(
             "let moonbit_test_driver_internal_no_args_tests =",
             "let moonbit_test_driver_internal_no_args_tests : Moonbit_Test_Driver_Internal_No_Args_Map =",
