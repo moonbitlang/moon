@@ -85,13 +85,13 @@ impl ResolveConfig {
 
 #[derive(Debug, thiserror::Error)]
 pub enum ResolveError {
-    #[error("Failed to resolve the module dependency graph: {0}")]
-    SyncModulesError(anyhow::Error),
+    #[error("Failed to resolve the module dependency graph")]
+    SyncModulesError(#[source] anyhow::Error),
 
-    #[error("Failed when discovering packages: {0}")]
+    #[error("Failed when discovering packages")]
     DiscoverError(#[from] DiscoverError),
 
-    #[error("Failed to solve package relationship: {0}")]
+    #[error("Failed to solve package relationship")]
     SolveError(#[from] pkg_solve::SolveError),
 }
 

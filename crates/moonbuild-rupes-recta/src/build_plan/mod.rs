@@ -37,7 +37,7 @@
 use std::{collections::HashMap, path::PathBuf};
 
 use indexmap::{set::MutableValues, IndexSet};
-use log::{debug, info};
+use log::{debug, info, trace};
 use moonutil::{
     common::TargetBackend,
     cond_expr::{OptLevel, ParseCondExprError},
@@ -59,7 +59,14 @@ use crate::{
 /// configuration and requirements.
 #[derive(Default)]
 pub struct BuildPlan {
+    /// The build dependency graph.
+    ///
+    /// Each node in this graph represents a step in building, and edges
+    /// represent the dependencies between build steps, pointing **from each
+    /// step to what it depends on**.
     graph: DiGraphMap<BuildPlanNode, ()>,
+
+    /// The specification of each build target.
     spec: HashMap<BuildPlanNode, BuildActionSpec>,
 }
 
@@ -68,7 +75,17 @@ impl BuildPlan {
         self.spec.get(&node)
     }
 
-    pub fn incoming_nodes(&self, node: BuildPlanNode) -> impl Iterator<Item = BuildPlanNode> + '_ {
+    /// Get the list of nodes that **the given node depends on**.
+    pub fn dependency_nodes(
+        &self,
+        node: BuildPlanNode,
+    ) -> impl Iterator<Item = BuildPlanNode> + '_ {
+        self.graph
+            .neighbors_directed(node, petgraph::Direction::Outgoing)
+    }
+
+    /// Get the list of nodes that **depend on the given node**.
+    pub fn consumer_nodes(&self, node: BuildPlanNode) -> impl Iterator<Item = BuildPlanNode> + '_ {
         self.graph
             .neighbors_directed(node, petgraph::Direction::Incoming)
     }
@@ -92,19 +109,58 @@ pub struct BuildPlanNode {
     pub action: TargetAction,
 }
 
+/// Common information about a moonbit package being built
+#[derive(Debug)]
+pub struct BuildTargetInfo {
+    pub files: Vec<PathBuf>,
+    // we currently don't need this, as it's controlled by build-wise options
+    // /// Whether compiling this target needs the standard library
+    // pub std: bool,
+
+    // we currently don't need this, as it's directly copied from mod.json.
+    // pub is_main: bool,
+}
+
+#[derive(Debug)]
+pub struct LinkCoreInfo {
+    /// The targets in **initialization order**.
+    pub linked_order: Vec<BuildTarget>,
+    // we currently don't need this, as it's controlled by build-wise options
+    // /// Whether linking this target needs the standard library
+    // pub std: bool,
+}
+
 /// The specification of the specific build target, e.g. its files.
+#[derive(Debug)]
 pub enum BuildActionSpec {
-    Check(Vec<PathBuf>),
+    /// Check the given list of MoonBit source files.
+    ///
+    /// Outgoing edges of this node represents the direct dependencies.
+    Check(BuildTargetInfo),
+
     /// Build the given list of MoonBit source files.
-    BuildMbt(Vec<PathBuf>),
+    ///
+    /// Outgoing edges of this node represents the direct dependencies.
+    BuildMbt(BuildTargetInfo),
+
     /// Build the given list of C source files.
     BuildC(Vec<PathBuf>),
+
     /// Link the core files from the given list of targets, **in order**.
-    LinkCore(Vec<BuildTarget>),
+    ///
+    /// Outgoing edges of this node represents the build targets it depends on,
+    /// but there's another copy of it, **ordered**, in the value's payloads,
+    /// since the build command will need to use it.
+    LinkCore(LinkCoreInfo),
+
     /// Make executable; link with the C artifacts of the given list of targets,
     /// if any.
-    MakeExecutable(Vec<BuildTarget>),
+    MakeExecutable { link_c_stubs: Vec<BuildTarget> },
+
+    /// Generate the MBTI file for the given package.
     GenerateMbti,
+
+    /// Bundle the packages specified by the outgoing edges.
     Bundle,
 }
 
@@ -113,6 +169,10 @@ pub struct BuildEnvironment {
     // FIXME: Target backend should go into the solver, not here
     pub target_backend: TargetBackend,
     pub opt_level: OptLevel,
+    /// Whether compiling requires the standard library.
+    ///
+    /// TODO: Move this to per-package/module.
+    pub std: bool,
     // Can have more, e.g. cross compile
 }
 
@@ -271,21 +331,32 @@ impl<'a> BuildPlanConstructor<'a> {
         }
     }
 
+    fn target_info_of(
+        &self,
+        node: BuildPlanNode,
+    ) -> Result<BuildTargetInfo, BuildPlanConstructError> {
+        // Resolve the source files
+        let source_files = self.resolve_mbt_files_for_node(node)?;
+        Ok(BuildTargetInfo {
+            files: source_files,
+            // is_main: pkg.raw.is_main,
+            // std: self.build_env.std, // TODO: move to per-package
+        })
+    }
+
     fn build_check(&mut self, node: BuildPlanNode) -> Result<(), BuildPlanConstructError> {
         // Check depends on `.mi` of all dependencies, which practically
         // means the Check of all dependencies.
         for dep in self
             .build_deps
             .dep_graph
-            .neighbors_directed(node.target, petgraph::Direction::Incoming)
+            .neighbors_directed(node.target, petgraph::Direction::Outgoing)
         {
             let dep_node = self.need(dep, TargetAction::Check);
             self.add_edge(node, dep_node);
         }
 
-        // Resolve the source files
-        let source_files = self.resolve_mbt_files_for_node(node)?;
-        self.resolved_node(node, BuildActionSpec::Check(source_files));
+        self.resolved_node(node, BuildActionSpec::Check(self.target_info_of(node)?));
 
         Ok(())
     }
@@ -298,21 +369,19 @@ impl<'a> BuildPlanConstructor<'a> {
         for dep in self
             .build_deps
             .dep_graph
-            .neighbors_directed(node.target, petgraph::Direction::Incoming)
+            .neighbors_directed(node.target, petgraph::Direction::Outgoing)
         {
             let dep_node = self.need(dep, TargetAction::Build);
             self.add_edge(node, dep_node);
         }
 
-        // Resolve the source files
-        let source_files = self.resolve_mbt_files_for_node(node)?;
-        self.resolved_node(node, BuildActionSpec::BuildMbt(source_files));
+        self.resolved_node(node, BuildActionSpec::BuildMbt(self.target_info_of(node)?));
 
         Ok(())
     }
 
     fn resolve_mbt_files_for_node(
-        &mut self,
+        &self,
         node: BuildPlanNode,
     ) -> Result<Vec<PathBuf>, BuildPlanConstructError> {
         let pkg = self.packages.get_package(node.target.package);
@@ -369,6 +438,11 @@ impl<'a> BuildPlanConstructor<'a> {
                 TODO: virtual packages are not yet implemented here.
         */
 
+        debug!(
+            "Building MakeExecutable for target: {:?}",
+            make_exec_node.target
+        );
+        debug!("Performing DFS post-order traversal to collect dependencies");
         // This DFS is shared by both LinkCore and MakeExecutable actions.
         let mut dfs = DfsPostOrder::new(&self.build_deps.dep_graph, make_exec_node.target);
         // This is the link core sources
@@ -395,6 +469,7 @@ impl<'a> BuildPlanConstructor<'a> {
             link_core_deps.insert(next);
             // If there's any C stubs, add it (native only)
             let pkg = self.packages.get_package(next.package);
+            trace!("DFS post iterated: {}", pkg.fqn);
             if self.build_env.target_backend.is_native() && !pkg.c_stub_files.is_empty() {
                 c_stub_deps.push(next);
             }
@@ -414,7 +489,10 @@ impl<'a> BuildPlanConstructor<'a> {
         }
 
         let targets = link_core_deps.into_iter().collect();
-        let spec = BuildActionSpec::LinkCore(targets);
+        let spec = BuildActionSpec::LinkCore(LinkCoreInfo {
+            linked_order: targets,
+            // std: self.build_env.std, // TODO: move to per-package
+        });
         self.resolved_node(link_core_node, spec);
 
         // Add edge from make exec to link core
@@ -425,7 +503,12 @@ impl<'a> BuildPlanConstructor<'a> {
             let dep_node = self.need(*target, TargetAction::BuildCStubs);
             self.add_edge(make_exec_node, dep_node);
         }
-        self.resolved_node(make_exec_node, BuildActionSpec::MakeExecutable(c_stub_deps));
+        self.resolved_node(
+            make_exec_node,
+            BuildActionSpec::MakeExecutable {
+                link_c_stubs: c_stub_deps,
+            },
+        );
 
         Ok(())
     }

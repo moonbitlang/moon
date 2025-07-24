@@ -23,6 +23,9 @@
 //! system access should be split into a separate module instead of coupled with
 //! this discover process.
 
+// Specifically allow file I/O here, because that what this module is about.
+#![allow(clippy::disallowed_types, clippy::disallowed_methods)]
+
 use std::{
     collections::HashMap,
     path::{Path, PathBuf},

@@ -35,9 +35,11 @@ use moonutil::common::MoonbuildOpt;
 use moonutil::common::PrePostBuild;
 use moonutil::common::RunMode;
 use moonutil::common::TargetBackend;
+use moonutil::common::MOONBITLANG_CORE;
 use moonutil::cond_expr::OptLevel;
 use moonutil::dirs::mk_arch_mode_dir;
 use moonutil::dirs::PackageDirs;
+use moonutil::moon_dir::core;
 use moonutil::mooncakes::sync::AutoSyncFlags;
 use moonutil::mooncakes::RegistryConfig;
 use n2::trace;
@@ -272,6 +274,11 @@ fn run_build_internal_rupes_recta(
 
     let intent = calc_user_intent(&resolve_output, main_module_id)?;
 
+    // std or no-std?
+    // Ultimately we want to determine this from config instead of special cases.
+    let use_std = cmd.build_flags.std() && main_module.name != MOONBITLANG_CORE;
+    let stdlib_path = use_std.then(core);
+
     let cx = CompileContext {
         resolve_output: &resolve_output,
         target_dir: target_dir.to_owned(),
@@ -286,6 +293,7 @@ fn run_build_internal_rupes_recta(
             OptLevel::Debug
         },
         debug_symbols: !cmd.build_flags.release || cmd.build_flags.debug,
+        stdlib_path,
     };
     let graph = moonbuild_rupes_recta::compile(&cx, &[intent])?;
 

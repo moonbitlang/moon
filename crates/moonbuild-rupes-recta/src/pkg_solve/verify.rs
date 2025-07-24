@@ -135,7 +135,7 @@ fn verify_no_duplicated_alias(
 
         for (from, _, edge) in dep
             .dep_graph
-            .edges_directed(node, petgraph::Direction::Incoming)
+            .edges_directed(node, petgraph::Direction::Outgoing)
         {
             match map.entry(&edge.short_alias) {
                 Entry::Occupied(e) => {
