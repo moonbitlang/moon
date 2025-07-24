@@ -25,6 +25,7 @@ pub mod clean;
 pub mod coverage;
 pub mod deps;
 pub mod doc;
+pub mod external;
 pub mod fmt;
 pub mod generate_test_driver;
 pub mod info;
@@ -49,6 +50,7 @@ pub use clean::*;
 pub use coverage::*;
 pub use deps::*;
 pub use doc::*;
+pub use external::*;
 pub use fmt::*;
 pub use generate_test_driver::*;
 pub use info::*;
@@ -134,6 +136,10 @@ pub enum MoonBuildSubcommands {
     Version(VersionSubcommand),
     #[clap(hide = true)]
     Tool(ToolSubcommand),
+
+    // External subcommands
+    #[clap(external_subcommand)]
+    External(Vec<String>),
 }
 
 #[derive(Debug, clap::Parser, Clone)]
