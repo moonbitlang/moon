@@ -55,6 +55,7 @@ mod prebuild_config_script;
 mod simple_pkg;
 mod target_backend;
 mod targets;
+mod test_driver_dependencies;
 mod test_error_report;
 mod test_expect_test;
 mod test_filter;
