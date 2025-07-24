@@ -382,7 +382,7 @@ fn calc_user_intent(
         .packages_for_module(main_module_id)
         .ok_or_else(|| anyhow::anyhow!("Cannot find the local module!"))?;
 
-    let intent = UserIntent::BuildCore(
+    let intent = UserIntent::Check(
         packages
             .iter()
             .flat_map(|(_, &pkg_id)| {
