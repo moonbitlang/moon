@@ -171,6 +171,37 @@ impl LegacyLayout {
         ));
         base_dir
     }
+
+    pub fn generated_test_driver(
+        &self,
+        pkg_list: &DiscoverResult,
+        target: &BuildTarget,
+        backend: TargetBackend,
+    ) -> PathBuf {
+        let pkg_fqn = &pkg_list.get_package(target.package).fqn;
+        let mut base_dir = self.package_dir(pkg_fqn, backend);
+        base_dir.push(format!(
+            "{}__generated_driver_for{}.mbt",
+            pkg_fqn.short_alias(),
+            build_kind_suffix(target.kind)
+        ));
+        base_dir
+    }
+
+    pub fn generated_test_driver_metadata(
+        &self,
+        pkg_list: &DiscoverResult,
+        target: &BuildTarget,
+        backend: TargetBackend,
+    ) -> PathBuf {
+        let pkg_fqn = &pkg_list.get_package(target.package).fqn;
+        let mut base_dir = self.package_dir(pkg_fqn, backend);
+        base_dir.push(format!(
+            "__{}_test_info.json",
+            build_kind_suffix(target.kind)
+        ));
+        base_dir
+    }
 }
 
 fn push_backend(path: &mut PathBuf, backend: TargetBackend) {

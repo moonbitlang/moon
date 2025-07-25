@@ -288,6 +288,7 @@ fn dep_edge_source_from_targets(kind: TargetKind) -> &'static [TargetKind] {
     match kind {
         TargetKind::Source => &[
             TargetKind::Source,
+            TargetKind::InlineTest,
             TargetKind::WhiteboxTest,
             TargetKind::BlackboxTest,
         ],

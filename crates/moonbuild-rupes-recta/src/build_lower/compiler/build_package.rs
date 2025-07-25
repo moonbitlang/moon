@@ -26,6 +26,7 @@ use moonutil::common::TargetBackend;
 use crate::build_lower::compiler::{
     BuildCommonArgs, CmdlineAbstraction, CompilationFlags, MiDependency,
 };
+use crate::model::TargetKind;
 
 /// Abstraction for `moonc build-package`.
 ///
@@ -48,6 +49,7 @@ pub struct MooncBuildPackage<'a> {
 }
 
 impl<'a> MooncBuildPackage<'a> {
+    #[allow(clippy::too_many_arguments)]
     /// Create a new instance with only necessary fields populated, others as default
     pub fn new(
         mbt_sources: &'a [PathBuf],
@@ -57,6 +59,7 @@ impl<'a> MooncBuildPackage<'a> {
         package_name: super::CompiledPackageName<'a>,
         package_source: impl Into<Cow<'a, Path>>,
         target_backend: TargetBackend,
+        target_kind: TargetKind,
     ) -> Self {
         Self {
             common: BuildCommonArgs::new(
@@ -65,6 +68,7 @@ impl<'a> MooncBuildPackage<'a> {
                 package_name,
                 package_source,
                 target_backend,
+                target_kind,
             ),
             core_out: core_out.into(),
             mi_out: mi_out.into(),
@@ -149,6 +153,8 @@ impl<'a> MooncBuildPackage<'a> {
             args.push(opt.to_string());
         }
 
+        self.common.add_test_args(args);
+
         // Virtual package check
         self.common.add_virtual_package_check(args);
 
@@ -159,6 +165,8 @@ impl<'a> MooncBuildPackage<'a> {
 
         // Virtual package implementation
         self.common.add_virtual_package_implementation_build(args);
+
+        self.common.add_test_mode_args(args);
     }
 }
 
