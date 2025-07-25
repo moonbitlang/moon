@@ -22,8 +22,7 @@ use moonbuild::dry_run;
 use moonbuild::watch::watching;
 use moonbuild::watcher_is_running;
 use moonbuild::{entry, MOON_PID_NAME};
-use moonbuild_rupes_recta::compile::UserIntent;
-use moonbuild_rupes_recta::model::{BuildTarget, TargetKind};
+use moonbuild_rupes_recta::model::{BuildPlanNode, TargetKind};
 use mooncake::pkg::sync::auto_sync;
 use moonutil::cli::UniversalFlags;
 use moonutil::common::{lower_surface_targets, CheckOpt};
@@ -372,7 +371,7 @@ fn run_check_normal_internal_legacy(
 fn calc_user_intent(
     resolve_output: &moonbuild_rupes_recta::ResolveOutput,
     main_modules: &[moonutil::mooncakes::ModuleId],
-) -> Result<Vec<UserIntent>, anyhow::Error> {
+) -> Result<Vec<BuildPlanNode>, anyhow::Error> {
     let &[main_module_id] = main_modules else {
         panic!("No multiple main modules are supported");
     };
@@ -382,22 +381,17 @@ fn calc_user_intent(
         .packages_for_module(main_module_id)
         .ok_or_else(|| anyhow::anyhow!("Cannot find the local module!"))?;
 
-    let intent = UserIntent::Check(
-        packages
-            .iter()
-            .flat_map(|(_, &pkg_id)| {
-                [
-                    TargetKind::Source,
-                    TargetKind::WhiteboxTest,
-                    TargetKind::BlackboxTest,
-                ]
-                .map(|x| BuildTarget {
-                    package: pkg_id,
-                    kind: x,
-                })
-            })
-            .collect(),
-    );
+    let nodes = packages
+        .iter()
+        .flat_map(|(_, &pkg_id)| {
+            [
+                TargetKind::Source,
+                TargetKind::WhiteboxTest,
+                TargetKind::BlackboxTest,
+            ]
+            .map(|x| BuildPlanNode::check(pkg_id.build_target(x)))
+        })
+        .collect();
 
-    Ok(vec![intent])
+    Ok(nodes)
 }

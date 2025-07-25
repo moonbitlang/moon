@@ -22,8 +22,7 @@ use colored::Colorize;
 use moonbuild::dry_run;
 use moonbuild::entry;
 use moonbuild::watch::watching;
-use moonbuild_rupes_recta::compile::UserIntent;
-use moonbuild_rupes_recta::model::BuildTarget;
+use moonbuild_rupes_recta::model::BuildPlanNode;
 use moonbuild_rupes_recta::model::TargetKind;
 use mooncake::pkg::sync::auto_sync;
 use moonutil::common::lower_surface_targets;
@@ -246,7 +245,7 @@ fn run_build_internal_legacy(
 fn calc_user_intent(
     resolve_output: &moonbuild_rupes_recta::ResolveOutput,
     main_modules: &[moonutil::mooncakes::ModuleId],
-) -> Result<Vec<UserIntent>, anyhow::Error> {
+) -> Result<Vec<BuildPlanNode>, anyhow::Error> {
     let &[main_module_id] = main_modules else {
         panic!("No multiple main modules are supported");
     };
@@ -262,26 +261,16 @@ fn calc_user_intent(
             linkable_pkgs.push(pkg_id)
         }
     }
-    let intent = if linkable_pkgs.is_empty() {
-        UserIntent::BuildCore(
-            packages
-                .iter()
-                .map(|(_, &pkg_id)| BuildTarget {
-                    package: pkg_id,
-                    kind: TargetKind::Source,
-                })
-                .collect(),
-        )
+    let nodes = if linkable_pkgs.is_empty() {
+        packages
+            .iter()
+            .map(|(_, &pkg_id)| BuildPlanNode::build_core(pkg_id.build_target(TargetKind::Source)))
+            .collect()
     } else {
-        UserIntent::BuildExecutable(
-            linkable_pkgs
-                .into_iter()
-                .map(|pkg_id| BuildTarget {
-                    package: pkg_id,
-                    kind: TargetKind::Source,
-                })
-                .collect(),
-        )
+        linkable_pkgs
+            .into_iter()
+            .map(|pkg_id| BuildPlanNode::make_executable(pkg_id.build_target(TargetKind::Source)))
+            .collect()
     };
-    Ok(vec![intent])
+    Ok(nodes)
 }
