@@ -47,7 +47,7 @@ use petgraph::{prelude::DiGraphMap, visit::DfsPostOrder};
 use crate::{
     cond_comp::{self, CompileCondition},
     discover::DiscoverResult,
-    model::{BuildTarget, TargetAction, TargetKind},
+    model::{BuildPlanNode, BuildTarget, TargetAction, TargetKind},
     pkg_solve::DepRelationship,
 };
 
@@ -97,16 +97,6 @@ impl BuildPlan {
     pub fn node_count(&self) -> usize {
         self.graph.node_count()
     }
-}
-
-/// A node in the build dependency graph, containing a build target and the
-/// corresponding action that should be performed on that target.
-///
-/// TODO: This type is a little big in size to be copied and used as an ID.
-#[derive(Debug, Clone, Copy, PartialEq, PartialOrd, Eq, Ord, Hash)]
-pub struct BuildPlanNode {
-    pub target: BuildTarget,
-    pub action: TargetAction,
 }
 
 /// Common information about a moonbit package being built

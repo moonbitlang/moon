@@ -23,6 +23,7 @@ use cli::MoonBuildSubcommands;
 
 mod cli;
 pub mod rr_build;
+mod run;
 
 use colored::*;
 

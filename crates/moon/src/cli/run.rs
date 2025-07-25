@@ -21,7 +21,7 @@ use std::path::PathBuf;
 use anyhow::{bail, Context};
 use moonbuild::dry_run;
 use moonbuild::entry;
-use moonbuild_rupes_recta::compile::UserIntent;
+use moonbuild_rupes_recta::model::BuildPlanNode;
 use moonbuild_rupes_recta::model::BuildTarget;
 use mooncake::pkg::sync::auto_sync;
 use moonutil::common::lower_surface_targets;
@@ -344,7 +344,7 @@ fn calc_user_intent(
     input_path: &str,
     resolve_output: &moonbuild_rupes_recta::ResolveOutput,
     main_modules: &[moonutil::mooncakes::ModuleId],
-) -> Result<Vec<UserIntent>, anyhow::Error> {
+) -> Result<Vec<BuildPlanNode>, anyhow::Error> {
     // `moon run` requires a path relative to CWD being provided. The path may
     // either be a MoonBit source code file, or a path to a module directory.
     //
@@ -385,10 +385,10 @@ fn calc_user_intent(
 
     let found = found_path.or(found_path_parent);
     if let Some(pkg_id) = found {
-        Ok(vec![UserIntent::BuildExecutable(vec![BuildTarget {
+        Ok(vec![BuildPlanNode::make_executable(BuildTarget {
             package: pkg_id,
             kind: moonbuild_rupes_recta::model::TargetKind::Source,
-        }])])
+        })])
     } else {
         Err(anyhow::anyhow!(
             "Cannot find package to build based on input path `{}`",
