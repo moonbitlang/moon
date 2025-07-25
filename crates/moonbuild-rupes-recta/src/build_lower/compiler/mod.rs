@@ -33,6 +33,7 @@ use crate::pkg_name::PackageFQN;
 pub use self::build_common::BuildCommonArgs;
 pub use self::build_package::MooncBuildPackage;
 pub use self::check::MooncCheck;
+pub use self::gen_test_driver::MoonGenTestDriver;
 pub use self::link_core::MooncLinkCore;
 
 #[allow(unused)]

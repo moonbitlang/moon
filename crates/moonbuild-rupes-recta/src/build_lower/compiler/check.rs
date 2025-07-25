@@ -26,6 +26,7 @@ use moonutil::common::TargetBackend;
 use crate::build_lower::compiler::{
     BuildCommonArgs, CmdlineAbstraction, CompiledPackageName, MiDependency,
 };
+use crate::model::TargetKind;
 
 /// Abstraction for `moonc check`.
 ///
@@ -44,9 +45,6 @@ pub struct MooncCheck<'a> {
     pub mi_out: Cow<'a, Path>,
     pub no_mi: bool,
 
-    pub is_whitebox_test: bool,
-    pub is_blackbox_test: bool,
-
     pub is_third_party: bool,
     pub single_file: bool,
     pub patch_file: Option<Cow<'a, Path>>,
@@ -61,6 +59,7 @@ impl<'a> MooncCheck<'a> {
         package_name: CompiledPackageName<'a>,
         package_source: impl Into<Cow<'a, Path>>,
         target_backend: TargetBackend,
+        target_kind: TargetKind,
     ) -> Self {
         Self {
             common: BuildCommonArgs::new(
@@ -69,13 +68,12 @@ impl<'a> MooncCheck<'a> {
                 package_name,
                 package_source,
                 target_backend,
+                target_kind,
             ),
             doctest_only_mbt_sources: &[],
             mbt_md_sources: &[],
             mi_out: mi_out.into(),
             no_mi: false,
-            is_whitebox_test: false,
-            is_blackbox_test: false,
             is_third_party: false,
             single_file: false,
             patch_file: None,
@@ -120,7 +118,7 @@ impl<'a> MooncCheck<'a> {
         }
 
         // Include doctests for blackbox tests
-        if self.is_blackbox_test {
+        if self.common.target_kind == TargetKind::BlackboxTest {
             args.push("-include-doctests".to_string());
         }
 
@@ -144,8 +142,7 @@ impl<'a> MooncCheck<'a> {
         self.common.add_package_config(args);
 
         // is-main with blackbox test condition
-        self.common
-            .add_is_main_with_condition(args, !self.is_blackbox_test);
+        self.common.add_is_main(args);
 
         // Single file mode
         if self.single_file {
@@ -165,12 +162,7 @@ impl<'a> MooncCheck<'a> {
         self.common.add_target_backend(args);
 
         // Test type flags
-        if self.is_whitebox_test {
-            args.push("-whitebox-test".to_string());
-        }
-        if self.is_blackbox_test {
-            args.push("-blackbox-test".to_string());
-        }
+        self.common.add_test_args(args);
 
         // Virtual package check
         self.common.add_virtual_package_check(args);
