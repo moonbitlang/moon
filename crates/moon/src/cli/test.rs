@@ -21,8 +21,7 @@ use colored::Colorize;
 use indexmap::IndexMap;
 use moonbuild::dry_run;
 use moonbuild::entry;
-use moonbuild_rupes_recta::compile::UserIntent;
-use moonbuild_rupes_recta::model::BuildTarget;
+use moonbuild_rupes_recta::model::BuildPlanNode;
 use moonbuild_rupes_recta::model::TargetKind;
 use mooncake::pkg::sync::auto_sync;
 use mooncake::pkg::sync::auto_sync_for_single_mbt_md;
@@ -490,7 +489,7 @@ pub(crate) fn run_test_or_bench_internal(
 fn calc_user_intent(
     resolve_output: &moonbuild_rupes_recta::ResolveOutput,
     main_modules: &[moonutil::mooncakes::ModuleId],
-) -> Result<Vec<UserIntent>, anyhow::Error> {
+) -> Result<Vec<BuildPlanNode>, anyhow::Error> {
     let &[main_module_id] = main_modules else {
         panic!("No multiple main modules are supported");
     };
@@ -499,7 +498,7 @@ fn calc_user_intent(
         .pkg_dirs
         .packages_for_module(main_module_id)
         .ok_or_else(|| anyhow::anyhow!("Cannot find the local module!"))?;
-    let targets = packages
+    let nodes = packages
         .iter()
         .flat_map(|(_, &pkg_id)| {
             [
@@ -507,11 +506,10 @@ fn calc_user_intent(
                 TargetKind::WhiteboxTest,
                 TargetKind::BlackboxTest,
             ]
-            .map(|x| pkg_id.build_target(x))
+            .map(|x| BuildPlanNode::make_executable(pkg_id.build_target(x)))
         })
         .collect();
-    let intent = UserIntent::BuildExecutable(targets);
-    Ok(vec![intent])
+    Ok(nodes)
 }
 
 pub(crate) fn run_test_or_bench_internal_legacy(
