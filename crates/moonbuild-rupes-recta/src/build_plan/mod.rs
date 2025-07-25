@@ -162,6 +162,9 @@ pub enum BuildActionSpec {
 
     /// Bundle the packages specified by the outgoing edges.
     Bundle,
+
+    /// Generates the test driver for the given target
+    GenerateTestDriver(BuildTargetInfo),
 }
 
 /// Represents the environment in which the build is being performed.
@@ -328,6 +331,7 @@ impl<'a> BuildPlanConstructor<'a> {
                 )
             }
             TargetAction::MakeExecutable => self.build_make_exec_link_core(node),
+            TargetAction::GenerateTestInfo => self.build_gen_test_info(node),
         }
     }
 
@@ -375,8 +379,25 @@ impl<'a> BuildPlanConstructor<'a> {
             self.add_edge(node, dep_node);
         }
 
+        // If the given target is a test, we will also need to generate the test driver.
+        if node.target.kind.is_test() {
+            let gen_test_info = BuildPlanNode {
+                action: TargetAction::GenerateTestInfo,
+                ..node
+            };
+            self.need_node(gen_test_info);
+            self.add_edge(node, gen_test_info);
+        }
+
         self.resolved_node(node, BuildActionSpec::BuildMbt(self.target_info_of(node)?));
 
+        Ok(())
+    }
+
+    fn build_gen_test_info(&mut self, node: BuildPlanNode) -> Result<(), BuildPlanConstructError> {
+        self.need_node(node);
+        let target_info = self.target_info_of(node)?; // FIXME: cache this
+        self.resolved_node(node, BuildActionSpec::GenerateTestDriver(target_info));
         Ok(())
     }
 
@@ -384,6 +405,10 @@ impl<'a> BuildPlanConstructor<'a> {
         &self,
         node: BuildPlanNode,
     ) -> Result<Vec<PathBuf>, BuildPlanConstructError> {
+        // FIXME: Should we resolve test drivers' paths, or should we leave it
+        // in the lowering phase? The path to the test driver depends on the
+        // artifact layout, so we might not be able to do that here, unless we
+        // add some kind of `SpecialFile::TestDriver` or something.
         let pkg = self.packages.get_package(node.target.package);
         let source_files = cond_comp::filter_files(
             &pkg.raw,

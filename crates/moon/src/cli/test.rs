@@ -21,6 +21,9 @@ use colored::Colorize;
 use indexmap::IndexMap;
 use moonbuild::dry_run;
 use moonbuild::entry;
+use moonbuild_rupes_recta::compile::UserIntent;
+use moonbuild_rupes_recta::model::BuildTarget;
+use moonbuild_rupes_recta::model::TargetKind;
 use mooncake::pkg::sync::auto_sync;
 use mooncake::pkg::sync::auto_sync_for_single_mbt_md;
 use moonutil::common::PrePostBuild;
@@ -41,6 +44,7 @@ use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 
 use crate::cli::pre_build::scan_with_x_build;
+use crate::rr_build;
 
 use super::BenchSubcommand;
 use super::{BuildFlags, UniversalFlags};
@@ -457,14 +461,6 @@ pub(crate) fn run_test_or_bench_internal(
     target_dir: &Path,
     display_backend_hint: Option<()>,
 ) -> anyhow::Result<i32> {
-    // Run moon install before build
-    let (resolved_env, dir_sync_result) = auto_sync(
-        source_dir,
-        cmd.auto_sync_flags,
-        &RegistryConfig::load(),
-        cli.quiet,
-    )?;
-
     // move the conflict detection logic here since we want specific `index` only for single file test
     if cmd.package.is_none() && cmd.file.is_some() {
         anyhow::bail!("`--file` must be used with `--package`");
@@ -472,6 +468,66 @@ pub(crate) fn run_test_or_bench_internal(
     if cmd.file.is_none() && cmd.index.is_some() {
         anyhow::bail!("`--index` must be used with `--file`");
     }
+
+    if cli.unstable_feature.rupes_recta {
+        let ret = rr_build::compile(
+            cli,
+            cmd.auto_sync_flags,
+            cmd.build_flags,
+            source_dir,
+            target_dir,
+            Box::new(calc_user_intent),
+        )?;
+        if ret != 0 {
+            return Ok(ret);
+        }
+        todo!("Run test")
+    } else {
+        run_test_or_bench_internal_legacy(cli, cmd, source_dir, target_dir, display_backend_hint)
+    }
+}
+
+fn calc_user_intent(
+    resolve_output: &moonbuild_rupes_recta::ResolveOutput,
+    main_modules: &[moonutil::mooncakes::ModuleId],
+) -> Result<Vec<UserIntent>, anyhow::Error> {
+    let &[main_module_id] = main_modules else {
+        panic!("No multiple main modules are supported");
+    };
+
+    let packages = resolve_output
+        .pkg_dirs
+        .packages_for_module(main_module_id)
+        .ok_or_else(|| anyhow::anyhow!("Cannot find the local module!"))?;
+    let targets = packages
+        .iter()
+        .flat_map(|(_, &pkg_id)| {
+            [
+                TargetKind::InlineTest,
+                TargetKind::WhiteboxTest,
+                TargetKind::BlackboxTest,
+            ]
+            .map(|x| pkg_id.build_target(x))
+        })
+        .collect();
+    let intent = UserIntent::BuildExecutable(targets);
+    Ok(vec![intent])
+}
+
+pub(crate) fn run_test_or_bench_internal_legacy(
+    cli: &UniversalFlags,
+    cmd: TestLikeSubcommand,
+    source_dir: &Path,
+    target_dir: &Path,
+    display_backend_hint: Option<()>,
+) -> anyhow::Result<i32> {
+    // Run moon install before build
+    let (resolved_env, dir_sync_result) = auto_sync(
+        source_dir,
+        cmd.auto_sync_flags,
+        &RegistryConfig::load(),
+        cli.quiet,
+    )?;
 
     let run_mode = cmd.run_mode;
 
