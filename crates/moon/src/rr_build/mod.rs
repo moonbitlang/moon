@@ -107,8 +107,20 @@ pub fn compile(
         },
         debug_symbols: !build_flags.release || build_flags.debug,
         stdlib_path,
+
+        debug_export_build_plan: cli.unstable_feature.rr_export_build_plan,
     };
     let graph = moonbuild_rupes_recta::compile(&cx, &intent)?;
+
+    if cli.unstable_feature.rr_export_build_plan {
+        if let Some(plan) = graph.build_plan {
+            moonbuild_rupes_recta::util::print_build_plan_dot(
+                &plan,
+                &resolve_output.pkg_dirs,
+                &mut std::fs::File::create(target_dir.join("build_plan.dot"))?,
+            )?;
+        }
+    }
 
     // Generate n2 state
     // FIXME: This is extremely verbose and barebones, only for testing purpose

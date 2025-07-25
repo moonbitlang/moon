@@ -38,6 +38,7 @@ pub enum TargetAction {
     BuildCStubs,
     LinkCore,
     MakeExecutable,
+    GenerateTestInfo,
 }
 
 #[derive(Clone, Debug, Copy, PartialEq, Eq, Hash, Ord, PartialOrd)]
@@ -52,6 +53,15 @@ pub enum TargetKind {
     /// This is the subpackage designed originally for breaking cycles in
     /// `moonbitlang/core`. It's expected to be used sparingly.
     SubPackage,
+}
+
+impl TargetKind {
+    pub fn is_test(self) -> bool {
+        matches!(
+            self,
+            TargetKind::WhiteboxTest | TargetKind::BlackboxTest | TargetKind::InlineTest
+        )
+    }
 }
 
 /// Represents a single compile target that may be separately checked, built,

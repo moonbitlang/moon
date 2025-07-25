@@ -18,6 +18,7 @@
 
 //! A number of random utilities useful for debugging the project
 
+use crate::build_plan::BuildPlan;
 use crate::discover::DiscoverResult;
 use crate::pkg_solve::DepRelationship;
 use moonutil::mooncakes::result::ResolvedEnv;
@@ -77,6 +78,61 @@ pub fn print_dep_relationship_dot(
             }
         }
     }
+    writeln!(writer, "}}")?;
+    Ok(())
+}
+
+/// Print a build plan as a DOT graph, showing build nodes and their dependencies
+pub fn print_build_plan_dot(
+    build_plan: &BuildPlan,
+    packages: &DiscoverResult,
+    writer: &mut dyn Write,
+) -> io::Result<()> {
+    writeln!(writer, "digraph BuildPlan {{")?;
+    writeln!(writer, "    rankdir=TB;")?;
+    writeln!(writer, "    node [shape=box];")?;
+
+    // Nodes: use BuildPlanNode debug as ID, label with package FQN, target kind, and action
+    for node in build_plan.all_nodes() {
+        let node_id = format!(
+            "{:?}@{:?}@{:?}",
+            node.target.package, node.target.kind, node.action
+        );
+        let fqn = packages.fqn(node.target.package);
+        let label = format!("{}\\n{:?}\\n{:?}", fqn, node.target.kind, node.action);
+
+        // Color nodes based on action type
+        let color = match node.action {
+            crate::model::TargetAction::Check => "lightblue",
+            crate::model::TargetAction::Build => "lightgreen",
+            crate::model::TargetAction::BuildCStubs => "lightyellow",
+            crate::model::TargetAction::LinkCore => "lightcoral",
+            crate::model::TargetAction::MakeExecutable => "lightpink",
+            crate::model::TargetAction::GenerateTestInfo => "lightgray",
+        };
+
+        writeln!(
+            writer,
+            "    \"{}\" [label=\"{}\" fillcolor=\"{}\" style=\"filled\"];",
+            node_id, label, color
+        )?;
+    }
+
+    // Edges: dependencies between build plan nodes
+    for node in build_plan.all_nodes() {
+        for dep in build_plan.dependency_nodes(node) {
+            let node_id = format!(
+                "{:?}@{:?}@{:?}",
+                node.target.package, node.target.kind, node.action
+            );
+            let dep_id = format!(
+                "{:?}@{:?}@{:?}",
+                dep.target.package, dep.target.kind, dep.action
+            );
+            writeln!(writer, "    \"{}\" -> \"{}\";\n", node_id, dep_id)?;
+        }
+    }
+
     writeln!(writer, "}}")?;
     Ok(())
 }

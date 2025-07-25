@@ -47,13 +47,22 @@ pub struct CompileContext<'a> {
     /// TODO: This should be a per-module or per-package setting, instead of a
     /// global one.
     pub stdlib_path: Option<PathBuf>,
+
     // TODO: more knobs
+    /// Whether to export the build plan graph in the compile output.
+    /// This should only be used in debugging scenarios.
+    pub debug_export_build_plan: bool,
 }
 
 /// The output information of the compilation.
 pub struct CompileOutput {
+    /// The n2 compile graph to be executed
     pub build_graph: n2::graph::Graph,
-    // artifacts: Vec<PathBuf>,
+
+    // /// The final artifacts corresponding to the user intents
+    // pub artifacts: Vec<PathBuf>,
+    /// The build plan, but only if we decided to export it.
+    pub build_plan: Option<Box<build_plan::BuildPlan>>,
 }
 
 /// The high-level intent of the user.
@@ -174,6 +183,11 @@ pub fn compile_with_raw_nodes(
     Ok(CompileOutput {
         build_graph: res,
         // artifacts: todo!(),
+        build_plan: if cx.debug_export_build_plan {
+            Some(Box::new(plan))
+        } else {
+            None
+        },
     })
 }
 
