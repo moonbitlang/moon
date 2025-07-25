@@ -20,7 +20,7 @@
 
 use std::path::Path;
 
-use moonbuild_rupes_recta::{compile::UserIntent, CompileContext, ResolveConfig, ResolveOutput};
+use moonbuild_rupes_recta::{model::BuildPlanNode, CompileContext, ResolveConfig, ResolveOutput};
 use moonutil::{
     cli::UniversalFlags,
     common::MOONBITLANG_CORE,
@@ -40,7 +40,8 @@ use crate::cli::BuildFlags;
 ///
 /// Returns: A vector of [`UserIntent`]s, representing what the user would like
 /// to do
-type CalcUserIntentFn = dyn FnOnce(&ResolveOutput, &[ModuleId]) -> anyhow::Result<Vec<UserIntent>>;
+type CalcUserIntentFn =
+    dyn FnOnce(&ResolveOutput, &[ModuleId]) -> anyhow::Result<Vec<BuildPlanNode>>;
 
 /// Compile everything using the given parameters.
 ///

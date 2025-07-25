@@ -19,12 +19,12 @@
 use std::path::PathBuf;
 
 use log::{debug, info};
-use moonutil::{common::TargetBackend, cond_expr::OptLevel, mooncakes::ModuleId};
+use moonutil::{common::TargetBackend, cond_expr::OptLevel};
 
 use crate::{
     build_lower,
-    build_plan::{self, BuildEnvironment, BuildPlanNode},
-    model::{BuildTarget, PackageId, TargetAction},
+    build_plan::{self, BuildEnvironment},
+    model::BuildPlanNode,
     resolve::ResolveOutput,
 };
 
@@ -65,38 +65,6 @@ pub struct CompileOutput {
     pub build_plan: Option<Box<build_plan::BuildPlan>>,
 }
 
-/// The high-level intent of the user.
-///
-/// TODO: Do we actually need this, or should we directly let the user supply
-/// the build commands? The translation process is relatively straightforward.
-#[derive(Clone, Debug)]
-pub enum UserIntent {
-    /// A `moon check` of the given targets. This directly maps to
-    /// `moon check -p ...`.
-    Check(Vec<BuildTarget>),
-
-    /// Build the core IR of the given targets. This directly maps to
-    /// `moon build -p ...` when the given package does not link into an
-    /// executable, or `moon build` when the whole module does not contain any
-    /// linkable packages.
-    BuildCore(Vec<BuildTarget>),
-
-    /// Build the final executable of the given targets. This directly maps to
-    /// `moon build` when the target links into an executable.
-    BuildExecutable(Vec<BuildTarget>),
-
-    /// Format all packages (note there's no build target here) in the list.
-    /// This directly maps to `moon fmt`.
-    Format(Vec<PackageId>),
-
-    /// Generate the MBTI interface files for all packages in the list.
-    /// This directly maps to `moon info`.
-    Info(Vec<BuildTarget>),
-
-    /// Bundles all packages in the given module.
-    Bundle(ModuleId),
-}
-
 #[derive(Debug, thiserror::Error)]
 pub enum CompileGraphError {
     #[error("Failed to build a build plan for the modules")]
@@ -106,30 +74,6 @@ pub enum CompileGraphError {
 }
 
 pub fn compile(
-    cx: &CompileContext,
-    intents: &[UserIntent],
-) -> Result<CompileOutput, CompileGraphError> {
-    info!("Starting compilation with user intents {:?}", intents);
-    debug!(
-        "Target backend: {:?}, optimization level: {:?}",
-        cx.target_backend, cx.opt_level
-    );
-
-    let input = intents
-        .iter()
-        .flat_map(translate_intent)
-        .collect::<Vec<_>>();
-
-    debug!(
-        "Translated {} intents into {} build plan nodes",
-        intents.len(),
-        input.len()
-    );
-
-    compile_with_raw_nodes(cx, &input)
-}
-
-pub fn compile_with_raw_nodes(
     cx: &CompileContext,
     input_nodes: &[BuildPlanNode],
 ) -> Result<CompileOutput, CompileGraphError> {
@@ -189,51 +133,4 @@ pub fn compile_with_raw_nodes(
             None
         },
     })
-}
-
-pub fn translate_intent(intent: &UserIntent) -> Vec<BuildPlanNode> {
-    match intent {
-        UserIntent::Check(targets) => {
-            debug!("Translating Check intent for {} targets", targets.len());
-            targets
-                .iter()
-                .map(|&target| BuildPlanNode {
-                    target,
-                    action: TargetAction::Check,
-                })
-                .collect()
-        }
-        UserIntent::BuildCore(targets) => {
-            debug!("Translating BuildCore intent for {} targets", targets.len());
-            targets
-                .iter()
-                .map(|&target| BuildPlanNode {
-                    target,
-                    action: TargetAction::Build,
-                })
-                .collect()
-        }
-        UserIntent::BuildExecutable(targets) => {
-            debug!(
-                "Translating BuildExecutable intent for {} targets",
-                targets.len()
-            );
-            targets
-                .iter()
-                .map(|&target| BuildPlanNode {
-                    target,
-                    action: TargetAction::MakeExecutable,
-                })
-                .collect()
-        }
-        UserIntent::Format(_ids) => {
-            todo!()
-        }
-        UserIntent::Info(_targets) => {
-            todo!()
-        }
-        UserIntent::Bundle(_module_id) => {
-            todo!()
-        }
-    }
 }

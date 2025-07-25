@@ -38,9 +38,9 @@ use crate::{
         artifact::LegacyLayout,
         compiler::{CmdlineAbstraction, MiDependency, PackageSource},
     },
-    build_plan::{self, BuildActionSpec, BuildPlan, BuildPlanNode, BuildTargetInfo, LinkCoreInfo},
+    build_plan::{BuildActionSpec, BuildPlan, BuildTargetInfo, LinkCoreInfo},
     discover::{DiscoverResult, DiscoveredPackage},
-    model::TargetKind,
+    model::{BuildPlanNode, TargetKind},
     pkg_name::PackageFQNWithSource,
     pkg_solve::DepRelationship,
 };
