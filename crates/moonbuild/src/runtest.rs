@@ -101,7 +101,7 @@ pub async fn run_js(
         node,
         path,
         target_dir,
-        &[],                                             // args before path
+        &["--enable-source-maps".to_string()],            // args before path
         &[serde_json_lenient::to_string(args).unwrap()], // args after path
         file_test_info_map,
         verbose,
