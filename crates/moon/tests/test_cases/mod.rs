@@ -5765,3 +5765,28 @@ fn merge_doc_test_and_md_test() {
         );
     }
 }
+
+#[test]
+fn moon_test_target_js_panic_with_sourcemap() {
+    let dir = TestDir::new("moon_test_target_js_panic_with_sourcemap.in");
+
+    let output = get_err_stdout(&dir, ["test", "--target", "js"]);
+    check(
+        &output,
+        // should keep in this format, it's used in ide test explorer
+        expect![[r#"
+            test username/hello/lib/hello_test.mbt::hello failed: Error
+                at $panic ($ROOT/target/js/debug/test/lib/lib.blackbox_test.js:3:9)
+                at username$hello$lib_blackbox_test$$__test_68656c6c6f5f746573742e6d6274_0 ($ROOT/src/lib/hello_test.mbt:3:5)
+                at username$hello$lib_blackbox_test$$moonbit_test_driver_internal_execute ($ROOT/src/lib/__generated_driver_for_blackbox_test.mbt:41:9)
+                at Object.<anonymous> ($ROOT/target/js/debug/test/lib/lib.blackbox_test.cjs:23:9)
+                at Module._compile (node:internal/modules/cjs/loader:1730:14)
+                at Object..js (node:internal/modules/cjs/loader:1895:10)
+                at Module.load (node:internal/modules/cjs/loader:1465:32)
+                at Function._load (node:internal/modules/cjs/loader:1282:12)
+                at TracingChannel.traceSync (node:diagnostics_channel:322:14)
+                at wrapModuleLoad (node:internal/modules/cjs/loader:235:24)
+            Total tests: 1, passed: 0, failed: 1.
+        "#]],
+    );
+}
