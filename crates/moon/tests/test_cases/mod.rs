@@ -5765,3 +5765,27 @@ fn merge_doc_test_and_md_test() {
         );
     }
 }
+
+#[test]
+fn moon_test_target_js_panic_with_sourcemap() {
+    let dir = TestDir::new("moon_test_target_js_panic_with_sourcemap.in");
+
+    let output = get_err_stdout(&dir, ["test", "--target", "js"]);
+
+    // Extract first 4 lines + the last line (Total tests) as they should be consistent across Node.js versions
+    let lines: Vec<&str> = output.lines().collect();
+    let first_four_lines = lines.iter().take(4).cloned().collect::<Vec<_>>().join("\n");
+    let last_line = lines.last().unwrap_or(&"");
+    let filtered_output = format!("{}\n{}", first_four_lines, last_line);
+
+    check(
+        &filtered_output,
+        // should keep in this format, it's used in ide test explorer
+        expect![[r#"
+            test username/hello/lib/hello_test.mbt::hello failed: Error
+                at $panic ($ROOT/target/js/debug/test/lib/lib.blackbox_test.js:3:9)
+                at username$hello$lib_blackbox_test$$__test_68656c6c6f5f746573742e6d6274_0 ($ROOT/src/lib/hello_test.mbt:3:5)
+                at username$hello$lib_blackbox_test$$moonbit_test_driver_internal_execute ($ROOT/src/lib/__generated_driver_for_blackbox_test.mbt:41:9)
+            Total tests: 1, passed: 0, failed: 1."#]],
+    );
+}
