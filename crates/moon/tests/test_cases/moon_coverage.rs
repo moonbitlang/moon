@@ -22,36 +22,53 @@ use super::*;
 fn test_moon_coverage_analyze() {
     let dir = TestDir::new("test_coverage.in");
     check(
-        get_stdout(&dir, ["coverage", "analyze", "--test-flag=--sort-input"]),
+        get_stdout(
+            &dir,
+            [
+                "coverage",
+                "analyze",
+                "--test-flag=--sort-input",
+                "--",
+                "-f=caret",
+            ],
+        ),
         expect![[r#"
-            warning: in lib2/hello.mbt
-                               | fn hello_uncovered_1() -> String {
-            [UNCOVERED line] 2 |   "Hello, world!"
-                               | }
-                               | 
-                               | fn hello_uncovered_2() -> String {
+            warning: this line has no test coverage
+             --> lib2/hello.mbt:2
+            1 | fn hello_uncovered_1() -> String {
+            2 |   "Hello, world!"
+              |   ^^^^^^^^^^^^^^^
+            3 | }
+            4 | 
+            5 | fn hello_uncovered_2() -> String {
 
 
-            warning: in lib2/hello.mbt
-                               | 
-                               | fn hello_uncovered_2() -> String {
-            [UNCOVERED line] 6 |   "Hello, world!"
-                               | }
-                               | 
+            warning: this line has no test coverage
+             --> lib2/hello.mbt:6
+            4 | 
+            5 | fn hello_uncovered_2() -> String {
+            6 |   "Hello, world!"
+              |   ^^^^^^^^^^^^^^^
+            7 | }
+            8 | 
 
 
-            warning: in lib2/hello.mbt
-                                | }
-                                | 
-                                | fn hello_uncovered_3() -> String {
-            [UNCOVERED line] 10 |   "Hello, world!"
-                                | }
+            warning: this line has no test coverage
+             --> lib2/hello.mbt:10
+             7 | }
+             8 | 
+             9 | fn hello_uncovered_3() -> String {
+            10 |   "Hello, world!"
+               |   ^^^^^^^^^^^^^^^
+            11 | }
 
 
-            warning: in main/main.mbt
-                               | fn main {
-            [UNCOVERED line] 2 |   println("main")
-                               | }
+            warning: this line has no test coverage
+             --> main/main.mbt:2
+            1 | fn main {
+            2 |   println("main")
+              |   ^^^^^^^^^^^^^^^
+            3 | }
 
 
         "#]],
