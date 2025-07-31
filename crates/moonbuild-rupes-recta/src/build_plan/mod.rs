@@ -68,6 +68,9 @@ pub struct BuildPlan {
 
     /// The specification of each build target.
     spec: HashMap<BuildPlanNode, BuildActionSpec>,
+
+    /// The nodes that were used as input to the build plan.
+    input_nodes: Vec<BuildPlanNode>,
 }
 
 impl BuildPlan {
@@ -96,6 +99,10 @@ impl BuildPlan {
 
     pub fn node_count(&self) -> usize {
         self.graph.node_count()
+    }
+
+    pub fn input_nodes(&self) -> &[BuildPlanNode] {
+        &self.input_nodes
     }
 }
 
@@ -250,6 +257,7 @@ impl<'a> BuildPlanConstructor<'a> {
         for i in input {
             self.need_node(*i);
         }
+        self.res.input_nodes.extend_from_slice(input);
 
         while let Some(node) = self.pending.pop() {
             // check if the node is already resolved

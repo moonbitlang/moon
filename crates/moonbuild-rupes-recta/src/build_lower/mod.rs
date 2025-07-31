@@ -74,13 +74,21 @@ pub enum LoweringError {
     },
 }
 
+pub struct LoweringResult {
+    /// The lowered n2 build graph.
+    pub build_graph: N2Graph,
+
+    /// The list of artifacts corresponding to the root input nodes.
+    pub artifacts: Vec<Vec<PathBuf>>,
+}
+
 /// Lowers a [`BuildPlan`] into a n2 [Build Graph](n2::graph::Graph).
 pub fn lower_build_plan(
     packages: &DiscoverResult,
     rel: &DepRelationship,
     build_plan: &BuildPlan,
     opt: &BuildOptions,
-) -> Result<N2Graph, LoweringError> {
+) -> Result<LoweringResult, LoweringError> {
     info!("Starting build plan lowering to n2 graph");
     debug!(
         "Build options: backend={:?}, opt_level={:?}, debug_symbols={}",
@@ -102,8 +110,18 @@ pub fn lower_build_plan(
         ctx.lower_node(node)?;
     }
 
+    let mut out_artifcts = Vec::with_capacity(build_plan.input_nodes().len());
+    for n in build_plan.input_nodes() {
+        let mut a = vec![];
+        ctx.append_artifact_of(*n, &mut a);
+        out_artifcts.push(a);
+    }
+
     info!("Build plan lowering completed successfully");
-    Ok(ctx.graph)
+    Ok(LoweringResult {
+        build_graph: ctx.graph,
+        artifacts: out_artifcts,
+    })
 }
 
 /// Represents the essential information needed to construct an [`Build`] value
