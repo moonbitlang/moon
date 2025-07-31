@@ -363,7 +363,12 @@ fn scan_one_package(
     let rel_path = PathComponent::from_path(rel)?;
 
     // FIXME: This is merely a workaround for the whole thing to work for now
-    alias_dedup(&pkg.imports, &pkg.wbtest_imports, &pkg.test_imports)?;
+    alias_dedup(&pkg.imports, &pkg.wbtest_imports, &pkg.test_imports).with_context(|| {
+        format!(
+            "Duplicated alias found when scanning package at {}",
+            pkg_path.display()
+        )
+    })?;
 
     let imports = get_imports(pkg.imports)?;
     let wbtest_imports = get_imports(pkg.wbtest_imports)?;
