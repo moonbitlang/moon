@@ -20,10 +20,13 @@
 
 use std::path::Path;
 
-use moonbuild_rupes_recta::{model::BuildPlanNode, CompileContext, ResolveConfig, ResolveOutput};
+use moonbuild_rupes_recta::{
+    model::{Artifacts, BuildPlanNode},
+    CompileContext, ResolveConfig, ResolveOutput,
+};
 use moonutil::{
     cli::UniversalFlags,
-    common::MOONBITLANG_CORE,
+    common::{TargetBackend, MOONBITLANG_CORE},
     cond_expr::OptLevel,
     mooncakes::{sync::AutoSyncFlags, ModuleId},
 };
@@ -40,8 +43,47 @@ use crate::cli::BuildFlags;
 ///
 /// Returns: A vector of [`UserIntent`]s, representing what the user would like
 /// to do
-type CalcUserIntentFn =
+pub type CalcUserIntentFn =
     dyn FnOnce(&ResolveOutput, &[ModuleId]) -> anyhow::Result<Vec<BuildPlanNode>>;
+
+/// The output of the compile and execution process.
+///
+/// Not to be confused with [`moonbuild_rupes_recta::compile::CompileOutput`].
+pub struct CompileOutput {
+    /// The number of tasks executed during the build. `None` if the build failed.
+    pub tasks_executed: Option<usize>,
+
+    /// The list of artifacts produced, corresponding to the input user intent
+    /// calculated by [`CalcUserIntentFn`].
+    pub artifacts: Vec<Artifacts>,
+
+    /// The target backend used in this compile process. Will be removed in the
+    /// future as we migrate this into build plan node definition.
+    pub target_backend: TargetBackend,
+}
+
+impl CompileOutput {
+    /// Whether the compilation was successful.
+    pub fn successful(&self) -> bool {
+        self.tasks_executed.is_some()
+    }
+
+    pub fn return_code_for_success(&self) -> i32 {
+        if self.successful() {
+            0
+        } else {
+            1
+        }
+    }
+
+    pub fn print_info(&self) {
+        if let Some(n) = self.tasks_executed {
+            println!("{} task(s) executed.", n);
+        } else {
+            println!("Build failed.");
+        }
+    }
+}
 
 /// Compile everything using the given parameters.
 ///
@@ -56,7 +98,7 @@ pub fn compile(
     target_dir: &Path,
 
     calc_user_intent: Box<CalcUserIntentFn>,
-) -> anyhow::Result<i32> {
+) -> anyhow::Result<CompileOutput> {
     let cfg = ResolveConfig::new_with_load_defaults(auto_sync_flags.frozen);
     let resolve_output = moonbuild_rupes_recta::resolve(&cfg, source_dir)?;
 
@@ -111,10 +153,10 @@ pub fn compile(
 
         debug_export_build_plan: cli.unstable_feature.rr_export_build_plan,
     };
-    let graph = moonbuild_rupes_recta::compile(&cx, &intent)?;
+    let compile_output = moonbuild_rupes_recta::compile(&cx, &intent)?;
 
     if cli.unstable_feature.rr_export_build_plan {
-        if let Some(plan) = graph.build_plan {
+        if let Some(plan) = compile_output.build_plan {
             moonbuild_rupes_recta::util::print_build_plan_dot(
                 &plan,
                 &resolve_output.pkg_dirs,
@@ -125,7 +167,7 @@ pub fn compile(
 
     // Generate n2 state
     // FIXME: This is extremely verbose and barebones, only for testing purpose
-    let mut graph = graph.build_graph;
+    let mut graph = compile_output.build_graph;
     let mut hashes = n2::graph::Hashes::default();
     let n2_db = n2::db::open(
         &target_dir.join("moon.rupes-recta.db"),
@@ -152,11 +194,9 @@ pub fn compile(
     // The actual execution done by the n2 executor
     let res = work.run()?;
 
-    if let Some(n) = res {
-        println!("{n} tasks executed");
-        Ok(0)
-    } else {
-        println!("Build failed");
-        Ok(1)
-    }
+    Ok(CompileOutput {
+        tasks_executed: res,
+        artifacts: compile_output.artifacts,
+        target_backend: cx.target_backend,
+    })
 }

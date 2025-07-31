@@ -231,14 +231,16 @@ fn run_check_normal_internal(
     target_dir: &Path,
 ) -> anyhow::Result<i32> {
     if cli.unstable_feature.rupes_recta {
-        rr_build::compile(
+        let output = rr_build::compile(
             cli,
             &cmd.auto_sync_flags,
             &cmd.build_flags,
             source_dir,
             target_dir,
             Box::new(calc_user_intent),
-        )
+        )?;
+        output.print_info();
+        Ok(output.return_code_for_success())
     } else {
         run_check_normal_internal_legacy(cli, cmd, source_dir, target_dir)
     }
