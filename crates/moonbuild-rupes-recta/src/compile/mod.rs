@@ -59,8 +59,9 @@ pub struct CompileOutput {
     /// The n2 compile graph to be executed
     pub build_graph: n2::graph::Graph,
 
-    // /// The final artifacts corresponding to the user intents
-    // pub artifacts: Vec<PathBuf>,
+    /// The final artifacts corresponding to the input nodes
+    pub artifacts: Vec<Vec<PathBuf>>,
+
     /// The build plan, but only if we decided to export it.
     pub build_plan: Option<Box<build_plan::BuildPlan>>,
 }
@@ -125,8 +126,8 @@ pub fn compile(
     debug!("Final build graph created with n2");
 
     Ok(CompileOutput {
-        build_graph: res,
-        // artifacts: todo!(),
+        build_graph: res.build_graph,
+        artifacts: res.artifacts,
         build_plan: if cx.debug_export_build_plan {
             Some(Box::new(plan))
         } else {
