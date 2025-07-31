@@ -331,10 +331,36 @@ pub fn run_run_internal(cli: &UniversalFlags, cmd: RunSubcommand) -> anyhow::Res
             &target_dir,
             Box::new(move |r, m| calc_user_intent(&input_path, r, m)),
         )?;
-        if ret != 0 {
-            return Ok(ret);
+
+        if !ret.successful() {
+            return Ok(ret.return_code_for_success());
         }
-        todo!("Run executable")
+
+        // `calc_user_intent` has one and only one node, and the artifact is
+        // a single executable.
+        let artifact = ret
+            .artifacts
+            .first()
+            .expect("Expected exactly one build node emitted by `calc_user_intent`");
+        let executable = artifact
+            .artifacts
+            .first()
+            .expect("Expected exactly one executable as the output of the build node");
+        let cmd = crate::run::command_for(ret.target_backend, executable, None);
+
+        // FIXME: Simplify this part
+        let res = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .expect("failed to create rt")
+            .block_on(crate::run::run(&mut [], true, cmd))
+            .context("failed to run command")?;
+
+        if let Some(code) = res.code() {
+            Ok(code)
+        } else {
+            bail!("Command exited without a return code");
+        }
     } else {
         run_run_internal_legacy(cli, cmd)
     }

@@ -477,8 +477,8 @@ pub(crate) fn run_test_or_bench_internal(
             target_dir,
             Box::new(calc_user_intent),
         )?;
-        if ret != 0 {
-            return Ok(ret);
+        if !ret.successful() {
+            return Ok(ret.return_code_for_success());
         }
         todo!("Run test")
     } else {

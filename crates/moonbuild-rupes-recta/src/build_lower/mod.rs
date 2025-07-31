@@ -40,7 +40,7 @@ use crate::{
     },
     build_plan::{BuildActionSpec, BuildPlan, BuildTargetInfo, LinkCoreInfo},
     discover::{DiscoverResult, DiscoveredPackage},
-    model::{BuildPlanNode, TargetKind},
+    model::{Artifacts, BuildPlanNode, TargetKind},
     pkg_name::PackageFQNWithSource,
     pkg_solve::DepRelationship,
 };
@@ -79,7 +79,7 @@ pub struct LoweringResult {
     pub build_graph: N2Graph,
 
     /// The list of artifacts corresponding to the root input nodes.
-    pub artifacts: Vec<Vec<PathBuf>>,
+    pub artifacts: Vec<Artifacts>,
 }
 
 /// Lowers a [`BuildPlan`] into a n2 [Build Graph](n2::graph::Graph).
@@ -114,7 +114,10 @@ pub fn lower_build_plan(
     for n in build_plan.input_nodes() {
         let mut a = vec![];
         ctx.append_artifact_of(*n, &mut a);
-        out_artifcts.push(a);
+        out_artifcts.push(Artifacts {
+            node: *n,
+            artifacts: a,
+        });
     }
 
     info!("Build plan lowering completed successfully");
@@ -237,16 +240,15 @@ impl<'a> BuildPlanLowerContext<'a> {
                 ));
             }
             crate::model::TargetAction::BuildCStubs => todo!("artifacts of build c stubs"),
-            crate::model::TargetAction::LinkCore => {
+            crate::model::TargetAction::LinkCore | crate::model::TargetAction::MakeExecutable => {
+                // No native yet means MakeExecutable is currently a no-op, but
+                // the artifacts should be the same as LinkCore
                 out.push(self.layout.linked_core_of_build_target(
                     self.packages,
                     &node.target,
                     self.opt.target_backend,
                     "todo: no native yet",
                 ));
-            }
-            crate::model::TargetAction::MakeExecutable => {
-                // No native yet means this is a no-op
             }
             crate::model::TargetAction::GenerateTestInfo => {
                 out.push(self.layout.generated_test_driver(

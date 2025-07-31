@@ -24,7 +24,7 @@ use moonutil::{common::TargetBackend, cond_expr::OptLevel};
 use crate::{
     build_lower,
     build_plan::{self, BuildEnvironment},
-    model::BuildPlanNode,
+    model::{Artifacts, BuildPlanNode},
     resolve::ResolveOutput,
 };
 
@@ -60,7 +60,7 @@ pub struct CompileOutput {
     pub build_graph: n2::graph::Graph,
 
     /// The final artifacts corresponding to the input nodes
-    pub artifacts: Vec<Vec<PathBuf>>,
+    pub artifacts: Vec<Artifacts>,
 
     /// The build plan, but only if we decided to export it.
     pub build_plan: Option<Box<build_plan::BuildPlan>>,
