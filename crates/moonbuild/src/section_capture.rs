@@ -18,6 +18,8 @@
 
 use std::io::BufRead;
 
+use tokio::io::{AsyncBufRead, AsyncWriteExt};
+
 pub struct SectionCapture<'a> {
     begin_delimiter: &'a str,
     end_delimiter: &'a str,
@@ -116,6 +118,39 @@ pub fn handle_stdout<P: FnMut(&str)>(
     Ok(())
 }
 
+/// Async version of [`handle_stdout`].
+pub async fn handle_stdout_async<'a>(
+    proc: impl AsyncBufRead,
+    captures: &mut [&mut SectionCapture<'a>],
+) -> anyhow::Result<()> {
+    use tokio::io::AsyncBufReadExt;
+    let mut buf = String::new();
+
+    tokio::pin!(proc);
+    let mut stdout = tokio::io::stdout();
+
+    loop {
+        buf.clear();
+        let n = proc.read_line(&mut buf).await?;
+        if n == 0 {
+            break;
+        }
+        let capture_status = captures
+            .iter_mut()
+            .find_map(|capture| capture.feed_line(&buf));
+        match capture_status {
+            None => stdout.write_all(buf.as_bytes()).await?,
+            Some(LineCaptured::All) => {}
+            Some(LineCaptured::Prefix(start_index)) => {
+                stdout.write_all(buf[start_index..].as_bytes()).await?
+            }
+            Some(LineCaptured::Suffix(end_index)) => {
+                stdout.write_all(buf[..end_index].as_bytes()).await?
+            }
+        }
+    }
+    Ok(())
+}
 #[test]
 fn test_handle_output() {
     let out = "abcde

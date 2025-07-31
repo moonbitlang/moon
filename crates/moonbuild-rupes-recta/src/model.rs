@@ -16,6 +16,8 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
+use std::path::PathBuf;
+
 slotmap::new_key_type! {
     /// An unique identifier pointing to a package currently discovered from imported modules.
     pub struct PackageId;
@@ -140,4 +142,11 @@ impl BuildPlanNode {
             action: TargetAction::GenerateTestInfo,
         }
     }
+}
+
+/// Represents a list of artifact(s) corresponding to a single build node.
+#[derive(Clone, Debug)]
+pub struct Artifacts {
+    pub node: BuildPlanNode,
+    pub artifacts: Vec<PathBuf>,
 }
