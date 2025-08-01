@@ -18,11 +18,48 @@
 
 //! Handles which runtime to use to run a specific output.
 
-use std::path::Path;
+use std::{
+    cell::OnceCell,
+    path::{Path, PathBuf},
+};
 
 use moonbuild::entry::TestArgs;
 use moonutil::common::TargetBackend;
 use tokio::process::Command;
+
+macro_rules! cache {
+    ($(
+        $id:ident(
+            $first_candidate:expr
+            $(,$candidate:expr)* $(,)?
+        )
+    ),*$(,)?) => {
+        /// A non-global cache for finding executables to use in compilation
+        #[derive(Default)]
+        pub struct RuntimeExecutableCache {
+            $(
+                $id: OnceCell<PathBuf>
+            ),*
+        }
+
+        impl RuntimeExecutableCache {
+            $(
+                pub fn $id(&self) -> &Path {
+                    self.$id.get_or_init(|| {
+                        which::which($first_candidate)
+                        $(.or_else(|_| which::which($candidate)))*
+                        .unwrap_or($first_candidate.into())
+                    })
+                }
+            )*
+        }
+    };
+}
+
+cache! {
+    node("node", "node.cmd"),
+    moonrun("moonrun")
+}
 
 /// Returns a command to run the given MoonBit executable of a specific
 /// `backend`. The returning command is suitable for adding more commandline
@@ -43,23 +80,33 @@ pub fn command_for(
     mbt_executable: &Path,
     test: Option<TestArgs>,
 ) -> Command {
+    let cache = RuntimeExecutableCache::default();
+    command_for_cached(&cache, backend, mbt_executable, test)
+}
+
+pub fn command_for_cached(
+    cache: &RuntimeExecutableCache,
+    backend: TargetBackend,
+    mbt_executable: &Path,
+    test: Option<TestArgs>,
+) -> Command {
     if test.is_some() {
         todo!("Test execution is not yet implemented");
     }
     match backend {
         TargetBackend::Wasm | TargetBackend::WasmGC => {
-            let mut cmd = Command::new("moonrun"); // TODO: find moonrun
+            let mut cmd = Command::new(cache.moonrun());
             cmd.arg(mbt_executable);
             cmd.arg("--");
             cmd
         }
         TargetBackend::Js => {
             // js test needs a custom driver
-            let mut cmd = Command::new("node"); // TODO: windows needs node.cmd
+            let mut cmd = Command::new(cache.node());
             cmd.arg(mbt_executable);
             cmd.arg("--");
             cmd
         }
-        TargetBackend::Native | TargetBackend::LLVM => todo!("Run native executable"),
+        TargetBackend::Native | TargetBackend::LLVM => Command::new(mbt_executable),
     }
 }
