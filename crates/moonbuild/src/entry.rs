@@ -16,6 +16,7 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
+use ariadne::ReportKind;
 use indexmap::IndexMap;
 use log::warn;
 use moonutil::module::ModuleDB;
@@ -42,8 +43,9 @@ use crate::expect::{apply_snapshot, render_snapshot_fail};
 use crate::runtest::TestStatistics;
 
 use moonutil::common::{
-    DriverKind, FileLock, FileName, MoonbuildOpt, MooncGenTestInfo, MooncOpt, PrePostBuild,
-    TargetBackend, TestArtifacts, TestBlockIndex, TestName, DOT_MBT_DOT_MD, TEST_INFO_FILE,
+    DiagnosticLevel, DriverKind, FileLock, FileName, MoonbuildOpt, MooncGenTestInfo, MooncOpt,
+    PrePostBuild, TargetBackend, TestArtifacts, TestBlockIndex, TestName, DOT_MBT_DOT_MD,
+    TEST_INFO_FILE,
 };
 
 use std::sync::{Arc, Mutex};
@@ -65,8 +67,20 @@ fn create_progress_console(
     }
 }
 
-fn render_result(result: Option<usize>, quiet: bool, mode: &str) -> anyhow::Result<i32> {
-    match result {
+fn render_result(result: N2RunStats, quiet: bool, mode: &str) -> anyhow::Result<i32> {
+    if !quiet {
+        if result.n_warnings == 0 && result.n_errors == 0 {
+            eprint!("{} ", "Finished.".bright_green().bold());
+        } else {
+            eprintln!(
+                "{} {} warning(s), {} error(s)",
+                "Finished.".bright_green().bold(),
+                result.n_warnings,
+                result.n_errors
+            );
+        }
+    }
+    match result.n_tasks_executed {
         None => {
             // Don't print any summary, the failing task is enough info.
             anyhow::bail!(format!("failed when {}", mode));
@@ -74,15 +88,14 @@ fn render_result(result: Option<usize>, quiet: bool, mode: &str) -> anyhow::Resu
         Some(0) => {
             // Special case: don't print numbers when no work done.
             if !quiet {
-                eprintln!("{} moon: no work to do", "Finished.".bright_green().bold());
+                eprintln!("moon: no work to do");
             }
             Ok(0)
         }
         Some(n) => {
             if !quiet {
                 eprintln!(
-                    "{} moon: ran {} task{}, now up to date",
-                    "Finished.".bright_green().bold(),
+                    "moon: ran {} task{}, now up to date",
                     n,
                     if n == 1 { "" } else { "s" }
                 );
@@ -92,14 +105,65 @@ fn render_result(result: Option<usize>, quiet: bool, mode: &str) -> anyhow::Resu
     }
 }
 
+#[derive(Default)]
+struct ResultCatcher {
+    content_writer: Vec<String>, // todo: might be better to directly write to string
+    n_warnings: usize,
+    n_errors: usize,
+}
+
+impl ResultCatcher {
+    fn append_content(&mut self, s: impl Into<String>, report: Option<ReportKind>) {
+        self.content_writer.push(s.into());
+        match report {
+            Some(ReportKind::Error) => self.n_errors += 1,
+            Some(ReportKind::Warning) => self.n_warnings += 1,
+            _ => {}
+        }
+    }
+}
+
+#[allow(clippy::too_many_arguments)] // This is inefficient and we know it
+fn render_and_catch_callback(
+    catcher: Arc<Mutex<ResultCatcher>>,
+    output_json: bool,
+    use_fancy: bool,
+    check_patch_file: Option<PathBuf>,
+    explain: bool,
+    render_no_loc: DiagnosticLevel,
+    source_dir: PathBuf,
+    target_dir: PathBuf,
+) -> impl Fn(&str) {
+    move |output: &str| {
+        output
+            .split('\n')
+            .filter(|it| !it.is_empty())
+            .for_each(|content| {
+                let report_kind = if output_json {
+                    println!("{content}");
+                    None
+                } else {
+                    moonutil::render::MooncDiagnostic::render(
+                        content,
+                        use_fancy,
+                        check_patch_file.clone(),
+                        explain,
+                        render_no_loc,
+                        (source_dir.clone(), target_dir.clone()),
+                    )
+                };
+                catcher.lock().unwrap().append_content(content, report_kind);
+            });
+    }
+}
+
 pub fn n2_simple_run_interface(
     state: n2::load::State,
     moonbuild_opt: &MoonbuildOpt,
 ) -> anyhow::Result<Option<usize>> {
-    let logger = Arc::new(Mutex::new(vec![]));
+    let logger = Arc::new(Mutex::new(ResultCatcher::default()));
     let use_fancy = terminal::use_fancy();
 
-    let catcher = Arc::clone(&logger);
     let output_json = moonbuild_opt.output_json;
     let check_patch_file = moonbuild_opt
         .check_opt
@@ -115,26 +179,16 @@ pub fn n2_simple_run_interface(
         moonbuild_opt.source_dir.clone(),
     );
     let render_no_loc = moonbuild_opt.render_no_loc;
-    let render_and_catch = move |output: &str| {
-        output
-            .split('\n')
-            .filter(|it| !it.is_empty())
-            .for_each(|content| {
-                catcher.lock().unwrap().push(content.to_owned());
-                if output_json {
-                    println!("{content}");
-                } else {
-                    moonutil::render::MooncDiagnostic::render(
-                        content,
-                        use_fancy,
-                        check_patch_file.clone(),
-                        explain,
-                        render_no_loc,
-                        (target_dir.clone(), source_dir.clone()),
-                    );
-                }
-            });
-    };
+    let render_and_catch = render_and_catch_callback(
+        Arc::clone(&logger),
+        output_json,
+        use_fancy,
+        check_patch_file,
+        explain,
+        render_no_loc,
+        source_dir,
+        target_dir,
+    );
 
     // TODO: generate build graph for pre_build?
 
@@ -182,14 +236,22 @@ pub fn get_parallelism(opt: &MoonbuildOpt) -> anyhow::Result<usize> {
     }
 }
 
+#[derive(Debug, Clone)]
+pub struct N2RunStats {
+    /// Number of build tasks executed, `None` means build failure
+    pub n_tasks_executed: Option<usize>,
+
+    pub n_errors: usize,
+    pub n_warnings: usize,
+}
+
 pub fn n2_run_interface(
     state: n2::load::State,
     moonbuild_opt: &MoonbuildOpt,
-) -> anyhow::Result<Option<usize>> {
-    let logger = Arc::new(Mutex::new(vec![]));
+) -> anyhow::Result<N2RunStats> {
+    let logger = Arc::new(Mutex::new(ResultCatcher::default()));
     let use_fancy = terminal::use_fancy();
 
-    let catcher = Arc::clone(&logger);
     let output_json = moonbuild_opt.output_json;
     let check_patch_file = moonbuild_opt
         .check_opt
@@ -205,23 +267,16 @@ pub fn n2_run_interface(
         moonbuild_opt.source_dir.clone(),
     );
     let render_no_loc = moonbuild_opt.render_no_loc;
-    let render_and_catch = move |output: &str| {
-        output.lines().for_each(|content| {
-            catcher.lock().unwrap().push(content.to_owned());
-            if output_json {
-                println!("{content}");
-            } else {
-                moonutil::render::MooncDiagnostic::render(
-                    content,
-                    use_fancy,
-                    check_patch_file.clone(),
-                    explain,
-                    render_no_loc,
-                    (target_dir.clone(), source_dir.clone()),
-                );
-            }
-        });
-    };
+    let render_and_catch = render_and_catch_callback(
+        Arc::clone(&logger),
+        output_json,
+        use_fancy,
+        check_patch_file,
+        explain,
+        render_no_loc,
+        source_dir,
+        target_dir,
+    );
 
     if moonbuild_opt.build_graph {
         vis_build_graph(&state, moonbuild_opt);
@@ -272,33 +327,34 @@ pub fn n2_run_interface(
             .check_opt
             .as_ref()
             .and_then(|it| it.patch_file.clone());
-        raw_json.lines().for_each(|content| {
-            if output_json {
-                println!("{content}");
-            } else {
-                moonutil::render::MooncDiagnostic::render(
-                    content,
-                    use_fancy,
-                    check_patch_file.clone(),
-                    moonbuild_opt
-                        .check_opt
-                        .as_ref()
-                        .is_some_and(|it| it.explain),
-                    moonbuild_opt.render_no_loc,
-                    (target_dir.clone(), source_dir.clone()),
-                );
-            }
-        });
+
+        let callback = render_and_catch_callback(
+            Arc::clone(&logger),
+            output_json,
+            use_fancy,
+            check_patch_file,
+            explain,
+            render_no_loc,
+            source_dir,
+            target_dir,
+        );
+
+        raw_json.lines().for_each(callback);
     } else {
         let mut output_file = std::fs::File::create(output_path)?;
 
-        for item in logger.lock().unwrap().iter() {
+        for item in logger.lock().unwrap().content_writer.iter() {
             output_file.write_all(item.as_bytes())?;
             output_file.write_all("\n".as_bytes())?;
         }
     }
 
-    Ok(res)
+    let logger = logger.lock().unwrap();
+    Ok(N2RunStats {
+        n_tasks_executed: res,
+        n_errors: logger.n_errors,
+        n_warnings: logger.n_warnings,
+    })
 }
 
 fn vis_build_graph(state: &State, moonbuild_opt: &MoonbuildOpt) {
@@ -1104,7 +1160,7 @@ async fn handle_test_result(
                         let state =
                             crate::runtest::load_moon_proj(module, moonc_opt, moonbuild_opt)?;
                         let result = n2_run_interface(state, moonbuild_opt)?;
-                        if result.is_none() {
+                        if result.n_tasks_executed.is_none() {
                             break;
                         }
                     }
@@ -1140,7 +1196,7 @@ async fn handle_test_result(
                             let state =
                                 crate::runtest::load_moon_proj(module, moonc_opt, moonbuild_opt)?;
                             let result = n2_run_interface(state, moonbuild_opt)?;
-                            if result.is_none() {
+                            if result.n_tasks_executed.is_none() {
                                 rerun_error = true;
                                 break;
                             }
@@ -1200,12 +1256,8 @@ pub fn run_fmt(
     };
     let res = n2_run_interface(state, moonbuild_opt)?;
 
-    match res {
-        None => {
-            return Ok(1);
-        }
-        Some(0) => (),
-        Some(_) => (),
+    match res.n_tasks_executed {
+        None => Ok(1),
+        Some(_) => Ok(0),
     }
-    Ok(0)
 }

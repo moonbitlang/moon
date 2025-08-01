@@ -18,7 +18,7 @@
 
 use std::path::{Path, PathBuf};
 
-use ariadne::Fmt;
+use ariadne::{Fmt, ReportKind};
 use clap::ValueEnum;
 use serde::{Deserialize, Serialize};
 
@@ -108,12 +108,12 @@ impl MooncDiagnostic {
         explain: bool,
         render_no_loc_level: DiagnosticLevel,
         (target_dir, source_dir): (PathBuf, PathBuf),
-    ) {
+    ) -> Option<ReportKind<'static>> {
         let mut diagnostic = match serde_json_lenient::from_str::<MooncDiagnostic>(content) {
             Ok(d) => d,
             Err(_) => {
                 eprintln!("{content}");
-                return;
+                return None;
             }
         };
 
@@ -156,7 +156,7 @@ impl MooncDiagnostic {
                     .fg(color)
                 );
             }
-            return;
+            return Some(kind);
         }
 
         let source_file_path = diagnostic.location.path.clone();
@@ -180,7 +180,7 @@ impl MooncDiagnostic {
                                 diagnostic.level,
                                 diagnostic.message
                             );
-                            return;
+                            return Some(kind);
                         }
                     }
                 }
@@ -251,6 +251,8 @@ impl MooncDiagnostic {
                 eprintln!("internal rendering error: {e:?}");
             }
         };
+
+        Some(kind)
     }
 
     fn get_content_and_filename_from_diagnostic_patch_file(
@@ -272,7 +274,7 @@ impl MooncDiagnostic {
             .map(|it| (it.content.clone(), it.name.clone()))
     }
 
-    fn get_level_and_color(&self) -> (ariadne::ReportKind, ariadne::Color) {
+    fn get_level_and_color(&self) -> (ariadne::ReportKind<'static>, ariadne::Color) {
         if self.level == "error" {
             (ariadne::ReportKind::Error, ariadne::Color::Red)
         } else if self.level == "warning" {
