@@ -18,7 +18,10 @@
 
 //! Build artifact path calculation and relevant information
 
-use std::path::{Path, PathBuf};
+use std::{
+    fmt::Display,
+    path::{Path, PathBuf},
+};
 
 use moonutil::{common::TargetBackend, mooncakes::ModuleSource};
 
@@ -43,6 +46,34 @@ pub struct LegacyLayout {
 }
 
 const LEGACY_NON_MAIN_MODULE_DIR: &str = ".mooncakes";
+
+/// A common structure for generating artifact basenames of packages.
+///
+/// We need to disambiguate between different kinds of output, so each artifact
+/// will have a different suffix.
+///
+/// Note that this is different from [`super::compiler::CompiledPackageName`],
+/// which represents the full package name passed to the compiler.
+#[derive(Clone, Debug)]
+struct PackageArtifactName<'a> {
+    pub fqn: &'a PackageFQN,
+    pub kind: TargetKind,
+}
+
+fn artifact(fqn: &PackageFQN, kind: TargetKind) -> PackageArtifactName {
+    PackageArtifactName { fqn, kind }
+}
+
+impl Display for PackageArtifactName<'_> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "{}{}",
+            self.fqn.short_alias(),
+            build_kind_suffix(self.kind)
+        )
+    }
+}
 
 impl LegacyLayout {
     /// Creates a new legacy layout instance.
@@ -73,15 +104,6 @@ impl LegacyLayout {
         dir
     }
 
-    fn pkg_core_basename(&self, pkg: &PackageFQN, kind: TargetKind) -> String {
-        format!(
-            "{}{}{}",
-            pkg.short_alias(),
-            build_kind_suffix(kind),
-            CORE_EXTENSION
-        )
-    }
-
     pub fn core_of_build_target(
         &self,
         pkg_list: &DiscoverResult,
@@ -90,17 +112,12 @@ impl LegacyLayout {
     ) -> PathBuf {
         let pkg_fqn = &pkg_list.get_package(target.package).fqn;
         let mut base_dir = self.package_dir(pkg_fqn, backend);
-        base_dir.push(self.pkg_core_basename(pkg_fqn, target.kind));
+        base_dir.push(format!(
+            "{}{}",
+            artifact(pkg_fqn, target.kind),
+            CORE_EXTENSION
+        ));
         base_dir
-    }
-
-    fn pkg_mi_basename(&self, pkg: &PackageFQN, kind: TargetKind) -> String {
-        format!(
-            "{}{}{}",
-            pkg.short_alias(),
-            build_kind_suffix(kind),
-            MI_EXTENSION
-        )
     }
 
     pub fn mi_of_build_target(
@@ -111,7 +128,11 @@ impl LegacyLayout {
     ) -> PathBuf {
         let pkg_fqn = &pkg_list.get_package(target.package).fqn;
         let mut base_dir = self.package_dir(pkg_fqn, backend);
-        base_dir.push(self.pkg_mi_basename(pkg_fqn, target.kind));
+        base_dir.push(format!(
+            "{}{}",
+            artifact(pkg_fqn, target.kind),
+            MI_EXTENSION
+        ));
         base_dir
     }
 
@@ -124,7 +145,11 @@ impl LegacyLayout {
     ) -> PathBuf {
         let pkg_fqn = &pkg_list.get_package(target.package).fqn;
         let mut base_dir = self.package_dir(pkg_fqn, backend);
-        base_dir.push(self.pkg_linked_core_artifact_basename(pkg_fqn, backend, os));
+        base_dir.push(format!(
+            "{}{}",
+            artifact(pkg_fqn, target.kind),
+            linked_core_artifact_ext(backend, os)
+        ));
         base_dir
     }
 
@@ -139,36 +164,43 @@ impl LegacyLayout {
     ) -> PathBuf {
         let pkg_fqn = &pkg_list.get_package(target.package).fqn;
         let mut base_dir = self.package_dir(pkg_fqn, backend);
-        base_dir.push(self.pkg_executable_artifact_basename(pkg_fqn, backend, os, legacy_behavior));
+        base_dir.push(format!(
+            "{}{}",
+            artifact(pkg_fqn, target.kind),
+            make_executable_artifact_ext(backend, os, legacy_behavior),
+        ));
         base_dir
     }
 
-    #[allow(unused)]
-    fn pkg_linked_core_artifact_basename(
+    pub fn generated_test_driver(
         &self,
-        pkg: &PackageFQN,
+        pkg_list: &DiscoverResult,
+        target: &BuildTarget,
         backend: TargetBackend,
-        os: &str, // FIXME: is using string a good idea?
-    ) -> String {
-        format!(
-            "{}{}",
-            pkg.short_alias(),
-            linked_core_artifact_ext(backend, os)
-        )
+    ) -> PathBuf {
+        let pkg_fqn = &pkg_list.get_package(target.package).fqn;
+        let mut base_dir = self.package_dir(pkg_fqn, backend);
+        base_dir.push(format!(
+            "{}__generated_driver_for{}.mbt",
+            pkg_fqn.short_alias(),
+            build_kind_suffix(target.kind)
+        ));
+        base_dir
     }
 
-    fn pkg_executable_artifact_basename(
+    pub fn generated_test_driver_metadata(
         &self,
-        pkg: &PackageFQN,
+        pkg_list: &DiscoverResult,
+        target: &BuildTarget,
         backend: TargetBackend,
-        os: &str, // FIXME: is using string a good idea?
-        legacy_behavior: bool,
-    ) -> String {
-        format!(
-            "{}{}",
-            pkg.short_alias(),
-            make_executable_artifact_ext(backend, os, legacy_behavior)
-        )
+    ) -> PathBuf {
+        let pkg_fqn = &pkg_list.get_package(target.package).fqn;
+        let mut base_dir = self.package_dir(pkg_fqn, backend);
+        base_dir.push(format!(
+            "__{}_test_info.json",
+            build_kind_suffix(target.kind)
+        ));
+        base_dir
     }
 }
 

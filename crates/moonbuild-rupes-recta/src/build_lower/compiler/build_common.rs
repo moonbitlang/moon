@@ -24,10 +24,10 @@ use std::path::{Path, PathBuf};
 use moonutil::common::TargetBackend;
 
 use crate::build_lower::compiler::{
-    ErrorFormat, MiDependency, VirtualPackageImplementation, WarnAlertConfig,
+    CompiledPackageName, ErrorFormat, MiDependency, VirtualPackageImplementation, WarnAlertConfig,
     MOONC_ALLOW_ALERT_SET, MOONC_ALLOW_WARNING_SET, MOONC_DENY_ALERT_SET, MOONC_DENY_WARNING_SET,
 };
-use crate::pkg_name::PackageFQN;
+use crate::model::TargetKind;
 
 /// Common fields shared between different build-like commands of `moonc`
 #[derive(Debug)]
@@ -45,7 +45,7 @@ pub struct BuildCommonArgs<'a> {
 
     // Package configuration
     /// The name of the current package
-    pub package_name: &'a PackageFQN,
+    pub package_name: CompiledPackageName<'a>,
     /// The source directory of the current package
     pub package_source: Cow<'a, Path>,
     pub is_main: bool,
@@ -56,6 +56,7 @@ pub struct BuildCommonArgs<'a> {
 
     // Target configuration
     pub target_backend: TargetBackend,
+    pub target_kind: TargetKind,
 
     // Virtual package handling
     // FIXME: better abstraction
@@ -68,9 +69,10 @@ impl<'a> BuildCommonArgs<'a> {
     pub fn new(
         mbt_sources: &'a [PathBuf],
         mi_deps: &'a [MiDependency<'a>],
-        package_name: &'a PackageFQN,
+        package_name: CompiledPackageName<'a>,
         package_source: impl Into<Cow<'a, Path>>,
         target_backend: TargetBackend,
+        target_kind: TargetKind,
     ) -> Self {
         Self {
             error_format: ErrorFormat::Regular,
@@ -83,6 +85,7 @@ impl<'a> BuildCommonArgs<'a> {
             is_main: false,
             stdlib_core_file: None,
             target_backend,
+            target_kind,
             check_mi: None,
             virtual_implementation: None,
         }
@@ -124,13 +127,6 @@ impl<'a> BuildCommonArgs<'a> {
         }
     }
 
-    /// Add is-main flag with additional condition check
-    pub fn add_is_main_with_condition(&self, args: &mut Vec<String>, condition: bool) {
-        if self.is_main && condition {
-            args.push("-is-main".to_string());
-        }
-    }
-
     /// Add standard library path arguments
     pub fn add_stdlib_path(&self, args: &mut Vec<String>) {
         if let Some(stdlib_path) = &self.stdlib_core_file {
@@ -159,6 +155,21 @@ impl<'a> BuildCommonArgs<'a> {
             "-target".to_string(),
             self.target_backend.to_flag().to_string(),
         ]);
+    }
+
+    /// Add white/black box test arguments
+    pub fn add_test_args(&self, args: &mut Vec<String>) {
+        match self.target_kind {
+            TargetKind::WhiteboxTest => args.push("-whitebox-test".into()),
+            TargetKind::BlackboxTest => args.push("-blackbox-test".into()),
+            TargetKind::Source | TargetKind::InlineTest | TargetKind::SubPackage => {}
+        }
+    }
+
+    pub fn add_test_mode_args(&self, args: &mut Vec<String>) {
+        if self.target_kind.is_test() {
+            args.push("-test-mode".into())
+        }
     }
 
     /// Add virtual package check arguments

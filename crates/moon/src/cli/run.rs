@@ -16,9 +16,13 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
+use std::path::PathBuf;
+
 use anyhow::{bail, Context};
 use moonbuild::dry_run;
 use moonbuild::entry;
+use moonbuild_rupes_recta::model::BuildPlanNode;
+use moonbuild_rupes_recta::model::BuildTarget;
 use mooncake::pkg::sync::auto_sync;
 use moonutil::common::lower_surface_targets;
 use moonutil::common::FileLock;
@@ -37,6 +41,8 @@ use moonutil::moon_dir::MOON_DIRS;
 use moonutil::mooncakes::sync::AutoSyncFlags;
 use moonutil::mooncakes::RegistryConfig;
 use n2::trace;
+
+use crate::rr_build;
 
 use super::pre_build::scan_with_x_build;
 use super::{BuildFlags, UniversalFlags};
@@ -310,6 +316,114 @@ fn run_single_mbt_file(cli: &UniversalFlags, cmd: RunSubcommand) -> anyhow::Resu
 }
 
 pub fn run_run_internal(cli: &UniversalFlags, cmd: RunSubcommand) -> anyhow::Result<i32> {
+    if cli.unstable_feature.rupes_recta {
+        let PackageDirs {
+            source_dir,
+            target_dir,
+        } = cli.source_tgt_dir.try_into_package_dirs()?;
+
+        let input_path = cmd.package_or_mbt_file;
+        let ret = rr_build::compile(
+            cli,
+            &cmd.auto_sync_flags,
+            &cmd.build_flags,
+            &source_dir,
+            &target_dir,
+            Box::new(move |r, m| calc_user_intent(&input_path, r, m)),
+        )?;
+
+        if !ret.successful() {
+            return Ok(ret.return_code_for_success());
+        }
+
+        // `calc_user_intent` has one and only one node, and the artifact is
+        // a single executable.
+        let artifact = ret
+            .artifacts
+            .first()
+            .expect("Expected exactly one build node emitted by `calc_user_intent`");
+        let executable = artifact
+            .artifacts
+            .first()
+            .expect("Expected exactly one executable as the output of the build node");
+        let cmd = crate::run::command_for(ret.target_backend, executable, None);
+
+        // FIXME: Simplify this part
+        let res = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .expect("failed to create rt")
+            .block_on(crate::run::run(&mut [], true, cmd))
+            .context("failed to run command")?;
+
+        if let Some(code) = res.code() {
+            Ok(code)
+        } else {
+            bail!("Command exited without a return code");
+        }
+    } else {
+        run_run_internal_legacy(cli, cmd)
+    }
+}
+
+fn calc_user_intent(
+    input_path: &str,
+    resolve_output: &moonbuild_rupes_recta::ResolveOutput,
+    main_modules: &[moonutil::mooncakes::ModuleId],
+) -> Result<Vec<BuildPlanNode>, anyhow::Error> {
+    // `moon run` requires a path relative to CWD being provided. The path may
+    // either be a MoonBit source code file, or a path to a module directory.
+    //
+    // We currently assume that this is *not* a single file to run (which is
+    // another separate problem on its own). This leaves us with the following
+    // best-effort solution to determine the package to run:
+    //
+    // 1. Canonicalize the `path` to its absolute form.
+    // 2. Get two values: the `path` itself, and its `parent`.
+    // 3. For each package, check if its path match either of the two paths provided.
+    // 4. If the `path` itself is matched, the package matching it is the target one to run.
+    // 5. Else if the `parent` path is matched, the package matching it is the target one to run.
+    // 6. Otherwise, return an error.
+    let input_path = PathBuf::from(input_path);
+    let input_path =
+        dunce::canonicalize(input_path).context("Failed to canonicalize input file path")?;
+    let input_path_parent = input_path.parent();
+
+    let mut found_path = None;
+    let mut found_path_parent = None;
+    for m in main_modules {
+        for p in resolve_output
+            .pkg_dirs
+            .packages_for_module(*m)
+            .expect("Module should exist")
+            .values()
+        {
+            let pkg = resolve_output.pkg_dirs.get_package(*p);
+            if pkg.root_path == input_path {
+                found_path = Some(*p);
+            } else if let Some(parent) = input_path_parent {
+                if pkg.root_path == parent {
+                    found_path_parent = Some(*p);
+                }
+            }
+        }
+    }
+
+    let found = found_path.or(found_path_parent);
+    if let Some(pkg_id) = found {
+        Ok(vec![BuildPlanNode::make_executable(BuildTarget {
+            package: pkg_id,
+            kind: moonbuild_rupes_recta::model::TargetKind::Source,
+        })])
+    } else {
+        Err(anyhow::anyhow!(
+            "Cannot find package to build based on input path `{}`",
+            input_path.display()
+        ))
+    }
+}
+
+fn run_run_internal_legacy(cli: &UniversalFlags, cmd: RunSubcommand) -> anyhow::Result<i32> {
     let moon_pkg_json_exist = std::env::current_dir()?
         .join(&cmd.package_or_mbt_file)
         .parent()
