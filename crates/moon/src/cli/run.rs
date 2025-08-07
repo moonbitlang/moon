@@ -42,7 +42,9 @@ use moonutil::mooncakes::sync::AutoSyncFlags;
 use moonutil::mooncakes::RegistryConfig;
 use n2::trace;
 
+use crate::cli::run;
 use crate::rr_build;
+use crate::run::default_rt;
 
 use super::pre_build::scan_with_x_build;
 use super::{BuildFlags, UniversalFlags};
@@ -317,52 +319,55 @@ fn run_single_mbt_file(cli: &UniversalFlags, cmd: RunSubcommand) -> anyhow::Resu
 
 pub fn run_run_internal(cli: &UniversalFlags, cmd: RunSubcommand) -> anyhow::Result<i32> {
     if cli.unstable_feature.rupes_recta {
-        let PackageDirs {
-            source_dir,
-            target_dir,
-        } = cli.source_tgt_dir.try_into_package_dirs()?;
-
-        let input_path = cmd.package_or_mbt_file;
-        let ret = rr_build::compile(
-            cli,
-            &cmd.auto_sync_flags,
-            &cmd.build_flags,
-            &source_dir,
-            &target_dir,
-            Box::new(move |r, m| calc_user_intent(&input_path, r, m)),
-        )?;
-
-        if !ret.successful() {
-            return Ok(ret.return_code_for_success());
-        }
-
-        // `calc_user_intent` has one and only one node, and the artifact is
-        // a single executable.
-        let artifact = ret
-            .artifacts
-            .first()
-            .expect("Expected exactly one build node emitted by `calc_user_intent`");
-        let executable = artifact
-            .artifacts
-            .first()
-            .expect("Expected exactly one executable as the output of the build node");
-        let cmd = crate::run::command_for(ret.target_backend, executable, None);
-
-        // FIXME: Simplify this part
-        let res = tokio::runtime::Builder::new_current_thread()
-            .enable_all()
-            .build()
-            .expect("failed to create rt")
-            .block_on(crate::run::run(&mut [], true, cmd))
-            .context("failed to run command")?;
-
-        if let Some(code) = res.code() {
-            Ok(code)
-        } else {
-            bail!("Command exited without a return code");
-        }
+        run_run_rr(cli, cmd)
     } else {
         run_run_internal_legacy(cli, cmd)
+    }
+}
+
+fn run_run_rr(cli: &UniversalFlags, cmd: RunSubcommand) -> Result<i32, anyhow::Error> {
+    let PackageDirs {
+        source_dir,
+        target_dir,
+    } = cli.source_tgt_dir.try_into_package_dirs()?;
+
+    let input_path = cmd.package_or_mbt_file;
+    let ret = rr_build::compile(
+        cli,
+        &cmd.auto_sync_flags,
+        &cmd.build_flags,
+        &source_dir,
+        &target_dir,
+        Box::new(move |r, m| calc_user_intent(&input_path, r, m)),
+    )?;
+
+    if !ret.successful() {
+        return Ok(ret.return_code_for_success());
+    }
+
+    // `calc_user_intent` has one and only one node, and the artifact is
+    // a single executable.
+    let artifact = ret
+        .artifacts
+        .first()
+        .expect("Expected exactly one build node emitted by `calc_user_intent`");
+    let executable = artifact
+        .artifacts
+        .first()
+        .expect("Expected exactly one executable as the output of the build node");
+
+    let cmd = crate::run::command_for(ret.target_backend, executable, None);
+
+    // FIXME: Simplify this part
+    let res = default_rt()
+        .context("Failed to create runtime")?
+        .block_on(crate::run::run(&mut [], true, cmd))
+        .context("failed to run command")?;
+
+    if let Some(code) = res.code() {
+        Ok(code)
+    } else {
+        bail!("Command exited without a return code");
     }
 }
 

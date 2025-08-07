@@ -24,7 +24,9 @@ use std::path::{Path, PathBuf};
 use moonutil::common::TargetBackend;
 use moonutil::package::{ImportMemory, JsFormat, MemoryLimits};
 
-use crate::build_lower::compiler::{CmdlineAbstraction, CompilationFlags, PackageSource};
+use crate::build_lower::compiler::{
+    CmdlineAbstraction, CompilationFlags, CompiledPackageName, PackageSource,
+};
 use crate::pkg_name::PackageFQN;
 
 /// Abstraction for `moonc link-core`.
@@ -35,7 +37,7 @@ use crate::pkg_name::PackageFQN;
 pub struct MooncLinkCore<'a> {
     // Input/Output configuration
     pub core_deps: &'a [PathBuf],
-    pub main_package: &'a PackageFQN,
+    pub main_package: CompiledPackageName<'a>,
     pub output_path: Cow<'a, Path>,
     pub pkg_config_path: Cow<'a, Path>,
 
@@ -48,6 +50,7 @@ pub struct MooncLinkCore<'a> {
     pub target_backend: TargetBackend,
     /// Compilation flags - reuse existing structure, symbols maps to -g, no_opt maps to -O0
     pub flags: CompilationFlags,
+    pub test_mode: bool,
 
     // WebAssembly specific configuration
     pub wasm_config: WasmConfig<'a>,
@@ -75,11 +78,12 @@ impl<'a> MooncLinkCore<'a> {
     /// Create a new instance with only necessary fields populated, others as default
     pub fn new(
         core_deps: &'a [PathBuf],
-        main_package: &'a PackageFQN,
+        main_package: CompiledPackageName<'a>,
         output_path: impl Into<Cow<'a, Path>>,
         pkg_config_path: impl Into<Cow<'a, Path>>,
         package_sources: &'a [PackageSource<'a>],
         target_backend: TargetBackend,
+        test_mode: bool,
     ) -> Self {
         Self {
             core_deps,
@@ -97,6 +101,7 @@ impl<'a> MooncLinkCore<'a> {
                 self_coverage: false,
                 enable_value_tracing: false,
             },
+            test_mode,
             wasm_config: WasmConfig::default(),
             js_format: None,
             extra_link_opts: &[],
@@ -122,6 +127,10 @@ impl<'a> MooncLinkCore<'a> {
         args.push("-o".to_string());
         args.push(self.output_path.display().to_string());
 
+        if self.test_mode {
+            args.push("-test-mode".to_string());
+        }
+
         // Package configuration path
         args.push("-pkg-config-path".to_string());
         args.push(self.pkg_config_path.display().to_string());
@@ -136,6 +145,13 @@ impl<'a> MooncLinkCore<'a> {
         if let Some(ref stdlib_core) = self.stdlib_core_source {
             args.push("-pkg-sources".to_string());
             args.push(stdlib_core.to_arg());
+        }
+
+        if self.test_mode {
+            args.push("-exported_functions".to_string());
+            args.push(
+                "moonbit_test_driver_internal_execute,moonbit_test_driver_finish".to_string(),
+            );
         }
 
         // Target backend

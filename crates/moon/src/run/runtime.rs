@@ -78,7 +78,7 @@ cache! {
 pub fn command_for(
     backend: TargetBackend,
     mbt_executable: &Path,
-    test: Option<TestArgs>,
+    test: Option<&TestArgs>,
 ) -> Command {
     let cache = RuntimeExecutableCache::default();
     command_for_cached(&cache, backend, mbt_executable, test)
@@ -88,25 +88,34 @@ pub fn command_for_cached(
     cache: &RuntimeExecutableCache,
     backend: TargetBackend,
     mbt_executable: &Path,
-    test: Option<TestArgs>,
+    test: Option<&TestArgs>,
 ) -> Command {
-    if test.is_some() {
-        todo!("Test execution is not yet implemented");
-    }
     match backend {
         TargetBackend::Wasm | TargetBackend::WasmGC => {
             let mut cmd = Command::new(cache.moonrun());
+            if let Some(t) = test {
+                cmd.arg("--test-args");
+                cmd.arg(serde_json::to_string(t).unwrap());
+            }
             cmd.arg(mbt_executable);
             cmd.arg("--");
             cmd
         }
         TargetBackend::Js => {
-            // js test needs a custom driver
+            if let Some(_t) = test {
+                todo!("test js needs a custom driver")
+            }
             let mut cmd = Command::new(cache.node());
             cmd.arg(mbt_executable);
             cmd.arg("--");
             cmd
         }
-        TargetBackend::Native | TargetBackend::LLVM => Command::new(mbt_executable),
+        TargetBackend::Native | TargetBackend::LLVM => {
+            let mut cmd = Command::new(mbt_executable);
+            if let Some(t) = test {
+                cmd.arg(t.to_cli_args_for_native());
+            }
+            cmd
+        }
     }
 }

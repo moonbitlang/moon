@@ -23,3 +23,9 @@ mod runtime;
 
 pub use child::run;
 pub use runtime::command_for;
+
+pub fn default_rt() -> std::io::Result<tokio::runtime::Runtime> {
+    tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+}
