@@ -52,7 +52,7 @@ pub fn moon_new_exec(
 ) -> anyhow::Result<i32> {
     let cake_full_name = format!("{user}/{name}");
     let source = target_dir.join("src");
-    common(target_dir, &source, &cake_full_name, license)?;
+    common(target_dir, &cake_full_name, license)?;
 
     let main_dir = source.join("main");
     create_or_warning(&main_dir)?;
@@ -63,7 +63,7 @@ pub fn moon_new_exec(
             name: None,
             is_main: Some(true),
             import: Some(moonutil::package::PkgJSONImport::List(vec![
-                PkgJSONImportItem::String(format!("{cake_full_name}/lib")),
+                PkgJSONImportItem::String(format!("{cake_full_name}/lib_a")),
             ])),
             wbtest_import: None,
             test_import: None,
@@ -95,6 +95,55 @@ pub fn moon_new_exec(
         let mut file = std::fs::File::create(main_moon).unwrap();
         file.write_all(content.as_bytes()).unwrap();
     }
+    let lib_dir = source.join("lib_a");
+    create_or_warning(&lib_dir)?;
+    // src/lib_a/hello.mbt
+    {
+        let hello_mbt = lib_dir.join("hello.mbt");
+        let content = include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../moonbuild/template/moon_new_template/hello.mbt"
+        ));
+        let mut file = std::fs::File::create(hello_mbt).unwrap();
+        file.write_all(content.as_bytes()).unwrap();
+    }
+    // src/lib_a/hello_test.mbt
+    {
+        let hello_mbt = lib_dir.join("hello_test.mbt");
+        let content = include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../moonbuild/template/moon_new_template/hello_test.mbt"
+        ));
+
+        let mut file = std::fs::File::create(hello_mbt).unwrap();
+        file.write_all(content.as_bytes()).unwrap();
+    }
+    // src/lib_a/moon.pkg.json
+    {
+        let lib_moon_pkg = lib_dir.join(MOON_PKG_JSON);
+        let j = MoonPkgJSON {
+            name: None,
+            is_main: None,
+            import: None,
+            wbtest_import: None,
+            test_import: None,
+            test_import_all: None,
+            link: None,
+            warn_list: None,
+            alert_list: None,
+            targets: None,
+            pre_build: None,
+            bin_name: None,
+            bin_target: None,
+            supported_targets: None,
+            native_stub: None,
+            virtual_pkg: None,
+            implement: None,
+            overrides: None,
+            sub_package: None,
+        };
+        moonutil::common::write_package_json_to_file(&j, &lib_moon_pkg)?;
+    }
 
     println!("{} {}", "Created".bold().green(), target_dir.display());
 
@@ -109,16 +158,26 @@ pub fn moon_new_lib(
 ) -> anyhow::Result<i32> {
     let cake_full_name = format!("{user}/{name}");
     let source = target_dir.join("src");
-    common(target_dir, &source, &cake_full_name, license)?;
-
-    // src/top.mbt
+    common(target_dir, &cake_full_name, license)?;
+    create_or_warning(&source)?;
+    // src/hello.mbt
     {
-        let top_mbt = source.join("top.mbt");
+        let hello_mbt = source.join("hello.mbt");
         let content = include_str!(concat!(
             env!("CARGO_MANIFEST_DIR"),
-            "/../moonbuild/template/moon_new_template/top.mbt"
+            "/../moonbuild/template/moon_new_template/hello.mbt"
         ));
-        let mut file = std::fs::File::create(top_mbt).unwrap();
+        let mut file = std::fs::File::create(hello_mbt).unwrap();
+        file.write_all(content.as_bytes()).unwrap();
+    }
+    // src/hello_test.mbt
+    {
+        let hello_mbt = source.join("hello_test.mbt");
+        let content = include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../moonbuild/template/moon_new_template/hello_test.mbt"
+        ));
+        let mut file = std::fs::File::create(hello_mbt).unwrap();
         file.write_all(content.as_bytes()).unwrap();
     }
 
@@ -126,11 +185,7 @@ pub fn moon_new_lib(
     {
         let moon_pkg_json = source.join("moon.pkg.json");
         let content = format!(
-            r#"{{
-  "import": [
-    "{cake_full_name}/lib"
-  ]
-}}
+            r#"{{}}
 "#
         );
         let mut file = std::fs::File::create(moon_pkg_json).unwrap();
@@ -142,12 +197,7 @@ pub fn moon_new_lib(
     Ok(0)
 }
 
-fn common(
-    target_dir: &Path,
-    source: &Path,
-    cake_full_name: &str,
-    license: Option<&str>,
-) -> anyhow::Result<i32> {
+fn common(target_dir: &Path, cake_full_name: &str, license: Option<&str>) -> anyhow::Result<i32> {
     std::fs::create_dir_all(target_dir).context("failed to create target directory")?;
 
     if !is_in_git_repo(target_dir)? {
@@ -196,56 +246,6 @@ fn common(
         let mut file = std::fs::File::create(gitignore).unwrap();
         file.write_all(content.as_bytes()).unwrap();
     }
-    let lib_dir = source.join("lib");
-    create_or_warning(&lib_dir)?;
-    // src/lib/hello.mbt
-    {
-        let hello_mbt = lib_dir.join("hello.mbt");
-        let content = include_str!(concat!(
-            env!("CARGO_MANIFEST_DIR"),
-            "/../moonbuild/template/moon_new_template/hello.mbt"
-        ));
-        let mut file = std::fs::File::create(hello_mbt).unwrap();
-        file.write_all(content.as_bytes()).unwrap();
-    }
-    // src/lib/hello_test.mbt
-    {
-        let hello_mbt = lib_dir.join("hello_test.mbt");
-        let content = include_str!(concat!(
-            env!("CARGO_MANIFEST_DIR"),
-            "/../moonbuild/template/moon_new_template/hello_test.mbt"
-        ));
-
-        let mut file = std::fs::File::create(hello_mbt).unwrap();
-        file.write_all(content.as_bytes()).unwrap();
-    }
-    // src/lib/moon.pkg.json
-    {
-        let lib_moon_pkg = lib_dir.join(MOON_PKG_JSON);
-        let j = MoonPkgJSON {
-            name: None,
-            is_main: None,
-            import: None,
-            wbtest_import: None,
-            test_import: None,
-            test_import_all: None,
-            link: None,
-            warn_list: None,
-            alert_list: None,
-            targets: None,
-            pre_build: None,
-            bin_name: None,
-            bin_target: None,
-            supported_targets: None,
-            native_stub: None,
-            virtual_pkg: None,
-            implement: None,
-            overrides: None,
-            sub_package: None,
-        };
-        moonutil::common::write_package_json_to_file(&j, &lib_moon_pkg)?;
-    }
-
     // READMD.md
     {
         let md_file = target_dir.join("README.md");
