@@ -25,6 +25,7 @@ use std::{
 
 use moonbuild::entry::TestArgs;
 use moonutil::common::TargetBackend;
+use tempfile::TempDir;
 use tokio::process::Command;
 
 macro_rules! cache {
@@ -61,12 +62,29 @@ cache! {
     moonrun("moonrun")
 }
 
+/// A guarded command info that removes the temporary file/dir(s) when it gets
+/// out of scope.
+pub struct CommandGuard {
+    _temp_file: Option<TempDir>, // for destructor
+    pub command: Command,
+}
+
+impl From<Command> for CommandGuard {
+    fn from(command: Command) -> Self {
+        Self {
+            _temp_file: None,
+            command,
+        }
+    }
+}
+
 /// Returns a command to run the given MoonBit executable of a specific
 /// `backend`. The returning command is suitable for adding more commandline
 /// arguments that are directly passed to the MoonBit program being executed.
 ///
 /// If the executable is a test executable, `test` should be passed with the
-/// args that are passed to the test executable. (TBD)
+/// args that are passed to the test executable. The function **may create
+/// temporary files** to support test execution.
 ///
 /// `mbt_executable` is the final MoonBit executable to run, such as a `.wasm`
 /// file in WASM or WASM-GC backends, a `.js` file in JS backend, or a native
@@ -79,7 +97,7 @@ pub fn command_for(
     backend: TargetBackend,
     mbt_executable: &Path,
     test: Option<&TestArgs>,
-) -> Command {
+) -> anyhow::Result<CommandGuard> {
     let cache = RuntimeExecutableCache::default();
     command_for_cached(&cache, backend, mbt_executable, test)
 }
@@ -89,7 +107,7 @@ pub fn command_for_cached(
     backend: TargetBackend,
     mbt_executable: &Path,
     test: Option<&TestArgs>,
-) -> Command {
+) -> anyhow::Result<CommandGuard> {
     match backend {
         TargetBackend::Wasm | TargetBackend::WasmGC => {
             let mut cmd = Command::new(cache.moonrun());
@@ -99,23 +117,64 @@ pub fn command_for_cached(
             }
             cmd.arg(mbt_executable);
             cmd.arg("--");
-            cmd
+            Ok(cmd.into())
         }
         TargetBackend::Js => {
-            if let Some(_t) = test {
-                todo!("test js needs a custom driver")
+            if let Some(t) = test {
+                let (dir, driver) = create_js_driver(mbt_executable, t)?;
+                let mut cmd = Command::new(cache.node());
+                cmd.arg("--enable-source-maps");
+                cmd.arg(driver);
+                cmd.arg(serde_json::to_string(t).expect("Failed to serialize test args"));
+                Ok(CommandGuard {
+                    _temp_file: Some(dir),
+                    command: cmd,
+                })
+            } else {
+                let mut cmd = Command::new(cache.node());
+                cmd.arg(mbt_executable);
+                Ok(cmd.into())
             }
-            let mut cmd = Command::new(cache.node());
-            cmd.arg(mbt_executable);
-            cmd.arg("--");
-            cmd
         }
         TargetBackend::Native | TargetBackend::LLVM => {
             let mut cmd = Command::new(mbt_executable);
             if let Some(t) = test {
                 cmd.arg(t.to_cli_args_for_native());
             }
-            cmd
+            Ok(cmd.into())
         }
     }
+}
+
+fn create_js_driver(js_path: &Path, test_args: &TestArgs) -> anyhow::Result<(TempDir, PathBuf)> {
+    let js_driver_text = include_str!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../moonbuild/template/test_driver/js_driver.js"
+    ));
+
+    // This replicates the original behavior, needs fixing later
+    let js_driver = js_driver_text
+        .replace(
+            "origin_js_path",
+            &js_path.display().to_string().replace("\\", "/"),
+        )
+        .replace(
+            "let testParams = []",
+            &format!("let testParams = {}", test_args.to_args()),
+        )
+        .replace(
+            "let packageName = \"\"",
+            &format!("let packageName = {:?}", test_args.package),
+        );
+
+    let dir = TempDir::new().expect("Failed to create temporary directory for JS testing script");
+    let js_file = dir.path().join("driver.cjs");
+    std::fs::write(&js_file, js_driver).expect("Failed to write temporary JS test driver script");
+
+    // prevent node use the outer layer package.json with `"type": "module"`
+    let package_json = dir.path().join("package.json");
+    std::fs::write(package_json, "{}")
+        .expect("Failed to write temporary package.json for JS testing script");
+
+    Ok((dir, js_file))
 }

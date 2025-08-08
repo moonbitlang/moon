@@ -355,12 +355,12 @@ fn run_run_rr(cli: &UniversalFlags, cmd: RunSubcommand) -> Result<i32, anyhow::E
         .first()
         .expect("Expected exactly one executable as the output of the build node");
 
-    let cmd = crate::run::command_for(ret.target_backend, executable, None);
+    let cmd = crate::run::command_for(ret.target_backend, executable, None)?;
 
     // FIXME: Simplify this part
     let res = default_rt()
         .context("Failed to create runtime")?
-        .block_on(crate::run::run(&mut [], true, cmd))
+        .block_on(crate::run::run(&mut [], true, cmd.command))
         .context("failed to run command")?;
 
     if let Some(code) = res.code() {

@@ -843,7 +843,7 @@ impl TestArgs {
             .sum()
     }
 
-    fn to_args(&self) -> String {
+    pub fn to_args(&self) -> String {
         let file_and_index = &self.file_and_index;
         let mut test_params: Vec<[String; 2]> = vec![];
         for (file, index) in file_and_index {

@@ -172,14 +172,14 @@ fn run_one_test_executable(
         }
     }
 
-    let cmd = crate::run::command_for(ret.target_backend, test.executable, Some(&test_args));
+    let cmd = crate::run::command_for(ret.target_backend, test.executable, Some(&test_args))?;
     let mut cov_cap = mk_coverage_capture();
     let mut test_cap = make_test_capture();
 
     rt.block_on(crate::run::run(
         &mut [&mut cov_cap, &mut test_cap],
         false,
-        cmd,
+        cmd.command,
     ))
     .context("Failed to run test")?;
 
