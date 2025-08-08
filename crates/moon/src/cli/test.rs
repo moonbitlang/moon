@@ -494,9 +494,15 @@ fn run_test_rr(
     }
 
     // Run tests using artifacts
-    let passed = crate::run::run_tests(&ret)?;
+    let result = crate::run::run_tests(&ret, target_dir)?;
+    println!(
+        "{} tests executed, {} passed, {} failed",
+        result.total,
+        result.passed,
+        result.total - result.passed
+    );
 
-    if passed {
+    if result.passed() {
         Ok(0)
     } else {
         Ok(1)
