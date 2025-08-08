@@ -2401,7 +2401,7 @@ fn moon_test_with_failure_json() {
         &output,
         // should keep in this format, it's used in ide test explorer
         expect![[r#"
-            {"package":"username/hello/lib1","filename":"hello.mbt","index":"0","test_name":"test_1","message":"FAILED: $ROOT/src/lib1/hello.mbt:7:3-7:24 test_1 failed"}
+            {"package":"username/hello/lib1","filename":"hello.mbt","index":"0","test_name":"test_1","message":"$ROOT/src/lib1/hello.mbt:7:3-7:24 FAILED: test_1 failed"}
             Total tests: 2, passed: 1, failed: 1.
         "#]],
     );
@@ -4048,7 +4048,7 @@ fn test_run_doc_test() {
             1256
             ----
 
-            test username/hello/lib/hello.mbt::2 failed: FAILED: $ROOT/src/lib/hello.mbt:22:5-22:30 this is a failure
+            test username/hello/lib/hello.mbt::2 failed: $ROOT/src/lib/hello.mbt:22:5-22:30 FAILED: this is a failure
             test username/hello/lib/greet.mbt::2 failed
             expect test failed at $ROOT/src/lib/greet.mbt:23:7-23:20
             Diff:
@@ -4056,7 +4056,7 @@ fn test_run_doc_test() {
             1256
             ----
 
-            test username/hello/lib/greet.mbt::3 failed: FAILED: $ROOT/src/lib/greet.mbt:34:7-34:30 another failure
+            test username/hello/lib/greet.mbt::3 failed: $ROOT/src/lib/greet.mbt:34:7-34:30 FAILED: another failure
             test username/hello/lib/greet.mbt::8 failed
             expect test failed at $ROOT/src/lib/greet.mbt:99:5-99:40
             Diff:
@@ -4089,10 +4089,10 @@ fn test_run_doc_test() {
 
             doc_test 2 from hello.mbt
             doc_test 2 from hello.mbt
-            test username/hello/lib/hello.mbt::2 failed: FAILED: $ROOT/src/lib/hello.mbt:22:5-22:30 this is a failure
+            test username/hello/lib/hello.mbt::2 failed: $ROOT/src/lib/hello.mbt:22:5-22:30 FAILED: this is a failure
             test block 2
             test block 2
-            test username/hello/lib/greet.mbt::3 failed: FAILED: $ROOT/src/lib/greet.mbt:34:7-34:30 another failure
+            test username/hello/lib/greet.mbt::3 failed: $ROOT/src/lib/greet.mbt:34:7-34:30 FAILED: another failure
             Total tests: 16, passed: 14, failed: 2.
         "#]],
     );
