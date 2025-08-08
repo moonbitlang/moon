@@ -189,7 +189,7 @@ fn test_moon_new_new() {
     check(
         get_stdout(&hello3, ["test", "-v"]),
         expect![[r#"
-            test moonbitlang/hello/lib/hello_test.mbt::hello ok
+            test moonbitlang/hello/hello_test.mbt::hello ok
             Total tests: 1, passed: 1, failed: 0.
         "#]],
     );
@@ -220,17 +220,13 @@ fn test_moon_new_new() {
     check(
         std::fs::read_to_string(hello4.join("src").join("moon.pkg.json")).unwrap(),
         expect![[r#"
-            {
-              "import": [
-                "moonbitlang/hello/lib"
-              ]
-            }
+            {}
         "#]],
     );
     check(
         get_stdout(&hello4, ["test", "-v"]),
         expect![[r#"
-            test moonbitlang/hello/lib/hello_test.mbt::hello ok
+            test moonbitlang/hello/hello_test.mbt::hello ok
             Total tests: 1, passed: 1, failed: 0.
         "#]],
     );
@@ -297,7 +293,7 @@ fn test_moon_new_snapshot() {
         .assert()
         .success();
     check(
-        read(hello.join("src").join("lib").join("hello.mbt")),
+        read(hello.join("src").join("lib_a").join("hello.mbt")),
         expect![[r#"
             pub fn hello() -> String {
               "Hello, world!"
@@ -324,7 +320,7 @@ fn test_moon_new_snapshot() {
         .assert()
         .success();
     check(
-        read(hello.join("src").join("lib").join("hello.mbt")),
+        read(hello.join("src").join("lib_a").join("hello.mbt")),
         expect![[r#"
             pub fn hello() -> String {
               "Hello, world!"
@@ -332,24 +328,22 @@ fn test_moon_new_snapshot() {
         "#]],
     );
     check(
-        read(hello.join("src").join("lib").join("hello_test.mbt")),
+        read(hello.join("src").join("lib_a").join("hello_test.mbt")),
         expect![[r#"
             test "hello" {
-              if @lib.hello() != "Hello, world!" {
-                fail("@lib.hello() != \"Hello, world!\"")
-              }
+              inspect(hello(), content="Hello, world!")
             }
         "#]],
     );
     check(
-        std::fs::read_to_string(hello.join("src").join("lib").join("moon.pkg.json")).unwrap(),
+        std::fs::read_to_string(hello.join("src").join("lib_a").join("moon.pkg.json")).unwrap(),
         expect!["{}"],
     );
     check(
         read(hello.join("src").join("main").join("main.mbt")),
         expect![[r#"
             fn main {
-              println(@lib.hello())
+              println(@lib_a.hello())
             }
         "#]],
     );
@@ -359,7 +353,7 @@ fn test_moon_new_snapshot() {
             {
               "is-main": true,
               "import": [
-                "moonbitlang/hello/lib"
+                "moonbitlang/hello/lib_a"
               ]
             }"#]],
     );
@@ -421,7 +415,7 @@ fn test_moon_new_snapshot_lib_no_license() {
         .assert()
         .success();
     check(
-        read(hello.join("src").join("lib").join("hello.mbt")),
+        read(hello.join("src").join("hello.mbt")),
         expect![[r#"
             pub fn hello() -> String {
               "Hello, world!"
@@ -449,7 +443,7 @@ fn test_moon_new_snapshot_lib_no_license() {
         .assert()
         .success();
     check(
-        read(hello.join("src").join("lib").join("hello.mbt")),
+        read(hello.join("src").join("hello.mbt")),
         expect![[r#"
             pub fn hello() -> String {
               "Hello, world!"
@@ -457,27 +451,17 @@ fn test_moon_new_snapshot_lib_no_license() {
         "#]],
     );
     check(
-        read(hello.join("src").join("lib").join("hello_test.mbt")),
+        read(hello.join("src").join("hello_test.mbt")),
         expect![[r#"
             test "hello" {
-              if @lib.hello() != "Hello, world!" {
-                fail("@lib.hello() != \"Hello, world!\"")
-              }
+              inspect(hello(), content="Hello, world!")
             }
         "#]],
     );
     check(
-        std::fs::read_to_string(hello.join("src").join("lib").join("moon.pkg.json")).unwrap(),
-        expect!["{}"],
-    );
-    check(
         std::fs::read_to_string(hello.join("src").join("moon.pkg.json")).unwrap(),
         expect![[r#"
-            {
-              "import": [
-                "moonbitlang/hello/lib"
-              ]
-            }
+            {}
         "#]],
     );
     check(
@@ -493,14 +477,6 @@ fn test_moon_new_snapshot_lib_no_license() {
               "description": "",
               "source": "src"
             }"#]],
-    );
-    check(
-        read(hello.join("src").join("top.mbt")),
-        expect![[r#"
-            pub fn greeting() -> Unit {
-              println(@lib.hello())
-            }
-        "#]],
     );
     check(
         std::fs::read_to_string(hello.join("README.md")).unwrap(),
