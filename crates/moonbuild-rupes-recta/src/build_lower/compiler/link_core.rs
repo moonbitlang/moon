@@ -27,7 +27,6 @@ use moonutil::package::{ImportMemory, JsFormat, MemoryLimits};
 use crate::build_lower::compiler::{
     CmdlineAbstraction, CompilationFlags, CompiledPackageName, PackageSource,
 };
-use crate::pkg_name::PackageFQN;
 
 /// Abstraction for `moonc link-core`.
 ///
