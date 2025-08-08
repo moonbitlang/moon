@@ -131,7 +131,8 @@ macro_rules! features {
 features! {
     (unstable, rupes_recta, "Use the new Rupes Recta build script generator"),
     (unstable, rr_export_module_graph, "Export the module dependency graph (only with Rupes Recta)"),
-    (unstable, rr_export_package_graph, "Export the package dependency graph (only with Rupes Recta)")
+    (unstable, rr_export_package_graph, "Export the package dependency graph (only with Rupes Recta)"),
+    (unstable, rr_export_build_plan, "Export the build plan graph (only with Rupes Recta)")
 }
 
 impl FromStr for Box<FeatureGate> {

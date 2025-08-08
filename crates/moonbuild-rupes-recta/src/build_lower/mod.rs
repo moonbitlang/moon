@@ -19,12 +19,17 @@
 //! Lowers a [Build plan](crate::build_plan) into `n2`'s Build graph
 
 use std::{
+    borrow::Cow,
     path::{Path, PathBuf},
     rc::Rc,
 };
 
 use log::{debug, info};
-use moonutil::{common::TargetBackend, cond_expr::OptLevel, mooncakes::ModuleSource};
+use moonutil::{
+    common::{DriverKind, TargetBackend},
+    cond_expr::OptLevel,
+    mooncakes::ModuleSource,
+};
 use n2::graph::{Build, BuildIns, BuildOuts, FileId, FileLoc, Graph as N2Graph};
 use petgraph::Direction;
 
@@ -33,8 +38,9 @@ use crate::{
         artifact::LegacyLayout,
         compiler::{CmdlineAbstraction, MiDependency, PackageSource},
     },
-    build_plan::{self, BuildActionSpec, BuildPlan, BuildPlanNode, BuildTargetInfo, LinkCoreInfo},
+    build_plan::{BuildActionSpec, BuildPlan, BuildTargetInfo, LinkCoreInfo},
     discover::{DiscoverResult, DiscoveredPackage},
+    model::{Artifacts, BuildPlanNode, TargetKind},
     pkg_name::PackageFQNWithSource,
     pkg_solve::DepRelationship,
 };
@@ -68,13 +74,21 @@ pub enum LoweringError {
     },
 }
 
+pub struct LoweringResult {
+    /// The lowered n2 build graph.
+    pub build_graph: N2Graph,
+
+    /// The list of artifacts corresponding to the root input nodes.
+    pub artifacts: Vec<Artifacts>,
+}
+
 /// Lowers a [`BuildPlan`] into a n2 [Build Graph](n2::graph::Graph).
 pub fn lower_build_plan(
     packages: &DiscoverResult,
     rel: &DepRelationship,
     build_plan: &BuildPlan,
     opt: &BuildOptions,
-) -> Result<N2Graph, LoweringError> {
+) -> Result<LoweringResult, LoweringError> {
     info!("Starting build plan lowering to n2 graph");
     debug!(
         "Build options: backend={:?}, opt_level={:?}, debug_symbols={}",
@@ -96,8 +110,21 @@ pub fn lower_build_plan(
         ctx.lower_node(node)?;
     }
 
+    let mut out_artifcts = Vec::with_capacity(build_plan.input_nodes().len());
+    for n in build_plan.input_nodes() {
+        let mut a = vec![];
+        ctx.append_artifact_of(*n, &mut a);
+        out_artifcts.push(Artifacts {
+            node: *n,
+            artifacts: a,
+        });
+    }
+
     info!("Build plan lowering completed successfully");
-    Ok(ctx.graph)
+    Ok(LoweringResult {
+        build_graph: ctx.graph,
+        artifacts: out_artifcts,
+    })
 }
 
 /// Represents the essential information needed to construct an [`Build`] value
@@ -145,20 +172,19 @@ impl<'a> BuildPlanLowerContext<'a> {
 
         // Lower the action to its commands. This step should be infallible.
         let cmd = match spec {
-            build_plan::BuildActionSpec::Check(info) => self.lower_check(node, package, info),
-            build_plan::BuildActionSpec::BuildMbt(info) => {
-                self.lower_build_mbt(node, package, info)
-            }
-            build_plan::BuildActionSpec::BuildC(_path_bufs) => todo!(),
-            build_plan::BuildActionSpec::LinkCore(info) => {
-                self.lower_link_core(node, package, info)
-            }
-            build_plan::BuildActionSpec::MakeExecutable { link_c_stubs: _ } => {
+            BuildActionSpec::Check(info) => self.lower_check(node, package, info),
+            BuildActionSpec::BuildMbt(info) => self.lower_build_mbt(node, package, info),
+            BuildActionSpec::BuildC(_path_bufs) => todo!(),
+            BuildActionSpec::LinkCore(info) => self.lower_link_core(node, package, info),
+            BuildActionSpec::MakeExecutable { link_c_stubs: _ } => {
                 // TODO: Native targets need another linking step
                 panic!("Native make-executable not supported yet")
             }
-            build_plan::BuildActionSpec::GenerateMbti => todo!(),
-            build_plan::BuildActionSpec::Bundle => todo!(),
+            BuildActionSpec::GenerateMbti => todo!(),
+            BuildActionSpec::Bundle => todo!(),
+            BuildActionSpec::GenerateTestDriver(info) => {
+                self.lower_gen_test_driver(node, package, info)
+            }
         };
 
         // Collect n2 inputs and outputs.
@@ -214,7 +240,9 @@ impl<'a> BuildPlanLowerContext<'a> {
                 ));
             }
             crate::model::TargetAction::BuildCStubs => todo!("artifacts of build c stubs"),
-            crate::model::TargetAction::LinkCore => {
+            crate::model::TargetAction::LinkCore | crate::model::TargetAction::MakeExecutable => {
+                // No native yet means MakeExecutable is currently a no-op, but
+                // the artifacts should be the same as LinkCore
                 out.push(self.layout.linked_core_of_build_target(
                     self.packages,
                     &node.target,
@@ -222,8 +250,17 @@ impl<'a> BuildPlanLowerContext<'a> {
                     "todo: no native yet",
                 ));
             }
-            crate::model::TargetAction::MakeExecutable => {
-                // No native yet means this is a no-op
+            crate::model::TargetAction::GenerateTestInfo => {
+                out.push(self.layout.generated_test_driver(
+                    self.packages,
+                    &node.target,
+                    self.opt.target_backend,
+                ));
+                out.push(self.layout.generated_test_driver_metadata(
+                    self.packages,
+                    &node.target,
+                    self.opt.target_backend,
+                ));
             }
         }
     }
@@ -232,13 +269,12 @@ impl<'a> BuildPlanLowerContext<'a> {
         self.graph.add_build(build)
     }
 
-    fn set_commons(&self, package: &DiscoveredPackage, common: &mut compiler::BuildCommonArgs) {
+    fn set_commons(&self, common: &mut compiler::BuildCommonArgs) {
         common.stdlib_core_file = self
             .opt
             .stdlib_path
             .as_ref()
             .map(|x| artifact::core_bundle_path(x, self.opt.target_backend).into());
-        common.is_main = package.raw.is_main;
     }
 
     fn lower_check(
@@ -256,11 +292,28 @@ impl<'a> BuildPlanLowerContext<'a> {
             &info.files,
             &mi_output,
             &mi_inputs,
-            &package.fqn,
+            compiler::CompiledPackageName::new(&package.fqn, node.target),
             &package.root_path,
             self.opt.target_backend,
+            node.target.kind,
         );
-        self.set_commons(package, &mut cmd.common);
+        self.set_commons(&mut cmd.common);
+
+        // Determine whether the checked package is a main package.
+        //
+        // Black box tests does not include the source files of the original
+        // package, while other kinds of package include those. Additionally,
+        // no test drivers will be used in checking packages. Thus, black box
+        // tests will definitely not contain a main function, while other
+        // build targets will have the same kind of main function as the
+        // original package.
+        cmd.common.is_main = match node.target.kind {
+            TargetKind::BlackboxTest => false,
+            TargetKind::Source
+            | TargetKind::WhiteboxTest
+            | TargetKind::InlineTest
+            | TargetKind::SubPackage => package.raw.is_main,
+        };
 
         BuildCommand {
             extra_inputs: info.files.clone(),
@@ -283,18 +336,41 @@ impl<'a> BuildPlanLowerContext<'a> {
 
         let mi_inputs = self.mi_inputs_of(node);
 
+        let input_sources = match node.target.kind {
+            TargetKind::Source | TargetKind::SubPackage => Cow::Borrowed(&info.files),
+            TargetKind::WhiteboxTest | TargetKind::BlackboxTest | TargetKind::InlineTest => {
+                let mut files = info.files.clone();
+                files.push(self.layout.generated_test_driver(
+                    self.packages,
+                    &node.target,
+                    self.opt.target_backend,
+                ));
+                Cow::Owned(files)
+            }
+        };
+
         let mut cmd = compiler::MooncBuildPackage::new(
-            &info.files,
+            &input_sources,
             &core_output,
             &mi_output,
             &mi_inputs,
-            &package.fqn,
+            compiler::CompiledPackageName::new(&package.fqn, node.target),
             &package.root_path,
             self.opt.target_backend,
+            node.target.kind,
         );
         cmd.flags.no_opt = self.opt.opt_level == OptLevel::Debug;
         cmd.flags.symbols = self.opt.debug_symbols;
-        self.set_commons(package, &mut cmd.common);
+        self.set_commons(&mut cmd.common);
+
+        // Determine whether the built package is a main package.
+        //
+        // Different from checking, building test packages will always include
+        // the test driver files, which will include the main function.
+        cmd.common.is_main = match node.target.kind {
+            TargetKind::Source | TargetKind::SubPackage => package.raw.is_main,
+            TargetKind::InlineTest | TargetKind::WhiteboxTest | TargetKind::BlackboxTest => true,
+        };
 
         // TODO: a lot of knobs are not controlled here
 
@@ -352,7 +428,7 @@ impl<'a> BuildPlanLowerContext<'a> {
             .map(|target| {
                 let pkg = self.packages.get_package(target.package);
                 PackageSource {
-                    package_name: &pkg.fqn,
+                    package_name: compiler::CompiledPackageName::new(&pkg.fqn, *target),
                     source_dir: pkg.root_path.as_path().into(),
                 }
             })
@@ -373,6 +449,43 @@ impl<'a> BuildPlanLowerContext<'a> {
         BuildCommand {
             extra_inputs: vec![],
             commandline: cmd.build_command("moonc"),
+        }
+    }
+
+    fn lower_gen_test_driver(
+        &mut self,
+        node: BuildPlanNode,
+        package: &DiscoveredPackage,
+        info: &BuildTargetInfo,
+    ) -> BuildCommand {
+        let output_driver =
+            self.layout
+                .generated_test_driver(self.packages, &node.target, self.opt.target_backend);
+        let output_metadata = self.layout.generated_test_driver_metadata(
+            self.packages,
+            &node.target,
+            self.opt.target_backend,
+        );
+        let driver_kind = match node.target.kind {
+            TargetKind::Source => panic!("Source package cannot be a test driver"),
+            TargetKind::WhiteboxTest => DriverKind::Whitebox,
+            TargetKind::BlackboxTest => DriverKind::Blackbox,
+            TargetKind::InlineTest => DriverKind::Internal,
+            TargetKind::SubPackage => panic!("Sub-package cannot be a test driver"),
+        };
+        let pkg_full_name = package.fqn.to_string();
+        let cmd = compiler::MoonGenTestDriver::new(
+            &info.files,
+            output_driver,
+            output_metadata,
+            self.opt.target_backend,
+            &pkg_full_name,
+            driver_kind,
+        );
+
+        BuildCommand {
+            extra_inputs: info.files.clone(),
+            commandline: cmd.build_command("moon"),
         }
     }
 

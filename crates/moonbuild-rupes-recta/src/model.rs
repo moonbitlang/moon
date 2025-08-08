@@ -16,6 +16,8 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
+use std::path::PathBuf;
+
 slotmap::new_key_type! {
     /// An unique identifier pointing to a package currently discovered from imported modules.
     pub struct PackageId;
@@ -38,6 +40,7 @@ pub enum TargetAction {
     BuildCStubs,
     LinkCore,
     MakeExecutable,
+    GenerateTestInfo,
 }
 
 #[derive(Clone, Debug, Copy, PartialEq, Eq, Hash, Ord, PartialOrd)]
@@ -52,6 +55,15 @@ pub enum TargetKind {
     /// This is the subpackage designed originally for breaking cycles in
     /// `moonbitlang/core`. It's expected to be used sparingly.
     SubPackage,
+}
+
+impl TargetKind {
+    pub fn is_test(self) -> bool {
+        matches!(
+            self,
+            TargetKind::WhiteboxTest | TargetKind::BlackboxTest | TargetKind::InlineTest
+        )
+    }
 }
 
 /// Represents a single compile target that may be separately checked, built,
@@ -76,4 +88,65 @@ impl PackageId {
             kind,
         }
     }
+}
+
+/// A node in the build dependency graph, containing a build target and the
+/// corresponding action that should be performed on that target.
+///
+/// TODO: This type is a little big in size to be copied and used as an ID.
+#[derive(Debug, Clone, Copy, PartialEq, PartialOrd, Eq, Ord, Hash)]
+pub struct BuildPlanNode {
+    pub target: BuildTarget,
+    pub action: TargetAction,
+}
+
+impl BuildPlanNode {
+    pub fn check(target: BuildTarget) -> Self {
+        Self {
+            target,
+            action: TargetAction::Check,
+        }
+    }
+
+    pub fn build_core(target: BuildTarget) -> Self {
+        Self {
+            target,
+            action: TargetAction::Build,
+        }
+    }
+
+    pub fn build_c_stubs(target: BuildTarget) -> Self {
+        Self {
+            target,
+            action: TargetAction::BuildCStubs,
+        }
+    }
+
+    pub fn link_core(target: BuildTarget) -> Self {
+        Self {
+            target,
+            action: TargetAction::LinkCore,
+        }
+    }
+
+    pub fn make_executable(target: BuildTarget) -> Self {
+        Self {
+            target,
+            action: TargetAction::MakeExecutable,
+        }
+    }
+
+    pub fn generate_test_info(target: BuildTarget) -> Self {
+        Self {
+            target,
+            action: TargetAction::GenerateTestInfo,
+        }
+    }
+}
+
+/// Represents a list of artifact(s) corresponding to a single build node.
+#[derive(Clone, Debug)]
+pub struct Artifacts {
+    pub node: BuildPlanNode,
+    pub artifacts: Vec<PathBuf>,
 }

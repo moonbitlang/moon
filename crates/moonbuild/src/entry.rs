@@ -851,7 +851,7 @@ impl TestArgs {
                 test_params.push([file.clone(), i.to_string()]);
             }
         }
-        format!("{test_params:?}")
+        serde_json::to_string(&test_params).unwrap_or_else(|_| "[]".to_string())
     }
 
     pub fn to_cli_args_for_native(&self) -> String {

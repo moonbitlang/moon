@@ -47,7 +47,7 @@ use petgraph::{prelude::DiGraphMap, visit::DfsPostOrder};
 use crate::{
     cond_comp::{self, CompileCondition},
     discover::DiscoverResult,
-    model::{BuildTarget, TargetAction, TargetKind},
+    model::{BuildPlanNode, BuildTarget, TargetAction, TargetKind},
     pkg_solve::DepRelationship,
 };
 
@@ -68,6 +68,9 @@ pub struct BuildPlan {
 
     /// The specification of each build target.
     spec: HashMap<BuildPlanNode, BuildActionSpec>,
+
+    /// The nodes that were used as input to the build plan.
+    input_nodes: Vec<BuildPlanNode>,
 }
 
 impl BuildPlan {
@@ -97,16 +100,10 @@ impl BuildPlan {
     pub fn node_count(&self) -> usize {
         self.graph.node_count()
     }
-}
 
-/// A node in the build dependency graph, containing a build target and the
-/// corresponding action that should be performed on that target.
-///
-/// TODO: This type is a little big in size to be copied and used as an ID.
-#[derive(Debug, Clone, Copy, PartialEq, PartialOrd, Eq, Ord, Hash)]
-pub struct BuildPlanNode {
-    pub target: BuildTarget,
-    pub action: TargetAction,
+    pub fn input_nodes(&self) -> &[BuildPlanNode] {
+        &self.input_nodes
+    }
 }
 
 /// Common information about a moonbit package being built
@@ -162,6 +159,9 @@ pub enum BuildActionSpec {
 
     /// Bundle the packages specified by the outgoing edges.
     Bundle,
+
+    /// Generates the test driver for the given target
+    GenerateTestDriver(BuildTargetInfo),
 }
 
 /// Represents the environment in which the build is being performed.
@@ -257,6 +257,7 @@ impl<'a> BuildPlanConstructor<'a> {
         for i in input {
             self.need_node(*i);
         }
+        self.res.input_nodes.extend_from_slice(input);
 
         while let Some(node) = self.pending.pop() {
             // check if the node is already resolved
@@ -328,6 +329,7 @@ impl<'a> BuildPlanConstructor<'a> {
                 )
             }
             TargetAction::MakeExecutable => self.build_make_exec_link_core(node),
+            TargetAction::GenerateTestInfo => self.build_gen_test_info(node),
         }
     }
 
@@ -375,8 +377,25 @@ impl<'a> BuildPlanConstructor<'a> {
             self.add_edge(node, dep_node);
         }
 
+        // If the given target is a test, we will also need to generate the test driver.
+        if node.target.kind.is_test() {
+            let gen_test_info = BuildPlanNode {
+                action: TargetAction::GenerateTestInfo,
+                ..node
+            };
+            self.need_node(gen_test_info);
+            self.add_edge(node, gen_test_info);
+        }
+
         self.resolved_node(node, BuildActionSpec::BuildMbt(self.target_info_of(node)?));
 
+        Ok(())
+    }
+
+    fn build_gen_test_info(&mut self, node: BuildPlanNode) -> Result<(), BuildPlanConstructError> {
+        self.need_node(node);
+        let target_info = self.target_info_of(node)?; // FIXME: cache this
+        self.resolved_node(node, BuildActionSpec::GenerateTestDriver(target_info));
         Ok(())
     }
 
@@ -384,6 +403,10 @@ impl<'a> BuildPlanConstructor<'a> {
         &self,
         node: BuildPlanNode,
     ) -> Result<Vec<PathBuf>, BuildPlanConstructError> {
+        // FIXME: Should we resolve test drivers' paths, or should we leave it
+        // in the lowering phase? The path to the test driver depends on the
+        // artifact layout, so we might not be able to do that here, unless we
+        // add some kind of `SpecialFile::TestDriver` or something.
         let pkg = self.packages.get_package(node.target.package);
         let source_files = cond_comp::filter_files(
             &pkg.raw,

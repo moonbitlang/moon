@@ -21,16 +21,19 @@
 mod build_common;
 mod build_package;
 mod check;
+mod gen_test_driver;
 mod link_core;
 
 use std::borrow::Cow;
 use std::path::Path;
 
+use crate::model::{BuildTarget, TargetKind};
 use crate::pkg_name::PackageFQN;
 
 pub use self::build_common::BuildCommonArgs;
 pub use self::build_package::MooncBuildPackage;
 pub use self::check::MooncCheck;
+pub use self::gen_test_driver::MoonGenTestDriver;
 pub use self::link_core::MooncLinkCore;
 
 #[allow(unused)]
@@ -71,9 +74,42 @@ impl<'a> MiDependency<'a> {
     }
 }
 
+/// Represents a package name of a specific kind passed to the compiler.
+/// Used to create the actual package name of the compiled package.
+///
+/// Since tests are not dependencies of any other packages, adding a suffix to
+/// test packages will not interfere with the names of other packages.
+#[derive(Clone, Debug)]
+pub struct CompiledPackageName<'a> {
+    pub fqn: &'a PackageFQN,
+    pub kind: TargetKind,
+}
+
+impl<'a> CompiledPackageName<'a> {
+    pub fn new(fqn: &'a PackageFQN, target: BuildTarget) -> Self {
+        Self {
+            fqn,
+            kind: target.kind,
+        }
+    }
+}
+
+impl<'a> std::fmt::Display for CompiledPackageName<'a> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let suffix = match self.kind {
+            TargetKind::Source => "",
+            TargetKind::WhiteboxTest => "__wb_test",
+            TargetKind::BlackboxTest => "__bb_test",
+            TargetKind::InlineTest => "__inline_test",
+            TargetKind::SubPackage => "",
+        };
+        write!(f, "{}{}", self.fqn, suffix)
+    }
+}
+
 #[derive(Clone, Debug)]
 pub struct PackageSource<'a> {
-    pub package_name: &'a PackageFQN,
+    pub package_name: CompiledPackageName<'a>,
     pub source_dir: Cow<'a, Path>,
 }
 
