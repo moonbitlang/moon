@@ -98,9 +98,13 @@ impl<'a> std::fmt::Display for CompiledPackageName<'a> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let suffix = match self.kind {
             TargetKind::Source => "",
-            TargetKind::WhiteboxTest => "__wb_test",
-            TargetKind::BlackboxTest => "__bb_test",
-            TargetKind::InlineTest => "__inline_test",
+            // FIXME: `moonc` MANDATES black box tests to have name exactly the
+            // original name + "_blackbox_test", in order to support importing
+            // all public declaration in the original package. This is an
+            // implicit behavior that should be documented and fixed later.
+            TargetKind::WhiteboxTest => "_whitebox_test",
+            TargetKind::BlackboxTest => "_blackbox_test",
+            TargetKind::InlineTest => "_inline_test",
             TargetKind::SubPackage => "",
         };
         write!(f, "{}{}", self.fqn, suffix)

@@ -53,6 +53,9 @@ pub struct CompileOutput {
     /// The number of tasks executed during the build. `None` if the build failed.
     pub tasks_executed: Option<usize>,
 
+    /// The result of the resolve step, containing package metadata
+    pub resolve_output: ResolveOutput,
+
     /// The list of artifacts produced, corresponding to the input user intent
     /// calculated by [`CalcUserIntentFn`].
     pub artifacts: Vec<Artifacts>,
@@ -194,9 +197,11 @@ pub fn compile(
     // The actual execution done by the n2 executor
     let res = work.run()?;
 
+    let target_backend = cx.target_backend;
     Ok(CompileOutput {
         tasks_executed: res,
+        resolve_output,
         artifacts: compile_output.artifacts,
-        target_backend: cx.target_backend,
+        target_backend,
     })
 }

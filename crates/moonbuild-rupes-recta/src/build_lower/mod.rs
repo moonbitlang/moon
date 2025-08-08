@@ -437,11 +437,15 @@ impl<'a> BuildPlanLowerContext<'a> {
         let config_path = package.config_path();
         let mut cmd = compiler::MooncLinkCore::new(
             &core_input_files,
-            &package.fqn,
+            compiler::CompiledPackageName {
+                fqn: &package.fqn,
+                kind: node.target.kind,
+            },
             &out_file,
             &config_path,
             &package_sources,
             self.opt.target_backend,
+            node.target.kind.is_test(),
         );
         cmd.flags.no_opt = self.opt.opt_level == OptLevel::Debug;
         cmd.flags.symbols = self.opt.debug_symbols;
