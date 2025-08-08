@@ -42,7 +42,6 @@ use moonutil::mooncakes::sync::AutoSyncFlags;
 use moonutil::mooncakes::RegistryConfig;
 use n2::trace;
 
-use crate::cli::run;
 use crate::rr_build;
 use crate::run::default_rt;
 
