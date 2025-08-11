@@ -161,8 +161,9 @@ pub fn moon_new_lib(
     common(target_dir, &cake_full_name, license)?;
     create_or_warning(&source)?;
     // src/hello.mbt
+    let short_name = name.rsplit_once('/').map_or(&*name, |(_, n)| n);
     {
-        let hello_mbt = source.join("hello.mbt");
+        let hello_mbt = source.join(format!("{short_name}.mbt"));
         let content = include_str!(concat!(
             env!("CARGO_MANIFEST_DIR"),
             "/../moonbuild/template/moon_new_template/hello.mbt"
@@ -172,7 +173,7 @@ pub fn moon_new_lib(
     }
     // src/hello_test.mbt
     {
-        let hello_mbt = source.join("hello_test.mbt");
+        let hello_mbt = source.join(format!("{short_name}_test.mbt"));
         let content = include_str!(concat!(
             env!("CARGO_MANIFEST_DIR"),
             "/../moonbuild/template/moon_new_template/hello_test.mbt"
