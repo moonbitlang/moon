@@ -364,7 +364,69 @@ fn test_moon_new_snapshot() {
 
     // New snapshot: layout first, then file contents
     let snap = snapshot_layout_and_files(&hello);
-    check(replace_dir(&snap, &hello), expect![[r#""#]]);
+    check(replace_dir(&snap, &hello), expect![[r#"
+        -- layout --
+        .
+        ./.gitignore
+        ./README.md
+        ./moon.mod.json
+        ./src/
+        ./src/lib_a/
+        ./src/lib_a/hello.mbt
+        ./src/lib_a/hello_test.mbt
+        ./src/lib_a/moon.pkg.json
+        ./src/main/
+        ./src/main/main.mbt
+        ./src/main/moon.pkg.json
+
+        -- files --
+        === ./.gitignore ===
+        target/
+        .mooncakes/
+        .DS_Store
+
+        === ./README.md ===
+        # username/hello
+
+        === ./moon.mod.json ===
+        {
+          "name": "username/hello",
+          "version": "0.1.0",
+          "readme": "README.md",
+          "repository": "",
+          "license": "",
+          "keywords": [],
+          "description": "",
+          "source": "src"
+        }
+
+        === ./src/lib_a/hello.mbt ===
+        pub fn hello() -> String {
+          "Hello, world!"
+        }
+
+        === ./src/lib_a/hello_test.mbt ===
+        test "hello" {
+          inspect(hello(), content="Hello, world!")
+        }
+
+        === ./src/lib_a/moon.pkg.json ===
+        {}
+
+        === ./src/main/main.mbt ===
+        fn main {
+          println(@lib_a.hello())
+        }
+
+        === ./src/main/moon.pkg.json ===
+        {
+          "is-main": true,
+          "import": [
+            "username/hello/lib_a"
+          ]
+        }
+
+    "#]]);
     assert!(!hello.join("LICENSE").exists());
 
     if hello.exists() {
@@ -386,7 +448,70 @@ fn test_moon_new_snapshot() {
         .success();
 
     let snap2 = snapshot_layout_and_files(&hello);
-    check(replace_dir(&snap2, &hello), expect![[r#""#]]);
+    check(replace_dir(&snap2, &hello), expect![[r#"
+        -- layout --
+        .
+        ./.gitignore
+        ./LICENSE
+        ./README.md
+        ./moon.mod.json
+        ./src/
+        ./src/lib_a/
+        ./src/lib_a/hello.mbt
+        ./src/lib_a/hello_test.mbt
+        ./src/lib_a/moon.pkg.json
+        ./src/main/
+        ./src/main/main.mbt
+        ./src/main/moon.pkg.json
+
+        -- files --
+        === ./.gitignore ===
+        target/
+        .mooncakes/
+        .DS_Store
+
+        === ./README.md ===
+        # moonbitlang/hello
+
+        === ./moon.mod.json ===
+        {
+          "name": "moonbitlang/hello",
+          "version": "0.1.0",
+          "readme": "README.md",
+          "repository": "",
+          "license": "Apache-2.0",
+          "keywords": [],
+          "description": "",
+          "source": "src"
+        }
+
+        === ./src/lib_a/hello.mbt ===
+        pub fn hello() -> String {
+          "Hello, world!"
+        }
+
+        === ./src/lib_a/hello_test.mbt ===
+        test "hello" {
+          inspect(hello(), content="Hello, world!")
+        }
+
+        === ./src/lib_a/moon.pkg.json ===
+        {}
+
+        === ./src/main/main.mbt ===
+        fn main {
+          println(@lib_a.hello())
+        }
+
+        === ./src/main/moon.pkg.json ===
+        {
+          "is-main": true,
+          "import": [
+            "moonbitlang/hello/lib_a"
+          ]
+        }
+
+    "#]]);
     hello.rm_rf();
 }
 
@@ -408,7 +533,53 @@ fn test_moon_new_snapshot_lib() {
 
     // Snapshot layout + files (includes LICENSE)
     let snap = snapshot_layout_and_files(&hello);
-    check(replace_dir(&snap, &hello), expect![[r#""#]]);
+    check(replace_dir(&snap, &hello), expect![[r#"
+        -- layout --
+        .
+        ./.gitignore
+        ./LICENSE
+        ./README.md
+        ./moon.mod.json
+        ./src/
+        ./src/hello.mbt
+        ./src/hello_test.mbt
+        ./src/moon.pkg.json
+
+        -- files --
+        === ./.gitignore ===
+        target/
+        .mooncakes/
+        .DS_Store
+
+        === ./README.md ===
+        # username/hello
+
+        === ./moon.mod.json ===
+        {
+          "name": "username/hello",
+          "version": "0.1.0",
+          "readme": "README.md",
+          "repository": "",
+          "license": "Apache-2.0",
+          "keywords": [],
+          "description": "",
+          "source": "src"
+        }
+
+        === ./src/hello.mbt ===
+        pub fn hello() -> String {
+          "Hello, world!"
+        }
+
+        === ./src/hello_test.mbt ===
+        test "hello" {
+          inspect(hello(), content="Hello, world!")
+        }
+
+        === ./src/moon.pkg.json ===
+        {}
+
+    "#]]);
     hello.rm_rf();
 }
 
@@ -429,7 +600,52 @@ fn test_moon_new_snapshot_lib_no_license() {
         .success();
 
     let snap1 = snapshot_layout_and_files(&hello);
-    check(replace_dir(&snap1, &hello), expect![[r#""#]]);
+    check(replace_dir(&snap1, &hello), expect![[r#"
+        -- layout --
+        .
+        ./.gitignore
+        ./README.md
+        ./moon.mod.json
+        ./src/
+        ./src/hello.mbt
+        ./src/hello_test.mbt
+        ./src/moon.pkg.json
+
+        -- files --
+        === ./.gitignore ===
+        target/
+        .mooncakes/
+        .DS_Store
+
+        === ./README.md ===
+        # username/hello
+
+        === ./moon.mod.json ===
+        {
+          "name": "username/hello",
+          "version": "0.1.0",
+          "readme": "README.md",
+          "repository": "",
+          "license": "",
+          "keywords": [],
+          "description": "",
+          "source": "src"
+        }
+
+        === ./src/hello.mbt ===
+        pub fn hello() -> String {
+          "Hello, world!"
+        }
+
+        === ./src/hello_test.mbt ===
+        test "hello" {
+          inspect(hello(), content="Hello, world!")
+        }
+
+        === ./src/moon.pkg.json ===
+        {}
+
+    "#]]);
 
     if hello.exists() {
         hello.rm_rf()
@@ -452,6 +668,51 @@ fn test_moon_new_snapshot_lib_no_license() {
         .success();
 
     let snap2 = snapshot_layout_and_files(&hello);
-    check(replace_dir(&snap2, &hello), expect![[r#""#]]);
+    check(replace_dir(&snap2, &hello), expect![[r#"
+        -- layout --
+        .
+        ./.gitignore
+        ./README.md
+        ./moon.mod.json
+        ./src/
+        ./src/hello.mbt
+        ./src/hello_test.mbt
+        ./src/moon.pkg.json
+
+        -- files --
+        === ./.gitignore ===
+        target/
+        .mooncakes/
+        .DS_Store
+
+        === ./README.md ===
+        # moonbitlang/hello
+
+        === ./moon.mod.json ===
+        {
+          "name": "moonbitlang/hello",
+          "version": "0.1.0",
+          "readme": "README.md",
+          "repository": "",
+          "license": "",
+          "keywords": [],
+          "description": "",
+          "source": "src"
+        }
+
+        === ./src/hello.mbt ===
+        pub fn hello() -> String {
+          "Hello, world!"
+        }
+
+        === ./src/hello_test.mbt ===
+        test "hello" {
+          inspect(hello(), content="Hello, world!")
+        }
+
+        === ./src/moon.pkg.json ===
+        {}
+
+    "#]]);
     hello.rm_rf();
 }
