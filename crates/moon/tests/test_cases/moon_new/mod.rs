@@ -364,7 +364,9 @@ fn test_moon_new_snapshot() {
 
     // New snapshot: layout first, then file contents
     let snap = snapshot_layout_and_files(&hello);
-    check(replace_dir(&snap, &hello), expect![[r#"
+    check(
+        &snap,
+        expect![[r#"
         -- layout --
         .
         ./.gitignore
@@ -426,7 +428,8 @@ fn test_moon_new_snapshot() {
           ]
         }
 
-    "#]]);
+    "#]],
+    );
     assert!(!hello.join("LICENSE").exists());
 
     if hello.exists() {
@@ -448,7 +451,9 @@ fn test_moon_new_snapshot() {
         .success();
 
     let snap2 = snapshot_layout_and_files(&hello);
-    check(replace_dir(&snap2, &hello), expect![[r#"
+    check(
+        &snap2,
+        expect![[r#"
         -- layout --
         .
         ./.gitignore
@@ -511,7 +516,8 @@ fn test_moon_new_snapshot() {
           ]
         }
 
-    "#]]);
+    "#]],
+    );
     hello.rm_rf();
 }
 
@@ -533,7 +539,9 @@ fn test_moon_new_snapshot_lib() {
 
     // Snapshot layout + files (includes LICENSE)
     let snap = snapshot_layout_and_files(&hello);
-    check(replace_dir(&snap, &hello), expect![[r#"
+    check(
+        &snap,
+        expect![[r#"
         -- layout --
         .
         ./.gitignore
@@ -579,7 +587,77 @@ fn test_moon_new_snapshot_lib() {
         === ./src/moon.pkg.json ===
         {}
 
-    "#]]);
+    "#]],
+    );
+    hello.rm_rf();
+
+    snapbox::cmd::Command::new(moon_bin())
+        .current_dir(&dir)
+        .args([
+            "new",
+            "--lib",
+            "--path",
+            "hello_lib",
+            "--user",
+            "username",
+            "--name",
+            "parser",
+        ])
+        .assert()
+        .success();
+
+    // Snapshot layout + files (includes LICENSE)
+    let snap2 = snapshot_layout_and_files(&hello);
+    check(
+        &snap2,
+        expect![[r#"
+            -- layout --
+            .
+            ./.gitignore
+            ./LICENSE
+            ./README.md
+            ./moon.mod.json
+            ./src/
+            ./src/moon.pkg.json
+            ./src/parser.mbt
+            ./src/parser_test.mbt
+
+            -- files --
+            === ./.gitignore ===
+            target/
+            .mooncakes/
+            .DS_Store
+
+            === ./README.md ===
+            # username/parser
+
+            === ./moon.mod.json ===
+            {
+              "name": "username/parser",
+              "version": "0.1.0",
+              "readme": "README.md",
+              "repository": "",
+              "license": "Apache-2.0",
+              "keywords": [],
+              "description": "",
+              "source": "src"
+            }
+
+            === ./src/moon.pkg.json ===
+            {}
+
+            === ./src/parser.mbt ===
+            pub fn hello() -> String {
+              "Hello, world!"
+            }
+
+            === ./src/parser_test.mbt ===
+            test "hello" {
+              inspect(hello(), content="Hello, world!")
+            }
+
+        "#]],
+    );
     hello.rm_rf();
 }
 
@@ -600,7 +678,9 @@ fn test_moon_new_snapshot_lib_no_license() {
         .success();
 
     let snap1 = snapshot_layout_and_files(&hello);
-    check(replace_dir(&snap1, &hello), expect![[r#"
+    check(
+        snap1,
+        expect![[r#"
         -- layout --
         .
         ./.gitignore
@@ -645,7 +725,8 @@ fn test_moon_new_snapshot_lib_no_license() {
         === ./src/moon.pkg.json ===
         {}
 
-    "#]]);
+    "#]],
+    );
 
     if hello.exists() {
         hello.rm_rf()
@@ -668,7 +749,9 @@ fn test_moon_new_snapshot_lib_no_license() {
         .success();
 
     let snap2 = snapshot_layout_and_files(&hello);
-    check(replace_dir(&snap2, &hello), expect![[r#"
+    check(
+        snap2,
+        expect![[r#"
         -- layout --
         .
         ./.gitignore
@@ -713,6 +796,7 @@ fn test_moon_new_snapshot_lib_no_license() {
         === ./src/moon.pkg.json ===
         {}
 
-    "#]]);
+    "#]],
+    );
     hello.rm_rf();
 }
