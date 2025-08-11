@@ -63,7 +63,7 @@ pub fn moon_new_exec(
             name: None,
             is_main: Some(true),
             import: Some(moonutil::package::PkgJSONImport::List(vec![
-                PkgJSONImportItem::String(format!("{cake_full_name}/lib_a")),
+                PkgJSONImportItem::String(format!("{cake_full_name}/liba")),
             ])),
             wbtest_import: None,
             test_import: None,
@@ -95,11 +95,11 @@ pub fn moon_new_exec(
         let mut file = std::fs::File::create(main_moon).unwrap();
         file.write_all(content.as_bytes()).unwrap();
     }
-    let lib_dir = source.join("lib_a");
+    let lib_dir = source.join("liba");
     create_or_warning(&lib_dir)?;
-    // src/lib_a/hello.mbt
+    // src/liba/liba.mbt
     {
-        let hello_mbt = lib_dir.join("hello.mbt");
+        let hello_mbt = lib_dir.join("liba.mbt");
         let content = include_str!(concat!(
             env!("CARGO_MANIFEST_DIR"),
             "/../moonbuild/template/moon_new_template/hello.mbt"
@@ -107,9 +107,9 @@ pub fn moon_new_exec(
         let mut file = std::fs::File::create(hello_mbt).unwrap();
         file.write_all(content.as_bytes()).unwrap();
     }
-    // src/lib_a/hello_test.mbt
+    // src/lib_a/liba_test.mbt
     {
-        let hello_mbt = lib_dir.join("hello_test.mbt");
+        let hello_mbt = lib_dir.join("liba_test.mbt");
         let content = include_str!(concat!(
             env!("CARGO_MANIFEST_DIR"),
             "/../moonbuild/template/moon_new_template/hello_test.mbt"

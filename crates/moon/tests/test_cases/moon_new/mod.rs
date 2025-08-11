@@ -371,10 +371,10 @@ fn test_moon_new_snapshot() {
         ./README.md
         ./moon.mod.json
         ./src/
-        ./src/lib_a/
-        ./src/lib_a/hello.mbt
-        ./src/lib_a/hello_test.mbt
-        ./src/lib_a/moon.pkg.json
+        ./src/liba/
+        ./src/liba/liba.mbt
+        ./src/liba/liba_test.mbt
+        ./src/liba/moon.pkg.json
         ./src/main/
         ./src/main/main.mbt
         ./src/main/moon.pkg.json
@@ -400,29 +400,29 @@ fn test_moon_new_snapshot() {
           "source": "src"
         }
 
-        === ./src/lib_a/hello.mbt ===
+        === ./src/liba/liba.mbt ===
         pub fn hello() -> String {
           "Hello, world!"
         }
 
-        === ./src/lib_a/hello_test.mbt ===
+        === ./src/liba/liba_test.mbt ===
         test "hello" {
           inspect(hello(), content="Hello, world!")
         }
 
-        === ./src/lib_a/moon.pkg.json ===
+        === ./src/liba/moon.pkg.json ===
         {}
 
         === ./src/main/main.mbt ===
         fn main {
-          println(@lib_a.hello())
+          println(@liba.hello())
         }
 
         === ./src/main/moon.pkg.json ===
         {
           "is-main": true,
           "import": [
-            "username/hello/lib_a"
+            "username/hello/liba"
           ]
         }
 
@@ -456,10 +456,10 @@ fn test_moon_new_snapshot() {
         ./README.md
         ./moon.mod.json
         ./src/
-        ./src/lib_a/
-        ./src/lib_a/hello.mbt
-        ./src/lib_a/hello_test.mbt
-        ./src/lib_a/moon.pkg.json
+        ./src/liba/
+        ./src/liba/liba.mbt
+        ./src/liba/liba_test.mbt
+        ./src/liba/moon.pkg.json
         ./src/main/
         ./src/main/main.mbt
         ./src/main/moon.pkg.json
@@ -485,29 +485,29 @@ fn test_moon_new_snapshot() {
           "source": "src"
         }
 
-        === ./src/lib_a/hello.mbt ===
+        === ./src/liba/liba.mbt ===
         pub fn hello() -> String {
           "Hello, world!"
         }
 
-        === ./src/lib_a/hello_test.mbt ===
+        === ./src/liba/liba_test.mbt ===
         test "hello" {
           inspect(hello(), content="Hello, world!")
         }
 
-        === ./src/lib_a/moon.pkg.json ===
+        === ./src/liba/moon.pkg.json ===
         {}
 
         === ./src/main/main.mbt ===
         fn main {
-          println(@lib_a.hello())
+          println(@liba.hello())
         }
 
         === ./src/main/moon.pkg.json ===
         {
           "is-main": true,
           "import": [
-            "moonbitlang/hello/lib_a"
+            "moonbitlang/hello/liba"
           ]
         }
 
