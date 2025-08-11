@@ -443,7 +443,7 @@ impl<'a> From<&'a BenchSubcommand> for TestLikeSubcommand<'a> {
             index: &cmd.index,
             doc_index: &None,
             update: false,
-            limit: 256,
+            limit: 256, // FIXME: unsure about why this default, shouldn't bench have only 1 run?
             auto_sync_flags: &cmd.auto_sync_flags,
             build_only: cmd.build_only,
             no_parallelize: cmd.no_parallelize,
@@ -469,20 +469,43 @@ pub(crate) fn run_test_or_bench_internal(
     }
 
     if cli.unstable_feature.rupes_recta {
-        let ret = rr_build::compile(
-            cli,
-            cmd.auto_sync_flags,
-            cmd.build_flags,
-            source_dir,
-            target_dir,
-            Box::new(calc_user_intent),
-        )?;
-        if !ret.successful() {
-            return Ok(ret.return_code_for_success());
-        }
-        todo!("Run test")
+        run_test_rr(cli, &cmd, source_dir, target_dir)
     } else {
         run_test_or_bench_internal_legacy(cli, cmd, source_dir, target_dir, display_backend_hint)
+    }
+}
+
+fn run_test_rr(
+    cli: &UniversalFlags,
+    cmd: &TestLikeSubcommand<'_>,
+    source_dir: &Path,
+    target_dir: &Path,
+) -> Result<i32, anyhow::Error> {
+    let ret = rr_build::compile(
+        cli,
+        cmd.auto_sync_flags,
+        cmd.build_flags,
+        source_dir,
+        target_dir,
+        Box::new(calc_user_intent),
+    )?;
+    if !ret.successful() {
+        return Ok(ret.return_code_for_success());
+    }
+
+    // Run tests using artifacts
+    let result = crate::run::run_tests(&ret, target_dir)?;
+    println!(
+        "{} tests executed, {} passed, {} failed",
+        result.total,
+        result.passed,
+        result.total - result.passed
+    );
+
+    if result.passed() {
+        Ok(0)
+    } else {
+        Ok(1)
     }
 }
 
@@ -506,7 +529,13 @@ fn calc_user_intent(
                 TargetKind::WhiteboxTest,
                 TargetKind::BlackboxTest,
             ]
-            .map(|x| BuildPlanNode::make_executable(pkg_id.build_target(x)))
+            .into_iter()
+            .flat_map(move |x| {
+                [
+                    BuildPlanNode::make_executable(pkg_id.build_target(x)),
+                    BuildPlanNode::generate_test_info(pkg_id.build_target(x)),
+                ]
+            })
         })
         .collect();
     Ok(nodes)

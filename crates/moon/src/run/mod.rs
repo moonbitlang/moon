@@ -19,7 +19,15 @@
 //! `moon run` facility and friends
 
 mod child;
+mod runtest;
 mod runtime;
 
 pub use child::run;
+pub use runtest::run_tests;
 pub use runtime::command_for;
+
+pub fn default_rt() -> std::io::Result<tokio::runtime::Runtime> {
+    tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+}
