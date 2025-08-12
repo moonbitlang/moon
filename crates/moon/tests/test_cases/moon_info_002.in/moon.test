@@ -2,7 +2,7 @@
   
   Finished. moon: ran 1 task, now up to date
   
-  $ xcat lib/lib.mbti
+  $ xcat lib/pkg.generated.mbti
   // Generated using `moon info`, DON'T EDIT IT
   package "username/hello/lib"
   

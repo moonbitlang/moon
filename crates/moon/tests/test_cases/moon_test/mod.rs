@@ -151,12 +151,12 @@ fn test_moon_test_with_local_dep() {
             lib
             lib/hello.mbt
             lib/hello_wbtest.mbt
-            lib/lib.mbti
             lib/moon.pkg.json
+            lib/pkg.generated.mbti
             main
             main/main.mbt
-            main/main.mbti
             main/moon.pkg.json
+            main/pkg.generated.mbti
             mods
             mods/lijunchen
             mods/lijunchen/mooncake

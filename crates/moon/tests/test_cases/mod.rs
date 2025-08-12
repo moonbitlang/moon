@@ -22,7 +22,8 @@ use super::*;
 use expect_test::expect;
 use moonutil::{
     common::{
-        get_cargo_pkg_version, CargoPathExt, StringExt, TargetBackend, DEP_PATH, MOON_MOD_JSON,
+        get_cargo_pkg_version, CargoPathExt, StringExt, TargetBackend, DEP_PATH, MBTI_GENERATED,
+        MOON_MOD_JSON,
     },
     module::MoonModJSON,
 };
@@ -4501,12 +4502,12 @@ fn moon_info_specific_package() {
 
     // exact match
     get_stdout(&dir, ["info", "--package", "moon_new/main"]);
-    assert!(dir.join("main/main.mbti").exists());
-    assert!(!dir.join("lib/lib.mbti").exists());
+    assert!(dir.join("main/").join(MBTI_GENERATED).exists());
+    assert!(!dir.join("lib/").join(MBTI_GENERATED).exists());
 
     // fuzzy match
     get_stdout(&dir, ["info", "--package", "lib"]);
-    assert!(dir.join("lib/lib.mbti").exists());
+    assert!(dir.join("lib/").join(MBTI_GENERATED).exists());
 
     let content = get_err_stderr(&dir, ["info", "--package", "moon_new/does_not_exist"]);
     assert!(content.contains("package `moon_new/does_not_exist` not found, make sure you have spelled it correctly, e.g. `moonbitlang/core/hashmap`(exact match) or `hashmap`(fuzzy match)"));
