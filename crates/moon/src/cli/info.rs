@@ -30,7 +30,7 @@ use moonutil::{
     common::{
         lower_surface_targets, read_module_desc_file_in_dir, DiagnosticLevel, FileLock,
         MoonbuildOpt, MooncOpt, PrePostBuild, RunMode, SurfaceTarget, TargetBackend,
-        MOONBITLANG_CORE, MOON_MOD_JSON,
+        MBTI_GENERATED, MOONBITLANG_CORE, MOON_MOD_JSON,
     },
     dirs::{mk_arch_mode_dir, PackageDirs},
     mooncakes::{sync::AutoSyncFlags, RegistryConfig},
@@ -277,7 +277,6 @@ pub fn run_info_internal(
                 bail!("cannot find mi file for package {}", name);
             }
             let filepath = mi.with_extension("mbti");
-            let filename = filepath.file_name().unwrap().to_str().unwrap();
 
             let mut args = vec![
                 "-format=text".into(),
@@ -305,7 +304,7 @@ pub fn run_info_internal(
                         &filepath,
                         &module_source_dir
                             .join(pkg.rel.fs_full_name())
-                            .join(filename),
+                            .join(MBTI_GENERATED),
                     )
                     .await?;
                 }
