@@ -35,6 +35,8 @@ use std::path::{Path, PathBuf};
 
 pub const MOON_MOD_JSON: &str = "moon.mod.json";
 pub const MOON_PKG_JSON: &str = "moon.pkg.json";
+pub const MBTI_GENERATED: &str = "pkg.generated.mbti";
+pub const MBTI_USER_WRITTEN: &str = "pkg.mbti";
 pub const MOON_PID_NAME: &str = ".moon.pid";
 pub const MOONBITLANG_CORE: &str = "moonbitlang/core";
 pub const MOONBITLANG_COVERAGE: &str = "moonbitlang/core/coverage";

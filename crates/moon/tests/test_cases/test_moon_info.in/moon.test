@@ -5,4 +5,4 @@
   Finished. moon: ran 1 task, now up to date
   
   $ xls lib
-  lib.mbt lib.mbti moon.pkg.json
+  lib.mbt moon.pkg.json pkg.generated.mbti
