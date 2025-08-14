@@ -322,19 +322,29 @@ pub struct ArchiverConfig {
     pub archive_moonbitrun: bool,
 }
 
-pub fn make_archiver_command<S>(
-    cc: CC,
-    user_cc: Option<CC>,
-    config: ArchiverConfig,
-    src: &[S],
-    dest: &str,
-) -> Vec<String>
-where
-    S: AsRef<str>,
-{
-    let cc = ENV_CC.clone().unwrap_or_else(|| user_cc.unwrap_or(cc));
-    let mut buf = vec![cc.ar_path.clone()];
+/// Resolve the C compiler to use from global state
+pub fn resolve_cc(cc: CC, user_cc: Option<CC>) -> CC {
+    ENV_CC.clone().unwrap_or_else(|| user_cc.unwrap_or(cc))
+}
 
+// Struct to hold path configuration for commands
+#[derive(Clone)]
+pub struct CompilerPaths {
+    pub include_path: String,
+    pub lib_path: String,
+}
+
+impl CompilerPaths {
+    pub fn from_moon_dirs() -> Self {
+        Self {
+            include_path: MOON_DIRS.moon_include_path.display().to_string(),
+            lib_path: MOON_DIRS.moon_lib_path.display().to_string(),
+        }
+    }
+}
+
+// Helper functions for archiver command building
+fn add_archiver_flags(cc: &CC, buf: &mut Vec<String>, dest: &str) {
     if cc.is_msvc() {
         buf.push("/nologo".to_string());
         buf.push(format!("/Out:{dest}"));
@@ -352,7 +362,10 @@ where
     } else {
         panic!("Unsupported archiver");
     }
+}
 
+// Archiver compiler-specific handling for moonbitrun
+fn add_archiver_moonbitrun_with_warnings(cc: &CC, buf: &mut Vec<String>, config: &ArchiverConfig) {
     if cc.is_libmoonbitrun_o_available() && config.archive_moonbitrun {
         if cc.is_tcc() {
             eprintln!(
@@ -369,34 +382,47 @@ where
             );
         }
     }
+}
 
+pub fn make_archiver_command<S>(
+    cc: CC,
+    user_cc: Option<CC>,
+    config: ArchiverConfig,
+    src: &[S],
+    dest: &str,
+) -> Vec<String>
+where
+    S: AsRef<str>,
+{
+    let resolved_cc = resolve_cc(cc, user_cc);
+    make_archiver_command_pure(resolved_cc, config, src, dest)
+}
+
+pub fn make_archiver_command_pure<S>(
+    cc: CC,
+    config: ArchiverConfig,
+    src: &[S],
+    dest: &str,
+) -> Vec<String>
+where
+    S: AsRef<str>,
+{
+    let mut buf = vec![cc.ar_path.clone()];
+
+    add_archiver_flags(&cc, &mut buf, dest);
+    add_archiver_moonbitrun_with_warnings(&cc, &mut buf, &config);
     buf.extend(src.iter().map(|s| s.as_ref().to_string()));
 
     buf
 }
 
-pub fn make_linker_command<S, P>(
-    cc: CC,
-    user_cc: Option<CC>,
-    config: LinkerConfig<P>,
-    user_link_flags: &[S],
-    src: &[S],
-    dest_dir: &str,
+// Helper functions for linker command building
+fn add_linker_output_flags(
+    cc: &CC,
+    buf: &mut Vec<String>,
+    config: &LinkerConfig<impl AsRef<Path>>,
     dest: &str,
-) -> Vec<String>
-where
-    S: AsRef<str>,
-    P: AsRef<Path>,
-{
-    let cc = ENV_CC.clone().unwrap_or_else(|| user_cc.unwrap_or(cc));
-    let mut buf = vec![cc.cc_path.clone()];
-    let lpath = &MOON_DIRS.moon_lib_path.display().to_string();
-    // if user_link_flags is set, we only set necessary flags
-    // that are tightly coupled with the paths and output types
-    // as user cannot easily specify them in the configuration file
-    let has_user_flags = !user_link_flags.is_empty();
-
-    // Output file
+) {
     if cc.is_msvc() {
         match config.output_ty {
             OutputType::SharedLib | OutputType::Executable => {
@@ -409,23 +435,36 @@ where
         buf.push("-o".to_string());
         buf.push(dest.to_string());
     }
+}
 
-    // Library paths
+fn add_linker_library_paths<P: AsRef<Path>>(
+    cc: &CC,
+    buf: &mut Vec<String>,
+    config: &LinkerConfig<P>,
+    lpath: &str,
+) {
     if cc.is_gcc_like() {
         buf.push(format!("-L{lpath}"));
         if let Some(dyn_lib_path) = config.link_shared_runtime.as_ref() {
             buf.push(format!("-L{}", dyn_lib_path.as_ref().display()));
         }
-    };
+    }
+}
 
+fn add_linker_intermediate_dir_flags(cc: &CC, buf: &mut Vec<String>, dest_dir: &str) {
     // MSVC may throw intermediate files into current directory
     // Explicitly set the output directory of these files
     if cc.is_msvc() {
         // /F(object)
         buf.push(format!("/Fo{dest_dir}\\"));
     }
+}
 
-    // Build shared library
+fn add_linker_shared_lib_flags(
+    cc: &CC,
+    buf: &mut Vec<String>,
+    config: &LinkerConfig<impl AsRef<Path>>,
+) {
     if config.output_ty == OutputType::SharedLib {
         if cc.is_msvc() {
             buf.push("/LD".to_string());
@@ -434,12 +473,21 @@ where
             buf.push("-fPIC".to_string());
         }
     }
+}
 
-    // Misc options
+// Linker compiler-specific flags
+fn add_linker_msvc_specific_flags(cc: &CC, buf: &mut Vec<String>, has_user_flags: bool) {
     if cc.is_msvc() && !has_user_flags {
         buf.push("/nologo".to_string());
     }
+}
 
+// Linker compiler-specific handling for moonbitrun
+fn add_linker_moonbitrun_with_warnings(
+    cc: &CC,
+    buf: &mut Vec<String>,
+    config: &LinkerConfig<impl AsRef<Path>>,
+) {
     if config.link_moonbitrun && cc.is_libmoonbitrun_o_available() {
         if cc.is_tcc() {
             eprintln!(
@@ -456,10 +504,13 @@ where
             );
         }
     }
+}
 
-    buf.extend(src.iter().map(|s| s.as_ref().to_string()));
-
-    // Link against some common libraries
+fn add_linker_common_libraries<P: AsRef<Path>>(
+    cc: &CC,
+    buf: &mut Vec<String>,
+    config: &LinkerConfig<P>,
+) {
     if cc.is_gcc_like() {
         if cc.is_full_featured_gcc_like() {
             buf.push("-lm".to_string());
@@ -469,7 +520,14 @@ where
             buf.push(format!("-Wl,-rpath,{}", dyn_lib_path.as_ref().display()));
         }
     }
+}
 
+fn add_linker_msvc_runtime<P: AsRef<Path>>(
+    cc: &CC,
+    buf: &mut Vec<String>,
+    config: &LinkerConfig<P>,
+    lpath: &str,
+) {
     if cc.is_msvc() {
         if let Some(dyn_lib_path) = config.link_shared_runtime.as_ref() {
             buf.push(
@@ -483,35 +541,75 @@ where
         buf.push("/link".to_string());
         buf.push(format!("/LIBPATH:{lpath}"));
     }
-
-    buf.extend(user_link_flags.iter().map(|s| s.as_ref().to_string()));
-
-    buf
 }
 
-pub fn make_cc_command<S>(
+pub fn make_linker_command<S, P>(
     cc: CC,
     user_cc: Option<CC>,
-    config: CCConfig,
-    user_cc_flags: &[S],
+    config: LinkerConfig<P>,
+    user_link_flags: &[S],
     src: &[S],
     dest_dir: &str,
     dest: &str,
 ) -> Vec<String>
 where
     S: AsRef<str>,
+    P: AsRef<Path>,
 {
-    let cc = ENV_CC.clone().unwrap_or_else(|| user_cc.unwrap_or(cc));
-    let mut buf = vec![cc.cc_path.clone()];
-    let ipath = &MOON_DIRS.moon_include_path.display().to_string();
-    let lpath = &MOON_DIRS.moon_lib_path.display().to_string();
+    let resolved_cc = resolve_cc(cc, user_cc);
+    let lib_path = &MOON_DIRS.moon_lib_path.display().to_string();
+    make_linker_command_pure(
+        resolved_cc,
+        config,
+        user_link_flags,
+        src,
+        dest_dir,
+        dest,
+        lib_path,
+    )
+}
 
-    // if user_cc_flags is set, we only set necessary flags
+pub fn make_linker_command_pure<S, P>(
+    cc: CC,
+    config: LinkerConfig<P>,
+    user_link_flags: &[S],
+    src: &[S],
+    dest_dir: &str,
+    dest: &str,
+    lpath: &str,
+) -> Vec<String>
+where
+    S: AsRef<str>,
+    P: AsRef<Path>,
+{
+    let mut buf = vec![cc.cc_path.clone()];
+    // if user_link_flags is set, we only set necessary flags
     // that are tightly coupled with the paths and output types
     // as user cannot easily specify them in the configuration file
-    let has_user_flags = !user_cc_flags.is_empty();
+    let has_user_flags = !user_link_flags.is_empty();
 
-    // Output file
+    add_linker_output_flags(&cc, &mut buf, &config, dest);
+    add_linker_library_paths(&cc, &mut buf, &config, lpath);
+    add_linker_intermediate_dir_flags(&cc, &mut buf, dest_dir);
+    add_linker_shared_lib_flags(&cc, &mut buf, &config);
+
+    // Linker compiler-specific flags
+    add_linker_msvc_specific_flags(&cc, &mut buf, has_user_flags);
+
+    add_linker_moonbitrun_with_warnings(&cc, &mut buf, &config);
+
+    buf.extend(src.iter().map(|s| s.as_ref().to_string()));
+
+    add_linker_common_libraries(&cc, &mut buf, &config);
+    add_linker_msvc_runtime(&cc, &mut buf, &config, lpath);
+
+    buf.extend(user_link_flags.iter().map(|s| s.as_ref().to_string()));
+
+    buf
+}
+
+// Helper functions for CC command building
+fn add_cc_output_flags(cc: &CC, buf: &mut Vec<String>, config: &CCConfig, dest: &str) {
     if cc.is_msvc() {
         match config.output_ty {
             OutputType::Object => {
@@ -525,27 +623,37 @@ where
         buf.push("-o".to_string());
         buf.push(dest.to_string());
     }
+}
 
-    // Include and lib paths
+fn add_cc_include_and_lib_paths(cc: &CC, buf: &mut Vec<String>, ipath: &str, lpath: &str) {
     if cc.is_msvc() {
         buf.push(format!("/I{ipath}"));
     } else if cc.is_gcc_like() {
         buf.push(format!("-I{ipath}"));
         buf.push(format!("-L{lpath}"));
-    };
+    }
+}
 
+fn add_cc_intermediate_dir_flags(
+    cc: &CC,
+    buf: &mut Vec<String>,
+    config: &CCConfig,
+    dest_dir: &str,
+) {
     // MSVC may throw intermediate files into current directory
     // Explicitly set the output directory of these files
     if cc.is_msvc() && config.output_ty != OutputType::Object {
         buf.push(format!("/Fo{dest_dir}\\"));
     }
+}
 
-    // Generate debug info
+fn add_cc_debug_flags(cc: &CC, buf: &mut Vec<String>, config: &CCConfig) {
     if config.debug_info && cc.is_gcc_like() {
         buf.push("-g".to_string());
     }
+}
 
-    // Build shared library
+fn add_cc_shared_lib_flags(cc: &CC, buf: &mut Vec<String>, config: &CCConfig) {
     if config.output_ty == OutputType::SharedLib {
         if cc.is_msvc() {
             buf.push("/LD".to_string());
@@ -554,8 +662,9 @@ where
             buf.push("-fPIC".to_string());
         }
     }
+}
 
-    // Compile without linking
+fn add_cc_compile_only_flags(cc: &CC, buf: &mut Vec<String>, config: &CCConfig) {
     if config.output_ty == OutputType::Object {
         if cc.is_msvc() {
             buf.push("/c".to_string());
@@ -563,21 +672,51 @@ where
             buf.push("-c".to_string());
         }
     }
+}
 
-    // Misc options
-    if cc.is_msvc() && !has_user_flags {
+// Compiler-specific flags grouped together
+fn add_cc_msvc_specific_flags(cc: &CC, buf: &mut Vec<String>, has_user_flags: bool) {
+    if !cc.is_msvc() {
+        return;
+    }
+
+    // MSVC-specific misc options
+    if !has_user_flags {
         buf.push("/utf-8".to_string());
         buf.push("/wd4819".to_string());
         buf.push("/nologo".to_string());
     }
+}
 
+fn add_cc_gcc_like_specific_flags(cc: &CC, buf: &mut Vec<String>) {
     // the below flags are needed, ref: https://github.com/moonbitlang/core/issues/1594#issuecomment-2649652455
     if cc.is_full_featured_gcc_like() {
         buf.push("-fwrapv".to_string());
         buf.push("-fno-strict-aliasing".to_string());
     }
+}
 
-    // Optimization level
+fn add_cc_tcc_specific_flags(cc: &CC, buf: &mut Vec<String>, config: &CCConfig) {
+    if !cc.is_tcc() {
+        return;
+    }
+
+    if config.no_sys_header {
+        buf.push("-DMOONBIT_NATIVE_NO_SYS_HEADER".to_string());
+    } else {
+        eprintln!(
+            "{}: Use tcc without set MOONBIT_NATIVE_NO_SYS_HEADER.",
+            "Warning".yellow().bold(),
+        );
+    }
+}
+
+fn add_cc_optimization_flags(
+    cc: &CC,
+    buf: &mut Vec<String>,
+    config: &CCConfig,
+    has_user_flags: bool,
+) {
     if !has_user_flags {
         match config.opt_level {
             OptLevel::Speed => {
@@ -610,18 +749,9 @@ where
             }
         }
     }
+}
 
-    if cc.is_tcc() {
-        if config.no_sys_header {
-            buf.push("-DMOONBIT_NATIVE_NO_SYS_HEADER".to_string());
-        } else {
-            eprintln!(
-                "{}: Use tcc without set MOONBIT_NATIVE_NO_SYS_HEADER.",
-                "Warning".yellow().bold(),
-            );
-        }
-    }
-
+fn add_cc_shared_runtime_flags(cc: &CC, buf: &mut Vec<String>, config: &CCConfig) {
     // always set this even if user_cc_flags is set
     // user cannot easily know when we use shared runtime
     if config.define_use_shared_runtime_macro {
@@ -632,7 +762,10 @@ where
             buf.push("-DMOONBIT_USE_SHARED_RUNTIME".to_string());
         }
     }
+}
 
+// CC compiler-specific handling for moonbitrun
+fn add_cc_moonbitrun_with_warnings(cc: &CC, buf: &mut Vec<String>, config: &CCConfig) {
     if config.output_ty != OutputType::Object
         && config.link_moonbitrun
         && cc.is_libmoonbitrun_o_available()
@@ -652,20 +785,86 @@ where
             );
         }
     }
-    buf.extend(src.iter().map(|s| s.as_ref().to_string()));
+}
 
-    // Link against some common libraries
+fn add_cc_common_libraries(cc: &CC, buf: &mut Vec<String>, config: &CCConfig) {
     if cc.is_full_featured_gcc_like() && config.output_ty != OutputType::Object {
         buf.push("-lm".to_string());
     }
+}
 
-    buf.extend(user_cc_flags.iter().map(|s| s.as_ref().to_string()));
-
-    // MSVC specific linker flags
+fn add_cc_msvc_linker_flags(cc: &CC, buf: &mut Vec<String>, config: &CCConfig, lpath: &str) {
     if cc.is_msvc() && config.output_ty != OutputType::Object {
         buf.push("/link".to_string());
         buf.push(format!("/LIBPATH:{lpath}"));
     }
+}
+
+pub fn make_cc_command<S>(
+    cc: CC,
+    user_cc: Option<CC>,
+    config: CCConfig,
+    user_cc_flags: &[S],
+    src: &[S],
+    dest_dir: &str,
+    dest: &str,
+) -> Vec<String>
+where
+    S: AsRef<str>,
+{
+    let resolved_cc = resolve_cc(cc, user_cc);
+    let paths = CompilerPaths::from_moon_dirs();
+    make_cc_command_pure(
+        resolved_cc,
+        config,
+        user_cc_flags,
+        src,
+        dest_dir,
+        dest,
+        &paths,
+    )
+}
+
+pub fn make_cc_command_pure<S>(
+    cc: CC,
+    config: CCConfig,
+    user_cc_flags: &[S],
+    src: &[S],
+    dest_dir: &str,
+    dest: &str,
+    paths: &CompilerPaths,
+) -> Vec<String>
+where
+    S: AsRef<str>,
+{
+    let mut buf = vec![cc.cc_path.clone()];
+
+    // if user_cc_flags is set, we only set necessary flags
+    // that are tightly coupled with the paths and output types
+    // as user cannot easily specify them in the configuration file
+    let has_user_flags = !user_cc_flags.is_empty();
+
+    add_cc_output_flags(&cc, &mut buf, &config, dest);
+    add_cc_include_and_lib_paths(&cc, &mut buf, &paths.include_path, &paths.lib_path);
+    add_cc_intermediate_dir_flags(&cc, &mut buf, &config, dest_dir);
+    add_cc_debug_flags(&cc, &mut buf, &config);
+    add_cc_shared_lib_flags(&cc, &mut buf, &config);
+    add_cc_compile_only_flags(&cc, &mut buf, &config);
+
+    // Compiler-specific flags
+    add_cc_msvc_specific_flags(&cc, &mut buf, has_user_flags);
+    add_cc_gcc_like_specific_flags(&cc, &mut buf);
+    add_cc_tcc_specific_flags(&cc, &mut buf, &config);
+
+    add_cc_optimization_flags(&cc, &mut buf, &config, has_user_flags);
+    add_cc_shared_runtime_flags(&cc, &mut buf, &config);
+    add_cc_moonbitrun_with_warnings(&cc, &mut buf, &config);
+
+    buf.extend(src.iter().map(|s| s.as_ref().to_string()));
+
+    add_cc_common_libraries(&cc, &mut buf, &config);
+    buf.extend(user_cc_flags.iter().map(|s| s.as_ref().to_string()));
+    add_cc_msvc_linker_flags(&cc, &mut buf, &config, &paths.lib_path);
 
     buf
 }
