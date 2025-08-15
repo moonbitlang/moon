@@ -34,18 +34,6 @@ pub enum RunAction {
     Test,
 }
 
-/// Represents the actions performed on a single build target.
-#[deprecated]
-#[derive(Clone, Debug, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub enum TargetAction {
-    Check,
-    Build,
-    BuildCStubs,
-    LinkCore,
-    MakeExecutable,
-    GenerateTestInfo,
-}
-
 #[derive(Clone, Debug, Copy, PartialEq, Eq, Hash, Ord, PartialOrd)]
 pub enum TargetKind {
     Source,
