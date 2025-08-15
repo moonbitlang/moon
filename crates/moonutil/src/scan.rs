@@ -34,7 +34,8 @@ use walkdir::WalkDir;
 
 use crate::common::{
     read_module_desc_file_in_dir, MoonbuildOpt, TargetBackend, DEP_PATH, DOT_MBL, DOT_MBT_DOT_MD,
-    DOT_MBY, IGNORE_DIRS, MOONBITLANG_ABORT, MOON_MOD_JSON, MOON_PKG_JSON, SUB_PKG_POSTFIX,
+    DOT_MBY, IGNORE_DIRS, MBTI_USER_WRITTEN, MOONBITLANG_ABORT, MOON_MOD_JSON, MOON_PKG_JSON,
+    SUB_PKG_POSTFIX,
 };
 
 /// Matches an import string to scan paths.
@@ -564,7 +565,12 @@ fn scan_one_package(
             .and_then(|x| if x.is_empty() { None } else { Some(x) }),
 
         virtual_mbti_file: if pkg.virtual_pkg.is_some() {
-            let virtual_mbti_file = pkg_path.join(format!(
+            // Currently we accept both `pkg.mbti` and `<pkg_short_name>.mbti`,
+            // preferring the former if both are available.
+            let new_virtual_mbti_file = pkg_path.join(MBTI_USER_WRITTEN);
+            let has_new_mbti = new_virtual_mbti_file.exists();
+
+            let legacy_virtual_mbti_file = pkg_path.join(format!(
                 "{}.mbti",
                 rel.file_name()
                     .map(|x| x.to_string_lossy())
@@ -575,13 +581,19 @@ fn scan_one_package(
                         .expect("Empty module name")
                         .into())
             ));
-            if !virtual_mbti_file.exists() {
+            let has_legacy_mbti = legacy_virtual_mbti_file.exists();
+
+            if has_new_mbti {
+                Some(new_virtual_mbti_file)
+            } else if has_legacy_mbti {
+                // TODO: warn about legacy MBTI filename later
+                Some(legacy_virtual_mbti_file)
+            } else {
                 anyhow::bail!(
                     "virtual mbti file `{}` not found",
-                    virtual_mbti_file.display()
+                    legacy_virtual_mbti_file.display()
                 );
             }
-            Some(virtual_mbti_file)
         } else {
             None
         },
