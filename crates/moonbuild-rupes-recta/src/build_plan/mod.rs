@@ -139,10 +139,10 @@ pub enum BuildActionSpec {
     /// Build the given list of MoonBit source files.
     ///
     /// Outgoing edges of this node represents the direct dependencies.
-    BuildMbt(BuildTargetInfo),
+    BuildCore(BuildTargetInfo),
 
     /// Build the given list of C source files.
-    BuildC(Vec<PathBuf>),
+    BuildCStubs(Vec<PathBuf>),
 
     /// Link the core files from the given list of targets, **in order**.
     ///
@@ -155,14 +155,20 @@ pub enum BuildActionSpec {
     /// if any.
     MakeExecutable { link_c_stubs: Vec<BuildTarget> },
 
+    /// Generates the test driver for the given target
+    GenerateTestInfo(BuildTargetInfo),
+
+    /// Format the given target's source files.
+    Format(BuildTargetInfo),
+
     /// Generate the MBTI file for the given package.
     GenerateMbti,
 
     /// Bundle the packages specified by the outgoing edges.
     Bundle,
 
-    /// Generates the test driver for the given target
-    GenerateTestDriver(BuildTargetInfo),
+    /// Build the runtime library for the speific target
+    BuildRuntimeLib,
 }
 
 /// Represents the environment in which the build is being performed.
@@ -327,6 +333,7 @@ impl<'a> BuildPlanConstructor<'a> {
             BuildPlanNode::Format(target) => self.build_format(node, target),
             BuildPlanNode::Bundle(module_id) => self.build_bundle(node, module_id),
             BuildPlanNode::BuildRuntimeLib => self.build_runtime_lib(node),
+            BuildPlanNode::GenerateMbti(_target) => todo!(),
         }
     }
 
@@ -391,7 +398,7 @@ impl<'a> BuildPlanConstructor<'a> {
 
         self.resolved_node(
             node,
-            BuildActionSpec::BuildMbt(self.target_info_of(target)?),
+            BuildActionSpec::BuildCore(self.target_info_of(target)?),
         );
 
         Ok(())
@@ -404,7 +411,7 @@ impl<'a> BuildPlanConstructor<'a> {
     ) -> Result<(), BuildPlanConstructError> {
         self.need_node(node);
         let target_info = self.target_info_of(target)?; // FIXME: cache this
-        self.resolved_node(node, BuildActionSpec::GenerateTestDriver(target_info));
+        self.resolved_node(node, BuildActionSpec::GenerateTestInfo(target_info));
         Ok(())
     }
 
@@ -442,7 +449,7 @@ impl<'a> BuildPlanConstructor<'a> {
         // Resolve the C stub files
         let pkg = self.packages.get_package(target.package);
         let c_source = pkg.c_stub_files.clone();
-        self.resolved_node(node, BuildActionSpec::BuildC(c_source));
+        self.resolved_node(node, BuildActionSpec::BuildCStubs(c_source));
 
         Ok(())
     }
