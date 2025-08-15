@@ -94,6 +94,7 @@ pub enum BuildPlanNode {
     MakeExecutable(BuildTarget),
     GenerateTestInfo(BuildTarget),
     Format(BuildTarget),
+    GenerateMbti(BuildTarget),
     Bundle(ModuleId),
     BuildRuntimeLib,
 }
@@ -132,7 +133,8 @@ impl BuildPlanNode {
             | BuildPlanNode::LinkCore(target)
             | BuildPlanNode::MakeExecutable(target)
             | BuildPlanNode::GenerateTestInfo(target)
-            | BuildPlanNode::Format(target) => Some(target),
+            | BuildPlanNode::Format(target)
+            | BuildPlanNode::GenerateMbti(target) => Some(target),
             BuildPlanNode::Bundle(_) | BuildPlanNode::BuildRuntimeLib => None,
         }
     }

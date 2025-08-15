@@ -184,13 +184,13 @@ impl<'a> BuildPlanLowerContext<'a> {
                 package,
                 info,
             ),
-            BuildActionSpec::BuildMbt(info) => self.lower_build_mbt(
+            BuildActionSpec::BuildCore(info) => self.lower_build_mbt(
                 node,
                 target.expect("BuildMbt nodes must have a target"),
                 package,
                 info,
             ),
-            BuildActionSpec::BuildC(_path_bufs) => todo!(),
+            BuildActionSpec::BuildCStubs(_path_bufs) => todo!(),
             BuildActionSpec::LinkCore(info) => self.lower_link_core(
                 node,
                 target.expect("LinkCore nodes must have a target"),
@@ -203,12 +203,14 @@ impl<'a> BuildPlanLowerContext<'a> {
             }
             BuildActionSpec::GenerateMbti => todo!(),
             BuildActionSpec::Bundle => todo!(),
-            BuildActionSpec::GenerateTestDriver(info) => self.lower_gen_test_driver(
+            BuildActionSpec::GenerateTestInfo(info) => self.lower_gen_test_driver(
                 node,
                 target.expect("GenerateTestDriver nodes must have a target"),
                 package,
                 info,
             ),
+            BuildActionSpec::Format(_info) => todo!(),
+            BuildActionSpec::BuildRuntimeLib => todo!(),
         };
 
         // Collect n2 inputs and outputs.
@@ -291,13 +293,12 @@ impl<'a> BuildPlanLowerContext<'a> {
                 // TODO: Implement if needed
             }
             BuildPlanNode::Bundle(_module_id) => {
-                // Bundle nodes produce different artifacts
-                // TODO: Implement bundle artifact handling
+                todo!()
             }
             BuildPlanNode::BuildRuntimeLib => {
-                // Runtime lib artifacts
-                // TODO: Implement runtime lib artifact handling
+                todo!()
             }
+            BuildPlanNode::GenerateMbti(_target) => todo!(),
         }
     }
 
