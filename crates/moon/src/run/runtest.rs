@@ -28,7 +28,7 @@ use moonbuild::{
     runtest::TestStatistics,
     section_capture::SectionCapture,
 };
-use moonbuild_rupes_recta::model::{BuildPlanNode, BuildTarget, TargetAction};
+use moonbuild_rupes_recta::model::{BuildPlanNode, BuildTarget};
 use moonutil::common::{
     MooncGenTestInfo, MOON_COVERAGE_DELIMITER_BEGIN, MOON_COVERAGE_DELIMITER_END,
     MOON_TEST_DELIMITER_BEGIN, MOON_TEST_DELIMITER_END,
@@ -102,32 +102,34 @@ fn gather_tests(ret: &CompileOutput) -> Vec<TestExecutableToRun<'_>> {
     let mut results = vec![];
 
     for artifacts in &ret.artifacts {
-        let corresponding = match artifacts.node.action {
-            TargetAction::MakeExecutable => TargetAction::GenerateTestInfo,
-            TargetAction::GenerateTestInfo => TargetAction::MakeExecutable,
-            _ => unreachable!(),
+        let (corresponding_node, current_target) = match artifacts.node {
+            BuildPlanNode::MakeExecutable(target) => {
+                (BuildPlanNode::GenerateTestInfo(target), target)
+            }
+            BuildPlanNode::GenerateTestInfo(target) => {
+                (BuildPlanNode::MakeExecutable(target), target)
+            }
+            _ => continue, // Skip non-test related nodes
         };
-        let removed = pending.remove(&BuildPlanNode {
-            target: artifacts.node.target,
-            action: corresponding,
-        });
-        let artifact = match artifacts.node.action {
+
+        let removed = pending.remove(&corresponding_node);
+        let artifact = match artifacts.node {
             // FIXME: artifact index relies on implementation of append_artifact_of
-            TargetAction::MakeExecutable => &artifacts.artifacts[0],
-            TargetAction::GenerateTestInfo => &artifacts.artifacts[1],
+            BuildPlanNode::MakeExecutable(_) => &artifacts.artifacts[0],
+            BuildPlanNode::GenerateTestInfo(_) => &artifacts.artifacts[1],
             _ => unreachable!(),
         };
 
-        let (exec, meta) = match (removed, artifacts.node.action) {
-            (Some(other), TargetAction::GenerateTestInfo) => (other, artifact),
-            (Some(other), TargetAction::MakeExecutable) => (artifact, other),
+        let (exec, meta) = match (removed, artifacts.node) {
+            (Some(other), BuildPlanNode::GenerateTestInfo(_)) => (other, artifact),
+            (Some(other), BuildPlanNode::MakeExecutable(_)) => (artifact, other),
             _ => {
                 pending.insert(artifacts.node, artifact);
                 continue;
             }
         };
         results.push(TestExecutableToRun {
-            target: artifacts.node.target,
+            target: current_target,
             executable: exec,
             meta,
         });

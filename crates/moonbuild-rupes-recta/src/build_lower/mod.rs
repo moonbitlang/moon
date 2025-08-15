@@ -155,8 +155,7 @@ struct BuildPlanLowerContext<'a> {
 impl<'a> BuildPlanLowerContext<'a> {
     /// Some nodes are no-op in n2 build graph. Early bailing.
     fn is_node_noop(&self, node: BuildPlanNode) -> bool {
-        (!self.opt.target_backend.is_native())
-            && matches!(node.action, crate::model::TargetAction::MakeExecutable)
+        (!self.opt.target_backend.is_native()) && matches!(node, BuildPlanNode::MakeExecutable(_))
     }
 
     fn lower_node(&mut self, node: BuildPlanNode) -> Result<(), LoweringError> {
@@ -168,23 +167,48 @@ impl<'a> BuildPlanLowerContext<'a> {
             .build_plan
             .get_spec(node)
             .expect("Node should be valid");
-        let package = self.packages.get_package(node.target.package);
+
+        let target = node.extract_target();
+        let package = if let Some(target) = target {
+            self.packages.get_package(target.package)
+        } else {
+            // For nodes without targets (Bundle, BuildRuntimeLib), we'll handle them differently
+            todo!("Handle nodes without targets")
+        };
 
         // Lower the action to its commands. This step should be infallible.
         let cmd = match spec {
-            BuildActionSpec::Check(info) => self.lower_check(node, package, info),
-            BuildActionSpec::BuildMbt(info) => self.lower_build_mbt(node, package, info),
+            BuildActionSpec::Check(info) => self.lower_check(
+                node,
+                target.expect("Check nodes must have a target"),
+                package,
+                info,
+            ),
+            BuildActionSpec::BuildMbt(info) => self.lower_build_mbt(
+                node,
+                target.expect("BuildMbt nodes must have a target"),
+                package,
+                info,
+            ),
             BuildActionSpec::BuildC(_path_bufs) => todo!(),
-            BuildActionSpec::LinkCore(info) => self.lower_link_core(node, package, info),
+            BuildActionSpec::LinkCore(info) => self.lower_link_core(
+                node,
+                target.expect("LinkCore nodes must have a target"),
+                package,
+                info,
+            ),
             BuildActionSpec::MakeExecutable { link_c_stubs: _ } => {
                 // TODO: Native targets need another linking step
                 panic!("Native make-executable not supported yet")
             }
             BuildActionSpec::GenerateMbti => todo!(),
             BuildActionSpec::Bundle => todo!(),
-            BuildActionSpec::GenerateTestDriver(info) => {
-                self.lower_gen_test_driver(node, package, info)
-            }
+            BuildActionSpec::GenerateTestDriver(info) => self.lower_gen_test_driver(
+                node,
+                target.expect("GenerateTestDriver nodes must have a target"),
+                package,
+                info,
+            ),
         };
 
         // Collect n2 inputs and outputs.
@@ -219,48 +243,60 @@ impl<'a> BuildPlanLowerContext<'a> {
 
     /// Append the output artifacts of the given node to the provided vector.
     fn append_artifact_of(&self, node: BuildPlanNode, out: &mut Vec<PathBuf>) {
-        match node.action {
-            crate::model::TargetAction::Check => {
+        match node {
+            BuildPlanNode::Check(target) => {
                 out.push(self.layout.mi_of_build_target(
                     self.packages,
-                    &node.target,
+                    &target,
                     self.opt.target_backend,
                 ));
             }
-            crate::model::TargetAction::Build => {
+            BuildPlanNode::BuildCore(target) => {
                 out.push(self.layout.mi_of_build_target(
                     self.packages,
-                    &node.target,
+                    &target,
                     self.opt.target_backend,
                 ));
                 out.push(self.layout.core_of_build_target(
                     self.packages,
-                    &node.target,
+                    &target,
                     self.opt.target_backend,
                 ));
             }
-            crate::model::TargetAction::BuildCStubs => todo!("artifacts of build c stubs"),
-            crate::model::TargetAction::LinkCore | crate::model::TargetAction::MakeExecutable => {
+            BuildPlanNode::BuildCStubs(_target) => todo!("artifacts of build c stubs"),
+            BuildPlanNode::LinkCore(target) | BuildPlanNode::MakeExecutable(target) => {
                 // No native yet means MakeExecutable is currently a no-op, but
                 // the artifacts should be the same as LinkCore
                 out.push(self.layout.linked_core_of_build_target(
                     self.packages,
-                    &node.target,
+                    &target,
                     self.opt.target_backend,
                     "todo: no native yet",
                 ));
             }
-            crate::model::TargetAction::GenerateTestInfo => {
+            BuildPlanNode::GenerateTestInfo(target) => {
                 out.push(self.layout.generated_test_driver(
                     self.packages,
-                    &node.target,
+                    &target,
                     self.opt.target_backend,
                 ));
                 out.push(self.layout.generated_test_driver_metadata(
                     self.packages,
-                    &node.target,
+                    &target,
                     self.opt.target_backend,
                 ));
+            }
+            BuildPlanNode::Format(_target) => {
+                // Format nodes don't produce artifacts in the traditional sense
+                // TODO: Implement if needed
+            }
+            BuildPlanNode::Bundle(_module_id) => {
+                // Bundle nodes produce different artifacts
+                // TODO: Implement bundle artifact handling
+            }
+            BuildPlanNode::BuildRuntimeLib => {
+                // Runtime lib artifacts
+                // TODO: Implement runtime lib artifact handling
             }
         }
     }
@@ -280,22 +316,23 @@ impl<'a> BuildPlanLowerContext<'a> {
     fn lower_check(
         &self,
         node: BuildPlanNode,
+        target: crate::model::BuildTarget,
         package: &DiscoveredPackage,
         info: &BuildTargetInfo,
     ) -> BuildCommand {
         let mi_output =
             self.layout
-                .mi_of_build_target(self.packages, &node.target, self.opt.target_backend);
-        let mi_inputs = self.mi_inputs_of(node);
+                .mi_of_build_target(self.packages, &target, self.opt.target_backend);
+        let mi_inputs = self.mi_inputs_of(node, target);
 
         let mut cmd = compiler::MooncCheck::new(
             &info.files,
             &mi_output,
             &mi_inputs,
-            compiler::CompiledPackageName::new(&package.fqn, node.target),
+            compiler::CompiledPackageName::new(&package.fqn, target),
             &package.root_path,
             self.opt.target_backend,
-            node.target.kind,
+            target.kind,
         );
         self.set_commons(&mut cmd.common);
 
@@ -307,7 +344,7 @@ impl<'a> BuildPlanLowerContext<'a> {
         // tests will definitely not contain a main function, while other
         // build targets will have the same kind of main function as the
         // original package.
-        cmd.common.is_main = match node.target.kind {
+        cmd.common.is_main = match target.kind {
             TargetKind::BlackboxTest => false,
             TargetKind::Source
             | TargetKind::WhiteboxTest
@@ -324,25 +361,26 @@ impl<'a> BuildPlanLowerContext<'a> {
     fn lower_build_mbt(
         &self,
         node: BuildPlanNode,
+        target: crate::model::BuildTarget,
         package: &DiscoveredPackage,
         info: &BuildTargetInfo,
     ) -> BuildCommand {
         let core_output =
             self.layout
-                .core_of_build_target(self.packages, &node.target, self.opt.target_backend);
+                .core_of_build_target(self.packages, &target, self.opt.target_backend);
         let mi_output =
             self.layout
-                .mi_of_build_target(self.packages, &node.target, self.opt.target_backend);
+                .mi_of_build_target(self.packages, &target, self.opt.target_backend);
 
-        let mi_inputs = self.mi_inputs_of(node);
+        let mi_inputs = self.mi_inputs_of(node, target);
 
-        let input_sources = match node.target.kind {
+        let input_sources = match target.kind {
             TargetKind::Source | TargetKind::SubPackage => Cow::Borrowed(&info.files),
             TargetKind::WhiteboxTest | TargetKind::BlackboxTest | TargetKind::InlineTest => {
                 let mut files = info.files.clone();
                 files.push(self.layout.generated_test_driver(
                     self.packages,
-                    &node.target,
+                    &target,
                     self.opt.target_backend,
                 ));
                 Cow::Owned(files)
@@ -354,10 +392,10 @@ impl<'a> BuildPlanLowerContext<'a> {
             &core_output,
             &mi_output,
             &mi_inputs,
-            compiler::CompiledPackageName::new(&package.fqn, node.target),
+            compiler::CompiledPackageName::new(&package.fqn, target),
             &package.root_path,
             self.opt.target_backend,
-            node.target.kind,
+            target.kind,
         );
         cmd.flags.no_opt = self.opt.opt_level == OptLevel::Debug;
         cmd.flags.symbols = self.opt.debug_symbols;
@@ -367,7 +405,7 @@ impl<'a> BuildPlanLowerContext<'a> {
         //
         // Different from checking, building test packages will always include
         // the test driver files, which will include the main function.
-        cmd.common.is_main = match node.target.kind {
+        cmd.common.is_main = match target.kind {
             TargetKind::Source | TargetKind::SubPackage => package.raw.is_main,
             TargetKind::InlineTest | TargetKind::WhiteboxTest | TargetKind::BlackboxTest => true,
         };
@@ -380,10 +418,14 @@ impl<'a> BuildPlanLowerContext<'a> {
         }
     }
 
-    fn mi_inputs_of(&self, node: BuildPlanNode) -> Vec<MiDependency<'_>> {
+    fn mi_inputs_of(
+        &self,
+        _node: BuildPlanNode,
+        target: crate::model::BuildTarget,
+    ) -> Vec<MiDependency<'_>> {
         self.rel
             .dep_graph
-            .edges_directed(node.target, Direction::Outgoing)
+            .edges_directed(target, Direction::Outgoing)
             .map(|(_, it, w)| {
                 let in_file =
                     self.layout
@@ -395,7 +437,8 @@ impl<'a> BuildPlanLowerContext<'a> {
 
     fn lower_link_core(
         &mut self,
-        node: BuildPlanNode,
+        _node: BuildPlanNode,
+        target: crate::model::BuildTarget,
         package: &DiscoveredPackage,
         info: &LinkCoreInfo,
     ) -> BuildCommand {
@@ -417,7 +460,7 @@ impl<'a> BuildPlanLowerContext<'a> {
 
         let out_file = self.layout.linked_core_of_build_target(
             self.packages,
-            &node.target,
+            &target,
             self.opt.target_backend,
             "todo: os not supported yet",
         );
@@ -439,13 +482,13 @@ impl<'a> BuildPlanLowerContext<'a> {
             &core_input_files,
             compiler::CompiledPackageName {
                 fqn: &package.fqn,
-                kind: node.target.kind,
+                kind: target.kind,
             },
             &out_file,
             &config_path,
             &package_sources,
             self.opt.target_backend,
-            node.target.kind.is_test(),
+            target.kind.is_test(),
         );
         cmd.flags.no_opt = self.opt.opt_level == OptLevel::Debug;
         cmd.flags.symbols = self.opt.debug_symbols;
@@ -458,19 +501,20 @@ impl<'a> BuildPlanLowerContext<'a> {
 
     fn lower_gen_test_driver(
         &mut self,
-        node: BuildPlanNode,
+        _node: BuildPlanNode,
+        target: crate::model::BuildTarget,
         package: &DiscoveredPackage,
         info: &BuildTargetInfo,
     ) -> BuildCommand {
         let output_driver =
             self.layout
-                .generated_test_driver(self.packages, &node.target, self.opt.target_backend);
+                .generated_test_driver(self.packages, &target, self.opt.target_backend);
         let output_metadata = self.layout.generated_test_driver_metadata(
             self.packages,
-            &node.target,
+            &target,
             self.opt.target_backend,
         );
-        let driver_kind = match node.target.kind {
+        let driver_kind = match target.kind {
             TargetKind::Source => panic!("Source package cannot be a test driver"),
             TargetKind::WhiteboxTest => DriverKind::Whitebox,
             TargetKind::BlackboxTest => DriverKind::Blackbox,

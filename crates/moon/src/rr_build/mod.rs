@@ -162,6 +162,7 @@ pub fn compile(
         if let Some(plan) = compile_output.build_plan {
             moonbuild_rupes_recta::util::print_build_plan_dot(
                 &plan,
+                &resolve_output.module_rel,
                 &resolve_output.pkg_dirs,
                 &mut std::fs::File::create(target_dir.join("build_plan.dot"))?,
             )?;
