@@ -18,6 +18,8 @@
 
 use std::path::PathBuf;
 
+use moonutil::mooncakes::ModuleId;
+
 slotmap::new_key_type! {
     /// An unique identifier pointing to a package currently discovered from imported modules.
     pub struct PackageId;
@@ -33,6 +35,7 @@ pub enum RunAction {
 }
 
 /// Represents the actions performed on a single build target.
+#[deprecated]
 #[derive(Clone, Debug, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum TargetAction {
     Check,
@@ -95,51 +98,54 @@ impl PackageId {
 ///
 /// TODO: This type is a little big in size to be copied and used as an ID.
 #[derive(Debug, Clone, Copy, PartialEq, PartialOrd, Eq, Ord, Hash)]
-pub struct BuildPlanNode {
-    pub target: BuildTarget,
-    pub action: TargetAction,
+pub enum BuildPlanNode {
+    Check(BuildTarget),
+    BuildCore(BuildTarget),
+    BuildCStubs(BuildTarget),
+    LinkCore(BuildTarget),
+    MakeExecutable(BuildTarget),
+    GenerateTestInfo(BuildTarget),
+    Format(BuildTarget),
+    Bundle(ModuleId),
+    BuildRuntimeLib,
 }
 
 impl BuildPlanNode {
     pub fn check(target: BuildTarget) -> Self {
-        Self {
-            target,
-            action: TargetAction::Check,
-        }
+        Self::Check(target)
     }
 
     pub fn build_core(target: BuildTarget) -> Self {
-        Self {
-            target,
-            action: TargetAction::Build,
-        }
+        Self::BuildCore(target)
     }
 
     pub fn build_c_stubs(target: BuildTarget) -> Self {
-        Self {
-            target,
-            action: TargetAction::BuildCStubs,
-        }
+        Self::BuildCStubs(target)
     }
 
     pub fn link_core(target: BuildTarget) -> Self {
-        Self {
-            target,
-            action: TargetAction::LinkCore,
-        }
+        Self::LinkCore(target)
     }
 
     pub fn make_executable(target: BuildTarget) -> Self {
-        Self {
-            target,
-            action: TargetAction::MakeExecutable,
-        }
+        Self::MakeExecutable(target)
     }
 
     pub fn generate_test_info(target: BuildTarget) -> Self {
-        Self {
-            target,
-            action: TargetAction::GenerateTestInfo,
+        Self::GenerateTestInfo(target)
+    }
+
+    /// Extract the target from a BuildPlanNode, if it has one
+    pub fn extract_target(&self) -> Option<BuildTarget> {
+        match *self {
+            BuildPlanNode::Check(target)
+            | BuildPlanNode::BuildCore(target)
+            | BuildPlanNode::BuildCStubs(target)
+            | BuildPlanNode::LinkCore(target)
+            | BuildPlanNode::MakeExecutable(target)
+            | BuildPlanNode::GenerateTestInfo(target)
+            | BuildPlanNode::Format(target) => Some(target),
+            BuildPlanNode::Bundle(_) | BuildPlanNode::BuildRuntimeLib => None,
         }
     }
 }
