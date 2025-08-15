@@ -586,7 +586,12 @@ fn scan_one_package(
             if has_new_mbti {
                 Some(new_virtual_mbti_file)
             } else if has_legacy_mbti {
-                // TODO: warn about legacy MBTI filename later
+                eprintln!(
+                    "{}: Using package name in MBTI file `{}` is deprecated. Please rename it to `{}`.",
+                    "Warning".yellow(),
+                    legacy_virtual_mbti_file.display(),
+                    MBTI_USER_WRITTEN
+                );
                 Some(legacy_virtual_mbti_file)
             } else {
                 anyhow::bail!(
