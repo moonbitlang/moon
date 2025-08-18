@@ -38,7 +38,7 @@ use crate::{
         artifact::LegacyLayout,
         compiler::{CmdlineAbstraction, MiDependency, PackageSource},
     },
-    build_plan::{BuildActionSpec, BuildPlan, BuildTargetInfo, LinkCoreInfo},
+    build_plan::{BuildPlan, BuildTargetInfo, LinkCoreInfo},
     discover::{DiscoverResult, DiscoveredPackage},
     model::{Artifacts, BuildPlanNode, TargetKind},
     pkg_name::PackageFQNWithSource,
@@ -163,11 +163,6 @@ impl<'a> BuildPlanLowerContext<'a> {
             return Ok(());
         }
 
-        let spec = self
-            .build_plan
-            .get_spec(node)
-            .expect("Node should be valid");
-
         let target = node.extract_target();
         let package = if let Some(target) = target {
             self.packages.get_package(target.package)
@@ -177,40 +172,44 @@ impl<'a> BuildPlanLowerContext<'a> {
         };
 
         // Lower the action to its commands. This step should be infallible.
-        let cmd = match spec {
-            BuildActionSpec::Check(info) => self.lower_check(
-                node,
-                target.expect("Check nodes must have a target"),
-                package,
-                info,
-            ),
-            BuildActionSpec::BuildCore(info) => self.lower_build_mbt(
-                node,
-                target.expect("BuildMbt nodes must have a target"),
-                package,
-                info,
-            ),
-            BuildActionSpec::BuildCStubs(_path_bufs) => todo!(),
-            BuildActionSpec::LinkCore(info) => self.lower_link_core(
-                node,
-                target.expect("LinkCore nodes must have a target"),
-                package,
-                info,
-            ),
-            BuildActionSpec::MakeExecutable { link_c_stubs: _ } => {
+        let cmd = match node {
+            BuildPlanNode::Check(target) => {
+                let info = self
+                    .build_plan
+                    .get_build_target_info(&target)
+                    .expect("Build target info should be present for Check nodes");
+                self.lower_check(node, target, package, info)
+            }
+            BuildPlanNode::BuildCore(target) => {
+                let info = self
+                    .build_plan
+                    .get_build_target_info(&target)
+                    .expect("Build target info should be present for BuildCore nodes");
+                self.lower_build_mbt(node, target, package, info)
+            }
+            BuildPlanNode::BuildCStubs(_target) => todo!(),
+            BuildPlanNode::LinkCore(target) => {
+                let info = self
+                    .build_plan
+                    .get_link_core_info(&target)
+                    .expect("Link core info should be present for LinkCore nodes");
+                self.lower_link_core(node, target, package, info)
+            }
+            BuildPlanNode::MakeExecutable(_target) => {
                 // TODO: Native targets need another linking step
                 panic!("Native make-executable not supported yet")
             }
-            BuildActionSpec::GenerateMbti => todo!(),
-            BuildActionSpec::Bundle => todo!(),
-            BuildActionSpec::GenerateTestInfo(info) => self.lower_gen_test_driver(
-                node,
-                target.expect("GenerateTestDriver nodes must have a target"),
-                package,
-                info,
-            ),
-            BuildActionSpec::Format(_info) => todo!(),
-            BuildActionSpec::BuildRuntimeLib => todo!(),
+            BuildPlanNode::GenerateMbti(_target) => todo!(),
+            BuildPlanNode::Bundle(_module_id) => todo!(),
+            BuildPlanNode::GenerateTestInfo(target) => {
+                let info = self
+                    .build_plan
+                    .get_build_target_info(&target)
+                    .expect("Build target info should be present for GenerateTestInfo nodes");
+                self.lower_gen_test_driver(node, target, package, info)
+            }
+            BuildPlanNode::Format(_target) => todo!(),
+            BuildPlanNode::BuildRuntimeLib => todo!(),
         };
 
         // Collect n2 inputs and outputs.
@@ -235,7 +234,7 @@ impl<'a> BuildPlanLowerContext<'a> {
                 .expect("No `nul` should occur here"),
         );
 
-        self.debug_print_command_and_files(node, spec, &build);
+        self.debug_print_command_and_files(node, &build);
         self.lowered(build).map_err(|e| LoweringError::N2 {
             package: package.fqn.clone().into(),
             node,
@@ -542,12 +541,7 @@ impl<'a> BuildPlanLowerContext<'a> {
     /// plan node, the n2 build it's mapped into, and the input and output files
     /// of it.
     #[doc(hidden)]
-    fn debug_print_command_and_files(
-        &mut self,
-        node: BuildPlanNode,
-        spec: &BuildActionSpec,
-        build: &Build,
-    ) {
+    fn debug_print_command_and_files(&mut self, node: BuildPlanNode, build: &Build) {
         if log::log_enabled!(log::Level::Debug) {
             let in_files = build
                 .ins
@@ -579,8 +573,8 @@ impl<'a> BuildPlanLowerContext<'a> {
                 .collect::<Vec<_>>();
 
             debug!(
-                "lowered: {:?}\n spec {:?};\n into {:?};\n ins: {:?};\n outs: {:?}",
-                node, spec, build.cmdline, in_files, out_files
+                "lowered: {:?}\n into {:?};\n ins: {:?};\n outs: {:?}",
+                node, build.cmdline, in_files, out_files
             );
         }
     }
