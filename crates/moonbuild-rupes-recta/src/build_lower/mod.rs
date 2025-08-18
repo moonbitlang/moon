@@ -40,8 +40,8 @@ use crate::{
     },
     build_plan::{BuildPlan, BuildTargetInfo, LinkCoreInfo},
     discover::{DiscoverResult, DiscoveredPackage},
-    model::{Artifacts, BuildPlanNode, OperatingSystem, TargetKind},
-    pkg_name::PackageFQNWithSource,
+    model::{Artifacts, BuildPlanNode, BuildTarget, OperatingSystem, TargetKind},
+    pkg_name::{OptionalPackageFQNWithSource, PackageFQNWithSource},
     pkg_solve::DepRelationship,
 };
 
@@ -68,7 +68,7 @@ pub enum LoweringError {
         when lowering for package {package}, build node {node:?}"
     )]
     N2 {
-        package: PackageFQNWithSource,
+        package: OptionalPackageFQNWithSource,
         node: BuildPlanNode,
         source: anyhow::Error,
     },
@@ -158,18 +158,14 @@ impl<'a> BuildPlanLowerContext<'a> {
         (!self.opt.target_backend.is_native()) && matches!(node, BuildPlanNode::MakeExecutable(_))
     }
 
+    fn get_package(&self, target: BuildTarget) -> &DiscoveredPackage {
+        self.packages.get_package(target.package)
+    }
+
     fn lower_node(&mut self, node: BuildPlanNode) -> Result<(), LoweringError> {
         if self.is_node_noop(node) {
             return Ok(());
         }
-
-        let target = node.extract_target();
-        let package = if let Some(target) = target {
-            self.packages.get_package(target.package)
-        } else {
-            // For nodes without targets (Bundle, BuildRuntimeLib), we'll handle them differently
-            todo!("Handle nodes without targets")
-        };
 
         // Lower the action to its commands. This step should be infallible.
         let cmd = match node {
@@ -178,14 +174,14 @@ impl<'a> BuildPlanLowerContext<'a> {
                     .build_plan
                     .get_build_target_info(&target)
                     .expect("Build target info should be present for Check nodes");
-                self.lower_check(node, target, package, info)
+                self.lower_check(node, target, info)
             }
             BuildPlanNode::BuildCore(target) => {
                 let info = self
                     .build_plan
                     .get_build_target_info(&target)
                     .expect("Build target info should be present for BuildCore nodes");
-                self.lower_build_mbt(node, target, package, info)
+                self.lower_build_mbt(node, target, info)
             }
             BuildPlanNode::BuildCStubs(_target) => todo!(),
             BuildPlanNode::LinkCore(target) => {
@@ -193,7 +189,7 @@ impl<'a> BuildPlanLowerContext<'a> {
                     .build_plan
                     .get_link_core_info(&target)
                     .expect("Link core info should be present for LinkCore nodes");
-                self.lower_link_core(node, target, package, info)
+                self.lower_link_core(node, target, info)
             }
             BuildPlanNode::MakeExecutable(_target) => {
                 // TODO: Native targets need another linking step
@@ -206,7 +202,7 @@ impl<'a> BuildPlanLowerContext<'a> {
                     .build_plan
                     .get_build_target_info(&target)
                     .expect("Build target info should be present for GenerateTestInfo nodes");
-                self.lower_gen_test_driver(node, target, package, info)
+                self.lower_gen_test_driver(node, target, info)
             }
             BuildPlanNode::Format(_target) => todo!(),
             BuildPlanNode::BuildRuntimeLib => todo!(),
@@ -228,7 +224,17 @@ impl<'a> BuildPlanLowerContext<'a> {
         let outs = build_outs(&mut self.graph, outs);
 
         // Construct n2 build node
-        let mut build = Build::new(build_n2_fileloc(package.fqn.to_string()), ins, outs);
+        let fqn = node
+            .extract_target()
+            .map(|x| self.get_package(x).fqn.clone());
+        let mut build = Build::new(
+            build_n2_fileloc(
+                fqn.as_ref()
+                    .map_or_else(|| "no_package".into(), |x| x.to_string()),
+            ),
+            ins,
+            outs,
+        );
         build.cmdline = Some(
             shlex::try_join(cmd.commandline.iter().map(|x| x.as_str()))
                 .expect("No `nul` should occur here"),
@@ -236,7 +242,7 @@ impl<'a> BuildPlanLowerContext<'a> {
 
         self.debug_print_command_and_files(node, &build);
         self.lowered(build).map_err(|e| LoweringError::N2 {
-            package: package.fqn.clone().into(),
+            package: fqn.into(),
             node,
             source: e,
         })
@@ -265,15 +271,22 @@ impl<'a> BuildPlanLowerContext<'a> {
                 ));
             }
             BuildPlanNode::BuildCStubs(_target) => todo!("artifacts of build c stubs"),
-            BuildPlanNode::LinkCore(target) | BuildPlanNode::MakeExecutable(target) => {
-                // No native yet means MakeExecutable is currently a no-op, but
-                // the artifacts should be the same as LinkCore
+            BuildPlanNode::LinkCore(target) => {
                 out.push(self.layout.linked_core_of_build_target(
                     self.packages,
                     &target,
                     self.opt.target_backend,
                     OperatingSystem::None,
                 ));
+            }
+            BuildPlanNode::MakeExecutable(target) => {
+                out.push(self.layout.executable_of_build_target(
+                    self.packages,
+                    &target,
+                    self.opt.target_backend,
+                    OperatingSystem::None,
+                    true,
+                ))
             }
             BuildPlanNode::GenerateTestInfo(target) => {
                 out.push(self.layout.generated_test_driver(
@@ -316,10 +329,10 @@ impl<'a> BuildPlanLowerContext<'a> {
     fn lower_check(
         &self,
         node: BuildPlanNode,
-        target: crate::model::BuildTarget,
-        package: &DiscoveredPackage,
+        target: BuildTarget,
         info: &BuildTargetInfo,
     ) -> BuildCommand {
+        let package = self.get_package(target);
         let mi_output =
             self.layout
                 .mi_of_build_target(self.packages, &target, self.opt.target_backend);
@@ -361,10 +374,10 @@ impl<'a> BuildPlanLowerContext<'a> {
     fn lower_build_mbt(
         &self,
         node: BuildPlanNode,
-        target: crate::model::BuildTarget,
-        package: &DiscoveredPackage,
+        target: BuildTarget,
         info: &BuildTargetInfo,
     ) -> BuildCommand {
+        let package = self.get_package(target);
         let core_output =
             self.layout
                 .core_of_build_target(self.packages, &target, self.opt.target_backend);
@@ -418,11 +431,7 @@ impl<'a> BuildPlanLowerContext<'a> {
         }
     }
 
-    fn mi_inputs_of(
-        &self,
-        _node: BuildPlanNode,
-        target: crate::model::BuildTarget,
-    ) -> Vec<MiDependency<'_>> {
+    fn mi_inputs_of(&self, _node: BuildPlanNode, target: BuildTarget) -> Vec<MiDependency<'_>> {
         self.rel
             .dep_graph
             .edges_directed(target, Direction::Outgoing)
@@ -438,10 +447,10 @@ impl<'a> BuildPlanLowerContext<'a> {
     fn lower_link_core(
         &mut self,
         _node: BuildPlanNode,
-        target: crate::model::BuildTarget,
-        package: &DiscoveredPackage,
+        target: BuildTarget,
         info: &LinkCoreInfo,
     ) -> BuildCommand {
+        let package = self.get_package(target);
         let mut core_input_files = Vec::new();
         // Add core for the standard library
         if let Some(stdlib) = &self.opt.stdlib_path {
@@ -499,13 +508,17 @@ impl<'a> BuildPlanLowerContext<'a> {
         }
     }
 
+    fn lower_make_exe(&mut self, target: BuildTarget) {
+        let _package = self.get_package(target);
+    }
+
     fn lower_gen_test_driver(
         &mut self,
         _node: BuildPlanNode,
-        target: crate::model::BuildTarget,
-        package: &DiscoveredPackage,
+        target: BuildTarget,
         info: &BuildTargetInfo,
     ) -> BuildCommand {
+        let package = self.get_package(target);
         let output_driver =
             self.layout
                 .generated_test_driver(self.packages, &target, self.opt.target_backend);
