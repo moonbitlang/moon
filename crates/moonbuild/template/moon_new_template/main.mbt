@@ -1,3 +1,4 @@
+///|
 fn main {
-  println(@liba.hello())
+  println(@liba.fib(10))
 }
