@@ -131,6 +131,52 @@ impl From<PackageFQN> for PackageFQNWithSource {
     }
 }
 
+/// An optional wrapper around [`PackageFQNWithSource`] that displays "unknown" when None.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct OptionalPackageFQNWithSource {
+    inner: Option<PackageFQNWithSource>,
+}
+
+impl OptionalPackageFQNWithSource {
+    /// Create a new optional package FQN with source from an Option.
+    pub fn new(inner: Option<PackageFQNWithSource>) -> Self {
+        Self { inner }
+    }
+
+    /// Create from an optional PackageFQN.
+    pub fn from_optional_fqn(fqn: Option<PackageFQN>) -> Self {
+        Self {
+            inner: fqn.map(PackageFQNWithSource::from_fqn),
+        }
+    }
+
+    /// Get the inner optional PackageFQNWithSource.
+    pub fn inner(&self) -> &Option<PackageFQNWithSource> {
+        &self.inner
+    }
+}
+
+impl std::fmt::Display for OptionalPackageFQNWithSource {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match &self.inner {
+            Some(fqn) => write!(f, "{}", fqn),
+            None => write!(f, "unknown"),
+        }
+    }
+}
+
+impl From<Option<PackageFQNWithSource>> for OptionalPackageFQNWithSource {
+    fn from(inner: Option<PackageFQNWithSource>) -> Self {
+        Self::new(inner)
+    }
+}
+
+impl From<Option<PackageFQN>> for OptionalPackageFQNWithSource {
+    fn from(fqn: Option<PackageFQN>) -> Self {
+        Self::from_optional_fqn(fqn)
+    }
+}
+
 /// An unqualified package path, representing the non-module portion of the
 /// package. For example, the `builtin` in `moonbitlang/core/builtin`.
 /// This path may contain multiple segments (like `immut/linked_list`), or zero
