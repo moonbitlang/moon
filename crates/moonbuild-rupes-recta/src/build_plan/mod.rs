@@ -172,50 +172,6 @@ pub struct MakeExecutableInfo {
     pub link_c_stubs: Vec<BuildTarget>,
 }
 
-/// The specification of the specific build target, e.g. its files.
-#[derive(Debug)]
-#[deprecated]
-pub enum BuildActionSpec {
-    /// Check the given list of MoonBit source files.
-    ///
-    /// Outgoing edges of this node represents the direct dependencies.
-    Check(BuildTargetInfo),
-
-    /// Build the given list of MoonBit source files.
-    ///
-    /// Outgoing edges of this node represents the direct dependencies.
-    BuildCore(BuildTargetInfo),
-
-    /// Build the given list of C source files.
-    BuildCStubs(Vec<PathBuf>),
-
-    /// Link the core files from the given list of targets, **in order**.
-    ///
-    /// Outgoing edges of this node represents the build targets it depends on,
-    /// but there's another copy of it, **ordered**, in the value's payloads,
-    /// since the build command will need to use it.
-    LinkCore(LinkCoreInfo),
-
-    /// Make executable; link with the C artifacts of the given list of targets,
-    /// if any.
-    MakeExecutable { link_c_stubs: Vec<BuildTarget> },
-
-    /// Generates the test driver for the given target
-    GenerateTestInfo(BuildTargetInfo),
-
-    /// Format the given target's source files.
-    Format(BuildTargetInfo),
-
-    /// Generate the MBTI file for the given package.
-    GenerateMbti,
-
-    /// Bundle the packages specified by the outgoing edges.
-    Bundle,
-
-    /// Build the runtime library for the speific target
-    BuildRuntimeLib,
-}
-
 /// Represents the environment in which the build is being performed.
 pub struct BuildEnvironment {
     // FIXME: Target backend should go into the solver, not here
