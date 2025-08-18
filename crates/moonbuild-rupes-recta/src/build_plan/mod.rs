@@ -34,7 +34,10 @@
 //!
 //! [cu]: https://github.com/rust-lang/cargo/blob/master/src/cargo/core/compiler/unit.rs
 
-use std::{collections::HashMap, path::PathBuf};
+use std::{
+    collections::{HashMap, HashSet},
+    path::PathBuf,
+};
 
 use indexmap::{set::MutableValues, IndexSet};
 use log::{debug, info, trace};
@@ -67,18 +70,29 @@ pub struct BuildPlan {
     /// step to what it depends on**.
     graph: DiGraphMap<BuildPlanNode, ()>,
 
-    /// The specification of each build target.
-    spec: HashMap<BuildPlanNode, BuildActionSpec>,
+    /// The map of build target to its files and metadata.
+    /// Used by nodes that require access to the raw MoonBit source files, like
+    /// `Check`, `BuildCore`, `GenerateTestInfo` and `Format`.
+    ///
+    /// The following maps contain metadata needed for different types of build
+    /// nodes. For each node present in the final graph, its metadata must
+    /// already be present in the map.
+    build_target_infos: HashMap<BuildTarget, BuildTargetInfo>,
+
+    /// The map of build target to the metadata it needs when linking core
+    link_core_info: HashMap<BuildTarget, LinkCoreInfo>,
+
+    /// The map of build target to the C stubs information
+    c_stubs_info: HashMap<BuildTarget, BuildCStubsInfo>,
+
+    /// The map of build target to the information needed to make it executable
+    make_executable_info: HashMap<BuildTarget, MakeExecutableInfo>,
 
     /// The nodes that were used as input to the build plan.
     input_nodes: Vec<BuildPlanNode>,
 }
 
 impl BuildPlan {
-    pub fn get_spec(&self, node: BuildPlanNode) -> Option<&BuildActionSpec> {
-        self.spec.get(&node)
-    }
-
     /// Get the list of nodes that **the given node depends on**.
     pub fn dependency_nodes(
         &self,
@@ -86,6 +100,26 @@ impl BuildPlan {
     ) -> impl Iterator<Item = BuildPlanNode> + '_ {
         self.graph
             .neighbors_directed(node, petgraph::Direction::Outgoing)
+    }
+
+    /// Get build target information for the given target.
+    pub fn get_build_target_info(&self, target: &BuildTarget) -> Option<&BuildTargetInfo> {
+        self.build_target_infos.get(target)
+    }
+
+    /// Get link core information for the given target.
+    pub fn get_link_core_info(&self, target: &BuildTarget) -> Option<&LinkCoreInfo> {
+        self.link_core_info.get(target)
+    }
+
+    /// Get C stubs information for the given target.
+    pub fn get_c_stubs_info(&self, target: &BuildTarget) -> Option<&BuildCStubsInfo> {
+        self.c_stubs_info.get(target)
+    }
+
+    /// Get make executable information for the given target.
+    pub fn get_make_executable_info(&self, target: &BuildTarget) -> Option<&MakeExecutableInfo> {
+        self.make_executable_info.get(target)
     }
 
     /// Get the list of nodes that **depend on the given node**.
@@ -128,8 +162,19 @@ pub struct LinkCoreInfo {
     // pub std: bool,
 }
 
+pub struct BuildCStubsInfo {
+    /// The C stub files to be built.
+    pub c_stubs: Vec<PathBuf>,
+}
+
+pub struct MakeExecutableInfo {
+    /// The C stub targets to link with.
+    pub link_c_stubs: Vec<BuildTarget>,
+}
+
 /// The specification of the specific build target, e.g. its files.
 #[derive(Debug)]
+#[deprecated]
 pub enum BuildActionSpec {
     /// Check the given list of MoonBit source files.
     ///
@@ -233,6 +278,7 @@ struct BuildPlanConstructor<'a> {
 
     /// Currently pending nodes that need to be processed.
     pending: Vec<BuildPlanNode>,
+    resolved: HashSet<BuildPlanNode>,
 }
 
 impl<'a> BuildPlanConstructor<'a> {
@@ -247,6 +293,7 @@ impl<'a> BuildPlanConstructor<'a> {
             build_env,
             res: BuildPlan::default(),
             pending: Vec::new(),
+            resolved: HashSet::new(),
         }
     }
 
@@ -268,7 +315,7 @@ impl<'a> BuildPlanConstructor<'a> {
 
         while let Some(node) = self.pending.pop() {
             // check if the node is already resolved
-            if self.res.spec.contains_key(&node) {
+            if self.resolved.contains(&node) {
                 // Already resolved, skip
                 continue;
             }
@@ -283,7 +330,7 @@ impl<'a> BuildPlanConstructor<'a> {
     /// adding relevant edges to the graph (since the latter will also add the
     /// node into the graph).
     fn need_node(&mut self, node: BuildPlanNode) -> BuildPlanNode {
-        if !self.res.spec.contains_key(&node) {
+        if !self.resolved.contains(&node) {
             self.pending.push(node);
             self.res.graph.add_node(node);
         }
@@ -292,19 +339,65 @@ impl<'a> BuildPlanConstructor<'a> {
 
     /// Tell the build graph that the given node has been resolved into a
     /// concrete action specification.
-    fn resolved_node(&mut self, node_id: BuildPlanNode, spec: BuildActionSpec) {
+    fn resolved_node(&mut self, node: BuildPlanNode) {
         debug_assert!(
-            !self.res.spec.contains_key(&node_id),
+            !self.resolved.contains(&node),
             "Node {:?} should not be resolved twice",
-            node_id
+            node
         );
         debug_assert!(
-            self.res.graph.contains_node(node_id),
+            self.res.graph.contains_node(node),
             "Node {:?} should be in the graph before resolving",
-            node_id
+            node
         );
-        // Insert the node into the spec map
-        self.res.spec.insert(node_id, spec);
+        self.resolved.insert(node);
+
+        // Ensure the resolved data is present in the build plan.
+        // Panics if the node is not present in the resolved data.
+        self.ensure_resolved(node);
+    }
+
+    fn ensure_resolved(&self, node: BuildPlanNode) {
+        match node {
+            BuildPlanNode::Check(build_target)
+            | BuildPlanNode::BuildCore(build_target)
+            | BuildPlanNode::GenerateTestInfo(build_target) => {
+                assert!(
+                    self.res.build_target_infos.contains_key(&build_target),
+                    "Build target info for {:?} should be present when resolving node {:?}",
+                    build_target,
+                    node
+                );
+            }
+            BuildPlanNode::BuildCStubs(build_target) => {
+                assert!(
+                    self.res.c_stubs_info.contains_key(&build_target),
+                    "C stubs info for {:?} should be present when resolving node {:?}",
+                    build_target,
+                    node
+                );
+            }
+            BuildPlanNode::LinkCore(build_target) => {
+                assert!(
+                    self.res.link_core_info.contains_key(&build_target),
+                    "Link core info for {:?} should be present when resolving node {:?}",
+                    build_target,
+                    node
+                );
+            }
+            BuildPlanNode::MakeExecutable(build_target) => {
+                assert!(
+                    self.res.make_executable_info.contains_key(&build_target),
+                    "Make executable info for {:?} should be present when resolving node {:?}",
+                    build_target,
+                    node
+                );
+            }
+            BuildPlanNode::Format(_build_target) => (),
+            BuildPlanNode::GenerateMbti(_build_target) => (),
+            BuildPlanNode::Bundle(_module_id) => (),
+            BuildPlanNode::BuildRuntimeLib => (),
+        }
     }
 
     fn add_edge(&mut self, start: BuildPlanNode, end: BuildPlanNode) {
@@ -337,17 +430,22 @@ impl<'a> BuildPlanConstructor<'a> {
         }
     }
 
-    fn target_info_of(
-        &self,
-        target: BuildTarget,
-    ) -> Result<BuildTargetInfo, BuildPlanConstructError> {
+    /// Populate the target info for the given target, if not already present.
+    fn populate_target_info(&mut self, target: BuildTarget) -> Result<(), BuildPlanConstructError> {
+        if self.res.build_target_infos.contains_key(&target) {
+            // Already populated
+            return Ok(());
+        }
+
         // Resolve the source files
         let source_files = self.resolve_mbt_files_for_node(target)?;
-        Ok(BuildTargetInfo {
+        let info = BuildTargetInfo {
             files: source_files,
             // is_main: pkg.raw.is_main,
             // std: self.build_env.std, // TODO: move to per-package
-        })
+        };
+        self.res.build_target_infos.insert(target, info);
+        Ok(())
     }
 
     fn build_check(
@@ -366,7 +464,8 @@ impl<'a> BuildPlanConstructor<'a> {
             self.add_edge(node, dep_node);
         }
 
-        self.resolved_node(node, BuildActionSpec::Check(self.target_info_of(target)?));
+        self.populate_target_info(target)?;
+        self.resolved_node(node);
 
         Ok(())
     }
@@ -396,10 +495,8 @@ impl<'a> BuildPlanConstructor<'a> {
             self.add_edge(node, gen_test_info);
         }
 
-        self.resolved_node(
-            node,
-            BuildActionSpec::BuildCore(self.target_info_of(target)?),
-        );
+        self.populate_target_info(target)?;
+        self.resolved_node(node);
 
         Ok(())
     }
@@ -410,8 +507,9 @@ impl<'a> BuildPlanConstructor<'a> {
         target: BuildTarget,
     ) -> Result<(), BuildPlanConstructError> {
         self.need_node(node);
-        let target_info = self.target_info_of(target)?; // FIXME: cache this
-        self.resolved_node(node, BuildActionSpec::GenerateTestInfo(target_info));
+
+        self.populate_target_info(target)?;
+        self.resolved_node(node);
         Ok(())
     }
 
@@ -449,7 +547,10 @@ impl<'a> BuildPlanConstructor<'a> {
         // Resolve the C stub files
         let pkg = self.packages.get_package(target.package);
         let c_source = pkg.c_stub_files.clone();
-        self.resolved_node(node, BuildActionSpec::BuildCStubs(c_source));
+
+        let c_info = BuildCStubsInfo { c_stubs: c_source };
+        self.res.c_stubs_info.insert(target, c_info);
+        self.resolved_node(node);
 
         Ok(())
     }
@@ -526,12 +627,14 @@ impl<'a> BuildPlanConstructor<'a> {
             self.add_edge(link_core_node, dep_node);
         }
 
-        let targets = link_core_deps.into_iter().collect();
-        let spec = BuildActionSpec::LinkCore(LinkCoreInfo {
-            linked_order: targets,
+        let targets = link_core_deps.into_iter().collect::<Vec<_>>();
+        let link_core_info = LinkCoreInfo {
+            linked_order: targets.clone(),
             // std: self.build_env.std, // TODO: move to per-package
-        });
-        self.resolved_node(link_core_node, spec);
+        };
+        self.res.link_core_info.insert(target, link_core_info);
+
+        self.resolved_node(link_core_node);
 
         // Add edge from make exec to link core
         self.add_edge(make_exec_node, link_core_node);
@@ -541,12 +644,15 @@ impl<'a> BuildPlanConstructor<'a> {
             let dep_node = self.need_node(BuildPlanNode::BuildCStubs(*target));
             self.add_edge(make_exec_node, dep_node);
         }
-        self.resolved_node(
-            make_exec_node,
-            BuildActionSpec::MakeExecutable {
-                link_c_stubs: c_stub_deps,
+        let c_stub_deps = c_stub_deps.into_iter().collect::<Vec<_>>();
+        self.res.make_executable_info.insert(
+            target,
+            MakeExecutableInfo {
+                link_c_stubs: c_stub_deps.clone(),
             },
         );
+
+        self.resolved_node(make_exec_node);
 
         Ok(())
     }
