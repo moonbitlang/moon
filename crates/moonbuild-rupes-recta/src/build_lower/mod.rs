@@ -40,7 +40,7 @@ use crate::{
     },
     build_plan::{BuildPlan, BuildTargetInfo, LinkCoreInfo},
     discover::{DiscoverResult, DiscoveredPackage},
-    model::{Artifacts, BuildPlanNode, TargetKind},
+    model::{Artifacts, BuildPlanNode, OperatingSystem, TargetKind},
     pkg_name::PackageFQNWithSource,
     pkg_solve::DepRelationship,
 };
@@ -272,7 +272,7 @@ impl<'a> BuildPlanLowerContext<'a> {
                     self.packages,
                     &target,
                     self.opt.target_backend,
-                    "todo: no native yet",
+                    OperatingSystem::None,
                 ));
             }
             BuildPlanNode::GenerateTestInfo(target) => {
@@ -462,7 +462,7 @@ impl<'a> BuildPlanLowerContext<'a> {
             self.packages,
             &target,
             self.opt.target_backend,
-            "todo: os not supported yet",
+            OperatingSystem::None,
         );
 
         let package_sources = info

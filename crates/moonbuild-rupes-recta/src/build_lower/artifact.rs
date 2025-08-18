@@ -27,7 +27,7 @@ use moonutil::{common::TargetBackend, mooncakes::ModuleSource};
 
 use crate::{
     discover::DiscoverResult,
-    model::{BuildTarget, TargetKind},
+    model::{BuildTarget, OperatingSystem, TargetKind},
     pkg_name::PackageFQN,
 };
 
@@ -141,7 +141,7 @@ impl LegacyLayout {
         pkg_list: &DiscoverResult,
         target: &BuildTarget,
         backend: TargetBackend,
-        os: &str,
+        os: OperatingSystem,
     ) -> PathBuf {
         let pkg_fqn = &pkg_list.get_package(target.package).fqn;
         let mut base_dir = self.package_dir(pkg_fqn, backend);
@@ -159,7 +159,7 @@ impl LegacyLayout {
         pkg_list: &DiscoverResult,
         target: &BuildTarget,
         backend: TargetBackend,
-        os: &str,
+        os: OperatingSystem,
         legacy_behavior: bool,
     ) -> PathBuf {
         let pkg_fqn = &pkg_list.get_package(target.package).fqn;
@@ -218,7 +218,7 @@ fn build_kind_suffix(kind: TargetKind) -> &'static str {
     }
 }
 
-fn linked_core_artifact_ext(backend: TargetBackend, os: &str) -> &'static str {
+fn linked_core_artifact_ext(backend: TargetBackend, os: OperatingSystem) -> &'static str {
     match backend {
         TargetBackend::Wasm | TargetBackend::WasmGC => ".wasm",
         TargetBackend::Js => ".js",
@@ -229,7 +229,7 @@ fn linked_core_artifact_ext(backend: TargetBackend, os: &str) -> &'static str {
 
 fn make_executable_artifact_ext(
     backend: TargetBackend,
-    os: &str,
+    os: OperatingSystem,
     legacy_behavior: bool,
 ) -> &'static str {
     match backend {
@@ -240,45 +240,45 @@ fn make_executable_artifact_ext(
 }
 
 /// The extension for executables. The legacy behavior forces everything into an `.exe`.
-fn executable_ext(os: &str, legacy_behavior: bool) -> &'static str {
+fn executable_ext(os: OperatingSystem, legacy_behavior: bool) -> &'static str {
     if legacy_behavior {
         ".exe"
     } else {
         match os {
-            "windows" => ".exe",
-            "linux" | "macos" => "",
-            _ => panic!("Unsupported OS {os}"),
+            OperatingSystem::Windows => ".exe",
+            OperatingSystem::Linux | OperatingSystem::MacOS => "",
+            OperatingSystem::None => panic!("No executable extension for no-OS targets"),
         }
     }
 }
 
 /// Returns the file extension for static libraries on the given OS
 #[allow(unused)]
-fn static_library_ext(os: &str) -> &'static str {
+fn static_library_ext(os: OperatingSystem) -> &'static str {
     match os {
-        "windows" => ".lib",
-        "linux" | "macos" => ".a",
-        _ => panic!("Unsupported OS {os}"),
+        OperatingSystem::Windows => ".lib",
+        OperatingSystem::Linux | OperatingSystem::MacOS => ".a",
+        OperatingSystem::None => panic!("No static library extension for no-OS targets"),
     }
 }
 
 /// Returns the file extension for dynamic libraries on the given OS
 #[allow(unused)]
-fn dynamic_library_ext(os: &str) -> &'static str {
+fn dynamic_library_ext(os: OperatingSystem) -> &'static str {
     match os {
-        "windows" => ".dll",
-        "linux" => ".so",
-        "macos" => ".dylib",
-        _ => panic!("Unsupported OS {os}"),
+        OperatingSystem::Windows => ".dll",
+        OperatingSystem::Linux => ".so",
+        OperatingSystem::MacOS => ".dylib",
+        OperatingSystem::None => panic!("No dynamic library extension for no-OS targets"),
     }
 }
 
 /// Returns the file extension for object files on the given OS
-fn object_file_ext(os: &str) -> &'static str {
+fn object_file_ext(os: OperatingSystem) -> &'static str {
     match os {
-        "windows" => ".obj",
-        "linux" | "macos" => ".o",
-        _ => panic!("Unsupported OS {os}"),
+        OperatingSystem::Windows => ".obj",
+        OperatingSystem::Linux | OperatingSystem::MacOS => ".o",
+        OperatingSystem::None => panic!("No object file extension for no-OS targets"),
     }
 }
 

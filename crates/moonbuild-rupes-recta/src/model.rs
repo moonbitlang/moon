@@ -146,3 +146,39 @@ pub struct Artifacts {
     pub node: BuildPlanNode,
     pub artifacts: Vec<PathBuf>,
 }
+
+/// Supported operating systems for artifact generation
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum OperatingSystem {
+    Windows,
+    Linux,
+    MacOS,
+    /// No operating system (e.g., WASM/JS targets)
+    None,
+}
+
+impl std::fmt::Display for OperatingSystem {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let s = match self {
+            OperatingSystem::Windows => "windows",
+            OperatingSystem::Linux => "linux",
+            OperatingSystem::MacOS => "macos",
+            OperatingSystem::None => "none",
+        };
+        write!(f, "{}", s)
+    }
+}
+
+impl std::str::FromStr for OperatingSystem {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "windows" => Ok(OperatingSystem::Windows),
+            "linux" => Ok(OperatingSystem::Linux),
+            "macos" => Ok(OperatingSystem::MacOS),
+            "none" => Ok(OperatingSystem::None),
+            _ => Err(format!("Unsupported OS: {}", s)),
+        }
+    }
+}
