@@ -608,6 +608,12 @@ impl<'a> BuildPlanConstructor<'a> {
             },
         );
 
+        // Native backends also needs a runtime library
+        if self.build_env.target_backend.is_native() {
+            let rt_node = self.need_node(BuildPlanNode::BuildRuntimeLib);
+            self.add_edge(make_exec_node, rt_node);
+        }
+
         self.resolved_node(make_exec_node);
 
         Ok(())
