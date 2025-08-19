@@ -32,13 +32,21 @@ fn snapshot_layout_and_files(root: &Path) -> String {
             .to_string_lossy()
             .replace('\\', "/");
 
-        if entry.file_type().is_dir() {
+        if entry.file_type().is_symlink() {
+            let rel_file = format!("./{}", rel);
+            layout_items.push(rel_file.clone());
+            let link_target = std::fs::read_link(path)
+                .map(|target| format!("<symbolic link to {}>", target.display()))
+                .unwrap_or_else(|_| "<symbolic link>".to_string());
+            file_items.push((rel_file, format!("{}\n", link_target)));
+        } else if entry.file_type().is_dir() {
             layout_items.push(format!("./{}/", rel.trim_end_matches('/')));
         } else {
             let rel_file = format!("./{}", rel);
             layout_items.push(rel_file.clone());
             if rel == "LICENSE" {
                 // Skip LICENSE file content
+                file_items.push((rel_file, "<LICENSE file content>\n".to_string()));
                 continue;
             }
             let mut content = read(path);
@@ -367,6 +375,7 @@ fn test_moon_new_snapshot() {
             -- layout --
             .
             ./.gitignore
+            ./README.mbt.md
             ./README.md
             ./cmd/
             ./cmd/main/
@@ -384,8 +393,11 @@ fn test_moon_new_snapshot() {
             .mooncakes/
             .moonagent/
 
-            === ./README.md ===
+            === ./README.mbt.md ===
             # username/hello
+
+            === ./README.md ===
+            <symbolic link to README.mbt.md>
 
             === ./cmd/main/main.mbt ===
             ///|
@@ -469,6 +481,7 @@ fn test_moon_new_snapshot() {
             .
             ./.gitignore
             ./LICENSE
+            ./README.mbt.md
             ./README.md
             ./cmd/
             ./cmd/main/
@@ -486,8 +499,14 @@ fn test_moon_new_snapshot() {
             .mooncakes/
             .moonagent/
 
-            === ./README.md ===
+            === ./LICENSE ===
+            <LICENSE file content>
+
+            === ./README.mbt.md ===
             # moonbitlang/hello
+
+            === ./README.md ===
+            <symbolic link to README.mbt.md>
 
             === ./cmd/main/main.mbt ===
             ///|
@@ -571,6 +590,7 @@ fn test_moon_new_snapshot_lib() {
             .
             ./.gitignore
             ./LICENSE
+            ./README.mbt.md
             ./README.md
             ./cmd/
             ./cmd/main/
@@ -588,8 +608,14 @@ fn test_moon_new_snapshot_lib() {
             .mooncakes/
             .moonagent/
 
-            === ./README.md ===
+            === ./LICENSE ===
+            <LICENSE file content>
+
+            === ./README.mbt.md ===
             # username/hello
+
+            === ./README.md ===
+            <symbolic link to README.mbt.md>
 
             === ./cmd/main/main.mbt ===
             ///|
@@ -671,6 +697,7 @@ fn test_moon_new_snapshot_lib() {
             .
             ./.gitignore
             ./LICENSE
+            ./README.mbt.md
             ./README.md
             ./cmd/
             ./cmd/main/
@@ -688,8 +715,14 @@ fn test_moon_new_snapshot_lib() {
             .mooncakes/
             .moonagent/
 
-            === ./README.md ===
+            === ./LICENSE ===
+            <LICENSE file content>
+
+            === ./README.mbt.md ===
             # username/parser
+
+            === ./README.md ===
+            <symbolic link to README.mbt.md>
 
             === ./cmd/main/main.mbt ===
             ///|
@@ -771,6 +804,7 @@ fn test_moon_new_snapshot_lib_no_license() {
             -- layout --
             .
             ./.gitignore
+            ./README.mbt.md
             ./README.md
             ./cmd/
             ./cmd/main/
@@ -788,8 +822,11 @@ fn test_moon_new_snapshot_lib_no_license() {
             .mooncakes/
             .moonagent/
 
-            === ./README.md ===
+            === ./README.mbt.md ===
             # username/hello
+
+            === ./README.md ===
+            <symbolic link to README.mbt.md>
 
             === ./cmd/main/main.mbt ===
             ///|
@@ -873,6 +910,7 @@ fn test_moon_new_snapshot_lib_no_license() {
             -- layout --
             .
             ./.gitignore
+            ./README.mbt.md
             ./README.md
             ./cmd/
             ./cmd/main/
@@ -890,8 +928,11 @@ fn test_moon_new_snapshot_lib_no_license() {
             .mooncakes/
             .moonagent/
 
-            === ./README.md ===
+            === ./README.mbt.md ===
             # moonbitlang/hello
+
+            === ./README.md ===
+            <symbolic link to README.mbt.md>
 
             === ./cmd/main/main.mbt ===
             ///|

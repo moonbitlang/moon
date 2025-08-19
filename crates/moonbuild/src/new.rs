@@ -205,12 +205,28 @@ fn common(target_dir: &Path, cake_full_name: &str, license: Option<&str>) -> any
         let mut file = std::fs::File::create(gitignore).unwrap();
         file.write_all(content.as_bytes()).unwrap();
     }
-    // READMD.md
+    // READMD.mbt.md
     {
-        let md_file = target_dir.join("README.md");
+        let md_file = target_dir.join("README.mbt.md");
         let content = format!("# {cake_full_name}");
         let mut file = std::fs::File::create(md_file).unwrap();
         file.write_all(content.as_bytes()).unwrap();
+    }
+    // README.md
+    {
+        let readme_file = target_dir.join("README.md");
+
+        #[cfg(unix)]
+        {
+            std::os::unix::fs::symlink("README.mbt.md", &readme_file)
+                .context("failed to create symbolic link to README.mbt.md")?;
+        }
+
+        #[cfg(windows)]
+        {
+            std::os::windows::fs::symlink_file("README.mbt.md", &readme_file)
+                .context("failed to create symbolic link to README.mbt.md")?;
+        }
     }
 
     // LICENSE
