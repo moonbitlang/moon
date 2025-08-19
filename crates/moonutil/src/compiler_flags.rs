@@ -805,7 +805,7 @@ pub fn make_cc_command<S>(
     user_cc: Option<CC>,
     config: CCConfig,
     user_cc_flags: &[S],
-    src: &[S],
+    src: impl IntoIterator<Item = impl Into<String>>,
     dest_dir: &str,
     dest: &str,
 ) -> Vec<String>
@@ -829,7 +829,7 @@ pub fn make_cc_command_pure<S>(
     cc: CC,
     config: CCConfig,
     user_cc_flags: &[S],
-    src: &[S],
+    src: impl IntoIterator<Item = impl Into<String>>,
     dest_dir: &str,
     dest: &str,
     paths: &CompilerPaths,
@@ -860,7 +860,7 @@ where
     add_cc_shared_runtime_flags(&cc, &mut buf, &config);
     add_cc_moonbitrun_with_warnings(&cc, &mut buf, &config);
 
-    buf.extend(src.iter().map(|s| s.as_ref().to_string()));
+    buf.extend(src.into_iter().map(|s| s.into()));
 
     add_cc_common_libraries(&cc, &mut buf, &config);
     buf.extend(user_cc_flags.iter().map(|s| s.as_ref().to_string()));
