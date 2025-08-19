@@ -399,8 +399,7 @@ fn test_moon_new_snapshot() {
               "import": [
                 {
                   "path": "username/hello",
-                  "alias": "lib",
-                  "value": null
+                  "alias": "lib"
                 }
               ]
             }
@@ -502,8 +501,7 @@ fn test_moon_new_snapshot() {
               "import": [
                 {
                   "path": "moonbitlang/hello",
-                  "alias": "lib",
-                  "value": null
+                  "alias": "lib"
                 }
               ]
             }
@@ -605,8 +603,7 @@ fn test_moon_new_snapshot_lib() {
               "import": [
                 {
                   "path": "username/hello",
-                  "alias": "lib",
-                  "value": null
+                  "alias": "lib"
                 }
               ]
             }
@@ -706,8 +703,7 @@ fn test_moon_new_snapshot_lib() {
               "import": [
                 {
                   "path": "username/parser",
-                  "alias": "lib",
-                  "value": null
+                  "alias": "lib"
                 }
               ]
             }
@@ -807,8 +803,7 @@ fn test_moon_new_snapshot_lib_no_license() {
               "import": [
                 {
                   "path": "username/hello",
-                  "alias": "lib",
-                  "value": null
+                  "alias": "lib"
                 }
               ]
             }
@@ -910,8 +905,7 @@ fn test_moon_new_snapshot_lib_no_license() {
               "import": [
                 {
                   "path": "moonbitlang/hello",
-                  "alias": "lib",
-                  "value": null
+                  "alias": "lib"
                 }
               ]
             }
