@@ -67,7 +67,6 @@ pub fn run_new(_cli: &UniversalFlags, cmd: NewSubcommand) -> anyhow::Result<i32>
         bail!("dry-run is not implemented for new")
     }
 
-    let mut lib_flag = cmd.lib;
     let package_name = cmd.package_name.as_ref();
     let license = if cmd.no_license {
         None
@@ -83,16 +82,7 @@ pub fn run_new(_cli: &UniversalFlags, cmd: NewSubcommand) -> anyhow::Result<i32>
 
     if let Some(name) = package_name {
         let target_dir = PathBuf::from(name);
-        if lib_flag {
-            return moonbuild::new::moon_new_lib(
-                &target_dir,
-                "username".into(),
-                "hello".into(),
-                license,
-            );
-        }
-
-        return moonbuild::new::moon_new_exec(
+        return moonbuild::new::moon_new_default(
             &target_dir,
             "username".into(),
             "hello".into(),
@@ -140,14 +130,6 @@ pub fn run_new(_cli: &UniversalFlags, cmd: NewSubcommand) -> anyhow::Result<i32>
                 .interact()?;
             let path = PathBuf::from(tmp);
 
-            let items = vec!["exec", "lib"];
-            let selection = dialoguer::Select::new()
-                .with_prompt("Select the create mode")
-                .default(0)
-                .items(&items)
-                .interact()?;
-            lib_flag = selection == 1;
-
             let username = dialoguer::Input::<String>::new()
                 .with_prompt("Enter your username")
                 .default("username".to_string())
@@ -177,9 +159,5 @@ pub fn run_new(_cli: &UniversalFlags, cmd: NewSubcommand) -> anyhow::Result<i32>
         );
     }
 
-    if !lib_flag {
-        moonbuild::new::moon_new_exec(&target_dir, user, name, license.as_deref())
-    } else {
-        moonbuild::new::moon_new_lib(&target_dir, user, name, license.as_deref())
-    }
+    moonbuild::new::moon_new_default(&target_dir, user, name, license.as_deref())
 }

@@ -1,4 +1,4 @@
 ///|
 fn main {
-  println(@liba.fib(10))
+  println(@lib.fib(10))
 }

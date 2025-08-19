@@ -105,7 +105,7 @@ fn test_moon_new() {
                 "./hello",
                 "--target-dir",
                 "./hello/target",
-                "src/main",
+                "cmd/main",
             ],
         ),
         expect![[r#"
@@ -122,7 +122,7 @@ fn test_moon_new() {
                 "./hello",
                 "--target-dir",
                 "./hello/target",
-                "src/main",
+                "cmd/main",
             ],
         ),
         expect![[r#"
@@ -139,7 +139,7 @@ fn test_moon_new() {
                 "./hello",
                 "--target-dir",
                 "./hello/target",
-                "src/main",
+                "cmd/main",
             ],
         ),
         expect![[r#"
@@ -207,7 +207,7 @@ fn test_moon_new_new() {
         .assert()
         .success();
     check(
-        get_stdout(&hello1, ["run", "src/main"]),
+        get_stdout(&hello1, ["run", "cmd/main"]),
         expect![[r#"
             89
         "#]],
@@ -230,7 +230,7 @@ fn test_moon_new_new() {
         .assert()
         .success();
     check(
-        get_stdout(&hello2, ["run", "src/main"]),
+        get_stdout(&hello2, ["run", "cmd/main"]),
         expect![[r#"
             89
         "#]],
@@ -276,7 +276,6 @@ fn test_moon_new_new() {
         .current_dir(&hello4)
         .args([
             "new",
-            "--lib",
             "--path",
             ".",
             "--user",
@@ -287,10 +286,8 @@ fn test_moon_new_new() {
         .assert()
         .success();
     check(
-        std::fs::read_to_string(hello4.join("src").join("moon.pkg.json")).unwrap(),
-        expect![[r#"
-            {}
-        "#]],
+        std::fs::read_to_string(hello4.join("moon.pkg.json")).unwrap(),
+        expect![["{}"]],
     );
     check(
         get_stdout(&hello4, ["test", "-v"]),
@@ -371,38 +368,44 @@ fn test_moon_new_snapshot() {
             .
             ./.gitignore
             ./README.md
+            ./cmd/
+            ./cmd/main/
+            ./cmd/main/main.mbt
+            ./cmd/main/moon.pkg.json
+            ./hello.mbt
+            ./hello_test.mbt
             ./moon.mod.json
-            ./src/
-            ./src/liba/
-            ./src/liba/liba.mbt
-            ./src/liba/liba_test.mbt
-            ./src/liba/moon.pkg.json
-            ./src/main/
-            ./src/main/main.mbt
-            ./src/main/moon.pkg.json
+            ./moon.pkg.json
 
             -- files --
             === ./.gitignore ===
+            .DS_Store
             target/
             .mooncakes/
-            .DS_Store
+            .moonagent/
 
             === ./README.md ===
             # username/hello
 
-            === ./moon.mod.json ===
-            {
-              "name": "username/hello",
-              "version": "0.1.0",
-              "readme": "README.md",
-              "repository": "",
-              "license": "",
-              "keywords": [],
-              "description": "",
-              "source": "src"
+            === ./cmd/main/main.mbt ===
+            ///|
+            fn main {
+              println(@lib.fib(10))
             }
 
-            === ./src/liba/liba.mbt ===
+            === ./cmd/main/moon.pkg.json ===
+            {
+              "is-main": true,
+              "import": [
+                {
+                  "path": "username/hello",
+                  "alias": "lib",
+                  "value": null
+                }
+              ]
+            }
+
+            === ./hello.mbt ===
             ///|
             pub fn fib(n : Int) -> Int64 {
               for i = 0, a = 0L, b = 1L; i < n; i = i + 1, a = b, b = a + b {
@@ -412,7 +415,7 @@ fn test_moon_new_snapshot() {
               }
             }
 
-            === ./src/liba/liba_test.mbt ===
+            === ./hello_test.mbt ===
             ///|
             test "fib" {
               let array = [1, 2, 3, 4, 5].map(fib(_))
@@ -423,22 +426,19 @@ fn test_moon_new_snapshot() {
               inspect(array, content="[1, 2, 3, 5, 8]")
             }
 
-            === ./src/liba/moon.pkg.json ===
-            {}
-
-            === ./src/main/main.mbt ===
-            ///|
-            fn main {
-              println(@liba.fib(10))
-            }
-
-            === ./src/main/moon.pkg.json ===
+            === ./moon.mod.json ===
             {
-              "is-main": true,
-              "import": [
-                "username/hello/liba"
-              ]
+              "name": "username/hello",
+              "version": "0.1.0",
+              "readme": "README.md",
+              "repository": "",
+              "license": "",
+              "keywords": [],
+              "description": ""
             }
+
+            === ./moon.pkg.json ===
+            {}
 
         "#]],
     );
@@ -471,38 +471,44 @@ fn test_moon_new_snapshot() {
             ./.gitignore
             ./LICENSE
             ./README.md
+            ./cmd/
+            ./cmd/main/
+            ./cmd/main/main.mbt
+            ./cmd/main/moon.pkg.json
+            ./hello.mbt
+            ./hello_test.mbt
             ./moon.mod.json
-            ./src/
-            ./src/liba/
-            ./src/liba/liba.mbt
-            ./src/liba/liba_test.mbt
-            ./src/liba/moon.pkg.json
-            ./src/main/
-            ./src/main/main.mbt
-            ./src/main/moon.pkg.json
+            ./moon.pkg.json
 
             -- files --
             === ./.gitignore ===
+            .DS_Store
             target/
             .mooncakes/
-            .DS_Store
+            .moonagent/
 
             === ./README.md ===
             # moonbitlang/hello
 
-            === ./moon.mod.json ===
-            {
-              "name": "moonbitlang/hello",
-              "version": "0.1.0",
-              "readme": "README.md",
-              "repository": "",
-              "license": "Apache-2.0",
-              "keywords": [],
-              "description": "",
-              "source": "src"
+            === ./cmd/main/main.mbt ===
+            ///|
+            fn main {
+              println(@lib.fib(10))
             }
 
-            === ./src/liba/liba.mbt ===
+            === ./cmd/main/moon.pkg.json ===
+            {
+              "is-main": true,
+              "import": [
+                {
+                  "path": "moonbitlang/hello",
+                  "alias": "lib",
+                  "value": null
+                }
+              ]
+            }
+
+            === ./hello.mbt ===
             ///|
             pub fn fib(n : Int) -> Int64 {
               for i = 0, a = 0L, b = 1L; i < n; i = i + 1, a = b, b = a + b {
@@ -512,7 +518,7 @@ fn test_moon_new_snapshot() {
               }
             }
 
-            === ./src/liba/liba_test.mbt ===
+            === ./hello_test.mbt ===
             ///|
             test "fib" {
               let array = [1, 2, 3, 4, 5].map(fib(_))
@@ -523,22 +529,19 @@ fn test_moon_new_snapshot() {
               inspect(array, content="[1, 2, 3, 5, 8]")
             }
 
-            === ./src/liba/moon.pkg.json ===
-            {}
-
-            === ./src/main/main.mbt ===
-            ///|
-            fn main {
-              println(@liba.fib(10))
-            }
-
-            === ./src/main/moon.pkg.json ===
+            === ./moon.mod.json ===
             {
-              "is-main": true,
-              "import": [
-                "moonbitlang/hello/liba"
-              ]
+              "name": "moonbitlang/hello",
+              "version": "0.1.0",
+              "readme": "README.md",
+              "repository": "",
+              "license": "Apache-2.0",
+              "keywords": [],
+              "description": ""
             }
+
+            === ./moon.pkg.json ===
+            {}
 
         "#]],
     );
@@ -571,34 +574,44 @@ fn test_moon_new_snapshot_lib() {
             ./.gitignore
             ./LICENSE
             ./README.md
+            ./cmd/
+            ./cmd/main/
+            ./cmd/main/main.mbt
+            ./cmd/main/moon.pkg.json
+            ./hello.mbt
+            ./hello_test.mbt
             ./moon.mod.json
-            ./src/
-            ./src/hello.mbt
-            ./src/hello_test.mbt
-            ./src/moon.pkg.json
+            ./moon.pkg.json
 
             -- files --
             === ./.gitignore ===
+            .DS_Store
             target/
             .mooncakes/
-            .DS_Store
+            .moonagent/
 
             === ./README.md ===
             # username/hello
 
-            === ./moon.mod.json ===
-            {
-              "name": "username/hello",
-              "version": "0.1.0",
-              "readme": "README.md",
-              "repository": "",
-              "license": "Apache-2.0",
-              "keywords": [],
-              "description": "",
-              "source": "src"
+            === ./cmd/main/main.mbt ===
+            ///|
+            fn main {
+              println(@lib.fib(10))
             }
 
-            === ./src/hello.mbt ===
+            === ./cmd/main/moon.pkg.json ===
+            {
+              "is-main": true,
+              "import": [
+                {
+                  "path": "username/hello",
+                  "alias": "lib",
+                  "value": null
+                }
+              ]
+            }
+
+            === ./hello.mbt ===
             ///|
             pub fn fib(n : Int) -> Int64 {
               for i = 0, a = 0L, b = 1L; i < n; i = i + 1, a = b, b = a + b {
@@ -608,7 +621,7 @@ fn test_moon_new_snapshot_lib() {
               }
             }
 
-            === ./src/hello_test.mbt ===
+            === ./hello_test.mbt ===
             ///|
             test "fib" {
               let array = [1, 2, 3, 4, 5].map(fib(_))
@@ -619,7 +632,18 @@ fn test_moon_new_snapshot_lib() {
               inspect(array, content="[1, 2, 3, 5, 8]")
             }
 
-            === ./src/moon.pkg.json ===
+            === ./moon.mod.json ===
+            {
+              "name": "username/hello",
+              "version": "0.1.0",
+              "readme": "README.md",
+              "repository": "",
+              "license": "Apache-2.0",
+              "keywords": [],
+              "description": ""
+            }
+
+            === ./moon.pkg.json ===
             {}
 
         "#]],
@@ -651,20 +675,42 @@ fn test_moon_new_snapshot_lib() {
             ./.gitignore
             ./LICENSE
             ./README.md
+            ./cmd/
+            ./cmd/main/
+            ./cmd/main/main.mbt
+            ./cmd/main/moon.pkg.json
             ./moon.mod.json
-            ./src/
-            ./src/moon.pkg.json
-            ./src/parser.mbt
-            ./src/parser_test.mbt
+            ./moon.pkg.json
+            ./parser.mbt
+            ./parser_test.mbt
 
             -- files --
             === ./.gitignore ===
+            .DS_Store
             target/
             .mooncakes/
-            .DS_Store
+            .moonagent/
 
             === ./README.md ===
             # username/parser
+
+            === ./cmd/main/main.mbt ===
+            ///|
+            fn main {
+              println(@lib.fib(10))
+            }
+
+            === ./cmd/main/moon.pkg.json ===
+            {
+              "is-main": true,
+              "import": [
+                {
+                  "path": "username/parser",
+                  "alias": "lib",
+                  "value": null
+                }
+              ]
+            }
 
             === ./moon.mod.json ===
             {
@@ -674,14 +720,13 @@ fn test_moon_new_snapshot_lib() {
               "repository": "",
               "license": "Apache-2.0",
               "keywords": [],
-              "description": "",
-              "source": "src"
+              "description": ""
             }
 
-            === ./src/moon.pkg.json ===
+            === ./moon.pkg.json ===
             {}
 
-            === ./src/parser.mbt ===
+            === ./parser.mbt ===
             ///|
             pub fn fib(n : Int) -> Int64 {
               for i = 0, a = 0L, b = 1L; i < n; i = i + 1, a = b, b = a + b {
@@ -691,7 +736,7 @@ fn test_moon_new_snapshot_lib() {
               }
             }
 
-            === ./src/parser_test.mbt ===
+            === ./parser_test.mbt ===
             ///|
             test "fib" {
               let array = [1, 2, 3, 4, 5].map(fib(_))
@@ -731,34 +776,44 @@ fn test_moon_new_snapshot_lib_no_license() {
             .
             ./.gitignore
             ./README.md
+            ./cmd/
+            ./cmd/main/
+            ./cmd/main/main.mbt
+            ./cmd/main/moon.pkg.json
+            ./hello.mbt
+            ./hello_test.mbt
             ./moon.mod.json
-            ./src/
-            ./src/hello.mbt
-            ./src/hello_test.mbt
-            ./src/moon.pkg.json
+            ./moon.pkg.json
 
             -- files --
             === ./.gitignore ===
+            .DS_Store
             target/
             .mooncakes/
-            .DS_Store
+            .moonagent/
 
             === ./README.md ===
             # username/hello
 
-            === ./moon.mod.json ===
-            {
-              "name": "username/hello",
-              "version": "0.1.0",
-              "readme": "README.md",
-              "repository": "",
-              "license": "",
-              "keywords": [],
-              "description": "",
-              "source": "src"
+            === ./cmd/main/main.mbt ===
+            ///|
+            fn main {
+              println(@lib.fib(10))
             }
 
-            === ./src/hello.mbt ===
+            === ./cmd/main/moon.pkg.json ===
+            {
+              "is-main": true,
+              "import": [
+                {
+                  "path": "username/hello",
+                  "alias": "lib",
+                  "value": null
+                }
+              ]
+            }
+
+            === ./hello.mbt ===
             ///|
             pub fn fib(n : Int) -> Int64 {
               for i = 0, a = 0L, b = 1L; i < n; i = i + 1, a = b, b = a + b {
@@ -768,7 +823,7 @@ fn test_moon_new_snapshot_lib_no_license() {
               }
             }
 
-            === ./src/hello_test.mbt ===
+            === ./hello_test.mbt ===
             ///|
             test "fib" {
               let array = [1, 2, 3, 4, 5].map(fib(_))
@@ -779,7 +834,18 @@ fn test_moon_new_snapshot_lib_no_license() {
               inspect(array, content="[1, 2, 3, 5, 8]")
             }
 
-            === ./src/moon.pkg.json ===
+            === ./moon.mod.json ===
+            {
+              "name": "username/hello",
+              "version": "0.1.0",
+              "readme": "README.md",
+              "repository": "",
+              "license": "",
+              "keywords": [],
+              "description": ""
+            }
+
+            === ./moon.pkg.json ===
             {}
 
         "#]],
@@ -813,34 +879,44 @@ fn test_moon_new_snapshot_lib_no_license() {
             .
             ./.gitignore
             ./README.md
+            ./cmd/
+            ./cmd/main/
+            ./cmd/main/main.mbt
+            ./cmd/main/moon.pkg.json
+            ./hello.mbt
+            ./hello_test.mbt
             ./moon.mod.json
-            ./src/
-            ./src/hello.mbt
-            ./src/hello_test.mbt
-            ./src/moon.pkg.json
+            ./moon.pkg.json
 
             -- files --
             === ./.gitignore ===
+            .DS_Store
             target/
             .mooncakes/
-            .DS_Store
+            .moonagent/
 
             === ./README.md ===
             # moonbitlang/hello
 
-            === ./moon.mod.json ===
-            {
-              "name": "moonbitlang/hello",
-              "version": "0.1.0",
-              "readme": "README.md",
-              "repository": "",
-              "license": "",
-              "keywords": [],
-              "description": "",
-              "source": "src"
+            === ./cmd/main/main.mbt ===
+            ///|
+            fn main {
+              println(@lib.fib(10))
             }
 
-            === ./src/hello.mbt ===
+            === ./cmd/main/moon.pkg.json ===
+            {
+              "is-main": true,
+              "import": [
+                {
+                  "path": "moonbitlang/hello",
+                  "alias": "lib",
+                  "value": null
+                }
+              ]
+            }
+
+            === ./hello.mbt ===
             ///|
             pub fn fib(n : Int) -> Int64 {
               for i = 0, a = 0L, b = 1L; i < n; i = i + 1, a = b, b = a + b {
@@ -850,7 +926,7 @@ fn test_moon_new_snapshot_lib_no_license() {
               }
             }
 
-            === ./src/hello_test.mbt ===
+            === ./hello_test.mbt ===
             ///|
             test "fib" {
               let array = [1, 2, 3, 4, 5].map(fib(_))
@@ -861,7 +937,18 @@ fn test_moon_new_snapshot_lib_no_license() {
               inspect(array, content="[1, 2, 3, 5, 8]")
             }
 
-            === ./src/moon.pkg.json ===
+            === ./moon.mod.json ===
+            {
+              "name": "moonbitlang/hello",
+              "version": "0.1.0",
+              "readme": "README.md",
+              "repository": "",
+              "license": "",
+              "keywords": [],
+              "description": ""
+            }
+
+            === ./moon.pkg.json ===
             {}
 
         "#]],
