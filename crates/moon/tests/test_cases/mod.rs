@@ -60,6 +60,7 @@ mod test_driver_dependencies;
 mod test_error_report;
 mod test_expect_test;
 mod test_filter;
+mod virtual_pkg_dep;
 mod warns;
 
 #[test]
