@@ -364,6 +364,7 @@ fn test_moon_new_snapshot() {
     snapbox::cmd::Command::new(moon_bin())
         .current_dir(&dir)
         .args(["new", "hello", "--no-license"])
+        .env("MOON_HOME", dir.path.path())
         .assert()
         .success();
 
@@ -394,7 +395,7 @@ fn test_moon_new_snapshot() {
             .moonagent/
 
             === ./README.mbt.md ===
-            # username/hello
+            # testuser/hello
 
             === ./README.md ===
             <symbolic link to README.mbt.md>
@@ -410,7 +411,7 @@ fn test_moon_new_snapshot() {
               "is-main": true,
               "import": [
                 {
-                  "path": "username/hello",
+                  "path": "testuser/hello",
                   "alias": "lib"
                 }
               ]
@@ -439,7 +440,7 @@ fn test_moon_new_snapshot() {
 
             === ./moon.mod.json ===
             {
-              "name": "username/hello",
+              "name": "testuser/hello",
               "version": "0.1.0",
               "readme": "README.md",
               "repository": "",
@@ -578,6 +579,7 @@ fn test_moon_new_snapshot_lib() {
     snapbox::cmd::Command::new(moon_bin())
         .current_dir(&dir)
         .args(["new", "--lib", "hello_lib"])
+        .env("MOON_HOME", dir.path.path())
         .assert()
         .success();
 
@@ -612,7 +614,7 @@ fn test_moon_new_snapshot_lib() {
             <LICENSE file content>
 
             === ./README.mbt.md ===
-            # username/hello
+            # testuser/hello
 
             === ./README.md ===
             <symbolic link to README.mbt.md>
@@ -628,7 +630,7 @@ fn test_moon_new_snapshot_lib() {
               "is-main": true,
               "import": [
                 {
-                  "path": "username/hello",
+                  "path": "testuser/hello",
                   "alias": "lib"
                 }
               ]
@@ -657,7 +659,7 @@ fn test_moon_new_snapshot_lib() {
 
             === ./moon.mod.json ===
             {
-              "name": "username/hello",
+              "name": "testuser/hello",
               "version": "0.1.0",
               "readme": "README.md",
               "repository": "",
@@ -794,6 +796,7 @@ fn test_moon_new_snapshot_lib_no_license() {
     snapbox::cmd::Command::new(moon_bin())
         .current_dir(&dir)
         .args(["new", "--lib", "hello_lib", "--no-license"])
+        .env("MOON_HOME", dir.path.path())
         .assert()
         .success();
 
@@ -823,7 +826,7 @@ fn test_moon_new_snapshot_lib_no_license() {
             .moonagent/
 
             === ./README.mbt.md ===
-            # username/hello
+            # testuser/hello
 
             === ./README.md ===
             <symbolic link to README.mbt.md>
@@ -839,7 +842,7 @@ fn test_moon_new_snapshot_lib_no_license() {
               "is-main": true,
               "import": [
                 {
-                  "path": "username/hello",
+                  "path": "testuser/hello",
                   "alias": "lib"
                 }
               ]
@@ -868,7 +871,7 @@ fn test_moon_new_snapshot_lib_no_license() {
 
             === ./moon.mod.json ===
             {
-              "name": "username/hello",
+              "name": "testuser/hello",
               "version": "0.1.0",
               "readme": "README.md",
               "repository": "",
