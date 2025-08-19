@@ -45,6 +45,7 @@ use walkdir::WalkDir;
 use crate::{
     model::PackageId,
     pkg_name::{PackageFQN, PackagePath},
+    special_cases::{add_prelude_as_import_for_core, module_name_is_core},
 };
 
 /// Discover packages contained by all dependencies from their paths
@@ -106,6 +107,7 @@ fn discover_packages_for_mod(
 
     let source_dir_name = m.source.as_deref().unwrap_or(".");
     let scan_source_root = dir.join(source_dir_name);
+    let is_core = module_name_is_core(&m.name);
 
     // Recursively walk through the module's directories
     let mut walkdir = WalkDir::new(&scan_source_root)
@@ -160,7 +162,7 @@ fn discover_packages_for_mod(
 
         // Begin discovering the package
         debug!("Discovering package at {}", abs_path.display());
-        let pkg = discover_one_package(id, module_source, abs_path, &rel_path)?;
+        let pkg = discover_one_package(id, module_source, abs_path, &rel_path, is_core)?;
         debug!(
             "Found package: {} with {} source files",
             pkg.fqn,
@@ -179,6 +181,7 @@ fn discover_one_package(
     m: &ModuleSource,
     abs: &Path,
     rel: &RelativePath,
+    is_core: bool, // We have a couple of special cases for core packages
 ) -> Result<DiscoveredPackage, DiscoverError> {
     let pkg_path = PackagePath::new_from_rel_path(rel)
         .expect("Generation of package path from relative path should not error");
@@ -191,6 +194,11 @@ fn discover_one_package(
             path: abs.to_path_buf(),
             inner: e,
         })?;
+    let pkg_json = if is_core {
+        add_prelude_as_import_for_core(pkg_json)
+    } else {
+        pkg_json
+    };
 
     // Discover source files within the package
     let mut source_files = Vec::new();
