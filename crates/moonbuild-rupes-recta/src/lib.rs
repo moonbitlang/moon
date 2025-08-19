@@ -106,6 +106,7 @@ pub mod compile;
 pub mod resolve;
 
 // Random utilities
+mod special_cases;
 pub mod util;
 
 // Reexports

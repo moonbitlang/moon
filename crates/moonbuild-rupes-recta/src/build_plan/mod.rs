@@ -202,9 +202,9 @@ pub fn build_plan(
     packages: &DiscoverResult,
     build_deps: &DepRelationship,
     build_env: &BuildEnvironment,
-    input: &[BuildPlanNode],
+    input: impl Iterator<Item = BuildPlanNode>,
 ) -> Result<BuildPlan, BuildPlanConstructError> {
-    info!("Constructing build plan with {} input nodes", input.len());
+    info!("Constructing build plan");
     debug!(
         "Build environment: backend={:?}, opt_level={:?}",
         build_env.target_backend, build_env.opt_level
@@ -257,7 +257,10 @@ impl<'a> BuildPlanConstructor<'a> {
         self.res
     }
 
-    fn build(&mut self, input: &[BuildPlanNode]) -> Result<(), BuildPlanConstructError> {
+    fn build(
+        &mut self,
+        input: impl Iterator<Item = BuildPlanNode>,
+    ) -> Result<(), BuildPlanConstructError> {
         assert!(
             self.pending.is_empty(),
             "Pending nodes should be empty before starting the build"
@@ -265,9 +268,9 @@ impl<'a> BuildPlanConstructor<'a> {
 
         // Add the input node to the pending list
         for i in input {
-            self.need_node(*i);
+            self.need_node(i);
+            self.res.input_nodes.push(i);
         }
-        self.res.input_nodes.extend_from_slice(input);
 
         while let Some(node) = self.pending.pop() {
             // check if the node is already resolved
