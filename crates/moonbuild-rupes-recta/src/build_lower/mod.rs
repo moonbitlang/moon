@@ -27,6 +27,10 @@ use std::{
 use log::{debug, info};
 use moonutil::{
     common::{DriverKind, TargetBackend},
+    compiler_flags::{
+        make_cc_command_pure, resolve_cc, CCConfigBuilder, CompilerPaths, OptLevel as CCOptLevel,
+        OutputType as CCOutputType, CC,
+    },
     cond_expr::OptLevel,
     mooncakes::ModuleSource,
 };
@@ -38,10 +42,10 @@ use crate::{
         artifact::LegacyLayout,
         compiler::{CmdlineAbstraction, MiDependency, PackageSource},
     },
-    build_plan::{BuildPlan, BuildTargetInfo, LinkCoreInfo},
+    build_plan::{BuildPlan, BuildTargetInfo, LinkCoreInfo, MakeExecutableInfo},
     discover::{DiscoverResult, DiscoveredPackage},
     model::{Artifacts, BuildPlanNode, BuildTarget, OperatingSystem, TargetKind},
-    pkg_name::{OptionalPackageFQNWithSource, PackageFQNWithSource},
+    pkg_name::OptionalPackageFQNWithSource,
     pkg_solve::DepRelationship,
 };
 
@@ -54,10 +58,13 @@ pub struct BuildOptions {
     pub target_dir_root: PathBuf,
     // FIXME: This overlaps with `crate::build_plan::BuildEnvironment`
     pub target_backend: TargetBackend,
+    pub os: OperatingSystem,
     pub opt_level: OptLevel,
     pub debug_symbols: bool,
     /// Only `Some` if we import standard library.
     pub stdlib_path: Option<PathBuf>,
+    pub runtime_dot_c_path: PathBuf,
+    pub compiler_paths: CompilerPaths,
 }
 
 /// An error that may be raised during build plan lowering
@@ -191,9 +198,12 @@ impl<'a> BuildPlanLowerContext<'a> {
                     .expect("Link core info should be present for LinkCore nodes");
                 self.lower_link_core(node, target, info)
             }
-            BuildPlanNode::MakeExecutable(_target) => {
-                // TODO: Native targets need another linking step
-                panic!("Native make-executable not supported yet")
+            BuildPlanNode::MakeExecutable(target) => {
+                let info = self
+                    .build_plan
+                    .get_make_executable_info(&target)
+                    .expect("Make executable info should be present for MakeExecutable nodes");
+                self.lower_make_exe(target, info)
             }
             BuildPlanNode::GenerateMbti(_target) => todo!(),
             BuildPlanNode::Bundle(_module_id) => todo!(),
@@ -205,7 +215,7 @@ impl<'a> BuildPlanLowerContext<'a> {
                 self.lower_gen_test_driver(node, target, info)
             }
             BuildPlanNode::Format(_target) => todo!(),
-            BuildPlanNode::BuildRuntimeLib => todo!(),
+            BuildPlanNode::BuildRuntimeLib => self.lower_compile_runtime(),
         };
 
         // Collect n2 inputs and outputs.
@@ -276,7 +286,7 @@ impl<'a> BuildPlanLowerContext<'a> {
                     self.packages,
                     &target,
                     self.opt.target_backend,
-                    OperatingSystem::None,
+                    self.opt.os,
                 ));
             }
             BuildPlanNode::MakeExecutable(target) => {
@@ -284,7 +294,7 @@ impl<'a> BuildPlanLowerContext<'a> {
                     self.packages,
                     &target,
                     self.opt.target_backend,
-                    OperatingSystem::None,
+                    self.opt.os,
                     true,
                 ))
             }
@@ -308,7 +318,10 @@ impl<'a> BuildPlanLowerContext<'a> {
                 todo!()
             }
             BuildPlanNode::BuildRuntimeLib => {
-                todo!()
+                out.push(
+                    self.layout
+                        .runtime_output_path(self.opt.target_backend, self.opt.os),
+                );
             }
             BuildPlanNode::GenerateMbti(_target) => todo!(),
         }
@@ -471,7 +484,7 @@ impl<'a> BuildPlanLowerContext<'a> {
             self.packages,
             &target,
             self.opt.target_backend,
-            OperatingSystem::None,
+            self.opt.os,
         );
 
         let package_sources = info
@@ -508,8 +521,66 @@ impl<'a> BuildPlanLowerContext<'a> {
         }
     }
 
-    fn lower_make_exe(&mut self, target: BuildTarget) {
+    fn lower_make_exe(&mut self, target: BuildTarget, info: &MakeExecutableInfo) -> BuildCommand {
+        assert!(
+            self.opt.target_backend.is_native(),
+            "Non-native make-executable should be already matched and should not be here"
+        );
+
         let _package = self.get_package(target);
+
+        // Two things needs to be done here:
+        // - compile the program (if needed)
+        // - link with runtime library & artifacts of other C stubs
+        // let cc_cmd = make_cc_command_pure(cc, config, user_cc_flags, src, dest_dir, dest, paths);
+
+        let mut sources = vec![];
+        // C artifact path
+        self.append_artifact_of(BuildPlanNode::LinkCore(target), &mut sources);
+        // Runtime path
+        self.append_artifact_of(BuildPlanNode::BuildRuntimeLib, &mut sources);
+        // C stubs to link
+        for &stub_tgt in &info.link_c_stubs {
+            self.append_artifact_of(BuildPlanNode::BuildCStubs(stub_tgt), &mut sources);
+        }
+
+        let opt_level = match self.opt.opt_level {
+            OptLevel::Release => CCOptLevel::Speed,
+            OptLevel::Debug => CCOptLevel::Debug,
+        };
+        let config = CCConfigBuilder::default()
+            .no_sys_header(true)
+            .output_ty(CCOutputType::Executable) // TODO: support compiling to library
+            .opt_level(opt_level)
+            .debug_info(self.opt.opt_level == OptLevel::Debug)
+            .link_moonbitrun(true) // TODO: support `tcc run`
+            .define_use_shared_runtime_macro(false)
+            .build()
+            .expect("Failed to build CC configuration for executable");
+        let cc_cmd = make_cc_command_pure::<&'static str>(
+            resolve_cc(CC::default(), None),
+            config,
+            &[], // TODO: support native cc flags
+            sources.iter().map(|x| x.display().to_string()),
+            &self.opt.target_dir_root.display().to_string(),
+            &self
+                .layout
+                .executable_of_build_target(
+                    self.packages,
+                    &target,
+                    self.opt.target_backend,
+                    self.opt.os,
+                    true,
+                )
+                .display()
+                .to_string(),
+            &self.opt.compiler_paths,
+        );
+
+        BuildCommand {
+            extra_inputs: vec![],
+            commandline: cc_cmd,
+        }
     }
 
     fn lower_gen_test_driver(
@@ -547,6 +618,38 @@ impl<'a> BuildPlanLowerContext<'a> {
         BuildCommand {
             extra_inputs: info.files.clone(),
             commandline: cmd.build_command("moon"),
+        }
+    }
+
+    fn lower_compile_runtime(&mut self) -> BuildCommand {
+        let artifact_path = self
+            .layout
+            .runtime_output_path(self.opt.target_backend, self.opt.os);
+
+        // TODO: this part might need more simplification?
+        let runtime_c_path = self.opt.runtime_dot_c_path.clone();
+        let cc_cmd = make_cc_command_pure::<&'static str>(
+            resolve_cc(CC::default(), None),
+            CCConfigBuilder::default()
+                .no_sys_header(true)
+                .output_ty(CCOutputType::Object)
+                .opt_level(CCOptLevel::Speed)
+                .debug_info(true)
+                // always link moonbitrun in this mode
+                .link_moonbitrun(true)
+                .define_use_shared_runtime_macro(false)
+                .build()
+                .expect("Failed to build CC configuration for runtime"),
+            &[],
+            [runtime_c_path.display().to_string()],
+            &self.opt.target_dir_root.display().to_string(),
+            &artifact_path.display().to_string(),
+            &self.opt.compiler_paths,
+        );
+
+        BuildCommand {
+            extra_inputs: vec![runtime_c_path],
+            commandline: cc_cmd,
         }
     }
 
