@@ -202,6 +202,13 @@ impl LegacyLayout {
         ));
         base_dir
     }
+
+    pub fn runtime_output_path(&self, backend: TargetBackend, os: OperatingSystem) -> PathBuf {
+        let mut result = self.target_base_dir.clone();
+        push_backend(&mut result, backend);
+        result.push(format!("runtime{}", object_file_ext(os)));
+        result
+    }
 }
 
 fn push_backend(path: &mut PathBuf, backend: TargetBackend) {

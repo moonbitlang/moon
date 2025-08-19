@@ -636,6 +636,8 @@ impl<'a> BuildPlanConstructor<'a> {
     }
 
     fn build_runtime_lib(&mut self, _node: BuildPlanNode) -> Result<(), BuildPlanConstructError> {
-        todo!()
+        // Nothing specific to do here ;)
+        self.resolved_node(_node);
+        Ok(())
     }
 }
