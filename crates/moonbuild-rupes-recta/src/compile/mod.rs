@@ -28,6 +28,7 @@ use crate::{
     build_plan::{self, BuildEnvironment},
     model::{Artifacts, BuildPlanNode, OperatingSystem},
     resolve::ResolveOutput,
+    special_cases::should_skip_tests,
 };
 
 /// The context that encapsulates all the data needed for the building process.
@@ -85,6 +86,11 @@ pub fn compile(
         input_nodes.len()
     );
 
+    let input_nodes = input_nodes
+        .iter()
+        .cloned()
+        .filter(|x| filter_special_case_input_nodes(*x, cx.resolve_output));
+
     let build_env = BuildEnvironment {
         target_backend: cx.target_backend,
         opt_level: cx.opt_level,
@@ -139,4 +145,15 @@ pub fn compile(
             None
         },
     })
+}
+
+/// A filter to remove build plan nodes that are invalid. Returns `true` if the
+/// node should be retained.
+///
+/// See [`crate::special_cases`] for more information.
+fn filter_special_case_input_nodes(node: BuildPlanNode, resolve_output: &ResolveOutput) -> bool {
+    match node.extract_target() {
+        Some(tgt) if tgt.kind.is_test() => !should_skip_tests(tgt.package, resolve_output),
+        _ => true,
+    }
 }

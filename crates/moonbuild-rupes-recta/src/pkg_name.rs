@@ -69,6 +69,15 @@ impl std::fmt::Display for PackageFQN {
     }
 }
 
+/// Compare a package FQN to a tuple of (username, module, package)
+impl<'a> PartialEq<(&'a str, &'a str, &'a str)> for PackageFQN {
+    fn eq(&self, &(user, module, package): &(&'a str, &'a str, &'a str)) -> bool {
+        self.module.name().username == user
+            && self.module.name().unqual == module
+            && self.package.as_str() == package
+    }
+}
+
 /// Write a package FQN to a formatter given module and package parts
 pub fn write_package_fqn_to<W: std::fmt::Write>(
     f: &mut W,
