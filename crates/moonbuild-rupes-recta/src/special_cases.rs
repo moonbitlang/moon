@@ -18,10 +18,15 @@
 
 //! A place **dedicated** for identifying special cases in building.
 //!
-//! Although the special case handlers themselves are better living in the
-//! relevant modules, we should keep alls special case identifiers here to
-//! keep them in one place for easier maintenance.
+//! Although the special case handlers themselves may be better living in the
+//! relevant modules, we should at least keep all special case identifiers here
+//! to keep them in one place for easier maintenance.
+//!
+//! Most, if not all, of the special cases are related to `moonbitlang/core`,
+//! the standard library of MoonBit.
 #![allow(unused)]
+
+use moonutil::package::MoonPkg;
 
 use crate::{model::PackageId, ResolveOutput};
 
@@ -31,6 +36,8 @@ const CORE: &str = "core";
 const ABORT: &str = "abort";
 const BUILTIN: &str = "builtin";
 const COVERAGE: &str = "coverage";
+const PRELUDE: &str = "prelude";
+pub const CORE_MODULE: &str = "moonbitlang/core";
 
 /// Libraries that should not be tested
 const SKIP_TEST_LIBS: &[(&str, &str, &str)] = &[(MOONBIT, CORE, ABORT)];
@@ -39,6 +46,23 @@ const SKIP_COVERAGE_LIBS: &[(&str, &str, &str)] = &[(MOONBIT, CORE, ABORT)];
 /// Libraries that should use themselves for coverage
 const SELF_COVERAGE_LIBS: &[(&str, &str, &str)] =
     &[(MOONBIT, CORE, BUILTIN), (MOONBIT, CORE, COVERAGE)];
+
+pub fn module_name_is_core(name: &str) -> bool {
+    name == CORE_MODULE
+}
+
+/// Core packages require importing `prelude` in test imports, or the test will
+/// not be able to run.
+pub fn add_prelude_as_import_for_core(mut pkg_json: MoonPkg) -> MoonPkg {
+    pkg_json
+        .test_imports
+        .push(moonutil::package::Import::Alias {
+            path: "moonbitlang/core/prelude".into(),
+            alias: Some("prelude".into()),
+            sub_package: false,
+        });
+    pkg_json
+}
 
 fn name_matches(
     package_id: PackageId,
