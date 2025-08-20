@@ -52,7 +52,8 @@ pub struct NewSubcommand {
     pub package_name: Option<String>,
 
     /// Create a library package instead of an executable
-    #[clap(long)]
+    #[clap(long, hide = true)]
+    #[deprecated]
     pub lib: bool,
 
     #[clap(flatten)]
@@ -86,6 +87,13 @@ pub struct NewPathUserName {
 pub fn run_new(_cli: &UniversalFlags, cmd: NewSubcommand) -> anyhow::Result<i32> {
     if _cli.dry_run {
         bail!("dry-run is not implemented for new")
+    }
+    #[allow(deprecated)]
+    if cmd.lib {
+        eprintln!(
+            "{}: The `--lib` flag is deprecated. Currently the template is unified.",
+            "Warning".yellow().bold()
+        );
     }
 
     let package_name = cmd.package_name.as_ref();

@@ -157,9 +157,6 @@ pub fn moon_new_default(
 }
 
 fn common(target_dir: &Path, cake_full_name: &str, license: Option<&str>) -> anyhow::Result<i32> {
-    let short_name = cake_full_name
-        .rsplit_once('/')
-        .map_or(cake_full_name, |(_, n)| n);
     std::fs::create_dir_all(target_dir).context("failed to create target directory")?;
 
     if !is_in_git_repo(target_dir)? {
