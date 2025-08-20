@@ -157,6 +157,9 @@ pub fn moon_new_default(
 }
 
 fn common(target_dir: &Path, cake_full_name: &str, license: Option<&str>) -> anyhow::Result<i32> {
+    let short_name = cake_full_name
+        .rsplit_once('/')
+        .map_or(cake_full_name, |(_, n)| n);
     std::fs::create_dir_all(target_dir).context("failed to create target directory")?;
 
     if !is_in_git_repo(target_dir)? {
@@ -208,7 +211,22 @@ fn common(target_dir: &Path, cake_full_name: &str, license: Option<&str>) -> any
     // READMD.mbt.md
     {
         let md_file = target_dir.join("README.mbt.md");
-        let content = format!("# {cake_full_name}");
+        let content = format!(
+            r#"# {cake_full_name}
+
+## Development
+- To test the project, run `moon test`. To update the snapshot, run `moon test --update`.
+- To build the project, run `moon build`.
+- To run the project, run `moon run cmd/main`.
+
+You may also write tests in this file to demonstrate the functionality of your project:
+```moonbit
+test {{
+  inspect(@{short_name}.fib(10), content="89")
+}}
+```
+"#
+        );
         let mut file = std::fs::File::create(md_file).unwrap();
         file.write_all(content.as_bytes()).unwrap();
     }
