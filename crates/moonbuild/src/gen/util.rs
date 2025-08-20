@@ -93,15 +93,13 @@ pub fn topo_from_node(m: &ModuleDB, pkg: &Package) -> anyhow::Result<Vec<String>
                 // if neighbor is a virtual package, we should find its implementation
                 if let Some(impl_pkg) = virtual_impl.get(&neighbor_full_name) {
                     impl_pkg.to_string()
+                } else if virtual_info.has_default {
+                    neighbor_full_name
                 } else {
-                    if virtual_info.has_default {
+                    bail!(
+                        "Virtual package {} has no implementation",
                         neighbor_full_name
-                    } else {
-                        bail!(
-                            "Virtual package {} has no implementation",
-                            neighbor_full_name
-                        );
-                    }
+                    );
                 }
             } else {
                 neighbor_full_name
