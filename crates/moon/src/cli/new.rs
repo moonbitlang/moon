@@ -16,13 +16,34 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
-use std::path::PathBuf;
+use std::{fs::File, io::BufReader, path::PathBuf};
 
 use anyhow::bail;
 use colored::Colorize;
-use moonutil::{common::MOON_MOD_JSON, mooncakes::validate_username};
+use moonutil::{
+    common::MOON_MOD_JSON,
+    moon_dir,
+    mooncakes::{validate_username, Credentials},
+};
 
 use super::UniversalFlags;
+
+/// Read the existing username from the credentials file
+fn get_existing_username() -> Option<String> {
+    let credentials_path = moon_dir::credentials_json();
+    if !credentials_path.exists() {
+        return None;
+    }
+
+    // Try to read the credentials file
+    if let Ok(file) = File::open(&credentials_path) {
+        let reader = BufReader::new(file);
+        if let Ok(credentials) = serde_json_lenient::from_reader::<_, Credentials>(reader) {
+            return credentials.username;
+        }
+    }
+    None
+}
 
 /// Create a new MoonBit module
 #[derive(Debug, clap::Parser)]
@@ -31,7 +52,8 @@ pub struct NewSubcommand {
     pub package_name: Option<String>,
 
     /// Create a library package instead of an executable
-    #[clap(long)]
+    #[clap(long, hide = true)]
+    #[deprecated]
     pub lib: bool,
 
     #[clap(flatten)]
@@ -66,8 +88,14 @@ pub fn run_new(_cli: &UniversalFlags, cmd: NewSubcommand) -> anyhow::Result<i32>
     if _cli.dry_run {
         bail!("dry-run is not implemented for new")
     }
+    #[allow(deprecated)]
+    if cmd.lib {
+        eprintln!(
+            "{}: The `--lib` flag is deprecated. Currently the template is unified.",
+            "Warning".yellow().bold()
+        );
+    }
 
-    let mut lib_flag = cmd.lib;
     let package_name = cmd.package_name.as_ref();
     let license = if cmd.no_license {
         None
@@ -83,21 +111,9 @@ pub fn run_new(_cli: &UniversalFlags, cmd: NewSubcommand) -> anyhow::Result<i32>
 
     if let Some(name) = package_name {
         let target_dir = PathBuf::from(name);
-        if lib_flag {
-            return moonbuild::new::moon_new_lib(
-                &target_dir,
-                "username".into(),
-                "hello".into(),
-                license,
-            );
-        }
-
-        return moonbuild::new::moon_new_exec(
-            &target_dir,
-            "username".into(),
-            "hello".into(),
-            license,
-        );
+        let existing_username = get_existing_username();
+        let username = existing_username.unwrap_or_else(|| "username".to_string());
+        return moonbuild::new::moon_new_default(&target_dir, username, "hello".into(), license);
     }
 
     let NewPathUserName { path, user, name } = cmd.path_user_name;
@@ -140,17 +156,12 @@ pub fn run_new(_cli: &UniversalFlags, cmd: NewSubcommand) -> anyhow::Result<i32>
                 .interact()?;
             let path = PathBuf::from(tmp);
 
-            let items = vec!["exec", "lib"];
-            let selection = dialoguer::Select::new()
-                .with_prompt("Select the create mode")
-                .default(0)
-                .items(&items)
-                .interact()?;
-            lib_flag = selection == 1;
+            let existing_username = get_existing_username();
+            let default_username = existing_username.unwrap_or_else(|| "username".to_string());
 
             let username = dialoguer::Input::<String>::new()
                 .with_prompt("Enter your username")
-                .default("username".to_string())
+                .default(default_username)
                 .validate_with(|input: &String| -> Result<(), String> { validate_username(input) })
                 .show_default(true)
                 .interact()?;
@@ -177,9 +188,5 @@ pub fn run_new(_cli: &UniversalFlags, cmd: NewSubcommand) -> anyhow::Result<i32>
         );
     }
 
-    if !lib_flag {
-        moonbuild::new::moon_new_exec(&target_dir, user, name, license.as_deref())
-    } else {
-        moonbuild::new::moon_new_lib(&target_dir, user, name, license.as_deref())
-    }
+    moonbuild::new::moon_new_default(&target_dir, user, name, license.as_deref())
 }

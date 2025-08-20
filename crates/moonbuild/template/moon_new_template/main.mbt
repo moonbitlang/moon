@@ -1,3 +1,4 @@
+///|
 fn main {
-  println(@lib.hello())
+  println(@lib.fib(10))
 }

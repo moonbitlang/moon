@@ -192,7 +192,9 @@ pub enum PkgJSONImportItem {
     String(String),
     Object {
         path: String,
+        #[serde(skip_serializing_if = "Option::is_none")]
         alias: Option<String>,
+        #[serde(skip_serializing_if = "Option::is_none")]
         value: Option<Vec<String>>,
         #[serde(skip_serializing_if = "Option::is_none")]
         #[serde(alias = "sub-package")]

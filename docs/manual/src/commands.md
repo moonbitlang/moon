@@ -78,7 +78,6 @@ Create a new MoonBit module
 
 ###### **Options:**
 
-* `--lib` — Create a library package instead of an executable
 * `--path <PATH>` — Output path of the package
 * `--user <USER>` — The user name of the package
 * `--name <NAME>` — The name part of the package
