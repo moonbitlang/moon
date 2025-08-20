@@ -23,7 +23,7 @@ use moonutil::{graph::get_example_cycle, package::Link};
 use std::fmt::Write;
 
 #[allow(unused)]
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
 use petgraph::dot::{Config, Dot};
 
@@ -51,30 +51,62 @@ pub fn topo_from_node(m: &ModuleDB, pkg: &Package) -> anyhow::Result<Vec<String>
     let pkg_full_name = pkg.full_name();
     let mut stk: Vec<String> = Vec::new();
     let mut visited: HashSet<String> = HashSet::new();
+    /* mapping from virtual package to its implementation */
+    let mut virtual_impl: HashMap<String, String> = HashMap::new();
 
     fn dfs(
         m: &ModuleDB,
         pkg_full_name: &str,
         stk: &mut Vec<String>,
         visited: &mut HashSet<String>,
+        virtual_impl: &mut HashMap<String, String>,
     ) -> anyhow::Result<()> {
         visited.insert(pkg_full_name.to_string());
 
         let pkg = m.get_package_by_name(pkg_full_name);
-        for neighbor in pkg.imports.iter() {
-            let mut neighbor_full_name = neighbor.path.make_full_path();
-            // if there is a pkg which overrides the `neighbor_full_name`, we should use the overrid pkg
-            if let Some(overrides) = pkg.overrides.as_ref() {
-                for over_ride in overrides.iter() {
-                    let override_pkg = m.get_package_by_name(over_ride);
-                    let implement = override_pkg.implement.as_ref().unwrap().clone();
-                    if implement == neighbor_full_name {
-                        neighbor_full_name = override_pkg.full_name();
+        // record the virtual package and its implementation
+        if let Some(overrides) = pkg.overrides.as_ref() {
+            for implement in overrides.iter() {
+                let implement_pkg = m.get_package_by_name(implement);
+                let virtual_pkg = implement_pkg.implement.as_ref().unwrap().clone();
+                if let Some(impl_pkg) = virtual_impl.get(&virtual_pkg) {
+                    if *impl_pkg == implement_pkg.full_name() {
+                        continue;
+                    } else {
+                        bail!(
+                            "Virtual package {} has multiple implementations: {} and {}",
+                            virtual_pkg,
+                            impl_pkg,
+                            implement_pkg.full_name()
+                        );
                     }
+                } else {
+                    virtual_impl.insert(virtual_pkg, implement_pkg.full_name());
                 }
             }
-            if !visited.contains(&neighbor_full_name) {
-                dfs(m, &neighbor_full_name, stk, visited)?;
+        }
+
+        for neighbor in pkg.imports.iter() {
+            let neighbor_full_name = neighbor.path.make_full_path();
+            let neighbor_pkg = m.get_package_by_name(&neighbor_full_name);
+            let neighbor_no_virtual = if let Some(virtual_info) = &neighbor_pkg.virtual_pkg {
+                // if neighbor is a virtual package, we should find its implementation
+                if let Some(impl_pkg) = virtual_impl.get(&neighbor_full_name) {
+                    impl_pkg.to_string()
+                } else if virtual_info.has_default {
+                    neighbor_full_name
+                } else {
+                    bail!(
+                        "Virtual package {} has no implementation",
+                        neighbor_full_name
+                    );
+                }
+            } else {
+                neighbor_full_name
+            };
+
+            if !visited.contains(&neighbor_no_virtual) {
+                dfs(m, &neighbor_no_virtual, stk, visited, virtual_impl)?;
             }
         }
 
@@ -82,7 +114,7 @@ pub fn topo_from_node(m: &ModuleDB, pkg: &Package) -> anyhow::Result<Vec<String>
         Ok(())
     }
 
-    dfs(m, &pkg_full_name, &mut stk, &mut visited)?;
+    dfs(m, &pkg_full_name, &mut stk, &mut visited, &mut virtual_impl)?;
     Ok(stk)
 }
 
