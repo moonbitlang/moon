@@ -48,6 +48,10 @@ fn snapshot_layout_and_files(root: &Path) -> String {
                 // Skip LICENSE file content
                 file_items.push((rel_file, "<LICENSE file content>\n".to_string()));
                 continue;
+            } else if rel == "Agents.md" {
+                // Skip Agents.md file content
+                file_items.push((rel_file, "<Agents.md file content>\n".to_string()));
+                continue;
             }
             let mut content = read(path);
             if !content.ends_with('\n') {
@@ -267,14 +271,13 @@ fn test_moon_new_new() {
         get_stdout(&hello3, ["test", "-v"]),
         expect![[r#"
             test moonbitlang/hello/hello_test.mbt::fib ok
-            test moonbitlang/hello/README.mbt.md::0 ok
-            Total tests: 2, passed: 2, failed: 0.
+            Total tests: 1, passed: 1, failed: 0.
         "#]],
     );
     check(
         get_stdout(&hello3, ["test"]),
         expect![[r#"
-            Total tests: 2, passed: 2, failed: 0.
+            Total tests: 1, passed: 1, failed: 0.
         "#]],
     );
     hello3.rm_rf();
@@ -302,8 +305,7 @@ fn test_moon_new_new() {
         get_stdout(&hello4, ["test", "-v"]),
         expect![[r#"
             test moonbitlang/hello/hello_test.mbt::fib ok
-            test moonbitlang/hello/README.mbt.md::0 ok
-            Total tests: 2, passed: 2, failed: 0.
+            Total tests: 1, passed: 1, failed: 0.
         "#]],
     );
     hello4.rm_rf();
@@ -378,6 +380,7 @@ fn test_moon_new_snapshot() {
             -- layout --
             .
             ./.gitignore
+            ./Agents.md
             ./README.mbt.md
             ./README.md
             ./cmd/
@@ -396,20 +399,11 @@ fn test_moon_new_snapshot() {
             .mooncakes/
             .moonagent/
 
+            === ./Agents.md ===
+            <Agents.md file content>
+
             === ./README.mbt.md ===
             # testuser/hello
-
-            ## Development
-            - To test the project, run `moon test`. To update the snapshot, run `moon test --update`.
-            - To build the project, run `moon build`.
-            - To run the project, run `moon run cmd/main`.
-
-            You may also write tests in this file to demonstrate the functionality of your project:
-            ```moonbit
-            test {
-              inspect(@hello.fib(10), content="89")
-            }
-            ```
 
             === ./README.md ===
             <symbolic link to README.mbt.md>
@@ -495,6 +489,7 @@ fn test_moon_new_snapshot() {
             -- layout --
             .
             ./.gitignore
+            ./Agents.md
             ./LICENSE
             ./README.mbt.md
             ./README.md
@@ -514,23 +509,14 @@ fn test_moon_new_snapshot() {
             .mooncakes/
             .moonagent/
 
+            === ./Agents.md ===
+            <Agents.md file content>
+
             === ./LICENSE ===
             <LICENSE file content>
 
             === ./README.mbt.md ===
             # moonbitlang/hello
-
-            ## Development
-            - To test the project, run `moon test`. To update the snapshot, run `moon test --update`.
-            - To build the project, run `moon build`.
-            - To run the project, run `moon run cmd/main`.
-
-            You may also write tests in this file to demonstrate the functionality of your project:
-            ```moonbit
-            test {
-              inspect(@hello.fib(10), content="89")
-            }
-            ```
 
             === ./README.md ===
             <symbolic link to README.mbt.md>
@@ -617,6 +603,7 @@ fn test_moon_new_snapshot_lib() {
             -- layout --
             .
             ./.gitignore
+            ./Agents.md
             ./LICENSE
             ./README.mbt.md
             ./README.md
@@ -636,23 +623,14 @@ fn test_moon_new_snapshot_lib() {
             .mooncakes/
             .moonagent/
 
+            === ./Agents.md ===
+            <Agents.md file content>
+
             === ./LICENSE ===
             <LICENSE file content>
 
             === ./README.mbt.md ===
             # testuser/hello
-
-            ## Development
-            - To test the project, run `moon test`. To update the snapshot, run `moon test --update`.
-            - To build the project, run `moon build`.
-            - To run the project, run `moon run cmd/main`.
-
-            You may also write tests in this file to demonstrate the functionality of your project:
-            ```moonbit
-            test {
-              inspect(@hello.fib(10), content="89")
-            }
-            ```
 
             === ./README.md ===
             <symbolic link to README.mbt.md>
@@ -736,6 +714,7 @@ fn test_moon_new_snapshot_lib() {
             -- layout --
             .
             ./.gitignore
+            ./Agents.md
             ./LICENSE
             ./README.mbt.md
             ./README.md
@@ -755,23 +734,14 @@ fn test_moon_new_snapshot_lib() {
             .mooncakes/
             .moonagent/
 
+            === ./Agents.md ===
+            <Agents.md file content>
+
             === ./LICENSE ===
             <LICENSE file content>
 
             === ./README.mbt.md ===
             # username/parser
-
-            ## Development
-            - To test the project, run `moon test`. To update the snapshot, run `moon test --update`.
-            - To build the project, run `moon build`.
-            - To run the project, run `moon run cmd/main`.
-
-            You may also write tests in this file to demonstrate the functionality of your project:
-            ```moonbit
-            test {
-              inspect(@parser.fib(10), content="89")
-            }
-            ```
 
             === ./README.md ===
             <symbolic link to README.mbt.md>
@@ -857,6 +827,7 @@ fn test_moon_new_snapshot_lib_no_license() {
             -- layout --
             .
             ./.gitignore
+            ./Agents.md
             ./README.mbt.md
             ./README.md
             ./cmd/
@@ -875,20 +846,11 @@ fn test_moon_new_snapshot_lib_no_license() {
             .mooncakes/
             .moonagent/
 
+            === ./Agents.md ===
+            <Agents.md file content>
+
             === ./README.mbt.md ===
             # testuser/hello
-
-            ## Development
-            - To test the project, run `moon test`. To update the snapshot, run `moon test --update`.
-            - To build the project, run `moon build`.
-            - To run the project, run `moon run cmd/main`.
-
-            You may also write tests in this file to demonstrate the functionality of your project:
-            ```moonbit
-            test {
-              inspect(@hello.fib(10), content="89")
-            }
-            ```
 
             === ./README.md ===
             <symbolic link to README.mbt.md>
@@ -975,6 +937,7 @@ fn test_moon_new_snapshot_lib_no_license() {
             -- layout --
             .
             ./.gitignore
+            ./Agents.md
             ./README.mbt.md
             ./README.md
             ./cmd/
@@ -993,20 +956,11 @@ fn test_moon_new_snapshot_lib_no_license() {
             .mooncakes/
             .moonagent/
 
+            === ./Agents.md ===
+            <Agents.md file content>
+
             === ./README.mbt.md ===
             # moonbitlang/hello
-
-            ## Development
-            - To test the project, run `moon test`. To update the snapshot, run `moon test --update`.
-            - To build the project, run `moon build`.
-            - To run the project, run `moon run cmd/main`.
-
-            You may also write tests in this file to demonstrate the functionality of your project:
-            ```moonbit
-            test {
-              inspect(@hello.fib(10), content="89")
-            }
-            ```
 
             === ./README.md ===
             <symbolic link to README.mbt.md>

@@ -211,22 +211,7 @@ fn common(target_dir: &Path, cake_full_name: &str, license: Option<&str>) -> any
     // READMD.mbt.md
     {
         let md_file = target_dir.join("README.mbt.md");
-        let content = format!(
-            r#"# {cake_full_name}
-
-## Development
-- To test the project, run `moon test`. To update the snapshot, run `moon test --update`.
-- To build the project, run `moon build`.
-- To run the project, run `moon run cmd/main`.
-
-You may also write tests in this file to demonstrate the functionality of your project:
-```moonbit
-test {{
-  inspect(@{short_name}.fib(10), content="89")
-}}
-```
-"#
-        );
+        let content = format!("# {cake_full_name}");
         let mut file = std::fs::File::create(md_file).unwrap();
         file.write_all(content.as_bytes()).unwrap();
     }
@@ -245,6 +230,16 @@ test {{
             std::os::windows::fs::symlink_file("README.mbt.md", &readme_file)
                 .context("failed to create symbolic link to README.mbt.md")?;
         }
+    }
+    // Agents.md
+    {
+        let agents_file = target_dir.join("Agents.md");
+        let content = include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../moonbuild/template/moon_new_template/Agents.md"
+        ));
+        let mut file = std::fs::File::create(agents_file).unwrap();
+        file.write_all(content.as_bytes()).unwrap();
     }
 
     // LICENSE
