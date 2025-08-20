@@ -219,7 +219,7 @@ fn test_deny_warn() {
                │       ┬  
                │       ╰── Warning: Unused variable 'a'
             ───╯
-            Finished. moon: ran 2 tasks, now up to date
+            Finished. moon: ran 2 tasks, now up to date (4 warnings, 0 errors)
         "#]],
     );
 
@@ -261,7 +261,7 @@ fn test_deny_warn() {
                │       ┬  
                │       ╰── Warning: Unused variable 'a'
             ───╯
-            Finished. moon: ran 3 tasks, now up to date
+            Finished. moon: ran 3 tasks, now up to date (4 warnings, 0 errors)
         "#]],
     );
 
