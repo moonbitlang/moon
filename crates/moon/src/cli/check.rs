@@ -231,7 +231,7 @@ fn run_check_normal_internal(
     target_dir: &Path,
 ) -> anyhow::Result<i32> {
     if cli.unstable_feature.rupes_recta {
-        let output = rr_build::compile(
+        let (_build_meta, build_graph) = rr_build::plan_build(
             cli,
             &cmd.auto_sync_flags,
             &cmd.build_flags,
@@ -239,8 +239,15 @@ fn run_check_normal_internal(
             target_dir,
             Box::new(calc_user_intent),
         )?;
-        output.print_info();
-        Ok(output.return_code_for_success())
+
+        if cli.dry_run {
+            rr_build::print_dry_run(&build_graph, &_build_meta.artifacts, source_dir, target_dir);
+            Ok(0)
+        } else {
+            let result = rr_build::execute_build(build_graph, target_dir)?;
+            result.print_info();
+            Ok(result.return_code_for_success())
+        }
     } else {
         run_check_normal_internal_legacy(cli, cmd, source_dir, target_dir)
     }

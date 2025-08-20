@@ -35,7 +35,7 @@ use moonutil::common::{
 };
 use tokio::runtime::Runtime;
 
-use crate::{rr_build::CompileOutput, run::default_rt};
+use crate::{rr_build::BuildMeta, run::default_rt};
 
 enum TestResultKind {
     Passed,
@@ -74,16 +74,15 @@ impl TestResult {
     }
 }
 
-/// Run the tests compiled in this session. Returns `true` if all tests passed,
-/// `false` if any test failed. TODO: actual test info display
-pub fn run_tests(compile_output: &CompileOutput, target_dir: &Path) -> anyhow::Result<TestResult> {
+/// Run the tests compiled in this session.
+pub fn run_tests(build_meta: &BuildMeta, target_dir: &Path) -> anyhow::Result<TestResult> {
     // Gathering artifacts
-    let results = gather_tests(compile_output);
+    let results = gather_tests(build_meta);
 
     let rt = default_rt().context("Failed to create runtime")?;
     let mut stats = TestResult::default();
     for r in results {
-        let res = run_one_test_executable(compile_output, &rt, target_dir, &r)?;
+        let res = run_one_test_executable(build_meta, &rt, target_dir, &r)?;
         stats.merge(res);
     }
 
@@ -96,18 +95,22 @@ struct TestExecutableToRun<'a> {
     meta: &'a Path,
 }
 
-/// Gather tests executables from the compilation output.
-fn gather_tests(ret: &CompileOutput) -> Vec<TestExecutableToRun<'_>> {
+/// Gather tests executables from the build metadata.
+fn gather_tests(build_meta: &BuildMeta) -> Vec<TestExecutableToRun<'_>> {
     let mut pending = HashMap::new();
     let mut results = vec![];
 
-    for artifacts in &ret.artifacts {
+    for artifacts in &build_meta.artifacts {
         let (corresponding_node, current_target) = match artifacts.node {
-            BuildPlanNode::MakeExecutable(target) => (BuildPlanNode::GenerateTestInfo(target), target),
-            BuildPlanNode::GenerateTestInfo(target) => (BuildPlanNode::MakeExecutable(target), target),
+            BuildPlanNode::MakeExecutable(target) => {
+                (BuildPlanNode::GenerateTestInfo(target), target)
+            }
+            BuildPlanNode::GenerateTestInfo(target) => {
+                (BuildPlanNode::MakeExecutable(target), target)
+            }
             _ => continue, // Skip non-test related nodes
         };
-        
+
         let removed = pending.remove(&corresponding_node);
         let artifact = match artifacts.node {
             // FIXME: artifact index relies on implementation of append_artifact_of
@@ -135,7 +138,7 @@ fn gather_tests(ret: &CompileOutput) -> Vec<TestExecutableToRun<'_>> {
 }
 
 fn run_one_test_executable(
-    ret: &CompileOutput,
+    build_meta: &BuildMeta,
     rt: &Runtime, // FIXME: parallel execution
     target_dir: &Path,
     test: &TestExecutableToRun,
@@ -144,7 +147,7 @@ fn run_one_test_executable(
     let meta: MooncGenTestInfo = serde_json_lenient::from_reader(meta)
         .with_context(|| format!("Failed to parse test metadata at {}", test.meta.display()))?;
 
-    let pkgname = ret
+    let pkgname = build_meta
         .resolve_output
         .pkg_dirs
         .get_package(test.target.package)
@@ -170,7 +173,8 @@ fn run_one_test_executable(
         }
     }
 
-    let cmd = crate::run::command_for(ret.target_backend, test.executable, Some(&test_args))?;
+    let cmd =
+        crate::run::command_for(build_meta.target_backend, test.executable, Some(&test_args))?;
     let mut cov_cap = mk_coverage_capture();
     let mut test_cap = make_test_capture();
 

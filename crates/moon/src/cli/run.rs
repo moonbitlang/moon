@@ -44,6 +44,7 @@ use n2::trace;
 
 use crate::rr_build;
 use crate::run::default_rt;
+use crate::run::CommandGuard;
 
 use super::pre_build::scan_with_x_build;
 use super::{BuildFlags, UniversalFlags};
@@ -331,7 +332,7 @@ fn run_run_rr(cli: &UniversalFlags, cmd: RunSubcommand) -> Result<i32, anyhow::E
     } = cli.source_tgt_dir.try_into_package_dirs()?;
 
     let input_path = cmd.package_or_mbt_file;
-    let ret = rr_build::compile(
+    let (build_meta, build_graph) = rr_build::plan_build(
         cli,
         &cmd.auto_sync_flags,
         &cmd.build_flags,
@@ -339,14 +340,52 @@ fn run_run_rr(cli: &UniversalFlags, cmd: RunSubcommand) -> Result<i32, anyhow::E
         &target_dir,
         Box::new(move |r, m| calc_user_intent(&input_path, r, m)),
     )?;
+    if cli.dry_run {
+        // Print build commands
+        rr_build::print_dry_run(
+            &build_graph,
+            &build_meta.artifacts,
+            &source_dir,
+            &target_dir,
+        );
 
-    if !ret.successful() {
-        return Ok(ret.return_code_for_success());
+        let cmd = get_run_cmd(&build_meta)?;
+        // FIXME: verbose command printing
+        let cmd = cmd.command.as_std();
+        let args = std::iter::once(cmd.get_program())
+            .chain(cmd.get_args())
+            .map(|x| x.to_string_lossy())
+            .collect::<Vec<_>>();
+        let cmd =
+            shlex::try_join(args.iter().map(|x| &**x)).expect("null in args, should not happen");
+        println!("{cmd}");
+
+        Ok(0)
+    } else {
+        let build_result = rr_build::execute_build(build_graph, &target_dir)?;
+
+        if !build_result.successful() {
+            return Ok(build_result.return_code_for_success());
+        }
+
+        let cmd = get_run_cmd(&build_meta)?;
+
+        // FIXME: Simplify this part
+        let res = default_rt()
+            .context("Failed to create runtime")?
+            .block_on(crate::run::run(&mut [], true, cmd.command))
+            .context("failed to run command")?;
+
+        if let Some(code) = res.code() {
+            Ok(code)
+        } else {
+            bail!("Command exited without a return code");
+        }
     }
+}
 
-    // `calc_user_intent` has one and only one node, and the artifact is
-    // a single executable.
-    let artifact = ret
+fn get_run_cmd(build_meta: &rr_build::BuildMeta) -> Result<CommandGuard, anyhow::Error> {
+    let artifact = build_meta
         .artifacts
         .first()
         .expect("Expected exactly one build node emitted by `calc_user_intent`");
@@ -354,20 +393,8 @@ fn run_run_rr(cli: &UniversalFlags, cmd: RunSubcommand) -> Result<i32, anyhow::E
         .artifacts
         .first()
         .expect("Expected exactly one executable as the output of the build node");
-
-    let cmd = crate::run::command_for(ret.target_backend, executable, None)?;
-
-    // FIXME: Simplify this part
-    let res = default_rt()
-        .context("Failed to create runtime")?
-        .block_on(crate::run::run(&mut [], true, cmd.command))
-        .context("failed to run command")?;
-
-    if let Some(code) = res.code() {
-        Ok(code)
-    } else {
-        bail!("Command exited without a return code");
-    }
+    let cmd = crate::run::command_for(build_meta.target_backend, executable, None)?;
+    Ok(cmd)
 }
 
 fn calc_user_intent(
