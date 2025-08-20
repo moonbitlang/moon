@@ -481,7 +481,7 @@ fn run_test_rr(
     source_dir: &Path,
     target_dir: &Path,
 ) -> Result<i32, anyhow::Error> {
-    let ret = rr_build::compile(
+    let (build_meta, build_graph) = rr_build::plan_build(
         cli,
         cmd.auto_sync_flags,
         cmd.build_flags,
@@ -489,23 +489,33 @@ fn run_test_rr(
         target_dir,
         Box::new(calc_user_intent),
     )?;
-    if !ret.successful() {
-        return Ok(ret.return_code_for_success());
-    }
 
-    // Run tests using artifacts
-    let result = crate::run::run_tests(&ret, target_dir)?;
-    println!(
-        "{} tests executed, {} passed, {} failed",
-        result.total,
-        result.passed,
-        result.total - result.passed
-    );
+    if cli.dry_run {
+        rr_build::print_dry_run(&build_graph, &build_meta.artifacts, source_dir, target_dir);
+        // The legacy behavor does not print the test commands, so we skip it too.
 
-    if result.passed() {
         Ok(0)
     } else {
-        Ok(1)
+        let result = rr_build::execute_build(build_graph, target_dir)?;
+
+        if !result.successful() {
+            return Ok(result.return_code_for_success());
+        }
+
+        // Run tests using artifacts
+        let test_result = crate::run::run_tests(&build_meta, target_dir)?;
+        println!(
+            "{} tests executed, {} passed, {} failed",
+            test_result.total,
+            test_result.passed,
+            test_result.total - test_result.passed
+        );
+
+        if test_result.passed() {
+            Ok(0)
+        } else {
+            Ok(1)
+        }
     }
 }
 
