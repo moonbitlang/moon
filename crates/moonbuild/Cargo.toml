@@ -68,6 +68,7 @@ base64.workspace = true
 shlex.workspace = true
 serde_json.workspace = true
 regex.workspace = true
+ariadne.workspace = true
 
 [dev-dependencies]
 expect-test.workspace = true

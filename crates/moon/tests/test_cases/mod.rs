@@ -1433,7 +1433,8 @@ fn test_blackbox_dedup_alias() {
                │     ────────────┬───────────  
                │                 ╰───────────── Warning: Unused package 'username/hello/dir/lib'
             ───╯
-            error: failed when testing
+            Failed with 1 warnings, 1 errors.
+            error: failed when testing project
         "#]],
     );
 }
@@ -2671,7 +2672,7 @@ fn test_pre_build() {
                │     ────┬───  
                │         ╰───── Warning: Unused toplevel variable 'resource'. Note if the body contains side effect, it will not happen. Use `fn init { .. }` to wrap the effect.
             ───╯
-            Finished. moon: ran 2 tasks, now up to date
+            Finished. moon: ran 2 tasks, now up to date (1 warnings, 0 errors)
         "#]],
     );
     check(
@@ -2684,7 +2685,7 @@ fn test_pre_build() {
                │     ────┬───  
                │         ╰───── Warning: Unused toplevel variable 'resource'. Note if the body contains side effect, it will not happen. Use `fn init { .. }` to wrap the effect.
             ───╯
-            Finished. moon: ran 3 tasks, now up to date
+            Finished. moon: ran 3 tasks, now up to date (1 warnings, 0 errors)
         "#]],
     );
 
@@ -3852,7 +3853,7 @@ fn test_render_diagnostic_in_patch_file() {
                │      ────────────┬────────────  
                │                  ╰────────────── Warning: Unused variable 'unused_in_patch_test_json'
             ───╯
-            Finished. moon: ran 3 tasks, now up to date
+            Finished. moon: ran 3 tasks, now up to date (1 warnings, 0 errors)
         "#]],
     );
     check(
@@ -3868,7 +3869,7 @@ fn test_render_diagnostic_in_patch_file() {
                │      ─────────────┬─────────────  
                │                   ╰─────────────── Warning: Unused variable 'unused_in_patch_wbtest_json'
             ───╯
-            Finished. moon: ran 2 tasks, now up to date
+            Finished. moon: ran 2 tasks, now up to date (1 warnings, 0 errors)
         "#]],
     );
     check(
@@ -3881,7 +3882,7 @@ fn test_render_diagnostic_in_patch_file() {
                │      ──────────┬─────────  
                │                ╰─────────── Warning: Unused variable 'unused_in_patch_json'
             ───╯
-            Finished. moon: ran 2 tasks, now up to date
+            Finished. moon: ran 2 tasks, now up to date (1 warnings, 0 errors)
         "#]],
     );
 
@@ -3980,7 +3981,7 @@ fn test_render_diagnostic_in_patch_file() {
                │       }
                │       ```
             ───╯
-            Finished. moon: ran 2 tasks, now up to date
+            Finished. moon: ran 2 tasks, now up to date (1 warnings, 0 errors)
         "#]],
     );
 }
@@ -4563,7 +4564,8 @@ fn test_diag_loc_map() {
                     has type : String
                     wanted   : Int
             ─────╯
-            error: failed when checking
+            Failed with 0 warnings, 1 errors.
+            error: failed when checking project
         "#]],
     );
 }
@@ -4747,7 +4749,7 @@ fn test_run_md_test() {
                 │         ┬  
                 │         ╰── Warning: Unused variable 'a'
             ────╯
-            Finished. moon: ran 3 tasks, now up to date
+            Finished. moon: ran 3 tasks, now up to date (1 warnings, 0 errors)
         "#]],
     );
 
@@ -5335,7 +5337,8 @@ fn test_virtual_pkg() {
                │ ──────────┬──────────  
                │           ╰──────────── Missing implementation for function f2.
             ───╯
-            error: failed when building
+            Failed with 0 warnings, 1 errors.
+            error: failed when building project
         "#]],
     );
 }
@@ -5398,7 +5401,7 @@ fn moon_check_and_test_single_file() {
                    │       ─────┬────  
                    │            ╰────── Warning: Unused variable 'single_mbt'
                 ───╯
-                Finished. moon: ran 2 tasks, now up to date
+                Finished. moon: ran 2 tasks, now up to date (1 warnings, 0 errors)
             "#]],
         );
         // abs path
@@ -5412,7 +5415,7 @@ fn moon_check_and_test_single_file() {
                    │       ─────┬────  
                    │            ╰────── Warning: Unused variable 'single_mbt'
                 ───╯
-                Finished. moon: ran 1 task, now up to date
+                Finished. moon: ran 1 task, now up to date (1 warnings, 0 errors)
             "#]],
         );
     }
@@ -5496,7 +5499,7 @@ fn moon_check_and_test_single_file() {
                    │       ────┬────  
                    │           ╰────── Warning: Unused variable 'with_main'
                 ───╯
-                Finished. moon: ran 1 task, now up to date
+                Finished. moon: ran 1 task, now up to date (1 warnings, 0 errors)
             "#]],
         );
         let without_main = dir.join("without_main.mbt").display().to_string();
@@ -5517,7 +5520,7 @@ fn moon_check_and_test_single_file() {
                    │       ──────┬─────  
                    │             ╰─────── Warning: Unused variable 'without_main'
                 ───╯
-                Finished. moon: ran 1 task, now up to date
+                Finished. moon: ran 1 task, now up to date (2 warnings, 0 errors)
             "#]],
         );
     }
@@ -5619,7 +5622,7 @@ fn test_in_main_pkg() {
                │       ┬  
                │       ╰── Warning: Unused variable 'a'
             ───╯
-            Finished. moon: ran 6 tasks, now up to date
+            Finished. moon: ran 6 tasks, now up to date (1 warnings, 0 errors)
         "#]],
     );
 
@@ -5676,7 +5679,7 @@ fn merge_doc_test_and_md_test() {
                │           ───────────┬──────────  
                │                      ╰──────────── Warning: Unused variable 'unused_in_lib_doc_test'
             ───╯
-            Finished. moon: ran 3 tasks, now up to date
+            Finished. moon: ran 3 tasks, now up to date (2 warnings, 0 errors)
         "#]],
     );
 
