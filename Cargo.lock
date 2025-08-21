@@ -3262,6 +3262,8 @@ dependencies = [
  "dissimilar",
  "dunce",
  "home",
+ "serde",
+ "serde_json",
  "snapbox",
  "tempfile",
  "walkdir",
