@@ -66,42 +66,42 @@ fn create_progress_console(
         Box::new(DumbConsoleProgress::new(verbose, callback))
     }
 }
-
 fn render_result(result: N2RunStats, quiet: bool, mode: &str) -> anyhow::Result<i32> {
-    if !quiet {
-        if result.n_warnings == 0 && result.n_errors == 0 {
-            eprint!("{} ", "Finished.".bright_green().bold());
-        } else {
-            eprintln!(
-                "{} {} warning(s), {} error(s)",
-                "Finished.".bright_green().bold(),
-                result.n_warnings,
-                result.n_errors
-            );
-        }
-    }
     match result.n_tasks_executed {
         None => {
-            // Don't print any summary, the failing task is enough info.
-            anyhow::bail!(format!("failed when {}", mode));
+            eprintln!(
+                "Failed with {} warnings, {} errors.",
+                result.n_warnings, result.n_errors
+            );
+            anyhow::bail!("failed when {mode} project");
         }
-        Some(0) => {
-            // Special case: don't print numbers when no work done.
+        Some(n_tasks) => {
             if !quiet {
-                eprintln!("moon: no work to do");
+                let finished = "Finished.".green().bold();
+                let warnings_errors = format_warnings_errors(result.n_warnings, result.n_errors);
+
+                match n_tasks {
+                    0 => {
+                        eprintln!("{finished} moon: no work to do{warnings_errors}");
+                    }
+                    n => {
+                        let task_plural = if n == 1 { "" } else { "s" };
+                        eprintln!(
+                            "{finished} moon: ran {n} task{task_plural}, now up to date{warnings_errors}"
+                        );
+                    }
+                }
             }
-            Ok(0)
         }
-        Some(n) => {
-            if !quiet {
-                eprintln!(
-                    "moon: ran {} task{}, now up to date",
-                    n,
-                    if n == 1 { "" } else { "s" }
-                );
-            }
-            Ok(0)
-        }
+    }
+    Ok(0)
+}
+
+fn format_warnings_errors(n_warnings: usize, n_errors: usize) -> String {
+    if n_warnings > 0 || n_errors > 0 {
+        format!(" ({n_warnings} warnings, {n_errors} errors)")
+    } else {
+        String::new()
     }
 }
 
@@ -1240,7 +1240,8 @@ pub fn run_bundle(
     let state = crate::bundle::load_moon_proj(module, moonc_opt, moonbuild_opt)?;
     let result = n2_run_interface(state, moonbuild_opt)?;
     write_pkg_lst(module, &moonbuild_opt.raw_target_dir)?;
-    render_result(result, moonbuild_opt.quiet, "bundle")
+    render_result(result, moonbuild_opt.quiet, "bundle")?;
+    Ok(0)
 }
 
 pub fn run_fmt(
