@@ -29,7 +29,6 @@
 
 use std::path::{Path, PathBuf};
 
-use moonbuild::dry_run;
 use moonbuild_rupes_recta::{
     model::{Artifacts, BuildPlanNode},
     CompileConfig, ResolveConfig, ResolveOutput,
@@ -43,6 +42,9 @@ use moonutil::{
 };
 
 use crate::cli::BuildFlags;
+
+mod dry_run;
+pub use dry_run::{dry_print_command, print_dry_run};
 
 /// The function that calculates the user intent for the build process.
 ///
@@ -291,24 +293,4 @@ pub fn execute_build(
         Some(n) => BuildResult::Succeeded(n),
         None => BuildResult::Failed,
     })
-}
-
-/// Print what would be executed in a dry-run.
-///
-/// This is a helper function that prints the build commands from a build graph.
-pub fn print_dry_run(
-    build_graph: &n2::graph::Graph,
-    artifacts: &[Artifacts],
-    source_dir: &Path,
-    target_dir: &Path,
-) {
-    let default_files = artifacts
-        .iter()
-        .flat_map(|art| {
-            art.artifacts
-                .iter()
-                .flat_map(|file| build_graph.files.lookup(&file.to_string_lossy()))
-        })
-        .collect::<Vec<_>>();
-    dry_run::print_build_commands(build_graph, &default_files, source_dir, target_dir);
 }
