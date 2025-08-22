@@ -22,7 +22,7 @@ use std::path::{Path, PathBuf};
 
 use moonutil::{
     common::TargetBackend,
-    cond_expr::{parse_cond_expr, OptLevel, ParseCondExprError, StringOrArray},
+    cond_expr::{CondExpr, OptLevel},
     package::MoonPkg,
 };
 
@@ -62,10 +62,9 @@ pub struct CompileCondition {
 /// [`moonutil::cond_expr::parse_cond_expr`].
 pub fn filter_files<'a>(
     pkg: &MoonPkg,
-    pkg_file_path: &Path,
     files: impl Iterator<Item = &'a Path>,
     cond: &CompileCondition,
-) -> Result<Vec<PathBuf>, ParseCondExprError> {
+) -> Vec<PathBuf> {
     let mut res = Vec::new();
 
     for f in files {
@@ -80,7 +79,7 @@ pub fn filter_files<'a>(
             .and_then(|targets| targets.get(&*str_filename))
         {
             // We have a condition for this file
-            should_compile_using_pkg_cond_expr(&str_filename, expect_cond, cond, pkg_file_path)?
+            should_compile_using_pkg_cond_expr(&str_filename, expect_cond, cond)
         } else {
             // We don't, evaluate file name
             should_compile_using_filename(&str_filename, cond)
@@ -91,21 +90,19 @@ pub fn filter_files<'a>(
         }
     }
 
-    Ok(res)
+    res
 }
 
 fn should_compile_using_pkg_cond_expr(
     name: &str,
-    expect: &StringOrArray,
+    cond_expr: &CondExpr,
     actual: &CompileCondition,
-    pkg_file_path: &Path,
-) -> Result<bool, ParseCondExprError> {
+) -> bool {
     // TODO: Put the parsing earlier, not here
-    let cond_expr = parse_cond_expr(pkg_file_path, expect)?;
     if !cond_expr.eval(actual.optlevel, actual.backend) {
-        Ok(false) // Fails the condition in pkg.json
+        false // Fails the condition in pkg.json
     } else if let Some(stripped) = name.strip_suffix(".mbt") {
-        Ok(check_test_suffix(stripped, actual.test_kind))
+        check_test_suffix(stripped, actual.test_kind)
     } else {
         panic!("File name '{}' does not end with '.mbt'", name);
     }

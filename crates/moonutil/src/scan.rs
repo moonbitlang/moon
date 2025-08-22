@@ -16,7 +16,7 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
-use crate::cond_expr::{parse_cond_exprs, CompileCondition, StringOrArray};
+use crate::cond_expr::{self, CompileCondition, CondExpr};
 use crate::module::{ModuleDB, MoonMod};
 use crate::moon_dir::MOON_DIRS;
 use crate::mooncakes::result::ResolvedEnv;
@@ -456,19 +456,19 @@ fn scan_one_package(
                     None => {}
                     Some(idx) => {
                         let (_, backend_ext) = stem.split_at(idx + 1);
-                        if TargetBackend::str_to_backend(backend_ext).is_ok() {
+                        if let Ok(target) = TargetBackend::str_to_backend(backend_ext) {
                             eprintln!(
                                 "{}: use backend extension in filename(`{}`) is deprecated. Please use `targets` field in moon.pkg.json instead.",
                                 "Warning".yellow(),
                                 file.display()
                             );
-                            x.insert(filename, StringOrArray::String(backend_ext.to_string()));
+                            x.insert(filename, CondExpr::Atom(cond_expr::Atom::Target(target)));
                         }
                     }
                 };
             }
         }
-        Some(parse_cond_exprs(&pkg_path.join(MOON_PKG_JSON), &x)?)
+        Some(x)
     };
 
     let file_cond_map = |files: Vec<PathBuf>| -> IndexMap<PathBuf, CompileCondition> {
