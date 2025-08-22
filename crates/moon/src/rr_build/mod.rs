@@ -175,7 +175,7 @@ pub fn preconfig_compile(
         target_backend: build_flags.target_backend,
         opt_level,
         action,
-        debug_symbols: !build_flags.release || build_flags.debug,
+        debug_symbols: !build_flags.strip(),
         use_std: build_flags.std(),
         debug_export_build_plan: cli.unstable_feature.rr_export_build_plan,
     }
