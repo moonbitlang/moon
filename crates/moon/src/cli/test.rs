@@ -32,6 +32,7 @@ use moonutil::common::{
 };
 use moonutil::common::{BLACKBOX_TEST_DRIVER, DOT_MBT_DOT_MD, SINGLE_FILE_TEST_PACKAGE};
 use moonutil::cond_expr::CompileCondition;
+use moonutil::cond_expr::OptLevel;
 use moonutil::dirs::mk_arch_mode_dir;
 use moonutil::module::ModuleDB;
 use moonutil::mooncakes::sync::AutoSyncFlags;
@@ -482,7 +483,13 @@ fn run_test_rr(
     source_dir: &Path,
     target_dir: &Path,
 ) -> Result<i32, anyhow::Error> {
-    let preconfig = preconfig_compile(cmd.auto_sync_flags, cli, cmd.build_flags, target_dir);
+    let preconfig = preconfig_compile(
+        cmd.auto_sync_flags,
+        cli,
+        cmd.build_flags,
+        target_dir,
+        OptLevel::Debug,
+    );
     let (build_meta, build_graph) = rr_build::plan_build(
         preconfig,
         &cli.unstable_feature,

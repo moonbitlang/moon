@@ -231,7 +231,13 @@ fn run_check_normal_internal(
     target_dir: &Path,
 ) -> anyhow::Result<i32> {
     if cli.unstable_feature.rupes_recta {
-        let preconfig = preconfig_compile(&cmd.auto_sync_flags, cli, &cmd.build_flags, target_dir);
+        let preconfig = preconfig_compile(
+            &cmd.auto_sync_flags,
+            cli,
+            &cmd.build_flags,
+            target_dir,
+            moonutil::cond_expr::OptLevel::Debug,
+        );
         let (_build_meta, build_graph) = rr_build::plan_build(
             preconfig,
             &cli.unstable_feature,

@@ -155,16 +155,20 @@ pub fn preconfig_compile(
     cli: &UniversalFlags,
     build_flags: &BuildFlags,
     target_dir: &Path,
+    default_opt_level: OptLevel,
 ) -> CompilePreConfig {
+    let opt_level = if build_flags.release {
+        OptLevel::Release
+    } else if build_flags.debug {
+        OptLevel::Debug
+    } else {
+        default_opt_level
+    };
     CompilePreConfig {
         frozen: auto_sync_flags.frozen,
         target_dir: target_dir.to_owned(),
         target_backend: build_flags.target_backend,
-        opt_level: if build_flags.release {
-            OptLevel::Release
-        } else {
-            OptLevel::Debug
-        },
+        opt_level,
         debug_symbols: !build_flags.release || build_flags.debug,
         use_std: build_flags.std(),
         debug_export_build_plan: cli.unstable_feature.rr_export_build_plan,
