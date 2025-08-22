@@ -272,6 +272,12 @@ fn discover_one_package(
         }
     };
 
+    // Sort the source files for repeatable results
+    source_files.sort();
+    mbt_lex_files.sort();
+    mbt_yacc_files.sort();
+    mbt_md_files.sort();
+
     Ok(DiscoveredPackage {
         root_path: abs.to_path_buf(),
         module: mid,
