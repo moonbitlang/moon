@@ -105,7 +105,7 @@ fn discover_packages_for_mod(
         });
     }
 
-    let source_dir_name = m.source.as_deref().unwrap_or(".");
+    let source_dir_name = m.source.as_deref().unwrap_or("");
     let scan_source_root = dir.join(source_dir_name);
     let is_core = module_name_is_core(&m.name);
 
