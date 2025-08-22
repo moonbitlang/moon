@@ -43,6 +43,7 @@ use moonutil::mooncakes::RegistryConfig;
 use n2::trace;
 
 use crate::rr_build;
+use crate::rr_build::preconfig_compile;
 use crate::run::default_rt;
 use crate::run::CommandGuard;
 
@@ -332,10 +333,10 @@ fn run_run_rr(cli: &UniversalFlags, cmd: RunSubcommand) -> Result<i32, anyhow::E
     } = cli.source_tgt_dir.try_into_package_dirs()?;
 
     let input_path = cmd.package_or_mbt_file;
+    let preconfig = preconfig_compile(&cmd.auto_sync_flags, cli, &cmd.build_flags, &target_dir);
     let (build_meta, build_graph) = rr_build::plan_build(
-        cli,
-        &cmd.auto_sync_flags,
-        &cmd.build_flags,
+        preconfig,
+        &cli.unstable_feature,
         &source_dir,
         &target_dir,
         Box::new(move |r, m| calc_user_intent(&input_path, r, m)),
