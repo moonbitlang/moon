@@ -41,6 +41,7 @@ use std::path::Path;
 use std::path::PathBuf;
 
 use crate::rr_build;
+use crate::rr_build::preconfig_compile;
 
 use super::pre_build::scan_with_x_build;
 use super::{BuildFlags, UniversalFlags};
@@ -103,10 +104,10 @@ fn run_build_internal(
     target_dir: &Path,
 ) -> anyhow::Result<i32> {
     if cli.unstable_feature.rupes_recta {
+        let preconfig = preconfig_compile(&cmd.auto_sync_flags, cli, &cmd.build_flags, target_dir);
         let (_build_meta, build_graph) = rr_build::plan_build(
-            cli,
-            &cmd.auto_sync_flags,
-            &cmd.build_flags,
+            preconfig,
+            &cli.unstable_feature,
             source_dir,
             target_dir,
             Box::new(calc_user_intent),

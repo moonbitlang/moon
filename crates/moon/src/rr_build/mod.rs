@@ -27,17 +27,18 @@
 //! - If you want to insert dry-running, your compilation process is split in
 //!   two parts: [``]
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use moonbuild::dry_run;
 use moonbuild_rupes_recta::{
     model::{Artifacts, BuildPlanNode},
-    CompileContext, ResolveConfig, ResolveOutput,
+    CompileConfig, ResolveConfig, ResolveOutput,
 };
 use moonutil::{
     cli::UniversalFlags,
     common::{TargetBackend, MOONBITLANG_CORE},
     cond_expr::OptLevel,
+    features::FeatureGate,
     mooncakes::{sync::AutoSyncFlags, ModuleId},
 };
 
@@ -106,6 +107,70 @@ impl BuildResult {
     }
 }
 
+/// A preliminary configuration that does not require run-time information to
+/// populate. Will be transformed into [`CompileConfig`] later in the pipeline.
+///
+/// This type might be subject to change.
+pub struct CompilePreConfig {
+    frozen: bool,
+    target_backend: Option<TargetBackend>,
+    opt_level: OptLevel,
+    debug_symbols: bool,
+    use_std: bool,
+    debug_export_build_plan: bool,
+    target_dir: PathBuf,
+}
+
+impl CompilePreConfig {
+    fn into_compile_config(
+        self,
+        preferred_backend: Option<TargetBackend>,
+        is_core: bool,
+    ) -> CompileConfig {
+        let std = self.use_std && !is_core;
+        let target_backend = self
+            .target_backend
+            .or(preferred_backend)
+            .unwrap_or_default();
+
+        CompileConfig {
+            target_dir: self.target_dir,
+            target_backend,
+            opt_level: self.opt_level,
+            debug_symbols: self.debug_symbols,
+            stdlib_path: if std {
+                Some(moonutil::moon_dir::core())
+            } else {
+                None
+            },
+            debug_export_build_plan: self.debug_export_build_plan,
+        }
+    }
+}
+
+/// Read in the commandline flags and build flags to create a
+/// [`CompilePreConfig`] for compilation usage.
+pub fn preconfig_compile(
+    auto_sync_flags: &AutoSyncFlags,
+    cli: &UniversalFlags,
+    build_flags: &BuildFlags,
+    target_dir: &Path,
+) -> CompilePreConfig {
+    CompilePreConfig {
+        frozen: auto_sync_flags.frozen,
+        target_dir: target_dir.to_owned(),
+        target_backend: build_flags.target_backend,
+        opt_level: if build_flags.release {
+            OptLevel::Release
+        } else {
+            OptLevel::Debug
+        },
+        debug_symbols: !build_flags.release || build_flags.debug,
+        use_std: build_flags.std(),
+        debug_export_build_plan: cli.unstable_feature.rr_export_build_plan,
+    }
+}
+
 /// Plan the build process without executing it.
 ///
 /// This function performs all the preparation steps: resolve dependencies,
@@ -116,24 +181,23 @@ impl BuildResult {
 /// execute_build to take ownership of just the graph while callers retain
 /// access to the metadata.
 pub fn plan_build(
-    cli: &UniversalFlags,
-    auto_sync_flags: &AutoSyncFlags,
-    build_flags: &BuildFlags,
+    preconfig: CompilePreConfig,
+    unstable_features: &FeatureGate,
     source_dir: &Path,
     target_dir: &Path,
     calc_user_intent: Box<CalcUserIntentFn>,
 ) -> anyhow::Result<(BuildMeta, n2::graph::Graph)> {
-    let cfg = ResolveConfig::new_with_load_defaults(auto_sync_flags.frozen);
+    let cfg = ResolveConfig::new_with_load_defaults(preconfig.frozen);
     let resolve_output = moonbuild_rupes_recta::resolve(&cfg, source_dir)?;
 
     // A couple of debug things:
-    if cli.unstable_feature.rr_export_module_graph {
+    if unstable_features.rr_export_module_graph {
         moonbuild_rupes_recta::util::print_resolved_env_dot(
             &resolve_output.module_rel,
             &mut std::fs::File::create(target_dir.join("module_graph.dot"))?,
         )?;
     }
-    if cli.unstable_feature.rr_export_package_graph {
+    if unstable_features.rr_export_package_graph {
         moonbuild_rupes_recta::util::print_dep_relationship_dot(
             &resolve_output.pkg_rel,
             &resolve_output.pkg_dirs,
@@ -157,30 +221,12 @@ pub fn plan_build(
 
     // std or no-std?
     // Ultimately we want to determine this from config instead of special cases.
-    let use_std = build_flags.std() && main_module.name != MOONBITLANG_CORE;
-    let stdlib_path = use_std.then(moonutil::moon_dir::core);
+    let is_core = main_module.name == MOONBITLANG_CORE;
 
-    let target_backend = build_flags
-        .target_backend
-        .or(preferred_backend)
-        .unwrap_or_default();
+    let cx = preconfig.into_compile_config(preferred_backend, is_core);
+    let compile_output = moonbuild_rupes_recta::compile(&cx, &resolve_output, &intent)?;
 
-    let cx = CompileContext {
-        resolve_output: &resolve_output,
-        target_dir: target_dir.to_owned(),
-        target_backend,
-        opt_level: if build_flags.release {
-            OptLevel::Release
-        } else {
-            OptLevel::Debug
-        },
-        debug_symbols: !build_flags.release || build_flags.debug,
-        stdlib_path,
-        debug_export_build_plan: cli.unstable_feature.rr_export_build_plan,
-    };
-    let compile_output = moonbuild_rupes_recta::compile(&cx, &intent)?;
-
-    if cli.unstable_feature.rr_export_build_plan {
+    if unstable_features.rr_export_build_plan {
         if let Some(plan) = compile_output.build_plan {
             moonbuild_rupes_recta::util::print_build_plan_dot(
                 &plan,
@@ -194,7 +240,7 @@ pub fn plan_build(
     let build_meta = BuildMeta {
         resolve_output,
         artifacts: compile_output.artifacts,
-        target_backend,
+        target_backend: cx.target_backend,
     };
 
     Ok((build_meta, compile_output.build_graph))

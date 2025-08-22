@@ -44,6 +44,7 @@ use std::path::{Path, PathBuf};
 
 use crate::cli::pre_build::scan_with_x_build;
 use crate::rr_build;
+use crate::rr_build::preconfig_compile;
 
 use super::BenchSubcommand;
 use super::{BuildFlags, UniversalFlags};
@@ -481,10 +482,10 @@ fn run_test_rr(
     source_dir: &Path,
     target_dir: &Path,
 ) -> Result<i32, anyhow::Error> {
+    let preconfig = preconfig_compile(cmd.auto_sync_flags, cli, cmd.build_flags, target_dir);
     let (build_meta, build_graph) = rr_build::plan_build(
-        cli,
-        cmd.auto_sync_flags,
-        cmd.build_flags,
+        preconfig,
+        &cli.unstable_feature,
         source_dir,
         target_dir,
         Box::new(calc_user_intent),
