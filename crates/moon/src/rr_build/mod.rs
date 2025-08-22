@@ -35,7 +35,7 @@ use moonbuild_rupes_recta::{
 };
 use moonutil::{
     cli::UniversalFlags,
-    common::{TargetBackend, MOONBITLANG_CORE},
+    common::{RunMode, TargetBackend, MOONBITLANG_CORE},
     cond_expr::OptLevel,
     features::FeatureGate,
     mooncakes::{sync::AutoSyncFlags, ModuleId},
@@ -117,6 +117,7 @@ pub struct CompilePreConfig {
     frozen: bool,
     target_backend: Option<TargetBackend>,
     opt_level: OptLevel,
+    action: RunMode,
     debug_symbols: bool,
     use_std: bool,
     debug_export_build_plan: bool,
@@ -139,6 +140,7 @@ impl CompilePreConfig {
             target_dir: self.target_dir,
             target_backend,
             opt_level: self.opt_level,
+            action: self.action,
             debug_symbols: self.debug_symbols,
             stdlib_path: if std {
                 Some(moonutil::moon_dir::core())
@@ -158,6 +160,7 @@ pub fn preconfig_compile(
     build_flags: &BuildFlags,
     target_dir: &Path,
     default_opt_level: OptLevel,
+    action: RunMode,
 ) -> CompilePreConfig {
     let opt_level = if build_flags.release {
         OptLevel::Release
@@ -171,6 +174,7 @@ pub fn preconfig_compile(
         target_dir: target_dir.to_owned(),
         target_backend: build_flags.target_backend,
         opt_level,
+        action,
         debug_symbols: !build_flags.release || build_flags.debug,
         use_std: build_flags.std(),
         debug_export_build_plan: cli.unstable_feature.rr_export_build_plan,

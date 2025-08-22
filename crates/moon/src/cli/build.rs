@@ -111,6 +111,7 @@ fn run_build_internal(
             &cmd.build_flags,
             target_dir,
             OptLevel::Release,
+            RunMode::Build,
         );
         let (_build_meta, build_graph) = rr_build::plan_build(
             preconfig,

@@ -20,7 +20,10 @@ use std::{path::PathBuf, str::FromStr};
 
 use log::{debug, info};
 use moonutil::{
-    common::TargetBackend, compiler_flags::CompilerPaths, cond_expr::OptLevel, moon_dir::MOON_DIRS,
+    common::{RunMode, TargetBackend},
+    compiler_flags::CompilerPaths,
+    cond_expr::OptLevel,
+    moon_dir::MOON_DIRS,
 };
 
 use crate::{
@@ -39,6 +42,8 @@ pub struct CompileConfig {
     pub target_backend: TargetBackend,
     /// The optimization level to use for the compilation.
     pub opt_level: OptLevel,
+    /// The action done in this operation, currently only used in legacy directory layout
+    pub action: RunMode,
     /// Whether to emit debug symbols.
     pub debug_symbols: bool,
 
@@ -114,6 +119,7 @@ pub fn compile(
         target_dir_root: cx.target_dir.clone(),
         target_backend: cx.target_backend,
         opt_level: cx.opt_level,
+        action: cx.action,
         debug_symbols: cx.debug_symbols,
         stdlib_path: cx.stdlib_path.clone(),
         compiler_paths: CompilerPaths::from_moon_dirs(), // change to external

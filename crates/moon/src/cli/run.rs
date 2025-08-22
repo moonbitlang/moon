@@ -340,6 +340,7 @@ fn run_run_rr(cli: &UniversalFlags, cmd: RunSubcommand) -> Result<i32, anyhow::E
         &cmd.build_flags,
         &target_dir,
         Release,
+        RunMode::Run,
     );
     let (build_meta, build_graph) = rr_build::plan_build(
         preconfig,

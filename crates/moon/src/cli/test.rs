@@ -489,6 +489,7 @@ fn run_test_rr(
         cmd.build_flags,
         target_dir,
         OptLevel::Debug,
+        RunMode::Test,
     );
     let (build_meta, build_graph) = rr_build::plan_build(
         preconfig,

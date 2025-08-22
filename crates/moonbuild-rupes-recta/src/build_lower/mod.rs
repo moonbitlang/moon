@@ -26,7 +26,7 @@ use std::{
 
 use log::{debug, info};
 use moonutil::{
-    common::{DriverKind, TargetBackend},
+    common::{DriverKind, RunMode, TargetBackend},
     compiler_flags::{
         make_cc_command_pure, resolve_cc, CCConfigBuilder, CompilerPaths, OptLevel as CCOptLevel,
         OutputType as CCOutputType, CC,
@@ -60,6 +60,7 @@ pub struct BuildOptions {
     pub target_backend: TargetBackend,
     pub os: OperatingSystem,
     pub opt_level: OptLevel,
+    pub action: RunMode,
     pub debug_symbols: bool,
     /// Only `Some` if we import standard library.
     pub stdlib_path: Option<PathBuf>,
@@ -106,6 +107,7 @@ pub fn lower_build_plan(
         .target_base_dir(opt.target_dir_root.to_owned())
         .main_module(opt.main_module.clone())
         .opt_level(opt.opt_level)
+        .run_mode(opt.action)
         .build()
         .expect("Failed to build legacy layout");
 

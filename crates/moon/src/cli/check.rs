@@ -236,7 +236,8 @@ fn run_check_normal_internal(
             cli,
             &cmd.build_flags,
             target_dir,
-            moonutil::cond_expr::OptLevel::Debug,
+            moonutil::cond_expr::OptLevel::Release,
+            RunMode::Check,
         );
         let (_build_meta, build_graph) = rr_build::plan_build(
             preconfig,
