@@ -28,7 +28,7 @@ use crate::{
         FileName, GeneratedTestDriver, TargetBackend, TargetBackend::Js, TargetBackend::Native,
         TargetBackend::Wasm, TargetBackend::WasmGC, TargetBackend::LLVM,
     },
-    cond_expr::{CompileCondition, CondExpr, RawTargets},
+    cond_expr::{CompileCondition, CondExpr, CondExprs},
     path::{ImportComponent, PathComponent},
 };
 
@@ -287,7 +287,7 @@ pub struct MoonPkgJSON {
     #[serde(alias = "targets")]
     #[schemars(rename = "targets")]
     #[schemars(with = "Option<std::collections::HashMap<String, StringOrArray>>")]
-    pub targets: Option<RawTargets>,
+    pub targets: Option<CondExprs>,
 
     /// Command for moon generate
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -699,7 +699,7 @@ pub struct MoonPkg {
     pub warn_list: Option<String>,
     pub alert_list: Option<String>,
 
-    pub targets: Option<RawTargets>,
+    pub targets: Option<CondExprs>,
 
     pub pre_build: Option<Vec<MoonPkgGenerate>>,
 

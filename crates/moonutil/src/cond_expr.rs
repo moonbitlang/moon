@@ -16,8 +16,6 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
-use std::path::{Path, PathBuf};
-
 use indexmap::IndexMap;
 use serde::{Deserialize, Serialize};
 
@@ -52,7 +50,8 @@ pub enum Atom {
     Target(TargetBackend),
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(try_from = "StringOrArray", into = "StringOrArray")]
 pub enum CondExpr {
     Atom(Atom),
     Condition(LogicOp, Vec<CondExpr>),
@@ -269,9 +268,8 @@ pub fn parse_cond_target(expr: &str) -> Result<CondExpr, ParseTargetError> {
 }
 
 #[derive(Debug, thiserror::Error)]
-#[error("failed to parse conditional expression in file: {file}")]
+#[error("failed to parse conditional expression")]
 pub struct ParseCondExprError {
-    pub file: PathBuf,
     #[source]
     source: ParseCondExprErrorKind,
 }
@@ -286,25 +284,14 @@ pub enum ParseCondExprErrorKind {
     EmptyConditionArray,
 }
 
-pub fn parse_cond_exprs(file: &Path, map: &RawTargets) -> Result<CondExprs, ParseCondExprError> {
-    map.iter()
-        .map(|(k, v)| {
-            let cond_expr = parse_cond_expr(file, v)?;
-            Ok((k.clone(), cond_expr))
-        })
-        .collect()
-}
-
-pub fn parse_cond_expr(file: &Path, value: &StringOrArray) -> Result<CondExpr, ParseCondExprError> {
+pub fn parse_cond_expr(value: &StringOrArray) -> Result<CondExpr, ParseCondExprError> {
     match value {
         StringOrArray::String(s) => parse_cond_target(s).map_err(|e| ParseCondExprError {
-            file: file.to_path_buf(),
             source: ParseCondExprErrorKind::ParseCondAtomError(e),
         }),
         StringOrArray::Array(arr) => {
             if arr.is_empty() {
                 return Err(ParseCondExprError {
-                    file: file.to_path_buf(),
                     source: ParseCondExprErrorKind::EmptyConditionArray,
                 });
             }
@@ -312,23 +299,21 @@ pub fn parse_cond_expr(file: &Path, value: &StringOrArray) -> Result<CondExpr, P
             match iter.next() {
                 Some(StringOrArray::String(op)) => {
                     let logic_op = parse_cond_logic_op(op).map_err(|e| ParseCondExprError {
-                        file: file.to_path_buf(),
                         source: ParseCondExprErrorKind::ParseCondLogicOpError(e),
                     });
 
                     match logic_op {
                         Ok(logic_op) => {
                             let sub_exprs: Result<Vec<CondExpr>, ParseCondExprError> =
-                                iter.map(|x| parse_cond_expr(file, x)).collect();
+                                iter.map(parse_cond_expr).collect();
                             Ok(CondExpr::Condition(logic_op, sub_exprs?))
                         }
                         Err(_) => {
                             let atom = parse_cond_target(op).map_err(|e| ParseCondExprError {
-                                file: file.to_path_buf(),
                                 source: ParseCondExprErrorKind::ParseCondAtomError(e),
                             })?;
                             let sub_exprs: Result<Vec<CondExpr>, ParseCondExprError> =
-                                iter.map(|x| parse_cond_expr(file, x)).collect();
+                                iter.map(parse_cond_expr).collect();
                             let mut sub_exprs = sub_exprs?;
                             sub_exprs.insert(0, atom);
                             Ok(CondExpr::Condition(LogicOp::Or, sub_exprs))
@@ -336,9 +321,47 @@ pub fn parse_cond_expr(file: &Path, value: &StringOrArray) -> Result<CondExpr, P
                     }
                 }
                 _ => Err(ParseCondExprError {
-                    file: file.to_path_buf(),
                     source: ParseCondExprErrorKind::EmptyConditionArray,
                 }),
+            }
+        }
+    }
+}
+
+impl TryFrom<StringOrArray> for CondExpr {
+    type Error = ParseCondExprError;
+
+    fn try_from(value: StringOrArray) -> Result<Self, Self::Error> {
+        parse_cond_expr(&value)
+    }
+}
+
+impl From<CondExpr> for StringOrArray {
+    fn from(val: CondExpr) -> Self {
+        match val {
+            CondExpr::Atom(atom) => match atom {
+                Atom::OptLevel(OptLevel::Release) => StringOrArray::String("release".to_string()),
+                Atom::OptLevel(OptLevel::Debug) => StringOrArray::String("debug".to_string()),
+                Atom::Target(tb) => match tb {
+                    TargetBackend::Wasm => StringOrArray::String("wasm".to_string()),
+                    TargetBackend::WasmGC => StringOrArray::String("wasm-gc".to_string()),
+                    TargetBackend::Js => StringOrArray::String("js".to_string()),
+                    TargetBackend::Native => StringOrArray::String("native".to_string()),
+                    TargetBackend::LLVM => StringOrArray::String("llvm".to_string()),
+                },
+            },
+            CondExpr::Condition(op, exprs) => {
+                let mut arr: Vec<StringOrArray> = Vec::with_capacity(exprs.len() + 1);
+                let op_str = match op {
+                    LogicOp::And => "and",
+                    LogicOp::Or => "or",
+                    LogicOp::Not => "not",
+                };
+                arr.push(StringOrArray::String(op_str.to_string()));
+                for e in exprs {
+                    arr.push(e.into());
+                }
+                StringOrArray::Array(arr)
             }
         }
     }
@@ -350,7 +373,5 @@ pub enum StringOrArray {
     String(String),
     Array(Vec<StringOrArray>),
 }
-
-pub type RawTargets = IndexMap<String, StringOrArray>;
 
 pub type CondExprs = IndexMap<String, CondExpr>;

@@ -41,11 +41,7 @@ use std::{
 
 use indexmap::{set::MutableValues, IndexSet};
 use log::{debug, info, trace};
-use moonutil::{
-    common::TargetBackend,
-    cond_expr::{OptLevel, ParseCondExprError},
-    mooncakes::ModuleId,
-};
+use moonutil::{common::TargetBackend, cond_expr::OptLevel, mooncakes::ModuleId};
 use petgraph::{prelude::DiGraphMap, visit::DfsPostOrder};
 
 use crate::{
@@ -188,14 +184,7 @@ pub struct BuildEnvironment {
 ///
 /// TODO: Will we even meet errors during build graph construction?
 #[derive(Debug, thiserror::Error)]
-pub enum BuildPlanConstructError {
-    // TODO: This parsing should be moved earlier into the pipeline
-    #[error("Error when parsing conditional compilation expression of {target:?}: {err}")]
-    ParseCondExprError {
-        target: BuildTarget,
-        err: ParseCondExprError,
-    },
-}
+pub enum BuildPlanConstructError {}
 
 /// Construct an abstract build graph from the given packages and input actions.
 pub fn build_plan(
@@ -397,7 +386,7 @@ impl<'a> BuildPlanConstructor<'a> {
         }
 
         // Resolve the source files
-        let source_files = self.resolve_mbt_files_for_node(target)?;
+        let source_files = self.resolve_mbt_files_for_node(target);
         let info = BuildTargetInfo {
             files: source_files,
             // is_main: pkg.raw.is_main,
@@ -472,10 +461,7 @@ impl<'a> BuildPlanConstructor<'a> {
         Ok(())
     }
 
-    fn resolve_mbt_files_for_node(
-        &self,
-        target: BuildTarget,
-    ) -> Result<Vec<PathBuf>, BuildPlanConstructError> {
+    fn resolve_mbt_files_for_node(&self, target: BuildTarget) -> Vec<PathBuf> {
         // FIXME: Should we resolve test drivers' paths, or should we leave it
         // in the lowering phase? The path to the test driver depends on the
         // artifact layout, so we might not be able to do that here, unless we
@@ -483,16 +469,14 @@ impl<'a> BuildPlanConstructor<'a> {
         let pkg = self.packages.get_package(target.package);
         let source_files = cond_comp::filter_files(
             &pkg.raw,
-            &pkg.root_path,
             pkg.source_files.iter().map(|x| x.as_path()),
             &CompileCondition {
                 optlevel: self.build_env.opt_level,
                 test_kind: target.kind.into(),
                 backend: self.build_env.target_backend,
             },
-        )
-        .map_err(|err| BuildPlanConstructError::ParseCondExprError { target, err })?;
-        Ok(source_files)
+        );
+        source_files
     }
 
     fn build_build_c_stubs(
