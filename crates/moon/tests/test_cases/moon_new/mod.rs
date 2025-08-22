@@ -258,20 +258,20 @@ fn test_moon_new_new() {
 fn test_moon_new_snapshot() {
     let dir = TestDir::new("moon_new/snapshot");
 
-    let hello = dir.join("hello");
-    if hello.exists() {
-        hello.rm_rf();
+    let asdf = dir.join("asdf");
+    if asdf.exists() {
+        asdf.rm_rf();
     }
 
     snapbox::cmd::Command::new(moon_bin())
         .current_dir(&dir)
-        .args(["new", "hello"])
+        .args(["new", "asdf"])
         .env("MOON_HOME", dir.path.path())
         .assert()
         .success();
 
     // New snapshot: layout first, then file contents
-    let snap = snapshot_layout_and_files(&hello);
+    let snap = snapshot_layout_and_files(&asdf);
     check(
         &snap,
         expect![[r#"
@@ -282,12 +282,12 @@ fn test_moon_new_snapshot() {
             ./LICENSE
             ./README.mbt.md
             ./README.md
+            ./asdf.mbt
+            ./asdf_test.mbt
             ./cmd/
             ./cmd/main/
             ./cmd/main/main.mbt
             ./cmd/main/moon.pkg.json
-            ./hello.mbt
-            ./hello_test.mbt
             ./moon.mod.json
             ./moon.pkg.json
 
@@ -305,10 +305,31 @@ fn test_moon_new_snapshot() {
             <LICENSE file content>
 
             === ./README.mbt.md ===
-            # testuser/hello
+            # testuser/asdf
 
             === ./README.md ===
             <symbolic link to README.mbt.md>
+
+            === ./asdf.mbt ===
+            ///|
+            pub fn fib(n : Int) -> Int64 {
+              for i = 0, a = 0L, b = 1L; i < n; i = i + 1, a = b, b = a + b {
+
+              } else {
+                b
+              }
+            }
+
+            === ./asdf_test.mbt ===
+            ///|
+            test "fib" {
+              let array = [1, 2, 3, 4, 5].map(fib(_))
+
+              // `inspect` is used to check the output of the function
+              // Just write `inspect(value)` and execute `moon test --update`
+              // to update the expected output, and verify them afterwards
+              inspect(array, content="[1, 2, 3, 5, 8]")
+            }
 
             === ./cmd/main/main.mbt ===
             ///|
@@ -321,36 +342,15 @@ fn test_moon_new_snapshot() {
               "is-main": true,
               "import": [
                 {
-                  "path": "testuser/hello",
+                  "path": "testuser/asdf",
                   "alias": "lib"
                 }
               ]
             }
 
-            === ./hello.mbt ===
-            ///|
-            pub fn fib(n : Int) -> Int64 {
-              for i = 0, a = 0L, b = 1L; i < n; i = i + 1, a = b, b = a + b {
-
-              } else {
-                b
-              }
-            }
-
-            === ./hello_test.mbt ===
-            ///|
-            test "fib" {
-              let array = [1, 2, 3, 4, 5].map(fib(_))
-
-              // `inspect` is used to check the output of the function
-              // Just write `inspect(value)` and execute `moon test --update`
-              // to update the expected output, and verify them afterwards
-              inspect(array, content="[1, 2, 3, 5, 8]")
-            }
-
             === ./moon.mod.json ===
             {
-              "name": "testuser/hello",
+              "name": "testuser/asdf",
               "version": "0.1.0",
               "readme": "README.md",
               "repository": "",
@@ -365,17 +365,17 @@ fn test_moon_new_snapshot() {
         "#]],
     );
 
-    if hello.exists() {
-        hello.rm_rf();
+    if asdf.exists() {
+        asdf.rm_rf();
     }
 
     snapbox::cmd::Command::new(moon_bin())
         .current_dir(&dir)
-        .args(["new", "hello", "--user", "moonbitlang", "--name", "hello"])
+        .args(["new", "asdf", "--user", "moonbitlang", "--name", "hello"])
         .assert()
         .success();
 
-    let snap2 = snapshot_layout_and_files(&hello);
+    let snap2 = snapshot_layout_and_files(&asdf);
     check(
         &snap2,
         expect![[r#"
@@ -468,5 +468,106 @@ fn test_moon_new_snapshot() {
 
         "#]],
     );
-    hello.rm_rf();
+    asdf.rm_rf();
+
+    snapbox::cmd::Command::new(moon_bin())
+        .current_dir(&dir)
+        .args(["new", "asdf", "--user", "moonbitlang", "--name", "wow"])
+        .assert()
+        .success();
+
+    let snap3 = snapshot_layout_and_files(&asdf);
+    check(
+        &snap3,
+        expect![[r#"
+            -- layout --
+            .
+            ./.gitignore
+            ./Agents.md
+            ./LICENSE
+            ./README.mbt.md
+            ./README.md
+            ./cmd/
+            ./cmd/main/
+            ./cmd/main/main.mbt
+            ./cmd/main/moon.pkg.json
+            ./moon.mod.json
+            ./moon.pkg.json
+            ./wow.mbt
+            ./wow_test.mbt
+
+            -- files --
+            === ./.gitignore ===
+            .DS_Store
+            target/
+            .mooncakes/
+            .moonagent/
+
+            === ./Agents.md ===
+            <Agents.md file content>
+
+            === ./LICENSE ===
+            <LICENSE file content>
+
+            === ./README.mbt.md ===
+            # moonbitlang/wow
+
+            === ./README.md ===
+            <symbolic link to README.mbt.md>
+
+            === ./cmd/main/main.mbt ===
+            ///|
+            fn main {
+              println(@lib.fib(10))
+            }
+
+            === ./cmd/main/moon.pkg.json ===
+            {
+              "is-main": true,
+              "import": [
+                {
+                  "path": "moonbitlang/wow",
+                  "alias": "lib"
+                }
+              ]
+            }
+
+            === ./moon.mod.json ===
+            {
+              "name": "moonbitlang/wow",
+              "version": "0.1.0",
+              "readme": "README.md",
+              "repository": "",
+              "license": "Apache-2.0",
+              "keywords": [],
+              "description": ""
+            }
+
+            === ./moon.pkg.json ===
+            {}
+
+            === ./wow.mbt ===
+            ///|
+            pub fn fib(n : Int) -> Int64 {
+              for i = 0, a = 0L, b = 1L; i < n; i = i + 1, a = b, b = a + b {
+
+              } else {
+                b
+              }
+            }
+
+            === ./wow_test.mbt ===
+            ///|
+            test "fib" {
+              let array = [1, 2, 3, 4, 5].map(fib(_))
+
+              // `inspect` is used to check the output of the function
+              // Just write `inspect(value)` and execute `moon test --update`
+              // to update the expected output, and verify them afterwards
+              inspect(array, content="[1, 2, 3, 5, 8]")
+            }
+
+        "#]],
+    );
+    asdf.rm_rf();
 }
