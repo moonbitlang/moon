@@ -358,15 +358,7 @@ fn run_run_rr(cli: &UniversalFlags, cmd: RunSubcommand) -> Result<i32, anyhow::E
         );
 
         let cmd = get_run_cmd(&build_meta)?;
-        // FIXME: verbose command printing
-        let cmd = cmd.command.as_std();
-        let args = std::iter::once(cmd.get_program())
-            .chain(cmd.get_args())
-            .map(|x| x.to_string_lossy())
-            .collect::<Vec<_>>();
-        let cmd =
-            shlex::try_join(args.iter().map(|x| &**x)).expect("null in args, should not happen");
-        println!("{cmd}");
+        rr_build::dry_print_command(cmd.command.as_std());
 
         Ok(0)
     } else {
