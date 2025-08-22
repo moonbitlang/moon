@@ -23,7 +23,8 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use moonutil::{common::TargetBackend, mooncakes::ModuleSource};
+use derive_builder::Builder;
+use moonutil::{common::TargetBackend, cond_expr::OptLevel, mooncakes::ModuleSource};
 
 use crate::{
     discover::DiscoverResult,
@@ -37,12 +38,15 @@ const CORE_EXTENSION: &str = ".core";
 const MI_EXTENSION: &str = ".mi";
 
 /// Target folder layout that matches the legacy (pre-beta) behavior
+#[derive(Builder)]
 pub struct LegacyLayout {
     /// The base target directory, usually `<project-root>/target`
     target_base_dir: PathBuf,
     /// The name of the main module, so that packages from the main module will
     /// not be put into nested directories.
     main_module: Option<ModuleSource>,
+    /// The optimization level, debug or release
+    opt_level: OptLevel,
 }
 
 const LEGACY_NON_MAIN_MODULE_DIR: &str = ".mooncakes";
@@ -76,22 +80,19 @@ impl Display for PackageArtifactName<'_> {
 }
 
 impl LegacyLayout {
-    /// Creates a new legacy layout instance.
-    pub fn new(target_base_dir: PathBuf, main_module: Option<ModuleSource>) -> Self {
-        Self {
-            target_base_dir,
-            main_module,
-        }
-    }
-
     /// Returns the directory the given package resides in.
     ///
     /// For modules determined as the "main module", this path is
-    /// `target/<backend>/<...package>/`. Otherwise, it's
-    /// `target/<backend>/.mooncakes/<...module>/<...package>`.
+    /// `target/<backend>[/<opt_level>/build]/<...package>/`. Otherwise, it's
+    /// `target/<backend>[/<opt_level>/build]/.mooncakes/<...module>/<...package>`.
     pub fn package_dir(&self, pkg: &PackageFQN, backend: TargetBackend) -> PathBuf {
         let mut dir = self.target_base_dir.clone();
         push_backend(&mut dir, backend);
+
+        match self.opt_level {
+            OptLevel::Release => dir.push("release/build"),
+            OptLevel::Debug => (),
+        }
 
         if self.main_module.as_ref().is_some_and(|m| pkg.module() == m) {
             // no nested directory for the working module

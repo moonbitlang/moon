@@ -39,7 +39,7 @@ use petgraph::Direction;
 
 use crate::{
     build_lower::{
-        artifact::LegacyLayout,
+        artifact::{LegacyLayout, LegacyLayoutBuilder},
         compiler::{CmdlineAbstraction, MiDependency, PackageSource},
     },
     build_plan::{BuildPlan, BuildTargetInfo, LinkCoreInfo, MakeExecutableInfo},
@@ -102,7 +102,13 @@ pub fn lower_build_plan(
         opt.target_backend, opt.opt_level, opt.debug_symbols
     );
 
-    let layout = LegacyLayout::new(opt.target_dir_root.to_owned(), opt.main_module.clone());
+    let layout = LegacyLayoutBuilder::default()
+        .target_base_dir(opt.target_dir_root.to_owned())
+        .main_module(opt.main_module.clone())
+        .opt_level(opt.opt_level)
+        .build()
+        .expect("Failed to build legacy layout");
+
     let mut ctx = BuildPlanLowerContext {
         graph: N2Graph::default(),
         layout,

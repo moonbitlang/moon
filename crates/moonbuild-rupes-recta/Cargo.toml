@@ -38,3 +38,4 @@ walkdir.workspace = true
 petgraph.workspace = true
 indexmap.workspace = true
 shlex.workspace = true
+derive_builder.workspace = true
