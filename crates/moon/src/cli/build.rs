@@ -32,6 +32,7 @@ use moonutil::common::MoonbuildOpt;
 use moonutil::common::PrePostBuild;
 use moonutil::common::RunMode;
 use moonutil::common::TargetBackend;
+use moonutil::cond_expr::OptLevel;
 use moonutil::dirs::mk_arch_mode_dir;
 use moonutil::dirs::PackageDirs;
 use moonutil::mooncakes::sync::AutoSyncFlags;
@@ -104,7 +105,13 @@ fn run_build_internal(
     target_dir: &Path,
 ) -> anyhow::Result<i32> {
     if cli.unstable_feature.rupes_recta {
-        let preconfig = preconfig_compile(&cmd.auto_sync_flags, cli, &cmd.build_flags, target_dir);
+        let preconfig = preconfig_compile(
+            &cmd.auto_sync_flags,
+            cli,
+            &cmd.build_flags,
+            target_dir,
+            OptLevel::Release,
+        );
         let (_build_meta, build_graph) = rr_build::plan_build(
             preconfig,
             &cli.unstable_feature,

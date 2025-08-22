@@ -34,6 +34,7 @@ use moonutil::common::TestArtifacts;
 use moonutil::common::MOONBITLANG_CORE;
 use moonutil::common::MOON_PKG_JSON;
 use moonutil::common::{MoonbuildOpt, OutputFormat};
+use moonutil::cond_expr::OptLevel::Release;
 use moonutil::dirs::check_moon_pkg_exist;
 use moonutil::dirs::mk_arch_mode_dir;
 use moonutil::dirs::PackageDirs;
@@ -333,7 +334,13 @@ fn run_run_rr(cli: &UniversalFlags, cmd: RunSubcommand) -> Result<i32, anyhow::E
     } = cli.source_tgt_dir.try_into_package_dirs()?;
 
     let input_path = cmd.package_or_mbt_file;
-    let preconfig = preconfig_compile(&cmd.auto_sync_flags, cli, &cmd.build_flags, &target_dir);
+    let preconfig = preconfig_compile(
+        &cmd.auto_sync_flags,
+        cli,
+        &cmd.build_flags,
+        &target_dir,
+        Release,
+    );
     let (build_meta, build_graph) = rr_build::plan_build(
         preconfig,
         &cli.unstable_feature,
