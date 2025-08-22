@@ -24,7 +24,11 @@ use std::{
 };
 
 use derive_builder::Builder;
-use moonutil::{common::TargetBackend, cond_expr::OptLevel, mooncakes::ModuleSource};
+use moonutil::{
+    common::{RunMode, TargetBackend},
+    cond_expr::OptLevel,
+    mooncakes::ModuleSource,
+};
 
 use crate::{
     discover::DiscoverResult,
@@ -45,8 +49,11 @@ pub struct LegacyLayout {
     /// The name of the main module, so that packages from the main module will
     /// not be put into nested directories.
     main_module: Option<ModuleSource>,
+
     /// The optimization level, debug or release
     opt_level: OptLevel,
+    /// The operation done
+    run_mode: RunMode,
 }
 
 const LEGACY_NON_MAIN_MODULE_DIR: &str = ".mooncakes";
@@ -90,9 +97,10 @@ impl LegacyLayout {
         push_backend(&mut dir, backend);
 
         match self.opt_level {
-            OptLevel::Release => dir.push("release/build"),
-            OptLevel::Debug => (),
+            OptLevel::Release => dir.push("release"),
+            OptLevel::Debug => dir.push("debug"),
         }
+        dir.push(self.run_mode.to_dir_name());
 
         if self.main_module.as_ref().is_some_and(|m| pkg.module() == m) {
             // no nested directory for the working module
