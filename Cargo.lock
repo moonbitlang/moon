@@ -1521,6 +1521,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "arcstr",
+ "derive_builder",
  "indexmap",
  "log",
  "mooncake",
