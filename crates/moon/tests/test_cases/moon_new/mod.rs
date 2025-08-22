@@ -98,15 +98,7 @@ fn test_moon_new() {
     let dir = TestDir::new_empty();
     get_stdout(
         &dir,
-        [
-            "new",
-            "--path",
-            "hello",
-            "--user",
-            "moonbitlang",
-            "--name",
-            "hello",
-        ],
+        ["new", "hello", "--user", "moonbitlang", "--name", "hello"],
     );
     check(
         get_stdout(
@@ -166,15 +158,7 @@ fn test_moon_new_exist() {
     dir.join("hello").rm_rf();
     let res = &get_stdout(
         &dir,
-        [
-            "new",
-            "--path",
-            "hello",
-            "--user",
-            "moonbitlang",
-            "--name",
-            "hello",
-        ],
+        ["new", "hello", "--user", "moonbitlang", "--name", "hello"],
     );
 
     assert!(res.contains("Created hello"));
@@ -182,15 +166,7 @@ fn test_moon_new_exist() {
 
     snapbox::cmd::Command::new(moon_bin())
         .current_dir(dir.join("hello"))
-        .args([
-            "new",
-            "--path",
-            ".",
-            "--user",
-            "moonbitlang",
-            "--name",
-            "hello",
-        ])
+        .args(["new", ".", "--user", "moonbitlang", "--name", "hello"])
         .assert()
         .failure();
 
@@ -207,15 +183,7 @@ fn test_moon_new_new() {
     }
     snapbox::cmd::Command::new(moon_bin())
         .current_dir(&dir)
-        .args([
-            "new",
-            "--path",
-            "hello",
-            "--user",
-            "moonbitlang",
-            "--name",
-            "hello",
-        ])
+        .args(["new", "hello", "--user", "moonbitlang", "--name", "hello"])
         .assert()
         .success();
     check(
@@ -230,15 +198,7 @@ fn test_moon_new_new() {
     std::fs::create_dir_all(&hello2).unwrap();
     snapbox::cmd::Command::new(moon_bin())
         .current_dir(&hello2)
-        .args([
-            "new",
-            "--path",
-            ".",
-            "--user",
-            "moonbitlang",
-            "--name",
-            "hello",
-        ])
+        .args(["new", ".", "--user", "moonbitlang", "--name", "hello"])
         .assert()
         .success();
     check(
@@ -255,16 +215,7 @@ fn test_moon_new_new() {
     }
     snapbox::cmd::Command::new(moon_bin())
         .current_dir(&dir)
-        .args([
-            "new",
-            "--lib",
-            "--path",
-            "hello3",
-            "--user",
-            "moonbitlang",
-            "--name",
-            "hello",
-        ])
+        .args(["new", "hello3", "--user", "moonbitlang", "--name", "hello"])
         .assert()
         .success();
     check(
@@ -286,15 +237,7 @@ fn test_moon_new_new() {
     std::fs::create_dir_all(&hello4).unwrap();
     snapbox::cmd::Command::new(moon_bin())
         .current_dir(&hello4)
-        .args([
-            "new",
-            "--path",
-            ".",
-            "--user",
-            "moonbitlang",
-            "--name",
-            "hello",
-        ])
+        .args(["new", ".", "--user", "moonbitlang", "--name", "hello"])
         .assert()
         .success();
     check(
@@ -312,51 +255,6 @@ fn test_moon_new_new() {
 }
 
 #[test]
-#[ignore = "todo"]
-fn test_moon_new_interactive() {
-    let dir = TestDir::new("moon_new/new");
-
-    snapbox::cmd::Command::new(moon_bin())
-        .current_dir(&dir)
-        .args(["new"])
-        .stdin("hello5\nexec\nmoonbitlang\nhello5\n\n")
-        .assert()
-        .success();
-    check(
-        std::fs::read_to_string(dir.join("hello5").join("moon.mod.json")).unwrap(),
-        expect![[r#"
-            {
-              "name": "moonbitlang/hello5",
-              "version": "0.1.0",
-              "readme": "README.md",
-              "repository": "",
-              "license": "",
-              "keywords": [],
-              "description": ""
-            }"#]],
-    );
-    dir.join("hello5").rm_rf();
-
-    snapbox::cmd::Command::new(moon_bin())
-        .current_dir(&dir)
-        .args(["new"])
-        .stdin("hello6\nlib\nmoonbitlang\nhello6\n")
-        .assert()
-        .success();
-    check(
-        std::fs::read_to_string(dir.join("hello6").join("moon.pkg.json")).unwrap(),
-        expect![[r#"
-            {
-              "import": [
-                "moonbitlang/hello6/lib"
-              ]
-            }
-        "#]],
-    );
-    dir.join("hello6").rm_rf();
-}
-
-#[test]
 fn test_moon_new_snapshot() {
     let dir = TestDir::new("moon_new/snapshot");
 
@@ -367,7 +265,7 @@ fn test_moon_new_snapshot() {
 
     snapbox::cmd::Command::new(moon_bin())
         .current_dir(&dir)
-        .args(["new", "hello", "--no-license"])
+        .args(["new", "hello"])
         .env("MOON_HOME", dir.path.path())
         .assert()
         .success();
@@ -381,6 +279,7 @@ fn test_moon_new_snapshot() {
             .
             ./.gitignore
             ./Agents.md
+            ./LICENSE
             ./README.mbt.md
             ./README.md
             ./cmd/
@@ -401,6 +300,9 @@ fn test_moon_new_snapshot() {
 
             === ./Agents.md ===
             <Agents.md file content>
+
+            === ./LICENSE ===
+            <LICENSE file content>
 
             === ./README.mbt.md ===
             # testuser/hello
@@ -452,7 +354,7 @@ fn test_moon_new_snapshot() {
               "version": "0.1.0",
               "readme": "README.md",
               "repository": "",
-              "license": "",
+              "license": "Apache-2.0",
               "keywords": [],
               "description": ""
             }
@@ -462,7 +364,6 @@ fn test_moon_new_snapshot() {
 
         "#]],
     );
-    assert!(!hello.join("LICENSE").exists());
 
     if hello.exists() {
         hello.rm_rf();
@@ -470,15 +371,7 @@ fn test_moon_new_snapshot() {
 
     snapbox::cmd::Command::new(moon_bin())
         .current_dir(&dir)
-        .args([
-            "new",
-            "--path",
-            "hello",
-            "--user",
-            "moonbitlang",
-            "--name",
-            "hello",
-        ])
+        .args(["new", "hello", "--user", "moonbitlang", "--name", "hello"])
         .assert()
         .success();
 
@@ -566,450 +459,6 @@ fn test_moon_new_snapshot() {
               "readme": "README.md",
               "repository": "",
               "license": "Apache-2.0",
-              "keywords": [],
-              "description": ""
-            }
-
-            === ./moon.pkg.json ===
-            {}
-
-        "#]],
-    );
-    hello.rm_rf();
-}
-
-#[test]
-fn test_moon_new_snapshot_lib() {
-    let dir = TestDir::new("moon_new/snapshot");
-
-    let hello = dir.join("hello_lib");
-
-    if hello.exists() {
-        hello.rm_rf()
-    }
-
-    snapbox::cmd::Command::new(moon_bin())
-        .current_dir(&dir)
-        .args(["new", "--lib", "hello_lib"])
-        .env("MOON_HOME", dir.path.path())
-        .assert()
-        .success();
-
-    // Snapshot layout + files (includes LICENSE)
-    let snap = snapshot_layout_and_files(&hello);
-    check(
-        &snap,
-        expect![[r#"
-            -- layout --
-            .
-            ./.gitignore
-            ./Agents.md
-            ./LICENSE
-            ./README.mbt.md
-            ./README.md
-            ./cmd/
-            ./cmd/main/
-            ./cmd/main/main.mbt
-            ./cmd/main/moon.pkg.json
-            ./hello.mbt
-            ./hello_test.mbt
-            ./moon.mod.json
-            ./moon.pkg.json
-
-            -- files --
-            === ./.gitignore ===
-            .DS_Store
-            target/
-            .mooncakes/
-            .moonagent/
-
-            === ./Agents.md ===
-            <Agents.md file content>
-
-            === ./LICENSE ===
-            <LICENSE file content>
-
-            === ./README.mbt.md ===
-            # testuser/hello
-
-            === ./README.md ===
-            <symbolic link to README.mbt.md>
-
-            === ./cmd/main/main.mbt ===
-            ///|
-            fn main {
-              println(@lib.fib(10))
-            }
-
-            === ./cmd/main/moon.pkg.json ===
-            {
-              "is-main": true,
-              "import": [
-                {
-                  "path": "testuser/hello",
-                  "alias": "lib"
-                }
-              ]
-            }
-
-            === ./hello.mbt ===
-            ///|
-            pub fn fib(n : Int) -> Int64 {
-              for i = 0, a = 0L, b = 1L; i < n; i = i + 1, a = b, b = a + b {
-
-              } else {
-                b
-              }
-            }
-
-            === ./hello_test.mbt ===
-            ///|
-            test "fib" {
-              let array = [1, 2, 3, 4, 5].map(fib(_))
-
-              // `inspect` is used to check the output of the function
-              // Just write `inspect(value)` and execute `moon test --update`
-              // to update the expected output, and verify them afterwards
-              inspect(array, content="[1, 2, 3, 5, 8]")
-            }
-
-            === ./moon.mod.json ===
-            {
-              "name": "testuser/hello",
-              "version": "0.1.0",
-              "readme": "README.md",
-              "repository": "",
-              "license": "Apache-2.0",
-              "keywords": [],
-              "description": ""
-            }
-
-            === ./moon.pkg.json ===
-            {}
-
-        "#]],
-    );
-    hello.rm_rf();
-
-    snapbox::cmd::Command::new(moon_bin())
-        .current_dir(&dir)
-        .args([
-            "new",
-            "--lib",
-            "--path",
-            "hello_lib",
-            "--user",
-            "username",
-            "--name",
-            "parser",
-        ])
-        .assert()
-        .success();
-
-    // Snapshot layout + files (includes LICENSE)
-    let snap2 = snapshot_layout_and_files(&hello);
-    check(
-        &snap2,
-        expect![[r#"
-            -- layout --
-            .
-            ./.gitignore
-            ./Agents.md
-            ./LICENSE
-            ./README.mbt.md
-            ./README.md
-            ./cmd/
-            ./cmd/main/
-            ./cmd/main/main.mbt
-            ./cmd/main/moon.pkg.json
-            ./moon.mod.json
-            ./moon.pkg.json
-            ./parser.mbt
-            ./parser_test.mbt
-
-            -- files --
-            === ./.gitignore ===
-            .DS_Store
-            target/
-            .mooncakes/
-            .moonagent/
-
-            === ./Agents.md ===
-            <Agents.md file content>
-
-            === ./LICENSE ===
-            <LICENSE file content>
-
-            === ./README.mbt.md ===
-            # username/parser
-
-            === ./README.md ===
-            <symbolic link to README.mbt.md>
-
-            === ./cmd/main/main.mbt ===
-            ///|
-            fn main {
-              println(@lib.fib(10))
-            }
-
-            === ./cmd/main/moon.pkg.json ===
-            {
-              "is-main": true,
-              "import": [
-                {
-                  "path": "username/parser",
-                  "alias": "lib"
-                }
-              ]
-            }
-
-            === ./moon.mod.json ===
-            {
-              "name": "username/parser",
-              "version": "0.1.0",
-              "readme": "README.md",
-              "repository": "",
-              "license": "Apache-2.0",
-              "keywords": [],
-              "description": ""
-            }
-
-            === ./moon.pkg.json ===
-            {}
-
-            === ./parser.mbt ===
-            ///|
-            pub fn fib(n : Int) -> Int64 {
-              for i = 0, a = 0L, b = 1L; i < n; i = i + 1, a = b, b = a + b {
-
-              } else {
-                b
-              }
-            }
-
-            === ./parser_test.mbt ===
-            ///|
-            test "fib" {
-              let array = [1, 2, 3, 4, 5].map(fib(_))
-
-              // `inspect` is used to check the output of the function
-              // Just write `inspect(value)` and execute `moon test --update`
-              // to update the expected output, and verify them afterwards
-              inspect(array, content="[1, 2, 3, 5, 8]")
-            }
-
-        "#]],
-    );
-    hello.rm_rf();
-}
-
-#[test]
-fn test_moon_new_snapshot_lib_no_license() {
-    let dir = TestDir::new("moon_new/snapshot");
-
-    let hello = dir.join("hello_lib");
-
-    if hello.exists() {
-        hello.rm_rf()
-    }
-
-    snapbox::cmd::Command::new(moon_bin())
-        .current_dir(&dir)
-        .args(["new", "--lib", "hello_lib", "--no-license"])
-        .env("MOON_HOME", dir.path.path())
-        .assert()
-        .success();
-
-    let snap1 = snapshot_layout_and_files(&hello);
-    check(
-        snap1,
-        expect![[r#"
-            -- layout --
-            .
-            ./.gitignore
-            ./Agents.md
-            ./README.mbt.md
-            ./README.md
-            ./cmd/
-            ./cmd/main/
-            ./cmd/main/main.mbt
-            ./cmd/main/moon.pkg.json
-            ./hello.mbt
-            ./hello_test.mbt
-            ./moon.mod.json
-            ./moon.pkg.json
-
-            -- files --
-            === ./.gitignore ===
-            .DS_Store
-            target/
-            .mooncakes/
-            .moonagent/
-
-            === ./Agents.md ===
-            <Agents.md file content>
-
-            === ./README.mbt.md ===
-            # testuser/hello
-
-            === ./README.md ===
-            <symbolic link to README.mbt.md>
-
-            === ./cmd/main/main.mbt ===
-            ///|
-            fn main {
-              println(@lib.fib(10))
-            }
-
-            === ./cmd/main/moon.pkg.json ===
-            {
-              "is-main": true,
-              "import": [
-                {
-                  "path": "testuser/hello",
-                  "alias": "lib"
-                }
-              ]
-            }
-
-            === ./hello.mbt ===
-            ///|
-            pub fn fib(n : Int) -> Int64 {
-              for i = 0, a = 0L, b = 1L; i < n; i = i + 1, a = b, b = a + b {
-
-              } else {
-                b
-              }
-            }
-
-            === ./hello_test.mbt ===
-            ///|
-            test "fib" {
-              let array = [1, 2, 3, 4, 5].map(fib(_))
-
-              // `inspect` is used to check the output of the function
-              // Just write `inspect(value)` and execute `moon test --update`
-              // to update the expected output, and verify them afterwards
-              inspect(array, content="[1, 2, 3, 5, 8]")
-            }
-
-            === ./moon.mod.json ===
-            {
-              "name": "testuser/hello",
-              "version": "0.1.0",
-              "readme": "README.md",
-              "repository": "",
-              "license": "",
-              "keywords": [],
-              "description": ""
-            }
-
-            === ./moon.pkg.json ===
-            {}
-
-        "#]],
-    );
-
-    if hello.exists() {
-        hello.rm_rf()
-    }
-
-    snapbox::cmd::Command::new(moon_bin())
-        .current_dir(&dir)
-        .args([
-            "new",
-            "--lib",
-            "--path",
-            "hello_lib",
-            "--user",
-            "moonbitlang",
-            "--name",
-            "hello",
-            "--no-license",
-        ])
-        .assert()
-        .success();
-
-    let snap2 = snapshot_layout_and_files(&hello);
-    check(
-        snap2,
-        expect![[r#"
-            -- layout --
-            .
-            ./.gitignore
-            ./Agents.md
-            ./README.mbt.md
-            ./README.md
-            ./cmd/
-            ./cmd/main/
-            ./cmd/main/main.mbt
-            ./cmd/main/moon.pkg.json
-            ./hello.mbt
-            ./hello_test.mbt
-            ./moon.mod.json
-            ./moon.pkg.json
-
-            -- files --
-            === ./.gitignore ===
-            .DS_Store
-            target/
-            .mooncakes/
-            .moonagent/
-
-            === ./Agents.md ===
-            <Agents.md file content>
-
-            === ./README.mbt.md ===
-            # moonbitlang/hello
-
-            === ./README.md ===
-            <symbolic link to README.mbt.md>
-
-            === ./cmd/main/main.mbt ===
-            ///|
-            fn main {
-              println(@lib.fib(10))
-            }
-
-            === ./cmd/main/moon.pkg.json ===
-            {
-              "is-main": true,
-              "import": [
-                {
-                  "path": "moonbitlang/hello",
-                  "alias": "lib"
-                }
-              ]
-            }
-
-            === ./hello.mbt ===
-            ///|
-            pub fn fib(n : Int) -> Int64 {
-              for i = 0, a = 0L, b = 1L; i < n; i = i + 1, a = b, b = a + b {
-
-              } else {
-                b
-              }
-            }
-
-            === ./hello_test.mbt ===
-            ///|
-            test "fib" {
-              let array = [1, 2, 3, 4, 5].map(fib(_))
-
-              // `inspect` is used to check the output of the function
-              // Just write `inspect(value)` and execute `moon test --update`
-              // to update the expected output, and verify them afterwards
-              inspect(array, content="[1, 2, 3, 5, 8]")
-            }
-
-            === ./moon.mod.json ===
-            {
-              "name": "moonbitlang/hello",
-              "version": "0.1.0",
-              "readme": "README.md",
-              "repository": "",
-              "license": "",
               "keywords": [],
               "description": ""
             }
