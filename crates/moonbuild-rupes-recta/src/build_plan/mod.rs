@@ -36,7 +36,7 @@
 
 use std::{
     collections::{HashMap, HashSet},
-    path::PathBuf,
+    path::{Path, PathBuf},
 };
 
 use indexmap::{set::MutableValues, IndexSet};
@@ -140,13 +140,36 @@ impl BuildPlan {
 /// Common information about a moonbit package being built
 #[derive(Debug)]
 pub struct BuildTargetInfo {
-    pub files: Vec<PathBuf>,
+    /// Regular compilation files
+    regular_files: Vec<PathBuf>,
+
+    /// Whitebox test files. Separated so determine whether the whitebox test is
+    /// needed.
+    ///
+    /// TODO: suboptimal design. Better not populate unused build target info.
+    whitebox_files: Vec<PathBuf>,
+
+    /// Files that needs their doctests extracted instead of regular compilation.
+    doctest_files: Vec<PathBuf>,
     // we currently don't need this, as it's controlled by build-wise options
     // /// Whether compiling this target needs the standard library
     // pub std: bool,
 
     // we currently don't need this, as it's directly copied from mod.json.
     // pub is_main: bool,
+}
+
+impl BuildTargetInfo {
+    pub fn files(&self) -> impl Iterator<Item = &Path> {
+        self.regular_files
+            .iter()
+            .chain(self.whitebox_files.iter())
+            .map(|x| x.as_path())
+    }
+
+    pub fn doctest_files(&self) -> impl Iterator<Item = &Path> {
+        self.doctest_files.iter().map(|x| x.as_path())
+    }
 }
 
 #[derive(Debug)]
@@ -257,6 +280,9 @@ impl<'a> BuildPlanConstructor<'a> {
 
         // Add the input node to the pending list
         for i in input {
+            if self.should_skip_start_node(i) {
+                continue;
+            }
             self.need_node(i);
             self.res.input_nodes.push(i);
         }
@@ -271,6 +297,40 @@ impl<'a> BuildPlanConstructor<'a> {
             self.build_action_dependencies(node)?;
         }
         Ok(())
+    }
+
+    /// Determine whether this starting node should be skipped based on rules.
+    ///
+    /// This function currently handles:
+    /// - Skipping nodes of no real use:
+    ///   - Whitebox test nodes with no white box test files
+    ///
+    /// # Note
+    ///
+    /// Currently, removal of invalid starting nodes due to standard library
+    /// special cases is handled in [`crate::compile`], not here. Whether we
+    /// should merge the two functions is a subject of discussion.
+    fn should_skip_start_node(&mut self, node: BuildPlanNode) -> bool {
+        if let Some(tgt) = node.extract_target() {
+            if tgt.kind == TargetKind::WhiteboxTest {
+                // check if we actually have whitebox test files
+                self.populate_target_info(tgt);
+                let info = self
+                    .res
+                    .get_build_target_info(&tgt)
+                    .expect("just populated");
+                if info.whitebox_files.is_empty() {
+                    // No whitebox test files, skip this node
+                    debug!(
+                        "Skipping whitebox test node {:?} with no whitebox files",
+                        tgt
+                    );
+                    return true;
+                }
+            }
+        }
+
+        false
     }
 
     /// Tell the build graph that we need to calculate the graph portion of a
@@ -379,21 +439,15 @@ impl<'a> BuildPlanConstructor<'a> {
     }
 
     /// Populate the target info for the given target, if not already present.
-    fn populate_target_info(&mut self, target: BuildTarget) -> Result<(), BuildPlanConstructError> {
+    fn populate_target_info(&mut self, target: BuildTarget) {
         if self.res.build_target_infos.contains_key(&target) {
             // Already populated
-            return Ok(());
+            return;
         }
 
         // Resolve the source files
-        let source_files = self.resolve_mbt_files_for_node(target);
-        let info = BuildTargetInfo {
-            files: source_files,
-            // is_main: pkg.raw.is_main,
-            // std: self.build_env.std, // TODO: move to per-package
-        };
+        let info = self.resolve_mbt_files_for_node(target);
         self.res.build_target_infos.insert(target, info);
-        Ok(())
     }
 
     fn build_check(
@@ -412,7 +466,7 @@ impl<'a> BuildPlanConstructor<'a> {
             self.add_edge(node, dep_node);
         }
 
-        self.populate_target_info(target)?;
+        self.populate_target_info(target);
         self.resolved_node(node);
 
         Ok(())
@@ -443,7 +497,7 @@ impl<'a> BuildPlanConstructor<'a> {
             self.add_edge(node, gen_test_info);
         }
 
-        self.populate_target_info(target)?;
+        self.populate_target_info(target);
         self.resolved_node(node);
 
         Ok(())
@@ -456,27 +510,57 @@ impl<'a> BuildPlanConstructor<'a> {
     ) -> Result<(), BuildPlanConstructError> {
         self.need_node(node);
 
-        self.populate_target_info(target)?;
+        self.populate_target_info(target);
         self.resolved_node(node);
         Ok(())
     }
 
-    fn resolve_mbt_files_for_node(&self, target: BuildTarget) -> Vec<PathBuf> {
+    fn resolve_mbt_files_for_node(&self, target: BuildTarget) -> BuildTargetInfo {
+        use cond_comp::FileTestKind::*;
+        use TargetKind::*;
+
         // FIXME: Should we resolve test drivers' paths, or should we leave it
         // in the lowering phase? The path to the test driver depends on the
         // artifact layout, so we might not be able to do that here, unless we
         // add some kind of `SpecialFile::TestDriver` or something.
         let pkg = self.packages.get_package(target.package);
+        let compile_condition = CompileCondition {
+            optlevel: self.build_env.opt_level,
+            test_kind: target.kind.into(),
+            backend: self.build_env.target_backend,
+        };
         let source_files = cond_comp::filter_files(
             &pkg.raw,
             pkg.source_files.iter().map(|x| x.as_path()),
-            &CompileCondition {
-                optlevel: self.build_env.opt_level,
-                test_kind: target.kind.into(),
-                backend: self.build_env.target_backend,
-            },
+            &compile_condition,
         );
-        source_files
+
+        let mut regular_files = vec![];
+        let mut whitebox_files = vec![];
+        let mut doctest_files = vec![];
+        for (file, file_kind) in source_files {
+            match (target.kind, file_kind) {
+                (Source | SubPackage | InlineTest, NoTest) => regular_files.push(file.to_owned()),
+
+                (WhiteboxTest, NoTest) => regular_files.push(file.to_owned()),
+                (WhiteboxTest, Whitebox) => whitebox_files.push(file.to_owned()),
+
+                (BlackboxTest, Blackbox) => regular_files.push(file.to_owned()),
+                (BlackboxTest, NoTest) => doctest_files.push(file.to_owned()),
+
+                _ => panic!(
+                    "Unexpected file kind {:?} for target {:?} in package {}, \
+                    this is a bug in the build system!",
+                    file_kind, target, pkg.fqn
+                ),
+            }
+        }
+
+        BuildTargetInfo {
+            regular_files,
+            whitebox_files,
+            doctest_files,
+        }
     }
 
     fn build_build_c_stubs(
