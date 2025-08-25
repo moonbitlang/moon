@@ -19,7 +19,6 @@
 //! Lowers a [Build plan](crate::build_plan) into `n2`'s Build graph
 
 use std::{
-    borrow::Cow,
     path::{Path, PathBuf},
     rc::Rc,
 };
@@ -359,8 +358,11 @@ impl<'a> BuildPlanLowerContext<'a> {
                 .mi_of_build_target(self.packages, &target, self.opt.target_backend);
         let mi_inputs = self.mi_inputs_of(node, target);
 
+        // Collect files iterator once so we can pass slices and extra inputs
+        let files_vec = info.files().map(|x| x.to_owned()).collect::<Vec<_>>();
+
         let mut cmd = compiler::MooncCheck::new(
-            &info.files,
+            &files_vec,
             &mi_output,
             &mi_inputs,
             compiler::CompiledPackageName::new(&package.fqn, target),
@@ -387,7 +389,7 @@ impl<'a> BuildPlanLowerContext<'a> {
         };
 
         BuildCommand {
-            extra_inputs: info.files.clone(),
+            extra_inputs: files_vec.clone(),
             commandline: cmd.build_command("moonc"),
         }
     }
@@ -408,21 +410,20 @@ impl<'a> BuildPlanLowerContext<'a> {
 
         let mi_inputs = self.mi_inputs_of(node, target);
 
-        let input_sources = match target.kind {
-            TargetKind::Source | TargetKind::SubPackage => Cow::Borrowed(&info.files),
+        let mut files = info.files().map(|x| x.to_owned()).collect::<Vec<_>>();
+        match target.kind {
+            TargetKind::Source | TargetKind::SubPackage => {}
             TargetKind::WhiteboxTest | TargetKind::BlackboxTest | TargetKind::InlineTest => {
-                let mut files = info.files.clone();
                 files.push(self.layout.generated_test_driver(
                     self.packages,
                     &target,
                     self.opt.target_backend,
                 ));
-                Cow::Owned(files)
             }
         };
 
         let mut cmd = compiler::MooncBuildPackage::new(
-            &input_sources,
+            &files,
             &core_output,
             &mi_output,
             &mi_inputs,
@@ -447,8 +448,8 @@ impl<'a> BuildPlanLowerContext<'a> {
         // TODO: a lot of knobs are not controlled here
 
         BuildCommand {
-            extra_inputs: info.files.clone(),
             commandline: cmd.build_command("moonc"),
+            extra_inputs: files,
         }
     }
 
@@ -614,8 +615,10 @@ impl<'a> BuildPlanLowerContext<'a> {
             TargetKind::SubPackage => panic!("Sub-package cannot be a test driver"),
         };
         let pkg_full_name = package.fqn.to_string();
+        let files_vec = info.files().map(|x| x.to_owned()).collect::<Vec<_>>();
+
         let cmd = compiler::MoonGenTestDriver::new(
-            &info.files,
+            &files_vec,
             output_driver,
             output_metadata,
             self.opt.target_backend,
@@ -624,8 +627,8 @@ impl<'a> BuildPlanLowerContext<'a> {
         );
 
         BuildCommand {
-            extra_inputs: info.files.clone(),
             commandline: cmd.build_command("moon"),
+            extra_inputs: files_vec,
         }
     }
 
