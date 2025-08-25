@@ -44,15 +44,10 @@ pub fn create_or_warning(path: &Path) -> anyhow::Result<()> {
     Ok(())
 }
 
-pub fn moon_new_default(
-    target_dir: &Path,
-    user: String,
-    name: String,
-    license: Option<&str>,
-) -> anyhow::Result<i32> {
+pub fn moon_new_default(target_dir: &Path, user: String, name: String) -> anyhow::Result<i32> {
     let cake_full_name = format!("{user}/{name}");
     let short_name = name.rsplit_once('/').map_or(&*name, |(_, n)| n);
-    common(target_dir, &cake_full_name, license)?;
+    common(target_dir, &cake_full_name)?;
 
     let cmd_dir = target_dir.join("cmd");
     create_or_warning(&cmd_dir)?;
@@ -156,7 +151,7 @@ pub fn moon_new_default(
     Ok(0)
 }
 
-fn common(target_dir: &Path, cake_full_name: &str, license: Option<&str>) -> anyhow::Result<i32> {
+fn common(target_dir: &Path, cake_full_name: &str) -> anyhow::Result<i32> {
     std::fs::create_dir_all(target_dir).context("failed to create target directory")?;
 
     if !is_in_git_repo(target_dir)? {
@@ -171,9 +166,7 @@ fn common(target_dir: &Path, cake_full_name: &str, license: Option<&str>) -> any
             bin_deps: None,
             readme: Some("README.md".into()),
             repository: Some("".into()),
-            license: license
-                .map(|s| s.to_string())
-                .or_else(|| Some(String::from(""))),
+            license: Some("Apache-2.0".into()),
             keywords: Some(vec![]),
             description: Some("".into()),
 
@@ -241,15 +234,13 @@ fn common(target_dir: &Path, cake_full_name: &str, license: Option<&str>) -> any
 
     // LICENSE
     {
-        if let Some("Apache-2.0") = license {
-            let license_file = target_dir.join("LICENSE");
-            let content = include_str!(concat!(
-                env!("CARGO_MANIFEST_DIR"),
-                "/../moonbuild/template/apache-2.0.txt"
-            ));
-            let mut file = std::fs::File::create(license_file).unwrap();
-            file.write_all(content.as_bytes()).unwrap();
-        }
+        let license_file = target_dir.join("LICENSE");
+        let content = include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../moonbuild/template/apache-2.0.txt"
+        ));
+        let mut file = std::fs::File::create(license_file).unwrap();
+        file.write_all(content.as_bytes()).unwrap();
     }
 
     Ok(0)
