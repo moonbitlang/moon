@@ -27,6 +27,7 @@ use fs4::fs_std::FileExt;
 use indexmap::IndexMap;
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
+use std::ffi::OsStr;
 use std::fs;
 use std::fs::File;
 use std::io::ErrorKind;
@@ -763,38 +764,35 @@ pub fn get_moon_version() -> String {
 }
 
 pub fn get_moonc_version() -> anyhow::Result<String> {
-    let output = std::process::Command::new("moonc").arg("-v").output();
-    match output {
-        Ok(output) => {
-            if output.status.success() {
-                Ok(std::str::from_utf8(&output.stdout)?.trim().to_string())
-            } else {
-                anyhow::bail!(
-                    "failed to get moonc version: {}",
-                    std::str::from_utf8(&output.stderr)?
-                );
-            }
-        }
-        Err(e) => anyhow::bail!("failed to get moonc version: {}", e),
-    }
+    get_program_version("moonc")
 }
 
 pub fn get_moonrun_version() -> anyhow::Result<String> {
-    let output = std::process::Command::new("moonrun")
-        .arg("--version")
+    get_program_version("moonrun")
+}
+
+pub fn get_program_version(program: impl AsRef<OsStr>) -> anyhow::Result<String> {
+    let program = program.as_ref();
+    let output = std::process::Command::new(program)
+        .arg(if program.eq_ignore_ascii_case("moonc") {
+            "-v"
+        } else {
+            "--version"
+        })
         .output();
+    let program = program.to_string_lossy();
     match output {
         Ok(output) => {
             if output.status.success() {
                 Ok(std::str::from_utf8(&output.stdout)?.trim().to_string())
             } else {
                 anyhow::bail!(
-                    "failed to get moonrun version: {}",
+                    "failed to get {program} version: {}",
                     std::str::from_utf8(&output.stderr)?
                 );
             }
         }
-        Err(e) => anyhow::bail!("failed to get moonrun version: {}", e),
+        Err(e) => anyhow::bail!("failed to get {program} version: {e}"),
     }
 }
 
