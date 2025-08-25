@@ -69,6 +69,15 @@ impl std::fmt::Display for PackageFQN {
     }
 }
 
+/// Compare a package FQN to a tuple of (username, module, package)
+impl<'a> PartialEq<(&'a str, &'a str, &'a str)> for PackageFQN {
+    fn eq(&self, &(user, module, package): &(&'a str, &'a str, &'a str)) -> bool {
+        self.module.name().username == user
+            && self.module.name().unqual == module
+            && self.package.as_str() == package
+    }
+}
+
 /// Write a package FQN to a formatter given module and package parts
 pub fn write_package_fqn_to<W: std::fmt::Write>(
     f: &mut W,
@@ -128,6 +137,52 @@ impl std::fmt::Display for PackageFQNWithSource {
 impl From<PackageFQN> for PackageFQNWithSource {
     fn from(fqn: PackageFQN) -> Self {
         Self::from_fqn(fqn)
+    }
+}
+
+/// An optional wrapper around [`PackageFQNWithSource`] that displays "unknown" when None.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct OptionalPackageFQNWithSource {
+    inner: Option<PackageFQNWithSource>,
+}
+
+impl OptionalPackageFQNWithSource {
+    /// Create a new optional package FQN with source from an Option.
+    pub fn new(inner: Option<PackageFQNWithSource>) -> Self {
+        Self { inner }
+    }
+
+    /// Create from an optional PackageFQN.
+    pub fn from_optional_fqn(fqn: Option<PackageFQN>) -> Self {
+        Self {
+            inner: fqn.map(PackageFQNWithSource::from_fqn),
+        }
+    }
+
+    /// Get the inner optional PackageFQNWithSource.
+    pub fn inner(&self) -> &Option<PackageFQNWithSource> {
+        &self.inner
+    }
+}
+
+impl std::fmt::Display for OptionalPackageFQNWithSource {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match &self.inner {
+            Some(fqn) => write!(f, "{}", fqn),
+            None => write!(f, "unknown"),
+        }
+    }
+}
+
+impl From<Option<PackageFQNWithSource>> for OptionalPackageFQNWithSource {
+    fn from(inner: Option<PackageFQNWithSource>) -> Self {
+        Self::new(inner)
+    }
+}
+
+impl From<Option<PackageFQN>> for OptionalPackageFQNWithSource {
+    fn from(fqn: Option<PackageFQN>) -> Self {
+        Self::from_optional_fqn(fqn)
     }
 }
 

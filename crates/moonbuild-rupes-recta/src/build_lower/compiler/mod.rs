@@ -102,9 +102,11 @@ impl<'a> std::fmt::Display for CompiledPackageName<'a> {
             // original name + "_blackbox_test", in order to support importing
             // all public declaration in the original package. This is an
             // implicit behavior that should be documented and fixed later.
-            TargetKind::WhiteboxTest => "_whitebox_test",
             TargetKind::BlackboxTest => "_blackbox_test",
-            TargetKind::InlineTest => "_inline_test",
+            // All other target kinds should not have suffixes, or else the
+            // tests in `moonbitlang/core` will not have the correct imports.
+            TargetKind::WhiteboxTest => "",
+            TargetKind::InlineTest => "",
             TargetKind::SubPackage => "",
         };
         write!(f, "{}{}", self.fqn, suffix)

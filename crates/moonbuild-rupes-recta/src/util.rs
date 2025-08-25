@@ -18,9 +18,9 @@
 
 //! A number of random utilities useful for debugging the project
 
-use crate::build_plan::BuildPlan;
 use crate::discover::DiscoverResult;
 use crate::pkg_solve::DepRelationship;
+use crate::{build_plan::BuildPlan, model::BuildPlanNode};
 use moonutil::mooncakes::result::ResolvedEnv;
 use petgraph::Direction;
 use std::io::{self, Write};
@@ -157,9 +157,84 @@ pub fn print_dep_relationship_dot(
     Ok(())
 }
 
+impl BuildPlanNode {
+    fn gen_node_id(&self) -> String {
+        match self {
+            BuildPlanNode::Check(target) => format!("{:?}@Check", target),
+            BuildPlanNode::BuildCore(target) => format!("{:?}@BuildCore", target),
+            BuildPlanNode::BuildCStubs(target) => format!("{:?}@BuildCStubs", target),
+            BuildPlanNode::LinkCore(target) => format!("{:?}@LinkCore", target),
+            BuildPlanNode::MakeExecutable(target) => format!("{:?}@MakeExecutable", target),
+            BuildPlanNode::GenerateTestInfo(target) => format!("{:?}@GenerateTestInfo", target),
+            BuildPlanNode::Format(target) => format!("{:?}@Format", target),
+            BuildPlanNode::Bundle(module_id) => format!("{:?}@Bundle", module_id),
+            BuildPlanNode::GenerateMbti(target) => format!("{:?}@GenerateMbti", target),
+            BuildPlanNode::BuildRuntimeLib => "BuildRuntimeLib".to_string(),
+        }
+    }
+
+    fn gen_label(&self, env: &ResolvedEnv, packages: &DiscoverResult) -> String {
+        match self {
+            BuildPlanNode::Check(target) => {
+                let fqn = packages.fqn(target.package);
+                format!("{}\\nCheck", fqn)
+            }
+            BuildPlanNode::BuildCore(target) => {
+                let fqn = packages.fqn(target.package);
+                format!("{}\\nBuildCore", fqn)
+            }
+            BuildPlanNode::BuildCStubs(target) => {
+                let fqn = packages.fqn(target.package);
+                format!("{}\\nBuildCStubs", fqn)
+            }
+            BuildPlanNode::LinkCore(target) => {
+                let fqn = packages.fqn(target.package);
+                format!("{}\\nLinkCore", fqn)
+            }
+            BuildPlanNode::MakeExecutable(target) => {
+                let fqn = packages.fqn(target.package);
+                format!("{}\\nMakeExecutable", fqn)
+            }
+            BuildPlanNode::GenerateTestInfo(target) => {
+                let fqn = packages.fqn(target.package);
+                format!("{}\\nGenerateTestInfo", fqn)
+            }
+            BuildPlanNode::Format(target) => {
+                let fqn = packages.fqn(target.package);
+                format!("{}\\nFormat", fqn)
+            }
+            BuildPlanNode::Bundle(module_id) => {
+                let src = env.mod_name_from_id(*module_id);
+                format!("{}\\nBundle", src)
+            }
+            BuildPlanNode::GenerateMbti(build_target) => {
+                let fqn = packages.fqn(build_target.package);
+                format!("{}\\nGenerateMbti", fqn)
+            }
+            BuildPlanNode::BuildRuntimeLib => "BuildRuntimeLib".to_string(),
+        }
+    }
+
+    fn gen_color(&self) -> &'static str {
+        match self {
+            BuildPlanNode::Check(_) => "lightblue",
+            BuildPlanNode::BuildCore(_) => "lightgreen",
+            BuildPlanNode::BuildCStubs(_) => "lightyellow",
+            BuildPlanNode::LinkCore(_) => "lightcoral",
+            BuildPlanNode::MakeExecutable(_) => "lightpink",
+            BuildPlanNode::GenerateTestInfo(_) => "lightgray",
+            BuildPlanNode::Format(_) => "lavender",
+            BuildPlanNode::Bundle(_) => "wheat",
+            BuildPlanNode::GenerateMbti(_) => "lightcyan",
+            BuildPlanNode::BuildRuntimeLib => "orange",
+        }
+    }
+}
+
 /// Print a build plan as a DOT graph, showing build nodes and their dependencies
 pub fn print_build_plan_dot(
     build_plan: &BuildPlan,
+    env: &ResolvedEnv,
     packages: &DiscoverResult,
     writer: &mut dyn Write,
 ) -> io::Result<()> {
@@ -169,22 +244,9 @@ pub fn print_build_plan_dot(
 
     // Nodes: use BuildPlanNode debug as ID, label with package FQN, target kind, and action
     for node in build_plan.all_nodes() {
-        let node_id = format!(
-            "{:?}@{:?}@{:?}",
-            node.target.package, node.target.kind, node.action
-        );
-        let fqn = packages.fqn(node.target.package);
-        let label = format!("{}\\n{:?}\\n{:?}", fqn, node.target.kind, node.action);
-
-        // Color nodes based on action type
-        let color = match node.action {
-            crate::model::TargetAction::Check => "lightblue",
-            crate::model::TargetAction::Build => "lightgreen",
-            crate::model::TargetAction::BuildCStubs => "lightyellow",
-            crate::model::TargetAction::LinkCore => "lightcoral",
-            crate::model::TargetAction::MakeExecutable => "lightpink",
-            crate::model::TargetAction::GenerateTestInfo => "lightgray",
-        };
+        let node_id = node.gen_node_id();
+        let label = node.gen_label(env, packages);
+        let color = node.gen_color();
 
         writeln!(
             writer,
@@ -196,14 +258,8 @@ pub fn print_build_plan_dot(
     // Edges: dependencies between build plan nodes
     for node in build_plan.all_nodes() {
         for dep in build_plan.dependency_nodes(node) {
-            let node_id = format!(
-                "{:?}@{:?}@{:?}",
-                node.target.package, node.target.kind, node.action
-            );
-            let dep_id = format!(
-                "{:?}@{:?}@{:?}",
-                dep.target.package, dep.target.kind, dep.action
-            );
+            let node_id = node.gen_node_id();
+            let dep_id = dep.gen_node_id();
             writeln!(writer, "    \"{}\" -> \"{}\";\n", node_id, dep_id)?;
         }
     }

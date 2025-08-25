@@ -27,6 +27,10 @@ use std::{
 use log::{debug, info};
 use moonutil::{
     common::{DriverKind, TargetBackend},
+    compiler_flags::{
+        make_cc_command_pure, resolve_cc, CCConfigBuilder, CompilerPaths, OptLevel as CCOptLevel,
+        OutputType as CCOutputType, CC,
+    },
     cond_expr::OptLevel,
     mooncakes::ModuleSource,
 };
@@ -38,10 +42,10 @@ use crate::{
         artifact::LegacyLayout,
         compiler::{CmdlineAbstraction, MiDependency, PackageSource},
     },
-    build_plan::{BuildActionSpec, BuildPlan, BuildTargetInfo, LinkCoreInfo},
+    build_plan::{BuildPlan, BuildTargetInfo, LinkCoreInfo, MakeExecutableInfo},
     discover::{DiscoverResult, DiscoveredPackage},
-    model::{Artifacts, BuildPlanNode, TargetKind},
-    pkg_name::PackageFQNWithSource,
+    model::{Artifacts, BuildPlanNode, BuildTarget, OperatingSystem, TargetKind},
+    pkg_name::OptionalPackageFQNWithSource,
     pkg_solve::DepRelationship,
 };
 
@@ -54,10 +58,13 @@ pub struct BuildOptions {
     pub target_dir_root: PathBuf,
     // FIXME: This overlaps with `crate::build_plan::BuildEnvironment`
     pub target_backend: TargetBackend,
+    pub os: OperatingSystem,
     pub opt_level: OptLevel,
     pub debug_symbols: bool,
     /// Only `Some` if we import standard library.
     pub stdlib_path: Option<PathBuf>,
+    pub runtime_dot_c_path: PathBuf,
+    pub compiler_paths: CompilerPaths,
 }
 
 /// An error that may be raised during build plan lowering
@@ -68,7 +75,7 @@ pub enum LoweringError {
         when lowering for package {package}, build node {node:?}"
     )]
     N2 {
-        package: PackageFQNWithSource,
+        package: OptionalPackageFQNWithSource,
         node: BuildPlanNode,
         source: anyhow::Error,
     },
@@ -155,8 +162,11 @@ struct BuildPlanLowerContext<'a> {
 impl<'a> BuildPlanLowerContext<'a> {
     /// Some nodes are no-op in n2 build graph. Early bailing.
     fn is_node_noop(&self, node: BuildPlanNode) -> bool {
-        (!self.opt.target_backend.is_native())
-            && matches!(node.action, crate::model::TargetAction::MakeExecutable)
+        (!self.opt.target_backend.is_native()) && matches!(node, BuildPlanNode::MakeExecutable(_))
+    }
+
+    fn get_package(&self, target: BuildTarget) -> &DiscoveredPackage {
+        self.packages.get_package(target.package)
     }
 
     fn lower_node(&mut self, node: BuildPlanNode) -> Result<(), LoweringError> {
@@ -164,27 +174,48 @@ impl<'a> BuildPlanLowerContext<'a> {
             return Ok(());
         }
 
-        let spec = self
-            .build_plan
-            .get_spec(node)
-            .expect("Node should be valid");
-        let package = self.packages.get_package(node.target.package);
-
         // Lower the action to its commands. This step should be infallible.
-        let cmd = match spec {
-            BuildActionSpec::Check(info) => self.lower_check(node, package, info),
-            BuildActionSpec::BuildMbt(info) => self.lower_build_mbt(node, package, info),
-            BuildActionSpec::BuildC(_path_bufs) => todo!(),
-            BuildActionSpec::LinkCore(info) => self.lower_link_core(node, package, info),
-            BuildActionSpec::MakeExecutable { link_c_stubs: _ } => {
-                // TODO: Native targets need another linking step
-                panic!("Native make-executable not supported yet")
+        let cmd = match node {
+            BuildPlanNode::Check(target) => {
+                let info = self
+                    .build_plan
+                    .get_build_target_info(&target)
+                    .expect("Build target info should be present for Check nodes");
+                self.lower_check(node, target, info)
             }
-            BuildActionSpec::GenerateMbti => todo!(),
-            BuildActionSpec::Bundle => todo!(),
-            BuildActionSpec::GenerateTestDriver(info) => {
-                self.lower_gen_test_driver(node, package, info)
+            BuildPlanNode::BuildCore(target) => {
+                let info = self
+                    .build_plan
+                    .get_build_target_info(&target)
+                    .expect("Build target info should be present for BuildCore nodes");
+                self.lower_build_mbt(node, target, info)
             }
+            BuildPlanNode::BuildCStubs(_target) => todo!(),
+            BuildPlanNode::LinkCore(target) => {
+                let info = self
+                    .build_plan
+                    .get_link_core_info(&target)
+                    .expect("Link core info should be present for LinkCore nodes");
+                self.lower_link_core(node, target, info)
+            }
+            BuildPlanNode::MakeExecutable(target) => {
+                let info = self
+                    .build_plan
+                    .get_make_executable_info(&target)
+                    .expect("Make executable info should be present for MakeExecutable nodes");
+                self.lower_make_exe(target, info)
+            }
+            BuildPlanNode::GenerateMbti(_target) => todo!(),
+            BuildPlanNode::Bundle(_module_id) => todo!(),
+            BuildPlanNode::GenerateTestInfo(target) => {
+                let info = self
+                    .build_plan
+                    .get_build_target_info(&target)
+                    .expect("Build target info should be present for GenerateTestInfo nodes");
+                self.lower_gen_test_driver(node, target, info)
+            }
+            BuildPlanNode::Format(_target) => todo!(),
+            BuildPlanNode::BuildRuntimeLib => self.lower_compile_runtime(),
         };
 
         // Collect n2 inputs and outputs.
@@ -203,15 +234,25 @@ impl<'a> BuildPlanLowerContext<'a> {
         let outs = build_outs(&mut self.graph, outs);
 
         // Construct n2 build node
-        let mut build = Build::new(build_n2_fileloc(package.fqn.to_string()), ins, outs);
+        let fqn = node
+            .extract_target()
+            .map(|x| self.get_package(x).fqn.clone());
+        let mut build = Build::new(
+            build_n2_fileloc(
+                fqn.as_ref()
+                    .map_or_else(|| "no_package".into(), |x| x.to_string()),
+            ),
+            ins,
+            outs,
+        );
         build.cmdline = Some(
             shlex::try_join(cmd.commandline.iter().map(|x| x.as_str()))
                 .expect("No `nul` should occur here"),
         );
 
-        self.debug_print_command_and_files(node, spec, &build);
+        self.debug_print_command_and_files(node, &build);
         self.lowered(build).map_err(|e| LoweringError::N2 {
-            package: package.fqn.clone().into(),
+            package: fqn.into(),
             node,
             source: e,
         })
@@ -219,49 +260,70 @@ impl<'a> BuildPlanLowerContext<'a> {
 
     /// Append the output artifacts of the given node to the provided vector.
     fn append_artifact_of(&self, node: BuildPlanNode, out: &mut Vec<PathBuf>) {
-        match node.action {
-            crate::model::TargetAction::Check => {
+        match node {
+            BuildPlanNode::Check(target) => {
                 out.push(self.layout.mi_of_build_target(
                     self.packages,
-                    &node.target,
+                    &target,
                     self.opt.target_backend,
                 ));
             }
-            crate::model::TargetAction::Build => {
+            BuildPlanNode::BuildCore(target) => {
                 out.push(self.layout.mi_of_build_target(
                     self.packages,
-                    &node.target,
+                    &target,
                     self.opt.target_backend,
                 ));
                 out.push(self.layout.core_of_build_target(
                     self.packages,
-                    &node.target,
+                    &target,
                     self.opt.target_backend,
                 ));
             }
-            crate::model::TargetAction::BuildCStubs => todo!("artifacts of build c stubs"),
-            crate::model::TargetAction::LinkCore | crate::model::TargetAction::MakeExecutable => {
-                // No native yet means MakeExecutable is currently a no-op, but
-                // the artifacts should be the same as LinkCore
+            BuildPlanNode::BuildCStubs(_target) => todo!("artifacts of build c stubs"),
+            BuildPlanNode::LinkCore(target) => {
                 out.push(self.layout.linked_core_of_build_target(
                     self.packages,
-                    &node.target,
+                    &target,
                     self.opt.target_backend,
-                    "todo: no native yet",
+                    self.opt.os,
                 ));
             }
-            crate::model::TargetAction::GenerateTestInfo => {
+            BuildPlanNode::MakeExecutable(target) => {
+                out.push(self.layout.executable_of_build_target(
+                    self.packages,
+                    &target,
+                    self.opt.target_backend,
+                    self.opt.os,
+                    true,
+                ))
+            }
+            BuildPlanNode::GenerateTestInfo(target) => {
                 out.push(self.layout.generated_test_driver(
                     self.packages,
-                    &node.target,
+                    &target,
                     self.opt.target_backend,
                 ));
                 out.push(self.layout.generated_test_driver_metadata(
                     self.packages,
-                    &node.target,
+                    &target,
                     self.opt.target_backend,
                 ));
             }
+            BuildPlanNode::Format(_target) => {
+                // Format nodes don't produce artifacts in the traditional sense
+                // TODO: Implement if needed
+            }
+            BuildPlanNode::Bundle(_module_id) => {
+                todo!()
+            }
+            BuildPlanNode::BuildRuntimeLib => {
+                out.push(
+                    self.layout
+                        .runtime_output_path(self.opt.target_backend, self.opt.os),
+                );
+            }
+            BuildPlanNode::GenerateMbti(_target) => todo!(),
         }
     }
 
@@ -280,22 +342,23 @@ impl<'a> BuildPlanLowerContext<'a> {
     fn lower_check(
         &self,
         node: BuildPlanNode,
-        package: &DiscoveredPackage,
+        target: BuildTarget,
         info: &BuildTargetInfo,
     ) -> BuildCommand {
+        let package = self.get_package(target);
         let mi_output =
             self.layout
-                .mi_of_build_target(self.packages, &node.target, self.opt.target_backend);
-        let mi_inputs = self.mi_inputs_of(node);
+                .mi_of_build_target(self.packages, &target, self.opt.target_backend);
+        let mi_inputs = self.mi_inputs_of(node, target);
 
         let mut cmd = compiler::MooncCheck::new(
             &info.files,
             &mi_output,
             &mi_inputs,
-            compiler::CompiledPackageName::new(&package.fqn, node.target),
+            compiler::CompiledPackageName::new(&package.fqn, target),
             &package.root_path,
             self.opt.target_backend,
-            node.target.kind,
+            target.kind,
         );
         self.set_commons(&mut cmd.common);
 
@@ -307,7 +370,7 @@ impl<'a> BuildPlanLowerContext<'a> {
         // tests will definitely not contain a main function, while other
         // build targets will have the same kind of main function as the
         // original package.
-        cmd.common.is_main = match node.target.kind {
+        cmd.common.is_main = match target.kind {
             TargetKind::BlackboxTest => false,
             TargetKind::Source
             | TargetKind::WhiteboxTest
@@ -324,25 +387,26 @@ impl<'a> BuildPlanLowerContext<'a> {
     fn lower_build_mbt(
         &self,
         node: BuildPlanNode,
-        package: &DiscoveredPackage,
+        target: BuildTarget,
         info: &BuildTargetInfo,
     ) -> BuildCommand {
+        let package = self.get_package(target);
         let core_output =
             self.layout
-                .core_of_build_target(self.packages, &node.target, self.opt.target_backend);
+                .core_of_build_target(self.packages, &target, self.opt.target_backend);
         let mi_output =
             self.layout
-                .mi_of_build_target(self.packages, &node.target, self.opt.target_backend);
+                .mi_of_build_target(self.packages, &target, self.opt.target_backend);
 
-        let mi_inputs = self.mi_inputs_of(node);
+        let mi_inputs = self.mi_inputs_of(node, target);
 
-        let input_sources = match node.target.kind {
+        let input_sources = match target.kind {
             TargetKind::Source | TargetKind::SubPackage => Cow::Borrowed(&info.files),
             TargetKind::WhiteboxTest | TargetKind::BlackboxTest | TargetKind::InlineTest => {
                 let mut files = info.files.clone();
                 files.push(self.layout.generated_test_driver(
                     self.packages,
-                    &node.target,
+                    &target,
                     self.opt.target_backend,
                 ));
                 Cow::Owned(files)
@@ -354,10 +418,10 @@ impl<'a> BuildPlanLowerContext<'a> {
             &core_output,
             &mi_output,
             &mi_inputs,
-            compiler::CompiledPackageName::new(&package.fqn, node.target),
+            compiler::CompiledPackageName::new(&package.fqn, target),
             &package.root_path,
             self.opt.target_backend,
-            node.target.kind,
+            target.kind,
         );
         cmd.flags.no_opt = self.opt.opt_level == OptLevel::Debug;
         cmd.flags.symbols = self.opt.debug_symbols;
@@ -367,7 +431,7 @@ impl<'a> BuildPlanLowerContext<'a> {
         //
         // Different from checking, building test packages will always include
         // the test driver files, which will include the main function.
-        cmd.common.is_main = match node.target.kind {
+        cmd.common.is_main = match target.kind {
             TargetKind::Source | TargetKind::SubPackage => package.raw.is_main,
             TargetKind::InlineTest | TargetKind::WhiteboxTest | TargetKind::BlackboxTest => true,
         };
@@ -380,10 +444,10 @@ impl<'a> BuildPlanLowerContext<'a> {
         }
     }
 
-    fn mi_inputs_of(&self, node: BuildPlanNode) -> Vec<MiDependency<'_>> {
+    fn mi_inputs_of(&self, _node: BuildPlanNode, target: BuildTarget) -> Vec<MiDependency<'_>> {
         self.rel
             .dep_graph
-            .edges_directed(node.target, Direction::Outgoing)
+            .edges_directed(target, Direction::Outgoing)
             .map(|(_, it, w)| {
                 let in_file =
                     self.layout
@@ -395,10 +459,11 @@ impl<'a> BuildPlanLowerContext<'a> {
 
     fn lower_link_core(
         &mut self,
-        node: BuildPlanNode,
-        package: &DiscoveredPackage,
+        _node: BuildPlanNode,
+        target: BuildTarget,
         info: &LinkCoreInfo,
     ) -> BuildCommand {
+        let package = self.get_package(target);
         let mut core_input_files = Vec::new();
         // Add core for the standard library
         if let Some(stdlib) = &self.opt.stdlib_path {
@@ -417,9 +482,9 @@ impl<'a> BuildPlanLowerContext<'a> {
 
         let out_file = self.layout.linked_core_of_build_target(
             self.packages,
-            &node.target,
+            &target,
             self.opt.target_backend,
-            "todo: os not supported yet",
+            self.opt.os,
         );
 
         let package_sources = info
@@ -439,13 +504,13 @@ impl<'a> BuildPlanLowerContext<'a> {
             &core_input_files,
             compiler::CompiledPackageName {
                 fqn: &package.fqn,
-                kind: node.target.kind,
+                kind: target.kind,
             },
             &out_file,
             &config_path,
             &package_sources,
             self.opt.target_backend,
-            node.target.kind.is_test(),
+            target.kind.is_test(),
         );
         cmd.flags.no_opt = self.opt.opt_level == OptLevel::Debug;
         cmd.flags.symbols = self.opt.debug_symbols;
@@ -456,21 +521,84 @@ impl<'a> BuildPlanLowerContext<'a> {
         }
     }
 
+    fn lower_make_exe(&mut self, target: BuildTarget, info: &MakeExecutableInfo) -> BuildCommand {
+        assert!(
+            self.opt.target_backend.is_native(),
+            "Non-native make-executable should be already matched and should not be here"
+        );
+
+        let _package = self.get_package(target);
+
+        // Two things needs to be done here:
+        // - compile the program (if needed)
+        // - link with runtime library & artifacts of other C stubs
+        // let cc_cmd = make_cc_command_pure(cc, config, user_cc_flags, src, dest_dir, dest, paths);
+
+        let mut sources = vec![];
+        // C artifact path
+        self.append_artifact_of(BuildPlanNode::LinkCore(target), &mut sources);
+        // Runtime path
+        self.append_artifact_of(BuildPlanNode::BuildRuntimeLib, &mut sources);
+        // C stubs to link
+        for &stub_tgt in &info.link_c_stubs {
+            self.append_artifact_of(BuildPlanNode::BuildCStubs(stub_tgt), &mut sources);
+        }
+
+        let opt_level = match self.opt.opt_level {
+            OptLevel::Release => CCOptLevel::Speed,
+            OptLevel::Debug => CCOptLevel::Debug,
+        };
+        let config = CCConfigBuilder::default()
+            .no_sys_header(true)
+            .output_ty(CCOutputType::Executable) // TODO: support compiling to library
+            .opt_level(opt_level)
+            .debug_info(self.opt.opt_level == OptLevel::Debug)
+            .link_moonbitrun(true) // TODO: support `tcc run`
+            .define_use_shared_runtime_macro(false)
+            .build()
+            .expect("Failed to build CC configuration for executable");
+        let cc_cmd = make_cc_command_pure::<&'static str>(
+            resolve_cc(CC::default(), None),
+            config,
+            &[], // TODO: support native cc flags
+            sources.iter().map(|x| x.display().to_string()),
+            &self.opt.target_dir_root.display().to_string(),
+            &self
+                .layout
+                .executable_of_build_target(
+                    self.packages,
+                    &target,
+                    self.opt.target_backend,
+                    self.opt.os,
+                    true,
+                )
+                .display()
+                .to_string(),
+            &self.opt.compiler_paths,
+        );
+
+        BuildCommand {
+            extra_inputs: vec![],
+            commandline: cc_cmd,
+        }
+    }
+
     fn lower_gen_test_driver(
         &mut self,
-        node: BuildPlanNode,
-        package: &DiscoveredPackage,
+        _node: BuildPlanNode,
+        target: BuildTarget,
         info: &BuildTargetInfo,
     ) -> BuildCommand {
+        let package = self.get_package(target);
         let output_driver =
             self.layout
-                .generated_test_driver(self.packages, &node.target, self.opt.target_backend);
+                .generated_test_driver(self.packages, &target, self.opt.target_backend);
         let output_metadata = self.layout.generated_test_driver_metadata(
             self.packages,
-            &node.target,
+            &target,
             self.opt.target_backend,
         );
-        let driver_kind = match node.target.kind {
+        let driver_kind = match target.kind {
             TargetKind::Source => panic!("Source package cannot be a test driver"),
             TargetKind::WhiteboxTest => DriverKind::Whitebox,
             TargetKind::BlackboxTest => DriverKind::Blackbox,
@@ -493,16 +621,43 @@ impl<'a> BuildPlanLowerContext<'a> {
         }
     }
 
+    fn lower_compile_runtime(&mut self) -> BuildCommand {
+        let artifact_path = self
+            .layout
+            .runtime_output_path(self.opt.target_backend, self.opt.os);
+
+        // TODO: this part might need more simplification?
+        let runtime_c_path = self.opt.runtime_dot_c_path.clone();
+        let cc_cmd = make_cc_command_pure::<&'static str>(
+            resolve_cc(CC::default(), None),
+            CCConfigBuilder::default()
+                .no_sys_header(true)
+                .output_ty(CCOutputType::Object)
+                .opt_level(CCOptLevel::Speed)
+                .debug_info(true)
+                // always link moonbitrun in this mode
+                .link_moonbitrun(true)
+                .define_use_shared_runtime_macro(false)
+                .build()
+                .expect("Failed to build CC configuration for runtime"),
+            &[],
+            [runtime_c_path.display().to_string()],
+            &self.opt.target_dir_root.display().to_string(),
+            &artifact_path.display().to_string(),
+            &self.opt.compiler_paths,
+        );
+
+        BuildCommand {
+            extra_inputs: vec![runtime_c_path],
+            commandline: cc_cmd,
+        }
+    }
+
     /// **For debug use only.** Prints debug information about a specific build
     /// plan node, the n2 build it's mapped into, and the input and output files
     /// of it.
     #[doc(hidden)]
-    fn debug_print_command_and_files(
-        &mut self,
-        node: BuildPlanNode,
-        spec: &BuildActionSpec,
-        build: &Build,
-    ) {
+    fn debug_print_command_and_files(&mut self, node: BuildPlanNode, build: &Build) {
         if log::log_enabled!(log::Level::Debug) {
             let in_files = build
                 .ins
@@ -534,8 +689,8 @@ impl<'a> BuildPlanLowerContext<'a> {
                 .collect::<Vec<_>>();
 
             debug!(
-                "lowered: {:?}\n spec {:?};\n into {:?};\n ins: {:?};\n outs: {:?}",
-                node, spec, build.cmdline, in_files, out_files
+                "lowered: {:?}\n into {:?};\n ins: {:?};\n outs: {:?}",
+                node, build.cmdline, in_files, out_files
             );
         }
     }
