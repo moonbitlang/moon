@@ -19,7 +19,10 @@
 use std::{env::current_exe, path::Path};
 
 use anyhow::Context;
-use moonutil::common::{get_moon_version, get_moonc_version, get_moonrun_version};
+use moonutil::common::{
+    get_moon_version, get_moonc_version, get_moonrun_version, get_program_version,
+};
+use which::which_global;
 
 /// Print version information and exit
 #[derive(Debug, clap::Parser)]
@@ -88,14 +91,28 @@ pub fn run_version(cmd: VersionSubcommand) -> anyhow::Result<i32> {
             println!("moon {moon_version}");
         }
         (true, false) => {
+            let moon_pilot_path = which_global("moon-pilot");
             if nopath_flag {
                 println!("moon {moon_version}");
                 println!("moonc {}", moonc_version?);
                 println!("moonc {}", moonrun_version?);
+                if let Ok(moon_pilot_path) = moon_pilot_path {
+                    println!("moon-pilot {}", get_program_version(&moon_pilot_path)?);
+                }
             } else {
                 println!("moon {} {}", moon_version, get_moon_path()?);
                 println!("moonc {} {}", moonc_version?, get_moonc_path()?);
                 println!("{} {}", moonrun_version?, get_moonrun_path()?);
+                if let Ok(moon_pilot_path) = moon_pilot_path {
+                    println!(
+                        "moon-pilot {} {}",
+                        get_program_version(&moon_pilot_path)?,
+                        replace_home_with_tilde(
+                            &moon_pilot_path,
+                            &home::home_dir().context("failed to get home directory")?
+                        )
+                    );
+                }
             }
         }
         (false, true) => {
