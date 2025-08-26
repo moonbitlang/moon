@@ -216,17 +216,19 @@ jobs:
           cargo run --bin moon test --source-dir "$env:USERPROFILE\.moon\lib\core" --release --target native
           cargo run --bin moon test --source-dir "$env:USERPROFILE\.moon\lib\core" --doc
 
-      - name: Test core on llvm backend (Windows)
-        if: ${{ matrix.os == 'windows-latest' }}
-        run: |
-          cargo run --bin moon test --source-dir "$env:USERPROFILE\.moon\lib\core" --target llvm
-          cargo run --bin moon test --source-dir "$env:USERPROFILE\.moon\lib\core" --target llvm --release
+      # LLVM is currently disabled because it doesn't exist on non-bleeding channels.
+      # TODO: Add this back when we add LLVM to nightly
+      # - name: Test core on llvm backend (Windows)
+      #   if: ${{ matrix.os == 'windows-latest' }}
+      #   run: |
+      #     cargo run --bin moon test --source-dir "$env:USERPROFILE\.moon\lib\core" --target llvm
+      #     cargo run --bin moon test --source-dir "$env:USERPROFILE\.moon\lib\core" --target llvm --release
 
-      - name: Test core on llvm backend (Unix)
-        if: ${{ (matrix.os != 'windows-latest') }}
-        run: |
-          cargo run --bin moon test --source-dir ~/.moon/lib/core --target llvm
-          cargo run --bin moon test --source-dir ~/.moon/lib/core --target llvm --release
+      # - name: Test core on llvm backend (Unix)
+      #   if: ${{ (matrix.os != 'windows-latest') }}
+      #   run: |
+      #     cargo run --bin moon test --source-dir ~/.moon/lib/core --target llvm
+      #     cargo run --bin moon test --source-dir ~/.moon/lib/core --target llvm --release
 
       - name: Test core compilation (Rupes Recta builder, Unix)
         if: ${{ matrix.os != 'windows-latest' }}
