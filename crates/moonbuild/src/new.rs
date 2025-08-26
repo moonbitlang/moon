@@ -216,14 +216,24 @@ fn common(target_dir: &Path, cake_full_name: &str) -> anyhow::Result<i32> {
 
         #[cfg(unix)]
         {
-            std::os::unix::fs::symlink("README.mbt.md", &readme_file)
-                .context("failed to create symbolic link to README.mbt.md")?;
+            if let Err(e) = std::os::unix::fs::symlink("README.mbt.md", &readme_file) {
+                eprintln!(
+                    "{} failed to create symbolic link to README.mbt.md. {}",
+                    "Warning:".bold().yellow(),
+                    e
+                );
+            }
         }
 
         #[cfg(windows)]
         {
-            std::os::windows::fs::symlink_file("README.mbt.md", &readme_file)
-                .context("failed to create symbolic link to README.mbt.md")?;
+            if let Err(e) = std::os::windows::fs::symlink_file("README.mbt.md", &readme_file) {
+                eprintln!(
+                    "{} failed to create symbolic link to README.mbt.md. You may need to enable developer mode or have administrator privileges. {}",
+                    "Warning:".bold().yellow(),
+                    e
+                );
+            }
         }
     }
     // Agents.md
