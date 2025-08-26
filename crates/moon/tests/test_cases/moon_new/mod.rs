@@ -161,7 +161,7 @@ fn test_moon_new_exist() {
         ["new", "hello", "--user", "moonbitlang", "--name", "hello"],
     );
 
-    assert!(res.contains("Created hello"));
+    assert!(res.contains("Created moonbitlang/hello at hello"));
     assert!(res.contains("Initialized empty Git repository"));
 
     snapbox::cmd::Command::new(moon_bin())

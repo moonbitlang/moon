@@ -61,7 +61,7 @@ pub fn moon_new_default(target_dir: &Path, user: String, name: String) -> anyhow
             is_main: Some(true),
             import: Some(moonutil::package::PkgJSONImport::List(vec![
                 PkgJSONImportItem::Object {
-                    path: cake_full_name,
+                    path: cake_full_name.clone(),
                     alias: Some("lib".to_string()),
                     sub_package: None,
                     value: None,
@@ -146,7 +146,12 @@ pub fn moon_new_default(target_dir: &Path, user: String, name: String) -> anyhow
         moonutil::common::write_package_json_to_file(&j, &lib_moon_pkg)?;
     }
 
-    println!("{} {}", "Created".bold().green(), target_dir.display());
+    println!(
+        "{} {} at {}",
+        "Created".bold().green(),
+        cake_full_name,
+        target_dir.display()
+    );
 
     Ok(0)
 }

@@ -19,6 +19,7 @@
 use std::{fs::File, io::BufReader, path::PathBuf};
 
 use anyhow::bail;
+use colored::Colorize;
 use moonutil::{
     common::{MOON_MOD_JSON, MOON_PKG_JSON},
     moon_dir,
@@ -31,6 +32,10 @@ use super::UniversalFlags;
 fn get_existing_username() -> Option<String> {
     let credentials_path = moon_dir::credentials_json();
     if !credentials_path.exists() {
+        eprintln!(
+            "{} Using default username. You may login with `moon login` to store your username, or provide one with `--user <username>`.",
+            "Warning:".bold().yellow(),
+        );
         return None;
     }
 
@@ -39,6 +44,11 @@ fn get_existing_username() -> Option<String> {
         let reader = BufReader::new(file);
         if let Ok(credentials) = serde_json_lenient::from_reader::<_, Credentials>(reader) {
             return credentials.username;
+        } else {
+            eprintln!(
+            "{} Using default username. You may relogin with `moon login` to store your username, or provide one with `--user <username>`.",
+            "Warning:".bold().yellow(),
+        );
         }
     }
     None
@@ -70,11 +80,10 @@ pub fn run_new(_cli: &UniversalFlags, cmd: NewSubcommand) -> anyhow::Result<i32>
         bail!("A MoonBit project already exists in `{}`.", path.display());
     }
 
-    let existing_username = get_existing_username();
     let username = cmd
         .user
-        .or(existing_username)
-        .unwrap_or_else(|| "username".to_string());
+        .or_else(get_existing_username)
+        .unwrap_or("username".to_string());
     validate_username(&username).map_err(|e| anyhow::anyhow!(e))?;
 
     let project_name = match cmd.name {
