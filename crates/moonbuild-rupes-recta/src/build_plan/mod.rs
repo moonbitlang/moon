@@ -401,7 +401,6 @@ impl<'a> BuildPlanConstructor<'a> {
                     node
                 );
             }
-            BuildPlanNode::Format(_build_target) => (),
             BuildPlanNode::GenerateMbti(_build_target) => (),
             BuildPlanNode::Bundle(_module_id) => (),
             BuildPlanNode::BuildRuntimeLib => (),
@@ -431,7 +430,6 @@ impl<'a> BuildPlanConstructor<'a> {
             }
             BuildPlanNode::MakeExecutable(target) => self.build_make_exec_link_core(node, target),
             BuildPlanNode::GenerateTestInfo(target) => self.build_gen_test_info(node, target),
-            BuildPlanNode::Format(target) => self.build_format(node, target),
             BuildPlanNode::Bundle(module_id) => self.build_bundle(node, module_id),
             BuildPlanNode::BuildRuntimeLib => self.build_runtime_lib(node),
             BuildPlanNode::GenerateMbti(_target) => todo!(),
@@ -688,14 +686,6 @@ impl<'a> BuildPlanConstructor<'a> {
         self.resolved_node(make_exec_node);
 
         Ok(())
-    }
-
-    fn build_format(
-        &mut self,
-        _node: BuildPlanNode,
-        _target: BuildTarget,
-    ) -> Result<(), BuildPlanConstructError> {
-        todo!("Handle formatting node")
     }
 
     fn build_bundle(

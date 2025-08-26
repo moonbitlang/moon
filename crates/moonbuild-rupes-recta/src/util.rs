@@ -166,7 +166,6 @@ impl BuildPlanNode {
             BuildPlanNode::LinkCore(target) => format!("{:?}@LinkCore", target),
             BuildPlanNode::MakeExecutable(target) => format!("{:?}@MakeExecutable", target),
             BuildPlanNode::GenerateTestInfo(target) => format!("{:?}@GenerateTestInfo", target),
-            BuildPlanNode::Format(target) => format!("{:?}@Format", target),
             BuildPlanNode::Bundle(module_id) => format!("{:?}@Bundle", module_id),
             BuildPlanNode::GenerateMbti(target) => format!("{:?}@GenerateMbti", target),
             BuildPlanNode::BuildRuntimeLib => "BuildRuntimeLib".to_string(),
@@ -199,10 +198,7 @@ impl BuildPlanNode {
                 let fqn = packages.fqn(target.package);
                 format!("{}\\nGenerateTestInfo", fqn)
             }
-            BuildPlanNode::Format(target) => {
-                let fqn = packages.fqn(target.package);
-                format!("{}\\nFormat", fqn)
-            }
+
             BuildPlanNode::Bundle(module_id) => {
                 let src = env.mod_name_from_id(*module_id);
                 format!("{}\\nBundle", src)
@@ -223,7 +219,6 @@ impl BuildPlanNode {
             BuildPlanNode::LinkCore(_) => "lightcoral",
             BuildPlanNode::MakeExecutable(_) => "lightpink",
             BuildPlanNode::GenerateTestInfo(_) => "lightgray",
-            BuildPlanNode::Format(_) => "lavender",
             BuildPlanNode::Bundle(_) => "wheat",
             BuildPlanNode::GenerateMbti(_) => "lightcyan",
             BuildPlanNode::BuildRuntimeLib => "orange",

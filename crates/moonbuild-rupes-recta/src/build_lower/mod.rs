@@ -222,7 +222,6 @@ impl<'a> BuildPlanLowerContext<'a> {
                     .expect("Build target info should be present for GenerateTestInfo nodes");
                 self.lower_gen_test_driver(node, target, info)
             }
-            BuildPlanNode::Format(_target) => todo!(),
             BuildPlanNode::BuildRuntimeLib => self.lower_compile_runtime(),
         };
 
@@ -317,10 +316,6 @@ impl<'a> BuildPlanLowerContext<'a> {
                     &target,
                     self.opt.target_backend,
                 ));
-            }
-            BuildPlanNode::Format(_target) => {
-                // Format nodes don't produce artifacts in the traditional sense
-                // TODO: Implement if needed
             }
             BuildPlanNode::Bundle(_module_id) => {
                 todo!()
