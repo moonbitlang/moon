@@ -120,7 +120,6 @@ jobs:
         os:
           - ubuntu-latest
           - macos-latest
-          - macos-13
           - windows-latest
     runs-on: ${{ matrix.os }}
     steps:
@@ -243,7 +242,6 @@ jobs:
         os:
           - ubuntu-latest
           - macos-latest
-          - macos-13
           - windows-latest
     runs-on: ${{ matrix.os }}
     steps:
