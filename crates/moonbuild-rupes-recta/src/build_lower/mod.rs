@@ -31,7 +31,8 @@ use moonutil::{
         OutputType as CCOutputType, CC,
     },
     cond_expr::OptLevel,
-    mooncakes::ModuleSource,
+    mooncakes::{ModuleSource, CORE_MODULE},
+    package::JsFormat,
 };
 use n2::graph::{Build, BuildIns, BuildOuts, FileId, FileLoc, Graph as N2Graph};
 use petgraph::Direction;
@@ -39,12 +40,12 @@ use petgraph::Direction;
 use crate::{
     build_lower::{
         artifact::{LegacyLayout, LegacyLayoutBuilder},
-        compiler::{CmdlineAbstraction, MiDependency, PackageSource},
+        compiler::{CmdlineAbstraction, CompilationFlags, MiDependency, PackageSource},
     },
     build_plan::{BuildPlan, BuildTargetInfo, LinkCoreInfo, MakeExecutableInfo},
     discover::{DiscoverResult, DiscoveredPackage},
     model::{Artifacts, BuildPlanNode, BuildTarget, OperatingSystem, TargetKind},
-    pkg_name::OptionalPackageFQNWithSource,
+    pkg_name::{OptionalPackageFQNWithSource, PackageFQN, PackagePath},
     pkg_solve::DepRelationship,
 };
 
@@ -346,6 +347,16 @@ impl<'a> BuildPlanLowerContext<'a> {
             .map(|x| artifact::core_bundle_path(x, self.opt.target_backend).into());
     }
 
+    fn set_flags(&self, flags: &mut CompilationFlags) {
+        flags.no_opt = self.opt.opt_level == OptLevel::Debug;
+        flags.symbols = self.opt.debug_symbols;
+        flags.source_map = self.opt.debug_symbols
+            && matches!(
+                self.opt.target_backend,
+                TargetBackend::Js | TargetBackend::WasmGC
+            );
+    }
+
     fn lower_check(
         &self,
         node: BuildPlanNode,
@@ -365,7 +376,7 @@ impl<'a> BuildPlanLowerContext<'a> {
             &files_vec,
             &mi_output,
             &mi_inputs,
-            compiler::CompiledPackageName::new(&package.fqn, target),
+            compiler::CompiledPackageName::new(&package.fqn, target.kind),
             &package.root_path,
             self.opt.target_backend,
             target.kind,
@@ -427,7 +438,7 @@ impl<'a> BuildPlanLowerContext<'a> {
             &core_output,
             &mi_output,
             &mi_inputs,
-            compiler::CompiledPackageName::new(&package.fqn, target),
+            compiler::CompiledPackageName::new(&package.fqn, target.kind),
             &package.root_path,
             self.opt.target_backend,
             target.kind,
@@ -496,16 +507,21 @@ impl<'a> BuildPlanLowerContext<'a> {
             self.opt.os,
         );
 
+        let core_fqn = PackageFQN::new(CORE_MODULE.clone(), PackagePath::empty());
         let package_sources = info
             .linked_order
             .iter()
             .map(|target| {
                 let pkg = self.packages.get_package(target.package);
                 PackageSource {
-                    package_name: compiler::CompiledPackageName::new(&pkg.fqn, *target),
+                    package_name: compiler::CompiledPackageName::new(&pkg.fqn, target.kind),
                     source_dir: pkg.root_path.as_path().into(),
                 }
             })
+            .chain(self.opt.stdlib_path.as_ref().map(|p| PackageSource {
+                package_name: compiler::CompiledPackageName::new(&core_fqn, TargetKind::Source),
+                source_dir: p.into(),
+            }))
             .collect::<Vec<_>>();
 
         let config_path = package.config_path();
@@ -521,8 +537,16 @@ impl<'a> BuildPlanLowerContext<'a> {
             self.opt.target_backend,
             target.kind.is_test(),
         );
-        cmd.flags.no_opt = self.opt.opt_level == OptLevel::Debug;
-        cmd.flags.symbols = self.opt.debug_symbols;
+        self.set_flags(&mut cmd.flags);
+
+        // JS format settings
+        if self.opt.target_backend == TargetBackend::Js {
+            if package.raw.force_link {
+                cmd.js_format = Some(JsFormat::default());
+            } else if let Some(link) = package.raw.link.as_ref().and_then(|x| x.js.as_ref()) {
+                cmd.js_format = Some(link.format.unwrap_or_default());
+            }
+        }
 
         BuildCommand {
             extra_inputs: vec![],

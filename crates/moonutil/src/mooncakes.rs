@@ -21,7 +21,7 @@ use std::{
     io::BufReader,
     path::{Path, PathBuf},
     str::FromStr,
-    sync::Arc,
+    sync::{Arc, LazyLock},
 };
 
 use arcstr::ArcStr;
@@ -237,6 +237,18 @@ impl ModuleSource {
         }
     }
 }
+
+/// The `ModuleSource` representing the core module.
+pub static CORE_MODULE: LazyLock<ModuleSource> = LazyLock::new(|| {
+    ModuleSource::new_full(
+        ModuleName {
+            username: "moonbitlang".into(),
+            unqual: "core".into(),
+        },
+        Version::new(0, 0, 0),
+        ModuleSourceKind::Registry(None),
+    )
+});
 
 impl std::fmt::Display for ModuleSource {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {

@@ -27,7 +27,7 @@ mod link_core;
 use std::borrow::Cow;
 use std::path::Path;
 
-use crate::model::{BuildTarget, TargetKind};
+use crate::model::TargetKind;
 use crate::pkg_name::PackageFQN;
 
 pub use self::build_common::BuildCommonArgs;
@@ -86,10 +86,10 @@ pub struct CompiledPackageName<'a> {
 }
 
 impl<'a> CompiledPackageName<'a> {
-    pub fn new(fqn: &'a PackageFQN, target: BuildTarget) -> Self {
+    pub fn new(fqn: &'a PackageFQN, target_kind: TargetKind) -> Self {
         Self {
             fqn,
-            kind: target.kind,
+            kind: target_kind,
         }
     }
 }
