@@ -149,6 +149,7 @@ fn check_test_suffix(stripped: &str, test_kind: Option<TestKind>) -> bool {
     #[allow(clippy::match_like_matches_macro)] // This is more readable
     match (test_kind, file_test_spec) {
         (None, NoTest) => true,
+        (Some(TestKind::Inline), NoTest) => true,
         (Some(TestKind::Whitebox), NoTest | Whitebox) => true,
         (Some(TestKind::Blackbox), Blackbox) => true,
         _ => false,

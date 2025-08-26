@@ -193,7 +193,7 @@ fn run_single_mbt_file(cli: &UniversalFlags, cmd: RunSubcommand) -> anyhow::Resu
         ];
         Some(tcc_run_command)
     } else if target_backend == TargetBackend::Native || target_backend == TargetBackend::LLVM {
-        let cc_cmd = moonutil::compiler_flags::make_cc_command(
+        let cc_cmd = moonutil::compiler_flags::make_cc_command::<&'static str>(
             cc_default,
             None,
             moonutil::compiler_flags::CCConfigBuilder::default()

@@ -784,7 +784,7 @@ pub fn gen_compile_runtime_command(
         line: 0,
     };
 
-    let cc_cmd = make_cc_command(
+    let cc_cmd = make_cc_command::<&'static str>(
         CC::default(),
         None,
         CCConfigBuilder::default()
@@ -798,7 +798,7 @@ pub fn gen_compile_runtime_command(
             .build()
             .unwrap(),
         &[],
-        &[&runtime_dot_c_path.display().to_string()],
+        &[runtime_dot_c_path.display().to_string()],
         &target_dir.display().to_string(),
         &artifact_output_path.display().to_string(),
     );
@@ -843,7 +843,7 @@ pub fn gen_compile_shared_runtime_command(
         line: 0,
     };
 
-    let cc_cmd = make_cc_command(
+    let cc_cmd = make_cc_command::<&'static str>(
         CC::default(),
         None,
         CCConfigBuilder::default()
@@ -857,7 +857,7 @@ pub fn gen_compile_shared_runtime_command(
             .build()
             .unwrap(),
         &[],
-        &[&runtime_dot_c_path],
+        [runtime_dot_c_path],
         &target_dir.display().to_string(),
         &artifact_output_path.display().to_string(),
     );
@@ -974,7 +974,7 @@ pub fn gen_compile_exe_command(
             .build()
             .unwrap(),
         &native_flags,
-        &sources,
+        sources,
         &target_dir.display().to_string(),
         &artifact_output_path.display().to_string(),
     );
@@ -1248,7 +1248,7 @@ pub fn gen_compile_stub_command(
                 .build()
                 .unwrap(),
             &native_stub_cc_flags,
-            &sources,
+            sources,
             &MOON_DIRS.moon_lib_path.display().to_string(),
             &artifact_output_path,
         );
@@ -1359,7 +1359,7 @@ pub fn gen_link_exe_command(
             .build()
             .unwrap(),
         &native_flags,
-        &sources,
+        sources,
         &PathBuf::from(&item.out)
             .parent()
             .unwrap()

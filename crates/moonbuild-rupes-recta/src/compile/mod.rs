@@ -16,16 +16,19 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
-use std::path::PathBuf;
+use std::{path::PathBuf, str::FromStr};
 
 use log::{debug, info};
-use moonutil::{common::TargetBackend, cond_expr::OptLevel};
+use moonutil::{
+    common::TargetBackend, compiler_flags::CompilerPaths, cond_expr::OptLevel, moon_dir::MOON_DIRS,
+};
 
 use crate::{
     build_lower,
     build_plan::{self, BuildEnvironment},
-    model::{Artifacts, BuildPlanNode},
+    model::{Artifacts, BuildPlanNode, OperatingSystem},
     resolve::ResolveOutput,
+    special_cases::should_skip_tests,
 };
 
 /// The context that encapsulates all the data needed for the building process.
@@ -83,6 +86,11 @@ pub fn compile(
         input_nodes.len()
     );
 
+    let input_nodes = input_nodes
+        .iter()
+        .cloned()
+        .filter(|x| filter_special_case_input_nodes(*x, cx.resolve_output));
+
     let build_env = BuildEnvironment {
         target_backend: cx.target_backend,
         opt_level: cx.opt_level,
@@ -114,6 +122,9 @@ pub fn compile(
         opt_level: cx.opt_level,
         debug_symbols: cx.debug_symbols,
         stdlib_path: cx.stdlib_path.clone(),
+        compiler_paths: CompilerPaths::from_moon_dirs(), // change to external
+        os: OperatingSystem::from_str(std::env::consts::OS).expect("Unknown"),
+        runtime_dot_c_path: MOON_DIRS.moon_lib_path.join("runtime.c"), // FIXME: don't calculate here
     };
     let res = build_lower::lower_build_plan(
         &cx.resolve_output.pkg_dirs,
@@ -134,4 +145,15 @@ pub fn compile(
             None
         },
     })
+}
+
+/// A filter to remove build plan nodes that are invalid. Returns `true` if the
+/// node should be retained.
+///
+/// See [`crate::special_cases`] for more information.
+fn filter_special_case_input_nodes(node: BuildPlanNode, resolve_output: &ResolveOutput) -> bool {
+    match node.extract_target() {
+        Some(tgt) if tgt.kind.is_test() => !should_skip_tests(tgt.package, resolve_output),
+        _ => true,
+    }
 }

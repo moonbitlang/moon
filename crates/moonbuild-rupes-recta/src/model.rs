@@ -18,6 +18,8 @@
 
 use std::path::PathBuf;
 
+use moonutil::mooncakes::ModuleId;
+
 slotmap::new_key_type! {
     /// An unique identifier pointing to a package currently discovered from imported modules.
     pub struct PackageId;
@@ -30,17 +32,6 @@ pub enum RunAction {
     Bundle,
     Check,
     Test,
-}
-
-/// Represents the actions performed on a single build target.
-#[derive(Clone, Debug, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub enum TargetAction {
-    Check,
-    Build,
-    BuildCStubs,
-    LinkCore,
-    MakeExecutable,
-    GenerateTestInfo,
 }
 
 #[derive(Clone, Debug, Copy, PartialEq, Eq, Hash, Ord, PartialOrd)]
@@ -95,51 +86,56 @@ impl PackageId {
 ///
 /// TODO: This type is a little big in size to be copied and used as an ID.
 #[derive(Debug, Clone, Copy, PartialEq, PartialOrd, Eq, Ord, Hash)]
-pub struct BuildPlanNode {
-    pub target: BuildTarget,
-    pub action: TargetAction,
+pub enum BuildPlanNode {
+    Check(BuildTarget),
+    BuildCore(BuildTarget),
+    BuildCStubs(BuildTarget),
+    LinkCore(BuildTarget),
+    MakeExecutable(BuildTarget),
+    GenerateTestInfo(BuildTarget),
+    Format(BuildTarget),
+    GenerateMbti(BuildTarget),
+    Bundle(ModuleId),
+    BuildRuntimeLib,
 }
 
 impl BuildPlanNode {
     pub fn check(target: BuildTarget) -> Self {
-        Self {
-            target,
-            action: TargetAction::Check,
-        }
+        Self::Check(target)
     }
 
     pub fn build_core(target: BuildTarget) -> Self {
-        Self {
-            target,
-            action: TargetAction::Build,
-        }
+        Self::BuildCore(target)
     }
 
     pub fn build_c_stubs(target: BuildTarget) -> Self {
-        Self {
-            target,
-            action: TargetAction::BuildCStubs,
-        }
+        Self::BuildCStubs(target)
     }
 
     pub fn link_core(target: BuildTarget) -> Self {
-        Self {
-            target,
-            action: TargetAction::LinkCore,
-        }
+        Self::LinkCore(target)
     }
 
     pub fn make_executable(target: BuildTarget) -> Self {
-        Self {
-            target,
-            action: TargetAction::MakeExecutable,
-        }
+        Self::MakeExecutable(target)
     }
 
     pub fn generate_test_info(target: BuildTarget) -> Self {
-        Self {
-            target,
-            action: TargetAction::GenerateTestInfo,
+        Self::GenerateTestInfo(target)
+    }
+
+    /// Extract the target from a BuildPlanNode, if it has one
+    pub fn extract_target(&self) -> Option<BuildTarget> {
+        match *self {
+            BuildPlanNode::Check(target)
+            | BuildPlanNode::BuildCore(target)
+            | BuildPlanNode::BuildCStubs(target)
+            | BuildPlanNode::LinkCore(target)
+            | BuildPlanNode::MakeExecutable(target)
+            | BuildPlanNode::GenerateTestInfo(target)
+            | BuildPlanNode::Format(target)
+            | BuildPlanNode::GenerateMbti(target) => Some(target),
+            BuildPlanNode::Bundle(_) | BuildPlanNode::BuildRuntimeLib => None,
         }
     }
 }
@@ -149,4 +145,40 @@ impl BuildPlanNode {
 pub struct Artifacts {
     pub node: BuildPlanNode,
     pub artifacts: Vec<PathBuf>,
+}
+
+/// Supported operating systems for artifact generation
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum OperatingSystem {
+    Windows,
+    Linux,
+    MacOS,
+    /// No operating system (e.g., WASM/JS targets)
+    None,
+}
+
+impl std::fmt::Display for OperatingSystem {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let s = match self {
+            OperatingSystem::Windows => "windows",
+            OperatingSystem::Linux => "linux",
+            OperatingSystem::MacOS => "macos",
+            OperatingSystem::None => "none",
+        };
+        write!(f, "{}", s)
+    }
+}
+
+impl std::str::FromStr for OperatingSystem {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "windows" => Ok(OperatingSystem::Windows),
+            "linux" => Ok(OperatingSystem::Linux),
+            "macos" => Ok(OperatingSystem::MacOS),
+            "none" => Ok(OperatingSystem::None),
+            _ => Err(format!("Unsupported OS: {}", s)),
+        }
+    }
 }
