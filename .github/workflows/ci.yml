@@ -20,9 +20,11 @@ name: CI
 
 on:
   push:
-    branches: main
+    branches:
+      - main
   pull_request:
-    branches: main
+    branches:
+      - main
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -110,7 +112,7 @@ jobs:
           mdbook build docs/manual
           mdbook build docs/manual-zh
 
-  bleeding-test:
+  nightly-test:
     needs: [typo-check, license-header-check]
     strategy:
       fail-fast: false
@@ -118,7 +120,6 @@ jobs:
         os:
           - ubuntu-latest
           - macos-latest
-          - macos-13
           - windows-latest
     runs-on: ${{ matrix.os }}
     steps:
@@ -141,28 +142,15 @@ jobs:
       - name: install MoonBit(Unix)
         if: ${{ matrix.os != 'windows-latest' }}
         run: |
-          curl https://cli.moonbitlang.com/moon-ci/$(uname -s)-$(uname -m).tar.gz --output moonbit.tar.gz
-          mkdir -p ~/.moon/bin
-          mkdir -p ~/.moon/lib
-          tar xf moonbit.tar.gz --directory ~/.moon/
-          curl https://cli.moonbitlang.com/moon-ci/$(uname -s)-$(uname -m)/moonrun --output ~/.moon/bin/moonrun
-          curl https://cli.moonbitlang.com/moon-ci/$(uname -s)-$(uname -m)/mooncake --output ~/.moon/bin/mooncake
-          chmod +x ~/.moon/bin/moon*
-          chmod +x ~/.moon/bin/internal/tcc
-          git clone --depth 1 https://github.com/moonbitlang/core.git ~/.moon/lib/core
+          curl -fsSL https://cli.moonbitlang.com/install/unix.sh | bash -s nightly
           echo "$HOME/.moon/bin" >> $GITHUB_PATH
           echo "$GITHUB_WORKSPACE/target/debug" >> $GITHUB_PATH
 
       - name: install MoonBit(Windows)
         if: ${{ matrix.os == 'windows-latest' }}
         run: |
-          Invoke-WebRequest -Uri https://cli.moonbitlang.com/moon-ci/Windows-x86_64.zip -OutFile moonbit.zip
-          New-Item -ItemType Directory -Force -Path "$env:USERPROFILE/.moon/bin"
-          New-Item -ItemType Directory -Force -Path "$env:USERPROFILE/.moon/lib"
-          Expand-Archive -Path "moonbit.zip" -DestinationPath "$env:USERPROFILE/.moon/" -Force
-          Invoke-WebRequest -Uri https://cli.moonbitlang.com/moon-ci/Windows-x86_64/moonrun.exe -OutFile "$env:USERPROFILE/.moon/bin/moonrun.exe"
-          Invoke-WebRequest -Uri https://cli.moonbitlang.com/moon-ci/Windows-x86_64/mooncake.exe -OutFile "$env:USERPROFILE/.moon/bin/mooncake.exe"
-          git clone --depth 1 https://github.com/moonbitlang/core.git "$env:USERPROFILE/.moon/lib/core"
+          $env:MOONBIT_INSTALL_VERSION="nightly"
+          Set-ExecutionPolicy RemoteSigned -Scope CurrentUser; irm https://cli.moonbitlang.com/install/powershell.ps1 | iex
           "$env:USERPROFILE\.moon\bin" | Out-File -FilePath $env:GITHUB_PATH -Append
           "$env:GITHUB_WORKSPACE\target\debug" | Out-File -FilePath $env:GITHUB_PATH -Append
 
@@ -228,17 +216,19 @@ jobs:
           cargo run --bin moon test --source-dir "$env:USERPROFILE\.moon\lib\core" --release --target native
           cargo run --bin moon test --source-dir "$env:USERPROFILE\.moon\lib\core" --doc
 
-      - name: Test core on llvm backend (Windows)
-        if: ${{ matrix.os == 'windows-latest' }}
-        run: |
-          cargo run --bin moon test --source-dir "$env:USERPROFILE\.moon\lib\core" --target llvm
-          cargo run --bin moon test --source-dir "$env:USERPROFILE\.moon\lib\core" --target llvm --release
+      # LLVM is currently disabled because it doesn't exist on non-bleeding channels.
+      # TODO: Add this back when we add LLVM to nightly
+      # - name: Test core on llvm backend (Windows)
+      #   if: ${{ matrix.os == 'windows-latest' }}
+      #   run: |
+      #     cargo run --bin moon test --source-dir "$env:USERPROFILE\.moon\lib\core" --target llvm
+      #     cargo run --bin moon test --source-dir "$env:USERPROFILE\.moon\lib\core" --target llvm --release
 
-      - name: Test core on llvm backend (Unix)
-        if: ${{ (matrix.os != 'windows-latest') }}
-        run: |
-          cargo run --bin moon test --source-dir ~/.moon/lib/core --target llvm
-          cargo run --bin moon test --source-dir ~/.moon/lib/core --target llvm --release
+      # - name: Test core on llvm backend (Unix)
+      #   if: ${{ (matrix.os != 'windows-latest') }}
+      #   run: |
+      #     cargo run --bin moon test --source-dir ~/.moon/lib/core --target llvm
+      #     cargo run --bin moon test --source-dir ~/.moon/lib/core --target llvm --release
 
       - name: Test core compilation (Rupes Recta builder, Unix)
         if: ${{ matrix.os != 'windows-latest' }}
@@ -254,7 +244,6 @@ jobs:
         os:
           - ubuntu-latest
           - macos-latest
-          - macos-13
           - windows-latest
     runs-on: ${{ matrix.os }}
     steps:
