@@ -461,7 +461,7 @@ where
 
     // Link against some common libraries
     if cc.is_gcc_like() {
-        if cc.is_full_featured_gcc_like() {
+        if !cfg!(target_os = "windows") && cc.is_full_featured_gcc_like() {
             buf.push("-lm".to_string());
         }
         if let Some(dyn_lib_path) = config.link_shared_runtime.as_ref() {
@@ -655,7 +655,10 @@ where
     buf.extend(src.iter().map(|s| s.as_ref().to_string()));
 
     // Link against some common libraries
-    if cc.is_full_featured_gcc_like() && config.output_ty != OutputType::Object {
+    if !cfg!(target_os = "windows")
+        && cc.is_full_featured_gcc_like()
+        && config.output_ty != OutputType::Object
+    {
         buf.push("-lm".to_string());
     }
 
