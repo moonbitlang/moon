@@ -125,7 +125,7 @@ fn run_build_internal(
             rr_build::print_dry_run(&build_graph, &_build_meta.artifacts, source_dir, target_dir);
             Ok(0)
         } else {
-            let result = rr_build::execute_build(build_graph, target_dir)?;
+            let result = rr_build::execute_build(build_graph, target_dir, cmd.build_flags.jobs)?;
             result.print_info();
             Ok(result.return_code_for_success())
         }

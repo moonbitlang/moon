@@ -363,7 +363,7 @@ fn run_run_rr(cli: &UniversalFlags, cmd: RunSubcommand) -> Result<i32, anyhow::E
 
         Ok(0)
     } else {
-        let build_result = rr_build::execute_build(build_graph, &target_dir)?;
+        let build_result = rr_build::execute_build(build_graph, &target_dir, cmd.build_flags.jobs)?;
 
         if !build_result.successful() {
             return Ok(build_result.return_code_for_success());

@@ -505,7 +505,7 @@ fn run_test_rr(
 
         Ok(0)
     } else {
-        let result = rr_build::execute_build(build_graph, target_dir)?;
+        let result = rr_build::execute_build(build_graph, target_dir, cmd.build_flags.jobs)?;
 
         if !result.successful() {
             return Ok(result.return_code_for_success());

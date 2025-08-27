@@ -264,6 +264,7 @@ pub fn plan_build(
 pub fn execute_build(
     mut build_graph: n2::graph::Graph,
     target_dir: &Path,
+    parallelism: Option<usize>,
 ) -> anyhow::Result<BuildResult> {
     // Generate n2 state
     // FIXME: This is extremely verbose and barebones, only for testing purpose
@@ -273,6 +274,11 @@ pub fn execute_build(
         &mut build_graph,
         &mut hashes,
     )?;
+
+    let parallelism = parallelism
+        .or_else(|| std::thread::available_parallelism().ok().map(|x| x.into()))
+        .unwrap();
+
     let mut prog_console = n2::progress::DumbConsoleProgress::new(false, None);
     let mut work = n2::work::Work::new(
         build_graph,
@@ -280,7 +286,7 @@ pub fn execute_build(
         n2_db,
         &n2::work::Options {
             failures_left: Some(1),
-            parallelism: 1,
+            parallelism,
             explain: false,
             adopt: false,
             dirty_on_output: true,

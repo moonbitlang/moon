@@ -78,7 +78,7 @@ fn run_fmt_rr(cli: &UniversalFlags, cmd: FmtSubcommand) -> anyhow::Result<i32> {
         rr_build::print_dry_run_all(&graph, &source_dir, &target_dir);
         Ok(0)
     } else {
-        let res = rr_build::execute_build(graph, &target_dir)?;
+        let res = rr_build::execute_build(graph, &target_dir, None)?;
         res.print_info();
         Ok(res.return_code_for_success())
     }

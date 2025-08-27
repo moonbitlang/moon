@@ -105,7 +105,8 @@ pub fn run_info_rr(cli: UniversalFlags, cmd: InfoSubcommand) -> anyhow::Result<i
         );
         Ok(0)
     } else {
-        let result = rr_build::execute_build(build_graph, &target_dir)?;
+        // TODO: `moon info` is a wrapper over `moon check`, so should have flags that `moon check` has?
+        let result = rr_build::execute_build(build_graph, &target_dir, None)?;
         result.print_info();
         Ok(result.return_code_for_success())
     }
