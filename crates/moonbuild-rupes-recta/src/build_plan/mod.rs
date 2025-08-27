@@ -432,7 +432,7 @@ impl<'a> BuildPlanConstructor<'a> {
             BuildPlanNode::GenerateTestInfo(target) => self.build_gen_test_info(node, target),
             BuildPlanNode::Bundle(module_id) => self.build_bundle(node, module_id),
             BuildPlanNode::BuildRuntimeLib => self.build_runtime_lib(node),
-            BuildPlanNode::GenerateMbti(_target) => todo!(),
+            BuildPlanNode::GenerateMbti(target) => self.build_generate_mbti(node, target),
         }
     }
 
@@ -698,6 +698,19 @@ impl<'a> BuildPlanConstructor<'a> {
 
     fn build_runtime_lib(&mut self, _node: BuildPlanNode) -> Result<(), BuildPlanConstructError> {
         // Nothing specific to do here ;)
+        self.resolved_node(_node);
+        Ok(())
+    }
+
+    fn build_generate_mbti(
+        &mut self,
+        _node: BuildPlanNode,
+        target: BuildTarget,
+    ) -> Result<(), BuildPlanConstructError> {
+        // Generate mbti relies on the `.mi` files spitted out by `moonc`, which
+        // usually means `moonc check` instead of `moonc build`.
+        let check_node = self.need_node(BuildPlanNode::Check(target));
+        self.add_edge(_node, check_node);
         self.resolved_node(_node);
         Ok(())
     }

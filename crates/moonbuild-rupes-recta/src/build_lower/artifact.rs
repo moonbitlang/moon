@@ -26,7 +26,7 @@ use std::{
 
 use derive_builder::Builder;
 use moonutil::{
-    common::{RunMode, TargetBackend},
+    common::{RunMode, TargetBackend, MBTI_GENERATED},
     cond_expr::OptLevel,
     mooncakes::ModuleSource,
 };
@@ -237,6 +237,10 @@ impl LegacyLayout {
         self.push_package_dir_no_backend(&mut result, pkg);
         result.push(filename);
         result
+    }
+
+    pub fn generated_mbti_path(&self, pkg_source: &Path) -> PathBuf {
+        pkg_source.join(MBTI_GENERATED)
     }
 }
 

@@ -23,6 +23,7 @@ mod build_package;
 mod check;
 mod gen_test_driver;
 mod link_core;
+mod mooninfo;
 
 use std::borrow::Cow;
 use std::path::Path;
@@ -35,6 +36,7 @@ pub use self::build_package::MooncBuildPackage;
 pub use self::check::MooncCheck;
 pub use self::gen_test_driver::MoonGenTestDriver;
 pub use self::link_core::MooncLinkCore;
+pub use self::mooninfo::Mooninfo;
 
 #[allow(unused)]
 #[derive(Debug, Clone, PartialEq, Eq)]

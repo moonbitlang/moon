@@ -40,7 +40,7 @@ use petgraph::Direction;
 use crate::{
     build_lower::{
         artifact::{LegacyLayout, LegacyLayoutBuilder},
-        compiler::{CmdlineAbstraction, CompilationFlags, MiDependency, PackageSource},
+        compiler::{CmdlineAbstraction, CompilationFlags, MiDependency, Mooninfo, PackageSource},
     },
     build_plan::{BuildPlan, BuildTargetInfo, LinkCoreInfo, MakeExecutableInfo},
     discover::{DiscoverResult, DiscoveredPackage},
@@ -213,7 +213,7 @@ impl<'a> BuildPlanLowerContext<'a> {
                     .expect("Make executable info should be present for MakeExecutable nodes");
                 self.lower_make_exe(target, info)
             }
-            BuildPlanNode::GenerateMbti(_target) => todo!(),
+            BuildPlanNode::GenerateMbti(target) => self.lower_generate_mbti(target),
             BuildPlanNode::Bundle(_module_id) => todo!(),
             BuildPlanNode::GenerateTestInfo(target) => {
                 let info = self
@@ -326,7 +326,10 @@ impl<'a> BuildPlanLowerContext<'a> {
                         .runtime_output_path(self.opt.target_backend, self.opt.os),
                 );
             }
-            BuildPlanNode::GenerateMbti(_target) => todo!(),
+            BuildPlanNode::GenerateMbti(_target) => {
+                let pkg = self.packages.get_package(_target.package);
+                out.push(self.layout.generated_mbti_path(&pkg.root_path))
+            }
         }
     }
 
@@ -680,6 +683,25 @@ impl<'a> BuildPlanLowerContext<'a> {
         BuildCommand {
             extra_inputs: vec![runtime_c_path],
             commandline: cc_cmd,
+        }
+    }
+
+    fn lower_generate_mbti(&mut self, target: BuildTarget) -> BuildCommand {
+        let input = self
+            .layout
+            .mi_of_build_target(self.packages, &target, self.opt.target_backend);
+        let pkg = self.packages.get_package(target.package);
+        let output = self.layout.generated_mbti_path(&pkg.root_path);
+
+        let cmd = Mooninfo {
+            mi_in: input.into(),
+            out: output.into(),
+            no_alias: false, // TODO: fill this
+        };
+
+        BuildCommand {
+            extra_inputs: vec![],
+            commandline: cmd.build_command("mooninfo"),
         }
     }
 

@@ -225,6 +225,33 @@ pub struct BuildFlags {
     pub render_no_loc: DiagnosticLevel,
 }
 
+impl Default for BuildFlags {
+    #[allow(deprecated)]
+    fn default() -> Self {
+        Self {
+            std: false,
+            no_std: false,
+            debug: false,
+            release: false,
+            strip: false,
+            no_strip: false,
+            target: None,
+            target_backend: None,
+            serial: false,
+            enable_coverage: false,
+            sort_input: false,
+            output_wat: false,
+            deny_warn: false,
+            no_render: false,
+            warn_list: None,
+            alert_list: None,
+            enable_value_tracing: false,
+            jobs: None,
+            render_no_loc: DiagnosticLevel::Error,
+        }
+    }
+}
+
 impl BuildFlags {
     pub fn std(&self) -> bool {
         match (self.std, self.no_std) {
