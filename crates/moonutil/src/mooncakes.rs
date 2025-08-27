@@ -385,10 +385,11 @@ pub mod result {
             ResolvedEnvBuilder::new()
         }
 
-        pub fn only_one_module(ms: ModuleSource, module: MoonMod) -> ResolvedEnv {
+        pub fn only_one_module(ms: ModuleSource, module: MoonMod) -> (ResolvedEnv, ModuleId) {
             let mut builder = Self::builder();
-            builder.add_module(ms, Arc::new(module));
-            builder.build()
+            let id = builder.add_module(ms, Arc::new(module));
+            let res = builder.build();
+            (res, id)
         }
 
         pub fn module_count(&self) -> usize {

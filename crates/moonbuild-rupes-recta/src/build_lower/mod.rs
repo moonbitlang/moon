@@ -49,7 +49,7 @@ use crate::{
     pkg_solve::DepRelationship,
 };
 
-mod artifact;
+pub mod artifact;
 mod compiler;
 
 /// Knobs to tweak during build. Affects behaviors during lowering.
@@ -727,7 +727,10 @@ impl<'a> BuildPlanLowerContext<'a> {
 }
 
 /// Create a [`n2::graph::BuildIns`] with all explicit input (because why not?).
-fn build_ins(graph: &mut N2Graph, paths: impl IntoIterator<Item = impl AsRef<Path>>) -> BuildIns {
+pub(crate) fn build_ins(
+    graph: &mut N2Graph,
+    paths: impl IntoIterator<Item = impl AsRef<Path>>,
+) -> BuildIns {
     // this might hint the vec with iterator size
     let file_ids: Vec<_> = paths
         .into_iter()
@@ -742,7 +745,10 @@ fn build_ins(graph: &mut N2Graph, paths: impl IntoIterator<Item = impl AsRef<Pat
 }
 
 /// Create a [`n2::graph::BuildOuts`] with all explicit output.
-fn build_outs(graph: &mut N2Graph, paths: impl IntoIterator<Item = impl AsRef<Path>>) -> BuildOuts {
+pub(crate) fn build_outs(
+    graph: &mut N2Graph,
+    paths: impl IntoIterator<Item = impl AsRef<Path>>,
+) -> BuildOuts {
     // this might hint the vec with iterator size
     let file_ids: Vec<_> = paths
         .into_iter()
@@ -754,9 +760,23 @@ fn build_outs(graph: &mut N2Graph, paths: impl IntoIterator<Item = impl AsRef<Pa
     }
 }
 
+pub(crate) fn build_phony_out(
+    graph: &mut N2Graph,
+    paths: impl IntoIterator<Item = impl AsRef<Path>>,
+) -> BuildOuts {
+    let file_ids: Vec<_> = paths
+        .into_iter()
+        .map(|x| register_file(graph, x.as_ref()))
+        .collect();
+    BuildOuts {
+        explicit: 0,
+        ids: file_ids,
+    }
+}
+
 /// Create a dummy [`FileLoc`] for the given file name. This is a little bit
 /// wasteful in terms of memory usage, but should do the job.
-fn build_n2_fileloc(name: impl Into<PathBuf>) -> FileLoc {
+pub(crate) fn build_n2_fileloc(name: impl Into<PathBuf>) -> FileLoc {
     FileLoc {
         filename: Rc::new(name.into()),
         line: 0,

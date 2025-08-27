@@ -33,6 +33,11 @@
         graph for execution. This part converts the intent of the user into the
         actual build commands.
 
+    Of all intents of the user, one is so different from the rest: `moon fmt`.
+    The formatter only needs the list of files to run, regardless of whether the
+    project is compilable or not. Thus, it's worth its own module at [`fmt`]
+    which bypasses the rest of the pipeline below.
+
     ## Design
 
     The overall design of Rupes Recta is very similar to that of Rust's build
@@ -104,6 +109,9 @@ pub mod pkg_solve;
 // High-level actions
 pub mod compile;
 pub mod resolve;
+
+// Formatter
+pub mod fmt;
 
 // Random utilities
 mod special_cases;

@@ -42,6 +42,14 @@ pub fn print_dry_run(
     moonbuild::dry_run::print_build_commands(build_graph, &default_files, source_dir, target_dir);
 }
 
+/// Print all commands in a dry-run.
+///
+/// Similar to [`print_dry_run`], but assumes *all* files in the build graph are to be built.
+pub fn print_dry_run_all(build_graph: &n2::graph::Graph, source_dir: &Path, target_dir: &Path) {
+    let default_files = build_graph.get_start_nodes();
+    moonbuild::dry_run::print_build_commands(build_graph, &default_files, source_dir, target_dir);
+}
+
 /// Print a command as it would be executed, with the proper escaping.
 pub fn dry_print_command(cmd: &Command) {
     let args = std::iter::once(cmd.get_program())

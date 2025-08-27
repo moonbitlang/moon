@@ -19,6 +19,7 @@
 //! Build artifact path calculation and relevant information
 
 use std::{
+    ffi::OsStr,
     fmt::Display,
     path::{Path, PathBuf},
 };
@@ -111,6 +112,16 @@ impl LegacyLayout {
         dir.extend(pkg.package().segments());
 
         dir
+    }
+
+    fn push_package_dir_no_backend(&self, dir: &mut PathBuf, pkg: &PackageFQN) {
+        if self.main_module.as_ref().is_some_and(|m| pkg.module() == m) {
+            // no nested directory for the working module
+        } else {
+            dir.push(LEGACY_NON_MAIN_MODULE_DIR);
+            dir.extend(pkg.module().name().segments());
+        }
+        dir.extend(pkg.package().segments());
     }
 
     pub fn core_of_build_target(
@@ -216,6 +227,15 @@ impl LegacyLayout {
         let mut result = self.target_base_dir.clone();
         push_backend(&mut result, backend);
         result.push(format!("runtime{}", object_file_ext(os)));
+        result
+    }
+
+    /// The *artifact* of the format operation. This should be only for the
+    /// temporary output of a format-diff operation.
+    pub fn format_artifact_path(&self, pkg: &PackageFQN, filename: &OsStr) -> PathBuf {
+        let mut result = self.target_base_dir.clone();
+        self.push_package_dir_no_backend(&mut result, pkg);
+        result.push(filename);
         result
     }
 }

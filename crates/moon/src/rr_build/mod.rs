@@ -44,7 +44,7 @@ use moonutil::{
 use crate::cli::BuildFlags;
 
 mod dry_run;
-pub use dry_run::{dry_print_command, print_dry_run};
+pub use dry_run::{dry_print_command, print_dry_run, print_dry_run_all};
 
 /// The function that calculates the user intent for the build process.
 ///

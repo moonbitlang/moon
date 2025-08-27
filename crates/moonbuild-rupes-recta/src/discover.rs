@@ -59,7 +59,8 @@ pub fn discover_packages(
     debug!("Discovering packages in {} modules", env.module_count());
 
     for (id, m) in env.all_modules_and_id() {
-        discover_packages_for_mod(&mut res, env, dirs, id, m)?;
+        let dir = dirs.get(id).expect("Bad module ID to get directory");
+        discover_packages_for_mod(&mut res, env, dir, id, m)?;
     }
 
     info!(
@@ -72,17 +73,16 @@ pub fn discover_packages(
 }
 
 /// Discover packages within the given module directory
-fn discover_packages_for_mod(
+pub(crate) fn discover_packages_for_mod(
     res: &mut DiscoverResult,
     env: &ResolvedEnv,
-    dirs: &DirSyncResult,
+    dir: &Path,
     id: ModuleId,
     module_source: &ModuleSource,
 ) -> Result<(), DiscoverError> {
     // This information is the one we get from the registry. We will read again
     // from the resolved directory
     let m_registry = env.module_info(id);
-    let dir = dirs.get(id).expect("Bad module ID to get directory");
 
     info!(
         "Begin discovering packages for {} at {}",
@@ -93,7 +93,7 @@ fn discover_packages_for_mod(
     // This is the version we read from directory
     let m = read_module_desc_file_in_dir(dir).map_err(|e| DiscoverError::CantReadModuleFile {
         module: module_source.clone(),
-        path: dir.clone(),
+        path: dir.to_owned(),
         inner: e,
     })?;
 
