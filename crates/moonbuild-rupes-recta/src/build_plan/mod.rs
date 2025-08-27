@@ -691,9 +691,29 @@ impl<'a> BuildPlanConstructor<'a> {
     fn build_bundle(
         &mut self,
         _node: BuildPlanNode,
-        _module_id: ModuleId,
+        module_id: ModuleId,
     ) -> Result<(), BuildPlanConstructError> {
-        todo!()
+        // Bundling a module gathers the build result of all its non-virtual packages
+        for &pkg_id in self
+            .packages
+            .packages_for_module(module_id)
+            .expect("Module should exist")
+            .values()
+        {
+            let pkg = self.packages.get_package(pkg_id);
+            if pkg.raw.virtual_pkg.is_some() {
+                continue;
+            }
+
+            let build_node = BuildPlanNode::BuildCore(BuildTarget {
+                package: pkg_id,
+                kind: TargetKind::Source,
+            });
+            self.need_node(build_node);
+            self.add_edge(_node, build_node);
+        }
+
+        Ok(())
     }
 
     fn build_runtime_lib(&mut self, _node: BuildPlanNode) -> Result<(), BuildPlanConstructError> {

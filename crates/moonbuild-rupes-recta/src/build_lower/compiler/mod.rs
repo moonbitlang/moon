@@ -20,6 +20,7 @@
 
 mod build_common;
 mod build_package;
+mod bundle_core;
 mod check;
 mod gen_test_driver;
 mod link_core;
@@ -33,6 +34,7 @@ use crate::pkg_name::PackageFQN;
 
 pub use self::build_common::BuildCommonArgs;
 pub use self::build_package::MooncBuildPackage;
+pub use self::bundle_core::MooncBundleCore;
 pub use self::check::MooncCheck;
 pub use self::gen_test_driver::MoonGenTestDriver;
 pub use self::link_core::MooncLinkCore;

@@ -28,7 +28,7 @@ use derive_builder::Builder;
 use moonutil::{
     common::{RunMode, TargetBackend, MBTI_GENERATED},
     cond_expr::OptLevel,
-    mooncakes::ModuleSource,
+    mooncakes::{ModuleName, ModuleSource},
 };
 
 use crate::{
@@ -221,6 +221,13 @@ impl LegacyLayout {
             build_kind_suffix(target.kind)
         ));
         base_dir
+    }
+
+    pub fn bundle_result_path(&self, backend: TargetBackend, module: &ModuleName) -> PathBuf {
+        let mut result = self.target_base_dir.clone();
+        push_backend(&mut result, backend);
+        result.push(format!("{}.core", module.last_segment()));
+        result
     }
 
     pub fn runtime_output_path(&self, backend: TargetBackend, os: OperatingSystem) -> PathBuf {

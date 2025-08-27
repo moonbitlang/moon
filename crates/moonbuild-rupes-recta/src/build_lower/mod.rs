@@ -31,7 +31,7 @@ use moonutil::{
         OutputType as CCOutputType, CC,
     },
     cond_expr::OptLevel,
-    mooncakes::{ModuleSource, CORE_MODULE},
+    mooncakes::{result::ResolvedEnv, ModuleId, ModuleSource, CORE_MODULE},
     package::JsFormat,
 };
 use n2::graph::{Build, BuildIns, BuildOuts, FileId, FileLoc, Graph as N2Graph};
@@ -92,6 +92,7 @@ pub struct LoweringResult {
 
 /// Lowers a [`BuildPlan`] into a n2 [Build Graph](n2::graph::Graph).
 pub fn lower_build_plan(
+    modules: &ResolvedEnv,
     packages: &DiscoverResult,
     rel: &DepRelationship,
     build_plan: &BuildPlan,
@@ -115,6 +116,7 @@ pub fn lower_build_plan(
         graph: N2Graph::default(),
         layout,
         rel,
+        modules,
         packages,
         build_plan,
         opt,
@@ -162,6 +164,7 @@ struct BuildPlanLowerContext<'a> {
 
     // External state
     packages: &'a DiscoverResult,
+    modules: &'a ResolvedEnv,
     rel: &'a DepRelationship,
     build_plan: &'a BuildPlan,
     opt: &'a BuildOptions,
@@ -214,7 +217,7 @@ impl<'a> BuildPlanLowerContext<'a> {
                 self.lower_make_exe(target, info)
             }
             BuildPlanNode::GenerateMbti(target) => self.lower_generate_mbti(target),
-            BuildPlanNode::Bundle(_module_id) => todo!(),
+            BuildPlanNode::Bundle(module_id) => self.lower_bundle(node, module_id),
             BuildPlanNode::GenerateTestInfo(target) => {
                 let info = self
                     .build_plan
@@ -317,8 +320,12 @@ impl<'a> BuildPlanLowerContext<'a> {
                     self.opt.target_backend,
                 ));
             }
-            BuildPlanNode::Bundle(_module_id) => {
-                todo!()
+            BuildPlanNode::Bundle(id) => {
+                let module_name = self.modules.mod_name_from_id(id);
+                out.push(
+                    self.layout
+                        .bundle_result_path(self.opt.target_backend, module_name.name()),
+                );
             }
             BuildPlanNode::BuildRuntimeLib => {
                 out.push(
@@ -651,6 +658,32 @@ impl<'a> BuildPlanLowerContext<'a> {
         BuildCommand {
             commandline: cmd.build_command("moon"),
             extra_inputs: files_vec,
+        }
+    }
+
+    fn lower_bundle(&mut self, node: BuildPlanNode, module_id: ModuleId) -> BuildCommand {
+        let module = self.modules.mod_name_from_id(module_id);
+        let output = self
+            .layout
+            .bundle_result_path(self.opt.target_backend, module.name());
+
+        let mut inputs = vec![];
+        for dep in self.build_plan.dependency_nodes(node) {
+            let BuildPlanNode::BuildCore(package) = dep else {
+                panic!("Bundle node can only depend on BuildCore nodes");
+            };
+            inputs.push(self.layout.core_of_build_target(
+                self.packages,
+                &package,
+                self.opt.target_backend,
+            ));
+        }
+
+        let cmd = compiler::MooncBundleCore::new(&inputs, output);
+
+        BuildCommand {
+            extra_inputs: vec![],
+            commandline: cmd.build_command("moonc"),
         }
     }
 

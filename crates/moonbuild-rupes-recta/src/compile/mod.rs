@@ -127,6 +127,7 @@ pub fn compile(
         runtime_dot_c_path: MOON_DIRS.moon_lib_path.join("runtime.c"), // FIXME: don't calculate here
     };
     let res = build_lower::lower_build_plan(
+        &resolve_output.module_rel,
         &resolve_output.pkg_dirs,
         &resolve_output.pkg_rel,
         &plan,
