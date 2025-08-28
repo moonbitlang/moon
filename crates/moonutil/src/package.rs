@@ -529,26 +529,46 @@ pub struct WasmLinkConfig {
     pub flags: Option<Vec<String>>,
 }
 
+/// Native C/C++ compilation and linking configuration for MoonBit packages.
+///
+/// Controls how C stub files and main executables are compiled and linked.
+/// The build system uses these flags differently depending on compilation mode:
+/// normal mode creates static libraries, while TCC mode creates dynamic libraries.
 #[derive(Debug, Serialize, Deserialize, Clone, JsonSchema, Default)]
 #[serde(rename_all = "kebab-case")]
 pub struct NativeLinkConfig {
     // FIXME: We have no way to force link a native library when not `is_main`
+    /// Function exports for the final native executable
     #[serde(skip_serializing_if = "Option::is_none")]
     pub exports: Option<Vec<String>>,
+
+    /// Custom C compiler for main MoonBit-generated C code
     #[serde(skip_serializing_if = "Option::is_none")]
     pub cc: Option<String>,
+
+    /// Compiler flags for main MoonBit-generated C code (whitespace-separated)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub cc_flags: Option<String>,
+
+    /// Linker flags for main executable (also used for stub dynamic libraries in TCC mode)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub cc_link_flags: Option<String>,
 
+    /// Custom C compiler for C stub files
     #[serde(skip_serializing_if = "Option::is_none")]
     pub stub_cc: Option<String>,
+
+    /// Compiler flags for C stub compilation (whitespace-separated)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub stub_cc_flags: Option<String>,
+
+    /// Linker flags for C stub linking (only used in TCC mode for dynamic libraries)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub stub_cc_link_flags: Option<String>,
 
+    /// Compiled stub object files as dependencies for the executable
+    ///
+    /// (should not be present in the `pkg.json`, generated and populated later)
     #[serde(skip_serializing_if = "Option::is_none")]
     #[schemars(skip)]
     pub stub_lib_deps: Option<Vec<String>>,
