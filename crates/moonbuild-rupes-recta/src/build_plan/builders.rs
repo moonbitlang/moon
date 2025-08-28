@@ -20,11 +20,12 @@
 
 use indexmap::{set::MutableValues, IndexSet};
 use log::{debug, trace};
+use moonutil::compiler_flags::CC;
 use petgraph::visit::DfsPostOrder;
 
 use crate::{
     cond_comp::{self, CompileCondition},
-    model::{BuildPlanNode, BuildTarget, TargetKind},
+    model::{BuildPlanNode, BuildTarget, PackageId, TargetKind},
 };
 
 use super::{
@@ -146,19 +147,68 @@ impl<'a> BuildPlanConstructor<'a> {
         }
     }
 
-    pub(super) fn build_build_c_stubs(
+    pub(super) fn build_build_c_stub(
         &mut self,
         node: BuildPlanNode,
-        target: BuildTarget,
+        _target: PackageId,
+        _index: u32,
     ) -> Result<(), BuildPlanConstructError> {
-        // Depends on nothing, but anyway needs to be inserted into the graph.
+        // depends on nothing, but needs to be inserted into the list
         self.need_node(node);
 
-        // Resolve the C stub files
-        let pkg = self.packages.get_package(target.package);
-        let c_source = pkg.c_stub_files.clone();
+        // We rely on the `link_c_stubs` action to resolve the C stub info
+        // so this doesn't panic.
+        self.resolved_node(node);
+        Ok(())
+    }
 
-        let c_info = BuildCStubsInfo { c_stubs: c_source };
+    pub(super) fn build_link_c_stubs(
+        &mut self,
+        node: BuildPlanNode,
+        target: PackageId,
+    ) -> Result<(), BuildPlanConstructError> {
+        // Resolve the C stub files
+        let pkg = self.packages.get_package(target);
+        for i in 0..pkg.c_stub_files.len() {
+            let build_node = self.need_node(BuildPlanNode::BuildCStub(target, i as u32));
+            self.add_edge(node, build_node);
+        }
+
+        // TODO: variable replacement
+        // FIXME: This is getting long. fix spaghetti.
+        let native_config = pkg.raw.link.as_ref().and_then(|x| x.native.as_ref());
+
+        let stub_cc = native_config
+            .and_then(|x| x.cc.as_ref())
+            .map(|cc| CC::try_from_path(cc))
+            .transpose()
+            .map_err(|e| BuildPlanConstructError::FailedToSetStubCC(e, pkg.fqn.clone().into()))?;
+
+        let cc_flags = native_config
+            .and_then(|x| x.cc_flags.as_ref())
+            .map(|x| {
+                shlex::split(x).ok_or_else(|| {
+                    BuildPlanConstructError::MalformedStubCCFlags(pkg.fqn.clone().into())
+                })
+            })
+            .transpose()?
+            .unwrap_or_default();
+
+        let link_flags = native_config
+            .and_then(|x| x.stub_cc_link_flags.as_ref())
+            .map(|x| {
+                shlex::split(x).ok_or_else(|| {
+                    BuildPlanConstructError::MalformedStubCCLinkFlags(pkg.fqn.clone().into())
+                })
+            })
+            .transpose()?
+            .unwrap_or_default();
+
+        let c_info = BuildCStubsInfo {
+            stub_cc,
+            cc_flags,
+            link_flags,
+        };
         self.res.c_stubs_info.insert(target, c_info);
         self.resolved_node(node);
 
@@ -251,16 +301,36 @@ impl<'a> BuildPlanConstructor<'a> {
 
         // Add dependencies of make exec
         for target in &c_stub_deps {
-            let dep_node = self.need_node(BuildPlanNode::BuildCStubs(*target));
+            let dep_node = self.need_node(BuildPlanNode::ArchiveCStubs(target.package));
             self.add_edge(make_exec_node, dep_node);
         }
         let c_stub_deps = c_stub_deps.into_iter().collect::<Vec<_>>();
-        self.res.make_executable_info.insert(
-            target,
-            MakeExecutableInfo {
-                link_c_stubs: c_stub_deps.clone(),
-            },
-        );
+
+        // Fill auxiliary flags for CC flags
+        // TODO: variable replacement in flags
+        // FIXME: This is getting long. fix spaghetti.
+        let pkg = self.packages.get_package(target.package);
+        let native_config = pkg.raw.link.as_ref().and_then(|x| x.native.as_ref());
+        let cc = native_config
+            .and_then(|x| x.cc.as_ref())
+            .map(|x| CC::try_from_path(x))
+            .transpose()
+            .map_err(|e| BuildPlanConstructError::FailedToSetCC(e, pkg.fqn.clone().into()))?;
+        let c_flags = native_config
+            .and_then(|x| x.cc_flags.as_ref())
+            .map(|x| {
+                shlex::split(x).ok_or_else(|| {
+                    BuildPlanConstructError::MalformedCCFlags(pkg.fqn.clone().into())
+                })
+            })
+            .transpose()?
+            .unwrap_or_default();
+        let v = MakeExecutableInfo {
+            link_c_stubs: c_stub_deps.clone(),
+            cc,
+            c_flags,
+        };
+        self.res.make_executable_info.insert(target, v);
 
         // Native backends also needs a runtime library
         if self.build_env.target_backend.is_native() {

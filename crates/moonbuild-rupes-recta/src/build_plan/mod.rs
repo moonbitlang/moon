@@ -40,12 +40,13 @@ use std::{
 };
 
 use log::{debug, info};
-use moonutil::{common::TargetBackend, cond_expr::OptLevel};
+use moonutil::{common::TargetBackend, compiler_flags::CC, cond_expr::OptLevel};
 use petgraph::prelude::DiGraphMap;
 
 use crate::{
     discover::DiscoverResult,
-    model::{BuildPlanNode, BuildTarget},
+    model::{BuildPlanNode, BuildTarget, PackageId},
+    pkg_name::PackageFQNWithSource,
     pkg_solve::DepRelationship,
 };
 
@@ -82,7 +83,7 @@ pub struct BuildPlan {
     link_core_info: HashMap<BuildTarget, LinkCoreInfo>,
 
     /// The map of build target to the C stubs information
-    c_stubs_info: HashMap<BuildTarget, BuildCStubsInfo>,
+    c_stubs_info: HashMap<PackageId, BuildCStubsInfo>,
 
     /// The map of build target to the information needed to make it executable
     make_executable_info: HashMap<BuildTarget, MakeExecutableInfo>,
@@ -112,8 +113,8 @@ impl BuildPlan {
     }
 
     /// Get C stubs information for the given target.
-    pub fn get_c_stubs_info(&self, target: &BuildTarget) -> Option<&BuildCStubsInfo> {
-        self.c_stubs_info.get(target)
+    pub fn get_c_stubs_info(&self, target: PackageId) -> Option<&BuildCStubsInfo> {
+        self.c_stubs_info.get(&target)
     }
 
     /// Get make executable information for the given target.
@@ -185,11 +186,20 @@ pub struct LinkCoreInfo {
 }
 
 pub struct BuildCStubsInfo {
-    /// The C stub files to be built.
-    pub(crate) c_stubs: Vec<PathBuf>,
+    /// The C compiler to compile the C stubs
+    pub(crate) stub_cc: Option<CC>,
+    /// Additional flags to pass to the C compiler when compiling the C stubs
+    pub(crate) cc_flags: Vec<String>,
+    /// Additional flags to pass to the linker (TCC only)
+    #[allow(unused)]
+    pub(crate) link_flags: Vec<String>,
 }
 
 pub struct MakeExecutableInfo {
+    /// The C compiler to use to compile the package itself
+    pub(crate) cc: Option<CC>,
+    /// The flags to pass to the C compiler when compiling the package itself
+    pub(crate) c_flags: Vec<String>,
     /// The C stub targets to link with.
     pub(crate) link_c_stubs: Vec<BuildTarget>,
 }
@@ -210,7 +220,20 @@ pub struct BuildEnvironment {
 ///
 /// TODO: Will we even meet errors during build graph construction?
 #[derive(Debug, thiserror::Error)]
-pub enum BuildPlanConstructError {}
+pub enum BuildPlanConstructError {
+    #[error("Failed to set C compiler when compiling {1}")]
+    FailedToSetCC(#[source] anyhow::Error, PackageFQNWithSource),
+    #[error("Failed to set stub C compiler when compiling {1}")]
+    FailedToSetStubCC(#[source] anyhow::Error, PackageFQNWithSource),
+    #[error("Malformed cc flags in package {0}")]
+    MalformedCCFlags(PackageFQNWithSource),
+    #[error("Malformed cc link flags in package {0}")]
+    MalformedCCLinkFlags(PackageFQNWithSource),
+    #[error("Malformed stub cc flags in package {0}")]
+    MalformedStubCCFlags(PackageFQNWithSource),
+    #[error("Malformed stub cc link flags in package {0}")]
+    MalformedStubCCLinkFlags(PackageFQNWithSource),
+}
 
 /// Construct an abstract build graph from the given packages and input actions.
 pub fn build_plan(

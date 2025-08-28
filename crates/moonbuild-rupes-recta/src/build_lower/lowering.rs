@@ -21,10 +21,12 @@
 use moonutil::{
     common::{DriverKind, TargetBackend},
     compiler_flags::{
-        make_cc_command_pure, resolve_cc, CCConfigBuilder, OptLevel as CCOptLevel,
-        OutputType as CCOutputType, CC,
+        make_archiver_command, make_cc_command, make_cc_command_pure, resolve_cc,
+        ArchiverConfigBuilder, CCConfigBuilder, OptLevel as CCOptLevel, OutputType as CCOutputType,
+        CC,
     },
     cond_expr::OptLevel,
+    moon_dir::MOON_DIRS,
     mooncakes::{ModuleId, CORE_MODULE},
     package::JsFormat,
 };
@@ -35,8 +37,8 @@ use crate::{
         artifact,
         compiler::{CmdlineAbstraction, MiDependency, Mooninfo, PackageSource},
     },
-    build_plan::{BuildTargetInfo, LinkCoreInfo, MakeExecutableInfo},
-    model::{BuildPlanNode, BuildTarget, TargetKind},
+    build_plan::{BuildCStubsInfo, BuildTargetInfo, LinkCoreInfo, MakeExecutableInfo},
+    model::{BuildPlanNode, BuildTarget, PackageId, TargetKind},
     pkg_name::{PackageFQN, PackagePath},
 };
 
@@ -227,6 +229,113 @@ impl<'a> BuildPlanLowerContext<'a> {
         }
     }
 
+    pub(super) fn lower_build_c_stub(
+        &mut self,
+        target: PackageId,
+        index: u32,
+        info: &BuildCStubsInfo,
+    ) -> BuildCommand {
+        assert!(
+            self.opt.target_backend.is_native(),
+            "Non-native make-executable should be already matched and should not be here"
+        );
+
+        let package = self.packages.get_package(target);
+
+        let input_file = &package.c_stub_files[index as usize];
+        let output_file = self.layout.c_stub_object_path(
+            self.packages,
+            target,
+            input_file
+                .file_name()
+                .expect("stub lib should have a file name"),
+            self.opt.target_backend,
+            self.opt.os,
+        );
+
+        // Match legacy to_opt_level function exactly
+        let opt_level = match (
+            self.opt.opt_level == OptLevel::Release,
+            self.opt.debug_symbols,
+        ) {
+            (true, false) => CCOptLevel::Speed,
+            (true, true) => CCOptLevel::Debug,
+            (false, true) => CCOptLevel::Debug,
+            (false, false) => CCOptLevel::None,
+        };
+
+        let config = CCConfigBuilder::default()
+            .no_sys_header(true)
+            .output_ty(CCOutputType::Object)
+            .opt_level(opt_level)
+            .debug_info(self.opt.debug_symbols)
+            .link_moonbitrun(true) // TODO: support use_tcc_run flag when available
+            .define_use_shared_runtime_macro(false) // TODO: support use_tcc_run flag when available
+            .build()
+            .expect("Failed to build CC configuration for C stub");
+
+        let cc_cmd = make_cc_command(
+            CC::default(),
+            info.stub_cc.clone(),
+            config,
+            &info.cc_flags,
+            [input_file.display().to_string()],
+            &MOON_DIRS.moon_lib_path.display().to_string(),
+            &output_file.display().to_string(),
+        );
+
+        BuildCommand {
+            commandline: cc_cmd,
+            extra_inputs: vec![input_file.clone()],
+        }
+    }
+
+    pub(super) fn lower_archive_c_stubs(
+        &mut self,
+        node: BuildPlanNode,
+        target: PackageId,
+        info: &BuildCStubsInfo,
+    ) -> BuildCommand {
+        assert!(
+            self.opt.target_backend.is_native(),
+            "Non-native make-executable should be already matched and should not be here"
+        );
+
+        let mut object_files = Vec::new();
+        for input in self.build_plan.dependency_nodes(node) {
+            self.append_artifact_of(input, &mut object_files);
+        }
+
+        // Match legacy: create archive name as lib{pkgname}.{A_EXT}
+        let archive = self.layout.c_stub_archive_path(
+            self.packages,
+            target,
+            self.opt.target_backend,
+            self.opt.os,
+        );
+
+        let config = ArchiverConfigBuilder::default()
+            .archive_moonbitrun(false)
+            .build()
+            .expect("Failed to build archiver configuration");
+
+        let archiver_cmd = make_archiver_command(
+            CC::default(),
+            info.stub_cc.clone(), // TODO: no clone
+            config,
+            &object_files
+                .iter()
+                .map(|s| s.to_string_lossy())
+                .collect::<Vec<_>>(),
+            &archive.display().to_string(),
+        );
+
+        BuildCommand {
+            extra_inputs: vec![],
+            commandline: archiver_cmd,
+        }
+    }
+
     pub(super) fn lower_make_exe(
         &mut self,
         target: BuildTarget,
@@ -251,7 +360,7 @@ impl<'a> BuildPlanLowerContext<'a> {
         self.append_artifact_of(BuildPlanNode::BuildRuntimeLib, &mut sources);
         // C stubs to link
         for &stub_tgt in &info.link_c_stubs {
-            self.append_artifact_of(BuildPlanNode::BuildCStubs(stub_tgt), &mut sources);
+            self.append_artifact_of(BuildPlanNode::ArchiveCStubs(stub_tgt.package), &mut sources);
         }
 
         let opt_level = match self.opt.opt_level {
@@ -267,10 +376,10 @@ impl<'a> BuildPlanLowerContext<'a> {
             .define_use_shared_runtime_macro(false)
             .build()
             .expect("Failed to build CC configuration for executable");
-        let cc_cmd = make_cc_command_pure::<&'static str>(
-            resolve_cc(CC::default(), None),
+        let cc_cmd = make_cc_command_pure(
+            resolve_cc(CC::default(), info.cc.clone()), // TODO: no clone
             config,
-            &[], // TODO: support native cc flags
+            &info.c_flags,
             sources.iter().map(|x| x.display().to_string()),
             &self.opt.target_dir_root.display().to_string(),
             &self

@@ -89,7 +89,9 @@ impl PackageId {
 pub enum BuildPlanNode {
     Check(BuildTarget),
     BuildCore(BuildTarget),
-    BuildCStubs(BuildTarget),
+    /// Build the i-th C file in the C stub list.
+    BuildCStub(PackageId, u32), // change into global artifact list if we need non-package ones
+    ArchiveCStubs(PackageId),
     LinkCore(BuildTarget),
     MakeExecutable(BuildTarget),
     GenerateTestInfo(BuildTarget),
@@ -105,10 +107,6 @@ impl BuildPlanNode {
 
     pub fn build_core(target: BuildTarget) -> Self {
         Self::BuildCore(target)
-    }
-
-    pub fn build_c_stubs(target: BuildTarget) -> Self {
-        Self::BuildCStubs(target)
     }
 
     pub fn link_core(target: BuildTarget) -> Self {
@@ -128,12 +126,14 @@ impl BuildPlanNode {
         match *self {
             BuildPlanNode::Check(target)
             | BuildPlanNode::BuildCore(target)
-            | BuildPlanNode::BuildCStubs(target)
             | BuildPlanNode::LinkCore(target)
             | BuildPlanNode::MakeExecutable(target)
             | BuildPlanNode::GenerateTestInfo(target)
             | BuildPlanNode::GenerateMbti(target) => Some(target),
-            BuildPlanNode::Bundle(_) | BuildPlanNode::BuildRuntimeLib => None,
+            BuildPlanNode::BuildCStub(_, _)
+            | BuildPlanNode::ArchiveCStubs(_)
+            | BuildPlanNode::Bundle(_)
+            | BuildPlanNode::BuildRuntimeLib => None,
         }
     }
 }

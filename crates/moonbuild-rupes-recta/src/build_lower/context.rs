@@ -105,7 +105,20 @@ impl<'a> BuildPlanLowerContext<'a> {
                     .expect("Build target info should be present for BuildCore nodes");
                 self.lower_build_mbt(node, target, info)
             }
-            BuildPlanNode::BuildCStubs(_target) => todo!(),
+            BuildPlanNode::BuildCStub(target, index) => {
+                let info = self
+                    .build_plan
+                    .get_c_stubs_info(target)
+                    .expect("C stub info should be present for BuildCStub nodes");
+                self.lower_build_c_stub(target, index, info)
+            }
+            BuildPlanNode::ArchiveCStubs(_target) => {
+                let info = self
+                    .build_plan
+                    .get_c_stubs_info(_target)
+                    .expect("C stubs info should be present for BuildCStubs nodes");
+                self.lower_archive_c_stubs(node, _target, info)
+            }
             BuildPlanNode::LinkCore(target) => {
                 let info = self
                     .build_plan
@@ -194,7 +207,29 @@ impl<'a> BuildPlanLowerContext<'a> {
                     self.opt.target_backend,
                 ));
             }
-            BuildPlanNode::BuildCStubs(_target) => todo!("artifacts of build c stubs"),
+            BuildPlanNode::BuildCStub(package, index) => {
+                let pkg = self.packages.get_package(package);
+                let file_name = &pkg.c_stub_files[index as usize];
+                out.push(
+                    self.layout.c_stub_object_path(
+                        self.packages,
+                        package,
+                        file_name
+                            .file_name()
+                            .expect("c stub file should have a file name"),
+                        self.opt.target_backend,
+                        self.opt.os,
+                    ),
+                );
+            }
+            BuildPlanNode::ArchiveCStubs(_target) => {
+                out.push(self.layout.c_stub_archive_path(
+                    self.packages,
+                    _target,
+                    self.opt.target_backend,
+                    self.opt.os,
+                ));
+            }
             BuildPlanNode::LinkCore(target) => {
                 out.push(self.layout.linked_core_of_build_target(
                     self.packages,

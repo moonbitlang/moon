@@ -33,7 +33,7 @@ use moonutil::{
 
 use crate::{
     discover::DiscoverResult,
-    model::{BuildTarget, OperatingSystem, TargetKind},
+    model::{BuildTarget, OperatingSystem, PackageId, TargetKind},
     pkg_name::PackageFQN,
 };
 
@@ -249,6 +249,45 @@ impl LegacyLayout {
     pub fn generated_mbti_path(&self, pkg_source: &Path) -> PathBuf {
         pkg_source.join(MBTI_GENERATED)
     }
+
+    /// Returns the path for a C stub object file.
+    ///
+    /// Format: `target/{backend}/{opt_level}/build/{package_path}/{stub_name}.o`
+    pub fn c_stub_object_path(
+        &self,
+        pkg_list: &DiscoverResult,
+        package: PackageId,
+        stub_name: &OsStr,
+        backend: TargetBackend,
+        os: OperatingSystem,
+    ) -> PathBuf {
+        let pkg_fqn = &pkg_list.get_package(package).fqn;
+        let mut base_dir = self.package_dir(pkg_fqn, backend);
+        let mut stub_name = stub_name.to_os_string();
+        stub_name.push(object_file_ext(os));
+        base_dir.push(stub_name);
+        base_dir
+    }
+
+    /// Returns the path for a C stub static library archive.
+    ///
+    /// Format: `target/{backend}/{opt_level}/build/{package_path}/lib{package_name}.a`
+    pub fn c_stub_archive_path(
+        &self,
+        pkg_list: &DiscoverResult,
+        package: PackageId,
+        backend: TargetBackend,
+        os: OperatingSystem,
+    ) -> PathBuf {
+        let pkg_fqn = &pkg_list.get_package(package).fqn;
+        let mut base_dir = self.package_dir(pkg_fqn, backend);
+        base_dir.push(format!(
+            "lib{}{}",
+            pkg_fqn.short_alias(),
+            static_library_ext(os)
+        ));
+        base_dir
+    }
 }
 
 fn push_backend(path: &mut PathBuf, backend: TargetBackend) {
@@ -300,7 +339,6 @@ fn executable_ext(os: OperatingSystem, legacy_behavior: bool) -> &'static str {
 }
 
 /// Returns the file extension for static libraries on the given OS
-#[allow(unused)]
 fn static_library_ext(os: OperatingSystem) -> &'static str {
     match os {
         OperatingSystem::Windows => ".lib",

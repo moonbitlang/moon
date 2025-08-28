@@ -162,7 +162,10 @@ impl BuildPlanNode {
         match self {
             BuildPlanNode::Check(target) => format!("{:?}@Check", target),
             BuildPlanNode::BuildCore(target) => format!("{:?}@BuildCore", target),
-            BuildPlanNode::BuildCStubs(target) => format!("{:?}@BuildCStubs", target),
+            BuildPlanNode::BuildCStub(target, index) => {
+                format!("{:?}@BuildCStub_{}", target, index)
+            }
+            BuildPlanNode::ArchiveCStubs(target) => format!("{:?}@ArchiveCStubs", target),
             BuildPlanNode::LinkCore(target) => format!("{:?}@LinkCore", target),
             BuildPlanNode::MakeExecutable(target) => format!("{:?}@MakeExecutable", target),
             BuildPlanNode::GenerateTestInfo(target) => format!("{:?}@GenerateTestInfo", target),
@@ -182,8 +185,12 @@ impl BuildPlanNode {
                 let fqn = packages.fqn(target.package);
                 format!("{}\\nBuildCore", fqn)
             }
-            BuildPlanNode::BuildCStubs(target) => {
-                let fqn = packages.fqn(target.package);
+            BuildPlanNode::BuildCStub(target, index) => {
+                let fqn = packages.fqn(*target);
+                format!("{}\\nBuildCStub_{}", fqn, index)
+            }
+            BuildPlanNode::ArchiveCStubs(target) => {
+                let fqn = packages.fqn(*target);
                 format!("{}\\nBuildCStubs", fqn)
             }
             BuildPlanNode::LinkCore(target) => {
@@ -215,7 +222,8 @@ impl BuildPlanNode {
         match self {
             BuildPlanNode::Check(_) => "lightblue",
             BuildPlanNode::BuildCore(_) => "lightgreen",
-            BuildPlanNode::BuildCStubs(_) => "lightyellow",
+            BuildPlanNode::BuildCStub(_, _) => "lightsalmon",
+            BuildPlanNode::ArchiveCStubs(_) => "lightyellow",
             BuildPlanNode::LinkCore(_) => "lightcoral",
             BuildPlanNode::MakeExecutable(_) => "lightpink",
             BuildPlanNode::GenerateTestInfo(_) => "lightgray",
