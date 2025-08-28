@@ -149,7 +149,7 @@ fn render_and_catch_callback(
                         check_patch_file.clone(),
                         explain,
                         render_no_loc,
-                        (source_dir.clone(), target_dir.clone()),
+                        (target_dir.clone(), source_dir.clone()),
                     )
                 };
                 catcher.lock().unwrap().append_content(content, report_kind);
