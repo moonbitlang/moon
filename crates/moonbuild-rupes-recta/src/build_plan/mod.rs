@@ -35,21 +35,24 @@
 //! [cu]: https://github.com/rust-lang/cargo/blob/master/src/cargo/core/compiler/unit.rs
 
 use std::{
-    collections::{HashMap, HashSet},
+    collections::HashMap,
     path::{Path, PathBuf},
 };
 
-use indexmap::{set::MutableValues, IndexSet};
-use log::{debug, info, trace};
-use moonutil::{common::TargetBackend, cond_expr::OptLevel, mooncakes::ModuleId};
-use petgraph::{prelude::DiGraphMap, visit::DfsPostOrder};
+use log::{debug, info};
+use moonutil::{common::TargetBackend, cond_expr::OptLevel};
+use petgraph::prelude::DiGraphMap;
 
 use crate::{
-    cond_comp::{self, CompileCondition},
     discover::DiscoverResult,
-    model::{BuildPlanNode, BuildTarget, TargetKind},
+    model::{BuildPlanNode, BuildTarget},
     pkg_solve::DepRelationship,
 };
+
+mod builders;
+mod constructor;
+
+use constructor::BuildPlanConstructor;
 
 /// A directed graph representation of build dependencies and targets.
 ///
@@ -141,16 +144,16 @@ impl BuildPlan {
 #[derive(Debug)]
 pub struct BuildTargetInfo {
     /// Regular compilation files
-    regular_files: Vec<PathBuf>,
+    pub(crate) regular_files: Vec<PathBuf>,
 
     /// Whitebox test files. Separated so determine whether the whitebox test is
     /// needed.
     ///
     /// TODO: suboptimal design. Better not populate unused build target info.
-    whitebox_files: Vec<PathBuf>,
+    pub(crate) whitebox_files: Vec<PathBuf>,
 
     /// Files that needs their doctests extracted instead of regular compilation.
-    doctest_files: Vec<PathBuf>,
+    pub(crate) doctest_files: Vec<PathBuf>,
     // we currently don't need this, as it's controlled by build-wise options
     // /// Whether compiling this target needs the standard library
     // pub std: bool,
@@ -175,7 +178,7 @@ impl BuildTargetInfo {
 #[derive(Debug)]
 pub struct LinkCoreInfo {
     /// The targets in **initialization order**.
-    pub linked_order: Vec<BuildTarget>,
+    pub(crate) linked_order: Vec<BuildTarget>,
     // we currently don't need this, as it's controlled by build-wise options
     // /// Whether linking this target needs the standard library
     // pub std: bool,
@@ -183,12 +186,12 @@ pub struct LinkCoreInfo {
 
 pub struct BuildCStubsInfo {
     /// The C stub files to be built.
-    pub c_stubs: Vec<PathBuf>,
+    pub(crate) c_stubs: Vec<PathBuf>,
 }
 
 pub struct MakeExecutableInfo {
     /// The C stub targets to link with.
-    pub link_c_stubs: Vec<BuildTarget>,
+    pub(crate) link_c_stubs: Vec<BuildTarget>,
 }
 
 /// Represents the environment in which the build is being performed.
@@ -228,510 +231,7 @@ pub fn build_plan(
 
     info!(
         "Build plan construction completed with {} total nodes",
-        result.graph.node_count()
+        result.node_count()
     );
     Ok(result)
-}
-
-/// The struct responsible for holding the states and dependencies used during
-/// the construction of a build plan.
-struct BuildPlanConstructor<'a> {
-    // Input environment
-    packages: &'a DiscoverResult,
-    build_deps: &'a DepRelationship,
-    build_env: &'a BuildEnvironment,
-
-    /// The resulting build plan
-    res: BuildPlan,
-
-    /// Currently pending nodes that need to be processed.
-    pending: Vec<BuildPlanNode>,
-    resolved: HashSet<BuildPlanNode>,
-}
-
-impl<'a> BuildPlanConstructor<'a> {
-    fn new(
-        packages: &'a DiscoverResult,
-        build_deps: &'a DepRelationship,
-        build_env: &'a BuildEnvironment,
-    ) -> Self {
-        Self {
-            packages,
-            build_deps,
-            build_env,
-            res: BuildPlan::default(),
-            pending: Vec::new(),
-            resolved: HashSet::new(),
-        }
-    }
-
-    fn finish(self) -> BuildPlan {
-        self.res
-    }
-
-    fn build(
-        &mut self,
-        input: impl Iterator<Item = BuildPlanNode>,
-    ) -> Result<(), BuildPlanConstructError> {
-        assert!(
-            self.pending.is_empty(),
-            "Pending nodes should be empty before starting the build"
-        );
-
-        // Add the input node to the pending list
-        for i in input {
-            if self.should_skip_start_node(i) {
-                continue;
-            }
-            self.need_node(i);
-            self.res.input_nodes.push(i);
-        }
-
-        while let Some(node) = self.pending.pop() {
-            // check if the node is already resolved
-            if self.resolved.contains(&node) {
-                // Already resolved, skip
-                continue;
-            }
-
-            self.build_action_dependencies(node)?;
-        }
-        Ok(())
-    }
-
-    /// Determine whether this starting node should be skipped based on rules.
-    ///
-    /// This function currently handles:
-    /// - Skipping nodes of no real use:
-    ///   - Whitebox test nodes with no white box test files
-    ///
-    /// # Note
-    ///
-    /// Currently, removal of invalid starting nodes due to standard library
-    /// special cases is handled in [`crate::compile`], not here. Whether we
-    /// should merge the two functions is a subject of discussion.
-    fn should_skip_start_node(&mut self, node: BuildPlanNode) -> bool {
-        if let Some(tgt) = node.extract_target() {
-            if tgt.kind == TargetKind::WhiteboxTest {
-                // check if we actually have whitebox test files
-                self.populate_target_info(tgt);
-                let info = self
-                    .res
-                    .get_build_target_info(&tgt)
-                    .expect("just populated");
-                if info.whitebox_files.is_empty() {
-                    // No whitebox test files, skip this node
-                    debug!(
-                        "Skipping whitebox test node {:?} with no whitebox files",
-                        tgt
-                    );
-                    return true;
-                }
-            }
-        }
-
-        false
-    }
-
-    /// Tell the build graph that we need to calculate the graph portion of a
-    /// new node. To deduplicate pending nodes, this should be called before
-    /// adding relevant edges to the graph (since the latter will also add the
-    /// node into the graph).
-    fn need_node(&mut self, node: BuildPlanNode) -> BuildPlanNode {
-        if !self.resolved.contains(&node) {
-            self.pending.push(node);
-            self.res.graph.add_node(node);
-        }
-        node
-    }
-
-    /// Tell the build graph that the given node has been resolved into a
-    /// concrete action specification.
-    fn resolved_node(&mut self, node: BuildPlanNode) {
-        debug_assert!(
-            !self.resolved.contains(&node),
-            "Node {:?} should not be resolved twice",
-            node
-        );
-        debug_assert!(
-            self.res.graph.contains_node(node),
-            "Node {:?} should be in the graph before resolving",
-            node
-        );
-        self.resolved.insert(node);
-
-        // Ensure the resolved data is present in the build plan.
-        // Panics if the node is not present in the resolved data.
-        self.ensure_resolved(node);
-    }
-
-    fn ensure_resolved(&self, node: BuildPlanNode) {
-        match node {
-            BuildPlanNode::Check(build_target)
-            | BuildPlanNode::BuildCore(build_target)
-            | BuildPlanNode::GenerateTestInfo(build_target) => {
-                assert!(
-                    self.res.build_target_infos.contains_key(&build_target),
-                    "Build target info for {:?} should be present when resolving node {:?}",
-                    build_target,
-                    node
-                );
-            }
-            BuildPlanNode::BuildCStubs(build_target) => {
-                assert!(
-                    self.res.c_stubs_info.contains_key(&build_target),
-                    "C stubs info for {:?} should be present when resolving node {:?}",
-                    build_target,
-                    node
-                );
-            }
-            BuildPlanNode::LinkCore(build_target) => {
-                assert!(
-                    self.res.link_core_info.contains_key(&build_target),
-                    "Link core info for {:?} should be present when resolving node {:?}",
-                    build_target,
-                    node
-                );
-            }
-            BuildPlanNode::MakeExecutable(build_target) => {
-                assert!(
-                    self.res.make_executable_info.contains_key(&build_target),
-                    "Make executable info for {:?} should be present when resolving node {:?}",
-                    build_target,
-                    node
-                );
-            }
-            BuildPlanNode::GenerateMbti(_build_target) => (),
-            BuildPlanNode::Bundle(_module_id) => (),
-            BuildPlanNode::BuildRuntimeLib => (),
-        }
-    }
-
-    fn add_edge(&mut self, start: BuildPlanNode, end: BuildPlanNode) {
-        self.res.graph.add_edge(start, end, ());
-    }
-
-    /// Calculate the build action's dependencies and insert relevant edges to the
-    /// build action graph.
-    fn build_action_dependencies(
-        &mut self,
-        node: BuildPlanNode,
-    ) -> Result<(), BuildPlanConstructError> {
-        match node {
-            BuildPlanNode::Check(target) => self.build_check(node, target),
-            BuildPlanNode::BuildCore(target) => self.build_build(node, target),
-            BuildPlanNode::BuildCStubs(target) => self.build_build_c_stubs(node, target),
-            BuildPlanNode::LinkCore(_) => {
-                panic!(
-                    "Link core should not appear in the wild without \
-                    accompanied by MakeExecutable. Anytime it is met in the \
-                    pending list, it should be already resolved."
-                )
-            }
-            BuildPlanNode::MakeExecutable(target) => self.build_make_exec_link_core(node, target),
-            BuildPlanNode::GenerateTestInfo(target) => self.build_gen_test_info(node, target),
-            BuildPlanNode::Bundle(module_id) => self.build_bundle(node, module_id),
-            BuildPlanNode::BuildRuntimeLib => self.build_runtime_lib(node),
-            BuildPlanNode::GenerateMbti(target) => self.build_generate_mbti(node, target),
-        }
-    }
-
-    /// Populate the target info for the given target, if not already present.
-    fn populate_target_info(&mut self, target: BuildTarget) {
-        if self.res.build_target_infos.contains_key(&target) {
-            // Already populated
-            return;
-        }
-
-        // Resolve the source files
-        let info = self.resolve_mbt_files_for_node(target);
-        self.res.build_target_infos.insert(target, info);
-    }
-
-    fn build_check(
-        &mut self,
-        node: BuildPlanNode,
-        target: BuildTarget,
-    ) -> Result<(), BuildPlanConstructError> {
-        // Check depends on `.mi` of all dependencies, which practically
-        // means the Check of all dependencies.
-        for dep in self
-            .build_deps
-            .dep_graph
-            .neighbors_directed(target, petgraph::Direction::Outgoing)
-        {
-            let dep_node = self.need_node(BuildPlanNode::Check(dep));
-            self.add_edge(node, dep_node);
-        }
-
-        self.populate_target_info(target);
-        self.resolved_node(node);
-
-        Ok(())
-    }
-
-    fn build_build(
-        &mut self,
-        node: BuildPlanNode,
-        target: BuildTarget,
-    ) -> Result<(), BuildPlanConstructError> {
-        // Build depends on `.mi`` of all dependencies. Although Check can
-        // also emit `.mi` files, since we're building, this action actually
-        // means we need to build all dependencies.
-        self.need_node(node);
-        for dep in self
-            .build_deps
-            .dep_graph
-            .neighbors_directed(target, petgraph::Direction::Outgoing)
-        {
-            let dep_node = self.need_node(BuildPlanNode::BuildCore(dep));
-            self.add_edge(node, dep_node);
-        }
-
-        // If the given target is a test, we will also need to generate the test driver.
-        if target.kind.is_test() {
-            let gen_test_info = BuildPlanNode::GenerateTestInfo(target);
-            self.need_node(gen_test_info);
-            self.add_edge(node, gen_test_info);
-        }
-
-        self.populate_target_info(target);
-        self.resolved_node(node);
-
-        Ok(())
-    }
-
-    fn build_gen_test_info(
-        &mut self,
-        node: BuildPlanNode,
-        target: BuildTarget,
-    ) -> Result<(), BuildPlanConstructError> {
-        self.need_node(node);
-
-        self.populate_target_info(target);
-        self.resolved_node(node);
-        Ok(())
-    }
-
-    fn resolve_mbt_files_for_node(&self, target: BuildTarget) -> BuildTargetInfo {
-        use cond_comp::FileTestKind::*;
-        use TargetKind::*;
-
-        // FIXME: Should we resolve test drivers' paths, or should we leave it
-        // in the lowering phase? The path to the test driver depends on the
-        // artifact layout, so we might not be able to do that here, unless we
-        // add some kind of `SpecialFile::TestDriver` or something.
-        let pkg = self.packages.get_package(target.package);
-        let compile_condition = CompileCondition {
-            optlevel: self.build_env.opt_level,
-            test_kind: target.kind.into(),
-            backend: self.build_env.target_backend,
-        };
-        let source_files = cond_comp::filter_files(
-            &pkg.raw,
-            pkg.source_files.iter().map(|x| x.as_path()),
-            &compile_condition,
-        );
-
-        let mut regular_files = vec![];
-        let mut whitebox_files = vec![];
-        let mut doctest_files = vec![];
-        for (file, file_kind) in source_files {
-            match (target.kind, file_kind) {
-                (Source | SubPackage | InlineTest, NoTest) => regular_files.push(file.to_owned()),
-
-                (WhiteboxTest, NoTest) => regular_files.push(file.to_owned()),
-                (WhiteboxTest, Whitebox) => whitebox_files.push(file.to_owned()),
-
-                (BlackboxTest, Blackbox) => regular_files.push(file.to_owned()),
-                (BlackboxTest, NoTest) => doctest_files.push(file.to_owned()),
-
-                _ => panic!(
-                    "Unexpected file kind {:?} for target {:?} in package {}, \
-                    this is a bug in the build system!",
-                    file_kind, target, pkg.fqn
-                ),
-            }
-        }
-
-        BuildTargetInfo {
-            regular_files,
-            whitebox_files,
-            doctest_files,
-        }
-    }
-
-    fn build_build_c_stubs(
-        &mut self,
-        node: BuildPlanNode,
-        target: BuildTarget,
-    ) -> Result<(), BuildPlanConstructError> {
-        // Depends on nothing, but anyway needs to be inserted into the graph.
-        self.need_node(node);
-
-        // Resolve the C stub files
-        let pkg = self.packages.get_package(target.package);
-        let c_source = pkg.c_stub_files.clone();
-
-        let c_info = BuildCStubsInfo { c_stubs: c_source };
-        self.res.c_stubs_info.insert(target, c_info);
-        self.resolved_node(node);
-
-        Ok(())
-    }
-
-    /// Performs the construction of two actions in consecutive: Make Executable
-    /// and Link Core.
-    ///
-    /// The two actions are always created together (Link Core is always a
-    /// direct dependency of Make Executable, and there's no other actions that
-    /// depends on Link Core), and both actions require traversing through the
-    /// list of dependencies, so it's better to create both nodes at once,
-    /// instead of in separate functions.
-    fn build_make_exec_link_core(
-        &mut self,
-        make_exec_node: BuildPlanNode,
-        target: BuildTarget,
-    ) -> Result<(), BuildPlanConstructError> {
-        /*
-            Link-core requires traversing all output of the current package's
-            all transitive dependencies, and emitting them in DFS post-order.
-
-            There are a couple of replacements needed to be done when the
-            traversal completes:
-            - Whitebox tests need to replace the normal package in the
-                dependency graph (at the same position as the normal package).
-                This is technically a circular dependency but anyway :)
-            - Virtual package overrides need to replace their overridden
-                packages in the dependency graph. This is done by not adding
-                virtual packages at all when collecting the targets.
-                TODO: virtual packages are not yet implemented here.
-        */
-
-        debug!("Building MakeExecutable for target: {:?}", target);
-        debug!("Performing DFS post-order traversal to collect dependencies");
-        // This DFS is shared by both LinkCore and MakeExecutable actions.
-        let mut dfs = DfsPostOrder::new(&self.build_deps.dep_graph, target);
-        // This is the link core sources
-        let mut link_core_deps = IndexSet::new();
-        // This is the C stub sources
-        let mut c_stub_deps = Vec::new();
-        // DFS itself
-        while let Some(next) = dfs.next(&self.build_deps.dep_graph) {
-            if next.kind == TargetKind::WhiteboxTest {
-                // Replace whitebox tests, if any
-                let source_target = next.package.build_target(TargetKind::Source);
-                if let Some(source_idx) = link_core_deps.get_index_of(&source_target) {
-                    let source_mut = link_core_deps
-                        .get_index_mut2(source_idx)
-                        .expect("Source index is valid");
-                    *source_mut = next;
-                    continue;
-                } else {
-                    // No source target found, resort to regular path
-                }
-            }
-
-            // Regular package
-            link_core_deps.insert(next);
-            // If there's any C stubs, add it (native only)
-            let pkg = self.packages.get_package(next.package);
-            trace!("DFS post iterated: {}", pkg.fqn);
-            if self.build_env.target_backend.is_native() && !pkg.c_stub_files.is_empty() {
-                c_stub_deps.push(next);
-            }
-        }
-
-        let link_core_node = self.need_node(BuildPlanNode::LinkCore(target));
-
-        // Add edges to all dependencies
-        // Note that we have already replaced unnecessary dependencies
-        for target in &link_core_deps {
-            let dep_node = BuildPlanNode::BuildCore(*target);
-            self.need_node(dep_node);
-            self.add_edge(link_core_node, dep_node);
-        }
-
-        let targets = link_core_deps.into_iter().collect::<Vec<_>>();
-        let link_core_info = LinkCoreInfo {
-            linked_order: targets.clone(),
-            // std: self.build_env.std, // TODO: move to per-package
-        };
-        self.res.link_core_info.insert(target, link_core_info);
-
-        self.resolved_node(link_core_node);
-
-        // Add edge from make exec to link core
-        self.add_edge(make_exec_node, link_core_node);
-
-        // Add dependencies of make exec
-        for target in &c_stub_deps {
-            let dep_node = self.need_node(BuildPlanNode::BuildCStubs(*target));
-            self.add_edge(make_exec_node, dep_node);
-        }
-        let c_stub_deps = c_stub_deps.into_iter().collect::<Vec<_>>();
-        self.res.make_executable_info.insert(
-            target,
-            MakeExecutableInfo {
-                link_c_stubs: c_stub_deps.clone(),
-            },
-        );
-
-        // Native backends also needs a runtime library
-        if self.build_env.target_backend.is_native() {
-            let rt_node = self.need_node(BuildPlanNode::BuildRuntimeLib);
-            self.add_edge(make_exec_node, rt_node);
-        }
-
-        self.resolved_node(make_exec_node);
-
-        Ok(())
-    }
-
-    fn build_bundle(
-        &mut self,
-        _node: BuildPlanNode,
-        module_id: ModuleId,
-    ) -> Result<(), BuildPlanConstructError> {
-        // Bundling a module gathers the build result of all its non-virtual packages
-        for &pkg_id in self
-            .packages
-            .packages_for_module(module_id)
-            .expect("Module should exist")
-            .values()
-        {
-            let pkg = self.packages.get_package(pkg_id);
-            if pkg.raw.virtual_pkg.is_some() {
-                continue;
-            }
-
-            let build_node = BuildPlanNode::BuildCore(BuildTarget {
-                package: pkg_id,
-                kind: TargetKind::Source,
-            });
-            self.need_node(build_node);
-            self.add_edge(_node, build_node);
-        }
-
-        Ok(())
-    }
-
-    fn build_runtime_lib(&mut self, _node: BuildPlanNode) -> Result<(), BuildPlanConstructError> {
-        // Nothing specific to do here ;)
-        self.resolved_node(_node);
-        Ok(())
-    }
-
-    fn build_generate_mbti(
-        &mut self,
-        _node: BuildPlanNode,
-        target: BuildTarget,
-    ) -> Result<(), BuildPlanConstructError> {
-        // Generate mbti relies on the `.mi` files spitted out by `moonc`, which
-        // usually means `moonc check` instead of `moonc build`.
-        let check_node = self.need_node(BuildPlanNode::Check(target));
-        self.add_edge(_node, check_node);
-        self.resolved_node(_node);
-        Ok(())
-    }
 }
