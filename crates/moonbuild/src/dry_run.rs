@@ -19,7 +19,7 @@
 use moonutil::module::ModuleDB;
 use n2::densemap::Index;
 use n2::graph::{BuildId, FileId, Graph};
-use std::collections::{HashSet, VecDeque};
+use std::collections::HashSet;
 
 use moonutil::common::{MoonbuildOpt, MooncOpt, RunMode, TargetBackend};
 
@@ -53,7 +53,7 @@ pub fn print_commands(
     if !state.default.is_empty() {
         let mut sorted_default = state.default.clone();
         sorted_default.sort_by_key(|a| a.index());
-        let builds: Vec<BuildId> = bfs_graph(&state.graph, &sorted_default);
+        let builds: Vec<BuildId> = stable_toposort_graph(&state.graph, &sorted_default);
         for b in builds.iter() {
             let build = &state.graph.builds[*b];
             if let Some(cmdline) = &build.cmdline {
@@ -99,35 +99,54 @@ pub fn print_commands(
     Ok(0)
 }
 
-fn bfs_graph(graph: &Graph, sorted_default: &[FileId]) -> Vec<BuildId> {
-    let mut bids: Vec<BuildId> = Vec::new();
-    for &target in sorted_default.iter() {
-        let mut fid_queue: VecDeque<FileId> = VecDeque::from([target]);
-        let mut fid_set: HashSet<FileId> = HashSet::from([target]);
-        while !fid_queue.is_empty() {
-            let file_id = fid_queue.pop_front().unwrap();
-            fid_set.remove(&file_id);
-            if let Some(bid) = graph.file(file_id).input {
-                bids.push(bid);
-                let build = &graph.builds[bid];
-                for &fid in build.explicit_ins().iter().rev() {
-                    if fid_set.insert(fid) {
-                        fid_queue.push_back(fid);
-                    }
+/// Perform an iteration over the build graph to get the total list of build
+/// commands that corresponds to the given inputs.
+///
+/// This function should have a stable output order based on the file names and
+/// the structure of the build graph, but irrelevant of the actual insertion
+/// order of the graph.
+fn stable_toposort_graph(graph: &Graph, inputs: &[FileId]) -> Vec<BuildId> {
+    // Get file name of file ID
+    let by_file_name = |k: &FileId| &graph.file(*k).name;
+
+    // Sort the input files by the filenames
+    let mut input_order = Vec::new();
+    input_order.extend_from_slice(inputs);
+    input_order.sort_unstable_by_key(by_file_name);
+
+    // DFS stack
+    // (file_id, is_pop)
+    let mut stack = Vec::<(FileId, bool)>::new();
+    stack.extend(input_order.into_iter().map(|x| (x, false)));
+    // Result
+    let mut res = vec![];
+    // Visited builds set
+    let mut vis = HashSet::new();
+    // Scratch vec for sorting input. Leave empty when unused.
+    let mut sort_in_scratch = vec![];
+
+    while let Some((fid, pop)) = stack.pop() {
+        let file = graph.file(fid);
+        if let Some(bid) = file.input {
+            if !pop {
+                if vis.insert(bid) {
+                    let build = &graph.builds[bid];
+
+                    // Push the build back to be used when popping
+                    stack.push((fid, true));
+
+                    // Push input files in sorted order
+                    debug_assert!(sort_in_scratch.is_empty());
+                    sort_in_scratch.extend_from_slice(build.explicit_ins());
+                    sort_in_scratch.sort_unstable_by_key(by_file_name);
+                    stack.extend(sort_in_scratch.iter().copied().map(|x| (x, false)));
+                    sort_in_scratch.clear();
                 }
+            } else {
+                res.push(bid);
             }
         }
     }
-    dedupe(bids)
-}
 
-fn dedupe(inputs: Vec<BuildId>) -> Vec<BuildId> {
-    let mut seen: HashSet<BuildId> = HashSet::new();
-    let mut bids: Vec<BuildId> = Vec::new();
-    for &bid in inputs.iter().rev() {
-        if seen.insert(bid) {
-            bids.push(bid);
-        }
-    }
-    bids
+    res
 }
