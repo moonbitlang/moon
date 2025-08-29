@@ -20,6 +20,7 @@ use std::path::{Path, PathBuf};
 
 use ariadne::{Fmt, ReportKind};
 use clap::ValueEnum;
+use log::{error, warn};
 use serde::{Deserialize, Serialize};
 
 use crate::{
@@ -50,17 +51,18 @@ pub struct Position {
 }
 
 impl Position {
-    pub fn calculate_offset(&self, content: &str) -> usize {
+    pub fn calculate_offset(&self, content: &str) -> Option<usize> {
         let line_index = line_index::LineIndex::new(content);
         let byte_based_index =
-            line_col_to_byte_idx(&line_index, self.line as u32 - 1, self.col as u32 - 1).unwrap();
+            line_col_to_byte_idx(&line_index, self.line as u32 - 1, self.col as u32 - 1)?;
 
-        content
+        let res = content
             .char_indices()
             .enumerate()
             .find(|(_, (byte_offset, _))| *byte_offset == byte_based_index)
             .map(|(i, _)| i)
-            .unwrap_or(usize::from(line_index.len()))
+            .unwrap_or(usize::from(line_index.len()));
+        Some(res)
     }
 }
 
@@ -109,32 +111,41 @@ impl MooncDiagnostic {
         render_no_loc_level: DiagnosticLevel,
         (target_dir, source_dir): (PathBuf, PathBuf),
     ) -> Option<ReportKind<'static>> {
+        let bail_print_original = || {
+            eprintln!("{content}");
+            None
+        };
         let mut diagnostic = match serde_json_lenient::from_str::<MooncDiagnostic>(content) {
             Ok(d) => d,
-            Err(_) => {
-                eprintln!("{content}");
-                return None;
-            }
+            Err(_) => bail_print_original()?,
         };
 
         // a workaround for rendering the diagnostaic and error in generated test driver file correctly
-        if diagnostic.location.path.contains("__generated_driver_for_") {
-            let source = crate::common::read_module_desc_file_in_dir(source_dir.as_path())
-                .unwrap()
-                .source;
-            let source_code_dir = match source {
-                Some(source) => source_dir.join(source),
-                None => source_dir,
-            };
-            let rel_path = PathBuf::from(
-                diagnostic
-                    .location
-                    .path
-                    .clone()
-                    .replace(&source_code_dir.display().to_string(), "."),
-            );
-            let mbt_file_path = target_dir.join(rel_path);
-            diagnostic.location.path = mbt_file_path.display().to_string();
+        'fail_to_get_source: {
+            if diagnostic.location.path.contains("__generated_driver_for_") {
+                let Ok(file) = crate::common::read_module_desc_file_in_dir(source_dir.as_path())
+                else {
+                    error!(
+                        "when working around driver file path issue, failed to read module.desc file in source dir: {}",
+                        source_dir.display()
+                    );
+                    break 'fail_to_get_source;
+                };
+                let source = file.source;
+                let source_code_dir = match source {
+                    Some(source) => source_dir.join(source),
+                    None => source_dir,
+                };
+                let rel_path = PathBuf::from(
+                    diagnostic
+                        .location
+                        .path
+                        .clone()
+                        .replace(&source_code_dir.display().to_string(), "."),
+                );
+                let mbt_file_path = target_dir.join(rel_path);
+                diagnostic.location.path = mbt_file_path.display().to_string();
+            }
         }
 
         let (kind, color) = diagnostic.get_level_and_color();
@@ -186,14 +197,24 @@ impl MooncDiagnostic {
                 }
             };
 
-        let start_offset = diagnostic
+        let Some(start_offset) = diagnostic
             .location
             .start
-            .calculate_offset(&source_file_content);
-        let end_offset = diagnostic
+            .calculate_offset(&source_file_content)
+        else {
+            error!("failed to calculate start offset for diagnostic");
+            bail_print_original()?;
+            return None;
+        };
+        let Some(end_offset) = diagnostic
             .location
             .end
-            .calculate_offset(&source_file_content);
+            .calculate_offset(&source_file_content)
+        else {
+            error!("failed to calculate end offset for diagnostic");
+            bail_print_original()?;
+            return None;
+        };
 
         // Remapping if there's .map.json file
         // TODO: log reasons for `.map.json` exists but not works.
@@ -230,8 +251,15 @@ impl MooncDiagnostic {
             );
 
         if explain {
-            let error_code_doc = get_error_code_doc(&diagnostic.formatted_error_code()).unwrap();
-            report_builder = report_builder.with_help(error_code_doc.fg(color));
+            let error_code_doc = get_error_code_doc(&diagnostic.formatted_error_code());
+            if let Some(doc) = error_code_doc {
+                report_builder = report_builder.with_help(doc.fg(color));
+            } else {
+                warn!(
+                    "Failed to get doc for error code: {}",
+                    diagnostic.formatted_error_code()
+                );
+            }
         } else {
             report_builder = report_builder
                 .with_message(format!("[{}]", diagnostic.formatted_error_code()).fg(color));
