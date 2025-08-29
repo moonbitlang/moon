@@ -216,7 +216,7 @@ impl<'a> BuildPlanLowerContext<'a> {
 
         // JS format settings
         if self.opt.target_backend == TargetBackend::Js {
-            if package.raw.force_link {
+            if package.raw.force_link || package.raw.is_main {
                 cmd.js_format = Some(JsFormat::default());
             } else if let Some(link) = package.raw.link.as_ref().and_then(|x| x.js.as_ref()) {
                 cmd.js_format = Some(link.format.unwrap_or_default());
