@@ -32,7 +32,9 @@ use std::{
     sync::{Arc, Mutex},
 };
 
-use moonbuild::entry::{create_progress_console, render_and_catch_callback, ResultCatcher};
+use moonbuild::entry::{
+    create_progress_console, render_and_catch_callback, N2RunStats, ResultCatcher,
+};
 use moonbuild_rupes_recta::{
     model::{Artifacts, BuildPlanNode},
     CompileConfig, ResolveConfig, ResolveOutput,
@@ -269,7 +271,7 @@ pub fn execute_build(
     mut build_graph: n2::graph::Graph,
     target_dir: &Path,
     parallelism: Option<usize>,
-) -> anyhow::Result<BuildResult> {
+) -> anyhow::Result<N2RunStats> {
     // Generate n2 state
     // FIXME: This is extremely verbose and barebones, only for testing purpose
     let mut hashes = n2::graph::Hashes::default();
@@ -315,8 +317,12 @@ pub fn execute_build(
     // The actual execution done by the n2 executor
     let res = work.run()?;
 
-    Ok(match res {
-        Some(n) => BuildResult::Succeeded(n),
-        None => BuildResult::Failed,
-    })
+    let result_catcher = result_catcher.lock().unwrap();
+    let stats = N2RunStats {
+        n_tasks_executed: res,
+        n_errors: result_catcher.n_errors,
+        n_warnings: result_catcher.n_warnings,
+    };
+
+    Ok(stats)
 }

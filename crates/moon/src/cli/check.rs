@@ -252,7 +252,7 @@ fn run_check_normal_internal(
             Ok(0)
         } else {
             let result = rr_build::execute_build(build_graph, target_dir, cmd.build_flags.jobs)?;
-            result.print_info();
+            result.print_info(cli.quiet, "checking")?;
             Ok(result.return_code_for_success())
         }
     } else {

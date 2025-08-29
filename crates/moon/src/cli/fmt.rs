@@ -79,7 +79,7 @@ fn run_fmt_rr(cli: &UniversalFlags, cmd: FmtSubcommand) -> anyhow::Result<i32> {
         Ok(0)
     } else {
         let res = rr_build::execute_build(graph, &target_dir, None)?;
-        res.print_info();
+        res.print_info(cli.quiet, "formatting")?;
         Ok(res.return_code_for_success())
     }
 }

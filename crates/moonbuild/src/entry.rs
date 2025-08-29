@@ -67,7 +67,7 @@ pub fn create_progress_console(
     }
 }
 
-pub fn render_result(result: N2RunStats, quiet: bool, mode: &str) -> anyhow::Result<i32> {
+fn render_result(result: &N2RunStats, quiet: bool, mode: &str) -> anyhow::Result<i32> {
     match result.n_tasks_executed {
         None => {
             eprintln!(
@@ -244,6 +244,27 @@ pub struct N2RunStats {
 
     pub n_errors: usize,
     pub n_warnings: usize,
+}
+
+impl N2RunStats {
+    /// Whether the run was successful (i.e. didn't fail to execute).
+    pub fn successful(&self) -> bool {
+        self.n_tasks_executed.is_some()
+    }
+
+    /// Get the return code that should be returned to the shell.
+    pub fn return_code_for_success(&self) -> i32 {
+        if self.successful() {
+            0
+        } else {
+            1
+        }
+    }
+
+    pub fn print_info(&self, quiet: bool, mode: &str) -> anyhow::Result<()> {
+        render_result(self, quiet, mode)?;
+        Ok(())
+    }
 }
 
 pub fn n2_run_interface(
@@ -476,7 +497,7 @@ pub fn run_check(
     let result = n2_run_interface(state, moonbuild_opt)?;
 
     write_pkg_lst(module, &moonbuild_opt.raw_target_dir)?;
-    render_result(result, moonbuild_opt.quiet, "checking")
+    render_result(&result, moonbuild_opt.quiet, "checking")
 }
 
 pub fn run_build(
@@ -488,7 +509,7 @@ pub fn run_build(
         crate::build::load_moon_proj(module, moonc_opt, moonbuild_opt)
     })?;
     let result = n2_run_interface(state, moonbuild_opt)?;
-    render_result(result, moonbuild_opt.quiet, "building")
+    render_result(&result, moonbuild_opt.quiet, "building")
 }
 
 pub fn run_run(
@@ -692,7 +713,7 @@ pub fn run_test(
 
     let state = crate::runtest::load_moon_proj(&module, &moonc_opt, &moonbuild_opt)?;
     let result = n2_run_interface(state, &moonbuild_opt)?;
-    render_result(result, moonbuild_opt.quiet, "testing")?;
+    render_result(&result, moonbuild_opt.quiet, "testing")?;
 
     let mut handlers = vec![];
 
@@ -1339,7 +1360,7 @@ pub fn run_bundle(
     let state = crate::bundle::load_moon_proj(module, moonc_opt, moonbuild_opt)?;
     let result = n2_run_interface(state, moonbuild_opt)?;
     write_pkg_lst(module, &moonbuild_opt.raw_target_dir)?;
-    render_result(result, moonbuild_opt.quiet, "bundle")?;
+    render_result(&result, moonbuild_opt.quiet, "bundle")?;
     Ok(0)
 }
 

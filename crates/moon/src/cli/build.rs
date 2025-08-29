@@ -126,7 +126,7 @@ fn run_build_internal(
             Ok(0)
         } else {
             let result = rr_build::execute_build(build_graph, target_dir, cmd.build_flags.jobs)?;
-            result.print_info();
+            result.print_info(cli.quiet, "building")?;
             Ok(result.return_code_for_success())
         }
     } else {

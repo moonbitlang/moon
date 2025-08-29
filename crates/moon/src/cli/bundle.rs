@@ -91,7 +91,7 @@ pub fn run_bundle_rr(cli: UniversalFlags, cmd: BundleSubcommand) -> anyhow::Resu
         Ok(0)
     } else {
         let result = rr_build::execute_build(build_graph, &target_dir, cmd.build_flags.jobs)?;
-        result.print_info();
+        result.print_info(cli.quiet, "bundling")?;
         Ok(result.return_code_for_success())
     }
 }
