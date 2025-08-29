@@ -27,8 +27,12 @@
 //! - If you want to insert dry-running, your compilation process is split in
 //!   two parts: [``]
 
-use std::path::{Path, PathBuf};
+use std::{
+    path::{Path, PathBuf},
+    sync::{Arc, Mutex},
+};
 
+use moonbuild::entry::{create_progress_console, render_and_catch_callback, ResultCatcher};
 use moonbuild_rupes_recta::{
     model::{Artifacts, BuildPlanNode},
     CompileConfig, ResolveConfig, ResolveOutput,
@@ -279,7 +283,19 @@ pub fn execute_build(
         .or_else(|| std::thread::available_parallelism().ok().map(|x| x.into()))
         .unwrap();
 
-    let mut prog_console = n2::progress::DumbConsoleProgress::new(false, None);
+    // FIXME: Rewrite the rendering mechanism
+    let result_catcher = Arc::new(Mutex::new(ResultCatcher::default()));
+    let callback = render_and_catch_callback(
+        Arc::clone(&result_catcher),
+        false,
+        n2::terminal::use_fancy(),
+        None,
+        false,
+        moonutil::common::DiagnosticLevel::Info,
+        PathBuf::new(),
+        target_dir.into(),
+    );
+    let mut prog_console = create_progress_console(Some(Box::new(callback)), false);
     let mut work = n2::work::Work::new(
         build_graph,
         hashes,
@@ -291,7 +307,7 @@ pub fn execute_build(
             adopt: false,
             dirty_on_output: true,
         },
-        &mut prog_console,
+        &mut *prog_console,
         n2::smallmap::SmallMap::default(),
     );
     work.want_every_file(None)?;

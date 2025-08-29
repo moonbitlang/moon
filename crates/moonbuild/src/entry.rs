@@ -56,7 +56,7 @@ fn default_parallelism() -> anyhow::Result<usize> {
 }
 
 #[allow(clippy::type_complexity)]
-fn create_progress_console(
+pub fn create_progress_console(
     callback: Option<Box<dyn Fn(&str) + Send>>,
     verbose: bool,
 ) -> Box<dyn Progress> {
@@ -66,7 +66,8 @@ fn create_progress_console(
         Box::new(DumbConsoleProgress::new(verbose, callback))
     }
 }
-fn render_result(result: N2RunStats, quiet: bool, mode: &str) -> anyhow::Result<i32> {
+
+pub fn render_result(result: N2RunStats, quiet: bool, mode: &str) -> anyhow::Result<i32> {
     match result.n_tasks_executed {
         None => {
             eprintln!(
@@ -106,10 +107,10 @@ fn format_warnings_errors(n_warnings: usize, n_errors: usize) -> String {
 }
 
 #[derive(Default)]
-struct ResultCatcher {
-    content_writer: Vec<String>, // todo: might be better to directly write to string
-    n_warnings: usize,
-    n_errors: usize,
+pub struct ResultCatcher {
+    pub content_writer: Vec<String>, // todo: might be better to directly write to string
+    pub n_warnings: usize,
+    pub n_errors: usize,
 }
 
 impl ResultCatcher {
@@ -124,7 +125,7 @@ impl ResultCatcher {
 }
 
 #[allow(clippy::too_many_arguments)] // This is inefficient and we know it
-fn render_and_catch_callback(
+pub fn render_and_catch_callback(
     catcher: Arc<Mutex<ResultCatcher>>,
     output_json: bool,
     use_fancy: bool,
