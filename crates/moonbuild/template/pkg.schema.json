@@ -276,27 +276,32 @@
       }
     },
     "NativeLinkConfig": {
+      "description": "Native C/C++ compilation and linking configuration for MoonBit packages.\n\nControls how C stub files and main executables are compiled and linked. The build system uses these flags differently depending on compilation mode: normal mode creates static libraries, while TCC mode creates dynamic libraries.",
       "type": "object",
       "properties": {
         "cc": {
+          "description": "Custom C compiler for main MoonBit-generated C code",
           "type": [
             "string",
             "null"
           ]
         },
         "cc-flags": {
+          "description": "Compiler flags for main MoonBit-generated C code (whitespace-separated)",
           "type": [
             "string",
             "null"
           ]
         },
         "cc-link-flags": {
+          "description": "Linker flags for main executable (also used for stub dynamic libraries in TCC mode)",
           "type": [
             "string",
             "null"
           ]
         },
         "exports": {
+          "description": "Function exports for the final native executable",
           "type": [
             "array",
             "null"
@@ -306,18 +311,21 @@
           }
         },
         "stub-cc": {
+          "description": "Custom C compiler for C stub files",
           "type": [
             "string",
             "null"
           ]
         },
         "stub-cc-flags": {
+          "description": "Compiler flags for C stub compilation (whitespace-separated)",
           "type": [
             "string",
             "null"
           ]
         },
         "stub-cc-link-flags": {
+          "description": "Linker flags for C stub linking (only used in TCC mode for dynamic libraries)",
           "type": [
             "string",
             "null"
