@@ -40,6 +40,7 @@ pub const MBTI_GENERATED: &str = "pkg.generated.mbti";
 pub const MBTI_USER_WRITTEN: &str = "pkg.mbti";
 pub const MOON_PID_NAME: &str = ".moon.pid";
 pub const MOONBITLANG_CORE: &str = "moonbitlang/core";
+pub const MOONBITLANG_CORE_BUILTIN: &str = "moonbitlang/core/builtin";
 pub const MOONBITLANG_COVERAGE: &str = "moonbitlang/core/coverage";
 pub const MOONBITLANG_ABORT: &str = "moonbitlang/core/abort";
 
