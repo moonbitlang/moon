@@ -68,8 +68,12 @@ pub fn print_commands(
     if !state.default.is_empty() {
         let mut sorted_default = state.default.clone();
         sorted_default.sort_by_key(|a| a.index());
-        let builds: Vec<BuildId> =
-            stable_toposort_graph(&state.graph, &sorted_default, &source_dir.to_string_lossy());
+        let builds: Vec<BuildId> = stable_toposort_graph(
+            &state.graph,
+            &sorted_default,
+            &source_dir.to_string_lossy(),
+            &target_dir.to_string_lossy(),
+        );
         for b in builds.iter() {
             let build = &state.graph.builds[*b];
             if let Some(cmdline) = &build.cmdline {
@@ -115,32 +119,20 @@ pub fn print_commands(
     Ok(0)
 }
 
+#[derive(Debug, PartialEq, Eq, PartialOrd, Ord)]
+enum PathKind {
+    InTarget,
+    InSource,
+    InHome,
+}
+
 /// A sortable path to create a stable sorting order from file names.
 /// Uses normalized paths to ensure consistent ordering across platforms.
-#[derive(PartialEq, Eq)]
+#[derive(PartialEq, Eq, PartialOrd, Ord)]
 struct SortablePath {
-    is_in_source: bool,
+    kind: PathKind,
     /// Path normalized and converted to lowercase
     normalized_path: String,
-}
-
-impl PartialOrd for SortablePath {
-    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
-        Some(self.cmp(other))
-    }
-}
-
-impl Ord for SortablePath {
-    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
-        // First, prioritize files within the source directory
-        match (self.is_in_source, other.is_in_source) {
-            (true, false) => return std::cmp::Ordering::Less,
-            (false, true) => return std::cmp::Ordering::Greater,
-            _ => {}
-        }
-        // Then, compare normalized paths case-insensitively
-        self.normalized_path.cmp(&other.normalized_path)
-    }
 }
 
 /// Perform an iteration over the build graph to get the total list of build
@@ -149,8 +141,14 @@ impl Ord for SortablePath {
 /// This function should have a stable output order based on the file names and
 /// the structure of the build graph, but irrelevant of the actual insertion
 /// order of the graph.
-fn stable_toposort_graph(graph: &Graph, inputs: &[FileId], source_dir: &str) -> Vec<BuildId> {
+fn stable_toposort_graph(
+    graph: &Graph,
+    inputs: &[FileId],
+    source_dir: &str,
+    raw_target_dir: &str,
+) -> Vec<BuildId> {
     // Normalize the source directory for consistent comparison
+    let normalized_target_dir = normalize_path(raw_target_dir);
     let normalized_source_dir = normalize_path(source_dir);
     let normalized_moon_home = normalize_path(&moon_dir::MOON_DIRS.moon_home.to_string_lossy());
 
@@ -158,25 +156,26 @@ fn stable_toposort_graph(graph: &Graph, inputs: &[FileId], source_dir: &str) -> 
     let by_file_name = |k: &FileId| {
         let name = &graph.file(*k).name;
         let normalized_name = normalize_path(name);
-
-        if let Some(stripped) = normalized_name.strip_prefix(&normalized_source_dir) {
-            let stripped_clean = stripped.strip_prefix('/').unwrap_or(stripped);
+        let mk_sortable_path = |kind, path: &str| {
+            let stripped = path.strip_prefix('/').unwrap_or(path);
             SortablePath {
-                is_in_source: true,
-                normalized_path: stripped_clean.to_lowercase(),
+                kind,
+                normalized_path: stripped.to_lowercase(),
             }
+        };
+        if let Some(stripped) = normalized_name.strip_prefix(&normalized_target_dir) {
+            mk_sortable_path(PathKind::InTarget, stripped)
+        } else if let Some(stripped) = normalized_name.strip_prefix(&normalized_source_dir) {
+            mk_sortable_path(PathKind::InSource, stripped)
         } else if let Some(stripped) = normalized_name.strip_prefix(&normalized_moon_home) {
-            let stripped_clean = stripped.strip_prefix('/').unwrap_or(stripped);
-            SortablePath {
-                is_in_source: false,
-                normalized_path: stripped_clean.to_lowercase(),
-            }
+            mk_sortable_path(PathKind::InHome, stripped)
         } else {
             panic!(
-                "File {name} is outside of source dir {source_dir} and MOON_HOME {moon_home}, this should not happen",
-                name = name,
-                source_dir = normalized_source_dir,
-                moon_home = normalized_moon_home
+                "file {} is outside both source ({}), target ({}) and MOON_HOME ({}) directories",
+                name,
+                source_dir,
+                raw_target_dir,
+                moon_dir::MOON_DIRS.moon_home.display()
             );
         }
     };
@@ -251,29 +250,36 @@ mod tests {
 
     #[test]
     fn test_sortable_path_ordering() {
-        // InSource should always come before OutOfSource
+        // InSource should always come before Outside
         let in_source = SortablePath {
-            is_in_source: true,
+            kind: PathKind::InSource,
             normalized_path: "zzz.txt".to_string(),
         };
-        let out_of_source = SortablePath {
-            is_in_source: false,
+        let outside = SortablePath {
+            kind: PathKind::InHome,
             normalized_path: "aaa.txt".to_string(),
         };
-        assert!(in_source < out_of_source);
+        assert!(in_source < outside);
+
+        // InTarget should come before InSource
+        let in_target = SortablePath {
+            kind: PathKind::InTarget,
+            normalized_path: "zzz.txt".to_string(),
+        };
+        assert!(in_target < in_source);
 
         // Within same category, should be case-insensitive alphabetical
         // Note: normalized_path is already lowercase in the actual implementation
         let path1 = SortablePath {
-            is_in_source: true,
+            kind: PathKind::InSource,
             normalized_path: "file.txt".to_string(), // lowercase
         };
         let path2 = SortablePath {
-            is_in_source: true,
+            kind: PathKind::InSource,
             normalized_path: "file.txt".to_string(), // lowercase
         };
         let path3 = SortablePath {
-            is_in_source: true,
+            kind: PathKind::InSource,
             normalized_path: "another.txt".to_string(), // lowercase
         };
 
@@ -289,30 +295,40 @@ mod tests {
     fn test_path_prefix_stripping() {
         // Test that Windows-style and Unix-style paths are handled consistently
         let test_cases = vec![
-            // (source_dir, file_path, expected_is_in_source, expected_normalized_lowercase)
+            // (source_dir, file_path, expected_kind, expected_normalized_lowercase)
             (
                 "C:\\project",
                 "C:\\project\\src\\main.rs",
-                true,
+                PathKind::InSource,
                 "src/main.rs",
             ),
-            ("C:/project", "C:/project/src/main.rs", true, "src/main.rs"),
+            (
+                "C:/project",
+                "C:/project/src/main.rs",
+                PathKind::InSource,
+                "src/main.rs",
+            ),
             (
                 "/home/user/project",
                 "/home/user/project/src/main.rs",
-                true,
+                PathKind::InSource,
                 "src/main.rs",
             ),
-            ("./project", "./project/src/main.rs", true, "src/main.rs"),
+            (
+                "./project",
+                "./project/src/main.rs",
+                PathKind::InSource,
+                "src/main.rs",
+            ),
             (
                 "C:\\project",
                 "D:\\external\\lib.rs",
-                false,
+                PathKind::InHome,
                 "d:/external/lib.rs", // Note: lowercase due to to_lowercase() in implementation
             ),
         ];
 
-        for (source_dir, file_path, expected_in_source, expected_normalized) in test_cases {
+        for (source_dir, file_path, expected_kind, expected_normalized) in test_cases {
             let normalized_source_dir = normalize_path(source_dir);
             let normalized_file_path = normalize_path(file_path);
 
@@ -320,18 +336,18 @@ mod tests {
                 if let Some(stripped) = normalized_file_path.strip_prefix(&normalized_source_dir) {
                     let stripped_clean = stripped.strip_prefix('/').unwrap_or(stripped);
                     SortablePath {
-                        is_in_source: true,
+                        kind: PathKind::InSource,
                         normalized_path: stripped_clean.to_lowercase(), // Match implementation
                     }
                 } else {
                     SortablePath {
-                        is_in_source: false,
+                        kind: PathKind::InHome,
                         normalized_path: normalized_file_path.to_lowercase(), // Match implementation
                     }
                 };
 
             assert_eq!(
-                result.is_in_source, expected_in_source,
+                result.kind, expected_kind,
                 "Failed for source_dir: {}, file_path: {}",
                 source_dir, file_path
             );
@@ -346,17 +362,17 @@ mod tests {
     #[test]
     fn test_case_insensitive_sorting() {
         // Test that paths with different cases are sorted consistently
-        let paths = vec![
+        let paths = [
             SortablePath {
-                is_in_source: true,
+                kind: PathKind::InSource,
                 normalized_path: "File.TXT".to_lowercase(),
             },
             SortablePath {
-                is_in_source: true,
+                kind: PathKind::InSource,
                 normalized_path: "file.txt".to_lowercase(),
             },
             SortablePath {
-                is_in_source: true,
+                kind: PathKind::InSource,
                 normalized_path: "FILE.txt".to_lowercase(),
             },
         ];
@@ -390,7 +406,7 @@ mod tests {
             if let Some(stripped) = normalized_file_path.strip_prefix(&normalized_source_dir) {
                 let stripped_clean = stripped.strip_prefix('/').unwrap_or(stripped);
                 let result = SortablePath {
-                    is_in_source: true,
+                    kind: PathKind::InSource,
                     normalized_path: stripped_clean.to_lowercase(),
                 };
 
