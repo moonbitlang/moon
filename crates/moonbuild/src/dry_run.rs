@@ -17,6 +17,7 @@
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
 use moonutil::module::ModuleDB;
+use moonutil::moon_dir;
 use n2::densemap::Index;
 use n2::graph::{BuildId, FileId, Graph};
 use std::collections::HashSet;
@@ -151,6 +152,7 @@ impl Ord for SortablePath {
 fn stable_toposort_graph(graph: &Graph, inputs: &[FileId], source_dir: &str) -> Vec<BuildId> {
     // Normalize the source directory for consistent comparison
     let normalized_source_dir = normalize_path(source_dir);
+    let normalized_moon_home = normalize_path(&moon_dir::MOON_DIRS.moon_home.to_string_lossy());
 
     // Get file name of file ID with platform-agnostic path handling
     let by_file_name = |k: &FileId| {
@@ -163,14 +165,19 @@ fn stable_toposort_graph(graph: &Graph, inputs: &[FileId], source_dir: &str) -> 
                 is_in_source: true,
                 normalized_path: stripped_clean.to_lowercase(),
             }
-        } else {
+        } else if let Some(stripped) = normalized_name.strip_prefix(&normalized_moon_home) {
+            let stripped_clean = stripped.strip_prefix('/').unwrap_or(stripped);
             SortablePath {
                 is_in_source: false,
-                normalized_path: normalized_name
-                    .rsplit_once('/')
-                    .map_or(normalized_name.as_str(), |(_, last)| last)
-                    .to_lowercase(),
+                normalized_path: stripped_clean.to_lowercase(),
             }
+        } else {
+            panic!(
+                "File {name} is outside of source dir {source_dir} and MOON_HOME {moon_home}, this should not happen",
+                name = name,
+                source_dir = normalized_source_dir,
+                moon_home = normalized_moon_home
+            );
         }
     };
 
