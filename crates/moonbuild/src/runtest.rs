@@ -301,7 +301,7 @@ async fn run(
             let test_name = file_test_info_map
                 .get(filename)
                 .and_then(|m| m.get(index))
-                .and_then(|s| s.as_ref())
+                .and_then(|s| s.name.as_ref())
                 .unwrap_or(&test_statistic.index);
 
             if test_name.starts_with("panic") {

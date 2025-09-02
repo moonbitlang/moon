@@ -47,20 +47,20 @@ fn test_inline_test_order() {
         expect![[r#"
             executing A
             executing A::hello.mbt::test_A
-            test username/hello/A/hello.mbt::0 ok
-            test username/hello/A/hello.mbt::1 ok
+            [username/hello] test A/hello.mbt:1 (#0) ok
+            [username/hello] test A/hello.mbt:5 (#1) ok
             A_test.mbt::init
             A_test.mbt::test_hello_A
-            test username/hello/A/A_wbtest.mbt::0 ok
-            test username/hello/A/A_wbtest.mbt::1 ok
+            [username/hello] test A/A_wbtest.mbt:1 (#0) ok
+            [username/hello] test A/A_wbtest.mbt:5 (#1) ok
             executing B
             executing B::hello.mbt::test_B
-            test username/hello/B/hello.mbt::0 ok
-            test username/hello/B/hello.mbt::1 ok
+            [username/hello] test B/hello.mbt:1 (#0) ok
+            [username/hello] test B/hello.mbt:5 (#1) ok
             B_test.mbt::init
             B_test.mbt::test_hello_B
-            test username/hello/B/B_wbtest.mbt::0 ok
-            test username/hello/B/B_wbtest.mbt::1 ok
+            [username/hello] test B/B_wbtest.mbt:1 (#0) ok
+            [username/hello] test B/B_wbtest.mbt:5 (#1) ok
             Total tests: 8, passed: 8, failed: 0.
         "#]],
     );

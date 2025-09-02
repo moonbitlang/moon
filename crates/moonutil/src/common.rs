@@ -890,9 +890,15 @@ pub type TestBlockIndex = u32;
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct MbtTestInfo {
+    /// The index of the test block in the file, starting from 0.
     pub index: TestBlockIndex,
+    /// The function name of the test block
     pub func: String,
+    /// The name of the test block, if any
     pub name: Option<TestName>,
+    /// The line number of the definition of the test block, if any
+    #[serde(default)]
+    pub line_number: Option<usize>,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
