@@ -133,11 +133,9 @@ jobs:
       - uses: dtolnay/rust-toolchain@1.80.0
         with:
           components: rustfmt, clippy
+
       - name: Cargo cache
-        uses: actions/cache@v4
-        with:
-          key: ${{ runner.os }}-cargo-${{ hashFiles('Cargo.lock') }}
-          path: ~/.cargo/registry
+        uses: Swatinem/rust-cache@v2
 
       - name: install MoonBit(Unix)
         if: ${{ matrix.os != 'windows-latest' }}
@@ -257,11 +255,9 @@ jobs:
       - uses: dtolnay/rust-toolchain@1.80.0
         with:
           components: rustfmt, clippy
+
       - name: Cargo cache
-        uses: actions/cache@v4
-        with:
-          key: ${{ runner.os }}-cargo-${{ hashFiles('Cargo.lock') }}
-          path: ~/.cargo/registry
+        uses: Swatinem/rust-cache@v2
 
       - name: install MoonBit(Unix)
         if: ${{ matrix.os != 'windows-latest' }}
