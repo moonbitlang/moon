@@ -53,7 +53,8 @@ pub fn print_commands(
     if !state.default.is_empty() {
         let mut sorted_default = state.default.clone();
         sorted_default.sort_by_key(|a| a.index());
-        let builds: Vec<BuildId> = stable_toposort_graph(&state.graph, &sorted_default);
+        let builds: Vec<BuildId> =
+            stable_toposort_graph(&state.graph, &sorted_default, &source_dir.to_string_lossy());
         for b in builds.iter() {
             let build = &state.graph.builds[*b];
             if let Some(cmdline) = &build.cmdline {
@@ -99,20 +100,34 @@ pub fn print_commands(
     Ok(0)
 }
 
+/// A sortable path to create a stable sorting order from file names.
+#[derive(PartialEq, PartialOrd, Eq, Ord)]
+enum N2PathKind<'a> {
+    InSource(&'a str),
+    OutOfSource(&'a str),
+}
+
 /// Perform an iteration over the build graph to get the total list of build
 /// commands that corresponds to the given inputs.
 ///
 /// This function should have a stable output order based on the file names and
 /// the structure of the build graph, but irrelevant of the actual insertion
 /// order of the graph.
-fn stable_toposort_graph(graph: &Graph, inputs: &[FileId]) -> Vec<BuildId> {
+fn stable_toposort_graph(graph: &Graph, inputs: &[FileId], source_dir: &str) -> Vec<BuildId> {
     // Get file name of file ID
-    let by_file_name = |k: &FileId| &graph.file(*k).name;
+    let by_file_name = |k: &FileId| {
+        let name = &graph.file(*k).name;
+        if let Some(stripped) = name.strip_prefix(source_dir) {
+            N2PathKind::InSource(stripped)
+        } else {
+            N2PathKind::OutOfSource(name)
+        }
+    };
 
     // Sort the input files by the filenames
     let mut input_order = Vec::new();
     input_order.extend_from_slice(inputs);
-    input_order.sort_unstable_by_key(by_file_name);
+    input_order.sort_by_cached_key(by_file_name);
 
     // DFS stack
     // (file_id, is_pop)
@@ -138,7 +153,7 @@ fn stable_toposort_graph(graph: &Graph, inputs: &[FileId]) -> Vec<BuildId> {
                     // Push input files in sorted order
                     debug_assert!(sort_in_scratch.is_empty());
                     sort_in_scratch.extend_from_slice(build.explicit_ins());
-                    sort_in_scratch.sort_unstable_by_key(by_file_name);
+                    sort_in_scratch.sort_by_cached_key(by_file_name);
                     stack.extend(sort_in_scratch.iter().copied().map(|x| (x, false)));
                     sort_in_scratch.clear();
                 }
