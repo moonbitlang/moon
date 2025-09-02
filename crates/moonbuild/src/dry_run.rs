@@ -353,9 +353,12 @@ mod tests {
 
         // All should be equal since they normalize to the same lowercase string
         for i in 0..paths.len() {
-            for j in i+1..paths.len() {
-                assert_eq!(paths[i].cmp(&paths[j]), std::cmp::Ordering::Equal,
-                    "Paths with different cases should be equal after normalization");
+            for j in i + 1..paths.len() {
+                assert_eq!(
+                    paths[i].cmp(&paths[j]),
+                    std::cmp::Ordering::Equal,
+                    "Paths with different cases should be equal after normalization"
+                );
             }
         }
     }
@@ -380,10 +383,12 @@ mod tests {
                     is_in_source: true,
                     normalized_path: stripped_clean.to_lowercase(),
                 };
-                
-                assert_eq!(result.normalized_path, expected_normalized,
+
+                assert_eq!(
+                    result.normalized_path, expected_normalized,
                     "Cross-platform path normalization failed for: {} -> {}",
-                    file_path, expected_normalized);
+                    file_path, expected_normalized
+                );
             }
         }
     }
