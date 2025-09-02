@@ -221,7 +221,7 @@ fn test_moon_new_new() {
     check(
         get_stdout(&hello3, ["test", "-v"]),
         expect![[r#"
-            test moonbitlang/hello/hello_test.mbt::fib ok
+            [moonbitlang/hello] test hello_test.mbt:2 ("fib") ok
             Total tests: 1, passed: 1, failed: 0.
         "#]],
     );
@@ -247,7 +247,7 @@ fn test_moon_new_new() {
     check(
         get_stdout(&hello4, ["test", "-v"]),
         expect![[r#"
-            test moonbitlang/hello/hello_test.mbt::fib ok
+            [moonbitlang/hello] test hello_test.mbt:2 ("fib") ok
             Total tests: 1, passed: 1, failed: 0.
         "#]],
     );

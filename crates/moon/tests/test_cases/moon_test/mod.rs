@@ -7,12 +7,12 @@ fn test_moon_test_succ() {
     check(
         get_stdout(&dir, ["test", "-v", "--sort-input", "--no-parallelize"]),
         expect![[r#"
-            test moontest/lib/hello_wbtest.mbt::0 ok
-            test moontest/lib2/hello_wbtest.mbt::0 ok
-            test moontest/lib2/nested/lib_wbtest.mbt::0 ok
-            test moontest/lib2/nested/lib_wbtest.mbt::1 ok
-            test moontest/lib3/hello_wbtest.mbt::0 ok
-            test moontest/lib4/hello_wbtest.mbt::0 ok
+            [moontest] test lib/hello_wbtest.mbt:1 (#0) ok
+            [moontest] test lib2/hello_wbtest.mbt:1 (#0) ok
+            [moontest] test lib2/nested/lib_wbtest.mbt:1 (#0) ok
+            [moontest] test lib2/nested/lib_wbtest.mbt:7 (#1) ok
+            [moontest] test lib3/hello_wbtest.mbt:1 (#0) ok
+            [moontest] test lib4/hello_wbtest.mbt:1 (#0) ok
             Total tests: 6, passed: 6, failed: 0.
         "#]],
     );
@@ -31,7 +31,7 @@ fn test_moon_test_hello_exec() {
         get_stdout(&dir, ["test", "-v"]),
         expect![[r#"
             this is lib test
-            test moonbitlang/hello/lib/hello_wbtest.mbt::0 ok
+            [moonbitlang/hello] test lib/hello_wbtest.mbt:1 (#0) ok
             Total tests: 1, passed: 1, failed: 0.
         "#]],
     );
@@ -87,9 +87,9 @@ fn test_moon_test_hello_exec_fntest() {
         get_stdout(&dir, ["test", "-v", "--sort-input", "--no-parallelize"]),
         expect![[r#"
             test in lib/hello.mbt
-            test moonbitlang/hello/lib/hello.mbt::0 ok
+            [moonbitlang/hello] test lib/hello.mbt:5 (#0) ok
             test in lib/hello_test.mbt
-            test moonbitlang/hello/lib/hello_wbtest.mbt::0 ok
+            [moonbitlang/hello] test lib/hello_wbtest.mbt:1 (#0) ok
             Total tests: 2, passed: 2, failed: 0.
         "#]],
     );
@@ -101,7 +101,7 @@ fn test_moon_test_hello_lib() {
     check(
         get_stdout(&dir, ["test", "-v"]),
         expect![[r#"
-            test moonbitlang/hello/lib/hello_wbtest.mbt::0 ok
+            [moonbitlang/hello] test lib/hello_wbtest.mbt:1 (#0) ok
             Total tests: 1, passed: 1, failed: 0.
         "#]],
     );
@@ -113,7 +113,7 @@ fn test_moon_test_with_local_dep() {
     check(
         get_stdout(&dir, ["test", "-v", "--frozen"]),
         expect![[r#"
-            test hello31/lib/hello_wbtest.mbt::0 ok
+            [hello31] test lib/hello_wbtest.mbt:1 (#0) ok
             Total tests: 1, passed: 1, failed: 0.
         "#]],
     );

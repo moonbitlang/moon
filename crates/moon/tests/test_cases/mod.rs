@@ -264,7 +264,7 @@ fn test_panic() {
     check(
         &out,
         expect![[r#"
-            test username/hello/lib/hello_wbtest.mbt::panic failed: panic is expected
+            [username/hello] test lib/hello_wbtest.mbt:3 ("panic") failed: panic is expected
             Total tests: 2, passed: 1, failed: 1.
         "#]],
     );
@@ -1915,7 +1915,7 @@ fn test_specify_source_dir_002() {
     check(
         get_err_stdout(&dir, ["test"]),
         expect![[r#"
-            test username/hello/lib/hello_test.mbt::hello failed
+            [username/hello] test lib/hello_test.mbt:1 ("hello") failed
             expect test failed at $ROOT/src/lib/hello_test.mbt:2:3-2:24
             Diff:
             ----
@@ -2103,21 +2103,21 @@ fn test_snapshot_test() {
     check(
         get_err_stdout(&dir, ["test", "--sort-input", "--no-parallelize"]),
         expect![[r#"
-            test username/hello/lib/hello_test.mbt::snapshot in blackbox test failed
+            [username/hello] test lib/hello_test.mbt:7 ("snapshot in blackbox test") failed
             expect test failed at $ROOT/src/lib/hello_test.mbt:9:3
             Diff:
             ----
             Hello, world!
             ----
 
-            test username/hello/lib/hello.mbt::test inspect 1 failed
+            [username/hello] test lib/hello.mbt:5 ("test inspect 1") failed
             expect test failed at $ROOT/src/lib/hello.mbt:6:3-6:15
             Diff:
             ----
             a
             ----
 
-            test username/hello/lib/hello.mbt::test snapshot 1 failed
+            [username/hello] test lib/hello.mbt:10 ("test snapshot 1") failed
             expect test failed at $ROOT/src/lib/hello.mbt:14:3
             Diff:
             ----
@@ -2127,14 +2127,14 @@ fn test_snapshot_test() {
 
             ----
 
-            test username/hello/lib/hello.mbt::test inspect 2 failed
+            [username/hello] test lib/hello.mbt:17 ("test inspect 2") failed
             expect test failed at $ROOT/src/lib/hello.mbt:18:3-18:15
             Diff:
             ----
             c
             ----
 
-            test username/hello/lib/hello.mbt::test snapshot 2 failed
+            [username/hello] test lib/hello.mbt:22 ("test snapshot 2") failed
             expect test failed at $ROOT/src/lib/hello.mbt:26:3
             Diff:
             ----
@@ -2159,21 +2159,21 @@ fn test_snapshot_test() {
             ],
         ),
         expect![[r#"
-            test username/hello/lib/hello_test.mbt::snapshot in blackbox test failed
+            [username/hello] test lib/hello_test.mbt:7 ("snapshot in blackbox test") failed
             expect test failed at $ROOT/src/lib/hello_test.mbt:9:3
             Diff:
             ----
             Hello, world!
             ----
 
-            test username/hello/lib/hello.mbt::test inspect 1 failed
+            [username/hello] test lib/hello.mbt:5 ("test inspect 1") failed
             expect test failed at $ROOT/src/lib/hello.mbt:6:3-6:15
             Diff:
             ----
             a
             ----
 
-            test username/hello/lib/hello.mbt::test snapshot 1 failed
+            [username/hello] test lib/hello.mbt:10 ("test snapshot 1") failed
             expect test failed at $ROOT/src/lib/hello.mbt:14:3
             Diff:
             ----
@@ -2183,14 +2183,14 @@ fn test_snapshot_test() {
 
             ----
 
-            test username/hello/lib/hello.mbt::test inspect 2 failed
+            [username/hello] test lib/hello.mbt:17 ("test inspect 2") failed
             expect test failed at $ROOT/src/lib/hello.mbt:18:3-18:15
             Diff:
             ----
             c
             ----
 
-            test username/hello/lib/hello.mbt::test snapshot 2 failed
+            [username/hello] test lib/hello.mbt:22 ("test snapshot 2") failed
             expect test failed at $ROOT/src/lib/hello.mbt:26:3
             Diff:
             ----
@@ -2276,21 +2276,21 @@ fn test_snapshot_test_target_js() {
             ["test", "--target", "js", "--sort-input", "--no-parallelize"],
         ),
         expect![[r#"
-            test username/hello/lib/hello_test.mbt::snapshot in blackbox test failed
+            [username/hello] test lib/hello_test.mbt:7 ("snapshot in blackbox test") failed
             expect test failed at $ROOT/src/lib/hello_test.mbt:9:3
             Diff:
             ----
             Hello, world!
             ----
 
-            test username/hello/lib/hello.mbt::test inspect 1 failed
+            [username/hello] test lib/hello.mbt:5 ("test inspect 1") failed
             expect test failed at $ROOT/src/lib/hello.mbt:6:3-6:15
             Diff:
             ----
             a
             ----
 
-            test username/hello/lib/hello.mbt::test snapshot 1 failed
+            [username/hello] test lib/hello.mbt:10 ("test snapshot 1") failed
             expect test failed at $ROOT/src/lib/hello.mbt:14:3
             Diff:
             ----
@@ -2300,14 +2300,14 @@ fn test_snapshot_test_target_js() {
 
             ----
 
-            test username/hello/lib/hello.mbt::test inspect 2 failed
+            [username/hello] test lib/hello.mbt:17 ("test inspect 2") failed
             expect test failed at $ROOT/src/lib/hello.mbt:18:3-18:15
             Diff:
             ----
             c
             ----
 
-            test username/hello/lib/hello.mbt::test snapshot 2 failed
+            [username/hello] test lib/hello.mbt:22 ("test snapshot 2") failed
             expect test failed at $ROOT/src/lib/hello.mbt:26:3
             Diff:
             ----
@@ -4044,23 +4044,23 @@ fn test_run_doc_test() {
             test block 4
             test block 5
             doc_test 5 from greet.mbt
-            test username/hello/lib/hello.mbt::1 failed
+            [username/hello] test lib/hello.mbt:9 (#1) failed
             expect test failed at $ROOT/src/lib/hello.mbt:12:5-12:18
             Diff:
             ----
             1256
             ----
 
-            test username/hello/lib/hello.mbt::2 failed: $ROOT/src/lib/hello.mbt:22:5-22:30 FAILED: this is a failure
-            test username/hello/lib/greet.mbt::2 failed
+            [username/hello] test lib/hello.mbt:19 (#2) failed: $ROOT/src/lib/hello.mbt:22:5-22:30 FAILED: this is a failure
+            [username/hello] test lib/greet.mbt:18 (#2) failed
             expect test failed at $ROOT/src/lib/greet.mbt:23:7-23:20
             Diff:
             ----
             1256
             ----
 
-            test username/hello/lib/greet.mbt::3 failed: $ROOT/src/lib/greet.mbt:34:7-34:30 FAILED: another failure
-            test username/hello/lib/greet.mbt::8 failed
+            [username/hello] test lib/greet.mbt:30 (#3) failed: $ROOT/src/lib/greet.mbt:34:7-34:30 FAILED: another failure
+            [username/hello] test lib/greet.mbt:95 (#8) failed
             expect test failed at $ROOT/src/lib/greet.mbt:99:5-99:40
             Diff:
             ----
@@ -4092,10 +4092,10 @@ fn test_run_doc_test() {
 
             doc_test 2 from hello.mbt
             doc_test 2 from hello.mbt
-            test username/hello/lib/hello.mbt::2 failed: $ROOT/src/lib/hello.mbt:22:5-22:30 FAILED: this is a failure
+            [username/hello] test lib/hello.mbt:19 (#2) failed: $ROOT/src/lib/hello.mbt:22:5-22:30 FAILED: this is a failure
             test block 2
             test block 2
-            test username/hello/lib/greet.mbt::3 failed: $ROOT/src/lib/greet.mbt:34:7-34:30 FAILED: another failure
+            [username/hello] test lib/greet.mbt:30 (#3) failed: $ROOT/src/lib/greet.mbt:34:7-34:30 FAILED: another failure
             Total tests: 16, passed: 14, failed: 2.
         "#]],
     );
@@ -4767,21 +4767,21 @@ fn test_run_md_test() {
             }
             ```
             Hello, world 2!
-            test username/hello/lib/hello_test.mbt::inspect in bbtest failed
+            [username/hello] test lib/hello_test.mbt:10 ("inspect in bbtest") failed
             expect test failed at $ROOT/src/lib/hello_test.mbt:12:3-12:31
             Diff:
             ----
             inspect in bbtest
             ----
 
-            test username/hello/lib/1.mbt.md::2 failed
+            [username/hello] test lib/1.mbt.md:32 (#2) failed
             expect test failed at $ROOT/src/lib/1.mbt.md:44:5-44:20
             Diff:
             ----
             4234
             ----
 
-            test username/hello/lib/1.mbt.md::3 failed
+            [username/hello] test lib/1.mbt.md:53 (#3) failed
             expect test failed at $ROOT/src/lib/1.mbt.md:61:5-61:15
             Diff:
             ----
@@ -5120,7 +5120,7 @@ fn native_backend_test_filter() {
             ],
         ),
         expect![[r#"
-            test username/hello/lib/hello.mbt::D failed
+            [username/hello] test lib/hello.mbt:22 ("D") failed
             expect test failed at $ROOT/lib/hello.mbt:24:3
             Diff:
             ----
@@ -5316,7 +5316,7 @@ fn test_virtual_pkg() {
             bb test
             default impl for f1 in lib1: 1
             another impl for f3 in lib4
-            test username/xxx/lib2/hello_test.mbt::0 failed: Error
+            [username/xxx] test lib2/hello_test.mbt:2 (#0) failed: Error
         "#]],
     );
 
@@ -5362,7 +5362,7 @@ fn moon_check_and_test_single_file() {
         check(
             get_err_stdout(&dir, ["test", "single.mbt", "-i", "1"]),
             expect![[r#"
-                test moon/test/single/single.mbt::1 failed
+                [moon/test] test single/single.mbt:12 (#1) failed
                 expect test failed at $ROOT/single.mbt:13:3-13:18
                 Diff:
                 ----
@@ -5441,7 +5441,7 @@ fn moon_check_and_test_single_file() {
         check(
             get_err_stdout(&dir, ["test", "111.mbt.md", "-i", "1"]),
             expect![[r#"
-                test moon/test/single/111.mbt.md::1 failed
+                [moon/test] test single/111.mbt.md:27 (#1) failed
                 expect test failed at $ROOT/111.mbt.md:34:5-34:20
                 Diff:
                 ----
@@ -5787,7 +5787,7 @@ fn moon_test_target_js_panic_with_sourcemap() {
         &filtered_output,
         // should keep in this format, it's used in ide test explorer
         expect![[r#"
-            test username/hello/lib/hello_test.mbt::hello failed: Error
+            [username/hello] test lib/hello_test.mbt:1 ("hello") failed: Error
                 at $panic ($ROOT/target/js/debug/test/lib/lib.blackbox_test.js:3:9)
                 at username$hello$lib_blackbox_test$$__test_68656c6c6f5f746573742e6d6274_0 ($ROOT/src/lib/hello_test.mbt:3:5)
                 at username$hello$lib_blackbox_test$$moonbit_test_driver_internal_execute ($ROOT/src/lib/__generated_driver_for_blackbox_test.mbt:41:9)
