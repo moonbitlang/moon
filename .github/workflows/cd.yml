@@ -36,11 +36,10 @@ jobs:
           submodules: true
 
       - uses: dtolnay/rust-toolchain@1.80.0
+
       - name: Cargo cache
-        uses: actions/cache@v4
-        with:
-          key: ${{ runner.os }}-cargo-${{ hashFiles('Cargo.lock') }}
-          path: ~/.cargo/registry
+        uses: Swatinem/rust-cache@v2
+
       - name: Build
         run: cargo build --release
 
