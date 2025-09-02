@@ -166,7 +166,10 @@ fn stable_toposort_graph(graph: &Graph, inputs: &[FileId], source_dir: &str) -> 
         } else {
             SortablePath {
                 is_in_source: false,
-                normalized_path: normalized_name.to_lowercase(),
+                normalized_path: normalized_name
+                    .rsplit_once('/')
+                    .map_or(normalized_name.as_str(), |(_, last)| last)
+                    .to_lowercase(),
             }
         }
     };
