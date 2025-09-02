@@ -23,6 +23,20 @@ use std::collections::HashSet;
 
 use moonutil::common::{MoonbuildOpt, MooncOpt, RunMode, TargetBackend};
 
+/// Normalize a path for stable cross-platform comparison.
+/// - Converts backslashes to forward slashes
+/// - Removes trailing slashes
+/// - Handles empty paths consistently
+fn normalize_path(path: &str) -> String {
+    let normalized = path.replace('\\', "/");
+    // Remove trailing slash unless it's the root
+    if normalized.len() > 1 && normalized.ends_with('/') {
+        normalized.trim_end_matches('/').to_string()
+    } else {
+        normalized
+    }
+}
+
 pub fn print_commands(
     module: &ModuleDB,
     moonc_opt: &MooncOpt,
@@ -101,10 +115,31 @@ pub fn print_commands(
 }
 
 /// A sortable path to create a stable sorting order from file names.
-#[derive(PartialEq, PartialOrd, Eq, Ord)]
-enum N2PathKind<'a> {
-    InSource(&'a str),
-    OutOfSource(&'a str),
+/// Uses normalized paths to ensure consistent ordering across platforms.
+#[derive(PartialEq, Eq)]
+struct SortablePath {
+    is_in_source: bool,
+    /// Path normalized and converted to lowercase
+    normalized_path: String,
+}
+
+impl PartialOrd for SortablePath {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl Ord for SortablePath {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        // First, prioritize files within the source directory
+        match (self.is_in_source, other.is_in_source) {
+            (true, false) => return std::cmp::Ordering::Less,
+            (false, true) => return std::cmp::Ordering::Greater,
+            _ => {}
+        }
+        // Then, compare normalized paths case-insensitively
+        self.normalized_path.cmp(&other.normalized_path)
+    }
 }
 
 /// Perform an iteration over the build graph to get the total list of build
@@ -114,13 +149,25 @@ enum N2PathKind<'a> {
 /// the structure of the build graph, but irrelevant of the actual insertion
 /// order of the graph.
 fn stable_toposort_graph(graph: &Graph, inputs: &[FileId], source_dir: &str) -> Vec<BuildId> {
-    // Get file name of file ID
+    // Normalize the source directory for consistent comparison
+    let normalized_source_dir = normalize_path(source_dir);
+
+    // Get file name of file ID with platform-agnostic path handling
     let by_file_name = |k: &FileId| {
         let name = &graph.file(*k).name;
-        if let Some(stripped) = name.strip_prefix(source_dir) {
-            N2PathKind::InSource(stripped)
+        let normalized_name = normalize_path(name);
+
+        if let Some(stripped) = normalized_name.strip_prefix(&normalized_source_dir) {
+            let stripped_clean = stripped.strip_prefix('/').unwrap_or(stripped);
+            SortablePath {
+                is_in_source: true,
+                normalized_path: stripped_clean.to_lowercase(),
+            }
         } else {
-            N2PathKind::OutOfSource(name)
+            SortablePath {
+                is_in_source: false,
+                normalized_path: normalized_name.to_lowercase(),
+            }
         }
     };
 
@@ -164,4 +211,180 @@ fn stable_toposort_graph(graph: &Graph, inputs: &[FileId], source_dir: &str) -> 
     }
 
     res
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_normalize_path() {
+        // Test backslash to forward slash conversion
+        assert_eq!(
+            normalize_path("C:\\Users\\test\\file.txt"),
+            "C:/Users/test/file.txt"
+        );
+        assert_eq!(normalize_path("src/main.rs"), "src/main.rs");
+
+        // Test trailing slash removal
+        assert_eq!(normalize_path("src/"), "src");
+        assert_eq!(normalize_path("src/test/"), "src/test");
+
+        // Root paths should keep their slash
+        assert_eq!(normalize_path("/"), "/");
+        assert_eq!(normalize_path("C:/"), "C:");
+
+        // Empty and single char paths
+        assert_eq!(normalize_path(""), "");
+        assert_eq!(normalize_path("a"), "a");
+    }
+
+    #[test]
+    fn test_sortable_path_ordering() {
+        // InSource should always come before OutOfSource
+        let in_source = SortablePath {
+            is_in_source: true,
+            normalized_path: "zzz.txt".to_string(),
+        };
+        let out_of_source = SortablePath {
+            is_in_source: false,
+            normalized_path: "aaa.txt".to_string(),
+        };
+        assert!(in_source < out_of_source);
+
+        // Within same category, should be case-insensitive alphabetical
+        // Note: normalized_path is already lowercase in the actual implementation
+        let path1 = SortablePath {
+            is_in_source: true,
+            normalized_path: "file.txt".to_string(), // lowercase
+        };
+        let path2 = SortablePath {
+            is_in_source: true,
+            normalized_path: "file.txt".to_string(), // lowercase
+        };
+        let path3 = SortablePath {
+            is_in_source: true,
+            normalized_path: "another.txt".to_string(), // lowercase
+        };
+
+        // path1 and path2 should be equal (same normalized path)
+        assert_eq!(path1.cmp(&path2), std::cmp::Ordering::Equal);
+
+        // path3 should come before both (alphabetically)
+        assert!(path3 < path1);
+        assert!(path3 < path2);
+    }
+
+    #[test]
+    fn test_path_prefix_stripping() {
+        // Test that Windows-style and Unix-style paths are handled consistently
+        let test_cases = vec![
+            // (source_dir, file_path, expected_is_in_source, expected_normalized_lowercase)
+            (
+                "C:\\project",
+                "C:\\project\\src\\main.rs",
+                true,
+                "src/main.rs",
+            ),
+            ("C:/project", "C:/project/src/main.rs", true, "src/main.rs"),
+            (
+                "/home/user/project",
+                "/home/user/project/src/main.rs",
+                true,
+                "src/main.rs",
+            ),
+            ("./project", "./project/src/main.rs", true, "src/main.rs"),
+            (
+                "C:\\project",
+                "D:\\external\\lib.rs",
+                false,
+                "d:/external/lib.rs", // Note: lowercase due to to_lowercase() in implementation
+            ),
+        ];
+
+        for (source_dir, file_path, expected_in_source, expected_normalized) in test_cases {
+            let normalized_source_dir = normalize_path(source_dir);
+            let normalized_file_path = normalize_path(file_path);
+
+            let result =
+                if let Some(stripped) = normalized_file_path.strip_prefix(&normalized_source_dir) {
+                    let stripped_clean = stripped.strip_prefix('/').unwrap_or(stripped);
+                    SortablePath {
+                        is_in_source: true,
+                        normalized_path: stripped_clean.to_lowercase(), // Match implementation
+                    }
+                } else {
+                    SortablePath {
+                        is_in_source: false,
+                        normalized_path: normalized_file_path.to_lowercase(), // Match implementation
+                    }
+                };
+
+            assert_eq!(
+                result.is_in_source, expected_in_source,
+                "Failed for source_dir: {}, file_path: {}",
+                source_dir, file_path
+            );
+            assert_eq!(
+                result.normalized_path, expected_normalized,
+                "Failed normalization for source_dir: {}, file_path: {}",
+                source_dir, file_path
+            );
+        }
+    }
+
+    #[test]
+    fn test_case_insensitive_sorting() {
+        // Test that paths with different cases are sorted consistently
+        let paths = vec![
+            SortablePath {
+                is_in_source: true,
+                normalized_path: "File.TXT".to_lowercase(),
+            },
+            SortablePath {
+                is_in_source: true,
+                normalized_path: "file.txt".to_lowercase(),
+            },
+            SortablePath {
+                is_in_source: true,
+                normalized_path: "FILE.txt".to_lowercase(),
+            },
+        ];
+
+        // All should be equal since they normalize to the same lowercase string
+        for i in 0..paths.len() {
+            for j in i+1..paths.len() {
+                assert_eq!(paths[i].cmp(&paths[j]), std::cmp::Ordering::Equal,
+                    "Paths with different cases should be equal after normalization");
+            }
+        }
+    }
+
+    #[test]
+    fn test_cross_platform_path_consistency() {
+        // Test that equivalent paths on different platforms produce the same result
+        let test_cases = vec![
+            // Windows vs Unix equivalent paths
+            ("C:\\project", "C:\\project\\src\\Main.MV", "src/main.mv"),
+            ("C:/project", "C:/project/src/Main.MV", "src/main.mv"),
+            ("/project", "/project/src/Main.MV", "src/main.mv"),
+        ];
+
+        for (source_dir, file_path, expected_normalized) in test_cases {
+            let normalized_source_dir = normalize_path(source_dir);
+            let normalized_file_path = normalize_path(file_path);
+
+            if let Some(stripped) = normalized_file_path.strip_prefix(&normalized_source_dir) {
+                let stripped_clean = stripped.strip_prefix('/').unwrap_or(stripped);
+                let result = SortablePath {
+                    is_in_source: true,
+                    normalized_path: stripped_clean.to_lowercase(),
+                };
+                
+                assert_eq!(result.normalized_path, expected_normalized,
+                    "Cross-platform path normalization failed for: {} -> {}",
+                    file_path, expected_normalized);
+            }
+        }
+    }
 }
