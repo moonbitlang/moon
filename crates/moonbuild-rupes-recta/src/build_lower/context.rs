@@ -236,6 +236,7 @@ impl<'a> BuildPlanLowerContext<'a> {
                     &target,
                     self.opt.target_backend,
                     self.opt.os,
+                    self.opt.output_wat,
                 ));
             }
             BuildPlanNode::MakeExecutable(target) => {
@@ -245,6 +246,7 @@ impl<'a> BuildPlanLowerContext<'a> {
                     self.opt.target_backend,
                     self.opt.os,
                     true,
+                    self.opt.output_wat,
                 ))
             }
             BuildPlanNode::GenerateTestInfo(target) => {

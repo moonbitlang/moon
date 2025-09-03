@@ -128,6 +128,7 @@ pub struct CompilePreConfig {
     use_std: bool,
     debug_export_build_plan: bool,
     enable_coverage: bool,
+    output_wat: bool,
     target_dir: PathBuf,
 }
 
@@ -155,6 +156,7 @@ impl CompilePreConfig {
                 None
             },
             enable_coverage: self.enable_coverage,
+            output_wat: self.output_wat,
             debug_export_build_plan: self.debug_export_build_plan,
         }
     }
@@ -186,6 +188,7 @@ pub fn preconfig_compile(
         debug_symbols: !build_flags.strip(),
         use_std: build_flags.std(),
         enable_coverage: build_flags.enable_coverage,
+        output_wat: build_flags.output_wat,
         debug_export_build_plan: cli.unstable_feature.rr_export_build_plan,
     }
 }
