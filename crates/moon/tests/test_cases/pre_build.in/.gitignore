@@ -1,2 +1,5 @@
 target/
 .mooncakes/
+src/lib/a.mbt
+src/lib/b.mbt
+src/lib/c.mbt
