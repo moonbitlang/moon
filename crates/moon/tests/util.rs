@@ -63,6 +63,13 @@ pub fn copy(src: &Path, dest: &Path) -> anyhow::Result<()> {
             let entry = entry?;
             let path = entry.path();
             let relative_path = path.strip_prefix(src)?;
+            
+            // Skip target directories to avoid copying stale packages.json files
+            // with hardcoded absolute paths that cause dry-run panics
+            if relative_path.components().any(|c| c.as_os_str() == "target") {
+                continue;
+            }
+            
             let dest_path = dest.join(relative_path);
             if path.is_dir() {
                 if !dest_path.exists() {
