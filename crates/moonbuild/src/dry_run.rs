@@ -19,7 +19,7 @@
 use moonutil::module::ModuleDB;
 use n2::densemap::Index;
 use n2::graph::{BuildId, FileId, Graph};
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
 use moonutil::common::{MoonbuildOpt, MooncOpt, RunMode, TargetBackend};
 
@@ -99,23 +99,43 @@ pub fn print_commands(
     Ok(0)
 }
 
+/// Create a filename-based sorting key cache for stable graph traversal.
+///
+/// The key prioritizes filename over full path to provide deterministic
+/// ordering for dry-run output. This handles test sandbox path variations
+/// while maintaining stable output across different environments.
+///
+/// Note: This is specifically for stable dry-run output in tests and CI.
+/// Absolute stability across all possible edge cases is not a goal.
+fn create_file_sorting_cache(graph: &Graph) -> HashMap<FileId, (String, usize)> {
+    let mut key_cache = HashMap::new();
+    for id in graph.files.all_ids() {
+        let name = &graph.file(id).name;
+        let normalized = name.replace('\\', "/");
+        let last_slash = normalized.rfind('/').map_or(0, |i| i + 1);
+        key_cache.insert(id, (normalized, last_slash));
+    }
+    key_cache
+}
+
 /// Perform an iteration over the build graph to get the total list of build
 /// commands that corresponds to the given inputs.
 ///
-/// This function should have a stable output order based on the file names and
-/// the structure of the build graph, but irrelevant of the actual insertion
-/// order of the graph.
+/// This function provides stable output order based on file names and
+/// the build graph structure, independent of graph insertion order.
 fn stable_toposort_graph(graph: &Graph, inputs: &[FileId]) -> Vec<BuildId> {
-    // Get file name of file ID
-    let by_file_name = |k: &FileId| &graph.file(*k).name;
+    let key_cache = create_file_sorting_cache(graph);
+    let by_file_name = |k: &FileId| {
+        let (name, last_slash) = &key_cache[k];
+        (&name[*last_slash..], name)
+    };
 
-    // Sort the input files by the filenames
+    // Sort input files by filename for deterministic order
     let mut input_order = Vec::new();
     input_order.extend_from_slice(inputs);
     input_order.sort_unstable_by_key(by_file_name);
 
-    // DFS stack
-    // (file_id, is_pop)
+    // DFS stack: (file_id, is_pop)
     let mut stack = Vec::<(FileId, bool)>::new();
     stack.extend(input_order.into_iter().map(|x| (x, false)));
     // Result
@@ -131,11 +151,9 @@ fn stable_toposort_graph(graph: &Graph, inputs: &[FileId]) -> Vec<BuildId> {
             if !pop {
                 if vis.insert(bid) {
                     let build = &graph.builds[bid];
-
-                    // Push the build back to be used when popping
                     stack.push((fid, true));
 
-                    // Push input files in sorted order
+                    // Sort input files for stable traversal order
                     debug_assert!(sort_in_scratch.is_empty());
                     sort_in_scratch.extend_from_slice(build.explicit_ins());
                     sort_in_scratch.sort_unstable_by_key(by_file_name);
