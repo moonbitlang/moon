@@ -133,6 +133,7 @@ impl<'a> BuildPlanLowerContext<'a> {
         );
         cmd.flags.no_opt = self.opt.opt_level == OptLevel::Debug;
         cmd.flags.symbols = self.opt.debug_symbols;
+        cmd.flags.enable_coverage = self.opt.enable_coverage;
         self.set_commons(&mut cmd.common);
 
         // Determine whether the built package is a main package.
