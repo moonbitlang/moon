@@ -58,6 +58,7 @@ pub struct BuildOptions {
     pub opt_level: OptLevel,
     pub action: RunMode,
     pub debug_symbols: bool,
+    pub enable_coverage: bool,
     /// Only `Some` if we import standard library.
     pub stdlib_path: Option<PathBuf>,
     pub runtime_dot_c_path: PathBuf,
