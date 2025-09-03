@@ -181,6 +181,7 @@ impl<'a> BuildPlanLowerContext<'a> {
             &target,
             self.opt.target_backend,
             self.opt.os,
+            self.opt.output_wat,
         );
 
         let core_fqn = PackageFQN::new(CORE_MODULE.clone(), PackagePath::empty());
@@ -391,6 +392,7 @@ impl<'a> BuildPlanLowerContext<'a> {
                     self.opt.target_backend,
                     self.opt.os,
                     true,
+                    self.opt.output_wat,
                 )
                 .display()
                 .to_string(),

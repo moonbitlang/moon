@@ -162,13 +162,14 @@ impl LegacyLayout {
         target: &BuildTarget,
         backend: TargetBackend,
         os: OperatingSystem,
+        wasm_use_wat: bool,
     ) -> PathBuf {
         let pkg_fqn = &pkg_list.get_package(target.package).fqn;
         let mut base_dir = self.package_dir(pkg_fqn, backend);
         base_dir.push(format!(
             "{}{}",
             artifact(pkg_fqn, target.kind),
-            linked_core_artifact_ext(backend, os)
+            linked_core_artifact_ext(backend, os, wasm_use_wat)
         ));
         base_dir
     }
@@ -181,13 +182,14 @@ impl LegacyLayout {
         backend: TargetBackend,
         os: OperatingSystem,
         legacy_behavior: bool,
+        wasm_use_wat: bool,
     ) -> PathBuf {
         let pkg_fqn = &pkg_list.get_package(target.package).fqn;
         let mut base_dir = self.package_dir(pkg_fqn, backend);
         base_dir.push(format!(
             "{}{}",
             artifact(pkg_fqn, target.kind),
-            make_executable_artifact_ext(backend, os, legacy_behavior),
+            make_executable_artifact_ext(backend, os, legacy_behavior, wasm_use_wat),
         ));
         base_dir
     }
@@ -304,8 +306,13 @@ fn build_kind_suffix(kind: TargetKind) -> &'static str {
     }
 }
 
-fn linked_core_artifact_ext(backend: TargetBackend, os: OperatingSystem) -> &'static str {
+fn linked_core_artifact_ext(
+    backend: TargetBackend,
+    os: OperatingSystem,
+    wasm_use_wat: bool, // TODO: centralize knobs
+) -> &'static str {
     match backend {
+        TargetBackend::Wasm | TargetBackend::WasmGC if wasm_use_wat => ".wat",
         TargetBackend::Wasm | TargetBackend::WasmGC => ".wasm",
         TargetBackend::Js => ".js",
         TargetBackend::Native => ".c",
@@ -317,8 +324,10 @@ fn make_executable_artifact_ext(
     backend: TargetBackend,
     os: OperatingSystem,
     legacy_behavior: bool,
+    wasm_use_wat: bool,
 ) -> &'static str {
     match backend {
+        TargetBackend::Wasm | TargetBackend::WasmGC if wasm_use_wat => ".wat",
         TargetBackend::Wasm | TargetBackend::WasmGC => ".wasm",
         TargetBackend::Js => ".js",
         TargetBackend::Native | TargetBackend::LLVM => executable_ext(os, legacy_behavior),
