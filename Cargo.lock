@@ -1436,6 +1436,7 @@ dependencies = [
  "clap_complete",
  "colored",
  "ctrlc",
+ "derive_builder",
  "dialoguer",
  "dunce",
  "env_logger 0.10.2",

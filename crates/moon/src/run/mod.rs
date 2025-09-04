@@ -23,7 +23,7 @@ mod runtest;
 mod runtime;
 
 pub use child::run;
-pub use runtest::run_tests;
+pub use runtest::{run_tests, TestFilter, TestIndex};
 pub use runtime::{command_for, CommandGuard};
 
 pub fn default_rt() -> std::io::Result<tokio::runtime::Runtime> {
