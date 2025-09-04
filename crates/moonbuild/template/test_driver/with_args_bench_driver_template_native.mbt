@@ -3,6 +3,8 @@
 fn moonbit_test_driver_internal_error_to_string(x : Error) -> String = "%error.to_string"
 
 fn moonbit_unsafe_char_from_int(x : Int) -> Char = "%identity"
+fn moonbit_unsafe_int_from_int(x : Int) -> Int = "%identity"
+
 pub(all) struct Moonbit_Test_Driver_Internal_With_Bench_Args_Function((@moonbitlang/core/bench.T) -> Unit raise Error)
 
 typealias @moonbitlang/core/builtin.Map[
@@ -118,7 +120,7 @@ fn main {
     let mut res = 0
     let len = s.length()
     for i = 0; i < len; i = i + 1 {
-      res = res * 10 + (s[i] - '0'.to_int())
+      res = res * 10 + (moonbit_unsafe_int_from_int(s[i]) - '0'.to_int())
     }
     res
   }
@@ -179,7 +181,7 @@ fn main {
     let mut i = 0
     let mut start = 0
     while i < s.length() {
-      if moonbit_unsafe_char_from_int(s[i]) == sep {
+      if moonbit_unsafe_char_from_int(moonbit_unsafe_int_from_int(s[i])) == sep {
         res.push(s.substring(start = start, end = i))
         start = i + 1
       }
