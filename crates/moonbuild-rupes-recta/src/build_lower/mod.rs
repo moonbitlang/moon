@@ -62,6 +62,7 @@ pub struct BuildOptions {
     pub debug_symbols: bool,
     pub enable_coverage: bool,
     pub output_wat: bool,
+    pub moonc_output_json: bool,
 
     // Environments
     /// Only `Some` if we import standard library.

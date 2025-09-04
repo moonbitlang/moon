@@ -27,7 +27,7 @@ use n2::graph::{Build, Graph as N2Graph};
 use crate::{
     build_lower::{
         artifact::{self, LegacyLayout},
-        compiler,
+        compiler::{self, ErrorFormat},
     },
     build_plan::BuildPlan,
     discover::{DiscoverResult, DiscoveredPackage},
@@ -291,6 +291,11 @@ impl<'a> BuildPlanLowerContext<'a> {
             .stdlib_path
             .as_ref()
             .map(|x| artifact::core_bundle_path(x, self.opt.target_backend).into());
+        common.error_format = if self.opt.moonc_output_json {
+            ErrorFormat::Json
+        } else {
+            ErrorFormat::Regular
+        };
     }
 
     pub(super) fn set_flags(&self, flags: &mut compiler::CompilationFlags) {

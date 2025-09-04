@@ -41,7 +41,7 @@ use moonbuild_rupes_recta::{
 };
 use moonutil::{
     cli::UniversalFlags,
-    common::{RunMode, TargetBackend, MOONBITLANG_CORE},
+    common::{DiagnosticLevel, RunMode, TargetBackend, MOONBITLANG_CORE},
     cond_expr::OptLevel,
     features::FeatureGate,
     mooncakes::{sync::AutoSyncFlags, ModuleId},
@@ -129,6 +129,9 @@ pub struct CompilePreConfig {
     debug_export_build_plan: bool,
     enable_coverage: bool,
     output_wat: bool,
+    /// Whether to output JSON when compiling with moonc.
+    /// Set separately because we don't have the same
+    pub moonc_output_json: bool,
     target_dir: PathBuf,
 }
 
@@ -158,6 +161,7 @@ impl CompilePreConfig {
             enable_coverage: self.enable_coverage,
             output_wat: self.output_wat,
             debug_export_build_plan: self.debug_export_build_plan,
+            moonc_output_json: self.moonc_output_json,
         }
     }
 }
@@ -190,6 +194,8 @@ pub fn preconfig_compile(
         enable_coverage: build_flags.enable_coverage,
         output_wat: build_flags.output_wat,
         debug_export_build_plan: cli.unstable_feature.rr_export_build_plan,
+        // In legacy impl, dry run always force no json
+        moonc_output_json: !build_flags.no_render && !cli.dry_run,
     }
 }
 
@@ -268,15 +274,45 @@ pub fn plan_build(
     Ok((build_meta, compile_output.build_graph))
 }
 
+pub struct BuildConfig {
+    /// The level of parallelism to use. If `None`, will use the number of
+    /// available CPU cores.
+    parallelism: Option<usize>,
+    /// Skip rendering compiler diagnostics to console
+    pub no_render: bool,
+    /// Render no-location diagnostics above this level
+    render_no_loc: DiagnosticLevel,
+}
+
+impl BuildConfig {
+    pub fn from_flags(flags: &BuildFlags) -> Self {
+        BuildConfig {
+            parallelism: flags.jobs,
+            no_render: flags.no_render,
+            render_no_loc: flags.render_no_loc,
+        }
+    }
+}
+
+impl Default for BuildConfig {
+    fn default() -> Self {
+        Self {
+            parallelism: None,
+            no_render: false,
+            render_no_loc: DiagnosticLevel::Error,
+        }
+    }
+}
+
 /// Execute a build plan.
 ///
 /// Takes ownership of the build graph and executes the actual build tasks.
 /// Returns just the build result - callers should use the resolve data and
 /// artifacts from the planning phase for any metadata they need.
 pub fn execute_build(
+    cfg: &BuildConfig,
     mut build_graph: n2::graph::Graph,
     target_dir: &Path,
-    parallelism: Option<usize>,
 ) -> anyhow::Result<N2RunStats> {
     // Generate n2 state
     // FIXME: This is extremely verbose and barebones, only for testing purpose
@@ -287,7 +323,8 @@ pub fn execute_build(
         &mut hashes,
     )?;
 
-    let parallelism = parallelism
+    let parallelism = cfg
+        .parallelism
         .or_else(|| std::thread::available_parallelism().ok().map(|x| x.into()))
         .unwrap();
 
@@ -295,11 +332,11 @@ pub fn execute_build(
     let result_catcher = Arc::new(Mutex::new(ResultCatcher::default()));
     let callback = render_and_catch_callback(
         Arc::clone(&result_catcher),
-        false,
+        cfg.no_render,
         n2::terminal::use_fancy(),
         None,
         false,
-        moonutil::common::DiagnosticLevel::Info,
+        cfg.render_no_loc,
         PathBuf::new(),
         target_dir.into(),
     );

@@ -46,6 +46,7 @@ use std::path::{Path, PathBuf};
 use crate::cli::pre_build::scan_with_x_build;
 use crate::rr_build;
 use crate::rr_build::preconfig_compile;
+use crate::rr_build::BuildConfig;
 
 use super::BenchSubcommand;
 use super::{BuildFlags, UniversalFlags};
@@ -505,7 +506,11 @@ fn run_test_rr(
 
         Ok(0)
     } else {
-        let result = rr_build::execute_build(build_graph, target_dir, cmd.build_flags.jobs)?;
+        let result = rr_build::execute_build(
+            &BuildConfig::from_flags(cmd.build_flags),
+            build_graph,
+            target_dir,
+        )?;
 
         if !result.successful() {
             return Ok(result.return_code_for_success());

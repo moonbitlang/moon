@@ -37,7 +37,7 @@ use n2::trace;
 use std::path::{Path, PathBuf};
 
 use crate::cli::get_module_for_single_file;
-use crate::rr_build::{self, preconfig_compile};
+use crate::rr_build::{self, preconfig_compile, BuildConfig};
 
 use super::pre_build::scan_with_x_build;
 use super::{get_compiler_flags, BuildFlags};
@@ -231,7 +231,7 @@ fn run_check_normal_internal(
     target_dir: &Path,
 ) -> anyhow::Result<i32> {
     if cli.unstable_feature.rupes_recta {
-        let preconfig = preconfig_compile(
+        let mut preconfig = preconfig_compile(
             &cmd.auto_sync_flags,
             cli,
             &cmd.build_flags,
@@ -239,6 +239,7 @@ fn run_check_normal_internal(
             moonutil::cond_expr::OptLevel::Release,
             RunMode::Check,
         );
+        preconfig.moonc_output_json |= cmd.output_json;
         let (_build_meta, build_graph) = rr_build::plan_build(
             preconfig,
             &cli.unstable_feature,
@@ -251,7 +252,9 @@ fn run_check_normal_internal(
             rr_build::print_dry_run(&build_graph, &_build_meta.artifacts, source_dir, target_dir);
             Ok(0)
         } else {
-            let result = rr_build::execute_build(build_graph, target_dir, cmd.build_flags.jobs)?;
+            let mut cfg = BuildConfig::from_flags(&cmd.build_flags);
+            cfg.no_render |= cmd.output_json;
+            let result = rr_build::execute_build(&cfg, build_graph, target_dir)?;
             result.print_info(cli.quiet, "checking")?;
             Ok(result.return_code_for_success())
         }

@@ -63,6 +63,8 @@ pub struct CompileConfig {
     pub enable_coverage: bool,
     /// Output WAT instead of WASM binary format.
     pub output_wat: bool,
+    /// Whether to output JSON or human-readable error code
+    pub moonc_output_json: bool,
 }
 
 /// The output information of the compilation.
@@ -129,6 +131,7 @@ pub fn compile(
         enable_coverage: cx.enable_coverage,
         debug_symbols: cx.debug_symbols,
         output_wat: cx.output_wat,
+        moonc_output_json: cx.moonc_output_json,
 
         stdlib_path: cx.stdlib_path.clone(),
         compiler_paths: CompilerPaths::from_moon_dirs(), // change to external
