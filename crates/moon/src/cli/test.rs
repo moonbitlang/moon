@@ -525,7 +525,7 @@ fn run_test_rr(
             target_dir,
         )?;
 
-        if !result.successful() {
+        if !result.successful() || cmd.build_only {
             return Ok(result.return_code_for_success());
         }
 
