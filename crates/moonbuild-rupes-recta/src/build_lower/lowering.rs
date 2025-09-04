@@ -135,6 +135,7 @@ impl<'a> BuildPlanLowerContext<'a> {
         cmd.flags.symbols = self.opt.debug_symbols;
         cmd.flags.enable_coverage = self.opt.enable_coverage;
         self.set_commons(&mut cmd.common);
+        self.set_flags(&mut cmd.flags);
 
         // Determine whether the built package is a main package.
         //
