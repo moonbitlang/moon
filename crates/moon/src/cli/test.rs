@@ -55,6 +55,34 @@ use crate::run::TestIndex;
 use super::BenchSubcommand;
 use super::{BuildFlags, UniversalFlags};
 
+/// Print test summary statistics in the legacy format
+fn print_test_summary(total: usize, passed: usize, quiet: bool, backend_hint: Option<&str>) {
+    if total == 0 {
+        eprintln!("{}: no test entry found.", "Warning".yellow().bold());
+    }
+
+    let failed = total - passed;
+    let has_failures = failed > 0;
+
+    if !quiet || has_failures {
+        let backend_suffix = backend_hint
+            .map(|hint| format!(" [{}]", hint))
+            .unwrap_or_default();
+
+        println!(
+            "Total tests: {}, passed: {}, failed: {}.{}",
+            total,
+            passed,
+            if has_failures {
+                failed.to_string().red().to_string()
+            } else {
+                failed.to_string()
+            },
+            backend_suffix,
+        );
+    }
+}
+
 /// Test the current package
 #[derive(Debug, clap::Parser, Clone)]
 pub struct TestSubcommand {
@@ -476,7 +504,7 @@ pub(crate) fn run_test_or_bench_internal(
     }
 
     if cli.unstable_feature.rupes_recta {
-        run_test_rr(cli, &cmd, source_dir, target_dir)
+        run_test_rr(cli, &cmd, source_dir, target_dir, display_backend_hint)
     } else {
         run_test_or_bench_internal_legacy(cli, cmd, source_dir, target_dir, display_backend_hint)
     }
@@ -487,6 +515,7 @@ fn run_test_rr(
     cmd: &TestLikeSubcommand<'_>,
     source_dir: &Path,
     target_dir: &Path,
+    display_backend_hint: Option<()>, // FIXME: unsure why it's option but as-is for now
 ) -> Result<i32, anyhow::Error> {
     let preconfig = preconfig_compile(
         cmd.auto_sync_flags,
@@ -538,11 +567,16 @@ fn run_test_rr(
 
         // Run tests using artifacts
         let test_result = crate::run::run_tests(&build_meta, target_dir, &filter)?;
-        println!(
-            "{} tests executed, {} passed, {} failed",
+
+        let backend_hint = display_backend_hint
+            .and(cmd.build_flags.target_backend)
+            .map(|t| t.to_backend_ext());
+
+        print_test_summary(
             test_result.total,
             test_result.passed,
-            test_result.total - test_result.passed
+            cli.quiet,
+            backend_hint,
         );
 
         if test_result.passed() {
@@ -947,8 +981,7 @@ fn do_run_test(
         .test_opt
         .as_ref()
         .and_then(|opt| opt.display_backend_hint.as_ref())
-        .map(|_| format!(" [{}]", moonc_opt.build_opt.target_backend.to_backend_ext()))
-        .unwrap_or_default();
+        .map(|_| moonc_opt.build_opt.target_backend.to_backend_ext());
 
     let test_res = entry::run_test(
         moonc_opt,
@@ -967,25 +1000,7 @@ fn do_run_test(
     let total = test_res.len();
     let passed = test_res.iter().filter(|r| r.is_ok()).count();
 
-    if total == 0 {
-        eprintln!("{}: no test entry found.", "Warning".yellow().bold());
-    }
-
-    let failed = total - passed;
-    let has_failures = failed > 0;
-    if !quiet || has_failures {
-        println!(
-            "Total tests: {}, passed: {}, failed: {}.{}",
-            total,
-            passed,
-            if has_failures {
-                failed.to_string().red().to_string()
-            } else {
-                failed.to_string()
-            },
-            backend_hint,
-        );
-    }
+    print_test_summary(total, passed, quiet, backend_hint);
 
     if passed == total {
         Ok(0)
