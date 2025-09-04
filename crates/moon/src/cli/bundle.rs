@@ -32,7 +32,7 @@ use moonutil::{
 };
 use std::path::Path;
 
-use crate::rr_build;
+use crate::rr_build::{self, BuildConfig};
 
 use super::{pre_build::scan_with_x_build, BuildFlags};
 
@@ -90,7 +90,11 @@ pub fn run_bundle_rr(cli: UniversalFlags, cmd: BundleSubcommand) -> anyhow::Resu
         );
         Ok(0)
     } else {
-        let result = rr_build::execute_build(build_graph, &target_dir, cmd.build_flags.jobs)?;
+        let result = rr_build::execute_build(
+            &BuildConfig::from_flags(&cmd.build_flags),
+            build_graph,
+            &target_dir,
+        )?;
         result.print_info(cli.quiet, "bundling")?;
         Ok(result.return_code_for_success())
     }

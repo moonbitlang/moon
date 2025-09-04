@@ -43,6 +43,7 @@ use std::path::PathBuf;
 
 use crate::rr_build;
 use crate::rr_build::preconfig_compile;
+use crate::rr_build::BuildConfig;
 
 use super::pre_build::scan_with_x_build;
 use super::{BuildFlags, UniversalFlags};
@@ -125,7 +126,11 @@ fn run_build_internal(
             rr_build::print_dry_run(&build_graph, &_build_meta.artifacts, source_dir, target_dir);
             Ok(0)
         } else {
-            let result = rr_build::execute_build(build_graph, target_dir, cmd.build_flags.jobs)?;
+            let result = rr_build::execute_build(
+                &BuildConfig::from_flags(&cmd.build_flags),
+                build_graph,
+                target_dir,
+            )?;
             result.print_info(cli.quiet, "building")?;
             Ok(result.return_code_for_success())
         }

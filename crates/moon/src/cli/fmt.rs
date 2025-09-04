@@ -29,7 +29,7 @@ use moonutil::{
     mooncakes::{sync::AutoSyncFlags, RegistryConfig},
 };
 
-use crate::rr_build;
+use crate::rr_build::{self, BuildConfig};
 
 use super::{pre_build::scan_with_x_build, UniversalFlags};
 
@@ -78,7 +78,7 @@ fn run_fmt_rr(cli: &UniversalFlags, cmd: FmtSubcommand) -> anyhow::Result<i32> {
         rr_build::print_dry_run_all(&graph, &source_dir, &target_dir);
         Ok(0)
     } else {
-        let res = rr_build::execute_build(graph, &target_dir, None)?;
+        let res = rr_build::execute_build(&BuildConfig::default(), graph, &target_dir)?;
         res.print_info(cli.quiet, "formatting")?;
         Ok(res.return_code_for_success())
     }
