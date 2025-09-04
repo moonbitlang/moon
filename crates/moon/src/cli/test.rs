@@ -22,6 +22,7 @@ use indexmap::IndexMap;
 use moonbuild::dry_run;
 use moonbuild::entry;
 use moonbuild_rupes_recta::model::BuildPlanNode;
+use moonbuild_rupes_recta::model::PackageId;
 use moonbuild_rupes_recta::model::TargetKind;
 use mooncake::pkg::sync::auto_sync;
 use mooncake::pkg::sync::auto_sync_for_single_mbt_md;
@@ -40,6 +41,7 @@ use moonutil::mooncakes::RegistryConfig;
 use moonutil::package::Package;
 use moonutil::path::PathComponent;
 use n2::trace;
+use std::collections::HashMap;
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 
@@ -47,6 +49,8 @@ use crate::cli::pre_build::scan_with_x_build;
 use crate::rr_build;
 use crate::rr_build::preconfig_compile;
 use crate::rr_build::BuildConfig;
+use crate::run::TestFilter;
+use crate::run::TestIndex;
 
 use super::BenchSubcommand;
 use super::{BuildFlags, UniversalFlags};
@@ -492,12 +496,21 @@ fn run_test_rr(
         OptLevel::Debug,
         RunMode::Test,
     );
+
+    validate_filtering(
+        cmd.package.as_deref(),
+        cmd.file.as_ref(),
+        *cmd.index,
+        *cmd.doc_index,
+    )?;
+
+    let filter = cmd.package.clone();
     let (build_meta, build_graph) = rr_build::plan_build(
         preconfig,
         &cli.unstable_feature,
         source_dir,
         target_dir,
-        Box::new(calc_user_intent),
+        Box::new(move |resolved, main_modules| calc_user_intent(resolved, main_modules, filter)),
     )?;
 
     if cli.dry_run {
@@ -516,8 +529,15 @@ fn run_test_rr(
             return Ok(result.return_code_for_success());
         }
 
+        let filter = TestFilter {
+            file: cmd.file.clone(),
+            index: (*cmd.index)
+                .map(TestIndex::Regular)
+                .or_else(|| (*cmd.doc_index).map(TestIndex::DocTest)),
+        };
+
         // Run tests using artifacts
-        let test_result = crate::run::run_tests(&build_meta, target_dir)?;
+        let test_result = crate::run::run_tests(&build_meta, target_dir, &filter)?;
         println!(
             "{} tests executed, {} passed, {} failed",
             test_result.total,
@@ -533,9 +553,33 @@ fn run_test_rr(
     }
 }
 
+fn validate_filtering(
+    package: Option<&[String]>,
+    file: Option<&String>,
+    index: Option<u32>,
+    doc_index: Option<u32>,
+) -> anyhow::Result<()> {
+    if package.is_none() && (file.is_some() || index.is_some() || doc_index.is_some()) {
+        anyhow::bail!("Cannot filter by file or index without specifying a package");
+    }
+    if let Some(pkgs) = package {
+        if pkgs.len() != 1 && (file.is_some() || index.is_some() || doc_index.is_some()) {
+            anyhow::bail!("Cannot filter by file or index when multiple packages are specified");
+        }
+    }
+    if file.is_none() && (index.is_some() || doc_index.is_some()) {
+        anyhow::bail!("Cannot filter by index without specifying a file");
+    }
+    if index.is_some() && doc_index.is_some() {
+        anyhow::bail!("Cannot filter by both regular index and doc test index");
+    }
+    Ok(())
+}
+
 fn calc_user_intent(
     resolve_output: &moonbuild_rupes_recta::ResolveOutput,
     main_modules: &[moonutil::mooncakes::ModuleId],
+    package_filter: Option<Vec<String>>,
 ) -> Result<Vec<BuildPlanNode>, anyhow::Error> {
     let &[main_module_id] = main_modules else {
         panic!("No multiple main modules are supported");
@@ -545,9 +589,51 @@ fn calc_user_intent(
         .pkg_dirs
         .packages_for_module(main_module_id)
         .ok_or_else(|| anyhow::anyhow!("Cannot find the local module!"))?;
-    let nodes = packages
-        .iter()
-        .flat_map(|(_, &pkg_id)| {
+
+    // Fuzzy matching --
+    // for package names to determine the final set of packages to test. This
+    // should not be a perf bottleneck; use a more generic way to handle.
+    let nodes: Box<dyn Iterator<Item = PackageId>> = if let Some(filter) = package_filter {
+        // We deliberately didn't allow a string to be parsed into a package
+        // name, because different package may have a same name. However, in a
+        // module the package name should be unique, so we can make a map here.
+        let name_map = packages
+            .values()
+            .map(|id| {
+                let name = resolve_output.pkg_dirs.get_package(*id).fqn.to_string();
+                (name, *id)
+            })
+            .collect::<HashMap<_, _>>();
+        let mut res = vec![];
+
+        for s in filter {
+            if let Some(&id) = name_map.get(&s) {
+                // exact matching
+                res.push(id);
+            } else {
+                let all_names = name_map.keys().map(|k| k.as_str());
+                let xs = moonutil::fuzzy_match::fuzzy_match(s.as_str(), all_names);
+                if let Some(xs) = xs {
+                    for name in xs {
+                        if let Some(&id) = name_map.get(&name) {
+                            res.push(id);
+                        } else {
+                            unreachable!("All names being fuzzy matched should be contained in the name list")
+                        }
+                    }
+                } else {
+                    log::warn!("no package found matching test filter `{}`", s);
+                }
+            }
+        }
+
+        Box::new(res.into_iter())
+    } else {
+        Box::new(packages.values().copied())
+    };
+
+    let nodes = nodes
+        .flat_map(|pkg_id| {
             [
                 TargetKind::InlineTest,
                 TargetKind::WhiteboxTest,

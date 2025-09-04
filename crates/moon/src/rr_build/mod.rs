@@ -208,11 +208,11 @@ pub fn preconfig_compile(
 /// Returns the execution plan (metadata) and build graph separately, allowing
 /// execute_build to take ownership of just the graph while callers retain
 /// access to the metadata.
-pub fn plan_build(
+pub fn plan_build<'a>(
     preconfig: CompilePreConfig,
-    unstable_features: &FeatureGate,
-    source_dir: &Path,
-    target_dir: &Path,
+    unstable_features: &'a FeatureGate,
+    source_dir: &'a Path,
+    target_dir: &'a Path,
     calc_user_intent: Box<CalcUserIntentFn>,
 ) -> anyhow::Result<(BuildMeta, n2::graph::Graph)> {
     let cfg = ResolveConfig::new_with_load_defaults(preconfig.frozen);

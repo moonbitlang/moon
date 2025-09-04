@@ -28,7 +28,7 @@ use moonbuild::{
     runtest::TestStatistics,
     section_capture::SectionCapture,
 };
-use moonbuild_rupes_recta::model::{BuildPlanNode, BuildTarget};
+use moonbuild_rupes_recta::model::{BuildPlanNode, BuildTarget, TargetKind};
 use moonutil::common::{
     MooncGenTestInfo, MOON_COVERAGE_DELIMITER_BEGIN, MOON_COVERAGE_DELIMITER_END,
     MOON_TEST_DELIMITER_BEGIN, MOON_TEST_DELIMITER_END,
@@ -74,21 +74,39 @@ impl TestResult {
     }
 }
 
+pub struct TestFilter {
+    pub file: Option<String>,
+    pub index: Option<TestIndex>,
+}
+
+pub enum TestIndex {
+    /// A regular test block, i.e. `test { ... }`
+    Regular(u32),
+    /// A doctest block after `///`
+    DocTest(u32),
+}
+
 /// Run the tests compiled in this session.
-pub fn run_tests(build_meta: &BuildMeta, target_dir: &Path) -> anyhow::Result<TestResult> {
+pub fn run_tests(
+    build_meta: &BuildMeta,
+    target_dir: &Path,
+    filter: &TestFilter,
+) -> anyhow::Result<TestResult> {
     // Gathering artifacts
     let results = gather_tests(build_meta);
 
     let rt = default_rt().context("Failed to create runtime")?;
     let mut stats = TestResult::default();
     for r in results {
-        let res = run_one_test_executable(build_meta, &rt, target_dir, &r)?;
+        let res = run_one_test_executable(build_meta, &rt, target_dir, &r, filter)?;
         stats.merge(res);
     }
 
     Ok(stats)
 }
 
+#[derive(derive_builder::Builder)]
+#[builder(derive(Debug))]
 struct TestExecutableToRun<'a> {
     target: BuildTarget,
     executable: &'a Path,
@@ -101,38 +119,36 @@ fn gather_tests(build_meta: &BuildMeta) -> Vec<TestExecutableToRun<'_>> {
     let mut results = vec![];
 
     for artifacts in &build_meta.artifacts {
-        let (corresponding_node, current_target) = match artifacts.node {
-            BuildPlanNode::MakeExecutable(target) => {
-                (BuildPlanNode::GenerateTestInfo(target), target)
-            }
-            BuildPlanNode::GenerateTestInfo(target) => {
-                (BuildPlanNode::MakeExecutable(target), target)
-            }
-            _ => continue, // Skip non-test related nodes
-        };
+        let target = artifacts
+            .node
+            .extract_target()
+            .expect("All artifacts of tests should contain a build target");
 
-        let removed = pending.remove(&corresponding_node);
-        let artifact = match artifacts.node {
-            // FIXME: artifact index relies on implementation of append_artifact_of
-            BuildPlanNode::MakeExecutable(_) => &artifacts.artifacts[0],
-            BuildPlanNode::GenerateTestInfo(_) => &artifacts.artifacts[1],
-            _ => unreachable!(),
-        };
-
-        let (exec, meta) = match (removed, artifacts.node) {
-            (Some(other), BuildPlanNode::GenerateTestInfo(_)) => (other, artifact),
-            (Some(other), BuildPlanNode::MakeExecutable(_)) => (artifact, other),
-            _ => {
-                pending.insert(artifacts.node, artifact);
-                continue;
-            }
-        };
-        results.push(TestExecutableToRun {
-            target: current_target,
-            executable: exec,
-            meta,
+        let working = pending.entry(target).or_insert_with(|| {
+            let mut res = TestExecutableToRunBuilder::create_empty();
+            res.target(target);
+            res
         });
+
+        // FIXME: artifact index relies on implementation of append_artifact_of
+        match artifacts.node {
+            BuildPlanNode::MakeExecutable(_) => working.executable(&artifacts.artifacts[0]),
+            BuildPlanNode::GenerateTestInfo(_) => working.meta(&artifacts.artifacts[1]),
+            _ => panic!("Unexpected artifact for test: {:?}", artifacts.node),
+        };
+
+        if let Ok(tgt) = working.build() {
+            pending.remove(&target);
+            results.push(tgt);
+        }
     }
+
+    assert_eq!(
+        pending.len(),
+        0,
+        "Some test targets are missing artifacts: {:?}",
+        &pending
+    );
 
     results
 }
@@ -142,17 +158,22 @@ fn run_one_test_executable(
     rt: &Runtime, // FIXME: parallel execution
     target_dir: &Path,
     test: &TestExecutableToRun,
+    filter: &TestFilter,
 ) -> Result<TestResult, anyhow::Error> {
-    let meta = std::fs::File::open(test.meta).context("Failed to open test metadata")?;
-    let meta: MooncGenTestInfo = serde_json_lenient::from_reader(meta)
-        .with_context(|| format!("Failed to parse test metadata at {}", test.meta.display()))?;
-
     let pkgname = build_meta
         .resolve_output
         .pkg_dirs
         .get_package(test.target.package)
         .fqn
         .to_string();
+
+    // Package filtering should already be done when building test executables
+
+    // Parse test metadata
+    let meta = std::fs::File::open(test.meta).context("Failed to open test metadata")?;
+    let meta: MooncGenTestInfo = serde_json_lenient::from_reader(meta)
+        .with_context(|| format!("Failed to parse test metadata at {}", test.meta.display()))?;
+
     let mut test_args = TestArgs {
         package: pkgname,
         file_and_index: vec![],
@@ -164,11 +185,47 @@ fn run_one_test_executable(
         &meta.with_bench_args_tests,
     ] {
         for (filename, test_infos) in lists {
-            if !test_infos.is_empty() {
-                let max_index = test_infos.iter().map(|t| t.index).max().unwrap_or(0);
-                test_args
-                    .file_and_index
-                    .push((filename.to_string(), 0..(max_index + 1)));
+            // Filter by file name
+            if let Some(ffile) = &filter.file {
+                if ffile != filename {
+                    continue;
+                }
+            }
+            let is_bbtest_file = filename.ends_with("_test.mbt"); // FIXME: heuristic
+
+            // Filter by index
+            match filter.index {
+                // No filter -- run all tests in the file
+                None => {
+                    if !test_infos.is_empty() {
+                        let max_index = test_infos.iter().map(|t| t.index).max().unwrap_or(0);
+                        test_args
+                            .file_and_index
+                            .push((filename.to_string(), 0..(max_index + 1)));
+                    }
+                }
+                // Regular tests
+                Some(TestIndex::Regular(index)) => {
+                    if (test.target.kind != TargetKind::BlackboxTest || is_bbtest_file)
+                        && test_infos.iter().any(|t| t.index == index)
+                    {
+                        test_args
+                            .file_and_index
+                            .push((filename.to_string(), index..(index + 1)));
+                    }
+                }
+                // Doctests -- specifically for test blocks in
+                // non-black-box-test files in black box test build targets.
+                Some(TestIndex::DocTest(index)) => {
+                    if test.target.kind == TargetKind::BlackboxTest
+                        && !is_bbtest_file
+                        && test_infos.iter().any(|t| t.index == index)
+                    {
+                        test_args
+                            .file_and_index
+                            .push((filename.to_string(), index..(index + 1)));
+                    }
+                }
             }
         }
     }
