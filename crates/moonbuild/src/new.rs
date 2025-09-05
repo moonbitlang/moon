@@ -258,5 +258,31 @@ fn common(target_dir: &Path, cake_full_name: &str) -> anyhow::Result<i32> {
         file.write_all(content.as_bytes()).unwrap();
     }
 
+    // .githooks/pre-commit
+    {
+        let githooks_dir = target_dir.join(".githooks");
+        std::fs::create_dir_all(&githooks_dir).unwrap();
+        let pre_commit_hook = githooks_dir.join("pre-commit");
+        let content = include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../moonbuild/template/moon_new_template/.githooks/pre-commit"
+        ));
+        let mut file = std::fs::File::create(pre_commit_hook).unwrap();
+        file.write_all(content.as_bytes()).unwrap();
+    }
+
+    // .githooks/README.md
+    {
+        let githooks_dir = target_dir.join(".githooks");
+        std::fs::create_dir_all(&githooks_dir).unwrap();
+        let readme_file = githooks_dir.join("README.md");
+        let content = include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../moonbuild/template/moon_new_template/.githooks/README.md"
+        ));
+        let mut file = std::fs::File::create(readme_file).unwrap();
+        file.write_all(content.as_bytes()).unwrap();
+    }
+
     Ok(0)
 }
