@@ -277,6 +277,9 @@ fn test_moon_new_snapshot() {
         expect![[r#"
             -- layout --
             .
+            ./.githooks/
+            ./.githooks/README.md
+            ./.githooks/pre-commit
             ./.gitignore
             ./Agents.md
             ./LICENSE
@@ -292,6 +295,34 @@ fn test_moon_new_snapshot() {
             ./moon.pkg.json
 
             -- files --
+            === ./.githooks/README.md ===
+            # Git Hooks
+
+            ## Pre-commit Hook
+
+            This pre-commit hook performs automatic checks before finalizing your commit.
+
+            ### Usage Instructions
+
+            To use this pre-commit hook:
+
+            1. Make the hook executable if it isn't already:
+               ```bash
+               chmod +x .githooks/pre-commit
+               ```
+
+            2. Configure Git to use the hooks in the .githooks directory:
+               ```bash
+               git config core.hooksPath .githooks
+               ```
+
+            3. The hook will automatically run when you execute `git commit`
+
+            === ./.githooks/pre-commit ===
+            #!/bin/sh
+
+            moon check
+
             === ./.gitignore ===
             .DS_Store
             target/
@@ -381,6 +412,9 @@ fn test_moon_new_snapshot() {
         expect![[r#"
             -- layout --
             .
+            ./.githooks/
+            ./.githooks/README.md
+            ./.githooks/pre-commit
             ./.gitignore
             ./Agents.md
             ./LICENSE
@@ -396,6 +430,34 @@ fn test_moon_new_snapshot() {
             ./moon.pkg.json
 
             -- files --
+            === ./.githooks/README.md ===
+            # Git Hooks
+
+            ## Pre-commit Hook
+
+            This pre-commit hook performs automatic checks before finalizing your commit.
+
+            ### Usage Instructions
+
+            To use this pre-commit hook:
+
+            1. Make the hook executable if it isn't already:
+               ```bash
+               chmod +x .githooks/pre-commit
+               ```
+
+            2. Configure Git to use the hooks in the .githooks directory:
+               ```bash
+               git config core.hooksPath .githooks
+               ```
+
+            3. The hook will automatically run when you execute `git commit`
+
+            === ./.githooks/pre-commit ===
+            #!/bin/sh
+
+            moon check
+
             === ./.gitignore ===
             .DS_Store
             target/
@@ -482,6 +544,9 @@ fn test_moon_new_snapshot() {
         expect![[r#"
             -- layout --
             .
+            ./.githooks/
+            ./.githooks/README.md
+            ./.githooks/pre-commit
             ./.gitignore
             ./Agents.md
             ./LICENSE
@@ -497,6 +562,34 @@ fn test_moon_new_snapshot() {
             ./wow_test.mbt
 
             -- files --
+            === ./.githooks/README.md ===
+            # Git Hooks
+
+            ## Pre-commit Hook
+
+            This pre-commit hook performs automatic checks before finalizing your commit.
+
+            ### Usage Instructions
+
+            To use this pre-commit hook:
+
+            1. Make the hook executable if it isn't already:
+               ```bash
+               chmod +x .githooks/pre-commit
+               ```
+
+            2. Configure Git to use the hooks in the .githooks directory:
+               ```bash
+               git config core.hooksPath .githooks
+               ```
+
+            3. The hook will automatically run when you execute `git commit`
+
+            === ./.githooks/pre-commit ===
+            #!/bin/sh
+
+            moon check
+
             === ./.gitignore ===
             .DS_Store
             target/
