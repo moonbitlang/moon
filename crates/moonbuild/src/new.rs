@@ -269,6 +269,20 @@ fn common(target_dir: &Path, cake_full_name: &str) -> anyhow::Result<i32> {
         ));
         let mut file = std::fs::File::create(pre_commit_hook).unwrap();
         file.write_all(content.as_bytes()).unwrap();
+        #[cfg(unix)]
+        {
+            if file
+                .set_permissions(
+                    <std::fs::Permissions as std::os::unix::fs::PermissionsExt>::from_mode(0o755),
+                )
+                .is_err()
+            {
+                eprintln!(
+                    "{} failed to set permissions on pre-commit hook. Please set it executable manually.",
+                    "Warning:".bold().yellow(),
+                );
+            }
+        }
     }
 
     // .githooks/README.md
