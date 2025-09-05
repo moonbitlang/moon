@@ -24,6 +24,7 @@ mod bundle_core;
 mod check;
 mod gen_test_driver;
 mod link_core;
+mod moondoc;
 mod mooninfo;
 
 use std::borrow::Cow;
@@ -38,6 +39,7 @@ pub use self::bundle_core::MooncBundleCore;
 pub use self::check::MooncCheck;
 pub use self::gen_test_driver::MoonGenTestDriver;
 pub use self::link_core::MooncLinkCore;
+pub use self::moondoc::MoondocCommand;
 pub use self::mooninfo::Mooninfo;
 
 #[allow(unused)]

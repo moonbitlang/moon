@@ -63,6 +63,7 @@ pub struct BuildOptions {
     pub enable_coverage: bool,
     pub output_wat: bool,
     pub moonc_output_json: bool,
+    pub docs_serve: bool,
 
     // Environments
     /// Only `Some` if we import standard library.

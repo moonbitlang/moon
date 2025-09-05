@@ -297,6 +297,23 @@ impl LegacyLayout {
         ));
         base_dir
     }
+
+    /// Returns the directory for outputting documentation.
+    ///
+    /// Format: `target/doc`
+    pub fn doc_dir(&self) -> PathBuf {
+        let mut dir = self.target_base_dir.clone();
+        dir.push("doc");
+        dir
+    }
+
+    /// Returns the path of `package.json`, the metadata file to be read by
+    /// IDE plugins and other tools.
+    pub fn packages_json_path(&self) -> PathBuf {
+        let mut path = self.target_base_dir.clone();
+        path.push("packages.json");
+        path
+    }
 }
 
 fn push_backend(path: &mut PathBuf, backend: TargetBackend) {

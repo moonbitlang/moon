@@ -143,6 +143,7 @@ impl<'a> BuildPlanLowerContext<'a> {
                 self.lower_gen_test_driver(node, target, info)
             }
             BuildPlanNode::BuildRuntimeLib => self.lower_compile_runtime(),
+            BuildPlanNode::BuildDocs => self.lower_build_docs(),
         };
 
         // Collect n2 inputs and outputs.
@@ -277,6 +278,10 @@ impl<'a> BuildPlanLowerContext<'a> {
             BuildPlanNode::GenerateMbti(_target) => {
                 let pkg = self.packages.get_package(_target.package);
                 out.push(self.layout.generated_mbti_path(&pkg.root_path))
+            }
+            BuildPlanNode::BuildDocs => {
+                // The output is a whole folder
+                out.push(self.layout.doc_dir())
             }
         }
     }

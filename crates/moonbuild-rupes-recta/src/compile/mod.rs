@@ -65,6 +65,8 @@ pub struct CompileConfig {
     pub output_wat: bool,
     /// Whether to output JSON or human-readable error code
     pub moonc_output_json: bool,
+    /// Whether to output HTML for docs (in serve mode)
+    pub docs_serve: bool,
 }
 
 /// The output information of the compilation.
@@ -132,6 +134,7 @@ pub fn compile(
         debug_symbols: cx.debug_symbols,
         output_wat: cx.output_wat,
         moonc_output_json: cx.moonc_output_json,
+        docs_serve: cx.docs_serve,
 
         stdlib_path: cx.stdlib_path.clone(),
         compiler_paths: CompilerPaths::from_moon_dirs(), // change to external
