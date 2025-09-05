@@ -566,7 +566,7 @@ fn run_test_rr(
         };
 
         // Run tests using artifacts
-        let test_result = crate::run::run_tests(&build_meta, target_dir, &filter)?;
+        let test_result = crate::run::run_tests(&build_meta, target_dir, &filter, cli.verbose)?;
 
         let backend_hint = display_backend_hint
             .and(cmd.build_flags.target_backend)
