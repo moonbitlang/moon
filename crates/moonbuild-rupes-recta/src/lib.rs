@@ -114,6 +114,7 @@ pub mod resolve;
 pub mod fmt;
 
 // Random utilities
+pub mod metadata;
 mod special_cases;
 pub mod util;
 

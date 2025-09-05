@@ -50,6 +50,18 @@ pub struct DocSubcommand {
 }
 
 pub fn run_doc(cli: UniversalFlags, cmd: DocSubcommand) -> anyhow::Result<i32> {
+    if cli.unstable_feature.rupes_recta {
+        run_doc_rr(cli, cmd)
+    } else {
+        run_doc_legacy(cli, cmd)
+    }
+}
+
+pub fn run_doc_rr(cli: UniversalFlags, cmd: DocSubcommand) -> anyhow::Result<i32> {
+    todo!()
+}
+
+pub fn run_doc_legacy(cli: UniversalFlags, cmd: DocSubcommand) -> anyhow::Result<i32> {
     let PackageDirs {
         source_dir,
         target_dir,
