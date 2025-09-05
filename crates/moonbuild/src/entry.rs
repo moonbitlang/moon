@@ -1149,7 +1149,7 @@ async fn handle_test_result(
                         );
                         printed.store(true, std::sync::atomic::Ordering::SeqCst);
                     }
-                    apply_snapshot(&[stat.message.to_string()])?;
+                    apply_snapshot([stat.message.as_str()])?;
                     let index = stat.index.clone().parse::<u32>().unwrap();
                     let test_args = TestArgs {
                         package: stat.package.clone(),
@@ -1168,16 +1168,16 @@ async fn handle_test_result(
                     .unwrap()
                     .clone();
 
-                    let update_msg = match rerun {
+                    let update_msg = match &rerun {
                         // if rerun test success, update the previous test result and continue
                         Ok(_) => {
                             *item = rerun;
                             continue;
                         }
-                        Err(TestFailedStatus::SnapshotPending(cur_err)) => &[cur_err.message],
-                        _ => &[stat.message.clone()],
+                        Err(TestFailedStatus::SnapshotPending(cur_err)) => &cur_err.message,
+                        _ => &stat.message,
                     };
-                    if let Err(e) = apply_snapshot(update_msg) {
+                    if let Err(e) = apply_snapshot([update_msg.as_str()]) {
                         eprintln!("{}: {:?}", "apply snapshot failed".red().bold(), e);
                     }
 
@@ -1261,17 +1261,17 @@ async fn handle_test_result(
                     .first()
                     .unwrap()
                     .clone();
-                    let update_msg = match rerun {
+                    let update_msg = match &rerun {
                         // if rerun test success, update the previous test result and continue
                         Ok(_) => {
                             *item = rerun;
                             continue;
                         }
-                        Err(TestFailedStatus::ExpectTestFailed(cur_err)) => &[cur_err.message],
-                        _ => &[origin_err.message.clone()],
+                        Err(TestFailedStatus::ExpectTestFailed(cur_err)) => &cur_err.message,
+                        _ => &origin_err.message,
                     };
 
-                    if let Err(e) = crate::expect::apply_expect(update_msg) {
+                    if let Err(e) = crate::expect::apply_expect([update_msg.as_str()]) {
                         eprintln!("{}: {:?}", "apply expect failed".red().bold(), e);
                     }
 
@@ -1306,7 +1306,7 @@ async fn handle_test_result(
                             break;
                         }
 
-                        if let Err(e) = crate::expect::apply_expect(&[etf.message.clone()]) {
+                        if let Err(e) = crate::expect::apply_expect([etf.message.as_str()]) {
                             eprintln!("{}: {:?}", "failed".red().bold(), e);
                             break;
                         }

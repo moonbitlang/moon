@@ -113,6 +113,7 @@ impl std::str::FromStr for ExpectFailedRaw {
     type Err = anyhow::Error;
 
     fn from_str(s: &str) -> anyhow::Result<Self> {
+        // FIXME: dude, WTF is happening here?
         let expect_index = s
             .find("\"expect\":")
             .context(format!("expect field not found: {s}"))?;
@@ -441,7 +442,9 @@ fn parse_loc(loc: &str) -> anyhow::Result<Location> {
     })
 }
 
-fn collect(messages: &[String]) -> anyhow::Result<HashMap<String, BTreeSet<Target>>> {
+fn collect<'a>(
+    messages: impl IntoIterator<Item = &'a str>,
+) -> anyhow::Result<HashMap<String, BTreeSet<Target>>> {
     let mut targets: HashMap<String, BTreeSet<Target>> = HashMap::new();
 
     for msg in messages {
@@ -830,9 +833,9 @@ fn apply_patch(pp: &PackagePatch) -> anyhow::Result<()> {
     Ok(())
 }
 
-pub fn apply_snapshot(messages: &[String]) -> anyhow::Result<()> {
-    let snapshots: Vec<SnapshotResult> = messages
-        .iter()
+pub fn apply_snapshot<'a>(messages: impl IntoIterator<Item = &'a str>) -> anyhow::Result<()> {
+    let snapshots = messages
+        .into_iter()
         .filter(|msg| msg.starts_with(SNAPSHOT_TESTING))
         .map(|msg| {
             let json_str = &msg[SNAPSHOT_TESTING.len()..];
@@ -841,10 +844,9 @@ pub fn apply_snapshot(messages: &[String]) -> anyhow::Result<()> {
                 .unwrap();
             rep
         })
-        .map(expect_failed_to_snapshot_result)
-        .collect();
+        .map(expect_failed_to_snapshot_result);
 
-    for snapshot in snapshots.iter() {
+    for snapshot in snapshots {
         let filename = parse_filename(&snapshot.loc)?;
         let actual = snapshot.actual.clone();
         let expect_file = &snapshot.expect_file;
@@ -871,7 +873,7 @@ pub fn apply_snapshot(messages: &[String]) -> anyhow::Result<()> {
     Ok(())
 }
 
-pub fn apply_expect(messages: &[String]) -> anyhow::Result<()> {
+pub fn apply_expect<'a>(messages: impl IntoIterator<Item = &'a str>) -> anyhow::Result<()> {
     // dbg!(&messages);
     let targets = collect(messages)?;
     // dbg!(&targets);
