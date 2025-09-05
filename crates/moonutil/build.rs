@@ -39,7 +39,7 @@ pub fn main() -> Result<(), Box<dyn Error>> {
 
     let mut docs_map = String::from("{\n    #[allow(unused_mut)] let mut m = HashMap::new();\n");
 
-    let docs_dir = Path::new("resources/error_codes/next/language/error_codes");
+    let docs_dir = Path::new("resources/error_codes/language/error_codes");
     if let Ok(entries) = fs::read_dir(docs_dir) {
         for entry in entries.flatten() {
             if let Some(file_name) = entry.file_name().to_str() {
