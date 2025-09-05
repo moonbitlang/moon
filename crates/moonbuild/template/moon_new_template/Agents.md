@@ -5,7 +5,7 @@ This is a [MoonBit](https://docs.moonbitlang.com) project.
 ## Project Structure
 
 - MoonBit packages are organized per directory, for each directory, there is a
-  `package.json` file listing its dependencies. Each package has its files and
+  `moon.pkg.json` file listing its dependencies. Each package has its files and
   blackbox test files (common, ending in `_test.mbt`) and whitebox test files
   (ending in `_wbtest.mbt`).
 
