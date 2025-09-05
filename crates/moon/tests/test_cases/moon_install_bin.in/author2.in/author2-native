@@ -1,0 +1,2 @@
+#!/bin/sh
+ /home/rynco/Projects/moonbuild/crates/moon/tests/test_cases/moon_install_bin.in/author2.in/target/native/release/build/main-native/main-native.c "$@"

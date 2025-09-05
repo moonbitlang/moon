@@ -22,15 +22,18 @@ use std::{collections::HashMap, path::Path};
 
 use anyhow::Context;
 use moonbuild::{
-    benchmark::BATCHBENCH,
-    entry::TestArgs,
-    expect::{ERROR, EXPECT_FAILED, RUNTIME_ERROR, SNAPSHOT_TESTING},
+    benchmark::{render_batch_bench_summary, BATCHBENCH},
+    entry::{CompactTestFormatter, TestArgs},
+    expect::{
+        render_expect_fail, render_snapshot_fail, ERROR, EXPECT_FAILED, RUNTIME_ERROR,
+        SNAPSHOT_TESTING,
+    },
     runtest::TestStatistics,
     section_capture::SectionCapture,
 };
 use moonbuild_rupes_recta::model::{BuildPlanNode, BuildTarget, TargetKind};
 use moonutil::common::{
-    MooncGenTestInfo, MOON_COVERAGE_DELIMITER_BEGIN, MOON_COVERAGE_DELIMITER_END,
+    MbtTestInfo, MooncGenTestInfo, MOON_COVERAGE_DELIMITER_BEGIN, MOON_COVERAGE_DELIMITER_END,
     MOON_TEST_DELIMITER_BEGIN, MOON_TEST_DELIMITER_END,
 };
 use tokio::runtime::Runtime;
@@ -46,12 +49,13 @@ enum TestResultKind {
     Failed,
 }
 
-struct TestCaseResult {
+struct TestCaseResult<'a> {
     kind: TestResultKind,
-    _raw: TestStatistics, // will use later for test promotion
+    raw: TestStatistics,
+    meta: &'a MbtTestInfo,
 }
 
-impl TestCaseResult {
+impl<'a> TestCaseResult<'a> {
     pub fn passed(&self) -> bool {
         matches!(self.kind, TestResultKind::Passed)
     }
@@ -91,6 +95,7 @@ pub fn run_tests(
     build_meta: &BuildMeta,
     target_dir: &Path,
     filter: &TestFilter,
+    verbose: bool,
 ) -> anyhow::Result<TestResult> {
     // Gathering artifacts
     let results = gather_tests(build_meta);
@@ -98,7 +103,7 @@ pub fn run_tests(
     let rt = default_rt().context("Failed to create runtime")?;
     let mut stats = TestResult::default();
     for r in results {
-        let res = run_one_test_executable(build_meta, &rt, target_dir, &r, filter)?;
+        let res = run_one_test_executable(build_meta, &rt, target_dir, &r, filter, verbose)?;
         stats.merge(res);
     }
 
@@ -142,6 +147,17 @@ fn gather_tests(build_meta: &BuildMeta) -> Vec<TestExecutableToRun<'_>> {
             results.push(tgt);
         }
     }
+    results.sort_by_key(|v| {
+        (
+            // todo: easier way to get fqn
+            &build_meta
+                .resolve_output
+                .pkg_dirs
+                .get_package(v.target.package)
+                .fqn,
+            v.target.kind,
+        )
+    });
 
     assert_eq!(
         pending.len(),
@@ -159,13 +175,11 @@ fn run_one_test_executable(
     target_dir: &Path,
     test: &TestExecutableToRun,
     filter: &TestFilter,
+    verbose: bool,
 ) -> Result<TestResult, anyhow::Error> {
-    let pkgname = build_meta
-        .resolve_output
-        .pkg_dirs
-        .get_package(test.target.package)
-        .fqn
-        .to_string();
+    let fqn = build_meta.resolve_output.pkg_dirs.fqn(test.target.package);
+    let pkgname = fqn.to_string();
+    let module_name = fqn.module().name().to_string();
 
     // Package filtering should already be done when building test executables
 
@@ -243,7 +257,11 @@ fn run_one_test_executable(
     .context("Failed to run test")?;
 
     handle_finished_coverage(target_dir, cov_cap)?;
-    let stats = get_test_statistics(&meta, test_cap)?;
+    let stats = parse_test_results(&meta, test_cap)?;
+
+    for it in &stats {
+        print_test_result(it, &module_name, verbose);
+    }
 
     // TODO: update snapshots and expect tests
 
@@ -284,17 +302,17 @@ fn handle_finished_coverage(target_dir: &Path, cap: SectionCapture) -> anyhow::R
     Ok(())
 }
 
-fn get_test_statistics(
-    meta: &MooncGenTestInfo,
+fn parse_test_results<'a>(
+    meta: &'a MooncGenTestInfo,
     cap: SectionCapture,
-) -> anyhow::Result<Vec<TestCaseResult>> {
+) -> anyhow::Result<Vec<TestCaseResult<'a>>> {
     let Some(s) = cap.finish() else {
         return Ok(vec![]);
     };
 
     // Create a map to repopulate test names
     // map<filename, map<index, test_case_name>>
-    let mut test_name_map: HashMap<&str, HashMap<u32, Option<&str>>> = HashMap::new();
+    let mut test_name_map: HashMap<&str, HashMap<u32, &'a MbtTestInfo>> = HashMap::new();
     for test_list in [
         &meta.no_args_tests,
         &meta.with_args_tests,
@@ -303,7 +321,7 @@ fn get_test_statistics(
         for (file, tests) in test_list {
             let file_map = test_name_map.entry(file.as_str()).or_default();
             for t in tests {
-                file_map.insert(t.index, t.name.as_deref());
+                file_map.insert(t.index, t);
             }
         }
     }
@@ -323,16 +341,21 @@ fn get_test_statistics(
         // due to how cases like panics are handled, causing later handling to
         // deviate from what we expect. Here, we fetch the name from the
         // metadata to avoid the problem.
-        let name = test_name_map
+        let meta = test_name_map
             .get(stat.filename.as_str())
-            .and_then(|v| v.get(&stat.index.parse::<u32>().ok()?).cloned())
-            .flatten()
-            .unwrap_or(&stat.test_name);
-
+            .and_then(|v| v.get(&stat.index.parse::<u32>().ok()?))
+            .with_context(|| {
+                format!(
+                    "Failed to find test metadata for {} index {}",
+                    stat.filename, stat.index
+                )
+            })?;
+        let name = meta.name.as_ref().unwrap_or(&stat.test_name);
         let result_kind = parse_one_test_result(&stat, name)?;
         res.push(TestCaseResult {
             kind: result_kind,
-            _raw: stat,
+            raw: stat,
+            meta,
         });
     }
 
@@ -373,4 +396,51 @@ fn parse_one_test_result(
         Failed
     };
     Ok(res)
+}
+
+fn print_test_result(res: &TestCaseResult, module_name: &str, verbose: bool) {
+    let message = &res.raw.message;
+    let formatter = CompactTestFormatter::new(module_name, &res.raw, Some(res.meta));
+
+    match res.kind {
+        TestResultKind::Passed if !verbose => {}
+        TestResultKind::Passed => {
+            if message.starts_with(BATCHBENCH) {
+                let _ = formatter.write_bench(&mut std::io::stdout());
+                println!();
+                render_batch_bench_summary(message);
+            } else {
+                let _ = formatter.write_success(&mut std::io::stdout());
+                println!();
+            }
+        }
+
+        TestResultKind::Failed | TestResultKind::RuntimeError => {
+            if message.is_empty() {
+                let _ = formatter.write_failure(&mut std::io::stdout());
+            } else {
+                let _ = formatter.write_failure_with_message(&mut std::io::stdout(), message);
+            }
+            println!();
+        }
+        TestResultKind::ExpectTestFailed => {
+            let _ = formatter.write_failure(&mut std::io::stdout());
+            println!();
+            let _ = render_expect_fail(message);
+        }
+        TestResultKind::SnapshotTestFailed => {
+            let _ = formatter.write_failure(&mut std::io::stdout());
+            println!();
+            let _ = render_snapshot_fail(message);
+        }
+        TestResultKind::ExpectPanic => {
+            // For panic tests, success means we got a message (panic occurred)
+            if !message.is_empty() {
+                let _ = formatter.write_success(&mut std::io::stdout());
+            } else {
+                let _ = formatter.write_failure(&mut std::io::stdout());
+            }
+            println!();
+        }
+    }
 }

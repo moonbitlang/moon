@@ -1,0 +1,2 @@
+#!/bin/sh
+moonrun /home/rynco/Projects/moonbuild/crates/moon/tests/test_cases/moon_install_bin.in/author2.in/target/wasm/release/build/main-wasm/main-wasm.wasm "$@"

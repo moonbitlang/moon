@@ -1,0 +1,2 @@
+#!/bin/sh
+node /home/rynco/Projects/moonbuild/crates/moon/tests/test_cases/moon_install_bin.in/author2.in/target/js/release/build/main-js/main-js.js "$@"
