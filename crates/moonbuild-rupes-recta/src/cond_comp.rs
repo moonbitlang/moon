@@ -22,7 +22,7 @@ use std::path::Path;
 
 use moonutil::{
     common::TargetBackend,
-    cond_expr::{CondExpr, OptLevel},
+    cond_expr::{CompileCondition as MetadataCompileCondition, CondExpr, OptLevel},
     package::MoonPkg,
 };
 
@@ -87,6 +87,43 @@ pub fn filter_files<'a>(
     })
 }
 
+/// Get the test kind and compile condition metadata for each file, without
+/// actually filtering.
+///
+/// This function is used for generating metadata that feeds into other tools.
+pub fn file_metadatas<'a>(
+    pkg: &'a MoonPkg,
+    files: impl Iterator<Item = &'a Path> + 'a,
+) -> impl Iterator<Item = (&'a Path, FileTestKind, MetadataCompileCondition)> + 'a {
+    files.map(|path| {
+        let filename = path
+            .file_name()
+            .expect("Input source file should have a filename");
+        let str_filename = filename.to_string_lossy();
+        let without_mbt = str_filename
+            .strip_suffix(".mbt")
+            .expect("Input source file should end with .mbt");
+
+        let (cond, stem) = if let Some(expect_cond) = pkg
+            .targets
+            .as_ref()
+            .and_then(|targets| targets.get(&*str_filename))
+        {
+            (expect_cond.to_compile_condition(), without_mbt)
+        } else {
+            let (backend, remaining) = get_file_target_backend(without_mbt);
+            let cond = MetadataCompileCondition {
+                backend: backend.into_iter().collect(),
+                optlevel: OptLevel::all().to_vec(),
+            };
+            (cond, remaining)
+        };
+        let test_info = get_file_test_kind(stem);
+
+        (path, test_info, cond)
+    })
+}
+
 fn should_compile_using_pkg_cond_expr(
     name: &str,
     cond_expr: &CondExpr,
@@ -108,6 +145,18 @@ fn should_compile_using_pkg_cond_expr(
     }
 }
 
+/// Get the target backend specified in the file name, if any. Returns that
+/// and the stripped filename.
+pub fn get_file_target_backend(stripped_filename: &str) -> (Option<TargetBackend>, &str) {
+    match stripped_filename.rsplit_once('.') {
+        Some((prev, suffix)) => match TargetBackend::str_to_backend(suffix) {
+            Ok(backend) => (Some(backend), prev), // has backend -- chop it off
+            Err(_) => (None, stripped_filename),  // has does not look like backend -- retain as-is
+        },
+        None => (None, stripped_filename),
+    }
+}
+
 /// Check the file name to determine if it should be included. If true,
 /// returns `Some(file_test_kind)`, otherwise `None`.
 fn should_compile_using_filename(name: &str, actual: &CompileCondition) -> Option<FileTestKind> {
@@ -116,17 +165,12 @@ fn should_compile_using_filename(name: &str, actual: &CompileCondition) -> Optio
     };
 
     // Target backend checking -- check the suffix of the file name
-    let remaining = match filename.rsplit_once(".") {
-        Some((prev, suffix)) => {
-            match TargetBackend::str_to_backend(suffix) {
-                // correct backend, chop it off
-                Ok(backend) if backend == actual.backend => prev,
-                Ok(_) => return None, // Wrong backend, returning
-                Err(_) => filename,   // No backend suffix, keep the filename as is
-            }
+    let (backend, remaining) = get_file_target_backend(filename);
+    if let Some(backend) = backend {
+        if backend != actual.backend {
+            return None; // Wrong backend, returning
         }
-        None => filename, // No dot in filename, keep the filename as is
-    };
+    }
 
     let spec = get_file_test_kind(remaining);
     let include = check_test_suffix(spec, actual.test_kind);
@@ -137,7 +181,7 @@ fn should_compile_using_filename(name: &str, actual: &CompileCondition) -> Optio
     }
 }
 
-fn get_file_test_kind(name: &str) -> FileTestKind {
+pub fn get_file_test_kind(name: &str) -> FileTestKind {
     if name.ends_with("_wbtest") {
         FileTestKind::Whitebox
     } else if name.ends_with("_test") {

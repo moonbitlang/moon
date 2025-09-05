@@ -35,6 +35,10 @@ impl OptLevel {
             Self::Release
         }
     }
+
+    pub fn all() -> &'static [Self] {
+        &[Self::Debug, Self::Release]
+    }
 }
 
 #[derive(Debug, Clone)]

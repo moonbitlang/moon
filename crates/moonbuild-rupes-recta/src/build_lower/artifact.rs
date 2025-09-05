@@ -248,6 +248,13 @@ impl LegacyLayout {
         result
     }
 
+    pub fn mi_of_pkg_without_backend(&self, pkg: &PackageFQN) -> PathBuf {
+        let mut base_dir = PathBuf::new();
+        self.push_package_dir_no_backend(&mut base_dir, pkg);
+        base_dir.push(format!("{}{}", pkg.short_alias(), MI_EXTENSION));
+        base_dir
+    }
+
     pub fn generated_mbti_path(&self, pkg_source: &Path) -> PathBuf {
         pkg_source.join(MBTI_GENERATED)
     }

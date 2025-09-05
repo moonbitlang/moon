@@ -382,6 +382,10 @@ impl TargetBackend {
     pub fn is_native(self) -> bool {
         self == Self::Native || self == Self::LLVM
     }
+
+    pub fn all() -> &'static [Self] {
+        &[Self::Wasm, Self::WasmGC, Self::Js, Self::Native, Self::LLVM]
+    }
 }
 
 #[derive(Debug, Clone, Default)]
