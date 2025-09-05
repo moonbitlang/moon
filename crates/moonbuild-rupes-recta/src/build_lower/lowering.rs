@@ -429,7 +429,11 @@ impl<'a> BuildPlanLowerContext<'a> {
             TargetKind::SubPackage => panic!("Sub-package cannot be a test driver"),
         };
         let pkg_full_name = package.fqn.to_string();
-        let files_vec = info.files().map(|x| x.to_owned()).collect::<Vec<_>>();
+        let files_vec = if target.kind == TargetKind::WhiteboxTest {
+            info.whitebox_files.clone()
+        } else {
+            info.files().map(|x| x.to_owned()).collect::<Vec<_>>()
+        };
 
         let cmd = compiler::MoonGenTestDriver::new(
             &files_vec,
