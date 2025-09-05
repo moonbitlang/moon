@@ -2670,7 +2670,7 @@ fn test_pre_build() {
                │
              4 │ let resource : String =
                │     ────┬───  
-               │         ╰───── Warning: Unused toplevel variable 'resource'. Note if the body contains side effect, it will not happen. Use `fn init { .. }` to wrap the effect.
+               │         ╰───── Warning: Unused variable 'resource'
             ───╯
             Finished. moon: ran 2 tasks, now up to date (1 warnings, 0 errors)
         "#]],
@@ -2683,7 +2683,7 @@ fn test_pre_build() {
                │
              4 │ let resource : String =
                │     ────┬───  
-               │         ╰───── Warning: Unused toplevel variable 'resource'. Note if the body contains side effect, it will not happen. Use `fn init { .. }` to wrap the effect.
+               │         ╰───── Warning: Unused variable 'resource'
             ───╯
             Finished. moon: ran 3 tasks, now up to date (1 warnings, 0 errors)
         "#]],
