@@ -347,8 +347,31 @@ impl Default for BuildConfig {
 /// artifacts from the planning phase for any metadata they need.
 pub fn execute_build(
     cfg: &BuildConfig,
+    build_graph: n2::graph::Graph,
+    target_dir: &Path,
+) -> anyhow::Result<N2RunStats> {
+    execute_build_partial(
+        cfg,
+        build_graph,
+        target_dir,
+        Box::new(|work| work.want_every_file(None)),
+    )
+}
+
+/// Callback on the [`n2::work::Work`] to be done for target artifacts.
+type WantFileFn = dyn for<'a> FnOnce(&'a mut n2::work::Work) -> anyhow::Result<()>;
+
+/// Partially execute a build graph, same as [`execute_build`] otherwise.
+///
+/// Pass `want_files` callback to determine which artifacts to build.
+///
+/// This function is primarily used for rebuilding tests after snapshot test
+/// promotion.
+pub fn execute_build_partial(
+    cfg: &BuildConfig,
     mut build_graph: n2::graph::Graph,
     target_dir: &Path,
+    want_files: Box<WantFileFn>,
 ) -> anyhow::Result<N2RunStats> {
     // Generate n2 state
     // FIXME: This is extremely verbose and barebones, only for testing purpose
@@ -391,7 +414,7 @@ pub fn execute_build(
         &mut *prog_console,
         n2::smallmap::SmallMap::default(),
     );
-    work.want_every_file(None)?;
+    want_files(&mut work).context("Failed to determine the files to be built")?;
 
     // The actual execution done by the n2 executor
     let res = work.run()?;
