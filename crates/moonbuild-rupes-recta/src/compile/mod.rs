@@ -20,7 +20,10 @@ use std::{path::PathBuf, str::FromStr};
 
 use log::{debug, info};
 use moonutil::{
-    common::TargetBackend, compiler_flags::CompilerPaths, cond_expr::OptLevel, moon_dir::MOON_DIRS,
+    common::{RunMode, TargetBackend},
+    compiler_flags::CompilerPaths,
+    cond_expr::OptLevel,
+    moon_dir::MOON_DIRS,
 };
 
 use crate::{
@@ -32,15 +35,15 @@ use crate::{
 };
 
 /// The context that encapsulates all the data needed for the building process.
-pub struct CompileContext<'a> {
-    /// The resolved environment for compiling
-    pub resolve_output: &'a ResolveOutput,
+pub struct CompileConfig {
     /// Target directory, i.e. `target/`
     pub target_dir: PathBuf,
     /// The backend to use for the compilation.
     pub target_backend: TargetBackend,
     /// The optimization level to use for the compilation.
     pub opt_level: OptLevel,
+    /// The action done in this operation, currently only used in legacy directory layout
+    pub action: RunMode,
     /// Whether to emit debug symbols.
     pub debug_symbols: bool,
 
@@ -78,7 +81,8 @@ pub enum CompileGraphError {
 }
 
 pub fn compile(
-    cx: &CompileContext,
+    cx: &CompileConfig,
+    resolve_output: &ResolveOutput,
     input_nodes: &[BuildPlanNode],
 ) -> Result<CompileOutput, CompileGraphError> {
     info!(
@@ -89,7 +93,7 @@ pub fn compile(
     let input_nodes = input_nodes
         .iter()
         .cloned()
-        .filter(|x| filter_special_case_input_nodes(*x, cx.resolve_output));
+        .filter(|x| filter_special_case_input_nodes(*x, resolve_output));
 
     let build_env = BuildEnvironment {
         target_backend: cx.target_backend,
@@ -97,8 +101,8 @@ pub fn compile(
         std: cx.stdlib_path.is_some(),
     };
     let plan = build_plan::build_plan(
-        &cx.resolve_output.pkg_dirs,
-        &cx.resolve_output.pkg_rel,
+        &resolve_output.pkg_dirs,
+        &resolve_output.pkg_rel,
         &build_env,
         input_nodes,
     )?;
@@ -107,19 +111,15 @@ pub fn compile(
     debug!("Build plan contains {} nodes", plan.node_count());
 
     let lower_env = build_lower::BuildOptions {
-        main_module: if let &[module] = cx.resolve_output.module_rel.input_module_ids() {
-            Some(
-                cx.resolve_output
-                    .module_rel
-                    .mod_name_from_id(module)
-                    .clone(),
-            )
+        main_module: if let &[module] = resolve_output.module_rel.input_module_ids() {
+            Some(resolve_output.module_rel.mod_name_from_id(module).clone())
         } else {
             None
         },
         target_dir_root: cx.target_dir.clone(),
         target_backend: cx.target_backend,
         opt_level: cx.opt_level,
+        action: cx.action,
         debug_symbols: cx.debug_symbols,
         stdlib_path: cx.stdlib_path.clone(),
         compiler_paths: CompilerPaths::from_moon_dirs(), // change to external
@@ -127,8 +127,9 @@ pub fn compile(
         runtime_dot_c_path: MOON_DIRS.moon_lib_path.join("runtime.c"), // FIXME: don't calculate here
     };
     let res = build_lower::lower_build_plan(
-        &cx.resolve_output.pkg_dirs,
-        &cx.resolve_output.pkg_rel,
+        &resolve_output.module_rel,
+        &resolve_output.pkg_dirs,
+        &resolve_output.pkg_rel,
         &plan,
         &lower_env,
     )?;

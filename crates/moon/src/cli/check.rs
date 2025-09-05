@@ -37,7 +37,7 @@ use n2::trace;
 use std::path::{Path, PathBuf};
 
 use crate::cli::get_module_for_single_file;
-use crate::rr_build;
+use crate::rr_build::{self, preconfig_compile};
 
 use super::pre_build::scan_with_x_build;
 use super::{get_compiler_flags, BuildFlags};
@@ -231,16 +231,30 @@ fn run_check_normal_internal(
     target_dir: &Path,
 ) -> anyhow::Result<i32> {
     if cli.unstable_feature.rupes_recta {
-        let output = rr_build::compile(
-            cli,
+        let preconfig = preconfig_compile(
             &cmd.auto_sync_flags,
+            cli,
             &cmd.build_flags,
+            target_dir,
+            moonutil::cond_expr::OptLevel::Release,
+            RunMode::Check,
+        );
+        let (_build_meta, build_graph) = rr_build::plan_build(
+            preconfig,
+            &cli.unstable_feature,
             source_dir,
             target_dir,
             Box::new(calc_user_intent),
         )?;
-        output.print_info();
-        Ok(output.return_code_for_success())
+
+        if cli.dry_run {
+            rr_build::print_dry_run(&build_graph, &_build_meta.artifacts, source_dir, target_dir);
+            Ok(0)
+        } else {
+            let result = rr_build::execute_build(build_graph, target_dir, cmd.build_flags.jobs)?;
+            result.print_info(cli.quiet, "checking")?;
+            Ok(result.return_code_for_success())
+        }
     } else {
         run_check_normal_internal_legacy(cli, cmd, source_dir, target_dir)
     }

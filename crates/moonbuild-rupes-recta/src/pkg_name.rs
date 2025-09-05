@@ -275,6 +275,11 @@ impl PackagePath {
         self.value.is_empty()
     }
 
+    /// Construct an empty package path.
+    pub fn empty() -> Self {
+        unsafe { Self::new_no_copy_unchecked(arcstr::literal!("")) }
+    }
+
     /// Returns an iterator of segments of the package path.
     pub fn segments(&self) -> impl DoubleEndedIterator<Item = &str> {
         self.value

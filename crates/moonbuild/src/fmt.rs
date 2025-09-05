@@ -126,7 +126,7 @@ fn gen_inplace_fmt_command(
         .arg(&item.input)
         .arg("-w")
         .arg("-o")
-        .arg(&item.phony_out)
+        .arg(&item.phony_out) // this is only for refreshing timestamp
         .args(&moonbuild_opt.fmt_opt.as_ref().unwrap().extra_args)
         .arg_with_cond(
             moonbuild_opt

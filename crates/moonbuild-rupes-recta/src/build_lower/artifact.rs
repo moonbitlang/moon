@@ -19,15 +19,21 @@
 //! Build artifact path calculation and relevant information
 
 use std::{
+    ffi::OsStr,
     fmt::Display,
     path::{Path, PathBuf},
 };
 
-use moonutil::{common::TargetBackend, mooncakes::ModuleSource};
+use derive_builder::Builder;
+use moonutil::{
+    common::{RunMode, TargetBackend, MBTI_GENERATED},
+    cond_expr::OptLevel,
+    mooncakes::{ModuleName, ModuleSource},
+};
 
 use crate::{
     discover::DiscoverResult,
-    model::{BuildTarget, OperatingSystem, TargetKind},
+    model::{BuildTarget, OperatingSystem, PackageId, TargetKind},
     pkg_name::PackageFQN,
 };
 
@@ -37,12 +43,18 @@ const CORE_EXTENSION: &str = ".core";
 const MI_EXTENSION: &str = ".mi";
 
 /// Target folder layout that matches the legacy (pre-beta) behavior
+#[derive(Builder)]
 pub struct LegacyLayout {
     /// The base target directory, usually `<project-root>/target`
     target_base_dir: PathBuf,
     /// The name of the main module, so that packages from the main module will
     /// not be put into nested directories.
     main_module: Option<ModuleSource>,
+
+    /// The optimization level, debug or release
+    opt_level: OptLevel,
+    /// The operation done
+    run_mode: RunMode,
 }
 
 const LEGACY_NON_MAIN_MODULE_DIR: &str = ".mooncakes";
@@ -76,22 +88,20 @@ impl Display for PackageArtifactName<'_> {
 }
 
 impl LegacyLayout {
-    /// Creates a new legacy layout instance.
-    pub fn new(target_base_dir: PathBuf, main_module: Option<ModuleSource>) -> Self {
-        Self {
-            target_base_dir,
-            main_module,
-        }
-    }
-
     /// Returns the directory the given package resides in.
     ///
     /// For modules determined as the "main module", this path is
-    /// `target/<backend>/<...package>/`. Otherwise, it's
-    /// `target/<backend>/.mooncakes/<...module>/<...package>`.
+    /// `target/<backend>[/<opt_level>/build]/<...package>/`. Otherwise, it's
+    /// `target/<backend>[/<opt_level>/build]/.mooncakes/<...module>/<...package>`.
     pub fn package_dir(&self, pkg: &PackageFQN, backend: TargetBackend) -> PathBuf {
         let mut dir = self.target_base_dir.clone();
         push_backend(&mut dir, backend);
+
+        match self.opt_level {
+            OptLevel::Release => dir.push("release"),
+            OptLevel::Debug => dir.push("debug"),
+        }
+        dir.push(self.run_mode.to_dir_name());
 
         if self.main_module.as_ref().is_some_and(|m| pkg.module() == m) {
             // no nested directory for the working module
@@ -102,6 +112,16 @@ impl LegacyLayout {
         dir.extend(pkg.package().segments());
 
         dir
+    }
+
+    fn push_package_dir_no_backend(&self, dir: &mut PathBuf, pkg: &PackageFQN) {
+        if self.main_module.as_ref().is_some_and(|m| pkg.module() == m) {
+            // no nested directory for the working module
+        } else {
+            dir.push(LEGACY_NON_MAIN_MODULE_DIR);
+            dir.extend(pkg.module().name().segments());
+        }
+        dir.extend(pkg.package().segments());
     }
 
     pub fn core_of_build_target(
@@ -203,11 +223,70 @@ impl LegacyLayout {
         base_dir
     }
 
+    pub fn bundle_result_path(&self, backend: TargetBackend, module: &ModuleName) -> PathBuf {
+        let mut result = self.target_base_dir.clone();
+        push_backend(&mut result, backend);
+        result.push(format!("{}.core", module.last_segment()));
+        result
+    }
+
     pub fn runtime_output_path(&self, backend: TargetBackend, os: OperatingSystem) -> PathBuf {
         let mut result = self.target_base_dir.clone();
         push_backend(&mut result, backend);
         result.push(format!("runtime{}", object_file_ext(os)));
         result
+    }
+
+    /// The *artifact* of the format operation. This should be only for the
+    /// temporary output of a format-diff operation.
+    pub fn format_artifact_path(&self, pkg: &PackageFQN, filename: &OsStr) -> PathBuf {
+        let mut result = self.target_base_dir.clone();
+        self.push_package_dir_no_backend(&mut result, pkg);
+        result.push(filename);
+        result
+    }
+
+    pub fn generated_mbti_path(&self, pkg_source: &Path) -> PathBuf {
+        pkg_source.join(MBTI_GENERATED)
+    }
+
+    /// Returns the path for a C stub object file.
+    ///
+    /// Format: `target/{backend}/{opt_level}/build/{package_path}/{stub_name}.o`
+    pub fn c_stub_object_path(
+        &self,
+        pkg_list: &DiscoverResult,
+        package: PackageId,
+        stub_name: &OsStr,
+        backend: TargetBackend,
+        os: OperatingSystem,
+    ) -> PathBuf {
+        let pkg_fqn = &pkg_list.get_package(package).fqn;
+        let mut base_dir = self.package_dir(pkg_fqn, backend);
+        let mut stub_name = stub_name.to_os_string();
+        stub_name.push(object_file_ext(os));
+        base_dir.push(stub_name);
+        base_dir
+    }
+
+    /// Returns the path for a C stub static library archive.
+    ///
+    /// Format: `target/{backend}/{opt_level}/build/{package_path}/lib{package_name}.a`
+    pub fn c_stub_archive_path(
+        &self,
+        pkg_list: &DiscoverResult,
+        package: PackageId,
+        backend: TargetBackend,
+        os: OperatingSystem,
+    ) -> PathBuf {
+        let pkg_fqn = &pkg_list.get_package(package).fqn;
+        let mut base_dir = self.package_dir(pkg_fqn, backend);
+        base_dir.push(format!(
+            "lib{}{}",
+            pkg_fqn.short_alias(),
+            static_library_ext(os)
+        ));
+        base_dir
     }
 }
 
@@ -260,7 +339,6 @@ fn executable_ext(os: OperatingSystem, legacy_behavior: bool) -> &'static str {
 }
 
 /// Returns the file extension for static libraries on the given OS
-#[allow(unused)]
 fn static_library_ext(os: OperatingSystem) -> &'static str {
     match os {
         OperatingSystem::Windows => ".lib",

@@ -18,11 +18,11 @@
 
 //! Solves conditional compilation directives
 
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 use moonutil::{
     common::TargetBackend,
-    cond_expr::{parse_cond_expr, OptLevel, ParseCondExprError, StringOrArray},
+    cond_expr::{CondExpr, OptLevel},
     package::MoonPkg,
 };
 
@@ -61,15 +61,12 @@ pub struct CompileCondition {
 /// Note: `pkg_file_path` is purely for error reporting, as required by
 /// [`moonutil::cond_expr::parse_cond_expr`].
 pub fn filter_files<'a>(
-    pkg: &MoonPkg,
-    pkg_file_path: &Path,
-    files: impl Iterator<Item = &'a Path>,
-    cond: &CompileCondition,
-) -> Result<Vec<PathBuf>, ParseCondExprError> {
-    let mut res = Vec::new();
-
-    for f in files {
-        let filename = f
+    pkg: &'a MoonPkg,
+    files: impl Iterator<Item = &'a Path> + 'a,
+    cond: &'a CompileCondition,
+) -> impl Iterator<Item = (&'a Path, FileTestKind)> + 'a {
+    files.filter_map(|file| {
+        let filename = file
             .file_name()
             .expect("Input source file should have a filename");
         let str_filename = filename.to_string_lossy();
@@ -80,38 +77,40 @@ pub fn filter_files<'a>(
             .and_then(|targets| targets.get(&*str_filename))
         {
             // We have a condition for this file
-            should_compile_using_pkg_cond_expr(&str_filename, expect_cond, cond, pkg_file_path)?
+            should_compile_using_pkg_cond_expr(&str_filename, expect_cond, cond)
         } else {
             // We don't, evaluate file name
             should_compile_using_filename(&str_filename, cond)
         };
 
-        if should_include {
-            res.push(f.to_owned());
-        }
-    }
-
-    Ok(res)
+        should_include.map(|kind| (file, kind))
+    })
 }
 
 fn should_compile_using_pkg_cond_expr(
     name: &str,
-    expect: &StringOrArray,
+    cond_expr: &CondExpr,
     actual: &CompileCondition,
-    pkg_file_path: &Path,
-) -> Result<bool, ParseCondExprError> {
+) -> Option<FileTestKind> {
     // TODO: Put the parsing earlier, not here
-    let cond_expr = parse_cond_expr(pkg_file_path, expect)?;
     if !cond_expr.eval(actual.optlevel, actual.backend) {
-        Ok(false) // Fails the condition in pkg.json
+        None // Fails the condition in pkg.json
     } else if let Some(stripped) = name.strip_suffix(".mbt") {
-        Ok(check_test_suffix(stripped, actual.test_kind))
+        let spec = get_file_test_kind(stripped);
+        let include = check_test_suffix(spec, actual.test_kind);
+        if include {
+            Some(spec)
+        } else {
+            None
+        }
     } else {
         panic!("File name '{}' does not end with '.mbt'", name);
     }
 }
 
-fn should_compile_using_filename(name: &str, actual: &CompileCondition) -> bool {
+/// Check the file name to determine if it should be included. If true,
+/// returns `Some(file_test_kind)`, otherwise `None`.
+fn should_compile_using_filename(name: &str, actual: &CompileCondition) -> Option<FileTestKind> {
     let Some(filename) = name.strip_suffix(".mbt") else {
         panic!("File name '{}' does not end with '.mbt'", name);
     };
@@ -122,28 +121,36 @@ fn should_compile_using_filename(name: &str, actual: &CompileCondition) -> bool 
             match TargetBackend::str_to_backend(suffix) {
                 // correct backend, chop it off
                 Ok(backend) if backend == actual.backend => prev,
-                Ok(_) => return false, // Wrong backend, returning
-                Err(_) => filename,    // No backend suffix, keep the filename as is
+                Ok(_) => return None, // Wrong backend, returning
+                Err(_) => filename,   // No backend suffix, keep the filename as is
             }
         }
         None => filename, // No dot in filename, keep the filename as is
     };
 
-    check_test_suffix(remaining, actual.test_kind)
+    let spec = get_file_test_kind(remaining);
+    let include = check_test_suffix(spec, actual.test_kind);
+    if include {
+        Some(spec)
+    } else {
+        None
+    }
+}
+
+fn get_file_test_kind(name: &str) -> FileTestKind {
+    if name.ends_with("_wbtest") {
+        FileTestKind::Whitebox
+    } else if name.ends_with("_test") {
+        FileTestKind::Blackbox
+    } else {
+        FileTestKind::NoTest
+    }
 }
 
 /// Check the suffix of the stripped filename against the actual test condition
-fn check_test_suffix(stripped: &str, test_kind: Option<TestKind>) -> bool {
-    use FileTestSpec::*;
+fn check_test_suffix(file_test_spec: FileTestKind, test_kind: Option<TestKind>) -> bool {
+    use FileTestKind::*;
 
-    // Check test suffixes
-    let file_test_spec = if stripped.ends_with("_wbtest") {
-        Whitebox
-    } else if stripped.ends_with("_test") {
-        Blackbox
-    } else {
-        NoTest
-    };
     // White box tests are implemented with compiling with source code, and
     // black box tests are implemented without
     #[allow(clippy::match_like_matches_macro)] // This is more readable
@@ -151,13 +158,16 @@ fn check_test_suffix(stripped: &str, test_kind: Option<TestKind>) -> bool {
         (None, NoTest) => true,
         (Some(TestKind::Inline), NoTest) => true,
         (Some(TestKind::Whitebox), NoTest | Whitebox) => true,
-        (Some(TestKind::Blackbox), Blackbox) => true,
+        // Black box tests return no test files for doctest compilation
+        // FIXME: might not be the best way to handle this
+        (Some(TestKind::Blackbox), NoTest | Blackbox) => true,
         _ => false,
     }
 }
 
-#[derive(Clone, Copy)]
-enum FileTestSpec {
+/// Which kind of test does this file represent
+#[derive(Debug, Clone, Copy)]
+pub enum FileTestKind {
     NoTest,
     Whitebox,
     Blackbox,

@@ -162,11 +162,13 @@ impl BuildPlanNode {
         match self {
             BuildPlanNode::Check(target) => format!("{:?}@Check", target),
             BuildPlanNode::BuildCore(target) => format!("{:?}@BuildCore", target),
-            BuildPlanNode::BuildCStubs(target) => format!("{:?}@BuildCStubs", target),
+            BuildPlanNode::BuildCStub(target, index) => {
+                format!("{:?}@BuildCStub_{}", target, index)
+            }
+            BuildPlanNode::ArchiveCStubs(target) => format!("{:?}@ArchiveCStubs", target),
             BuildPlanNode::LinkCore(target) => format!("{:?}@LinkCore", target),
             BuildPlanNode::MakeExecutable(target) => format!("{:?}@MakeExecutable", target),
             BuildPlanNode::GenerateTestInfo(target) => format!("{:?}@GenerateTestInfo", target),
-            BuildPlanNode::Format(target) => format!("{:?}@Format", target),
             BuildPlanNode::Bundle(module_id) => format!("{:?}@Bundle", module_id),
             BuildPlanNode::GenerateMbti(target) => format!("{:?}@GenerateMbti", target),
             BuildPlanNode::BuildRuntimeLib => "BuildRuntimeLib".to_string(),
@@ -183,8 +185,12 @@ impl BuildPlanNode {
                 let fqn = packages.fqn(target.package);
                 format!("{}\\nBuildCore", fqn)
             }
-            BuildPlanNode::BuildCStubs(target) => {
-                let fqn = packages.fqn(target.package);
+            BuildPlanNode::BuildCStub(target, index) => {
+                let fqn = packages.fqn(*target);
+                format!("{}\\nBuildCStub_{}", fqn, index)
+            }
+            BuildPlanNode::ArchiveCStubs(target) => {
+                let fqn = packages.fqn(*target);
                 format!("{}\\nBuildCStubs", fqn)
             }
             BuildPlanNode::LinkCore(target) => {
@@ -199,10 +205,7 @@ impl BuildPlanNode {
                 let fqn = packages.fqn(target.package);
                 format!("{}\\nGenerateTestInfo", fqn)
             }
-            BuildPlanNode::Format(target) => {
-                let fqn = packages.fqn(target.package);
-                format!("{}\\nFormat", fqn)
-            }
+
             BuildPlanNode::Bundle(module_id) => {
                 let src = env.mod_name_from_id(*module_id);
                 format!("{}\\nBundle", src)
@@ -219,11 +222,11 @@ impl BuildPlanNode {
         match self {
             BuildPlanNode::Check(_) => "lightblue",
             BuildPlanNode::BuildCore(_) => "lightgreen",
-            BuildPlanNode::BuildCStubs(_) => "lightyellow",
+            BuildPlanNode::BuildCStub(_, _) => "lightsalmon",
+            BuildPlanNode::ArchiveCStubs(_) => "lightyellow",
             BuildPlanNode::LinkCore(_) => "lightcoral",
             BuildPlanNode::MakeExecutable(_) => "lightpink",
             BuildPlanNode::GenerateTestInfo(_) => "lightgray",
-            BuildPlanNode::Format(_) => "lavender",
             BuildPlanNode::Bundle(_) => "wheat",
             BuildPlanNode::GenerateMbti(_) => "lightcyan",
             BuildPlanNode::BuildRuntimeLib => "orange",

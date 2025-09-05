@@ -109,7 +109,7 @@ impl CC {
     ) -> anyhow::Result<Self> {
         let cc_dir = cc_path
             .parent()
-            .expect("cc_path should have a parent directory");
+            .context("cc_path should have a parent directory")?;
         let (ar_kind, ar_path) = match cc_kind {
             CCKind::Msvc => {
                 let ar = cc_dir.join("lib");
@@ -139,7 +139,9 @@ impl CC {
 
     pub fn try_from_path_with_ar(cc: &str, ar: &str) -> anyhow::Result<Self> {
         let path = PathBuf::from(cc);
-        let name = path.file_name().and_then(OsStr::to_str).unwrap();
+        let name = path.file_name().and_then(OsStr::to_str).context(
+            "Invalid compiler path: path must point to a file with valid UTF-8 filename",
+        )?;
         if name.ends_with("cl") {
             CC::try_from_cc_path_and_kind(ar, &path, CCKind::Msvc)
         } else if name.ends_with("gcc") {
@@ -158,7 +160,9 @@ impl CC {
 
     pub fn try_from_path(cc: &str) -> anyhow::Result<Self> {
         let path = PathBuf::from(cc);
-        let name = path.file_name().and_then(OsStr::to_str).unwrap();
+        let name = path.file_name().and_then(OsStr::to_str).context(
+            "Invalid compiler path: path must point to a file with valid UTF-8 filename",
+        )?;
         let replaced_ar = |s: &str| name.replace(s, "ar");
         if name.ends_with("cl") {
             CC::try_from_cc_path_and_kind("lib.exe", &path, CCKind::Msvc)

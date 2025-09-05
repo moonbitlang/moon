@@ -21,7 +21,7 @@ use std::{
     io::BufReader,
     path::{Path, PathBuf},
     str::FromStr,
-    sync::Arc,
+    sync::{Arc, LazyLock},
 };
 
 use arcstr::ArcStr;
@@ -238,6 +238,18 @@ impl ModuleSource {
     }
 }
 
+/// The `ModuleSource` representing the core module.
+pub static CORE_MODULE: LazyLock<ModuleSource> = LazyLock::new(|| {
+    ModuleSource::new_full(
+        ModuleName {
+            username: "moonbitlang".into(),
+            unqual: "core".into(),
+        },
+        Version::new(0, 0, 0),
+        ModuleSourceKind::Registry(None),
+    )
+});
+
 impl std::fmt::Display for ModuleSource {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}@{}", self.name(), self.version())?;
@@ -373,10 +385,11 @@ pub mod result {
             ResolvedEnvBuilder::new()
         }
 
-        pub fn only_one_module(ms: ModuleSource, module: MoonMod) -> ResolvedEnv {
+        pub fn only_one_module(ms: ModuleSource, module: MoonMod) -> (ResolvedEnv, ModuleId) {
             let mut builder = Self::builder();
-            builder.add_module(ms, Arc::new(module));
-            builder.build()
+            let id = builder.add_module(ms, Arc::new(module));
+            let res = builder.build();
+            (res, id)
         }
 
         pub fn module_count(&self) -> usize {

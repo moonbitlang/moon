@@ -20,21 +20,25 @@
 
 mod build_common;
 mod build_package;
+mod bundle_core;
 mod check;
 mod gen_test_driver;
 mod link_core;
+mod mooninfo;
 
 use std::borrow::Cow;
 use std::path::Path;
 
-use crate::model::{BuildTarget, TargetKind};
+use crate::model::TargetKind;
 use crate::pkg_name::PackageFQN;
 
 pub use self::build_common::BuildCommonArgs;
 pub use self::build_package::MooncBuildPackage;
+pub use self::bundle_core::MooncBundleCore;
 pub use self::check::MooncCheck;
 pub use self::gen_test_driver::MoonGenTestDriver;
 pub use self::link_core::MooncLinkCore;
+pub use self::mooninfo::Mooninfo;
 
 #[allow(unused)]
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -86,10 +90,10 @@ pub struct CompiledPackageName<'a> {
 }
 
 impl<'a> CompiledPackageName<'a> {
-    pub fn new(fqn: &'a PackageFQN, target: BuildTarget) -> Self {
+    pub fn new(fqn: &'a PackageFQN, target_kind: TargetKind) -> Self {
         Self {
             fqn,
-            kind: target.kind,
+            kind: target_kind,
         }
     }
 }

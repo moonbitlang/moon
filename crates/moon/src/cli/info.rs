@@ -25,6 +25,7 @@ use std::{
 use anyhow::{bail, Context};
 use colored::Colorize;
 use futures::future::try_join_all;
+use moonbuild_rupes_recta::model::{BuildPlanNode, BuildTarget};
 use mooncake::pkg::sync::auto_sync;
 use moonutil::{
     common::{
@@ -32,10 +33,13 @@ use moonutil::{
         MoonbuildOpt, MooncOpt, PrePostBuild, RunMode, SurfaceTarget, TargetBackend,
         MBTI_GENERATED, MOONBITLANG_CORE, MOON_MOD_JSON,
     },
+    cond_expr::OptLevel,
     dirs::{mk_arch_mode_dir, PackageDirs},
     mooncakes::{sync::AutoSyncFlags, RegistryConfig},
     package::Package,
 };
+
+use crate::{cli::BuildFlags, rr_build};
 
 use super::{pre_build::scan_with_x_build, UniversalFlags};
 
@@ -63,6 +67,81 @@ pub struct InfoSubcommand {
 }
 
 pub fn run_info(cli: UniversalFlags, cmd: InfoSubcommand) -> anyhow::Result<i32> {
+    if cli.unstable_feature.rupes_recta {
+        run_info_rr(cli, cmd)
+    } else {
+        run_info_legacy(cli, cmd)
+    }
+}
+
+pub fn run_info_rr(cli: UniversalFlags, cmd: InfoSubcommand) -> anyhow::Result<i32> {
+    let PackageDirs {
+        source_dir,
+        target_dir,
+    } = cli.source_tgt_dir.try_into_package_dirs()?;
+
+    let preconfig = rr_build::preconfig_compile(
+        &cmd.auto_sync_flags,
+        &cli,
+        &BuildFlags::default(),
+        &target_dir,
+        OptLevel::Release,
+        RunMode::Build,
+    );
+    let (_build_meta, build_graph) = rr_build::plan_build(
+        preconfig,
+        &cli.unstable_feature,
+        &source_dir,
+        &target_dir,
+        Box::new(calc_user_intent),
+    )?;
+
+    if cli.dry_run {
+        rr_build::print_dry_run(
+            &build_graph,
+            &_build_meta.artifacts,
+            &source_dir,
+            &target_dir,
+        );
+        Ok(0)
+    } else {
+        // TODO: `moon info` is a wrapper over `moon check`, so should have flags that `moon check` has?
+        let result = rr_build::execute_build(build_graph, &target_dir, None)?;
+        result.print_info(cli.quiet, "generating mbti files")?;
+        Ok(result.return_code_for_success())
+    }
+}
+
+fn calc_user_intent(
+    resolve_output: &moonbuild_rupes_recta::ResolveOutput,
+    main_modules: &[moonutil::mooncakes::ModuleId],
+) -> Result<Vec<BuildPlanNode>, anyhow::Error> {
+    let &[main_module_id] = main_modules else {
+        panic!("No multiple main modules are supported");
+    };
+
+    let packages = resolve_output
+        .pkg_dirs
+        .packages_for_module(main_module_id)
+        .ok_or_else(|| anyhow::anyhow!("Cannot find the local module!"))?;
+    let res = packages
+        .values()
+        .filter_map(|package_id| {
+            let pkg = resolve_output.pkg_dirs.get_package(*package_id);
+            if pkg.raw.virtual_pkg.is_some() {
+                None
+            } else {
+                Some(BuildPlanNode::GenerateMbti(BuildTarget {
+                    package: *package_id,
+                    kind: moonbuild_rupes_recta::model::TargetKind::Source,
+                }))
+            }
+        })
+        .collect();
+    Ok(res)
+}
+
+pub fn run_info_legacy(cli: UniversalFlags, cmd: InfoSubcommand) -> anyhow::Result<i32> {
     let PackageDirs {
         source_dir,
         target_dir,

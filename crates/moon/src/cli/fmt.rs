@@ -16,7 +16,9 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
+use anyhow::Context;
 use moonbuild::dry_run;
+use moonbuild_rupes_recta::fmt::FmtConfig;
 use mooncake::pkg::sync::auto_sync;
 use moonutil::{
     common::{
@@ -26,6 +28,8 @@ use moonutil::{
     dirs::{mk_arch_mode_dir, PackageDirs},
     mooncakes::{sync::AutoSyncFlags, RegistryConfig},
 };
+
+use crate::rr_build;
 
 use super::{pre_build::scan_with_x_build, UniversalFlags};
 
@@ -47,6 +51,40 @@ pub struct FmtSubcommand {
 }
 
 pub fn run_fmt(cli: &UniversalFlags, cmd: FmtSubcommand) -> anyhow::Result<i32> {
+    if cli.unstable_feature.rupes_recta {
+        run_fmt_rr(cli, cmd)
+    } else {
+        run_fmt_legacy(cli, cmd)
+    }
+}
+
+fn run_fmt_rr(cli: &UniversalFlags, cmd: FmtSubcommand) -> anyhow::Result<i32> {
+    let PackageDirs {
+        source_dir,
+        target_dir,
+    } = cli.source_tgt_dir.try_into_package_dirs()?;
+
+    let resolved = moonbuild_rupes_recta::fmt::resolve_for_fmt(&source_dir)
+        .context("Failed to resolve environment")?;
+    let fmt_config = FmtConfig {
+        block_style: cmd.block_style.unwrap_or_default().is_line(),
+        check_only: cmd.check,
+        extra_args: cmd.args.clone(),
+    };
+    let graph =
+        moonbuild_rupes_recta::fmt::build_graph_for_fmt(&resolved, &fmt_config, &target_dir)?;
+
+    if cli.dry_run {
+        rr_build::print_dry_run_all(&graph, &source_dir, &target_dir);
+        Ok(0)
+    } else {
+        let res = rr_build::execute_build(graph, &target_dir, None)?;
+        res.print_info(cli.quiet, "formatting")?;
+        Ok(res.return_code_for_success())
+    }
+}
+
+fn run_fmt_legacy(cli: &UniversalFlags, cmd: FmtSubcommand) -> anyhow::Result<i32> {
     let PackageDirs {
         source_dir,
         target_dir,

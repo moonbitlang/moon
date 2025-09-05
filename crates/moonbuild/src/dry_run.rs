@@ -21,7 +21,82 @@ use n2::densemap::Index;
 use n2::graph::{BuildId, FileId, Graph};
 use std::collections::{HashMap, HashSet};
 
+use std::path::Path;
+
 use moonutil::common::{MoonbuildOpt, MooncOpt, RunMode, TargetBackend};
+use n2::load::State;
+
+/// Print build commands from a State
+pub fn print_build_commands(
+    graph: &Graph,
+    default: &[FileId],
+    source_dir: &Path,
+    target_dir: &Path,
+) {
+    let in_same_dir = target_dir.starts_with(source_dir);
+
+    if !default.is_empty() {
+        let mut sorted_default = default.to_vec();
+        sorted_default.sort_by_key(|a| a.index());
+        let builds: Vec<BuildId> = stable_toposort_graph(graph, &sorted_default);
+        for b in builds.iter() {
+            let build = &graph.builds[*b];
+            if let Some(cmdline) = &build.cmdline {
+                if in_same_dir {
+                    // TODO: this replace is not safe
+                    println!(
+                        "{}",
+                        cmdline.replace(&source_dir.display().to_string(), ".")
+                    );
+                } else {
+                    println!("{cmdline}");
+                }
+            }
+        }
+    }
+}
+
+/// Print run commands from a State
+pub fn print_run_commands(
+    state: &State,
+    target_backend: TargetBackend,
+    source_dir: &Path,
+    target_dir: &Path,
+    args: &[String],
+) {
+    let in_same_dir = target_dir.starts_with(source_dir);
+
+    if !state.default.is_empty() {
+        // FIXME: This sorts the default targets twice. Should not affect the perf much though.
+        let mut sorted_default = state.default.clone();
+        sorted_default.sort_by_key(|a| a.index());
+
+        for fid in sorted_default.iter() {
+            let mut watfile = state.graph.file(*fid).name.clone();
+            let cmd = match target_backend {
+                TargetBackend::Wasm | TargetBackend::WasmGC => "moonrun ",
+                TargetBackend::Js => "node ",
+                TargetBackend::Native | TargetBackend::LLVM => {
+                    // stub.o would be default for native and llvm, skip them
+                    if !watfile.ends_with(".exe") {
+                        continue;
+                    }
+                    ""
+                }
+            };
+            if in_same_dir {
+                watfile = watfile.replacen(&source_dir.display().to_string(), ".", 1);
+            }
+
+            let mut moonrun_command = format!("{cmd}{watfile}");
+            if !args.is_empty() {
+                moonrun_command = format!("{moonrun_command} -- {}", args.join(" "));
+            }
+
+            println!("{moonrun_command}");
+        }
+    }
+}
 
 pub fn print_commands(
     module: &ModuleDB,
@@ -34,8 +109,6 @@ pub fn print_commands(
     };
 
     let (source_dir, target_dir) = (&moonbuild_opt.source_dir, &moonbuild_opt.target_dir);
-
-    let in_same_dir = target_dir.starts_with(source_dir);
     let mode = moonbuild_opt.run_mode;
 
     let state = match mode {
@@ -50,52 +123,19 @@ pub fn print_commands(
         RunMode::Format => crate::fmt::load_moon_proj(module, moonc_opt, moonbuild_opt)?,
     };
     log::debug!("{:#?}", state);
-    if !state.default.is_empty() {
-        let mut sorted_default = state.default.clone();
-        sorted_default.sort_by_key(|a| a.index());
-        let builds: Vec<BuildId> = stable_toposort_graph(&state.graph, &sorted_default);
-        for b in builds.iter() {
-            let build = &state.graph.builds[*b];
-            if let Some(cmdline) = &build.cmdline {
-                if in_same_dir {
-                    // TODO: this replace is not safe
-                    println!(
-                        "{}",
-                        cmdline.replace(&source_dir.display().to_string(), ".")
-                    );
-                } else {
-                    println!("{cmdline}");
-                }
-            }
-        }
-        if mode == RunMode::Run {
-            for fid in sorted_default.iter() {
-                let mut watfile = state.graph.file(*fid).name.clone();
-                let cmd = match moonc_opt.link_opt.target_backend {
-                    TargetBackend::Wasm | TargetBackend::WasmGC => "moonrun ",
-                    TargetBackend::Js => "node ",
-                    TargetBackend::Native | TargetBackend::LLVM => {
-                        // stub.o would be default for native and llvm, skip them
-                        if !watfile.ends_with(".exe") {
-                            continue;
-                        }
-                        ""
-                    }
-                };
-                if in_same_dir {
-                    watfile = watfile.replacen(&source_dir.display().to_string(), ".", 1);
-                }
 
-                let mut moonrun_command = format!("{cmd}{watfile}");
-                if !moonbuild_opt.args.is_empty() {
-                    moonrun_command =
-                        format!("{moonrun_command} -- {}", moonbuild_opt.args.join(" "));
-                }
+    print_build_commands(&state.graph, &state.default, source_dir, target_dir);
 
-                println!("{moonrun_command}");
-            }
-        }
+    if mode == RunMode::Run {
+        print_run_commands(
+            &state,
+            moonc_opt.link_opt.target_backend,
+            source_dir,
+            target_dir,
+            &moonbuild_opt.args,
+        );
     }
+
     Ok(0)
 }
 

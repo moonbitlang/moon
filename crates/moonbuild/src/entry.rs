@@ -56,7 +56,7 @@ fn default_parallelism() -> anyhow::Result<usize> {
 }
 
 #[allow(clippy::type_complexity)]
-fn create_progress_console(
+pub fn create_progress_console(
     callback: Option<Box<dyn Fn(&str) + Send>>,
     verbose: bool,
 ) -> Box<dyn Progress> {
@@ -66,7 +66,8 @@ fn create_progress_console(
         Box::new(DumbConsoleProgress::new(verbose, callback))
     }
 }
-fn render_result(result: N2RunStats, quiet: bool, mode: &str) -> anyhow::Result<i32> {
+
+fn render_result(result: &N2RunStats, quiet: bool, mode: &str) -> anyhow::Result<i32> {
     match result.n_tasks_executed {
         None => {
             eprintln!(
@@ -106,10 +107,10 @@ fn format_warnings_errors(n_warnings: usize, n_errors: usize) -> String {
 }
 
 #[derive(Default)]
-struct ResultCatcher {
-    content_writer: Vec<String>, // todo: might be better to directly write to string
-    n_warnings: usize,
-    n_errors: usize,
+pub struct ResultCatcher {
+    pub content_writer: Vec<String>, // todo: might be better to directly write to string
+    pub n_warnings: usize,
+    pub n_errors: usize,
 }
 
 impl ResultCatcher {
@@ -124,7 +125,7 @@ impl ResultCatcher {
 }
 
 #[allow(clippy::too_many_arguments)] // This is inefficient and we know it
-fn render_and_catch_callback(
+pub fn render_and_catch_callback(
     catcher: Arc<Mutex<ResultCatcher>>,
     output_json: bool,
     use_fancy: bool,
@@ -243,6 +244,27 @@ pub struct N2RunStats {
 
     pub n_errors: usize,
     pub n_warnings: usize,
+}
+
+impl N2RunStats {
+    /// Whether the run was successful (i.e. didn't fail to execute).
+    pub fn successful(&self) -> bool {
+        self.n_tasks_executed.is_some()
+    }
+
+    /// Get the return code that should be returned to the shell.
+    pub fn return_code_for_success(&self) -> i32 {
+        if self.successful() {
+            0
+        } else {
+            1
+        }
+    }
+
+    pub fn print_info(&self, quiet: bool, mode: &str) -> anyhow::Result<()> {
+        render_result(self, quiet, mode)?;
+        Ok(())
+    }
 }
 
 pub fn n2_run_interface(
@@ -475,7 +497,7 @@ pub fn run_check(
     let result = n2_run_interface(state, moonbuild_opt)?;
 
     write_pkg_lst(module, &moonbuild_opt.raw_target_dir)?;
-    render_result(result, moonbuild_opt.quiet, "checking")
+    render_result(&result, moonbuild_opt.quiet, "checking")
 }
 
 pub fn run_build(
@@ -487,7 +509,7 @@ pub fn run_build(
         crate::build::load_moon_proj(module, moonc_opt, moonbuild_opt)
     })?;
     let result = n2_run_interface(state, moonbuild_opt)?;
-    render_result(result, moonbuild_opt.quiet, "building")
+    render_result(&result, moonbuild_opt.quiet, "building")
 }
 
 pub fn run_run(
@@ -691,7 +713,7 @@ pub fn run_test(
 
     let state = crate::runtest::load_moon_proj(&module, &moonc_opt, &moonbuild_opt)?;
     let result = n2_run_interface(state, &moonbuild_opt)?;
-    render_result(result, moonbuild_opt.quiet, "testing")?;
+    render_result(&result, moonbuild_opt.quiet, "testing")?;
 
     let mut handlers = vec![];
 
@@ -1338,7 +1360,7 @@ pub fn run_bundle(
     let state = crate::bundle::load_moon_proj(module, moonc_opt, moonbuild_opt)?;
     let result = n2_run_interface(state, moonbuild_opt)?;
     write_pkg_lst(module, &moonbuild_opt.raw_target_dir)?;
-    render_result(result, moonbuild_opt.quiet, "bundle")?;
+    render_result(&result, moonbuild_opt.quiet, "bundle")?;
     Ok(0)
 }
 

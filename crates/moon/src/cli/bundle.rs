@@ -18,6 +18,7 @@
 
 use anyhow::Context;
 use moonbuild::dry_run;
+use moonbuild_rupes_recta::model::BuildPlanNode;
 use mooncake::pkg::sync::auto_sync;
 use moonutil::{
     cli::UniversalFlags,
@@ -25,10 +26,13 @@ use moonutil::{
         lower_surface_targets, FileLock, MoonbuildOpt, PrePostBuild, RunMode, SurfaceTarget,
         TargetBackend,
     },
+    cond_expr::OptLevel,
     dirs::{mk_arch_mode_dir, PackageDirs},
     mooncakes::{sync::AutoSyncFlags, RegistryConfig},
 };
 use std::path::Path;
+
+use crate::rr_build;
 
 use super::{pre_build::scan_with_x_build, BuildFlags};
 
@@ -48,6 +52,51 @@ pub struct BundleSubcommand {
 }
 
 pub fn run_bundle(cli: UniversalFlags, cmd: BundleSubcommand) -> anyhow::Result<i32> {
+    if cli.unstable_feature.rupes_recta {
+        run_bundle_rr(cli, cmd)
+    } else {
+        run_bundle_legacy(cli, cmd)
+    }
+}
+
+pub fn run_bundle_rr(cli: UniversalFlags, cmd: BundleSubcommand) -> anyhow::Result<i32> {
+    let PackageDirs {
+        source_dir,
+        target_dir,
+    } = cli.source_tgt_dir.try_into_package_dirs()?;
+
+    let preconfig = rr_build::preconfig_compile(
+        &cmd.auto_sync_flags,
+        &cli,
+        &cmd.build_flags,
+        &target_dir,
+        OptLevel::Release,
+        RunMode::Build,
+    );
+    let (_build_meta, build_graph) = rr_build::plan_build(
+        preconfig,
+        &cli.unstable_feature,
+        &source_dir,
+        &target_dir,
+        Box::new(|_r, m| Ok(m.iter().map(|&m| BuildPlanNode::Bundle(m)).collect())),
+    )?;
+
+    if cli.dry_run {
+        rr_build::print_dry_run(
+            &build_graph,
+            &_build_meta.artifacts,
+            &source_dir,
+            &target_dir,
+        );
+        Ok(0)
+    } else {
+        let result = rr_build::execute_build(build_graph, &target_dir, cmd.build_flags.jobs)?;
+        result.print_info(cli.quiet, "bundling")?;
+        Ok(result.return_code_for_success())
+    }
+}
+
+pub fn run_bundle_legacy(cli: UniversalFlags, cmd: BundleSubcommand) -> anyhow::Result<i32> {
     let PackageDirs {
         source_dir,
         target_dir,

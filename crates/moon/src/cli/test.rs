@@ -32,6 +32,7 @@ use moonutil::common::{
 };
 use moonutil::common::{BLACKBOX_TEST_DRIVER, DOT_MBT_DOT_MD, SINGLE_FILE_TEST_PACKAGE};
 use moonutil::cond_expr::CompileCondition;
+use moonutil::cond_expr::OptLevel;
 use moonutil::dirs::mk_arch_mode_dir;
 use moonutil::module::ModuleDB;
 use moonutil::mooncakes::sync::AutoSyncFlags;
@@ -44,6 +45,7 @@ use std::path::{Path, PathBuf};
 
 use crate::cli::pre_build::scan_with_x_build;
 use crate::rr_build;
+use crate::rr_build::preconfig_compile;
 
 use super::BenchSubcommand;
 use super::{BuildFlags, UniversalFlags};
@@ -481,31 +483,48 @@ fn run_test_rr(
     source_dir: &Path,
     target_dir: &Path,
 ) -> Result<i32, anyhow::Error> {
-    let ret = rr_build::compile(
-        cli,
+    let preconfig = preconfig_compile(
         cmd.auto_sync_flags,
+        cli,
         cmd.build_flags,
+        target_dir,
+        OptLevel::Debug,
+        RunMode::Test,
+    );
+    let (build_meta, build_graph) = rr_build::plan_build(
+        preconfig,
+        &cli.unstable_feature,
         source_dir,
         target_dir,
         Box::new(calc_user_intent),
     )?;
-    if !ret.successful() {
-        return Ok(ret.return_code_for_success());
-    }
 
-    // Run tests using artifacts
-    let result = crate::run::run_tests(&ret, target_dir)?;
-    println!(
-        "{} tests executed, {} passed, {} failed",
-        result.total,
-        result.passed,
-        result.total - result.passed
-    );
+    if cli.dry_run {
+        rr_build::print_dry_run(&build_graph, &build_meta.artifacts, source_dir, target_dir);
+        // The legacy behavior does not print the test commands, so we skip it too.
 
-    if result.passed() {
         Ok(0)
     } else {
-        Ok(1)
+        let result = rr_build::execute_build(build_graph, target_dir, cmd.build_flags.jobs)?;
+
+        if !result.successful() {
+            return Ok(result.return_code_for_success());
+        }
+
+        // Run tests using artifacts
+        let test_result = crate::run::run_tests(&build_meta, target_dir)?;
+        println!(
+            "{} tests executed, {} passed, {} failed",
+            test_result.total,
+            test_result.passed,
+            test_result.total - test_result.passed
+        );
+
+        if test_result.passed() {
+            Ok(0)
+        } else {
+            Ok(1)
+        }
     }
 }
 
