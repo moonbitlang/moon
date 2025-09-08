@@ -3924,16 +3924,19 @@ fn test_render_diagnostic_in_patch_file() {
                │       ## Erroneous example
                │       
                │       ```moonbit
+               │       ///|
                │       let p : Int = {
-               │       //  ^ Warning: Unused toplevel variable 'p'.
-               │       //             Note if the body contains side effect, it will not happen.
-               │       //             Use `fn init { .. }` to wrap the effect.
-               │         println("Side effect")
+               │         side_effect.val = 42
                │         42
                │       }
                │       
-               │       fn main {
-               │         let x = 42 // Warning: Unused variable 'x'
+               │       ///|
+               │       let side_effect : Ref[Int] = { val: 0 }
+               │       
+               │       ///|
+               │       test {
+               │         let x = 42
+               │       
                │       }
                │       ```
                │       
@@ -3945,19 +3948,23 @@ fn test_render_diagnostic_in_patch_file() {
                │         variable.
                │       - If this variable is at the toplevel (i.e., not local), and is part of the
                │         public API of your module, you can add the `pub` keyword to the variable.
-               │       
                │         ```moonbit
+               │       
+               │         ///|
                │         pub let p = 42
                │         ```
-               │       
                │       - If you made a typo in the variable name, you can rename the variable to the
                │         correct name at the use site.
                │       - If your code depends on the side-effect of the variable, you can wrap the
                │         side-effect in a `fn init` block.
-               │       
                │         ```moonbit
+               │       
+               │         ///|
+               │         let side_effect : Ref[Int] = { val: 0 }
+               │       
+               │         ///|
                │         fn init {
-               │           println("Side effect")
+               │           side_effect.val = 42
                │         }
                │         ```
                │       
@@ -3966,15 +3973,16 @@ fn test_render_diagnostic_in_patch_file() {
                │       to force the use of it.
                │       
                │       ```moonbit
-               │       let p : Int = {
-               │         println("Side effect")
-               │         42
+               │       
+               │       ///|
+               │       let p_unused : Int = 42
+               │       
+               │       ///|
+               │       test {
+               │         ignore(p_unused)
                │       }
                │       
-               │       fn init {
-               │         ignore(p)
-               │       }
-               │       
+               │       ///|
                │       fn main {
                │         let x = 42
                │         ignore(x)
