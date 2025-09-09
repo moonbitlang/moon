@@ -121,7 +121,7 @@ impl Template {
                     }
                 }
                 TemplateFile::SymLink { target, path } => {
-                    let full_path = base_dir.join(&path);
+                    let full_path = base_dir.join(path);
                     // Create parent directories if they don't exist
                     if let Some(parent) = full_path.parent() {
                         std::fs::create_dir_all(parent)
