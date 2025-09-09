@@ -18,6 +18,7 @@
 
 use anyhow::bail;
 use moonbuild::dry_run::print_commands;
+use moonbuild_rupes_recta::model::BuildPlanNode;
 use mooncake::pkg::sync::auto_sync;
 use moonutil::common::{
     read_module_desc_file_in_dir, CargoPathExt, DiagnosticLevel, FileLock, MoonbuildOpt, MooncOpt,
@@ -29,6 +30,9 @@ use moonutil::mooncakes::RegistryConfig;
 
 use super::pre_build::scan_with_x_build;
 use super::UniversalFlags;
+
+use crate::cli::BuildFlags;
+use crate::rr_build::{self, preconfig_compile, BuildConfig};
 
 /// Generate documentation
 #[derive(Debug, clap::Parser)]
@@ -50,6 +54,84 @@ pub struct DocSubcommand {
 }
 
 pub fn run_doc(cli: UniversalFlags, cmd: DocSubcommand) -> anyhow::Result<i32> {
+    if cli.unstable_feature.rupes_recta {
+        run_doc_rr(cli, cmd)
+    } else {
+        run_doc_legacy(cli, cmd)
+    }
+}
+
+pub fn run_doc_rr(cli: UniversalFlags, cmd: DocSubcommand) -> anyhow::Result<i32> {
+    let dir = cli.source_tgt_dir.try_into_package_dirs()?;
+    let source_dir = dir.source_dir;
+    let target_dir = dir.target_dir;
+
+    // FIXME: This is copied from `moon check`'s code
+    let mut preconfig = preconfig_compile(
+        &cmd.auto_sync_flags,
+        &cli,
+        &BuildFlags::default(),
+        &target_dir,
+        moonutil::cond_expr::OptLevel::Release,
+        RunMode::Check,
+    );
+    preconfig.docs_serve = cmd.serve;
+
+    let (_build_meta, build_graph) = rr_build::plan_build(
+        preconfig,
+        &cli.unstable_feature,
+        &source_dir,
+        &target_dir,
+        // huh, the simplest intent because it depends on **the universe**.
+        Box::new(|_, _| Ok(vec![BuildPlanNode::BuildDocs])),
+    )?;
+
+    // Early exit for dry-run
+    if cli.dry_run {
+        rr_build::print_dry_run(
+            &build_graph,
+            &_build_meta.artifacts,
+            &source_dir,
+            &target_dir,
+        );
+        return Ok(0);
+    }
+
+    // Generate metadata for `moondoc`
+    rr_build::generate_metadata(&source_dir, &target_dir, &_build_meta)?;
+
+    // Execute the build
+    let cfg = BuildConfig::from_flags(&BuildFlags::default());
+    let result = rr_build::execute_build(&cfg, build_graph, &target_dir)?;
+    result.print_info(cli.quiet, "checking")?;
+
+    if !result.successful() {
+        return Ok(result.return_code_for_success());
+    }
+
+    // Serve
+    if cmd.serve {
+        let static_dir = target_dir.join("doc");
+        if !static_dir.exists() {
+            panic!(
+                "Documentation directory does not exist: {}; This is a bug",
+                static_dir.display()
+            );
+        }
+        let mid = _build_meta.resolve_output.local_modules()[0];
+        let full_name = _build_meta
+            .resolve_output
+            .module_rel
+            .mod_name_from_id(mid)
+            .name()
+            .to_string();
+        moonbuild::doc_http::start_server(static_dir, &full_name, cmd.bind, cmd.port)?;
+    }
+
+    Ok(0)
+}
+
+pub fn run_doc_legacy(cli: UniversalFlags, cmd: DocSubcommand) -> anyhow::Result<i32> {
     let PackageDirs {
         source_dir,
         target_dir,

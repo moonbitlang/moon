@@ -32,6 +32,7 @@ use std::{
     sync::{Arc, Mutex},
 };
 
+use anyhow::Context;
 use moonbuild::entry::{
     create_progress_console, render_and_catch_callback, N2RunStats, ResultCatcher,
 };
@@ -133,6 +134,8 @@ pub struct CompilePreConfig {
     /// Set separately because we don't have the same
     pub moonc_output_json: bool,
     target_dir: PathBuf,
+    /// Whether to execute `moondoc` in serve mode, which outputs HTML
+    pub docs_serve: bool,
 }
 
 impl CompilePreConfig {
@@ -162,6 +165,7 @@ impl CompilePreConfig {
             output_wat: self.output_wat,
             debug_export_build_plan: self.debug_export_build_plan,
             moonc_output_json: self.moonc_output_json,
+            docs_serve: self.docs_serve,
         }
     }
 }
@@ -196,6 +200,7 @@ pub fn preconfig_compile(
         debug_export_build_plan: cli.unstable_feature.rr_export_build_plan,
         // In legacy impl, dry run always force no json
         moonc_output_json: !build_flags.no_render && !cli.dry_run,
+        docs_serve: false,
     }
 }
 
@@ -274,6 +279,26 @@ pub fn plan_build<'a>(
     Ok((build_meta, compile_output.build_graph))
 }
 
+/// Generate metadata file `packages.json` in the target directory.
+pub fn generate_metadata(
+    source_dir: &Path,
+    target_dir: &Path,
+    build_meta: &BuildMeta,
+) -> anyhow::Result<()> {
+    let metadata_file = target_dir.join("packages.json");
+    let metadata = moonbuild_rupes_recta::metadata::gen_metadata_json(
+        &build_meta.resolve_output,
+        source_dir,
+        target_dir,
+    );
+    std::fs::write(
+        &metadata_file,
+        serde_json::to_string_pretty(&metadata).context("Failed to serialize metadata")?,
+    )
+    .context("Failed to write build metadata")?;
+    Ok(())
+}
+
 pub struct BuildConfig {
     /// The level of parallelism to use. If `None`, will use the number of
     /// available CPU cores.
@@ -282,6 +307,9 @@ pub struct BuildConfig {
     pub no_render: bool,
     /// Render no-location diagnostics above this level
     render_no_loc: DiagnosticLevel,
+
+    /// Generate metadata file `packages.json`
+    pub generate_metadata: bool,
 }
 
 impl BuildConfig {
@@ -290,6 +318,7 @@ impl BuildConfig {
             parallelism: flags.jobs,
             no_render: flags.no_render,
             render_no_loc: flags.render_no_loc,
+            generate_metadata: false,
         }
     }
 }
@@ -300,6 +329,7 @@ impl Default for BuildConfig {
             parallelism: None,
             no_render: false,
             render_no_loc: DiagnosticLevel::Error,
+            generate_metadata: false,
         }
     }
 }

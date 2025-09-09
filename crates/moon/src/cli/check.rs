@@ -254,6 +254,9 @@ fn run_check_normal_internal(
             rr_build::print_dry_run(&build_graph, &_build_meta.artifacts, source_dir, target_dir);
             Ok(0)
         } else {
+            // Generate metadata for IDE
+            rr_build::generate_metadata(target_dir, source_dir, &_build_meta)?;
+
             let mut cfg = BuildConfig::from_flags(&cmd.build_flags);
             cfg.no_render |= cmd.output_json;
             let result = rr_build::execute_build(&cfg, build_graph, target_dir)?;
