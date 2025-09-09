@@ -69,6 +69,8 @@ shlex.workspace = true
 serde_json.workspace = true
 regex.workspace = true
 ariadne.workspace = true
+handlebars = { version = "6.3.2", default-features = false }
+toml = { version = "0.9.5", default-features = false, features = ["parse", "serde", "std"] }
 
 [dev-dependencies]
 expect-test.workspace = true
