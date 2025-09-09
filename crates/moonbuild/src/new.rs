@@ -23,12 +23,6 @@ use anyhow::Context;
 use colored::Colorize;
 
 use handlebars::Handlebars;
-use moonutil::common::MOON_PKG_JSON;
-use moonutil::module::MoonModJSON;
-use moonutil::package::MoonPkgJSON;
-use moonutil::package::PkgJSONImportItem;
-
-use moonutil::common::MOON_MOD_JSON;
 
 use moonutil::git::{git_init_repo, is_in_git_repo};
 use serde::{Deserialize, Serialize};
@@ -45,6 +39,7 @@ enum TemplateFile {
     PlainFile {
         path: std::path::PathBuf,
         content: String,
+        #[serde(default)]
         executable: bool,
     },
     SymLink {
@@ -163,17 +158,34 @@ pub fn create_or_warning(path: &Path) -> anyhow::Result<()> {
 }
 
 pub fn moon_new_default(target_dir: &Path, user: String, name: String) -> anyhow::Result<i32> {
-    let template: Template = Template { files: Vec::new() };
+    let template: Template =
+        Template::from_toml(include_str!("../template/moon_new_template.toml"))
+            .context("failed to load template")?;
 
     std::fs::create_dir_all(target_dir).context("failed to create target directory")?;
 
     template.create(target_dir)?;
 
-    if is_in_git_repo(target_dir).is_err() && git_init_repo(target_dir).is_err() {
-        eprintln!(
-            "{} failed to initialize git repository. Do you have git installed?",
-            "Warning:".bold().yellow(),
-        );
+    match is_in_git_repo(target_dir) {
+        Ok(b) => {
+            if !b {
+                if let Err(e) = git_init_repo(target_dir) {
+                    eprintln!(
+                        "{} failed to initialize git repository. {}",
+                        "Warning:".bold().yellow(),
+                        e
+                    );
+                }
+            }
+        }
+        Err(e) => {
+            eprintln!(
+                "{} failed to check if {} is in a git repository. Is git available? {}",
+                "Warning:".bold().yellow(),
+                target_dir.display(),
+                e
+            );
+        }
     }
 
     println!(

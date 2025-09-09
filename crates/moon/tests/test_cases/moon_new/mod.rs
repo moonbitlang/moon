@@ -221,7 +221,7 @@ fn test_moon_new_new() {
     check(
         get_stdout(&hello3, ["test", "-v"]),
         expect![[r#"
-            [moonbitlang/hello] test hello_test.mbt:2 ("fib") ok
+            [username/hello] test top_test.mbt:2 ("fib") ok
             Total tests: 1, passed: 1, failed: 0.
         "#]],
     );
@@ -247,7 +247,7 @@ fn test_moon_new_new() {
     check(
         get_stdout(&hello4, ["test", "-v"]),
         expect![[r#"
-            [moonbitlang/hello] test hello_test.mbt:2 ("fib") ok
+            [username/hello] test top_test.mbt:2 ("fib") ok
             Total tests: 1, passed: 1, failed: 0.
         "#]],
     );
@@ -285,14 +285,14 @@ fn test_moon_new_snapshot() {
             ./LICENSE
             ./README.mbt.md
             ./README.md
-            ./asdf.mbt
-            ./asdf_test.mbt
             ./cmd/
             ./cmd/main/
             ./cmd/main/main.mbt
             ./cmd/main/moon.pkg.json
             ./moon.mod.json
             ./moon.pkg.json
+            ./top.mbt
+            ./top_test.mbt
 
             -- files --
             === ./.githooks/README.md ===
@@ -336,31 +336,10 @@ fn test_moon_new_snapshot() {
             <LICENSE file content>
 
             === ./README.mbt.md ===
-            # testuser/asdf
+            # username/hello
 
             === ./README.md ===
             <symbolic link to README.mbt.md>
-
-            === ./asdf.mbt ===
-            ///|
-            pub fn fib(n : Int) -> Int64 {
-              for i = 0, a = 0L, b = 1L; i < n; i = i + 1, a = b, b = a + b {
-
-              } else {
-                b
-              }
-            }
-
-            === ./asdf_test.mbt ===
-            ///|
-            test "fib" {
-              let array = [1, 2, 3, 4, 5].map(fib(_))
-
-              // `inspect` is used to check the output of the function
-              // Just write `inspect(value)` and execute `moon test --update`
-              // to update the expected output, and verify them afterwards
-              inspect(array, content="[1, 2, 3, 5, 8]")
-            }
 
             === ./cmd/main/main.mbt ===
             ///|
@@ -373,7 +352,7 @@ fn test_moon_new_snapshot() {
               "is-main": true,
               "import": [
                 {
-                  "path": "testuser/asdf",
+                  "path": "username/hello",
                   "alias": "lib"
                 }
               ]
@@ -381,17 +360,38 @@ fn test_moon_new_snapshot() {
 
             === ./moon.mod.json ===
             {
-              "name": "testuser/asdf",
-              "version": "0.1.0",
-              "readme": "README.md",
+              "name" : "username/hello",
+              "version" : "0.1.0",
+              "readme": "README.mbt.md",
+              "license" : "Apache-2.0",
               "repository": "",
-              "license": "Apache-2.0",
-              "keywords": [],
-              "description": ""
+              "description": "",
+              "keywords": []
             }
 
             === ./moon.pkg.json ===
             {}
+
+            === ./top.mbt ===
+            ///|
+            pub fn fib(n : Int) -> Int64 {
+              for i = 0, a = 0L, b = 1L; i < n; i = i + 1, a = b, b = a + b {
+
+              } else {
+                b
+              }
+            }
+
+            === ./top_test.mbt ===
+            ///|
+            test "fib" {
+              let array = [1, 2, 3, 4, 5].map(fib(_))
+
+              // `inspect` is used to check the output of the function
+              // Just write `inspect(value)` and execute `moon test --update`
+              // to update the expected output, and verify them afterwards
+              inspect(array, content="[1, 2, 3, 5, 8]")
+            }
 
         "#]],
     );
@@ -424,10 +424,10 @@ fn test_moon_new_snapshot() {
             ./cmd/main/
             ./cmd/main/main.mbt
             ./cmd/main/moon.pkg.json
-            ./hello.mbt
-            ./hello_test.mbt
             ./moon.mod.json
             ./moon.pkg.json
+            ./top.mbt
+            ./top_test.mbt
 
             -- files --
             === ./.githooks/README.md ===
@@ -471,7 +471,7 @@ fn test_moon_new_snapshot() {
             <LICENSE file content>
 
             === ./README.mbt.md ===
-            # moonbitlang/hello
+            # username/hello
 
             === ./README.md ===
             <symbolic link to README.mbt.md>
@@ -487,13 +487,27 @@ fn test_moon_new_snapshot() {
               "is-main": true,
               "import": [
                 {
-                  "path": "moonbitlang/hello",
+                  "path": "username/hello",
                   "alias": "lib"
                 }
               ]
             }
 
-            === ./hello.mbt ===
+            === ./moon.mod.json ===
+            {
+              "name" : "username/hello",
+              "version" : "0.1.0",
+              "readme": "README.mbt.md",
+              "license" : "Apache-2.0",
+              "repository": "",
+              "description": "",
+              "keywords": []
+            }
+
+            === ./moon.pkg.json ===
+            {}
+
+            === ./top.mbt ===
             ///|
             pub fn fib(n : Int) -> Int64 {
               for i = 0, a = 0L, b = 1L; i < n; i = i + 1, a = b, b = a + b {
@@ -503,7 +517,7 @@ fn test_moon_new_snapshot() {
               }
             }
 
-            === ./hello_test.mbt ===
+            === ./top_test.mbt ===
             ///|
             test "fib" {
               let array = [1, 2, 3, 4, 5].map(fib(_))
@@ -513,20 +527,6 @@ fn test_moon_new_snapshot() {
               // to update the expected output, and verify them afterwards
               inspect(array, content="[1, 2, 3, 5, 8]")
             }
-
-            === ./moon.mod.json ===
-            {
-              "name": "moonbitlang/hello",
-              "version": "0.1.0",
-              "readme": "README.md",
-              "repository": "",
-              "license": "Apache-2.0",
-              "keywords": [],
-              "description": ""
-            }
-
-            === ./moon.pkg.json ===
-            {}
 
         "#]],
     );
@@ -558,8 +558,8 @@ fn test_moon_new_snapshot() {
             ./cmd/main/moon.pkg.json
             ./moon.mod.json
             ./moon.pkg.json
-            ./wow.mbt
-            ./wow_test.mbt
+            ./top.mbt
+            ./top_test.mbt
 
             -- files --
             === ./.githooks/README.md ===
@@ -603,7 +603,7 @@ fn test_moon_new_snapshot() {
             <LICENSE file content>
 
             === ./README.mbt.md ===
-            # moonbitlang/wow
+            # username/hello
 
             === ./README.md ===
             <symbolic link to README.mbt.md>
@@ -619,7 +619,7 @@ fn test_moon_new_snapshot() {
               "is-main": true,
               "import": [
                 {
-                  "path": "moonbitlang/wow",
+                  "path": "username/hello",
                   "alias": "lib"
                 }
               ]
@@ -627,19 +627,19 @@ fn test_moon_new_snapshot() {
 
             === ./moon.mod.json ===
             {
-              "name": "moonbitlang/wow",
-              "version": "0.1.0",
-              "readme": "README.md",
+              "name" : "username/hello",
+              "version" : "0.1.0",
+              "readme": "README.mbt.md",
+              "license" : "Apache-2.0",
               "repository": "",
-              "license": "Apache-2.0",
-              "keywords": [],
-              "description": ""
+              "description": "",
+              "keywords": []
             }
 
             === ./moon.pkg.json ===
             {}
 
-            === ./wow.mbt ===
+            === ./top.mbt ===
             ///|
             pub fn fib(n : Int) -> Int64 {
               for i = 0, a = 0L, b = 1L; i < n; i = i + 1, a = b, b = a + b {
@@ -649,7 +649,7 @@ fn test_moon_new_snapshot() {
               }
             }
 
-            === ./wow_test.mbt ===
+            === ./top_test.mbt ===
             ///|
             test "fib" {
               let array = [1, 2, 3, 4, 5].map(fib(_))
