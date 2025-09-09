@@ -77,6 +77,9 @@ pub struct BuildMeta {
 
     /// The target backend used in this compile process
     pub target_backend: TargetBackend,
+
+    /// The main optimization level used in this compile process
+    pub opt_level: OptLevel,
 }
 
 /// Represents the result of the build process
@@ -274,6 +277,7 @@ pub fn plan_build<'a>(
         resolve_output,
         artifacts: compile_output.artifacts,
         target_backend: cx.target_backend,
+        opt_level: cx.opt_level,
     };
 
     Ok((build_meta, compile_output.build_graph))
@@ -290,6 +294,8 @@ pub fn generate_metadata(
         &build_meta.resolve_output,
         source_dir,
         target_dir,
+        build_meta.opt_level,
+        build_meta.target_backend,
     );
     std::fs::write(
         &metadata_file,

@@ -42,11 +42,9 @@ pub fn gen_metadata_json(
     ctx: &ResolveOutput,
     source_dir: &Path,
     target_dir: &Path,
+    opt_level: OptLevel,
+    backend: TargetBackend,
 ) -> ModuleDBJSON {
-    // TODO: pass this in
-    let opt_level = OptLevel::Release;
-    let backend = TargetBackend::WasmGC;
-
     // Get the main module info
     let &[main_module_id] = ctx.local_modules() else {
         panic!("Currently only one local module is supported");
