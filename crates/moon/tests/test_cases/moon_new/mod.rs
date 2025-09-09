@@ -221,7 +221,7 @@ fn test_moon_new_new() {
     check(
         get_stdout(&hello3, ["test", "-v"]),
         expect![[r#"
-            [moonbitlang/hello] test top_test.mbt:2 ("fib") ok
+            [moonbitlang/hello] test hello_test.mbt:2 ("fib") ok
             Total tests: 1, passed: 1, failed: 0.
         "#]],
     );
@@ -247,7 +247,7 @@ fn test_moon_new_new() {
     check(
         get_stdout(&hello4, ["test", "-v"]),
         expect![[r#"
-            [moonbitlang/hello] test top_test.mbt:2 ("fib") ok
+            [moonbitlang/hello] test hello_test.mbt:2 ("fib") ok
             Total tests: 1, passed: 1, failed: 0.
         "#]],
     );
@@ -285,14 +285,14 @@ fn test_moon_new_snapshot() {
             ./LICENSE
             ./README.mbt.md
             ./README.md
+            ./asdf.mbt
+            ./asdf_test.mbt
             ./cmd/
             ./cmd/main/
             ./cmd/main/main.mbt
             ./cmd/main/moon.pkg.json
             ./moon.mod.json
             ./moon.pkg.json
-            ./top.mbt
-            ./top_test.mbt
 
             -- files --
             === ./.githooks/README.md ===
@@ -341,6 +341,27 @@ fn test_moon_new_snapshot() {
             === ./README.md ===
             <symbolic link to README.mbt.md>
 
+            === ./asdf.mbt ===
+            ///|
+            pub fn fib(n : Int) -> Int64 {
+              for i = 0, a = 0L, b = 1L; i < n; i = i + 1, a = b, b = a + b {
+
+              } else {
+                b
+              }
+            }
+
+            === ./asdf_test.mbt ===
+            ///|
+            test "fib" {
+              let array = [1, 2, 3, 4, 5].map(fib(_))
+
+              // `inspect` is used to check the output of the function
+              // Just write `inspect(value)` and execute `moon test --update`
+              // to update the expected output, and verify them afterwards
+              inspect(array, content="[1, 2, 3, 5, 8]")
+            }
+
             === ./cmd/main/main.mbt ===
             ///|
             fn main {
@@ -371,27 +392,6 @@ fn test_moon_new_snapshot() {
 
             === ./moon.pkg.json ===
             {}
-
-            === ./top.mbt ===
-            ///|
-            pub fn fib(n : Int) -> Int64 {
-              for i = 0, a = 0L, b = 1L; i < n; i = i + 1, a = b, b = a + b {
-
-              } else {
-                b
-              }
-            }
-
-            === ./top_test.mbt ===
-            ///|
-            test "fib" {
-              let array = [1, 2, 3, 4, 5].map(fib(_))
-
-              // `inspect` is used to check the output of the function
-              // Just write `inspect(value)` and execute `moon test --update`
-              // to update the expected output, and verify them afterwards
-              inspect(array, content="[1, 2, 3, 5, 8]")
-            }
 
         "#]],
     );
@@ -424,10 +424,10 @@ fn test_moon_new_snapshot() {
             ./cmd/main/
             ./cmd/main/main.mbt
             ./cmd/main/moon.pkg.json
+            ./hello.mbt
+            ./hello_test.mbt
             ./moon.mod.json
             ./moon.pkg.json
-            ./top.mbt
-            ./top_test.mbt
 
             -- files --
             === ./.githooks/README.md ===
@@ -493,6 +493,27 @@ fn test_moon_new_snapshot() {
               ]
             }
 
+            === ./hello.mbt ===
+            ///|
+            pub fn fib(n : Int) -> Int64 {
+              for i = 0, a = 0L, b = 1L; i < n; i = i + 1, a = b, b = a + b {
+
+              } else {
+                b
+              }
+            }
+
+            === ./hello_test.mbt ===
+            ///|
+            test "fib" {
+              let array = [1, 2, 3, 4, 5].map(fib(_))
+
+              // `inspect` is used to check the output of the function
+              // Just write `inspect(value)` and execute `moon test --update`
+              // to update the expected output, and verify them afterwards
+              inspect(array, content="[1, 2, 3, 5, 8]")
+            }
+
             === ./moon.mod.json ===
             {
               "name": "moonbitlang/hello",
@@ -506,27 +527,6 @@ fn test_moon_new_snapshot() {
 
             === ./moon.pkg.json ===
             {}
-
-            === ./top.mbt ===
-            ///|
-            pub fn fib(n : Int) -> Int64 {
-              for i = 0, a = 0L, b = 1L; i < n; i = i + 1, a = b, b = a + b {
-
-              } else {
-                b
-              }
-            }
-
-            === ./top_test.mbt ===
-            ///|
-            test "fib" {
-              let array = [1, 2, 3, 4, 5].map(fib(_))
-
-              // `inspect` is used to check the output of the function
-              // Just write `inspect(value)` and execute `moon test --update`
-              // to update the expected output, and verify them afterwards
-              inspect(array, content="[1, 2, 3, 5, 8]")
-            }
 
         "#]],
     );
@@ -558,8 +558,8 @@ fn test_moon_new_snapshot() {
             ./cmd/main/moon.pkg.json
             ./moon.mod.json
             ./moon.pkg.json
-            ./top.mbt
-            ./top_test.mbt
+            ./wow.mbt
+            ./wow_test.mbt
 
             -- files --
             === ./.githooks/README.md ===
@@ -639,7 +639,7 @@ fn test_moon_new_snapshot() {
             === ./moon.pkg.json ===
             {}
 
-            === ./top.mbt ===
+            === ./wow.mbt ===
             ///|
             pub fn fib(n : Int) -> Int64 {
               for i = 0, a = 0L, b = 1L; i < n; i = i + 1, a = b, b = a + b {
@@ -649,7 +649,7 @@ fn test_moon_new_snapshot() {
               }
             }
 
-            === ./top_test.mbt ===
+            === ./wow_test.mbt ===
             ///|
             test "fib" {
               let array = [1, 2, 3, 4, 5].map(fib(_))

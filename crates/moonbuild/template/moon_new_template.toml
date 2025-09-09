@@ -21,6 +21,19 @@ fn main {
 """
 
 [[files]]
+path = "{{package}}.mbt"
+content = """
+///|
+pub fn fib(n : Int) -> Int64 {
+  for i = 0, a = 0L, b = 1L; i < n; i = i + 1, a = b, b = a + b {
+
+  } else {
+    b
+  }
+}
+"""
+
+[[files]]
 path = "moon.mod.json"
 content = """
 {
@@ -279,20 +292,6 @@ path = "moon.pkg.json"
 content = "{}"
 
 [[files]]
-path = "top_test.mbt"
-content = """
-///|
-test "fib" {
-  let array = [1, 2, 3, 4, 5].map(fib(_))
-
-  // `inspect` is used to check the output of the function
-  // Just write `inspect(value)` and execute `moon test --update`
-  // to update the expected output, and verify them afterwards
-  inspect(array, content="[1, 2, 3, 5, 8]")
-}
-"""
-
-[[files]]
 path = "README.md"
 target = "README.mbt.md"
 
@@ -307,6 +306,20 @@ content = """
 target/
 .mooncakes/
 .moonagent/"""
+
+[[files]]
+path = "{{package}}_test.mbt"
+content = """
+///|
+test "fib" {
+  let array = [1, 2, 3, 4, 5].map(fib(_))
+
+  // `inspect` is used to check the output of the function
+  // Just write `inspect(value)` and execute `moon test --update`
+  // to update the expected output, and verify them afterwards
+  inspect(array, content="[1, 2, 3, 5, 8]")
+}
+"""
 
 [[files]]
 path = "Agents.md"
@@ -362,17 +375,4 @@ This is a [MoonBit](https://docs.moonbitlang.com) project.
 
 - agent-todo.md has some small tasks that are easy for AI to pick up, agent is
   welcome to finish the tasks and check the box when you are done
-"""
-
-[[files]]
-path = "top.mbt"
-content = """
-///|
-pub fn fib(n : Int) -> Int64 {
-  for i = 0, a = 0L, b = 1L; i < n; i = i + 1, a = b, b = a + b {
-
-  } else {
-    b
-  }
-}
 """

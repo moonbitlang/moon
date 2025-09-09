@@ -69,17 +69,28 @@ impl Template {
                     path,
                     executable,
                 } => {
+                    // Prepare template environment
+                    let parent = path.parent().unwrap_or_else(|| Path::new(""));
                     let template_env = TemplateEnv {
                         username: user.to_string(),
                         module: module.to_string(),
                         package: std::path::PathBuf::from(module)
-                            .join(path)
+                            .join(parent)
                             .file_name()
                             .unwrap()
                             .to_string_lossy()
                             .to_string(),
                     };
-                    let full_path = base_dir.join(path);
+
+                    // Special case where the file depend on the current package
+                    let file = path.file_name().unwrap_or_else(|| std::ffi::OsStr::new(""));
+                    let actual_file = reg
+                        .render_template(file.to_str().unwrap(), &template_env)
+                        .context(format!(
+                            "Failed to render template for file name: {}",
+                            file.to_string_lossy()
+                        ))?;
+                    let full_path = base_dir.join(parent).join(actual_file);
                     // Create parent directories if they don't exist
                     if let Some(parent) = full_path.parent() {
                         std::fs::create_dir_all(parent)
@@ -87,7 +98,7 @@ impl Template {
                     }
                     let mut file = std::fs::File::create(&full_path)
                         .context(format!("Failed to create file: {}", full_path.display()))?;
-                    // handle template
+                    // handle template for file content
                     let rendered = reg
                         .render_template(content, &template_env)
                         .context(format!(
