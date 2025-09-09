@@ -533,13 +533,14 @@ fn run_test_rr(
         *cmd.doc_index,
     )?;
 
-    let filter = cmd.package.clone();
     let (build_meta, build_graph) = rr_build::plan_build(
         preconfig,
         &cli.unstable_feature,
         source_dir,
         target_dir,
-        Box::new(move |resolved, main_modules| calc_user_intent(resolved, main_modules, filter)),
+        Box::new(|resolved, main_modules| {
+            calc_user_intent(resolved, main_modules, cmd.package.as_deref())
+        }),
     )?;
 
     if cli.dry_run {
@@ -613,7 +614,7 @@ fn validate_filtering(
 fn calc_user_intent(
     resolve_output: &moonbuild_rupes_recta::ResolveOutput,
     main_modules: &[moonutil::mooncakes::ModuleId],
-    package_filter: Option<Vec<String>>,
+    package_filter: Option<&[String]>,
 ) -> Result<Vec<BuildPlanNode>, anyhow::Error> {
     let &[main_module_id] = main_modules else {
         panic!("No multiple main modules are supported");
@@ -641,7 +642,7 @@ fn calc_user_intent(
         let mut res = vec![];
 
         for s in filter {
-            if let Some(&id) = name_map.get(&s) {
+            if let Some(&id) = name_map.get(s.as_str()) {
                 // exact matching
                 res.push(id);
             } else {

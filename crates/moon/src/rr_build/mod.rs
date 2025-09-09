@@ -63,8 +63,8 @@ pub use dry_run::{dry_print_command, print_dry_run, print_dry_run_all};
 ///
 /// Returns: A vector of [`UserIntent`]s, representing what the user would like
 /// to do
-pub type CalcUserIntentFn =
-    dyn FnOnce(&ResolveOutput, &[ModuleId]) -> anyhow::Result<Vec<BuildPlanNode>>;
+pub type CalcUserIntentFn<'b> = dyn for<'a> FnOnce(&'a ResolveOutput, &'a [ModuleId]) -> anyhow::Result<Vec<BuildPlanNode>>
+    + 'b;
 
 /// Build metadata containing information needed for build context and results.
 /// The build graph is kept separate to allow execute_build to take ownership of it.
@@ -221,7 +221,7 @@ pub fn plan_build<'a>(
     unstable_features: &'a FeatureGate,
     source_dir: &'a Path,
     target_dir: &'a Path,
-    calc_user_intent: Box<CalcUserIntentFn>,
+    calc_user_intent: Box<CalcUserIntentFn<'a>>,
 ) -> anyhow::Result<(BuildMeta, n2::graph::Graph)> {
     let cfg = ResolveConfig::new_with_load_defaults(preconfig.frozen);
     let resolve_output = moonbuild_rupes_recta::resolve(&cfg, source_dir)?;
@@ -359,7 +359,7 @@ pub fn execute_build(
 }
 
 /// Callback on the [`n2::work::Work`] to be done for target artifacts.
-type WantFileFn = dyn for<'a> FnOnce(&'a mut n2::work::Work) -> anyhow::Result<()>;
+type WantFileFn<'b> = dyn for<'a> FnOnce(&'a mut n2::work::Work) -> anyhow::Result<()> + 'b;
 
 /// Partially execute a build graph, same as [`execute_build`] otherwise.
 ///

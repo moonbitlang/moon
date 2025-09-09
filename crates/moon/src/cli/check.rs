@@ -241,13 +241,12 @@ fn run_check_normal_internal(
         );
         preconfig.moonc_output_json |= cmd.output_json;
 
-        let filter = cmd.package_path.clone();
         let (_build_meta, build_graph) = rr_build::plan_build(
             preconfig,
             &cli.unstable_feature,
             source_dir,
             target_dir,
-            Box::new(|r, m| calc_user_intent(r, m, filter)),
+            Box::new(|r, m| calc_user_intent(r, m, cmd.package_path.as_deref())),
         )?;
 
         if cli.dry_run {
@@ -395,7 +394,7 @@ fn run_check_normal_internal_legacy(
 fn calc_user_intent(
     resolve_output: &moonbuild_rupes_recta::ResolveOutput,
     main_modules: &[moonutil::mooncakes::ModuleId],
-    filter: Option<PathBuf>,
+    filter: Option<&Path>,
 ) -> Result<Vec<BuildPlanNode>, anyhow::Error> {
     let &[main_module_id] = main_modules else {
         panic!("No multiple main modules are supported");
