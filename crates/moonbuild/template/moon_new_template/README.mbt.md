@@ -1,1 +1,1 @@
-# username/hello
+# {{username}}/{{module}}

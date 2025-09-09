@@ -50,9 +50,9 @@ enum TemplateFile {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct TemplateEnv {
-    user_name: String,
-    module_name: String,
-    package_name: String,
+    username: String,
+    module: String,
+    package: String,
 }
 
 impl Template {
@@ -60,7 +60,8 @@ impl Template {
         toml::from_str(toml_str).context("Failed to parse template from TOML")
     }
 
-    fn create(&self, base_dir: &Path) -> anyhow::Result<()> {
+    fn create(&self, base_dir: &Path, user: &String, module: &String) -> anyhow::Result<()> {
+        let reg = Handlebars::new();
         for entry in &self.files {
             match &entry {
                 TemplateFile::PlainFile {
@@ -68,7 +69,17 @@ impl Template {
                     path,
                     executable,
                 } => {
-                    let full_path = base_dir.join(&path);
+                    let template_env = TemplateEnv {
+                        username: user.to_string(),
+                        module: module.to_string(),
+                        package: std::path::PathBuf::from(module)
+                            .join(path)
+                            .file_name()
+                            .unwrap()
+                            .to_string_lossy()
+                            .to_string(),
+                    };
+                    let full_path = base_dir.join(path);
                     // Create parent directories if they don't exist
                     if let Some(parent) = full_path.parent() {
                         std::fs::create_dir_all(parent)
@@ -76,7 +87,14 @@ impl Template {
                     }
                     let mut file = std::fs::File::create(&full_path)
                         .context(format!("Failed to create file: {}", full_path.display()))?;
-                    file.write_all(content.as_bytes())
+                    // handle template
+                    let rendered = reg
+                        .render_template(content, &template_env)
+                        .context(format!(
+                            "Failed to render template for file: {}",
+                            full_path.display()
+                        ))?;
+                    file.write_all(rendered.as_bytes())
                         .context(format!("Failed to write to file: {}", full_path.display()))?;
                     #[cfg(unix)]
                     {
@@ -164,7 +182,7 @@ pub fn moon_new_default(target_dir: &Path, user: String, name: String) -> anyhow
 
     std::fs::create_dir_all(target_dir).context("failed to create target directory")?;
 
-    template.create(target_dir)?;
+    template.create(target_dir, &user, &name)?;
 
     match is_in_git_repo(target_dir) {
         Ok(b) => {

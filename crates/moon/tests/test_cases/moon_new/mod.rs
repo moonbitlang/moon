@@ -221,7 +221,7 @@ fn test_moon_new_new() {
     check(
         get_stdout(&hello3, ["test", "-v"]),
         expect![[r#"
-            [username/hello] test top_test.mbt:2 ("fib") ok
+            [moonbitlang/hello] test top_test.mbt:2 ("fib") ok
             Total tests: 1, passed: 1, failed: 0.
         "#]],
     );
@@ -247,7 +247,7 @@ fn test_moon_new_new() {
     check(
         get_stdout(&hello4, ["test", "-v"]),
         expect![[r#"
-            [username/hello] test top_test.mbt:2 ("fib") ok
+            [moonbitlang/hello] test top_test.mbt:2 ("fib") ok
             Total tests: 1, passed: 1, failed: 0.
         "#]],
     );
@@ -336,7 +336,7 @@ fn test_moon_new_snapshot() {
             <LICENSE file content>
 
             === ./README.mbt.md ===
-            # username/hello
+            # testuser/asdf
 
             === ./README.md ===
             <symbolic link to README.mbt.md>
@@ -352,7 +352,7 @@ fn test_moon_new_snapshot() {
               "is-main": true,
               "import": [
                 {
-                  "path": "username/hello",
+                  "path": "testuser/asdf",
                   "alias": "lib"
                 }
               ]
@@ -360,10 +360,10 @@ fn test_moon_new_snapshot() {
 
             === ./moon.mod.json ===
             {
-              "name" : "username/hello",
-              "version" : "0.1.0",
+              "name": "testuser/asdf",
+              "version": "0.1.0",
               "readme": "README.mbt.md",
-              "license" : "Apache-2.0",
+              "license": "Apache-2.0",
               "repository": "",
               "description": "",
               "keywords": []
@@ -471,7 +471,7 @@ fn test_moon_new_snapshot() {
             <LICENSE file content>
 
             === ./README.mbt.md ===
-            # username/hello
+            # moonbitlang/hello
 
             === ./README.md ===
             <symbolic link to README.mbt.md>
@@ -487,7 +487,7 @@ fn test_moon_new_snapshot() {
               "is-main": true,
               "import": [
                 {
-                  "path": "username/hello",
+                  "path": "moonbitlang/hello",
                   "alias": "lib"
                 }
               ]
@@ -495,10 +495,10 @@ fn test_moon_new_snapshot() {
 
             === ./moon.mod.json ===
             {
-              "name" : "username/hello",
-              "version" : "0.1.0",
+              "name": "moonbitlang/hello",
+              "version": "0.1.0",
               "readme": "README.mbt.md",
-              "license" : "Apache-2.0",
+              "license": "Apache-2.0",
               "repository": "",
               "description": "",
               "keywords": []
@@ -603,7 +603,7 @@ fn test_moon_new_snapshot() {
             <LICENSE file content>
 
             === ./README.mbt.md ===
-            # username/hello
+            # moonbitlang/wow
 
             === ./README.md ===
             <symbolic link to README.mbt.md>
@@ -619,7 +619,7 @@ fn test_moon_new_snapshot() {
               "is-main": true,
               "import": [
                 {
-                  "path": "username/hello",
+                  "path": "moonbitlang/wow",
                   "alias": "lib"
                 }
               ]
@@ -627,10 +627,10 @@ fn test_moon_new_snapshot() {
 
             === ./moon.mod.json ===
             {
-              "name" : "username/hello",
-              "version" : "0.1.0",
+              "name": "moonbitlang/wow",
+              "version": "0.1.0",
               "readme": "README.mbt.md",
-              "license" : "Apache-2.0",
+              "license": "Apache-2.0",
               "repository": "",
               "description": "",
               "keywords": []

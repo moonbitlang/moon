@@ -1,8 +1,8 @@
 {
-  "name" : "username/hello",
-  "version" : "0.1.0",
+  "name": "{{username}}/{{module}}",
+  "version": "0.1.0",
   "readme": "README.mbt.md",
-  "license" : "Apache-2.0",
+  "license": "Apache-2.0",
   "repository": "",
   "description": "",
   "keywords": []

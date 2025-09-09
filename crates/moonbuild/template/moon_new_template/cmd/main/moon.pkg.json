@@ -2,7 +2,7 @@
   "is-main": true,
   "import": [
     {
-      "path": "username/hello",
+      "path": "{{username}}/{{module}}",
       "alias": "lib"
     }
   ]

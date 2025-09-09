@@ -5,7 +5,7 @@ content = """
   "is-main": true,
   "import": [
     {
-      "path": "username/hello",
+      "path": "{{username}}/{{module}}",
       "alias": "lib"
     }
   ]
@@ -24,10 +24,10 @@ fn main {
 path = "moon.mod.json"
 content = """
 {
-  "name" : "username/hello",
-  "version" : "0.1.0",
+  "name": "{{username}}/{{module}}",
+  "version": "0.1.0",
   "readme": "README.mbt.md",
-  "license" : "Apache-2.0",
+  "license": "Apache-2.0",
   "repository": "",
   "description": "",
   "keywords": []
@@ -298,7 +298,7 @@ target = "README.mbt.md"
 
 [[files]]
 path = "README.mbt.md"
-content = "# username/hello"
+content = "# {{username}}/{{module}}"
 
 [[files]]
 path = ".gitignore"
