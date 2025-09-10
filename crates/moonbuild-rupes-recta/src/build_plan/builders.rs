@@ -392,4 +392,19 @@ impl<'a> BuildPlanConstructor<'a> {
         self.resolved_node(_node);
         Ok(())
     }
+
+    pub(super) fn build_build_docs(
+        &mut self,
+        _node: BuildPlanNode,
+    ) -> Result<(), BuildPlanConstructError> {
+        // For now, `moondoc` depends on *every check*, as specified in its
+        // packages.json input. I guess bad things might happen if you don't?
+        for (pkg_id, _) in self.packages.all_packages() {
+            let check_node = self.need_node(BuildPlanNode::Check(
+                pkg_id.build_target(TargetKind::Source),
+            ));
+            self.add_edge(_node, check_node);
+        }
+        Ok(())
+    }
 }

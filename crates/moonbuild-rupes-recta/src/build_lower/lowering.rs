@@ -27,7 +27,7 @@ use moonutil::{
     },
     cond_expr::OptLevel,
     moon_dir::MOON_DIRS,
-    mooncakes::{ModuleId, CORE_MODULE},
+    mooncakes::{ModuleId, ModuleSourceKind, CORE_MODULE},
     package::JsFormat,
 };
 use petgraph::Direction;
@@ -35,7 +35,7 @@ use petgraph::Direction;
 use crate::{
     build_lower::{
         artifact,
-        compiler::{CmdlineAbstraction, MiDependency, Mooninfo, PackageSource},
+        compiler::{CmdlineAbstraction, MiDependency, MoondocCommand, Mooninfo, PackageSource},
     },
     build_plan::{BuildCStubsInfo, BuildTargetInfo, LinkCoreInfo, MakeExecutableInfo},
     model::{BuildPlanNode, BuildTarget, PackageId, TargetKind},
@@ -133,7 +133,9 @@ impl<'a> BuildPlanLowerContext<'a> {
         );
         cmd.flags.no_opt = self.opt.opt_level == OptLevel::Debug;
         cmd.flags.symbols = self.opt.debug_symbols;
+        cmd.flags.enable_coverage = self.opt.enable_coverage;
         self.set_commons(&mut cmd.common);
+        self.set_flags(&mut cmd.flags);
 
         // Determine whether the built package is a main package.
         //
@@ -180,6 +182,7 @@ impl<'a> BuildPlanLowerContext<'a> {
             &target,
             self.opt.target_backend,
             self.opt.os,
+            self.opt.output_wat,
         );
 
         let core_fqn = PackageFQN::new(CORE_MODULE.clone(), PackagePath::empty());
@@ -390,6 +393,7 @@ impl<'a> BuildPlanLowerContext<'a> {
                     self.opt.target_backend,
                     self.opt.os,
                     true,
+                    self.opt.output_wat,
                 )
                 .display()
                 .to_string(),
@@ -425,7 +429,11 @@ impl<'a> BuildPlanLowerContext<'a> {
             TargetKind::SubPackage => panic!("Sub-package cannot be a test driver"),
         };
         let pkg_full_name = package.fqn.to_string();
-        let files_vec = info.files().map(|x| x.to_owned()).collect::<Vec<_>>();
+        let files_vec = if target.kind == TargetKind::WhiteboxTest {
+            info.whitebox_files.clone()
+        } else {
+            info.files().map(|x| x.to_owned()).collect::<Vec<_>>()
+        };
 
         let cmd = compiler::MoonGenTestDriver::new(
             &files_vec,
@@ -520,6 +528,43 @@ impl<'a> BuildPlanLowerContext<'a> {
         BuildCommand {
             extra_inputs: vec![],
             commandline: cmd.build_command("mooninfo"),
+        }
+    }
+
+    pub(super) fn lower_build_docs(&self) -> BuildCommand {
+        // TODO: How to enforce the `packages.json` dependency is generated
+        // up-to-date before the command is executed?
+        //
+        // If we forgot to generate anything at all, we can get a complaint from
+        // n2 for the file doesn't exist and nobody can create it, but if we
+        // have a stale file, we currently have to rely on ourselves.
+        //
+        // Currently, moondoc only support a single module in scope, so we
+        // have these constraints
+        let main_module = self
+            .opt
+            .main_module
+            .as_ref()
+            .expect("Currently only one module in the workspace is supported.");
+        let path = match main_module.source() {
+            ModuleSourceKind::Local(p) => p,
+            ModuleSourceKind::Registry(_) | ModuleSourceKind::Git(_) => {
+                panic!("Remote modules for docs are not supported")
+            }
+        };
+
+        let packages_json = self.layout.packages_json_path();
+        let cmd = MoondocCommand::new(
+            path,
+            self.layout.doc_dir(),
+            self.opt.stdlib_path.as_ref(),
+            &packages_json,
+            self.opt.docs_serve,
+        );
+
+        BuildCommand {
+            commandline: cmd.build_command("moondoc"),
+            extra_inputs: vec![packages_json],
         }
     }
 

@@ -202,6 +202,7 @@ impl<'a> BuildPlanConstructor<'a> {
             BuildPlanNode::GenerateMbti(_build_target) => (),
             BuildPlanNode::Bundle(_module_id) => (),
             BuildPlanNode::BuildRuntimeLib => (),
+            BuildPlanNode::BuildDocs => (),
         }
     }
 
@@ -234,6 +235,7 @@ impl<'a> BuildPlanConstructor<'a> {
             BuildPlanNode::Bundle(module_id) => self.build_bundle(node, module_id),
             BuildPlanNode::BuildRuntimeLib => self.build_runtime_lib(node),
             BuildPlanNode::GenerateMbti(target) => self.build_generate_mbti(node, target),
+            BuildPlanNode::BuildDocs => self.build_build_docs(node),
         }
     }
 

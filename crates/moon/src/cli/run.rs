@@ -45,6 +45,7 @@ use n2::trace;
 
 use crate::rr_build;
 use crate::rr_build::preconfig_compile;
+use crate::rr_build::BuildConfig;
 use crate::run::default_rt;
 use crate::run::CommandGuard;
 
@@ -363,7 +364,11 @@ fn run_run_rr(cli: &UniversalFlags, cmd: RunSubcommand) -> Result<i32, anyhow::E
 
         Ok(0)
     } else {
-        let build_result = rr_build::execute_build(build_graph, &target_dir, cmd.build_flags.jobs)?;
+        let build_result = rr_build::execute_build(
+            &BuildConfig::from_flags(&cmd.build_flags),
+            build_graph,
+            &target_dir,
+        )?;
 
         if !build_result.successful() {
             return Ok(build_result.return_code_for_success());

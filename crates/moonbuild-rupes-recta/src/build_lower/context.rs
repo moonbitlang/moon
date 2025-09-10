@@ -27,7 +27,7 @@ use n2::graph::{Build, Graph as N2Graph};
 use crate::{
     build_lower::{
         artifact::{self, LegacyLayout},
-        compiler,
+        compiler::{self, ErrorFormat},
     },
     build_plan::BuildPlan,
     discover::{DiscoverResult, DiscoveredPackage},
@@ -143,6 +143,7 @@ impl<'a> BuildPlanLowerContext<'a> {
                 self.lower_gen_test_driver(node, target, info)
             }
             BuildPlanNode::BuildRuntimeLib => self.lower_compile_runtime(),
+            BuildPlanNode::BuildDocs => self.lower_build_docs(),
         };
 
         // Collect n2 inputs and outputs.
@@ -236,6 +237,7 @@ impl<'a> BuildPlanLowerContext<'a> {
                     &target,
                     self.opt.target_backend,
                     self.opt.os,
+                    self.opt.output_wat,
                 ));
             }
             BuildPlanNode::MakeExecutable(target) => {
@@ -245,6 +247,7 @@ impl<'a> BuildPlanLowerContext<'a> {
                     self.opt.target_backend,
                     self.opt.os,
                     true,
+                    self.opt.output_wat,
                 ))
             }
             BuildPlanNode::GenerateTestInfo(target) => {
@@ -276,6 +279,10 @@ impl<'a> BuildPlanLowerContext<'a> {
                 let pkg = self.packages.get_package(_target.package);
                 out.push(self.layout.generated_mbti_path(&pkg.root_path))
             }
+            BuildPlanNode::BuildDocs => {
+                // The output is a whole folder
+                out.push(self.layout.doc_dir())
+            }
         }
     }
 
@@ -289,6 +296,11 @@ impl<'a> BuildPlanLowerContext<'a> {
             .stdlib_path
             .as_ref()
             .map(|x| artifact::core_bundle_path(x, self.opt.target_backend).into());
+        common.error_format = if self.opt.moonc_output_json {
+            ErrorFormat::Json
+        } else {
+            ErrorFormat::Regular
+        };
     }
 
     pub(super) fn set_flags(&self, flags: &mut compiler::CompilationFlags) {

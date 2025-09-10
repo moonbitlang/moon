@@ -32,6 +32,7 @@ use std::{
     sync::{Arc, Mutex},
 };
 
+use anyhow::Context;
 use moonbuild::entry::{
     create_progress_console, render_and_catch_callback, N2RunStats, ResultCatcher,
 };
@@ -41,7 +42,7 @@ use moonbuild_rupes_recta::{
 };
 use moonutil::{
     cli::UniversalFlags,
-    common::{RunMode, TargetBackend, MOONBITLANG_CORE},
+    common::{DiagnosticLevel, RunMode, TargetBackend, MOONBITLANG_CORE},
     cond_expr::OptLevel,
     features::FeatureGate,
     mooncakes::{sync::AutoSyncFlags, ModuleId},
@@ -76,6 +77,9 @@ pub struct BuildMeta {
 
     /// The target backend used in this compile process
     pub target_backend: TargetBackend,
+
+    /// The main optimization level used in this compile process
+    pub opt_level: OptLevel,
 }
 
 /// Represents the result of the build process
@@ -127,7 +131,14 @@ pub struct CompilePreConfig {
     debug_symbols: bool,
     use_std: bool,
     debug_export_build_plan: bool,
+    enable_coverage: bool,
+    output_wat: bool,
+    /// Whether to output JSON when compiling with moonc.
+    /// Set separately because we don't have the same
+    pub moonc_output_json: bool,
     target_dir: PathBuf,
+    /// Whether to execute `moondoc` in serve mode, which outputs HTML
+    pub docs_serve: bool,
 }
 
 impl CompilePreConfig {
@@ -153,7 +164,11 @@ impl CompilePreConfig {
             } else {
                 None
             },
+            enable_coverage: self.enable_coverage,
+            output_wat: self.output_wat,
             debug_export_build_plan: self.debug_export_build_plan,
+            moonc_output_json: self.moonc_output_json,
+            docs_serve: self.docs_serve,
         }
     }
 }
@@ -183,7 +198,12 @@ pub fn preconfig_compile(
         action,
         debug_symbols: !build_flags.strip(),
         use_std: build_flags.std(),
+        enable_coverage: build_flags.enable_coverage,
+        output_wat: build_flags.output_wat,
         debug_export_build_plan: cli.unstable_feature.rr_export_build_plan,
+        // In legacy impl, dry run always force no json
+        moonc_output_json: !build_flags.no_render && !cli.dry_run,
+        docs_serve: false,
     }
 }
 
@@ -196,11 +216,11 @@ pub fn preconfig_compile(
 /// Returns the execution plan (metadata) and build graph separately, allowing
 /// execute_build to take ownership of just the graph while callers retain
 /// access to the metadata.
-pub fn plan_build(
+pub fn plan_build<'a>(
     preconfig: CompilePreConfig,
-    unstable_features: &FeatureGate,
-    source_dir: &Path,
-    target_dir: &Path,
+    unstable_features: &'a FeatureGate,
+    source_dir: &'a Path,
+    target_dir: &'a Path,
     calc_user_intent: Box<CalcUserIntentFn>,
 ) -> anyhow::Result<(BuildMeta, n2::graph::Graph)> {
     let cfg = ResolveConfig::new_with_load_defaults(preconfig.frozen);
@@ -257,9 +277,67 @@ pub fn plan_build(
         resolve_output,
         artifacts: compile_output.artifacts,
         target_backend: cx.target_backend,
+        opt_level: cx.opt_level,
     };
 
     Ok((build_meta, compile_output.build_graph))
+}
+
+/// Generate metadata file `packages.json` in the target directory.
+pub fn generate_metadata(
+    source_dir: &Path,
+    target_dir: &Path,
+    build_meta: &BuildMeta,
+) -> anyhow::Result<()> {
+    let metadata_file = target_dir.join("packages.json");
+    let metadata = moonbuild_rupes_recta::metadata::gen_metadata_json(
+        &build_meta.resolve_output,
+        source_dir,
+        target_dir,
+        build_meta.opt_level,
+        build_meta.target_backend,
+    );
+    std::fs::write(
+        &metadata_file,
+        serde_json::to_string_pretty(&metadata).context("Failed to serialize metadata")?,
+    )
+    .context("Failed to write build metadata")?;
+    Ok(())
+}
+
+pub struct BuildConfig {
+    /// The level of parallelism to use. If `None`, will use the number of
+    /// available CPU cores.
+    parallelism: Option<usize>,
+    /// Skip rendering compiler diagnostics to console
+    pub no_render: bool,
+    /// Render no-location diagnostics above this level
+    render_no_loc: DiagnosticLevel,
+
+    /// Generate metadata file `packages.json`
+    pub generate_metadata: bool,
+}
+
+impl BuildConfig {
+    pub fn from_flags(flags: &BuildFlags) -> Self {
+        BuildConfig {
+            parallelism: flags.jobs,
+            no_render: flags.no_render,
+            render_no_loc: flags.render_no_loc,
+            generate_metadata: false,
+        }
+    }
+}
+
+impl Default for BuildConfig {
+    fn default() -> Self {
+        Self {
+            parallelism: None,
+            no_render: false,
+            render_no_loc: DiagnosticLevel::Error,
+            generate_metadata: false,
+        }
+    }
 }
 
 /// Execute a build plan.
@@ -268,9 +346,9 @@ pub fn plan_build(
 /// Returns just the build result - callers should use the resolve data and
 /// artifacts from the planning phase for any metadata they need.
 pub fn execute_build(
+    cfg: &BuildConfig,
     mut build_graph: n2::graph::Graph,
     target_dir: &Path,
-    parallelism: Option<usize>,
 ) -> anyhow::Result<N2RunStats> {
     // Generate n2 state
     // FIXME: This is extremely verbose and barebones, only for testing purpose
@@ -281,7 +359,8 @@ pub fn execute_build(
         &mut hashes,
     )?;
 
-    let parallelism = parallelism
+    let parallelism = cfg
+        .parallelism
         .or_else(|| std::thread::available_parallelism().ok().map(|x| x.into()))
         .unwrap();
 
@@ -289,11 +368,11 @@ pub fn execute_build(
     let result_catcher = Arc::new(Mutex::new(ResultCatcher::default()));
     let callback = render_and_catch_callback(
         Arc::clone(&result_catcher),
-        false,
+        cfg.no_render,
         n2::terminal::use_fancy(),
         None,
         false,
-        moonutil::common::DiagnosticLevel::Info,
+        cfg.render_no_loc,
         PathBuf::new(),
         target_dir.into(),
     );

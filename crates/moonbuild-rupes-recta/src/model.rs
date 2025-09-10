@@ -98,6 +98,13 @@ pub enum BuildPlanNode {
     GenerateMbti(BuildTarget),
     Bundle(ModuleId),
     BuildRuntimeLib,
+
+    /// Docs build is currently for everything.
+    ///
+    /// The legacy layout does not have a separate folder for different kinds
+    /// of docs, and the behavior is dictated by `packages.json`, so we can't
+    /// do much better for now.
+    BuildDocs,
 }
 
 impl BuildPlanNode {
@@ -133,7 +140,8 @@ impl BuildPlanNode {
             BuildPlanNode::BuildCStub(_, _)
             | BuildPlanNode::ArchiveCStubs(_)
             | BuildPlanNode::Bundle(_)
-            | BuildPlanNode::BuildRuntimeLib => None,
+            | BuildPlanNode::BuildRuntimeLib
+            | BuildPlanNode::BuildDocs => None,
         }
     }
 }

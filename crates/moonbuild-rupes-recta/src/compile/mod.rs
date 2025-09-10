@@ -55,9 +55,18 @@ pub struct CompileConfig {
     pub stdlib_path: Option<PathBuf>,
 
     // TODO: more knobs
+    // TODO: Some of these knobs should be migrated to be applied by configs and similar
     /// Whether to export the build plan graph in the compile output.
     /// This should only be used in debugging scenarios.
     pub debug_export_build_plan: bool,
+    /// Enable code coverage instrumentation.
+    pub enable_coverage: bool,
+    /// Output WAT instead of WASM binary format.
+    pub output_wat: bool,
+    /// Whether to output JSON or human-readable error code
+    pub moonc_output_json: bool,
+    /// Whether to output HTML for docs (in serve mode)
+    pub docs_serve: bool,
 }
 
 /// The output information of the compilation.
@@ -120,7 +129,13 @@ pub fn compile(
         target_backend: cx.target_backend,
         opt_level: cx.opt_level,
         action: cx.action,
+
+        enable_coverage: cx.enable_coverage,
         debug_symbols: cx.debug_symbols,
+        output_wat: cx.output_wat,
+        moonc_output_json: cx.moonc_output_json,
+        docs_serve: cx.docs_serve,
+
         stdlib_path: cx.stdlib_path.clone(),
         compiler_paths: CompilerPaths::from_moon_dirs(), // change to external
         os: OperatingSystem::from_str(std::env::consts::OS).expect("Unknown"),

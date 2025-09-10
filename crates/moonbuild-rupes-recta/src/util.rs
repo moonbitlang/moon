@@ -172,6 +172,7 @@ impl BuildPlanNode {
             BuildPlanNode::Bundle(module_id) => format!("{:?}@Bundle", module_id),
             BuildPlanNode::GenerateMbti(target) => format!("{:?}@GenerateMbti", target),
             BuildPlanNode::BuildRuntimeLib => "BuildRuntimeLib".to_string(),
+            BuildPlanNode::BuildDocs => "BuildDocs".to_string(),
         }
     }
 
@@ -215,6 +216,7 @@ impl BuildPlanNode {
                 format!("{}\\nGenerateMbti", fqn)
             }
             BuildPlanNode::BuildRuntimeLib => "BuildRuntimeLib".to_string(),
+            BuildPlanNode::BuildDocs => "BuildDocs".to_string(),
         }
     }
 
@@ -230,6 +232,7 @@ impl BuildPlanNode {
             BuildPlanNode::Bundle(_) => "wheat",
             BuildPlanNode::GenerateMbti(_) => "lightcyan",
             BuildPlanNode::BuildRuntimeLib => "orange",
+            BuildPlanNode::BuildDocs => "lavender",
         }
     }
 }
