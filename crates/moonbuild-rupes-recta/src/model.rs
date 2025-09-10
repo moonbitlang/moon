@@ -55,6 +55,14 @@ impl TargetKind {
             TargetKind::WhiteboxTest | TargetKind::BlackboxTest | TargetKind::InlineTest
         )
     }
+
+    pub fn all_tests() -> &'static [TargetKind] {
+        &[
+            TargetKind::WhiteboxTest,
+            TargetKind::BlackboxTest,
+            TargetKind::InlineTest,
+        ]
+    }
 }
 
 /// Represents a single compile target that may be separately checked, built,

@@ -16,9 +16,11 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
+use anyhow::bail;
 use anyhow::Context;
 use colored::Colorize;
 use indexmap::IndexMap;
+use log::warn;
 use moonbuild::dry_run;
 use moonbuild::entry;
 use moonbuild_rupes_recta::model::BuildPlanNode;
@@ -41,6 +43,7 @@ use moonutil::mooncakes::RegistryConfig;
 use moonutil::package::Package;
 use moonutil::path::PathComponent;
 use n2::trace;
+use smallvec::SmallVec;
 use std::collections::HashMap;
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
@@ -526,20 +529,24 @@ fn run_test_rr(
         RunMode::Test,
     );
 
-    validate_filtering(
-        cmd.package.as_deref(),
-        cmd.file.as_ref(),
-        *cmd.index,
-        *cmd.doc_index,
-    )?;
-
+    let mut filter = TestFilter::default();
     let (build_meta, build_graph) = rr_build::plan_build(
         preconfig,
         &cli.unstable_feature,
         source_dir,
         target_dir,
         Box::new(|resolved, main_modules| {
-            calc_user_intent(resolved, main_modules, cmd.package.as_deref())
+            calc_user_intent(resolved, main_modules, |r, m| {
+                apply_package_filter(
+                    r,
+                    m,
+                    cmd.package.as_deref(),
+                    cmd.file.as_deref(),
+                    *cmd.index,
+                    *cmd.doc_index,
+                    &mut filter,
+                )
+            })
         }),
     )?;
 
@@ -559,28 +566,17 @@ fn run_test_rr(
             return Ok(result.return_code_for_success());
         }
 
-        let filter = TestFilter {
-            file: cmd.file.clone(),
-            index: (*cmd.index)
-                .map(TestIndex::Regular)
-                .or_else(|| (*cmd.doc_index).map(TestIndex::DocTest)),
-        };
-
-        // Run tests using artifacts
-        let test_result = crate::run::run_tests(&build_meta, target_dir, &filter, cli.verbose)?;
+        let test_result = crate::run::run_tests(&build_meta, target_dir, &filter)?;
 
         let backend_hint = display_backend_hint
             .and(cmd.build_flags.target_backend)
             .map(|t| t.to_backend_ext());
 
-        print_test_summary(
-            test_result.total,
-            test_result.passed,
-            cli.quiet,
-            backend_hint,
-        );
+        test_result.print_result(&build_meta, cli.verbose);
+        let summary = test_result.summary();
+        print_test_summary(summary.total, summary.passed, cli.quiet, backend_hint);
 
-        if test_result.passed() {
+        if summary.total == summary.passed {
             Ok(0)
         } else {
             Ok(1)
@@ -588,33 +584,130 @@ fn run_test_rr(
     }
 }
 
-fn validate_filtering(
-    package: Option<&[String]>,
-    file: Option<&String>,
-    index: Option<u32>,
-    doc_index: Option<u32>,
-) -> anyhow::Result<()> {
-    if package.is_none() && (file.is_some() || index.is_some() || doc_index.is_some()) {
-        anyhow::bail!("Cannot filter by file or index without specifying a package");
-    }
-    if let Some(pkgs) = package {
-        if pkgs.len() != 1 && (file.is_some() || index.is_some() || doc_index.is_some()) {
-            anyhow::bail!("Cannot filter by file or index when multiple packages are specified");
+/// Apply the package filter for the given package, file and index combination,
+/// sets the package filter, and returns the list of build plan nodes.
+///
+/// This function couples intent calculation and filter generation, because the
+/// both the test filter and user intent wants the same `BuildTarget` list, but
+/// the earliest time we can get them is during intent calculation. Since the
+/// fuzzy matching process is quite complex, we would avoid doing it twice.
+fn apply_package_filter(
+    affected_packages: impl Iterator<Item = PackageId>,
+    resolve_output: &moonbuild_rupes_recta::ResolveOutput,
+
+    package_filter: Option<&[String]>,
+    file_filter: Option<&str>,
+    index_filter: Option<u32>,
+    doc_index_filter: Option<u32>,
+
+    out_filter: &mut TestFilter,
+) -> anyhow::Result<Vec<BuildPlanNode>> {
+    // The node needed for each target
+    let node_from_target = |x| {
+        [
+            BuildPlanNode::make_executable(x),
+            BuildPlanNode::generate_test_info(x),
+        ]
+    };
+
+    // No filter, return all packages and all targets
+    let Some(package_filter) = package_filter else {
+        return Ok(affected_packages
+            .flat_map(move |x| {
+                TargetKind::all_tests()
+                    .iter()
+                    .copied()
+                    .map(move |t| x.build_target(t))
+            })
+            .flat_map(node_from_target)
+            .collect());
+    };
+
+    // We deliberately didn't allow a string to be parsed into a package
+    // name, because different package may have a same name. However, in a
+    // module the package name should be unique, so we can make a map here.
+    let name_map = affected_packages
+        .map(|id| {
+            let name = resolve_output.pkg_dirs.get_package(id).fqn.to_string();
+            (name, id)
+        })
+        .collect::<HashMap<_, _>>();
+
+    // Fuzzy match a string from the map
+    let fuzzy_names = |s: &str| -> SmallVec<[PackageId; 1]> {
+        if let Some(&id) = name_map.get(s) {
+            SmallVec::from_buf([id])
+        } else {
+            let all_names = name_map.keys().map(|k| k.as_str());
+            let xs = moonutil::fuzzy_match::fuzzy_match(s, all_names);
+            if let Some(xs) = xs {
+                xs.into_iter()
+                    .filter_map(|name| name_map.get(&name).copied())
+                    .collect()
+            } else {
+                warn!("no package found matching test filter `{}`", s);
+                SmallVec::new()
+            }
         }
+    };
+
+    let mut filtered_package_ids = SmallVec::<[PackageId; 1]>::new();
+
+    // Collect all the package ids that match the filter
+    for p in package_filter {
+        let names = fuzzy_names(p);
+        if names.is_empty() {
+            warn!("no package found matching filter `{}`", p);
+        }
+        filtered_package_ids.extend_from_slice(&names);
     }
-    if file.is_none() && (index.is_some() || doc_index.is_some()) {
-        anyhow::bail!("Cannot filter by index without specifying a file");
+
+    // Calculate resulting filter & target list
+    #[allow(clippy::comparison_chain)]
+    if filtered_package_ids.len() == 1 {
+        // Single filtered package, can apply file/index filtering
+        let pkg_id = filtered_package_ids[0];
+        if let Some(id) = index_filter {
+            out_filter.add_autodetermine_target(pkg_id, file_filter, Some(TestIndex::Regular(id)));
+        } else if let Some(id) = doc_index_filter {
+            out_filter.add_autodetermine_target(pkg_id, file_filter, Some(TestIndex::DocTest(id)));
+        } else {
+            out_filter.add_autodetermine_target(pkg_id, file_filter, None);
+        }
+    } else if filtered_package_ids.len() > 1 {
+        // Multiple filtered package, check if file/index filtering is applied
+        if file_filter.is_some() || index_filter.is_some() || doc_index_filter.is_some() {
+            bail!("Cannot filter by file or index when multiple packages are specified. Matched packages: {filtered_package_ids:?}");
+        }
+        for &pkg_id in &filtered_package_ids {
+            out_filter.add_autodetermine_target(pkg_id, None, None);
+        }
+    } else {
+        // No package matched
+        warn!("no package found matching the given filters");
+        return Ok(vec![]);
     }
-    if index.is_some() && doc_index.is_some() {
-        anyhow::bail!("Cannot filter by both regular index and doc test index");
-    }
-    Ok(())
+
+    // Generate the required nodes to out final build targets
+    let filt = out_filter
+        .filter
+        .as_ref()
+        .expect("filter should be set when packages are matched");
+    Ok(filt.0.keys().copied().flat_map(node_from_target).collect())
 }
 
+/// Calculate the user intent for the build system to construct.
+///
+/// `cb` is used to reduce the number of params needed to pass in. It is the
+/// same as [`apply_package_filter`].
 fn calc_user_intent(
     resolve_output: &moonbuild_rupes_recta::ResolveOutput,
     main_modules: &[moonutil::mooncakes::ModuleId],
-    package_filter: Option<&[String]>,
+
+    cb: impl FnOnce(
+        &mut dyn Iterator<Item = PackageId>,
+        &moonbuild_rupes_recta::ResolveOutput,
+    ) -> anyhow::Result<Vec<BuildPlanNode>>,
 ) -> Result<Vec<BuildPlanNode>, anyhow::Error> {
     let &[main_module_id] = main_modules else {
         panic!("No multiple main modules are supported");
@@ -625,65 +718,7 @@ fn calc_user_intent(
         .packages_for_module(main_module_id)
         .ok_or_else(|| anyhow::anyhow!("Cannot find the local module!"))?;
 
-    // Fuzzy matching --
-    // for package names to determine the final set of packages to test. This
-    // should not be a perf bottleneck; use a more generic way to handle.
-    let nodes: Box<dyn Iterator<Item = PackageId>> = if let Some(filter) = package_filter {
-        // We deliberately didn't allow a string to be parsed into a package
-        // name, because different package may have a same name. However, in a
-        // module the package name should be unique, so we can make a map here.
-        let name_map = packages
-            .values()
-            .map(|id| {
-                let name = resolve_output.pkg_dirs.get_package(*id).fqn.to_string();
-                (name, *id)
-            })
-            .collect::<HashMap<_, _>>();
-        let mut res = vec![];
-
-        for s in filter {
-            if let Some(&id) = name_map.get(s.as_str()) {
-                // exact matching
-                res.push(id);
-            } else {
-                let all_names = name_map.keys().map(|k| k.as_str());
-                let xs = moonutil::fuzzy_match::fuzzy_match(s.as_str(), all_names);
-                if let Some(xs) = xs {
-                    for name in xs {
-                        if let Some(&id) = name_map.get(&name) {
-                            res.push(id);
-                        } else {
-                            unreachable!("All names being fuzzy matched should be contained in the name list")
-                        }
-                    }
-                } else {
-                    log::warn!("no package found matching test filter `{}`", s);
-                }
-            }
-        }
-
-        Box::new(res.into_iter())
-    } else {
-        Box::new(packages.values().copied())
-    };
-
-    let nodes = nodes
-        .flat_map(|pkg_id| {
-            [
-                TargetKind::InlineTest,
-                TargetKind::WhiteboxTest,
-                TargetKind::BlackboxTest,
-            ]
-            .into_iter()
-            .flat_map(move |x| {
-                [
-                    BuildPlanNode::make_executable(pkg_id.build_target(x)),
-                    BuildPlanNode::generate_test_info(pkg_id.build_target(x)),
-                ]
-            })
-        })
-        .collect();
-    Ok(nodes)
+    cb(&mut packages.values().copied(), resolve_output)
 }
 
 pub(crate) fn run_test_or_bench_internal_legacy(

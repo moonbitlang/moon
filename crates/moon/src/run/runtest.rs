@@ -16,11 +16,54 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
-//! Run tests and interpret the results
+/*!
+    Run tests and interpret the results.
 
-use std::{collections::HashMap, path::Path};
+    # Workflow overview
+
+    ## A normal test workflow
+
+    1. Build test executable (using [`crate::rr_build`])
+    2. Run tests using [`run_tests`]
+    3. Interpret and print the test results using [`ReplaceableTestResults::print_result`]
+
+    ## Tests with snapshot promotion
+
+    Currently, snapshot promotion of tests require rerunning the test suite
+    after the values are promoted. The workflow is as follows:
+
+    1. Build test executable as usual
+    2. Run first test pass as usual
+    3. After the initial test results are generated, pass it to the following:
+    4. Loop with the result of the last test run, with capped iteration count:
+        1. Scan the test result for any files to promote. If none, break.
+        2. Perform the promotion for the given files, and keep track of which
+           tests (package, file, index) are promoted.
+        3. Rerun the build of the affected packages.
+        4. Rerun the affected tests using the filter generated from the tracking.
+        5. Merge the new result with the main one, while keeping a copy locally
+           for the next iteration.
+    5. After the loop, print the final result as usual.
+
+    ## Future improvements
+
+    There is an ongoing discussion about the snapshot promotion behavior. If we
+    can change the snapshot promotion approach to single-pass, we will be able
+    to greatly simplify the snapshot promotion routine. In particular, we can
+    remove the iterative running behavior, have real time test result printing,
+    and remove the [`ReplaceableTestResults`] type altogether. (known issue: the
+    line numbers will still be stale, but we can mitigate it locally)
+
+    Check the discussion at [core#2684](https://github.com/moonbitlang/core/issues/2684).
+*/
+
+mod filter;
+mod promotion;
+
+use std::{collections::HashMap, path::Path, sync::Arc};
 
 use anyhow::Context;
+use indexmap::IndexMap;
 use moonbuild::{
     benchmark::{render_batch_bench_summary, BATCHBENCH},
     entry::{CompactTestFormatter, TestArgs},
@@ -32,7 +75,7 @@ use moonbuild::{
     section_capture::SectionCapture,
     test_utils::indices_to_ranges,
 };
-use moonbuild_rupes_recta::model::{BuildPlanNode, BuildTarget, TargetKind};
+use moonbuild_rupes_recta::model::{BuildPlanNode, BuildTarget};
 use moonutil::common::{
     MbtTestInfo, MooncGenTestInfo, MOON_COVERAGE_DELIMITER_BEGIN, MOON_COVERAGE_DELIMITER_END,
     MOON_TEST_DELIMITER_BEGIN, MOON_TEST_DELIMITER_END,
@@ -41,6 +84,9 @@ use tokio::runtime::Runtime;
 
 use crate::{rr_build::BuildMeta, run::default_rt};
 
+pub use filter::TestFilter;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum TestResultKind {
     Passed,
     ExpectTestFailed,
@@ -50,40 +96,22 @@ enum TestResultKind {
     Failed,
 }
 
-struct TestCaseResult<'a> {
+#[derive(Debug, Clone)]
+struct TestCaseResult {
     kind: TestResultKind,
-    raw: TestStatistics,
-    meta: &'a MbtTestInfo,
+    raw: Arc<TestStatistics>,
+    // The metadata structure is read per-executable, so we better own it.
+    // Known issue: line numbers can be stale if we are promoting tests
+    meta: MbtTestInfo,
 }
 
-impl<'a> TestCaseResult<'a> {
+impl TestCaseResult {
     pub fn passed(&self) -> bool {
         matches!(self.kind, TestResultKind::Passed)
     }
 }
 
-#[derive(Debug, Default)]
-pub struct TestResult {
-    pub total: usize,
-    pub passed: usize,
-}
-
-impl TestResult {
-    pub fn merge(&mut self, other: TestResult) {
-        self.total += other.total;
-        self.passed += other.passed;
-    }
-
-    pub fn passed(&self) -> bool {
-        self.total == self.passed
-    }
-}
-
-pub struct TestFilter {
-    pub file: Option<String>,
-    pub index: Option<TestIndex>,
-}
-
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum TestIndex {
     /// A regular test block, i.e. `test { ... }`
     Regular(u32),
@@ -91,21 +119,34 @@ pub enum TestIndex {
     DocTest(u32),
 }
 
-/// Run the tests compiled in this session.
+impl TestIndex {
+    /// Extract the value of the index, when there is no ambiguity.
+    pub fn value(self) -> u32 {
+        match self {
+            TestIndex::Regular(v) => v,
+            TestIndex::DocTest(v) => v,
+        }
+    }
+}
+
+/// Run the tests compiled in this session. Does **not** print or update
+/// snapshots.
+///
+/// An external driver should check the results for reruns. See [module-level
+/// docs](crate::run::runtest) for more information about the workflow.
 pub fn run_tests(
     build_meta: &BuildMeta,
     target_dir: &Path,
     filter: &TestFilter,
-    verbose: bool,
-) -> anyhow::Result<TestResult> {
+) -> anyhow::Result<ReplaceableTestResults> {
     // Gathering artifacts
-    let results = gather_tests(build_meta);
+    let executables = gather_tests(build_meta);
 
     let rt = default_rt().context("Failed to create runtime")?;
-    let mut stats = TestResult::default();
-    for r in results {
-        let res = run_one_test_executable(build_meta, &rt, target_dir, &r, filter, verbose)?;
-        stats.merge(res);
+    let mut stats = ReplaceableTestResults::default();
+    for r in executables {
+        let res = run_one_test_executable(build_meta, &rt, target_dir, &r, filter)?;
+        stats.merge_with_target(r.target, res);
     }
 
     Ok(stats)
@@ -117,6 +158,93 @@ struct TestExecutableToRun<'a> {
     target: BuildTarget,
     executable: &'a Path,
     meta: &'a Path,
+}
+
+/// A container of test results corresponding to each test artifact, and
+/// can be replaced by later test runs upon test result updates.
+#[derive(Default, Debug)]
+pub struct ReplaceableTestResults {
+    map: IndexMap<BuildTarget, TargetTestResult>,
+}
+
+/// The test result for a single build target
+#[derive(Default, Clone, Debug)]
+struct TargetTestResult {
+    /// `Map<file, Map<index, result>>`
+    map: IndexMap<String, IndexMap<u32, TestCaseResult>>,
+}
+
+#[derive(Default, Clone, Debug)]
+pub struct TestSummary {
+    pub total: usize,
+    pub passed: usize,
+}
+
+impl ReplaceableTestResults {
+    fn merge_with_target(&mut self, target: BuildTarget, result: TargetTestResult) {
+        let entry = self.map.entry(target).or_default();
+        for (file, file_map) in result.map {
+            let file_entry = entry.map.entry(file).or_default();
+            for (index, case) in file_map {
+                file_entry.insert(index, case);
+            }
+        }
+    }
+
+    #[allow(unused)] // test promotion will use it
+    pub fn merge(&mut self, other: &ReplaceableTestResults) {
+        for (target, result) in &other.map {
+            // inefficient but should not be bottleneck
+            self.merge_with_target(*target, result.clone());
+        }
+    }
+
+    pub fn print_result(&self, meta: &BuildMeta, verbose: bool) {
+        for (target, result) in &self.map {
+            let module_name = meta
+                .resolve_output
+                .pkg_dirs
+                .get_package(target.package)
+                .fqn
+                .module()
+                .name()
+                .to_string();
+            for file_map in result.map.values() {
+                for res in file_map.values() {
+                    print_test_result(res, &module_name, verbose);
+                }
+            }
+        }
+    }
+
+    pub fn summary(&self) -> TestSummary {
+        let mut total = 0;
+        let mut passed = 0;
+        for result in self.map.values() {
+            for file_map in result.map.values() {
+                total += file_map.len();
+                passed += file_map.values().filter(|r| r.passed()).count();
+            }
+        }
+        TestSummary { total, passed }
+    }
+}
+
+impl TargetTestResult {
+    pub fn add(&mut self, file: &str, index: u32, result: TestCaseResult) {
+        match self.map.get_mut(file) {
+            Some(v) => {
+                v.insert(index, result);
+            }
+            None => {
+                // We're not using Map::entry(K) because String is not Copy, and
+                // it will allocate even if the key is found
+                let mut m = IndexMap::new();
+                m.insert(index, result);
+                self.map.insert(file.to_string(), m);
+            }
+        }
+    }
 }
 
 /// Gather tests executables from the build metadata.
@@ -176,13 +304,14 @@ fn run_one_test_executable(
     target_dir: &Path,
     test: &TestExecutableToRun,
     filter: &TestFilter,
-    verbose: bool,
-) -> Result<TestResult, anyhow::Error> {
+) -> Result<TargetTestResult, anyhow::Error> {
+    let (included, file_filt) = filter.check_package(test.target);
+    if !included {
+        return Ok(TargetTestResult::default());
+    }
+
     let fqn = build_meta.resolve_output.pkg_dirs.fqn(test.target.package);
     let pkgname = fqn.to_string();
-    let module_name = fqn.module().name().to_string();
-
-    // Package filtering should already be done when building test executables
 
     // Parse test metadata
     let meta = std::fs::File::open(test.meta).context("Failed to open test metadata")?;
@@ -200,51 +329,36 @@ fn run_one_test_executable(
         &meta.with_bench_args_tests,
     ] {
         for (filename, test_infos) in lists {
-            // Filter by file name
-            if let Some(ffile) = &filter.file {
-                if ffile != filename {
-                    continue;
-                }
+            let (included, index_filt) = file_filt.map_or((true, None), |x| x.check_file(filename));
+            if !included {
+                continue;
             }
-            let is_bbtest_file = filename.ends_with("_test.mbt"); // FIXME: heuristic
+
+            let mut this_file_index = vec![];
 
             // Filter by index
             #[allow(clippy::single_range_in_vec_init)] // clippy warns about our ranges
-            match filter.index {
-                // No filter -- run all tests in the file
+            match index_filt {
                 None => {
                     if !test_infos.is_empty() {
                         // Use actual indices from test metadata instead of assuming contiguous 0..max_index
                         let actual_indices: Vec<u32> = test_infos.iter().map(|t| t.index).collect();
                         let ranges = indices_to_ranges(actual_indices);
-                        test_args
-                            .file_and_index
-                            .push((filename.to_string(), ranges));
+                        this_file_index = ranges;
                     }
                 }
-                // Regular tests
-                Some(TestIndex::Regular(index)) => {
-                    if (test.target.kind != TargetKind::BlackboxTest || is_bbtest_file)
-                        && test_infos.iter().any(|t| t.index == index)
-                    {
-                        test_args
-                            .file_and_index
-                            .push((filename.to_string(), vec![index..(index + 1)]));
-                    }
-                }
-                // Doctests -- specifically for test blocks in
-                // non-black-box-test files in black box test build targets.
-                Some(TestIndex::DocTest(index)) => {
-                    if test.target.kind == TargetKind::BlackboxTest
-                        && !is_bbtest_file
-                        && test_infos.iter().any(|t| t.index == index)
-                    {
-                        test_args
-                            .file_and_index
-                            .push((filename.to_string(), vec![index..(index + 1)]));
+                Some(filt) => {
+                    for t in test_infos {
+                        if filt.0.contains(&t.index) {
+                            this_file_index.push(t.index..t.index + 1);
+                        }
                     }
                 }
             }
+
+            test_args
+                .file_and_index
+                .push((filename.clone(), this_file_index));
         }
     }
 
@@ -261,21 +375,8 @@ fn run_one_test_executable(
     .context("Failed to run test")?;
 
     handle_finished_coverage(target_dir, cov_cap)?;
-    let stats = parse_test_results(&meta, test_cap)?;
 
-    for it in &stats {
-        print_test_result(it, &module_name, verbose);
-    }
-
-    // TODO: update snapshots and expect tests
-
-    let total_count = stats.len();
-    let passed_count = stats.iter().filter(|x| x.passed()).count();
-
-    Ok(TestResult {
-        total: total_count,
-        passed: passed_count,
-    })
+    parse_test_results(meta, test_cap)
 }
 
 fn mk_coverage_capture() -> SectionCapture<'static> {
@@ -306,32 +407,33 @@ fn handle_finished_coverage(target_dir: &Path, cap: SectionCapture) -> anyhow::R
     Ok(())
 }
 
-fn parse_test_results<'a>(
-    meta: &'a MooncGenTestInfo,
+fn parse_test_results(
+    meta: MooncGenTestInfo,
     cap: SectionCapture,
-) -> anyhow::Result<Vec<TestCaseResult<'a>>> {
+) -> anyhow::Result<TargetTestResult> {
     let Some(s) = cap.finish() else {
-        return Ok(vec![]);
+        return Ok(TargetTestResult::default());
     };
 
     // Create a map to repopulate test names
     // map<filename, map<index, test_case_name>>
-    let mut test_name_map: HashMap<&str, HashMap<u32, &'a MbtTestInfo>> = HashMap::new();
-    for test_list in [
-        &meta.no_args_tests,
-        &meta.with_args_tests,
-        &meta.with_bench_args_tests,
-    ] {
-        for (file, tests) in test_list {
-            let file_map = test_name_map.entry(file.as_str()).or_default();
-            for t in tests {
-                file_map.insert(t.index, t);
-            }
+    let mut test_name_map: HashMap<String, HashMap<u32, MbtTestInfo>> = HashMap::new();
+    for (file, tests) in [
+        meta.no_args_tests,
+        meta.with_args_tests,
+        meta.with_bench_args_tests,
+    ]
+    .into_iter()
+    .flatten()
+    {
+        let file_map = test_name_map.entry(file).or_default();
+        for t in tests {
+            file_map.insert(t.index, t);
         }
     }
 
     // Actual handling of each test case result
-    let mut res = vec![];
+    let mut res = TargetTestResult::default();
     for line in s.lines() {
         if line.is_empty() {
             continue;
@@ -339,15 +441,22 @@ fn parse_test_results<'a>(
 
         let stat: TestStatistics = serde_json_lenient::from_str(line)
             .with_context(|| format!("Failed to parse test summary: {line}"))?;
+        let stat = Arc::new(stat);
 
         // Repopulate name.
         // The test name in stat may be different from that in source code,
         // due to how cases like panics are handled, causing later handling to
         // deviate from what we expect. Here, we fetch the name from the
         // metadata to avoid the problem.
+        let index = stat.index.parse::<u32>().with_context(|| {
+            format!(
+                "Failed to parse test index {} for {}",
+                stat.index, stat.test_name
+            )
+        })?;
         let meta = test_name_map
-            .get(stat.filename.as_str())
-            .and_then(|v| v.get(&stat.index.parse::<u32>().ok()?))
+            .get_mut(stat.filename.as_str())
+            .and_then(|v| v.remove(&index))
             .with_context(|| {
                 format!(
                     "Failed to find test metadata for {} index {}",
@@ -356,11 +465,12 @@ fn parse_test_results<'a>(
             })?;
         let name = meta.name.as_ref().unwrap_or(&stat.test_name);
         let result_kind = parse_one_test_result(&stat, name)?;
-        res.push(TestCaseResult {
+        let case_result = TestCaseResult {
             kind: result_kind,
-            raw: stat,
+            raw: Arc::clone(&stat),
             meta,
-        });
+        };
+        res.add(&stat.filename, index, case_result);
     }
 
     Ok(res)
@@ -404,7 +514,7 @@ fn parse_one_test_result(
 
 fn print_test_result(res: &TestCaseResult, module_name: &str, verbose: bool) {
     let message = &res.raw.message;
-    let formatter = CompactTestFormatter::new(module_name, &res.raw, Some(res.meta));
+    let formatter = CompactTestFormatter::new(module_name, &res.raw, Some(&res.meta));
 
     match res.kind {
         TestResultKind::Passed if !verbose => {}
