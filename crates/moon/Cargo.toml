@@ -57,6 +57,7 @@ rand.workspace = true
 tempfile.workspace = true
 shlex.workspace = true
 derive_builder.workspace = true
+smallvec.workspace = true
 
 [target.'cfg(not(windows))'.dependencies]
 openssl = { version = "0.10.66", features = ["vendored"] }
