@@ -1,3 +1,5 @@
+mod skip_test;
+
 use super::*;
 
 #[test]
