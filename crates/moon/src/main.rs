@@ -35,6 +35,7 @@ fn init_log() {
     // log level: error > warn > info > debug > trace
     env_logger::Builder::from_env(env_logger::Env::default())
         .target(env_logger::Target::Stdout)
+        .filter_level(log::LevelFilter::Warn)
         .format(|buf, record| {
             let level_style = buf.default_level_style(record.level());
             writeln!(
