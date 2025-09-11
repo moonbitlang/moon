@@ -30,6 +30,7 @@ use moonbuild::{
     },
     runtest::TestStatistics,
     section_capture::SectionCapture,
+    test_utils::indices_to_ranges,
 };
 use moonbuild_rupes_recta::model::{BuildPlanNode, BuildTarget, TargetKind};
 use moonutil::common::{
@@ -208,14 +209,17 @@ fn run_one_test_executable(
             let is_bbtest_file = filename.ends_with("_test.mbt"); // FIXME: heuristic
 
             // Filter by index
+            #[allow(clippy::single_range_in_vec_init)] // clippy warns about our ranges
             match filter.index {
                 // No filter -- run all tests in the file
                 None => {
                     if !test_infos.is_empty() {
-                        let max_index = test_infos.iter().map(|t| t.index).max().unwrap_or(0);
+                        // Use actual indices from test metadata instead of assuming contiguous 0..max_index
+                        let actual_indices: Vec<u32> = test_infos.iter().map(|t| t.index).collect();
+                        let ranges = indices_to_ranges(actual_indices);
                         test_args
                             .file_and_index
-                            .push((filename.to_string(), 0..(max_index + 1)));
+                            .push((filename.to_string(), ranges));
                     }
                 }
                 // Regular tests
@@ -225,7 +229,7 @@ fn run_one_test_executable(
                     {
                         test_args
                             .file_and_index
-                            .push((filename.to_string(), index..(index + 1)));
+                            .push((filename.to_string(), vec![index..(index + 1)]));
                     }
                 }
                 // Doctests -- specifically for test blocks in
@@ -237,7 +241,7 @@ fn run_one_test_executable(
                     {
                         test_args
                             .file_and_index
-                            .push((filename.to_string(), index..(index + 1)));
+                            .push((filename.to_string(), vec![index..(index + 1)]));
                     }
                 }
             }
