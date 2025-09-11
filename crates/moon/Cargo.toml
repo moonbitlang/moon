@@ -45,7 +45,6 @@ ctrlc.workspace = true
 home.workspace = true
 which.workspace = true
 chrono.workspace = true
-env_logger.workspace = true
 log.workspace = true
 walkdir.workspace = true
 tokio = { workspace = true, features = ["rt"] }
@@ -58,6 +57,9 @@ tempfile.workspace = true
 shlex.workspace = true
 derive_builder.workspace = true
 smallvec.workspace = true
+
+tracing.workspace = true
+tracing-subscriber.workspace = true
 
 [target.'cfg(not(windows))'.dependencies]
 openssl = { version = "0.10.66", features = ["vendored"] }
