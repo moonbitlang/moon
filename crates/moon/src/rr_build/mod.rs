@@ -33,6 +33,7 @@ use std::{
 };
 
 use anyhow::Context;
+use indexmap::IndexMap;
 use moonbuild::entry::{
     create_progress_console, render_and_catch_callback, N2RunStats, ResultCatcher,
 };
@@ -73,7 +74,7 @@ pub struct BuildMeta {
     pub resolve_output: ResolveOutput,
 
     /// The list of artifacts that will be produced
-    pub artifacts: Vec<Artifacts>,
+    pub artifacts: IndexMap<BuildPlanNode, Artifacts>,
 
     /// The target backend used in this compile process
     pub target_backend: TargetBackend,

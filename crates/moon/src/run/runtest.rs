@@ -85,6 +85,7 @@ use tokio::runtime::Runtime;
 use crate::{rr_build::BuildMeta, run::default_rt};
 
 pub use filter::TestFilter;
+pub use promotion::perform_promotion;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum TestResultKind {
@@ -252,9 +253,8 @@ fn gather_tests(build_meta: &BuildMeta) -> Vec<TestExecutableToRun<'_>> {
     let mut pending = HashMap::new();
     let mut results = vec![];
 
-    for artifacts in &build_meta.artifacts {
-        let target = artifacts
-            .node
+    for (node, artifacts) in &build_meta.artifacts {
+        let target = node
             .extract_target()
             .expect("All artifacts of tests should contain a build target");
 
@@ -265,7 +265,7 @@ fn gather_tests(build_meta: &BuildMeta) -> Vec<TestExecutableToRun<'_>> {
         });
 
         // FIXME: artifact index relies on implementation of append_artifact_of
-        match artifacts.node {
+        match node {
             BuildPlanNode::MakeExecutable(_) => working.executable(&artifacts.artifacts[0]),
             BuildPlanNode::GenerateTestInfo(_) => working.meta(&artifacts.artifacts[1]),
             _ => panic!("Unexpected artifact for test: {:?}", artifacts.node),

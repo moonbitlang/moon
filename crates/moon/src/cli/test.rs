@@ -551,7 +551,12 @@ fn run_test_rr(
     )?;
 
     if cli.dry_run {
-        rr_build::print_dry_run(&build_graph, &build_meta.artifacts, source_dir, target_dir);
+        rr_build::print_dry_run(
+            &build_graph,
+            build_meta.artifacts.values(),
+            source_dir,
+            target_dir,
+        );
         // The legacy behavior does not print the test commands, so we skip it too.
 
         Ok(0)
