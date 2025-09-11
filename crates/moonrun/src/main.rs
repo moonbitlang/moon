@@ -524,8 +524,10 @@ fn wasm_mode(
 
         let mut test_params: Vec<[String; 2]> = vec![];
         for (file, index) in file_and_index {
-            for i in index {
-                test_params.push([file.clone(), i.to_string()]);
+            for range in index {
+                for i in range {
+                    test_params.push([file.clone(), i.to_string()]);
+                }
             }
         }
         script.push_str(&format!("const packageName = {:?};", test_args.package));
@@ -551,7 +553,7 @@ fn wasm_mode(
 #[derive(serde::Deserialize, Clone)]
 pub struct TestArgs {
     pub package: String,
-    pub file_and_index: Vec<(String, std::ops::Range<u32>)>,
+    pub file_and_index: Vec<(String, Vec<std::ops::Range<u32>>)>,
 }
 
 pub fn get_moonrun_version() -> String {

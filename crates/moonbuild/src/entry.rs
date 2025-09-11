@@ -41,6 +41,7 @@ use crate::benchmark::{render_batch_bench_summary, BATCHBENCH};
 use crate::check::normal::write_pkg_lst;
 use crate::expect::{apply_snapshot, render_snapshot_fail};
 use crate::runtest::TestStatistics;
+use crate::test_utils::indices_to_ranges;
 
 use moonutil::common::{
     DiagnosticLevel, DriverKind, FileLock, FileName, MbtTestInfo, MoonbuildOpt, MooncGenTestInfo,
@@ -636,6 +637,7 @@ impl std::fmt::Display for TestResult {
 }
 
 pub type FileTestInfo = IndexMap<FileName, IndexMap<TestBlockIndex, MbtTestInfo>>;
+
 fn convert_moonc_test_info(
     test_info_file: &Path,
     pkg: &Package,
@@ -699,6 +701,7 @@ fn convert_moonc_test_info(
 }
 
 #[allow(clippy::too_many_arguments)]
+#[allow(clippy::single_range_in_vec_init)]
 pub fn run_test(
     moonc_opt: MooncOpt,
     moonbuild_opt: MoonbuildOpt,
@@ -772,15 +775,18 @@ pub fn run_test(
                 package: pkgname.clone(),
                 file_and_index: vec![],
             };
-            for (file_name, test_count) in &file_test_info_map {
-                let range;
+            for (file_name, test_metadata) in &file_test_info_map {
                 let filter_index = filter_index.or(filter_doc_index);
                 if let Some(filter_index) = filter_index {
-                    range = filter_index..(filter_index + 1);
+                    // Single test filter - use exact index
+                    let ranges = vec![filter_index..(filter_index + 1)];
+                    test_args.file_and_index.push((file_name.clone(), ranges));
                 } else {
-                    range = 0..(test_count.len() as u32);
+                    // No filter - use all actual indices from metadata
+                    let actual_indices: Vec<u32> = test_metadata.keys().copied().collect();
+                    let ranges = indices_to_ranges(actual_indices);
+                    test_args.file_and_index.push((file_name.clone(), ranges));
                 }
-                test_args.file_and_index.push((file_name.clone(), range));
             }
 
             let wrapper_js_driver_path = artifact_path.with_extension("cjs");
@@ -910,23 +916,30 @@ pub fn run_test(
 #[derive(serde::Serialize, Clone, Debug)]
 pub struct TestArgs {
     pub package: String,
-    pub file_and_index: Vec<(String, std::ops::Range<u32>)>,
+    pub file_and_index: Vec<(String, Vec<std::ops::Range<u32>>)>,
 }
 
 impl TestArgs {
     fn get_test_cnt(&self) -> u32 {
         self.file_and_index
             .iter()
-            .map(|(_, range)| range.end - range.start)
+            .map(|(_, ranges)| {
+                ranges
+                    .iter()
+                    .map(|range| range.end - range.start)
+                    .sum::<u32>()
+            })
             .sum()
     }
 
     pub fn to_args(&self) -> String {
         let file_and_index = &self.file_and_index;
         let mut test_params: Vec<[String; 2]> = vec![];
-        for (file, index) in file_and_index {
-            for i in index.clone() {
-                test_params.push([file.clone(), i.to_string()]);
+        for (file, ranges) in file_and_index {
+            for range in ranges {
+                for i in range.clone() {
+                    test_params.push([file.clone(), i.to_string()]);
+                }
             }
         }
         serde_json::to_string(&test_params).unwrap_or_else(|_| "[]".to_string())
@@ -935,8 +948,10 @@ impl TestArgs {
     pub fn to_cli_args_for_native(&self) -> String {
         let mut args = vec![];
         let file_and_index = &self.file_and_index;
-        for (file, index) in file_and_index {
-            args.push(format!("{}:{}-{}", file, index.start, index.end));
+        for (file, ranges) in file_and_index {
+            for range in ranges {
+                args.push(format!("{}:{}-{}", file, range.start, range.end));
+            }
         }
         args.join("/")
     }
@@ -1088,6 +1103,7 @@ impl<'a> CompactTestFormatter<'a> {
 
 // FIXME: This should be completely rewritten. In particular, the Result usage is wrong.
 #[allow(clippy::too_many_arguments)]
+#[allow(clippy::single_range_in_vec_init)] // clippy warns about our ranges
 async fn handle_test_result(
     test_res_for_cur_pkg: &mut Vec<Result<TestStatistics, TestFailedStatus>>,
     moonc_opt: &MooncOpt,
@@ -1153,7 +1169,7 @@ async fn handle_test_result(
                     let index = stat.index.clone().parse::<u32>().unwrap();
                     let test_args = TestArgs {
                         package: stat.package.clone(),
-                        file_and_index: vec![(stat.filename.clone(), index..(index + 1))],
+                        file_and_index: vec![(stat.filename.clone(), vec![index..(index + 1)])],
                     };
                     let rerun = execute_test(
                         moonbuild_opt,
@@ -1247,7 +1263,7 @@ async fn handle_test_result(
 
                     let test_args = TestArgs {
                         package: origin_err.package.clone(),
-                        file_and_index: vec![(filename, index..(index + 1))],
+                        file_and_index: vec![(filename, vec![index..(index + 1)])],
                     };
                     let rerun = execute_test(
                         moonbuild_opt,
