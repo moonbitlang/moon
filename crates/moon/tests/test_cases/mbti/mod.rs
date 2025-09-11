@@ -12,13 +12,13 @@ fn test_mbti() {
         package "username/hello/lib"
 
         import(
-          "moonbitlang/core/immut/list"
+          "moonbitlang/core/list"
         )
 
         // Values
         fn hello() -> String
 
-        let hello_list : @list.T[String]
+        let hello_list : @list.List[String]
 
         // Errors
 
@@ -63,7 +63,7 @@ fn test_mbti_no_alias() {
         // Values
         fn hello() -> String
 
-        let hello_list : @moonbitlang/core/immut/list.T[String]
+        let hello_list : @moonbitlang/core/list.List[String]
 
         // Errors
 
