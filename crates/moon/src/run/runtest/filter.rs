@@ -148,6 +148,10 @@ impl PackageFilter {
             *entry = None;
         }
     }
+
+    pub fn is_empty(&self) -> bool {
+        self.0.is_empty()
+    }
 }
 
 impl FileFilter {

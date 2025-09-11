@@ -64,6 +64,7 @@ use std::{collections::HashMap, path::Path, sync::Arc};
 
 use anyhow::Context;
 use indexmap::IndexMap;
+use log::warn;
 use moonbuild::{
     benchmark::{render_batch_bench_summary, BATCHBENCH},
     entry::{CompactTestFormatter, TestArgs},
@@ -326,7 +327,7 @@ fn run_one_test_executable(
     for lists in [
         &meta.no_args_tests,
         &meta.with_args_tests,
-        &meta.with_bench_args_tests,
+        // TODO: bench mode changes this
     ] {
         for (filename, test_infos) in lists {
             let (included, index_filt) = file_filt.map_or((true, None), |x| x.check_file(filename));
@@ -337,7 +338,6 @@ fn run_one_test_executable(
             let mut this_file_index = vec![];
 
             // Filter by index
-            #[allow(clippy::single_range_in_vec_init)] // clippy warns about our ranges
             match index_filt {
                 None => {
                     if !test_infos.is_empty() {
@@ -372,11 +372,16 @@ fn run_one_test_executable(
         false,
         cmd.command,
     ))
-    .context("Failed to run test")?;
+    .with_context(|| format!("Failed to run test for {fqn} {:?}", test.target.kind))?;
 
     handle_finished_coverage(target_dir, cov_cap)?;
 
-    parse_test_results(meta, test_cap)
+    parse_test_results(meta, test_cap).with_context(|| {
+        format!(
+            "Failed to parse test results for {fqn} {:?}",
+            test.target.kind
+        )
+    })
 }
 
 fn mk_coverage_capture() -> SectionCapture<'static> {
@@ -456,13 +461,20 @@ fn parse_test_results(
         })?;
         let meta = test_name_map
             .get_mut(stat.filename.as_str())
-            .and_then(|v| v.remove(&index))
-            .with_context(|| {
-                format!(
-                    "Failed to find test metadata for {} index {}",
-                    stat.filename, stat.index
-                )
-            })?;
+            .and_then(|v| v.remove(&index));
+        let Some(meta) = meta else {
+            warn!(
+                "Failed to find test metadata for {} index {}",
+                stat.filename, stat.index
+            );
+            continue;
+        };
+        // .with_context(|| {
+        //     format!(
+        //         "Failed to find test metadata for {} index {}",
+        //         stat.filename, stat.index
+        //     )
+        // })?;
         let name = meta.name.as_ref().unwrap_or(&stat.test_name);
         let result_kind = parse_one_test_result(&stat, name)?;
         let case_result = TestCaseResult {

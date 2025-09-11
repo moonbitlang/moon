@@ -20,34 +20,64 @@
 
 use anyhow::Context;
 use moonbuild::expect::{apply_expect, apply_snapshot};
+use tracing::info;
 
-use crate::run::runtest::{TestCaseResult, TestResultKind};
+use crate::run::runtest::{
+    filter::PackageFilter, ReplaceableTestResults, TestCaseResult, TestResultKind,
+};
 
-/// Perform promotion on all test snapshots met.
-pub fn promote_all_snapshots(results: &[TestCaseResult]) -> anyhow::Result<()> {
+/// Perform promotion on all test snapshots and expect tests met. Returns
+/// affected build targets (to be rerun).
+pub fn perform_promotion(results: &ReplaceableTestResults) -> anyhow::Result<PackageFilter> {
+    let mut res = PackageFilter::default();
+
+    let mut to_update_snapshot = vec![];
+    let mut to_update_expect = vec![];
+    for (target, target_result) in &results.map {
+        for (file, v) in &target_result.map {
+            for (idx, result) in v {
+                match result.kind {
+                    TestResultKind::SnapshotTestFailed => {
+                        info!(?target, file, idx, "Need to update snapshot");
+                        res.add_one(*target, Some(file), Some(*idx));
+                        to_update_snapshot.push(result)
+                    }
+                    TestResultKind::ExpectTestFailed => {
+                        info!(?target, file, idx, "Need to update expect");
+                        res.add_one(*target, Some(file), Some(*idx));
+                        to_update_expect.push(result)
+                    }
+                    _ => {}
+                }
+            }
+        }
+    }
+
     // This is to be changed -- the original test promotion is too messy to work with.
     // We iterate through all results, filter those which are actually failed
     // snapshot tests, and then feed them to the `apply_snapshot` function.
     //
-    // If you're looking for the list of tests to be rerun after promotion,
-    // it's calculated when after the promotions are done. (Simple filtering
-    // can't do any harm right?)
-    apply_snapshot(
-        results
-            .iter()
-            .filter(|&x| (x.kind == TestResultKind::SnapshotTestFailed))
-            .map(|x| x.raw.message.as_str()),
-    )
-    .context("Failed to apply snapshot updates")
+    // We are expecting these updates to work on batches, but the legacy call
+    // site only supports single-file updates (i.e. only passed std::iter::once
+    // to the functions).
+    //
+    // We will be very sad if it doesn't work.
+    promote_all_snapshots(to_update_snapshot).context("Failed to promote snapshots")?;
+    promote_all_expects(to_update_expect).context("Failed to promote expects")?;
+
+    Ok(res)
 }
 
-/// Perform promotion on all expect tests met.
-pub fn promote_all_expects(results: &[TestCaseResult]) -> anyhow::Result<()> {
-    apply_expect(
-        results
-            .iter()
-            .filter(|x| x.kind == TestResultKind::ExpectTestFailed)
-            .map(|x| x.raw.message.as_str()),
-    )
-    .context("Failed to apply expect updates")
+/// Perform promotion on all test snapshots met.
+fn promote_all_snapshots<'a>(
+    results: impl IntoIterator<Item = &'a TestCaseResult>,
+) -> anyhow::Result<()> {
+    apply_snapshot(results.into_iter().map(|x| x.raw.message.as_str()))
+}
+
+/// Perform promotion on all expect tests met. Should fil
+fn promote_all_expects<'a>(
+    results: impl IntoIterator<Item = &'a TestCaseResult>,
+) -> anyhow::Result<()> {
+    apply_expect(results.into_iter().map(|x| x.raw.message.as_str()))
 }

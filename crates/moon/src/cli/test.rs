@@ -24,6 +24,7 @@ use log::warn;
 use moonbuild::dry_run;
 use moonbuild::entry;
 use moonbuild_rupes_recta::model::BuildPlanNode;
+use moonbuild_rupes_recta::model::BuildTarget;
 use moonbuild_rupes_recta::model::PackageId;
 use moonbuild_rupes_recta::model::TargetKind;
 use mooncake::pkg::sync::auto_sync;
@@ -52,6 +53,7 @@ use crate::cli::pre_build::scan_with_x_build;
 use crate::rr_build;
 use crate::rr_build::preconfig_compile;
 use crate::rr_build::BuildConfig;
+use crate::run::perform_promotion;
 use crate::run::TestFilter;
 use crate::run::TestIndex;
 
@@ -561,21 +563,101 @@ fn run_test_rr(
 
         Ok(0)
     } else {
-        let result = rr_build::execute_build(
-            &BuildConfig::from_flags(cmd.build_flags),
-            build_graph,
-            target_dir,
-        )?;
+        let build_config = BuildConfig::from_flags(cmd.build_flags);
+
+        // since n2 build consumes the graph, we back it up for reruns
+        let build_graph_backup = cmd.update.then(|| build_graph.clone());
+        let result = rr_build::execute_build(&build_config, build_graph, target_dir)?;
 
         if !result.successful() || cmd.build_only {
             return Ok(result.return_code_for_success());
         }
 
-        let test_result = crate::run::run_tests(&build_meta, target_dir, &filter)?;
+        let mut test_result = crate::run::run_tests(&build_meta, target_dir, &filter)?;
 
         let backend_hint = display_backend_hint
             .and(cmd.build_flags.target_backend)
             .map(|t| t.to_backend_ext());
+
+        if cmd.update {
+            let mut loop_count = 0;
+            let mut last_test_result = None;
+            loop {
+                // Promote test results
+                let promotion_source = last_test_result.as_ref().unwrap_or(&test_result);
+                let rerun_filter =
+                    perform_promotion(promotion_source).expect("Failed to promote tests");
+                if rerun_filter.is_empty() {
+                    break; // Nothing to promote
+                }
+
+                // Apply loop count limits
+                if loop_count >= cmd.limit {
+                    warn!(
+                        "reached the limit of {} update passes, stopping further updates.",
+                        cmd.limit
+                    );
+                    break;
+                }
+                loop_count += 1;
+
+                warn!("Updating expect test results and rerunning...");
+
+                // Get the graph from backup
+                let build_graph = build_graph_backup
+                    .as_ref()
+                    .cloned()
+                    .expect("build graph backup should be present when update is true");
+
+                // Calculate which files to rebuild
+                let want_files = rerun_filter
+                    .0
+                    .keys()
+                    .cloned() // All targets to rerun
+                    .flat_map(node_from_target) // converted to nodes
+                    .flat_map(|node| {
+                        // their artifacts
+                        build_meta
+                            .artifacts
+                            .get(&node)
+                            .expect("test node from the last test run should have artifact")
+                            .artifacts
+                            .as_slice()
+                    });
+
+                // Run the build
+                let result = rr_build::execute_build_partial(
+                    &build_config,
+                    build_graph,
+                    target_dir,
+                    Box::new(|work| {
+                        for file_path in want_files {
+                            let file_path_str = file_path.to_string_lossy();
+                            let file = work
+                                .lookup(&file_path_str)
+                                .expect("File should exist in work");
+                            work.want_file(file).context("Failed to want file")?;
+                        }
+                        Ok(())
+                    }),
+                )?;
+
+                if !result.successful() {
+                    return Ok(result.return_code_for_success());
+                }
+
+                // Run the tests
+                let rerun_filter = TestFilter {
+                    filter: Some(rerun_filter),
+                };
+                let new_test_result =
+                    crate::run::run_tests(&build_meta, target_dir, &rerun_filter)?;
+
+                // Merge test results
+                test_result.merge(&new_test_result);
+                last_test_result = Some(new_test_result);
+            }
+        }
 
         test_result.print_result(&build_meta, cli.verbose);
         let summary = test_result.summary();
@@ -587,6 +669,14 @@ fn run_test_rr(
             Ok(1)
         }
     }
+}
+
+/// The nodes wanted to run a test for a build target
+fn node_from_target(x: BuildTarget) -> [BuildPlanNode; 2] {
+    [
+        BuildPlanNode::make_executable(x),
+        BuildPlanNode::generate_test_info(x),
+    ]
 }
 
 /// Apply the package filter for the given package, file and index combination,
@@ -607,14 +697,6 @@ fn apply_package_filter(
 
     out_filter: &mut TestFilter,
 ) -> anyhow::Result<Vec<BuildPlanNode>> {
-    // The node needed for each target
-    let node_from_target = |x| {
-        [
-            BuildPlanNode::make_executable(x),
-            BuildPlanNode::generate_test_info(x),
-        ]
-    };
-
     // No filter, return all packages and all targets
     let Some(package_filter) = package_filter else {
         return Ok(affected_packages
