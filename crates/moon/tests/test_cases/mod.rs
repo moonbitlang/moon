@@ -5391,9 +5391,9 @@ fn moon_check_and_test_single_file() {
         check(
             get_stdout(&dir, ["test", &single_mbt, "-i", "1", "-u"]),
             expect![[r#"
-    
+
                 Auto updating expect tests and retesting ...
-    
+
                 ------------------ 22222222 ------------------
                 Total tests: 1, passed: 1, failed: 0.
             "#]],
