@@ -95,7 +95,7 @@ pub struct TestSubcommand {
     pub build_flags: BuildFlags,
 
     /// Run test in the specified package
-    #[clap(short, long, num_args(0..))]
+    #[clap(short, long, num_args(1..))]
     pub package: Option<Vec<String>>,
 
     /// Run test in the specified file. Only valid when `--package` is also specified.
@@ -506,6 +506,9 @@ pub(crate) fn run_test_or_bench_internal(
     }
     if cmd.file.is_none() && cmd.index.is_some() {
         anyhow::bail!("`--index` must be used with `--file`");
+    }
+    if cmd.file.is_none() && cmd.doc_index.is_some() {
+        anyhow::bail!("`--doc-index` must be used with `--file`");
     }
 
     if cli.unstable_feature.rupes_recta {
