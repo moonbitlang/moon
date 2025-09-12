@@ -27,12 +27,16 @@ use crate::run::runtest::{
 };
 
 /// Perform promotion on all test snapshots and expect tests met. Returns
-/// affected build targets (to be rerun).
-pub fn perform_promotion(results: &ReplaceableTestResults) -> anyhow::Result<PackageFilter> {
+/// the total number of tests promoted, along with a filter indicating which
+/// tests needs rerunning.
+pub fn perform_promotion(
+    results: &ReplaceableTestResults,
+) -> anyhow::Result<(usize, PackageFilter)> {
     let mut res = PackageFilter::default();
 
     let mut to_update_snapshot = vec![];
     let mut to_update_expect = vec![];
+    let mut count = 0;
     for (target, target_result) in &results.map {
         for (file, v) in &target_result.map {
             for (idx, result) in v {
@@ -40,12 +44,14 @@ pub fn perform_promotion(results: &ReplaceableTestResults) -> anyhow::Result<Pac
                     TestResultKind::SnapshotTestFailed => {
                         info!(?target, file, idx, "Need to update snapshot");
                         res.add_one(*target, Some(file), Some(*idx));
-                        to_update_snapshot.push(result)
+                        to_update_snapshot.push(result);
+                        count += 1;
                     }
                     TestResultKind::ExpectTestFailed => {
                         info!(?target, file, idx, "Need to update expect");
                         res.add_one(*target, Some(file), Some(*idx));
-                        to_update_expect.push(result)
+                        to_update_expect.push(result);
+                        count += 1;
                     }
                     _ => {}
                 }
@@ -65,7 +71,7 @@ pub fn perform_promotion(results: &ReplaceableTestResults) -> anyhow::Result<Pac
     promote_all_snapshots(to_update_snapshot).context("Failed to promote snapshots")?;
     promote_all_expects(to_update_expect).context("Failed to promote expects")?;
 
-    Ok(res)
+    Ok((count, res))
 }
 
 /// Perform promotion on all test snapshots met.

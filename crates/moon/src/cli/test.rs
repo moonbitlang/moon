@@ -588,7 +588,7 @@ fn run_test_rr(
             loop {
                 // Promote test results
                 let promotion_source = last_test_result.as_ref().unwrap_or(&test_result);
-                let rerun_filter =
+                let (rerun_count, rerun_filter) =
                     perform_promotion(promotion_source).expect("Failed to promote tests");
                 if rerun_filter.is_empty() {
                     break; // Nothing to promote
@@ -604,7 +604,7 @@ fn run_test_rr(
                 }
                 loop_count += 1;
 
-                warn!("Updating expect test results and rerunning...");
+                warn!("Updated {rerun_count} snapshots and retesting...");
 
                 // Get the graph from backup
                 let build_graph = build_graph_backup
