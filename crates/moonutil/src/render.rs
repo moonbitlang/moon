@@ -109,7 +109,8 @@ impl MooncDiagnostic {
         check_patch_file: Option<PathBuf>,
         explain: bool,
         render_no_loc_level: DiagnosticLevel,
-        (target_dir, source_dir): (PathBuf, PathBuf),
+        source_dir: &Path,
+        target_dir: &Path,
     ) -> Option<ReportKind<'static>> {
         let bail_print_original = || {
             eprintln!("{content}");
@@ -123,8 +124,7 @@ impl MooncDiagnostic {
         // a workaround for rendering the diagnostaic and error in generated test driver file correctly
         'fail_to_get_source: {
             if diagnostic.location.path.contains("__generated_driver_for_") {
-                let Ok(file) = crate::common::read_module_desc_file_in_dir(source_dir.as_path())
-                else {
+                let Ok(file) = crate::common::read_module_desc_file_in_dir(source_dir) else {
                     error!(
                         "when working around driver file path issue, failed to read module.desc file in source dir: {}",
                         source_dir.display()
@@ -134,15 +134,27 @@ impl MooncDiagnostic {
                 let source = file.source;
                 let source_code_dir = match source {
                     Some(source) => source_dir.join(source),
-                    None => source_dir,
+                    None => source_dir.to_owned(),
                 };
-                let rel_path = PathBuf::from(
-                    diagnostic
-                        .location
-                        .path
-                        .clone()
-                        .replace(&source_code_dir.display().to_string(), "."),
-                );
+
+                // Normalize source dir. Work around when `source_dir` ends with `.`
+                let Ok(source_code_dir) = dunce::canonicalize(&source_code_dir) else {
+                    warn!(
+                        "when working around driver file path issue, failed to canonicalize source code dir: {}",
+                        source_code_dir.display()
+                    );
+                    break 'fail_to_get_source;
+                };
+                let diag_path: &Path = diagnostic.location.path.as_ref();
+                let Ok(rel_path) = diag_path.strip_prefix(&source_code_dir) else {
+                    warn!(
+                        "when working around driver file path issue, failed to strip prefix {} from {}",
+                        source_code_dir.display(),
+                        diag_path.display()
+                    );
+                    break 'fail_to_get_source;
+                };
+
                 let mbt_file_path = target_dir.join(rel_path);
                 diagnostic.location.path = mbt_file_path.display().to_string();
             }

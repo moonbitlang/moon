@@ -151,7 +151,8 @@ pub fn render_and_catch_callback(
                         check_patch_file.clone(),
                         explain,
                         render_no_loc,
-                        (target_dir.clone(), source_dir.clone()),
+                        &source_dir,
+                        &target_dir,
                     )
                 };
                 catcher.lock().unwrap().append_content(content, report_kind);
@@ -285,10 +286,8 @@ pub fn n2_run_interface(
         .as_ref()
         .is_some_and(|it| it.explain);
 
-    let (target_dir, source_dir) = (
-        moonbuild_opt.target_dir.clone(),
-        moonbuild_opt.source_dir.clone(),
-    );
+    let target_dir = moonbuild_opt.target_dir.clone();
+    let source_dir = moonbuild_opt.source_dir.clone();
     let render_no_loc = moonbuild_opt.render_no_loc;
     let render_and_catch = render_and_catch_callback(
         Arc::clone(&logger),
@@ -297,8 +296,8 @@ pub fn n2_run_interface(
         check_patch_file,
         explain,
         render_no_loc,
-        source_dir,
-        target_dir,
+        source_dir.clone(),
+        target_dir.clone(),
     );
 
     if moonbuild_opt.build_graph {
@@ -336,10 +335,7 @@ pub fn n2_run_interface(
     let output_path = moonbuild_opt
         .target_dir
         .join(format!("{}.output", moonbuild_opt.run_mode.to_dir_name()));
-    let (target_dir, source_dir) = (
-        moonbuild_opt.target_dir.clone(),
-        moonbuild_opt.source_dir.clone(),
-    );
+
     if let Some(0) = res {
         // if no work to do, then do not rewrite (build | check | test ...).output
         // instead, read it and print
