@@ -182,13 +182,13 @@ fn main {
     let mut start = 0
     while i < s.length() {
       if moonbit_unsafe_char_from_int(moonbit_unsafe_int_from_int(s[i])) == sep {
-        res.push(s.substring(start = start, end = i))
+        res.push(s.unsafe_substring(start = start, end = i))
         start = i + 1
       }
       i += 1
     }
     if start < s.length() {
-      res.push(s.substring(start = start, end = s.length()))
+      res.push(s.unsafe_substring(start = start, end = s.length()))
     }
     res
   }
