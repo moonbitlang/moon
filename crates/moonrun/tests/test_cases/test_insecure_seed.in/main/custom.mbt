@@ -1,0 +1,1 @@
+pub fn custom_random_import() -> UInt64 = "moonbit:ffi" "insecure_seed"
