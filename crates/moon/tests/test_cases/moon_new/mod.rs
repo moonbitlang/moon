@@ -383,7 +383,7 @@ fn test_moon_new_snapshot() {
             {
               "name": "testuser/asdf",
               "version": "0.1.0",
-              "readme": "README.md",
+              "readme": "README.mbt.md",
               "repository": "",
               "license": "Apache-2.0",
               "keywords": [],
@@ -518,7 +518,7 @@ fn test_moon_new_snapshot() {
             {
               "name": "moonbitlang/hello",
               "version": "0.1.0",
-              "readme": "README.md",
+              "readme": "README.mbt.md",
               "repository": "",
               "license": "Apache-2.0",
               "keywords": [],
@@ -629,7 +629,7 @@ fn test_moon_new_snapshot() {
             {
               "name": "moonbitlang/wow",
               "version": "0.1.0",
-              "readme": "README.md",
+              "readme": "README.mbt.md",
               "repository": "",
               "license": "Apache-2.0",
               "keywords": [],

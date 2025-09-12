@@ -22,14 +22,156 @@ use std::path::Path;
 use anyhow::Context;
 use colored::Colorize;
 
-use moonutil::common::MOON_PKG_JSON;
-use moonutil::module::MoonModJSON;
-use moonutil::package::MoonPkgJSON;
-use moonutil::package::PkgJSONImportItem;
-
-use moonutil::common::MOON_MOD_JSON;
+use handlebars::Handlebars;
 
 use moonutil::git::{git_init_repo, is_in_git_repo};
+use serde::{Deserialize, Serialize};
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct Template {
+    #[serde(default)]
+    files: Vec<TemplateFile>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(untagged)]
+enum TemplateFile {
+    PlainFile {
+        path: std::path::PathBuf,
+        content: String,
+        #[serde(default)]
+        executable: bool,
+    },
+    SymLink {
+        path: std::path::PathBuf,
+        target: std::path::PathBuf,
+    },
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct TemplateEnv {
+    username: String,
+    module: String,
+    package: String,
+}
+
+impl Template {
+    fn from_toml(toml_str: &str) -> anyhow::Result<Self> {
+        toml::from_str(toml_str).context("Failed to parse template from TOML")
+    }
+
+    fn create(&self, base_dir: &Path, user: &String, module: &String) -> anyhow::Result<()> {
+        let reg = Handlebars::new();
+        for entry in &self.files {
+            match &entry {
+                TemplateFile::PlainFile {
+                    content,
+                    path,
+                    executable,
+                } => {
+                    // Prepare template environment
+                    let parent = path.parent().unwrap_or_else(|| Path::new(""));
+                    let template_env = TemplateEnv {
+                        username: user.to_string(),
+                        module: module.to_string(),
+                        package: std::path::PathBuf::from(module)
+                            .join(parent)
+                            .file_name()
+                            .unwrap()
+                            .to_string_lossy()
+                            .to_string(),
+                    };
+
+                    // Special case where the file depend on the current package
+                    let file = path.file_name().unwrap_or_else(|| std::ffi::OsStr::new(""));
+                    let actual_file = reg
+                        .render_template(file.to_str().unwrap(), &template_env)
+                        .context(format!(
+                            "Failed to render template for file name: {}",
+                            file.to_string_lossy()
+                        ))?;
+                    let full_path = base_dir.join(parent).join(actual_file);
+                    // Create parent directories if they don't exist
+                    if let Some(parent) = full_path.parent() {
+                        std::fs::create_dir_all(parent)
+                            .context(format!("Failed to create directory: {}", parent.display()))?;
+                    }
+                    let mut file = std::fs::File::create(&full_path)
+                        .context(format!("Failed to create file: {}", full_path.display()))?;
+                    // handle template for file content
+                    let rendered = reg
+                        .render_template(content, &template_env)
+                        .context(format!(
+                            "Failed to render template for file: {}",
+                            full_path.display()
+                        ))?;
+                    file.write_all(rendered.as_bytes())
+                        .context(format!("Failed to write to file: {}", full_path.display()))?;
+                    #[cfg(unix)]
+                    {
+                        if *executable && file.set_permissions(
+                            <std::fs::Permissions as std::os::unix::fs::PermissionsExt>::from_mode(0o755),
+                        )
+                        .is_err() {
+                        eprintln!(
+                    "{} failed to set permissions on pre-commit hook. Please set it executable manually.",
+                    "Warning:".bold().yellow(),
+                        );
+                    }
+                    }
+                }
+                TemplateFile::SymLink { target, path } => {
+                    let full_path = base_dir.join(path);
+                    // Create parent directories if they don't exist
+                    if let Some(parent) = full_path.parent() {
+                        std::fs::create_dir_all(parent)
+                            .context(format!("Failed to create directory: {}", parent.display()))?;
+                    }
+                    // The creation of symbolic links won't fail the whole process.
+                    #[cfg(unix)]
+                    {
+                        if let Err(e) = std::os::unix::fs::symlink(target, &full_path) {
+                            eprintln!(
+                                "{} failed to create symbolic link: {} -> {}. {}",
+                                "Warning:".bold().yellow(),
+                                full_path.display(),
+                                target.display(),
+                                e
+                            );
+                        }
+                    }
+                    #[cfg(windows)]
+                    {
+                        // Determine if target is a directory or file
+                        let target_path = base_dir.join(target);
+                        if target_path.is_dir() {
+                            if let Err(e) = std::os::windows::fs::symlink_dir(target, &full_path) {
+                                eprintln!(
+                                    "{} failed to create directory symlink: {} -> {}. You may need to enable developer mode or have administrator privileges. {}",
+                                    "Warning:".bold().yellow(),
+                                    full_path.display(),
+                                    target.display(),
+                                    e
+                                );
+                            }
+                        } else {
+                            if let Err(e) = std::os::windows::fs::symlink_file(target, &full_path) {
+                                eprintln!(
+                                    "{} failed to create file symlink: {} -> {}. You may need to enable developer mode or have administrator privileges. {}",
+                                    "Warning:".bold().yellow(),
+                                    full_path.display(),
+                                    target.display(),
+                                    e
+                                );
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        Ok(())
+    }
+}
 
 pub fn create_or_warning(path: &Path) -> anyhow::Result<()> {
     if path.exists() {
@@ -45,258 +187,43 @@ pub fn create_or_warning(path: &Path) -> anyhow::Result<()> {
 }
 
 pub fn moon_new_default(target_dir: &Path, user: String, name: String) -> anyhow::Result<i32> {
-    let cake_full_name = format!("{user}/{name}");
-    let short_name = name.rsplit_once('/').map_or(&*name, |(_, n)| n);
-    common(target_dir, &cake_full_name)?;
+    let template: Template =
+        Template::from_toml(include_str!("../template/moon_new_template.toml"))
+            .context("failed to load template")?;
 
-    let cmd_dir = target_dir.join("cmd");
-    create_or_warning(&cmd_dir)?;
-    let cmd_main_dir = cmd_dir.join("main");
-    create_or_warning(&cmd_main_dir)?;
-    // cmd/main/${MOON_PKG}
-    {
-        let main_moon_pkg = cmd_main_dir.join(MOON_PKG_JSON);
-        let j = MoonPkgJSON {
-            name: None,
-            is_main: Some(true),
-            import: Some(moonutil::package::PkgJSONImport::List(vec![
-                PkgJSONImportItem::Object {
-                    path: cake_full_name.clone(),
-                    alias: Some("lib".to_string()),
-                    sub_package: None,
-                    value: None,
-                },
-            ])),
-            wbtest_import: None,
-            test_import: None,
-            test_import_all: None,
-            link: None,
-            warn_list: None,
-            alert_list: None,
-            targets: None,
-            pre_build: None,
-            bin_name: None,
-            bin_target: None,
-            supported_targets: None,
-            native_stub: None,
-            virtual_pkg: None,
-            implement: None,
-            overrides: None,
-            sub_package: None,
-        };
-        moonutil::common::write_package_json_to_file(&j, &main_moon_pkg)?;
-    }
-    // cmd/main/main.mbt
-    {
-        let main_moon = cmd_main_dir.join("main.mbt");
-        let content = include_str!(concat!(
-            env!("CARGO_MANIFEST_DIR"),
-            "/../moonbuild/template/moon_new_template/main.mbt"
-        ));
+    std::fs::create_dir_all(target_dir).context("failed to create target directory")?;
 
-        let mut file = std::fs::File::create(main_moon).unwrap();
-        file.write_all(content.as_bytes()).unwrap();
-    }
-    let lib_dir = target_dir;
-    // <package>.mbt
-    {
-        let hello_mbt = lib_dir.join(format!("{short_name}.mbt"));
-        let content = include_str!(concat!(
-            env!("CARGO_MANIFEST_DIR"),
-            "/../moonbuild/template/moon_new_template/hello.mbt"
-        ));
-        let mut file = std::fs::File::create(hello_mbt).unwrap();
-        file.write_all(content.as_bytes()).unwrap();
-    }
-    // <package>_test.mbt
-    {
-        let hello_mbt = lib_dir.join(format!("{short_name}_test.mbt"));
-        let content = include_str!(concat!(
-            env!("CARGO_MANIFEST_DIR"),
-            "/../moonbuild/template/moon_new_template/hello_test.mbt"
-        ));
+    template.create(target_dir, &user, &name)?;
 
-        let mut file = std::fs::File::create(hello_mbt).unwrap();
-        file.write_all(content.as_bytes()).unwrap();
-    }
-    // <package>/moon.pkg.json
-    {
-        let lib_moon_pkg = lib_dir.join(MOON_PKG_JSON);
-        let j = MoonPkgJSON {
-            name: None,
-            is_main: None,
-            import: None,
-            wbtest_import: None,
-            test_import: None,
-            test_import_all: None,
-            link: None,
-            warn_list: None,
-            alert_list: None,
-            targets: None,
-            pre_build: None,
-            bin_name: None,
-            bin_target: None,
-            supported_targets: None,
-            native_stub: None,
-            virtual_pkg: None,
-            implement: None,
-            overrides: None,
-            sub_package: None,
-        };
-        moonutil::common::write_package_json_to_file(&j, &lib_moon_pkg)?;
+    match is_in_git_repo(target_dir) {
+        Ok(b) => {
+            if !b {
+                if let Err(e) = git_init_repo(target_dir) {
+                    eprintln!(
+                        "{} failed to initialize git repository. {}",
+                        "Warning:".bold().yellow(),
+                        e
+                    );
+                }
+            }
+        }
+        Err(e) => {
+            eprintln!(
+                "{} failed to check if {} is in a git repository. Is git available? {}",
+                "Warning:".bold().yellow(),
+                target_dir.display(),
+                e
+            );
+        }
     }
 
     println!(
-        "{} {} at {}",
+        "{} {}/{} at {}",
         "Created".bold().green(),
-        cake_full_name,
+        user,
+        name,
         target_dir.display()
     );
-
-    Ok(0)
-}
-
-fn common(target_dir: &Path, cake_full_name: &str) -> anyhow::Result<i32> {
-    std::fs::create_dir_all(target_dir).context("failed to create target directory")?;
-
-    if !is_in_git_repo(target_dir)? {
-        git_init_repo(target_dir)?;
-    }
-
-    {
-        let m: MoonModJSON = MoonModJSON {
-            name: cake_full_name.into(),
-            version: Some("0.1.0".parse().unwrap()),
-            deps: None,
-            bin_deps: None,
-            readme: Some("README.md".into()),
-            repository: Some("".into()),
-            license: Some("Apache-2.0".into()),
-            keywords: Some(vec![]),
-            description: Some("".into()),
-
-            compile_flags: None,
-            link_flags: None,
-            checksum: None,
-            source: None,
-            ext: Default::default(),
-
-            alert_list: None,
-            warn_list: None,
-
-            include: None,
-            exclude: None,
-
-            scripts: None,
-            preferred_target: None,
-
-            __moonbit_unstable_prebuild: None,
-        };
-        moonutil::common::write_module_json_to_file(&m, target_dir)
-            .context(format!("failed to write `{MOON_MOD_JSON}`"))?;
-    }
-    // .gitignore
-    {
-        let gitignore = target_dir.join(".gitignore");
-        let content = [".DS_Store", "target/", ".mooncakes/", ".moonagent/"];
-        let content = content.join("\n") + "\n";
-        let mut file = std::fs::File::create(gitignore).unwrap();
-        file.write_all(content.as_bytes()).unwrap();
-    }
-    // READMD.mbt.md
-    {
-        let md_file = target_dir.join("README.mbt.md");
-        let content = format!("# {cake_full_name}");
-        let mut file = std::fs::File::create(md_file).unwrap();
-        file.write_all(content.as_bytes()).unwrap();
-    }
-    // README.md
-    {
-        let readme_file = target_dir.join("README.md");
-
-        #[cfg(unix)]
-        {
-            if let Err(e) = std::os::unix::fs::symlink("README.mbt.md", &readme_file) {
-                eprintln!(
-                    "{} failed to create symbolic link to README.mbt.md. {}",
-                    "Warning:".bold().yellow(),
-                    e
-                );
-            }
-        }
-
-        #[cfg(windows)]
-        {
-            if let Err(e) = std::os::windows::fs::symlink_file("README.mbt.md", &readme_file) {
-                eprintln!(
-                    "{} failed to create symbolic link to README.mbt.md. You may need to enable developer mode or have administrator privileges. {}",
-                    "Warning:".bold().yellow(),
-                    e
-                );
-            }
-        }
-    }
-    // Agents.md
-    {
-        let agents_file = target_dir.join("Agents.md");
-        let content = include_str!(concat!(
-            env!("CARGO_MANIFEST_DIR"),
-            "/../moonbuild/template/moon_new_template/Agents.md"
-        ));
-        let mut file = std::fs::File::create(agents_file).unwrap();
-        file.write_all(content.as_bytes()).unwrap();
-    }
-
-    // LICENSE
-    {
-        let license_file = target_dir.join("LICENSE");
-        let content = include_str!(concat!(
-            env!("CARGO_MANIFEST_DIR"),
-            "/../moonbuild/template/apache-2.0.txt"
-        ));
-        let mut file = std::fs::File::create(license_file).unwrap();
-        file.write_all(content.as_bytes()).unwrap();
-    }
-
-    // .githooks/pre-commit
-    {
-        let githooks_dir = target_dir.join(".githooks");
-        std::fs::create_dir_all(&githooks_dir).unwrap();
-        let pre_commit_hook = githooks_dir.join("pre-commit");
-        let content = include_str!(concat!(
-            env!("CARGO_MANIFEST_DIR"),
-            "/../moonbuild/template/moon_new_template/.githooks/pre-commit"
-        ));
-        let mut file = std::fs::File::create(pre_commit_hook).unwrap();
-        file.write_all(content.as_bytes()).unwrap();
-        #[cfg(unix)]
-        {
-            if file
-                .set_permissions(
-                    <std::fs::Permissions as std::os::unix::fs::PermissionsExt>::from_mode(0o755),
-                )
-                .is_err()
-            {
-                eprintln!(
-                    "{} failed to set permissions on pre-commit hook. Please set it executable manually.",
-                    "Warning:".bold().yellow(),
-                );
-            }
-        }
-    }
-
-    // .githooks/README.md
-    {
-        let githooks_dir = target_dir.join(".githooks");
-        std::fs::create_dir_all(&githooks_dir).unwrap();
-        let readme_file = githooks_dir.join("README.md");
-        let content = include_str!(concat!(
-            env!("CARGO_MANIFEST_DIR"),
-            "/../moonbuild/template/moon_new_template/.githooks/README.md"
-        ));
-        let mut file = std::fs::File::create(readme_file).unwrap();
-        file.write_all(content.as_bytes()).unwrap();
-    }
 
     Ok(0)
 }
