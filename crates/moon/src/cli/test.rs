@@ -16,12 +16,15 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
+use anyhow::bail;
 use anyhow::Context;
 use colored::Colorize;
 use indexmap::IndexMap;
+use log::warn;
 use moonbuild::dry_run;
 use moonbuild::entry;
 use moonbuild_rupes_recta::model::BuildPlanNode;
+use moonbuild_rupes_recta::model::BuildTarget;
 use moonbuild_rupes_recta::model::PackageId;
 use moonbuild_rupes_recta::model::TargetKind;
 use mooncake::pkg::sync::auto_sync;
@@ -41,6 +44,7 @@ use moonutil::mooncakes::RegistryConfig;
 use moonutil::package::Package;
 use moonutil::path::PathComponent;
 use n2::trace;
+use smallvec::SmallVec;
 use std::collections::HashMap;
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
@@ -49,6 +53,7 @@ use crate::cli::pre_build::scan_with_x_build;
 use crate::rr_build;
 use crate::rr_build::preconfig_compile;
 use crate::rr_build::BuildConfig;
+use crate::run::perform_promotion;
 use crate::run::TestFilter;
 use crate::run::TestIndex;
 
@@ -90,7 +95,7 @@ pub struct TestSubcommand {
     pub build_flags: BuildFlags,
 
     /// Run test in the specified package
-    #[clap(short, long, num_args(0..))]
+    #[clap(short, long, num_args(1..))]
     pub package: Option<Vec<String>>,
 
     /// Run test in the specified file. Only valid when `--package` is also specified.
@@ -502,6 +507,9 @@ pub(crate) fn run_test_or_bench_internal(
     if cmd.file.is_none() && cmd.index.is_some() {
         anyhow::bail!("`--index` must be used with `--file`");
     }
+    if cmd.file.is_none() && cmd.doc_index.is_some() {
+        anyhow::bail!("`--doc-index` must be used with `--file`");
+    }
 
     if cli.unstable_feature.rupes_recta {
         run_test_rr(cli, &cmd, source_dir, target_dir, display_backend_hint)
@@ -526,60 +534,139 @@ fn run_test_rr(
         RunMode::Test,
     );
 
-    validate_filtering(
-        cmd.package.as_deref(),
-        cmd.file.as_ref(),
-        *cmd.index,
-        *cmd.doc_index,
-    )?;
-
-    let filter = cmd.package.clone();
+    let mut filter = TestFilter::default();
     let (build_meta, build_graph) = rr_build::plan_build(
         preconfig,
         &cli.unstable_feature,
         source_dir,
         target_dir,
-        Box::new(move |resolved, main_modules| calc_user_intent(resolved, main_modules, filter)),
+        Box::new(|resolved, main_modules| {
+            calc_user_intent(resolved, main_modules, |r, m| {
+                apply_package_filter(
+                    r,
+                    m,
+                    cmd.package.as_deref(),
+                    cmd.file.as_deref(),
+                    *cmd.index,
+                    *cmd.doc_index,
+                    &mut filter,
+                )
+            })
+        }),
     )?;
 
     if cli.dry_run {
-        rr_build::print_dry_run(&build_graph, &build_meta.artifacts, source_dir, target_dir);
+        rr_build::print_dry_run(
+            &build_graph,
+            build_meta.artifacts.values(),
+            source_dir,
+            target_dir,
+        );
         // The legacy behavior does not print the test commands, so we skip it too.
 
         Ok(0)
     } else {
-        let result = rr_build::execute_build(
-            &BuildConfig::from_flags(cmd.build_flags),
-            build_graph,
-            target_dir,
-        )?;
+        let build_config = BuildConfig::from_flags(cmd.build_flags);
+
+        // since n2 build consumes the graph, we back it up for reruns
+        let build_graph_backup = cmd.update.then(|| build_graph.clone());
+        let result = rr_build::execute_build(&build_config, build_graph, target_dir)?;
 
         if !result.successful() || cmd.build_only {
             return Ok(result.return_code_for_success());
         }
 
-        let filter = TestFilter {
-            file: cmd.file.clone(),
-            index: (*cmd.index)
-                .map(TestIndex::Regular)
-                .or_else(|| (*cmd.doc_index).map(TestIndex::DocTest)),
-        };
-
-        // Run tests using artifacts
-        let test_result = crate::run::run_tests(&build_meta, target_dir, &filter, cli.verbose)?;
+        let mut test_result = crate::run::run_tests(&build_meta, target_dir, &filter)?;
 
         let backend_hint = display_backend_hint
             .and(cmd.build_flags.target_backend)
             .map(|t| t.to_backend_ext());
 
-        print_test_summary(
-            test_result.total,
-            test_result.passed,
-            cli.quiet,
-            backend_hint,
-        );
+        if cmd.update {
+            let mut loop_count = 0;
+            let mut last_test_result = None;
+            loop {
+                // Promote test results
+                let promotion_source = last_test_result.as_ref().unwrap_or(&test_result);
+                let (rerun_count, rerun_filter) =
+                    perform_promotion(promotion_source).expect("Failed to promote tests");
+                if rerun_filter.is_empty() {
+                    break; // Nothing to promote
+                }
 
-        if test_result.passed() {
+                // Apply loop count limits
+                if loop_count >= cmd.limit {
+                    warn!(
+                        "reached the limit of {} update passes, stopping further updates.",
+                        cmd.limit
+                    );
+                    break;
+                }
+                loop_count += 1;
+
+                warn!("Updated {rerun_count} snapshots and retesting...");
+
+                // Get the graph from backup
+                let build_graph = build_graph_backup
+                    .as_ref()
+                    .cloned()
+                    .expect("build graph backup should be present when update is true");
+
+                // Calculate which files to rebuild
+                let want_files = rerun_filter
+                    .0
+                    .keys()
+                    .cloned() // All targets to rerun
+                    .flat_map(node_from_target) // converted to nodes
+                    .flat_map(|node| {
+                        // their artifacts
+                        build_meta
+                            .artifacts
+                            .get(&node)
+                            .expect("test node from the last test run should have artifact")
+                            .artifacts
+                            .as_slice()
+                    });
+
+                // Run the build
+                let result = rr_build::execute_build_partial(
+                    &build_config,
+                    build_graph,
+                    target_dir,
+                    Box::new(|work| {
+                        for file_path in want_files {
+                            let file_path_str = file_path.to_string_lossy();
+                            let file = work
+                                .lookup(&file_path_str)
+                                .expect("File should exist in work");
+                            work.want_file(file).context("Failed to want file")?;
+                        }
+                        Ok(())
+                    }),
+                )?;
+
+                if !result.successful() {
+                    return Ok(result.return_code_for_success());
+                }
+
+                // Run the tests
+                let rerun_filter = TestFilter {
+                    filter: Some(rerun_filter),
+                };
+                let new_test_result =
+                    crate::run::run_tests(&build_meta, target_dir, &rerun_filter)?;
+
+                // Merge test results
+                test_result.merge(&new_test_result);
+                last_test_result = Some(new_test_result);
+            }
+        }
+
+        test_result.print_result(&build_meta, cli.verbose);
+        let summary = test_result.summary();
+        print_test_summary(summary.total, summary.passed, cli.quiet, backend_hint);
+
+        if summary.total == summary.passed {
             Ok(0)
         } else {
             Ok(1)
@@ -587,33 +674,130 @@ fn run_test_rr(
     }
 }
 
-fn validate_filtering(
-    package: Option<&[String]>,
-    file: Option<&String>,
-    index: Option<u32>,
-    doc_index: Option<u32>,
-) -> anyhow::Result<()> {
-    if package.is_none() && (file.is_some() || index.is_some() || doc_index.is_some()) {
-        anyhow::bail!("Cannot filter by file or index without specifying a package");
-    }
-    if let Some(pkgs) = package {
-        if pkgs.len() != 1 && (file.is_some() || index.is_some() || doc_index.is_some()) {
-            anyhow::bail!("Cannot filter by file or index when multiple packages are specified");
-        }
-    }
-    if file.is_none() && (index.is_some() || doc_index.is_some()) {
-        anyhow::bail!("Cannot filter by index without specifying a file");
-    }
-    if index.is_some() && doc_index.is_some() {
-        anyhow::bail!("Cannot filter by both regular index and doc test index");
-    }
-    Ok(())
+/// The nodes wanted to run a test for a build target
+fn node_from_target(x: BuildTarget) -> [BuildPlanNode; 2] {
+    [
+        BuildPlanNode::make_executable(x),
+        BuildPlanNode::generate_test_info(x),
+    ]
 }
 
+/// Apply the package filter for the given package, file and index combination,
+/// sets the package filter, and returns the list of build plan nodes.
+///
+/// This function couples intent calculation and filter generation, because the
+/// both the test filter and user intent wants the same `BuildTarget` list, but
+/// the earliest time we can get them is during intent calculation. Since the
+/// fuzzy matching process is quite complex, we would avoid doing it twice.
+fn apply_package_filter(
+    affected_packages: impl Iterator<Item = PackageId>,
+    resolve_output: &moonbuild_rupes_recta::ResolveOutput,
+
+    package_filter: Option<&[String]>,
+    file_filter: Option<&str>,
+    index_filter: Option<u32>,
+    doc_index_filter: Option<u32>,
+
+    out_filter: &mut TestFilter,
+) -> anyhow::Result<Vec<BuildPlanNode>> {
+    // No filter, return all packages and all targets
+    let Some(package_filter) = package_filter else {
+        return Ok(affected_packages
+            .flat_map(move |x| {
+                TargetKind::all_tests()
+                    .iter()
+                    .copied()
+                    .map(move |t| x.build_target(t))
+            })
+            .flat_map(node_from_target)
+            .collect());
+    };
+
+    // We deliberately didn't allow a string to be parsed into a package
+    // name, because different package may have a same name. However, in a
+    // module the package name should be unique, so we can make a map here.
+    let name_map = affected_packages
+        .map(|id| {
+            let name = resolve_output.pkg_dirs.get_package(id).fqn.to_string();
+            (name, id)
+        })
+        .collect::<HashMap<_, _>>();
+
+    // Fuzzy match a string from the map
+    let fuzzy_names = |s: &str| -> SmallVec<[PackageId; 1]> {
+        if let Some(&id) = name_map.get(s) {
+            SmallVec::from_buf([id])
+        } else {
+            let all_names = name_map.keys().map(|k| k.as_str());
+            let xs = moonutil::fuzzy_match::fuzzy_match(s, all_names);
+            if let Some(xs) = xs {
+                xs.into_iter()
+                    .filter_map(|name| name_map.get(&name).copied())
+                    .collect()
+            } else {
+                warn!("no package found matching test filter `{}`", s);
+                SmallVec::new()
+            }
+        }
+    };
+
+    let mut filtered_package_ids = SmallVec::<[PackageId; 1]>::new();
+
+    // Collect all the package ids that match the filter
+    for p in package_filter {
+        let names = fuzzy_names(p);
+        if names.is_empty() {
+            warn!("no package found matching filter `{}`", p);
+        }
+        filtered_package_ids.extend_from_slice(&names);
+    }
+
+    // Calculate resulting filter & target list
+    #[allow(clippy::comparison_chain)]
+    if filtered_package_ids.len() == 1 {
+        // Single filtered package, can apply file/index filtering
+        let pkg_id = filtered_package_ids[0];
+        if let Some(id) = index_filter {
+            out_filter.add_autodetermine_target(pkg_id, file_filter, Some(TestIndex::Regular(id)));
+        } else if let Some(id) = doc_index_filter {
+            out_filter.add_autodetermine_target(pkg_id, file_filter, Some(TestIndex::DocTest(id)));
+        } else {
+            out_filter.add_autodetermine_target(pkg_id, file_filter, None);
+        }
+    } else if filtered_package_ids.len() > 1 {
+        // Multiple filtered package, check if file/index filtering is applied
+        if file_filter.is_some() || index_filter.is_some() || doc_index_filter.is_some() {
+            bail!("Cannot filter by file or index when multiple packages are specified. Matched packages: {filtered_package_ids:?}");
+        }
+        for &pkg_id in &filtered_package_ids {
+            out_filter.add_autodetermine_target(pkg_id, None, None);
+        }
+    } else {
+        // No package matched
+        warn!("no package found matching the given filters");
+        return Ok(vec![]);
+    }
+
+    // Generate the required nodes to out final build targets
+    let filt = out_filter
+        .filter
+        .as_ref()
+        .expect("filter should be set when packages are matched");
+    Ok(filt.0.keys().copied().flat_map(node_from_target).collect())
+}
+
+/// Calculate the user intent for the build system to construct.
+///
+/// `cb` is used to reduce the number of params needed to pass in. It is the
+/// same as [`apply_package_filter`].
 fn calc_user_intent(
     resolve_output: &moonbuild_rupes_recta::ResolveOutput,
     main_modules: &[moonutil::mooncakes::ModuleId],
-    package_filter: Option<Vec<String>>,
+
+    cb: impl FnOnce(
+        &mut dyn Iterator<Item = PackageId>,
+        &moonbuild_rupes_recta::ResolveOutput,
+    ) -> anyhow::Result<Vec<BuildPlanNode>>,
 ) -> Result<Vec<BuildPlanNode>, anyhow::Error> {
     let &[main_module_id] = main_modules else {
         panic!("No multiple main modules are supported");
@@ -624,65 +808,7 @@ fn calc_user_intent(
         .packages_for_module(main_module_id)
         .ok_or_else(|| anyhow::anyhow!("Cannot find the local module!"))?;
 
-    // Fuzzy matching --
-    // for package names to determine the final set of packages to test. This
-    // should not be a perf bottleneck; use a more generic way to handle.
-    let nodes: Box<dyn Iterator<Item = PackageId>> = if let Some(filter) = package_filter {
-        // We deliberately didn't allow a string to be parsed into a package
-        // name, because different package may have a same name. However, in a
-        // module the package name should be unique, so we can make a map here.
-        let name_map = packages
-            .values()
-            .map(|id| {
-                let name = resolve_output.pkg_dirs.get_package(*id).fqn.to_string();
-                (name, *id)
-            })
-            .collect::<HashMap<_, _>>();
-        let mut res = vec![];
-
-        for s in filter {
-            if let Some(&id) = name_map.get(&s) {
-                // exact matching
-                res.push(id);
-            } else {
-                let all_names = name_map.keys().map(|k| k.as_str());
-                let xs = moonutil::fuzzy_match::fuzzy_match(s.as_str(), all_names);
-                if let Some(xs) = xs {
-                    for name in xs {
-                        if let Some(&id) = name_map.get(&name) {
-                            res.push(id);
-                        } else {
-                            unreachable!("All names being fuzzy matched should be contained in the name list")
-                        }
-                    }
-                } else {
-                    log::warn!("no package found matching test filter `{}`", s);
-                }
-            }
-        }
-
-        Box::new(res.into_iter())
-    } else {
-        Box::new(packages.values().copied())
-    };
-
-    let nodes = nodes
-        .flat_map(|pkg_id| {
-            [
-                TargetKind::InlineTest,
-                TargetKind::WhiteboxTest,
-                TargetKind::BlackboxTest,
-            ]
-            .into_iter()
-            .flat_map(move |x| {
-                [
-                    BuildPlanNode::make_executable(pkg_id.build_target(x)),
-                    BuildPlanNode::generate_test_info(pkg_id.build_target(x)),
-                ]
-            })
-        })
-        .collect();
-    Ok(nodes)
+    cb(&mut packages.values().copied(), resolve_output)
 }
 
 pub(crate) fn run_test_or_bench_internal_legacy(

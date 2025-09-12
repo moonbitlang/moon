@@ -287,7 +287,8 @@ impl<'a> BuildPlanLowerContext<'a> {
     }
 
     fn lowered(&mut self, build: Build) -> Result<(), anyhow::Error> {
-        self.graph.add_build(build)
+        self.graph.add_build(build)?;
+        Ok(())
     }
 
     pub(super) fn set_commons(&self, common: &mut compiler::BuildCommonArgs) {

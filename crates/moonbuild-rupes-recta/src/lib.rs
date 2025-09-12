@@ -100,7 +100,6 @@
 
 pub mod build_lower;
 pub mod build_plan;
-mod cond_comp;
 pub mod discover;
 pub mod model;
 pub mod pkg_name;
@@ -114,6 +113,7 @@ pub mod resolve;
 pub mod fmt;
 
 // Random utilities
+pub mod cond_comp;
 pub mod metadata;
 mod special_cases;
 pub mod util;

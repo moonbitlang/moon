@@ -49,7 +49,7 @@ impl From<model::TargetKind> for Option<TestKind> {
 }
 
 /// A collection of conditions that affect compilation behavior.
-pub struct CompileCondition {
+pub(crate) struct CompileCondition {
     pub optlevel: OptLevel,
     pub test_kind: Option<TestKind>,
     pub backend: TargetBackend,
@@ -60,7 +60,7 @@ pub struct CompileCondition {
 ///
 /// Note: `pkg_file_path` is purely for error reporting, as required by
 /// [`moonutil::cond_expr::parse_cond_expr`].
-pub fn filter_files<'a>(
+pub(crate) fn filter_files<'a>(
     pkg: &'a MoonPkg,
     files: impl Iterator<Item = &'a Path> + 'a,
     cond: &'a CompileCondition,
@@ -91,7 +91,7 @@ pub fn filter_files<'a>(
 /// actually filtering.
 ///
 /// This function is used for generating metadata that feeds into other tools.
-pub fn file_metadatas<'a>(
+pub(crate) fn file_metadatas<'a>(
     pkg: &'a MoonPkg,
     files: impl Iterator<Item = &'a Path> + 'a,
 ) -> impl Iterator<Item = (&'a Path, FileTestKind, MetadataCompileCondition)> + 'a {
@@ -146,7 +146,7 @@ fn should_compile_using_pkg_cond_expr(
 }
 
 /// Get the target backend specified in the file name, if any. Returns that
-/// and the stripped filename.
+/// and the stripped filename. Expects a name already stripped of `.mbt`.
 pub fn get_file_target_backend(stripped_filename: &str) -> (Option<TargetBackend>, &str) {
     match stripped_filename.rsplit_once('.') {
         Some((prev, suffix)) => match TargetBackend::str_to_backend(suffix) {
@@ -181,10 +181,24 @@ fn should_compile_using_filename(name: &str, actual: &CompileCondition) -> Optio
     }
 }
 
-pub fn get_file_test_kind(name: &str) -> FileTestKind {
-    if name.ends_with("_wbtest") {
+/// Get the test kind of the file by checking its suffix, and also handles if
+/// the file has not been stripped of `.mbt` or target backend suffix.
+pub fn get_file_test_kind_full(file_name: &str) -> FileTestKind {
+    let stripped_name = if let Some(stripped) = file_name.strip_suffix(".mbt") {
+        stripped
+    } else {
+        file_name
+    };
+    let (_backend, remaining) = get_file_target_backend(stripped_name);
+    get_file_test_kind(remaining)
+}
+
+/// Get the test kind of the file by checking its suffix. Expects a name already
+/// stripped of `.mbt` and any target backend suffix.
+pub fn get_file_test_kind(stripped_name: &str) -> FileTestKind {
+    if stripped_name.ends_with("_wbtest") {
         FileTestKind::Whitebox
-    } else if name.ends_with("_test") {
+    } else if stripped_name.ends_with("_test") {
         FileTestKind::Blackbox
     } else {
         FileTestKind::NoTest

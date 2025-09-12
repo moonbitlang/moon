@@ -33,6 +33,7 @@ use std::{
 };
 
 use anyhow::Context;
+use indexmap::IndexMap;
 use moonbuild::entry::{
     create_progress_console, render_and_catch_callback, N2RunStats, ResultCatcher,
 };
@@ -63,8 +64,8 @@ pub use dry_run::{dry_print_command, print_dry_run, print_dry_run_all};
 ///
 /// Returns: A vector of [`UserIntent`]s, representing what the user would like
 /// to do
-pub type CalcUserIntentFn =
-    dyn FnOnce(&ResolveOutput, &[ModuleId]) -> anyhow::Result<Vec<BuildPlanNode>>;
+pub type CalcUserIntentFn<'b> = dyn for<'a> FnOnce(&'a ResolveOutput, &'a [ModuleId]) -> anyhow::Result<Vec<BuildPlanNode>>
+    + 'b;
 
 /// Build metadata containing information needed for build context and results.
 /// The build graph is kept separate to allow execute_build to take ownership of it.
@@ -73,7 +74,7 @@ pub struct BuildMeta {
     pub resolve_output: ResolveOutput,
 
     /// The list of artifacts that will be produced
-    pub artifacts: Vec<Artifacts>,
+    pub artifacts: IndexMap<BuildPlanNode, Artifacts>,
 
     /// The target backend used in this compile process
     pub target_backend: TargetBackend,
@@ -221,7 +222,7 @@ pub fn plan_build<'a>(
     unstable_features: &'a FeatureGate,
     source_dir: &'a Path,
     target_dir: &'a Path,
-    calc_user_intent: Box<CalcUserIntentFn>,
+    calc_user_intent: Box<CalcUserIntentFn<'a>>,
 ) -> anyhow::Result<(BuildMeta, n2::graph::Graph)> {
     let cfg = ResolveConfig::new_with_load_defaults(preconfig.frozen);
     let resolve_output = moonbuild_rupes_recta::resolve(&cfg, source_dir)?;
@@ -347,8 +348,31 @@ impl Default for BuildConfig {
 /// artifacts from the planning phase for any metadata they need.
 pub fn execute_build(
     cfg: &BuildConfig,
+    build_graph: n2::graph::Graph,
+    target_dir: &Path,
+) -> anyhow::Result<N2RunStats> {
+    execute_build_partial(
+        cfg,
+        build_graph,
+        target_dir,
+        Box::new(|work| work.want_every_file(None)),
+    )
+}
+
+/// Callback on the [`n2::work::Work`] to be done for target artifacts.
+type WantFileFn<'b> = dyn for<'a> FnOnce(&'a mut n2::work::Work) -> anyhow::Result<()> + 'b;
+
+/// Partially execute a build graph, same as [`execute_build`] otherwise.
+///
+/// Pass `want_files` callback to determine which artifacts to build.
+///
+/// This function is primarily used for rebuilding tests after snapshot test
+/// promotion.
+pub fn execute_build_partial(
+    cfg: &BuildConfig,
     mut build_graph: n2::graph::Graph,
     target_dir: &Path,
+    want_files: Box<WantFileFn>,
 ) -> anyhow::Result<N2RunStats> {
     // Generate n2 state
     // FIXME: This is extremely verbose and barebones, only for testing purpose
@@ -391,7 +415,7 @@ pub fn execute_build(
         &mut *prog_console,
         n2::smallmap::SmallMap::default(),
     );
-    work.want_every_file(None)?;
+    want_files(&mut work).context("Failed to determine the files to be built")?;
 
     // The actual execution done by the n2 executor
     let res = work.run()?;

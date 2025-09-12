@@ -102,7 +102,7 @@ pub fn run_info_rr(cli: UniversalFlags, cmd: InfoSubcommand) -> anyhow::Result<i
     if cli.dry_run {
         rr_build::print_dry_run(
             &build_graph,
-            &_build_meta.artifacts,
+            _build_meta.artifacts.values(),
             &source_dir,
             &target_dir,
         );

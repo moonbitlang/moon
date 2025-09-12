@@ -122,7 +122,7 @@ pub fn add_coverage_to_core_if_needed(
 
             // Check if the coverage library is available
             if !mdb.contains_package(MOONBITLANG_COVERAGE) {
-                log::warn!("Coverage library is not available in core module. Skipping relevant operations.");
+                log::info!("Coverage library is not available in core module. Skipping relevant operations.");
                 return Ok(());
             }
 
