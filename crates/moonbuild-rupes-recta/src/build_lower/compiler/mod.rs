@@ -157,7 +157,6 @@ pub enum WarnAlertConfig<'a> {
     #[default]
     Default,
     List(Cow<'a, str>),
-    DenyAll,
     AllowAll,
 }
 

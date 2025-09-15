@@ -311,6 +311,7 @@ impl<'a> BuildPlanLowerContext<'a> {
         } else {
             ErrorFormat::Regular
         };
+        common.deny_warn = self.opt.deny_warn;
     }
 
     #[instrument(level = Level::DEBUG, skip(self, flags))]

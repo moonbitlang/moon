@@ -178,6 +178,12 @@ impl<'a> BuildPlanLowerContext<'a> {
         };
         // Propagate debug/coverage flags and common settings
         cmd.common.doctest_only_sources = &info.doctest_files;
+        if let Some(w) = &info.warn_list {
+            cmd.common.warn_config = compiler::WarnAlertConfig::List(w.into());
+        }
+        if let Some(a) = &info.alert_list {
+            cmd.common.alert_config = compiler::WarnAlertConfig::List(a.into());
+        }
         cmd.flags.no_opt = self.opt.opt_level == OptLevel::Debug;
         cmd.flags.symbols = self.opt.debug_symbols;
         cmd.flags.enable_coverage = self.opt.enable_coverage;

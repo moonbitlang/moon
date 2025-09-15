@@ -65,6 +65,7 @@ pub struct BuildOptions {
     pub output_wat: bool,
     pub moonc_output_json: bool,
     pub docs_serve: bool,
+    pub deny_warn: bool,
 
     // Environments
     /// Only `Some` if we import standard library.

@@ -36,6 +36,7 @@ pub struct BuildCommonArgs<'a> {
     pub error_format: ErrorFormat,
 
     // Warning and alert configuration
+    pub deny_warn: bool,
     pub warn_config: WarnAlertConfig<'a>,
     pub alert_config: WarnAlertConfig<'a>,
 
@@ -81,6 +82,7 @@ impl<'a> BuildCommonArgs<'a> {
     ) -> Self {
         Self {
             error_format: ErrorFormat::Regular,
+            deny_warn: false,
             warn_config: WarnAlertConfig::Default,
             alert_config: WarnAlertConfig::Default,
             mbt_sources,
@@ -199,23 +201,13 @@ impl<'a> BuildCommonArgs<'a> {
 
     /// Add warning/alert deny all arguments (combined)
     pub fn add_warn_alert_deny_all_combined(&self, args: &mut Vec<String>) {
-        if matches!(self.warn_config, WarnAlertConfig::DenyAll) {
+        if self.deny_warn {
             args.extend([
                 "-w".to_string(),
                 MOONC_DENY_WARNING_SET.to_string(),
                 "-alert".to_string(),
                 MOONC_DENY_ALERT_SET.to_string(),
             ]);
-        }
-    }
-
-    /// Add warning/alert deny all arguments (separate)
-    pub fn add_warn_alert_deny_all_separate(&self, args: &mut Vec<String>) {
-        if matches!(self.warn_config, WarnAlertConfig::DenyAll) {
-            args.extend(["-w".to_string(), MOONC_DENY_WARNING_SET.to_string()]);
-        }
-        if matches!(self.alert_config, WarnAlertConfig::DenyAll) {
-            args.extend(["-alert".to_string(), MOONC_DENY_ALERT_SET.to_string()]);
         }
     }
 

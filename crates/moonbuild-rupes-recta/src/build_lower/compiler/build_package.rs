@@ -53,8 +53,8 @@ impl<'a> MooncBuildPackage<'a> {
         // Error format
         self.common.add_error_format(args);
 
-        // Warning and alert handling (separate)
-        self.common.add_warn_alert_deny_all_separate(args);
+        // Warning and alert handling
+        self.common.add_warn_alert_deny_all_combined(args);
 
         // Input files
         self.common.add_mbt_sources(args);
