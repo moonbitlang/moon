@@ -22,6 +22,7 @@ use clap::Parser;
 use cli::MoonBuildSubcommands;
 
 mod cli;
+mod panic;
 pub mod rr_build;
 mod run;
 
@@ -55,6 +56,7 @@ fn init_log() {
 }
 
 pub fn main() {
+    panic::setup_panic_hook();
     init_log();
     match main1() {
         Ok(code) => std::process::exit(code),
