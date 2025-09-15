@@ -18,17 +18,26 @@
 
 #![warn(clippy::clone_on_ref_ptr)]
 
+use std::any::Any;
+
 use clap::Parser;
 use cli::MoonBuildSubcommands;
 
 mod cli;
+mod panic;
 pub mod rr_build;
 mod run;
 
 use colored::*;
-use tracing_subscriber::util::SubscriberInitExt;
+use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt, Layer};
 
-fn init_log() {
+/// Initialize logging and tracing-related functionality.
+///
+/// If `trace_execution` is true, it will also output the log to a Chrome
+/// tracing file.
+///
+/// Returns a boxed guard that keeps the tracing system alive.
+fn init_tracing(trace_execution: bool) -> Box<dyn Any> {
     // usage example: only show debug logs for moonbuild::runtest module
     // env RUST_LOG=moonbuild::runtest=debug cargo run -- test --source-dir ./tests/test_cases/moon_new.in
 
@@ -36,40 +45,45 @@ fn init_log() {
     let filter = tracing_subscriber::EnvFilter::builder()
         .with_default_directive(tracing::Level::WARN.into())
         .from_env_lossy();
-    let fmt = tracing_subscriber::fmt()
+
+    let fmt = tracing_subscriber::fmt::layer()
         .with_ansi(true)
         .with_line_number(log_env_set)
-        .with_level(true)
-        .with_env_filter(filter);
-
-    let sub = if !log_env_set {
-        fmt.with_target(false)
-            .without_time()
-            .compact()
-            .set_default()
+        .with_level(true);
+    let fmt = if !log_env_set {
+        fmt.with_target(false).without_time().boxed()
     } else {
-        fmt.compact().set_default()
+        fmt.compact().boxed()
     };
 
-    std::mem::forget(sub);
+    // Trace spans in Chrome format
+    let (chrome_layer, chrome_guard) = trace_execution
+        .then(|| {
+            tracing_chrome::ChromeLayerBuilder::new()
+                .include_args(true)
+                .build()
+        })
+        .unzip();
+
+    let registry = tracing_subscriber::registry()
+        .with(filter)
+        .with(fmt)
+        .with(chrome_layer)
+        .set_default();
+
+    Box::new((chrome_guard, registry))
 }
 
 pub fn main() {
-    init_log();
-    match main1() {
-        Ok(code) => std::process::exit(code),
-        Err(e) => {
-            eprintln!("{}: {:?}", "error".red().bold(), e);
-            std::process::exit(-1);
-        }
-    }
-}
+    panic::setup_panic_hook();
 
-fn main1() -> anyhow::Result<i32> {
     let cli = cli::MoonBuildCli::parse();
     let flags = cli.flags;
+
+    let _trace_guard = init_tracing(flags.unstable_feature.tracing);
+
     use MoonBuildSubcommands::*;
-    match cli.subcommand {
+    let res = match cli.subcommand {
         Add(a) => cli::add_cli(flags, a),
         Bench(b) => cli::run_bench(flags, b),
         Build(b) => cli::run_build(&flags, &b),
@@ -99,5 +113,13 @@ fn main1() -> anyhow::Result<i32> {
         Version(v) => cli::run_version(v),
         Tool(v) => cli::run_tool(v),
         External(args) => cli::run_external(args),
+    };
+
+    match res {
+        Ok(code) => std::process::exit(code),
+        Err(e) => {
+            eprintln!("{}: {:?}", "error".red().bold(), e);
+            std::process::exit(-1);
+        }
     }
 }
