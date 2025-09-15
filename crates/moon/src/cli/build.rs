@@ -123,7 +123,12 @@ fn run_build_internal(
         )?;
 
         if cli.dry_run {
-            rr_build::print_dry_run(&build_graph, &_build_meta.artifacts, source_dir, target_dir);
+            rr_build::print_dry_run(
+                &build_graph,
+                _build_meta.artifacts.values(),
+                source_dir,
+                target_dir,
+            );
             Ok(0)
         } else {
             let result = rr_build::execute_build(

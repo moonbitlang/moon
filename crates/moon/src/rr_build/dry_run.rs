@@ -25,14 +25,14 @@ use moonbuild_rupes_recta::model::Artifacts;
 /// Print what would be executed in a dry-run.
 ///
 /// This is a helper function that prints the build commands from a build graph.
-pub fn print_dry_run(
+pub fn print_dry_run<'a>(
     build_graph: &n2::graph::Graph,
-    artifacts: &[Artifacts],
+    artifacts: impl IntoIterator<Item = &'a Artifacts>,
     source_dir: &Path,
     target_dir: &Path,
 ) {
     let default_files = artifacts
-        .iter()
+        .into_iter()
         .flat_map(|art| {
             art.artifacts
                 .iter()

@@ -20,6 +20,7 @@
 
 use std::path::PathBuf;
 
+use indexmap::IndexMap;
 use log::{debug, info};
 use moonutil::{
     common::{RunMode, TargetBackend},
@@ -91,7 +92,10 @@ pub struct LoweringResult {
     pub build_graph: N2Graph,
 
     /// The list of artifacts corresponding to the root input nodes.
-    pub artifacts: Vec<Artifacts>,
+    ///
+    /// Rationale for being a map: users (especially tests) need to look up
+    /// artifacts corresponding to specific nodes for rebuilding.
+    pub artifacts: IndexMap<BuildPlanNode, Artifacts>,
 }
 
 /// Represents the essential information needed to construct an [`Build`] value
@@ -134,14 +138,17 @@ pub fn lower_build_plan(
         ctx.lower_node(node)?;
     }
 
-    let mut out_artifcts = Vec::with_capacity(build_plan.input_nodes().len());
+    let mut out_artifcts = IndexMap::with_capacity(build_plan.input_nodes().len());
     for n in build_plan.input_nodes() {
         let mut a = vec![];
         ctx.append_artifact_of(*n, &mut a);
-        out_artifcts.push(Artifacts {
-            node: *n,
-            artifacts: a,
-        });
+        out_artifcts.insert(
+            *n,
+            Artifacts {
+                node: *n,
+                artifacts: a,
+            },
+        );
     }
 
     info!("Build plan lowering completed successfully");

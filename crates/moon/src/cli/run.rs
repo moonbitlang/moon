@@ -348,13 +348,13 @@ fn run_run_rr(cli: &UniversalFlags, cmd: RunSubcommand) -> Result<i32, anyhow::E
         &cli.unstable_feature,
         &source_dir,
         &target_dir,
-        Box::new(move |r, m| calc_user_intent(&input_path, r, m)),
+        Box::new(|r, m| calc_user_intent(&input_path, r, m)),
     )?;
     if cli.dry_run {
         // Print build commands
         rr_build::print_dry_run(
             &build_graph,
-            &build_meta.artifacts,
+            build_meta.artifacts.values(),
             &source_dir,
             &target_dir,
         );
@@ -391,7 +391,7 @@ fn run_run_rr(cli: &UniversalFlags, cmd: RunSubcommand) -> Result<i32, anyhow::E
 }
 
 fn get_run_cmd(build_meta: &rr_build::BuildMeta) -> Result<CommandGuard, anyhow::Error> {
-    let artifact = build_meta
+    let (_, artifact) = build_meta
         .artifacts
         .first()
         .expect("Expected exactly one build node emitted by `calc_user_intent`");

@@ -84,7 +84,7 @@ pub fn run_bundle_rr(cli: UniversalFlags, cmd: BundleSubcommand) -> anyhow::Resu
     if cli.dry_run {
         rr_build::print_dry_run(
             &build_graph,
-            &_build_meta.artifacts,
+            _build_meta.artifacts.values(),
             &source_dir,
             &target_dir,
         );

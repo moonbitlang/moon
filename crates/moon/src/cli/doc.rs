@@ -90,7 +90,7 @@ pub fn run_doc_rr(cli: UniversalFlags, cmd: DocSubcommand) -> anyhow::Result<i32
     if cli.dry_run {
         rr_build::print_dry_run(
             &build_graph,
-            &_build_meta.artifacts,
+            _build_meta.artifacts.values(),
             &source_dir,
             &target_dir,
         );

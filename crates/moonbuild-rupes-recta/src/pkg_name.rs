@@ -61,6 +61,10 @@ impl PackageFQN {
             .short_name()
             .unwrap_or_else(|| self.module.name().last_segment())
     }
+
+    pub fn segments(&self) -> impl Iterator<Item = &str> {
+        self.module.name().segments().chain(self.package.segments())
+    }
 }
 
 impl std::fmt::Display for PackageFQN {
@@ -69,12 +73,22 @@ impl std::fmt::Display for PackageFQN {
     }
 }
 
-/// Compare a package FQN to a tuple of (username, module, package)
+/// Compare a package FQN to a tuple of (username, module, package). This does
+/// not compare the module source, just the module name.
 impl<'a> PartialEq<(&'a str, &'a str, &'a str)> for PackageFQN {
     fn eq(&self, &(user, module, package): &(&'a str, &'a str, &'a str)) -> bool {
         self.module.name().username == user
             && self.module.name().unqual == module
             && self.package.as_str() == package
+    }
+}
+
+/// Compare the package name part of a package FQN to a string. This does not
+/// compare the module source, just the module name.
+impl PartialEq<str> for PackageFQN {
+    fn eq(&self, other: &str) -> bool {
+        let string_compared_segented = other.split(PACKAGE_SEGMENT_SEP);
+        self.segments().eq(string_compared_segented)
     }
 }
 

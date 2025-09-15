@@ -26,28 +26,32 @@ pub mod rr_build;
 mod run;
 
 use colored::*;
+use tracing_subscriber::util::SubscriberInitExt;
 
 fn init_log() {
-    use std::io::Write;
     // usage example: only show debug logs for moonbuild::runtest module
     // env RUST_LOG=moonbuild::runtest=debug cargo run -- test --source-dir ./tests/test_cases/moon_new.in
 
-    // log level: error > warn > info > debug > trace
-    env_logger::Builder::from_env(env_logger::Env::default())
-        .target(env_logger::Target::Stdout)
-        .format(|buf, record| {
-            let level_style = buf.default_level_style(record.level());
-            writeln!(
-                buf,
-                "{} [{}] [{}:{}] {}",
-                level_style.value(record.level()),
-                chrono::Local::now().format("%Y-%m-%dT%H:%M:%S"),
-                record.file().unwrap_or("unknown"),
-                record.line().unwrap_or(0),
-                record.args()
-            )
-        })
-        .init();
+    let log_env_set = std::env::var("RUST_LOG").is_ok();
+    let filter = tracing_subscriber::EnvFilter::builder()
+        .with_default_directive(tracing::Level::WARN.into())
+        .from_env_lossy();
+    let fmt = tracing_subscriber::fmt()
+        .with_ansi(true)
+        .with_line_number(log_env_set)
+        .with_level(true)
+        .with_env_filter(filter);
+
+    let sub = if !log_env_set {
+        fmt.with_target(false)
+            .without_time()
+            .compact()
+            .set_default()
+    } else {
+        fmt.compact().set_default()
+    };
+
+    std::mem::forget(sub);
 }
 
 pub fn main() {
