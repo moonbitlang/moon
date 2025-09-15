@@ -155,6 +155,11 @@ pub struct BuildTargetInfo {
 
     /// Files that needs their doctests extracted instead of regular compilation.
     pub(crate) doctest_files: Vec<PathBuf>,
+
+    /// The final list of warnings to pass to the compiler
+    pub(crate) warn_list: Option<String>,
+    /// The final list of alerts to pass to the compiler
+    pub(crate) alert_list: Option<String>,
     // we currently don't need this, as it's controlled by build-wise options
     // /// Whether compiling this target needs the standard library
     // pub std: bool,
@@ -213,6 +218,9 @@ pub struct BuildEnvironment {
     ///
     /// TODO: Move this to per-package/module.
     pub std: bool,
+    /// Commandline_level warnings to enable/disable
+    pub warn_list: Option<String>,
+    pub alert_list: Option<String>,
     // Can have more, e.g. cross compile
 }
 

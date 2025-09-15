@@ -141,6 +141,9 @@ pub struct CompilePreConfig {
     target_dir: PathBuf,
     /// Whether to execute `moondoc` in serve mode, which outputs HTML
     pub docs_serve: bool,
+    pub deny_warn: bool,
+    warn_list: Option<String>,
+    alert_list: Option<String>,
 }
 
 impl CompilePreConfig {
@@ -171,6 +174,9 @@ impl CompilePreConfig {
             debug_export_build_plan: self.debug_export_build_plan,
             moonc_output_json: self.moonc_output_json,
             docs_serve: self.docs_serve,
+            deny_warn: self.deny_warn,
+            warn_list: self.warn_list,
+            alert_list: self.alert_list,
         }
     }
 }
@@ -207,6 +213,9 @@ pub fn preconfig_compile(
         // In legacy impl, dry run always force no json
         moonc_output_json: !build_flags.no_render && !cli.dry_run,
         docs_serve: false,
+        deny_warn: build_flags.deny_warn,
+        warn_list: build_flags.warn_list.clone(),
+        alert_list: build_flags.alert_list.clone(),
     }
 }
 

@@ -110,22 +110,27 @@ impl<'a> BuildPlanConstructor<'a> {
         use crate::cond_comp::FileTestKind::*;
         use TargetKind::*;
 
+        let pkg = self.input.pkg_dirs.get_package(target.package);
+        let module = self.input.module_rel.module_info(pkg.module);
+
         // FIXME: Should we resolve test drivers' paths, or should we leave it
         // in the lowering phase? The path to the test driver depends on the
         // artifact layout, so we might not be able to do that here, unless we
         // add some kind of `SpecialFile::TestDriver` or something.
-        let pkg = self.packages.get_package(target.package);
         let compile_condition = CompileCondition {
             optlevel: self.build_env.opt_level,
             test_kind: target.kind.into(),
             backend: self.build_env.target_backend,
         };
+
+        // Filter source files
         let source_files = cond_comp::filter_files(
             &pkg.raw,
             pkg.source_files.iter().map(|x| x.as_path()),
             &compile_condition,
         );
 
+        // Include files
         let mut regular_files = vec![];
         let mut whitebox_files = vec![];
         let mut doctest_files = vec![];
@@ -153,10 +158,24 @@ impl<'a> BuildPlanConstructor<'a> {
             }
         }
 
+        // Populate `alert_list` and `warn_list`
+        // The list population is simply concatenating:
+        //   module-level + package-level + commandline
+        let warn_list = cat_opt(
+            cat_opt(module.warn_list.clone(), pkg.raw.warn_list.as_deref()),
+            self.build_env.warn_list.as_deref(),
+        );
+        let alert_list = cat_opt(
+            cat_opt(module.alert_list.clone(), pkg.raw.alert_list.as_deref()),
+            self.build_env.alert_list.as_deref(),
+        );
+
         BuildTargetInfo {
             regular_files,
             whitebox_files,
             doctest_files,
+            warn_list,
+            alert_list,
         }
     }
 
@@ -427,5 +446,18 @@ impl<'a> BuildPlanConstructor<'a> {
             self.add_edge(_node, check_node);
         }
         Ok(())
+    }
+}
+
+/// Concatenate two optional strings
+fn cat_opt(x: Option<String>, y: Option<&str>) -> Option<String> {
+    match (x, y) {
+        (Some(mut a), Some(b)) => {
+            a.push_str(b);
+            Some(a)
+        }
+        (Some(a), None) => Some(a),
+        (None, Some(b)) => Some(b.to_string()),
+        (None, None) => None,
     }
 }
