@@ -45,10 +45,9 @@ use petgraph::prelude::DiGraphMap;
 use tracing::instrument;
 
 use crate::{
-    discover::DiscoverResult,
     model::{BuildPlanNode, BuildTarget, PackageId},
     pkg_name::PackageFQNWithSource,
-    pkg_solve::DepRelationship,
+    ResolveOutput,
 };
 
 mod builders;
@@ -239,8 +238,7 @@ pub enum BuildPlanConstructError {
 /// Construct an abstract build graph from the given packages and input actions.
 #[instrument(skip_all)]
 pub fn build_plan(
-    packages: &DiscoverResult,
-    build_deps: &DepRelationship,
+    resolved: &ResolveOutput,
     build_env: &BuildEnvironment,
     input: impl Iterator<Item = BuildPlanNode>,
 ) -> Result<BuildPlan, BuildPlanConstructError> {
@@ -250,7 +248,7 @@ pub fn build_plan(
         build_env.target_backend, build_env.opt_level
     );
 
-    let mut constructor = BuildPlanConstructor::new(packages, build_deps, build_env);
+    let mut constructor = BuildPlanConstructor::new(resolved, build_env);
     constructor.build(input)?;
     let result = constructor.finish();
 

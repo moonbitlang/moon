@@ -23,9 +23,8 @@ use std::collections::HashSet;
 use log::debug;
 
 use crate::{
-    discover::DiscoverResult,
     model::{BuildPlanNode, BuildTarget, TargetKind},
-    pkg_solve::DepRelationship,
+    ResolveOutput,
 };
 use tracing::{instrument, Level};
 
@@ -35,8 +34,7 @@ use super::{BuildEnvironment, BuildPlan, BuildPlanConstructError};
 /// the construction of a build plan.
 pub(super) struct BuildPlanConstructor<'a> {
     // Input environment
-    pub(super) packages: &'a DiscoverResult,
-    pub(super) build_deps: &'a DepRelationship,
+    pub(super) input: &'a ResolveOutput,
     pub(super) build_env: &'a BuildEnvironment,
 
     /// The resulting build plan
@@ -48,14 +46,9 @@ pub(super) struct BuildPlanConstructor<'a> {
 }
 
 impl<'a> BuildPlanConstructor<'a> {
-    pub(super) fn new(
-        packages: &'a DiscoverResult,
-        build_deps: &'a DepRelationship,
-        build_env: &'a BuildEnvironment,
-    ) -> Self {
+    pub(super) fn new(resolved: &'a ResolveOutput, build_env: &'a BuildEnvironment) -> Self {
         Self {
-            packages,
-            build_deps,
+            input: resolved,
             build_env,
             res: BuildPlan::default(),
             pending: Vec::new(),

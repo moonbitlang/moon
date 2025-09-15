@@ -44,7 +44,8 @@ impl<'a> BuildPlanConstructor<'a> {
         // Check depends on `.mi` of all dependencies, which practically
         // means the Check of all dependencies.
         for dep in self
-            .build_deps
+            .input
+            .pkg_rel
             .dep_graph
             .neighbors_directed(target, petgraph::Direction::Outgoing)
         {
@@ -69,7 +70,8 @@ impl<'a> BuildPlanConstructor<'a> {
         // means we need to build all dependencies.
         self.need_node(node);
         for dep in self
-            .build_deps
+            .input
+            .pkg_rel
             .dep_graph
             .neighbors_directed(target, petgraph::Direction::Outgoing)
         {
@@ -181,7 +183,7 @@ impl<'a> BuildPlanConstructor<'a> {
         target: PackageId,
     ) -> Result<(), BuildPlanConstructError> {
         // Resolve the C stub files
-        let pkg = self.packages.get_package(target);
+        let pkg = self.input.pkg_dirs.get_package(target);
         for i in 0..pkg.c_stub_files.len() {
             let build_node = self.need_node(BuildPlanNode::BuildCStub(target, i as u32));
             self.add_edge(node, build_node);
@@ -260,13 +262,13 @@ impl<'a> BuildPlanConstructor<'a> {
         debug!("Building MakeExecutable for target: {:?}", target);
         debug!("Performing DFS post-order traversal to collect dependencies");
         // This DFS is shared by both LinkCore and MakeExecutable actions.
-        let mut dfs = DfsPostOrder::new(&self.build_deps.dep_graph, target);
+        let mut dfs = DfsPostOrder::new(&self.input.pkg_rel.dep_graph, target);
         // This is the link core sources
         let mut link_core_deps = IndexSet::new();
         // This is the C stub sources
         let mut c_stub_deps = Vec::new();
         // DFS itself
-        while let Some(next) = dfs.next(&self.build_deps.dep_graph) {
+        while let Some(next) = dfs.next(&self.input.pkg_rel.dep_graph) {
             if next.kind == TargetKind::WhiteboxTest {
                 // Replace whitebox tests, if any
                 let source_target = next.package.build_target(TargetKind::Source);
@@ -284,7 +286,7 @@ impl<'a> BuildPlanConstructor<'a> {
             // Regular package
             link_core_deps.insert(next);
             // If there's any C stubs, add it (native only)
-            let pkg = self.packages.get_package(next.package);
+            let pkg = self.input.pkg_dirs.get_package(next.package);
             trace!("DFS post iterated: {}", pkg.fqn);
             if self.build_env.target_backend.is_native() && !pkg.c_stub_files.is_empty() {
                 c_stub_deps.push(next);
@@ -323,7 +325,7 @@ impl<'a> BuildPlanConstructor<'a> {
         // Fill auxiliary flags for CC flags
         // TODO: variable replacement in flags
         // FIXME: This is getting long. fix spaghetti.
-        let pkg = self.packages.get_package(target.package);
+        let pkg = self.input.pkg_dirs.get_package(target.package);
         let native_config = pkg.raw.link.as_ref().and_then(|x| x.native.as_ref());
         let cc = native_config
             .and_then(|x| x.cc.as_ref())
@@ -365,12 +367,13 @@ impl<'a> BuildPlanConstructor<'a> {
     ) -> Result<(), BuildPlanConstructError> {
         // Bundling a module gathers the build result of all its non-virtual packages
         for &pkg_id in self
-            .packages
+            .input
+            .pkg_dirs
             .packages_for_module(module_id)
             .expect("Module should exist")
             .values()
         {
-            let pkg = self.packages.get_package(pkg_id);
+            let pkg = self.input.pkg_dirs.get_package(pkg_id);
             if pkg.raw.virtual_pkg.is_some() {
                 continue;
             }
@@ -417,7 +420,7 @@ impl<'a> BuildPlanConstructor<'a> {
     ) -> Result<(), BuildPlanConstructError> {
         // For now, `moondoc` depends on *every check*, as specified in its
         // packages.json input. I guess bad things might happen if you don't?
-        for (pkg_id, _) in self.packages.all_packages() {
+        for (pkg_id, _) in self.input.pkg_dirs.all_packages() {
             let check_node = self.need_node(BuildPlanNode::Check(
                 pkg_id.build_target(TargetKind::Source),
             ));

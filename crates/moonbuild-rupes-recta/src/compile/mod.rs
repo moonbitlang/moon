@@ -112,12 +112,7 @@ pub fn compile(
         opt_level: cx.opt_level,
         std: cx.stdlib_path.is_some(),
     };
-    let plan = build_plan::build_plan(
-        &resolve_output.pkg_dirs,
-        &resolve_output.pkg_rel,
-        &build_env,
-        input_nodes,
-    )?;
+    let plan = build_plan::build_plan(resolve_output, &build_env, input_nodes)?;
 
     info!("Build plan created successfully");
     debug!("Build plan contains {} nodes", plan.node_count());
