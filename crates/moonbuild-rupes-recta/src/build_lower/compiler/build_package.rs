@@ -19,14 +19,9 @@
 //! Compiler command abstraction
 
 use std::borrow::Cow;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
-use moonutil::common::TargetBackend;
-
-use crate::build_lower::compiler::{
-    BuildCommonArgs, CmdlineAbstraction, CompilationFlags, MiDependency,
-};
-use crate::model::TargetKind;
+use crate::build_lower::compiler::{BuildCommonArgs, CmdlineAbstraction, CompilationFlags};
 
 /// Abstraction for `moonc build-package`.
 ///
@@ -43,48 +38,13 @@ pub struct MooncBuildPackage<'a> {
     pub core_out: Cow<'a, Path>,
     #[allow(unused)]
     pub mi_out: Cow<'a, Path>,
+
     pub no_mi: bool,
     pub flags: CompilationFlags,
     pub extra_build_opts: &'a [&'a str],
 }
 
 impl<'a> MooncBuildPackage<'a> {
-    #[allow(clippy::too_many_arguments)]
-    /// Create a new instance with only necessary fields populated, others as default
-    pub fn new(
-        mbt_sources: &'a [PathBuf],
-        core_out: impl Into<Cow<'a, Path>>,
-        mi_out: impl Into<Cow<'a, Path>>,
-        mi_deps: &'a [MiDependency<'a>],
-        package_name: super::CompiledPackageName<'a>,
-        package_source: impl Into<Cow<'a, Path>>,
-        target_backend: TargetBackend,
-        target_kind: TargetKind,
-    ) -> Self {
-        Self {
-            common: BuildCommonArgs::new(
-                mbt_sources,
-                mi_deps,
-                package_name,
-                package_source,
-                target_backend,
-                target_kind,
-            ),
-            core_out: core_out.into(),
-            mi_out: mi_out.into(),
-            no_mi: false,
-            flags: CompilationFlags {
-                no_opt: false,
-                symbols: false,
-                source_map: false,
-                enable_coverage: false,
-                self_coverage: false,
-                enable_value_tracing: false,
-            },
-            extra_build_opts: &[],
-        }
-    }
-
     /// Convert this to list of args. The behavior tries to mimic the legacy
     /// behavior as much as possible.
     pub fn to_args_legacy(&self, args: &mut Vec<String>) {
@@ -98,6 +58,8 @@ impl<'a> MooncBuildPackage<'a> {
 
         // Input files
         self.common.add_mbt_sources(args);
+        // Additional inputs following legacy ordering
+        self.common.add_doctest_only_sources(args);
 
         // Custom warning/alert lists
         self.common.add_custom_warn_alert_lists(args);

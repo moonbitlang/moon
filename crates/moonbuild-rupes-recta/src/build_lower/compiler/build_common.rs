@@ -40,7 +40,10 @@ pub struct BuildCommonArgs<'a> {
     pub alert_config: WarnAlertConfig<'a>,
 
     // Input files
+    /// Regular input files, including sources and mbt.md files
     pub mbt_sources: &'a [PathBuf],
+    /// Sources whose doctests should be extracted only
+    pub doctest_only_sources: &'a [PathBuf],
     pub mi_deps: &'a [MiDependency<'a>],
 
     // Package configuration
@@ -81,6 +84,7 @@ impl<'a> BuildCommonArgs<'a> {
             warn_config: WarnAlertConfig::Default,
             alert_config: WarnAlertConfig::Default,
             mbt_sources,
+            doctest_only_sources: &[],
             mi_deps,
             package_name,
             package_source: package_source.into(),
@@ -105,6 +109,13 @@ impl<'a> BuildCommonArgs<'a> {
     pub fn add_mbt_sources(&self, args: &mut Vec<String>) {
         for mbt_file in self.mbt_sources {
             args.push(mbt_file.display().to_string());
+        }
+    }
+
+    /// Add doctest-only MBT sources as -doctest-only pairs
+    pub fn add_doctest_only_sources(&self, args: &mut Vec<String>) {
+        for src in self.doctest_only_sources {
+            args.extend(["-doctest-only".to_string(), src.display().to_string()]);
         }
     }
 
@@ -164,7 +175,11 @@ impl<'a> BuildCommonArgs<'a> {
     pub fn add_test_args(&self, args: &mut Vec<String>) {
         match self.target_kind {
             TargetKind::WhiteboxTest => args.push("-whitebox-test".into()),
-            TargetKind::BlackboxTest => args.push("-blackbox-test".into()),
+            TargetKind::BlackboxTest => {
+                args.push("-blackbox-test".into());
+                // Match legacy: include doctests when building blackbox tests
+                args.push("-include-doctests".into());
+            }
             TargetKind::Source | TargetKind::InlineTest | TargetKind::SubPackage => {}
         }
     }

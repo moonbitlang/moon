@@ -144,6 +144,12 @@ impl<'a> BuildPlanConstructor<'a> {
                 ),
             }
         }
+        if target.kind == BlackboxTest {
+            // mbt.md files are also part of regular files
+            for md_file in &pkg.mbt_md_files {
+                regular_files.push(md_file.clone());
+            }
+        }
 
         BuildTargetInfo {
             regular_files,

@@ -63,15 +63,23 @@ impl<'a> BuildPlanLowerContext<'a> {
         // Collect files iterator once so we can pass slices and extra inputs
         let files_vec = info.files().map(|x| x.to_owned()).collect::<Vec<_>>();
 
-        let mut cmd = compiler::MooncCheck::new(
-            &files_vec,
-            &mi_output,
-            &mi_inputs,
-            compiler::CompiledPackageName::new(&package.fqn, target.kind),
-            &package.root_path,
-            self.opt.target_backend,
-            target.kind,
-        );
+        let mut cmd = compiler::MooncCheck {
+            common: compiler::BuildCommonArgs::new(
+                &files_vec,
+                &mi_inputs,
+                compiler::CompiledPackageName::new(&package.fqn, target.kind),
+                &package.root_path,
+                self.opt.target_backend,
+                target.kind,
+            ),
+            mi_out: mi_output.into(),
+            no_mi: false,
+            is_third_party: false,
+            single_file: false,
+            patch_file: None,
+        };
+        // Wire doctest-only files to common so they are passed as `-doctest-only <file>`
+        cmd.common.doctest_only_sources = &info.doctest_files;
         self.set_commons(&mut cmd.common);
 
         // workspace root
@@ -93,8 +101,11 @@ impl<'a> BuildPlanLowerContext<'a> {
             | TargetKind::SubPackage => package.raw.is_main,
         };
 
+        // Track doctest-only files as inputs as well
+        let mut extra_inputs = files_vec.clone();
+        extra_inputs.extend(info.doctest_files.clone());
         BuildCommand {
-            extra_inputs: files_vec.clone(),
+            extra_inputs,
             commandline: cmd.build_command("moonc"),
         }
     }
@@ -143,16 +154,30 @@ impl<'a> BuildPlanLowerContext<'a> {
             }
         };
 
-        let mut cmd = compiler::MooncBuildPackage::new(
-            &files,
-            &core_output,
-            &mi_output,
-            &mi_inputs,
-            compiler::CompiledPackageName::new(&package.fqn, target.kind),
-            &package.root_path,
-            self.opt.target_backend,
-            target.kind,
-        );
+        let mut cmd = compiler::MooncBuildPackage {
+            common: compiler::BuildCommonArgs::new(
+                &files,
+                &mi_inputs,
+                compiler::CompiledPackageName::new(&package.fqn, target.kind),
+                &package.root_path,
+                self.opt.target_backend,
+                target.kind,
+            ),
+            core_out: core_output.into(),
+            mi_out: mi_output.into(),
+            no_mi: false,
+            flags: compiler::CompilationFlags {
+                no_opt: false,
+                symbols: false,
+                source_map: false,
+                enable_coverage: false,
+                self_coverage: false,
+                enable_value_tracing: false,
+            },
+            extra_build_opts: &[],
+        };
+        // Propagate debug/coverage flags and common settings
+        cmd.common.doctest_only_sources = &info.doctest_files;
         cmd.flags.no_opt = self.opt.opt_level == OptLevel::Debug;
         cmd.flags.symbols = self.opt.debug_symbols;
         cmd.flags.enable_coverage = self.opt.enable_coverage;
@@ -173,9 +198,13 @@ impl<'a> BuildPlanLowerContext<'a> {
 
         // TODO: a lot of knobs are not controlled here
 
+        // Include doctest-only files as inputs to track dependency correctly
+        let mut extra_inputs = files.clone();
+        extra_inputs.extend(info.doctest_files.clone());
+
         BuildCommand {
             commandline: cmd.build_command("moonc"),
-            extra_inputs: files,
+            extra_inputs,
         }
     }
 
