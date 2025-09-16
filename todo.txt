@@ -30,7 +30,7 @@ test_cases::moon_info_specific_package -- task count different
 test_cases::moon_new::test_moon_new -- task count different
 test_cases::moon_test::test_moon_test_hello_exec -- mainly be ordering wrong
 test_cases::moon_test::test_moon_test_hello_exec_fntest -- command order wrong
-test_cases::moon_test::test_moon_test_with_local_dep -- failed moon test
+test_cases::moon_test::test_moon_test_with_local_dep [fixed] -- failed moon test
 test_cases::moon_test::test_pkg_source_in -- allow-all for 3rd party pkgs, main build pkg list issue
 test_cases::moon_test_target_js_panic_with_sourcemap -- no sourcemap emitted
 test_cases::moon_test_with_failure_json -- did not print json for test failure
@@ -42,7 +42,7 @@ test_cases::prebuild_config_script::test_prebuild_config_js -- no prebuild confi
 test_cases::prebuild_config_script::test_prebuild_config_py -- no prebuild config
 test_cases::target_backend::test_target_backend -- no js format
 test_cases::targets::test_many_targets -- order wrong, extra outputs
-test_cases::targets::test_many_targets_expect_failed -- extra warnings
+test_cases::targets::test_many_targets_expect_failed [fixed] -- extra warnings
 test_cases::test_add_mi_if_self_not_set_in_test_imports -- command order wrong
 test_cases::test_ambiguous_pkg -- error message different
 test_cases::test_bad_version -- error message different
@@ -57,17 +57,17 @@ test_cases::test_expect_test::test_expect_test -- expect test updating message c
 test_cases::test_export_memory_name -- no export
 test_cases::test_exports_in_native_backend -- no exports
 test_cases::test_failed_to_fill_whole_buffer -- task count different
-test_cases::test_filter::test_moon_parallelism -- test order different
+test_cases::test_filter::test_moon_parallelism [fixed] -- test order different
 test_cases::test_filter::test_moon_test_filter_file -- test filter didn't work
 test_cases::test_filter::test_moon_test_filter_index -- test filter didn't work
 test_cases::test_filter::test_moon_test_filter_index_with_auto_update -- accidentally updated, maybe filtering didn't work?
 test_cases::test_filter::test_moon_test_filter_multi_package -- command order different
-test_cases::test_filter::test_moon_test_filter_package -- test order different
+test_cases::test_filter::test_moon_test_filter_package [fixed] -- test order different
 test_cases::test_filter::test_moon_test_filter_package_dry_run -- command order different, missing args
-test_cases::test_filter::test_moon_test_filter_package_with_test_imports -- test order different
+test_cases::test_filter::test_moon_test_filter_package_with_test_imports [fixed] -- test order different
 test_cases::test_import_memory_and_heap_start -- didn't support such config
 test_cases::test_import_shared_memory -- didn't support such config
-test_cases::test_in_main_pkg -- test order different
+test_cases::test_in_main_pkg [fixed] -- test order different
 test_cases::test_internal_package -- didn't check internal package inclusion
 test_cases::test_js -- test order different
 test_cases::test_moon_check_filter_package -- filename different, command args order different
@@ -126,17 +126,16 @@ Grouped tests by failure reasons
 Test order wrong
 - cmd_test::cmd_test -- order only: whitebox tests
 - test_cases::inline_test::test_inline_test_order -- different test order, batch output
-- test_cases::moon_test::test_moon_test_hello_exec -- mainly be ordering wrong
-- test_cases::test_filter::test_moon_parallelism -- test order different
-- test_cases::test_filter::test_moon_test_filter_package -- test order different
-- test_cases::test_filter::test_moon_test_filter_package_with_test_imports -- test order different
-- test_cases::test_in_main_pkg -- test order different
-- test_cases::test_js -- test order different
+- test_cases::test_filter::test_moon_parallelism [fixed] -- test order different
+- test_cases::test_filter::test_moon_test_filter_package [fixed] -- test order different
+- test_cases::test_filter::test_moon_test_filter_package_with_test_imports [fixed] -- test order different
+- test_cases::test_in_main_pkg [fixed] -- test order different
 - test_cases::test_moon_test_release -- probably order issue
 - test_cases::test_snapshot_test -- test order different
 - test_cases::test_snapshot_test_target_js -- test order different
 
 Command order wrong
+- test_cases::moon_test::test_moon_test_hello_exec -- mainly be command ordering wrong
 - test_cases::moon_test::test_moon_test_hello_exec_fntest -- command order wrong
 - test_cases::packages::test_core_order -- command order wrong
 - test_cases::test_add_mi_if_self_not_set_in_test_imports -- command order wrong
@@ -212,6 +211,7 @@ Output/content omissions
 - test_cases::test_moon_install_bin -- installed? file doesnt exist
 
 Test filter/selection issues
+- test_cases::test_js -- test filter not working 
 - test_cases::test_filter::test_moon_test_filter_file -- test filter didn't work
 - test_cases::test_filter::test_moon_test_filter_index -- test filter didn't work
 - test_cases::test_filter::test_moon_test_filter_index_with_auto_update -- accidentally updated, maybe filtering didn't work?
@@ -233,7 +233,7 @@ Module resolution/canonicalization
 - test_cases::test_moon_run_single_mbt_file -- can't find module, single file unsupported
 
 Warnings handling/config
-- test_cases::targets::test_many_targets_expect_failed -- extra warnings
+- test_cases::targets::test_many_targets_expect_failed [fixed] -- extra warnings
 - test_cases::test_no_warn_deps -- don't emit warning for deps
 - test_cases::warns::test_alert_list -- warn list didn't work somehow
 - test_cases::warns::test_mod_level_warn_alert_list -- warn list didnt work somehow
@@ -259,7 +259,7 @@ Policy/whitelisting/internal/MI
 - test_cases::test_specify_source_dir_with_deps_002 -- duplicated alias?
 
 Test harness/reporting discrepancies
-- test_cases::moon_test::test_moon_test_with_local_dep -- failed moon test
+- test_cases::moon_test::test_moon_test_with_local_dep [fixed] -- failed moon test
 - test_cases::moon_test_with_failure_json -- did not print json for test failure
 - test_cases::test_panic -- test should report "panic expected"
 - test_cases::test_run_doc_test -- moon test should fail
