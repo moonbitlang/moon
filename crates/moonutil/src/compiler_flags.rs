@@ -62,14 +62,12 @@ impl Default for CC {
 }
 
 // Used to detect the availability of libmoonbitrun.o on host system
-#[cfg(target_os = "linux")]
-const CAN_USE_MOONBITRUN: bool = true;
-#[cfg(target_os = "macos")]
+#[cfg(any(target_os = "linux", target_os = "macos"))]
 const CAN_USE_MOONBITRUN: bool = true;
 // Currently, the distribution of libmoonbitrun.o is not available on Windows
 // Once it's supported, we can set this to true but also need to
 // correctly change the compiler flags
-#[cfg(windows)]
+#[cfg(not(any(target_os = "linux", target_os = "macos")))]
 const CAN_USE_MOONBITRUN: bool = false;
 
 impl CC {
