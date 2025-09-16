@@ -29,6 +29,7 @@ use moonutil::{
     mooncakes::ModuleSource,
 };
 use n2::graph::Graph as N2Graph;
+use tracing::instrument;
 
 use crate::{
     build_plan::BuildPlan,
@@ -109,6 +110,7 @@ struct BuildCommand {
 }
 
 /// Lowers a [`BuildPlan`] into a n2 [Build Graph](n2::graph::Graph).
+#[instrument(skip_all)]
 pub fn lower_build_plan(
     resolve_output: &ResolveOutput,
     build_plan: &BuildPlan,

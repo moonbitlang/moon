@@ -35,6 +35,7 @@ use moonutil::mooncakes::sync::AutoSyncFlags;
 use moonutil::mooncakes::RegistryConfig;
 use n2::trace;
 use std::path::{Path, PathBuf};
+use tracing::{instrument, Level};
 
 use crate::cli::get_module_for_single_file;
 use crate::rr_build::{self, preconfig_compile, BuildConfig};
@@ -80,6 +81,7 @@ pub struct CheckSubcommand {
     pub single_file: Option<PathBuf>,
 }
 
+#[instrument(skip_all)]
 pub fn run_check(cli: &UniversalFlags, cmd: &CheckSubcommand) -> anyhow::Result<i32> {
     let (source_dir, mut target_dir) = if let Some(ref single_file_path) = cmd.single_file {
         let single_file_path = &dunce::canonicalize(single_file_path).unwrap();
@@ -118,6 +120,7 @@ pub fn run_check(cli: &UniversalFlags, cmd: &CheckSubcommand) -> anyhow::Result<
     Ok(ret_value)
 }
 
+#[instrument(skip_all)]
 fn run_check_internal(
     cli: &UniversalFlags,
     cmd: &CheckSubcommand,
@@ -131,6 +134,7 @@ fn run_check_internal(
     }
 }
 
+#[instrument(level = Level::DEBUG, skip_all)]
 fn run_check_for_single_file(cli: &UniversalFlags, cmd: &CheckSubcommand) -> anyhow::Result<i32> {
     let single_file_path = &dunce::canonicalize(cmd.single_file.as_ref().unwrap()).unwrap();
     let source_dir = single_file_path.parent().unwrap().to_path_buf();
@@ -224,6 +228,7 @@ fn run_check_for_single_file(cli: &UniversalFlags, cmd: &CheckSubcommand) -> any
     entry::run_check(&moonc_opt, &moonbuild_opt, &module)
 }
 
+#[instrument(skip_all)]
 fn run_check_normal_internal(
     cli: &UniversalFlags,
     cmd: &CheckSubcommand,
@@ -272,6 +277,7 @@ fn run_check_normal_internal(
     }
 }
 
+#[instrument(skip_all)]
 fn run_check_normal_internal_legacy(
     cli: &UniversalFlags,
     cmd: &CheckSubcommand,
@@ -396,6 +402,7 @@ fn run_check_normal_internal_legacy(
 /// Generate user intent
 ///
 /// Check all packages in the current module.
+#[instrument(level = Level::DEBUG, skip_all)]
 fn calc_user_intent(
     resolve_output: &moonbuild_rupes_recta::ResolveOutput,
     main_modules: &[moonutil::mooncakes::ModuleId],

@@ -22,6 +22,7 @@ use indexmap::{set::MutableValues, IndexSet};
 use log::{debug, trace};
 use moonutil::compiler_flags::CC;
 use petgraph::visit::DfsPostOrder;
+use tracing::{instrument, Level};
 
 use crate::{
     cond_comp::{self, CompileCondition},
@@ -34,6 +35,7 @@ use super::{
 };
 
 impl<'a> BuildPlanConstructor<'a> {
+    #[instrument(level = Level::DEBUG, skip(self))]
     pub(super) fn build_check(
         &mut self,
         node: BuildPlanNode,
@@ -56,6 +58,7 @@ impl<'a> BuildPlanConstructor<'a> {
         Ok(())
     }
 
+    #[instrument(level = Level::DEBUG, skip(self))]
     pub(super) fn build_build(
         &mut self,
         node: BuildPlanNode,
@@ -87,6 +90,7 @@ impl<'a> BuildPlanConstructor<'a> {
         Ok(())
     }
 
+    #[instrument(level = Level::DEBUG, skip(self))]
     pub(super) fn build_gen_test_info(
         &mut self,
         node: BuildPlanNode,
@@ -99,6 +103,7 @@ impl<'a> BuildPlanConstructor<'a> {
         Ok(())
     }
 
+    #[instrument(level = Level::DEBUG, skip(self))]
     pub(super) fn resolve_mbt_files_for_node(&self, target: BuildTarget) -> BuildTargetInfo {
         use crate::cond_comp::FileTestKind::*;
         use TargetKind::*;
@@ -147,6 +152,7 @@ impl<'a> BuildPlanConstructor<'a> {
         }
     }
 
+    #[instrument(level = Level::DEBUG, skip(self))]
     pub(super) fn build_build_c_stub(
         &mut self,
         node: BuildPlanNode,
@@ -162,6 +168,7 @@ impl<'a> BuildPlanConstructor<'a> {
         Ok(())
     }
 
+    #[instrument(level = Level::DEBUG, skip(self))]
     pub(super) fn build_link_c_stubs(
         &mut self,
         node: BuildPlanNode,
@@ -223,6 +230,7 @@ impl<'a> BuildPlanConstructor<'a> {
     /// depends on Link Core), and both actions require traversing through the
     /// list of dependencies, so it's better to create both nodes at once,
     /// instead of in separate functions.
+    #[instrument(level = Level::DEBUG, skip(self))]
     pub(super) fn build_make_exec_link_core(
         &mut self,
         make_exec_node: BuildPlanNode,
@@ -343,6 +351,7 @@ impl<'a> BuildPlanConstructor<'a> {
         Ok(())
     }
 
+    #[instrument(level = Level::DEBUG, skip(self))]
     pub(super) fn build_bundle(
         &mut self,
         _node: BuildPlanNode,
@@ -371,6 +380,7 @@ impl<'a> BuildPlanConstructor<'a> {
         Ok(())
     }
 
+    #[instrument(level = Level::DEBUG, skip(self))]
     pub(super) fn build_runtime_lib(
         &mut self,
         _node: BuildPlanNode,
@@ -380,6 +390,7 @@ impl<'a> BuildPlanConstructor<'a> {
         Ok(())
     }
 
+    #[instrument(level = Level::DEBUG, skip(self))]
     pub(super) fn build_generate_mbti(
         &mut self,
         _node: BuildPlanNode,
@@ -393,6 +404,7 @@ impl<'a> BuildPlanConstructor<'a> {
         Ok(())
     }
 
+    #[instrument(level = Level::DEBUG, skip(self))]
     pub(super) fn build_build_docs(
         &mut self,
         _node: BuildPlanNode,
