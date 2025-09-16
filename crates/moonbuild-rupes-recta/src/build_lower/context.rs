@@ -30,10 +30,7 @@ use n2::graph::{Build, Graph as N2Graph};
 use tracing::{instrument, Level};
 
 use crate::{
-    build_lower::{
-        artifact::{self, LegacyLayout},
-        compiler::{self, ErrorFormat},
-    },
+    build_lower::{artifact::LegacyLayout, compiler},
     build_plan::BuildPlan,
     discover::{DiscoverResult, DiscoveredPackage},
     model::{BuildPlanNode, BuildTarget},
@@ -297,21 +294,6 @@ impl<'a> BuildPlanLowerContext<'a> {
     fn lowered(&mut self, build: Build) -> Result<(), anyhow::Error> {
         self.graph.add_build(build)?;
         Ok(())
-    }
-
-    #[instrument(level = Level::DEBUG, skip(self, common))]
-    pub(super) fn set_commons(&self, common: &mut compiler::BuildCommonArgs) {
-        common.stdlib_core_file = self
-            .opt
-            .stdlib_path
-            .as_ref()
-            .map(|x| artifact::core_bundle_path(x, self.opt.target_backend).into());
-        common.error_format = if self.opt.moonc_output_json {
-            ErrorFormat::Json
-        } else {
-            ErrorFormat::Regular
-        };
-        common.deny_warn = self.opt.deny_warn;
     }
 
     #[instrument(level = Level::DEBUG, skip(self, flags))]
