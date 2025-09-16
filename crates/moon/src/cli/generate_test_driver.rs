@@ -47,7 +47,7 @@ pub struct GenerateTestDriverSubcommand {
 
     /// The target backend for the generated test driver.
     #[clap(long = "target")]
-    target_backend: TargetBackend,
+    _target_backend: TargetBackend,
 
     /// The name of the package for which the test driver is generated for.
     #[clap(long)]
@@ -180,7 +180,6 @@ pub fn generate_test_driver(
     let generated_content = generate_driver(
         &mbts_test_data,
         &cmd.pkg_name,
-        cmd.target_backend,
         cmd.enable_coverage,
         cmd.bench,
         cmd.coverage_package_override.as_deref(),
@@ -190,62 +189,34 @@ pub fn generate_test_driver(
     Ok(0)
 }
 
-const NO_ARGS_DRIVER_TEMPLATE_NATIVE: &str = include_str!(concat!(
+const NO_ARGS_TEMPLATE: &str = include_str!(concat!(
     env!("CARGO_MANIFEST_DIR"),
-    "/../moonbuild/template/test_driver/no_args_driver_template_native.mbt"
+    "/../moonbuild/template/test_driver/no_args_template.mbt"
 ));
 
-const NO_ARGS_DRIVER_TEMPLATE: &str = include_str!(concat!(
+const WITH_ARGS_TEMPLATE: &str = include_str!(concat!(
     env!("CARGO_MANIFEST_DIR"),
-    "/../moonbuild/template/test_driver/no_args_driver_template.mbt"
+    "/../moonbuild/template/test_driver/with_args_template.mbt"
 ));
 
-const WITH_ARGS_BENCH_DRIVER_TEMPLATE_NATIVE: &str = include_str!(concat!(
+const BENCH_DRIVER_TEMPLATE: &str = include_str!(concat!(
     env!("CARGO_MANIFEST_DIR"),
-    "/../moonbuild/template/test_driver/with_args_bench_driver_template_native.mbt"
+    "/../moonbuild/template/test_driver/bench_driver_template.mbt"
 ));
 
-const WITH_ARGS_DRIVER_TEMPLATE_NATIVE: &str = include_str!(concat!(
+const TEST_DRIVER_TEMPLATE: &str = include_str!(concat!(
     env!("CARGO_MANIFEST_DIR"),
-    "/../moonbuild/template/test_driver/with_args_driver_template_native.mbt"
+    "/../moonbuild/template/test_driver/test_driver_template.mbt"
 ));
 
-const WITH_ARGS_BENCH_DRIVER_TEMPLATE: &str = include_str!(concat!(
+const COMMON_TEMPLATE: &str = include_str!(concat!(
     env!("CARGO_MANIFEST_DIR"),
-    "/../moonbuild/template/test_driver/with_args_bench_driver_template.mbt"
+    "/../moonbuild/template/test_driver/common.mbt"
 ));
-
-const WITH_ARGS_DRIVER_TEMPLATE: &str = include_str!(concat!(
-    env!("CARGO_MANIFEST_DIR"),
-    "/../moonbuild/template/test_driver/with_args_driver_template.mbt"
-));
-
-/// Choose a driver template based on the provided parameters.
-///
-/// - `enable_bench`: This driver is intended for benchmarking, not testing
-/// - `only_no_arg_tests`: This driver does not have tests that needs passing
-///   args into it (benches does not matter).
-/// - `backend_is_native`: The target backend is either Native (C) or LLVM,
-///   requiring native argument collection and an internal main test driver.
-fn choose_template(
-    enable_bench: bool,
-    only_no_arg_tests: bool,
-    backend_is_native: bool,
-) -> &'static str {
-    match (enable_bench, backend_is_native, only_no_arg_tests) {
-        (true, true, _) => WITH_ARGS_BENCH_DRIVER_TEMPLATE_NATIVE,
-        (true, false, _) => WITH_ARGS_BENCH_DRIVER_TEMPLATE,
-        (false, true, true) => NO_ARGS_DRIVER_TEMPLATE_NATIVE,
-        (false, false, true) => NO_ARGS_DRIVER_TEMPLATE,
-        (false, true, false) => WITH_ARGS_DRIVER_TEMPLATE_NATIVE,
-        (false, false, false) => WITH_ARGS_DRIVER_TEMPLATE,
-    }
-}
 
 fn generate_driver(
     data: &MooncGenTestInfo,
     pkgname: &str,
-    target_backend: TargetBackend,
     enable_coverage: bool,
     enable_bench: bool,
     coverage_package_override: Option<&str>,
@@ -257,27 +228,21 @@ fn generate_driver(
     //   otherwise -> no_arg_test and with_arg_test
 
     let only_no_arg_tests = data.with_args_tests.iter().all(|x| x.1.is_empty());
-    let backend_is_native = target_backend.is_native();
 
-    let args_processing = match target_backend {
-        TargetBackend::Wasm | TargetBackend::WasmGC => {
-            include_str!(concat!(
-                env!("CARGO_MANIFEST_DIR"),
-                "/../moonbuild/template/test_driver/wasm_args.mbt"
-            ))
-        }
-        TargetBackend::Js => {
-            include_str!(concat!(
-                env!("CARGO_MANIFEST_DIR"),
-                "/../moonbuild/template/test_driver/js_args.mbt"
-            ))
-        }
-        TargetBackend::Native | TargetBackend::LLVM => "",
+    let template = if enable_bench {
+        BENCH_DRIVER_TEMPLATE
+    } else {
+        TEST_DRIVER_TEMPLATE
     };
-
-    let template = choose_template(enable_bench, only_no_arg_tests, backend_is_native);
     let mut template = template.to_string();
-    template.push_str(args_processing);
+    if !enable_bench {
+        if only_no_arg_tests {
+            template.push_str(NO_ARGS_TEMPLATE)
+        } else {
+            template.push_str(WITH_ARGS_TEMPLATE)
+        }
+    }
+    template.push_str(COMMON_TEMPLATE);
 
     let template = template.replace("\r\n", "\n");
 
