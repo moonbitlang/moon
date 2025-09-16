@@ -36,9 +36,13 @@ use tracing::{instrument, Level};
 use crate::{
     build_lower::{
         artifact,
-        compiler::{CmdlineAbstraction, MiDependency, MoondocCommand, Mooninfo, PackageSource},
+        compiler::{
+            BuildCommonArgs, CmdlineAbstraction, ErrorFormat, MiDependency, MoondocCommand,
+            Mooninfo, PackageSource,
+        },
     },
     build_plan::{BuildCStubsInfo, BuildTargetInfo, LinkCoreInfo, MakeExecutableInfo},
+    discover::DiscoveredPackage,
     model::{BuildPlanNode, BuildTarget, PackageId, TargetKind},
     pkg_name::{PackageFQN, PackagePath},
 };
@@ -46,6 +50,46 @@ use crate::{
 use super::{compiler, context::BuildPlanLowerContext, BuildCommand};
 
 impl<'a> BuildPlanLowerContext<'a> {
+    fn is_module_third_party(&self, mid: ModuleId) -> bool {
+        // This is usually a small vector, so this perf overhead is okay.
+        self.modules.input_module_ids().contains(&mid)
+    }
+
+    fn set_build_commons<'c>(
+        &self,
+        common: &mut BuildCommonArgs<'c>,
+        pkg: &DiscoveredPackage,
+        info: &'c BuildTargetInfo,
+    ) {
+        // Standard library settings
+        common.stdlib_core_file = self
+            .opt
+            .stdlib_path
+            .as_ref()
+            .map(|x| artifact::core_bundle_path(x, self.opt.target_backend).into());
+
+        // Warning and error settings
+        common.error_format = if self.opt.moonc_output_json {
+            ErrorFormat::Json
+        } else {
+            ErrorFormat::Regular
+        };
+        common.deny_warn = self.opt.deny_warn;
+
+        if self.is_module_third_party(pkg.module) {
+            // Third-party modules don't have any warnings or alerts
+            common.warn_config = compiler::WarnAlertConfig::AllowAll;
+            common.alert_config = compiler::WarnAlertConfig::AllowAll;
+        } else {
+            if let Some(w) = &info.warn_list {
+                common.warn_config = compiler::WarnAlertConfig::List(w.into());
+            }
+            if let Some(a) = &info.alert_list {
+                common.alert_config = compiler::WarnAlertConfig::List(a.into());
+            }
+        }
+    }
+
     #[instrument(level = Level::DEBUG, skip(self, info))]
     pub(super) fn lower_check(
         &self,
@@ -79,7 +123,7 @@ impl<'a> BuildPlanLowerContext<'a> {
         };
         // Wire doctest-only files to common so they are passed as `-doctest-only <file>`
         cmd.common.doctest_only_sources = &info.doctest_files;
-        self.set_commons(&mut cmd.common);
+        self.set_build_commons(&mut cmd.common, package, info);
 
         // Determine whether the checked package is a main package.
         //
@@ -159,16 +203,10 @@ impl<'a> BuildPlanLowerContext<'a> {
         };
         // Propagate debug/coverage flags and common settings
         cmd.common.doctest_only_sources = &info.doctest_files;
-        if let Some(w) = &info.warn_list {
-            cmd.common.warn_config = compiler::WarnAlertConfig::List(w.into());
-        }
-        if let Some(a) = &info.alert_list {
-            cmd.common.alert_config = compiler::WarnAlertConfig::List(a.into());
-        }
         cmd.flags.no_opt = self.opt.opt_level == OptLevel::Debug;
         cmd.flags.symbols = self.opt.debug_symbols;
         cmd.flags.enable_coverage = self.opt.enable_coverage;
-        self.set_commons(&mut cmd.common);
+        self.set_build_commons(&mut cmd.common, package, info);
         self.set_flags(&mut cmd.flags);
 
         // Determine whether the built package is a main package.
