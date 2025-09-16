@@ -142,6 +142,8 @@ pub struct CompilePreConfig {
     /// Whether to execute `moondoc` in serve mode, which outputs HTML
     pub docs_serve: bool,
     pub deny_warn: bool,
+    /// Whether to not emit alias when running `mooninfo`
+    pub info_no_alias: bool,
     warn_list: Option<String>,
     alert_list: Option<String>,
 }
@@ -177,6 +179,7 @@ impl CompilePreConfig {
             deny_warn: self.deny_warn,
             warn_list: self.warn_list,
             alert_list: self.alert_list,
+            info_no_alias: self.info_no_alias,
         }
     }
 }
@@ -213,6 +216,7 @@ pub fn preconfig_compile(
         // In legacy impl, dry run always force no json
         moonc_output_json: !build_flags.no_render && !cli.dry_run,
         docs_serve: false,
+        info_no_alias: false,
         deny_warn: build_flags.deny_warn,
         warn_list: build_flags.warn_list.clone(),
         alert_list: build_flags.alert_list.clone(),
