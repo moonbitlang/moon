@@ -7,6 +7,7 @@ This is a reference documentation of the current MoonBuild behavior.
 - [Modules and packages](./modules-packages.md)
 - [Package build process](./build.md)
 - [Conditional compilation](./cond-comp.md)
+- [Prebuild tasks](./prebuild.md)
 - [Virtual packages](./virtual-pkg.md)
 - TODO: C-stub compilation
 - TODO: [Compiler command references](./compiler-cmd-ref.md)
