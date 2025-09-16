@@ -83,7 +83,7 @@ pub fn run_info_rr(cli: UniversalFlags, cmd: InfoSubcommand) -> anyhow::Result<i
         target_dir,
     } = cli.source_tgt_dir.try_into_package_dirs()?;
 
-    let preconfig = rr_build::preconfig_compile(
+    let mut preconfig = rr_build::preconfig_compile(
         &cmd.auto_sync_flags,
         &cli,
         &BuildFlags::default(),
@@ -91,6 +91,7 @@ pub fn run_info_rr(cli: UniversalFlags, cmd: InfoSubcommand) -> anyhow::Result<i
         OptLevel::Release,
         RunMode::Build,
     );
+    preconfig.info_no_alias = cmd.no_alias;
     let (_build_meta, build_graph) = rr_build::plan_build(
         preconfig,
         &cli.unstable_feature,

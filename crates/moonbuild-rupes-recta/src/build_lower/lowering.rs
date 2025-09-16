@@ -590,7 +590,7 @@ impl<'a> BuildPlanLowerContext<'a> {
         let cmd = Mooninfo {
             mi_in: input.into(),
             out: output.into(),
-            no_alias: false, // TODO: fill this
+            no_alias: self.opt.info_no_alias,
         };
 
         BuildCommand {

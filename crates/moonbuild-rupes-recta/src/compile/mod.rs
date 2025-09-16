@@ -75,6 +75,8 @@ pub struct CompileConfig {
     pub warn_list: Option<String>,
     /// List of alerts to enable
     pub alert_list: Option<String>,
+    /// Whether to not emit alias when running `mooninfo`
+    pub info_no_alias: bool,
 }
 
 /// The output information of the compilation.
@@ -142,6 +144,7 @@ pub fn compile(
         moonc_output_json: cx.moonc_output_json,
         docs_serve: cx.docs_serve,
         deny_warn: cx.deny_warn,
+        info_no_alias: cx.info_no_alias,
 
         stdlib_path: cx.stdlib_path.clone(),
         compiler_paths: CompilerPaths::from_moon_dirs(), // change to external
