@@ -516,12 +516,8 @@ fn print_test_result(res: &TestCaseResult, module_name: &str, verbose: bool) {
             let _ = render_snapshot_fail(message);
         }
         TestResultKind::ExpectPanic => {
-            // For panic tests, success means we got a message (panic occurred)
-            if !message.is_empty() {
-                let _ = formatter.write_success(&mut std::io::stdout());
-            } else {
-                let _ = formatter.write_failure(&mut std::io::stdout());
-            }
+            let _ =
+                formatter.write_failure_with_message(&mut std::io::stdout(), "panic is expected");
             println!();
         }
     }
