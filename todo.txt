@@ -1,0 +1,293 @@
+cmd tests:
+
+- order only: whitebox tests
+- package.json
+- additional warning
+
+    cmd_test::cmd_test
+
+
+
+test_cases::backend::test_js_format -- no export function
+test_cases::backend_config::test_backend_config -- assertion failed (no exporting)
+test_cases::circle_pkg_test -- panicked, probably n2
+test_cases::debug_flag_test -- additionally checked bb tests
+test_cases::design::test_design -- didn't output artifact path list
+test_cases::dummy_core::test_dummy_core -- packages.json ordering
+test_cases::extra_flags::test_extra_flags -- missing -g --no-builtin
+test_cases::fmt::test_moon_fmt_002 -- no output stamp (deliberately)
+test_cases::fmt::test_moon_fmt_block_style -- no output stamp (deliberately)
+test_cases::fmt::test_moon_fmt_extra_args -- 
+test_cases::hello::test_source_map -- js format wrong
+test_cases::inline_test::test_inline_test_order -- different test order, batch output (do we actually need stable order?)
+test_cases::mbti::test_mbti_no_alias -- not applying moon info --no-alias
+test_cases::merge_doc_test_and_md_test -- task count different
+test_cases::moon_bundle::test_moon_bundle -- bundle output dir wrong, order wrong
+test_cases::moon_commands::test_moon_help -- env var, no issue
+test_cases::moon_coverage::test_moon_coverage_analyze -- no coverage
+test_cases::moon_coverage::test_moon_coverage_analyze_dry_run -- no coverage, order wrong
+test_cases::moon_info_specific_package -- task count different
+test_cases::moon_new::test_moon_new -- task count different
+test_cases::moon_test::test_moon_test_hello_exec -- mainly be ordering wrong
+test_cases::moon_test::test_moon_test_hello_exec_fntest -- command order wrong
+test_cases::moon_test::test_moon_test_with_local_dep -- failed moon test
+test_cases::moon_test::test_pkg_source_in -- allow-all for 3rd party pkgs, main build pkg list issue
+test_cases::moon_test_target_js_panic_with_sourcemap -- no sourcemap emitted
+test_cases::moon_test_with_failure_json -- did not print json for test failure
+test_cases::native_backend_test_filter -- moon test failed, fail to canonicalize dir
+test_cases::packages::test_core_order -- command order wrong
+test_cases::packages::test_empty_name -- error mesage different
+test_cases::packages::test_error_duplicate_alias -- output message assertion failed
+test_cases::prebuild_config_script::test_prebuild_config_js -- no prebuild config
+test_cases::prebuild_config_script::test_prebuild_config_py -- no prebuild config
+test_cases::target_backend::test_target_backend -- no js format
+test_cases::targets::test_many_targets -- order wrong, extra outputs
+test_cases::targets::test_many_targets_expect_failed -- extra warnings
+test_cases::test_add_mi_if_self_not_set_in_test_imports -- command order wrong
+test_cases::test_ambiguous_pkg -- error message different
+test_cases::test_bad_version -- error message different
+test_cases::test_blackbox_dedup_alias -- error message different; should not block execution
+test_cases::test_blackbox_failed
+test_cases::test_blackbox_success -- did not compile white box test?
+test_cases::test_blackbox_test_core_override -- command order wrong, possible more issues
+test_cases::test_diag_loc_map -- moonc error changed
+test_cases::test_diff_mbti -- didn't fail, probably because we didn't diff
+test_cases::test_dont_link_third_party -- accidentally compiled third party packages
+test_cases::test_expect_test::test_expect_test -- expect test updating message changed
+test_cases::test_export_memory_name -- no export
+test_cases::test_exports_in_native_backend -- no exports
+test_cases::test_failed_to_fill_whole_buffer -- task count different
+test_cases::test_filter::test_moon_parallelism -- test order different
+test_cases::test_filter::test_moon_test_filter_file -- test filter didn't work
+test_cases::test_filter::test_moon_test_filter_index -- test filter didn't work
+test_cases::test_filter::test_moon_test_filter_index_with_auto_update -- accidentally updated, maybe filtering didn't work?
+test_cases::test_filter::test_moon_test_filter_multi_package -- command order different
+test_cases::test_filter::test_moon_test_filter_package -- test order different
+test_cases::test_filter::test_moon_test_filter_package_dry_run -- command order different, missing args
+test_cases::test_filter::test_moon_test_filter_package_with_test_imports -- test order different
+test_cases::test_import_memory_and_heap_start -- didn't support such config
+test_cases::test_import_shared_memory -- didn't support such config
+test_cases::test_in_main_pkg -- test order different
+test_cases::test_internal_package -- didn't check internal package inclusion
+test_cases::test_js -- test order different
+test_cases::test_moon_check_filter_package -- filename different, command args order different
+test_cases::test_moon_check_package_with_patch -- didn't support patch files
+test_cases::test_moon_doc_dry_run -- didn't check tests (expected?)
+test_cases::test_moon_install_bin -- installed? file doesnt exist
+test_cases::test_moon_package_list -- execution count differ (checked blackbox test)
+test_cases::test_moon_run_native -- can't find module
+test_cases::test_moon_run_single_mbt_file -- can't find module, single file unsupported
+test_cases::test_moon_run_with_cli_args -- run command different
+test_cases::test_moon_test_patch -- didn't support patch file
+test_cases::test_moon_test_release -- probably order issue
+test_cases::test_multi_process -- race condition, didn't have folder lock
+test_cases::test_native_backend_cc_flags_with_env_override -- order different, output path different
+test_cases::test_native_backend_tcc_run -- didn't support tcc run, stub cc override wrong
+test_cases::test_native_stub_in_pkg_json -- failed to canonicalize source code dir
+test_cases::test_no_block_params -- argument didn't pass to moonfmt
+test_cases::test_no_mi_for_test_pkg -- generated mi for test packages
+test_cases::test_no_warn_deps -- don't emit warning for deps
+test_cases::test_nonexistent_package -- error message different, batch errors
+test_cases::test_panic -- test should report "panic expected"
+test_cases::test_pre_build -- didn't support pre-build task
+test_cases::test_pre_build_dirty -- didn't support pre-build task
+test_cases::test_render_diagnostic_in_patch_file -- didn't support patch file
+test_cases::test_run_doc_test -- moon test should fail
+test_cases::test_run_md_test -- task count different
+test_cases::test_snapshot_test -- test order different
+test_cases::test_snapshot_test_target_js -- test order different
+test_cases::test_specify_source_dir_001 -- checks black box tests, arg order
+test_cases::test_specify_source_dir_002 -- message different
+test_cases::test_specify_source_dir_003 -- task count different
+test_cases::test_specify_source_dir_004 -- task count different
+test_cases::test_specify_source_dir_005 -- err message different
+test_cases::test_specify_source_dir_with_deps -- command order different, arg order
+test_cases::test_specify_source_dir_with_deps_002 -- duplicated alias?
+test_cases::test_sub_package -- didn't support sub-pacakge
+test_cases::test_supported_backends_in_pkg_json -- should fail because unsupported backend
+test_cases::test_trace_001 -- no tracing supported yet
+test_cases::test_tracing_value_for_main_func -- no tracing supported yet
+test_cases::test_tracing_value_for_test_block -- no tracing supported yet
+test_cases::test_use_cc_for_native_release -- runtime .o path wrong (layout)
+test_cases::test_validate_import -- error message different
+test_cases::test_virtual_pkg -- didn't support virtual pkg yet
+test_cases::test_whitespace_parent_space -- used single quotes instead of double
+test_cases::virtual_pkg_dep::test_indirect_depend_virtual -- didn't support virtual pkg yet
+test_cases::warns::test_alert_list -- order different, warn list didn't work somehow
+test_cases::warns::test_deny_warn -- execution count different
+test_cases::warns::test_mod_level_warn_alert_list -- warn list didnt work somehow
+test_cases::warns::test_warn_list_dry_run -- command order different
+test_cases::warns::test_warn_list_real_run -- warn list didn't work somehow, additional warnings
+test_cases::whitespace_test -- used single quotes instead of double
+
+
+Grouped tests by failure reasons
+
+Test order wrong
+- cmd_test::cmd_test -- order only: whitebox tests
+- test_cases::inline_test::test_inline_test_order -- different test order, batch output
+- test_cases::moon_test::test_moon_test_hello_exec -- mainly be ordering wrong
+- test_cases::test_filter::test_moon_parallelism -- test order different
+- test_cases::test_filter::test_moon_test_filter_package -- test order different
+- test_cases::test_filter::test_moon_test_filter_package_with_test_imports -- test order different
+- test_cases::test_in_main_pkg -- test order different
+- test_cases::test_js -- test order different
+- test_cases::test_moon_test_release -- probably order issue
+- test_cases::test_snapshot_test -- test order different
+- test_cases::test_snapshot_test_target_js -- test order different
+
+Command order wrong
+- test_cases::moon_test::test_moon_test_hello_exec_fntest -- command order wrong
+- test_cases::packages::test_core_order -- command order wrong
+- test_cases::test_add_mi_if_self_not_set_in_test_imports -- command order wrong
+- test_cases::test_blackbox_test_core_override -- command order wrong, possible more issues
+- test_cases::test_filter::test_moon_test_filter_multi_package -- command order different
+- test_cases::warns::test_warn_list_dry_run -- command order different
+- test_cases::dummy_core::test_dummy_core -- packages.json ordering
+
+Unsupported or unimplemented features — subgroups
+- Prebuild configuration scripts
+  - test_cases::prebuild_config_script::test_prebuild_config_js -- no prebuild config
+  - test_cases::prebuild_config_script::test_prebuild_config_py -- no prebuild config
+- Pre-build tasks
+  - test_cases::test_pre_build -- didn't support pre-build task
+  - test_cases::test_pre_build_dirty -- didn't support pre-build task
+- Patch file support
+  - test_cases::test_moon_check_package_with_patch -- didn't support patch files
+  - test_cases::test_moon_test_patch -- didn't support patch file
+  - test_cases::test_render_diagnostic_in_patch_file -- didn't support patch file
+- Tracing
+  - test_cases::test_trace_001 -- no tracing supported yet
+  - test_cases::test_tracing_value_for_main_func -- no tracing supported yet
+  - test_cases::test_tracing_value_for_test_block -- no tracing supported yet
+- Virtual packages
+  - test_cases::test_virtual_pkg -- didn't support virtual pkg yet
+  - test_cases::virtual_pkg_dep::test_indirect_depend_virtual -- didn't support virtual pkg yet
+- Import/shared memory configuration
+  - test_cases::test_import_memory_and_heap_start -- didn't support such config
+  - test_cases::test_import_shared_memory -- didn't support such config
+- Sub-packages
+  - test_cases::test_sub_package -- didn't support sub-pacakge
+- Native backend TCC run
+  - test_cases::test_native_backend_tcc_run -- didn't support tcc run, stub cc override wrong
+- Single-file run
+  - test_cases::test_moon_run_single_mbt_file -- single file unsupported, can't find module
+- Backend support matrix
+  - test_cases::test_supported_backends_in_pkg_json -- should fail because unsupported backend
+- Formatter stamps
+  - test_cases::fmt::test_moon_fmt_002 -- no output stamp (deliberately)
+  - test_cases::fmt::test_moon_fmt_block_style -- no output stamp (deliberately)
+
+Command formatting — subgroups
+- JS format & source map
+  - test_cases::hello::test_source_map -- js format wrong
+  - test_cases::target_backend::test_target_backend -- no js format
+  - test_cases::moon_test_target_js_panic_with_sourcemap -- no sourcemap emitted
+- Exports
+  - test_cases::backend::test_js_format -- no export function
+  - test_cases::backend_config::test_backend_config -- assertion failed (no exporting)
+  - test_cases::test_export_memory_name -- no export
+  - test_cases::test_exports_in_native_backend -- no exports
+- Whitespace
+  - test_cases::test_whitespace_parent_space -- used single quotes instead of double
+  - test_cases::whitespace_test -- used single quotes instead of double
+
+Message differences
+- test_cases::packages::test_empty_name -- error mesage different
+- test_cases::packages::test_error_duplicate_alias -- output message assertion failed
+- test_cases::test_ambiguous_pkg -- error message different
+- test_cases::test_bad_version -- error message different
+- test_cases::test_blackbox_dedup_alias -- error message different; should not block execution
+- test_cases::test_diag_loc_map -- moonc error changed
+- test_cases::test_expect_test::test_expect_test -- expect test updating message changed
+- test_cases::test_specify_source_dir_002 -- message different
+- test_cases::test_specify_source_dir_005 -- err message different
+- test_cases::test_validate_import -- error message different
+
+Command/arguments differences
+- test_cases::test_moon_run_with_cli_args -- run command different
+
+Output/content omissions
+- test_cases::design::test_design -- didn't output artifact path list
+- test_cases::test_moon_install_bin -- installed? file doesnt exist
+
+Test filter/selection issues
+- test_cases::test_filter::test_moon_test_filter_file -- test filter didn't work
+- test_cases::test_filter::test_moon_test_filter_index -- test filter didn't work
+- test_cases::test_filter::test_moon_test_filter_index_with_auto_update -- accidentally updated, maybe filtering didn't work?
+
+Coverage
+- test_cases::moon_coverage::test_moon_coverage_analyze -- no coverage
+- test_cases::moon_coverage::test_moon_coverage_analyze_dry_run -- no coverage, order wrong
+
+Output path/layout/targeting issues
+- test_cases::moon_bundle::test_moon_bundle -- bundle output dir wrong, order wrong
+- test_cases::test_native_backend_cc_flags_with_env_override -- output path different
+- test_cases::test_use_cc_for_native_release -- runtime .o path wrong (layout)
+- test_cases::targets::test_many_targets -- order wrong, extra outputs
+
+Module resolution/canonicalization
+- test_cases::native_backend_test_filter -- moon test failed, fail to canonicalize dir
+- test_cases::test_native_stub_in_pkg_json -- failed to canonicalize source code dir
+- test_cases::test_moon_run_native -- can't find module
+- test_cases::test_moon_run_single_mbt_file -- can't find module, single file unsupported
+
+Warnings handling/config
+- test_cases::targets::test_many_targets_expect_failed -- extra warnings
+- test_cases::test_no_warn_deps -- don't emit warning for deps
+- test_cases::warns::test_alert_list -- warn list didn't work somehow
+- test_cases::warns::test_mod_level_warn_alert_list -- warn list didnt work somehow
+- test_cases::warns::test_warn_list_real_run -- warn list didn't work somehow, additional warnings
+
+Task/execution count mismatches
+- test_cases::merge_doc_test_and_md_test -- task count different
+- test_cases::moon_info_specific_package -- task count different
+- test_cases::moon_new::test_moon_new -- task count different
+- test_cases::test_failed_to_fill_whole_buffer -- task count different
+- test_cases::test_run_md_test -- task count different
+- test_cases::test_specify_source_dir_003 -- task count different
+- test_cases::test_specify_source_dir_004 -- task count different
+- test_cases::warns::test_deny_warn -- execution count different
+- test_cases::test_moon_package_list -- execution count differ
+
+Policy/whitelisting/internal/MI
+- test_cases::moon_test::test_pkg_source_in -- allow-all for 3rd party pkgs, main build pkg list issue
+- test_cases::test_dont_link_third_party -- accidentally compiled third party packages
+- test_cases::test_internal_package -- didn't check internal package inclusion
+- test_cases::test_no_mi_for_test_pkg -- generated mi for test packages
+- test_cases::mbti::test_mbti_no_alias -- not applying moon info --no-alias
+- test_cases::test_specify_source_dir_with_deps_002 -- duplicated alias?
+
+Test harness/reporting discrepancies
+- test_cases::moon_test::test_moon_test_with_local_dep -- failed moon test
+- test_cases::moon_test_with_failure_json -- did not print json for test failure
+- test_cases::test_panic -- test should report "panic expected"
+- test_cases::test_run_doc_test -- moon test should fail
+- test_cases::test_moon_doc_dry_run -- didn't check tests (expected?)
+
+Arguments/flags handling
+- test_cases::extra_flags::test_extra_flags -- missing -g --no-builtin
+- test_cases::test_filter::test_moon_test_filter_package_dry_run -- command order different, missing args
+- test_cases::test_moon_check_filter_package -- filename different, command args order different
+- test_cases::test_no_block_params -- argument didn't pass to moonfmt
+- test_cases::test_specify_source_dir_001 -- checks black box tests, arg order
+- test_cases::test_specify_source_dir_with_deps -- command order different, arg order
+
+Concurrency/race conditions
+- test_cases::test_multi_process -- race condition, didn't have folder lock
+
+Panic/infra instability
+- test_cases::circle_pkg_test -- panicked, probably n2
+
+Unknown/needs triage
+- test_cases::fmt::test_moon_fmt_extra_args --
+- test_cases::test_blackbox_failed
+- test_cases::debug_flag_test -- additionally checked bb tests
+
+Pass/No issue notes
+- test_cases::moon_commands::test_moon_help -- env var, no issue
+
+Meta notes from top
+- package.json
+- additional warning
+
