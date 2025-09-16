@@ -685,6 +685,32 @@ pub enum StringOrArray {
     Array(Vec<String>),
 }
 
+/// Iterator over [`StringOrArray`]
+pub enum StringOrArrayIter<'a> {
+    String(std::iter::Once<&'a String>),
+    Array(std::slice::Iter<'a, String>),
+}
+
+impl<'a> Iterator for StringOrArrayIter<'a> {
+    type Item = &'a String;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        match self {
+            StringOrArrayIter::String(iter) => iter.next(),
+            StringOrArrayIter::Array(iter) => iter.next(),
+        }
+    }
+}
+
+impl StringOrArray {
+    pub fn iter(&self) -> StringOrArrayIter<'_> {
+        match self {
+            StringOrArray::String(s) => StringOrArrayIter::String(std::iter::once(s)),
+            StringOrArray::Array(arr) => StringOrArrayIter::Array(arr.iter()),
+        }
+    }
+}
+
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct SubPackageInMoonPkg {
     pub files: Vec<String>,

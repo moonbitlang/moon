@@ -675,6 +675,22 @@ impl<'a> BuildPlanLowerContext<'a> {
     }
 
     #[instrument(level = Level::DEBUG, skip(self))]
+    pub(super) fn lower_run_prebuild(&self, pkg: PackageId, idx: u32) -> BuildCommand {
+        let info = self
+            .build_plan
+            .get_prebuild_info(pkg, idx)
+            .expect("Prebuild info should be populated before lowering run prebuild");
+
+        // Note: we are tracking dependencies between prebuild commands via n2.
+        // Ideally we can do this ourselves, but n2 does it anyway so we don't bother.
+
+        BuildCommand {
+            commandline: vec!["sh".into(), "-c".into(), info.command.clone()],
+            extra_inputs: info.resolved_inputs.clone(),
+        }
+    }
+
+    #[instrument(level = Level::DEBUG, skip(self))]
     pub(super) fn mi_inputs_of(
         &self,
         _node: BuildPlanNode,

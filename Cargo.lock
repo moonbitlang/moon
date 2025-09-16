@@ -1542,6 +1542,7 @@ dependencies = [
 name = "moonbuild-rupes-recta"
 version = "0.1.0"
 dependencies = [
+ "aho-corasick",
  "anyhow",
  "arcstr",
  "derive_builder",

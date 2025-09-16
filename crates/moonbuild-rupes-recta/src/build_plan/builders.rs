@@ -18,13 +18,27 @@
 
 //! Individual build methods for different node types.
 
+use std::{
+    borrow::Cow,
+    ffi::OsStr,
+    path::{Path, PathBuf},
+    sync::LazyLock,
+};
+
 use indexmap::{set::MutableValues, IndexSet};
 use log::{debug, trace};
-use moonutil::compiler_flags::CC;
+use moonutil::{
+    common::{
+        DEP_PATH, DOT_MBT_DOT_MD, MOD_DIR, MOONCAKE_BIN, MOON_BIN_DIR, MOON_MOD_JSON,
+        MOON_PKG_JSON, PKG_DIR,
+    },
+    compiler_flags::CC,
+};
 use petgraph::visit::DfsPostOrder;
-use tracing::{instrument, Level};
+use tracing::{instrument, warn, Level};
 
 use crate::{
+    build_plan::PrebuildInfo,
     cond_comp::{self, CompileCondition},
     model::{BuildPlanNode, BuildTarget, PackageId, TargetKind},
 };
@@ -35,6 +49,17 @@ use super::{
 };
 
 impl<'a> BuildPlanConstructor<'a> {
+    /// Add need to all prebuild scripts of the given package, and add edge to this node
+    fn need_all_package_prebuild(&mut self, node: BuildPlanNode, pkg_id: PackageId) {
+        let pkg = self.input.pkg_dirs.get_package(pkg_id);
+        if let Some(prebuild) = &pkg.raw.pre_build {
+            for i in 0..prebuild.len() {
+                let prebuild_node = self.need_node(BuildPlanNode::RunPrebuild(pkg_id, i as u32));
+                self.add_edge(node, prebuild_node);
+            }
+        }
+    }
+
     #[instrument(level = Level::DEBUG, skip(self))]
     pub(super) fn build_check(
         &mut self,
@@ -52,6 +77,8 @@ impl<'a> BuildPlanConstructor<'a> {
             let dep_node = self.need_node(BuildPlanNode::Check(dep));
             self.add_edge(node, dep_node);
         }
+
+        self.need_all_package_prebuild(node, target.package);
 
         self.populate_target_info(target);
         self.resolved_node(node);
@@ -85,6 +112,8 @@ impl<'a> BuildPlanConstructor<'a> {
             self.need_node(gen_test_info);
             self.add_edge(node, gen_test_info);
         }
+
+        self.need_all_package_prebuild(node, target.package);
 
         self.populate_target_info(target);
         self.resolved_node(node);
@@ -123,38 +152,69 @@ impl<'a> BuildPlanConstructor<'a> {
             backend: self.build_env.target_backend,
         };
 
+        // Iterator of all existing source files in the package
+        let source_iter = pkg.source_files.iter().map(|x| Cow::Borrowed(x.as_path()));
+
+        // Iterator over all prebuild output files that are .mbt or .mbt.md
+        // Or else they will not be picked up by the build system.
+        //
+        // This might emit duplicated files if the prebuilt file already exist
+        // in the source directory. Should not affect the build system.
+        // MAINTAINERS: These paths are relative.
+        //
+        // They need further normalizing to be the absolute paths required by
+        // the build system. This is done below in the file inclusion process,
+        // and assuming that all files are relative to package root path. if we
+        // have to add more types of files in the future, especially if they are
+        // *not* relative to package root, this should be changed to feed the
+        // absolute path, or let the iteration item contain extra metadata about
+        // what their roots are.
+        let prebuild_output_iter = pkg.raw.pre_build.iter().flat_map(|pb| {
+            pb.iter().flat_map(|gen| {
+                gen.output
+                    .iter()
+                    .filter(|x| x.ends_with(".mbt") || x.ends_with(DOT_MBT_DOT_MD))
+                    .map(|x| Cow::Owned(pkg.root_path.join(x)))
+            })
+        });
+
         // Filter source files
         let source_files = cond_comp::filter_files(
             &pkg.raw,
-            pkg.source_files.iter().map(|x| x.as_path()),
+            source_iter.chain(prebuild_output_iter),
             &compile_condition,
         );
 
         // Include files
-        let mut regular_files = vec![];
-        let mut whitebox_files = vec![];
-        let mut doctest_files = vec![];
+        //
+        // Source and prebuild might emit duplicated files if the prebuilt file
+        // already exist in the source directory. We dedup it here.
+        let mut regular_files = IndexSet::new();
+        let mut whitebox_files = IndexSet::new();
+        let mut doctest_files = IndexSet::new();
         for (file, file_kind) in source_files {
             match (target.kind, file_kind) {
-                (Source | SubPackage | InlineTest, NoTest) => regular_files.push(file.to_owned()),
+                (Source | SubPackage | InlineTest, NoTest) => {
+                    regular_files.insert(file.into_owned())
+                }
 
-                (WhiteboxTest, NoTest) => regular_files.push(file.to_owned()),
-                (WhiteboxTest, Whitebox) => whitebox_files.push(file.to_owned()),
+                (WhiteboxTest, NoTest) => regular_files.insert(file.into_owned()),
+                (WhiteboxTest, Whitebox) => whitebox_files.insert(file.into_owned()),
 
-                (BlackboxTest, Blackbox) => regular_files.push(file.to_owned()),
-                (BlackboxTest, NoTest) => doctest_files.push(file.to_owned()),
+                (BlackboxTest, Blackbox) => regular_files.insert(file.into_owned()),
+                (BlackboxTest, NoTest) => doctest_files.insert(file.into_owned()),
 
                 _ => panic!(
                     "Unexpected file kind {:?} for target {:?} in package {}, \
                     this is a bug in the build system!",
                     file_kind, target, pkg.fqn
                 ),
-            }
+            };
         }
         if target.kind == BlackboxTest {
             // mbt.md files are also part of regular files
             for md_file in &pkg.mbt_md_files {
-                regular_files.push(md_file.clone());
+                regular_files.insert(md_file.clone());
             }
         }
 
@@ -171,9 +231,9 @@ impl<'a> BuildPlanConstructor<'a> {
         );
 
         BuildTargetInfo {
-            regular_files,
-            whitebox_files,
-            doctest_files,
+            regular_files: regular_files.into_iter().collect(),
+            whitebox_files: whitebox_files.into_iter().collect(),
+            doctest_files: doctest_files.into_iter().collect(),
             warn_list,
             alert_list,
         }
@@ -447,6 +507,115 @@ impl<'a> BuildPlanConstructor<'a> {
         }
         Ok(())
     }
+
+    #[instrument(level = Level::DEBUG, skip(self))]
+    pub(super) fn build_run_prebuild(
+        &mut self,
+        node: BuildPlanNode,
+        _package: PackageId,
+        _index: u32,
+    ) -> Result<(), BuildPlanConstructError> {
+        // Theoretically there might be file-level dependencies between prebuild
+        // commands, but we don't track it here, since it **will** be handled by
+        // n2 which tracks file-level dependencies anyway.
+        //
+        // In this lowering process, we only handle the transformation of the
+        // commands and files.
+        //
+        // For details, also see `/docs/dev/reference/prebuild.md`
+
+        self.need_node(node);
+        self.populate_prebuild(_package, _index);
+        self.resolved_node(node);
+
+        Ok(())
+    }
+
+    pub fn populate_prebuild(&mut self, package: PackageId, index: u32) {
+        if self
+            .res
+            .prebuild_info
+            .get(&package)
+            .and_then(|v| v.get(index as usize).and_then(|x| x.as_ref()))
+            .is_some()
+        {
+            // Already populated
+            return;
+        }
+
+        let pkg = self.input.pkg_dirs.get_package(package);
+        let module = &self.input.module_dirs[pkg.module];
+        let prebuild_cmd =
+            &pkg.raw.pre_build.as_ref().expect("Prebuild must exist")[index as usize];
+
+        // Warn about suspicious outputs
+        for output in prebuild_cmd.output.iter() {
+            let output: &Path = output.as_ref();
+            let Some(filename) = output.file_name().and_then(OsStr::to_str) else {
+                continue;
+            };
+
+            // If the output is a moonbit source and it does not live in the current dir
+            if (filename.ends_with(".mbt") || filename.ends_with(".mbt.md"))
+                && output.parent() != Some("".as_ref())
+            {
+                warn!(
+                    "Prebuild output '{}' is not in the package directory of package {}. \
+                    Such behavior is not supported. \
+                    The build system will not add it to the list of MoonBit files to compile. \
+                    If you really intend to generate files for another package, \
+                    please move the prebuild command to that package instead.",
+                    output.display(),
+                    pkg.fqn
+                );
+            }
+            // If the file looks like a package manifest
+            if filename == MOON_MOD_JSON || filename == MOON_PKG_JSON {
+                warn!(
+                    "Prebuild output '{}' of package {} looks like a package manifest file. \
+                    Overwriting package manifests is not supported and may lead to unexpected behavior.",
+                    output.display(),
+                    pkg.fqn
+                );
+            }
+        }
+
+        // Normalize input and output paths. This is the relatively easy part.
+        // FIXME: these paths are used again when determining input files in
+        // `Self::populate_target_info`, should we cache them somewhere?
+        let input_paths = prebuild_cmd
+            .input
+            .iter()
+            .map(|x| pkg.root_path.join(x))
+            .collect::<Vec<_>>();
+        let output_paths = prebuild_cmd
+            .output
+            .iter()
+            .map(|x| pkg.root_path.join(x))
+            .collect::<Vec<_>>();
+
+        // Handle command expansion and tokenization
+        let command = handle_build_command_new(
+            &prebuild_cmd.command,
+            module,
+            &pkg.root_path,
+            &input_paths,
+            &output_paths,
+        );
+
+        let info = PrebuildInfo {
+            resolved_inputs: input_paths,
+            resolved_outputs: output_paths,
+            command,
+        };
+
+        let v = self.res.prebuild_info.entry(package).or_default();
+        // Extend the vector if necessary
+        while v.len() <= index as usize {
+            v.push(None);
+        }
+        v[index as usize] = Some(info);
+    }
 }
 
 /// Concatenate two optional strings
@@ -460,4 +629,86 @@ fn cat_opt(x: Option<String>, y: Option<&str>) -> Option<String> {
         (None, Some(b)) => Some(b.to_string()),
         (None, None) => None,
     }
+}
+
+static CHECK_AUTOMATA: LazyLock<aho_corasick::AhoCorasick> = LazyLock::new(|| {
+    aho_corasick::AhoCorasickBuilder::new()
+        .build([MOONCAKE_BIN, MOD_DIR, PKG_DIR, "$input", "$output"])
+        .expect("Failed to build automata")
+});
+
+/// Handle the prebuild command replacement, outputs a single string that should
+/// be `sh -c`'ed.
+///
+/// This should mostly match the legacy code in behavior, sans the strange
+/// `.ps1` replacement when encountering code.
+fn handle_build_command_new(
+    command: &str,
+    mod_source: &Path,
+    pkg_source: &Path,
+    input_files: &[PathBuf],
+    output_files: &[PathBuf],
+) -> String {
+    use std::fmt::Write;
+
+    let mut reconstructed = String::new();
+
+    let command = if let Some(command) = command.strip_prefix(":embed ") {
+        reconstructed.push_str("moon tool embed ");
+        command
+    } else {
+        command
+    };
+
+    let mut last_end = 0usize;
+    for magic in CHECK_AUTOMATA.find_iter(command) {
+        // Commit previous segment
+        if magic.start() > last_end {
+            reconstructed.push_str(&command[last_end..magic.start()]);
+        }
+
+        // Insert replacement
+        // See the IDs in CHECK_AUTOMATA
+        match magic.pattern().as_usize() {
+            // $mooncake_bin => <mod_source>/.mooncakes/__moonbin__
+            // DUDE, WHAT THE FUCK IS THIS?!
+            0 => {
+                let replacement = mod_source.join(DEP_PATH).join(MOON_BIN_DIR);
+                write!(reconstructed, "{}", replacement.display()).expect("write can't fail");
+            }
+            // $mod_dir => <mod_source>
+            1 => {
+                write!(reconstructed, "{}", mod_source.display()).expect("write can't fail");
+            }
+            // $pkg_dir => <pkg_source>
+            2 => {
+                write!(reconstructed, "{}", pkg_source.display()).expect("write can't fail");
+            }
+            // $input => (existing)<input_1>, <input_2>, ...
+            3 => {
+                for (i, f) in input_files.iter().enumerate() {
+                    if i != 0 {
+                        write!(reconstructed, " ").expect("write can't fail");
+                    }
+                    write!(reconstructed, "{}", f.display()).expect("write can't fail");
+                }
+            }
+            4 => {
+                for (i, f) in output_files.iter().enumerate() {
+                    if i != 0 {
+                        write!(reconstructed, " ").expect("write can't fail");
+                    }
+                    write!(reconstructed, "{}", f.display()).expect("write can't fail");
+                }
+            }
+            _ => unreachable!("Unexpected pattern id from CHECK_AUTOMATA"),
+        }
+        last_end = magic.end();
+    }
+
+    if last_end < command.len() {
+        reconstructed.push_str(&command[last_end..]);
+    }
+
+    reconstructed
 }

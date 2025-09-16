@@ -88,6 +88,9 @@ pub struct BuildPlan {
     /// The map of build target to the information needed to make it executable
     make_executable_info: HashMap<BuildTarget, MakeExecutableInfo>,
 
+    /// The map of package to its prebuild information, if any.
+    prebuild_info: HashMap<PackageId, Vec<Option<PrebuildInfo>>>,
+
     /// The nodes that were used as input to the build plan.
     input_nodes: Vec<BuildPlanNode>,
 }
@@ -120,6 +123,14 @@ impl BuildPlan {
     /// Get make executable information for the given target.
     pub fn get_make_executable_info(&self, target: &BuildTarget) -> Option<&MakeExecutableInfo> {
         self.make_executable_info.get(target)
+    }
+
+    /// Get prebuild information for the given package.
+    pub fn get_prebuild_info(&self, package: PackageId, idx: u32) -> Option<&PrebuildInfo> {
+        self.prebuild_info
+            .get(&package)
+            .and_then(|v| v.get(idx as usize))
+            .and_then(|x| x.as_ref())
     }
 
     /// Get the list of nodes that **depend on the given node**.
@@ -207,6 +218,13 @@ pub struct MakeExecutableInfo {
     pub(crate) c_flags: Vec<String>,
     /// The C stub targets to link with.
     pub(crate) link_c_stubs: Vec<BuildTarget>,
+}
+
+/// Resolved information about a prebuild command.
+pub struct PrebuildInfo {
+    pub(crate) resolved_inputs: Vec<PathBuf>,
+    pub(crate) resolved_outputs: Vec<PathBuf>,
+    pub(crate) command: String,
 }
 
 /// Represents the environment in which the build is being performed.
