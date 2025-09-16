@@ -31,6 +31,7 @@ use moonutil::{
     mooncakes::{sync::AutoSyncFlags, RegistryConfig},
 };
 use std::path::Path;
+use tracing::{instrument, Level};
 
 use crate::rr_build::{self, BuildConfig};
 
@@ -51,6 +52,7 @@ pub struct BundleSubcommand {
     pub auto_sync_flags: AutoSyncFlags,
 }
 
+#[instrument(skip_all)]
 pub fn run_bundle(cli: UniversalFlags, cmd: BundleSubcommand) -> anyhow::Result<i32> {
     if cli.unstable_feature.rupes_recta {
         run_bundle_rr(cli, cmd)
@@ -59,6 +61,7 @@ pub fn run_bundle(cli: UniversalFlags, cmd: BundleSubcommand) -> anyhow::Result<
     }
 }
 
+#[instrument(skip_all)]
 pub fn run_bundle_rr(cli: UniversalFlags, cmd: BundleSubcommand) -> anyhow::Result<i32> {
     let PackageDirs {
         source_dir,
@@ -100,6 +103,7 @@ pub fn run_bundle_rr(cli: UniversalFlags, cmd: BundleSubcommand) -> anyhow::Resu
     }
 }
 
+#[instrument(skip_all)]
 pub fn run_bundle_legacy(cli: UniversalFlags, cmd: BundleSubcommand) -> anyhow::Result<i32> {
     let PackageDirs {
         source_dir,
@@ -138,6 +142,7 @@ pub fn run_bundle_legacy(cli: UniversalFlags, cmd: BundleSubcommand) -> anyhow::
     Ok(ret_value)
 }
 
+#[instrument(level = Level::DEBUG, skip_all)]
 fn run_bundle_internal(
     cli: &UniversalFlags,
     cmd: &BundleSubcommand,

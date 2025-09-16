@@ -42,6 +42,7 @@ use std::{
 use log::{debug, info};
 use moonutil::{common::TargetBackend, compiler_flags::CC, cond_expr::OptLevel};
 use petgraph::prelude::DiGraphMap;
+use tracing::instrument;
 
 use crate::{
     discover::DiscoverResult,
@@ -236,6 +237,7 @@ pub enum BuildPlanConstructError {
 }
 
 /// Construct an abstract build graph from the given packages and input actions.
+#[instrument(skip_all)]
 pub fn build_plan(
     packages: &DiscoverResult,
     build_deps: &DepRelationship,

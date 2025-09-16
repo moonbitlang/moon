@@ -32,6 +32,7 @@ use mooncake::pkg::sync::auto_sync;
 use moonutil::mooncakes::{
     result::ResolvedEnv, sync::AutoSyncFlags, DirSyncResult, ModuleId, RegistryConfig,
 };
+use tracing::instrument;
 
 use crate::{
     discover::{discover_packages, DiscoverError, DiscoverResult},
@@ -97,6 +98,7 @@ pub enum ResolveError {
 
 /// Performs the resolving process from a raw working directory, until all of
 /// the modules and packages affected are resolved.
+#[instrument(skip_all)]
 pub fn resolve(cfg: &ResolveConfig, source_dir: &Path) -> Result<ResolveOutput, ResolveError> {
     info!(
         "Starting resolve process for source directory: {}",

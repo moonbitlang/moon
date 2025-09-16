@@ -48,6 +48,7 @@ use moonutil::{
     features::FeatureGate,
     mooncakes::{sync::AutoSyncFlags, ModuleId},
 };
+use tracing::{instrument, Level};
 
 use crate::cli::BuildFlags;
 
@@ -176,6 +177,7 @@ impl CompilePreConfig {
 
 /// Read in the commandline flags and build flags to create a
 /// [`CompilePreConfig`] for compilation usage.
+#[instrument(level = Level::DEBUG, skip_all)]
 pub fn preconfig_compile(
     auto_sync_flags: &AutoSyncFlags,
     cli: &UniversalFlags,
@@ -217,6 +219,7 @@ pub fn preconfig_compile(
 /// Returns the execution plan (metadata) and build graph separately, allowing
 /// execute_build to take ownership of just the graph while callers retain
 /// access to the metadata.
+#[instrument(skip_all)]
 pub fn plan_build<'a>(
     preconfig: CompilePreConfig,
     unstable_features: &'a FeatureGate,
@@ -285,6 +288,7 @@ pub fn plan_build<'a>(
 }
 
 /// Generate metadata file `packages.json` in the target directory.
+#[instrument(level = Level::DEBUG, skip_all)]
 pub fn generate_metadata(
     source_dir: &Path,
     target_dir: &Path,
@@ -346,6 +350,7 @@ impl Default for BuildConfig {
 /// Takes ownership of the build graph and executes the actual build tasks.
 /// Returns just the build result - callers should use the resolve data and
 /// artifacts from the planning phase for any metadata they need.
+#[instrument(skip_all)]
 pub fn execute_build(
     cfg: &BuildConfig,
     build_graph: n2::graph::Graph,
@@ -368,6 +373,7 @@ type WantFileFn<'b> = dyn for<'a> FnOnce(&'a mut n2::work::Work) -> anyhow::Resu
 ///
 /// This function is primarily used for rebuilding tests after snapshot test
 /// promotion.
+#[instrument(skip_all)]
 pub fn execute_build_partial(
     cfg: &BuildConfig,
     mut build_graph: n2::graph::Graph,

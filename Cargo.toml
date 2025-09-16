@@ -131,3 +131,11 @@ codegen-units = 1
 
 # terminate the process upon panic, panic = 'abort' reduced by 0.6M, but it will lose stack information
 # panic = 'abort'
+
+[profile.rel-with-dbg]
+inherits = "release"
+debug = true
+opt-level = 2
+lto = false
+strip = false
+codegen-units = 16

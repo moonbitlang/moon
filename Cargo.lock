@@ -1555,6 +1555,7 @@ dependencies = [
  "shlex",
  "slotmap",
  "thiserror 1.0.63",
+ "tracing",
  "walkdir",
 ]
 
