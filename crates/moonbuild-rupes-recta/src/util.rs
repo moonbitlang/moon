@@ -171,6 +171,9 @@ impl BuildPlanNode {
             BuildPlanNode::GenerateTestInfo(target) => format!("{:?}@GenerateTestInfo", target),
             BuildPlanNode::Bundle(module_id) => format!("{:?}@Bundle", module_id),
             BuildPlanNode::GenerateMbti(target) => format!("{:?}@GenerateMbti", target),
+            BuildPlanNode::RunPrebuild(target, index) => {
+                format!("{:?}@RunPrebuild_{}", target, index)
+            }
             BuildPlanNode::BuildRuntimeLib => "BuildRuntimeLib".to_string(),
             BuildPlanNode::BuildDocs => "BuildDocs".to_string(),
         }
@@ -215,6 +218,10 @@ impl BuildPlanNode {
                 let fqn = packages.fqn(build_target.package);
                 format!("{}\\nGenerateMbti", fqn)
             }
+            BuildPlanNode::RunPrebuild(target, index) => {
+                let fqn = packages.fqn(*target);
+                format!("{}\\nRunPrebuild_{}", fqn, index)
+            }
             BuildPlanNode::BuildRuntimeLib => "BuildRuntimeLib".to_string(),
             BuildPlanNode::BuildDocs => "BuildDocs".to_string(),
         }
@@ -231,6 +238,7 @@ impl BuildPlanNode {
             BuildPlanNode::GenerateTestInfo(_) => "lightgray",
             BuildPlanNode::Bundle(_) => "wheat",
             BuildPlanNode::GenerateMbti(_) => "lightcyan",
+            BuildPlanNode::RunPrebuild(_, _) => "khaki",
             BuildPlanNode::BuildRuntimeLib => "orange",
             BuildPlanNode::BuildDocs => "lavender",
         }

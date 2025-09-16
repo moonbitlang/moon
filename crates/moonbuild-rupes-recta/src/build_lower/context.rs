@@ -143,6 +143,7 @@ impl<'a> BuildPlanLowerContext<'a> {
             }
             BuildPlanNode::BuildRuntimeLib => self.lower_compile_runtime(),
             BuildPlanNode::BuildDocs => self.lower_build_docs(),
+            BuildPlanNode::RunPrebuild(pkg, idx) => self.lower_run_prebuild(pkg, idx),
         };
 
         // Collect n2 inputs and outputs.
@@ -282,6 +283,13 @@ impl<'a> BuildPlanLowerContext<'a> {
             BuildPlanNode::BuildDocs => {
                 // The output is a whole folder
                 out.push(self.layout.doc_dir())
+            }
+            BuildPlanNode::RunPrebuild(pkg, idx) => {
+                let cfg = self
+                    .build_plan
+                    .get_prebuild_info(pkg, idx)
+                    .expect("Prebuild info should be populated before lowering run prebuild");
+                out.extend(cfg.resolved_outputs.iter().cloned());
             }
         }
     }

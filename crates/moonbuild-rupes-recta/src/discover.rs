@@ -40,8 +40,8 @@ use moonutil::mooncakes::{result::ResolvedEnv, DirSyncResult, ModuleId, ModuleSo
 use moonutil::package::MoonPkg;
 use relative_path::{PathExt, RelativePath};
 use slotmap::{SecondaryMap, SlotMap};
-use walkdir::WalkDir;
 use tracing::{instrument, Level};
+use walkdir::WalkDir;
 
 use crate::{
     model::PackageId,

@@ -107,6 +107,9 @@ pub enum BuildPlanNode {
     Bundle(ModuleId),
     BuildRuntimeLib,
 
+    /// Run the i-th prebuild script in the prebuild script list.
+    RunPrebuild(PackageId, u32),
+
     /// Docs build is currently for everything.
     ///
     /// The legacy layout does not have a separate folder for different kinds
@@ -149,7 +152,8 @@ impl BuildPlanNode {
             | BuildPlanNode::ArchiveCStubs(_)
             | BuildPlanNode::Bundle(_)
             | BuildPlanNode::BuildRuntimeLib
-            | BuildPlanNode::BuildDocs => None,
+            | BuildPlanNode::BuildDocs
+            | BuildPlanNode::RunPrebuild(_, _) => None,
         }
     }
 }

@@ -200,6 +200,22 @@ impl<'a> BuildPlanConstructor<'a> {
             BuildPlanNode::Bundle(_module_id) => (),
             BuildPlanNode::BuildRuntimeLib => (),
             BuildPlanNode::BuildDocs => (),
+            BuildPlanNode::RunPrebuild(pkg, idx) => {
+                assert!(
+                    self.res.prebuild_info.contains_key(&pkg),
+                    "Prebuild info for package {:?} should be present when resolving node {:?}",
+                    pkg,
+                    node
+                );
+                let v = &self.res.prebuild_info[&pkg];
+                assert!(
+                    (idx as usize) < v.len() && v[idx as usize].is_some(),
+                    "Prebuild info for package {:?} index {} should be present when resolving node {:?}",
+                    pkg,
+                    idx,
+                    node
+                );
+            }
         }
     }
 
@@ -234,6 +250,9 @@ impl<'a> BuildPlanConstructor<'a> {
             BuildPlanNode::BuildRuntimeLib => self.build_runtime_lib(node),
             BuildPlanNode::GenerateMbti(target) => self.build_generate_mbti(node, target),
             BuildPlanNode::BuildDocs => self.build_build_docs(node),
+            BuildPlanNode::RunPrebuild(package_id, index) => {
+                self.build_run_prebuild(node, package_id, index)
+            }
         }
     }
 

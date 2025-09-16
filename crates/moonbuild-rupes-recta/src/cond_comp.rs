@@ -60,13 +60,14 @@ pub(crate) struct CompileCondition {
 ///
 /// Note: `pkg_file_path` is purely for error reporting, as required by
 /// [`moonutil::cond_expr::parse_cond_expr`].
-pub(crate) fn filter_files<'a>(
+pub(crate) fn filter_files<'a, P: AsRef<Path> + 'a>(
     pkg: &'a MoonPkg,
-    files: impl Iterator<Item = &'a Path> + 'a,
+    files: impl Iterator<Item = P> + 'a,
     cond: &'a CompileCondition,
-) -> impl Iterator<Item = (&'a Path, FileTestKind)> + 'a {
+) -> impl Iterator<Item = (P, FileTestKind)> + 'a {
     files.filter_map(|file| {
         let filename = file
+            .as_ref()
             .file_name()
             .expect("Input source file should have a filename");
         let str_filename = filename.to_string_lossy();
