@@ -911,6 +911,8 @@ pub struct MooncGenTestInfo {
     pub with_args_tests: IndexMap<FileName, Vec<MbtTestInfo>>,
     #[serde(default)] // for backward compatibility
     pub with_bench_args_tests: IndexMap<FileName, Vec<MbtTestInfo>>,
+    #[serde(default)]
+    pub async_tests: IndexMap<FileName, Vec<MbtTestInfo>>,
 }
 
 impl MooncGenTestInfo {

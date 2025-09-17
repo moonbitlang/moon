@@ -2,9 +2,11 @@
 #cfg(target="native")
 #test_entry
 fn main {
-  for arg in moonbit_test_driver_internal_native_parse_args() {
-    moonbit_test_driver_internal_do_execute(arg.0, arg.1)
-  }
+  moonbit_test_driver_internal_run_async_main(fn(ctx) {
+    for arg in moonbit_test_driver_internal_native_parse_args() {
+      moonbit_test_driver_internal_do_execute(ctx, arg.0, arg.1)
+    }
+  })
 }
 
 #cfg(not(target="native"))
@@ -15,7 +17,9 @@ fn main {
 
 #cfg(target="js")
 pub fn moonbit_test_driver_internal_execute(filename : String, index : Int) -> Unit {
-  moonbit_test_driver_internal_do_execute(filename, index)
+  moonbit_test_driver_internal_run_async_main(fn(ctx) {
+    moonbit_test_driver_internal_do_execute(ctx, filename, index)
+  })
 }
 
 #cfg(any(target="wasm", target="wasm-gc"))
@@ -24,7 +28,9 @@ pub fn moonbit_test_driver_internal_execute(
   index : Int,
 ) -> Unit {
   let filename = moonbit_test_driver_internal_get_file_name(filename)
-  moonbit_test_driver_internal_do_execute(filename, index)
+  moonbit_test_driver_internal_run_async_main(fn(ctx) {
+    moonbit_test_driver_internal_do_execute(ctx, filename, index)
+  })
 }
 
 #cfg(not(target="native"))
