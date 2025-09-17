@@ -74,7 +74,6 @@ use moonbuild::{
     },
     runtest::TestStatistics,
     section_capture::SectionCapture,
-    test_utils::indices_to_ranges,
 };
 use moonbuild_rupes_recta::model::{BuildPlanNode, BuildTarget};
 use moonutil::common::{
@@ -324,43 +323,7 @@ fn run_one_test_executable(
         file_and_index: vec![],
     };
 
-    for lists in [
-        &meta.no_args_tests,
-        &meta.with_args_tests,
-        // TODO: bench mode changes this
-    ] {
-        for (filename, test_infos) in lists {
-            let (included, index_filt) = file_filt.map_or((true, None), |x| x.check_file(filename));
-            if !included {
-                continue;
-            }
-
-            let mut this_file_index = vec![];
-
-            // Filter by index
-            match index_filt {
-                None => {
-                    if !test_infos.is_empty() {
-                        // Use actual indices from test metadata instead of assuming contiguous 0..max_index
-                        let actual_indices: Vec<u32> = test_infos.iter().map(|t| t.index).collect();
-                        let ranges = indices_to_ranges(actual_indices);
-                        this_file_index = ranges;
-                    }
-                }
-                Some(filt) => {
-                    for t in test_infos {
-                        if filt.0.contains(&t.index) {
-                            this_file_index.push(t.index..t.index + 1);
-                        }
-                    }
-                }
-            }
-
-            test_args
-                .file_and_index
-                .push((filename.clone(), this_file_index));
-        }
-    }
+    filter::apply_filter(file_filt, &meta, &mut test_args.file_and_index);
 
     let cmd =
         crate::run::command_for(build_meta.target_backend, test.executable, Some(&test_args))?;
