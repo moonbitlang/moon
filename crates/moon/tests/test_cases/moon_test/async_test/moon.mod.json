@@ -1,0 +1,10 @@
+{
+  "name": "moon/test_async_test",
+  "deps": {
+    "moonbitlang/async": { "path": "../dummy_async_impl" }
+  },
+  "version": "0.0.1",
+  "license": "Apache-2.0",
+  "source": ".",
+  "preferred-target": "native"
+}

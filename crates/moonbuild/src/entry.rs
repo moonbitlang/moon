@@ -671,6 +671,7 @@ fn convert_moonc_test_info(
             .into_iter()
             .chain(info.with_args_tests.into_iter())
             .chain(info.with_bench_args_tests.into_iter())
+            .chain(info.async_tests.into_iter())
         {
             if test_info.is_empty() {
                 continue;

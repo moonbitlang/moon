@@ -199,6 +199,16 @@ const WITH_ARGS_TEMPLATE: &str = include_str!(concat!(
     "/../moonbuild/template/test_driver/with_args_template.mbt"
 ));
 
+const NO_ASYNC_TEMPLATE: &str = include_str!(concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/../moonbuild/template/test_driver/no_async.mbt"
+));
+
+const ASYNC_TEMPLATE: &str = include_str!(concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/../moonbuild/template/test_driver/async.mbt"
+));
+
 const BENCH_DRIVER_TEMPLATE: &str = include_str!(concat!(
     env!("CARGO_MANIFEST_DIR"),
     "/../moonbuild/template/test_driver/bench_driver_template.mbt"
@@ -227,7 +237,8 @@ fn generate_driver(
     //   only no_arg tests are present -> no_arg_test
     //   otherwise -> no_arg_test and with_arg_test
 
-    let only_no_arg_tests = data.with_args_tests.iter().all(|x| x.1.is_empty());
+    let no_async_tests = data.async_tests.iter().all(|x| x.1.is_empty());
+    let only_no_arg_tests = data.with_args_tests.iter().all(|x| x.1.is_empty()) && no_async_tests;
 
     let template = if enable_bench {
         BENCH_DRIVER_TEMPLATE
@@ -240,6 +251,11 @@ fn generate_driver(
             template.push_str(NO_ARGS_TEMPLATE)
         } else {
             template.push_str(WITH_ARGS_TEMPLATE)
+        }
+        if no_async_tests {
+            template.push_str(NO_ASYNC_TEMPLATE)
+        } else {
+            template.push_str(ASYNC_TEMPLATE)
         }
     }
     template.push_str(COMMON_TEMPLATE);
@@ -272,12 +288,20 @@ fn generate_driver(
             "let moonbit_test_driver_internal_no_args_tests : Moonbit_Test_Driver_Internal_No_Args_Map = { }  // WILL BE REPLACED\n",
             &MooncGenTestInfo::section_to_mbt("moonbit_test_driver_internal_no_args_tests", &data.no_args_tests),
         );
-        if only_no_arg_tests {
+        let template = if only_no_arg_tests {
             template
         } else {
             template.replace(
                 "let moonbit_test_driver_internal_with_args_tests : Moonbit_Test_Driver_Internal_TestDriver_With_Args_Map = { }  // WILL BE REPLACED\n",
                 &MooncGenTestInfo::section_to_mbt("moonbit_test_driver_internal_with_args_tests", &data.with_args_tests),
+            )
+        };
+        if no_async_tests {
+            template
+        } else {
+            template.replace(
+                "let moonbit_test_driver_internal_async_tests : Moonbit_Test_Driver_Internal_TestDriver_Async_Map = { }  // WILL BE REPLACED",
+                &MooncGenTestInfo::section_to_mbt("moonbit_test_driver_internal_async_tests", &data.async_tests),
             )
         }
     };
@@ -294,6 +318,10 @@ fn generate_driver(
         .replace(
             "let moonbit_test_driver_internal_with_bench_args_tests =",
             "let moonbit_test_driver_internal_with_bench_args_tests : Moonbit_Test_Driver_Internal_TestDriver_With_Bench_Args_Map =",
+        )
+        .replace(
+            "let moonbit_test_driver_internal_async_tests =",
+            "let moonbit_test_driver_internal_async_tests : Moonbit_Test_Driver_Internal_TestDriver_Async_Map =",
         )
         .replace("{PACKAGE}", pkgname)
         .replace("{BEGIN_MOONTEST}", MOON_TEST_DELIMITER_BEGIN)

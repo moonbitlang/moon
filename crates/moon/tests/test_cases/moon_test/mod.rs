@@ -284,3 +284,44 @@ fn test_generate_test_driver_incremental() {
 
     assert!(time_3 != time_4);
 }
+
+#[test]
+fn test_async_test() {
+    let dir = TestDir::new("moon_test");
+    let out1 = get_stdout(
+        &dir,
+        [
+            "test",
+            "-C",
+            "async_test",
+            "--package",
+            "moon/test_async_test",
+            "--file",
+            "async_test.mbt",
+            "--index",
+            "0",
+        ],
+    );
+    check(
+        &out1,
+        expect![[r#"
+        Total tests: 1, passed: 1, failed: 0.
+    "#]],
+    );
+    let out2 = get_err_stdout(
+        &dir,
+        [
+            "test",
+            "-C",
+            "async_test",
+            "--package",
+            "moon/test_async_test",
+            "--file",
+            "async_test.mbt",
+            "--index",
+            "1",
+        ],
+    );
+    let last_line = out2.lines().last().unwrap_or("");
+    check(last_line, expect!["Total tests: 1, passed: 0, failed: 1."])
+}

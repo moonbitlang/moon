@@ -6,6 +6,9 @@ typealias () -> Unit raise Error
 typealias (Moonbit_Test_Driver_Internal_Test_Arg) -> Unit raise Error
   as Moonbit_Test_Driver_Internal_With_Args_Function
 
+typealias async (Moonbit_Test_Driver_Internal_Test_Arg) -> Unit raise
+  as Moonbit_Test_Driver_Internal_Async_Function
+
 typealias @moonbitlang/core/builtin.Map[
   String,
   @moonbitlang/core/builtin.Map[
@@ -28,6 +31,17 @@ typealias @moonbitlang/core/builtin.Map[
   ],
 ] as Moonbit_Test_Driver_Internal_TestDriver_With_Args_Map
 
+typealias @moonbitlang/core/builtin.Map[
+  String,
+  @moonbitlang/core/builtin.Map[
+    Int,
+    (
+      Moonbit_Test_Driver_Internal_Async_Function,
+      @moonbitlang/core/builtin.Array[String],
+    ),
+  ],
+] as Moonbit_Test_Driver_Internal_TestDriver_Async_Map
+
 struct Moonbit_Test_Driver_Internal_Meta {
   filename : String
   index : Int
@@ -37,6 +51,7 @@ struct Moonbit_Test_Driver_Internal_Meta {
 enum Moonbit_Test_Driver_Internal__F {
   F0(Moonbit_Test_Driver_Internal_No_Args_Function)
   F1(Moonbit_Test_Driver_Internal_With_Args_Function)
+  F2(Moonbit_Test_Driver_Internal_Async_Function)
 }
 
 struct Moonbit_Test_Driver_Internal__TestCase {
@@ -46,68 +61,89 @@ struct Moonbit_Test_Driver_Internal__TestCase {
 
 let moonbit_test_driver_internal_no_args_tests : Moonbit_Test_Driver_Internal_No_Args_Map = { }  // WILL BE REPLACED
 let moonbit_test_driver_internal_with_args_tests : Moonbit_Test_Driver_Internal_TestDriver_With_Args_Map = { }  // WILL BE REPLACED
+let moonbit_test_driver_internal_async_tests : Moonbit_Test_Driver_Internal_TestDriver_Async_Map = { }  // WILL BE REPLACED
 
 fn moonbit_test_driver_internal_apply_filter(
   no_args_tests : Moonbit_Test_Driver_Internal_No_Args_Map,
   with_args_tests : Moonbit_Test_Driver_Internal_TestDriver_With_Args_Map,
+  async_tests : Moonbit_Test_Driver_Internal_TestDriver_Async_Map,
   file_filter : String,
   index_filter : Int
 ) -> Option[Moonbit_Test_Driver_Internal__TestCase] {
-  let no_args_filtered_test = match no_args_tests.get(file_filter) {
-    Some(index_func_map) => {
-      match index_func_map.get(index_filter) {
-        Some(func_attrs_tuple) => {
-          let k = {
-            f: Moonbit_Test_Driver_Internal__F::F0(func_attrs_tuple.0),
-            meta: { filename: file_filter, index: index_filter, attrs: func_attrs_tuple.1 },
-          }
-          Some(k)
-        }
-        _ => None
+  match no_args_tests.get(file_filter) {
+    Some(index_func_map) if index_func_map.get(index_filter) is Some(func_attrs_tuple) => {
+      let k = {
+        f: Moonbit_Test_Driver_Internal__F::F0(func_attrs_tuple.0),
+        meta: { filename: file_filter, index: index_filter, attrs: func_attrs_tuple.1 },
       }
+      return Some(k)
     }
-    _ => None
+    _ => ()
   }
 
-  let with_args_filtered_test = match with_args_tests.get(file_filter) {
-    Some(index_func_map) => {
-      match index_func_map.get(index_filter) {
-        Some(func_attrs_tuple) => {
-          let k = {
-            f: Moonbit_Test_Driver_Internal__F::F1(func_attrs_tuple.0),
-            meta: { filename: file_filter, index: index_filter, attrs: func_attrs_tuple.1 },
-          }
-          Some(k)
-        }
-        _ => None
+  match with_args_tests.get(file_filter) {
+    Some(index_func_map) if index_func_map.get(index_filter) is Some(func_attrs_tuple) => {
+      let k = {
+        f: Moonbit_Test_Driver_Internal__F::F1(func_attrs_tuple.0),
+        meta: { filename: file_filter, index: index_filter, attrs: func_attrs_tuple.1 },
       }
+      return Some(k)
     }
-    _ => None
+    _ => ()
   }
 
-
-  if no_args_filtered_test is Some(_) {
-    no_args_filtered_test
-  } else {
-    with_args_filtered_test
+  match async_tests.get(file_filter) {
+    Some(index_func_map) if index_func_map.get(index_filter) is Some(func_attrs_tuple) => {
+      let k = {
+        f: Moonbit_Test_Driver_Internal__F::F2(func_attrs_tuple.0),
+        meta: { filename: file_filter, index: index_filter, attrs: func_attrs_tuple.1 },
+      }
+      return Some(k)
+    }
+    _ => ()
   }
+
+  None
 }
 
-pub fn moonbit_test_driver_internal_do_execute(filename : String, index : Int) -> Unit {
+pub fn moonbit_test_driver_internal_do_execute(
+  async_ctx : Moonbit_Test_Driver_Internal_Async_Context,
+  filename : String,
+  index : Int,
+) -> Unit {
   let filtered_test = moonbit_test_driver_internal_apply_filter(
     moonbit_test_driver_internal_no_args_tests,
     moonbit_test_driver_internal_with_args_tests,
+    moonbit_test_driver_internal_async_tests,
     filename,
     index
   )
-  let mut test_name = ""
-  let mut file_name = ""
-  let mut message = ""
+
+  fn handle_result(
+    test_name : String,
+    file_name : String,
+    message : String,
+    skipped : Bool,
+  ) {
+    // In WASM, this function is called by the external test driver, but here
+    // in native mode there's nothing that calls it, so we call it manually.
+    if not(skipped) && MOONBIT_TEST_DRIVER_INTERNAL_IS_NATIVE {
+      // {COVERAGE_END}
+    }
+    let file_name = file_name.escape()
+    let test_name = test_name.escape()
+    let message = message.escape()
+    @moonbitlang/core/builtin.println("{BEGIN_MOONTEST}")
+    @moonbitlang/core/builtin.println(
+      "{\"package\": \"{PACKAGE}\", \"filename\": \{file_name}, \"index\": \"\{index}\", \"test_name\": \{test_name}, \"message\": \{message}}",
+    )
+    @moonbitlang/core/builtin.println("{END_MOONTEST}")
+  }
 
   match filtered_test {
     Some(item) => {
       let attrs = item.meta.attrs
-      file_name = item.meta.filename
+      let file_name = item.meta.filename
       let name = if attrs.is_empty() { "" } else { attrs[0] }
       let name = if name.length() == 0 {
         item.meta.index.to_string()
@@ -119,45 +155,52 @@ pub fn moonbit_test_driver_internal_do_execute(filename : String, index : Int) -
         attr.length() >= 5 && attr[0] == 'p' && attr[1] == 'a' && attr[2] == 'n' && attr[3] == 'i' && attr[4] == 'c'
       }) {
         @moonbitlang/core/builtin.println("skipped test block: \{file_name}: \{attrs[0]}")
-        @moonbitlang/core/builtin.println("{BEGIN_MOONTEST}")
-        @moonbitlang/core/builtin.println(
-          "{\"package\": \"{PACKAGE}\", \"filename\": \{file_name.escape()}, \"index\": \"\{index}\", \"test_name\": \{name.escape()}, \"message\": \"skipped test\"}",
-        )
-        @moonbitlang/core/builtin.println("{END_MOONTEST}")
+        handle_result(name, file_name, "skipped test", true)
         return
       }
-      test_name = name
 
-      try {
-        match item.f {
-          Moonbit_Test_Driver_Internal__F::F0(f) => f()
-          Moonbit_Test_Driver_Internal__F::F1(f) =>
-            f(moonbit_test_driver_internal_new_test_arg(name))
-        }
-      } catch {
-        @moonbitlang/core/builtin.Failure(e) | @moonbitlang/core/builtin.InspectError(e) | @moonbitlang/core/builtin.SnapshotError(e) => {
-          message = e
-        }
-        e => {
-          message = moonbit_test_driver_internal_error_to_string(e)
+      fn on_err(err : Error) {
+        match err {
+          @moonbitlang/core/builtin.Failure(e) | @moonbitlang/core/builtin.InspectError(e) | @moonbitlang/core/builtin.SnapshotError(e) => {
+            handle_result(name, file_name, e, false)
+          }
+          e => {
+            let message = moonbit_test_driver_internal_error_to_string(e)
+            handle_result(name, file_name, message, false)
+          }
         }
       }
 
-      // In WASM, this function is called by the external test driver, but here
-      // in native mode there's nothing that calls it, so we call it manually.
-      if MOONBIT_TEST_DRIVER_INTERNAL_IS_NATIVE {
-        // {COVERAGE_END}
+      match item.f {
+        Moonbit_Test_Driver_Internal__F::F0(f) => {
+          try f() catch {
+            err => on_err(err)
+          } noraise {
+            _ => handle_result(name, file_name, "", false)
+          }
+        }
+        Moonbit_Test_Driver_Internal__F::F1(f) => {
+          try f(moonbit_test_driver_internal_new_test_arg(name)) catch {
+            err => on_err(err)
+          } noraise {
+            _ => handle_result(name, file_name, "", false)
+          }
+        }
+        Moonbit_Test_Driver_Internal__F::F2(f) =>
+          moonbit_test_driver_internal_run_async_test(
+            async_ctx,
+            name,
+            on_err~,
+            fn(arg) {
+              try f(arg) catch {
+                err => on_err(err)
+              } noraise {
+                _ => handle_result(name, file_name, "", false)
+              }
+            },
+          )
       }
     }
-    _ => { message = "skipped test" }
+    _ => handle_result("", "", "skipped test", true)
   }
-
-  let file_name = file_name.escape()
-  let test_name = test_name.escape()
-  let message = message.escape()
-  @moonbitlang/core/builtin.println("{BEGIN_MOONTEST}")
-  @moonbitlang/core/builtin.println(
-    "{\"package\": \"{PACKAGE}\", \"filename\": \{file_name}, \"index\": \"\{index}\", \"test_name\": \{test_name}, \"message\": \{message}}",
-  )
-  @moonbitlang/core/builtin.println("{END_MOONTEST}")
 }
