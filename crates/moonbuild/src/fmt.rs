@@ -71,6 +71,7 @@ pub fn gen_fmt(
             .iter()
             .chain(pkg.wbtest_files.iter())
             .chain(pkg.test_files.iter())
+            .chain(pkg.mbt_md_files.iter())
         {
             let item = FmtItem {
                 input: f.display().to_string(),
