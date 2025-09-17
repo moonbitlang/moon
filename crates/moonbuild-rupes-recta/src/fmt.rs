@@ -142,6 +142,9 @@ fn build_for_package(
     for file in &pkg.source_files {
         format_node(graph, cfg, layout, pkg, file)?;
     }
+    for file in &pkg.mbt_md_files {
+        format_node(graph, cfg, layout, pkg, file)?;
+    }
     Ok(())
 }
 
