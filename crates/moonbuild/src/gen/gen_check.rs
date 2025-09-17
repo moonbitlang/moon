@@ -544,7 +544,7 @@ pub fn gen_check_command(
                 "-w",
                 "@a-31-32",
                 "-alert",
-                "@all-raise-throw-unsafe+deprecated",
+                "@all-raise-throw-unsafe-test_import_all+deprecated",
             ],
         )
         .args(&item.mbt_deps)
