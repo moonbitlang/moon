@@ -86,7 +86,11 @@ pub fn register_cli(cli: UniversalFlags, cmd: RegisterSubcommand) -> anyhow::Res
 }
 
 pub fn publish_cli(cli: UniversalFlags, cmd: PublishSubcommand) -> anyhow::Result<i32> {
-    execute_cli_with_inherit_stdin(cli, MooncakeSubcommands::Publish(cmd), &["publish"])
+    execute_cli(
+        cli,
+        MooncakeSubcommands::Publish(cmd),
+        &["--read-args-from-stdin"],
+    )
 }
 
 pub fn package_cli(cli: UniversalFlags, cmd: PackageSubcommand) -> anyhow::Result<i32> {
