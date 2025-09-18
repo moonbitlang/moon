@@ -52,7 +52,7 @@ use super::{compiler, context::BuildPlanLowerContext, BuildCommand};
 impl<'a> BuildPlanLowerContext<'a> {
     fn is_module_third_party(&self, mid: ModuleId) -> bool {
         // This is usually a small vector, so this perf overhead is okay.
-        self.modules.input_module_ids().contains(&mid)
+        !self.modules.input_module_ids().contains(&mid)
     }
 
     pub(super) fn set_flags(&self) -> compiler::CompilationFlags {
