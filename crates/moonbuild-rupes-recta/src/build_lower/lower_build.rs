@@ -37,8 +37,8 @@ use crate::{
     build_lower::{
         artifact,
         compiler::{
-            BuildCommonArgs, CmdlineAbstraction, ErrorFormat, MiDependency, PackageSource,
-            WasmConfig,
+            BuildCommonArgs, CmdlineAbstraction, ErrorFormat, JsConfig, MiDependency,
+            PackageSource, WasmConfig,
         },
     },
     build_plan::{BuildCStubsInfo, BuildTargetInfo, LinkCoreInfo, MakeExecutableInfo},
@@ -294,7 +294,7 @@ impl<'a> BuildPlanLowerContext<'a> {
             .collect::<Vec<_>>();
 
         let config_path = package.config_path();
-        let mut cmd = compiler::MooncLinkCore {
+        let cmd = compiler::MooncLinkCore {
             core_deps: &core_input_files,
             main_package: compiler::CompiledPackageName {
                 fqn: &package.fqn,
@@ -308,18 +308,9 @@ impl<'a> BuildPlanLowerContext<'a> {
             flags: self.set_flags(),
             test_mode: target.kind.is_test(),
             wasm_config: self.get_wasm_config(package),
-            js_format: self.get_js_format(package),
+            js_config: self.get_js_config(target, package),
             extra_link_opts: &[],
         };
-
-        // JS format settings
-        if self.opt.target_backend == TargetBackend::Js {
-            if package.raw.force_link || package.raw.is_main {
-                cmd.js_format = Some(JsFormat::default());
-            } else if let Some(link) = package.raw.link.as_ref().and_then(|x| x.js.as_ref()) {
-                cmd.js_format = Some(link.format.unwrap_or_default());
-            }
-        }
 
         BuildCommand {
             extra_inputs: vec![],
@@ -349,18 +340,32 @@ impl<'a> BuildPlanLowerContext<'a> {
         }
     }
 
-    fn get_js_format(&self, pkg: &DiscoveredPackage) -> Option<JsFormat> {
-        let target = self.opt.target_backend;
-        if target != TargetBackend::Js {
+    fn get_js_config(&self, target: BuildTarget, pkg: &DiscoveredPackage) -> Option<JsConfig> {
+        let backend = self.opt.target_backend;
+        if backend != TargetBackend::Js {
             return None;
         }
 
-        let linking_config = pkg.raw.link.as_ref().and_then(|x| x.js.as_ref());
-        if let Some(cfg) = linking_config {
-            cfg.format
-        } else {
-            Some(JsFormat::ESM)
+        if target.kind.is_test() {
+            return Some(JsConfig {
+                format: Some(JsFormat::CJS),
+                no_dts: true,
+            });
         }
+
+        // If link.js exists, use the specified, or default format.
+        // Otherwise, omit.
+        let format = pkg
+            .raw
+            .link
+            .as_ref()
+            .and_then(|x| x.js.as_ref())
+            .map(|x| x.format.unwrap_or_default());
+
+        Some(JsConfig {
+            format,
+            no_dts: false,
+        })
     }
 
     #[instrument(level = Level::DEBUG, skip(self, info))]
