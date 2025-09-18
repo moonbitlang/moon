@@ -37,8 +37,8 @@ use crate::{
     build_lower::{
         artifact,
         compiler::{
-            BuildCommonArgs, CmdlineAbstraction, ErrorFormat, JsConfig, MiDependency,
-            PackageSource, WasmConfig,
+            BuildCommonDefaults, BuildCommonRequired, CmdlineAbstraction, ErrorFormat, JsConfig,
+            MiDependency, PackageSource, WasmConfig,
         },
     },
     build_plan::{BuildCStubsInfo, BuildTargetInfo, LinkCoreInfo, MakeExecutableInfo},
@@ -71,41 +71,49 @@ impl<'a> BuildPlanLowerContext<'a> {
 
     fn set_build_commons(
         &self,
-        common: &mut BuildCommonArgs<'a>,
         target: BuildTarget,
         pkg: &DiscoveredPackage,
         info: &'a BuildTargetInfo,
-    ) {
+        is_main: bool,
+    ) -> BuildCommonDefaults<'a> {
         // Standard library settings
-        common.stdlib_core_file = self
+        let stdlib_core_file = self
             .opt
             .stdlib_path
             .as_ref()
             .map(|x| artifact::core_bundle_path(x, self.opt.target_backend).into());
 
         // Warning and error settings
-        common.error_format = if self.opt.moonc_output_json {
+        let error_format = if self.opt.moonc_output_json {
             ErrorFormat::Json
         } else {
             ErrorFormat::Regular
         };
-        common.deny_warn = self.opt.deny_warn;
+        let deny_warn = self.opt.deny_warn;
 
-        if self.is_module_third_party(pkg.module) {
+        // Determine warn/alert config
+        let (warn_config, alert_config) = if self.is_module_third_party(pkg.module) {
             // Third-party modules don't have any warnings or alerts
-            common.warn_config = compiler::WarnAlertConfig::AllowAll;
-            common.alert_config = compiler::WarnAlertConfig::AllowAll;
+            (
+                compiler::WarnAlertConfig::AllowAll,
+                compiler::WarnAlertConfig::AllowAll,
+            )
         } else {
-            if let Some(w) = &info.warn_list {
-                common.warn_config = compiler::WarnAlertConfig::List(w.into());
-            }
-            if let Some(a) = &info.alert_list {
-                common.alert_config = compiler::WarnAlertConfig::List(a.into());
-            }
-        }
+            let wc = if let Some(w) = &info.warn_list {
+                compiler::WarnAlertConfig::List(w.into())
+            } else {
+                compiler::WarnAlertConfig::default()
+            };
+            let ac = if let Some(a) = &info.alert_list {
+                compiler::WarnAlertConfig::List(a.into())
+            } else {
+                compiler::WarnAlertConfig::default()
+            };
+            (wc, ac)
+        };
 
         // Workspace settings
-        common.workspace_root = Some(
+        let workspace_root = Some(
             self.module_dirs
                 .get(pkg.module)
                 .unwrap_or_else(|| {
@@ -115,8 +123,23 @@ impl<'a> BuildPlanLowerContext<'a> {
         );
 
         // Patch and mi config
-        common.patch_file = info.patch_file.as_deref().map(|x| x.into());
-        common.no_mi |= target.kind.is_test() || info.specified_no_mi;
+        let patch_file = info.patch_file.as_deref().map(|x| x.into());
+        let base_no_mi = BuildCommonDefaults::default().no_mi;
+        let no_mi = base_no_mi || target.kind.is_test() || info.specified_no_mi;
+
+        BuildCommonDefaults {
+            stdlib_core_file,
+            error_format,
+            deny_warn,
+            warn_config,
+            alert_config,
+            patch_file,
+            no_mi,
+            workspace_root,
+            is_main,
+            check_mi: None,
+            virtual_implementation: None, // TODO: the above two needs virtual pkg impl
+        }
     }
 
     #[instrument(level = Level::DEBUG, skip(self, info))]
@@ -135,23 +158,6 @@ impl<'a> BuildPlanLowerContext<'a> {
         // Collect files iterator once so we can pass slices and extra inputs
         let files_vec = info.files().map(|x| x.to_owned()).collect::<Vec<_>>();
 
-        let mut cmd = compiler::MooncCheck {
-            common: compiler::BuildCommonArgs::new(
-                &files_vec,
-                &mi_inputs,
-                compiler::CompiledPackageName::new(&package.fqn, target.kind),
-                &package.root_path,
-                self.opt.target_backend,
-                target.kind,
-            ),
-            mi_out: mi_output.into(),
-            is_third_party: false,
-            single_file: false,
-        };
-        // Wire doctest-only files to common so they are passed as `-doctest-only <file>`
-        cmd.common.doctest_only_sources = &info.doctest_files;
-        self.set_build_commons(&mut cmd.common, target, package, info);
-
         // Determine whether the checked package is a main package.
         //
         // Black box tests does not include the source files of the original
@@ -160,12 +166,28 @@ impl<'a> BuildPlanLowerContext<'a> {
         // tests will definitely not contain a main function, while other
         // build targets will have the same kind of main function as the
         // original package.
-        cmd.common.is_main = match target.kind {
+        let is_main = match target.kind {
             TargetKind::BlackboxTest => false,
             TargetKind::Source
             | TargetKind::WhiteboxTest
             | TargetKind::InlineTest
             | TargetKind::SubPackage => package.raw.is_main,
+        };
+
+        let cmd = compiler::MooncCheck {
+            required: BuildCommonRequired::new(
+                &files_vec,
+                &info.doctest_files,
+                &mi_inputs,
+                compiler::CompiledPackageName::new(&package.fqn, target.kind),
+                &package.root_path,
+                self.opt.target_backend,
+                target.kind,
+            ),
+            defaults: self.set_build_commons(target, package, info, is_main),
+            mi_out: mi_output.into(),
+            is_third_party: false,
+            single_file: false,
         };
 
         // Track doctest-only files as inputs as well
@@ -206,33 +228,33 @@ impl<'a> BuildPlanLowerContext<'a> {
             }
         };
 
+        // Determine whether the built package is a main package.
+        //
+        // Different from checking, building test packages will always include
+        // the test driver files, which will include the main function.
+        let is_main = match target.kind {
+            TargetKind::Source | TargetKind::SubPackage => package.raw.is_main,
+            TargetKind::InlineTest | TargetKind::WhiteboxTest | TargetKind::BlackboxTest => true,
+        };
+
         let mut cmd = compiler::MooncBuildPackage {
-            common: compiler::BuildCommonArgs::new(
+            required: BuildCommonRequired::new(
                 &files,
+                &info.doctest_files,
                 &mi_inputs,
                 compiler::CompiledPackageName::new(&package.fqn, target.kind),
                 &package.root_path,
                 self.opt.target_backend,
                 target.kind,
             ),
+            defaults: self.set_build_commons(target, package, info, is_main),
             core_out: core_output.into(),
             mi_out: mi_output.into(),
             flags: self.set_flags(),
             extra_build_opts: &[],
         };
         // Propagate debug/coverage flags and common settings
-        cmd.common.doctest_only_sources = &info.doctest_files;
         cmd.flags.enable_coverage = self.opt.enable_coverage;
-        self.set_build_commons(&mut cmd.common, target, package, info);
-
-        // Determine whether the built package is a main package.
-        //
-        // Different from checking, building test packages will always include
-        // the test driver files, which will include the main function.
-        cmd.common.is_main = match target.kind {
-            TargetKind::Source | TargetKind::SubPackage => package.raw.is_main,
-            TargetKind::InlineTest | TargetKind::WhiteboxTest | TargetKind::BlackboxTest => true,
-        };
 
         // TODO: a lot of knobs are not controlled here
 

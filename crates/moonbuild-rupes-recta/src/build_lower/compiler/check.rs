@@ -21,7 +21,7 @@
 use std::borrow::Cow;
 use std::path::Path;
 
-use crate::build_lower::compiler::{BuildCommonArgs, CmdlineAbstraction};
+use crate::build_lower::compiler::{BuildCommonDefaults, BuildCommonRequired, CmdlineAbstraction};
 
 /// Abstraction for `moonc check`.
 ///
@@ -33,8 +33,8 @@ use crate::build_lower::compiler::{BuildCommonArgs, CmdlineAbstraction};
 #[derive(Debug)]
 pub struct MooncCheck<'a> {
     // Common arguments
-    pub common: BuildCommonArgs<'a>,
-
+    pub required: BuildCommonRequired<'a>,
+    pub defaults: BuildCommonDefaults<'a>,
     pub mi_out: Cow<'a, Path>,
 
     pub is_third_party: bool,
@@ -48,28 +48,28 @@ impl<'a> MooncCheck<'a> {
         args.push("check".into());
 
         // Patch file (first if present)
-        self.common.add_patch_file_moonc(args);
+        self.defaults.add_patch_file_moonc(args);
 
         // No MI flag
-        self.common.add_no_mi(args);
+        self.defaults.add_no_mi(args);
 
         // Error format
-        self.common.add_error_format(args);
+        self.defaults.add_error_format(args);
 
         // Warning and alert handling (deny all combined)
-        self.common.add_warn_alert_deny_all_combined(args);
+        self.defaults.add_warn_alert_deny_all_combined(args);
 
         // MBT source files
-        self.common.add_mbt_sources(args);
+        self.required.add_mbt_sources(args);
 
         // Doctest-only MBT files
-        self.common.add_doctest_only_sources(args);
+        self.required.add_doctest_only_sources(args);
 
         // Include doctests for blackbox
-        self.common.add_include_doctests_if_blackbox(args);
+        self.required.add_include_doctests_if_blackbox(args);
 
         // Custom warning/alert lists
-        self.common.add_custom_warn_alert_lists(args);
+        self.defaults.add_custom_warn_alert_lists(args);
 
         // Third-party package handling
         if self.is_third_party {
@@ -85,10 +85,10 @@ impl<'a> MooncCheck<'a> {
         args.extend(["-o".to_string(), self.mi_out.display().to_string()]);
 
         // Package configuration
-        self.common.add_package_config(args);
+        self.required.add_package_config(args);
 
         // is-main
-        self.common.add_is_main(args);
+        self.defaults.add_is_main(args);
 
         // Single file mode
         if self.single_file {
@@ -96,28 +96,27 @@ impl<'a> MooncCheck<'a> {
         }
 
         // Standard library
-        self.common.add_stdlib_path(args);
+        self.defaults.add_stdlib_path(args);
 
         // MI dependencies
-        self.common.add_mi_dependencies(args);
+        self.required.add_mi_dependencies(args);
 
         // Package source definition
-        self.common.add_package_sources(args);
+        self.required.add_package_sources(args);
 
         // Target backend
-        self.common.add_target_backend(args);
+        self.required.add_target_backend(args);
 
         // Test kind flags
-        self.common.add_test_kind_flags(args);
+        self.required.add_test_kind_flags(args);
 
         // Virtual package check
-        self.common.add_virtual_package_check(args);
+        self.defaults.add_virtual_package_check(args);
 
         // Virtual package implementation
-        self.common.add_virtual_package_implementation_check(args);
+        self.defaults.add_virtual_package_implementation_check(args);
 
-        // Workspace root
-        self.common.add_workspace_root(args);
+        self.defaults.add_workspace_root(args);
     }
 }
 

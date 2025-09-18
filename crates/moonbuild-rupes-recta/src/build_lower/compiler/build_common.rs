@@ -29,57 +29,32 @@ use crate::build_lower::compiler::{
 };
 use crate::model::TargetKind;
 
-/// Common fields shared between different build-like commands of `moonc`
+/// Required (non-default) fields shared between different build-like commands of `moonc`
 #[derive(Debug)]
-pub struct BuildCommonArgs<'a> {
-    // Basic command structure
-    pub error_format: ErrorFormat,
-
-    // Warning and alert configuration
-    pub deny_warn: bool,
-    pub warn_config: WarnAlertConfig<'a>,
-    pub alert_config: WarnAlertConfig<'a>,
-
-    // Input files
+pub struct BuildCommonRequired<'a> {
     /// Regular input files, including sources and mbt.md files
     pub mbt_sources: &'a [PathBuf],
-    /// Sources whose doctests should be extracted only
+    /// Sources that only needs doctest extraction
     pub doctest_only_sources: &'a [PathBuf],
+    /// MI deps required to resolve interfaces
     pub mi_deps: &'a [MiDependency<'a>],
-
-    // Package configuration
     /// The name of the current package
     pub package_name: CompiledPackageName<'a>,
     /// The source directory of the current package
     pub package_source: Cow<'a, Path>,
-    pub is_main: bool,
-
-    // Standard library
-    /// Pass [None] for no_std
-    pub stdlib_core_file: Option<Cow<'a, Path>>,
-    /// Module directory (parent of moon.mod.json)
-    pub workspace_root: Option<Cow<'a, Path>>,
 
     // Target configuration
+    /// Target backend to compile for
     pub target_backend: TargetBackend,
+    /// Target kind (source/test/etc.)
     pub target_kind: TargetKind,
-
-    // Virtual package handling
-    // FIXME: better abstraction
-    pub check_mi: Option<Cow<'a, Path>>,
-    pub virtual_implementation: Option<VirtualPackageImplementation<'a>>,
-
-    // Optional patch file
-    pub patch_file: Option<Cow<'a, Path>>,
-
-    // Emit -no-mi if true
-    pub no_mi: bool,
 }
 
-impl<'a> BuildCommonArgs<'a> {
-    /// Create a new instance with default values
+impl<'a> BuildCommonRequired<'a> {
+    /// Construct the required part from its required params
     pub fn new(
         mbt_sources: &'a [PathBuf],
+        doctest_only_sources: &'a [PathBuf],
         mi_deps: &'a [MiDependency<'a>],
         package_name: CompiledPackageName<'a>,
         package_source: impl Into<Cow<'a, Path>>,
@@ -87,31 +62,13 @@ impl<'a> BuildCommonArgs<'a> {
         target_kind: TargetKind,
     ) -> Self {
         Self {
-            error_format: ErrorFormat::Regular,
-            deny_warn: false,
-            warn_config: WarnAlertConfig::Default,
-            alert_config: WarnAlertConfig::Default,
             mbt_sources,
-            doctest_only_sources: &[],
+            doctest_only_sources,
             mi_deps,
             package_name,
             package_source: package_source.into(),
-            is_main: false,
-            stdlib_core_file: None,
-            workspace_root: None,
             target_backend,
             target_kind,
-            check_mi: None,
-            virtual_implementation: None,
-            patch_file: None,
-            no_mi: false,
-        }
-    }
-
-    /// Add error format arguments
-    pub fn add_error_format(&self, args: &mut Vec<String>) {
-        if matches!(self.error_format, ErrorFormat::Json) {
-            args.extend(["-error-format".to_string(), "json".to_string()]);
         }
     }
 
@@ -129,40 +86,16 @@ impl<'a> BuildCommonArgs<'a> {
         }
     }
 
-    /// Add custom warning/alert list arguments
-    pub fn add_custom_warn_alert_lists(&self, args: &mut Vec<String>) {
-        if let WarnAlertConfig::List(warn_list) = &self.warn_config {
-            args.extend(["-w".to_string(), warn_list.to_string()]);
-        }
-        if let WarnAlertConfig::List(alert_list) = &self.alert_config {
-            args.extend(["-alert".to_string(), alert_list.to_string()]);
+    /// Add MI dependencies arguments
+    pub fn add_mi_dependencies(&self, args: &mut Vec<String>) {
+        for mi_dep in self.mi_deps {
+            args.extend(["-i".to_string(), mi_dep.to_alias_arg()]);
         }
     }
 
     /// Add package configuration arguments
     pub fn add_package_config(&self, args: &mut Vec<String>) {
         args.extend(["-pkg".to_string(), self.package_name.to_string()]);
-    }
-
-    /// Add is-main flag if applicable
-    pub fn add_is_main(&self, args: &mut Vec<String>) {
-        if self.is_main {
-            args.push("-is-main".to_string());
-        }
-    }
-
-    /// Add standard library path arguments
-    pub fn add_stdlib_path(&self, args: &mut Vec<String>) {
-        if let Some(stdlib_path) = &self.stdlib_core_file {
-            args.extend(["-std-path".to_string(), stdlib_path.display().to_string()]);
-        }
-    }
-
-    /// Add MI dependencies arguments
-    pub fn add_mi_dependencies(&self, args: &mut Vec<String>) {
-        for mi_dep in self.mi_deps {
-            args.extend(["-i".to_string(), mi_dep.to_alias_arg()]);
-        }
     }
 
     /// Add package source definition arguments
@@ -196,6 +129,107 @@ impl<'a> BuildCommonArgs<'a> {
     pub fn add_test_mode_args(&self, args: &mut Vec<String>) {
         if self.target_kind.is_test() {
             args.push("-test-mode".into())
+        }
+    }
+
+    /// Emit -include-doctests for blackbox
+    pub fn add_include_doctests_if_blackbox(&self, args: &mut Vec<String>) {
+        if matches!(self.target_kind, TargetKind::BlackboxTest) {
+            args.push("-include-doctests".to_string());
+        }
+    }
+
+    /// Emit test kind flags
+    pub fn add_test_kind_flags(&self, args: &mut Vec<String>) {
+        match self.target_kind {
+            TargetKind::WhiteboxTest => args.push("-whitebox-test".to_string()),
+            TargetKind::BlackboxTest => args.push("-blackbox-test".to_string()),
+            _ => {}
+        }
+    }
+}
+
+/// Defaultable fields shared between different build-like commands of `moonc`
+#[derive(Debug)]
+pub struct BuildCommonDefaults<'a> {
+    // Basic command structure
+    pub error_format: ErrorFormat,
+
+    // Warning and alert configuration
+    pub deny_warn: bool,
+    pub warn_config: WarnAlertConfig<'a>,
+    pub alert_config: WarnAlertConfig<'a>,
+
+    // Input files
+
+    // Package configuration
+    pub is_main: bool,
+
+    // Standard library
+    /// Pass [None] for no_std
+    pub stdlib_core_file: Option<Cow<'a, Path>>,
+    /// Module directory (parent of moon.mod.json)
+    pub workspace_root: Option<Cow<'a, Path>>,
+
+    // Virtual package handling
+    // FIXME: better abstraction
+    pub check_mi: Option<Cow<'a, Path>>,
+    pub virtual_implementation: Option<VirtualPackageImplementation<'a>>,
+
+    // Optional patch file
+    pub patch_file: Option<Cow<'a, Path>>,
+
+    // Emit -no-mi if true
+    pub no_mi: bool,
+}
+
+impl<'a> Default for BuildCommonDefaults<'a> {
+    fn default() -> Self {
+        Self {
+            error_format: ErrorFormat::Regular,
+            deny_warn: false,
+            warn_config: WarnAlertConfig::Default,
+            alert_config: WarnAlertConfig::Default,
+            is_main: false,
+            stdlib_core_file: None,
+            workspace_root: None,
+            check_mi: None,
+            virtual_implementation: None,
+            patch_file: None,
+            no_mi: false,
+        }
+    }
+}
+
+impl<'a> BuildCommonDefaults<'a> {
+    /// Add error format arguments
+    pub fn add_error_format(&self, args: &mut Vec<String>) {
+        if matches!(self.error_format, ErrorFormat::Json) {
+            args.extend(["-error-format".to_string(), "json".to_string()]);
+        }
+    }
+
+    /// Add custom warning/alert list arguments
+    pub fn add_custom_warn_alert_lists(&self, args: &mut Vec<String>) {
+        if let WarnAlertConfig::List(warn_list) = &self.warn_config {
+            args.extend(["-w".to_string(), warn_list.to_string()]);
+        }
+        if let WarnAlertConfig::List(alert_list) = &self.alert_config {
+            args.extend(["-alert".to_string(), alert_list.to_string()]);
+        }
+    }
+
+    /// Add is-main flag if applicable
+    pub fn add_is_main(&self, args: &mut Vec<String>) {
+        if self.is_main {
+            args.push("-is-main".to_string());
+        }
+    }
+
+    /// Add standard library path arguments
+    pub fn add_stdlib_path(&self, args: &mut Vec<String>) {
+        if let Some(stdlib_path) = &self.stdlib_core_file {
+            args.extend(["-std-path".to_string(), stdlib_path.display().to_string()]);
         }
     }
 
@@ -283,22 +317,6 @@ impl<'a> BuildCommonArgs<'a> {
     pub fn add_no_mi(&self, args: &mut Vec<String>) {
         if self.no_mi {
             args.push("-no-mi".to_string());
-        }
-    }
-
-    /// Emit -include-doctests for blackbox
-    pub fn add_include_doctests_if_blackbox(&self, args: &mut Vec<String>) {
-        if matches!(self.target_kind, TargetKind::BlackboxTest) {
-            args.push("-include-doctests".to_string());
-        }
-    }
-
-    /// Emit test kind flags
-    pub fn add_test_kind_flags(&self, args: &mut Vec<String>) {
-        match self.target_kind {
-            TargetKind::WhiteboxTest => args.push("-whitebox-test".to_string()),
-            TargetKind::BlackboxTest => args.push("-blackbox-test".to_string()),
-            _ => {}
         }
     }
 }
