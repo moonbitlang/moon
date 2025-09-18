@@ -177,6 +177,6 @@ pub(crate) const MOONC_REGULAR_WARNING_SET: &str = "+a-31-32";
 pub(crate) const MOONC_REGULAR_ALERT_SET: &str = "+all-raise-throw-unsafe+deprecated";
 
 pub(crate) const MOONC_DENY_WARNING_SET: &str = "@a-31-32";
-pub(crate) const MOONC_DENY_ALERT_SET: &str = "@all-raise-throw-unsafe+deprecated";
+pub(crate) const MOONC_DENY_ALERT_SET: &str = "@all-raise-throw-unsafe-test_import_all+deprecated";
 pub(crate) const MOONC_ALLOW_WARNING_SET: &str = "-a";
 pub(crate) const MOONC_ALLOW_ALERT_SET: &str = "-all";

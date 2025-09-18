@@ -226,7 +226,7 @@ fn test_deny_warn() {
     check(
         get_err_stdout(&dir, ["check", "--deny-warn", "--sort-input"]),
         expect![[r#"
-            failed: moonc check -error-format json -w @a-31-32 -alert @all-raise-throw-unsafe+deprecated $ROOT/lib/hello.mbt -o $ROOT/target/wasm-gc/release/check/lib/lib.mi -pkg username/hello/lib -std-path $MOON_HOME/lib/core/target/wasm-gc/release/bundle -pkg-sources username/hello/lib:$ROOT/lib -target wasm-gc
+            failed: moonc check -error-format json -w @a-31-32 -alert @all-raise-throw-unsafe-test_import_all+deprecated $ROOT/lib/hello.mbt -o $ROOT/target/wasm-gc/release/check/lib/lib.mi -pkg username/hello/lib -std-path $MOON_HOME/lib/core/target/wasm-gc/release/bundle -pkg-sources username/hello/lib:$ROOT/lib -target wasm-gc
         "#]],
     );
 
@@ -268,7 +268,7 @@ fn test_deny_warn() {
     check(
         get_err_stdout(&dir, ["build", "--deny-warn", "--sort-input"]),
         expect![[r#"
-            failed: moonc build-package -error-format json -w @a-31-32 -alert @all-raise-throw-unsafe+deprecated $ROOT/lib/hello.mbt -o $ROOT/target/wasm-gc/release/build/lib/lib.core -pkg username/hello/lib -std-path $MOON_HOME/lib/core/target/wasm-gc/release/bundle -pkg-sources username/hello/lib:$ROOT/lib -target wasm-gc
+            failed: moonc build-package -error-format json -w @a-31-32 -alert @all-raise-throw-unsafe-test_import_all+deprecated $ROOT/lib/hello.mbt -o $ROOT/target/wasm-gc/release/build/lib/lib.core -pkg username/hello/lib -std-path $MOON_HOME/lib/core/target/wasm-gc/release/bundle -pkg-sources username/hello/lib:$ROOT/lib -target wasm-gc
         "#]],
     );
 }
