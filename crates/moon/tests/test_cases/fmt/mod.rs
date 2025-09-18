@@ -45,14 +45,15 @@ fn test_moon_fmt() {
     check(
         read(dir.join("lib").join("test.mbt.md")),
         expect![[r#"
-        This is for testing formatter on `.mbt.md` files
+            This is for testing formatter on `.mbt.md` files
 
-        ```mbt
-        fn __test_formatter() -> Unit {
-          println("hell world")
-        }
-        ```
-    "#]],
+            ```mbt
+            ///|
+            fn __test_formatter() -> Unit {
+              println("hell world")
+            }
+            ```
+        "#]],
     );
 }
 
