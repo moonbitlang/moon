@@ -33,14 +33,14 @@ use std::path::Path;
 use crate::model::TargetKind;
 use crate::pkg_name::PackageFQN;
 
-pub use self::build_common::BuildCommonArgs;
-pub use self::build_package::MooncBuildPackage;
-pub use self::bundle_core::MooncBundleCore;
-pub use self::check::MooncCheck;
-pub use self::gen_test_driver::MoonGenTestDriver;
-pub use self::link_core::MooncLinkCore;
-pub use self::moondoc::MoondocCommand;
-pub use self::mooninfo::Mooninfo;
+pub use self::build_common::*;
+pub use self::build_package::*;
+pub use self::bundle_core::*;
+pub use self::check::*;
+pub use self::gen_test_driver::*;
+pub use self::link_core::*;
+pub use self::moondoc::*;
+pub use self::mooninfo::*;
 
 #[allow(unused)]
 #[derive(Debug, Clone, PartialEq, Eq)]

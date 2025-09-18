@@ -74,39 +74,6 @@ pub struct WasmConfig<'a> {
 }
 
 impl<'a> MooncLinkCore<'a> {
-    /// Create a new instance with only necessary fields populated, others as default
-    pub fn new(
-        core_deps: &'a [PathBuf],
-        main_package: CompiledPackageName<'a>,
-        output_path: impl Into<Cow<'a, Path>>,
-        pkg_config_path: impl Into<Cow<'a, Path>>,
-        package_sources: &'a [PackageSource<'a>],
-        target_backend: TargetBackend,
-        test_mode: bool,
-    ) -> Self {
-        Self {
-            core_deps,
-            main_package,
-            output_path: output_path.into(),
-            pkg_config_path: pkg_config_path.into(),
-            package_sources,
-            stdlib_core_source: None,
-            target_backend,
-            flags: CompilationFlags {
-                no_opt: false,
-                symbols: false,
-                source_map: false,
-                enable_coverage: false,
-                self_coverage: false,
-                enable_value_tracing: false,
-            },
-            test_mode,
-            wasm_config: WasmConfig::default(),
-            js_format: None,
-            extra_link_opts: &[],
-        }
-    }
-
     /// Convert this to list of args. The behavior tries to mimic the legacy
     /// behavior as much as possible, maintaining EXACT argument order.
     pub fn to_args_legacy(&self, args: &mut Vec<String>) {

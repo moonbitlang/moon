@@ -36,7 +36,10 @@ use tracing::{instrument, Level};
 use crate::{
     build_lower::{
         artifact,
-        compiler::{BuildCommonArgs, CmdlineAbstraction, ErrorFormat, MiDependency, PackageSource},
+        compiler::{
+            BuildCommonArgs, CmdlineAbstraction, ErrorFormat, MiDependency, PackageSource,
+            WasmConfig,
+        },
     },
     build_plan::{BuildCStubsInfo, BuildTargetInfo, LinkCoreInfo, MakeExecutableInfo},
     discover::DiscoveredPackage,
@@ -52,15 +55,18 @@ impl<'a> BuildPlanLowerContext<'a> {
         self.modules.input_module_ids().contains(&mid)
     }
 
-    #[instrument(level = Level::DEBUG, skip(self, flags))]
-    pub(super) fn set_flags(&self, flags: &mut compiler::CompilationFlags) {
-        flags.no_opt = self.opt.opt_level == OptLevel::Debug;
-        flags.symbols = self.opt.debug_symbols;
-        flags.source_map = self.opt.debug_symbols
-            && matches!(
+    pub(super) fn set_flags(&self) -> compiler::CompilationFlags {
+        compiler::CompilationFlags {
+            no_opt: self.opt.opt_level == OptLevel::Debug,
+            symbols: self.opt.debug_symbols,
+            source_map: matches!(
                 self.opt.target_backend,
                 TargetBackend::Js | TargetBackend::WasmGC
-            );
+            ) && self.opt.debug_symbols,
+            enable_coverage: false,
+            self_coverage: false,
+            enable_value_tracing: false,
+        }
     }
 
     fn set_build_commons(
@@ -209,14 +215,7 @@ impl<'a> BuildPlanLowerContext<'a> {
             core_out: core_output.into(),
             mi_out: mi_output.into(),
             no_mi: false,
-            flags: compiler::CompilationFlags {
-                no_opt: false,
-                symbols: false,
-                source_map: false,
-                enable_coverage: false,
-                self_coverage: false,
-                enable_value_tracing: false,
-            },
+            flags: self.set_flags(),
             extra_build_opts: &[],
         };
         // Propagate debug/coverage flags and common settings
@@ -225,7 +224,6 @@ impl<'a> BuildPlanLowerContext<'a> {
         cmd.flags.symbols = self.opt.debug_symbols;
         cmd.flags.enable_coverage = self.opt.enable_coverage;
         self.set_build_commons(&mut cmd.common, package, info);
-        self.set_flags(&mut cmd.flags);
 
         // Determine whether the built package is a main package.
         //
@@ -298,19 +296,23 @@ impl<'a> BuildPlanLowerContext<'a> {
             .collect::<Vec<_>>();
 
         let config_path = package.config_path();
-        let mut cmd = compiler::MooncLinkCore::new(
-            &core_input_files,
-            compiler::CompiledPackageName {
+        let mut cmd = compiler::MooncLinkCore {
+            core_deps: &core_input_files,
+            main_package: compiler::CompiledPackageName {
                 fqn: &package.fqn,
                 kind: target.kind,
             },
-            &out_file,
-            &config_path,
-            &package_sources,
-            self.opt.target_backend,
-            target.kind.is_test(),
-        );
-        self.set_flags(&mut cmd.flags);
+            output_path: out_file.into(),
+            pkg_config_path: config_path.into(),
+            package_sources: &package_sources,
+            stdlib_core_source: None,
+            target_backend: self.opt.target_backend,
+            flags: self.set_flags(),
+            test_mode: target.kind.is_test(),
+            wasm_config: self.get_wasm_config(package),
+            js_format: self.get_js_format(package),
+            extra_link_opts: &[],
+        };
 
         // JS format settings
         if self.opt.target_backend == TargetBackend::Js {
@@ -324,6 +326,42 @@ impl<'a> BuildPlanLowerContext<'a> {
         BuildCommand {
             extra_inputs: vec![],
             commandline: cmd.build_command("moonc"),
+        }
+    }
+
+    fn get_wasm_config<'b>(&self, pkg: &'b DiscoveredPackage) -> compiler::WasmConfig<'b> {
+        let target = self.opt.target_backend;
+        if target != TargetBackend::Wasm {
+            return WasmConfig::default();
+        }
+
+        let linking_config = pkg.raw.link.as_ref().and_then(|x| x.wasm.as_ref());
+        let Some(cfg) = linking_config else {
+            return WasmConfig::default();
+        };
+
+        WasmConfig {
+            exports: cfg.exports.as_deref(),
+            export_memory_name: cfg.export_memory_name.as_deref().map(|x| x.into()),
+            import_memory: cfg.import_memory.as_ref(),
+            memory_limits: cfg.memory_limits.as_ref(),
+            shared_memory: cfg.shared_memory,
+            heap_start_address: cfg.heap_start_address,
+            link_flags: cfg.flags.as_deref(),
+        }
+    }
+
+    fn get_js_format(&self, pkg: &DiscoveredPackage) -> Option<JsFormat> {
+        let target = self.opt.target_backend;
+        if target != TargetBackend::Js {
+            return None;
+        }
+
+        let linking_config = pkg.raw.link.as_ref().and_then(|x| x.js.as_ref());
+        if let Some(cfg) = linking_config {
+            cfg.format
+        } else {
+            Some(JsFormat::ESM)
         }
     }
 
