@@ -55,7 +55,7 @@ pub struct MooncLinkCore<'a> {
     pub wasm_config: WasmConfig<'a>,
 
     // JavaScript specific configuration
-    pub js_format: Option<JsFormat>,
+    pub js_config: Option<JsConfig>,
 
     // Extra options
     pub extra_link_opts: &'a [&'a str],
@@ -71,6 +71,13 @@ pub struct WasmConfig<'a> {
     pub shared_memory: Option<bool>,
     pub heap_start_address: Option<u32>,
     pub link_flags: Option<&'a [String]>,
+}
+
+/// JavaScript-specific linking configuration
+#[derive(Debug)]
+pub struct JsConfig {
+    pub format: Option<JsFormat>,
+    pub no_dts: bool,
 }
 
 impl<'a> MooncLinkCore<'a> {
@@ -196,10 +203,15 @@ impl<'a> MooncLinkCore<'a> {
             }
         }
 
-        // JavaScript format (only for JS target)
-        if self.target_backend == TargetBackend::Js {
-            args.push("-js-format".to_string());
-            args.push(self.js_format.unwrap_or_default().to_flag().to_string());
+        // JavaScript configuration
+        if let Some(js_config) = &self.js_config {
+            if let Some(format) = js_config.format {
+                args.push("-js-format".to_string());
+                args.push(format.to_flag().to_string());
+            }
+            if js_config.no_dts {
+                args.push("-no-dts".to_string());
+            }
         }
 
         // Extra link options
