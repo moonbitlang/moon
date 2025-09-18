@@ -104,3 +104,36 @@ pub fn moonbit_test_driver_internal_do_execute(filename : String, index : Int) -
   )
   @moonbitlang/core/builtin.println("{END_MOONTEST}")
 }
+
+#cfg(target="native")
+#test_entry
+fn main {
+  for arg in moonbit_test_driver_internal_native_parse_args() {
+    moonbit_test_driver_internal_do_execute(arg.0, arg.1)
+  }
+}
+
+#cfg(not(target="native"))
+#test_entry
+fn main {
+  ()
+}
+
+#cfg(target="js")
+pub fn moonbit_test_driver_internal_execute(filename : String, index : Int) -> Unit {
+  moonbit_test_driver_internal_do_execute(filename, index)
+}
+
+#cfg(any(target="wasm", target="wasm-gc"))
+pub fn moonbit_test_driver_internal_execute(
+  filename : MoonbitTestDriverInternalExternString,
+  index : Int,
+) -> Unit {
+  let filename = moonbit_test_driver_internal_get_file_name(filename)
+  moonbit_test_driver_internal_do_execute(filename, index)
+}
+
+#cfg(not(target="native"))
+pub fn moonbit_test_driver_finish() -> Unit {
+  // {COVERAGE_END}
+}
