@@ -94,7 +94,7 @@ pub fn run_bundle_rr(cli: UniversalFlags, cmd: BundleSubcommand) -> anyhow::Resu
         Ok(0)
     } else {
         let result = rr_build::execute_build(
-            &BuildConfig::from_flags(&cmd.build_flags),
+            &BuildConfig::from_flags(&cmd.build_flags, &cli.unstable_feature),
             build_graph,
             &target_dir,
         )?;

@@ -334,15 +334,19 @@ pub struct BuildConfig {
 
     /// Generate metadata file `packages.json`
     pub generate_metadata: bool,
+
+    /// Ask n2 to explain rerun reasons
+    pub explain: bool,
 }
 
 impl BuildConfig {
-    pub fn from_flags(flags: &BuildFlags) -> Self {
+    pub fn from_flags(flags: &BuildFlags, unstable_features: &FeatureGate) -> Self {
         BuildConfig {
             parallelism: flags.jobs,
             no_render: flags.no_render,
             render_no_loc: flags.render_no_loc,
             generate_metadata: false,
+            explain: unstable_features.rr_n2_explain,
         }
     }
 }
@@ -354,6 +358,7 @@ impl Default for BuildConfig {
             no_render: false,
             render_no_loc: DiagnosticLevel::Error,
             generate_metadata: false,
+            explain: false,
         }
     }
 }
@@ -427,7 +432,7 @@ pub fn execute_build_partial(
         &n2::work::Options {
             failures_left: Some(1),
             parallelism,
-            explain: false,
+            explain: cfg.explain,
             adopt: false,
             dirty_on_output: true,
         },
