@@ -220,8 +220,6 @@ impl<'a> BuildPlanLowerContext<'a> {
         };
         // Propagate debug/coverage flags and common settings
         cmd.common.doctest_only_sources = &info.doctest_files;
-        cmd.flags.no_opt = self.opt.opt_level == OptLevel::Debug;
-        cmd.flags.symbols = self.opt.debug_symbols;
         cmd.flags.enable_coverage = self.opt.enable_coverage;
         self.set_build_commons(&mut cmd.common, package, info);
 
