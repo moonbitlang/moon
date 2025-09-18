@@ -16,10 +16,10 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
-//! Specific lowering implementations for different build node types.
+//! Loweing implementation for build nodes
 
 use moonutil::{
-    common::{DriverKind, TargetBackend},
+    common::TargetBackend,
     compiler_flags::{
         make_archiver_command, make_cc_command, make_cc_command_pure, resolve_cc,
         ArchiverConfigBuilder, CCConfigBuilder, OptLevel as CCOptLevel, OutputType as CCOutputType,
@@ -27,7 +27,7 @@ use moonutil::{
     },
     cond_expr::OptLevel,
     moon_dir::MOON_DIRS,
-    mooncakes::{ModuleId, ModuleSourceKind, CORE_MODULE},
+    mooncakes::{ModuleId, CORE_MODULE},
     package::JsFormat,
 };
 use petgraph::Direction;
@@ -36,10 +36,7 @@ use tracing::{instrument, Level};
 use crate::{
     build_lower::{
         artifact,
-        compiler::{
-            BuildCommonArgs, CmdlineAbstraction, ErrorFormat, MiDependency, MoondocCommand,
-            Mooninfo, PackageSource,
-        },
+        compiler::{BuildCommonArgs, CmdlineAbstraction, ErrorFormat, MiDependency, PackageSource},
     },
     build_plan::{BuildCStubsInfo, BuildTargetInfo, LinkCoreInfo, MakeExecutableInfo},
     discover::DiscoveredPackage,
@@ -53,6 +50,17 @@ impl<'a> BuildPlanLowerContext<'a> {
     fn is_module_third_party(&self, mid: ModuleId) -> bool {
         // This is usually a small vector, so this perf overhead is okay.
         self.modules.input_module_ids().contains(&mid)
+    }
+
+    #[instrument(level = Level::DEBUG, skip(self, flags))]
+    pub(super) fn set_flags(&self, flags: &mut compiler::CompilationFlags) {
+        flags.no_opt = self.opt.opt_level == OptLevel::Debug;
+        flags.symbols = self.opt.debug_symbols;
+        flags.source_map = self.opt.debug_symbols
+            && matches!(
+                self.opt.target_backend,
+                TargetBackend::Js | TargetBackend::WasmGC
+            );
     }
 
     fn set_build_commons<'c>(
@@ -483,189 +491,6 @@ impl<'a> BuildPlanLowerContext<'a> {
         BuildCommand {
             extra_inputs: vec![],
             commandline: cc_cmd,
-        }
-    }
-
-    #[instrument(level = Level::DEBUG, skip(self, info))]
-    pub(super) fn lower_gen_test_driver(
-        &mut self,
-        _node: BuildPlanNode,
-        target: BuildTarget,
-        info: &BuildTargetInfo,
-    ) -> BuildCommand {
-        let package = self.get_package(target);
-        let output_driver =
-            self.layout
-                .generated_test_driver(self.packages, &target, self.opt.target_backend);
-        let output_metadata = self.layout.generated_test_driver_metadata(
-            self.packages,
-            &target,
-            self.opt.target_backend,
-        );
-        let driver_kind = match target.kind {
-            TargetKind::Source => panic!("Source package cannot be a test driver"),
-            TargetKind::WhiteboxTest => DriverKind::Whitebox,
-            TargetKind::BlackboxTest => DriverKind::Blackbox,
-            TargetKind::InlineTest => DriverKind::Internal,
-            TargetKind::SubPackage => panic!("Sub-package cannot be a test driver"),
-        };
-        let pkg_full_name = package.fqn.to_string();
-        let files_vec = if target.kind == TargetKind::WhiteboxTest {
-            info.whitebox_files.clone()
-        } else {
-            info.files().map(|x| x.to_owned()).collect::<Vec<_>>()
-        };
-
-        let cmd = compiler::MoonGenTestDriver::new(
-            &files_vec,
-            output_driver,
-            output_metadata,
-            self.opt.target_backend,
-            &pkg_full_name,
-            driver_kind,
-        );
-
-        BuildCommand {
-            commandline: cmd.build_command("moon"),
-            extra_inputs: files_vec,
-        }
-    }
-
-    #[instrument(level = Level::DEBUG, skip(self))]
-    pub(super) fn lower_bundle(
-        &mut self,
-        node: BuildPlanNode,
-        module_id: ModuleId,
-    ) -> BuildCommand {
-        let module = self.modules.mod_name_from_id(module_id);
-        let output = self
-            .layout
-            .bundle_result_path(self.opt.target_backend, module.name());
-
-        let mut inputs = vec![];
-        for dep in self.build_plan.dependency_nodes(node) {
-            let BuildPlanNode::BuildCore(package) = dep else {
-                panic!("Bundle node can only depend on BuildCore nodes");
-            };
-            inputs.push(self.layout.core_of_build_target(
-                self.packages,
-                &package,
-                self.opt.target_backend,
-            ));
-        }
-
-        let cmd = compiler::MooncBundleCore::new(&inputs, output);
-
-        BuildCommand {
-            extra_inputs: vec![],
-            commandline: cmd.build_command("moonc"),
-        }
-    }
-
-    #[instrument(level = Level::DEBUG, skip(self))]
-    pub(super) fn lower_compile_runtime(&mut self) -> BuildCommand {
-        let artifact_path = self
-            .layout
-            .runtime_output_path(self.opt.target_backend, self.opt.os);
-
-        // TODO: this part might need more simplification?
-        let runtime_c_path = self.opt.runtime_dot_c_path.clone();
-        let cc_cmd = make_cc_command_pure::<&'static str>(
-            resolve_cc(CC::default(), None),
-            CCConfigBuilder::default()
-                .no_sys_header(true)
-                .output_ty(CCOutputType::Object)
-                .opt_level(CCOptLevel::Speed)
-                .debug_info(true)
-                // always link moonbitrun in this mode
-                .link_moonbitrun(true)
-                .define_use_shared_runtime_macro(false)
-                .build()
-                .expect("Failed to build CC configuration for runtime"),
-            &[],
-            [runtime_c_path.display().to_string()],
-            &self.opt.target_dir_root.display().to_string(),
-            &artifact_path.display().to_string(),
-            &self.opt.compiler_paths,
-        );
-
-        BuildCommand {
-            extra_inputs: vec![runtime_c_path],
-            commandline: cc_cmd,
-        }
-    }
-
-    #[instrument(level = Level::DEBUG, skip(self))]
-    pub(super) fn lower_generate_mbti(&mut self, target: BuildTarget) -> BuildCommand {
-        let input = self
-            .layout
-            .mi_of_build_target(self.packages, &target, self.opt.target_backend);
-        let pkg = self.packages.get_package(target.package);
-        let output = self.layout.generated_mbti_path(&pkg.root_path);
-
-        let cmd = Mooninfo {
-            mi_in: input.into(),
-            out: output.into(),
-            no_alias: self.opt.info_no_alias,
-        };
-
-        BuildCommand {
-            extra_inputs: vec![],
-            commandline: cmd.build_command("mooninfo"),
-        }
-    }
-
-    #[instrument(level = Level::DEBUG, skip(self))]
-    pub(super) fn lower_build_docs(&self) -> BuildCommand {
-        // TODO: How to enforce the `packages.json` dependency is generated
-        // up-to-date before the command is executed?
-        //
-        // If we forgot to generate anything at all, we can get a complaint from
-        // n2 for the file doesn't exist and nobody can create it, but if we
-        // have a stale file, we currently have to rely on ourselves.
-        //
-        // Currently, moondoc only support a single module in scope, so we
-        // have these constraints
-        let main_module = self
-            .opt
-            .main_module
-            .as_ref()
-            .expect("Currently only one module in the workspace is supported.");
-        let path = match main_module.source() {
-            ModuleSourceKind::Local(p) => p,
-            ModuleSourceKind::Registry(_) | ModuleSourceKind::Git(_) => {
-                panic!("Remote modules for docs are not supported")
-            }
-        };
-
-        let packages_json = self.layout.packages_json_path();
-        let cmd = MoondocCommand::new(
-            path,
-            self.layout.doc_dir(),
-            self.opt.stdlib_path.as_ref(),
-            &packages_json,
-            self.opt.docs_serve,
-        );
-
-        BuildCommand {
-            commandline: cmd.build_command("moondoc"),
-            extra_inputs: vec![packages_json],
-        }
-    }
-
-    #[instrument(level = Level::DEBUG, skip(self))]
-    pub(super) fn lower_run_prebuild(&self, pkg: PackageId, idx: u32) -> BuildCommand {
-        let info = self
-            .build_plan
-            .get_prebuild_info(pkg, idx)
-            .expect("Prebuild info should be populated before lowering run prebuild");
-
-        // Note: we are tracking dependencies between prebuild commands via n2.
-        // Ideally we can do this ourselves, but n2 does it anyway so we don't bother.
-
-        BuildCommand {
-            commandline: vec!["sh".into(), "-c".into(), info.command.clone()],
-            extra_inputs: info.resolved_inputs.clone(),
         }
     }
 
