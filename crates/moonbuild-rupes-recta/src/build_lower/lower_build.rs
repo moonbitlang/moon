@@ -72,6 +72,7 @@ impl<'a> BuildPlanLowerContext<'a> {
     fn set_build_commons<'c>(
         &self,
         common: &mut BuildCommonArgs<'c>,
+        target: BuildTarget,
         pkg: &DiscoveredPackage,
         info: &'c BuildTargetInfo,
     ) {
@@ -102,6 +103,10 @@ impl<'a> BuildPlanLowerContext<'a> {
                 common.alert_config = compiler::WarnAlertConfig::List(a.into());
             }
         }
+
+        // Patch and mi config
+        common.patch_file = info.patch_file.as_deref().map(|x| x.into());
+        common.no_mi |= target.kind.is_test() || info.specified_no_mi;
     }
 
     #[instrument(level = Level::DEBUG, skip(self, info))]
@@ -133,11 +138,10 @@ impl<'a> BuildPlanLowerContext<'a> {
             no_mi: false,
             is_third_party: false,
             single_file: false,
-            patch_file: None,
         };
         // Wire doctest-only files to common so they are passed as `-doctest-only <file>`
         cmd.common.doctest_only_sources = &info.doctest_files;
-        self.set_build_commons(&mut cmd.common, package, info);
+        self.set_build_commons(&mut cmd.common, target, package, info);
 
         // Determine whether the checked package is a main package.
         //
@@ -204,14 +208,13 @@ impl<'a> BuildPlanLowerContext<'a> {
             ),
             core_out: core_output.into(),
             mi_out: mi_output.into(),
-            no_mi: false,
             flags: self.set_flags(),
             extra_build_opts: &[],
         };
         // Propagate debug/coverage flags and common settings
         cmd.common.doctest_only_sources = &info.doctest_files;
         cmd.flags.enable_coverage = self.opt.enable_coverage;
-        self.set_build_commons(&mut cmd.common, package, info);
+        self.set_build_commons(&mut cmd.common, target, package, info);
 
         // Determine whether the built package is a main package.
         //
