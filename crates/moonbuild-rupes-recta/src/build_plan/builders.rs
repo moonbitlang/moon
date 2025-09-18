@@ -192,6 +192,7 @@ impl<'a> BuildPlanConstructor<'a> {
         let mut regular_files = IndexSet::new();
         let mut whitebox_files = IndexSet::new();
         let mut doctest_files = IndexSet::new();
+        let _filter_span = tracing::debug_span!("filtering_files").entered();
         for (file, file_kind) in source_files {
             match (target.kind, file_kind) {
                 (Source | SubPackage | InlineTest, NoTest) => {
@@ -217,6 +218,17 @@ impl<'a> BuildPlanConstructor<'a> {
                 regular_files.insert(md_file.clone());
             }
         }
+        drop(_filter_span);
+
+        // Sort the input, or the different order may cause n2 to view the input
+        // file set as different than original.
+        //
+        // FIXME: we have already sorted them on discover, should we omit that?
+        let _sort_span = tracing::debug_span!("sorting_files").entered();
+        regular_files.sort();
+        whitebox_files.sort();
+        doctest_files.sort();
+        drop(_sort_span);
 
         // Populate `alert_list` and `warn_list`
         // The list population is simply concatenating:
