@@ -68,6 +68,12 @@ pub struct BuildCommonArgs<'a> {
     // FIXME: better abstraction
     pub check_mi: Option<Cow<'a, Path>>,
     pub virtual_implementation: Option<VirtualPackageImplementation<'a>>,
+
+    // Optional patch file
+    pub patch_file: Option<Cow<'a, Path>>,
+
+    // Emit -no-mi if true
+    pub no_mi: bool,
 }
 
 impl<'a> BuildCommonArgs<'a> {
@@ -97,6 +103,8 @@ impl<'a> BuildCommonArgs<'a> {
             target_kind,
             check_mi: None,
             virtual_implementation: None,
+            patch_file: None,
+            no_mi: false,
         }
     }
 
@@ -179,7 +187,6 @@ impl<'a> BuildCommonArgs<'a> {
             TargetKind::WhiteboxTest => args.push("-whitebox-test".into()),
             TargetKind::BlackboxTest => {
                 args.push("-blackbox-test".into());
-                // Match legacy: include doctests when building blackbox tests
                 args.push("-include-doctests".into());
             }
             TargetKind::Source | TargetKind::InlineTest | TargetKind::SubPackage => {}
@@ -262,6 +269,36 @@ impl<'a> BuildCommonArgs<'a> {
         // to add this flag; this common helper is only used by check/build-package.
         if let Some(ws) = &self.workspace_root {
             args.extend(["-workspace-path".to_string(), ws.display().to_string()]);
+        }
+    }
+
+    /// Emit -patch-file
+    pub fn add_patch_file_moonc(&self, args: &mut Vec<String>) {
+        if let Some(patch) = &self.patch_file {
+            args.extend(["-patch-file".to_string(), patch.display().to_string()]);
+        }
+    }
+
+    /// Emit -no-mi if enabled
+    pub fn add_no_mi(&self, args: &mut Vec<String>) {
+        if self.no_mi {
+            args.push("-no-mi".to_string());
+        }
+    }
+
+    /// Emit -include-doctests for blackbox
+    pub fn add_include_doctests_if_blackbox(&self, args: &mut Vec<String>) {
+        if matches!(self.target_kind, TargetKind::BlackboxTest) {
+            args.push("-include-doctests".to_string());
+        }
+    }
+
+    /// Emit test kind flags
+    pub fn add_test_kind_flags(&self, args: &mut Vec<String>) {
+        match self.target_kind {
+            TargetKind::WhiteboxTest => args.push("-whitebox-test".to_string()),
+            TargetKind::BlackboxTest => args.push("-blackbox-test".to_string()),
+            _ => {}
         }
     }
 }

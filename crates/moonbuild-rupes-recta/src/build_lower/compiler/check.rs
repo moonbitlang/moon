@@ -36,11 +36,9 @@ pub struct MooncCheck<'a> {
     pub common: BuildCommonArgs<'a>,
 
     pub mi_out: Cow<'a, Path>,
-    pub no_mi: bool,
 
     pub is_third_party: bool,
     pub single_file: bool,
-    pub patch_file: Option<Cow<'a, Path>>,
 }
 
 impl<'a> MooncCheck<'a> {
@@ -50,14 +48,10 @@ impl<'a> MooncCheck<'a> {
         args.push("check".into());
 
         // Patch file (first if present)
-        if let Some(patch_file) = &self.patch_file {
-            args.extend(["-patch-file".to_string(), patch_file.display().to_string()]);
-        }
+        self.common.add_patch_file_moonc(args);
 
         // No MI flag
-        if self.no_mi {
-            args.push("-no-mi".to_string());
-        }
+        self.common.add_no_mi(args);
 
         // Error format
         self.common.add_error_format(args);
@@ -70,6 +64,9 @@ impl<'a> MooncCheck<'a> {
 
         // Doctest-only MBT files
         self.common.add_doctest_only_sources(args);
+
+        // Include doctests for blackbox
+        self.common.add_include_doctests_if_blackbox(args);
 
         // Custom warning/alert lists
         self.common.add_custom_warn_alert_lists(args);
@@ -90,7 +87,7 @@ impl<'a> MooncCheck<'a> {
         // Package configuration
         self.common.add_package_config(args);
 
-        // is-main with blackbox test condition
+        // is-main
         self.common.add_is_main(args);
 
         // Single file mode
@@ -110,8 +107,8 @@ impl<'a> MooncCheck<'a> {
         // Target backend
         self.common.add_target_backend(args);
 
-        // Test type flags
-        self.common.add_test_args(args);
+        // Test kind flags
+        self.common.add_test_kind_flags(args);
 
         // Virtual package check
         self.common.add_virtual_package_check(args);

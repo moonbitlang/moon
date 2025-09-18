@@ -181,6 +181,12 @@ pub struct BuildTargetInfo {
     pub(crate) warn_list: Option<String>,
     /// The final list of alerts to pass to the compiler
     pub(crate) alert_list: Option<String>,
+
+    /// Whether the target is designated by the user to not generate module interface.
+    pub(crate) specified_no_mi: bool,
+
+    /// The patch file to supply to this package
+    pub(crate) patch_file: Option<PathBuf>,
     // we currently don't need this, as it's controlled by build-wise options
     // /// Whether compiling this target needs the standard library
     // pub std: bool,

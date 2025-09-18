@@ -248,6 +248,8 @@ impl<'a> BuildPlanConstructor<'a> {
             doctest_files: doctest_files.into_iter().collect(),
             warn_list,
             alert_list,
+            specified_no_mi: todo!(),
+            patch_file: todo!(),
         }
     }
 

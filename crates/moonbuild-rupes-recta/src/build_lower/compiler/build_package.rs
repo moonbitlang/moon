@@ -39,7 +39,6 @@ pub struct MooncBuildPackage<'a> {
     #[allow(unused)]
     pub mi_out: Cow<'a, Path>,
 
-    pub no_mi: bool,
     pub flags: CompilationFlags,
     pub extra_build_opts: &'a [&'a str],
 }
@@ -117,11 +116,18 @@ impl<'a> MooncBuildPackage<'a> {
 
         self.common.add_test_args(args);
 
+        // -no-mi after test flags
+        self.common.add_no_mi(args);
+
+        // patch after -no-mi
+        self.common.add_patch_file_moonc(args);
+
         // Virtual package check
         self.common.add_virtual_package_check(args);
 
-        // Virtual package check with no-mi flag
-        if self.common.check_mi.is_some() && self.no_mi {
+        // Virtual package check with no-mi flag (for default/impl virtual flows)
+        // FIXME: duplicated `-no-mi`
+        if self.common.check_mi.is_some() && self.common.no_mi {
             args.push("-no-mi".to_string());
         }
 
