@@ -133,6 +133,7 @@ features! {
     (unstable, rr_export_module_graph, "Export the module dependency graph (only with Rupes Recta)"),
     (unstable, rr_export_package_graph, "Export the package dependency graph (only with Rupes Recta)"),
     (unstable, rr_export_build_plan, "Export the build plan graph (only with Rupes Recta)"),
+    (unstable, rr_n2_explain, "Ask n2 to explain rerun reasons (only with Rupes Recta)"),
 }
 
 impl FromStr for Box<FeatureGate> {

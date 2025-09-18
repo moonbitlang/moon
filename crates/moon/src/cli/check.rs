@@ -266,7 +266,7 @@ fn run_check_normal_internal(
             // Generate metadata for IDE
             rr_build::generate_metadata(source_dir, target_dir, &_build_meta)?;
 
-            let mut cfg = BuildConfig::from_flags(&cmd.build_flags);
+            let mut cfg = BuildConfig::from_flags(&cmd.build_flags, &cli.unstable_feature);
             cfg.no_render |= cmd.output_json;
             let result = rr_build::execute_build(&cfg, build_graph, target_dir)?;
             result.print_info(cli.quiet, "checking")?;
