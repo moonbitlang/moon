@@ -41,7 +41,8 @@ use crate::{
 pub mod artifact;
 mod compiler;
 mod context;
-mod lowering;
+mod lower_aux;
+mod lower_build;
 mod utils;
 
 pub use utils::{build_ins, build_n2_fileloc, build_phony_out};

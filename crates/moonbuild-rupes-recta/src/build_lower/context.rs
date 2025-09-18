@@ -21,16 +21,12 @@
 use std::path::PathBuf;
 
 use log::debug;
-use moonutil::{
-    common::TargetBackend,
-    cond_expr::OptLevel,
-    mooncakes::{result::ResolvedEnv, DirSyncResult},
-};
+use moonutil::mooncakes::{result::ResolvedEnv, DirSyncResult};
 use n2::graph::{Build, Graph as N2Graph};
 use tracing::{instrument, Level};
 
 use crate::{
-    build_lower::{artifact::LegacyLayout, compiler},
+    build_lower::artifact::LegacyLayout,
     build_plan::BuildPlan,
     discover::{DiscoverResult, DiscoveredPackage},
     model::{BuildPlanNode, BuildTarget},
@@ -302,17 +298,6 @@ impl<'a> BuildPlanLowerContext<'a> {
     fn lowered(&mut self, build: Build) -> Result<(), anyhow::Error> {
         self.graph.add_build(build)?;
         Ok(())
-    }
-
-    #[instrument(level = Level::DEBUG, skip(self, flags))]
-    pub(super) fn set_flags(&self, flags: &mut compiler::CompilationFlags) {
-        flags.no_opt = self.opt.opt_level == OptLevel::Debug;
-        flags.symbols = self.opt.debug_symbols;
-        flags.source_map = self.opt.debug_symbols
-            && matches!(
-                self.opt.target_backend,
-                TargetBackend::Js | TargetBackend::WasmGC
-            );
     }
 
     /// **For debug use only.** Prints debug information about a specific build
