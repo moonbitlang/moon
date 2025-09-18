@@ -104,6 +104,7 @@ impl<'a> super::BuildPlanLowerContext<'a> {
                 self.opt.target_backend,
             ));
         }
+        inputs.sort();
 
         let cmd = compiler::MooncBundleCore::new(&inputs, output);
 
