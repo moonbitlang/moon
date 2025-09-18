@@ -53,7 +53,6 @@ jobs:
           version=$(echo "$GITHUB_SHA" | cut -c 1-9)
           aws s3 cp target/release/moon "s3://${{ secrets.AWS_BUCKET_NAME }}/bleeding-moon/$version/$(uname -s)-$(uname -m)/"
           aws s3 cp target/release/moonrun "s3://${{ secrets.AWS_BUCKET_NAME }}/bleeding-moonrun/$version/$(uname -s)-$(uname -m)/"
-          aws s3 cp target/release/moonrun "s3://cli.moonbitlang.com/moon-ci/$(uname -s)-$(uname -m)/"
 
       - name: Upload(Windows)
         if: ${{ matrix.os == 'windows-latest' }}
@@ -65,28 +64,6 @@ jobs:
           $version = "$env:GITHUB_SHA".Substring(0, 9)
           aws s3 cp .\target\release\moon.exe "s3://${{ secrets.AWS_BUCKET_NAME }}/bleeding-moon/$version/Windows-x86_64/"
           aws s3 cp .\target\release\moonrun.exe "s3://${{ secrets.AWS_BUCKET_NAME }}/bleeding-moonrun/$version/Windows-x86_64/"
-          aws s3 cp .\target\release\moonrun.exe "s3://cli.moonbitlang.com/moon-ci/Windows-x86_64/"
-
-      - name: Bleeding Release (macos-latest)
-        if: ${{ matrix.os == 'macos-latest' }}
-        env:
-          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          AWS_DEFAULT_REGION: ${{ secrets.AWS_DEFAULT_REGION }}
-        run: |
-          rm -rf tmp-bins
-          mkdir tmp-bins
-          curl https://cli.moonbitlang.com/moon-ci/$(uname -s)-$(uname -m).tar.gz --output moonbit.tar.gz
-          curl https://cli.moonbitlang.com/moon-ci/$(uname -s)-$(uname -m)/mooncake --output mooncake
-          tar xf moonbit.tar.gz --directory ./tmp-bins/
-          cp -L ./target/release/moonrun ./tmp-bins/bin/
-          cp -L ./target/release/moon ./tmp-bins/bin/
-          cp -L ./mooncake ./tmp-bins/bin/
-          tar czf ./moonbit-darwin-aarch64.tar.gz --directory=./tmp-bins .
-          shasum -a 256 ./moonbit-darwin-aarch64.tar.gz > moonbit-darwin-aarch64.sha256
-          aws s3 cp ./moonbit-darwin-aarch64.tar.gz s3://cli.moonbitlang.com/binaries/bleeding/moonbit-darwin-aarch64.tar.gz
-          aws s3 cp ./moonbit-darwin-aarch64.sha256 s3://cli.moonbitlang.com/binaries/bleeding/moonbit-darwin-aarch64.sha256
-          aws cloudfront create-invalidation --distribution-id E1KQYZEVEB0TAY --paths "/*"
 
   ubuntu-build:
     runs-on: ubuntu-latest
@@ -140,24 +117,3 @@ jobs:
           version=$(echo "$GITHUB_SHA" | cut -c 1-9)
           aws s3 cp target/release/moon "s3://${{ secrets.AWS_BUCKET_NAME }}/bleeding-moon/$version/$(uname -s)-$(uname -m)/"
           aws s3 cp target/release/moonrun "s3://${{ secrets.AWS_BUCKET_NAME }}/bleeding-moonrun/$version/$(uname -s)-$(uname -m)/"
-          aws s3 cp target/release/moonrun "s3://cli.moonbitlang.com/moon-ci/$(uname -s)-$(uname -m)/"
-
-      - name: Bleeding Release
-        env:
-          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          AWS_DEFAULT_REGION: ${{ secrets.AWS_DEFAULT_REGION }}
-        run: |
-          rm -rf tmp-bins
-          mkdir tmp-bins
-          curl https://cli.moonbitlang.com/moon-ci/$(uname -s)-$(uname -m).tar.gz --output moonbit.tar.gz
-          curl https://cli.moonbitlang.com/moon-ci/$(uname -s)-$(uname -m)/mooncake --output mooncake
-          tar xf moonbit.tar.gz --directory ./tmp-bins/
-          cp -L ./target/release/moonrun ./tmp-bins/bin/
-          cp -L ./target/release/moon ./tmp-bins/bin/
-          cp -L ./mooncake ./tmp-bins/bin/
-          tar czf ./moonbit-linux-x86_64.tar.gz --directory=./tmp-bins .
-          shasum -a 256 ./moonbit-linux-x86_64.tar.gz > moonbit-linux-x86_64.sha256
-          aws s3 cp ./moonbit-linux-x86_64.tar.gz s3://cli.moonbitlang.com/binaries/bleeding/moonbit-linux-x86_64.tar.gz
-          aws s3 cp ./moonbit-linux-x86_64.sha256 s3://cli.moonbitlang.com/binaries/bleeding/moonbit-linux-x86_64.sha256
-          aws cloudfront create-invalidation --distribution-id E1KQYZEVEB0TAY --paths "/*"
