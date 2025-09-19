@@ -276,6 +276,8 @@ fn run_check_normal_internal(
 
             let mut cfg = BuildConfig::from_flags(&cmd.build_flags, &cli.unstable_feature);
             cfg.no_render |= cmd.output_json;
+            cfg.patch_file = cmd.patch_file.clone();
+            cfg.explain_errors |= cmd.explain;
             let result = rr_build::execute_build(&cfg, build_graph, target_dir)?;
             result.print_info(cli.quiet, "checking")?;
             Ok(result.return_code_for_success())

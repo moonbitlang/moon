@@ -388,8 +388,14 @@ pub struct BuildConfig {
     /// Generate metadata file `packages.json`
     pub generate_metadata: bool,
 
+    /// Explain and warnings in diagnostics
+    pub explain_errors: bool,
+
     /// Ask n2 to explain rerun reasons
-    pub explain: bool,
+    pub n2_explain: bool,
+
+    /// The patch file to use
+    pub patch_file: Option<PathBuf>,
 }
 
 impl BuildConfig {
@@ -399,7 +405,9 @@ impl BuildConfig {
             no_render: flags.no_render,
             render_no_loc: flags.render_no_loc,
             generate_metadata: false,
-            explain: unstable_features.rr_n2_explain,
+            explain_errors: false,
+            n2_explain: unstable_features.rr_n2_explain,
+            patch_file: None,
         }
     }
 }
@@ -411,7 +419,9 @@ impl Default for BuildConfig {
             no_render: false,
             render_no_loc: DiagnosticLevel::Error,
             generate_metadata: false,
-            explain: false,
+            explain_errors: false,
+            n2_explain: false,
+            patch_file: None,
         }
     }
 }
@@ -471,8 +481,8 @@ pub fn execute_build_partial(
         Arc::clone(&result_catcher),
         cfg.no_render,
         n2::terminal::use_fancy(),
-        None,
-        false,
+        cfg.patch_file.clone(),
+        cfg.explain_errors,
         cfg.render_no_loc,
         PathBuf::new(),
         target_dir.into(),
@@ -485,7 +495,7 @@ pub fn execute_build_partial(
         &n2::work::Options {
             failures_left: Some(1),
             parallelism,
-            explain: cfg.explain,
+            explain: cfg.n2_explain,
             adopt: false,
             dirty_on_output: true,
         },
