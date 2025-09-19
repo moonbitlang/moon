@@ -323,9 +323,9 @@ fn push_backend(path: &mut PathBuf, backend: TargetBackend) {
 fn build_kind_suffix(kind: TargetKind) -> &'static str {
     match kind {
         TargetKind::Source => "",
-        TargetKind::WhiteboxTest => "_whitebox_test",
-        TargetKind::BlackboxTest => "_blackbox_test",
-        TargetKind::InlineTest => "_inline_test",
+        TargetKind::WhiteboxTest => ".whitebox_test",
+        TargetKind::BlackboxTest => ".blackbox_test",
+        TargetKind::InlineTest => ".inline_test",
         TargetKind::SubPackage => "_sub",
     }
 }
