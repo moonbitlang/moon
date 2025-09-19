@@ -53,7 +53,7 @@ use tracing::{instrument, Level};
 use crate::cli::pre_build::scan_with_x_build;
 use crate::rr_build;
 use crate::rr_build::preconfig_compile;
-use crate::rr_build::BuildConfig;
+use crate::rr_build::{BuildConfig, CalcUserIntentOutput};
 use crate::run::perform_promotion;
 use crate::run::TestFilter;
 use crate::run::TestIndex;
@@ -716,7 +716,7 @@ fn apply_package_filter(
                     .map(move |t| x.build_target(t))
             })
             .flat_map(node_from_target)
-            .collect());
+            .collect::<Vec<_>>());
     };
 
     // We deliberately didn't allow a string to be parsed into a package
@@ -804,7 +804,7 @@ fn calc_user_intent(
         &mut dyn Iterator<Item = PackageId>,
         &moonbuild_rupes_recta::ResolveOutput,
     ) -> anyhow::Result<Vec<BuildPlanNode>>,
-) -> Result<Vec<BuildPlanNode>, anyhow::Error> {
+) -> Result<CalcUserIntentOutput, anyhow::Error> {
     let &[main_module_id] = main_modules else {
         panic!("No multiple main modules are supported");
     };
@@ -814,7 +814,7 @@ fn calc_user_intent(
         .packages_for_module(main_module_id)
         .ok_or_else(|| anyhow::anyhow!("Cannot find the local module!"))?;
 
-    cb(&mut packages.values().copied(), resolve_output)
+    Ok(cb(&mut packages.values().copied(), resolve_output)?.into())
 }
 
 #[instrument(skip_all)]

@@ -41,7 +41,7 @@ use moonutil::{
 
 use crate::{
     cli::BuildFlags,
-    rr_build::{self, BuildConfig},
+    rr_build::{self, BuildConfig, CalcUserIntentOutput},
 };
 
 use super::{pre_build::scan_with_x_build, UniversalFlags};
@@ -119,7 +119,7 @@ pub fn run_info_rr(cli: UniversalFlags, cmd: InfoSubcommand) -> anyhow::Result<i
 fn calc_user_intent(
     resolve_output: &moonbuild_rupes_recta::ResolveOutput,
     main_modules: &[moonutil::mooncakes::ModuleId],
-) -> Result<Vec<BuildPlanNode>, anyhow::Error> {
+) -> Result<CalcUserIntentOutput, anyhow::Error> {
     let &[main_module_id] = main_modules else {
         panic!("No multiple main modules are supported");
     };
@@ -128,7 +128,7 @@ fn calc_user_intent(
         .pkg_dirs
         .packages_for_module(main_module_id)
         .ok_or_else(|| anyhow::anyhow!("Cannot find the local module!"))?;
-    let res = packages
+    let res: Vec<_> = packages
         .values()
         .filter_map(|package_id| {
             let pkg = resolve_output.pkg_dirs.get_package(*package_id);
@@ -142,7 +142,7 @@ fn calc_user_intent(
             }
         })
         .collect();
-    Ok(res)
+    Ok(res.into())
 }
 
 pub fn run_info_legacy(cli: UniversalFlags, cmd: InfoSubcommand) -> anyhow::Result<i32> {

@@ -38,6 +38,7 @@ use moonbuild::entry::{
     create_progress_console, render_and_catch_callback, N2RunStats, ResultCatcher,
 };
 use moonbuild_rupes_recta::{
+    build_plan::InputDirective,
     model::{Artifacts, BuildPlanNode},
     CompileConfig, ResolveConfig, ResolveOutput,
 };
@@ -65,8 +66,28 @@ pub use dry_run::{dry_print_command, print_dry_run, print_dry_run_all};
 ///
 /// Returns: A vector of [`UserIntent`]s, representing what the user would like
 /// to do
-pub type CalcUserIntentFn<'b> = dyn for<'a> FnOnce(&'a ResolveOutput, &'a [ModuleId]) -> anyhow::Result<Vec<BuildPlanNode>>
+pub type CalcUserIntentFn<'b> = dyn for<'a> FnOnce(&'a ResolveOutput, &'a [ModuleId]) -> anyhow::Result<CalcUserIntentOutput>
     + 'b;
+
+pub struct CalcUserIntentOutput {
+    pub intent: Vec<BuildPlanNode>,
+    pub directive: InputDirective,
+}
+
+impl From<Vec<BuildPlanNode>> for CalcUserIntentOutput {
+    fn from(intent: Vec<BuildPlanNode>) -> Self {
+        Self {
+            intent,
+            directive: InputDirective::default(),
+        }
+    }
+}
+
+impl From<(Vec<BuildPlanNode>, InputDirective)> for CalcUserIntentOutput {
+    fn from((intent, directive): (Vec<BuildPlanNode>, InputDirective)) -> Self {
+        Self { intent, directive }
+    }
+}
 
 /// Build metadata containing information needed for build context and results.
 /// The build graph is kept separate to allow execute_build to take ownership of it.
@@ -277,7 +298,8 @@ pub fn plan_build<'a>(
     let is_core = main_module.name == MOONBITLANG_CORE;
 
     let cx = preconfig.into_compile_config(preferred_backend, is_core);
-    let compile_output = moonbuild_rupes_recta::compile(&cx, &resolve_output, &intent)?;
+    let compile_output =
+        moonbuild_rupes_recta::compile(&cx, &resolve_output, &intent.intent, &intent.directive)?;
 
     if unstable_features.rr_export_build_plan {
         if let Some(plan) = compile_output.build_plan {

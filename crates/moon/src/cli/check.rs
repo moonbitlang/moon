@@ -38,7 +38,7 @@ use std::path::{Path, PathBuf};
 use tracing::{instrument, Level};
 
 use crate::cli::get_module_for_single_file;
-use crate::rr_build::{self, preconfig_compile, BuildConfig};
+use crate::rr_build::{self, preconfig_compile, BuildConfig, CalcUserIntentOutput};
 
 use super::pre_build::scan_with_x_build;
 use super::{get_compiler_flags, BuildFlags};
@@ -407,7 +407,7 @@ fn calc_user_intent(
     resolve_output: &moonbuild_rupes_recta::ResolveOutput,
     main_modules: &[moonutil::mooncakes::ModuleId],
     filter: Option<&Path>,
-) -> Result<Vec<BuildPlanNode>, anyhow::Error> {
+) -> Result<CalcUserIntentOutput, anyhow::Error> {
     let &[main_module_id] = main_modules else {
         panic!("No multiple main modules are supported");
     };
@@ -438,9 +438,9 @@ fn calc_user_intent(
             })
             .map(|&p| check_targets(&p).to_vec())
             .unwrap_or_default();
-        Ok(nodes)
+        Ok(nodes.into())
     } else {
-        let nodes = packages.values().flat_map(check_targets).collect();
-        Ok(nodes)
+        let nodes: Vec<_> = packages.values().flat_map(check_targets).collect();
+        Ok(nodes.into())
     }
 }

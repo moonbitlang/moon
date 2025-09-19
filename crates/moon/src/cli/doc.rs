@@ -86,7 +86,7 @@ pub fn run_doc_rr(cli: UniversalFlags, cmd: DocSubcommand) -> anyhow::Result<i32
         &source_dir,
         &target_dir,
         // huh, the simplest intent because it depends on **the universe**.
-        Box::new(|_, _| Ok(vec![BuildPlanNode::BuildDocs])),
+        Box::new(|_, _| Ok(vec![BuildPlanNode::BuildDocs].into())),
     )?;
 
     // Early exit for dry-run

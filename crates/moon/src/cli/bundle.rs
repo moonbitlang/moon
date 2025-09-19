@@ -81,7 +81,12 @@ pub fn run_bundle_rr(cli: UniversalFlags, cmd: BundleSubcommand) -> anyhow::Resu
         &cli.unstable_feature,
         &source_dir,
         &target_dir,
-        Box::new(|_r, m| Ok(m.iter().map(|&m| BuildPlanNode::Bundle(m)).collect())),
+        Box::new(|_r, m| {
+            Ok(m.iter()
+                .map(|&m| BuildPlanNode::Bundle(m))
+                .collect::<Vec<_>>()
+                .into())
+        }),
     )?;
 
     if cli.dry_run {
