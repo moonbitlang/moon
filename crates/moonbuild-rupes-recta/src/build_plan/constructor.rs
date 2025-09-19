@@ -27,6 +27,7 @@ use crate::{
     model::{BuildPlanNode, BuildTarget, TargetKind},
     pkg_solve::DepRelationship,
 };
+use tracing::{instrument, Level};
 
 use super::{BuildEnvironment, BuildPlan, BuildPlanConstructError};
 
@@ -107,6 +108,7 @@ impl<'a> BuildPlanConstructor<'a> {
     /// Currently, removal of invalid starting nodes due to standard library
     /// special cases is handled in [`crate::compile`], not here. Whether we
     /// should merge the two functions is a subject of discussion.
+    #[instrument(level = Level::DEBUG, skip(self))]
     fn should_skip_start_node(&mut self, node: BuildPlanNode) -> bool {
         if let Some(tgt) = node.extract_target() {
             if tgt.kind == TargetKind::WhiteboxTest {
@@ -134,6 +136,7 @@ impl<'a> BuildPlanConstructor<'a> {
     /// new node. To deduplicate pending nodes, this should be called before
     /// adding relevant edges to the graph (since the latter will also add the
     /// node into the graph).
+    #[instrument(level = Level::DEBUG, skip(self))]
     pub(super) fn need_node(&mut self, node: BuildPlanNode) -> BuildPlanNode {
         if !self.resolved.contains(&node) {
             self.pending.push(node);
@@ -144,6 +147,7 @@ impl<'a> BuildPlanConstructor<'a> {
 
     /// Tell the build graph that the given node has been resolved into a
     /// concrete action specification.
+    #[instrument(level = Level::DEBUG, skip(self))]
     pub(super) fn resolved_node(&mut self, node: BuildPlanNode) {
         debug_assert!(
             !self.resolved.contains(&node),
@@ -206,6 +210,7 @@ impl<'a> BuildPlanConstructor<'a> {
         }
     }
 
+    #[instrument(level = Level::DEBUG, skip(self))]
     pub(super) fn add_edge(&mut self, start: BuildPlanNode, end: BuildPlanNode) {
         self.res.graph.add_edge(start, end, ());
     }

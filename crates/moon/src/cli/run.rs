@@ -42,6 +42,7 @@ use moonutil::moon_dir::MOON_DIRS;
 use moonutil::mooncakes::sync::AutoSyncFlags;
 use moonutil::mooncakes::RegistryConfig;
 use n2::trace;
+use tracing::{instrument, Level};
 
 use crate::rr_build;
 use crate::rr_build::preconfig_compile;
@@ -72,6 +73,7 @@ pub struct RunSubcommand {
     pub build_only: bool,
 }
 
+#[instrument(skip_all)]
 pub fn run_run(cli: &UniversalFlags, cmd: RunSubcommand) -> anyhow::Result<i32> {
     if let Some(surface_targets) = &cmd.build_flags.target {
         for st in surface_targets.iter() {
@@ -96,6 +98,7 @@ pub fn run_run(cli: &UniversalFlags, cmd: RunSubcommand) -> anyhow::Result<i32> 
     }
 }
 
+#[instrument(level = Level::DEBUG, skip_all)]
 fn run_single_mbt_file(cli: &UniversalFlags, cmd: RunSubcommand) -> anyhow::Result<i32> {
     let current_dir = std::env::current_dir()?;
     let mbt_file_path = dunce::canonicalize(current_dir.join(cmd.package_or_mbt_file))?;
@@ -320,6 +323,7 @@ fn run_single_mbt_file(cli: &UniversalFlags, cmd: RunSubcommand) -> anyhow::Resu
     Ok(0)
 }
 
+#[instrument(skip_all)]
 pub fn run_run_internal(cli: &UniversalFlags, cmd: RunSubcommand) -> anyhow::Result<i32> {
     if cli.unstable_feature.rupes_recta {
         run_run_rr(cli, cmd)
@@ -328,6 +332,7 @@ pub fn run_run_internal(cli: &UniversalFlags, cmd: RunSubcommand) -> anyhow::Res
     }
 }
 
+#[instrument(skip_all)]
 fn run_run_rr(cli: &UniversalFlags, cmd: RunSubcommand) -> Result<i32, anyhow::Error> {
     let PackageDirs {
         source_dir,
@@ -390,6 +395,7 @@ fn run_run_rr(cli: &UniversalFlags, cmd: RunSubcommand) -> Result<i32, anyhow::E
     }
 }
 
+#[instrument(level = Level::DEBUG, skip_all)]
 fn get_run_cmd(build_meta: &rr_build::BuildMeta) -> Result<CommandGuard, anyhow::Error> {
     let (_, artifact) = build_meta
         .artifacts
@@ -403,6 +409,7 @@ fn get_run_cmd(build_meta: &rr_build::BuildMeta) -> Result<CommandGuard, anyhow:
     Ok(cmd)
 }
 
+#[instrument(level = Level::DEBUG, skip_all)]
 fn calc_user_intent(
     input_path: &str,
     resolve_output: &moonbuild_rupes_recta::ResolveOutput,
@@ -460,6 +467,7 @@ fn calc_user_intent(
     }
 }
 
+#[instrument(skip_all)]
 fn run_run_internal_legacy(cli: &UniversalFlags, cmd: RunSubcommand) -> anyhow::Result<i32> {
     let moon_pkg_json_exist = std::env::current_dir()?
         .join(&cmd.package_or_mbt_file)

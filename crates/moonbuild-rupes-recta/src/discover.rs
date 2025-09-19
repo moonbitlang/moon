@@ -41,6 +41,7 @@ use moonutil::package::MoonPkg;
 use relative_path::{PathExt, RelativePath};
 use slotmap::{SecondaryMap, SlotMap};
 use walkdir::WalkDir;
+use tracing::{instrument, Level};
 
 use crate::{
     model::PackageId,
@@ -49,6 +50,7 @@ use crate::{
 };
 
 /// Discover packages contained by all dependencies from their paths
+#[instrument(skip_all)]
 pub fn discover_packages(
     env: &ResolvedEnv,
     dirs: &DirSyncResult,
@@ -73,6 +75,7 @@ pub fn discover_packages(
 }
 
 /// Discover packages within the given module directory
+#[instrument(level = Level::DEBUG, skip(res, env, dir, module_source))]
 pub(crate) fn discover_packages_for_mod(
     res: &mut DiscoverResult,
     env: &ResolvedEnv,
@@ -176,6 +179,7 @@ pub(crate) fn discover_packages_for_mod(
 
 /// Discover one package and get its basic information. This does *not* create
 /// e.g. subpackages.
+#[instrument(level = Level::DEBUG, skip(m, abs, rel))]
 fn discover_one_package(
     mid: ModuleId,
     m: &ModuleSource,

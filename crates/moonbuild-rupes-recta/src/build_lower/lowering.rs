@@ -31,6 +31,7 @@ use moonutil::{
     package::JsFormat,
 };
 use petgraph::Direction;
+use tracing::{instrument, Level};
 
 use crate::{
     build_lower::{
@@ -45,6 +46,7 @@ use crate::{
 use super::{compiler, context::BuildPlanLowerContext, BuildCommand};
 
 impl<'a> BuildPlanLowerContext<'a> {
+    #[instrument(level = Level::DEBUG, skip(self, info))]
     pub(super) fn lower_check(
         &self,
         node: BuildPlanNode,
@@ -93,6 +95,7 @@ impl<'a> BuildPlanLowerContext<'a> {
         }
     }
 
+    #[instrument(level = Level::DEBUG, skip(self, info))]
     pub(super) fn lower_build_mbt(
         &self,
         node: BuildPlanNode,
@@ -154,6 +157,7 @@ impl<'a> BuildPlanLowerContext<'a> {
         }
     }
 
+    #[instrument(level = Level::DEBUG, skip(self, info))]
     pub(super) fn lower_link_core(
         &mut self,
         _node: BuildPlanNode,
@@ -232,6 +236,7 @@ impl<'a> BuildPlanLowerContext<'a> {
         }
     }
 
+    #[instrument(level = Level::DEBUG, skip(self, info))]
     pub(super) fn lower_build_c_stub(
         &mut self,
         target: PackageId,
@@ -293,6 +298,7 @@ impl<'a> BuildPlanLowerContext<'a> {
         }
     }
 
+    #[instrument(level = Level::DEBUG, skip(self, info))]
     pub(super) fn lower_archive_c_stubs(
         &mut self,
         node: BuildPlanNode,
@@ -339,6 +345,7 @@ impl<'a> BuildPlanLowerContext<'a> {
         }
     }
 
+    #[instrument(level = Level::DEBUG, skip(self, info))]
     pub(super) fn lower_make_exe(
         &mut self,
         target: BuildTarget,
@@ -406,6 +413,7 @@ impl<'a> BuildPlanLowerContext<'a> {
         }
     }
 
+    #[instrument(level = Level::DEBUG, skip(self, info))]
     pub(super) fn lower_gen_test_driver(
         &mut self,
         _node: BuildPlanNode,
@@ -450,6 +458,7 @@ impl<'a> BuildPlanLowerContext<'a> {
         }
     }
 
+    #[instrument(level = Level::DEBUG, skip(self))]
     pub(super) fn lower_bundle(
         &mut self,
         node: BuildPlanNode,
@@ -480,6 +489,7 @@ impl<'a> BuildPlanLowerContext<'a> {
         }
     }
 
+    #[instrument(level = Level::DEBUG, skip(self))]
     pub(super) fn lower_compile_runtime(&mut self) -> BuildCommand {
         let artifact_path = self
             .layout
@@ -512,6 +522,7 @@ impl<'a> BuildPlanLowerContext<'a> {
         }
     }
 
+    #[instrument(level = Level::DEBUG, skip(self))]
     pub(super) fn lower_generate_mbti(&mut self, target: BuildTarget) -> BuildCommand {
         let input = self
             .layout
@@ -531,6 +542,7 @@ impl<'a> BuildPlanLowerContext<'a> {
         }
     }
 
+    #[instrument(level = Level::DEBUG, skip(self))]
     pub(super) fn lower_build_docs(&self) -> BuildCommand {
         // TODO: How to enforce the `packages.json` dependency is generated
         // up-to-date before the command is executed?
@@ -568,6 +580,7 @@ impl<'a> BuildPlanLowerContext<'a> {
         }
     }
 
+    #[instrument(level = Level::DEBUG, skip(self))]
     pub(super) fn mi_inputs_of(
         &self,
         _node: BuildPlanNode,

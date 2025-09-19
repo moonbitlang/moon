@@ -23,6 +23,7 @@ use std::path::PathBuf;
 use log::debug;
 use moonutil::{common::TargetBackend, cond_expr::OptLevel, mooncakes::result::ResolvedEnv};
 use n2::graph::{Build, Graph as N2Graph};
+use tracing::{instrument, Level};
 
 use crate::{
     build_lower::{
@@ -84,6 +85,7 @@ impl<'a> BuildPlanLowerContext<'a> {
         self.packages.get_package(target.package)
     }
 
+    #[instrument(level = Level::DEBUG, skip(self))]
     pub(super) fn lower_node(&mut self, node: BuildPlanNode) -> Result<(), LoweringError> {
         if self.is_node_noop(node) {
             return Ok(());
@@ -187,6 +189,7 @@ impl<'a> BuildPlanLowerContext<'a> {
     }
 
     /// Append the output artifacts of the given node to the provided vector.
+    #[instrument(level = Level::DEBUG, skip(self, out))]
     pub(super) fn append_artifact_of(&self, node: BuildPlanNode, out: &mut Vec<PathBuf>) {
         match node {
             BuildPlanNode::Check(target) => {
@@ -291,6 +294,7 @@ impl<'a> BuildPlanLowerContext<'a> {
         Ok(())
     }
 
+    #[instrument(level = Level::DEBUG, skip(self, common))]
     pub(super) fn set_commons(&self, common: &mut compiler::BuildCommonArgs) {
         common.stdlib_core_file = self
             .opt
@@ -304,6 +308,7 @@ impl<'a> BuildPlanLowerContext<'a> {
         };
     }
 
+    #[instrument(level = Level::DEBUG, skip(self, flags))]
     pub(super) fn set_flags(&self, flags: &mut compiler::CompilationFlags) {
         flags.no_opt = self.opt.opt_level == OptLevel::Debug;
         flags.symbols = self.opt.debug_symbols;

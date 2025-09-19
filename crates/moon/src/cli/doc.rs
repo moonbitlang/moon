@@ -27,6 +27,7 @@ use moonutil::common::{
 use moonutil::dirs::{mk_arch_mode_dir, PackageDirs};
 use moonutil::mooncakes::sync::AutoSyncFlags;
 use moonutil::mooncakes::RegistryConfig;
+use tracing::instrument;
 
 use super::pre_build::scan_with_x_build;
 use super::UniversalFlags;
@@ -53,6 +54,7 @@ pub struct DocSubcommand {
     pub auto_sync_flags: AutoSyncFlags,
 }
 
+#[instrument(skip_all)]
 pub fn run_doc(cli: UniversalFlags, cmd: DocSubcommand) -> anyhow::Result<i32> {
     if cli.unstable_feature.rupes_recta {
         run_doc_rr(cli, cmd)
@@ -61,6 +63,7 @@ pub fn run_doc(cli: UniversalFlags, cmd: DocSubcommand) -> anyhow::Result<i32> {
     }
 }
 
+#[instrument(skip_all)]
 pub fn run_doc_rr(cli: UniversalFlags, cmd: DocSubcommand) -> anyhow::Result<i32> {
     let dir = cli.source_tgt_dir.try_into_package_dirs()?;
     let source_dir = dir.source_dir;
@@ -131,6 +134,7 @@ pub fn run_doc_rr(cli: UniversalFlags, cmd: DocSubcommand) -> anyhow::Result<i32
     Ok(0)
 }
 
+#[instrument(skip_all)]
 pub fn run_doc_legacy(cli: UniversalFlags, cmd: DocSubcommand) -> anyhow::Result<i32> {
     let PackageDirs {
         source_dir,

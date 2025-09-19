@@ -19,6 +19,7 @@
 use anyhow::Context;
 use moonutil::{common::lower_surface_targets, dirs::PackageDirs, mooncakes::sync::AutoSyncFlags};
 use std::path::Path;
+use tracing::{instrument, Level};
 
 use super::{BuildFlags, UniversalFlags};
 
@@ -52,6 +53,7 @@ pub struct BenchSubcommand {
     pub no_parallelize: bool,
 }
 
+#[instrument(skip_all)]
 pub fn run_bench(cli: UniversalFlags, cmd: BenchSubcommand) -> anyhow::Result<i32> {
     let PackageDirs {
         source_dir,
@@ -76,6 +78,7 @@ pub fn run_bench(cli: UniversalFlags, cmd: BenchSubcommand) -> anyhow::Result<i3
     Ok(ret_value)
 }
 
+#[instrument(level = Level::DEBUG, skip_all)]
 fn run_bench_internal(
     cli: &UniversalFlags,
     cmd: &BenchSubcommand,
