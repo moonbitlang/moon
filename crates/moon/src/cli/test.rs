@@ -55,7 +55,7 @@ use tracing::{instrument, Level};
 use crate::cli::pre_build::scan_with_x_build;
 use crate::rr_build;
 use crate::rr_build::preconfig_compile;
-use crate::rr_build::BuildConfig;
+use crate::rr_build::{BuildConfig, CalcUserIntentOutput};
 use crate::run::perform_promotion;
 use crate::run::TestFilter;
 use crate::run::TestIndex;
@@ -823,7 +823,7 @@ fn calc_user_intent(
     main_modules: &[moonutil::mooncakes::ModuleId],
     cmd: &TestLikeSubcommand<'_>,
     out_filter: &mut TestFilter,
-) -> Result<Vec<BuildPlanNode>, anyhow::Error> {
+) -> Result<CalcUserIntentOutput, anyhow::Error> {
     let &[main_module_id] = main_modules else {
         panic!("No multiple main modules are supported");
     };
@@ -856,14 +856,21 @@ fn calc_user_intent(
                     .map(move |t| x.build_target(t))
             })
             .flat_map(node_from_target)
-            .collect());
+            .collect::<Vec<_>>()
+            .into());
     };
 
     // Generate the required nodes to out final build targets
     if let Some(filt) = out_filter.filter.as_ref() {
-        Ok(filt.0.keys().copied().flat_map(node_from_target).collect())
+        Ok(filt
+            .0
+            .keys()
+            .copied()
+            .flat_map(node_from_target)
+            .collect::<Vec<_>>()
+            .into())
     } else {
-        Ok(vec![])
+        Ok(vec![].into())
     }
 }
 

@@ -45,6 +45,7 @@ use tracing::{instrument, Level};
 use crate::rr_build;
 use crate::rr_build::preconfig_compile;
 use crate::rr_build::BuildConfig;
+use crate::rr_build::CalcUserIntentOutput;
 
 use super::pre_build::scan_with_x_build;
 use super::{BuildFlags, UniversalFlags};
@@ -278,7 +279,7 @@ fn run_build_internal_legacy(
 fn calc_user_intent(
     resolve_output: &moonbuild_rupes_recta::ResolveOutput,
     main_modules: &[moonutil::mooncakes::ModuleId],
-) -> Result<Vec<BuildPlanNode>, anyhow::Error> {
+) -> Result<CalcUserIntentOutput, anyhow::Error> {
     let &[main_module_id] = main_modules else {
         panic!("No multiple main modules are supported");
     };
@@ -294,7 +295,7 @@ fn calc_user_intent(
             linkable_pkgs.push(pkg_id)
         }
     }
-    let nodes = if linkable_pkgs.is_empty() {
+    let nodes: Vec<_> = if linkable_pkgs.is_empty() {
         packages
             .iter()
             .map(|(_, &pkg_id)| BuildPlanNode::build_core(pkg_id.build_target(TargetKind::Source)))
@@ -305,5 +306,5 @@ fn calc_user_intent(
             .map(|pkg_id| BuildPlanNode::make_executable(pkg_id.build_target(TargetKind::Source)))
             .collect()
     };
-    Ok(nodes)
+    Ok(nodes.into())
 }

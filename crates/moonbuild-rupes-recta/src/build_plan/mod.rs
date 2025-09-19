@@ -259,6 +259,7 @@ pub struct BuildEnvironment {
 }
 
 /// Directives provided along the input actions.
+#[derive(Debug, Default)]
 pub struct InputDirective {
     /// Set `no_mi=true` for the given package.
     pub specify_no_mi_for: Option<PackageId>,
