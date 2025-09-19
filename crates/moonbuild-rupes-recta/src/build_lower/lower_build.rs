@@ -37,7 +37,7 @@ use crate::{
     build_lower::{
         artifact,
         compiler::{
-            BuildCommonDefaults, BuildCommonRequired, CmdlineAbstraction, ErrorFormat, JsConfig,
+            BuildCommonConfig, BuildCommonInput, CmdlineAbstraction, ErrorFormat, JsConfig,
             MiDependency, PackageSource, WasmConfig,
         },
     },
@@ -75,7 +75,7 @@ impl<'a> BuildPlanLowerContext<'a> {
         pkg: &DiscoveredPackage,
         info: &'a BuildTargetInfo,
         is_main: bool,
-    ) -> BuildCommonDefaults<'a> {
+    ) -> BuildCommonConfig<'a> {
         // Standard library settings
         let stdlib_core_file = self
             .opt
@@ -124,10 +124,10 @@ impl<'a> BuildPlanLowerContext<'a> {
 
         // Patch and mi config
         let patch_file = info.patch_file.as_deref().map(|x| x.into());
-        let base_no_mi = BuildCommonDefaults::default().no_mi;
+        let base_no_mi = BuildCommonConfig::default().no_mi;
         let no_mi = base_no_mi || target.kind.is_test() || info.specified_no_mi;
 
-        BuildCommonDefaults {
+        BuildCommonConfig {
             stdlib_core_file,
             error_format,
             deny_warn,
@@ -175,7 +175,7 @@ impl<'a> BuildPlanLowerContext<'a> {
         };
 
         let cmd = compiler::MooncCheck {
-            required: BuildCommonRequired::new(
+            required: BuildCommonInput::new(
                 &files_vec,
                 &info.doctest_files,
                 &mi_inputs,
@@ -238,7 +238,7 @@ impl<'a> BuildPlanLowerContext<'a> {
         };
 
         let mut cmd = compiler::MooncBuildPackage {
-            required: BuildCommonRequired::new(
+            required: BuildCommonInput::new(
                 &files,
                 &info.doctest_files,
                 &mi_inputs,

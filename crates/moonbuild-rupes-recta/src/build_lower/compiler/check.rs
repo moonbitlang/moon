@@ -21,7 +21,7 @@
 use std::borrow::Cow;
 use std::path::Path;
 
-use crate::build_lower::compiler::{BuildCommonDefaults, BuildCommonRequired, CmdlineAbstraction};
+use crate::build_lower::compiler::{BuildCommonConfig, BuildCommonInput, CmdlineAbstraction};
 
 /// Abstraction for `moonc check`.
 ///
@@ -33,8 +33,8 @@ use crate::build_lower::compiler::{BuildCommonDefaults, BuildCommonRequired, Cmd
 #[derive(Debug)]
 pub struct MooncCheck<'a> {
     // Common arguments
-    pub required: BuildCommonRequired<'a>,
-    pub defaults: BuildCommonDefaults<'a>,
+    pub required: BuildCommonInput<'a>,
+    pub defaults: BuildCommonConfig<'a>,
     pub mi_out: Cow<'a, Path>,
 
     pub is_third_party: bool,

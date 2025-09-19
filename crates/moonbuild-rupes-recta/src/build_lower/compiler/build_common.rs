@@ -31,7 +31,7 @@ use crate::model::TargetKind;
 
 /// Required (non-default) fields shared between different build-like commands of `moonc`
 #[derive(Debug)]
-pub struct BuildCommonRequired<'a> {
+pub struct BuildCommonInput<'a> {
     /// Regular input files, including sources and mbt.md files
     pub mbt_sources: &'a [PathBuf],
     /// Sources that only needs doctest extraction
@@ -50,7 +50,7 @@ pub struct BuildCommonRequired<'a> {
     pub target_kind: TargetKind,
 }
 
-impl<'a> BuildCommonRequired<'a> {
+impl<'a> BuildCommonInput<'a> {
     /// Construct the required part from its required params
     pub fn new(
         mbt_sources: &'a [PathBuf],
@@ -151,7 +151,7 @@ impl<'a> BuildCommonRequired<'a> {
 
 /// Defaultable fields shared between different build-like commands of `moonc`
 #[derive(Debug)]
-pub struct BuildCommonDefaults<'a> {
+pub struct BuildCommonConfig<'a> {
     // Basic command structure
     pub error_format: ErrorFormat,
 
@@ -183,7 +183,7 @@ pub struct BuildCommonDefaults<'a> {
     pub no_mi: bool,
 }
 
-impl<'a> Default for BuildCommonDefaults<'a> {
+impl<'a> Default for BuildCommonConfig<'a> {
     fn default() -> Self {
         Self {
             error_format: ErrorFormat::Regular,
@@ -201,7 +201,7 @@ impl<'a> Default for BuildCommonDefaults<'a> {
     }
 }
 
-impl<'a> BuildCommonDefaults<'a> {
+impl<'a> BuildCommonConfig<'a> {
     /// Add error format arguments
     pub fn add_error_format(&self, args: &mut Vec<String>) {
         if matches!(self.error_format, ErrorFormat::Json) {
