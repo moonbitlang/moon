@@ -39,12 +39,15 @@ use moonbuild::entry::{
 };
 use moonbuild_rupes_recta::{
     build_plan::InputDirective,
-    model::{Artifacts, BuildPlanNode},
+    model::{Artifacts, BuildPlanNode, PackageId, TargetKind},
     CompileConfig, ResolveConfig, ResolveOutput,
 };
 use moonutil::{
     cli::UniversalFlags,
-    common::{DiagnosticLevel, RunMode, TargetBackend, MOONBITLANG_CORE},
+    common::{
+        DiagnosticLevel, RunMode, TargetBackend, BLACKBOX_TEST_PATCH, MOONBITLANG_CORE,
+        WHITEBOX_TEST_PATCH,
+    },
     cond_expr::OptLevel,
     features::FeatureGate,
     mooncakes::{sync::AutoSyncFlags, ModuleId},
@@ -87,6 +90,34 @@ impl From<(Vec<BuildPlanNode>, InputDirective)> for CalcUserIntentOutput {
     fn from((intent, directive): (Vec<BuildPlanNode>, InputDirective)) -> Self {
         Self { intent, directive }
     }
+}
+
+/// Convenient function to build a directive based on input kind
+pub fn build_patch_directive_for_package(
+    pkg: PackageId,
+    no_mi: bool,
+    patch_file: Option<&Path>,
+) -> anyhow::Result<InputDirective> {
+    let patch_directive = if let Some(path) = patch_file {
+        let path_str = path
+            .to_str()
+            .ok_or_else(|| anyhow::anyhow!("patch file path is not valid utf-8"))?;
+        let kind = if path_str.ends_with(WHITEBOX_TEST_PATCH) {
+            TargetKind::WhiteboxTest
+        } else if path_str.ends_with(BLACKBOX_TEST_PATCH) {
+            TargetKind::BlackboxTest
+        } else {
+            TargetKind::Source
+        };
+        Some((pkg.build_target(kind), path.to_path_buf()))
+    } else {
+        None
+    };
+
+    Ok(InputDirective {
+        specify_no_mi_for: no_mi.then_some(pkg),
+        specify_patch_file: patch_directive,
+    })
 }
 
 /// Build metadata containing information needed for build context and results.

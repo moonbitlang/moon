@@ -264,6 +264,9 @@ pub struct InputDirective {
     /// Set `no_mi=true` for the given package.
     pub specify_no_mi_for: Option<PackageId>,
     /// Set the given patch file for the given package.
+    ///
+    /// MAINTAINERS: A target with `TargetKind::InlineTest` will look for
+    /// the patch file in `TargetKind::Source` too.
     pub specify_patch_file: Option<(BuildTarget, PathBuf)>,
 }
 
