@@ -242,14 +242,22 @@ impl<'a> BuildPlanConstructor<'a> {
             self.build_env.alert_list.as_deref(),
         );
 
+        let specified_no_mi = self.input_directive.specify_no_mi_for == Some(target.package);
+        let patch_file = self
+            .input_directive
+            .specify_patch_file
+            .as_ref()
+            .filter(|(specify_target, _)| specify_target == &target)
+            .map(|(_, path)| path.clone());
+
         BuildTargetInfo {
             regular_files: regular_files.into_iter().collect(),
             whitebox_files: whitebox_files.into_iter().collect(),
             doctest_files: doctest_files.into_iter().collect(),
             warn_list,
             alert_list,
-            specified_no_mi: todo!(),
-            patch_file: todo!(),
+            specified_no_mi,
+            patch_file,
         }
     }
 
