@@ -71,7 +71,6 @@ impl<'a> BuildPlanLowerContext<'a> {
 
     fn set_build_commons<'c>(
         &self,
-        target: BuildTarget,
         pkg: &DiscoveredPackage,
         info: &'c BuildTargetInfo,
         is_main: bool,
@@ -114,8 +113,7 @@ impl<'a> BuildPlanLowerContext<'a> {
 
         // Patch and mi config
         let patch_file = info.patch_file.as_deref().map(|x| x.into());
-        let base_no_mi = BuildCommonConfig::default().no_mi;
-        let no_mi = base_no_mi || target.kind.is_test() || info.specified_no_mi;
+        let no_mi = info.specified_no_mi;
 
         BuildCommonConfig {
             stdlib_core_file,
@@ -173,7 +171,7 @@ impl<'a> BuildPlanLowerContext<'a> {
                 self.opt.target_backend,
                 target.kind,
             ),
-            defaults: self.set_build_commons(target, package, info, is_main),
+            defaults: self.set_build_commons(package, info, is_main),
             mi_out: mi_output.into(),
             is_third_party: false,
             single_file: false,
@@ -236,7 +234,7 @@ impl<'a> BuildPlanLowerContext<'a> {
                 self.opt.target_backend,
                 target.kind,
             ),
-            defaults: self.set_build_commons(target, package, info, is_main),
+            defaults: self.set_build_commons(package, info, is_main),
             core_out: core_output.into(),
             mi_out: mi_output.into(),
             flags: self.set_flags(),
@@ -244,6 +242,7 @@ impl<'a> BuildPlanLowerContext<'a> {
         };
         // Propagate debug/coverage flags and common settings
         cmd.flags.enable_coverage = self.opt.enable_coverage;
+        cmd.defaults.no_mi |= target.kind.is_test();
 
         // TODO: a lot of knobs are not controlled here
 
