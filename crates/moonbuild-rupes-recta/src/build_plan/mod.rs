@@ -258,6 +258,14 @@ pub struct BuildEnvironment {
     // Can have more, e.g. cross compile
 }
 
+/// Directives provided along the input actions.
+pub struct InputDirective {
+    /// Set `no_mi=true` for the given package.
+    pub specify_no_mi_for: Option<PackageId>,
+    /// Set the given patch file for the given package.
+    pub specify_patch_file: Option<(BuildTarget, PathBuf)>,
+}
+
 /// Represents errors that may occur during build graph construction.
 ///
 /// TODO: Will we even meet errors during build graph construction?
@@ -283,6 +291,7 @@ pub fn build_plan(
     resolved: &ResolveOutput,
     build_env: &BuildEnvironment,
     input: impl Iterator<Item = BuildPlanNode>,
+    input_directive: &InputDirective,
 ) -> Result<BuildPlan, BuildPlanConstructError> {
     info!("Constructing build plan");
     debug!(
@@ -290,7 +299,7 @@ pub fn build_plan(
         build_env.target_backend, build_env.opt_level
     );
 
-    let mut constructor = BuildPlanConstructor::new(resolved, build_env);
+    let mut constructor = BuildPlanConstructor::new(resolved, build_env, input_directive);
     constructor.build(input)?;
     let result = constructor.finish();
 

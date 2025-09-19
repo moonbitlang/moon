@@ -23,6 +23,7 @@ use std::collections::HashSet;
 use log::debug;
 
 use crate::{
+    build_plan::InputDirective,
     model::{BuildPlanNode, BuildTarget, TargetKind},
     ResolveOutput,
 };
@@ -36,6 +37,7 @@ pub(super) struct BuildPlanConstructor<'a> {
     // Input environment
     pub(super) input: &'a ResolveOutput,
     pub(super) build_env: &'a BuildEnvironment,
+    pub(super) input_directive: &'a InputDirective,
 
     /// The resulting build plan
     pub(super) res: BuildPlan,
@@ -46,10 +48,16 @@ pub(super) struct BuildPlanConstructor<'a> {
 }
 
 impl<'a> BuildPlanConstructor<'a> {
-    pub(super) fn new(resolved: &'a ResolveOutput, build_env: &'a BuildEnvironment) -> Self {
+    pub(super) fn new(
+        resolved: &'a ResolveOutput,
+        build_env: &'a BuildEnvironment,
+        input_directive: &'a InputDirective,
+    ) -> Self {
         Self {
             input: resolved,
             build_env,
+            input_directive,
+
             res: BuildPlan::default(),
             pending: Vec::new(),
             resolved: HashSet::new(),
