@@ -72,9 +72,18 @@ pub use dry_run::{dry_print_command, print_dry_run, print_dry_run_all};
 pub type CalcUserIntentFn<'b> = dyn for<'a> FnOnce(&'a ResolveOutput, &'a [ModuleId]) -> anyhow::Result<CalcUserIntentOutput>
     + 'b;
 
+/// The output of a calculate user intent operation.
 pub struct CalcUserIntentOutput {
+    /// The list of build plan nodes that the user would like to build.
     pub intent: Vec<BuildPlanNode>,
+    /// The input directive that the user wants to apply to the packages
     pub directive: InputDirective,
+}
+
+impl CalcUserIntentOutput {
+    pub fn new(intent: Vec<BuildPlanNode>, directive: InputDirective) -> Self {
+        Self { intent, directive }
+    }
 }
 
 impl From<Vec<BuildPlanNode>> for CalcUserIntentOutput {
