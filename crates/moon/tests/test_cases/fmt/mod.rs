@@ -52,8 +52,7 @@ fn test_moon_fmt() {
             fn __test_formatter() -> Unit {
               println("hell world")
             }
-            ```
-        "#]],
+            ```"#]],
     );
 }
 
