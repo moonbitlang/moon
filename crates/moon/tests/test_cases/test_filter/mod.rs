@@ -176,6 +176,41 @@ fn test_moon_test_filter_multi_package() {
         "#]],
     );
 }
+
+#[test]
+fn test_moon_test_filter_package_with_singlefile() {
+    let dir = TestDir::new("test_filter/test_filter");
+
+    check(
+        get_stdout(&dir, ["test", "A/hello.mbt"]),
+        expect![[r#"
+            test A
+            test B
+            Total tests: 2, passed: 2, failed: 0.
+        "#]],
+    );
+
+    check(
+        get_stdout(&dir, ["test", "A/hello_wbtest.mbt"]),
+        expect![[r#"
+            test hello_0
+            test hello_1
+            test hello_2
+            Total tests: 3, passed: 3, failed: 0.
+        "#]],
+    );
+
+    check(
+        get_stdout(&dir.join("A"), ["test", "hello_wbtest.mbt"]),
+        expect![[r#"
+            test hello_0
+            test hello_1
+            test hello_2
+            Total tests: 3, passed: 3, failed: 0.
+        "#]],
+    );
+}
+
 #[test]
 fn test_moon_test_filter_package_with_deps() {
     let dir = TestDir::new("test_filter/pkg_with_deps");
