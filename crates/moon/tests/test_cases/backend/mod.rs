@@ -60,13 +60,13 @@ fn test_js_format() {
             ],
         ),
         expect![[r#"
-            moonc build-package ./lib3/hello.mbt -o ./target/js/release/build/lib3/lib3.core -pkg username/hello/lib3 -pkg-sources username/hello/lib3:./lib3 -target js
+            moonc build-package ./lib3/hello.mbt -o ./target/js/release/build/lib3/lib3.core -pkg username/hello/lib3 -pkg-sources username/hello/lib3:./lib3 -target js -workspace-path .
             moonc link-core ./target/js/release/build/lib3/lib3.core -main username/hello/lib3 -o ./target/js/release/build/lib3/lib3.js -pkg-config-path ./lib3/moon.pkg.json -pkg-sources username/hello/lib3:./lib3 -target js -exported_functions=hello -js-format iife
-            moonc build-package ./lib2/hello.mbt -o ./target/js/release/build/lib2/lib2.core -pkg username/hello/lib2 -pkg-sources username/hello/lib2:./lib2 -target js
+            moonc build-package ./lib2/hello.mbt -o ./target/js/release/build/lib2/lib2.core -pkg username/hello/lib2 -pkg-sources username/hello/lib2:./lib2 -target js -workspace-path .
             moonc link-core ./target/js/release/build/lib2/lib2.core -main username/hello/lib2 -o ./target/js/release/build/lib2/lib2.js -pkg-config-path ./lib2/moon.pkg.json -pkg-sources username/hello/lib2:./lib2 -target js -exported_functions=hello -js-format cjs
-            moonc build-package ./lib1/hello.mbt -o ./target/js/release/build/lib1/lib1.core -pkg username/hello/lib1 -pkg-sources username/hello/lib1:./lib1 -target js
+            moonc build-package ./lib1/hello.mbt -o ./target/js/release/build/lib1/lib1.core -pkg username/hello/lib1 -pkg-sources username/hello/lib1:./lib1 -target js -workspace-path .
             moonc link-core ./target/js/release/build/lib1/lib1.core -main username/hello/lib1 -o ./target/js/release/build/lib1/lib1.js -pkg-config-path ./lib1/moon.pkg.json -pkg-sources username/hello/lib1:./lib1 -target js -exported_functions=hello -js-format esm
-            moonc build-package ./lib0/hello.mbt -o ./target/js/release/build/lib0/lib0.core -pkg username/hello/lib0 -pkg-sources username/hello/lib0:./lib0 -target js
+            moonc build-package ./lib0/hello.mbt -o ./target/js/release/build/lib0/lib0.core -pkg username/hello/lib0 -pkg-sources username/hello/lib0:./lib0 -target js -workspace-path .
             moonc link-core ./target/js/release/build/lib0/lib0.core -main username/hello/lib0 -o ./target/js/release/build/lib0/lib0.js -pkg-config-path ./lib0/moon.pkg.json -pkg-sources username/hello/lib0:./lib0 -target js -exported_functions=hello -js-format esm
         "#]],
     );
