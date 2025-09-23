@@ -216,7 +216,7 @@ Test the current package
 
 ###### **Arguments:**
 
-* `<SINGLE_FILE>` — Run test in single file (.mbt or .mbt.md)
+* `<SINGLE_FILE>` — Run test in single file (.mbt or .mbt.md). If in a project, runs only this file (equivalent to `-p` + `-f`); otherwise, runs in a temporary project
 
 ###### **Options:**
 
