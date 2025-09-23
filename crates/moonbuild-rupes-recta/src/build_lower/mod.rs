@@ -26,16 +26,15 @@ use moonutil::{
     common::{RunMode, TargetBackend},
     compiler_flags::CompilerPaths,
     cond_expr::OptLevel,
-    mooncakes::{result::ResolvedEnv, ModuleSource},
+    mooncakes::ModuleSource,
 };
 use n2::graph::Graph as N2Graph;
 
 use crate::{
     build_plan::BuildPlan,
-    discover::DiscoverResult,
     model::{Artifacts, BuildPlanNode, OperatingSystem},
     pkg_name::OptionalPackageFQNWithSource,
-    pkg_solve::DepRelationship,
+    ResolveOutput,
 };
 
 pub mod artifact;
@@ -111,9 +110,7 @@ struct BuildCommand {
 
 /// Lowers a [`BuildPlan`] into a n2 [Build Graph](n2::graph::Graph).
 pub fn lower_build_plan(
-    modules: &ResolvedEnv,
-    packages: &DiscoverResult,
-    rel: &DepRelationship,
+    resolve_output: &ResolveOutput,
     build_plan: &BuildPlan,
     opt: &BuildOptions,
 ) -> Result<LoweringResult, LoweringError> {
@@ -131,7 +128,7 @@ pub fn lower_build_plan(
         .build()
         .expect("Failed to build legacy layout");
 
-    let mut ctx = BuildPlanLowerContext::new(layout, rel, modules, packages, build_plan, opt);
+    let mut ctx = BuildPlanLowerContext::new(layout, resolve_output, build_plan, opt);
 
     for node in build_plan.all_nodes() {
         debug!("Lowering build node: {:?}", node);

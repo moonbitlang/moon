@@ -38,6 +38,7 @@ use crate::{
         compiler::{CmdlineAbstraction, MiDependency, MoondocCommand, Mooninfo, PackageSource},
     },
     build_plan::{BuildCStubsInfo, BuildTargetInfo, LinkCoreInfo, MakeExecutableInfo},
+    discover::DiscoveredPackage,
     model::{BuildPlanNode, BuildTarget, PackageId, TargetKind},
     pkg_name::{PackageFQN, PackagePath},
 };
@@ -71,6 +72,9 @@ impl<'a> BuildPlanLowerContext<'a> {
         );
         self.set_commons(&mut cmd.common);
 
+        // workspace root
+        cmd.common.workspace_root = Some(self.get_workspace_root_of(package));
+
         // Determine whether the checked package is a main package.
         //
         // Black box tests does not include the source files of the original
@@ -91,6 +95,21 @@ impl<'a> BuildPlanLowerContext<'a> {
             extra_inputs: files_vec.clone(),
             commandline: cmd.build_command("moonc"),
         }
+    }
+
+    fn get_workspace_root_of(
+        &self,
+        package: &DiscoveredPackage,
+    ) -> std::borrow::Cow<'_, std::path::Path> {
+        self.module_dirs
+            .get(package.module)
+            .unwrap_or_else(|| {
+                panic!(
+                    "Can't find module directory for {}, this is a bug",
+                    package.fqn
+                )
+            })
+            .into()
     }
 
     pub(super) fn lower_build_mbt(
@@ -136,6 +155,9 @@ impl<'a> BuildPlanLowerContext<'a> {
         cmd.flags.enable_coverage = self.opt.enable_coverage;
         self.set_commons(&mut cmd.common);
         self.set_flags(&mut cmd.flags);
+
+        // workspace root
+        cmd.common.workspace_root = Some(self.get_workspace_root_of(package));
 
         // Determine whether the built package is a main package.
         //

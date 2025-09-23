@@ -167,6 +167,9 @@ impl<'a> MooncBuildPackage<'a> {
         self.common.add_virtual_package_implementation_build(args);
 
         self.common.add_test_mode_args(args);
+
+        // Workspace root
+        self.common.add_workspace_root(args);
     }
 }
 

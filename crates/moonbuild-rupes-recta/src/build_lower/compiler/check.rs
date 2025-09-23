@@ -169,6 +169,9 @@ impl<'a> MooncCheck<'a> {
 
         // Virtual package implementation
         self.common.add_virtual_package_implementation_check(args);
+
+        // Workspace root
+        self.common.add_workspace_root(args);
     }
 }
 

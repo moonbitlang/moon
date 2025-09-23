@@ -53,6 +53,8 @@ pub struct BuildCommonArgs<'a> {
     // Standard library
     /// Pass [None] for no_std
     pub stdlib_core_file: Option<Cow<'a, Path>>,
+    /// Module directory (parent of moon.mod.json)
+    pub workspace_root: Option<Cow<'a, Path>>,
 
     // Target configuration
     pub target_backend: TargetBackend,
@@ -84,6 +86,7 @@ impl<'a> BuildCommonArgs<'a> {
             package_source: package_source.into(),
             is_main: false,
             stdlib_core_file: None,
+            workspace_root: None,
             target_backend,
             target_kind,
             check_mi: None,
@@ -242,6 +245,16 @@ impl<'a> BuildCommonArgs<'a> {
                     impl_virtual.package_path.display()
                 ),
             ]);
+        }
+    }
+
+    /// Add workspace root flag (module directory)
+    pub fn add_workspace_root(&self, args: &mut Vec<String>) {
+        // Note: -workspace-path is not supported for link-core yet. Builders that
+        // emit link-core must not include it. The specific builders decide whether
+        // to add this flag; this common helper is only used by check/build-package.
+        if let Some(ws) = &self.workspace_root {
+            args.extend(["-workspace-path".to_string(), ws.display().to_string()]);
         }
     }
 }
