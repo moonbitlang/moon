@@ -16,6 +16,7 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
+use anyhow::anyhow;
 use anyhow::bail;
 use anyhow::Context;
 use colored::Colorize;
@@ -141,28 +142,27 @@ pub struct TestSubcommand {
     #[clap(long = "doc")]
     pub doc_test: bool,
 
-    /// Run test in single file (.mbt or .mbt.md)
+    /// Run test in single file (.mbt or .mbt.md). If in a project, runs only
+    /// this file (equivalent to `-p` + `-f`); otherwise, runs in a temporary project.
+    #[clap(conflicts_with_all = ["file", "package"])]
     pub single_file: Option<PathBuf>,
 }
 
 pub fn run_test(cli: UniversalFlags, cmd: TestSubcommand) -> anyhow::Result<i32> {
-    let (source_dir, target_dir) = if let Some(ref single_file_path) = cmd.single_file {
-        let single_file_path = &dunce::canonicalize(single_file_path).context(format!(
-            "failed to run tests for a nonexistent file '{}'",
-            single_file_path.display()
-        ))?;
-        let source_dir = single_file_path
-            .parent()
-            .context(format!(
-                "impossible to run tests for a non-file '{}'",
-                single_file_path.display(),
-            ))?
-            .to_path_buf();
-        let target_dir = source_dir.join("target");
-        (source_dir, target_dir)
-    } else {
-        let dir = cli.source_tgt_dir.try_into_package_dirs()?;
-        (dir.source_dir, dir.target_dir)
+    // Check if we're running within a project
+    let dirs = match cli.source_tgt_dir.try_into_package_dirs() {
+        Ok(dirs) => dirs,
+        Err(e @ moonutil::dirs::PackageDirsError::NotInProject(_)) => {
+            // Now we're talking about real single-file scenario.
+            if cmd.single_file.is_some() {
+                return run_test_in_single_file(&cli, &cmd);
+            } else {
+                return Err(e.into());
+            }
+        }
+        Err(e) => {
+            return Err(e.into());
+        }
     };
 
     if cmd.doc_test {
@@ -173,7 +173,7 @@ pub fn run_test(cli: UniversalFlags, cmd: TestSubcommand) -> anyhow::Result<i32>
     }
 
     let Some(surface_targets) = &cmd.build_flags.target else {
-        return run_test_internal(&cli, &cmd, &source_dir, &target_dir, None);
+        return run_test_internal(&cli, &cmd, &dirs.source_dir, &dirs.target_dir, None);
     };
     let targets = lower_surface_targets(surface_targets);
     if cmd.update && targets.len() > 1 {
@@ -185,8 +185,14 @@ pub fn run_test(cli: UniversalFlags, cmd: TestSubcommand) -> anyhow::Result<i32>
     for t in targets {
         let mut cmd = cmd.clone();
         cmd.build_flags.target_backend = Some(t);
-        let x = run_test_internal(&cli, &cmd, &source_dir, &target_dir, display_backend_hint)
-            .context(format!("failed to run test for target {t:?}"))?;
+        let x = run_test_internal(
+            &cli,
+            &cmd,
+            &dirs.source_dir,
+            &dirs.target_dir,
+            display_backend_hint,
+        )
+        .context(format!("failed to run test for target {t:?}"))?;
         ret_value = ret_value.max(x);
     }
     Ok(ret_value)
@@ -199,17 +205,13 @@ fn run_test_internal(
     target_dir: &Path,
     display_backend_hint: Option<()>,
 ) -> anyhow::Result<i32> {
-    if cmd.single_file.is_some() {
-        run_test_in_single_file(cli, cmd)
-    } else {
-        run_test_or_bench_internal(
-            cli,
-            cmd.into(),
-            source_dir,
-            target_dir,
-            display_backend_hint,
-        )
-    }
+    run_test_or_bench_internal(
+        cli,
+        cmd.into(),
+        source_dir,
+        target_dir,
+        display_backend_hint,
+    )
 }
 
 fn run_test_in_single_file(cli: &UniversalFlags, cmd: &TestSubcommand) -> anyhow::Result<i32> {
@@ -441,6 +443,13 @@ pub fn get_module_for_single_file(
 pub(crate) struct TestLikeSubcommand<'a> {
     pub run_mode: RunMode,
     pub build_flags: &'a BuildFlags,
+    /// An explicit file filter -- for when you write `moon test <file>` in a project.
+    ///
+    /// This should behave similar to `moon run <file>`. This should act like
+    /// both a package filter and file filter.
+    ///
+    /// FIXME: This is a reuse of the single-file input pattern. Will need a full overhaul.
+    pub explicit_file_filter: Option<&'a Path>,
     pub package: &'a Option<Vec<String>>,
     pub file: &'a Option<String>,
     pub index: &'a Option<u32>,
@@ -460,6 +469,7 @@ impl<'a> From<&'a TestSubcommand> for TestLikeSubcommand<'a> {
             run_mode: RunMode::Test,
             build_flags: &cmd.build_flags,
             package: &cmd.package,
+            explicit_file_filter: cmd.single_file.as_deref(),
             file: &cmd.file,
             index: &cmd.index,
             doc_index: &cmd.doc_index,
@@ -478,6 +488,7 @@ impl<'a> From<&'a BenchSubcommand> for TestLikeSubcommand<'a> {
         Self {
             run_mode: RunMode::Bench,
             build_flags: &cmd.build_flags,
+            explicit_file_filter: None,
             package: &cmd.package,
             file: &cmd.file,
             index: &cmd.index,
@@ -510,6 +521,9 @@ pub(crate) fn run_test_or_bench_internal(
     if cmd.file.is_none() && cmd.doc_index.is_some() {
         anyhow::bail!("`--doc-index` must be used with `--file`");
     }
+    if cmd.explicit_file_filter.is_some() && (cmd.package.is_some() || cmd.file.is_some()) {
+        anyhow::bail!("cannot filter package or files when testing a single file in a project");
+    }
 
     if cli.unstable_feature.rupes_recta {
         run_test_rr(cli, &cmd, source_dir, target_dir, display_backend_hint)
@@ -541,17 +555,7 @@ fn run_test_rr(
         source_dir,
         target_dir,
         Box::new(|resolved, main_modules| {
-            calc_user_intent(resolved, main_modules, |r, m| {
-                apply_package_filter(
-                    r,
-                    m,
-                    cmd.package.as_deref(),
-                    cmd.file.as_deref(),
-                    *cmd.index,
-                    *cmd.doc_index,
-                    &mut filter,
-                )
-            })
+            calc_user_intent(resolved, main_modules, cmd, &mut filter)
         }),
     )?;
 
@@ -682,37 +686,55 @@ fn node_from_target(x: BuildTarget) -> [BuildPlanNode; 2] {
     ]
 }
 
-/// Apply the package filter for the given package, file and index combination,
-/// sets the package filter, and returns the list of build plan nodes.
-///
-/// This function couples intent calculation and filter generation, because the
-/// both the test filter and user intent wants the same `BuildTarget` list, but
-/// the earliest time we can get them is during intent calculation. Since the
-/// fuzzy matching process is quite complex, we would avoid doing it twice.
-fn apply_package_filter(
+/// Apply the explicit file filter, which acts like both a package and file filter.
+fn apply_explicit_file_filter(
+    resolve_output: &moonbuild_rupes_recta::ResolveOutput,
+    out_filter: &mut TestFilter,
+    file_filter: &Path,
+) -> Result<(), anyhow::Error> {
+    let file = dunce::canonicalize(file_filter).with_context(|| {
+        format!(
+            "failed to canonicalize the specified file path: {}",
+            file_filter.display()
+        )
+    })?;
+    let dir = file.parent().ok_or_else(|| {
+        anyhow!(
+            "invalid file path specified, doesn't have a parent: {}",
+            file_filter.display()
+        )
+    })?;
+    let filename = file.file_name().ok_or_else(|| {
+        anyhow!(
+            "invalid file path specified, doesn't have a filename: {}",
+            file_filter.display()
+        )
+    })?;
+    let pkg = resolve_output
+        .pkg_dirs
+        .all_packages()
+        .find(|x| x.1.root_path == dir);
+    let Some((id, _pkg)) = pkg else {
+        bail!(
+            "cannot find the containing package for the specified file: {}",
+            file_filter.display()
+        );
+    };
+    let filename = filename.to_string_lossy();
+    out_filter.add_autodetermine_target(id, Some(&filename), None);
+    Ok(())
+}
+
+/// Apply the hierarchy of filters of packages, file and index
+fn apply_list_of_filters(
     affected_packages: impl Iterator<Item = PackageId>,
     resolve_output: &moonbuild_rupes_recta::ResolveOutput,
-
-    package_filter: Option<&[String]>,
+    package_filter: &[String],
     file_filter: Option<&str>,
     index_filter: Option<u32>,
     doc_index_filter: Option<u32>,
-
     out_filter: &mut TestFilter,
-) -> anyhow::Result<Vec<BuildPlanNode>> {
-    // No filter, return all packages and all targets
-    let Some(package_filter) = package_filter else {
-        return Ok(affected_packages
-            .flat_map(move |x| {
-                TargetKind::all_tests()
-                    .iter()
-                    .copied()
-                    .map(move |t| x.build_target(t))
-            })
-            .flat_map(node_from_target)
-            .collect());
-    };
-
+) -> Result<(), anyhow::Error> {
     // We deliberately didn't allow a string to be parsed into a package
     // name, because different package may have a same name. However, in a
     // module the package name should be unique, so we can make a map here.
@@ -775,29 +797,24 @@ fn apply_package_filter(
     } else {
         // No package matched
         warn!("no package found matching the given filters");
-        return Ok(vec![]);
     }
-
-    // Generate the required nodes to out final build targets
-    let filt = out_filter
-        .filter
-        .as_ref()
-        .expect("filter should be set when packages are matched");
-    Ok(filt.0.keys().copied().flat_map(node_from_target).collect())
+    Ok(())
 }
 
 /// Calculate the user intent for the build system to construct.
 ///
-/// `cb` is used to reduce the number of params needed to pass in. It is the
-/// same as [`apply_package_filter`].
+/// Applies the package filter for the given package, file and index combination,
+/// sets the package filter, and returns the list of build plan nodes.
+///
+/// This function couples intent calculation and filter generation, because the
+/// both the test filter and user intent wants the same `BuildTarget` list, but
+/// the earliest time we can get them is during intent calculation. Since the
+/// fuzzy matching process is quite complex, we would avoid doing it twice.
 fn calc_user_intent(
     resolve_output: &moonbuild_rupes_recta::ResolveOutput,
     main_modules: &[moonutil::mooncakes::ModuleId],
-
-    cb: impl FnOnce(
-        &mut dyn Iterator<Item = PackageId>,
-        &moonbuild_rupes_recta::ResolveOutput,
-    ) -> anyhow::Result<Vec<BuildPlanNode>>,
+    cmd: &TestLikeSubcommand<'_>,
+    out_filter: &mut TestFilter,
 ) -> Result<Vec<BuildPlanNode>, anyhow::Error> {
     let &[main_module_id] = main_modules else {
         panic!("No multiple main modules are supported");
@@ -807,8 +824,39 @@ fn calc_user_intent(
         .pkg_dirs
         .packages_for_module(main_module_id)
         .ok_or_else(|| anyhow::anyhow!("Cannot find the local module!"))?;
+    let affected_packages = packages.values().copied();
 
-    cb(&mut packages.values().copied(), resolve_output)
+    if let Some(file_filter) = cmd.explicit_file_filter {
+        apply_explicit_file_filter(resolve_output, out_filter, file_filter)?;
+    } else if let Some(package_filter) = cmd.package {
+        apply_list_of_filters(
+            affected_packages,
+            resolve_output,
+            package_filter,
+            cmd.file.as_deref(),
+            *cmd.index,
+            *cmd.doc_index,
+            out_filter,
+        )?;
+    } else {
+        // No filter, return all packages and all targets
+        return Ok(affected_packages
+            .flat_map(move |x| {
+                TargetKind::all_tests()
+                    .iter()
+                    .copied()
+                    .map(move |t| x.build_target(t))
+            })
+            .flat_map(node_from_target)
+            .collect());
+    };
+
+    // Generate the required nodes to out final build targets
+    if let Some(filt) = out_filter.filter.as_ref() {
+        Ok(filt.0.keys().copied().flat_map(node_from_target).collect())
+    } else {
+        Ok(vec![])
+    }
 }
 
 pub(crate) fn run_test_or_bench_internal_legacy(
@@ -866,15 +914,32 @@ pub(crate) fn run_test_or_bench_internal_legacy(
     let sort_input = cmd.build_flags.sort_input;
 
     let patch_file = cmd.patch_file.clone();
-    let filter_package = cmd.package.clone().map(|it| it.into_iter().collect());
-    let filter_file = cmd.file;
+
+    // semantics: if single file filtering -- get package from file path, and
+    // then filename from the, well, filename.
+    let (filter_package, filter_file) = if let Some(file) = cmd.explicit_file_filter {
+        let filename = file.file_name();
+        let Some(name) = filename else {
+            anyhow::bail!("invalid file path specified: {}", file.display());
+        };
+        let name = name.to_string_lossy().to_string();
+
+        // Note: We can't filter packages here because we don't have the full
+        // list of packages to filter from. This has to be done after we have
+        // scanned stuff.
+        (None, Some(name))
+    } else {
+        let filter_package = cmd.package.clone().map(|it| it.into_iter().collect());
+        let filter_file = cmd.file.clone();
+        (filter_package, filter_file)
+    };
     let filter_index = *cmd.index;
     let filter_doc_index = *cmd.doc_index;
 
     let test_opt = if run_mode == RunMode::Bench {
         Some(TestOpt {
             filter_package: filter_package.clone(),
-            filter_file: filter_file.clone(),
+            filter_file: filter_file.map(|x| x.to_owned()),
             filter_index,
             filter_doc_index,
             limit,
@@ -885,7 +950,7 @@ pub(crate) fn run_test_or_bench_internal_legacy(
     } else {
         Some(TestOpt {
             filter_package: filter_package.clone(),
-            filter_file: filter_file.clone(),
+            filter_file: filter_file.map(|x| x.to_owned()),
             filter_index,
             filter_doc_index,
             limit,
@@ -925,7 +990,66 @@ pub(crate) fn run_test_or_bench_internal_legacy(
         &PrePostBuild::PreBuild,
     )?;
 
-    let (package_filter, moonbuild_opt) = if let Some(filter_package) = moonbuild_opt
+    let (package_filter, moonbuild_opt) = if let Some(file) = cmd.explicit_file_filter {
+        let file = dunce::canonicalize(file)
+            .context("failed to canonicalize the path specified by single file filter")?;
+        // First, determine if it's a valid file path
+        if !file.exists() {
+            anyhow::bail!("File for filtering `{}` does not exist", file.display());
+        }
+        // don't support directory filtering just yet
+        if file.is_dir() {
+            anyhow::bail!(
+                "Filtering by directory (package) is currently not supported, your input was `{}`",
+                file.display()
+            );
+        }
+        let dir = file.parent().expect("file must have a parent");
+        // if it doesn't, it should have been caught by is_dir()
+
+        let pkg = module.get_package_by_path(dir);
+        if pkg.is_none() {
+            anyhow::bail!(
+                "Cannot find package for file `{}`, is it inside a package?",
+                file.display()
+            );
+        }
+
+        let pkg = pkg.unwrap();
+        let filename = file.file_name().expect("file must have a filename");
+
+        let filename = filename.to_string_lossy().to_string();
+
+        if !pkg.files.contains_key(&file)
+            && !pkg.test_files.contains_key(&file)
+            && !pkg.wbtest_files.contains_key(&file)
+            && !pkg.mbt_md_files.contains_key(&file)
+        {
+            eprintln!(
+                "{}: cannot find file `{}` in package `{}`, --file only support exact matching",
+                "Warning".yellow(),
+                filename,
+                pkg.full_name()
+            );
+        }
+
+        // Force package filter to the package containing the file, keep file filter as basename.
+        let pkg_full_name = pkg.full_name().to_string();
+
+        let moonbuild_opt = MoonbuildOpt {
+            test_opt: Some(TestOpt {
+                // override/force the package filter to the detected package
+                filter_package: Some(HashSet::from([pkg_full_name.clone()])),
+                // preserve the existing file/index/doc-index and other flags from earlier
+                ..moonbuild_opt.test_opt.unwrap()
+            }),
+            ..moonbuild_opt
+        };
+
+        let package_filter: Option<Box<dyn for<'a> Fn(&'a _) -> _>> =
+            Some(Box::new(move |p: &Package| p.full_name() == pkg_full_name));
+        (package_filter, moonbuild_opt)
+    } else if let Some(filter_package) = moonbuild_opt
         .test_opt
         .as_ref()
         .and_then(|opt| opt.filter_package.as_ref())
@@ -991,7 +1115,10 @@ pub(crate) fn run_test_or_bench_internal_legacy(
             ..moonbuild_opt
         };
 
-        let package_filter = Some(move |pkg: &Package| final_set.contains(&pkg.full_name()));
+        let package_filter: Option<Box<dyn for<'a> Fn(&'a _) -> _>> =
+            Some(Box::new(move |pkg: &Package| {
+                final_set.contains(&pkg.full_name())
+            }));
         (package_filter, moonbuild_opt)
     } else {
         (None, moonbuild_opt)

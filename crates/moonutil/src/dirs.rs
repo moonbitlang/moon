@@ -26,6 +26,7 @@ use std::{
 
 use anyhow::Context;
 use serde::{Deserialize, Serialize};
+use thiserror::Error;
 
 use crate::common::{
     get_moon_version, get_moonc_version, MooncOpt, RunMode, IGNORE_DIRS, MOON_MOD_JSON,
@@ -33,6 +34,14 @@ use crate::common::{
 };
 
 const MOON_DB: &str = "moon.db";
+
+#[derive(Debug, Error)]
+pub enum PackageDirsError {
+    #[error("not in a Moon project (no moon.mod.json found starting from {0} or its ancestors)")]
+    NotInProject(PathBuf),
+    #[error(transparent)]
+    Other(#[from] anyhow::Error),
+}
 
 #[derive(Debug, clap::Parser, Serialize, Deserialize, Clone)]
 pub struct SourceTargetDirs {
@@ -46,7 +55,7 @@ pub struct SourceTargetDirs {
 }
 
 impl SourceTargetDirs {
-    pub fn try_into_package_dirs(&self) -> anyhow::Result<PackageDirs> {
+    pub fn try_into_package_dirs(&self) -> Result<PackageDirs, PackageDirsError> {
         PackageDirs::try_from(self)
     }
 }
@@ -71,35 +80,40 @@ fn find_ancestor_with_mod(source_dir: &Path) -> Option<PathBuf> {
         .map(|p| p.to_path_buf())
 }
 
-fn get_src_dst_dir(matches: &SourceTargetDirs) -> anyhow::Result<PackageDirs> {
+fn get_src_dst_dir(matches: &SourceTargetDirs) -> Result<PackageDirs, PackageDirsError> {
     let source_dir = match matches.source_dir.clone() {
         Some(v) => v,
-        None => std::env::current_dir().context("failed to get current directory")?,
+        None => std::env::current_dir()
+            .context("failed to get current directory")
+            .map_err(PackageDirsError::from)?,
     };
-    let source_dir = dunce::canonicalize(source_dir).context("failed to set source directory")?;
-    let source_dir = find_ancestor_with_mod(&source_dir).ok_or_else(|| {
-        anyhow::anyhow!(
-            "could not find a moon.mod.json file in the source directory or its ancestors"
-        )
-    })?;
+    let source_dir = dunce::canonicalize(source_dir)
+        .context("failed to set source directory")
+        .map_err(PackageDirsError::from)?;
+    let project_root = find_ancestor_with_mod(&source_dir)
+        .ok_or_else(|| PackageDirsError::NotInProject(source_dir.clone()))?;
 
     let target_dir = matches
         .target_dir
         .clone()
-        .unwrap_or_else(|| source_dir.join("target"));
+        .unwrap_or_else(|| project_root.join("target"));
     if !target_dir.exists() {
-        std::fs::create_dir_all(&target_dir).context("failed to create target directory")?;
+        std::fs::create_dir_all(&target_dir)
+            .context("failed to create target directory")
+            .map_err(PackageDirsError::from)?;
     }
-    let target_dir = dunce::canonicalize(target_dir).context("failed to set target directory")?;
+    let target_dir = dunce::canonicalize(target_dir)
+        .context("failed to set target directory")
+        .map_err(PackageDirsError::from)?;
 
     Ok(PackageDirs {
-        source_dir,
+        source_dir: project_root,
         target_dir,
     })
 }
 
 impl TryFrom<&SourceTargetDirs> for PackageDirs {
-    type Error = anyhow::Error;
+    type Error = PackageDirsError;
 
     fn try_from(matches: &SourceTargetDirs) -> Result<Self, Self::Error> {
         get_src_dst_dir(matches)

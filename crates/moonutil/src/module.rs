@@ -356,7 +356,7 @@ impl ModuleDB {
 
     pub fn get_filtered_packages_mut(
         &mut self,
-        maybe_filter: Option<impl Fn(&Package) -> bool>,
+        maybe_filter: Option<impl for<'a> Fn(&'a Package) -> bool>,
     ) -> impl Iterator<Item = (&String, &mut Package)> {
         self.packages.iter_mut().filter(move |(_, pkg)| {
             if let Some(filter) = &maybe_filter {
