@@ -142,7 +142,9 @@ pub struct TestSubcommand {
     #[clap(long = "doc")]
     pub doc_test: bool,
 
-    /// Run test in single file (.mbt or .mbt.md)
+    /// Run test in single file (.mbt or .mbt.md). If in a project, runs only
+    /// this file (equivalent to `-p` + `-f`); otherwise, runs in a temporary project.
+    #[clap(conflicts_with_all = ["file", "package"])]
     pub single_file: Option<PathBuf>,
 }
 
