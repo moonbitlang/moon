@@ -32,6 +32,7 @@ use super::util::calc_link_args;
 use crate::gen::MiAlias;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
+use std::sync::Arc;
 
 use moonutil::common::{
     BuildOpt, MoonbuildOpt, MooncOpt, TargetBackend, A_EXT, DYN_EXT, MOONBITLANG_CORE,
@@ -60,6 +61,8 @@ pub struct BuildDepItem {
     pub mi_deps: Vec<MiAlias>, // do not need add parent's mi files
     pub package_full_name: String,
     pub package_source_dir: String,
+    /// Canonical absolute path to the module directory (parent of moon.mod.json)
+    pub workspace_root: Arc<Path>,
     pub warn_list: Option<String>,
     pub alert_list: Option<String>,
     pub is_main: bool,
@@ -215,6 +218,7 @@ pub fn gen_build_build_item(
         mbt_md_deps: vec![],
         package_full_name,
         package_source_dir,
+        workspace_root: Arc::clone(&pkg.module_root),
         warn_list: pkg.warn_list.clone(),
         alert_list: pkg.alert_list.clone(),
         is_main: pkg.is_main,
@@ -580,6 +584,8 @@ pub fn gen_build_command(
                 format!("{}:{}", &pkg_name, &pkg_path,),
             ]
         })
+        .arg("-workspace-path")
+        .arg(&item.workspace_root.display().to_string())
         .build();
     log::debug!("Command: {}", command);
     build.cmdline = Some(command);

@@ -16,7 +16,11 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
-use std::{collections::HashSet, path::PathBuf};
+use std::{
+    collections::HashSet,
+    path::{Path, PathBuf},
+    sync::Arc,
+};
 
 use colored::Colorize;
 use indexmap::IndexMap;
@@ -49,6 +53,8 @@ pub struct Package {
     // root_path of package `moonbitlang/x/stack` is
     // $WORKSPACE/.mooncakes/moonbitlang/x/`{source}`
     pub root_path: PathBuf,
+    /// Canonical absolute path to the moon.mod.json of the owning module
+    pub module_root: Arc<Path>,
     // moonbitlang/x
     pub root: PathComponent,
     // stack

@@ -30,6 +30,7 @@ use petgraph::graph::{DiGraph, NodeIndex};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
+use std::sync::Arc;
 use walkdir::WalkDir;
 
 use crate::common::{
@@ -179,6 +180,7 @@ fn scan_module_packages(
     moonc_opt: &crate::common::MooncOpt,
 ) -> anyhow::Result<()> {
     let (module_source_dir, target_dir) = (&moonbuild_opt.source_dir, &moonbuild_opt.target_dir);
+    let module_source_arc: Arc<_> = module_source_dir.as_path().into();
 
     let mod_desc = read_module_desc_file_in_dir(module_source_dir)?;
     let module_source_dir = match &mod_desc.source {
@@ -231,6 +233,7 @@ fn scan_module_packages(
                 env,
                 path,
                 &module_source_dir,
+                &module_source_arc,
                 &mod_desc,
                 moonbuild_opt,
                 moonc_opt,
@@ -308,7 +311,8 @@ fn scan_module_packages(
 fn scan_one_package(
     env: &ScanPaths,
     pkg_path: &Path,
-    module_source_dir: &PathBuf,
+    module_source_path: &Path,
+    module_source_arc: &Arc<Path>,
     mod_desc: &crate::module::MoonMod,
     moonbuild_opt: &MoonbuildOpt,
     moonc_opt: &crate::common::MooncOpt,
@@ -360,7 +364,7 @@ fn scan_one_package(
     };
 
     let pkg = crate::common::read_package_desc_file_in_dir(pkg_path)?;
-    let rel = pkg_path.strip_prefix(module_source_dir)?;
+    let rel = pkg_path.strip_prefix(module_source_path)?;
     let rel_path = PathComponent::from_path(rel)?;
 
     // FIXME: This is merely a workaround for the whole thing to work for now
@@ -526,6 +530,7 @@ fn scan_one_package(
         force_link: pkg.force_link,
         is_third_party,
         root_path: pkg_path.to_owned(),
+        module_root: Arc::clone(module_source_arc),
         root: PathComponent::from_str(&mod_desc.name)?,
         files: file_cond_map(mbt_files),
         files_contain_test_block: vec![],
