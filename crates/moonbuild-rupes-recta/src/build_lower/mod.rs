@@ -41,7 +41,8 @@ use crate::{
 pub mod artifact;
 mod compiler;
 mod context;
-mod lowering;
+mod lower_aux;
+mod lower_build;
 mod utils;
 
 pub use utils::{build_ins, build_n2_fileloc, build_phony_out};
@@ -65,6 +66,8 @@ pub struct BuildOptions {
     pub output_wat: bool,
     pub moonc_output_json: bool,
     pub docs_serve: bool,
+    pub deny_warn: bool,
+    pub info_no_alias: bool,
 
     // Environments
     /// Only `Some` if we import standard library.

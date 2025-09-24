@@ -38,12 +38,16 @@ use moonbuild::entry::{
     create_progress_console, render_and_catch_callback, N2RunStats, ResultCatcher,
 };
 use moonbuild_rupes_recta::{
-    model::{Artifacts, BuildPlanNode},
+    build_plan::InputDirective,
+    model::{Artifacts, BuildPlanNode, PackageId, TargetKind},
     CompileConfig, ResolveConfig, ResolveOutput,
 };
 use moonutil::{
     cli::UniversalFlags,
-    common::{DiagnosticLevel, RunMode, TargetBackend, MOONBITLANG_CORE},
+    common::{
+        DiagnosticLevel, RunMode, TargetBackend, BLACKBOX_TEST_PATCH, MOONBITLANG_CORE,
+        WHITEBOX_TEST_PATCH,
+    },
     cond_expr::OptLevel,
     features::FeatureGate,
     mooncakes::{sync::AutoSyncFlags, ModuleId},
@@ -65,8 +69,65 @@ pub use dry_run::{dry_print_command, print_dry_run, print_dry_run_all};
 ///
 /// Returns: A vector of [`UserIntent`]s, representing what the user would like
 /// to do
-pub type CalcUserIntentFn<'b> = dyn for<'a> FnOnce(&'a ResolveOutput, &'a [ModuleId]) -> anyhow::Result<Vec<BuildPlanNode>>
+pub type CalcUserIntentFn<'b> = dyn for<'a> FnOnce(&'a ResolveOutput, &'a [ModuleId]) -> anyhow::Result<CalcUserIntentOutput>
     + 'b;
+
+/// The output of a calculate user intent operation.
+pub struct CalcUserIntentOutput {
+    /// The list of build plan nodes that the user would like to build.
+    pub intent: Vec<BuildPlanNode>,
+    /// The input directive that the user wants to apply to the packages
+    pub directive: InputDirective,
+}
+
+impl CalcUserIntentOutput {
+    pub fn new(intent: Vec<BuildPlanNode>, directive: InputDirective) -> Self {
+        Self { intent, directive }
+    }
+}
+
+impl From<Vec<BuildPlanNode>> for CalcUserIntentOutput {
+    fn from(intent: Vec<BuildPlanNode>) -> Self {
+        Self {
+            intent,
+            directive: InputDirective::default(),
+        }
+    }
+}
+
+impl From<(Vec<BuildPlanNode>, InputDirective)> for CalcUserIntentOutput {
+    fn from((intent, directive): (Vec<BuildPlanNode>, InputDirective)) -> Self {
+        Self { intent, directive }
+    }
+}
+
+/// Convenient function to build a directive based on input kind
+pub fn build_patch_directive_for_package(
+    pkg: PackageId,
+    no_mi: bool,
+    patch_file: Option<&Path>,
+) -> anyhow::Result<InputDirective> {
+    let patch_directive = if let Some(path) = patch_file {
+        let path_str = path
+            .to_str()
+            .ok_or_else(|| anyhow::anyhow!("patch file path is not valid utf-8"))?;
+        let kind = if path_str.ends_with(WHITEBOX_TEST_PATCH) {
+            TargetKind::WhiteboxTest
+        } else if path_str.ends_with(BLACKBOX_TEST_PATCH) {
+            TargetKind::BlackboxTest
+        } else {
+            TargetKind::Source
+        };
+        Some((pkg.build_target(kind), path.to_path_buf()))
+    } else {
+        None
+    };
+
+    Ok(InputDirective {
+        specify_no_mi_for: no_mi.then_some(pkg),
+        specify_patch_file: patch_directive,
+    })
+}
 
 /// Build metadata containing information needed for build context and results.
 /// The build graph is kept separate to allow execute_build to take ownership of it.
@@ -141,6 +202,11 @@ pub struct CompilePreConfig {
     target_dir: PathBuf,
     /// Whether to execute `moondoc` in serve mode, which outputs HTML
     pub docs_serve: bool,
+    pub deny_warn: bool,
+    /// Whether to not emit alias when running `mooninfo`
+    pub info_no_alias: bool,
+    warn_list: Option<String>,
+    alert_list: Option<String>,
 }
 
 impl CompilePreConfig {
@@ -171,6 +237,10 @@ impl CompilePreConfig {
             debug_export_build_plan: self.debug_export_build_plan,
             moonc_output_json: self.moonc_output_json,
             docs_serve: self.docs_serve,
+            deny_warn: self.deny_warn,
+            warn_list: self.warn_list,
+            alert_list: self.alert_list,
+            info_no_alias: self.info_no_alias,
         }
     }
 }
@@ -207,6 +277,10 @@ pub fn preconfig_compile(
         // In legacy impl, dry run always force no json
         moonc_output_json: !build_flags.no_render && !cli.dry_run,
         docs_serve: false,
+        info_no_alias: false,
+        deny_warn: build_flags.deny_warn,
+        warn_list: build_flags.warn_list.clone(),
+        alert_list: build_flags.alert_list.clone(),
     }
 }
 
@@ -264,7 +338,8 @@ pub fn plan_build<'a>(
     let is_core = main_module.name == MOONBITLANG_CORE;
 
     let cx = preconfig.into_compile_config(preferred_backend, is_core);
-    let compile_output = moonbuild_rupes_recta::compile(&cx, &resolve_output, &intent)?;
+    let compile_output =
+        moonbuild_rupes_recta::compile(&cx, &resolve_output, &intent.intent, &intent.directive)?;
 
     if unstable_features.rr_export_build_plan {
         if let Some(plan) = compile_output.build_plan {
@@ -321,15 +396,27 @@ pub struct BuildConfig {
 
     /// Generate metadata file `packages.json`
     pub generate_metadata: bool,
+
+    /// Explain and warnings in diagnostics
+    pub explain_errors: bool,
+
+    /// Ask n2 to explain rerun reasons
+    pub n2_explain: bool,
+
+    /// The patch file to use
+    pub patch_file: Option<PathBuf>,
 }
 
 impl BuildConfig {
-    pub fn from_flags(flags: &BuildFlags) -> Self {
+    pub fn from_flags(flags: &BuildFlags, unstable_features: &FeatureGate) -> Self {
         BuildConfig {
             parallelism: flags.jobs,
             no_render: flags.no_render,
             render_no_loc: flags.render_no_loc,
             generate_metadata: false,
+            explain_errors: false,
+            n2_explain: unstable_features.rr_n2_explain,
+            patch_file: None,
         }
     }
 }
@@ -341,6 +428,9 @@ impl Default for BuildConfig {
             no_render: false,
             render_no_loc: DiagnosticLevel::Error,
             generate_metadata: false,
+            explain_errors: false,
+            n2_explain: false,
+            patch_file: None,
         }
     }
 }
@@ -400,8 +490,8 @@ pub fn execute_build_partial(
         Arc::clone(&result_catcher),
         cfg.no_render,
         n2::terminal::use_fancy(),
-        None,
-        false,
+        cfg.patch_file.clone(),
+        cfg.explain_errors,
         cfg.render_no_loc,
         PathBuf::new(),
         target_dir.into(),
@@ -414,7 +504,7 @@ pub fn execute_build_partial(
         &n2::work::Options {
             failures_left: Some(1),
             parallelism,
-            explain: false,
+            explain: cfg.n2_explain,
             adopt: false,
             dirty_on_output: true,
         },

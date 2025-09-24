@@ -55,7 +55,7 @@ pub struct MooncLinkCore<'a> {
     pub wasm_config: WasmConfig<'a>,
 
     // JavaScript specific configuration
-    pub js_format: Option<JsFormat>,
+    pub js_config: Option<JsConfig>,
 
     // Extra options
     pub extra_link_opts: &'a [&'a str],
@@ -73,40 +73,14 @@ pub struct WasmConfig<'a> {
     pub link_flags: Option<&'a [String]>,
 }
 
-impl<'a> MooncLinkCore<'a> {
-    /// Create a new instance with only necessary fields populated, others as default
-    pub fn new(
-        core_deps: &'a [PathBuf],
-        main_package: CompiledPackageName<'a>,
-        output_path: impl Into<Cow<'a, Path>>,
-        pkg_config_path: impl Into<Cow<'a, Path>>,
-        package_sources: &'a [PackageSource<'a>],
-        target_backend: TargetBackend,
-        test_mode: bool,
-    ) -> Self {
-        Self {
-            core_deps,
-            main_package,
-            output_path: output_path.into(),
-            pkg_config_path: pkg_config_path.into(),
-            package_sources,
-            stdlib_core_source: None,
-            target_backend,
-            flags: CompilationFlags {
-                no_opt: false,
-                symbols: false,
-                source_map: false,
-                enable_coverage: false,
-                self_coverage: false,
-                enable_value_tracing: false,
-            },
-            test_mode,
-            wasm_config: WasmConfig::default(),
-            js_format: None,
-            extra_link_opts: &[],
-        }
-    }
+/// JavaScript-specific linking configuration
+#[derive(Debug)]
+pub struct JsConfig {
+    pub format: Option<JsFormat>,
+    pub no_dts: bool,
+}
 
+impl<'a> MooncLinkCore<'a> {
     /// Convert this to list of args. The behavior tries to mimic the legacy
     /// behavior as much as possible, maintaining EXACT argument order.
     pub fn to_args_legacy(&self, args: &mut Vec<String>) {
@@ -229,10 +203,15 @@ impl<'a> MooncLinkCore<'a> {
             }
         }
 
-        // JavaScript format (only for JS target)
-        if self.target_backend == TargetBackend::Js {
-            args.push("-js-format".to_string());
-            args.push(self.js_format.unwrap_or_default().to_flag().to_string());
+        // JavaScript configuration
+        if let Some(js_config) = &self.js_config {
+            if let Some(format) = js_config.format {
+                args.push("-js-format".to_string());
+                args.push(format.to_flag().to_string());
+            }
+            if js_config.no_dts {
+                args.push("-no-dts".to_string());
+            }
         }
 
         // Extra link options

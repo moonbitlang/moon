@@ -23,9 +23,9 @@ use std::collections::HashSet;
 use log::debug;
 
 use crate::{
-    discover::DiscoverResult,
+    build_plan::InputDirective,
     model::{BuildPlanNode, BuildTarget, TargetKind},
-    pkg_solve::DepRelationship,
+    ResolveOutput,
 };
 use tracing::{instrument, Level};
 
@@ -35,9 +35,9 @@ use super::{BuildEnvironment, BuildPlan, BuildPlanConstructError};
 /// the construction of a build plan.
 pub(super) struct BuildPlanConstructor<'a> {
     // Input environment
-    pub(super) packages: &'a DiscoverResult,
-    pub(super) build_deps: &'a DepRelationship,
+    pub(super) input: &'a ResolveOutput,
     pub(super) build_env: &'a BuildEnvironment,
+    pub(super) input_directive: &'a InputDirective,
 
     /// The resulting build plan
     pub(super) res: BuildPlan,
@@ -49,14 +49,15 @@ pub(super) struct BuildPlanConstructor<'a> {
 
 impl<'a> BuildPlanConstructor<'a> {
     pub(super) fn new(
-        packages: &'a DiscoverResult,
-        build_deps: &'a DepRelationship,
+        resolved: &'a ResolveOutput,
         build_env: &'a BuildEnvironment,
+        input_directive: &'a InputDirective,
     ) -> Self {
         Self {
-            packages,
-            build_deps,
+            input: resolved,
             build_env,
+            input_directive,
+
             res: BuildPlan::default(),
             pending: Vec::new(),
             resolved: HashSet::new(),
@@ -207,6 +208,22 @@ impl<'a> BuildPlanConstructor<'a> {
             BuildPlanNode::Bundle(_module_id) => (),
             BuildPlanNode::BuildRuntimeLib => (),
             BuildPlanNode::BuildDocs => (),
+            BuildPlanNode::RunPrebuild(pkg, idx) => {
+                assert!(
+                    self.res.prebuild_info.contains_key(&pkg),
+                    "Prebuild info for package {:?} should be present when resolving node {:?}",
+                    pkg,
+                    node
+                );
+                let v = &self.res.prebuild_info[&pkg];
+                assert!(
+                    (idx as usize) < v.len() && v[idx as usize].is_some(),
+                    "Prebuild info for package {:?} index {} should be present when resolving node {:?}",
+                    pkg,
+                    idx,
+                    node
+                );
+            }
         }
     }
 
@@ -241,6 +258,9 @@ impl<'a> BuildPlanConstructor<'a> {
             BuildPlanNode::BuildRuntimeLib => self.build_runtime_lib(node),
             BuildPlanNode::GenerateMbti(target) => self.build_generate_mbti(node, target),
             BuildPlanNode::BuildDocs => self.build_build_docs(node),
+            BuildPlanNode::RunPrebuild(package_id, index) => {
+                self.build_run_prebuild(node, package_id, index)
+            }
         }
     }
 

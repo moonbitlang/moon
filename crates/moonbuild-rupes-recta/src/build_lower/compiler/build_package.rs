@@ -19,14 +19,11 @@
 //! Compiler command abstraction
 
 use std::borrow::Cow;
-use std::path::{Path, PathBuf};
-
-use moonutil::common::TargetBackend;
+use std::path::Path;
 
 use crate::build_lower::compiler::{
-    BuildCommonArgs, CmdlineAbstraction, CompilationFlags, MiDependency,
+    BuildCommonConfig, BuildCommonInput, CmdlineAbstraction, CompilationFlags,
 };
-use crate::model::TargetKind;
 
 /// Abstraction for `moonc build-package`.
 ///
@@ -38,93 +35,59 @@ use crate::model::TargetKind;
 #[derive(Debug)]
 pub struct MooncBuildPackage<'a> {
     // Common arguments
-    pub common: BuildCommonArgs<'a>,
-
+    pub required: BuildCommonInput<'a>,
+    pub defaults: BuildCommonConfig<'a>,
     pub core_out: Cow<'a, Path>,
     #[allow(unused)]
     pub mi_out: Cow<'a, Path>,
-    pub no_mi: bool,
+
     pub flags: CompilationFlags,
     pub extra_build_opts: &'a [&'a str],
 }
 
 impl<'a> MooncBuildPackage<'a> {
-    #[allow(clippy::too_many_arguments)]
-    /// Create a new instance with only necessary fields populated, others as default
-    pub fn new(
-        mbt_sources: &'a [PathBuf],
-        core_out: impl Into<Cow<'a, Path>>,
-        mi_out: impl Into<Cow<'a, Path>>,
-        mi_deps: &'a [MiDependency<'a>],
-        package_name: super::CompiledPackageName<'a>,
-        package_source: impl Into<Cow<'a, Path>>,
-        target_backend: TargetBackend,
-        target_kind: TargetKind,
-    ) -> Self {
-        Self {
-            common: BuildCommonArgs::new(
-                mbt_sources,
-                mi_deps,
-                package_name,
-                package_source,
-                target_backend,
-                target_kind,
-            ),
-            core_out: core_out.into(),
-            mi_out: mi_out.into(),
-            no_mi: false,
-            flags: CompilationFlags {
-                no_opt: false,
-                symbols: false,
-                source_map: false,
-                enable_coverage: false,
-                self_coverage: false,
-                enable_value_tracing: false,
-            },
-            extra_build_opts: &[],
-        }
-    }
-
     /// Convert this to list of args. The behavior tries to mimic the legacy
     /// behavior as much as possible.
     pub fn to_args_legacy(&self, args: &mut Vec<String>) {
         args.push("build-package".into());
 
         // Error format
-        self.common.add_error_format(args);
+        self.defaults.add_error_format(args);
 
-        // Warning and alert handling (separate)
-        self.common.add_warn_alert_deny_all_separate(args);
+        // Warning and alert handling
+        self.defaults.add_warn_alert_deny_all_combined(args);
 
         // Input files
-        self.common.add_mbt_sources(args);
+        self.required.add_mbt_sources(args);
+        // Additional inputs following legacy ordering
+        self.required.add_doctest_only_sources(args);
 
         // Custom warning/alert lists
-        self.common.add_custom_warn_alert_lists(args);
+        self.defaults.add_custom_warn_alert_lists(args);
 
         // Third-party package handling (allow all)
-        self.common.add_warn_alert_allow_all(args);
+        self.defaults.add_warn_alert_allow_all(args);
 
         // Output
         args.extend(["-o".to_string(), self.core_out.display().to_string()]);
 
         // Package configuration
-        self.common.add_package_config(args);
+        self.required.add_package_config(args);
 
         // is-main (no condition)
-        self.common.add_is_main(args);
+        self.defaults.add_is_main(args);
 
         // Standard library
-        self.common.add_stdlib_path(args);
+        self.defaults.add_stdlib_path(args);
 
         // MI dependencies
-        self.common.add_mi_dependencies(args);
+        self.required.add_mi_dependencies(args);
 
         // Package source definition
-        self.common.add_package_sources(args);
+        self.required.add_package_sources(args);
 
         // Target backend
-        self.common.add_target_backend(args);
+        self.required.add_target_backend(args);
 
         // Debug and optimization flags
         if self.flags.symbols {
@@ -153,23 +116,29 @@ impl<'a> MooncBuildPackage<'a> {
             args.push(opt.to_string());
         }
 
-        self.common.add_test_args(args);
+        self.required.add_test_args(args);
+
+        // -no-mi after test flags
+        self.defaults.add_no_mi(args);
+
+        // patch after -no-mi
+        self.defaults.add_patch_file_moonc(args);
 
         // Virtual package check
-        self.common.add_virtual_package_check(args);
+        self.defaults.add_virtual_package_check(args);
 
-        // Virtual package check with no-mi flag
-        if self.common.check_mi.is_some() && self.no_mi {
+        // Virtual package check with no-mi flag (for default/impl virtual flows)
+        // FIXME: duplicated `-no-mi`
+        if self.defaults.check_mi.is_some() && self.defaults.no_mi {
             args.push("-no-mi".to_string());
         }
 
         // Virtual package implementation
-        self.common.add_virtual_package_implementation_build(args);
-
-        self.common.add_test_mode_args(args);
+        self.defaults.add_virtual_package_implementation_build(args);
 
         // Workspace root
-        self.common.add_workspace_root(args);
+        self.required.add_test_mode_args(args);
+        self.defaults.add_workspace_root(args);
     }
 }
 

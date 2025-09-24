@@ -86,7 +86,7 @@ pub fn run_doc_rr(cli: UniversalFlags, cmd: DocSubcommand) -> anyhow::Result<i32
         &source_dir,
         &target_dir,
         // huh, the simplest intent because it depends on **the universe**.
-        Box::new(|_, _| Ok(vec![BuildPlanNode::BuildDocs])),
+        Box::new(|_, _| Ok(vec![BuildPlanNode::BuildDocs].into())),
     )?;
 
     // Early exit for dry-run
@@ -104,7 +104,7 @@ pub fn run_doc_rr(cli: UniversalFlags, cmd: DocSubcommand) -> anyhow::Result<i32
     rr_build::generate_metadata(&source_dir, &target_dir, &_build_meta)?;
 
     // Execute the build
-    let cfg = BuildConfig::from_flags(&BuildFlags::default());
+    let cfg = BuildConfig::from_flags(&BuildFlags::default(), &cli.unstable_feature);
     let result = rr_build::execute_build(&cfg, build_graph, &target_dir)?;
     result.print_info(cli.quiet, "checking")?;
 

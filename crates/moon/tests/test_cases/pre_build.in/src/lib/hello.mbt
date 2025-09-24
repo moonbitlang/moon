@@ -1,3 +1,5 @@
+///|
 pub fn hello() -> String {
-  "Hello, world!"
+  // Use the embedded resources.
+  resource + _b.to_string() + _c
 }

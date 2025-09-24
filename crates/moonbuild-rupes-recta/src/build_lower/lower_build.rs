@@ -16,10 +16,10 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
-//! Specific lowering implementations for different build node types.
+//! Loweing implementation for build nodes
 
 use moonutil::{
-    common::{DriverKind, TargetBackend},
+    common::TargetBackend,
     compiler_flags::{
         make_archiver_command, make_cc_command, make_cc_command_pure, resolve_cc,
         ArchiverConfigBuilder, CCConfigBuilder, OptLevel as CCOptLevel, OutputType as CCOutputType,
@@ -27,7 +27,7 @@ use moonutil::{
     },
     cond_expr::OptLevel,
     moon_dir::MOON_DIRS,
-    mooncakes::{ModuleId, ModuleSourceKind, CORE_MODULE},
+    mooncakes::{ModuleId, CORE_MODULE},
     package::JsFormat,
 };
 use petgraph::Direction;
@@ -36,7 +36,10 @@ use tracing::{instrument, Level};
 use crate::{
     build_lower::{
         artifact,
-        compiler::{CmdlineAbstraction, MiDependency, MoondocCommand, Mooninfo, PackageSource},
+        compiler::{
+            BuildCommonConfig, BuildCommonInput, CmdlineAbstraction, ErrorFormat, JsConfig,
+            MiDependency, PackageSource, WasmConfig,
+        },
     },
     build_plan::{BuildCStubsInfo, BuildTargetInfo, LinkCoreInfo, MakeExecutableInfo},
     discover::DiscoveredPackage,
@@ -47,6 +50,96 @@ use crate::{
 use super::{compiler, context::BuildPlanLowerContext, BuildCommand};
 
 impl<'a> BuildPlanLowerContext<'a> {
+    fn is_module_third_party(&self, mid: ModuleId) -> bool {
+        // This is usually a small vector, so this perf overhead is okay.
+        !self.modules.input_module_ids().contains(&mid)
+    }
+
+    pub(super) fn set_flags(&self) -> compiler::CompilationFlags {
+        compiler::CompilationFlags {
+            no_opt: self.opt.opt_level == OptLevel::Debug,
+            symbols: self.opt.debug_symbols,
+            source_map: matches!(
+                self.opt.target_backend,
+                TargetBackend::Js | TargetBackend::WasmGC
+            ) && self.opt.debug_symbols,
+            enable_coverage: false,
+            self_coverage: false,
+            enable_value_tracing: false,
+        }
+    }
+
+    fn set_build_commons(
+        &self,
+        pkg: &DiscoveredPackage,
+        info: &'a BuildTargetInfo,
+        is_main: bool,
+    ) -> BuildCommonConfig<'a> {
+        // Standard library settings
+        let stdlib_core_file = self
+            .opt
+            .stdlib_path
+            .as_ref()
+            .map(|x| artifact::core_bundle_path(x, self.opt.target_backend).into());
+
+        // Warning and error settings
+        let error_format = if self.opt.moonc_output_json {
+            ErrorFormat::Json
+        } else {
+            ErrorFormat::Regular
+        };
+        let deny_warn = self.opt.deny_warn;
+
+        // Determine warn/alert config
+        let (warn_config, alert_config) = if self.is_module_third_party(pkg.module) {
+            // Third-party modules don't have any warnings or alerts
+            (
+                compiler::WarnAlertConfig::AllowAll,
+                compiler::WarnAlertConfig::AllowAll,
+            )
+        } else {
+            let wc = if let Some(w) = &info.warn_list {
+                compiler::WarnAlertConfig::List(w.into())
+            } else {
+                compiler::WarnAlertConfig::default()
+            };
+            let ac = if let Some(a) = &info.alert_list {
+                compiler::WarnAlertConfig::List(a.into())
+            } else {
+                compiler::WarnAlertConfig::default()
+            };
+            (wc, ac)
+        };
+
+        // Workspace settings
+        let workspace_root = Some(
+            self.module_dirs
+                .get(pkg.module)
+                .unwrap_or_else(|| {
+                    panic!("Can't find module directory for {}, this is a bug", pkg.fqn)
+                })
+                .into(),
+        );
+
+        // Patch and mi config
+        let patch_file = info.patch_file.as_deref().map(|x| x.into());
+        let no_mi = info.specified_no_mi;
+
+        BuildCommonConfig {
+            stdlib_core_file,
+            error_format,
+            deny_warn,
+            warn_config,
+            alert_config,
+            patch_file,
+            no_mi,
+            workspace_root,
+            is_main,
+            check_mi: None,
+            virtual_implementation: None, // TODO: the above two needs virtual pkg impl
+        }
+    }
+
     #[instrument(level = Level::DEBUG, skip(self, info))]
     pub(super) fn lower_check(
         &self,
@@ -63,20 +156,6 @@ impl<'a> BuildPlanLowerContext<'a> {
         // Collect files iterator once so we can pass slices and extra inputs
         let files_vec = info.files().map(|x| x.to_owned()).collect::<Vec<_>>();
 
-        let mut cmd = compiler::MooncCheck::new(
-            &files_vec,
-            &mi_output,
-            &mi_inputs,
-            compiler::CompiledPackageName::new(&package.fqn, target.kind),
-            &package.root_path,
-            self.opt.target_backend,
-            target.kind,
-        );
-        self.set_commons(&mut cmd.common);
-
-        // workspace root
-        cmd.common.workspace_root = Some(self.get_workspace_root_of(package));
-
         // Determine whether the checked package is a main package.
         //
         // Black box tests does not include the source files of the original
@@ -85,7 +164,7 @@ impl<'a> BuildPlanLowerContext<'a> {
         // tests will definitely not contain a main function, while other
         // build targets will have the same kind of main function as the
         // original package.
-        cmd.common.is_main = match target.kind {
+        let is_main = match target.kind {
             TargetKind::BlackboxTest => false,
             TargetKind::Source
             | TargetKind::WhiteboxTest
@@ -93,25 +172,29 @@ impl<'a> BuildPlanLowerContext<'a> {
             | TargetKind::SubPackage => package.raw.is_main,
         };
 
+        let cmd = compiler::MooncCheck {
+            required: BuildCommonInput::new(
+                &files_vec,
+                &info.doctest_files,
+                &mi_inputs,
+                compiler::CompiledPackageName::new(&package.fqn, target.kind),
+                &package.root_path,
+                self.opt.target_backend,
+                target.kind,
+            ),
+            defaults: self.set_build_commons(package, info, is_main),
+            mi_out: mi_output.into(),
+            is_third_party: false,
+            single_file: false,
+        };
+
+        // Track doctest-only files as inputs as well
+        let mut extra_inputs = files_vec.clone();
+        extra_inputs.extend(info.doctest_files.clone());
         BuildCommand {
-            extra_inputs: files_vec.clone(),
+            extra_inputs,
             commandline: cmd.build_command("moonc"),
         }
-    }
-
-    fn get_workspace_root_of(
-        &self,
-        package: &DiscoveredPackage,
-    ) -> std::borrow::Cow<'_, std::path::Path> {
-        self.module_dirs
-            .get(package.module)
-            .unwrap_or_else(|| {
-                panic!(
-                    "Can't find module directory for {}, this is a bug",
-                    package.fqn
-                )
-            })
-            .into()
     }
 
     #[instrument(level = Level::DEBUG, skip(self, info))]
@@ -143,39 +226,44 @@ impl<'a> BuildPlanLowerContext<'a> {
             }
         };
 
-        let mut cmd = compiler::MooncBuildPackage::new(
-            &files,
-            &core_output,
-            &mi_output,
-            &mi_inputs,
-            compiler::CompiledPackageName::new(&package.fqn, target.kind),
-            &package.root_path,
-            self.opt.target_backend,
-            target.kind,
-        );
-        cmd.flags.no_opt = self.opt.opt_level == OptLevel::Debug;
-        cmd.flags.symbols = self.opt.debug_symbols;
-        cmd.flags.enable_coverage = self.opt.enable_coverage;
-        self.set_commons(&mut cmd.common);
-        self.set_flags(&mut cmd.flags);
-
-        // workspace root
-        cmd.common.workspace_root = Some(self.get_workspace_root_of(package));
-
         // Determine whether the built package is a main package.
         //
         // Different from checking, building test packages will always include
         // the test driver files, which will include the main function.
-        cmd.common.is_main = match target.kind {
+        let is_main = match target.kind {
             TargetKind::Source | TargetKind::SubPackage => package.raw.is_main,
             TargetKind::InlineTest | TargetKind::WhiteboxTest | TargetKind::BlackboxTest => true,
         };
 
+        let mut cmd = compiler::MooncBuildPackage {
+            required: BuildCommonInput::new(
+                &files,
+                &info.doctest_files,
+                &mi_inputs,
+                compiler::CompiledPackageName::new(&package.fqn, target.kind),
+                &package.root_path,
+                self.opt.target_backend,
+                target.kind,
+            ),
+            defaults: self.set_build_commons(package, info, is_main),
+            core_out: core_output.into(),
+            mi_out: mi_output.into(),
+            flags: self.set_flags(),
+            extra_build_opts: &[],
+        };
+        // Propagate debug/coverage flags and common settings
+        cmd.flags.enable_coverage = self.opt.enable_coverage;
+        cmd.defaults.no_mi |= target.kind.is_test();
+
         // TODO: a lot of knobs are not controlled here
+
+        // Include doctest-only files as inputs to track dependency correctly
+        let mut extra_inputs = files.clone();
+        extra_inputs.extend(info.doctest_files.clone());
 
         BuildCommand {
             commandline: cmd.build_command("moonc"),
-            extra_inputs: files,
+            extra_inputs,
         }
     }
 
@@ -229,33 +317,78 @@ impl<'a> BuildPlanLowerContext<'a> {
             .collect::<Vec<_>>();
 
         let config_path = package.config_path();
-        let mut cmd = compiler::MooncLinkCore::new(
-            &core_input_files,
-            compiler::CompiledPackageName {
+        let cmd = compiler::MooncLinkCore {
+            core_deps: &core_input_files,
+            main_package: compiler::CompiledPackageName {
                 fqn: &package.fqn,
                 kind: target.kind,
             },
-            &out_file,
-            &config_path,
-            &package_sources,
-            self.opt.target_backend,
-            target.kind.is_test(),
-        );
-        self.set_flags(&mut cmd.flags);
-
-        // JS format settings
-        if self.opt.target_backend == TargetBackend::Js {
-            if package.raw.force_link || package.raw.is_main {
-                cmd.js_format = Some(JsFormat::default());
-            } else if let Some(link) = package.raw.link.as_ref().and_then(|x| x.js.as_ref()) {
-                cmd.js_format = Some(link.format.unwrap_or_default());
-            }
-        }
+            output_path: out_file.into(),
+            pkg_config_path: config_path.into(),
+            package_sources: &package_sources,
+            stdlib_core_source: None,
+            target_backend: self.opt.target_backend,
+            flags: self.set_flags(),
+            test_mode: target.kind.is_test(),
+            wasm_config: self.get_wasm_config(package),
+            js_config: self.get_js_config(target, package),
+            extra_link_opts: &[],
+        };
 
         BuildCommand {
             extra_inputs: vec![],
             commandline: cmd.build_command("moonc"),
         }
+    }
+
+    fn get_wasm_config<'b>(&self, pkg: &'b DiscoveredPackage) -> compiler::WasmConfig<'b> {
+        let target = self.opt.target_backend;
+        if target != TargetBackend::Wasm {
+            return WasmConfig::default();
+        }
+
+        let linking_config = pkg.raw.link.as_ref().and_then(|x| x.wasm.as_ref());
+        let Some(cfg) = linking_config else {
+            return WasmConfig::default();
+        };
+
+        WasmConfig {
+            exports: cfg.exports.as_deref(),
+            export_memory_name: cfg.export_memory_name.as_deref().map(|x| x.into()),
+            import_memory: cfg.import_memory.as_ref(),
+            memory_limits: cfg.memory_limits.as_ref(),
+            shared_memory: cfg.shared_memory,
+            heap_start_address: cfg.heap_start_address,
+            link_flags: cfg.flags.as_deref(),
+        }
+    }
+
+    fn get_js_config(&self, target: BuildTarget, pkg: &DiscoveredPackage) -> Option<JsConfig> {
+        let backend = self.opt.target_backend;
+        if backend != TargetBackend::Js {
+            return None;
+        }
+
+        if target.kind.is_test() {
+            return Some(JsConfig {
+                format: Some(JsFormat::CJS),
+                no_dts: true,
+            });
+        }
+
+        // If link.js exists, use the specified, or default format.
+        // Otherwise, omit.
+        let format = pkg
+            .raw
+            .link
+            .as_ref()
+            .and_then(|x| x.js.as_ref())
+            .map(|x| x.format.unwrap_or_default());
+
+        Some(JsConfig {
+            format,
+            no_dts: false,
+        })
     }
 
     #[instrument(level = Level::DEBUG, skip(self, info))]
@@ -432,173 +565,6 @@ impl<'a> BuildPlanLowerContext<'a> {
         BuildCommand {
             extra_inputs: vec![],
             commandline: cc_cmd,
-        }
-    }
-
-    #[instrument(level = Level::DEBUG, skip(self, info))]
-    pub(super) fn lower_gen_test_driver(
-        &mut self,
-        _node: BuildPlanNode,
-        target: BuildTarget,
-        info: &BuildTargetInfo,
-    ) -> BuildCommand {
-        let package = self.get_package(target);
-        let output_driver =
-            self.layout
-                .generated_test_driver(self.packages, &target, self.opt.target_backend);
-        let output_metadata = self.layout.generated_test_driver_metadata(
-            self.packages,
-            &target,
-            self.opt.target_backend,
-        );
-        let driver_kind = match target.kind {
-            TargetKind::Source => panic!("Source package cannot be a test driver"),
-            TargetKind::WhiteboxTest => DriverKind::Whitebox,
-            TargetKind::BlackboxTest => DriverKind::Blackbox,
-            TargetKind::InlineTest => DriverKind::Internal,
-            TargetKind::SubPackage => panic!("Sub-package cannot be a test driver"),
-        };
-        let pkg_full_name = package.fqn.to_string();
-        let files_vec = if target.kind == TargetKind::WhiteboxTest {
-            info.whitebox_files.clone()
-        } else {
-            info.files().map(|x| x.to_owned()).collect::<Vec<_>>()
-        };
-
-        let cmd = compiler::MoonGenTestDriver::new(
-            &files_vec,
-            output_driver,
-            output_metadata,
-            self.opt.target_backend,
-            &pkg_full_name,
-            driver_kind,
-        );
-
-        BuildCommand {
-            commandline: cmd.build_command("moon"),
-            extra_inputs: files_vec,
-        }
-    }
-
-    #[instrument(level = Level::DEBUG, skip(self))]
-    pub(super) fn lower_bundle(
-        &mut self,
-        node: BuildPlanNode,
-        module_id: ModuleId,
-    ) -> BuildCommand {
-        let module = self.modules.mod_name_from_id(module_id);
-        let output = self
-            .layout
-            .bundle_result_path(self.opt.target_backend, module.name());
-
-        let mut inputs = vec![];
-        for dep in self.build_plan.dependency_nodes(node) {
-            let BuildPlanNode::BuildCore(package) = dep else {
-                panic!("Bundle node can only depend on BuildCore nodes");
-            };
-            inputs.push(self.layout.core_of_build_target(
-                self.packages,
-                &package,
-                self.opt.target_backend,
-            ));
-        }
-
-        let cmd = compiler::MooncBundleCore::new(&inputs, output);
-
-        BuildCommand {
-            extra_inputs: vec![],
-            commandline: cmd.build_command("moonc"),
-        }
-    }
-
-    #[instrument(level = Level::DEBUG, skip(self))]
-    pub(super) fn lower_compile_runtime(&mut self) -> BuildCommand {
-        let artifact_path = self
-            .layout
-            .runtime_output_path(self.opt.target_backend, self.opt.os);
-
-        // TODO: this part might need more simplification?
-        let runtime_c_path = self.opt.runtime_dot_c_path.clone();
-        let cc_cmd = make_cc_command_pure::<&'static str>(
-            resolve_cc(CC::default(), None),
-            CCConfigBuilder::default()
-                .no_sys_header(true)
-                .output_ty(CCOutputType::Object)
-                .opt_level(CCOptLevel::Speed)
-                .debug_info(true)
-                // always link moonbitrun in this mode
-                .link_moonbitrun(true)
-                .define_use_shared_runtime_macro(false)
-                .build()
-                .expect("Failed to build CC configuration for runtime"),
-            &[],
-            [runtime_c_path.display().to_string()],
-            &self.opt.target_dir_root.display().to_string(),
-            &artifact_path.display().to_string(),
-            &self.opt.compiler_paths,
-        );
-
-        BuildCommand {
-            extra_inputs: vec![runtime_c_path],
-            commandline: cc_cmd,
-        }
-    }
-
-    #[instrument(level = Level::DEBUG, skip(self))]
-    pub(super) fn lower_generate_mbti(&mut self, target: BuildTarget) -> BuildCommand {
-        let input = self
-            .layout
-            .mi_of_build_target(self.packages, &target, self.opt.target_backend);
-        let pkg = self.packages.get_package(target.package);
-        let output = self.layout.generated_mbti_path(&pkg.root_path);
-
-        let cmd = Mooninfo {
-            mi_in: input.into(),
-            out: output.into(),
-            no_alias: false, // TODO: fill this
-        };
-
-        BuildCommand {
-            extra_inputs: vec![],
-            commandline: cmd.build_command("mooninfo"),
-        }
-    }
-
-    #[instrument(level = Level::DEBUG, skip(self))]
-    pub(super) fn lower_build_docs(&self) -> BuildCommand {
-        // TODO: How to enforce the `packages.json` dependency is generated
-        // up-to-date before the command is executed?
-        //
-        // If we forgot to generate anything at all, we can get a complaint from
-        // n2 for the file doesn't exist and nobody can create it, but if we
-        // have a stale file, we currently have to rely on ourselves.
-        //
-        // Currently, moondoc only support a single module in scope, so we
-        // have these constraints
-        let main_module = self
-            .opt
-            .main_module
-            .as_ref()
-            .expect("Currently only one module in the workspace is supported.");
-        let path = match main_module.source() {
-            ModuleSourceKind::Local(p) => p,
-            ModuleSourceKind::Registry(_) | ModuleSourceKind::Git(_) => {
-                panic!("Remote modules for docs are not supported")
-            }
-        };
-
-        let packages_json = self.layout.packages_json_path();
-        let cmd = MoondocCommand::new(
-            path,
-            self.layout.doc_dir(),
-            self.opt.stdlib_path.as_ref(),
-            &packages_json,
-            self.opt.docs_serve,
-        );
-
-        BuildCommand {
-            commandline: cmd.build_command("moondoc"),
-            extra_inputs: vec![packages_json],
         }
     }
 

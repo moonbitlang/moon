@@ -16,7 +16,7 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
-use anyhow::Context;
+use anyhow::{bail, Context};
 use colored::Colorize;
 use moonbuild::dry_run;
 use moonbuild::watch::watching;
@@ -38,7 +38,7 @@ use std::path::{Path, PathBuf};
 use tracing::{instrument, Level};
 
 use crate::cli::get_module_for_single_file;
-use crate::rr_build::{self, preconfig_compile, BuildConfig};
+use crate::rr_build::{self, preconfig_compile, BuildConfig, CalcUserIntentOutput};
 
 use super::pre_build::scan_with_x_build;
 use super::{get_compiler_flags, BuildFlags};
@@ -251,7 +251,15 @@ fn run_check_normal_internal(
             &cli.unstable_feature,
             source_dir,
             target_dir,
-            Box::new(|r, m| calc_user_intent(r, m, cmd.package_path.as_deref())),
+            Box::new(|r, m| {
+                calc_user_intent(
+                    r,
+                    m,
+                    cmd.package_path.as_deref(),
+                    cmd.no_mi,
+                    cmd.patch_file.as_deref(),
+                )
+            }),
         )?;
 
         if cli.dry_run {
@@ -266,8 +274,10 @@ fn run_check_normal_internal(
             // Generate metadata for IDE
             rr_build::generate_metadata(source_dir, target_dir, &_build_meta)?;
 
-            let mut cfg = BuildConfig::from_flags(&cmd.build_flags);
+            let mut cfg = BuildConfig::from_flags(&cmd.build_flags, &cli.unstable_feature);
             cfg.no_render |= cmd.output_json;
+            cfg.patch_file = cmd.patch_file.clone();
+            cfg.explain_errors |= cmd.explain;
             let result = rr_build::execute_build(&cfg, build_graph, target_dir)?;
             result.print_info(cli.quiet, "checking")?;
             Ok(result.return_code_for_success())
@@ -407,7 +417,9 @@ fn calc_user_intent(
     resolve_output: &moonbuild_rupes_recta::ResolveOutput,
     main_modules: &[moonutil::mooncakes::ModuleId],
     filter: Option<&Path>,
-) -> Result<Vec<BuildPlanNode>, anyhow::Error> {
+    no_mi: bool,
+    patch_file: Option<&Path>,
+) -> Result<CalcUserIntentOutput, anyhow::Error> {
     let &[main_module_id] = main_modules else {
         panic!("No multiple main modules are supported");
     };
@@ -430,17 +442,27 @@ fn calc_user_intent(
         // Filter the package whose root path matches the given filter path
         let filter = dunce::canonicalize(filter).context("failed to canonicalize filter path")?;
 
-        let nodes = packages
+        let find = packages
             .values()
             .find(|&&p| {
                 let pkg = resolve_output.pkg_dirs.get_package(p);
                 pkg.root_path == filter
             })
-            .map(|&p| check_targets(&p).to_vec())
-            .unwrap_or_default();
-        Ok(nodes)
+            .copied();
+        let Some(found) = find else {
+            bail!(
+                "Cannot find package to check based on input path `{}`",
+                filter.display()
+            );
+        };
+        let nodes = find.map(|p| check_targets(&p).to_vec()).unwrap_or_default();
+
+        // Apply --no-mi and --patch-file to specific packages
+        let directive = rr_build::build_patch_directive_for_package(found, no_mi, patch_file)?;
+
+        Ok((nodes, directive).into())
     } else {
-        let nodes = packages.values().flat_map(check_targets).collect();
-        Ok(nodes)
+        let nodes: Vec<_> = packages.values().flat_map(check_targets).collect();
+        Ok(nodes.into())
     }
 }

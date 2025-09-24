@@ -276,17 +276,9 @@ fn gather_tests(build_meta: &BuildMeta) -> Vec<TestExecutableToRun<'_>> {
             results.push(tgt);
         }
     }
-    results.sort_by_key(|v| {
-        (
-            // todo: easier way to get fqn
-            &build_meta
-                .resolve_output
-                .pkg_dirs
-                .get_package(v.target.package)
-                .fqn,
-            v.target.kind,
-        )
-    });
+
+    // Sort by artifact path -- this is the same as legacy behavior
+    results.sort_by_key(|v| v.executable);
 
     assert_eq!(
         pending.len(),
@@ -524,12 +516,8 @@ fn print_test_result(res: &TestCaseResult, module_name: &str, verbose: bool) {
             let _ = render_snapshot_fail(message);
         }
         TestResultKind::ExpectPanic => {
-            // For panic tests, success means we got a message (panic occurred)
-            if !message.is_empty() {
-                let _ = formatter.write_success(&mut std::io::stdout());
-            } else {
-                let _ = formatter.write_failure(&mut std::io::stdout());
-            }
+            let _ =
+                formatter.write_failure_with_message(&mut std::io::stdout(), "panic is expected");
             println!();
         }
     }

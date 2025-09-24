@@ -30,7 +30,7 @@ use tracing::{instrument, Level};
 
 use crate::{
     build_lower,
-    build_plan::{self, BuildEnvironment},
+    build_plan::{self, BuildEnvironment, InputDirective},
     model::{Artifacts, BuildPlanNode, OperatingSystem},
     resolve::ResolveOutput,
     special_cases::should_skip_tests,
@@ -69,6 +69,14 @@ pub struct CompileConfig {
     pub moonc_output_json: bool,
     /// Whether to output HTML for docs (in serve mode)
     pub docs_serve: bool,
+    /// Whether to disallow all warnings
+    pub deny_warn: bool,
+    /// List of warnings to enable
+    pub warn_list: Option<String>,
+    /// List of alerts to enable
+    pub alert_list: Option<String>,
+    /// Whether to not emit alias when running `mooninfo`
+    pub info_no_alias: bool,
 }
 
 /// The output information of the compilation.
@@ -96,6 +104,7 @@ pub fn compile(
     cx: &CompileConfig,
     resolve_output: &ResolveOutput,
     input_nodes: &[BuildPlanNode],
+    input_directive: &InputDirective,
 ) -> Result<CompileOutput, CompileGraphError> {
     info!(
         "Building compilation plan for {} build nodes",
@@ -111,13 +120,10 @@ pub fn compile(
         target_backend: cx.target_backend,
         opt_level: cx.opt_level,
         std: cx.stdlib_path.is_some(),
+        warn_list: cx.warn_list.clone(),
+        alert_list: cx.alert_list.clone(),
     };
-    let plan = build_plan::build_plan(
-        &resolve_output.pkg_dirs,
-        &resolve_output.pkg_rel,
-        &build_env,
-        input_nodes,
-    )?;
+    let plan = build_plan::build_plan(resolve_output, &build_env, input_nodes, input_directive)?;
 
     info!("Build plan created successfully");
     debug!("Build plan contains {} nodes", plan.node_count());
@@ -138,6 +144,8 @@ pub fn compile(
         output_wat: cx.output_wat,
         moonc_output_json: cx.moonc_output_json,
         docs_serve: cx.docs_serve,
+        deny_warn: cx.deny_warn,
+        info_no_alias: cx.info_no_alias,
 
         stdlib_path: cx.stdlib_path.clone(),
         compiler_paths: CompilerPaths::from_moon_dirs(), // change to external

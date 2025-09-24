@@ -277,10 +277,12 @@ fn discover_one_package(
     };
 
     // Sort the source files for repeatable results
+    let _sort_guard = tracing::debug_span!("sorting_files").entered();
     source_files.sort();
     mbt_lex_files.sort();
     mbt_yacc_files.sort();
     mbt_md_files.sort();
+    drop(_sort_guard);
 
     Ok(DiscoveredPackage {
         root_path: abs.to_path_buf(),

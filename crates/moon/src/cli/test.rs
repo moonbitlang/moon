@@ -24,6 +24,7 @@ use indexmap::IndexMap;
 use log::warn;
 use moonbuild::dry_run;
 use moonbuild::entry;
+use moonbuild_rupes_recta::build_plan::InputDirective;
 use moonbuild_rupes_recta::model::BuildPlanNode;
 use moonbuild_rupes_recta::model::BuildTarget;
 use moonbuild_rupes_recta::model::PackageId;
@@ -55,7 +56,7 @@ use tracing::{instrument, Level};
 use crate::cli::pre_build::scan_with_x_build;
 use crate::rr_build;
 use crate::rr_build::preconfig_compile;
-use crate::rr_build::BuildConfig;
+use crate::rr_build::{BuildConfig, CalcUserIntentOutput};
 use crate::run::perform_promotion;
 use crate::run::TestFilter;
 use crate::run::TestIndex;
@@ -578,7 +579,7 @@ fn run_test_rr(
 
         Ok(0)
     } else {
-        let build_config = BuildConfig::from_flags(cmd.build_flags);
+        let build_config = BuildConfig::from_flags(cmd.build_flags, &cli.unstable_feature);
 
         // since n2 build consumes the graph, we back it up for reruns
         let build_graph_backup = cmd.update.then(|| build_graph.clone());
@@ -734,6 +735,7 @@ fn apply_explicit_file_filter(
 }
 
 /// Apply the hierarchy of filters of packages, file and index
+#[allow(clippy::too_many_arguments)]
 fn apply_list_of_filters(
     affected_packages: impl Iterator<Item = PackageId>,
     resolve_output: &moonbuild_rupes_recta::ResolveOutput,
@@ -741,8 +743,9 @@ fn apply_list_of_filters(
     file_filter: Option<&str>,
     index_filter: Option<u32>,
     doc_index_filter: Option<u32>,
+    patch_file: Option<&Path>,
     out_filter: &mut TestFilter,
-) -> Result<(), anyhow::Error> {
+) -> Result<InputDirective, anyhow::Error> {
     // We deliberately didn't allow a string to be parsed into a package
     // name, because different package may have a same name. However, in a
     // module the package name should be unique, so we can make a map here.
@@ -783,6 +786,7 @@ fn apply_list_of_filters(
     }
 
     // Calculate resulting filter & target list
+    let mut input_directive = InputDirective::default();
     #[allow(clippy::comparison_chain)]
     if filtered_package_ids.len() == 1 {
         // Single filtered package, can apply file/index filtering
@@ -794,10 +798,22 @@ fn apply_list_of_filters(
         } else {
             out_filter.add_autodetermine_target(pkg_id, file_filter, None);
         }
+
+        input_directive = rr_build::build_patch_directive_for_package(pkg_id, false, patch_file)
+            .context("failed to build input directive")?;
     } else if filtered_package_ids.len() > 1 {
+        let package_names = || {
+            filtered_package_ids
+                .iter()
+                .map(|id| resolve_output.pkg_dirs.get_package(*id).fqn.to_string())
+                .collect::<Vec<_>>()
+        };
         // Multiple filtered package, check if file/index filtering is applied
         if file_filter.is_some() || index_filter.is_some() || doc_index_filter.is_some() {
-            bail!("Cannot filter by file or index when multiple packages are specified. Matched packages: {filtered_package_ids:?}");
+            bail!("Cannot filter by file or index when multiple packages are specified. Matched packages: {:?}", package_names());
+        }
+        if patch_file.is_some() {
+            bail!("Cannot apply patch file when multiple packages are specified. Matched packages: {:?}", package_names());
         }
         for &pkg_id in &filtered_package_ids {
             out_filter.add_autodetermine_target(pkg_id, None, None);
@@ -806,7 +822,8 @@ fn apply_list_of_filters(
         // No package matched
         warn!("no package found matching the given filters");
     }
-    Ok(())
+
+    Ok(input_directive)
 }
 
 /// Calculate the user intent for the build system to construct.
@@ -823,7 +840,7 @@ fn calc_user_intent(
     main_modules: &[moonutil::mooncakes::ModuleId],
     cmd: &TestLikeSubcommand<'_>,
     out_filter: &mut TestFilter,
-) -> Result<Vec<BuildPlanNode>, anyhow::Error> {
+) -> Result<CalcUserIntentOutput, anyhow::Error> {
     let &[main_module_id] = main_modules else {
         panic!("No multiple main modules are supported");
     };
@@ -834,8 +851,9 @@ fn calc_user_intent(
         .ok_or_else(|| anyhow::anyhow!("Cannot find the local module!"))?;
     let affected_packages = packages.values().copied();
 
-    if let Some(file_filter) = cmd.explicit_file_filter {
+    let directive = if let Some(file_filter) = cmd.explicit_file_filter {
         apply_explicit_file_filter(resolve_output, out_filter, file_filter)?;
+        Default::default()
     } else if let Some(package_filter) = cmd.package {
         apply_list_of_filters(
             affected_packages,
@@ -844,8 +862,9 @@ fn calc_user_intent(
             cmd.file.as_deref(),
             *cmd.index,
             *cmd.doc_index,
+            cmd.patch_file.as_deref(),
             out_filter,
-        )?;
+        )?
     } else {
         // No filter, return all packages and all targets
         return Ok(affected_packages
@@ -856,15 +875,21 @@ fn calc_user_intent(
                     .map(move |t| x.build_target(t))
             })
             .flat_map(node_from_target)
-            .collect());
+            .collect::<Vec<_>>()
+            .into());
     };
 
     // Generate the required nodes to out final build targets
-    if let Some(filt) = out_filter.filter.as_ref() {
-        Ok(filt.0.keys().copied().flat_map(node_from_target).collect())
+    let nodes = if let Some(filt) = out_filter.filter.as_ref() {
+        filt.0
+            .keys()
+            .copied()
+            .flat_map(node_from_target)
+            .collect::<Vec<_>>()
     } else {
-        Ok(vec![])
-    }
+        vec![]
+    };
+    Ok((nodes, directive).into())
 }
 
 #[instrument(skip_all)]

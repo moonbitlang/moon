@@ -46,7 +46,7 @@ use tracing::{instrument, Level};
 
 use crate::rr_build;
 use crate::rr_build::preconfig_compile;
-use crate::rr_build::BuildConfig;
+use crate::rr_build::{BuildConfig, CalcUserIntentOutput};
 use crate::run::default_rt;
 use crate::run::CommandGuard;
 
@@ -370,7 +370,7 @@ fn run_run_rr(cli: &UniversalFlags, cmd: RunSubcommand) -> Result<i32, anyhow::E
         Ok(0)
     } else {
         let build_result = rr_build::execute_build(
-            &BuildConfig::from_flags(&cmd.build_flags),
+            &BuildConfig::from_flags(&cmd.build_flags, &cli.unstable_feature),
             build_graph,
             &target_dir,
         )?;
@@ -414,7 +414,7 @@ fn calc_user_intent(
     input_path: &str,
     resolve_output: &moonbuild_rupes_recta::ResolveOutput,
     main_modules: &[moonutil::mooncakes::ModuleId],
-) -> Result<Vec<BuildPlanNode>, anyhow::Error> {
+) -> Result<CalcUserIntentOutput, anyhow::Error> {
     // `moon run` requires a path relative to CWD being provided. The path may
     // either be a MoonBit source code file, or a path to a module directory.
     //
@@ -458,7 +458,8 @@ fn calc_user_intent(
         Ok(vec![BuildPlanNode::make_executable(BuildTarget {
             package: pkg_id,
             kind: moonbuild_rupes_recta::model::TargetKind::Source,
-        })])
+        })]
+        .into())
     } else {
         Err(anyhow::anyhow!(
             "Cannot find package to build based on input path `{}`",

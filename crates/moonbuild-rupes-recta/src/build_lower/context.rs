@@ -21,19 +21,12 @@
 use std::path::PathBuf;
 
 use log::debug;
-use moonutil::{
-    common::TargetBackend,
-    cond_expr::OptLevel,
-    mooncakes::{result::ResolvedEnv, DirSyncResult},
-};
+use moonutil::mooncakes::{result::ResolvedEnv, DirSyncResult};
 use n2::graph::{Build, Graph as N2Graph};
 use tracing::{instrument, Level};
 
 use crate::{
-    build_lower::{
-        artifact::{self, LegacyLayout},
-        compiler::{self, ErrorFormat},
-    },
+    build_lower::artifact::LegacyLayout,
     build_plan::BuildPlan,
     discover::{DiscoverResult, DiscoveredPackage},
     model::{BuildPlanNode, BuildTarget},
@@ -151,6 +144,7 @@ impl<'a> BuildPlanLowerContext<'a> {
             }
             BuildPlanNode::BuildRuntimeLib => self.lower_compile_runtime(),
             BuildPlanNode::BuildDocs => self.lower_build_docs(),
+            BuildPlanNode::RunPrebuild(pkg, idx) => self.lower_run_prebuild(pkg, idx),
         };
 
         // Collect n2 inputs and outputs.
@@ -291,37 +285,19 @@ impl<'a> BuildPlanLowerContext<'a> {
                 // The output is a whole folder
                 out.push(self.layout.doc_dir())
             }
+            BuildPlanNode::RunPrebuild(pkg, idx) => {
+                let cfg = self
+                    .build_plan
+                    .get_prebuild_info(pkg, idx)
+                    .expect("Prebuild info should be populated before lowering run prebuild");
+                out.extend(cfg.resolved_outputs.iter().cloned());
+            }
         }
     }
 
     fn lowered(&mut self, build: Build) -> Result<(), anyhow::Error> {
         self.graph.add_build(build)?;
         Ok(())
-    }
-
-    #[instrument(level = Level::DEBUG, skip(self, common))]
-    pub(super) fn set_commons(&self, common: &mut compiler::BuildCommonArgs) {
-        common.stdlib_core_file = self
-            .opt
-            .stdlib_path
-            .as_ref()
-            .map(|x| artifact::core_bundle_path(x, self.opt.target_backend).into());
-        common.error_format = if self.opt.moonc_output_json {
-            ErrorFormat::Json
-        } else {
-            ErrorFormat::Regular
-        };
-    }
-
-    #[instrument(level = Level::DEBUG, skip(self, flags))]
-    pub(super) fn set_flags(&self, flags: &mut compiler::CompilationFlags) {
-        flags.no_opt = self.opt.opt_level == OptLevel::Debug;
-        flags.symbols = self.opt.debug_symbols;
-        flags.source_map = self.opt.debug_symbols
-            && matches!(
-                self.opt.target_backend,
-                TargetBackend::Js | TargetBackend::WasmGC
-            );
     }
 
     /// **For debug use only.** Prints debug information about a specific build

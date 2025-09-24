@@ -59,16 +59,14 @@ pub fn copy(src: &Path, dest: &Path) -> anyhow::Result<()> {
         if !dest.exists() {
             std::fs::create_dir_all(dest)?;
         }
-        let mut walk_dir = walkdir::WalkDir::new(src).into_iter();
-        while let Some(entry) = walk_dir.next() {
+        let mut walker = ignore::WalkBuilder::new(src);
+        walker.hidden(false);
+        walker.filter_entry(|x| x.file_name() != "target");
+        let walker = walker.build();
+        for entry in walker {
             let entry = entry?;
             let path = entry.path();
             let relative_path = path.strip_prefix(src)?;
-
-            if entry.path().ends_with("target") {
-                walk_dir.skip_current_dir();
-                continue;
-            }
 
             let dest_path = dest.join(relative_path);
             if path.is_dir() {
