@@ -40,6 +40,7 @@ use moonutil::mooncakes::RegistryConfig;
 use n2::trace;
 use std::path::Path;
 use std::path::PathBuf;
+use tracing::{instrument, Level};
 
 use crate::rr_build;
 use crate::rr_build::preconfig_compile;
@@ -76,6 +77,7 @@ pub struct BuildSubcommand {
     pub bin_alias: Option<String>,
 }
 
+#[instrument(skip_all)]
 pub fn run_build(cli: &UniversalFlags, cmd: &BuildSubcommand) -> anyhow::Result<i32> {
     let PackageDirs {
         source_dir,
@@ -99,6 +101,7 @@ pub fn run_build(cli: &UniversalFlags, cmd: &BuildSubcommand) -> anyhow::Result<
     Ok(ret_value)
 }
 
+#[instrument(skip_all)]
 fn run_build_internal(
     cli: &UniversalFlags,
     cmd: &BuildSubcommand,
@@ -144,6 +147,7 @@ fn run_build_internal(
     }
 }
 
+#[instrument(skip_all)]
 fn run_build_internal_legacy(
     cli: &UniversalFlags,
     cmd: &BuildSubcommand,
@@ -270,6 +274,7 @@ fn run_build_internal_legacy(
 /// Generate user intent
 /// If any packages are linkable, compile those; otherwise, compile everything
 /// to core.
+#[instrument(level = Level::DEBUG, skip_all)]
 fn calc_user_intent(
     resolve_output: &moonbuild_rupes_recta::ResolveOutput,
     main_modules: &[moonutil::mooncakes::ModuleId],

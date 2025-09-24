@@ -50,6 +50,7 @@ use std::collections::HashMap;
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
+use tracing::{instrument, Level};
 
 use crate::cli::pre_build::scan_with_x_build;
 use crate::rr_build;
@@ -149,6 +150,7 @@ pub struct TestSubcommand {
     pub single_file: Option<PathBuf>,
 }
 
+#[instrument(skip_all)]
 pub fn run_test(cli: UniversalFlags, cmd: TestSubcommand) -> anyhow::Result<i32> {
     // Check if we're running within a project
     let dirs = match cli.source_tgt_dir.try_into_package_dirs() {
@@ -199,6 +201,7 @@ pub fn run_test(cli: UniversalFlags, cmd: TestSubcommand) -> anyhow::Result<i32>
     Ok(ret_value)
 }
 
+#[instrument(skip_all)]
 fn run_test_internal(
     cli: &UniversalFlags,
     cmd: &TestSubcommand,
@@ -215,6 +218,7 @@ fn run_test_internal(
     )
 }
 
+#[instrument(level = Level::DEBUG, skip_all)]
 fn run_test_in_single_file(cli: &UniversalFlags, cmd: &TestSubcommand) -> anyhow::Result<i32> {
     let single_file_path = &dunce::canonicalize(cmd.single_file.as_ref().unwrap()).unwrap();
     let source_dir = single_file_path.parent().unwrap().to_path_buf();
@@ -506,6 +510,7 @@ impl<'a> From<&'a BenchSubcommand> for TestLikeSubcommand<'a> {
     }
 }
 
+#[instrument(skip_all)]
 pub(crate) fn run_test_or_bench_internal(
     cli: &UniversalFlags,
     cmd: TestLikeSubcommand,
@@ -534,6 +539,7 @@ pub(crate) fn run_test_or_bench_internal(
     }
 }
 
+#[instrument(skip_all)]
 fn run_test_rr(
     cli: &UniversalFlags,
     cmd: &TestLikeSubcommand<'_>,
@@ -861,6 +867,7 @@ fn calc_user_intent(
     }
 }
 
+#[instrument(skip_all)]
 pub(crate) fn run_test_or_bench_internal_legacy(
     cli: &UniversalFlags,
     cmd: TestLikeSubcommand,
@@ -1223,6 +1230,7 @@ pub(crate) fn run_test_or_bench_internal_legacy(
     res
 }
 
+#[instrument(level = Level::DEBUG, skip_all)]
 fn do_run_test(
     moonc_opt: MooncOpt,
     moonbuild_opt: MoonbuildOpt,

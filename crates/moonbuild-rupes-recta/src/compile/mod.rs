@@ -26,6 +26,7 @@ use moonutil::{
     cond_expr::OptLevel,
     moon_dir::MOON_DIRS,
 };
+use tracing::{instrument, Level};
 
 use crate::{
     build_lower,
@@ -90,6 +91,7 @@ pub enum CompileGraphError {
     LowerError(#[from] build_lower::LoweringError),
 }
 
+#[instrument(skip_all)]
 pub fn compile(
     cx: &CompileConfig,
     resolve_output: &ResolveOutput,
@@ -162,6 +164,7 @@ pub fn compile(
 /// node should be retained.
 ///
 /// See [`crate::special_cases`] for more information.
+#[instrument(level = Level::DEBUG, skip_all)]
 fn filter_special_case_input_nodes(node: BuildPlanNode, resolve_output: &ResolveOutput) -> bool {
     match node.extract_target() {
         Some(tgt) if tgt.kind.is_test() => !should_skip_tests(tgt.package, resolve_output),

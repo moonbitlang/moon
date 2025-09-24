@@ -37,11 +37,12 @@ use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt, Layer};
 /// tracing file.
 ///
 /// Returns a boxed guard that keeps the tracing system alive.
-fn init_tracing(trace_execution: bool) -> Box<dyn Any> {
+fn init_tracing() -> Box<dyn Any> {
     // usage example: only show debug logs for moonbuild::runtest module
     // env RUST_LOG=moonbuild::runtest=debug cargo run -- test --source-dir ./tests/test_cases/moon_new.in
 
     let log_env_set = std::env::var("RUST_LOG").is_ok();
+    let moon_tracing_env = std::env::var("MOON_TRACE").ok();
     let filter = tracing_subscriber::EnvFilter::builder()
         .with_default_directive(tracing::Level::WARN.into())
         .from_env_lossy();
@@ -57,17 +58,23 @@ fn init_tracing(trace_execution: bool) -> Box<dyn Any> {
     };
 
     // Trace spans in Chrome format
-    let (chrome_layer, chrome_guard) = trace_execution
-        .then(|| {
-            tracing_chrome::ChromeLayerBuilder::new()
+
+    let (chrome_layer, chrome_guard) = moon_tracing_env
+        .map(|env| {
+            let chrome_filter = tracing_subscriber::EnvFilter::builder()
+                .with_default_directive(tracing::Level::TRACE.into())
+                .parse_lossy(env);
+
+            let (layer, guard) = tracing_chrome::ChromeLayerBuilder::new()
                 .include_args(true)
-                .build()
+                .build();
+            (chrome_filter.and_then(layer), guard)
         })
         .unzip();
 
+    let fmt_layer = fmt.with_filter(filter);
     let registry = tracing_subscriber::registry()
-        .with(filter)
-        .with(fmt)
+        .with(fmt_layer)
         .with(chrome_layer)
         .set_default();
 
@@ -80,7 +87,7 @@ pub fn main() {
     let cli = cli::MoonBuildCli::parse();
     let flags = cli.flags;
 
-    let _trace_guard = init_tracing(flags.unstable_feature.tracing);
+    let _trace_guard = init_tracing();
 
     use MoonBuildSubcommands::*;
     let res = match cli.subcommand {
@@ -114,6 +121,8 @@ pub fn main() {
         Tool(v) => cli::run_tool(v),
         External(args) => cli::run_external(args),
     };
+
+    drop(_trace_guard);
 
     match res {
         Ok(code) => std::process::exit(code),
