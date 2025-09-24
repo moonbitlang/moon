@@ -1106,7 +1106,8 @@ pub fn gen_moonbitlang_abort_pkg(moonc_opt: &MooncOpt) -> Package {
         components: vec!["moonbitlang".to_string(), "core".to_string()],
     };
 
-    let root_path = crate::moon_dir::core().join("abort");
+    let module_root = crate::moon_dir::core();
+    let root_path = module_root.join("abort");
 
     Package {
         is_main: false,
@@ -1151,6 +1152,7 @@ pub fn gen_moonbitlang_abort_pkg(moonc_opt: &MooncOpt) -> Package {
         link_flags: None,
         link_libs: vec![],
         link_search_paths: vec![],
+        module_root: module_root.into(),
     }
 }
 

@@ -28,6 +28,7 @@ use moonutil::module::ModuleDB;
 use moonutil::package::Package;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
+use std::sync::Arc;
 
 use moonutil::common::{
     get_desc_name, CheckOpt, MoonbuildOpt, MooncOpt, MOON_PKG_JSON, SUB_PKG_POSTFIX,
@@ -47,6 +48,8 @@ pub struct CheckDepItem {
     pub mi_deps: Vec<MiAlias>,
     pub package_full_name: String,
     pub package_source_dir: String,
+    /// Canonical absolute path to the module directory (parent of moon.mod.json)
+    pub workspace_root: Arc<Path>,
     pub warn_list: Option<String>,
     pub alert_list: Option<String>,
     pub is_main: bool,
@@ -146,6 +149,8 @@ fn pkg_to_check_item(
         None
     };
 
+    let workspace_root: Arc<Path> = Arc::clone(&pkg.module_root);
+
     Ok(CheckDepItem {
         mi_out: out.display().to_string(),
         mbt_deps,
@@ -154,6 +159,7 @@ fn pkg_to_check_item(
         mbt_md_deps: vec![],
         package_full_name,
         package_source_dir,
+        workspace_root,
         warn_list: pkg.warn_list.clone(),
         alert_list: pkg.alert_list.clone(),
         is_main: pkg.is_main,
@@ -232,6 +238,8 @@ fn pkg_with_wbtest_to_check_item(
     };
     let package_source_dir: String = pkg.root_path.to_string_lossy().into_owned();
 
+    let workspace_root: Arc<Path> = Arc::clone(&pkg.module_root);
+
     Ok(CheckDepItem {
         mi_out: out.display().to_string(),
         mbt_deps,
@@ -240,6 +248,7 @@ fn pkg_with_wbtest_to_check_item(
         mbt_md_deps: vec![],
         package_full_name,
         package_source_dir,
+        workspace_root,
         warn_list: pkg.warn_list.clone(),
         alert_list: pkg.alert_list.clone(),
         is_main: pkg.is_main,
@@ -379,6 +388,8 @@ fn pkg_with_test_to_check_item(
     } + "_blackbox_test";
     let package_source_dir: String = pkg.root_path.to_string_lossy().into_owned();
 
+    let workspace_root: Arc<Path> = Arc::clone(&pkg.module_root);
+
     Ok(CheckDepItem {
         mi_out: out.display().to_string(),
         mbt_deps,
@@ -387,6 +398,7 @@ fn pkg_with_test_to_check_item(
         mbt_md_deps,
         package_full_name,
         package_source_dir,
+        workspace_root,
         warn_list: pkg.warn_list.clone(),
         alert_list: pkg.alert_list.clone(),
         is_main: pkg.is_main,
@@ -599,6 +611,8 @@ pub fn gen_check_command(
                 format!("{}:{}", &pkg_name, &pkg_path,),
             ]
         })
+        .arg("-workspace-path")
+        .arg(&item.workspace_root.display().to_string())
         .build();
     log::debug!("Command: {}", command);
     build.cmdline = Some(command);

@@ -40,6 +40,7 @@ use super::{is_self_coverage_lib, is_skip_coverage_lib};
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
+use std::sync::Arc;
 
 use moonutil::common::{MoonbuildOpt, MooncOpt, MOON_PKG_JSON};
 use n2::graph::{self as n2graph, Build, BuildIns, BuildOuts, FileLoc};
@@ -69,6 +70,8 @@ pub struct RuntestDepItem {
     pub package_full_name: String,
     pub original_package_full_name: Option<String>,
     pub package_source_dir: String,
+    /// Canonical absolute path to the module directory (parent of moon.mod.json)
+    pub workspace_root: Arc<Path>,
     pub warn_list: Option<String>,
     pub alert_list: Option<String>,
     pub is_main: bool,
@@ -300,6 +303,8 @@ pub fn gen_package_core(
         None
     };
 
+    let workspace_root: Arc<Path> = Arc::clone(&pkg.module_root);
+
     Ok(RuntestDepItem {
         core_out: core_out.display().to_string(),
         mi_out: mi_out.display().to_string(),
@@ -310,6 +315,7 @@ pub fn gen_package_core(
         package_full_name,
         original_package_full_name: None,
         package_source_dir,
+        workspace_root,
         warn_list: pkg.warn_list.clone(),
         alert_list: pkg.alert_list.clone(),
         is_main: pkg.is_main,
@@ -387,6 +393,8 @@ pub fn gen_package_internal_test(
 
     let package_source_dir = pkg.root_path.to_string_lossy().into_owned();
 
+    let workspace_root: Arc<Path> = Arc::clone(&pkg.module_root);
+
     Ok(RuntestDepItem {
         core_out: core_out.display().to_string(),
         mi_out: mi_out.display().to_string(),
@@ -397,6 +405,7 @@ pub fn gen_package_internal_test(
         package_full_name,
         original_package_full_name: None,
         package_source_dir,
+        workspace_root,
         warn_list: pkg.warn_list.clone(),
         alert_list: pkg.alert_list.clone(),
         is_main: true,
@@ -483,6 +492,8 @@ pub fn gen_package_whitebox_test(
 
     let package_source_dir = pkg.root_path.to_string_lossy().into_owned();
 
+    let workspace_root: Arc<Path> = Arc::clone(&pkg.module_root);
+
     Ok(RuntestDepItem {
         core_out: core_out.display().to_string(),
         mi_out: mi_out.display().to_string(),
@@ -493,6 +504,7 @@ pub fn gen_package_whitebox_test(
         package_full_name,
         original_package_full_name: None,
         package_source_dir,
+        workspace_root,
         warn_list: pkg.warn_list.clone(),
         alert_list: pkg.alert_list.clone(),
         is_main: true,
@@ -624,6 +636,8 @@ pub fn gen_package_blackbox_test(
     let package_full_name = pkg.full_name() + "_blackbox_test";
     let package_source_dir: String = pkg.root_path.to_string_lossy().into_owned();
 
+    let workspace_root: Arc<Path> = Arc::clone(&pkg.module_root);
+
     Ok(RuntestDepItem {
         core_out: core_out.display().to_string(),
         mi_out: mi_out.display().to_string(),
@@ -634,6 +648,7 @@ pub fn gen_package_blackbox_test(
         package_full_name,
         original_package_full_name: Some(pkg.full_name()),
         package_source_dir,
+        workspace_root,
         warn_list: pkg.warn_list.clone(),
         alert_list: pkg.alert_list.clone(),
         is_main: true,
@@ -1258,6 +1273,8 @@ pub fn gen_runtest_build_command(
             "-test-mode",
         )
         .arg_with_cond(item.enable_value_tracing, "-enable-value-tracing")
+        .arg("-workspace-path")
+        .arg(&item.workspace_root.display().to_string())
         .build();
     log::debug!("Command: {}", command);
     build.cmdline = Some(command);

@@ -21,7 +21,11 @@
 use std::path::PathBuf;
 
 use log::debug;
-use moonutil::{common::TargetBackend, cond_expr::OptLevel, mooncakes::result::ResolvedEnv};
+use moonutil::{
+    common::TargetBackend,
+    cond_expr::OptLevel,
+    mooncakes::{result::ResolvedEnv, DirSyncResult},
+};
 use n2::graph::{Build, Graph as N2Graph};
 
 use crate::{
@@ -33,6 +37,7 @@ use crate::{
     discover::{DiscoverResult, DiscoveredPackage},
     model::{BuildPlanNode, BuildTarget},
     pkg_solve::DepRelationship,
+    ResolveOutput,
 };
 
 use super::{
@@ -50,6 +55,7 @@ pub(crate) struct BuildPlanLowerContext<'a> {
     // External state
     pub(crate) packages: &'a DiscoverResult,
     pub(crate) modules: &'a ResolvedEnv,
+    pub(crate) module_dirs: &'a DirSyncResult,
     pub(crate) rel: &'a DepRelationship,
     pub(crate) build_plan: &'a BuildPlan,
     pub(crate) opt: &'a BuildOptions,
@@ -58,18 +64,17 @@ pub(crate) struct BuildPlanLowerContext<'a> {
 impl<'a> BuildPlanLowerContext<'a> {
     pub(super) fn new(
         layout: LegacyLayout,
-        rel: &'a DepRelationship,
-        modules: &'a ResolvedEnv,
-        packages: &'a DiscoverResult,
+        resolve_output: &'a ResolveOutput,
         build_plan: &'a BuildPlan,
         opt: &'a BuildOptions,
     ) -> Self {
         Self {
             graph: N2Graph::default(),
             layout,
-            rel,
-            modules,
-            packages,
+            rel: &resolve_output.pkg_rel,
+            modules: &resolve_output.module_rel,
+            packages: &resolve_output.pkg_dirs,
+            module_dirs: &resolve_output.module_dirs,
             build_plan,
             opt,
         }

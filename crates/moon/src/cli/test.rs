@@ -49,6 +49,7 @@ use smallvec::SmallVec;
 use std::collections::HashMap;
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
 use crate::cli::pre_build::scan_with_x_build;
 use crate::rr_build;
@@ -340,6 +341,7 @@ pub fn get_module_for_single_file(
             force_link: false,
             is_third_party: false,
             root_path: source_dir.clone(),
+            module_root: Arc::from(source_dir),
             root: path_comp,
             rel: PathComponent {
                 components: vec![pkg_rel_name.to_string()],
