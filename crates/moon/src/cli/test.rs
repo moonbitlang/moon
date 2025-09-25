@@ -548,12 +548,18 @@ fn run_test_rr(
     target_dir: &Path,
     display_backend_hint: Option<()>, // FIXME: unsure why it's option but as-is for now
 ) -> Result<i32, anyhow::Error> {
+    let is_bench = cmd.run_mode == RunMode::Bench;
+    let default_opt_level = if is_bench {
+        OptLevel::Release
+    } else {
+        OptLevel::Debug
+    };
     let preconfig = preconfig_compile(
         cmd.auto_sync_flags,
         cli,
         cmd.build_flags,
         target_dir,
-        OptLevel::Debug,
+        default_opt_level,
         RunMode::Test,
     );
 
