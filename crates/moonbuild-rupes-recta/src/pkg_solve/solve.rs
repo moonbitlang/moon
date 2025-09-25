@@ -30,6 +30,14 @@ use crate::{
 
 type RevMap = HashMap<String, (ModuleId, PackageId)>;
 
+/// A grouped environment for resolving dependencies.
+struct ResolveEnv<'a> {
+    modules: &'a ResolvedEnv,
+    packages: &'a DiscoverResult,
+    rev_map: &'a RevMap,
+    res: DepRelationship,
+}
+
 pub fn solve_only(
     modules: &ResolvedEnv,
     packages: &DiscoverResult,
@@ -38,7 +46,6 @@ pub fn solve_only(
         "Building dependency resolution structures for {} packages",
         packages.package_count()
     );
-    let mut res = DepRelationship::default();
 
     // To convert the Package FQNs within `moon.pkg.json` into actual resolved
     // package instances, we will need to construct a reversed mapping from
@@ -81,6 +88,13 @@ pub fn solve_only(
     }
     debug!("Built reverse mapping");
 
+    let mut env = ResolveEnv {
+        modules,
+        packages,
+        rev_map: &rev_map,
+        res: DepRelationship::default(),
+    };
+
     debug!("Processing packages for dependency resolution");
     for (mid, _) in modules.all_modules_and_id() {
         let Some(pkgs) = packages.packages_for_module(mid) else {
@@ -90,10 +104,12 @@ pub fn solve_only(
 
         trace!("Processing packages for module {:?}", mid);
         for &pid in pkgs.values() {
-            solve_one_package(&mut res, modules, packages, &rev_map, mid, pid)?;
+            solve_one_package(&mut env, mid, pid)?;
         }
     }
     debug!("Processed packages");
+
+    let res = env.res;
 
     debug!(
         "Dependency resolution completed with {} nodes and {} edges",
@@ -104,14 +120,11 @@ pub fn solve_only(
 }
 
 fn solve_one_package(
-    res: &mut DepRelationship,
-    modules: &ResolvedEnv,
-    packages: &DiscoverResult,
-    rev_map: &RevMap,
+    env: &mut ResolveEnv,
     mid: ModuleId,
     pid: PackageId,
 ) -> Result<(), SolveError> {
-    let pkg_data = packages.get_package(pid);
+    let pkg_data = env.packages.get_package(pid);
     trace!(
         "Solving package {:?} in module {:?}: {}",
         pid,
@@ -119,8 +132,7 @@ fn solve_one_package(
         pkg_data.fqn.package()
     );
 
-    let mut resolve =
-        |import, kind| resolve_import(res, modules, packages, rev_map, mid, pid, import, kind);
+    let mut resolve = |import, kind| resolve_import(env, mid, pid, import, kind);
 
     // Gotcha: This part adds import edges based on different fields of the
     // package declaration, i.e. given each import list (regular imports,
@@ -154,7 +166,7 @@ fn solve_one_package(
         }
     }
     // black box tests also add the source package as an import
-    res.dep_graph.add_edge(
+    env.res.dep_graph.add_edge(
         pid.build_target(TargetKind::BlackboxTest),
         pid.build_target(TargetKind::Source),
         DepEdge {
@@ -170,10 +182,7 @@ fn solve_one_package(
 
 #[allow(clippy::too_many_arguments)]
 fn resolve_import(
-    res: &mut DepRelationship,
-    modules: &ResolvedEnv,
-    packages: &DiscoverResult,
-    rev_map: &RevMap,
+    env: &mut ResolveEnv,
     mid: ModuleId,
     pid: PackageId,
     import: &moonutil::package::Import,
@@ -188,14 +197,14 @@ fn resolve_import(
     );
 
     // Try to resolve this import
-    let Some((import_mid, import_pid)) = rev_map.get(import_source) else {
+    let Some((import_mid, import_pid)) = env.rev_map.get(import_source) else {
         debug!(
             "Import '{}' not found in reverse mapping for package {:?}",
             import_source, pid
         );
         return Err(SolveError::ImportNotFound {
             import: import_source.to_owned(),
-            package_fqn: packages.fqn(pid).into(),
+            package_fqn: env.packages.fqn(pid).into(),
         });
     };
 
@@ -207,16 +216,16 @@ fn resolve_import(
     );
 
     // Check if the import actually belongs to the current module's import
-    let imported = packages.get_package(*import_pid);
-    if *import_mid != mid && modules.graph().edge_weight(mid, *import_mid).is_none() {
+    let imported = env.packages.get_package(*import_pid);
+    if *import_mid != mid && env.modules.graph().edge_weight(mid, *import_mid).is_none() {
         debug!(
             "Import '{}' module {:?} not imported by current module {:?}",
             import_source, import_mid, mid
         );
         return Err(SolveError::ImportNotImportedByModule {
             import: imported.fqn.clone().into(),
-            module: modules.mod_name_from_id(mid).clone(),
-            pkg: packages.get_package(pid).fqn.package().clone(),
+            module: env.modules.mod_name_from_id(mid).clone(),
+            pkg: env.packages.get_package(pid).fqn.package().clone(),
         });
     }
 
@@ -264,7 +273,7 @@ fn resolve_import(
             short_alias
         );
 
-        res.dep_graph.add_edge(
+        env.res.dep_graph.add_edge(
             package,
             dependency,
             DepEdge {
