@@ -156,6 +156,7 @@ impl BuildPlanNode {
             | BuildPlanNode::Bundle(_)
             | BuildPlanNode::BuildRuntimeLib
             | BuildPlanNode::BuildDocs
+            | BuildPlanNode::BuildVirtual(_)
             | BuildPlanNode::RunPrebuild(_, _) => None,
         }
     }

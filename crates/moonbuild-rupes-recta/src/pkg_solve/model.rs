@@ -16,10 +16,9 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
-use std::collections::HashMap;
-
 use moonutil::mooncakes::ModuleSource;
 use petgraph::prelude::DiGraphMap;
+use slotmap::SparseSecondaryMap;
 
 use crate::{
     model::{BuildTarget, PackageId, TargetKind},
@@ -35,6 +34,17 @@ pub struct DepEdge {
     pub kind: TargetKind,
 }
 
+/// Represents resolved virtual package user information.
+#[derive(Clone, Debug, Default)]
+pub struct VirtualUser {
+    /// The list of virtual package overridings this user applies.
+    ///
+    /// This is a map from the virtual package to the actual package that
+    /// implements it. If the virtual package has a default, it is not included
+    /// in this map.
+    pub overrides: SparseSecondaryMap<PackageId, PackageId>,
+}
+
 /// The dependency relationship between build targets
 #[derive(Clone, Debug, Default)]
 pub struct DepRelationship {
@@ -42,6 +52,17 @@ pub struct DepRelationship {
     ///
     /// The edges should point from dependent (downstream) to dependency (upstream).
     pub dep_graph: DiGraphMap<BuildTarget, DepEdge>,
+
+    /// A map from package to the resolved virtual packages it uses, if any.
+    ///
+    /// If a package uses virtual packages but does not have an entry in this
+    /// map, it means it uses the default implementations of all virtual
+    /// packages. This is because a virtual package with default implementation
+    /// is the same as a normal package.
+    pub virtual_users: SparseSecondaryMap<PackageId, VirtualUser>,
+
+    /// A map from package to the virtual package it implements, if any.
+    pub virt_impl: SparseSecondaryMap<PackageId, PackageId>,
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -93,5 +114,34 @@ pub enum SolveError {
         second_import_node: BuildTarget,
         second_import: PackageFQNWithSource,
         second_import_kind: TargetKind,
+    },
+
+    #[error(
+        "Package {package} declares implementation target {implements}, \
+        but it is not a virtual package."
+    )]
+    ImplementTargetNotVirtual {
+        package: PackageFQNWithSource,
+        implements: PackageFQNWithSource,
+    },
+
+    #[error(
+        "Package {package} declares a virtual override {virtual_override}, \
+        but that package is not implementing a virtual package."
+    )]
+    OverrideNotImplementor {
+        package: PackageFQNWithSource,
+        virtual_override: PackageFQNWithSource,
+    },
+
+    #[error(
+        "Virtual package {virtual_pkg} is overridden twice in package {package}: \
+        first by {first_override} and again by {second_override}."
+    )]
+    VirtualOverrideConflict {
+        package: PackageFQNWithSource,
+        virtual_pkg: PackageFQNWithSource,
+        first_override: PackageFQNWithSource,
+        second_override: PackageFQNWithSource,
     },
 }

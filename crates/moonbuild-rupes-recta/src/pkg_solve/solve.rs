@@ -23,9 +23,10 @@ use moonutil::mooncakes::{result::ResolvedEnv, ModuleId};
 
 use super::model::{DepEdge, DepRelationship, SolveError};
 use crate::{
-    discover::DiscoverResult,
+    discover::{DiscoverResult, DiscoveredPackage},
     model::{PackageId, TargetKind},
     pkg_name::format_package_fqn,
+    pkg_solve::model::VirtualUser,
 };
 
 type RevMap = HashMap<String, (ModuleId, PackageId)>;
@@ -102,6 +103,17 @@ pub fn solve_only(
             continue;
         };
 
+        for &pid in pkgs.values() {
+            solve_one_package_virtual_impl(&mut env, mid, pid)?;
+        }
+    }
+
+    for (mid, _) in modules.all_modules_and_id() {
+        let Some(pkgs) = packages.packages_for_module(mid) else {
+            trace!("No packages found for module {:?}", mid);
+            continue;
+        };
+
         trace!("Processing packages for module {:?}", mid);
         for &pid in pkgs.values() {
             solve_one_package(&mut env, mid, pid)?;
@@ -119,6 +131,42 @@ pub fn solve_only(
     Ok(res)
 }
 
+/// Solve the virtual package implementation (and only this field) for a given package.
+///
+/// MAINTAINERS: This part is split into a separate pass because the main
+/// resolving path of one package may depend on the virtual implementation
+/// information of other packages. Thus, we need to ensure all virtual
+/// implementations are resolved before we start the main solving pass.
+fn solve_one_package_virtual_impl(
+    env: &mut ResolveEnv<'_>,
+    mid: ModuleId,
+    pid: PackageId,
+) -> Result<(), SolveError> {
+    let pkg_data = env.packages.get_package(pid);
+    trace!(
+        "Solving virtual package implementations for package {:?} in module {:?}: {}",
+        pid,
+        mid,
+        pkg_data.fqn.package()
+    );
+
+    let v_impl = pkg_data.raw.implement.as_deref();
+    if let Some(v_impl) = v_impl {
+        let (impl_pid, impl_data) = resolve_import_raw(env, mid, pid, v_impl)?;
+
+        if !impl_data.is_virtual() {
+            return Err(SolveError::ImplementTargetNotVirtual {
+                package: pkg_data.fqn.clone().into(),
+                implements: impl_data.fqn.clone().into(),
+            });
+        }
+        env.res.virt_impl.insert(pid, impl_pid);
+    }
+
+    Ok(())
+}
+
+/// Solve related dependency information for one package.
 fn solve_one_package(
     env: &mut ResolveEnv,
     mid: ModuleId,
@@ -132,7 +180,11 @@ fn solve_one_package(
         pkg_data.fqn.package()
     );
 
-    let mut resolve = |import, kind| resolve_import(env, mid, pid, import, kind);
+    let mut resolve = |import, kind| {
+        let resolved = resolve_import(env, mid, pid, import)?;
+        add_dep_edges_for_import(env, pid, resolved, kind);
+        Ok(())
+    };
 
     // Gotcha: This part adds import edges based on different fields of the
     // package declaration, i.e. given each import list (regular imports,
@@ -176,58 +228,33 @@ fn solve_one_package(
     );
     // TODO: Add heuristic to not generate white box test targets for external packages
 
+    let virtual_info = resolve_virtual_usages(env, pid, pkg_data)?;
+    if let Some(vu) = virtual_info {
+        env.res.virtual_users.insert(pid, vu);
+    }
+
     trace!("Completed solving package {:?}", pid);
     Ok(())
 }
 
+/// Grouped necessary information about an import
+struct ResolvedImport<'a> {
+    package_id: PackageId,
+    target_is_subpackage: bool,
+    short_alias: &'a str,
+}
+
+/// Resolve one import item for a given package.
 #[allow(clippy::too_many_arguments)]
-fn resolve_import(
-    env: &mut ResolveEnv,
+fn resolve_import<'a>(
+    env: &mut ResolveEnv<'a>,
     mid: ModuleId,
     pid: PackageId,
-    import: &moonutil::package::Import,
-    import_source_kind: TargetKind,
-) -> Result<(), SolveError> {
+    import: &'a moonutil::package::Import,
+) -> Result<ResolvedImport<'a>, SolveError> {
     let import_source = import.get_path();
-    trace!(
-        "Resolving import '{}' for package {:?} with kind {:?}",
-        import_source,
-        pid,
-        import_source_kind
-    );
 
-    // Try to resolve this import
-    let Some((import_mid, import_pid)) = env.rev_map.get(import_source) else {
-        debug!(
-            "Import '{}' not found in reverse mapping for package {:?}",
-            import_source, pid
-        );
-        return Err(SolveError::ImportNotFound {
-            import: import_source.to_owned(),
-            package_fqn: env.packages.fqn(pid).into(),
-        });
-    };
-
-    trace!(
-        "Import '{}' resolved to module {:?}, package {:?}",
-        import_source,
-        import_mid,
-        import_pid
-    );
-
-    // Check if the import actually belongs to the current module's import
-    let imported = env.packages.get_package(*import_pid);
-    if *import_mid != mid && env.modules.graph().edge_weight(mid, *import_mid).is_none() {
-        debug!(
-            "Import '{}' module {:?} not imported by current module {:?}",
-            import_source, import_mid, mid
-        );
-        return Err(SolveError::ImportNotImportedByModule {
-            import: imported.fqn.clone().into(),
-            module: env.modules.mod_name_from_id(mid).clone(),
-            pkg: env.packages.get_package(pid).fqn.package().clone(),
-        });
-    }
+    let (import_pid, imported) = resolve_import_raw(env, mid, pid, import_source)?;
 
     // Okay, now let's add this package to our package's import in deps
     // TODO: the import alias determination part is a mess, will need to refactor later
@@ -249,42 +276,92 @@ fn resolve_import(
         is_import_target_subpackage
     );
 
+    Ok(ResolvedImport {
+        package_id: import_pid,
+        target_is_subpackage: is_import_target_subpackage,
+        short_alias,
+    })
+}
+
+fn resolve_import_raw<'a>(
+    env: &mut ResolveEnv<'a>,
+    mid: ModuleId,
+    pid: PackageId,
+    import_source: &str,
+) -> Result<(PackageId, &'a DiscoveredPackage), SolveError> {
+    trace!("Resolving import '{}' for package {:?}", import_source, pid);
+
+    let Some((import_mid, import_pid)) = env.rev_map.get(import_source) else {
+        debug!(
+            "Import '{}' not found in reverse mapping for package {:?}",
+            import_source, pid
+        );
+        return Err(SolveError::ImportNotFound {
+            import: import_source.to_owned(),
+            package_fqn: env.packages.fqn(pid).into(),
+        });
+    };
+    trace!(
+        "Import '{}' resolved to module {:?}, package {:?}",
+        import_source,
+        import_mid,
+        import_pid
+    );
+    let imported = env.packages.get_package(*import_pid);
+    if *import_mid != mid && env.modules.graph().edge_weight(mid, *import_mid).is_none() {
+        debug!(
+            "Import '{}' module {:?} not imported by current module {:?}",
+            import_source, import_mid, mid
+        );
+        return Err(SolveError::ImportNotImportedByModule {
+            import: imported.fqn.clone().into(),
+            module: env.modules.mod_name_from_id(mid).clone(),
+            pkg: env.packages.get_package(pid).fqn.package().clone(),
+        });
+    }
+    Ok((*import_pid, imported))
+}
+
+/// Insert dependency edges for one resolved import.
+fn add_dep_edges_for_import(
+    env: &mut ResolveEnv,
+    pid: PackageId,
+    import: ResolvedImport,
+    import_source_kind: TargetKind,
+) {
     // Insert edges
     let targets = dep_edge_source_from_targets(import_source_kind);
     trace!(
-        "Adding dependency edges for import '{}' ({:?})",
-        import_source,
+        "Adding dependency edges for import '{:?}' ({:?})",
+        import.package_id,
         targets
     );
     for package_target in targets {
-        let import_kind = if is_import_target_subpackage {
+        let import_kind = if import.target_is_subpackage {
             TargetKind::SubPackage
         } else {
             TargetKind::Source
         };
 
-        let dependency = import_pid.build_target(import_kind);
+        let dependency = import.package_id.build_target(import_kind);
         let package = pid.build_target(*package_target);
 
         trace!(
             "Adding edge: {:?} -> {:?} (short alias: '{}')",
             package,
             dependency,
-            short_alias
+            import.short_alias
         );
 
         env.res.dep_graph.add_edge(
             package,
             dependency,
             DepEdge {
-                short_alias: short_alias.into(),
+                short_alias: import.short_alias.into(),
                 kind: import_source_kind,
             },
         );
     }
-
-    trace!("Successfully resolved import '{}'", import_source);
-    Ok(())
 }
 
 /// Get the source nodes that will need to be added, depending on the import
@@ -306,4 +383,39 @@ fn dep_edge_source_from_targets(kind: TargetKind) -> &'static [TargetKind] {
         TargetKind::BlackboxTest => &[TargetKind::BlackboxTest],
         TargetKind::SubPackage => &[TargetKind::SubPackage],
     }
+}
+
+/// Resolve the virtual package usages for a specific package, and returns the
+/// side table to insert of needed.
+fn resolve_virtual_usages(
+    env: &mut ResolveEnv,
+    pid: PackageId,
+    pkg: &DiscoveredPackage,
+) -> Result<Option<VirtualUser>, SolveError> {
+    // For each override, check its implementation
+    let mut v_user: Option<VirtualUser> = None;
+    for over in pkg.raw.overrides.iter().flatten() {
+        let (over_pid, over_pkg) = resolve_import_raw(env, pkg.module, pid, over)?;
+
+        // Check if it's implementing a virtual package
+        let Some(&over_target) = env.res.virt_impl.get(over_pid) else {
+            return Err(SolveError::OverrideNotImplementor {
+                package: pkg.fqn.clone().into(),
+                virtual_override: over_pkg.fqn.clone().into(),
+            });
+        };
+
+        // Insert this override into user graph
+        let user = v_user.get_or_insert_with(Default::default);
+        if let Some(existing) = user.overrides.insert(over_target, over_pid) {
+            return Err(SolveError::VirtualOverrideConflict {
+                package: pkg.fqn.clone().into(),
+                virtual_pkg: env.packages.fqn(over_target).into(),
+                first_override: env.packages.fqn(existing).into(),
+                second_override: over_pkg.fqn.clone().into(),
+            });
+        }
+    }
+
+    Ok(v_user)
 }
