@@ -176,6 +176,7 @@ impl BuildPlanNode {
             }
             BuildPlanNode::BuildRuntimeLib => "BuildRuntimeLib".to_string(),
             BuildPlanNode::BuildDocs => "BuildDocs".to_string(),
+            BuildPlanNode::BuildVirtual(target) => format!("{:?}@BuildVirtual", target),
         }
     }
 
@@ -224,6 +225,10 @@ impl BuildPlanNode {
             }
             BuildPlanNode::BuildRuntimeLib => "BuildRuntimeLib".to_string(),
             BuildPlanNode::BuildDocs => "BuildDocs".to_string(),
+            BuildPlanNode::BuildVirtual(package) => {
+                let fqn = packages.fqn(*package);
+                format!("{}\\nBuildVirtual", fqn)
+            }
         }
     }
 
@@ -241,6 +246,7 @@ impl BuildPlanNode {
             BuildPlanNode::RunPrebuild(_, _) => "khaki",
             BuildPlanNode::BuildRuntimeLib => "orange",
             BuildPlanNode::BuildDocs => "lavender",
+            BuildPlanNode::BuildVirtual(_) => "lightsteelblue",
         }
     }
 }

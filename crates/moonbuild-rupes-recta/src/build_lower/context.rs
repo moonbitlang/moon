@@ -134,6 +134,7 @@ impl<'a> BuildPlanLowerContext<'a> {
                 self.lower_make_exe(target, info)
             }
             BuildPlanNode::GenerateMbti(target) => self.lower_generate_mbti(target),
+            BuildPlanNode::ParseMbti(target) => self.lower_parse_mbti(node, target),
             BuildPlanNode::Bundle(module_id) => self.lower_bundle(node, module_id),
             BuildPlanNode::GenerateTestInfo(target) => {
                 let info = self
@@ -291,6 +292,9 @@ impl<'a> BuildPlanLowerContext<'a> {
                     .get_prebuild_info(pkg, idx)
                     .expect("Prebuild info should be populated before lowering run prebuild");
                 out.extend(cfg.resolved_outputs.iter().cloned());
+            }
+            BuildPlanNode::ParseMbti(_target) => {
+                todo!("Append artifact outputs for ParseMbti nodes");
             }
         }
     }

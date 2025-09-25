@@ -515,6 +515,16 @@ impl<'a> BuildPlanConstructor<'a> {
     }
 
     #[instrument(level = Level::DEBUG, skip(self))]
+    pub(super) fn build_parse_mbti(
+        &mut self,
+        node: BuildPlanNode,
+        target: BuildTarget,
+    ) -> Result<(), BuildPlanConstructError> {
+        let _ = (node, target);
+        todo!("Build graph construction for ParseMbti nodes is not implemented");
+    }
+
+    #[instrument(level = Level::DEBUG, skip(self))]
     pub(super) fn build_build_docs(
         &mut self,
         _node: BuildPlanNode,
