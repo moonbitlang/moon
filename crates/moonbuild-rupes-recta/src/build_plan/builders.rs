@@ -653,7 +653,7 @@ fn cat_opt(x: Option<String>, y: Option<&str>) -> Option<String> {
     }
 }
 
-static CHECK_AUTOMATA: LazyLock<aho_corasick::AhoCorasick> = LazyLock::new(|| {
+static PREBUILD_AUTOMATA: LazyLock<aho_corasick::AhoCorasick> = LazyLock::new(|| {
     aho_corasick::AhoCorasickBuilder::new()
         .build([MOONCAKE_BIN, MOD_DIR, PKG_DIR, "$input", "$output"])
         .expect("Failed to build automata")
@@ -683,7 +683,7 @@ fn handle_build_command_new(
     };
 
     let mut last_end = 0usize;
-    for magic in CHECK_AUTOMATA.find_iter(command) {
+    for magic in PREBUILD_AUTOMATA.find_iter(command) {
         // Commit previous segment
         if magic.start() > last_end {
             reconstructed.push_str(&command[last_end..magic.start()]);
