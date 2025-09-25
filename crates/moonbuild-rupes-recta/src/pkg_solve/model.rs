@@ -16,11 +16,13 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
+use std::collections::HashMap;
+
 use moonutil::mooncakes::ModuleSource;
 use petgraph::prelude::DiGraphMap;
 
 use crate::{
-    model::{BuildTarget, TargetKind},
+    model::{BuildTarget, PackageId, TargetKind},
     pkg_name::{PackageFQNWithSource, PackagePath},
 };
 
