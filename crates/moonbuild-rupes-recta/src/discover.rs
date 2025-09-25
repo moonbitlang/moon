@@ -341,6 +341,21 @@ impl DiscoveredPackage {
     pub fn config_path(&self) -> PathBuf {
         self.root_path.join(MOON_PKG_JSON)
     }
+
+    /// Get whether if the package is a virtual package
+    pub fn is_virtual(&self) -> bool {
+        self.raw.virtual_pkg.is_some()
+    }
+
+    /// Get whether if the package has a concrete implementation, i.e. moonbit
+    /// code to compile.
+    ///
+    /// This include both a regular package and a virtual package with a default
+    /// implementation.
+    pub fn has_implementation(&self) -> bool {
+        self.raw.virtual_pkg.is_none()
+            || self.raw.virtual_pkg.as_ref().is_some_and(|x| x.has_default)
+    }
 }
 
 /// The result of a package discovery process.

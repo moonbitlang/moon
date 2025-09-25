@@ -224,6 +224,7 @@ impl<'a> BuildPlanConstructor<'a> {
                     node
                 );
             }
+            BuildPlanNode::ParseMbti(_build_target) => (),
         }
     }
 
@@ -261,6 +262,7 @@ impl<'a> BuildPlanConstructor<'a> {
             BuildPlanNode::RunPrebuild(package_id, index) => {
                 self.build_run_prebuild(node, package_id, index)
             }
+            BuildPlanNode::ParseMbti(target) => self.build_parse_mbti(node, target),
         }
     }
 
