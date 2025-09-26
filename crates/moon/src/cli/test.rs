@@ -25,10 +25,10 @@ use log::warn;
 use moonbuild::dry_run;
 use moonbuild::entry;
 use moonbuild_rupes_recta::build_plan::InputDirective;
+use moonbuild_rupes_recta::intent::UserIntent;
 use moonbuild_rupes_recta::model::BuildPlanNode;
 use moonbuild_rupes_recta::model::BuildTarget;
 use moonbuild_rupes_recta::model::PackageId;
-use moonbuild_rupes_recta::model::TargetKind;
 use mooncake::pkg::sync::auto_sync;
 use mooncake::pkg::sync::auto_sync_for_single_mbt_md;
 use moonutil::common::PrePostBuild;
@@ -866,30 +866,23 @@ fn calc_user_intent(
             out_filter,
         )?
     } else {
-        // No filter, return all packages and all targets
-        return Ok(affected_packages
-            .flat_map(move |x| {
-                TargetKind::all_tests()
-                    .iter()
-                    .copied()
-                    .map(move |t| x.build_target(t))
-            })
-            .flat_map(node_from_target)
-            .collect::<Vec<_>>()
-            .into());
+        // No filter: emit one intent per package (Test/Bench)
+        let intents: Vec<_> = affected_packages.map(UserIntent::Test).collect();
+        return Ok(intents.into());
     };
 
-    // Generate the required nodes to out final build targets
-    let nodes = if let Some(filt) = out_filter.filter.as_ref() {
-        filt.0
-            .keys()
-            .copied()
-            .flat_map(node_from_target)
-            .collect::<Vec<_>>()
+    // Generate intents for the filtered packages
+    let intents = if let Some(filt) = out_filter.filter.as_ref() {
+        use std::collections::HashSet;
+        let mut pkgs = HashSet::new();
+        for (target, _) in &filt.0 {
+            pkgs.insert(target.package);
+        }
+        pkgs.into_iter().map(UserIntent::Test).collect::<Vec<_>>()
     } else {
         vec![]
     };
-    Ok((nodes, directive).into())
+    Ok((intents, directive).into())
 }
 
 #[instrument(skip_all)]

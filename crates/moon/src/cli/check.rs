@@ -22,7 +22,7 @@ use moonbuild::dry_run;
 use moonbuild::watch::watching;
 use moonbuild::watcher_is_running;
 use moonbuild::{entry, MOON_PID_NAME};
-use moonbuild_rupes_recta::model::{BuildPlanNode, PackageId, TargetKind};
+use moonbuild_rupes_recta::intent::UserIntent;
 use mooncake::pkg::sync::auto_sync;
 use moonutil::cli::UniversalFlags;
 use moonutil::common::{lower_surface_targets, CheckOpt};
@@ -429,15 +429,6 @@ fn calc_user_intent(
         .packages_for_module(main_module_id)
         .ok_or_else(|| anyhow::anyhow!("Cannot find the local module!"))?;
 
-    let check_targets = |pkg_id: &PackageId| {
-        [
-            TargetKind::Source,
-            TargetKind::WhiteboxTest,
-            TargetKind::BlackboxTest,
-        ]
-        .map(|x| BuildPlanNode::check(pkg_id.build_target(x)))
-    };
-
     if let Some(filter) = filter {
         // Filter the package whose root path matches the given filter path
         let filter = dunce::canonicalize(filter).context("failed to canonicalize filter path")?;
@@ -455,14 +446,14 @@ fn calc_user_intent(
                 filter.display()
             );
         };
-        let nodes = find.map(|p| check_targets(&p).to_vec()).unwrap_or_default();
+        let intents = find.map(|p| vec![UserIntent::Check(p)]).unwrap_or_default();
 
         // Apply --no-mi and --patch-file to specific packages
         let directive = rr_build::build_patch_directive_for_package(found, no_mi, patch_file)?;
 
-        Ok((nodes, directive).into())
+        Ok((intents, directive).into())
     } else {
-        let nodes: Vec<_> = packages.values().flat_map(check_targets).collect();
-        Ok(nodes.into())
+        let intents: Vec<_> = packages.values().map(|&p| UserIntent::Check(p)).collect();
+        Ok(intents.into())
     }
 }

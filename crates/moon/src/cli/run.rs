@@ -21,8 +21,7 @@ use std::path::PathBuf;
 use anyhow::{bail, Context};
 use moonbuild::dry_run;
 use moonbuild::entry;
-use moonbuild_rupes_recta::model::BuildPlanNode;
-use moonbuild_rupes_recta::model::BuildTarget;
+use moonbuild_rupes_recta::intent::UserIntent;
 use mooncake::pkg::sync::auto_sync;
 use moonutil::common::lower_surface_targets;
 use moonutil::common::FileLock;
@@ -455,11 +454,7 @@ fn calc_user_intent(
 
     let found = found_path.or(found_path_parent);
     if let Some(pkg_id) = found {
-        Ok(vec![BuildPlanNode::make_executable(BuildTarget {
-            package: pkg_id,
-            kind: moonbuild_rupes_recta::model::TargetKind::Source,
-        })]
-        .into())
+        Ok(vec![UserIntent::Run(pkg_id)].into())
     } else {
         Err(anyhow::anyhow!(
             "Cannot find package to build based on input path `{}`",

@@ -18,7 +18,7 @@
 
 use anyhow::bail;
 use moonbuild::dry_run::print_commands;
-use moonbuild_rupes_recta::model::BuildPlanNode;
+use moonbuild_rupes_recta::intent::UserIntent;
 use mooncake::pkg::sync::auto_sync;
 use moonutil::common::{
     read_module_desc_file_in_dir, CargoPathExt, DiagnosticLevel, FileLock, MoonbuildOpt, MooncOpt,
@@ -85,8 +85,8 @@ pub fn run_doc_rr(cli: UniversalFlags, cmd: DocSubcommand) -> anyhow::Result<i32
         &cli.unstable_feature,
         &source_dir,
         &target_dir,
-        // huh, the simplest intent because it depends on **the universe**.
-        Box::new(|_, _| Ok(vec![BuildPlanNode::BuildDocs].into())),
+        // Docs are global
+        Box::new(|_, _| Ok(vec![UserIntent::Docs].into())),
     )?;
 
     // Early exit for dry-run
