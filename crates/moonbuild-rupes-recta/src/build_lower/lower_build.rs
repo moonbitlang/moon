@@ -569,6 +569,47 @@ impl<'a> BuildPlanLowerContext<'a> {
     }
 
     #[instrument(level = Level::DEBUG, skip(self))]
+    pub(super) fn lower_parse_mbti(&mut self, node: BuildPlanNode, pid: PackageId) -> BuildCommand {
+        let pkg = self.packages.get_package(pid);
+        let Some(mbti_path) = &pkg.virtual_mbti else {
+            panic!(
+                "Lowering ParseMbti node for non-virtual package {}, this is a bug",
+                pkg.fqn
+            );
+        };
+
+        // The virtual package interface is emitted as the `.mi` of the source target
+        let target = pid.build_target(TargetKind::Source);
+        let mi_out =
+            self.layout
+                .mi_of_build_target(self.packages, &target, self.opt.target_backend);
+
+        // Resolve interface dependencies from the dep graph (path:alias pairs)
+        let mi_inputs = self.mi_inputs_of(node, target);
+
+        // Construct `moonc build-interface` command
+        let mut cmd = compiler::MooncBuildInterface::new(
+            mbti_path.as_path(),
+            mi_out.as_path(),
+            &mi_inputs,
+            compiler::CompiledPackageName::new(&pkg.fqn, TargetKind::Source),
+            &pkg.root_path,
+        );
+
+        // Provide std path when stdlib is enabled
+        if let Some(stdlib_root) = &self.opt.stdlib_path {
+            cmd.stdlib_core_file =
+                Some(artifact::core_bundle_path(stdlib_root, self.opt.target_backend).into());
+        }
+
+        BuildCommand {
+            // Track the user-written `.mbti` contract as an explicit input
+            extra_inputs: vec![mbti_path.clone()],
+            commandline: cmd.build_command("moonc"),
+        }
+    }
+
+    #[instrument(level = Level::DEBUG, skip(self))]
     pub(super) fn mi_inputs_of(
         &self,
         _node: BuildPlanNode,

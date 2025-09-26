@@ -134,7 +134,7 @@ impl<'a> BuildPlanLowerContext<'a> {
                 self.lower_make_exe(target, info)
             }
             BuildPlanNode::GenerateMbti(target) => self.lower_generate_mbti(target),
-            BuildPlanNode::ParseMbti(target) => self.lower_parse_mbti(node, target),
+            BuildPlanNode::BuildVirtual(target) => self.lower_parse_mbti(node, target),
             BuildPlanNode::Bundle(module_id) => self.lower_bundle(node, module_id),
             BuildPlanNode::GenerateTestInfo(target) => {
                 let info = self
@@ -293,8 +293,14 @@ impl<'a> BuildPlanLowerContext<'a> {
                     .expect("Prebuild info should be populated before lowering run prebuild");
                 out.extend(cfg.resolved_outputs.iter().cloned());
             }
-            BuildPlanNode::ParseMbti(_target) => {
-                todo!("Append artifact outputs for ParseMbti nodes");
+            BuildPlanNode::BuildVirtual(_target) => {
+                // The interface generated from `.mbti` is the `.mi` of the source target
+                let t = _target.build_target(crate::model::TargetKind::Source);
+                out.push(self.layout.mi_of_build_target(
+                    self.packages,
+                    &t,
+                    self.opt.target_backend,
+                ));
             }
         }
     }

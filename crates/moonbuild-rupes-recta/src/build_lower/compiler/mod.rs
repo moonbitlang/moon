@@ -19,6 +19,7 @@
 //! Compiler command abstraction
 
 mod build_common;
+mod build_interface;
 mod build_package;
 mod bundle_core;
 mod check;
@@ -34,6 +35,7 @@ use crate::model::TargetKind;
 use crate::pkg_name::PackageFQN;
 
 pub use self::build_common::*;
+pub use self::build_interface::*;
 pub use self::build_package::*;
 pub use self::bundle_core::*;
 pub use self::check::*;
