@@ -114,6 +114,7 @@ pub mod fmt;
 
 // Random utilities
 pub mod cond_comp;
+pub mod intent;
 pub mod metadata;
 mod special_cases;
 pub mod util;
