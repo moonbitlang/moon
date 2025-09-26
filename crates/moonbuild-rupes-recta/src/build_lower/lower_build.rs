@@ -121,9 +121,33 @@ impl<'a> BuildPlanLowerContext<'a> {
                 .into(),
         );
 
-        // Patch and mi config
+        // Patch and MI/virtual config
         let patch_file = info.patch_file.as_deref().map(|x| x.into());
-        let no_mi = info.specified_no_mi;
+        // Honor both explicit no-mi and MI-check mode from the build plan
+        let no_mi = info.no_mi();
+
+        // Compute -check-mi and virtual implementation mapping when requested
+        let mut check_mi: Option<std::borrow::Cow<'a, std::path::Path>> = None;
+        let mut virtual_implementation: Option<compiler::VirtualPackageImplementation<'a>> = None;
+
+        if let Some(v_target) = info.check_mi_against {
+            // The target to check against is always the Source target of the virtual package
+            let mi_path = self
+                .layout
+                .mi_of_build_target(self.packages, &v_target, self.opt.target_backend);
+            check_mi = Some(mi_path.clone().into());
+
+            // If current package is NOT the same package as the virtual target,
+            // this package is a concrete implementation → add -impl-virtual mapping.
+            let v_pkg = self.packages.get_package(v_target.package);
+            if v_pkg.fqn != pkg.fqn {
+                virtual_implementation = Some(compiler::VirtualPackageImplementation {
+                    mi_path: mi_path.into(),
+                    package_name: &v_pkg.fqn,
+                    package_path: v_pkg.root_path.as_path().into(),
+                });
+            }
+        }
 
         BuildCommonConfig {
             stdlib_core_file,
@@ -135,8 +159,8 @@ impl<'a> BuildPlanLowerContext<'a> {
             no_mi,
             workspace_root,
             is_main,
-            check_mi: None,
-            virtual_implementation: None, // TODO: the above two needs virtual pkg impl
+            check_mi,
+            virtual_implementation,
         }
     }
 
