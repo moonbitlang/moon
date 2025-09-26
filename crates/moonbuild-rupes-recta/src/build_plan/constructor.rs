@@ -95,7 +95,63 @@ impl<'a> BuildPlanConstructor<'a> {
 
             self.build_action_dependencies(node)?;
         }
+
+        self.postprocess_coalesce();
+
         Ok(())
+    }
+
+    /// Coalesce redundant nodes as a postprocess step.
+    ///
+    /// `BuildCore(...)` and `Check(...)` both produce `.mi` files, so having
+    /// both in the graph will cause later stages to not know which one to use,
+    /// and result in an error. This function moves all edges from `Check(...)`
+    /// nodes to their corresponding `BuildCore(...)` nodes, if they exist. This
+    /// is also a fix for the virtual package semantics, because virtual
+    /// packages don't know if they will be built or checked.
+    fn postprocess_coalesce(&mut self) {
+        // list of nodes to coalesce and their input/output edges
+        let mut plan = vec![];
+        for node in self.res.all_nodes() {
+            if let BuildPlanNode::Check(build_target) = node {
+                // Coalesce to BuildCore if it exists
+                if self
+                    .res
+                    .graph
+                    .contains_node(BuildPlanNode::BuildCore(build_target))
+                {
+                    let in_edges = self
+                        .res
+                        .graph
+                        .edges_directed(node, petgraph::Incoming)
+                        .map(|(source, _, _)| source)
+                        .collect::<Vec<_>>();
+                    let out_edges = self
+                        .res
+                        .graph
+                        .edges_directed(node, petgraph::Outgoing)
+                        .map(|(_, target, _)| target)
+                        .collect::<Vec<_>>();
+                    plan.push((
+                        node,
+                        BuildPlanNode::BuildCore(build_target),
+                        in_edges,
+                        out_edges,
+                    ));
+                }
+            }
+        }
+
+        // Perform the coalescing
+        for (from, to, in_edges, out_edges) in plan {
+            for source in in_edges {
+                self.res.graph.add_edge(source, to, ());
+            }
+            for target in out_edges {
+                self.res.graph.add_edge(to, target, ());
+            }
+            self.res.graph.remove_node(from);
+        }
     }
 
     /// Determine whether this starting node should be skipped based on rules.
@@ -172,12 +228,15 @@ impl<'a> BuildPlanConstructor<'a> {
             BuildPlanNode::Check(build_target)
             | BuildPlanNode::BuildCore(build_target)
             | BuildPlanNode::GenerateTestInfo(build_target) => {
-                assert!(
-                    self.res.build_target_infos.contains_key(&build_target),
-                    "Build target info for {:?} should be present when resolving node {:?}",
-                    build_target,
-                    node
-                );
+                let pkg = self.input.pkg_dirs.get_package(build_target.package);
+                if pkg.has_implementation() {
+                    assert!(
+                        self.res.build_target_infos.contains_key(&build_target),
+                        "Build target info for {:?} should be present when resolving node {:?}",
+                        build_target,
+                        node
+                    );
+                }
             }
             BuildPlanNode::BuildCStub(build_target, _)
             | BuildPlanNode::ArchiveCStubs(build_target) => {
@@ -224,7 +283,7 @@ impl<'a> BuildPlanConstructor<'a> {
                     node
                 );
             }
-            BuildPlanNode::ParseMbti(_build_target) => (),
+            BuildPlanNode::BuildVirtual(_build_target) => (),
         }
     }
 
@@ -262,7 +321,7 @@ impl<'a> BuildPlanConstructor<'a> {
             BuildPlanNode::RunPrebuild(package_id, index) => {
                 self.build_run_prebuild(node, package_id, index)
             }
-            BuildPlanNode::ParseMbti(target) => self.build_parse_mbti(node, target),
+            BuildPlanNode::BuildVirtual(target) => self.build_parse_mbti(node, target),
         }
     }
 

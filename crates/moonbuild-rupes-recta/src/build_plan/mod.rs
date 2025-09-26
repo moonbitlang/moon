@@ -187,6 +187,10 @@ pub struct BuildTargetInfo {
 
     /// The patch file to supply to this package
     pub(crate) patch_file: Option<PathBuf>,
+
+    /// Check the `.mi` file against the given target. Used in virtual packages.
+    /// Also implies that the target must not generate a `.mi` file.
+    pub(crate) check_mi_against: Option<BuildTarget>,
     // we currently don't need this, as it's controlled by build-wise options
     // /// Whether compiling this target needs the standard library
     // pub std: bool,
@@ -205,6 +209,10 @@ impl BuildTargetInfo {
 
     pub fn doctest_files(&self) -> impl Iterator<Item = &Path> {
         self.doctest_files.iter().map(|x| x.as_path())
+    }
+
+    pub fn no_mi(&self) -> bool {
+        self.specified_no_mi
     }
 }
 
