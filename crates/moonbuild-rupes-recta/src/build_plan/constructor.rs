@@ -18,7 +18,7 @@
 
 //! Core build plan construction logic.
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
 use crate::{
     build_plan::InputDirective,
@@ -43,6 +43,12 @@ pub(super) struct BuildPlanConstructor<'a> {
     /// Currently pending nodes that need to be processed.
     pub(super) pending: Vec<BuildPlanNode>,
     pub(super) resolved: HashSet<BuildPlanNode>,
+
+    /// Debug-only: record call-sites that requested each node via `need_node`.
+    /// Used to improve diagnostics when dependency construction panics.
+    /// Only compiled in debug builds (cfg(debug_assertions)).
+    #[cfg(debug_assertions)]
+    pub(super) need_node_sources: HashMap<BuildPlanNode, Vec<(&'static str, u32, u32)>>,
 }
 
 impl<'a> BuildPlanConstructor<'a> {
@@ -59,6 +65,8 @@ impl<'a> BuildPlanConstructor<'a> {
             res: BuildPlan::default(),
             pending: Vec::new(),
             resolved: HashSet::new(),
+            #[cfg(debug_assertions)]
+            need_node_sources: HashMap::new(),
         }
     }
 
@@ -88,7 +96,19 @@ impl<'a> BuildPlanConstructor<'a> {
                 continue;
             }
 
-            self.build_action_dependencies(node)?;
+            // Debug builds: wrap dependency computation in a panic-reporting shim.
+            // If a panic occurs, we log the need_node call-sites for this node and
+            // then resume unwinding to preserve the original backtrace.
+            #[cfg(debug_assertions)]
+            {
+                self.build_action_dependencies_with_panic_report(node)?;
+            }
+
+            // Release builds: keep the hot path clean — no catch_unwind, no extra logging.
+            #[cfg(not(debug_assertions))]
+            {
+                self.build_action_dependencies(node)?;
+            }
         }
 
         self.postprocess_coalesce();
@@ -153,8 +173,29 @@ impl<'a> BuildPlanConstructor<'a> {
     /// new node. To deduplicate pending nodes, this should be called before
     /// adding relevant edges to the graph (since the latter will also add the
     /// node into the graph).
+    // #[track_caller] lets us capture the call-site (file:line:column) of need_node
+    // so we can report where a node was requested if a later dependency build panics.
+    #[cfg_attr(debug_assertions, track_caller)]
     #[instrument(level = Level::DEBUG, skip(self))]
     pub(super) fn need_node(&mut self, node: BuildPlanNode) -> BuildPlanNode {
+        #[cfg(debug_assertions)]
+        {
+            // Record the call-site that scheduled this node for later diagnostics.
+            let loc = std::panic::Location::caller();
+            self.need_node_sources.entry(node).or_default().push((
+                loc.file(),
+                loc.line(),
+                loc.column(),
+            ));
+            // Emit a debug log so we can correlate scheduling with later panics in logs.
+            tracing::debug!(
+                target: "build_plan",
+                ?node,
+
+                "need_node called"
+            );
+        }
+
         if !self.resolved.contains(&node) {
             self.pending.push(node);
             self.res.graph.add_node(node);
@@ -250,6 +291,40 @@ impl<'a> BuildPlanConstructor<'a> {
     #[instrument(level = Level::DEBUG, skip(self))]
     pub(super) fn add_edge(&mut self, start: BuildPlanNode, end: BuildPlanNode) {
         self.res.graph.add_edge(start, end, ());
+    }
+
+    /// Debug-only helper that runs build_action_dependencies with panic capture and reporting.
+    /// - On panic, logs all call-sites that scheduled the node via need_node, then resumes unwind
+    ///   to keep the original panic and backtrace intact.
+    /// - Keeps release path and performance unchanged.
+    #[cfg(debug_assertions)]
+    fn build_action_dependencies_with_panic_report(
+        &mut self,
+        node: BuildPlanNode,
+    ) -> Result<(), BuildPlanConstructError> {
+        use std::panic::{catch_unwind, AssertUnwindSafe};
+
+        match catch_unwind(AssertUnwindSafe(|| self.build_action_dependencies(node))) {
+            Ok(r) => r,
+            Err(payload) => {
+                // Report source call-sites for this node to aid debugging
+                if let Some(sources) = self.need_node_sources.get(&node) {
+                    tracing::error!(target: "build_plan", ?node, "build_action_dependencies panicked for node; below are need_node call-sites:");
+                    for (file, line, column) in sources {
+                        tracing::error!(
+                            target: "build_plan",
+                            file = *file,
+                            line = *line,
+                            column = *column,
+                            "need_node at {file}:{line}:{column}"
+                        );
+                    }
+                } else {
+                    tracing::error!(target: "build_plan", ?node, "build_action_dependencies panicked for node; no need_node sources recorded");
+                }
+                std::panic::resume_unwind(payload);
+            }
+        }
     }
 
     /// Calculate the build action's dependencies and insert relevant edges to the
