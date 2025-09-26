@@ -1,3 +1,5 @@
+mod with_cfg;
+
 use super::*;
 
 #[test]
