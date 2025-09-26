@@ -121,9 +121,34 @@ impl<'a> BuildPlanLowerContext<'a> {
                 .into(),
         );
 
-        // Patch and mi config
+        // Patch and MI/virtual config
         let patch_file = info.patch_file.as_deref().map(|x| x.into());
-        let no_mi = info.specified_no_mi;
+        let no_mi = info.no_mi();
+
+        // Compute -check-mi and virtual implementation mapping when requested
+        let mut virtual_implementation = None;
+        let mut check_mi = None;
+
+        if let Some(v_target) = info.check_mi_against {
+            // The target to check against is always the Source target of the virtual package
+            let mi_path =
+                self.layout
+                    .mi_of_build_target(self.packages, &v_target, self.opt.target_backend);
+
+            // If current package is NOT the same package as the virtual target,
+            // this package is a concrete implementation → add -impl-virtual mapping.
+            let v_pkg = self.packages.get_package(v_target.package);
+            if v_pkg.fqn != pkg.fqn {
+                virtual_implementation = Some(compiler::VirtualPackageImplementation {
+                    mi_path: mi_path.into(),
+                    package_name: &v_pkg.fqn,
+                    package_path: v_pkg.root_path.as_path().into(),
+                });
+            } else {
+                // Same package → this is a virtual package being checked against its own interface
+                check_mi = Some(mi_path.into());
+            }
+        }
 
         BuildCommonConfig {
             stdlib_core_file,
@@ -135,8 +160,9 @@ impl<'a> BuildPlanLowerContext<'a> {
             no_mi,
             workspace_root,
             is_main,
-            check_mi: None,
-            virtual_implementation: None, // TODO: the above two needs virtual pkg impl
+
+            check_mi,
+            virtual_implementation,
         }
     }
 
@@ -565,6 +591,47 @@ impl<'a> BuildPlanLowerContext<'a> {
         BuildCommand {
             extra_inputs: vec![],
             commandline: cc_cmd,
+        }
+    }
+
+    #[instrument(level = Level::DEBUG, skip(self))]
+    pub(super) fn lower_parse_mbti(&mut self, node: BuildPlanNode, pid: PackageId) -> BuildCommand {
+        let pkg = self.packages.get_package(pid);
+        let Some(mbti_path) = &pkg.virtual_mbti else {
+            panic!(
+                "Lowering ParseMbti node for non-virtual package {}, this is a bug",
+                pkg.fqn
+            );
+        };
+
+        // The virtual package interface is emitted as the `.mi` of the source target
+        let target = pid.build_target(TargetKind::Source);
+        let mi_out =
+            self.layout
+                .mi_of_build_target(self.packages, &target, self.opt.target_backend);
+
+        // Resolve interface dependencies from the dep graph (path:alias pairs)
+        let mi_inputs = self.mi_inputs_of(node, target);
+
+        // Construct `moonc build-interface` command
+        let mut cmd = compiler::MooncBuildInterface::new(
+            mbti_path.as_path(),
+            mi_out.as_path(),
+            &mi_inputs,
+            compiler::CompiledPackageName::new(&pkg.fqn, TargetKind::Source),
+            &pkg.root_path,
+        );
+
+        // Provide std path when stdlib is enabled
+        if let Some(stdlib_root) = &self.opt.stdlib_path {
+            cmd.stdlib_core_file =
+                Some(artifact::core_bundle_path(stdlib_root, self.opt.target_backend).into());
+        }
+
+        BuildCommand {
+            // Track the user-written `.mbti` contract as an explicit input
+            extra_inputs: vec![mbti_path.clone()],
+            commandline: cmd.build_command("moonc"),
         }
     }
 

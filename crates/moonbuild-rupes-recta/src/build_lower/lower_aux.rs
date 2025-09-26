@@ -166,15 +166,6 @@ impl<'a> super::BuildPlanLowerContext<'a> {
             commandline: cmd.build_command("mooninfo"),
         }
     }
-    #[instrument(level = Level::DEBUG, skip(self))]
-    pub(super) fn lower_parse_mbti(
-        &mut self,
-        node: BuildPlanNode,
-        target: BuildTarget,
-    ) -> BuildCommand {
-        let _ = (node, target);
-        todo!("Lowering for ParseMbti nodes has not been implemented yet");
-    }
 
     #[instrument(level = Level::DEBUG, skip(self))]
     pub(super) fn lower_build_docs(&self) -> BuildCommand {
