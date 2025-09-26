@@ -47,7 +47,7 @@ pub struct GenerateTestDriverSubcommand {
 
     /// The target backend for the generated test driver.
     #[clap(long = "target")]
-    _target_backend: TargetBackend,
+    target_backend: TargetBackend,
 
     /// The name of the package for which the test driver is generated for.
     #[clap(long)]
@@ -82,6 +82,7 @@ fn moonc_gen_test_info(
     driver_kind: DriverKind,
     output_path: &Path,
     patch_file: Option<PathBuf>,
+    target_backend: TargetBackend,
 ) -> anyhow::Result<MooncGenTestInfo> {
     let patch_args = if let Some(patch_file) = patch_file {
         vec!["-patch-file".to_string(), patch_file.display().to_string()]
@@ -101,6 +102,8 @@ fn moonc_gen_test_info(
                 .iter()
                 .flat_map(|x| [OsStr::new("-doctest-only"), x.as_os_str()]),
         )
+        .arg("-target")
+        .arg(target_backend.to_flag())
         .args(patch_args)
         .args(include_doctests)
         .stdout(std::process::Stdio::piped())
@@ -175,6 +178,7 @@ pub fn generate_test_driver(
         cmd.driver_kind,
         &cmd.output_metadata,
         cmd.patch_file.clone(),
+        cmd.target_backend,
     )?;
 
     let generated_content = generate_driver(
