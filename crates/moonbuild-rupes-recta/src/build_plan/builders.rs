@@ -541,6 +541,7 @@ impl<'a> BuildPlanConstructor<'a> {
                             seen.insert(override_target);
                             stack.push((override_target, false));
                         }
+                        continue;
                     }
                 }
 
