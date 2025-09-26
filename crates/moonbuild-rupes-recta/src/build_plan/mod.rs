@@ -279,8 +279,6 @@ pub struct InputDirective {
 }
 
 /// Represents errors that may occur during build graph construction.
-///
-/// TODO: Will we even meet errors during build graph construction?
 #[derive(Debug, thiserror::Error)]
 pub enum BuildPlanConstructError {
     #[error("Failed to set C compiler when compiling {1}")]
@@ -295,6 +293,16 @@ pub enum BuildPlanConstructError {
     MalformedStubCCFlags(PackageFQNWithSource),
     #[error("Malformed stub cc link flags in package {0}")]
     MalformedStubCCLinkFlags(PackageFQNWithSource),
+
+    #[error(
+        "Package {package}'s (possibly transitive) dependency {dep} \
+        is a virtual package with no default implementation, \
+        and no override packages were given to implement it."
+    )]
+    NoImplementationForVirtualPackage {
+        package: PackageFQNWithSource,
+        dep: PackageFQNWithSource,
+    },
 }
 
 /// Construct an abstract build graph from the given packages and input actions.

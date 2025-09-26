@@ -20,13 +20,13 @@
 
 use std::{
     borrow::Cow,
+    collections::HashSet,
     ffi::OsStr,
     path::{Path, PathBuf},
     sync::LazyLock,
 };
 
 use indexmap::{set::MutableValues, IndexSet};
-use log::{debug, trace};
 use moonutil::{
     common::{
         DEP_PATH, DOT_MBT_DOT_MD, MOD_DIR, MOONCAKE_BIN, MOON_BIN_DIR, MOON_MOD_JSON,
@@ -34,7 +34,7 @@ use moonutil::{
     },
     compiler_flags::CC,
 };
-use tracing::{instrument, warn, Level};
+use tracing::{debug, instrument, trace, warn, Level};
 
 use crate::{
     build_plan::PrebuildInfo,
@@ -435,7 +435,8 @@ impl<'a> BuildPlanConstructor<'a> {
         debug!("Building MakeExecutable for target: {:?}", target);
         debug!("Performing DFS post-order traversal to collect dependencies");
 
-        let (link_core_deps, c_stub_deps) = self.dfs_link_core_sources(target);
+        // This DFS is shared by both LinkCore and MakeExecutable actions.
+        let (link_core_deps, c_stub_deps) = self.dfs_link_core_sources(target)?;
 
         let link_core_node = self.need_node(BuildPlanNode::LinkCore(target));
 
@@ -506,7 +507,7 @@ impl<'a> BuildPlanConstructor<'a> {
     fn dfs_link_core_sources(
         &mut self,
         target: BuildTarget,
-    ) -> (IndexSet<BuildTarget>, Vec<BuildTarget>) {
+    ) -> Result<(IndexSet<BuildTarget>, Vec<BuildTarget>), BuildPlanConstructError> {
         // This DFS is shared by both LinkCore and MakeExecutable actions.
         let vp_info = self.input.pkg_rel.virtual_users.get(target.package);
 
@@ -517,7 +518,6 @@ impl<'a> BuildPlanConstructor<'a> {
 
         let graph = &self.input.pkg_rel.dep_graph;
 
-        use std::collections::HashSet;
         let mut seen: HashSet<BuildTarget> = HashSet::new();
         let mut stack: Vec<(BuildTarget, bool)> = Vec::new(); // bool = expanded
 
@@ -528,13 +528,24 @@ impl<'a> BuildPlanConstructor<'a> {
         while let Some((node, expanded)) = stack.pop() {
             if !expanded {
                 // Virtual package overrider
+                //
+                // If the virtual package is overridden, the override target
+                // replaces the virtual package at the same place and descends
+                // to its own dependencies instead. See
+                // `/docs/dev/reference/virtual-pkg.md` for more information.
                 if let Some(vp_info) = vp_info {
                     if let Some(&override_target) = vp_info.overrides.get(node.package) {
+                        trace!(
+                            from = ?node.package,
+                            to = ?override_target,
+                            "Overriding virtual package",
+                        );
                         // Replace with the override target
                         let override_target = BuildTarget {
                             package: override_target,
                             kind: TargetKind::Source,
                         };
+
                         if !seen.contains(&override_target) {
                             seen.insert(override_target);
                             stack.push((override_target, false));
@@ -543,6 +554,7 @@ impl<'a> BuildPlanConstructor<'a> {
                     }
                 }
 
+                trace!(?node, "Found node at pre-order");
                 // First time we see this node on stack: push marker, then children
                 stack.push((node, true));
                 for child in graph.neighbors_directed(node, petgraph::Direction::Outgoing) {
@@ -572,13 +584,24 @@ impl<'a> BuildPlanConstructor<'a> {
             }
 
             let pkg = self.input.pkg_dirs.get_package(cur.package);
-            trace!("DFS post iterated: {}", pkg.fqn);
+
+            if !pkg.has_implementation() {
+                // Virtual package without implementation, report error
+                return Err(BuildPlanConstructError::NoImplementationForVirtualPackage {
+                    package: self.input.pkg_dirs.fqn(target.package).clone().into(),
+                    dep: self.input.pkg_dirs.fqn(cur.package).clone().into(),
+                });
+            }
+
+            // Add package to link core list
+            link_core_deps.insert(cur);
+            trace!(?cur, "Post iterated, added to link core deps");
             if self.build_env.target_backend.is_native() && !pkg.c_stub_files.is_empty() {
                 c_stub_deps.push(cur);
             }
         }
 
-        (link_core_deps, c_stub_deps)
+        Ok((link_core_deps, c_stub_deps))
     }
 
     #[instrument(level = Level::DEBUG, skip(self))]
