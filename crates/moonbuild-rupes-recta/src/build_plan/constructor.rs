@@ -20,11 +20,9 @@
 
 use std::collections::HashSet;
 
-use log::debug;
-
 use crate::{
     build_plan::InputDirective,
-    model::{BuildPlanNode, BuildTarget, TargetKind},
+    model::{BuildPlanNode, BuildTarget},
     ResolveOutput,
 };
 use tracing::{instrument, Level};
@@ -77,11 +75,8 @@ impl<'a> BuildPlanConstructor<'a> {
             "Pending nodes should be empty before starting the build"
         );
 
-        // Add the input node to the pending list
+        // Add the input nodes to the pending list
         for i in input {
-            if self.should_skip_start_node(i) {
-                continue;
-            }
             self.need_node(i);
             self.res.input_nodes.push(i);
         }
@@ -152,41 +147,6 @@ impl<'a> BuildPlanConstructor<'a> {
             }
             self.res.graph.remove_node(from);
         }
-    }
-
-    /// Determine whether this starting node should be skipped based on rules.
-    ///
-    /// This function currently handles:
-    /// - Skipping nodes of no real use:
-    ///   - Whitebox test nodes with no white box test files
-    ///
-    /// # Note
-    ///
-    /// Currently, removal of invalid starting nodes due to standard library
-    /// special cases is handled in [`crate::compile`], not here. Whether we
-    /// should merge the two functions is a subject of discussion.
-    #[instrument(level = Level::DEBUG, skip(self))]
-    fn should_skip_start_node(&mut self, node: BuildPlanNode) -> bool {
-        if let Some(tgt) = node.extract_target() {
-            if tgt.kind == TargetKind::WhiteboxTest {
-                // check if we actually have whitebox test files
-                self.populate_target_info(tgt);
-                let info = self
-                    .res
-                    .get_build_target_info(&tgt)
-                    .expect("just populated");
-                if info.whitebox_files.is_empty() {
-                    // No whitebox test files, skip this node
-                    debug!(
-                        "Skipping whitebox test node {:?} with no whitebox files",
-                        tgt
-                    );
-                    return true;
-                }
-            }
-        }
-
-        false
     }
 
     /// Tell the build graph that we need to calculate the graph portion of a

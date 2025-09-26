@@ -95,14 +95,16 @@ impl UserIntent {
             UserIntent::Check(pkg) => {
                 let pkg_info = resolved.pkg_dirs.get_package(pkg);
                 if pkg_info.has_implementation() {
-                    // Emit all three check targets
-                    for &k in &[
-                        TargetKind::Source,
-                        TargetKind::WhiteboxTest,
-                        TargetKind::BlackboxTest,
-                    ] {
-                        out.push(BuildPlanNode::check(pkg.build_target(k)));
+                    // Always check Source and Blackbox; only check Whitebox when any *_wbtest.mbt is declared.
+                    out.push(BuildPlanNode::check(pkg.build_target(TargetKind::Source)));
+                    if has_whitebox_decl(resolved, pkg) {
+                        out.push(BuildPlanNode::check(
+                            pkg.build_target(TargetKind::WhiteboxTest),
+                        ));
                     }
+                    out.push(BuildPlanNode::check(
+                        pkg.build_target(TargetKind::BlackboxTest),
+                    ));
                 } else {
                     // Pure virtual package: compile its interface
                     out.push(BuildPlanNode::BuildVirtual(pkg));
@@ -113,8 +115,11 @@ impl UserIntent {
                 if !pkg_info.has_implementation() {
                     // Pure virtual package: we can't do anything
                 } else {
-                    // Emit paired nodes per test target
+                    // Emit paired nodes per test target; skip Whitebox if no *_wbtest.mbt declared.
                     for &k in TargetKind::all_tests() {
+                        if k == TargetKind::WhiteboxTest && !has_whitebox_decl(resolved, pkg) {
+                            continue;
+                        }
                         let t = pkg.build_target(k);
                         out.push(BuildPlanNode::make_executable(t));
                         out.push(BuildPlanNode::generate_test_info(t));
@@ -143,4 +148,13 @@ impl UserIntent {
 #[inline]
 fn is_linkable(pkg: &DiscoveredPackage) -> bool {
     pkg.raw.force_link || pkg.raw.link.is_some() || pkg.raw.is_main
+}
+
+/// Determine if any *_wbtest.mbt files are declared by the package.
+fn has_whitebox_decl(resolved: &ResolveOutput, pkg_id: PackageId) -> bool {
+    let pkg = resolved.pkg_dirs.get_package(pkg_id);
+    pkg.source_files.iter().any(|p| {
+        let file_name = p.file_name().and_then(|s| s.to_str()).unwrap_or("");
+        file_name.ends_with("_wbtest.mbt")
+    })
 }
