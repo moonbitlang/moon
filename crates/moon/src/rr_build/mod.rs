@@ -39,6 +39,7 @@ use moonbuild::entry::{
 };
 use moonbuild_rupes_recta::{
     build_plan::InputDirective,
+    intent::UserIntent,
     model::{Artifacts, BuildPlanNode, PackageId, TargetKind},
     CompileConfig, ResolveConfig, ResolveOutput,
 };
@@ -74,30 +75,30 @@ pub type CalcUserIntentFn<'b> = dyn for<'a> FnOnce(&'a ResolveOutput, &'a [Modul
 
 /// The output of a calculate user intent operation.
 pub struct CalcUserIntentOutput {
-    /// The list of build plan nodes that the user would like to build.
-    pub intent: Vec<BuildPlanNode>,
+    /// The list of user intents; will be expanded to concrete BuildPlanNode(s) later.
+    pub intents: Vec<UserIntent>,
     /// The input directive that the user wants to apply to the packages
     pub directive: InputDirective,
 }
 
 impl CalcUserIntentOutput {
-    pub fn new(intent: Vec<BuildPlanNode>, directive: InputDirective) -> Self {
-        Self { intent, directive }
+    pub fn new(intents: Vec<UserIntent>, directive: InputDirective) -> Self {
+        Self { intents, directive }
     }
 }
 
-impl From<Vec<BuildPlanNode>> for CalcUserIntentOutput {
-    fn from(intent: Vec<BuildPlanNode>) -> Self {
+impl From<Vec<UserIntent>> for CalcUserIntentOutput {
+    fn from(intents: Vec<UserIntent>) -> Self {
         Self {
-            intent,
+            intents,
             directive: InputDirective::default(),
         }
     }
 }
 
-impl From<(Vec<BuildPlanNode>, InputDirective)> for CalcUserIntentOutput {
-    fn from((intent, directive): (Vec<BuildPlanNode>, InputDirective)) -> Self {
-        Self { intent, directive }
+impl From<(Vec<UserIntent>, InputDirective)> for CalcUserIntentOutput {
+    fn from((intents, directive): (Vec<UserIntent>, InputDirective)) -> Self {
+        Self { intents, directive }
     }
 }
 
@@ -338,8 +339,13 @@ pub fn plan_build<'a>(
     let is_core = main_module.name == MOONBITLANG_CORE;
 
     let cx = preconfig.into_compile_config(preferred_backend, is_core);
+    // Expand user intents to concrete BuildPlanNode inputs
+    let mut input_nodes: Vec<BuildPlanNode> = Vec::new();
+    for i in &intent.intents {
+        i.append_nodes(&resolve_output, &mut input_nodes);
+    }
     let compile_output =
-        moonbuild_rupes_recta::compile(&cx, &resolve_output, &intent.intent, &intent.directive)?;
+        moonbuild_rupes_recta::compile(&cx, &resolve_output, &input_nodes, &intent.directive)?;
 
     if unstable_features.rr_export_build_plan {
         if let Some(plan) = compile_output.build_plan {

@@ -18,7 +18,7 @@
 
 use anyhow::Context;
 use moonbuild::dry_run;
-use moonbuild_rupes_recta::model::BuildPlanNode;
+use moonbuild_rupes_recta::intent::UserIntent;
 use mooncake::pkg::sync::auto_sync;
 use moonutil::{
     cli::UniversalFlags,
@@ -83,7 +83,7 @@ pub fn run_bundle_rr(cli: UniversalFlags, cmd: BundleSubcommand) -> anyhow::Resu
         &target_dir,
         Box::new(|_r, m| {
             Ok(m.iter()
-                .map(|&m| BuildPlanNode::Bundle(m))
+                .map(|&mid| UserIntent::Bundle(mid))
                 .collect::<Vec<_>>()
                 .into())
         }),

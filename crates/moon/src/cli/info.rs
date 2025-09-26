@@ -25,7 +25,7 @@ use std::{
 use anyhow::{bail, Context};
 use colored::Colorize;
 use futures::future::try_join_all;
-use moonbuild_rupes_recta::model::{BuildPlanNode, BuildTarget};
+use moonbuild_rupes_recta::intent::UserIntent;
 use mooncake::pkg::sync::auto_sync;
 use moonutil::{
     common::{
@@ -135,10 +135,7 @@ fn calc_user_intent(
             if pkg.raw.virtual_pkg.is_some() {
                 None
             } else {
-                Some(BuildPlanNode::GenerateMbti(BuildTarget {
-                    package: *package_id,
-                    kind: moonbuild_rupes_recta::model::TargetKind::Source,
-                }))
+                Some(UserIntent::Info(*package_id))
             }
         })
         .collect();
