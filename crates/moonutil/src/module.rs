@@ -176,23 +176,18 @@ impl ModuleDB {
         &self,
         _cur_target_backend: TargetBackend,
     ) -> anyhow::Result<HashSet<TargetBackend>> {
-        let mut project_supported_targets = HashSet::from_iter(vec![
-            TargetBackend::WasmGC,
-            TargetBackend::Wasm,
-            TargetBackend::Native,
-            TargetBackend::Js,
-        ]);
+        let mut project_supported_targets = HashSet::from_iter(
+            TargetBackend::all()
+                .iter()
+                .cloned()
+                .filter(TargetBackend::allowed_as_project_target),
+        );
 
         for entry_pkg in self.get_entry_pkgs() {
             let deps_chain = self.backtrace_deps_chain(entry_pkg);
             for chain in deps_chain.iter() {
-                let mut cur_deps_chain_supported_targets = HashSet::from_iter(vec![
-                    TargetBackend::WasmGC,
-                    TargetBackend::Wasm,
-                    TargetBackend::Native,
-                    TargetBackend::Js,
-                    TargetBackend::LLVM,
-                ]);
+                let mut cur_deps_chain_supported_targets =
+                    HashSet::from_iter(TargetBackend::all().iter().cloned());
                 for (i, dpe_pkg_name) in chain.iter().enumerate() {
                     let dep_pkg = self.get_package_by_name(dpe_pkg_name);
                     cur_deps_chain_supported_targets = cur_deps_chain_supported_targets

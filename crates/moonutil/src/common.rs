@@ -380,11 +380,35 @@ impl TargetBackend {
     }
 
     pub fn is_native(self) -> bool {
-        self == Self::Native || self == Self::LLVM
+        match self {
+            Self::Native | Self::LLVM => true,
+            Self::Wasm | Self::WasmGC | Self::Js => false,
+        }
     }
 
     pub fn all() -> &'static [Self] {
         &[Self::Wasm, Self::WasmGC, Self::Js, Self::Native, Self::LLVM]
+    }
+
+    pub fn supports_source_map(&self) -> bool {
+        match self {
+            Self::WasmGC | Self::Js => true,
+            Self::Wasm | Self::Native | Self::LLVM => false,
+        }
+    }
+
+    pub fn is_wasm(&self) -> bool {
+        match self {
+            Self::Wasm | Self::WasmGC => true,
+            Self::Js | Self::Native | Self::LLVM => false,
+        }
+    }
+
+    pub fn allowed_as_project_target(&self) -> bool {
+        match self {
+            Self::Wasm | Self::WasmGC | Self::Js | Self::Native => true,
+            Self::LLVM => false,
+        }
     }
 }
 
