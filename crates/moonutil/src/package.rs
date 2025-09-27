@@ -865,13 +865,7 @@ pub fn convert_pkg_json_to_package(j: MoonPkgJSON) -> anyhow::Result<MoonPkg> {
         }
     } else {
         // if supported_backends in moon.pkg.json is not set, then set it to all backends
-        supported_backends.extend(vec![
-            TargetBackend::Wasm,
-            TargetBackend::WasmGC,
-            TargetBackend::Js,
-            TargetBackend::Native,
-            TargetBackend::LLVM,
-        ]);
+        supported_backends.extend(TargetBackend::all());
     };
 
     let result = MoonPkg {
