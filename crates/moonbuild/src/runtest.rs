@@ -70,19 +70,15 @@ pub async fn run_wat(
     file_test_info_map: &FileTestInfo,
     verbose: bool,
 ) -> anyhow::Result<Vec<Result<TestStatistics, TestFailedStatus>>> {
-    // put "--test-args" at the front of args
-    let mut _args = vec!["--test-args".to_string()];
-    _args.push(serde_json_lenient::to_string(args).unwrap());
-    run(
-        Some("moonrun"),
-        path,
-        target_dir,
-        &[],    // args before path
-        &_args, // args after path
-        file_test_info_map,
-        verbose,
-    )
-    .await
+    let mut cmd = tokio::process::Command::new(
+        crate::MOONRUN_EXECUTABLE
+            .as_deref()
+            .context("Unable to find the `moonrun` executable, please reinstall")?,
+    );
+    cmd.arg(path)
+        .arg("--test-args")
+        .arg(serde_json_lenient::to_string(args).expect("valid JSON"));
+    run(path, cmd, target_dir, file_test_info_map, verbose).await
 }
 
 pub async fn run_js(
@@ -92,21 +88,15 @@ pub async fn run_js(
     file_test_info_map: &FileTestInfo,
     verbose: bool,
 ) -> anyhow::Result<Vec<Result<TestStatistics, TestFailedStatus>>> {
-    let node = if which::which("node.cmd").is_ok() {
-        Some("node.cmd")
-    } else {
-        Some("node")
-    };
-    run(
-        node,
-        path,
-        target_dir,
-        &["--enable-source-maps".to_string()], // args before path
-        &[serde_json_lenient::to_string(args).unwrap()], // args after path
-        file_test_info_map,
-        verbose,
-    )
-    .await
+    let mut cmd = tokio::process::Command::new(
+        crate::NODE_EXECUTABLE
+            .as_deref()
+            .context("Unable to find the `node` executable in PATH")?,
+    );
+    cmd.arg("--enable-source-maps")
+        .arg(path)
+        .arg(serde_json_lenient::to_string(args).expect("valid JSON"));
+    run(path, cmd, target_dir, file_test_info_map, verbose).await
 }
 
 pub async fn run_native(
@@ -118,51 +108,26 @@ pub async fn run_native(
     verbose: bool,
 ) -> anyhow::Result<Vec<Result<TestStatistics, TestFailedStatus>>> {
     let args = args.to_cli_args_for_native();
-    if moonbuild_opt.use_tcc_run {
+    let cmd = if moonbuild_opt.use_tcc_run {
         let path = path.with_extension("c");
         // TODO
-        let rt_path = target_dir.join(format!("libruntime.{DYN_EXT}"));
-        let internal_tcc_path = &MOON_DIRS.internal_tcc_path;
-        let mut pre_args = vec![
-            format!("-I{}", MOON_DIRS.moon_include_path.display()),
-            format!("-L{}", MOON_DIRS.moon_lib_path.display()),
-            rt_path.display().to_string(),
-        ];
-        pre_args.extend(
-            moonbuild_opt
-                .dynamic_stub_libs
-                .as_ref()
-                .unwrap()
-                .iter()
-                .map(String::to_string),
-        );
-        pre_args.extend([
-            "-DMOONBIT_NATIVE_NO_SYS_HEADER".to_string(),
-            "-DMOONBIT_USE_SHARED_RUNTIME".to_string(),
-            "-run".to_string(),
-        ]);
-        run(
-            Some(internal_tcc_path.display().to_string().as_str()),
-            &path,
-            target_dir,
-            &pre_args,
-            &[args],
-            file_test_info_map,
-            verbose,
-        )
-        .await
+        let mut cmd = tokio::process::Command::new(&MOON_DIRS.internal_tcc_path);
+        cmd.arg(format!("-I{}", MOON_DIRS.moon_include_path.display()))
+            .arg(format!("-L{}", MOON_DIRS.moon_lib_path.display()))
+            .arg(target_dir.join(format!("libruntime.{DYN_EXT}")))
+            .args(moonbuild_opt.dynamic_stub_libs.iter().flatten())
+            .arg("-DMOONBIT_NATIVE_NO_SYS_HEADER")
+            .arg("-DMOONBIT_USE_SHARED_RUNTIME")
+            .arg("-run")
+            .arg(path)
+            .arg(args);
+        cmd
     } else {
-        run(
-            None,
-            path,
-            target_dir,
-            &[],     // args before path
-            &[args], // args after path
-            file_test_info_map,
-            verbose,
-        )
-        .await
-    }
+        let mut cmd = tokio::process::Command::new(path);
+        cmd.arg(args);
+        cmd
+    };
+    run(path, cmd, target_dir, file_test_info_map, verbose).await
 }
 
 pub async fn run_llvm(
@@ -172,71 +137,28 @@ pub async fn run_llvm(
     file_test_info_map: &FileTestInfo,
     verbose: bool,
 ) -> anyhow::Result<Vec<Result<TestStatistics, TestFailedStatus>>> {
-    let args = args.to_cli_args_for_native();
-    run(
-        None,
-        path,
-        target_dir,
-        &[],     // args before path
-        &[args], // args after path
-        file_test_info_map,
-        verbose,
-    )
-    .await
+    let mut cmd = tokio::process::Command::new(path);
+    cmd.arg(args.to_cli_args_for_native());
+    run(path, cmd, target_dir, file_test_info_map, verbose).await
 }
 
 async fn run(
-    runtime: Option<&str>,
     path: &Path,
+    mut subprocess: tokio::process::Command,
     target_dir: &Path,
-    args_before_path: &[String],
-    args: &[String],
     file_test_info_map: &FileTestInfo,
     verbose: bool,
 ) -> anyhow::Result<Vec<Result<TestStatistics, TestFailedStatus>>> {
     if verbose {
-        if let Some(runtime) = runtime {
-            eprintln!(
-                "{} {} {} {}",
-                runtime,
-                args_before_path.join(" "),
-                path.display(),
-                args.join(" ")
-            );
-        } else {
-            eprintln!(
-                "{} {} {}",
-                args_before_path.join(" "),
-                path.display(),
-                args.join(" ")
-            );
-        }
+        eprintln!("{:?}", subprocess.as_std());
     }
-
-    let mut subprocess = tokio::process::Command::new(if let Some(runtime) = runtime {
-        runtime
-    } else {
-        path.to_str().unwrap()
-    });
-
-    subprocess.args(args_before_path);
-    if runtime.is_some() {
-        subprocess.arg(path);
-    }
-    subprocess.args(args);
 
     let mut execution = subprocess
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::inherit())
         .spawn()
-        .with_context(|| {
-            format!(
-                "failed to execute '{} {}'",
-                runtime.unwrap_or(""),
-                path.display()
-            )
-        })?;
+        .with_context(|| format!("failed to execute: {:?}", subprocess))?;
     let mut stdout = execution.stdout.take().unwrap();
 
     let mut test_capture =
@@ -251,12 +173,7 @@ async fn run(
     stdout
         .read_to_end(&mut stdout_buffer)
         .await
-        .context(format!(
-            "failed to read stdout for {} {} {}",
-            runtime.unwrap_or(""),
-            path.display(),
-            args.join(" ")
-        ))?;
+        .with_context(|| format!("failed to read stdout: {:?}", subprocess))?;
 
     handle_stdout(
         &mut std::io::BufReader::new(stdout_buffer.as_slice()),
