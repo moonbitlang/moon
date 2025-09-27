@@ -65,21 +65,27 @@ pub fn watcher_is_running(pid_path: &std::path::Path) -> anyhow::Result<bool> {
     }
 }
 
-static NODE_EXECUTABLE: LazyLock<Option<&str>> = LazyLock::new(|| {
-    if which::which("node.cmd").is_ok() {
-        Some("node.cmd")
-    } else if which::which("node").is_ok() {
-        Some("node")
-    } else {
-        None
+static MOONRUN_EXECUTABLE: LazyLock<Option<std::path::PathBuf>> = LazyLock::new(|| {
+    let moonrun = "moonrun";
+    // Prefer the one next to the current executable
+    if let Ok(current_exe) = std::env::current_exe() {
+        if let Some(exe_dir) = current_exe.parent() {
+            let moonrun = exe_dir.join(moonrun);
+            if moonrun.exists() {
+                return Some(moonrun);
+            }
+        }
     }
+    // Fallback to search in PATH
+    which::which(moonrun).ok()
 });
-static PYTHON_EXECUTABLE: LazyLock<Option<&str>> = LazyLock::new(|| {
-    if which::which("python3").is_ok() {
-        Some("python3")
-    } else if which::which("python").is_ok() {
-        Some("python")
-    } else {
-        None
-    }
+static NODE_EXECUTABLE: LazyLock<Option<std::path::PathBuf>> = LazyLock::new(|| {
+    ["node.cmd", "node"]
+        .iter()
+        .find_map(|name| which::which(name).ok())
+});
+static PYTHON_EXECUTABLE: LazyLock<Option<std::path::PathBuf>> = LazyLock::new(|| {
+    ["python3", "python", "python3.exe", "python.exe"]
+        .iter()
+        .find_map(|name| which::which(name).ok())
 });

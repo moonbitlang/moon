@@ -16,7 +16,7 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
-use crate::NODE_EXECUTABLE;
+use crate::{MOONRUN_EXECUTABLE, NODE_EXECUTABLE};
 
 use super::gen;
 use anyhow::Context;
@@ -41,51 +41,40 @@ pub fn load_moon_proj(
 }
 
 pub fn run_wat(path: &Path, args: &[String], verbose: bool) -> anyhow::Result<()> {
-    run(Some("moonrun"), path, args, verbose)
+    let mut cmd = Command::new(
+        MOONRUN_EXECUTABLE
+            .as_deref()
+            .context("Unable to find the `moonrun` executable, please reinstall")?,
+    );
+    cmd.arg(path).args(args);
+    run(cmd, verbose)
 }
 
 pub fn run_js(path: &Path, args: &[String], verbose: bool) -> anyhow::Result<()> {
-    let node = NODE_EXECUTABLE.as_deref();
-    run(node, path, args, verbose)
+    let mut cmd = Command::new(
+        NODE_EXECUTABLE
+            .as_deref()
+            .context("Unable to find the `node` executable in PATH")?,
+    );
+    cmd.arg(path).args(args);
+    run(cmd, verbose)
 }
 
 pub fn run_native(path: &Path, args: &[String], verbose: bool) -> anyhow::Result<()> {
-    run(None, path, args, verbose)
+    let mut cmd = Command::new(path.as_os_str());
+    cmd.args(args);
+    run(cmd, verbose)
 }
 
-fn run(runtime: Option<&str>, path: &Path, args: &[String], verbose: bool) -> anyhow::Result<()> {
+fn run(mut subprocess: Command, verbose: bool) -> anyhow::Result<()> {
     if verbose {
-        if let Some(runtime) = runtime {
-            eprintln!("{} {} {}", runtime, path.display(), args.join(" "));
-        } else {
-            eprintln!("{} {}", path.display(), args.join(" "));
-        }
+        eprintln!("{:?}", subprocess);
     }
-    let mut subprocess = Command::new(if let Some(runtime) = runtime {
-        runtime
-    } else {
-        path.to_str().unwrap()
-    });
-
-    if runtime.is_some() {
-        subprocess.arg(path);
-    }
-    subprocess.args(args);
-
     let mut execution = subprocess
         .stdout(Stdio::inherit())
         .stderr(Stdio::inherit())
         .spawn()
-        .context(format!(
-            "failed to execute: {} {} {}",
-            runtime.unwrap_or(""),
-            path.display(),
-            if args.is_empty() {
-                "".to_string()
-            } else {
-                format!("-- {}", args.join(" "))
-            }
-        ))?;
+        .with_context(|| format!("failed to execute: {:?}", subprocess))?;
     let status = execution.wait()?;
     if status.success() {
         Ok(())
