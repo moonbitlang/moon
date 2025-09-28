@@ -101,6 +101,7 @@ pub fn run_doc_rr(cli: UniversalFlags, cmd: DocSubcommand) -> anyhow::Result<i32
     }
 
     // Generate metadata for `moondoc`
+    let _lock = FileLock::lock(&target_dir)?;
     rr_build::generate_metadata(&source_dir, &target_dir, &_build_meta)?;
 
     // Execute the build
@@ -112,6 +113,8 @@ pub fn run_doc_rr(cli: UniversalFlags, cmd: DocSubcommand) -> anyhow::Result<i32
         return Ok(result.return_code_for_success());
     }
 
+    // Release lock before serving (no writes beyond this point)
+    drop(_lock);
     // Serve
     if cmd.serve {
         let static_dir = target_dir.join("doc");

@@ -271,6 +271,8 @@ fn run_check_normal_internal(
             );
             Ok(0)
         } else {
+            let _lock = FileLock::lock(target_dir)?;
+
             // Generate metadata for IDE
             rr_build::generate_metadata(source_dir, target_dir, &_build_meta)?;
 
