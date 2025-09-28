@@ -72,25 +72,12 @@ macro_rules! features {
             )*
             Ok(())
             }
-        }
 
-        impl Default for FeatureGate {
-            #[allow(unused)]
-            fn default() -> Self {
-                Self {$(
-                    $name: Self::$name.to_bool()
-                ),*}
-            }
-        }
-
-        impl FromStr for FeatureGate {
-            type Err = FeatureGateParseError;
-
-            #[allow(unused)]
-            fn from_str(s: &str) -> Result<Self, Self::Err> {
+            /// Parse features from a comma-separated string without environment variable checks
+            fn parse_features_internal(s: &str) -> Result<Self, FeatureGateParseError> {
                 let mut this = Self::default();
-                for val in  s.split(',') {
-                    let trim  = val.trim();
+                for val in s.split(',') {
+                    let trim = val.trim();
                     if trim.is_empty() {
                         continue;
                     }
@@ -106,6 +93,15 @@ macro_rules! features {
                     }
                 }
                 Ok(this)
+            }
+        }
+
+        impl Default for FeatureGate {
+            #[allow(unused)]
+            fn default() -> Self {
+                Self {$(
+                    $name: Self::$name.to_bool()
+                ),*}
             }
         }
 
@@ -134,6 +130,21 @@ features! {
     (unstable, rr_export_package_graph, "Export the package dependency graph (only with Rupes Recta)"),
     (unstable, rr_export_build_plan, "Export the build plan graph (only with Rupes Recta)"),
     (unstable, rr_n2_explain, "Ask n2 to explain rerun reasons (only with Rupes Recta)"),
+}
+
+impl FromStr for FeatureGate {
+    type Err = FeatureGateParseError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        let mut this = Self::parse_features_internal(s)?;
+
+        // NEW_MOON environment variable is an alias for rupes_recta
+        if std::env::var("NEW_MOON").unwrap_or_default() == "1" {
+            this.rupes_recta = true;
+        }
+
+        Ok(this)
+    }
 }
 
 impl FromStr for Box<FeatureGate> {
@@ -195,7 +206,6 @@ impl std::fmt::Display for AllFeatures {
 #[allow(dead_code)]
 mod test {
     use super::FeatureGateParseError;
-    use std::str::FromStr;
 
     features! {
         (stable, test_stable, "Dummy feature that's stable"),
@@ -205,34 +215,36 @@ mod test {
 
     #[test]
     fn test_feature_parsing_empty() {
-        let f = FeatureGate::from_str("").expect("should parse successfully");
+        let f = FeatureGate::parse_features_internal("").expect("should parse successfully");
         assert!(f.test_stable);
         assert!(!f.test_unstable);
     }
 
     #[test]
     fn test_feature_parsing_stable() {
-        let f = FeatureGate::from_str("test_stable").expect("should parse successfully");
+        let f =
+            FeatureGate::parse_features_internal("test_stable").expect("should parse successfully");
         assert!(f.test_stable);
         assert!(!f.test_unstable);
     }
 
     #[test]
     fn test_feature_parsing_unstable() {
-        let f = FeatureGate::from_str("test_unstable").expect("should parse successfully");
+        let f = FeatureGate::parse_features_internal("test_unstable")
+            .expect("should parse successfully");
         assert!(f.test_stable);
         assert!(f.test_unstable);
     }
 
     #[test]
     fn test_feature_parsing_unstable_comma() {
-        let f = FeatureGate::from_str("test_unstable,test_unstable2")
+        let f = FeatureGate::parse_features_internal("test_unstable,test_unstable2")
             .expect("should parse successfully");
         assert!(f.test_stable);
         assert!(f.test_unstable);
         assert!(f.test_unstable2);
 
-        let f = FeatureGate::from_str("test_unstable, test_unstable2")
+        let f = FeatureGate::parse_features_internal("test_unstable, test_unstable2")
             .expect("should parse successfully");
         assert!(f.test_stable);
         assert!(f.test_unstable);
@@ -241,7 +253,7 @@ mod test {
 
     #[test]
     fn test_feature_parsing_unknown() {
-        let result = FeatureGate::from_str("unknown_feature");
+        let result = FeatureGate::parse_features_internal("unknown_feature");
         assert!(matches!(
             result,
             Err(FeatureGateParseError::UnknownFeature(_))
@@ -250,7 +262,7 @@ mod test {
 
     #[test]
     fn test_feature_parsing_mixed_known_unknown() {
-        let result = FeatureGate::from_str("test_unstable,unknown_feature");
+        let result = FeatureGate::parse_features_internal("test_unstable,unknown_feature");
         assert!(matches!(
             result,
             Err(FeatureGateParseError::UnknownFeature(_))
@@ -302,5 +314,70 @@ mod test {
         assert!(output.contains("test_unstable2 (unstable)"));
         assert!(output.contains("Dummy feature that's stable"));
         assert!(output.contains("Dummy feature that's unstable"));
+    }
+
+    #[test]
+    fn test_parse_features_internal() {
+        let f = FeatureGate::parse_features_internal("").expect("should parse successfully");
+        assert!(f.test_stable);
+        assert!(!f.test_unstable);
+
+        let f = FeatureGate::parse_features_internal("test_unstable")
+            .expect("should parse successfully");
+        assert!(f.test_stable);
+        assert!(f.test_unstable);
+
+        let f = FeatureGate::parse_features_internal("test_unstable,test_unstable2")
+            .expect("should parse successfully");
+        assert!(f.test_stable);
+        assert!(f.test_unstable);
+        assert!(f.test_unstable2);
+    }
+}
+
+#[cfg(test)]
+mod integration_test {
+    use super::*;
+    use std::str::FromStr;
+
+    #[test]
+    fn test_parse_features_internal_method() {
+        let f = FeatureGate::parse_features_internal("").expect("should parse successfully");
+        assert!(!f.rupes_recta, "rupes_recta should be false by default");
+
+        let f =
+            FeatureGate::parse_features_internal("rupes_recta").expect("should parse successfully");
+        assert!(
+            f.rupes_recta,
+            "rupes_recta should be enabled when explicitly specified"
+        );
+
+        let f = FeatureGate::parse_features_internal("rr_export_module_graph")
+            .expect("should parse successfully");
+        assert!(
+            !f.rupes_recta,
+            "rupes_recta should be false when not specified"
+        );
+        assert!(
+            f.rr_export_module_graph,
+            "rr_export_module_graph should be enabled"
+        );
+    }
+
+    #[test]
+    fn test_from_str_compatibility() {
+        let f = FeatureGate::from_str("rupes_recta").expect("should parse successfully");
+        assert!(f.rupes_recta, "Explicit rupes_recta should work");
+
+        let f = FeatureGate::from_str("rr_export_module_graph,rr_export_package_graph")
+            .expect("should parse successfully");
+        assert!(
+            f.rr_export_module_graph,
+            "Multiple features should be parsed correctly"
+        );
+        assert!(
+            f.rr_export_package_graph,
+            "Multiple features should be parsed correctly"
+        );
     }
 }
