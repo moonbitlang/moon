@@ -4053,7 +4053,7 @@ fn test_run_doc_test() {
             expect test failed at $ROOT/src/lib/greet.mbt:99:5-99:40
             Diff:
             ----
-            b"/x54/x00/x65/x00/x73/x00/x74/x00"
+            b"T/x00e/x00s/x00t/x00"
             ----
 
             Total tests: 16, passed: 11, failed: 5.
