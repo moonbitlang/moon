@@ -5,7 +5,7 @@ MoonBuild provides conditional compilation features for this case.
 
 **All conditional compilation features are currently file-based.**
 MoonBuild currently does not support conditional compilation on granularity less than one file.
-It also does not support that based on the architecture or operating system of native target platforms.
+Operating system-based conditional compilation is supported for native target platforms (native and llvm backends) through the `targets` field in `moon.pkg.json`.
 
 ## Filename-based conditional compilation
 
@@ -58,6 +58,14 @@ Atoms are the basic building blocks of conditional expressions:
 
 - `"release"` - Release (optimized) build
 - `"debug"` - Debug (unoptimized) build
+
+**Operating System Atoms (for native targets only):**
+
+- `"windows"` - Windows operating system
+- `"linux"` - Linux operating system
+- `"macos"` - macOS operating system
+
+Note: OS atoms only apply to native backends (`"native"` and `"llvm"`). For non-native backends (`"js"`, `"wasm"`, `"wasm-gc"`), OS atoms are ignored as these targets don't have an associated operating system.
 
 #### Logical Operators
 
@@ -175,3 +183,18 @@ This is equivalent to:
   }
 }
 ```
+
+**OS-based conditional compilation (native targets only):**
+
+```json
+{
+  "targets": {
+    "windows_impl.mbt": "windows",
+    "unix_impl.mbt": ["or", "linux", "macos"],
+    "linux_specific.mbt": ["and", "native", "linux"],
+    "non_windows.mbt": ["and", "llvm", ["not", "windows"]]
+  }
+}
+```
+
+Note: OS atoms (`"windows"`, `"linux"`, `"macos"`) only affect files when building with native backends (`"native"` and `"llvm"`). For non-native targets like JavaScript or WebAssembly, OS conditions are ignored since these targets don't run on a specific operating system.
