@@ -22,8 +22,7 @@ use colored::Colorize;
 use moonbuild::dry_run;
 use moonbuild::entry;
 use moonbuild::watch::watching;
-use moonbuild_rupes_recta::model::BuildPlanNode;
-use moonbuild_rupes_recta::model::TargetKind;
+use moonbuild_rupes_recta::intent::UserIntent;
 use mooncake::pkg::sync::auto_sync;
 use moonutil::common::lower_surface_targets;
 use moonutil::common::BuildOpt;
@@ -295,16 +294,13 @@ fn calc_user_intent(
             linkable_pkgs.push(pkg_id)
         }
     }
-    let nodes: Vec<_> = if linkable_pkgs.is_empty() {
+    let intents: Vec<_> = if linkable_pkgs.is_empty() {
         packages
             .iter()
-            .map(|(_, &pkg_id)| BuildPlanNode::build_core(pkg_id.build_target(TargetKind::Source)))
+            .map(|(_, &pkg_id)| UserIntent::Build(pkg_id))
             .collect()
     } else {
-        linkable_pkgs
-            .into_iter()
-            .map(|pkg_id| BuildPlanNode::make_executable(pkg_id.build_target(TargetKind::Source)))
-            .collect()
+        linkable_pkgs.into_iter().map(UserIntent::Build).collect()
     };
-    Ok(nodes.into())
+    Ok(intents.into())
 }

@@ -20,13 +20,13 @@
 
 use std::{
     borrow::Cow,
+    collections::HashSet,
     ffi::OsStr,
     path::{Path, PathBuf},
     sync::LazyLock,
 };
 
 use indexmap::{set::MutableValues, IndexSet};
-use log::{debug, trace};
 use moonutil::{
     common::{
         DEP_PATH, DOT_MBT_DOT_MD, MOD_DIR, MOONCAKE_BIN, MOON_BIN_DIR, MOON_MOD_JSON,
@@ -34,12 +34,12 @@ use moonutil::{
     },
     compiler_flags::CC,
 };
-use petgraph::visit::DfsPostOrder;
-use tracing::{instrument, warn, Level};
+use tracing::{debug, instrument, trace, warn, Level};
 
 use crate::{
     build_plan::PrebuildInfo,
     cond_comp::{self, CompileCondition},
+    discover::DiscoveredPackage,
     model::{BuildPlanNode, BuildTarget, PackageId, TargetKind},
 };
 
@@ -60,12 +60,37 @@ impl<'a> BuildPlanConstructor<'a> {
         }
     }
 
+    /// Specify a need on the `.mi` of a dependency.
+    ///
+    /// This dynamically maps into either `Build`, `Check` or `BuildVirtual`
+    /// nodes based on the property of the dependency package.
+    fn need_mi_of_dep(&mut self, node: BuildPlanNode, dep: BuildTarget, check_only: bool) {
+        let pkg_info = self.input.pkg_dirs.get_package(dep.package);
+        let dep_node = if pkg_info.is_virtual() {
+            self.need_node(BuildPlanNode::BuildVirtual(dep.package))
+        } else if check_only {
+            self.need_node(BuildPlanNode::Check(dep))
+        } else {
+            self.need_node(BuildPlanNode::BuildCore(dep))
+        };
+        self.add_edge(node, dep_node);
+    }
+
     #[instrument(level = Level::DEBUG, skip(self))]
     pub(super) fn build_check(
         &mut self,
         node: BuildPlanNode,
         target: BuildTarget,
     ) -> Result<(), BuildPlanConstructError> {
+        let pkg = self.input.pkg_dirs.get_package(target.package);
+
+        assert!(
+            pkg.has_implementation(),
+            "Checking a virtual package without implementation should use the \
+            `BuildVirtual` action instead"
+        );
+
+        self.need_node(node);
         // Check depends on `.mi` of all dependencies, which practically
         // means the Check of all dependencies.
         for dep in self
@@ -74,13 +99,19 @@ impl<'a> BuildPlanConstructor<'a> {
             .dep_graph
             .neighbors_directed(target, petgraph::Direction::Outgoing)
         {
-            let dep_node = self.need_node(BuildPlanNode::Check(dep));
-            self.add_edge(node, dep_node);
+            self.need_mi_of_dep(node, dep, true);
         }
 
         self.need_all_package_prebuild(node, target.package);
 
+        // A virtual package (with or without default implementation) needs to
+        // compile its interface first
+        if pkg.is_virtual() {
+            let dep_node = self.need_node(BuildPlanNode::BuildVirtual(target.package));
+            self.add_edge(node, dep_node);
+        }
         self.populate_target_info(target);
+
         self.resolved_node(node);
 
         Ok(())
@@ -92,6 +123,14 @@ impl<'a> BuildPlanConstructor<'a> {
         node: BuildPlanNode,
         target: BuildTarget,
     ) -> Result<(), BuildPlanConstructError> {
+        let pkg = self.input.pkg_dirs.get_package(target.package);
+
+        assert!(
+            pkg.has_implementation(),
+            "Building a virtual package without implementation should use the \
+            `BuildVirtual` action instead"
+        );
+
         // Build depends on `.mi`` of all dependencies. Although Check can
         // also emit `.mi` files, since we're building, this action actually
         // means we need to build all dependencies.
@@ -102,8 +141,7 @@ impl<'a> BuildPlanConstructor<'a> {
             .dep_graph
             .neighbors_directed(target, petgraph::Direction::Outgoing)
         {
-            let dep_node = self.need_node(BuildPlanNode::BuildCore(dep));
-            self.add_edge(node, dep_node);
+            self.need_mi_of_dep(node, dep, false);
         }
 
         // If the given target is a test, we will also need to generate the test driver.
@@ -111,6 +149,13 @@ impl<'a> BuildPlanConstructor<'a> {
             let gen_test_info = BuildPlanNode::GenerateTestInfo(target);
             self.need_node(gen_test_info);
             self.add_edge(node, gen_test_info);
+        }
+
+        // If the given target is a virtual package with default implementation,
+        // we need to build its interface first.
+        if pkg.is_virtual() {
+            let dep_node = self.need_node(BuildPlanNode::BuildVirtual(target.package));
+            self.add_edge(node, dep_node);
         }
 
         self.need_all_package_prebuild(node, target.package);
@@ -250,6 +295,8 @@ impl<'a> BuildPlanConstructor<'a> {
             .filter(|(specify_target, _)| specify_target == &target)
             .map(|(_, path)| path.clone());
 
+        let mi_check_target = self.mi_check_target(target, pkg);
+
         BuildTargetInfo {
             regular_files: regular_files.into_iter().collect(),
             whitebox_files: whitebox_files.into_iter().collect(),
@@ -258,6 +305,32 @@ impl<'a> BuildPlanConstructor<'a> {
             alert_list,
             specified_no_mi,
             patch_file,
+            check_mi_against: mi_check_target,
+        }
+    }
+
+    /// Check if a given target needs to check `.mi` against another target.
+    #[allow(clippy::manual_map)]
+    fn mi_check_target(&self, target: BuildTarget, pkg: &DiscoveredPackage) -> Option<BuildTarget> {
+        // Mi checks.
+        // - A virtual package with a default implementation checks .mi with its
+        //   own virtual interface declaration.
+        // - A package implementing a virtual package checks .mi with the
+        //   virtual package it implements.
+        if target.kind == TargetKind::Source {
+            if let Some(vpkg) = &pkg.raw.virtual_pkg {
+                if vpkg.has_default {
+                    Some(target.package.build_target(TargetKind::Source))
+                } else {
+                    unreachable!("A virtual package without default implementation should not have a build target info, thus should not reach here");
+                }
+            } else if let Some(implement) = self.input.pkg_rel.virt_impl.get(target.package) {
+                Some(implement.build_target(TargetKind::Source))
+            } else {
+                None
+            }
+        } else {
+            None
         }
     }
 
@@ -362,37 +435,9 @@ impl<'a> BuildPlanConstructor<'a> {
 
         debug!("Building MakeExecutable for target: {:?}", target);
         debug!("Performing DFS post-order traversal to collect dependencies");
-        // This DFS is shared by both LinkCore and MakeExecutable actions.
-        let mut dfs = DfsPostOrder::new(&self.input.pkg_rel.dep_graph, target);
-        // This is the link core sources
-        let mut link_core_deps = IndexSet::new();
-        // This is the C stub sources
-        let mut c_stub_deps = Vec::new();
-        // DFS itself
-        while let Some(next) = dfs.next(&self.input.pkg_rel.dep_graph) {
-            if next.kind == TargetKind::WhiteboxTest {
-                // Replace whitebox tests, if any
-                let source_target = next.package.build_target(TargetKind::Source);
-                if let Some(source_idx) = link_core_deps.get_index_of(&source_target) {
-                    let source_mut = link_core_deps
-                        .get_index_mut2(source_idx)
-                        .expect("Source index is valid");
-                    *source_mut = next;
-                    continue;
-                } else {
-                    // No source target found, resort to regular path
-                }
-            }
 
-            // Regular package
-            link_core_deps.insert(next);
-            // If there's any C stubs, add it (native only)
-            let pkg = self.input.pkg_dirs.get_package(next.package);
-            trace!("DFS post iterated: {}", pkg.fqn);
-            if self.build_env.target_backend.is_native() && !pkg.c_stub_files.is_empty() {
-                c_stub_deps.push(next);
-            }
-        }
+        // This DFS is shared by both LinkCore and MakeExecutable actions.
+        let (link_core_deps, c_stub_deps) = self.dfs_link_core_sources(target)?;
 
         let link_core_node = self.need_node(BuildPlanNode::LinkCore(target));
 
@@ -460,6 +505,106 @@ impl<'a> BuildPlanConstructor<'a> {
         Ok(())
     }
 
+    fn dfs_link_core_sources(
+        &mut self,
+        target: BuildTarget,
+    ) -> Result<(IndexSet<BuildTarget>, Vec<BuildTarget>), BuildPlanConstructError> {
+        // This DFS is shared by both LinkCore and MakeExecutable actions.
+        let vp_info = self.input.pkg_rel.virtual_users.get(target.package);
+
+        // This is the link core sources
+        let mut link_core_deps: IndexSet<BuildTarget> = IndexSet::new();
+        // This is the C stub sources
+        let mut c_stub_deps: Vec<BuildTarget> = Vec::new();
+
+        let graph = &self.input.pkg_rel.dep_graph;
+
+        let mut seen: HashSet<BuildTarget> = HashSet::new();
+        let mut stack: Vec<(BuildTarget, bool)> = Vec::new(); // bool = expanded
+
+        // Seed with the root target
+        seen.insert(target);
+        stack.push((target, false));
+
+        while let Some((node, expanded)) = stack.pop() {
+            if !expanded {
+                // Virtual package overrider
+                //
+                // If the virtual package is overridden, the override target
+                // replaces the virtual package at the same place and descends
+                // to its own dependencies instead. See
+                // `/docs/dev/reference/virtual-pkg.md` for more information.
+                if let Some(vp_info) = vp_info {
+                    if let Some(&override_target) = vp_info.overrides.get(node.package) {
+                        trace!(
+                            from = ?node.package,
+                            to = ?override_target,
+                            "Overriding virtual package",
+                        );
+                        // Replace with the override target
+                        let override_target = BuildTarget {
+                            package: override_target,
+                            kind: TargetKind::Source,
+                        };
+
+                        if !seen.contains(&override_target) {
+                            seen.insert(override_target);
+                            stack.push((override_target, false));
+                        }
+                        continue;
+                    }
+                }
+
+                trace!(?node, "Found node at pre-order");
+                // First time we see this node on stack: push marker, then children
+                stack.push((node, true));
+                for child in graph.neighbors_directed(node, petgraph::Direction::Outgoing) {
+                    if !seen.contains(&child) {
+                        seen.insert(child);
+                        stack.push((child, false));
+                    }
+                }
+                continue;
+            }
+
+            let cur = node;
+
+            // White box test replacements
+            if cur.kind == TargetKind::WhiteboxTest {
+                // Replace whitebox tests, if any
+                let source_target = cur.package.build_target(TargetKind::Source);
+                if let Some(source_idx) = link_core_deps.get_index_of(&source_target) {
+                    let source_mut = link_core_deps
+                        .get_index_mut2(source_idx)
+                        .expect("Source index is valid");
+                    *source_mut = cur;
+                    continue;
+                } else {
+                    // No source target found, resort to regular path
+                }
+            }
+
+            let pkg = self.input.pkg_dirs.get_package(cur.package);
+
+            if !pkg.has_implementation() {
+                // Virtual package without implementation, report error
+                return Err(BuildPlanConstructError::NoImplementationForVirtualPackage {
+                    package: self.input.pkg_dirs.fqn(target.package).clone().into(),
+                    dep: self.input.pkg_dirs.fqn(cur.package).clone().into(),
+                });
+            }
+
+            // Add package to link core list
+            link_core_deps.insert(cur);
+            trace!(?cur, "Post iterated, added to link core deps");
+            if self.build_env.target_backend.is_native() && !pkg.c_stub_files.is_empty() {
+                c_stub_deps.push(cur);
+            }
+        }
+
+        Ok((link_core_deps, c_stub_deps))
+    }
+
     #[instrument(level = Level::DEBUG, skip(self))]
     pub(super) fn build_bundle(
         &mut self,
@@ -511,6 +656,34 @@ impl<'a> BuildPlanConstructor<'a> {
         let check_node = self.need_node(BuildPlanNode::Check(target));
         self.add_edge(_node, check_node);
         self.resolved_node(_node);
+        Ok(())
+    }
+
+    #[instrument(level = Level::DEBUG, skip(self))]
+    pub(super) fn build_parse_mbti(
+        &mut self,
+        node: BuildPlanNode,
+        target: PackageId,
+    ) -> Result<(), BuildPlanConstructError> {
+        // Parse MBTI depends on the .mi of its dependencies
+        let pkg = self.input.pkg_dirs.get_package(target);
+
+        assert!(
+            pkg.is_virtual(),
+            "Only virtual packages can have their .mi parsed from .mbti files"
+        );
+
+        for dep in self.input.pkg_rel.dep_graph.neighbors_directed(
+            target.build_target(TargetKind::Source),
+            petgraph::Direction::Outgoing,
+        ) {
+            // Note: This depends on the `Check` node, which will be coalesced
+            // to `Build` later if necessary.
+            self.need_mi_of_dep(node, dep, true);
+        }
+
+        self.resolved_node(node);
+
         Ok(())
     }
 
@@ -653,7 +826,7 @@ fn cat_opt(x: Option<String>, y: Option<&str>) -> Option<String> {
     }
 }
 
-static CHECK_AUTOMATA: LazyLock<aho_corasick::AhoCorasick> = LazyLock::new(|| {
+static PREBUILD_AUTOMATA: LazyLock<aho_corasick::AhoCorasick> = LazyLock::new(|| {
     aho_corasick::AhoCorasickBuilder::new()
         .build([MOONCAKE_BIN, MOD_DIR, PKG_DIR, "$input", "$output"])
         .expect("Failed to build automata")
@@ -683,7 +856,7 @@ fn handle_build_command_new(
     };
 
     let mut last_end = 0usize;
-    for magic in CHECK_AUTOMATA.find_iter(command) {
+    for magic in PREBUILD_AUTOMATA.find_iter(command) {
         // Commit previous segment
         if magic.start() > last_end {
             reconstructed.push_str(&command[last_end..magic.start()]);

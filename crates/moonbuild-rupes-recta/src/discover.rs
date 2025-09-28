@@ -33,19 +33,19 @@ use std::{
 
 use log::{debug, info, trace};
 use moonutil::common::{
-    read_module_desc_file_in_dir, read_package_desc_file_in_dir, IGNORE_DIRS, MOON_MOD_JSON,
-    MOON_PKG_JSON,
+    read_module_desc_file_in_dir, read_package_desc_file_in_dir, IGNORE_DIRS, MBTI_USER_WRITTEN,
+    MOON_MOD_JSON, MOON_PKG_JSON,
 };
 use moonutil::mooncakes::{result::ResolvedEnv, DirSyncResult, ModuleId, ModuleSource};
 use moonutil::package::MoonPkg;
 use relative_path::{PathExt, RelativePath};
 use slotmap::{SecondaryMap, SlotMap};
-use tracing::{instrument, Level};
+use tracing::{instrument, warn, Level};
 use walkdir::WalkDir;
 
 use crate::{
     model::PackageId,
-    pkg_name::{PackageFQN, PackagePath},
+    pkg_name::{PackageFQN, PackageFQNWithSource, PackagePath},
     special_cases::{add_prelude_as_import_for_core, module_name_is_core},
 };
 
@@ -189,12 +189,13 @@ fn discover_one_package(
 ) -> Result<DiscoveredPackage, DiscoverError> {
     let pkg_path = PackagePath::new_from_rel_path(rel)
         .expect("Generation of package path from relative path should not error");
+    let fqn = PackageFQN::new(m.clone(), pkg_path);
 
     // Discover the package config
     let pkg_json =
         read_package_desc_file_in_dir(abs).map_err(|e| DiscoverError::CantReadPackageFile {
             module: m.clone(),
-            package: pkg_path.clone(),
+            package: fqn.package().clone(),
             path: abs.to_path_buf(),
             inner: e,
         })?;
@@ -214,14 +215,14 @@ fn discover_one_package(
         .read_dir()
         .map_err(|x| DiscoverError::CantListPackageDir {
             module: m.clone(),
-            package: pkg_path.clone(),
+            package: fqn.package().clone(),
             path: abs.to_owned(),
             inner: x.into(),
         })?;
     for file in dir {
         let file = file.map_err(|e| DiscoverError::CantListPackageDir {
             module: m.clone(),
-            package: pkg_path.clone(),
+            package: fqn.package().clone(),
             path: abs.to_owned(),
             inner: e.into(),
         })?;
@@ -230,7 +231,7 @@ fn discover_one_package(
             .metadata()
             .map_err(|e| DiscoverError::CantReadFileInfo {
                 module: m.clone(),
-                package: pkg_path.clone(),
+                package: fqn.package().clone(),
                 file: path.clone(),
                 inner: e.into(),
             })?;
@@ -267,7 +268,7 @@ fn discover_one_package(
             if rel_path.starts_with("..") {
                 return Err(DiscoverError::InvalidStubPath {
                     module: m.clone(),
-                    package: pkg_path.clone(),
+                    package: fqn.package().clone(),
                     path: stub.clone(),
                     msg: "Path descends into parent directory",
                 });
@@ -284,17 +285,57 @@ fn discover_one_package(
     mbt_md_files.sort();
     drop(_sort_guard);
 
+    // Get the virtual mbti file if any
+    let virtual_mbti = discover_virtual_mbti(&pkg_json, &fqn, abs)?;
+
     Ok(DiscoveredPackage {
         root_path: abs.to_path_buf(),
         module: mid,
-        fqn: PackageFQN::new(m.clone(), pkg_path),
+        fqn,
         raw: Box::new(pkg_json),
         source_files,
         mbt_lex_files,
         mbt_yacc_files,
         mbt_md_files,
         c_stub_files: c_stubs,
+        virtual_mbti,
     })
+}
+
+fn discover_virtual_mbti(
+    pkg_json: &MoonPkg,
+    fqn: &PackageFQN,
+    abs: &Path,
+) -> Result<Option<PathBuf>, DiscoverError> {
+    let res = if pkg_json.virtual_pkg.is_some() {
+        // There are two types of `.mbti` files accepted as input:
+        // - The newer version is `pkg.mbti`
+        // - The older version is `<pkg_short_name>.mbti`
+        // We prefer the newer one if possible.
+        let short_name = fqn.short_alias();
+
+        let new_mbti = abs.join(MBTI_USER_WRITTEN);
+        let has_new_mbti = new_mbti.exists();
+        let old_mbti = abs.join(format!("{}.mbti", short_name));
+        let has_old_mbti = old_mbti.exists();
+
+        if has_new_mbti {
+            Some(new_mbti)
+        } else if has_old_mbti {
+            warn!(
+                "Using package name in MBTI file is deprecated. Please rename {} to {}",
+                old_mbti.display(),
+                MBTI_USER_WRITTEN
+            );
+            Some(old_mbti)
+        } else {
+            return Err(DiscoverError::MissingVirtualMbtiFile(fqn.clone().into()));
+        }
+    } else {
+        None
+    };
+
+    Ok(res)
 }
 
 // Be careful adding more fields to this struct. If it's not needed everywhere,
@@ -332,6 +373,11 @@ pub struct DiscoveredPackage {
     /// is generated from the package json, instead of directly collected from
     /// the folder.
     pub c_stub_files: Vec<PathBuf>,
+
+    /// The text-format module interface file for virtual packages.
+    ///
+    /// This is `None` for non-virtual packages.
+    pub virtual_mbti: Option<PathBuf>,
 }
 
 impl DiscoveredPackage {
@@ -340,6 +386,21 @@ impl DiscoveredPackage {
     /// This function assumes regular project layout.
     pub fn config_path(&self) -> PathBuf {
         self.root_path.join(MOON_PKG_JSON)
+    }
+
+    /// Get whether if the package is a virtual package
+    pub fn is_virtual(&self) -> bool {
+        self.raw.virtual_pkg.is_some()
+    }
+
+    /// Get whether if the package has a concrete implementation, i.e. moonbit
+    /// code to compile.
+    ///
+    /// This include both a regular package and a virtual package with a default
+    /// implementation.
+    pub fn has_implementation(&self) -> bool {
+        self.raw.virtual_pkg.is_none()
+            || self.raw.virtual_pkg.as_ref().is_some_and(|x| x.has_default)
     }
 }
 
@@ -456,4 +517,7 @@ pub enum DiscoverError {
         path: String,
         msg: &'static str,
     },
+
+    #[error("Cannot find `pkg.mbti` declaration file for virtual package {0}")]
+    MissingVirtualMbtiFile(PackageFQNWithSource),
 }

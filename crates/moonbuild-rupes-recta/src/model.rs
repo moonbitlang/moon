@@ -107,6 +107,9 @@ pub enum BuildPlanNode {
     Bundle(ModuleId),
     BuildRuntimeLib,
 
+    /// Build the virtual package's `.mbti` interface file to get an `.mi` file.
+    BuildVirtual(PackageId),
+
     /// Run the i-th prebuild script in the prebuild script list.
     RunPrebuild(PackageId, u32),
 
@@ -153,6 +156,7 @@ impl BuildPlanNode {
             | BuildPlanNode::Bundle(_)
             | BuildPlanNode::BuildRuntimeLib
             | BuildPlanNode::BuildDocs
+            | BuildPlanNode::BuildVirtual(_)
             | BuildPlanNode::RunPrebuild(_, _) => None,
         }
     }

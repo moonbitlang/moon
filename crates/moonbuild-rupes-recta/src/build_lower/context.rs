@@ -134,6 +134,7 @@ impl<'a> BuildPlanLowerContext<'a> {
                 self.lower_make_exe(target, info)
             }
             BuildPlanNode::GenerateMbti(target) => self.lower_generate_mbti(target),
+            BuildPlanNode::BuildVirtual(target) => self.lower_parse_mbti(node, target),
             BuildPlanNode::Bundle(module_id) => self.lower_bundle(node, module_id),
             BuildPlanNode::GenerateTestInfo(target) => {
                 let info = self
@@ -199,11 +200,17 @@ impl<'a> BuildPlanLowerContext<'a> {
                 ));
             }
             BuildPlanNode::BuildCore(target) => {
-                out.push(self.layout.mi_of_build_target(
-                    self.packages,
-                    &target,
-                    self.opt.target_backend,
-                ));
+                let info = self
+                    .build_plan
+                    .get_build_target_info(&target)
+                    .expect("Build target info should be present for BuildCore nodes");
+                if !(info.check_mi_against.is_some() || info.no_mi()) {
+                    out.push(self.layout.mi_of_build_target(
+                        self.packages,
+                        &target,
+                        self.opt.target_backend,
+                    ));
+                }
                 out.push(self.layout.core_of_build_target(
                     self.packages,
                     &target,
@@ -291,6 +298,15 @@ impl<'a> BuildPlanLowerContext<'a> {
                     .get_prebuild_info(pkg, idx)
                     .expect("Prebuild info should be populated before lowering run prebuild");
                 out.extend(cfg.resolved_outputs.iter().cloned());
+            }
+            BuildPlanNode::BuildVirtual(_target) => {
+                // The interface generated from `.mbti` is the `.mi` of the source target
+                let t = _target.build_target(crate::model::TargetKind::Source);
+                out.push(self.layout.mi_of_build_target(
+                    self.packages,
+                    &t,
+                    self.opt.target_backend,
+                ));
             }
         }
     }
