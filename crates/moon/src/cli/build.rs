@@ -134,6 +134,8 @@ fn run_build_internal(
             );
             Ok(0)
         } else {
+            let _lock = FileLock::lock(target_dir)?;
+
             let result = rr_build::execute_build(
                 &BuildConfig::from_flags(&cmd.build_flags, &cli.unstable_feature),
                 build_graph,

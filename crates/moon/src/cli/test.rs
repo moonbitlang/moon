@@ -579,6 +579,8 @@ fn run_test_rr(
 
         Ok(0)
     } else {
+        let _lock = FileLock::lock(target_dir)?;
+
         let build_config = BuildConfig::from_flags(cmd.build_flags, &cli.unstable_feature);
 
         // since n2 build consumes the graph, we back it up for reruns
