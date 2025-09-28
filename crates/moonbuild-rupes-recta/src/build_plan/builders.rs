@@ -150,6 +150,7 @@ impl<'a> BuildPlanConstructor<'a> {
             optlevel: self.build_env.opt_level,
             test_kind: target.kind.into(),
             backend: self.build_env.target_backend,
+            target_os: self.build_env.target_os,
         };
 
         // Iterator of all existing source files in the package

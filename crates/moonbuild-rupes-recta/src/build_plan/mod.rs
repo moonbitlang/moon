@@ -50,7 +50,7 @@ use std::{
 };
 
 use log::{debug, info};
-use moonutil::{common::TargetBackend, compiler_flags::CC, cond_expr::OptLevel};
+use moonutil::{common::TargetBackend, compiler_flags::CC, cond_expr::{OptLevel, TargetOs}};
 use petgraph::prelude::DiGraphMap;
 use tracing::instrument;
 
@@ -255,6 +255,8 @@ pub struct BuildEnvironment {
     /// Commandline_level warnings to enable/disable
     pub warn_list: Option<String>,
     pub alert_list: Option<String>,
+    /// Target operating system for native builds
+    pub target_os: Option<TargetOs>,
     // Can have more, e.g. cross compile
 }
 

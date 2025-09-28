@@ -23,7 +23,7 @@ use log::{debug, info};
 use moonutil::{
     common::{RunMode, TargetBackend},
     compiler_flags::CompilerPaths,
-    cond_expr::OptLevel,
+    cond_expr::{OptLevel, TargetOs},
     moon_dir::MOON_DIRS,
 };
 use tracing::{instrument, Level};
@@ -122,6 +122,7 @@ pub fn compile(
         std: cx.stdlib_path.is_some(),
         warn_list: cx.warn_list.clone(),
         alert_list: cx.alert_list.clone(),
+        target_os: TargetOs::current_os_for_native_target(cx.target_backend),
     };
     let plan = build_plan::build_plan(resolve_output, &build_env, input_nodes, input_directive)?;
 

@@ -16,7 +16,7 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
-use crate::cond_expr::{self, CompileCondition, CondExpr};
+use crate::cond_expr::{self, CompileCondition, CondExpr, TargetOs};
 use crate::module::{ModuleDB, MoonMod};
 use crate::moon_dir::MOON_DIRS;
 use crate::mooncakes::result::ResolvedEnv;
@@ -476,13 +476,14 @@ fn scan_one_package(
     };
 
     let file_cond_map = |files: Vec<PathBuf>| -> IndexMap<PathBuf, CompileCondition> {
+        let target_os = TargetOs::current_os_for_native_target(moonc_opt.build_opt.target_backend);
         IndexMap::from_iter(files.into_iter().map(|p| {
             (
                 p.clone(),
                 cond_targets
                     .as_ref()
                     .and_then(|it| it.get(p.file_name().unwrap().to_str().unwrap()))
-                    .map(|f| f.to_compile_condition())
+                    .map(|f| f.to_compile_condition_with_os(target_os))
                     .unwrap_or_default(),
             )
         }))

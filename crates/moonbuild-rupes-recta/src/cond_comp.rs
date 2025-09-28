@@ -22,7 +22,7 @@ use std::path::Path;
 
 use moonutil::{
     common::TargetBackend,
-    cond_expr::{CompileCondition as MetadataCompileCondition, CondExpr, OptLevel},
+    cond_expr::{CompileCondition as MetadataCompileCondition, CondExpr, OptLevel, TargetOs},
     package::MoonPkg,
 };
 
@@ -53,6 +53,7 @@ pub(crate) struct CompileCondition {
     pub optlevel: OptLevel,
     pub test_kind: Option<TestKind>,
     pub backend: TargetBackend,
+    pub target_os: Option<TargetOs>,
 }
 
 /// Get the list of files that should get included in the compile list under
@@ -131,7 +132,7 @@ fn should_compile_using_pkg_cond_expr(
     actual: &CompileCondition,
 ) -> Option<FileTestKind> {
     // TODO: Put the parsing earlier, not here
-    if !cond_expr.eval(actual.optlevel, actual.backend) {
+    if !cond_expr.eval(actual.optlevel, actual.backend, actual.target_os) {
         None // Fails the condition in pkg.json
     } else if let Some(stripped) = name.strip_suffix(".mbt") {
         let spec = get_file_test_kind(stripped);
