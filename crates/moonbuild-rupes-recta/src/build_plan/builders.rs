@@ -90,6 +90,7 @@ impl<'a> BuildPlanConstructor<'a> {
             `BuildVirtual` action instead"
         );
 
+        self.need_node(node);
         // Check depends on `.mi` of all dependencies, which practically
         // means the Check of all dependencies.
         for dep in self
