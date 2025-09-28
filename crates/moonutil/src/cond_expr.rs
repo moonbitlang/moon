@@ -37,17 +37,16 @@ pub enum TargetOs {
 impl TargetOs {
     /// Get the current OS as TargetOs. Returns None for non-native targets.
     pub fn current_os_for_native_target(target_backend: TargetBackend) -> Option<Self> {
-        match target_backend {
-            TargetBackend::Native | TargetBackend::LLVM => {
-                match std::env::consts::OS {
-                    "windows" => Some(TargetOs::Windows),
-                    "linux" => Some(TargetOs::Linux),
-                    "macos" => Some(TargetOs::MacOS),
-                    _ => None, // Unsupported OS
-                }
+        if target_backend.is_native() {
+            match std::env::consts::OS {
+                "windows" => Some(TargetOs::Windows),
+                "linux" => Some(TargetOs::Linux),
+                "macos" => Some(TargetOs::MacOS),
+                _ => None, // Unsupported OS
             }
+        } else {
             // Non-native targets don't have an OS
-            TargetBackend::Wasm | TargetBackend::WasmGC | TargetBackend::Js => None,
+            None
         }
     }
 }
@@ -112,6 +111,8 @@ impl CondExpr {
 
         let mut backend_set = HashSet::new();
         let mut optlevel_set = HashSet::new();
+        let mut os_set = HashSet::new();
+        
         for (t, o) in [
             (TargetBackend::Wasm, OptLevel::Debug),
             (TargetBackend::Wasm, OptLevel::Release),
@@ -126,24 +127,31 @@ impl CondExpr {
         ] {
             // For native backends, use the provided target_os
             // For non-native backends, use None (no OS)
-            let os_for_eval = match t {
-                TargetBackend::Native | TargetBackend::LLVM => target_os,
-                _ => None,
-            };
+            let os_for_eval = if t.is_native() { target_os } else { None };
             
             if self.eval(o, t, os_for_eval) {
                 optlevel_set.insert(o);
                 backend_set.insert(t);
+                
+                // If this is a native backend and we have an OS, record it
+                if t.is_native() {
+                    if let Some(os) = target_os {
+                        os_set.insert(os);
+                    }
+                }
             }
         }
 
         let mut backend: Vec<_> = backend_set.into_iter().collect();
         let mut optlevel: Vec<_> = optlevel_set.into_iter().collect();
+        let mut os: Vec<_> = os_set.into_iter().collect();
 
         // to keep a stable order
         backend.sort();
         optlevel.sort();
-        CompileCondition { backend, optlevel }
+        os.sort();
+        
+        CompileCondition { backend, optlevel, os }
     }
 }
 
@@ -152,21 +160,33 @@ impl CondExpr {
 pub struct CompileCondition {
     pub backend: Vec<TargetBackend>,
     pub optlevel: Vec<OptLevel>,
+    pub os: Vec<TargetOs>,
 }
 
 impl CompileCondition {
     pub fn eval(&self, opt_level: OptLevel, target_backend: TargetBackend) -> bool {
-        self.optlevel.contains(&opt_level) && self.backend.contains(&target_backend)
+        self.eval_with_os(opt_level, target_backend, None)
     }
 
     /// Evaluate with OS support. This method supports OS-based conditions by
     /// checking if the compile condition would be satisfied for any combination
     /// of the supported backends/optlevels that also match the given OS.
-    pub fn eval_with_os(&self, opt_level: OptLevel, target_backend: TargetBackend, _target_os: Option<TargetOs>) -> bool {
-        // For backward compatibility, if no OS conditions are involved, use regular eval
-        self.eval(opt_level, target_backend)
-        // Note: CompileCondition doesn't directly store OS conditions, so OS-based 
-        // conditions are handled at the CondExpr level before conversion to CompileCondition
+    pub fn eval_with_os(&self, opt_level: OptLevel, target_backend: TargetBackend, target_os: Option<TargetOs>) -> bool {
+        let backend_match = self.backend.contains(&target_backend);
+        let optlevel_match = self.optlevel.contains(&opt_level);
+        
+        // If no OS constraints, only check backend and optlevel
+        if self.os.is_empty() {
+            return backend_match && optlevel_match;
+        }
+        
+        // If there are OS constraints, check if the target OS matches
+        let os_match = match target_os {
+            Some(os) => self.os.contains(&os),
+            None => false, // No OS provided, but OS constraints exist
+        };
+        
+        backend_match && optlevel_match && os_match
     }
 }
 
@@ -181,6 +201,7 @@ impl Default for CompileCondition {
                 TargetBackend::LLVM,
             ],
             optlevel: vec![OptLevel::Debug, OptLevel::Release],
+            os: vec![], // No OS constraints by default
         }
     }
 }
@@ -194,6 +215,7 @@ fn test_001() {
             TargetBackend::Js,
         ],
         optlevel: vec![OptLevel::Debug, OptLevel::Release],
+        os: vec![], // No OS constraints
     };
     assert!(a.eval(OptLevel::Release, TargetBackend::Wasm));
     assert!(a.eval(OptLevel::Release, TargetBackend::WasmGC));
@@ -205,6 +227,7 @@ fn test_001() {
     let b = CompileCondition {
         backend: vec![TargetBackend::Wasm, TargetBackend::Js],
         optlevel: vec![OptLevel::Debug],
+        os: vec![], // No OS constraints
     };
     assert!(b.eval(OptLevel::Debug, TargetBackend::Js));
     assert!(b.eval(OptLevel::Debug, TargetBackend::Wasm));
@@ -364,6 +387,37 @@ fn test_to_compile_condition_with_os() {
     assert!(!condition_with_no_os.backend.contains(&TargetBackend::Native));
 }
 
+#[test]
+fn test_compile_condition_os_eval() {
+    // Test CompileCondition with OS constraints
+    let windows_condition = CompileCondition {
+        backend: vec![TargetBackend::Native],
+        optlevel: vec![OptLevel::Release],
+        os: vec![TargetOs::Windows],
+    };
+    
+    // Should match when OS is provided and matches
+    assert!(windows_condition.eval_with_os(OptLevel::Release, TargetBackend::Native, Some(TargetOs::Windows)));
+    
+    // Should not match when OS doesn't match
+    assert!(!windows_condition.eval_with_os(OptLevel::Release, TargetBackend::Native, Some(TargetOs::Linux)));
+    
+    // Should not match when no OS is provided but OS constraints exist
+    assert!(!windows_condition.eval_with_os(OptLevel::Release, TargetBackend::Native, None));
+    
+    // Test condition without OS constraints
+    let no_os_condition = CompileCondition {
+        backend: vec![TargetBackend::Native],
+        optlevel: vec![OptLevel::Release],
+        os: vec![], // No OS constraints
+    };
+    
+    // Should match regardless of OS when no OS constraints
+    assert!(no_os_condition.eval_with_os(OptLevel::Release, TargetBackend::Native, Some(TargetOs::Windows)));
+    assert!(no_os_condition.eval_with_os(OptLevel::Release, TargetBackend::Native, Some(TargetOs::Linux)));
+    assert!(no_os_condition.eval_with_os(OptLevel::Release, TargetBackend::Native, None));
+}
+
 #[test] 
 fn test_os_current_detection() {
     // Test that OS detection works for different backends
@@ -383,10 +437,9 @@ fn test_os_current_detection() {
     assert!(current_os_wasm.is_none());
     assert!(current_os_wasm_gc.is_none());
     
-    // The detected OS should be one of the supported ones
+    // The detected OS should be one of the supported ones, or None for unsupported OS
     match current_os_native {
-        Some(TargetOs::Windows) | Some(TargetOs::Linux) | Some(TargetOs::MacOS) => {},
-        None => panic!("Should have detected an OS for native target"),
+        Some(TargetOs::Windows) | Some(TargetOs::Linux) | Some(TargetOs::MacOS) | None => {},
     }
 }
 

@@ -109,6 +109,7 @@ fn gen_package_json(
                 CompileCondition {
                     backend: TargetBackend::all().to_vec(),
                     optlevel: OptLevel::all().to_vec(),
+                    os: vec![], // No OS constraints for metadata generation
                 },
             )
         })

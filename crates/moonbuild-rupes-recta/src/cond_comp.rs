@@ -117,6 +117,7 @@ pub(crate) fn file_metadatas<'a>(
             let cond = MetadataCompileCondition {
                 backend: backend.into_iter().collect(),
                 optlevel: OptLevel::all().to_vec(),
+                os: vec![], // No OS constraints for filename-based compilation
             };
             (cond, remaining)
         };

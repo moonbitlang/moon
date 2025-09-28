@@ -669,6 +669,7 @@ fn test_backend_filter() {
             TargetBackend::WasmGC,
         ],
         optlevel: vec![OptLevel::Debug, OptLevel::Release],
+        os: vec![], // No OS constraints
     };
 
     let files: IndexMap<PathBuf, CompileCondition> = IndexMap::from([
@@ -681,6 +682,7 @@ fn test_backend_filter() {
             CompileCondition {
                 backend: vec![TargetBackend::Js],
                 optlevel: vec![OptLevel::Debug, OptLevel::Release],
+                os: vec![], // No OS constraints
             },
         ),
         (
@@ -688,6 +690,7 @@ fn test_backend_filter() {
             CompileCondition {
                 backend: vec![TargetBackend::Js],
                 optlevel: vec![OptLevel::Debug, OptLevel::Release],
+                os: vec![], // No OS constraints
             },
         ),
         (
@@ -695,6 +698,7 @@ fn test_backend_filter() {
             CompileCondition {
                 backend: vec![TargetBackend::Wasm],
                 optlevel: vec![OptLevel::Debug, OptLevel::Release],
+                os: vec![], // No OS constraints
             },
         ),
         (
@@ -702,6 +706,7 @@ fn test_backend_filter() {
             CompileCondition {
                 backend: vec![TargetBackend::Wasm],
                 optlevel: vec![OptLevel::Debug, OptLevel::Release],
+                os: vec![], // No OS constraints
             },
         ),
         (
@@ -709,6 +714,7 @@ fn test_backend_filter() {
             CompileCondition {
                 backend: vec![TargetBackend::WasmGC],
                 optlevel: vec![OptLevel::Debug, OptLevel::Release],
+                os: vec![], // No OS constraints
             },
         ),
         (
@@ -716,6 +722,7 @@ fn test_backend_filter() {
             CompileCondition {
                 backend: vec![TargetBackend::WasmGC],
                 optlevel: vec![OptLevel::Debug, OptLevel::Release],
+                os: vec![], // No OS constraints
             },
         ),
     ]);
