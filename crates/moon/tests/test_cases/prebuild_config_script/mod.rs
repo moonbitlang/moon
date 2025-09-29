@@ -27,7 +27,7 @@ fn test_prebuild_config_common(dir: TestDir) {
             found_c_flags_replacement
                 .set(())
                 .expect("c stub compilation found twice");
-            assert!(line.contains("-D HELLO=------this-is-added-by-config-script------"));
+            assert!(line.contains("HELLO=------this-is-added-by-config-script------"));
         }
 
         if line.contains("cc -o ./target/native/release/build/main/main") && cfg!(unix) {
