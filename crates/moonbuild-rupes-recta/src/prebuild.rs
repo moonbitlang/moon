@@ -108,7 +108,8 @@ fn run_prebuild_for_module(
                     cfg.package,
                     module_name
                 )
-            })?;
+            })?
+            .trim_start_matches('/');
         let pkg_id = *packages.get(stripped_pkg_name).ok_or_else(|| {
             anyhow::anyhow!(
                 "Link config package name {} does not match any package in module {}",

@@ -340,8 +340,7 @@ pub fn plan_build<'a>(
     let is_core = main_module.name == MOONBITLANG_CORE;
 
     // Run prebuild config if any
-    let prebuild_config =
-        run_prebuild_config(&resolve_output.module_rel, &resolve_output.module_dirs)?;
+    let prebuild_config = run_prebuild_config(&resolve_output)?;
 
     let cx = preconfig.into_compile_config(preferred_backend, is_core);
     // Expand user intents to concrete BuildPlanNode inputs

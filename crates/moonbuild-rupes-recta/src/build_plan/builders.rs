@@ -20,7 +20,7 @@
 
 use std::{
     borrow::Cow,
-    collections::HashSet,
+    collections::{HashMap, HashSet},
     ffi::OsStr,
     path::{Path, PathBuf},
     sync::LazyLock,
@@ -34,6 +34,7 @@ use moonutil::{
     },
     compiler_flags::CC,
 };
+use regex::Regex;
 use tracing::{debug, instrument, trace, warn, Level};
 
 use crate::{
@@ -48,7 +49,37 @@ use super::{
     LinkCoreInfo, MakeExecutableInfo,
 };
 
+static BUILD_VAR_REGEX: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"\$\{build\.([a-zA-Z0-9_]+)\}").expect("invalid build var regex"));
+
 impl<'a> BuildPlanConstructor<'a> {
+    fn module_prebuild_vars(
+        &self,
+        module: moonutil::mooncakes::ModuleId,
+    ) -> Option<&HashMap<String, String>> {
+        self.prebuild_config
+            .and_then(|cfg| cfg.module_outputs.get(&module))
+            .map(|output| &output.vars)
+    }
+
+    fn replace_build_vars<'s>(
+        &self,
+        module: moonutil::mooncakes::ModuleId,
+        value: &'s str,
+    ) -> Cow<'s, str> {
+        let Some(vars) = self.module_prebuild_vars(module) else {
+            return Cow::Borrowed(value);
+        };
+        if vars.is_empty() {
+            return Cow::Borrowed(value);
+        }
+        BUILD_VAR_REGEX.replace_all(value, |caps: &regex::Captures| {
+            vars.get(caps.get(1).expect("build var regex has capture").as_str())
+                .map(|s| s.as_str())
+                .unwrap_or("")
+        })
+    }
+
     /// Add need to all prebuild scripts of the given package, and add edge to this node
     fn need_all_package_prebuild(&mut self, node: BuildPlanNode, pkg_id: PackageId) {
         let pkg = self.input.pkg_dirs.get_package(pkg_id);
@@ -363,20 +394,23 @@ impl<'a> BuildPlanConstructor<'a> {
             self.add_edge(node, build_node);
         }
 
-        // TODO: variable replacement
-        // FIXME: This is getting long. fix spaghetti.
         let native_config = pkg.raw.link.as_ref().and_then(|x| x.native.as_ref());
 
         let stub_cc = native_config
-            .and_then(|x| x.cc.as_ref())
-            .map(|cc| CC::try_from_path(cc))
-            .transpose()
-            .map_err(|e| BuildPlanConstructError::FailedToSetStubCC(e, pkg.fqn.clone().into()))?;
+            .and_then(|native| native.cc.as_ref())
+            .map(|s| self.replace_build_vars(pkg.module, s))
+            .map(|replaced| {
+                CC::try_from_path(replaced.as_ref()).map_err(|e| {
+                    BuildPlanConstructError::FailedToSetStubCC(e, pkg.fqn.clone().into())
+                })
+            })
+            .transpose()?;
 
         let cc_flags = native_config
-            .and_then(|x| x.cc_flags.as_ref())
-            .map(|x| {
-                shlex::split(x).ok_or_else(|| {
+            .and_then(|native| native.cc_flags.as_ref())
+            .map(|s| self.replace_build_vars(pkg.module, s))
+            .map(|replaced| {
+                shlex::split(replaced.as_ref()).ok_or_else(|| {
                     BuildPlanConstructError::MalformedStubCCFlags(pkg.fqn.clone().into())
                 })
             })
@@ -384,9 +418,10 @@ impl<'a> BuildPlanConstructor<'a> {
             .unwrap_or_default();
 
         let link_flags = native_config
-            .and_then(|x| x.stub_cc_link_flags.as_ref())
-            .map(|x| {
-                shlex::split(x).ok_or_else(|| {
+            .and_then(|native| native.stub_cc_link_flags.as_ref())
+            .map(|s| self.replace_build_vars(pkg.module, s))
+            .map(|replaced| {
+                shlex::split(replaced.as_ref()).ok_or_else(|| {
                     BuildPlanConstructError::MalformedStubCCLinkFlags(pkg.fqn.clone().into())
                 })
             })
@@ -469,19 +504,21 @@ impl<'a> BuildPlanConstructor<'a> {
         let c_stub_deps = c_stub_deps.into_iter().collect::<Vec<_>>();
 
         // Fill auxiliary flags for CC flags
-        // TODO: variable replacement in flags
-        // FIXME: This is getting long. fix spaghetti.
         let pkg = self.input.pkg_dirs.get_package(target.package);
         let native_config = pkg.raw.link.as_ref().and_then(|x| x.native.as_ref());
         let cc = native_config
-            .and_then(|x| x.cc.as_ref())
-            .map(|x| CC::try_from_path(x))
-            .transpose()
-            .map_err(|e| BuildPlanConstructError::FailedToSetCC(e, pkg.fqn.clone().into()))?;
+            .and_then(|native| native.cc.as_ref())
+            .map(|s| self.replace_build_vars(pkg.module, s))
+            .map(|replaced| {
+                CC::try_from_path(replaced.as_ref())
+                    .map_err(|e| BuildPlanConstructError::FailedToSetCC(e, pkg.fqn.clone().into()))
+            })
+            .transpose()?;
         let c_flags = native_config
-            .and_then(|x| x.cc_flags.as_ref())
-            .map(|x| {
-                shlex::split(x).ok_or_else(|| {
+            .and_then(|native| native.cc_flags.as_ref())
+            .map(|s| self.replace_build_vars(pkg.module, s))
+            .map(|replaced| {
+                shlex::split(replaced.as_ref()).ok_or_else(|| {
                     BuildPlanConstructError::MalformedCCFlags(pkg.fqn.clone().into())
                 })
             })

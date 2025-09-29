@@ -1593,6 +1593,7 @@ dependencies = [
  "moonutil",
  "n2",
  "petgraph",
+ "regex",
  "relative-path",
  "shlex",
  "slotmap",
