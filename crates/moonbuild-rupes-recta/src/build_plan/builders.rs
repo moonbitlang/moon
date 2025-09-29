@@ -32,7 +32,7 @@ use moonutil::{
         DEP_PATH, DOT_MBT_DOT_MD, MOD_DIR, MOONCAKE_BIN, MOON_BIN_DIR, MOON_MOD_JSON,
         MOON_PKG_JSON, PKG_DIR,
     },
-    compiler_flags::CC,
+    compiler_flags::{CC, DETECTED_CC},
 };
 use regex::Regex;
 use tracing::{debug, instrument, trace, warn, Level};
@@ -471,6 +471,8 @@ impl<'a> BuildPlanConstructor<'a> {
         debug!("Building MakeExecutable for target: {:?}", target);
         debug!("Performing DFS post-order traversal to collect dependencies");
 
+        // ====== Link Core =====
+
         // This DFS is shared by both LinkCore and MakeExecutable actions.
         let (link_core_deps, c_stub_deps) = self.dfs_link_core_sources(target)?;
 
@@ -493,6 +495,8 @@ impl<'a> BuildPlanConstructor<'a> {
 
         self.resolved_node(link_core_node);
 
+        // ===== Make Executable =====
+
         // Add edge from make exec to link core
         self.add_edge(make_exec_node, link_core_node);
 
@@ -514,7 +518,7 @@ impl<'a> BuildPlanConstructor<'a> {
                     .map_err(|e| BuildPlanConstructError::FailedToSetCC(e, pkg.fqn.clone().into()))
             })
             .transpose()?;
-        let c_flags = native_config
+        let mut c_flags = native_config
             .and_then(|native| native.cc_flags.as_ref())
             .map(|s| self.replace_build_vars(pkg.module, s))
             .map(|replaced| {
@@ -524,6 +528,8 @@ impl<'a> BuildPlanConstructor<'a> {
             })
             .transpose()?
             .unwrap_or_default();
+        self.propagate_link_config(cc.as_ref(), targets.iter().map(|x| x.package), &mut c_flags);
+
         let v = MakeExecutableInfo {
             link_c_stubs: c_stub_deps.clone(),
             cc,
@@ -640,6 +646,48 @@ impl<'a> BuildPlanConstructor<'a> {
         }
 
         Ok((link_core_deps, c_stub_deps))
+    }
+
+    /// Propagate the link configuration of the packages in dependency to the output list
+    fn propagate_link_config(
+        &self,
+        cc: Option<&CC>,
+        pkgs: impl Iterator<Item = PackageId>,
+        out: &mut Vec<String>,
+    ) {
+        let Some(prebuild) = self.prebuild_config else {
+            return;
+        };
+        let is_msvc_like = cc.unwrap_or(&*DETECTED_CC).is_msvc();
+        for pkg in pkgs {
+            let Some(link_config) = prebuild.package_configs.get(&pkg) else {
+                continue;
+            };
+
+            let link_flags = link_config
+                .link_flags
+                .as_ref()
+                .and_then(|x| shlex::split(x));
+            if let Some(link_flags) = link_flags {
+                out.extend(link_flags);
+            }
+
+            for lib in &link_config.link_libs {
+                if is_msvc_like {
+                    out.push(format!("{lib}.lib"));
+                } else {
+                    out.push(format!("-l{lib}"));
+                }
+            }
+
+            for path in &link_config.link_search_paths {
+                if is_msvc_like {
+                    out.push(format!("/LIBPATH:{path}"));
+                } else {
+                    out.push(format!("-L{path}"));
+                }
+            }
+        }
     }
 
     #[instrument(level = Level::DEBUG, skip(self))]
