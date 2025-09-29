@@ -397,7 +397,7 @@ impl<'a> BuildPlanConstructor<'a> {
         let native_config = pkg.raw.link.as_ref().and_then(|x| x.native.as_ref());
 
         let stub_cc = native_config
-            .and_then(|native| native.cc.as_ref())
+            .and_then(|native| native.stub_cc.as_ref())
             .map(|s| self.replace_build_vars(pkg.module, s))
             .map(|replaced| {
                 CC::try_from_path(replaced.as_ref()).map_err(|e| {
@@ -407,7 +407,7 @@ impl<'a> BuildPlanConstructor<'a> {
             .transpose()?;
 
         let cc_flags = native_config
-            .and_then(|native| native.cc_flags.as_ref())
+            .and_then(|native| native.stub_cc_flags.as_ref())
             .map(|s| self.replace_build_vars(pkg.module, s))
             .map(|replaced| {
                 shlex::split(replaced.as_ref()).ok_or_else(|| {
