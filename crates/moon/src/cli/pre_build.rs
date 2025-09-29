@@ -44,13 +44,7 @@ pub fn scan_with_x_build(
         moonc_opt,
         moonbuild_opt,
     )?;
-    run_prebuild_config(
-        moonc_opt,
-        dir_sync_result,
-        moonbuild_opt,
-        resolved_env,
-        &mut module,
-    )?;
+    run_prebuild_config(dir_sync_result, resolved_env, &mut module)?;
     match build_type {
         PrePostBuild::PreBuild => {
             if !module.contain_pre_build() {
