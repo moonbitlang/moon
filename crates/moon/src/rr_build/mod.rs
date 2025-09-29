@@ -41,6 +41,7 @@ use moonbuild_rupes_recta::{
     build_plan::InputDirective,
     intent::UserIntent,
     model::{Artifacts, BuildPlanNode, PackageId, TargetKind},
+    prebuild::run_prebuild_config,
     CompileConfig, ResolveConfig, ResolveOutput,
 };
 use moonutil::{
@@ -338,14 +339,22 @@ pub fn plan_build<'a>(
     // Ultimately we want to determine this from config instead of special cases.
     let is_core = main_module.name == MOONBITLANG_CORE;
 
+    // Run prebuild config if any
+    let prebuild_config = run_prebuild_config(&resolve_output)?;
+
     let cx = preconfig.into_compile_config(preferred_backend, is_core);
     // Expand user intents to concrete BuildPlanNode inputs
     let mut input_nodes: Vec<BuildPlanNode> = Vec::new();
     for i in &intent.intents {
         i.append_nodes(&resolve_output, &mut input_nodes);
     }
-    let compile_output =
-        moonbuild_rupes_recta::compile(&cx, &resolve_output, &input_nodes, &intent.directive)?;
+    let compile_output = moonbuild_rupes_recta::compile(
+        &cx,
+        &resolve_output,
+        &input_nodes,
+        &intent.directive,
+        Some(&prebuild_config),
+    )?;
 
     if unstable_features.rr_export_build_plan {
         if let Some(plan) = compile_output.build_plan {

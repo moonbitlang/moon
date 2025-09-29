@@ -20,7 +20,7 @@
 
 use std::{
     borrow::Cow,
-    collections::HashSet,
+    collections::{HashMap, HashSet},
     ffi::OsStr,
     path::{Path, PathBuf},
     sync::LazyLock,
@@ -32,8 +32,10 @@ use moonutil::{
         DEP_PATH, DOT_MBT_DOT_MD, MOD_DIR, MOONCAKE_BIN, MOON_BIN_DIR, MOON_MOD_JSON,
         MOON_PKG_JSON, PKG_DIR,
     },
-    compiler_flags::CC,
+    compiler_flags::{CC, DETECTED_CC},
+    mooncakes::ModuleId,
 };
+use regex::Regex;
 use tracing::{debug, instrument, trace, warn, Level};
 
 use crate::{
@@ -48,7 +50,46 @@ use super::{
     LinkCoreInfo, MakeExecutableInfo,
 };
 
+static BUILD_VAR_REGEX: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"\$\{build\.([a-zA-Z0-9_]+)\}").expect("invalid build var regex"));
+
 impl<'a> BuildPlanConstructor<'a> {
+    fn module_prebuild_vars(&self, module: ModuleId) -> Option<&HashMap<String, String>> {
+        self.prebuild_config
+            .and_then(|cfg| cfg.module_outputs.get(&module))
+            .map(|output| &output.vars)
+    }
+
+    fn replace_build_vars<'s>(
+        &self,
+        package: PackageId,
+        module: ModuleId,
+        value: &'s str,
+    ) -> Cow<'s, str> {
+        let Some(vars) = self.module_prebuild_vars(module) else {
+            return Cow::Borrowed(value);
+        };
+        if vars.is_empty() {
+            return Cow::Borrowed(value);
+        }
+        BUILD_VAR_REGEX.replace_all(value, |caps: &regex::Captures| {
+            vars.get(caps.get(1).expect("build var regex has capture").as_str())
+                .map(|s| s.as_str())
+                .unwrap_or_else(|| {
+                    let m_name = self.input.module_rel.mod_name_from_id(module);
+                    let pkg_name = &self.input.pkg_dirs.get_package(package).fqn;
+                    warn!(
+                        "Build variable {} required in {} but not found in \
+                        prebuild config output of module {}, \
+                         replacing with empty string",
+                        &caps[1], pkg_name, m_name
+                    );
+
+                    ""
+                })
+        })
+    }
+
     /// Add need to all prebuild scripts of the given package, and add edge to this node
     fn need_all_package_prebuild(&mut self, node: BuildPlanNode, pkg_id: PackageId) {
         let pkg = self.input.pkg_dirs.get_package(pkg_id);
@@ -363,20 +404,23 @@ impl<'a> BuildPlanConstructor<'a> {
             self.add_edge(node, build_node);
         }
 
-        // TODO: variable replacement
-        // FIXME: This is getting long. fix spaghetti.
         let native_config = pkg.raw.link.as_ref().and_then(|x| x.native.as_ref());
 
         let stub_cc = native_config
-            .and_then(|x| x.cc.as_ref())
-            .map(|cc| CC::try_from_path(cc))
-            .transpose()
-            .map_err(|e| BuildPlanConstructError::FailedToSetStubCC(e, pkg.fqn.clone().into()))?;
+            .and_then(|native| native.stub_cc.as_ref())
+            .map(|s| self.replace_build_vars(target, pkg.module, s))
+            .map(|replaced| {
+                CC::try_from_path(replaced.as_ref()).map_err(|e| {
+                    BuildPlanConstructError::FailedToSetStubCC(e, pkg.fqn.clone().into())
+                })
+            })
+            .transpose()?;
 
         let cc_flags = native_config
-            .and_then(|x| x.cc_flags.as_ref())
-            .map(|x| {
-                shlex::split(x).ok_or_else(|| {
+            .and_then(|native| native.stub_cc_flags.as_ref())
+            .map(|s| self.replace_build_vars(target, pkg.module, s))
+            .map(|replaced| {
+                shlex::split(replaced.as_ref()).ok_or_else(|| {
                     BuildPlanConstructError::MalformedStubCCFlags(pkg.fqn.clone().into())
                 })
             })
@@ -384,9 +428,10 @@ impl<'a> BuildPlanConstructor<'a> {
             .unwrap_or_default();
 
         let link_flags = native_config
-            .and_then(|x| x.stub_cc_link_flags.as_ref())
-            .map(|x| {
-                shlex::split(x).ok_or_else(|| {
+            .and_then(|native| native.stub_cc_link_flags.as_ref())
+            .map(|s| self.replace_build_vars(target, pkg.module, s))
+            .map(|replaced| {
+                shlex::split(replaced.as_ref()).ok_or_else(|| {
                     BuildPlanConstructError::MalformedStubCCLinkFlags(pkg.fqn.clone().into())
                 })
             })
@@ -436,6 +481,8 @@ impl<'a> BuildPlanConstructor<'a> {
         debug!("Building MakeExecutable for target: {:?}", target);
         debug!("Performing DFS post-order traversal to collect dependencies");
 
+        // ====== Link Core =====
+
         // This DFS is shared by both LinkCore and MakeExecutable actions.
         let (link_core_deps, c_stub_deps) = self.dfs_link_core_sources(target)?;
 
@@ -458,6 +505,8 @@ impl<'a> BuildPlanConstructor<'a> {
 
         self.resolved_node(link_core_node);
 
+        // ===== Make Executable =====
+
         // Add edge from make exec to link core
         self.add_edge(make_exec_node, link_core_node);
 
@@ -469,24 +518,43 @@ impl<'a> BuildPlanConstructor<'a> {
         let c_stub_deps = c_stub_deps.into_iter().collect::<Vec<_>>();
 
         // Fill auxiliary flags for CC flags
-        // TODO: variable replacement in flags
-        // FIXME: This is getting long. fix spaghetti.
         let pkg = self.input.pkg_dirs.get_package(target.package);
         let native_config = pkg.raw.link.as_ref().and_then(|x| x.native.as_ref());
         let cc = native_config
-            .and_then(|x| x.cc.as_ref())
-            .map(|x| CC::try_from_path(x))
-            .transpose()
-            .map_err(|e| BuildPlanConstructError::FailedToSetCC(e, pkg.fqn.clone().into()))?;
-        let c_flags = native_config
-            .and_then(|x| x.cc_flags.as_ref())
-            .map(|x| {
-                shlex::split(x).ok_or_else(|| {
+            .and_then(|native| native.cc.as_ref())
+            .map(|s| self.replace_build_vars(target.package, pkg.module, s))
+            .map(|replaced| {
+                CC::try_from_path(replaced.as_ref())
+                    .map_err(|e| BuildPlanConstructError::FailedToSetCC(e, pkg.fqn.clone().into()))
+            })
+            .transpose()?;
+        let mut c_flags = native_config
+            .and_then(|native| native.cc_flags.as_ref())
+            .map(|s| self.replace_build_vars(target.package, pkg.module, s))
+            .map(|replaced| {
+                shlex::split(replaced.as_ref()).ok_or_else(|| {
                     BuildPlanConstructError::MalformedCCFlags(pkg.fqn.clone().into())
                 })
             })
             .transpose()?
             .unwrap_or_default();
+
+        // Also include native.cc_link_flags (linker args) in the final native link flags
+        if let Some(mut link_flags) = native_config
+            .and_then(|native| native.cc_link_flags.as_ref())
+            .map(|s| self.replace_build_vars(target.package, pkg.module, s))
+            .map(|replaced| {
+                shlex::split(replaced.as_ref()).ok_or_else(|| {
+                    BuildPlanConstructError::MalformedCCLinkFlags(pkg.fqn.clone().into())
+                })
+            })
+            .transpose()?
+        {
+            c_flags.append(&mut link_flags);
+        }
+
+        self.propagate_link_config(cc.as_ref(), targets.iter().map(|x| x.package), &mut c_flags);
+
         let v = MakeExecutableInfo {
             link_c_stubs: c_stub_deps.clone(),
             cc,
@@ -605,11 +673,53 @@ impl<'a> BuildPlanConstructor<'a> {
         Ok((link_core_deps, c_stub_deps))
     }
 
+    /// Propagate the link configuration of the packages in dependency to the output list
+    fn propagate_link_config(
+        &self,
+        cc: Option<&CC>,
+        pkgs: impl Iterator<Item = PackageId>,
+        out: &mut Vec<String>,
+    ) {
+        let Some(prebuild) = self.prebuild_config else {
+            return;
+        };
+        let is_msvc_like = cc.unwrap_or(&*DETECTED_CC).is_msvc();
+        for pkg in pkgs {
+            let Some(link_config) = prebuild.package_configs.get(&pkg) else {
+                continue;
+            };
+
+            let link_flags = link_config
+                .link_flags
+                .as_ref()
+                .and_then(|x| shlex::split(x));
+            if let Some(link_flags) = link_flags {
+                out.extend(link_flags);
+            }
+
+            for lib in &link_config.link_libs {
+                if is_msvc_like {
+                    out.push(format!("{lib}.lib"));
+                } else {
+                    out.push(format!("-l{lib}"));
+                }
+            }
+
+            for path in &link_config.link_search_paths {
+                if is_msvc_like {
+                    out.push(format!("/LIBPATH:{path}"));
+                } else {
+                    out.push(format!("-L{path}"));
+                }
+            }
+        }
+    }
+
     #[instrument(level = Level::DEBUG, skip(self))]
     pub(super) fn build_bundle(
         &mut self,
         _node: BuildPlanNode,
-        module_id: moonutil::mooncakes::ModuleId,
+        module_id: ModuleId,
     ) -> Result<(), BuildPlanConstructError> {
         // Bundling a module gathers the build result of all its non-virtual packages
         for &pkg_id in self

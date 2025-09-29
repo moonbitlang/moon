@@ -32,6 +32,7 @@ use crate::{
     build_lower,
     build_plan::{self, BuildEnvironment, InputDirective},
     model::{Artifacts, BuildPlanNode, OperatingSystem},
+    prebuild::PrebuildOutput,
     resolve::ResolveOutput,
     special_cases::should_skip_tests,
 };
@@ -105,6 +106,7 @@ pub fn compile(
     resolve_output: &ResolveOutput,
     input_nodes: &[BuildPlanNode],
     input_directive: &InputDirective,
+    prebuild_config: Option<&PrebuildOutput>,
 ) -> Result<CompileOutput, CompileGraphError> {
     info!(
         "Building compilation plan for {} build nodes",
@@ -123,7 +125,13 @@ pub fn compile(
         warn_list: cx.warn_list.clone(),
         alert_list: cx.alert_list.clone(),
     };
-    let plan = build_plan::build_plan(resolve_output, &build_env, input_nodes, input_directive)?;
+    let plan = build_plan::build_plan(
+        resolve_output,
+        &build_env,
+        input_nodes,
+        input_directive,
+        prebuild_config,
+    )?;
 
     info!("Build plan created successfully");
     debug!("Build plan contains {} nodes", plan.node_count());

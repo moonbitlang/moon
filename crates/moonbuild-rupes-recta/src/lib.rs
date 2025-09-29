@@ -116,6 +116,7 @@ pub mod fmt;
 pub mod cond_comp;
 pub mod intent;
 pub mod metadata;
+pub mod prebuild;
 mod special_cases;
 pub mod util;
 

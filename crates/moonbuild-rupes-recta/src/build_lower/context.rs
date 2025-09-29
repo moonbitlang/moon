@@ -225,7 +225,7 @@ impl<'a> BuildPlanLowerContext<'a> {
                         self.packages,
                         package,
                         file_name
-                            .file_name()
+                            .file_stem()
                             .expect("c stub file should have a file name"),
                         self.opt.target_backend,
                         self.opt.os,

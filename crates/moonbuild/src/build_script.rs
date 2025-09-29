@@ -31,8 +31,7 @@ use anyhow::{anyhow, Context};
 use log::warn;
 use moonutil::{
     build_script::{BuildScriptEnvironment, BuildScriptOutput},
-    common::{MoonbuildOpt, MooncOpt},
-    module::{ModuleDB, MoonMod},
+    module::ModuleDB,
     mooncakes::{result::ResolvedEnv, DirSyncResult, ModuleName},
     path::PathComponent,
 };
@@ -41,9 +40,7 @@ use regex::{Captures, Regex};
 use crate::{NODE_EXECUTABLE, PYTHON_EXECUTABLE};
 
 pub fn run_prebuild_config(
-    moonc_opt: &MooncOpt,
     dir_sync_result: &DirSyncResult,
-    build_opt: &MoonbuildOpt,
     mods: &ResolvedEnv,
     mdb: &mut ModuleDB,
 ) -> anyhow::Result<()> {
@@ -60,7 +57,7 @@ pub fn run_prebuild_config(
         if let Some(prebuild) = &def.__moonbit_unstable_prebuild {
             // just run `node {prebuild.js}` and read the output
             let dir = dir_sync_result.get(id).expect("module not found");
-            let input = make_prebuild_input_from_module(moonc_opt, build_opt, def, dir, &env_vars);
+            let input = make_prebuild_input_from_module(dir, &env_vars);
 
             let output = run_build_script_for_module(module, dir, input, prebuild)?;
             pkg_outputs.insert(
@@ -145,7 +142,7 @@ fn run_replace_in_package(
     Ok(())
 }
 
-fn string_match_and_replace(
+pub fn string_match_and_replace(
     s: &mut String,
     env_vars: &HashMap<String, String>,
     regex: &Regex,
@@ -204,7 +201,7 @@ fn run_script_cmd(prebuild: &String, m: &ModuleName) -> anyhow::Result<Command> 
     }
 }
 
-fn run_build_script_for_module(
+pub fn run_build_script_for_module(
     module: &moonutil::mooncakes::ModuleSource,
     dir: &Path,
     input: BuildScriptEnvironment,
@@ -257,16 +254,10 @@ fn run_build_script_for_module(
     Ok(output)
 }
 
-fn make_prebuild_input_from_module(
-    moonc_opt: &MooncOpt,
-    build_opt: &MoonbuildOpt,
-    m: &MoonMod,
+pub fn make_prebuild_input_from_module(
     m_dir: &Path,
     env_vars: &HashMap<String, String>,
 ) -> BuildScriptEnvironment {
-    let _ = m;
-    let _ = build_opt;
-    let _ = moonc_opt;
     BuildScriptEnvironment {
         // build: BuildInfo { host: TargetInfo },
         env: env_vars.clone(),

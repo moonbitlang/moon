@@ -18,7 +18,10 @@
 
 //! Package and module name related structures
 
-use std::{borrow::Cow, str::FromStr};
+use std::{
+    borrow::{Borrow, Cow},
+    str::FromStr,
+};
 
 use arcstr::ArcStr;
 use moonutil::mooncakes::{ModuleName, ModuleSource};
@@ -340,6 +343,12 @@ impl FromStr for PackagePath {
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         Self::validate(s)?;
         Ok(unsafe { Self::new_unchecked(s) })
+    }
+}
+
+impl Borrow<str> for PackagePath {
+    fn borrow(&self) -> &str {
+        &self.value
     }
 }
 
