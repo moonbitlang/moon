@@ -23,6 +23,7 @@ use std::collections::{HashMap, HashSet};
 use crate::{
     build_plan::InputDirective,
     model::{BuildPlanNode, BuildTarget},
+    prebuild::PrebuildOutput,
     ResolveOutput,
 };
 use tracing::{instrument, Level};
@@ -36,6 +37,7 @@ pub(super) struct BuildPlanConstructor<'a> {
     pub(super) input: &'a ResolveOutput,
     pub(super) build_env: &'a BuildEnvironment,
     pub(super) input_directive: &'a InputDirective,
+    pub(super) prebuild_config: Option<&'a PrebuildOutput>,
 
     /// The resulting build plan
     pub(super) res: BuildPlan,
@@ -56,11 +58,13 @@ impl<'a> BuildPlanConstructor<'a> {
         resolved: &'a ResolveOutput,
         build_env: &'a BuildEnvironment,
         input_directive: &'a InputDirective,
+        prebuild_config: Option<&'a PrebuildOutput>,
     ) -> Self {
         Self {
             input: resolved,
             build_env,
             input_directive,
+            prebuild_config,
 
             res: BuildPlan::default(),
             pending: Vec::new(),

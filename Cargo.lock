@@ -1588,6 +1588,7 @@ dependencies = [
  "derive_builder",
  "indexmap",
  "log",
+ "moonbuild",
  "mooncake",
  "moonutil",
  "n2",

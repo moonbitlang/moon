@@ -142,7 +142,7 @@ fn run_replace_in_package(
     Ok(())
 }
 
-fn string_match_and_replace(
+pub fn string_match_and_replace(
     s: &mut String,
     env_vars: &HashMap<String, String>,
     regex: &Regex,
@@ -201,7 +201,7 @@ fn run_script_cmd(prebuild: &String, m: &ModuleName) -> anyhow::Result<Command> 
     }
 }
 
-fn run_build_script_for_module(
+pub fn run_build_script_for_module(
     module: &moonutil::mooncakes::ModuleSource,
     dir: &Path,
     input: BuildScriptEnvironment,
@@ -254,7 +254,7 @@ fn run_build_script_for_module(
     Ok(output)
 }
 
-fn make_prebuild_input_from_module(
+pub fn make_prebuild_input_from_module(
     m_dir: &Path,
     env_vars: &HashMap<String, String>,
 ) -> BuildScriptEnvironment {

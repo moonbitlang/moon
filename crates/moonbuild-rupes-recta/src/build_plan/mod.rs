@@ -57,6 +57,7 @@ use tracing::instrument;
 use crate::{
     model::{BuildPlanNode, BuildTarget, PackageId},
     pkg_name::PackageFQNWithSource,
+    prebuild::PrebuildOutput,
     ResolveOutput,
 };
 
@@ -312,6 +313,7 @@ pub fn build_plan(
     build_env: &BuildEnvironment,
     input: impl Iterator<Item = BuildPlanNode>,
     input_directive: &InputDirective,
+    prebuild_config: Option<&PrebuildOutput>,
 ) -> Result<BuildPlan, BuildPlanConstructError> {
     info!("Constructing build plan");
     debug!(
@@ -319,7 +321,8 @@ pub fn build_plan(
         build_env.target_backend, build_env.opt_level
     );
 
-    let mut constructor = BuildPlanConstructor::new(resolved, build_env, input_directive);
+    let mut constructor =
+        BuildPlanConstructor::new(resolved, build_env, input_directive, prebuild_config);
     constructor.build(input)?;
     let result = constructor.finish();
 

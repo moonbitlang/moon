@@ -35,6 +35,7 @@ use crate::{
     build_plan::BuildPlan,
     model::{Artifacts, BuildPlanNode, OperatingSystem},
     pkg_name::OptionalPackageFQNWithSource,
+    prebuild::PrebuildOutput,
     ResolveOutput,
 };
 
