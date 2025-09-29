@@ -445,8 +445,10 @@ fn add_linker_library_paths<P: AsRef<Path>>(
     config: &LinkerConfig<P>,
     lpath: &str,
 ) {
-    if cc.is_gcc_like() {
+    if cc.is_tcc() {
         buf.push(format!("-L{lpath}"));
+    }
+    if cc.is_gcc_like() {
         if let Some(dyn_lib_path) = config.link_shared_runtime.as_ref() {
             buf.push(format!("-L{}", dyn_lib_path.as_ref().display()));
         }
@@ -630,9 +632,11 @@ fn add_cc_output_flags(cc: &CC, buf: &mut Vec<String>, config: &CCConfig, dest: 
 fn add_cc_include_and_lib_paths(cc: &CC, buf: &mut Vec<String>, ipath: &str, lpath: &str) {
     if cc.is_msvc() {
         buf.push(format!("/I{ipath}"));
-    } else if cc.is_gcc_like() {
+    } else if cc.is_tcc() {
         buf.push(format!("-I{ipath}"));
         buf.push(format!("-L{lpath}"));
+    } else if cc.is_gcc_like() {
+        buf.push(format!("-I{ipath}"));
     }
 }
 
