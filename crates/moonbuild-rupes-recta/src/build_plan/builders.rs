@@ -33,6 +33,7 @@ use moonutil::{
         MOON_PKG_JSON, PKG_DIR,
     },
     compiler_flags::{CC, DETECTED_CC},
+    mooncakes::ModuleId,
 };
 use regex::Regex;
 use tracing::{debug, instrument, trace, warn, Level};
@@ -53,10 +54,7 @@ static BUILD_VAR_REGEX: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"\$\{build\.([a-zA-Z0-9_]+)\}").expect("invalid build var regex"));
 
 impl<'a> BuildPlanConstructor<'a> {
-    fn module_prebuild_vars(
-        &self,
-        module: moonutil::mooncakes::ModuleId,
-    ) -> Option<&HashMap<String, String>> {
+    fn module_prebuild_vars(&self, module: ModuleId) -> Option<&HashMap<String, String>> {
         self.prebuild_config
             .and_then(|cfg| cfg.module_outputs.get(&module))
             .map(|output| &output.vars)
@@ -64,7 +62,8 @@ impl<'a> BuildPlanConstructor<'a> {
 
     fn replace_build_vars<'s>(
         &self,
-        module: moonutil::mooncakes::ModuleId,
+        package: PackageId,
+        module: ModuleId,
         value: &'s str,
     ) -> Cow<'s, str> {
         let Some(vars) = self.module_prebuild_vars(module) else {
@@ -76,7 +75,18 @@ impl<'a> BuildPlanConstructor<'a> {
         BUILD_VAR_REGEX.replace_all(value, |caps: &regex::Captures| {
             vars.get(caps.get(1).expect("build var regex has capture").as_str())
                 .map(|s| s.as_str())
-                .unwrap_or("")
+                .unwrap_or_else(|| {
+                    let m_name = self.input.module_rel.mod_name_from_id(module);
+                    let pkg_name = &self.input.pkg_dirs.get_package(package).fqn;
+                    warn!(
+                        "Build variable {} required in {} but not found in \
+                        prebuild config output of module {}, \
+                         replacing with empty string",
+                        &caps[1], pkg_name, m_name
+                    );
+
+                    ""
+                })
         })
     }
 
@@ -398,7 +408,7 @@ impl<'a> BuildPlanConstructor<'a> {
 
         let stub_cc = native_config
             .and_then(|native| native.stub_cc.as_ref())
-            .map(|s| self.replace_build_vars(pkg.module, s))
+            .map(|s| self.replace_build_vars(target, pkg.module, s))
             .map(|replaced| {
                 CC::try_from_path(replaced.as_ref()).map_err(|e| {
                     BuildPlanConstructError::FailedToSetStubCC(e, pkg.fqn.clone().into())
@@ -408,7 +418,7 @@ impl<'a> BuildPlanConstructor<'a> {
 
         let cc_flags = native_config
             .and_then(|native| native.stub_cc_flags.as_ref())
-            .map(|s| self.replace_build_vars(pkg.module, s))
+            .map(|s| self.replace_build_vars(target, pkg.module, s))
             .map(|replaced| {
                 shlex::split(replaced.as_ref()).ok_or_else(|| {
                     BuildPlanConstructError::MalformedStubCCFlags(pkg.fqn.clone().into())
@@ -419,7 +429,7 @@ impl<'a> BuildPlanConstructor<'a> {
 
         let link_flags = native_config
             .and_then(|native| native.stub_cc_link_flags.as_ref())
-            .map(|s| self.replace_build_vars(pkg.module, s))
+            .map(|s| self.replace_build_vars(target, pkg.module, s))
             .map(|replaced| {
                 shlex::split(replaced.as_ref()).ok_or_else(|| {
                     BuildPlanConstructError::MalformedStubCCLinkFlags(pkg.fqn.clone().into())
@@ -512,7 +522,7 @@ impl<'a> BuildPlanConstructor<'a> {
         let native_config = pkg.raw.link.as_ref().and_then(|x| x.native.as_ref());
         let cc = native_config
             .and_then(|native| native.cc.as_ref())
-            .map(|s| self.replace_build_vars(pkg.module, s))
+            .map(|s| self.replace_build_vars(target.package, pkg.module, s))
             .map(|replaced| {
                 CC::try_from_path(replaced.as_ref())
                     .map_err(|e| BuildPlanConstructError::FailedToSetCC(e, pkg.fqn.clone().into()))
@@ -520,7 +530,7 @@ impl<'a> BuildPlanConstructor<'a> {
             .transpose()?;
         let mut c_flags = native_config
             .and_then(|native| native.cc_flags.as_ref())
-            .map(|s| self.replace_build_vars(pkg.module, s))
+            .map(|s| self.replace_build_vars(target.package, pkg.module, s))
             .map(|replaced| {
                 shlex::split(replaced.as_ref()).ok_or_else(|| {
                     BuildPlanConstructError::MalformedCCFlags(pkg.fqn.clone().into())
@@ -532,7 +542,7 @@ impl<'a> BuildPlanConstructor<'a> {
         // Also include native.cc_link_flags (linker args) in the final native link flags
         if let Some(mut link_flags) = native_config
             .and_then(|native| native.cc_link_flags.as_ref())
-            .map(|s| self.replace_build_vars(pkg.module, s))
+            .map(|s| self.replace_build_vars(target.package, pkg.module, s))
             .map(|replaced| {
                 shlex::split(replaced.as_ref()).ok_or_else(|| {
                     BuildPlanConstructError::MalformedCCLinkFlags(pkg.fqn.clone().into())
@@ -709,7 +719,7 @@ impl<'a> BuildPlanConstructor<'a> {
     pub(super) fn build_bundle(
         &mut self,
         _node: BuildPlanNode,
-        module_id: moonutil::mooncakes::ModuleId,
+        module_id: ModuleId,
     ) -> Result<(), BuildPlanConstructError> {
         // Bundling a module gathers the build result of all its non-virtual packages
         for &pkg_id in self
