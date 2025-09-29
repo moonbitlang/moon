@@ -528,6 +528,21 @@ impl<'a> BuildPlanConstructor<'a> {
             })
             .transpose()?
             .unwrap_or_default();
+
+        // Also include native.cc_link_flags (linker args) in the final native link flags
+        if let Some(mut link_flags) = native_config
+            .and_then(|native| native.cc_link_flags.as_ref())
+            .map(|s| self.replace_build_vars(pkg.module, s))
+            .map(|replaced| {
+                shlex::split(replaced.as_ref()).ok_or_else(|| {
+                    BuildPlanConstructError::MalformedCCLinkFlags(pkg.fqn.clone().into())
+                })
+            })
+            .transpose()?
+        {
+            c_flags.append(&mut link_flags);
+        }
+
         self.propagate_link_config(cc.as_ref(), targets.iter().map(|x| x.package), &mut c_flags);
 
         let v = MakeExecutableInfo {
