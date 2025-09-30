@@ -548,12 +548,18 @@ fn run_test_rr(
     target_dir: &Path,
     display_backend_hint: Option<()>, // FIXME: unsure why it's option but as-is for now
 ) -> Result<i32, anyhow::Error> {
+    let is_bench = cmd.run_mode == RunMode::Bench;
+    let default_opt_level = if is_bench {
+        OptLevel::Release
+    } else {
+        OptLevel::Debug
+    };
     let preconfig = preconfig_compile(
         cmd.auto_sync_flags,
         cli,
         cmd.build_flags,
         target_dir,
-        OptLevel::Debug,
+        default_opt_level,
         RunMode::Test,
     );
 
@@ -905,23 +911,32 @@ pub(crate) fn run_test_or_bench_internal_legacy(
 
     let run_mode = cmd.run_mode;
 
-    let build_flags = BuildFlags {
+    let mut build_flags = cmd.build_flags.clone();
+    if run_mode == RunMode::Bench && !build_flags.debug && !build_flags.release {
+        build_flags.release = true;
+    }
+
+    // MAINTAINERS: Yes, this piece of code might result in both debug=true and
+    // release=true. This is expected behavior and is required to make the
+    // feature work, because of the current status of legacy flags setting.
+    //
+    // This piece will be thrown away very soon. If it's still here by 2026,
+    // please do a full refactor.
+    let compiler_flags = BuildFlags {
         debug: true,
-        ..cmd.build_flags.clone()
+        ..build_flags.clone()
     };
-    let mut moonc_opt = super::get_compiler_flags(source_dir, &build_flags)?;
-    // release is 'false' by default, so we will run test at debug mode(to gain more detailed stack trace info), unless `--release` is specified
-    // however, other command like build, check, run, etc, will run at release mode by default
-    moonc_opt.build_opt.debug_flag = !cmd.build_flags.release;
-    moonc_opt.build_opt.enable_value_tracing = cmd.build_flags.enable_value_tracing;
-    moonc_opt.build_opt.strip_flag = if cmd.build_flags.strip {
+    let mut moonc_opt = super::get_compiler_flags(source_dir, &compiler_flags)?;
+    moonc_opt.build_opt.debug_flag = !build_flags.release;
+    moonc_opt.build_opt.enable_value_tracing = build_flags.enable_value_tracing;
+    moonc_opt.build_opt.strip_flag = if build_flags.strip {
         true
-    } else if cmd.build_flags.no_strip {
+    } else if build_flags.no_strip {
         false
     } else {
-        cmd.build_flags.release
+        build_flags.release
     };
-    moonc_opt.link_opt.debug_flag = !cmd.build_flags.release;
+    moonc_opt.link_opt.debug_flag = !build_flags.release;
 
     // TODO: remove this once LLVM backend is well supported
     if moonc_opt.build_opt.target_backend == TargetBackend::LLVM {
