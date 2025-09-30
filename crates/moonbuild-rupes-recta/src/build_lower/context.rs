@@ -157,6 +157,7 @@ impl<'a> BuildPlanLowerContext<'a> {
             self.append_artifact_of(n, edge, &mut ins);
         }
         ins.extend(cmd.extra_inputs);
+        ins.sort(); // make sure the order is deterministic
         let ins = build_ins(&mut self.graph, ins);
 
         let mut outs = vec![];
