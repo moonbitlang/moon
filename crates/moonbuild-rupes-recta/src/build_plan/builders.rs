@@ -39,7 +39,7 @@ use regex::Regex;
 use tracing::{debug, instrument, trace, warn, Level};
 
 use crate::{
-    build_plan::PrebuildInfo,
+    build_plan::{FileDependencyKind, PrebuildInfo},
     cond_comp::{self, CompileCondition},
     discover::DiscoveredPackage,
     model::{BuildPlanNode, BuildTarget, PackageId, TargetKind},
@@ -114,7 +114,18 @@ impl<'a> BuildPlanConstructor<'a> {
         } else {
             self.need_node(BuildPlanNode::BuildCore(dep))
         };
-        self.add_edge(node, dep_node);
+
+        // Since this function is specifically for needing `.mi` files,
+        // we can set this at the edge
+        let edge_kind = if let BuildPlanNode::BuildCore(_) = dep_node {
+            FileDependencyKind::BuildCore {
+                mi: true,
+                core: false,
+            }
+        } else {
+            FileDependencyKind::AllFiles
+        };
+        self.add_edge_spec(node, dep_node, edge_kind);
     }
 
     #[instrument(level = Level::DEBUG, skip(self))]
@@ -493,7 +504,14 @@ impl<'a> BuildPlanConstructor<'a> {
         for target in &link_core_deps {
             let dep_node = BuildPlanNode::BuildCore(*target);
             self.need_node(dep_node);
-            self.add_edge(link_core_node, dep_node);
+            self.add_edge_spec(
+                link_core_node,
+                dep_node,
+                FileDependencyKind::BuildCore {
+                    mi: false,
+                    core: true,
+                },
+            );
         }
 
         let targets = link_core_deps.into_iter().collect::<Vec<_>>();
@@ -739,7 +757,14 @@ impl<'a> BuildPlanConstructor<'a> {
                 kind: TargetKind::Source,
             });
             self.need_node(build_node);
-            self.add_edge(_node, build_node);
+            self.add_edge_spec(
+                _node,
+                build_node,
+                FileDependencyKind::BuildCore {
+                    mi: false,
+                    core: true,
+                },
+            );
         }
 
         Ok(())

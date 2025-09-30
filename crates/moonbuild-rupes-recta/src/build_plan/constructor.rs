@@ -21,7 +21,7 @@
 use std::collections::{HashMap, HashSet};
 
 use crate::{
-    build_plan::InputDirective,
+    build_plan::{FileDependencyKind, InputDirective},
     model::{BuildPlanNode, BuildTarget},
     prebuild::PrebuildOutput,
     ResolveOutput,
@@ -149,7 +149,7 @@ impl<'a> BuildPlanConstructor<'a> {
                         .res
                         .graph
                         .edges_directed(node, petgraph::Outgoing)
-                        .map(|(_, target, _)| target)
+                        .map(|(_, target, &edge)| (target, edge))
                         .collect::<Vec<_>>();
                     plan.push((
                         node,
@@ -164,10 +164,17 @@ impl<'a> BuildPlanConstructor<'a> {
         // Perform the coalescing
         for (from, to, in_edges, out_edges) in plan {
             for source in in_edges {
-                self.res.graph.add_edge(source, to, ());
+                self.res.graph.add_edge(
+                    source,
+                    to,
+                    crate::build_plan::FileDependencyKind::BuildCore {
+                        mi: true,
+                        core: false,
+                    },
+                );
             }
-            for target in out_edges {
-                self.res.graph.add_edge(to, target, ());
+            for (target, edge) in out_edges {
+                self.res.graph.add_edge(to, target, edge);
             }
             self.res.graph.remove_node(from);
         }
@@ -292,9 +299,30 @@ impl<'a> BuildPlanConstructor<'a> {
         }
     }
 
-    #[instrument(level = Level::DEBUG, skip(self))]
+    /// Add an edge from `start` to `end`, depending on all files produced by `end`.
     pub(super) fn add_edge(&mut self, start: BuildPlanNode, end: BuildPlanNode) {
-        self.res.graph.add_edge(start, end, ());
+        self.res
+            .graph
+            .add_edge(start, end, FileDependencyKind::AllFiles);
+    }
+
+    /// Add an edge from `start` to `end`, depending on specific files produced by `end`.
+    pub(super) fn add_edge_spec(
+        &mut self,
+        start: BuildPlanNode,
+        end: BuildPlanNode,
+        edge: FileDependencyKind,
+    ) {
+        // verify edge kind
+        match (edge, end) {
+            (FileDependencyKind::BuildCore { .. }, BuildPlanNode::BuildCore(..)) => {}
+            (FileDependencyKind::BuildCore { .. }, _) => {
+                panic!("BuildCore edge can only point to BuildCore node")
+            }
+            _ => (),
+        }
+
+        self.res.graph.add_edge(start, end, edge);
     }
 
     /// Debug-only helper that runs build_action_dependencies with panic capture and reporting.

@@ -492,8 +492,8 @@ impl<'a> BuildPlanLowerContext<'a> {
         );
 
         let mut object_files = Vec::new();
-        for input in self.build_plan.dependency_nodes(node) {
-            self.append_artifact_of(input, &mut object_files);
+        for (input, edge) in self.build_plan.dependency_edges(node) {
+            self.append_artifact_of(input, edge, &mut object_files);
         }
 
         // Match legacy: create archive name as lib{pkgname}.{A_EXT}
@@ -546,12 +546,15 @@ impl<'a> BuildPlanLowerContext<'a> {
 
         let mut sources = vec![];
         // C artifact path
-        self.append_artifact_of(BuildPlanNode::LinkCore(target), &mut sources);
+        self.append_all_artifacts_of(BuildPlanNode::LinkCore(target), &mut sources);
         // Runtime path
-        self.append_artifact_of(BuildPlanNode::BuildRuntimeLib, &mut sources);
+        self.append_all_artifacts_of(BuildPlanNode::BuildRuntimeLib, &mut sources);
         // C stubs to link
         for &stub_tgt in &info.link_c_stubs {
-            self.append_artifact_of(BuildPlanNode::ArchiveCStubs(stub_tgt.package), &mut sources);
+            self.append_all_artifacts_of(
+                BuildPlanNode::ArchiveCStubs(stub_tgt.package),
+                &mut sources,
+            );
         }
 
         let opt_level = match self.opt.opt_level {
