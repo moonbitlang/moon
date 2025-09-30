@@ -223,6 +223,15 @@ impl<'a> BuildPlanLowerContext<'a> {
         // Track doctest-only files as inputs as well
         let mut extra_inputs = files_vec.clone();
         extra_inputs.extend(info.doctest_files.clone());
+
+        // Also track any -check-mi file used by this command (virtual checks/impl)
+        if let Some(p) = &cmd.defaults.check_mi {
+            extra_inputs.push(p.as_ref().to_path_buf());
+        }
+        if let Some(impl_v) = &cmd.defaults.virtual_implementation {
+            extra_inputs.push(impl_v.mi_path.as_ref().to_path_buf());
+        }
+
         BuildCommand {
             extra_inputs,
             commandline: cmd.build_command("moonc"),
@@ -292,6 +301,14 @@ impl<'a> BuildPlanLowerContext<'a> {
         // Include doctest-only files as inputs to track dependency correctly
         let mut extra_inputs = files.clone();
         extra_inputs.extend(info.doctest_files.clone());
+
+        // Also track any -check-mi file used by this command (virtual checks/impl)
+        if let Some(p) = &cmd.defaults.check_mi {
+            extra_inputs.push(p.as_ref().to_path_buf());
+        }
+        if let Some(impl_v) = &cmd.defaults.virtual_implementation {
+            extra_inputs.push(impl_v.mi_path.as_ref().to_path_buf());
+        }
 
         BuildCommand {
             commandline: cmd.build_command("moonc"),
