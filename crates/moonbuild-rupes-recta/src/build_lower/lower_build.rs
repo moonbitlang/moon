@@ -673,8 +673,9 @@ impl<'a> BuildPlanLowerContext<'a> {
         &self,
         _node: BuildPlanNode,
         target: BuildTarget,
-    ) -> Vec<MiDependency<'_>> {
-        self.rel
+    ) -> Vec<MiDependency<'a>> {
+        let mut deps: Vec<MiDependency<'a>> = self
+            .rel
             .dep_graph
             .edges_directed(target, Direction::Outgoing)
             .map(|(_, it, w)| {
@@ -683,6 +684,8 @@ impl<'a> BuildPlanLowerContext<'a> {
                         .mi_of_build_target(self.packages, &it, self.opt.target_backend);
                 MiDependency::new(in_file, &w.short_alias)
             })
-            .collect::<Vec<_>>()
+            .collect::<Vec<_>>();
+        deps.sort_by(|x, y| x.path.cmp(&y.path));
+        deps
     }
 }
