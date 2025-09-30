@@ -18,7 +18,9 @@
 
 use std::path::PathBuf;
 
-use moonutil::mooncakes::ModuleId;
+use moonutil::mooncakes::{result::ResolvedEnv, ModuleId};
+
+use crate::discover::DiscoverResult;
 
 slotmap::new_key_type! {
     /// An unique identifier pointing to a package currently discovered from imported modules.
@@ -158,6 +160,59 @@ impl BuildPlanNode {
             | BuildPlanNode::BuildDocs
             | BuildPlanNode::BuildVirtual(_)
             | BuildPlanNode::RunPrebuild(_, _) => None,
+        }
+    }
+
+    /// Return a concise, human-readable description resolving PackageId/ModuleId to names.
+    /// Single-line and stable; suitable for filenames/labels (e.g. n2 fileloc).
+    pub fn human_desc(&self, env: &ResolvedEnv, packages: &DiscoverResult) -> String {
+        match self {
+            BuildPlanNode::Check(t) => {
+                let fqn = packages.fqn(t.package);
+                format!("{}@{:?}@Check", fqn, t.kind)
+            }
+            BuildPlanNode::BuildCore(t) => {
+                let fqn = packages.fqn(t.package);
+                format!("{}@{:?}@BuildCore", fqn, t.kind)
+            }
+            BuildPlanNode::BuildCStub(pkg, idx) => {
+                let fqn = packages.fqn(*pkg);
+                format!("{}@BuildCStub_{}", fqn, idx)
+            }
+            BuildPlanNode::ArchiveCStubs(pkg) => {
+                let fqn = packages.fqn(*pkg);
+                format!("{}@ArchiveCStubs", fqn)
+            }
+            BuildPlanNode::LinkCore(t) => {
+                let fqn = packages.fqn(t.package);
+                format!("{}@{:?}@LinkCore", fqn, t.kind)
+            }
+            BuildPlanNode::MakeExecutable(t) => {
+                let fqn = packages.fqn(t.package);
+                format!("{}@{:?}@MakeExecutable", fqn, t.kind)
+            }
+            BuildPlanNode::GenerateTestInfo(t) => {
+                let fqn = packages.fqn(t.package);
+                format!("{}@{:?}@GenerateTestInfo", fqn, t.kind)
+            }
+            BuildPlanNode::GenerateMbti(t) => {
+                let fqn = packages.fqn(t.package);
+                format!("{}@{:?}@GenerateMbti", fqn, t.kind)
+            }
+            BuildPlanNode::Bundle(mid) => {
+                let src = env.mod_name_from_id(*mid);
+                format!("{}@Bundle", src)
+            }
+            BuildPlanNode::BuildRuntimeLib => "BuildRuntimeLib".to_string(),
+            BuildPlanNode::BuildVirtual(pkg) => {
+                let fqn = packages.fqn(*pkg);
+                format!("{}@BuildVirtual", fqn)
+            }
+            BuildPlanNode::RunPrebuild(pkg, idx) => {
+                let fqn = packages.fqn(*pkg);
+                format!("{}@RunPrebuild_{}", fqn, idx)
+            }
+            BuildPlanNode::BuildDocs => "BuildDocs".to_string(),
         }
     }
 }
