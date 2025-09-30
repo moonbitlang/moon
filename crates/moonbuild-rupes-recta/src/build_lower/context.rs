@@ -195,11 +195,18 @@ impl<'a> BuildPlanLowerContext<'a> {
     ) {
         match node {
             BuildPlanNode::Check(target) => {
-                out.push(self.layout.mi_of_build_target(
-                    self.packages,
-                    &target,
-                    self.opt.target_backend,
-                ));
+                let info = self
+                    .build_plan
+                    .get_build_target_info(&target)
+                    .expect("Build target info should be present for Check nodes");
+
+                if info.check_mi_against.is_none() {
+                    out.push(self.layout.mi_of_build_target(
+                        self.packages,
+                        &target,
+                        self.opt.target_backend,
+                    ));
+                }
             }
             BuildPlanNode::BuildCore(target) => {
                 let info = self
