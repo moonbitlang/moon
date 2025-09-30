@@ -644,12 +644,20 @@ impl<'a> BuildPlanConstructor<'a> {
                 trace!(?node, "Found node at pre-order");
                 // First time we see this node on stack: push marker, then children
                 stack.push((node, true));
+
+                // Push children and sort
+                let stack_before_children = stack.len();
                 for child in graph.neighbors_directed(node, petgraph::Direction::Outgoing) {
                     if !seen.contains(&child) {
                         seen.insert(child);
                         stack.push((child, false));
                     }
                 }
+                // Stable sort the newly added children
+                stack[stack_before_children..].sort_by_key(|(t, _)| {
+                    let pkg_name = &self.input.pkg_dirs.get_package(t.package).fqn;
+                    (pkg_name, t.kind)
+                });
                 continue;
             }
 
