@@ -123,7 +123,6 @@ impl<'a> BuildPlanLowerContext<'a> {
 
         // Patch and MI/virtual config
         let patch_file = info.patch_file.as_deref().map(|x| x.into());
-        let no_mi = info.no_mi();
 
         // Compute -check-mi and virtual implementation mapping when requested
         let mut virtual_implementation = None;
@@ -149,6 +148,13 @@ impl<'a> BuildPlanLowerContext<'a> {
                 check_mi = Some(mi_path.into());
             }
         }
+
+        // Historically, -no-mi was implicitly injected when either:
+        // - we are implementing a virtual package (-impl-virtual), or
+        // - we are checking against an interface (-check-mi).
+        // Since command abstractions no longer push -no-mi on their own,
+        // enforce it here at the caller level.
+        let no_mi = info.no_mi() || check_mi.is_some() || virtual_implementation.is_some();
 
         BuildCommonConfig {
             stdlib_core_file,

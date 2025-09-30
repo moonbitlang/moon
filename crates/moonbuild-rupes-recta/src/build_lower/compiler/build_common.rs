@@ -278,14 +278,16 @@ impl<'a> BuildCommonConfig<'a> {
         }
     }
 
-    /// Add virtual package implementation arguments for build-package
+    /// Add virtual package implementation arguments for build-package.
+    /// Note: does NOT emit -no-mi. The caller must control `-no-mi` via
+    /// [BuildCommonConfig::no_mi] and let [BuildCommonConfig::add_no_mi] handle
+    /// emission.
     pub fn add_virtual_package_implementation_build(&self, args: &mut Vec<String>) {
         if let Some(impl_virtual) = &self.virtual_implementation {
             args.extend([
                 "-check-mi".to_string(),
                 impl_virtual.mi_path.display().to_string(),
                 "-impl-virtual".to_string(),
-                "-no-mi".to_string(),
                 "-pkg-sources".to_string(),
                 format!(
                     "{}:{}",
