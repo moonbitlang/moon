@@ -127,12 +127,6 @@ impl<'a> MooncBuildPackage<'a> {
         // Virtual package check
         self.defaults.add_virtual_package_check(args);
 
-        // Virtual package check with no-mi flag (for default/impl virtual flows)
-        // FIXME: duplicated `-no-mi`
-        if self.defaults.check_mi.is_some() && self.defaults.no_mi {
-            args.push("-no-mi".to_string());
-        }
-
         // Virtual package implementation
         self.defaults.add_virtual_package_implementation_build(args);
 

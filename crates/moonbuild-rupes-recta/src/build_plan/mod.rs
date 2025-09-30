@@ -79,7 +79,7 @@ pub struct BuildPlan {
     /// Each node in this graph represents a step in building, and edges
     /// represent the dependencies between build steps, pointing **from each
     /// step to what it depends on**.
-    graph: DiGraphMap<BuildPlanNode, ()>,
+    graph: DiGraphMap<BuildPlanNode, FileDependencyKind>,
 
     /// The map of build target to its files and metadata.
     /// Used by nodes that require access to the raw MoonBit source files, like
@@ -106,6 +106,21 @@ pub struct BuildPlan {
     input_nodes: Vec<BuildPlanNode>,
 }
 
+/// Additional information about a build plan's edge
+///
+/// TODO: This is a temporary solution to determine which file is being depended
+/// on by the consumer node. We might want a more generic solution to this in
+/// the future.
+#[derive(PartialEq, Eq, Clone, Copy, Debug, Default)]
+pub enum FileDependencyKind {
+    /// Depending on all files available
+    #[default]
+    AllFiles,
+
+    /// Depending on specific files of a `BuildCore` node.
+    BuildCore { mi: bool, core: bool },
+}
+
 impl BuildPlan {
     /// Get the list of nodes that **the given node depends on**.
     pub fn dependency_nodes(
@@ -114,6 +129,17 @@ impl BuildPlan {
     ) -> impl Iterator<Item = BuildPlanNode> + '_ {
         self.graph
             .neighbors_directed(node, petgraph::Direction::Outgoing)
+    }
+
+    /// Get the dependencies of a node together with their edge kinds.
+    pub fn dependency_edges(
+        &self,
+        node: BuildPlanNode,
+    ) -> impl Iterator<Item = (BuildPlanNode, FileDependencyKind)> + '_ {
+        // Use edges_directed to access edge weights without re-querying the graph.
+        self.graph
+            .edges_directed(node, petgraph::Direction::Outgoing)
+            .map(move |(_, dep, kind)| (dep, *kind))
     }
 
     /// Get build target information for the given target.

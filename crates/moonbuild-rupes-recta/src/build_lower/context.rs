@@ -27,7 +27,7 @@ use tracing::{instrument, Level};
 
 use crate::{
     build_lower::artifact::LegacyLayout,
-    build_plan::BuildPlan,
+    build_plan::{BuildPlan, FileDependencyKind},
     discover::{DiscoverResult, DiscoveredPackage},
     model::{BuildPlanNode, BuildTarget},
     pkg_solve::DepRelationship,
@@ -153,14 +153,15 @@ impl<'a> BuildPlanLowerContext<'a> {
         // TODO: some of the inputs and outputs might be calculated twice,
         // once for the commandline and another here. Will this hurt perf?
         let mut ins = vec![];
-        for n in self.build_plan.dependency_nodes(node) {
-            self.append_artifact_of(n, &mut ins);
+        for (n, edge) in self.build_plan.dependency_edges(node) {
+            self.append_artifact_of(n, edge, &mut ins);
         }
         ins.extend(cmd.extra_inputs);
+        ins.sort(); // make sure the order is deterministic
         let ins = build_ins(&mut self.graph, ins);
 
         let mut outs = vec![];
-        self.append_artifact_of(node, &mut outs);
+        self.append_all_artifacts_of(node, &mut outs);
         let outs = build_outs(&mut self.graph, outs);
 
         // Construct n2 build node
@@ -168,10 +169,7 @@ impl<'a> BuildPlanLowerContext<'a> {
             .extract_target()
             .map(|x| self.get_package(x).fqn.clone());
         let mut build = Build::new(
-            build_n2_fileloc(
-                fqn.as_ref()
-                    .map_or_else(|| "no_package".into(), |x| x.to_string()),
-            ),
+            build_n2_fileloc(node.human_desc(self.modules, self.packages)),
             ins,
             outs,
         );
@@ -190,32 +188,50 @@ impl<'a> BuildPlanLowerContext<'a> {
 
     /// Append the output artifacts of the given node to the provided vector.
     #[instrument(level = Level::DEBUG, skip(self, out))]
-    pub(super) fn append_artifact_of(&self, node: BuildPlanNode, out: &mut Vec<PathBuf>) {
+    pub(super) fn append_artifact_of(
+        &self,
+        node: BuildPlanNode,
+        edge: FileDependencyKind,
+        out: &mut Vec<PathBuf>,
+    ) {
         match node {
             BuildPlanNode::Check(target) => {
-                out.push(self.layout.mi_of_build_target(
-                    self.packages,
-                    &target,
-                    self.opt.target_backend,
-                ));
-            }
-            BuildPlanNode::BuildCore(target) => {
                 let info = self
                     .build_plan
                     .get_build_target_info(&target)
-                    .expect("Build target info should be present for BuildCore nodes");
-                if !(info.check_mi_against.is_some() || info.no_mi()) {
+                    .expect("Build target info should be present for Check nodes");
+
+                if info.check_mi_against.is_none() {
                     out.push(self.layout.mi_of_build_target(
                         self.packages,
                         &target,
                         self.opt.target_backend,
                     ));
                 }
-                out.push(self.layout.core_of_build_target(
-                    self.packages,
-                    &target,
-                    self.opt.target_backend,
-                ));
+            }
+            BuildPlanNode::BuildCore(target) => {
+                let info = self
+                    .build_plan
+                    .get_build_target_info(&target)
+                    .expect("Build target info should be present for BuildCore nodes");
+                let (mi, core) = match edge {
+                    FileDependencyKind::BuildCore { mi, core } => (mi, core),
+                    _ => (true, true),
+                };
+                if mi && !(info.check_mi_against.is_some() || info.no_mi()) {
+                    out.push(self.layout.mi_of_build_target(
+                        self.packages,
+                        &target,
+                        self.opt.target_backend,
+                    ));
+                }
+                if core {
+                    out.push(self.layout.core_of_build_target(
+                        self.packages,
+                        &target,
+                        self.opt.target_backend,
+                    ));
+                }
             }
             BuildPlanNode::BuildCStub(package, index) => {
                 let pkg = self.packages.get_package(package);
@@ -309,6 +325,12 @@ impl<'a> BuildPlanLowerContext<'a> {
                 ));
             }
         }
+    }
+
+    /// Convenience alias for depending on all artifacts from a node.
+    #[inline]
+    pub(super) fn append_all_artifacts_of(&self, node: BuildPlanNode, out: &mut Vec<PathBuf>) {
+        self.append_artifact_of(node, FileDependencyKind::AllFiles, out);
     }
 
     fn lowered(&mut self, build: Build) -> Result<(), anyhow::Error> {

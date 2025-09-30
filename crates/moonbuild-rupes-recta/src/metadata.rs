@@ -115,27 +115,32 @@ fn gen_package_json(
         .collect();
 
     // Dependencies collection
-    let deps = ctx
+    let mut deps: Vec<AliasJSON> = ctx
         .pkg_rel
         .dep_graph
         .edges(pkg_id.build_target(TargetKind::Source))
         .filter(|(_, _, edge)| edge.kind == TargetKind::Source)
         .map(edge_to_alias_json(ctx))
         .collect();
-    let wbtest_deps = ctx
+    deps.sort_by(|a, b| a.path.cmp(&b.path).then_with(|| a.alias.cmp(&b.alias)));
+
+    let mut wbtest_deps: Vec<AliasJSON> = ctx
         .pkg_rel
         .dep_graph
         .edges(pkg_id.build_target(TargetKind::WhiteboxTest))
         .filter(|(_, _, edge)| edge.kind == TargetKind::WhiteboxTest)
         .map(edge_to_alias_json(ctx))
         .collect();
-    let test_deps = ctx
+    wbtest_deps.sort_by(|a, b| a.path.cmp(&b.path).then_with(|| a.alias.cmp(&b.alias)));
+
+    let mut test_deps: Vec<AliasJSON> = ctx
         .pkg_rel
         .dep_graph
         .edges(pkg_id.build_target(TargetKind::BlackboxTest))
         .filter(|(_, _, edge)| edge.kind == TargetKind::BlackboxTest)
         .map(edge_to_alias_json(ctx))
         .collect();
+    test_deps.sort_by(|a, b| a.path.cmp(&b.path).then_with(|| a.alias.cmp(&b.alias)));
 
     PackageJSON {
         is_main: pkg.raw.is_main,

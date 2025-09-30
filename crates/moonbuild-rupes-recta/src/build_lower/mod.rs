@@ -143,7 +143,7 @@ pub fn lower_build_plan(
     let mut out_artifcts = IndexMap::with_capacity(build_plan.input_nodes().len());
     for n in build_plan.input_nodes() {
         let mut a = vec![];
-        ctx.append_artifact_of(*n, &mut a);
+        ctx.append_all_artifacts_of(*n, &mut a);
         out_artifcts.insert(
             *n,
             Artifacts {

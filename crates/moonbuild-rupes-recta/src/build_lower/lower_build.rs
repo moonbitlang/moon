@@ -123,7 +123,6 @@ impl<'a> BuildPlanLowerContext<'a> {
 
         // Patch and MI/virtual config
         let patch_file = info.patch_file.as_deref().map(|x| x.into());
-        let no_mi = info.no_mi();
 
         // Compute -check-mi and virtual implementation mapping when requested
         let mut virtual_implementation = None;
@@ -149,6 +148,13 @@ impl<'a> BuildPlanLowerContext<'a> {
                 check_mi = Some(mi_path.into());
             }
         }
+
+        // Historically, -no-mi was implicitly injected when either:
+        // - we are implementing a virtual package (-impl-virtual), or
+        // - we are checking against an interface (-check-mi).
+        // Since command abstractions no longer push -no-mi on their own,
+        // enforce it here at the caller level.
+        let no_mi = info.no_mi() || check_mi.is_some() || virtual_implementation.is_some();
 
         BuildCommonConfig {
             stdlib_core_file,
@@ -217,6 +223,15 @@ impl<'a> BuildPlanLowerContext<'a> {
         // Track doctest-only files as inputs as well
         let mut extra_inputs = files_vec.clone();
         extra_inputs.extend(info.doctest_files.clone());
+
+        // Also track any -check-mi file used by this command (virtual checks/impl)
+        if let Some(p) = &cmd.defaults.check_mi {
+            extra_inputs.push(p.as_ref().to_path_buf());
+        }
+        if let Some(impl_v) = &cmd.defaults.virtual_implementation {
+            extra_inputs.push(impl_v.mi_path.as_ref().to_path_buf());
+        }
+
         BuildCommand {
             extra_inputs,
             commandline: cmd.build_command("moonc"),
@@ -286,6 +301,14 @@ impl<'a> BuildPlanLowerContext<'a> {
         // Include doctest-only files as inputs to track dependency correctly
         let mut extra_inputs = files.clone();
         extra_inputs.extend(info.doctest_files.clone());
+
+        // Also track any -check-mi file used by this command (virtual checks/impl)
+        if let Some(p) = &cmd.defaults.check_mi {
+            extra_inputs.push(p.as_ref().to_path_buf());
+        }
+        if let Some(impl_v) = &cmd.defaults.virtual_implementation {
+            extra_inputs.push(impl_v.mi_path.as_ref().to_path_buf());
+        }
 
         BuildCommand {
             commandline: cmd.build_command("moonc"),
@@ -361,8 +384,15 @@ impl<'a> BuildPlanLowerContext<'a> {
             extra_link_opts: &[],
         };
 
+        // Ensure n2 sees stdlib core bundle changes as inputs
+        let mut extra_inputs = Vec::new();
+        if let Some(stdlib) = &self.opt.stdlib_path {
+            extra_inputs.push(artifact::abort_core_path(stdlib, self.opt.target_backend));
+            extra_inputs.push(artifact::core_core_path(stdlib, self.opt.target_backend));
+        }
+
         BuildCommand {
-            extra_inputs: vec![],
+            extra_inputs,
             commandline: cmd.build_command("moonc"),
         }
     }
@@ -492,8 +522,8 @@ impl<'a> BuildPlanLowerContext<'a> {
         );
 
         let mut object_files = Vec::new();
-        for input in self.build_plan.dependency_nodes(node) {
-            self.append_artifact_of(input, &mut object_files);
+        for (input, edge) in self.build_plan.dependency_edges(node) {
+            self.append_artifact_of(input, edge, &mut object_files);
         }
 
         // Match legacy: create archive name as lib{pkgname}.{A_EXT}
@@ -546,12 +576,15 @@ impl<'a> BuildPlanLowerContext<'a> {
 
         let mut sources = vec![];
         // C artifact path
-        self.append_artifact_of(BuildPlanNode::LinkCore(target), &mut sources);
+        self.append_all_artifacts_of(BuildPlanNode::LinkCore(target), &mut sources);
         // Runtime path
-        self.append_artifact_of(BuildPlanNode::BuildRuntimeLib, &mut sources);
+        self.append_all_artifacts_of(BuildPlanNode::BuildRuntimeLib, &mut sources);
         // C stubs to link
         for &stub_tgt in &info.link_c_stubs {
-            self.append_artifact_of(BuildPlanNode::ArchiveCStubs(stub_tgt.package), &mut sources);
+            self.append_all_artifacts_of(
+                BuildPlanNode::ArchiveCStubs(stub_tgt.package),
+                &mut sources,
+            );
         }
 
         let opt_level = match self.opt.opt_level {
@@ -640,8 +673,9 @@ impl<'a> BuildPlanLowerContext<'a> {
         &self,
         _node: BuildPlanNode,
         target: BuildTarget,
-    ) -> Vec<MiDependency<'_>> {
-        self.rel
+    ) -> Vec<MiDependency<'a>> {
+        let mut deps: Vec<MiDependency<'a>> = self
+            .rel
             .dep_graph
             .edges_directed(target, Direction::Outgoing)
             .map(|(_, it, w)| {
@@ -650,6 +684,8 @@ impl<'a> BuildPlanLowerContext<'a> {
                         .mi_of_build_target(self.packages, &it, self.opt.target_backend);
                 MiDependency::new(in_file, &w.short_alias)
             })
-            .collect::<Vec<_>>()
+            .collect::<Vec<_>>();
+        deps.sort_by(|x, y| x.path.cmp(&y.path));
+        deps
     }
 }
