@@ -179,8 +179,8 @@ impl ModuleDB {
         let mut project_supported_targets = HashSet::from_iter(
             TargetBackend::all()
                 .iter()
-                .cloned()
-                .filter(TargetBackend::allowed_as_project_target),
+                .filter(|b| b.allowed_as_project_target())
+                .cloned(),
         );
 
         for entry_pkg in self.get_entry_pkgs() {
