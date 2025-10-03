@@ -30,6 +30,7 @@ mod util;
 
 use rand::rngs::StdRng;
 use rand::Rng;
+use rand::RngCore;
 use rand::SeedableRng;
 
 const BUILTIN_SCRIPT_ORIGIN_PREFIX: &str = "__$moonrun_v8_builtin_script$__";
@@ -321,6 +322,23 @@ fn stdrng_gen_range(
     ret.set_int32(num);
 }
 
+fn get_random_values(
+    scope: &mut v8::HandleScope,
+    args: v8::FunctionCallbackArguments,
+    mut _ret: v8::ReturnValue,
+) {
+    let target_array: v8::Local<v8::Uint8Array> = args.get(0).try_into().unwrap();
+    let length = target_array.byte_length();
+
+    let mut buf = vec![0u8; length];
+    rand::thread_rng().fill_bytes(&mut buf);
+
+    for (i, &byte) in buf.iter().enumerate() {
+        let value = v8::Integer::new(scope, byte as i32);
+        target_array.set_index(scope, i as u32, value.into());
+    }
+}
+
 fn exit(
     scope: &mut v8::HandleScope,
     args: v8::FunctionCallbackArguments,
@@ -358,6 +376,14 @@ fn init_env(
     {
         let identifier = v8::String::new(scope, "console_log").unwrap();
         let value = v8::Function::builder(console_log).build(scope).unwrap();
+        global_proxy.set(scope, identifier.into(), value.into());
+    }
+
+    {
+        let identifier = v8::String::new(scope, "get_random_values").unwrap();
+        let value = v8::Function::builder(get_random_values)
+            .build(scope)
+            .unwrap();
         global_proxy.set(scope, identifier.into(), value.into());
     }
 
