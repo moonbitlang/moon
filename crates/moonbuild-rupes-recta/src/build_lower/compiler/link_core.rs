@@ -146,10 +146,7 @@ impl<'a> MooncLinkCore<'a> {
         }
 
         // WASM-specific config
-        if matches!(
-            self.target_backend,
-            TargetBackend::Wasm | TargetBackend::WasmGC
-        ) {
+        if self.target_backend.is_wasm() {
             // WebAssembly exports
             if let Some(exports) = self.wasm_config.exports {
                 if exports.is_empty() {

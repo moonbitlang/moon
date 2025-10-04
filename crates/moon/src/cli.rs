@@ -306,8 +306,7 @@ pub fn get_compiler_flags(src_dir: &Path, build_flags: &BuildFlags) -> anyhow::R
 
     let debug_flag = build_flags.debug;
     let enable_coverage = build_flags.enable_coverage;
-    let source_map =
-        debug_flag && matches!(target_backend, TargetBackend::WasmGC | TargetBackend::Js);
+    let source_map = debug_flag && target_backend.supports_source_map();
 
     let build_opt = BuildPackageFlags {
         debug_flag,

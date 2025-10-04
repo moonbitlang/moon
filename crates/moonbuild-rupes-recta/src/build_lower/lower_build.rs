@@ -59,10 +59,7 @@ impl<'a> BuildPlanLowerContext<'a> {
         compiler::CompilationFlags {
             no_opt: self.opt.opt_level == OptLevel::Debug,
             symbols: self.opt.debug_symbols,
-            source_map: matches!(
-                self.opt.target_backend,
-                TargetBackend::Js | TargetBackend::WasmGC
-            ) && self.opt.debug_symbols,
+            source_map: self.opt.target_backend.supports_source_map() && self.opt.debug_symbols,
             enable_coverage: false,
             self_coverage: false,
             enable_value_tracing: false,
