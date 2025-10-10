@@ -18,7 +18,7 @@
 
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
-use std::collections::{BTreeSet, HashSet};
+use std::collections::{BTreeMap, BTreeSet, HashSet};
 use std::fs;
 use std::io::{BufRead, BufReader, Write};
 use std::path::Path;
@@ -190,6 +190,22 @@ fn run_suites(cargo_args: &[String]) -> Result<(TestResult, TestResult)> {
     Ok((legacy, rr))
 }
 
+fn run_rr_multiple(cargo_args: &[String], runs: usize) -> Result<Vec<TestResult>> {
+    let mut results = Vec::with_capacity(runs);
+    for idx in 0..runs {
+        if runs == 1 {
+            eprintln!("Running RR tests");
+        } else {
+            eprintln!("Running RR tests (iteration {}/{})", idx + 1, runs);
+        }
+        let rr = run_cargo_test(true, cargo_args).with_context(|| {
+            format!("Error running RR tests (iteration {} of {})", idx + 1, runs)
+        })?;
+        results.push(rr);
+    }
+    Ok(results)
+}
+
 fn rr_only_failures(without_rr: &TestResult, with_rr: &TestResult) -> BTreeSet<String> {
     let without_rr_failed: HashSet<_> = without_rr.failed_tests.iter().collect();
     let with_rr_failed: HashSet<_> = with_rr.failed_tests.iter().collect();
@@ -206,6 +222,29 @@ fn print_rr_only(rr_only: &BTreeSet<String>) {
     println!("Tests that Rupes Recta fails:");
     for test in rr_only {
         println!("  {}", test);
+    }
+    println!();
+}
+
+fn print_rr_stable(rr_only: &BTreeSet<String>, runs: usize) {
+    if rr_only.is_empty() {
+        return;
+    }
+    println!("RR-only failures consistent across {} runs:", runs);
+    for test in rr_only {
+        println!("  {}", test);
+    }
+    println!();
+}
+
+fn print_rr_unstable(unstable: &BTreeSet<String>, counts: &BTreeMap<String, usize>, runs: usize) {
+    if unstable.is_empty() {
+        return;
+    }
+    println!("RR-only unstable failures across {} runs:", runs);
+    for test in unstable {
+        let seen = counts.get(test).copied().unwrap_or(0);
+        println!("  {} ({}/{})", test, seen, runs);
     }
     println!();
 }
@@ -270,9 +309,9 @@ fn compare_baseline(rr_only: &BTreeSet<String>, path: &Path) -> Result<(bool, bo
 pub fn parity_test(
     compare_path: Option<&Path>,
     write_path: Option<&Path>,
+    rr_runs: usize,
     cargo_args: &[String],
 ) -> i32 {
-    // Ensure nightly toolchain
     if !check_nightly_toolchain().unwrap() {
         eprintln!(
             "Nightly toolchain not found. Please install with: rustup toolchain install nightly"
@@ -281,27 +320,99 @@ pub fn parity_test(
         return 1;
     }
 
-    // Execute both test suites
-    let (without_rr, with_rr) = match run_suites(cargo_args) {
-        Ok(v) => v,
-        Err(e) => {
-            eprintln!("{e:#}");
-            return 1;
+    let rr_runs = rr_runs.max(1);
+    let mut baseline_set = BTreeSet::new();
+    let mut has_parity = false;
+
+    if rr_runs == 1 {
+        let (without_rr, with_rr) = match run_suites(cargo_args) {
+            Ok(v) => v,
+            Err(e) => {
+                eprintln!("{e:#}");
+                return 1;
+            }
+        };
+
+        let rr_only = rr_only_failures(&without_rr, &with_rr);
+        print_rr_only(&rr_only);
+        print_stats(&without_rr, &with_rr);
+
+        baseline_set = rr_only.clone();
+        has_parity = without_rr.statistics.passed == with_rr.statistics.passed
+            && without_rr.statistics.failed == with_rr.statistics.failed
+            && rr_only.is_empty();
+    } else {
+        eprintln!("Running legacy tests");
+        let legacy = match run_cargo_test(false, cargo_args).context("Error running legacy tests") {
+            Ok(v) => v,
+            Err(e) => {
+                eprintln!("{e:#}");
+                return 1;
+            }
+        };
+
+        let rr_results = match run_rr_multiple(cargo_args, rr_runs) {
+            Ok(v) => v,
+            Err(e) => {
+                eprintln!("{e:#}");
+                return 1;
+            }
+        };
+
+        let rr_only_sets: Vec<BTreeSet<String>> = rr_results
+            .iter()
+            .map(|rr| rr_only_failures(&legacy, rr))
+            .collect();
+
+        let mut counts = BTreeMap::<String, usize>::new();
+        let mut union_all = BTreeSet::<String>::new();
+        let mut intersection: Option<BTreeSet<String>> = None;
+
+        for set in &rr_only_sets {
+            for name in set {
+                *counts.entry(name.clone()).or_default() += 1;
+                union_all.insert(name.clone());
+            }
+            let new_intersection = match &intersection {
+                None => set.clone(),
+                Some(current) => current.intersection(set).cloned().collect(),
+            };
+            intersection = Some(new_intersection);
         }
-    };
 
-    // Compute and print RR-only failures, plus stats
-    let rr_only = rr_only_failures(&without_rr, &with_rr);
-    print_rr_only(&rr_only);
-    print_stats(&without_rr, &with_rr);
+        let stable = intersection.unwrap_or_default();
+        let unstable: BTreeSet<String> = union_all.difference(&stable).cloned().collect();
 
-    // Baseline compare/write mode
+        print_rr_stable(&stable, rr_results.len());
+        print_rr_unstable(&unstable, &counts, rr_results.len());
+
+        if let Some(first_rr) = rr_results.first() {
+            print_stats(&legacy, first_rr);
+        }
+
+        if !rr_results.is_empty() {
+            let total_exec_time: f64 = rr_results.iter().map(|rr| rr.statistics.exec_time).sum();
+            let runs = rr_results.len();
+            println!(
+                "RR rerun summary: runs={}, stable_failures={}, unstable_failures={}, total_exec_time={:.3}s, avg_exec_time={:.3}s",
+                runs,
+                stable.len(),
+                unstable.len(),
+                total_exec_time,
+                total_exec_time / runs as f64
+            );
+        }
+
+        baseline_set = union_all;
+        has_parity = baseline_set.is_empty();
+    }
+
     if compare_path.is_some() || write_path.is_some() {
         let mut has_new = false;
         let mut has_fixed = false;
 
         if let Some(path) = compare_path {
-            match compare_baseline(&rr_only, path) {
+            match compare_baseline(&baseline_set, path) {
                 Ok((new_found, fixed_found)) => {
                     has_new = new_found;
                     has_fixed = fixed_found;
@@ -318,26 +429,20 @@ pub fn parity_test(
         }
 
         if let Some(path) = write_path {
-            if let Err(e) = write_baseline(path, &rr_only) {
+            if let Err(e) = write_baseline(path, &baseline_set) {
                 eprintln!("Failed to write baseline '{}': {}", path.display(), e);
                 return 1;
             }
         }
 
-        // Exit code semantics updated:
-        // - Only fail CI if there are undocumented failures (new failures)
-        // - Pass if there are undocumented successes (fixed), but emit a CI warning
-        return if compare_path.is_some() && has_new { 1 } else { 0 };
-    } else {
-        // Default parity behavior (no baseline flags)
-        let has_parity = without_rr.statistics.passed == with_rr.statistics.passed
-            && without_rr.statistics.failed == with_rr.statistics.failed
-            && rr_only.is_empty();
-
-        if has_parity {
-            0
-        } else {
+        if compare_path.is_some() && has_new {
             1
+        } else {
+            0
         }
+    } else if has_parity {
+        0
+    } else {
+        1
     }
 }

@@ -70,6 +70,10 @@ struct TestRupesRectaParity {
     #[arg(long, value_name = "FILE")]
     write_baseline: Option<PathBuf>,
 
+    /// Number of times to rerun RR tests to detect unstable failures
+    #[arg(long, value_name = "RUNS")]
+    rr_runs: Option<usize>,
+
     /// Additional arguments to pass to cargo test
     #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
     cargo_args: Vec<String>,
@@ -87,6 +91,7 @@ fn main() {
             test_rr_parity::parity_test(
                 t.compare_baseline.as_deref(),
                 t.write_baseline.as_deref(),
+                t.rr_runs.unwrap_or(1),
                 &t.cargo_args,
             )
         },
