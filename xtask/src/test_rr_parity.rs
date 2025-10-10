@@ -19,6 +19,7 @@
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet, HashSet};
+use std::env;
 use std::fs;
 use std::io::{BufRead, BufReader, Write};
 use std::path::Path;
@@ -321,8 +322,8 @@ pub fn parity_test(
     }
 
     let rr_runs = rr_runs.max(1);
-    let mut baseline_set = BTreeSet::new();
-    let mut has_parity = false;
+    let baseline_set;
+    let has_parity;
 
     if rr_runs == 1 {
         let (without_rr, with_rr) = match run_suites(cargo_args) {
