@@ -16,7 +16,6 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
-use clap;
 use clap::Parser;
 use std::path::PathBuf;
 
@@ -62,6 +61,18 @@ struct SyncDocs {
 
 #[derive(Debug, clap::Parser)]
 struct TestRupesRectaParity {
+    /// Compare current RR-only failures against a baseline file
+    #[arg(long, value_name = "FILE")]
+    compare_baseline: Option<PathBuf>,
+
+    /// Write current RR-only failures to a baseline file
+    #[arg(long, value_name = "FILE")]
+    write_baseline: Option<PathBuf>,
+
+    /// Number of times to rerun RR tests to detect unstable failures
+    #[arg(long, value_name = "RUNS")]
+    rr_runs: Option<usize>,
+
     /// Additional arguments to pass to cargo test
     #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
     cargo_args: Vec<String>,
@@ -75,7 +86,12 @@ fn main() {
     let code = match cli.subcommand {
         XSubcommands::CmdTest(t) => cmdtest::run::t(&t.file, t.update),
         XSubcommands::SyncDocs(t) => sync_docs::run(&t.moonbit_docs_dir).map_or(1, |_| 0),
-        XSubcommands::TestRupesRectaParity(t) => test_rr_parity::parity_test(&t.cargo_args),
+        XSubcommands::TestRupesRectaParity(t) => test_rr_parity::parity_test(
+            t.compare_baseline.as_deref(),
+            t.write_baseline.as_deref(),
+            t.rr_runs.unwrap_or(1),
+            &t.cargo_args,
+        ),
         XSubcommands::BundleTemplate(_) => bundle_template::run().map_or(1, |_| 0),
     };
     std::process::exit(code);

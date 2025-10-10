@@ -103,7 +103,6 @@ pub fn t(file: &Path, update: bool) -> i32 {
         .parent()
         .unwrap()
         .components()
-        .into_iter()
         .rev()
         .peekable()
         .peek()
@@ -150,7 +149,7 @@ pub fn t(file: &Path, update: bool) -> i32 {
             parse::Block::Command { cmd, content } => {
                 buf.push_str("  $ ");
                 buf.push_str(cmd);
-                buf.push_str("\n");
+                buf.push('\n');
                 if let Some(content) = content {
                     for (i, line) in content.split('\n').enumerate() {
                         if i > 0 {

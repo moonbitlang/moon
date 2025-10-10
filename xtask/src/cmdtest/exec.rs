@@ -80,8 +80,8 @@ impl ExecResult {
         } else {
             actual
         };
-        let actual = replace_dir(&actual, &workdir);
-        actual
+
+        replace_dir(&actual, &workdir)
     }
 }
 

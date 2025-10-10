@@ -392,3 +392,15 @@ jobs:
   #       with:
   #         token: ${{secrets.CODECOV_TOKEN}}
   #         fail_ci_if_error: true
+
+  # Rupes Recta parity test -- Remove once we switch to it fully
+  rr-parity:
+    runs-on: ubuntu-latest
+    needs: [typo-check, license-header-check]
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@nightly
+      - uses: Swatinem/rust-cache@v2
+      - name: RR parity check
+        run: cargo xtask test-rr-parity --compare-baseline xtask/rr_expected_failures.txt
