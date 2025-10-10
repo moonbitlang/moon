@@ -519,14 +519,17 @@ pub(crate) fn run_test_or_bench_internal(
     target_dir: &Path,
     display_backend_hint: Option<()>,
 ) -> anyhow::Result<i32> {
-    // move the conflict detection logic here since we want specific `index` only for single file test
+    // Accept -i/--doc-index when the positional PATH refers to a file; otherwise they require --file.
+    // explicit_is_file is true only when PATH is an existing regular file.
+    let explicit_is_file = cmd.explicit_file_filter.map_or(false, |p| p.is_file());
+
     if cmd.package.is_none() && cmd.file.is_some() {
         anyhow::bail!("`--file` must be used with `--package`");
     }
-    if cmd.file.is_none() && cmd.index.is_some() {
+    if cmd.file.is_none() && cmd.index.is_some() && !explicit_is_file {
         anyhow::bail!("`--index` must be used with `--file`");
     }
-    if cmd.file.is_none() && cmd.doc_index.is_some() {
+    if cmd.file.is_none() && cmd.doc_index.is_some() && !explicit_is_file {
         anyhow::bail!("`--doc-index` must be used with `--file`");
     }
     if cmd.explicit_file_filter.is_some() && (cmd.package.is_some() || cmd.file.is_some()) {
@@ -703,11 +706,13 @@ fn node_from_target(x: BuildTarget) -> [BuildPlanNode; 2] {
     ]
 }
 
-/// Apply the explicit file filter, which acts like both a package and file filter.
+/// Apply explicit PATH filter (acts as package and optional file filter).
+/// `test_index` selects a single test (regular/doc) when PATH is a file.
 fn apply_explicit_file_filter(
     resolve_output: &moonbuild_rupes_recta::ResolveOutput,
     out_filter: &mut TestFilter,
     file_filter: &Path,
+    test_index: Option<TestIndex>,
 ) -> Result<(), anyhow::Error> {
     let input_path = dunce::canonicalize(file_filter).with_context(|| {
         format!(
@@ -753,7 +758,11 @@ fn apply_explicit_file_filter(
             file_filter.display()
         );
     };
-    out_filter.add_autodetermine_target(*pkg, file.map(|x| x.to_string_lossy()).as_deref(), None);
+    out_filter.add_autodetermine_target(
+        *pkg,
+        file.map(|x| x.to_string_lossy()).as_deref(),
+        test_index,
+    );
     Ok(())
 }
 
@@ -875,7 +884,11 @@ fn calc_user_intent(
     let affected_packages = packages.values().copied();
 
     let directive = if let Some(file_filter) = cmd.explicit_file_filter {
-        apply_explicit_file_filter(resolve_output, out_filter, file_filter)?;
+        let test_index = cmd
+            .index
+            .map(TestIndex::Regular)
+            .or(cmd.doc_index.map(TestIndex::DocTest));
+        apply_explicit_file_filter(resolve_output, out_filter, file_filter, test_index)?;
         Default::default()
     } else if let Some(package_filter) = cmd.package {
         apply_list_of_filters(
