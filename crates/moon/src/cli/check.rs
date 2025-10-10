@@ -38,6 +38,7 @@ use tracing::{instrument, Level};
 
 use crate::cli::get_module_for_single_file;
 use crate::rr_build::{self, preconfig_compile, BuildConfig, CalcUserIntentOutput};
+use crate::watch::run_legacy;
 use crate::watch::watching;
 
 use super::pre_build::scan_with_x_build;
@@ -379,12 +380,10 @@ fn run_check_normal_internal_legacy(
     let watch_mode = cmd.watch;
 
     let res = if watch_mode {
-        let reg_cfg = RegistryConfig::load();
         watching(
-            &moonc_opt,
-            &moonbuild_opt,
-            &reg_cfg,
-            &module,
+            || run_legacy(&moonc_opt, &moonbuild_opt, &module),
+            source_dir,
+            &target_dir,
             raw_target_dir,
         )
     } else {

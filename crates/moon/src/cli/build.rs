@@ -44,6 +44,7 @@ use crate::rr_build;
 use crate::rr_build::preconfig_compile;
 use crate::rr_build::BuildConfig;
 use crate::rr_build::CalcUserIntentOutput;
+use crate::watch::run_legacy;
 use crate::watch::watching;
 
 use super::pre_build::scan_with_x_build;
@@ -180,7 +181,7 @@ fn run_build_internal_legacy(
     let moonbuild_opt = MoonbuildOpt {
         source_dir: source_dir.to_path_buf(),
         raw_target_dir: raw_target_dir.to_path_buf(),
-        target_dir,
+        target_dir: target_dir.to_path_buf(),
         sort_input,
         run_mode,
         quiet: cli.quiet,
@@ -240,12 +241,10 @@ fn run_build_internal_legacy(
     }
 
     let res = if cmd.watch {
-        let reg_cfg = RegistryConfig::load();
         watching(
-            &moonc_opt,
-            &moonbuild_opt,
-            &reg_cfg,
-            &module,
+            || run_legacy(&moonc_opt, &moonbuild_opt, &module),
+            source_dir,
+            &target_dir,
             raw_target_dir,
         )
     } else {
