@@ -16,7 +16,6 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
-use anyhow::anyhow;
 use anyhow::bail;
 use anyhow::Context;
 use colored::Colorize;
@@ -145,9 +144,10 @@ pub struct TestSubcommand {
     #[clap(long = "doc")]
     pub doc_test: bool,
 
-    /// Run test in single file (.mbt or .mbt.md). If in a project, runs only
-    /// this file (equivalent to `-p` + `-f`); otherwise, runs in a temporary project.
-    #[clap(conflicts_with_all = ["file", "package"])]
+    /// Run test in single file or directory. If in a project, runs only this
+    /// package (if matches a package path) or file (if matches a file in
+    /// package); otherwise, runs in a temporary project.
+    #[clap(conflicts_with_all = ["file", "package"], name="PATH")]
     pub single_file: Option<PathBuf>,
 }
 
@@ -453,7 +453,7 @@ pub(crate) struct TestLikeSubcommand<'a> {
     /// An explicit file filter -- for when you write `moon test <file>` in a project.
     ///
     /// This should behave similar to `moon run <file>`. This should act like
-    /// both a package filter and file filter.
+    /// both a package filter and optional file filter.
     ///
     /// FIXME: This is a reuse of the single-file input pattern. Will need a full overhaul.
     pub explicit_file_filter: Option<&'a Path>,
@@ -519,14 +519,17 @@ pub(crate) fn run_test_or_bench_internal(
     target_dir: &Path,
     display_backend_hint: Option<()>,
 ) -> anyhow::Result<i32> {
-    // move the conflict detection logic here since we want specific `index` only for single file test
+    // Accept -i/--doc-index when the positional PATH refers to a file; otherwise they require --file.
+    // explicit_is_file is true only when PATH is an existing regular file.
+    let explicit_is_file = cmd.explicit_file_filter.map_or(false, |p| p.is_file());
+
     if cmd.package.is_none() && cmd.file.is_some() {
         anyhow::bail!("`--file` must be used with `--package`");
     }
-    if cmd.file.is_none() && cmd.index.is_some() {
+    if cmd.file.is_none() && cmd.index.is_some() && !explicit_is_file {
         anyhow::bail!("`--index` must be used with `--file`");
     }
-    if cmd.file.is_none() && cmd.doc_index.is_some() {
+    if cmd.file.is_none() && cmd.doc_index.is_some() && !explicit_is_file {
         anyhow::bail!("`--doc-index` must be used with `--file`");
     }
     if cmd.explicit_file_filter.is_some() && (cmd.package.is_some() || cmd.file.is_some()) {
@@ -703,42 +706,63 @@ fn node_from_target(x: BuildTarget) -> [BuildPlanNode; 2] {
     ]
 }
 
-/// Apply the explicit file filter, which acts like both a package and file filter.
+/// Apply explicit PATH filter (acts as package and optional file filter).
+/// `test_index` selects a single test (regular/doc) when PATH is a file.
 fn apply_explicit_file_filter(
     resolve_output: &moonbuild_rupes_recta::ResolveOutput,
     out_filter: &mut TestFilter,
     file_filter: &Path,
+    test_index: Option<TestIndex>,
 ) -> Result<(), anyhow::Error> {
-    let file = dunce::canonicalize(file_filter).with_context(|| {
+    let input_path = dunce::canonicalize(file_filter).with_context(|| {
         format!(
             "failed to canonicalize the specified file path: {}",
             file_filter.display()
         )
     })?;
-    let dir = file.parent().ok_or_else(|| {
-        anyhow!(
-            "invalid file path specified, doesn't have a parent: {}",
-            file_filter.display()
-        )
-    })?;
-    let filename = file.file_name().ok_or_else(|| {
-        anyhow!(
-            "invalid file path specified, doesn't have a filename: {}",
-            file_filter.display()
-        )
-    })?;
-    let pkg = resolve_output
-        .pkg_dirs
-        .all_packages()
-        .find(|x| x.1.root_path == dir);
-    let Some((id, _pkg)) = pkg else {
+    let input_path_parent = input_path.parent();
+    let input_filename = input_path.file_name();
+
+    // TODO: known issue: if a path refers to a dir and its parent is a package
+    // and itself is not, the parent will be used as the package filter.
+    let mut found_path = None;
+    let mut found_path_parent = None;
+    for m in resolve_output.local_modules() {
+        for p in resolve_output
+            .pkg_dirs
+            .packages_for_module(*m)
+            .expect("Module should exist")
+            .values()
+        {
+            let pkg = resolve_output.pkg_dirs.get_package(*p);
+            if pkg.root_path == input_path {
+                found_path = Some(p);
+            } else if let Some(parent) = input_path_parent {
+                if pkg.root_path == parent {
+                    found_path_parent = Some(p);
+                }
+            }
+        }
+    }
+
+    // Prefer exact match, otherwise parent match
+    let (pkg, file) = if let Some(pkg) = found_path {
+        (pkg, None)
+    } else if let (Some(pkg), Some(filename)) = (found_path_parent, input_filename) {
+        (pkg, Some(filename))
+    } else if let (Some(_), None) = (found_path_parent, input_filename) {
+        unreachable!("For a normalized path, if it has a parent, it should also have a filename");
+    } else {
         bail!(
-            "cannot find the containing package for the specified file: {}",
+            "cannot find a package matching the specified file path: {}",
             file_filter.display()
         );
     };
-    let filename = filename.to_string_lossy();
-    out_filter.add_autodetermine_target(id, Some(&filename), None);
+    out_filter.add_autodetermine_target(
+        *pkg,
+        file.map(|x| x.to_string_lossy()).as_deref(),
+        test_index,
+    );
     Ok(())
 }
 
@@ -860,7 +884,11 @@ fn calc_user_intent(
     let affected_packages = packages.values().copied();
 
     let directive = if let Some(file_filter) = cmd.explicit_file_filter {
-        apply_explicit_file_filter(resolve_output, out_filter, file_filter)?;
+        let test_index = cmd
+            .index
+            .map(TestIndex::Regular)
+            .or(cmd.doc_index.map(TestIndex::DocTest));
+        apply_explicit_file_filter(resolve_output, out_filter, file_filter, test_index)?;
         Default::default()
     } else if let Some(package_filter) = cmd.package {
         apply_list_of_filters(
@@ -962,16 +990,11 @@ pub(crate) fn run_test_or_bench_internal_legacy(
     // semantics: if single file filtering -- get package from file path, and
     // then filename from the, well, filename.
     let (filter_package, filter_file) = if let Some(file) = cmd.explicit_file_filter {
-        let filename = file.file_name();
-        let Some(name) = filename else {
-            anyhow::bail!("invalid file path specified: {}", file.display());
-        };
-        let name = name.to_string_lossy().to_string();
-
+        let filename = file.file_name().map(|x| x.to_string_lossy().into_owned());
         // Note: We can't filter packages here because we don't have the full
         // list of packages to filter from. This has to be done after we have
         // scanned stuff.
-        (None, Some(name))
+        (None, filename)
     } else {
         let filter_package = cmd.package.clone().map(|it| it.into_iter().collect());
         let filter_file = cmd.file.clone();
@@ -1041,15 +1064,15 @@ pub(crate) fn run_test_or_bench_internal_legacy(
         if !file.exists() {
             anyhow::bail!("File for filtering `{}` does not exist", file.display());
         }
-        // don't support directory filtering just yet
-        if file.is_dir() {
-            anyhow::bail!(
-                "Filtering by directory (package) is currently not supported, your input was `{}`",
-                file.display()
-            );
-        }
-        let dir = file.parent().expect("file must have a parent");
-        // if it doesn't, it should have been caught by is_dir()
+        // Match the file to a package
+        let (dir, filename) = if file.is_dir() {
+            (file.as_path(), None)
+        } else {
+            (
+                file.parent().expect("file must have a parent"),
+                file.file_name(),
+            )
+        };
 
         let pkg = module.get_package_by_path(dir);
         if pkg.is_none() {
@@ -1060,21 +1083,21 @@ pub(crate) fn run_test_or_bench_internal_legacy(
         }
 
         let pkg = pkg.unwrap();
-        let filename = file.file_name().expect("file must have a filename");
+        let filename = filename.map(|x| x.to_string_lossy().to_string());
 
-        let filename = filename.to_string_lossy().to_string();
-
-        if !pkg.files.contains_key(&file)
-            && !pkg.test_files.contains_key(&file)
-            && !pkg.wbtest_files.contains_key(&file)
-            && !pkg.mbt_md_files.contains_key(&file)
-        {
-            eprintln!(
-                "{}: cannot find file `{}` in package `{}`, --file only support exact matching",
-                "Warning".yellow(),
-                filename,
-                pkg.full_name()
-            );
+        if let Some(filename) = filename.as_ref() {
+            if !pkg.files.contains_key(&file)
+                && !pkg.test_files.contains_key(&file)
+                && !pkg.wbtest_files.contains_key(&file)
+                && !pkg.mbt_md_files.contains_key(&file)
+            {
+                eprintln!(
+                    "{}: cannot find file `{}` as a source file in package `{}`",
+                    "Warning".yellow(),
+                    filename,
+                    pkg.full_name()
+                );
+            }
         }
 
         // Force package filter to the package containing the file, keep file filter as basename.
@@ -1084,6 +1107,7 @@ pub(crate) fn run_test_or_bench_internal_legacy(
             test_opt: Some(TestOpt {
                 // override/force the package filter to the detected package
                 filter_package: Some(HashSet::from([pkg_full_name.clone()])),
+                filter_file: filename,
                 // preserve the existing file/index/doc-index and other flags from earlier
                 ..moonbuild_opt.test_opt.unwrap()
             }),

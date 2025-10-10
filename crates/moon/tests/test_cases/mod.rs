@@ -840,7 +840,7 @@ fn debug_flag_test() {
             expect![[r#"
                 error: the argument '--release' cannot be used with '--debug'
 
-                Usage: moon test --release [SINGLE_FILE]
+                Usage: moon test --release [PATH]
 
                 For more information, try '--help'.
             "#]],

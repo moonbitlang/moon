@@ -212,6 +212,56 @@ fn test_moon_test_filter_package_with_singlefile() {
 }
 
 #[test]
+fn test_moon_test_filter_package_with_folder() {
+    let dir = TestDir::new("test_filter/test_filter");
+
+    check(
+        get_stdout(&dir, ["test", "A", "--sort-input", "--no-parallelize"]),
+        expect![[r#"
+            test C
+            test D
+            test A
+            test B
+            test hello_0
+            test hello_1
+            test hello_2
+            Total tests: 7, passed: 7, failed: 0.
+        "#]],
+    );
+
+    check(
+        get_stdout(&dir, ["test", "A/", "--sort-input", "--no-parallelize"]),
+        expect![[r#"
+            test C
+            test D
+            test A
+            test B
+            test hello_0
+            test hello_1
+            test hello_2
+            Total tests: 7, passed: 7, failed: 0.
+        "#]],
+    );
+
+    check(
+        get_stdout(
+            &dir.join("A"),
+            ["test", ".", "--sort-input", "--no-parallelize"],
+        ),
+        expect![[r#"
+            test C
+            test D
+            test A
+            test B
+            test hello_0
+            test hello_1
+            test hello_2
+            Total tests: 7, passed: 7, failed: 0.
+        "#]],
+    );
+}
+
+#[test]
 fn test_moon_test_filter_package_with_deps() {
     let dir = TestDir::new("test_filter/pkg_with_deps");
 
@@ -659,6 +709,29 @@ fn test_moon_test_filter_file() {
             test hello_0
             test hello_1
             Total tests: 2, passed: 2, failed: 0.
+        "#]],
+    );
+}
+
+#[test]
+fn test_moon_test_filter_file_index_with_path_arg() {
+    let dir = TestDir::new("test_filter/test_filter");
+
+    // Path argument form from module root
+    check(
+        get_stdout(&dir, ["test", "A/hello.mbt", "-i", "1"]),
+        expect![[r#"
+            test B
+            Total tests: 1, passed: 1, failed: 0.
+        "#]],
+    );
+
+    // Path argument form from inside package directory
+    check(
+        get_stdout(&dir.join("A"), ["test", "hello.mbt", "-i", "1"]),
+        expect![[r#"
+            test B
+            Total tests: 1, passed: 1, failed: 0.
         "#]],
     );
 }
