@@ -26,7 +26,7 @@ on:
     branches:
       - main
   schedule:
-    - cron: "0 20 * * *"
+    - cron: '0 20 * * *'
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -234,6 +234,7 @@ jobs:
         if: ${{ matrix.os != 'windows-latest' }}
         run: |
           cargo run --bin moon -- -C ~/.moon/lib/core clean
+          cargo run --bin moon -- -Z rupes_recta -C ~/.moon/lib/core check
           cargo run --bin moon -- -Z rupes_recta -C ~/.moon/lib/core build --target wasm-gc
 
   stable-test:
@@ -399,8 +400,28 @@ jobs:
     needs: [typo-check, license-header-check]
     timeout-minutes: 60
     steps:
+      - name: Configure git
+        run: git config --global core.autocrlf false
       - uses: actions/checkout@v4
+        with:
+          submodules: true
       - uses: dtolnay/rust-toolchain@nightly
       - uses: Swatinem/rust-cache@v2
+      - name: install MoonBit(Unix)
+        run: |
+          curl -fsSL https://cli.moonbitlang.com/install/unix.sh | bash -s nightly
+          echo "$HOME/.moon/bin" >> $GITHUB_PATH
+          echo "$GITHUB_WORKSPACE/target/debug" >> $GITHUB_PATH
+
+      - name: Build
+        run: cargo build
+
+      - name: Set built binary to PATH (Unix)
+        run: echo "$GITHUB_WORKSPACE/target/debug" >> $GITHUB_PATH
+      - name: Versions
+        run: cargo run --bin moon version --all
+      - name: moon update
+        run: |
+          cargo run --bin moon update
       - name: RR parity check
         run: cargo xtask test-rr-parity --compare-baseline xtask/rr_expected_failures.txt
