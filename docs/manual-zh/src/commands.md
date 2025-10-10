@@ -212,11 +212,11 @@ Run a main package
 
 Test the current package
 
-**Usage:** `moon test [OPTIONS] [SINGLE_FILE]`
+**Usage:** `moon test [OPTIONS] [PATH]`
 
 ###### **Arguments:**
 
-* `<SINGLE_FILE>` — Run test in single file (.mbt or .mbt.md). If in a project, runs only this file (equivalent to `-p` + `-f`); otherwise, runs in a temporary project
+* `<PATH>` — Run test in single file or directory. If in a project, runs only this package (if matches a package path) or file (if matches a file in package); otherwise, runs in a temporary project
 
 ###### **Options:**
 
