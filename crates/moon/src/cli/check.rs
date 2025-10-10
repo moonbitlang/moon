@@ -19,7 +19,6 @@
 use anyhow::{bail, Context};
 use colored::Colorize;
 use moonbuild::dry_run;
-use moonbuild::watch::watching;
 use moonbuild::watcher_is_running;
 use moonbuild::{entry, MOON_PID_NAME};
 use moonbuild_rupes_recta::intent::UserIntent;
@@ -39,6 +38,7 @@ use tracing::{instrument, Level};
 
 use crate::cli::get_module_for_single_file;
 use crate::rr_build::{self, preconfig_compile, BuildConfig, CalcUserIntentOutput};
+use crate::watch::watching;
 
 use super::pre_build::scan_with_x_build;
 use super::{get_compiler_flags, BuildFlags};

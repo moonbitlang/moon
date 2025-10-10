@@ -206,8 +206,8 @@ fn run_and_print(
 ) -> anyhow::Result<()> {
     print!("{esc}[2J{esc}[1;1H", esc = 27 as char);
     let result = match moonbuild_opt.run_mode {
-        RunMode::Check => crate::entry::run_check(moonc_opt, moonbuild_opt, module),
-        RunMode::Build => crate::entry::run_build(moonc_opt, moonbuild_opt, module),
+        RunMode::Check => moonbuild::entry::run_check(moonc_opt, moonbuild_opt, module),
+        RunMode::Build => moonbuild::entry::run_build(moonc_opt, moonbuild_opt, module),
         _ => {
             anyhow::bail!("watch mode only support check and build");
         }

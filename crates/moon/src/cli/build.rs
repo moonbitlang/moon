@@ -21,7 +21,6 @@ use anyhow::Context;
 use colored::Colorize;
 use moonbuild::dry_run;
 use moonbuild::entry;
-use moonbuild::watch::watching;
 use moonbuild_rupes_recta::intent::UserIntent;
 use mooncake::pkg::sync::auto_sync;
 use moonutil::common::lower_surface_targets;
@@ -45,6 +44,7 @@ use crate::rr_build;
 use crate::rr_build::preconfig_compile;
 use crate::rr_build::BuildConfig;
 use crate::rr_build::CalcUserIntentOutput;
+use crate::watch::watching;
 
 use super::pre_build::scan_with_x_build;
 use super::{BuildFlags, UniversalFlags};

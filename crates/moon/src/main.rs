@@ -27,6 +27,7 @@ mod cli;
 mod panic;
 pub mod rr_build;
 mod run;
+mod watch;
 
 use colored::*;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt, Layer};
