@@ -977,16 +977,11 @@ pub(crate) fn run_test_or_bench_internal_legacy(
     // semantics: if single file filtering -- get package from file path, and
     // then filename from the, well, filename.
     let (filter_package, filter_file) = if let Some(file) = cmd.explicit_file_filter {
-        let filename = file.file_name();
-        let Some(name) = filename else {
-            anyhow::bail!("invalid file path specified: {}", file.display());
-        };
-        let name = name.to_string_lossy().to_string();
-
+        let filename = file.file_name().map(|x| x.to_string_lossy().into_owned());
         // Note: We can't filter packages here because we don't have the full
         // list of packages to filter from. This has to be done after we have
         // scanned stuff.
-        (None, Some(name))
+        (None, filename)
     } else {
         let filter_package = cmd.package.clone().map(|it| it.into_iter().collect());
         let filter_file = cmd.file.clone();
@@ -1056,15 +1051,15 @@ pub(crate) fn run_test_or_bench_internal_legacy(
         if !file.exists() {
             anyhow::bail!("File for filtering `{}` does not exist", file.display());
         }
-        // don't support directory filtering just yet
-        if file.is_dir() {
-            anyhow::bail!(
-                "Filtering by directory (package) is currently not supported, your input was `{}`",
-                file.display()
-            );
-        }
-        let dir = file.parent().expect("file must have a parent");
-        // if it doesn't, it should have been caught by is_dir()
+        // Match the file to a package
+        let (dir, filename) = if file.is_dir() {
+            (file.as_path(), None)
+        } else {
+            (
+                file.parent().expect("file must have a parent"),
+                file.file_name(),
+            )
+        };
 
         let pkg = module.get_package_by_path(dir);
         if pkg.is_none() {
@@ -1075,21 +1070,21 @@ pub(crate) fn run_test_or_bench_internal_legacy(
         }
 
         let pkg = pkg.unwrap();
-        let filename = file.file_name().expect("file must have a filename");
+        let filename = filename.map(|x| x.to_string_lossy().to_string());
 
-        let filename = filename.to_string_lossy().to_string();
-
-        if !pkg.files.contains_key(&file)
-            && !pkg.test_files.contains_key(&file)
-            && !pkg.wbtest_files.contains_key(&file)
-            && !pkg.mbt_md_files.contains_key(&file)
-        {
-            eprintln!(
-                "{}: cannot find file `{}` in package `{}`, --file only support exact matching",
-                "Warning".yellow(),
-                filename,
-                pkg.full_name()
-            );
+        if let Some(filename) = filename.as_ref() {
+            if !pkg.files.contains_key(&file)
+                && !pkg.test_files.contains_key(&file)
+                && !pkg.wbtest_files.contains_key(&file)
+                && !pkg.mbt_md_files.contains_key(&file)
+            {
+                eprintln!(
+                    "{}: cannot find file `{}` as a source file in package `{}`",
+                    "Warning".yellow(),
+                    filename,
+                    pkg.full_name()
+                );
+            }
         }
 
         // Force package filter to the package containing the file, keep file filter as basename.
@@ -1099,6 +1094,7 @@ pub(crate) fn run_test_or_bench_internal_legacy(
             test_opt: Some(TestOpt {
                 // override/force the package filter to the detected package
                 filter_package: Some(HashSet::from([pkg_full_name.clone()])),
+                filter_file: filename,
                 // preserve the existing file/index/doc-index and other flags from earlier
                 ..moonbuild_opt.test_opt.unwrap()
             }),
