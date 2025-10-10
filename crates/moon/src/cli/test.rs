@@ -144,9 +144,10 @@ pub struct TestSubcommand {
     #[clap(long = "doc")]
     pub doc_test: bool,
 
-    /// Run test in single file (.mbt or .mbt.md). If in a project, runs only
-    /// this file (equivalent to `-p` + `-f`); otherwise, runs in a temporary project.
-    #[clap(conflicts_with_all = ["file", "package"])]
+    /// Run test in single file or directory. If in a project, runs only this
+    /// package (if matches a package path) or file (if matches a file in
+    /// package); otherwise, runs in a temporary project.
+    #[clap(conflicts_with_all = ["file", "package"], name="PATH")]
     pub single_file: Option<PathBuf>,
 }
 
@@ -452,7 +453,7 @@ pub(crate) struct TestLikeSubcommand<'a> {
     /// An explicit file filter -- for when you write `moon test <file>` in a project.
     ///
     /// This should behave similar to `moon run <file>`. This should act like
-    /// both a package filter and file filter.
+    /// both a package filter and optional file filter.
     ///
     /// FIXME: This is a reuse of the single-file input pattern. Will need a full overhaul.
     pub explicit_file_filter: Option<&'a Path>,
