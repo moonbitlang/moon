@@ -59,20 +59,6 @@ pub fn build_outs(
     }
 }
 
-pub fn build_phony_out(
-    graph: &mut N2Graph,
-    paths: impl IntoIterator<Item = impl AsRef<Path>>,
-) -> BuildOuts {
-    let file_ids: Vec<_> = paths
-        .into_iter()
-        .map(|x| register_file(graph, x.as_ref()))
-        .collect();
-    BuildOuts {
-        explicit: 0,
-        ids: file_ids,
-    }
-}
-
 /// Create a dummy [`FileLoc`] for the given file name. This is a little bit
 /// wasteful in terms of memory usage, but should do the job.
 pub fn build_n2_fileloc(name: impl Into<PathBuf>) -> FileLoc {

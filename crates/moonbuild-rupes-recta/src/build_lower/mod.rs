@@ -45,7 +45,7 @@ mod lower_aux;
 mod lower_build;
 mod utils;
 
-pub use utils::{build_ins, build_n2_fileloc, build_phony_out};
+pub use utils::{build_ins, build_n2_fileloc, build_outs};
 
 use crate::build_lower::artifact::LegacyLayoutBuilder;
 use context::BuildPlanLowerContext;

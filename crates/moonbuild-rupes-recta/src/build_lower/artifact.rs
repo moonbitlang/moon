@@ -239,8 +239,12 @@ impl LegacyLayout {
         result
     }
 
-    /// The *artifact* of the format operation. This should be only for the
-    /// temporary output of a format-diff operation.
+    /// The *artifact* of the format operation.
+    ///
+    /// At the time of writing, it should only be used as a stamp file to
+    /// indicate that formatting has been done. However, due to the way
+    /// `moonfmt` works, it actually produces a formatted copy of the input file
+    /// at this path.
     pub fn format_artifact_path(&self, pkg: &PackageFQN, filename: &OsStr) -> PathBuf {
         let mut result = self.target_base_dir.clone();
         self.push_package_dir_no_backend(&mut result, pkg);

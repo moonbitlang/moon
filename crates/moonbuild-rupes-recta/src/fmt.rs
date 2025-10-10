@@ -39,7 +39,7 @@ use n2::graph::Build;
 use crate::{
     build_lower::{
         artifact::{LegacyLayout, LegacyLayoutBuilder},
-        build_ins, build_n2_fileloc, build_phony_out,
+        build_ins, build_n2_fileloc, build_outs,
     },
     discover::{discover_packages_for_mod, DiscoverResult, DiscoveredPackage},
     resolve::ResolveError,
@@ -155,6 +155,10 @@ fn format_node(
     pkg: &DiscoveredPackage,
     file: &Path,
 ) -> anyhow::Result<()> {
+    let out_file = layout
+        .format_artifact_path(&pkg.fqn, file.file_name().expect("Should have filename"))
+        .to_string_lossy()
+        .into_owned();
     let cmd: Vec<String> = if cfg.check_only {
         let mut cmd = vec![
             "moon".into(),
@@ -163,10 +167,7 @@ fn format_node(
             "--old".into(),
             file.to_string_lossy().into_owned(),
             "--new".into(),
-            layout
-                .format_artifact_path(&pkg.fqn, file.file_name().expect("Should have filename"))
-                .to_string_lossy()
-                .into_owned(),
+            out_file.clone(),
         ];
         if cfg.block_style {
             cmd.push("-block-style".into());
@@ -178,16 +179,18 @@ fn format_node(
             "moonfmt".into(),
             file.to_string_lossy().into_owned(),
             "-w".into(),
+            "-o".into(),
+            out_file.clone(),
         ];
+        cmd.extend_from_slice(&cfg.extra_args);
         if cfg.block_style {
             cmd.push("--block-style".into());
         }
-        cmd.extend_from_slice(&cfg.extra_args);
         cmd
     };
 
     let ins = build_ins(graph, [file]);
-    let outs = build_phony_out(graph, [format!("fmt@{}", file.display())]);
+    let outs = build_outs(graph, [&out_file]);
     let mut build = Build::new(
         build_n2_fileloc(format!("format {}", file.display())),
         ins,
