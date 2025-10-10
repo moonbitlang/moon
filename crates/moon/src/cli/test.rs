@@ -16,7 +16,6 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
-use anyhow::anyhow;
 use anyhow::bail;
 use anyhow::Context;
 use colored::Colorize;
@@ -709,36 +708,51 @@ fn apply_explicit_file_filter(
     out_filter: &mut TestFilter,
     file_filter: &Path,
 ) -> Result<(), anyhow::Error> {
-    let file = dunce::canonicalize(file_filter).with_context(|| {
+    let input_path = dunce::canonicalize(file_filter).with_context(|| {
         format!(
             "failed to canonicalize the specified file path: {}",
             file_filter.display()
         )
     })?;
-    let dir = file.parent().ok_or_else(|| {
-        anyhow!(
-            "invalid file path specified, doesn't have a parent: {}",
-            file_filter.display()
-        )
-    })?;
-    let filename = file.file_name().ok_or_else(|| {
-        anyhow!(
-            "invalid file path specified, doesn't have a filename: {}",
-            file_filter.display()
-        )
-    })?;
-    let pkg = resolve_output
-        .pkg_dirs
-        .all_packages()
-        .find(|x| x.1.root_path == dir);
-    let Some((id, _pkg)) = pkg else {
+    let input_path_parent = input_path.parent();
+    let input_filename = input_path.file_name();
+
+    // TODO: known issue: if a path refers to a dir and its parent is a package
+    // and itself is not, the parent will be used as the package filter.
+    let mut found_path = None;
+    let mut found_path_parent = None;
+    for m in resolve_output.local_modules() {
+        for p in resolve_output
+            .pkg_dirs
+            .packages_for_module(*m)
+            .expect("Module should exist")
+            .values()
+        {
+            let pkg = resolve_output.pkg_dirs.get_package(*p);
+            if pkg.root_path == input_path {
+                found_path = Some(p);
+            } else if let Some(parent) = input_path_parent {
+                if pkg.root_path == parent {
+                    found_path_parent = Some(p);
+                }
+            }
+        }
+    }
+
+    // Prefer exact match, otherwise parent match
+    let (pkg, file) = if let Some(pkg) = found_path {
+        (pkg, None)
+    } else if let (Some(pkg), Some(filename)) = (found_path_parent, input_filename) {
+        (pkg, Some(filename))
+    } else if let (Some(_), None) = (found_path_parent, input_filename) {
+        unreachable!("For a normalized path, if it has a parent, it should also have a filename");
+    } else {
         bail!(
-            "cannot find the containing package for the specified file: {}",
+            "cannot find a package matching the specified file path: {}",
             file_filter.display()
         );
     };
-    let filename = filename.to_string_lossy();
-    out_filter.add_autodetermine_target(id, Some(&filename), None);
+    out_filter.add_autodetermine_target(*pkg, file.map(|x| x.to_string_lossy()).as_deref(), None);
     Ok(())
 }
 
