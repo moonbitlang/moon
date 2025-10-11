@@ -24,6 +24,8 @@ use notify::{Config, EventKind, RecommendedWatcher, RecursiveMode, Watcher};
 use moonutil::common::{MoonbuildOpt, MooncOpt, RunMode};
 use std::path::Path;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::time::Duration;
+use tracing::info;
 
 /// Run a watcher that watches on `watch_dir`, and calls `run` when a file
 /// changes. The watcher ignores changes in `original_target_dir`, and will
@@ -61,13 +63,24 @@ pub fn watching(
             .with_context(|| format!("Failed to watch directory: '{}'", watch_dir.display()))?;
 
         // in watch mode, moon is a long-running process that should handle errors as much as possible rather than throwing them up and then exiting.
-        for res in rx {
+        const DEBOUNCE_TIME: Duration = Duration::from_millis(300);
+        while let Ok(res) = rx.recv() {
             let Ok(evt) = res else {
                 println!("failed: {res:?}");
                 continue;
             };
 
-            if let Err(e) = handle_file_change(&run, target_dir, original_target_dir, &evt) {
+            // Debounce events
+            let mut evt_list = vec![evt];
+            let start = std::time::Instant::now();
+            while start.elapsed() < DEBOUNCE_TIME {
+                if let Ok(Ok(evt)) = rx.recv_timeout(DEBOUNCE_TIME.saturating_sub(start.elapsed()))
+                {
+                    evt_list.push(evt);
+                }
+            }
+
+            if let Err(e) = handle_file_change(&run, target_dir, original_target_dir, &evt_list) {
                 println!(
                     "{:?}\n{}",
                     e,
@@ -79,25 +92,18 @@ pub fn watching(
     Ok(0)
 }
 
-/// Determine if we should rerun based on the event, and run if so.
-fn handle_file_change(
-    run: impl FnOnce() -> anyhow::Result<i32>,
-    target_dir: &Path,
-    original_target_dir: &Path,
-    event: &notify::Event,
-) -> anyhow::Result<()> {
-    // Only react to relevant modify events per platform
-    #[cfg(unix)]
-    let is_relevant = matches!(
-        event.kind,
-        EventKind::Modify(notify::event::ModifyKind::Data(_))
-    );
-    #[cfg(not(unix))]
-    let is_relevant = matches!(event.kind, EventKind::Modify(_));
+fn is_event_relevant(event: &notify::Event, original_target_dir: &Path) -> bool {
+    match event.kind {
+        EventKind::Modify(notify::event::ModifyKind::Metadata(_)) => return false,
 
-    if !is_relevant {
-        return Ok(());
-    }
+        EventKind::Create(_) => (),
+        EventKind::Modify(_) => (),
+        EventKind::Remove(_) => (),
+        _ => {
+            info!("Unknown file event: {:?}. Currently we skip them, but if this is a problem, please report to the developers.", event);
+            return false;
+        }
+    };
 
     // Skip if the change happens in the target dir, which is related to the
     // build output (of any kind) and should not trigger a rebuild.
@@ -106,6 +112,23 @@ fn handle_file_change(
         .iter()
         .all(|p| p.starts_with(original_target_dir))
     {
+        return false;
+    }
+    true
+}
+
+/// Determine if we should rerun based on the event, and run if so.
+fn handle_file_change(
+    run: impl FnOnce() -> anyhow::Result<i32>,
+    target_dir: &Path,
+    original_target_dir: &Path,
+    event_lst: &[notify::Event],
+) -> anyhow::Result<()> {
+    let is_relevant = event_lst
+        .iter()
+        .any(|evt| is_event_relevant(evt, original_target_dir));
+
+    if !is_relevant {
         return Ok(());
     }
 
