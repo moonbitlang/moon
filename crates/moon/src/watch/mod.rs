@@ -24,6 +24,7 @@ use notify::{Config, EventKind, RecommendedWatcher, RecursiveMode, Watcher};
 use moonutil::common::{MoonbuildOpt, MooncOpt, RunMode};
 use std::path::Path;
 use std::sync::atomic::{AtomicBool, Ordering};
+use tracing::info;
 
 /// Run a watcher that watches on `watch_dir`, and calls `run` when a file
 /// changes. The watcher ignores changes in `original_target_dir`, and will
@@ -86,15 +87,16 @@ fn handle_file_change(
     original_target_dir: &Path,
     event: &notify::Event,
 ) -> anyhow::Result<()> {
-    // Only react to relevant modify events per platform
-    #[cfg(unix)]
-    let is_relevant = matches!(
-        event.kind,
-        EventKind::Modify(notify::event::ModifyKind::Data(_))
-    );
-    #[cfg(not(unix))]
-    let is_relevant = matches!(event.kind, EventKind::Modify(_));
-
+    let is_relevant = match event.kind {
+        EventKind::Create(_) => true,
+        EventKind::Modify(notify::event::ModifyKind::Metadata(_)) => false,
+        EventKind::Modify(_) => true,
+        EventKind::Remove(_) => true,
+        _ => {
+            info!("Unknown file event: {:?}. Currently we skip them, but if this is a problem, please report to the developers.", event);
+            false
+        }
+    };
     if !is_relevant {
         return Ok(());
     }
