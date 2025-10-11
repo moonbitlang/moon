@@ -33,6 +33,8 @@ use crate::{
     },
 };
 
+use super::model::MultipleError;
+
 /// Verify that this package dependency graph is valid.
 ///
 /// This function checks the following:
@@ -41,14 +43,23 @@ use crate::{
 pub fn verify(dep: &DepRelationship, packages: &DiscoverResult) -> Result<(), SolveError> {
     debug!("Verifying package dependency graph integrity");
 
-    verify_no_loop(dep)?;
-    debug!("Loop verification passed");
+    let mut errs = vec![];
 
-    verify_no_duplicated_alias(dep, packages)?;
-    debug!("Alias uniqueness verification passed");
+    match verify_no_loop(dep) {
+        Ok(()) => {}
+        Err(e) => errs.push(e),
+    }
+    debug!("Done loop verification");
+
+    verify_no_duplicated_alias(dep, packages, &mut errs);
+    debug!("Done uniqueness verification");
 
     debug!("Package dependency graph verification completed successfully");
-    Ok(())
+    if errs.is_empty() {
+        Ok(())
+    } else {
+        Err(SolveError::Multiple(MultipleError(errs)))
+    }
 }
 
 /// Verify there's no loops within the dependency graph. If there's any import
@@ -128,7 +139,8 @@ impl WorkStackItem {
 fn verify_no_duplicated_alias(
     dep: &DepRelationship,
     packages: &DiscoverResult,
-) -> Result<(), SolveError> {
+    errs: &mut Vec<SolveError>,
+) {
     for node in dep.dep_graph.node_identifiers() {
         // The alias map for the current node
         let mut map: HashMap<&String, (BuildTarget, &DepEdge)> = HashMap::new();
@@ -140,7 +152,8 @@ fn verify_no_duplicated_alias(
             match map.entry(&edge.short_alias) {
                 Entry::Occupied(e) => {
                     let (first_from, first_edge) = e.get();
-                    return Err(SolveError::ConflictingImportAlias {
+
+                    errs.push(SolveError::ConflictingImportAlias {
                         alias: edge.short_alias.clone(),
                         package_node: node,
                         package_fqn: packages.fqn(node.package).into(),
@@ -159,6 +172,4 @@ fn verify_no_duplicated_alias(
             }
         }
     }
-
-    Ok(())
 }
