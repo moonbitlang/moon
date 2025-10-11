@@ -309,7 +309,9 @@ impl ModuleDB {
                 let it = resolved
                     .iter()
                     .map(|pkg_name| (pkg_name.clone(), self.get_package_by_name(pkg_name).clone()));
-                IndexMap::from_iter(it)
+                let mut map = IndexMap::from_iter(it);
+                map.sort_keys();
+                map
             }
             None => IndexMap::new(),
         }
@@ -328,7 +330,9 @@ impl ModuleDB {
                 let it = resolved
                     .iter()
                     .map(|pkg_name| (pkg_name.clone(), self.get_package_by_name(pkg_name).clone()));
-                Ok(IndexMap::from_iter(it))
+                let mut map = IndexMap::from_iter(it);
+                map.sort_keys();
+                Ok(map)
             }
         }
     }
