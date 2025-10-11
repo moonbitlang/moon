@@ -68,7 +68,7 @@ pub fn watching(
                 continue;
             };
 
-            if let Err(e) = handle_file_change(&run, target_dir, original_target_dir, &evt) {
+            if let Err(e) = handle_file_change(&run, target_dir, original_target_dir, &[evt]) {
                 println!(
                     "{:?}\n{}",
                     e,
@@ -80,26 +80,18 @@ pub fn watching(
     Ok(0)
 }
 
-/// Determine if we should rerun based on the event, and run if so.
-fn handle_file_change(
-    run: impl FnOnce() -> anyhow::Result<i32>,
-    target_dir: &Path,
-    original_target_dir: &Path,
-    event: &notify::Event,
-) -> anyhow::Result<()> {
-    let is_relevant = match event.kind {
-        EventKind::Create(_) => true,
-        EventKind::Modify(notify::event::ModifyKind::Metadata(_)) => false,
-        EventKind::Modify(_) => true,
-        EventKind::Remove(_) => true,
+fn is_event_relevant(event: &notify::Event, original_target_dir: &Path) -> bool {
+    match event.kind {
+        EventKind::Modify(notify::event::ModifyKind::Metadata(_)) => return false,
+
+        EventKind::Create(_) => (),
+        EventKind::Modify(_) => (),
+        EventKind::Remove(_) => (),
         _ => {
             info!("Unknown file event: {:?}. Currently we skip them, but if this is a problem, please report to the developers.", event);
-            false
+            return false;
         }
     };
-    if !is_relevant {
-        return Ok(());
-    }
 
     // Skip if the change happens in the target dir, which is related to the
     // build output (of any kind) and should not trigger a rebuild.
@@ -108,6 +100,23 @@ fn handle_file_change(
         .iter()
         .all(|p| p.starts_with(original_target_dir))
     {
+        return false;
+    }
+    true
+}
+
+/// Determine if we should rerun based on the event, and run if so.
+fn handle_file_change(
+    run: impl FnOnce() -> anyhow::Result<i32>,
+    target_dir: &Path,
+    original_target_dir: &Path,
+    event_lst: &[notify::Event],
+) -> anyhow::Result<()> {
+    let is_relevant = event_lst
+        .iter()
+        .any(|evt| is_event_relevant(evt, original_target_dir));
+
+    if !is_relevant {
         return Ok(());
     }
 
