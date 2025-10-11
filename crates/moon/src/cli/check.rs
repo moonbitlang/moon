@@ -237,56 +237,87 @@ fn run_check_normal_internal(
     target_dir: &Path,
 ) -> anyhow::Result<i32> {
     if cli.unstable_feature.rupes_recta {
-        let mut preconfig = preconfig_compile(
-            &cmd.auto_sync_flags,
-            cli,
-            &cmd.build_flags,
-            target_dir,
-            moonutil::cond_expr::OptLevel::Release,
-            RunMode::Check,
-        );
-        preconfig.moonc_output_json |= cmd.output_json;
-
-        let (_build_meta, build_graph) = rr_build::plan_build(
-            preconfig,
-            &cli.unstable_feature,
-            source_dir,
-            target_dir,
-            Box::new(|r, m| {
-                calc_user_intent(
-                    r,
-                    m,
-                    cmd.package_path.as_deref(),
-                    cmd.no_mi,
-                    cmd.patch_file.as_deref(),
-                )
-            }),
-        )?;
-
-        if cli.dry_run {
-            rr_build::print_dry_run(
-                &build_graph,
-                _build_meta.artifacts.values(),
-                source_dir,
-                target_dir,
-            );
-            Ok(0)
-        } else {
-            let _lock = FileLock::lock(target_dir)?;
-
-            // Generate metadata for IDE
-            rr_build::generate_metadata(source_dir, target_dir, &_build_meta)?;
-
-            let mut cfg = BuildConfig::from_flags(&cmd.build_flags, &cli.unstable_feature);
-            cfg.no_render |= cmd.output_json;
-            cfg.patch_file = cmd.patch_file.clone();
-            cfg.explain_errors |= cmd.explain;
-            let result = rr_build::execute_build(&cfg, build_graph, target_dir)?;
-            result.print_info(cli.quiet, "checking")?;
-            Ok(result.return_code_for_success())
-        }
+        run_check_normal_internal_rr(cli, cmd, source_dir, target_dir)
     } else {
         run_check_normal_internal_legacy(cli, cmd, source_dir, target_dir)
+    }
+}
+
+#[instrument(skip_all)]
+fn run_check_normal_internal_rr(
+    cli: &UniversalFlags,
+    cmd: &CheckSubcommand,
+    source_dir: &Path,
+    target_dir: &Path,
+) -> anyhow::Result<i32> {
+    if cmd.watch {
+        // For checks, the actual target dir is a subdir of the original target
+        let actual_target = target_dir.join(WATCH_MODE_DIR);
+        watching(
+            || run_check_normal_internal_rr_raw(cli, cmd, source_dir, &actual_target),
+            source_dir,
+            &actual_target,
+            target_dir,
+        )
+    } else {
+        run_check_normal_internal_rr_raw(cli, cmd, source_dir, target_dir)
+    }
+}
+
+#[instrument(skip_all)]
+fn run_check_normal_internal_rr_raw(
+    cli: &UniversalFlags,
+    cmd: &CheckSubcommand,
+    source_dir: &Path,
+    target_dir: &Path,
+) -> anyhow::Result<i32> {
+    let mut preconfig = preconfig_compile(
+        &cmd.auto_sync_flags,
+        cli,
+        &cmd.build_flags,
+        target_dir,
+        moonutil::cond_expr::OptLevel::Release,
+        RunMode::Check,
+    );
+    preconfig.moonc_output_json |= cmd.output_json;
+
+    let (_build_meta, build_graph) = rr_build::plan_build(
+        preconfig,
+        &cli.unstable_feature,
+        source_dir,
+        target_dir,
+        Box::new(|r, m| {
+            calc_user_intent(
+                r,
+                m,
+                cmd.package_path.as_deref(),
+                cmd.no_mi,
+                cmd.patch_file.as_deref(),
+            )
+        }),
+    )?;
+
+    if cli.dry_run {
+        rr_build::print_dry_run(
+            &build_graph,
+            _build_meta.artifacts.values(),
+            source_dir,
+            target_dir,
+        );
+        Ok(0)
+    } else {
+        let _lock = FileLock::lock(target_dir)?;
+
+        // Generate metadata for IDE
+        rr_build::generate_metadata(source_dir, target_dir, &_build_meta)?;
+
+        let mut cfg = BuildConfig::from_flags(&cmd.build_flags, &cli.unstable_feature);
+        cfg.no_render |= cmd.output_json;
+        cfg.patch_file = cmd.patch_file.clone();
+        cfg.explain_errors |= cmd.explain;
+        let result = rr_build::execute_build(&cfg, build_graph, target_dir)?;
+        result.print_info(cli.quiet, "checking")?;
+        Ok(result.return_code_for_success())
     }
 }
 
