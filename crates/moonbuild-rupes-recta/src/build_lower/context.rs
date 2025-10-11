@@ -177,6 +177,9 @@ impl<'a> BuildPlanLowerContext<'a> {
             shlex::try_join(cmd.commandline.iter().map(|x| x.as_str()))
                 .expect("No `nul` should occur here"),
         );
+        // n2 can't capture and replay command outputs. this is a workaround to
+        // avoid losing warnings, the same as legacy code.
+        build.can_dirty_on_output = true;
 
         self.debug_print_command_and_files(node, &build);
         self.lowered(build).map_err(|e| LoweringError::N2 {
