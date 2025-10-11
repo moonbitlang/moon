@@ -91,8 +91,16 @@ impl<'a> BuildPlanConstructor<'a> {
     }
 
     /// Add need to all prebuild scripts of the given package, and add edge to this node
+    ///
+    /// According to the semantics, only local packages require prebuild scripts
+    /// to be run. Remote packages should already have their prebuild outputs
+    /// ready when they are fetched.
     fn need_all_package_prebuild(&mut self, node: BuildPlanNode, pkg_id: PackageId) {
         let pkg = self.input.pkg_dirs.get_package(pkg_id);
+        if !self.input.local_modules().contains(&pkg.module) {
+            return;
+        }
+
         if let Some(prebuild) = &pkg.raw.pre_build {
             for i in 0..prebuild.len() {
                 let prebuild_node = self.need_node(BuildPlanNode::RunPrebuild(pkg_id, i as u32));
