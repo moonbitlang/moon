@@ -178,8 +178,11 @@ impl<'a> BuildPlanLowerContext<'a> {
                 .expect("No `nul` should occur here"),
         );
         // n2 can't capture and replay command outputs. this is a workaround to
-        // avoid losing warnings, the same as legacy code.
-        build.can_dirty_on_output = true;
+        // avoid losing warnings from `moonc`. According to legacy code, this
+        // only triggers for `Check` nodes.
+        //
+        // FIXME: Revisit for other `moonc` invocations, e.g. `BuildCore`.
+        build.can_dirty_on_output = matches!(node, BuildPlanNode::Check(_));
 
         self.debug_print_command_and_files(node, &build);
         self.lowered(build).map_err(|e| LoweringError::N2 {
