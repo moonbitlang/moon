@@ -24,6 +24,7 @@ use notify::{Config, EventKind, RecommendedWatcher, RecursiveMode, Watcher};
 use moonutil::common::{MoonbuildOpt, MooncOpt, RunMode};
 use std::path::Path;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::time::Duration;
 use tracing::info;
 
 /// Run a watcher that watches on `watch_dir`, and calls `run` when a file
@@ -62,13 +63,24 @@ pub fn watching(
             .with_context(|| format!("Failed to watch directory: '{}'", watch_dir.display()))?;
 
         // in watch mode, moon is a long-running process that should handle errors as much as possible rather than throwing them up and then exiting.
-        for res in rx {
+        const DEBOUNCE_TIME: Duration = Duration::from_millis(300);
+        while let Ok(res) = rx.recv() {
             let Ok(evt) = res else {
                 println!("failed: {res:?}");
                 continue;
             };
 
-            if let Err(e) = handle_file_change(&run, target_dir, original_target_dir, &[evt]) {
+            // Debounce events
+            let mut evt_list = vec![evt];
+            let start = std::time::Instant::now();
+            while start.elapsed() < DEBOUNCE_TIME {
+                if let Ok(Ok(evt)) = rx.recv_timeout(DEBOUNCE_TIME.saturating_sub(start.elapsed()))
+                {
+                    evt_list.push(evt);
+                }
+            }
+
+            if let Err(e) = handle_file_change(&run, target_dir, original_target_dir, &evt_list) {
                 println!(
                     "{:?}\n{}",
                     e,
