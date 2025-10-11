@@ -629,12 +629,15 @@ fn add_cc_output_flags(cc: &CC, buf: &mut Vec<String>, config: &CCConfig, dest: 
     }
 }
 
-fn add_cc_include_and_lib_paths(cc: &CC, buf: &mut Vec<String>, ipath: &str, lpath: &str) {
+fn add_cc_include_and_lib_paths(cc: &CC, buf: &mut Vec<String>, config: &CCConfig, ipath: &str, lpath: &str) {
     if cc.is_msvc() {
         buf.push(format!("/I{ipath}"));
     } else if cc.is_tcc() {
         buf.push(format!("-I{ipath}"));
-        buf.push(format!("-L{lpath}"));
+        // Only add -L when not building object files (i.e., when linking)
+        if config.output_ty != OutputType::Object {
+            buf.push(format!("-L{lpath}"));
+        }
     } else if cc.is_gcc_like() {
         buf.push(format!("-I{ipath}"));
     }
@@ -851,7 +854,7 @@ where
     let has_user_flags = !user_cc_flags.is_empty();
 
     add_cc_output_flags(&cc, &mut buf, &config, dest);
-    add_cc_include_and_lib_paths(&cc, &mut buf, &paths.include_path, &paths.lib_path);
+    add_cc_include_and_lib_paths(&cc, &mut buf, &config, &paths.include_path, &paths.lib_path);
     add_cc_intermediate_dir_flags(&cc, &mut buf, &config, dest_dir);
     add_cc_debug_flags(&cc, &mut buf, &config);
     add_cc_shared_lib_flags(&cc, &mut buf, &config);
@@ -873,4 +876,176 @@ where
     add_cc_msvc_linker_flags(&cc, &mut buf, &config, &paths.lib_path);
 
     buf
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_tcc_no_l_flag_for_object_output() {
+        // Create a TCC compiler
+        let cc = CC::new(CCKind::Tcc, "tcc".to_string(), ARKind::TccAr, "tcc".to_string());
+        
+        // Test object file compilation - should not include -L flag
+        let config = CCConfigBuilder::default()
+            .output_ty(OutputType::Object)
+            .link_moonbitrun(false)
+            .define_use_shared_runtime_macro(false)
+            .build()
+            .unwrap();
+        
+        let paths = CompilerPaths {
+            include_path: "/test/include".to_string(),
+            lib_path: "/test/lib".to_string(),
+        };
+        
+        let cmd = make_cc_command_pure(
+            cc.clone(),
+            config,
+            &[] as &[&str],
+            vec!["test.c"],
+            "/test/dest",
+            "/test/dest/test.o",
+            &paths,
+        );
+        
+        // Should contain -I but not -L for object files
+        assert!(cmd.contains(&"-I/test/include".to_string()));
+        assert!(!cmd.contains(&"-L/test/lib".to_string()));
+    }
+
+    #[test]
+    fn test_tcc_with_l_flag_for_executable_output() {
+        // Create a TCC compiler
+        let cc = CC::new(CCKind::Tcc, "tcc".to_string(), ARKind::TccAr, "tcc".to_string());
+        
+        // Test executable compilation - should include -L flag
+        let config = CCConfigBuilder::default()
+            .output_ty(OutputType::Executable)
+            .link_moonbitrun(false)
+            .define_use_shared_runtime_macro(false)
+            .build()
+            .unwrap();
+        
+        let paths = CompilerPaths {
+            include_path: "/test/include".to_string(),
+            lib_path: "/test/lib".to_string(),
+        };
+        
+        let cmd = make_cc_command_pure(
+            cc.clone(),
+            config,
+            &[] as &[&str],
+            vec!["test.c"],
+            "/test/dest",
+            "/test/dest/test",
+            &paths,
+        );
+        
+        // Should contain both -I and -L for executable
+        assert!(cmd.contains(&"-I/test/include".to_string()));
+        assert!(cmd.contains(&"-L/test/lib".to_string()));
+    }
+
+    #[test]
+    fn test_gcc_no_l_flag_for_any_output() {
+        // Create a GCC compiler
+        let cc = CC::new(CCKind::Gcc, "gcc".to_string(), ARKind::GnuAr, "ar".to_string());
+        
+        // Test object file compilation
+        let config = CCConfigBuilder::default()
+            .output_ty(OutputType::Object)
+            .link_moonbitrun(false)
+            .define_use_shared_runtime_macro(false)
+            .build()
+            .unwrap();
+        
+        let paths = CompilerPaths {
+            include_path: "/test/include".to_string(),
+            lib_path: "/test/lib".to_string(),
+        };
+        
+        let cmd = make_cc_command_pure(
+            cc.clone(),
+            config,
+            &[] as &[&str],
+            vec!["test.c"],
+            "/test/dest",
+            "/test/dest/test.o",
+            &paths,
+        );
+        
+        // Should contain -I but never -L for GCC-like compilers in this context
+        assert!(cmd.contains(&"-I/test/include".to_string()));
+        assert!(!cmd.contains(&"-L/test/lib".to_string()));
+    }
+
+    #[test]
+    fn test_integration_l_flag_fix() {
+        // Create a TCC compiler instance
+        let cc = CC::new(CCKind::Tcc, "tcc".to_string(), ARKind::TccAr, "tcc".to_string());
+        
+        let paths = CompilerPaths {
+            include_path: "/tmp/include".to_string(),
+            lib_path: "/tmp/lib".to_string(),
+        };
+
+        // Test 1: Object file compilation (should NOT include -L flag)
+        let object_config = CCConfigBuilder::default()
+            .output_ty(OutputType::Object)
+            .link_moonbitrun(false)
+            .define_use_shared_runtime_macro(false)
+            .build()
+            .unwrap();
+        
+        let object_cmd = make_cc_command_pure(
+            cc.clone(),
+            object_config,
+            &[] as &[&str],
+            vec!["test.c"],
+            "/tmp/dest",
+            "/tmp/dest/test.o",
+            &paths,
+        );
+        
+        // Check that object compilation doesn't include -L flag but does include -I
+        let has_l_flag = object_cmd.iter().any(|arg| arg.starts_with("-L"));
+        let has_i_flag = object_cmd.iter().any(|arg| arg.starts_with("-I"));
+        let has_c_flag = object_cmd.contains(&"-c".to_string());
+        
+        println!("Object command: {}", object_cmd.join(" "));
+        
+        assert!(has_i_flag, "Object compilation should include -I flag");
+        assert!(!has_l_flag, "Object compilation should NOT include -L flag");
+        assert!(has_c_flag, "Object compilation should include -c flag");
+        
+        // Test 2: Executable compilation (should include -L flag)
+        let exe_config = CCConfigBuilder::default()
+            .output_ty(OutputType::Executable)
+            .link_moonbitrun(false)
+            .define_use_shared_runtime_macro(false)
+            .build()
+            .unwrap();
+        
+        let exe_cmd = make_cc_command_pure(
+            cc.clone(),
+            exe_config,
+            &[] as &[&str],
+            vec!["test.c"],
+            "/tmp/dest",
+            "/tmp/dest/test",
+            &paths,
+        );
+        
+        let has_l_flag_exe = exe_cmd.iter().any(|arg| arg.starts_with("-L"));
+        let has_i_flag_exe = exe_cmd.iter().any(|arg| arg.starts_with("-I"));
+        let has_c_flag_exe = exe_cmd.contains(&"-c".to_string());
+        
+        println!("Executable command: {}", exe_cmd.join(" "));
+        
+        assert!(has_i_flag_exe, "Executable compilation should include -I flag");
+        assert!(has_l_flag_exe, "Executable compilation should include -L flag");
+        assert!(!has_c_flag_exe, "Executable compilation should NOT include -c flag");
+    }
 }
