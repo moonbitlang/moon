@@ -217,15 +217,10 @@ fn solve_one_package(
             resolve(import, TargetKind::SubPackage)?;
         }
     }
-    // black box tests also add the source package as an import
-    env.res.dep_graph.add_edge(
-        pid.build_target(TargetKind::BlackboxTest),
-        pid.build_target(TargetKind::Source),
-        DepEdge {
-            short_alias: pkg_data.fqn.short_alias().into(),
-            kind: TargetKind::BlackboxTest,
-        },
-    );
+
+    // Black box tests also add the source package as an import
+    insert_black_box_dep(env, pid, pkg_data);
+
     // TODO: Add heuristic to not generate white box test targets for external packages
 
     let virtual_info = resolve_virtual_usages(env, pid, pkg_data)?;
@@ -235,6 +230,88 @@ fn solve_one_package(
 
     trace!("Completed solving package {:?}", pid);
     Ok(())
+}
+
+/// Add the dependency from black box test to source package.
+///
+/// The dependency edge will be created with the default short alias of the
+/// source package. If this duplicates with any existing alias, print a warning
+/// and replace the duplicated one's alias with its full name.
+fn insert_black_box_dep(env: &mut ResolveEnv<'_>, pid: PackageId, pkg_data: &DiscoveredPackage) {
+    let short_alias = pkg_data.fqn.short_alias();
+    let mut violating = None;
+
+    // Check for violation
+    //
+    // FIXME: Should this live here or in `verify.rs`?
+    // But `verify.rs` should be immutable, which means we can't do the
+    // replacement immediately when we find a violation.
+    for (f, t, edge) in env.res.dep_graph.edges_directed(
+        pid.build_target(TargetKind::BlackboxTest),
+        petgraph::Direction::Outgoing,
+    ) {
+        if t == pid.build_target(TargetKind::Source) {
+            // If the edge points to the source package, we don't need to do
+            // anything -- the edge is already inserted, nothing more to check.
+            return;
+        } else if edge.short_alias == short_alias {
+            // Otherwise, if the edge has the same short alias, we have a violation.
+            violating = Some((f, t, edge));
+            break;
+        }
+    }
+
+    // Print about the violation and replace
+    //
+    // Note: If there are multiple violations, we only handle one of them.
+    // This is because multiple packages with the same short alias is already
+    // an error, so resolving it doesn't make much sense (and it fixes/hides the
+    // error instead).
+    if let Some((f, t, edge)) = violating {
+        let violating_pkg = env.packages.get_package(t.package);
+        warn_about_test_import(pkg_data, violating_pkg);
+        // replace the existing one's alias with its full name
+        let new_alias = violating_pkg.fqn.to_string();
+        trace!(
+            "Replacing existing alias '{}' with '{}' for package {:?}",
+            edge.short_alias,
+            new_alias,
+            t.package
+        );
+        env.res.dep_graph.add_edge(
+            f,
+            t,
+            DepEdge {
+                short_alias: new_alias,
+                kind: edge.kind,
+            },
+        );
+    }
+
+    // Finally, add the edge from black box test to source package
+    env.res.dep_graph.add_edge(
+        pid.build_target(TargetKind::BlackboxTest),
+        pid.build_target(TargetKind::Source),
+        DepEdge {
+            short_alias: short_alias.to_string(),
+            kind: TargetKind::BlackboxTest,
+        },
+    );
+}
+
+fn warn_about_test_import(pkg: &DiscoveredPackage, violating: &DiscoveredPackage) {
+    warn!(
+        "Duplicate alias `{}` at \"{}\". \
+        \"test-import\" will automatically add \"import\" and current \
+        package as dependency so you don't need to add it manually. \
+        If you're test-importing a dependency with the same default \
+        alias as your current package, considering give it a different \
+        alias than the current package. \
+        Violating import: `{}`",
+        pkg.fqn.short_alias(),
+        pkg.config_path().display(),
+        violating.fqn
+    );
 }
 
 /// Grouped necessary information about an import
