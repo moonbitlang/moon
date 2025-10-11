@@ -485,6 +485,12 @@ pub fn execute_build_partial(
     target_dir: &Path,
     want_files: Box<WantFileFn>,
 ) -> anyhow::Result<N2RunStats> {
+    // Ensure target directory exists
+    std::fs::create_dir_all(target_dir).context(format!(
+        "Failed to create target directory: '{}'",
+        target_dir.display()
+    ))?;
+
     // Generate n2 state
     // FIXME: This is extremely verbose and barebones, only for testing purpose
     let mut hashes = n2::graph::Hashes::default();
@@ -529,7 +535,7 @@ pub fn execute_build_partial(
     want_files(&mut work).context("Failed to determine the files to be built")?;
 
     // The actual execution done by the n2 executor
-    let res = work.run()?;
+    let res = work.run().context("Failed to run n2 graph")?;
 
     let result_catcher = result_catcher.lock().unwrap();
     let stats = N2RunStats {

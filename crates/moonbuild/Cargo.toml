@@ -36,7 +36,6 @@ anyhow.workspace = true
 colored.workspace = true
 dunce.workspace = true
 indexmap.workspace = true
-notify.workspace = true
 petgraph.workspace = true
 walkdir.workspace = true
 tempfile.workspace = true
@@ -70,7 +69,11 @@ serde_json.workspace = true
 regex.workspace = true
 ariadne.workspace = true
 handlebars = { version = "6.3.2", default-features = false }
-toml = { workspace = true, default-features = false, features = ["parse", "serde", "std"] }
+toml = { workspace = true, default-features = false, features = [
+    "parse",
+    "serde",
+    "std",
+] }
 
 [dev-dependencies]
 expect-test.workspace = true

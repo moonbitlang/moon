@@ -36,7 +36,6 @@ pub mod runtest;
 pub mod section_capture;
 pub mod test_utils;
 pub mod upgrade;
-pub mod watch;
 
 use std::sync::LazyLock;
 

@@ -21,7 +21,6 @@ use anyhow::Context;
 use colored::Colorize;
 use moonbuild::dry_run;
 use moonbuild::entry;
-use moonbuild::watch::watching;
 use moonbuild_rupes_recta::intent::UserIntent;
 use mooncake::pkg::sync::auto_sync;
 use moonutil::common::lower_surface_targets;
@@ -45,6 +44,8 @@ use crate::rr_build;
 use crate::rr_build::preconfig_compile;
 use crate::rr_build::BuildConfig;
 use crate::rr_build::CalcUserIntentOutput;
+use crate::watch::run_legacy;
+use crate::watch::watching;
 
 use super::pre_build::scan_with_x_build;
 use super::{BuildFlags, UniversalFlags};
@@ -109,43 +110,72 @@ fn run_build_internal(
     target_dir: &Path,
 ) -> anyhow::Result<i32> {
     if cli.unstable_feature.rupes_recta {
-        let preconfig = preconfig_compile(
-            &cmd.auto_sync_flags,
-            cli,
-            &cmd.build_flags,
-            target_dir,
-            OptLevel::Release,
-            RunMode::Build,
-        );
-        let (_build_meta, build_graph) = rr_build::plan_build(
-            preconfig,
-            &cli.unstable_feature,
-            source_dir,
-            target_dir,
-            Box::new(calc_user_intent),
-        )?;
-
-        if cli.dry_run {
-            rr_build::print_dry_run(
-                &build_graph,
-                _build_meta.artifacts.values(),
-                source_dir,
-                target_dir,
-            );
-            Ok(0)
-        } else {
-            let _lock = FileLock::lock(target_dir)?;
-
-            let result = rr_build::execute_build(
-                &BuildConfig::from_flags(&cmd.build_flags, &cli.unstable_feature),
-                build_graph,
-                target_dir,
-            )?;
-            result.print_info(cli.quiet, "building")?;
-            Ok(result.return_code_for_success())
-        }
+        run_build_rr(cli, cmd, source_dir, target_dir)
     } else {
         run_build_internal_legacy(cli, cmd, source_dir, target_dir)
+    }
+}
+
+#[instrument(skip_all)]
+fn run_build_rr(
+    cli: &UniversalFlags,
+    cmd: &BuildSubcommand,
+    source_dir: &Path,
+    target_dir: &Path,
+) -> anyhow::Result<i32> {
+    if cmd.watch {
+        watching(
+            || run_build_rr_internal(cli, cmd, source_dir, target_dir),
+            source_dir,
+            target_dir,
+            target_dir,
+        )
+    } else {
+        run_build_rr_internal(cli, cmd, source_dir, target_dir)
+    }
+}
+
+#[instrument(skip_all)]
+fn run_build_rr_internal(
+    cli: &UniversalFlags,
+    cmd: &BuildSubcommand,
+    source_dir: &Path,
+    target_dir: &Path,
+) -> anyhow::Result<i32> {
+    let preconfig = preconfig_compile(
+        &cmd.auto_sync_flags,
+        cli,
+        &cmd.build_flags,
+        target_dir,
+        OptLevel::Release,
+        RunMode::Build,
+    );
+    let (_build_meta, build_graph) = rr_build::plan_build(
+        preconfig,
+        &cli.unstable_feature,
+        source_dir,
+        target_dir,
+        Box::new(calc_user_intent),
+    )?;
+
+    if cli.dry_run {
+        rr_build::print_dry_run(
+            &build_graph,
+            _build_meta.artifacts.values(),
+            source_dir,
+            target_dir,
+        );
+        Ok(0)
+    } else {
+        let _lock = FileLock::lock(target_dir)?;
+
+        let result = rr_build::execute_build(
+            &BuildConfig::from_flags(&cmd.build_flags, &cli.unstable_feature),
+            build_graph,
+            target_dir,
+        )?;
+        result.print_info(cli.quiet, "building")?;
+        Ok(result.return_code_for_success())
     }
 }
 
@@ -180,7 +210,7 @@ fn run_build_internal_legacy(
     let moonbuild_opt = MoonbuildOpt {
         source_dir: source_dir.to_path_buf(),
         raw_target_dir: raw_target_dir.to_path_buf(),
-        target_dir,
+        target_dir: target_dir.to_path_buf(),
         sort_input,
         run_mode,
         quiet: cli.quiet,
@@ -240,12 +270,10 @@ fn run_build_internal_legacy(
     }
 
     let res = if cmd.watch {
-        let reg_cfg = RegistryConfig::load();
         watching(
-            &moonc_opt,
-            &moonbuild_opt,
-            &reg_cfg,
-            &module,
+            || run_legacy(&moonc_opt, &moonbuild_opt, &module),
+            source_dir,
+            &target_dir,
             raw_target_dir,
         )
     } else {
