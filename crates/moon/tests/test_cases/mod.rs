@@ -49,6 +49,7 @@ mod moon_coverage;
 mod moon_new;
 mod moon_test;
 mod moon_version;
+mod native_stub_stability;
 mod output_format;
 mod packages;
 mod prebuild;
