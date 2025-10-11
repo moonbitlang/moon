@@ -253,6 +253,12 @@ fn run_check_normal_internal_rr(
     if cmd.watch {
         // For checks, the actual target dir is a subdir of the original target
         let actual_target = target_dir.join(WATCH_MODE_DIR);
+        std::fs::create_dir_all(&actual_target).with_context(|| {
+            format!(
+                "Failed to create target directory: '{}'",
+                actual_target.display()
+            )
+        })?;
         watching(
             || run_check_normal_internal_rr_raw(cli, cmd, source_dir, &actual_target),
             source_dir,
@@ -295,7 +301,8 @@ fn run_check_normal_internal_rr_raw(
                 cmd.patch_file.as_deref(),
             )
         }),
-    )?;
+    )
+    .context("Failed to calculate build plan")?;
 
     if cli.dry_run {
         rr_build::print_dry_run(
