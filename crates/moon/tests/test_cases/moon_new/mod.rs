@@ -44,11 +44,11 @@ fn snapshot_layout_and_files(root: &Path) -> String {
         } else {
             let rel_file = format!("./{}", rel);
             layout_items.push(rel_file.clone());
-            if rel == "LICENSE" {
+            if rel.eq_ignore_ascii_case("LICENSE") {
                 // Skip LICENSE file content
                 file_items.push((rel_file, "<LICENSE file content>\n".to_string()));
                 continue;
-            } else if rel == "AGENTS.md" {
+            } else if rel.eq_ignore_ascii_case("Agents.md") {
                 // Skip Agents.md file content
                 file_items.push((rel_file, "<AGENTS.md file content>\n".to_string()));
                 continue;
@@ -222,13 +222,14 @@ fn test_moon_new_new() {
         get_stdout(&hello3, ["test", "-v"]),
         expect![[r#"
             [moonbitlang/hello] test hello_test.mbt:2 ("fib") ok
-            Total tests: 1, passed: 1, failed: 0.
+            [moonbitlang/hello] test hello_test.mbt:12 ("sum") ok
+            Total tests: 2, passed: 2, failed: 0.
         "#]],
     );
     check(
         get_stdout(&hello3, ["test"]),
         expect![[r#"
-            Total tests: 1, passed: 1, failed: 0.
+            Total tests: 2, passed: 2, failed: 0.
         "#]],
     );
     hello3.rm_rf();
@@ -248,7 +249,8 @@ fn test_moon_new_new() {
         get_stdout(&hello4, ["test", "-v"]),
         expect![[r#"
             [moonbitlang/hello] test hello_test.mbt:2 ("fib") ok
-            Total tests: 1, passed: 1, failed: 0.
+            [moonbitlang/hello] test hello_test.mbt:12 ("sum") ok
+            Total tests: 2, passed: 2, failed: 0.
         "#]],
     );
     hello4.rm_rf();
@@ -280,6 +282,9 @@ fn test_moon_new_snapshot() {
             ./.githooks/
             ./.githooks/README.md
             ./.githooks/pre-commit
+            ./.github/
+            ./.github/workflows/
+            ./.github/workflows/copilot-setup-steps.yml
             ./.gitignore
             ./AGENTS.md
             ./LICENSE
@@ -323,6 +328,49 @@ fn test_moon_new_snapshot() {
 
             moon check
 
+            === ./.github/workflows/copilot-setup-steps.yml ===
+            # Reference: https://docs.github.com/en/copilot/how-tos/use-copilot-agents/coding-agent/customize-the-agent-environment
+            name: "Copilot Setup Steps"
+
+            # Automatically run the setup steps when they are changed to allow for easy validation, and
+            # allow manual testing through the repository's "Actions" tab
+            on:
+              workflow_dispatch:
+              push:
+                paths:
+                  - .github/workflows/copilot-setup-steps.yml
+              pull_request:
+                paths:
+                  - .github/workflows/copilot-setup-steps.yml
+
+            jobs:
+              # The job MUST be called `copilot-setup-steps` or it will not be picked up by Copilot.
+              copilot-setup-steps:
+                runs-on: ubuntu-latest
+
+                # Set the permissions to the lowest permissions possible needed for your steps.
+                # Copilot will be given its own token for its operations.
+                permissions:
+                  # If you want to clone the repository as part of your setup steps, for example to install dependencies, you'll need the `contents: read` permission. If you don't clone the repository in your setup steps, Copilot will do this for you automatically after the steps complete.
+                  contents: read
+
+                # You can define any steps you want, and they will run before the agent starts.
+                # If you do not check out your code, Copilot will do this for you.
+                steps:
+                  - name: Checkout code
+                    uses: actions/checkout@v5
+
+                  - name: Set up MoonBit
+                    run: |
+                      curl -fsSL https://cli.moonbitlang.com/install/unix.sh | bash
+                      echo "$HOME/.moon/bin" >> $GITHUB_PATH
+
+                  - name: Update MoonBit dependencies
+                    run: |
+                        moon version --all
+                        moon update
+            
+
             === ./.gitignore ===
             .DS_Store
             target/
@@ -344,22 +392,45 @@ fn test_moon_new_snapshot() {
             === ./asdf.mbt ===
             ///|
             pub fn fib(n : Int) -> Int64 {
-              for i = 0, a = 0L, b = 1L; i < n; i = i + 1, a = b, b = a + b {
+              loop (n, 0L, 1L) {
+                (0, _, b) => b
+                (i, a, b) => continue (i - 1, b, a + b)
+              }
+            }
+
+            ///|
+            /// data is a labelled argument without default value having type Array[Int]
+            /// start is an optional labelled argument with default value 0 having type Int
+            /// length is an optional labelled argument without default value having type Option[Int]
+            pub fn sum(data~ : Array[Int], start? : Int = 0, length? : Int) -> Int {
+              let end = if length is Some(length) { start + length } else { data.length() }
+              for i = start, sum = 0; i < end; i = i + 1, sum = sum + data[i] {
 
               } else {
-                b
+                sum
               }
             }
 
             === ./asdf_test.mbt ===
             ///|
             test "fib" {
-              let array = [1, 2, 3, 4, 5].map(fib(_))
+              let array = [1, 2, 3, 4, 5].map(fib)
 
               // `inspect` is used to check the output of the function
               // Just write `inspect(value)` and execute `moon test --update`
               // to update the expected output, and verify them afterwards
               inspect(array, content="[1, 2, 3, 5, 8]")
+            }
+
+            ///|
+            test "sum" {
+              let array = [1, 2, 3, 4, 5]
+              inspect(sum(data=array), content="15")
+              inspect(sum(data=array, start=1), content="14")
+              inspect(sum(data=array, length=3), content="6")
+              let length = None
+              // Use `?` for punning
+              inspect(sum(data=array, length?), content="15")
             }
 
             === ./cmd/main/main.mbt ===
@@ -415,6 +486,9 @@ fn test_moon_new_snapshot() {
             ./.githooks/
             ./.githooks/README.md
             ./.githooks/pre-commit
+            ./.github/
+            ./.github/workflows/
+            ./.github/workflows/copilot-setup-steps.yml
             ./.gitignore
             ./AGENTS.md
             ./LICENSE
@@ -458,6 +532,49 @@ fn test_moon_new_snapshot() {
 
             moon check
 
+            === ./.github/workflows/copilot-setup-steps.yml ===
+            # Reference: https://docs.github.com/en/copilot/how-tos/use-copilot-agents/coding-agent/customize-the-agent-environment
+            name: "Copilot Setup Steps"
+
+            # Automatically run the setup steps when they are changed to allow for easy validation, and
+            # allow manual testing through the repository's "Actions" tab
+            on:
+              workflow_dispatch:
+              push:
+                paths:
+                  - .github/workflows/copilot-setup-steps.yml
+              pull_request:
+                paths:
+                  - .github/workflows/copilot-setup-steps.yml
+
+            jobs:
+              # The job MUST be called `copilot-setup-steps` or it will not be picked up by Copilot.
+              copilot-setup-steps:
+                runs-on: ubuntu-latest
+
+                # Set the permissions to the lowest permissions possible needed for your steps.
+                # Copilot will be given its own token for its operations.
+                permissions:
+                  # If you want to clone the repository as part of your setup steps, for example to install dependencies, you'll need the `contents: read` permission. If you don't clone the repository in your setup steps, Copilot will do this for you automatically after the steps complete.
+                  contents: read
+
+                # You can define any steps you want, and they will run before the agent starts.
+                # If you do not check out your code, Copilot will do this for you.
+                steps:
+                  - name: Checkout code
+                    uses: actions/checkout@v5
+
+                  - name: Set up MoonBit
+                    run: |
+                      curl -fsSL https://cli.moonbitlang.com/install/unix.sh | bash
+                      echo "$HOME/.moon/bin" >> $GITHUB_PATH
+
+                  - name: Update MoonBit dependencies
+                    run: |
+                        moon version --all
+                        moon update
+            
+
             === ./.gitignore ===
             .DS_Store
             target/
@@ -496,22 +613,45 @@ fn test_moon_new_snapshot() {
             === ./hello.mbt ===
             ///|
             pub fn fib(n : Int) -> Int64 {
-              for i = 0, a = 0L, b = 1L; i < n; i = i + 1, a = b, b = a + b {
+              loop (n, 0L, 1L) {
+                (0, _, b) => b
+                (i, a, b) => continue (i - 1, b, a + b)
+              }
+            }
+
+            ///|
+            /// data is a labelled argument without default value having type Array[Int]
+            /// start is an optional labelled argument with default value 0 having type Int
+            /// length is an optional labelled argument without default value having type Option[Int]
+            pub fn sum(data~ : Array[Int], start? : Int = 0, length? : Int) -> Int {
+              let end = if length is Some(length) { start + length } else { data.length() }
+              for i = start, sum = 0; i < end; i = i + 1, sum = sum + data[i] {
 
               } else {
-                b
+                sum
               }
             }
 
             === ./hello_test.mbt ===
             ///|
             test "fib" {
-              let array = [1, 2, 3, 4, 5].map(fib(_))
+              let array = [1, 2, 3, 4, 5].map(fib)
 
               // `inspect` is used to check the output of the function
               // Just write `inspect(value)` and execute `moon test --update`
               // to update the expected output, and verify them afterwards
               inspect(array, content="[1, 2, 3, 5, 8]")
+            }
+
+            ///|
+            test "sum" {
+              let array = [1, 2, 3, 4, 5]
+              inspect(sum(data=array), content="15")
+              inspect(sum(data=array, start=1), content="14")
+              inspect(sum(data=array, length=3), content="6")
+              let length = None
+              // Use `?` for punning
+              inspect(sum(data=array, length?), content="15")
             }
 
             === ./moon.mod.json ===
@@ -547,6 +687,9 @@ fn test_moon_new_snapshot() {
             ./.githooks/
             ./.githooks/README.md
             ./.githooks/pre-commit
+            ./.github/
+            ./.github/workflows/
+            ./.github/workflows/copilot-setup-steps.yml
             ./.gitignore
             ./AGENTS.md
             ./LICENSE
@@ -589,6 +732,49 @@ fn test_moon_new_snapshot() {
             #!/bin/sh
 
             moon check
+
+            === ./.github/workflows/copilot-setup-steps.yml ===
+            # Reference: https://docs.github.com/en/copilot/how-tos/use-copilot-agents/coding-agent/customize-the-agent-environment
+            name: "Copilot Setup Steps"
+
+            # Automatically run the setup steps when they are changed to allow for easy validation, and
+            # allow manual testing through the repository's "Actions" tab
+            on:
+              workflow_dispatch:
+              push:
+                paths:
+                  - .github/workflows/copilot-setup-steps.yml
+              pull_request:
+                paths:
+                  - .github/workflows/copilot-setup-steps.yml
+
+            jobs:
+              # The job MUST be called `copilot-setup-steps` or it will not be picked up by Copilot.
+              copilot-setup-steps:
+                runs-on: ubuntu-latest
+
+                # Set the permissions to the lowest permissions possible needed for your steps.
+                # Copilot will be given its own token for its operations.
+                permissions:
+                  # If you want to clone the repository as part of your setup steps, for example to install dependencies, you'll need the `contents: read` permission. If you don't clone the repository in your setup steps, Copilot will do this for you automatically after the steps complete.
+                  contents: read
+
+                # You can define any steps you want, and they will run before the agent starts.
+                # If you do not check out your code, Copilot will do this for you.
+                steps:
+                  - name: Checkout code
+                    uses: actions/checkout@v5
+
+                  - name: Set up MoonBit
+                    run: |
+                      curl -fsSL https://cli.moonbitlang.com/install/unix.sh | bash
+                      echo "$HOME/.moon/bin" >> $GITHUB_PATH
+
+                  - name: Update MoonBit dependencies
+                    run: |
+                        moon version --all
+                        moon update
+            
 
             === ./.gitignore ===
             .DS_Store
@@ -642,22 +828,45 @@ fn test_moon_new_snapshot() {
             === ./wow.mbt ===
             ///|
             pub fn fib(n : Int) -> Int64 {
-              for i = 0, a = 0L, b = 1L; i < n; i = i + 1, a = b, b = a + b {
+              loop (n, 0L, 1L) {
+                (0, _, b) => b
+                (i, a, b) => continue (i - 1, b, a + b)
+              }
+            }
+
+            ///|
+            /// data is a labelled argument without default value having type Array[Int]
+            /// start is an optional labelled argument with default value 0 having type Int
+            /// length is an optional labelled argument without default value having type Option[Int]
+            pub fn sum(data~ : Array[Int], start? : Int = 0, length? : Int) -> Int {
+              let end = if length is Some(length) { start + length } else { data.length() }
+              for i = start, sum = 0; i < end; i = i + 1, sum = sum + data[i] {
 
               } else {
-                b
+                sum
               }
             }
 
             === ./wow_test.mbt ===
             ///|
             test "fib" {
-              let array = [1, 2, 3, 4, 5].map(fib(_))
+              let array = [1, 2, 3, 4, 5].map(fib)
 
               // `inspect` is used to check the output of the function
               // Just write `inspect(value)` and execute `moon test --update`
               // to update the expected output, and verify them afterwards
               inspect(array, content="[1, 2, 3, 5, 8]")
+            }
+
+            ///|
+            test "sum" {
+              let array = [1, 2, 3, 4, 5]
+              inspect(sum(data=array), content="15")
+              inspect(sum(data=array, start=1), content="14")
+              inspect(sum(data=array, length=3), content="6")
+              let length = None
+              // Use `?` for punning
+              inspect(sum(data=array, length?), content="15")
             }
 
         "#]],
