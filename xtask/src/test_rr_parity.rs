@@ -78,9 +78,15 @@ fn run_cargo_test(with_moon_unstable: bool, cargo_args: &[String]) -> Result<Tes
     cmd.args(["+nightly", "test", "--workspace", "--no-fail-fast"]);
 
     // Add any additional cargo args before the -- separator
-    cmd.args(cargo_args);
+    let double_dash = cargo_args.iter().position(|s| *s == "--");
+    let (cargo_args, test_args) = match double_dash {
+        Some(idx) => (&cargo_args[..idx], &cargo_args[idx + 1..]),
+        None => (cargo_args, &[] as &[String]),
+    };
 
+    cmd.args(cargo_args);
     cmd.args(["--", "-Z", "unstable-options", "--format", "json"]);
+    cmd.args(test_args);
 
     if with_moon_unstable {
         cmd.env("MOON_UNSTABLE", MOON_UNSTABLE_RR);

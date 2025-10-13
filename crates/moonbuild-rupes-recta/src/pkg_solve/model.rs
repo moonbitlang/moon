@@ -144,4 +144,19 @@ pub enum SolveError {
         first_override: PackageFQNWithSource,
         second_override: PackageFQNWithSource,
     },
+
+    #[error("Multiple errors occurred during package solving: {0}")]
+    Multiple(MultipleError),
+}
+
+#[derive(Debug, thiserror::Error)]
+pub struct MultipleError(pub Vec<SolveError>);
+
+impl std::fmt::Display for MultipleError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        for (i, err) in self.0.iter().enumerate() {
+            writeln!(f, "Error {}: {}", i + 1, err)?;
+        }
+        Ok(())
+    }
 }
