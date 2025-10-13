@@ -322,7 +322,7 @@ test "fib" {
 """
 
 [[files]]
-path = "Agents.md"
+path = "AGENTS.md"
 content = """
 # Project Agents.md Guide
 

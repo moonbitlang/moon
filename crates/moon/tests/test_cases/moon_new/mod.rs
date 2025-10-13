@@ -48,9 +48,9 @@ fn snapshot_layout_and_files(root: &Path) -> String {
                 // Skip LICENSE file content
                 file_items.push((rel_file, "<LICENSE file content>\n".to_string()));
                 continue;
-            } else if rel == "Agents.md" {
+            } else if rel == "AGENTS.md" {
                 // Skip Agents.md file content
-                file_items.push((rel_file, "<Agents.md file content>\n".to_string()));
+                file_items.push((rel_file, "<AGENTS.md file content>\n".to_string()));
                 continue;
             }
             let mut content = read(path);
@@ -281,7 +281,7 @@ fn test_moon_new_snapshot() {
             ./.githooks/README.md
             ./.githooks/pre-commit
             ./.gitignore
-            ./Agents.md
+            ./AGENTS.md
             ./LICENSE
             ./README.mbt.md
             ./README.md
@@ -329,8 +329,8 @@ fn test_moon_new_snapshot() {
             .mooncakes/
             .moonagent/
 
-            === ./Agents.md ===
-            <Agents.md file content>
+            === ./AGENTS.md ===
+            <AGENTS.md file content>
 
             === ./LICENSE ===
             <LICENSE file content>
@@ -416,7 +416,7 @@ fn test_moon_new_snapshot() {
             ./.githooks/README.md
             ./.githooks/pre-commit
             ./.gitignore
-            ./Agents.md
+            ./AGENTS.md
             ./LICENSE
             ./README.mbt.md
             ./README.md
@@ -464,8 +464,8 @@ fn test_moon_new_snapshot() {
             .mooncakes/
             .moonagent/
 
-            === ./Agents.md ===
-            <Agents.md file content>
+            === ./AGENTS.md ===
+            <AGENTS.md file content>
 
             === ./LICENSE ===
             <LICENSE file content>
@@ -548,7 +548,7 @@ fn test_moon_new_snapshot() {
             ./.githooks/README.md
             ./.githooks/pre-commit
             ./.gitignore
-            ./Agents.md
+            ./AGENTS.md
             ./LICENSE
             ./README.mbt.md
             ./README.md
@@ -596,8 +596,8 @@ fn test_moon_new_snapshot() {
             .mooncakes/
             .moonagent/
 
-            === ./Agents.md ===
-            <Agents.md file content>
+            === ./AGENTS.md ===
+            <AGENTS.md file content>
 
             === ./LICENSE ===
             <LICENSE file content>
