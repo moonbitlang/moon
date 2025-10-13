@@ -1,3 +1,5 @@
+use expect_test::expect_file;
+
 use super::*;
 use std::path::Path;
 
@@ -44,13 +46,13 @@ fn snapshot_layout_and_files(root: &Path) -> String {
         } else {
             let rel_file = format!("./{}", rel);
             layout_items.push(rel_file.clone());
-            if rel == "LICENSE" {
+            if rel.eq_ignore_ascii_case("LICENSE") {
                 // Skip LICENSE file content
                 file_items.push((rel_file, "<LICENSE file content>\n".to_string()));
                 continue;
-            } else if rel == "Agents.md" {
+            } else if rel.eq_ignore_ascii_case("Agents.md") {
                 // Skip Agents.md file content
-                file_items.push((rel_file, "<Agents.md file content>\n".to_string()));
+                file_items.push((rel_file, "<AGENTS.md file content>\n".to_string()));
                 continue;
             }
             let mut content = read(path);
@@ -222,13 +224,14 @@ fn test_moon_new_new() {
         get_stdout(&hello3, ["test", "-v"]),
         expect![[r#"
             [moonbitlang/hello] test hello_test.mbt:2 ("fib") ok
-            Total tests: 1, passed: 1, failed: 0.
+            [moonbitlang/hello] test hello_test.mbt:12 ("sum") ok
+            Total tests: 2, passed: 2, failed: 0.
         "#]],
     );
     check(
         get_stdout(&hello3, ["test"]),
         expect![[r#"
-            Total tests: 1, passed: 1, failed: 0.
+            Total tests: 2, passed: 2, failed: 0.
         "#]],
     );
     hello3.rm_rf();
@@ -248,7 +251,8 @@ fn test_moon_new_new() {
         get_stdout(&hello4, ["test", "-v"]),
         expect![[r#"
             [moonbitlang/hello] test hello_test.mbt:2 ("fib") ok
-            Total tests: 1, passed: 1, failed: 0.
+            [moonbitlang/hello] test hello_test.mbt:12 ("sum") ok
+            Total tests: 2, passed: 2, failed: 0.
         "#]],
     );
     hello4.rm_rf();
@@ -272,129 +276,7 @@ fn test_moon_new_snapshot() {
 
     // New snapshot: layout first, then file contents
     let snap = snapshot_layout_and_files(&asdf);
-    check(
-        &snap,
-        expect![[r#"
-            -- layout --
-            .
-            ./.githooks/
-            ./.githooks/README.md
-            ./.githooks/pre-commit
-            ./.gitignore
-            ./Agents.md
-            ./LICENSE
-            ./README.mbt.md
-            ./README.md
-            ./asdf.mbt
-            ./asdf_test.mbt
-            ./cmd/
-            ./cmd/main/
-            ./cmd/main/main.mbt
-            ./cmd/main/moon.pkg.json
-            ./moon.mod.json
-            ./moon.pkg.json
-
-            -- files --
-            === ./.githooks/README.md ===
-            # Git Hooks
-
-            ## Pre-commit Hook
-
-            This pre-commit hook performs automatic checks before finalizing your commit.
-
-            ### Usage Instructions
-
-            To use this pre-commit hook:
-
-            1. Make the hook executable if it isn't already:
-               ```bash
-               chmod +x .githooks/pre-commit
-               ```
-
-            2. Configure Git to use the hooks in the .githooks directory:
-               ```bash
-               git config core.hooksPath .githooks
-               ```
-
-            3. The hook will automatically run when you execute `git commit`
-
-            === ./.githooks/pre-commit ===
-            #!/bin/sh
-
-            moon check
-
-            === ./.gitignore ===
-            .DS_Store
-            target/
-            .mooncakes/
-            .moonagent/
-
-            === ./Agents.md ===
-            <Agents.md file content>
-
-            === ./LICENSE ===
-            <LICENSE file content>
-
-            === ./README.mbt.md ===
-            # testuser/asdf
-
-            === ./README.md ===
-            <symbolic link to README.mbt.md>
-
-            === ./asdf.mbt ===
-            ///|
-            pub fn fib(n : Int) -> Int64 {
-              for i = 0, a = 0L, b = 1L; i < n; i = i + 1, a = b, b = a + b {
-
-              } else {
-                b
-              }
-            }
-
-            === ./asdf_test.mbt ===
-            ///|
-            test "fib" {
-              let array = [1, 2, 3, 4, 5].map(fib(_))
-
-              // `inspect` is used to check the output of the function
-              // Just write `inspect(value)` and execute `moon test --update`
-              // to update the expected output, and verify them afterwards
-              inspect(array, content="[1, 2, 3, 5, 8]")
-            }
-
-            === ./cmd/main/main.mbt ===
-            ///|
-            fn main {
-              println(@lib.fib(10))
-            }
-
-            === ./cmd/main/moon.pkg.json ===
-            {
-              "is-main": true,
-              "import": [
-                {
-                  "path": "testuser/asdf",
-                  "alias": "lib"
-                }
-              ]
-            }
-
-            === ./moon.mod.json ===
-            {
-              "name": "testuser/asdf",
-              "version": "0.1.0",
-              "readme": "README.mbt.md",
-              "repository": "",
-              "license": "Apache-2.0",
-              "keywords": [],
-              "description": ""
-            }
-
-            === ./moon.pkg.json ===
-            {}
-
-        "#]],
-    );
+    expect_file!["new_snapshot.expect"].assert_eq(&snap);
 
     if asdf.exists() {
         asdf.rm_rf();
@@ -407,129 +289,7 @@ fn test_moon_new_snapshot() {
         .success();
 
     let snap2 = snapshot_layout_and_files(&asdf);
-    check(
-        &snap2,
-        expect![[r#"
-            -- layout --
-            .
-            ./.githooks/
-            ./.githooks/README.md
-            ./.githooks/pre-commit
-            ./.gitignore
-            ./Agents.md
-            ./LICENSE
-            ./README.mbt.md
-            ./README.md
-            ./cmd/
-            ./cmd/main/
-            ./cmd/main/main.mbt
-            ./cmd/main/moon.pkg.json
-            ./hello.mbt
-            ./hello_test.mbt
-            ./moon.mod.json
-            ./moon.pkg.json
-
-            -- files --
-            === ./.githooks/README.md ===
-            # Git Hooks
-
-            ## Pre-commit Hook
-
-            This pre-commit hook performs automatic checks before finalizing your commit.
-
-            ### Usage Instructions
-
-            To use this pre-commit hook:
-
-            1. Make the hook executable if it isn't already:
-               ```bash
-               chmod +x .githooks/pre-commit
-               ```
-
-            2. Configure Git to use the hooks in the .githooks directory:
-               ```bash
-               git config core.hooksPath .githooks
-               ```
-
-            3. The hook will automatically run when you execute `git commit`
-
-            === ./.githooks/pre-commit ===
-            #!/bin/sh
-
-            moon check
-
-            === ./.gitignore ===
-            .DS_Store
-            target/
-            .mooncakes/
-            .moonagent/
-
-            === ./Agents.md ===
-            <Agents.md file content>
-
-            === ./LICENSE ===
-            <LICENSE file content>
-
-            === ./README.mbt.md ===
-            # moonbitlang/hello
-
-            === ./README.md ===
-            <symbolic link to README.mbt.md>
-
-            === ./cmd/main/main.mbt ===
-            ///|
-            fn main {
-              println(@lib.fib(10))
-            }
-
-            === ./cmd/main/moon.pkg.json ===
-            {
-              "is-main": true,
-              "import": [
-                {
-                  "path": "moonbitlang/hello",
-                  "alias": "lib"
-                }
-              ]
-            }
-
-            === ./hello.mbt ===
-            ///|
-            pub fn fib(n : Int) -> Int64 {
-              for i = 0, a = 0L, b = 1L; i < n; i = i + 1, a = b, b = a + b {
-
-              } else {
-                b
-              }
-            }
-
-            === ./hello_test.mbt ===
-            ///|
-            test "fib" {
-              let array = [1, 2, 3, 4, 5].map(fib(_))
-
-              // `inspect` is used to check the output of the function
-              // Just write `inspect(value)` and execute `moon test --update`
-              // to update the expected output, and verify them afterwards
-              inspect(array, content="[1, 2, 3, 5, 8]")
-            }
-
-            === ./moon.mod.json ===
-            {
-              "name": "moonbitlang/hello",
-              "version": "0.1.0",
-              "readme": "README.mbt.md",
-              "repository": "",
-              "license": "Apache-2.0",
-              "keywords": [],
-              "description": ""
-            }
-
-            === ./moon.pkg.json ===
-            {}
-
-        "#]],
-    );
+    expect_file!["new_snapshot_with_user_name.expect"].assert_eq(&snap2);
     asdf.rm_rf();
 
     snapbox::cmd::Command::new(moon_bin())
@@ -539,128 +299,6 @@ fn test_moon_new_snapshot() {
         .success();
 
     let snap3 = snapshot_layout_and_files(&asdf);
-    check(
-        &snap3,
-        expect![[r#"
-            -- layout --
-            .
-            ./.githooks/
-            ./.githooks/README.md
-            ./.githooks/pre-commit
-            ./.gitignore
-            ./Agents.md
-            ./LICENSE
-            ./README.mbt.md
-            ./README.md
-            ./cmd/
-            ./cmd/main/
-            ./cmd/main/main.mbt
-            ./cmd/main/moon.pkg.json
-            ./moon.mod.json
-            ./moon.pkg.json
-            ./wow.mbt
-            ./wow_test.mbt
-
-            -- files --
-            === ./.githooks/README.md ===
-            # Git Hooks
-
-            ## Pre-commit Hook
-
-            This pre-commit hook performs automatic checks before finalizing your commit.
-
-            ### Usage Instructions
-
-            To use this pre-commit hook:
-
-            1. Make the hook executable if it isn't already:
-               ```bash
-               chmod +x .githooks/pre-commit
-               ```
-
-            2. Configure Git to use the hooks in the .githooks directory:
-               ```bash
-               git config core.hooksPath .githooks
-               ```
-
-            3. The hook will automatically run when you execute `git commit`
-
-            === ./.githooks/pre-commit ===
-            #!/bin/sh
-
-            moon check
-
-            === ./.gitignore ===
-            .DS_Store
-            target/
-            .mooncakes/
-            .moonagent/
-
-            === ./Agents.md ===
-            <Agents.md file content>
-
-            === ./LICENSE ===
-            <LICENSE file content>
-
-            === ./README.mbt.md ===
-            # moonbitlang/wow
-
-            === ./README.md ===
-            <symbolic link to README.mbt.md>
-
-            === ./cmd/main/main.mbt ===
-            ///|
-            fn main {
-              println(@lib.fib(10))
-            }
-
-            === ./cmd/main/moon.pkg.json ===
-            {
-              "is-main": true,
-              "import": [
-                {
-                  "path": "moonbitlang/wow",
-                  "alias": "lib"
-                }
-              ]
-            }
-
-            === ./moon.mod.json ===
-            {
-              "name": "moonbitlang/wow",
-              "version": "0.1.0",
-              "readme": "README.mbt.md",
-              "repository": "",
-              "license": "Apache-2.0",
-              "keywords": [],
-              "description": ""
-            }
-
-            === ./moon.pkg.json ===
-            {}
-
-            === ./wow.mbt ===
-            ///|
-            pub fn fib(n : Int) -> Int64 {
-              for i = 0, a = 0L, b = 1L; i < n; i = i + 1, a = b, b = a + b {
-
-              } else {
-                b
-              }
-            }
-
-            === ./wow_test.mbt ===
-            ///|
-            test "fib" {
-              let array = [1, 2, 3, 4, 5].map(fib(_))
-
-              // `inspect` is used to check the output of the function
-              // Just write `inspect(value)` and execute `moon test --update`
-              // to update the expected output, and verify them afterwards
-              inspect(array, content="[1, 2, 3, 5, 8]")
-            }
-
-        "#]],
-    );
+    expect_file!["new_snapshot_with_user_name_different.expect"].assert_eq(&snap3);
     asdf.rm_rf();
 }
