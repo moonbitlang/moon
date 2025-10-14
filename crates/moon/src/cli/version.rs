@@ -16,6 +16,7 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
+use moonutil::cli::UniversalFlags;
 use std::{env::current_exe, path::Path};
 
 use anyhow::Context;
@@ -73,7 +74,26 @@ fn get_moonrun_path() -> anyhow::Result<String> {
     Ok(replace_home_with_tilde(&moonrun_path, &user_home))
 }
 
-pub fn run_version(cmd: VersionSubcommand) -> anyhow::Result<i32> {
+/// Single place to print the unstable footer (features + notice) for non-JSON output.
+fn print_unstable_footer(flags: &UniversalFlags) {
+    let features = flags.unstable_feature.to_string();
+    if features.is_empty() {
+        return;
+    }
+
+    println!();
+    println!("Feature flags enabled: {features}");
+    if flags.unstable_feature.rupes_recta {
+        println!(
+            "-> You're currently using the experimental build graph generator \"Rupes Recta\" \
+            (`-Z rupes_recta` or `NEW_MOON=1` set). \
+            If you encounter a problem, \
+            please verify whether it also reproduces with the legacy build."
+        )
+    }
+}
+
+pub fn run_version(flags: &UniversalFlags, cmd: VersionSubcommand) -> anyhow::Result<i32> {
     let VersionSubcommand {
         all: all_flag,
         json: json_flag,
@@ -89,6 +109,7 @@ pub fn run_version(cmd: VersionSubcommand) -> anyhow::Result<i32> {
     match (all_flag, json_flag) {
         (false, false) => {
             println!("moon {moon_version}");
+            print_unstable_footer(flags);
         }
         (true, false) => {
             let moon_pilot_path = which_global("moon-pilot");
@@ -114,6 +135,7 @@ pub fn run_version(cmd: VersionSubcommand) -> anyhow::Result<i32> {
                     );
                 }
             }
+            print_unstable_footer(flags);
         }
         (false, true) => {
             let items = moonutil::common::VersionItems {
@@ -129,9 +151,8 @@ pub fn run_version(cmd: VersionSubcommand) -> anyhow::Result<i32> {
             };
             println!(
                 "{}",
-                serde_json_lenient::to_string(&items).context(format!(
-                    "failed to serialize version info to JSON: {items:#?}"
-                ))?
+                serde_json_lenient::to_string(&items)
+                    .context("failed to serialize version info to JSON")?
             );
         }
         (true, true) => {
@@ -168,9 +189,8 @@ pub fn run_version(cmd: VersionSubcommand) -> anyhow::Result<i32> {
             };
             println!(
                 "{}",
-                serde_json_lenient::to_string(&items).context(format!(
-                    "failed to serialize version info to JSON: {items:#?}"
-                ))?
+                serde_json_lenient::to_string(&items)
+                    .context("failed to serialize version info to JSON")?
             );
         }
     }
