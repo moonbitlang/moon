@@ -140,17 +140,6 @@ pub(crate) fn discover_packages_for_mod(
             }
         }
 
-        // Check if this directory is a package
-        let pkg_json_path = abs_path.join(MOON_PKG_JSON);
-        if !pkg_json_path.exists() {
-            debug!(
-                "Skipping {} because it does not contain {}",
-                abs_path.display(),
-                MOON_PKG_JSON
-            );
-            continue;
-        }
-
         // Avoid descending into another module
         let mod_json_path = abs_path.join(MOON_MOD_JSON);
         if mod_json_path.exists() && rel_path != "" {
@@ -160,6 +149,17 @@ pub(crate) fn discover_packages_for_mod(
                 MOON_MOD_JSON
             );
             walkdir.skip_current_dir();
+            continue;
+        }
+
+        // Check if this directory is a package
+        let pkg_json_path = abs_path.join(MOON_PKG_JSON);
+        if !pkg_json_path.exists() {
+            debug!(
+                "Skipping {} because it does not contain {}",
+                abs_path.display(),
+                MOON_PKG_JSON
+            );
             continue;
         }
 
