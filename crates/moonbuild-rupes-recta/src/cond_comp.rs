@@ -114,7 +114,7 @@ pub(crate) fn file_metadatas<'a>(
         } else {
             let (backend, remaining) = get_file_target_backend(without_mbt);
             let cond = MetadataCompileCondition {
-                backend: backend.into_iter().collect(),
+                backend: backend.map_or_else(|| TargetBackend::all().into(), |x| vec![x]),
                 optlevel: OptLevel::all().to_vec(),
             };
             (cond, remaining)
