@@ -68,6 +68,19 @@ impl PackageFQN {
     pub fn segments(&self) -> impl Iterator<Item = &str> {
         self.module.name().segments().chain(self.package.segments())
     }
+
+    /// Check if `self` can import `dependency`, according to the
+    /// internal-imports rule.
+    ///
+    /// internal imports only works between packages of the same module. If
+    /// packages come from different modules, any `internal` packages should not
+    /// be able to be imported.
+    ///
+    /// See the details of the rule in `docs/dev/reference/modules-packages.md`.
+    pub fn can_import(&self, dependency: &Self) -> bool {
+        let same_module = self.module == dependency.module;
+        self.package.can_import(&dependency.package, same_module)
+    }
 }
 
 impl std::fmt::Display for PackageFQN {
@@ -329,6 +342,39 @@ impl PackagePath {
         let last_slash_start = self.value.rfind(PACKAGE_SEGMENT_SEP).unwrap_or(0);
         unsafe { Some(Self::new_unchecked(&self.value[..last_slash_start])) }
     }
+
+    /// Check if `self` can import `dependency`, according to the
+    /// internal-imports rule.
+    ///
+    /// internal imports only works between packages of the same module. If
+    /// packages come from different modules, any `internal` packages should not
+    /// be able to be imported.
+    ///
+    /// See the details of the rule in `docs/dev/reference/modules-packages.md`.
+    pub fn can_import(&self, dependency: &PackagePath, same_module: bool) -> bool {
+        // Determine if `dependency` has an internal component, get the last
+        // `internal` segment within the path.
+        let mut internal_pos = None;
+        for (ix, seg) in dependency.segments().enumerate() {
+            if seg == "internal" {
+                internal_pos = Some(ix)
+            }
+        }
+
+        // If no internal is detected, import is allowed
+        let Some(internal_pos) = internal_pos else {
+            return true;
+        };
+        // If not in the same module, internal import is forbidden.
+        if !same_module {
+            return false;
+        }
+
+        // Now we check if path segments match before the internal segment
+        self.segments()
+            .take(internal_pos)
+            .eq(dependency.segments().take(internal_pos))
+    }
 }
 
 impl std::fmt::Display for PackagePath {
@@ -368,6 +414,7 @@ pub enum PackagePathParseError {
 #[allow(clippy::unwrap_used)]
 mod test {
     use super::*;
+    // Be explicit to avoid any module path ambiguity in tests.
     use PackagePathParseError::*;
 
     fn assert_valid_pkg_path(s: &str) -> PackagePath {
@@ -565,5 +612,51 @@ mod test {
         let package = assert_valid_pkg_path("core");
         let fqn = PackageFQN::new(module, package);
         assert_eq!(fqn.short_alias(), "core");
+    }
+
+    fn mk_fqn(module: &str, pkg_path: &str) -> PackageFQN {
+        let module = ModuleSource::from_str(module).unwrap();
+        let pkg: PackagePath = pkg_path.parse().unwrap();
+        PackageFQN::new(module, pkg)
+    }
+
+    // Tests directly mirroring the examples table in the documentation:
+    // docs/dev/reference/modules-packages.md (Internal packages).
+    #[test]
+    fn test_internal_examples_from_docs() {
+        // user/pkg/a            -> user/pkg/b            : Yes, no internal involved
+        assert!(mk_fqn("user/pkg@0.1.0", "a").can_import(&mk_fqn("user/pkg@0.1.0", "b")));
+
+        // user/another/e        -> user/pkg/a            : Yes, no internal involved
+        assert!(mk_fqn("user/another@0.1.0", "e").can_import(&mk_fqn("user/pkg@0.1.0", "a")));
+
+        // user/pkg/a            -> user/pkg/a/internal   : Yes, shares common prefix
+        assert!(mk_fqn("user/pkg@0.1.0", "a").can_import(&mk_fqn("user/pkg@0.1.0", "a/internal")));
+
+        // user/pkg/a            -> user/pkg/a/internal/b : Yes, shares common prefix
+        assert!(mk_fqn("user/pkg@0.1.0", "a").can_import(&mk_fqn("user/pkg@0.1.0", "a/internal/b")));
+
+        // user/pkg/a/internal/b -> user/pkg/a/internal/c : Yes, shares common prefix
+        assert!(mk_fqn("user/pkg@0.1.0", "a/internal/b")
+            .can_import(&mk_fqn("user/pkg@0.1.0", "a/internal/c")));
+
+        // user/pkg/a/internal/b -> user/pkg/a            : Yes, no internal involved
+        assert!(mk_fqn("user/pkg@0.1.0", "a/internal/b").can_import(&mk_fqn("user/pkg@0.1.0", "a")));
+
+        // user/pkg/a/internal/b -> user/pkg/d            : Yes, no internal involved
+        assert!(mk_fqn("user/pkg@0.1.0", "a/internal/b").can_import(&mk_fqn("user/pkg@0.1.0", "d")));
+
+        // user/pkg/d            -> user/pkg/a/internal/b : No, no common prefix up to internal
+        assert!(
+            !mk_fqn("user/pkg@0.1.0", "d").can_import(&mk_fqn("user/pkg@0.1.0", "a/internal/b"))
+        );
+
+        // user/pkg/d/internal/f -> user/pkg/a/internal/b : No, no common prefix up to internal
+        assert!(!mk_fqn("user/pkg@0.1.0", "d/internal/f")
+            .can_import(&mk_fqn("user/pkg@0.1.0", "a/internal/b")));
+
+        // user/another/e        -> user/pkg/a/internal/b : No, different module
+        assert!(!mk_fqn("user/another@0.1.0", "e")
+            .can_import(&mk_fqn("user/pkg@0.1.0", "a/internal/b")));
     }
 }
