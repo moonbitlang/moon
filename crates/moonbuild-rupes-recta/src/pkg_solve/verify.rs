@@ -26,7 +26,7 @@ use petgraph::visit::IntoNodeIdentifiers;
 
 use crate::{
     discover::DiscoverResult,
-    model::BuildTarget,
+    model::{BuildTarget, PackageId},
     pkg_solve::{
         model::{DepRelationship, SolveError},
         DepEdge,
@@ -53,6 +53,8 @@ pub fn verify(dep: &DepRelationship, packages: &DiscoverResult) -> Result<(), So
 
     verify_no_duplicated_alias(dep, packages, &mut errs);
     debug!("Done uniqueness verification");
+    verify_no_forbidden_internal_imports(dep, packages, &mut errs);
+    debug!("Done internal import verification");
 
     debug!("Package dependency graph verification completed successfully");
     if errs.is_empty() {
@@ -169,6 +171,47 @@ fn verify_no_duplicated_alias(
                 Entry::Vacant(vacant_entry) => {
                     vacant_entry.insert((from, edge));
                 }
+            }
+        }
+    }
+}
+
+/// Verify no forbidden internal imports between package pairs.
+///
+/// TODO: Need to re-asses if this is better reported here or in solver
+fn verify_no_forbidden_internal_imports(
+    dep: &DepRelationship,
+    packages: &DiscoverResult,
+    errs: &mut Vec<SolveError>,
+) {
+    // De-duplicate by (importer package, dependency package) so we don't spam
+    // errors for different target kinds of the same package pair.
+    let mut seen: HashSet<(PackageId, PackageId)> = HashSet::new();
+
+    for node in dep.dep_graph.node_identifiers() {
+        for (from, to, _edge) in dep
+            .dep_graph
+            .edges_directed(node, petgraph::Direction::Outgoing)
+        {
+            let pair = (from.package, to.package);
+            if !seen.insert(pair) {
+                continue;
+            }
+
+            let importer_pkg = packages.get_package(from.package);
+            let dependency_pkg = packages.get_package(to.package);
+
+            let same_module = importer_pkg.module == dependency_pkg.module;
+            let importer_path = importer_pkg.fqn.package();
+            let dependency_path = dependency_pkg.fqn.package();
+
+            if !importer_path.can_import(dependency_path, same_module) {
+                errs.push(SolveError::InternalImportForbidden {
+                    importer_node: from,
+                    importer: packages.fqn(from.package).into(),
+                    dependency_node: to,
+                    dependency: packages.fqn(to.package).into(),
+                });
             }
         }
     }
