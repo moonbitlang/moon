@@ -54,64 +54,6 @@ pub struct BundleSubcommand {
 
 #[instrument(skip_all)]
 pub fn run_bundle(cli: UniversalFlags, cmd: BundleSubcommand) -> anyhow::Result<i32> {
-    if cli.unstable_feature.rupes_recta {
-        run_bundle_rr(cli, cmd)
-    } else {
-        run_bundle_legacy(cli, cmd)
-    }
-}
-
-#[instrument(skip_all)]
-pub fn run_bundle_rr(cli: UniversalFlags, cmd: BundleSubcommand) -> anyhow::Result<i32> {
-    let PackageDirs {
-        source_dir,
-        target_dir,
-    } = cli.source_tgt_dir.try_into_package_dirs()?;
-
-    let preconfig = rr_build::preconfig_compile(
-        &cmd.auto_sync_flags,
-        &cli,
-        &cmd.build_flags,
-        &target_dir,
-        OptLevel::Release,
-        RunMode::Build,
-    );
-    let (_build_meta, build_graph) = rr_build::plan_build(
-        preconfig,
-        &cli.unstable_feature,
-        &source_dir,
-        &target_dir,
-        Box::new(|_r, m| {
-            Ok(m.iter()
-                .map(|&mid| UserIntent::Bundle(mid))
-                .collect::<Vec<_>>()
-                .into())
-        }),
-    )?;
-
-    if cli.dry_run {
-        rr_build::print_dry_run(
-            &build_graph,
-            _build_meta.artifacts.values(),
-            &source_dir,
-            &target_dir,
-        );
-        Ok(0)
-    } else {
-        let _lock = FileLock::lock(&target_dir)?;
-
-        let result = rr_build::execute_build(
-            &BuildConfig::from_flags(&cmd.build_flags, &cli.unstable_feature),
-            build_graph,
-            &target_dir,
-        )?;
-        result.print_info(cli.quiet, "bundling")?;
-        Ok(result.return_code_for_success())
-    }
-}
-
-#[instrument(skip_all)]
-pub fn run_bundle_legacy(cli: UniversalFlags, cmd: BundleSubcommand) -> anyhow::Result<i32> {
     let PackageDirs {
         source_dir,
         target_dir,
@@ -149,8 +91,71 @@ pub fn run_bundle_legacy(cli: UniversalFlags, cmd: BundleSubcommand) -> anyhow::
     Ok(ret_value)
 }
 
+#[instrument(skip_all)]
+pub fn run_bundle_internal(
+    cli: &UniversalFlags,
+    cmd: &BundleSubcommand,
+    source_dir: &Path,
+    target_dir: &Path,
+) -> anyhow::Result<i32> {
+    if cli.unstable_feature.rupes_recta {
+        run_bundle_internal_rr(cli, cmd, source_dir, target_dir)
+    } else {
+        run_bundle_internal_legacy(cli, cmd, source_dir, target_dir)
+    }
+}
+
+#[instrument(skip_all)]
+pub fn run_bundle_internal_rr(
+    cli: &UniversalFlags,
+    cmd: &BundleSubcommand,
+    source_dir: &Path,
+    target_dir: &Path,
+) -> anyhow::Result<i32> {
+    let preconfig = rr_build::preconfig_compile(
+        &cmd.auto_sync_flags,
+        cli,
+        &cmd.build_flags,
+        target_dir,
+        OptLevel::Release,
+        RunMode::Build,
+    );
+    let (_build_meta, build_graph) = rr_build::plan_build(
+        preconfig,
+        &cli.unstable_feature,
+        source_dir,
+        target_dir,
+        Box::new(|_r, m| {
+            Ok(m.iter()
+                .map(|&mid| UserIntent::Bundle(mid))
+                .collect::<Vec<_>>()
+                .into())
+        }),
+    )?;
+
+    if cli.dry_run {
+        rr_build::print_dry_run(
+            &build_graph,
+            _build_meta.artifacts.values(),
+            source_dir,
+            target_dir,
+        );
+        Ok(0)
+    } else {
+        let _lock = FileLock::lock(target_dir)?;
+
+        let result = rr_build::execute_build(
+            &BuildConfig::from_flags(&cmd.build_flags, &cli.unstable_feature),
+            build_graph,
+            target_dir,
+        )?;
+        result.print_info(cli.quiet, "bundling")?;
+        Ok(result.return_code_for_success())
+    }
+}
+
 #[instrument(level = Level::DEBUG, skip_all)]
-fn run_bundle_internal(
+fn run_bundle_internal_legacy(
     cli: &UniversalFlags,
     cmd: &BundleSubcommand,
     source_dir: &Path,
