@@ -23,9 +23,10 @@ use std::{
     path::{Path, PathBuf},
 };
 
+use anyhow::Context;
 use arcstr::ArcStr;
 use moonutil::{
-    common::{DEP_PATH, MOONBITLANG_CORE},
+    common::{FileLock, DEP_PATH, MOONBITLANG_CORE},
     moon_dir,
     mooncakes::{result::ResolvedEnv, DirSyncResult, ModuleSource, ModuleSourceKind},
 };
@@ -202,6 +203,13 @@ pub fn sync_deps(
 ) -> anyhow::Result<()> {
     // Ensure the directory exists.
     std::fs::create_dir_all(dep_dir.path())?;
+    // Lock with a file within the directory
+    let _lock = FileLock::lock(dep_dir.path()).with_context(|| {
+        format!(
+            "Unable to lock folder `{}` for downloading dependencies",
+            dep_dir.path().display()
+        )
+    })?;
 
     let target_dep_dir = pkg_list_to_dep_dir_state(pkg_list.all_modules());
     let current_dep_dir = dep_dir.get_current_state()?;
@@ -248,6 +256,8 @@ pub fn sync_deps(
             // TODO: parallelize this
         }
     }
+
+    drop(_lock);
 
     Ok(())
 }
