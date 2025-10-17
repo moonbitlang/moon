@@ -3,6 +3,7 @@ const console = {
     elog: (x) => console_elog(x),
     log: (x) => console_log(x),
 };
+let memory;
 const spectest = {
     spectest: {
         print_char: (x) => print(x),
@@ -27,6 +28,24 @@ const spectest = {
     console: {
         log: (x) => console.log(x),
     },
+    "wasi_snapshot_preview1": {
+        "random_get": (buf, buf_len) => {
+            get_random_values(new Uint8Array(memory.buffer, buf, buf_len));
+            return 0;
+        }
+    },
+    "wasi:random/insecure-seed@0.2.0": {
+        "insecure-seed": (addr) => {
+            get_random_values(new Uint8Array(memory.buffer, addr, 16));
+        }
+    },
+    "moonbit:ffi": {
+        "insecure_seed": () => {
+            let bytes = new BigUint64Array(1);
+            get_random_values(new Uint8Array(bytes.buffer));
+            return bytes[0];
+        }
+    }
 };
 
 try {
@@ -35,6 +54,7 @@ try {
     }
     let module = new WebAssembly.Module(bytes, { builtins: ['js-string'], importedStringConstants: "_" });
     let instance = new WebAssembly.Instance(module, spectest);
+    memory = instance.exports.memory;
     if (test_mode) {
         for (param of testParams) {
             try {
@@ -63,5 +83,5 @@ catch (e) {
         }
     }
     __moonbit_sys_unstable.exit(1);
-    
+
 }
