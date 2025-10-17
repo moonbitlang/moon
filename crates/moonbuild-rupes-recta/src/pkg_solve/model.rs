@@ -145,6 +145,17 @@ pub enum SolveError {
         second_override: PackageFQNWithSource,
     },
 
+    #[error(
+        "Forbidden internal import: package {importer} ({importer_node:?}) \
+cannot import {dependency} ({dependency_node:?}) due to internal visibility rules"
+    )]
+    InternalImportForbidden {
+        importer_node: BuildTarget,
+        importer: PackageFQNWithSource,
+        dependency_node: BuildTarget,
+        dependency: PackageFQNWithSource,
+    },
+
     #[error("Multiple errors occurred during package solving: {0}")]
     Multiple(MultipleError),
 }
