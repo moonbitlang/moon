@@ -26,6 +26,8 @@
 // Specifically allow file I/O here, because that what this module is about.
 #![allow(clippy::disallowed_types, clippy::disallowed_methods)]
 
+mod speical_case;
+
 use std::{
     collections::HashMap,
     path::{Path, PathBuf},

@@ -114,6 +114,12 @@ impl FromStr for ModuleName {
     }
 }
 
+impl PartialEq<(&str, &str)> for ModuleName {
+    fn eq(&self, other: &(&str, &str)) -> bool {
+        self.username == other.0 && self.unqual == other.1
+    }
+}
+
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum ModuleSourceKind {
     /// Module comes from some registry. If param is `None`, it comes from the default

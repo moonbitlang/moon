@@ -38,6 +38,7 @@ const BUILTIN: &str = "builtin";
 const COVERAGE: &str = "coverage";
 const PRELUDE: &str = "prelude";
 pub const CORE_MODULE: &str = "moonbitlang/core";
+pub const CORE_MODULE_TUPLE: (&str, &str) = (MOONBIT, CORE);
 
 /// Libraries that should not be tested
 const SKIP_TEST_LIBS: &[(&str, &str, &str)] = &[(MOONBIT, CORE, ABORT)];
