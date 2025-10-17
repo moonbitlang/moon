@@ -300,7 +300,7 @@ fn mvs_resolve(
     log::debug!("Building result dependency graph");
 
     // And finally, build the dependency graph
-    let mut builder = super::result::ResolvedEnv::builder();
+    let mut builder = super::result::ResolvedEnv::new();
     let mut working_list = vec![];
     // id is inserted on first see;
     // may contain items still in working list instead of fully resolved
@@ -361,7 +361,7 @@ fn mvs_resolve(
 
     log::debug!("Finished MVS solving");
 
-    Some(builder.build())
+    Some(builder)
 }
 
 fn resolve_pkg(

@@ -381,67 +381,50 @@ pub mod result {
             self.mapping.iter().map(|(_id, src)| &src.source)
         }
 
-        pub fn builder() -> ResolvedEnvBuilder {
-            ResolvedEnvBuilder::new()
-        }
-
         pub fn only_one_module(ms: ModuleSource, module: MoonMod) -> (ResolvedEnv, ModuleId) {
-            let mut builder = Self::builder();
+            let mut builder = Self::new();
             let id = builder.add_module(ms, Arc::new(module));
-            let res = builder.build();
-            (res, id)
+            (builder, id)
         }
 
         pub fn module_count(&self) -> usize {
             self.mapping.len()
         }
-    }
 
-    pub struct ResolvedEnvBuilder {
-        env: ResolvedEnv,
-    }
-
-    impl ResolvedEnvBuilder {
         pub fn new() -> Self {
             Self {
-                env: ResolvedEnv {
-                    input_module_ids: Vec::new(),
-                    mapping: SlotMap::with_key(),
-                    dep_graph: DiGraphMap::new(),
-                    rev_map: HashMap::new(),
-                },
+                input_module_ids: Vec::new(),
+                mapping: SlotMap::with_key(),
+                dep_graph: DiGraphMap::new(),
+                rev_map: HashMap::new(),
             }
         }
 
         pub fn push_root_module(&mut self, id: ModuleId) {
-            self.env.input_module_ids.push(id);
+            self.input_module_ids.push(id);
         }
 
         pub fn add_module(&mut self, mod_source: ModuleSource, module: Arc<MoonMod>) -> ModuleId {
             // check if it's already inserted
-            if let Some(id) = self.env.rev_map.get(&mod_source) {
+            if let Some(id) = self.rev_map.get(&mod_source) {
                 *id
             } else {
                 let val = ResolvedModule {
                     source: mod_source.clone(),
                     value: module,
                 };
-                let id = self.env.mapping.insert(val);
-                self.env.rev_map.insert(mod_source, id);
+                let id = self.mapping.insert(val);
+                self.rev_map.insert(mod_source, id);
                 id
             }
         }
 
         pub fn add_dependency(&mut self, from: ModuleId, to: ModuleId, key: &DependencyKey) {
-            self.env.dep_graph.add_edge(from, to, key.to_owned());
-        }
-
-        pub fn build(self) -> ResolvedEnv {
-            self.env
+            self.dep_graph.add_edge(from, to, key.to_owned());
         }
     }
 
-    impl Default for ResolvedEnvBuilder {
+    impl Default for ResolvedEnv {
         fn default() -> Self {
             Self::new()
         }
