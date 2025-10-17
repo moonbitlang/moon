@@ -27,7 +27,8 @@ use colored::Colorize;
 use moonutil::{
     dependency::SourceDependencyInfo,
     module::MoonMod,
-    mooncakes::{ModuleName, ModuleSource, ModuleSourceKind},
+    moon_dir::core,
+    mooncakes::{result::ResolvedEnv, ModuleName, ModuleSource, ModuleSourceKind},
     version::as_caret_comparator,
 };
 use semver::Version;
@@ -43,9 +44,10 @@ impl Resolver for MvsSolver {
     fn resolve(
         &mut self,
         env: &mut ResolverEnv,
+        res: &mut ResolvedEnv,
         root: &[(ModuleSource, Arc<MoonMod>)],
-    ) -> Option<super::result::ResolvedEnv> {
-        mvs_resolve(env, root)
+    ) -> bool {
+        mvs_resolve(env, res, root)
     }
 }
 
@@ -113,6 +115,7 @@ fn local_dep_allowed(dependant: &ModuleSource) -> bool {
         ModuleSourceKind::Registry(_) => false,
         ModuleSourceKind::Local(_) => true,
         ModuleSourceKind::Git(_) => true,
+        ModuleSourceKind::Stdlib => true,
     }
 }
 
@@ -122,6 +125,7 @@ fn git_dep_allowed(dependant: &ModuleSource) -> bool {
         ModuleSourceKind::Registry(_) => false,
         ModuleSourceKind::Local(_) => true,
         ModuleSourceKind::Git(_) => true,
+        ModuleSourceKind::Stdlib => true,
     }
 }
 
@@ -136,6 +140,7 @@ fn root_path_of(dependant: &ModuleSource) -> PathBuf {
         ModuleSourceKind::Git(repo) => {
             todo!("Resolve local downloaded path for git repo: {}", repo)
         }
+        ModuleSourceKind::Stdlib => core(),
     }
 }
 
@@ -192,8 +197,9 @@ fn warn_about_skipped_local_or_git_dep(ms: &ModuleSource) {
 
 fn mvs_resolve(
     env: &mut ResolverEnv,
+    res: &mut ResolvedEnv,
     root: &[(ModuleSource, Arc<MoonMod>)],
-) -> Option<super::result::ResolvedEnv> {
+) -> bool {
     // Ordered set used to ensure they are iterated in order later.
     let mut gathered_versions = HashMap::<ModuleName, BTreeSet<ModuleSourceOrdWrapper>>::new();
 
@@ -258,7 +264,7 @@ fn mvs_resolve(
 
     if env.any_errors() {
         log::warn!("Errors in MVS dependency solving, bailing out.");
-        return None;
+        return false;
     }
 
     log::debug!("Selecting minimal version for each set of compatible versions");
@@ -300,7 +306,6 @@ fn mvs_resolve(
     log::debug!("Building result dependency graph");
 
     // And finally, build the dependency graph
-    let mut builder = super::result::ResolvedEnv::new();
     let mut working_list = vec![];
     // id is inserted on first see;
     // may contain items still in working list instead of fully resolved
@@ -309,11 +314,11 @@ fn mvs_resolve(
     log::debug!("-- Inserting root modules");
     // Insert ID for root modules
     for (ms, module) in root {
-        let id = builder.add_module(ms.clone(), Arc::clone(module));
+        let id = res.add_module(ms.clone(), Arc::clone(module));
         log::debug!("---- {} -> {:?}", ms, id);
         working_list.push((Arc::clone(module), ms.clone()));
         visited.insert(ms, id);
-        builder.push_root_module(id);
+        res.push_root_module(id);
     }
 
     log::debug!("-- Inserting dependencies");
@@ -346,7 +351,7 @@ fn mvs_resolve(
                 *id
             } else {
                 let dep_module = env.get(resolved).unwrap();
-                let id = builder.add_module(resolved.clone(), Arc::clone(&dep_module));
+                let id = res.add_module(resolved.clone(), Arc::clone(&dep_module));
                 log::debug!("---- {} -> {:?}", resolved, id);
                 visited.insert(resolved, id);
                 working_list.push((dep_module, resolved.clone()));
@@ -355,13 +360,13 @@ fn mvs_resolve(
             log::debug!("---- {}.deps[{}] = {}", pkg, dep_name, resolved);
 
             // Add dependency
-            builder.add_dependency(curr_id, id, &dep_name);
+            res.add_dependency(curr_id, id, &dep_name);
         }
     }
 
     log::debug!("Finished MVS solving");
 
-    Some(builder)
+    true
 }
 
 fn resolve_pkg(
@@ -423,6 +428,7 @@ fn resolve_pkg(
 #[cfg(test)]
 mod test {
     use expect_test::expect;
+    use moonutil::mooncakes::result::DependencyKey;
     use moonutil::mooncakes::ModuleId;
     use petgraph::dot::{Config, Dot};
     use test_log::test;
@@ -431,7 +437,6 @@ mod test {
     use crate::registry::mock::{create_mock_module, MockRegistry};
     use crate::registry::RegistryList;
     use crate::resolver::env::ResolverEnv;
-    use crate::resolver::result::{DependencyKey, ResolvedEnv};
     use crate::resolver::ResolverErrors;
 
     fn create_mock_registry() -> RegistryList {
@@ -472,7 +477,10 @@ mod test {
             .unwrap();
         let roots = vec![(root_ms.clone(), root)];
         let mut env = ResolverEnv::new(&registry);
-        let result = resolver.resolve(&mut env, &roots).expect("Resolve failed");
+        let mut result_env = ResolvedEnv::new();
+        let status = resolver.resolve(&mut env, &mut result_env, &roots);
+        assert!(status, "Resolve failed");
+        let result = result_env;
 
         let id = result
             .all_modules_and_id()
@@ -647,7 +655,10 @@ mod test {
         let mut resolver = MvsSolver;
         let root = create_mock_module("root/module", "0.1.0", [("dep/one", "0.1.1")]);
         let roots = create_mock_root(root);
-        let result = resolver.resolve(&mut env, &roots).expect("Resolve failed");
+        let mut result_env = ResolvedEnv::new();
+        let status = resolver.resolve(&mut env, &mut result_env, &roots);
+        assert!(status, "Resolve failed");
+        let result = result_env;
         assert_depends_on(&result, "root/module@0.1.0", "dep/one@0.1.1");
     }
 
@@ -662,7 +673,10 @@ mod test {
             [("dep/one", "0.1.1"), ("dep/two", "0.1.1")],
         );
         let roots = create_mock_root(root);
-        let result = resolver.resolve(&mut env, &roots).expect("Resolve failed");
+        let mut result_env = ResolvedEnv::new();
+        let status = resolver.resolve(&mut env, &mut result_env, &roots);
+        assert!(status, "Resolve failed");
+        let result = result_env;
 
         // dep/two depend on dep/one@0.1.3, so the result
         // should be dep/one@0.1.3 instead of 0.1.1
@@ -682,7 +696,10 @@ mod test {
             [("dep/one", "0.2.1"), ("dep/two", "0.1.1")],
         );
         let roots = create_mock_root(root);
-        let result = resolver.resolve(&mut env, &roots).expect("Resolve failed");
+        let mut result_env = ResolvedEnv::new();
+        let status = resolver.resolve(&mut env, &mut result_env, &roots);
+        assert!(status, "Resolve failed");
+        let result = result_env;
 
         // dep/one@0.2.1 is incompatible with dep/two@0.1.1, so there should be
         // two dep/one instances: one is 0.2.1 depended by root/module, and the other
@@ -703,8 +720,9 @@ mod test {
             [("dep/one", "0.1.1"), ("dep/nonexistant", "0.1.1")],
         );
         let roots = create_mock_root(root);
-        let result = resolver.resolve(&mut env, &roots);
-        assert!(result.is_none());
+        let mut res_env = ResolvedEnv::new();
+        let status = resolver.resolve(&mut env, &mut res_env, &roots);
+        assert!(!status);
     }
 
     #[test]
@@ -714,7 +732,10 @@ mod test {
         let mut resolver = MvsSolver;
         let root = create_mock_module("root/module", "0.1.0", [("dep/three", "0.2.0")]);
         let roots = create_mock_root(root);
-        let result = resolver.resolve(&mut env, &roots).expect("Resolve failed");
+        let mut result_env = ResolvedEnv::new();
+        let status = resolver.resolve(&mut env, &mut result_env, &roots);
+        assert!(status, "Resolve failed");
+        let result = result_env;
 
         assert_depends_on(&result, "root/module@0.1.0", "dep/three@0.2.0");
         assert_depends_on(&result, "dep/two@0.2.0", "dep/one@0.2.0");
@@ -726,16 +747,14 @@ mod test {
         let mut resolver = MvsSolver;
         let mut env = ResolverEnv::new(registry);
         let roots = create_mock_root(root);
-        let result = resolver.resolve(&mut env, &roots);
-        match result {
-            Some(result) => {
-                let pkgs = result.all_modules().cloned().collect::<Vec<_>>();
-                pkgs
-            }
-            None => {
-                println!("Errors: {}", ResolverErrors(env.into_errors()));
-                vec![]
-            }
+        let mut res_env = ResolvedEnv::new();
+        let status = resolver.resolve(&mut env, &mut res_env, &roots);
+        if status {
+            let pkgs = res_env.all_modules().cloned().collect::<Vec<_>>();
+            pkgs
+        } else {
+            println!("Errors: {}", ResolverErrors(env.into_errors()));
+            vec![]
         }
     }
 

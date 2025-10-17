@@ -114,6 +114,12 @@ impl FromStr for ModuleName {
     }
 }
 
+impl PartialEq<(&str, &str)> for ModuleName {
+    fn eq(&self, other: &(&str, &str)) -> bool {
+        self.username == other.0 && self.unqual == other.1
+    }
+}
+
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum ModuleSourceKind {
     /// Module comes from some registry. If param is `None`, it comes from the default
@@ -124,6 +130,15 @@ pub enum ModuleSourceKind {
     Git(String),
     /// Module comes from a local path. The path must be absolute.
     Local(PathBuf),
+
+    /// This module is the standard library.
+    ///
+    /// Since the standard library is prebuilt during installation, it is
+    /// handled specially. Setting this skips some default behaviors designed
+    /// for regular modules.
+    ///
+    /// TODO: Evaluate if this design is sound
+    Stdlib,
 }
 
 impl Default for ModuleSourceKind {
@@ -145,6 +160,7 @@ impl std::fmt::Display for ModuleSourceKind {
             ModuleSourceKind::Registry(Some(name)) => write!(f, "registry {name}"),
             ModuleSourceKind::Local(path) => write!(f, "local {}", path.display()),
             ModuleSourceKind::Git(url) => write!(f, "git {url}"),
+            ModuleSourceKind::Stdlib => write!(f, "standard library"),
         }
     }
 }
@@ -290,7 +306,7 @@ pub mod result {
     use petgraph::graphmap::DiGraphMap;
     use slotmap::SlotMap;
 
-    use crate::module::MoonMod;
+    use crate::{common::MOD_NAME_STDLIB, module::MoonMod};
 
     use super::{ModuleId, ModuleName, ModuleSource};
 
@@ -307,6 +323,10 @@ pub mod result {
     pub struct ResolvedEnv {
         /// The list of module IDs that are provided as the input to the resolver.
         input_module_ids: Vec<ModuleId>,
+        /// The module that is the standard library. `None` means the project is
+        /// compiled without a standard library.
+        stdlib: Option<ModuleId>,
+
         /// A reverse mapping to query the unique ID of a module from its source.
         rev_map: HashMap<ModuleSource, ModuleId>,
         /// The mapping from the unique IDs of modules to their source.
@@ -394,6 +414,7 @@ pub mod result {
         pub fn new() -> Self {
             Self {
                 input_module_ids: Vec::new(),
+                stdlib: None,
                 mapping: SlotMap::with_key(),
                 dep_graph: DiGraphMap::new(),
                 rev_map: HashMap::new(),
@@ -404,17 +425,30 @@ pub mod result {
             self.input_module_ids.push(id);
         }
 
+        /// Set the given module ID as the standard library. All modules
+        /// inserted afterwards will automatically depend on this module.
+        pub fn set_stdlib(&mut self, stdlib: ModuleId) {
+            self.stdlib = Some(stdlib)
+        }
+
         pub fn add_module(&mut self, mod_source: ModuleSource, module: Arc<MoonMod>) -> ModuleId {
             // check if it's already inserted
             if let Some(id) = self.rev_map.get(&mod_source) {
                 *id
             } else {
+                // Add module definition
                 let val = ResolvedModule {
                     source: mod_source.clone(),
                     value: module,
                 };
                 let id = self.mapping.insert(val);
                 self.rev_map.insert(mod_source, id);
+
+                // Add a dependency to the standard library module
+                if let Some(stdlib) = self.stdlib {
+                    self.dep_graph.add_edge(id, stdlib, MOD_NAME_STDLIB.clone());
+                }
+
                 id
             }
         }

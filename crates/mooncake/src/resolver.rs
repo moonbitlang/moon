@@ -20,6 +20,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use moonutil::module::MoonMod;
+use moonutil::mooncakes::result::ResolvedEnv;
 use moonutil::mooncakes::{result, ModuleName, ModuleSource};
 use semver::{Version, VersionReq};
 use thiserror::Error;
@@ -70,14 +71,18 @@ impl std::error::Error for ResolverErrors {}
 
 /// The dependency resolver.
 pub trait Resolver {
-    /// Resolves the dependencies of a package using the given environment.
+    /// Resolves the dependencies of a package using the given environment. The
+    /// function should write its results on `res`, which may be initialized
+    /// with other existing data earlier.
     ///
-    /// If the dependencies cannot be resolved, this function should return `None`.
+    /// If the dependencies cannot be resolved, this function should return
+    /// `false`. The errors should be emitted in `env`.
     fn resolve(
         &mut self,
         env: &mut ResolverEnv,
+        res: &mut ResolvedEnv,
         root: &[(ModuleSource, Arc<MoonMod>)],
-    ) -> Option<result::ResolvedEnv>;
+    ) -> bool;
 }
 
 /// Goes through the resolved environment and checks for any duplicate module names.
@@ -116,11 +121,14 @@ pub fn resolve_with_default_env(
     root: &[(ModuleSource, Arc<MoonMod>)],
 ) -> Result<result::ResolvedEnv, ResolverErrors> {
     let mut env = env::ResolverEnv::new(registries);
-    let res = resolver.resolve(&mut env, root);
+    let mut res = ResolvedEnv::new();
+    let status = resolver.resolve(&mut env, &mut res, root);
     if env.any_errors() {
         Err(ResolverErrors(env.into_errors()))
     } else {
-        let res = res.expect("Resolver should not return None when no errors were found");
+        if !status {
+            panic!("The resolver should not return `false` when no errors are found");
+        }
         assert_no_duplicate_module_names(&res)?;
         Ok(res)
     }

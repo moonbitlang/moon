@@ -27,7 +27,7 @@ use anyhow::Context;
 use arcstr::ArcStr;
 use moonutil::{
     common::{FileLock, DEP_PATH, MOONBITLANG_CORE},
-    moon_dir,
+    moon_dir::{self, core},
     mooncakes::{result::ResolvedEnv, DirSyncResult, ModuleSource, ModuleSourceKind},
 };
 use semver::Version;
@@ -108,6 +108,7 @@ fn pkg_list_to_dep_dir_state<'a>(
             ModuleSourceKind::Registry(_) => {}
             ModuleSourceKind::Local(_) => continue,
             ModuleSourceKind::Git(_) => continue, // TODO: git registries are resolved differently
+            ModuleSourceKind::Stdlib => continue,
         }
         let user = &pkg.name().username;
         let pkg_name = &pkg.name().unqual;
@@ -281,6 +282,7 @@ fn map_source_to_dir(dep_dir: &DepDir, module: &ModuleSource) -> PathBuf {
         ModuleSourceKind::Git(url) => {
             todo!("Git dependency is not yet supported. Got git url: {}", url)
         }
+        ModuleSourceKind::Stdlib => core(),
     }
 }
 
