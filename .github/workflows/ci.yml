@@ -433,3 +433,11 @@ jobs:
           cargo run --bin moon update
       - name: RR parity check
         run: cargo xtask test-rr-parity --compare-baseline xtask/rr_expected_failures.txt
+      - name: Upload RR parity logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: rr-parity-logs
+          path: target/rr-parity-logs
+          if-no-files-found: ignore
+          retention-days: 7
