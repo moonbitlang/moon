@@ -66,15 +66,21 @@ impl<'a> super::BuildPlanLowerContext<'a> {
         } else {
             info.files().map(|x| x.to_owned()).collect::<Vec<_>>()
         };
+        let patch_file = info.patch_file.as_deref().map(|x| x.into());
 
-        let cmd = compiler::MoonGenTestDriver::new(
-            &files_vec,
-            output_driver,
-            output_metadata,
-            self.opt.target_backend,
-            &pkg_full_name,
+        let cmd = compiler::MoonGenTestDriver {
+            files: &files_vec,
+            doctest_only_files: &info.doctest_files,
+            output_driver: output_driver.into(),
+            output_metadata: output_metadata.into(),
+            bench: false, // TODO
+            enable_coverage: self.opt.enable_coverage,
+            coverage_package_override: None, // TODO,
             driver_kind,
-        );
+            target_backend: self.opt.target_backend,
+            patch_file,
+            pkg_name: &pkg_full_name,
+        };
 
         BuildCommand {
             commandline: cmd.build_command("moon"),

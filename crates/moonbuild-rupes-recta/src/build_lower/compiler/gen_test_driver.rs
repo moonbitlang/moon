@@ -65,32 +65,6 @@ pub struct MoonGenTestDriver<'a> {
     pub patch_file: Option<Cow<'a, Path>>,
 }
 
-impl<'a> MoonGenTestDriver<'a> {
-    /// Create a new instance with only necessary fields populated, others as default
-    pub fn new(
-        files: &'a [PathBuf],
-        output_driver: impl Into<Cow<'a, Path>>,
-        output_metadata: impl Into<Cow<'a, Path>>,
-        target_backend: TargetBackend,
-        pkg_name: &'a str,
-        driver_kind: DriverKind,
-    ) -> Self {
-        Self {
-            files,
-            doctest_only_files: &[],
-            output_driver: output_driver.into(),
-            output_metadata: output_metadata.into(),
-            target_backend,
-            pkg_name,
-            bench: false,
-            enable_coverage: false,
-            coverage_package_override: None,
-            driver_kind,
-            patch_file: None,
-        }
-    }
-}
-
 impl<'a> CmdlineAbstraction for MoonGenTestDriver<'a> {
     fn to_args(&self, args: &mut Vec<String>) {
         args.push("generate-test-driver".into());
