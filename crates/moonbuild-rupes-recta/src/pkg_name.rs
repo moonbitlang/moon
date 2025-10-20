@@ -311,10 +311,12 @@ impl PackagePath {
     }
 
     /// Returns an iterator of segments of the package path.
-    pub fn segments(&self) -> impl DoubleEndedIterator<Item = &str> {
-        self.value
-            .split(PACKAGE_SEGMENT_SEP)
-            .filter(|x| !x.is_empty())
+    pub fn segments(&self) -> SegmentIter {
+        if self.is_empty() {
+            SegmentIter::Empty
+        } else {
+            SegmentIter::HasSegments(self.value.split(PACKAGE_SEGMENT_SEP))
+        }
     }
 
     /// Get the short name of this package, which is the last segment of the
@@ -408,6 +410,31 @@ pub enum PackagePathParseError {
 
     #[error("The provided path descends into its parent directory `..`")]
     PathDescendsIntoParent,
+}
+
+pub enum SegmentIter<'a> {
+    Empty,
+    HasSegments(std::str::Split<'a, char>),
+}
+
+impl<'a> Iterator for SegmentIter<'a> {
+    type Item = &'a str;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        match self {
+            Self::Empty => None,
+            Self::HasSegments(x) => x.next(),
+        }
+    }
+}
+
+impl<'a> DoubleEndedIterator for SegmentIter<'a> {
+    fn next_back(&mut self) -> Option<Self::Item> {
+        match self {
+            Self::Empty => None,
+            Self::HasSegments(x) => x.next_back(),
+        }
+    }
 }
 
 #[cfg(test)]
