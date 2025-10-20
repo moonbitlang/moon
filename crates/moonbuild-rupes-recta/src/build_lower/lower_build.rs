@@ -213,7 +213,6 @@ impl<'a> BuildPlanLowerContext<'a> {
             ),
             defaults: self.set_build_commons(package, info, is_main),
             mi_out: mi_output.into(),
-            is_third_party: false,
             single_file: false,
         };
 

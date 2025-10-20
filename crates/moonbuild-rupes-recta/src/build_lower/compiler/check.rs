@@ -37,7 +37,6 @@ pub struct MooncCheck<'a> {
     pub defaults: BuildCommonConfig<'a>,
     pub mi_out: Cow<'a, Path>,
 
-    pub is_third_party: bool,
     pub single_file: bool,
 }
 
@@ -57,7 +56,7 @@ impl<'a> MooncCheck<'a> {
         self.defaults.add_error_format(args);
 
         // Warning and alert handling (deny all combined)
-        self.defaults.add_warn_alert_deny_all_combined(args);
+        self.defaults.add_deny_all(args);
 
         // MBT source files
         self.required.add_mbt_sources(args);
@@ -70,16 +69,7 @@ impl<'a> MooncCheck<'a> {
 
         // Custom warning/alert lists
         self.defaults.add_custom_warn_alert_lists(args);
-
-        // Third-party package handling
-        if self.is_third_party {
-            args.extend([
-                "-w".to_string(),
-                "-a".to_string(),
-                "-alert".to_string(),
-                "-all".to_string(),
-            ]);
-        }
+        self.defaults.add_warn_alert_allow_all(args);
 
         // Output
         args.extend(["-o".to_string(), self.mi_out.display().to_string()]);

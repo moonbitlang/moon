@@ -241,7 +241,7 @@ impl<'a> BuildCommonConfig<'a> {
     }
 
     /// Add warning/alert deny all arguments (combined)
-    pub fn add_warn_alert_deny_all_combined(&self, args: &mut Vec<String>) {
+    pub fn add_deny_all(&self, args: &mut Vec<String>) {
         if self.deny_warn {
             args.extend([
                 "-w".to_string(),
