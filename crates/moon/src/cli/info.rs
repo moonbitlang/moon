@@ -38,6 +38,7 @@ use moonutil::{
     mooncakes::{sync::AutoSyncFlags, RegistryConfig},
     package::Package,
 };
+use tracing::warn;
 
 use crate::{
     cli::BuildFlags,
@@ -53,7 +54,10 @@ pub struct InfoSubcommand {
     pub auto_sync_flags: AutoSyncFlags,
 
     /// Do not use alias to shorten package names in the output
-    #[clap(long)]
+    ///
+    /// Deprecated: this has been created for AI stuff, and doesn't seem to be
+    /// used recently.
+    #[clap(long, hide = true)]
     pub no_alias: bool,
 
     #[clap(skip)]
@@ -70,6 +74,10 @@ pub struct InfoSubcommand {
 }
 
 pub fn run_info(cli: UniversalFlags, cmd: InfoSubcommand) -> anyhow::Result<i32> {
+    if cmd.no_alias {
+        warn!("`--no-alias` will be removed soon. See: https://github.com/moonbitlang/moon/issues/1092");
+    }
+
     if cli.unstable_feature.rupes_recta {
         run_info_rr(cli, cmd)
     } else {

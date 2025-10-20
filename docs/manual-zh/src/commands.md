@@ -318,7 +318,6 @@ Generate public interface (`.mbti`) files for all packages in the module
 ###### **Options:**
 
 * `--frozen` — Do not sync dependencies, assuming local dependencies are up-to-date
-* `--no-alias` — Do not use alias to shorten package names in the output
 * `--target <TARGET>` — Select output target
 
   Possible values: `wasm`, `wasm-gc`, `js`, `native`, `llvm`, `all`
