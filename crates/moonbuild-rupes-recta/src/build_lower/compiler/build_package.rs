@@ -55,7 +55,7 @@ impl<'a> MooncBuildPackage<'a> {
         self.defaults.add_error_format(args);
 
         // Warning and alert handling
-        self.defaults.add_warn_alert_deny_all_combined(args);
+        self.defaults.add_deny_all(args);
 
         // Input files
         self.required.add_mbt_sources(args);
