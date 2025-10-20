@@ -26,6 +26,7 @@ use std::path::Path;
 use std::process::Command;
 
 const MOON_UNSTABLE_RR: &str = "rupes_recta";
+const LOGS_ROOT: &str = "target/rr-parity-logs";
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
 struct TestSuiteEvent {
@@ -46,6 +47,22 @@ struct TestEvent {
     event_type: String,
     event: String,
     name: String,
+    #[serde(default)]
+    stdout: Option<String>,
+    #[serde(default)]
+    message: Option<String>,
+    #[serde(default)]
+    stderr: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+struct OutputEvent {
+    #[serde(rename = "type")]
+    event_type: String,
+    #[serde(default)]
+    name: Option<String>,
+    #[serde(default)]
+    message: Option<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -73,7 +90,11 @@ fn check_nightly_toolchain() -> Result<bool> {
     Ok(output.status.success())
 }
 
-fn run_cargo_test(with_moon_unstable: bool, cargo_args: &[String]) -> Result<TestResult> {
+fn run_cargo_test(
+    with_moon_unstable: bool,
+    cargo_args: &[String],
+    logs_dir: Option<&Path>,
+) -> Result<TestResult> {
     let mut cmd = Command::new("cargo");
     cmd.args(["+nightly", "test", "--workspace", "--no-fail-fast"]);
 
@@ -97,10 +118,10 @@ fn run_cargo_test(with_moon_unstable: bool, cargo_args: &[String]) -> Result<Tes
         .context("Failed to execute cargo test command")?;
 
     let stdout = String::from_utf8_lossy(&output.stdout);
-    parse_test_output(&stdout)
+    parse_test_output(&stdout, logs_dir)
 }
 
-fn parse_test_output(output: &str) -> Result<TestResult> {
+fn parse_test_output(output: &str, logs_dir: Option<&Path>) -> Result<TestResult> {
     let mut statistics = TestStatistics {
         passed: 0,
         failed: 0,
@@ -130,12 +151,57 @@ fn parse_test_output(output: &str) -> Result<TestResult> {
             continue;
         }
 
-        // Try to parse as TestEvent for individual test failures
-        if let Ok(test_event) = serde_json::from_str::<TestEvent>(line)
-            && test_event.event_type == "test"
-            && test_event.event == "failed"
+        let line = line.trim();
+        if line.is_empty() {
+            continue;
+        }
+
+        // Try typed suite event first
+        if let Ok(suite) = serde_json::from_str::<TestSuiteEvent>(line)
+            && suite.event_type == "suite"
         {
-            failed_tests.push(test_event.name);
+            statistics.passed += suite.passed;
+            statistics.failed += suite.failed;
+            statistics.ignored += suite.ignored;
+            statistics.measured += suite.measured;
+            statistics.filtered_out += suite.filtered_out;
+            statistics.exec_time += suite.exec_time;
+            continue;
+        }
+
+        // Try typed per-test event
+        if let Ok(test) = serde_json::from_str::<TestEvent>(line)
+            && test.event_type == "test"
+        {
+            if test.event == "failed" {
+                failed_tests.push(test.name.clone());
+            }
+            if let Some(dir) = logs_dir {
+                if let Some(out) = &test.stdout {
+                    write_test_output(dir, &test.name, out)?;
+                }
+                if let Some(msg) = &test.message {
+                    write_test_output(dir, &test.name, msg)?;
+                }
+                if let Some(err) = &test.stderr {
+                    write_test_output(dir, &test.name, err)?;
+                }
+            }
+            continue;
+        }
+
+        // Some libtest variants emit separate "output" events
+        if let Ok(output_event) = serde_json::from_str::<OutputEvent>(line)
+            && output_event.event_type == "output"
+        {
+            if let (Some(dir), Some(name), Some(msg)) = (
+                logs_dir,
+                output_event.name.as_deref(),
+                output_event.message.as_deref(),
+            ) {
+                write_test_output(dir, name, msg)?;
+            }
+            continue;
         }
     }
 
@@ -186,19 +252,86 @@ fn write_baseline(path: &Path, names: &BTreeSet<String>) -> Result<()> {
     Ok(())
 }
 
+fn sanitize_filename(name: &str) -> String {
+    // 1) Map Rust's module separators to directories for better grouping
+    let name = name.replace("::", "/");
+    // 2) Negative filter: allow only ASCII [A-Za-z0-9._-/], map everything else to '_'
+    let filtered: String = name
+        .chars()
+        .map(|c| {
+            if c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.' | '/') {
+                c
+            } else {
+                '_'
+            }
+        })
+        .collect();
+    // 3) Guard against ".", "..", and empty segments
+    let parts: Vec<&str> = filtered
+        .split('/')
+        .map(|seg| {
+            if seg == "." || seg == ".." || seg.is_empty() {
+                "_"
+            } else {
+                seg
+            }
+        })
+        .collect();
+    let path = parts.join("/");
+    if path.is_empty() {
+        "_".to_string()
+    } else {
+        path
+    }
+}
+
+fn write_test_output(dir: &Path, test_name: &str, content: &str) -> Result<()> {
+    // Build full path first so we can create nested parents if test name contains '/'
+    let rel = sanitize_filename(test_name);
+    let path = dir.join(format!("{}.log", rel));
+
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent)
+            .with_context(|| format!("Failed to create directory {}", parent.display()))?;
+    } else {
+        fs::create_dir_all(dir)
+            .with_context(|| format!("Failed to create directory {}", dir.display()))?;
+    }
+
+    let mut file = fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(&path)
+        .with_context(|| format!("Failed to open log file {}", path.display()))?;
+    file.write_all(content.as_bytes())
+        .with_context(|| format!("Failed to write to {}", path.display()))?;
+    Ok(())
+}
+
 // --- helpers to keep parity_test short and readable ---
 
-fn run_suites(cargo_args: &[String]) -> Result<(TestResult, TestResult)> {
+fn run_suites(cargo_args: &[String], logs_root: &Path) -> Result<(TestResult, TestResult)> {
     eprintln!("Running legacy tests");
-    let legacy = run_cargo_test(false, cargo_args).context("Error running legacy tests")?;
+    let legacy_dir = logs_root.join("legacy");
+    fs::create_dir_all(&legacy_dir)
+        .with_context(|| format!("Failed to create directory {}", legacy_dir.display()))?;
+    let legacy = run_cargo_test(false, cargo_args, Some(&legacy_dir))
+        .context("Error running legacy tests")?;
 
     eprintln!("Running RR tests");
-    let rr = run_cargo_test(true, cargo_args).context("Error running RR tests")?;
+    let rr_dir = logs_root.join("rr");
+    fs::create_dir_all(&rr_dir)
+        .with_context(|| format!("Failed to create directory {}", rr_dir.display()))?;
+    let rr = run_cargo_test(true, cargo_args, Some(&rr_dir)).context("Error running RR tests")?;
 
     Ok((legacy, rr))
 }
 
-fn run_rr_multiple(cargo_args: &[String], runs: usize) -> Result<Vec<TestResult>> {
+fn run_rr_multiple(
+    cargo_args: &[String],
+    runs: usize,
+    logs_root: &Path,
+) -> Result<Vec<TestResult>> {
     let mut results = Vec::with_capacity(runs);
     for idx in 0..runs {
         if runs == 1 {
@@ -206,7 +339,10 @@ fn run_rr_multiple(cargo_args: &[String], runs: usize) -> Result<Vec<TestResult>
         } else {
             eprintln!("Running RR tests (iteration {}/{})", idx + 1, runs);
         }
-        let rr = run_cargo_test(true, cargo_args).with_context(|| {
+        let rr_dir = logs_root.join(format!("rr-{}", idx + 1));
+        fs::create_dir_all(&rr_dir)
+            .with_context(|| format!("Failed to create directory {}", rr_dir.display()))?;
+        let rr = run_cargo_test(true, cargo_args, Some(&rr_dir)).with_context(|| {
             format!("Error running RR tests (iteration {} of {})", idx + 1, runs)
         })?;
         results.push(rr);
@@ -329,11 +465,14 @@ pub fn parity_test(
     }
 
     let rr_runs = rr_runs.max(1);
+    let logs_root = Path::new(LOGS_ROOT);
+    let _ = fs::remove_dir_all(logs_root);
+    let _ = fs::create_dir_all(logs_root);
     let baseline_set;
     let has_parity;
 
     if rr_runs == 1 {
-        let (without_rr, with_rr) = match run_suites(cargo_args) {
+        let (without_rr, with_rr) = match run_suites(cargo_args, logs_root) {
             Ok(v) => v,
             Err(e) => {
                 eprintln!("{e:#}");
@@ -351,7 +490,11 @@ pub fn parity_test(
             && rr_only.is_empty();
     } else {
         eprintln!("Running legacy tests");
-        let legacy = match run_cargo_test(false, cargo_args).context("Error running legacy tests") {
+        let legacy_dir = logs_root.join("legacy");
+        let _ = fs::create_dir_all(&legacy_dir);
+        let legacy = match run_cargo_test(false, cargo_args, Some(&legacy_dir))
+            .context("Error running legacy tests")
+        {
             Ok(v) => v,
             Err(e) => {
                 eprintln!("{e:#}");
@@ -359,7 +502,7 @@ pub fn parity_test(
             }
         };
 
-        let rr_results = match run_rr_multiple(cargo_args, rr_runs) {
+        let rr_results = match run_rr_multiple(cargo_args, rr_runs, logs_root) {
             Ok(v) => v,
             Err(e) => {
                 eprintln!("{e:#}");
