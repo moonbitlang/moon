@@ -30,7 +30,7 @@ use thiserror::Error;
 
 use crate::common::{
     get_moon_version, get_moonc_version, MooncOpt, RunMode, IGNORE_DIRS, MOON_MOD_JSON,
-    MOON_PID_NAME, MOON_PKG_JSON,
+    MOON_PKG_JSON,
 };
 
 const MOON_DB: &str = "moon.db";
@@ -234,9 +234,7 @@ pub fn clean_dir_in_target(target_dir: &Path) -> anyhow::Result<()> {
         for entry in std::fs::read_dir(d)? {
             let entry = entry?;
             let path = entry.path();
-            if path.is_file()
-                && path.file_name().and_then(|name| name.to_str()) != Some(MOON_PID_NAME)
-            {
+            if path.is_file() {
                 fs::remove_file(path)?;
             } else if path.is_dir() {
                 fs::remove_dir_all(path)?;

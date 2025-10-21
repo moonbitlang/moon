@@ -39,31 +39,6 @@ pub mod upgrade;
 
 use std::sync::LazyLock;
 
-use sysinfo::{ProcessExt, System, SystemExt};
-
-pub const MOON_PID_NAME: &str = ".moon.pid";
-
-pub fn watcher_is_running(pid_path: &std::path::Path) -> anyhow::Result<bool> {
-    if !pid_path.exists() {
-        return Ok(false);
-    }
-
-    let pid = std::fs::read_to_string(pid_path)?;
-    let pid = pid.parse::<usize>()?;
-    let pid = sysinfo::Pid::from(pid);
-    let mut sys = System::new();
-    sys.refresh_processes();
-    if let Some(p) = sys.process(pid) {
-        if p.name() == "moon" {
-            Ok(true)
-        } else {
-            Ok(false)
-        }
-    } else {
-        Ok(false)
-    }
-}
-
 static MOONRUN_EXECUTABLE: LazyLock<Option<std::path::PathBuf>> = LazyLock::new(|| {
     let moonrun = "moonrun";
     // Prefer the one next to the current executable
