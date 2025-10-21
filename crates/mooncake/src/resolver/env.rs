@@ -95,7 +95,7 @@ impl<'a> ResolverEnv<'a> {
             }
             ModuleSourceKind::Git(_) => todo!("Resolve git module"),
             ModuleSourceKind::Local(path) => self.resolve_local_module(path).ok(),
-            ModuleSourceKind::Stdlib => self.stdlib.clone(),
+            ModuleSourceKind::Stdlib(_) => self.stdlib.clone(),
         }
     }
 

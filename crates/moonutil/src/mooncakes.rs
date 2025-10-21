@@ -138,7 +138,7 @@ pub enum ModuleSourceKind {
     /// for regular modules.
     ///
     /// TODO: Evaluate if this design is sound
-    Stdlib,
+    Stdlib(PathBuf),
 }
 
 impl Default for ModuleSourceKind {
@@ -160,7 +160,7 @@ impl std::fmt::Display for ModuleSourceKind {
             ModuleSourceKind::Registry(Some(name)) => write!(f, "registry {name}"),
             ModuleSourceKind::Local(path) => write!(f, "local {}", path.display()),
             ModuleSourceKind::Git(url) => write!(f, "git {url}"),
-            ModuleSourceKind::Stdlib => write!(f, "standard library"),
+            ModuleSourceKind::Stdlib(_) => write!(f, "stdlib"),
         }
     }
 }
@@ -236,6 +236,17 @@ impl ModuleSource {
                 .clone()
                 .unwrap_or_else(|| DEFAULT_VERSION.clone()),
             source: ModuleSourceKind::Local(path.to_owned()),
+        }))
+    }
+
+    pub fn from_stdlib(module: &MoonMod, path: &Path) -> Result<Self, String> {
+        Ok(Self::new_inner(ModuleSourceInner {
+            name: module.name.parse()?,
+            version: module
+                .version
+                .clone()
+                .unwrap_or_else(|| DEFAULT_VERSION.clone()),
+            source: ModuleSourceKind::Stdlib(path.to_owned()),
         }))
     }
 

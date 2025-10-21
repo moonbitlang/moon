@@ -16,11 +16,15 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
-use crate::{dep_dir::DepDir, resolver::resolve_single_root_with_defaults};
+use crate::{
+    dep_dir::DepDir,
+    resolver::{resolve_single_root_with_defaults, ResolveConfig},
+};
 
 use anyhow::Context;
 use moonutil::{
-    common::{read_module_desc_file_in_dir, DiagnosticLevel},
+    common::{read_module_desc_file_in_dir, DiagnosticLevel, MOONBITLANG_CORE},
+    module::MoonMod,
     mooncakes::{result::ResolvedEnv, ModuleSource},
     scan::scan,
 };
@@ -52,14 +56,32 @@ pub(crate) fn install_impl(
     dont_sync: bool,
 ) -> anyhow::Result<(ResolvedEnv, DepDir)> {
     let registry = crate::registry::RegistryList::with_default_registry();
-    let ms = ModuleSource::from_local_module(&m, source_dir).expect("Malformed module manifest");
-    let res = resolve_single_root_with_defaults(&registry, ms, Arc::clone(&m))?;
-    let dep_dir = crate::dep_dir::DepDir::of_source(source_dir);
-    if !dont_sync {
-        crate::dep_dir::sync_deps(&dep_dir, &registry, &res, quiet)
-            .context("When installing packages")?;
-    }
 
+    let is_stdlib = m.name == MOONBITLANG_CORE;
+    let ms = ModuleSource::from_local_module(&m, source_dir).expect("Malformed module manifest");
+
+    let resolve_config = ResolveConfig {
+        registries: registry,
+        inject_std: !is_stdlib,
+    };
+
+    let res = resolve_single_root_with_defaults(&resolve_config, ms, Arc::clone(&m))?;
+    let dep_dir = crate::dep_dir::DepDir::of_source(source_dir);
+
+    crate::dep_dir::sync_deps(&dep_dir, &resolve_config.registries, &res, quiet, dont_sync)
+        .context("When installing packages")?;
+
+    install_bin_deps(m, verbose, &res, &dep_dir)?;
+
+    Ok((res, dep_dir))
+}
+
+fn install_bin_deps(
+    m: Arc<MoonMod>,
+    verbose: bool,
+    res: &ResolvedEnv,
+    dep_dir: &DepDir,
+) -> Result<(), anyhow::Error> {
     if let Some(ref bin_deps) = m.bin_deps {
         let moon_path = std::env::current_exe()
             .map_or_else(|_| "moon".into(), |x| x.to_string_lossy().into_owned());
@@ -78,7 +100,7 @@ pub(crate) fn install_impl(
                 );
             }
 
-            let module_db = get_module_db(&bin_mod_path, &res, &dep_dir)?;
+            let module_db = get_module_db(&bin_mod_path, res, dep_dir)?;
 
             if let Some(ref bin_pkg) = info.bin_pkg {
                 for pkg_name in bin_pkg {
@@ -118,7 +140,7 @@ pub(crate) fn install_impl(
         }
     }
 
-    Ok((res, dep_dir))
+    Ok(())
 }
 
 fn build_and_install_bin_package(

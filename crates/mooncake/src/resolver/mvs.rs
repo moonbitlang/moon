@@ -27,7 +27,6 @@ use colored::Colorize;
 use moonutil::{
     dependency::SourceDependencyInfo,
     module::MoonMod,
-    moon_dir::core,
     mooncakes::{result::ResolvedEnv, ModuleName, ModuleSource, ModuleSourceKind},
     version::as_caret_comparator,
 };
@@ -115,7 +114,7 @@ fn local_dep_allowed(dependant: &ModuleSource) -> bool {
         ModuleSourceKind::Registry(_) => false,
         ModuleSourceKind::Local(_) => true,
         ModuleSourceKind::Git(_) => true,
-        ModuleSourceKind::Stdlib => true,
+        ModuleSourceKind::Stdlib(_) => true,
     }
 }
 
@@ -125,7 +124,7 @@ fn git_dep_allowed(dependant: &ModuleSource) -> bool {
         ModuleSourceKind::Registry(_) => false,
         ModuleSourceKind::Local(_) => true,
         ModuleSourceKind::Git(_) => true,
-        ModuleSourceKind::Stdlib => true,
+        ModuleSourceKind::Stdlib(_) => true,
     }
 }
 
@@ -140,7 +139,7 @@ fn root_path_of(dependant: &ModuleSource) -> PathBuf {
         ModuleSourceKind::Git(repo) => {
             todo!("Resolve local downloaded path for git repo: {}", repo)
         }
-        ModuleSourceKind::Stdlib => core(),
+        ModuleSourceKind::Stdlib(path) => path.clone(),
     }
 }
 
