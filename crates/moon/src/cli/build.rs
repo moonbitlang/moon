@@ -44,7 +44,6 @@ use crate::rr_build;
 use crate::rr_build::preconfig_compile;
 use crate::rr_build::BuildConfig;
 use crate::rr_build::CalcUserIntentOutput;
-use crate::watch::run_legacy;
 use crate::watch::watching;
 
 use super::pre_build::scan_with_x_build;
@@ -109,34 +108,23 @@ fn run_build_internal(
     source_dir: &Path,
     target_dir: &Path,
 ) -> anyhow::Result<i32> {
-    if cli.unstable_feature.rupes_recta {
-        run_build_rr(cli, cmd, source_dir, target_dir)
+    let f = || {
+        if cli.unstable_feature.rupes_recta {
+            run_build_rr(cli, cmd, source_dir, target_dir)
+        } else {
+            run_build_legacy(cli, cmd, source_dir, target_dir)
+        }
+    };
+
+    if cmd.watch {
+        watching(f, source_dir, target_dir, target_dir)
     } else {
-        run_build_internal_legacy(cli, cmd, source_dir, target_dir)
+        f()
     }
 }
 
 #[instrument(skip_all)]
 fn run_build_rr(
-    cli: &UniversalFlags,
-    cmd: &BuildSubcommand,
-    source_dir: &Path,
-    target_dir: &Path,
-) -> anyhow::Result<i32> {
-    if cmd.watch {
-        watching(
-            || run_build_rr_internal(cli, cmd, source_dir, target_dir),
-            source_dir,
-            target_dir,
-            target_dir,
-        )
-    } else {
-        run_build_rr_internal(cli, cmd, source_dir, target_dir)
-    }
-}
-
-#[instrument(skip_all)]
-fn run_build_rr_internal(
     cli: &UniversalFlags,
     cmd: &BuildSubcommand,
     source_dir: &Path,
@@ -180,7 +168,7 @@ fn run_build_rr_internal(
 }
 
 #[instrument(skip_all)]
-fn run_build_internal_legacy(
+fn run_build_legacy(
     cli: &UniversalFlags,
     cmd: &BuildSubcommand,
     source_dir: &Path,
@@ -269,16 +257,7 @@ fn run_build_internal_legacy(
         trace::open("trace.json").context("failed to open `trace.json`")?;
     }
 
-    let res = if cmd.watch {
-        watching(
-            || run_legacy(&moonc_opt, &moonbuild_opt, &module),
-            source_dir,
-            &target_dir,
-            raw_target_dir,
-        )
-    } else {
-        entry::run_build(&moonc_opt, &moonbuild_opt, &module)
-    };
+    let res = entry::run_build(&moonc_opt, &moonbuild_opt, &module);
 
     if trace_flag {
         trace::close();
