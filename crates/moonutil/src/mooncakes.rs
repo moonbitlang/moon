@@ -374,6 +374,10 @@ pub mod result {
             &self.dep_graph
         }
 
+        pub fn stdlib(&self) -> Option<ModuleId> {
+            self.stdlib
+        }
+
         /// Get all resolved dependencies of a module
         pub fn deps(&self, id: ModuleId) -> impl Iterator<Item = ModuleId> + '_ {
             self.dep_graph

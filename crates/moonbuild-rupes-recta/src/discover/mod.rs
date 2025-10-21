@@ -26,6 +26,8 @@
 // Specifically allow file I/O here, because that what this module is about.
 #![allow(clippy::disallowed_types, clippy::disallowed_methods)]
 
+mod special_case;
+
 use std::{
     collections::HashMap,
     path::{Path, PathBuf},
@@ -44,6 +46,7 @@ use tracing::{instrument, warn, Level};
 use walkdir::WalkDir;
 
 use crate::{
+    discover::special_case::inject_std_abort,
     model::PackageId,
     pkg_name::{PackageFQN, PackageFQNWithSource, PackagePath},
     special_cases::{add_prelude_as_import_for_core, module_name_is_core},
@@ -61,9 +64,16 @@ pub fn discover_packages(
     debug!("Discovering packages in {} modules", env.module_count());
 
     for (id, m) in env.all_modules_and_id() {
+        // SPECIAL_CASE: Skip stdlib in discovering. They are handled below.
+        if let moonutil::mooncakes::ModuleSourceKind::Stdlib(_) = m.source() {
+            continue;
+        };
+
         let dir = dirs.get(id).expect("Bad module ID to get directory");
         discover_packages_for_mod(&mut res, env, dir, id, m)?;
     }
+
+    inject_std_abort(env, dirs, &mut res)?;
 
     info!(
         "Package discovery completed: found {} packages across {} modules",
@@ -412,16 +422,26 @@ pub struct DiscoverResult {
 
     /// The index from modules to the packages they contain
     module_map: SecondaryMap<ModuleId, HashMap<PackagePath, PackageId>>,
+
+    /// A special case: `moonbitlang/core/abort`, a standard library package that
+    /// needs special treatments.
+    abort_pkg: Option<PackageId>,
 }
 
 impl DiscoverResult {
-    fn add_package(&mut self, m: ModuleId, path: PackagePath, data: DiscoveredPackage) {
+    fn add_package(
+        &mut self,
+        m: ModuleId,
+        path: PackagePath,
+        data: DiscoveredPackage,
+    ) -> PackageId {
         let id = self.packages.insert(data);
         self.module_map
             .entry(m)
             .expect("There should not be replacement in this map")
             .or_default()
             .insert(path, id);
+        id
     }
 
     /// Get a package by its ID. This operation is infallible because PackageId
@@ -457,6 +477,10 @@ impl DiscoverResult {
     pub fn fqn(&self, id: PackageId) -> PackageFQN {
         let pkg = &self.packages[id];
         pkg.fqn.clone()
+    }
+
+    pub fn abort_pkg(&self) -> Option<PackageId> {
+        self.abort_pkg
     }
 }
 
