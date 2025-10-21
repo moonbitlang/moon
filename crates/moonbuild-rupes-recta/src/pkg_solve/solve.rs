@@ -386,15 +386,14 @@ fn resolve_import_raw<'a>(
     );
     let imported = env.packages.get_package(*import_pid);
     if *import_mid != mid && env.modules.graph().edge_weight(mid, *import_mid).is_none() {
-        debug!(
-            "Import '{}' module {:?} not imported by current module {:?}",
-            import_source, import_mid, mid
+        warn!(
+            "Import {} exists in global environment, but its containing module is not imported by {}, \
+            thus cannot be imported by its package '{}'. \
+            This will become an error in the future.",
+            imported.fqn,
+            env.modules.mod_name_from_id(mid).name(),
+            env.packages.get_package(pid).fqn.package()
         );
-        return Err(SolveError::ImportNotImportedByModule {
-            import: imported.fqn.clone().into(),
-            module: env.modules.mod_name_from_id(mid).clone(),
-            pkg: env.packages.get_package(pid).fqn.package().clone(),
-        });
     }
     Ok((*import_pid, imported))
 }
