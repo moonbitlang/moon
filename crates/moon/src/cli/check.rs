@@ -18,9 +18,7 @@
 
 use anyhow::{bail, Context};
 use colored::Colorize;
-use moonbuild::dry_run;
-use moonbuild::watcher_is_running;
-use moonbuild::{entry, MOON_PID_NAME};
+use moonbuild::{dry_run, entry};
 use moonbuild_rupes_recta::intent::UserIntent;
 use mooncake::pkg::sync::auto_sync;
 use moonutil::cli::UniversalFlags;
@@ -38,7 +36,6 @@ use tracing::{instrument, Level};
 
 use crate::cli::get_module_for_single_file;
 use crate::rr_build::{self, preconfig_compile, BuildConfig, CalcUserIntentOutput};
-use crate::watch::run_legacy;
 use crate::watch::watching;
 
 use super::pre_build::scan_with_x_build;
@@ -84,7 +81,7 @@ pub struct CheckSubcommand {
 
 #[instrument(skip_all)]
 pub fn run_check(cli: &UniversalFlags, cmd: &CheckSubcommand) -> anyhow::Result<i32> {
-    let (source_dir, mut target_dir) = if let Some(ref single_file_path) = cmd.single_file {
+    let (source_dir, target_dir) = if let Some(ref single_file_path) = cmd.single_file {
         let single_file_path = &dunce::canonicalize(single_file_path).unwrap();
         let source_dir = single_file_path.parent().unwrap().to_path_buf();
         let target_dir = source_dir.join("target");
@@ -92,15 +89,6 @@ pub fn run_check(cli: &UniversalFlags, cmd: &CheckSubcommand) -> anyhow::Result<
     } else {
         let dir = cli.source_tgt_dir.try_into_package_dirs()?;
         (dir.source_dir, dir.target_dir)
-    };
-
-    // make a dedicated directory for the watch mode so that we don't block(MOON_LOCK) the normal no-watch mode(automatically trigger by ide in background)
-    if cmd.watch {
-        target_dir = target_dir.join(WATCH_MODE_DIR);
-        std::fs::create_dir_all(&target_dir).context(format!(
-            "Failed to create target directory: '{}'",
-            target_dir.display()
-        ))?;
     };
 
     if cmd.build_flags.target.is_none() {
@@ -236,20 +224,13 @@ fn run_check_normal_internal(
     source_dir: &Path,
     target_dir: &Path,
 ) -> anyhow::Result<i32> {
-    if cli.unstable_feature.rupes_recta {
-        run_check_normal_internal_rr(cli, cmd, source_dir, target_dir)
-    } else {
-        run_check_normal_internal_legacy(cli, cmd, source_dir, target_dir)
-    }
-}
-
-#[instrument(skip_all)]
-fn run_check_normal_internal_rr(
-    cli: &UniversalFlags,
-    cmd: &CheckSubcommand,
-    source_dir: &Path,
-    target_dir: &Path,
-) -> anyhow::Result<i32> {
+    let f = || {
+        if cli.unstable_feature.rupes_recta {
+            run_check_normal_internal_rr(cli, cmd, source_dir, target_dir)
+        } else {
+            run_check_normal_internal_legacy(cli, cmd, source_dir, target_dir)
+        }
+    };
     if cmd.watch {
         // For checks, the actual target dir is a subdir of the original target
         let actual_target = target_dir.join(WATCH_MODE_DIR);
@@ -259,19 +240,14 @@ fn run_check_normal_internal_rr(
                 actual_target.display()
             )
         })?;
-        watching(
-            || run_check_normal_internal_rr_raw(cli, cmd, source_dir, &actual_target),
-            source_dir,
-            &actual_target,
-            target_dir,
-        )
+        watching(f, source_dir, &actual_target, target_dir)
     } else {
-        run_check_normal_internal_rr_raw(cli, cmd, source_dir, target_dir)
+        f()
     }
 }
 
 #[instrument(skip_all)]
-fn run_check_normal_internal_rr_raw(
+fn run_check_normal_internal_rr(
     cli: &UniversalFlags,
     cmd: &CheckSubcommand,
     source_dir: &Path,
@@ -415,31 +391,7 @@ fn run_check_normal_internal_legacy(
         trace::open("trace.json").context("failed to open `trace.json`")?;
     }
 
-    let watch_mode = cmd.watch;
-
-    let res = if watch_mode {
-        watching(
-            || run_legacy(&moonc_opt, &moonbuild_opt, &module),
-            source_dir,
-            &target_dir,
-            raw_target_dir,
-        )
-    } else {
-        let pid_path = target_dir.join(MOON_PID_NAME);
-        let running = watcher_is_running(&pid_path);
-
-        if let Ok(true) = running {
-            let output_path = target_dir.join("check.output");
-            let output = std::fs::read_to_string(&output_path)
-                .context(format!("failed to open `{}`", output_path.display()))?;
-            if !output.trim().is_empty() {
-                println!("{}", output.trim());
-            }
-            Ok(if output.is_empty() { 0 } else { 1 })
-        } else {
-            entry::run_check(&moonc_opt, &moonbuild_opt, &module)
-        }
-    };
+    let res = entry::run_check(&moonc_opt, &moonbuild_opt, &module);
 
     if cli.trace {
         trace::close();

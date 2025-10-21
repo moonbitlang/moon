@@ -18,10 +18,8 @@
 
 use anyhow::Context;
 use colored::*;
-use moonutil::module::ModuleDB;
 use notify::{Config, EventKind, RecommendedWatcher, RecursiveMode, Watcher};
 
-use moonutil::common::{MoonbuildOpt, MooncOpt, RunMode};
 use std::path::Path;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
@@ -170,21 +168,6 @@ fn run_and_print(run: impl FnOnce() -> anyhow::Result<i32>) {
                 "{}",
                 "Had errors, waiting for filesystem changes...".red().bold(),
             );
-        }
-    }
-}
-
-/// The legacy watch function that runs moonbuild's check or build in watch mode
-pub fn run_legacy(
-    moonc_opt: &MooncOpt,
-    moonbuild_opt: &MoonbuildOpt,
-    module: &ModuleDB,
-) -> anyhow::Result<i32> {
-    match moonbuild_opt.run_mode {
-        RunMode::Check => moonbuild::entry::run_check(moonc_opt, moonbuild_opt, module),
-        RunMode::Build => moonbuild::entry::run_build(moonc_opt, moonbuild_opt, module),
-        _ => {
-            anyhow::bail!("watch mode only supports check and build");
         }
     }
 }
