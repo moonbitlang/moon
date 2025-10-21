@@ -1,29 +1,11 @@
-## Related Issues
+- Related issues: None <!-- write issue numbers here -->
+- PR kind: <!-- Bugfix, feature, refactor, optimization, ... -->
 
-- [ ] Related issues: #____
+## Summary
 
-## Type of Pull Request
+<!-- A brief summary of what the PR does -->
 
-- [ ] Bug fix
-- [ ] New feature
-    - [ ] I have already discussed this feature with the maintainers.
-- [ ] Refactor
-- [ ] Performance optimization
-- [ ] Documentation
-- [ ] Other (please describe):
-
-## Does this PR change existing behavior?
-
-- [x] Yes (please describe the changes below)
-  - ____
-- [ ] No
-
-## Does this PR introduce new dependencies?
-
-- [x] No
-- [ ] Yes (please check binary size changes)
-
-## Checklist:
+## Metadata
 
 - [ ] Tests added/updated for bug fixes or new features
 - [ ] Compatible with Windows/Linux/macOS

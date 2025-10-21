@@ -3,43 +3,36 @@ name: Bug report
 about: Create a bug report for moon.
 title: ''
 assignees: ''
-labels: bug
+labels:
+  - bug
+  - pending-triage
 ---
 
-# Bug Report
+<!-- A brief summary if possible -->
 
-## Environment
+## Actual behavior
 
-### OS
-
-Operating System: ____
-
-<!--
-e.g. Linux, Windows, macOS
--->
-
-### MoonBit CLI Tools Version
-
-<!--
-Please copy and paste the output of `moon version --all` below.
--->
-
-```
-
-```
-
-## Steps to Reproduce
-
-<!-- Provide the steps to reproduce the bug.
--->
+<!-- What has happened? What's going wrong?
+Paste logs and/or screenshots here -->
 
 ## Expected Behavior
 
-<!-- Describe what you expected to happen. -->
+<!-- What should happen instead? -->
 
-## Actual Behavior
+## Steps to Reproduce
 
-<!-- Describe what actually happened. Include screenshots or logs if applicable. -->
+<!-- How to trigger it? Does it happen every time? -->
+
+## Environment
+
+Operating System: <!-- Linux/Windows/Mac/(specify) -->
+
+<!-- Please copy and paste the output of `moon version --all` below. -->
+
+```
+
+```
 
 ## Checklist
+
 - [ ] (Optional) My case is minimal enough to be reproducible.

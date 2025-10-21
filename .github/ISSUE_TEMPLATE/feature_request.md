@@ -6,20 +6,25 @@ assignees: ''
 labels: feature request
 ---
 
+<!--
+    NOTE
 
-# Feature Request
+    While we appreciate all feature requests, please understand that not all
+    requests can be accepted. Providing detailed information will help us better
+    evaluate your suggestion.
+-->
 
-**Note:** While we appreciate all feature requests, please understand that not all requests can be accepted. Providing detailed information will help us better evaluate your suggestion.
-
-## Summary
+<!-- A brief summary of what you want to add. -->
 
 ## Motivation
 
-<!-- Describe the problem or use case that this feature would address. Why is this feature important to you or your team? -->
+<!-- Describe the problem or use case that this feature would address. Why is
+this feature important to you or your team? -->
 
 ## Detailed Description
 
-<!-- Provide a detailed description of the feature. Include any relevant details, diagrams, or examples to help illustrate the feature. -->
+<!-- Provide a detailed description of the feature. Include any relevant
+details, diagrams, or examples to help illustrate the feature. -->
 
 ## Related Issues
 
