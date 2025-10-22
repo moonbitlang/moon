@@ -477,8 +477,33 @@ impl ModuleDB {
 }
 
 impl ModuleDB {
+    /// Check if an imported package is from a direct module dependency or transitive dependency
+    /// Returns true if the package is from a transitive dependency (should warn)
+    fn is_transitive_dependency(&self, importing_pkg: &Package, imported_pkg_name: &str) -> bool {
+        // If the imported package doesn't exist, it's not a transitive dependency issue
+        if let Some(imported_pkg) = self.packages.get(imported_pkg_name) {
+            let importing_module = importing_pkg.root.full_name();
+            let imported_module = imported_pkg.root.full_name();
+            
+            // If importing from the same module, it's not a transitive dependency
+            if importing_module == imported_module || importing_module == self.name {
+                return false;
+            }
+            
+            // Check if the imported module is in our direct dependencies
+            let is_direct_dep = self.deps.iter().any(|dep| dep == &imported_module);
+            
+            // If the imported module is NOT in direct dependencies but the package exists,
+            // it's a transitive dependency
+            !is_direct_dep
+        } else {
+            false
+        }
+    }
+
     pub fn validate(&self) -> anyhow::Result<()> {
         let mut errors = vec![];
+        let mut warnings = vec![];
         for (_, pkg) in &self.packages {
             for item in pkg
                 .imports
@@ -502,9 +527,24 @@ impl ModuleDB {
                         imported,
                         pkg.full_name(),
                     ));
+                } else if self.is_transitive_dependency(pkg, &imported) {
+                    // Package exists but is from a transitive dependency - warn about it
+                    warnings.push(format!(
+                        "{}: package `{}` is imported in `{}` but comes from a transitive dependency, \
+                        please add it as a direct dependency in moon.mod.json",
+                        pkg.root_path.join(MOON_PKG_JSON).display(),
+                        imported,
+                        pkg.full_name(),
+                    ));
                 }
             }
         }
+        
+        // Print warnings to stderr
+        if !warnings.is_empty() {
+            eprintln!("warning: {}", warnings.join("\nwarning: "));
+        }
+        
         if !errors.is_empty() {
             bail!("{}", errors.join("\n"));
         }
