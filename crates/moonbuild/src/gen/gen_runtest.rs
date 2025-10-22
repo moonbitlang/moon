@@ -697,6 +697,17 @@ pub fn get_imports(pkg: &Package, with_test_import: bool) -> Vec<&moonutil::path
     imports
 }
 
+/// Performs a topological sort (DFS) to get package dependencies in the correct order.
+///
+/// This function handles virtual packages by:
+/// 1. Tracking virtual-to-implementation mappings via the `overrides` field
+/// 2. Resolving virtual packages to their implementations before recursion
+/// 3. Including transitive dependencies of implementations
+///
+/// This ensures that when gathering `.core` files for `moonc link-core`, all required
+/// dependencies are included, even if they are transitive dependencies of virtual packages.
+///
+/// See also: `util::topo_from_node` which uses similar logic for the build command.
 fn get_pkg_topo_order<'a>(
     m: &'a ModuleDB,
     leaf: &Package,
@@ -705,6 +716,7 @@ fn get_pkg_topo_order<'a>(
 ) -> Vec<&'a Package> {
     let mut visited: HashSet<String> = HashSet::new();
     let mut pkg_topo_order: Vec<&Package> = vec![];
+    // Track virtual package implementations: virtual_pkg_name -> impl_pkg_name
     let mut virtual_impl: std::collections::HashMap<String, String> =
         std::collections::HashMap::new();
 
