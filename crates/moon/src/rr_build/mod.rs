@@ -65,9 +65,9 @@ pub use dry_run::{dry_print_command, print_dry_run, print_dry_run_all};
 ///
 /// Params:
 /// - The output of the resolve step. All modules and packages that this module
-///     are available in this value.
+///   are available in this value.
 /// - The list of modules that were input into the compile process (those that
-///     exist in the source directory).
+///   exist in the source directory).
 ///
 /// Returns: A vector of [`UserIntent`]s, representing what the user would like
 /// to do

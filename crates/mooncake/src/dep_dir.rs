@@ -342,7 +342,7 @@ mod test {
         state
     }
 
-    fn to_new_state(s: &str) -> super::NewDepDirState {
+    fn to_new_state(s: &'_ str) -> super::NewDepDirState<'_> {
         let state = to_state(s);
         state
             .into_iter()

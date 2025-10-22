@@ -521,7 +521,7 @@ pub(crate) fn run_test_or_bench_internal(
 ) -> anyhow::Result<i32> {
     // Accept -i/--doc-index when the positional PATH refers to a file; otherwise they require --file.
     // explicit_is_file is true only when PATH is an existing regular file.
-    let explicit_is_file = cmd.explicit_file_filter.map_or(false, |p| p.is_file());
+    let explicit_is_file = cmd.explicit_file_filter.is_some_and(|p| p.is_file());
 
     if cmd.package.is_none() && cmd.file.is_some() {
         anyhow::bail!("`--file` must be used with `--package`");

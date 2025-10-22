@@ -45,7 +45,6 @@ disallowed-methods = [
     "moonutil::dirs::create_moon_db",
     "moonutil::dirs::recreate_moon_db",
     "moonutil::dirs::clean_dir_in_target",
-    "moonutil::doc_test::DocTestPatch::write_to_path",
 ]
 disallowed-types = [
     "std::fs::File",

@@ -319,7 +319,7 @@ impl PackagePath {
     }
 
     /// Returns an iterator of segments of the package path.
-    pub fn segments(&self) -> SegmentIter {
+    pub fn segments(&self) -> SegmentIter<'_> {
         if self.is_empty() {
             SegmentIter::Empty
         } else {

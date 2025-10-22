@@ -72,7 +72,7 @@ struct PackageArtifactName<'a> {
     pub kind: TargetKind,
 }
 
-fn artifact(fqn: &PackageFQN, kind: TargetKind) -> PackageArtifactName {
+fn artifact(fqn: &'_ PackageFQN, kind: TargetKind) -> PackageArtifactName<'_> {
     PackageArtifactName { fqn, kind }
 }
 
