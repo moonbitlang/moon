@@ -54,6 +54,14 @@ jobs:
           https://api.github.com/repos/${{ github.repository }}/pulls/${{ github.event.number }} \
           | jq -r '.user.login')
           echo "The PR author is $PR_AUTHOR"
+
+          # Allow GitHub Copilot bot to bypass CLA check
+          if [ "$PR_AUTHOR" = "Copilot" ]; then
+            echo "GitHub Copilot bot detected. Skipping CCAA check."
+            echo "CCAA-signed=true" >> $GITHUB_ENV
+            exit 0
+          fi
+
           EMAIL=$(git log -1 --pretty=format:'%ae')
           echo "Commit author email: $EMAIL"
           CCAA_RESPONSE=$(curl -s "https://mooncakes.io/api/v0/cla/check_with_repo?gh_username=$PR_AUTHOR&repo=moon&email=$EMAIL")
