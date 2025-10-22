@@ -43,17 +43,25 @@ pub fn inject_std_abort(
 
     // Hardcoded package name and path: `abort`
     let abort_path = path.join("abort");
-    let pkg = discover_one_package(
+    let mut pkg = discover_one_package(
         stdlib,
         source,
         &abort_path,
         RelativePath::new("abort"),
         true,
     )?;
+
+    // I know you have imports, but no, you don't.
+    //
+    // The imports of `abort` is fully encompassed in the bundled `moonbitlang/core`
+    pkg.raw.imports.clear();
+    pkg.raw.test_imports.clear();
+    pkg.raw.wbtest_imports.clear();
+
     let abort_rel_pkg = PackagePath::new("abort").expect("abort is a valid name");
 
     let id = res.add_package(stdlib, abort_rel_pkg, pkg);
     res.abort_pkg = Some(id);
 
-    todo!()
+    Ok(())
 }

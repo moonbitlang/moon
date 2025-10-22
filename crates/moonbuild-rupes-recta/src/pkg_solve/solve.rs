@@ -221,6 +221,8 @@ fn solve_one_package(
     // Black box tests also add the source package as an import
     insert_black_box_dep(env, pid, pkg_data);
 
+    inject_abort_usage(env, pid);
+
     // TODO: Add heuristic to not generate white box test targets for external packages
 
     let virtual_info = resolve_virtual_usages(env, pid, pkg_data)?;
@@ -495,4 +497,34 @@ fn resolve_virtual_usages(
     }
 
     Ok(v_user)
+}
+
+/// Inject the dependency to `moonbitlang/core/abort` for every package
+fn inject_abort_usage(env: &mut ResolveEnv<'_>, pid: PackageId) {
+    trace!(
+        "Injecting abort usage for package {:?} via black box test",
+        pid
+    );
+    let Some(abort) = env.packages.abort_pkg() else {
+        return; // includes no-std scenarios, where abort is simply unset
+    };
+    if abort == pid {
+        return;
+    }
+
+    for target_kind in &[
+        TargetKind::Source,
+        TargetKind::InlineTest,
+        TargetKind::WhiteboxTest,
+        TargetKind::BlackboxTest,
+    ] {
+        env.res.dep_graph.add_edge(
+            pid.build_target(*target_kind),
+            abort.build_target(TargetKind::Source),
+            DepEdge {
+                short_alias: "moonbitlang/core/abort".into(),
+                kind: TargetKind::BlackboxTest,
+            },
+        );
+    }
 }

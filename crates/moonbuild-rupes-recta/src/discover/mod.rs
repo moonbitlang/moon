@@ -73,6 +73,7 @@ pub fn discover_packages(
         discover_packages_for_mod(&mut res, env, dir, id, m)?;
     }
 
+    // Inject `moonbitlang/core/abort` package to be used by other packages
     inject_std_abort(env, dirs, &mut res)?;
 
     info!(

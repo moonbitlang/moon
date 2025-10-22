@@ -494,7 +494,6 @@ impl<'a> BuildPlanConstructor<'a> {
             - Virtual package overrides need to replace their overridden
                 packages in the dependency graph. This is done by not adding
                 virtual packages at all when collecting the targets.
-                TODO: virtual packages are not yet implemented here.
         */
 
         debug!("Building MakeExecutable for target: {:?}", target);
