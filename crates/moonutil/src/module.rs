@@ -505,6 +505,10 @@ impl ModuleDB {
         let mut errors = vec![];
         let mut warnings = vec![];
         for (_, pkg) in &self.packages {
+            // Only validate packages from the main module
+            // Third-party packages were validated when they were built
+            let should_check_transitive = !pkg.is_third_party;
+            
             for item in pkg
                 .imports
                 .iter()
@@ -527,7 +531,7 @@ impl ModuleDB {
                         imported,
                         pkg.full_name(),
                     ));
-                } else if self.is_transitive_dependency(pkg, &imported) {
+                } else if should_check_transitive && self.is_transitive_dependency(pkg, &imported) {
                     // Package exists but is from a transitive dependency - warn about it
                     warnings.push(format!(
                         "{}: package `{}` is imported in `{}` but comes from a transitive dependency, \
