@@ -71,6 +71,10 @@ impl ModuleName {
         }
     }
 
+    pub fn last_segment_owned(&self) -> arcstr::Substr {
+        self.unqual.substr_from(self.last_segment())
+    }
+
     /// Return segments of the module name.
     pub fn segments(&self) -> impl Iterator<Item = &str> {
         std::iter::once(&*self.username).chain(self.unqual.split('/'))
