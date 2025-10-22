@@ -363,8 +363,8 @@ fn run_run_rr(cli: &UniversalFlags, cmd: RunSubcommand) -> Result<i32, anyhow::E
             &target_dir,
         );
 
-        let cmd = get_run_cmd(&build_meta)?;
-        rr_build::dry_print_command(cmd.command.as_std());
+        let run_cmd = get_run_cmd(&build_meta, &cmd.args)?;
+        rr_build::dry_print_command(run_cmd.command.as_std());
 
         Ok(0)
     } else {
@@ -380,7 +380,7 @@ fn run_run_rr(cli: &UniversalFlags, cmd: RunSubcommand) -> Result<i32, anyhow::E
             return Ok(build_result.return_code_for_success());
         }
 
-        let cmd = get_run_cmd(&build_meta)?;
+        let cmd = get_run_cmd(&build_meta, &cmd.args)?;
 
         // FIXME: Simplify this part
         let res = default_rt()
@@ -397,7 +397,10 @@ fn run_run_rr(cli: &UniversalFlags, cmd: RunSubcommand) -> Result<i32, anyhow::E
 }
 
 #[instrument(level = Level::DEBUG, skip_all)]
-fn get_run_cmd(build_meta: &rr_build::BuildMeta) -> Result<CommandGuard, anyhow::Error> {
+fn get_run_cmd(
+    build_meta: &rr_build::BuildMeta,
+    argv: &[String],
+) -> Result<CommandGuard, anyhow::Error> {
     let (_, artifact) = build_meta
         .artifacts
         .first()
@@ -406,7 +409,8 @@ fn get_run_cmd(build_meta: &rr_build::BuildMeta) -> Result<CommandGuard, anyhow:
         .artifacts
         .first()
         .expect("Expected exactly one executable as the output of the build node");
-    let cmd = crate::run::command_for(build_meta.target_backend, executable, None)?;
+    let mut cmd = crate::run::command_for(build_meta.target_backend, executable, None)?;
+    cmd.command.args(argv);
     Ok(cmd)
 }
 
