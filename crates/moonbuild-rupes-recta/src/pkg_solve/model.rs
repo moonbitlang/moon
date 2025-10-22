@@ -117,6 +117,16 @@ pub enum SolveError {
     },
 
     #[error(
+        "Package {package} tries to import {dependency}, \
+        but the latter is an implementation of a virtual package, \
+        and thus cannot be imported directly."
+    )]
+    CannotImportVirtualImplementation {
+        package: PackageFQNWithSource,
+        dependency: PackageFQNWithSource,
+    },
+
+    #[error(
         "Package {package} declares implementation target {implements}, \
         but it is not a virtual package."
     )]
