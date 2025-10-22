@@ -207,6 +207,13 @@ pub fn sync_deps(
     quiet: bool,
     frozen: bool,
 ) -> anyhow::Result<()> {
+    // If nothing needs to be installed, don't bother
+    let target_dep_dir = pkg_list_to_dep_dir_state(pkg_list.all_modules());
+
+    if target_dep_dir.is_empty() {
+        return Ok(());
+    }
+
     // Ensure the directory exists.
     std::fs::create_dir_all(dep_dir.path())?;
     // Lock with a file within the directory
@@ -217,7 +224,6 @@ pub fn sync_deps(
         )
     })?;
 
-    let target_dep_dir = pkg_list_to_dep_dir_state(pkg_list.all_modules());
     let current_dep_dir = dep_dir.get_current_state()?;
 
     let diff = diff_dep_dir_state(&current_dep_dir, &target_dep_dir);
