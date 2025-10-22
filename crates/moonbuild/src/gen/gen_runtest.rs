@@ -37,7 +37,6 @@ use super::gen_build::{
 };
 use super::util::{calc_link_args, self_in_test_import};
 use super::{is_self_coverage_lib, is_skip_coverage_lib};
-use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
 use std::sync::Arc;
@@ -697,111 +696,27 @@ pub fn get_imports(pkg: &Package, with_test_import: bool) -> Vec<&moonutil::path
     imports
 }
 
-/// Performs a topological sort (DFS) to get package dependencies in the correct order.
+/// Wrapper around `util::topo_from_node_with_tests` that returns package references.
 ///
-/// This function handles virtual packages by:
-/// 1. Tracking virtual-to-implementation mappings via the `overrides` field
-/// 2. Resolving virtual packages to their implementations before recursion
-/// 3. Including transitive dependencies of implementations
-///
-/// This ensures that when gathering `.core` files for `moonc link-core`, all required
-/// dependencies are included, even if they are transitive dependencies of virtual packages.
-///
-/// See also: `util::topo_from_node` which uses similar logic for the build command.
+/// This function uses the unified DFS implementation from util.rs to handle virtual packages
+/// correctly, then converts the package names to package references.
 fn get_pkg_topo_order<'a>(
     m: &'a ModuleDB,
     leaf: &Package,
     with_wbtest_import: bool,
     with_test_import: bool,
 ) -> Vec<&'a Package> {
-    let mut visited: HashSet<String> = HashSet::new();
-    let mut pkg_topo_order: Vec<&Package> = vec![];
-    // Track virtual package implementations: virtual_pkg_name -> impl_pkg_name
-    let mut virtual_impl: std::collections::HashMap<String, String> =
-        std::collections::HashMap::new();
+    // Use the unified implementation from util.rs
+    // Note: We unwrap here because the original implementation didn't return errors
+    let pkg_names =
+        super::util::topo_from_node_with_tests(m, leaf, with_wbtest_import, with_test_import)
+            .unwrap_or_else(|_| vec![]);
 
-    fn dfs<'a>(
-        m: &'a ModuleDB,
-        pkg_topo_order: &mut Vec<&'a Package>,
-        visited: &mut HashSet<String>,
-        virtual_impl: &mut std::collections::HashMap<String, String>,
-        cur_pkg_full_name: &String,
-        with_wbtest_import: bool,
-        with_test_import: bool,
-    ) {
-        if visited.contains(cur_pkg_full_name) {
-            return;
-        }
-        visited.insert(cur_pkg_full_name.clone());
-        let cur_pkg = m.get_package_by_name(cur_pkg_full_name);
-
-        // Record virtual package implementations from overrides
-        if let Some(overrides) = cur_pkg.overrides.as_ref() {
-            for implement in overrides.iter() {
-                let implement_pkg = m.get_package_by_name(implement);
-                if let Some(virtual_pkg) = implement_pkg.implement.as_ref() {
-                    virtual_impl.insert(virtual_pkg.clone(), implement_pkg.full_name());
-                }
-            }
-        }
-
-        let imports = cur_pkg
-            .imports
-            .iter()
-            .chain(if with_wbtest_import {
-                cur_pkg.wbtest_imports.iter()
-            } else {
-                [].iter()
-            })
-            .chain(if with_test_import {
-                cur_pkg.test_imports.iter()
-            } else {
-                [].iter()
-            });
-
-        for dep in imports {
-            let neighbor_full_name = dep.path.make_full_path();
-            let neighbor_pkg = m.get_package_by_name(&neighbor_full_name);
-
-            // Resolve virtual packages to their implementations
-            let neighbor_no_virtual = if let Some(virtual_info) = &neighbor_pkg.virtual_pkg {
-                // If neighbor is a virtual package, find its implementation
-                if let Some(impl_pkg) = virtual_impl.get(&neighbor_full_name) {
-                    impl_pkg.clone()
-                } else if virtual_info.has_default {
-                    neighbor_full_name
-                } else {
-                    // Skip virtual packages without implementation
-                    // This shouldn't happen in a valid project, but we handle it gracefully
-                    neighbor_full_name
-                }
-            } else {
-                neighbor_full_name
-            };
-
-            dfs(
-                m,
-                pkg_topo_order,
-                visited,
-                virtual_impl,
-                &neighbor_no_virtual,
-                false,
-                false,
-            );
-        }
-
-        pkg_topo_order.push(cur_pkg);
-    }
-    dfs(
-        m,
-        &mut pkg_topo_order,
-        &mut visited,
-        &mut virtual_impl,
-        &leaf.full_name(),
-        with_wbtest_import,
-        with_test_import,
-    );
-    pkg_topo_order
+    // Convert package names to package references
+    pkg_names
+        .iter()
+        .map(|name| m.get_package_by_name(name))
+        .collect()
 }
 
 fn get_package_sources(pkg_topo_order: &[&Package]) -> Vec<(String, String)> {
