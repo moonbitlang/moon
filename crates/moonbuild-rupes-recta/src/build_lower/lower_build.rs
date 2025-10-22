@@ -146,12 +146,7 @@ impl<'a> BuildPlanLowerContext<'a> {
             }
         }
 
-        // Historically, -no-mi was implicitly injected when either:
-        // - we are implementing a virtual package (-impl-virtual), or
-        // - we are checking against an interface (-check-mi).
-        // Since command abstractions no longer push -no-mi on their own,
-        // enforce it here at the caller level.
-        let no_mi = info.no_mi() || check_mi.is_some() || virtual_implementation.is_some();
+        let no_mi = info.no_mi();
 
         BuildCommonConfig {
             stdlib_core_file,
