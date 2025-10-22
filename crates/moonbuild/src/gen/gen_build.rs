@@ -763,6 +763,7 @@ pub fn gen_link_command(
 pub fn gen_compile_runtime_command(
     graph: &mut n2graph::Graph,
     target_dir: &Path,
+    native_cc_flags: &[String],
 ) -> (Build, PathBuf) {
     let runtime_dot_c_path = &MOON_DIRS.moon_lib_path.join("runtime.c");
 
@@ -792,7 +793,9 @@ pub fn gen_compile_runtime_command(
         line: 0,
     };
 
-    let cc_cmd = make_cc_command::<&'static str>(
+    let native_cc_flags_str: Vec<&str> = native_cc_flags.iter().map(|s| s.as_str()).collect();
+
+    let cc_cmd = make_cc_command::<&str>(
         CC::default(),
         None,
         CCConfigBuilder::default()
@@ -805,7 +808,7 @@ pub fn gen_compile_runtime_command(
             .define_use_shared_runtime_macro(false)
             .build()
             .unwrap(),
-        &[],
+        &native_cc_flags_str,
         &[runtime_dot_c_path.display().to_string()],
         &target_dir.display().to_string(),
         &artifact_output_path.display().to_string(),
@@ -1407,6 +1410,19 @@ pub fn gen_n2_build_state(
     let mut runtime_path = None;
 
     if is_native_backend || is_llvm_backend {
+        // Extract native cc flags from the main package (first link item)
+        let native_cc_flags = input
+            .link_items
+            .first()
+            .and_then(|item| item.native_cc_flags(moonc_opt.link_opt.target_backend))
+            .map(|flags_str| {
+                flags_str
+                    .split_whitespace()
+                    .map(|s| s.to_string())
+                    .collect::<Vec<_>>()
+            })
+            .unwrap_or_default();
+
         fn gen_shared_runtime(
             graph: &mut n2graph::Graph,
             target_dir: &Path,
@@ -1419,8 +1435,12 @@ pub fn gen_n2_build_state(
             Ok(path)
         }
 
-        fn gen_runtime(graph: &mut n2graph::Graph, target_dir: &Path) -> anyhow::Result<PathBuf> {
-            let (build, path) = gen_compile_runtime_command(graph, target_dir);
+        fn gen_runtime(
+            graph: &mut n2graph::Graph,
+            target_dir: &Path,
+            native_cc_flags: &[String],
+        ) -> anyhow::Result<PathBuf> {
+            let (build, path) = gen_compile_runtime_command(graph, target_dir, native_cc_flags);
             graph.add_build(build)?;
             Ok(path)
         }
@@ -1428,7 +1448,7 @@ pub fn gen_n2_build_state(
         runtime_path = Some(if moonbuild_opt.use_tcc_run {
             gen_shared_runtime(&mut graph, target_dir, &mut default)?
         } else {
-            gen_runtime(&mut graph, target_dir)?
+            gen_runtime(&mut graph, target_dir, &native_cc_flags)?
         });
     }
 
