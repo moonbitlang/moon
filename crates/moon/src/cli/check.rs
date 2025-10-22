@@ -16,30 +16,30 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
-use anyhow::{bail, Context};
+use anyhow::{Context, bail};
 use colored::Colorize;
 use moonbuild::{dry_run, entry};
 use moonbuild_rupes_recta::intent::UserIntent;
 use mooncake::pkg::sync::auto_sync;
 use moonutil::cli::UniversalFlags;
-use moonutil::common::{lower_surface_targets, CheckOpt};
-use moonutil::common::{parse_front_matter_config, WATCH_MODE_DIR};
+use moonutil::common::{CheckOpt, lower_surface_targets};
 use moonutil::common::{FileLock, TargetBackend};
 use moonutil::common::{MoonbuildOpt, PrePostBuild};
 use moonutil::common::{MooncOpt, OutputFormat, RunMode};
+use moonutil::common::{WATCH_MODE_DIR, parse_front_matter_config};
 use moonutil::dirs::mk_arch_mode_dir;
-use moonutil::mooncakes::sync::AutoSyncFlags;
 use moonutil::mooncakes::RegistryConfig;
+use moonutil::mooncakes::sync::AutoSyncFlags;
 use n2::trace;
 use std::path::{Path, PathBuf};
-use tracing::{instrument, Level};
+use tracing::{Level, instrument};
 
 use crate::cli::get_module_for_single_file;
-use crate::rr_build::{self, preconfig_compile, BuildConfig, CalcUserIntentOutput};
+use crate::rr_build::{self, BuildConfig, CalcUserIntentOutput, preconfig_compile};
 use crate::watch::watching;
 
 use super::pre_build::scan_with_x_build;
-use super::{get_compiler_flags, BuildFlags};
+use super::{BuildFlags, get_compiler_flags};
 
 /// Check the current package, but don't build object files
 #[derive(Debug, clap::Parser, Clone)]
@@ -328,7 +328,10 @@ fn run_check_normal_internal_legacy(
 
     // TODO: remove this once LLVM backend is well supported
     if moonc_opt.build_opt.target_backend == TargetBackend::LLVM {
-        eprintln!("{}: LLVM backend is experimental and only supported on bleeding moonbit toolchain for now", "Warning".yellow());
+        eprintln!(
+            "{}: LLVM backend is experimental and only supported on bleeding moonbit toolchain for now",
+            "Warning".yellow()
+        );
     }
 
     let sort_input = cmd.build_flags.sort_input;

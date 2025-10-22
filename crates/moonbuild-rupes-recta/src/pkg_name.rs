@@ -673,17 +673,25 @@ mod test {
         assert!(mk_fqn("user/pkg@0.1.0", "a").can_import(&mk_fqn("user/pkg@0.1.0", "a/internal")));
 
         // user/pkg/a            -> user/pkg/a/internal/b : Yes, shares common prefix
-        assert!(mk_fqn("user/pkg@0.1.0", "a").can_import(&mk_fqn("user/pkg@0.1.0", "a/internal/b")));
+        assert!(
+            mk_fqn("user/pkg@0.1.0", "a").can_import(&mk_fqn("user/pkg@0.1.0", "a/internal/b"))
+        );
 
         // user/pkg/a/internal/b -> user/pkg/a/internal/c : Yes, shares common prefix
-        assert!(mk_fqn("user/pkg@0.1.0", "a/internal/b")
-            .can_import(&mk_fqn("user/pkg@0.1.0", "a/internal/c")));
+        assert!(
+            mk_fqn("user/pkg@0.1.0", "a/internal/b")
+                .can_import(&mk_fqn("user/pkg@0.1.0", "a/internal/c"))
+        );
 
         // user/pkg/a/internal/b -> user/pkg/a            : Yes, no internal involved
-        assert!(mk_fqn("user/pkg@0.1.0", "a/internal/b").can_import(&mk_fqn("user/pkg@0.1.0", "a")));
+        assert!(
+            mk_fqn("user/pkg@0.1.0", "a/internal/b").can_import(&mk_fqn("user/pkg@0.1.0", "a"))
+        );
 
         // user/pkg/a/internal/b -> user/pkg/d            : Yes, no internal involved
-        assert!(mk_fqn("user/pkg@0.1.0", "a/internal/b").can_import(&mk_fqn("user/pkg@0.1.0", "d")));
+        assert!(
+            mk_fqn("user/pkg@0.1.0", "a/internal/b").can_import(&mk_fqn("user/pkg@0.1.0", "d"))
+        );
 
         // user/pkg/d            -> user/pkg/a/internal/b : No, no common prefix up to internal
         assert!(
@@ -691,11 +699,15 @@ mod test {
         );
 
         // user/pkg/d/internal/f -> user/pkg/a/internal/b : No, no common prefix up to internal
-        assert!(!mk_fqn("user/pkg@0.1.0", "d/internal/f")
-            .can_import(&mk_fqn("user/pkg@0.1.0", "a/internal/b")));
+        assert!(
+            !mk_fqn("user/pkg@0.1.0", "d/internal/f")
+                .can_import(&mk_fqn("user/pkg@0.1.0", "a/internal/b"))
+        );
 
         // user/another/e        -> user/pkg/a/internal/b : No, different module
-        assert!(!mk_fqn("user/another@0.1.0", "e")
-            .can_import(&mk_fqn("user/pkg@0.1.0", "a/internal/b")));
+        assert!(
+            !mk_fqn("user/another@0.1.0", "e")
+                .can_import(&mk_fqn("user/pkg@0.1.0", "a/internal/b"))
+        );
     }
 }

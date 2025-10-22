@@ -22,8 +22,8 @@ use super::*;
 use expect_test::expect;
 use moonutil::{
     common::{
-        get_cargo_pkg_version, CargoPathExt, StringExt, TargetBackend, DEP_PATH, MBTI_GENERATED,
-        MOON_MOD_JSON,
+        CargoPathExt, DEP_PATH, MBTI_GENERATED, MOON_MOD_JSON, StringExt, TargetBackend,
+        get_cargo_pkg_version,
     },
     module::MoonModJSON,
 };
@@ -430,12 +430,13 @@ fn mooncakes_io_smoke_test() {
     )
     .unwrap();
 
-    assert!(dir
-        .join(DEP_PATH)
-        .join("lijunchen")
-        .join("hello")
-        .join(MOON_MOD_JSON)
-        .exists());
+    assert!(
+        dir.join(DEP_PATH)
+            .join("lijunchen")
+            .join("hello")
+            .join(MOON_MOD_JSON)
+            .exists()
+    );
 
     std::fs::remove_dir_all(dir.join(DEP_PATH)).unwrap();
     let out = get_stdout(&dir, ["install"]);
@@ -4510,14 +4511,15 @@ fn moon_info_specific_package() {
 fn test_exports_in_native_backend() {
     let dir = TestDir::new("native_exports.in");
     let _ = get_stdout(&dir, ["build", "--target", "native"]);
-    assert!(!dir
-        .join("target")
-        .join("native")
-        .join("release")
-        .join("build")
-        .join("lib")
-        .join("lib.c")
-        .exists());
+    assert!(
+        !dir.join("target")
+            .join("native")
+            .join("release")
+            .join("build")
+            .join("lib")
+            .join("lib.c")
+            .exists()
+    );
     let lib2_c = read(
         dir.join("target")
             .join("native")

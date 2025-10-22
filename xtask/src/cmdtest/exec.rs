@@ -135,7 +135,7 @@ where
                     stdout: String::new(),
                     stderr: err.to_string(),
                     exit_code: err.raw_os_error().map_or(255, |x| x as u8),
-                }
+                };
             }
         };
 

@@ -19,7 +19,7 @@
 use anyhow::Context;
 use moonutil::{common::lower_surface_targets, dirs::PackageDirs, mooncakes::sync::AutoSyncFlags};
 use std::path::Path;
-use tracing::{instrument, Level};
+use tracing::{Level, instrument};
 
 use super::{BuildFlags, UniversalFlags};
 

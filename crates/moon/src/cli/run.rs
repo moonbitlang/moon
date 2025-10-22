@@ -18,36 +18,36 @@
 
 use std::path::PathBuf;
 
-use anyhow::{bail, Context};
+use anyhow::{Context, bail};
 use moonbuild::dry_run;
 use moonbuild::entry;
 use moonbuild_rupes_recta::intent::UserIntent;
 use mooncake::pkg::sync::auto_sync;
-use moonutil::common::lower_surface_targets;
 use moonutil::common::FileLock;
+use moonutil::common::MOON_PKG_JSON;
+use moonutil::common::MOONBITLANG_CORE;
 use moonutil::common::PrePostBuild;
 use moonutil::common::RunMode;
 use moonutil::common::SurfaceTarget;
 use moonutil::common::TargetBackend;
 use moonutil::common::TestArtifacts;
-use moonutil::common::MOONBITLANG_CORE;
-use moonutil::common::MOON_PKG_JSON;
+use moonutil::common::lower_surface_targets;
 use moonutil::common::{MoonbuildOpt, OutputFormat};
 use moonutil::cond_expr::OptLevel::Release;
+use moonutil::dirs::PackageDirs;
 use moonutil::dirs::check_moon_pkg_exist;
 use moonutil::dirs::mk_arch_mode_dir;
-use moonutil::dirs::PackageDirs;
 use moonutil::moon_dir::MOON_DIRS;
-use moonutil::mooncakes::sync::AutoSyncFlags;
 use moonutil::mooncakes::RegistryConfig;
+use moonutil::mooncakes::sync::AutoSyncFlags;
 use n2::trace;
-use tracing::{instrument, Level};
+use tracing::{Level, instrument};
 
 use crate::rr_build;
 use crate::rr_build::preconfig_compile;
 use crate::rr_build::{BuildConfig, CalcUserIntentOutput};
-use crate::run::default_rt;
 use crate::run::CommandGuard;
+use crate::run::default_rt;
 
 use super::pre_build::scan_with_x_build;
 use super::{BuildFlags, UniversalFlags};

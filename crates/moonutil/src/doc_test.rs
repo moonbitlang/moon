@@ -22,7 +22,7 @@ use regex::Regex;
 use std::fs;
 use std::path::Path;
 
-use crate::common::{backend_filter, MooncOpt, PatchItem, PatchJSON};
+use crate::common::{MooncOpt, PatchItem, PatchJSON, backend_filter};
 use crate::package::Package;
 
 use pulldown_cmark::{CodeBlockKind, Event, Parser, Tag};

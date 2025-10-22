@@ -16,7 +16,7 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
-use anyhow::{bail, Context};
+use anyhow::{Context, bail};
 use moonutil::{
     cli::UniversalFlags,
     common::{FileLock, MOON_MOD_JSON},

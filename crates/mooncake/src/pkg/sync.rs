@@ -24,7 +24,7 @@ use indexmap::IndexMap;
 use moonutil::{
     common::{MbtMdHeader, MoonbuildOpt, MooncOpt},
     module::MoonMod,
-    mooncakes::{result::ResolvedEnv, sync::AutoSyncFlags, DirSyncResult, RegistryConfig},
+    mooncakes::{DirSyncResult, RegistryConfig, result::ResolvedEnv, sync::AutoSyncFlags},
 };
 use semver::Version;
 

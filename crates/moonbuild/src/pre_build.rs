@@ -20,7 +20,7 @@ use std::path::PathBuf;
 use std::rc::Rc;
 
 use moonutil::common::{
-    MoonbuildOpt, PrePostBuild, DEP_PATH, MOD_DIR, MOONCAKE_BIN, MOON_BIN_DIR, PKG_DIR,
+    DEP_PATH, MOD_DIR, MOON_BIN_DIR, MOONCAKE_BIN, MoonbuildOpt, PKG_DIR, PrePostBuild,
 };
 use moonutil::module::ModuleDB;
 use moonutil::package::StringOrArray;

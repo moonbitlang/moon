@@ -24,8 +24,9 @@ use std::path::{Path, PathBuf};
 use moonutil::common::TargetBackend;
 
 use crate::build_lower::compiler::{
-    CompiledPackageName, ErrorFormat, MiDependency, VirtualPackageImplementation, WarnAlertConfig,
-    MOONC_ALLOW_ALERT_SET, MOONC_ALLOW_WARNING_SET, MOONC_DENY_ALERT_SET, MOONC_DENY_WARNING_SET,
+    CompiledPackageName, ErrorFormat, MOONC_ALLOW_ALERT_SET, MOONC_ALLOW_WARNING_SET,
+    MOONC_DENY_ALERT_SET, MOONC_DENY_WARNING_SET, MiDependency, VirtualPackageImplementation,
+    WarnAlertConfig,
 };
 use crate::model::TargetKind;
 

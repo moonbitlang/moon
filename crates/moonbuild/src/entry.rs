@@ -37,16 +37,16 @@ use n2::{trace, work};
 use anyhow::Context;
 use colored::Colorize;
 
-use crate::benchmark::{render_batch_bench_summary, BATCHBENCH};
+use crate::benchmark::{BATCHBENCH, render_batch_bench_summary};
 use crate::check::normal::write_pkg_lst;
 use crate::expect::{apply_snapshot, render_snapshot_fail};
 use crate::runtest::TestStatistics;
 use crate::test_utils::indices_to_ranges;
 
 use moonutil::common::{
-    DiagnosticLevel, DriverKind, FileLock, FileName, MbtTestInfo, MoonbuildOpt, MooncGenTestInfo,
-    MooncOpt, PrePostBuild, TargetBackend, TestArtifacts, TestBlockIndex, DOT_MBT_DOT_MD,
-    TEST_INFO_FILE,
+    DOT_MBT_DOT_MD, DiagnosticLevel, DriverKind, FileLock, FileName, MbtTestInfo, MoonbuildOpt,
+    MooncGenTestInfo, MooncOpt, PrePostBuild, TEST_INFO_FILE, TargetBackend, TestArtifacts,
+    TestBlockIndex,
 };
 
 use std::sync::{Arc, Mutex};
@@ -261,11 +261,7 @@ impl N2RunStats {
 
     /// Get the return code that should be returned to the shell.
     pub fn return_code_for_success(&self) -> i32 {
-        if self.successful() {
-            0
-        } else {
-            1
-        }
+        if self.successful() { 0 } else { 1 }
     }
 
     pub fn print_info(&self, quiet: bool, mode: &str) -> anyhow::Result<()> {

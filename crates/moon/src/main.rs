@@ -30,7 +30,7 @@ mod run;
 mod watch;
 
 use colored::*;
-use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt, Layer};
+use tracing_subscriber::{Layer, layer::SubscriberExt, util::SubscriberInitExt};
 
 /// Initialize logging and tracing-related functionality.
 ///

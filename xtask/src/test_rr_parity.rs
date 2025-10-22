@@ -432,7 +432,9 @@ pub fn parity_test(
         }
 
         if has_fixed {
-            gha_warning("RR-only failures fixed since baseline; consider updating the baseline with --write-baseline.");
+            gha_warning(
+                "RR-only failures fixed since baseline; consider updating the baseline with --write-baseline.",
+            );
         }
 
         if let Some(path) = write_path {

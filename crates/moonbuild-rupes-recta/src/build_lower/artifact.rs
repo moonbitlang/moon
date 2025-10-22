@@ -26,7 +26,7 @@ use std::{
 
 use derive_builder::Builder;
 use moonutil::{
-    common::{RunMode, TargetBackend, MBTI_GENERATED},
+    common::{MBTI_GENERATED, RunMode, TargetBackend},
     cond_expr::OptLevel,
     mooncakes::{ModuleName, ModuleSource},
 };

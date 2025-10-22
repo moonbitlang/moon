@@ -16,34 +16,34 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
-use anyhow::anyhow;
 use anyhow::Context;
+use anyhow::anyhow;
 use colored::Colorize;
 use moonbuild::dry_run;
 use moonbuild::entry;
 use moonbuild_rupes_recta::intent::UserIntent;
 use mooncake::pkg::sync::auto_sync;
-use moonutil::common::lower_surface_targets;
 use moonutil::common::BuildOpt;
 use moonutil::common::FileLock;
 use moonutil::common::MoonbuildOpt;
 use moonutil::common::PrePostBuild;
 use moonutil::common::RunMode;
 use moonutil::common::TargetBackend;
+use moonutil::common::lower_surface_targets;
 use moonutil::cond_expr::OptLevel;
-use moonutil::dirs::mk_arch_mode_dir;
 use moonutil::dirs::PackageDirs;
-use moonutil::mooncakes::sync::AutoSyncFlags;
+use moonutil::dirs::mk_arch_mode_dir;
 use moonutil::mooncakes::RegistryConfig;
+use moonutil::mooncakes::sync::AutoSyncFlags;
 use n2::trace;
 use std::path::Path;
 use std::path::PathBuf;
-use tracing::{instrument, Level};
+use tracing::{Level, instrument};
 
 use crate::rr_build;
-use crate::rr_build::preconfig_compile;
 use crate::rr_build::BuildConfig;
 use crate::rr_build::CalcUserIntentOutput;
+use crate::rr_build::preconfig_compile;
 use crate::watch::watching;
 
 use super::pre_build::scan_with_x_build;
@@ -192,7 +192,10 @@ fn run_build_legacy(
 
     // TODO: remove this once LLVM backend is well supported
     if moonc_opt.build_opt.target_backend == TargetBackend::LLVM {
-        eprintln!("{}: LLVM backend is experimental and only supported on bleeding moonbit toolchain for now", "Warning".yellow());
+        eprintln!(
+            "{}: LLVM backend is experimental and only supported on bleeding moonbit toolchain for now",
+            "Warning".yellow()
+        );
     }
 
     let moonbuild_opt = MoonbuildOpt {

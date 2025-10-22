@@ -25,7 +25,7 @@ mod verify;
 use crate::{discover::DiscoverResult, pkg_solve::verify::verify};
 use log::info;
 use moonutil::mooncakes::result::ResolvedEnv;
-use tracing::{instrument, Level};
+use tracing::{Level, instrument};
 
 pub use model::{DepEdge, DepRelationship, SolveError};
 use solve::solve_only;

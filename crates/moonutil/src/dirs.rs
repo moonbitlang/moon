@@ -17,7 +17,7 @@
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
 use std::{
-    collections::{hash_map::DefaultHasher, HashSet},
+    collections::{HashSet, hash_map::DefaultHasher},
     fs::{self, File},
     hash::Hasher,
     io::{Read, Write},
@@ -29,8 +29,8 @@ use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
 use crate::common::{
-    get_moon_version, get_moonc_version, MooncOpt, RunMode, IGNORE_DIRS, MOON_MOD_JSON,
-    MOON_PKG_JSON,
+    IGNORE_DIRS, MOON_MOD_JSON, MOON_PKG_JSON, MooncOpt, RunMode, get_moon_version,
+    get_moonc_version,
 };
 
 const MOON_DB: &str = "moon.db";

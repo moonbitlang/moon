@@ -23,19 +23,19 @@ use mooncake::pkg::sync::auto_sync;
 use moonutil::{
     cli::UniversalFlags,
     common::{
-        lower_surface_targets, FileLock, MoonbuildOpt, PrePostBuild, RunMode, SurfaceTarget,
-        TargetBackend,
+        FileLock, MoonbuildOpt, PrePostBuild, RunMode, SurfaceTarget, TargetBackend,
+        lower_surface_targets,
     },
     cond_expr::OptLevel,
-    dirs::{mk_arch_mode_dir, PackageDirs},
-    mooncakes::{sync::AutoSyncFlags, RegistryConfig},
+    dirs::{PackageDirs, mk_arch_mode_dir},
+    mooncakes::{RegistryConfig, sync::AutoSyncFlags},
 };
 use std::path::Path;
-use tracing::{instrument, Level};
+use tracing::{Level, instrument};
 
 use crate::rr_build::{self, BuildConfig};
 
-use super::{pre_build::scan_with_x_build, BuildFlags};
+use super::{BuildFlags, pre_build::scan_with_x_build};
 
 /// Bundle the module
 #[derive(Debug, clap::Parser, Clone)]

@@ -23,7 +23,7 @@ use std::path::PathBuf;
 use anyhow::Context;
 use colored::Colorize;
 use http::response::Builder as ResponseBuilder;
-use http::{header, StatusCode};
+use http::{StatusCode, header};
 use hyper::service::service_fn;
 use hyper::{Request, Response};
 use hyper_staticfile::{Body, Static};

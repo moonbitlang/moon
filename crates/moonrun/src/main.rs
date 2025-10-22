@@ -28,9 +28,9 @@ mod js;
 mod sys_api;
 mod util;
 
-use rand::rngs::StdRng;
 use rand::Rng;
 use rand::SeedableRng;
+use rand::rngs::StdRng;
 
 const BUILTIN_SCRIPT_ORIGIN_PREFIX: &str = "__$moonrun_v8_builtin_script$__";
 
@@ -180,7 +180,7 @@ fn read_utf8_char() -> io::Result<Option<char>> {
             return Err(io::Error::new(
                 io::ErrorKind::InvalidData,
                 "invalid UTF-8 first byte",
-            ))
+            ));
         }
     };
 

@@ -19,11 +19,11 @@
 use crate::cond_expr::{self, CompileCondition, CondExpr};
 use crate::module::{ModuleDB, MoonMod};
 use crate::moon_dir::MOON_DIRS;
-use crate::mooncakes::result::ResolvedEnv;
 use crate::mooncakes::DirSyncResult;
+use crate::mooncakes::result::ResolvedEnv;
 use crate::package::{Import, MoonPkgGenerate, Package, SubPackageInPackage};
 use crate::path::{ImportComponent, ImportPath, PathComponent};
-use anyhow::{bail, Context};
+use anyhow::{Context, bail};
 use colored::Colorize;
 use indexmap::map::IndexMap;
 use petgraph::graph::{DiGraph, NodeIndex};
@@ -34,9 +34,9 @@ use std::sync::Arc;
 use walkdir::WalkDir;
 
 use crate::common::{
-    read_module_desc_file_in_dir, MoonbuildOpt, TargetBackend, DEP_PATH, DOT_MBL, DOT_MBT_DOT_MD,
-    DOT_MBY, IGNORE_DIRS, MBTI_USER_WRITTEN, MOONBITLANG_ABORT, MOON_MOD_JSON, MOON_PKG_JSON,
-    SUB_PKG_POSTFIX,
+    DEP_PATH, DOT_MBL, DOT_MBT_DOT_MD, DOT_MBY, IGNORE_DIRS, MBTI_USER_WRITTEN, MOON_MOD_JSON,
+    MOON_PKG_JSON, MOONBITLANG_ABORT, MoonbuildOpt, SUB_PKG_POSTFIX, TargetBackend,
+    read_module_desc_file_in_dir,
 };
 
 /// Matches an import string to scan paths.

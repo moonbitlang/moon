@@ -35,26 +35,26 @@ use std::{
 use anyhow::Context;
 use indexmap::IndexMap;
 use moonbuild::entry::{
-    create_progress_console, render_and_catch_callback, N2RunStats, ResultCatcher,
+    N2RunStats, ResultCatcher, create_progress_console, render_and_catch_callback,
 };
 use moonbuild_rupes_recta::{
+    CompileConfig, ResolveConfig, ResolveOutput,
     build_plan::InputDirective,
     intent::UserIntent,
     model::{Artifacts, BuildPlanNode, PackageId, TargetKind},
     prebuild::run_prebuild_config,
-    CompileConfig, ResolveConfig, ResolveOutput,
 };
 use moonutil::{
     cli::UniversalFlags,
     common::{
-        DiagnosticLevel, RunMode, TargetBackend, BLACKBOX_TEST_PATCH, MOONBITLANG_CORE,
+        BLACKBOX_TEST_PATCH, DiagnosticLevel, MOONBITLANG_CORE, RunMode, TargetBackend,
         WHITEBOX_TEST_PATCH,
     },
     cond_expr::OptLevel,
     features::FeatureGate,
-    mooncakes::{sync::AutoSyncFlags, ModuleId},
+    mooncakes::{ModuleId, sync::AutoSyncFlags},
 };
-use tracing::{instrument, Level};
+use tracing::{Level, instrument};
 
 use crate::cli::BuildFlags;
 
@@ -164,11 +164,7 @@ impl BuildResult {
 
     /// Get the return code that should be returned to the shell.
     pub fn return_code_for_success(&self) -> i32 {
-        if self.successful() {
-            0
-        } else {
-            1
-        }
+        if self.successful() { 0 } else { 1 }
     }
 
     /// Print information about the build result.

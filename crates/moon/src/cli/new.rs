@@ -23,7 +23,7 @@ use colored::Colorize;
 use moonutil::{
     common::{MOON_MOD_JSON, MOON_PKG_JSON},
     moon_dir,
-    mooncakes::{validate_username, Credentials},
+    mooncakes::{Credentials, validate_username},
 };
 
 use super::UniversalFlags;
@@ -46,9 +46,9 @@ fn get_existing_username() -> Option<String> {
             return credentials.username;
         } else {
             eprintln!(
-            "{} Using default username. You may relogin with `moon login` to store your username, or provide one with `--user <username>`.",
-            "Warning:".bold().yellow(),
-        );
+                "{} Using default username. You may relogin with `moon login` to store your username, or provide one with `--user <username>`.",
+                "Warning:".bold().yellow(),
+            );
         }
     }
     None
@@ -108,7 +108,10 @@ pub fn run_new(_cli: &UniversalFlags, cmd: NewSubcommand) -> anyhow::Result<i32>
         .chars()
         .any(|c| !c.is_ascii_alphanumeric() && c != '_')
     {
-        bail!("Project name {} contains invalid characters. Only alphanumeric characters and underscore are allowed.", project_name);
+        bail!(
+            "Project name {} contains invalid characters. Only alphanumeric characters and underscore are allowed.",
+            project_name
+        );
     }
     moonbuild::new::moon_new_default(&path, username, project_name)
 }

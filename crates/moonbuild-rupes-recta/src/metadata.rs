@@ -29,11 +29,11 @@ use moonutil::{
 };
 
 use crate::{
+    ResolveOutput,
     build_lower::artifact::{LegacyLayout, LegacyLayoutBuilder},
     cond_comp::file_metadatas,
     model::{BuildTarget, PackageId, TargetKind},
     pkg_solve::DepEdge,
-    ResolveOutput,
 };
 
 /// Generate `package.json`, which is a metadata file shared by IDE plugins and

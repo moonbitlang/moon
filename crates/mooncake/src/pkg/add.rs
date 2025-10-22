@@ -17,7 +17,7 @@
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
 use colored::Colorize;
-use moonutil::common::{read_module_desc_file_in_dir, write_module_json_to_file, MOONBITLANG_CORE};
+use moonutil::common::{MOONBITLANG_CORE, read_module_desc_file_in_dir, write_module_json_to_file};
 use moonutil::dependency::{BinaryDependencyInfo, SourceDependencyInfo};
 use moonutil::module::convert_module_to_mod_json;
 use moonutil::mooncakes::ModuleName;

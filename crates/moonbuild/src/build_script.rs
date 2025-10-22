@@ -27,12 +27,12 @@ use std::{
     str::FromStr,
 };
 
-use anyhow::{anyhow, Context};
+use anyhow::{Context, anyhow};
 use log::warn;
 use moonutil::{
     build_script::{BuildScriptEnvironment, BuildScriptOutput},
     module::ModuleDB,
-    mooncakes::{result::ResolvedEnv, DirSyncResult, ModuleName},
+    mooncakes::{DirSyncResult, ModuleName, result::ResolvedEnv},
     path::PathComponent,
 };
 use regex::{Captures, Regex};

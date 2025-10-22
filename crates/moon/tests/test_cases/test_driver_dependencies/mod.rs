@@ -3,7 +3,7 @@ use std::path::Path;
 use indexmap::IndexMap;
 use moonutil::common::{FileName, MbtTestInfo, MooncGenTestInfo};
 
-use crate::{get_stdout, TestDir};
+use crate::{TestDir, get_stdout};
 
 fn total_test_count(gen_test_section: &IndexMap<FileName, Vec<MbtTestInfo>>) -> usize {
     gen_test_section.iter().map(|x| x.1.len()).sum()

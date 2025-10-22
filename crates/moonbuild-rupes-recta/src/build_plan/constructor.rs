@@ -21,12 +21,12 @@
 use std::collections::{HashMap, HashSet};
 
 use crate::{
+    ResolveOutput,
     build_plan::{FileDependencyKind, InputDirective},
     model::{BuildPlanNode, BuildTarget},
     prebuild::PrebuildOutput,
-    ResolveOutput,
 };
-use tracing::{instrument, Level};
+use tracing::{Level, instrument};
 
 use super::{BuildEnvironment, BuildPlan, BuildPlanConstructError};
 
@@ -334,7 +334,7 @@ impl<'a> BuildPlanConstructor<'a> {
         &mut self,
         node: BuildPlanNode,
     ) -> Result<(), BuildPlanConstructError> {
-        use std::panic::{catch_unwind, AssertUnwindSafe};
+        use std::panic::{AssertUnwindSafe, catch_unwind};
 
         match catch_unwind(AssertUnwindSafe(|| self.build_action_dependencies(node))) {
             Ok(r) => r,

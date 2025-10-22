@@ -1,6 +1,6 @@
 use std::cell::OnceCell;
 
-use crate::{get_stdout, TestDir};
+use crate::{TestDir, get_stdout};
 
 // Notice the two `this-is-added-by-config-script`
 #[test]

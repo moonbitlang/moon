@@ -16,11 +16,11 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
-use anyhow::{bail, Context};
+use anyhow::{Context, bail};
 use moonutil::cli::UniversalFlags;
 use moonutil::common::{
-    DriverKind, MooncGenTestInfo, TargetBackend, MOONBITLANG_CORE_BUILTIN,
-    MOON_TEST_DELIMITER_BEGIN, MOON_TEST_DELIMITER_END,
+    DriverKind, MOON_TEST_DELIMITER_BEGIN, MOON_TEST_DELIMITER_END, MOONBITLANG_CORE_BUILTIN,
+    MooncGenTestInfo, TargetBackend,
 };
 use std::ffi::OsStr;
 use std::io::{Read, Write};

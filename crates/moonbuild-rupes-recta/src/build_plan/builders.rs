@@ -26,17 +26,17 @@ use std::{
     sync::LazyLock,
 };
 
-use indexmap::{set::MutableValues, IndexSet};
+use indexmap::{IndexSet, set::MutableValues};
 use moonutil::{
     common::{
-        DEP_PATH, DOT_MBT_DOT_MD, MOD_DIR, MOONCAKE_BIN, MOON_BIN_DIR, MOON_MOD_JSON,
-        MOON_PKG_JSON, PKG_DIR,
+        DEP_PATH, DOT_MBT_DOT_MD, MOD_DIR, MOON_BIN_DIR, MOON_MOD_JSON, MOON_PKG_JSON,
+        MOONCAKE_BIN, PKG_DIR,
     },
     compiler_flags::{CC, DETECTED_CC},
     mooncakes::ModuleId,
 };
 use regex::Regex;
-use tracing::{debug, instrument, trace, warn, Level};
+use tracing::{Level, debug, instrument, trace, warn};
 
 use crate::{
     build_plan::{FileDependencyKind, PrebuildInfo},
@@ -46,8 +46,8 @@ use crate::{
 };
 
 use super::{
-    constructor::BuildPlanConstructor, BuildCStubsInfo, BuildPlanConstructError, BuildTargetInfo,
-    LinkCoreInfo, MakeExecutableInfo,
+    BuildCStubsInfo, BuildPlanConstructError, BuildTargetInfo, LinkCoreInfo, MakeExecutableInfo,
+    constructor::BuildPlanConstructor,
 };
 
 static BUILD_VAR_REGEX: LazyLock<Regex> =
@@ -393,7 +393,9 @@ impl<'a> BuildPlanConstructor<'a> {
                 if vpkg.has_default {
                     Some(target.package.build_target(TargetKind::Source))
                 } else {
-                    unreachable!("A virtual package without default implementation should not have a build target info, thus should not reach here");
+                    unreachable!(
+                        "A virtual package without default implementation should not have a build target info, thus should not reach here"
+                    );
                 }
             } else if let Some(implement) = self.input.pkg_rel.virt_impl.get(target.package) {
                 Some(implement.build_target(TargetKind::Source))

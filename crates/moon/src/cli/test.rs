@@ -16,8 +16,8 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
-use anyhow::bail;
 use anyhow::Context;
+use anyhow::bail;
 use colored::Colorize;
 use indexmap::IndexMap;
 use log::warn;
@@ -31,17 +31,18 @@ use moonbuild_rupes_recta::model::PackageId;
 use mooncake::pkg::sync::auto_sync;
 use mooncake::pkg::sync::auto_sync_for_single_mbt_md;
 use moonutil::common::PrePostBuild;
-use moonutil::common::{
-    lower_surface_targets, parse_front_matter_config, FileLock, GeneratedTestDriver, MbtMdHeader,
-    MoonbuildOpt, MooncOpt, OutputFormat, RunMode, TargetBackend, TestOpt, MOONBITLANG_CORE,
-};
 use moonutil::common::{BLACKBOX_TEST_DRIVER, DOT_MBT_DOT_MD, SINGLE_FILE_TEST_PACKAGE};
+use moonutil::common::{
+    FileLock, GeneratedTestDriver, MOONBITLANG_CORE, MbtMdHeader, MoonbuildOpt, MooncOpt,
+    OutputFormat, RunMode, TargetBackend, TestOpt, lower_surface_targets,
+    parse_front_matter_config,
+};
 use moonutil::cond_expr::CompileCondition;
 use moonutil::cond_expr::OptLevel;
 use moonutil::dirs::mk_arch_mode_dir;
 use moonutil::module::ModuleDB;
-use moonutil::mooncakes::sync::AutoSyncFlags;
 use moonutil::mooncakes::RegistryConfig;
+use moonutil::mooncakes::sync::AutoSyncFlags;
 use moonutil::package::Package;
 use moonutil::path::PathComponent;
 use n2::trace;
@@ -50,15 +51,15 @@ use std::collections::HashMap;
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
-use tracing::{instrument, Level};
+use tracing::{Level, instrument};
 
 use crate::cli::pre_build::scan_with_x_build;
 use crate::rr_build;
 use crate::rr_build::preconfig_compile;
 use crate::rr_build::{BuildConfig, CalcUserIntentOutput};
-use crate::run::perform_promotion;
 use crate::run::TestFilter;
 use crate::run::TestIndex;
+use crate::run::perform_promotion;
 
 use super::BenchSubcommand;
 use super::{BuildFlags, UniversalFlags};
@@ -842,10 +843,16 @@ fn apply_list_of_filters(
         };
         // Multiple filtered package, check if file/index filtering is applied
         if file_filter.is_some() || index_filter.is_some() || doc_index_filter.is_some() {
-            bail!("Cannot filter by file or index when multiple packages are specified. Matched packages: {:?}", package_names());
+            bail!(
+                "Cannot filter by file or index when multiple packages are specified. Matched packages: {:?}",
+                package_names()
+            );
         }
         if patch_file.is_some() {
-            bail!("Cannot apply patch file when multiple packages are specified. Matched packages: {:?}", package_names());
+            bail!(
+                "Cannot apply patch file when multiple packages are specified. Matched packages: {:?}",
+                package_names()
+            );
         }
         for &pkg_id in &filtered_package_ids {
             out_filter.add_autodetermine_target(pkg_id, None, None);
@@ -968,7 +975,10 @@ pub(crate) fn run_test_or_bench_internal_legacy(
 
     // TODO: remove this once LLVM backend is well supported
     if moonc_opt.build_opt.target_backend == TargetBackend::LLVM {
-        eprintln!("{}: LLVM backend is experimental and only supported on bleeding moonbit toolchain for now", "Warning".yellow());
+        eprintln!(
+            "{}: LLVM backend is experimental and only supported on bleeding moonbit toolchain for now",
+            "Warning".yellow()
+        );
     }
 
     let raw_target_dir = target_dir.to_path_buf();

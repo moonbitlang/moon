@@ -112,7 +112,7 @@ pub fn git_init_repo(path: &Path) -> Result<(), GitCommandError> {
                 return Err(GitCommandError {
                     cmd: format!("git {}", args.join(" ")),
                     source: GitCommandErrorKind::UnknownExitCode,
-                })
+                });
             }
         }
     }

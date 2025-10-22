@@ -1,4 +1,4 @@
-use crate::{get_stdout, TestDir};
+use crate::{TestDir, get_stdout};
 
 #[test]
 fn test_skip_noncontiguous() {

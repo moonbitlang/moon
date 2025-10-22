@@ -18,13 +18,13 @@
 
 use moonbuild::{
     build_script::run_prebuild_config,
-    entry::{run_moon_x_build, MoonXBuildState},
+    entry::{MoonXBuildState, run_moon_x_build},
 };
 use moonutil::{
     common::{MoonbuildOpt, MooncOpt, PrePostBuild},
     dirs::recreate_moon_db,
     module::ModuleDB,
-    mooncakes::{result::ResolvedEnv, DirSyncResult},
+    mooncakes::{DirSyncResult, result::ResolvedEnv},
 };
 
 // x_build: prebuild or postbuild

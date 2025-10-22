@@ -17,7 +17,7 @@
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
 use crate::common::{
-    MoonModJSONFormatErrorKind, MooncOpt, NameError, TargetBackend, MOON_PKG_JSON,
+    MOON_PKG_JSON, MoonModJSONFormatErrorKind, MooncOpt, NameError, TargetBackend,
 };
 use crate::dependency::{
     BinaryDependencyInfo, BinaryDependencyInfoJson, SourceDependencyInfo, SourceDependencyInfoJson,
@@ -557,7 +557,7 @@ impl ModuleDB {
                             pkg_json.display(),
                             pkg_to_impl
                         )
-                    },
+                    }
                     _ => {}
                 }
 

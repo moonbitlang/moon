@@ -29,8 +29,8 @@ use serde::{Deserialize, Serialize};
 
 use crate::{
     common::{
-        FileName, GeneratedTestDriver, TargetBackend, TargetBackend::Js, TargetBackend::Native,
-        TargetBackend::Wasm, TargetBackend::WasmGC, TargetBackend::LLVM,
+        FileName, GeneratedTestDriver, TargetBackend, TargetBackend::Js, TargetBackend::LLVM,
+        TargetBackend::Native, TargetBackend::Wasm, TargetBackend::WasmGC,
     },
     cond_expr::{CompileCondition, CondExpr, CondExprs},
     path::{ImportComponent, PathComponent},

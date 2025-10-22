@@ -33,7 +33,7 @@
 use log::*;
 use std::path::Path;
 
-use moonutil::mooncakes::{result::ResolvedEnv, ModuleId, ModuleSource};
+use moonutil::mooncakes::{ModuleId, ModuleSource, result::ResolvedEnv};
 use n2::graph::Build;
 
 use crate::{
@@ -41,7 +41,7 @@ use crate::{
         artifact::{LegacyLayout, LegacyLayoutBuilder},
         build_ins, build_n2_fileloc, build_outs,
     },
-    discover::{discover_packages_for_mod, DiscoverResult, DiscoveredPackage},
+    discover::{DiscoverResult, DiscoveredPackage, discover_packages_for_mod},
     resolve::ResolveError,
 };
 

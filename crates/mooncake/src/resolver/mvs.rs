@@ -27,12 +27,12 @@ use colored::Colorize;
 use moonutil::{
     dependency::SourceDependencyInfo,
     module::MoonMod,
-    mooncakes::{result::ResolvedEnv, ModuleName, ModuleSource, ModuleSourceKind},
+    mooncakes::{ModuleName, ModuleSource, ModuleSourceKind, result::ResolvedEnv},
     version::as_caret_comparator,
 };
 use semver::Version;
 
-use super::{env::ResolverEnv, Resolver, ResolverError};
+use super::{Resolver, ResolverError, env::ResolverEnv};
 
 /// A dependency solver that follows the MVS (minimal version selection) algorithm,
 /// which is the same as that Go uses.
@@ -427,16 +427,16 @@ fn resolve_pkg(
 #[cfg(test)]
 mod test {
     use expect_test::expect;
-    use moonutil::mooncakes::result::DependencyKey;
     use moonutil::mooncakes::ModuleId;
+    use moonutil::mooncakes::result::DependencyKey;
     use petgraph::dot::{Config, Dot};
     use test_log::test;
 
     use super::*;
-    use crate::registry::mock::{create_mock_module, MockRegistry};
     use crate::registry::RegistryList;
-    use crate::resolver::env::ResolverEnv;
+    use crate::registry::mock::{MockRegistry, create_mock_module};
     use crate::resolver::ResolverErrors;
+    use crate::resolver::env::ResolverEnv;
 
     fn create_mock_registry() -> RegistryList {
         let mut registry = MockRegistry::new();

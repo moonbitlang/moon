@@ -17,7 +17,7 @@
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
 use super::cmd_builder::CommandBuilder;
-use super::gen_build::{gen_build_interface_command, gen_build_interface_item, BuildInterfaceItem};
+use super::gen_build::{BuildInterfaceItem, gen_build_interface_command, gen_build_interface_item};
 use super::n2_errors::{N2Error, N2ErrorKind};
 use super::util::self_in_test_import;
 use crate::r#gen::MiAlias;
@@ -31,7 +31,7 @@ use std::rc::Rc;
 use std::sync::Arc;
 
 use moonutil::common::{
-    get_desc_name, CheckOpt, MoonbuildOpt, MooncOpt, MOON_PKG_JSON, SUB_PKG_POSTFIX,
+    CheckOpt, MOON_PKG_JSON, MoonbuildOpt, MooncOpt, SUB_PKG_POSTFIX, get_desc_name,
 };
 use n2::graph::{self as n2graph, Build, BuildIns, BuildOuts, FileLoc};
 use n2::load::State;

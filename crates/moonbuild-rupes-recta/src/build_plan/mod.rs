@@ -55,10 +55,10 @@ use petgraph::prelude::DiGraphMap;
 use tracing::instrument;
 
 use crate::{
+    ResolveOutput,
     model::{BuildPlanNode, BuildTarget, PackageId},
     pkg_name::PackageFQNWithSource,
     prebuild::PrebuildOutput,
-    ResolveOutput,
 };
 
 mod builders;

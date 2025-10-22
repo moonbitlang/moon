@@ -18,7 +18,7 @@
 
 //! Verify the validity of the package dependency graph.
 
-use std::collections::{hash_map::Entry, HashMap, HashSet};
+use std::collections::{HashMap, HashSet, hash_map::Entry};
 
 use indexmap::IndexSet;
 use log::debug;
@@ -28,8 +28,8 @@ use crate::{
     discover::DiscoverResult,
     model::{BuildTarget, PackageId},
     pkg_solve::{
-        model::{DepRelationship, SolveError},
         DepEdge,
+        model::{DepRelationship, SolveError},
     },
 };
 

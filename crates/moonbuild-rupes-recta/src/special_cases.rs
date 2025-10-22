@@ -28,7 +28,7 @@
 
 use moonutil::package::MoonPkg;
 
-use crate::{model::PackageId, ResolveOutput};
+use crate::{ResolveOutput, model::PackageId};
 
 // string segments
 const MOONBIT: &str = "moonbitlang";

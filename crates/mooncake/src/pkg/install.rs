@@ -18,14 +18,14 @@
 
 use crate::{
     dep_dir::DepDir,
-    resolver::{resolve_single_root_with_defaults, ResolveConfig},
+    resolver::{ResolveConfig, resolve_single_root_with_defaults},
 };
 
 use anyhow::Context;
 use moonutil::{
-    common::{read_module_desc_file_in_dir, DiagnosticLevel, MOONBITLANG_CORE},
+    common::{DiagnosticLevel, MOONBITLANG_CORE, read_module_desc_file_in_dir},
     module::MoonMod,
-    mooncakes::{result::ResolvedEnv, ModuleSource},
+    mooncakes::{ModuleSource, result::ResolvedEnv},
     scan::scan,
 };
 use std::{

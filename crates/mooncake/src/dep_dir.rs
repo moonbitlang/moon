@@ -26,9 +26,9 @@ use std::{
 use anyhow::Context;
 use arcstr::ArcStr;
 use moonutil::{
-    common::{FileLock, DEP_PATH, MOONBITLANG_CORE},
+    common::{DEP_PATH, FileLock, MOONBITLANG_CORE},
     moon_dir::{self},
-    mooncakes::{result::ResolvedEnv, DirSyncResult, ModuleSource, ModuleSourceKind},
+    mooncakes::{DirSyncResult, ModuleSource, ModuleSourceKind, result::ResolvedEnv},
 };
 use semver::Version;
 
@@ -229,7 +229,9 @@ pub fn sync_deps(
     let diff = diff_dep_dir_state(&current_dep_dir, &target_dep_dir);
 
     if frozen && (!diff.add_pkg.is_empty() || !diff.add_user.is_empty()) {
-        anyhow::bail!("Failed to sync dependencies: `frozen` is set, so the build system cannot change the modules directory, but new modules need to be installed")
+        anyhow::bail!(
+            "Failed to sync dependencies: `frozen` is set, so the build system cannot change the modules directory, but new modules need to be installed"
+        )
     }
 
     // First, remove all packages that are no longer needed.
