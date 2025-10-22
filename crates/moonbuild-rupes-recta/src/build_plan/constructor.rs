@@ -26,7 +26,7 @@ use crate::{
     model::{BuildPlanNode, BuildTarget},
     prebuild::PrebuildOutput,
 };
-use tracing::{Level, instrument};
+use tracing::{Level, debug, instrument};
 
 use super::{BuildEnvironment, BuildPlan, BuildPlanConstructError};
 
@@ -130,7 +130,7 @@ impl<'a> BuildPlanConstructor<'a> {
     /// packages don't know if they will be built or checked.
     fn postprocess_coalesce(&mut self) {
         // list of nodes to coalesce and their input/output edges
-        let mut plan = vec![];
+        let mut plan = HashMap::new();
         for node in self.res.all_nodes() {
             if let BuildPlanNode::Check(build_target) = node {
                 // Coalesce to BuildCore if it exists
@@ -139,6 +139,7 @@ impl<'a> BuildPlanConstructor<'a> {
                     .graph
                     .contains_node(BuildPlanNode::BuildCore(build_target))
                 {
+                    debug!("Coalescing Check node {:?} to BuildCore", node);
                     let in_edges = self
                         .res
                         .graph
@@ -151,29 +152,53 @@ impl<'a> BuildPlanConstructor<'a> {
                         .edges_directed(node, petgraph::Outgoing)
                         .map(|(_, target, &edge)| (target, edge))
                         .collect::<Vec<_>>();
-                    plan.push((
+                    plan.insert(
                         node,
-                        BuildPlanNode::BuildCore(build_target),
-                        in_edges,
-                        out_edges,
-                    ));
+                        (BuildPlanNode::BuildCore(build_target), in_edges, out_edges),
+                    );
                 }
             }
         }
 
         // Perform the coalescing
-        for (from, to, in_edges, out_edges) in plan {
-            for source in in_edges {
-                self.res.graph.add_edge(
-                    source,
-                    to,
-                    crate::build_plan::FileDependencyKind::BuildCore {
-                        mi: true,
-                        core: false,
-                    },
-                );
+        for (&from, (to, in_edges, out_edges)) in &plan {
+            let to = *to;
+            // Input edges
+            for &source in in_edges {
+                // Check if source is also coalesced
+                let source = if let Some((new_source, _, _)) = plan.get(&source) {
+                    *new_source
+                } else {
+                    source
+                };
+
+                // Insert or update the edge
+                if let Some(w) = self.res.graph.edge_weight_mut(source, to) {
+                    if let FileDependencyKind::BuildCore { mi, .. } = w {
+                        *mi = true
+                    } else {
+                        // Already depending on all files
+                    }
+                } else {
+                    // Insert the edge
+                    self.res.graph.add_edge(
+                        source,
+                        to,
+                        crate::build_plan::FileDependencyKind::BuildCore {
+                            mi: true,
+                            core: false,
+                        },
+                    );
+                }
             }
-            for (target, edge) in out_edges {
+
+            // Output edges
+            for &(target, edge) in out_edges {
+                // Skip if target is also coalesced -- handled in its own iteration
+                if plan.contains_key(&target) {
+                    continue;
+                }
+
                 self.res.graph.add_edge(to, target, edge);
             }
             self.res.graph.remove_node(from);
