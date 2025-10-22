@@ -19,6 +19,7 @@
 use crate::cond_expr::{CompileCondition, OptLevel};
 pub use crate::dirs::check_moon_mod_exists;
 use crate::module::{MoonMod, MoonModJSON};
+use crate::mooncakes::ModuleName;
 use crate::package::{convert_pkg_json_to_package, MoonPkg, MoonPkgJSON, Package, VirtualPkg};
 use crate::path::PathComponent;
 use anyhow::{bail, Context};
@@ -42,6 +43,11 @@ pub const MOONBITLANG_CORE: &str = "moonbitlang/core";
 pub const MOONBITLANG_CORE_BUILTIN: &str = "moonbitlang/core/builtin";
 pub const MOONBITLANG_COVERAGE: &str = "moonbitlang/core/coverage";
 pub const MOONBITLANG_ABORT: &str = "moonbitlang/core/abort";
+
+pub static MOD_NAME_STDLIB: ModuleName = ModuleName {
+    username: arcstr::literal!("moonbitlang"),
+    unqual: arcstr::literal!("core"),
+};
 
 pub const MOON_TEST_DELIMITER_BEGIN: &str = "----- BEGIN MOON TEST RESULT -----";
 pub const MOON_TEST_DELIMITER_END: &str = "----- END MOON TEST RESULT -----";

@@ -70,6 +70,7 @@ pub fn print_resolved_env_dot(env: &ResolvedEnv, writer: &mut dyn Write) -> io::
             moonutil::mooncakes::ModuleSourceKind::Local(_) => "lightgreen",
             moonutil::mooncakes::ModuleSourceKind::Registry(_) => "lightblue",
             moonutil::mooncakes::ModuleSourceKind::Git(_) => "lightyellow",
+            moonutil::mooncakes::ModuleSourceKind::Stdlib(_) => "lightgray",
         };
 
         writeln!(

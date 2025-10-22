@@ -30,6 +30,8 @@ use semver::Version;
 
 use crate::dep_dir::resolve_dep_dirs;
 
+/// Given the specified source directory, resolve the module dependency relation
+/// and their directories
 pub fn auto_sync(
     source_dir: &Path,
     cli: &AutoSyncFlags,
@@ -38,6 +40,7 @@ pub fn auto_sync(
 ) -> anyhow::Result<(ResolvedEnv, DirSyncResult)> {
     let m = moonutil::common::read_module_desc_file_in_dir(source_dir)?;
     let m = Arc::new(m);
+
     let (resolved_env, dep_dir) =
         super::install::install_impl(source_dir, m, quiet, false, cli.dont_sync())?;
     let dir_sync_result = resolve_dep_dirs(&dep_dir, &resolved_env);

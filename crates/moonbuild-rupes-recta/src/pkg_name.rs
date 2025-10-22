@@ -65,6 +65,14 @@ impl PackageFQN {
             .unwrap_or_else(|| self.module.name().last_segment())
     }
 
+    /// Same as [`Self::short_alias`], but returns a ref-counted substring,
+    /// preventing the frequent cloning of [`String`]s when converting to string.
+    pub fn short_alias_owned(&self) -> arcstr::Substr {
+        self.package
+            .short_name_owned()
+            .unwrap_or_else(|| self.module.name().last_segment_owned())
+    }
+
     pub fn segments(&self) -> impl Iterator<Item = &str> {
         self.module.name().segments().chain(self.package.segments())
     }
@@ -323,6 +331,10 @@ impl PackagePath {
     /// package. If this is the root package, returns [None].
     pub fn short_name(&self) -> Option<&str> {
         self.segments().next_back()
+    }
+
+    pub fn short_name_owned(&self) -> Option<arcstr::Substr> {
+        self.short_name().map(|x| self.value.substr_from(x))
     }
 
     pub fn as_str(&self) -> &str {

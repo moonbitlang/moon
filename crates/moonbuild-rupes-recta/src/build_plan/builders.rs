@@ -114,6 +114,16 @@ impl<'a> BuildPlanConstructor<'a> {
     /// This dynamically maps into either `Build`, `Check` or `BuildVirtual`
     /// nodes based on the property of the dependency package.
     fn need_mi_of_dep(&mut self, node: BuildPlanNode, dep: BuildTarget, check_only: bool) {
+        // Skip `.mi` for standard library item `moonbitlang/core/abort`
+        if self
+            .input
+            .pkg_dirs
+            .abort_pkg()
+            .is_some_and(|x| x == dep.package)
+        {
+            return;
+        }
+
         let pkg_info = self.input.pkg_dirs.get_package(dep.package);
         let dep_node = if pkg_info.is_virtual() {
             self.need_node(BuildPlanNode::BuildVirtual(dep.package))
@@ -494,7 +504,6 @@ impl<'a> BuildPlanConstructor<'a> {
             - Virtual package overrides need to replace their overridden
                 packages in the dependency graph. This is done by not adding
                 virtual packages at all when collecting the targets.
-                TODO: virtual packages are not yet implemented here.
         */
 
         debug!("Building MakeExecutable for target: {:?}", target);
@@ -503,7 +512,7 @@ impl<'a> BuildPlanConstructor<'a> {
         // ====== Link Core =====
 
         // This DFS is shared by both LinkCore and MakeExecutable actions.
-        let (link_core_deps, c_stub_deps) = self.dfs_link_core_sources(target)?;
+        let (link_core_deps, c_stub_deps, abort_overridden) = self.dfs_link_core_sources(target)?;
 
         let link_core_node = self.need_node(BuildPlanNode::LinkCore(target));
 
@@ -525,6 +534,7 @@ impl<'a> BuildPlanConstructor<'a> {
         let targets = link_core_deps.into_iter().collect::<Vec<_>>();
         let link_core_info = LinkCoreInfo {
             linked_order: targets.clone(),
+            abort_overridden,
             // std: self.build_env.std, // TODO: move to per-package
         };
         self.res.link_core_info.insert(target, link_core_info);
@@ -602,14 +612,20 @@ impl<'a> BuildPlanConstructor<'a> {
     fn dfs_link_core_sources(
         &mut self,
         target: BuildTarget,
-    ) -> Result<(IndexSet<BuildTarget>, Vec<BuildTarget>), BuildPlanConstructError> {
+    ) -> Result<(IndexSet<BuildTarget>, Vec<BuildTarget>, bool), BuildPlanConstructError> {
         // This DFS is shared by both LinkCore and MakeExecutable actions.
         let vp_info = self.input.pkg_rel.virtual_users.get(target.package);
+
+        let abort = self.input.pkg_dirs.abort_pkg();
 
         // This is the link core sources
         let mut link_core_deps: IndexSet<BuildTarget> = IndexSet::new();
         // This is the C stub sources
         let mut c_stub_deps: Vec<BuildTarget> = Vec::new();
+        // Whether `moonbitlang/core/abort` is overridden
+        let abort_overridden = vp_info
+            .zip(abort)
+            .is_some_and(|(vu, abort)| vu.overrides.contains_key(abort));
 
         let graph = &self.input.pkg_rel.dep_graph;
 
@@ -647,6 +663,13 @@ impl<'a> BuildPlanConstructor<'a> {
                         }
                         continue;
                     }
+                }
+
+                // `abort` is special cased to not be included in the build
+                // graph. If it's overridden, it's handled above, so it's not
+                // affecting this code path.
+                if abort.is_some_and(|x| node.package == x) {
+                    continue;
                 }
 
                 trace!(?node, "Found node at pre-order");
@@ -704,7 +727,7 @@ impl<'a> BuildPlanConstructor<'a> {
             }
         }
 
-        Ok((link_core_deps, c_stub_deps))
+        Ok((link_core_deps, c_stub_deps, abort_overridden))
     }
 
     /// Propagate the link configuration of the packages in dependency to the output list

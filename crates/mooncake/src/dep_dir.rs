@@ -27,7 +27,7 @@ use anyhow::Context;
 use arcstr::ArcStr;
 use moonutil::{
     common::{FileLock, DEP_PATH, MOONBITLANG_CORE},
-    moon_dir,
+    moon_dir::{self},
     mooncakes::{result::ResolvedEnv, DirSyncResult, ModuleSource, ModuleSourceKind},
 };
 use semver::Version;
@@ -108,6 +108,7 @@ fn pkg_list_to_dep_dir_state<'a>(
             ModuleSourceKind::Registry(_) => {}
             ModuleSourceKind::Local(_) => continue,
             ModuleSourceKind::Git(_) => continue, // TODO: git registries are resolved differently
+            ModuleSourceKind::Stdlib(_) => continue,
         }
         let user = &pkg.name().username;
         let pkg_name = &pkg.name().unqual;
@@ -194,13 +195,25 @@ fn diff_dep_dir_state<'a>(
     }
 }
 
-/// Sync the dependencies directory with the target package list.
+/// Sync the dependencies directory with the target dependency list.
+///
+/// If `frozen` is true, the function will not change anything in the current
+/// dependency directory. If the desired dependency list cannot be created
+/// from the current directory, this function will return an error.
 pub fn sync_deps(
     dep_dir: &DepDir,
     registries: &RegistryList,
     pkg_list: &ResolvedEnv,
     quiet: bool,
+    frozen: bool,
 ) -> anyhow::Result<()> {
+    // If nothing needs to be installed, don't bother
+    let target_dep_dir = pkg_list_to_dep_dir_state(pkg_list.all_modules());
+
+    if target_dep_dir.is_empty() {
+        return Ok(());
+    }
+
     // Ensure the directory exists.
     std::fs::create_dir_all(dep_dir.path())?;
     // Lock with a file within the directory
@@ -211,10 +224,13 @@ pub fn sync_deps(
         )
     })?;
 
-    let target_dep_dir = pkg_list_to_dep_dir_state(pkg_list.all_modules());
     let current_dep_dir = dep_dir.get_current_state()?;
 
     let diff = diff_dep_dir_state(&current_dep_dir, &target_dep_dir);
+
+    if frozen && (!diff.add_pkg.is_empty() || !diff.add_user.is_empty()) {
+        anyhow::bail!("Failed to sync dependencies: `frozen` is set, so the build system cannot change the modules directory, but new modules need to be installed")
+    }
 
     // First, remove all packages that are no longer needed.
     for (user, pkgs) in diff.remove_pkg {
@@ -281,6 +297,7 @@ fn map_source_to_dir(dep_dir: &DepDir, module: &ModuleSource) -> PathBuf {
         ModuleSourceKind::Git(url) => {
             todo!("Git dependency is not yet supported. Got git url: {}", url)
         }
+        ModuleSourceKind::Stdlib(path) => path.clone(),
     }
 }
 

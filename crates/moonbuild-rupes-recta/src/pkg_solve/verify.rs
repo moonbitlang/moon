@@ -145,7 +145,7 @@ fn verify_no_duplicated_alias(
 ) {
     for node in dep.dep_graph.node_identifiers() {
         // The alias map for the current node
-        let mut map: HashMap<&String, (BuildTarget, &DepEdge)> = HashMap::new();
+        let mut map: HashMap<&arcstr::Substr, (BuildTarget, &DepEdge)> = HashMap::new();
 
         for (from, _, edge) in dep
             .dep_graph
@@ -156,7 +156,7 @@ fn verify_no_duplicated_alias(
                     let (first_from, first_edge) = e.get();
 
                     errs.push(SolveError::ConflictingImportAlias {
-                        alias: edge.short_alias.clone(),
+                        alias: edge.short_alias.to_string(),
                         package_node: node,
                         package_fqn: packages.fqn(node.package).into(),
                         first_import_node: *first_from,

@@ -19,7 +19,11 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
+use anyhow::Context;
+use moonutil::common::read_module_desc_file_in_dir;
 use moonutil::module::MoonMod;
+use moonutil::moon_dir;
+use moonutil::mooncakes::result::ResolvedEnv;
 use moonutil::mooncakes::{result, ModuleName, ModuleSource};
 use semver::{Version, VersionReq};
 use thiserror::Error;
@@ -50,6 +54,8 @@ pub enum ResolverError {
     /// Multiple versions of a package are required, but the build system cannot handle this.
     #[error("Multiple conflicting versions were found for module {0}: {1:?}")]
     ConflictingVersions(ModuleName, Vec<Version>),
+    #[error("Cannot inject the standard library `moonbitlang/core`")]
+    CannotInjectCore(#[source] anyhow::Error),
     #[error("Error during resolution: {0}")]
     Other(anyhow::Error),
 }
@@ -70,14 +76,18 @@ impl std::error::Error for ResolverErrors {}
 
 /// The dependency resolver.
 pub trait Resolver {
-    /// Resolves the dependencies of a package using the given environment.
+    /// Resolves the dependencies of a package using the given environment. The
+    /// function should write its results on `res`, which may be initialized
+    /// with other existing data earlier.
     ///
-    /// If the dependencies cannot be resolved, this function should return `None`.
+    /// If the dependencies cannot be resolved, this function should return
+    /// `false`. The errors should be emitted in `env`.
     fn resolve(
         &mut self,
         env: &mut ResolverEnv,
+        res: &mut ResolvedEnv,
         root: &[(ModuleSource, Arc<MoonMod>)],
-    ) -> Option<result::ResolvedEnv>;
+    ) -> bool;
 }
 
 /// Goes through the resolved environment and checks for any duplicate module names.
@@ -110,34 +120,62 @@ fn assert_no_duplicate_module_names(result: &result::ResolvedEnv) -> Result<(), 
     }
 }
 
+pub struct ResolveConfig {
+    pub registries: RegistryList,
+    pub inject_std: bool,
+}
+
 pub fn resolve_with_default_env(
-    registries: &RegistryList,
+    config: &ResolveConfig,
     resolver: &mut dyn Resolver,
     root: &[(ModuleSource, Arc<MoonMod>)],
 ) -> Result<result::ResolvedEnv, ResolverErrors> {
-    let mut env = env::ResolverEnv::new(registries);
-    let res = resolver.resolve(&mut env, root);
+    let mut env = env::ResolverEnv::new(&config.registries);
+    let mut res = ResolvedEnv::new();
+
+    if config.inject_std {
+        inject_std(&mut res)
+            .map_err(|e| ResolverErrors(vec![ResolverError::CannotInjectCore(e)]))?;
+    }
+
+    let status = resolver.resolve(&mut env, &mut res, root);
     if env.any_errors() {
         Err(ResolverErrors(env.into_errors()))
     } else {
-        let res = res.expect("Resolver should not return None when no errors were found");
+        if !status {
+            panic!("The resolver should not return `false` when no errors are found");
+        }
         assert_no_duplicate_module_names(&res)?;
         Ok(res)
     }
 }
 
+/// Inject the definition of `moonbitlang/core` in the installation directory
+/// to the resolve graph, and mark it as the standard library.
+fn inject_std(res: &mut ResolvedEnv) -> anyhow::Result<()> {
+    let core_dir = moon_dir::core();
+    let loaded_core =
+        read_module_desc_file_in_dir(&core_dir).context("Cannot load the core file")?;
+    let source = ModuleSource::from_stdlib(&loaded_core, &core_dir)
+        .map_err(|e| anyhow::anyhow!("Failed to create module source: {e}"))?;
+    let id = res.add_module(source, Arc::new(loaded_core));
+    res.set_stdlib(id);
+
+    Ok(())
+}
+
 pub fn resolve_with_default_env_and_resolver(
-    registries: &RegistryList,
+    config: &ResolveConfig,
     root: &[(ModuleSource, Arc<MoonMod>)],
 ) -> Result<result::ResolvedEnv, ResolverErrors> {
     let mut resolver = MvsSolver;
-    resolve_with_default_env(registries, &mut resolver, root)
+    resolve_with_default_env(config, &mut resolver, root)
 }
 
 pub fn resolve_single_root_with_defaults(
-    registries: &RegistryList,
+    config: &ResolveConfig,
     root_source: ModuleSource,
     root_module: Arc<MoonMod>,
 ) -> Result<result::ResolvedEnv, ResolverErrors> {
-    resolve_with_default_env_and_resolver(registries, &[(root_source, root_module)])
+    resolve_with_default_env_and_resolver(config, &[(root_source, root_module)])
 }

@@ -37,6 +37,7 @@ pub struct ResolverEnv<'a> {
     registries: &'a RegistryList,
     errors: Vec<super::ResolverError>,
     local_module_cache: HashMap<PathBuf, Arc<MoonMod>>,
+    stdlib: Option<Arc<MoonMod>>,
 }
 
 impl<'a> ResolverEnv<'a> {
@@ -45,7 +46,12 @@ impl<'a> ResolverEnv<'a> {
             registries,
             errors: Vec::new(),
             local_module_cache: HashMap::new(),
+            stdlib: None,
         }
+    }
+
+    pub fn set_std_lib(&mut self, stdlib: Arc<MoonMod>) {
+        self.stdlib = Some(stdlib);
     }
 
     pub fn into_errors(self) -> Vec<super::ResolverError> {
@@ -89,6 +95,7 @@ impl<'a> ResolverEnv<'a> {
             }
             ModuleSourceKind::Git(_) => todo!("Resolve git module"),
             ModuleSourceKind::Local(path) => self.resolve_local_module(path).ok(),
+            ModuleSourceKind::Stdlib(_) => self.stdlib.clone(),
         }
     }
 

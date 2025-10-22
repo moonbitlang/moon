@@ -247,6 +247,14 @@ impl BuildTargetInfo {
 pub struct LinkCoreInfo {
     /// The targets in **initialization order**.
     pub(crate) linked_order: Vec<BuildTarget>,
+
+    /// Whether this package overwrites `moonbitlang/core/abort`.
+    ///
+    /// This is needed since `abort` is a prebuilt package, and needs special
+    /// treatment to not be rebuilt when building user code.
+    ///
+    /// MAINTAINERS: When touching this part again, check if there's a better way to do this.
+    pub abort_overridden: bool,
     // we currently don't need this, as it's controlled by build-wise options
     // /// Whether linking this target needs the standard library
     // pub std: bool,

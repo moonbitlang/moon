@@ -171,7 +171,7 @@ fn edge_to_alias_json(
 ) -> impl FnMut((BuildTarget, BuildTarget, &DepEdge)) -> AliasJSON + '_ {
     |(_this, dep, edge)| AliasJSON {
         path: ctx.pkg_dirs.get_package(dep.package).fqn.to_string(),
-        alias: edge.short_alias.clone(),
+        alias: edge.short_alias.to_string(),
         fspath: ctx
             .pkg_dirs
             .get_package(dep.package)

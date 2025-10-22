@@ -325,7 +325,9 @@ impl<'a> BuildPlanLowerContext<'a> {
         if let Some(stdlib) = &self.opt.stdlib_path {
             // The two stdlib core files must be linked in the correct order,
             // in order to get the correct order of initialization.
-            core_input_files.push(artifact::abort_core_path(stdlib, self.opt.target_backend));
+            if !info.abort_overridden {
+                core_input_files.push(artifact::abort_core_path(stdlib, self.opt.target_backend));
+            }
             core_input_files.push(artifact::core_core_path(stdlib, self.opt.target_backend));
         }
         // Linked core targets
@@ -674,6 +676,13 @@ impl<'a> BuildPlanLowerContext<'a> {
             .rel
             .dep_graph
             .edges_directed(target, Direction::Outgoing)
+            // Skip `.mi` for standard library item `moonbitlang/core/abort`
+            .filter(|(_, target, _)| {
+                !self
+                    .packages
+                    .abort_pkg()
+                    .is_some_and(|x| x == target.package)
+            })
             .map(|(_, it, w)| {
                 let in_file =
                     self.layout

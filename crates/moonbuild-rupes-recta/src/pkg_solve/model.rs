@@ -29,7 +29,7 @@ use crate::{
 pub struct DepEdge {
     /// The short alias for this import item. This should be unique among all
     /// imports available to the current build target.
-    pub short_alias: String,
+    pub short_alias: arcstr::Substr,
     /// The kind of the import, whether it's a imported for source, test, or others.
     pub kind: TargetKind,
 }

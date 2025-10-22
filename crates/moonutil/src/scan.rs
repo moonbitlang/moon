@@ -756,9 +756,17 @@ pub fn scan(
     let deps: Vec<String> = mod_desc.deps.iter().map(|(name, _)| name.clone()).collect();
 
     // scan third party packages in DEP_PATH according to deps field
-    for (module_id, _) in resolved_modules.all_modules_and_id() {
+    for (module_id, module) in resolved_modules.all_modules_and_id() {
         if resolved_modules.module_info(module_id).name == mod_desc.name {
             continue; // skip self
+        }
+
+        // Don't scan the injected standard library
+        if matches!(
+            module.source(),
+            crate::mooncakes::ModuleSourceKind::Stdlib(_)
+        ) {
+            continue;
         }
 
         let dir = module_paths.get(module_id).unwrap();

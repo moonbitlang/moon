@@ -71,6 +71,10 @@ impl ModuleName {
         }
     }
 
+    pub fn last_segment_owned(&self) -> arcstr::Substr {
+        self.unqual.substr_from(self.last_segment())
+    }
+
     /// Return segments of the module name.
     pub fn segments(&self) -> impl Iterator<Item = &str> {
         std::iter::once(&*self.username).chain(self.unqual.split('/'))
@@ -114,6 +118,12 @@ impl FromStr for ModuleName {
     }
 }
 
+impl PartialEq<(&str, &str)> for ModuleName {
+    fn eq(&self, other: &(&str, &str)) -> bool {
+        self.username == other.0 && self.unqual == other.1
+    }
+}
+
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum ModuleSourceKind {
     /// Module comes from some registry. If param is `None`, it comes from the default
@@ -124,6 +134,15 @@ pub enum ModuleSourceKind {
     Git(String),
     /// Module comes from a local path. The path must be absolute.
     Local(PathBuf),
+
+    /// This module is the standard library.
+    ///
+    /// Since the standard library is prebuilt during installation, it is
+    /// handled specially. Setting this skips some default behaviors designed
+    /// for regular modules.
+    ///
+    /// TODO: Evaluate if this design is sound
+    Stdlib(PathBuf),
 }
 
 impl Default for ModuleSourceKind {
@@ -145,6 +164,7 @@ impl std::fmt::Display for ModuleSourceKind {
             ModuleSourceKind::Registry(Some(name)) => write!(f, "registry {name}"),
             ModuleSourceKind::Local(path) => write!(f, "local {}", path.display()),
             ModuleSourceKind::Git(url) => write!(f, "git {url}"),
+            ModuleSourceKind::Stdlib(_) => write!(f, "stdlib"),
         }
     }
 }
@@ -223,6 +243,17 @@ impl ModuleSource {
         }))
     }
 
+    pub fn from_stdlib(module: &MoonMod, path: &Path) -> Result<Self, String> {
+        Ok(Self::new_inner(ModuleSourceInner {
+            name: module.name.parse()?,
+            version: module
+                .version
+                .clone()
+                .unwrap_or_else(|| DEFAULT_VERSION.clone()),
+            source: ModuleSourceKind::Stdlib(path.to_owned()),
+        }))
+    }
+
     pub fn git(name: ModuleName, url: String, version: Version) -> Self {
         Self::new_inner(ModuleSourceInner {
             name,
@@ -290,7 +321,7 @@ pub mod result {
     use petgraph::graphmap::DiGraphMap;
     use slotmap::SlotMap;
 
-    use crate::module::MoonMod;
+    use crate::{common::MOD_NAME_STDLIB, module::MoonMod};
 
     use super::{ModuleId, ModuleName, ModuleSource};
 
@@ -307,6 +338,10 @@ pub mod result {
     pub struct ResolvedEnv {
         /// The list of module IDs that are provided as the input to the resolver.
         input_module_ids: Vec<ModuleId>,
+        /// The module that is the standard library. `None` means the project is
+        /// compiled without a standard library.
+        stdlib: Option<ModuleId>,
+
         /// A reverse mapping to query the unique ID of a module from its source.
         rev_map: HashMap<ModuleSource, ModuleId>,
         /// The mapping from the unique IDs of modules to their source.
@@ -341,6 +376,10 @@ pub mod result {
 
         pub fn graph(&self) -> &DiGraphMap<ModuleId, DependencyKey> {
             &self.dep_graph
+        }
+
+        pub fn stdlib(&self) -> Option<ModuleId> {
+            self.stdlib
         }
 
         /// Get all resolved dependencies of a module
@@ -381,67 +420,64 @@ pub mod result {
             self.mapping.iter().map(|(_id, src)| &src.source)
         }
 
-        pub fn builder() -> ResolvedEnvBuilder {
-            ResolvedEnvBuilder::new()
-        }
-
         pub fn only_one_module(ms: ModuleSource, module: MoonMod) -> (ResolvedEnv, ModuleId) {
-            let mut builder = Self::builder();
+            let mut builder = Self::new();
             let id = builder.add_module(ms, Arc::new(module));
-            let res = builder.build();
-            (res, id)
+            (builder, id)
         }
 
         pub fn module_count(&self) -> usize {
             self.mapping.len()
         }
-    }
 
-    pub struct ResolvedEnvBuilder {
-        env: ResolvedEnv,
-    }
-
-    impl ResolvedEnvBuilder {
         pub fn new() -> Self {
             Self {
-                env: ResolvedEnv {
-                    input_module_ids: Vec::new(),
-                    mapping: SlotMap::with_key(),
-                    dep_graph: DiGraphMap::new(),
-                    rev_map: HashMap::new(),
-                },
+                input_module_ids: Vec::new(),
+                stdlib: None,
+                mapping: SlotMap::with_key(),
+                dep_graph: DiGraphMap::new(),
+                rev_map: HashMap::new(),
             }
         }
 
         pub fn push_root_module(&mut self, id: ModuleId) {
-            self.env.input_module_ids.push(id);
+            self.input_module_ids.push(id);
+        }
+
+        /// Set the given module ID as the standard library. All modules
+        /// inserted afterwards will automatically depend on this module.
+        pub fn set_stdlib(&mut self, stdlib: ModuleId) {
+            self.stdlib = Some(stdlib)
         }
 
         pub fn add_module(&mut self, mod_source: ModuleSource, module: Arc<MoonMod>) -> ModuleId {
             // check if it's already inserted
-            if let Some(id) = self.env.rev_map.get(&mod_source) {
+            if let Some(id) = self.rev_map.get(&mod_source) {
                 *id
             } else {
+                // Add module definition
                 let val = ResolvedModule {
                     source: mod_source.clone(),
                     value: module,
                 };
-                let id = self.env.mapping.insert(val);
-                self.env.rev_map.insert(mod_source, id);
+                let id = self.mapping.insert(val);
+                self.rev_map.insert(mod_source, id);
+
+                // Add a dependency to the standard library module
+                if let Some(stdlib) = self.stdlib {
+                    self.dep_graph.add_edge(id, stdlib, MOD_NAME_STDLIB.clone());
+                }
+
                 id
             }
         }
 
         pub fn add_dependency(&mut self, from: ModuleId, to: ModuleId, key: &DependencyKey) {
-            self.env.dep_graph.add_edge(from, to, key.to_owned());
-        }
-
-        pub fn build(self) -> ResolvedEnv {
-            self.env
+            self.dep_graph.add_edge(from, to, key.to_owned());
         }
     }
 
-    impl Default for ResolvedEnvBuilder {
+    impl Default for ResolvedEnv {
         fn default() -> Self {
             Self::new()
         }

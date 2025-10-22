@@ -221,6 +221,8 @@ fn solve_one_package(
     // Black box tests also add the source package as an import
     insert_black_box_dep(env, pid, pkg_data);
 
+    inject_abort_usage(env, pid);
+
     // TODO: Add heuristic to not generate white box test targets for external packages
 
     let virtual_info = resolve_virtual_usages(env, pid, pkg_data)?;
@@ -238,7 +240,7 @@ fn solve_one_package(
 /// source package. If this duplicates with any existing alias, print a warning
 /// and replace the duplicated one's alias with its full name.
 fn insert_black_box_dep(env: &mut ResolveEnv<'_>, pid: PackageId, pkg_data: &DiscoveredPackage) {
-    let short_alias = pkg_data.fqn.short_alias();
+    let short_alias = pkg_data.fqn.short_alias_owned();
     let mut violating = None;
 
     // Check for violation
@@ -271,7 +273,7 @@ fn insert_black_box_dep(env: &mut ResolveEnv<'_>, pid: PackageId, pkg_data: &Dis
         let violating_pkg = env.packages.get_package(t.package);
         warn_about_test_import(pkg_data, violating_pkg);
         // replace the existing one's alias with its full name
-        let new_alias = violating_pkg.fqn.to_string();
+        let new_alias = arcstr::format!("{}", violating_pkg.fqn);
         trace!(
             "Replacing existing alias '{}' with '{}' for package {:?}",
             edge.short_alias,
@@ -282,7 +284,7 @@ fn insert_black_box_dep(env: &mut ResolveEnv<'_>, pid: PackageId, pkg_data: &Dis
             f,
             t,
             DepEdge {
-                short_alias: new_alias,
+                short_alias: new_alias.substr(..),
                 kind: edge.kind,
             },
         );
@@ -293,7 +295,7 @@ fn insert_black_box_dep(env: &mut ResolveEnv<'_>, pid: PackageId, pkg_data: &Dis
         pid.build_target(TargetKind::BlackboxTest),
         pid.build_target(TargetKind::Source),
         DepEdge {
-            short_alias: short_alias.to_string(),
+            short_alias,
             kind: TargetKind::BlackboxTest,
         },
     );
@@ -495,4 +497,34 @@ fn resolve_virtual_usages(
     }
 
     Ok(v_user)
+}
+
+/// Inject the dependency to `moonbitlang/core/abort` for every package
+fn inject_abort_usage(env: &mut ResolveEnv<'_>, pid: PackageId) {
+    trace!(
+        "Injecting abort usage for package {:?} via black box test",
+        pid
+    );
+    let Some(abort) = env.packages.abort_pkg() else {
+        return; // includes no-std scenarios, where abort is simply unset
+    };
+    if abort == pid {
+        return;
+    }
+
+    for target_kind in &[
+        TargetKind::Source,
+        TargetKind::InlineTest,
+        TargetKind::WhiteboxTest,
+        TargetKind::BlackboxTest,
+    ] {
+        env.res.dep_graph.add_edge(
+            pid.build_target(*target_kind),
+            abort.build_target(TargetKind::Source),
+            DepEdge {
+                short_alias: "moonbitlang/core/abort".into(),
+                kind: TargetKind::BlackboxTest,
+            },
+        );
+    }
 }

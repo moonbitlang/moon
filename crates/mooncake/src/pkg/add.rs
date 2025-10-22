@@ -20,13 +20,13 @@ use colored::Colorize;
 use moonutil::common::{read_module_desc_file_in_dir, write_module_json_to_file, MOONBITLANG_CORE};
 use moonutil::dependency::{BinaryDependencyInfo, SourceDependencyInfo};
 use moonutil::module::convert_module_to_mod_json;
-use moonutil::mooncakes::{ModuleName, ModuleSource};
+use moonutil::mooncakes::ModuleName;
 use semver::Version;
 use std::path::Path;
 use std::sync::Arc;
 
-use crate::registry::{self, Registry, RegistryList};
-use crate::resolver::resolve_single_root_with_defaults;
+use crate::pkg::install::install_impl;
+use crate::registry::{self, Registry};
 
 /// Add a dependency
 #[derive(Debug, clap::Parser)]
@@ -120,15 +120,9 @@ pub fn add(
             },
         );
     }
-    let ms = ModuleSource::from_local_module(&m, source_dir).expect("Malformed module manifest");
-    let registries = RegistryList::with_default_registry();
+
     let m = Arc::new(m);
-    let result = resolve_single_root_with_defaults(&registries, ms, Arc::clone(&m))?;
-
-    let dep_dir = crate::dep_dir::DepDir::of_source(source_dir);
-    crate::dep_dir::sync_deps(&dep_dir, &registries, &result, quiet)?;
-
-    drop(result);
+    install_impl(source_dir, Arc::clone(&m), quiet, false, false)?;
 
     let new_j = convert_module_to_mod_json(Arc::into_inner(m).unwrap());
     write_module_json_to_file(&new_j, source_dir)?;
