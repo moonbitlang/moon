@@ -29,7 +29,7 @@ use moonutil::package::{JsFormat, LinkDepItem, Package};
 use super::cmd_builder::CommandBuilder;
 use super::n2_errors::{N2Error, N2ErrorKind};
 use super::util::calc_link_args;
-use crate::gen::MiAlias;
+use crate::r#gen::MiAlias;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
 use std::sync::Arc;

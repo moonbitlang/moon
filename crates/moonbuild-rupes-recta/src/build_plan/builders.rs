@@ -285,8 +285,9 @@ impl<'a> BuildPlanConstructor<'a> {
         // absolute path, or let the iteration item contain extra metadata about
         // what their roots are.
         let prebuild_output_iter = pkg.raw.pre_build.iter().flat_map(|pb| {
-            pb.iter().flat_map(|gen| {
-                gen.output
+            pb.iter().flat_map(|r#gen| {
+                r#gen
+                    .output
                     .iter()
                     .filter(|x| x.ends_with(".mbt") || x.ends_with(DOT_MBT_DOT_MD))
                     .map(|x| Cow::Owned(pkg.root_path.join(x)))

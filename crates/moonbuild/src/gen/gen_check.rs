@@ -20,7 +20,7 @@ use super::cmd_builder::CommandBuilder;
 use super::gen_build::{gen_build_interface_command, gen_build_interface_item, BuildInterfaceItem};
 use super::n2_errors::{N2Error, N2ErrorKind};
 use super::util::self_in_test_import;
-use crate::gen::MiAlias;
+use crate::r#gen::MiAlias;
 use anyhow::bail;
 use colored::Colorize;
 use indexmap::map::IndexMap;

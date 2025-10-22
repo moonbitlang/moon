@@ -28,7 +28,7 @@ use n2::graph::{self as n2graph, Build, BuildIns, BuildOuts, FileId, FileLoc};
 use n2::load::State;
 use n2::smallmap::SmallMap;
 
-use crate::gen::n2_errors::{N2Error, N2ErrorKind};
+use crate::r#gen::n2_errors::{N2Error, N2ErrorKind};
 
 pub fn load_moon_x_build(
     moonbuild_opt: &MoonbuildOpt,

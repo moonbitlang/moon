@@ -4,7 +4,8 @@ use super::*;
 
 #[test]
 fn test_moon_test_succ() {
-    std::env::set_var("NO_COLOR", "1");
+    // TODO: Audit that the environment access only happens in single-threaded code.
+    unsafe { std::env::set_var("NO_COLOR", "1") };
     let dir = TestDir::new("moon_test/succ");
     check(
         get_stdout(&dir, ["test", "-v", "--sort-input", "--no-parallelize"]),

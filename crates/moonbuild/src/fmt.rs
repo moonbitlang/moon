@@ -27,8 +27,8 @@ use n2::load::State;
 use n2::smallmap::SmallMap;
 use std::rc::Rc;
 
-use crate::gen::cmd_builder::CommandBuilder;
-use crate::gen::n2_errors::{N2Error, N2ErrorKind};
+use crate::r#gen::cmd_builder::CommandBuilder;
+use crate::r#gen::n2_errors::{N2Error, N2ErrorKind};
 
 pub fn load_moon_proj(
     m: &ModuleDB,

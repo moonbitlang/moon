@@ -1266,7 +1266,7 @@ pub(crate) fn run_test_or_bench_internal_legacy(
     };
 
     // add coverage libs if needed
-    moonbuild::gen::gen_runtest::add_coverage_to_core_if_needed(&mut module, &moonc_opt)?;
+    moonbuild::r#gen::gen_runtest::add_coverage_to_core_if_needed(&mut module, &moonc_opt)?;
 
     if cli.dry_run {
         return dry_run::print_commands(&module, &moonc_opt, &moonbuild_opt);

@@ -18,7 +18,7 @@
 
 use crate::{MOONRUN_EXECUTABLE, NODE_EXECUTABLE};
 
-use super::gen;
+use super::r#gen;
 use anyhow::Context;
 use moonutil::common::MoonbuildOpt;
 use moonutil::module::ModuleDB;
@@ -35,9 +35,9 @@ pub fn load_moon_proj(
 ) -> anyhow::Result<State> {
     let target_dir = &moonbuild_opt.target_dir;
     log::debug!("module: {:#?}", module);
-    let n2_input = gen::gen_build::gen_build(module, moonc_opt, moonbuild_opt)?;
+    let n2_input = r#gen::gen_build::gen_build(module, moonc_opt, moonbuild_opt)?;
     log::debug!("n2_input: {:#?}", n2_input);
-    gen::gen_build::gen_n2_build_state(&n2_input, target_dir, moonc_opt, moonbuild_opt)
+    r#gen::gen_build::gen_n2_build_state(&n2_input, target_dir, moonc_opt, moonbuild_opt)
 }
 
 pub fn run_wat(path: &Path, args: &[String], verbose: bool) -> anyhow::Result<()> {

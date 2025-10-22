@@ -73,7 +73,8 @@ fn set_env_var(
     let value = value.to_string(scope).unwrap();
     let value = value.to_rust_string_lossy(scope);
 
-    std::env::set_var(&key, &value);
+    // TODO: Audit that the environment access only happens in single-threaded code.
+    unsafe { std::env::set_var(&key, &value) };
 
     ret.set_undefined()
 }
@@ -86,7 +87,8 @@ fn unset_env_var(
     let key = args.get(0);
     let key = key.to_string(scope).unwrap();
     let key = key.to_rust_string_lossy(scope);
-    std::env::remove_var(&key);
+    // TODO: Audit that the environment access only happens in single-threaded code.
+    unsafe { std::env::remove_var(&key) };
     ret.set_undefined()
 }
 

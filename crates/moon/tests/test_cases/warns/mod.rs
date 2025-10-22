@@ -128,7 +128,8 @@ fn test_warn_list_real_run() {
 
 #[test]
 fn test_alert_list() {
-    std::env::set_var("NO_COLOR", "1");
+    // TODO: Audit that the environment access only happens in single-threaded code.
+    unsafe { std::env::set_var("NO_COLOR", "1") };
     let dir = TestDir::new("warns/alert_list");
 
     // don't set -alert & -w if it's empty string
@@ -185,7 +186,8 @@ fn test_mod_level_warn_alert_list() {
 
 #[test]
 fn test_deny_warn() {
-    std::env::set_var("NO_COLOR", "1");
+    // TODO: Audit that the environment access only happens in single-threaded code.
+    unsafe { std::env::set_var("NO_COLOR", "1") };
     let dir = TestDir::new("warns/deny_warn");
 
     check(

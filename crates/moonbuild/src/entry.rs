@@ -231,11 +231,16 @@ pub fn get_parallelism(opt: &MoonbuildOpt) -> anyhow::Result<usize> {
             .context("Failed to parse MOON_MAX_PAR_TASKS to get the parallelism for building")
     } else if let Some(par) = opt.parallelism {
         Ok(par)
-    } else if let Ok(val) = default_parallelism() {
-        Ok(val)
     } else {
-        warn!("Failed to get the parallelism for building, falling back to 1 parallel task");
-        Ok(1)
+        match default_parallelism() {
+            Ok(val) => Ok(val),
+            _ => {
+                warn!(
+                    "Failed to get the parallelism for building, falling back to 1 parallel task"
+                );
+                Ok(1)
+            }
+        }
     }
 }
 

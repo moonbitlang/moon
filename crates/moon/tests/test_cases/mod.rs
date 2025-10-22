@@ -1413,7 +1413,8 @@ fn test_blackbox_test_core_override() {
 
 #[test]
 fn test_blackbox_dedup_alias() {
-    std::env::set_var("RUST_BACKTRACE", "0");
+    // TODO: Audit that the environment access only happens in single-threaded code.
+    unsafe { std::env::set_var("RUST_BACKTRACE", "0") };
     let dir = TestDir::new("blackbox_test_dedup_alias.in");
     let output = get_err_stderr(&dir, ["test"]);
     check(

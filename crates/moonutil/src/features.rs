@@ -46,7 +46,7 @@ macro_rules! features {
     ($(
         // represents a single feature
         // $stable should be either `stable` or `unstable`
-        ($is_stable:tt, $name:ident, $desc:expr)
+        ($is_stable:tt, $name:ident, $desc:expr_2021)
     ),*$(,)?) => {
         /// Represent the list of unstable features.
         /// Stringified as a comma-separated list of feature gate names.

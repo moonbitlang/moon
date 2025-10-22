@@ -29,7 +29,7 @@ pub mod dry_run;
 pub mod entry;
 pub mod expect;
 pub mod fmt;
-pub mod gen;
+pub mod r#gen;
 pub mod new;
 pub mod pre_build;
 pub mod runtest;
