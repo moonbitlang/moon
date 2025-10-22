@@ -21,7 +21,7 @@ use anyhow::Context;
 use moonutil::common::{
     FileLock, MoonbuildOpt, MooncOpt, SINGLE_FILE_TEST_MODULE, SINGLE_FILE_TEST_PACKAGE,
 };
-use moonutil::module::{convert_mdb_to_json, ModuleDB, ModuleDBJSON};
+use moonutil::module::{ModuleDB, ModuleDBJSON, convert_mdb_to_json};
 use n2::load::State;
 use std::io::BufWriter;
 use std::io::Write;
@@ -103,9 +103,9 @@ pub fn load_moon_proj(
     let target_dir = &moonbuild_opt.target_dir;
 
     log::debug!("module: {:#?}", module);
-    let n2_input = super::super::gen::gen_check::gen_check(module, moonc_opt, moonbuild_opt)?;
+    let n2_input = super::super::r#gen::gen_check::gen_check(module, moonc_opt, moonbuild_opt)?;
     log::debug!("n2_input: {:#?}", n2_input);
-    super::super::gen::gen_check::gen_n2_check_state(
+    super::super::r#gen::gen_check::gen_n2_check_state(
         &n2_input,
         target_dir,
         moonc_opt,

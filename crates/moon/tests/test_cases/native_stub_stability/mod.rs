@@ -1,4 +1,4 @@
-use crate::{get_stdout, TestDir};
+use crate::{TestDir, get_stdout};
 
 /// Ensure that the C stub linking order is stable and does not change between runs.
 ///

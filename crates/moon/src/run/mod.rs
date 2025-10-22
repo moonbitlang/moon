@@ -23,8 +23,8 @@ mod runtest;
 mod runtime;
 
 pub use child::run;
-pub use runtest::{perform_promotion, run_tests, TestFilter, TestIndex};
-pub use runtime::{command_for, CommandGuard};
+pub use runtest::{TestFilter, TestIndex, perform_promotion, run_tests};
+pub use runtime::{CommandGuard, command_for};
 
 pub fn default_rt() -> std::io::Result<tokio::runtime::Runtime> {
     tokio::runtime::Builder::new_current_thread()

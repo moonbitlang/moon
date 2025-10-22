@@ -26,11 +26,11 @@ use n2::smallmap::SmallMap;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
 
-use moonutil::common::{MoonbuildOpt, MooncOpt, MOON_PKG_JSON};
+use moonutil::common::{MOON_PKG_JSON, MoonbuildOpt, MooncOpt};
 
 use super::cmd_builder::CommandBuilder;
 use super::n2_errors::{N2Error, N2ErrorKind};
-use crate::gen::MiAlias;
+use crate::r#gen::MiAlias;
 
 #[derive(Debug)]
 pub struct BundleDepItem {

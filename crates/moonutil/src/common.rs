@@ -20,9 +20,9 @@ use crate::cond_expr::{CompileCondition, OptLevel};
 pub use crate::dirs::check_moon_mod_exists;
 use crate::module::{MoonMod, MoonModJSON};
 use crate::mooncakes::ModuleName;
-use crate::package::{convert_pkg_json_to_package, MoonPkg, MoonPkgJSON, Package, VirtualPkg};
+use crate::package::{MoonPkg, MoonPkgJSON, Package, VirtualPkg, convert_pkg_json_to_package};
 use crate::path::PathComponent;
-use anyhow::{bail, Context};
+use anyhow::{Context, bail};
 use clap::ValueEnum;
 use fs4::fs_std::FileExt;
 use indexmap::IndexMap;
@@ -1100,30 +1100,30 @@ pub fn execute_postadd_script(dir: &Path) -> anyhow::Result<()> {
         return Ok(());
     }
     let m = read_module_desc_file_in_dir(dir)?;
-    if let Some(scripts) = &m.scripts {
-        if scripts.contains_key("postadd") {
-            let postadd = scripts
-                .get("postadd")
-                .unwrap()
-                .split(' ')
-                .collect::<Vec<_>>();
-            if !postadd.is_empty() {
-                let command = postadd[0];
-                let args = &postadd[1..];
-                let output = std::process::Command::new(command)
-                    .args(args)
-                    .current_dir(dir)
-                    .stdout(std::process::Stdio::inherit())
-                    .stderr(std::process::Stdio::inherit())
-                    .output()?;
-                if !output.status.success() {
-                    bail!(
-                        "failed to execute postadd script in {},\ncommand: {},\n{}",
-                        dir.display(),
-                        command,
-                        String::from_utf8_lossy(&output.stderr)
-                    );
-                }
+    if let Some(scripts) = &m.scripts
+        && scripts.contains_key("postadd")
+    {
+        let postadd = scripts
+            .get("postadd")
+            .unwrap()
+            .split(' ')
+            .collect::<Vec<_>>();
+        if !postadd.is_empty() {
+            let command = postadd[0];
+            let args = &postadd[1..];
+            let output = std::process::Command::new(command)
+                .args(args)
+                .current_dir(dir)
+                .stdout(std::process::Stdio::inherit())
+                .stderr(std::process::Stdio::inherit())
+                .output()?;
+            if !output.status.success() {
+                bail!(
+                    "failed to execute postadd script in {},\ncommand: {},\n{}",
+                    dir.display(),
+                    command,
+                    String::from_utf8_lossy(&output.stderr)
+                );
             }
         }
     }

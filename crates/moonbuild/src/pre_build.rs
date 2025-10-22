@@ -20,7 +20,7 @@ use std::path::PathBuf;
 use std::rc::Rc;
 
 use moonutil::common::{
-    MoonbuildOpt, PrePostBuild, DEP_PATH, MOD_DIR, MOONCAKE_BIN, MOON_BIN_DIR, PKG_DIR,
+    DEP_PATH, MOD_DIR, MOON_BIN_DIR, MOONCAKE_BIN, MoonbuildOpt, PKG_DIR, PrePostBuild,
 };
 use moonutil::module::ModuleDB;
 use moonutil::package::StringOrArray;
@@ -28,7 +28,7 @@ use n2::graph::{self as n2graph, Build, BuildIns, BuildOuts, FileId, FileLoc};
 use n2::load::State;
 use n2::smallmap::SmallMap;
 
-use crate::gen::n2_errors::{N2Error, N2ErrorKind};
+use crate::r#gen::n2_errors::{N2Error, N2ErrorKind};
 
 pub fn load_moon_x_build(
     moonbuild_opt: &MoonbuildOpt,

@@ -25,7 +25,7 @@ use clap::Parser;
 use moonutil::dirs::PackageDirs;
 use walkdir::WalkDir;
 
-use super::{run_test, TestSubcommand, UniversalFlags};
+use super::{TestSubcommand, UniversalFlags, run_test};
 
 #[derive(Debug, clap::Parser, Default)]
 #[clap(

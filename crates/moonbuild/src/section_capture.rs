@@ -142,10 +142,10 @@ pub async fn handle_stdout_async<'a>(
             None => stdout.write_all(buf.as_bytes()).await?,
             Some(LineCaptured::All) => {}
             Some(LineCaptured::Prefix(start_index)) => {
-                stdout.write_all(buf[start_index..].as_bytes()).await?
+                stdout.write_all(&buf.as_bytes()[start_index..]).await?
             }
             Some(LineCaptured::Suffix(end_index)) => {
-                stdout.write_all(buf[..end_index].as_bytes()).await?
+                stdout.write_all(&buf.as_bytes()[..end_index]).await?
             }
         }
     }

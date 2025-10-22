@@ -37,16 +37,16 @@ use n2::{trace, work};
 use anyhow::Context;
 use colored::Colorize;
 
-use crate::benchmark::{render_batch_bench_summary, BATCHBENCH};
+use crate::benchmark::{BATCHBENCH, render_batch_bench_summary};
 use crate::check::normal::write_pkg_lst;
 use crate::expect::{apply_snapshot, render_snapshot_fail};
 use crate::runtest::TestStatistics;
 use crate::test_utils::indices_to_ranges;
 
 use moonutil::common::{
-    DiagnosticLevel, DriverKind, FileLock, FileName, MbtTestInfo, MoonbuildOpt, MooncGenTestInfo,
-    MooncOpt, PrePostBuild, TargetBackend, TestArtifacts, TestBlockIndex, DOT_MBT_DOT_MD,
-    TEST_INFO_FILE,
+    DOT_MBT_DOT_MD, DiagnosticLevel, DriverKind, FileLock, FileName, MbtTestInfo, MoonbuildOpt,
+    MooncGenTestInfo, MooncOpt, PrePostBuild, TEST_INFO_FILE, TargetBackend, TestArtifacts,
+    TestBlockIndex,
 };
 
 use std::sync::{Arc, Mutex};
@@ -231,11 +231,16 @@ pub fn get_parallelism(opt: &MoonbuildOpt) -> anyhow::Result<usize> {
             .context("Failed to parse MOON_MAX_PAR_TASKS to get the parallelism for building")
     } else if let Some(par) = opt.parallelism {
         Ok(par)
-    } else if let Ok(val) = default_parallelism() {
-        Ok(val)
     } else {
-        warn!("Failed to get the parallelism for building, falling back to 1 parallel task");
-        Ok(1)
+        match default_parallelism() {
+            Ok(val) => Ok(val),
+            _ => {
+                warn!(
+                    "Failed to get the parallelism for building, falling back to 1 parallel task"
+                );
+                Ok(1)
+            }
+        }
     }
 }
 
@@ -256,11 +261,7 @@ impl N2RunStats {
 
     /// Get the return code that should be returned to the shell.
     pub fn return_code_for_success(&self) -> i32 {
-        if self.successful() {
-            0
-        } else {
-            1
-        }
+        if self.successful() { 0 } else { 1 }
     }
 
     pub fn print_info(&self, quiet: bool, mode: &str) -> anyhow::Result<()> {
@@ -676,10 +677,10 @@ fn convert_moonc_test_info(
             if test_info.is_empty() {
                 continue;
             }
-            if let Some(filter_file) = filter_file {
-                if filename != *filter_file {
-                    continue;
-                }
+            if let Some(filter_file) = filter_file
+                && filename != *filter_file
+            {
+                continue;
             }
             current_pkg_test_info
                 .entry((artifact_path.clone(), driver_kind))
@@ -732,10 +733,10 @@ pub fn run_test(
         .iter()
         .filter(|(_, p)| !p.is_third_party)
     {
-        if let Some(package) = filter_package {
-            if !package.contains(pkgname) {
-                continue;
-            }
+        if let Some(package) = filter_package
+            && !package.contains(pkgname)
+        {
+            continue;
         }
 
         // convert moonc test info
@@ -1050,10 +1051,10 @@ impl<'a> CompactTestFormatter<'a> {
         } else {
             write!(w, "test ")?;
         }
-        if let Some(subpackage) = stripped {
-            if !subpackage.is_empty() {
-                write!(w, "{}/", subpackage)?;
-            }
+        if let Some(subpackage) = stripped
+            && !subpackage.is_empty()
+        {
+            write!(w, "{}/", subpackage)?;
         }
         write!(w, "{}", self.stats.filename)?;
 

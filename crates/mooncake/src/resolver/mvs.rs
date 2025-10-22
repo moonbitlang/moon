@@ -27,12 +27,12 @@ use colored::Colorize;
 use moonutil::{
     dependency::SourceDependencyInfo,
     module::MoonMod,
-    mooncakes::{result::ResolvedEnv, ModuleName, ModuleSource, ModuleSourceKind},
+    mooncakes::{ModuleName, ModuleSource, ModuleSourceKind, result::ResolvedEnv},
     version::as_caret_comparator,
 };
 use semver::Version;
 
-use super::{env::ResolverEnv, Resolver, ResolverError};
+use super::{Resolver, ResolverError, env::ResolverEnv};
 
 /// A dependency solver that follows the MVS (minimal version selection) algorithm,
 /// which is the same as that Go uses.
@@ -160,7 +160,7 @@ impl Ord for ModuleSourceOrdWrapper {
 
 impl PartialOrd for ModuleSourceOrdWrapper {
     fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
-        Some(self.0.cmp(&other.0))
+        Some(self.cmp(other))
     }
 }
 
@@ -374,41 +374,41 @@ fn resolve_pkg(
     env: &mut ResolverEnv,
     pkg_name: &ModuleName,
 ) -> Result<(ModuleSource, Arc<MoonMod>), ResolverError> {
-    if let Some(path) = &req.path {
-        if local_dep_allowed(dependant) {
-            // Try resolving using local dependency
-            let root = root_path_of(dependant);
-            assert!(
-                root.is_absolute(),
-                "Root path of {} is not absolute! Got: {}",
-                dependant,
-                root.display()
-            );
-            let dep_path = root.join(path);
-            let dep_path =
-                dunce::canonicalize(dep_path).map_err(|err| ResolverError::Other(err.into()))?;
-            let res = env.resolve_local_module(&dep_path)?;
-            let ms = ModuleSource::new_full(
-                pkg_name.clone(),
-                res.version.clone().expect("Expected version in module"),
-                ModuleSourceKind::Local(dep_path),
-            );
-            // Assert version matches
-            if let Some(v) = &res.version {
-                if !req.version.matches(v) {
-                    return Err(ResolverError::LocalDepVersionMismatch(
-                        Box::new(ms),
-                        req.version.clone(),
-                    ));
-                }
-            }
-            return Ok((ms, res));
+    if let Some(path) = &req.path
+        && local_dep_allowed(dependant)
+    {
+        // Try resolving using local dependency
+        let root = root_path_of(dependant);
+        assert!(
+            root.is_absolute(),
+            "Root path of {} is not absolute! Got: {}",
+            dependant,
+            root.display()
+        );
+        let dep_path = root.join(path);
+        let dep_path =
+            dunce::canonicalize(dep_path).map_err(|err| ResolverError::Other(err.into()))?;
+        let res = env.resolve_local_module(&dep_path)?;
+        let ms = ModuleSource::new_full(
+            pkg_name.clone(),
+            res.version.clone().expect("Expected version in module"),
+            ModuleSourceKind::Local(dep_path),
+        );
+        // Assert version matches
+        if let Some(v) = &res.version
+            && !req.version.matches(v)
+        {
+            return Err(ResolverError::LocalDepVersionMismatch(
+                Box::new(ms),
+                req.version.clone(),
+            ));
         }
+        return Ok((ms, res));
     }
-    if let Some(_url) = &req.git {
-        if git_dep_allowed(dependant) {
-            // TODO: Try resolving using git dependency
-        }
+    if let Some(_url) = &req.git
+        && git_dep_allowed(dependant)
+    {
+        // TODO: Try resolving using git dependency
     }
     // If neither git nor local dependencies can be resolved (either because the user
     // didn't specify it at all, or because the repo comes from a registry), we fallback
@@ -427,16 +427,16 @@ fn resolve_pkg(
 #[cfg(test)]
 mod test {
     use expect_test::expect;
-    use moonutil::mooncakes::result::DependencyKey;
     use moonutil::mooncakes::ModuleId;
+    use moonutil::mooncakes::result::DependencyKey;
     use petgraph::dot::{Config, Dot};
     use test_log::test;
 
     use super::*;
-    use crate::registry::mock::{create_mock_module, MockRegistry};
     use crate::registry::RegistryList;
-    use crate::resolver::env::ResolverEnv;
+    use crate::registry::mock::{MockRegistry, create_mock_module};
     use crate::resolver::ResolverErrors;
+    use crate::resolver::env::ResolverEnv;
 
     fn create_mock_registry() -> RegistryList {
         let mut registry = MockRegistry::new();
@@ -749,8 +749,7 @@ mod test {
         let mut res_env = ResolvedEnv::new();
         let status = resolver.resolve(&mut env, &mut res_env, &roots);
         if status {
-            let pkgs = res_env.all_modules().cloned().collect::<Vec<_>>();
-            pkgs
+            res_env.all_modules().cloned().collect::<Vec<_>>()
         } else {
             println!("Errors: {}", ResolverErrors(env.into_errors()));
             vec![]

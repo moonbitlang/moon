@@ -16,7 +16,7 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
-use anyhow::{bail, Context as _};
+use anyhow::{Context as _, bail};
 use std::process::{Command, ExitStatus};
 use which::which_global;
 

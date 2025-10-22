@@ -32,7 +32,7 @@ use moonutil::{
 };
 use tracing::instrument;
 
-use crate::{model::PackageId, ResolveOutput};
+use crate::{ResolveOutput, model::PackageId};
 
 /// The output of running prebuild config scripts
 #[derive(Debug, Default)]

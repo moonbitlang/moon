@@ -25,13 +25,13 @@ use moonutil::{
         BlockStyle, DiagnosticLevel, FileLock, FmtOpt, MoonbuildOpt, MooncOpt, PrePostBuild,
         RunMode,
     },
-    dirs::{mk_arch_mode_dir, PackageDirs},
-    mooncakes::{sync::AutoSyncFlags, RegistryConfig},
+    dirs::{PackageDirs, mk_arch_mode_dir},
+    mooncakes::{RegistryConfig, sync::AutoSyncFlags},
 };
 
 use crate::rr_build::{self, BuildConfig};
 
-use super::{pre_build::scan_with_x_build, UniversalFlags};
+use super::{UniversalFlags, pre_build::scan_with_x_build};
 
 /// Format source code
 #[derive(Debug, clap::Parser)]

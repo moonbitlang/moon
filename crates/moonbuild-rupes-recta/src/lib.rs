@@ -25,13 +25,13 @@
     which splits the compilation process in two parts:
 
     - [`resolve`] Builds an in-memory representation of all modules and packages
-        that needs to be used during the compile process, as well as the
-        dependency relationship between them. This part is always performed
-        without affected by the user input.
+      that needs to be used during the compile process, as well as the
+      dependency relationship between them. This part is always performed
+      without affected by the user input.
 
     - [`compile`] takes in the resolved environment, and builds a [`n2`] build
-        graph for execution. This part converts the intent of the user into the
-        actual build commands.
+      graph for execution. This part converts the intent of the user into the
+      actual build commands.
 
     Of all intents of the user, one is so different from the rest: `moon fmt`.
     The formatter only needs the list of files to run, regardless of whether the
@@ -54,19 +54,19 @@
     The rough steps (with Rupes Recta) of building a MoonBit program are:
 
     1. Read the `mooncakes.io` registry and resolve the *module* dependency
-        graph ([`mooncake::resolver`]).
+       graph ([`mooncake::resolver`]).
     2. Download the required dependency to local cache folders
-        ([`mooncake::pkg::install`]).
+       ([`mooncake::pkg::install`]).
     3. Discover packages within modules ([`crate::discover`]). This is different
-        from many package managers -- the package distribution unit ("module")
-        is different from the compile unit ("package").
+       from many package managers -- the package distribution unit ("module")
+       is different from the compile unit ("package").
     4. Resolve the *package* dependency graph ([`crate::pkg_solve`]).
     5. Get the list of top-level build actions from user input.
     6. From this list of build actions, resolve the whole abstract build graph
-        that represents the list of actions to be executed
-        ([`crate::build_plan`]).
+       that represents the list of actions to be executed
+       ([`crate::build_plan`]).
     7. Lower the build graph to a concrete one acceptable by [`n2`] (which is an
-        in-process `ninja` equivalent) ([`crate::build_lower`]).
+       in-process `ninja` equivalent) ([`crate::build_lower`]).
     8. Execute the build graph using `n2`.
 
     Additional information about the build process, project layout, special
@@ -121,5 +121,5 @@ mod special_cases;
 pub mod util;
 
 // Reexports
-pub use compile::{compile, CompileConfig, CompileOutput};
-pub use resolve::{resolve, ResolveConfig, ResolveOutput};
+pub use compile::{CompileConfig, CompileOutput, compile};
+pub use resolve::{ResolveConfig, ResolveOutput, resolve};

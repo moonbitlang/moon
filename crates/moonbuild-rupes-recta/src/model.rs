@@ -18,7 +18,7 @@
 
 use std::path::PathBuf;
 
-use moonutil::mooncakes::{result::ResolvedEnv, ModuleId};
+use moonutil::mooncakes::{ModuleId, result::ResolvedEnv};
 
 use crate::discover::DiscoverResult;
 

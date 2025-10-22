@@ -21,17 +21,17 @@
 use moonutil::{
     common::TargetBackend,
     compiler_flags::{
-        make_archiver_command, make_cc_command, make_cc_command_pure, resolve_cc,
-        ArchiverConfigBuilder, CCConfigBuilder, OptLevel as CCOptLevel, OutputType as CCOutputType,
-        CC,
+        ArchiverConfigBuilder, CC, CCConfigBuilder, OptLevel as CCOptLevel,
+        OutputType as CCOutputType, make_archiver_command, make_cc_command, make_cc_command_pure,
+        resolve_cc,
     },
     cond_expr::OptLevel,
     moon_dir::MOON_DIRS,
-    mooncakes::{ModuleId, CORE_MODULE},
+    mooncakes::{CORE_MODULE, ModuleId},
     package::JsFormat,
 };
 use petgraph::Direction;
-use tracing::{instrument, Level};
+use tracing::{Level, instrument};
 
 use crate::{
     build_lower::{
@@ -47,7 +47,7 @@ use crate::{
     pkg_name::{PackageFQN, PackagePath},
 };
 
-use super::{compiler, context::BuildPlanLowerContext, BuildCommand};
+use super::{BuildCommand, compiler, context::BuildPlanLowerContext};
 
 impl<'a> BuildPlanLowerContext<'a> {
     fn is_module_third_party(&self, mid: ModuleId) -> bool {
@@ -678,10 +678,9 @@ impl<'a> BuildPlanLowerContext<'a> {
             .edges_directed(target, Direction::Outgoing)
             // Skip `.mi` for standard library item `moonbitlang/core/abort`
             .filter(|(_, target, _)| {
-                !self
-                    .packages
+                self.packages
                     .abort_pkg()
-                    .is_some_and(|x| x == target.package)
+                    .is_none_or(|x| x != target.package)
             })
             .map(|(_, it, w)| {
                 let in_file =

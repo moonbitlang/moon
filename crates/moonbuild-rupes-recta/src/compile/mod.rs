@@ -26,7 +26,7 @@ use moonutil::{
     cond_expr::OptLevel,
     moon_dir::MOON_DIRS,
 };
-use tracing::{instrument, Level};
+use tracing::{Level, instrument};
 
 use crate::{
     build_lower,

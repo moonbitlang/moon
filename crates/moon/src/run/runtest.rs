@@ -66,19 +66,19 @@ use anyhow::Context;
 use indexmap::IndexMap;
 use log::warn;
 use moonbuild::{
-    benchmark::{render_batch_bench_summary, BATCHBENCH},
+    benchmark::{BATCHBENCH, render_batch_bench_summary},
     entry::{CompactTestFormatter, TestArgs},
     expect::{
-        render_expect_fail, render_snapshot_fail, ERROR, EXPECT_FAILED, RUNTIME_ERROR,
-        SNAPSHOT_TESTING,
+        ERROR, EXPECT_FAILED, RUNTIME_ERROR, SNAPSHOT_TESTING, render_expect_fail,
+        render_snapshot_fail,
     },
     runtest::TestStatistics,
     section_capture::SectionCapture,
 };
 use moonbuild_rupes_recta::model::{BuildPlanNode, BuildTarget};
 use moonutil::common::{
-    MbtTestInfo, MooncGenTestInfo, MOON_COVERAGE_DELIMITER_BEGIN, MOON_COVERAGE_DELIMITER_END,
-    MOON_TEST_DELIMITER_BEGIN, MOON_TEST_DELIMITER_END,
+    MOON_COVERAGE_DELIMITER_BEGIN, MOON_COVERAGE_DELIMITER_END, MOON_TEST_DELIMITER_BEGIN,
+    MOON_TEST_DELIMITER_END, MbtTestInfo, MooncGenTestInfo,
 };
 use tokio::runtime::Runtime;
 

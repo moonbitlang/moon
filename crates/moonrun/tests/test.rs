@@ -18,7 +18,7 @@
 
 use std::path::{Path, PathBuf};
 
-use expect_test::{expect, Expect};
+use expect_test::{Expect, expect};
 
 struct TestDir {
     // tempfile::TempDir has a drop implementation that will remove the directory

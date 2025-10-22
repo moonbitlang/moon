@@ -21,22 +21,22 @@
 use std::path::PathBuf;
 
 use log::debug;
-use moonutil::mooncakes::{result::ResolvedEnv, DirSyncResult};
+use moonutil::mooncakes::{DirSyncResult, result::ResolvedEnv};
 use n2::graph::{Build, Graph as N2Graph};
-use tracing::{instrument, Level};
+use tracing::{Level, instrument};
 
 use crate::{
+    ResolveOutput,
     build_lower::artifact::LegacyLayout,
     build_plan::{BuildPlan, FileDependencyKind},
     discover::{DiscoverResult, DiscoveredPackage},
     model::{BuildPlanNode, BuildTarget},
     pkg_solve::DepRelationship,
-    ResolveOutput,
 };
 
 use super::{
-    utils::{build_ins, build_n2_fileloc, build_outs},
     BuildOptions, LoweringError,
+    utils::{build_ins, build_n2_fileloc, build_outs},
 };
 
 pub(crate) struct BuildPlanLowerContext<'a> {

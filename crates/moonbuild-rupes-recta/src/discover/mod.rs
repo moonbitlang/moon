@@ -35,14 +35,14 @@ use std::{
 
 use log::{debug, info, trace};
 use moonutil::common::{
-    read_module_desc_file_in_dir, read_package_desc_file_in_dir, IGNORE_DIRS, MBTI_USER_WRITTEN,
-    MOON_MOD_JSON, MOON_PKG_JSON,
+    IGNORE_DIRS, MBTI_USER_WRITTEN, MOON_MOD_JSON, MOON_PKG_JSON, read_module_desc_file_in_dir,
+    read_package_desc_file_in_dir,
 };
-use moonutil::mooncakes::{result::ResolvedEnv, DirSyncResult, ModuleId, ModuleSource};
+use moonutil::mooncakes::{DirSyncResult, ModuleId, ModuleSource, result::ResolvedEnv};
 use moonutil::package::MoonPkg;
 use relative_path::{PathExt, RelativePath};
 use slotmap::{SecondaryMap, SlotMap};
-use tracing::{instrument, warn, Level};
+use tracing::{Level, instrument, warn};
 use walkdir::WalkDir;
 
 use crate::{
@@ -140,15 +140,15 @@ pub(crate) fn discover_packages_for_mod(
             .expect("Walked directory should be a descendant of the scan source");
 
         // Skip certain ignored directories
-        if let Some(filename) = rel_path.file_name() {
-            if IGNORE_DIRS.contains(&filename) {
-                debug!(
-                    "Skipping {} recursively because it is in the internal ignored list",
-                    abs_path.display()
-                );
-                walkdir.skip_current_dir();
-                continue;
-            }
+        if let Some(filename) = rel_path.file_name()
+            && IGNORE_DIRS.contains(&filename)
+        {
+            debug!(
+                "Skipping {} recursively because it is in the internal ignored list",
+                abs_path.display()
+            );
+            walkdir.skip_current_dir();
+            continue;
         }
 
         // Avoid descending into another module
@@ -517,7 +517,9 @@ pub enum DiscoverError {
         inner: anyhow::Error,
     },
 
-    #[error("Unable to list directory contents for package '{package}' in module '{module}' at path '{path}', error: {inner}")]
+    #[error(
+        "Unable to list directory contents for package '{package}' in module '{module}' at path '{path}', error: {inner}"
+    )]
     CantListPackageDir {
         module: ModuleSource,
         package: PackagePath,
@@ -525,7 +527,9 @@ pub enum DiscoverError {
         inner: anyhow::Error,
     },
 
-    #[error("Unable to read file info for file '{file}' in package '{package}' of module '{module}', error: {inner}")]
+    #[error(
+        "Unable to read file info for file '{file}' in package '{package}' of module '{module}', error: {inner}"
+    )]
     CantReadFileInfo {
         module: ModuleSource,
         package: PackagePath,

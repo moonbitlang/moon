@@ -73,8 +73,7 @@ fn get_stdout_without_replace(
         .stdout
         .to_owned();
 
-    let s = std::str::from_utf8(&out).unwrap().to_string();
-    s
+    std::str::from_utf8(&out).unwrap().to_string()
 }
 
 #[track_caller]
@@ -93,8 +92,7 @@ fn get_stderr_without_replace(
         .stderr
         .to_owned();
 
-    let s = std::str::from_utf8(&out).unwrap().to_string();
-    s
+    std::str::from_utf8(&out).unwrap().to_string()
 }
 
 #[track_caller]
@@ -113,8 +111,7 @@ fn get_err_stdout_without_replace(
         .stdout
         .to_owned();
 
-    let s = std::str::from_utf8(&out).unwrap().to_string();
-    s
+    std::str::from_utf8(&out).unwrap().to_string()
 }
 
 #[track_caller]
@@ -133,8 +130,7 @@ fn get_err_stderr_without_replace(
         .stderr
         .to_owned();
 
-    let s = std::str::from_utf8(&out).unwrap().to_string();
-    s
+    std::str::from_utf8(&out).unwrap().to_string()
 }
 
 #[track_caller]

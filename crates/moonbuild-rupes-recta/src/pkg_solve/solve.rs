@@ -19,7 +19,7 @@
 use std::collections::HashMap;
 
 use log::{debug, trace, warn};
-use moonutil::mooncakes::{result::ResolvedEnv, ModuleId};
+use moonutil::mooncakes::{ModuleId, result::ResolvedEnv};
 
 use super::model::{DepEdge, DepRelationship, SolveError};
 use crate::{
@@ -68,9 +68,7 @@ pub fn solve_only(
 
         trace!(
             "Mapping package FQN '{}' to pid={:?}, mid={:?}",
-            fqn,
-            pid,
-            mid
+            fqn, pid, mid
         );
         let insert_result = rev_map.insert(fqn.clone(), (mid, pid));
 
@@ -276,9 +274,7 @@ fn insert_black_box_dep(env: &mut ResolveEnv<'_>, pid: PackageId, pkg_data: &Dis
         let new_alias = arcstr::format!("{}", violating_pkg.fqn);
         trace!(
             "Replacing existing alias '{}' with '{}' for package {:?}",
-            edge.short_alias,
-            new_alias,
-            t.package
+            edge.short_alias, new_alias, t.package
         );
         env.res.dep_graph.add_edge(
             f,
@@ -351,8 +347,7 @@ fn resolve_import<'a>(
 
     trace!(
         "Import alias determined as '{}', is_subpackage={}",
-        short_alias,
-        is_import_target_subpackage
+        short_alias, is_import_target_subpackage
     );
 
     Ok(ResolvedImport {
@@ -382,9 +377,7 @@ fn resolve_import_raw<'a>(
     };
     trace!(
         "Import '{}' resolved to module {:?}, package {:?}",
-        import_source,
-        import_mid,
-        import_pid
+        import_source, import_mid, import_pid
     );
     let imported = env.packages.get_package(*import_pid);
     if *import_mid != mid && env.modules.graph().edge_weight(mid, *import_mid).is_none() {
@@ -412,8 +405,7 @@ fn add_dep_edges_for_import(
     let targets = dep_edge_source_from_targets(import_source_kind);
     trace!(
         "Adding dependency edges for import '{:?}' ({:?})",
-        import.package_id,
-        targets
+        import.package_id, targets
     );
     for package_target in targets {
         let import_kind = if import.target_is_subpackage {
@@ -427,9 +419,7 @@ fn add_dep_edges_for_import(
 
         trace!(
             "Adding edge: {:?} -> {:?} (short alias: '{}')",
-            package,
-            dependency,
-            import.short_alias
+            package, dependency, import.short_alias
         );
 
         env.res.dep_graph.add_edge(

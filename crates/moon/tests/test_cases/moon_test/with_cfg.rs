@@ -1,6 +1,6 @@
 use expect_test::expect;
 
-use crate::{get_stdout, util::check, TestDir};
+use crate::{TestDir, get_stdout, util::check};
 
 #[test]
 fn test_moon_test_with_cfg() {

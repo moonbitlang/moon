@@ -21,12 +21,12 @@
 use moonutil::{
     common::DriverKind,
     compiler_flags::{
-        make_cc_command_pure, resolve_cc, CCConfigBuilder, OptLevel as CCOptLevel,
-        OutputType as CCOutputType, CC,
+        CC, CCConfigBuilder, OptLevel as CCOptLevel, OutputType as CCOutputType,
+        make_cc_command_pure, resolve_cc,
     },
     mooncakes::{ModuleId, ModuleSourceKind},
 };
-use tracing::{instrument, Level};
+use tracing::{Level, instrument};
 
 use crate::{
     build_lower::compiler::{CmdlineAbstraction, MoondocCommand, Mooninfo},
@@ -34,7 +34,7 @@ use crate::{
     model::{BuildPlanNode, BuildTarget, PackageId, TargetKind},
 };
 
-use super::{compiler, BuildCommand};
+use super::{BuildCommand, compiler};
 
 impl<'a> super::BuildPlanLowerContext<'a> {
     #[instrument(level = Level::DEBUG, skip(self, info))]

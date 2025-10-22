@@ -21,19 +21,19 @@ use moonbuild::dry_run::print_commands;
 use moonbuild_rupes_recta::intent::UserIntent;
 use mooncake::pkg::sync::auto_sync;
 use moonutil::common::{
-    read_module_desc_file_in_dir, CargoPathExt, DiagnosticLevel, FileLock, MoonbuildOpt, MooncOpt,
-    PrePostBuild, RunMode, MOONBITLANG_CORE,
+    CargoPathExt, DiagnosticLevel, FileLock, MOONBITLANG_CORE, MoonbuildOpt, MooncOpt,
+    PrePostBuild, RunMode, read_module_desc_file_in_dir,
 };
-use moonutil::dirs::{mk_arch_mode_dir, PackageDirs};
-use moonutil::mooncakes::sync::AutoSyncFlags;
+use moonutil::dirs::{PackageDirs, mk_arch_mode_dir};
 use moonutil::mooncakes::RegistryConfig;
+use moonutil::mooncakes::sync::AutoSyncFlags;
 use tracing::instrument;
 
-use super::pre_build::scan_with_x_build;
 use super::UniversalFlags;
+use super::pre_build::scan_with_x_build;
 
 use crate::cli::BuildFlags;
-use crate::rr_build::{self, preconfig_compile, BuildConfig};
+use crate::rr_build::{self, BuildConfig, preconfig_compile};
 
 /// Generate documentation
 #[derive(Debug, clap::Parser)]

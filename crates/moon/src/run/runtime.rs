@@ -31,8 +31,8 @@ use tokio::process::Command;
 macro_rules! cache {
     ($(
         $id:ident(
-            $first_candidate:expr
-            $(,$candidate:expr)* $(,)?
+            $first_candidate:expr_2021
+            $(,$candidate:expr_2021)* $(,)?
         )
     ),*$(,)?) => {
         /// A non-global cache for finding executables to use in compilation

@@ -35,7 +35,7 @@ pub fn load_moon_proj(
 
     log::debug!("{:#?}", module);
 
-    let input = super::gen::gen_bundle::gen_bundle(module, moonc_opt, moonbuild_opt)?;
+    let input = super::r#gen::gen_bundle::gen_bundle(module, moonc_opt, moonbuild_opt)?;
     log::debug!("{:#?}", input);
-    super::gen::gen_bundle::gen_n2_bundle_state(&input, target_dir, moonc_opt, moonbuild_opt)
+    super::r#gen::gen_bundle::gen_n2_bundle_state(&input, target_dir, moonc_opt, moonbuild_opt)
 }

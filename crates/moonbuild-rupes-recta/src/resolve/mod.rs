@@ -30,12 +30,12 @@ use log::{debug, info};
 
 use mooncake::pkg::sync::auto_sync;
 use moonutil::mooncakes::{
-    result::ResolvedEnv, sync::AutoSyncFlags, DirSyncResult, ModuleId, RegistryConfig,
+    DirSyncResult, ModuleId, RegistryConfig, result::ResolvedEnv, sync::AutoSyncFlags,
 };
 use tracing::instrument;
 
 use crate::{
-    discover::{discover_packages, DiscoverError, DiscoverResult},
+    discover::{DiscoverError, DiscoverResult, discover_packages},
     pkg_solve::{self, DepRelationship},
 };
 

@@ -19,11 +19,11 @@
 use crate::cond_expr::{self, CompileCondition, CondExpr};
 use crate::module::{ModuleDB, MoonMod};
 use crate::moon_dir::MOON_DIRS;
-use crate::mooncakes::result::ResolvedEnv;
 use crate::mooncakes::DirSyncResult;
+use crate::mooncakes::result::ResolvedEnv;
 use crate::package::{Import, MoonPkgGenerate, Package, SubPackageInPackage};
 use crate::path::{ImportComponent, ImportPath, PathComponent};
-use anyhow::{bail, Context};
+use anyhow::{Context, bail};
 use colored::Colorize;
 use indexmap::map::IndexMap;
 use petgraph::graph::{DiGraph, NodeIndex};
@@ -34,9 +34,9 @@ use std::sync::Arc;
 use walkdir::WalkDir;
 
 use crate::common::{
-    read_module_desc_file_in_dir, MoonbuildOpt, TargetBackend, DEP_PATH, DOT_MBL, DOT_MBT_DOT_MD,
-    DOT_MBY, IGNORE_DIRS, MBTI_USER_WRITTEN, MOONBITLANG_ABORT, MOON_MOD_JSON, MOON_PKG_JSON,
-    SUB_PKG_POSTFIX,
+    DEP_PATH, DOT_MBL, DOT_MBT_DOT_MD, DOT_MBY, IGNORE_DIRS, MBTI_USER_WRITTEN, MOON_MOD_JSON,
+    MOON_PKG_JSON, MOONBITLANG_ABORT, MoonbuildOpt, SUB_PKG_POSTFIX, TargetBackend,
+    read_module_desc_file_in_dir,
 };
 
 /// Matches an import string to scan paths.
@@ -91,47 +91,46 @@ pub fn get_mbt_and_test_file_paths(
     let mut mby_files: Vec<PathBuf> = vec![];
     let entries = std::fs::read_dir(dir).unwrap();
     for entry in entries.flatten() {
-        if let Ok(t) = entry.file_type() {
-            if (t.is_file() || t.is_symlink())
-                && entry.path().extension().is_some()
-                && (entry.path().extension().unwrap() == "mbt"
-                    || entry.path().extension().unwrap() == "md"
-                    || entry.path().extension().unwrap() == "mbl"
-                    || entry.path().extension().unwrap() == "mby")
-            {
-                let p = entry.path();
+        if let Ok(t) = entry.file_type()
+            && (t.is_file() || t.is_symlink())
+            && entry.path().extension().is_some()
+            && (entry.path().extension().unwrap() == "mbt"
+                || entry.path().extension().unwrap() == "md"
+                || entry.path().extension().unwrap() == "mbl"
+                || entry.path().extension().unwrap() == "mby")
+        {
+            let p = entry.path();
 
-                let p_str = p.to_str().unwrap();
-                if p_str.ends_with("md") {
-                    if p_str.ends_with(DOT_MBT_DOT_MD) {
-                        mbt_md_files.push(p.clone());
-                    }
-                } else if p_str.ends_with(DOT_MBL) {
-                    mbl_files.push(p.clone());
-                } else if p_str.ends_with(DOT_MBY) {
-                    mby_files.push(p.clone())
-                } else {
-                    let stem = p.file_stem().unwrap().to_str().unwrap();
-                    let dot = stem.rfind('.');
-                    match dot {
-                        None => {
-                            if stem.ends_with("_wbtest") {
-                                mbt_wbtest_files.push(p);
-                            } else if stem.ends_with("_test") {
-                                mbt_test_files.push(p);
-                            } else {
-                                mbt_files.push(p);
-                            }
+            let p_str = p.to_str().unwrap();
+            if p_str.ends_with("md") {
+                if p_str.ends_with(DOT_MBT_DOT_MD) {
+                    mbt_md_files.push(p.clone());
+                }
+            } else if p_str.ends_with(DOT_MBL) {
+                mbl_files.push(p.clone());
+            } else if p_str.ends_with(DOT_MBY) {
+                mby_files.push(p.clone())
+            } else {
+                let stem = p.file_stem().unwrap().to_str().unwrap();
+                let dot = stem.rfind('.');
+                match dot {
+                    None => {
+                        if stem.ends_with("_wbtest") {
+                            mbt_wbtest_files.push(p);
+                        } else if stem.ends_with("_test") {
+                            mbt_test_files.push(p);
+                        } else {
+                            mbt_files.push(p);
                         }
-                        Some(idx) => {
-                            let (filename, _dot_backend_ext) = stem.split_at(idx);
-                            if filename.ends_with("_wbtest") {
-                                mbt_wbtest_files.push(p);
-                            } else if filename.ends_with("_test") {
-                                mbt_test_files.push(p);
-                            } else {
-                                mbt_files.push(p);
-                            }
+                    }
+                    Some(idx) => {
+                        let (filename, _dot_backend_ext) = stem.split_at(idx);
+                        if filename.ends_with("_wbtest") {
+                            mbt_wbtest_files.push(p);
+                        } else if filename.ends_with("_test") {
+                            mbt_test_files.push(p);
+                        } else {
+                            mbt_files.push(p);
                         }
                     }
                 }
@@ -159,13 +158,12 @@ fn workaround_builtin_get_coverage_mbt_file_paths(dir: &Path, paths: &mut Vec<Pa
     if coverage_dir.exists() {
         let entries = std::fs::read_dir(coverage_dir).unwrap();
         for entry in entries.flatten() {
-            if let Ok(t) = entry.file_type() {
-                if (t.is_file() || t.is_symlink())
-                    && entry.path().extension().is_some()
-                    && entry.path().extension().unwrap() == "mbt"
-                {
-                    paths.push(entry.path());
-                }
+            if let Ok(t) = entry.file_type()
+                && (t.is_file() || t.is_symlink())
+                && entry.path().extension().is_some()
+                && entry.path().extension().unwrap() == "mbt"
+            {
+                paths.push(entry.path());
             }
         }
     }

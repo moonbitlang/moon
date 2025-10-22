@@ -98,7 +98,10 @@ fn is_event_relevant(event: &notify::Event, original_target_dir: &Path) -> bool 
         EventKind::Modify(_) => (),
         EventKind::Remove(_) => (),
         _ => {
-            info!("Unknown file event: {:?}. Currently we skip them, but if this is a problem, please report to the developers.", event);
+            info!(
+                "Unknown file event: {:?}. Currently we skip them, but if this is a problem, please report to the developers.",
+                event
+            );
             return false;
         }
     };

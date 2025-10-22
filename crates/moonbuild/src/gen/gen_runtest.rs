@@ -16,13 +16,13 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
-use anyhow::{bail, Ok};
+use anyhow::{Ok, bail};
 use indexmap::IndexMap;
 use log::info;
 use moonutil::common::{
-    get_desc_name, DriverKind, GeneratedTestDriver, RunMode, TargetBackend, BLACKBOX_TEST_PATCH,
-    MOONBITLANG_CORE, MOONBITLANG_COVERAGE, O_EXT, SUB_PKG_POSTFIX, TEST_INFO_FILE,
-    WHITEBOX_TEST_PATCH,
+    BLACKBOX_TEST_PATCH, DriverKind, GeneratedTestDriver, MOONBITLANG_CORE, MOONBITLANG_COVERAGE,
+    O_EXT, RunMode, SUB_PKG_POSTFIX, TEST_INFO_FILE, TargetBackend, WHITEBOX_TEST_PATCH,
+    get_desc_name,
 };
 use moonutil::compiler_flags::CC;
 use moonutil::cond_expr::OptLevel;
@@ -33,7 +33,7 @@ use petgraph::graph::NodeIndex;
 
 use super::cmd_builder::CommandBuilder;
 use super::gen_build::{
-    gen_build_interface_item, replace_virtual_pkg_core_with_impl_pkg_core, BuildInterfaceItem,
+    BuildInterfaceItem, gen_build_interface_item, replace_virtual_pkg_core_with_impl_pkg_core,
 };
 use super::util::{calc_link_args, self_in_test_import};
 use super::{is_self_coverage_lib, is_skip_coverage_lib};
@@ -42,20 +42,20 @@ use std::path::{Path, PathBuf};
 use std::rc::Rc;
 use std::sync::Arc;
 
-use moonutil::common::{MoonbuildOpt, MooncOpt, MOON_PKG_JSON};
+use moonutil::common::{MOON_PKG_JSON, MoonbuildOpt, MooncOpt};
 use n2::graph::{self as n2graph, Build, BuildIns, BuildOuts, FileLoc};
 use n2::load::State;
 use n2::smallmap::SmallMap;
 
-use crate::gen::gen_build::gen_build_interface_command;
-use crate::gen::gen_build::{
+use crate::r#gen::gen_build::gen_build_interface_command;
+use crate::r#gen::gen_build::{
     gen_archive_stub_to_static_lib_command, gen_compile_exe_command, gen_compile_runtime_command,
     gen_compile_shared_runtime_command, gen_compile_stub_command, gen_link_exe_command,
     gen_link_stub_to_dynamic_lib_command,
 };
-use crate::gen::gen_check::warn_about_alias_duplication;
-use crate::gen::n2_errors::{N2Error, N2ErrorKind};
-use crate::gen::{coverage_args, MiAlias, SKIP_TEST_LIBS};
+use crate::r#gen::gen_check::warn_about_alias_duplication;
+use crate::r#gen::n2_errors::{N2Error, N2ErrorKind};
+use crate::r#gen::{MiAlias, SKIP_TEST_LIBS, coverage_args};
 
 #[derive(Debug)]
 pub struct RuntestDepItem {
@@ -125,7 +125,9 @@ pub fn add_coverage_to_core_if_needed(
 
             // Check if the coverage library is available
             if !mdb.contains_package(MOONBITLANG_COVERAGE) {
-                log::info!("Coverage library is not available in core module. Skipping relevant operations.");
+                log::info!(
+                    "Coverage library is not available in core module. Skipping relevant operations."
+                );
                 return Ok(());
             }
 
@@ -1015,10 +1017,10 @@ pub fn gen_runtest(
             continue;
         }
 
-        if let Some(filter_pkg) = filter_pkg {
-            if !filter_pkg.contains(pkgname) {
-                continue;
-            }
+        if let Some(filter_pkg) = filter_pkg
+            && !filter_pkg.contains(pkgname)
+        {
+            continue;
         }
 
         let has_internal_test = {
@@ -1075,7 +1077,7 @@ pub fn gen_runtest(
             }
         }
 
-        if pkg.virtual_pkg.as_ref().map_or(true, |x| x.has_default)
+        if pkg.virtual_pkg.as_ref().is_none_or(|x| x.has_default)
             && !SKIP_TEST_LIBS.contains(&pkg.full_name().as_str()) // FIXME: not efficient
             && (!pkg.test_files.is_empty()
                 || !pkg.mbt_md_files.is_empty()
@@ -1399,7 +1401,9 @@ pub fn gen_n2_runtest_state(
     log::debug!("input: {:#?}", input);
 
     if input.link_items.is_empty() {
-        anyhow::bail!("Cannot find tests to run. Please check if you have supplied the correct package name for testing.");
+        anyhow::bail!(
+            "Cannot find tests to run. Please check if you have supplied the correct package name for testing."
+        );
     }
 
     for item in input.build_items.iter() {

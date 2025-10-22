@@ -35,26 +35,26 @@ use std::{
 use anyhow::Context;
 use indexmap::IndexMap;
 use moonbuild::entry::{
-    create_progress_console, render_and_catch_callback, N2RunStats, ResultCatcher,
+    N2RunStats, ResultCatcher, create_progress_console, render_and_catch_callback,
 };
 use moonbuild_rupes_recta::{
+    CompileConfig, ResolveConfig, ResolveOutput,
     build_plan::InputDirective,
     intent::UserIntent,
     model::{Artifacts, BuildPlanNode, PackageId, TargetKind},
     prebuild::run_prebuild_config,
-    CompileConfig, ResolveConfig, ResolveOutput,
 };
 use moonutil::{
     cli::UniversalFlags,
     common::{
-        DiagnosticLevel, RunMode, TargetBackend, BLACKBOX_TEST_PATCH, MOONBITLANG_CORE,
+        BLACKBOX_TEST_PATCH, DiagnosticLevel, MOONBITLANG_CORE, RunMode, TargetBackend,
         WHITEBOX_TEST_PATCH,
     },
     cond_expr::OptLevel,
     features::FeatureGate,
-    mooncakes::{sync::AutoSyncFlags, ModuleId},
+    mooncakes::{ModuleId, sync::AutoSyncFlags},
 };
-use tracing::{instrument, Level};
+use tracing::{Level, instrument};
 
 use crate::cli::BuildFlags;
 
@@ -65,9 +65,9 @@ pub use dry_run::{dry_print_command, print_dry_run, print_dry_run_all};
 ///
 /// Params:
 /// - The output of the resolve step. All modules and packages that this module
-///     are available in this value.
+///   are available in this value.
 /// - The list of modules that were input into the compile process (those that
-///     exist in the source directory).
+///   exist in the source directory).
 ///
 /// Returns: A vector of [`UserIntent`]s, representing what the user would like
 /// to do
@@ -164,11 +164,7 @@ impl BuildResult {
 
     /// Get the return code that should be returned to the shell.
     pub fn return_code_for_success(&self) -> i32 {
-        if self.successful() {
-            0
-        } else {
-            1
-        }
+        if self.successful() { 0 } else { 1 }
     }
 
     /// Print information about the build result.
@@ -356,15 +352,15 @@ pub fn plan_build<'a>(
         Some(&prebuild_config),
     )?;
 
-    if unstable_features.rr_export_build_plan {
-        if let Some(plan) = compile_output.build_plan {
-            moonbuild_rupes_recta::util::print_build_plan_dot(
-                &plan,
-                &resolve_output.module_rel,
-                &resolve_output.pkg_dirs,
-                &mut std::fs::File::create(target_dir.join("build_plan.dot"))?,
-            )?;
-        }
+    if unstable_features.rr_export_build_plan
+        && let Some(plan) = compile_output.build_plan
+    {
+        moonbuild_rupes_recta::util::print_build_plan_dot(
+            &plan,
+            &resolve_output.module_rel,
+            &resolve_output.pkg_dirs,
+            &mut std::fs::File::create(target_dir.join("build_plan.dot"))?,
+        )?;
     }
 
     let build_meta = BuildMeta {

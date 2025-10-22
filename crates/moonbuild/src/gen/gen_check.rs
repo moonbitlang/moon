@@ -17,10 +17,10 @@
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
 use super::cmd_builder::CommandBuilder;
-use super::gen_build::{gen_build_interface_command, gen_build_interface_item, BuildInterfaceItem};
+use super::gen_build::{BuildInterfaceItem, gen_build_interface_command, gen_build_interface_item};
 use super::n2_errors::{N2Error, N2ErrorKind};
 use super::util::self_in_test_import;
-use crate::gen::MiAlias;
+use crate::r#gen::MiAlias;
 use anyhow::bail;
 use colored::Colorize;
 use indexmap::map::IndexMap;
@@ -31,7 +31,7 @@ use std::rc::Rc;
 use std::sync::Arc;
 
 use moonutil::common::{
-    get_desc_name, CheckOpt, MoonbuildOpt, MooncOpt, MOON_PKG_JSON, SUB_PKG_POSTFIX,
+    CheckOpt, MOON_PKG_JSON, MoonbuildOpt, MooncOpt, SUB_PKG_POSTFIX, get_desc_name,
 };
 use n2::graph::{self as n2graph, Build, BuildIns, BuildOuts, FileLoc};
 use n2::load::State;
@@ -270,8 +270,8 @@ fn pkg_with_wbtest_to_check_item(
 }
 
 pub(super) fn warn_about_alias_duplication(self_in_test_import: bool, pkg: &Package) {
-    if !self_in_test_import {
-        if let Some(violating) = pkg
+    if !self_in_test_import
+        && let Some(violating) = pkg
             .test_imports
             .iter()
             .chain(pkg.imports.iter())
@@ -281,21 +281,20 @@ pub(super) fn warn_about_alias_duplication(self_in_test_import: bool, pkg: &Pack
                     .as_ref()
                     .is_some_and(|alias| alias.eq(pkg.last_name()))
             })
-        {
-            eprintln!(
-                "{}: Duplicate alias `{}` at \"{}\". \
+    {
+        eprintln!(
+            "{}: Duplicate alias `{}` at \"{}\". \
                 \"test-import\" will automatically add \"import\" and current \
                 package as dependency so you don't need to add it manually. \
                 If you're test-importing a dependency with the same default \
                 alias as your current package, considering give it a different \
                 alias than the current package. \
                 Violating import: `{}`",
-                "Warning".yellow(),
-                pkg.last_name(),
-                pkg.root_path.join(MOON_PKG_JSON).display(),
-                violating.path.make_full_path()
-            );
-        }
+            "Warning".yellow(),
+            pkg.last_name(),
+            pkg.root_path.join(MOON_PKG_JSON).display(),
+            violating.path.make_full_path()
+        );
     }
 }
 

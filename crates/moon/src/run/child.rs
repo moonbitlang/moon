@@ -21,7 +21,7 @@
 use std::process::{ExitStatus, Stdio};
 
 use anyhow::Context;
-use moonbuild::section_capture::{handle_stdout_async, SectionCapture};
+use moonbuild::section_capture::{SectionCapture, handle_stdout_async};
 use tokio::process::Command;
 
 /// Run a command under the governing of `moon run`.

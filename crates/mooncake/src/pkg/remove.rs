@@ -25,7 +25,7 @@ use moonutil::{
     mooncakes::{ModuleSource, RegistryConfig},
 };
 
-use crate::resolver::{resolve_single_root_with_defaults, ResolveConfig};
+use crate::resolver::{ResolveConfig, resolve_single_root_with_defaults};
 
 /// Remove a dependency
 #[derive(Debug, clap::Parser)]

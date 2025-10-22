@@ -72,8 +72,8 @@ use anyhow::bail;
 use moonutil::{
     cli::UniversalFlags,
     common::{
-        read_module_desc_file_in_dir, BuildPackageFlags, DiagnosticLevel, LinkCoreFlags, MooncOpt,
-        OutputFormat, SurfaceTarget, TargetBackend, MOONBITLANG_CORE, MOON_MOD_JSON,
+        BuildPackageFlags, DiagnosticLevel, LinkCoreFlags, MOON_MOD_JSON, MOONBITLANG_CORE,
+        MooncOpt, OutputFormat, SurfaceTarget, TargetBackend, read_module_desc_file_in_dir,
     },
     mooncakes::{LoginSubcommand, PackageSubcommand, PublishSubcommand, RegisterSubcommand},
 };

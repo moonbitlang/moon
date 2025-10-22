@@ -24,7 +24,7 @@ use log::{error, warn};
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    common::{line_col_to_byte_idx, DiagnosticLevel, PatchJSON},
+    common::{DiagnosticLevel, PatchJSON, line_col_to_byte_idx},
     error_code_docs::get_error_code_doc,
 };
 

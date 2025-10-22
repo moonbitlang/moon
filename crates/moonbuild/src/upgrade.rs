@@ -16,10 +16,10 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
-use anyhow::{bail, Context, Result};
+use anyhow::{Context, Result, bail};
 use colored::Colorize;
 use dialoguer::Confirm;
-use moonutil::common::{get_moon_version, get_moonc_version, get_moonrun_version, VersionItems};
+use moonutil::common::{VersionItems, get_moon_version, get_moonc_version, get_moonrun_version};
 use moonutil::moon_dir::{self};
 use reqwest;
 use reqwest::Client;
@@ -156,13 +156,14 @@ pub fn upgrade(cmd: UpgradeSubcommand) -> Result<i32> {
     let version_url = format!("{root}/version.json");
     if !cmd.force && !cmd.dev {
         // if any step(network request, serde json...) fail, just do upgrade
-        if let Ok(data) = reqwest::blocking::get(version_url) {
-            if let Ok(latest_version_info) = data.json::<VersionItems>() {
-                if let Some(false) = should_upgrade(&latest_version_info) {
-                    println!("Your toolchain is up to date. You can use `moon upgrade --force` to force upgrade.");
-                    return Ok(0);
-                }
-            }
+        if let Ok(data) = reqwest::blocking::get(version_url)
+            && let Ok(latest_version_info) = data.json::<VersionItems>()
+            && let Some(false) = should_upgrade(&latest_version_info)
+        {
+            println!(
+                "Your toolchain is up to date. You can use `moon upgrade --force` to force upgrade."
+            );
+            return Ok(0);
         }
     }
 

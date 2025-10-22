@@ -16,8 +16,8 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
-use anyhow::bail;
 use anyhow::Context;
+use anyhow::bail;
 use colored::Colorize;
 use indexmap::IndexMap;
 use log::warn;
@@ -31,17 +31,18 @@ use moonbuild_rupes_recta::model::PackageId;
 use mooncake::pkg::sync::auto_sync;
 use mooncake::pkg::sync::auto_sync_for_single_mbt_md;
 use moonutil::common::PrePostBuild;
-use moonutil::common::{
-    lower_surface_targets, parse_front_matter_config, FileLock, GeneratedTestDriver, MbtMdHeader,
-    MoonbuildOpt, MooncOpt, OutputFormat, RunMode, TargetBackend, TestOpt, MOONBITLANG_CORE,
-};
 use moonutil::common::{BLACKBOX_TEST_DRIVER, DOT_MBT_DOT_MD, SINGLE_FILE_TEST_PACKAGE};
+use moonutil::common::{
+    FileLock, GeneratedTestDriver, MOONBITLANG_CORE, MbtMdHeader, MoonbuildOpt, MooncOpt,
+    OutputFormat, RunMode, TargetBackend, TestOpt, lower_surface_targets,
+    parse_front_matter_config,
+};
 use moonutil::cond_expr::CompileCondition;
 use moonutil::cond_expr::OptLevel;
 use moonutil::dirs::mk_arch_mode_dir;
 use moonutil::module::ModuleDB;
-use moonutil::mooncakes::sync::AutoSyncFlags;
 use moonutil::mooncakes::RegistryConfig;
+use moonutil::mooncakes::sync::AutoSyncFlags;
 use moonutil::package::Package;
 use moonutil::path::PathComponent;
 use n2::trace;
@@ -50,15 +51,15 @@ use std::collections::HashMap;
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
-use tracing::{instrument, Level};
+use tracing::{Level, instrument};
 
 use crate::cli::pre_build::scan_with_x_build;
 use crate::rr_build;
 use crate::rr_build::preconfig_compile;
 use crate::rr_build::{BuildConfig, CalcUserIntentOutput};
-use crate::run::perform_promotion;
 use crate::run::TestFilter;
 use crate::run::TestIndex;
+use crate::run::perform_promotion;
 
 use super::BenchSubcommand;
 use super::{BuildFlags, UniversalFlags};
@@ -521,7 +522,7 @@ pub(crate) fn run_test_or_bench_internal(
 ) -> anyhow::Result<i32> {
     // Accept -i/--doc-index when the positional PATH refers to a file; otherwise they require --file.
     // explicit_is_file is true only when PATH is an existing regular file.
-    let explicit_is_file = cmd.explicit_file_filter.map_or(false, |p| p.is_file());
+    let explicit_is_file = cmd.explicit_file_filter.is_some_and(|p| p.is_file());
 
     if cmd.package.is_none() && cmd.file.is_some() {
         anyhow::bail!("`--file` must be used with `--package`");
@@ -737,10 +738,10 @@ fn apply_explicit_file_filter(
             let pkg = resolve_output.pkg_dirs.get_package(*p);
             if pkg.root_path == input_path {
                 found_path = Some(p);
-            } else if let Some(parent) = input_path_parent {
-                if pkg.root_path == parent {
-                    found_path_parent = Some(p);
-                }
+            } else if let Some(parent) = input_path_parent
+                && pkg.root_path == parent
+            {
+                found_path_parent = Some(p);
             }
         }
     }
@@ -842,10 +843,16 @@ fn apply_list_of_filters(
         };
         // Multiple filtered package, check if file/index filtering is applied
         if file_filter.is_some() || index_filter.is_some() || doc_index_filter.is_some() {
-            bail!("Cannot filter by file or index when multiple packages are specified. Matched packages: {:?}", package_names());
+            bail!(
+                "Cannot filter by file or index when multiple packages are specified. Matched packages: {:?}",
+                package_names()
+            );
         }
         if patch_file.is_some() {
-            bail!("Cannot apply patch file when multiple packages are specified. Matched packages: {:?}", package_names());
+            bail!(
+                "Cannot apply patch file when multiple packages are specified. Matched packages: {:?}",
+                package_names()
+            );
         }
         for &pkg_id in &filtered_package_ids {
             out_filter.add_autodetermine_target(pkg_id, None, None);
@@ -968,7 +975,10 @@ pub(crate) fn run_test_or_bench_internal_legacy(
 
     // TODO: remove this once LLVM backend is well supported
     if moonc_opt.build_opt.target_backend == TargetBackend::LLVM {
-        eprintln!("{}: LLVM backend is experimental and only supported on bleeding moonbit toolchain for now", "Warning".yellow());
+        eprintln!(
+            "{}: LLVM backend is experimental and only supported on bleeding moonbit toolchain for now",
+            "Warning".yellow()
+        );
     }
 
     let raw_target_dir = target_dir.to_path_buf();
@@ -1085,19 +1095,18 @@ pub(crate) fn run_test_or_bench_internal_legacy(
         let pkg = pkg.unwrap();
         let filename = filename.map(|x| x.to_string_lossy().to_string());
 
-        if let Some(filename) = filename.as_ref() {
-            if !pkg.files.contains_key(&file)
-                && !pkg.test_files.contains_key(&file)
-                && !pkg.wbtest_files.contains_key(&file)
-                && !pkg.mbt_md_files.contains_key(&file)
-            {
-                eprintln!(
-                    "{}: cannot find file `{}` as a source file in package `{}`",
-                    "Warning".yellow(),
-                    filename,
-                    pkg.full_name()
-                );
-            }
+        if let Some(filename) = filename.as_ref()
+            && !pkg.files.contains_key(&file)
+            && !pkg.test_files.contains_key(&file)
+            && !pkg.wbtest_files.contains_key(&file)
+            && !pkg.mbt_md_files.contains_key(&file)
+        {
+            eprintln!(
+                "{}: cannot find file `{}` as a source file in package `{}`",
+                "Warning".yellow(),
+                filename,
+                pkg.full_name()
+            );
         }
 
         // Force package filter to the package containing the file, keep file filter as basename.
@@ -1217,16 +1226,14 @@ pub(crate) fn run_test_or_bench_internal_legacy(
             continue;
         }
 
-        if cmd.build_flags.enable_value_tracing {
-            if let Some(filter_package) = moonbuild_opt
+        if cmd.build_flags.enable_value_tracing
+            && let Some(filter_package) = moonbuild_opt
                 .test_opt
                 .as_ref()
                 .and_then(|it| it.filter_package.as_ref())
-            {
-                if filter_package.contains(&pkg.full_name()) {
-                    pkg.enable_value_tracing = true;
-                }
-            }
+            && filter_package.contains(&pkg.full_name())
+        {
+            pkg.enable_value_tracing = true;
         }
 
         pkg.patch_file = patch_file.clone();
@@ -1266,7 +1273,7 @@ pub(crate) fn run_test_or_bench_internal_legacy(
     };
 
     // add coverage libs if needed
-    moonbuild::gen::gen_runtest::add_coverage_to_core_if_needed(&mut module, &moonc_opt)?;
+    moonbuild::r#gen::gen_runtest::add_coverage_to_core_if_needed(&mut module, &moonc_opt)?;
 
     if cli.dry_run {
         return dry_run::print_commands(&module, &moonc_opt, &moonbuild_opt);

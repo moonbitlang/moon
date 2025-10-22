@@ -23,7 +23,7 @@ use moonbuild::expect::{apply_expect, apply_snapshot};
 use tracing::info;
 
 use crate::run::runtest::{
-    filter::PackageFilter, ReplaceableTestResults, TestCaseResult, TestResultKind,
+    ReplaceableTestResults, TestCaseResult, TestResultKind, filter::PackageFilter,
 };
 
 /// Perform promotion on all test snapshots and expect tests met. Returns

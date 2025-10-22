@@ -16,11 +16,11 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
-use anyhow::{bail, Context, Ok};
+use anyhow::{Context, Ok, bail};
 use colored::Colorize;
 use moonutil::compiler_flags::{
-    make_archiver_command, make_cc_command, make_linker_command, ArchiverConfigBuilder,
-    CCConfigBuilder, LinkerConfigBuilder, OptLevel, OutputType, CC,
+    ArchiverConfigBuilder, CC, CCConfigBuilder, LinkerConfigBuilder, OptLevel, OutputType,
+    make_archiver_command, make_cc_command, make_linker_command,
 };
 use moonutil::module::ModuleDB;
 use moonutil::moon_dir::MOON_DIRS;
@@ -29,14 +29,14 @@ use moonutil::package::{JsFormat, LinkDepItem, Package};
 use super::cmd_builder::CommandBuilder;
 use super::n2_errors::{N2Error, N2ErrorKind};
 use super::util::calc_link_args;
-use crate::gen::MiAlias;
+use crate::r#gen::MiAlias;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
 use std::sync::Arc;
 
 use moonutil::common::{
-    BuildOpt, MoonbuildOpt, MooncOpt, TargetBackend, A_EXT, DYN_EXT, MOONBITLANG_CORE,
-    MOON_PKG_JSON, O_EXT, SUB_PKG_POSTFIX,
+    A_EXT, BuildOpt, DYN_EXT, MOON_PKG_JSON, MOONBITLANG_CORE, MoonbuildOpt, MooncOpt, O_EXT,
+    SUB_PKG_POSTFIX, TargetBackend,
 };
 use n2::graph::{self as n2graph, Build, BuildIns, BuildOuts, FileLoc};
 use n2::load::State;
@@ -767,9 +767,11 @@ pub fn gen_compile_runtime_command(
     let runtime_dot_c_path = &MOON_DIRS.moon_lib_path.join("runtime.c");
 
     let ins = BuildIns {
-        ids: vec![graph
-            .files
-            .id_from_canonical(runtime_dot_c_path.display().to_string())],
+        ids: vec![
+            graph
+                .files
+                .id_from_canonical(runtime_dot_c_path.display().to_string()),
+        ],
         explicit: 1,
         implicit: 0,
         order_only: 0,

@@ -24,7 +24,7 @@ use moonutil::common::read_module_desc_file_in_dir;
 use moonutil::module::MoonMod;
 use moonutil::moon_dir;
 use moonutil::mooncakes::result::ResolvedEnv;
-use moonutil::mooncakes::{result, ModuleName, ModuleSource};
+use moonutil::mooncakes::{ModuleName, ModuleSource, result};
 use semver::{Version, VersionReq};
 use thiserror::Error;
 
@@ -49,7 +49,9 @@ pub enum ResolverError {
     ModuleMissing(ModuleName),
     #[error("No version of module {0} satisfies the requirement {1}")]
     NoSatisfiedVersion(ModuleName, VersionReq),
-    #[error("When resolving local/git dependencies, the version of module {0} did not match the required version {1}")]
+    #[error(
+        "When resolving local/git dependencies, the version of module {0} did not match the required version {1}"
+    )]
     LocalDepVersionMismatch(Box<ModuleSource>, VersionReq),
     /// Multiple versions of a package are required, but the build system cannot handle this.
     #[error("Multiple conflicting versions were found for module {0}: {1:?}")]

@@ -26,17 +26,17 @@ use std::{
     sync::LazyLock,
 };
 
-use indexmap::{set::MutableValues, IndexSet};
+use indexmap::{IndexSet, set::MutableValues};
 use moonutil::{
     common::{
-        DEP_PATH, DOT_MBT_DOT_MD, MOD_DIR, MOONCAKE_BIN, MOON_BIN_DIR, MOON_MOD_JSON,
-        MOON_PKG_JSON, PKG_DIR,
+        DEP_PATH, DOT_MBT_DOT_MD, MOD_DIR, MOON_BIN_DIR, MOON_MOD_JSON, MOON_PKG_JSON,
+        MOONCAKE_BIN, PKG_DIR,
     },
     compiler_flags::{CC, DETECTED_CC},
     mooncakes::ModuleId,
 };
 use regex::Regex;
-use tracing::{debug, instrument, trace, warn, Level};
+use tracing::{Level, debug, instrument, trace, warn};
 
 use crate::{
     build_plan::{FileDependencyKind, PrebuildInfo},
@@ -46,8 +46,8 @@ use crate::{
 };
 
 use super::{
-    constructor::BuildPlanConstructor, BuildCStubsInfo, BuildPlanConstructError, BuildTargetInfo,
-    LinkCoreInfo, MakeExecutableInfo,
+    BuildCStubsInfo, BuildPlanConstructError, BuildTargetInfo, LinkCoreInfo, MakeExecutableInfo,
+    constructor::BuildPlanConstructor,
 };
 
 static BUILD_VAR_REGEX: LazyLock<Regex> =
@@ -285,8 +285,9 @@ impl<'a> BuildPlanConstructor<'a> {
         // absolute path, or let the iteration item contain extra metadata about
         // what their roots are.
         let prebuild_output_iter = pkg.raw.pre_build.iter().flat_map(|pb| {
-            pb.iter().flat_map(|gen| {
-                gen.output
+            pb.iter().flat_map(|r#gen| {
+                r#gen
+                    .output
                     .iter()
                     .filter(|x| x.ends_with(".mbt") || x.ends_with(DOT_MBT_DOT_MD))
                     .map(|x| Cow::Owned(pkg.root_path.join(x)))
@@ -392,7 +393,9 @@ impl<'a> BuildPlanConstructor<'a> {
                 if vpkg.has_default {
                     Some(target.package.build_target(TargetKind::Source))
                 } else {
-                    unreachable!("A virtual package without default implementation should not have a build target info, thus should not reach here");
+                    unreachable!(
+                        "A virtual package without default implementation should not have a build target info, thus should not reach here"
+                    );
                 }
             } else if let Some(implement) = self.input.pkg_rel.virt_impl.get(target.package) {
                 Some(implement.build_target(TargetKind::Source))
@@ -644,25 +647,25 @@ impl<'a> BuildPlanConstructor<'a> {
                 // replaces the virtual package at the same place and descends
                 // to its own dependencies instead. See
                 // `/docs/dev/reference/virtual-pkg.md` for more information.
-                if let Some(vp_info) = vp_info {
-                    if let Some(&override_target) = vp_info.overrides.get(node.package) {
-                        trace!(
-                            from = ?node.package,
-                            to = ?override_target,
-                            "Overriding virtual package",
-                        );
-                        // Replace with the override target
-                        let override_target = BuildTarget {
-                            package: override_target,
-                            kind: TargetKind::Source,
-                        };
+                if let Some(vp_info) = vp_info
+                    && let Some(&override_target) = vp_info.overrides.get(node.package)
+                {
+                    trace!(
+                        from = ?node.package,
+                        to = ?override_target,
+                        "Overriding virtual package",
+                    );
+                    // Replace with the override target
+                    let override_target = BuildTarget {
+                        package: override_target,
+                        kind: TargetKind::Source,
+                    };
 
-                        if !seen.contains(&override_target) {
-                            seen.insert(override_target);
-                            stack.push((override_target, false));
-                        }
-                        continue;
+                    if !seen.contains(&override_target) {
+                        seen.insert(override_target);
+                        stack.push((override_target, false));
                     }
+                    continue;
                 }
 
                 // `abort` is special cased to not be included in the build

@@ -131,10 +131,11 @@ fn parse_test_output(output: &str) -> Result<TestResult> {
         }
 
         // Try to parse as TestEvent for individual test failures
-        if let Ok(test_event) = serde_json::from_str::<TestEvent>(line) {
-            if test_event.event_type == "test" && test_event.event == "failed" {
-                failed_tests.push(test_event.name);
-            }
+        if let Ok(test_event) = serde_json::from_str::<TestEvent>(line)
+            && test_event.event_type == "test"
+            && test_event.event == "failed"
+        {
+            failed_tests.push(test_event.name);
         }
     }
 
@@ -432,14 +433,16 @@ pub fn parity_test(
         }
 
         if has_fixed {
-            gha_warning("RR-only failures fixed since baseline; consider updating the baseline with --write-baseline.");
+            gha_warning(
+                "RR-only failures fixed since baseline; consider updating the baseline with --write-baseline.",
+            );
         }
 
-        if let Some(path) = write_path {
-            if let Err(e) = write_baseline(path, &baseline_set) {
-                eprintln!("Failed to write baseline '{}': {}", path.display(), e);
-                return 1;
-            }
+        if let Some(path) = write_path
+            && let Err(e) = write_baseline(path, &baseline_set)
+        {
+            eprintln!("Failed to write baseline '{}': {}", path.display(), e);
+            return 1;
         }
 
         if compare_path.is_some() && has_new {

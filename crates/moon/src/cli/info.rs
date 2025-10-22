@@ -22,20 +22,20 @@ use std::{
     sync::{Arc, Mutex},
 };
 
-use anyhow::{bail, Context};
+use anyhow::{Context, bail};
 use colored::Colorize;
 use futures::future::try_join_all;
 use moonbuild_rupes_recta::intent::UserIntent;
 use mooncake::pkg::sync::auto_sync;
 use moonutil::{
     common::{
-        lower_surface_targets, read_module_desc_file_in_dir, DiagnosticLevel, FileLock,
-        MoonbuildOpt, MooncOpt, PrePostBuild, RunMode, SurfaceTarget, TargetBackend,
-        MBTI_GENERATED, MOONBITLANG_CORE, MOON_MOD_JSON,
+        DiagnosticLevel, FileLock, MBTI_GENERATED, MOON_MOD_JSON, MOONBITLANG_CORE, MoonbuildOpt,
+        MooncOpt, PrePostBuild, RunMode, SurfaceTarget, TargetBackend, lower_surface_targets,
+        read_module_desc_file_in_dir,
     },
     cond_expr::OptLevel,
-    dirs::{mk_arch_mode_dir, PackageDirs},
-    mooncakes::{sync::AutoSyncFlags, RegistryConfig},
+    dirs::{PackageDirs, mk_arch_mode_dir},
+    mooncakes::{RegistryConfig, sync::AutoSyncFlags},
     package::Package,
 };
 use tracing::warn;
@@ -45,7 +45,7 @@ use crate::{
     rr_build::{self, BuildConfig, CalcUserIntentOutput},
 };
 
-use super::{pre_build::scan_with_x_build, UniversalFlags};
+use super::{UniversalFlags, pre_build::scan_with_x_build};
 
 /// Generate public interface (`.mbti`) files for all packages in the module
 #[derive(Debug, Clone, clap::Parser)]
@@ -75,7 +75,9 @@ pub struct InfoSubcommand {
 
 pub fn run_info(cli: UniversalFlags, cmd: InfoSubcommand) -> anyhow::Result<i32> {
     if cmd.no_alias {
-        warn!("`--no-alias` will be removed soon. See: https://github.com/moonbitlang/moon/issues/1092");
+        warn!(
+            "`--no-alias` will be removed soon. See: https://github.com/moonbitlang/moon/issues/1092"
+        );
     }
 
     if cli.unstable_feature.rupes_recta {
@@ -220,7 +222,7 @@ pub fn run_info_legacy(cli: UniversalFlags, cmd: InfoSubcommand) -> anyhow::Resu
                     // print the diff
                     println!("{}", String::from_utf8_lossy(&output.stdout));
                     bail!(
-                        "Package '{}' has different interfaces for backends {:?} and {:?}.\nFiles:\n{}\n{}", 
+                        "Package '{}' has different interfaces for backends {:?} and {:?}.\nFiles:\n{}\n{}",
                         pkg_name,
                         backend1,
                         backend2,
@@ -340,7 +342,10 @@ pub fn run_info_internal(
             }
         }
         if final_set.is_empty() {
-            bail!("package `{}` not found, make sure you have spelled it correctly, e.g. `moonbitlang/core/hashmap`(exact match) or `hashmap`(fuzzy match)", pkg_name);
+            bail!(
+                "package `{}` not found, make sure you have spelled it correctly, e.g. `moonbitlang/core/hashmap`(exact match) or `hashmap`(fuzzy match)",
+                pkg_name
+            );
         }
         Some(move |pkg: &Package| final_set.contains(&pkg.full_name()))
     } else {

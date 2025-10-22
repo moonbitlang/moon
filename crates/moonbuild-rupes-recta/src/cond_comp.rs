@@ -136,11 +136,7 @@ fn should_compile_using_pkg_cond_expr(
     } else if let Some(stripped) = name.strip_suffix(".mbt") {
         let spec = get_file_test_kind(stripped);
         let include = check_test_suffix(spec, actual.test_kind);
-        if include {
-            Some(spec)
-        } else {
-            None
-        }
+        if include { Some(spec) } else { None }
     } else {
         panic!("File name '{}' does not end with '.mbt'", name);
     }
@@ -167,19 +163,15 @@ fn should_compile_using_filename(name: &str, actual: &CompileCondition) -> Optio
 
     // Target backend checking -- check the suffix of the file name
     let (backend, remaining) = get_file_target_backend(filename);
-    if let Some(backend) = backend {
-        if backend != actual.backend {
-            return None; // Wrong backend, returning
-        }
+    if let Some(backend) = backend
+        && backend != actual.backend
+    {
+        return None; // Wrong backend, returning
     }
 
     let spec = get_file_test_kind(remaining);
     let include = check_test_suffix(spec, actual.test_kind);
-    if include {
-        Some(spec)
-    } else {
-        None
-    }
+    if include { Some(spec) } else { None }
 }
 
 /// Get the test kind of the file by checking its suffix, and also handles if

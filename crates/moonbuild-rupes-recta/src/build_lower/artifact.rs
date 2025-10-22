@@ -26,7 +26,7 @@ use std::{
 
 use derive_builder::Builder;
 use moonutil::{
-    common::{RunMode, TargetBackend, MBTI_GENERATED},
+    common::{MBTI_GENERATED, RunMode, TargetBackend},
     cond_expr::OptLevel,
     mooncakes::{ModuleName, ModuleSource},
 };
@@ -72,7 +72,7 @@ struct PackageArtifactName<'a> {
     pub kind: TargetKind,
 }
 
-fn artifact(fqn: &PackageFQN, kind: TargetKind) -> PackageArtifactName {
+fn artifact(fqn: &'_ PackageFQN, kind: TargetKind) -> PackageArtifactName<'_> {
     PackageArtifactName { fqn, kind }
 }
 

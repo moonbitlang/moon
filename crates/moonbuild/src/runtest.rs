@@ -18,14 +18,14 @@
 
 use crate::benchmark::BATCHBENCH;
 use crate::entry::{FileTestInfo, TestArgs, TestFailedStatus};
-use crate::expect::{snapshot_eq, ERROR, EXPECT_FAILED, FAILED, RUNTIME_ERROR, SNAPSHOT_TESTING};
-use crate::section_capture::{handle_stdout, SectionCapture};
+use crate::expect::{ERROR, EXPECT_FAILED, FAILED, RUNTIME_ERROR, SNAPSHOT_TESTING, snapshot_eq};
+use crate::section_capture::{SectionCapture, handle_stdout};
 
-use super::gen;
-use anyhow::{bail, Context};
+use super::r#gen;
+use anyhow::{Context, bail};
 use moonutil::common::{
-    MoonbuildOpt, MooncOpt, DYN_EXT, MOON_COVERAGE_DELIMITER_BEGIN, MOON_COVERAGE_DELIMITER_END,
-    MOON_TEST_DELIMITER_BEGIN, MOON_TEST_DELIMITER_END,
+    DYN_EXT, MOON_COVERAGE_DELIMITER_BEGIN, MOON_COVERAGE_DELIMITER_END, MOON_TEST_DELIMITER_BEGIN,
+    MOON_TEST_DELIMITER_END, MoonbuildOpt, MooncOpt,
 };
 use moonutil::module::ModuleDB;
 use moonutil::moon_dir::MOON_DIRS;
@@ -39,9 +39,9 @@ pub fn load_moon_proj(
     moonc_opt: &MooncOpt,
     moonbuild_opt: &MoonbuildOpt,
 ) -> anyhow::Result<State> {
-    let n2_input = gen::gen_runtest::gen_runtest(module, moonc_opt, moonbuild_opt)?;
+    let n2_input = r#gen::gen_runtest::gen_runtest(module, moonc_opt, moonbuild_opt)?;
     log::debug!("n2_input: {:#?}", n2_input);
-    gen::gen_runtest::gen_n2_runtest_state(&n2_input, moonc_opt, moonbuild_opt)
+    r#gen::gen_runtest::gen_n2_runtest_state(&n2_input, moonc_opt, moonbuild_opt)
 }
 
 #[derive(Debug, Serialize, Deserialize, Default, Clone)]

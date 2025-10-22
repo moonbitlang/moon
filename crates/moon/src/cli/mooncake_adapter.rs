@@ -41,11 +41,14 @@ pub fn execute_cli<T: Serialize>(
         .stderr(Stdio::inherit())
         .spawn()?;
 
-    if let Some(mut stdin) = child.stdin.take() {
-        let data = (cli, cmd);
-        serde_json::ser::to_writer(&mut stdin, &data)?;
-    } else {
-        eprintln!("failed to open stdin");
+    match child.stdin.take() {
+        Some(mut stdin) => {
+            let data = (cli, cmd);
+            serde_json::ser::to_writer(&mut stdin, &data)?;
+        }
+        _ => {
+            eprintln!("failed to open stdin");
+        }
     }
 
     let status = child.wait()?;

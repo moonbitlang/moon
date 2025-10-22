@@ -132,7 +132,7 @@ jobs:
         with:
           submodules: true
 
-      - uses: dtolnay/rust-toolchain@1.80.0
+      - uses: dtolnay/rust-toolchain@1.90.0
         with:
           components: rustfmt, clippy
 
@@ -255,7 +255,7 @@ jobs:
         with:
           submodules: true
 
-      - uses: dtolnay/rust-toolchain@1.80.0
+      - uses: dtolnay/rust-toolchain@1.90.0
         with:
           components: rustfmt, clippy
 
@@ -345,7 +345,7 @@ jobs:
   #       with:
   #         submodules: true
 
-  #     - uses: dtolnay/rust-toolchain@1.80.0
+  #     - uses: dtolnay/rust-toolchain@1.90.0
 
   #     - name: Checkout moonc-version
   #       uses: actions/checkout@v4

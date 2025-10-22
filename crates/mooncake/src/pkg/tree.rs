@@ -22,7 +22,7 @@ use std::path::Path;
 use walkdir::WalkDir;
 
 use moonutil::common::{
-    read_module_desc_file_in_dir, read_module_from_json, DEP_PATH, MOON_MOD_JSON,
+    DEP_PATH, MOON_MOD_JSON, read_module_desc_file_in_dir, read_module_from_json,
 };
 
 /// Display the dependency tree

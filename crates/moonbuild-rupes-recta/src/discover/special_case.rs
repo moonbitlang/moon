@@ -16,12 +16,12 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
-use moonutil::mooncakes::{result::ResolvedEnv, DirSyncResult};
+use moonutil::mooncakes::{DirSyncResult, result::ResolvedEnv};
 use relative_path::RelativePath;
 use tracing::instrument;
 
 use crate::{
-    discover::{discover_one_package, DiscoverError, DiscoverResult},
+    discover::{DiscoverError, DiscoverResult, discover_one_package},
     pkg_name::PackagePath,
 };
 
