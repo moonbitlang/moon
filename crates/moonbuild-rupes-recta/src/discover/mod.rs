@@ -140,15 +140,15 @@ pub(crate) fn discover_packages_for_mod(
             .expect("Walked directory should be a descendant of the scan source");
 
         // Skip certain ignored directories
-        if let Some(filename) = rel_path.file_name() {
-            if IGNORE_DIRS.contains(&filename) {
-                debug!(
-                    "Skipping {} recursively because it is in the internal ignored list",
-                    abs_path.display()
-                );
-                walkdir.skip_current_dir();
-                continue;
-            }
+        if let Some(filename) = rel_path.file_name()
+            && IGNORE_DIRS.contains(&filename)
+        {
+            debug!(
+                "Skipping {} recursively because it is in the internal ignored list",
+                abs_path.display()
+            );
+            walkdir.skip_current_dir();
+            continue;
         }
 
         // Avoid descending into another module

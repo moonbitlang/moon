@@ -647,25 +647,25 @@ impl<'a> BuildPlanConstructor<'a> {
                 // replaces the virtual package at the same place and descends
                 // to its own dependencies instead. See
                 // `/docs/dev/reference/virtual-pkg.md` for more information.
-                if let Some(vp_info) = vp_info {
-                    if let Some(&override_target) = vp_info.overrides.get(node.package) {
-                        trace!(
-                            from = ?node.package,
-                            to = ?override_target,
-                            "Overriding virtual package",
-                        );
-                        // Replace with the override target
-                        let override_target = BuildTarget {
-                            package: override_target,
-                            kind: TargetKind::Source,
-                        };
+                if let Some(vp_info) = vp_info
+                    && let Some(&override_target) = vp_info.overrides.get(node.package)
+                {
+                    trace!(
+                        from = ?node.package,
+                        to = ?override_target,
+                        "Overriding virtual package",
+                    );
+                    // Replace with the override target
+                    let override_target = BuildTarget {
+                        package: override_target,
+                        kind: TargetKind::Source,
+                    };
 
-                        if !seen.contains(&override_target) {
-                            seen.insert(override_target);
-                            stack.push((override_target, false));
-                        }
-                        continue;
+                    if !seen.contains(&override_target) {
+                        seen.insert(override_target);
+                        stack.push((override_target, false));
                     }
+                    continue;
                 }
 
                 // `abort` is special cased to not be included in the build

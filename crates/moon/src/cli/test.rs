@@ -738,10 +738,10 @@ fn apply_explicit_file_filter(
             let pkg = resolve_output.pkg_dirs.get_package(*p);
             if pkg.root_path == input_path {
                 found_path = Some(p);
-            } else if let Some(parent) = input_path_parent {
-                if pkg.root_path == parent {
-                    found_path_parent = Some(p);
-                }
+            } else if let Some(parent) = input_path_parent
+                && pkg.root_path == parent
+            {
+                found_path_parent = Some(p);
             }
         }
     }
@@ -1095,19 +1095,18 @@ pub(crate) fn run_test_or_bench_internal_legacy(
         let pkg = pkg.unwrap();
         let filename = filename.map(|x| x.to_string_lossy().to_string());
 
-        if let Some(filename) = filename.as_ref() {
-            if !pkg.files.contains_key(&file)
-                && !pkg.test_files.contains_key(&file)
-                && !pkg.wbtest_files.contains_key(&file)
-                && !pkg.mbt_md_files.contains_key(&file)
-            {
-                eprintln!(
-                    "{}: cannot find file `{}` as a source file in package `{}`",
-                    "Warning".yellow(),
-                    filename,
-                    pkg.full_name()
-                );
-            }
+        if let Some(filename) = filename.as_ref()
+            && !pkg.files.contains_key(&file)
+            && !pkg.test_files.contains_key(&file)
+            && !pkg.wbtest_files.contains_key(&file)
+            && !pkg.mbt_md_files.contains_key(&file)
+        {
+            eprintln!(
+                "{}: cannot find file `{}` as a source file in package `{}`",
+                "Warning".yellow(),
+                filename,
+                pkg.full_name()
+            );
         }
 
         // Force package filter to the package containing the file, keep file filter as basename.
@@ -1227,16 +1226,14 @@ pub(crate) fn run_test_or_bench_internal_legacy(
             continue;
         }
 
-        if cmd.build_flags.enable_value_tracing {
-            if let Some(filter_package) = moonbuild_opt
+        if cmd.build_flags.enable_value_tracing
+            && let Some(filter_package) = moonbuild_opt
                 .test_opt
                 .as_ref()
                 .and_then(|it| it.filter_package.as_ref())
-            {
-                if filter_package.contains(&pkg.full_name()) {
-                    pkg.enable_value_tracing = true;
-                }
-            }
+            && filter_package.contains(&pkg.full_name())
+        {
+            pkg.enable_value_tracing = true;
         }
 
         pkg.patch_file = patch_file.clone();

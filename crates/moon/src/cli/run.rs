@@ -450,10 +450,10 @@ fn calc_user_intent(
             let pkg = resolve_output.pkg_dirs.get_package(*p);
             if pkg.root_path == input_path {
                 found_path = Some(*p);
-            } else if let Some(parent) = input_path_parent {
-                if pkg.root_path == parent {
-                    found_path_parent = Some(*p);
-                }
+            } else if let Some(parent) = input_path_parent
+                && pkg.root_path == parent
+            {
+                found_path_parent = Some(*p);
             }
         }
     }

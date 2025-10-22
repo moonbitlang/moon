@@ -836,15 +836,15 @@ pub fn convert_pkg_json_to_package(j: MoonPkgJSON) -> anyhow::Result<MoonPkg> {
     let test_imports = get_imports(j.test_import);
 
     let mut is_main = j.is_main.unwrap_or(false);
-    if let Some(name) = &j.name {
-        if name == "main" {
-            is_main = true;
-            eprintln!(
+    if let Some(name) = &j.name
+        && name == "main"
+    {
+        is_main = true;
+        eprintln!(
                 "{}",
                 "Warning: The `name` field in `moon.pkg.json` is now deprecated. For the main package, please use `\"is-main\": true` instead. Refer to the latest documentation at https://www.moonbitlang.com/docs/build-system-tutorial for more information.".yellow()
                     .bold()
             );
-        }
     }
     let force_link = match &j.link {
         None => false,

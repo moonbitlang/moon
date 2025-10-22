@@ -156,15 +156,14 @@ pub fn upgrade(cmd: UpgradeSubcommand) -> Result<i32> {
     let version_url = format!("{root}/version.json");
     if !cmd.force && !cmd.dev {
         // if any step(network request, serde json...) fail, just do upgrade
-        if let Ok(data) = reqwest::blocking::get(version_url) {
-            if let Ok(latest_version_info) = data.json::<VersionItems>() {
-                if let Some(false) = should_upgrade(&latest_version_info) {
-                    println!(
-                        "Your toolchain is up to date. You can use `moon upgrade --force` to force upgrade."
-                    );
-                    return Ok(0);
-                }
-            }
+        if let Ok(data) = reqwest::blocking::get(version_url)
+            && let Ok(latest_version_info) = data.json::<VersionItems>()
+            && let Some(false) = should_upgrade(&latest_version_info)
+        {
+            println!(
+                "Your toolchain is up to date. You can use `moon upgrade --force` to force upgrade."
+            );
+            return Ok(0);
         }
     }
 

@@ -180,10 +180,10 @@ impl<'a> MooncLinkCore<'a> {
             }
 
             // Shared memory
-            if let Some(shared_memory) = self.wasm_config.shared_memory {
-                if shared_memory {
-                    args.push("-shared-memory".to_string());
-                }
+            if let Some(shared_memory) = self.wasm_config.shared_memory
+                && shared_memory
+            {
+                args.push("-shared-memory".to_string());
             }
 
             // Heap start address

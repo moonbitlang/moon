@@ -1017,10 +1017,10 @@ pub fn gen_runtest(
             continue;
         }
 
-        if let Some(filter_pkg) = filter_pkg {
-            if !filter_pkg.contains(pkgname) {
-                continue;
-            }
+        if let Some(filter_pkg) = filter_pkg
+            && !filter_pkg.contains(pkgname)
+        {
+            continue;
         }
 
         let has_internal_test = {
@@ -1077,7 +1077,7 @@ pub fn gen_runtest(
             }
         }
 
-        if pkg.virtual_pkg.as_ref().map_or(true, |x| x.has_default)
+        if pkg.virtual_pkg.as_ref().is_none_or(|x| x.has_default)
             && !SKIP_TEST_LIBS.contains(&pkg.full_name().as_str()) // FIXME: not efficient
             && (!pkg.test_files.is_empty()
                 || !pkg.mbt_md_files.is_empty()

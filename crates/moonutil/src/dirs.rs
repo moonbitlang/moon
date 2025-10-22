@@ -215,13 +215,13 @@ fn get_project_files(
                 continue;
             }
             get_project_files(&path, pkg_files, mbt_files)?;
-        } else if let Some(extension) = path.extension() {
-            if let Some(filename) = path.file_name() {
-                if extension == "mbt" {
-                    mbt_files.push(path.display().to_string());
-                } else if filename == MOON_PKG_JSON {
-                    pkg_files.push(path.display().to_string())
-                }
+        } else if let Some(extension) = path.extension()
+            && let Some(filename) = path.file_name()
+        {
+            if extension == "mbt" {
+                mbt_files.push(path.display().to_string());
+            } else if filename == MOON_PKG_JSON {
+                pkg_files.push(path.display().to_string())
             }
         }
     }

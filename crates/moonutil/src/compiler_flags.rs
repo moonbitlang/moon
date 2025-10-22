@@ -448,10 +448,10 @@ fn add_linker_library_paths<P: AsRef<Path>>(
     if cc.is_tcc() {
         buf.push(format!("-L{lpath}"));
     }
-    if cc.is_gcc_like() {
-        if let Some(dyn_lib_path) = config.link_shared_runtime.as_ref() {
-            buf.push(format!("-L{}", dyn_lib_path.as_ref().display()));
-        }
+    if cc.is_gcc_like()
+        && let Some(dyn_lib_path) = config.link_shared_runtime.as_ref()
+    {
+        buf.push(format!("-L{}", dyn_lib_path.as_ref().display()));
     }
 }
 

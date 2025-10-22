@@ -42,12 +42,12 @@ use std::sync::LazyLock;
 static MOONRUN_EXECUTABLE: LazyLock<Option<std::path::PathBuf>> = LazyLock::new(|| {
     let moonrun = "moonrun";
     // Prefer the one next to the current executable
-    if let Ok(current_exe) = std::env::current_exe() {
-        if let Some(exe_dir) = current_exe.parent() {
-            let moonrun = exe_dir.join(moonrun);
-            if moonrun.exists() {
-                return Some(moonrun);
-            }
+    if let Ok(current_exe) = std::env::current_exe()
+        && let Some(exe_dir) = current_exe.parent()
+    {
+        let moonrun = exe_dir.join(moonrun);
+        if moonrun.exists() {
+            return Some(moonrun);
         }
     }
     // Fallback to search in PATH

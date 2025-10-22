@@ -677,10 +677,10 @@ fn convert_moonc_test_info(
             if test_info.is_empty() {
                 continue;
             }
-            if let Some(filter_file) = filter_file {
-                if filename != *filter_file {
-                    continue;
-                }
+            if let Some(filter_file) = filter_file
+                && filename != *filter_file
+            {
+                continue;
             }
             current_pkg_test_info
                 .entry((artifact_path.clone(), driver_kind))
@@ -733,10 +733,10 @@ pub fn run_test(
         .iter()
         .filter(|(_, p)| !p.is_third_party)
     {
-        if let Some(package) = filter_package {
-            if !package.contains(pkgname) {
-                continue;
-            }
+        if let Some(package) = filter_package
+            && !package.contains(pkgname)
+        {
+            continue;
         }
 
         // convert moonc test info
@@ -1051,10 +1051,10 @@ impl<'a> CompactTestFormatter<'a> {
         } else {
             write!(w, "test ")?;
         }
-        if let Some(subpackage) = stripped {
-            if !subpackage.is_empty() {
-                write!(w, "{}/", subpackage)?;
-            }
+        if let Some(subpackage) = stripped
+            && !subpackage.is_empty()
+        {
+            write!(w, "{}/", subpackage)?;
         }
         write!(w, "{}", self.stats.filename)?;
 

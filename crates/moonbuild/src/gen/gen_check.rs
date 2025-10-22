@@ -270,8 +270,8 @@ fn pkg_with_wbtest_to_check_item(
 }
 
 pub(super) fn warn_about_alias_duplication(self_in_test_import: bool, pkg: &Package) {
-    if !self_in_test_import {
-        if let Some(violating) = pkg
+    if !self_in_test_import
+        && let Some(violating) = pkg
             .test_imports
             .iter()
             .chain(pkg.imports.iter())
@@ -281,21 +281,20 @@ pub(super) fn warn_about_alias_duplication(self_in_test_import: bool, pkg: &Pack
                     .as_ref()
                     .is_some_and(|alias| alias.eq(pkg.last_name()))
             })
-        {
-            eprintln!(
-                "{}: Duplicate alias `{}` at \"{}\". \
+    {
+        eprintln!(
+            "{}: Duplicate alias `{}` at \"{}\". \
                 \"test-import\" will automatically add \"import\" and current \
                 package as dependency so you don't need to add it manually. \
                 If you're test-importing a dependency with the same default \
                 alias as your current package, considering give it a different \
                 alias than the current package. \
                 Violating import: `{}`",
-                "Warning".yellow(),
-                pkg.last_name(),
-                pkg.root_path.join(MOON_PKG_JSON).display(),
-                violating.path.make_full_path()
-            );
-        }
+            "Warning".yellow(),
+            pkg.last_name(),
+            pkg.root_path.join(MOON_PKG_JSON).display(),
+            violating.path.make_full_path()
+        );
     }
 }
 

@@ -112,31 +112,30 @@ fn run_replace_in_package(
     env_vars: &HashMap<String, String>,
     regex: &Regex,
 ) -> anyhow::Result<()> {
-    if let Some(link) = pkg.link.as_mut() {
-        if let Some(native) = link.native.as_mut() {
-            if let Some(cc) = native.cc.as_mut() {
-                string_match_and_replace(cc, env_vars, regex).context("when replacing cc")?;
-            }
-            if let Some(cc_flags) = native.cc_flags.as_mut() {
-                string_match_and_replace(cc_flags, env_vars, regex)
-                    .context("when replacing cc_flags")?;
-            }
-            if let Some(cc_link_flags) = native.cc_link_flags.as_mut() {
-                string_match_and_replace(cc_link_flags, env_vars, regex)
-                    .context("when replacing cc_link_flags")?;
-            }
-            if let Some(stub_cc) = native.stub_cc.as_mut() {
-                string_match_and_replace(stub_cc, env_vars, regex)
-                    .context("when replacing stub_cc")?;
-            }
-            if let Some(stub_cc_flags) = native.stub_cc_flags.as_mut() {
-                string_match_and_replace(stub_cc_flags, env_vars, regex)
-                    .context("when replacing stub_cc_flags")?;
-            }
-            if let Some(stub_cc_link_flags) = native.stub_cc_link_flags.as_mut() {
-                string_match_and_replace(stub_cc_link_flags, env_vars, regex)
-                    .context("when replacing stub_cc_link_flags")?;
-            }
+    if let Some(link) = pkg.link.as_mut()
+        && let Some(native) = link.native.as_mut()
+    {
+        if let Some(cc) = native.cc.as_mut() {
+            string_match_and_replace(cc, env_vars, regex).context("when replacing cc")?;
+        }
+        if let Some(cc_flags) = native.cc_flags.as_mut() {
+            string_match_and_replace(cc_flags, env_vars, regex)
+                .context("when replacing cc_flags")?;
+        }
+        if let Some(cc_link_flags) = native.cc_link_flags.as_mut() {
+            string_match_and_replace(cc_link_flags, env_vars, regex)
+                .context("when replacing cc_link_flags")?;
+        }
+        if let Some(stub_cc) = native.stub_cc.as_mut() {
+            string_match_and_replace(stub_cc, env_vars, regex).context("when replacing stub_cc")?;
+        }
+        if let Some(stub_cc_flags) = native.stub_cc_flags.as_mut() {
+            string_match_and_replace(stub_cc_flags, env_vars, regex)
+                .context("when replacing stub_cc_flags")?;
+        }
+        if let Some(stub_cc_link_flags) = native.stub_cc_link_flags.as_mut() {
+            string_match_and_replace(stub_cc_link_flags, env_vars, regex)
+                .context("when replacing stub_cc_link_flags")?;
         }
     }
     Ok(())

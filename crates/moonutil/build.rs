@@ -42,15 +42,14 @@ pub fn main() -> Result<(), Box<dyn Error>> {
     let docs_dir = Path::new("resources/error_codes/language/error_codes");
     if let Ok(entries) = fs::read_dir(docs_dir) {
         for entry in entries.flatten() {
-            if let Some(file_name) = entry.file_name().to_str() {
-                if file_name.ends_with(".md") {
-                    if let Ok(content) = fs::read_to_string(entry.path()) {
-                        let error_code = file_name.trim_end_matches(".md").replace("E", "");
-                        docs_map.push_str(&format!(
-                            "    m.insert(\"{error_code}\", r#\"{content}\"#);\n"
-                        ));
-                    }
-                }
+            if let Some(file_name) = entry.file_name().to_str()
+                && file_name.ends_with(".md")
+                && let Ok(content) = fs::read_to_string(entry.path())
+            {
+                let error_code = file_name.trim_end_matches(".md").replace("E", "");
+                docs_map.push_str(&format!(
+                    "    m.insert(\"{error_code}\", r#\"{content}\"#);\n"
+                ));
             }
         }
     }

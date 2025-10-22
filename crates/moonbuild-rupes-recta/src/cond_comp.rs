@@ -163,10 +163,10 @@ fn should_compile_using_filename(name: &str, actual: &CompileCondition) -> Optio
 
     // Target backend checking -- check the suffix of the file name
     let (backend, remaining) = get_file_target_backend(filename);
-    if let Some(backend) = backend {
-        if backend != actual.backend {
-            return None; // Wrong backend, returning
-        }
+    if let Some(backend) = backend
+        && backend != actual.backend
+    {
+        return None; // Wrong backend, returning
     }
 
     let spec = get_file_test_kind(remaining);

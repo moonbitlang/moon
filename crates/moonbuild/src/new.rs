@@ -197,14 +197,12 @@ pub fn moon_new_default(target_dir: &Path, user: String, name: String) -> anyhow
 
     match is_in_git_repo(target_dir) {
         Ok(b) => {
-            if !b {
-                if let Err(e) = git_init_repo(target_dir) {
-                    eprintln!(
-                        "{} failed to initialize git repository. {}",
-                        "Warning:".bold().yellow(),
-                        e
-                    );
-                }
+            if !b && let Err(e) = git_init_repo(target_dir) {
+                eprintln!(
+                    "{} failed to initialize git repository. {}",
+                    "Warning:".bold().yellow(),
+                    e
+                );
             }
         }
         Err(e) => {
