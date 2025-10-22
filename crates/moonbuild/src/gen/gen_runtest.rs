@@ -705,8 +705,9 @@ fn get_pkg_topo_order<'a>(
 ) -> Vec<&'a Package> {
     let mut visited: HashSet<String> = HashSet::new();
     let mut pkg_topo_order: Vec<&Package> = vec![];
-    let mut virtual_impl: std::collections::HashMap<String, String> = std::collections::HashMap::new();
-    
+    let mut virtual_impl: std::collections::HashMap<String, String> =
+        std::collections::HashMap::new();
+
     fn dfs<'a>(
         m: &'a ModuleDB,
         pkg_topo_order: &mut Vec<&'a Package>,
@@ -721,7 +722,7 @@ fn get_pkg_topo_order<'a>(
         }
         visited.insert(cur_pkg_full_name.clone());
         let cur_pkg = m.get_package_by_name(cur_pkg_full_name);
-        
+
         // Record virtual package implementations from overrides
         if let Some(overrides) = cur_pkg.overrides.as_ref() {
             for implement in overrides.iter() {
@@ -731,7 +732,7 @@ fn get_pkg_topo_order<'a>(
                 }
             }
         }
-        
+
         let imports = cur_pkg
             .imports
             .iter()
@@ -749,7 +750,7 @@ fn get_pkg_topo_order<'a>(
         for dep in imports {
             let neighbor_full_name = dep.path.make_full_path();
             let neighbor_pkg = m.get_package_by_name(&neighbor_full_name);
-            
+
             // Resolve virtual packages to their implementations
             let neighbor_no_virtual = if let Some(virtual_info) = &neighbor_pkg.virtual_pkg {
                 // If neighbor is a virtual package, find its implementation
@@ -765,7 +766,7 @@ fn get_pkg_topo_order<'a>(
             } else {
                 neighbor_full_name
             };
-            
+
             dfs(
                 m,
                 pkg_topo_order,
