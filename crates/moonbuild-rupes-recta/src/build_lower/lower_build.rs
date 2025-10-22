@@ -676,6 +676,13 @@ impl<'a> BuildPlanLowerContext<'a> {
             .rel
             .dep_graph
             .edges_directed(target, Direction::Outgoing)
+            // Skip `.mi` for standard library item `moonbitlang/core/abort`
+            .filter(|(_, target, _)| {
+                !self
+                    .packages
+                    .abort_pkg()
+                    .is_some_and(|x| x == target.package)
+            })
             .map(|(_, it, w)| {
                 let in_file =
                     self.layout

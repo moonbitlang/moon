@@ -114,6 +114,16 @@ impl<'a> BuildPlanConstructor<'a> {
     /// This dynamically maps into either `Build`, `Check` or `BuildVirtual`
     /// nodes based on the property of the dependency package.
     fn need_mi_of_dep(&mut self, node: BuildPlanNode, dep: BuildTarget, check_only: bool) {
+        // Skip `.mi` for standard library item `moonbitlang/core/abort`
+        if self
+            .input
+            .pkg_dirs
+            .abort_pkg()
+            .is_some_and(|x| x == dep.package)
+        {
+            return;
+        }
+
         let pkg_info = self.input.pkg_dirs.get_package(dep.package);
         let dep_node = if pkg_info.is_virtual() {
             self.need_node(BuildPlanNode::BuildVirtual(dep.package))
