@@ -207,7 +207,7 @@ impl<'a> BuildPlanLowerContext<'a> {
                     .get_build_target_info(&target)
                     .expect("Build target info should be present for Check nodes");
 
-                if info.check_mi_against.is_none() {
+                if !info.no_mi() && info.check_mi_against.is_none() {
                     out.push(self.layout.mi_of_build_target(
                         self.packages,
                         &target,

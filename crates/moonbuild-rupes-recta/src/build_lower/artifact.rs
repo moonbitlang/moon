@@ -51,6 +51,9 @@ pub struct LegacyLayout {
     /// not be put into nested directories.
     main_module: Option<ModuleSource>,
 
+    /// The directory of the standard library
+    stdlib_dir: Option<PathBuf>,
+
     /// The optimization level, debug or release
     opt_level: OptLevel,
     /// The operation done
@@ -130,6 +133,22 @@ impl LegacyLayout {
         target: &BuildTarget,
         backend: TargetBackend,
     ) -> PathBuf {
+        // Special case: `abort` lives in core
+        if let Some(abort) = pkg_list.abort_pkg()
+            && abort == target.package
+        {
+            if target.kind == TargetKind::Source {
+                return abort_core_path(
+                    self.stdlib_dir
+                        .as_ref()
+                        .expect("Standard library should be present"),
+                    backend,
+                );
+            } else {
+                panic!("Cannot import `.mi` for moonbitlang/core/abort");
+            }
+        }
+
         let pkg_fqn = &pkg_list.get_package(target.package).fqn;
         let mut base_dir = self.package_dir(pkg_fqn, backend);
         base_dir.push(format!(
@@ -146,6 +165,22 @@ impl LegacyLayout {
         target: &BuildTarget,
         backend: TargetBackend,
     ) -> PathBuf {
+        // Special case: `abort` lives in core
+        if let Some(abort) = pkg_list.abort_pkg()
+            && abort == target.package
+        {
+            if target.kind == TargetKind::Source {
+                return abort_mi_path(
+                    self.stdlib_dir
+                        .as_ref()
+                        .expect("Standard library should be present"),
+                    backend,
+                );
+            } else {
+                panic!("Cannot import `.mi` for moonbitlang/core/abort");
+            }
+        }
+
         let pkg_fqn = &pkg_list.get_package(target.package).fqn;
         let mut base_dir = self.package_dir(pkg_fqn, backend);
         base_dir.push(format!(
@@ -422,6 +457,13 @@ pub fn abort_core_path(core_root: &Path, backend: TargetBackend) -> PathBuf {
     let mut path = core_bundle_path(core_root, backend);
     path.push("abort");
     path.push("abort.core");
+    path
+}
+
+pub fn abort_mi_path(core_root: &Path, backend: TargetBackend) -> PathBuf {
+    let mut path = core_bundle_path(core_root, backend);
+    path.push("abort");
+    path.push("abort.mi");
     path
 }
 
