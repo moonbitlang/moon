@@ -24,6 +24,7 @@ use std::path::{Path, PathBuf};
 
 use anyhow::Context;
 use moonbuild_rupes_recta::{ResolveOutput, model::PackageId};
+use moonutil::mooncakes::{DirSyncResult, result::ResolvedEnv};
 
 /// Canonicalize the given path, returning the directory it's referencing, and
 /// an optional filename if the path is a file.
@@ -62,7 +63,10 @@ pub fn canonicalize_with_filename(path: &Path) -> anyhow::Result<(PathBuf, Optio
 }
 
 /// From a canonicalized, directory path, find the corresponding package ID.
-pub fn filter_pkg_by_dir(resolve_output: &ResolveOutput, dir: &Path) -> Option<PackageId> {
+///
+/// When a package cannot be found, returns a descriptive error that can be
+/// reported to the user.
+pub fn filter_pkg_by_dir(resolve_output: &ResolveOutput, dir: &Path) -> anyhow::Result<PackageId> {
     let mut all_local_packages = resolve_output.local_modules().iter().flat_map(|&it| {
         resolve_output
             .pkg_dirs
@@ -72,8 +76,86 @@ pub fn filter_pkg_by_dir(resolve_output: &ResolveOutput, dir: &Path) -> Option<P
             .cloned()
     });
 
-    all_local_packages.find(|&pkg_id| {
-        let pkg = resolve_output.pkg_dirs.get_package(pkg_id);
-        pkg.root_path == dir
-    })
+    all_local_packages
+        .find(|&pkg_id| {
+            let pkg = resolve_output.pkg_dirs.get_package(pkg_id);
+            pkg.root_path == dir
+        })
+        .ok_or_else(|| {
+            report_package_not_found(
+                dir,
+                &resolve_output.module_rel,
+                &resolve_output.module_dirs,
+                resolve_output.local_modules(),
+            )
+        })
+}
+
+/// Given an invalid input path, report a helpful error message indicating why
+/// no package could be found.
+pub fn report_package_not_found(
+    input_path: &Path,
+    module_graph: &ResolvedEnv,
+    module_dirs: &DirSyncResult,
+    main_modules: &[moonutil::mooncakes::ModuleId],
+) -> anyhow::Error {
+    let m_def_and_dir = |id| {
+        let module_dir = module_dirs.get(id).expect("Module should exist");
+        let m_def = &**module_graph.module_info(id);
+        (m_def, module_dir)
+    };
+
+    // Whether if the path is in a module's package directory
+    let mut inside_module_pkgs = None;
+    // Whether if the path is in a module's root directory
+    let mut inside_module_root = None;
+
+    // Find the most plausible module that the path belongs to
+    for &mid in main_modules {
+        let (m_def, module_dir) = m_def_and_dir(mid);
+        let m_packages_root = module_dir.join(m_def.source.as_deref().unwrap_or(""));
+        if input_path.starts_with(m_packages_root) {
+            inside_module_pkgs = Some(mid);
+            break;
+        } else if input_path.starts_with(module_dir) {
+            inside_module_root = Some(mid);
+            break;
+        }
+    }
+
+    // Report the hint on why it might not work
+    let hint = if let Some(mid) = inside_module_pkgs {
+        let (m_def, module_dir) = m_def_and_dir(mid);
+        let m_packages_root = module_dir.join(m_def.source.as_deref().unwrap_or(""));
+
+        format!(
+            "The provided path `{}` is inside the packages directory of module `{}` at `{}`,
+            but does not match any known package.",
+            input_path.display(),
+            m_def.name,
+            m_packages_root.display()
+        )
+    } else if let Some(mid) = inside_module_root {
+        let (m_def, module_dir) = m_def_and_dir(mid);
+
+        format!(
+            "The provided path `{}` is inside the root directory of module `{}` at `{}`, \
+            but it is not in the path for searching packages, \
+            thus it cannot be resolved to any known package.",
+            input_path.display(),
+            m_def.name,
+            module_dir.display()
+        )
+    } else {
+        format!(
+            "The provided path `{}` is not inside any known module.",
+            input_path.display()
+        )
+    };
+
+    anyhow::anyhow!(
+        "Cannot find package to build based on input path `{}`.\nHint: {}",
+        input_path.display(),
+        hint
+    )
 }
