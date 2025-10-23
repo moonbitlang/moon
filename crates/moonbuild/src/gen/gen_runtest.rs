@@ -37,7 +37,6 @@ use super::gen_build::{
 };
 use super::util::{calc_link_args, self_in_test_import};
 use super::{is_self_coverage_lib, is_skip_coverage_lib};
-use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
 use std::sync::Arc;
@@ -697,63 +696,27 @@ pub fn get_imports(pkg: &Package, with_test_import: bool) -> Vec<&moonutil::path
     imports
 }
 
+/// Wrapper around `util::topo_from_node_with_tests` that returns package references.
+///
+/// This function uses the unified DFS implementation from util.rs to handle virtual packages
+/// correctly, then converts the package names to package references.
 fn get_pkg_topo_order<'a>(
     m: &'a ModuleDB,
     leaf: &Package,
     with_wbtest_import: bool,
     with_test_import: bool,
 ) -> Vec<&'a Package> {
-    let mut visited: HashSet<String> = HashSet::new();
-    let mut pkg_topo_order: Vec<&Package> = vec![];
-    fn dfs<'a>(
-        m: &'a ModuleDB,
-        pkg_topo_order: &mut Vec<&'a Package>,
-        visited: &mut HashSet<String>,
-        cur_pkg_full_name: &String,
-        with_wbtest_import: bool,
-        with_test_import: bool,
-    ) {
-        if visited.contains(cur_pkg_full_name) {
-            return;
-        }
-        visited.insert(cur_pkg_full_name.clone());
-        let cur_pkg = m.get_package_by_name(cur_pkg_full_name);
-        let imports = cur_pkg
-            .imports
-            .iter()
-            .chain(if with_wbtest_import {
-                cur_pkg.wbtest_imports.iter()
-            } else {
-                [].iter()
-            })
-            .chain(if with_test_import {
-                cur_pkg.test_imports.iter()
-            } else {
-                [].iter()
-            });
+    // Use the unified implementation from util.rs
+    // Note: We unwrap here because the original implementation didn't return errors
+    let pkg_names =
+        super::util::topo_from_node_with_tests(m, leaf, with_wbtest_import, with_test_import)
+            .unwrap_or_else(|_| vec![]);
 
-        for dep in imports {
-            dfs(
-                m,
-                pkg_topo_order,
-                visited,
-                &dep.path.make_full_path(),
-                false,
-                false,
-            );
-        }
-
-        pkg_topo_order.push(cur_pkg);
-    }
-    dfs(
-        m,
-        &mut pkg_topo_order,
-        &mut visited,
-        &leaf.full_name(),
-        with_wbtest_import,
-        with_test_import,
-    );
-    pkg_topo_order
+    // Convert package names to package references
+    pkg_names
+        .iter()
+        .map(|name| m.get_package_by_name(name))
+        .collect()
 }
 
 fn get_package_sources(pkg_topo_order: &[&Package]) -> Vec<(String, String)> {

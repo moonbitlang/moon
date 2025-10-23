@@ -1,0 +1,3 @@
+{
+  "import": [ "virtual_with_transitive_dep/virtual" ]
+}

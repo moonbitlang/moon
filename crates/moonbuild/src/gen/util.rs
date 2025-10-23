@@ -47,7 +47,27 @@ pub fn toposort(m: &ModuleDB) -> anyhow::Result<Vec<String>> {
     Ok(topo)
 }
 
+/// Performs a topological sort (DFS) to get package dependencies in the correct order,
+/// returning package names as strings.
+///
+/// This is used by the build command. For test commands that need package references,
+/// see `topo_from_node_with_tests` below.
 pub fn topo_from_node(m: &ModuleDB, pkg: &Package) -> anyhow::Result<Vec<String>> {
+    topo_from_node_impl(m, pkg, false, false)
+}
+
+/// Internal implementation of topological sort that can optionally include test imports.
+///
+/// This function handles virtual packages by:
+/// 1. Tracking virtual-to-implementation mappings via the `overrides` field
+/// 2. Resolving virtual packages to their implementations before recursion
+/// 3. Including transitive dependencies of implementations
+fn topo_from_node_impl(
+    m: &ModuleDB,
+    pkg: &Package,
+    with_wbtest_import: bool,
+    with_test_import: bool,
+) -> anyhow::Result<Vec<String>> {
     let pkg_full_name = pkg.full_name();
     let mut stk: Vec<String> = Vec::new();
     let mut visited: HashSet<String> = HashSet::new();
@@ -60,6 +80,8 @@ pub fn topo_from_node(m: &ModuleDB, pkg: &Package) -> anyhow::Result<Vec<String>
         stk: &mut Vec<String>,
         visited: &mut HashSet<String>,
         virtual_impl: &mut HashMap<String, String>,
+        with_wbtest_import: bool,
+        with_test_import: bool,
     ) -> anyhow::Result<()> {
         visited.insert(pkg_full_name.to_string());
 
@@ -86,7 +108,21 @@ pub fn topo_from_node(m: &ModuleDB, pkg: &Package) -> anyhow::Result<Vec<String>
             }
         }
 
-        for neighbor in pkg.imports.iter() {
+        let imports = pkg
+            .imports
+            .iter()
+            .chain(if with_wbtest_import {
+                pkg.wbtest_imports.iter()
+            } else {
+                [].iter()
+            })
+            .chain(if with_test_import {
+                pkg.test_imports.iter()
+            } else {
+                [].iter()
+            });
+
+        for neighbor in imports {
             let neighbor_full_name = neighbor.path.make_full_path();
             let neighbor_pkg = m.get_package_by_name(&neighbor_full_name);
             let neighbor_no_virtual = if let Some(virtual_info) = &neighbor_pkg.virtual_pkg {
@@ -106,7 +142,15 @@ pub fn topo_from_node(m: &ModuleDB, pkg: &Package) -> anyhow::Result<Vec<String>
             };
 
             if !visited.contains(&neighbor_no_virtual) {
-                dfs(m, &neighbor_no_virtual, stk, visited, virtual_impl)?;
+                dfs(
+                    m,
+                    &neighbor_no_virtual,
+                    stk,
+                    visited,
+                    virtual_impl,
+                    false,
+                    false,
+                )?;
             }
         }
 
@@ -114,8 +158,28 @@ pub fn topo_from_node(m: &ModuleDB, pkg: &Package) -> anyhow::Result<Vec<String>
         Ok(())
     }
 
-    dfs(m, &pkg_full_name, &mut stk, &mut visited, &mut virtual_impl)?;
+    dfs(
+        m,
+        &pkg_full_name,
+        &mut stk,
+        &mut visited,
+        &mut virtual_impl,
+        with_wbtest_import,
+        with_test_import,
+    )?;
     Ok(stk)
+}
+
+/// Performs a topological sort with test imports, returning package names.
+///
+/// Used by test commands when package names are needed.
+pub fn topo_from_node_with_tests(
+    m: &ModuleDB,
+    pkg: &Package,
+    with_wbtest_import: bool,
+    with_test_import: bool,
+) -> anyhow::Result<Vec<String>> {
+    topo_from_node_impl(m, pkg, with_wbtest_import, with_test_import)
 }
 
 pub fn nodes_to_names(m: &ModuleDB, nodes: &[usize]) -> Vec<String> {
