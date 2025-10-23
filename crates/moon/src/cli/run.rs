@@ -559,7 +559,12 @@ fn run_run_internal_legacy(cli: &UniversalFlags, cmd: RunSubcommand) -> anyhow::
         &PrePostBuild::PreBuild,
     )?;
 
-    let pkg = module.get_package_by_path_mut(&package).unwrap();
+    let pkg = module.get_package_by_path_mut(&package).with_context(|| {
+        format!(
+            "Unable to find a known package at path {}",
+            package.display()
+        )
+    })?;
     pkg.enable_value_tracing = cmd.build_flags.enable_value_tracing;
 
     moonutil::common::set_native_backend_link_flags(
