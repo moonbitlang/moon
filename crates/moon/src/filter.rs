@@ -20,11 +20,13 @@
 //!
 //! This module contains the common path filtering logic for both legacy and RR backends.
 
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
 use anyhow::Context;
 use moonbuild_rupes_recta::{ResolveOutput, model::PackageId};
 use moonutil::mooncakes::{DirSyncResult, result::ResolvedEnv};
+use smallvec::SmallVec;
 
 /// Canonicalize the given path, returning the directory it's referencing, and
 /// an optional filename if the path is a file.
@@ -60,6 +62,64 @@ pub fn canonicalize_with_filename(path: &Path) -> anyhow::Result<(PathBuf, Optio
 
         Ok((parent.to_path_buf(), Some(filename)))
     }
+}
+
+/// Resolve package identifiers (or other entities) by name using exact or fuzzy matching.
+///
+/// Returns a list of matches ordered by relevance, without duplicates. The `name_map`
+/// should contain the full package names as keys and the desired return value (e.g.
+/// `PackageId`, `String`) as values.
+pub fn fuzzy_match_by_name<T>(needle: &str, name_map: &HashMap<String, T>) -> SmallVec<[T; 1]>
+where
+    T: Clone + PartialEq,
+{
+    if let Some(value) = name_map.get(needle) {
+        let mut out = SmallVec::new();
+        out.push(value.clone());
+        return out;
+    }
+
+    let mut result = SmallVec::new();
+
+    if let Some(matches) =
+        moonutil::fuzzy_match::fuzzy_match(needle, name_map.keys().map(|k| k.as_str()))
+    {
+        for m in matches {
+            if let Some(value) = name_map.get(m.as_str())
+                && result.iter().all(|existing| existing != value)
+            {
+                result.push(value.clone());
+            }
+        }
+    }
+
+    result
+}
+
+/// Perform fuzzy matching over package names and return the matching package IDs.
+pub fn match_packages_by_name_rr(
+    resolve_output: &ResolveOutput,
+    main_modules: &[moonutil::mooncakes::ModuleId],
+    needle: &str,
+) -> SmallVec<[PackageId; 1]> {
+    let &[main_module_id] = main_modules else {
+        panic!("No multiple main modules are supported");
+    };
+
+    let packages = resolve_output
+        .pkg_dirs
+        .packages_for_module(main_module_id)
+        .expect("Cannot find the local module!");
+
+    let name_map: HashMap<String, PackageId> = packages
+        .values()
+        .map(|&pkg_id| {
+            let pkg = resolve_output.pkg_dirs.get_package(pkg_id);
+            (pkg.fqn.to_string(), pkg_id)
+        })
+        .collect();
+
+    fuzzy_match_by_name(needle, &name_map)
 }
 
 /// From a canonicalized, directory path, find the corresponding package ID.
