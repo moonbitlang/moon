@@ -40,6 +40,7 @@ use std::path::Path;
 use std::path::PathBuf;
 use tracing::{Level, instrument};
 
+use crate::filter::{canonicalize_with_filename, filter_pkg_by_dir};
 use crate::rr_build;
 use crate::rr_build::BuildConfig;
 use crate::rr_build::CalcUserIntentOutput;
@@ -52,6 +53,10 @@ use super::{BuildFlags, UniversalFlags};
 /// Build the current package
 #[derive(Debug, clap::Parser, Clone)]
 pub struct BuildSubcommand {
+    /// The path to build, either a file or directory.
+    #[clap(name = "PATH")]
+    pub path: Option<PathBuf>,
+
     #[clap(flatten)]
     pub build_flags: BuildFlags,
 
@@ -138,12 +143,15 @@ fn run_build_rr(
         OptLevel::Release,
         RunMode::Build,
     );
+    let path_filter = cmd.path.clone();
     let (_build_meta, build_graph) = rr_build::plan_build(
         preconfig,
         &cli.unstable_feature,
         source_dir,
         target_dir,
-        Box::new(calc_user_intent),
+        Box::new(move |resolve_output, main_modules| {
+            calc_user_intent(path_filter.as_deref(), resolve_output, main_modules)
+        }),
     )?;
 
     if cli.dry_run {
@@ -288,9 +296,16 @@ fn run_build_legacy(
 /// to core.
 #[instrument(level = Level::DEBUG, skip_all)]
 fn calc_user_intent(
+    path_filter: Option<&Path>,
     resolve_output: &moonbuild_rupes_recta::ResolveOutput,
     main_modules: &[moonutil::mooncakes::ModuleId],
 ) -> Result<CalcUserIntentOutput, anyhow::Error> {
+    if let Some(path) = path_filter {
+        let (dir, _) = canonicalize_with_filename(path)?;
+        let pkg = filter_pkg_by_dir(resolve_output, &dir)?;
+        return Ok(vec![UserIntent::Build(pkg)].into());
+    }
+
     let &[main_module_id] = main_modules else {
         panic!("No multiple main modules are supported");
     };
