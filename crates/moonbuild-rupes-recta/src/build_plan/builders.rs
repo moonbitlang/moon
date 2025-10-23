@@ -830,8 +830,7 @@ impl<'a> BuildPlanConstructor<'a> {
     ) -> Result<(), BuildPlanConstructError> {
         // Generate mbti relies on the `.mi` files spitted out by `moonc`, which
         // usually means `moonc check` instead of `moonc build`.
-        let check_node = self.need_node(BuildPlanNode::Check(target));
-        self.add_edge(_node, check_node);
+        self.need_mi_of_dep(_node, target, true);
         self.resolved_node(_node);
         Ok(())
     }

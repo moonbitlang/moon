@@ -128,6 +128,7 @@ pub fn lower_build_plan(
     let layout = LegacyLayoutBuilder::default()
         .target_base_dir(opt.target_dir_root.to_owned())
         .main_module(opt.main_module.clone())
+        .stdlib_dir(opt.stdlib_path.clone())
         .opt_level(opt.opt_level)
         .run_mode(opt.action)
         .build()

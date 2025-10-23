@@ -404,6 +404,11 @@ impl DiscoveredPackage {
         self.raw.virtual_pkg.is_some()
     }
 
+    /// Get whether this is an implementation of a virtual package
+    pub fn is_virtual_impl(&self) -> bool {
+        self.raw.implement.is_some()
+    }
+
     /// Get whether if the package has a concrete implementation, i.e. moonbit
     /// code to compile.
     ///

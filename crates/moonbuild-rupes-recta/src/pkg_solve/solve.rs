@@ -331,6 +331,18 @@ fn resolve_import<'a>(
 
     let (import_pid, imported) = resolve_import_raw(env, mid, pid, import_source)?;
 
+    // A virtual package implementation cannot be imported
+    if imported.is_virtual_impl() {
+        debug!(
+            "Import '{}' is a virtual package, cannot be imported directly",
+            import_source
+        );
+        return Err(SolveError::CannotImportVirtualImplementation {
+            package: env.packages.fqn(pid).clone().into(),
+            dependency: imported.fqn.clone().into(),
+        });
+    }
+
     // Okay, now let's add this package to our package's import in deps
     // TODO: the import alias determination part is a mess, will need to refactor later
     //     Currently this part is just for making the whole thing work.
@@ -357,6 +369,7 @@ fn resolve_import<'a>(
     })
 }
 
+/// Resolve a package from its import source string, with minimal validation.
 fn resolve_import_raw<'a>(
     env: &mut ResolveEnv<'a>,
     mid: ModuleId,
@@ -379,6 +392,7 @@ fn resolve_import_raw<'a>(
         "Import '{}' resolved to module {:?}, package {:?}",
         import_source, import_mid, import_pid
     );
+
     let imported = env.packages.get_package(*import_pid);
     if *import_mid != mid && env.modules.graph().edge_weight(mid, *import_mid).is_none() {
         debug!(
@@ -391,6 +405,7 @@ fn resolve_import_raw<'a>(
             pkg: env.packages.get_package(pid).fqn.package().clone(),
         });
     }
+
     Ok((*import_pid, imported))
 }
 
