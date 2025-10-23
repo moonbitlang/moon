@@ -1,0 +1,3 @@
+package "virtual_with_transitive_dep/virtual" 
+
+fn f(Int) -> Int
