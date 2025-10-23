@@ -17,7 +17,6 @@
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
 use std::path::Path;
-use std::path::PathBuf;
 
 use anyhow::{Context, bail};
 use moonbuild::dry_run;
@@ -39,9 +38,7 @@ use moonutil::dirs::PackageDirs;
 use moonutil::dirs::check_moon_pkg_exist;
 use moonutil::dirs::mk_arch_mode_dir;
 use moonutil::moon_dir::MOON_DIRS;
-use moonutil::mooncakes::DirSyncResult;
 use moonutil::mooncakes::RegistryConfig;
-use moonutil::mooncakes::result::ResolvedEnv;
 use moonutil::mooncakes::sync::AutoSyncFlags;
 use n2::trace;
 use tracing::{Level, instrument};
@@ -424,126 +421,11 @@ fn get_run_cmd(
 fn calc_user_intent(
     input_path: &str,
     resolve_output: &moonbuild_rupes_recta::ResolveOutput,
-    main_modules: &[moonutil::mooncakes::ModuleId],
+    _main_modules: &[moonutil::mooncakes::ModuleId],
 ) -> Result<CalcUserIntentOutput, anyhow::Error> {
-    // `moon run` requires a path relative to CWD being provided. The path may
-    // either be a MoonBit source code file, or a path to a module directory.
-    //
-    // We currently assume that this is *not* a single file to run (which is
-    // another separate problem on its own). This leaves us with the following
-    // best-effort solution to determine the package to run:
-    //
-    // 1. Canonicalize the `path` to its absolute form.
-    // 2. Get two values: the `path` itself, and its `parent`.
-    // 3. For each package, check if its path match either of the two paths provided.
-    // 4. If the `path` itself is matched, the package matching it is the target one to run.
-    // 5. Else if the `parent` path is matched, the package matching it is the target one to run.
-    // 6. Otherwise, return an error.
-    let input_path = PathBuf::from(input_path);
-    let input_path =
-        dunce::canonicalize(input_path).context("Failed to canonicalize input file path")?;
-    let input_path_parent = input_path.parent();
-
-    let mut found_path = None;
-    let mut found_path_parent = None;
-    for m in main_modules {
-        for p in resolve_output
-            .pkg_dirs
-            .packages_for_module(*m)
-            .expect("Module should exist")
-            .values()
-        {
-            let pkg = resolve_output.pkg_dirs.get_package(*p);
-            if pkg.root_path == input_path {
-                found_path = Some(*p);
-            } else if let Some(parent) = input_path_parent
-                && pkg.root_path == parent
-            {
-                found_path_parent = Some(*p);
-            }
-        }
-    }
-
-    let found = found_path.or(found_path_parent);
-    if let Some(pkg_id) = found {
-        Ok(vec![UserIntent::Run(pkg_id)].into())
-    } else {
-        Err(report_package_not_found(
-            &input_path,
-            &resolve_output.module_rel,
-            &resolve_output.module_dirs,
-            main_modules,
-        ))
-    }
-}
-
-/// Given an invalid input path, report a helpful error message indicating why
-/// no package could be found.
-fn report_package_not_found(
-    input_path: &Path,
-    module_graph: &ResolvedEnv,
-    module_dirs: &DirSyncResult,
-    main_modules: &[moonutil::mooncakes::ModuleId],
-) -> anyhow::Error {
-    let m_def_and_dir = |id| {
-        let module_dir = module_dirs.get(id).expect("Module should exist");
-        let m_def = &**module_graph.module_info(id);
-        (m_def, module_dir)
-    };
-
-    // Whether if the path is in a module's package directory
-    let mut inside_module_pkgs = None;
-    // Whether if the path is in a module's root directory
-    let mut inside_module_root = None;
-
-    // Find the most plausible module that the path belongs to
-    for &mid in main_modules {
-        let (m_def, module_dir) = m_def_and_dir(mid);
-        let m_packages_root = module_dir.join(m_def.source.as_deref().unwrap_or(""));
-        if input_path.starts_with(m_packages_root) {
-            inside_module_pkgs = Some(mid);
-            break;
-        } else if input_path.starts_with(module_dir) {
-            inside_module_root = Some(mid);
-            break;
-        }
-    }
-
-    // Report the hint on why it might not work
-    let hint = if let Some(mid) = inside_module_pkgs {
-        let (m_def, module_dir) = m_def_and_dir(mid);
-        let m_packages_root = module_dir.join(m_def.source.as_deref().unwrap_or(""));
-
-        format!(
-            "The provided path `{}` is inside the packages directory of module `{}` at `{}`,
-            but does not match any known package.",
-            input_path.display(),
-            m_def.name,
-            m_packages_root.display()
-        )
-    } else if let Some(mid) = inside_module_root {
-        let (m_def, module_dir) = m_def_and_dir(mid);
-
-        format!(
-            "The provided path `{}` is inside the root directory of module `{}` at `{}`, \
-            but it is not in the path for searching packages, \
-            thus it cannot be resolved to any known package.",
-            input_path.display(),
-            m_def.name,
-            module_dir.display()
-        )
-    } else {
-        format!(
-            "The provided path `{}` is not inside any known module.",
-            input_path.display()
-        )
-    };
-
-    anyhow::anyhow!(
-        "Cannot find package to build based on input path `{}`.\nHint: {}",
-        input_path.display(),
-        hint
-    )
+    let (dir, _filename) = crate::filter::canonicalize_with_filename(Path::new(input_path))?;
+    let pkg = crate::filter::filter_pkg_by_dir(resolve_output, &dir)?;
+    Ok(vec![UserIntent::Run(pkg)].into())
 }
 
 #[instrument(skip_all)]
@@ -637,7 +519,7 @@ fn run_run_internal_legacy(cli: &UniversalFlags, cmd: RunSubcommand) -> anyhow::
     )?;
 
     let pkg = module.get_package_by_path_mut(&package).ok_or_else(|| {
-        report_package_not_found(
+        crate::filter::report_package_not_found(
             &package,
             &resolved_env,
             &dir_sync_result,
