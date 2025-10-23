@@ -16,6 +16,7 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
+use std::path::Path;
 use std::path::PathBuf;
 
 use anyhow::{Context, bail};
@@ -38,7 +39,9 @@ use moonutil::dirs::PackageDirs;
 use moonutil::dirs::check_moon_pkg_exist;
 use moonutil::dirs::mk_arch_mode_dir;
 use moonutil::moon_dir::MOON_DIRS;
+use moonutil::mooncakes::DirSyncResult;
 use moonutil::mooncakes::RegistryConfig;
+use moonutil::mooncakes::result::ResolvedEnv;
 use moonutil::mooncakes::sync::AutoSyncFlags;
 use n2::trace;
 use tracing::{Level, instrument};
@@ -462,11 +465,82 @@ fn calc_user_intent(
     if let Some(pkg_id) = found {
         Ok(vec![UserIntent::Run(pkg_id)].into())
     } else {
-        Err(anyhow::anyhow!(
-            "Cannot find package to build based on input path `{}`",
-            input_path.display()
+        Err(report_package_not_found(
+            &input_path,
+            &resolve_output.module_rel,
+            &resolve_output.module_dirs,
+            main_modules,
         ))
     }
+}
+
+/// Given an invalid input path, report a helpful error message indicating why
+/// no package could be found.
+fn report_package_not_found(
+    input_path: &Path,
+    module_graph: &ResolvedEnv,
+    module_dirs: &DirSyncResult,
+    main_modules: &[moonutil::mooncakes::ModuleId],
+) -> anyhow::Error {
+    let m_def_and_dir = |id| {
+        let module_dir = module_dirs.get(id).expect("Module should exist");
+        let m_def = &**module_graph.module_info(id);
+        (m_def, module_dir)
+    };
+
+    // Whether if the path is in a module's package directory
+    let mut inside_module_pkgs = None;
+    // Whether if the path is in a module's root directory
+    let mut inside_module_root = None;
+
+    // Find the most plausible module that the path belongs to
+    for &mid in main_modules {
+        let (m_def, module_dir) = m_def_and_dir(mid);
+        let m_packages_root = module_dir.join(m_def.source.as_deref().unwrap_or(""));
+        if input_path.starts_with(m_packages_root) {
+            inside_module_pkgs = Some(mid);
+            break;
+        } else if input_path.starts_with(module_dir) {
+            inside_module_root = Some(mid);
+            break;
+        }
+    }
+
+    // Report the hint on why it might not work
+    let hint = if let Some(mid) = inside_module_pkgs {
+        let (m_def, module_dir) = m_def_and_dir(mid);
+        let m_packages_root = module_dir.join(m_def.source.as_deref().unwrap_or(""));
+
+        format!(
+            "The provided path `{}` is inside the packages directory of module `{}` at `{}`,
+            but does not match any known package.",
+            input_path.display(),
+            m_def.name,
+            m_packages_root.display()
+        )
+    } else if let Some(mid) = inside_module_root {
+        let (m_def, module_dir) = m_def_and_dir(mid);
+
+        format!(
+            "The provided path `{}` is inside the root directory of module `{}` at `{}`, \
+            but it is not in the path for searching packages, \
+            thus it cannot be resolved to any known package.",
+            input_path.display(),
+            m_def.name,
+            module_dir.display()
+        )
+    } else {
+        format!(
+            "The provided path `{}` is not inside any known module.",
+            input_path.display()
+        )
+    };
+
+    anyhow::anyhow!(
+        "Cannot find package to build based on input path `{}`.\nHint: {}",
+        input_path.display(),
+        hint
+    )
 }
 
 #[instrument(skip_all)]
@@ -559,10 +633,12 @@ fn run_run_internal_legacy(cli: &UniversalFlags, cmd: RunSubcommand) -> anyhow::
         &PrePostBuild::PreBuild,
     )?;
 
-    let pkg = module.get_package_by_path_mut(&package).with_context(|| {
-        format!(
-            "Unable to find a known package at path {}",
-            package.display()
+    let pkg = module.get_package_by_path_mut(&package).ok_or_else(|| {
+        report_package_not_found(
+            &package,
+            &resolved_env,
+            &dir_sync_result,
+            resolved_env.input_module_ids(),
         )
     })?;
     pkg.enable_value_tracing = cmd.build_flags.enable_value_tracing;
