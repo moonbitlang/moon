@@ -1,3 +1,4 @@
 {
-  "import": [ "virtual_with_transitive_dep/virtual" ]
+  "import": ["virtual_with_transitive_dep/virtual"],
+  "overrides": ["virtual_with_transitive_dep/impl"]
 }
