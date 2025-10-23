@@ -55,6 +55,7 @@ use tracing::{Level, debug, info, instrument, trace, warn};
 use crate::cli::pre_build::scan_with_x_build;
 use crate::filter::canonicalize_with_filename;
 use crate::filter::filter_pkg_by_dir;
+use crate::filter::fuzzy_match_by_name;
 use crate::rr_build;
 use crate::rr_build::preconfig_compile;
 use crate::rr_build::{BuildConfig, CalcUserIntentOutput};
@@ -835,29 +836,11 @@ fn apply_list_of_filters(
         })
         .collect::<HashMap<_, _>>();
 
-    // Fuzzy match a string from the map
-    let fuzzy_names = |s: &str| -> SmallVec<[PackageId; 1]> {
-        if let Some(&id) = name_map.get(s) {
-            SmallVec::from_buf([id])
-        } else {
-            let all_names = name_map.keys().map(|k| k.as_str());
-            let xs = moonutil::fuzzy_match::fuzzy_match(s, all_names);
-            if let Some(xs) = xs {
-                xs.into_iter()
-                    .filter_map(|name| name_map.get(&name).copied())
-                    .collect()
-            } else {
-                warn!("no package found matching test filter `{}`", s);
-                SmallVec::new()
-            }
-        }
-    };
-
     let mut filtered_package_ids = SmallVec::<[PackageId; 1]>::new();
 
     // Collect all the package ids that match the filter
     for p in package_filter {
-        let names = fuzzy_names(p);
+        let names = fuzzy_match_by_name(p, &name_map);
         if names.is_empty() {
             warn!("no package found matching filter `{}`", p);
         }
