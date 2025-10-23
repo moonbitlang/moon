@@ -24,6 +24,7 @@ use clap::Parser;
 use cli::MoonBuildSubcommands;
 
 mod cli;
+mod filter;
 mod panic;
 pub mod rr_build;
 mod run;
