@@ -25,6 +25,7 @@ use moonutil::{
     common::TargetBackend,
     cond_expr::{CompileCondition, OptLevel},
     module::ModuleDBJSON,
+    moon_dir::core,
     package::{AliasJSON, PackageJSON},
 };
 
@@ -55,6 +56,7 @@ pub fn gen_metadata_json(
     let layout = LegacyLayoutBuilder::default()
         .main_module(Some(main_module.clone()))
         .opt_level(opt_level)
+        .stdlib_dir(Some(core()))
         .run_mode(moonutil::common::RunMode::Check)
         .target_base_dir(target_dir.to_owned())
         .build()

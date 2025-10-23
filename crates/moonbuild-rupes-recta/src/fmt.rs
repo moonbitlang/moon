@@ -110,6 +110,7 @@ pub fn build_graph_for_fmt(
     let layout = LegacyLayoutBuilder::default()
         .target_base_dir(target_dir.into())
         .main_module(Some(ms.clone()))
+        .stdlib_dir(None)
         .opt_level(moonutil::cond_expr::OptLevel::Debug) // we don't care
         .run_mode(moonutil::common::RunMode::Format) // this too
         .build()

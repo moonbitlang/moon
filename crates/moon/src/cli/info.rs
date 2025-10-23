@@ -140,14 +140,7 @@ fn calc_user_intent(
         .ok_or_else(|| anyhow::anyhow!("Cannot find the local module!"))?;
     let res: Vec<_> = packages
         .values()
-        .filter_map(|package_id| {
-            let pkg = resolve_output.pkg_dirs.get_package(*package_id);
-            if pkg.raw.virtual_pkg.is_some() {
-                None
-            } else {
-                Some(UserIntent::Info(*package_id))
-            }
-        })
+        .map(|package_id| UserIntent::Info(*package_id))
         .collect();
     Ok(res.into())
 }
