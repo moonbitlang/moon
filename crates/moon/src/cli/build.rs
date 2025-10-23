@@ -40,6 +40,8 @@ use std::path::Path;
 use std::path::PathBuf;
 use tracing::{Level, instrument};
 
+use crate::filter::match_packages_by_name_rr;
+use crate::filter::{canonicalize_with_filename, filter_pkg_by_dir};
 use crate::rr_build;
 use crate::rr_build::BuildConfig;
 use crate::rr_build::CalcUserIntentOutput;
@@ -52,6 +54,10 @@ use super::{BuildFlags, UniversalFlags};
 /// Build the current package
 #[derive(Debug, clap::Parser, Clone)]
 pub struct BuildSubcommand {
+    /// The path to the package that should be built.
+    #[clap(name = "PATH", conflicts_with("package"))]
+    pub path: Option<PathBuf>,
+
     #[clap(flatten)]
     pub build_flags: BuildFlags,
 
@@ -143,7 +149,14 @@ fn run_build_rr(
         &cli.unstable_feature,
         source_dir,
         target_dir,
-        Box::new(calc_user_intent),
+        Box::new(|resolve_output, main_modules| {
+            calc_user_intent(
+                cmd.path.as_deref(),
+                cmd.package.as_deref(),
+                resolve_output,
+                main_modules,
+            )
+        }),
     )?;
 
     if cli.dry_run {
@@ -174,6 +187,12 @@ fn run_build_legacy(
     source_dir: &Path,
     target_dir: &Path,
 ) -> anyhow::Result<i32> {
+    let path_filter_dir = cmd
+        .path
+        .as_ref()
+        .map(|path| canonicalize_with_filename(path).map(|(dir, _)| dir))
+        .transpose()?;
+
     // Run moon install before build
     let (resolved_env, dir_sync_result) = auto_sync(
         source_dir,
@@ -198,7 +217,7 @@ fn run_build_legacy(
         );
     }
 
-    let moonbuild_opt = MoonbuildOpt {
+    let mut moonbuild_opt = MoonbuildOpt {
         source_dir: source_dir.to_path_buf(),
         raw_target_dir: raw_target_dir.to_path_buf(),
         target_dir: target_dir.to_path_buf(),
@@ -231,6 +250,18 @@ fn run_build_legacy(
         &dir_sync_result,
         &PrePostBuild::PreBuild,
     )?;
+
+    if let Some(dir) = path_filter_dir.as_ref() {
+        let pkg = module.get_package_by_path(dir).ok_or_else(|| {
+            anyhow!(
+                "Cannot find package to build based on input path `{}`",
+                dir.display()
+            )
+        })?;
+        if let Some(build_opt) = moonbuild_opt.build_opt.as_mut() {
+            build_opt.filter_package = Some(pkg.full_name().to_owned());
+        }
+    }
 
     if let Some(bin_alias) = cmd.bin_alias.clone() {
         let pkg = module.get_package_by_name_mut_safe(cmd.package.as_ref().unwrap());
@@ -288,31 +319,46 @@ fn run_build_legacy(
 /// to core.
 #[instrument(level = Level::DEBUG, skip_all)]
 fn calc_user_intent(
+    path_filter: Option<&Path>,
+    package_filter: Option<&str>,
     resolve_output: &moonbuild_rupes_recta::ResolveOutput,
     main_modules: &[moonutil::mooncakes::ModuleId],
 ) -> Result<CalcUserIntentOutput, anyhow::Error> {
-    let &[main_module_id] = main_modules else {
-        panic!("No multiple main modules are supported");
-    };
-
-    let packages = resolve_output
-        .pkg_dirs
-        .packages_for_module(main_module_id)
-        .ok_or_else(|| anyhow!("Cannot find the local module!"))?;
-    let mut linkable_pkgs = vec![];
-    for &pkg_id in packages.values() {
-        let pkg = resolve_output.pkg_dirs.get_package(pkg_id);
-        if pkg.raw.force_link || pkg.raw.link.is_some() || pkg.raw.is_main {
-            linkable_pkgs.push(pkg_id)
-        }
-    }
-    let intents: Vec<_> = if linkable_pkgs.is_empty() {
-        packages
-            .iter()
-            .map(|(_, &pkg_id)| UserIntent::Build(pkg_id))
-            .collect()
+    if let Some(path) = path_filter {
+        let (dir, _) = canonicalize_with_filename(path)?;
+        let pkg = filter_pkg_by_dir(resolve_output, &dir)?;
+        Ok(vec![UserIntent::Build(pkg)].into())
+    } else if let Some(package_filter) = package_filter {
+        let pkg = match_packages_by_name_rr(resolve_output, main_modules, package_filter);
+        Ok(pkg
+            .into_iter()
+            .map(UserIntent::Build)
+            .collect::<Vec<_>>()
+            .into())
     } else {
-        linkable_pkgs.into_iter().map(UserIntent::Build).collect()
-    };
-    Ok(intents.into())
+        let &[main_module_id] = main_modules else {
+            panic!("No multiple main modules are supported");
+        };
+
+        let packages = resolve_output
+            .pkg_dirs
+            .packages_for_module(main_module_id)
+            .ok_or_else(|| anyhow!("Cannot find the local module!"))?;
+        let mut linkable_pkgs = vec![];
+        for &pkg_id in packages.values() {
+            let pkg = resolve_output.pkg_dirs.get_package(pkg_id);
+            if pkg.raw.force_link || pkg.raw.link.is_some() || pkg.raw.is_main {
+                linkable_pkgs.push(pkg_id)
+            }
+        }
+        let intents: Vec<_> = if linkable_pkgs.is_empty() {
+            packages
+                .iter()
+                .map(|(_, &pkg_id)| UserIntent::Build(pkg_id))
+                .collect()
+        } else {
+            linkable_pkgs.into_iter().map(UserIntent::Build).collect()
+        };
+        Ok(intents.into())
+    }
 }
