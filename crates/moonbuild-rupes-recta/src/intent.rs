@@ -95,16 +95,22 @@ impl UserIntent {
             UserIntent::Check(pkg) => {
                 let pkg_info = resolved.pkg_dirs.get_package(pkg);
                 if pkg_info.has_implementation() {
-                    // Always check Source and Blackbox; only check Whitebox when any *_wbtest.mbt is declared.
+                    // - Always check Source.
+                    // - If this package is not a virtual implementation, we can
+                    //   check tests (virtual impls cannot be tested).
+                    // - When checking tests, always check blackbox tests, and
+                    //   only check whitebox if it has related files.
                     out.push(BuildPlanNode::check(pkg.build_target(TargetKind::Source)));
-                    if has_whitebox_decl(resolved, pkg) {
+                    if !pkg_info.is_virtual_impl() {
+                        if has_whitebox_decl(resolved, pkg) {
+                            out.push(BuildPlanNode::check(
+                                pkg.build_target(TargetKind::WhiteboxTest),
+                            ));
+                        }
                         out.push(BuildPlanNode::check(
-                            pkg.build_target(TargetKind::WhiteboxTest),
+                            pkg.build_target(TargetKind::BlackboxTest),
                         ));
                     }
-                    out.push(BuildPlanNode::check(
-                        pkg.build_target(TargetKind::BlackboxTest),
-                    ));
                 } else {
                     // Pure virtual package: compile its interface
                     out.push(BuildPlanNode::BuildVirtual(pkg));
@@ -114,6 +120,8 @@ impl UserIntent {
                 let pkg_info = resolved.pkg_dirs.get_package(pkg);
                 if !pkg_info.has_implementation() {
                     // Pure virtual package: we can't do anything
+                } else if pkg_info.is_virtual_impl() {
+                    // Virtual package implementation cannot be tested directly
                 } else {
                     // Emit paired nodes per test target; skip Whitebox if no *_wbtest.mbt declared.
                     for &k in TargetKind::all_tests() {

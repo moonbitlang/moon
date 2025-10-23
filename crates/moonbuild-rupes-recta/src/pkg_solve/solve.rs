@@ -332,7 +332,7 @@ fn resolve_import<'a>(
     let (import_pid, imported) = resolve_import_raw(env, mid, pid, import_source)?;
 
     // A virtual package implementation cannot be imported
-    if imported.raw.implement.is_some() {
+    if imported.is_virtual_impl() {
         debug!(
             "Import '{}' is a virtual package, cannot be imported directly",
             import_source
