@@ -322,12 +322,21 @@ fn run_one_test_executable(
     let mut cov_cap = mk_coverage_capture();
     let mut test_cap = make_test_capture();
 
-    rt.block_on(crate::run::run(
-        &mut [&mut cov_cap, &mut test_cap],
-        true,
-        cmd.command,
-    ))
-    .with_context(|| format!("Failed to run test for {fqn} {:?}", test.target.kind))?;
+    let exit_status = rt
+        .block_on(crate::run::run(
+            &mut [&mut cov_cap, &mut test_cap],
+            true,
+            cmd.command,
+        ))
+        .with_context(|| format!("Failed to run test for {fqn} {:?}", test.target.kind))?;
+
+    if !exit_status.success() {
+        anyhow::bail!(
+            "Failed to run the test: {}\nThe test executable exited with {}",
+            test.executable.display(),
+            exit_status
+        );
+    }
 
     handle_finished_coverage(target_dir, cov_cap)?;
 

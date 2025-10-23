@@ -183,7 +183,11 @@ async fn run(
     let output = execution.wait().await?;
 
     if !output.success() {
-        bail!(format!("Failed to run the test: {}", path.display()));
+        bail!(format!(
+            "Failed to run the test: {}\nThe test executable exited with {}",
+            path.display(),
+            output
+        ));
     }
     if let Some(coverage_output) = coverage_capture.finish() {
         // Output to moonbit_coverage_<time>.txt
