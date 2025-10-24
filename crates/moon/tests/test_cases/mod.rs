@@ -33,6 +33,7 @@ use walkdir::WalkDir;
 mod backend;
 mod backend_config;
 mod circle_pkg_ab_001_test;
+mod debug_flag_test;
 mod design;
 mod diamond_pkg;
 mod docs_examples;
