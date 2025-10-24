@@ -54,7 +54,7 @@ pub async fn run<'a>(
             captures.is_empty(),
             "Can't have section captures when not capturing stdout"
         );
-        // We aren't captureing, so YOLO
+        // We aren't capturing, so YOLO
         cmd.stdin(Stdio::inherit());
         cmd.stdout(Stdio::inherit());
         cmd.stderr(Stdio::inherit());
@@ -65,7 +65,7 @@ pub async fn run<'a>(
         .spawn()
         .with_context(|| format!("Failed to spawn command {:?}", cmd))?;
 
-    // Task only exists when not capturing
+    // Task only exists when capturing
     let stderr_pipe_task = child.stderr.take().map(|mut stderr| {
         tokio::spawn(async move {
             let mut proc_stderr = tokio::io::stderr();
