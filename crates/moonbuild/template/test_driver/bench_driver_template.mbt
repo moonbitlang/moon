@@ -2,13 +2,13 @@
 
 pub(all) struct Moonbit_Test_Driver_Internal_With_Bench_Args_Function((@moonbitlang/core/bench.T) -> Unit raise Error)
 
-typealias @moonbitlang/core/builtin.Map[
+type Moonbit_Test_Driver_Internal_TestDriver_With_Bench_Args_Map = @moonbitlang/core/builtin.Map[
   String,
   @moonbitlang/core/builtin.Map[
     Int,
     (Moonbit_Test_Driver_Internal_With_Bench_Args_Function, @moonbitlang/core/builtin.Array[String]),
   ],
-] as Moonbit_Test_Driver_Internal_TestDriver_With_Bench_Args_Map
+]
 
 struct Moonbit_Test_Driver_Internal_Meta {
   filename : String

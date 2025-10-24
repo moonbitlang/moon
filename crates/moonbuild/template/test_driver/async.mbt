@@ -1,5 +1,4 @@
-typealias @moonbitlang/async.TaskGroup[Unit]
-  as Moonbit_Test_Driver_Internal_Async_Context 
+type Moonbit_Test_Driver_Internal_Async_Context = @moonbitlang/async.TaskGroup[Unit]
 
 fn moonbit_test_driver_internal_run_async_test(
   ctx : Moonbit_Test_Driver_Internal_Async_Context,
