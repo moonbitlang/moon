@@ -182,6 +182,12 @@ fn run_build_legacy(
     source_dir: &Path,
     target_dir: &Path,
 ) -> anyhow::Result<i32> {
+    let path_filter_dir = cmd
+        .path
+        .as_ref()
+        .map(|path| canonicalize_with_filename(path).map(|(dir, _)| dir))
+        .transpose()?;
+
     // Run moon install before build
     let (resolved_env, dir_sync_result) = auto_sync(
         source_dir,
@@ -206,7 +212,7 @@ fn run_build_legacy(
         );
     }
 
-    let moonbuild_opt = MoonbuildOpt {
+    let mut moonbuild_opt = MoonbuildOpt {
         source_dir: source_dir.to_path_buf(),
         raw_target_dir: raw_target_dir.to_path_buf(),
         target_dir: target_dir.to_path_buf(),
@@ -239,6 +245,18 @@ fn run_build_legacy(
         &dir_sync_result,
         &PrePostBuild::PreBuild,
     )?;
+
+    if let Some(dir) = path_filter_dir.as_ref() {
+        let pkg = module.get_package_by_path(dir).ok_or_else(|| {
+            anyhow!(
+                "Cannot find package to build based on input path `{}`",
+                dir.display()
+            )
+        })?;
+        if let Some(build_opt) = moonbuild_opt.build_opt.as_mut() {
+            build_opt.filter_package = Some(pkg.full_name().to_owned());
+        }
+    }
 
     if let Some(bin_alias) = cmd.bin_alias.clone() {
         let pkg = module.get_package_by_name_mut_safe(cmd.package.as_ref().unwrap());

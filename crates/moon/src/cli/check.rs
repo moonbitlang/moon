@@ -16,7 +16,7 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
-use anyhow::Context;
+use anyhow::{Context, anyhow};
 use colored::Colorize;
 use moonbuild::{dry_run, entry};
 use moonbuild_rupes_recta::intent::UserIntent;
@@ -322,6 +322,29 @@ fn run_check_normal_internal_legacy(
     source_dir: &Path,
     target_dir: &Path,
 ) -> anyhow::Result<i32> {
+    let canonical_package_dir = cmd
+        .package_path
+        .as_ref()
+        .map(|pkg_path| {
+            let path = if pkg_path.is_absolute() {
+                pkg_path.clone()
+            } else {
+                source_dir.join(pkg_path)
+            };
+            canonicalize_with_filename(&path).map(|(dir, _)| dir)
+        })
+        .transpose()?;
+
+    let package_path_field = if let Some(dir) = canonical_package_dir.as_ref() {
+        if let Ok(rel) = dir.strip_prefix(source_dir) {
+            Some(rel.to_path_buf())
+        } else {
+            Some(dir.clone())
+        }
+    } else {
+        cmd.package_path.clone()
+    };
+
     // Run moon install before build
     let (resolved_env, dir_sync_result) = auto_sync(
         source_dir,
@@ -347,7 +370,7 @@ fn run_check_normal_internal_legacy(
 
     let sort_input = cmd.build_flags.sort_input;
 
-    let moonbuild_opt = MoonbuildOpt {
+    let mut moonbuild_opt = MoonbuildOpt {
         source_dir: source_dir.to_path_buf(),
         raw_target_dir: raw_target_dir.to_path_buf(),
         target_dir: target_dir.clone(),
@@ -358,7 +381,7 @@ fn run_check_normal_internal_legacy(
         output_json: cmd.output_json,
         build_graph: cli.build_graph,
         check_opt: Some(CheckOpt {
-            package_path: cmd.package_path.clone(),
+            package_path: package_path_field.clone(),
             patch_file: cmd.patch_file.clone(),
             no_mi: cmd.no_mi,
             explain: cmd.explain,
@@ -383,19 +406,20 @@ fn run_check_normal_internal_legacy(
         &PrePostBuild::PreBuild,
     )?;
 
-    if let Some(CheckOpt {
-        package_path: Some(pkg_path),
-        patch_file: pp,
-        no_mi: nm,
-        ..
-    }) = moonbuild_opt.check_opt.as_ref()
-    {
-        let pkg_by_path = module.get_package_by_path_mut(&moonbuild_opt.source_dir.join(pkg_path));
-        if let Some(specified_pkg) = pkg_by_path {
-            specified_pkg.no_mi = *nm;
-            specified_pkg.patch_file = pp.clone();
+    if let Some(dir) = canonical_package_dir.as_ref() {
+        let specified_pkg = module.get_package_by_path_mut(dir).ok_or_else(|| {
+            anyhow!(
+                "Cannot find package to check based on input path `{}`",
+                dir.display()
+            )
+        })?;
+        specified_pkg.no_mi = cmd.no_mi;
+        specified_pkg.patch_file = cmd.patch_file.clone();
+
+        if let Some(check_opt) = moonbuild_opt.check_opt.as_mut() {
+            check_opt.package_path = package_path_field;
         }
-    };
+    }
 
     if cli.dry_run {
         return dry_run::print_commands(&module, &moonc_opt, &moonbuild_opt);
