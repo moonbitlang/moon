@@ -1,5 +1,5 @@
 ///|
-pub typealias Int as Position
+pub type Position = Int
 
 ///|
 pub(all) enum Token {
@@ -54,7 +54,7 @@ pub suberror ParseError {
 } derive(Show)
 
 ///|
-typealias Error as YYObj
+type YYObj = Error
 
 ///|
 priv suberror YYObj_Void
@@ -63,10 +63,10 @@ priv suberror YYObj_Void
 priv suberror YYObj_Int Int
 
 ///|
-typealias (YYSymbol) -> YYDecision as YYState
+type YYState = (YYSymbol) -> YYDecision
 
 ///|
-typealias (Position, ArrayView[(YYObj, Position, Position)]) -> YYObj as YYAction
+type YYAction = (Position, ArrayView[(YYObj, Position, Position)]) -> YYObj
 
 ///|
 priv enum YYDecision {

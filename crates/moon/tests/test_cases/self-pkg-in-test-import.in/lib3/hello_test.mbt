@@ -1,4 +1,4 @@
-fnalias @lib3.hello
+using @lib3 { hello }
 
 test "hello" {
     println(hello())
