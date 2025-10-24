@@ -88,3 +88,30 @@ pub fn copy(src: &Path, dest: &Path) -> anyhow::Result<()> {
 pub fn read<P: AsRef<Path>>(p: P) -> String {
     std::fs::read_to_string(p).unwrap().replace_crlf_to_lf()
 }
+
+/// Asserts the `shlex`'d result of the given string is equal to the expected
+/// string. However, still updates if `UPDATE_EXPECT` is set, just like the
+/// original [`Expect`] functionality.
+pub fn assert_command_matches(s: impl AsRef<str>, expect: Expect) {
+    let actual_lines = s.as_ref().trim().lines().collect::<Vec<_>>();
+    let expected_lines = expect.data().trim().lines().collect::<Vec<_>>();
+
+    let mut diff_found = false;
+    for (l, r) in actual_lines.iter().zip(expected_lines.iter()) {
+        let actual_parts = shlex::split(l).unwrap_or_default();
+        let expected_parts = shlex::split(r).unwrap_or_default();
+
+        if actual_parts != expected_parts {
+            println!(
+                "Diff found:\nActual:   {:?}\nExpected: {:?}",
+                actual_parts, expected_parts
+            );
+            diff_found = true;
+            break;
+        }
+    }
+
+    if diff_found {
+        expect.assert_eq(s.as_ref());
+    }
+}
