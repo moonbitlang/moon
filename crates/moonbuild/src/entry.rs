@@ -510,6 +510,9 @@ pub fn run_build(
     render_result(&result, moonbuild_opt.quiet, "building")
 }
 
+/// Run a package without holding a lock during subprocess execution.
+/// For backward compatibility, this function calls `run_run_with_lock` with `None` for the lock parameter.
+/// The lock should be managed by the caller if lock management during the subprocess execution is needed.
 pub fn run_run(
     package_path: &str,
     moonc_opt: &MooncOpt,
@@ -517,10 +520,21 @@ pub fn run_run(
     module: &ModuleDB,
     build_only: bool,
 ) -> anyhow::Result<i32> {
-    run_run_with_lock(package_path, moonc_opt, moonbuild_opt, module, build_only, None)
+    run_run_with_lock(
+        package_path,
+        moonc_opt,
+        moonbuild_opt,
+        module,
+        build_only,
+        None,
+    )
 }
 
-/// Run a package with an optional lock that will be dropped after the build phase
+/// Run a package with an optional lock that will be dropped after the build phase.
+///
+/// The lock is released immediately after the build completes, allowing other moon commands
+/// to run concurrently during the subprocess execution. This is particularly important for
+/// long-running programs started via `moon run`.
 pub fn run_run_with_lock(
     package_path: &str,
     moonc_opt: &MooncOpt,
@@ -530,10 +544,13 @@ pub fn run_run_with_lock(
     lock: Option<FileLock>,
 ) -> anyhow::Result<i32> {
     run_build(moonc_opt, moonbuild_opt, module)?;
-    
-    // Release the lock after build completes and before spawning the subprocess
+
+    // Release the lock after build completes and before any subprocess spawning.
+    // This allows other moon commands to acquire the lock and run concurrently.
+    // All subsequent operations (path resolution, artifact determination, etc.)
+    // do not require the lock as they operate on already-built artifacts.
     drop(lock);
-    
+
     let (source_dir, target_dir) = (&moonbuild_opt.source_dir, &moonbuild_opt.target_dir);
 
     let moon_mod = moonutil::common::read_module_desc_file_in_dir(source_dir)?;
