@@ -29,7 +29,7 @@ use crate::{
     model::{BuildTarget, PackageId},
     pkg_solve::{
         DepEdge,
-        model::{DepRelationship, SolveError},
+        model::{DepRelationship, ImportLoop, SolveError},
     },
 };
 
@@ -45,7 +45,7 @@ pub fn verify(dep: &DepRelationship, packages: &DiscoverResult) -> Result<(), So
 
     let mut errs = vec![];
 
-    match verify_no_loop(dep) {
+    match verify_no_loop(packages, dep) {
         Ok(()) => {}
         Err(e) => errs.push(e),
     }
@@ -66,7 +66,7 @@ pub fn verify(dep: &DepRelationship, packages: &DiscoverResult) -> Result<(), So
 
 /// Verify there's no loops within the dependency graph. If there's any import
 /// loop, return an error.
-fn verify_no_loop(dep: &DepRelationship) -> Result<(), SolveError> {
+fn verify_no_loop(packages: &DiscoverResult, dep: &DepRelationship) -> Result<(), SolveError> {
     // An indexed current-visiting path, for finding loops
     let mut path = IndexSet::new();
     // Work stack.
@@ -88,6 +88,8 @@ fn verify_no_loop(dep: &DepRelationship) -> Result<(), SolveError> {
         while let Some(it) = stack.pop() {
             if it.pop {
                 assert_eq!(path.pop(), Some(it.node), "DFS path mismatch");
+                // Set visibility
+                vis.insert(it.node);
                 continue;
             }
             let node = it.node;
@@ -96,11 +98,16 @@ fn verify_no_loop(dep: &DepRelationship) -> Result<(), SolveError> {
             if path.contains(&node) {
                 // We found a loop, return an error
                 // TODO: handle white box testing should not cause loop
-                let loop_path: Vec<_> = path.into_iter().collect();
-                return Err(SolveError::ImportLoop { loop_path });
+                let loop_path: Vec<_> = path
+                    .into_iter()
+                    .chain([node])
+                    .map(|x| packages.fqn(x.package))
+                    .collect();
+                return Err(SolveError::ImportLoop {
+                    loop_path: ImportLoop(loop_path),
+                });
             }
-            // Set visibility
-            vis.insert(node);
+
             // Add to the path
             path.insert(node);
 

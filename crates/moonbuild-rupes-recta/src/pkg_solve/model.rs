@@ -22,7 +22,7 @@ use slotmap::SparseSecondaryMap;
 
 use crate::{
     model::{BuildTarget, PackageId, TargetKind},
-    pkg_name::{PackageFQNWithSource, PackagePath},
+    pkg_name::{PackageFQN, PackageFQNWithSource, PackagePath},
 };
 
 #[derive(Debug, Clone)]
@@ -94,8 +94,8 @@ pub enum SolveError {
         pkg: PackagePath,
     },
 
-    #[error("Import loop detected: {loop_path:?}")]
-    ImportLoop { loop_path: Vec<BuildTarget> },
+    #[error("Import loop detected: {loop_path}")]
+    ImportLoop { loop_path: ImportLoop },
 
     #[error(
         "Conflicting import alias '{alias}' found \
@@ -166,7 +166,7 @@ cannot import {dependency} ({dependency_node:?}) due to internal visibility rule
         dependency: PackageFQNWithSource,
     },
 
-    #[error("Multiple errors occurred during package solving: {0}")]
+    #[error("Multiple errors occurred during package solving:\n{0}")]
     Multiple(MultipleError),
 }
 
@@ -177,6 +177,21 @@ impl std::fmt::Display for MultipleError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         for (i, err) in self.0.iter().enumerate() {
             writeln!(f, "Error {}: {}", i + 1, err)?;
+        }
+        Ok(())
+    }
+}
+
+#[derive(Debug)]
+pub struct ImportLoop(pub Vec<PackageFQN>);
+
+impl std::fmt::Display for ImportLoop {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        for (i, pkg) in self.0.iter().enumerate() {
+            if i > 0 {
+                write!(f, " -> ")?;
+            }
+            write!(f, "{}", pkg)?;
         }
         Ok(())
     }
