@@ -7,7 +7,6 @@
 # Note: This list is intended to be checked in and validated by CI on a single platform.
 cmd_test
 cmd_test::cmd_test
-test_cases::circle_pkg_test
 test_cases::debug_flag_test
 test_cases::design::test_design
 test_cases::dummy_core::test_dummy_core
