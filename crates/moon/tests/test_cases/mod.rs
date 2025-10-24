@@ -32,6 +32,7 @@ use walkdir::WalkDir;
 
 mod backend;
 mod backend_config;
+mod circle_pkg_ab_001_test;
 mod design;
 mod diagnostics_format;
 mod diamond_pkg;
@@ -721,13 +722,6 @@ fn test_whitespace_parent_space() -> anyhow::Result<()> {
         "#]],
     );
     Ok(())
-}
-
-#[test]
-fn circle_pkg_test() {
-    let dir = TestDir::new("circle_pkg_AB_001_test.in");
-    let stderr = get_err_stderr(&dir, ["run", "main", "--nostd"]);
-    assert!(stderr.contains("cyclic dependency"), "stderr: {stderr}");
 }
 
 #[test]
