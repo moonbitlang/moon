@@ -388,6 +388,7 @@ impl<'a> BuildPlanLowerContext<'a> {
             test_mode: target.kind.is_test(),
             wasm_config: self.get_wasm_config(package),
             js_config: self.get_js_config(target, package),
+            exports: package.exported_functions(self.opt.target_backend.into()),
             extra_link_opts: &[],
         };
 
@@ -422,7 +423,6 @@ impl<'a> BuildPlanLowerContext<'a> {
         };
 
         WasmConfig {
-            exports: cfg.exports.as_deref(),
             export_memory_name: cfg.export_memory_name.as_deref().map(|x| x.into()),
             import_memory: cfg.import_memory.as_ref(),
             memory_limits: cfg.memory_limits.as_ref(),

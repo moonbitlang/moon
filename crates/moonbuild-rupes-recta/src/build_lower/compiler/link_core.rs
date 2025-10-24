@@ -50,6 +50,7 @@ pub struct MooncLinkCore<'a> {
     /// Compilation flags - reuse existing structure, symbols maps to -g, no_opt maps to -O0
     pub flags: CompilationFlags,
     pub test_mode: bool,
+    pub exports: Option<&'a [String]>,
 
     // WebAssembly specific configuration
     pub wasm_config: WasmConfig<'a>,
@@ -64,7 +65,6 @@ pub struct MooncLinkCore<'a> {
 /// WebAssembly-specific linking configuration
 #[derive(Debug, Default)]
 pub struct WasmConfig<'a> {
-    pub exports: Option<&'a [String]>,
     pub export_memory_name: Option<Cow<'a, str>>,
     pub import_memory: Option<&'a ImportMemory>,
     pub memory_limits: Option<&'a MemoryLimits>,
@@ -145,18 +145,18 @@ impl<'a> MooncLinkCore<'a> {
             args.push("-source-map".to_string());
         }
 
+        // WebAssembly exports
+        if let Some(exports) = self.exports {
+            if exports.is_empty() {
+                // Empty exports case - legacy adds empty string
+                args.push("".to_string());
+            } else {
+                args.push(format!("-exported_functions={}", exports.join(",")));
+            }
+        }
+
         // WASM-specific config
         if self.target_backend.is_wasm() {
-            // WebAssembly exports
-            if let Some(exports) = self.wasm_config.exports {
-                if exports.is_empty() {
-                    // Empty exports case - legacy adds empty string
-                    args.push("".to_string());
-                } else {
-                    args.push(format!("-exported_functions={}", exports.join(",")));
-                }
-            }
-
             // Export memory name
             if let Some(export_memory_name) = &self.wasm_config.export_memory_name {
                 args.push("-export-memory-name".to_string());

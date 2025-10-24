@@ -35,8 +35,8 @@ use std::{
 
 use log::{debug, info, trace};
 use moonutil::common::{
-    IGNORE_DIRS, MBTI_USER_WRITTEN, MOON_MOD_JSON, MOON_PKG_JSON, read_module_desc_file_in_dir,
-    read_package_desc_file_in_dir,
+    IGNORE_DIRS, MBTI_USER_WRITTEN, MOON_MOD_JSON, MOON_PKG_JSON, TargetBackend,
+    read_module_desc_file_in_dir, read_package_desc_file_in_dir,
 };
 use moonutil::mooncakes::{DirSyncResult, ModuleId, ModuleSource, result::ResolvedEnv};
 use moonutil::package::MoonPkg;
@@ -417,6 +417,17 @@ impl DiscoveredPackage {
     pub fn has_implementation(&self) -> bool {
         self.raw.virtual_pkg.is_none()
             || self.raw.virtual_pkg.as_ref().is_some_and(|x| x.has_default)
+    }
+
+    pub fn exported_functions(&self, backend: TargetBackend) -> Option<&[String]> {
+        match backend {
+            TargetBackend::Wasm => self.raw.link.as_ref()?.wasm.as_ref()?.exports.as_deref(),
+            TargetBackend::WasmGC => self.raw.link.as_ref()?.wasm_gc.as_ref()?.exports.as_deref(),
+            TargetBackend::Js => self.raw.link.as_ref()?.js.as_ref()?.exports.as_deref(),
+            TargetBackend::Native | TargetBackend::LLVM => {
+                self.raw.link.as_ref()?.native.as_ref()?.exports.as_deref()
+            }
+        }
     }
 }
 
