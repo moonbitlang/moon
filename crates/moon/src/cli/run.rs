@@ -382,15 +382,27 @@ fn run_run_rr(cli: &UniversalFlags, cmd: RunSubcommand) -> Result<i32, anyhow::E
             return Ok(build_result.return_code_for_success());
         }
 
-        let cmd = get_run_cmd(&build_meta, &cmd.args)?;
+        let run_cmd = get_run_cmd(&build_meta, &cmd.args)?;
 
         // Release the lock before spawning the subprocess
         drop(_lock);
 
+        if cmd.build_only {
+            let test_artifacts = TestArtifacts {
+                artifacts_path: build_meta
+                    .artifacts
+                    .values()
+                    .flat_map(|artifact| artifact.artifacts.clone())
+                    .collect(),
+            };
+            println!("{}", serde_json_lenient::to_string(&test_artifacts)?);
+            return Ok(0);
+        }
+
         // FIXME: Simplify this part
         let res = default_rt()
             .context("Failed to create runtime")?
-            .block_on(crate::run::run(&mut [], false, cmd.command))
+            .block_on(crate::run::run(&mut [], false, run_cmd.command))
             .context("failed to run command")?;
 
         if let Some(code) = res.code() {
