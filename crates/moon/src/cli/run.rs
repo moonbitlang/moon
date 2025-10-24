@@ -385,6 +385,9 @@ fn run_run_rr(cli: &UniversalFlags, cmd: RunSubcommand) -> Result<i32, anyhow::E
 
         let cmd = get_run_cmd(&build_meta, &cmd.args)?;
 
+        // Release the lock before spawning the subprocess
+        drop(_lock);
+
         // FIXME: Simplify this part
         let res = default_rt()
             .context("Failed to create runtime")?
@@ -657,12 +660,13 @@ fn run_run_internal_legacy(cli: &UniversalFlags, cmd: RunSubcommand) -> anyhow::
     if trace_flag {
         trace::open("trace.json").context("failed to open `trace.json`")?;
     }
-    let result = entry::run_run(
+    let result = entry::run_run_with_lock(
         &package_path,
         &moonc_opt,
         &moonbuild_opt,
         &module,
         cmd.build_only,
+        Some(_lock),
     );
     if trace_flag {
         trace::close();
