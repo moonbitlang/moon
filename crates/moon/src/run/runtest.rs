@@ -324,7 +324,7 @@ fn run_one_test_executable(
 
     rt.block_on(crate::run::run(
         &mut [&mut cov_cap, &mut test_cap],
-        false,
+        true,
         cmd.command,
     ))
     .with_context(|| format!("Failed to run test for {fqn} {:?}", test.target.kind))?;

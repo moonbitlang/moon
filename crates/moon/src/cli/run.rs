@@ -388,7 +388,7 @@ fn run_run_rr(cli: &UniversalFlags, cmd: RunSubcommand) -> Result<i32, anyhow::E
         // FIXME: Simplify this part
         let res = default_rt()
             .context("Failed to create runtime")?
-            .block_on(crate::run::run(&mut [], true, cmd.command))
+            .block_on(crate::run::run(&mut [], false, cmd.command))
             .context("failed to run command")?;
 
         if let Some(code) = res.code() {
