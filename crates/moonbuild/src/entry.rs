@@ -517,7 +517,23 @@ pub fn run_run(
     module: &ModuleDB,
     build_only: bool,
 ) -> anyhow::Result<i32> {
+    run_run_with_lock(package_path, moonc_opt, moonbuild_opt, module, build_only, None)
+}
+
+/// Run a package with an optional lock that will be dropped after the build phase
+pub fn run_run_with_lock(
+    package_path: &str,
+    moonc_opt: &MooncOpt,
+    moonbuild_opt: &MoonbuildOpt,
+    module: &ModuleDB,
+    build_only: bool,
+    lock: Option<FileLock>,
+) -> anyhow::Result<i32> {
     run_build(moonc_opt, moonbuild_opt, module)?;
+    
+    // Release the lock after build completes and before spawning the subprocess
+    drop(lock);
+    
     let (source_dir, target_dir) = (&moonbuild_opt.source_dir, &moonbuild_opt.target_dir);
 
     let moon_mod = moonutil::common::read_module_desc_file_in_dir(source_dir)?;
