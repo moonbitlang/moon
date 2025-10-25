@@ -980,7 +980,7 @@ pub fn gen_compile_exe_command(
                 moonc_opt.build_opt.debug_flag,
             ))
             .debug_info(moonc_opt.build_opt.debug_flag)
-            .link_moonbitrun(false) // if use tcc, we cannot link moonbitrun
+            .link_moonbitrun(false) // runtime.c compilation replaces libmoonbitrun.a linking
             .define_use_shared_runtime_macro(moonbuild_opt.use_tcc_run)
             .build()
             .unwrap(),
