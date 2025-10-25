@@ -1382,17 +1382,10 @@ pub fn gen_n2_runtest_state(
 
     if is_native_backend || is_llvm_backend {
         // Extract native cc flags from the main package (first link item)
-        let native_cc_flags = input
-            .link_items
-            .first()
-            .and_then(|item| item.native_cc_flags(moonc_opt.link_opt.target_backend))
-            .map(|flags_str| {
-                flags_str
-                    .split_whitespace()
-                    .map(|s| s.to_string())
-                    .collect::<Vec<_>>()
-            })
-            .unwrap_or_default();
+        let native_cc_flags = extract_native_cc_flags(
+            &input.link_items,
+            moonc_opt.link_opt.target_backend,
+        );
 
         fn gen_shared_runtime(
             graph: &mut n2graph::Graph,
