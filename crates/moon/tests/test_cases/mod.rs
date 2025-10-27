@@ -1015,8 +1015,8 @@ fn test_blackbox_success() {
                             "LLVM"
                           ],
                           "optlevel": [
-                            "Debug",
-                            "Release"
+                            "Release",
+                            "Debug"
                           ]
                         }
                       },
@@ -1030,8 +1030,8 @@ fn test_blackbox_success() {
                             "LLVM"
                           ],
                           "optlevel": [
-                            "Debug",
-                            "Release"
+                            "Release",
+                            "Debug"
                           ]
                         }
                       },
@@ -1045,8 +1045,8 @@ fn test_blackbox_success() {
                             "LLVM"
                           ],
                           "optlevel": [
-                            "Debug",
-                            "Release"
+                            "Release",
+                            "Debug"
                           ]
                         }
                       },
@@ -1090,8 +1090,8 @@ fn test_blackbox_success() {
                             "LLVM"
                           ],
                           "optlevel": [
-                            "Debug",
-                            "Release"
+                            "Release",
+                            "Debug"
                           ]
                         }
                       },
@@ -1119,8 +1119,8 @@ fn test_blackbox_success() {
                             "LLVM"
                           ],
                           "optlevel": [
-                            "Debug",
-                            "Release"
+                            "Release",
+                            "Debug"
                           ]
                         }
                       },
@@ -1148,8 +1148,8 @@ fn test_blackbox_success() {
                             "LLVM"
                           ],
                           "optlevel": [
-                            "Debug",
-                            "Release"
+                            "Release",
+                            "Debug"
                           ]
                         }
                       },
@@ -1177,8 +1177,8 @@ fn test_blackbox_success() {
                             "LLVM"
                           ],
                           "optlevel": [
-                            "Debug",
-                            "Release"
+                            "Release",
+                            "Debug"
                           ]
                         }
                       },
@@ -1250,7 +1250,7 @@ fn test_blackbox_test_core_override() {
             moonc link-core ./target/wasm-gc/debug/test/prelude/prelude.internal_test.core -main moonbitlang/core/prelude -o ./target/wasm-gc/debug/test/prelude/prelude.internal_test.wasm -test-mode -pkg-config-path ./prelude/moon.pkg.json -pkg-sources moonbitlang/core/prelude:./prelude -exported_functions moonbit_test_driver_internal_execute,moonbit_test_driver_finish -target wasm-gc -g -O0 -source-map
             moonc build-package -o ./target/wasm-gc/debug/test/prelude/prelude.core -pkg moonbitlang/core/prelude -pkg-sources moonbitlang/core/prelude:./prelude -target wasm-gc -g -O0 -source-map -enable-coverage -workspace-path .
             moon generate-test-driver --output-driver ./target/wasm-gc/debug/test/prelude/__generated_driver_for_blackbox_test.mbt --output-metadata ./target/wasm-gc/debug/test/prelude/__blackbox_test_info.json --target wasm-gc --pkg-name moonbitlang/core/prelude --enable-coverage --driver-kind blackbox
-            moonc build-package ./target/wasm-gc/debug/test/prelude/__generated_driver_for_blackbox_test.mbt -o ./target/wasm-gc/debug/test/prelude/prelude.blackbox_test.core -pkg moonbitlang/core/prelude_blackbox_test -is-main -i ./target/wasm-gc/debug/test/prelude/prelude.mi:moonbitlang/core/prelude -pkg-sources moonbitlang/core/prelude_blackbox_test:./prelude -target wasm-gc -g -O0 -source-map -blackbox-test -include-doctests -no-mi -test-mode -workspace-path .
+            moonc build-package ./target/wasm-gc/debug/test/prelude/__generated_driver_for_blackbox_test.mbt -o ./target/wasm-gc/debug/test/prelude/prelude.blackbox_test.core -pkg moonbitlang/core/prelude_blackbox_test -is-main -i ./target/wasm-gc/debug/test/prelude/prelude.mi:prelude -pkg-sources moonbitlang/core/prelude_blackbox_test:./prelude -target wasm-gc -g -O0 -source-map -blackbox-test -include-doctests -no-mi -test-mode -workspace-path .
             moonc link-core ./target/wasm-gc/debug/test/prelude/prelude.core ./target/wasm-gc/debug/test/prelude/prelude.blackbox_test.core -main moonbitlang/core/prelude_blackbox_test -o ./target/wasm-gc/debug/test/prelude/prelude.blackbox_test.wasm -test-mode -pkg-config-path ./prelude/moon.pkg.json -pkg-sources moonbitlang/core/prelude:./prelude -pkg-sources moonbitlang/core/prelude_blackbox_test:./prelude -exported_functions moonbit_test_driver_internal_execute,moonbit_test_driver_finish -target wasm-gc -g -O0 -source-map
             moon generate-test-driver --output-driver ./target/wasm-gc/debug/test/builtin/__generated_driver_for_internal_test.mbt --output-metadata ./target/wasm-gc/debug/test/builtin/__internal_test_info.json ./builtin/main.mbt --target wasm-gc --pkg-name moonbitlang/core/builtin --enable-coverage --coverage-package-override=@self --driver-kind internal
             moonc build-package ./builtin/main.mbt ./target/wasm-gc/debug/test/builtin/__generated_driver_for_internal_test.mbt -o ./target/wasm-gc/debug/test/builtin/builtin.internal_test.core -pkg moonbitlang/core/builtin -is-main -pkg-sources moonbitlang/core/builtin:./builtin -target wasm-gc -g -O0 -source-map -enable-coverage -coverage-package-override=@self -no-mi -test-mode -workspace-path .
@@ -1684,8 +1684,8 @@ fn test_specify_source_dir_001() {
                             "LLVM"
                           ],
                           "optlevel": [
-                            "Debug",
-                            "Release"
+                            "Release",
+                            "Debug"
                           ]
                         }
                       },
@@ -1700,8 +1700,8 @@ fn test_specify_source_dir_001() {
                             "LLVM"
                           ],
                           "optlevel": [
-                            "Debug",
-                            "Release"
+                            "Release",
+                            "Debug"
                           ]
                         }
                       },
@@ -1727,8 +1727,8 @@ fn test_specify_source_dir_001() {
                             "LLVM"
                           ],
                           "optlevel": [
-                            "Debug",
-                            "Release"
+                            "Release",
+                            "Debug"
                           ]
                         }
                       },
@@ -4781,8 +4781,8 @@ fn test_run_md_test() {
                             "LLVM"
                           ],
                           "optlevel": [
-                            "Debug",
-                            "Release"
+                            "Release",
+                            "Debug"
                           ]
                         }
                       },
@@ -4797,8 +4797,8 @@ fn test_run_md_test() {
                             "LLVM"
                           ],
                           "optlevel": [
-                            "Debug",
-                            "Release"
+                            "Release",
+                            "Debug"
                           ]
                         }
                       },
@@ -4812,8 +4812,8 @@ fn test_run_md_test() {
                             "LLVM"
                           ],
                           "optlevel": [
-                            "Debug",
-                            "Release"
+                            "Release",
+                            "Debug"
                           ]
                         },
                         "$ROOT/src/lib/2.mbt.md": {
@@ -4825,8 +4825,8 @@ fn test_run_md_test() {
                             "LLVM"
                           ],
                           "optlevel": [
-                            "Debug",
-                            "Release"
+                            "Release",
+                            "Debug"
                           ]
                         }
                       },
@@ -4851,8 +4851,8 @@ fn test_run_md_test() {
                             "LLVM"
                           ],
                           "optlevel": [
-                            "Debug",
-                            "Release"
+                            "Release",
+                            "Debug"
                           ]
                         }
                       },
