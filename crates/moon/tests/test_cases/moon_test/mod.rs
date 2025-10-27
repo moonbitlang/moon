@@ -289,6 +289,19 @@ fn test_generate_test_driver_incremental() {
 }
 
 #[test]
+fn test_async_test_inline() {
+    let dir = TestDir::new("moon_test");
+
+    let out1 = get_stdout(&dir, ["test", "-C", "async_test_inline"]);
+    check(
+        &out1,
+        expect![[r#"
+            Total tests: 0, passed: 0, failed: 0.
+        "#]],
+    )
+}
+
+#[test]
 fn test_async_test() {
     let dir = TestDir::new("moon_test");
     let out1 = get_stdout(
