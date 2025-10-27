@@ -388,11 +388,13 @@ pub fn generate_metadata(
         build_meta.opt_level,
         build_meta.target_backend,
     );
-    std::fs::write(
-        &metadata_file,
-        serde_json::to_string_pretty(&metadata).context("Failed to serialize metadata")?,
-    )
-    .context("Failed to write build metadata")?;
+    let orig_meta = std::fs::read_to_string(&metadata_file);
+    let meta = serde_json::to_string_pretty(&metadata).context("Failed to serialize metadata")?;
+
+    // Only overwrite if changed
+    if !orig_meta.is_ok_and(|o| o == meta) {
+        std::fs::write(&metadata_file, meta).context("Failed to write build metadata")?;
+    }
     Ok(())
 }
 
