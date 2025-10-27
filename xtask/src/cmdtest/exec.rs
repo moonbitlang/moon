@@ -141,12 +141,18 @@ where
 
         let mut stdout = String::new();
         let mut stderr = String::new();
-        if let Some(ref mut out) = child.stdout {
-            let _ = out.read_to_string(&mut stdout);
-        }
-        if let Some(ref mut err) = child.stderr {
-            let _ = err.read_to_string(&mut stderr);
-        }
+        std::thread::scope(|s| {
+            s.spawn(|| {
+                if let Some(ref mut out) = child.stdout {
+                    let _ = out.read_to_string(&mut stdout);
+                }
+            });
+            s.spawn(|| {
+                if let Some(ref mut err) = child.stderr {
+                    let _ = err.read_to_string(&mut stderr);
+                }
+            });
+        });
         let exit_status = child.wait().unwrap();
 
         // a dirty workaround
