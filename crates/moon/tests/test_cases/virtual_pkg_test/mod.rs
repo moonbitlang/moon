@@ -74,3 +74,33 @@ fn test_virtual_blackbox_test() {
         .assert()
         .success();
 }
+
+/// Ensure that all commands work well with virtual pkgs
+#[test]
+fn test_virtual_commands() {
+    let dir = TestDir::new("virtual_pkg_test/virtual_with_transitive_dep");
+
+    snapbox::cmd::Command::new(moon_bin())
+        .args(["build"])
+        .current_dir(&dir)
+        .assert()
+        .success();
+
+    snapbox::cmd::Command::new(moon_bin())
+        .args(["check"])
+        .current_dir(&dir)
+        .assert()
+        .success();
+
+    snapbox::cmd::Command::new(moon_bin())
+        .args(["info"])
+        .current_dir(&dir)
+        .assert()
+        .success();
+
+    snapbox::cmd::Command::new(moon_bin())
+        .args(["test"])
+        .current_dir(&dir)
+        .assert()
+        .success();
+}

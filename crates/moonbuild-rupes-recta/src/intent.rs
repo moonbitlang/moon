@@ -142,7 +142,7 @@ impl UserIntent {
             }
             UserIntent::Info(pkg) => {
                 let pkg_info = resolved.pkg_dirs.get_package(pkg);
-                if !pkg_info.is_virtual() {
+                if !pkg_info.is_virtual_impl() {
                     out.push(BuildPlanNode::GenerateMbti(
                         pkg.build_target(TargetKind::Source),
                     ));
