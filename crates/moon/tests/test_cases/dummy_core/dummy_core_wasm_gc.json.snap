@@ -1,0 +1,328 @@
+{
+  "source_dir": "$ROOT",
+  "name": "moonbitlang/core",
+  "packages": [
+    {
+      "is-main": false,
+      "is-third-party": false,
+      "root-path": "$ROOT/0",
+      "root": "moonbitlang/core",
+      "rel": "0",
+      "files": {
+        "$ROOT/0/lib.mbt": {
+          "backend": [
+            "Wasm",
+            "WasmGC",
+            "Js",
+            "Native",
+            "LLVM"
+          ],
+          "optlevel": [
+            "Debug",
+            "Release"
+          ]
+        },
+        "$ROOT/0/y.js.mbt": {
+          "backend": [
+            "Js"
+          ],
+          "optlevel": [
+            "Release",
+            "Debug"
+          ]
+        },
+        "$ROOT/0/y.wasm-gc.mbt": {
+          "backend": [
+            "WasmGC"
+          ],
+          "optlevel": [
+            "Release",
+            "Debug"
+          ]
+        },
+        "$ROOT/0/y.wasm.mbt": {
+          "backend": [
+            "Wasm"
+          ],
+          "optlevel": [
+            "Release",
+            "Debug"
+          ]
+        }
+      },
+      "wbtest-files": {
+        "$ROOT/0/y_wbtest.js.mbt": {
+          "backend": [
+            "Js"
+          ],
+          "optlevel": [
+            "Release",
+            "Debug"
+          ]
+        },
+        "$ROOT/0/y_wbtest.mbt": {
+          "backend": [
+            "Wasm",
+            "WasmGC",
+            "Js",
+            "Native",
+            "LLVM"
+          ],
+          "optlevel": [
+            "Debug",
+            "Release"
+          ]
+        },
+        "$ROOT/0/y_wbtest.wasm-gc.mbt": {
+          "backend": [
+            "WasmGC"
+          ],
+          "optlevel": [
+            "Release",
+            "Debug"
+          ]
+        },
+        "$ROOT/0/y_wbtest.wasm.mbt": {
+          "backend": [
+            "Wasm"
+          ],
+          "optlevel": [
+            "Release",
+            "Debug"
+          ]
+        }
+      },
+      "test-files": {},
+      "mbt-md-files": {},
+      "deps": [],
+      "wbtest-deps": [],
+      "test-deps": [
+        {
+          "path": "moonbitlang/core/prelude",
+          "alias": "prelude",
+          "fspath": "$ROOT/prelude"
+        }
+      ],
+      "artifact": "$ROOT/target/wasm-gc/release/check/0/0.mi"
+    },
+    {
+      "is-main": false,
+      "is-third-party": false,
+      "root-path": "$ROOT/1",
+      "root": "moonbitlang/core",
+      "rel": "1",
+      "files": {
+        "$ROOT/1/lib.mbt": {
+          "backend": [
+            "Wasm",
+            "WasmGC",
+            "Js",
+            "Native",
+            "LLVM"
+          ],
+          "optlevel": [
+            "Debug",
+            "Release"
+          ]
+        },
+        "$ROOT/1/x.js.mbt": {
+          "backend": [
+            "Js"
+          ],
+          "optlevel": [
+            "Release",
+            "Debug"
+          ]
+        },
+        "$ROOT/1/x.wasm-gc.mbt": {
+          "backend": [
+            "WasmGC"
+          ],
+          "optlevel": [
+            "Release",
+            "Debug"
+          ]
+        },
+        "$ROOT/1/x.wasm.mbt": {
+          "backend": [
+            "Wasm"
+          ],
+          "optlevel": [
+            "Release",
+            "Debug"
+          ]
+        }
+      },
+      "wbtest-files": {
+        "$ROOT/1/x_wbtest.wasm-gc.mbt": {
+          "backend": [
+            "WasmGC"
+          ],
+          "optlevel": [
+            "Release",
+            "Debug"
+          ]
+        }
+      },
+      "test-files": {},
+      "mbt-md-files": {},
+      "deps": [],
+      "wbtest-deps": [],
+      "test-deps": [
+        {
+          "path": "moonbitlang/core/prelude",
+          "alias": "prelude",
+          "fspath": "$ROOT/prelude"
+        }
+      ],
+      "artifact": "$ROOT/target/wasm-gc/release/check/1/1.mi"
+    },
+    {
+      "is-main": false,
+      "is-third-party": false,
+      "root-path": "$ROOT/2",
+      "root": "moonbitlang/core",
+      "rel": "2",
+      "files": {
+        "$ROOT/2/lib.mbt": {
+          "backend": [
+            "Wasm",
+            "WasmGC",
+            "Js",
+            "Native",
+            "LLVM"
+          ],
+          "optlevel": [
+            "Debug",
+            "Release"
+          ]
+        }
+      },
+      "wbtest-files": {},
+      "test-files": {},
+      "mbt-md-files": {},
+      "deps": [
+        {
+          "path": "moonbitlang/core/1",
+          "alias": "1",
+          "fspath": "$ROOT/1"
+        }
+      ],
+      "wbtest-deps": [],
+      "test-deps": [
+        {
+          "path": "moonbitlang/core/prelude",
+          "alias": "prelude",
+          "fspath": "$ROOT/prelude"
+        }
+      ],
+      "artifact": "$ROOT/target/wasm-gc/release/check/2/2.mi"
+    },
+    {
+      "is-main": false,
+      "is-third-party": false,
+      "root-path": "$ROOT/char",
+      "root": "moonbitlang/core",
+      "rel": "char",
+      "files": {},
+      "wbtest-files": {},
+      "test-files": {},
+      "mbt-md-files": {},
+      "deps": [
+        {
+          "path": "moonbitlang/core/coverage",
+          "alias": "coverage",
+          "fspath": "$ROOT/coverage"
+        }
+      ],
+      "wbtest-deps": [],
+      "test-deps": [
+        {
+          "path": "moonbitlang/core/prelude",
+          "alias": "prelude",
+          "fspath": "$ROOT/prelude"
+        }
+      ],
+      "artifact": "$ROOT/target/wasm-gc/release/check/char/char.mi"
+    },
+    {
+      "is-main": false,
+      "is-third-party": false,
+      "root-path": "$ROOT/coverage",
+      "root": "moonbitlang/core",
+      "rel": "coverage",
+      "files": {},
+      "wbtest-files": {},
+      "test-files": {},
+      "mbt-md-files": {},
+      "deps": [],
+      "wbtest-deps": [],
+      "test-deps": [
+        {
+          "path": "moonbitlang/core/prelude",
+          "alias": "prelude",
+          "fspath": "$ROOT/prelude"
+        }
+      ],
+      "artifact": "$ROOT/target/wasm-gc/release/check/coverage/coverage.mi"
+    },
+    {
+      "is-main": false,
+      "is-third-party": false,
+      "root-path": "$ROOT/iter",
+      "root": "moonbitlang/core",
+      "rel": "iter",
+      "files": {},
+      "wbtest-files": {},
+      "test-files": {},
+      "mbt-md-files": {},
+      "deps": [
+        {
+          "path": "moonbitlang/core/coverage",
+          "alias": "coverage",
+          "fspath": "$ROOT/coverage"
+        }
+      ],
+      "wbtest-deps": [
+        {
+          "path": "moonbitlang/core/char",
+          "alias": "char",
+          "fspath": "$ROOT/char"
+        }
+      ],
+      "test-deps": [
+        {
+          "path": "moonbitlang/core/prelude",
+          "alias": "prelude",
+          "fspath": "$ROOT/prelude"
+        }
+      ],
+      "artifact": "$ROOT/target/wasm-gc/release/check/iter/iter.mi"
+    },
+    {
+      "is-main": false,
+      "is-third-party": false,
+      "root-path": "$ROOT/prelude",
+      "root": "moonbitlang/core",
+      "rel": "prelude",
+      "files": {},
+      "wbtest-files": {},
+      "test-files": {},
+      "mbt-md-files": {},
+      "deps": [],
+      "wbtest-deps": [],
+      "test-deps": [
+        {
+          "path": "moonbitlang/core/prelude",
+          "alias": "prelude",
+          "fspath": "$ROOT/prelude"
+        }
+      ],
+      "artifact": "$ROOT/target/wasm-gc/release/check/prelude/prelude.mi"
+    }
+  ],
+  "deps": [],
+  "backend": "wasm-gc",
+  "opt_level": "release",
+  "source": null
+}
