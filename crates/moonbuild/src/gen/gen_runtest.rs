@@ -986,37 +986,21 @@ pub fn gen_runtest(
             continue;
         }
 
-        let has_internal_test = {
-            let mut res = false;
-            for (path, _) in &pkg.files {
-                let content = std::fs::read_to_string(path)?;
-                for line in content.lines() {
-                    if line.starts_with("test") {
-                        res = true;
-                        break;
-                    }
-                }
-            }
-            res
-        };
-
-        if has_internal_test {
-            for item in pkg.generated_test_drivers.iter() {
-                if let GeneratedTestDriver::InternalTest(_) = item {
-                    test_drivers.push(gen_package_test_driver(
-                        moonc_opt,
-                        &moonbuild_opt.target_dir,
-                        item,
-                        pkg,
-                    )?);
-                    build_items.push(gen_package_internal_test(
-                        m,
-                        pkg,
-                        moonc_opt,
-                        internal_patch_file.clone(),
-                    )?);
-                    link_items.push(gen_link_internal_test(m, pkg, moonc_opt)?);
-                }
+        for item in pkg.generated_test_drivers.iter() {
+            if let GeneratedTestDriver::InternalTest(_) = item {
+                test_drivers.push(gen_package_test_driver(
+                    moonc_opt,
+                    &moonbuild_opt.target_dir,
+                    item,
+                    pkg,
+                )?);
+                build_items.push(gen_package_internal_test(
+                    m,
+                    pkg,
+                    moonc_opt,
+                    internal_patch_file.clone(),
+                )?);
+                link_items.push(gen_link_internal_test(m, pkg, moonc_opt)?);
             }
         }
 
@@ -1041,11 +1025,8 @@ pub fn gen_runtest(
         }
 
         if pkg.virtual_pkg.as_ref().is_none_or(|x| x.has_default)
-            && !SKIP_TEST_LIBS.contains(&pkg.full_name().as_str()) // FIXME: not efficient
-            && (!pkg.test_files.is_empty()
-                || !pkg.mbt_md_files.is_empty()
-                || !pkg.files.is_empty()
-                || blackbox_patch_file.is_some())
+            // FIXME: not efficient
+            && !SKIP_TEST_LIBS.contains(&pkg.full_name().as_str())
         {
             for item in pkg.generated_test_drivers.iter() {
                 if let GeneratedTestDriver::BlackboxTest(_) = item {
