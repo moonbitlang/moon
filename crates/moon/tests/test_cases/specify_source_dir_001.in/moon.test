@@ -50,8 +50,8 @@
               "LLVM"
             ],
             "optlevel": [
-              "Debug",
-              "Release"
+              "Release",
+              "Debug"
             ]
           }
         },
@@ -66,8 +66,8 @@
               "LLVM"
             ],
             "optlevel": [
-              "Debug",
-              "Release"
+              "Release",
+              "Debug"
             ]
           }
         },
@@ -93,8 +93,8 @@
               "LLVM"
             ],
             "optlevel": [
-              "Debug",
-              "Release"
+              "Release",
+              "Debug"
             ]
           }
         },

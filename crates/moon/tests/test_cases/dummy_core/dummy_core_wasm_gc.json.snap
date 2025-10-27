@@ -18,8 +18,8 @@
             "LLVM"
           ],
           "optlevel": [
-            "Debug",
-            "Release"
+            "Release",
+            "Debug"
           ]
         },
         "$ROOT/0/y.js.mbt": {
@@ -69,8 +69,8 @@
             "LLVM"
           ],
           "optlevel": [
-            "Debug",
-            "Release"
+            "Release",
+            "Debug"
           ]
         },
         "$ROOT/0/y_wbtest.wasm-gc.mbt": {
@@ -121,8 +121,8 @@
             "LLVM"
           ],
           "optlevel": [
-            "Debug",
-            "Release"
+            "Release",
+            "Debug"
           ]
         },
         "$ROOT/1/x.js.mbt": {
@@ -193,8 +193,8 @@
             "LLVM"
           ],
           "optlevel": [
-            "Debug",
-            "Release"
+            "Release",
+            "Debug"
           ]
         }
       },
@@ -311,13 +311,7 @@
       "mbt-md-files": {},
       "deps": [],
       "wbtest-deps": [],
-      "test-deps": [
-        {
-          "path": "moonbitlang/core/prelude",
-          "alias": "prelude",
-          "fspath": "$ROOT/prelude"
-        }
-      ],
+      "test-deps": [],
       "artifact": "$ROOT/target/wasm-gc/release/check/prelude/prelude.mi"
     }
   ],
