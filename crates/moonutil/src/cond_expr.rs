@@ -37,7 +37,7 @@ impl OptLevel {
     }
 
     pub fn all() -> &'static [Self] {
-        &[Self::Debug, Self::Release]
+        &[Self::Release, Self::Debug]
     }
 }
 
