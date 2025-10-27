@@ -38,6 +38,8 @@ pub struct MooncCheck<'a> {
     pub mi_out: Cow<'a, Path>,
 
     pub single_file: bool,
+
+    pub extra_flags: &'a [String],
 }
 
 impl<'a> MooncCheck<'a> {
@@ -107,6 +109,11 @@ impl<'a> MooncCheck<'a> {
         self.defaults.add_virtual_package_implementation_check(args);
 
         self.defaults.add_workspace_root(args);
+
+        // Extra flags
+        for flag in self.extra_flags.iter() {
+            args.push(flag.to_string());
+        }
     }
 }
 
