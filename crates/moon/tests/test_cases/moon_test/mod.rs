@@ -341,3 +341,16 @@ fn test_async_test() {
     let last_line = out2.lines().last().unwrap_or("");
     check(last_line, expect!["Total tests: 1, passed: 0, failed: 1."])
 }
+
+#[test]
+fn test_doctest_without_bbtest_file() {
+    let dir = TestDir::new("moon_test/doctest_without_bbtest");
+
+    let out1 = get_stdout(&dir, ["test"]);
+    check(
+        &out1,
+        expect![[r#"
+            Total tests: 0, passed: 0, failed: 0.
+        "#]],
+    )
+}
