@@ -59,7 +59,7 @@ pub struct MooncLinkCore<'a> {
     pub js_config: Option<JsConfig>,
 
     // Extra options
-    pub extra_link_opts: &'a [&'a str],
+    pub extra_link_opts: &'a [String],
 }
 
 /// WebAssembly-specific linking configuration
