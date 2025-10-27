@@ -376,19 +376,28 @@ fn scan_one_package(
     let imports = get_imports(pkg.imports)?;
     let wbtest_imports = get_imports(pkg.wbtest_imports)?;
     let mut test_imports = get_imports(pkg.test_imports)?;
-    // add prelude to test-import for core
+    // add prelude to test-import for core packages, unless we're scanning the prelude itself
     if mod_desc.name == crate::common::MOONBITLANG_CORE {
-        test_imports.push(ImportComponent {
-            path: ImportPath {
-                module_name: mod_desc.name.clone(),
-                rel_path: PathComponent {
-                    components: vec!["prelude".to_string()],
-                },
-                is_3rd: false,
-            },
-            alias: Some("prelude".to_string()),
-            sub_package: false,
+        let is_prelude_pkg = rel_path.components.len() == 1 && rel_path.components[0] == "prelude";
+        let has_prelude_import = test_imports.iter().any(|import| {
+            import.path.module_name == mod_desc.name
+                && import.path.rel_path.components.len() == 1
+                && import.path.rel_path.components[0] == "prelude"
         });
+
+        if !is_prelude_pkg && !has_prelude_import {
+            test_imports.push(ImportComponent {
+                path: ImportPath {
+                    module_name: mod_desc.name.clone(),
+                    rel_path: PathComponent {
+                        components: vec!["prelude".to_string()],
+                    },
+                    is_3rd: false,
+                },
+                alias: Some("prelude".to_string()),
+                sub_package: false,
+            });
+        }
     }
 
     let (
