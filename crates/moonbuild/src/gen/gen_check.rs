@@ -461,6 +461,10 @@ pub fn gen_check(
 
         // do not check test files for third party packages
         if !pkg.is_third_party {
+            if SKIP_TEST_LIBS.contains(&pkg.full_name().as_str()) {
+                continue;
+            }
+
             let patch_file_name = pkg
                 .patch_file
                 .as_ref()

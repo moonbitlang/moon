@@ -986,6 +986,10 @@ pub fn gen_runtest(
             continue;
         }
 
+        if SKIP_TEST_LIBS.contains(&pkg.full_name().as_str()) {
+            continue;
+        }
+
         for item in pkg.generated_test_drivers.iter() {
             if let GeneratedTestDriver::InternalTest(_) = item {
                 test_drivers.push(gen_package_test_driver(
@@ -1024,10 +1028,7 @@ pub fn gen_runtest(
             }
         }
 
-        if pkg.virtual_pkg.as_ref().is_none_or(|x| x.has_default)
-            // FIXME: not efficient
-            && !SKIP_TEST_LIBS.contains(&pkg.full_name().as_str())
-        {
+        if pkg.virtual_pkg.as_ref().is_none_or(|x| x.has_default) {
             for item in pkg.generated_test_drivers.iter() {
                 if let GeneratedTestDriver::BlackboxTest(_) = item {
                     test_drivers.push(gen_package_test_driver(
