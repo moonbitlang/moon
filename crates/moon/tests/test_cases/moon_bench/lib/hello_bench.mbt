@@ -1,18 +1,18 @@
 // bench w/o BenchError raised
 ///|
-test "bench" (it : @bench.T) {
+test "bench: without error" (it : @bench.T) {
   ignore(it)
 }
 
 // non-bench with BenchError raised
 ///|
-test "non-bench" (it : @bench.T) {
+test "non-bench: with error" (it : @bench.T) {
   it.bench(fn() { ignore(42) })
 }
 
 // bench with BenchError raised
 ///|
-test "bench" (it : @bench.T) {
+test "bench: with error" (it : @bench.T) {
   it.bench(fn() {  })
 }
 
