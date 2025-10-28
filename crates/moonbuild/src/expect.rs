@@ -912,7 +912,7 @@ fn write_diff(expected: &str, actual: &str, mut to: impl Write) -> std::io::Resu
 
     let diff = similar::TextDiff::configure()
         .algorithm(similar::Algorithm::Patience)
-        .diff_lines(actual, expected);
+        .diff_lines(expected, actual);
 
     if inline {
         write_hunk(&diff, diff.ops(), &mut to, false, false)?;
@@ -1002,8 +1002,8 @@ fn write_diff_header(mut to: impl Write) -> std::io::Result<()> {
         to,
         "{} ({}, {})",
         "Diff:".bold(),
-        "- actual".red(),
-        "+ expected".green()
+        "- expected".red(),
+        "+ actual".green()
     )
 }
 
