@@ -195,7 +195,7 @@ fn format_node(
             out_file.clone(),
         ];
         if cfg.block_style {
-            cmd.push("-block-style".into());
+            cmd.push("--block-style".into());
         }
         cmd.extend_from_slice(&cfg.extra_args);
         cmd
@@ -209,7 +209,7 @@ fn format_node(
         ];
         cmd.extend_from_slice(&cfg.extra_args);
         if cfg.block_style {
-            cmd.push("--block-style".into());
+            cmd.push("-block-style".into());
         }
         cmd
     };
