@@ -35,9 +35,13 @@ fn test_many_targets() {
         ),
         expect![[r#"
             moonc check ./link/hello.mbt -o ./target/wasm/release/check/link/link.mi -pkg username/hello/link -pkg-sources username/hello/link:./link -target wasm -workspace-path .
+            moonc check -doctest-only ./link/hello.mbt -include-doctests -o ./target/wasm/release/check/link/link.blackbox_test.mi -pkg username/hello/link_blackbox_test -i ./target/wasm/release/check/link/link.mi:link -pkg-sources username/hello/link_blackbox_test:./link -target wasm -blackbox-test -workspace-path .
             moonc check ./lib/hello.mbt -o ./target/wasm/release/check/lib/lib.mi -pkg username/hello/lib -pkg-sources username/hello/lib:./lib -target wasm -workspace-path .
+            moonc check -doctest-only ./lib/hello.mbt -include-doctests -o ./target/wasm/release/check/lib/lib.blackbox_test.mi -pkg username/hello/lib_blackbox_test -i ./target/wasm/release/check/lib/lib.mi:lib -pkg-sources username/hello/lib_blackbox_test:./lib -target wasm -blackbox-test -workspace-path .
             moonc check ./link/hello.mbt -o ./target/js/release/check/link/link.mi -pkg username/hello/link -pkg-sources username/hello/link:./link -target js -workspace-path .
+            moonc check -doctest-only ./link/hello.mbt -include-doctests -o ./target/js/release/check/link/link.blackbox_test.mi -pkg username/hello/link_blackbox_test -i ./target/js/release/check/link/link.mi:link -pkg-sources username/hello/link_blackbox_test:./link -target js -blackbox-test -workspace-path .
             moonc check ./lib/hello.mbt -o ./target/js/release/check/lib/lib.mi -pkg username/hello/lib -pkg-sources username/hello/lib:./lib -target js -workspace-path .
+            moonc check -doctest-only ./lib/hello.mbt -include-doctests -o ./target/js/release/check/lib/lib.blackbox_test.mi -pkg username/hello/lib_blackbox_test -i ./target/js/release/check/lib/lib.mi:lib -pkg-sources username/hello/lib_blackbox_test:./lib -target js -blackbox-test -workspace-path .
         "#]],
     );
 
