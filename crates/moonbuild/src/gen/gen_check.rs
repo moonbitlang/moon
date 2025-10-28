@@ -20,7 +20,7 @@ use super::cmd_builder::CommandBuilder;
 use super::gen_build::{BuildInterfaceItem, gen_build_interface_command, gen_build_interface_item};
 use super::n2_errors::{N2Error, N2ErrorKind};
 use super::util::self_in_test_import;
-use crate::r#gen::MiAlias;
+use crate::r#gen::{MiAlias, SKIP_TEST_LIBS};
 use anyhow::bail;
 use colored::Colorize;
 use indexmap::map::IndexMap;
@@ -31,7 +31,8 @@ use std::rc::Rc;
 use std::sync::Arc;
 
 use moonutil::common::{
-    CheckOpt, MOON_PKG_JSON, MoonbuildOpt, MooncOpt, SUB_PKG_POSTFIX, get_desc_name,
+    BLACKBOX_TEST_PATCH, CheckOpt, MOON_PKG_JSON, MoonbuildOpt, MooncOpt, SUB_PKG_POSTFIX,
+    WHITEBOX_TEST_PATCH, get_desc_name,
 };
 use n2::graph::{self as n2graph, Build, BuildIns, BuildOuts, FileLoc};
 use n2::load::State;
@@ -167,8 +168,9 @@ fn pkg_to_check_item(
         is_whitebox_test: false,
         is_blackbox_test: false,
         patch_file: pkg.patch_file.as_ref().and_then(|p| {
-            let file_stem = p.file_stem().unwrap().to_str().unwrap();
-            (!file_stem.ends_with("_wbtest") && !file_stem.ends_with("_test")).then_some(p.clone())
+            let file_name = p.file_name()?.to_str()?;
+            (!file_name.ends_with(WHITEBOX_TEST_PATCH) && !file_name.ends_with(BLACKBOX_TEST_PATCH))
+                .then_some(p.clone())
         }),
         no_mi: pkg.no_mi,
         mi_of_virtual_pkg_to_impl: impl_virtual_pkg,
@@ -256,11 +258,9 @@ fn pkg_with_wbtest_to_check_item(
         is_whitebox_test: true,
         is_blackbox_test: false,
         patch_file: pkg.patch_file.as_ref().and_then(|p| {
-            p.file_stem()
-                .unwrap()
-                .to_str()
-                .unwrap()
-                .ends_with("_wbtest")
+            let file_name = p.file_name()?.to_str()?;
+            file_name
+                .ends_with(WHITEBOX_TEST_PATCH)
                 .then_some(p.clone())
         }),
         no_mi: pkg.no_mi,
@@ -405,11 +405,9 @@ fn pkg_with_test_to_check_item(
         is_whitebox_test: false,
         is_blackbox_test: true,
         patch_file: pkg.patch_file.as_ref().and_then(|p| {
-            p.file_stem()
-                .unwrap()
-                .to_str()
-                .unwrap()
-                .ends_with("_test")
+            let file_name = p.file_name()?.to_str()?;
+            file_name
+                .ends_with(BLACKBOX_TEST_PATCH)
                 .then_some(p.clone())
         }),
         no_mi: pkg.no_mi,
@@ -463,12 +461,27 @@ pub fn gen_check(
 
         // do not check test files for third party packages
         if !pkg.is_third_party {
-            if !pkg.wbtest_files.is_empty() {
+            if SKIP_TEST_LIBS.contains(&pkg.full_name().as_str()) {
+                continue;
+            }
+
+            let patch_file_name = pkg
+                .patch_file
+                .as_ref()
+                .and_then(|p| p.file_name())
+                .and_then(|n| n.to_str());
+
+            let has_whitebox_patch = matches!(
+                patch_file_name,
+                Some(name) if name.ends_with(WHITEBOX_TEST_PATCH)
+            );
+            if !pkg.wbtest_files.is_empty() || has_whitebox_patch {
                 let item =
                     pkg_with_wbtest_to_check_item(&pkg.root_path, pkgs_to_check, pkg, moonc_opt)?;
                 dep_items.push(item);
             }
-            if !pkg.test_files.is_empty() {
+
+            if pkg.virtual_pkg.as_ref().is_none_or(|v| v.has_default) {
                 let item =
                     pkg_with_test_to_check_item(&pkg.root_path, pkgs_to_check, pkg, moonc_opt)?;
                 dep_items.push(item);

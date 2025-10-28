@@ -1,6 +1,6 @@
   $ moon info
   
-  Finished. moon: ran 2 tasks, now up to date
+  Finished. moon: ran 4 tasks, now up to date
   
   $ xcat src/lib/pkg.generated.mbti
   // Generated using `moon info`, DON'T EDIT IT

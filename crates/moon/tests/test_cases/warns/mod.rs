@@ -59,6 +59,8 @@ fn test_warn_list_dry_run() {
             moonc check ./lib1/hello.mbt -w -1 -o ./target/wasm-gc/release/check/lib1/lib1.mi -pkg username/hello/lib1 -std-path $MOON_HOME/lib/core/target/wasm-gc/release/bundle -pkg-sources username/hello/lib1:./lib1 -target wasm-gc -workspace-path .
             moonc check ./lib/hello.mbt -w -2 -o ./target/wasm-gc/release/check/lib/lib.mi -pkg username/hello/lib -std-path $MOON_HOME/lib/core/target/wasm-gc/release/bundle -pkg-sources username/hello/lib:./lib -target wasm-gc -workspace-path .
             moonc check ./main/main.mbt -w -1-2 -o ./target/wasm-gc/release/check/main/main.mi -pkg username/hello/main -is-main -std-path $MOON_HOME/lib/core/target/wasm-gc/release/bundle -i ./target/wasm-gc/release/check/lib/lib.mi:lib -i ./target/wasm-gc/release/check/lib1/lib1.mi:lib1 -pkg-sources username/hello/main:./main -target wasm-gc -workspace-path .
+            moonc check -doctest-only ./main/main.mbt -include-doctests -w -1-2 -o ./target/wasm-gc/release/check/main/main.blackbox_test.mi -pkg username/hello/main_blackbox_test -std-path $MOON_HOME/lib/core/target/wasm-gc/release/bundle -i ./target/wasm-gc/release/check/main/main.mi:main -i ./target/wasm-gc/release/check/lib/lib.mi:lib -i ./target/wasm-gc/release/check/lib1/lib1.mi:lib1 -pkg-sources username/hello/main_blackbox_test:./main -target wasm-gc -blackbox-test -workspace-path .
+            moonc check -doctest-only ./lib1/hello.mbt -include-doctests -w -1 -o ./target/wasm-gc/release/check/lib1/lib1.blackbox_test.mi -pkg username/hello/lib1_blackbox_test -std-path $MOON_HOME/lib/core/target/wasm-gc/release/bundle -i ./target/wasm-gc/release/check/lib1/lib1.mi:lib1 -pkg-sources username/hello/lib1_blackbox_test:./lib1 -target wasm-gc -blackbox-test -workspace-path .
             moonc check ./lib/hello_test.mbt -doctest-only ./lib/hello.mbt -include-doctests -w -2 -o ./target/wasm-gc/release/check/lib/lib.blackbox_test.mi -pkg username/hello/lib_blackbox_test -std-path $MOON_HOME/lib/core/target/wasm-gc/release/bundle -i ./target/wasm-gc/release/check/lib/lib.mi:lib -pkg-sources username/hello/lib_blackbox_test:./lib -target wasm-gc -blackbox-test -workspace-path .
         "#]],
     );
@@ -78,6 +80,8 @@ fn test_warn_list_dry_run() {
             moonc check ./lib1/hello.mbt -w -1-29 -o ./target/wasm-gc/release/check/lib1/lib1.mi -pkg username/hello/lib1 -std-path $MOON_HOME/lib/core/target/wasm-gc/release/bundle -pkg-sources username/hello/lib1:./lib1 -target wasm-gc -workspace-path .
             moonc check ./lib/hello.mbt -w -2-29 -o ./target/wasm-gc/release/check/lib/lib.mi -pkg username/hello/lib -std-path $MOON_HOME/lib/core/target/wasm-gc/release/bundle -pkg-sources username/hello/lib:./lib -target wasm-gc -workspace-path .
             moonc check ./main/main.mbt -w -1-2-29 -o ./target/wasm-gc/release/check/main/main.mi -pkg username/hello/main -is-main -std-path $MOON_HOME/lib/core/target/wasm-gc/release/bundle -i ./target/wasm-gc/release/check/lib/lib.mi:lib -i ./target/wasm-gc/release/check/lib1/lib1.mi:lib1 -pkg-sources username/hello/main:./main -target wasm-gc -workspace-path .
+            moonc check -doctest-only ./main/main.mbt -include-doctests -w -1-2-29 -o ./target/wasm-gc/release/check/main/main.blackbox_test.mi -pkg username/hello/main_blackbox_test -std-path $MOON_HOME/lib/core/target/wasm-gc/release/bundle -i ./target/wasm-gc/release/check/main/main.mi:main -i ./target/wasm-gc/release/check/lib/lib.mi:lib -i ./target/wasm-gc/release/check/lib1/lib1.mi:lib1 -pkg-sources username/hello/main_blackbox_test:./main -target wasm-gc -blackbox-test -workspace-path .
+            moonc check -doctest-only ./lib1/hello.mbt -include-doctests -w -1-29 -o ./target/wasm-gc/release/check/lib1/lib1.blackbox_test.mi -pkg username/hello/lib1_blackbox_test -std-path $MOON_HOME/lib/core/target/wasm-gc/release/bundle -i ./target/wasm-gc/release/check/lib1/lib1.mi:lib1 -pkg-sources username/hello/lib1_blackbox_test:./lib1 -target wasm-gc -blackbox-test -workspace-path .
             moonc check ./lib/hello_test.mbt -doctest-only ./lib/hello.mbt -include-doctests -w -2-29 -o ./target/wasm-gc/release/check/lib/lib.blackbox_test.mi -pkg username/hello/lib_blackbox_test -std-path $MOON_HOME/lib/core/target/wasm-gc/release/bundle -i ./target/wasm-gc/release/check/lib/lib.mi:lib -pkg-sources username/hello/lib_blackbox_test:./lib -target wasm-gc -blackbox-test -workspace-path .
         "#]],
     );
@@ -99,7 +103,9 @@ fn test_warn_list_real_run() {
             .lines()
             .filter(|it| !it.starts_with("Blocking waiting for file lock"))
             .collect::<String>(),
-        expect![[r#""#]],
+        expect![[
+            r#"Warning: [0029]   ╭─[ $ROOT/main/moon.pkg.json:4:5 ]   │ 4 │     "username/hello/lib",   │     ──────────┬─────────     │               ╰─────────── Warning: Unused package 'username/hello/lib'───╯Warning: [0029]   ╭─[ $ROOT/main/moon.pkg.json:5:5 ]   │ 5 │     "username/hello/lib1"   │     ──────────┬──────────     │               ╰──────────── Warning: Unused package 'username/hello/lib1'───╯"#
+        ]],
     );
     check(
         get_stdout(&dir, ["test", "--sort-input"]),
@@ -121,7 +127,7 @@ fn test_warn_list_real_run() {
     check(
         get_stderr(&dir, ["check", "--sort-input", "--no-render"]),
         expect![[r#"
-            Finished. moon: ran 4 tasks, now up to date
+            Finished. moon: ran 6 tasks, now up to date
         "#]],
     );
 }
@@ -138,7 +144,10 @@ fn test_alert_list() {
         expect![[r#"
             moonc check ./lib/hello.mbt -w -2 -alert -alert_1-alert_2 -o ./target/wasm-gc/release/check/lib/lib.mi -pkg username/hello/lib -std-path $MOON_HOME/lib/core/target/wasm-gc/release/bundle -pkg-sources username/hello/lib:./lib -target wasm-gc -workspace-path .
             moonc check ./main/main.mbt -w -1-2 -alert -alert_1 -o ./target/wasm-gc/release/check/main/main.mi -pkg username/hello/main -is-main -std-path $MOON_HOME/lib/core/target/wasm-gc/release/bundle -i ./target/wasm-gc/release/check/lib/lib.mi:lib -pkg-sources username/hello/main:./main -target wasm-gc -workspace-path .
+            moonc check -doctest-only ./main/main.mbt -include-doctests -w -1-2 -alert -alert_1 -o ./target/wasm-gc/release/check/main/main.blackbox_test.mi -pkg username/hello/main_blackbox_test -std-path $MOON_HOME/lib/core/target/wasm-gc/release/bundle -i ./target/wasm-gc/release/check/main/main.mi:main -i ./target/wasm-gc/release/check/lib/lib.mi:lib -pkg-sources username/hello/main_blackbox_test:./main -target wasm-gc -blackbox-test -workspace-path .
             moonc check ./lib2/hello.mbt -o ./target/wasm-gc/release/check/lib2/lib2.mi -pkg username/hello/lib2 -std-path $MOON_HOME/lib/core/target/wasm-gc/release/bundle -pkg-sources username/hello/lib2:./lib2 -target wasm-gc -workspace-path .
+            moonc check -doctest-only ./lib2/hello.mbt -include-doctests -o ./target/wasm-gc/release/check/lib2/lib2.blackbox_test.mi -pkg username/hello/lib2_blackbox_test -std-path $MOON_HOME/lib/core/target/wasm-gc/release/bundle -i ./target/wasm-gc/release/check/lib2/lib2.mi:lib2 -pkg-sources username/hello/lib2_blackbox_test:./lib2 -target wasm-gc -blackbox-test -workspace-path .
+            moonc check -doctest-only ./lib/hello.mbt -include-doctests -w -2 -alert -alert_1-alert_2 -o ./target/wasm-gc/release/check/lib/lib.blackbox_test.mi -pkg username/hello/lib_blackbox_test -std-path $MOON_HOME/lib/core/target/wasm-gc/release/bundle -i ./target/wasm-gc/release/check/lib/lib.mi:lib -pkg-sources username/hello/lib_blackbox_test:./lib -target wasm-gc -blackbox-test -workspace-path .
         "#]],
     );
 
@@ -166,7 +175,7 @@ fn test_alert_list() {
     check(
         get_stderr(&dir, ["check", "--sort-input"]),
         expect![[r#"
-            Finished. moon: ran 3 tasks, now up to date
+            Finished. moon: ran 6 tasks, now up to date
         "#]],
     );
 }
@@ -180,6 +189,8 @@ fn test_mod_level_warn_alert_list() {
         expect![[r#"
             moonc check ./lib/hello.mbt -w -1 -alert -alert_1 -o ./target/wasm-gc/release/check/lib/lib.mi -pkg username/hello/lib -std-path $MOON_HOME/lib/core/target/wasm-gc/release/bundle -pkg-sources username/hello/lib:./lib -target wasm-gc -workspace-path .
             moonc check ./main/main.mbt -w -1-2 -alert -alert_1-alert_2 -o ./target/wasm-gc/release/check/main/main.mi -pkg username/hello/main -is-main -std-path $MOON_HOME/lib/core/target/wasm-gc/release/bundle -i ./target/wasm-gc/release/check/lib/lib.mi:lib -pkg-sources username/hello/main:./main -target wasm-gc -workspace-path .
+            moonc check -doctest-only ./main/main.mbt -include-doctests -w -1-2 -alert -alert_1-alert_2 -o ./target/wasm-gc/release/check/main/main.blackbox_test.mi -pkg username/hello/main_blackbox_test -std-path $MOON_HOME/lib/core/target/wasm-gc/release/bundle -i ./target/wasm-gc/release/check/main/main.mi:main -i ./target/wasm-gc/release/check/lib/lib.mi:lib -pkg-sources username/hello/main_blackbox_test:./main -target wasm-gc -blackbox-test -workspace-path .
+            moonc check -doctest-only ./lib/hello.mbt -include-doctests -w -1 -alert -alert_1 -o ./target/wasm-gc/release/check/lib/lib.blackbox_test.mi -pkg username/hello/lib_blackbox_test -std-path $MOON_HOME/lib/core/target/wasm-gc/release/bundle -i ./target/wasm-gc/release/check/lib/lib.mi:lib -pkg-sources username/hello/lib_blackbox_test:./lib -target wasm-gc -blackbox-test -workspace-path .
         "#]],
     );
 }
@@ -221,7 +232,7 @@ fn test_deny_warn() {
                │       ┬  
                │       ╰── Warning: Unused variable 'a'
             ───╯
-            Finished. moon: ran 2 tasks, now up to date (4 warnings, 0 errors)
+            Finished. moon: ran 4 tasks, now up to date (4 warnings, 0 errors)
         "#]],
     );
 
