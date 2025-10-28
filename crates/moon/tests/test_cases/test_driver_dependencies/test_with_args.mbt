@@ -1,5 +1,5 @@
 ///|
-test (t : @test.T) {
+test (t : @test.Test) {
   let _ = t
 
 }
