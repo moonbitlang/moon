@@ -458,28 +458,28 @@ fn test_many_targets_expect_failed() {
         expect![[r#"
             [username/hello] test lib/x.wasm.mbt:1 (#0) failed
             expect test failed at $ROOT/lib/x.wasm.mbt:2:3-2:31
-            Diff: (- actual, + expected)
+            Diff: (- expected, + actual)
             ----
-            -wasm
-            +0
+            -0
+            +wasm
             ----
 
             Total tests: 1, passed: 0, failed: 1. [wasm]
             [username/hello] test lib/x.wasm-gc.mbt:1 (#0) failed
             expect test failed at $ROOT/lib/x.wasm-gc.mbt:2:3-2:34
-            Diff: (- actual, + expected)
+            Diff: (- expected, + actual)
             ----
-            -wasm-gc
-            +1
+            -1
+            +wasm-gc
             ----
 
             Total tests: 1, passed: 0, failed: 1. [wasm-gc]
             [username/hello] test lib/x.js.mbt:1 (#0) failed
             expect test failed at $ROOT/lib/x.js.mbt:2:3-2:29
-            Diff: (- actual, + expected)
+            Diff: (- expected, + actual)
             ----
-            -js
-            +2
+            -2
+            +js
             ----
 
             Total tests: 1, passed: 0, failed: 1. [js]
@@ -493,19 +493,19 @@ fn test_many_targets_expect_failed() {
         expect![[r#"
             [username/hello] test lib/x.wasm.mbt:1 (#0) failed
             expect test failed at $ROOT/lib/x.wasm.mbt:2:3-2:31
-            Diff: (- actual, + expected)
+            Diff: (- expected, + actual)
             ----
-            -wasm
-            +0
+            -0
+            +wasm
             ----
 
             Total tests: 1, passed: 0, failed: 1. [wasm]
             [username/hello] test lib/x.js.mbt:1 (#0) failed
             expect test failed at $ROOT/lib/x.js.mbt:2:3-2:29
-            Diff: (- actual, + expected)
+            Diff: (- expected, + actual)
             ----
-            -js
-            +2
+            -2
+            +js
             ----
 
             Total tests: 1, passed: 0, failed: 1. [js]
@@ -526,28 +526,28 @@ fn test_many_targets_expect_failed() {
         expect![[r#"
             [username/hello] test lib/x.wasm.mbt:1 (#0) failed
             expect test failed at $ROOT/lib/x.wasm.mbt:2:3-2:31
-            Diff: (- actual, + expected)
+            Diff: (- expected, + actual)
             ----
-            -wasm
-            +0
+            -0
+            +wasm
             ----
 
             Total tests: 1, passed: 0, failed: 1. [wasm]
             [username/hello] test lib/x.js.mbt:1 (#0) failed
             expect test failed at $ROOT/lib/x.js.mbt:2:3-2:29
-            Diff: (- actual, + expected)
+            Diff: (- expected, + actual)
             ----
-            -js
-            +2
+            -2
+            +js
             ----
 
             Total tests: 1, passed: 0, failed: 1. [js]
             [username/hello] test lib/x.native.mbt:1 (#0) failed
             expect test failed at $ROOT/lib/x.native.mbt:2:3-2:33
-            Diff: (- actual, + expected)
+            Diff: (- expected, + actual)
             ----
-            -native
-            +3
+            -3
+            +native
             ----
 
             Total tests: 1, passed: 0, failed: 1. [native]
