@@ -1,0 +1,194 @@
+///|
+test {
+  inspect(
+    "nya hahaha\n".repeat(5),
+    content=(
+      #|hahaha
+      #|hahaha
+      #|hahaha
+      #|hahaha
+      #|hahaha
+      #|
+    ),
+  )
+}
+
+///|
+test {
+  inspect(
+    "hahaha\n".repeat(25) + "huhuhuhu",
+    content=(
+      #|hahaha
+      #|hahaha
+      #|hahaha
+      #|hahaha
+      #|hahaha
+      #|hahaha
+      #|hahaha
+      #|hahaha
+      #|hahaha
+      #|hahaha
+      #|hahaha
+      #|hahaho
+      #|hahaha
+      #|hahaha
+      #|hahaha
+      #|hahaha
+      #|hahaha
+      #|hahaha
+      #|hahaha
+      #|hahaha
+      #|hahaha
+      #|hahaha
+      #|hahaha
+      #|hahaha
+      #|hahaha
+      #|
+    ),
+  )
+}
+
+///|
+test {
+  inspect(
+    "hello world",
+    content=(
+      #|hello wurld
+      #|
+    ),
+  )
+}
+
+///|
+test {
+  inspect(
+    "alpha\nbeta\ncharlie",
+    content=(
+      #|alpha
+      #|beta
+      #|charl1e
+      #|
+    ),
+  )
+}
+
+///|
+test {
+  inspect(
+    "line\n".repeat(40),
+    content=(
+      #|line
+      #|line
+      #|line
+      #|line
+      #|l1ne
+      #|line
+      #|line
+      #|line
+      #|line
+      #|line
+      #|line
+      #|line
+      #|line
+      #|line
+      #|line
+      #|line
+      #|line
+      #|line
+      #|line
+      #|line
+      #|line
+      #|line
+      #|line
+      #|line
+      #|line
+      #|line
+      #|line
+      #|line
+      #|line
+      #|line
+      #|line
+      #|line
+      #|line
+      #|line
+      #|line
+      #|line
+      #|line!
+      #|line
+      #|line
+      #|line
+      #|
+    ),
+  )
+}
+
+///|
+test {
+  inspect(
+    "data\n".repeat(60) + "tail",
+    content=(
+      #|data
+      #|data
+      #|data
+      #|data
+      #|data
+      #|data
+      #|data
+      #|data
+      #|data
+      #|data
+      #|data
+      #|data
+      #|data
+      #|data
+      #|data
+      #|data
+      #|data
+      #|data
+      #|data
+      #|data
+      #|data
+      #|data
+      #|data
+      #|data
+      #|data
+      #|data
+      #|data
+      #|data
+      #|data
+      #|data
+      #|data
+      #|data
+      #|data
+      #|data
+      #|data
+      #|data
+      #|data
+      #|data
+      #|data
+      #|data
+      #|data
+      #|data
+      #|data
+      #|data
+      #|data
+      #|data
+      #|data
+      #|data
+      #|data
+      #|data
+      #|data
+      #|data
+      #|data
+      #|data
+      #|data
+      #|data
+      #|data
+      #|data
+      #|data
+      #|data
+      #|taiL
+      #|
+    ),
+  )
+}
