@@ -48,3 +48,36 @@ pub fn command_tokens<T: AsRef<str> + Debug>(
     let line = line_with(input, command, filter);
     shlex::split(&line).unwrap_or_default()
 }
+
+/// Ensures the expected lines appear in order within the actual output, allowing
+/// unrelated lines to exist between matches.
+pub fn assert_lines_in_order(actual: impl AsRef<str>, expect: impl AsRef<str>) {
+    let actual = actual.as_ref();
+    let expect = expect.as_ref();
+
+    let actual_lines: Vec<&str> = actual.trim().lines().collect();
+    let expect_lines: Vec<&str> = expect.trim().lines().collect();
+
+    let mut pos = 0;
+    for expect_line in expect_lines {
+        let start_pos = pos;
+        let mut found = false;
+        while pos < actual_lines.len() {
+            if actual_lines[pos].trim() == expect_line.trim() {
+                found = true;
+                pos += 1;
+                break;
+            }
+            pos += 1;
+        }
+
+        if !found {
+            println!("Unable to find expected line: {:?}", expect_line.trim());
+            println!("Search started from line {}:", start_pos + 1);
+            for (off, line) in actual_lines[start_pos..].iter().enumerate() {
+                println!("{:>3} | {}", start_pos + off + 1, line);
+            }
+            panic!("Expected line not found in order.");
+        }
+    }
+}
