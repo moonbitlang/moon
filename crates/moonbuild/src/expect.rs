@@ -20,8 +20,12 @@ use anyhow::Context;
 use base64::Engine;
 use colored::Colorize;
 use moonutil::common::line_col_to_byte_idx;
+use similar::DiffOp;
+use similar::DiffTag;
+use similar::TextDiff;
 use std::collections::BTreeSet;
 use std::collections::HashMap;
+use std::io::Write;
 use std::path::PathBuf;
 use std::str::FromStr;
 
@@ -883,17 +887,124 @@ pub fn apply_expect<'a>(messages: impl IntoIterator<Item = &'a str>) -> anyhow::
     Ok(())
 }
 
-fn format_chunks(chunks: Vec<dissimilar::Chunk>) -> String {
-    let mut buf = String::new();
-    for chunk in chunks {
-        let formatted = match chunk {
-            dissimilar::Chunk::Equal(text) => text.into(),
-            dissimilar::Chunk::Delete(text) => format!("{}", text.red().underline()),
-            dissimilar::Chunk::Insert(text) => format!("{}", text.green().underline()),
-        };
-        buf.push_str(&formatted);
+/// The context size for unified diff output.
+const DIFF_MIN_CTX: usize = 5;
+
+/// The minimum number of lines to trigger chunking in diff output.
+///
+/// If input strings have fewer lines than this, the entire diff will be shown
+/// without chunking.
+const MIN_LINES_FOR_CHUNKING: usize = 20;
+
+/// Write the difference between strings `expected` and `actual` to the provided
+/// writer `to`, in unified diff format.
+///
+/// The function uses a number of heuristics to determine the best format for
+/// the diff output. Inline diffs will not show newline differences, short diffs
+/// will be displayed in full, and long diffs will be chunked.
+fn write_diff(expected: &str, actual: &str, mut to: impl Write) -> std::io::Result<()> {
+    // Determine if we want to chunk the diff output
+    let expected_lines = expected.lines().count();
+    let actual_lines = actual.lines().count();
+    let use_chunking =
+        expected_lines > MIN_LINES_FOR_CHUNKING || actual_lines > MIN_LINES_FOR_CHUNKING;
+    let inline = expected_lines <= 1 && actual_lines <= 1;
+
+    let diff = similar::TextDiff::configure()
+        .algorithm(similar::Algorithm::Patience)
+        .diff_lines(actual, expected);
+
+    if inline {
+        write_hunk(&diff, diff.ops(), &mut to, false, false)?;
+    } else if use_chunking {
+        let grouped = diff.grouped_ops(DIFF_MIN_CTX);
+        for hunk in grouped {
+            write_hunk(&diff, &hunk, &mut to, true, true)?;
+        }
+    } else {
+        write_hunk(&diff, diff.ops(), &mut to, false, true)?;
     }
-    buf
+
+    Ok(())
+}
+
+/// Write a hunk of diff
+fn write_hunk<'a>(
+    orig_diff: &'a TextDiff<'a, 'a, 'a, str>,
+    hunk: &[DiffOp],
+    mut to: impl Write,
+    header: bool,
+    report_missing_nl: bool,
+) -> std::io::Result<()> {
+    if header {
+        let header = similar::udiff::UnifiedHunkHeader::new(hunk);
+        writeln!(to, "{}", header)?;
+    }
+
+    for op in hunk {
+        if op.tag() == DiffTag::Equal {
+            // Print plain lines
+            for line in orig_diff.iter_changes(op) {
+                write!(to, " {}", line.value())?;
+                report_missing_nl_f(&mut to, report_missing_nl, line.missing_newline())?;
+            }
+        } else {
+            for change in orig_diff.iter_inline_changes(op) {
+                match change.tag() {
+                    similar::ChangeTag::Equal => {
+                        unreachable!("Equal should have been handled earlier")
+                    }
+                    similar::ChangeTag::Delete => {
+                        write!(to, "{}", "-".red())?;
+                        for &(emph, slice) in change.values() {
+                            if emph {
+                                write!(to, "{}", slice.underline().red())?;
+                            } else {
+                                write!(to, "{}", slice.red())?;
+                            }
+                        }
+                    }
+                    similar::ChangeTag::Insert => {
+                        write!(to, "{}", "+".green())?;
+                        for &(emph, slice) in change.values() {
+                            if emph {
+                                write!(to, "{}", slice.underline().green())?;
+                            } else {
+                                write!(to, "{}", slice.green())?;
+                            }
+                        }
+                    }
+                }
+
+                report_missing_nl_f(&mut to, report_missing_nl, change.missing_newline())?;
+            }
+        }
+    }
+    Ok(())
+}
+
+fn report_missing_nl_f(
+    mut to: impl Write,
+    report_missing_newlines: bool,
+    missing: bool,
+) -> Result<(), std::io::Error> {
+    if missing {
+        writeln!(to)?;
+        if report_missing_newlines {
+            writeln!(to, "{}", "\\ No newline at end of file".dimmed())?;
+        }
+    }
+    Ok(())
+}
+
+fn write_diff_header(mut to: impl Write) -> std::io::Result<()> {
+    writeln!(
+        to,
+        "{} ({}, {})",
+        "Diff:".bold(),
+        "- actual".red(),
+        "+ expected".green()
+    )
 }
 
 pub fn render_expect_fail(msg: &str) -> anyhow::Result<()> {
@@ -914,18 +1025,13 @@ pub fn render_expect_fail(msg: &str) -> anyhow::Result<()> {
         return Ok(());
     }
 
-    let d = dissimilar::diff(&rep.expect, &rep.actual);
-    println!(
-        r#"expect test failed at {}
-{}
-----
-{}
-----
-"#,
-        rep.loc.raw,
-        "Diff:".bold(),
-        format_chunks(d)
-    );
+    println!("expect test failed at {}", rep.loc.raw);
+    write_diff_header(std::io::stdout())?;
+    println!("----");
+    write_diff(&rep.expect, &rep.actual, std::io::stdout())?;
+    println!("----");
+    println!();
+
     Ok(())
 }
 
@@ -985,20 +1091,17 @@ pub fn render_snapshot_fail(msg: &str) -> anyhow::Result<(bool, String, String)>
     };
     let eq = actual == expect;
     if !eq {
-        let d = dissimilar::diff(&expect, &actual);
         println!(
-            r#"expect test failed at {}:{}:{}
-{}
-----
-{}
-----
-"#,
+            "expect test failed at {}:{}:{}",
             filename,
             loc.line_start + 1,
-            loc.col_start + 1,
-            "Diff:".bold(),
-            format_chunks(d)
+            loc.col_start + 1
         );
+        write_diff_header(std::io::stdout())?;
+        println!("----");
+        write_diff(&expect, &actual, std::io::stdout())?;
+        println!("----");
+        println!();
     }
     Ok((eq, expect, actual))
 }
