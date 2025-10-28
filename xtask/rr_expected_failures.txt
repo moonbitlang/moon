@@ -10,7 +10,6 @@ cmd_test::cmd_test
 test_cases::dummy_core::test_dummy_core
 test_cases::extra_flags::test_extra_flags
 test_cases::merge_doc_test_and_md_test
-test_cases::moon_bundle::test_moon_bundle
 test_cases::moon_commands::test_moon_help
 test_cases::moon_coverage::test_moon_coverage_analyze
 test_cases::moon_coverage::test_moon_coverage_analyze_dry_run
