@@ -1965,15 +1965,15 @@ fn test_specify_source_dir_002() {
     check(
         get_err_stdout(&dir, ["test"]),
         expect![[r#"
-        [username/hello] test lib/hello_test.mbt:1 ("hello") failed
-        expect test failed at $ROOT/src/lib/hello_test.mbt:2:3-2:24
-        Diff:
-        ----
-        Hello, world!
-        ----
+            [username/hello] test lib/hello_test.mbt:1 ("hello") failed
+            expect test failed at $ROOT/src/lib/hello_test.mbt:2:3-2:24
+            Diff: (- actual, + expected)
+            ----
+            -Hello, world!
+            ----
 
-        Total tests: 1, passed: 0, failed: 1.
-    "#]],
+            Total tests: 1, passed: 0, failed: 1.
+        "#]],
     );
     check(
         get_stdout(&dir, ["test", "-u", "--no-parallelize"]),
@@ -2162,43 +2162,41 @@ fn test_snapshot_test() {
         expect![[r#"
             [username/hello] test lib/hello_test.mbt:7 ("snapshot in blackbox test") failed
             expect test failed at $ROOT/src/lib/hello_test.mbt:9:3
-            Diff:
+            Diff: (- actual, + expected)
             ----
-            Hello, world!
+            -Hello, world!
             ----
 
             [username/hello] test lib/hello.mbt:5 ("test inspect 1") failed
             expect test failed at $ROOT/src/lib/hello.mbt:6:3-6:15
-            Diff:
+            Diff: (- actual, + expected)
             ----
-            a
+            -a
             ----
 
             [username/hello] test lib/hello.mbt:10 ("test snapshot 1") failed
             expect test failed at $ROOT/src/lib/hello.mbt:14:3
-            Diff:
+            Diff: (- actual, + expected)
             ----
-            hello
-            snapshot
-            testing
-
+            -hello
+            -snapshot
+            -testing
             ----
 
             [username/hello] test lib/hello.mbt:17 ("test inspect 2") failed
             expect test failed at $ROOT/src/lib/hello.mbt:18:3-18:15
-            Diff:
+            Diff: (- actual, + expected)
             ----
-            c
+            -c
             ----
 
             [username/hello] test lib/hello.mbt:22 ("test snapshot 2") failed
             expect test failed at $ROOT/src/lib/hello.mbt:26:3
-            Diff:
+            Diff: (- actual, + expected)
             ----
-            should
-            be
-            work
-
+            -should
+            -be
+            -work
             ----
 
             Total tests: 6, passed: 1, failed: 5.
@@ -2218,43 +2216,41 @@ fn test_snapshot_test() {
         expect![[r#"
             [username/hello] test lib/hello_test.mbt:7 ("snapshot in blackbox test") failed
             expect test failed at $ROOT/src/lib/hello_test.mbt:9:3
-            Diff:
+            Diff: (- actual, + expected)
             ----
-            Hello, world!
+            -Hello, world!
             ----
 
             [username/hello] test lib/hello.mbt:5 ("test inspect 1") failed
             expect test failed at $ROOT/src/lib/hello.mbt:6:3-6:15
-            Diff:
+            Diff: (- actual, + expected)
             ----
-            a
+            -a
             ----
 
             [username/hello] test lib/hello.mbt:10 ("test snapshot 1") failed
             expect test failed at $ROOT/src/lib/hello.mbt:14:3
-            Diff:
+            Diff: (- actual, + expected)
             ----
-            hello
-            snapshot
-            testing
-
+            -hello
+            -snapshot
+            -testing
             ----
 
             [username/hello] test lib/hello.mbt:17 ("test inspect 2") failed
             expect test failed at $ROOT/src/lib/hello.mbt:18:3-18:15
-            Diff:
+            Diff: (- actual, + expected)
             ----
-            c
+            -c
             ----
 
             [username/hello] test lib/hello.mbt:22 ("test snapshot 2") failed
             expect test failed at $ROOT/src/lib/hello.mbt:26:3
-            Diff:
+            Diff: (- actual, + expected)
             ----
-            should
-            be
-            work
-
+            -should
+            -be
+            -work
             ----
 
             Total tests: 6, passed: 1, failed: 5.
@@ -2335,43 +2331,41 @@ fn test_snapshot_test_target_js() {
         expect![[r#"
             [username/hello] test lib/hello_test.mbt:7 ("snapshot in blackbox test") failed
             expect test failed at $ROOT/src/lib/hello_test.mbt:9:3
-            Diff:
+            Diff: (- actual, + expected)
             ----
-            Hello, world!
+            -Hello, world!
             ----
 
             [username/hello] test lib/hello.mbt:5 ("test inspect 1") failed
             expect test failed at $ROOT/src/lib/hello.mbt:6:3-6:15
-            Diff:
+            Diff: (- actual, + expected)
             ----
-            a
+            -a
             ----
 
             [username/hello] test lib/hello.mbt:10 ("test snapshot 1") failed
             expect test failed at $ROOT/src/lib/hello.mbt:14:3
-            Diff:
+            Diff: (- actual, + expected)
             ----
-            hello
-            snapshot
-            testing
-
+            -hello
+            -snapshot
+            -testing
             ----
 
             [username/hello] test lib/hello.mbt:17 ("test inspect 2") failed
             expect test failed at $ROOT/src/lib/hello.mbt:18:3-18:15
-            Diff:
+            Diff: (- actual, + expected)
             ----
-            c
+            -c
             ----
 
             [username/hello] test lib/hello.mbt:22 ("test snapshot 2") failed
             expect test failed at $ROOT/src/lib/hello.mbt:26:3
-            Diff:
+            Diff: (- actual, + expected)
             ----
-            should
-            be
-            work
-
+            -should
+            -be
+            -work
             ----
 
             Total tests: 6, passed: 1, failed: 5.
@@ -4136,25 +4130,25 @@ fn test_run_doc_test() {
             doc_test 5 from greet.mbt
             [username/hello] test lib/hello.mbt:9 (#1) failed
             expect test failed at $ROOT/src/lib/hello.mbt:12:5-12:18
-            Diff:
+            Diff: (- actual, + expected)
             ----
-            1256
+            -1256
             ----
 
             [username/hello] test lib/hello.mbt:19 (#2) failed: $ROOT/src/lib/hello.mbt:22:5-22:30 FAILED: this is a failure
             [username/hello] test lib/greet.mbt:18 (#2) failed
             expect test failed at $ROOT/src/lib/greet.mbt:23:7-23:20
-            Diff:
+            Diff: (- actual, + expected)
             ----
-            1256
+            -1256
             ----
 
             [username/hello] test lib/greet.mbt:30 (#3) failed: $ROOT/src/lib/greet.mbt:34:7-34:30 FAILED: another failure
             [username/hello] test lib/greet.mbt:95 (#8) failed
             expect test failed at $ROOT/src/lib/greet.mbt:99:5-99:40
-            Diff:
+            Diff: (- actual, + expected)
             ----
-            b"T/x00e/x00s/x00t/x00"
+            -b"T/x00e/x00s/x00t/x00"
             ----
 
             Total tests: 16, passed: 11, failed: 5.
@@ -4860,28 +4854,27 @@ fn test_run_md_test() {
             Hello, world 2!
             [username/hello] test lib/hello_test.mbt:10 ("inspect in bbtest") failed
             expect test failed at $ROOT/src/lib/hello_test.mbt:12:3-12:31
-            Diff:
+            Diff: (- actual, + expected)
             ----
-            inspect in bbtest
+            -inspect in bbtest
             ----
 
             [username/hello] test lib/1.mbt.md:32 (#2) failed
             expect test failed at $ROOT/src/lib/1.mbt.md:44:5-44:20
-            Diff:
+            Diff: (- actual, + expected)
             ----
-            4234
+            -4234
             ----
 
             [username/hello] test lib/1.mbt.md:53 (#3) failed
             expect test failed at $ROOT/src/lib/1.mbt.md:61:5-61:15
-            Diff:
+            Diff: (- actual, + expected)
             ----
-             all
-             wishes
-
-             come
-             true
-
+            - all
+            - wishes
+            -
+            - come
+            - true
             ----
 
             Total tests: 7, passed: 4, failed: 3.
@@ -5216,10 +5209,9 @@ fn native_backend_test_filter() {
         expect![[r#"
             [username/hello] test lib/hello.mbt:22 ("D") failed
             expect test failed at $ROOT/lib/hello.mbt:24:3
-            Diff:
+            Diff: (- actual, + expected)
             ----
-            test D
-
+            -test D
             ----
 
             Total tests: 1, passed: 0, failed: 1.
@@ -5458,9 +5450,9 @@ fn moon_check_and_test_single_file() {
             expect![[r#"
                 [moon/test] test single/single.mbt:12 (#1) failed
                 expect test failed at $ROOT/single.mbt:13:3-13:18
-                Diff:
+                Diff: (- actual, + expected)
                 ----
-                234523
+                -234523
                 ----
 
                 Total tests: 1, passed: 0, failed: 1.
@@ -5537,9 +5529,9 @@ fn moon_check_and_test_single_file() {
             expect![[r#"
                 [moon/test] test single/111.mbt.md:27 (#1) failed
                 expect test failed at $ROOT/111.mbt.md:34:5-34:20
-                Diff:
+                Diff: (- actual, + expected)
                 ----
-                234523
+                -234523
                 ----
 
                 Total tests: 1, passed: 0, failed: 1.
