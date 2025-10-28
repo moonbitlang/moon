@@ -1,3 +1,5 @@
+mod diff_format;
+
 use super::*;
 
 #[cfg(unix)]

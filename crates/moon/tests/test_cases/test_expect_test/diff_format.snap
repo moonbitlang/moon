@@ -1,0 +1,107 @@
+[hello] test main/main.mbt:2 (#0) failed
+expect test failed at $ROOT/main/main.mbt:3:3-13:4
+Diff: (- expected, + actual)
+----
+-hahaha
+-hahaha
+-hahaha
+-hahaha
+-hahaha
++nya hahaha
++nya hahaha
++nya hahaha
++nya hahaha
++nya hahaha
+----
+
+[hello] test main/main.mbt:17 (#1) failed
+expect test failed at $ROOT/main/main.mbt:18:3-48:4
+Diff: (- expected, + actual)
+----
+@@ -7,11 +7,10 @@
+ hahaha
+ hahaha
+ hahaha
+ hahaha
+ hahaha
+-hahaho
+ hahaha
+ hahaha
+ hahaha
+ hahaha
+ hahaha
+@@ -21,4 +20,7 @@
+ hahaha
+ hahaha
+ hahaha
+ hahaha
+ hahaha
++hahaha
++huhuhuhu
+/ No newline at end of file
+----
+
+[hello] test main/main.mbt:52 (#2) failed
+expect test failed at $ROOT/main/main.mbt:53:3-59:4
+Diff: (- expected, + actual)
+----
+-hello wurld
++hello world
+----
+
+[hello] test main/main.mbt:63 (#3) failed
+expect test failed at $ROOT/main/main.mbt:64:3-72:4
+Diff: (- expected, + actual)
+----
+ alpha
+ beta
+-charl1e
++charlie
+/ No newline at end of file
+----
+
+[hello] test main/main.mbt:76 (#4) failed
+expect test failed at $ROOT/main/main.mbt:77:3-122:4
+Diff: (- expected, + actual)
+----
+@@ -1,10 +1,9 @@
+ line
+ line
+ line
+ line
+-l1ne
+ line
+ line
+ line
+ line
+ line
+@@ -32,7 +31,10 @@
+ line
+ line
+ line
+ line
+ line
+-line!
+ line
+ line
+ line
++line
++line
+----
+
+[hello] test main/main.mbt:126 (#5) failed
+expect test failed at $ROOT/main/main.mbt:127:3-193:4
+Diff: (- expected, + actual)
+----
+@@ -56,6 +56,6 @@
+ data
+ data
+ data
+ data
+ data
+-taiL
++tail
+/ No newline at end of file
+----
+
+Total tests: 6, passed: 0, failed: 6.
