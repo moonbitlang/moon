@@ -1512,6 +1512,7 @@ dependencies = [
  "indexmap",
  "log",
  "moonbuild",
+ "moonbuild-debug",
  "moonbuild-rupes-recta",
  "mooncake",
  "moonutil",
@@ -1590,6 +1591,10 @@ dependencies = [
  "which 6.0.2",
  "zip",
 ]
+
+[[package]]
+name = "moonbuild-debug"
+version = "0.1.0"
 
 [[package]]
 name = "moonbuild-rupes-recta"
