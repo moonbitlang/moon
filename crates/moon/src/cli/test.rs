@@ -44,17 +44,15 @@ use moonutil::mooncakes::RegistryConfig;
 use moonutil::mooncakes::sync::AutoSyncFlags;
 use moonutil::package::Package;
 use moonutil::path::PathComponent;
+
 use n2::trace as n2_trace;
-use smallvec::SmallVec;
-use std::collections::HashMap;
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use tracing::{Level, debug, info, instrument, trace, warn};
 
 use crate::cli::pre_build::scan_with_x_build;
-use crate::filter::canonicalize_with_filename;
-use crate::filter::filter_pkg_by_dir;
+use crate::filter::{canonicalize_with_filename, filter_pkg_by_dir, match_packages_with_fuzzy};
 use crate::rr_build;
 use crate::rr_build::preconfig_compile;
 use crate::rr_build::{BuildConfig, CalcUserIntentOutput};
@@ -805,7 +803,7 @@ fn apply_explicit_file_filter(
 #[allow(clippy::too_many_arguments)]
 #[instrument(level = "debug", skip(affected_packages, resolve_output, out_filter))]
 fn apply_list_of_filters(
-    affected_packages: impl Iterator<Item = PackageId>,
+    affected_packages: &[PackageId],
     resolve_output: &moonbuild_rupes_recta::ResolveOutput,
     package_filter: &[String],
     file_filter: Option<&str>,
@@ -814,52 +812,17 @@ fn apply_list_of_filters(
     patch_file: Option<&Path>,
     out_filter: &mut TestFilter,
 ) -> Result<InputDirective, anyhow::Error> {
-    debug!(
-        package_filter_count = package_filter.len(),
-        file_filter,
-        index_filter,
-        doc_index_filter,
-        has_patch = patch_file.is_some(),
-        "applying list of filters"
+    let package_matches = match_packages_with_fuzzy(
+        resolve_output,
+        affected_packages.iter().copied(),
+        package_filter,
     );
-    // We deliberately didn't allow a string to be parsed into a package
-    // name, because different package may have a same name. However, in a
-    // module the package name should be unique, so we can make a map here.
-    let name_map = affected_packages
-        .map(|id| {
-            let name = resolve_output.pkg_dirs.get_package(id).fqn.to_string();
-            (name, id)
-        })
-        .collect::<HashMap<_, _>>();
 
-    // Fuzzy match a string from the map
-    let fuzzy_names = |s: &str| -> SmallVec<[PackageId; 1]> {
-        if let Some(&id) = name_map.get(s) {
-            SmallVec::from_buf([id])
-        } else {
-            let all_names = name_map.keys().map(|k| k.as_str());
-            let xs = moonutil::fuzzy_match::fuzzy_match(s, all_names);
-            if let Some(xs) = xs {
-                xs.into_iter()
-                    .filter_map(|name| name_map.get(&name).copied())
-                    .collect()
-            } else {
-                warn!("no package found matching test filter `{}`", s);
-                SmallVec::new()
-            }
-        }
-    };
-
-    let mut filtered_package_ids = SmallVec::<[PackageId; 1]>::new();
-
-    // Collect all the package ids that match the filter
-    for p in package_filter {
-        let names = fuzzy_names(p);
-        if names.is_empty() {
-            warn!("no package found matching filter `{}`", p);
-        }
-        filtered_package_ids.extend_from_slice(&names);
+    for missing in &package_matches.missing {
+        warn!("no package found matching filter `{}`", missing);
     }
+
+    let filtered_package_ids = package_matches.matched;
     trace!(
         filtered_packages = filtered_package_ids.len(),
         "package filters resolved"
@@ -941,7 +904,7 @@ fn calc_user_intent(
         package_count = packages.len(),
         "calculating user intent for module"
     );
-    let affected_packages = packages.values().copied();
+    let affected_packages: Vec<_> = packages.values().copied().collect();
 
     let directive = if let Some(file_filter) = cmd.explicit_file_filter {
         let test_index = cmd
@@ -953,9 +916,9 @@ fn calc_user_intent(
         Default::default()
     } else if let Some(package_filter) = cmd.package {
         apply_list_of_filters(
-            affected_packages,
+            &affected_packages,
             resolve_output,
-            package_filter,
+            package_filter.as_slice(),
             cmd.file.as_deref(),
             *cmd.index,
             *cmd.doc_index,
@@ -964,7 +927,11 @@ fn calc_user_intent(
         )?
     } else {
         // No filter: emit one intent per package (Test/Bench)
-        let intents: Vec<_> = affected_packages.map(UserIntent::Test).collect();
+        let intents: Vec<_> = affected_packages
+            .iter()
+            .copied()
+            .map(UserIntent::Test)
+            .collect();
         debug!(intent_count = intents.len(), "generated default intents");
         return Ok(intents.into());
     };
@@ -1207,19 +1174,29 @@ pub(crate) fn run_test_or_bench_internal_legacy(
             .collect();
 
         let mut final_set = indexmap::IndexSet::new();
+        let mut missing = Vec::new();
         for needle in filter_package {
             if all_packages.contains(&needle.as_str()) {
-                // exact matching
                 final_set.insert(needle.to_string());
-            } else {
-                let xs = moonutil::fuzzy_match::fuzzy_match(
-                    needle.as_str(),
-                    all_packages.iter().copied(),
-                );
-                if let Some(xs) = xs {
-                    final_set.extend(xs);
-                }
+                continue;
             }
+
+            match moonutil::fuzzy_match::fuzzy_match(needle.as_str(), all_packages.iter().copied())
+            {
+                Some(xs) if !xs.is_empty() => final_set.extend(xs),
+                _ => missing.push(needle.to_string()),
+            }
+        }
+
+        if let Some(missing_name) = missing.first() {
+            bail!(
+                "package `{}` not found, make sure you have spelled it correctly, e.g. `moonbitlang/core/hashmap`(exact match) or `hashmap`(fuzzy match)",
+                missing_name
+            );
+        }
+
+        if final_set.is_empty() {
+            bail!("package filter resolved to no packages");
         }
 
         if let Some(file_filter) = moonbuild_opt
