@@ -11,10 +11,8 @@ test_cases::dummy_core::test_dummy_core
 test_cases::extra_flags::test_extra_flags
 test_cases::merge_doc_test_and_md_test
 test_cases::moon_coverage::test_moon_coverage_analyze_dry_run
-test_cases::moon_new::test_moon_new
 test_cases::moon_test::test_moon_test_hello_exec
 test_cases::moon_test::test_moon_test_hello_exec_fntest
-test_cases::moon_test::test_moon_test_with_local_dep
 test_cases::moon_test::test_pkg_source_in
 test_cases::moon_test_target_js_panic_with_sourcemap
 test_cases::moon_test_with_failure_json
