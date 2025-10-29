@@ -19,7 +19,7 @@ test "C" {
   println("test C")
 }
 
-test "D" (it: @test.T) {
+test "D" (it: @test.Test) {
   it.writeln("test D")
   it.snapshot!(filename = "test.d")
 }

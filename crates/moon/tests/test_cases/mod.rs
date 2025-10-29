@@ -2278,7 +2278,7 @@ fn test_snapshot_test() {
               inspect("b", content="b")
             }
 
-            test "test snapshot 1" (it : @test.T) {
+            test "test snapshot 1" (it : @test.Test) {
               it.writeln("hello")
               it.writeln("snapshot")
               it.writeln("testing")
@@ -2290,7 +2290,7 @@ fn test_snapshot_test() {
               inspect("d", content="d")
             }
 
-            test "test snapshot 2" (it : @test.T) {
+            test "test snapshot 2" (it : @test.Test) {
               it.writeln("should")
               it.writeln("be")
               it.writeln("work")
@@ -2404,7 +2404,7 @@ fn test_snapshot_test_target_js() {
               inspect("b", content="b")
             }
 
-            test "test snapshot 1" (it : @test.T) {
+            test "test snapshot 1" (it : @test.Test) {
               it.writeln("hello")
               it.writeln("snapshot")
               it.writeln("testing")
@@ -2416,7 +2416,7 @@ fn test_snapshot_test_target_js() {
               inspect("d", content="d")
             }
 
-            test "test snapshot 2" (it : @test.T) {
+            test "test snapshot 2" (it : @test.Test) {
               it.writeln("should")
               it.writeln("be")
               it.writeln("work")
