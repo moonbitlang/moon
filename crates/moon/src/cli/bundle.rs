@@ -54,6 +54,9 @@ pub struct BundleSubcommand {
 
 #[instrument(skip_all)]
 pub fn run_bundle(cli: UniversalFlags, cmd: BundleSubcommand) -> anyhow::Result<i32> {
+    let mut cmd = cmd;
+    cmd.build_flags.default_to_release(true);
+
     let PackageDirs {
         source_dir,
         target_dir,

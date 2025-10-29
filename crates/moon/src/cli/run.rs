@@ -34,7 +34,7 @@ use moonutil::common::TargetBackend;
 use moonutil::common::TestArtifacts;
 use moonutil::common::lower_surface_targets;
 use moonutil::common::{MoonbuildOpt, OutputFormat};
-use moonutil::cond_expr::OptLevel::Release;
+use moonutil::cond_expr::OptLevel;
 use moonutil::dirs::PackageDirs;
 use moonutil::dirs::check_moon_pkg_exist;
 use moonutil::dirs::mk_arch_mode_dir;
@@ -77,6 +77,9 @@ pub struct RunSubcommand {
 
 #[instrument(skip_all)]
 pub fn run_run(cli: &UniversalFlags, cmd: RunSubcommand) -> anyhow::Result<i32> {
+    let mut cmd = cmd;
+    cmd.build_flags.default_to_release(false);
+
     if let Some(surface_targets) = &cmd.build_flags.target {
         for st in surface_targets.iter() {
             if *st == SurfaceTarget::All {
@@ -112,7 +115,7 @@ fn run_single_mbt_file(cli: &UniversalFlags, cmd: RunSubcommand) -> anyhow::Resu
 
     let file_name = mbt_file_path.file_stem().unwrap().to_str().unwrap();
 
-    let target_backend = lower_surface_targets(&cmd.build_flags.target.unwrap_or_default())
+    let target_backend = lower_surface_targets(&cmd.build_flags.target.clone().unwrap_or_default())
         .first()
         .map_or(TargetBackend::default(), |it| *it);
     let core_bundle_path = moonutil::moon_dir::core_bundle(target_backend);
@@ -127,6 +130,9 @@ fn run_single_mbt_file(cli: &UniversalFlags, cmd: RunSubcommand) -> anyhow::Resu
     let output_wasm_or_js_path =
         output_artifact_path.join(format!("{}.{}", file_name, target_backend.to_artifact()));
 
+    let release_build = cmd.build_flags.release;
+    let keep_debug = !cmd.build_flags.strip();
+
     let pkg_name = "moon/run/single";
     let mut build_package_command = vec![
         "build-package".to_string(),
@@ -138,12 +144,16 @@ fn run_single_mbt_file(cli: &UniversalFlags, cmd: RunSubcommand) -> anyhow::Resu
         "-is-main".to_string(),
         "-pkg".to_string(),
         pkg_name.to_string(),
-        "-g".to_string(),
-        "-O0".to_string(),
-        "-source-map".to_string(),
         "-target".to_string(),
         target_backend.to_flag().to_string(),
     ];
+    if keep_debug {
+        build_package_command.push("-g".to_string());
+        build_package_command.push("-source-map".to_string());
+    }
+    if !release_build {
+        build_package_command.push("-O0".to_string());
+    }
     if cmd.build_flags.enable_value_tracing {
         build_package_command.push("-enable-value-tracing".to_string());
     }
@@ -166,12 +176,16 @@ fn run_single_mbt_file(cli: &UniversalFlags, cmd: RunSubcommand) -> anyhow::Resu
             MOONBITLANG_CORE,
             moonutil::moon_dir::core().display()
         ),
-        "-g".to_string(),
-        "-O0".to_string(),
-        "-source-map".to_string(),
         "-target".to_string(),
         target_backend.to_flag().to_string(),
     ];
+    if keep_debug {
+        link_core_command.push("-g".to_string());
+        link_core_command.push("-source-map".to_string());
+    }
+    if !release_build {
+        link_core_command.push("-O0".to_string());
+    }
 
     let cc_default = moonutil::compiler_flags::CC::default();
     if cc_default.is_msvc() && target_backend == TargetBackend::LLVM {
@@ -209,7 +223,7 @@ fn run_single_mbt_file(cli: &UniversalFlags, cmd: RunSubcommand) -> anyhow::Resu
                 .no_sys_header(true)
                 .output_ty(moonutil::compiler_flags::OutputType::Executable)
                 .opt_level(moonutil::compiler_flags::OptLevel::None)
-                .debug_info(false)
+                .debug_info(keep_debug)
                 .link_moonbitrun(false) // if use tcc, we cannot link moonbitrun
                 .define_use_shared_runtime_macro(false)
                 .build()
@@ -347,7 +361,7 @@ fn run_run_rr(cli: &UniversalFlags, cmd: RunSubcommand) -> Result<i32, anyhow::E
         cli,
         &cmd.build_flags,
         &target_dir,
-        Release,
+        OptLevel::Debug,
         RunMode::Run,
     );
     let (build_meta, build_graph) = rr_build::plan_build(

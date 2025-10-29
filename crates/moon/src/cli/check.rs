@@ -116,10 +116,13 @@ fn run_check_internal(
     source_dir: &Path,
     target_dir: &Path,
 ) -> anyhow::Result<i32> {
+    let mut cmd = cmd.clone();
+    cmd.build_flags.default_to_release(false);
+
     if cmd.single_file.is_some() {
-        run_check_for_single_file(cli, cmd)
+        run_check_for_single_file(cli, &cmd)
     } else {
-        run_check_normal_internal(cli, cmd, source_dir, target_dir)
+        run_check_normal_internal(cli, &cmd, source_dir, target_dir)
     }
 }
 
@@ -145,11 +148,13 @@ fn run_check_for_single_file(cli: &UniversalFlags, cmd: &CheckSubcommand) -> any
             .unwrap_or(TargetBackend::WasmGC)
     };
 
-    let release_flag = !cmd.build_flags.debug;
+    let release_build = cmd.build_flags.release;
+    let strip_flag = cmd.build_flags.strip();
+    let keep_debug = !strip_flag;
 
     let target_dir = raw_target_dir
         .join(target_backend.to_dir_name())
-        .join(if release_flag { "release" } else { "debug" })
+        .join(if release_build { "release" } else { "debug" })
         .join(RunMode::Check.to_dir_name());
 
     let moonbuild_opt = MoonbuildOpt {
@@ -180,9 +185,9 @@ fn run_check_for_single_file(cli: &UniversalFlags, cmd: &CheckSubcommand) -> any
     };
     let moonc_opt = MooncOpt {
         build_opt: moonutil::common::BuildPackageFlags {
-            debug_flag: !release_flag,
-            strip_flag: false,
-            source_map: false,
+            debug_flag: keep_debug,
+            strip_flag,
+            source_map: keep_debug,
             enable_coverage: false,
             deny_warn: false,
             target_backend,
@@ -191,8 +196,8 @@ fn run_check_for_single_file(cli: &UniversalFlags, cmd: &CheckSubcommand) -> any
             enable_value_tracing: cmd.build_flags.enable_value_tracing,
         },
         link_opt: moonutil::common::LinkCoreFlags {
-            debug_flag: !release_flag,
-            source_map: !release_flag,
+            debug_flag: keep_debug,
+            source_map: keep_debug,
             output_format: match target_backend {
                 TargetBackend::Js => OutputFormat::Js,
                 TargetBackend::Native => OutputFormat::Native,
@@ -258,7 +263,7 @@ fn run_check_normal_internal_rr(
         cli,
         &cmd.build_flags,
         target_dir,
-        moonutil::cond_expr::OptLevel::Release,
+        moonutil::cond_expr::OptLevel::Debug,
         RunMode::Check,
     );
     preconfig.moonc_output_json |= cmd.output_json;

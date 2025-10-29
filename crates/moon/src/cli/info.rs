@@ -93,12 +93,13 @@ pub fn run_info_rr(cli: UniversalFlags, cmd: InfoSubcommand) -> anyhow::Result<i
         target_dir,
     } = cli.source_tgt_dir.try_into_package_dirs()?;
 
+    let flags = BuildFlags::default_debug();
     let mut preconfig = rr_build::preconfig_compile(
         &cmd.auto_sync_flags,
         &cli,
-        &BuildFlags::default(),
+        &flags,
         &target_dir,
-        OptLevel::Release,
+        OptLevel::Debug,
         RunMode::Build,
     );
     preconfig.info_no_alias = cmd.no_alias;
