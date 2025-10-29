@@ -3130,7 +3130,7 @@ fn test_moon_package_list() {
         get_stderr(&dir, ["package", "--list"]),
         expect![[r#"
             Running moon check ...
-            Finished. moon: ran 3 tasks, now up to date
+            Finished. moon: ran 4 tasks, now up to date
             Check passed
             README.md
             moon.mod.json
