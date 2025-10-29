@@ -43,7 +43,7 @@ use tracing::warn;
 
 use crate::{
     cli::BuildFlags,
-    filter::{canonicalize_with_filename, filter_pkg_by_dir, match_packages_by_name_rr},
+    filter::{canonicalize_with_filename, filter_pkg_by_dir, match_packages_with_fuzzy},
     rr_build::{self, BuildConfig, BuildMeta, CalcUserIntentOutput},
 };
 
@@ -179,8 +179,13 @@ pub fn run_info_rr_internal(
         &cli.unstable_feature,
         &source_dir,
         &target_dir,
-        Box::new(move |r, m| {
-            calc_user_intent(package_filter.as_deref(), path_filter.as_deref(), r, m)
+        Box::new(move |resolve_output, main_modules| {
+            calc_user_intent(
+                package_filter.as_deref(),
+                path_filter.as_deref(),
+                resolve_output,
+                main_modules,
+            )
         }),
     )?;
 
@@ -201,34 +206,45 @@ fn calc_user_intent(
         panic!("No multiple main modules are supported");
     };
 
+    let packages = resolve_output
+        .pkg_dirs
+        .packages_for_module(main_module_id)
+        .ok_or_else(|| anyhow::anyhow!("Cannot find the local module!"))?;
+    let package_ids: Vec<_> = packages.values().copied().collect();
+
     let intents = if let Some(path) = path_filter {
         // Path filter: resolve a specific file/directory to its containing package
         let (dir, _) = canonicalize_with_filename(path)?;
         let pkg = filter_pkg_by_dir(resolve_output, &dir)?;
         vec![UserIntent::Info(pkg)]
     } else if let Some(filter) = package_filter {
-        // Package filter: fuzzy match package names
-        let matched = match_packages_by_name_rr(resolve_output, main_modules, filter);
-        if matched.is_empty() {
+        let matches = match_packages_with_fuzzy(
+            resolve_output,
+            package_ids.iter().copied(),
+            std::iter::once(filter),
+        );
+
+        if matches.matched.is_empty() {
             bail!(
-                "package `{}` not found, make sure you have spelled it correctly",
+                "package `{}` not found, make sure you have spelled it correctly, e.g. `moonbitlang/core/hashmap`(exact match) or `hashmap`(fuzzy match)",
                 filter
             );
         }
-        matched
+        if !matches.missing.is_empty() {
+            for missing in matches.missing {
+                warn!("Input `{}` did not match any package", missing);
+            }
+        }
+
+        matches
+            .matched
             .into_iter()
             .map(UserIntent::Info)
             .collect::<Vec<_>>()
     } else {
-        // No filter: generate info for all packages in the module
-        resolve_output
-            .pkg_dirs
-            .packages_for_module(main_module_id)
-            .ok_or_else(|| anyhow::anyhow!("Cannot find the local module!"))?
-            .values()
-            .map(|package_id| UserIntent::Info(*package_id))
-            .collect()
+        package_ids.into_iter().map(UserIntent::Info).collect()
     };
+
     Ok(intents.into())
 }
 
