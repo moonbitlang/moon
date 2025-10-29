@@ -17,14 +17,14 @@ fn test_output_format() {
         .success();
     assert!(
         dir.join(format!(
-            "target/{}/release/build/main/main.wasm",
+            "target/{}/debug/build/main/main.wasm",
             TargetBackend::default().to_backend_ext()
         ))
         .exists()
     );
     assert!(
         !dir.join(format!(
-            "target/{}/release/build/main/main.wat",
+            "target/{}/debug/build/main/main.wat",
             TargetBackend::default().to_backend_ext()
         ))
         .exists()
@@ -43,14 +43,14 @@ fn test_output_format() {
         .success();
     assert!(
         dir.join(format!(
-            "target/{}/release/build/main/main.wat",
+            "target/{}/debug/build/main/main.wat",
             TargetBackend::default().to_backend_ext()
         ))
         .exists()
     );
     assert!(
         !dir.join(format!(
-            "target/{}/release/build/main/main.wasm",
+            "target/{}/debug/build/main/main.wasm",
             TargetBackend::default().to_backend_ext()
         ))
         .exists()
@@ -69,14 +69,14 @@ fn test_output_format() {
         .success();
     assert!(
         !dir.join(format!(
-            "target/{}/release/build/main/main.wat",
+            "target/{}/debug/build/main/main.wat",
             TargetBackend::default().to_backend_ext()
         ))
         .exists()
     );
     assert!(
         dir.join(format!(
-            "target/{}/release/build/main/main.wasm",
+            "target/{}/debug/build/main/main.wasm",
             TargetBackend::default().to_backend_ext()
         ))
         .exists()

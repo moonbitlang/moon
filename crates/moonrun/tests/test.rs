@@ -99,7 +99,7 @@ fn test_moonrun_wasm_stack_trace() {
         .assert()
         .success();
 
-    let main_wasm = dir.join("target/wasm-gc/release/build/main/main.wasm");
+    let main_wasm = dir.join("target/wasm-gc/debug/build/main/main.wasm");
 
     let out = snapbox::cmd::Command::new(snapbox::cmd::cargo_bin("moonrun"))
         .arg(&main_wasm)
@@ -113,8 +113,8 @@ fn test_moonrun_wasm_stack_trace() {
         &s,
         expect![[r#"
             RuntimeError: unreachable
-                at wasm://wasm/6bf44e26:wasm-function[1]:0x87
-                at wasm://wasm/6bf44e26:wasm-function[2]:0x93
+                at moonbitlang/core/abort.abort|Unit| (wasm://wasm/2cf5837e:wasm-function[1]:0x87)
+                at *main*/1 (wasm://wasm/2cf5837e:wasm-function[2]:0x93)
         "#]],
     );
 
@@ -145,7 +145,7 @@ fn test_moon_run_with_cli_args() {
         .assert()
         .success();
 
-    let wasm_file = dir.join("target/wasm-gc/release/build/main/main.wasm");
+    let wasm_file = dir.join("target/wasm-gc/debug/build/main/main.wasm");
 
     // `argv` passed to CLI is:
     // <wasm_file> <...rest argv to moonrun>
@@ -206,7 +206,7 @@ fn test_moon_run_with_read_bytes_from_stdin() {
         .assert()
         .success();
 
-    let wasm_file = dir.join("target/wasm-gc/release/build/main/main.wasm");
+    let wasm_file = dir.join("target/wasm-gc/debug/build/main/main.wasm");
 
     let out = snapbox::cmd::Command::new(snapbox::cmd::cargo_bin("moonrun"))
         .arg(&wasm_file)

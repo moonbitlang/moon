@@ -34,14 +34,14 @@ fn test_many_targets() {
             ],
         ),
         expect![[r#"
-            moonc check ./link/hello.mbt -o ./target/wasm/release/check/link/link.mi -pkg username/hello/link -pkg-sources username/hello/link:./link -target wasm -workspace-path .
-            moonc check -doctest-only ./link/hello.mbt -include-doctests -o ./target/wasm/release/check/link/link.blackbox_test.mi -pkg username/hello/link_blackbox_test -i ./target/wasm/release/check/link/link.mi:link -pkg-sources username/hello/link_blackbox_test:./link -target wasm -blackbox-test -workspace-path .
-            moonc check ./lib/hello.mbt -o ./target/wasm/release/check/lib/lib.mi -pkg username/hello/lib -pkg-sources username/hello/lib:./lib -target wasm -workspace-path .
-            moonc check -doctest-only ./lib/hello.mbt -include-doctests -o ./target/wasm/release/check/lib/lib.blackbox_test.mi -pkg username/hello/lib_blackbox_test -i ./target/wasm/release/check/lib/lib.mi:lib -pkg-sources username/hello/lib_blackbox_test:./lib -target wasm -blackbox-test -workspace-path .
-            moonc check ./link/hello.mbt -o ./target/js/release/check/link/link.mi -pkg username/hello/link -pkg-sources username/hello/link:./link -target js -workspace-path .
-            moonc check -doctest-only ./link/hello.mbt -include-doctests -o ./target/js/release/check/link/link.blackbox_test.mi -pkg username/hello/link_blackbox_test -i ./target/js/release/check/link/link.mi:link -pkg-sources username/hello/link_blackbox_test:./link -target js -blackbox-test -workspace-path .
-            moonc check ./lib/hello.mbt -o ./target/js/release/check/lib/lib.mi -pkg username/hello/lib -pkg-sources username/hello/lib:./lib -target js -workspace-path .
-            moonc check -doctest-only ./lib/hello.mbt -include-doctests -o ./target/js/release/check/lib/lib.blackbox_test.mi -pkg username/hello/lib_blackbox_test -i ./target/js/release/check/lib/lib.mi:lib -pkg-sources username/hello/lib_blackbox_test:./lib -target js -blackbox-test -workspace-path .
+            moonc check ./link/hello.mbt -o ./target/wasm/debug/check/link/link.mi -pkg username/hello/link -pkg-sources username/hello/link:./link -target wasm -workspace-path .
+            moonc check -doctest-only ./link/hello.mbt -include-doctests -o ./target/wasm/debug/check/link/link.blackbox_test.mi -pkg username/hello/link_blackbox_test -i ./target/wasm/debug/check/link/link.mi:link -pkg-sources username/hello/link_blackbox_test:./link -target wasm -blackbox-test -workspace-path .
+            moonc check ./lib/hello.mbt -o ./target/wasm/debug/check/lib/lib.mi -pkg username/hello/lib -pkg-sources username/hello/lib:./lib -target wasm -workspace-path .
+            moonc check -doctest-only ./lib/hello.mbt -include-doctests -o ./target/wasm/debug/check/lib/lib.blackbox_test.mi -pkg username/hello/lib_blackbox_test -i ./target/wasm/debug/check/lib/lib.mi:lib -pkg-sources username/hello/lib_blackbox_test:./lib -target wasm -blackbox-test -workspace-path .
+            moonc check ./link/hello.mbt -o ./target/js/debug/check/link/link.mi -pkg username/hello/link -pkg-sources username/hello/link:./link -target js -workspace-path .
+            moonc check -doctest-only ./link/hello.mbt -include-doctests -o ./target/js/debug/check/link/link.blackbox_test.mi -pkg username/hello/link_blackbox_test -i ./target/js/debug/check/link/link.mi:link -pkg-sources username/hello/link_blackbox_test:./link -target js -blackbox-test -workspace-path .
+            moonc check ./lib/hello.mbt -o ./target/js/debug/check/lib/lib.mi -pkg username/hello/lib -pkg-sources username/hello/lib:./lib -target js -workspace-path .
+            moonc check -doctest-only ./lib/hello.mbt -include-doctests -o ./target/js/debug/check/lib/lib.blackbox_test.mi -pkg username/hello/lib_blackbox_test -i ./target/js/debug/check/lib/lib.mi:lib -pkg-sources username/hello/lib_blackbox_test:./lib -target js -blackbox-test -workspace-path .
         "#]],
     );
 
@@ -59,10 +59,10 @@ fn test_many_targets() {
             ],
         ),
         expect![[r#"
-            moonc build-package ./link/hello.mbt -o ./target/wasm/release/build/link/link.core -pkg username/hello/link -pkg-sources username/hello/link:./link -target wasm -workspace-path .
-            moonc link-core ./target/wasm/release/build/link/link.core -main username/hello/link -o ./target/wasm/release/build/link/link.wasm -pkg-config-path ./link/moon.pkg.json -pkg-sources username/hello/link:./link -target wasm
-            moonc build-package ./link/hello.mbt -o ./target/js/release/build/link/link.core -pkg username/hello/link -pkg-sources username/hello/link:./link -target js -workspace-path .
-            moonc link-core ./target/js/release/build/link/link.core -main username/hello/link -o ./target/js/release/build/link/link.js -pkg-config-path ./link/moon.pkg.json -pkg-sources username/hello/link:./link -target js
+            moonc build-package ./link/hello.mbt -o ./target/wasm/debug/build/link/link.core -pkg username/hello/link -pkg-sources username/hello/link:./link -target wasm -g -O0 -workspace-path .
+            moonc link-core ./target/wasm/debug/build/link/link.core -main username/hello/link -o ./target/wasm/debug/build/link/link.wasm -pkg-config-path ./link/moon.pkg.json -pkg-sources username/hello/link:./link -target wasm -g -O0
+            moonc build-package ./link/hello.mbt -o ./target/js/debug/build/link/link.core -pkg username/hello/link -pkg-sources username/hello/link:./link -target js -g -O0 -source-map -workspace-path .
+            moonc link-core ./target/js/debug/build/link/link.core -main username/hello/link -o ./target/js/debug/build/link/link.js -pkg-config-path ./link/moon.pkg.json -pkg-sources username/hello/link:./link -target js -g -O0 -source-map
         "#]],
     );
 
@@ -80,11 +80,11 @@ fn test_many_targets() {
             ],
         ),
         expect![[r#"
-            moonc build-package ./link/hello.mbt -o ./target/wasm/release/bundle/link/link.core -pkg username/hello/link -pkg-sources username/hello/link:./link -target wasm
-            moonc build-package ./lib/hello.mbt -o ./target/wasm/release/bundle/lib/lib.core -pkg username/hello/lib -pkg-sources username/hello/lib:./lib -target wasm
+            moonc build-package ./link/hello.mbt -o ./target/wasm/release/bundle/link/link.core -pkg username/hello/link -pkg-sources username/hello/link:./link -target wasm -g
+            moonc build-package ./lib/hello.mbt -o ./target/wasm/release/bundle/lib/lib.core -pkg username/hello/lib -pkg-sources username/hello/lib:./lib -target wasm -g
             moonc bundle-core ./target/wasm/release/bundle/lib/lib.core ./target/wasm/release/bundle/link/link.core -o ./target/wasm/release/bundle/hello.core
-            moonc build-package ./link/hello.mbt -o ./target/js/release/bundle/link/link.core -pkg username/hello/link -pkg-sources username/hello/link:./link -target js
-            moonc build-package ./lib/hello.mbt -o ./target/js/release/bundle/lib/lib.core -pkg username/hello/lib -pkg-sources username/hello/lib:./lib -target js
+            moonc build-package ./link/hello.mbt -o ./target/js/release/bundle/link/link.core -pkg username/hello/link -pkg-sources username/hello/link:./link -target js -g -source-map
+            moonc build-package ./lib/hello.mbt -o ./target/js/release/bundle/lib/lib.core -pkg username/hello/lib -pkg-sources username/hello/lib:./lib -target js -g -source-map
             moonc bundle-core ./target/js/release/bundle/lib/lib.core ./target/js/release/bundle/link/link.core -o ./target/js/release/bundle/hello.core
         "#]],
     );
