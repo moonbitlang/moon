@@ -20,8 +20,10 @@
 //!
 //! This module contains the common path filtering logic for both legacy and RR backends.
 
-use std::collections::HashMap;
-use std::path::{Path, PathBuf};
+use std::{
+    collections::{HashMap, HashSet},
+    path::{Path, PathBuf},
+};
 
 use anyhow::Context;
 use moonbuild_rupes_recta::{ResolveOutput, model::PackageId};
@@ -218,4 +220,66 @@ pub fn report_package_not_found(
         input_path.display(),
         hint
     )
+}
+
+#[derive(Debug, Default)]
+pub struct PackageMatchResult {
+    pub matched: Vec<PackageId>,
+    pub missing: Vec<String>,
+}
+
+/// Match package names with exact or fuzzy lookup, returning the corresponding package IDs.
+///
+/// Candidates are provided as a list of package IDs that belong to the current module. Names are
+/// matched by their fully qualified names, preferring exact matches and falling back to fuzzy
+/// suggestions. Results are deduplicated while preserving the order returned by the matcher.
+pub fn match_packages_with_fuzzy<I, S>(
+    resolve_output: &ResolveOutput,
+    candidates: impl IntoIterator<Item = PackageId>,
+    names: I,
+) -> PackageMatchResult
+where
+    I: IntoIterator<Item = S>,
+    S: AsRef<str>,
+{
+    let mut name_map = HashMap::new();
+    for pkg_id in candidates {
+        let pkg = resolve_output.pkg_dirs.get_package(pkg_id);
+        name_map.insert(pkg.fqn.to_string(), pkg_id);
+    }
+
+    let mut matched = Vec::new();
+    let mut missing = Vec::new();
+    let mut seen = HashSet::new();
+
+    for name in names.into_iter() {
+        let needle = name.as_ref();
+        if let Some(&pkg_id) = name_map.get(needle) {
+            if seen.insert(pkg_id) {
+                matched.push(pkg_id);
+            }
+            continue;
+        }
+
+        let haystack = name_map.keys().map(|k| k.as_str());
+        match moonutil::fuzzy_match::fuzzy_match(needle, haystack) {
+            Some(candidates) => {
+                let mut found = false;
+                for candidate in candidates {
+                    if let Some(&pkg_id) = name_map.get(&candidate) {
+                        if seen.insert(pkg_id) {
+                            matched.push(pkg_id);
+                        }
+                        found = true;
+                    }
+                }
+                if !found {
+                    missing.push(needle.to_owned());
+                }
+            }
+            None => missing.push(needle.to_owned()),
+        }
+    }
+
+    PackageMatchResult { matched, missing }
 }
