@@ -31,7 +31,7 @@ impl BuildGraphDump {
     pub fn dump_to(&self, out: impl Write) -> anyhow::Result<()> {
         let mut writer = std::io::BufWriter::new(out);
         for node in &self.nodes {
-            serde_json_lenient::to_writer(&mut writer, node)?;
+            serde_json::to_writer(&mut writer, node)?;
             writeln!(&mut writer)?;
         }
         Ok(())
@@ -45,7 +45,7 @@ impl BuildGraphDump {
         let mut nodes = vec![];
         for line in reader.lines() {
             let line = line?;
-            let node: BuildNode = serde_json_lenient::from_str(&line)?;
+            let node: BuildNode = serde_json::from_str(&line)?;
             nodes.push(node);
         }
         Ok(BuildGraphDump { nodes })

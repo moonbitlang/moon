@@ -1595,6 +1595,12 @@ dependencies = [
 [[package]]
 name = "moonbuild-debug"
 version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "n2",
+ "serde",
+ "serde_json",
+]
 
 [[package]]
 name = "moonbuild-rupes-recta"
