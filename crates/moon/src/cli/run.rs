@@ -354,7 +354,7 @@ fn run_run_rr(cli: &UniversalFlags, cmd: RunSubcommand) -> Result<i32, anyhow::E
         &cli.unstable_feature,
         &source_dir,
         &target_dir,
-        Box::new(|r, m| calc_user_intent(&input_path, r, m)),
+        Box::new(|r, m| calc_user_intent(&input_path, &source_dir, r, m)),
     )?;
     if cli.dry_run {
         // Print build commands
@@ -434,10 +434,30 @@ fn get_run_cmd(
 #[instrument(level = Level::DEBUG, skip_all)]
 fn calc_user_intent(
     input_path: &str,
+    source_dir: &Path,
     resolve_output: &moonbuild_rupes_recta::ResolveOutput,
     _main_modules: &[moonutil::mooncakes::ModuleId],
 ) -> Result<CalcUserIntentOutput, anyhow::Error> {
-    let (dir, _filename) = crate::filter::canonicalize_with_filename(Path::new(input_path))?;
+    // The legacy impl says the input path is based on `source_dir`, while
+    // if we want to match the behavior of other commands we need it to be based
+    // on current dir. We temporarily accept both behaviors here.
+    // TODO: Decide on one behavior and remove the other.
+    let (dir, _filename) = match crate::filter::canonicalize_with_filename(Path::new(input_path)) {
+        Ok((dir, filename)) => (dir, filename),
+        Err(e) => {
+            let backup_path = source_dir.join(input_path);
+            crate::filter::canonicalize_with_filename(&backup_path).map_err(|e2| {
+                anyhow::anyhow!(
+                    "Failed to canonicalize input path based on current working directory: {}\n\
+                    Also failed to canonicalize based on source directory `{}`: {}\n\
+                    Please make sure the path exists.",
+                    e,
+                    source_dir.display(),
+                    e2
+                )
+            })?
+        }
+    };
     let pkg = crate::filter::filter_pkg_by_dir(resolve_output, &dir)?;
     Ok(vec![UserIntent::Run(pkg)].into())
 }
