@@ -42,6 +42,7 @@ use tracing::warn;
 
 use crate::{
     cli::BuildFlags,
+    filter::match_packages_with_fuzzy,
     rr_build::{self, BuildConfig, CalcUserIntentOutput},
 };
 
@@ -107,7 +108,10 @@ pub fn run_info_rr(cli: UniversalFlags, cmd: InfoSubcommand) -> anyhow::Result<i
         &cli.unstable_feature,
         &source_dir,
         &target_dir,
-        Box::new(calc_user_intent),
+        Box::new(move |resolve_output, main_modules| {
+            let package_filter = cmd.package.as_deref();
+            calc_user_intent(resolve_output, main_modules, package_filter)
+        }),
     )?;
 
     if cli.dry_run {
@@ -129,6 +133,7 @@ pub fn run_info_rr(cli: UniversalFlags, cmd: InfoSubcommand) -> anyhow::Result<i
 fn calc_user_intent(
     resolve_output: &moonbuild_rupes_recta::ResolveOutput,
     main_modules: &[moonutil::mooncakes::ModuleId],
+    package_filter: Option<&str>,
 ) -> Result<CalcUserIntentOutput, anyhow::Error> {
     let &[main_module_id] = main_modules else {
         panic!("No multiple main modules are supported");
@@ -138,11 +143,32 @@ fn calc_user_intent(
         .pkg_dirs
         .packages_for_module(main_module_id)
         .ok_or_else(|| anyhow::anyhow!("Cannot find the local module!"))?;
-    let res: Vec<_> = packages
-        .values()
-        .map(|package_id| UserIntent::Info(*package_id))
-        .collect();
-    Ok(res.into())
+    let package_ids: Vec<_> = packages.values().copied().collect();
+
+    let intents = if let Some(filter) = package_filter {
+        let matches = match_packages_with_fuzzy(
+            resolve_output,
+            package_ids.iter().copied(),
+            std::iter::once(filter),
+        );
+
+        if matches.matched.is_empty() {
+            bail!(
+                "package `{}` not found, make sure you have spelled it correctly, e.g. `moonbitlang/core/hashmap`(exact match) or `hashmap`(fuzzy match)",
+                filter
+            );
+        }
+
+        matches
+            .matched
+            .into_iter()
+            .map(UserIntent::Info)
+            .collect::<Vec<_>>()
+    } else {
+        package_ids.into_iter().map(UserIntent::Info).collect()
+    };
+
+    Ok(intents.into())
 }
 
 pub fn run_info_legacy(cli: UniversalFlags, cmd: InfoSubcommand) -> anyhow::Result<i32> {
