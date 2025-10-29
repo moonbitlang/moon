@@ -19,7 +19,7 @@
 use anyhow::Context;
 use anyhow::bail;
 use colored::Colorize;
-use indexmap::IndexMap;
+use indexmap::{IndexMap, IndexSet};
 use moonbuild::dry_run;
 use moonbuild::entry;
 use moonbuild_rupes_recta::build_plan::InputDirective;
@@ -396,6 +396,7 @@ pub fn get_module_for_single_file(
                 IndexMap::new()
             },
             files_contain_test_block: vec![single_file_path.to_path_buf()],
+            formatter_ignore: IndexSet::new(),
             with_sub_package: None,
             is_sub_package: false,
             imports: vec![],

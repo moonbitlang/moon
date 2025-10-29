@@ -25,7 +25,7 @@ use crate::path::PathComponent;
 use anyhow::{Context, bail};
 use clap::ValueEnum;
 use fs4::fs_std::FileExt;
-use indexmap::IndexMap;
+use indexmap::{IndexMap, IndexSet};
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 use std::ffi::OsStr;
@@ -1152,6 +1152,7 @@ pub fn gen_moonbitlang_abort_pkg(moonc_opt: &MooncOpt) -> Package {
         test_files: IndexMap::new(),
         mbt_md_files: IndexMap::new(),
         files_contain_test_block: vec![],
+        formatter_ignore: IndexSet::new(),
         with_sub_package: None,
         is_sub_package: false,
         imports: vec![],

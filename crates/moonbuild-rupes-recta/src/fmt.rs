@@ -140,10 +140,34 @@ fn build_for_package(
     layout: &LegacyLayout,
     pkg: &DiscoveredPackage,
 ) -> anyhow::Result<()> {
+    let ignore_set = &pkg.raw.formatter.ignore;
+
     for file in &pkg.source_files {
+        if file
+            .file_name()
+            .and_then(|name| name.to_str())
+            .is_some_and(|name| ignore_set.contains(name))
+        {
+            debug!(
+                "Skipping formatter input {} due to formatter.ignore",
+                file.display()
+            );
+            continue;
+        }
         format_node(graph, cfg, layout, pkg, file)?;
     }
     for file in &pkg.mbt_md_files {
+        if file
+            .file_name()
+            .and_then(|name| name.to_str())
+            .is_some_and(|name| ignore_set.contains(name))
+        {
+            debug!(
+                "Skipping formatter input {} due to formatter.ignore",
+                file.display()
+            );
+            continue;
+        }
         format_node(graph, cfg, layout, pkg, file)?;
     }
     Ok(())

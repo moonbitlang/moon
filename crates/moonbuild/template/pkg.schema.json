@@ -23,6 +23,16 @@
         "null"
       ]
     },
+    "formatter": {
+      "anyOf": [
+        {
+          "$ref": "#/definitions/MoonPkgFormatterJSON"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
     "implement": {
       "type": [
         "string",
@@ -253,6 +263,21 @@
               "type": "null"
             }
           ]
+        }
+      }
+    },
+    "MoonPkgFormatterJSON": {
+      "type": "object",
+      "properties": {
+        "ignore": {
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": {
+            "type": "string"
+          },
+          "uniqueItems": true
         }
       }
     },
