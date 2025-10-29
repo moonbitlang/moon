@@ -266,7 +266,16 @@ impl BuildFlags {
     }
 
     pub fn strip(&self) -> bool {
-        self.strip
+        if self.strip {
+            true
+        } else {
+            // `--no-strip` has no effect now
+            false
+        }
+    }
+
+    pub fn keep_debug_info(&self) -> bool {
+        !self.strip()
     }
 
     pub fn default_to_release(&mut self, default_release: bool) {
@@ -324,9 +333,10 @@ pub fn get_compiler_flags(src_dir: &Path, build_flags: &BuildFlags) -> anyhow::R
     };
 
     let strip_flag = build_flags.strip();
-    let debug_flag = !strip_flag;
+    let keep_debug = build_flags.keep_debug_info();
+    let debug_flag = build_flags.debug;
     let enable_coverage = build_flags.enable_coverage;
-    let source_map = debug_flag && target_backend.supports_source_map();
+    let source_map = keep_debug && target_backend.supports_source_map();
 
     let build_opt = BuildPackageFlags {
         debug_flag,
@@ -341,7 +351,7 @@ pub fn get_compiler_flags(src_dir: &Path, build_flags: &BuildFlags) -> anyhow::R
     };
 
     let link_opt = LinkCoreFlags {
-        debug_flag,
+        debug_flag: keep_debug,
         source_map,
         output_format,
         target_backend,

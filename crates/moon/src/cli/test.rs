@@ -310,7 +310,7 @@ fn run_test_in_single_file(cli: &UniversalFlags, cmd: &TestSubcommand) -> anyhow
     };
     let moonc_opt = MooncOpt {
         build_opt: moonutil::common::BuildPackageFlags {
-            debug_flag: keep_debug,
+            debug_flag: !release_build,
             strip_flag,
             source_map: keep_debug,
             enable_coverage: false,
@@ -1075,11 +1075,16 @@ pub(crate) fn run_test_or_bench_internal_legacy(
         ..build_flags.clone()
     };
     let mut moonc_opt = super::get_compiler_flags(source_dir, &compiler_flags)?;
+    let release_build = build_flags.release;
     let keep_debug_info = !build_flags.strip();
-    moonc_opt.build_opt.debug_flag = keep_debug_info;
+    moonc_opt.build_opt.debug_flag = !release_build;
     moonc_opt.build_opt.enable_value_tracing = build_flags.enable_value_tracing;
     moonc_opt.build_opt.strip_flag = build_flags.strip();
+    moonc_opt.build_opt.source_map =
+        keep_debug_info && moonc_opt.build_opt.target_backend.supports_source_map();
     moonc_opt.link_opt.debug_flag = keep_debug_info;
+    moonc_opt.link_opt.source_map =
+        keep_debug_info && moonc_opt.link_opt.target_backend.supports_source_map();
 
     // TODO: remove this once LLVM backend is well supported
     if moonc_opt.build_opt.target_backend == TargetBackend::LLVM {

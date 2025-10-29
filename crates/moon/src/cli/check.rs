@@ -185,7 +185,7 @@ fn run_check_for_single_file(cli: &UniversalFlags, cmd: &CheckSubcommand) -> any
     };
     let moonc_opt = MooncOpt {
         build_opt: moonutil::common::BuildPackageFlags {
-            debug_flag: keep_debug,
+            debug_flag: !release_build,
             strip_flag,
             source_map: keep_debug,
             enable_coverage: false,
