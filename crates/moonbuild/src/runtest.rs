@@ -29,6 +29,7 @@ use moonutil::common::{
 };
 use moonutil::module::ModuleDB;
 use moonutil::moon_dir::MOON_DIRS;
+use moonutil::platform::unix_with_sigchild_blocked;
 use n2::load::State;
 use serde::{Deserialize, Serialize};
 use std::{path::Path, process::Stdio};
@@ -153,12 +154,14 @@ async fn run(
         eprintln!("{:?}", subprocess.as_std());
     }
 
-    let mut execution = subprocess
-        .stdin(Stdio::null())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::inherit())
-        .spawn()
-        .with_context(|| format!("failed to execute: {:?}", subprocess))?;
+    let mut execution = unix_with_sigchild_blocked(|| {
+        subprocess
+            .stdin(Stdio::null())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::inherit())
+            .spawn()
+            .with_context(|| format!("failed to execute: {:?}", subprocess))
+    })?;
     let mut stdout = execution.stdout.take().unwrap();
 
     let mut test_capture =

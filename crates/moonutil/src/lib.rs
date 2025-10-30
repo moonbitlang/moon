@@ -37,6 +37,7 @@ pub mod mooncake_bin;
 pub mod mooncakes;
 pub mod package;
 pub mod path;
+pub mod platform;
 pub mod render;
 pub mod scan;
 pub mod version;
