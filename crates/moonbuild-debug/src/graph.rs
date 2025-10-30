@@ -18,7 +18,12 @@
 
 //! Test utilities
 
-use std::io::{BufRead, Write};
+use std::{
+    collections::HashSet,
+    io::{BufRead, Write},
+};
+
+use n2::graph::{BuildId, FileId};
 
 /// The in-memory format for dumping a `n2` build graph
 #[derive(Debug, serde::Deserialize, serde::Serialize)]
@@ -61,9 +66,44 @@ pub struct BuildNode {
 }
 
 /// Dump the `n2` build graph for debugging purposes
-pub fn debug_dump_build_graph(graph: &n2::graph::Graph) -> BuildGraphDump {
+pub fn debug_dump_build_graph(graph: &n2::graph::Graph, input_files: &[FileId]) -> BuildGraphDump {
+    let accessible_nodes = dfs_for_accessible_nodes(graph, input_files);
+    generate_from_nodes(graph, accessible_nodes)
+}
+
+fn dfs_for_accessible_nodes(graph: &n2::graph::Graph, start_files: &[FileId]) -> Vec<BuildId> {
+    let mut stack = Vec::<FileId>::new();
+    stack.extend_from_slice(start_files);
+    let mut visited_builds = HashSet::new();
+    let mut accessible_builds = vec![];
+
+    while let Some(fid) = stack.pop() {
+        let file = graph
+            .files
+            .by_id
+            .lookup(fid)
+            .expect("Unknown file in graph");
+        if let Some(bid) = file.input
+            && visited_builds.insert(bid)
+        {
+            let build = graph.builds.lookup(bid).expect("Unknown build in graph");
+            accessible_builds.push(bid);
+            for &in_fid in &build.ins.ids {
+                stack.push(in_fid);
+            }
+        }
+    }
+
+    accessible_builds
+}
+
+fn generate_from_nodes(
+    graph: &n2::graph::Graph,
+    accessible_nodes: impl IntoIterator<Item = BuildId>,
+) -> BuildGraphDump {
     let mut nodes = vec![];
-    for node in graph.builds.iter() {
+    for node in accessible_nodes {
+        let node = graph.builds.lookup(node).expect("Unknown build in graph");
         let command = node.cmdline.clone();
         let inputs = node
             .ins
