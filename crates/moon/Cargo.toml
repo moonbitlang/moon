@@ -69,10 +69,6 @@ tracing.workspace = true
 tracing-subscriber.workspace = true
 tracing-chrome.workspace = true
 
-
-[target.'cfg(not(windows))'.dependencies]
-openssl = { version = "0.10.66", features = ["vendored"] }
-
 [target."cfg(windows)".dependencies.windows-sys]
 features = ["Win32_Foundation", "Win32_System_Console"]
 version = "0.59.0"
