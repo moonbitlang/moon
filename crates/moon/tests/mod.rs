@@ -16,6 +16,7 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
+mod build_graph;
 mod cmd_test;
 mod dry_run_utils;
 mod test_cases;
