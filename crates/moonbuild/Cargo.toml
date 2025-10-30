@@ -28,6 +28,7 @@ rust-version.workspace = true
 arcstr.workspace = true
 moonutil.workspace = true
 mooncake.workspace = true
+moonbuild-debug.workspace = true
 n2.workspace = true
 clap.workspace = true
 serde.workspace = true

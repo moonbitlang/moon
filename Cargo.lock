@@ -1567,6 +1567,7 @@ dependencies = [
  "json-structural-diff",
  "line-index",
  "log",
+ "moonbuild-debug",
  "mooncake",
  "moonutil",
  "n2",

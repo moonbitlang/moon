@@ -19,18 +19,23 @@
 //! Utilities for testing with build graphs
 
 use std::{
+    borrow::Cow,
     collections::{BTreeMap, BTreeSet},
     fmt::Write as _,
     path::Path,
 };
 
-use moonbuild_debug::graph::{BuildGraphDump, BuildNode};
+use colored::Colorize;
+use moonbuild_debug::graph::BuildGraphDump;
+use similar::DiffTag;
+
+const ALGORITHM: similar::Algorithm = similar::Algorithm::Patience;
 
 /// Trait for various snapshot types, since we have both [`expect_test::Expect`]
 /// and [`expect_test::ExpectFile`] to handle.
-trait IExpect {
+pub trait IExpect {
     /// The data of the snapshot
-    fn data(&self) -> &str;
+    fn data(&self) -> Cow<'_, str>;
     /// If we feed new data, can we update the snapshot?
     fn can_update(&self) -> bool;
     /// Update the snapshot with new data
@@ -38,8 +43,8 @@ trait IExpect {
 }
 
 impl IExpect for expect_test::Expect {
-    fn data(&self) -> &str {
-        self.data()
+    fn data(&self) -> Cow<'_, str> {
+        Cow::Borrowed(self.data())
     }
 
     fn can_update(&self) -> bool {
@@ -51,6 +56,21 @@ impl IExpect for expect_test::Expect {
     }
 }
 
+impl IExpect for expect_test::ExpectFile {
+    fn data(&self) -> Cow<'_, str> {
+        Cow::Owned(self.data())
+    }
+
+    fn can_update(&self) -> bool {
+        std::env::var("UPDATE_EXPECT").is_ok_and(|x| x == "1")
+    }
+
+    fn update(self, new_data: &str) {
+        self.assert_eq(new_data);
+    }
+}
+
+#[track_caller]
 pub fn compare_graphs(actual: &Path, expected: impl IExpect) {
     let actual_file = std::fs::File::open(actual).expect("Failed to open actual graph output file");
     let actual_graph = BuildGraphDump::read_from(actual_file).expect("Failed to read actual graph");
@@ -69,36 +89,43 @@ pub fn compare_graphs(actual: &Path, expected: impl IExpect) {
         }
     };
 
-    match compare_graphs_inner(&actual_graph, &expected_graph) {
-        Ok(()) => {}
-        Err(diff) => {
-            if expected.can_update() {
-                println!("Graph snapshot differs, updating...\n{diff}");
-                let mut actual_graph_s = Vec::<u8>::new();
-                actual_graph
-                    .dump_to(&mut actual_graph_s)
-                    .expect("Failed to write actual graph");
-                let actual_graph_str =
-                    String::from_utf8(actual_graph_s).expect("Graph dump is not valid UTF-8");
-                expected.update(&actual_graph_str);
-            } else {
-                panic!("Build graphs differ:\n{diff}");
-            }
+    let mut out = String::new();
+    let differ = compare_graphs_inner(&actual_graph, &expected_graph, &mut out);
+
+    if expected.can_update() {
+        if differ {
+            println!("Graph snapshot differs, updating...\n{out}");
         }
+        let mut actual_graph_s = Vec::<u8>::new();
+        actual_graph
+            .dump_to(&mut actual_graph_s)
+            .expect("Failed to write actual graph");
+        let actual_graph_str =
+            String::from_utf8(actual_graph_s).expect("Graph dump is not valid UTF-8");
+        expected.update(&actual_graph_str);
+    } else if differ {
+        panic!("Graph snapshot differs:\n{out}");
     }
 }
 
-fn compare_graphs_inner(actual: &BuildGraphDump, expected: &BuildGraphDump) -> Result<(), String> {
-    let (actual_nodes, actual_map) =
-        build_node_index(actual).map_err(|e| format!("actual graph: {e}"))?;
-    let (expected_nodes, expected_map) =
-        build_node_index(expected).map_err(|e| format!("expected graph: {e}"))?;
+/// Compares two build graphs and returns true if they differ.
+/// The message describing the differences is written to `out`.
+fn compare_graphs_inner(
+    actual: &BuildGraphDump,
+    expected: &BuildGraphDump,
+    mut out: impl std::fmt::Write,
+) -> bool {
+    let (actual_nodes, actual_map) = build_node_index(actual)
+        .unwrap_or_else(|e| panic!("Failed to build index for actual graph: {e}"));
+    let (expected_nodes, expected_map) = build_node_index(expected)
+        .unwrap_or_else(|e| panic!("Failed to build index for expected graph: {e}"));
 
     let actual_outputs: BTreeSet<String> = actual_map.keys().map(|s| (*s).to_owned()).collect();
     let expected_outputs: BTreeSet<String> = expected_map.keys().map(|s| (*s).to_owned()).collect();
 
+    let mut any_diff_found = false;
+
     if actual_outputs != expected_outputs {
-        let mut diff = String::new();
         let only_in_actual: Vec<_> = actual_outputs
             .difference(&expected_outputs)
             .map(|s| s.as_str())
@@ -109,31 +136,32 @@ fn compare_graphs_inner(actual: &BuildGraphDump, expected: &BuildGraphDump) -> R
             .collect();
 
         if !only_in_actual.is_empty() {
-            writeln!(&mut diff, "Outputs only in actual graph:").unwrap();
-            for output in only_in_actual {
-                writeln!(&mut diff, "  {output}").unwrap();
+            writeln!(out, "Outputs only in actual graph:").unwrap();
+            for output in &only_in_actual {
+                writeln!(out, "  {output}").unwrap();
             }
+            any_diff_found = true;
         }
 
         if !only_in_expected.is_empty() {
-            writeln!(&mut diff, "Outputs only in expected graph:").unwrap();
-            for output in only_in_expected {
-                writeln!(&mut diff, "  {output}").unwrap();
+            writeln!(out, "Outputs only in expected graph:").unwrap();
+            for output in &only_in_expected {
+                writeln!(out, "  {output}").unwrap();
             }
+            any_diff_found = true;
         }
-
-        return Err(diff);
     }
 
-    let mut diffs = String::new();
     let mut compared_pairs = BTreeSet::new();
 
     for output in &actual_outputs {
         let Some(&actual_idx) = actual_map.get(output.as_str()) else {
-            return Err(format!("missing output `{}` in actual map", output));
+            writeln!(out, "missing output `{}` in actual map", output).unwrap();
+            continue;
         };
         let Some(&expected_idx) = expected_map.get(output.as_str()) else {
-            return Err(format!("missing output `{}` in expected map", output));
+            writeln!(out, "missing output `{}` in expected map", output).unwrap();
+            continue;
         };
 
         if !compared_pairs.insert((actual_idx, expected_idx)) {
@@ -143,51 +171,115 @@ fn compare_graphs_inner(actual: &BuildGraphDump, expected: &BuildGraphDump) -> R
         let actual_node = &actual_nodes[actual_idx];
         let expected_node = &expected_nodes[expected_idx];
 
-        if !equals_str_slices(&actual_node.outputs, &expected_node.outputs) {
-            writeln!(
-                &mut diffs,
-                "Outputs differ for nodes producing `{}`:\n  actual: [{}]\n  expected: [{}]",
-                output,
-                actual_node.outputs.join(", "),
-                expected_node.outputs.join(", ")
-            )
-            .unwrap();
+        // diffs of the current node
+        let mut diffs = String::new();
+
+        let mut actual_out = actual_node.outputs.clone();
+        actual_out.sort();
+        let mut expected_out = expected_node.outputs.clone();
+        expected_out.sort();
+
+        let out_diff = similar::capture_diff_slices(ALGORITHM, &expected_out, &actual_out);
+        if out_diff.iter().any(|op| op.tag() != DiffTag::Equal) {
+            writeln!(&mut diffs, "  Outputs diff:").unwrap();
+            for op in out_diff {
+                for slice in op.iter_changes(&expected_out, &actual_out) {
+                    match slice.tag() {
+                        similar::ChangeTag::Equal => {
+                            writeln!(&mut diffs, "    {}", slice.value()).unwrap()
+                        }
+                        similar::ChangeTag::Delete => {
+                            writeln!(&mut diffs, "   {}{}", "-".red(), slice.value().red()).unwrap()
+                        }
+                        similar::ChangeTag::Insert => {
+                            writeln!(&mut diffs, "   {}{}", "+".green(), slice.value().green())
+                                .unwrap()
+                        }
+                    }
+                }
+            }
+        }
+
+        let in_diff =
+            similar::capture_diff_slices(ALGORITHM, &expected_node.inputs, &actual_node.inputs);
+        if in_diff.iter().any(|op| op.tag() != DiffTag::Equal) {
+            writeln!(&mut diffs, "  Inputs diff:").unwrap();
+            for op in in_diff {
+                for slice in op.iter_changes(&expected_node.inputs, &actual_node.inputs) {
+                    match slice.tag() {
+                        similar::ChangeTag::Equal => {
+                            writeln!(&mut diffs, "    {}", slice.value()).unwrap()
+                        }
+                        similar::ChangeTag::Delete => {
+                            writeln!(&mut diffs, "   {}{}", "-".red(), slice.value().red()).unwrap()
+                        }
+                        similar::ChangeTag::Insert => {
+                            writeln!(&mut diffs, "   {}{}", "+".green(), slice.value().green())
+                                .unwrap()
+                        }
+                    }
+                }
+            }
         }
 
         if actual_node.command_canonical != expected_node.command_canonical {
-            writeln!(
-                &mut diffs,
-                "Command differs for node producing [{}]:\n  actual: {}\n  expected: {}",
-                actual_node.outputs.join(", "),
-                format_command(
-                    actual_node.command_canonical.as_deref(),
-                    actual_node.node.command.as_deref()
-                ),
-                format_command(
-                    expected_node.command_canonical.as_deref(),
-                    expected_node.node.command.as_deref()
-                )
-            )
-            .unwrap();
+            writeln!(&mut diffs, "  Command differs:").unwrap();
+            let actual_cmd = actual_node
+                .command_canonical
+                .as_deref()
+                .unwrap_or("<no command>");
+            let expected_cmd = expected_node
+                .command_canonical
+                .as_deref()
+                .unwrap_or("<no command>");
+            let cmd_diff = similar::TextDiff::from_words(expected_cmd, actual_cmd);
+
+            write!(&mut diffs, "    Old: ").unwrap();
+            for change in cmd_diff.iter_all_changes() {
+                match change.tag() {
+                    similar::ChangeTag::Equal => {
+                        write!(&mut diffs, "{}", change.value()).unwrap();
+                    }
+                    similar::ChangeTag::Delete => {
+                        write!(&mut diffs, "{}", change.value().bright_red().underline()).unwrap();
+                    }
+                    similar::ChangeTag::Insert => {}
+                }
+            }
+            writeln!(&mut diffs).unwrap();
+
+            write!(&mut diffs, "    New: ").unwrap();
+            for change in cmd_diff.iter_all_changes() {
+                match change.tag() {
+                    similar::ChangeTag::Equal => {
+                        write!(&mut diffs, "{}", change.value()).unwrap();
+                    }
+                    similar::ChangeTag::Insert => {
+                        write!(&mut diffs, "{}", change.value().bright_green().underline())
+                            .unwrap();
+                    }
+                    similar::ChangeTag::Delete => {}
+                }
+            }
+            writeln!(&mut diffs).unwrap();
         }
 
-        if !equals_str_slices(&actual_node.inputs, &expected_node.inputs) {
+        if !diffs.is_empty() {
             writeln!(
-                &mut diffs,
-                "Inputs differ for node producing [{}]:\n  actual: [{}]\n  expected: [{}]",
+                out,
+                "Differences for node producing [{}]:\n{}",
                 actual_node.outputs.join(", "),
-                join_strs(&actual_node.inputs),
-                join_strs(&expected_node.inputs)
+                diffs
             )
             .unwrap();
+            any_diff_found = true;
         }
     }
 
-    if diffs.is_empty() { Ok(()) } else { Err(diffs) }
+    any_diff_found
 }
 
 struct NodeView<'a> {
-    node: &'a BuildNode,
     outputs: Vec<&'a str>,
     inputs: Vec<&'a str>,
     command_canonical: Option<String>,
@@ -229,7 +321,6 @@ fn build_node_index<'a>(
         };
 
         nodes.push(NodeView {
-            node,
             outputs,
             inputs,
             command_canonical,
@@ -237,26 +328,4 @@ fn build_node_index<'a>(
     }
 
     Ok((nodes, output_map))
-}
-
-fn equals_str_slices(left: &[&str], right: &[&str]) -> bool {
-    left.len() == right.len() && left.iter().zip(right.iter()).all(|(l, r)| l == r)
-}
-
-fn join_strs(items: &[&str]) -> String {
-    if items.is_empty() {
-        "<none>".to_owned()
-    } else {
-        items.join(", ")
-    }
-}
-
-fn format_command(command: Option<&str>, original: Option<&str>) -> String {
-    match (command, original) {
-        (Some(canonical), Some(raw)) if canonical == raw => canonical.to_owned(),
-        (Some(canonical), Some(raw)) => format!("{canonical} (raw: {raw})"),
-        (Some(canonical), None) => canonical.to_owned(),
-        (None, Some(raw)) => raw.to_owned(),
-        (None, None) => "<no command>".to_owned(),
-    }
 }

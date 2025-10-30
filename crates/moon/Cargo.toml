@@ -69,6 +69,7 @@ tracing.workspace = true
 tracing-subscriber.workspace = true
 tracing-chrome.workspace = true
 
+
 [target.'cfg(not(windows))'.dependencies]
 openssl = { version = "0.10.66", features = ["vendored"] }
 
@@ -81,6 +82,9 @@ tempfile = "3.6.0"
 snapbox = "0.4.15"
 expect-test.workspace = true
 clap-markdown = "0.1.4"
+similar.workspace = true
+colored.workspace = true
+
 
 [[bin]]
 name = "moon"
