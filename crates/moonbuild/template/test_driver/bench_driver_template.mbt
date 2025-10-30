@@ -80,7 +80,7 @@ pub fn moonbit_test_driver_internal_do_execute(filename : String, index : Int) -
       test_name = name
       try {
         let bench_out = @moonbitlang/core/bench.new()
-        item.f.inner()(bench_out)
+        item.f.0(bench_out)
         let s = bench_out.dump_summaries()
         message = "@BATCH_BENCH { \"summaries\": \{s} }"
       } catch {
