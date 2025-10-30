@@ -21,9 +21,15 @@
 use std::{
     collections::HashSet,
     io::{BufRead, Write},
+    path::{Path, PathBuf},
+    sync::LazyLock,
 };
 
 use n2::graph::{BuildId, FileId};
+
+pub const ENV_VAR: &str = "MOON_TEST_DUMP_BUILD_GRAPH";
+static DRY_RUN_TEST_OUTPUT: LazyLock<Option<String>> =
+    LazyLock::new(|| std::env::var(ENV_VAR).ok());
 
 /// The in-memory format for dumping a `n2` build graph
 #[derive(Debug, serde::Deserialize, serde::Serialize)]
@@ -50,6 +56,9 @@ impl BuildGraphDump {
         let mut nodes = vec![];
         for line in reader.lines() {
             let line = line?;
+            if line.trim().is_empty() {
+                continue;
+            }
             let node: BuildNode = serde_json::from_str(&line)?;
             nodes.push(node);
         }
@@ -66,9 +75,27 @@ pub struct BuildNode {
 }
 
 /// Dump the `n2` build graph for debugging purposes
-pub fn debug_dump_build_graph(graph: &n2::graph::Graph, input_files: &[FileId]) -> BuildGraphDump {
+pub fn debug_dump_build_graph(
+    graph: &n2::graph::Graph,
+    input_files: &[FileId],
+    source_dir: &Path,
+) -> BuildGraphDump {
     let accessible_nodes = dfs_for_accessible_nodes(graph, input_files);
-    generate_from_nodes(graph, accessible_nodes)
+    generate_from_nodes(graph, accessible_nodes, source_dir)
+}
+
+pub fn try_debug_dump_build_graph_to_file(
+    build_graph: &n2::graph::Graph,
+    default_files: &[n2::graph::FileId],
+    source_dir: &Path,
+) {
+    let Some(out_file) = DRY_RUN_TEST_OUTPUT.as_deref() else {
+        return;
+    };
+
+    let file = std::fs::File::create(out_file).expect("Failed to create dry-run dump target");
+    let dump = debug_dump_build_graph(build_graph, default_files, source_dir);
+    dump.dump_to(file).expect("Failed to dump to target output");
 }
 
 fn dfs_for_accessible_nodes(graph: &n2::graph::Graph, start_files: &[FileId]) -> Vec<BuildId> {
@@ -100,23 +127,23 @@ fn dfs_for_accessible_nodes(graph: &n2::graph::Graph, start_files: &[FileId]) ->
 fn generate_from_nodes(
     graph: &n2::graph::Graph,
     accessible_nodes: impl IntoIterator<Item = BuildId>,
+    source_dir: &Path,
 ) -> BuildGraphDump {
+    let normalizer = PathNormalizer::new(source_dir);
     let mut nodes = vec![];
     for node in accessible_nodes {
         let node = graph.builds.lookup(node).expect("Unknown build in graph");
-        let command = node.cmdline.clone();
+        let command = node
+            .cmdline
+            .as_ref()
+            .map(|cmd| normalizer.normalize_command(cmd));
         let inputs = node
             .ins
             .ids
             .iter()
             .map(|&id| {
-                graph
-                    .files
-                    .by_id
-                    .lookup(id)
-                    .expect("Unknown node in graph")
-                    .name
-                    .clone()
+                let file = graph.files.by_id.lookup(id).expect("Unknown node in graph");
+                normalizer.normalize_path(&file.name)
             })
             .collect::<Vec<_>>();
         let outputs = node
@@ -124,13 +151,8 @@ fn generate_from_nodes(
             .ids
             .iter()
             .map(|&id| {
-                graph
-                    .files
-                    .by_id
-                    .lookup(id)
-                    .expect("Unknown node in graph")
-                    .name
-                    .clone()
+                let file = graph.files.by_id.lookup(id).expect("Unknown node in graph");
+                normalizer.normalize_path(&file.name)
             })
             .collect::<Vec<_>>();
         nodes.push(BuildNode {
@@ -140,4 +162,90 @@ fn generate_from_nodes(
         });
     }
     BuildGraphDump { nodes }
+}
+
+struct PathNormalizer {
+    original: PathBuf,
+    original_str: String,
+    original_alt: String,
+    canonical: Option<PathBuf>,
+    canonical_str: Option<String>,
+    canonical_alt: Option<String>,
+}
+
+impl PathNormalizer {
+    fn new(source_dir: &Path) -> Self {
+        let original = source_dir.to_path_buf();
+        let original_str = original.to_string_lossy().to_string();
+        let original_alt = original_str.replace('\\', "/");
+        let canonical = std::fs::canonicalize(&original).ok();
+        let canonical_str = canonical.as_ref().map(|p| p.to_string_lossy().to_string());
+        let canonical_alt = canonical_str.as_ref().map(|s| s.replace('\\', "/"));
+        PathNormalizer {
+            original,
+            original_str,
+            original_alt,
+            canonical,
+            canonical_str,
+            canonical_alt,
+        }
+    }
+
+    fn normalize_command(&self, command: &str) -> String {
+        let mut normalized = command.to_owned();
+        for key in self.replacement_keys() {
+            if key.is_empty() {
+                continue;
+            }
+            normalized = normalized.replace(key, ".");
+        }
+        normalized
+    }
+
+    fn normalize_path(&self, path: &str) -> String {
+        let path_obj = Path::new(path);
+        if let Some(canonical) = &self.canonical
+            && let Ok(stripped) = path_obj.strip_prefix(canonical)
+        {
+            return Self::relative_from_path(stripped);
+        }
+        if let Ok(stripped) = path_obj.strip_prefix(&self.original) {
+            return Self::relative_from_path(stripped);
+        }
+        for key in self.replacement_keys() {
+            if let Some(rest) = path.strip_prefix(key) {
+                return Self::relative_from_str(rest);
+            }
+        }
+        path.replace('\\', "/")
+    }
+
+    fn replacement_keys(&self) -> impl Iterator<Item = &str> {
+        [
+            self.canonical_str.as_deref(),
+            self.canonical_alt.as_deref(),
+            Some(self.original_str.as_str()),
+            Some(self.original_alt.as_str()),
+        ]
+        .into_iter()
+        .flatten()
+    }
+
+    fn relative_from_path(stripped: &Path) -> String {
+        if stripped.as_os_str().is_empty() {
+            ".".to_owned()
+        } else {
+            let normalized = stripped.to_string_lossy().replace('\\', "/");
+            format!("./{}", normalized)
+        }
+    }
+
+    fn relative_from_str(rest: &str) -> String {
+        let trimmed = rest.trim_start_matches(['/', '\\']);
+        if trimmed.is_empty() {
+            ".".to_owned()
+        } else {
+            format!("./{}", trimmed.replace('\\', "/"))
+        }
+    }
 }
