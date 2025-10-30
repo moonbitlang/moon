@@ -20,7 +20,6 @@ use anyhow::Context;
 use anyhow::bail;
 use colored::Colorize;
 use indexmap::IndexMap;
-use log::warn;
 use moonbuild::dry_run;
 use moonbuild::entry;
 use moonbuild_rupes_recta::build_plan::InputDirective;
@@ -45,13 +44,13 @@ use moonutil::mooncakes::RegistryConfig;
 use moonutil::mooncakes::sync::AutoSyncFlags;
 use moonutil::package::Package;
 use moonutil::path::PathComponent;
-use n2::trace;
+use n2::trace as n2_trace;
 use smallvec::SmallVec;
 use std::collections::HashMap;
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
-use tracing::{Level, instrument};
+use tracing::{Level, debug, info, instrument, trace, warn};
 
 use crate::cli::pre_build::scan_with_x_build;
 use crate::rr_build;
@@ -154,12 +153,21 @@ pub struct TestSubcommand {
 
 #[instrument(skip_all)]
 pub fn run_test(cli: UniversalFlags, cmd: TestSubcommand) -> anyhow::Result<i32> {
+    info!(
+        update = cmd.update,
+        build_only = cmd.build_only,
+        doc_test = cmd.doc_test,
+        package_filters = cmd.package.as_ref().map(|p| p.len()).unwrap_or(0),
+        has_single_file = cmd.single_file.is_some(),
+        "starting moon test command"
+    );
     // Check if we're running within a project
     let dirs = match cli.source_tgt_dir.try_into_package_dirs() {
         Ok(dirs) => dirs,
         Err(e @ moonutil::dirs::PackageDirsError::NotInProject(_)) => {
             // Now we're talking about real single-file scenario.
             if cmd.single_file.is_some() {
+                info!("delegating to single-file test runner");
                 return run_test_in_single_file(&cli, &cmd);
             } else {
                 return Err(e.into());
@@ -170,6 +178,12 @@ pub fn run_test(cli: UniversalFlags, cmd: TestSubcommand) -> anyhow::Result<i32>
         }
     };
 
+    debug!(
+        source = %dirs.source_dir.display(),
+        target = %dirs.target_dir.display(),
+        "resolved package directories"
+    );
+
     if cmd.doc_test {
         eprintln!(
             "{}: --doc flag is deprecated and will be removed in the future, please use `moon test` directly",
@@ -178,6 +192,7 @@ pub fn run_test(cli: UniversalFlags, cmd: TestSubcommand) -> anyhow::Result<i32>
     }
 
     let Some(surface_targets) = &cmd.build_flags.target else {
+        debug!("no explicit backend target provided; using defaults");
         return run_test_internal(&cli, &cmd, &dirs.source_dir, &dirs.target_dir, None);
     };
     let targets = lower_surface_targets(surface_targets);
@@ -188,6 +203,7 @@ pub fn run_test(cli: UniversalFlags, cmd: TestSubcommand) -> anyhow::Result<i32>
 
     let mut ret_value = 0;
     for t in targets {
+        info!(backend = ?t, "running tests for backend");
         let mut cmd = cmd.clone();
         cmd.build_flags.target_backend = Some(t);
         let x = run_test_internal(
@@ -200,6 +216,7 @@ pub fn run_test(cli: UniversalFlags, cmd: TestSubcommand) -> anyhow::Result<i32>
         .context(format!("failed to run test for target {t:?}"))?;
         ret_value = ret_value.max(x);
     }
+    debug!(exit_code = ret_value, "completed moon test command");
     Ok(ret_value)
 }
 
@@ -211,13 +228,16 @@ fn run_test_internal(
     target_dir: &Path,
     display_backend_hint: Option<()>,
 ) -> anyhow::Result<i32> {
-    run_test_or_bench_internal(
+    debug!(backend = ?cmd.build_flags.target_backend, build_only = cmd.build_only, "entering run_test_internal");
+    let exit_code = run_test_or_bench_internal(
         cli,
         cmd.into(),
         source_dir,
         target_dir,
         display_backend_hint,
-    )
+    )?;
+    trace!(exit_code, "run_test_internal finished");
+    Ok(exit_code)
 }
 
 #[instrument(level = Level::DEBUG, skip_all)]
@@ -225,6 +245,8 @@ fn run_test_in_single_file(cli: &UniversalFlags, cmd: &TestSubcommand) -> anyhow
     let single_file_path = &dunce::canonicalize(cmd.single_file.as_ref().unwrap()).unwrap();
     let source_dir = single_file_path.parent().unwrap().to_path_buf();
     let raw_target_dir = source_dir.join("target");
+    info!(path = %single_file_path.display(), update = cmd.update, build_only = cmd.build_only, "running tests in single-file mode");
+    debug!(source = %source_dir.display(), raw_target_dir = %raw_target_dir.display(), "prepared single-file directories");
 
     let mbt_md_header = parse_front_matter_config(single_file_path)?;
     let target_backend = if let Some(moonutil::common::MbtMdHeader {
@@ -248,6 +270,7 @@ fn run_test_in_single_file(cli: &UniversalFlags, cmd: &TestSubcommand) -> anyhow
         .join(target_backend.to_dir_name())
         .join(if debug_flag { "debug" } else { "release" })
         .join(RunMode::Test.to_dir_name());
+    trace!(target = %target_dir.display(), backend = ?target_backend, "resolved single-file target directory");
 
     let moonbuild_opt = MoonbuildOpt {
         source_dir: source_dir.clone(),
@@ -310,8 +333,13 @@ fn run_test_in_single_file(cli: &UniversalFlags, cmd: &TestSubcommand) -> anyhow
     };
     let module =
         get_module_for_single_file(single_file_path, &moonc_opt, &moonbuild_opt, mbt_md_header)?;
+    debug!(
+        package_count = module.get_all_packages().len(),
+        "scanned single-file module graph"
+    );
 
     if cli.dry_run {
+        info!("dry-run enabled; printing commands only");
         return dry_run::print_commands(&module, &moonc_opt, &moonbuild_opt);
     }
 
@@ -520,6 +548,21 @@ pub(crate) fn run_test_or_bench_internal(
     target_dir: &Path,
     display_backend_hint: Option<()>,
 ) -> anyhow::Result<i32> {
+    let explicit_file = cmd.explicit_file_filter.map(|p| p.display().to_string());
+    debug!(
+        run_mode = ?cmd.run_mode,
+        update = cmd.update,
+        build_only = cmd.build_only,
+        package_filters = cmd.package.as_ref().map(|p| p.len()).unwrap_or(0),
+        explicit_file = explicit_file.as_deref(),
+        "entering run_test_or_bench_internal"
+    );
+    trace!(
+        index = cmd.index,
+        doc_index = cmd.doc_index,
+        no_parallelize = cmd.no_parallelize,
+        "cli filter state"
+    );
     // Accept -i/--doc-index when the positional PATH refers to a file; otherwise they require --file.
     // explicit_is_file is true only when PATH is an existing regular file.
     let explicit_is_file = cmd.explicit_file_filter.is_some_and(|p| p.is_file());
@@ -537,6 +580,10 @@ pub(crate) fn run_test_or_bench_internal(
         anyhow::bail!("cannot filter package or files when testing a single file in a project");
     }
 
+    debug!(
+        rupes_recta = cli.unstable_feature.rupes_recta,
+        "selecting test runner implementation"
+    );
     if cli.unstable_feature.rupes_recta {
         run_test_rr(cli, &cmd, source_dir, target_dir, display_backend_hint)
     } else {
@@ -552,6 +599,7 @@ fn run_test_rr(
     target_dir: &Path,
     display_backend_hint: Option<()>, // FIXME: unsure why it's option but as-is for now
 ) -> Result<i32, anyhow::Error> {
+    info!(run_mode = ?cmd.run_mode, update = cmd.update, build_only = cmd.build_only, "starting rupes-recta test run");
     let is_bench = cmd.run_mode == RunMode::Bench;
     let default_opt_level = if is_bench {
         OptLevel::Release
@@ -577,6 +625,10 @@ fn run_test_rr(
             calc_user_intent(resolved, main_modules, cmd, &mut filter)
         }),
     )?;
+    debug!(
+        artifact_count = build_meta.artifacts.len(),
+        "planned rupes-recta build graph"
+    );
 
     if cli.dry_run {
         rr_build::print_dry_run(
@@ -596,12 +648,23 @@ fn run_test_rr(
         // since n2 build consumes the graph, we back it up for reruns
         let build_graph_backup = cmd.update.then(|| build_graph.clone());
         let result = rr_build::execute_build(&build_config, build_graph, target_dir)?;
+        debug!(
+            success = result.successful(),
+            exit_code = result.return_code_for_success(),
+            "executed rupes-recta build"
+        );
 
         if !result.successful() || cmd.build_only {
             return Ok(result.return_code_for_success());
         }
 
         let mut test_result = crate::run::run_tests(&build_meta, target_dir, &filter)?;
+        let initial_summary = test_result.summary();
+        trace!(
+            total = initial_summary.total,
+            passed = initial_summary.passed,
+            "initial test results collected"
+        );
 
         let backend_hint = display_backend_hint
             .and(cmd.build_flags.target_backend)
@@ -613,9 +676,14 @@ fn run_test_rr(
             loop {
                 // Promote test results
                 let promotion_source = last_test_result.as_ref().unwrap_or(&test_result);
-                let (rerun_count, rerun_filter) =
+                let (rerun_count, rerun_filter_raw) =
                     perform_promotion(promotion_source).expect("Failed to promote tests");
-                if rerun_filter.is_empty() {
+                debug!(
+                    rerun_count,
+                    pending_targets = rerun_filter_raw.0.len(),
+                    "promotion pass completed"
+                );
+                if rerun_filter_raw.is_empty() {
                     break; // Nothing to promote
                 }
 
@@ -638,7 +706,7 @@ fn run_test_rr(
                     .expect("build graph backup should be present when update is true");
 
                 // Calculate which files to rebuild
-                let want_files = rerun_filter
+                let want_files = rerun_filter_raw
                     .0
                     .keys()
                     .cloned() // All targets to rerun
@@ -659,6 +727,7 @@ fn run_test_rr(
                     build_graph,
                     target_dir,
                     Box::new(|work| {
+                        trace!("requesting rerun artifacts");
                         for file_path in want_files {
                             let file_path_str = file_path.to_string_lossy();
                             let file = work
@@ -676,10 +745,16 @@ fn run_test_rr(
 
                 // Run the tests
                 let rerun_filter = TestFilter {
-                    filter: Some(rerun_filter),
+                    filter: Some(rerun_filter_raw),
                 };
                 let new_test_result =
                     crate::run::run_tests(&build_meta, target_dir, &rerun_filter)?;
+                let rerun_summary = new_test_result.summary();
+                trace!(
+                    total = rerun_summary.total,
+                    passed = rerun_summary.passed,
+                    "rerun iteration completed"
+                );
 
                 // Merge test results
                 test_result.merge(&new_test_result);
@@ -692,9 +767,10 @@ fn run_test_rr(
         print_test_summary(summary.total, summary.passed, cli.quiet, backend_hint);
 
         if summary.total == summary.passed {
+            trace!("rupes-recta test run finished successfully");
             Ok(0)
         } else {
-            Ok(1)
+            Ok(2)
         }
     }
 }
@@ -709,6 +785,7 @@ fn node_from_target(x: BuildTarget) -> [BuildPlanNode; 2] {
 
 /// Apply explicit PATH filter (acts as package and optional file filter).
 /// `test_index` selects a single test (regular/doc) when PATH is a file.
+#[instrument(level = "debug", skip(resolve_output, out_filter))]
 fn apply_explicit_file_filter(
     resolve_output: &moonbuild_rupes_recta::ResolveOutput,
     out_filter: &mut TestFilter,
@@ -721,6 +798,7 @@ fn apply_explicit_file_filter(
             file_filter.display()
         )
     })?;
+    debug!(path = %input_path.display(), "normalized explicit file filter");
     let input_path_parent = input_path.parent();
     let input_filename = input_path.file_name();
 
@@ -759,6 +837,7 @@ fn apply_explicit_file_filter(
             file_filter.display()
         );
     };
+    debug!(package = ?pkg, file = file.map(|x| x.to_string_lossy().to_string()), "resolved explicit filter target");
     out_filter.add_autodetermine_target(
         *pkg,
         file.map(|x| x.to_string_lossy()).as_deref(),
@@ -769,6 +848,7 @@ fn apply_explicit_file_filter(
 
 /// Apply the hierarchy of filters of packages, file and index
 #[allow(clippy::too_many_arguments)]
+#[instrument(level = "debug", skip(affected_packages, resolve_output, out_filter))]
 fn apply_list_of_filters(
     affected_packages: impl Iterator<Item = PackageId>,
     resolve_output: &moonbuild_rupes_recta::ResolveOutput,
@@ -779,6 +859,14 @@ fn apply_list_of_filters(
     patch_file: Option<&Path>,
     out_filter: &mut TestFilter,
 ) -> Result<InputDirective, anyhow::Error> {
+    debug!(
+        package_filter_count = package_filter.len(),
+        file_filter,
+        index_filter,
+        doc_index_filter,
+        has_patch = patch_file.is_some(),
+        "applying list of filters"
+    );
     // We deliberately didn't allow a string to be parsed into a package
     // name, because different package may have a same name. However, in a
     // module the package name should be unique, so we can make a map here.
@@ -817,6 +905,10 @@ fn apply_list_of_filters(
         }
         filtered_package_ids.extend_from_slice(&names);
     }
+    trace!(
+        filtered_packages = filtered_package_ids.len(),
+        "package filters resolved"
+    );
 
     // Calculate resulting filter & target list
     let mut input_directive = InputDirective::default();
@@ -861,6 +953,7 @@ fn apply_list_of_filters(
         // No package matched
         warn!("no package found matching the given filters");
     }
+    trace!("finished building package directive");
 
     Ok(input_directive)
 }
@@ -874,6 +967,7 @@ fn apply_list_of_filters(
 /// both the test filter and user intent wants the same `BuildTarget` list, but
 /// the earliest time we can get them is during intent calculation. Since the
 /// fuzzy matching process is quite complex, we would avoid doing it twice.
+#[instrument(level = "debug", skip(resolve_output, main_modules, cmd, out_filter))]
 fn calc_user_intent(
     resolve_output: &moonbuild_rupes_recta::ResolveOutput,
     main_modules: &[moonutil::mooncakes::ModuleId],
@@ -888,6 +982,10 @@ fn calc_user_intent(
         .pkg_dirs
         .packages_for_module(main_module_id)
         .ok_or_else(|| anyhow::anyhow!("Cannot find the local module!"))?;
+    debug!(
+        package_count = packages.len(),
+        "calculating user intent for module"
+    );
     let affected_packages = packages.values().copied();
 
     let directive = if let Some(file_filter) = cmd.explicit_file_filter {
@@ -896,6 +994,7 @@ fn calc_user_intent(
             .map(TestIndex::Regular)
             .or(cmd.doc_index.map(TestIndex::DocTest));
         apply_explicit_file_filter(resolve_output, out_filter, file_filter, test_index)?;
+        trace!("explicit file filter applied");
         Default::default()
     } else if let Some(package_filter) = cmd.package {
         apply_list_of_filters(
@@ -911,6 +1010,7 @@ fn calc_user_intent(
     } else {
         // No filter: emit one intent per package (Test/Bench)
         let intents: Vec<_> = affected_packages.map(UserIntent::Test).collect();
+        debug!(intent_count = intents.len(), "generated default intents");
         return Ok(intents.into());
     };
 
@@ -921,10 +1021,15 @@ fn calc_user_intent(
         for (target, _) in &filt.0 {
             pkgs.insert(target.package);
         }
+        trace!(
+            package_count = pkgs.len(),
+            "building intents from filtered targets"
+        );
         pkgs.into_iter().map(UserIntent::Test).collect::<Vec<_>>()
     } else {
         vec![]
     };
+    debug!(intent_count = intents.len(), "calculated user intent");
     Ok((intents, directive).into())
 }
 
@@ -936,6 +1041,7 @@ pub(crate) fn run_test_or_bench_internal_legacy(
     target_dir: &Path,
     display_backend_hint: Option<()>,
 ) -> anyhow::Result<i32> {
+    info!(run_mode = ?cmd.run_mode, update = cmd.update, build_only = cmd.build_only, "starting legacy test runner");
     // Run moon install before build
     let (resolved_env, dir_sync_result) = auto_sync(
         source_dir,
@@ -943,6 +1049,7 @@ pub(crate) fn run_test_or_bench_internal_legacy(
         &RegistryConfig::load(),
         cli.quiet,
     )?;
+    debug!("completed auto-sync step");
 
     let run_mode = cmd.run_mode;
 
@@ -983,10 +1090,11 @@ pub(crate) fn run_test_or_bench_internal_legacy(
 
     let raw_target_dir = target_dir.to_path_buf();
     let target_dir = mk_arch_mode_dir(source_dir, target_dir, &moonc_opt, run_mode)?;
+    trace!(target_dir = %target_dir.display(), "resolved legacy target directory");
     let _lock = FileLock::lock(&target_dir)?;
 
     if cli.trace {
-        trace::open("trace.json").context("failed to open `trace.json`")?;
+        n2_trace::open("trace.json").context("failed to open `trace.json`")?;
     }
 
     let verbose = cli.verbose;
@@ -1012,6 +1120,7 @@ pub(crate) fn run_test_or_bench_internal_legacy(
     };
     let filter_index = *cmd.index;
     let filter_doc_index = *cmd.doc_index;
+    trace!(filter_package = ?filter_package, filter_file = ?filter_file, filter_index, filter_doc_index, "legacy filter state");
 
     let test_opt = if run_mode == RunMode::Bench {
         Some(TestOpt {
@@ -1057,6 +1166,7 @@ pub(crate) fn run_test_or_bench_internal_legacy(
         dynamic_stub_libs: None,
         render_no_loc: cmd.build_flags.render_no_loc,
     };
+    debug!(target = %moonbuild_opt.target_dir.display(), run_mode = ?moonbuild_opt.run_mode, "configured moonbuild options");
 
     let mut module = scan_with_x_build(
         false,
@@ -1066,6 +1176,10 @@ pub(crate) fn run_test_or_bench_internal_legacy(
         &dir_sync_result,
         &PrePostBuild::PreBuild,
     )?;
+    debug!(
+        package_count = module.get_all_packages().len(),
+        "scanned project module graph"
+    );
 
     let (package_filter, moonbuild_opt) = if let Some(file) = cmd.explicit_file_filter {
         let file = dunce::canonicalize(file)
@@ -1276,6 +1390,7 @@ pub(crate) fn run_test_or_bench_internal_legacy(
     moonbuild::r#gen::gen_runtest::add_coverage_to_core_if_needed(&mut module, &moonc_opt)?;
 
     if cli.dry_run {
+        info!("legacy runner in dry-run mode; printing commands only");
         return dry_run::print_commands(&module, &moonc_opt, &moonbuild_opt);
     }
 
@@ -1288,9 +1403,12 @@ pub(crate) fn run_test_or_bench_internal_legacy(
         verbose,
         cli.quiet,
     );
+    if let Ok(code) = &res {
+        trace!(exit_code = *code, "legacy runner finished execution");
+    }
 
     if cli.trace {
-        trace::close();
+        n2_trace::close();
     }
 
     res
@@ -1306,6 +1424,13 @@ fn do_run_test(
     verbose: bool,
     quiet: bool,
 ) -> anyhow::Result<i32> {
+    info!(
+        backend = ?moonc_opt.build_opt.target_backend,
+        build_only,
+        auto_update,
+        verbose,
+        "executing moonbuild test entry"
+    );
     let backend_hint = moonbuild_opt
         .test_opt
         .as_ref()
@@ -1320,21 +1445,25 @@ fn do_run_test(
         auto_update,
         module,
     )?;
+    trace!(case_count = test_res.len(), "entry::run_test completed");
 
     // don't print test summary if build_only
     if build_only {
+        debug!("build-only mode; skipping summary");
         return Ok(0);
     }
 
     let total = test_res.len();
     let passed = test_res.iter().filter(|r| r.is_ok()).count();
+    debug!(total, passed, "computed test summary counts");
 
     print_test_summary(total, passed, quiet, backend_hint);
 
     if passed == total {
+        trace!("all tests passed");
         Ok(0)
     } else {
         // don't bail! here, use no-zero exit code to indicate test failed
-        Ok(2)
+        Ok(1)
     }
 }

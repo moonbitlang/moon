@@ -64,7 +64,6 @@ use std::{collections::HashMap, path::Path, sync::Arc};
 
 use anyhow::Context;
 use indexmap::IndexMap;
-use log::warn;
 use moonbuild::{
     benchmark::{BATCHBENCH, render_batch_bench_summary},
     entry::{CompactTestFormatter, TestArgs},
@@ -81,6 +80,7 @@ use moonutil::common::{
     MOON_TEST_DELIMITER_END, MbtTestInfo, MooncGenTestInfo,
 };
 use tokio::runtime::Runtime;
+use tracing::{debug, info, instrument, trace, warn};
 
 use crate::{rr_build::BuildMeta, run::default_rt};
 
@@ -135,6 +135,7 @@ impl TestIndex {
 ///
 /// An external driver should check the results for reruns. See [module-level
 /// docs](crate::run::runtest) for more information about the workflow.
+#[instrument(level = "debug", skip(build_meta, filter))]
 pub fn run_tests(
     build_meta: &BuildMeta,
     target_dir: &Path,
@@ -142,18 +143,31 @@ pub fn run_tests(
 ) -> anyhow::Result<ReplaceableTestResults> {
     // Gathering artifacts
     let executables = gather_tests(build_meta);
+    debug!(count = executables.len(), "collected test executables");
 
     let rt = default_rt().context("Failed to create runtime")?;
     let mut stats = ReplaceableTestResults::default();
+    let mut total_cases = 0usize;
     for r in executables {
+        debug!(target = ?r.target, executable = %r.executable.display(), "running test executable");
         let res = run_one_test_executable(build_meta, &rt, target_dir, &r, filter)?;
+        let cases_for_target = res.map.values().map(IndexMap::len).sum::<usize>();
+        trace!(target = ?r.target, cases = cases_for_target, "merging test results");
+        total_cases += cases_for_target;
         stats.merge_with_target(r.target, res);
     }
+    debug!(total_cases, "finished aggregating test cases");
+    let summary = stats.summary();
+    info!(
+        total = summary.total,
+        passed = summary.passed,
+        "test run completed"
+    );
 
     Ok(stats)
 }
 
-#[derive(derive_builder::Builder)]
+#[derive(derive_builder::Builder, Debug)]
 #[builder(derive(Debug))]
 struct TestExecutableToRun<'a> {
     target: BuildTarget,
@@ -182,11 +196,13 @@ pub struct TestSummary {
 }
 
 impl ReplaceableTestResults {
+    #[instrument(level = "trace", skip(self, result))]
     fn merge_with_target(&mut self, target: BuildTarget, result: TargetTestResult) {
         let entry = self.map.entry(target).or_default();
         for (file, file_map) in result.map {
             let file_entry = entry.map.entry(file).or_default();
             for (index, case) in file_map {
+                trace!(?target, index, "storing individual test case");
                 file_entry.insert(index, case);
             }
         }
@@ -200,7 +216,12 @@ impl ReplaceableTestResults {
         }
     }
 
+    #[instrument(level = "debug", skip(self, meta))]
     pub fn print_result(&self, meta: &BuildMeta, verbose: bool) {
+        debug!(
+            target_count = self.map.len(),
+            verbose, "printing collected test results"
+        );
         for (target, result) in &self.map {
             let module_name = meta
                 .resolve_output
@@ -218,6 +239,7 @@ impl ReplaceableTestResults {
         }
     }
 
+    #[instrument(level = "trace", skip(self))]
     pub fn summary(&self) -> TestSummary {
         let mut total = 0;
         let mut passed = 0;
@@ -232,7 +254,9 @@ impl ReplaceableTestResults {
 }
 
 impl TargetTestResult {
+    #[instrument(level = "trace", skip(self, result))]
     pub fn add(&mut self, file: &str, index: u32, result: TestCaseResult) {
+        trace!(file = file, index, kind = ?result.kind, "adding test case result");
         match self.map.get_mut(file) {
             Some(v) => {
                 v.insert(index, result);
@@ -249,6 +273,7 @@ impl TargetTestResult {
 }
 
 /// Gather tests executables from the build metadata.
+#[instrument(level = "trace", skip(build_meta))]
 fn gather_tests(build_meta: &BuildMeta) -> Vec<TestExecutableToRun<'_>> {
     let mut pending = HashMap::new();
     let mut results = vec![];
@@ -257,6 +282,7 @@ fn gather_tests(build_meta: &BuildMeta) -> Vec<TestExecutableToRun<'_>> {
         let target = node
             .extract_target()
             .expect("All artifacts of tests should contain a build target");
+        trace!(?target, node = ?node, "processing test artifact");
 
         let working = pending.entry(target).or_insert_with(|| {
             let mut res = TestExecutableToRunBuilder::create_empty();
@@ -273,12 +299,17 @@ fn gather_tests(build_meta: &BuildMeta) -> Vec<TestExecutableToRun<'_>> {
 
         if let Ok(tgt) = working.build() {
             pending.remove(&target);
+            debug!(target = ?tgt.target, executable = %tgt.executable.display(), meta = %tgt.meta.display(), "assembled test executable");
             results.push(tgt);
         }
     }
 
     // Sort by artifact path -- this is the same as legacy behavior
     results.sort_by_key(|v| v.executable);
+    debug!(
+        count = results.len(),
+        "completed gathering test executables"
+    );
 
     assert_eq!(
         pending.len(),
@@ -290,6 +321,7 @@ fn gather_tests(build_meta: &BuildMeta) -> Vec<TestExecutableToRun<'_>> {
     results
 }
 
+#[instrument(level = "debug", skip(build_meta, rt, target_dir, filter))]
 fn run_one_test_executable(
     build_meta: &BuildMeta,
     rt: &Runtime, // FIXME: parallel execution
@@ -299,6 +331,7 @@ fn run_one_test_executable(
 ) -> Result<TargetTestResult, anyhow::Error> {
     let (included, file_filt) = filter.check_package(test.target);
     if !included {
+        debug!(target = ?test.target, "skipping test executable due to filter");
         return Ok(TargetTestResult::default());
     }
 
@@ -309,6 +342,7 @@ fn run_one_test_executable(
     let meta = std::fs::File::open(test.meta).context("Failed to open test metadata")?;
     let meta: MooncGenTestInfo = serde_json_lenient::from_reader(meta)
         .with_context(|| format!("Failed to parse test metadata at {}", test.meta.display()))?;
+    trace!(path = %test.meta.display(), "loaded test metadata");
 
     let mut test_args = TestArgs {
         package: pkgname,
@@ -316,11 +350,16 @@ fn run_one_test_executable(
     };
 
     filter::apply_filter(file_filt, &meta, &mut test_args.file_and_index);
+    trace!(
+        filter_entries = test_args.file_and_index.len(),
+        "applied test filter"
+    );
 
     let cmd =
         crate::run::command_for(build_meta.target_backend, test.executable, Some(&test_args))?;
     let mut cov_cap = mk_coverage_capture();
     let mut test_cap = make_test_capture();
+    info!(package = %test_args.package, executable = %test.executable.display(), "launching test executable");
 
     let exit_status = rt
         .block_on(crate::run::run(
@@ -329,6 +368,7 @@ fn run_one_test_executable(
             cmd.command,
         ))
         .with_context(|| format!("Failed to run test for {fqn} {:?}", test.target.kind))?;
+    debug!(?exit_status, "test process finished");
 
     if !exit_status.success() {
         anyhow::bail!(
@@ -360,6 +400,7 @@ fn make_test_capture() -> SectionCapture<'static> {
     SectionCapture::new(MOON_TEST_DELIMITER_BEGIN, MOON_TEST_DELIMITER_END, false)
 }
 
+#[instrument(level = "trace", skip(cap))]
 fn handle_finished_coverage(target_dir: &Path, cap: SectionCapture) -> anyhow::Result<()> {
     if let Some(coverage_output) = cap.finish() {
         let time = chrono::Local::now().timestamp_micros();
@@ -372,15 +413,20 @@ fn handle_finished_coverage(target_dir: &Path, cap: SectionCapture) -> anyhow::R
             "failed to write coverage result to {}",
             filename.to_string_lossy()
         ))?;
+        info!(path = %filename.display(), "wrote coverage report");
+    } else {
+        trace!("no coverage output captured");
     }
     Ok(())
 }
 
+#[instrument(level = "debug", skip(meta, cap))]
 fn parse_test_results(
     meta: MooncGenTestInfo,
     cap: SectionCapture,
 ) -> anyhow::Result<TargetTestResult> {
     let Some(s) = cap.finish() else {
+        debug!("no test output captured");
         return Ok(TargetTestResult::default());
     };
 
@@ -401,6 +447,7 @@ fn parse_test_results(
             file_map.insert(t.index, t);
         }
     }
+    trace!(files = test_name_map.len(), "constructed test metadata map");
 
     // Actual handling of each test case result
     let mut res = TargetTestResult::default();
@@ -442,6 +489,7 @@ fn parse_test_results(
         // })?;
         let name = meta.name.as_ref().unwrap_or(&stat.test_name);
         let result_kind = parse_one_test_result(&stat, name)?;
+        trace!(file = %stat.filename, index, kind = ?result_kind, "parsed test case");
         let case_result = TestCaseResult {
             kind: result_kind,
             raw: Arc::clone(&stat),
@@ -449,6 +497,8 @@ fn parse_test_results(
         };
         res.add(&stat.filename, index, case_result);
     }
+
+    debug!(files = res.map.len(), "parsed all test results");
 
     Ok(res)
 }
