@@ -28,3 +28,4 @@ anyhow.workspace = true
 n2.workspace = true
 serde.workspace = true
 serde_json.workspace = true
+dunce = "1"

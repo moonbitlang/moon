@@ -20,10 +20,17 @@
 
 use std::{
     collections::HashSet,
+    env,
     io::{BufRead, Write},
+    path::{Path, PathBuf},
+    sync::LazyLock,
 };
 
 use n2::graph::{BuildId, FileId};
+
+pub const ENV_VAR: &str = "MOON_TEST_DUMP_BUILD_GRAPH";
+static DRY_RUN_TEST_OUTPUT: LazyLock<Option<String>> =
+    LazyLock::new(|| std::env::var(ENV_VAR).ok());
 
 /// The in-memory format for dumping a `n2` build graph
 #[derive(Debug, serde::Deserialize, serde::Serialize)]
@@ -50,6 +57,9 @@ impl BuildGraphDump {
         let mut nodes = vec![];
         for line in reader.lines() {
             let line = line?;
+            if line.trim().is_empty() {
+                continue;
+            }
             let node: BuildNode = serde_json::from_str(&line)?;
             nodes.push(node);
         }
@@ -66,9 +76,27 @@ pub struct BuildNode {
 }
 
 /// Dump the `n2` build graph for debugging purposes
-pub fn debug_dump_build_graph(graph: &n2::graph::Graph, input_files: &[FileId]) -> BuildGraphDump {
+pub fn debug_dump_build_graph(
+    graph: &n2::graph::Graph,
+    input_files: &[FileId],
+    source_dir: &Path,
+) -> BuildGraphDump {
     let accessible_nodes = dfs_for_accessible_nodes(graph, input_files);
-    generate_from_nodes(graph, accessible_nodes)
+    generate_from_nodes(graph, accessible_nodes, source_dir)
+}
+
+pub fn try_debug_dump_build_graph_to_file(
+    build_graph: &n2::graph::Graph,
+    default_files: &[n2::graph::FileId],
+    source_dir: &Path,
+) {
+    let Some(out_file) = DRY_RUN_TEST_OUTPUT.as_deref() else {
+        return;
+    };
+
+    let file = std::fs::File::create(out_file).expect("Failed to create dry-run dump target");
+    let dump = debug_dump_build_graph(build_graph, default_files, source_dir);
+    dump.dump_to(file).expect("Failed to dump to target output");
 }
 
 fn dfs_for_accessible_nodes(graph: &n2::graph::Graph, start_files: &[FileId]) -> Vec<BuildId> {
@@ -100,23 +128,23 @@ fn dfs_for_accessible_nodes(graph: &n2::graph::Graph, start_files: &[FileId]) ->
 fn generate_from_nodes(
     graph: &n2::graph::Graph,
     accessible_nodes: impl IntoIterator<Item = BuildId>,
+    source_dir: &Path,
 ) -> BuildGraphDump {
+    let normalizer = PathNormalizer::new(source_dir);
     let mut nodes = vec![];
     for node in accessible_nodes {
         let node = graph.builds.lookup(node).expect("Unknown build in graph");
-        let command = node.cmdline.clone();
+        let command = node
+            .cmdline
+            .as_ref()
+            .map(|cmd| normalizer.normalize_command(cmd));
         let inputs = node
             .ins
             .ids
             .iter()
             .map(|&id| {
-                graph
-                    .files
-                    .by_id
-                    .lookup(id)
-                    .expect("Unknown node in graph")
-                    .name
-                    .clone()
+                let file = graph.files.by_id.lookup(id).expect("Unknown node in graph");
+                normalizer.normalize_path(&file.name)
             })
             .collect::<Vec<_>>();
         let outputs = node
@@ -124,13 +152,8 @@ fn generate_from_nodes(
             .ids
             .iter()
             .map(|&id| {
-                graph
-                    .files
-                    .by_id
-                    .lookup(id)
-                    .expect("Unknown node in graph")
-                    .name
-                    .clone()
+                let file = graph.files.by_id.lookup(id).expect("Unknown node in graph");
+                normalizer.normalize_path(&file.name)
             })
             .collect::<Vec<_>>();
         nodes.push(BuildNode {
@@ -139,5 +162,68 @@ fn generate_from_nodes(
             outputs,
         });
     }
+
+    // To ensure a stable ordering for tests
+    //
+    // Note: because build graphs requires outputs to be unique, it is
+    // sufficient to sort by outputs only.
+    nodes.sort_by(|a, b| a.outputs.cmp(&b.outputs));
+
     BuildGraphDump { nodes }
+}
+
+struct PathNormalizer {
+    canonical: Option<PathBuf>,
+    moon_bin_str: Option<String>,
+}
+
+impl PathNormalizer {
+    fn new(source_dir: &Path) -> Self {
+        let canonical = dunce::canonicalize(source_dir).ok();
+        let moon_bin = env::current_exe().ok();
+        let moon_bin_str = moon_bin.as_ref().map(|p| p.to_string_lossy().to_string());
+        PathNormalizer {
+            canonical,
+            moon_bin_str,
+        }
+    }
+
+    fn normalize_command(&self, command: &str) -> String {
+        let mut s = command.to_owned();
+
+        if let Some(canonical) = &self.canonical {
+            let prefix = canonical.to_string_lossy();
+            let prefix_str = prefix.as_ref();
+            let with_sep = format!("{prefix_str}{}", std::path::MAIN_SEPARATOR);
+            s = s.replace(&with_sep, "./");
+            s = s.replace(prefix_str, ".");
+        }
+
+        if let Some(moon) = self.moon_bin_str.as_deref() {
+            s = s.replace(moon, "moon");
+        }
+
+        s = s.replace('\\', "/");
+
+        s
+    }
+
+    fn normalize_path(&self, path: &str) -> String {
+        let path_obj = Path::new(path);
+        if let Some(canonical) = &self.canonical
+            && let Ok(stripped) = path_obj.strip_prefix(canonical)
+        {
+            return Self::relative_from_path(stripped);
+        }
+        path.replace('\\', "/")
+    }
+
+    fn relative_from_path(stripped: &Path) -> String {
+        if stripped.as_os_str().is_empty() {
+            ".".to_owned()
+        } else {
+            let normalized = stripped.to_string_lossy().replace('\\', "/");
+            format!("./{}", normalized)
+        }
+    }
 }
