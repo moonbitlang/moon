@@ -18,11 +18,16 @@
 
 //! Handles dry-run printing of build commands.
 
-use std::{path::Path, process::Command};
+use std::{path::Path, process::Command, sync::LazyLock};
 
+use moonbuild_debug::graph::debug_dump_build_graph;
 use moonbuild_rupes_recta::model::Artifacts;
 
 use crate::rr_build::BuildInput;
+
+const ENV_VAR: &str = "MOON_TEST_DUMP_BUILD_GRAPH";
+static DRY_RUN_TEST_OUTPUT: LazyLock<Option<String>> =
+    LazyLock::new(|| std::env::var(ENV_VAR).ok());
 
 /// Print what would be executed in a dry-run.
 ///
@@ -42,7 +47,22 @@ pub fn print_dry_run<'a>(
                 .flat_map(|file| graph.files.lookup(&file.to_string_lossy()))
         })
         .collect::<Vec<_>>();
+
+    if let Some(out_file) = &*DRY_RUN_TEST_OUTPUT {
+        debug_dump_build_graph_to_file(graph, &default_files, out_file);
+    }
+
     moonbuild::dry_run::print_build_commands(graph, &default_files, source_dir, target_dir);
+}
+
+fn debug_dump_build_graph_to_file(
+    build_graph: &n2::graph::Graph,
+    default_files: &[n2::graph::FileId],
+    out_file: &str,
+) {
+    let file = std::fs::File::create(out_file).expect("Failed to create dry-run dump target");
+    let dump = debug_dump_build_graph(build_graph, default_files);
+    dump.dump_to(file).expect("Failed to dump to target output");
 }
 
 /// Print all commands in a dry-run.
