@@ -325,8 +325,26 @@ pub fn get_compiler_flags(src_dir: &Path, build_flags: &BuildFlags) -> anyhow::R
         bail!("could not find `{}`", MOON_MOD_JSON);
     }
     let moon_mod = read_module_desc_file_in_dir(src_dir)?;
-    let extra_build_opt = moon_mod.compile_flags.unwrap_or_default();
-    let extra_link_opt = moon_mod.link_flags.unwrap_or_default();
+    let mut extra_build_opt = moon_mod.compile_flags.unwrap_or_default();
+    let mut extra_link_opt = moon_mod.link_flags.unwrap_or_default();
+
+    // Allow environment variable to override or extend compile flags
+    if let Ok(env_flags) = std::env::var("MOON_COMPILE_FLAGS") {
+        let env_compile_flags: Vec<String> = env_flags
+            .split_whitespace()
+            .map(|s| s.to_string())
+            .collect();
+        extra_build_opt.extend(env_compile_flags);
+    }
+
+    // Allow environment variable to override or extend link flags
+    if let Ok(env_flags) = std::env::var("MOON_LINK_FLAGS") {
+        let env_link_flags: Vec<String> = env_flags
+            .split_whitespace()
+            .map(|s| s.to_string())
+            .collect();
+        extra_link_opt.extend(env_link_flags);
+    }
 
     let output_format = if build_flags.output_wat {
         OutputFormat::Wat
