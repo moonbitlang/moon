@@ -69,13 +69,14 @@ pub fn run_doc_rr(cli: UniversalFlags, cmd: DocSubcommand) -> anyhow::Result<i32
     let source_dir = dir.source_dir;
     let target_dir = dir.target_dir;
 
+    let flags = BuildFlags::default_debug();
     // FIXME: This is copied from `moon check`'s code
     let mut preconfig = preconfig_compile(
         &cmd.auto_sync_flags,
         &cli,
-        &BuildFlags::default(),
+        &flags,
         &target_dir,
-        moonutil::cond_expr::OptLevel::Release,
+        moonutil::cond_expr::OptLevel::Debug,
         RunMode::Check,
     );
     preconfig.docs_serve = cmd.serve;
@@ -105,7 +106,7 @@ pub fn run_doc_rr(cli: UniversalFlags, cmd: DocSubcommand) -> anyhow::Result<i32
     rr_build::generate_metadata(&source_dir, &target_dir, &_build_meta)?;
 
     // Execute the build
-    let cfg = BuildConfig::from_flags(&BuildFlags::default(), &cli.unstable_feature);
+    let cfg = BuildConfig::from_flags(&flags, &cli.unstable_feature);
     let result = rr_build::execute_build(&cfg, build_graph, &target_dir)?;
     result.print_info(cli.quiet, "checking")?;
 

@@ -66,8 +66,8 @@ fn test_design() {
     check(
         get_stdout(&dir, ["run", "main2", "--target", "js", "--build-only"]),
         expect![[r#"
-            {"artifacts_path":["$ROOT/target/js/release/build/main2/main2.js"]}
+            {"artifacts_path":["$ROOT/target/js/debug/build/main2/main2.js"]}
         "#]],
     );
-    assert!(dir.join("target/js/release/build/main2/main2.js").exists());
+    assert!(dir.join("target/js/debug/build/main2/main2.js").exists());
 }

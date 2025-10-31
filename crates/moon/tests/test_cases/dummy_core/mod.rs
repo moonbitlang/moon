@@ -121,7 +121,7 @@ fn test_dummy_core() {
                           "fspath": "$ROOT/prelude"
                         }
                       ],
-                      "artifact": "$ROOT/target/wasm-gc/release/check/0/0.mi"
+                      "artifact": "$ROOT/target/wasm-gc/debug/check/0/0.mi"
                     },
                     {
                       "is-main": false,
@@ -193,7 +193,7 @@ fn test_dummy_core() {
                           "fspath": "$ROOT/prelude"
                         }
                       ],
-                      "artifact": "$ROOT/target/wasm-gc/release/check/1/1.mi"
+                      "artifact": "$ROOT/target/wasm-gc/debug/check/1/1.mi"
                     },
                     {
                       "is-main": false,
@@ -234,7 +234,7 @@ fn test_dummy_core() {
                           "fspath": "$ROOT/prelude"
                         }
                       ],
-                      "artifact": "$ROOT/target/wasm-gc/release/check/2/2.mi"
+                      "artifact": "$ROOT/target/wasm-gc/debug/check/2/2.mi"
                     },
                     {
                       "is-main": false,
@@ -261,7 +261,7 @@ fn test_dummy_core() {
                           "fspath": "$ROOT/prelude"
                         }
                       ],
-                      "artifact": "$ROOT/target/wasm-gc/release/check/char/char.mi"
+                      "artifact": "$ROOT/target/wasm-gc/debug/check/char/char.mi"
                     },
                     {
                       "is-main": false,
@@ -282,7 +282,7 @@ fn test_dummy_core() {
                           "fspath": "$ROOT/prelude"
                         }
                       ],
-                      "artifact": "$ROOT/target/wasm-gc/release/check/coverage/coverage.mi"
+                      "artifact": "$ROOT/target/wasm-gc/debug/check/coverage/coverage.mi"
                     },
                     {
                       "is-main": false,
@@ -315,7 +315,7 @@ fn test_dummy_core() {
                           "fspath": "$ROOT/prelude"
                         }
                       ],
-                      "artifact": "$ROOT/target/wasm-gc/release/check/iter/iter.mi"
+                      "artifact": "$ROOT/target/wasm-gc/debug/check/iter/iter.mi"
                     },
                     {
                       "is-main": false,
@@ -336,12 +336,12 @@ fn test_dummy_core() {
                           "fspath": "$ROOT/prelude"
                         }
                       ],
-                      "artifact": "$ROOT/target/wasm-gc/release/check/prelude/prelude.mi"
+                      "artifact": "$ROOT/target/wasm-gc/debug/check/prelude/prelude.mi"
                     }
                   ],
                   "deps": [],
                   "backend": "wasm-gc",
-                  "opt_level": "release",
+                  "opt_level": "debug",
                   "source": null
                 }"#]],
         );
@@ -463,7 +463,7 @@ fn test_dummy_core() {
                           "fspath": "$ROOT/prelude"
                         }
                       ],
-                      "artifact": "$ROOT/target/js/release/check/0/0.mi"
+                      "artifact": "$ROOT/target/js/debug/check/0/0.mi"
                     },
                     {
                       "is-main": false,
@@ -535,7 +535,7 @@ fn test_dummy_core() {
                           "fspath": "$ROOT/prelude"
                         }
                       ],
-                      "artifact": "$ROOT/target/js/release/check/1/1.mi"
+                      "artifact": "$ROOT/target/js/debug/check/1/1.mi"
                     },
                     {
                       "is-main": false,
@@ -576,7 +576,7 @@ fn test_dummy_core() {
                           "fspath": "$ROOT/prelude"
                         }
                       ],
-                      "artifact": "$ROOT/target/js/release/check/2/2.mi"
+                      "artifact": "$ROOT/target/js/debug/check/2/2.mi"
                     },
                     {
                       "is-main": false,
@@ -603,7 +603,7 @@ fn test_dummy_core() {
                           "fspath": "$ROOT/prelude"
                         }
                       ],
-                      "artifact": "$ROOT/target/js/release/check/char/char.mi"
+                      "artifact": "$ROOT/target/js/debug/check/char/char.mi"
                     },
                     {
                       "is-main": false,
@@ -624,7 +624,7 @@ fn test_dummy_core() {
                           "fspath": "$ROOT/prelude"
                         }
                       ],
-                      "artifact": "$ROOT/target/js/release/check/coverage/coverage.mi"
+                      "artifact": "$ROOT/target/js/debug/check/coverage/coverage.mi"
                     },
                     {
                       "is-main": false,
@@ -657,7 +657,7 @@ fn test_dummy_core() {
                           "fspath": "$ROOT/prelude"
                         }
                       ],
-                      "artifact": "$ROOT/target/js/release/check/iter/iter.mi"
+                      "artifact": "$ROOT/target/js/debug/check/iter/iter.mi"
                     },
                     {
                       "is-main": false,
@@ -678,12 +678,12 @@ fn test_dummy_core() {
                           "fspath": "$ROOT/prelude"
                         }
                       ],
-                      "artifact": "$ROOT/target/js/release/check/prelude/prelude.mi"
+                      "artifact": "$ROOT/target/js/debug/check/prelude/prelude.mi"
                     }
                   ],
                   "deps": [],
                   "backend": "js",
-                  "opt_level": "release",
+                  "opt_level": "debug",
                   "source": null
                 }"#]],
         );
@@ -692,22 +692,22 @@ fn test_dummy_core() {
     check(
         get_stdout(&dir, ["check", "--dry-run", "--sort-input"]),
         expect![[r#"
-            moonc check -o ./target/wasm-gc/release/check/prelude/prelude.mi -pkg moonbitlang/core/prelude -pkg-sources moonbitlang/core/prelude:./prelude -target wasm-gc -workspace-path .
-            moonc check -include-doctests -o ./target/wasm-gc/release/check/prelude/prelude.blackbox_test.mi -pkg moonbitlang/core/prelude_blackbox_test -i ./target/wasm-gc/release/check/prelude/prelude.mi:prelude -pkg-sources moonbitlang/core/prelude_blackbox_test:./prelude -target wasm-gc -blackbox-test -workspace-path .
-            moonc check -o ./target/wasm-gc/release/check/coverage/coverage.mi -pkg moonbitlang/core/coverage -pkg-sources moonbitlang/core/coverage:./coverage -target wasm-gc -workspace-path .
-            moonc check -o ./target/wasm-gc/release/check/iter/iter.mi -pkg moonbitlang/core/iter -i ./target/wasm-gc/release/check/coverage/coverage.mi:coverage -pkg-sources moonbitlang/core/iter:./iter -target wasm-gc -workspace-path .
-            moonc check -include-doctests -o ./target/wasm-gc/release/check/iter/iter.blackbox_test.mi -pkg moonbitlang/core/iter_blackbox_test -i ./target/wasm-gc/release/check/iter/iter.mi:iter -i ./target/wasm-gc/release/check/coverage/coverage.mi:coverage -i ./target/wasm-gc/release/check/prelude/prelude.mi:prelude -pkg-sources moonbitlang/core/iter_blackbox_test:./iter -target wasm-gc -blackbox-test -workspace-path .
-            moonc check -include-doctests -o ./target/wasm-gc/release/check/coverage/coverage.blackbox_test.mi -pkg moonbitlang/core/coverage_blackbox_test -i ./target/wasm-gc/release/check/coverage/coverage.mi:coverage -i ./target/wasm-gc/release/check/prelude/prelude.mi:prelude -pkg-sources moonbitlang/core/coverage_blackbox_test:./coverage -target wasm-gc -blackbox-test -workspace-path .
-            moonc check -o ./target/wasm-gc/release/check/char/char.mi -pkg moonbitlang/core/char -i ./target/wasm-gc/release/check/coverage/coverage.mi:coverage -pkg-sources moonbitlang/core/char:./char -target wasm-gc -workspace-path .
-            moonc check -include-doctests -o ./target/wasm-gc/release/check/char/char.blackbox_test.mi -pkg moonbitlang/core/char_blackbox_test -i ./target/wasm-gc/release/check/char/char.mi:char -i ./target/wasm-gc/release/check/coverage/coverage.mi:coverage -i ./target/wasm-gc/release/check/prelude/prelude.mi:prelude -pkg-sources moonbitlang/core/char_blackbox_test:./char -target wasm-gc -blackbox-test -workspace-path .
-            moonc check ./1/lib.mbt ./1/x.wasm-gc.mbt -o ./target/wasm-gc/release/check/1/1.mi -pkg moonbitlang/core/1 -pkg-sources moonbitlang/core/1:./1 -target wasm-gc -workspace-path .
-            moonc check ./2/lib.mbt -o ./target/wasm-gc/release/check/2/2.mi -pkg moonbitlang/core/2 -i ./target/wasm-gc/release/check/1/1.mi:1 -pkg-sources moonbitlang/core/2:./2 -target wasm-gc -workspace-path .
-            moonc check -doctest-only ./2/lib.mbt -include-doctests -o ./target/wasm-gc/release/check/2/2.blackbox_test.mi -pkg moonbitlang/core/2_blackbox_test -i ./target/wasm-gc/release/check/2/2.mi:2 -i ./target/wasm-gc/release/check/1/1.mi:1 -i ./target/wasm-gc/release/check/prelude/prelude.mi:prelude -pkg-sources moonbitlang/core/2_blackbox_test:./2 -target wasm-gc -blackbox-test -workspace-path .
-            moonc check ./1/lib.mbt ./1/x.wasm-gc.mbt ./1/x_wbtest.wasm-gc.mbt -o ./target/wasm-gc/release/check/1/1.whitebox_test.mi -pkg moonbitlang/core/1 -pkg-sources moonbitlang/core/1:./1 -target wasm-gc -whitebox-test -workspace-path .
-            moonc check -doctest-only ./1/lib.mbt -doctest-only ./1/x.wasm-gc.mbt -include-doctests -o ./target/wasm-gc/release/check/1/1.blackbox_test.mi -pkg moonbitlang/core/1_blackbox_test -i ./target/wasm-gc/release/check/1/1.mi:1 -i ./target/wasm-gc/release/check/prelude/prelude.mi:prelude -pkg-sources moonbitlang/core/1_blackbox_test:./1 -target wasm-gc -blackbox-test -workspace-path .
-            moonc check ./0/lib.mbt ./0/y.wasm-gc.mbt ./0/y_wbtest.mbt ./0/y_wbtest.wasm-gc.mbt -o ./target/wasm-gc/release/check/0/0.whitebox_test.mi -pkg moonbitlang/core/0 -pkg-sources moonbitlang/core/0:./0 -target wasm-gc -whitebox-test -workspace-path .
-            moonc check ./0/lib.mbt ./0/y.wasm-gc.mbt -o ./target/wasm-gc/release/check/0/0.mi -pkg moonbitlang/core/0 -pkg-sources moonbitlang/core/0:./0 -target wasm-gc -workspace-path .
-            moonc check -doctest-only ./0/lib.mbt -doctest-only ./0/y.wasm-gc.mbt -include-doctests -o ./target/wasm-gc/release/check/0/0.blackbox_test.mi -pkg moonbitlang/core/0_blackbox_test -i ./target/wasm-gc/release/check/0/0.mi:0 -i ./target/wasm-gc/release/check/prelude/prelude.mi:prelude -pkg-sources moonbitlang/core/0_blackbox_test:./0 -target wasm-gc -blackbox-test -workspace-path .
+            moonc check -o ./target/wasm-gc/debug/check/prelude/prelude.mi -pkg moonbitlang/core/prelude -pkg-sources moonbitlang/core/prelude:./prelude -target wasm-gc -workspace-path .
+            moonc check -include-doctests -o ./target/wasm-gc/debug/check/prelude/prelude.blackbox_test.mi -pkg moonbitlang/core/prelude_blackbox_test -i ./target/wasm-gc/debug/check/prelude/prelude.mi:prelude -pkg-sources moonbitlang/core/prelude_blackbox_test:./prelude -target wasm-gc -blackbox-test -workspace-path .
+            moonc check -o ./target/wasm-gc/debug/check/coverage/coverage.mi -pkg moonbitlang/core/coverage -pkg-sources moonbitlang/core/coverage:./coverage -target wasm-gc -workspace-path .
+            moonc check -o ./target/wasm-gc/debug/check/iter/iter.mi -pkg moonbitlang/core/iter -i ./target/wasm-gc/debug/check/coverage/coverage.mi:coverage -pkg-sources moonbitlang/core/iter:./iter -target wasm-gc -workspace-path .
+            moonc check -include-doctests -o ./target/wasm-gc/debug/check/iter/iter.blackbox_test.mi -pkg moonbitlang/core/iter_blackbox_test -i ./target/wasm-gc/debug/check/iter/iter.mi:iter -i ./target/wasm-gc/debug/check/coverage/coverage.mi:coverage -i ./target/wasm-gc/debug/check/prelude/prelude.mi:prelude -pkg-sources moonbitlang/core/iter_blackbox_test:./iter -target wasm-gc -blackbox-test -workspace-path .
+            moonc check -include-doctests -o ./target/wasm-gc/debug/check/coverage/coverage.blackbox_test.mi -pkg moonbitlang/core/coverage_blackbox_test -i ./target/wasm-gc/debug/check/coverage/coverage.mi:coverage -i ./target/wasm-gc/debug/check/prelude/prelude.mi:prelude -pkg-sources moonbitlang/core/coverage_blackbox_test:./coverage -target wasm-gc -blackbox-test -workspace-path .
+            moonc check -o ./target/wasm-gc/debug/check/char/char.mi -pkg moonbitlang/core/char -i ./target/wasm-gc/debug/check/coverage/coverage.mi:coverage -pkg-sources moonbitlang/core/char:./char -target wasm-gc -workspace-path .
+            moonc check -include-doctests -o ./target/wasm-gc/debug/check/char/char.blackbox_test.mi -pkg moonbitlang/core/char_blackbox_test -i ./target/wasm-gc/debug/check/char/char.mi:char -i ./target/wasm-gc/debug/check/coverage/coverage.mi:coverage -i ./target/wasm-gc/debug/check/prelude/prelude.mi:prelude -pkg-sources moonbitlang/core/char_blackbox_test:./char -target wasm-gc -blackbox-test -workspace-path .
+            moonc check ./1/lib.mbt ./1/x.wasm-gc.mbt -o ./target/wasm-gc/debug/check/1/1.mi -pkg moonbitlang/core/1 -pkg-sources moonbitlang/core/1:./1 -target wasm-gc -workspace-path .
+            moonc check ./2/lib.mbt -o ./target/wasm-gc/debug/check/2/2.mi -pkg moonbitlang/core/2 -i ./target/wasm-gc/debug/check/1/1.mi:1 -pkg-sources moonbitlang/core/2:./2 -target wasm-gc -workspace-path .
+            moonc check -doctest-only ./2/lib.mbt -include-doctests -o ./target/wasm-gc/debug/check/2/2.blackbox_test.mi -pkg moonbitlang/core/2_blackbox_test -i ./target/wasm-gc/debug/check/2/2.mi:2 -i ./target/wasm-gc/debug/check/1/1.mi:1 -i ./target/wasm-gc/debug/check/prelude/prelude.mi:prelude -pkg-sources moonbitlang/core/2_blackbox_test:./2 -target wasm-gc -blackbox-test -workspace-path .
+            moonc check ./1/lib.mbt ./1/x.wasm-gc.mbt ./1/x_wbtest.wasm-gc.mbt -o ./target/wasm-gc/debug/check/1/1.whitebox_test.mi -pkg moonbitlang/core/1 -pkg-sources moonbitlang/core/1:./1 -target wasm-gc -whitebox-test -workspace-path .
+            moonc check -doctest-only ./1/lib.mbt -doctest-only ./1/x.wasm-gc.mbt -include-doctests -o ./target/wasm-gc/debug/check/1/1.blackbox_test.mi -pkg moonbitlang/core/1_blackbox_test -i ./target/wasm-gc/debug/check/1/1.mi:1 -i ./target/wasm-gc/debug/check/prelude/prelude.mi:prelude -pkg-sources moonbitlang/core/1_blackbox_test:./1 -target wasm-gc -blackbox-test -workspace-path .
+            moonc check ./0/lib.mbt ./0/y.wasm-gc.mbt ./0/y_wbtest.mbt ./0/y_wbtest.wasm-gc.mbt -o ./target/wasm-gc/debug/check/0/0.whitebox_test.mi -pkg moonbitlang/core/0 -pkg-sources moonbitlang/core/0:./0 -target wasm-gc -whitebox-test -workspace-path .
+            moonc check ./0/lib.mbt ./0/y.wasm-gc.mbt -o ./target/wasm-gc/debug/check/0/0.mi -pkg moonbitlang/core/0 -pkg-sources moonbitlang/core/0:./0 -target wasm-gc -workspace-path .
+            moonc check -doctest-only ./0/lib.mbt -doctest-only ./0/y.wasm-gc.mbt -include-doctests -o ./target/wasm-gc/debug/check/0/0.blackbox_test.mi -pkg moonbitlang/core/0_blackbox_test -i ./target/wasm-gc/debug/check/0/0.mi:0 -i ./target/wasm-gc/debug/check/prelude/prelude.mi:prelude -pkg-sources moonbitlang/core/0_blackbox_test:./0 -target wasm-gc -blackbox-test -workspace-path .
         "#]],
     );
     check(
@@ -716,22 +716,22 @@ fn test_dummy_core() {
             ["check", "--dry-run", "--target", "wasm", "--sort-input"],
         ),
         expect![[r#"
-            moonc check -o ./target/wasm/release/check/prelude/prelude.mi -pkg moonbitlang/core/prelude -pkg-sources moonbitlang/core/prelude:./prelude -target wasm -workspace-path .
-            moonc check -include-doctests -o ./target/wasm/release/check/prelude/prelude.blackbox_test.mi -pkg moonbitlang/core/prelude_blackbox_test -i ./target/wasm/release/check/prelude/prelude.mi:prelude -pkg-sources moonbitlang/core/prelude_blackbox_test:./prelude -target wasm -blackbox-test -workspace-path .
-            moonc check -o ./target/wasm/release/check/coverage/coverage.mi -pkg moonbitlang/core/coverage -pkg-sources moonbitlang/core/coverage:./coverage -target wasm -workspace-path .
-            moonc check -o ./target/wasm/release/check/iter/iter.mi -pkg moonbitlang/core/iter -i ./target/wasm/release/check/coverage/coverage.mi:coverage -pkg-sources moonbitlang/core/iter:./iter -target wasm -workspace-path .
-            moonc check -include-doctests -o ./target/wasm/release/check/iter/iter.blackbox_test.mi -pkg moonbitlang/core/iter_blackbox_test -i ./target/wasm/release/check/iter/iter.mi:iter -i ./target/wasm/release/check/coverage/coverage.mi:coverage -i ./target/wasm/release/check/prelude/prelude.mi:prelude -pkg-sources moonbitlang/core/iter_blackbox_test:./iter -target wasm -blackbox-test -workspace-path .
-            moonc check -include-doctests -o ./target/wasm/release/check/coverage/coverage.blackbox_test.mi -pkg moonbitlang/core/coverage_blackbox_test -i ./target/wasm/release/check/coverage/coverage.mi:coverage -i ./target/wasm/release/check/prelude/prelude.mi:prelude -pkg-sources moonbitlang/core/coverage_blackbox_test:./coverage -target wasm -blackbox-test -workspace-path .
-            moonc check -o ./target/wasm/release/check/char/char.mi -pkg moonbitlang/core/char -i ./target/wasm/release/check/coverage/coverage.mi:coverage -pkg-sources moonbitlang/core/char:./char -target wasm -workspace-path .
-            moonc check -include-doctests -o ./target/wasm/release/check/char/char.blackbox_test.mi -pkg moonbitlang/core/char_blackbox_test -i ./target/wasm/release/check/char/char.mi:char -i ./target/wasm/release/check/coverage/coverage.mi:coverage -i ./target/wasm/release/check/prelude/prelude.mi:prelude -pkg-sources moonbitlang/core/char_blackbox_test:./char -target wasm -blackbox-test -workspace-path .
-            moonc check ./1/lib.mbt ./1/x.wasm.mbt -o ./target/wasm/release/check/1/1.mi -pkg moonbitlang/core/1 -pkg-sources moonbitlang/core/1:./1 -target wasm -workspace-path .
-            moonc check ./2/lib.mbt -o ./target/wasm/release/check/2/2.mi -pkg moonbitlang/core/2 -i ./target/wasm/release/check/1/1.mi:1 -pkg-sources moonbitlang/core/2:./2 -target wasm -workspace-path .
-            moonc check -doctest-only ./2/lib.mbt -include-doctests -o ./target/wasm/release/check/2/2.blackbox_test.mi -pkg moonbitlang/core/2_blackbox_test -i ./target/wasm/release/check/2/2.mi:2 -i ./target/wasm/release/check/1/1.mi:1 -i ./target/wasm/release/check/prelude/prelude.mi:prelude -pkg-sources moonbitlang/core/2_blackbox_test:./2 -target wasm -blackbox-test -workspace-path .
-            moonc check ./1/lib.mbt ./1/x.wasm.mbt -o ./target/wasm/release/check/1/1.whitebox_test.mi -pkg moonbitlang/core/1 -pkg-sources moonbitlang/core/1:./1 -target wasm -whitebox-test -workspace-path .
-            moonc check -doctest-only ./1/lib.mbt -doctest-only ./1/x.wasm.mbt -include-doctests -o ./target/wasm/release/check/1/1.blackbox_test.mi -pkg moonbitlang/core/1_blackbox_test -i ./target/wasm/release/check/1/1.mi:1 -i ./target/wasm/release/check/prelude/prelude.mi:prelude -pkg-sources moonbitlang/core/1_blackbox_test:./1 -target wasm -blackbox-test -workspace-path .
-            moonc check ./0/lib.mbt ./0/y.wasm.mbt ./0/y_wbtest.mbt ./0/y_wbtest.wasm.mbt -o ./target/wasm/release/check/0/0.whitebox_test.mi -pkg moonbitlang/core/0 -pkg-sources moonbitlang/core/0:./0 -target wasm -whitebox-test -workspace-path .
-            moonc check ./0/lib.mbt ./0/y.wasm.mbt -o ./target/wasm/release/check/0/0.mi -pkg moonbitlang/core/0 -pkg-sources moonbitlang/core/0:./0 -target wasm -workspace-path .
-            moonc check -doctest-only ./0/lib.mbt -doctest-only ./0/y.wasm.mbt -include-doctests -o ./target/wasm/release/check/0/0.blackbox_test.mi -pkg moonbitlang/core/0_blackbox_test -i ./target/wasm/release/check/0/0.mi:0 -i ./target/wasm/release/check/prelude/prelude.mi:prelude -pkg-sources moonbitlang/core/0_blackbox_test:./0 -target wasm -blackbox-test -workspace-path .
+            moonc check -o ./target/wasm/debug/check/prelude/prelude.mi -pkg moonbitlang/core/prelude -pkg-sources moonbitlang/core/prelude:./prelude -target wasm -workspace-path .
+            moonc check -include-doctests -o ./target/wasm/debug/check/prelude/prelude.blackbox_test.mi -pkg moonbitlang/core/prelude_blackbox_test -i ./target/wasm/debug/check/prelude/prelude.mi:prelude -pkg-sources moonbitlang/core/prelude_blackbox_test:./prelude -target wasm -blackbox-test -workspace-path .
+            moonc check -o ./target/wasm/debug/check/coverage/coverage.mi -pkg moonbitlang/core/coverage -pkg-sources moonbitlang/core/coverage:./coverage -target wasm -workspace-path .
+            moonc check -o ./target/wasm/debug/check/iter/iter.mi -pkg moonbitlang/core/iter -i ./target/wasm/debug/check/coverage/coverage.mi:coverage -pkg-sources moonbitlang/core/iter:./iter -target wasm -workspace-path .
+            moonc check -include-doctests -o ./target/wasm/debug/check/iter/iter.blackbox_test.mi -pkg moonbitlang/core/iter_blackbox_test -i ./target/wasm/debug/check/iter/iter.mi:iter -i ./target/wasm/debug/check/coverage/coverage.mi:coverage -i ./target/wasm/debug/check/prelude/prelude.mi:prelude -pkg-sources moonbitlang/core/iter_blackbox_test:./iter -target wasm -blackbox-test -workspace-path .
+            moonc check -include-doctests -o ./target/wasm/debug/check/coverage/coverage.blackbox_test.mi -pkg moonbitlang/core/coverage_blackbox_test -i ./target/wasm/debug/check/coverage/coverage.mi:coverage -i ./target/wasm/debug/check/prelude/prelude.mi:prelude -pkg-sources moonbitlang/core/coverage_blackbox_test:./coverage -target wasm -blackbox-test -workspace-path .
+            moonc check -o ./target/wasm/debug/check/char/char.mi -pkg moonbitlang/core/char -i ./target/wasm/debug/check/coverage/coverage.mi:coverage -pkg-sources moonbitlang/core/char:./char -target wasm -workspace-path .
+            moonc check -include-doctests -o ./target/wasm/debug/check/char/char.blackbox_test.mi -pkg moonbitlang/core/char_blackbox_test -i ./target/wasm/debug/check/char/char.mi:char -i ./target/wasm/debug/check/coverage/coverage.mi:coverage -i ./target/wasm/debug/check/prelude/prelude.mi:prelude -pkg-sources moonbitlang/core/char_blackbox_test:./char -target wasm -blackbox-test -workspace-path .
+            moonc check ./1/lib.mbt ./1/x.wasm.mbt -o ./target/wasm/debug/check/1/1.mi -pkg moonbitlang/core/1 -pkg-sources moonbitlang/core/1:./1 -target wasm -workspace-path .
+            moonc check ./2/lib.mbt -o ./target/wasm/debug/check/2/2.mi -pkg moonbitlang/core/2 -i ./target/wasm/debug/check/1/1.mi:1 -pkg-sources moonbitlang/core/2:./2 -target wasm -workspace-path .
+            moonc check -doctest-only ./2/lib.mbt -include-doctests -o ./target/wasm/debug/check/2/2.blackbox_test.mi -pkg moonbitlang/core/2_blackbox_test -i ./target/wasm/debug/check/2/2.mi:2 -i ./target/wasm/debug/check/1/1.mi:1 -i ./target/wasm/debug/check/prelude/prelude.mi:prelude -pkg-sources moonbitlang/core/2_blackbox_test:./2 -target wasm -blackbox-test -workspace-path .
+            moonc check ./1/lib.mbt ./1/x.wasm.mbt -o ./target/wasm/debug/check/1/1.whitebox_test.mi -pkg moonbitlang/core/1 -pkg-sources moonbitlang/core/1:./1 -target wasm -whitebox-test -workspace-path .
+            moonc check -doctest-only ./1/lib.mbt -doctest-only ./1/x.wasm.mbt -include-doctests -o ./target/wasm/debug/check/1/1.blackbox_test.mi -pkg moonbitlang/core/1_blackbox_test -i ./target/wasm/debug/check/1/1.mi:1 -i ./target/wasm/debug/check/prelude/prelude.mi:prelude -pkg-sources moonbitlang/core/1_blackbox_test:./1 -target wasm -blackbox-test -workspace-path .
+            moonc check ./0/lib.mbt ./0/y.wasm.mbt ./0/y_wbtest.mbt ./0/y_wbtest.wasm.mbt -o ./target/wasm/debug/check/0/0.whitebox_test.mi -pkg moonbitlang/core/0 -pkg-sources moonbitlang/core/0:./0 -target wasm -whitebox-test -workspace-path .
+            moonc check ./0/lib.mbt ./0/y.wasm.mbt -o ./target/wasm/debug/check/0/0.mi -pkg moonbitlang/core/0 -pkg-sources moonbitlang/core/0:./0 -target wasm -workspace-path .
+            moonc check -doctest-only ./0/lib.mbt -doctest-only ./0/y.wasm.mbt -include-doctests -o ./target/wasm/debug/check/0/0.blackbox_test.mi -pkg moonbitlang/core/0_blackbox_test -i ./target/wasm/debug/check/0/0.mi:0 -i ./target/wasm/debug/check/prelude/prelude.mi:prelude -pkg-sources moonbitlang/core/0_blackbox_test:./0 -target wasm -blackbox-test -workspace-path .
         "#]],
     );
     check(
@@ -740,22 +740,22 @@ fn test_dummy_core() {
             ["check", "--dry-run", "--target", "wasm-gc", "--sort-input"],
         ),
         expect![[r#"
-            moonc check -o ./target/wasm-gc/release/check/prelude/prelude.mi -pkg moonbitlang/core/prelude -pkg-sources moonbitlang/core/prelude:./prelude -target wasm-gc -workspace-path .
-            moonc check -include-doctests -o ./target/wasm-gc/release/check/prelude/prelude.blackbox_test.mi -pkg moonbitlang/core/prelude_blackbox_test -i ./target/wasm-gc/release/check/prelude/prelude.mi:prelude -pkg-sources moonbitlang/core/prelude_blackbox_test:./prelude -target wasm-gc -blackbox-test -workspace-path .
-            moonc check -o ./target/wasm-gc/release/check/coverage/coverage.mi -pkg moonbitlang/core/coverage -pkg-sources moonbitlang/core/coverage:./coverage -target wasm-gc -workspace-path .
-            moonc check -o ./target/wasm-gc/release/check/iter/iter.mi -pkg moonbitlang/core/iter -i ./target/wasm-gc/release/check/coverage/coverage.mi:coverage -pkg-sources moonbitlang/core/iter:./iter -target wasm-gc -workspace-path .
-            moonc check -include-doctests -o ./target/wasm-gc/release/check/iter/iter.blackbox_test.mi -pkg moonbitlang/core/iter_blackbox_test -i ./target/wasm-gc/release/check/iter/iter.mi:iter -i ./target/wasm-gc/release/check/coverage/coverage.mi:coverage -i ./target/wasm-gc/release/check/prelude/prelude.mi:prelude -pkg-sources moonbitlang/core/iter_blackbox_test:./iter -target wasm-gc -blackbox-test -workspace-path .
-            moonc check -include-doctests -o ./target/wasm-gc/release/check/coverage/coverage.blackbox_test.mi -pkg moonbitlang/core/coverage_blackbox_test -i ./target/wasm-gc/release/check/coverage/coverage.mi:coverage -i ./target/wasm-gc/release/check/prelude/prelude.mi:prelude -pkg-sources moonbitlang/core/coverage_blackbox_test:./coverage -target wasm-gc -blackbox-test -workspace-path .
-            moonc check -o ./target/wasm-gc/release/check/char/char.mi -pkg moonbitlang/core/char -i ./target/wasm-gc/release/check/coverage/coverage.mi:coverage -pkg-sources moonbitlang/core/char:./char -target wasm-gc -workspace-path .
-            moonc check -include-doctests -o ./target/wasm-gc/release/check/char/char.blackbox_test.mi -pkg moonbitlang/core/char_blackbox_test -i ./target/wasm-gc/release/check/char/char.mi:char -i ./target/wasm-gc/release/check/coverage/coverage.mi:coverage -i ./target/wasm-gc/release/check/prelude/prelude.mi:prelude -pkg-sources moonbitlang/core/char_blackbox_test:./char -target wasm-gc -blackbox-test -workspace-path .
-            moonc check ./1/lib.mbt ./1/x.wasm-gc.mbt -o ./target/wasm-gc/release/check/1/1.mi -pkg moonbitlang/core/1 -pkg-sources moonbitlang/core/1:./1 -target wasm-gc -workspace-path .
-            moonc check ./2/lib.mbt -o ./target/wasm-gc/release/check/2/2.mi -pkg moonbitlang/core/2 -i ./target/wasm-gc/release/check/1/1.mi:1 -pkg-sources moonbitlang/core/2:./2 -target wasm-gc -workspace-path .
-            moonc check -doctest-only ./2/lib.mbt -include-doctests -o ./target/wasm-gc/release/check/2/2.blackbox_test.mi -pkg moonbitlang/core/2_blackbox_test -i ./target/wasm-gc/release/check/2/2.mi:2 -i ./target/wasm-gc/release/check/1/1.mi:1 -i ./target/wasm-gc/release/check/prelude/prelude.mi:prelude -pkg-sources moonbitlang/core/2_blackbox_test:./2 -target wasm-gc -blackbox-test -workspace-path .
-            moonc check ./1/lib.mbt ./1/x.wasm-gc.mbt ./1/x_wbtest.wasm-gc.mbt -o ./target/wasm-gc/release/check/1/1.whitebox_test.mi -pkg moonbitlang/core/1 -pkg-sources moonbitlang/core/1:./1 -target wasm-gc -whitebox-test -workspace-path .
-            moonc check -doctest-only ./1/lib.mbt -doctest-only ./1/x.wasm-gc.mbt -include-doctests -o ./target/wasm-gc/release/check/1/1.blackbox_test.mi -pkg moonbitlang/core/1_blackbox_test -i ./target/wasm-gc/release/check/1/1.mi:1 -i ./target/wasm-gc/release/check/prelude/prelude.mi:prelude -pkg-sources moonbitlang/core/1_blackbox_test:./1 -target wasm-gc -blackbox-test -workspace-path .
-            moonc check ./0/lib.mbt ./0/y.wasm-gc.mbt ./0/y_wbtest.mbt ./0/y_wbtest.wasm-gc.mbt -o ./target/wasm-gc/release/check/0/0.whitebox_test.mi -pkg moonbitlang/core/0 -pkg-sources moonbitlang/core/0:./0 -target wasm-gc -whitebox-test -workspace-path .
-            moonc check ./0/lib.mbt ./0/y.wasm-gc.mbt -o ./target/wasm-gc/release/check/0/0.mi -pkg moonbitlang/core/0 -pkg-sources moonbitlang/core/0:./0 -target wasm-gc -workspace-path .
-            moonc check -doctest-only ./0/lib.mbt -doctest-only ./0/y.wasm-gc.mbt -include-doctests -o ./target/wasm-gc/release/check/0/0.blackbox_test.mi -pkg moonbitlang/core/0_blackbox_test -i ./target/wasm-gc/release/check/0/0.mi:0 -i ./target/wasm-gc/release/check/prelude/prelude.mi:prelude -pkg-sources moonbitlang/core/0_blackbox_test:./0 -target wasm-gc -blackbox-test -workspace-path .
+            moonc check -o ./target/wasm-gc/debug/check/prelude/prelude.mi -pkg moonbitlang/core/prelude -pkg-sources moonbitlang/core/prelude:./prelude -target wasm-gc -workspace-path .
+            moonc check -include-doctests -o ./target/wasm-gc/debug/check/prelude/prelude.blackbox_test.mi -pkg moonbitlang/core/prelude_blackbox_test -i ./target/wasm-gc/debug/check/prelude/prelude.mi:prelude -pkg-sources moonbitlang/core/prelude_blackbox_test:./prelude -target wasm-gc -blackbox-test -workspace-path .
+            moonc check -o ./target/wasm-gc/debug/check/coverage/coverage.mi -pkg moonbitlang/core/coverage -pkg-sources moonbitlang/core/coverage:./coverage -target wasm-gc -workspace-path .
+            moonc check -o ./target/wasm-gc/debug/check/iter/iter.mi -pkg moonbitlang/core/iter -i ./target/wasm-gc/debug/check/coverage/coverage.mi:coverage -pkg-sources moonbitlang/core/iter:./iter -target wasm-gc -workspace-path .
+            moonc check -include-doctests -o ./target/wasm-gc/debug/check/iter/iter.blackbox_test.mi -pkg moonbitlang/core/iter_blackbox_test -i ./target/wasm-gc/debug/check/iter/iter.mi:iter -i ./target/wasm-gc/debug/check/coverage/coverage.mi:coverage -i ./target/wasm-gc/debug/check/prelude/prelude.mi:prelude -pkg-sources moonbitlang/core/iter_blackbox_test:./iter -target wasm-gc -blackbox-test -workspace-path .
+            moonc check -include-doctests -o ./target/wasm-gc/debug/check/coverage/coverage.blackbox_test.mi -pkg moonbitlang/core/coverage_blackbox_test -i ./target/wasm-gc/debug/check/coverage/coverage.mi:coverage -i ./target/wasm-gc/debug/check/prelude/prelude.mi:prelude -pkg-sources moonbitlang/core/coverage_blackbox_test:./coverage -target wasm-gc -blackbox-test -workspace-path .
+            moonc check -o ./target/wasm-gc/debug/check/char/char.mi -pkg moonbitlang/core/char -i ./target/wasm-gc/debug/check/coverage/coverage.mi:coverage -pkg-sources moonbitlang/core/char:./char -target wasm-gc -workspace-path .
+            moonc check -include-doctests -o ./target/wasm-gc/debug/check/char/char.blackbox_test.mi -pkg moonbitlang/core/char_blackbox_test -i ./target/wasm-gc/debug/check/char/char.mi:char -i ./target/wasm-gc/debug/check/coverage/coverage.mi:coverage -i ./target/wasm-gc/debug/check/prelude/prelude.mi:prelude -pkg-sources moonbitlang/core/char_blackbox_test:./char -target wasm-gc -blackbox-test -workspace-path .
+            moonc check ./1/lib.mbt ./1/x.wasm-gc.mbt -o ./target/wasm-gc/debug/check/1/1.mi -pkg moonbitlang/core/1 -pkg-sources moonbitlang/core/1:./1 -target wasm-gc -workspace-path .
+            moonc check ./2/lib.mbt -o ./target/wasm-gc/debug/check/2/2.mi -pkg moonbitlang/core/2 -i ./target/wasm-gc/debug/check/1/1.mi:1 -pkg-sources moonbitlang/core/2:./2 -target wasm-gc -workspace-path .
+            moonc check -doctest-only ./2/lib.mbt -include-doctests -o ./target/wasm-gc/debug/check/2/2.blackbox_test.mi -pkg moonbitlang/core/2_blackbox_test -i ./target/wasm-gc/debug/check/2/2.mi:2 -i ./target/wasm-gc/debug/check/1/1.mi:1 -i ./target/wasm-gc/debug/check/prelude/prelude.mi:prelude -pkg-sources moonbitlang/core/2_blackbox_test:./2 -target wasm-gc -blackbox-test -workspace-path .
+            moonc check ./1/lib.mbt ./1/x.wasm-gc.mbt ./1/x_wbtest.wasm-gc.mbt -o ./target/wasm-gc/debug/check/1/1.whitebox_test.mi -pkg moonbitlang/core/1 -pkg-sources moonbitlang/core/1:./1 -target wasm-gc -whitebox-test -workspace-path .
+            moonc check -doctest-only ./1/lib.mbt -doctest-only ./1/x.wasm-gc.mbt -include-doctests -o ./target/wasm-gc/debug/check/1/1.blackbox_test.mi -pkg moonbitlang/core/1_blackbox_test -i ./target/wasm-gc/debug/check/1/1.mi:1 -i ./target/wasm-gc/debug/check/prelude/prelude.mi:prelude -pkg-sources moonbitlang/core/1_blackbox_test:./1 -target wasm-gc -blackbox-test -workspace-path .
+            moonc check ./0/lib.mbt ./0/y.wasm-gc.mbt ./0/y_wbtest.mbt ./0/y_wbtest.wasm-gc.mbt -o ./target/wasm-gc/debug/check/0/0.whitebox_test.mi -pkg moonbitlang/core/0 -pkg-sources moonbitlang/core/0:./0 -target wasm-gc -whitebox-test -workspace-path .
+            moonc check ./0/lib.mbt ./0/y.wasm-gc.mbt -o ./target/wasm-gc/debug/check/0/0.mi -pkg moonbitlang/core/0 -pkg-sources moonbitlang/core/0:./0 -target wasm-gc -workspace-path .
+            moonc check -doctest-only ./0/lib.mbt -doctest-only ./0/y.wasm-gc.mbt -include-doctests -o ./target/wasm-gc/debug/check/0/0.blackbox_test.mi -pkg moonbitlang/core/0_blackbox_test -i ./target/wasm-gc/debug/check/0/0.mi:0 -i ./target/wasm-gc/debug/check/prelude/prelude.mi:prelude -pkg-sources moonbitlang/core/0_blackbox_test:./0 -target wasm-gc -blackbox-test -workspace-path .
         "#]],
     );
     check(
@@ -764,34 +764,34 @@ fn test_dummy_core() {
             ["check", "--dry-run", "--target", "js", "--sort-input"],
         ),
         expect![[r#"
-            moonc check -o ./target/js/release/check/prelude/prelude.mi -pkg moonbitlang/core/prelude -pkg-sources moonbitlang/core/prelude:./prelude -target js -workspace-path .
-            moonc check -include-doctests -o ./target/js/release/check/prelude/prelude.blackbox_test.mi -pkg moonbitlang/core/prelude_blackbox_test -i ./target/js/release/check/prelude/prelude.mi:prelude -pkg-sources moonbitlang/core/prelude_blackbox_test:./prelude -target js -blackbox-test -workspace-path .
-            moonc check -o ./target/js/release/check/coverage/coverage.mi -pkg moonbitlang/core/coverage -pkg-sources moonbitlang/core/coverage:./coverage -target js -workspace-path .
-            moonc check -o ./target/js/release/check/iter/iter.mi -pkg moonbitlang/core/iter -i ./target/js/release/check/coverage/coverage.mi:coverage -pkg-sources moonbitlang/core/iter:./iter -target js -workspace-path .
-            moonc check -include-doctests -o ./target/js/release/check/iter/iter.blackbox_test.mi -pkg moonbitlang/core/iter_blackbox_test -i ./target/js/release/check/iter/iter.mi:iter -i ./target/js/release/check/coverage/coverage.mi:coverage -i ./target/js/release/check/prelude/prelude.mi:prelude -pkg-sources moonbitlang/core/iter_blackbox_test:./iter -target js -blackbox-test -workspace-path .
-            moonc check -include-doctests -o ./target/js/release/check/coverage/coverage.blackbox_test.mi -pkg moonbitlang/core/coverage_blackbox_test -i ./target/js/release/check/coverage/coverage.mi:coverage -i ./target/js/release/check/prelude/prelude.mi:prelude -pkg-sources moonbitlang/core/coverage_blackbox_test:./coverage -target js -blackbox-test -workspace-path .
-            moonc check -o ./target/js/release/check/char/char.mi -pkg moonbitlang/core/char -i ./target/js/release/check/coverage/coverage.mi:coverage -pkg-sources moonbitlang/core/char:./char -target js -workspace-path .
-            moonc check -include-doctests -o ./target/js/release/check/char/char.blackbox_test.mi -pkg moonbitlang/core/char_blackbox_test -i ./target/js/release/check/char/char.mi:char -i ./target/js/release/check/coverage/coverage.mi:coverage -i ./target/js/release/check/prelude/prelude.mi:prelude -pkg-sources moonbitlang/core/char_blackbox_test:./char -target js -blackbox-test -workspace-path .
-            moonc check ./1/lib.mbt ./1/x.js.mbt -o ./target/js/release/check/1/1.mi -pkg moonbitlang/core/1 -pkg-sources moonbitlang/core/1:./1 -target js -workspace-path .
-            moonc check ./2/lib.mbt -o ./target/js/release/check/2/2.mi -pkg moonbitlang/core/2 -i ./target/js/release/check/1/1.mi:1 -pkg-sources moonbitlang/core/2:./2 -target js -workspace-path .
-            moonc check -doctest-only ./2/lib.mbt -include-doctests -o ./target/js/release/check/2/2.blackbox_test.mi -pkg moonbitlang/core/2_blackbox_test -i ./target/js/release/check/2/2.mi:2 -i ./target/js/release/check/1/1.mi:1 -i ./target/js/release/check/prelude/prelude.mi:prelude -pkg-sources moonbitlang/core/2_blackbox_test:./2 -target js -blackbox-test -workspace-path .
-            moonc check ./1/lib.mbt ./1/x.js.mbt -o ./target/js/release/check/1/1.whitebox_test.mi -pkg moonbitlang/core/1 -pkg-sources moonbitlang/core/1:./1 -target js -whitebox-test -workspace-path .
-            moonc check -doctest-only ./1/lib.mbt -doctest-only ./1/x.js.mbt -include-doctests -o ./target/js/release/check/1/1.blackbox_test.mi -pkg moonbitlang/core/1_blackbox_test -i ./target/js/release/check/1/1.mi:1 -i ./target/js/release/check/prelude/prelude.mi:prelude -pkg-sources moonbitlang/core/1_blackbox_test:./1 -target js -blackbox-test -workspace-path .
-            moonc check ./0/lib.mbt ./0/y.js.mbt ./0/y_wbtest.js.mbt ./0/y_wbtest.mbt -o ./target/js/release/check/0/0.whitebox_test.mi -pkg moonbitlang/core/0 -pkg-sources moonbitlang/core/0:./0 -target js -whitebox-test -workspace-path .
-            moonc check ./0/lib.mbt ./0/y.js.mbt -o ./target/js/release/check/0/0.mi -pkg moonbitlang/core/0 -pkg-sources moonbitlang/core/0:./0 -target js -workspace-path .
-            moonc check -doctest-only ./0/lib.mbt -doctest-only ./0/y.js.mbt -include-doctests -o ./target/js/release/check/0/0.blackbox_test.mi -pkg moonbitlang/core/0_blackbox_test -i ./target/js/release/check/0/0.mi:0 -i ./target/js/release/check/prelude/prelude.mi:prelude -pkg-sources moonbitlang/core/0_blackbox_test:./0 -target js -blackbox-test -workspace-path .
+            moonc check -o ./target/js/debug/check/prelude/prelude.mi -pkg moonbitlang/core/prelude -pkg-sources moonbitlang/core/prelude:./prelude -target js -workspace-path .
+            moonc check -include-doctests -o ./target/js/debug/check/prelude/prelude.blackbox_test.mi -pkg moonbitlang/core/prelude_blackbox_test -i ./target/js/debug/check/prelude/prelude.mi:prelude -pkg-sources moonbitlang/core/prelude_blackbox_test:./prelude -target js -blackbox-test -workspace-path .
+            moonc check -o ./target/js/debug/check/coverage/coverage.mi -pkg moonbitlang/core/coverage -pkg-sources moonbitlang/core/coverage:./coverage -target js -workspace-path .
+            moonc check -o ./target/js/debug/check/iter/iter.mi -pkg moonbitlang/core/iter -i ./target/js/debug/check/coverage/coverage.mi:coverage -pkg-sources moonbitlang/core/iter:./iter -target js -workspace-path .
+            moonc check -include-doctests -o ./target/js/debug/check/iter/iter.blackbox_test.mi -pkg moonbitlang/core/iter_blackbox_test -i ./target/js/debug/check/iter/iter.mi:iter -i ./target/js/debug/check/coverage/coverage.mi:coverage -i ./target/js/debug/check/prelude/prelude.mi:prelude -pkg-sources moonbitlang/core/iter_blackbox_test:./iter -target js -blackbox-test -workspace-path .
+            moonc check -include-doctests -o ./target/js/debug/check/coverage/coverage.blackbox_test.mi -pkg moonbitlang/core/coverage_blackbox_test -i ./target/js/debug/check/coverage/coverage.mi:coverage -i ./target/js/debug/check/prelude/prelude.mi:prelude -pkg-sources moonbitlang/core/coverage_blackbox_test:./coverage -target js -blackbox-test -workspace-path .
+            moonc check -o ./target/js/debug/check/char/char.mi -pkg moonbitlang/core/char -i ./target/js/debug/check/coverage/coverage.mi:coverage -pkg-sources moonbitlang/core/char:./char -target js -workspace-path .
+            moonc check -include-doctests -o ./target/js/debug/check/char/char.blackbox_test.mi -pkg moonbitlang/core/char_blackbox_test -i ./target/js/debug/check/char/char.mi:char -i ./target/js/debug/check/coverage/coverage.mi:coverage -i ./target/js/debug/check/prelude/prelude.mi:prelude -pkg-sources moonbitlang/core/char_blackbox_test:./char -target js -blackbox-test -workspace-path .
+            moonc check ./1/lib.mbt ./1/x.js.mbt -o ./target/js/debug/check/1/1.mi -pkg moonbitlang/core/1 -pkg-sources moonbitlang/core/1:./1 -target js -workspace-path .
+            moonc check ./2/lib.mbt -o ./target/js/debug/check/2/2.mi -pkg moonbitlang/core/2 -i ./target/js/debug/check/1/1.mi:1 -pkg-sources moonbitlang/core/2:./2 -target js -workspace-path .
+            moonc check -doctest-only ./2/lib.mbt -include-doctests -o ./target/js/debug/check/2/2.blackbox_test.mi -pkg moonbitlang/core/2_blackbox_test -i ./target/js/debug/check/2/2.mi:2 -i ./target/js/debug/check/1/1.mi:1 -i ./target/js/debug/check/prelude/prelude.mi:prelude -pkg-sources moonbitlang/core/2_blackbox_test:./2 -target js -blackbox-test -workspace-path .
+            moonc check ./1/lib.mbt ./1/x.js.mbt -o ./target/js/debug/check/1/1.whitebox_test.mi -pkg moonbitlang/core/1 -pkg-sources moonbitlang/core/1:./1 -target js -whitebox-test -workspace-path .
+            moonc check -doctest-only ./1/lib.mbt -doctest-only ./1/x.js.mbt -include-doctests -o ./target/js/debug/check/1/1.blackbox_test.mi -pkg moonbitlang/core/1_blackbox_test -i ./target/js/debug/check/1/1.mi:1 -i ./target/js/debug/check/prelude/prelude.mi:prelude -pkg-sources moonbitlang/core/1_blackbox_test:./1 -target js -blackbox-test -workspace-path .
+            moonc check ./0/lib.mbt ./0/y.js.mbt ./0/y_wbtest.js.mbt ./0/y_wbtest.mbt -o ./target/js/debug/check/0/0.whitebox_test.mi -pkg moonbitlang/core/0 -pkg-sources moonbitlang/core/0:./0 -target js -whitebox-test -workspace-path .
+            moonc check ./0/lib.mbt ./0/y.js.mbt -o ./target/js/debug/check/0/0.mi -pkg moonbitlang/core/0 -pkg-sources moonbitlang/core/0:./0 -target js -workspace-path .
+            moonc check -doctest-only ./0/lib.mbt -doctest-only ./0/y.js.mbt -include-doctests -o ./target/js/debug/check/0/0.blackbox_test.mi -pkg moonbitlang/core/0_blackbox_test -i ./target/js/debug/check/0/0.mi:0 -i ./target/js/debug/check/prelude/prelude.mi:prelude -pkg-sources moonbitlang/core/0_blackbox_test:./0 -target js -blackbox-test -workspace-path .
         "#]],
     );
 
     check(
         get_stdout(&dir, ["build", "--dry-run", "--sort-input"]),
         expect![[r#"
-            moonc build-package ./1/lib.mbt ./1/x.wasm-gc.mbt -o ./target/wasm-gc/release/build/1/1.core -pkg moonbitlang/core/1 -pkg-sources moonbitlang/core/1:./1 -target wasm-gc -workspace-path .
-            moonc build-package ./2/lib.mbt -o ./target/wasm-gc/release/build/2/2.core -pkg moonbitlang/core/2 -i ./target/wasm-gc/release/build/1/1.mi:1 -pkg-sources moonbitlang/core/2:./2 -target wasm-gc -workspace-path .
-            moonc link-core ./target/wasm-gc/release/build/1/1.core ./target/wasm-gc/release/build/2/2.core -main moonbitlang/core/2 -o ./target/wasm-gc/release/build/2/2.wasm -pkg-config-path ./2/moon.pkg.json -pkg-sources moonbitlang/core/1:./1 -pkg-sources moonbitlang/core/2:./2 -target wasm-gc
-            moonc link-core ./target/wasm-gc/release/build/1/1.core -main moonbitlang/core/1 -o ./target/wasm-gc/release/build/1/1.wasm -pkg-config-path ./1/moon.pkg.json -pkg-sources moonbitlang/core/1:./1 -target wasm-gc
-            moonc build-package ./0/lib.mbt ./0/y.wasm-gc.mbt -o ./target/wasm-gc/release/build/0/0.core -pkg moonbitlang/core/0 -pkg-sources moonbitlang/core/0:./0 -target wasm-gc -workspace-path .
-            moonc link-core ./target/wasm-gc/release/build/0/0.core -main moonbitlang/core/0 -o ./target/wasm-gc/release/build/0/0.wasm -pkg-config-path ./0/moon.pkg.json -pkg-sources moonbitlang/core/0:./0 -target wasm-gc
+            moonc build-package ./1/lib.mbt ./1/x.wasm-gc.mbt -o ./target/wasm-gc/debug/build/1/1.core -pkg moonbitlang/core/1 -pkg-sources moonbitlang/core/1:./1 -target wasm-gc -g -O0 -source-map -workspace-path .
+            moonc build-package ./2/lib.mbt -o ./target/wasm-gc/debug/build/2/2.core -pkg moonbitlang/core/2 -i ./target/wasm-gc/debug/build/1/1.mi:1 -pkg-sources moonbitlang/core/2:./2 -target wasm-gc -g -O0 -source-map -workspace-path .
+            moonc link-core ./target/wasm-gc/debug/build/1/1.core ./target/wasm-gc/debug/build/2/2.core -main moonbitlang/core/2 -o ./target/wasm-gc/debug/build/2/2.wasm -pkg-config-path ./2/moon.pkg.json -pkg-sources moonbitlang/core/1:./1 -pkg-sources moonbitlang/core/2:./2 -target wasm-gc -g -O0 -source-map
+            moonc link-core ./target/wasm-gc/debug/build/1/1.core -main moonbitlang/core/1 -o ./target/wasm-gc/debug/build/1/1.wasm -pkg-config-path ./1/moon.pkg.json -pkg-sources moonbitlang/core/1:./1 -target wasm-gc -g -O0 -source-map
+            moonc build-package ./0/lib.mbt ./0/y.wasm-gc.mbt -o ./target/wasm-gc/debug/build/0/0.core -pkg moonbitlang/core/0 -pkg-sources moonbitlang/core/0:./0 -target wasm-gc -g -O0 -source-map -workspace-path .
+            moonc link-core ./target/wasm-gc/debug/build/0/0.core -main moonbitlang/core/0 -o ./target/wasm-gc/debug/build/0/0.wasm -pkg-config-path ./0/moon.pkg.json -pkg-sources moonbitlang/core/0:./0 -target wasm-gc -g -O0 -source-map
         "#]],
     );
     check(
@@ -800,12 +800,12 @@ fn test_dummy_core() {
             ["build", "--dry-run", "--target", "wasm", "--sort-input"],
         ),
         expect![[r#"
-            moonc build-package ./1/lib.mbt ./1/x.wasm.mbt -o ./target/wasm/release/build/1/1.core -pkg moonbitlang/core/1 -pkg-sources moonbitlang/core/1:./1 -target wasm -workspace-path .
-            moonc build-package ./2/lib.mbt -o ./target/wasm/release/build/2/2.core -pkg moonbitlang/core/2 -i ./target/wasm/release/build/1/1.mi:1 -pkg-sources moonbitlang/core/2:./2 -target wasm -workspace-path .
-            moonc link-core ./target/wasm/release/build/1/1.core ./target/wasm/release/build/2/2.core -main moonbitlang/core/2 -o ./target/wasm/release/build/2/2.wasm -pkg-config-path ./2/moon.pkg.json -pkg-sources moonbitlang/core/1:./1 -pkg-sources moonbitlang/core/2:./2 -target wasm
-            moonc link-core ./target/wasm/release/build/1/1.core -main moonbitlang/core/1 -o ./target/wasm/release/build/1/1.wasm -pkg-config-path ./1/moon.pkg.json -pkg-sources moonbitlang/core/1:./1 -target wasm
-            moonc build-package ./0/lib.mbt ./0/y.wasm.mbt -o ./target/wasm/release/build/0/0.core -pkg moonbitlang/core/0 -pkg-sources moonbitlang/core/0:./0 -target wasm -workspace-path .
-            moonc link-core ./target/wasm/release/build/0/0.core -main moonbitlang/core/0 -o ./target/wasm/release/build/0/0.wasm -pkg-config-path ./0/moon.pkg.json -pkg-sources moonbitlang/core/0:./0 -target wasm
+            moonc build-package ./1/lib.mbt ./1/x.wasm.mbt -o ./target/wasm/debug/build/1/1.core -pkg moonbitlang/core/1 -pkg-sources moonbitlang/core/1:./1 -target wasm -g -O0 -workspace-path .
+            moonc build-package ./2/lib.mbt -o ./target/wasm/debug/build/2/2.core -pkg moonbitlang/core/2 -i ./target/wasm/debug/build/1/1.mi:1 -pkg-sources moonbitlang/core/2:./2 -target wasm -g -O0 -workspace-path .
+            moonc link-core ./target/wasm/debug/build/1/1.core ./target/wasm/debug/build/2/2.core -main moonbitlang/core/2 -o ./target/wasm/debug/build/2/2.wasm -pkg-config-path ./2/moon.pkg.json -pkg-sources moonbitlang/core/1:./1 -pkg-sources moonbitlang/core/2:./2 -target wasm -g -O0
+            moonc link-core ./target/wasm/debug/build/1/1.core -main moonbitlang/core/1 -o ./target/wasm/debug/build/1/1.wasm -pkg-config-path ./1/moon.pkg.json -pkg-sources moonbitlang/core/1:./1 -target wasm -g -O0
+            moonc build-package ./0/lib.mbt ./0/y.wasm.mbt -o ./target/wasm/debug/build/0/0.core -pkg moonbitlang/core/0 -pkg-sources moonbitlang/core/0:./0 -target wasm -g -O0 -workspace-path .
+            moonc link-core ./target/wasm/debug/build/0/0.core -main moonbitlang/core/0 -o ./target/wasm/debug/build/0/0.wasm -pkg-config-path ./0/moon.pkg.json -pkg-sources moonbitlang/core/0:./0 -target wasm -g -O0
         "#]],
     );
     check(
@@ -814,12 +814,12 @@ fn test_dummy_core() {
             ["build", "--dry-run", "--target", "wasm-gc", "--sort-input"],
         ),
         expect![[r#"
-            moonc build-package ./1/lib.mbt ./1/x.wasm-gc.mbt -o ./target/wasm-gc/release/build/1/1.core -pkg moonbitlang/core/1 -pkg-sources moonbitlang/core/1:./1 -target wasm-gc -workspace-path .
-            moonc build-package ./2/lib.mbt -o ./target/wasm-gc/release/build/2/2.core -pkg moonbitlang/core/2 -i ./target/wasm-gc/release/build/1/1.mi:1 -pkg-sources moonbitlang/core/2:./2 -target wasm-gc -workspace-path .
-            moonc link-core ./target/wasm-gc/release/build/1/1.core ./target/wasm-gc/release/build/2/2.core -main moonbitlang/core/2 -o ./target/wasm-gc/release/build/2/2.wasm -pkg-config-path ./2/moon.pkg.json -pkg-sources moonbitlang/core/1:./1 -pkg-sources moonbitlang/core/2:./2 -target wasm-gc
-            moonc link-core ./target/wasm-gc/release/build/1/1.core -main moonbitlang/core/1 -o ./target/wasm-gc/release/build/1/1.wasm -pkg-config-path ./1/moon.pkg.json -pkg-sources moonbitlang/core/1:./1 -target wasm-gc
-            moonc build-package ./0/lib.mbt ./0/y.wasm-gc.mbt -o ./target/wasm-gc/release/build/0/0.core -pkg moonbitlang/core/0 -pkg-sources moonbitlang/core/0:./0 -target wasm-gc -workspace-path .
-            moonc link-core ./target/wasm-gc/release/build/0/0.core -main moonbitlang/core/0 -o ./target/wasm-gc/release/build/0/0.wasm -pkg-config-path ./0/moon.pkg.json -pkg-sources moonbitlang/core/0:./0 -target wasm-gc
+            moonc build-package ./1/lib.mbt ./1/x.wasm-gc.mbt -o ./target/wasm-gc/debug/build/1/1.core -pkg moonbitlang/core/1 -pkg-sources moonbitlang/core/1:./1 -target wasm-gc -g -O0 -source-map -workspace-path .
+            moonc build-package ./2/lib.mbt -o ./target/wasm-gc/debug/build/2/2.core -pkg moonbitlang/core/2 -i ./target/wasm-gc/debug/build/1/1.mi:1 -pkg-sources moonbitlang/core/2:./2 -target wasm-gc -g -O0 -source-map -workspace-path .
+            moonc link-core ./target/wasm-gc/debug/build/1/1.core ./target/wasm-gc/debug/build/2/2.core -main moonbitlang/core/2 -o ./target/wasm-gc/debug/build/2/2.wasm -pkg-config-path ./2/moon.pkg.json -pkg-sources moonbitlang/core/1:./1 -pkg-sources moonbitlang/core/2:./2 -target wasm-gc -g -O0 -source-map
+            moonc link-core ./target/wasm-gc/debug/build/1/1.core -main moonbitlang/core/1 -o ./target/wasm-gc/debug/build/1/1.wasm -pkg-config-path ./1/moon.pkg.json -pkg-sources moonbitlang/core/1:./1 -target wasm-gc -g -O0 -source-map
+            moonc build-package ./0/lib.mbt ./0/y.wasm-gc.mbt -o ./target/wasm-gc/debug/build/0/0.core -pkg moonbitlang/core/0 -pkg-sources moonbitlang/core/0:./0 -target wasm-gc -g -O0 -source-map -workspace-path .
+            moonc link-core ./target/wasm-gc/debug/build/0/0.core -main moonbitlang/core/0 -o ./target/wasm-gc/debug/build/0/0.wasm -pkg-config-path ./0/moon.pkg.json -pkg-sources moonbitlang/core/0:./0 -target wasm-gc -g -O0 -source-map
         "#]],
     );
     check(
@@ -828,12 +828,12 @@ fn test_dummy_core() {
             ["build", "--dry-run", "--target", "js", "--sort-input"],
         ),
         expect![[r#"
-            moonc build-package ./1/lib.mbt ./1/x.js.mbt -o ./target/js/release/build/1/1.core -pkg moonbitlang/core/1 -pkg-sources moonbitlang/core/1:./1 -target js -workspace-path .
-            moonc build-package ./2/lib.mbt -o ./target/js/release/build/2/2.core -pkg moonbitlang/core/2 -i ./target/js/release/build/1/1.mi:1 -pkg-sources moonbitlang/core/2:./2 -target js -workspace-path .
-            moonc link-core ./target/js/release/build/1/1.core ./target/js/release/build/2/2.core -main moonbitlang/core/2 -o ./target/js/release/build/2/2.js -pkg-config-path ./2/moon.pkg.json -pkg-sources moonbitlang/core/1:./1 -pkg-sources moonbitlang/core/2:./2 -target js
-            moonc link-core ./target/js/release/build/1/1.core -main moonbitlang/core/1 -o ./target/js/release/build/1/1.js -pkg-config-path ./1/moon.pkg.json -pkg-sources moonbitlang/core/1:./1 -target js
-            moonc build-package ./0/lib.mbt ./0/y.js.mbt -o ./target/js/release/build/0/0.core -pkg moonbitlang/core/0 -pkg-sources moonbitlang/core/0:./0 -target js -workspace-path .
-            moonc link-core ./target/js/release/build/0/0.core -main moonbitlang/core/0 -o ./target/js/release/build/0/0.js -pkg-config-path ./0/moon.pkg.json -pkg-sources moonbitlang/core/0:./0 -target js
+            moonc build-package ./1/lib.mbt ./1/x.js.mbt -o ./target/js/debug/build/1/1.core -pkg moonbitlang/core/1 -pkg-sources moonbitlang/core/1:./1 -target js -g -O0 -source-map -workspace-path .
+            moonc build-package ./2/lib.mbt -o ./target/js/debug/build/2/2.core -pkg moonbitlang/core/2 -i ./target/js/debug/build/1/1.mi:1 -pkg-sources moonbitlang/core/2:./2 -target js -g -O0 -source-map -workspace-path .
+            moonc link-core ./target/js/debug/build/1/1.core ./target/js/debug/build/2/2.core -main moonbitlang/core/2 -o ./target/js/debug/build/2/2.js -pkg-config-path ./2/moon.pkg.json -pkg-sources moonbitlang/core/1:./1 -pkg-sources moonbitlang/core/2:./2 -target js -g -O0 -source-map
+            moonc link-core ./target/js/debug/build/1/1.core -main moonbitlang/core/1 -o ./target/js/debug/build/1/1.js -pkg-config-path ./1/moon.pkg.json -pkg-sources moonbitlang/core/1:./1 -target js -g -O0 -source-map
+            moonc build-package ./0/lib.mbt ./0/y.js.mbt -o ./target/js/debug/build/0/0.core -pkg moonbitlang/core/0 -pkg-sources moonbitlang/core/0:./0 -target js -g -O0 -source-map -workspace-path .
+            moonc link-core ./target/js/debug/build/0/0.core -main moonbitlang/core/0 -o ./target/js/debug/build/0/0.js -pkg-config-path ./0/moon.pkg.json -pkg-sources moonbitlang/core/0:./0 -target js -g -O0 -source-map
         "#]],
     );
 
@@ -1152,13 +1152,13 @@ fn test_dummy_core() {
     check(
         get_stdout(&dir, ["bundle", "--dry-run", "--sort-input"]),
         expect![[r#"
-            moonc build-package -o ./target/wasm-gc/release/bundle/prelude/prelude.core -pkg moonbitlang/core/prelude -pkg-sources moonbitlang/core/prelude:./prelude -target wasm-gc
-            moonc build-package -o ./target/wasm-gc/release/bundle/coverage/coverage.core -pkg moonbitlang/core/coverage -pkg-sources moonbitlang/core/coverage:./coverage -target wasm-gc
-            moonc build-package -o ./target/wasm-gc/release/bundle/iter/iter.core -pkg moonbitlang/core/iter -i ./target/wasm-gc/release/bundle/coverage/coverage.mi:coverage -pkg-sources moonbitlang/core/iter:./iter -target wasm-gc
-            moonc build-package -o ./target/wasm-gc/release/bundle/char/char.core -pkg moonbitlang/core/char -i ./target/wasm-gc/release/bundle/coverage/coverage.mi:coverage -pkg-sources moonbitlang/core/char:./char -target wasm-gc
-            moonc build-package ./1/lib.mbt ./1/x.wasm-gc.mbt -o ./target/wasm-gc/release/bundle/1/1.core -pkg moonbitlang/core/1 -pkg-sources moonbitlang/core/1:./1 -target wasm-gc
-            moonc build-package ./2/lib.mbt -o ./target/wasm-gc/release/bundle/2/2.core -pkg moonbitlang/core/2 -i ./target/wasm-gc/release/bundle/1/1.mi:1 -pkg-sources moonbitlang/core/2:./2 -target wasm-gc
-            moonc build-package ./0/lib.mbt ./0/y.wasm-gc.mbt -o ./target/wasm-gc/release/bundle/0/0.core -pkg moonbitlang/core/0 -pkg-sources moonbitlang/core/0:./0 -target wasm-gc
+            moonc build-package -o ./target/wasm-gc/release/bundle/prelude/prelude.core -pkg moonbitlang/core/prelude -pkg-sources moonbitlang/core/prelude:./prelude -target wasm-gc -g -source-map
+            moonc build-package -o ./target/wasm-gc/release/bundle/coverage/coverage.core -pkg moonbitlang/core/coverage -pkg-sources moonbitlang/core/coverage:./coverage -target wasm-gc -g -source-map
+            moonc build-package -o ./target/wasm-gc/release/bundle/iter/iter.core -pkg moonbitlang/core/iter -i ./target/wasm-gc/release/bundle/coverage/coverage.mi:coverage -pkg-sources moonbitlang/core/iter:./iter -target wasm-gc -g -source-map
+            moonc build-package -o ./target/wasm-gc/release/bundle/char/char.core -pkg moonbitlang/core/char -i ./target/wasm-gc/release/bundle/coverage/coverage.mi:coverage -pkg-sources moonbitlang/core/char:./char -target wasm-gc -g -source-map
+            moonc build-package ./1/lib.mbt ./1/x.wasm-gc.mbt -o ./target/wasm-gc/release/bundle/1/1.core -pkg moonbitlang/core/1 -pkg-sources moonbitlang/core/1:./1 -target wasm-gc -g -source-map
+            moonc build-package ./2/lib.mbt -o ./target/wasm-gc/release/bundle/2/2.core -pkg moonbitlang/core/2 -i ./target/wasm-gc/release/bundle/1/1.mi:1 -pkg-sources moonbitlang/core/2:./2 -target wasm-gc -g -source-map
+            moonc build-package ./0/lib.mbt ./0/y.wasm-gc.mbt -o ./target/wasm-gc/release/bundle/0/0.core -pkg moonbitlang/core/0 -pkg-sources moonbitlang/core/0:./0 -target wasm-gc -g -source-map
             moonc bundle-core ./target/wasm-gc/release/bundle/0/0.core ./target/wasm-gc/release/bundle/1/1.core ./target/wasm-gc/release/bundle/2/2.core ./target/wasm-gc/release/bundle/coverage/coverage.core ./target/wasm-gc/release/bundle/char/char.core ./target/wasm-gc/release/bundle/iter/iter.core ./target/wasm-gc/release/bundle/prelude/prelude.core -o ./target/wasm-gc/release/bundle/core.core
         "#]],
     );
@@ -1168,13 +1168,13 @@ fn test_dummy_core() {
             ["bundle", "--dry-run", "--target", "wasm", "--sort-input"],
         ),
         expect![[r#"
-            moonc build-package -o ./target/wasm/release/bundle/prelude/prelude.core -pkg moonbitlang/core/prelude -pkg-sources moonbitlang/core/prelude:./prelude -target wasm
-            moonc build-package -o ./target/wasm/release/bundle/coverage/coverage.core -pkg moonbitlang/core/coverage -pkg-sources moonbitlang/core/coverage:./coverage -target wasm
-            moonc build-package -o ./target/wasm/release/bundle/iter/iter.core -pkg moonbitlang/core/iter -i ./target/wasm/release/bundle/coverage/coverage.mi:coverage -pkg-sources moonbitlang/core/iter:./iter -target wasm
-            moonc build-package -o ./target/wasm/release/bundle/char/char.core -pkg moonbitlang/core/char -i ./target/wasm/release/bundle/coverage/coverage.mi:coverage -pkg-sources moonbitlang/core/char:./char -target wasm
-            moonc build-package ./1/lib.mbt ./1/x.wasm.mbt -o ./target/wasm/release/bundle/1/1.core -pkg moonbitlang/core/1 -pkg-sources moonbitlang/core/1:./1 -target wasm
-            moonc build-package ./2/lib.mbt -o ./target/wasm/release/bundle/2/2.core -pkg moonbitlang/core/2 -i ./target/wasm/release/bundle/1/1.mi:1 -pkg-sources moonbitlang/core/2:./2 -target wasm
-            moonc build-package ./0/lib.mbt ./0/y.wasm.mbt -o ./target/wasm/release/bundle/0/0.core -pkg moonbitlang/core/0 -pkg-sources moonbitlang/core/0:./0 -target wasm
+            moonc build-package -o ./target/wasm/release/bundle/prelude/prelude.core -pkg moonbitlang/core/prelude -pkg-sources moonbitlang/core/prelude:./prelude -target wasm -g
+            moonc build-package -o ./target/wasm/release/bundle/coverage/coverage.core -pkg moonbitlang/core/coverage -pkg-sources moonbitlang/core/coverage:./coverage -target wasm -g
+            moonc build-package -o ./target/wasm/release/bundle/iter/iter.core -pkg moonbitlang/core/iter -i ./target/wasm/release/bundle/coverage/coverage.mi:coverage -pkg-sources moonbitlang/core/iter:./iter -target wasm -g
+            moonc build-package -o ./target/wasm/release/bundle/char/char.core -pkg moonbitlang/core/char -i ./target/wasm/release/bundle/coverage/coverage.mi:coverage -pkg-sources moonbitlang/core/char:./char -target wasm -g
+            moonc build-package ./1/lib.mbt ./1/x.wasm.mbt -o ./target/wasm/release/bundle/1/1.core -pkg moonbitlang/core/1 -pkg-sources moonbitlang/core/1:./1 -target wasm -g
+            moonc build-package ./2/lib.mbt -o ./target/wasm/release/bundle/2/2.core -pkg moonbitlang/core/2 -i ./target/wasm/release/bundle/1/1.mi:1 -pkg-sources moonbitlang/core/2:./2 -target wasm -g
+            moonc build-package ./0/lib.mbt ./0/y.wasm.mbt -o ./target/wasm/release/bundle/0/0.core -pkg moonbitlang/core/0 -pkg-sources moonbitlang/core/0:./0 -target wasm -g
             moonc bundle-core ./target/wasm/release/bundle/0/0.core ./target/wasm/release/bundle/1/1.core ./target/wasm/release/bundle/2/2.core ./target/wasm/release/bundle/coverage/coverage.core ./target/wasm/release/bundle/char/char.core ./target/wasm/release/bundle/iter/iter.core ./target/wasm/release/bundle/prelude/prelude.core -o ./target/wasm/release/bundle/core.core
         "#]],
     );
@@ -1184,13 +1184,13 @@ fn test_dummy_core() {
             ["bundle", "--dry-run", "--target", "wasm-gc", "--sort-input"],
         ),
         expect![[r#"
-            moonc build-package -o ./target/wasm-gc/release/bundle/prelude/prelude.core -pkg moonbitlang/core/prelude -pkg-sources moonbitlang/core/prelude:./prelude -target wasm-gc
-            moonc build-package -o ./target/wasm-gc/release/bundle/coverage/coverage.core -pkg moonbitlang/core/coverage -pkg-sources moonbitlang/core/coverage:./coverage -target wasm-gc
-            moonc build-package -o ./target/wasm-gc/release/bundle/iter/iter.core -pkg moonbitlang/core/iter -i ./target/wasm-gc/release/bundle/coverage/coverage.mi:coverage -pkg-sources moonbitlang/core/iter:./iter -target wasm-gc
-            moonc build-package -o ./target/wasm-gc/release/bundle/char/char.core -pkg moonbitlang/core/char -i ./target/wasm-gc/release/bundle/coverage/coverage.mi:coverage -pkg-sources moonbitlang/core/char:./char -target wasm-gc
-            moonc build-package ./1/lib.mbt ./1/x.wasm-gc.mbt -o ./target/wasm-gc/release/bundle/1/1.core -pkg moonbitlang/core/1 -pkg-sources moonbitlang/core/1:./1 -target wasm-gc
-            moonc build-package ./2/lib.mbt -o ./target/wasm-gc/release/bundle/2/2.core -pkg moonbitlang/core/2 -i ./target/wasm-gc/release/bundle/1/1.mi:1 -pkg-sources moonbitlang/core/2:./2 -target wasm-gc
-            moonc build-package ./0/lib.mbt ./0/y.wasm-gc.mbt -o ./target/wasm-gc/release/bundle/0/0.core -pkg moonbitlang/core/0 -pkg-sources moonbitlang/core/0:./0 -target wasm-gc
+            moonc build-package -o ./target/wasm-gc/release/bundle/prelude/prelude.core -pkg moonbitlang/core/prelude -pkg-sources moonbitlang/core/prelude:./prelude -target wasm-gc -g -source-map
+            moonc build-package -o ./target/wasm-gc/release/bundle/coverage/coverage.core -pkg moonbitlang/core/coverage -pkg-sources moonbitlang/core/coverage:./coverage -target wasm-gc -g -source-map
+            moonc build-package -o ./target/wasm-gc/release/bundle/iter/iter.core -pkg moonbitlang/core/iter -i ./target/wasm-gc/release/bundle/coverage/coverage.mi:coverage -pkg-sources moonbitlang/core/iter:./iter -target wasm-gc -g -source-map
+            moonc build-package -o ./target/wasm-gc/release/bundle/char/char.core -pkg moonbitlang/core/char -i ./target/wasm-gc/release/bundle/coverage/coverage.mi:coverage -pkg-sources moonbitlang/core/char:./char -target wasm-gc -g -source-map
+            moonc build-package ./1/lib.mbt ./1/x.wasm-gc.mbt -o ./target/wasm-gc/release/bundle/1/1.core -pkg moonbitlang/core/1 -pkg-sources moonbitlang/core/1:./1 -target wasm-gc -g -source-map
+            moonc build-package ./2/lib.mbt -o ./target/wasm-gc/release/bundle/2/2.core -pkg moonbitlang/core/2 -i ./target/wasm-gc/release/bundle/1/1.mi:1 -pkg-sources moonbitlang/core/2:./2 -target wasm-gc -g -source-map
+            moonc build-package ./0/lib.mbt ./0/y.wasm-gc.mbt -o ./target/wasm-gc/release/bundle/0/0.core -pkg moonbitlang/core/0 -pkg-sources moonbitlang/core/0:./0 -target wasm-gc -g -source-map
             moonc bundle-core ./target/wasm-gc/release/bundle/0/0.core ./target/wasm-gc/release/bundle/1/1.core ./target/wasm-gc/release/bundle/2/2.core ./target/wasm-gc/release/bundle/coverage/coverage.core ./target/wasm-gc/release/bundle/char/char.core ./target/wasm-gc/release/bundle/iter/iter.core ./target/wasm-gc/release/bundle/prelude/prelude.core -o ./target/wasm-gc/release/bundle/core.core
         "#]],
     );
@@ -1200,13 +1200,13 @@ fn test_dummy_core() {
             ["bundle", "--dry-run", "--target", "js", "--sort-input"],
         ),
         expect![[r#"
-            moonc build-package -o ./target/js/release/bundle/prelude/prelude.core -pkg moonbitlang/core/prelude -pkg-sources moonbitlang/core/prelude:./prelude -target js
-            moonc build-package -o ./target/js/release/bundle/coverage/coverage.core -pkg moonbitlang/core/coverage -pkg-sources moonbitlang/core/coverage:./coverage -target js
-            moonc build-package -o ./target/js/release/bundle/iter/iter.core -pkg moonbitlang/core/iter -i ./target/js/release/bundle/coverage/coverage.mi:coverage -pkg-sources moonbitlang/core/iter:./iter -target js
-            moonc build-package -o ./target/js/release/bundle/char/char.core -pkg moonbitlang/core/char -i ./target/js/release/bundle/coverage/coverage.mi:coverage -pkg-sources moonbitlang/core/char:./char -target js
-            moonc build-package ./1/lib.mbt ./1/x.js.mbt -o ./target/js/release/bundle/1/1.core -pkg moonbitlang/core/1 -pkg-sources moonbitlang/core/1:./1 -target js
-            moonc build-package ./2/lib.mbt -o ./target/js/release/bundle/2/2.core -pkg moonbitlang/core/2 -i ./target/js/release/bundle/1/1.mi:1 -pkg-sources moonbitlang/core/2:./2 -target js
-            moonc build-package ./0/lib.mbt ./0/y.js.mbt -o ./target/js/release/bundle/0/0.core -pkg moonbitlang/core/0 -pkg-sources moonbitlang/core/0:./0 -target js
+            moonc build-package -o ./target/js/release/bundle/prelude/prelude.core -pkg moonbitlang/core/prelude -pkg-sources moonbitlang/core/prelude:./prelude -target js -g -source-map
+            moonc build-package -o ./target/js/release/bundle/coverage/coverage.core -pkg moonbitlang/core/coverage -pkg-sources moonbitlang/core/coverage:./coverage -target js -g -source-map
+            moonc build-package -o ./target/js/release/bundle/iter/iter.core -pkg moonbitlang/core/iter -i ./target/js/release/bundle/coverage/coverage.mi:coverage -pkg-sources moonbitlang/core/iter:./iter -target js -g -source-map
+            moonc build-package -o ./target/js/release/bundle/char/char.core -pkg moonbitlang/core/char -i ./target/js/release/bundle/coverage/coverage.mi:coverage -pkg-sources moonbitlang/core/char:./char -target js -g -source-map
+            moonc build-package ./1/lib.mbt ./1/x.js.mbt -o ./target/js/release/bundle/1/1.core -pkg moonbitlang/core/1 -pkg-sources moonbitlang/core/1:./1 -target js -g -source-map
+            moonc build-package ./2/lib.mbt -o ./target/js/release/bundle/2/2.core -pkg moonbitlang/core/2 -i ./target/js/release/bundle/1/1.mi:1 -pkg-sources moonbitlang/core/2:./2 -target js -g -source-map
+            moonc build-package ./0/lib.mbt ./0/y.js.mbt -o ./target/js/release/bundle/0/0.core -pkg moonbitlang/core/0 -pkg-sources moonbitlang/core/0:./0 -target js -g -source-map
             moonc bundle-core ./target/js/release/bundle/0/0.core ./target/js/release/bundle/1/1.core ./target/js/release/bundle/2/2.core ./target/js/release/bundle/coverage/coverage.core ./target/js/release/bundle/char/char.core ./target/js/release/bundle/iter/iter.core ./target/js/release/bundle/prelude/prelude.core -o ./target/js/release/bundle/core.core
         "#]],
     );
@@ -1223,37 +1223,37 @@ fn test_dummy_core() {
             ],
         ),
         expect![[r#"
-            moonc build-package -o ./target/wasm/release/bundle/prelude/prelude.core -pkg moonbitlang/core/prelude -pkg-sources moonbitlang/core/prelude:./prelude -target wasm
-            moonc build-package -o ./target/wasm/release/bundle/coverage/coverage.core -pkg moonbitlang/core/coverage -pkg-sources moonbitlang/core/coverage:./coverage -target wasm
-            moonc build-package -o ./target/wasm/release/bundle/iter/iter.core -pkg moonbitlang/core/iter -i ./target/wasm/release/bundle/coverage/coverage.mi:coverage -pkg-sources moonbitlang/core/iter:./iter -target wasm
-            moonc build-package -o ./target/wasm/release/bundle/char/char.core -pkg moonbitlang/core/char -i ./target/wasm/release/bundle/coverage/coverage.mi:coverage -pkg-sources moonbitlang/core/char:./char -target wasm
-            moonc build-package ./1/lib.mbt ./1/x.wasm.mbt -o ./target/wasm/release/bundle/1/1.core -pkg moonbitlang/core/1 -pkg-sources moonbitlang/core/1:./1 -target wasm
-            moonc build-package ./2/lib.mbt -o ./target/wasm/release/bundle/2/2.core -pkg moonbitlang/core/2 -i ./target/wasm/release/bundle/1/1.mi:1 -pkg-sources moonbitlang/core/2:./2 -target wasm
-            moonc build-package ./0/lib.mbt ./0/y.wasm.mbt -o ./target/wasm/release/bundle/0/0.core -pkg moonbitlang/core/0 -pkg-sources moonbitlang/core/0:./0 -target wasm
+            moonc build-package -o ./target/wasm/release/bundle/prelude/prelude.core -pkg moonbitlang/core/prelude -pkg-sources moonbitlang/core/prelude:./prelude -target wasm -g
+            moonc build-package -o ./target/wasm/release/bundle/coverage/coverage.core -pkg moonbitlang/core/coverage -pkg-sources moonbitlang/core/coverage:./coverage -target wasm -g
+            moonc build-package -o ./target/wasm/release/bundle/iter/iter.core -pkg moonbitlang/core/iter -i ./target/wasm/release/bundle/coverage/coverage.mi:coverage -pkg-sources moonbitlang/core/iter:./iter -target wasm -g
+            moonc build-package -o ./target/wasm/release/bundle/char/char.core -pkg moonbitlang/core/char -i ./target/wasm/release/bundle/coverage/coverage.mi:coverage -pkg-sources moonbitlang/core/char:./char -target wasm -g
+            moonc build-package ./1/lib.mbt ./1/x.wasm.mbt -o ./target/wasm/release/bundle/1/1.core -pkg moonbitlang/core/1 -pkg-sources moonbitlang/core/1:./1 -target wasm -g
+            moonc build-package ./2/lib.mbt -o ./target/wasm/release/bundle/2/2.core -pkg moonbitlang/core/2 -i ./target/wasm/release/bundle/1/1.mi:1 -pkg-sources moonbitlang/core/2:./2 -target wasm -g
+            moonc build-package ./0/lib.mbt ./0/y.wasm.mbt -o ./target/wasm/release/bundle/0/0.core -pkg moonbitlang/core/0 -pkg-sources moonbitlang/core/0:./0 -target wasm -g
             moonc bundle-core ./target/wasm/release/bundle/0/0.core ./target/wasm/release/bundle/1/1.core ./target/wasm/release/bundle/2/2.core ./target/wasm/release/bundle/coverage/coverage.core ./target/wasm/release/bundle/char/char.core ./target/wasm/release/bundle/iter/iter.core ./target/wasm/release/bundle/prelude/prelude.core -o ./target/wasm/release/bundle/core.core
-            moonc build-package -o ./target/wasm-gc/release/bundle/prelude/prelude.core -pkg moonbitlang/core/prelude -pkg-sources moonbitlang/core/prelude:./prelude -target wasm-gc
-            moonc build-package -o ./target/wasm-gc/release/bundle/coverage/coverage.core -pkg moonbitlang/core/coverage -pkg-sources moonbitlang/core/coverage:./coverage -target wasm-gc
-            moonc build-package -o ./target/wasm-gc/release/bundle/iter/iter.core -pkg moonbitlang/core/iter -i ./target/wasm-gc/release/bundle/coverage/coverage.mi:coverage -pkg-sources moonbitlang/core/iter:./iter -target wasm-gc
-            moonc build-package -o ./target/wasm-gc/release/bundle/char/char.core -pkg moonbitlang/core/char -i ./target/wasm-gc/release/bundle/coverage/coverage.mi:coverage -pkg-sources moonbitlang/core/char:./char -target wasm-gc
-            moonc build-package ./1/lib.mbt ./1/x.wasm-gc.mbt -o ./target/wasm-gc/release/bundle/1/1.core -pkg moonbitlang/core/1 -pkg-sources moonbitlang/core/1:./1 -target wasm-gc
-            moonc build-package ./2/lib.mbt -o ./target/wasm-gc/release/bundle/2/2.core -pkg moonbitlang/core/2 -i ./target/wasm-gc/release/bundle/1/1.mi:1 -pkg-sources moonbitlang/core/2:./2 -target wasm-gc
-            moonc build-package ./0/lib.mbt ./0/y.wasm-gc.mbt -o ./target/wasm-gc/release/bundle/0/0.core -pkg moonbitlang/core/0 -pkg-sources moonbitlang/core/0:./0 -target wasm-gc
+            moonc build-package -o ./target/wasm-gc/release/bundle/prelude/prelude.core -pkg moonbitlang/core/prelude -pkg-sources moonbitlang/core/prelude:./prelude -target wasm-gc -g -source-map
+            moonc build-package -o ./target/wasm-gc/release/bundle/coverage/coverage.core -pkg moonbitlang/core/coverage -pkg-sources moonbitlang/core/coverage:./coverage -target wasm-gc -g -source-map
+            moonc build-package -o ./target/wasm-gc/release/bundle/iter/iter.core -pkg moonbitlang/core/iter -i ./target/wasm-gc/release/bundle/coverage/coverage.mi:coverage -pkg-sources moonbitlang/core/iter:./iter -target wasm-gc -g -source-map
+            moonc build-package -o ./target/wasm-gc/release/bundle/char/char.core -pkg moonbitlang/core/char -i ./target/wasm-gc/release/bundle/coverage/coverage.mi:coverage -pkg-sources moonbitlang/core/char:./char -target wasm-gc -g -source-map
+            moonc build-package ./1/lib.mbt ./1/x.wasm-gc.mbt -o ./target/wasm-gc/release/bundle/1/1.core -pkg moonbitlang/core/1 -pkg-sources moonbitlang/core/1:./1 -target wasm-gc -g -source-map
+            moonc build-package ./2/lib.mbt -o ./target/wasm-gc/release/bundle/2/2.core -pkg moonbitlang/core/2 -i ./target/wasm-gc/release/bundle/1/1.mi:1 -pkg-sources moonbitlang/core/2:./2 -target wasm-gc -g -source-map
+            moonc build-package ./0/lib.mbt ./0/y.wasm-gc.mbt -o ./target/wasm-gc/release/bundle/0/0.core -pkg moonbitlang/core/0 -pkg-sources moonbitlang/core/0:./0 -target wasm-gc -g -source-map
             moonc bundle-core ./target/wasm-gc/release/bundle/0/0.core ./target/wasm-gc/release/bundle/1/1.core ./target/wasm-gc/release/bundle/2/2.core ./target/wasm-gc/release/bundle/coverage/coverage.core ./target/wasm-gc/release/bundle/char/char.core ./target/wasm-gc/release/bundle/iter/iter.core ./target/wasm-gc/release/bundle/prelude/prelude.core -o ./target/wasm-gc/release/bundle/core.core
-            moonc build-package -o ./target/js/release/bundle/prelude/prelude.core -pkg moonbitlang/core/prelude -pkg-sources moonbitlang/core/prelude:./prelude -target js
-            moonc build-package -o ./target/js/release/bundle/coverage/coverage.core -pkg moonbitlang/core/coverage -pkg-sources moonbitlang/core/coverage:./coverage -target js
-            moonc build-package -o ./target/js/release/bundle/iter/iter.core -pkg moonbitlang/core/iter -i ./target/js/release/bundle/coverage/coverage.mi:coverage -pkg-sources moonbitlang/core/iter:./iter -target js
-            moonc build-package -o ./target/js/release/bundle/char/char.core -pkg moonbitlang/core/char -i ./target/js/release/bundle/coverage/coverage.mi:coverage -pkg-sources moonbitlang/core/char:./char -target js
-            moonc build-package ./1/lib.mbt ./1/x.js.mbt -o ./target/js/release/bundle/1/1.core -pkg moonbitlang/core/1 -pkg-sources moonbitlang/core/1:./1 -target js
-            moonc build-package ./2/lib.mbt -o ./target/js/release/bundle/2/2.core -pkg moonbitlang/core/2 -i ./target/js/release/bundle/1/1.mi:1 -pkg-sources moonbitlang/core/2:./2 -target js
-            moonc build-package ./0/lib.mbt ./0/y.js.mbt -o ./target/js/release/bundle/0/0.core -pkg moonbitlang/core/0 -pkg-sources moonbitlang/core/0:./0 -target js
+            moonc build-package -o ./target/js/release/bundle/prelude/prelude.core -pkg moonbitlang/core/prelude -pkg-sources moonbitlang/core/prelude:./prelude -target js -g -source-map
+            moonc build-package -o ./target/js/release/bundle/coverage/coverage.core -pkg moonbitlang/core/coverage -pkg-sources moonbitlang/core/coverage:./coverage -target js -g -source-map
+            moonc build-package -o ./target/js/release/bundle/iter/iter.core -pkg moonbitlang/core/iter -i ./target/js/release/bundle/coverage/coverage.mi:coverage -pkg-sources moonbitlang/core/iter:./iter -target js -g -source-map
+            moonc build-package -o ./target/js/release/bundle/char/char.core -pkg moonbitlang/core/char -i ./target/js/release/bundle/coverage/coverage.mi:coverage -pkg-sources moonbitlang/core/char:./char -target js -g -source-map
+            moonc build-package ./1/lib.mbt ./1/x.js.mbt -o ./target/js/release/bundle/1/1.core -pkg moonbitlang/core/1 -pkg-sources moonbitlang/core/1:./1 -target js -g -source-map
+            moonc build-package ./2/lib.mbt -o ./target/js/release/bundle/2/2.core -pkg moonbitlang/core/2 -i ./target/js/release/bundle/1/1.mi:1 -pkg-sources moonbitlang/core/2:./2 -target js -g -source-map
+            moonc build-package ./0/lib.mbt ./0/y.js.mbt -o ./target/js/release/bundle/0/0.core -pkg moonbitlang/core/0 -pkg-sources moonbitlang/core/0:./0 -target js -g -source-map
             moonc bundle-core ./target/js/release/bundle/0/0.core ./target/js/release/bundle/1/1.core ./target/js/release/bundle/2/2.core ./target/js/release/bundle/coverage/coverage.core ./target/js/release/bundle/char/char.core ./target/js/release/bundle/iter/iter.core ./target/js/release/bundle/prelude/prelude.core -o ./target/js/release/bundle/core.core
-            moonc build-package -o ./target/native/release/bundle/prelude/prelude.core -pkg moonbitlang/core/prelude -pkg-sources moonbitlang/core/prelude:./prelude -target native
-            moonc build-package -o ./target/native/release/bundle/coverage/coverage.core -pkg moonbitlang/core/coverage -pkg-sources moonbitlang/core/coverage:./coverage -target native
-            moonc build-package -o ./target/native/release/bundle/iter/iter.core -pkg moonbitlang/core/iter -i ./target/native/release/bundle/coverage/coverage.mi:coverage -pkg-sources moonbitlang/core/iter:./iter -target native
-            moonc build-package -o ./target/native/release/bundle/char/char.core -pkg moonbitlang/core/char -i ./target/native/release/bundle/coverage/coverage.mi:coverage -pkg-sources moonbitlang/core/char:./char -target native
-            moonc build-package ./1/lib.mbt -o ./target/native/release/bundle/1/1.core -pkg moonbitlang/core/1 -pkg-sources moonbitlang/core/1:./1 -target native
-            moonc build-package ./2/lib.mbt -o ./target/native/release/bundle/2/2.core -pkg moonbitlang/core/2 -i ./target/native/release/bundle/1/1.mi:1 -pkg-sources moonbitlang/core/2:./2 -target native
-            moonc build-package ./0/lib.mbt -o ./target/native/release/bundle/0/0.core -pkg moonbitlang/core/0 -pkg-sources moonbitlang/core/0:./0 -target native
+            moonc build-package -o ./target/native/release/bundle/prelude/prelude.core -pkg moonbitlang/core/prelude -pkg-sources moonbitlang/core/prelude:./prelude -target native -g
+            moonc build-package -o ./target/native/release/bundle/coverage/coverage.core -pkg moonbitlang/core/coverage -pkg-sources moonbitlang/core/coverage:./coverage -target native -g
+            moonc build-package -o ./target/native/release/bundle/iter/iter.core -pkg moonbitlang/core/iter -i ./target/native/release/bundle/coverage/coverage.mi:coverage -pkg-sources moonbitlang/core/iter:./iter -target native -g
+            moonc build-package -o ./target/native/release/bundle/char/char.core -pkg moonbitlang/core/char -i ./target/native/release/bundle/coverage/coverage.mi:coverage -pkg-sources moonbitlang/core/char:./char -target native -g
+            moonc build-package ./1/lib.mbt -o ./target/native/release/bundle/1/1.core -pkg moonbitlang/core/1 -pkg-sources moonbitlang/core/1:./1 -target native -g
+            moonc build-package ./2/lib.mbt -o ./target/native/release/bundle/2/2.core -pkg moonbitlang/core/2 -i ./target/native/release/bundle/1/1.mi:1 -pkg-sources moonbitlang/core/2:./2 -target native -g
+            moonc build-package ./0/lib.mbt -o ./target/native/release/bundle/0/0.core -pkg moonbitlang/core/0 -pkg-sources moonbitlang/core/0:./0 -target native -g
             moonc bundle-core ./target/native/release/bundle/0/0.core ./target/native/release/bundle/1/1.core ./target/native/release/bundle/2/2.core ./target/native/release/bundle/coverage/coverage.core ./target/native/release/bundle/char/char.core ./target/native/release/bundle/iter/iter.core ./target/native/release/bundle/prelude/prelude.core -o ./target/native/release/bundle/core.core
         "#]],
     );

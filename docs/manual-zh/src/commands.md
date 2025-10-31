@@ -93,10 +93,12 @@ Build the current package
 
 * `--std` — Enable the standard library (default)
 * `--nostd` — Disable the standard library
-* `-g`, `--debug` — Emit debug information
+* `-g`, `--debug` — Compile in debug mode
 * `--release` — Compile in release mode
-* `--strip` — Enable stripping debug information
-* `--no-strip` — Disable stripping debug information
+* `--strip` — Do not emit debug information
+* `--no-strip` — Emit debug information (no effect)
+
+   This flag currently has no effect, as debug information is emitted by default unless `--strip` is specified.
 * `--target <TARGET>` — Select output target
 
   Possible values: `wasm`, `wasm-gc`, `js`, `native`, `llvm`, `all`
@@ -134,10 +136,12 @@ Check the current package, but don't build object files
 
 * `--std` — Enable the standard library (default)
 * `--nostd` — Disable the standard library
-* `-g`, `--debug` — Emit debug information
+* `-g`, `--debug` — Compile in debug mode
 * `--release` — Compile in release mode
-* `--strip` — Enable stripping debug information
-* `--no-strip` — Disable stripping debug information
+* `--strip` — Do not emit debug information
+* `--no-strip` — Emit debug information (no effect)
+
+   This flag currently has no effect, as debug information is emitted by default unless `--strip` is specified.
 * `--target <TARGET>` — Select output target
 
   Possible values: `wasm`, `wasm-gc`, `js`, `native`, `llvm`, `all`
@@ -181,10 +185,12 @@ Run a main package
 
 * `--std` — Enable the standard library (default)
 * `--nostd` — Disable the standard library
-* `-g`, `--debug` — Emit debug information
+* `-g`, `--debug` — Compile in debug mode
 * `--release` — Compile in release mode
-* `--strip` — Enable stripping debug information
-* `--no-strip` — Disable stripping debug information
+* `--strip` — Do not emit debug information
+* `--no-strip` — Emit debug information (no effect)
+
+   This flag currently has no effect, as debug information is emitted by default unless `--strip` is specified.
 * `--target <TARGET>` — Select output target
 
   Possible values: `wasm`, `wasm-gc`, `js`, `native`, `llvm`, `all`
@@ -222,10 +228,12 @@ Test the current package
 
 * `--std` — Enable the standard library (default)
 * `--nostd` — Disable the standard library
-* `-g`, `--debug` — Emit debug information
+* `-g`, `--debug` — Compile in debug mode
 * `--release` — Compile in release mode
-* `--strip` — Enable stripping debug information
-* `--no-strip` — Disable stripping debug information
+* `--strip` — Do not emit debug information
+* `--no-strip` — Emit debug information (no effect)
+
+   This flag currently has no effect, as debug information is emitted by default unless `--strip` is specified.
 * `--target <TARGET>` — Select output target
 
   Possible values: `wasm`, `wasm-gc`, `js`, `native`, `llvm`, `all`
@@ -336,10 +344,12 @@ Run benchmarks in the current package
 
 * `--std` — Enable the standard library (default)
 * `--nostd` — Disable the standard library
-* `-g`, `--debug` — Emit debug information
+* `-g`, `--debug` — Compile in debug mode
 * `--release` — Compile in release mode
-* `--strip` — Enable stripping debug information
-* `--no-strip` — Disable stripping debug information
+* `--strip` — Do not emit debug information
+* `--no-strip` — Emit debug information (no effect)
+
+   This flag currently has no effect, as debug information is emitted by default unless `--strip` is specified.
 * `--target <TARGET>` — Select output target
 
   Possible values: `wasm`, `wasm-gc`, `js`, `native`, `llvm`, `all`
