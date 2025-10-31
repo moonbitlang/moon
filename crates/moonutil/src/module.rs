@@ -17,7 +17,7 @@
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
 use crate::common::{
-    MOON_PKG_JSON, MoonModJSONFormatErrorKind, MooncOpt, NameError, TargetBackend,
+    MOON_PKG_JSON, MOONBITLANG_CORE, MoonModJSONFormatErrorKind, MooncOpt, NameError, TargetBackend,
 };
 use crate::dependency::{
     BinaryDependencyInfo, BinaryDependencyInfoJson, SourceDependencyInfo, SourceDependencyInfoJson,
@@ -496,12 +496,25 @@ impl ModuleDB {
                     ))
                 }
                 if !self.packages.contains_key(&imported) {
-                    errors.push(format!(
-                        "{}: cannot import `{}` in `{}`, no such package",
-                        pkg.root_path.join(MOON_PKG_JSON).display(),
-                        imported,
-                        pkg.full_name(),
-                    ));
+                    // Check if the import is from the standard library (path-style check)
+                    if let Some(core_path) =
+                        imported.strip_prefix(&format!("{}/", MOONBITLANG_CORE))
+                    {
+                        errors.push(format!(
+                            "{}: cannot import `{}` in `{}`, the standard library is already imported, and unavailable in local import environment. You should use this package directly as `@{}`",
+                            pkg.root_path.join(MOON_PKG_JSON).display(),
+                            imported,
+                            pkg.full_name(),
+                            core_path,
+                        ));
+                    } else {
+                        errors.push(format!(
+                            "{}: cannot import `{}` in `{}`, no such package",
+                            pkg.root_path.join(MOON_PKG_JSON).display(),
+                            imported,
+                            pkg.full_name(),
+                        ));
+                    }
                 }
             }
         }
