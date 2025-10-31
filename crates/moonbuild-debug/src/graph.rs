@@ -20,6 +20,7 @@
 
 use std::{
     collections::HashSet,
+    env,
     io::{BufRead, Write},
     path::{Path, PathBuf},
     sync::LazyLock,
@@ -171,6 +172,8 @@ struct PathNormalizer {
     canonical: Option<PathBuf>,
     canonical_str: Option<String>,
     canonical_alt: Option<String>,
+    moon_bin_str: Option<String>,
+    moon_bin_alt: Option<String>,
 }
 
 impl PathNormalizer {
@@ -181,6 +184,9 @@ impl PathNormalizer {
         let canonical = std::fs::canonicalize(&original).ok();
         let canonical_str = canonical.as_ref().map(|p| p.to_string_lossy().to_string());
         let canonical_alt = canonical_str.as_ref().map(|s| s.replace('\\', "/"));
+        let moon_bin = env::current_exe().ok();
+        let moon_bin_str = moon_bin.as_ref().map(|p| p.to_string_lossy().to_string());
+        let moon_bin_alt = moon_bin_str.as_ref().map(|s| s.replace('\\', "/"));
         PathNormalizer {
             original,
             original_str,
@@ -188,6 +194,8 @@ impl PathNormalizer {
             canonical,
             canonical_str,
             canonical_alt,
+            moon_bin_str,
+            moon_bin_alt,
         }
     }
 
@@ -198,6 +206,12 @@ impl PathNormalizer {
                 continue;
             }
             normalized = normalized.replace(key, ".");
+        }
+        for key in self.moon_keys() {
+            if key.is_empty() {
+                continue;
+            }
+            normalized = normalized.replace(key, "moon");
         }
         normalized
     }
@@ -229,6 +243,12 @@ impl PathNormalizer {
         ]
         .into_iter()
         .flatten()
+    }
+
+    fn moon_keys(&self) -> impl Iterator<Item = &str> {
+        [self.moon_bin_str.as_deref(), self.moon_bin_alt.as_deref()]
+            .into_iter()
+            .flatten()
     }
 
     fn relative_from_path(stripped: &Path) -> String {
