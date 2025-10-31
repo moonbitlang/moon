@@ -1363,6 +1363,12 @@ pub fn gen_n2_runtest_state(
     let mut runtime_path = None;
 
     if is_native_backend || is_llvm_backend {
+        // Extract native cc flags from the main package (first link item)
+        let native_cc_flags = extract_native_cc_flags(
+            &input.link_items,
+            moonc_opt.link_opt.target_backend,
+        );
+
         fn gen_shared_runtime(
             graph: &mut n2graph::Graph,
             target_dir: &std::path::Path,
@@ -1378,8 +1384,9 @@ pub fn gen_n2_runtest_state(
         fn gen_runtime(
             graph: &mut n2graph::Graph,
             target_dir: &std::path::Path,
+            native_cc_flags: &[String],
         ) -> anyhow::Result<PathBuf> {
-            let (build, path) = gen_compile_runtime_command(graph, target_dir);
+            let (build, path) = gen_compile_runtime_command(graph, target_dir, native_cc_flags);
             graph.add_build(build)?;
             Ok(path)
         }
@@ -1387,7 +1394,7 @@ pub fn gen_n2_runtest_state(
         runtime_path = Some(if moonbuild_opt.use_tcc_run {
             gen_shared_runtime(&mut graph, &moonbuild_opt.target_dir, &mut default)?
         } else {
-            gen_runtime(&mut graph, &moonbuild_opt.target_dir)?
+            gen_runtime(&mut graph, &moonbuild_opt.target_dir, &native_cc_flags)?
         });
     }
 
