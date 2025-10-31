@@ -56,6 +56,7 @@ pub struct BenchSubcommand {
 #[instrument(skip_all)]
 pub fn run_bench(cli: UniversalFlags, cmd: BenchSubcommand) -> anyhow::Result<i32> {
     let mut cmd = cmd;
+    // LEGACY default: bench uses release mode (optimized). Debug symbols remain ON unless `--strip`.
     cmd.build_flags.default_to_release(true);
 
     let PackageDirs {

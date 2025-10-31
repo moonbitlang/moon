@@ -109,6 +109,7 @@ fn run_build_internal(
     target_dir: &Path,
 ) -> anyhow::Result<i32> {
     let mut cmd = cmd.clone();
+    // LEGACY default: compile in debug mode (-O0). Debug symbols are enabled by default and only disabled via `--strip`.
     cmd.build_flags.default_to_release(false);
 
     let f = || {
@@ -170,6 +171,12 @@ fn run_build_rr(
     }
 }
 
+//// Legacy compilation mode & stripping (build):
+//// - Mode selection: build defaults to debug via `BuildFlags::default_to_release(false)`.
+////   In the legacy pipeline this maps to no optimization (-O0).
+//// - Debug info: emitted by default; disabled only when `--strip` is set.
+//// - Source maps: only emitted for backends that support them (Js/WasmGC) when not stripped.
+//// - Link step mirrors debug info flags to keep symbol visibility consistent across compile/link.
 #[instrument(skip_all)]
 fn run_build_legacy(
     cli: &UniversalFlags,
@@ -187,6 +194,9 @@ fn run_build_legacy(
 
     let raw_target_dir = target_dir;
     let run_mode = RunMode::Build;
+    // Legacy path: `get_compiler_flags` maps BuildFlags into MooncOpt.
+    // With `default_to_release(false)`, we default into debug mode which the legacy pipeline
+    // translates to no optimization (-O0). Debug symbols remain ON unless `--strip` is provided.
     let mut moonc_opt = super::get_compiler_flags(source_dir, &cmd.build_flags)?;
     moonc_opt.build_opt.deny_warn = cmd.build_flags.deny_warn;
     let target_dir = mk_arch_mode_dir(source_dir, target_dir, &moonc_opt, run_mode)?;

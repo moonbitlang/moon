@@ -117,6 +117,7 @@ fn run_check_internal(
     target_dir: &Path,
 ) -> anyhow::Result<i32> {
     let mut cmd = cmd.clone();
+    // LEGACY default: compile in debug mode (-O0). Debug symbols are enabled by default and only disabled via `--strip`.
     cmd.build_flags.default_to_release(false);
 
     if cmd.single_file.is_some() {
@@ -309,6 +310,12 @@ fn run_check_normal_internal_rr(
     }
 }
 
+//// Legacy compilation mode & stripping (check):
+//// - Mode selection: check defaults to debug via `BuildFlags::default_to_release(false)`,
+////   mapping to no optimization (-O0) in legacy.
+//// - Debug info: ON by default; turned OFF only with `--strip`.
+//// - Source maps: only for Js/WasmGC when not stripped.
+//// - Link flags mirror compile-time debug info to keep symbol visibility consistent.
 #[instrument(skip_all)]
 fn run_check_normal_internal_legacy(
     cli: &UniversalFlags,
@@ -326,6 +333,8 @@ fn run_check_normal_internal_legacy(
 
     let raw_target_dir = target_dir;
     let run_mode = RunMode::Check;
+    // Legacy path: `get_compiler_flags` enforces default debug (-O0) unless the user specified release.
+    // Debug symbols remain ON unless `--strip`; source maps only for Js/WasmGC when not stripped.
     let mut moonc_opt = get_compiler_flags(source_dir, &cmd.build_flags)?;
     moonc_opt.build_opt.deny_warn = cmd.build_flags.deny_warn;
     let target_dir = mk_arch_mode_dir(source_dir, target_dir, &moonc_opt, run_mode)?;

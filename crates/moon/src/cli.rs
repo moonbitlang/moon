@@ -278,6 +278,19 @@ impl BuildFlags {
         !self.strip()
     }
 
+    /// Legacy defaulting rule for compilation mode.
+    ///
+    /// - When `default_release` is false (most commands: build/test/check/info), we default to
+    ///   debug mode if the user did not specify `--debug` or `--release`. In the legacy pipeline
+    ///   this maps to "no optimization" (-O0) and keeps debug symbols ON unless `--strip` is set.
+    /// - When `default_release` is true (bundle/bench), we default to release if neither flag
+    ///   was specified. In release mode, optimization is enabled; debug symbols remain ON unless
+    ///   `--strip` is set.
+    ///
+    /// Notes (legacy path):
+    /// - Debug/Release selection here only determines the high-level mode. The actual C/C++ flags
+    ///   (-O0/-Og/-O2 etc.) are derived downstream in the build generator. Debug mode results in
+    ///   no optimization in legacy, while release selects optimized builds.
     pub fn default_to_release(&mut self, default_release: bool) {
         if !self.debug && !self.release {
             if default_release {
@@ -332,6 +345,12 @@ pub fn get_compiler_flags(src_dir: &Path, build_flags: &BuildFlags) -> anyhow::R
         _ => output_format,
     };
 
+    // Legacy stripping & debug mapping:
+    // - `strip` disables emitting debug info and source maps; by default, we do NOT strip.
+    // - `keep_debug` mirrors the default behavior: debug symbols ON unless the user passed `--strip`.
+    // - `debug_flag` indicates high-level debug mode (selected by `default_to_release(false)` in most commands),
+    //   which flows down to no optimization (-O0) in the legacy compiler command generation.
+    // - `source_map` only applies to backends that support it (Js/WasmGC) and is tied to `keep_debug`.
     let strip_flag = build_flags.strip();
     let keep_debug = build_flags.keep_debug_info();
     let debug_flag = build_flags.debug;
@@ -350,6 +369,7 @@ pub fn get_compiler_flags(src_dir: &Path, build_flags: &BuildFlags) -> anyhow::R
         enable_value_tracing: build_flags.enable_value_tracing,
     };
 
+    // Link step mirrors debug info flags so symbol visibility is consistent across compile/link.
     let link_opt = LinkCoreFlags {
         debug_flag: keep_debug,
         source_map,
@@ -357,6 +377,7 @@ pub fn get_compiler_flags(src_dir: &Path, build_flags: &BuildFlags) -> anyhow::R
         target_backend,
     };
 
+    // stdlib handling and rendering flags; unrelated to debug/strip logic.
     let nostd = !build_flags.std() || moon_mod.name == MOONBITLANG_CORE;
     let render =
         !build_flags.no_render || std::env::var("MOON_NO_RENDER").unwrap_or_default() == "1";

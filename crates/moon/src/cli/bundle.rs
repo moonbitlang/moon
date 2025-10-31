@@ -55,6 +55,7 @@ pub struct BundleSubcommand {
 #[instrument(skip_all)]
 pub fn run_bundle(cli: UniversalFlags, cmd: BundleSubcommand) -> anyhow::Result<i32> {
     let mut cmd = cmd;
+    // LEGACY default: bundle uses release mode (optimized). Debug symbols remain ON unless `--strip`.
     cmd.build_flags.default_to_release(true);
 
     let PackageDirs {
@@ -160,6 +161,11 @@ pub fn run_bundle_internal_rr(
     }
 }
 
+//// Legacy compilation mode & stripping (bundle):
+//// - Mode selection: bundle defaults to release via `BuildFlags::default_to_release(true)`,
+////   selecting optimized builds in legacy.
+//// - Debug info: ON by default even in release; disable only with `--strip`.
+//// - Source maps: emitted for Js/WasmGC when not stripped.
 #[instrument(level = Level::DEBUG, skip_all)]
 fn run_bundle_internal_legacy(
     cli: &UniversalFlags,
@@ -176,6 +182,8 @@ fn run_bundle_internal_legacy(
     )?;
 
     let run_mode = RunMode::Bundle;
+    // Legacy path: bundle defaults to release (optimized). Debug symbols remain ON unless `--strip`.
+    // Source maps apply to supported backends when not stripped.
     let moonc_opt = super::get_compiler_flags(source_dir, &cmd.build_flags)?;
     let sort_input = cmd.build_flags.sort_input;
 

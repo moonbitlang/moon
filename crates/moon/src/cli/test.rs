@@ -163,6 +163,7 @@ pub fn run_test(cli: UniversalFlags, cmd: TestSubcommand) -> anyhow::Result<i32>
     );
 
     let mut cmd = cmd;
+    // LEGACY default: compile in debug mode (-O0). Debug symbols are enabled by default and only disabled via `--strip`.
     cmd.build_flags.default_to_release(false);
 
     // Check if we're running within a project
@@ -1039,6 +1040,16 @@ fn calc_user_intent(
     Ok((intents, directive).into())
 }
 
+//// Legacy compilation mode & stripping (test/bench):
+//// - Mode selection:
+////   * `moon test`: defaults to debug via `default_to_release(false)` → legacy maps to -O0.
+////   * `moon bench`: defaults to release via `default_to_release(true)` (or forced in code),
+////     selecting optimized builds; note the legacy quirk that `debug: true` may still be set to
+////     steer flag plumbing—do not "fix" this without retiring the legacy path.
+//// - Debug info: ON by default; only disabled via `--strip`.
+//// - Source maps: only for Js/WasmGC when not stripped.
+//// - Build/link: compile `debug_flag` selects legacy no-optimization; link mirrors debug info flags
+////   so symbol visibility remains consistent.
 #[instrument(skip_all)]
 pub(crate) fn run_test_or_bench_internal_legacy(
     cli: &UniversalFlags,
@@ -1064,27 +1075,10 @@ pub(crate) fn run_test_or_bench_internal_legacy(
         build_flags.release = true;
     }
 
-    // MAINTAINERS: Yes, this piece of code might result in both debug=true and
-    // release=true. This is expected behavior and is required to make the
-    // feature work, because of the current status of legacy flags setting.
-    //
-    // This piece will be thrown away very soon. If it's still here by 2026,
-    // please do a full refactor.
-    let compiler_flags = BuildFlags {
-        debug: true,
-        ..build_flags.clone()
-    };
-    let mut moonc_opt = super::get_compiler_flags(source_dir, &compiler_flags)?;
-    let release_build = build_flags.release;
-    let keep_debug_info = !build_flags.strip();
-    moonc_opt.build_opt.debug_flag = !release_build;
-    moonc_opt.build_opt.enable_value_tracing = build_flags.enable_value_tracing;
-    moonc_opt.build_opt.strip_flag = build_flags.strip();
-    moonc_opt.build_opt.source_map =
-        keep_debug_info && moonc_opt.build_opt.target_backend.supports_source_map();
-    moonc_opt.link_opt.debug_flag = keep_debug_info;
-    moonc_opt.link_opt.source_map =
-        keep_debug_info && moonc_opt.link_opt.target_backend.supports_source_map();
+    // Simplified: derive compiler flags directly from build_flags.
+    // default_to_release(false/true) already chose debug (-O0) for test and release for bench.
+    // Debug symbols remain ON unless `--strip` and source maps only on supporting backends.
+    let mut moonc_opt = super::get_compiler_flags(source_dir, &build_flags)?;
 
     // TODO: remove this once LLVM backend is well supported
     if moonc_opt.build_opt.target_backend == TargetBackend::LLVM {

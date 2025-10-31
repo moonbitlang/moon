@@ -146,6 +146,10 @@ fn calc_user_intent(
     Ok(res.into())
 }
 
+//// Legacy compilation mode & stripping (info):
+//// - `moon info` wraps check semantics but historically bypassed `BuildFlags`.
+////   It now uses `default_debug` + `get_compiler_flags`, so legacy behavior matches build/check/test:
+////   debug mode by default (-O0), debug symbols ON unless `--strip`, source maps for Js/WasmGC.
 pub fn run_info_legacy(cli: UniversalFlags, cmd: InfoSubcommand) -> anyhow::Result<i32> {
     let PackageDirs {
         source_dir,
@@ -260,6 +264,8 @@ pub fn run_info_internal(
         )
     })?;
     let module_name = &mod_desc.name;
+    /// Legacy behavior: run `moon info` under debug mode (-O0) to match build/check/test defaults.
+    /// Debug symbols are enabled by default and only disabled via `--strip` (passed via BuildFlags).
     let mut flags = crate::cli::BuildFlags::default_debug();
     flags.target_backend = cmd.target_backend;
     let mut moonc_opt = crate::cli::get_compiler_flags(source_dir, &flags)?;
