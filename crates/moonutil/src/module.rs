@@ -500,7 +500,7 @@ impl ModuleDB {
                     // Check if the import is from the standard library (path-style check)
                     if let Some(core_path) = imported.strip_prefix(&format!("{}/", MOONBITLANG_CORE)) {
                         errors.push(format!(
-                            "{}: cannot import `{}` in `{}`, the standard library is already imported and this package does not exist. You can use this package directly as `@{}`",
+                            "{}: cannot import `{}` in `{}`, the standard library is already imported, and unavailable in local import environment. You should use this package directly as `@{}`",
                             pkg.root_path.join(MOON_PKG_JSON).display(),
                             imported,
                             pkg.full_name(),
