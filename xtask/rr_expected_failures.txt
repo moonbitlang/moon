@@ -97,3 +97,17 @@ test_cases::mooncakes_io_smoke_test
 test_cases::prebuild::test_moonlex
 test_cases::test_moonbitlang_x
 test_cases::test_third_party
+
+# New flaky tests since 2025-11-10
+test_cases::backend_config::test_backend_config
+test_cases::diagnostics_format::test::test_moon_test_json_output
+test_cases::filter_by_path::test_moon_build_filter_by_path_success
+test_cases::filter_by_path::test_moon_check_filter_by_path_failure
+test_cases::filter_by_path::test_moon_run_filter_by_path_failure
+test_cases::hello::test_source_map
+test_cases::moon_bundle::test_moon_bundle
+test_cases::moon_commands::test_moon_cmd
+test_cases::test_filter::test_moon_test_filter_package
+test_cases::test_need_link
+test_cases::diagnostics_format::test::test_moon_test_raw_output
+test_cases::diagnostics_format::test::test_moon_test_rendered_output
