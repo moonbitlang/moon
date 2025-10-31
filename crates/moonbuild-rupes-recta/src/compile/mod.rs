@@ -21,7 +21,7 @@ use std::{path::PathBuf, str::FromStr};
 use indexmap::IndexMap;
 use log::{debug, info};
 use moonutil::{
-    common::{RunMode, TargetBackend},
+    common::RunMode,
     compiler_flags::{CC, CompilerPaths},
     cond_expr::OptLevel,
     moon_dir::MOON_DIRS,
@@ -31,7 +31,7 @@ use tracing::{Level, instrument};
 use crate::{
     build_lower,
     build_plan::{self, BuildEnvironment, InputDirective},
-    model::{Artifacts, BuildPlanNode, OperatingSystem},
+    model::{Artifacts, BuildPlanNode, OperatingSystem, RunBackend},
     prebuild::PrebuildOutput,
     resolve::ResolveOutput,
     special_cases::should_skip_tests,
@@ -42,7 +42,7 @@ pub struct CompileConfig {
     /// Target directory, i.e. `target/`
     pub target_dir: PathBuf,
     /// The backend to use for the compilation.
-    pub target_backend: TargetBackend,
+    pub target_backend: RunBackend,
     /// The optimization level to use for the compilation.
     pub opt_level: OptLevel,
     /// The action done in this operation, currently only used in legacy directory layout
@@ -121,7 +121,7 @@ pub fn compile(
         .filter(|x| filter_special_case_input_nodes(*x, resolve_output));
 
     let build_env = BuildEnvironment {
-        target_backend: cx.target_backend,
+        target_backend: cx.target_backend.into(),
         opt_level: cx.opt_level,
         std: cx.stdlib_path.is_some(),
         warn_list: cx.warn_list.clone(),

@@ -23,7 +23,7 @@ use std::path::PathBuf;
 use indexmap::IndexMap;
 use log::{debug, info};
 use moonutil::{
-    common::{RunMode, TargetBackend},
+    common::RunMode,
     compiler_flags::{CC, CompilerPaths},
     cond_expr::OptLevel,
     mooncakes::ModuleSource,
@@ -34,7 +34,7 @@ use tracing::instrument;
 use crate::{
     ResolveOutput,
     build_plan::BuildPlan,
-    model::{Artifacts, BuildPlanNode, OperatingSystem},
+    model::{Artifacts, BuildPlanNode, OperatingSystem, RunBackend},
     pkg_name::OptionalPackageFQNWithSource,
 };
 
@@ -55,7 +55,7 @@ pub struct BuildOptions {
     pub main_module: Option<ModuleSource>,
     pub target_dir_root: PathBuf,
     // FIXME: This overlaps with `crate::build_plan::BuildEnvironment`
-    pub target_backend: TargetBackend,
+    pub target_backend: RunBackend,
     pub os: OperatingSystem,
     pub opt_level: OptLevel,
     pub action: RunMode,

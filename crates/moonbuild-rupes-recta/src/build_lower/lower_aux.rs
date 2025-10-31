@@ -45,13 +45,15 @@ impl<'a> super::BuildPlanLowerContext<'a> {
         info: &BuildTargetInfo,
     ) -> BuildCommand {
         let package = self.get_package(target);
-        let output_driver =
-            self.layout
-                .generated_test_driver(self.packages, &target, self.opt.target_backend);
+        let output_driver = self.layout.generated_test_driver(
+            self.packages,
+            &target,
+            self.opt.target_backend.into(),
+        );
         let output_metadata = self.layout.generated_test_driver_metadata(
             self.packages,
             &target,
-            self.opt.target_backend,
+            self.opt.target_backend.into(),
         );
         let driver_kind = match target.kind {
             TargetKind::Source => panic!("Source package cannot be a test driver"),
@@ -77,7 +79,7 @@ impl<'a> super::BuildPlanLowerContext<'a> {
             enable_coverage: self.opt.enable_coverage,
             coverage_package_override: None, // TODO,
             driver_kind,
-            target_backend: self.opt.target_backend,
+            target_backend: self.opt.target_backend.into(),
             patch_file,
             pkg_name: &pkg_full_name,
         };
@@ -97,7 +99,7 @@ impl<'a> super::BuildPlanLowerContext<'a> {
         let module = self.modules.mod_name_from_id(module_id);
         let output = self
             .layout
-            .bundle_result_path(self.opt.target_backend, module.name());
+            .bundle_result_path(self.opt.target_backend.into(), module.name());
         let info = self
             .build_plan
             .bundle_info(module_id)
@@ -108,7 +110,7 @@ impl<'a> super::BuildPlanLowerContext<'a> {
             inputs.push(self.layout.core_of_build_target(
                 self.packages,
                 dep,
-                self.opt.target_backend,
+                self.opt.target_backend.into(),
             ));
         }
 
@@ -124,7 +126,7 @@ impl<'a> super::BuildPlanLowerContext<'a> {
     pub(super) fn lower_compile_runtime(&mut self) -> BuildCommand {
         let artifact_path = self
             .layout
-            .runtime_output_path(self.opt.target_backend, self.opt.os);
+            .runtime_output_path(self.opt.target_backend.into(), self.opt.os);
 
         // TODO: this part might need more simplification?
         let runtime_c_path = self.opt.runtime_dot_c_path.clone();
@@ -155,9 +157,9 @@ impl<'a> super::BuildPlanLowerContext<'a> {
 
     #[instrument(level = Level::DEBUG, skip(self))]
     pub(super) fn lower_generate_mbti(&mut self, target: BuildTarget) -> BuildCommand {
-        let input = self
-            .layout
-            .mi_of_build_target(self.packages, &target, self.opt.target_backend);
+        let input =
+            self.layout
+                .mi_of_build_target(self.packages, &target, self.opt.target_backend.into());
         let pkg = self.packages.get_package(target.package);
         let output = self.layout.generated_mbti_path(&pkg.root_path);
 

@@ -551,7 +551,7 @@ impl<'a> BuildPlanConstructor<'a> {
 
         // Add dependencies of make exec
         for target in &c_stub_deps {
-            let dep_node = self.need_node(BuildPlanNode::ArchiveCStubs(target.package));
+            let dep_node = self.need_node(BuildPlanNode::ArchiveOrLinkCStubs(target.package));
             self.add_edge(make_exec_node, dep_node);
         }
         let c_stub_deps = c_stub_deps.into_iter().collect::<Vec<_>>();

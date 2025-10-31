@@ -43,7 +43,7 @@ use moonbuild_rupes_recta::{
     build_plan::InputDirective,
     fmt::{FmtConfig, FmtResolveOutput},
     intent::UserIntent,
-    model::{Artifacts, BuildPlanNode, PackageId, TargetKind},
+    model::{Artifacts, BuildPlanNode, PackageId, RunBackend, TargetKind},
     prebuild::run_prebuild_config,
 };
 use moonutil::{
@@ -222,6 +222,14 @@ impl CompilePreConfig {
             .target_backend
             .or(preferred_backend)
             .unwrap_or_default();
+        let target_backend = match target_backend {
+            TargetBackend::Wasm => RunBackend::Wasm,
+            TargetBackend::WasmGC => RunBackend::WasmGC,
+            TargetBackend::Js => RunBackend::Js,
+            TargetBackend::Native => RunBackend::Native,
+            TargetBackend::LLVM => RunBackend::Llvm,
+            // TODO: integrate tcc-run to here based on input params
+        };
 
         CompileConfig {
             target_dir: self.target_dir,
@@ -394,11 +402,16 @@ pub fn plan_build<'a>(
     let build_meta = BuildMeta {
         resolve_output,
         artifacts: compile_output.artifacts,
-        target_backend: cx.target_backend,
+        target_backend: cx.target_backend.into(),
         opt_level: cx.opt_level,
     };
 
-    let db_path = n2_db_path(target_dir, cx.target_backend, cx.opt_level, cx.action);
+    let db_path = n2_db_path(
+        target_dir,
+        cx.target_backend.into(),
+        cx.opt_level,
+        cx.action,
+    );
     let input = BuildInput {
         graph: compile_output.build_graph,
         db_path,

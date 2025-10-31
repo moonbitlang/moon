@@ -54,6 +54,10 @@ impl RunBackend {
             RunBackend::Native | RunBackend::NativeTccRun | RunBackend::Llvm
         )
     }
+
+    pub fn to_target(self) -> TargetBackend {
+        self.into()
+    }
 }
 
 impl From<RunBackend> for TargetBackend {
@@ -143,7 +147,7 @@ pub enum BuildPlanNode {
     BuildCore(BuildTarget),
     /// Build the i-th C file in the C stub list.
     BuildCStub(PackageId, u32), // change into global artifact list if we need non-package ones
-    ArchiveCStubs(PackageId),
+    ArchiveOrLinkCStubs(PackageId),
     LinkCore(BuildTarget),
     MakeExecutable(BuildTarget),
     GenerateTestInfo(BuildTarget),
@@ -196,7 +200,7 @@ impl BuildPlanNode {
             | BuildPlanNode::GenerateTestInfo(target)
             | BuildPlanNode::GenerateMbti(target) => Some(target),
             BuildPlanNode::BuildCStub(_, _)
-            | BuildPlanNode::ArchiveCStubs(_)
+            | BuildPlanNode::ArchiveOrLinkCStubs(_)
             | BuildPlanNode::Bundle(_)
             | BuildPlanNode::BuildRuntimeLib
             | BuildPlanNode::BuildDocs
@@ -221,7 +225,7 @@ impl BuildPlanNode {
                 let fqn = packages.fqn(*pkg);
                 format!("{}@BuildCStub_{}", fqn, idx)
             }
-            BuildPlanNode::ArchiveCStubs(pkg) => {
+            BuildPlanNode::ArchiveOrLinkCStubs(pkg) => {
                 let fqn = packages.fqn(*pkg);
                 format!("{}@ArchiveCStubs", fqn)
             }
