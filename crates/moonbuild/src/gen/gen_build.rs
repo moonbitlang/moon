@@ -184,6 +184,7 @@ pub fn gen_build_build_item(
             alias,
         });
     }
+    mi_deps.sort_by(|a, b| a.alias.cmp(&b.alias));
 
     let package_full_name = if pkg.is_sub_package {
         pkg.full_name().replace(SUB_PKG_POSTFIX, "")

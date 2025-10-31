@@ -124,6 +124,7 @@ fn pkg_to_check_item(
             alias,
         });
     }
+    mi_deps.sort_by(|a, b| a.alias.cmp(&b.alias));
 
     let package_full_name = if pkg.is_sub_package {
         pkg.full_name().replace(SUB_PKG_POSTFIX, "")
@@ -232,6 +233,7 @@ fn pkg_with_wbtest_to_check_item(
             alias,
         });
     }
+    mi_deps.sort_by(|a, b| a.alias.cmp(&b.alias));
 
     let package_full_name = if pkg.is_sub_package {
         pkg.full_name().replace(SUB_PKG_POSTFIX, "")
@@ -377,6 +379,8 @@ fn pkg_with_test_to_check_item(
             alias,
         });
     }
+
+    mi_deps.sort_by(|a, b| a.alias.cmp(&b.alias));
 
     // this is used for `-pkg` flag in `moonc check`, shouldn't be `pkg.full_name()` since we aren't check that package, otherwise we might encounter an error like "4015] Error: Type StructName has no method method_name"(however, StructName does has method method_name).
     // actually, `-pkg` flag is not necessary for blackbox test, but we still keep it for consistency

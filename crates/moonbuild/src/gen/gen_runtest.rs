@@ -277,6 +277,7 @@ pub fn gen_package_core(
             alias,
         });
     }
+    mi_deps.sort_by(|a, b| a.alias.cmp(&b.alias));
 
     let package_full_name = if pkg.is_sub_package {
         pkg.full_name().replace(SUB_PKG_POSTFIX, "")
@@ -385,6 +386,7 @@ pub fn gen_package_internal_test(
             alias,
         });
     }
+    mi_deps.sort_by(|a, b| a.alias.cmp(&b.alias));
 
     let package_full_name = if pkg.is_sub_package {
         pkg.full_name().replace(SUB_PKG_POSTFIX, "")
@@ -484,6 +486,7 @@ pub fn gen_package_whitebox_test(
             alias,
         });
     }
+    mi_deps.sort_by(|a, b| a.alias.cmp(&b.alias));
 
     let package_full_name = if pkg.is_sub_package {
         pkg.full_name().replace(SUB_PKG_POSTFIX, "")
@@ -594,6 +597,7 @@ pub fn gen_package_blackbox_test(
         }
     }
     let self_alias = pkg.last_name();
+    mi_deps.sort_by(|a, b| a.alias.cmp(&b.alias));
 
     let imports_and_test_imports = get_imports(pkg, true);
 
