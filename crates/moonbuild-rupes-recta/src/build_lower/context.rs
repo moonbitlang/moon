@@ -224,7 +224,8 @@ impl<'a> BuildPlanLowerContext<'a> {
                     FileDependencyKind::BuildCore { mi, core } => (mi, core),
                     _ => (true, true),
                 };
-                if mi && !(info.check_mi_against.is_some() || info.no_mi()) {
+                if mi && info.check_mi_against.is_none() && !info.no_mi() && !target.kind.is_test()
+                {
                     out.push(self.layout.mi_of_build_target(
                         self.packages,
                         &target,
