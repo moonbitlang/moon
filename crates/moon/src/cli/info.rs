@@ -260,9 +260,9 @@ pub fn run_info_internal(
         )
     })?;
     let module_name = &mod_desc.name;
-    let mut moonc_opt = MooncOpt::default();
-    moonc_opt.link_opt.target_backend = cmd.target_backend.unwrap_or_default();
-    moonc_opt.build_opt.target_backend = cmd.target_backend.unwrap_or_default();
+    let mut flags = crate::cli::BuildFlags::default_debug();
+    flags.target_backend = cmd.target_backend;
+    let mut moonc_opt = crate::cli::get_compiler_flags(source_dir, &flags)?;
 
     let raw_target_dir = target_dir.to_path_buf();
     let target_dir = mk_arch_mode_dir(source_dir, target_dir, &moonc_opt, RunMode::Check)?;
