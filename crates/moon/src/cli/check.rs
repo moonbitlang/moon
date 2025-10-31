@@ -240,7 +240,7 @@ fn run_check_normal_internal(
                 actual_target.display()
             )
         })?;
-        watching(f, source_dir, &actual_target, target_dir)
+        watching(f, source_dir, source_dir, &actual_target)
     } else {
         f()
     }
