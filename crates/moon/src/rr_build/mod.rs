@@ -52,6 +52,7 @@ use moonutil::{
         BLACKBOX_TEST_PATCH, DiagnosticLevel, MOONBITLANG_CORE, RunMode, TargetBackend,
         WHITEBOX_TEST_PATCH,
     },
+    compiler_flags::CC,
     cond_expr::OptLevel,
     features::FeatureGate,
     mooncakes::{ModuleId, sync::AutoSyncFlags},
@@ -204,6 +205,8 @@ pub struct CompilePreConfig {
     pub deny_warn: bool,
     /// Whether to not emit alias when running `mooninfo`
     pub info_no_alias: bool,
+    /// Preferred default C/C++ toolchain to use for native builds
+    pub default_cc: CC,
     warn_list: Option<String>,
     alert_list: Option<String>,
 }
@@ -240,6 +243,7 @@ impl CompilePreConfig {
             warn_list: self.warn_list,
             alert_list: self.alert_list,
             info_no_alias: self.info_no_alias,
+            default_cc: self.default_cc,
         }
     }
 }
@@ -277,6 +281,7 @@ pub fn preconfig_compile(
         moonc_output_json: !cli.dry_run && build_flags.output_style().needs_moonc_json(),
         docs_serve: false,
         info_no_alias: false,
+        default_cc: CC::default(),
         deny_warn: build_flags.deny_warn,
         warn_list: build_flags.warn_list.clone(),
         alert_list: build_flags.alert_list.clone(),

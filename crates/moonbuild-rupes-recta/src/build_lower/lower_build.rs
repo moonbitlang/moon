@@ -21,9 +21,8 @@
 use moonutil::{
     common::TargetBackend,
     compiler_flags::{
-        ArchiverConfigBuilder, CC, CCConfigBuilder, OptLevel as CCOptLevel,
-        OutputType as CCOutputType, make_archiver_command, make_cc_command, make_cc_command_pure,
-        resolve_cc,
+        ArchiverConfigBuilder, CCConfigBuilder, OptLevel as CCOptLevel, OutputType as CCOutputType,
+        make_archiver_command, make_cc_command, make_cc_command_pure, resolve_cc,
     },
     cond_expr::OptLevel,
     moon_dir::MOON_DIRS,
@@ -487,7 +486,7 @@ impl<'a> BuildPlanLowerContext<'a> {
             .expect("Failed to build CC configuration for C stub");
 
         let cc_cmd = make_cc_command(
-            CC::default(),
+            self.opt.default_cc.clone(),
             info.stub_cc.clone(),
             config,
             &info.cc_flags,
@@ -533,7 +532,7 @@ impl<'a> BuildPlanLowerContext<'a> {
             .expect("Failed to build archiver configuration");
 
         let archiver_cmd = make_archiver_command(
-            CC::default(),
+            self.opt.default_cc.clone(),
             info.stub_cc.clone(), // TODO: no clone
             config,
             &object_files
@@ -594,7 +593,7 @@ impl<'a> BuildPlanLowerContext<'a> {
             .build()
             .expect("Failed to build CC configuration for executable");
         let cc_cmd = make_cc_command_pure(
-            resolve_cc(CC::default(), info.cc.clone()), // TODO: no clone
+            resolve_cc(self.opt.default_cc.clone(), info.cc.clone()), // TODO: no clone
             config,
             &info.c_flags,
             sources.iter().map(|x| x.display().to_string()),

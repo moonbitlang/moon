@@ -24,7 +24,7 @@ use indexmap::IndexMap;
 use log::{debug, info};
 use moonutil::{
     common::{RunMode, TargetBackend},
-    compiler_flags::CompilerPaths,
+    compiler_flags::{CC, CompilerPaths},
     cond_expr::OptLevel,
     mooncakes::ModuleSource,
 };
@@ -74,6 +74,8 @@ pub struct BuildOptions {
     pub stdlib_path: Option<PathBuf>,
     pub runtime_dot_c_path: PathBuf,
     pub compiler_paths: CompilerPaths,
+    /// Preferred default C/C++ toolchain to use (overrides CC::default()).
+    pub default_cc: CC,
 }
 
 /// An error that may be raised during build plan lowering

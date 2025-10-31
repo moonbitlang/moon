@@ -22,7 +22,7 @@ use indexmap::IndexMap;
 use log::{debug, info};
 use moonutil::{
     common::{RunMode, TargetBackend},
-    compiler_flags::CompilerPaths,
+    compiler_flags::{CC, CompilerPaths},
     cond_expr::OptLevel,
     moon_dir::MOON_DIRS,
 };
@@ -78,6 +78,8 @@ pub struct CompileConfig {
     pub alert_list: Option<String>,
     /// Whether to not emit alias when running `mooninfo`
     pub info_no_alias: bool,
+    /// Preferred default C/C++ toolchain to use for native builds
+    pub default_cc: CC,
 }
 
 /// The output information of the compilation.
@@ -157,6 +159,7 @@ pub fn compile(
 
         stdlib_path: cx.stdlib_path.clone(),
         compiler_paths: CompilerPaths::from_moon_dirs(), // change to external
+        default_cc: cx.default_cc.clone(),
         os: OperatingSystem::from_str(std::env::consts::OS).expect("Unknown"),
         runtime_dot_c_path: MOON_DIRS.moon_lib_path.join("runtime.c"), // FIXME: don't calculate here
     };
