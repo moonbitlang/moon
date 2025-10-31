@@ -117,7 +117,7 @@ fn run_build_internal(
     };
 
     if cmd.watch {
-        watching(f, source_dir, target_dir, target_dir)
+        watching(f, source_dir, source_dir, target_dir)
     } else {
         f()
     }
