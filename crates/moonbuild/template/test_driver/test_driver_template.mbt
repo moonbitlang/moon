@@ -187,7 +187,6 @@ pub fn moonbit_test_driver_internal_do_execute(
           moonbit_test_driver_internal_run_async_test(
             async_ctx,
             name,
-            on_err~,
             fn(arg) {
               try f(arg) catch {
                 err => on_err(err)

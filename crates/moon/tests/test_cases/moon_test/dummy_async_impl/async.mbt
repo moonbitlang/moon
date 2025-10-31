@@ -1,10 +1,8 @@
 ///|
 struct TaskGroup[X] {
   mut result : X?
+  mut err : Error?
 }
-
-///|
-suberror AlreadyTerminated
 
 ///|
 suberror Unfinished
@@ -13,29 +11,25 @@ suberror Unfinished
 pub fn[X] TaskGroup::spawn_bg(
   self : TaskGroup[X],
   f : async () -> Unit,
-) -> Unit raise {
-  if self.result is Some(_) {
-    raise AlreadyTerminated
-  }
+) -> Unit {
+  guard not(self.result is Some(_))
   let mut done = false
-  let mut err = None
   run_async(fn() {
-    f() catch { e => err = Some(e) } 
+    f() catch { e => self.err = Some(e) } 
     done = true
   })
-  if err is Some(err) {
-    raise err
-  } else if not(done) {
-    raise Unfinished
-  }
+  guard done
 }
 
 ///|
 pub async fn[X] with_task_group(
   f : async (TaskGroup[X]) -> X,
 ) -> X raise {
-  let group = { result: None }
+  let group = { result: None, err: None }
   group.result = Some(f(group))
+  if group.err is Some(err) {
+    raise err
+  }
   guard group.result is Some(result)
   result
 }
