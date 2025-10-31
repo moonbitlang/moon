@@ -33,6 +33,7 @@ use moonutil::common::TargetBackend;
 use moonutil::common::TestArtifacts;
 use moonutil::common::lower_surface_targets;
 use moonutil::common::{MoonbuildOpt, OutputFormat};
+use moonutil::compiler_flags::CC;
 use moonutil::cond_expr::OptLevel::Release;
 use moonutil::dirs::PackageDirs;
 use moonutil::dirs::check_moon_pkg_exist;
@@ -345,6 +346,7 @@ fn run_run_rr(cli: &UniversalFlags, cmd: RunSubcommand) -> Result<i32, anyhow::E
         &cmd.build_flags,
         &target_dir,
         Release,
+        CC::internal_tcc().ok(),
         RunMode::Run,
     );
     let (build_meta, build_graph) = rr_build::plan_build(

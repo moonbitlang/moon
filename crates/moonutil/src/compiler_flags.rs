@@ -202,6 +202,16 @@ impl CC {
         // And we conservatively disable libmoonbitrun.o
         CAN_USE_MOONBITRUN && !self.is_msvc() && !self.is_env_override
     }
+
+    // Constructors for TCC toolchain
+
+    /// Create a CC configured for the internal TCC shipped with Moon.
+    /// Resolves MOON_DIRS.internal_tcc_path via which::which.
+    pub fn internal_tcc() -> anyhow::Result<Self> {
+        let cc_path =
+            which::which(&MOON_DIRS.internal_tcc_path).context("internal tcc not found")?;
+        CC::try_from_cc_path_and_kind("", &cc_path, CCKind::Tcc)
+    }
 }
 
 pub static ENV_CC: std::sync::LazyLock<Option<CC>> = std::sync::LazyLock::new(|| {

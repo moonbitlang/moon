@@ -250,6 +250,18 @@ impl CompilePreConfig {
 
 /// Read in the commandline flags and build flags to create a
 /// [`CompilePreConfig`] for compilation usage.
+///
+/// - `auto_sync_flags`: The flags to control module download & sync behavior.
+/// - `cli`: The universal CLI flags.
+/// - `build_flags`: The build-specific flags.
+/// - `target_dir`: The target directory for the build.
+/// - `default_opt_level`: The default optimization level to use if not specified.
+/// - `default_cc`: The default C/C++ toolchain to use, when not overridden by optimization level.
+///   This field is used to force using TCC by default for some release builds. When `None`,
+///   TCC will be used in debug builds, and system default toolchain will be used otherwise.
+/// - `action`: The run mode (build, test, bench, etc.), only affects target directory layout.
+///   This is different from the legacy code where action also affects the actual compilation
+///   behavior.
 #[instrument(level = Level::DEBUG, skip_all)]
 pub fn preconfig_compile(
     auto_sync_flags: &AutoSyncFlags,
@@ -257,6 +269,7 @@ pub fn preconfig_compile(
     build_flags: &BuildFlags,
     target_dir: &Path,
     default_opt_level: OptLevel,
+    default_cc: Option<CC>,
     action: RunMode,
 ) -> CompilePreConfig {
     let opt_level = if build_flags.release {
@@ -266,6 +279,15 @@ pub fn preconfig_compile(
     } else {
         default_opt_level
     };
+
+    let default_cc = if build_flags.release {
+        CC::default()
+    } else if build_flags.debug {
+        CC::internal_tcc().unwrap_or_default()
+    } else {
+        default_cc.unwrap_or_default()
+    };
+
     CompilePreConfig {
         frozen: auto_sync_flags.frozen,
         target_dir: target_dir.to_owned(),
@@ -281,7 +303,7 @@ pub fn preconfig_compile(
         moonc_output_json: !cli.dry_run && build_flags.output_style().needs_moonc_json(),
         docs_serve: false,
         info_no_alias: false,
-        default_cc: CC::default(),
+        default_cc,
         deny_warn: build_flags.deny_warn,
         warn_list: build_flags.warn_list.clone(),
         alert_list: build_flags.alert_list.clone(),

@@ -118,6 +118,7 @@ pub fn run_bundle_internal_rr(
         &cmd.build_flags,
         target_dir,
         OptLevel::Release,
+        None,
         RunMode::Build,
     );
     let (_build_meta, build_graph) = rr_build::plan_build(
