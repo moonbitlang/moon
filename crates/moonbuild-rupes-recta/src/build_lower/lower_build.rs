@@ -172,6 +172,8 @@ impl<'a> BuildPlanLowerContext<'a> {
         info: &BuildTargetInfo,
     ) -> BuildCommand {
         let package = self.get_package(target);
+        let module = self.modules.module_info(package.module);
+
         let mi_output =
             self.layout
                 .mi_of_build_target(self.packages, &target, self.opt.target_backend);
@@ -209,6 +211,7 @@ impl<'a> BuildPlanLowerContext<'a> {
             defaults: self.set_build_commons(package, info, is_main),
             mi_out: mi_output.into(),
             single_file: false,
+            extra_flags: module.compile_flags.as_deref().unwrap_or_default(),
         };
 
         // Track doctest-only files as inputs as well
@@ -237,6 +240,8 @@ impl<'a> BuildPlanLowerContext<'a> {
         info: &BuildTargetInfo,
     ) -> BuildCommand {
         let package = self.get_package(target);
+        let module = self.modules.module_info(package.module);
+
         let core_output =
             self.layout
                 .core_of_build_target(self.packages, &target, self.opt.target_backend);
@@ -281,7 +286,7 @@ impl<'a> BuildPlanLowerContext<'a> {
             core_out: core_output.into(),
             mi_out: mi_output.into(),
             flags: self.set_flags(),
-            extra_build_opts: &[],
+            extra_build_opts: module.compile_flags.as_deref().unwrap_or_default(),
         };
         // Propagate debug/coverage flags and common settings
         cmd.flags.enable_coverage = self.opt.enable_coverage;
@@ -315,6 +320,8 @@ impl<'a> BuildPlanLowerContext<'a> {
         info: &LinkCoreInfo,
     ) -> BuildCommand {
         let package = self.get_package(target);
+        let module = self.modules.module_info(package.module);
+
         let mut core_input_files = Vec::new();
         // Add core for the standard library
         if let Some(stdlib) = &self.opt.stdlib_path {
@@ -374,7 +381,8 @@ impl<'a> BuildPlanLowerContext<'a> {
             test_mode: target.kind.is_test(),
             wasm_config: self.get_wasm_config(package),
             js_config: self.get_js_config(target, package),
-            extra_link_opts: &[],
+            exports: package.exported_functions(self.opt.target_backend),
+            extra_link_opts: module.link_flags.as_deref().unwrap_or_default(),
         };
 
         // Ensure n2 sees stdlib core bundle changes as inputs
@@ -402,7 +410,6 @@ impl<'a> BuildPlanLowerContext<'a> {
         };
 
         WasmConfig {
-            exports: cfg.exports.as_deref(),
             export_memory_name: cfg.export_memory_name.as_deref().map(|x| x.into()),
             import_memory: cfg.import_memory.as_ref(),
             memory_limits: cfg.memory_limits.as_ref(),

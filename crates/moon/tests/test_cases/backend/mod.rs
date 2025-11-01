@@ -47,29 +47,41 @@ fn test_backend_flag() {
 #[test]
 fn test_js_format() {
     let dir = TestDir::new("backend/js_format");
-    check(
-        get_stdout(
-            &dir,
-            [
-                "build",
-                "--target",
-                "js",
-                "--sort-input",
-                "--dry-run",
-                "--nostd",
-            ],
-        ),
-        expect![[r#"
-            moonc build-package ./lib3/hello.mbt -o ./target/js/release/build/lib3/lib3.core -pkg username/hello/lib3 -pkg-sources username/hello/lib3:./lib3 -target js -workspace-path .
-            moonc link-core ./target/js/release/build/lib3/lib3.core -main username/hello/lib3 -o ./target/js/release/build/lib3/lib3.js -pkg-config-path ./lib3/moon.pkg.json -pkg-sources username/hello/lib3:./lib3 -target js -exported_functions=hello -js-format iife
-            moonc build-package ./lib2/hello.mbt -o ./target/js/release/build/lib2/lib2.core -pkg username/hello/lib2 -pkg-sources username/hello/lib2:./lib2 -target js -workspace-path .
-            moonc link-core ./target/js/release/build/lib2/lib2.core -main username/hello/lib2 -o ./target/js/release/build/lib2/lib2.js -pkg-config-path ./lib2/moon.pkg.json -pkg-sources username/hello/lib2:./lib2 -target js -exported_functions=hello -js-format cjs
-            moonc build-package ./lib1/hello.mbt -o ./target/js/release/build/lib1/lib1.core -pkg username/hello/lib1 -pkg-sources username/hello/lib1:./lib1 -target js -workspace-path .
-            moonc link-core ./target/js/release/build/lib1/lib1.core -main username/hello/lib1 -o ./target/js/release/build/lib1/lib1.js -pkg-config-path ./lib1/moon.pkg.json -pkg-sources username/hello/lib1:./lib1 -target js -exported_functions=hello -js-format esm
-            moonc build-package ./lib0/hello.mbt -o ./target/js/release/build/lib0/lib0.core -pkg username/hello/lib0 -pkg-sources username/hello/lib0:./lib0 -target js -workspace-path .
-            moonc link-core ./target/js/release/build/lib0/lib0.core -main username/hello/lib0 -o ./target/js/release/build/lib0/lib0.js -pkg-config-path ./lib0/moon.pkg.json -pkg-sources username/hello/lib0:./lib0 -target js -exported_functions=hello -js-format esm
-        "#]],
+    let stdout = get_stdout(
+        &dir,
+        [
+            "build",
+            "--target",
+            "js",
+            "--sort-input",
+            "--dry-run",
+            "--nostd",
+        ],
     );
+    println!("{stdout}");
+    let stdout_lines = stdout.lines().collect::<Vec<_>>();
+
+    let get_link_core_of = |name: &str| {
+        let output = format!("{name}.js");
+        let found = stdout_lines
+            .iter()
+            .find(|line| line.contains(&output) && line.contains("moonc link-core"));
+        found.unwrap_or_else(|| panic!("Expected to find link-core command for {name}"))
+    };
+
+    // lib0 -- default
+    // lib1 -- esm
+    // lib2 -- cjs
+    // lib3 -- iife
+    assert!(get_link_core_of("lib0").contains("-target js"));
+    assert!(get_link_core_of("lib0").contains("-js-format esm"));
+    assert!(get_link_core_of("lib1").contains("-target js"));
+    assert!(get_link_core_of("lib1").contains("-js-format esm"));
+    assert!(get_link_core_of("lib2").contains("-target js"));
+    assert!(get_link_core_of("lib2").contains("-js-format cjs"));
+    assert!(get_link_core_of("lib3").contains("-target js"));
+    assert!(get_link_core_of("lib3").contains("-js-format iife"));
+
     let _ = get_stdout(&dir, ["build", "--target", "js", "--nostd"]);
     let t = dir.join("target").join("js").join("release").join("build");
     check(

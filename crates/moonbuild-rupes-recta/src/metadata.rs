@@ -62,11 +62,12 @@ pub fn gen_metadata_json(
         .build()
         .expect("Failed to build legacy layout");
 
-    let packages = ctx
+    let mut packages: Vec<PackageJSON> = ctx
         .pkg_dirs
         .all_packages()
         .map(|(id, _)| gen_package_json(ctx, &layout, id, backend))
         .collect();
+    packages.sort_by(|x, y| (x.root.cmp(&y.root)).then_with(|| x.rel.cmp(&y.rel)));
 
     ModuleDBJSON {
         source_dir: source_dir.to_string_lossy().into_owned(),
@@ -140,6 +141,7 @@ fn gen_package_json(
         .dep_graph
         .edges(pkg_id.build_target(TargetKind::BlackboxTest))
         .filter(|(_, _, edge)| edge.kind == TargetKind::BlackboxTest)
+        .filter(|(_, t, _)| t.package != pkg_id)
         .map(edge_to_alias_json(ctx))
         .collect();
     test_deps.sort_by(|a, b| a.path.cmp(&b.path).then_with(|| a.alias.cmp(&b.alias)));

@@ -98,13 +98,7 @@ impl LegacyLayout {
     /// `target/<backend>[/<opt_level>/build]/.mooncakes/<...module>/<...package>`.
     pub fn package_dir(&self, pkg: &PackageFQN, backend: TargetBackend) -> PathBuf {
         let mut dir = self.target_base_dir.clone();
-        push_backend(&mut dir, backend);
-
-        match self.opt_level {
-            OptLevel::Release => dir.push("release"),
-            OptLevel::Debug => dir.push("debug"),
-        }
-        dir.push(self.run_mode.to_dir_name());
+        self.push_opt_and_run_mode(backend, &mut dir);
 
         if self.main_module.as_ref().is_some_and(|m| pkg.module() == m) {
             // no nested directory for the working module
@@ -115,6 +109,16 @@ impl LegacyLayout {
         dir.extend(pkg.package().segments());
 
         dir
+    }
+
+    fn push_opt_and_run_mode(&self, backend: TargetBackend, dir: &mut PathBuf) {
+        push_backend(dir, backend);
+
+        match self.opt_level {
+            OptLevel::Release => dir.push("release"),
+            OptLevel::Debug => dir.push("debug"),
+        }
+        dir.push(self.run_mode.to_dir_name());
     }
 
     fn push_package_dir_no_backend(&self, dir: &mut PathBuf, pkg: &PackageFQN) {
@@ -262,7 +266,7 @@ impl LegacyLayout {
 
     pub fn bundle_result_path(&self, backend: TargetBackend, module: &ModuleName) -> PathBuf {
         let mut result = self.target_base_dir.clone();
-        push_backend(&mut result, backend);
+        self.push_opt_and_run_mode(backend, &mut result);
         result.push(format!("{}.core", module.last_segment()));
         result
     }
@@ -281,8 +285,7 @@ impl LegacyLayout {
     /// `moonfmt` works, it actually produces a formatted copy of the input file
     /// at this path.
     pub fn format_artifact_path(&self, pkg: &PackageFQN, filename: &OsStr) -> PathBuf {
-        let mut result = self.target_base_dir.clone();
-        self.push_package_dir_no_backend(&mut result, pkg);
+        let mut result = self.package_dir(pkg, TargetBackend::WasmGC);
         result.push(filename);
         result
     }

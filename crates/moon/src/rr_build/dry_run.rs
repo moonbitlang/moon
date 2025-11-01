@@ -18,8 +18,9 @@
 
 //! Handles dry-run printing of build commands.
 
-use std::{path::Path, process::Command};
+use std::{path::Path, process::Command, sync::LazyLock};
 
+use moonbuild_debug::graph::try_debug_dump_build_graph_to_file;
 use moonbuild_rupes_recta::model::Artifacts;
 
 /// Print what would be executed in a dry-run.
@@ -39,6 +40,9 @@ pub fn print_dry_run<'a>(
                 .flat_map(|file| build_graph.files.lookup(&file.to_string_lossy()))
         })
         .collect::<Vec<_>>();
+
+    try_debug_dump_build_graph_to_file(build_graph, &default_files, source_dir);
+
     moonbuild::dry_run::print_build_commands(build_graph, &default_files, source_dir, target_dir);
 }
 

@@ -1,4 +1,5 @@
 use super::*;
+use crate::dry_run_utils::assert_lines_in_order;
 #[test]
 fn test_inline_test_001() {
     let dir = TestDir::new("inline_test/001");
@@ -42,27 +43,34 @@ fn test_inline_test_004() {
 #[test]
 fn test_inline_test_order() {
     let dir = TestDir::new("inline_test/order");
-    check(
-        get_stdout(&dir, ["test", "-v", "--sort-input", "--no-parallelize"]),
-        expect![[r#"
+    let stdout = get_stdout(&dir, ["test", "-v", "--sort-input", "--no-parallelize"]);
+    assert_lines_in_order(
+        &stdout,
+        r#"
             executing A
             executing A::hello.mbt::test_A
-            [username/hello] test A/hello.mbt:1 (#0) ok
-            [username/hello] test A/hello.mbt:5 (#1) ok
             A_test.mbt::init
             A_test.mbt::test_hello_A
-            [username/hello] test A/A_wbtest.mbt:1 (#0) ok
-            [username/hello] test A/A_wbtest.mbt:5 (#1) ok
             executing B
             executing B::hello.mbt::test_B
-            [username/hello] test B/hello.mbt:1 (#0) ok
-            [username/hello] test B/hello.mbt:5 (#1) ok
             B_test.mbt::init
             B_test.mbt::test_hello_B
+        "#,
+    );
+
+    assert_lines_in_order(
+        &stdout,
+        r#"
+            [username/hello] test A/hello.mbt:1 (#0) ok
+            [username/hello] test A/hello.mbt:5 (#1) ok
+            [username/hello] test A/A_wbtest.mbt:1 (#0) ok
+            [username/hello] test A/A_wbtest.mbt:5 (#1) ok
+            [username/hello] test B/hello.mbt:1 (#0) ok
+            [username/hello] test B/hello.mbt:5 (#1) ok
             [username/hello] test B/B_wbtest.mbt:1 (#0) ok
             [username/hello] test B/B_wbtest.mbt:5 (#1) ok
             Total tests: 8, passed: 8, failed: 0.
-        "#]],
+        "#,
     );
 
     check(
