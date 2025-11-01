@@ -92,6 +92,30 @@ fn unset_env_var(
     ret.set_undefined()
 }
 
+fn get_env_var(
+    scope: &mut v8::HandleScope,
+    args: v8::FunctionCallbackArguments,
+    mut ret: v8::ReturnValue,
+) {
+    let key = args.get(0);
+    let key = key.to_string(scope).unwrap();
+    let key = key.to_rust_string_lossy(scope);
+    let value = std::env::var(&key).unwrap_or_default();
+    let value = v8::String::new(scope, &value).unwrap();
+    ret.set(value.into());
+}
+
+fn get_env_var_exists(
+    scope: &mut v8::HandleScope,
+    args: v8::FunctionCallbackArguments,
+    mut ret: v8::ReturnValue,
+) {
+    let key = args.get(0);
+    let key = key.to_string(scope).unwrap();
+    let key = key.to_rust_string_lossy(scope);
+    ret.set_bool(std::env::var(key).is_ok());
+}
+
 fn get_env_vars(
     scope: &mut v8::HandleScope,
     _args: v8::FunctionCallbackArguments,
@@ -147,6 +171,16 @@ pub fn init_env<'s>(
     let get_env_vars = get_env_vars.get_function(scope).unwrap();
     let ident = v8::String::new(scope, "get_env_vars").unwrap();
     obj.set(scope, ident.into(), get_env_vars.into());
+
+    let get_env_var = v8::FunctionTemplate::new(scope, get_env_var);
+    let get_env_var = get_env_var.get_function(scope).unwrap();
+    let ident = v8::String::new(scope, "get_env_var").unwrap();
+    obj.set(scope, ident.into(), get_env_var.into());
+
+    let get_env_var_exists = v8::FunctionTemplate::new(scope, get_env_var_exists);
+    let get_env_var_exists = get_env_var_exists.get_function(scope).unwrap();
+    let ident = v8::String::new(scope, "get_env_var_exists").unwrap();
+    obj.set(scope, ident.into(), get_env_var_exists.into());
 
     obj
 }
