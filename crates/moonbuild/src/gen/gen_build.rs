@@ -407,7 +407,11 @@ pub fn gen_build_interface_command(
 
     let mut build = Build::new(loc, ins, outs);
 
-    let command = CommandBuilder::new("moonc")
+    let moonc = moonutil::BINARIES
+        .moonc
+        .to_str()
+        .expect("moonc path is valid UTF-8");
+    let command = CommandBuilder::new(moonc)
         .arg("build-interface")
         .arg(&item.mbti_deps)
         .arg("-o")
@@ -510,7 +514,11 @@ pub fn gen_build_command(
         moonc_opt.build_opt.strip_flag,
     );
 
-    let command = CommandBuilder::new("moonc")
+    let moonc = moonutil::BINARIES
+        .moonc
+        .to_str()
+        .expect("moonc path is valid UTF-8");
+    let command = CommandBuilder::new(moonc)
         .arg("build-package")
         .args_with_cond(moonc_opt.json_diagnostics, vec!["-error-format", "json"])
         .args_with_cond(
@@ -645,7 +653,11 @@ pub fn gen_link_command(
         moonc_opt.build_opt.strip_flag,
     );
 
-    let command = CommandBuilder::new("moonc")
+    let moonc = moonutil::BINARIES
+        .moonc
+        .to_str()
+        .expect("moonc path is valid UTF-8");
+    let command = CommandBuilder::new(moonc)
         .arg("link-core")
         .args(&item.core_deps)
         .arg("-main")
