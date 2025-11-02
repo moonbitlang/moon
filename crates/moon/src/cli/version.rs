@@ -41,37 +41,35 @@ pub struct VersionSubcommand {
     pub no_path: bool,
 }
 
-fn replace_home_with_tilde(p: &Path, h: &Path) -> String {
-    if p.starts_with(h) {
+fn replace_home_with_tilde(p: &Path) -> anyhow::Result<String> {
+    let h = home::home_dir().context("failed to get home directory")?;
+    Ok(if p.starts_with(&h) {
         p.display()
             .to_string()
             .replacen(&h.display().to_string(), "~", 1)
     } else {
         p.display().to_string()
-    }
+    })
 }
 
 fn get_moon_path() -> anyhow::Result<String> {
-    let user_home = home::home_dir().context("failed to get home directory")?;
     let moon_path = which::which("moon");
     let moon_path = if let Ok(moon_path) = moon_path {
         moon_path
     } else {
         current_exe().context("failed to get current executable path")?
     };
-    Ok(replace_home_with_tilde(&moon_path, &user_home))
+    replace_home_with_tilde(&moon_path)
 }
 
 fn get_moonc_path() -> anyhow::Result<String> {
     let moonc_path = which::which("moonc").context("failed to find moonc")?;
-    let user_home = home::home_dir().context("failed to get home directory")?;
-    Ok(replace_home_with_tilde(&moonc_path, &user_home))
+    replace_home_with_tilde(&moonc_path)
 }
 
 fn get_moonrun_path() -> anyhow::Result<String> {
     let moonrun_path = which::which("moonrun").context("failed to find moonc")?;
-    let user_home = home::home_dir().context("failed to get home directory")?;
-    Ok(replace_home_with_tilde(&moonrun_path, &user_home))
+    replace_home_with_tilde(&moonrun_path)
 }
 
 /// Single place to print the unstable footer (features + notice) for non-JSON output.
@@ -128,10 +126,7 @@ pub fn run_version(flags: &UniversalFlags, cmd: VersionSubcommand) -> anyhow::Re
                     println!(
                         "moon-pilot {} {}",
                         get_program_version(&moon_pilot_path)?,
-                        replace_home_with_tilde(
-                            &moon_pilot_path,
-                            &home::home_dir().context("failed to get home directory")?
-                        )
+                        replace_home_with_tilde(&moon_pilot_path)?
                     );
                 }
             }
