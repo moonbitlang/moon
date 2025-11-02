@@ -71,11 +71,7 @@ pub async fn run_wat(
     file_test_info_map: &FileTestInfo,
     verbose: bool,
 ) -> anyhow::Result<Vec<Result<TestStatistics, TestFailedStatus>>> {
-    let mut cmd = tokio::process::Command::new(
-        crate::MOONRUN_EXECUTABLE
-            .as_deref()
-            .context("Unable to find the `moonrun` executable, please reinstall")?,
-    );
+    let mut cmd = tokio::process::Command::new(moonutil::BINARIES.moonrun.as_os_str());
     cmd.arg(path)
         .arg("--test-args")
         .arg(serde_json_lenient::to_string(args).expect("valid JSON"));
