@@ -46,7 +46,7 @@ pub static MOON_DIRS: std::sync::LazyLock<MoonDirs> = std::sync::LazyLock::new(|
 });
 
 pub fn home() -> PathBuf {
-    if let Ok(moon_home) = std::env::var("MOON_HOME") {
+    if let Some(moon_home) = std::env::var_os("MOON_HOME") {
         return PathBuf::from(moon_home);
     }
 
@@ -79,8 +79,8 @@ pub fn lib() -> PathBuf {
 }
 
 pub fn core() -> PathBuf {
-    let env_var = std::env::var("MOON_CORE_OVERRIDE");
-    if let Ok(path) = env_var {
+    let env_var = std::env::var_os("MOON_CORE_OVERRIDE");
+    if let Some(path) = env_var {
         return PathBuf::from(path);
     }
     home().join("lib").join("core")
