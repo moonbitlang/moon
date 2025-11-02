@@ -60,7 +60,6 @@ macro_rules! cache {
 
 cache! {
     node("node", "node.cmd"),
-    moonrun("moonrun")
 }
 
 /// A guarded command info that removes the temporary file/dir(s) when it gets
@@ -111,7 +110,7 @@ pub fn command_for_cached(
 ) -> anyhow::Result<CommandGuard> {
     match backend {
         RunBackend::Wasm | RunBackend::WasmGC => {
-            let mut cmd = Command::new(cache.moonrun());
+            let mut cmd = Command::new(moonutil::BINARIES.moonrun.as_os_str());
             if let Some(t) = test {
                 cmd.arg("--test-args");
                 cmd.arg(serde_json::to_string(t).unwrap());
