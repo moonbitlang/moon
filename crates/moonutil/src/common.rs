@@ -801,7 +801,7 @@ pub fn get_moonc_version() -> anyhow::Result<String> {
 }
 
 pub fn get_moonrun_version() -> anyhow::Result<String> {
-    get_program_version("moonrun")
+    get_program_version(crate::BINARIES.moonrun.as_os_str())
 }
 
 pub fn get_program_version(program: impl AsRef<OsStr>) -> anyhow::Result<String> {
