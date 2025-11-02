@@ -50,24 +50,15 @@ pub fn home() -> PathBuf {
         return PathBuf::from(moon_home);
     }
 
-    let h = home::home_dir();
-    if h.is_none() {
+    let Some(h) = home::home_dir() else {
         eprintln!("Failed to get home directory");
         std::process::exit(1);
-    }
-    let hm = h.unwrap().join(".moon");
-    if !hm.exists() {
-        std::fs::create_dir_all(&hm).unwrap();
-    }
-    hm
+    };
+    h.join(".moon")
 }
 
 pub fn bin() -> PathBuf {
-    let bin = home().join("bin");
-    if !bin.exists() {
-        std::fs::create_dir_all(&bin).unwrap();
-    }
-    bin
+    home().join("bin")
 }
 
 pub fn lib() -> PathBuf {
