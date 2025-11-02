@@ -222,7 +222,11 @@ pub fn gen_build_command(
         moonc_opt.build_opt.strip_flag,
     );
 
-    let command = CommandBuilder::new("moonc")
+    let moonc = moonutil::BINARIES
+        .moonc
+        .to_str()
+        .expect("moonc path is valid UTF-8");
+    let command = CommandBuilder::new(moonc)
         .arg("build-package")
         .args_with_cond(moonc_opt.json_diagnostics, vec!["-error-format", "json"])
         .args(&item.mbt_deps)
@@ -295,7 +299,11 @@ fn gen_bundle_all(
 
     let mut build = Build::new(loc, ins, outs);
 
-    let command = CommandBuilder::new("moonc")
+    let moonc = moonutil::BINARIES
+        .moonc
+        .to_str()
+        .expect("moonc path is valid UTF-8");
+    let command = CommandBuilder::new(moonc)
         .arg("bundle-core")
         .args(bundle_all.order.iter())
         .arg("-o")
