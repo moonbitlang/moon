@@ -224,13 +224,14 @@ pub fn run_doc_legacy(cli: UniversalFlags, cmd: DocSubcommand) -> anyhow::Result
     if serve {
         args.push("-serve-mode".to_string())
     }
+    let moondoc = moonutil::BINARIES.moondoc.as_os_str();
     if cli.dry_run {
         print_commands(&module, &moonc_opt, &moonbuild_opt)?;
-        println!("moondoc {}", args.join(" "));
+        println!("{moondoc:?} {}", args.join(" "));
         return Ok(0);
     }
     moonbuild::entry::run_check(&moonc_opt, &moonbuild_opt, &module)?;
-    let output = std::process::Command::new("moondoc").args(&args).output()?;
+    let output = std::process::Command::new(moondoc).args(&args).output()?;
     if output.status.code().unwrap() != 0 {
         eprintln!("{}", String::from_utf8_lossy(&output.stderr));
         bail!("failed to generate documentation");
