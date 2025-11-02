@@ -117,6 +117,23 @@ macro_rules! define_binaries {
                 }),
             )*
         };
+
+        impl CachedBinaries {
+            $(
+                pub fn $which_field(&self) -> PathBuf {
+                    self.$which_field.clone().unwrap_or_else(|| {
+                        let path = PathBuf::from(stringify!($which_field));
+                        #[cfg(target_os = "windows")]
+                        let path = if path.extension().is_none() {
+                            path.with_extension("exe")
+                        } else {
+                            path
+                        };
+                        path
+                    })
+                }
+            )*
+        }
     };
 }
 

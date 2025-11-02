@@ -18,49 +18,13 @@
 
 //! Handles which runtime to use to run a specific output.
 
-use std::{
-    cell::OnceCell,
-    path::{Path, PathBuf},
-};
+use std::path::{Path, PathBuf};
 
 use moonbuild::entry::TestArgs;
 use moonbuild_rupes_recta::model::RunBackend;
 use moonutil::compiler_flags::CC;
 use tempfile::TempDir;
 use tokio::process::Command;
-
-macro_rules! cache {
-    ($(
-        $id:ident(
-            $first_candidate:expr_2021
-            $(,$candidate:expr_2021)* $(,)?
-        )
-    ),*$(,)?) => {
-        /// A non-global cache for finding executables to use in compilation
-        #[derive(Default)]
-        pub struct RuntimeExecutableCache {
-            $(
-                $id: OnceCell<PathBuf>
-            ),*
-        }
-
-        impl RuntimeExecutableCache {
-            $(
-                pub fn $id(&self) -> &Path {
-                    self.$id.get_or_init(|| {
-                        which::which($first_candidate)
-                        $(.or_else(|_| which::which($candidate)))*
-                        .unwrap_or($first_candidate.into())
-                    })
-                }
-            )*
-        }
-    };
-}
-
-cache! {
-    node("node", "node.cmd"),
-}
 
 /// A guarded command info that removes the temporary file/dir(s) when it gets
 /// out of scope.
@@ -98,16 +62,6 @@ pub fn command_for(
     mbt_executable: &Path,
     test: Option<&TestArgs>,
 ) -> anyhow::Result<CommandGuard> {
-    let cache = RuntimeExecutableCache::default();
-    command_for_cached(&cache, backend, mbt_executable, test)
-}
-
-pub fn command_for_cached(
-    cache: &RuntimeExecutableCache,
-    backend: RunBackend,
-    mbt_executable: &Path,
-    test: Option<&TestArgs>,
-) -> anyhow::Result<CommandGuard> {
     match backend {
         RunBackend::Wasm | RunBackend::WasmGC => {
             let mut cmd = Command::new(moonutil::BINARIES.moonrun.as_os_str());
@@ -122,7 +76,7 @@ pub fn command_for_cached(
         RunBackend::Js => {
             if let Some(t) = test {
                 let (dir, driver) = create_js_driver(mbt_executable, t)?;
-                let mut cmd = Command::new(cache.node());
+                let mut cmd = Command::new(moonutil::BINARIES.node());
                 cmd.arg("--enable-source-maps");
                 cmd.arg(driver);
                 cmd.arg(serde_json::to_string(t).expect("Failed to serialize test args"));
@@ -131,7 +85,7 @@ pub fn command_for_cached(
                     command: cmd,
                 })
             } else {
-                let mut cmd = Command::new(cache.node());
+                let mut cmd = Command::new(moonutil::BINARIES.node());
                 cmd.arg(mbt_executable);
                 Ok(cmd.into())
             }
