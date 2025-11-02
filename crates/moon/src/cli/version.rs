@@ -67,11 +67,6 @@ fn get_moonc_path() -> anyhow::Result<String> {
     replace_home_with_tilde(&moonc_path)
 }
 
-fn get_moonrun_path() -> anyhow::Result<String> {
-    let moonrun_path = which::which("moonrun").context("failed to find moonc")?;
-    replace_home_with_tilde(&moonrun_path)
-}
-
 /// Single place to print the unstable footer (features + notice) for non-JSON output.
 fn print_unstable_footer(flags: &UniversalFlags) {
     let features = flags.unstable_feature.to_string();
@@ -121,7 +116,11 @@ pub fn run_version(flags: &UniversalFlags, cmd: VersionSubcommand) -> anyhow::Re
             } else {
                 println!("moon {} {}", moon_version, get_moon_path()?);
                 println!("moonc {} {}", moonc_version?, get_moonc_path()?);
-                println!("{} {}", moonrun_version?, get_moonrun_path()?);
+                println!(
+                    "{} {}",
+                    moonrun_version?,
+                    replace_home_with_tilde(&moonutil::BINARIES.moonrun)?
+                );
                 if let Ok(moon_pilot_path) = moon_pilot_path {
                     println!(
                         "moon-pilot {} {}",
@@ -177,7 +176,7 @@ pub fn run_version(flags: &UniversalFlags, cmd: VersionSubcommand) -> anyhow::Re
                         path: if nopath_flag {
                             None
                         } else {
-                            Some(get_moonrun_path()?)
+                            Some(replace_home_with_tilde(&moonutil::BINARIES.moonrun)?)
                         },
                     },
                 ],
