@@ -578,7 +578,11 @@ pub fn gen_check_command(
 
     let mut build = Build::new(loc, ins, outs);
 
-    let command = CommandBuilder::new("moonc")
+    let moonc = moonutil::BINARIES
+        .moonc
+        .to_str()
+        .expect("moonc path is valid UTF-8");
+    let command = CommandBuilder::new(moonc)
         .arg("check")
         .arg_with_cond(item.patch_file.is_some(), "-patch-file")
         .lazy_args_with_cond(item.patch_file.is_some(), || {
