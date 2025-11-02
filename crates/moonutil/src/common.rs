@@ -797,7 +797,7 @@ pub fn get_moon_version() -> String {
 }
 
 pub fn get_moonc_version() -> anyhow::Result<String> {
-    get_program_version("moonc")
+    get_program_version_ex(crate::BINARIES.moonc.as_os_str(), "-v")
 }
 
 pub fn get_moonrun_version() -> anyhow::Result<String> {
@@ -805,27 +805,27 @@ pub fn get_moonrun_version() -> anyhow::Result<String> {
 }
 
 pub fn get_program_version(program: impl AsRef<OsStr>) -> anyhow::Result<String> {
+    get_program_version_ex(program, "--version")
+}
+
+fn get_program_version_ex(
+    program: impl AsRef<OsStr>,
+    option: impl AsRef<OsStr>,
+) -> anyhow::Result<String> {
     let program = program.as_ref();
-    let output = std::process::Command::new(program)
-        .arg(if program.eq_ignore_ascii_case("moonc") {
-            "-v"
-        } else {
-            "--version"
-        })
-        .output();
-    let program = program.to_string_lossy();
+    let output = std::process::Command::new(program).arg(option).output();
     match output {
         Ok(output) => {
             if output.status.success() {
                 Ok(std::str::from_utf8(&output.stdout)?.trim().to_string())
             } else {
-                anyhow::bail!(
-                    "failed to get {program} version: {}",
+                bail!(
+                    "failed to get {program:?} version: {}",
                     std::str::from_utf8(&output.stderr)?
                 );
             }
         }
-        Err(e) => anyhow::bail!("failed to get {program} version: {e}"),
+        Err(e) => bail!("failed to get {program:?} version: {e}"),
     }
 }
 
