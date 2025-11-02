@@ -150,4 +150,5 @@ define_binaries! {
     moon_cove_report: moon_bin("moon_cove_report", "MOON_COVE_REPORT_OVERRIDE"),
     node: which_bin(["node.cmd", "node"], "MOON_NODE_OVERRIDE"),
     python: which_bin(["python", "python3"], "MOON_PYTHON_OVERRIDE"),
+    git: which_bin(["git"], "MOON_GIT_OVERRIDE"),
 }
