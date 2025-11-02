@@ -1511,8 +1511,26 @@ pub fn gen_n2_build_state(
 
                 let runtime = match moonc_opt.link_opt.target_backend {
                     TargetBackend::Native | TargetBackend::LLVM => "".to_string(),
-                    TargetBackend::Wasm | TargetBackend::WasmGC => "moonrun".to_string(),
-                    TargetBackend::Js => "node".to_string(),
+                    TargetBackend::Wasm | TargetBackend::WasmGC => moonutil::BINARIES
+                        .moonrun
+                        .to_str()
+                        .with_context(|| {
+                            format!(
+                                "Failed to decode moonrun binary path: {:?}",
+                                moonutil::BINARIES.moonrun
+                            )
+                        })?
+                        .to_string(),
+                    TargetBackend::Js => moonutil::BINARIES
+                        .node()
+                        .to_str()
+                        .with_context(|| {
+                            format!(
+                                "Failed to decode node binary path: {:?}",
+                                moonutil::BINARIES.node()
+                            )
+                        })?
+                        .to_string(),
                 };
 
                 let bin_script_content = bin_script_content
