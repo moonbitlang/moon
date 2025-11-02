@@ -16,8 +16,6 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
-use crate::NODE_EXECUTABLE;
-
 use super::r#gen;
 use anyhow::Context;
 use moonutil::common::MoonbuildOpt;
@@ -48,7 +46,8 @@ pub fn run_wat(path: &Path, args: &[String], verbose: bool) -> anyhow::Result<()
 
 pub fn run_js(path: &Path, args: &[String], verbose: bool) -> anyhow::Result<()> {
     let mut cmd = Command::new(
-        NODE_EXECUTABLE
+        moonutil::BINARIES
+            .node
             .as_deref()
             .context("Unable to find the `node` executable in PATH")?,
     );

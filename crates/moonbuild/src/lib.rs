@@ -39,11 +39,6 @@ pub mod upgrade;
 
 use std::sync::LazyLock;
 
-static NODE_EXECUTABLE: LazyLock<Option<std::path::PathBuf>> = LazyLock::new(|| {
-    ["node.cmd", "node"]
-        .iter()
-        .find_map(|name| which::which(name).ok())
-});
 static PYTHON_EXECUTABLE: LazyLock<Option<std::path::PathBuf>> = LazyLock::new(|| {
     ["python3", "python", "python3.exe", "python.exe"]
         .iter()

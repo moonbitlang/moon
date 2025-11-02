@@ -37,7 +37,7 @@ use moonutil::{
 };
 use regex::{Captures, Regex};
 
-use crate::{NODE_EXECUTABLE, PYTHON_EXECUTABLE};
+use crate::PYTHON_EXECUTABLE;
 
 pub fn run_prebuild_config(
     dir_sync_result: &DirSyncResult,
@@ -169,7 +169,7 @@ pub fn string_match_and_replace(
 
 fn run_script_cmd(prebuild: &String, m: &ModuleName) -> anyhow::Result<Command> {
     if prebuild.ends_with(".js") || prebuild.ends_with(".cjs") || prebuild.ends_with(".mjs") {
-        let Some(node) = NODE_EXECUTABLE.as_ref() else {
+        let Some(node) = moonutil::BINARIES.node.as_ref() else {
             anyhow::bail!(
                 "Running prebuild script for module {} needs `node` executable in PATH",
                 m

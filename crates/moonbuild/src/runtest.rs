@@ -86,7 +86,8 @@ pub async fn run_js(
     verbose: bool,
 ) -> anyhow::Result<Vec<Result<TestStatistics, TestFailedStatus>>> {
     let mut cmd = tokio::process::Command::new(
-        crate::NODE_EXECUTABLE
+        moonutil::BINARIES
+            .node
             .as_deref()
             .context("Unable to find the `node` executable in PATH")?,
     );
