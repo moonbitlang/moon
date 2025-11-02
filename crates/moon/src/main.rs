@@ -83,8 +83,55 @@ fn init_tracing() -> Box<dyn Any> {
     Box::new((chrome_guard, registry))
 }
 
+fn reexec_from_moon_home() -> Option<()> {
+    // Avoid infinite re-exec loop
+    if std::env::var("__MOON_REEXECED").is_ok() {
+        return None;
+    }
+
+    let current_exe = std::env::current_exe().and_then(dunce::canonicalize).ok()?;
+    let target_exe = dunce::canonicalize(moonutil::BINARIES.moonbuild.as_path()).ok()?;
+    if current_exe == target_exe {
+        return None;
+    }
+
+    // Re-execute using the target executable
+    log::info!("Switching to MOONBUILD at: {}", target_exe.display());
+
+    #[cfg(unix)]
+    {
+        use std::os::unix::process::CommandExt;
+        // CommandExt::exec uses execvp internally and replaces the current process
+        let err = std::process::Command::new(&target_exe)
+            .args(std::env::args().skip(1))
+            .env("__MOON_REEXECED", "1")
+            .exec();
+        // exec replaces the process, so we only reach here on error
+        eprintln!("Failed to exec target moon: {:?}", err);
+        std::process::exit(1);
+    }
+
+    #[cfg(not(unix))]
+    {
+        let status = std::process::Command::new(&target_exe)
+            .args(std::env::args().skip(1))
+            .env("__MOON_REEXECED", "1")
+            .status();
+        match status {
+            Ok(status) => std::process::exit(status.code().unwrap_or(1)),
+            Err(e) => {
+                eprintln!("Failed to run target moon: {:?}", e);
+                std::process::exit(1);
+            }
+        }
+    }
+}
+
 pub fn main() {
     panic::setup_panic_hook();
+
+    // Check MOON_HOME override and re-exec if needed
+    reexec_from_moon_home();
 
     let cli = cli::MoonBuildCli::parse();
     let flags = cli.flags;

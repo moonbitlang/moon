@@ -138,6 +138,7 @@ macro_rules! define_binaries {
 }
 
 define_binaries! {
+    moonbuild: moon_bin("moon", "MOON_OVERRIDE"),
     moonc: moon_bin("moonc", "MOONC_OVERRIDE"),
     mooncake: moon_bin("mooncake", "MOONCAKE_OVERRIDE"),
     moondoc: moon_bin("moondoc", "MOONDOC_OVERRIDE"),
