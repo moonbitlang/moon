@@ -37,8 +37,6 @@ use moonutil::{
 };
 use regex::{Captures, Regex};
 
-use crate::PYTHON_EXECUTABLE;
-
 pub fn run_prebuild_config(
     dir_sync_result: &DirSyncResult,
     mods: &ResolvedEnv,
@@ -179,7 +177,7 @@ fn run_script_cmd(prebuild: &String, m: &ModuleName) -> anyhow::Result<Command> 
         cmd.arg("--").arg(prebuild);
         Ok(cmd)
     } else if prebuild.ends_with(".py") {
-        let Some(py) = PYTHON_EXECUTABLE.as_ref() else {
+        let Some(py) = moonutil::BINARIES.python.as_ref() else {
             anyhow::bail!(
                 "Running prebuild script for module {} needs `python` or `python3` executable in PATH",
                 m

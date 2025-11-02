@@ -36,11 +36,3 @@ pub mod runtest;
 pub mod section_capture;
 pub mod test_utils;
 pub mod upgrade;
-
-use std::sync::LazyLock;
-
-static PYTHON_EXECUTABLE: LazyLock<Option<std::path::PathBuf>> = LazyLock::new(|| {
-    ["python3", "python", "python3.exe", "python.exe"]
-        .iter()
-        .find_map(|name| which::which(name).ok())
-});
