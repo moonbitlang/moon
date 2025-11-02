@@ -452,7 +452,8 @@ pub fn run_info_internal(
             if cmd.no_alias {
                 args.push("-no-alias".into());
             }
-            let mut mooninfo = tokio::process::Command::new("mooninfo");
+            let mut mooninfo =
+                tokio::process::Command::new(moonutil::BINARIES.mooninfo.as_os_str());
             mooninfo.args(&args);
             let out = mooninfo.output().await?;
 
@@ -470,7 +471,11 @@ pub fn run_info_internal(
                 mbti_files.lock().unwrap().push((name.clone(), filepath));
             } else {
                 eprintln!("{}", String::from_utf8_lossy(&out.stderr));
-                bail!("failed to run `mooninfo {}`", args.join(" "));
+                bail!(
+                    "failed to run `{:?} {}`",
+                    moonutil::BINARIES.mooninfo,
+                    args.join(" ")
+                );
             }
 
             Ok(0)
