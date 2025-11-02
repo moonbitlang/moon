@@ -93,7 +93,7 @@ fn moonc_gen_test_info(
         DriverKind::Blackbox => Some("-include-doctests"),
         _ => None,
     };
-    let mut generated = std::process::Command::new("moonc")
+    let mut generated = std::process::Command::new(moonutil::BINARIES.moonc.as_os_str())
         .arg("gen-test-info")
         .arg("-json")
         .args(files)
@@ -144,7 +144,8 @@ fn moonc_gen_test_info(
 
     fn gen_error_message(files: &[PathBuf]) -> String {
         format!(
-            "failed to execute `moonc gen-test-info {}`",
+            "failed to execute `{:?} gen-test-info {}`",
+            moonutil::BINARIES.moonc,
             files
                 .iter()
                 .map(|it| it.to_string_lossy())
