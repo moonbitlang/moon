@@ -18,6 +18,7 @@
 
 #![warn(clippy::clone_on_ref_ptr)]
 
+mod binaries;
 pub mod build_script;
 pub mod cli;
 pub mod common;
@@ -41,3 +42,5 @@ pub mod platform;
 pub mod render;
 pub mod scan;
 pub mod version;
+
+pub use binaries::BINARIES;
