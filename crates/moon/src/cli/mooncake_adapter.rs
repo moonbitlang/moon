@@ -16,12 +16,11 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
-use std::process::Stdio;
+use std::process::{Command, Stdio};
 
 use anyhow::bail;
 use moonutil::{
     cli::UniversalFlags,
-    mooncake_bin::call_mooncake,
     mooncakes::{
         LoginSubcommand, MooncakeSubcommands, PackageSubcommand, PublishSubcommand,
         RegisterSubcommand,
@@ -34,7 +33,7 @@ pub fn execute_cli<T: Serialize>(
     cmd: T,
     args: &[&str],
 ) -> anyhow::Result<i32> {
-    let mut child = call_mooncake()
+    let mut child = Command::new(moonutil::BINARIES.mooncake.as_os_str())
         .args(args)
         .stdout(Stdio::inherit())
         .stdin(Stdio::piped())
@@ -64,7 +63,7 @@ pub fn execute_cli_with_inherit_stdin<T: Serialize>(
     _cmd: T,
     args: &[&str],
 ) -> anyhow::Result<i32> {
-    let mut child = call_mooncake()
+    let mut child = Command::new(moonutil::BINARIES.mooncake.as_os_str())
         .args(args)
         .env("MOONCAKE_ALLOW_DIRECT", "1")
         .stdout(Stdio::inherit())

@@ -34,7 +34,6 @@ pub mod git;
 pub mod graph;
 pub mod module;
 pub mod moon_dir;
-pub mod mooncake_bin;
 pub mod mooncakes;
 pub mod package;
 pub mod path;
