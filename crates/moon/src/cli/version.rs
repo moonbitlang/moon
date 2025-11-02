@@ -53,12 +53,7 @@ fn replace_home_with_tilde(p: &Path) -> anyhow::Result<String> {
 }
 
 fn get_moon_path() -> anyhow::Result<String> {
-    let moon_path = which::which("moon");
-    let moon_path = if let Ok(moon_path) = moon_path {
-        moon_path
-    } else {
-        current_exe().context("failed to get current executable path")?
-    };
+    let moon_path = current_exe().context("failed to get current executable path")?;
     replace_home_with_tilde(&moon_path)
 }
 
