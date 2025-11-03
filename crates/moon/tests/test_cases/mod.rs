@@ -38,6 +38,7 @@ mod docs_examples;
 mod dummy_core;
 mod extra_flags;
 mod fancy_import;
+mod filter_by_path;
 mod fmt;
 mod hello;
 mod inline_test;
