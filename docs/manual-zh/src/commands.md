@@ -87,7 +87,11 @@ Create a new MoonBit module
 
 Build the current package
 
-**Usage:** `moon build [OPTIONS]`
+**Usage:** `moon build [OPTIONS] [PATH]`
+
+###### **Arguments:**
+
+* `<PATH>` — The path to the package that should be built
 
 ###### **Options:**
 
@@ -124,11 +128,11 @@ Build the current package
 
 Check the current package, but don't build object files
 
-**Usage:** `moon check [OPTIONS] [SINGLE_FILE]`
+**Usage:** `moon check [OPTIONS] [PATH]`
 
 ###### **Arguments:**
 
-* `<SINGLE_FILE>` — Check single file (.mbt or .mbt.md)
+* `<PATH>` — Check single file (.mbt or .mbt.md)
 
 ###### **Options:**
 
@@ -313,7 +317,13 @@ Generate documentation
 
 Generate public interface (`.mbti`) files for all packages in the module
 
-**Usage:** `moon info [OPTIONS]`
+**Usage:** `moon info [OPTIONS] [PATH]`
+
+###### **Arguments:**
+
+* `<PATH>` — The file-system path to the package or file in package to emit `mbti` files for
+
+   Conflicts with `--package`.
 
 ###### **Options:**
 
@@ -322,7 +332,7 @@ Generate public interface (`.mbti`) files for all packages in the module
 
   Possible values: `wasm`, `wasm-gc`, `js`, `native`, `llvm`, `all`
 
-* `-p`, `--package <PACKAGE>` — only emit mbti files for the specified package
+* `-p`, `--package <PACKAGE>` — The full or subset of name of the package to emit `mbti` files for
 
 
 
