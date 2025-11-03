@@ -30,6 +30,12 @@ pub fn moon_bin() -> PathBuf {
 }
 
 pub fn replace_dir(s: &str, dir: impl AsRef<std::path::Path>) -> String {
+    let s = moonutil::BINARIES
+        .all_moon_bins()
+        .iter()
+        .fold(s.to_string(), |s, (name, path)| {
+            s.replace(path.to_string_lossy().as_ref(), name)
+        });
     let path_str1 = dunce::canonicalize(dir)
         .unwrap()
         .to_str()
@@ -51,6 +57,11 @@ pub fn replace_dir(s: &str, dir: impl AsRef<std::path::Path>) -> String {
     let s = s.replace(&ar_path, CC::default().ar_name());
     let s = s.replace(&cc_path, CC::default().cc_name());
     let s = s.replace(moon_bin().to_string_lossy().as_ref(), "moon");
+    let s = moonutil::BINARIES
+        .node
+        .as_ref()
+        .map(|node| s.replace(node.to_string_lossy().as_ref(), "node"))
+        .unwrap_or(s);
     s.replace("\r\n", "\n").replace('\\', "/")
 }
 

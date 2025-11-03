@@ -119,6 +119,14 @@ macro_rules! define_binaries {
         };
 
         impl CachedBinaries {
+            pub fn all_moon_bins(&self) -> Vec<(&str, PathBuf)> {
+                vec![
+                    $(
+                        (stringify!($field), self.$field.clone()),
+                    )*
+                ]
+            }
+
             $(
                 pub fn $which_field(&self) -> PathBuf {
                     self.$which_field.clone().unwrap_or_else(|| {
