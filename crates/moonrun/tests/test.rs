@@ -230,3 +230,33 @@ fn test_moon_run_with_read_bytes_from_stdin() {
     let s = std::str::from_utf8(&out).unwrap().to_string();
     assert!(s.trim() == "0");
 }
+
+#[test]
+fn test_moon_run_with_is_windows() {
+    let dir = TestDir::new("test_os_platform_detection");
+
+    snapbox::cmd::Command::new(snapbox::cmd::cargo_bin("moon"))
+        .current_dir(&dir)
+        .arg("build")
+        .assert()
+        .success();
+
+    let wasm_file = dir.join("target/wasm-gc/release/build/main/main.wasm");
+
+    let out = snapbox::cmd::Command::new(snapbox::cmd::cargo_bin("moonrun"))
+        .arg(&wasm_file)
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .to_owned();
+
+    let s = std::str::from_utf8(&out).unwrap().to_string();
+    let actual_result = s.trim();
+    let expected_result = if std::env::consts::OS == "windows" {
+        "1"
+    } else {
+        "0"
+    };
+    assert!(actual_result == expected_result);
+}

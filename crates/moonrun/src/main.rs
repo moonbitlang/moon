@@ -330,6 +330,19 @@ fn exit(
     std::process::exit(code.value());
 }
 
+fn is_windows(
+    _scope: &mut v8::HandleScope,
+    _args: v8::FunctionCallbackArguments,
+    mut ret: v8::ReturnValue,
+) {
+    let result = if std::env::consts::OS == "windows" {
+        1
+    } else {
+        0
+    };
+    ret.set_int32(result)
+}
+
 fn init_env(
     dtors: &mut Vec<Box<dyn Any>>,
     scope: &mut v8::HandleScope,
@@ -448,6 +461,11 @@ fn init_env(
         let exit = exit.get_function(scope).unwrap();
         let ident = v8::String::new(scope, "exit").unwrap();
         obj.set(scope, ident.into(), exit.into());
+
+        let is_windows = v8::FunctionTemplate::new(scope, is_windows);
+        let is_windows = is_windows.get_function(scope).unwrap();
+        let ident = v8::String::new(scope, "is_windows").unwrap();
+        obj.set(scope, ident.into(), is_windows.into());
     }
 }
 
