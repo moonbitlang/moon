@@ -152,7 +152,7 @@ pub struct BuildFlags {
     #[clap(long, long = "nostd")]
     no_std: bool,
 
-    /// Emit debug information
+    /// Compile in debug mode
     #[clap(long, short = 'g')]
     pub debug: bool,
 
@@ -160,11 +160,14 @@ pub struct BuildFlags {
     #[clap(long, conflicts_with = "debug")]
     pub release: bool,
 
-    /// Enable stripping debug information
+    /// Do not emit debug information
     #[clap(long, conflicts_with = "no_strip")]
     pub strip: bool,
 
-    /// Disable stripping debug information
+    /// Emit debug information (no effect)
+    ///
+    /// This flag currently has no effect, as debug information is emitted by
+    /// default unless `--strip` is specified.
     #[clap(long, conflicts_with = "strip")]
     pub no_strip: bool,
 
@@ -265,11 +268,36 @@ impl BuildFlags {
     pub fn strip(&self) -> bool {
         if self.strip {
             true
-        } else if self.no_strip {
-            false
         } else {
-            !self.debug
+            // `--no-strip` has no effect now
+            false
         }
+    }
+
+    pub fn keep_debug_info(&self) -> bool {
+        !self.strip()
+    }
+
+    pub fn default_to_release(&mut self, default_release: bool) {
+        if !self.debug && !self.release {
+            if default_release {
+                self.release = true;
+            } else {
+                self.debug = true;
+            }
+        }
+    }
+
+    pub fn default_debug() -> Self {
+        let mut flags = Self::default();
+        flags.default_to_release(false);
+        flags
+    }
+
+    pub fn default_release() -> Self {
+        let mut flags = Self::default();
+        flags.default_to_release(true);
+        flags
     }
 }
 
@@ -304,13 +332,15 @@ pub fn get_compiler_flags(src_dir: &Path, build_flags: &BuildFlags) -> anyhow::R
         _ => output_format,
     };
 
+    let strip_flag = build_flags.strip();
+    let keep_debug = build_flags.keep_debug_info();
     let debug_flag = build_flags.debug;
     let enable_coverage = build_flags.enable_coverage;
-    let source_map = debug_flag && target_backend.supports_source_map();
+    let source_map = keep_debug && target_backend.supports_source_map();
 
     let build_opt = BuildPackageFlags {
         debug_flag,
-        strip_flag: build_flags.strip(),
+        strip_flag,
         source_map,
         enable_coverage,
         deny_warn: false,
@@ -321,7 +351,7 @@ pub fn get_compiler_flags(src_dir: &Path, build_flags: &BuildFlags) -> anyhow::R
     };
 
     let link_opt = LinkCoreFlags {
-        debug_flag,
+        debug_flag: keep_debug,
         source_map,
         output_format,
         target_backend,

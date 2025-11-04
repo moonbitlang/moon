@@ -161,6 +161,10 @@ pub fn run_test(cli: UniversalFlags, cmd: TestSubcommand) -> anyhow::Result<i32>
         has_single_file = cmd.single_file.is_some(),
         "starting moon test command"
     );
+
+    let mut cmd = cmd;
+    cmd.build_flags.default_to_release(false);
+
     // Check if we're running within a project
     let dirs = match cli.source_tgt_dir.try_into_package_dirs() {
         Ok(dirs) => dirs,
@@ -264,11 +268,13 @@ fn run_test_in_single_file(cli: &UniversalFlags, cmd: &TestSubcommand) -> anyhow
             .unwrap_or(TargetBackend::WasmGC)
     };
 
-    let debug_flag = !cmd.build_flags.release;
+    let release_build = cmd.build_flags.release;
+    let strip_flag = cmd.build_flags.strip();
+    let keep_debug = !strip_flag;
 
     let target_dir = raw_target_dir
         .join(target_backend.to_dir_name())
-        .join(if debug_flag { "debug" } else { "release" })
+        .join(if release_build { "release" } else { "debug" })
         .join(RunMode::Test.to_dir_name());
     trace!(target = %target_dir.display(), backend = ?target_backend, "resolved single-file target directory");
 
@@ -304,9 +310,9 @@ fn run_test_in_single_file(cli: &UniversalFlags, cmd: &TestSubcommand) -> anyhow
     };
     let moonc_opt = MooncOpt {
         build_opt: moonutil::common::BuildPackageFlags {
-            debug_flag,
-            strip_flag: false,
-            source_map: debug_flag,
+            debug_flag: !release_build,
+            strip_flag,
+            source_map: keep_debug,
             enable_coverage: false,
             deny_warn: false,
             target_backend,
@@ -315,8 +321,8 @@ fn run_test_in_single_file(cli: &UniversalFlags, cmd: &TestSubcommand) -> anyhow
             enable_value_tracing: cmd.build_flags.enable_value_tracing,
         },
         link_opt: moonutil::common::LinkCoreFlags {
-            debug_flag,
-            source_map: debug_flag,
+            debug_flag: keep_debug,
+            source_map: keep_debug,
             output_format: match target_backend {
                 TargetBackend::Js => OutputFormat::Js,
                 TargetBackend::Native => OutputFormat::Native,
@@ -1069,16 +1075,16 @@ pub(crate) fn run_test_or_bench_internal_legacy(
         ..build_flags.clone()
     };
     let mut moonc_opt = super::get_compiler_flags(source_dir, &compiler_flags)?;
-    moonc_opt.build_opt.debug_flag = !build_flags.release;
+    let release_build = build_flags.release;
+    let keep_debug_info = !build_flags.strip();
+    moonc_opt.build_opt.debug_flag = !release_build;
     moonc_opt.build_opt.enable_value_tracing = build_flags.enable_value_tracing;
-    moonc_opt.build_opt.strip_flag = if build_flags.strip {
-        true
-    } else if build_flags.no_strip {
-        false
-    } else {
-        build_flags.release
-    };
-    moonc_opt.link_opt.debug_flag = !build_flags.release;
+    moonc_opt.build_opt.strip_flag = build_flags.strip();
+    moonc_opt.build_opt.source_map =
+        keep_debug_info && moonc_opt.build_opt.target_backend.supports_source_map();
+    moonc_opt.link_opt.debug_flag = keep_debug_info;
+    moonc_opt.link_opt.source_map =
+        keep_debug_info && moonc_opt.link_opt.target_backend.supports_source_map();
 
     // TODO: remove this once LLVM backend is well supported
     if moonc_opt.build_opt.target_backend == TargetBackend::LLVM {

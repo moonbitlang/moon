@@ -108,11 +108,14 @@ fn run_build_internal(
     source_dir: &Path,
     target_dir: &Path,
 ) -> anyhow::Result<i32> {
+    let mut cmd = cmd.clone();
+    cmd.build_flags.default_to_release(false);
+
     let f = || {
         if cli.unstable_feature.rupes_recta {
-            run_build_rr(cli, cmd, source_dir, target_dir)
+            run_build_rr(cli, &cmd, source_dir, target_dir)
         } else {
-            run_build_legacy(cli, cmd, source_dir, target_dir)
+            run_build_legacy(cli, &cmd, source_dir, target_dir)
         }
     };
 
@@ -135,7 +138,7 @@ fn run_build_rr(
         cli,
         &cmd.build_flags,
         target_dir,
-        OptLevel::Release,
+        OptLevel::Debug,
         RunMode::Build,
     );
     let (_build_meta, build_graph) = rr_build::plan_build(

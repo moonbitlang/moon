@@ -55,6 +55,9 @@ pub struct BenchSubcommand {
 
 #[instrument(skip_all)]
 pub fn run_bench(cli: UniversalFlags, cmd: BenchSubcommand) -> anyhow::Result<i32> {
+    let mut cmd = cmd;
+    cmd.build_flags.default_to_release(true);
+
     let PackageDirs {
         source_dir,
         target_dir,
