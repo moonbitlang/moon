@@ -348,7 +348,12 @@ pub fn run_info_internal(
         Some(p) => source_dir.join(p),
     };
 
-    let package_filter = if let Some(pkg_name) = &cmd.package {
+    type PackageFilter = dyn Fn(&Package) -> bool;
+    let package_filter: Option<Box<PackageFilter>> = if let Some(path) = &cmd.path {
+        let (path, _filename) =
+            canonicalize_with_filename(path).context("Input path is invalid")?;
+        Some(Box::new(move |pkg: &Package| pkg.root_path == path))
+    } else if let Some(pkg_name) = &cmd.package {
         let all_packages: indexmap::IndexSet<&str> = mdb
             .get_all_packages()
             .iter()
@@ -372,7 +377,9 @@ pub fn run_info_internal(
                 pkg_name
             );
         }
-        Some(move |pkg: &Package| final_set.contains(&pkg.full_name()))
+        Some(Box::new(move |pkg: &Package| {
+            final_set.contains(&pkg.full_name())
+        }))
     } else {
         None
     };
