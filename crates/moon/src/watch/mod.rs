@@ -16,11 +16,13 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
+pub mod filter_files;
+
 use anyhow::Context;
 use colored::*;
 use notify::{Config, EventKind, RecommendedWatcher, RecursiveMode, Watcher};
 
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 use tracing::{debug, error, info, trace, warn};
@@ -41,10 +43,6 @@ pub fn watching(
         "Initial run before starting watcher"
     );
     run_and_print(&run);
-
-    // Prepare ignore dirs
-    // FIXME: maybe we should use .gitignore instead
-    let ignore_dirs = [source_dir.join("target"), source_dir.join(".mooncakes")];
 
     let (tx, rx) = std::sync::mpsc::channel();
     debug!("Creating file watcher with default config");
@@ -95,7 +93,7 @@ pub fn watching(
             }
 
             debug!("Debounced {} filesystem event(s)", evt_list.len());
-            if let Err(e) = handle_file_change(&run, target_dir, &ignore_dirs, &evt_list) {
+            if let Err(e) = handle_file_change(&run, target_dir, source_dir, &evt_list) {
                 error!(error = ?e, "Error while handling file change");
                 println!(
                     "{:?}\n{}",
@@ -108,7 +106,8 @@ pub fn watching(
     Ok(0)
 }
 
-fn is_event_relevant(event: &notify::Event, ignore_dirs: &[PathBuf]) -> bool {
+/// Check if the event kind is relevant for a rebuild/rerun.
+fn is_event_relevant(event: &notify::Event) -> bool {
     match event.kind {
         EventKind::Modify(notify::event::ModifyKind::Metadata(_)) => {
             trace!("Ignoring metadata-only modify event: {:?}", event);
@@ -127,21 +126,6 @@ fn is_event_relevant(event: &notify::Event, ignore_dirs: &[PathBuf]) -> bool {
         }
     };
 
-    // Skip if the change happens in the target dir, which is related to the
-    // build output (of any kind) and should not trigger a rebuild.
-    if event
-        .paths
-        .iter()
-        .all(|p| ignore_dirs.iter().any(|d| p.starts_with(d)))
-    {
-        trace!(
-            "Ignoring change inside original target dir: {:?}",
-            event.paths
-        );
-        return false;
-    }
-
-    info!("Relevant event: {:?}", event);
     true
 }
 
@@ -149,21 +133,44 @@ fn is_event_relevant(event: &notify::Event, ignore_dirs: &[PathBuf]) -> bool {
 fn handle_file_change(
     run: impl FnOnce() -> anyhow::Result<i32>,
     target_dir: &Path,
-    ignore_dirs: &[PathBuf],
+    project_root: &Path,
     event_lst: &[notify::Event],
 ) -> anyhow::Result<()> {
     debug!(
         "Evaluating {} filesystem event(s) for relevance",
         event_lst.len()
     );
-    let is_relevant = event_lst
+    let relevant_events: Vec<&notify::Event> = event_lst
         .iter()
-        .any(|evt| is_event_relevant(evt, ignore_dirs));
+        .filter(|evt| is_event_relevant(evt))
+        .collect();
 
-    if !is_relevant {
+    if relevant_events.is_empty() {
         trace!("No relevant changes detected; skipping run");
         return Ok(());
     }
+
+    // Check if any of the relevant events are in ignored dirs.
+    // Note: `target/` and `.mooncakes/` are always ignored by default.
+    let mut ignore_builder = filter_files::FileFilterBuilder::new(project_root);
+    for evt in &relevant_events {
+        for path in &evt.paths {
+            if ignore_builder.check_file(path) {
+                trace!(
+                    "Ignoring event for path '{}' due to ignore rules",
+                    path.display()
+                );
+                continue;
+            } else {
+                info!(
+                    "Triggered by path '{}', event kind {:?}",
+                    path.display(),
+                    evt.kind
+                );
+            }
+        }
+    }
+    info!("Triggered rerun");
 
     // prevent the case that the whole target_dir was deleted
     // FIXME: legacy code, might not need it
