@@ -46,6 +46,9 @@ use crate::rr_build;
 use crate::rr_build::BuildConfig;
 use crate::rr_build::CalcUserIntentOutput;
 use crate::rr_build::preconfig_compile;
+use crate::watch::WatchOutput;
+use crate::watch::prebuild_output::legacy_get_prebuild_ignored_paths;
+use crate::watch::prebuild_output::rr_get_prebuild_ignored_paths;
 use crate::watch::watching;
 
 use super::pre_build::scan_with_x_build;
@@ -114,28 +117,32 @@ fn run_build_internal(
     source_dir: &Path,
     target_dir: &Path,
 ) -> anyhow::Result<i32> {
-    let f = || {
+    let f = |watch: bool| {
         if cli.unstable_feature.rupes_recta {
-            run_build_rr(cli, cmd, source_dir, target_dir)
+            run_build_rr(cli, cmd, source_dir, target_dir, watch)
         } else {
-            run_build_legacy(cli, cmd, source_dir, target_dir)
+            run_build_legacy(cli, cmd, source_dir, target_dir, watch)
         }
     };
 
     if cmd.watch {
-        watching(f, source_dir, source_dir, target_dir)
+        watching(|| f(true), source_dir, source_dir, target_dir)
     } else {
-        f()
+        f(false).map(|output| if output.ok { 0 } else { 1 })
     }
 }
 
+/// Run the build routine in RR backend
+///
+/// - `_watch`: True if in watch mode, will output ignore paths for prebuild outputs
 #[instrument(skip_all)]
 fn run_build_rr(
     cli: &UniversalFlags,
     cmd: &BuildSubcommand,
     source_dir: &Path,
     target_dir: &Path,
-) -> anyhow::Result<i32> {
+    _watch: bool,
+) -> anyhow::Result<WatchOutput> {
     let preconfig = preconfig_compile(
         &cmd.auto_sync_flags,
         cli,
@@ -159,14 +166,21 @@ fn run_build_rr(
         }),
     )?;
 
-    if cli.dry_run {
+    // Prepare for `watch` mode
+    let prebuild_list = if _watch {
+        rr_get_prebuild_ignored_paths(&_build_meta.resolve_output)
+    } else {
+        Vec::new()
+    };
+
+    let ok = if cli.dry_run {
         rr_build::print_dry_run(
             &build_graph,
             _build_meta.artifacts.values(),
             source_dir,
             target_dir,
         );
-        Ok(0)
+        true
     } else {
         let _lock = FileLock::lock(target_dir)?;
 
@@ -176,8 +190,12 @@ fn run_build_rr(
             target_dir,
         )?;
         result.print_info(cli.quiet, "building")?;
-        Ok(result.return_code_for_success())
-    }
+        result.successful()
+    };
+    Ok(WatchOutput {
+        ok,
+        additional_ignored_paths: prebuild_list,
+    })
 }
 
 #[instrument(skip_all)]
@@ -186,7 +204,8 @@ fn run_build_legacy(
     cmd: &BuildSubcommand,
     source_dir: &Path,
     target_dir: &Path,
-) -> anyhow::Result<i32> {
+    _watch: bool,
+) -> anyhow::Result<WatchOutput> {
     let path_filter_dir = cmd
         .path
         .as_ref()
@@ -282,8 +301,18 @@ fn run_build_legacy(
         &mut module,
     )?;
 
+    let prebuild_list = if _watch {
+        legacy_get_prebuild_ignored_paths(&module)
+    } else {
+        Vec::new()
+    };
+
     if cli.dry_run {
-        return dry_run::print_commands(&module, &moonc_opt, &moonbuild_opt);
+        let ret = dry_run::print_commands(&module, &moonc_opt, &moonbuild_opt)?;
+        return Ok(WatchOutput {
+            ok: ret == 0,
+            additional_ignored_paths: prebuild_list,
+        });
     }
 
     let trace_flag = cli.trace;
@@ -311,7 +340,11 @@ fn run_build_legacy(
         }
         println!("{}", serde_json::to_string(&artifacts).unwrap());
     }
-    res
+    let ok = res? == 0;
+    Ok(WatchOutput {
+        ok,
+        additional_ignored_paths: prebuild_list,
+    })
 }
 
 /// Generate user intent

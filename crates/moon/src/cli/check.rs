@@ -37,7 +37,10 @@ use tracing::{Level, instrument};
 use crate::cli::get_module_for_single_file;
 use crate::filter::{canonicalize_with_filename, filter_pkg_by_dir};
 use crate::rr_build::{self, BuildConfig, CalcUserIntentOutput, preconfig_compile};
-use crate::watch::watching;
+use crate::watch::prebuild_output::{
+    legacy_get_prebuild_ignored_paths, rr_get_prebuild_ignored_paths,
+};
+use crate::watch::{WatchOutput, watching};
 
 use super::pre_build::scan_with_x_build;
 use super::{BuildFlags, get_compiler_flags};
@@ -237,11 +240,11 @@ fn run_check_normal_internal(
     source_dir: &Path,
     target_dir: &Path,
 ) -> anyhow::Result<i32> {
-    let f = || {
+    let run_once = |watch: bool| -> anyhow::Result<WatchOutput> {
         if cli.unstable_feature.rupes_recta {
-            run_check_normal_internal_rr(cli, cmd, source_dir, target_dir)
+            run_check_normal_internal_rr(cli, cmd, source_dir, target_dir, watch)
         } else {
-            run_check_normal_internal_legacy(cli, cmd, source_dir, target_dir)
+            run_check_normal_internal_legacy(cli, cmd, source_dir, target_dir, watch)
         }
     };
     if cmd.watch {
@@ -253,9 +256,9 @@ fn run_check_normal_internal(
                 actual_target.display()
             )
         })?;
-        watching(f, source_dir, source_dir, &actual_target)
+        watching(|| run_once(true), source_dir, source_dir, &actual_target)
     } else {
-        f()
+        run_once(false).map(|output| if output.ok { 0 } else { 1 })
     }
 }
 
@@ -265,7 +268,8 @@ fn run_check_normal_internal_rr(
     cmd: &CheckSubcommand,
     source_dir: &Path,
     target_dir: &Path,
-) -> anyhow::Result<i32> {
+    _watch: bool,
+) -> anyhow::Result<WatchOutput> {
     let mut preconfig = preconfig_compile(
         &cmd.auto_sync_flags,
         cli,
@@ -276,7 +280,7 @@ fn run_check_normal_internal_rr(
     );
     preconfig.moonc_output_json |= cmd.output_json;
 
-    let (_build_meta, build_graph) = rr_build::plan_build(
+    let (build_meta, build_graph) = rr_build::plan_build(
         preconfig,
         &cli.unstable_feature,
         source_dir,
@@ -293,19 +297,28 @@ fn run_check_normal_internal_rr(
     )
     .context("Failed to calculate build plan")?;
 
+    let prebuild_list = if _watch {
+        rr_get_prebuild_ignored_paths(&build_meta.resolve_output)
+    } else {
+        Vec::new()
+    };
+
     if cli.dry_run {
         rr_build::print_dry_run(
             &build_graph,
-            _build_meta.artifacts.values(),
+            build_meta.artifacts.values(),
             source_dir,
             target_dir,
         );
-        Ok(0)
+        Ok(WatchOutput {
+            ok: true,
+            additional_ignored_paths: prebuild_list,
+        })
     } else {
         let _lock = FileLock::lock(target_dir)?;
 
         // Generate metadata for IDE
-        rr_build::generate_metadata(source_dir, target_dir, &_build_meta)?;
+        rr_build::generate_metadata(source_dir, target_dir, &build_meta)?;
 
         let mut cfg = BuildConfig::from_flags(&cmd.build_flags, &cli.unstable_feature);
         cfg.no_render |= cmd.output_json;
@@ -313,7 +326,10 @@ fn run_check_normal_internal_rr(
         cfg.explain_errors |= cmd.explain;
         let result = rr_build::execute_build(&cfg, build_graph, target_dir)?;
         result.print_info(cli.quiet, "checking")?;
-        Ok(result.return_code_for_success())
+        Ok(WatchOutput {
+            ok: result.successful(),
+            additional_ignored_paths: prebuild_list,
+        })
     }
 }
 
@@ -323,7 +339,8 @@ fn run_check_normal_internal_legacy(
     cmd: &CheckSubcommand,
     source_dir: &Path,
     target_dir: &Path,
-) -> anyhow::Result<i32> {
+    _watch: bool,
+) -> anyhow::Result<WatchOutput> {
     // Run moon install before build
     let (resolved_env, dir_sync_result) = auto_sync(
         source_dir,
@@ -445,8 +462,18 @@ fn run_check_normal_internal_legacy(
         }
     };
 
+    let prebuild_list = if _watch {
+        legacy_get_prebuild_ignored_paths(&module)
+    } else {
+        Vec::new()
+    };
+
     if cli.dry_run {
-        return dry_run::print_commands(&module, &moonc_opt, &moonbuild_opt);
+        let exit_code = dry_run::print_commands(&module, &moonc_opt, &moonbuild_opt)?;
+        return Ok(WatchOutput {
+            ok: exit_code == 0,
+            additional_ignored_paths: prebuild_list,
+        });
     }
 
     if cli.trace {
@@ -459,7 +486,11 @@ fn run_check_normal_internal_legacy(
         trace::close();
     }
 
-    res
+    let exit_code = res?;
+    Ok(WatchOutput {
+        ok: exit_code == 0,
+        additional_ignored_paths: prebuild_list,
+    })
 }
 
 /// Generate user intent
