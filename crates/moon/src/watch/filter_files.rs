@@ -99,9 +99,10 @@ impl<'a> FileFilterBuilder<'a> {
 
         // Check if the file is ignored by any of the gitignore rules
         for gitignore in &self.ignores {
-            if gitignore
-                .matched_path_or_any_parents(file_path, is_dir)
-                .is_ignore()
+            if file_path.starts_with(gitignore.path())
+                && gitignore
+                    .matched_path_or_any_parents(file_path, is_dir)
+                    .is_ignore()
             {
                 return true;
             }
