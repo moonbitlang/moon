@@ -240,7 +240,7 @@ fn run_check_normal_internal(
     source_dir: &Path,
     target_dir: &Path,
 ) -> anyhow::Result<i32> {
-    let run_once = |watch: bool| -> anyhow::Result<WatchOutput> {
+    let run_once = |watch: bool, target_dir: &Path| -> anyhow::Result<WatchOutput> {
         if cli.unstable_feature.rupes_recta {
             run_check_normal_internal_rr(cli, cmd, source_dir, target_dir, watch)
         } else {
@@ -249,16 +249,21 @@ fn run_check_normal_internal(
     };
     if cmd.watch {
         // For checks, the actual target dir is a subdir of the original target
-        let actual_target = target_dir.join(WATCH_MODE_DIR);
-        std::fs::create_dir_all(&actual_target).with_context(|| {
+        let watch_target = target_dir.join(WATCH_MODE_DIR);
+        std::fs::create_dir_all(&watch_target).with_context(|| {
             format!(
                 "Failed to create target directory: '{}'",
-                actual_target.display()
+                watch_target.display()
             )
         })?;
-        watching(|| run_once(true), source_dir, source_dir, &actual_target)
+        watching(
+            || run_once(true, &watch_target),
+            source_dir,
+            source_dir,
+            target_dir,
+        )
     } else {
-        run_once(false).map(|output| if output.ok { 0 } else { 1 })
+        run_once(false, target_dir).map(|output| if output.ok { 0 } else { 1 })
     }
 }
 
