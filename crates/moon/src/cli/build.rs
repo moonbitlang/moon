@@ -253,7 +253,7 @@ fn run_build_legacy(
         }),
         fmt_opt: None,
         args: vec![],
-        no_render_output: false,
+        no_render_output: cmd.build_flags.output_style().needs_no_render(),
         no_parallelize: false,
         parallelism: cmd.build_flags.jobs,
         use_tcc_run: false,

@@ -184,7 +184,7 @@ fn run_check_for_single_file(cli: &UniversalFlags, cmd: &CheckSubcommand) -> any
         build_graph: cli.build_graph,
         fmt_opt: None,
         args: vec![],
-        no_render_output: false,
+        no_render_output: cmd.build_flags.output_style().needs_no_render(),
         parallelism: cmd.build_flags.jobs,
         use_tcc_run: false,
         dynamic_stub_libs: None,
@@ -216,7 +216,7 @@ fn run_check_for_single_file(cli: &UniversalFlags, cmd: &CheckSubcommand) -> any
         extra_build_opt: vec![],
         extra_link_opt: vec![],
         nostd: false,
-        json_diagnostics: !cmd.build_flags.no_render,
+        json_diagnostics: cmd.build_flags.output_style().needs_moonc_json(),
         single_file: true,
     };
     let module =
