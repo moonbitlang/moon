@@ -40,6 +40,7 @@ mod extra_flags;
 mod fancy_import;
 mod filter_by_path;
 mod fmt;
+mod fmt_ignore;
 mod hello;
 mod inline_test;
 mod mbti;

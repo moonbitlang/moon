@@ -25,7 +25,7 @@ use crate::package::{Import, MoonPkgGenerate, Package, SubPackageInPackage};
 use crate::path::{ImportComponent, ImportPath, PathComponent};
 use anyhow::{Context, bail};
 use colored::Colorize;
-use indexmap::map::IndexMap;
+use indexmap::{IndexSet, map::IndexMap};
 use petgraph::graph::{DiGraph, NodeIndex};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -494,6 +494,18 @@ fn scan_one_package(
         })
     });
 
+    let formatter_ignore: IndexSet<String> = pkg
+        .formatter
+        .ignore
+        .iter()
+        .filter_map(|entry| {
+            Path::new(entry)
+                .file_name()
+                .and_then(|name| name.to_str())
+                .map(|name| name.to_string())
+        })
+        .collect();
+
     let pkg_prebuild_is_none = pkg.pre_build.is_none();
     let mut prebuild = pkg.pre_build.unwrap_or(vec![]);
     for mbl_file in mbl_files {
@@ -535,6 +547,7 @@ fn scan_one_package(
         wbtest_files: file_cond_map(wbtest_mbt_files),
         test_files: file_cond_map(test_mbt_files),
         mbt_md_files: file_cond_map(mbt_md_files),
+        formatter_ignore,
         with_sub_package: sub_package,
         is_sub_package: false,
         imports,

@@ -73,6 +73,13 @@ pub fn gen_fmt(
             .chain(pkg.test_files.iter())
             .chain(pkg.mbt_md_files.iter())
         {
+            let ignored = f
+                .file_name()
+                .and_then(|name| name.to_str())
+                .is_some_and(|name| pkg.formatter_ignore.contains(name));
+            if ignored {
+                continue;
+            }
             let item = FmtItem {
                 input: f.display().to_string(),
                 output: moonbuild_opt

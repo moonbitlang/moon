@@ -23,7 +23,7 @@ use std::{
 };
 
 use colored::Colorize;
-use indexmap::IndexMap;
+use indexmap::{IndexMap, IndexSet};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
@@ -67,6 +67,8 @@ pub struct Package {
     pub test_files: IndexMap<PathBuf, CompileCondition>,
     pub mbt_md_files: IndexMap<PathBuf, CompileCondition>,
     pub files_contain_test_block: Vec<PathBuf>,
+
+    pub formatter_ignore: IndexSet<String>,
 
     // there is a sub_package definition in this package
     pub with_sub_package: Option<SubPackageInPackage>,
@@ -183,6 +185,18 @@ pub struct AliasJSON {
     pub fspath: String,
 }
 
+#[derive(Debug, Serialize, Deserialize, Clone, JsonSchema, Default, PartialEq, Eq)]
+pub struct MoonPkgFormatterJSON {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[schemars(with = "Option<std::collections::HashSet<String>>")]
+    pub ignore: Option<IndexSet<String>>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone, Default)]
+pub struct MoonPkgFormatter {
+    pub ignore: IndexSet<String>,
+}
+
 #[derive(Debug, Serialize, Deserialize, Clone, JsonSchema)]
 #[serde(untagged)]
 pub enum PkgJSONImport {
@@ -273,6 +287,9 @@ pub struct MoonPkgJSON {
 
     #[serde(skip_serializing_if = "Option::is_none")]
     pub link: Option<BoolOrLink>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub formatter: Option<MoonPkgFormatterJSON>,
 
     /// Warn list setting of the package
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -726,6 +743,7 @@ pub struct MoonPkg {
     pub imports: Vec<Import>,
     pub wbtest_imports: Vec<Import>,
     pub test_imports: Vec<Import>,
+    pub formatter: MoonPkgFormatter,
 
     pub link: Option<Link>,
     pub warn_list: Option<String>,
@@ -834,6 +852,10 @@ pub fn convert_pkg_json_to_package(j: MoonPkgJSON) -> anyhow::Result<MoonPkg> {
     let imports = get_imports(j.import);
     let wbtest_imports = get_imports(j.wbtest_import);
     let test_imports = get_imports(j.test_import);
+    let formatter_cfg = j.formatter.unwrap_or_default();
+    let formatter = MoonPkgFormatter {
+        ignore: formatter_cfg.ignore.unwrap_or_default(),
+    };
 
     let mut is_main = j.is_main.unwrap_or(false);
     if let Some(name) = &j.name
@@ -876,6 +898,7 @@ pub fn convert_pkg_json_to_package(j: MoonPkgJSON) -> anyhow::Result<MoonPkg> {
         imports,
         wbtest_imports,
         test_imports,
+        formatter,
         link: match j.link {
             None => None,
             Some(BoolOrLink::Bool(_)) => None,
