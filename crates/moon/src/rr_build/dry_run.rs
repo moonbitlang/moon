@@ -22,32 +22,35 @@ use std::{path::Path, process::Command};
 
 use moonbuild_rupes_recta::model::Artifacts;
 
+use crate::rr_build::BuildInput;
+
 /// Print what would be executed in a dry-run.
 ///
 /// This is a helper function that prints the build commands from a build graph.
 pub fn print_dry_run<'a>(
-    build_graph: &n2::graph::Graph,
+    input: &BuildInput,
     artifacts: impl IntoIterator<Item = &'a Artifacts>,
     source_dir: &Path,
     target_dir: &Path,
 ) {
+    let graph = &input.graph;
     let default_files = artifacts
         .into_iter()
         .flat_map(|art| {
             art.artifacts
                 .iter()
-                .flat_map(|file| build_graph.files.lookup(&file.to_string_lossy()))
+                .flat_map(|file| graph.files.lookup(&file.to_string_lossy()))
         })
         .collect::<Vec<_>>();
-    moonbuild::dry_run::print_build_commands(build_graph, &default_files, source_dir, target_dir);
+    moonbuild::dry_run::print_build_commands(graph, &default_files, source_dir, target_dir);
 }
 
 /// Print all commands in a dry-run.
 ///
 /// Similar to [`print_dry_run`], but assumes *all* files in the build graph are to be built.
-pub fn print_dry_run_all(build_graph: &n2::graph::Graph, source_dir: &Path, target_dir: &Path) {
-    let default_files = build_graph.get_start_nodes();
-    moonbuild::dry_run::print_build_commands(build_graph, &default_files, source_dir, target_dir);
+pub fn print_dry_run_all(input: &BuildInput, source_dir: &Path, target_dir: &Path) {
+    let default_files = input.graph.get_start_nodes();
+    moonbuild::dry_run::print_build_commands(&input.graph, &default_files, source_dir, target_dir);
 }
 
 /// Print a command as it would be executed, with the proper escaping.

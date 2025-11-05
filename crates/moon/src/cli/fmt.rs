@@ -29,7 +29,7 @@ use moonutil::{
     mooncakes::{RegistryConfig, sync::AutoSyncFlags},
 };
 
-use crate::rr_build::{self, BuildConfig};
+use crate::rr_build::{self, BuildConfig, plan_fmt};
 
 use super::{UniversalFlags, pre_build::scan_with_x_build};
 
@@ -71,8 +71,7 @@ fn run_fmt_rr(cli: &UniversalFlags, cmd: FmtSubcommand) -> anyhow::Result<i32> {
         check_only: cmd.check,
         extra_args: cmd.args.clone(),
     };
-    let graph =
-        moonbuild_rupes_recta::fmt::build_graph_for_fmt(&resolved, &fmt_config, &target_dir)?;
+    let graph = plan_fmt(&resolved, &fmt_config, &target_dir)?;
 
     if cli.dry_run {
         rr_build::print_dry_run_all(&graph, &source_dir, &target_dir);

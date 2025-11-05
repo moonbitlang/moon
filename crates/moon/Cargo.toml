@@ -59,6 +59,7 @@ derive_builder.workspace = true
 smallvec.workspace = true
 
 notify.workspace = true
+ignore.workspace = true
 
 tracing.workspace = true
 tracing-subscriber.workspace = true
@@ -76,7 +77,6 @@ tempfile = "3.6.0"
 snapbox = "0.4.15"
 expect-test.workspace = true
 clap-markdown = "0.1.4"
-ignore = "0.4.23"
 
 [[bin]]
 name = "moon"

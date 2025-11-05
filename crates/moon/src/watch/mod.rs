@@ -16,20 +16,33 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
+pub mod filter_files;
+pub mod prebuild_output;
+
 use anyhow::Context;
 use colored::*;
 use notify::{Config, EventKind, RecommendedWatcher, RecursiveMode, Watcher};
 
+use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 use tracing::{debug, error, info, trace, warn};
 
+/// The output of a watch run
+pub struct WatchOutput {
+    /// Whether the run was successful
+    pub ok: bool,
+
+    /// Additional paths to ignore in the next run
+    pub additional_ignored_paths: Vec<PathBuf>,
+}
+
 /// Run a watcher that watches on `watch_dir`, and calls `run` when a file
 /// changes. The watcher ignores changes in `original_target_dir`, and will
 /// repopulate `target_dir` if it is deleted.
 pub fn watching(
-    run: impl Fn() -> anyhow::Result<i32>,
+    run: impl Fn() -> anyhow::Result<WatchOutput>,
     watch_dir: &Path,
     source_dir: &Path,
     target_dir: &Path,
@@ -40,17 +53,15 @@ pub fn watching(
         target_dir = %target_dir.display(),
         "Initial run before starting watcher"
     );
-    run_and_print(&run);
+    let mut ignored_files = run_and_print(&run);
 
-    // Prepare ignore dirs
-    // FIXME: maybe we should use .gitignore instead
-    let ignore_dirs = [source_dir.join("target"), source_dir.join(".mooncakes")];
-
+    // Setup watcher
     let (tx, rx) = std::sync::mpsc::channel();
     debug!("Creating file watcher with default config");
     let mut watcher = RecommendedWatcher::new(tx, Config::default())
         .context("Failed to create a directory watcher")?;
 
+    // Setup Ctrl-C handler
     {
         // make sure the handler is only set once when --watch --target all
         static HANDLER_SET: AtomicBool = AtomicBool::new(false);
@@ -65,6 +76,7 @@ pub fn watching(
         }
     }
 
+    // Start watching
     {
         // main thread
         info!(
@@ -95,31 +107,44 @@ pub fn watching(
             }
 
             debug!("Debounced {} filesystem event(s)", evt_list.len());
-            if let Err(e) = handle_file_change(&run, target_dir, &ignore_dirs, &evt_list) {
-                error!(error = ?e, "Error while handling file change");
-                println!(
-                    "{:?}\n{}",
-                    e,
-                    "Had errors, waiting for filesystem changes...".red().bold(),
-                );
+            match check_rerun_trigger(target_dir, source_dir, &evt_list, &ignored_files) {
+                Err(e) => {
+                    error!(error = ?e, "Error while handling file change");
+                    println!(
+                        "{:?}\n{}",
+                        e,
+                        "Had errors, waiting for filesystem changes...".red().bold(),
+                    );
+                    continue;
+                }
+                Ok(false) => {
+                    trace!("No rerun triggered after checking events");
+                    continue;
+                }
+                Ok(true) => {
+                    debug!("Rerun triggered; executing task");
+                    ignored_files = run_and_print(&run);
+                }
             }
         }
     }
     Ok(0)
 }
 
-fn is_event_relevant(event: &notify::Event, ignore_dirs: &[PathBuf]) -> bool {
+/// Check if the event kind is relevant for a rebuild/rerun.
+fn is_event_relevant(event: &notify::Event) -> bool {
     match event.kind {
         EventKind::Modify(notify::event::ModifyKind::Metadata(_)) => {
             trace!("Ignoring metadata-only modify event: {:?}", event);
             return false;
         }
+        EventKind::Access(_) => return false,
 
         EventKind::Create(_) => (),
         EventKind::Modify(_) => (),
         EventKind::Remove(_) => (),
         _ => {
-            info!(
+            debug!(
                 "Unknown file event: {:?}. Currently we skip them, but if this is a problem, please report to the developers.",
                 event
             );
@@ -127,43 +152,32 @@ fn is_event_relevant(event: &notify::Event, ignore_dirs: &[PathBuf]) -> bool {
         }
     };
 
-    // Skip if the change happens in the target dir, which is related to the
-    // build output (of any kind) and should not trigger a rebuild.
-    if event
-        .paths
-        .iter()
-        .all(|p| ignore_dirs.iter().any(|d| p.starts_with(d)))
-    {
-        trace!(
-            "Ignoring change inside original target dir: {:?}",
-            event.paths
-        );
-        return false;
-    }
-
-    info!("Relevant event: {:?}", event);
     true
 }
 
-/// Determine if we should rerun based on the event, and run if so.
-fn handle_file_change(
-    run: impl FnOnce() -> anyhow::Result<i32>,
+/// Determine if we should rerun based on the event. Returns true if we should rerun.
+fn check_rerun_trigger(
     target_dir: &Path,
-    ignore_dirs: &[PathBuf],
+    repo_root: &Path,
     event_lst: &[notify::Event],
-) -> anyhow::Result<()> {
+    additional_ignored_paths: &HashSet<PathBuf>,
+) -> anyhow::Result<bool> {
     debug!(
         "Evaluating {} filesystem event(s) for relevance",
         event_lst.len()
     );
-    let is_relevant = event_lst
+    let relevant_events: Vec<&notify::Event> = event_lst
         .iter()
-        .any(|evt| is_event_relevant(evt, ignore_dirs));
+        .filter(|evt| is_event_relevant(evt))
+        .collect();
 
-    if !is_relevant {
+    if relevant_events.is_empty() {
         trace!("No relevant changes detected; skipping run");
-        return Ok(());
+        return Ok(false);
     }
+
+    let trigger = check_paths(repo_root, additional_ignored_paths, &relevant_events);
+    debug!("Have we triggered a rebuild?: {}", trigger);
 
     // prevent the case that the whole target_dir was deleted
     // FIXME: legacy code, might not need it
@@ -180,24 +194,89 @@ fn handle_file_change(
         })?;
     }
 
-    info!("Relevant changes detected; triggering build/run");
-    run_and_print(run);
-    Ok(())
+    Ok(trigger)
 }
 
-/// Clear the terminal and run the given function, printing success or error
-fn run_and_print(run: impl FnOnce() -> anyhow::Result<i32>) {
+// Check the paths in the events against the ignore rules.
+fn check_paths(
+    repo_root: &Path,
+    additional_ignored_paths: &HashSet<PathBuf>,
+    relevant_events: &[&notify::Event],
+) -> bool {
+    // Check if any of the relevant events are in ignored dirs.
+    // Note: `target/` and `.mooncakes/` are always ignored by default.
+    let mut ignore_builder = filter_files::FileFilterBuilder::new(repo_root);
+
+    for evt in relevant_events {
+        for path in &evt.paths {
+            // Filter to: *.mbt, *.mbt.md, moon.pkg.json, moon.mod.json
+            // Note: A file removal will render `path.is_file()` false, but we
+            // should still trigger a rerun in that case.
+            if path.is_file()
+                && !evt.kind.is_remove()
+                && let Some(fname) = path.file_name()
+            {
+                let lossy_fname = fname.to_string_lossy();
+                if !lossy_fname.ends_with(".mbt")
+                    && !lossy_fname.ends_with(".mbt.md")
+                    && lossy_fname != "moon.pkg.json"
+                    && lossy_fname != "moon.mod.json"
+                {
+                    trace!(
+                        "Ignoring event for path '{}' due to filename filter",
+                        path.display()
+                    );
+                    continue;
+                }
+            }
+            if ignore_builder.check_file(path) {
+                trace!(
+                    "Ignoring event for path '{}' due to ignore rules",
+                    path.display()
+                );
+                continue;
+            } else if additional_ignored_paths.contains(path) {
+                trace!(
+                    "Ignoring event for path '{}' due to additional ignored paths",
+                    path.display()
+                );
+                continue;
+            } else {
+                info!(
+                    "Triggered by path '{}', event kind {:?}",
+                    path.display(),
+                    evt.kind
+                );
+                return true;
+            }
+        }
+    }
+
+    false
+}
+
+/// Clear the terminal and run the given function, printing success or error.
+/// Returns additional paths to ignore in the next run.
+fn run_and_print(run: impl FnOnce() -> anyhow::Result<WatchOutput>) -> HashSet<PathBuf> {
     debug!("Clearing terminal and running task");
     // print!("{esc}[2J{esc}[1;1H", esc = 27 as char);
 
     let result = run();
     match result {
-        Ok(0) => {
-            info!("Run completed successfully");
-            println!(
-                "{}",
-                "Success, waiting for filesystem changes...".green().bold()
-            );
+        Ok(res) => {
+            info!("Run completed without error, ok={}", res.ok);
+            if res.ok {
+                println!(
+                    "{}",
+                    "Success, waiting for filesystem changes...".green().bold()
+                );
+            } else {
+                println!(
+                    "{}",
+                    "Had errors, waiting for filesystem changes...".red().bold(),
+                );
+            }
+            HashSet::from_iter(res.additional_ignored_paths)
         }
         Err(e) => {
             error!(error = ?e, "Run failed with error");
@@ -206,13 +285,92 @@ fn run_and_print(run: impl FnOnce() -> anyhow::Result<i32>) {
                 e,
                 "Had errors, waiting for filesystem changes...".red().bold(),
             );
+            HashSet::new()
         }
-        _ => {
-            warn!("Run completed with non-zero exit code");
-            println!(
-                "{}",
-                "Had errors, waiting for filesystem changes...".red().bold(),
-            );
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    use notify::event::{CreateKind, Event, EventKind};
+
+    fn build_event(path: &Path) -> notify::Event {
+        Event {
+            kind: EventKind::Create(CreateKind::File),
+            paths: vec![path.to_path_buf()],
+            attrs: Default::default(),
         }
+    }
+
+    #[test]
+    fn rerun_not_triggered_when_no_relevant_events() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let target_dir = temp_dir.path().join("target");
+        std::fs::create_dir_all(&target_dir).unwrap();
+
+        let result =
+            check_rerun_trigger(&target_dir, temp_dir.path(), &[], &HashSet::new()).unwrap();
+
+        assert!(!result);
+    }
+
+    #[test]
+    fn rerun_ignored_for_ignored_paths() {
+        use std::fs;
+
+        let temp_dir = tempfile::tempdir().unwrap();
+        let root = temp_dir.path();
+        let target_dir = root.join("target");
+        std::fs::create_dir_all(&target_dir).unwrap();
+
+        fs::write(root.join(".gitignore"), "ignored.txt\n").unwrap();
+        let file = root.join("ignored.txt");
+        fs::write(&file, "data").unwrap();
+
+        let event = build_event(&file);
+        let result = check_rerun_trigger(&target_dir, root, &[event], &HashSet::new()).unwrap();
+
+        assert!(!result);
+    }
+
+    #[test]
+    fn rerun_triggered_for_relevant_file() {
+        use std::fs;
+
+        let temp_dir = tempfile::tempdir().unwrap();
+        let root = temp_dir.path();
+        let target_dir = root.join("target");
+        std::fs::create_dir_all(&target_dir).unwrap();
+
+        let file = root.join("src/main.mbt");
+        fs::create_dir_all(file.parent().unwrap()).unwrap();
+        fs::write(&file, "stuff").unwrap();
+
+        let event = build_event(&file);
+        let result = check_rerun_trigger(&target_dir, root, &[event], &HashSet::new()).unwrap();
+
+        assert!(result);
+    }
+
+    #[test]
+    fn rerun_target_dir_recreated_when_missing() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let root = temp_dir.path();
+        let target_dir = root.join("target");
+
+        let file = root.join("src/main.mbt");
+        std::fs::create_dir_all(file.parent().unwrap()).unwrap();
+        std::fs::write(&file, "stuff").unwrap();
+
+        let event = build_event(&file);
+
+        assert!(!target_dir.exists());
+
+        let result = check_rerun_trigger(&target_dir, root, &[event], &HashSet::new()).unwrap();
+
+        assert!(result);
+        assert!(target_dir.exists());
     }
 }
