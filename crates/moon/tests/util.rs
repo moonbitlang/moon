@@ -61,6 +61,7 @@ pub fn copy(src: &Path, dest: &Path) -> anyhow::Result<()> {
         }
         let mut walker = ignore::WalkBuilder::new(src);
         walker.hidden(false);
+        walker.git_global(false);
         walker.filter_entry(|x| x.file_name() != "target");
         let walker = walker.build();
         for entry in walker {
