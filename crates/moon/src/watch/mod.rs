@@ -144,7 +144,7 @@ fn is_event_relevant(event: &notify::Event) -> bool {
         EventKind::Modify(_) => (),
         EventKind::Remove(_) => (),
         _ => {
-            info!(
+            debug!(
                 "Unknown file event: {:?}. Currently we skip them, but if this is a problem, please report to the developers.",
                 event
             );
@@ -158,7 +158,7 @@ fn is_event_relevant(event: &notify::Event) -> bool {
 /// Determine if we should rerun based on the event. Returns true if we should rerun.
 fn check_rerun_trigger(
     target_dir: &Path,
-    project_root: &Path,
+    repo_root: &Path,
     event_lst: &[notify::Event],
     additional_ignored_paths: &HashSet<PathBuf>,
 ) -> anyhow::Result<bool> {
@@ -176,8 +176,8 @@ fn check_rerun_trigger(
         return Ok(false);
     }
 
-    let trigger = check_paths(project_root, additional_ignored_paths, &relevant_events);
-    info!("Have we triggered a rebuild?: {}", trigger);
+    let trigger = check_paths(repo_root, additional_ignored_paths, &relevant_events);
+    debug!("Have we triggered a rebuild?: {}", trigger);
 
     // prevent the case that the whole target_dir was deleted
     // FIXME: legacy code, might not need it
@@ -199,13 +199,13 @@ fn check_rerun_trigger(
 
 // Check the paths in the events against the ignore rules.
 fn check_paths(
-    project_root: &Path,
+    repo_root: &Path,
     additional_ignored_paths: &HashSet<PathBuf>,
     relevant_events: &[&notify::Event],
 ) -> bool {
     // Check if any of the relevant events are in ignored dirs.
     // Note: `target/` and `.mooncakes/` are always ignored by default.
-    let mut ignore_builder = filter_files::FileFilterBuilder::new(project_root);
+    let mut ignore_builder = filter_files::FileFilterBuilder::new(repo_root);
 
     for evt in relevant_events {
         for path in &evt.paths {
