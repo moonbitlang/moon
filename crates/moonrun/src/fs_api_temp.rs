@@ -34,26 +34,6 @@ fn read_file_to_string(
     ret.set(contents.into());
 }
 
-fn read_file_to_bytes(
-    scope: &mut v8::HandleScope,
-    args: v8::FunctionCallbackArguments,
-    mut ret: v8::ReturnValue,
-) {
-    let path = args.get(0);
-    let path = path.to_string(scope).unwrap();
-    let path = path.to_rust_string_lossy(scope);
-
-    let contents = std::fs::read(&path).unwrap_or_else(|_| panic!("Failed to read file: {path}"));
-    let len = contents.len();
-    let array_buffer = v8::ArrayBuffer::with_backing_store(
-        scope,
-        &v8::ArrayBuffer::new_backing_store_from_bytes(contents).make_shared(),
-    );
-
-    let uint8_array = v8::Uint8Array::new(scope, array_buffer, 0, len).unwrap();
-    ret.set(uint8_array.into());
-}
-
 /// `fn write_string_to_file(path: JSString, contents: JSString) -> Unit`
 fn write_string_to_file(
     scope: &mut v8::HandleScope,
@@ -507,11 +487,6 @@ pub fn init_fs<'s>(
     let read_file_to_string = read_file_to_string.get_function(scope).unwrap();
     let ident = v8::String::new(scope, "read_file_to_string").unwrap();
     obj.set(scope, ident.into(), read_file_to_string.into());
-
-    let read_file_to_bytes = v8::FunctionTemplate::new(scope, read_file_to_bytes);
-    let read_file_to_bytes = read_file_to_bytes.get_function(scope).unwrap();
-    let ident = v8::String::new(scope, "read_file_to_bytes").unwrap();
-    obj.set(scope, ident.into(), read_file_to_bytes.into());
 
     let write_string_to_file = v8::FunctionTemplate::new(scope, write_string_to_file);
     let write_string_to_file = write_string_to_file.get_function(scope).unwrap();
