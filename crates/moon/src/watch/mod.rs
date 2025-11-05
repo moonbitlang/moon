@@ -175,35 +175,7 @@ fn check_rerun_trigger(
         return Ok(false);
     }
 
-    // Check if any of the relevant events are in ignored dirs.
-    // Note: `target/` and `.mooncakes/` are always ignored by default.
-    let mut ignore_builder = filter_files::FileFilterBuilder::new(project_root);
-    let mut trigger = false;
-    'outer: for evt in &relevant_events {
-        for path in &evt.paths {
-            if ignore_builder.check_file(path) {
-                trace!(
-                    "Ignoring event for path '{}' due to ignore rules",
-                    path.display()
-                );
-                continue;
-            } else if additinal_ignored_paths.contains(path) {
-                trace!(
-                    "Ignoring event for path '{}' due to additional ignored paths",
-                    path.display()
-                );
-                continue;
-            } else {
-                info!(
-                    "Triggered by path '{}', event kind {:?}",
-                    path.display(),
-                    evt.kind
-                );
-                trigger = true;
-                break 'outer;
-            }
-        }
-    }
+    let trigger = check_paths(project_root, additional_ignored_paths, &relevant_events);
     info!("Triggered rerun");
 
     // prevent the case that the whole target_dir was deleted
@@ -222,6 +194,60 @@ fn check_rerun_trigger(
     }
 
     Ok(trigger)
+}
+
+// Check the paths in the events against the ignore rules.
+fn check_paths(
+    project_root: &Path,
+    additional_ignored_paths: &HashSet<PathBuf>,
+    relevant_events: &[&notify::Event],
+) -> bool {
+    // Check if any of the relevant events are in ignored dirs.
+    // Note: `target/` and `.mooncakes/` are always ignored by default.
+    let mut ignore_builder = filter_files::FileFilterBuilder::new(project_root);
+
+    for evt in relevant_events {
+        for path in &evt.paths {
+            // Filter to: *.mbt, *.mbt.md, moon.pkg.json, moon.mod.json
+            let filename = path.file_name();
+            if let Some(fname) = filename {
+                let lossy_fname = fname.to_string_lossy();
+                if !lossy_fname.ends_with(".mbt")
+                    && !lossy_fname.ends_with(".mbt.md")
+                    && lossy_fname != "moon.pkg.json"
+                    && lossy_fname != "moon.mod.json"
+                {
+                    trace!(
+                        "Ignoring event for path '{}' due to filename filter",
+                        path.display()
+                    );
+                    continue;
+                }
+            }
+            if ignore_builder.check_file(path) {
+                trace!(
+                    "Ignoring event for path '{}' due to ignore rules",
+                    path.display()
+                );
+                continue;
+            } else if additional_ignored_paths.contains(path) {
+                trace!(
+                    "Ignoring event for path '{}' due to additional ignored paths",
+                    path.display()
+                );
+                continue;
+            } else {
+                info!(
+                    "Triggered by path '{}', event kind {:?}",
+                    path.display(),
+                    evt.kind
+                );
+                return true;
+            }
+        }
+    }
+
+    false
 }
 
 /// Clear the terminal and run the given function, printing success or error.
