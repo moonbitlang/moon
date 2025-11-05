@@ -253,7 +253,7 @@ fn run_build_legacy(
         }),
         fmt_opt: None,
         args: vec![],
-        output_json: false,
+        no_render_output: false,
         no_parallelize: false,
         parallelism: cmd.build_flags.jobs,
         use_tcc_run: false,

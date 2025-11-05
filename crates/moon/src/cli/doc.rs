@@ -187,7 +187,7 @@ pub fn run_doc_legacy(cli: UniversalFlags, cmd: DocSubcommand) -> anyhow::Result
         args: vec![],
         verbose: cli.verbose,
         quiet: cli.quiet,
-        output_json: false,
+        no_render_output: false,
         no_parallelize: false,
         build_graph: false,
         parallelism: None,

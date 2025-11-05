@@ -51,10 +51,6 @@ pub struct CheckSubcommand {
     #[clap(flatten)]
     pub build_flags: BuildFlags,
 
-    /// Output in json format
-    #[clap(long)]
-    pub output_json: bool,
-
     #[clap(flatten)]
     pub auto_sync_flags: AutoSyncFlags,
 
@@ -188,7 +184,7 @@ fn run_check_for_single_file(cli: &UniversalFlags, cmd: &CheckSubcommand) -> any
         build_graph: cli.build_graph,
         fmt_opt: None,
         args: vec![],
-        output_json: false,
+        no_render_output: false,
         parallelism: cmd.build_flags.jobs,
         use_tcc_run: false,
         dynamic_stub_libs: None,
@@ -220,7 +216,7 @@ fn run_check_for_single_file(cli: &UniversalFlags, cmd: &CheckSubcommand) -> any
         extra_build_opt: vec![],
         extra_link_opt: vec![],
         nostd: false,
-        render: !cmd.build_flags.no_render,
+        json_diagnostics: !cmd.build_flags.no_render,
         single_file: true,
     };
     let module =

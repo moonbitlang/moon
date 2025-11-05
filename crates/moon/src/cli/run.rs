@@ -501,7 +501,7 @@ fn run_run_internal_legacy(cli: &UniversalFlags, cmd: RunSubcommand) -> anyhow::
         check_opt: None,
         build_opt: None,
         fmt_opt: None,
-        output_json: false,
+        no_render_output: false,
         no_parallelize: false,
         parallelism: cmd.build_flags.jobs,
         use_tcc_run: false,

@@ -221,7 +221,7 @@ pub fn gen_build_command(
 
     let command = CommandBuilder::new("moonc")
         .arg("build-package")
-        .args_with_cond(moonc_opt.render, vec!["-error-format", "json"])
+        .args_with_cond(moonc_opt.json_diagnostics, vec!["-error-format", "json"])
         .args(&item.mbt_deps)
         .lazy_args_with_cond(item.warn_list.is_some(), || {
             vec!["-w".to_string(), item.warn_list.clone().unwrap()]

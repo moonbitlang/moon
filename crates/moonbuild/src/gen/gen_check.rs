@@ -581,7 +581,7 @@ pub fn gen_check_command(
             vec![item.patch_file.as_ref().unwrap().display().to_string()]
         })
         .arg_with_cond(item.no_mi, "-no-mi")
-        .args_with_cond(moonc_opt.render, vec!["-error-format", "json"])
+        .args_with_cond(moonc_opt.json_diagnostics, vec!["-error-format", "json"])
         .args_with_cond(
             moonc_opt.build_opt.deny_warn,
             // the default strategy for warn and alert is +a-31-32 and +all-raise-throw-unsafe+deprecated

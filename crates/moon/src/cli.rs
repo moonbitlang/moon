@@ -365,8 +365,8 @@ pub fn get_compiler_flags(src_dir: &Path, build_flags: &BuildFlags) -> anyhow::R
     };
 
     let nostd = !build_flags.std() || moon_mod.name == MOONBITLANG_CORE;
-    let render =
-        !build_flags.no_render || std::env::var("MOON_NO_RENDER").unwrap_or_default() == "1";
+    let render = build_flags.output_style().needs_moonc_json()
+        || std::env::var("MOON_NO_RENDER").unwrap_or_default() == "1";
 
     Ok(MooncOpt {
         build_opt,
@@ -374,7 +374,7 @@ pub fn get_compiler_flags(src_dir: &Path, build_flags: &BuildFlags) -> anyhow::R
         extra_build_opt,
         extra_link_opt,
         nostd,
-        render,
+        json_diagnostics: render,
         single_file: false,
     })
 }

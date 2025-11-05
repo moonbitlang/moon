@@ -202,7 +202,7 @@ fn get_module_db(
         build_graph: false,
         fmt_opt: None,
         args: vec![],
-        output_json: false,
+        no_render_output: false,
         parallelism: None, // we don't care about parallelism here
         use_tcc_run: false,
         dynamic_stub_libs: None,
