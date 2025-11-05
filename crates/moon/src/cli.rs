@@ -200,9 +200,13 @@ pub struct BuildFlags {
     #[clap(long, short)]
     pub deny_warn: bool,
 
-    /// Don't render diagnostics from moonc (don't pass '-error-format json' to moonc)
+    /// Don't render diagnostics (in raw human-readable format)
     #[clap(long)]
     pub no_render: bool,
+
+    /// Output diagnostics in JSON format
+    #[clap(long, conflicts_with = "no_render")]
+    pub output_json: bool,
 
     /// Warn list config
     #[clap(long, allow_hyphen_values = true)]
@@ -243,12 +247,36 @@ impl Default for BuildFlags {
             output_wat: false,
             deny_warn: false,
             no_render: false,
+            output_json: false,
             warn_list: None,
             alert_list: None,
             enable_value_tracing: false,
             jobs: None,
             render_no_loc: DiagnosticLevel::Error,
         }
+    }
+}
+
+/// The style to render diagnostics in.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum OutputStyle {
+    /// The human-readable raw format directly from `moonc`
+    Raw,
+    /// Source code snippets with colors and formatting, rendered from JSON
+    Fancy,
+    /// Machine-readable output in JSON
+    Json,
+}
+
+impl OutputStyle {
+    /// Whether the output style requires `moonc` to emit JSON diagnostics.
+    pub fn needs_moonc_json(&self) -> bool {
+        matches!(self, OutputStyle::Fancy | OutputStyle::Json)
+    }
+
+    /// Whether the output style requires no rendering (i.e., raw diagnostics).
+    pub fn needs_no_render(&self) -> bool {
+        matches!(self, OutputStyle::Raw | OutputStyle::Json)
     }
 }
 
@@ -269,6 +297,15 @@ impl BuildFlags {
             false
         } else {
             !self.debug
+        }
+    }
+
+    pub fn output_style(&self) -> OutputStyle {
+        match (self.no_render, self.output_json) {
+            (true, false) => OutputStyle::Raw,
+            (false, true) => OutputStyle::Json,
+            (false, false) => OutputStyle::Fancy,
+            (true, true) => panic!("both no_render and output_json flags are set, this is a bug"),
         }
     }
 }
