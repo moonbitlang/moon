@@ -509,14 +509,9 @@ fn calc_user_intent(
     no_mi: bool,
     patch_file: Option<&Path>,
 ) -> Result<CalcUserIntentOutput, anyhow::Error> {
-    let &[main_module_id] = main_modules else {
+    let &[_main_module_id] = main_modules else {
         panic!("No multiple main modules are supported");
     };
-
-    let packages = resolve_output
-        .pkg_dirs
-        .packages_for_module(main_module_id)
-        .ok_or_else(|| anyhow::anyhow!("Cannot find the local module!"))?;
 
     if let Some(filter_path) = filter {
         let (dir, _) = canonicalize_with_filename(filter_path)?;
@@ -527,7 +522,11 @@ fn calc_user_intent(
 
         Ok((vec![UserIntent::Check(pkg)], directive).into())
     } else {
-        let intents: Vec<_> = packages.values().map(|&p| UserIntent::Check(p)).collect();
+        let intents: Vec<_> = resolve_output
+            .pkg_dirs
+            .all_packages()
+            .map(|(id, _)| UserIntent::Check(id))
+            .collect();
         Ok(intents.into())
     }
 }
