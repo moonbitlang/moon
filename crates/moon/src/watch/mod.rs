@@ -176,7 +176,7 @@ fn check_rerun_trigger(
     }
 
     let trigger = check_paths(project_root, additional_ignored_paths, &relevant_events);
-    info!("Triggered rerun");
+    info!("Have we triggered a rebuild?: {}", trigger);
 
     // prevent the case that the whole target_dir was deleted
     // FIXME: legacy code, might not need it
@@ -209,8 +209,12 @@ fn check_paths(
     for evt in relevant_events {
         for path in &evt.paths {
             // Filter to: *.mbt, *.mbt.md, moon.pkg.json, moon.mod.json
-            let filename = path.file_name();
-            if let Some(fname) = filename {
+            // Note: A file removal will render `path.is_file()` false, but we
+            // should still trigger a rerun in that case.
+            if path.is_file()
+                && !evt.kind.is_remove()
+                && let Some(fname) = path.file_name()
+            {
                 let lossy_fname = fname.to_string_lossy();
                 if !lossy_fname.ends_with(".mbt")
                     && !lossy_fname.ends_with(".mbt.md")
