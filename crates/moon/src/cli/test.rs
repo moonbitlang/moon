@@ -53,6 +53,9 @@ use std::sync::Arc;
 use tracing::{Level, debug, info, instrument, trace, warn};
 
 use crate::cli::pre_build::scan_with_x_build;
+use crate::filter::canonicalize_with_filename;
+use crate::filter::filter_pkg_by_dir;
+use crate::filter::fuzzy_match_by_name;
 use crate::rr_build;
 use crate::rr_build::preconfig_compile;
 use crate::rr_build::{BuildConfig, CalcUserIntentOutput};
@@ -792,57 +795,13 @@ fn apply_explicit_file_filter(
     file_filter: &Path,
     test_index: Option<TestIndex>,
 ) -> Result<(), anyhow::Error> {
-    let input_path = dunce::canonicalize(file_filter).with_context(|| {
-        format!(
-            "failed to canonicalize the specified file path: {}",
-            file_filter.display()
-        )
-    })?;
-    debug!(path = %input_path.display(), "normalized explicit file filter");
-    let input_path_parent = input_path.parent();
-    let input_filename = input_path.file_name();
+    let (dir, filename) = canonicalize_with_filename(file_filter)?;
+    debug!(dir = %dir.display(), filename = ?filename, "resolved explicit file filter path");
 
-    // TODO: known issue: if a path refers to a dir and its parent is a package
-    // and itself is not, the parent will be used as the package filter.
-    let mut found_path = None;
-    let mut found_path_parent = None;
-    for m in resolve_output.local_modules() {
-        for p in resolve_output
-            .pkg_dirs
-            .packages_for_module(*m)
-            .expect("Module should exist")
-            .values()
-        {
-            let pkg = resolve_output.pkg_dirs.get_package(*p);
-            if pkg.root_path == input_path {
-                found_path = Some(p);
-            } else if let Some(parent) = input_path_parent
-                && pkg.root_path == parent
-            {
-                found_path_parent = Some(p);
-            }
-        }
-    }
+    let pkg = filter_pkg_by_dir(resolve_output, &dir)?;
+    debug!(package = ?pkg, file = filename.as_deref(), "resolved explicit filter target");
 
-    // Prefer exact match, otherwise parent match
-    let (pkg, file) = if let Some(pkg) = found_path {
-        (pkg, None)
-    } else if let (Some(pkg), Some(filename)) = (found_path_parent, input_filename) {
-        (pkg, Some(filename))
-    } else if let (Some(_), None) = (found_path_parent, input_filename) {
-        unreachable!("For a normalized path, if it has a parent, it should also have a filename");
-    } else {
-        bail!(
-            "cannot find a package matching the specified file path: {}",
-            file_filter.display()
-        );
-    };
-    debug!(package = ?pkg, file = file.map(|x| x.to_string_lossy().to_string()), "resolved explicit filter target");
-    out_filter.add_autodetermine_target(
-        *pkg,
-        file.map(|x| x.to_string_lossy()).as_deref(),
-        test_index,
-    );
+    out_filter.add_autodetermine_target(pkg, filename.as_deref(), test_index);
     Ok(())
 }
 
@@ -877,29 +836,11 @@ fn apply_list_of_filters(
         })
         .collect::<HashMap<_, _>>();
 
-    // Fuzzy match a string from the map
-    let fuzzy_names = |s: &str| -> SmallVec<[PackageId; 1]> {
-        if let Some(&id) = name_map.get(s) {
-            SmallVec::from_buf([id])
-        } else {
-            let all_names = name_map.keys().map(|k| k.as_str());
-            let xs = moonutil::fuzzy_match::fuzzy_match(s, all_names);
-            if let Some(xs) = xs {
-                xs.into_iter()
-                    .filter_map(|name| name_map.get(&name).copied())
-                    .collect()
-            } else {
-                warn!("no package found matching test filter `{}`", s);
-                SmallVec::new()
-            }
-        }
-    };
-
     let mut filtered_package_ids = SmallVec::<[PackageId; 1]>::new();
 
     // Collect all the package ids that match the filter
     for p in package_filter {
-        let names = fuzzy_names(p);
+        let names = fuzzy_match_by_name(p, &name_map);
         if names.is_empty() {
             warn!("no package found matching filter `{}`", p);
         }

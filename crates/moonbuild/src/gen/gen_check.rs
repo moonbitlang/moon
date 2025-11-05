@@ -21,7 +21,7 @@ use super::gen_build::{BuildInterfaceItem, gen_build_interface_command, gen_buil
 use super::n2_errors::{N2Error, N2ErrorKind};
 use super::util::self_in_test_import;
 use crate::r#gen::{MiAlias, SKIP_TEST_LIBS};
-use anyhow::bail;
+use anyhow::{Context as _, bail};
 use colored::Colorize;
 use indexmap::map::IndexMap;
 use moonutil::module::ModuleDB;
@@ -31,7 +31,7 @@ use std::rc::Rc;
 use std::sync::Arc;
 
 use moonutil::common::{
-    BLACKBOX_TEST_PATCH, CheckOpt, MOON_PKG_JSON, MoonbuildOpt, MooncOpt, SUB_PKG_POSTFIX,
+    BLACKBOX_TEST_PATCH, MOON_PKG_JSON, MoonbuildOpt, MooncOpt, SUB_PKG_POSTFIX,
     WHITEBOX_TEST_PATCH, get_desc_name,
 };
 use n2::graph::{self as n2graph, Build, BuildIns, BuildOuts, FileLoc};
@@ -427,12 +427,13 @@ pub fn gen_check(
     let mut check_interface_items = vec![];
 
     // if pkg is specified, check that pkg and it's deps; if no pkg specified, check all pkgs
-    let pkgs_to_check = if let Some(CheckOpt {
-        package_path: Some(pkg_path),
-        ..
-    }) = moonbuild_opt.check_opt.as_ref()
+    let pkgs_to_check = if let Some(pkg_name) = moonbuild_opt
+        .check_opt
+        .as_ref()
+        .and_then(|x| x.package_name_filter.as_deref())
     {
-        &m.get_filtered_packages_and_its_deps_by_pkgpath(&moonbuild_opt.source_dir.join(pkg_path))
+        &m.get_filtered_packages_and_its_deps_by_pkgname(pkg_name)
+            .context("Failed to filter packages for check")?
     } else {
         m.get_all_packages()
     };
@@ -448,13 +449,26 @@ pub fn gen_check(
         }
 
         if pkg.virtual_pkg.is_none() {
-            let item = pkg_to_check_item(m, &pkg.root_path, pkgs_to_check, pkg, moonc_opt, false)?;
+            let item = pkg_to_check_item(
+                m,
+                pkg.module_root.as_ref(),
+                pkgs_to_check,
+                pkg,
+                moonc_opt,
+                false,
+            )?;
             dep_items.push(item);
         } else {
             check_interface_items.push(gen_build_interface_item(m, pkg)?);
             if pkg.virtual_pkg.as_ref().is_some_and(|v| v.has_default) {
-                let item =
-                    pkg_to_check_item(m, &pkg.root_path, pkgs_to_check, pkg, moonc_opt, true)?;
+                let item = pkg_to_check_item(
+                    m,
+                    pkg.module_root.as_ref(),
+                    pkgs_to_check,
+                    pkg,
+                    moonc_opt,
+                    true,
+                )?;
                 dep_items.push(item);
             }
         }
@@ -476,14 +490,22 @@ pub fn gen_check(
                 Some(name) if name.ends_with(WHITEBOX_TEST_PATCH)
             );
             if !pkg.wbtest_files.is_empty() || has_whitebox_patch {
-                let item =
-                    pkg_with_wbtest_to_check_item(&pkg.root_path, pkgs_to_check, pkg, moonc_opt)?;
+                let item = pkg_with_wbtest_to_check_item(
+                    pkg.module_root.as_ref(),
+                    pkgs_to_check,
+                    pkg,
+                    moonc_opt,
+                )?;
                 dep_items.push(item);
             }
 
             if pkg.virtual_pkg.as_ref().is_none_or(|v| v.has_default) {
-                let item =
-                    pkg_with_test_to_check_item(&pkg.root_path, pkgs_to_check, pkg, moonc_opt)?;
+                let item = pkg_with_test_to_check_item(
+                    pkg.module_root.as_ref(),
+                    pkgs_to_check,
+                    pkg,
+                    moonc_opt,
+                )?;
                 dep_items.push(item);
             }
         }

@@ -1,0 +1,1 @@
+moonc build-package ./A/hello.mbt ./A/test.mbt -o ./target/wasm-gc/release/build/A/A.core -pkg username/hello/A -std-path $MOON_HOME/lib/core/target/wasm-gc/release/bundle -pkg-sources username/hello/A:./A -target wasm-gc -workspace-path .

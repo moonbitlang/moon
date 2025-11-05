@@ -16,7 +16,7 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
-use anyhow::{Context, bail};
+use anyhow::Context;
 use colored::Colorize;
 use moonbuild::{dry_run, entry};
 use moonbuild_rupes_recta::intent::UserIntent;
@@ -35,6 +35,7 @@ use std::path::{Path, PathBuf};
 use tracing::{Level, instrument};
 
 use crate::cli::get_module_for_single_file;
+use crate::filter::{canonicalize_with_filename, filter_pkg_by_dir};
 use crate::rr_build::{self, BuildConfig, CalcUserIntentOutput, preconfig_compile};
 use crate::watch::watching;
 
@@ -59,6 +60,8 @@ pub struct CheckSubcommand {
     pub watch: bool,
 
     /// The package(and it's deps) to check
+    //
+    // TODO: Unify the `-p` flag to specifying package name, see #1139
     #[clap(long, short)]
     pub package_path: Option<PathBuf>,
 
@@ -75,24 +78,33 @@ pub struct CheckSubcommand {
     pub explain: bool,
 
     /// Check single file (.mbt or .mbt.md)
-    #[clap(conflicts_with = "watch")]
-    pub single_file: Option<PathBuf>,
+    #[clap(conflicts_with = "watch", name = "PATH")]
+    pub path: Option<PathBuf>,
 }
 
 #[instrument(skip_all)]
 pub fn run_check(cli: &UniversalFlags, cmd: &CheckSubcommand) -> anyhow::Result<i32> {
-    let (source_dir, target_dir) = if let Some(ref single_file_path) = cmd.single_file {
-        let single_file_path = &dunce::canonicalize(single_file_path).unwrap();
-        let source_dir = single_file_path.parent().unwrap().to_path_buf();
-        let target_dir = source_dir.join("target");
-        (source_dir, target_dir)
-    } else {
-        let dir = cli.source_tgt_dir.try_into_package_dirs()?;
-        (dir.source_dir, dir.target_dir)
+    // Check if we're running within a project
+    let (source_dir, target_dir, single_file) = match cli.source_tgt_dir.try_into_package_dirs() {
+        Ok(dirs) => (dirs.source_dir, dirs.target_dir, false),
+        Err(e @ moonutil::dirs::PackageDirsError::NotInProject(_)) => {
+            // Now we're talking about real single-file scenario.
+            if let Some(path) = cmd.path.as_deref() {
+                let single_file_path = &dunce::canonicalize(path).unwrap();
+                let source_dir = single_file_path.parent().unwrap().to_path_buf();
+                let target_dir = source_dir.join("target");
+                (source_dir, target_dir, true)
+            } else {
+                return Err(e.into());
+            }
+        }
+        Err(e) => {
+            return Err(e.into());
+        }
     };
 
     if cmd.build_flags.target.is_none() {
-        return run_check_internal(cli, cmd, &source_dir, &target_dir);
+        return run_check_internal(cli, cmd, &source_dir, &target_dir, single_file);
     }
 
     let surface_targets = cmd.build_flags.target.clone().unwrap();
@@ -102,7 +114,7 @@ pub fn run_check(cli: &UniversalFlags, cmd: &CheckSubcommand) -> anyhow::Result<
     for t in targets {
         let mut cmd = (*cmd).clone();
         cmd.build_flags.target_backend = Some(t);
-        let x = run_check_internal(cli, &cmd, &source_dir, &target_dir)
+        let x = run_check_internal(cli, &cmd, &source_dir, &target_dir, single_file)
             .context(format!("failed to run check for target {t:?}"))?;
         ret_value = ret_value.max(x);
     }
@@ -115,8 +127,9 @@ fn run_check_internal(
     cmd: &CheckSubcommand,
     source_dir: &Path,
     target_dir: &Path,
+    single_file: bool,
 ) -> anyhow::Result<i32> {
-    if cmd.single_file.is_some() {
+    if single_file {
         run_check_for_single_file(cli, cmd)
     } else {
         run_check_normal_internal(cli, cmd, source_dir, target_dir)
@@ -125,7 +138,7 @@ fn run_check_internal(
 
 #[instrument(level = Level::DEBUG, skip_all)]
 fn run_check_for_single_file(cli: &UniversalFlags, cmd: &CheckSubcommand) -> anyhow::Result<i32> {
-    let single_file_path = &dunce::canonicalize(cmd.single_file.as_ref().unwrap()).unwrap();
+    let single_file_path = &dunce::canonicalize(cmd.path.as_ref().unwrap()).unwrap();
     let source_dir = single_file_path.parent().unwrap().to_path_buf();
     let raw_target_dir = source_dir.join("target");
 
@@ -158,7 +171,7 @@ fn run_check_for_single_file(cli: &UniversalFlags, cmd: &CheckSubcommand) -> any
         raw_target_dir: raw_target_dir.clone(),
         test_opt: None,
         check_opt: Some(CheckOpt {
-            package_path: None,
+            package_name_filter: None, // Single file check has no package filter
             patch_file: None,
             no_mi: cmd.no_mi,
             explain: cmd.explain,
@@ -336,7 +349,7 @@ fn run_check_normal_internal_legacy(
 
     let sort_input = cmd.build_flags.sort_input;
 
-    let moonbuild_opt = MoonbuildOpt {
+    let mut moonbuild_opt = MoonbuildOpt {
         source_dir: source_dir.to_path_buf(),
         raw_target_dir: raw_target_dir.to_path_buf(),
         target_dir: target_dir.clone(),
@@ -347,7 +360,8 @@ fn run_check_normal_internal_legacy(
         output_json: cmd.output_json,
         build_graph: cli.build_graph,
         check_opt: Some(CheckOpt {
-            package_path: cmd.package_path.clone(),
+            package_name_filter: None,
+            // ^ Set below. Strange to put it here, but didn't bother changing now.
             patch_file: cmd.patch_file.clone(),
             no_mi: cmd.no_mi,
             explain: cmd.explain,
@@ -372,17 +386,62 @@ fn run_check_normal_internal_legacy(
         &PrePostBuild::PreBuild,
     )?;
 
-    if let Some(CheckOpt {
-        package_path: Some(pkg_path),
-        patch_file: pp,
-        no_mi: nm,
-        ..
-    }) = moonbuild_opt.check_opt.as_ref()
     {
-        let pkg_by_path = module.get_package_by_path_mut(&moonbuild_opt.source_dir.join(pkg_path));
-        if let Some(specified_pkg) = pkg_by_path {
-            specified_pkg.no_mi = *nm;
-            specified_pkg.patch_file = pp.clone();
+        let nm = cmd.no_mi;
+        let pp = &cmd.patch_file;
+
+        // Filter packages using the two flags
+        let filtered_package_name = if let Some(pkg_path) = &cmd.package_path {
+            // This path is relative to source_dir
+            let path = dunce::canonicalize(source_dir.join(pkg_path))
+                .context("Cannot canonicalize package name")?;
+            let pkg_name = module
+                .get_package_by_path(&path)
+                .with_context(|| {
+                    format!(
+                        "Cannot find package at given package path '{}'",
+                        pkg_path.display()
+                    )
+                })?
+                .full_name();
+            Some(pkg_name)
+        } else if let Some(path) = &cmd.path {
+            let (canonical_path, _) = canonicalize_with_filename(path).with_context(|| {
+                format!("Cannot canonicalize provided path '{}'", path.display())
+            })?;
+            let pkg_name = module
+                .get_package_by_path(&canonical_path)
+                .with_context(|| {
+                    format!(
+                        "Cannot find package at path '{}' (resolved to '{}')",
+                        path.display(),
+                        canonical_path.display(),
+                    )
+                })?
+                .full_name();
+            Some(pkg_name)
+        } else {
+            None
+        };
+
+        if let Some(pkg_name) = filtered_package_name {
+            let pkg_by_name = module.get_package_by_name_mut_safe(&pkg_name);
+            if let Some(specified_pkg) = pkg_by_name {
+                specified_pkg.no_mi = nm;
+                specified_pkg.patch_file = pp.clone();
+            } else {
+                panic!(
+                    "Package '{}' not found in module, but it was queried from path earlier. This is a bug.",
+                    pkg_name,
+                );
+            }
+
+            // Set the package name filter
+            moonbuild_opt
+                .check_opt
+                .as_mut()
+                .unwrap()
+                .package_name_filter = Some(pkg_name);
         }
     };
 
@@ -423,29 +482,14 @@ fn calc_user_intent(
         .packages_for_module(main_module_id)
         .ok_or_else(|| anyhow::anyhow!("Cannot find the local module!"))?;
 
-    if let Some(filter) = filter {
-        // Filter the package whose root path matches the given filter path
-        let filter = dunce::canonicalize(filter).context("failed to canonicalize filter path")?;
-
-        let find = packages
-            .values()
-            .find(|&&p| {
-                let pkg = resolve_output.pkg_dirs.get_package(p);
-                pkg.root_path == filter
-            })
-            .copied();
-        let Some(found) = find else {
-            bail!(
-                "Cannot find package to check based on input path `{}`",
-                filter.display()
-            );
-        };
-        let intents = find.map(|p| vec![UserIntent::Check(p)]).unwrap_or_default();
+    if let Some(filter_path) = filter {
+        let (dir, _) = canonicalize_with_filename(filter_path)?;
+        let pkg = filter_pkg_by_dir(resolve_output, &dir)?;
 
         // Apply --no-mi and --patch-file to specific packages
-        let directive = rr_build::build_patch_directive_for_package(found, no_mi, patch_file)?;
+        let directive = rr_build::build_patch_directive_for_package(pkg, no_mi, patch_file)?;
 
-        Ok((intents, directive).into())
+        Ok((vec![UserIntent::Check(pkg)], directive).into())
     } else {
         let intents: Vec<_> = packages.values().map(|&p| UserIntent::Check(p)).collect();
         Ok(intents.into())

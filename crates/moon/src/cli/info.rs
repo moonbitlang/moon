@@ -42,6 +42,7 @@ use tracing::warn;
 
 use crate::{
     cli::BuildFlags,
+    filter::{canonicalize_with_filename, filter_pkg_by_dir, match_packages_by_name_rr},
     rr_build::{self, BuildConfig, CalcUserIntentOutput},
 };
 
@@ -67,10 +68,15 @@ pub struct InfoSubcommand {
     #[clap(long, value_delimiter = ',')]
     pub target: Option<Vec<SurfaceTarget>>,
 
-    /// only emit mbti files for the specified package
-    // (username/hello/lib)
+    /// The full or subset of name of the package to emit `mbti` files for
     #[clap(short, long)]
     pub package: Option<String>,
+
+    /// The file-system path to the package or file in package to emit `mbti` files for
+    ///
+    /// Conflicts with `--package`.
+    #[clap(name = "PATH", conflicts_with("package"))]
+    pub path: Option<PathBuf>,
 }
 
 pub fn run_info(cli: UniversalFlags, cmd: InfoSubcommand) -> anyhow::Result<i32> {
@@ -102,12 +108,16 @@ pub fn run_info_rr(cli: UniversalFlags, cmd: InfoSubcommand) -> anyhow::Result<i
         RunMode::Build,
     );
     preconfig.info_no_alias = cmd.no_alias;
+    let package_filter = cmd.package.clone();
+    let path_filter = cmd.path.clone();
     let (_build_meta, build_graph) = rr_build::plan_build(
         preconfig,
         &cli.unstable_feature,
         &source_dir,
         &target_dir,
-        Box::new(calc_user_intent),
+        Box::new(move |r, m| {
+            calc_user_intent(package_filter.as_deref(), path_filter.as_deref(), r, m)
+        }),
     )?;
 
     if cli.dry_run {
@@ -127,6 +137,8 @@ pub fn run_info_rr(cli: UniversalFlags, cmd: InfoSubcommand) -> anyhow::Result<i
 }
 
 fn calc_user_intent(
+    package_filter: Option<&str>,
+    path_filter: Option<&Path>,
     resolve_output: &moonbuild_rupes_recta::ResolveOutput,
     main_modules: &[moonutil::mooncakes::ModuleId],
 ) -> Result<CalcUserIntentOutput, anyhow::Error> {
@@ -134,15 +146,35 @@ fn calc_user_intent(
         panic!("No multiple main modules are supported");
     };
 
-    let packages = resolve_output
-        .pkg_dirs
-        .packages_for_module(main_module_id)
-        .ok_or_else(|| anyhow::anyhow!("Cannot find the local module!"))?;
-    let res: Vec<_> = packages
-        .values()
-        .map(|package_id| UserIntent::Info(*package_id))
-        .collect();
-    Ok(res.into())
+    let intents = if let Some(path) = path_filter {
+        // Path filter: resolve a specific file/directory to its containing package
+        let (dir, _) = canonicalize_with_filename(path)?;
+        let pkg = filter_pkg_by_dir(resolve_output, &dir)?;
+        vec![UserIntent::Info(pkg)]
+    } else if let Some(filter) = package_filter {
+        // Package filter: fuzzy match package names
+        let matched = match_packages_by_name_rr(resolve_output, main_modules, filter);
+        if matched.is_empty() {
+            bail!(
+                "package `{}` not found, make sure you have spelled it correctly",
+                filter
+            );
+        }
+        matched
+            .into_iter()
+            .map(UserIntent::Info)
+            .collect::<Vec<_>>()
+    } else {
+        // No filter: generate info for all packages in the module
+        resolve_output
+            .pkg_dirs
+            .packages_for_module(main_module_id)
+            .ok_or_else(|| anyhow::anyhow!("Cannot find the local module!"))?
+            .values()
+            .map(|package_id| UserIntent::Info(*package_id))
+            .collect()
+    };
+    Ok(intents.into())
 }
 
 pub fn run_info_legacy(cli: UniversalFlags, cmd: InfoSubcommand) -> anyhow::Result<i32> {
@@ -316,7 +348,12 @@ pub fn run_info_internal(
         Some(p) => source_dir.join(p),
     };
 
-    let package_filter = if let Some(pkg_name) = &cmd.package {
+    type PackageFilter = dyn Fn(&Package) -> bool;
+    let package_filter: Option<Box<PackageFilter>> = if let Some(path) = &cmd.path {
+        let (path, _filename) =
+            canonicalize_with_filename(path).context("Input path is invalid")?;
+        Some(Box::new(move |pkg: &Package| pkg.root_path == path))
+    } else if let Some(pkg_name) = &cmd.package {
         let all_packages: indexmap::IndexSet<&str> = mdb
             .get_all_packages()
             .iter()
@@ -340,7 +377,9 @@ pub fn run_info_internal(
                 pkg_name
             );
         }
-        Some(move |pkg: &Package| final_set.contains(&pkg.full_name()))
+        Some(Box::new(move |pkg: &Package| {
+            final_set.contains(&pkg.full_name())
+        }))
     } else {
         None
     };
