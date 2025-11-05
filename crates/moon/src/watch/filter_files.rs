@@ -19,12 +19,12 @@
 //! Filter files for `moon watch`
 
 use std::{
-    collections::HashSet,
+    collections::HashMap,
     path::{Path, PathBuf},
 };
 
 use ignore::gitignore::{Gitignore, GitignoreBuilder};
-use tracing::warn;
+use tracing::{info, warn};
 
 /// Ephemeral struct to apply filters on file paths in a single run
 pub struct FileFilterBuilder<'a> {
@@ -32,10 +32,11 @@ pub struct FileFilterBuilder<'a> {
     root_path: &'a Path,
 
     /// Directories whose `.gitignore` files have been processed
-    handled_dirs: HashSet<PathBuf>,
+    ///
+    /// None means no gitignore file exists in that directory, and should be skipped.
+    handled_dirs: HashMap<PathBuf, Option<Gitignore>>,
 
-    /// The gitignore builders
-    ignores: Vec<Gitignore>,
+    global_ignore: Gitignore,
 }
 
 impl<'a> FileFilterBuilder<'a> {
@@ -43,20 +44,23 @@ impl<'a> FileFilterBuilder<'a> {
     ///
     /// This will always ignore the `target/` and `.mooncakes/` directories.
     pub fn new(repo_path: &'a Path) -> Self {
-        let mut ignore = GitignoreBuilder::new(repo_path);
+        let mut builder = GitignoreBuilder::new(repo_path);
 
         // Always ignore the target and .mooncakes directories
-        ignore
+        builder
             .add_line(Some(repo_path.to_path_buf()), "target/")
             .unwrap();
-        ignore
+        builder
             .add_line(Some(repo_path.to_path_buf()), ".mooncakes/")
             .unwrap();
+        let global_ignore = builder
+            .build()
+            .expect("Manual ignore creation should always succeed");
 
         Self {
             root_path: repo_path,
-            handled_dirs: HashSet::new(),
-            ignores: vec![ignore.build().unwrap()],
+            handled_dirs: HashMap::new(),
+            global_ignore,
         }
     }
 
@@ -78,33 +82,78 @@ impl<'a> FileFilterBuilder<'a> {
 
         let is_dir = file_path.is_dir();
 
-        // Add gitignore files for all parent directories up to the root
-        for p in file_path.ancestors().skip(1) {
-            if self.handled_dirs.contains(p) {
-                continue;
-            }
-            let gitignore_path = p.join(".gitignore");
-            if gitignore_path.exists() {
-                let mut builder = GitignoreBuilder::new(p);
-                builder.add(gitignore_path);
-                let built = builder.build().unwrap();
-                self.ignores.push(built);
-                self.handled_dirs.insert(p.to_path_buf());
-            }
-
-            if p == self.root_path {
-                break;
-            }
+        // Ensure global ignores are applied
+        if self
+            .global_ignore
+            .matched_path_or_any_parents(file_path, is_dir)
+            .is_ignore()
+        {
+            return true;
         }
 
-        // Check if the file is ignored by any of the gitignore rules
-        for gitignore in &self.ignores {
-            if file_path.starts_with(gitignore.path())
-                && gitignore
-                    .matched_path_or_any_parents(file_path, is_dir)
-                    .is_ignore()
-            {
-                return true;
+        // Add and apply gitignore files from parent directories up to the root
+        for p in file_path.ancestors().skip(1) {
+            if !p.starts_with(self.root_path) {
+                break;
+            }
+
+            // Check if the gitignore is already built for this path
+            match self.handled_dirs.get(p) {
+                Some(Some(ign)) => {
+                    // Check the existing gitignore
+                    let res = ign.matched_path_or_any_parents(file_path, is_dir);
+                    if res.is_ignore() {
+                        return true;
+                    } else if res.is_whitelist() {
+                        return false;
+                    }
+                    continue;
+                }
+                Some(None) => {
+                    // no gitignore in this dir
+                    continue;
+                }
+                None => {}
+            }
+
+            let gitignore_path = p.join(".gitignore");
+            if !gitignore_path.exists() {
+                self.handled_dirs.insert(p.to_path_buf(), None);
+                continue;
+            }
+
+            // Build the gitignore for this path
+            let mut builder = GitignoreBuilder::new(p);
+            if let Some(e) = builder.add(&gitignore_path) {
+                info!(
+                    "Failed to add gitignore file '{}': {}",
+                    gitignore_path.display(),
+                    e
+                );
+            }
+            match builder.build() {
+                Ok(built) => {
+                    // Check the newly built gitignore
+                    let res = built.matched_path_or_any_parents(file_path, is_dir);
+                    let is_ignore = res.is_ignore();
+                    let is_whitelist = res.is_whitelist();
+                    // Put it in the handled dirs map
+                    self.handled_dirs.insert(p.to_path_buf(), Some(built));
+
+                    if is_ignore {
+                        return true;
+                    } else if is_whitelist {
+                        return false;
+                    }
+                }
+                Err(e) => {
+                    info!(
+                        "Failed to build gitignore for '{}': {}",
+                        gitignore_path.display(),
+                        e
+                    );
+                    self.handled_dirs.insert(p.to_path_buf(), None);
+                }
             }
         }
 
