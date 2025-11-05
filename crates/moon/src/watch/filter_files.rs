@@ -150,3 +150,25 @@ fn test_ignore_target_and_mooncakes() {
     assert!(builder.check_file(&repo_path.join("target/some_file.txt")));
     assert!(builder.check_file(&repo_path.join(".mooncakes/another_file.txt")));
 }
+
+#[test]
+fn test_file_filter_reuses_ignore_rules() {
+    use std::fs;
+
+    let temp_dir = tempfile::tempdir().unwrap();
+    let repo_path = temp_dir.path();
+
+    fs::create_dir_all(repo_path.join("dir_a/sub")).unwrap();
+    fs::create_dir_all(repo_path.join("dir_b")).unwrap();
+
+    fs::write(repo_path.join("dir_a/.gitignore"), "foo.txt\nsub\n").unwrap();
+    fs::write(repo_path.join("dir_a/foo.txt"), "").unwrap();
+    fs::write(repo_path.join("dir_a/sub/bar.txt"), "").unwrap();
+    fs::write(repo_path.join("dir_b/foo.txt"), "").unwrap();
+
+    let mut builder = FileFilterBuilder::new(repo_path);
+
+    assert!(builder.check_file(&repo_path.join("dir_a/foo.txt")));
+    assert!(builder.check_file(&repo_path.join("dir_a/sub/bar.txt")));
+    assert!(!builder.check_file(&repo_path.join("dir_b/foo.txt")));
+}

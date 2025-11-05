@@ -284,3 +284,88 @@ fn run_and_print(run: impl FnOnce() -> anyhow::Result<WatchOutput>) -> HashSet<P
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    use notify::event::{CreateKind, Event, EventKind};
+
+    fn build_event(path: &Path) -> notify::Event {
+        Event {
+            kind: EventKind::Create(CreateKind::File),
+            paths: vec![path.to_path_buf()],
+            attrs: Default::default(),
+        }
+    }
+
+    #[test]
+    fn rerun_not_triggered_when_no_relevant_events() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let target_dir = temp_dir.path().join("target");
+        std::fs::create_dir_all(&target_dir).unwrap();
+
+        let result =
+            check_rerun_trigger(&target_dir, temp_dir.path(), &[], &HashSet::new()).unwrap();
+
+        assert!(!result);
+    }
+
+    #[test]
+    fn rerun_ignored_for_ignored_paths() {
+        use std::fs;
+
+        let temp_dir = tempfile::tempdir().unwrap();
+        let root = temp_dir.path();
+        let target_dir = root.join("target");
+        std::fs::create_dir_all(&target_dir).unwrap();
+
+        fs::write(root.join(".gitignore"), "ignored.txt\n").unwrap();
+        let file = root.join("ignored.txt");
+        fs::write(&file, "data").unwrap();
+
+        let event = build_event(&file);
+        let result = check_rerun_trigger(&target_dir, root, &[event], &HashSet::new()).unwrap();
+
+        assert!(!result);
+    }
+
+    #[test]
+    fn rerun_triggered_for_relevant_file() {
+        use std::fs;
+
+        let temp_dir = tempfile::tempdir().unwrap();
+        let root = temp_dir.path();
+        let target_dir = root.join("target");
+        std::fs::create_dir_all(&target_dir).unwrap();
+
+        let file = root.join("src/main.mbt");
+        fs::create_dir_all(file.parent().unwrap()).unwrap();
+        fs::write(&file, "stuff").unwrap();
+
+        let event = build_event(&file);
+        let result = check_rerun_trigger(&target_dir, root, &[event], &HashSet::new()).unwrap();
+
+        assert!(result);
+    }
+
+    #[test]
+    fn rerun_target_dir_recreated_when_missing() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let root = temp_dir.path();
+        let target_dir = root.join("target");
+
+        let file = root.join("src/main.mbt");
+        std::fs::create_dir_all(file.parent().unwrap()).unwrap();
+        std::fs::write(&file, "stuff").unwrap();
+
+        let event = build_event(&file);
+
+        assert!(!target_dir.exists());
+
+        let result = check_rerun_trigger(&target_dir, root, &[event], &HashSet::new()).unwrap();
+
+        assert!(result);
+        assert!(target_dir.exists());
+    }
+}
