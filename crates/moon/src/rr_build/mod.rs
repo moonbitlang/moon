@@ -39,7 +39,9 @@ use moonbuild::entry::{
 };
 use moonbuild_rupes_recta::{
     CompileConfig, ResolveConfig, ResolveOutput,
+    build_lower::artifact::n2_db_path,
     build_plan::InputDirective,
+    fmt::{FmtConfig, FmtResolveOutput},
     intent::UserIntent,
     model::{Artifacts, BuildPlanNode, PackageId, TargetKind},
     prebuild::run_prebuild_config,
@@ -298,7 +300,7 @@ pub fn plan_build<'a>(
     source_dir: &'a Path,
     target_dir: &'a Path,
     calc_user_intent: Box<CalcUserIntentFn<'a>>,
-) -> anyhow::Result<(BuildMeta, n2::graph::Graph)> {
+) -> anyhow::Result<(BuildMeta, BuildInput)> {
     let cfg = ResolveConfig::new_with_load_defaults(preconfig.frozen);
     let resolve_output = moonbuild_rupes_recta::resolve(&cfg, source_dir)?;
 
@@ -370,7 +372,29 @@ pub fn plan_build<'a>(
         opt_level: cx.opt_level,
     };
 
-    Ok((build_meta, compile_output.build_graph))
+    let db_path = n2_db_path(target_dir, cx.target_backend, cx.opt_level, cx.action);
+    let input = BuildInput {
+        graph: compile_output.build_graph,
+        db_path,
+    };
+
+    Ok((build_meta, input))
+}
+
+pub fn plan_fmt(
+    resolved: &FmtResolveOutput,
+    cfg: &FmtConfig,
+    target_dir: &Path,
+) -> anyhow::Result<BuildInput> {
+    let graph = moonbuild_rupes_recta::fmt::build_graph_for_fmt(resolved, cfg, target_dir)?;
+    let db_path = n2_db_path(
+        target_dir,
+        TargetBackend::default(),
+        OptLevel::Debug,
+        RunMode::Format,
+    );
+    let input = BuildInput { graph, db_path };
+    Ok(input)
 }
 
 /// Generate metadata file `packages.json` in the target directory.
@@ -448,6 +472,18 @@ impl Default for BuildConfig {
     }
 }
 
+/// The input to a build execution.
+#[derive(Debug, Clone)]
+pub struct BuildInput {
+    /// The build graph to execute
+    graph: n2::graph::Graph,
+
+    /// The build cache database path for n2
+    ///
+    /// This path is passed here because it changes between different execution configurations.
+    db_path: PathBuf,
+}
+
 /// Execute a build plan.
 ///
 /// Takes ownership of the build graph and executes the actual build tasks.
@@ -456,12 +492,12 @@ impl Default for BuildConfig {
 #[instrument(skip_all)]
 pub fn execute_build(
     cfg: &BuildConfig,
-    build_graph: n2::graph::Graph,
+    input: BuildInput,
     target_dir: &Path,
 ) -> anyhow::Result<N2RunStats> {
     execute_build_partial(
         cfg,
-        build_graph,
+        input,
         target_dir,
         Box::new(|work| work.want_every_file(None)),
     )
@@ -479,7 +515,7 @@ type WantFileFn<'b> = dyn for<'a> FnOnce(&'a mut n2::work::Work) -> anyhow::Resu
 #[instrument(skip_all)]
 pub fn execute_build_partial(
     cfg: &BuildConfig,
-    mut build_graph: n2::graph::Graph,
+    input: BuildInput,
     target_dir: &Path,
     want_files: Box<WantFileFn>,
 ) -> anyhow::Result<N2RunStats> {
@@ -489,14 +525,19 @@ pub fn execute_build_partial(
         target_dir.display()
     ))?;
 
+    let mut build_graph = input.graph;
+    let db_path = input.db_path;
+    db_path
+        .parent()
+        .map(std::fs::create_dir_all)
+        .transpose()
+        .context("Failed to create parent for build cache DB")?;
+
     // Generate n2 state
     // FIXME: This is extremely verbose and barebones, only for testing purpose
+
     let mut hashes = n2::graph::Hashes::default();
-    let n2_db = n2::db::open(
-        &target_dir.join("moon.rupes-recta.db"),
-        &mut build_graph,
-        &mut hashes,
-    )?;
+    let n2_db = n2::db::open(&db_path, &mut build_graph, &mut hashes)?;
 
     let parallelism = cfg
         .parallelism

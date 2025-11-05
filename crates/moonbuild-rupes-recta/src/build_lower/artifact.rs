@@ -355,6 +355,27 @@ impl LegacyLayout {
     }
 }
 
+/// The path to the N2 database file.
+///
+/// Note: This will be accessed from outside of this crate, so it's not in
+/// the `LegacyLayout` struct.
+pub fn n2_db_path(
+    target_base: &Path,
+    target_backend: TargetBackend,
+    opt_level: OptLevel,
+    run_mode: RunMode,
+) -> PathBuf {
+    let mut path = PathBuf::from(target_base);
+    push_backend(&mut path, target_backend);
+    match opt_level {
+        OptLevel::Release => path.push("release"),
+        OptLevel::Debug => path.push("debug"),
+    }
+    path.push(run_mode.to_dir_name());
+    path.push(format!("{}.moon_db", run_mode.to_dir_name()));
+    path
+}
+
 fn push_backend(path: &mut PathBuf, backend: TargetBackend) {
     path.push(backend.to_dir_name())
 }
