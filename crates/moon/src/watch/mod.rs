@@ -138,6 +138,7 @@ fn is_event_relevant(event: &notify::Event) -> bool {
             trace!("Ignoring metadata-only modify event: {:?}", event);
             return false;
         }
+        EventKind::Access(_) => return false,
 
         EventKind::Create(_) => (),
         EventKind::Modify(_) => (),
