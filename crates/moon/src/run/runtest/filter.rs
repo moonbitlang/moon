@@ -255,12 +255,14 @@ mod test {
                             func: "test_zero".into(),
                             name: Some("zero".into()),
                             line_number: Some(10),
+                            attrs: vec![],
                         },
                         MbtTestInfo {
                             index: 1,
                             func: "test_one".into(),
                             name: Some("one".into()),
                             line_number: Some(20),
+                            attrs: vec![],
                         },
                         // Noncontiguous index to demonstrate gaps (e.g., missing 1..3)
                         MbtTestInfo {
@@ -268,6 +270,7 @@ mod test {
                             func: "test_four".into(),
                             name: Some("four".into()),
                             line_number: Some(40),
+                            attrs: vec![],
                         },
                     ],
                 ),
@@ -278,6 +281,7 @@ mod test {
                         func: "test_two".into(),
                         name: Some("two".into()),
                         line_number: Some(30),
+                        attrs: vec![],
                     }],
                 ),
                 (
@@ -288,12 +292,14 @@ mod test {
                             func: "doctest_0".into(),
                             name: Some("doctest a".into()),
                             line_number: Some(5),
+                            attrs: vec![],
                         },
                         MbtTestInfo {
                             index: 1,
                             func: "doctest_1".into(),
                             name: Some("doctest b".into()),
                             line_number: Some(15),
+                            attrs: vec![],
                         },
                     ],
                 ),
@@ -310,6 +316,7 @@ mod test {
                         func: "file1_with_args".into(),
                         name: Some("file1 param".into()),
                         line_number: Some(25),
+                        attrs: vec![],
                     }],
                 ),
                 ("my_file.mbt".into(), vec![]),
@@ -320,6 +327,7 @@ mod test {
                         func: "param_test".into(),
                         name: Some("param".into()),
                         line_number: Some(12),
+                        attrs: vec![],
                     }],
                 ),
             ]

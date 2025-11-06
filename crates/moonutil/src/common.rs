@@ -932,6 +932,9 @@ pub struct MbtTestInfo {
     /// The line number of the definition of the test block, if any
     #[serde(default)]
     pub line_number: Option<usize>,
+    /// The attributes of the test block (e.g., #cfg conditions)
+    #[serde(default)]
+    pub attrs: Vec<String>,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -942,6 +945,12 @@ pub struct MooncGenTestInfo {
     pub with_bench_args_tests: IndexMap<FileName, Vec<MbtTestInfo>>,
     #[serde(default)]
     pub async_tests: IndexMap<FileName, Vec<MbtTestInfo>>,
+}
+
+impl MbtTestInfo {
+    pub fn has_skip(&self) -> bool {
+        self.attrs.iter().any(|attr| attr.starts_with("#skip"))
+    }
 }
 
 impl MooncGenTestInfo {
@@ -961,6 +970,9 @@ impl MooncGenTestInfo {
         for (file, tests) in section {
             writeln!(result, "  \"{file}\": {{").unwrap();
             for test in tests {
+                if test.has_skip() {
+                    continue;
+                }
                 writeln!(
                     result,
                     "    {}: ({}, [\"{}\"]),",
