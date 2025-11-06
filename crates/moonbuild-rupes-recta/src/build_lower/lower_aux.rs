@@ -98,19 +98,19 @@ impl<'a> super::BuildPlanLowerContext<'a> {
         let output = self
             .layout
             .bundle_result_path(self.opt.target_backend, module.name());
+        let info = self
+            .build_plan
+            .bundle_info(module_id)
+            .expect("Bundle info should be present when lowering bundle node");
 
         let mut inputs = vec![];
-        for dep in self.build_plan.dependency_nodes(node) {
-            let BuildPlanNode::BuildCore(package) = dep else {
-                panic!("Bundle node can only depend on BuildCore nodes");
-            };
+        for dep in info.bundle_targets.iter() {
             inputs.push(self.layout.core_of_build_target(
                 self.packages,
-                &package,
+                dep,
                 self.opt.target_backend,
             ));
         }
-        inputs.sort();
 
         let cmd = compiler::MooncBundleCore::new(&inputs, output);
 
