@@ -495,14 +495,16 @@ impl<'a> BuildPlanLowerContext<'a> {
             (false, true) => CCOptLevel::Debug,
             (false, false) => CCOptLevel::None,
         };
+        // `tcc run` uses shared runtime, others use static runtime
+        let use_shared_runtime = matches!(self.opt.target_backend, RunBackend::NativeTccRun);
 
         let config = CCConfigBuilder::default()
             .no_sys_header(true)
             .output_ty(CCOutputType::Object)
             .opt_level(opt_level)
             .debug_info(self.opt.debug_symbols)
-            .link_moonbitrun(true) // TODO: support use_tcc_run flag when available
-            .define_use_shared_runtime_macro(false) // TODO: support use_tcc_run flag when available
+            .link_moonbitrun(!use_shared_runtime)
+            .define_use_shared_runtime_macro(use_shared_runtime)
             .build()
             .expect("Failed to build CC configuration for C stub");
 

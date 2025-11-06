@@ -154,7 +154,6 @@ impl<'a> super::BuildPlanLowerContext<'a> {
                 .output_ty(output_ty)
                 .opt_level(CCOptLevel::Speed)
                 .debug_info(true)
-                // always link moonbitrun in this mode
                 .link_moonbitrun(link_moonbitrun)
                 .define_use_shared_runtime_macro(false)
                 .build()
