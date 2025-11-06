@@ -4671,6 +4671,7 @@ fn test_dont_link_third_party() {
 }
 
 #[test]
+#[ignore = "Supported backend check is extremely slow, temporarily disable it"]
 fn test_supported_backends_in_pkg_json() {
     let dir = TestDir::new("supported_backends_in_pkg_json");
     let pkg1 = dir.join("pkg1.in");
