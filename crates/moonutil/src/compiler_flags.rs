@@ -90,6 +90,10 @@ impl CC {
         }
     }
 
+    pub fn cc_path(&self) -> &str {
+        &self.cc_path
+    }
+
     fn new(cc_kind: CCKind, cc_path: String, ar_kind: ARKind, ar_path: String) -> Self {
         CC {
             cc_kind,

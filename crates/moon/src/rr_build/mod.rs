@@ -144,7 +144,7 @@ pub struct BuildMeta {
     pub artifacts: IndexMap<BuildPlanNode, Artifacts>,
 
     /// The target backend used in this compile process
-    pub target_backend: TargetBackend,
+    pub target_backend: RunBackend,
 
     /// The main optimization level used in this compile process
     pub opt_level: OptLevel,
@@ -402,7 +402,7 @@ pub fn plan_build<'a>(
     let build_meta = BuildMeta {
         resolve_output,
         artifacts: compile_output.artifacts,
-        target_backend: cx.target_backend.into(),
+        target_backend: cx.target_backend,
         opt_level: cx.opt_level,
     };
 
@@ -449,7 +449,7 @@ pub fn generate_metadata(
         source_dir,
         target_dir,
         build_meta.opt_level,
-        build_meta.target_backend,
+        build_meta.target_backend.into(),
     );
     let orig_meta = std::fs::read_to_string(&metadata_file);
     let meta = serde_json::to_string_pretty(&metadata).context("Failed to serialize metadata")?;

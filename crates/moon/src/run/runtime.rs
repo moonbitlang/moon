@@ -24,7 +24,8 @@ use std::{
 };
 
 use moonbuild::entry::TestArgs;
-use moonutil::common::TargetBackend;
+use moonbuild_rupes_recta::model::RunBackend;
+use moonutil::compiler_flags::CC;
 use tempfile::TempDir;
 use tokio::process::Command;
 
@@ -94,7 +95,7 @@ impl From<Command> for CommandGuard {
 ///
 /// Currently there's no support for using `tcc` to execute the target program.
 pub fn command_for(
-    backend: TargetBackend,
+    backend: RunBackend,
     mbt_executable: &Path,
     test: Option<&TestArgs>,
 ) -> anyhow::Result<CommandGuard> {
@@ -104,12 +105,12 @@ pub fn command_for(
 
 pub fn command_for_cached(
     cache: &RuntimeExecutableCache,
-    backend: TargetBackend,
+    backend: RunBackend,
     mbt_executable: &Path,
     test: Option<&TestArgs>,
 ) -> anyhow::Result<CommandGuard> {
     match backend {
-        TargetBackend::Wasm | TargetBackend::WasmGC => {
+        RunBackend::Wasm | RunBackend::WasmGC => {
             let mut cmd = Command::new(cache.moonrun());
             if let Some(t) = test {
                 cmd.arg("--test-args");
@@ -119,7 +120,7 @@ pub fn command_for_cached(
             cmd.arg("--");
             Ok(cmd.into())
         }
-        TargetBackend::Js => {
+        RunBackend::Js => {
             if let Some(t) = test {
                 let (dir, driver) = create_js_driver(mbt_executable, t)?;
                 let mut cmd = Command::new(cache.node());
@@ -136,8 +137,17 @@ pub fn command_for_cached(
                 Ok(cmd.into())
             }
         }
-        TargetBackend::Native | TargetBackend::LLVM => {
+        RunBackend::Native | RunBackend::Llvm => {
             let mut cmd = Command::new(mbt_executable);
+            if let Some(t) = test {
+                cmd.arg(t.to_cli_args_for_native());
+            }
+            Ok(cmd.into())
+        }
+        RunBackend::NativeTccRun => {
+            let tcc = CC::internal_tcc().expect("TCC must be available for TCC run backend");
+            let mut cmd = Command::new(tcc.cc_path());
+            cmd.arg(format!("@{}", mbt_executable.display()));
             if let Some(t) = test {
                 cmd.arg(t.to_cli_args_for_native());
             }
