@@ -18,13 +18,13 @@
 
 //! Loweing implementation for build nodes
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use moonutil::{
-    common::TargetBackend,
     compiler_flags::{
-        ArchiverConfigBuilder, CCConfigBuilder, OptLevel as CCOptLevel, OutputType as CCOutputType,
-        make_archiver_command, make_cc_command, make_cc_command_pure, resolve_cc,
+        ArchiverConfigBuilder, CCConfigBuilder, LinkerConfigBuilder, OptLevel as CCOptLevel,
+        OutputType as CCOutputType, make_archiver_command, make_cc_command, make_cc_command_pure,
+        make_linker_command_pure, resolve_cc,
     },
     cond_expr::OptLevel,
     moon_dir::MOON_DIRS,
@@ -595,14 +595,63 @@ impl<'a> BuildPlanLowerContext<'a> {
         info: &BuildCStubsInfo,
         object_files: &[PathBuf],
     ) -> BuildCommand {
-        let dylib = self.layout.c_stub_link_dylib_path(
+        // Output: lib{pkg}.{DYN_EXT}, exactly like legacy gen_link_stub_to_dynamic_lib_command()
+        let dylib_out = self.layout.c_stub_link_dylib_path(
             self.packages,
             target,
             self.opt.target_backend.into(),
             self.opt.os,
         );
+        let dest_dir = dylib_out
+            .parent()
+            .expect("c stub dylib should have a parent directory")
+            .display()
+            .to_string();
 
-        todo!()
+        // Track libruntime.{DYN_EXT} as a dependency but do not pass it as a direct linker src.
+        // Legacy adds runtime into build inputs then links via -lruntime using link_shared_runtime.
+        let runtime_dylib = self
+            .layout
+            .runtime_output_path(self.opt.target_backend, self.opt.os);
+        let runtime_parent = runtime_dylib
+            .parent()
+            .expect("runtime dylib should have a parent directory");
+
+        // Resolve CC: prefer stub_cc if provided, otherwise use default.
+        let cc = resolve_cc(self.opt.default_cc.clone(), info.stub_cc.clone());
+
+        // Build linker config: shared lib, no libmoonbitrun, and link shared runtime dir
+        let lcfg = LinkerConfigBuilder::<&Path>::default()
+            .link_moonbitrun(false)
+            .output_ty(CCOutputType::SharedLib)
+            .link_shared_runtime(Some(runtime_parent))
+            .build()
+            .expect("Failed to build LinkerConfig for C stub dylib");
+
+        // Sources: only object files; runtime handled via link_shared_runtime (-lruntime + rpath)
+        let sources: Vec<String> = object_files
+            .iter()
+            .map(|p| p.display().to_string())
+            .collect();
+
+        // User linker flags: stub_cc_link_flags (already parsed) from BuildCStubsInfo
+        let link_flags: Vec<String> = info.link_flags.clone();
+
+        let cc_cmd = make_linker_command_pure(
+            cc,
+            lcfg,
+            &link_flags,
+            &sources,
+            &dest_dir,
+            &dylib_out.display().to_string(),
+            &self.opt.compiler_paths.lib_path,
+        );
+
+        // Note: Runtime input is tracked in build plan, so no need to add here.
+        BuildCommand {
+            extra_inputs: vec![],
+            commandline: cc_cmd,
+        }
     }
 
     #[instrument(level = Level::DEBUG, skip(self, info))]

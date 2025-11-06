@@ -31,7 +31,7 @@ use tracing::{Level, instrument};
 use crate::{
     build_lower::compiler::{CmdlineAbstraction, MoondocCommand, Mooninfo},
     build_plan::BuildTargetInfo,
-    model::{BuildPlanNode, BuildTarget, PackageId, TargetKind},
+    model::{BuildPlanNode, BuildTarget, PackageId, RunBackend, TargetKind},
 };
 
 use super::{BuildCommand, compiler};
@@ -126,19 +126,36 @@ impl<'a> super::BuildPlanLowerContext<'a> {
     pub(super) fn lower_compile_runtime(&mut self) -> BuildCommand {
         let artifact_path = self
             .layout
-            .runtime_output_path(self.opt.target_backend.into(), self.opt.os);
+            .runtime_output_path(self.opt.target_backend, self.opt.os);
 
         // TODO: this part might need more simplification?
         let runtime_c_path = self.opt.runtime_dot_c_path.clone();
+
+        let output_ty;
+        let link_moonbitrun;
+        match self.opt.target_backend {
+            RunBackend::Wasm | RunBackend::WasmGC | RunBackend::Js => {
+                panic!("Runtime compilation is not applicable for non-native backends")
+            }
+            RunBackend::Native | RunBackend::Llvm => {
+                output_ty = CCOutputType::Object;
+                link_moonbitrun = true;
+            }
+            RunBackend::NativeTccRun => {
+                output_ty = CCOutputType::SharedLib;
+                link_moonbitrun = false;
+            }
+        };
+
         let cc_cmd = make_cc_command_pure::<&'static str>(
             resolve_cc(CC::default(), None),
             CCConfigBuilder::default()
                 .no_sys_header(true)
-                .output_ty(CCOutputType::Object)
+                .output_ty(output_ty)
                 .opt_level(CCOptLevel::Speed)
                 .debug_info(true)
                 // always link moonbitrun in this mode
-                .link_moonbitrun(true)
+                .link_moonbitrun(link_moonbitrun)
                 .define_use_shared_runtime_macro(false)
                 .build()
                 .expect("Failed to build CC configuration for runtime"),

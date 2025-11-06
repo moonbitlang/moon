@@ -30,7 +30,7 @@ use crate::{
     build_lower::artifact::LegacyLayout,
     build_plan::{BuildPlan, FileDependencyKind},
     discover::{DiscoverResult, DiscoveredPackage},
-    model::{BuildPlanNode, BuildTarget},
+    model::{BuildPlanNode, BuildTarget, RunBackend},
     pkg_solve::DepRelationship,
 };
 
@@ -256,12 +256,21 @@ impl<'a> BuildPlanLowerContext<'a> {
                 );
             }
             BuildPlanNode::ArchiveOrLinkCStubs(_target) => {
-                out.push(self.layout.c_stub_archive_path(
-                    self.packages,
-                    _target,
-                    self.opt.target_backend.into(),
-                    self.opt.os,
-                ));
+                if self.opt.target_backend == RunBackend::NativeTccRun {
+                    out.push(self.layout.c_stub_link_dylib_path(
+                        self.packages,
+                        _target,
+                        self.opt.target_backend.into(),
+                        self.opt.os,
+                    ));
+                } else {
+                    out.push(self.layout.c_stub_archive_path(
+                        self.packages,
+                        _target,
+                        self.opt.target_backend.into(),
+                        self.opt.os,
+                    ));
+                }
             }
             BuildPlanNode::LinkCore(target) => {
                 out.push(self.layout.linked_core_of_build_target(
@@ -304,7 +313,7 @@ impl<'a> BuildPlanLowerContext<'a> {
             BuildPlanNode::BuildRuntimeLib => {
                 out.push(
                     self.layout
-                        .runtime_output_path(self.opt.target_backend.into(), self.opt.os),
+                        .runtime_output_path(self.opt.target_backend, self.opt.os),
                 );
             }
             BuildPlanNode::GenerateMbti(_target) => {
