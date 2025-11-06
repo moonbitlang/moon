@@ -39,7 +39,7 @@ use regex::Regex;
 use tracing::{Level, debug, instrument, trace, warn};
 
 use crate::{
-    build_plan::{FileDependencyKind, PrebuildInfo},
+    build_plan::{BuildBundleInfo, FileDependencyKind, PrebuildInfo},
     cond_comp::{self, CompileCondition},
     discover::DiscoveredPackage,
     model::{BuildPlanNode, BuildTarget, PackageId, TargetKind},
@@ -781,23 +781,22 @@ impl<'a> BuildPlanConstructor<'a> {
         _node: BuildPlanNode,
         module_id: ModuleId,
     ) -> Result<(), BuildPlanConstructError> {
-        // Bundling a module gathers the build result of all its non-virtual packages
-        for &pkg_id in self
-            .input
-            .pkg_dirs
-            .packages_for_module(module_id)
-            .expect("Module should exist")
-            .values()
-        {
-            let pkg = self.input.pkg_dirs.get_package(pkg_id);
-            if pkg.raw.virtual_pkg.is_some() {
+        // Bundling a module gathers the build result of all its non-virtual packages, in topo order
+        let topo_sorted_pkgs = self.topo_sort_module_packages(module_id);
+        let mut bundle_targets = Vec::new();
+        for target in topo_sorted_pkgs.into_iter() {
+            let pkg = self.input.pkg_dirs.get_package(target.package);
+            if !pkg.has_implementation() {
+                trace!(
+                    ?module_id,
+                    ?target,
+                    "skipping bundle target without implementation"
+                );
                 continue;
             }
 
-            let build_node = BuildPlanNode::BuildCore(BuildTarget {
-                package: pkg_id,
-                kind: TargetKind::Source,
-            });
+            let build_node = BuildPlanNode::BuildCore(target);
+            trace!(?module_id, ?target, "enqueuing bundle dependency");
             self.need_node(build_node);
             self.add_edge_spec(
                 _node,
@@ -807,9 +806,89 @@ impl<'a> BuildPlanConstructor<'a> {
                     core: true,
                 },
             );
+            bundle_targets.push(target);
         }
+        trace!(
+            ?module_id,
+            count = bundle_targets.len(),
+            "recording bundle targets"
+        );
+        self.res
+            .bundle_info
+            .insert(module_id, BuildBundleInfo { bundle_targets });
 
         Ok(())
+    }
+
+    /// List all packages in the module in topological order.
+    ///
+    /// This is a DFS that limits its traversal to only packages within the module.
+    fn topo_sort_module_packages(&self, module_id: ModuleId) -> Vec<BuildTarget> {
+        let pkg_map = self
+            .input
+            .pkg_dirs
+            .packages_for_module(module_id)
+            .expect("Must exist");
+
+        let cmp_by_fqn = |a: &PackageId, b: &PackageId| {
+            let pkg_a = self.input.pkg_dirs.get_package(*a);
+            let pkg_b = self.input.pkg_dirs.get_package(*b);
+            pkg_a.fqn.cmp(&pkg_b.fqn)
+        };
+
+        // Seed the DFS with packages sorted by FQN to ensure deterministic traversal.
+        let mut seeds: Vec<_> = pkg_map.values().copied().collect();
+        seeds.sort_by(cmp_by_fqn);
+
+        let graph = &self.input.pkg_rel.dep_graph;
+        let mut ordered = Vec::new();
+        let mut visited = HashSet::new();
+        let mut stack = Vec::new();
+
+        for pkg_id in seeds {
+            let target = pkg_id.build_target(TargetKind::Source);
+            if visited.contains(&target) {
+                continue;
+            }
+
+            // Classic iterative DFS with an explicit stack so we control ordering precisely.
+            stack.push((target, false));
+            while let Some((node, expanded)) = stack.pop() {
+                if expanded {
+                    let pkg = self.input.pkg_dirs.get_package(node.package);
+                    if pkg.module == module_id {
+                        ordered.push(node);
+                    }
+                    continue;
+                }
+
+                if !visited.insert(node) {
+                    continue;
+                }
+
+                stack.push((node, true));
+
+                let mut deps: Vec<_> = graph
+                    .neighbors_directed(node, petgraph::Direction::Outgoing)
+                    .filter(|dep| dep.kind == TargetKind::Source)
+                    .filter(|dep| {
+                        let pkg = self.input.pkg_dirs.get_package(dep.package);
+                        pkg.module == module_id
+                    })
+                    .collect();
+
+                // Visit dependencies in sorted order, pushing reverse so the smallest comes off first.
+                deps.sort_by(|a, b| cmp_by_fqn(&a.package, &b.package));
+
+                for dep in deps.into_iter().rev() {
+                    if !visited.contains(&dep) {
+                        stack.push((dep, false));
+                    }
+                }
+            }
+        }
+
+        ordered
     }
 
     #[instrument(level = Level::DEBUG, skip(self))]

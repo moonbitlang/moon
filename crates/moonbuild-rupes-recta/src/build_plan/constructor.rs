@@ -301,7 +301,14 @@ impl<'a> BuildPlanConstructor<'a> {
                 );
             }
             BuildPlanNode::GenerateMbti(_build_target) => (),
-            BuildPlanNode::Bundle(_module_id) => (),
+            BuildPlanNode::Bundle(module_id) => {
+                assert!(
+                    self.res.bundle_info.contains_key(&module_id),
+                    "Bundle info for module {:?} should be present when resolving node {:?}",
+                    module_id,
+                    node
+                );
+            }
             BuildPlanNode::BuildRuntimeLib => (),
             BuildPlanNode::BuildDocs => (),
             BuildPlanNode::RunPrebuild(pkg, idx) => {

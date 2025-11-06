@@ -50,7 +50,9 @@ use std::{
 };
 
 use log::{debug, info};
-use moonutil::{common::TargetBackend, compiler_flags::CC, cond_expr::OptLevel};
+use moonutil::{
+    common::TargetBackend, compiler_flags::CC, cond_expr::OptLevel, mooncakes::ModuleId,
+};
 use petgraph::prelude::DiGraphMap;
 use tracing::instrument;
 
@@ -101,6 +103,9 @@ pub struct BuildPlan {
 
     /// The map of package to its prebuild information, if any.
     prebuild_info: HashMap<PackageId, Vec<Option<PrebuildInfo>>>,
+
+    /// The map of build target to its bundle information
+    bundle_info: HashMap<ModuleId, BuildBundleInfo>,
 
     /// The nodes that were used as input to the build plan.
     input_nodes: Vec<BuildPlanNode>,
@@ -168,6 +173,11 @@ impl BuildPlan {
             .get(&package)
             .and_then(|v| v.get(idx as usize))
             .and_then(|x| x.as_ref())
+    }
+
+    /// Get bundle information for the given module.
+    pub fn bundle_info(&self, module_id: ModuleId) -> Option<&BuildBundleInfo> {
+        self.bundle_info.get(&module_id)
     }
 
     /// Get the list of nodes that **depend on the given node**.
@@ -284,6 +294,12 @@ pub struct PrebuildInfo {
     pub(crate) resolved_inputs: Vec<PathBuf>,
     pub(crate) resolved_outputs: Vec<PathBuf>,
     pub(crate) command: String,
+}
+
+/// Metadata about bundling the build output of different targets together.
+pub struct BuildBundleInfo {
+    /// The targets to bundle into the final bundle.
+    pub(crate) bundle_targets: Vec<BuildTarget>,
 }
 
 /// Represents the environment in which the build is being performed.
