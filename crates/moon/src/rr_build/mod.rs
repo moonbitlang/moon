@@ -57,7 +57,7 @@ use moonutil::{
     features::FeatureGate,
     mooncakes::{ModuleId, sync::AutoSyncFlags},
 };
-use tracing::{Level, instrument};
+use tracing::{Level, instrument, warn};
 
 use crate::cli::BuildFlags;
 
@@ -205,8 +205,8 @@ pub struct CompilePreConfig {
     pub deny_warn: bool,
     /// Whether to not emit alias when running `mooninfo`
     pub info_no_alias: bool,
-    /// Preferred default C/C++ toolchain to use for native builds
-    pub default_cc: CC,
+    /// Attempt to use `tcc -run` when possible
+    pub try_tcc_run: bool,
     warn_list: Option<String>,
     alert_list: Option<String>,
 }
@@ -216,19 +216,26 @@ impl CompilePreConfig {
         self,
         preferred_backend: Option<TargetBackend>,
         is_core: bool,
+        tcc_available: bool,
     ) -> CompileConfig {
         let std = self.use_std && !is_core;
         let target_backend = self
             .target_backend
             .or(preferred_backend)
             .unwrap_or_default();
+
         let target_backend = match target_backend {
             TargetBackend::Wasm => RunBackend::Wasm,
             TargetBackend::WasmGC => RunBackend::WasmGC,
             TargetBackend::Js => RunBackend::Js,
-            TargetBackend::Native => RunBackend::Native,
+            TargetBackend::Native => {
+                if self.try_tcc_run && tcc_available && self.opt_level == OptLevel::Debug {
+                    RunBackend::NativeTccRun
+                } else {
+                    RunBackend::Native
+                }
+            }
             TargetBackend::LLVM => RunBackend::Llvm,
-            // TODO: integrate tcc-run to here based on input params
         };
 
         CompileConfig {
@@ -251,7 +258,7 @@ impl CompilePreConfig {
             warn_list: self.warn_list,
             alert_list: self.alert_list,
             info_no_alias: self.info_no_alias,
-            default_cc: self.default_cc,
+            default_cc: CC::default(), // TODO: determine how CC will be set
         }
     }
 }
@@ -277,7 +284,6 @@ pub fn preconfig_compile(
     build_flags: &BuildFlags,
     target_dir: &Path,
     default_opt_level: OptLevel,
-    default_cc: Option<CC>,
     action: RunMode,
 ) -> CompilePreConfig {
     let opt_level = if build_flags.release {
@@ -286,14 +292,6 @@ pub fn preconfig_compile(
         OptLevel::Debug
     } else {
         default_opt_level
-    };
-
-    let default_cc = if build_flags.release {
-        CC::default()
-    } else if build_flags.debug {
-        CC::internal_tcc().unwrap_or_default()
-    } else {
-        default_cc.unwrap_or_default()
     };
 
     CompilePreConfig {
@@ -311,7 +309,7 @@ pub fn preconfig_compile(
         moonc_output_json: !cli.dry_run && build_flags.output_style().needs_moonc_json(),
         docs_serve: false,
         info_no_alias: false,
-        default_cc,
+        try_tcc_run: false,
         deny_warn: build_flags.deny_warn,
         warn_list: build_flags.warn_list.clone(),
         alert_list: build_flags.alert_list.clone(),
@@ -374,12 +372,19 @@ pub fn plan_build<'a>(
     // Run prebuild config if any
     let prebuild_config = run_prebuild_config(&resolve_output)?;
 
-    let cx = preconfig.into_compile_config(preferred_backend, is_core);
     // Expand user intents to concrete BuildPlanNode inputs
     let mut input_nodes: Vec<BuildPlanNode> = Vec::new();
     for i in &intent.intents {
         i.append_nodes(&resolve_output, &mut input_nodes);
     }
+
+    let tcc_run_available = check_tcc_availability(
+        preferred_backend.unwrap_or_default(),
+        &resolve_output,
+        &input_nodes,
+    );
+
+    let cx = preconfig.into_compile_config(preferred_backend, is_core, tcc_run_available);
     let compile_output = moonbuild_rupes_recta::compile(
         &cx,
         &resolve_output,
@@ -434,6 +439,64 @@ pub fn plan_fmt(
     );
     let input = BuildInput { graph, db_path };
     Ok(input)
+}
+
+/// Check if we can actually run `tcc -run`.
+///
+/// This is for usage in `moon run` and `moon test`. Based on the legacy impl,
+/// only if no packages override their C/C++ toolchain, we can use `tcc -run`.
+fn check_tcc_availability(
+    target_backend: TargetBackend,
+    resolve_output: &ResolveOutput,
+    input_nodes: &[BuildPlanNode],
+) -> bool {
+    // Only for native target. Yes, not even LLVM.
+    if target_backend != TargetBackend::Native {
+        return false;
+    }
+
+    // Check if TCC is available
+    let _tcc = match CC::internal_tcc() {
+        Ok(t) => t,
+        Err(_) => {
+            warn!("TCC is not available on this system");
+            return false;
+        }
+    };
+
+    // Check if any package overrides the C/C++ toolchain
+    for node in input_nodes {
+        if let BuildPlanNode::MakeExecutable(build_target) = node {
+            let package = resolve_output.pkg_dirs.get_package(build_target.package);
+            // Check native config
+            let Some(native) = package.raw.link.as_ref().and_then(|x| x.native.as_ref()) else {
+                continue;
+            };
+            if native.cc.is_some() {
+                warn!(
+                    "Package '{}' overrides C/C++ toolchain, `tcc -run` will be disabled",
+                    package.fqn
+                );
+                return false;
+            }
+            if native.cc_flags.is_some() {
+                warn!(
+                    "Package '{}' overrides C/C++ compiler flags, `tcc -run` will be disabled",
+                    package.fqn
+                );
+                return false;
+            }
+            if native.cc_link_flags.is_some() {
+                warn!(
+                    "Package '{}' overrides C/C++ linker flags, `tcc -run` will be disabled",
+                    package.fqn
+                );
+                return false;
+            }
+        }
+    }
+
+    true
 }
 
 /// Generate metadata file `packages.json` in the target directory.

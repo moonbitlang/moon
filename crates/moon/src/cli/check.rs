@@ -277,7 +277,6 @@ fn run_check_normal_internal_rr(
         &cmd.build_flags,
         target_dir,
         moonutil::cond_expr::OptLevel::Release,
-        None,
         RunMode::Check,
     );
 

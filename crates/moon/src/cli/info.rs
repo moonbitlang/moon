@@ -105,7 +105,6 @@ pub fn run_info_rr(cli: UniversalFlags, cmd: InfoSubcommand) -> anyhow::Result<i
         &BuildFlags::default(),
         &target_dir,
         OptLevel::Release,
-        None,
         RunMode::Build,
     );
     preconfig.info_no_alias = cmd.no_alias;

@@ -36,7 +36,6 @@ use moonutil::common::{
     OutputFormat, RunMode, TargetBackend, TestOpt, lower_surface_targets,
     parse_front_matter_config,
 };
-use moonutil::compiler_flags::CC;
 use moonutil::cond_expr::CompileCondition;
 use moonutil::cond_expr::OptLevel;
 use moonutil::dirs::mk_arch_mode_dir;
@@ -611,20 +610,18 @@ fn run_test_rr(
     } else {
         OptLevel::Debug
     };
-    let default_cc = if is_bench {
-        None
-    } else {
-        CC::internal_tcc().ok()
-    };
-    let preconfig = preconfig_compile(
+
+    let mut preconfig = preconfig_compile(
         cmd.auto_sync_flags,
         cli,
         cmd.build_flags,
         target_dir,
         default_opt_level,
-        default_cc,
         RunMode::Test,
     );
+    if !is_bench {
+        preconfig.try_tcc_run = true;
+    }
 
     let mut filter = TestFilter::default();
     let (build_meta, build_graph) = rr_build::plan_build(
