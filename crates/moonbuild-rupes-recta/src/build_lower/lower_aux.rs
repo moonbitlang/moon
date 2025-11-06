@@ -85,7 +85,7 @@ impl<'a> super::BuildPlanLowerContext<'a> {
         };
 
         BuildCommand {
-            commandline: cmd.build_command("moon"),
+            commandline: cmd.build_command(&self.binaries.moonbuild),
             extra_inputs: files_vec,
         }
     }
@@ -118,7 +118,7 @@ impl<'a> super::BuildPlanLowerContext<'a> {
 
         BuildCommand {
             extra_inputs: vec![],
-            commandline: cmd.build_command("moonc"),
+            commandline: cmd.build_command(&self.binaries.moonc),
         }
     }
 
@@ -187,7 +187,7 @@ impl<'a> super::BuildPlanLowerContext<'a> {
 
         BuildCommand {
             extra_inputs: vec![],
-            commandline: cmd.build_command("mooninfo"),
+            commandline: cmd.build_command(&self.binaries.mooninfo),
         }
     }
 
@@ -226,7 +226,7 @@ impl<'a> super::BuildPlanLowerContext<'a> {
         );
 
         BuildCommand {
-            commandline: cmd.build_command("moondoc"),
+            commandline: cmd.build_command(&self.binaries.moondoc),
             extra_inputs: vec![packages_json],
         }
     }

@@ -29,6 +29,7 @@ mod moondoc;
 mod mooninfo;
 
 use std::borrow::Cow;
+use std::ffi::OsStr;
 use std::path::Path;
 
 use crate::model::TargetKind;
@@ -165,8 +166,8 @@ pub enum WarnAlertConfig<'a> {
 pub trait CmdlineAbstraction {
     fn to_args(&self, args: &mut Vec<String>);
 
-    fn build_command(&self, executable: impl Into<String>) -> Vec<String> {
-        let mut args = vec![executable.into()];
+    fn build_command(&self, executable: impl AsRef<OsStr>) -> Vec<String> {
+        let mut args = vec![executable.as_ref().to_string_lossy().to_string()];
         self.to_args(&mut args);
         args
     }

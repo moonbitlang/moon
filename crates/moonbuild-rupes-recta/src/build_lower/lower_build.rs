@@ -229,7 +229,7 @@ impl<'a> BuildPlanLowerContext<'a> {
 
         BuildCommand {
             extra_inputs,
-            commandline: cmd.build_command("moonc"),
+            commandline: cmd.build_command(&self.binaries.moonc),
         }
     }
 
@@ -308,7 +308,7 @@ impl<'a> BuildPlanLowerContext<'a> {
         }
 
         BuildCommand {
-            commandline: cmd.build_command("moonc"),
+            commandline: cmd.build_command(&self.binaries.moonc),
             extra_inputs,
         }
     }
@@ -406,7 +406,7 @@ impl<'a> BuildPlanLowerContext<'a> {
 
         BuildCommand {
             extra_inputs,
-            commandline: cmd.build_command("moonc"),
+            commandline: cmd.build_command(&self.binaries.moonc),
         }
     }
 
@@ -804,7 +804,7 @@ impl<'a> BuildPlanLowerContext<'a> {
         //
         // We have a tool for this: `moon tool write-tcc-rsp-file <out> <args...>`
         let mut rsp_cmdline = vec![
-            "moon".to_string(),
+            self.binaries.moonbuild.display().to_string(),
             "tool".to_string(),
             "write-tcc-rsp-file".to_string(),
         ];
@@ -864,7 +864,7 @@ impl<'a> BuildPlanLowerContext<'a> {
         BuildCommand {
             // Track the user-written `.mbti` contract as an explicit input
             extra_inputs: vec![mbti_path.clone()],
-            commandline: cmd.build_command("moonc"),
+            commandline: cmd.build_command(&self.binaries.moonc),
         }
     }
 
