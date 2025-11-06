@@ -128,7 +128,7 @@ impl ResultCatcher {
 #[allow(clippy::too_many_arguments)] // This is inefficient and we know it
 pub fn render_and_catch_callback(
     catcher: Arc<Mutex<ResultCatcher>>,
-    output_json: bool,
+    no_render_output: bool,
     use_fancy: bool,
     check_patch_file: Option<PathBuf>,
     explain: bool,
@@ -141,7 +141,7 @@ pub fn render_and_catch_callback(
             .split('\n')
             .filter(|it| !it.is_empty())
             .for_each(|content| {
-                let report_kind = if output_json {
+                let report_kind = if no_render_output {
                     println!("{content}");
                     None
                 } else {
@@ -167,7 +167,7 @@ pub fn n2_simple_run_interface(
     let logger = Arc::new(Mutex::new(ResultCatcher::default()));
     let use_fancy = terminal::use_fancy();
 
-    let output_json = moonbuild_opt.output_json;
+    let output_json = moonbuild_opt.no_render_output;
     let check_patch_file = moonbuild_opt
         .check_opt
         .as_ref()
@@ -277,7 +277,7 @@ pub fn n2_run_interface(
     let logger = Arc::new(Mutex::new(ResultCatcher::default()));
     let use_fancy = terminal::use_fancy();
 
-    let output_json = moonbuild_opt.output_json;
+    let no_render_output = moonbuild_opt.no_render_output;
     let check_patch_file = moonbuild_opt
         .check_opt
         .as_ref()
@@ -292,7 +292,7 @@ pub fn n2_run_interface(
     let render_no_loc = moonbuild_opt.render_no_loc;
     let render_and_catch = render_and_catch_callback(
         Arc::clone(&logger),
-        output_json,
+        no_render_output,
         use_fancy,
         check_patch_file,
         explain,
@@ -350,7 +350,7 @@ pub fn n2_run_interface(
 
         let callback = render_and_catch_callback(
             Arc::clone(&logger),
-            output_json,
+            no_render_output,
             use_fancy,
             check_patch_file,
             explain,

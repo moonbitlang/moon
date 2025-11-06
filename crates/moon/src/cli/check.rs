@@ -51,10 +51,6 @@ pub struct CheckSubcommand {
     #[clap(flatten)]
     pub build_flags: BuildFlags,
 
-    /// Output in json format
-    #[clap(long)]
-    pub output_json: bool,
-
     #[clap(flatten)]
     pub auto_sync_flags: AutoSyncFlags,
 
@@ -188,7 +184,7 @@ fn run_check_for_single_file(cli: &UniversalFlags, cmd: &CheckSubcommand) -> any
         build_graph: cli.build_graph,
         fmt_opt: None,
         args: vec![],
-        output_json: false,
+        no_render_output: cmd.build_flags.output_style().needs_no_render(),
         parallelism: cmd.build_flags.jobs,
         use_tcc_run: false,
         dynamic_stub_libs: None,
@@ -220,7 +216,7 @@ fn run_check_for_single_file(cli: &UniversalFlags, cmd: &CheckSubcommand) -> any
         extra_build_opt: vec![],
         extra_link_opt: vec![],
         nostd: false,
-        render: !cmd.build_flags.no_render,
+        json_diagnostics: cmd.build_flags.output_style().needs_moonc_json(),
         single_file: true,
     };
     let module =
@@ -275,7 +271,7 @@ fn run_check_normal_internal_rr(
     target_dir: &Path,
     _watch: bool,
 ) -> anyhow::Result<WatchOutput> {
-    let mut preconfig = preconfig_compile(
+    let preconfig = preconfig_compile(
         &cmd.auto_sync_flags,
         cli,
         &cmd.build_flags,
@@ -283,7 +279,6 @@ fn run_check_normal_internal_rr(
         moonutil::cond_expr::OptLevel::Release,
         RunMode::Check,
     );
-    preconfig.moonc_output_json |= cmd.output_json;
 
     let (build_meta, build_graph) = rr_build::plan_build(
         preconfig,
@@ -326,7 +321,6 @@ fn run_check_normal_internal_rr(
         rr_build::generate_metadata(source_dir, target_dir, &build_meta)?;
 
         let mut cfg = BuildConfig::from_flags(&cmd.build_flags, &cli.unstable_feature);
-        cfg.no_render |= cmd.output_json;
         cfg.patch_file = cmd.patch_file.clone();
         cfg.explain_errors |= cmd.explain;
         let result = rr_build::execute_build(&cfg, build_graph, target_dir)?;
@@ -379,7 +373,7 @@ fn run_check_normal_internal_legacy(
         run_mode,
         quiet: cli.quiet,
         verbose: cli.verbose,
-        output_json: cmd.output_json,
+        no_render_output: cmd.build_flags.output_style().needs_no_render(),
         build_graph: cli.build_graph,
         check_opt: Some(CheckOpt {
             package_name_filter: None,

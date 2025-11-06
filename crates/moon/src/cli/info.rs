@@ -315,7 +315,7 @@ pub fn run_info_internal(
         args: vec![],
         verbose: cli.verbose,
         quiet: cli.quiet,
-        output_json: false,
+        no_render_output: false,
         no_parallelize: false,
         build_graph: false,
         parallelism: None,

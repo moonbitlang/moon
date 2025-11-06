@@ -109,7 +109,8 @@ Build the current package
 * `--sort-input` — Sort input files
 * `--output-wat` — Output WAT instead of WASM
 * `-d`, `--deny-warn` — Treat all warnings as errors
-* `--no-render` — Don't render diagnostics from moonc (don't pass '-error-format json' to moonc)
+* `--no-render` — Don't render diagnostics (in raw human-readable format)
+* `--output-json` — Output diagnostics in JSON format
 * `--warn-list <WARN_LIST>` — Warn list config
 * `--alert-list <ALERT_LIST>` — Alert list config
 * `-j`, `--jobs <JOBS>` — Set the max number of jobs to run in parallel
@@ -150,7 +151,8 @@ Check the current package, but don't build object files
 * `--sort-input` — Sort input files
 * `--output-wat` — Output WAT instead of WASM
 * `-d`, `--deny-warn` — Treat all warnings as errors
-* `--no-render` — Don't render diagnostics from moonc (don't pass '-error-format json' to moonc)
+* `--no-render` — Don't render diagnostics (in raw human-readable format)
+* `--output-json` — Output diagnostics in JSON format
 * `--warn-list <WARN_LIST>` — Warn list config
 * `--alert-list <ALERT_LIST>` — Alert list config
 * `-j`, `--jobs <JOBS>` — Set the max number of jobs to run in parallel
@@ -160,7 +162,6 @@ Check the current package, but don't build object files
 
   Possible values: `info`, `warn`, `error`
 
-* `--output-json` — Output in json format
 * `--frozen` — Do not sync dependencies, assuming local dependencies are up-to-date
 * `-w`, `--watch` — Monitor the file system and automatically check files
 * `-p`, `--package-path <PACKAGE_PATH>` — The package(and it's deps) to check
@@ -197,7 +198,8 @@ Run a main package
 * `--sort-input` — Sort input files
 * `--output-wat` — Output WAT instead of WASM
 * `-d`, `--deny-warn` — Treat all warnings as errors
-* `--no-render` — Don't render diagnostics from moonc (don't pass '-error-format json' to moonc)
+* `--no-render` — Don't render diagnostics (in raw human-readable format)
+* `--output-json` — Output diagnostics in JSON format
 * `--warn-list <WARN_LIST>` — Warn list config
 * `--alert-list <ALERT_LIST>` — Alert list config
 * `-j`, `--jobs <JOBS>` — Set the max number of jobs to run in parallel
@@ -238,7 +240,8 @@ Test the current package
 * `--sort-input` — Sort input files
 * `--output-wat` — Output WAT instead of WASM
 * `-d`, `--deny-warn` — Treat all warnings as errors
-* `--no-render` — Don't render diagnostics from moonc (don't pass '-error-format json' to moonc)
+* `--no-render` — Don't render diagnostics (in raw human-readable format)
+* `--output-json` — Output diagnostics in JSON format
 * `--warn-list <WARN_LIST>` — Warn list config
 * `--alert-list <ALERT_LIST>` — Alert list config
 * `-j`, `--jobs <JOBS>` — Set the max number of jobs to run in parallel
@@ -358,7 +361,8 @@ Run benchmarks in the current package
 * `--sort-input` — Sort input files
 * `--output-wat` — Output WAT instead of WASM
 * `-d`, `--deny-warn` — Treat all warnings as errors
-* `--no-render` — Don't render diagnostics from moonc (don't pass '-error-format json' to moonc)
+* `--no-render` — Don't render diagnostics (in raw human-readable format)
+* `--output-json` — Output diagnostics in JSON format
 * `--warn-list <WARN_LIST>` — Warn list config
 * `--alert-list <ALERT_LIST>` — Alert list config
 * `-j`, `--jobs <JOBS>` — Set the max number of jobs to run in parallel

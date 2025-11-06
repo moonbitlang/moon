@@ -33,6 +33,7 @@ use walkdir::WalkDir;
 mod backend;
 mod backend_config;
 mod design;
+mod diagnostics_format;
 mod diamond_pkg;
 mod docs_examples;
 mod dummy_core;
@@ -1701,21 +1702,6 @@ fn test_moon_run_single_mbt_file() {
     );
     // cl have other output
     assert!(output.contains("I am OK"));
-}
-
-#[test]
-fn test_moon_check_json_output() {
-    let dir = TestDir::new("warns/deny_warn");
-
-    check(
-        get_stdout(&dir, ["check", "--output-json", "-q"]),
-        expect![[r#"
-            {"$message_type":"diagnostic","level":"warning","loc":{"path":"$ROOT/lib/hello.mbt","start":{"line":4,"col":7},"end":{"line":4,"col":8}},"message":"Warning: Unused variable 'a'","error_code":2}
-            {"$message_type":"diagnostic","level":"warning","loc":{"path":"$ROOT/lib/hello.mbt","start":{"line":11,"col":7},"end":{"line":11,"col":9}},"message":"Warning: Unused variable '中文'","error_code":2}
-            {"$message_type":"diagnostic","level":"warning","loc":{"path":"$ROOT/lib/hello.mbt","start":{"line":12,"col":7},"end":{"line":12,"col":12}},"message":"Warning: Unused variable '🤣😭🤣😭🤣'","error_code":2}
-            {"$message_type":"diagnostic","level":"warning","loc":{"path":"$ROOT/main/main.mbt","start":{"line":2,"col":7},"end":{"line":2,"col":8}},"message":"Warning: Unused variable 'a'","error_code":2}
-        "#]],
-    );
 }
 
 #[test]

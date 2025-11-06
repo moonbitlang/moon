@@ -197,8 +197,7 @@ pub struct CompilePreConfig {
     enable_coverage: bool,
     output_wat: bool,
     /// Whether to output JSON when compiling with moonc.
-    /// Set separately because we don't have the same
-    pub moonc_output_json: bool,
+    moonc_output_json: bool,
     target_dir: PathBuf,
     /// Whether to execute `moondoc` in serve mode, which outputs HTML
     pub docs_serve: bool,
@@ -275,7 +274,7 @@ pub fn preconfig_compile(
         output_wat: build_flags.output_wat,
         debug_export_build_plan: cli.unstable_feature.rr_export_build_plan,
         // In legacy impl, dry run always force no json
-        moonc_output_json: !build_flags.no_render && !cli.dry_run,
+        moonc_output_json: !cli.dry_run && build_flags.output_style().needs_moonc_json(),
         docs_serve: false,
         info_no_alias: false,
         deny_warn: build_flags.deny_warn,
@@ -427,7 +426,7 @@ pub struct BuildConfig {
     /// available CPU cores.
     parallelism: Option<usize>,
     /// Skip rendering compiler diagnostics to console
-    pub no_render: bool,
+    no_render: bool,
     /// Render no-location diagnostics above this level
     render_no_loc: DiagnosticLevel,
 
@@ -448,7 +447,7 @@ impl BuildConfig {
     pub fn from_flags(flags: &BuildFlags, unstable_features: &FeatureGate) -> Self {
         BuildConfig {
             parallelism: flags.jobs,
-            no_render: flags.no_render,
+            no_render: flags.output_style().needs_no_render(),
             render_no_loc: flags.render_no_loc,
             generate_metadata: false,
             explain_errors: false,

@@ -121,7 +121,7 @@ fn run_fmt_legacy(cli: &UniversalFlags, cmd: FmtSubcommand) -> anyhow::Result<i3
         args: vec![],
         verbose: cli.verbose,
         quiet: cli.quiet,
-        output_json: false,
+        no_render_output: false,
         no_parallelize: false,
         parallelism: None,
         use_tcc_run: false,

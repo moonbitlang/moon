@@ -104,7 +104,7 @@ pub fn print_commands(
     moonbuild_opt: &MoonbuildOpt,
 ) -> anyhow::Result<i32> {
     let moonc_opt = &MooncOpt {
-        render: false,
+        json_diagnostics: false,
         ..moonc_opt.clone()
     };
 

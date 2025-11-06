@@ -479,7 +479,7 @@ pub struct MoonbuildOpt {
     pub args: Vec<String>,
     pub verbose: bool,
     pub quiet: bool,
-    pub output_json: bool,
+    pub no_render_output: bool,
     pub no_parallelize: bool,
     pub build_graph: bool,
     /// Max parallel tasks to run in n2; `None` to use default
@@ -566,7 +566,7 @@ pub struct MooncOpt {
     pub extra_build_opt: Vec<String>,
     pub extra_link_opt: Vec<String>,
     pub nostd: bool,
-    pub render: bool,
+    pub json_diagnostics: bool,
     pub single_file: bool,
 }
 
@@ -584,7 +584,7 @@ impl MooncOpt {
             extra_build_opt: vec![],
             extra_link_opt: vec![],
             nostd: false,
-            render: true,
+            json_diagnostics: true,
             single_file: false,
         }
     }

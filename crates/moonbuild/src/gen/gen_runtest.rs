@@ -1138,7 +1138,7 @@ pub fn gen_runtest_build_command(
 
     let command = CommandBuilder::new("moonc")
         .arg("build-package")
-        .args_with_cond(moonc_opt.render, vec!["-error-format", "json"])
+        .args_with_cond(moonc_opt.json_diagnostics, vec!["-error-format", "json"])
         .args(&item.mbt_deps)
         .args(&item.mbt_md_deps)
         .args(

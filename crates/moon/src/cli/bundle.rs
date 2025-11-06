@@ -193,7 +193,7 @@ fn run_bundle_internal_legacy(
         args: vec![],
         verbose: cli.verbose,
         quiet: cli.quiet,
-        output_json: false,
+        no_render_output: cmd.build_flags.output_style().needs_no_render(),
         no_parallelize: false,
         build_graph: false,
         parallelism: cmd.build_flags.jobs,
