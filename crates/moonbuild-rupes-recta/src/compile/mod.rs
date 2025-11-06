@@ -121,7 +121,7 @@ pub fn compile(
         .filter(|x| filter_special_case_input_nodes(*x, resolve_output));
 
     let build_env = BuildEnvironment {
-        target_backend: cx.target_backend.into(),
+        target_backend: cx.target_backend,
         opt_level: cx.opt_level,
         std: cx.stdlib_path.is_some(),
         warn_list: cx.warn_list.clone(),

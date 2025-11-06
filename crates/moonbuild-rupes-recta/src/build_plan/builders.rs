@@ -42,7 +42,7 @@ use crate::{
     build_plan::{BuildBundleInfo, FileDependencyKind, PrebuildInfo},
     cond_comp::{self, CompileCondition},
     discover::DiscoveredPackage,
-    model::{BuildPlanNode, BuildTarget, PackageId, TargetKind},
+    model::{BuildPlanNode, BuildTarget, PackageId, RunBackend, TargetKind},
 };
 
 use super::{
@@ -264,7 +264,7 @@ impl<'a> BuildPlanConstructor<'a> {
         let compile_condition = CompileCondition {
             optlevel: self.build_env.opt_level,
             test_kind: target.kind.into(),
-            backend: self.build_env.target_backend,
+            backend: self.build_env.target_backend.into(),
         };
 
         // Iterator of all existing source files in the package
@@ -424,7 +424,7 @@ impl<'a> BuildPlanConstructor<'a> {
     }
 
     #[instrument(level = Level::DEBUG, skip(self))]
-    pub(super) fn build_link_c_stubs(
+    pub(super) fn build_archive_or_link_c_stubs(
         &mut self,
         node: BuildPlanNode,
         target: PackageId,
@@ -436,6 +436,13 @@ impl<'a> BuildPlanConstructor<'a> {
             self.add_edge(node, build_node);
         }
 
+        // If we're tcc run, also depend on the runtime library
+        if self.build_env.target_backend == RunBackend::NativeTccRun {
+            let make_exec_node = self.need_node(BuildPlanNode::BuildRuntimeLib);
+            self.add_edge(node, make_exec_node);
+        }
+
+        // Populate C stub info
         let native_config = pkg.raw.link.as_ref().and_then(|x| x.native.as_ref());
 
         let stub_cc = native_config
