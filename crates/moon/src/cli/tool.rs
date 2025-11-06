@@ -18,9 +18,11 @@
 
 pub mod embed;
 pub mod format_and_diff;
+pub mod write_rsp_file;
 
 use embed::*;
 use format_and_diff::*;
+use write_rsp_file::*;
 
 #[derive(Debug, clap::Parser)]
 pub struct ToolSubcommand {
@@ -32,11 +34,13 @@ pub struct ToolSubcommand {
 pub enum ToolSubcommands {
     FormatAndDiff(FormatAndDiffSubcommand),
     Embed(Embed),
+    WriteTccRspFile(WriteTccRspFile),
 }
 
 pub fn run_tool(cmd: ToolSubcommand) -> anyhow::Result<i32> {
     match cmd.subcommand {
         ToolSubcommands::FormatAndDiff(subcmd) => run_format_and_diff(subcmd),
         ToolSubcommands::Embed(subcmd) => run_embed(subcmd),
+        ToolSubcommands::WriteTccRspFile(subcmd) => write_tcc_rsp_file(subcmd),
     }
 }
