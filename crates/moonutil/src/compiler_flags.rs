@@ -623,7 +623,10 @@ where
 }
 
 // Helper functions for CC command building
-fn add_cc_output_flags(cc: &CC, buf: &mut Vec<String>, config: &CCConfig, dest: &str) {
+fn add_cc_output_flags(cc: &CC, buf: &mut Vec<String>, config: &CCConfig, dest: Option<&str>) {
+    let Some(dest) = dest else {
+        return;
+    };
     if cc.is_msvc() {
         match config.output_ty {
             OutputType::Object => {
@@ -836,7 +839,7 @@ where
         user_cc_flags,
         src,
         dest_dir,
-        dest,
+        Some(dest),
         &paths,
     )
 }
@@ -847,7 +850,7 @@ pub fn make_cc_command_pure<S>(
     user_cc_flags: &[S],
     src: impl IntoIterator<Item = impl Into<String>>,
     dest_dir: &str,
-    dest: &str,
+    dest: Option<&str>,
     paths: &CompilerPaths,
 ) -> Vec<String>
 where

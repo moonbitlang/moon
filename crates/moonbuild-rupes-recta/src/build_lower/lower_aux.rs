@@ -161,7 +161,7 @@ impl<'a> super::BuildPlanLowerContext<'a> {
             &[],
             [runtime_c_path.display().to_string()],
             &self.opt.target_dir_root.display().to_string(),
-            &artifact_path.display().to_string(),
+            Some(&artifact_path.display().to_string()),
             &self.opt.compiler_paths,
         );
 

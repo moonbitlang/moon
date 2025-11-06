@@ -22,7 +22,7 @@ use std::path::{Path, PathBuf};
 
 use moonutil::{
     compiler_flags::{
-        ArchiverConfigBuilder, CCConfigBuilder, LinkerConfigBuilder, OptLevel as CCOptLevel,
+        ArchiverConfigBuilder, CC, CCConfigBuilder, LinkerConfigBuilder, OptLevel as CCOptLevel,
         OutputType as CCOutputType, make_archiver_command, make_cc_command, make_cc_command_pure,
         make_linker_command_pure, resolve_cc,
     },
@@ -662,11 +662,22 @@ impl<'a> BuildPlanLowerContext<'a> {
         target: BuildTarget,
         info: &MakeExecutableInfo,
     ) -> BuildCommand {
-        assert!(
-            self.opt.target_backend.is_native(),
-            "Non-native make-executable should be already matched and should not be here"
-        );
+        match self.opt.target_backend {
+            RunBackend::WasmGC | RunBackend::Wasm | RunBackend::Js => {
+                panic!(
+                    "Non-native make-executable should be already matched and should not be here"
+                )
+            }
+            RunBackend::Native | RunBackend::Llvm => self.lower_build_exe_regular(target, info),
+            RunBackend::NativeTccRun => self.build_tcc_run_driver_command(target, info),
+        }
+    }
 
+    fn lower_build_exe_regular(
+        &mut self,
+        target: BuildTarget,
+        info: &MakeExecutableInfo,
+    ) -> BuildCommand {
         let _package = self.get_package(target);
 
         // Two things needs to be done here:
@@ -700,30 +711,118 @@ impl<'a> BuildPlanLowerContext<'a> {
             .define_use_shared_runtime_macro(false)
             .build()
             .expect("Failed to build CC configuration for executable");
+
+        let dest = self
+            .layout
+            .executable_of_build_target(
+                self.packages,
+                &target,
+                self.opt.target_backend,
+                self.opt.os,
+                true,
+                self.opt.output_wat,
+            )
+            .display()
+            .to_string();
+
         let cc_cmd = make_cc_command_pure(
             resolve_cc(self.opt.default_cc.clone(), info.cc.clone()), // TODO: no clone
             config,
             &info.c_flags,
             sources.iter().map(|x| x.display().to_string()),
             &self.opt.target_dir_root.display().to_string(),
-            &self
-                .layout
-                .executable_of_build_target(
-                    self.packages,
-                    &target,
-                    self.opt.target_backend,
-                    self.opt.os,
-                    true,
-                    self.opt.output_wat,
-                )
-                .display()
-                .to_string(),
+            Some(&dest),
             &self.opt.compiler_paths,
         );
 
         BuildCommand {
             extra_inputs: vec![],
             commandline: cc_cmd,
+        }
+    }
+
+    /// Build the command for `tcc -run` to execute when running, as well as
+    /// putting that into a response file.
+    fn build_tcc_run_driver_command(
+        &self,
+        target: BuildTarget,
+        info: &MakeExecutableInfo,
+    ) -> BuildCommand {
+        // TODO: Get the CC instance from outside
+        let cc = CC::internal_tcc().expect("Should not go to tcc run path without tcc available");
+
+        let mut sources = vec![];
+
+        // Runtime path
+        self.append_all_artifacts_of(BuildPlanNode::BuildRuntimeLib, &mut sources);
+        // C stubs to link
+        for &stub_tgt in &info.link_c_stubs {
+            self.append_all_artifacts_of(
+                BuildPlanNode::ArchiveOrLinkCStubs(stub_tgt.package),
+                &mut sources,
+            );
+        }
+
+        let cfg = CCConfigBuilder::default()
+            .no_sys_header(true) // -DMOONBIT_NATIVE_NO_SYS_HEADER for TCC
+            .output_ty(CCOutputType::Executable) // base flags akin to "run"
+            .opt_level(match self.opt.opt_level {
+                OptLevel::Release => CCOptLevel::Speed,
+                OptLevel::Debug => CCOptLevel::Debug,
+            })
+            .debug_info(self.opt.debug_symbols)
+            .link_moonbitrun(false) // never link libmoonbitrun.o under tcc -run
+            .define_use_shared_runtime_macro(true) // -DMOONBIT_USE_SHARED_RUNTIME (+ -fPIC on gcc-like)
+            .build()
+            .expect("Failed to build CC configuration for tcc-run");
+
+        let mut cmdline = make_cc_command_pure(
+            cc,
+            cfg,
+            &[] as &[&str], // no user flags
+            sources.iter().map(|x| x.to_string_lossy().into_owned()),
+            "", // TCC is not MSVC, no need to set special dest dir
+            None,
+            &self.opt.compiler_paths,
+        );
+
+        // The C file from moonc link-core
+        cmdline.push("-run".to_string());
+        let c_file = self.layout.linked_core_of_build_target(
+            self.packages,
+            &target,
+            self.opt.target_backend.into(),
+            self.opt.os,
+            self.opt.output_wat,
+        );
+        cmdline.push(c_file.display().to_string());
+
+        // Note: at this point, we have our TCC command.
+        // However, this command should be executed when the user runs the final
+        // executable, not in this build graph. Thus, we need to put them into
+        // a response file so that `tcc` will run it later.
+        //
+        // We have a tool for this: `moon tool write-tcc-rsp-file <out> <args...>`
+        let mut rsp_cmdline = vec![
+            "moon".to_string(),
+            "tool".to_string(),
+            "write-tcc-rsp-file".to_string(),
+        ];
+        let rsp_path = self.layout.executable_of_build_target(
+            self.packages,
+            &target,
+            self.opt.target_backend,
+            self.opt.os,
+            false,
+            self.opt.output_wat,
+        );
+
+        rsp_cmdline.push(rsp_path.display().to_string());
+        rsp_cmdline.extend(cmdline.into_iter().skip(1)); // skip original `tcc` command
+
+        BuildCommand {
+            extra_inputs: vec![],
+            commandline: rsp_cmdline,
         }
     }
 
