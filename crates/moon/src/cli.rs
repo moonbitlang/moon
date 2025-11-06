@@ -305,7 +305,9 @@ impl BuildFlags {
             (true, false) => OutputStyle::Raw,
             (false, true) => OutputStyle::Json,
             (false, false) => OutputStyle::Fancy,
-            (true, true) => panic!("both no_render and output_json flags are set, this is a bug"),
+            (true, true) => unreachable!(
+                "unreachable: both no_render and output_json flags are set (should be prevented by conflicts_with)"
+            ),
         }
     }
 }
