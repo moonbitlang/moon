@@ -57,7 +57,7 @@ use moonutil::{
     features::FeatureGate,
     mooncakes::{ModuleId, sync::AutoSyncFlags},
 };
-use tracing::{Level, instrument, warn};
+use tracing::{Level, info, instrument, warn};
 
 use crate::cli::BuildFlags;
 
@@ -333,17 +333,23 @@ pub fn plan_build<'a>(
     target_dir: &'a Path,
     calc_user_intent: Box<CalcUserIntentFn<'a>>,
 ) -> anyhow::Result<(BuildMeta, BuildInput)> {
+    info!("Starting build planning");
+
     let cfg = ResolveConfig::new_with_load_defaults(preconfig.frozen);
     let resolve_output = moonbuild_rupes_recta::resolve(&cfg, source_dir)?;
 
+    info!("Resolve completed");
+
     // A couple of debug things:
     if unstable_features.rr_export_module_graph {
+        info!("Exporting module graph DOT file");
         moonbuild_rupes_recta::util::print_resolved_env_dot(
             &resolve_output.module_rel,
             &mut std::fs::File::create(target_dir.join("module_graph.dot"))?,
         )?;
     }
     if unstable_features.rr_export_package_graph {
+        info!("Exporting package graph DOT file");
         moonbuild_rupes_recta::util::print_dep_relationship_dot(
             &resolve_output.pkg_rel,
             &resolve_output.pkg_dirs,
@@ -351,6 +357,7 @@ pub fn plan_build<'a>(
         )?;
     }
 
+    info!("Checking main module and backend");
     assert_eq!(
         resolve_output.local_modules().len(),
         1,
@@ -362,17 +369,23 @@ pub fn plan_build<'a>(
 
     // Preferred backend
     let preferred_backend = main_module.preferred_target;
+    info!("Preferred backend: {:?}", preferred_backend);
 
+    info!("Calculating user intent");
     let intent = calc_user_intent(&resolve_output, &[main_module_id])?;
+    info!("User intent calculated: {:?}", intent.intents);
 
     // std or no-std?
     // Ultimately we want to determine this from config instead of special cases.
     let is_core = main_module.name == MOONBITLANG_CORE;
+    info!("is_core: {}", is_core);
 
     // Run prebuild config if any
+    info!("Running prebuild configuration");
     let prebuild_config = run_prebuild_config(&resolve_output)?;
 
     // Expand user intents to concrete BuildPlanNode inputs
+    info!("Expanding user intents to build plan nodes");
     let mut input_nodes: Vec<BuildPlanNode> = Vec::new();
     for i in &intent.intents {
         i.append_nodes(&resolve_output, &mut input_nodes);
@@ -383,8 +396,10 @@ pub fn plan_build<'a>(
         &resolve_output,
         &input_nodes,
     );
+    info!("`tcc -run` availability: {}", tcc_run_available);
 
     let cx = preconfig.into_compile_config(preferred_backend, is_core, tcc_run_available);
+    info!("Begin lowering to build graph");
     let compile_output = moonbuild_rupes_recta::compile(
         &cx,
         &resolve_output,
@@ -396,6 +411,7 @@ pub fn plan_build<'a>(
     if unstable_features.rr_export_build_plan
         && let Some(plan) = compile_output.build_plan
     {
+        info!("Exporting build plan DOT file");
         moonbuild_rupes_recta::util::print_build_plan_dot(
             &plan,
             &resolve_output.module_rel,
@@ -421,6 +437,8 @@ pub fn plan_build<'a>(
         graph: compile_output.build_graph,
         db_path,
     };
+
+    info!("Build planning completed successfully");
 
     Ok((build_meta, input))
 }
@@ -452,6 +470,13 @@ fn check_tcc_availability(
 ) -> bool {
     // Only for native target. Yes, not even LLVM.
     if target_backend != TargetBackend::Native {
+        info!("Disabling `tcc -run`: Only available for native target backend");
+        return false;
+    }
+
+    // Check platform availability
+    if !(cfg!(target_os = "linux") || cfg!(target_os = "macos")) {
+        info!("`tcc -run` is only supported on Linux and macOS");
         return false;
     }
 
@@ -459,7 +484,7 @@ fn check_tcc_availability(
     let _tcc = match CC::internal_tcc() {
         Ok(t) => t,
         Err(_) => {
-            warn!("TCC is not available on this system");
+            warn!("Cannot find TCC compiler in the system; disabling `tcc -run`");
             return false;
         }
     };
