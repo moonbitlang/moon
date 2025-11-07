@@ -16,6 +16,8 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
+mod imp;
+
 use std::{
     collections::HashMap,
     path::{Path, PathBuf},
@@ -43,7 +45,7 @@ use tracing::warn;
 use crate::{
     cli::BuildFlags,
     filter::{canonicalize_with_filename, filter_pkg_by_dir, match_packages_by_name_rr},
-    rr_build::{self, BuildConfig, CalcUserIntentOutput},
+    rr_build::{self, BuildConfig, BuildMeta, CalcUserIntentOutput},
 };
 
 use super::{UniversalFlags, pre_build::scan_with_x_build};
@@ -85,6 +87,9 @@ pub fn run_info(cli: UniversalFlags, cmd: InfoSubcommand) -> anyhow::Result<i32>
             "`--no-alias` will be removed soon. See: https://github.com/moonbitlang/moon/issues/1092"
         );
     }
+    if cli.dry_run {
+        bail!("dry-run is not implemented for info")
+    }
 
     if cli.unstable_feature.rupes_recta {
         run_info_rr(cli, cmd)
@@ -96,22 +101,50 @@ pub fn run_info(cli: UniversalFlags, cmd: InfoSubcommand) -> anyhow::Result<i32>
 pub fn run_info_rr(cli: UniversalFlags, cmd: InfoSubcommand) -> anyhow::Result<i32> {
     // Determine which target to use
     let target = &cmd.target;
-    if target.as_ref().is_none_or(|x| x.is_empty()) {
-        // No target specified, use preferred target from module description
-        return run_info_rr_internal(&cli, &cmd, None);
+    let mut lowered_targets = vec![];
+    if let Some(tgts) = target {
+        lowered_targets.extend(lower_surface_targets(tgts));
+    }
+
+    // If there's zero or one target, just run normally and promote the results
+    if lowered_targets.len() <= 1 {
+        let target_backend = lowered_targets.first().cloned();
+        let (success, meta) = run_info_rr_internal(&cli, &cmd, target_backend)?;
+        if success {
+            imp::promote_info_results(&meta);
+            return Ok(0);
+        } else {
+            return Ok(1);
+        }
     }
 
     // For multiple targets, we would like to run them one by one, and then
     // check the consistency of generated mbti files.
+    lowered_targets.sort();
+    let canonical_target = lowered_targets[0]; // we have >1 targets here
+    let mut all_meta = vec![];
+    for &tgt in &lowered_targets {
+        let (success, meta) = run_info_rr_internal(&cli, &cmd, Some(tgt))?;
+        if !success {
+            bail!("moon info failed for target {:?}", tgt);
+        }
 
-    todo!()
+        all_meta.push((tgt, meta));
+    }
+
+    let identical = imp::compare_info_outputs(all_meta.iter(), canonical_target)?;
+
+    if identical { Ok(0) } else { Ok(1) }
 }
 
+/// Run `moon info` for the given target (`None` for default target)
+///
+/// Returns `(success, build metadata if not dry-run)`.
 pub fn run_info_rr_internal(
     cli: &UniversalFlags,
     cmd: &InfoSubcommand,
     target: Option<TargetBackend>,
-) -> anyhow::Result<i32> {
+) -> anyhow::Result<(bool, BuildMeta)> {
     let PackageDirs {
         source_dir,
         target_dir,
@@ -138,20 +171,11 @@ pub fn run_info_rr_internal(
         }),
     )?;
 
-    if cli.dry_run {
-        rr_build::print_dry_run(
-            &build_graph,
-            _build_meta.artifacts.values(),
-            &source_dir,
-            &target_dir,
-        );
-        Ok(0)
-    } else {
-        // TODO: `moon info` is a wrapper over `moon check`, so should have flags that `moon check` has?
-        let result = rr_build::execute_build(&BuildConfig::default(), build_graph, &target_dir)?;
-        result.print_info(cli.quiet, "generating mbti files")?;
-        Ok(result.return_code_for_success())
-    }
+    // TODO: `moon info` is a wrapper over `moon check`, so should have flags that `moon check` has?
+    let result = rr_build::execute_build(&BuildConfig::default(), build_graph, &target_dir)?;
+    result.print_info(cli.quiet, "generating mbti files")?;
+
+    Ok((result.successful(), _build_meta))
 }
 
 fn calc_user_intent(
@@ -286,10 +310,6 @@ pub fn run_info_internal(
     source_dir: &Path,
     target_dir: &Path,
 ) -> anyhow::Result<Vec<(String, PathBuf)>> {
-    if cli.dry_run {
-        bail!("dry-run is not implemented for info")
-    }
-
     let (resolved_env, dir_sync_result) = auto_sync(
         source_dir,
         &cmd.auto_sync_flags,

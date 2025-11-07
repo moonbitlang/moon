@@ -57,6 +57,8 @@ tempfile.workspace = true
 shlex.workspace = true
 derive_builder.workspace = true
 smallvec.workspace = true
+sha2.workspace = true
+similar.workspace = true
 
 notify.workspace = true
 ignore.workspace = true
