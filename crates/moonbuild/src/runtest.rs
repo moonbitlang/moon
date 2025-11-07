@@ -265,10 +265,6 @@ async fn run(
                 res.push(Err(TestFailedStatus::Others(return_message.to_string())));
             }
         }
-    } else {
-        res.push(Err(TestFailedStatus::Others(String::from(
-            "No test output found",
-        ))));
     }
 
     Ok(res)

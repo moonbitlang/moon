@@ -185,7 +185,11 @@ impl FileFilter {
 
 fn all_ranges(infos: &[MbtTestInfo]) -> Vec<Range<u32>> {
     // Use actual indices from test metadata instead of assuming contiguous 0..max_index
-    let actual_indices: Vec<u32> = infos.iter().map(|t| t.index).collect();
+    let actual_indices: Vec<u32> = infos
+        .iter()
+        .filter(|t| !t.has_skip())
+        .map(|t| t.index)
+        .collect();
     indices_to_ranges(actual_indices)
 }
 
@@ -225,7 +229,7 @@ pub fn apply_filter(
                             }
                             Some(ixf) => {
                                 for t in tests {
-                                    if ixf.0.contains(&t.index) {
+                                    if ixf.0.contains(&t.index) && !t.has_skip() {
                                         this_file_index.push(t.index..t.index + 1);
                                     }
                                 }
