@@ -1,3 +1,5 @@
+mod include_skip_test;
+mod single_test_skip;
 mod skip_test;
 
 use super::*;
