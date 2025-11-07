@@ -176,8 +176,9 @@ impl<'a> super::BuildPlanLowerContext<'a> {
         let input =
             self.layout
                 .mi_of_build_target(self.packages, &target, self.opt.target_backend.into());
-        let pkg = self.packages.get_package(target.package);
-        let output = self.layout.generated_mbti_path(&pkg.root_path);
+        let output =
+            self.layout
+                .generated_mbti_path(self.packages, &target, self.opt.target_backend.into());
 
         let cmd = Mooninfo {
             mi_in: input.into(),

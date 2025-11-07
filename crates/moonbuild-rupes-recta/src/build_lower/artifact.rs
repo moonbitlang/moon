@@ -26,7 +26,7 @@ use std::{
 
 use derive_builder::Builder;
 use moonutil::{
-    common::{MBTI_GENERATED, RunMode, TargetBackend},
+    common::{RunMode, TargetBackend},
     cond_expr::OptLevel,
     mooncakes::{ModuleName, ModuleSource},
 };
@@ -309,8 +309,16 @@ impl LegacyLayout {
         base_dir
     }
 
-    pub fn generated_mbti_path(&self, pkg_source: &Path) -> PathBuf {
-        pkg_source.join(MBTI_GENERATED)
+    pub fn generated_mbti_path(
+        &self,
+        pkg_list: &DiscoverResult,
+        target: &BuildTarget,
+        backend: TargetBackend,
+    ) -> PathBuf {
+        let pkg = &pkg_list.get_package(target.package).fqn;
+        let mut base_dir = self.package_dir(pkg, backend);
+        base_dir.push(format!("{}.mbti", artifact(pkg, target.kind)));
+        base_dir
     }
 
     /// Returns the path for a C stub object file.
