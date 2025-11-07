@@ -94,6 +94,24 @@ pub fn run_info(cli: UniversalFlags, cmd: InfoSubcommand) -> anyhow::Result<i32>
 }
 
 pub fn run_info_rr(cli: UniversalFlags, cmd: InfoSubcommand) -> anyhow::Result<i32> {
+    // Determine which target to use
+    let target = &cmd.target;
+    if target.as_ref().is_none_or(|x| x.is_empty()) {
+        // No target specified, use preferred target from module description
+        return run_info_rr_internal(&cli, &cmd, None);
+    }
+
+    // For multiple targets, we would like to run them one by one, and then
+    // check the consistency of generated mbti files.
+
+    todo!()
+}
+
+pub fn run_info_rr_internal(
+    cli: &UniversalFlags,
+    cmd: &InfoSubcommand,
+    target: Option<TargetBackend>,
+) -> anyhow::Result<i32> {
     let PackageDirs {
         source_dir,
         target_dir,
@@ -101,8 +119,8 @@ pub fn run_info_rr(cli: UniversalFlags, cmd: InfoSubcommand) -> anyhow::Result<i
 
     let mut preconfig = rr_build::preconfig_compile(
         &cmd.auto_sync_flags,
-        &cli,
-        &BuildFlags::default(),
+        cli,
+        &BuildFlags::default().with_target_backend(target),
         &target_dir,
         OptLevel::Release,
         RunMode::Build,

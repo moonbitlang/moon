@@ -257,6 +257,13 @@ impl Default for BuildFlags {
     }
 }
 
+impl BuildFlags {
+    pub fn with_target_backend(mut self, backend: Option<TargetBackend>) -> Self {
+        self.target_backend = backend;
+        self
+    }
+}
+
 /// The style to render diagnostics in.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum OutputStyle {
