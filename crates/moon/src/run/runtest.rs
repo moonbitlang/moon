@@ -140,6 +140,7 @@ pub fn run_tests(
     build_meta: &BuildMeta,
     target_dir: &Path,
     filter: &TestFilter,
+    include_skipped: bool,
 ) -> anyhow::Result<ReplaceableTestResults> {
     // Gathering artifacts
     let executables = gather_tests(build_meta);
@@ -150,7 +151,8 @@ pub fn run_tests(
     let mut total_cases = 0usize;
     for r in executables {
         debug!(target = ?r.target, executable = %r.executable.display(), "running test executable");
-        let res = run_one_test_executable(build_meta, &rt, target_dir, &r, filter)?;
+        let res =
+            run_one_test_executable(build_meta, &rt, target_dir, &r, filter, include_skipped)?;
         let cases_for_target = res.map.values().map(IndexMap::len).sum::<usize>();
         trace!(target = ?r.target, cases = cases_for_target, "merging test results");
         total_cases += cases_for_target;
@@ -328,6 +330,7 @@ fn run_one_test_executable(
     target_dir: &Path,
     test: &TestExecutableToRun,
     filter: &TestFilter,
+    include_skipped: bool,
 ) -> Result<TargetTestResult, anyhow::Error> {
     let (included, file_filt) = filter.check_package(test.target);
     if !included {
@@ -349,7 +352,12 @@ fn run_one_test_executable(
         file_and_index: vec![],
     };
 
-    filter::apply_filter(file_filt, &meta, &mut test_args.file_and_index);
+    filter::apply_filter(
+        file_filt,
+        &meta,
+        &mut test_args.file_and_index,
+        include_skipped,
+    );
     trace!(
         filter_entries = test_args.file_and_index.len(),
         "applied test filter"

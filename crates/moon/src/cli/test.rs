@@ -152,6 +152,10 @@ pub struct TestSubcommand {
     /// package); otherwise, runs in a temporary project.
     #[clap(conflicts_with_all = ["file", "package"], name="PATH")]
     pub single_file: Option<PathBuf>,
+
+    /// Include skipped tests
+    #[clap(long)]
+    pub include_skipped: bool,
 }
 
 #[instrument(skip_all)]
@@ -501,6 +505,7 @@ pub(crate) struct TestLikeSubcommand<'a> {
     pub no_parallelize: bool,
     pub test_failure_json: bool,
     pub patch_file: &'a Option<PathBuf>,
+    pub include_skipped: bool,
 }
 
 impl<'a> From<&'a TestSubcommand> for TestLikeSubcommand<'a> {
@@ -520,6 +525,7 @@ impl<'a> From<&'a TestSubcommand> for TestLikeSubcommand<'a> {
             no_parallelize: cmd.no_parallelize,
             test_failure_json: cmd.test_failure_json,
             patch_file: &cmd.patch_file,
+            include_skipped: cmd.include_skipped,
         }
     }
 }
@@ -540,6 +546,7 @@ impl<'a> From<&'a BenchSubcommand> for TestLikeSubcommand<'a> {
             no_parallelize: cmd.no_parallelize,
             test_failure_json: false,
             patch_file: &None,
+            include_skipped: false,
         }
     }
 }
@@ -666,7 +673,8 @@ fn run_test_rr(
             return Ok(result.return_code_for_success());
         }
 
-        let mut test_result = crate::run::run_tests(&build_meta, target_dir, &filter)?;
+        let mut test_result =
+            crate::run::run_tests(&build_meta, target_dir, &filter, cmd.include_skipped)?;
         let initial_summary = test_result.summary();
         trace!(
             total = initial_summary.total,
@@ -755,8 +763,12 @@ fn run_test_rr(
                 let rerun_filter = TestFilter {
                     filter: Some(rerun_filter_raw),
                 };
-                let new_test_result =
-                    crate::run::run_tests(&build_meta, target_dir, &rerun_filter)?;
+                let new_test_result = crate::run::run_tests(
+                    &build_meta,
+                    target_dir,
+                    &rerun_filter,
+                    cmd.include_skipped,
+                )?;
                 let rerun_summary = new_test_result.summary();
                 trace!(
                     total = rerun_summary.total,

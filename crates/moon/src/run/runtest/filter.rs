@@ -183,11 +183,11 @@ impl FileFilter {
     }
 }
 
-fn all_ranges(infos: &[MbtTestInfo]) -> Vec<Range<u32>> {
+fn all_ranges(infos: &[MbtTestInfo], include_skipped: bool) -> Vec<Range<u32>> {
     // Use actual indices from test metadata instead of assuming contiguous 0..max_index
     let actual_indices: Vec<u32> = infos
         .iter()
-        .filter(|t| !t.has_skip())
+        .filter(|t| include_skipped || !t.has_skip())
         .map(|t| t.index)
         .collect();
     indices_to_ranges(actual_indices)
@@ -197,6 +197,7 @@ pub fn apply_filter(
     file_filt: Option<&FileFilter>,
     meta: &MooncGenTestInfo,
     files_and_index: &mut Vec<(String, Vec<std::ops::Range<u32>>)>,
+    include_skipped: bool,
 ) {
     let lists = [
         &meta.no_args_tests,
@@ -209,7 +210,7 @@ pub fn apply_filter(
         None => {
             for test_list in lists {
                 for (filename, test_infos) in test_list {
-                    let this_file_index = all_ranges(test_infos);
+                    let this_file_index = all_ranges(test_infos, include_skipped);
                     files_and_index.push((filename.clone(), this_file_index));
                 }
             }
@@ -225,11 +226,13 @@ pub fn apply_filter(
                         match v {
                             None => {
                                 // Wildcard, add all indices
-                                this_file_index.extend(all_ranges(tests));
+                                this_file_index.extend(all_ranges(tests, include_skipped));
                             }
                             Some(ixf) => {
                                 for t in tests {
-                                    if ixf.0.contains(&t.index) && !t.has_skip() {
+                                    if ixf.0.contains(&t.index)
+                                        && (include_skipped || !t.has_skip())
+                                    {
                                         this_file_index.push(t.index..t.index + 1);
                                     }
                                 }
@@ -346,7 +349,7 @@ mod test {
     fn test_no_file_filter() {
         let meta = example_meta();
         let mut out = vec![];
-        super::apply_filter(None, &meta, &mut out);
+        super::apply_filter(None, &meta, &mut out, false);
 
         expect![[r#"[("file1.mbt", [0..2, 4..5]), ("file2.mbt", [2..3]), ("doc_tests.mbt", [0..2]), ("file1.mbt", [2..3]), ("my_file.mbt", []), ("param_file.mbt", [0..1])]"#]]
         .assert_eq(&format!("{:?}", out));
@@ -362,7 +365,7 @@ mod test {
         expect![[r#"FileFilter({"file1.mbt": None})"#]].assert_eq(&format!("{:?}", ff));
 
         let mut out = vec![];
-        super::apply_filter(Some(&ff), &meta, &mut out);
+        super::apply_filter(Some(&ff), &meta, &mut out, false);
 
         expect![[r#"[("file1.mbt", [0..2, 4..5, 2..3])]"#]].assert_eq(&format!("{:?}", out));
     }
@@ -379,7 +382,7 @@ mod test {
             .assert_eq(&format!("{:?}", ff));
 
         let mut out = vec![];
-        super::apply_filter(Some(&ff), &meta, &mut out);
+        super::apply_filter(Some(&ff), &meta, &mut out, false);
 
         expect![[r#"[("file1.mbt", [1..2, 4..5])]"#]].assert_eq(&format!("{:?}", out));
     }
@@ -398,7 +401,7 @@ mod test {
         .assert_eq(&format!("{:?}", ff));
 
         let mut out = vec![];
-        super::apply_filter(Some(&ff), &meta, &mut out);
+        super::apply_filter(Some(&ff), &meta, &mut out, false);
 
         expect![[
             r#"[("file1.mbt", [0..1]), ("doc_tests.mbt", [0..2]), ("param_file.mbt", [0..1])]"#
@@ -414,7 +417,7 @@ mod test {
         expect!["FileFilter({})"].assert_eq(&format!("{:?}", ff));
 
         let mut out = vec![];
-        super::apply_filter(Some(&ff), &meta, &mut out);
+        super::apply_filter(Some(&ff), &meta, &mut out, false);
 
         expect!["[]"].assert_eq(&format!("{:?}", out));
     }
@@ -429,7 +432,7 @@ mod test {
         expect![[r#"FileFilter({"my_file.mbt": None})"#]].assert_eq(&format!("{:?}", ff));
 
         let mut out = vec![];
-        super::apply_filter(Some(&ff), &meta, &mut out);
+        super::apply_filter(Some(&ff), &meta, &mut out, false);
 
         expect![[r#"[("my_file.mbt", [])]"#]].assert_eq(&format!("{:?}", out));
     }
