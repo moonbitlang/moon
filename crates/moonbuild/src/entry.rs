@@ -814,7 +814,11 @@ pub fn run_test(
                     test_args.file_and_index.push((file_name.clone(), ranges));
                 } else {
                     // No filter - use all actual indices from metadata
-                    let actual_indices: Vec<u32> = test_metadata.keys().copied().collect();
+                    let actual_indices: Vec<u32> = test_metadata
+                        .values()
+                        .filter(|t| !t.has_skip())
+                        .map(|t| t.index)
+                        .collect();
                     let ranges = indices_to_ranges(actual_indices);
                     test_args.file_and_index.push((file_name.clone(), ranges));
                 }
