@@ -216,13 +216,28 @@ impl CompilePreConfig {
         self,
         preferred_backend: Option<TargetBackend>,
         is_core: bool,
-        tcc_available: bool,
+        resolve_output: &ResolveOutput,
+        input_nodes: &[BuildPlanNode],
     ) -> CompileConfig {
+        info!("Determining compilation configuration");
+
         let std = self.use_std && !is_core;
+        info!(
+            "std: self.use_std = {}, is_core = {} => std = {}",
+            self.use_std, is_core, std
+        );
+
         let target_backend = self
             .target_backend
             .or(preferred_backend)
             .unwrap_or_default();
+        info!(
+            "Target backend: explicit = {:?}, preferred = {:?} => selected = {:?}",
+            self.target_backend, preferred_backend, target_backend
+        );
+
+        let tcc_available = check_tcc_availability(target_backend, resolve_output, input_nodes);
+        info!("`tcc -run` availability: {}", tcc_available);
 
         let target_backend = match target_backend {
             TargetBackend::Wasm => RunBackend::Wasm,
@@ -237,6 +252,7 @@ impl CompilePreConfig {
             }
             TargetBackend::LLVM => RunBackend::Llvm,
         };
+        info!("Final run backend: {:?}", target_backend);
 
         CompileConfig {
             target_dir: self.target_dir,
@@ -391,14 +407,8 @@ pub fn plan_build<'a>(
         i.append_nodes(&resolve_output, &mut input_nodes);
     }
 
-    let tcc_run_available = check_tcc_availability(
-        preferred_backend.unwrap_or_default(),
-        &resolve_output,
-        &input_nodes,
-    );
-    info!("`tcc -run` availability: {}", tcc_run_available);
-
-    let cx = preconfig.into_compile_config(preferred_backend, is_core, tcc_run_available);
+    let cx =
+        preconfig.into_compile_config(preferred_backend, is_core, &resolve_output, &input_nodes);
     info!("Begin lowering to build graph");
     let compile_output = moonbuild_rupes_recta::compile(
         &cx,
