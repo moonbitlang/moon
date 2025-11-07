@@ -27,10 +27,10 @@ use tracing::{Level, instrument};
 
 use crate::{
     ResolveOutput,
-    build_lower::artifact::LegacyLayout,
+    build_lower::{Binaries, artifact::LegacyLayout},
     build_plan::{BuildPlan, FileDependencyKind},
     discover::{DiscoverResult, DiscoveredPackage},
-    model::{BuildPlanNode, BuildTarget},
+    model::{BuildPlanNode, BuildTarget, RunBackend},
     pkg_solve::DepRelationship,
 };
 
@@ -45,6 +45,7 @@ pub(crate) struct BuildPlanLowerContext<'a> {
 
     // folder layout
     pub(crate) layout: LegacyLayout,
+    pub(crate) binaries: Binaries,
 
     // External state
     pub(crate) packages: &'a DiscoverResult,
@@ -58,6 +59,7 @@ pub(crate) struct BuildPlanLowerContext<'a> {
 impl<'a> BuildPlanLowerContext<'a> {
     pub(super) fn new(
         layout: LegacyLayout,
+        binaries: Binaries,
         resolve_output: &'a ResolveOutput,
         build_plan: &'a BuildPlan,
         opt: &'a BuildOptions,
@@ -65,6 +67,7 @@ impl<'a> BuildPlanLowerContext<'a> {
         Self {
             graph: N2Graph::default(),
             layout,
+            binaries,
             rel: &resolve_output.pkg_rel,
             modules: &resolve_output.module_rel,
             packages: &resolve_output.pkg_dirs,
@@ -112,12 +115,12 @@ impl<'a> BuildPlanLowerContext<'a> {
                     .expect("C stub info should be present for BuildCStub nodes");
                 self.lower_build_c_stub(target, index, info)
             }
-            BuildPlanNode::ArchiveCStubs(_target) => {
+            BuildPlanNode::ArchiveOrLinkCStubs(_target) => {
                 let info = self
                     .build_plan
                     .get_c_stubs_info(_target)
                     .expect("C stubs info should be present for BuildCStubs nodes");
-                self.lower_archive_c_stubs(node, _target, info)
+                self.lower_archive_or_link_c_stubs(node, _target, info)
             }
             BuildPlanNode::LinkCore(target) => {
                 let info = self
@@ -211,7 +214,7 @@ impl<'a> BuildPlanLowerContext<'a> {
                     out.push(self.layout.mi_of_build_target(
                         self.packages,
                         &target,
-                        self.opt.target_backend,
+                        self.opt.target_backend.into(),
                     ));
                 }
             }
@@ -229,14 +232,14 @@ impl<'a> BuildPlanLowerContext<'a> {
                     out.push(self.layout.mi_of_build_target(
                         self.packages,
                         &target,
-                        self.opt.target_backend,
+                        self.opt.target_backend.into(),
                     ));
                 }
                 if core {
                     out.push(self.layout.core_of_build_target(
                         self.packages,
                         &target,
-                        self.opt.target_backend,
+                        self.opt.target_backend.into(),
                     ));
                 }
             }
@@ -250,24 +253,33 @@ impl<'a> BuildPlanLowerContext<'a> {
                         file_name
                             .file_stem()
                             .expect("c stub file should have a file name"),
-                        self.opt.target_backend,
+                        self.opt.target_backend.into(),
                         self.opt.os,
                     ),
                 );
             }
-            BuildPlanNode::ArchiveCStubs(_target) => {
-                out.push(self.layout.c_stub_archive_path(
-                    self.packages,
-                    _target,
-                    self.opt.target_backend,
-                    self.opt.os,
-                ));
+            BuildPlanNode::ArchiveOrLinkCStubs(_target) => {
+                if self.opt.target_backend == RunBackend::NativeTccRun {
+                    out.push(self.layout.c_stub_link_dylib_path(
+                        self.packages,
+                        _target,
+                        self.opt.target_backend.into(),
+                        self.opt.os,
+                    ));
+                } else {
+                    out.push(self.layout.c_stub_archive_path(
+                        self.packages,
+                        _target,
+                        self.opt.target_backend.into(),
+                        self.opt.os,
+                    ));
+                }
             }
             BuildPlanNode::LinkCore(target) => {
                 out.push(self.layout.linked_core_of_build_target(
                     self.packages,
                     &target,
-                    self.opt.target_backend,
+                    self.opt.target_backend.into(),
                     self.opt.os,
                     self.opt.output_wat,
                 ));
@@ -286,19 +298,19 @@ impl<'a> BuildPlanLowerContext<'a> {
                 out.push(self.layout.generated_test_driver(
                     self.packages,
                     &target,
-                    self.opt.target_backend,
+                    self.opt.target_backend.into(),
                 ));
                 out.push(self.layout.generated_test_driver_metadata(
                     self.packages,
                     &target,
-                    self.opt.target_backend,
+                    self.opt.target_backend.into(),
                 ));
             }
             BuildPlanNode::Bundle(id) => {
                 let module_name = self.modules.mod_name_from_id(id);
                 out.push(
                     self.layout
-                        .bundle_result_path(self.opt.target_backend, module_name.name()),
+                        .bundle_result_path(self.opt.target_backend.into(), module_name.name()),
                 );
             }
             BuildPlanNode::BuildRuntimeLib => {
@@ -328,7 +340,7 @@ impl<'a> BuildPlanLowerContext<'a> {
                 out.push(self.layout.mi_of_build_target(
                     self.packages,
                     &t,
-                    self.opt.target_backend,
+                    self.opt.target_backend.into(),
                 ));
             }
         }

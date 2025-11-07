@@ -18,13 +18,59 @@
 
 use std::path::PathBuf;
 
-use moonutil::mooncakes::{ModuleId, result::ResolvedEnv};
+use moonutil::{
+    common::TargetBackend,
+    mooncakes::{ModuleId, result::ResolvedEnv},
+};
 
 use crate::discover::DiscoverResult;
 
 slotmap::new_key_type! {
     /// An unique identifier pointing to a package currently discovered from imported modules.
     pub struct PackageId;
+}
+
+/// Backend that affect how the build and artifact generation is performed.
+///
+/// Note: This is different from [`TargetBackend`]. That enum is a high-level
+/// abstraction of the user's choice and what kind of output format `moonc`
+/// produces, but this also cares about what toolchains are used, etc.
+#[derive(Clone, Debug, Copy, PartialEq, Eq, Hash, Ord, PartialOrd)]
+pub enum RunBackend {
+    WasmGC,
+    Wasm,
+    Js,
+    Native,
+    /// Like `Native`, but uses `tcc -run` to execute the program directly. Does
+    /// not produce a standalone binary artifact.
+    NativeTccRun,
+    Llvm,
+}
+
+impl RunBackend {
+    pub fn is_native(self) -> bool {
+        matches!(
+            self,
+            RunBackend::Native | RunBackend::NativeTccRun | RunBackend::Llvm
+        )
+    }
+
+    pub fn to_target(self) -> TargetBackend {
+        self.into()
+    }
+}
+
+impl From<RunBackend> for TargetBackend {
+    fn from(val: RunBackend) -> Self {
+        match val {
+            RunBackend::WasmGC => TargetBackend::WasmGC,
+            RunBackend::Wasm => TargetBackend::Wasm,
+            RunBackend::Js => TargetBackend::Js,
+            RunBackend::Native => TargetBackend::Native,
+            RunBackend::NativeTccRun => TargetBackend::Native,
+            RunBackend::Llvm => TargetBackend::LLVM,
+        }
+    }
 }
 
 /// Represents the overall action of this build tool call
@@ -101,7 +147,7 @@ pub enum BuildPlanNode {
     BuildCore(BuildTarget),
     /// Build the i-th C file in the C stub list.
     BuildCStub(PackageId, u32), // change into global artifact list if we need non-package ones
-    ArchiveCStubs(PackageId),
+    ArchiveOrLinkCStubs(PackageId),
     LinkCore(BuildTarget),
     MakeExecutable(BuildTarget),
     GenerateTestInfo(BuildTarget),
@@ -154,7 +200,7 @@ impl BuildPlanNode {
             | BuildPlanNode::GenerateTestInfo(target)
             | BuildPlanNode::GenerateMbti(target) => Some(target),
             BuildPlanNode::BuildCStub(_, _)
-            | BuildPlanNode::ArchiveCStubs(_)
+            | BuildPlanNode::ArchiveOrLinkCStubs(_)
             | BuildPlanNode::Bundle(_)
             | BuildPlanNode::BuildRuntimeLib
             | BuildPlanNode::BuildDocs
@@ -179,7 +225,7 @@ impl BuildPlanNode {
                 let fqn = packages.fqn(*pkg);
                 format!("{}@BuildCStub_{}", fqn, idx)
             }
-            BuildPlanNode::ArchiveCStubs(pkg) => {
+            BuildPlanNode::ArchiveOrLinkCStubs(pkg) => {
                 let fqn = packages.fqn(*pkg);
                 format!("{}@ArchiveCStubs", fqn)
             }

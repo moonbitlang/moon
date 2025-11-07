@@ -610,7 +610,8 @@ fn run_test_rr(
     } else {
         OptLevel::Debug
     };
-    let preconfig = preconfig_compile(
+
+    let mut preconfig = preconfig_compile(
         cmd.auto_sync_flags,
         cli,
         cmd.build_flags,
@@ -618,6 +619,9 @@ fn run_test_rr(
         default_opt_level,
         RunMode::Test,
     );
+    if !is_bench {
+        preconfig.try_tcc_run = true;
+    }
 
     let mut filter = TestFilter::default();
     let (build_meta, build_graph) = rr_build::plan_build(

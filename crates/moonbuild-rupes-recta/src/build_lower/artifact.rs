@@ -33,7 +33,7 @@ use moonutil::{
 
 use crate::{
     discover::DiscoverResult,
-    model::{BuildTarget, OperatingSystem, PackageId, TargetKind},
+    model::{BuildTarget, OperatingSystem, PackageId, RunBackend, TargetKind},
     pkg_name::PackageFQN,
 };
 
@@ -214,13 +214,13 @@ impl LegacyLayout {
         &self,
         pkg_list: &DiscoverResult,
         target: &BuildTarget,
-        backend: TargetBackend,
+        backend: RunBackend,
         os: OperatingSystem,
         legacy_behavior: bool,
         wasm_use_wat: bool,
     ) -> PathBuf {
         let pkg_fqn = &pkg_list.get_package(target.package).fqn;
-        let mut base_dir = self.package_dir(pkg_fqn, backend);
+        let mut base_dir = self.package_dir(pkg_fqn, backend.into());
         base_dir.push(format!(
             "{}{}",
             artifact(pkg_fqn, target.kind),
@@ -267,10 +267,20 @@ impl LegacyLayout {
         result
     }
 
-    pub fn runtime_output_path(&self, backend: TargetBackend, os: OperatingSystem) -> PathBuf {
+    pub fn runtime_output_path(&self, backend: RunBackend, os: OperatingSystem) -> PathBuf {
         let mut result = self.target_base_dir.clone();
-        push_backend(&mut result, backend);
-        result.push(format!("runtime{}", object_file_ext(os)));
+        push_backend(&mut result, backend.into());
+        match backend {
+            RunBackend::WasmGC | RunBackend::Wasm | RunBackend::Js => {
+                panic!("Runtime output path is not applicable for non-native backends")
+            }
+            RunBackend::Native | RunBackend::Llvm => {
+                result.push(format!("libruntime{}", object_file_ext(os)))
+            }
+            RunBackend::NativeTccRun => {
+                result.push(format!("libruntime{}", dynamic_library_ext(os)))
+            }
+        }
         result
     }
 
@@ -333,6 +343,26 @@ impl LegacyLayout {
             "lib{}{}",
             pkg_fqn.short_alias(),
             static_library_ext(os)
+        ));
+        base_dir
+    }
+
+    /// Returns the path for a C stub dynamic library.
+    ///     
+    /// Format: `target/{backend}/{opt_level}/build/{package_path}/lib{package_name}.{dylib_ext}`
+    pub fn c_stub_link_dylib_path(
+        &self,
+        pkg_list: &DiscoverResult,
+        package: PackageId,
+        backend: TargetBackend,
+        os: OperatingSystem,
+    ) -> PathBuf {
+        let pkg_fqn = &pkg_list.get_package(package).fqn;
+        let mut base_dir = self.package_dir(pkg_fqn, backend);
+        base_dir.push(format!(
+            "lib{}{}",
+            pkg_fqn.short_alias(),
+            dynamic_library_ext(os)
         ));
         base_dir
     }
@@ -405,16 +435,18 @@ fn linked_core_artifact_ext(
 }
 
 fn make_executable_artifact_ext(
-    backend: TargetBackend,
+    backend: RunBackend,
     os: OperatingSystem,
     legacy_behavior: bool,
     wasm_use_wat: bool,
 ) -> &'static str {
     match backend {
-        TargetBackend::Wasm | TargetBackend::WasmGC if wasm_use_wat => ".wat",
-        TargetBackend::Wasm | TargetBackend::WasmGC => ".wasm",
-        TargetBackend::Js => ".js",
-        TargetBackend::Native | TargetBackend::LLVM => executable_ext(os, legacy_behavior),
+        RunBackend::Wasm | RunBackend::WasmGC if wasm_use_wat => ".wat",
+        RunBackend::Wasm | RunBackend::WasmGC => ".wasm",
+        RunBackend::Js => ".js",
+        RunBackend::Native | RunBackend::Llvm => executable_ext(os, legacy_behavior),
+        // NB: TCC run relies on C artifacts and a response file to run the program
+        RunBackend::NativeTccRun => ".rspfile",
     }
 }
 

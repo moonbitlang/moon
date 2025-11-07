@@ -46,10 +46,10 @@ The same behaviour repeats in every build mode:
 - **Check** mode regenerates interfaces, reruns default validation with `-check-mi`, and enforces `-check-mi/-impl-virtual` for implementations so diagnostics match the normal build.
   See [`gen_check::gen_check()`](crates/moonbuild/src/gen/gen_check.rs:452).
 
-- **Test** mode builds test drivers on top of the same interface/implementation pipeline, then applies overrides before generating runnable artefacts.
+- **Test** mode builds test drivers on top of the same interface/implementation pipeline, then applies overrides before generating runnable artifacts.
   See [`gen_runtest::gen_runtest()`](crates/moonbuild/src/gen/gen_runtest.rs:966).
 
-Test-only packages that implement a virtual package go through the same validation: their compiled artefacts are checked against the virtual interface before any test harness links them in, so mismatched implementations fail during the test build stage rather than at runtime. Black-box tests do not re-run that check; they import the already-validated package core instead of recompiling it.
+Test-only packages that implement a virtual package go through the same validation: their compiled artifacts are checked against the virtual interface before any test harness links them in, so mismatched implementations fail during the test build stage rather than at runtime. Black-box tests do not re-run that check; they import the already-validated package core instead of recompiling it.
 
 ## How virtual packages differ from regular packages
 

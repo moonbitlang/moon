@@ -50,15 +50,13 @@ use std::{
 };
 
 use log::{debug, info};
-use moonutil::{
-    common::TargetBackend, compiler_flags::CC, cond_expr::OptLevel, mooncakes::ModuleId,
-};
+use moonutil::{compiler_flags::CC, cond_expr::OptLevel, mooncakes::ModuleId};
 use petgraph::prelude::DiGraphMap;
 use tracing::instrument;
 
 use crate::{
     ResolveOutput,
-    model::{BuildPlanNode, BuildTarget, PackageId},
+    model::{BuildPlanNode, BuildTarget, PackageId, RunBackend},
     pkg_name::PackageFQNWithSource,
     prebuild::PrebuildOutput,
 };
@@ -305,7 +303,7 @@ pub struct BuildBundleInfo {
 /// Represents the environment in which the build is being performed.
 pub struct BuildEnvironment {
     // FIXME: Target backend should go into the solver, not here
-    pub target_backend: TargetBackend,
+    pub target_backend: RunBackend,
     pub opt_level: OptLevel,
     /// Whether compiling requires the standard library.
     ///

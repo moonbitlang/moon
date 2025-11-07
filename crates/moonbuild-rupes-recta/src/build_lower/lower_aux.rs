@@ -31,7 +31,7 @@ use tracing::{Level, instrument};
 use crate::{
     build_lower::compiler::{CmdlineAbstraction, MoondocCommand, Mooninfo},
     build_plan::BuildTargetInfo,
-    model::{BuildPlanNode, BuildTarget, PackageId, TargetKind},
+    model::{BuildPlanNode, BuildTarget, PackageId, RunBackend, TargetKind},
 };
 
 use super::{BuildCommand, compiler};
@@ -45,13 +45,15 @@ impl<'a> super::BuildPlanLowerContext<'a> {
         info: &BuildTargetInfo,
     ) -> BuildCommand {
         let package = self.get_package(target);
-        let output_driver =
-            self.layout
-                .generated_test_driver(self.packages, &target, self.opt.target_backend);
+        let output_driver = self.layout.generated_test_driver(
+            self.packages,
+            &target,
+            self.opt.target_backend.into(),
+        );
         let output_metadata = self.layout.generated_test_driver_metadata(
             self.packages,
             &target,
-            self.opt.target_backend,
+            self.opt.target_backend.into(),
         );
         let driver_kind = match target.kind {
             TargetKind::Source => panic!("Source package cannot be a test driver"),
@@ -77,13 +79,13 @@ impl<'a> super::BuildPlanLowerContext<'a> {
             enable_coverage: self.opt.enable_coverage,
             coverage_package_override: None, // TODO,
             driver_kind,
-            target_backend: self.opt.target_backend,
+            target_backend: self.opt.target_backend.into(),
             patch_file,
             pkg_name: &pkg_full_name,
         };
 
         BuildCommand {
-            commandline: cmd.build_command("moon"),
+            commandline: cmd.build_command(&self.binaries.moonbuild),
             extra_inputs: files_vec,
         }
     }
@@ -97,7 +99,7 @@ impl<'a> super::BuildPlanLowerContext<'a> {
         let module = self.modules.mod_name_from_id(module_id);
         let output = self
             .layout
-            .bundle_result_path(self.opt.target_backend, module.name());
+            .bundle_result_path(self.opt.target_backend.into(), module.name());
         let info = self
             .build_plan
             .bundle_info(module_id)
@@ -108,7 +110,7 @@ impl<'a> super::BuildPlanLowerContext<'a> {
             inputs.push(self.layout.core_of_build_target(
                 self.packages,
                 dep,
-                self.opt.target_backend,
+                self.opt.target_backend.into(),
             ));
         }
 
@@ -116,7 +118,7 @@ impl<'a> super::BuildPlanLowerContext<'a> {
 
         BuildCommand {
             extra_inputs: vec![],
-            commandline: cmd.build_command("moonc"),
+            commandline: cmd.build_command(&self.binaries.moonc),
         }
     }
 
@@ -128,22 +130,38 @@ impl<'a> super::BuildPlanLowerContext<'a> {
 
         // TODO: this part might need more simplification?
         let runtime_c_path = self.opt.runtime_dot_c_path.clone();
+
+        let output_ty;
+        let link_moonbitrun;
+        match self.opt.target_backend {
+            RunBackend::Wasm | RunBackend::WasmGC | RunBackend::Js => {
+                panic!("Runtime compilation is not applicable for non-native backends")
+            }
+            RunBackend::Native | RunBackend::Llvm => {
+                output_ty = CCOutputType::Object;
+                link_moonbitrun = true;
+            }
+            RunBackend::NativeTccRun => {
+                output_ty = CCOutputType::SharedLib;
+                link_moonbitrun = false;
+            }
+        };
+
         let cc_cmd = make_cc_command_pure::<&'static str>(
             resolve_cc(CC::default(), None),
             CCConfigBuilder::default()
                 .no_sys_header(true)
-                .output_ty(CCOutputType::Object)
+                .output_ty(output_ty)
                 .opt_level(CCOptLevel::Speed)
                 .debug_info(true)
-                // always link moonbitrun in this mode
-                .link_moonbitrun(true)
+                .link_moonbitrun(link_moonbitrun)
                 .define_use_shared_runtime_macro(false)
                 .build()
                 .expect("Failed to build CC configuration for runtime"),
             &[],
             [runtime_c_path.display().to_string()],
             &self.opt.target_dir_root.display().to_string(),
-            &artifact_path.display().to_string(),
+            Some(&artifact_path.display().to_string()),
             &self.opt.compiler_paths,
         );
 
@@ -155,9 +173,9 @@ impl<'a> super::BuildPlanLowerContext<'a> {
 
     #[instrument(level = Level::DEBUG, skip(self))]
     pub(super) fn lower_generate_mbti(&mut self, target: BuildTarget) -> BuildCommand {
-        let input = self
-            .layout
-            .mi_of_build_target(self.packages, &target, self.opt.target_backend);
+        let input =
+            self.layout
+                .mi_of_build_target(self.packages, &target, self.opt.target_backend.into());
         let pkg = self.packages.get_package(target.package);
         let output = self.layout.generated_mbti_path(&pkg.root_path);
 
@@ -169,7 +187,7 @@ impl<'a> super::BuildPlanLowerContext<'a> {
 
         BuildCommand {
             extra_inputs: vec![],
-            commandline: cmd.build_command("mooninfo"),
+            commandline: cmd.build_command(&self.binaries.mooninfo),
         }
     }
 
@@ -208,7 +226,7 @@ impl<'a> super::BuildPlanLowerContext<'a> {
         );
 
         BuildCommand {
-            commandline: cmd.build_command("moondoc"),
+            commandline: cmd.build_command(&self.binaries.moondoc),
             extra_inputs: vec![packages_json],
         }
     }

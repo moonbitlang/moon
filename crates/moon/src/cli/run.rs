@@ -339,7 +339,7 @@ fn run_run_rr(cli: &UniversalFlags, cmd: RunSubcommand) -> Result<i32, anyhow::E
     } = cli.source_tgt_dir.try_into_package_dirs()?;
 
     let input_path = cmd.package_or_mbt_file;
-    let preconfig = preconfig_compile(
+    let mut preconfig = preconfig_compile(
         &cmd.auto_sync_flags,
         cli,
         &cmd.build_flags,
@@ -347,6 +347,8 @@ fn run_run_rr(cli: &UniversalFlags, cmd: RunSubcommand) -> Result<i32, anyhow::E
         Release,
         RunMode::Run,
     );
+    preconfig.try_tcc_run = true;
+
     let (build_meta, build_graph) = rr_build::plan_build(
         preconfig,
         &cli.unstable_feature,

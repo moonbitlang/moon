@@ -43,7 +43,7 @@ use moonbuild_rupes_recta::{
     build_plan::InputDirective,
     fmt::{FmtConfig, FmtResolveOutput},
     intent::UserIntent,
-    model::{Artifacts, BuildPlanNode, PackageId, TargetKind},
+    model::{Artifacts, BuildPlanNode, PackageId, RunBackend, TargetKind},
     prebuild::run_prebuild_config,
 };
 use moonutil::{
@@ -52,11 +52,12 @@ use moonutil::{
         BLACKBOX_TEST_PATCH, DiagnosticLevel, MOONBITLANG_CORE, RunMode, TargetBackend,
         WHITEBOX_TEST_PATCH,
     },
+    compiler_flags::CC,
     cond_expr::OptLevel,
     features::FeatureGate,
     mooncakes::{ModuleId, sync::AutoSyncFlags},
 };
-use tracing::{Level, instrument};
+use tracing::{Level, info, instrument, warn};
 
 use crate::cli::BuildFlags;
 
@@ -143,7 +144,7 @@ pub struct BuildMeta {
     pub artifacts: IndexMap<BuildPlanNode, Artifacts>,
 
     /// The target backend used in this compile process
-    pub target_backend: TargetBackend,
+    pub target_backend: RunBackend,
 
     /// The main optimization level used in this compile process
     pub opt_level: OptLevel,
@@ -204,6 +205,8 @@ pub struct CompilePreConfig {
     pub deny_warn: bool,
     /// Whether to not emit alias when running `mooninfo`
     pub info_no_alias: bool,
+    /// Attempt to use `tcc -run` when possible
+    pub try_tcc_run: bool,
     warn_list: Option<String>,
     alert_list: Option<String>,
 }
@@ -213,12 +216,43 @@ impl CompilePreConfig {
         self,
         preferred_backend: Option<TargetBackend>,
         is_core: bool,
+        resolve_output: &ResolveOutput,
+        input_nodes: &[BuildPlanNode],
     ) -> CompileConfig {
+        info!("Determining compilation configuration");
+
         let std = self.use_std && !is_core;
+        info!(
+            "std: self.use_std = {}, is_core = {} => std = {}",
+            self.use_std, is_core, std
+        );
+
         let target_backend = self
             .target_backend
             .or(preferred_backend)
             .unwrap_or_default();
+        info!(
+            "Target backend: explicit = {:?}, preferred = {:?} => selected = {:?}",
+            self.target_backend, preferred_backend, target_backend
+        );
+
+        let tcc_available = check_tcc_availability(target_backend, resolve_output, input_nodes);
+        info!("`tcc -run` availability: {}", tcc_available);
+
+        let target_backend = match target_backend {
+            TargetBackend::Wasm => RunBackend::Wasm,
+            TargetBackend::WasmGC => RunBackend::WasmGC,
+            TargetBackend::Js => RunBackend::Js,
+            TargetBackend::Native => {
+                if self.try_tcc_run && tcc_available && self.opt_level == OptLevel::Debug {
+                    RunBackend::NativeTccRun
+                } else {
+                    RunBackend::Native
+                }
+            }
+            TargetBackend::LLVM => RunBackend::Llvm,
+        };
+        info!("Final run backend: {:?}", target_backend);
 
         CompileConfig {
             target_dir: self.target_dir,
@@ -240,12 +274,25 @@ impl CompilePreConfig {
             warn_list: self.warn_list,
             alert_list: self.alert_list,
             info_no_alias: self.info_no_alias,
+            default_cc: CC::default(), // TODO: determine how CC will be set
         }
     }
 }
 
 /// Read in the commandline flags and build flags to create a
 /// [`CompilePreConfig`] for compilation usage.
+///
+/// - `auto_sync_flags`: The flags to control module download & sync behavior.
+/// - `cli`: The universal CLI flags.
+/// - `build_flags`: The build-specific flags.
+/// - `target_dir`: The target directory for the build.
+/// - `default_opt_level`: The default optimization level to use if not specified.
+/// - `default_cc`: The default C/C++ toolchain to use, when not overridden by optimization level.
+///   This field is used to force using TCC by default for some release builds. When `None`,
+///   TCC will be used in debug builds, and system default toolchain will be used otherwise.
+/// - `action`: The run mode (build, test, bench, etc.), only affects target directory layout.
+///   This is different from the legacy code where action also affects the actual compilation
+///   behavior.
 #[instrument(level = Level::DEBUG, skip_all)]
 pub fn preconfig_compile(
     auto_sync_flags: &AutoSyncFlags,
@@ -262,6 +309,7 @@ pub fn preconfig_compile(
     } else {
         default_opt_level
     };
+
     CompilePreConfig {
         frozen: auto_sync_flags.frozen,
         target_dir: target_dir.to_owned(),
@@ -277,6 +325,7 @@ pub fn preconfig_compile(
         moonc_output_json: !cli.dry_run && build_flags.output_style().needs_moonc_json(),
         docs_serve: false,
         info_no_alias: false,
+        try_tcc_run: false,
         deny_warn: build_flags.deny_warn,
         warn_list: build_flags.warn_list.clone(),
         alert_list: build_flags.alert_list.clone(),
@@ -300,17 +349,23 @@ pub fn plan_build<'a>(
     target_dir: &'a Path,
     calc_user_intent: Box<CalcUserIntentFn<'a>>,
 ) -> anyhow::Result<(BuildMeta, BuildInput)> {
+    info!("Starting build planning");
+
     let cfg = ResolveConfig::new_with_load_defaults(preconfig.frozen);
     let resolve_output = moonbuild_rupes_recta::resolve(&cfg, source_dir)?;
 
+    info!("Resolve completed");
+
     // A couple of debug things:
     if unstable_features.rr_export_module_graph {
+        info!("Exporting module graph DOT file");
         moonbuild_rupes_recta::util::print_resolved_env_dot(
             &resolve_output.module_rel,
             &mut std::fs::File::create(target_dir.join("module_graph.dot"))?,
         )?;
     }
     if unstable_features.rr_export_package_graph {
+        info!("Exporting package graph DOT file");
         moonbuild_rupes_recta::util::print_dep_relationship_dot(
             &resolve_output.pkg_rel,
             &resolve_output.pkg_dirs,
@@ -318,6 +373,7 @@ pub fn plan_build<'a>(
         )?;
     }
 
+    info!("Checking main module and backend");
     assert_eq!(
         resolve_output.local_modules().len(),
         1,
@@ -329,22 +385,31 @@ pub fn plan_build<'a>(
 
     // Preferred backend
     let preferred_backend = main_module.preferred_target;
+    info!("Preferred backend: {:?}", preferred_backend);
 
+    info!("Calculating user intent");
     let intent = calc_user_intent(&resolve_output, &[main_module_id])?;
+    info!("User intent calculated: {:?}", intent.intents);
 
     // std or no-std?
     // Ultimately we want to determine this from config instead of special cases.
     let is_core = main_module.name == MOONBITLANG_CORE;
+    info!("is_core: {}", is_core);
 
     // Run prebuild config if any
+    info!("Running prebuild configuration");
     let prebuild_config = run_prebuild_config(&resolve_output)?;
 
-    let cx = preconfig.into_compile_config(preferred_backend, is_core);
     // Expand user intents to concrete BuildPlanNode inputs
+    info!("Expanding user intents to build plan nodes");
     let mut input_nodes: Vec<BuildPlanNode> = Vec::new();
     for i in &intent.intents {
         i.append_nodes(&resolve_output, &mut input_nodes);
     }
+
+    let cx =
+        preconfig.into_compile_config(preferred_backend, is_core, &resolve_output, &input_nodes);
+    info!("Begin lowering to build graph");
     let compile_output = moonbuild_rupes_recta::compile(
         &cx,
         &resolve_output,
@@ -356,6 +421,7 @@ pub fn plan_build<'a>(
     if unstable_features.rr_export_build_plan
         && let Some(plan) = compile_output.build_plan
     {
+        info!("Exporting build plan DOT file");
         moonbuild_rupes_recta::util::print_build_plan_dot(
             &plan,
             &resolve_output.module_rel,
@@ -371,11 +437,18 @@ pub fn plan_build<'a>(
         opt_level: cx.opt_level,
     };
 
-    let db_path = n2_db_path(target_dir, cx.target_backend, cx.opt_level, cx.action);
+    let db_path = n2_db_path(
+        target_dir,
+        cx.target_backend.into(),
+        cx.opt_level,
+        cx.action,
+    );
     let input = BuildInput {
         graph: compile_output.build_graph,
         db_path,
     };
+
+    info!("Build planning completed successfully");
 
     Ok((build_meta, input))
 }
@@ -396,6 +469,71 @@ pub fn plan_fmt(
     Ok(input)
 }
 
+/// Check if we can actually run `tcc -run`.
+///
+/// This is for usage in `moon run` and `moon test`. Based on the legacy impl,
+/// only if no packages override their C/C++ toolchain, we can use `tcc -run`.
+fn check_tcc_availability(
+    target_backend: TargetBackend,
+    resolve_output: &ResolveOutput,
+    input_nodes: &[BuildPlanNode],
+) -> bool {
+    // Only for native target. Yes, not even LLVM.
+    if target_backend != TargetBackend::Native {
+        info!("Disabling `tcc -run`: Only available for native target backend");
+        return false;
+    }
+
+    // Check platform availability
+    if !(cfg!(target_os = "linux") || cfg!(target_os = "macos")) {
+        info!("`tcc -run` is only supported on Linux and macOS");
+        return false;
+    }
+
+    // Check if TCC is available
+    let _tcc = match CC::internal_tcc() {
+        Ok(t) => t,
+        Err(_) => {
+            warn!("Cannot find TCC compiler in the system; disabling `tcc -run`");
+            return false;
+        }
+    };
+
+    // Check if any package overrides the C/C++ toolchain
+    for node in input_nodes {
+        if let BuildPlanNode::MakeExecutable(build_target) = node {
+            let package = resolve_output.pkg_dirs.get_package(build_target.package);
+            // Check native config
+            let Some(native) = package.raw.link.as_ref().and_then(|x| x.native.as_ref()) else {
+                continue;
+            };
+            if native.cc.is_some() {
+                warn!(
+                    "Package '{}' overrides C/C++ toolchain, `tcc -run` will be disabled",
+                    package.fqn
+                );
+                return false;
+            }
+            if native.cc_flags.is_some() {
+                warn!(
+                    "Package '{}' overrides C/C++ compiler flags, `tcc -run` will be disabled",
+                    package.fqn
+                );
+                return false;
+            }
+            if native.cc_link_flags.is_some() {
+                warn!(
+                    "Package '{}' overrides C/C++ linker flags, `tcc -run` will be disabled",
+                    package.fqn
+                );
+                return false;
+            }
+        }
+    }
+
+    true
+}
+
 /// Generate metadata file `packages.json` in the target directory.
 #[instrument(level = Level::DEBUG, skip_all)]
 pub fn generate_metadata(
@@ -409,7 +547,7 @@ pub fn generate_metadata(
         source_dir,
         target_dir,
         build_meta.opt_level,
-        build_meta.target_backend,
+        build_meta.target_backend.into(),
     );
     let orig_meta = std::fs::read_to_string(&metadata_file);
     let meta = serde_json::to_string_pretty(&metadata).context("Failed to serialize metadata")?;

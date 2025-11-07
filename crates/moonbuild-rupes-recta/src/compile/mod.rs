@@ -21,8 +21,8 @@ use std::{path::PathBuf, str::FromStr};
 use indexmap::IndexMap;
 use log::{debug, info};
 use moonutil::{
-    common::{RunMode, TargetBackend},
-    compiler_flags::CompilerPaths,
+    common::RunMode,
+    compiler_flags::{CC, CompilerPaths},
     cond_expr::OptLevel,
     moon_dir::MOON_DIRS,
 };
@@ -31,7 +31,7 @@ use tracing::{Level, instrument};
 use crate::{
     build_lower,
     build_plan::{self, BuildEnvironment, InputDirective},
-    model::{Artifacts, BuildPlanNode, OperatingSystem},
+    model::{Artifacts, BuildPlanNode, OperatingSystem, RunBackend},
     prebuild::PrebuildOutput,
     resolve::ResolveOutput,
     special_cases::should_skip_tests,
@@ -42,7 +42,7 @@ pub struct CompileConfig {
     /// Target directory, i.e. `target/`
     pub target_dir: PathBuf,
     /// The backend to use for the compilation.
-    pub target_backend: TargetBackend,
+    pub target_backend: RunBackend,
     /// The optimization level to use for the compilation.
     pub opt_level: OptLevel,
     /// The action done in this operation, currently only used in legacy directory layout
@@ -78,6 +78,8 @@ pub struct CompileConfig {
     pub alert_list: Option<String>,
     /// Whether to not emit alias when running `mooninfo`
     pub info_no_alias: bool,
+    /// Preferred default C/C++ toolchain to use for native builds
+    pub default_cc: CC,
 }
 
 /// The output information of the compilation.
@@ -157,6 +159,7 @@ pub fn compile(
 
         stdlib_path: cx.stdlib_path.clone(),
         compiler_paths: CompilerPaths::from_moon_dirs(), // change to external
+        default_cc: cx.default_cc.clone(),
         os: OperatingSystem::from_str(std::env::consts::OS).expect("Unknown"),
         runtime_dot_c_path: MOON_DIRS.moon_lib_path.join("runtime.c"), // FIXME: don't calculate here
     };

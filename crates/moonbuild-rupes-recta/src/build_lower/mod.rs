@@ -23,8 +23,8 @@ use std::path::PathBuf;
 use indexmap::IndexMap;
 use log::{debug, info};
 use moonutil::{
-    common::{RunMode, TargetBackend},
-    compiler_flags::CompilerPaths,
+    common::RunMode,
+    compiler_flags::{CC, CompilerPaths},
     cond_expr::OptLevel,
     mooncakes::ModuleSource,
 };
@@ -33,8 +33,9 @@ use tracing::instrument;
 
 use crate::{
     ResolveOutput,
+    build_lower::utils::Binaries,
     build_plan::BuildPlan,
-    model::{Artifacts, BuildPlanNode, OperatingSystem},
+    model::{Artifacts, BuildPlanNode, OperatingSystem, RunBackend},
     pkg_name::OptionalPackageFQNWithSource,
 };
 
@@ -55,7 +56,7 @@ pub struct BuildOptions {
     pub main_module: Option<ModuleSource>,
     pub target_dir_root: PathBuf,
     // FIXME: This overlaps with `crate::build_plan::BuildEnvironment`
-    pub target_backend: TargetBackend,
+    pub target_backend: RunBackend,
     pub os: OperatingSystem,
     pub opt_level: OptLevel,
     pub action: RunMode,
@@ -74,6 +75,8 @@ pub struct BuildOptions {
     pub stdlib_path: Option<PathBuf>,
     pub runtime_dot_c_path: PathBuf,
     pub compiler_paths: CompilerPaths,
+    /// Preferred default C/C++ toolchain to use (overrides CC::default()).
+    pub default_cc: CC,
 }
 
 /// An error that may be raised during build plan lowering
@@ -134,7 +137,9 @@ pub fn lower_build_plan(
         .build()
         .expect("Failed to build legacy layout");
 
-    let mut ctx = BuildPlanLowerContext::new(layout, resolve_output, build_plan, opt);
+    let binaries = Binaries::locate();
+
+    let mut ctx = BuildPlanLowerContext::new(layout, binaries, resolve_output, build_plan, opt);
 
     for node in build_plan.all_nodes() {
         debug!("Lowering build node: {:?}", node);

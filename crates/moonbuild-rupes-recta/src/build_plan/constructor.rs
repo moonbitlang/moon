@@ -276,7 +276,7 @@ impl<'a> BuildPlanConstructor<'a> {
                 }
             }
             BuildPlanNode::BuildCStub(build_target, _)
-            | BuildPlanNode::ArchiveCStubs(build_target) => {
+            | BuildPlanNode::ArchiveOrLinkCStubs(build_target) => {
                 assert!(
                     self.res.c_stubs_info.contains_key(&build_target),
                     "C stubs info for {:?} should be present when resolving node {:?}",
@@ -403,7 +403,9 @@ impl<'a> BuildPlanConstructor<'a> {
             BuildPlanNode::BuildCStub(target, index) => {
                 self.build_build_c_stub(node, target, index)
             }
-            BuildPlanNode::ArchiveCStubs(target) => self.build_link_c_stubs(node, target),
+            BuildPlanNode::ArchiveOrLinkCStubs(target) => {
+                self.build_archive_or_link_c_stubs(node, target)
+            }
             BuildPlanNode::LinkCore(_) => {
                 panic!(
                     "Link core should not appear in the wild without \

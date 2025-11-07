@@ -18,12 +18,13 @@
 
 //! Loweing implementation for build nodes
 
+use std::path::{Path, PathBuf};
+
 use moonutil::{
-    common::TargetBackend,
     compiler_flags::{
-        ArchiverConfigBuilder, CC, CCConfigBuilder, OptLevel as CCOptLevel,
+        ArchiverConfigBuilder, CC, CCConfigBuilder, LinkerConfigBuilder, OptLevel as CCOptLevel,
         OutputType as CCOutputType, make_archiver_command, make_cc_command, make_cc_command_pure,
-        resolve_cc,
+        make_linker_command_pure, resolve_cc,
     },
     cond_expr::OptLevel,
     moon_dir::MOON_DIRS,
@@ -43,7 +44,7 @@ use crate::{
     },
     build_plan::{BuildCStubsInfo, BuildTargetInfo, LinkCoreInfo, MakeExecutableInfo},
     discover::DiscoveredPackage,
-    model::{BuildPlanNode, BuildTarget, PackageId, TargetKind},
+    model::{BuildPlanNode, BuildTarget, PackageId, RunBackend, TargetKind},
     pkg_name::{PackageFQN, PackagePath},
 };
 
@@ -59,7 +60,8 @@ impl<'a> BuildPlanLowerContext<'a> {
         compiler::CompilationFlags {
             no_opt: self.opt.opt_level == OptLevel::Debug,
             symbols: self.opt.debug_symbols,
-            source_map: self.opt.target_backend.supports_source_map() && self.opt.debug_symbols,
+            source_map: self.opt.target_backend.to_target().supports_source_map()
+                && self.opt.debug_symbols,
             enable_coverage: false,
             self_coverage: false,
             enable_value_tracing: false,
@@ -77,7 +79,7 @@ impl<'a> BuildPlanLowerContext<'a> {
             .opt
             .stdlib_path
             .as_ref()
-            .map(|x| artifact::core_bundle_path(x, self.opt.target_backend).into());
+            .map(|x| artifact::core_bundle_path(x, self.opt.target_backend.into()).into());
 
         // Warning and error settings
         let error_format = if self.opt.moonc_output_json {
@@ -127,9 +129,11 @@ impl<'a> BuildPlanLowerContext<'a> {
 
         if let Some(v_target) = info.check_mi_against {
             // The target to check against is always the Source target of the virtual package
-            let mi_path =
-                self.layout
-                    .mi_of_build_target(self.packages, &v_target, self.opt.target_backend);
+            let mi_path = self.layout.mi_of_build_target(
+                self.packages,
+                &v_target,
+                self.opt.target_backend.into(),
+            );
 
             // If current package is NOT the same package as the virtual target,
             // this package is a concrete implementation → add -impl-virtual mapping.
@@ -174,7 +178,7 @@ impl<'a> BuildPlanLowerContext<'a> {
         let package = self.get_package(target);
         let mi_output =
             self.layout
-                .mi_of_build_target(self.packages, &target, self.opt.target_backend);
+                .mi_of_build_target(self.packages, &target, self.opt.target_backend.into());
         let mi_inputs = self.mi_inputs_of(node, target);
 
         // Collect files iterator once so we can pass slices and extra inputs
@@ -203,7 +207,7 @@ impl<'a> BuildPlanLowerContext<'a> {
                 &mi_inputs,
                 compiler::CompiledPackageName::new(&package.fqn, target.kind),
                 &package.root_path,
-                self.opt.target_backend,
+                self.opt.target_backend.into(),
                 target.kind,
             ),
             defaults: self.set_build_commons(package, info, is_main),
@@ -225,7 +229,7 @@ impl<'a> BuildPlanLowerContext<'a> {
 
         BuildCommand {
             extra_inputs,
-            commandline: cmd.build_command("moonc"),
+            commandline: cmd.build_command(&self.binaries.moonc),
         }
     }
 
@@ -237,12 +241,14 @@ impl<'a> BuildPlanLowerContext<'a> {
         info: &BuildTargetInfo,
     ) -> BuildCommand {
         let package = self.get_package(target);
-        let core_output =
-            self.layout
-                .core_of_build_target(self.packages, &target, self.opt.target_backend);
+        let core_output = self.layout.core_of_build_target(
+            self.packages,
+            &target,
+            self.opt.target_backend.into(),
+        );
         let mi_output =
             self.layout
-                .mi_of_build_target(self.packages, &target, self.opt.target_backend);
+                .mi_of_build_target(self.packages, &target, self.opt.target_backend.into());
 
         let mi_inputs = self.mi_inputs_of(node, target);
 
@@ -253,7 +259,7 @@ impl<'a> BuildPlanLowerContext<'a> {
                 files.push(self.layout.generated_test_driver(
                     self.packages,
                     &target,
-                    self.opt.target_backend,
+                    self.opt.target_backend.into(),
                 ));
             }
         };
@@ -274,7 +280,7 @@ impl<'a> BuildPlanLowerContext<'a> {
                 &mi_inputs,
                 compiler::CompiledPackageName::new(&package.fqn, target.kind),
                 &package.root_path,
-                self.opt.target_backend,
+                self.opt.target_backend.into(),
                 target.kind,
             ),
             defaults: self.set_build_commons(package, info, is_main),
@@ -302,7 +308,7 @@ impl<'a> BuildPlanLowerContext<'a> {
         }
 
         BuildCommand {
-            commandline: cmd.build_command("moonc"),
+            commandline: cmd.build_command(&self.binaries.moonc),
             extra_inputs,
         }
     }
@@ -321,22 +327,30 @@ impl<'a> BuildPlanLowerContext<'a> {
             // The two stdlib core files must be linked in the correct order,
             // in order to get the correct order of initialization.
             if !info.abort_overridden {
-                core_input_files.push(artifact::abort_core_path(stdlib, self.opt.target_backend));
+                core_input_files.push(artifact::abort_core_path(
+                    stdlib,
+                    self.opt.target_backend.into(),
+                ));
             }
-            core_input_files.push(artifact::core_core_path(stdlib, self.opt.target_backend));
+            core_input_files.push(artifact::core_core_path(
+                stdlib,
+                self.opt.target_backend.into(),
+            ));
         }
         // Linked core targets
         for target in &info.linked_order {
-            let core_path =
-                self.layout
-                    .core_of_build_target(self.packages, target, self.opt.target_backend);
+            let core_path = self.layout.core_of_build_target(
+                self.packages,
+                target,
+                self.opt.target_backend.into(),
+            );
             core_input_files.push(core_path);
         }
 
         let out_file = self.layout.linked_core_of_build_target(
             self.packages,
             &target,
-            self.opt.target_backend,
+            self.opt.target_backend.into(),
             self.opt.os,
             self.opt.output_wat,
         );
@@ -369,7 +383,7 @@ impl<'a> BuildPlanLowerContext<'a> {
             pkg_config_path: config_path.into(),
             package_sources: &package_sources,
             stdlib_core_source: None,
-            target_backend: self.opt.target_backend,
+            target_backend: self.opt.target_backend.into(),
             flags: self.set_flags(),
             test_mode: target.kind.is_test(),
             wasm_config: self.get_wasm_config(package),
@@ -380,19 +394,25 @@ impl<'a> BuildPlanLowerContext<'a> {
         // Ensure n2 sees stdlib core bundle changes as inputs
         let mut extra_inputs = Vec::new();
         if let Some(stdlib) = &self.opt.stdlib_path {
-            extra_inputs.push(artifact::abort_core_path(stdlib, self.opt.target_backend));
-            extra_inputs.push(artifact::core_core_path(stdlib, self.opt.target_backend));
+            extra_inputs.push(artifact::abort_core_path(
+                stdlib,
+                self.opt.target_backend.into(),
+            ));
+            extra_inputs.push(artifact::core_core_path(
+                stdlib,
+                self.opt.target_backend.into(),
+            ));
         }
 
         BuildCommand {
             extra_inputs,
-            commandline: cmd.build_command("moonc"),
+            commandline: cmd.build_command(&self.binaries.moonc),
         }
     }
 
     fn get_wasm_config<'b>(&self, pkg: &'b DiscoveredPackage) -> compiler::WasmConfig<'b> {
         let target = self.opt.target_backend;
-        if target != TargetBackend::Wasm {
+        if target != RunBackend::Wasm {
             return WasmConfig::default();
         }
 
@@ -414,7 +434,7 @@ impl<'a> BuildPlanLowerContext<'a> {
 
     fn get_js_config(&self, target: BuildTarget, pkg: &DiscoveredPackage) -> Option<JsConfig> {
         let backend = self.opt.target_backend;
-        if backend != TargetBackend::Js {
+        if backend != RunBackend::Js {
             return None;
         }
 
@@ -461,7 +481,7 @@ impl<'a> BuildPlanLowerContext<'a> {
             input_file
                 .file_stem()
                 .expect("stub lib should have a file name"),
-            self.opt.target_backend,
+            self.opt.target_backend.into(),
             self.opt.os,
         );
 
@@ -475,19 +495,21 @@ impl<'a> BuildPlanLowerContext<'a> {
             (false, true) => CCOptLevel::Debug,
             (false, false) => CCOptLevel::None,
         };
+        // `tcc run` uses shared runtime, others use static runtime
+        let use_shared_runtime = matches!(self.opt.target_backend, RunBackend::NativeTccRun);
 
         let config = CCConfigBuilder::default()
             .no_sys_header(true)
             .output_ty(CCOutputType::Object)
             .opt_level(opt_level)
             .debug_info(self.opt.debug_symbols)
-            .link_moonbitrun(true) // TODO: support use_tcc_run flag when available
-            .define_use_shared_runtime_macro(false) // TODO: support use_tcc_run flag when available
+            .link_moonbitrun(!use_shared_runtime)
+            .define_use_shared_runtime_macro(use_shared_runtime)
             .build()
             .expect("Failed to build CC configuration for C stub");
 
         let cc_cmd = make_cc_command(
-            CC::default(),
+            self.opt.default_cc.clone(),
             info.stub_cc.clone(),
             config,
             &info.cc_flags,
@@ -503,7 +525,7 @@ impl<'a> BuildPlanLowerContext<'a> {
     }
 
     #[instrument(level = Level::DEBUG, skip(self, info))]
-    pub(super) fn lower_archive_c_stubs(
+    pub(super) fn lower_archive_or_link_c_stubs(
         &mut self,
         node: BuildPlanNode,
         target: PackageId,
@@ -519,11 +541,31 @@ impl<'a> BuildPlanLowerContext<'a> {
             self.append_artifact_of(input, edge, &mut object_files);
         }
 
-        // Match legacy: create archive name as lib{pkgname}.{A_EXT}
+        // There's two ways to handle this:
+        // - When not using `tcc -run`, this creates an archive of the C stubs.
+        // - When using `tcc -run`, this links the C stubs to an ELF .so, so tcc
+        //   can load it at runtime.
+        match self.opt.target_backend {
+            RunBackend::WasmGC | RunBackend::Wasm | RunBackend::Js => {
+                panic!("C stubs are not supported for non-native backends")
+            }
+            RunBackend::Native | RunBackend::Llvm => {
+                self.lower_archive_c_stubs(target, info, &object_files)
+            }
+            RunBackend::NativeTccRun => self.lower_link_c_stubs(target, info, &object_files),
+        }
+    }
+
+    fn lower_archive_c_stubs(
+        &mut self,
+        target: PackageId,
+        info: &BuildCStubsInfo,
+        object_files: &[PathBuf],
+    ) -> BuildCommand {
         let archive = self.layout.c_stub_archive_path(
             self.packages,
             target,
-            self.opt.target_backend,
+            self.opt.target_backend.into(),
             self.opt.os,
         );
 
@@ -533,7 +575,7 @@ impl<'a> BuildPlanLowerContext<'a> {
             .expect("Failed to build archiver configuration");
 
         let archiver_cmd = make_archiver_command(
-            CC::default(),
+            self.opt.default_cc.clone(),
             info.stub_cc.clone(), // TODO: no clone
             config,
             &object_files
@@ -549,17 +591,93 @@ impl<'a> BuildPlanLowerContext<'a> {
         }
     }
 
+    fn lower_link_c_stubs(
+        &mut self,
+        target: PackageId,
+        info: &BuildCStubsInfo,
+        object_files: &[PathBuf],
+    ) -> BuildCommand {
+        // Output: lib{pkg}.{DYN_EXT}, exactly like legacy gen_link_stub_to_dynamic_lib_command()
+        let dylib_out = self.layout.c_stub_link_dylib_path(
+            self.packages,
+            target,
+            self.opt.target_backend.into(),
+            self.opt.os,
+        );
+        let dest_dir = dylib_out
+            .parent()
+            .expect("c stub dylib should have a parent directory")
+            .display()
+            .to_string();
+
+        // Track libruntime.{DYN_EXT} as a dependency but do not pass it as a direct linker src.
+        // Legacy adds runtime into build inputs then links via -lruntime using link_shared_runtime.
+        let runtime_dylib = self
+            .layout
+            .runtime_output_path(self.opt.target_backend, self.opt.os);
+        let runtime_parent = runtime_dylib
+            .parent()
+            .expect("runtime dylib should have a parent directory");
+
+        // Resolve CC: prefer stub_cc if provided, otherwise use default.
+        let cc = resolve_cc(self.opt.default_cc.clone(), info.stub_cc.clone());
+
+        // Build linker config: shared lib, no libmoonbitrun, and link shared runtime dir
+        let lcfg = LinkerConfigBuilder::<&Path>::default()
+            .link_moonbitrun(false)
+            .output_ty(CCOutputType::SharedLib)
+            .link_shared_runtime(Some(runtime_parent))
+            .build()
+            .expect("Failed to build LinkerConfig for C stub dylib");
+
+        // Sources: only object files; runtime handled via link_shared_runtime (-lruntime + rpath)
+        let sources: Vec<String> = object_files
+            .iter()
+            .map(|p| p.display().to_string())
+            .collect();
+
+        // User linker flags: stub_cc_link_flags (already parsed) from BuildCStubsInfo
+        let link_flags: Vec<String> = info.link_flags.clone();
+
+        let cc_cmd = make_linker_command_pure(
+            cc,
+            lcfg,
+            &link_flags,
+            &sources,
+            &dest_dir,
+            &dylib_out.display().to_string(),
+            &self.opt.compiler_paths.lib_path,
+        );
+
+        // Note: Runtime input is tracked in build plan, so no need to add here.
+        BuildCommand {
+            extra_inputs: vec![],
+            commandline: cc_cmd,
+        }
+    }
+
     #[instrument(level = Level::DEBUG, skip(self, info))]
     pub(super) fn lower_make_exe(
         &mut self,
         target: BuildTarget,
         info: &MakeExecutableInfo,
     ) -> BuildCommand {
-        assert!(
-            self.opt.target_backend.is_native(),
-            "Non-native make-executable should be already matched and should not be here"
-        );
+        match self.opt.target_backend {
+            RunBackend::WasmGC | RunBackend::Wasm | RunBackend::Js => {
+                panic!(
+                    "Non-native make-executable should be already matched and should not be here"
+                )
+            }
+            RunBackend::Native | RunBackend::Llvm => self.lower_build_exe_regular(target, info),
+            RunBackend::NativeTccRun => self.build_tcc_run_driver_command(target, info),
+        }
+    }
 
+    fn lower_build_exe_regular(
+        &mut self,
+        target: BuildTarget,
+        info: &MakeExecutableInfo,
+    ) -> BuildCommand {
         let _package = self.get_package(target);
 
         // Two things needs to be done here:
@@ -575,7 +693,7 @@ impl<'a> BuildPlanLowerContext<'a> {
         // C stubs to link
         for &stub_tgt in &info.link_c_stubs {
             self.append_all_artifacts_of(
-                BuildPlanNode::ArchiveCStubs(stub_tgt.package),
+                BuildPlanNode::ArchiveOrLinkCStubs(stub_tgt.package),
                 &mut sources,
             );
         }
@@ -593,30 +711,118 @@ impl<'a> BuildPlanLowerContext<'a> {
             .define_use_shared_runtime_macro(false)
             .build()
             .expect("Failed to build CC configuration for executable");
+
+        let dest = self
+            .layout
+            .executable_of_build_target(
+                self.packages,
+                &target,
+                self.opt.target_backend,
+                self.opt.os,
+                true,
+                self.opt.output_wat,
+            )
+            .display()
+            .to_string();
+
         let cc_cmd = make_cc_command_pure(
-            resolve_cc(CC::default(), info.cc.clone()), // TODO: no clone
+            resolve_cc(self.opt.default_cc.clone(), info.cc.clone()), // TODO: no clone
             config,
             &info.c_flags,
             sources.iter().map(|x| x.display().to_string()),
             &self.opt.target_dir_root.display().to_string(),
-            &self
-                .layout
-                .executable_of_build_target(
-                    self.packages,
-                    &target,
-                    self.opt.target_backend,
-                    self.opt.os,
-                    true,
-                    self.opt.output_wat,
-                )
-                .display()
-                .to_string(),
+            Some(&dest),
             &self.opt.compiler_paths,
         );
 
         BuildCommand {
             extra_inputs: vec![],
             commandline: cc_cmd,
+        }
+    }
+
+    /// Build the command for `tcc -run` to execute when running, as well as
+    /// putting that into a response file.
+    fn build_tcc_run_driver_command(
+        &self,
+        target: BuildTarget,
+        info: &MakeExecutableInfo,
+    ) -> BuildCommand {
+        // TODO: Get the CC instance from outside
+        let cc = CC::internal_tcc().expect("Should not go to tcc run path without tcc available");
+
+        let mut sources = vec![];
+
+        // Runtime path
+        self.append_all_artifacts_of(BuildPlanNode::BuildRuntimeLib, &mut sources);
+        // C stubs to link
+        for &stub_tgt in &info.link_c_stubs {
+            self.append_all_artifacts_of(
+                BuildPlanNode::ArchiveOrLinkCStubs(stub_tgt.package),
+                &mut sources,
+            );
+        }
+
+        let cfg = CCConfigBuilder::default()
+            .no_sys_header(true) // -DMOONBIT_NATIVE_NO_SYS_HEADER for TCC
+            .output_ty(CCOutputType::Executable) // base flags akin to "run"
+            .opt_level(match self.opt.opt_level {
+                OptLevel::Release => CCOptLevel::Speed,
+                OptLevel::Debug => CCOptLevel::Debug,
+            })
+            .debug_info(self.opt.debug_symbols)
+            .link_moonbitrun(false) // never link libmoonbitrun.o under tcc -run
+            .define_use_shared_runtime_macro(true) // -DMOONBIT_USE_SHARED_RUNTIME (+ -fPIC on gcc-like)
+            .build()
+            .expect("Failed to build CC configuration for tcc-run");
+
+        let mut cmdline = make_cc_command_pure(
+            cc,
+            cfg,
+            &[] as &[&str], // no user flags
+            sources.iter().map(|x| x.to_string_lossy().into_owned()),
+            "", // TCC is not MSVC, no need to set special dest dir
+            None,
+            &self.opt.compiler_paths,
+        );
+
+        // The C file from moonc link-core
+        cmdline.push("-run".to_string());
+        let c_file = self.layout.linked_core_of_build_target(
+            self.packages,
+            &target,
+            self.opt.target_backend.into(),
+            self.opt.os,
+            self.opt.output_wat,
+        );
+        cmdline.push(c_file.display().to_string());
+
+        // Note: at this point, we have our TCC command.
+        // However, this command should be executed when the user runs the final
+        // executable, not in this build graph. Thus, we need to put them into
+        // a response file so that `tcc` will run it later.
+        //
+        // We have a tool for this: `moon tool write-tcc-rsp-file <out> <args...>`
+        let mut rsp_cmdline = vec![
+            self.binaries.moonbuild.display().to_string(),
+            "tool".to_string(),
+            "write-tcc-rsp-file".to_string(),
+        ];
+        let rsp_path = self.layout.executable_of_build_target(
+            self.packages,
+            &target,
+            self.opt.target_backend,
+            self.opt.os,
+            false,
+            self.opt.output_wat,
+        );
+
+        rsp_cmdline.push(rsp_path.display().to_string());
+        rsp_cmdline.extend(cmdline.into_iter().skip(1)); // skip original `tcc` command
+
+        BuildCommand {
+            extra_inputs: vec![],
+            commandline: rsp_cmdline,
         }
     }
 
@@ -634,7 +840,7 @@ impl<'a> BuildPlanLowerContext<'a> {
         let target = pid.build_target(TargetKind::Source);
         let mi_out =
             self.layout
-                .mi_of_build_target(self.packages, &target, self.opt.target_backend);
+                .mi_of_build_target(self.packages, &target, self.opt.target_backend.into());
 
         // Resolve interface dependencies from the dep graph (path:alias pairs)
         let mi_inputs = self.mi_inputs_of(node, target);
@@ -650,14 +856,15 @@ impl<'a> BuildPlanLowerContext<'a> {
 
         // Provide std path when stdlib is enabled
         if let Some(stdlib_root) = &self.opt.stdlib_path {
-            cmd.stdlib_core_file =
-                Some(artifact::core_bundle_path(stdlib_root, self.opt.target_backend).into());
+            cmd.stdlib_core_file = Some(
+                artifact::core_bundle_path(stdlib_root, self.opt.target_backend.into()).into(),
+            );
         }
 
         BuildCommand {
             // Track the user-written `.mbti` contract as an explicit input
             extra_inputs: vec![mbti_path.clone()],
-            commandline: cmd.build_command("moonc"),
+            commandline: cmd.build_command(&self.binaries.moonc),
         }
     }
 
@@ -678,9 +885,11 @@ impl<'a> BuildPlanLowerContext<'a> {
                     .is_none_or(|x| x != target.package)
             })
             .map(|(_, it, w)| {
-                let in_file =
-                    self.layout
-                        .mi_of_build_target(self.packages, &it, self.opt.target_backend);
+                let in_file = self.layout.mi_of_build_target(
+                    self.packages,
+                    &it,
+                    self.opt.target_backend.into(),
+                );
                 MiDependency::new(in_file, &w.short_alias)
             })
             .collect::<Vec<_>>();

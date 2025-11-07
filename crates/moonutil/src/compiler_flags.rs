@@ -90,6 +90,10 @@ impl CC {
         }
     }
 
+    pub fn cc_path(&self) -> &str {
+        &self.cc_path
+    }
+
     fn new(cc_kind: CCKind, cc_path: String, ar_kind: ARKind, ar_path: String) -> Self {
         CC {
             cc_kind,
@@ -201,6 +205,16 @@ impl CC {
         // If users set MOON_CC, we believe they know what they are doing
         // And we conservatively disable libmoonbitrun.o
         CAN_USE_MOONBITRUN && !self.is_msvc() && !self.is_env_override
+    }
+
+    // Constructors for TCC toolchain
+
+    /// Create a CC configured for the internal TCC shipped with Moon.
+    /// Resolves MOON_DIRS.internal_tcc_path via which::which.
+    pub fn internal_tcc() -> anyhow::Result<Self> {
+        let cc_path =
+            which::which(&MOON_DIRS.internal_tcc_path).context("internal tcc not found")?;
+        CC::try_from_cc_path_and_kind("", &cc_path, CCKind::Tcc)
     }
 }
 
@@ -613,7 +627,10 @@ where
 }
 
 // Helper functions for CC command building
-fn add_cc_output_flags(cc: &CC, buf: &mut Vec<String>, config: &CCConfig, dest: &str) {
+fn add_cc_output_flags(cc: &CC, buf: &mut Vec<String>, config: &CCConfig, dest: Option<&str>) {
+    let Some(dest) = dest else {
+        return;
+    };
     if cc.is_msvc() {
         match config.output_ty {
             OutputType::Object => {
@@ -826,7 +843,7 @@ where
         user_cc_flags,
         src,
         dest_dir,
-        dest,
+        Some(dest),
         &paths,
     )
 }
@@ -837,7 +854,7 @@ pub fn make_cc_command_pure<S>(
     user_cc_flags: &[S],
     src: impl IntoIterator<Item = impl Into<String>>,
     dest_dir: &str,
-    dest: &str,
+    dest: Option<&str>,
     paths: &CompilerPaths,
 ) -> Vec<String>
 where
