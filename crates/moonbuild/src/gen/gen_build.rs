@@ -1534,12 +1534,12 @@ pub fn gen_n2_build_state(
                         })?
                         .to_string(),
                     TargetBackend::Js => moonutil::BINARIES
-                        .node()
+                        .node_or_default()
                         .to_str()
                         .with_context(|| {
                             format!(
                                 "Failed to decode node binary path: {:?}",
-                                moonutil::BINARIES.node()
+                                moonutil::BINARIES.node_or_default()
                             )
                         })?
                         .to_string(),

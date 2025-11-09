@@ -76,7 +76,7 @@ pub fn command_for(
         RunBackend::Js => {
             if let Some(t) = test {
                 let (dir, driver) = create_js_driver(mbt_executable, t)?;
-                let mut cmd = Command::new(moonutil::BINARIES.node());
+                let mut cmd = Command::new(moonutil::BINARIES.node_or_default());
                 cmd.arg("--enable-source-maps");
                 cmd.arg(driver);
                 cmd.arg(serde_json::to_string(t).expect("Failed to serialize test args"));
@@ -85,7 +85,7 @@ pub fn command_for(
                     command: cmd,
                 })
             } else {
-                let mut cmd = Command::new(moonutil::BINARIES.node());
+                let mut cmd = Command::new(moonutil::BINARIES.node_or_default());
                 cmd.arg(mbt_executable);
                 Ok(cmd.into())
             }

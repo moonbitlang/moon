@@ -59,7 +59,7 @@ pub fn run_format_and_diff(cmd: FormatAndDiffSubcommand) -> anyhow::Result<i32> 
     if exit_code == 0 {
         return Ok(0);
     }
-    let mut execution = std::process::Command::new(moonutil::BINARIES.git())
+    let mut execution = std::process::Command::new(moonutil::BINARIES.git_or_default())
         .args([
             "--no-pager",
             "diff",

@@ -80,7 +80,7 @@ pub fn print_run_commands(
                 TargetBackend::Wasm | TargetBackend::WasmGC => {
                     Some(moonutil::BINARIES.moonrun.clone())
                 }
-                TargetBackend::Js => Some(moonutil::BINARIES.node()),
+                TargetBackend::Js => Some(moonutil::BINARIES.node_or_default()),
                 TargetBackend::Native | TargetBackend::LLVM => {
                     // stub.o would be default for native and llvm, skip them
                     if !watfile.ends_with(".exe") {

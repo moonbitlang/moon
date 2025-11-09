@@ -252,7 +252,7 @@ fn run_single_mbt_file(cli: &UniversalFlags, cmd: RunSubcommand) -> anyhow::Resu
                 TargetBackend::Js => {
                     println!(
                         "{} {}",
-                        moonutil::BINARIES.node().display(),
+                        moonutil::BINARIES.node_or_default().display(),
                         output_wasm_or_js_path.display()
                     );
                 }
