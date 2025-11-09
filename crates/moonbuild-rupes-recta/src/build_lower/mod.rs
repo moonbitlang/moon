@@ -33,7 +33,6 @@ use tracing::instrument;
 
 use crate::{
     ResolveOutput,
-    build_lower::utils::Binaries,
     build_plan::BuildPlan,
     model::{Artifacts, BuildPlanNode, OperatingSystem, RunBackend},
     pkg_name::OptionalPackageFQNWithSource,
@@ -137,9 +136,7 @@ pub fn lower_build_plan(
         .build()
         .expect("Failed to build legacy layout");
 
-    let binaries = Binaries::locate();
-
-    let mut ctx = BuildPlanLowerContext::new(layout, binaries, resolve_output, build_plan, opt);
+    let mut ctx = BuildPlanLowerContext::new(layout, resolve_output, build_plan, opt);
 
     for node in build_plan.all_nodes() {
         debug!("Lowering build node: {:?}", node);

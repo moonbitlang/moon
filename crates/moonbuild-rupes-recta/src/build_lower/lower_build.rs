@@ -232,7 +232,7 @@ impl<'a> BuildPlanLowerContext<'a> {
 
         BuildCommand {
             extra_inputs,
-            commandline: cmd.build_command(&self.binaries.moonc),
+            commandline: cmd.build_command(moonutil::BINARIES.moonc.as_os_str()),
         }
     }
 
@@ -313,7 +313,7 @@ impl<'a> BuildPlanLowerContext<'a> {
         }
 
         BuildCommand {
-            commandline: cmd.build_command(&self.binaries.moonc),
+            commandline: cmd.build_command(moonutil::BINARIES.moonc.as_os_str()),
             extra_inputs,
         }
     }
@@ -414,7 +414,7 @@ impl<'a> BuildPlanLowerContext<'a> {
 
         BuildCommand {
             extra_inputs,
-            commandline: cmd.build_command(&self.binaries.moonc),
+            commandline: cmd.build_command(moonutil::BINARIES.moonc.as_os_str()),
         }
     }
 
@@ -806,12 +806,16 @@ impl<'a> BuildPlanLowerContext<'a> {
 
         // Note: at this point, we have our TCC command.
         // However, this command should be executed when the user runs the final
-        // executable, not in this build graph. Thus, we need to put them into
+        // executable, not in this build graph. Thus, we need to put them int&self.binarieso
         // a response file so that `tcc` will run it later.
         //
         // We have a tool for this: `moon tool write-tcc-rsp-file <out> <args...>`
+        let moonbuild = moonutil::BINARIES
+            .moonbuild
+            .to_str()
+            .expect("moonbuild path is valid UTF-8");
         let mut rsp_cmdline = vec![
-            self.binaries.moonbuild.display().to_string(),
+            moonbuild.to_string(),
             "tool".to_string(),
             "write-tcc-rsp-file".to_string(),
         ];
@@ -871,7 +875,7 @@ impl<'a> BuildPlanLowerContext<'a> {
         BuildCommand {
             // Track the user-written `.mbti` contract as an explicit input
             extra_inputs: vec![mbti_path.clone()],
-            commandline: cmd.build_command(&self.binaries.moonc),
+            commandline: cmd.build_command(moonutil::BINARIES.moonc.as_os_str()),
         }
     }
 
