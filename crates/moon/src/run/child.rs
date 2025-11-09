@@ -22,7 +22,7 @@ use std::process::{ExitStatus, Stdio};
 
 use anyhow::Context;
 use moonbuild::section_capture::{SectionCapture, handle_stdout_async};
-use moonutil::platform::unix_with_sigchild_blocked;
+use moonutil::platform::macos_with_sigchild_blocked;
 use tokio::process::Command;
 
 /// Run a command under the governing of `moon run`.
@@ -63,7 +63,7 @@ pub async fn run<'a>(
     cmd.kill_on_drop(true); // to prevent zombie processes;
 
     // Preventing race conditions with SIGCHLD handlers, see definition for info
-    let mut child = unix_with_sigchild_blocked(|| {
+    let mut child = macos_with_sigchild_blocked(|| {
         cmd.spawn()
             .with_context(|| format!("Failed to spawn command {:?}", cmd))
     })?;

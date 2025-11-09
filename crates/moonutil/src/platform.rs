@@ -24,8 +24,8 @@
 /// Related tokio issue:
 /// - https://github.com/tokio-rs/tokio/issues/6770
 /// - https://github.com/tokio-rs/tokio/pull/6953
-#[cfg(unix)]
-pub fn unix_with_sigchild_blocked<T>(f: impl FnOnce() -> T) -> T {
+#[cfg(target_os = "macos")]
+pub fn macos_with_sigchild_blocked<T>(f: impl FnOnce() -> T) -> T {
     // block SIGCHLD to avoid race condition with spawn and signal handler registration
     unsafe {
         let mut mask: libc::sigset_t = std::mem::zeroed();
@@ -43,7 +43,7 @@ pub fn unix_with_sigchild_blocked<T>(f: impl FnOnce() -> T) -> T {
     res
 }
 
-#[cfg(not(unix))]
-pub fn unix_with_sigchild_blocked<T>(f: impl FnOnce() -> T) -> T {
+#[cfg(not(target_os = "macos"))]
+pub fn macos_with_sigchild_blocked<T>(f: impl FnOnce() -> T) -> T {
     f()
 }
