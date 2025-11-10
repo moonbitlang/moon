@@ -18,6 +18,7 @@
 
 use anyhow::Context;
 use anyhow::bail;
+use clap::builder::ArgPredicate;
 use colored::Colorize;
 use indexmap::{IndexMap, IndexSet};
 use moonbuild::dry_run;
@@ -109,10 +110,12 @@ pub struct TestSubcommand {
     pub file: Option<String>,
 
     /// Run only the index-th test in the file. Only valid when `--file` is also specified.
+    /// Implies `--include-skipped`.
     #[clap(short, long)]
     pub index: Option<u32>,
 
     /// Run only the index-th doc test in the file. Only valid when `--file` is also specified.
+    /// Implies `--include-skipped`.
     #[clap(long, conflicts_with = "index")]
     pub doc_index: Option<u32>,
 
@@ -153,8 +156,10 @@ pub struct TestSubcommand {
     #[clap(conflicts_with_all = ["file", "package"], name="PATH")]
     pub single_file: Option<PathBuf>,
 
-    /// Include skipped tests
+    /// Include skipped tests. Automatically implied when `--[doc-]index` is set.
     #[clap(long)]
+    #[clap(default_value_if("index", ArgPredicate::IsPresent, "true"))]
+    #[clap(default_value_if("doc_index", ArgPredicate::IsPresent, "true"))]
     pub include_skipped: bool,
 }
 
