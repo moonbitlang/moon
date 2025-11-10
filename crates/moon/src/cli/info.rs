@@ -120,7 +120,13 @@ pub fn run_info_rr(cli: UniversalFlags, cmd: InfoSubcommand) -> anyhow::Result<i
     // For multiple targets, we would like to run them one by one, and then
     // check the consistency of generated mbti files.
     lowered_targets.sort();
-    let canonical_target = lowered_targets[0]; // we have >1 targets here
+    // Prefer WasmGC if present; otherwise use the first one after sorting
+    let canonical_target = lowered_targets
+        .iter()
+        .copied()
+        .find(|t| *t == TargetBackend::WasmGC)
+        .unwrap_or(lowered_targets[0]);
+
     let mut all_meta = vec![];
     for &tgt in &lowered_targets {
         let (success, meta) = run_info_rr_internal(&cli, &cmd, Some(tgt))?;
@@ -132,6 +138,14 @@ pub fn run_info_rr(cli: UniversalFlags, cmd: InfoSubcommand) -> anyhow::Result<i
     }
 
     let identical = imp::compare_info_outputs(all_meta.iter(), canonical_target)?;
+
+    // Always promote the canonical backend's outputs to package directories
+    let canonical_meta = &all_meta
+        .iter()
+        .find(|(t, _)| *t == canonical_target)
+        .expect("canonical backend metadata should exist")
+        .1;
+    imp::promote_info_results(canonical_meta);
 
     if identical { Ok(0) } else { Ok(1) }
 }
@@ -244,10 +258,19 @@ pub fn run_info_legacy(cli: UniversalFlags, cmd: InfoSubcommand) -> anyhow::Resu
     };
 
     let mut mbti_files_for_targets = vec![];
+    // Prefer WasmGC if present; otherwise use the first one after sorting
+    let mut lowered = targets.clone();
+    lowered.sort();
+    let canonical_target = lowered
+        .iter()
+        .copied()
+        .find(|t| *t == TargetBackend::WasmGC)
+        .unwrap_or(lowered[0]);
+
     for t in &targets {
         let mut cmd = cmd.clone();
         cmd.target_backend = Some(*t);
-        let mut x = run_info_internal(&cli, &cmd, &source_dir, &target_dir)
+        let mut x = run_info_internal(&cli, &cmd, &source_dir, &target_dir, canonical_target)
             .context(format!("failed to run moon info for target {t:?}"))?;
         x.sort_by(|a, b| a.0.cmp(&b.0));
         mbti_files_for_targets.push((*t, x));
@@ -255,12 +278,7 @@ pub fn run_info_legacy(cli: UniversalFlags, cmd: InfoSubcommand) -> anyhow::Resu
 
     // check consistency if there are multiple targets
     if mbti_files_for_targets.len() > 1 {
-        // Sort targets and pick the canonical backend (first after sort), consistent with RR path
-        let mut lowered = targets.clone();
-        lowered.sort();
-        let canonical_target = lowered[0];
-
-        // Diff the files
+        // Diff the files against the precomputed canonical target
         let identical =
             imp::compare_info_outputs_from_paths(mbti_files_for_targets.iter(), canonical_target)?;
         if !identical {
@@ -276,6 +294,7 @@ pub fn run_info_internal(
     cmd: &InfoSubcommand,
     source_dir: &Path,
     target_dir: &Path,
+    canonical_target: TargetBackend,
 ) -> anyhow::Result<Vec<(String, PathBuf)>> {
     let (resolved_env, dir_sync_result) = auto_sync(
         source_dir,
@@ -421,15 +440,8 @@ pub fn run_info_internal(
             let out = mooninfo.output().await?;
 
             if out.status.success() {
-                if
-                // no target specified, default to wasmgc
-                cmd.target.is_none()
-                    // specific one target
-                    || (cmd.target.as_ref().unwrap().len() == 1
-                        && cmd.target.as_ref().unwrap().first().unwrap() != &SurfaceTarget::All)
-                    // maybe more than one target, but running for wasmgc target
-                    || cmd.target_backend == Some(TargetBackend::WasmGC)
-                {
+                // Promote the canonical backend's output to package directories
+                if cmd.target_backend == Some(canonical_target) {
                     tokio::fs::copy(
                         &filepath,
                         &module_source_dir
