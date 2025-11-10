@@ -740,6 +740,7 @@ pub fn run_test(
     test_verbose_output: bool,
     auto_update: bool,
     module: ModuleDB,
+    include_skipped: bool,
 ) -> anyhow::Result<Vec<Result<TestStatistics, TestFailedStatus>>> {
     let moonc_opt = Arc::new(moonc_opt);
     let moonbuild_opt = Arc::new(moonbuild_opt);
@@ -813,10 +814,10 @@ pub fn run_test(
                     let ranges = vec![filter_index..(filter_index + 1)];
                     test_args.file_and_index.push((file_name.clone(), ranges));
                 } else {
-                    // No filter - use all actual indices from metadata
+                    // No filter - use actual indices from metadata, filtering based on include_skipped
                     let actual_indices: Vec<u32> = test_metadata
                         .values()
-                        .filter(|t| !t.has_skip())
+                        .filter(|t| include_skipped || !t.has_skip())
                         .map(|t| t.index)
                         .collect();
                     let ranges = indices_to_ranges(actual_indices);

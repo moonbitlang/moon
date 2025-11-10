@@ -358,6 +358,7 @@ fn run_test_in_single_file(cli: &UniversalFlags, cmd: &TestSubcommand) -> anyhow
         module,
         cli.verbose,
         cli.quiet,
+        cmd.include_skipped,
     )
 }
 
@@ -1360,6 +1361,7 @@ pub(crate) fn run_test_or_bench_internal_legacy(
         module,
         verbose,
         cli.quiet,
+        cmd.include_skipped,
     );
     if let Ok(code) = &res {
         trace!(exit_code = *code, "legacy runner finished execution");
@@ -1372,6 +1374,7 @@ pub(crate) fn run_test_or_bench_internal_legacy(
     res
 }
 
+#[allow(clippy::too_many_arguments)]
 #[instrument(level = Level::DEBUG, skip_all)]
 fn do_run_test(
     moonc_opt: MooncOpt,
@@ -1381,6 +1384,7 @@ fn do_run_test(
     module: ModuleDB,
     verbose: bool,
     quiet: bool,
+    include_skipped: bool,
 ) -> anyhow::Result<i32> {
     info!(
         backend = ?moonc_opt.build_opt.target_backend,
@@ -1402,6 +1406,7 @@ fn do_run_test(
         verbose,
         auto_update,
         module,
+        include_skipped,
     )?;
     trace!(case_count = test_res.len(), "entry::run_test completed");
 
