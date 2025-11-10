@@ -813,6 +813,15 @@ impl<'a> BuildPlanConstructor<'a> {
                     core: true,
                 },
             );
+
+            if pkg.is_virtual() {
+                trace!(
+                    ?module_id,
+                    ?target,
+                    "skipping including as build target for virtual package"
+                );
+                continue;
+            }
             bundle_targets.push(target);
         }
         trace!(
