@@ -902,12 +902,17 @@ const MIN_LINES_FOR_CHUNKING: usize = 20;
 /// The function uses a number of heuristics to determine the best format for
 /// the diff output. Inline diffs will not show newline differences, short diffs
 /// will be displayed in full, and long diffs will be chunked.
-fn write_diff(expected: &str, actual: &str, mut to: impl Write) -> std::io::Result<()> {
+pub fn write_diff(
+    expected: &str,
+    actual: &str,
+    max_non_chunk_lines: usize,
+    diff_ctx: usize,
+    mut to: impl Write,
+) -> std::io::Result<()> {
     // Determine if we want to chunk the diff output
     let expected_lines = expected.lines().count();
     let actual_lines = actual.lines().count();
-    let use_chunking =
-        expected_lines > MIN_LINES_FOR_CHUNKING || actual_lines > MIN_LINES_FOR_CHUNKING;
+    let use_chunking = expected_lines > max_non_chunk_lines || actual_lines > max_non_chunk_lines;
     let inline = expected_lines <= 1 && actual_lines <= 1;
 
     let diff = similar::TextDiff::configure()
@@ -917,7 +922,7 @@ fn write_diff(expected: &str, actual: &str, mut to: impl Write) -> std::io::Resu
     if inline {
         write_hunk(&diff, diff.ops(), &mut to, false, false)?;
     } else if use_chunking {
-        let grouped = diff.grouped_ops(DIFF_MIN_CTX);
+        let grouped = diff.grouped_ops(diff_ctx);
         for hunk in grouped {
             write_hunk(&diff, &hunk, &mut to, true, true)?;
         }
@@ -938,7 +943,7 @@ fn write_hunk<'a>(
 ) -> std::io::Result<()> {
     if header {
         let header = similar::udiff::UnifiedHunkHeader::new(hunk);
-        writeln!(to, "{}", header)?;
+        writeln!(to, "{}", header.to_string().bright_black())?;
     }
 
     for op in hunk {
@@ -955,22 +960,22 @@ fn write_hunk<'a>(
                         unreachable!("Equal should have been handled earlier")
                     }
                     similar::ChangeTag::Delete => {
-                        write!(to, "{}", "-".red())?;
+                        write!(to, "{}", "-".bright_red())?;
                         for &(emph, slice) in change.values() {
                             if emph {
-                                write!(to, "{}", slice.underline().red())?;
+                                write!(to, "{}", slice.underline().bright_red())?;
                             } else {
-                                write!(to, "{}", slice.red())?;
+                                write!(to, "{}", slice.bright_red())?;
                             }
                         }
                     }
                     similar::ChangeTag::Insert => {
-                        write!(to, "{}", "+".green())?;
+                        write!(to, "{}", "+".bright_green())?;
                         for &(emph, slice) in change.values() {
                             if emph {
-                                write!(to, "{}", slice.underline().green())?;
+                                write!(to, "{}", slice.underline().bright_green())?;
                             } else {
-                                write!(to, "{}", slice.green())?;
+                                write!(to, "{}", slice.bright_green())?;
                             }
                         }
                     }
@@ -1028,7 +1033,13 @@ pub fn render_expect_fail(msg: &str) -> anyhow::Result<()> {
     println!("expect test failed at {}", rep.loc.raw);
     write_diff_header(std::io::stdout())?;
     println!("----");
-    write_diff(&rep.expect, &rep.actual, std::io::stdout())?;
+    write_diff(
+        &rep.expect,
+        &rep.actual,
+        MIN_LINES_FOR_CHUNKING,
+        DIFF_MIN_CTX,
+        std::io::stdout(),
+    )?;
     println!("----");
     println!();
 
@@ -1099,7 +1110,13 @@ pub fn render_snapshot_fail(msg: &str) -> anyhow::Result<(bool, String, String)>
         );
         write_diff_header(std::io::stdout())?;
         println!("----");
-        write_diff(&expect, &actual, std::io::stdout())?;
+        write_diff(
+            &expect,
+            &actual,
+            MIN_LINES_FOR_CHUNKING,
+            DIFF_MIN_CTX,
+            std::io::stdout(),
+        )?;
         println!("----");
         println!();
     }

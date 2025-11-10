@@ -16,8 +16,9 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
+mod imp;
+
 use std::{
-    collections::HashMap,
     path::{Path, PathBuf},
     sync::{Arc, Mutex},
 };
@@ -43,7 +44,7 @@ use tracing::warn;
 use crate::{
     cli::BuildFlags,
     filter::{canonicalize_with_filename, filter_pkg_by_dir, match_packages_by_name_rr},
-    rr_build::{self, BuildConfig, CalcUserIntentOutput},
+    rr_build::{self, BuildConfig, BuildMeta, CalcUserIntentOutput},
 };
 
 use super::{UniversalFlags, pre_build::scan_with_x_build};
@@ -85,6 +86,9 @@ pub fn run_info(cli: UniversalFlags, cmd: InfoSubcommand) -> anyhow::Result<i32>
             "`--no-alias` will be removed soon. See: https://github.com/moonbitlang/moon/issues/1092"
         );
     }
+    if cli.dry_run {
+        bail!("dry-run is not implemented for info")
+    }
 
     if cli.unstable_feature.rupes_recta {
         run_info_rr(cli, cmd)
@@ -94,6 +98,66 @@ pub fn run_info(cli: UniversalFlags, cmd: InfoSubcommand) -> anyhow::Result<i32>
 }
 
 pub fn run_info_rr(cli: UniversalFlags, cmd: InfoSubcommand) -> anyhow::Result<i32> {
+    // Determine which target to use
+    let target = &cmd.target;
+    let mut lowered_targets = vec![];
+    if let Some(tgts) = target {
+        lowered_targets.extend(lower_surface_targets(tgts));
+    }
+
+    // If there's zero or one target, just run normally and promote the results
+    if lowered_targets.len() <= 1 {
+        let target_backend = lowered_targets.first().cloned();
+        let (success, meta) = run_info_rr_internal(&cli, &cmd, target_backend)?;
+        if success {
+            imp::promote_info_results(&meta);
+            return Ok(0);
+        } else {
+            return Ok(1);
+        }
+    }
+
+    // For multiple targets, we would like to run them one by one, and then
+    // check the consistency of generated mbti files.
+    lowered_targets.sort();
+    // Prefer WasmGC if present; otherwise use the first one after sorting
+    let canonical_target = lowered_targets
+        .iter()
+        .copied()
+        .find(|t| *t == TargetBackend::WasmGC)
+        .unwrap_or(lowered_targets[0]);
+
+    let mut all_meta = vec![];
+    for &tgt in &lowered_targets {
+        let (success, meta) = run_info_rr_internal(&cli, &cmd, Some(tgt))?;
+        if !success {
+            bail!("moon info failed for target {:?}", tgt);
+        }
+
+        all_meta.push((tgt, meta));
+    }
+
+    let identical = imp::compare_info_outputs(all_meta.iter(), canonical_target)?;
+
+    // Always promote the canonical backend's outputs to package directories
+    let canonical_meta = &all_meta
+        .iter()
+        .find(|(t, _)| *t == canonical_target)
+        .expect("canonical backend metadata should exist")
+        .1;
+    imp::promote_info_results(canonical_meta);
+
+    if identical { Ok(0) } else { Ok(1) }
+}
+
+/// Run `moon info` for the given target (`None` for default target)
+///
+/// Returns `(success, build metadata if not dry-run)`.
+pub fn run_info_rr_internal(
+    cli: &UniversalFlags,
+    cmd: &InfoSubcommand,
+    target: Option<TargetBackend>,
+) -> anyhow::Result<(bool, BuildMeta)> {
     let PackageDirs {
         source_dir,
         target_dir,
@@ -101,8 +165,8 @@ pub fn run_info_rr(cli: UniversalFlags, cmd: InfoSubcommand) -> anyhow::Result<i
 
     let mut preconfig = rr_build::preconfig_compile(
         &cmd.auto_sync_flags,
-        &cli,
-        &BuildFlags::default(),
+        cli,
+        &BuildFlags::default().with_target_backend(target),
         &target_dir,
         OptLevel::Release,
         RunMode::Build,
@@ -120,20 +184,11 @@ pub fn run_info_rr(cli: UniversalFlags, cmd: InfoSubcommand) -> anyhow::Result<i
         }),
     )?;
 
-    if cli.dry_run {
-        rr_build::print_dry_run(
-            &build_graph,
-            _build_meta.artifacts.values(),
-            &source_dir,
-            &target_dir,
-        );
-        Ok(0)
-    } else {
-        // TODO: `moon info` is a wrapper over `moon check`, so should have flags that `moon check` has?
-        let result = rr_build::execute_build(&BuildConfig::default(), build_graph, &target_dir)?;
-        result.print_info(cli.quiet, "generating mbti files")?;
-        Ok(result.return_code_for_success())
-    }
+    // TODO: `moon info` is a wrapper over `moon check`, so should have flags that `moon check` has?
+    let result = rr_build::execute_build(&BuildConfig::default(), build_graph, &target_dir)?;
+    result.print_info(cli.quiet, "generating mbti files")?;
+
+    Ok((result.successful(), _build_meta))
 }
 
 fn calc_user_intent(
@@ -203,10 +258,19 @@ pub fn run_info_legacy(cli: UniversalFlags, cmd: InfoSubcommand) -> anyhow::Resu
     };
 
     let mut mbti_files_for_targets = vec![];
+    // Prefer WasmGC if present; otherwise use the first one after sorting
+    let mut lowered = targets.clone();
+    lowered.sort();
+    let canonical_target = lowered
+        .iter()
+        .copied()
+        .find(|t| *t == TargetBackend::WasmGC)
+        .unwrap_or(lowered[0]);
+
     for t in &targets {
         let mut cmd = cmd.clone();
         cmd.target_backend = Some(*t);
-        let mut x = run_info_internal(&cli, &cmd, &source_dir, &target_dir)
+        let mut x = run_info_internal(&cli, &cmd, &source_dir, &target_dir, canonical_target)
             .context(format!("failed to run moon info for target {t:?}"))?;
         x.sort_by(|a, b| a.0.cmp(&b.0));
         mbti_files_for_targets.push((*t, x));
@@ -214,48 +278,11 @@ pub fn run_info_legacy(cli: UniversalFlags, cmd: InfoSubcommand) -> anyhow::Resu
 
     // check consistency if there are multiple targets
     if mbti_files_for_targets.len() > 1 {
-        // create a map to store the mbti files for each package
-        let mut pkg_mbti_files: HashMap<String, HashMap<TargetBackend, PathBuf>> = HashMap::new();
-        for (backend, paths) in &mbti_files_for_targets {
-            for (pkg_name, mbti_file) in paths {
-                pkg_mbti_files
-                    .entry(pkg_name.to_string())
-                    .or_default()
-                    .insert(*backend, mbti_file.clone());
-            }
-        }
-
-        // compare the mbti files for each package in different backends
-        for (pkg_name, backend_files) in pkg_mbti_files {
-            let mut backends: Vec<_> = backend_files.keys().collect();
-            backends.sort();
-
-            for window in backends.windows(2) {
-                let backend1 = window[0];
-                let backend2 = window[1];
-                let file1 = &backend_files[backend1];
-                let file2 = &backend_files[backend2];
-
-                let output = std::process::Command::new("git")
-                    .args(["diff", "--no-index", "--exit-code"])
-                    .arg(file1)
-                    .arg(file2)
-                    .output()
-                    .context("Failed to run git diff")?;
-
-                if !output.status.success() {
-                    // print the diff
-                    println!("{}", String::from_utf8_lossy(&output.stdout));
-                    bail!(
-                        "Package '{}' has different interfaces for backends {:?} and {:?}.\nFiles:\n{}\n{}",
-                        pkg_name,
-                        backend1,
-                        backend2,
-                        file1.display(),
-                        file2.display()
-                    );
-                }
-            }
+        // Diff the files against the precomputed canonical target
+        let identical =
+            imp::compare_info_outputs_from_paths(mbti_files_for_targets.iter(), canonical_target)?;
+        if !identical {
+            return Ok(1);
         }
     }
 
@@ -267,11 +294,8 @@ pub fn run_info_internal(
     cmd: &InfoSubcommand,
     source_dir: &Path,
     target_dir: &Path,
+    canonical_target: TargetBackend,
 ) -> anyhow::Result<Vec<(String, PathBuf)>> {
-    if cli.dry_run {
-        bail!("dry-run is not implemented for info")
-    }
-
     let (resolved_env, dir_sync_result) = auto_sync(
         source_dir,
         &cmd.auto_sync_flags,
@@ -416,15 +440,8 @@ pub fn run_info_internal(
             let out = mooninfo.output().await?;
 
             if out.status.success() {
-                if
-                // no target specified, default to wasmgc
-                cmd.target.is_none()
-                    // specific one target
-                    || (cmd.target.as_ref().unwrap().len() == 1
-                        && cmd.target.as_ref().unwrap().first().unwrap() != &SurfaceTarget::All)
-                    // maybe more than one target, but running for wasmgc target
-                    || cmd.target_backend == Some(TargetBackend::WasmGC)
-                {
+                // Promote the canonical backend's output to package directories
+                if cmd.target_backend == Some(canonical_target) {
                     tokio::fs::copy(
                         &filepath,
                         &module_source_dir

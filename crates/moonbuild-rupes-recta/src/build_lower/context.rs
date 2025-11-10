@@ -320,8 +320,11 @@ impl<'a> BuildPlanLowerContext<'a> {
                 );
             }
             BuildPlanNode::GenerateMbti(_target) => {
-                let pkg = self.packages.get_package(_target.package);
-                out.push(self.layout.generated_mbti_path(&pkg.root_path))
+                out.push(self.layout.generated_mbti_path(
+                    self.packages,
+                    &_target,
+                    self.opt.target_backend.into(),
+                ));
             }
             BuildPlanNode::BuildDocs => {
                 // The output is a whole folder

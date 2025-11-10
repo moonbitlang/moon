@@ -49,6 +49,7 @@ mod moon_bench;
 mod moon_bundle;
 mod moon_commands;
 mod moon_coverage;
+mod moon_info_compare_backends;
 mod moon_new;
 mod moon_test;
 mod moon_version;
