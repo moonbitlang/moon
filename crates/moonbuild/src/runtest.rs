@@ -29,7 +29,7 @@ use moonutil::common::{
 };
 use moonutil::module::ModuleDB;
 use moonutil::moon_dir::MOON_DIRS;
-use moonutil::platform::unix_with_sigchild_blocked;
+use moonutil::platform::macos_with_sigchild_blocked;
 use n2::load::State;
 use serde::{Deserialize, Serialize};
 use std::{path::Path, process::Stdio};
@@ -154,7 +154,7 @@ async fn run(
         eprintln!("{:?}", subprocess.as_std());
     }
 
-    let mut execution = unix_with_sigchild_blocked(|| {
+    let mut execution = macos_with_sigchild_blocked(|| {
         subprocess
             .stdin(Stdio::null())
             .stdout(Stdio::piped())
