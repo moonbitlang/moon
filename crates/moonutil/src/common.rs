@@ -969,9 +969,8 @@ impl MooncGenTestInfo {
         for (file, tests) in section {
             writeln!(result, "  \"{file}\": {{").unwrap();
             for test in tests {
-                if test.has_skip() {
-                    continue;
-                }
+                // tests with #skip attribute are also included in the driver, they will
+                // eventually be skipped by using cli arguments to the driver executable
                 writeln!(
                     result,
                     "    {}: ({}, [\"{}\"]),",

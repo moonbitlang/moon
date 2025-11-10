@@ -18,6 +18,7 @@
 
 use anyhow::Context;
 use anyhow::bail;
+use clap::builder::ArgPredicate;
 use colored::Colorize;
 use indexmap::{IndexMap, IndexSet};
 use moonbuild::dry_run;
@@ -109,10 +110,12 @@ pub struct TestSubcommand {
     pub file: Option<String>,
 
     /// Run only the index-th test in the file. Only valid when `--file` is also specified.
+    /// Implies `--include-skipped`.
     #[clap(short, long)]
     pub index: Option<u32>,
 
     /// Run only the index-th doc test in the file. Only valid when `--file` is also specified.
+    /// Implies `--include-skipped`.
     #[clap(long, conflicts_with = "index")]
     pub doc_index: Option<u32>,
 
@@ -152,6 +155,12 @@ pub struct TestSubcommand {
     /// package); otherwise, runs in a temporary project.
     #[clap(conflicts_with_all = ["file", "package"], name="PATH")]
     pub single_file: Option<PathBuf>,
+
+    /// Include skipped tests. Automatically implied when `--[doc-]index` is set.
+    #[clap(long)]
+    #[clap(default_value_if("index", ArgPredicate::IsPresent, "true"))]
+    #[clap(default_value_if("doc_index", ArgPredicate::IsPresent, "true"))]
+    pub include_skipped: bool,
 }
 
 #[instrument(skip_all)]
@@ -354,6 +363,7 @@ fn run_test_in_single_file(cli: &UniversalFlags, cmd: &TestSubcommand) -> anyhow
         module,
         cli.verbose,
         cli.quiet,
+        cmd.include_skipped,
     )
 }
 
@@ -501,6 +511,7 @@ pub(crate) struct TestLikeSubcommand<'a> {
     pub no_parallelize: bool,
     pub test_failure_json: bool,
     pub patch_file: &'a Option<PathBuf>,
+    pub include_skipped: bool,
 }
 
 impl<'a> From<&'a TestSubcommand> for TestLikeSubcommand<'a> {
@@ -520,6 +531,7 @@ impl<'a> From<&'a TestSubcommand> for TestLikeSubcommand<'a> {
             no_parallelize: cmd.no_parallelize,
             test_failure_json: cmd.test_failure_json,
             patch_file: &cmd.patch_file,
+            include_skipped: cmd.include_skipped,
         }
     }
 }
@@ -540,6 +552,7 @@ impl<'a> From<&'a BenchSubcommand> for TestLikeSubcommand<'a> {
             no_parallelize: cmd.no_parallelize,
             test_failure_json: false,
             patch_file: &None,
+            include_skipped: false,
         }
     }
 }
@@ -666,7 +679,8 @@ fn run_test_rr(
             return Ok(result.return_code_for_success());
         }
 
-        let mut test_result = crate::run::run_tests(&build_meta, target_dir, &filter)?;
+        let mut test_result =
+            crate::run::run_tests(&build_meta, target_dir, &filter, cmd.include_skipped)?;
         let initial_summary = test_result.summary();
         trace!(
             total = initial_summary.total,
@@ -755,8 +769,12 @@ fn run_test_rr(
                 let rerun_filter = TestFilter {
                     filter: Some(rerun_filter_raw),
                 };
-                let new_test_result =
-                    crate::run::run_tests(&build_meta, target_dir, &rerun_filter)?;
+                let new_test_result = crate::run::run_tests(
+                    &build_meta,
+                    target_dir,
+                    &rerun_filter,
+                    cmd.include_skipped,
+                )?;
                 let rerun_summary = new_test_result.summary();
                 trace!(
                     total = rerun_summary.total,
@@ -1348,6 +1366,7 @@ pub(crate) fn run_test_or_bench_internal_legacy(
         module,
         verbose,
         cli.quiet,
+        cmd.include_skipped,
     );
     if let Ok(code) = &res {
         trace!(exit_code = *code, "legacy runner finished execution");
@@ -1360,6 +1379,7 @@ pub(crate) fn run_test_or_bench_internal_legacy(
     res
 }
 
+#[allow(clippy::too_many_arguments)]
 #[instrument(level = Level::DEBUG, skip_all)]
 fn do_run_test(
     moonc_opt: MooncOpt,
@@ -1369,6 +1389,7 @@ fn do_run_test(
     module: ModuleDB,
     verbose: bool,
     quiet: bool,
+    include_skipped: bool,
 ) -> anyhow::Result<i32> {
     info!(
         backend = ?moonc_opt.build_opt.target_backend,
@@ -1390,6 +1411,7 @@ fn do_run_test(
         verbose,
         auto_update,
         module,
+        include_skipped,
     )?;
     trace!(case_count = test_res.len(), "entry::run_test completed");
 

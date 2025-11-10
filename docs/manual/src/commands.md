@@ -253,8 +253,8 @@ Test the current package
 
 * `-p`, `--package <PACKAGE>` — Run test in the specified package
 * `-f`, `--file <FILE>` — Run test in the specified file. Only valid when `--package` is also specified
-* `-i`, `--index <INDEX>` — Run only the index-th test in the file. Only valid when `--file` is also specified
-* `--doc-index <DOC_INDEX>` — Run only the index-th doc test in the file. Only valid when `--file` is also specified
+* `-i`, `--index <INDEX>` — Run only the index-th test in the file. Only valid when `--file` is also specified. Implies `--include-skipped`
+* `--doc-index <DOC_INDEX>` — Run only the index-th doc test in the file. Only valid when `--file` is also specified. Implies `--include-skipped`
 * `-u`, `--update` — Update the test snapshot
 * `-l`, `--limit <LIMIT>` — Limit of expect test update passes to run, in order to avoid infinite loops
 
@@ -265,6 +265,7 @@ Test the current package
 * `--test-failure-json` — Print failure message in JSON format
 * `--patch-file <PATCH_FILE>` — Path to the patch file
 * `--doc` — Run doc test
+* `--include-skipped` — Include skipped tests. Automatically implied when `--[doc-]index` is set
 
 
 
