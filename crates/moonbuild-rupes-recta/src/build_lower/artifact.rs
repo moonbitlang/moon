@@ -263,6 +263,11 @@ impl LegacyLayout {
     pub fn bundle_result_path(&self, backend: TargetBackend, module: &ModuleName) -> PathBuf {
         let mut result = self.target_base_dir.clone();
         push_backend(&mut result, backend);
+        match self.opt_level {
+            OptLevel::Release => result.push("release"),
+            OptLevel::Debug => result.push("debug"),
+        }
+        result.push(self.run_mode.to_dir_name());
         result.push(format!("{}.core", module.last_segment()));
         result
     }
