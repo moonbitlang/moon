@@ -242,9 +242,8 @@ impl LegacyLayout {
         let pkg_fqn = &pkg_list.get_package(target.package).fqn;
         let mut base_dir = self.package_dir(pkg_fqn, backend);
         base_dir.push(format!(
-            "{}__generated_driver_for{}.mbt",
-            pkg_fqn.short_alias(),
-            build_kind_suffix(target.kind)
+            "__generated_driver_for{}.mbt",
+            build_kind_suffix_filename(target.kind)
         ));
         base_dir
     }
@@ -258,8 +257,8 @@ impl LegacyLayout {
         let pkg_fqn = &pkg_list.get_package(target.package).fqn;
         let mut base_dir = self.package_dir(pkg_fqn, backend);
         base_dir.push(format!(
-            "__{}_test_info.json",
-            build_kind_suffix(target.kind)
+            "_{}_info.json",
+            build_kind_suffix_filename(target.kind)
         ));
         base_dir
     }
@@ -428,6 +427,16 @@ fn build_kind_suffix(kind: TargetKind) -> &'static str {
         TargetKind::WhiteboxTest => ".whitebox_test",
         TargetKind::BlackboxTest => ".blackbox_test",
         TargetKind::InlineTest => ".inline_test",
+        TargetKind::SubPackage => "_sub",
+    }
+}
+
+fn build_kind_suffix_filename(kind: TargetKind) -> &'static str {
+    match kind {
+        TargetKind::Source => "",
+        TargetKind::WhiteboxTest => "_whitebox_test",
+        TargetKind::BlackboxTest => "_blackbox_test",
+        TargetKind::InlineTest => "_inline_test",
         TargetKind::SubPackage => "_sub",
     }
 }
