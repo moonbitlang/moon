@@ -118,7 +118,7 @@ pub fn run_bundle_internal_rr(
         &cmd.build_flags,
         target_dir,
         OptLevel::Release,
-        RunMode::Build,
+        RunMode::Bundle,
     );
     let (_build_meta, build_graph) = rr_build::plan_build(
         preconfig,
