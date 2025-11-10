@@ -811,6 +811,7 @@ pub fn run_test(
                 let filter_index = filter_index.or(filter_doc_index);
                 if let Some(filter_index) = filter_index {
                     // Single test filter - use exact index
+                    // for single test, the `#skip` attribute is ignored
                     let ranges = vec![filter_index..(filter_index + 1)];
                     test_args.file_and_index.push((file_name.clone(), ranges));
                 } else {

@@ -230,9 +230,8 @@ pub fn apply_filter(
                             }
                             Some(ixf) => {
                                 for t in tests {
-                                    if ixf.0.contains(&t.index)
-                                        && (include_skipped || !t.has_skip())
-                                    {
+                                    if ixf.0.contains(&t.index) {
+                                        // for single test, the `#skip` attribute is ignored
                                         this_file_index.push(t.index..t.index + 1);
                                     }
                                 }
