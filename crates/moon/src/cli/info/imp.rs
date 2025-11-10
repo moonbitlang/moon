@@ -18,7 +18,7 @@
 
 //! Actual implementation of `moon info` command.
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use anyhow::Context;
 use colored::Colorize;
@@ -65,14 +65,22 @@ pub fn promote_info_results(meta: &BuildMeta) {
 }
 
 struct PackageOutputGroup<'a> {
-    pkg_name: &'a PackageFQN,
+    pkg_name: String,
     backend_files: IndexMap<TargetBackend, &'a Path>,
 }
 
 impl<'a> PackageOutputGroup<'a> {
-    fn new(pkg_name: &'a PackageFQN) -> Self {
+    fn new_from_fqn(pkg_name: &'a PackageFQN) -> Self {
+        let pkg_name = pkg_name.to_string();
         Self {
             pkg_name,
+            backend_files: IndexMap::new(),
+        }
+    }
+
+    fn new_from_str(pkg_name: &str) -> Self {
+        Self {
+            pkg_name: pkg_name.to_string(),
             backend_files: IndexMap::new(),
         }
     }
@@ -106,7 +114,7 @@ pub fn compare_info_outputs<'a>(
                 .entry(target.package)
                 .or_insert_with(|| {
                     let fqn = &meta.resolve_output.pkg_dirs.get_package(target.package).fqn;
-                    PackageOutputGroup::new(fqn)
+                    PackageOutputGroup::new_from_fqn(fqn)
                 })
                 .insert(*backend, mbti_path);
         }
@@ -234,4 +242,40 @@ fn compare_info_output_for_package(
     println!("# ------");
 
     Ok(false)
+}
+
+/// Compare outputs from legacy collected mbti file paths, grouped by package.
+/// Returns `true` if all outputs are identical across backends, `false` otherwise.
+pub fn compare_info_outputs_from_paths<'a>(
+    it: impl Iterator<Item = &'a (TargetBackend, Vec<(String, PathBuf)>)>,
+    canonical: TargetBackend,
+) -> anyhow::Result<bool> {
+    // Transpose to group by package name
+    let mut transposed = IndexMap::<String, PackageOutputGroup>::new();
+    for (backend, paths) in it {
+        for (pkg_name, path_buf) in paths {
+            transposed
+                .entry(pkg_name.clone())
+                .or_insert_with(|| PackageOutputGroup::new_from_str(pkg_name))
+                .insert(*backend, path_buf.as_path());
+        }
+    }
+
+    // For each package, compare the outputs across different backends
+    let mut identical = true;
+    for (_package, group) in transposed {
+        // Prefer the canonical backend as the reference. If not present, pick the first one.
+        let reference_backend = if group.backend_files.contains_key(&canonical) {
+            canonical
+        } else {
+            *group
+                .backend_files
+                .keys()
+                .next()
+                .expect("No backend files found")
+        };
+        identical &= compare_info_output_for_package(reference_backend, &group)?;
+    }
+
+    Ok(identical)
 }

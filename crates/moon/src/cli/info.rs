@@ -19,7 +19,6 @@
 mod imp;
 
 use std::{
-    collections::HashMap,
     path::{Path, PathBuf},
     sync::{Arc, Mutex},
 };
@@ -256,48 +255,16 @@ pub fn run_info_legacy(cli: UniversalFlags, cmd: InfoSubcommand) -> anyhow::Resu
 
     // check consistency if there are multiple targets
     if mbti_files_for_targets.len() > 1 {
-        // create a map to store the mbti files for each package
-        let mut pkg_mbti_files: HashMap<String, HashMap<TargetBackend, PathBuf>> = HashMap::new();
-        for (backend, paths) in &mbti_files_for_targets {
-            for (pkg_name, mbti_file) in paths {
-                pkg_mbti_files
-                    .entry(pkg_name.to_string())
-                    .or_default()
-                    .insert(*backend, mbti_file.clone());
-            }
-        }
+        // Sort targets and pick the canonical backend (first after sort), consistent with RR path
+        let mut lowered = targets.clone();
+        lowered.sort();
+        let canonical_target = lowered[0];
 
-        // compare the mbti files for each package in different backends
-        for (pkg_name, backend_files) in pkg_mbti_files {
-            let mut backends: Vec<_> = backend_files.keys().collect();
-            backends.sort();
-
-            for window in backends.windows(2) {
-                let backend1 = window[0];
-                let backend2 = window[1];
-                let file1 = &backend_files[backend1];
-                let file2 = &backend_files[backend2];
-
-                let output = std::process::Command::new("git")
-                    .args(["diff", "--no-index", "--exit-code"])
-                    .arg(file1)
-                    .arg(file2)
-                    .output()
-                    .context("Failed to run git diff")?;
-
-                if !output.status.success() {
-                    // print the diff
-                    println!("{}", String::from_utf8_lossy(&output.stdout));
-                    bail!(
-                        "Package '{}' has different interfaces for backends {:?} and {:?}.\nFiles:\n{}\n{}",
-                        pkg_name,
-                        backend1,
-                        backend2,
-                        file1.display(),
-                        file2.display()
-                    );
-                }
-            }
+        // Diff the files
+        let identical =
+            imp::compare_info_outputs_from_paths(mbti_files_for_targets.iter(), canonical_target)?;
+        if !identical {
+            return Ok(1);
         }
     }
 
