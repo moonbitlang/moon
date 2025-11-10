@@ -48,7 +48,7 @@ impl IExpect for expect_test::Expect {
     }
 
     fn can_update(&self) -> bool {
-        std::env::var("UPDATE_EXPECT").is_ok_and(|x| x == "1")
+        expect_test_update()
     }
 
     fn update(self, new_data: &str) {
@@ -62,12 +62,16 @@ impl IExpect for expect_test::ExpectFile {
     }
 
     fn can_update(&self) -> bool {
-        std::env::var("UPDATE_EXPECT").is_ok_and(|x| x == "1")
+        expect_test_update()
     }
 
     fn update(self, new_data: &str) {
         self.assert_eq(new_data);
     }
+}
+
+fn expect_test_update() -> bool {
+    std::env::var("UPDATE_EXPECT").is_ok_and(|x| x == "1")
 }
 
 #[track_caller]
