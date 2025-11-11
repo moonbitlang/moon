@@ -169,7 +169,7 @@ pub fn run_info_rr_internal(
         &BuildFlags::default().with_target_backend(target),
         &target_dir,
         OptLevel::Release,
-        RunMode::Build,
+        RunMode::Check,
     );
     preconfig.info_no_alias = cmd.no_alias;
     let package_filter = cmd.package.clone();
