@@ -3,6 +3,7 @@ const console = {
     elog: (x) => console_elog(x),
     log: (x) => console_log(x),
 };
+const ffiBytesMemory = new WebAssembly.Memory({ initial: 1});
 const spectest = {
     spectest: {
         print_char: (x) => print(x),
@@ -26,6 +27,18 @@ const spectest = {
     },
     console: {
         log: (x) => console.log(x),
+    },
+    "ffi-bytes": {
+        from_memory: (offset, length) => new Uint8Array(ffiBytesMemory.buffer.slice(offset, offset + length)),
+        new: (length) => new Uint8Array(length),
+        get: (bytes, index) => bytes[index],
+        set: (bytes, index, value) => bytes[index] = value,
+        copy: (dst, dst_off, src, src_off, len) => dst.set(src.subarray(src_off, src_off + len), dst_off),
+        fill: (bytes, start, value, len) => bytes.fill(value, start, start + len),
+        length: (bytes) => bytes.length,
+        equals: (a, b) => a.length === b.length && a.every((val, index) => val === b[index]) ? 1 : 0,
+        asString: (bytes, start, len) => String.fromCharCode(...bytes.subarray(start, start + len).reduce((acc, byte, i) => i % 2 == 0 ? [...acc, byte | (bytes[i + start + 1] << 8)] : acc, [])),
+        memory: ffiBytesMemory,
     },
 };
 
