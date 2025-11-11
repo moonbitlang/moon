@@ -107,7 +107,11 @@ fn verify_no_loop(packages: &DiscoverResult, dep: &DepRelationship) -> Result<()
             }
 
             // Set visibility
-            vis.insert(it.node);
+            if !vis.insert(it.node) {
+                // Already visited, skip
+                continue;
+            }
+
             // Add to the path
             path.insert(node);
 
@@ -117,10 +121,7 @@ fn verify_no_loop(packages: &DiscoverResult, dep: &DepRelationship) -> Result<()
 
             // Push outgoing edges
             for target in graph.neighbors(node) {
-                // If the target is not visited, push it to the stack
-                if !vis.contains(&target) {
-                    stack.push(WorkStackItem::new(target));
-                }
+                stack.push(WorkStackItem::new(target));
             }
         }
     }
