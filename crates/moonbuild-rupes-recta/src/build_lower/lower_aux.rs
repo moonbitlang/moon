@@ -85,7 +85,7 @@ impl<'a> super::BuildPlanLowerContext<'a> {
         };
 
         BuildCommand {
-            commandline: cmd.build_command(moonutil::BINARIES.moonbuild.as_os_str()),
+            commandline: cmd.build_command(&*moonutil::BINARIES.moonbuild),
             extra_inputs: files_vec,
         }
     }
@@ -118,7 +118,7 @@ impl<'a> super::BuildPlanLowerContext<'a> {
 
         BuildCommand {
             extra_inputs: vec![],
-            commandline: cmd.build_command(moonutil::BINARIES.moonc.as_os_str()),
+            commandline: cmd.build_command(&*moonutil::BINARIES.moonc),
         }
     }
 
@@ -188,7 +188,7 @@ impl<'a> super::BuildPlanLowerContext<'a> {
 
         BuildCommand {
             extra_inputs: vec![],
-            commandline: cmd.build_command(moonutil::BINARIES.mooninfo.as_os_str()),
+            commandline: cmd.build_command(&*moonutil::BINARIES.mooninfo),
         }
     }
 
@@ -227,7 +227,7 @@ impl<'a> super::BuildPlanLowerContext<'a> {
         );
 
         BuildCommand {
-            commandline: cmd.build_command(moonutil::BINARIES.moondoc.as_os_str()),
+            commandline: cmd.build_command(&*moonutil::BINARIES.moondoc),
             extra_inputs: vec![packages_json],
         }
     }

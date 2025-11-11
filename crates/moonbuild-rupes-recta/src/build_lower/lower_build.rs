@@ -232,7 +232,7 @@ impl<'a> BuildPlanLowerContext<'a> {
 
         BuildCommand {
             extra_inputs,
-            commandline: cmd.build_command(moonutil::BINARIES.moonc.as_os_str()),
+            commandline: cmd.build_command(&*moonutil::BINARIES.moonc),
         }
     }
 
@@ -313,7 +313,7 @@ impl<'a> BuildPlanLowerContext<'a> {
         }
 
         BuildCommand {
-            commandline: cmd.build_command(moonutil::BINARIES.moonc.as_os_str()),
+            commandline: cmd.build_command(&*moonutil::BINARIES.moonc),
             extra_inputs,
         }
     }
@@ -414,7 +414,7 @@ impl<'a> BuildPlanLowerContext<'a> {
 
         BuildCommand {
             extra_inputs,
-            commandline: cmd.build_command(moonutil::BINARIES.moonc.as_os_str()),
+            commandline: cmd.build_command(&*moonutil::BINARIES.moonc),
         }
     }
 
@@ -875,7 +875,7 @@ impl<'a> BuildPlanLowerContext<'a> {
         BuildCommand {
             // Track the user-written `.mbti` contract as an explicit input
             extra_inputs: vec![mbti_path.clone()],
-            commandline: cmd.build_command(moonutil::BINARIES.moonc.as_os_str()),
+            commandline: cmd.build_command(&*moonutil::BINARIES.moonc),
         }
     }
 

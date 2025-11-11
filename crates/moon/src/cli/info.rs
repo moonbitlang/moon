@@ -452,8 +452,7 @@ pub fn run_info_internal(
             if cmd.no_alias {
                 args.push("-no-alias".into());
             }
-            let mut mooninfo =
-                tokio::process::Command::new(moonutil::BINARIES.mooninfo.as_os_str());
+            let mut mooninfo = tokio::process::Command::new(&*moonutil::BINARIES.mooninfo);
             mooninfo.args(&args);
             let out = mooninfo.output().await?;
 

@@ -232,7 +232,7 @@ fn run_single_mbt_file(cli: &UniversalFlags, cmd: RunSubcommand) -> anyhow::Resu
         None
     };
 
-    let moonc = moonutil::BINARIES.moonc.as_os_str();
+    let moonc = &*moonutil::BINARIES.moonc;
     if cli.dry_run {
         let moonc = moonc.display();
         println!("{moonc} {}", build_package_command.join(" "));

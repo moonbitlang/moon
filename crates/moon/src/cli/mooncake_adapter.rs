@@ -33,7 +33,7 @@ pub fn execute_cli<T: Serialize>(
     cmd: T,
     args: &[&str],
 ) -> anyhow::Result<i32> {
-    let mut child = Command::new(moonutil::BINARIES.mooncake.as_os_str())
+    let mut child = Command::new(&*moonutil::BINARIES.mooncake)
         .args(args)
         .stdout(Stdio::inherit())
         .stdin(Stdio::piped())
@@ -63,7 +63,7 @@ pub fn execute_cli_with_inherit_stdin<T: Serialize>(
     _cmd: T,
     args: &[&str],
 ) -> anyhow::Result<i32> {
-    let mut child = Command::new(moonutil::BINARIES.mooncake.as_os_str())
+    let mut child = Command::new(&*moonutil::BINARIES.mooncake)
         .args(args)
         .env("MOONCAKE_ALLOW_DIRECT", "1")
         .stdout(Stdio::inherit())

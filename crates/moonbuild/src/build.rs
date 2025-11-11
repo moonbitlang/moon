@@ -39,7 +39,7 @@ pub fn load_moon_proj(
 }
 
 pub fn run_wat(path: &Path, args: &[String], verbose: bool) -> anyhow::Result<()> {
-    let mut cmd = Command::new(moonutil::BINARIES.moonrun.as_os_str());
+    let mut cmd = Command::new(&*moonutil::BINARIES.moonrun);
     cmd.arg(path).args(args);
     run(cmd, verbose)
 }

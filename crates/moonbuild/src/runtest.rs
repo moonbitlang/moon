@@ -71,7 +71,7 @@ pub async fn run_wat(
     file_test_info_map: &FileTestInfo,
     verbose: bool,
 ) -> anyhow::Result<Vec<Result<TestStatistics, TestFailedStatus>>> {
-    let mut cmd = tokio::process::Command::new(moonutil::BINARIES.moonrun.as_os_str());
+    let mut cmd = tokio::process::Command::new(&*moonutil::BINARIES.moonrun);
     cmd.arg(path)
         .arg("--test-args")
         .arg(serde_json_lenient::to_string(args).expect("valid JSON"));

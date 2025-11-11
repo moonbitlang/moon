@@ -224,7 +224,7 @@ pub fn run_doc_legacy(cli: UniversalFlags, cmd: DocSubcommand) -> anyhow::Result
     if serve {
         args.push("-serve-mode".to_string())
     }
-    let moondoc = moonutil::BINARIES.moondoc.as_os_str();
+    let moondoc = &*moonutil::BINARIES.moondoc;
     if cli.dry_run {
         print_commands(&module, &moonc_opt, &moonbuild_opt)?;
         println!("{moondoc:?} {}", args.join(" "));

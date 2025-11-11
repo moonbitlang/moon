@@ -93,7 +93,7 @@ fn moonc_gen_test_info(
         DriverKind::Blackbox => Some("-include-doctests"),
         _ => None,
     };
-    let mut generated = std::process::Command::new(moonutil::BINARIES.moonc.as_os_str())
+    let mut generated = std::process::Command::new(&*moonutil::BINARIES.moonc)
         .arg("gen-test-info")
         .arg("-json")
         .args(files)

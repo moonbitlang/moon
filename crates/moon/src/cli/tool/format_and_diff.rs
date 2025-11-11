@@ -46,7 +46,7 @@ pub fn run_format_and_diff(cmd: FormatAndDiffSubcommand) -> anyhow::Result<i32> 
     if cmd.block_style {
         args.push("-block-style")
     }
-    let mut execution = std::process::Command::new(moonutil::BINARIES.moonfmt.as_os_str())
+    let mut execution = std::process::Command::new(&*moonutil::BINARIES.moonfmt)
         .args(args)
         .args(&cmd.args)
         .stdin(Stdio::inherit())

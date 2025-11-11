@@ -64,7 +64,7 @@ pub fn command_for(
 ) -> anyhow::Result<CommandGuard> {
     match backend {
         RunBackend::Wasm | RunBackend::WasmGC => {
-            let mut cmd = Command::new(moonutil::BINARIES.moonrun.as_os_str());
+            let mut cmd = Command::new(&*moonutil::BINARIES.moonrun);
             if let Some(t) = test {
                 cmd.arg("--test-args");
                 cmd.arg(serde_json::to_string(t).unwrap());
