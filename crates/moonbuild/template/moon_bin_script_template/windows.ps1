@@ -1,1 +1,1 @@
-$runtime $artifact_output_path $args
+& "$runtime" "$artifact_output_path" $args
