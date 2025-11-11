@@ -1,3 +1,7 @@
+///|
 fn main {
-  println(@lib.hello())
+  @lib.hello() |> ignore
 }
+
+///|
+fn[T] ignore(t : T) = "%ignore"
