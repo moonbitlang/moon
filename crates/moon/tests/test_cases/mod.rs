@@ -32,6 +32,8 @@ use walkdir::WalkDir;
 
 mod backend;
 mod backend_config;
+mod circle_pkg_ab_001_test;
+mod debug_flag_test;
 mod design;
 mod diagnostics_format;
 mod diamond_pkg;
@@ -724,182 +726,6 @@ fn test_whitespace_parent_space() -> anyhow::Result<()> {
 }
 
 #[test]
-fn circle_pkg_test() {
-    let dir = TestDir::new("circle_pkg_AB_001_test.in");
-    let stderr = get_err_stderr(&dir, ["run", "main", "--nostd"]);
-    assert!(stderr.contains("cyclic dependency"), "stderr: {stderr}");
-}
-
-#[test]
-fn debug_flag_test() {
-    let dir = TestDir::new("debug_flag_test.in");
-    snapbox::cmd::Command::new(moon_bin())
-        .current_dir(&dir)
-        .args(["clean"])
-        .assert()
-        .success();
-
-    check(
-        get_stdout(&dir, ["check", "--dry-run", "--nostd"]),
-        expect![[r#"
-            moonc check ./lib/hello.mbt -o ./target/wasm-gc/release/check/lib/lib.mi -pkg hello/lib -pkg-sources hello/lib:./lib -target wasm-gc -workspace-path .
-            moonc check ./main/main.mbt -o ./target/wasm-gc/release/check/main/main.mi -pkg hello/main -is-main -i ./target/wasm-gc/release/check/lib/lib.mi:lib -pkg-sources hello/main:./main -target wasm-gc -workspace-path .
-            moonc check -doctest-only ./main/main.mbt -include-doctests -o ./target/wasm-gc/release/check/main/main.blackbox_test.mi -pkg hello/main_blackbox_test -i ./target/wasm-gc/release/check/main/main.mi:main -i ./target/wasm-gc/release/check/lib/lib.mi:lib -pkg-sources hello/main_blackbox_test:./main -target wasm-gc -blackbox-test -workspace-path .
-            moonc check -doctest-only ./lib/hello.mbt -include-doctests -o ./target/wasm-gc/release/check/lib/lib.blackbox_test.mi -pkg hello/lib_blackbox_test -i ./target/wasm-gc/release/check/lib/lib.mi:lib -pkg-sources hello/lib_blackbox_test:./lib -target wasm-gc -blackbox-test -workspace-path .
-        "#]],
-    );
-
-    check(
-        get_stdout(&dir, ["build", "--dry-run", "--nostd"]),
-        expect![[r#"
-            moonc build-package ./lib/hello.mbt -o ./target/wasm-gc/release/build/lib/lib.core -pkg hello/lib -pkg-sources hello/lib:./lib -target wasm-gc -workspace-path .
-            moonc build-package ./main/main.mbt -o ./target/wasm-gc/release/build/main/main.core -pkg hello/main -is-main -i ./target/wasm-gc/release/build/lib/lib.mi:lib -pkg-sources hello/main:./main -target wasm-gc -workspace-path .
-            moonc link-core ./target/wasm-gc/release/build/lib/lib.core ./target/wasm-gc/release/build/main/main.core -main hello/main -o ./target/wasm-gc/release/build/main/main.wasm -pkg-config-path ./main/moon.pkg.json -pkg-sources hello/lib:./lib -pkg-sources hello/main:./main -target wasm-gc
-        "#]],
-    );
-
-    check(
-        get_stdout(&dir, ["build", "--dry-run", "--debug", "--nostd"]),
-        expect![[r#"
-            moonc build-package ./lib/hello.mbt -o ./target/wasm-gc/debug/build/lib/lib.core -pkg hello/lib -pkg-sources hello/lib:./lib -target wasm-gc -g -O0 -source-map -workspace-path .
-            moonc build-package ./main/main.mbt -o ./target/wasm-gc/debug/build/main/main.core -pkg hello/main -is-main -i ./target/wasm-gc/debug/build/lib/lib.mi:lib -pkg-sources hello/main:./main -target wasm-gc -g -O0 -source-map -workspace-path .
-            moonc link-core ./target/wasm-gc/debug/build/lib/lib.core ./target/wasm-gc/debug/build/main/main.core -main hello/main -o ./target/wasm-gc/debug/build/main/main.wasm -pkg-config-path ./main/moon.pkg.json -pkg-sources hello/lib:./lib -pkg-sources hello/main:./main -target wasm-gc -g -O0 -source-map
-        "#]],
-    );
-
-    check(
-        get_stdout(&dir, ["run", "main", "--dry-run", "--nostd"]),
-        expect![[r#"
-            moonc build-package ./lib/hello.mbt -o ./target/wasm-gc/release/build/lib/lib.core -pkg hello/lib -pkg-sources hello/lib:./lib -target wasm-gc -workspace-path .
-            moonc build-package ./main/main.mbt -o ./target/wasm-gc/release/build/main/main.core -pkg hello/main -is-main -i ./target/wasm-gc/release/build/lib/lib.mi:lib -pkg-sources hello/main:./main -target wasm-gc -workspace-path .
-            moonc link-core ./target/wasm-gc/release/build/lib/lib.core ./target/wasm-gc/release/build/main/main.core -main hello/main -o ./target/wasm-gc/release/build/main/main.wasm -pkg-config-path ./main/moon.pkg.json -pkg-sources hello/lib:./lib -pkg-sources hello/main:./main -target wasm-gc
-            moonrun ./target/wasm-gc/release/build/main/main.wasm
-        "#]],
-    );
-
-    check(
-        get_stdout(&dir, ["run", "main", "--dry-run", "--debug", "--nostd"]),
-        expect![[r#"
-            moonc build-package ./lib/hello.mbt -o ./target/wasm-gc/debug/build/lib/lib.core -pkg hello/lib -pkg-sources hello/lib:./lib -target wasm-gc -g -O0 -source-map -workspace-path .
-            moonc build-package ./main/main.mbt -o ./target/wasm-gc/debug/build/main/main.core -pkg hello/main -is-main -i ./target/wasm-gc/debug/build/lib/lib.mi:lib -pkg-sources hello/main:./main -target wasm-gc -g -O0 -source-map -workspace-path .
-            moonc link-core ./target/wasm-gc/debug/build/lib/lib.core ./target/wasm-gc/debug/build/main/main.core -main hello/main -o ./target/wasm-gc/debug/build/main/main.wasm -pkg-config-path ./main/moon.pkg.json -pkg-sources hello/lib:./lib -pkg-sources hello/main:./main -target wasm-gc -g -O0 -source-map
-            moonrun ./target/wasm-gc/debug/build/main/main.wasm
-        "#]],
-    );
-    check(
-        get_stdout(
-            &dir,
-            ["build", "--target", "wasm-gc", "--dry-run", "--nostd"],
-        ),
-        expect![[r#"
-            moonc build-package ./lib/hello.mbt -o ./target/wasm-gc/release/build/lib/lib.core -pkg hello/lib -pkg-sources hello/lib:./lib -target wasm-gc -workspace-path .
-            moonc build-package ./main/main.mbt -o ./target/wasm-gc/release/build/main/main.core -pkg hello/main -is-main -i ./target/wasm-gc/release/build/lib/lib.mi:lib -pkg-sources hello/main:./main -target wasm-gc -workspace-path .
-            moonc link-core ./target/wasm-gc/release/build/lib/lib.core ./target/wasm-gc/release/build/main/main.core -main hello/main -o ./target/wasm-gc/release/build/main/main.wasm -pkg-config-path ./main/moon.pkg.json -pkg-sources hello/lib:./lib -pkg-sources hello/main:./main -target wasm-gc
-        "#]],
-    );
-    check(
-        get_stdout(
-            &dir,
-            [
-                "build",
-                "--dry-run",
-                "--target",
-                "wasm-gc",
-                "--debug",
-                "--nostd",
-            ],
-        ),
-        expect![[r#"
-            moonc build-package ./lib/hello.mbt -o ./target/wasm-gc/debug/build/lib/lib.core -pkg hello/lib -pkg-sources hello/lib:./lib -target wasm-gc -g -O0 -source-map -workspace-path .
-            moonc build-package ./main/main.mbt -o ./target/wasm-gc/debug/build/main/main.core -pkg hello/main -is-main -i ./target/wasm-gc/debug/build/lib/lib.mi:lib -pkg-sources hello/main:./main -target wasm-gc -g -O0 -source-map -workspace-path .
-            moonc link-core ./target/wasm-gc/debug/build/lib/lib.core ./target/wasm-gc/debug/build/main/main.core -main hello/main -o ./target/wasm-gc/debug/build/main/main.wasm -pkg-config-path ./main/moon.pkg.json -pkg-sources hello/lib:./lib -pkg-sources hello/main:./main -target wasm-gc -g -O0 -source-map
-        "#]],
-    );
-
-    check(
-        get_stdout(
-            &dir,
-            ["run", "main", "--target", "wasm-gc", "--dry-run", "--nostd"],
-        ),
-        expect![[r#"
-            moonc build-package ./lib/hello.mbt -o ./target/wasm-gc/release/build/lib/lib.core -pkg hello/lib -pkg-sources hello/lib:./lib -target wasm-gc -workspace-path .
-            moonc build-package ./main/main.mbt -o ./target/wasm-gc/release/build/main/main.core -pkg hello/main -is-main -i ./target/wasm-gc/release/build/lib/lib.mi:lib -pkg-sources hello/main:./main -target wasm-gc -workspace-path .
-            moonc link-core ./target/wasm-gc/release/build/lib/lib.core ./target/wasm-gc/release/build/main/main.core -main hello/main -o ./target/wasm-gc/release/build/main/main.wasm -pkg-config-path ./main/moon.pkg.json -pkg-sources hello/lib:./lib -pkg-sources hello/main:./main -target wasm-gc
-            moonrun ./target/wasm-gc/release/build/main/main.wasm
-        "#]],
-    );
-
-    check(
-        get_stdout(
-            &dir,
-            [
-                "run",
-                "main",
-                "--target",
-                "wasm-gc",
-                "--dry-run",
-                "--debug",
-                "--nostd",
-            ],
-        ),
-        expect![[r#"
-            moonc build-package ./lib/hello.mbt -o ./target/wasm-gc/debug/build/lib/lib.core -pkg hello/lib -pkg-sources hello/lib:./lib -target wasm-gc -g -O0 -source-map -workspace-path .
-            moonc build-package ./main/main.mbt -o ./target/wasm-gc/debug/build/main/main.core -pkg hello/main -is-main -i ./target/wasm-gc/debug/build/lib/lib.mi:lib -pkg-sources hello/main:./main -target wasm-gc -g -O0 -source-map -workspace-path .
-            moonc link-core ./target/wasm-gc/debug/build/lib/lib.core ./target/wasm-gc/debug/build/main/main.core -main hello/main -o ./target/wasm-gc/debug/build/main/main.wasm -pkg-config-path ./main/moon.pkg.json -pkg-sources hello/lib:./lib -pkg-sources hello/main:./main -target wasm-gc -g -O0 -source-map
-            moonrun ./target/wasm-gc/debug/build/main/main.wasm
-        "#]],
-    );
-
-    // release should conflict with debug
-    #[cfg(unix)]
-    {
-        check(
-            get_err_stderr(&dir, ["test", "--release", "--debug"]),
-            expect![[r#"
-                error: the argument '--release' cannot be used with '--debug'
-
-                Usage: moon test --release [PATH]
-
-                For more information, try '--help'.
-            "#]],
-        );
-
-        check(
-            get_err_stderr(&dir, ["build", "--debug", "--release"]),
-            expect![[r#"
-                error: the argument '--debug' cannot be used with '--release'
-
-                Usage: moon build --debug [PATH]
-
-                For more information, try '--help'.
-            "#]],
-        );
-
-        check(
-            get_err_stderr(&dir, ["check", "--release", "--debug"]),
-            expect![[r#"
-                error: the argument '--release' cannot be used with '--debug'
-
-                Usage: moon check --release [PATH]
-
-                For more information, try '--help'.
-            "#]],
-        );
-
-        check(
-            get_err_stderr(&dir, ["run", "main", "--debug", "--release"]),
-            expect![[r#"
-                error: the argument '--debug' cannot be used with '--release'
-
-                Usage: moon run --debug <PACKAGE_OR_MBT_FILE> [ARGS]...
-
-                For more information, try '--help'.
-            "#]],
-        );
-    }
-}
-
-#[test]
 fn test_check_failed_should_write_pkg_json() {
     let dir = TestDir::new("check_failed_should_write_pkg_json.in");
     snapbox::cmd::Command::new(moon_bin())
@@ -1189,8 +1015,8 @@ fn test_blackbox_success() {
                             "LLVM"
                           ],
                           "optlevel": [
-                            "Debug",
-                            "Release"
+                            "Release",
+                            "Debug"
                           ]
                         }
                       },
@@ -1204,8 +1030,8 @@ fn test_blackbox_success() {
                             "LLVM"
                           ],
                           "optlevel": [
-                            "Debug",
-                            "Release"
+                            "Release",
+                            "Debug"
                           ]
                         }
                       },
@@ -1219,8 +1045,8 @@ fn test_blackbox_success() {
                             "LLVM"
                           ],
                           "optlevel": [
-                            "Debug",
-                            "Release"
+                            "Release",
+                            "Debug"
                           ]
                         }
                       },
@@ -1264,8 +1090,8 @@ fn test_blackbox_success() {
                             "LLVM"
                           ],
                           "optlevel": [
-                            "Debug",
-                            "Release"
+                            "Release",
+                            "Debug"
                           ]
                         }
                       },
@@ -1293,8 +1119,8 @@ fn test_blackbox_success() {
                             "LLVM"
                           ],
                           "optlevel": [
-                            "Debug",
-                            "Release"
+                            "Release",
+                            "Debug"
                           ]
                         }
                       },
@@ -1322,8 +1148,8 @@ fn test_blackbox_success() {
                             "LLVM"
                           ],
                           "optlevel": [
-                            "Debug",
-                            "Release"
+                            "Release",
+                            "Debug"
                           ]
                         }
                       },
@@ -1351,8 +1177,8 @@ fn test_blackbox_success() {
                             "LLVM"
                           ],
                           "optlevel": [
-                            "Debug",
-                            "Release"
+                            "Release",
+                            "Debug"
                           ]
                         }
                       },
@@ -1424,7 +1250,7 @@ fn test_blackbox_test_core_override() {
             moonc link-core ./target/wasm-gc/debug/test/prelude/prelude.internal_test.core -main moonbitlang/core/prelude -o ./target/wasm-gc/debug/test/prelude/prelude.internal_test.wasm -test-mode -pkg-config-path ./prelude/moon.pkg.json -pkg-sources moonbitlang/core/prelude:./prelude -exported_functions moonbit_test_driver_internal_execute,moonbit_test_driver_finish -target wasm-gc -g -O0 -source-map
             moonc build-package -o ./target/wasm-gc/debug/test/prelude/prelude.core -pkg moonbitlang/core/prelude -pkg-sources moonbitlang/core/prelude:./prelude -target wasm-gc -g -O0 -source-map -enable-coverage -workspace-path .
             moon generate-test-driver --output-driver ./target/wasm-gc/debug/test/prelude/__generated_driver_for_blackbox_test.mbt --output-metadata ./target/wasm-gc/debug/test/prelude/__blackbox_test_info.json --target wasm-gc --pkg-name moonbitlang/core/prelude --enable-coverage --driver-kind blackbox
-            moonc build-package ./target/wasm-gc/debug/test/prelude/__generated_driver_for_blackbox_test.mbt -o ./target/wasm-gc/debug/test/prelude/prelude.blackbox_test.core -pkg moonbitlang/core/prelude_blackbox_test -is-main -i ./target/wasm-gc/debug/test/prelude/prelude.mi:moonbitlang/core/prelude -pkg-sources moonbitlang/core/prelude_blackbox_test:./prelude -target wasm-gc -g -O0 -source-map -blackbox-test -include-doctests -no-mi -test-mode -workspace-path .
+            moonc build-package ./target/wasm-gc/debug/test/prelude/__generated_driver_for_blackbox_test.mbt -o ./target/wasm-gc/debug/test/prelude/prelude.blackbox_test.core -pkg moonbitlang/core/prelude_blackbox_test -is-main -i ./target/wasm-gc/debug/test/prelude/prelude.mi:prelude -pkg-sources moonbitlang/core/prelude_blackbox_test:./prelude -target wasm-gc -g -O0 -source-map -blackbox-test -include-doctests -no-mi -test-mode -workspace-path .
             moonc link-core ./target/wasm-gc/debug/test/prelude/prelude.core ./target/wasm-gc/debug/test/prelude/prelude.blackbox_test.core -main moonbitlang/core/prelude_blackbox_test -o ./target/wasm-gc/debug/test/prelude/prelude.blackbox_test.wasm -test-mode -pkg-config-path ./prelude/moon.pkg.json -pkg-sources moonbitlang/core/prelude:./prelude -pkg-sources moonbitlang/core/prelude_blackbox_test:./prelude -exported_functions moonbit_test_driver_internal_execute,moonbit_test_driver_finish -target wasm-gc -g -O0 -source-map
             moon generate-test-driver --output-driver ./target/wasm-gc/debug/test/builtin/__generated_driver_for_internal_test.mbt --output-metadata ./target/wasm-gc/debug/test/builtin/__internal_test_info.json ./builtin/main.mbt --target wasm-gc --pkg-name moonbitlang/core/builtin --enable-coverage --coverage-package-override=@self --driver-kind internal
             moonc build-package ./builtin/main.mbt ./target/wasm-gc/debug/test/builtin/__generated_driver_for_internal_test.mbt -o ./target/wasm-gc/debug/test/builtin/builtin.internal_test.core -pkg moonbitlang/core/builtin -is-main -pkg-sources moonbitlang/core/builtin:./builtin -target wasm-gc -g -O0 -source-map -enable-coverage -coverage-package-override=@self -no-mi -test-mode -workspace-path .
@@ -1858,8 +1684,8 @@ fn test_specify_source_dir_001() {
                             "LLVM"
                           ],
                           "optlevel": [
-                            "Debug",
-                            "Release"
+                            "Release",
+                            "Debug"
                           ]
                         }
                       },
@@ -1874,8 +1700,8 @@ fn test_specify_source_dir_001() {
                             "LLVM"
                           ],
                           "optlevel": [
-                            "Debug",
-                            "Release"
+                            "Release",
+                            "Debug"
                           ]
                         }
                       },
@@ -1901,8 +1727,8 @@ fn test_specify_source_dir_001() {
                             "LLVM"
                           ],
                           "optlevel": [
-                            "Debug",
-                            "Release"
+                            "Release",
+                            "Debug"
                           ]
                         }
                       },
@@ -4955,8 +4781,8 @@ fn test_run_md_test() {
                             "LLVM"
                           ],
                           "optlevel": [
-                            "Debug",
-                            "Release"
+                            "Release",
+                            "Debug"
                           ]
                         }
                       },
@@ -4971,8 +4797,8 @@ fn test_run_md_test() {
                             "LLVM"
                           ],
                           "optlevel": [
-                            "Debug",
-                            "Release"
+                            "Release",
+                            "Debug"
                           ]
                         }
                       },
@@ -4986,8 +4812,8 @@ fn test_run_md_test() {
                             "LLVM"
                           ],
                           "optlevel": [
-                            "Debug",
-                            "Release"
+                            "Release",
+                            "Debug"
                           ]
                         },
                         "$ROOT/src/lib/2.mbt.md": {
@@ -4999,8 +4825,8 @@ fn test_run_md_test() {
                             "LLVM"
                           ],
                           "optlevel": [
-                            "Debug",
-                            "Release"
+                            "Release",
+                            "Debug"
                           ]
                         }
                       },
@@ -5025,8 +4851,8 @@ fn test_run_md_test() {
                             "LLVM"
                           ],
                           "optlevel": [
-                            "Debug",
-                            "Release"
+                            "Release",
+                            "Debug"
                           ]
                         }
                       },

@@ -37,7 +37,7 @@ impl OptLevel {
     }
 
     pub fn all() -> &'static [Self] {
-        &[Self::Debug, Self::Release]
+        &[Self::Release, Self::Debug]
     }
 }
 
@@ -125,14 +125,8 @@ impl CompileCondition {
 impl Default for CompileCondition {
     fn default() -> Self {
         Self {
-            backend: vec![
-                TargetBackend::Wasm,
-                TargetBackend::WasmGC,
-                TargetBackend::Js,
-                TargetBackend::Native,
-                TargetBackend::LLVM,
-            ],
-            optlevel: vec![OptLevel::Debug, OptLevel::Release],
+            backend: TargetBackend::all().to_vec(),
+            optlevel: OptLevel::all().to_vec(),
         }
     }
 }

@@ -14,7 +14,7 @@ fn test_backend_config() {
         "export \"hello_{}\"",
         TargetBackend::default().to_backend_ext().replace('-', "_")
     )));
-    check(
+    assert_command_matches(
         get_stdout(&dir, ["build", "--dry-run", "--sort-input"]),
         expect![[r#"
             moonc build-package ./lib/hello.mbt -o ./target/wasm-gc/release/build/lib/lib.core -pkg username/hello/lib -std-path $MOON_HOME/lib/core/target/wasm-gc/release/bundle -pkg-sources username/hello/lib:./lib -target wasm-gc -workspace-path .
@@ -24,7 +24,7 @@ fn test_backend_config() {
         "#]],
     );
 
-    check(
+    assert_command_matches(
         get_stdout(
             &dir,
             [
@@ -44,7 +44,7 @@ fn test_backend_config() {
         "#]],
     );
 
-    check(
+    assert_command_matches(
         get_stdout(
             &dir,
             [

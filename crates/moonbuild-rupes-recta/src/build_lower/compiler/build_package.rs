@@ -42,7 +42,7 @@ pub struct MooncBuildPackage<'a> {
     pub mi_out: Cow<'a, Path>,
 
     pub flags: CompilationFlags,
-    pub extra_build_opts: &'a [&'a str],
+    pub extra_build_opts: &'a [String],
 }
 
 impl<'a> MooncBuildPackage<'a> {

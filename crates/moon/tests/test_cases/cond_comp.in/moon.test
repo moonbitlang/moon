@@ -99,8 +99,8 @@
               "LLVM"
             ],
             "optlevel": [
-              "Debug",
-              "Release"
+              "Release",
+              "Debug"
             ]
           },
           "${WORK_DIR}/src/lib/all_wasm.mbt": {
@@ -223,8 +223,8 @@
               "LLVM"
             ],
             "optlevel": [
-              "Debug",
-              "Release"
+              "Release",
+              "Debug"
             ]
           },
           "${WORK_DIR}/src/lib/js_only_test.mbt": {
@@ -259,8 +259,8 @@
               "LLVM"
             ],
             "optlevel": [
-              "Debug",
-              "Release"
+              "Release",
+              "Debug"
             ]
           }
         },

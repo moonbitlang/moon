@@ -111,7 +111,7 @@ pub fn build_graph_for_fmt(
         .target_base_dir(target_dir.into())
         .main_module(Some(ms.clone()))
         .stdlib_dir(None)
-        .opt_level(moonutil::cond_expr::OptLevel::Debug) // we don't care
+        .opt_level(moonutil::cond_expr::OptLevel::Release) // we don't care
         .run_mode(moonutil::common::RunMode::Format) // this too
         .build()
         .expect("Should be valid layout");
@@ -195,7 +195,7 @@ fn format_node(
             out_file.clone(),
         ];
         if cfg.block_style {
-            cmd.push("-block-style".into());
+            cmd.push("--block-style".into());
         }
         cmd.extend_from_slice(&cfg.extra_args);
         cmd
@@ -209,7 +209,7 @@ fn format_node(
         ];
         cmd.extend_from_slice(&cfg.extra_args);
         if cfg.block_style {
-            cmd.push("--block-style".into());
+            cmd.push("-block-style".into());
         }
         cmd
     };

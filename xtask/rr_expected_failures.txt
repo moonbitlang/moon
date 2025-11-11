@@ -7,16 +7,8 @@
 # Note: This list is intended to be checked in and validated by CI on a single platform.
 cmd_test
 cmd_test::cmd_test
-test_cases::backend::test_js_format
-test_cases::backend_config::test_backend_config
-test_cases::circle_pkg_test
-test_cases::debug_flag_test
-test_cases::design::test_design
 test_cases::dummy_core::test_dummy_core
 test_cases::extra_flags::test_extra_flags
-test_cases::fmt::test_moon_fmt_002
-test_cases::fmt::test_moon_fmt_block_style
-test_cases::fmt::test_moon_fmt_extra_args
 test_cases::inline_test::test_inline_test_order
 test_cases::merge_doc_test_and_md_test
 test_cases::moon_bundle::test_moon_bundle

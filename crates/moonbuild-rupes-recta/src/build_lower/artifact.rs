@@ -296,8 +296,7 @@ impl LegacyLayout {
     /// `moonfmt` works, it actually produces a formatted copy of the input file
     /// at this path.
     pub fn format_artifact_path(&self, pkg: &PackageFQN, filename: &OsStr) -> PathBuf {
-        let mut result = self.target_base_dir.clone();
-        self.push_package_dir_no_backend(&mut result, pkg);
+        let mut result = self.package_dir(pkg, TargetBackend::WasmGC);
         result.push(filename);
         result
     }
