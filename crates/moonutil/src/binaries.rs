@@ -31,6 +31,12 @@ fn moon_bin(binary_name: &str, env_var: &str) -> PathBuf {
     if let Some(path) = std::env::var_os(env_var) {
         return PathBuf::from(path);
     }
+    if let Ok(current_exe) = std::env::current_exe() {
+        let rv = ensure_exe_extension(current_exe.with_file_name(binary_name));
+        if rv.exists() {
+            return rv;
+        }
+    }
     ensure_exe_extension(crate::moon_dir::bin().join(binary_name))
 }
 
