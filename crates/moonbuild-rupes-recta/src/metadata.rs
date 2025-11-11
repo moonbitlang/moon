@@ -22,7 +22,7 @@ use std::path::Path;
 
 use indexmap::IndexMap;
 use moonutil::{
-    common::TargetBackend,
+    common::{RunMode, TargetBackend},
     cond_expr::{CompileCondition, OptLevel},
     module::ModuleDBJSON,
     moon_dir::core,
@@ -45,6 +45,7 @@ pub fn gen_metadata_json(
     target_dir: &Path,
     opt_level: OptLevel,
     backend: TargetBackend,
+    mode: RunMode,
 ) -> ModuleDBJSON {
     // Get the main module info
     let &[main_module_id] = ctx.local_modules() else {
@@ -57,7 +58,7 @@ pub fn gen_metadata_json(
         .main_module(Some(main_module.clone()))
         .opt_level(opt_level)
         .stdlib_dir(Some(core()))
-        .run_mode(moonutil::common::RunMode::Check)
+        .run_mode(mode)
         .target_base_dir(target_dir.to_owned())
         .build()
         .expect("Failed to build legacy layout");

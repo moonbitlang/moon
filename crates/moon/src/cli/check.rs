@@ -318,7 +318,7 @@ fn run_check_normal_internal_rr(
         let _lock = FileLock::lock(target_dir)?;
 
         // Generate metadata for IDE
-        rr_build::generate_metadata(source_dir, target_dir, &build_meta)?;
+        rr_build::generate_metadata(source_dir, target_dir, &build_meta, RunMode::Check)?;
 
         let mut cfg = BuildConfig::from_flags(&cmd.build_flags, &cli.unstable_feature);
         cfg.patch_file = cmd.patch_file.clone();

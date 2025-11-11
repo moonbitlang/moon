@@ -145,7 +145,7 @@ pub fn run_bundle_internal_rr(
         let _lock = FileLock::lock(target_dir)?;
 
         // Generate metadata for IDE & bundler
-        rr_build::generate_metadata(source_dir, target_dir, &_build_meta)?;
+        rr_build::generate_metadata(source_dir, target_dir, &_build_meta, RunMode::Bundle)?;
 
         let result = rr_build::execute_build(
             &BuildConfig::from_flags(&cmd.build_flags, &cli.unstable_feature),
