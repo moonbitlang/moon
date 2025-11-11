@@ -993,6 +993,7 @@ pub(crate) fn run_test_or_bench_internal_legacy(
         cmd.auto_sync_flags,
         &RegistryConfig::load(),
         cli.quiet,
+        true, // Legacy don't need std injection
     )?;
     debug!("completed auto-sync step");
 

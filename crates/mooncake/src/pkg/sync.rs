@@ -37,12 +37,13 @@ pub fn auto_sync(
     cli: &AutoSyncFlags,
     _registry_config: &RegistryConfig,
     quiet: bool,
+    no_std: bool,
 ) -> anyhow::Result<(ResolvedEnv, DirSyncResult)> {
     let m = moonutil::common::read_module_desc_file_in_dir(source_dir)?;
     let m = Arc::new(m);
 
     let (resolved_env, dep_dir) =
-        super::install::install_impl(source_dir, m, quiet, false, cli.dont_sync())?;
+        super::install::install_impl(source_dir, m, quiet, false, cli.dont_sync(), no_std)?;
     let dir_sync_result = resolve_dep_dirs(&dep_dir, &resolved_env);
     log::debug!("Dir sync result: {:?}", dir_sync_result);
     Ok((resolved_env, dir_sync_result))
@@ -81,6 +82,7 @@ pub fn auto_sync_for_single_mbt_md(
         moonbuild_opt.quiet,
         moonbuild_opt.verbose,
         dont_sync,
+        false,
     )?;
     let dir_sync_result = resolve_dep_dirs(&dep_dir, &resolved_env);
     log::debug!("Dir sync result: {:?}", dir_sync_result);

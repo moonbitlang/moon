@@ -317,6 +317,7 @@ pub fn run_info_internal(
         &cmd.auto_sync_flags,
         &RegistryConfig::load(),
         cli.quiet,
+        true, // Legacy don't need std injection
     )?;
 
     let mod_desc = read_module_desc_file_in_dir(source_dir).with_context(|| {

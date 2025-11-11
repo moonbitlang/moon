@@ -218,6 +218,7 @@ fn run_build_legacy(
         &cmd.auto_sync_flags,
         &RegistryConfig::load(),
         cli.quiet,
+        true, // Legacy don't need std injection
     )?;
 
     let raw_target_dir = target_dir;

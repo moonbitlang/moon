@@ -483,6 +483,7 @@ fn run_run_internal_legacy(cli: &UniversalFlags, cmd: RunSubcommand) -> anyhow::
         &cmd.auto_sync_flags,
         &RegistryConfig::load(),
         cli.quiet,
+        true, // Legacy don't need std injection
     )?;
 
     let run_mode = RunMode::Run;

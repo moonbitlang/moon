@@ -32,7 +32,7 @@ pub fn install_cli(cli: UniversalFlags, _cmd: InstallSubcommand) -> anyhow::Resu
         source_dir,
         target_dir,
     } = cli.source_tgt_dir.try_into_package_dirs()?;
-    mooncake::pkg::install::install(&source_dir, &target_dir, cli.quiet, cli.verbose)
+    mooncake::pkg::install::install(&source_dir, &target_dir, cli.quiet, cli.verbose, true)
 }
 
 pub fn remove_cli(cli: UniversalFlags, cmd: RemoveSubcommand) -> anyhow::Result<i32> {

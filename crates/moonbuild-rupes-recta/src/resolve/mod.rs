@@ -61,6 +61,7 @@ impl ResolveOutput {
 pub struct ResolveConfig {
     sync_flags: AutoSyncFlags,
     registry_config: RegistryConfig,
+    no_std: bool,
 }
 
 impl ResolveConfig {
@@ -68,18 +69,20 @@ impl ResolveConfig {
     /// and other flags populated from the environment with a sensible default.
     ///
     /// This method performs IO to load the registry configuration,
-    pub fn new_with_load_defaults(frozen: bool) -> Self {
+    pub fn new_with_load_defaults(frozen: bool, no_std: bool) -> Self {
         Self {
             sync_flags: AutoSyncFlags { frozen },
             registry_config: RegistryConfig::load(),
+            no_std,
         }
     }
 
     /// Creates a new `ResolveConfig` with the given flags and registry
-    pub fn new(sync_flags: AutoSyncFlags, registry_config: RegistryConfig) -> Self {
+    pub fn new(sync_flags: AutoSyncFlags, registry_config: RegistryConfig, no_std: bool) -> Self {
         Self {
             sync_flags,
             registry_config,
+            no_std,
         }
     }
 }
@@ -106,9 +109,14 @@ pub fn resolve(cfg: &ResolveConfig, source_dir: &Path) -> Result<ResolveOutput, 
     );
     debug!("Resolve config: sync_flags={:?}", cfg.sync_flags);
 
-    let (resolved_env, dir_sync_result) =
-        auto_sync(source_dir, &cfg.sync_flags, &cfg.registry_config, false)
-            .map_err(ResolveError::SyncModulesError)?;
+    let (resolved_env, dir_sync_result) = auto_sync(
+        source_dir,
+        &cfg.sync_flags,
+        &cfg.registry_config,
+        false,
+        cfg.no_std,
+    )
+    .map_err(ResolveError::SyncModulesError)?;
 
     info!("Module dependency resolution completed successfully");
     debug!("Resolved {} modules", resolved_env.module_count());
