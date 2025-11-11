@@ -7,8 +7,6 @@
 # Note: This list is intended to be checked in and validated by CI on a single platform.
 cmd_test
 cmd_test::cmd_test
-test_cases::dummy_core::test_dummy_core
-test_cases::extra_flags::test_extra_flags
 test_cases::merge_doc_test_and_md_test
 test_cases::moon_coverage::test_moon_coverage_analyze_dry_run
 test_cases::moon_test::test_moon_test_hello_exec
@@ -111,3 +109,6 @@ test_cases::test_filter::test_moon_test_filter_package
 test_cases::test_need_link
 test_cases::diagnostics_format::test::test_moon_test_raw_output
 test_cases::diagnostics_format::test::test_moon_test_rendered_output
+# executable path mismatch
+test_cases::dummy_core::test_dummy_core
+test_cases::extra_flags::test_extra_flags
