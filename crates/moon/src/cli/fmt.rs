@@ -101,6 +101,7 @@ fn run_fmt_legacy(cli: &UniversalFlags, cmd: FmtSubcommand) -> anyhow::Result<i3
         &AutoSyncFlags { frozen: true },
         &RegistryConfig::load(),
         cli.quiet,
+        true, // Legacy don't need std injection
     )?;
 
     let moonbuild_opt = MoonbuildOpt {

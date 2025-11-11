@@ -17,7 +17,12 @@
 # For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
 [workspace]
-members = ["xtask", "./crates/*", "crates/moonbuild-rupes-recta"]
+members = [
+    "xtask",
+    "./crates/*",
+    "crates/moonbuild-rupes-recta",
+    "crates/moonbuild-debug",
+]
 resolver = "2"
 default-members = ["./crates/*"]
 
@@ -30,6 +35,7 @@ n2 = { git = "https://github.com/moonbitlang/n2.git", rev = "83cf608705a2fc33bd2
 arcstr = { version = "1.2", features = ["serde"] }
 moonbuild = { path = "./crates/moonbuild", version = "*" }
 moonbuild-rupes-recta = { path = "./crates/moonbuild-rupes-recta", version = "*" }
+moonbuild-debug = { path = "./crates/moonbuild-debug", version = "*" }
 mooncake = { path = "./crates/mooncake", version = "*" }
 moonutil = { path = "./crates/moonutil", version = "*" }
 anyhow = { version = "1.0.86" }

@@ -18,7 +18,7 @@
 
 use moonutil::mooncakes::{DirSyncResult, result::ResolvedEnv};
 use relative_path::RelativePath;
-use tracing::instrument;
+use tracing::{info, instrument};
 
 use crate::{
     discover::{DiscoverError, DiscoverResult, discover_one_package},
@@ -35,6 +35,7 @@ pub fn inject_std_abort(
 ) -> Result<(), DiscoverError> {
     // Don't inject if there's no injected standard library
     let Some(stdlib) = env.stdlib() else {
+        info!("No standard library injected, skipping abort injection");
         return Ok(());
     };
 

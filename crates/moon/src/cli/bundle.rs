@@ -170,6 +170,7 @@ fn run_bundle_internal_legacy(
         &cmd.auto_sync_flags,
         &RegistryConfig::load(),
         cli.quiet,
+        true, // Legacy don't need std injection
     )?;
 
     let run_mode = RunMode::Bundle;

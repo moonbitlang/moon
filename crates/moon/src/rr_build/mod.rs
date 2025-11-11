@@ -351,7 +351,7 @@ pub fn plan_build<'a>(
 ) -> anyhow::Result<(BuildMeta, BuildInput)> {
     info!("Starting build planning");
 
-    let cfg = ResolveConfig::new_with_load_defaults(preconfig.frozen);
+    let cfg = ResolveConfig::new_with_load_defaults(preconfig.frozen, !preconfig.use_std);
     let resolve_output = moonbuild_rupes_recta::resolve(&cfg, source_dir)?;
 
     info!("Resolve completed");

@@ -26,6 +26,7 @@
 use moonutil::mooncakes::ModuleId;
 
 use crate::{
+    cond_comp::get_file_target_backend,
     discover::DiscoveredPackage,
     model::{BuildPlanNode, PackageId, TargetKind},
     resolve::ResolveOutput,
@@ -162,7 +163,8 @@ fn is_linkable(pkg: &DiscoveredPackage) -> bool {
 fn has_whitebox_decl(resolved: &ResolveOutput, pkg_id: PackageId) -> bool {
     let pkg = resolved.pkg_dirs.get_package(pkg_id);
     pkg.source_files.iter().any(|p| {
-        let file_name = p.file_name().and_then(|s| s.to_str()).unwrap_or("");
-        file_name.ends_with("_wbtest.mbt")
+        let file_stem = p.file_stem().and_then(|s| s.to_str()).unwrap_or("");
+        let (_, with_target_stripped) = get_file_target_backend(file_stem);
+        with_target_stripped.ends_with("_wbtest")
     })
 }

@@ -25,7 +25,6 @@ use std::io::{BufRead, BufReader, Write};
 use std::path::Path;
 use std::process::Command;
 
-const MOON_UNSTABLE_RR: &str = "rupes_recta";
 const LOGS_ROOT: &str = "target/rr-parity-logs";
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -110,7 +109,7 @@ fn run_cargo_test(
     cmd.args(test_args);
 
     if with_moon_unstable {
-        cmd.env("MOON_UNSTABLE", MOON_UNSTABLE_RR);
+        cmd.env("NEW_MOON", "1");
     }
 
     let output = cmd

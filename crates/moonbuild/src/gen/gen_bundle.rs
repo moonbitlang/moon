@@ -25,6 +25,7 @@ use n2::load::State;
 use n2::smallmap::SmallMap;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
+use std::sync::Arc;
 
 use moonutil::common::{MOON_PKG_JSON, MoonbuildOpt, MooncOpt};
 
@@ -43,6 +44,7 @@ pub struct BundleDepItem {
     pub warn_list: Option<String>,
     pub alert_list: Option<String>,
     pub is_main: bool,
+    pub workspace_root: Arc<Path>,
 }
 
 #[derive(Debug)]
@@ -167,6 +169,7 @@ pub fn pkg_to_bundle_item(
         warn_list: pkg.warn_list.clone(),
         alert_list: pkg.alert_list.clone(),
         is_main: pkg.is_main,
+        workspace_root: Arc::clone(&pkg.module_root),
     })
 }
 
@@ -247,6 +250,8 @@ pub fn gen_build_command(
         // .arg_with_cond(!debug_flag && strip_flag, "")
         .arg_with_cond(moonc_opt.link_opt.source_map, "-source-map")
         .args(moonc_opt.extra_build_opt.iter())
+        .arg("-workspace-path")
+        .arg(&item.workspace_root.display().to_string())
         .build();
     log::debug!("Command: {}", command);
     build.cmdline = Some(command);

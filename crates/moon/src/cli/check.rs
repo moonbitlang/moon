@@ -289,7 +289,9 @@ fn run_check_normal_internal_rr(
             calc_user_intent(
                 r,
                 m,
+                source_dir,
                 cmd.package_path.as_deref(),
+                cmd.path.as_deref(),
                 cmd.no_mi,
                 cmd.patch_file.as_deref(),
             )
@@ -346,6 +348,7 @@ fn run_check_normal_internal_legacy(
         &cmd.auto_sync_flags,
         &RegistryConfig::load(),
         cli.quiet,
+        true, // Legacy don't need std injection
     )?;
 
     let raw_target_dir = target_dir;
@@ -492,14 +495,21 @@ fn run_check_normal_internal_legacy(
     })
 }
 
-/// Generate user intent
+/// Generate user intent of checking all packages in the current module.
 ///
-/// Check all packages in the current module.
+/// Two paths are supported:
+/// - `package_path`: The legacy `-p` flag, specifying the path from the source
+///   dir to the package to check.
+/// - `path`: The new positional argument, specifying a relative path from the
+///   working directory to a package directory.
+/// Only one of them can be specified at a time.
 #[instrument(level = Level::DEBUG, skip_all)]
 fn calc_user_intent(
     resolve_output: &moonbuild_rupes_recta::ResolveOutput,
     main_modules: &[moonutil::mooncakes::ModuleId],
-    filter: Option<&Path>,
+    source_dir: &Path,
+    package_path: Option<&Path>,
+    path: Option<&Path>,
     no_mi: bool,
     patch_file: Option<&Path>,
 ) -> Result<CalcUserIntentOutput, anyhow::Error> {
@@ -507,8 +517,22 @@ fn calc_user_intent(
         panic!("No multiple main modules are supported");
     };
 
-    if let Some(filter_path) = filter {
-        let (dir, _) = canonicalize_with_filename(filter_path)?;
+    if package_path.is_some() && path.is_some() {
+        anyhow::bail!(
+            "Only one of `-p/--package-path` and positional `PATH` can be specified at a time"
+        );
+    }
+
+    if let Some(filter_path) = package_path {
+        let (dir, _) = canonicalize_with_filename(&source_dir.join(filter_path))?;
+        let pkg = filter_pkg_by_dir(resolve_output, &dir)?;
+
+        // Apply --no-mi and --patch-file to specific packages
+        let directive = rr_build::build_patch_directive_for_package(pkg, no_mi, patch_file)?;
+
+        Ok((vec![UserIntent::Check(pkg)], directive).into())
+    } else if let Some(check_path) = path {
+        let (dir, _) = canonicalize_with_filename(check_path)?;
         let pkg = filter_pkg_by_dir(resolve_output, &dir)?;
 
         // Apply --no-mi and --patch-file to specific packages

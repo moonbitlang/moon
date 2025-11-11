@@ -42,10 +42,11 @@ pub fn install(
     _target_dir: &Path,
     quiet: bool,
     verbose: bool,
+    no_std: bool,
 ) -> anyhow::Result<i32> {
     let m = read_module_desc_file_in_dir(source_dir)?;
     let m = Arc::new(m);
-    install_impl(source_dir, m, quiet, verbose, false).map(|_| 0)
+    install_impl(source_dir, m, quiet, verbose, false, no_std).map(|_| 0)
 }
 
 pub(crate) fn install_impl(
@@ -54,6 +55,7 @@ pub(crate) fn install_impl(
     quiet: bool,
     verbose: bool,
     dont_sync: bool,
+    no_std: bool,
 ) -> anyhow::Result<(ResolvedEnv, DepDir)> {
     let registry = crate::registry::RegistryList::with_default_registry();
 
@@ -62,7 +64,7 @@ pub(crate) fn install_impl(
 
     let resolve_config = ResolveConfig {
         registries: registry,
-        inject_std: !is_stdlib,
+        inject_std: !is_stdlib && !no_std,
     };
 
     let res = resolve_single_root_with_defaults(&resolve_config, ms, Arc::clone(&m))?;

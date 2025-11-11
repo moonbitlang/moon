@@ -900,7 +900,7 @@ impl<'a> BuildPlanLowerContext<'a> {
                 MiDependency::new(in_file, &w.short_alias)
             })
             .collect::<Vec<_>>();
-        deps.sort_by(|x, y| x.path.cmp(&y.path));
+        deps.sort_by(|x, y| x.alias.cmp(&y.alias));
         deps
     }
 }

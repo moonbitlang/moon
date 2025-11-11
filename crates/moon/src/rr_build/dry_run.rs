@@ -20,6 +20,7 @@
 
 use std::{path::Path, process::Command};
 
+use moonbuild_debug::graph::try_debug_dump_build_graph_to_file;
 use moonbuild_rupes_recta::model::Artifacts;
 
 use crate::rr_build::BuildInput;
@@ -42,6 +43,9 @@ pub fn print_dry_run<'a>(
                 .flat_map(|file| graph.files.lookup(&file.to_string_lossy()))
         })
         .collect::<Vec<_>>();
+
+    try_debug_dump_build_graph_to_file(graph, &default_files, source_dir);
+
     moonbuild::dry_run::print_build_commands(graph, &default_files, source_dir, target_dir);
 }
 

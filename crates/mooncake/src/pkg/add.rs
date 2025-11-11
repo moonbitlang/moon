@@ -122,7 +122,7 @@ pub fn add(
     }
 
     let m = Arc::new(m);
-    install_impl(source_dir, Arc::clone(&m), quiet, false, false)?;
+    install_impl(source_dir, Arc::clone(&m), quiet, false, false, true)?;
 
     let new_j = convert_module_to_mod_json(Arc::into_inner(m).unwrap());
     write_module_json_to_file(&new_j, source_dir)?;

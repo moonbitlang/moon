@@ -37,7 +37,7 @@
   $ moon test -p asdf --sort-input --no-parallelize
   [255]
   
-  error: Cannot find tests to run. Please check if you have supplied the correct package name for testing.
+  error: package `asdf` not found, make sure you have spelled it correctly, e.g. `moonbitlang/core/hashmap`(exact match) or `hashmap`(fuzzy match)
   
   $ moon test -p y -f asdf --sort-input --no-parallelize
   Total tests: 0, passed: 0, failed: 0.
