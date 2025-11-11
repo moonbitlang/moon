@@ -806,7 +806,7 @@ impl<'a> BuildPlanLowerContext<'a> {
 
         // Note: at this point, we have our TCC command.
         // However, this command should be executed when the user runs the final
-        // executable, not in this build graph. Thus, we need to put them int&self.binarieso
+        // executable, not in this build graph. Thus, we need to put them into
         // a response file so that `tcc` will run it later.
         //
         // We have a tool for this: `moon tool write-tcc-rsp-file <out> <args...>`
