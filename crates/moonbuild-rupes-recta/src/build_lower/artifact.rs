@@ -426,7 +426,7 @@ fn build_kind_suffix(kind: TargetKind) -> &'static str {
         TargetKind::Source => "",
         TargetKind::WhiteboxTest => ".whitebox_test",
         TargetKind::BlackboxTest => ".blackbox_test",
-        TargetKind::InlineTest => ".inline_test",
+        TargetKind::InlineTest => ".internal_test",
         TargetKind::SubPackage => "_sub",
     }
 }
@@ -436,7 +436,7 @@ fn build_kind_suffix_filename(kind: TargetKind) -> &'static str {
         TargetKind::Source => "",
         TargetKind::WhiteboxTest => "_whitebox_test",
         TargetKind::BlackboxTest => "_blackbox_test",
-        TargetKind::InlineTest => "_inline_test",
+        TargetKind::InlineTest => "_internal_test",
         TargetKind::SubPackage => "_sub",
     }
 }
