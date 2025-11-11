@@ -535,11 +535,15 @@ fn check_tcc_availability(
 }
 
 /// Generate metadata file `packages.json` in the target directory.
+///
+/// To ensure the correct paths are generated, `mode` should match your
+/// corresponding `preconfig` used in [`plan_build`].
 #[instrument(level = Level::DEBUG, skip_all)]
 pub fn generate_metadata(
     source_dir: &Path,
     target_dir: &Path,
     build_meta: &BuildMeta,
+    mode: RunMode,
 ) -> anyhow::Result<()> {
     let metadata_file = target_dir.join("packages.json");
     let metadata = moonbuild_rupes_recta::metadata::gen_metadata_json(
@@ -548,6 +552,7 @@ pub fn generate_metadata(
         target_dir,
         build_meta.opt_level,
         build_meta.target_backend.into(),
+        mode,
     );
     let orig_meta = std::fs::read_to_string(&metadata_file);
     let meta = serde_json::to_string_pretty(&metadata).context("Failed to serialize metadata")?;
