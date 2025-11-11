@@ -637,11 +637,20 @@ pub fn execute_build(
     input: BuildInput,
     target_dir: &Path,
 ) -> anyhow::Result<N2RunStats> {
+    // Get start nodes (leaf outputs) before moving the graph
+    let start_nodes = input.graph.get_start_nodes();
+
     execute_build_partial(
         cfg,
         input,
         target_dir,
-        Box::new(|work| work.want_every_file(None)),
+        Box::new(|work| {
+            // Want only the leaf output files, not all files including stdlib
+            for file_id in start_nodes {
+                work.want_file(file_id)?;
+            }
+            Ok(())
+        }),
     )
 }
 
