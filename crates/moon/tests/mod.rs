@@ -22,6 +22,7 @@ mod dry_run_utils;
 mod test_cases;
 mod util;
 
+use moonbuild_debug::graph::ENV_VAR;
 use std::path::{Path, PathBuf};
 use util::*;
 
@@ -152,6 +153,23 @@ pub fn get_stdout_with_envs(
 ) -> String {
     let s = get_stdout_without_replace(dir, args, envs);
     replace_dir(&s, dir)
+}
+
+/// Snapshot the dry run graph output to a file, returning the regular stdout
+/// and outputting the graph to the specified file via an environment variable.
+///
+/// Note: You must pass a dry-run related command in `args`.
+#[track_caller]
+pub fn snap_dry_run_graph(
+    dir: &impl AsRef<std::path::Path>,
+    args: impl IntoIterator<Item = impl AsRef<std::ffi::OsStr>>,
+    to_file: &impl AsRef<std::path::Path>,
+) -> String {
+    get_stdout_with_envs(
+        dir,
+        args,
+        [(ENV_VAR, to_file.as_ref().to_string_lossy().into_owned())],
+    )
 }
 
 #[track_caller]
