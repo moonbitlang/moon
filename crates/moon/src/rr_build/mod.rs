@@ -302,10 +302,10 @@ pub fn preconfig_compile(
     default_opt_level: OptLevel,
     action: RunMode,
 ) -> CompilePreConfig {
-    let opt_level = if build_flags.release {
-        OptLevel::Release
-    } else if build_flags.debug {
+    let opt_level = if build_flags.debug {
         OptLevel::Debug
+    } else if build_flags.release {
+        OptLevel::Release
     } else {
         default_opt_level
     };
