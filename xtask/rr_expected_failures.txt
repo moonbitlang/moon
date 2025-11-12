@@ -27,23 +27,15 @@ test_cases::test_blackbox_dedup_alias
 test_cases::test_blackbox_failed
 test_cases::test_blackbox_success
 test_cases::test_blackbox_test_core_override
-test_cases::test_diff_mbti
 test_cases::test_dont_link_third_party
 test_cases::test_expect_test::test_expect_test
 test_cases::test_export_memory_name
-test_cases::test_exports_in_native_backend
 test_cases::test_failed_to_fill_whole_buffer
-test_cases::test_filter::test_moon_parallelism
 test_cases::test_filter::test_moon_test_filter_index_with_auto_update
-test_cases::test_filter::test_moon_test_filter_file
 test_cases::test_filter::test_moon_test_filter_multi_package
 test_cases::test_filter::test_moon_test_filter_package_dry_run
-test_cases::test_filter::test_moon_test_filter_package_with_deps
-test_cases::test_filter::test_moon_test_filter_package_with_singlefile
-test_cases::test_filter::test_moon_test_filter_package_with_test_imports
 test_cases::test_import_memory_and_heap_start
 test_cases::test_import_shared_memory
-test_cases::test_in_main_pkg
 test_cases::test_internal_package
 test_cases::test_moon_check_filter_package
 test_cases::test_moon_check_package_with_patch
@@ -68,13 +60,10 @@ test_cases::test_snapshot_test
 test_cases::test_snapshot_test_target_js
 test_cases::test_specify_source_dir_001
 test_cases::test_specify_source_dir_002
-test_cases::test_specify_source_dir_003
-test_cases::test_specify_source_dir_004
 test_cases::test_specify_source_dir_005
 test_cases::test_specify_source_dir_with_deps
 test_cases::test_specify_source_dir_with_deps_002
 test_cases::test_sub_package
-test_cases::test_supported_backends_in_pkg_json
 test_cases::test_trace_001
 test_cases::test_tracing_value_for_main_func
 test_cases::test_tracing_value_for_test_block
@@ -87,7 +76,6 @@ test_cases::warns::test_alert_list
 test_cases::warns::test_deny_warn
 test_cases::warns::test_mod_level_warn_alert_list
 test_cases::warns::test_warn_list_dry_run
-test_cases::warns::test_warn_list_real_run
 test_cases::whitespace_test
 
 # CI reported flaky tests
