@@ -56,7 +56,12 @@ pub fn print_build_commands(
         }
     }
 
-    try_debug_dump_build_graph_to_file(graph, default, source_dir);
+    let path_replace_table = moonutil::BINARIES
+        .all_moon_bins()
+        .iter()
+        .map(|(name, path)| (path.to_string_lossy().to_string(), name.to_string()))
+        .collect();
+    try_debug_dump_build_graph_to_file(graph, default, source_dir, path_replace_table);
 }
 
 /// Print run commands from a State
@@ -77,21 +82,28 @@ pub fn print_run_commands(
         for fid in sorted_default.iter() {
             let mut watfile = state.graph.file(*fid).name.clone();
             let cmd = match target_backend {
-                TargetBackend::Wasm | TargetBackend::WasmGC => "moonrun ",
-                TargetBackend::Js => "node ",
+                TargetBackend::Wasm | TargetBackend::WasmGC => {
+                    Some(moonutil::BINARIES.moonrun.clone())
+                }
+                TargetBackend::Js => Some(moonutil::BINARIES.node_or_default()),
                 TargetBackend::Native | TargetBackend::LLVM => {
                     // stub.o would be default for native and llvm, skip them
                     if !watfile.ends_with(".exe") {
                         continue;
                     }
-                    ""
+                    None
                 }
             };
             if in_same_dir {
                 watfile = watfile.replacen(&source_dir.display().to_string(), ".", 1);
             }
 
-            let mut moonrun_command = format!("{cmd}{watfile}");
+            let mut moonrun_command = if let Some(cmd) = cmd {
+                let cmd = cmd.display();
+                format!("{cmd} {watfile}")
+            } else {
+                watfile
+            };
             if !args.is_empty() {
                 moonrun_command = format!("{moonrun_command} -- {}", args.join(" "));
             }

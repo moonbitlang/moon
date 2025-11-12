@@ -407,7 +407,11 @@ pub fn gen_build_interface_command(
 
     let mut build = Build::new(loc, ins, outs);
 
-    let command = CommandBuilder::new("moonc")
+    let moonc = moonutil::BINARIES
+        .moonc
+        .to_str()
+        .expect("moonc path is valid UTF-8");
+    let command = CommandBuilder::new(moonc)
         .arg("build-interface")
         .arg(&item.mbti_deps)
         .arg("-o")
@@ -510,7 +514,11 @@ pub fn gen_build_command(
         moonc_opt.build_opt.strip_flag,
     );
 
-    let command = CommandBuilder::new("moonc")
+    let moonc = moonutil::BINARIES
+        .moonc
+        .to_str()
+        .expect("moonc path is valid UTF-8");
+    let command = CommandBuilder::new(moonc)
         .arg("build-package")
         .args_with_cond(moonc_opt.json_diagnostics, vec!["-error-format", "json"])
         .args_with_cond(
@@ -645,7 +653,11 @@ pub fn gen_link_command(
         moonc_opt.build_opt.strip_flag,
     );
 
-    let command = CommandBuilder::new("moonc")
+    let moonc = moonutil::BINARIES
+        .moonc
+        .to_str()
+        .expect("moonc path is valid UTF-8");
+    let command = CommandBuilder::new(moonc)
         .arg("link-core")
         .args(&item.core_deps)
         .arg("-main")
@@ -1511,8 +1523,26 @@ pub fn gen_n2_build_state(
 
                 let runtime = match moonc_opt.link_opt.target_backend {
                     TargetBackend::Native | TargetBackend::LLVM => "".to_string(),
-                    TargetBackend::Wasm | TargetBackend::WasmGC => "moonrun".to_string(),
-                    TargetBackend::Js => "node".to_string(),
+                    TargetBackend::Wasm | TargetBackend::WasmGC => moonutil::BINARIES
+                        .moonrun
+                        .to_str()
+                        .with_context(|| {
+                            format!(
+                                "Failed to decode moonrun binary path: {:?}",
+                                moonutil::BINARIES.moonrun
+                            )
+                        })?
+                        .to_string(),
+                    TargetBackend::Js => moonutil::BINARIES
+                        .node_or_default()
+                        .to_str()
+                        .with_context(|| {
+                            format!(
+                                "Failed to decode node binary path: {:?}",
+                                moonutil::BINARIES.node_or_default()
+                            )
+                        })?
+                        .to_string(),
                 };
 
                 let bin_script_content = bin_script_content

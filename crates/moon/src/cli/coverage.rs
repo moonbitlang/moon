@@ -162,7 +162,7 @@ fn run_coverage_report_command(
     cwd: &Path,
     dry_run: bool,
 ) -> std::io::Result<std::process::ExitStatus> {
-    let mut cmd = std::process::Command::new("moon_cove_report");
+    let mut cmd = std::process::Command::new(&*moonutil::BINARIES.moon_cove_report);
     cmd.current_dir(cwd);
     cmd.args(args);
     if dry_run {

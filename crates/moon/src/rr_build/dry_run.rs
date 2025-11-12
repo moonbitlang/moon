@@ -44,7 +44,12 @@ pub fn print_dry_run<'a>(
         })
         .collect::<Vec<_>>();
 
-    try_debug_dump_build_graph_to_file(graph, &default_files, source_dir);
+    let path_replace_table = moonutil::BINARIES
+        .all_moon_bins()
+        .iter()
+        .map(|(name, path)| (path.to_string_lossy().to_string(), name.to_string()))
+        .collect();
+    try_debug_dump_build_graph_to_file(graph, &default_files, source_dir, path_replace_table);
 
     moonbuild::dry_run::print_build_commands(graph, &default_files, source_dir, target_dir);
 }

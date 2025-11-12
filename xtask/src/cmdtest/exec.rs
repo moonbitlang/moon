@@ -51,6 +51,24 @@ pub fn moon_home() -> PathBuf {
 }
 
 fn replace_dir(s: &str, dir: &impl AsRef<std::path::Path>) -> String {
+    let moon_home = dunce::canonicalize(moon_home()).expect("valid moon home");
+    let s = moon_home
+        .join("bin")
+        .read_dir()
+        .expect("read dir")
+        .into_iter()
+        .fold(s.to_string(), |s, e| {
+            if let Ok(entry) = e {
+                let path = entry.path();
+                if let Some(name) = path.file_stem() {
+                    return s.replace(
+                        path.to_string_lossy().as_ref(),
+                        name.to_string_lossy().as_ref(),
+                    );
+                }
+            }
+            s
+        });
     let path_str1 = dunce::canonicalize(dir)
         .unwrap()
         .to_str()
@@ -60,11 +78,15 @@ fn replace_dir(s: &str, dir: &impl AsRef<std::path::Path>) -> String {
     // https://github.com/moonbitlang/moon/actions/runs/10092428950/job/27906057649#step:13:149
     let s = s.replace("\\\\", "\\");
     let s = s.replace(&path_str1, "${WORK_DIR}");
-    let s = s.replace(
-        dunce::canonicalize(moon_home()).unwrap().to_str().unwrap(),
-        "$MOON_HOME",
-    );
+    let s = s.replace(moon_home.to_string_lossy().as_ref(), "$MOON_HOME");
     let s = s.replace(moon_bin().to_string_lossy().as_ref(), "moon");
+    let s = ["node.cmd", "node"]
+        .iter()
+        .map(which::which)
+        .flatten()
+        .next()
+        .map(|node| s.replace(node.to_string_lossy().as_ref(), "node"))
+        .unwrap_or(s);
     s.replace("\r\n", "\n").replace('\\', "/")
 }
 

@@ -27,7 +27,7 @@ use tracing::{Level, instrument};
 
 use crate::{
     ResolveOutput,
-    build_lower::{Binaries, artifact::LegacyLayout},
+    build_lower::artifact::LegacyLayout,
     build_plan::{BuildPlan, FileDependencyKind},
     discover::{DiscoverResult, DiscoveredPackage},
     model::{BuildPlanNode, BuildTarget, RunBackend},
@@ -45,7 +45,6 @@ pub(crate) struct BuildPlanLowerContext<'a> {
 
     // folder layout
     pub(crate) layout: LegacyLayout,
-    pub(crate) binaries: Binaries,
 
     // External state
     pub(crate) packages: &'a DiscoverResult,
@@ -59,7 +58,6 @@ pub(crate) struct BuildPlanLowerContext<'a> {
 impl<'a> BuildPlanLowerContext<'a> {
     pub(super) fn new(
         layout: LegacyLayout,
-        binaries: Binaries,
         resolve_output: &'a ResolveOutput,
         build_plan: &'a BuildPlan,
         opt: &'a BuildOptions,
@@ -67,7 +65,6 @@ impl<'a> BuildPlanLowerContext<'a> {
         Self {
             graph: N2Graph::default(),
             layout,
-            binaries,
             rel: &resolve_output.pkg_rel,
             modules: &resolve_output.module_rel,
             packages: &resolve_output.pkg_dirs,

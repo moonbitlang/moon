@@ -130,7 +130,11 @@ fn gen_inplace_fmt_command(
 
     let mut build = Build::new(loc, ins, outs);
 
-    let command = CommandBuilder::new("moonfmt")
+    let moonfmt = moonutil::BINARIES
+        .moonfmt
+        .to_str()
+        .expect("moonfmt path is valid UTF-8");
+    let command = CommandBuilder::new(moonfmt)
         .arg(&item.input)
         .arg("-w")
         .arg("-o")
@@ -147,7 +151,7 @@ fn gen_inplace_fmt_command(
         )
         .build();
     build.cmdline = Some(command);
-    build.desc = Some(format!("moonfmt {}", item.input));
+    build.desc = Some(format!("{:?} {}", moonutil::BINARIES.moonfmt, item.input));
     (build, output_id)
 }
 
@@ -262,7 +266,7 @@ fn gen_fmt_to_command(
     .args(&moonbuild_opt.fmt_opt.as_ref().unwrap().extra_args)
     .build();
     build.cmdline = Some(command);
-    build.desc = Some(format!("moonfmt {}", item.input));
+    build.desc = Some(format!("{:?} {}", moonutil::BINARIES.moonfmt, item.input));
 
     (build, output_id)
 }

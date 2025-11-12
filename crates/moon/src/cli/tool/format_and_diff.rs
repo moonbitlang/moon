@@ -46,7 +46,7 @@ pub fn run_format_and_diff(cmd: FormatAndDiffSubcommand) -> anyhow::Result<i32> 
     if cmd.block_style {
         args.push("-block-style")
     }
-    let mut execution = std::process::Command::new("moonfmt")
+    let mut execution = std::process::Command::new(&*moonutil::BINARIES.moonfmt)
         .args(args)
         .args(&cmd.args)
         .stdin(Stdio::inherit())
@@ -59,7 +59,7 @@ pub fn run_format_and_diff(cmd: FormatAndDiffSubcommand) -> anyhow::Result<i32> 
     if exit_code == 0 {
         return Ok(0);
     }
-    let mut execution = std::process::Command::new("git")
+    let mut execution = std::process::Command::new(moonutil::BINARIES.git_or_default())
         .args([
             "--no-pager",
             "diff",

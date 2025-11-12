@@ -1,2 +1,2 @@
 #!/bin/sh
-$runtime $artifact_output_path "$@"
+"$runtime" "$artifact_output_path" "$@"

@@ -18,7 +18,6 @@
 
 use crate::cond_expr::{self, CompileCondition, CondExpr};
 use crate::module::{ModuleDB, MoonMod};
-use crate::moon_dir::MOON_DIRS;
 use crate::mooncakes::DirSyncResult;
 use crate::mooncakes::result::ResolvedEnv;
 use crate::package::{Import, MoonPkgGenerate, Package, SubPackageInPackage};
@@ -30,7 +29,7 @@ use petgraph::graph::{DiGraph, NodeIndex};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock};
 use walkdir::WalkDir;
 
 use crate::common::{
@@ -515,6 +514,22 @@ fn scan_one_package(
         })
         .collect();
 
+    macro_rules! stringify_bin {
+        ($field:ident) => {{
+            static CELL: OnceLock<Option<&str>> = OnceLock::new();
+            || {
+                CELL.get_or_init(|| crate::BINARIES.$field.to_str())
+                    .with_context(|| {
+                        format!(
+                            "cannot decode {} path: {:?}",
+                            stringify!($field),
+                            crate::BINARIES.$field
+                        )
+                    })
+            }
+        }};
+    }
+    let moonrun = stringify_bin!(moonrun);
     let pkg_prebuild_is_none = pkg.pre_build.is_none();
     let mut prebuild = pkg.pre_build.unwrap_or(vec![]);
     for mbl_file in mbl_files {
@@ -524,8 +539,8 @@ fn scan_one_package(
             output: crate::package::StringOrArray::String(mbt_file.display().to_string()),
             command: format!(
                 "{} {} -- $input -o $output",
-                MOON_DIRS.moon_bin_path.join("moonrun").display(),
-                MOON_DIRS.moon_bin_path.join("moonlex.wasm").display()
+                moonrun()?,
+                stringify_bin!(moonlex)()?,
             ),
         };
         prebuild.push(generate);
@@ -537,8 +552,8 @@ fn scan_one_package(
             output: crate::package::StringOrArray::String(mbt_file.display().to_string()),
             command: format!(
                 "{} {} -- $input -o $output",
-                MOON_DIRS.moon_bin_path.join("moonrun").display(),
-                MOON_DIRS.moon_bin_path.join("moonyacc.wasm").display()
+                moonrun()?,
+                stringify_bin!(moonyacc)()?,
             ),
         };
         prebuild.push(generate);

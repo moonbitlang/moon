@@ -30,6 +30,17 @@ pub fn moon_bin() -> PathBuf {
 }
 
 pub fn replace_dir(s: &str, dir: impl AsRef<std::path::Path>) -> String {
+    let s = s.replace("\\\\", "\\");
+    let s = moonutil::BINARIES
+        .all_moon_bins()
+        .iter()
+        .fold(s.to_string(), |s, (name, path)| {
+            let path = match *name {
+                "moon" | "moonrun" => snapbox::cmd::cargo_bin(name),
+                _ => path.clone(),
+            };
+            s.replace(path.to_string_lossy().as_ref(), name)
+        });
     let path_str1 = dunce::canonicalize(dir)
         .unwrap()
         .to_str()
@@ -37,7 +48,6 @@ pub fn replace_dir(s: &str, dir: impl AsRef<std::path::Path>) -> String {
         .to_string();
     // for something like "{...\"loc\":{\"path\":\"C:\\\\Users\\\\runneradmin\\\\AppData\\\\Local\\\\Temp\\\\.tmpP0u4VZ\\\\main\\\\main.mbt\"...\r\n" on windows
     // https://github.com/moonbitlang/moon/actions/runs/10092428950/job/27906057649#step:13:149
-    let s = s.replace("\\\\", "\\");
     let s = s.replace(&path_str1, "$ROOT");
     let s = s.replace(
         dunce::canonicalize(moonutil::moon_dir::home())
@@ -51,6 +61,11 @@ pub fn replace_dir(s: &str, dir: impl AsRef<std::path::Path>) -> String {
     let s = s.replace(&ar_path, CC::default().ar_name());
     let s = s.replace(&cc_path, CC::default().cc_name());
     let s = s.replace(moon_bin().to_string_lossy().as_ref(), "moon");
+    let s = moonutil::BINARIES
+        .node
+        .as_ref()
+        .map(|node| s.replace(node.to_string_lossy().as_ref(), "node"))
+        .unwrap_or(s);
     s.replace("\r\n", "\n").replace('\\', "/")
 }
 

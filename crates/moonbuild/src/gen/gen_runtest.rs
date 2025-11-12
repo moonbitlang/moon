@@ -1140,7 +1140,11 @@ pub fn gen_runtest_build_command(
         moonc_opt.build_opt.strip_flag,
     );
 
-    let command = CommandBuilder::new("moonc")
+    let moonc = moonutil::BINARIES
+        .moonc
+        .to_str()
+        .expect("moonc path is valid UTF-8");
+    let command = CommandBuilder::new(moonc)
         .arg("build-package")
         .args_with_cond(moonc_opt.json_diagnostics, vec!["-error-format", "json"])
         .args(&item.mbt_deps)
@@ -1279,7 +1283,11 @@ pub fn gen_runtest_link_command(
         moonc_opt.build_opt.strip_flag,
     );
 
-    let command = CommandBuilder::new("moonc")
+    let moonc = moonutil::BINARIES
+        .moonc
+        .to_str()
+        .expect("moonc path is valid UTF-8");
+    let command = CommandBuilder::new(moonc)
         .arg("link-core")
         .args(&item.core_deps)
         .arg("-main")

@@ -16,8 +16,6 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
-use crate::{MOONRUN_EXECUTABLE, NODE_EXECUTABLE};
-
 use super::r#gen;
 use anyhow::Context;
 use moonutil::common::MoonbuildOpt;
@@ -41,18 +39,15 @@ pub fn load_moon_proj(
 }
 
 pub fn run_wat(path: &Path, args: &[String], verbose: bool) -> anyhow::Result<()> {
-    let mut cmd = Command::new(
-        MOONRUN_EXECUTABLE
-            .as_deref()
-            .context("Unable to find the `moonrun` executable, please reinstall")?,
-    );
+    let mut cmd = Command::new(&*moonutil::BINARIES.moonrun);
     cmd.arg(path).args(args);
     run(cmd, verbose)
 }
 
 pub fn run_js(path: &Path, args: &[String], verbose: bool) -> anyhow::Result<()> {
     let mut cmd = Command::new(
-        NODE_EXECUTABLE
+        moonutil::BINARIES
+            .node
             .as_deref()
             .context("Unable to find the `node` executable in PATH")?,
     );

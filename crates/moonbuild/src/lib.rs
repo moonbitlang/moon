@@ -36,30 +36,3 @@ pub mod runtest;
 pub mod section_capture;
 pub mod test_utils;
 pub mod upgrade;
-
-use std::sync::LazyLock;
-
-static MOONRUN_EXECUTABLE: LazyLock<Option<std::path::PathBuf>> = LazyLock::new(|| {
-    let moonrun = "moonrun";
-    // Prefer the one next to the current executable
-    if let Ok(current_exe) = std::env::current_exe()
-        && let Some(exe_dir) = current_exe.parent()
-    {
-        let moonrun = exe_dir.join(moonrun);
-        if moonrun.exists() {
-            return Some(moonrun);
-        }
-    }
-    // Fallback to search in PATH
-    which::which(moonrun).ok()
-});
-static NODE_EXECUTABLE: LazyLock<Option<std::path::PathBuf>> = LazyLock::new(|| {
-    ["node.cmd", "node"]
-        .iter()
-        .find_map(|name| which::which(name).ok())
-});
-static PYTHON_EXECUTABLE: LazyLock<Option<std::path::PathBuf>> = LazyLock::new(|| {
-    ["python3", "python", "python3.exe", "python.exe"]
-        .iter()
-        .find_map(|name| which::which(name).ok())
-});
