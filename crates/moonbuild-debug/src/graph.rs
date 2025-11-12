@@ -20,7 +20,6 @@
 
 use std::{
     collections::HashSet,
-    env,
     io::{BufRead, Write},
     path::{Path, PathBuf},
     sync::LazyLock,
@@ -80,22 +79,24 @@ pub fn debug_dump_build_graph(
     graph: &n2::graph::Graph,
     input_files: &[FileId],
     source_dir: &Path,
+    path_replace_table: Vec<(String, String)>,
 ) -> BuildGraphDump {
     let accessible_nodes = dfs_for_accessible_nodes(graph, input_files);
-    generate_from_nodes(graph, accessible_nodes, source_dir)
+    generate_from_nodes(graph, accessible_nodes, source_dir, path_replace_table)
 }
 
 pub fn try_debug_dump_build_graph_to_file(
     build_graph: &n2::graph::Graph,
     default_files: &[n2::graph::FileId],
     source_dir: &Path,
+    path_replace_table: Vec<(String, String)>,
 ) {
     let Some(out_file) = DRY_RUN_TEST_OUTPUT.as_deref() else {
         return;
     };
 
     let file = std::fs::File::create(out_file).expect("Failed to create dry-run dump target");
-    let dump = debug_dump_build_graph(build_graph, default_files, source_dir);
+    let dump = debug_dump_build_graph(build_graph, default_files, source_dir, path_replace_table);
     dump.dump_to(file).expect("Failed to dump to target output");
 }
 
@@ -129,8 +130,9 @@ fn generate_from_nodes(
     graph: &n2::graph::Graph,
     accessible_nodes: impl IntoIterator<Item = BuildId>,
     source_dir: &Path,
+    path_replace_table: Vec<(String, String)>,
 ) -> BuildGraphDump {
-    let normalizer = PathNormalizer::new(source_dir);
+    let normalizer = PathNormalizer::new(source_dir, path_replace_table);
     let mut nodes = vec![];
     for node in accessible_nodes {
         let node = graph.builds.lookup(node).expect("Unknown build in graph");
@@ -174,17 +176,15 @@ fn generate_from_nodes(
 
 struct PathNormalizer {
     canonical: Option<PathBuf>,
-    moon_bin_str: Option<String>,
+    replace_table: Vec<(String, String)>,
 }
 
 impl PathNormalizer {
-    fn new(source_dir: &Path) -> Self {
+    fn new(source_dir: &Path, replace_table: Vec<(String, String)>) -> Self {
         let canonical = dunce::canonicalize(source_dir).ok();
-        let moon_bin = env::current_exe().ok();
-        let moon_bin_str = moon_bin.as_ref().map(|p| p.to_string_lossy().to_string());
         PathNormalizer {
             canonical,
-            moon_bin_str,
+            replace_table,
         }
     }
 
@@ -199,10 +199,9 @@ impl PathNormalizer {
             s = s.replace(prefix_str, ".");
         }
 
-        if let Some(moon) = self.moon_bin_str.as_deref() {
-            s = s.replace(moon, "moon");
+        for (from, to) in &self.replace_table {
+            s = s.replace(from, to);
         }
-
         s = s.replace('\\', "/");
 
         s

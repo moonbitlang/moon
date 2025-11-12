@@ -56,7 +56,12 @@ pub fn print_build_commands(
         }
     }
 
-    try_debug_dump_build_graph_to_file(graph, default, source_dir);
+    let path_replace_table = moonutil::BINARIES
+        .all_moon_bins()
+        .iter()
+        .map(|(name, path)| (path.to_string_lossy().to_string(), name.to_string()))
+        .collect();
+    try_debug_dump_build_graph_to_file(graph, default, source_dir, path_replace_table);
 }
 
 /// Print run commands from a State
