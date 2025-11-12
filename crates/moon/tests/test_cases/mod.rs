@@ -35,6 +35,7 @@ use walkdir::WalkDir;
 
 mod backend;
 mod backend_config;
+mod blackbox;
 mod circle_pkg_ab_001_test;
 mod debug_flag_test;
 mod dep_order;
@@ -1241,56 +1242,7 @@ fn test_blackbox_failed() {
 }
 
 #[test]
-fn test_blackbox_test_core_override() {
-    let dir = TestDir::new("blackbox_test_core_override.in");
-    let output = get_stdout(
-        &dir,
-        ["test", "--enable-coverage", "--dry-run", "--sort-input"],
-    );
-    check(
-        &output,
-        expect![[r#"
-            moon generate-test-driver --output-driver ./target/wasm-gc/debug/test/prelude/__generated_driver_for_internal_test.mbt --output-metadata ./target/wasm-gc/debug/test/prelude/__internal_test_info.json --target wasm-gc --pkg-name moonbitlang/core/prelude --enable-coverage --driver-kind internal
-            moonc build-package ./target/wasm-gc/debug/test/prelude/__generated_driver_for_internal_test.mbt -o ./target/wasm-gc/debug/test/prelude/prelude.internal_test.core -pkg moonbitlang/core/prelude -is-main -pkg-sources moonbitlang/core/prelude:./prelude -target wasm-gc -g -O0 -source-map -enable-coverage -no-mi -test-mode -workspace-path .
-            moonc link-core ./target/wasm-gc/debug/test/prelude/prelude.internal_test.core -main moonbitlang/core/prelude -o ./target/wasm-gc/debug/test/prelude/prelude.internal_test.wasm -test-mode -pkg-config-path ./prelude/moon.pkg.json -pkg-sources moonbitlang/core/prelude:./prelude -exported_functions moonbit_test_driver_internal_execute,moonbit_test_driver_finish -target wasm-gc -g -O0 -source-map
-            moonc build-package -o ./target/wasm-gc/debug/test/prelude/prelude.core -pkg moonbitlang/core/prelude -pkg-sources moonbitlang/core/prelude:./prelude -target wasm-gc -g -O0 -source-map -enable-coverage -workspace-path .
-            moon generate-test-driver --output-driver ./target/wasm-gc/debug/test/prelude/__generated_driver_for_blackbox_test.mbt --output-metadata ./target/wasm-gc/debug/test/prelude/__blackbox_test_info.json --target wasm-gc --pkg-name moonbitlang/core/prelude --enable-coverage --driver-kind blackbox
-            moonc build-package ./target/wasm-gc/debug/test/prelude/__generated_driver_for_blackbox_test.mbt -o ./target/wasm-gc/debug/test/prelude/prelude.blackbox_test.core -pkg moonbitlang/core/prelude_blackbox_test -is-main -i ./target/wasm-gc/debug/test/prelude/prelude.mi:prelude -pkg-sources moonbitlang/core/prelude_blackbox_test:./prelude -target wasm-gc -g -O0 -source-map -blackbox-test -include-doctests -no-mi -test-mode -workspace-path .
-            moonc link-core ./target/wasm-gc/debug/test/prelude/prelude.core ./target/wasm-gc/debug/test/prelude/prelude.blackbox_test.core -main moonbitlang/core/prelude_blackbox_test -o ./target/wasm-gc/debug/test/prelude/prelude.blackbox_test.wasm -test-mode -pkg-config-path ./prelude/moon.pkg.json -pkg-sources moonbitlang/core/prelude:./prelude -pkg-sources moonbitlang/core/prelude_blackbox_test:./prelude -exported_functions moonbit_test_driver_internal_execute,moonbit_test_driver_finish -target wasm-gc -g -O0 -source-map
-            moon generate-test-driver --output-driver ./target/wasm-gc/debug/test/builtin/__generated_driver_for_internal_test.mbt --output-metadata ./target/wasm-gc/debug/test/builtin/__internal_test_info.json ./builtin/main.mbt --target wasm-gc --pkg-name moonbitlang/core/builtin --enable-coverage --coverage-package-override=@self --driver-kind internal
-            moonc build-package ./builtin/main.mbt ./target/wasm-gc/debug/test/builtin/__generated_driver_for_internal_test.mbt -o ./target/wasm-gc/debug/test/builtin/builtin.internal_test.core -pkg moonbitlang/core/builtin -is-main -pkg-sources moonbitlang/core/builtin:./builtin -target wasm-gc -g -O0 -source-map -enable-coverage -coverage-package-override=@self -no-mi -test-mode -workspace-path .
-            moonc link-core ./target/wasm-gc/debug/test/builtin/builtin.internal_test.core -main moonbitlang/core/builtin -o ./target/wasm-gc/debug/test/builtin/builtin.internal_test.wasm -test-mode -pkg-config-path ./builtin/moon.pkg.json -pkg-sources moonbitlang/core/builtin:./builtin -exported_functions moonbit_test_driver_internal_execute,moonbit_test_driver_finish -target wasm-gc -g -O0 -source-map
-            moonc build-package ./builtin/main.mbt -o ./target/wasm-gc/debug/test/builtin/builtin.core -pkg moonbitlang/core/builtin -pkg-sources moonbitlang/core/builtin:./builtin -target wasm-gc -g -O0 -source-map -enable-coverage -coverage-package-override=@self -workspace-path .
-            moon generate-test-driver --output-driver ./target/wasm-gc/debug/test/builtin/__generated_driver_for_blackbox_test.mbt --output-metadata ./target/wasm-gc/debug/test/builtin/__blackbox_test_info.json ./builtin/main_test.mbt --doctest-only ./builtin/main.mbt --target wasm-gc --pkg-name moonbitlang/core/builtin --enable-coverage --coverage-package-override=@self --driver-kind blackbox
-            moonc build-package ./builtin/main_test.mbt ./target/wasm-gc/debug/test/builtin/__generated_driver_for_blackbox_test.mbt -doctest-only ./builtin/main.mbt -o ./target/wasm-gc/debug/test/builtin/builtin.blackbox_test.core -pkg moonbitlang/core/builtin_blackbox_test -is-main -i ./target/wasm-gc/debug/test/builtin/builtin.mi:builtin -i ./target/wasm-gc/debug/test/prelude/prelude.mi:prelude -pkg-sources moonbitlang/core/builtin_blackbox_test:./builtin -target wasm-gc -g -O0 -source-map -blackbox-test -include-doctests -no-mi -test-mode -workspace-path .
-            moonc link-core ./target/wasm-gc/debug/test/prelude/prelude.core ./target/wasm-gc/debug/test/builtin/builtin.core ./target/wasm-gc/debug/test/builtin/builtin.blackbox_test.core -main moonbitlang/core/builtin_blackbox_test -o ./target/wasm-gc/debug/test/builtin/builtin.blackbox_test.wasm -test-mode -pkg-config-path ./builtin/moon.pkg.json -pkg-sources moonbitlang/core/prelude:./prelude -pkg-sources moonbitlang/core/builtin:./builtin -pkg-sources moonbitlang/core/builtin_blackbox_test:./builtin -exported_functions moonbit_test_driver_internal_execute,moonbit_test_driver_finish -target wasm-gc -g -O0 -source-map
-        "#]],
-    );
-
-    let mut found = false;
-    for line in output.lines() {
-        // For the command compiling builtin's blackbox tests,
-        if line.contains("moonc build-package") && line.contains("builtin_blackbox_test") {
-            found = true;
-            // it should not have the -enable-coverage flag
-            assert!(
-                !line.contains("-enable-coverage"),
-                "Black box tests themselves should not contain coverage, since all they contain are tests of various kinds. {line}"
-            );
-            // and should not contain -coverage-package-override to itself
-            assert!(
-                !line.contains("-coverage-package-override=@self"),
-                "Unexpected -coverage-package-override=@self found in the command: {line}"
-            );
-        }
-    }
-    assert!(found, "builtin's blackbox tests not found in the output");
-}
-
-#[test]
 fn test_blackbox_dedup_alias() {
-    // TODO: Audit that the environment access only happens in single-threaded code.
-    unsafe { std::env::set_var("RUST_BACKTRACE", "0") };
     let dir = TestDir::new("blackbox_test_dedup_alias.in");
     let output = get_err_stderr(&dir, ["test"]);
     check(
