@@ -797,7 +797,7 @@ fn run_test_rr(
             }
         }
 
-        test_result.print_result(&build_meta, cli.verbose);
+        test_result.print_result(&build_meta, cli.verbose, cmd.test_failure_json);
         let summary = test_result.summary();
         print_test_summary(summary.total, summary.passed, cli.quiet, backend_hint);
 
