@@ -218,7 +218,11 @@ impl<'a> BuildPlanConstructor<'a> {
         if target.kind.is_test() {
             let gen_test_info = BuildPlanNode::GenerateTestInfo(target);
             self.need_node(gen_test_info);
-            self.add_edge(node, gen_test_info);
+            self.add_edge_spec(
+                node,
+                gen_test_info,
+                FileDependencyKind::GenerateTestInfo { meta: false },
+            );
         }
 
         // If the given target is a virtual package with default implementation,

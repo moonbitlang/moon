@@ -111,9 +111,14 @@ pub struct BuildPlan {
 
 /// Additional information about a build plan's edge
 ///
-/// TODO: This is a temporary solution to determine which file is being depended
-/// on by the consumer node. We might want a more generic solution to this in
-/// the future.
+/// # TODO
+///
+/// This is a temporary solution to determine which file is being depended on by
+/// the consumer node.
+///
+/// A more generic solution might be involving creating associated types for
+/// each node kind, specifying their output file list and order, and then
+/// use a bitmap or index list to specify which files are being depended on.
 #[derive(PartialEq, Eq, Clone, Copy, Debug, Default)]
 pub enum FileDependencyKind {
     /// Depending on all files available
@@ -122,6 +127,9 @@ pub enum FileDependencyKind {
 
     /// Depending on specific files of a `BuildCore` node.
     BuildCore { mi: bool, core: bool },
+
+    /// Depending on specific files of a `GenerateTestInfo` node.
+    GenerateTestInfo { meta: bool },
 }
 
 impl BuildPlan {
