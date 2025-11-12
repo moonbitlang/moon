@@ -124,18 +124,59 @@ fn test_many_targets() {
         expect_file!["./many_targets_test_js_wasm_filtered.jsonl.snap"],
     );
 
-    #[cfg(target_os = "macos")]
-    #[cfg(target_os = "linux")]
+    // Normalize dylib outputs to linux style
+    let replacement_fn = |s: &mut String| {
+        *s = s.replace(".dylib", ".so");
+    };
+
+    #[cfg(any(target_os = "macos", target_os = "linux"))]
     {
-        // TODO: Resume platform-specific tests:
-        // moon test --target js,wasm,all --dry-run --serial --nostd --sort-input
+        use crate::build_graph::compare_graphs_with_replacements;
+
+        let graph = dir.join("test_js_wasm_all.jsonl");
+        snap_dry_run_graph(
+            &dir,
+            [
+                "test",
+                "--target",
+                "js,wasm,all",
+                "--dry-run",
+                "--serial",
+                "--nostd",
+                "--sort-input",
+            ],
+            &graph,
+        );
+        compare_graphs_with_replacements(
+            &graph,
+            expect_file!["./many_targets_test_js_wasm_all.jsonl.snap"],
+            replacement_fn,
+        );
     }
 
-    #[cfg(target_os = "macos")]
-    #[cfg(target_os = "linux")]
+    #[cfg(any(target_os = "macos", target_os = "linux"))]
     {
-        // TODO: Resume platform-specific tests:
-        // moon test --target all --dry-run --serial --nostd --sort-input
+        use crate::build_graph::compare_graphs_with_replacements;
+
+        let graph = dir.join("test_all.jsonl");
+        snap_dry_run_graph(
+            &dir,
+            [
+                "test",
+                "--target",
+                "all",
+                "--dry-run",
+                "--serial",
+                "--nostd",
+                "--sort-input",
+            ],
+            &graph,
+        );
+        compare_graphs_with_replacements(
+            &graph,
+            expect_file!["./many_targets_test_all.jsonl.snap"],
+            replacement_fn,
+        );
     }
 }
 
