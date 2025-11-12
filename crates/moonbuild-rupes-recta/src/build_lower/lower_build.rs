@@ -302,7 +302,9 @@ impl<'a> BuildPlanLowerContext<'a> {
         // TODO: a lot of knobs are not controlled here
 
         // Include doctest-only files as inputs to track dependency correctly
-        let mut extra_inputs = files.clone();
+        // Note: This is the *extra* inputs, trivial dependencies are already
+        // tracked via the build graph.
+        let mut extra_inputs = info.files().map(|x| x.to_path_buf()).collect::<Vec<_>>();
         extra_inputs.extend(info.doctest_files.clone());
 
         // Also track any -check-mi file used by this command (virtual checks/impl)
