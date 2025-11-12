@@ -108,7 +108,8 @@ fn topo_from_node_impl(
             }
         }
 
-        let imports = pkg
+        // Collect neighbor package names (with virtual replacements) and sort lexicographically
+        let imports_iter = pkg
             .imports
             .iter()
             .chain(if with_wbtest_import {
@@ -122,7 +123,8 @@ fn topo_from_node_impl(
                 [].iter()
             });
 
-        for neighbor in imports {
+        let mut neighbor_names: Vec<String> = Vec::new();
+        for neighbor in imports_iter {
             let neighbor_full_name = neighbor.path.make_full_path();
             let neighbor_pkg = m.get_package_by_name(&neighbor_full_name);
             let neighbor_no_virtual = if let Some(virtual_info) = &neighbor_pkg.virtual_pkg {
@@ -140,7 +142,16 @@ fn topo_from_node_impl(
             } else {
                 neighbor_full_name
             };
+            neighbor_names.push(neighbor_no_virtual);
+        }
 
+        // Deterministic order: lexicographic by fully-qualified name, deduplicated
+        neighbor_names.sort();
+        neighbor_names.dedup();
+
+        // Match RR traversal: process the lexicographically smallest neighbor first.
+        // Here with recursion, visiting in ascending order achieves the same effect.
+        for neighbor_no_virtual in neighbor_names.into_iter() {
             if !visited.contains(&neighbor_no_virtual) {
                 dfs(
                     m,
