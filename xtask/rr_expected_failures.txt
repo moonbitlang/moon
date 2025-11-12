@@ -7,8 +7,6 @@
 # Note: This list is intended to be checked in and validated by CI on a single platform.
 cmd_test
 cmd_test::cmd_test
-test_cases::moon_test::test_pkg_source_in
-test_cases::moon_test_target_js_panic_with_sourcemap
 test_cases::moon_test_with_failure_json
 test_cases::native_backend_test_filter
 test_cases::packages::test_core_order
