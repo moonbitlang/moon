@@ -218,7 +218,11 @@ impl<'a> BuildPlanConstructor<'a> {
         if target.kind.is_test() {
             let gen_test_info = BuildPlanNode::GenerateTestInfo(target);
             self.need_node(gen_test_info);
-            self.add_edge(node, gen_test_info);
+            self.add_edge_spec(
+                node,
+                gen_test_info,
+                FileDependencyKind::GenerateTestInfo { meta: false },
+            );
         }
 
         // If the given target is a virtual package with default implementation,
@@ -541,7 +545,8 @@ impl<'a> BuildPlanConstructor<'a> {
             );
         }
 
-        let targets = link_core_deps.into_iter().collect::<Vec<_>>();
+        // Use DFS-built order directly (dependencies first, then dependents).
+        let targets = link_core_deps.iter().copied().collect::<Vec<_>>();
         let link_core_info = LinkCoreInfo {
             linked_order: targets.clone(),
             abort_overridden,
@@ -639,101 +644,106 @@ impl<'a> BuildPlanConstructor<'a> {
 
         let graph = &self.input.pkg_rel.dep_graph;
 
-        let mut seen: HashSet<BuildTarget> = HashSet::new();
-        let mut stack: Vec<(BuildTarget, bool)> = Vec::new(); // bool = expanded
+        // Topo sort via DFS postorder
+        let mut scheduled: HashSet<BuildTarget> = HashSet::new(); // pre-order seen
+        let mut emitted: HashSet<BuildTarget> = HashSet::new(); // post-order seen
+        let mut stack: Vec<(BuildTarget, bool)> = Vec::new(); // bool = expanded marker
 
         // Seed with the root target
-        seen.insert(target);
+        scheduled.insert(target);
         stack.push((target, false));
 
-        while let Some((node, expanded)) = stack.pop() {
+        while let Some((curr, expanded)) = stack.pop() {
             if !expanded {
-                // Virtual package overrider
-                //
-                // If the virtual package is overridden, the override target
-                // replaces the virtual package at the same place and descends
-                // to its own dependencies instead. See
-                // `/docs/dev/reference/virtual-pkg.md` for more information.
+                // Pre-order processing
+
+                // Resolve virtual overrides at pre-order for this node
+                let mut node = curr;
                 if let Some(vp_info) = vp_info
-                    && let Some(&override_target) = vp_info.overrides.get(node.package)
+                    && let Some(&override_pkg) = vp_info.overrides.get(node.package)
                 {
                     trace!(
                         from = ?node.package,
-                        to = ?override_target,
-                        "Overriding virtual package",
+                        to = ?override_pkg,
+                        "Overriding virtual package"
                     );
-                    // Replace with the override target
-                    let override_target = BuildTarget {
-                        package: override_target,
+                    node = BuildTarget {
+                        package: override_pkg,
                         kind: TargetKind::Source,
                     };
-
-                    if !seen.contains(&override_target) {
-                        seen.insert(override_target);
-                        stack.push((override_target, false));
-                    }
-                    continue;
                 }
 
-                // `abort` is special cased to not be included in the build
-                // graph. If it's overridden, it's handled above, so it's not
-                // affecting this code path.
+                // Skip abort entirely
                 if abort.is_some_and(|x| node.package == x) {
                     continue;
                 }
 
-                trace!(?node, "Found node at pre-order");
-                // First time we see this node on stack: push marker, then children
+                trace!(?node, "Pre-order: push marker, then schedule children");
+                // Push post-order marker
                 stack.push((node, true));
 
-                // Push children and sort
-                let stack_before_children = stack.len();
-                for child in graph.neighbors_directed(node, petgraph::Direction::Outgoing) {
-                    if !seen.contains(&child) {
-                        seen.insert(child);
-                        stack.push((child, false));
+                // Gather dependencies (outgoing neighbors) and sort deterministically
+                let mut deps: Vec<BuildTarget> = graph
+                    .neighbors_directed(node, petgraph::Direction::Outgoing)
+                    .collect();
+
+                deps.sort_by(|a, b| {
+                    let pa = self.input.pkg_dirs.get_package(a.package);
+                    let pb = self.input.pkg_dirs.get_package(b.package);
+                    pa.fqn.cmp(&pb.fqn).then_with(|| a.kind.cmp(&b.kind))
+                });
+
+                // Push dependencies in reverse order so lexicographically smallest is processed first.
+                for dep in deps.into_iter().rev() {
+                    if !scheduled.contains(&dep) {
+                        scheduled.insert(dep);
+                        stack.push((dep, false));
                     }
                 }
-                // Stable sort the newly added children
-                stack[stack_before_children..].sort_by_key(|(t, _)| {
-                    let pkg_name = &self.input.pkg_dirs.get_package(t.package).fqn;
-                    (pkg_name, t.kind)
-                });
-                continue;
-            }
+            } else {
+                // Post-order: emit after all dependencies
+                let cur = curr;
 
-            let cur = node;
+                // Whitebox replacement: if a whitebox test exists, replace the source entry in-place.
+                if cur.kind == TargetKind::WhiteboxTest {
+                    let source_target = cur.package.build_target(TargetKind::Source);
+                    if let Some(source_idx) = link_core_deps.get_index_of(&source_target) {
+                        let source_mut = link_core_deps
+                            .get_index_mut2(source_idx)
+                            .expect("Source index is valid");
+                        *source_mut = cur;
 
-            // White box test replacements
-            if cur.kind == TargetKind::WhiteboxTest {
-                // Replace whitebox tests, if any
-                let source_target = cur.package.build_target(TargetKind::Source);
-                if let Some(source_idx) = link_core_deps.get_index_of(&source_target) {
-                    let source_mut = link_core_deps
-                        .get_index_mut2(source_idx)
-                        .expect("Source index is valid");
-                    *source_mut = cur;
-                    continue;
-                } else {
-                    // No source target found, resort to regular path
+                        // Record emitted and collect c-stub if necessary
+                        emitted.insert(cur);
+                        let pkg = self.input.pkg_dirs.get_package(cur.package);
+                        if self.build_env.target_backend.is_native() && !pkg.c_stub_files.is_empty()
+                        {
+                            c_stub_deps.push(cur);
+                        }
+                        continue;
+                    }
+                    // If source not found yet, fall through to regular insertion.
                 }
-            }
 
-            let pkg = self.input.pkg_dirs.get_package(cur.package);
+                if emitted.contains(&cur) {
+                    continue;
+                }
 
-            if !pkg.has_implementation() {
-                // Virtual package without implementation, report error
-                return Err(BuildPlanConstructError::NoImplementationForVirtualPackage {
-                    package: self.input.pkg_dirs.fqn(target.package).clone().into(),
-                    dep: self.input.pkg_dirs.fqn(cur.package).clone().into(),
-                });
-            }
+                let pkg = self.input.pkg_dirs.get_package(cur.package);
+                if !pkg.has_implementation() {
+                    return Err(BuildPlanConstructError::NoImplementationForVirtualPackage {
+                        package: self.input.pkg_dirs.fqn(target.package).clone().into(),
+                        dep: self.input.pkg_dirs.fqn(cur.package).clone().into(),
+                    });
+                }
 
-            // Add package to link core list
-            link_core_deps.insert(cur);
-            trace!(?cur, "Post iterated, added to link core deps");
-            if self.build_env.target_backend.is_native() && !pkg.c_stub_files.is_empty() {
-                c_stub_deps.push(cur);
+                link_core_deps.insert(cur);
+                emitted.insert(cur);
+                trace!(?cur, "Post-order: emitted");
+
+                if self.build_env.target_backend.is_native() && !pkg.c_stub_files.is_empty() {
+                    c_stub_deps.push(cur);
+                }
             }
         }
 

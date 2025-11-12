@@ -623,10 +623,20 @@ fn run_test_rr(
         OptLevel::Debug
     };
 
+    // MAINTAINERS: This is to match the legacy behavior of `moon test` always
+    // emitting debug info regardless of `--release` flag. This may result in
+    // both `debug=true` and `release=true` and it's expected behavior. It
+    // should be removed once https://github.com/moonbitlang/moon/pull/1153 is
+    // in place.
+    let build_flags = BuildFlags {
+        debug: true,
+        ..cmd.build_flags.clone()
+    };
+
     let mut preconfig = preconfig_compile(
         cmd.auto_sync_flags,
         cli,
-        cmd.build_flags,
+        &build_flags,
         target_dir,
         default_opt_level,
         RunMode::Test,

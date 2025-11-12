@@ -84,9 +84,15 @@ impl<'a> super::BuildPlanLowerContext<'a> {
             pkg_name: &pkg_full_name,
         };
 
+        let commandline = cmd.build_command(&*moonutil::BINARIES.moonbuild);
+
+        // Track doctest files as extra inputs
+        let mut extra_inputs = files_vec;
+        extra_inputs.extend_from_slice(&info.doctest_files);
+
         BuildCommand {
-            commandline: cmd.build_command(&*moonutil::BINARIES.moonbuild),
-            extra_inputs: files_vec,
+            commandline,
+            extra_inputs,
         }
     }
 

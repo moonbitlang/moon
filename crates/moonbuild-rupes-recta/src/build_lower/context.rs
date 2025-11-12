@@ -292,16 +292,23 @@ impl<'a> BuildPlanLowerContext<'a> {
                 ))
             }
             BuildPlanNode::GenerateTestInfo(target) => {
+                let meta = if let FileDependencyKind::GenerateTestInfo { meta } = edge {
+                    meta
+                } else {
+                    true
+                };
                 out.push(self.layout.generated_test_driver(
                     self.packages,
                     &target,
                     self.opt.target_backend.into(),
                 ));
-                out.push(self.layout.generated_test_driver_metadata(
-                    self.packages,
-                    &target,
-                    self.opt.target_backend.into(),
-                ));
+                if meta {
+                    out.push(self.layout.generated_test_driver_metadata(
+                        self.packages,
+                        &target,
+                        self.opt.target_backend.into(),
+                    ));
+                }
             }
             BuildPlanNode::Bundle(id) => {
                 let module_name = self.modules.mod_name_from_id(id);

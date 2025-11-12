@@ -94,8 +94,16 @@ impl TestFilter {
                 (FileTestKind::NoTest, Some(TestIndex::Regular(_))) => &[TargetKind::InlineTest],
                 (FileTestKind::NoTest, Some(TestIndex::DocTest(_))) => &[TargetKind::BlackboxTest],
                 // Others are just direct mappings
-                (FileTestKind::Whitebox, _) => &[TargetKind::WhiteboxTest],
-                (FileTestKind::Blackbox, _) => &[TargetKind::BlackboxTest],
+                (FileTestKind::Whitebox, Some(TestIndex::Regular(_)) | None) => {
+                    &[TargetKind::WhiteboxTest]
+                }
+                (FileTestKind::Blackbox, Some(TestIndex::Regular(_)) | None) => {
+                    &[TargetKind::BlackboxTest]
+                }
+                // No doc tests for test files
+                (FileTestKind::Whitebox | FileTestKind::Blackbox, Some(TestIndex::DocTest(_))) => {
+                    &[]
+                }
             };
             for &target in targets {
                 self.add_one(

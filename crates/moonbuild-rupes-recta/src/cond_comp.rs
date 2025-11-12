@@ -21,7 +21,7 @@
 use std::path::Path;
 
 use moonutil::{
-    common::TargetBackend,
+    common::{DOT_MBT_DOT_MD, TargetBackend},
     cond_expr::{CompileCondition as MetadataCompileCondition, CondExpr, OptLevel},
     package::MoonPkg,
 };
@@ -179,6 +179,8 @@ fn should_compile_using_filename(name: &str, actual: &CompileCondition) -> Optio
 pub fn get_file_test_kind_full(file_name: &str) -> FileTestKind {
     let stripped_name = if let Some(stripped) = file_name.strip_suffix(".mbt") {
         stripped
+    } else if file_name.ends_with(DOT_MBT_DOT_MD) {
+        return FileTestKind::Blackbox;
     } else {
         file_name
     };
