@@ -2,7 +2,7 @@ mod with_cfg;
 
 use expect_test::expect_file;
 
-use crate::build_graph::compare_graphs;
+use crate::{build_graph::compare_graphs, dry_run_utils::assert_lines_in_order};
 
 use super::*;
 
@@ -71,15 +71,21 @@ fn test_moon_test_hello_exec_fntest() {
         expect_file!["moon_test_hello_exec_fntest_graph.jsonl.snap"],
     );
 
-    check(
-        get_stdout(&dir, ["test", "-v", "--sort-input", "--no-parallelize"]),
-        expect![[r#"
-            test in lib/hello.mbt
-            [moonbitlang/hello] test lib/hello.mbt:5 (#0) ok
-            test in lib/hello_test.mbt
-            [moonbitlang/hello] test lib/hello_wbtest.mbt:1 (#0) ok
-            Total tests: 2, passed: 2, failed: 0.
-        "#]],
+    let test_out = get_stdout(&dir, ["test", "-v", "--sort-input", "--no-parallelize"]);
+    assert_lines_in_order(
+        &test_out,
+        r"
+test in lib/hello.mbt
+test in lib/hello_test.mbt
+Total tests: 2, passed: 2, failed: 0.
+    ",
+    );
+    assert_lines_in_order(
+        &test_out,
+        r"
+[moonbitlang/hello] test lib/hello.mbt:5 (#0) ok
+[moonbitlang/hello] test lib/hello_wbtest.mbt:1 (#0) ok
+    ",
     );
 }
 
