@@ -34,6 +34,7 @@ mod backend;
 mod backend_config;
 mod circle_pkg_ab_001_test;
 mod debug_flag_test;
+mod dep_order;
 mod design;
 mod diagnostics_format;
 mod diamond_pkg;
