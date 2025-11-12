@@ -407,6 +407,89 @@ pub fn get_compiler_flags(src_dir: &Path, build_flags: &BuildFlags) -> anyhow::R
 }
 
 #[test]
+fn test_env_compile_link_flags() {
+    use std::io::Write;
+
+    // Create a temporary directory for the test
+    let temp_dir = tempfile::tempdir().unwrap();
+    let temp_path = temp_dir.path();
+
+    // Create a minimal moon.mod.json file with realistic moonc flags
+    let moon_mod_content = r#"{
+  "name": "test/module",
+  "version": "0.1.0",
+  "compile-flags": ["-enable-coverage"],
+  "link-flags": ["-no-block-params"]
+}"#;
+
+    let moon_mod_path = temp_path.join(MOON_MOD_JSON);
+    let mut file = std::fs::File::create(&moon_mod_path).unwrap();
+    file.write_all(moon_mod_content.as_bytes()).unwrap();
+
+    // Test case 1: No environment variables set
+    unsafe {
+        std::env::remove_var("MOON_COMPILE_FLAGS");
+        std::env::remove_var("MOON_LINK_FLAGS");
+    }
+
+    let build_flags = BuildFlags::default();
+    let result = get_compiler_flags(temp_path, &build_flags).unwrap();
+
+    assert_eq!(result.extra_build_opt, vec!["-enable-coverage"]);
+    assert_eq!(result.extra_link_opt, vec!["-no-block-params"]);
+
+    // Test case 2: MOON_COMPILE_FLAGS environment variable set with real moonc flags
+    unsafe {
+        std::env::set_var("MOON_COMPILE_FLAGS", "-g -source-map");
+        std::env::remove_var("MOON_LINK_FLAGS");
+    }
+
+    let result = get_compiler_flags(temp_path, &build_flags).unwrap();
+
+    assert_eq!(result.extra_build_opt, vec!["-enable-coverage", "-g", "-source-map"]);
+    assert_eq!(result.extra_link_opt, vec!["-no-block-params"]);
+
+    // Test case 3: MOON_LINK_FLAGS environment variable set with real moonc link flags
+    unsafe {
+        std::env::remove_var("MOON_COMPILE_FLAGS");
+        std::env::set_var("MOON_LINK_FLAGS", "-use-js-builtin-string -no-rc");
+    }
+
+    let result = get_compiler_flags(temp_path, &build_flags).unwrap();
+
+    assert_eq!(result.extra_build_opt, vec!["-enable-coverage"]);
+    assert_eq!(result.extra_link_opt, vec!["-no-block-params", "-use-js-builtin-string", "-no-rc"]);
+
+    // Test case 4: Both environment variables set
+    unsafe {
+        std::env::set_var("MOON_COMPILE_FLAGS", "-g -source-map");
+        std::env::set_var("MOON_LINK_FLAGS", "-use-js-builtin-string -no-rc");
+    }
+
+    let result = get_compiler_flags(temp_path, &build_flags).unwrap();
+
+    assert_eq!(result.extra_build_opt, vec!["-enable-coverage", "-g", "-source-map"]);
+    assert_eq!(result.extra_link_opt, vec!["-no-block-params", "-use-js-builtin-string", "-no-rc"]);
+
+    // Test case 5: Empty environment variables
+    unsafe {
+        std::env::set_var("MOON_COMPILE_FLAGS", "");
+        std::env::set_var("MOON_LINK_FLAGS", "");
+    }
+
+    let result = get_compiler_flags(temp_path, &build_flags).unwrap();
+
+    assert_eq!(result.extra_build_opt, vec!["-enable-coverage"]);
+    assert_eq!(result.extra_link_opt, vec!["-no-block-params"]);
+
+    // Clean up environment variables
+    unsafe {
+        std::env::remove_var("MOON_COMPILE_FLAGS");
+        std::env::remove_var("MOON_LINK_FLAGS");
+    }
+}
+
+#[test]
 fn gen_docs_for_moon_help_page() {
     let markdown: String = clap_markdown::help_markdown::<MoonBuildSubcommands>();
     let markdown = markdown.replace("Default value: `zsh`", "Default value: `<your shell>`");
