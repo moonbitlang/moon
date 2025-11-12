@@ -74,10 +74,28 @@ fn expect_test_update() -> bool {
     std::env::var("UPDATE_EXPECT").is_ok_and(|x| x == "1")
 }
 
+/// Compare the graph in the path specified by `actual` with that expected by
+/// `expected`. Updates `expected` when the corresponding environment var
+/// (usually `UPDATE_EXPECT`) is set from the actual graph.
 #[track_caller]
 pub fn compare_graphs(actual: &Path, expected: impl IExpect) {
+    compare_graphs_with_replacements(actual, expected, |_| {});
+}
+
+/// Compare two graphs, with a replacement function.
+///
+/// `transform` will be called on all files and commandlines to further
+/// normalize the output of the graph.
+#[track_caller]
+pub fn compare_graphs_with_replacements(
+    actual: &Path,
+    expected: impl IExpect,
+    transform: impl Fn(&mut String),
+) {
     let actual_file = std::fs::File::open(actual).expect("Failed to open actual graph output file");
-    let actual_graph = BuildGraphDump::read_from(actual_file).expect("Failed to read actual graph");
+    let mut actual_graph =
+        BuildGraphDump::read_from(actual_file).expect("Failed to read actual graph");
+    transform_graph(&mut actual_graph, transform);
 
     let Ok(expected_graph) = BuildGraphDump::read_from(expected.data().as_bytes()) else {
         if !expected.can_update() {
@@ -109,6 +127,20 @@ pub fn compare_graphs(actual: &Path, expected: impl IExpect) {
         expected.update(&actual_graph_str);
     } else if differ {
         panic!("Graph snapshot differs:\n{out}");
+    }
+}
+
+fn transform_graph(graph: &mut BuildGraphDump, transform: impl Fn(&mut String)) {
+    for n in graph.nodes.iter_mut() {
+        if let Some(cmd) = &mut n.command {
+            transform(cmd)
+        }
+        for in_file in n.inputs.iter_mut() {
+            transform(in_file)
+        }
+        for out_file in n.outputs.iter_mut() {
+            transform(out_file)
+        }
     }
 }
 
