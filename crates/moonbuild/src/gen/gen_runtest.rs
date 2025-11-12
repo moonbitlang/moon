@@ -597,7 +597,6 @@ pub fn gen_package_blackbox_test(
         }
     }
     let self_alias = pkg.last_name();
-    mi_deps.sort_by(|a, b| a.alias.cmp(&b.alias));
 
     let imports_and_test_imports = get_imports(pkg, true);
 
@@ -635,6 +634,7 @@ pub fn gen_package_blackbox_test(
             alias,
         });
     }
+    mi_deps.sort_by(|a, b| a.alias.cmp(&b.alias));
 
     // this is used for `-pkg` flag in `moonc build-package`, shouldn't be `pkg.full_name()` since we aren't build that package, otherwise we might encounter an error like "4015] Error: Type StructName has no method method_name"(however, StructName does has method method_name).
     // actually, `-pkg` flag is not necessary for blackbox test, but we still keep it for consistency
