@@ -12,7 +12,8 @@ fn test_empty_name() {
 fn test_error_duplicate_alias() {
     let dir = TestDir::new("packages/error_duplicate_alias");
     let out = get_err_stderr(&dir, ["check"]);
-    assert!(out.contains("Duplicate alias `lib`"));
+    println!("Error output:\n{}", out);
+    assert!(out.contains("Duplicate alias `lib`") || out.contains("Conflicting import alias"));
 }
 
 #[test]

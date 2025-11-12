@@ -7,7 +7,6 @@
 # Note: This list is intended to be checked in and validated by CI on a single platform.
 cmd_test
 cmd_test::cmd_test
-test_cases::packages::test_error_duplicate_alias
 test_cases::target_backend::test_target_backend
 test_cases::targets::test_many_targets
 test_cases::test_add_mi_if_self_not_set_in_test_imports
