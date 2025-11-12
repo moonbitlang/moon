@@ -295,7 +295,8 @@ impl<'a> BuildPlanLowerContext<'a> {
             extra_build_opts: module.compile_flags.as_deref().unwrap_or_default(),
         };
         // Propagate debug/coverage flags and common settings
-        cmd.flags.enable_coverage = self.opt.enable_coverage;
+        cmd.flags.enable_coverage =
+            self.opt.enable_coverage && target.kind != TargetKind::BlackboxTest;
         cmd.defaults.no_mi |= target.kind.is_test();
 
         // TODO: a lot of knobs are not controlled here
