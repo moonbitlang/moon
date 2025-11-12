@@ -212,15 +212,15 @@ impl<'a> BuildCommonConfig<'a> {
 
     /// Add custom warning/alert list arguments
     pub fn add_custom_warn_alert_lists(&self, args: &mut Vec<String>) {
-        if let WarnAlertConfig::List(warn_list) = &self.warn_config {
-            if !warn_list.is_empty() {
-                args.extend(["-w".to_string(), warn_list.to_string()]);
-            }
+        if let WarnAlertConfig::List(warn_list) = &self.warn_config
+            && !warn_list.is_empty()
+        {
+            args.extend(["-w".to_string(), warn_list.to_string()]);
         }
-        if let WarnAlertConfig::List(alert_list) = &self.alert_config {
-            if !alert_list.is_empty() {
-                args.extend(["-alert".to_string(), alert_list.to_string()]);
-            }
+        if let WarnAlertConfig::List(alert_list) = &self.alert_config
+            && !alert_list.is_empty()
+        {
+            args.extend(["-alert".to_string(), alert_list.to_string()]);
         }
     }
 
