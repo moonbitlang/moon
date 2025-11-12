@@ -7,7 +7,6 @@
 # Note: This list is intended to be checked in and validated by CI on a single platform.
 cmd_test
 cmd_test::cmd_test
-test_cases::native_backend_test_filter
 test_cases::packages::test_core_order
 test_cases::packages::test_empty_name
 test_cases::packages::test_error_duplicate_alias

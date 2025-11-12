@@ -4936,55 +4936,60 @@ fn native_backend_test_filter() {
             Total tests: 1, passed: 1, failed: 0.
         "#]],
     );
-    check(
-        get_stdout(
-            &dir,
-            [
-                "test",
-                "--target",
-                "native",
-                "-p",
-                "lib",
-                "-f",
-                "hello.mbt",
-                "-i",
-                "2",
-                "-u",
-                "--sort-input",
-            ],
-        ),
-        expect![[r#"
 
-            Auto updating expect tests and retesting ...
+    // This test updates the expect test for input 2
+    let file = dir.join("lib/hello.mbt");
+    let original_content = read(&file);
+    println!("Original content:\n{}", original_content);
 
-            Total tests: 1, passed: 1, failed: 0.
-        "#]],
+    assert!(!original_content.contains("content=\"523\""));
+    assert!(!original_content.contains("content=\"asdfhjas\""));
+    get_stdout(
+        &dir,
+        [
+            "test",
+            "--target",
+            "native",
+            "-p",
+            "lib",
+            "-f",
+            "hello.mbt",
+            "-i",
+            "2",
+            "-u",
+            "--sort-input",
+        ],
     );
+    let updated_content = read(&file);
+    println!("Updated content:\n{}", updated_content);
+    assert!(updated_content.contains("content=\"523\""));
+    assert!(updated_content.contains("content=\"asdfhjas\""));
 
-    check(
-        get_stdout(
-            &dir,
-            [
-                "test",
-                "--target",
-                "native",
-                "-p",
-                "lib",
-                "-f",
-                "hello_wbtest.mbt",
-                "-i",
-                "1",
-                "-u",
-                "--sort-input",
-            ],
-        ),
-        expect![[r#"
+    let file = dir.join("lib/hello_wbtest.mbt");
+    let original_content = read(&file);
+    println!("Original content:\n{}", original_content);
 
-            Auto updating expect tests and retesting ...
-
-            Total tests: 1, passed: 1, failed: 0.
-        "#]],
+    assert!(!original_content.contains("content=\"1256\""));
+    get_stdout(
+        &dir,
+        [
+            "test",
+            "--target",
+            "native",
+            "-p",
+            "lib",
+            "-f",
+            "hello_wbtest.mbt",
+            "-i",
+            "1",
+            "-u",
+            "--sort-input",
+        ],
     );
+    let updated_content = read(&file);
+    println!("Updated content:\n{}", updated_content);
+    assert!(updated_content.contains("content=\"1256\""));
+
     check(
         get_stdout(
             &dir,
@@ -5034,30 +5039,28 @@ fn native_backend_test_filter() {
             Total tests: 1, passed: 0, failed: 1.
         "#]],
     );
-    check(
-        get_stdout(
-            &dir,
-            [
-                "test",
-                "--target",
-                "native",
-                "-p",
-                "lib",
-                "-f",
-                "hello.mbt",
-                "-i",
-                "4",
-                "-u",
-                "--sort-input",
-            ],
-        ),
-        expect![[r#"
 
-            Auto updating expect tests and retesting ...
-
-            Total tests: 1, passed: 1, failed: 0.
-        "#]],
+    let file = dir.join("lib/__snapshot__/test.d");
+    assert!(!file.exists());
+    get_stdout(
+        &dir,
+        [
+            "test",
+            "--target",
+            "native",
+            "-p",
+            "lib",
+            "-f",
+            "hello.mbt",
+            "-i",
+            "4",
+            "-u",
+            "--sort-input",
+        ],
     );
+    let updated_content = read(&file);
+    println!("Updated content:\n{}", updated_content);
+    assert!(updated_content.contains("test D"));
 }
 
 #[test]
