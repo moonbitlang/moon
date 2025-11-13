@@ -186,18 +186,9 @@ fn test_backtrace() {
 #[test]
 fn test_export_memory_name() {
     let dir = TestDir::new("export_memory.in");
-    let _ = get_stdout(&dir, ["build", "--target", "wasm-gc", "--output-wat"]);
-    let content = std::fs::read_to_string(
-        dir.join("target")
-            .join("wasm-gc")
-            .join("release")
-            .join("build")
-            .join("main")
-            .join("main.wat"),
-    )
-    .unwrap();
-    assert!(content.contains("awesome_memory"));
 
+    // Check the commands
+    // build wasm-gc/wasm should have this flag
     check(
         get_stdout(&dir, ["build", "--dry-run", "--sort-input"]),
         expect![[r#"
@@ -219,6 +210,7 @@ fn test_export_memory_name() {
         "#]],
     );
 
+    // js is not wasm so should not have export-memory-name flag
     check(
         get_stdout(
             &dir,
@@ -230,6 +222,19 @@ fn test_export_memory_name() {
             moonc link-core $MOON_HOME/lib/core/target/js/release/bundle/abort/abort.core $MOON_HOME/lib/core/target/js/release/bundle/core.core ./target/js/release/build/lib/lib.core ./target/js/release/build/main/main.core -main username/hello/main -o ./target/js/release/build/main/main.js -pkg-config-path ./main/moon.pkg.json -pkg-sources username/hello/lib:./lib -pkg-sources username/hello/main:./main -pkg-sources moonbitlang/core:$MOON_HOME/lib/core -target js
         "#]],
     );
+
+    // Check the results
+    let _ = get_stdout(&dir, ["build", "--target", "wasm-gc", "--output-wat"]);
+    let content = std::fs::read_to_string(
+        dir.join("target")
+            .join("wasm-gc")
+            .join("release")
+            .join("build")
+            .join("main")
+            .join("main.wat"),
+    )
+    .unwrap();
+    assert!(content.contains("awesome_memory"));
 }
 
 #[test]

@@ -7,13 +7,10 @@
 # Note: This list is intended to be checked in and validated by CI on a single platform.
 cmd_test
 cmd_test::cmd_test
-test_cases::test_export_memory_name
 test_cases::test_failed_to_fill_whole_buffer
 test_cases::test_filter::test_moon_test_filter_index_with_auto_update
 test_cases::test_filter::test_moon_test_filter_multi_package
 test_cases::test_filter::test_moon_test_filter_package_dry_run
-test_cases::test_import_memory_and_heap_start
-test_cases::test_import_shared_memory
 test_cases::test_internal_package
 test_cases::test_moon_check_filter_package
 test_cases::test_moon_check_package_with_patch

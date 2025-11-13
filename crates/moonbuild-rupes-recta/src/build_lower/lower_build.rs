@@ -444,22 +444,32 @@ impl<'a> BuildPlanLowerContext<'a> {
 
     fn get_wasm_config<'b>(&self, pkg: &'b DiscoveredPackage) -> compiler::WasmConfig<'b> {
         let target = self.opt.target_backend;
-        if target != RunBackend::Wasm {
-            return WasmConfig::default();
-        }
 
-        let linking_config = pkg.raw.link.as_ref().and_then(|x| x.wasm.as_ref());
-        let Some(cfg) = linking_config else {
-            return WasmConfig::default();
-        };
-
-        WasmConfig {
-            export_memory_name: cfg.export_memory_name.as_deref().map(|x| x.into()),
-            import_memory: cfg.import_memory.as_ref(),
-            memory_limits: cfg.memory_limits.as_ref(),
-            shared_memory: cfg.shared_memory,
-            heap_start_address: cfg.heap_start_address,
-            link_flags: cfg.flags.as_deref(),
+        // WASM & WASM-GC has different config types, so we need to handle them separately
+        if target == RunBackend::Wasm
+            && let Some(cfg) = pkg.raw.link.as_ref().and_then(|x| x.wasm.as_ref())
+        {
+            WasmConfig {
+                export_memory_name: cfg.export_memory_name.as_deref().map(|x| x.into()),
+                import_memory: cfg.import_memory.as_ref(),
+                memory_limits: cfg.memory_limits.as_ref(),
+                shared_memory: cfg.shared_memory,
+                heap_start_address: cfg.heap_start_address,
+                link_flags: cfg.flags.as_deref(),
+            }
+        } else if target == RunBackend::WasmGC
+            && let Some(cfg) = pkg.raw.link.as_ref().and_then(|x| x.wasm_gc.as_ref())
+        {
+            WasmConfig {
+                export_memory_name: cfg.export_memory_name.as_deref().map(|x| x.into()),
+                import_memory: cfg.import_memory.as_ref(),
+                memory_limits: cfg.memory_limits.as_ref(),
+                shared_memory: cfg.shared_memory,
+                heap_start_address: None,
+                link_flags: cfg.flags.as_deref(),
+            }
+        } else {
+            WasmConfig::default()
         }
     }
 
