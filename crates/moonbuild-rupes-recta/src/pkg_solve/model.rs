@@ -99,9 +99,9 @@ pub enum SolveError {
 
     #[error(
         "Conflicting import alias '{alias}' found \
-        in package {package_fqn} ({package_node:?}). \
-        Both {first_import_node:?} {first_import} (in {first_import_kind:?} import) \
-        and {second_import_node:?} {second_import} (in {second_import_kind:?} import) \
+        in package {package_fqn}. \
+        Both {first_import} (in {first_import_kind:?} import) \
+        and {second_import} (in {second_import_kind:?} import) \
         use the same alias."
     )]
     ConflictingImportAlias {
@@ -156,8 +156,8 @@ pub enum SolveError {
     },
 
     #[error(
-        "Forbidden internal import: package {importer} ({importer_node:?}) \
-cannot import {dependency} ({dependency_node:?}) due to internal visibility rules"
+        "Cannot import internal package {dependency} in {importer} \
+        due to internal visibility rules"
     )]
     InternalImportForbidden {
         importer_node: BuildTarget,
