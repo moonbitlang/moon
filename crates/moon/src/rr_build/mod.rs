@@ -713,7 +713,7 @@ pub fn execute_build_partial(
         hashes,
         n2_db,
         &n2::work::Options {
-            failures_left: Some(1),
+            failures_left: Some(10), // FIXME: This value is to match legacy, but might TBD
             parallelism,
             explain: cfg.n2_explain,
             adopt: false,
