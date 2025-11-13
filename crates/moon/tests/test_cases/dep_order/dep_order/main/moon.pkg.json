@@ -1,0 +1,7 @@
+{
+  "is-main": true,
+  "import": [
+       "username/scratch9/a",
+       "username/scratch9/b"
+  ]
+}

@@ -645,17 +645,22 @@ impl<'a> BuildPlanConstructor<'a> {
         let graph = &self.input.pkg_rel.dep_graph;
 
         // Topo sort via DFS postorder
-        let mut scheduled: HashSet<BuildTarget> = HashSet::new(); // pre-order seen
-        let mut emitted: HashSet<BuildTarget> = HashSet::new(); // post-order seen
+        let mut visited: HashSet<BuildTarget> = HashSet::new(); // pre-order visited
+        let mut emitted: HashSet<BuildTarget> = HashSet::new(); // post-order emitted
         let mut stack: Vec<(BuildTarget, bool)> = Vec::new(); // bool = expanded marker
 
         // Seed with the root target
-        scheduled.insert(target);
         stack.push((target, false));
 
         while let Some((curr, expanded)) = stack.pop() {
             if !expanded {
                 // Pre-order processing
+                // Check if already visited (before override resolution)
+                // TODO: check if the override resolution is properly done
+                if visited.contains(&curr) {
+                    continue;
+                }
+                visited.insert(curr);
 
                 // Resolve virtual overrides at pre-order for this node
                 let mut node = curr;
@@ -694,9 +699,9 @@ impl<'a> BuildPlanConstructor<'a> {
                 });
 
                 // Push dependencies in reverse order so lexicographically smallest is processed first.
+                // Skip already-visited nodes as an optimization (they would be filtered by the guard above anyway).
                 for dep in deps.into_iter().rev() {
-                    if !scheduled.contains(&dep) {
-                        scheduled.insert(dep);
+                    if !visited.contains(&dep) {
                         stack.push((dep, false));
                     }
                 }
