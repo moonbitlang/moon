@@ -329,21 +329,21 @@ pub fn get_compiler_flags(src_dir: &Path, build_flags: &BuildFlags) -> anyhow::R
     let mut extra_link_opt = moon_mod.link_flags.unwrap_or_default();
 
     // Allow environment variable to override or extend compile flags
-    if let Ok(env_flags) = std::env::var("MOON_COMPILE_FLAGS") {
-        let env_compile_flags: Vec<String> = env_flags
-            .split_whitespace()
-            .map(|s| s.to_string())
-            .collect();
-        extra_build_opt.extend(env_compile_flags);
+    if let Some(env_flags) = std::env::var("MOON_COMPILE_FLAGS")
+        .ok()
+        .as_deref()
+        .and_then(shlex::split)
+    {
+        extra_build_opt.extend(env_flags);
     }
 
     // Allow environment variable to override or extend link flags
-    if let Ok(env_flags) = std::env::var("MOON_LINK_FLAGS") {
-        let env_link_flags: Vec<String> = env_flags
-            .split_whitespace()
-            .map(|s| s.to_string())
-            .collect();
-        extra_link_opt.extend(env_link_flags);
+    if let Some(env_flags) = std::env::var("MOON_LINK_FLAGS")
+        .ok()
+        .as_deref()
+        .and_then(shlex::split)
+    {
+        extra_link_opt.extend(env_flags);
     }
 
     let output_format = if build_flags.output_wat {
@@ -446,7 +446,10 @@ fn test_env_compile_link_flags() {
 
     let result = get_compiler_flags(temp_path, &build_flags).unwrap();
 
-    assert_eq!(result.extra_build_opt, vec!["-enable-coverage", "-g", "-source-map"]);
+    assert_eq!(
+        result.extra_build_opt,
+        vec!["-enable-coverage", "-g", "-source-map"]
+    );
     assert_eq!(result.extra_link_opt, vec!["-no-block-params"]);
 
     // Test case 3: MOON_LINK_FLAGS environment variable set with real moonc link flags
@@ -458,7 +461,10 @@ fn test_env_compile_link_flags() {
     let result = get_compiler_flags(temp_path, &build_flags).unwrap();
 
     assert_eq!(result.extra_build_opt, vec!["-enable-coverage"]);
-    assert_eq!(result.extra_link_opt, vec!["-no-block-params", "-use-js-builtin-string", "-no-rc"]);
+    assert_eq!(
+        result.extra_link_opt,
+        vec!["-no-block-params", "-use-js-builtin-string", "-no-rc"]
+    );
 
     // Test case 4: Both environment variables set
     unsafe {
@@ -468,8 +474,14 @@ fn test_env_compile_link_flags() {
 
     let result = get_compiler_flags(temp_path, &build_flags).unwrap();
 
-    assert_eq!(result.extra_build_opt, vec!["-enable-coverage", "-g", "-source-map"]);
-    assert_eq!(result.extra_link_opt, vec!["-no-block-params", "-use-js-builtin-string", "-no-rc"]);
+    assert_eq!(
+        result.extra_build_opt,
+        vec!["-enable-coverage", "-g", "-source-map"]
+    );
+    assert_eq!(
+        result.extra_link_opt,
+        vec!["-no-block-params", "-use-js-builtin-string", "-no-rc"]
+    );
 
     // Test case 5: Empty environment variables
     unsafe {
