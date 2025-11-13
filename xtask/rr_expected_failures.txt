@@ -7,7 +7,6 @@
 # Note: This list is intended to be checked in and validated by CI on a single platform.
 cmd_test
 cmd_test::cmd_test
-test_cases::test_filter::test_moon_test_filter_package_dry_run
 test_cases::test_internal_package
 test_cases::test_moon_check_filter_package
 test_cases::test_moon_check_package_with_patch
