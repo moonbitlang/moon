@@ -47,14 +47,14 @@ pub static MOON_DIRS: std::sync::LazyLock<MoonDirs> = std::sync::LazyLock::new(|
 
 pub fn home() -> PathBuf {
     if let Some(moon_home) = std::env::var_os("MOON_HOME") {
-        return PathBuf::from(moon_home);
+        PathBuf::from(moon_home)
+    } else {
+        let Some(h) = home::home_dir() else {
+            eprintln!("Failed to get home directory");
+            std::process::exit(1);
+        };
+        h.join(".moon")
     }
-
-    let Some(h) = home::home_dir() else {
-        eprintln!("Failed to get home directory");
-        std::process::exit(1);
-    };
-    h.join(".moon")
 }
 
 pub fn bin() -> PathBuf {

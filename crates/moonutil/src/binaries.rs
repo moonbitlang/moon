@@ -28,16 +28,27 @@ fn ensure_exe_extension(path: PathBuf) -> PathBuf {
 }
 
 fn moon_bin(binary_name: &str, env_var: &str) -> PathBuf {
+    // Check for override via environment variable
     if let Some(path) = std::env::var_os(env_var) {
         return PathBuf::from(path);
     }
+
+    // Try to find next to current executable
     if let Ok(current_exe) = std::env::current_exe() {
         let rv = ensure_exe_extension(current_exe.with_file_name(binary_name));
         if rv.exists() {
             return rv;
         }
     }
-    ensure_exe_extension(crate::moon_dir::bin().join(binary_name))
+
+    // Try to find in $MOON_HOME
+    let in_moon_home = ensure_exe_extension(crate::moon_dir::bin().join(binary_name));
+    if in_moon_home.exists() {
+        return in_moon_home;
+    }
+
+    // Fallback: just rely on PATH
+    PathBuf::from(binary_name)
 }
 
 fn which_bin(candidates: &[&str], env_var: &str) -> Option<PathBuf> {
