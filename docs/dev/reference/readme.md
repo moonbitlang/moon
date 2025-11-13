@@ -11,6 +11,7 @@ This is a reference documentation of the current MoonBuild behavior.
 - [Virtual packages](./virtual-pkg.md)
 - TODO: C-stub compilation
 - TODO: [Compiler command references](./compiler-cmd-ref.md)
+- [How binaries are found](./binaries.md)
 
 ## Testing
 
