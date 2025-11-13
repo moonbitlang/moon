@@ -25,6 +25,7 @@ use std::{
     sync::LazyLock,
 };
 
+use moonutil::moon_dir::home;
 use n2::graph::{BuildId, FileId};
 
 pub const ENV_VAR: &str = "MOON_TEST_DUMP_BUILD_GRAPH";
@@ -85,7 +86,11 @@ pub fn debug_dump_build_graph(
         .iter()
         .map(|(name, path)| (path.to_string_lossy().to_string(), name.to_string()))
         .collect();
-    let replacer = PathNormalizer::new(source_dir, path_replace_table);
+    let replacer = PathNormalizer::new(
+        source_dir,
+        path_replace_table,
+        home().to_string_lossy().to_string(),
+    );
 
     let accessible_nodes = dfs_for_accessible_nodes(graph, input_files);
     generate_from_nodes(graph, accessible_nodes, &replacer)
@@ -180,14 +185,16 @@ fn generate_from_nodes(
 struct PathNormalizer {
     canonical: Option<PathBuf>,
     replace_table: Vec<(String, String)>,
+    moon_home: String,
 }
 
 impl PathNormalizer {
-    fn new(source_dir: &Path, replace_table: Vec<(String, String)>) -> Self {
+    fn new(source_dir: &Path, replace_table: Vec<(String, String)>, moon_home: String) -> Self {
         let canonical = dunce::canonicalize(source_dir).ok();
         PathNormalizer {
             canonical,
             replace_table,
+            moon_home,
         }
     }
 
@@ -205,6 +212,7 @@ impl PathNormalizer {
         for (from, to) in &self.replace_table {
             s = s.replace(from, to);
         }
+        s = s.replace(&self.moon_home, "$MOON_HOME");
         s = s.replace('\\', "/");
 
         s
@@ -217,7 +225,11 @@ impl PathNormalizer {
         {
             return Self::relative_from_path(stripped);
         }
-        path.replace('\\', "/")
+        let mut path = path.to_owned();
+        path = path.replace(&self.moon_home, "$MOON_HOME");
+        path = path.replace('\\', "/");
+
+        path
     }
 
     fn relative_from_path(stripped: &Path) -> String {
