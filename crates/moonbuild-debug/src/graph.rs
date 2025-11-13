@@ -79,24 +79,29 @@ pub fn debug_dump_build_graph(
     graph: &n2::graph::Graph,
     input_files: &[FileId],
     source_dir: &Path,
-    path_replace_table: Vec<(String, String)>,
 ) -> BuildGraphDump {
+    let path_replace_table = moonutil::BINARIES
+        .all_moon_bins()
+        .iter()
+        .map(|(name, path)| (path.to_string_lossy().to_string(), name.to_string()))
+        .collect();
+    let replacer = PathNormalizer::new(source_dir, path_replace_table);
+
     let accessible_nodes = dfs_for_accessible_nodes(graph, input_files);
-    generate_from_nodes(graph, accessible_nodes, source_dir, path_replace_table)
+    generate_from_nodes(graph, accessible_nodes, &replacer)
 }
 
 pub fn try_debug_dump_build_graph_to_file(
     build_graph: &n2::graph::Graph,
     default_files: &[n2::graph::FileId],
     source_dir: &Path,
-    path_replace_table: Vec<(String, String)>,
 ) {
     let Some(out_file) = DRY_RUN_TEST_OUTPUT.as_deref() else {
         return;
     };
 
     let file = std::fs::File::create(out_file).expect("Failed to create dry-run dump target");
-    let dump = debug_dump_build_graph(build_graph, default_files, source_dir, path_replace_table);
+    let dump = debug_dump_build_graph(build_graph, default_files, source_dir);
     dump.dump_to(file).expect("Failed to dump to target output");
 }
 
@@ -129,24 +134,22 @@ fn dfs_for_accessible_nodes(graph: &n2::graph::Graph, start_files: &[FileId]) ->
 fn generate_from_nodes(
     graph: &n2::graph::Graph,
     accessible_nodes: impl IntoIterator<Item = BuildId>,
-    source_dir: &Path,
-    path_replace_table: Vec<(String, String)>,
+    replacer: &PathNormalizer,
 ) -> BuildGraphDump {
-    let normalizer = PathNormalizer::new(source_dir, path_replace_table);
     let mut nodes = vec![];
     for node in accessible_nodes {
         let node = graph.builds.lookup(node).expect("Unknown build in graph");
         let command = node
             .cmdline
             .as_ref()
-            .map(|cmd| normalizer.normalize_command(cmd));
+            .map(|cmd| replacer.normalize_command(cmd));
         let inputs = node
             .ins
             .ids
             .iter()
             .map(|&id| {
                 let file = graph.files.by_id.lookup(id).expect("Unknown node in graph");
-                normalizer.normalize_path(&file.name)
+                replacer.normalize_path(&file.name)
             })
             .collect::<Vec<_>>();
         let outputs = node
@@ -155,7 +158,7 @@ fn generate_from_nodes(
             .iter()
             .map(|&id| {
                 let file = graph.files.by_id.lookup(id).expect("Unknown node in graph");
-                normalizer.normalize_path(&file.name)
+                replacer.normalize_path(&file.name)
             })
             .collect::<Vec<_>>();
         nodes.push(BuildNode {
