@@ -219,7 +219,7 @@ impl ReplaceableTestResults {
     }
 
     #[instrument(level = "debug", skip(self, meta))]
-    pub fn print_result(&self, meta: &BuildMeta, verbose: bool) {
+    pub fn print_result(&self, meta: &BuildMeta, verbose: bool, json: bool) {
         debug!(
             target_count = self.map.len(),
             verbose, "printing collected test results"
@@ -235,7 +235,7 @@ impl ReplaceableTestResults {
                 .to_string();
             for file_map in result.map.values() {
                 for res in file_map.values() {
-                    print_test_result(res, &module_name, verbose);
+                    print_test_result(res, &module_name, verbose, json);
                 }
             }
         }
@@ -547,7 +547,52 @@ fn parse_one_test_result(
     Ok(res)
 }
 
-fn print_test_result(res: &TestCaseResult, module_name: &str, verbose: bool) {
+fn print_test_result(res: &TestCaseResult, module_name: &str, verbose: bool, json: bool) {
+    if json {
+        print_test_result_json(res);
+    } else {
+        print_test_result_normal(res, module_name, verbose);
+    }
+}
+
+fn print_test_result_json(res: &TestCaseResult) {
+    use TestResultKind::*;
+
+    match res.kind {
+        Passed => {
+            // In JSON mode, do not emit anything for successful tests.
+            // If verbose success output is desired, callers should disable json.
+        }
+        Failed | RuntimeError | ExpectTestFailed | SnapshotTestFailed | ExpectPanic => {
+            // Repopulate test_name from metadata when available
+            let test_name = res
+                .meta
+                .name
+                .as_ref()
+                .map(|s| s.to_string())
+                .unwrap_or_else(|| res.raw.test_name.clone());
+
+            // Normalize message: for ExpectPanic with empty message, align with legacy output
+            let mut message = res.raw.message.clone();
+            if matches!(res.kind, ExpectPanic) && message.is_empty() {
+                message = "panic is expected".to_string();
+            }
+
+            let obj = moonbuild::runtest::TestStatistics {
+                package: res.raw.package.clone(),
+                filename: res.raw.filename.clone(),
+                index: res.raw.index.clone(),
+                test_name,
+                message,
+            };
+
+            // Print compact JSON line
+            println!("{}", serde_json_lenient::to_string(&obj).unwrap());
+        }
+    }
+}
+
+fn print_test_result_normal(res: &TestCaseResult, module_name: &str, verbose: bool) {
     let message = &res.raw.message;
     let formatter = CompactTestFormatter::new(module_name, &res.raw, Some(&res.meta));
 

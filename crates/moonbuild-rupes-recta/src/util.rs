@@ -24,6 +24,22 @@ use crate::{build_plan::BuildPlan, model::BuildPlanNode};
 use moonutil::mooncakes::result::ResolvedEnv;
 use petgraph::Direction;
 use std::io::{self, Write};
+use std::path::Path;
+
+/// Strip trailing slashes from a path.
+///
+/// # Note
+///
+/// This is a **workaround** as there's no a stdlib function to do this
+/// directly. It's abusing the behavior of `strip_prefix` which removes trailing
+/// slash by forcing removal of an empty prefix (which does nothing to the path).
+///
+/// Related issues:
+/// - `strip_prefix` behavior: https://github.com/rust-lang/rust/issues/148267
+/// - Methods for normalizing paths: https://github.com/rust-lang/rust/issues/142503
+pub(crate) fn strip_trailing_slash(path: &Path) -> &Path {
+    path.strip_prefix("").unwrap_or(path)
+}
 
 /// Print a resolved environment as a DOT graph
 pub fn print_resolved_env_dot(env: &ResolvedEnv, writer: &mut dyn Write) -> io::Result<()> {

@@ -50,6 +50,7 @@ use crate::{
     model::PackageId,
     pkg_name::{PackageFQN, PackageFQNWithSource, PackagePath},
     special_cases::{add_prelude_as_import_for_core, module_name_is_core},
+    util::strip_trailing_slash,
 };
 
 /// Discover packages contained by all dependencies from their paths
@@ -133,7 +134,7 @@ pub(crate) fn discover_packages_for_mod(
             inner: e.into(),
         })?;
 
-        let abs_path = entry.path();
+        let abs_path = strip_trailing_slash(entry.path());
         // this will be fed to package path
         let rel_path = abs_path
             .relative_to(&scan_source_root)

@@ -127,6 +127,17 @@ impl<'a> MooncLinkCore<'a> {
             );
         }
 
+        // JavaScript configuration
+        if let Some(js_config) = &self.js_config {
+            if let Some(format) = js_config.format {
+                args.push("-js-format".to_string());
+                args.push(format.to_flag().to_string());
+            }
+            if js_config.no_dts {
+                args.push("-no-dts".to_string());
+            }
+        }
+
         // Target backend
         args.push("-target".to_string());
         args.push(self.target_backend.to_flag().to_string());
@@ -197,17 +208,6 @@ impl<'a> MooncLinkCore<'a> {
                 for flag in link_flags {
                     args.push(flag.clone());
                 }
-            }
-        }
-
-        // JavaScript configuration
-        if let Some(js_config) = &self.js_config {
-            if let Some(format) = js_config.format {
-                args.push("-js-format".to_string());
-                args.push(format.to_flag().to_string());
-            }
-            if js_config.no_dts {
-                args.push("-no-dts".to_string());
             }
         }
 
