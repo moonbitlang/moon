@@ -70,14 +70,16 @@ impl<'a> super::BuildPlanLowerContext<'a> {
         };
         let patch_file = info.patch_file.as_deref().map(|x| x.into());
 
+        let (enable_coverage, self_coverage) = self.get_coverage_flags(target, &package.fqn, false);
+
         let cmd = compiler::MoonGenTestDriver {
             files: &files_vec,
             doctest_only_files: &info.doctest_files,
             output_driver: output_driver.into(),
             output_metadata: output_metadata.into(),
             bench: false, // TODO
-            enable_coverage: self.opt.enable_coverage,
-            coverage_package_override: None, // TODO,
+            enable_coverage,
+            coverage_package_override: if self_coverage { Some("@self") } else { None },
             driver_kind,
             target_backend: self.opt.target_backend.into(),
             patch_file,

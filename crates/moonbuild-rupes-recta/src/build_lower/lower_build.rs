@@ -46,6 +46,7 @@ use crate::{
     discover::DiscoveredPackage,
     model::{BuildPlanNode, BuildTarget, PackageId, RunBackend, TargetKind},
     pkg_name::{PackageFQN, PackagePath},
+    special_cases::{is_self_coverage_lib, should_skip_coverage},
 };
 
 use super::{BuildCommand, compiler, context::BuildPlanLowerContext};
@@ -66,6 +67,26 @@ impl<'a> BuildPlanLowerContext<'a> {
             self_coverage: false,
             enable_value_tracing: false,
         }
+    }
+
+    /// Returns `(enable_coverage, self_coverage)` for the given conditions
+    ///
+    /// - `target`: The build target, to determine if it's a blackbox test (bb
+    ///   tests builds themselves don't need coverage)
+    /// - `fqn`: The package FQN, to match against hardcoded exceptions
+    /// - `is_build`: Whether this is a build command. BB tests need to be aware
+    ///   of coverage but not apply it to themselves.
+    pub(super) fn get_coverage_flags(
+        &self,
+        target: BuildTarget,
+        fqn: &PackageFQN,
+        is_build: bool,
+    ) -> (bool, bool) {
+        let enable_coverage = self.opt.enable_coverage
+            && (!is_build || target.kind != TargetKind::BlackboxTest)
+            && !should_skip_coverage(fqn);
+        let self_coverage = enable_coverage && is_self_coverage_lib(fqn);
+        (enable_coverage, self_coverage)
     }
 
     fn set_build_commons(
@@ -295,8 +316,8 @@ impl<'a> BuildPlanLowerContext<'a> {
             extra_build_opts: module.compile_flags.as_deref().unwrap_or_default(),
         };
         // Propagate debug/coverage flags and common settings
-        cmd.flags.enable_coverage =
-            self.opt.enable_coverage && target.kind != TargetKind::BlackboxTest;
+        (cmd.flags.enable_coverage, cmd.flags.self_coverage) =
+            self.get_coverage_flags(target, &package.fqn, true);
         cmd.defaults.no_mi |= target.kind.is_test();
 
         // TODO: a lot of knobs are not controlled here
