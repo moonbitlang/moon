@@ -125,14 +125,6 @@
   $ moon test
   Total tests: 1, passed: 1, failed: 0.
   
-  Warning: [0029]
-     ╭─[ ${WORK_DIR}/src/main/moon.pkg.json:4:5 ]
-     │
-   4 │     "username/hello/lib"
-     │     ──────────┬─────────  
-     │               ╰─────────── Warning: Unused package 'username/hello/lib'
-  ───╯
-  
   $ moon run ./src/main
   Hello, world!
   
