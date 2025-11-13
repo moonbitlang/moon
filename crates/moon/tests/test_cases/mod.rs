@@ -557,113 +557,108 @@ fn whitespace_test() {
     //         moonc check './main exe/main.mbt' -o './target/check/main exe/main exe.mi' -pkg 'username/hello/main exe' -is-main -i './target/check/main lib/main lib.mi:lib' -pkg-sources 'username/hello/main exe:./main exe'
     //     "#]],
     // );
-
-    check(
-        get_stdout(&dir, ["build", "--dry-run", "--nostd"]),
-        expect![[r#"
-            moonc build-package "./main lib/hello.mbt" -o "./target/wasm-gc/release/build/main lib/main lib.core" -pkg "username/hello/main lib" -pkg-sources "username/hello/main lib:./main lib" -target wasm-gc -workspace-path .
-            moonc build-package "./main exe/main.mbt" -o "./target/wasm-gc/release/build/main exe/main exe.core" -pkg "username/hello/main exe" -is-main -i "./target/wasm-gc/release/build/main lib/main lib.mi:lib" -pkg-sources "username/hello/main exe:./main exe" -target wasm-gc -workspace-path .
-            moonc link-core "./target/wasm-gc/release/build/main lib/main lib.core" "./target/wasm-gc/release/build/main exe/main exe.core" -main "username/hello/main exe" -o "./target/wasm-gc/release/build/main exe/main exe.wasm" -pkg-config-path "./main exe/moon.pkg.json" -pkg-sources "username/hello/main lib:./main lib" -pkg-sources "username/hello/main exe:./main exe" -target wasm-gc
-        "#]],
+    let build_graph = dir.join("build_graph.jsonl");
+    snap_dry_run_graph(&dir, ["build", "--dry-run", "--nostd"], &build_graph);
+    compare_graphs(
+        &build_graph,
+        expect_file!["./whitespace_test.in/build_graph.jsonl.snap"],
     );
 
-    check(
-        get_stdout(&dir, ["build", "--dry-run", "--debug", "--nostd"]),
-        expect![[r#"
-            moonc build-package "./main lib/hello.mbt" -o "./target/wasm-gc/debug/build/main lib/main lib.core" -pkg "username/hello/main lib" -pkg-sources "username/hello/main lib:./main lib" -target wasm-gc -g -O0 -source-map -workspace-path .
-            moonc build-package "./main exe/main.mbt" -o "./target/wasm-gc/debug/build/main exe/main exe.core" -pkg "username/hello/main exe" -is-main -i "./target/wasm-gc/debug/build/main lib/main lib.mi:lib" -pkg-sources "username/hello/main exe:./main exe" -target wasm-gc -g -O0 -source-map -workspace-path .
-            moonc link-core "./target/wasm-gc/debug/build/main lib/main lib.core" "./target/wasm-gc/debug/build/main exe/main exe.core" -main "username/hello/main exe" -o "./target/wasm-gc/debug/build/main exe/main exe.wasm" -pkg-config-path "./main exe/moon.pkg.json" -pkg-sources "username/hello/main lib:./main lib" -pkg-sources "username/hello/main exe:./main exe" -target wasm-gc -g -O0 -source-map
-        "#]],
+    let build_debug_graph = dir.join("build_debug_graph.jsonl");
+    snap_dry_run_graph(
+        &dir,
+        ["build", "--dry-run", "--debug", "--nostd"],
+        &build_debug_graph,
+    );
+    compare_graphs(
+        &build_graph,
+        expect_file!["./whitespace_test.in/build_debug_graph.jsonl.snap"],
     );
 
-    check(
-        get_stdout(&dir, ["run", "main exe", "--dry-run", "--nostd"]),
-        expect![[r#"
-            moonc build-package "./main lib/hello.mbt" -o "./target/wasm-gc/release/build/main lib/main lib.core" -pkg "username/hello/main lib" -pkg-sources "username/hello/main lib:./main lib" -target wasm-gc -workspace-path .
-            moonc build-package "./main exe/main.mbt" -o "./target/wasm-gc/release/build/main exe/main exe.core" -pkg "username/hello/main exe" -is-main -i "./target/wasm-gc/release/build/main lib/main lib.mi:lib" -pkg-sources "username/hello/main exe:./main exe" -target wasm-gc -workspace-path .
-            moonc link-core "./target/wasm-gc/release/build/main lib/main lib.core" "./target/wasm-gc/release/build/main exe/main exe.core" -main "username/hello/main exe" -o "./target/wasm-gc/release/build/main exe/main exe.wasm" -pkg-config-path "./main exe/moon.pkg.json" -pkg-sources "username/hello/main lib:./main lib" -pkg-sources "username/hello/main exe:./main exe" -target wasm-gc
-            moonrun ./target/wasm-gc/release/build/main exe/main exe.wasm
-        "#]],
+    let run_graph = dir.join("run_graph.jsonl");
+    snap_dry_run_graph(
+        &dir,
+        ["run", "main exe", "--dry-run", "--nostd"],
+        &run_graph,
+    );
+    compare_graphs(
+        &run_graph,
+        expect_file!["./whitespace_test.in/run_graph.jsonl.snap"],
     );
 
-    check(
-        get_stdout(&dir, ["run", "main exe", "--dry-run", "--debug", "--nostd"]),
-        expect![[r#"
-            moonc build-package "./main lib/hello.mbt" -o "./target/wasm-gc/debug/build/main lib/main lib.core" -pkg "username/hello/main lib" -pkg-sources "username/hello/main lib:./main lib" -target wasm-gc -g -O0 -source-map -workspace-path .
-            moonc build-package "./main exe/main.mbt" -o "./target/wasm-gc/debug/build/main exe/main exe.core" -pkg "username/hello/main exe" -is-main -i "./target/wasm-gc/debug/build/main lib/main lib.mi:lib" -pkg-sources "username/hello/main exe:./main exe" -target wasm-gc -g -O0 -source-map -workspace-path .
-            moonc link-core "./target/wasm-gc/debug/build/main lib/main lib.core" "./target/wasm-gc/debug/build/main exe/main exe.core" -main "username/hello/main exe" -o "./target/wasm-gc/debug/build/main exe/main exe.wasm" -pkg-config-path "./main exe/moon.pkg.json" -pkg-sources "username/hello/main lib:./main lib" -pkg-sources "username/hello/main exe:./main exe" -target wasm-gc -g -O0 -source-map
-            moonrun ./target/wasm-gc/debug/build/main exe/main exe.wasm
-        "#]],
+    let run_debug_graph = dir.join("run_debug_graph.jsonl");
+    snap_dry_run_graph(
+        &dir,
+        ["run", "main exe", "--dry-run", "--debug", "--nostd"],
+        &run_debug_graph,
     );
-    check(
-        get_stdout(
-            &dir,
-            ["build", "--target", "wasm-gc", "--dry-run", "--nostd"],
-        ),
-        expect![[r#"
-            moonc build-package "./main lib/hello.mbt" -o "./target/wasm-gc/release/build/main lib/main lib.core" -pkg "username/hello/main lib" -pkg-sources "username/hello/main lib:./main lib" -target wasm-gc -workspace-path .
-            moonc build-package "./main exe/main.mbt" -o "./target/wasm-gc/release/build/main exe/main exe.core" -pkg "username/hello/main exe" -is-main -i "./target/wasm-gc/release/build/main lib/main lib.mi:lib" -pkg-sources "username/hello/main exe:./main exe" -target wasm-gc -workspace-path .
-            moonc link-core "./target/wasm-gc/release/build/main lib/main lib.core" "./target/wasm-gc/release/build/main exe/main exe.core" -main "username/hello/main exe" -o "./target/wasm-gc/release/build/main exe/main exe.wasm" -pkg-config-path "./main exe/moon.pkg.json" -pkg-sources "username/hello/main lib:./main lib" -pkg-sources "username/hello/main exe:./main exe" -target wasm-gc
-        "#]],
-    );
-    check(
-        get_stdout(
-            &dir,
-            [
-                "build",
-                "--dry-run",
-                "--target",
-                "wasm-gc",
-                "--debug",
-                "--nostd",
-            ],
-        ),
-        expect![[r#"
-            moonc build-package "./main lib/hello.mbt" -o "./target/wasm-gc/debug/build/main lib/main lib.core" -pkg "username/hello/main lib" -pkg-sources "username/hello/main lib:./main lib" -target wasm-gc -g -O0 -source-map -workspace-path .
-            moonc build-package "./main exe/main.mbt" -o "./target/wasm-gc/debug/build/main exe/main exe.core" -pkg "username/hello/main exe" -is-main -i "./target/wasm-gc/debug/build/main lib/main lib.mi:lib" -pkg-sources "username/hello/main exe:./main exe" -target wasm-gc -g -O0 -source-map -workspace-path .
-            moonc link-core "./target/wasm-gc/debug/build/main lib/main lib.core" "./target/wasm-gc/debug/build/main exe/main exe.core" -main "username/hello/main exe" -o "./target/wasm-gc/debug/build/main exe/main exe.wasm" -pkg-config-path "./main exe/moon.pkg.json" -pkg-sources "username/hello/main lib:./main lib" -pkg-sources "username/hello/main exe:./main exe" -target wasm-gc -g -O0 -source-map
-        "#]],
+    compare_graphs(
+        &run_debug_graph,
+        expect_file!["./whitespace_test.in/run_debug_graph.jsonl.snap"],
     );
 
-    check(
-        get_stdout(
-            &dir,
-            [
-                "run",
-                "main exe",
-                "--target",
-                "wasm-gc",
-                "--dry-run",
-                "--nostd",
-            ],
-        ),
-        expect![[r#"
-            moonc build-package "./main lib/hello.mbt" -o "./target/wasm-gc/release/build/main lib/main lib.core" -pkg "username/hello/main lib" -pkg-sources "username/hello/main lib:./main lib" -target wasm-gc -workspace-path .
-            moonc build-package "./main exe/main.mbt" -o "./target/wasm-gc/release/build/main exe/main exe.core" -pkg "username/hello/main exe" -is-main -i "./target/wasm-gc/release/build/main lib/main lib.mi:lib" -pkg-sources "username/hello/main exe:./main exe" -target wasm-gc -workspace-path .
-            moonc link-core "./target/wasm-gc/release/build/main lib/main lib.core" "./target/wasm-gc/release/build/main exe/main exe.core" -main "username/hello/main exe" -o "./target/wasm-gc/release/build/main exe/main exe.wasm" -pkg-config-path "./main exe/moon.pkg.json" -pkg-sources "username/hello/main lib:./main lib" -pkg-sources "username/hello/main exe:./main exe" -target wasm-gc
-            moonrun ./target/wasm-gc/release/build/main exe/main exe.wasm
-        "#]],
+    let build_wasm_gc_graph = dir.join("build_wasm_gc_graph.jsonl");
+    snap_dry_run_graph(
+        &dir,
+        ["build", "--dry-run", "--target", "wasm-gc", "--nostd"],
+        &build_wasm_gc_graph,
+    );
+    compare_graphs(
+        &build_wasm_gc_graph,
+        expect_file!["./whitespace_test.in/build_wasm_gc_graph.jsonl.snap"],
+    );
+    let build_wasm_gc_debug_graph = dir.join("build_wasm_gc_debug_graph.jsonl");
+    snap_dry_run_graph(
+        &dir,
+        [
+            "build",
+            "--dry-run",
+            "--target",
+            "wasm-gc",
+            "--debug",
+            "--nostd",
+        ],
+        &build_wasm_gc_debug_graph,
+    );
+    compare_graphs(
+        &build_wasm_gc_debug_graph,
+        expect_file!["./whitespace_test.in/build_wasm_gc_debug_graph.jsonl.snap"],
     );
 
-    check(
-        get_stdout(
-            &dir,
-            [
-                "run",
-                "main exe",
-                "--target",
-                "wasm-gc",
-                "--dry-run",
-                "--debug",
-                "--nostd",
-            ],
-        ),
-        expect![[r#"
-            moonc build-package "./main lib/hello.mbt" -o "./target/wasm-gc/debug/build/main lib/main lib.core" -pkg "username/hello/main lib" -pkg-sources "username/hello/main lib:./main lib" -target wasm-gc -g -O0 -source-map -workspace-path .
-            moonc build-package "./main exe/main.mbt" -o "./target/wasm-gc/debug/build/main exe/main exe.core" -pkg "username/hello/main exe" -is-main -i "./target/wasm-gc/debug/build/main lib/main lib.mi:lib" -pkg-sources "username/hello/main exe:./main exe" -target wasm-gc -g -O0 -source-map -workspace-path .
-            moonc link-core "./target/wasm-gc/debug/build/main lib/main lib.core" "./target/wasm-gc/debug/build/main exe/main exe.core" -main "username/hello/main exe" -o "./target/wasm-gc/debug/build/main exe/main exe.wasm" -pkg-config-path "./main exe/moon.pkg.json" -pkg-sources "username/hello/main lib:./main lib" -pkg-sources "username/hello/main exe:./main exe" -target wasm-gc -g -O0 -source-map
-            moonrun ./target/wasm-gc/debug/build/main exe/main exe.wasm
-        "#]],
+    let run_wasm_gc_graph = dir.join("run_wasm_gc_graph.jsonl");
+    snap_dry_run_graph(
+        &dir,
+        [
+            "run",
+            "main exe",
+            "--dry-run",
+            "--target",
+            "wasm-gc",
+            "--nostd",
+        ],
+        &run_wasm_gc_graph,
+    );
+    compare_graphs(
+        &run_wasm_gc_graph,
+        expect_file!["./whitespace_test.in/run_wasm_gc_graph.jsonl.snap"],
+    );
+    let run_wasm_gc_debug_graph = dir.join("run_wasm_gc_debug_graph.jsonl");
+    snap_dry_run_graph(
+        &dir,
+        [
+            "run",
+            "main exe",
+            "--dry-run",
+            "--target",
+            "wasm-gc",
+            "--debug",
+            "--nostd",
+        ],
+        &run_wasm_gc_debug_graph,
+    );
+    compare_graphs(
+        &run_wasm_gc_debug_graph,
+        expect_file!["./whitespace_test.in/run_wasm_gc_debug_graph.jsonl.snap"],
     );
 
     check(
