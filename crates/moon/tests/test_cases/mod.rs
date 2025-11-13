@@ -688,27 +688,15 @@ fn test_whitespace_parent_space() -> anyhow::Result<()> {
     let canon = dunce::canonicalize(tmp_dir.path())?;
     let prefix = canon.as_path().display().to_string().replace('\\', "/");
 
-    let out = get_stdout(
+    let build_graph = path_with_space.join("build_graph.jsonl");
+    snap_dry_run_graph(
         &path_with_space,
         ["build", "--no-render", "--sort-input", "--dry-run"],
+        &build_graph,
     );
-    let out = out.replace(&prefix, ".");
-    let out = out.replace(
-        &moonutil::moon_dir::home()
-            .to_str()
-            .unwrap()
-            .replace('\\', "/"),
-        "$MOON_HOME",
-    );
-
-    copy(&dir, &path_with_space)?;
-    check(
-        &out,
-        expect![[r#"
-            moonc build-package "./main lib/hello.mbt" -o "./target/wasm-gc/release/build/main lib/main lib.core" -pkg "username/hello/main lib" -std-path $MOON_HOME/lib/core/target/wasm-gc/release/bundle -pkg-sources "username/hello/main lib:./main lib" -target wasm-gc -workspace-path "."
-            moonc build-package "./main exe/main.mbt" -o "./target/wasm-gc/release/build/main exe/main exe.core" -pkg "username/hello/main exe" -is-main -std-path $MOON_HOME/lib/core/target/wasm-gc/release/bundle -i "./target/wasm-gc/release/build/main lib/main lib.mi:lib" -pkg-sources "username/hello/main exe:./main exe" -target wasm-gc -workspace-path "."
-            moonc link-core $MOON_HOME/lib/core/target/wasm-gc/release/bundle/abort/abort.core $MOON_HOME/lib/core/target/wasm-gc/release/bundle/core.core "./target/wasm-gc/release/build/main lib/main lib.core" "./target/wasm-gc/release/build/main exe/main exe.core" -main "username/hello/main exe" -o "./target/wasm-gc/release/build/main exe/main exe.wasm" -pkg-config-path "./main exe/moon.pkg.json" -pkg-sources "username/hello/main lib:./main lib" -pkg-sources "username/hello/main exe:./main exe" -pkg-sources moonbitlang/core:$MOON_HOME/lib/core -target wasm-gc
-        "#]],
+    compare_graphs(
+        &build_graph,
+        expect_file!["./whitespace_test.in/parent_space_build_graph.jsonl.snap"],
     );
 
     let out = get_stderr(&path_with_space, ["build", "--no-render"]);
