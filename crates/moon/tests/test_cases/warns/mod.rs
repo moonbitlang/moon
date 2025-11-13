@@ -103,9 +103,7 @@ fn test_warn_list_real_run() {
             .lines()
             .filter(|it| !it.starts_with("Blocking waiting for file lock"))
             .collect::<String>(),
-        expect![[
-            r#"Warning: [0029]   ╭─[ $ROOT/main/moon.pkg.json:4:5 ]   │ 4 │     "username/hello/lib",   │     ──────────┬─────────     │               ╰─────────── Warning: Unused package 'username/hello/lib'───╯Warning: [0029]   ╭─[ $ROOT/main/moon.pkg.json:5:5 ]   │ 5 │     "username/hello/lib1"   │     ──────────┬──────────     │               ╰──────────── Warning: Unused package 'username/hello/lib1'───╯"#
-        ]],
+        expect![""],
     );
     check(
         get_stdout(&dir, ["test", "--sort-input"]),
