@@ -21,6 +21,7 @@ use std::path::Path;
 use anyhow::{Context, bail};
 use moonbuild::dry_run;
 use moonbuild::entry;
+use moonbuild_rupes_recta::build_plan::InputDirective;
 use moonbuild_rupes_recta::intent::UserIntent;
 use mooncake::pkg::sync::auto_sync;
 use moonutil::common::FileLock;
@@ -367,12 +368,13 @@ fn run_run_rr(cli: &UniversalFlags, cmd: RunSubcommand) -> Result<i32, anyhow::E
     );
     preconfig.try_tcc_run = true;
 
+    let value_tracing = cmd.build_flags.enable_value_tracing;
     let (build_meta, build_graph) = rr_build::plan_build(
         preconfig,
         &cli.unstable_feature,
         &source_dir,
         &target_dir,
-        Box::new(|r, m| calc_user_intent(&input_path, &source_dir, r, m)),
+        Box::new(|r, m| calc_user_intent(&input_path, &source_dir, r, value_tracing, m)),
     )?;
     if cli.dry_run {
         // Print build commands
@@ -454,6 +456,7 @@ fn calc_user_intent(
     input_path: &str,
     source_dir: &Path,
     resolve_output: &moonbuild_rupes_recta::ResolveOutput,
+    value_tracing: bool,
     _main_modules: &[moonutil::mooncakes::ModuleId],
 ) -> Result<CalcUserIntentOutput, anyhow::Error> {
     // The legacy impl says the input path is based on `source_dir`, while
@@ -477,7 +480,18 @@ fn calc_user_intent(
         }
     };
     let pkg = crate::filter::filter_pkg_by_dir(resolve_output, &dir)?;
-    Ok(vec![UserIntent::Run(pkg)].into())
+    if value_tracing {
+        Ok((
+            vec![UserIntent::Run(pkg)],
+            InputDirective {
+                value_tracing: Some(pkg),
+                ..Default::default()
+            },
+        )
+            .into())
+    } else {
+        Ok(vec![UserIntent::Run(pkg)].into())
+    }
 }
 
 #[instrument(skip_all)]
