@@ -102,7 +102,13 @@ impl UserIntent {
                     // - When checking tests, always check blackbox tests, and
                     //   only check whitebox if it has related files.
                     out.push(BuildPlanNode::check(pkg.build_target(TargetKind::Source)));
-                    if !pkg_info.is_virtual_impl() {
+                    if !pkg_info.is_virtual_impl()
+                        && resolved.local_modules().contains(&pkg_info.module)
+                    {
+                        // If the package is in a local module, we check its
+                        // blackbox/whitebox tests otherwise we skip checking
+                        // its blackbox/whitebox tests
+
                         if has_whitebox_decl(resolved, pkg) {
                             out.push(BuildPlanNode::check(
                                 pkg.build_target(TargetKind::WhiteboxTest),
