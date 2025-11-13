@@ -7,22 +7,10 @@
 # Note: This list is intended to be checked in and validated by CI on a single platform.
 cmd_test
 cmd_test::cmd_test
-test_cases::test_add_mi_if_self_not_set_in_test_imports
-test_cases::test_ambiguous_pkg
-test_cases::test_bad_version
-test_cases::test_blackbox_dedup_alias
-test_cases::test_blackbox_failed
-test_cases::test_blackbox_success
-test_cases::test_blackbox_test_core_override
-test_cases::test_dont_link_third_party
-test_cases::test_expect_test::test_expect_test
-test_cases::test_export_memory_name
 test_cases::test_failed_to_fill_whole_buffer
 test_cases::test_filter::test_moon_test_filter_index_with_auto_update
 test_cases::test_filter::test_moon_test_filter_multi_package
 test_cases::test_filter::test_moon_test_filter_package_dry_run
-test_cases::test_import_memory_and_heap_start
-test_cases::test_import_shared_memory
 test_cases::test_internal_package
 test_cases::test_moon_check_filter_package
 test_cases::test_moon_check_package_with_patch
@@ -86,6 +74,10 @@ test_cases::diagnostics_format::test::test_moon_test_rendered_output
 # executable path mismatch
 test_cases::dummy_core::test_dummy_core
 test_cases::extra_flags::test_extra_flags
+
+# Iteration order
+test_cases::test_blackbox_success
+test_cases::test_blackbox_test_core_override
 
 # moonrun binary improvements
 test_cases::target_backend::test_target_backend

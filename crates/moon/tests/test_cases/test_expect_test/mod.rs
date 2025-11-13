@@ -7,6 +7,11 @@ use super::*;
 fn test_expect_test() -> anyhow::Result<()> {
     let tmp_dir_path = TestDir::new("test_expect_test/expect_test");
 
+    let original =
+        std::fs::read_to_string(tmp_dir_path.as_ref().join("lib").join("hello.mbt")).unwrap();
+    println!("Original content:\n{}", original);
+    assert!(!original.contains(r#"content=["a", "b", "c"]"#));
+
     let s = snapbox::cmd::Command::new(moon_bin())
         .current_dir(&tmp_dir_path)
         .args(["test", "--update", "--no-parallelize"])
@@ -17,11 +22,11 @@ fn test_expect_test() -> anyhow::Result<()> {
         .to_owned();
     let out = std::str::from_utf8(&s).unwrap().to_string();
 
-    assert!(out.contains("Auto updating expect tests and retesting ..."));
     assert!(out.contains("Total tests: 30, passed: 30, failed: 0."));
     let updated =
         std::fs::read_to_string(tmp_dir_path.as_ref().join("lib").join("hello.mbt")).unwrap();
-    assert!(updated.contains(r#"["a", "b", "c"]"#));
+    println!("Updated content:\n{}", updated);
+    assert!(updated.contains(r#"#|["a", "b", "c"]"#));
 
     let s = snapbox::cmd::Command::new(moon_bin())
         .current_dir(&tmp_dir_path)

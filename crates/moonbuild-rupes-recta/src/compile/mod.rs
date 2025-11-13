@@ -186,7 +186,10 @@ pub fn compile(
 #[instrument(level = Level::DEBUG, skip_all)]
 fn filter_special_case_input_nodes(node: BuildPlanNode, resolve_output: &ResolveOutput) -> bool {
     match node.extract_target() {
-        Some(tgt) if tgt.kind.is_test() => !should_skip_tests(tgt.package, resolve_output),
+        Some(tgt) if tgt.kind.is_test() => {
+            let pkg_name = &resolve_output.pkg_dirs.get_package(tgt.package).fqn;
+            !should_skip_tests(pkg_name)
+        }
         _ => true,
     }
 }

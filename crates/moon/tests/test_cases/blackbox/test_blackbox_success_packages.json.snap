@@ -1,0 +1,201 @@
+{
+  "source_dir": "$ROOT",
+  "name": "username/hello",
+  "packages": [
+    {
+      "is-main": false,
+      "is-third-party": false,
+      "root-path": "$ROOT/A",
+      "root": "username/hello",
+      "rel": "A",
+      "files": {
+        "$ROOT/A/hello.mbt": {
+          "backend": [
+            "Wasm",
+            "WasmGC",
+            "Js",
+            "Native",
+            "LLVM"
+          ],
+          "optlevel": [
+            "Release",
+            "Debug"
+          ]
+        }
+      },
+      "wbtest-files": {
+        "$ROOT/A/hello_wbtest.mbt": {
+          "backend": [
+            "Wasm",
+            "WasmGC",
+            "Js",
+            "Native",
+            "LLVM"
+          ],
+          "optlevel": [
+            "Release",
+            "Debug"
+          ]
+        }
+      },
+      "test-files": {
+        "$ROOT/A/hello_test.mbt": {
+          "backend": [
+            "Wasm",
+            "WasmGC",
+            "Js",
+            "Native",
+            "LLVM"
+          ],
+          "optlevel": [
+            "Release",
+            "Debug"
+          ]
+        }
+      },
+      "mbt-md-files": {},
+      "deps": [
+        {
+          "path": "username/hello/D",
+          "alias": "D",
+          "fspath": "$ROOT/D"
+        }
+      ],
+      "wbtest-deps": [
+        {
+          "path": "username/hello/B",
+          "alias": "B",
+          "fspath": "$ROOT/B"
+        }
+      ],
+      "test-deps": [
+        {
+          "path": "username/hello/C",
+          "alias": "C",
+          "fspath": "$ROOT/C"
+        }
+      ],
+      "artifact": "$ROOT/target/wasm-gc/release/check/A/A.mi"
+    },
+    {
+      "is-main": false,
+      "is-third-party": false,
+      "root-path": "$ROOT/B",
+      "root": "username/hello",
+      "rel": "B",
+      "files": {
+        "$ROOT/B/hello.mbt": {
+          "backend": [
+            "Wasm",
+            "WasmGC",
+            "Js",
+            "Native",
+            "LLVM"
+          ],
+          "optlevel": [
+            "Release",
+            "Debug"
+          ]
+        }
+      },
+      "wbtest-files": {},
+      "test-files": {},
+      "mbt-md-files": {},
+      "deps": [],
+      "wbtest-deps": [],
+      "test-deps": [],
+      "artifact": "$ROOT/target/wasm-gc/release/check/B/B.mi"
+    },
+    {
+      "is-main": false,
+      "is-third-party": false,
+      "root-path": "$ROOT/C",
+      "root": "username/hello",
+      "rel": "C",
+      "files": {
+        "$ROOT/C/hello.mbt": {
+          "backend": [
+            "Wasm",
+            "WasmGC",
+            "Js",
+            "Native",
+            "LLVM"
+          ],
+          "optlevel": [
+            "Release",
+            "Debug"
+          ]
+        }
+      },
+      "wbtest-files": {},
+      "test-files": {},
+      "mbt-md-files": {},
+      "deps": [],
+      "wbtest-deps": [],
+      "test-deps": [],
+      "artifact": "$ROOT/target/wasm-gc/release/check/C/C.mi"
+    },
+    {
+      "is-main": false,
+      "is-third-party": false,
+      "root-path": "$ROOT/D",
+      "root": "username/hello",
+      "rel": "D",
+      "files": {
+        "$ROOT/D/hello.mbt": {
+          "backend": [
+            "Wasm",
+            "WasmGC",
+            "Js",
+            "Native",
+            "LLVM"
+          ],
+          "optlevel": [
+            "Release",
+            "Debug"
+          ]
+        }
+      },
+      "wbtest-files": {},
+      "test-files": {},
+      "mbt-md-files": {},
+      "deps": [],
+      "wbtest-deps": [],
+      "test-deps": [],
+      "artifact": "$ROOT/target/wasm-gc/release/check/D/D.mi"
+    },
+    {
+      "is-main": true,
+      "is-third-party": false,
+      "root-path": "$ROOT/main",
+      "root": "username/hello",
+      "rel": "main",
+      "files": {
+        "$ROOT/main/main.mbt": {
+          "backend": [
+            "Wasm",
+            "WasmGC",
+            "Js",
+            "Native",
+            "LLVM"
+          ],
+          "optlevel": [
+            "Release",
+            "Debug"
+          ]
+        }
+      },
+      "wbtest-files": {},
+      "test-files": {},
+      "mbt-md-files": {},
+      "deps": [],
+      "wbtest-deps": [],
+      "test-deps": [],
+      "artifact": "$ROOT/target/wasm-gc/release/check/main/main.mi"
+    }
+  ],
+  "deps": [],
+  "backend": "wasm-gc",
+  "opt_level": "release",
+  "source": null
+}

@@ -28,7 +28,7 @@
 
 use moonutil::package::MoonPkg;
 
-use crate::{ResolveOutput, model::PackageId};
+use crate::{ResolveOutput, model::PackageId, pkg_name::PackageFQN};
 
 // string segments
 const MOONBIT: &str = "moonbitlang";
@@ -65,34 +65,28 @@ pub fn add_prelude_as_import_for_core(mut pkg_json: MoonPkg) -> MoonPkg {
     pkg_json
 }
 
-fn name_matches(
-    package_id: PackageId,
-    resolve_output: &ResolveOutput,
-    target: (&str, &str, &str),
-) -> bool {
-    let pkg = resolve_output.pkg_dirs.get_package(package_id);
-    let fqn = &pkg.fqn;
-    *fqn == target
+fn name_matches(package_fqn: &PackageFQN, target: (&str, &str, &str)) -> bool {
+    *package_fqn == target
 }
 
-pub fn should_skip_tests(package_id: PackageId, resolve_output: &ResolveOutput) -> bool {
+pub fn should_skip_tests(package_fqn: &PackageFQN) -> bool {
     SKIP_TEST_LIBS
         .iter()
-        .any(|&target| name_matches(package_id, resolve_output, target))
+        .any(|&target| name_matches(package_fqn, target))
 }
 
-pub fn should_skip_coverage(package_id: PackageId, resolve_output: &ResolveOutput) -> bool {
+pub fn should_skip_coverage(package_fqn: &PackageFQN) -> bool {
     SKIP_COVERAGE_LIBS
         .iter()
-        .any(|&target| name_matches(package_id, resolve_output, target))
+        .any(|&target| name_matches(package_fqn, target))
 }
 
-pub fn is_self_coverage_lib(package_id: PackageId, resolve_output: &ResolveOutput) -> bool {
+pub fn is_self_coverage_lib(package_fqn: &PackageFQN) -> bool {
     SELF_COVERAGE_LIBS
         .iter()
-        .any(|&target| name_matches(package_id, resolve_output, target))
+        .any(|&target| name_matches(package_fqn, target))
 }
 
-pub fn is_builtin_lib(package_id: PackageId, resolve_output: &ResolveOutput) -> bool {
-    name_matches(package_id, resolve_output, (MOONBIT, CORE, BUILTIN))
+pub fn is_builtin_lib(package_id: &PackageFQN) -> bool {
+    name_matches(package_id, (MOONBIT, CORE, BUILTIN))
 }
