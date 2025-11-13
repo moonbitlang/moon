@@ -111,10 +111,7 @@ impl<'a> CmdlineAbstraction for MoonGenTestDriver<'a> {
             args.push("--enable-coverage".to_string());
         }
         if let Some(coverage_override) = self.coverage_package_override {
-            args.extend([
-                "--coverage-package-override".to_string(),
-                coverage_override.to_string(),
-            ]);
+            args.push(format!("--coverage-package-override={}", coverage_override));
         }
 
         // Driver kind
