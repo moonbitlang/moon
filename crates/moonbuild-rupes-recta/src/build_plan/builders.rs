@@ -699,7 +699,7 @@ impl<'a> BuildPlanConstructor<'a> {
                 });
 
                 // Push dependencies in reverse order so lexicographically smallest is processed first.
-                // Note: we don't check visited here to allow proper DFS traversal through all paths
+                // Skip already-visited nodes as an optimization (they would be filtered by the guard above anyway).
                 for dep in deps.into_iter().rev() {
                     if !visited.contains(&dep) {
                         stack.push((dep, false));
