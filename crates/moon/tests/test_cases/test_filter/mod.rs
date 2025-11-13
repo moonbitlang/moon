@@ -81,102 +81,13 @@ fn test_moon_test_filter_multi_package() {
         "#]],
     );
 
-    check(
-        get_stdout(
-            &dir,
-            [
-                "test",
-                "-p",
-                "username/hello/lib",
-                "username/hello/lib1",
-                "username/hello/lib2",
-                "-p",
-                "username/hello/lib3",
-                "--sort-input",
-                "--no-parallelize",
-            ],
-        ),
-        expect![[r#"
-            Hello from lib1
-
-            Hello from lib2
-
-            Hello from lib7
-            Hello from lib3
-
-            Hello from lib4
-            Hello from lib3
-
-            Hello from lib7
-            Hello from lib6
-            Total tests: 7, passed: 7, failed: 0.
-        "#]],
-    );
-
-    check(
-        get_stdout(
-            &dir,
-            [
-                "test",
-                "-p",
-                "username/hello/lib",
-                "username/hello/lib1",
-                "username/hello/lib2",
-                "-f",
-                "lib.mbt",
-                "-p",
-                "username/hello/lib3",
-                "--sort-input",
-                "--no-parallelize",
-            ],
-        ),
-        expect![[r#"
-            Hello from lib1
-
-            Hello from lib2
-
-            Hello from lib3
-
-            Hello from lib4
-            Hello from lib3
-
-            Hello from lib7
-            Total tests: 5, passed: 5, failed: 0.
-        "#]],
-    );
-
-    check(
-        get_stdout(
-            &dir,
-            [
-                "test",
-                "-p",
-                "username/hello/lib",
-                "username/hello/lib1",
-                "username/hello/lib2",
-                "-f",
-                "lib.mbt",
-                "-p",
-                "username/hello/lib3",
-                "-i",
-                "0",
-                "--sort-input",
-                "--no-parallelize",
-            ],
-        ),
-        expect![[r#"
-            Hello from lib1
-
-            Hello from lib2
-
-            Hello from lib3
-
-            Hello from lib4
-            Hello from lib3
-
-            Total tests: 4, passed: 4, failed: 0.
-        "#]],
-    );
+    // Note: Previously there were tests that looked like this:
+    // `moon test -p a b c --file file.mbt --index i`
+    // which means to select, separately, the `i`th test in `a/file.mbt`,
+    // `b/file.mbt`, `c/file.mbt`.
+    //
+    // Since this usage is too cursed, RR banned it so one can only specify
+    // files when a single package is selected. Thus, these tests are removed.
 }
 
 #[test]
