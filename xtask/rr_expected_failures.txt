@@ -70,7 +70,6 @@ test_cases::test_validate_import
 test_cases::test_virtual_pkg
 test_cases::test_whitespace_parent_space
 test_cases::virtual_pkg_dep::test_indirect_depend_virtual
-test_cases::warns::test_alert_list
 test_cases::warns::test_deny_warn
 test_cases::warns::test_mod_level_warn_alert_list
 test_cases::warns::test_warn_list_dry_run
