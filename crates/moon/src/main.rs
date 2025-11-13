@@ -52,7 +52,8 @@ fn init_tracing() -> Box<dyn Any> {
     let fmt = tracing_subscriber::fmt::layer()
         .with_ansi(true)
         .with_line_number(log_env_set)
-        .with_level(true);
+        .with_level(true)
+        .with_writer(std::io::stderr);
     let fmt = if !log_env_set {
         fmt.with_target(false).without_time().boxed()
     } else {
