@@ -186,6 +186,7 @@ impl<'a> BuildPlanLowerContext<'a> {
 
             check_mi,
             virtual_implementation,
+            value_tracing: info.value_tracing,
         }
     }
 

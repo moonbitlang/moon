@@ -182,6 +182,9 @@ pub struct BuildCommonConfig<'a> {
 
     // Emit -no-mi if true
     pub no_mi: bool,
+
+    // Emit -value-tracing if true
+    pub value_tracing: bool,
 }
 
 impl<'a> Default for BuildCommonConfig<'a> {
@@ -198,6 +201,7 @@ impl<'a> Default for BuildCommonConfig<'a> {
             virtual_implementation: None,
             patch_file: None,
             no_mi: false,
+            value_tracing: false,
         }
     }
 }
@@ -324,6 +328,13 @@ impl<'a> BuildCommonConfig<'a> {
     pub fn add_no_mi(&self, args: &mut Vec<String>) {
         if self.no_mi {
             args.push("-no-mi".to_string());
+        }
+    }
+
+    /// Emit -enable-value-tracing if enabled
+    pub fn add_enable_value_tracing(&self, args: &mut Vec<String>) {
+        if self.value_tracing {
+            args.push("-enable-value-tracing".to_string());
         }
     }
 }

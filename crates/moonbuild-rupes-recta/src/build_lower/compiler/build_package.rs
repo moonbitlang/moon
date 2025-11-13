@@ -130,8 +130,12 @@ impl<'a> MooncBuildPackage<'a> {
         // Virtual package implementation
         self.defaults.add_virtual_package_implementation_build(args);
 
-        // Workspace root
         self.required.add_test_mode_args(args);
+
+        // -enable-value-tracing after test mode flags
+        self.defaults.add_enable_value_tracing(args);
+
+        // Workspace root
         self.defaults.add_workspace_root(args);
     }
 }

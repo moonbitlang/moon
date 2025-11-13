@@ -240,6 +240,9 @@ pub struct BuildTargetInfo {
 
     // we currently don't need this, as it's directly copied from mod.json.
     // pub is_main: bool,
+
+    // Emit --enable-value-tracing if true
+    pub(crate) value_tracing: bool,
 }
 
 impl BuildTargetInfo {
@@ -333,6 +336,12 @@ pub struct InputDirective {
     /// MAINTAINERS: A target with `TargetKind::InlineTest` will look for
     /// the patch file in `TargetKind::Source` too.
     pub specify_patch_file: Option<(BuildTarget, PathBuf)>,
+
+    /// Emit --enable-value-tracing for the given package's test targets. When
+    /// `moon test -p pkg --enable-value-tracing`, this will be set to
+    /// `Some(pkg)` so that only `pkg`'s test targets will emit
+    /// --enable-value-tracing but not its dependencies' test targets.
+    pub value_tracing: Option<PackageId>,
 }
 
 /// Represents errors that may occur during build graph construction.

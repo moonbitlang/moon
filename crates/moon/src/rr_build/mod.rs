@@ -110,6 +110,7 @@ impl From<(Vec<UserIntent>, InputDirective)> for CalcUserIntentOutput {
 pub fn build_patch_directive_for_package(
     pkg: PackageId,
     no_mi: bool,
+    value_tracing: Option<PackageId>,
     patch_file: Option<&Path>,
 ) -> anyhow::Result<InputDirective> {
     let patch_directive = if let Some(path) = patch_file {
@@ -131,6 +132,7 @@ pub fn build_patch_directive_for_package(
     Ok(InputDirective {
         specify_no_mi_for: no_mi.then_some(pkg),
         specify_patch_file: patch_directive,
+        value_tracing,
     })
 }
 
