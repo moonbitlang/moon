@@ -17,7 +17,7 @@
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
 use crate::{
-    dep_dir::DepDir,
+    dep_dir::{DepDir, resolve_dep_dirs},
     resolver::{ResolveConfig, resolve_single_root_with_defaults},
 };
 
@@ -25,7 +25,7 @@ use anyhow::Context;
 use moonutil::{
     common::{DiagnosticLevel, MOONBITLANG_CORE, read_module_desc_file_in_dir},
     module::MoonMod,
-    mooncakes::{ModuleSource, result::ResolvedEnv},
+    mooncakes::{DirSyncResult, ModuleSource, result::ResolvedEnv},
     scan::scan,
 };
 use std::{
@@ -56,7 +56,7 @@ pub(crate) fn install_impl(
     verbose: bool,
     dont_sync: bool,
     no_std: bool,
-) -> anyhow::Result<(ResolvedEnv, DepDir)> {
+) -> anyhow::Result<(ResolvedEnv, DirSyncResult)> {
     let registry = crate::registry::RegistryList::with_default_registry();
 
     let is_stdlib = m.name == MOONBITLANG_CORE;
@@ -73,9 +73,12 @@ pub(crate) fn install_impl(
     crate::dep_dir::sync_deps(&dep_dir, &resolve_config.registries, &res, quiet, dont_sync)
         .context("When installing packages")?;
 
+    let dir_sync_result = resolve_dep_dirs(&dep_dir, &res);
+
+    // TODO: Use `dir_sync_result` to **correctly** find paths to dependencies
     install_bin_deps(m, verbose, &res, &dep_dir)?;
 
-    Ok((res, dep_dir))
+    Ok((res, dir_sync_result))
 }
 
 fn install_bin_deps(
@@ -85,8 +88,7 @@ fn install_bin_deps(
     dep_dir: &DepDir,
 ) -> Result<(), anyhow::Error> {
     if let Some(ref bin_deps) = m.bin_deps {
-        let moon_path = std::env::current_exe()
-            .map_or_else(|_| "moon".into(), |x| x.to_string_lossy().into_owned());
+        let moon_path = moonutil::BINARIES.moonbuild.to_string_lossy();
 
         for (bin_mod_to_install, info) in bin_deps {
             let bin_mod_path = match info.path {

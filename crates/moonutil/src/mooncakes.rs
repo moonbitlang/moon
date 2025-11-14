@@ -327,14 +327,14 @@ pub mod result {
 
     pub type DependencyKey = ModuleName;
 
-    #[derive(Debug)]
+    #[derive(Debug, Clone)]
     struct ResolvedModule {
         source: ModuleSource,
         value: Arc<MoonMod>,
     }
 
     /// The result of a dependency resolution.
-    #[derive(Debug)]
+    #[derive(Debug, Clone)]
     pub struct ResolvedEnv {
         /// The list of module IDs that are provided as the input to the resolver.
         input_module_ids: Vec<ModuleId>,

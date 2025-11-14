@@ -16,12 +16,14 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
+pub mod build_binary_dep;
 pub mod embed;
 pub mod format_and_diff;
 pub mod write_rsp_file;
 
 use embed::*;
 use format_and_diff::*;
+use moonutil::cli::UniversalFlags;
 use write_rsp_file::*;
 
 #[derive(Debug, clap::Parser)]
@@ -35,12 +37,16 @@ pub enum ToolSubcommands {
     FormatAndDiff(FormatAndDiffSubcommand),
     Embed(Embed),
     WriteTccRspFile(WriteTccRspFile),
+    BuildBinaryDep(build_binary_dep::BuildBinaryDepArgs),
 }
 
-pub fn run_tool(cmd: ToolSubcommand) -> anyhow::Result<i32> {
+pub fn run_tool(cli: &UniversalFlags, cmd: ToolSubcommand) -> anyhow::Result<i32> {
     match cmd.subcommand {
         ToolSubcommands::FormatAndDiff(subcmd) => run_format_and_diff(subcmd),
         ToolSubcommands::Embed(subcmd) => run_embed(subcmd),
         ToolSubcommands::WriteTccRspFile(subcmd) => write_tcc_rsp_file(subcmd),
+        ToolSubcommands::BuildBinaryDep(subcmd) => {
+            build_binary_dep::run_build_binary_dep(cli, &subcmd)
+        }
     }
 }

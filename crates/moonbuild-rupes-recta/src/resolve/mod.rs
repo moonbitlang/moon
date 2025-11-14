@@ -40,6 +40,7 @@ use crate::{
 };
 
 /// Represents the overall result of a resolve process.
+#[derive(Debug, Clone)]
 pub struct ResolveOutput {
     /// Module dependency relationship
     pub module_rel: ResolvedEnv,

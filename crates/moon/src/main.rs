@@ -121,7 +121,7 @@ pub fn main() {
         Upgrade(u) => cli::run_upgrade(flags, u),
         ShellCompletion(gs) => cli::gen_shellcomp(&flags, gs),
         Version(v) => cli::run_version(&flags, v),
-        Tool(v) => cli::run_tool(v),
+        Tool(v) => cli::run_tool(&flags, v),
         External(args) => cli::run_external(args),
     };
 
