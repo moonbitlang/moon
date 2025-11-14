@@ -23,11 +23,6 @@ test_cases::test_no_warn_deps
 test_cases::test_nonexistent_package
 test_cases::test_run_doc_test
 test_cases::test_run_md_test
-test_cases::test_snapshot_test
-test_cases::test_snapshot_test_target_js
-test_cases::test_specify_source_dir_001
-test_cases::test_specify_source_dir_002
-test_cases::test_specify_source_dir_005
 test_cases::test_specify_source_dir_with_deps
 test_cases::test_specify_source_dir_with_deps_002
 test_cases::test_sub_package
