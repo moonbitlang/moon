@@ -352,7 +352,7 @@ fn discover_virtual_mbti(
 
 // Be careful adding more fields to this struct. If it's not needed everywhere,
 // consider calculating it on-demand instead of storing it.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct DiscoveredPackage {
     /// The folder of the package in source tree
     pub root_path: PathBuf,
@@ -433,7 +433,7 @@ impl DiscoveredPackage {
 }
 
 /// The result of a package discovery process.
-#[derive(Debug, Default)]
+#[derive(Debug, Clone, Default)]
 pub struct DiscoverResult {
     /// The directory of all discovered packages
     packages: SlotMap<PackageId, DiscoveredPackage>,

@@ -316,7 +316,7 @@ impl std::str::FromStr for ModuleSource {
 pub static DEFAULT_VERSION: Version = Version::new(0, 0, 0);
 
 pub mod result {
-    use std::{collections::HashMap, sync::Arc};
+    use std::{collections::HashMap, str::FromStr, sync::Arc};
 
     use petgraph::graphmap::DiGraphMap;
     use slotmap::SlotMap;
@@ -325,16 +325,51 @@ pub mod result {
 
     use super::{ModuleId, ModuleName, ModuleSource};
 
-    pub type DependencyKey = ModuleName;
+    /// The kind of dependency between modules.
+    #[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
+    pub enum DependencyKind {
+        Regular,
+        Binary,
+    }
 
-    #[derive(Debug)]
+    #[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
+    pub struct DependencyEdge {
+        pub name: ModuleName,
+        pub kind: DependencyKind,
+    }
+
+    // Only used in tests
+    impl FromStr for DependencyEdge {
+        type Err = String;
+
+        fn from_str(s: &str) -> Result<Self, Self::Err> {
+            let name = s.parse()?;
+            Ok(DependencyEdge {
+                name,
+                kind: DependencyKind::Regular,
+            })
+        }
+    }
+
+    impl std::fmt::Display for DependencyEdge {
+        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            write!(f, "{}", self.name)?;
+            if self.kind == DependencyKind::Binary {
+                write!(f, " (binary)")
+            } else {
+                Ok(())
+            }
+        }
+    }
+
+    #[derive(Debug, Clone)]
     struct ResolvedModule {
         source: ModuleSource,
         value: Arc<MoonMod>,
     }
 
     /// The result of a dependency resolution.
-    #[derive(Debug)]
+    #[derive(Debug, Clone)]
     pub struct ResolvedEnv {
         /// The list of module IDs that are provided as the input to the resolver.
         input_module_ids: Vec<ModuleId>,
@@ -354,7 +389,7 @@ pub mod result {
         /// The real dependency graph. Edges are labelled with the key of the dependency.
         ///
         /// Edges should point from dependents (downstream) to dependencies (upstream).
-        dep_graph: DiGraphMap<ModuleId, DependencyKey>,
+        dep_graph: DiGraphMap<ModuleId, DependencyEdge>,
     }
 
     impl ResolvedEnv {
@@ -374,7 +409,7 @@ pub mod result {
             &self.mapping[id].value
         }
 
-        pub fn graph(&self) -> &DiGraphMap<ModuleId, DependencyKey> {
+        pub fn graph(&self) -> &DiGraphMap<ModuleId, DependencyEdge> {
             &self.dep_graph
         }
 
@@ -392,14 +427,14 @@ pub mod result {
         pub fn deps_keyed(
             &self,
             id: ModuleId,
-        ) -> impl Iterator<Item = (ModuleId, &DependencyKey)> + '_ {
+        ) -> impl Iterator<Item = (ModuleId, &DependencyEdge)> + '_ {
             self.dep_graph
                 .edges_directed(id, petgraph::Direction::Outgoing)
                 .map(|(_s, t, k)| (t, k))
         }
 
         /// Get the module that `id` depends on, using `dep` as the key in the module manifest.
-        pub fn dep_with_key(&self, id: ModuleId, dep: &DependencyKey) -> Option<ModuleId> {
+        pub fn dep_with_key(&self, id: ModuleId, dep: &DependencyEdge) -> Option<ModuleId> {
             // FIXME: This is not very efficient
             self.dep_graph
                 .edges_directed(id, petgraph::Direction::Outgoing)
@@ -465,14 +500,21 @@ pub mod result {
 
                 // Add a dependency to the standard library module
                 if let Some(stdlib) = self.stdlib {
-                    self.dep_graph.add_edge(id, stdlib, MOD_NAME_STDLIB.clone());
+                    self.dep_graph.add_edge(
+                        id,
+                        stdlib,
+                        DependencyEdge {
+                            name: MOD_NAME_STDLIB.clone(),
+                            kind: DependencyKind::Regular,
+                        },
+                    );
                 }
 
                 id
             }
         }
 
-        pub fn add_dependency(&mut self, from: ModuleId, to: ModuleId, key: &DependencyKey) {
+        pub fn add_dependency(&mut self, from: ModuleId, to: ModuleId, key: &DependencyEdge) {
             self.dep_graph.add_edge(from, to, key.to_owned());
         }
     }
