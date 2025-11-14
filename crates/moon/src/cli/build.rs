@@ -44,6 +44,7 @@ use crate::filter::match_packages_by_name_rr;
 use crate::filter::{canonicalize_with_filename, filter_pkg_by_dir};
 use crate::rr_build;
 use crate::rr_build::BuildConfig;
+use crate::rr_build::BuildMeta;
 use crate::rr_build::CalcUserIntentOutput;
 use crate::rr_build::preconfig_compile;
 use crate::watch::WatchOutput;
@@ -151,7 +152,7 @@ fn run_build_rr(
         OptLevel::Release,
         RunMode::Build,
     );
-    let (_build_meta, build_graph) = rr_build::plan_build(
+    let (build_meta, build_graph) = rr_build::plan_build(
         preconfig,
         &cli.unstable_feature,
         source_dir,
@@ -168,7 +169,7 @@ fn run_build_rr(
 
     // Prepare for `watch` mode
     let prebuild_list = if _watch {
-        rr_get_prebuild_ignored_paths(&_build_meta.resolve_output)
+        rr_get_prebuild_ignored_paths(&build_meta.resolve_output)
     } else {
         Vec::new()
     };
@@ -176,7 +177,7 @@ fn run_build_rr(
     let ok = if cli.dry_run {
         rr_build::print_dry_run(
             &build_graph,
-            _build_meta.artifacts.values(),
+            build_meta.artifacts.values(),
             source_dir,
             target_dir,
         );
@@ -190,12 +191,95 @@ fn run_build_rr(
             target_dir,
         )?;
         result.print_info(cli.quiet, "building")?;
-        result.successful()
+        let success = result.successful();
+
+        // `moon build --install-path` support
+        if success {
+            if let Some(ref install_dir) = cmd.install_path {
+                install_build_rr(&build_meta, install_dir, cmd.bin_alias.as_deref())?;
+            }
+        }
+        success
     };
     Ok(WatchOutput {
         ok,
         additional_ignored_paths: prebuild_list,
     })
+}
+
+/// Handle `moon build --install-path`
+fn install_build_rr(
+    meta: &BuildMeta,
+    install_dir: &Path,
+    bin_alias: Option<&str>,
+) -> anyhow::Result<()> {
+    // Assume one artifact node and one artifact file
+    let (_, arts) = meta
+        .artifacts
+        .iter()
+        .next()
+        .context("RR build should yield exactly one artifact node")?;
+    let artifact = arts
+        .artifacts
+        .get(0)
+        .context("RR build should yield exactly one artifact file")?;
+
+    // Build command using existing runtime mapping, then shlex-join
+    let guard = crate::run::command_for(meta.target_backend, artifact, None)?;
+    let parts = std::iter::once(guard.command.as_std().get_program())
+        .chain(guard.command.as_std().get_args())
+        .map(|x| x.to_string_lossy().to_string())
+        .collect::<Vec<_>>();
+    let line = shlex::try_join(parts.iter().map(|s| &**s))
+        .expect("unexpected null byte in args when forming exec command");
+
+    // Determine filename
+    let name = bin_alias
+        .map(|s| s.to_string())
+        .or_else(|| {
+            artifact
+                .file_stem()
+                .and_then(|s| s.to_str())
+                .map(|s| s.to_string())
+        })
+        .unwrap_or_else(|| "moonbin".to_string());
+
+    // Write a minimal launcher script
+    #[cfg(unix)]
+    {
+        let path = install_dir.join(&name);
+        std::fs::create_dir_all(install_dir)?;
+        let script = format!(
+            "#!/usr/bin/env bash\nset -euo pipefail\nexec {line} \"$@\"\n",
+            line = line
+        );
+        std::fs::write(&path, script)?;
+        // chmod 0755
+        std::fs::set_permissions(&path, std::os::unix::fs::PermissionsExt::from_mode(0o755))?;
+        Ok(())
+    }
+    #[cfg(windows)]
+    {
+        let name_ps1 = if name.to_ascii_lowercase().ends_with(".ps1") {
+            name
+        } else {
+            format!("{name}.ps1")
+        };
+        let path = install_dir.join(name_ps1);
+        std::fs::create_dir_all(install_dir)?;
+        let script = format!(
+            "$ErrorActionPreference = \"Stop\"\nInvoke-Expression \"{line} $Args\"\n",
+            line = line
+        );
+        std::fs::write(&path, script)?;
+        Ok(())
+    }
+    #[cfg(not(any(unix, windows)))]
+    {
+        Err(anyhow!(
+            "Installing build artifacts is not supported on this platform"
+        ))
+    }
 }
 
 #[instrument(skip_all)]
