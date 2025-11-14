@@ -49,15 +49,12 @@ use crate::{
 
 #[derive(clap::Args, Debug)]
 pub struct BuildBinaryDepArgs {
-    /// The path to the module containing the binary dependency.
-    root_path: PathBuf,
-
     /// The name of the package to build and install, without the module name prefix.
     /// The top-level package can be specified as an empty string.
     pkg_names: Vec<String>,
 
     /// Whether to build and install all binary packages in the module.
-    #[clap(long, conflicts_with = "pkg_name")]
+    #[clap(long, conflicts_with = "pkg_names")]
     all_pkgs: bool,
 
     /// The parent directory where the binary module is installed to.

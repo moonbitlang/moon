@@ -17,21 +17,20 @@
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
 use crate::{
-    dep_dir::{DepDir, resolve_dep_dirs},
+    dep_dir::resolve_dep_dirs,
     resolver::{ResolveConfig, resolve_single_root_with_defaults},
 };
 
 use anyhow::Context;
 use moonutil::{
-    common::{DiagnosticLevel, MOONBITLANG_CORE, read_module_desc_file_in_dir},
+    common::{MOONBITLANG_CORE, read_module_desc_file_in_dir},
     module::MoonMod,
-    mooncakes::{DirSyncResult, ModuleSource, result::ResolvedEnv},
-    scan::scan,
+    mooncakes::{
+        DirSyncResult, ModuleSource,
+        result::{DependencyKind, ResolvedEnv},
+    },
 };
-use std::{
-    path::{Path, PathBuf},
-    sync::Arc,
-};
+use std::{path::Path, sync::Arc};
 
 /// Install dependencies
 #[derive(Debug, clap::Parser)]
@@ -75,8 +74,7 @@ pub(crate) fn install_impl(
 
     let dir_sync_result = resolve_dep_dirs(&dep_dir, &res);
 
-    // TODO: Use `dir_sync_result` to **correctly** find paths to dependencies
-    install_bin_deps(m, verbose, &res, &dep_dir)?;
+    install_bin_deps(m, verbose, &res, &dir_sync_result)?;
 
     Ok((res, dir_sync_result))
 }
@@ -85,140 +83,67 @@ fn install_bin_deps(
     m: Arc<MoonMod>,
     verbose: bool,
     res: &ResolvedEnv,
-    dep_dir: &DepDir,
+    dep_dir: &DirSyncResult,
 ) -> Result<(), anyhow::Error> {
     if let Some(ref bin_deps) = m.bin_deps {
         let moon_path = moonutil::BINARIES.moonbuild.to_string_lossy();
 
-        for (bin_mod_to_install, info) in bin_deps {
-            let bin_mod_path = match info.path {
-                Some(ref path) => PathBuf::from(path),
-                None => dep_dir.path().join(bin_mod_to_install),
-            };
+        let main_module = res.input_module_ids()[0];
+        let bin_deps_iter = res
+            .deps_keyed(main_module)
+            .filter(|(_, edge)| edge.kind == DependencyKind::Binary);
+        for (id, edge) in bin_deps_iter {
+            let info = bin_deps
+                .get(&edge.name.to_string()) // inefficient but fine for now
+                .unwrap();
 
-            if !bin_mod_path.exists() {
-                anyhow::bail!(
-                    "binary module `{}` not found in `{}`",
-                    bin_mod_to_install,
-                    dep_dir.path().display()
-                );
+            let path = dep_dir.get(id).expect("Failed to get dep dir");
+            let mut cmd = std::process::Command::new(moon_path.as_ref());
+            cmd.args(["tool", "build-binary-dep"]);
+            // root_path
+            cmd.arg("-C");
+            cmd.arg(path);
+            // pkg_names
+            if let Some(pkgs) = info.bin_pkg.as_ref() {
+                cmd.args(pkgs.iter());
+            } else {
+                cmd.arg("--all-pkgs");
+            }
+            // install path
+            cmd.arg("--install-path");
+            cmd.arg(path);
+
+            if !verbose {
+                cmd.arg("--quiet");
             }
 
-            let module_db = get_module_db(&bin_mod_path, res, dep_dir)?;
-
-            if let Some(ref bin_pkg) = info.bin_pkg {
-                for pkg_name in bin_pkg {
-                    let full_pkg_name = format!("{bin_mod_to_install}/{pkg_name}");
-
-                    let pkg = module_db.get_package_by_name_safe(&full_pkg_name);
-                    match pkg {
-                        Some(pkg) => {
-                            build_and_install_bin_package(
-                                &moon_path,
-                                &bin_mod_path,
-                                &full_pkg_name,
-                                &bin_mod_path,
-                                pkg.bin_target.to_backend_ext(),
-                                verbose,
-                            )?;
-                        }
-                        _ => anyhow::bail!(format!("package `{}` not found", full_pkg_name)),
-                    }
-                }
-            } else {
-                for (full_pkg_name, pkg) in module_db
-                    .get_all_packages()
-                    .iter()
-                    .filter(|(_, p)| p.is_main && !p.is_third_party)
-                {
-                    build_and_install_bin_package(
-                        &moon_path,
-                        &bin_mod_path,
-                        full_pkg_name,
-                        &bin_mod_path,
-                        pkg.bin_target.to_backend_ext(),
-                        verbose,
-                    )?;
-                }
+            // Run it
+            if verbose {
+                eprintln!("Installing binary dependency `{}`", edge.name);
+            }
+            let status = cmd
+                .spawn()
+                .with_context(|| {
+                    format!(
+                        "Failed to spawn build process for binary dep `{}`",
+                        edge.name
+                    )
+                })?
+                .wait()
+                .with_context(|| {
+                    format!(
+                        "Failed to wait for build process of binary dep `{}`",
+                        edge.name
+                    )
+                })?;
+            if !status.success() {
+                return Err(anyhow::anyhow!(
+                    "Building binary dependency `{}` failed",
+                    edge.name
+                ));
             }
         }
     }
 
     Ok(())
-}
-
-fn build_and_install_bin_package(
-    moon_path: &str,
-    bin_mod_path: &Path,
-    full_pkg_name: &str,
-    install_path: &Path,
-    bin_target: impl AsRef<str>,
-    verbose: bool,
-) -> anyhow::Result<()> {
-    let mut build_args = vec![
-        "build".to_string(),
-        "--source-dir".to_string(),
-        bin_mod_path.display().to_string(),
-        "--install-path".to_string(),
-        install_path.display().to_string(),
-        "--target".to_string(),
-        bin_target.as_ref().to_string(),
-        "--package".to_string(),
-        full_pkg_name.to_string(),
-    ];
-
-    if !verbose {
-        build_args.push("--quiet".to_string());
-    }
-
-    if verbose {
-        eprintln!("Installing binary package `{full_pkg_name}`");
-    }
-
-    std::process::Command::new(moon_path)
-        .args(&build_args)
-        .spawn()
-        .with_context(|| format!("Failed to spawn build process for {full_pkg_name}"))?
-        .wait()
-        .with_context(|| format!("Failed to wait for build process of {full_pkg_name}"))?;
-
-    Ok(())
-}
-
-fn get_module_db(
-    source_dir: &Path,
-    resolved_env: &ResolvedEnv,
-    dep_dir: &DepDir,
-) -> anyhow::Result<moonutil::module::ModuleDB> {
-    let dir_sync_result = crate::dep_dir::resolve_dep_dirs(dep_dir, resolved_env);
-    let moonbuild_opt = moonutil::common::MoonbuildOpt {
-        source_dir: source_dir.to_path_buf(),
-        raw_target_dir: source_dir.join("target"),
-        target_dir: source_dir.join("target"),
-        test_opt: None,
-        check_opt: None,
-        build_opt: None,
-        sort_input: false,
-        run_mode: moonutil::common::RunMode::Build,
-        quiet: true,
-        verbose: false,
-        no_parallelize: false,
-        build_graph: false,
-        fmt_opt: None,
-        args: vec![],
-        no_render_output: false,
-        parallelism: None, // we don't care about parallelism here
-        use_tcc_run: false,
-        dynamic_stub_libs: None,
-        render_no_loc: DiagnosticLevel::default(),
-    };
-    let module_db = scan(
-        false,
-        None,
-        resolved_env,
-        &dir_sync_result,
-        &moonutil::common::MooncOpt::default(),
-        &moonbuild_opt,
-    )?;
-    Ok(module_db)
 }
