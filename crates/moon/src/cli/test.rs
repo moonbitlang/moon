@@ -702,7 +702,7 @@ fn run_test_rr(
             .map(|t| t.to_backend_ext());
 
         if cmd.update {
-            let mut loop_count = 0;
+            let mut loop_count = 1; // matching legacy; we already have 1 test run before
             let mut last_test_result = None;
             loop {
                 // Promote test results
