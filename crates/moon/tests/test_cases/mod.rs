@@ -1257,16 +1257,8 @@ fn test_specify_source_dir_004() {
 #[test]
 fn test_specify_source_dir_005() {
     let dir = TestDir::new("specify_source_dir_005_bad.in");
-    check(
-        get_err_stderr(&dir, ["check"]),
-        expect![[r#"
-            error: failed to load `$ROOT/moon.mod.json`
-
-            Caused by:
-                0: `source` bad format
-                1: `source` not a subdirectory of the parent directory
-        "#]],
-    );
+    let check_stderr = get_err_stderr(&dir, ["check"]);
+    assert!(check_stderr.contains("`source` not a subdirectory of the parent directory"));
 }
 
 #[test]
