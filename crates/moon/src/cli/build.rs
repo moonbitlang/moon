@@ -22,6 +22,7 @@ use colored::Colorize;
 use moonbuild::dry_run;
 use moonbuild::entry;
 use moonbuild_rupes_recta::intent::UserIntent;
+use moonbuild_rupes_recta::model::PackageId;
 use mooncake::pkg::sync::auto_sync;
 use moonutil::common::BuildOpt;
 use moonutil::common::FileLock;
@@ -44,7 +45,6 @@ use crate::filter::match_packages_by_name_rr;
 use crate::filter::{canonicalize_with_filename, filter_pkg_by_dir};
 use crate::rr_build;
 use crate::rr_build::BuildConfig;
-use crate::rr_build::BuildMeta;
 use crate::rr_build::CalcUserIntentOutput;
 use crate::rr_build::preconfig_compile;
 use crate::watch::WatchOutput;
@@ -191,95 +191,13 @@ fn run_build_rr(
             target_dir,
         )?;
         result.print_info(cli.quiet, "building")?;
-        let success = result.successful();
 
-        // `moon build --install-path` support
-        if success {
-            if let Some(ref install_dir) = cmd.install_path {
-                install_build_rr(&build_meta, install_dir, cmd.bin_alias.as_deref())?;
-            }
-        }
-        success
+        result.successful()
     };
     Ok(WatchOutput {
         ok,
         additional_ignored_paths: prebuild_list,
     })
-}
-
-/// Handle `moon build --install-path`
-fn install_build_rr(
-    meta: &BuildMeta,
-    install_dir: &Path,
-    bin_alias: Option<&str>,
-) -> anyhow::Result<()> {
-    // Assume one artifact node and one artifact file
-    let (_, arts) = meta
-        .artifacts
-        .iter()
-        .next()
-        .context("RR build should yield exactly one artifact node")?;
-    let artifact = arts
-        .artifacts
-        .get(0)
-        .context("RR build should yield exactly one artifact file")?;
-
-    // Build command using existing runtime mapping, then shlex-join
-    let guard = crate::run::command_for(meta.target_backend, artifact, None)?;
-    let parts = std::iter::once(guard.command.as_std().get_program())
-        .chain(guard.command.as_std().get_args())
-        .map(|x| x.to_string_lossy().to_string())
-        .collect::<Vec<_>>();
-    let line = shlex::try_join(parts.iter().map(|s| &**s))
-        .expect("unexpected null byte in args when forming exec command");
-
-    // Determine filename
-    let name = bin_alias
-        .map(|s| s.to_string())
-        .or_else(|| {
-            artifact
-                .file_stem()
-                .and_then(|s| s.to_str())
-                .map(|s| s.to_string())
-        })
-        .unwrap_or_else(|| "moonbin".to_string());
-
-    // Write a minimal launcher script
-    #[cfg(unix)]
-    {
-        let path = install_dir.join(&name);
-        std::fs::create_dir_all(install_dir)?;
-        let script = format!(
-            "#!/usr/bin/env bash\nset -euo pipefail\nexec {line} \"$@\"\n",
-            line = line
-        );
-        std::fs::write(&path, script)?;
-        // chmod 0755
-        std::fs::set_permissions(&path, std::os::unix::fs::PermissionsExt::from_mode(0o755))?;
-        Ok(())
-    }
-    #[cfg(windows)]
-    {
-        let name_ps1 = if name.to_ascii_lowercase().ends_with(".ps1") {
-            name
-        } else {
-            format!("{name}.ps1")
-        };
-        let path = install_dir.join(name_ps1);
-        std::fs::create_dir_all(install_dir)?;
-        let script = format!(
-            "$ErrorActionPreference = \"Stop\"\nInvoke-Expression \"{line} $Args\"\n",
-            line = line
-        );
-        std::fs::write(&path, script)?;
-        Ok(())
-    }
-    #[cfg(not(any(unix, windows)))]
-    {
-        Err(anyhow!(
-            "Installing build artifacts is not supported on this platform"
-        ))
-    }
 }
 
 #[instrument(skip_all)]
@@ -462,13 +380,8 @@ fn calc_user_intent(
             .pkg_dirs
             .packages_for_module(main_module_id)
             .ok_or_else(|| anyhow!("Cannot find the local module!"))?;
-        let mut linkable_pkgs = vec![];
-        for &pkg_id in packages.values() {
-            let pkg = resolve_output.pkg_dirs.get_package(pkg_id);
-            if pkg.raw.force_link || pkg.raw.link.is_some() || pkg.raw.is_main {
-                linkable_pkgs.push(pkg_id)
-            }
-        }
+        let linkable_pkgs =
+            get_linkable_pkgs(resolve_output, main_module_id, packages.values().cloned())?;
         let intents: Vec<_> = if linkable_pkgs.is_empty() {
             packages
                 .iter()
@@ -479,4 +392,23 @@ fn calc_user_intent(
         };
         Ok(intents.into())
     }
+}
+
+pub fn get_linkable_pkgs(
+    resolve_output: &moonbuild_rupes_recta::ResolveOutput,
+    main_module_id: moonutil::mooncakes::ModuleId,
+    packages: impl Iterator<Item = PackageId>,
+) -> anyhow::Result<Vec<PackageId>> {
+    resolve_output
+        .pkg_dirs
+        .packages_for_module(main_module_id)
+        .ok_or_else(|| anyhow!("Cannot find the local module!"))?;
+    let mut linkable_pkgs = vec![];
+    for pkg_id in packages {
+        let pkg = resolve_output.pkg_dirs.get_package(pkg_id);
+        if pkg.raw.force_link || pkg.raw.link.is_some() || pkg.raw.is_main {
+            linkable_pkgs.push(pkg_id)
+        }
+    }
+    Ok(linkable_pkgs)
 }

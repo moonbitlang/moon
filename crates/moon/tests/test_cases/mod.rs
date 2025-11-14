@@ -2815,11 +2815,11 @@ fn test_moon_install_bin() {
     let top_dir = TestDir::new("moon_install_bin.in");
     let dir = top_dir.join("user.in");
 
-    let mut _1 = PathBuf::from("");
-    let mut _2 = PathBuf::from("");
-    let mut _3 = PathBuf::from("");
-    let mut _4 = PathBuf::from("");
-    let mut _5 = PathBuf::from("");
+    let _1;
+    let _2;
+    let _3;
+    let _4;
+    let _5;
 
     #[cfg(unix)]
     {
