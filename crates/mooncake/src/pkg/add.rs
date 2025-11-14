@@ -107,7 +107,10 @@ pub fn add(
         bin_deps.insert(
             pkg_name.to_string(),
             BinaryDependencyInfo {
-                version: moonutil::version::as_caret_version_req(version.clone()),
+                common: SourceDependencyInfo {
+                    version: moonutil::version::as_caret_version_req(version.clone()),
+                    ..Default::default()
+                },
                 ..Default::default()
             },
         );
