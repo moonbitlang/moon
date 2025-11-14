@@ -381,6 +381,10 @@ impl<'a> BuildPlanConstructor<'a> {
             specified_no_mi,
             patch_file,
             check_mi_against: mi_check_target,
+            value_tracing: self
+                .input_directive
+                .value_tracing
+                .is_some_and(|pkg| pkg == target.package),
         }
     }
 

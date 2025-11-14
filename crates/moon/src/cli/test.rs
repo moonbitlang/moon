@@ -848,6 +848,7 @@ fn apply_list_of_filters(
     index_filter: Option<u32>,
     doc_index_filter: Option<u32>,
     patch_file: Option<&Path>,
+    value_tracing: bool,
     out_filter: &mut TestFilter,
 ) -> Result<InputDirective, anyhow::Error> {
     let package_matches = match_packages_with_fuzzy(
@@ -874,9 +875,12 @@ fn apply_list_of_filters(
         } else {
             out_filter.add_autodetermine_target(pkg_id, file_filter, None);
         }
-
-        input_directive = rr_build::build_patch_directive_for_package(pkg_id, false, patch_file)
-            .context("failed to build input directive")?;
+        // Currently, value tracing is only supported for single package testing
+        // It's not sure whether we should support it for multiple packages
+        let trace_pkg = if value_tracing { Some(pkg_id) } else { None };
+        input_directive =
+            rr_build::build_patch_directive_for_package(pkg_id, false, trace_pkg, patch_file)
+                .context("failed to build input directive")?;
     } else if filtered_package_ids.len() > 1 {
         let package_names = || {
             filtered_package_ids
@@ -948,6 +952,7 @@ fn calc_user_intent(
         trace!("explicit file filter applied");
         Default::default()
     } else if let Some(package_filter) = cmd.package {
+        let value_tracing = cmd.build_flags.enable_value_tracing;
         apply_list_of_filters(
             &affected_packages,
             resolve_output,
@@ -956,6 +961,7 @@ fn calc_user_intent(
             *cmd.index,
             *cmd.doc_index,
             cmd.patch_file.as_deref(),
+            value_tracing,
             out_filter,
         )?
     } else {

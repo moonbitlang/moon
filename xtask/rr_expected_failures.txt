@@ -40,17 +40,12 @@ test_cases::test_specify_source_dir_with_deps
 test_cases::test_specify_source_dir_with_deps_002
 test_cases::test_sub_package
 test_cases::test_trace_001
-test_cases::test_tracing_value_for_main_func
-test_cases::test_tracing_value_for_test_block
+test_cases::value_tracing::test_tracing_value_for_single_file
 test_cases::test_use_cc_for_native_release
 test_cases::test_validate_import
 test_cases::test_virtual_pkg
-test_cases::test_whitespace_parent_space
 test_cases::virtual_pkg_dep::test_indirect_depend_virtual
-test_cases::warns::test_deny_warn
-test_cases::warns::test_mod_level_warn_alert_list
 test_cases::warns::test_warn_list_dry_run
-test_cases::whitespace_test
 
 # CI reported flaky tests
 test_cases::mooncakes_io_smoke_test
