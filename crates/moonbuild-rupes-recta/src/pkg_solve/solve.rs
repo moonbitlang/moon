@@ -528,7 +528,7 @@ fn inject_abort_usage(env: &mut ResolveEnv<'_>, pid: PackageId) {
             abort.build_target(TargetKind::Source),
             DepEdge {
                 short_alias: "moonbitlang/core/abort".into(),
-                kind: TargetKind::BlackboxTest,
+                kind: TargetKind::Source,
             },
         );
     }
