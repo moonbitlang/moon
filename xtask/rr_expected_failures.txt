@@ -17,12 +17,7 @@ test_cases::test_moon_test_release
 test_cases::test_native_backend_cc_flags_with_env_override
 test_cases::test_native_backend_tcc_run
 test_cases::test_native_stub_in_pkg_json
-test_cases::test_no_block_params
-test_cases::test_no_mi_for_test_pkg
-test_cases::test_no_warn_deps
 test_cases::test_nonexistent_package
-test_cases::test_run_doc_test
-test_cases::test_run_md_test
 test_cases::test_specify_source_dir_with_deps
 test_cases::test_specify_source_dir_with_deps_002
 test_cases::test_sub_package
