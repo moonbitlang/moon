@@ -20,6 +20,7 @@ use moonbuild_debug::graph::try_debug_dump_build_graph_to_file;
 use moonutil::module::ModuleDB;
 use n2::densemap::Index;
 use n2::graph::{BuildId, FileId, Graph};
+use std::borrow::Cow;
 use std::collections::{HashMap, HashSet};
 
 use std::path::Path;
@@ -43,20 +44,24 @@ pub fn print_build_commands(
         for b in builds.iter() {
             let build = &graph.builds[*b];
             if let Some(cmdline) = &build.cmdline {
-                if in_same_dir {
-                    // TODO: this replace is not safe
-                    println!(
-                        "{}",
-                        cmdline.replace(&source_dir.display().to_string(), ".")
-                    );
-                } else {
-                    println!("{cmdline}");
-                }
+                let res = replace_path(source_dir, in_same_dir, cmdline);
+                println!("{}", res);
             }
         }
     }
 
     try_debug_dump_build_graph_to_file(graph, default, source_dir);
+}
+
+pub fn replace_path<'a>(source_dir: &Path, in_same_dir: bool, cmdline: &'a str) -> Cow<'a, str> {
+    if in_same_dir {
+        // TODO: this replace is not safe
+        cmdline
+            .replace(&source_dir.display().to_string(), ".")
+            .into()
+    } else {
+        Cow::Borrowed(cmdline)
+    }
 }
 
 /// Print run commands from a State

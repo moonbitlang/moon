@@ -413,7 +413,7 @@ fn run_run_rr(cli: &UniversalFlags, cmd: RunSubcommand) -> Result<i32, anyhow::E
         );
 
         let run_cmd = get_run_cmd(&build_meta, &cmd.args)?;
-        rr_build::dry_print_command(run_cmd.command.as_std());
+        rr_build::dry_print_command(run_cmd.command.as_std(), &source_dir);
 
         Ok(0)
     } else {
