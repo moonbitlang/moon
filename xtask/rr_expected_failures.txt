@@ -10,7 +10,6 @@ cmd_test::cmd_test
 test_cases::test_moon_install_bin
 test_cases::test_moon_package_list
 test_cases::test_moon_run_native
-test_cases::test_moon_run_single_mbt_file
 test_cases::test_moon_run_with_cli_args
 test_cases::test_moon_test_patch
 test_cases::test_moon_test_release
@@ -22,7 +21,6 @@ test_cases::test_specify_source_dir_with_deps
 test_cases::test_specify_source_dir_with_deps_002
 test_cases::test_sub_package
 test_cases::test_trace_001
-test_cases::value_tracing::test_tracing_value_for_single_file
 test_cases::test_use_cc_for_native_release
 test_cases::test_validate_import
 test_cases::test_virtual_pkg

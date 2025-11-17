@@ -75,6 +75,33 @@ pub struct RunSubcommand {
 
 #[instrument(skip_all)]
 pub fn run_run(cli: &UniversalFlags, cmd: RunSubcommand) -> anyhow::Result<i32> {
+    // Falling back to legacy to support running standalone single mbt file This
+    // is currently how the `moon test` handles single file as well. We should
+    // have a RR solution later.
+    match cli.source_tgt_dir.try_into_package_dirs() {
+        Ok(_) => {
+            if cmd.package_or_mbt_file.ends_with(".mbt") {
+                let moon_pkg_json_exist = std::env::current_dir()?
+                    .join(&cmd.package_or_mbt_file)
+                    .parent()
+                    .is_some_and(|p| p.join(MOON_PKG_JSON).exists());
+                if !moon_pkg_json_exist {
+                    return run_single_mbt_file(cli, cmd);
+                }
+            }
+            // moon should report an error later if the source_dir doesn't
+            // contain moon.pkg.json
+        }
+        Err(e @ moonutil::dirs::PackageDirsError::NotInProject(_)) => {
+            if cmd.package_or_mbt_file.ends_with(".mbt") {
+                return run_single_mbt_file(cli, cmd);
+            } else {
+                return Err(e.into());
+            }
+        }
+        Err(e) => return Err(e.into()),
+    }
+
     if let Some(surface_targets) = &cmd.build_flags.target {
         for st in surface_targets.iter() {
             if *st == SurfaceTarget::All {
