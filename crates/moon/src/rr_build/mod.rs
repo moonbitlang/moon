@@ -112,6 +112,7 @@ pub fn build_patch_directive_for_package(
     no_mi: bool,
     value_tracing: Option<PackageId>,
     patch_file: Option<&Path>,
+    test_mode: bool,
 ) -> anyhow::Result<InputDirective> {
     let patch_directive = if let Some(path) = patch_file {
         let path_str = path
@@ -121,6 +122,9 @@ pub fn build_patch_directive_for_package(
             TargetKind::WhiteboxTest
         } else if path_str.ends_with(BLACKBOX_TEST_PATCH) {
             TargetKind::BlackboxTest
+        } else if test_mode {
+            // In tests the patches are applied to tests only
+            TargetKind::InlineTest
         } else {
             TargetKind::Source
         };

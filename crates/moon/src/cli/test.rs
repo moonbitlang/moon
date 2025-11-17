@@ -879,7 +879,7 @@ fn apply_list_of_filters(
         // It's not sure whether we should support it for multiple packages
         let trace_pkg = if value_tracing { Some(pkg_id) } else { None };
         input_directive =
-            rr_build::build_patch_directive_for_package(pkg_id, false, trace_pkg, patch_file)
+            rr_build::build_patch_directive_for_package(pkg_id, false, trace_pkg, patch_file, true)
                 .context("failed to build input directive")?;
     } else if filtered_package_ids.len() > 1 {
         let package_names = || {
