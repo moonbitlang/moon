@@ -100,12 +100,12 @@ pub fn print_run_commands(
 
             let mut moonrun_command = if let Some(cmd) = cmd {
                 let cmd = cmd.display();
-                format!("{cmd} {watfile}")
+                format!("{cmd} {watfile} --")
             } else {
                 watfile
             };
             if !args.is_empty() {
-                moonrun_command = format!("{moonrun_command} -- {}", args.join(" "));
+                moonrun_command = format!("{moonrun_command} {}", args.join(" "));
             }
 
             println!("{moonrun_command}");
