@@ -546,7 +546,7 @@ mod test {
 
         let deps_keyed = result.deps_keyed(id).collect::<Vec<_>>();
         expect![[r#"
-            "[(ModuleId(2v1), dep/two)]"
+            "[(ModuleId(2v1), DependencyEdge { name: dep/two, kind: Regular })]"
         "#]]
         .assert_debug_eq(&format!("{:?}", &deps_keyed));
 
