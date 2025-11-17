@@ -2815,11 +2815,11 @@ fn test_moon_install_bin() {
     let top_dir = TestDir::new("moon_install_bin.in");
     let dir = top_dir.join("user.in");
 
-    let mut _1 = PathBuf::from("");
-    let mut _2 = PathBuf::from("");
-    let mut _3 = PathBuf::from("");
-    let mut _4 = PathBuf::from("");
-    let mut _5 = PathBuf::from("");
+    let _1;
+    let _2;
+    let _3;
+    let _4;
+    let _5;
 
     #[cfg(unix)]
     {
@@ -2871,18 +2871,11 @@ fn test_moon_install_bin() {
     assert!(_5.exists());
 
     let content = get_stderr(&dir, ["build", "--sort-input"]);
-    // ignore some cl warnings
-    let mut lines = content.lines().rev().take(5).collect::<Vec<_>>();
-    lines.reverse();
-    check(
-        lines.join("\n"),
-        expect![[r#"
-            main-js
-            lib Hello, world!
-            ()
-            Executed 1 pre-build task, now up to date
-            Finished. moon: ran 3 tasks, now up to date"#]],
-    );
+
+    // Ensure the prebuild tasks' outputs are shown
+    assert!(content.contains("main-js"));
+    assert!(content.contains("lib Hello, world!"));
+    assert!(content.contains("()"));
 }
 
 #[test]

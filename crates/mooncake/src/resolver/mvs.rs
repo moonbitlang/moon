@@ -27,7 +27,10 @@ use colored::Colorize;
 use moonutil::{
     dependency::SourceDependencyInfo,
     module::MoonMod,
-    mooncakes::{ModuleName, ModuleSource, ModuleSourceKind, result::ResolvedEnv},
+    mooncakes::{
+        ModuleName, ModuleSource, ModuleSourceKind,
+        result::{DependencyEdge, DependencyKind, ResolvedEnv},
+    },
     version::as_caret_comparator,
 };
 use semver::Version;
@@ -326,16 +329,18 @@ fn mvs_resolve(
 
         let curr_id = *visited.get(&pkg).unwrap();
 
-        let mut all_deps = module.deps.clone();
-        all_deps.extend(
-            module
-                .bin_deps
-                .clone()
-                .unwrap_or_default()
-                .into_iter()
-                .map(|(k, v)| (k, v.into())),
-        );
-        for (dep_name, req) in &all_deps {
+        let regular_deps = module
+            .deps
+            .iter()
+            .map(|(k, v)| (k, v, DependencyKind::Regular));
+
+        let bin_deps = module.bin_deps.iter().flat_map(|map| {
+            map.iter()
+                .map(|(k, v)| (k, &v.common, DependencyKind::Binary))
+        });
+
+        let all_deps = regular_deps.chain(bin_deps);
+        for (dep_name, req, kind) in all_deps {
             let dep_name = dep_name.parse().unwrap();
             // If any malformed name, it should be reported in the previous round
 
@@ -359,7 +364,14 @@ fn mvs_resolve(
             log::debug!("---- {}.deps[{}] = {}", pkg, dep_name, resolved);
 
             // Add dependency
-            res.add_dependency(curr_id, id, &dep_name);
+            res.add_dependency(
+                curr_id,
+                id,
+                &DependencyEdge {
+                    name: dep_name,
+                    kind,
+                },
+            );
         }
     }
 
@@ -428,7 +440,7 @@ fn resolve_pkg(
 mod test {
     use expect_test::expect;
     use moonutil::mooncakes::ModuleId;
-    use moonutil::mooncakes::result::DependencyKey;
+    use moonutil::mooncakes::result::DependencyEdge;
     use petgraph::dot::{Config, Dot};
     use test_log::test;
 
@@ -534,12 +546,12 @@ mod test {
 
         let deps_keyed = result.deps_keyed(id).collect::<Vec<_>>();
         expect![[r#"
-            "[(ModuleId(2v1), dep/two)]"
+            "[(ModuleId(2v1), DependencyEdge { name: dep/two, kind: Regular })]"
         "#]]
         .assert_debug_eq(&format!("{:?}", &deps_keyed));
 
-        let key1 = "dep/two".parse::<DependencyKey>().unwrap();
-        let key2 = "dep/three".parse::<DependencyKey>().unwrap();
+        let key1 = "dep/two".parse::<DependencyEdge>().unwrap();
+        let key2 = "dep/three".parse::<DependencyEdge>().unwrap();
         let x1 = result.dep_with_key(id, &key1);
         let x2 = result.dep_with_key(id, &key2);
         expect!["(Some(ModuleId(2v1)), None)"].assert_eq(&format!("{:?}", (x1, x2)));

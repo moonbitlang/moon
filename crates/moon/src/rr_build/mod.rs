@@ -358,6 +358,27 @@ pub fn plan_build<'a>(
 
     info!("Resolve completed");
 
+    plan_build_from_resolved(
+        preconfig,
+        unstable_features,
+        target_dir,
+        calc_user_intent,
+        resolve_output,
+    )
+}
+
+/// Plan the build process from an already resolved environment.
+///
+/// This function exists because [someone demands target determination **after**
+/// resolving completes](crate::cli::tool::build_binary_dep). For most cases,
+/// use [`plan_build`] instead.
+pub fn plan_build_from_resolved<'a>(
+    preconfig: CompilePreConfig,
+    unstable_features: &'a FeatureGate,
+    target_dir: &'a Path,
+    calc_user_intent: Box<CalcUserIntentFn<'a>>,
+    resolve_output: ResolveOutput,
+) -> anyhow::Result<(BuildMeta, BuildInput)> {
     // A couple of debug things:
     if unstable_features.rr_export_module_graph {
         info!("Exporting module graph DOT file");

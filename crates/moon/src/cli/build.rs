@@ -22,6 +22,7 @@ use colored::Colorize;
 use moonbuild::dry_run;
 use moonbuild::entry;
 use moonbuild_rupes_recta::intent::UserIntent;
+use moonbuild_rupes_recta::model::PackageId;
 use mooncake::pkg::sync::auto_sync;
 use moonutil::common::BuildOpt;
 use moonutil::common::FileLock;
@@ -151,7 +152,7 @@ fn run_build_rr(
         OptLevel::Release,
         RunMode::Build,
     );
-    let (_build_meta, build_graph) = rr_build::plan_build(
+    let (build_meta, build_graph) = rr_build::plan_build(
         preconfig,
         &cli.unstable_feature,
         source_dir,
@@ -168,7 +169,7 @@ fn run_build_rr(
 
     // Prepare for `watch` mode
     let prebuild_list = if _watch {
-        rr_get_prebuild_ignored_paths(&_build_meta.resolve_output)
+        rr_get_prebuild_ignored_paths(&build_meta.resolve_output)
     } else {
         Vec::new()
     };
@@ -176,7 +177,7 @@ fn run_build_rr(
     let ok = if cli.dry_run {
         rr_build::print_dry_run(
             &build_graph,
-            _build_meta.artifacts.values(),
+            build_meta.artifacts.values(),
             source_dir,
             target_dir,
         );
@@ -190,6 +191,7 @@ fn run_build_rr(
             target_dir,
         )?;
         result.print_info(cli.quiet, "building")?;
+
         result.successful()
     };
     Ok(WatchOutput {
@@ -378,13 +380,8 @@ fn calc_user_intent(
             .pkg_dirs
             .packages_for_module(main_module_id)
             .ok_or_else(|| anyhow!("Cannot find the local module!"))?;
-        let mut linkable_pkgs = vec![];
-        for &pkg_id in packages.values() {
-            let pkg = resolve_output.pkg_dirs.get_package(pkg_id);
-            if pkg.raw.force_link || pkg.raw.link.is_some() || pkg.raw.is_main {
-                linkable_pkgs.push(pkg_id)
-            }
-        }
+        let linkable_pkgs =
+            get_linkable_pkgs(resolve_output, main_module_id, packages.values().cloned())?;
         let intents: Vec<_> = if linkable_pkgs.is_empty() {
             packages
                 .iter()
@@ -395,4 +392,23 @@ fn calc_user_intent(
         };
         Ok(intents.into())
     }
+}
+
+pub fn get_linkable_pkgs(
+    resolve_output: &moonbuild_rupes_recta::ResolveOutput,
+    main_module_id: moonutil::mooncakes::ModuleId,
+    packages: impl Iterator<Item = PackageId>,
+) -> anyhow::Result<Vec<PackageId>> {
+    resolve_output
+        .pkg_dirs
+        .packages_for_module(main_module_id)
+        .ok_or_else(|| anyhow!("Cannot find the local module!"))?;
+    let mut linkable_pkgs = vec![];
+    for pkg_id in packages {
+        let pkg = resolve_output.pkg_dirs.get_package(pkg_id);
+        if pkg.raw.force_link || pkg.raw.link.is_some() || pkg.raw.is_main {
+            linkable_pkgs.push(pkg_id)
+        }
+    }
+    Ok(linkable_pkgs)
 }
