@@ -26,6 +26,7 @@
 use moonutil::mooncakes::ModuleId;
 
 use crate::{
+    build_plan::InputDirective,
     cond_comp::get_file_target_backend,
     discover::DiscoveredPackage,
     model::{BuildPlanNode, PackageId, TargetKind},
@@ -68,7 +69,12 @@ impl UserIntent {
     /// Append the BuildPlanNode(s) represented by this intent to `out`.
     ///
     /// This does not deduplicate; callers can handle that if necessary.
-    pub fn append_nodes(self, resolved: &ResolveOutput, out: &mut Vec<BuildPlanNode>) {
+    pub fn append_nodes(
+        self,
+        resolved: &ResolveOutput,
+        out: &mut Vec<BuildPlanNode>,
+        directive: &InputDirective,
+    ) {
         match self {
             UserIntent::Build(pkg) => {
                 let pkg_info = resolved.pkg_dirs.get_package(pkg);
@@ -109,7 +115,7 @@ impl UserIntent {
                         // blackbox/whitebox tests otherwise we skip checking
                         // its blackbox/whitebox tests
 
-                        if has_whitebox_decl(resolved, pkg) {
+                        if has_whitebox_decl(resolved, pkg, directive) {
                             out.push(BuildPlanNode::check(
                                 pkg.build_target(TargetKind::WhiteboxTest),
                             ));
@@ -132,7 +138,9 @@ impl UserIntent {
                 } else {
                     // Emit paired nodes per test target; skip Whitebox if no *_wbtest.mbt declared.
                     for &k in TargetKind::all_tests() {
-                        if k == TargetKind::WhiteboxTest && !has_whitebox_decl(resolved, pkg) {
+                        if k == TargetKind::WhiteboxTest
+                            && !has_whitebox_decl(resolved, pkg, directive)
+                        {
                             continue;
                         }
                         let t = pkg.build_target(k);
@@ -166,7 +174,20 @@ fn is_linkable(pkg: &DiscoveredPackage) -> bool {
 }
 
 /// Determine if any *_wbtest.mbt files are declared by the package.
-fn has_whitebox_decl(resolved: &ResolveOutput, pkg_id: PackageId) -> bool {
+fn has_whitebox_decl(
+    resolved: &ResolveOutput,
+    pkg_id: PackageId,
+    directive: &InputDirective,
+) -> bool {
+    // If the user explicitly specified a patch file for whitebox tests, we consider
+    // that as an indication that whitebox tests are desired.
+    if let Some((target, _)) = &directive.specify_patch_file
+        && target == &pkg_id.build_target(TargetKind::WhiteboxTest)
+    {
+        return true;
+    }
+
+    // Otherwise, check the source files for any whitebox test declarations.
     let pkg = resolved.pkg_dirs.get_package(pkg_id);
     pkg.source_files.iter().any(|p| {
         let file_stem = p.file_stem().and_then(|s| s.to_str()).unwrap_or("");
