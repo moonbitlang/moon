@@ -632,20 +632,12 @@ fn run_run_internal_legacy(cli: &UniversalFlags, cmd: RunSubcommand) -> anyhow::
         return dry_run::print_commands(&module, &moonc_opt, &moonbuild_opt);
     }
 
-    let trace_flag = cli.trace;
-    if trace_flag {
-        trace::open("trace.json").context("failed to open `trace.json`")?;
-    }
-    let result = entry::run_run_with_lock(
+    entry::run_run_with_lock(
         &package_path,
         &moonc_opt,
         &moonbuild_opt,
         &module,
         cmd.build_only,
         Some(_lock),
-    );
-    if trace_flag {
-        trace::close();
-    }
-    result
+    )
 }

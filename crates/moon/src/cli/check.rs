@@ -30,7 +30,6 @@ use moonutil::common::{WATCH_MODE_DIR, parse_front_matter_config};
 use moonutil::dirs::mk_arch_mode_dir;
 use moonutil::mooncakes::RegistryConfig;
 use moonutil::mooncakes::sync::AutoSyncFlags;
-use n2::trace;
 use std::path::{Path, PathBuf};
 use tracing::{Level, instrument};
 
@@ -478,15 +477,7 @@ fn run_check_normal_internal_legacy(
         });
     }
 
-    if cli.trace {
-        trace::open("trace.json").context("failed to open `trace.json`")?;
-    }
-
     let res = entry::run_check(&moonc_opt, &moonbuild_opt, &module);
-
-    if cli.trace {
-        trace::close();
-    }
 
     let exit_code = res?;
     Ok(WatchOutput {
