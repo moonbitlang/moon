@@ -1631,6 +1631,7 @@ dependencies = [
  "petgraph",
  "regex",
  "relative-path",
+ "serde",
  "shlex",
  "slotmap",
  "thiserror 1.0.63",

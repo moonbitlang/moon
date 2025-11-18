@@ -616,6 +616,44 @@ pub fn generate_metadata(
     Ok(())
 }
 
+pub fn generate_all_deps(
+    target_dir: &Path,
+    build_meta: &BuildMeta,
+    mode: RunMode,
+) -> anyhow::Result<()> {
+    let resolve_output = &build_meta.resolve_output;
+    let &[main_module_id] = resolve_output.local_modules() else {
+        panic!("Currently only one local module is supported");
+    };
+    let main_module = resolve_output.module_rel.mod_name_from_id(main_module_id);
+    // the necessary information to calculate the layout of the `target`
+    // directory
+    let layout = moonbuild_rupes_recta::build_lower::artifact::LegacyLayoutBuilder::default()
+        .opt_level(build_meta.opt_level)
+        .run_mode(mode)
+        .stdlib_dir(Some(moonutil::moon_dir::core()))
+        .target_base_dir(target_dir.to_owned())
+        .main_module(Some(main_module.clone()))
+        .build()
+        .expect("Failed to build legacy layout");
+
+    let all_pkgs_path = layout.all_pkgs_of_build_target(build_meta.target_backend.into());
+    let all_pkgs_json = moonbuild_rupes_recta::all_pkgs::gen_all_pkgs_json(
+        &build_meta.resolve_output,
+        &layout,
+        build_meta.target_backend.into(),
+    );
+    let orig_all_pkgs = std::fs::read_to_string(&all_pkgs_path);
+    let all_pkgs_str =
+        serde_json::to_string_pretty(&all_pkgs_json).context("Failed to serialize metadata")?;
+
+    // Only overwrite if changed
+    if !orig_all_pkgs.is_ok_and(|o| o == all_pkgs_str) {
+        std::fs::write(&all_pkgs_path, all_pkgs_str).context("Failed to write build metadata")?;
+    }
+    Ok(())
+}
+
 pub struct BuildConfig {
     /// The level of parallelism to use. If `None`, will use the number of
     /// available CPU cores.

@@ -113,6 +113,7 @@ pub mod resolve;
 pub mod fmt;
 
 // Random utilities
+pub mod all_pkgs;
 pub mod cond_comp;
 pub mod intent;
 pub mod metadata;
