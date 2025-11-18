@@ -55,11 +55,14 @@ pub fn print_dry_run_all(input: &BuildInput, source_dir: &Path, target_dir: &Pat
 }
 
 /// Print a command as it would be executed, with the proper escaping.
-pub fn dry_print_command(cmd: &Command) {
+///
+/// This also replaces paths like `print_dry_run` does.
+pub fn dry_print_command(cmd: &Command, source_dir: &Path) {
     let args = std::iter::once(cmd.get_program())
         .chain(cmd.get_args())
         .map(|x| x.to_string_lossy())
         .collect::<Vec<_>>();
     let cmd = shlex::try_join(args.iter().map(|x| &**x)).expect("null in args, should not happen");
-    println!("{cmd}");
+    let res = moonbuild::dry_run::replace_path(source_dir, true, &cmd);
+    println!("{}", res);
 }
