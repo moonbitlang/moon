@@ -18,7 +18,6 @@
 
 [book]
 language = "en"
-multilingual = false
 src = "src"
 title = "Moon Manual"
 
