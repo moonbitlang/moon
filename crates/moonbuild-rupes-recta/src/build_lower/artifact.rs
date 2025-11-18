@@ -272,13 +272,13 @@ impl LegacyLayout {
 
     pub fn runtime_output_path(&self, backend: RunBackend, os: OperatingSystem) -> PathBuf {
         let mut result = self.target_base_dir.clone();
-        push_backend(&mut result, backend.into());
+        self.push_opt_and_run_mode(backend.into(), &mut result);
         match backend {
             RunBackend::WasmGC | RunBackend::Wasm | RunBackend::Js => {
                 panic!("Runtime output path is not applicable for non-native backends")
             }
             RunBackend::Native | RunBackend::Llvm => {
-                result.push(format!("libruntime{}", object_file_ext(os)))
+                result.push(format!("runtime{}", object_file_ext(os)))
             }
             RunBackend::NativeTccRun => {
                 result.push(format!("libruntime{}", dynamic_library_ext(os)))
