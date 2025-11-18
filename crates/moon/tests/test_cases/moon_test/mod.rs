@@ -1,4 +1,5 @@
 mod patch;
+mod use_cc_for_native_release;
 mod with_cfg;
 
 use expect_test::expect_file;
