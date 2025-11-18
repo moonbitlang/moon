@@ -1,3 +1,4 @@
+mod patch;
 mod with_cfg;
 
 use expect_test::expect_file;

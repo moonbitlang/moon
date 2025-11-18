@@ -190,6 +190,23 @@ impl<'a> BuildPlanLowerContext<'a> {
         }
     }
 
+    fn extend_extra_inputs(
+        &self,
+        commons: &BuildCommonConfig<'a>,
+        extra_inputs: &mut Vec<PathBuf>,
+    ) {
+        // Also track any -check-mi file used by this command (virtual checks/impl)
+        if let Some(p) = &commons.check_mi {
+            extra_inputs.push(p.as_ref().to_path_buf());
+        }
+        if let Some(impl_v) = &commons.virtual_implementation {
+            extra_inputs.push(impl_v.mi_path.as_ref().to_path_buf());
+        }
+        if let Some(patch) = &commons.patch_file {
+            extra_inputs.push(patch.as_ref().to_path_buf());
+        }
+    }
+
     #[instrument(level = Level::DEBUG, skip(self, info))]
     pub(super) fn lower_check(
         &self,
@@ -245,12 +262,7 @@ impl<'a> BuildPlanLowerContext<'a> {
         extra_inputs.extend(info.doctest_files.clone());
 
         // Also track any -check-mi file used by this command (virtual checks/impl)
-        if let Some(p) = &cmd.defaults.check_mi {
-            extra_inputs.push(p.as_ref().to_path_buf());
-        }
-        if let Some(impl_v) = &cmd.defaults.virtual_implementation {
-            extra_inputs.push(impl_v.mi_path.as_ref().to_path_buf());
-        }
+        self.extend_extra_inputs(&cmd.defaults, &mut extra_inputs);
 
         BuildCommand {
             extra_inputs,
@@ -329,13 +341,7 @@ impl<'a> BuildPlanLowerContext<'a> {
         let mut extra_inputs = info.files().map(|x| x.to_path_buf()).collect::<Vec<_>>();
         extra_inputs.extend(info.doctest_files.clone());
 
-        // Also track any -check-mi file used by this command (virtual checks/impl)
-        if let Some(p) = &cmd.defaults.check_mi {
-            extra_inputs.push(p.as_ref().to_path_buf());
-        }
-        if let Some(impl_v) = &cmd.defaults.virtual_implementation {
-            extra_inputs.push(impl_v.mi_path.as_ref().to_path_buf());
-        }
+        self.extend_extra_inputs(&cmd.defaults, &mut extra_inputs);
 
         BuildCommand {
             commandline: cmd.build_command(&*moonutil::BINARIES.moonc),

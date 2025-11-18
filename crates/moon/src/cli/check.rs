@@ -528,7 +528,8 @@ fn calc_user_intent(
         let pkg = filter_pkg_by_dir(resolve_output, &dir)?;
 
         // Apply --no-mi and --patch-file to specific packages
-        let directive = rr_build::build_patch_directive_for_package(pkg, no_mi, None, patch_file)?;
+        let directive =
+            rr_build::build_patch_directive_for_package(pkg, no_mi, None, patch_file, false)?;
 
         Ok((vec![UserIntent::Check(pkg)], directive).into())
     } else if let Some(check_path) = path {
@@ -536,7 +537,8 @@ fn calc_user_intent(
         let pkg = filter_pkg_by_dir(resolve_output, &dir)?;
 
         // Apply --no-mi and --patch-file to specific packages
-        let directive = rr_build::build_patch_directive_for_package(pkg, no_mi, None, patch_file)?;
+        let directive =
+            rr_build::build_patch_directive_for_package(pkg, no_mi, None, patch_file, false)?;
 
         Ok((vec![UserIntent::Check(pkg)], directive).into())
     } else {
