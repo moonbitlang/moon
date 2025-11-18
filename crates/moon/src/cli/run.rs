@@ -393,7 +393,7 @@ fn run_run_rr(cli: &UniversalFlags, cmd: RunSubcommand) -> Result<i32, anyhow::E
         Release,
         RunMode::Run,
     );
-    preconfig.try_tcc_run = true;
+    preconfig.try_tcc_run = !cli.dry_run;
 
     let value_tracing = cmd.build_flags.enable_value_tracing;
     let (build_meta, build_graph) = rr_build::plan_build(

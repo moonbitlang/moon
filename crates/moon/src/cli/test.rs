@@ -649,7 +649,7 @@ fn run_test_rr(
         default_opt_level,
         RunMode::Test,
     );
-    if !is_bench {
+    if !is_bench && !cli.dry_run {
         preconfig.try_tcc_run = true;
     }
 
