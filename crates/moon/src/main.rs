@@ -35,11 +35,15 @@ use tracing_subscriber::{Layer, layer::SubscriberExt, util::SubscriberInitExt};
 
 /// Initialize logging and tracing-related functionality.
 ///
-/// If `trace_execution` is true, it will also output the log to a Chrome
-/// tracing file.
+/// This includes configuration based on multiple flags and configs:
+/// - `RUST_LOG` environment variable to filter regular log output, printed to stderr.
+/// - `MOON_TRACE` environment variable to enable Chrome tracing output.
+/// - `--trace` CLI flag does the same thing as `MOON_TRACE=trace`, but outputs
+///   to `trace.json` instead of the default `trace-<timestamp>.json`. When
+///   `--trace` is used together with `MOON_TRACE`, the latter takes precedence.
 ///
 /// Returns a boxed guard that keeps the tracing system alive.
-fn init_tracing() -> Box<dyn Any> {
+fn init_tracing(trace_flag: bool) -> Box<dyn Any> {
     // usage example: only show debug logs for moonbuild::runtest module
     // env RUST_LOG=moonbuild::runtest=debug cargo run -- test --source-dir ./tests/test_cases/moon_new.in
 
@@ -61,19 +65,32 @@ fn init_tracing() -> Box<dyn Any> {
     };
 
     // Trace spans in Chrome format
+    let chrome_trace = if trace_flag {
+        // `--trace` flag
+        let chrome_filter = tracing_subscriber::EnvFilter::builder()
+            .with_default_directive(tracing::Level::TRACE.into())
+            .parse_lossy("");
+        let (layer, guard) = tracing_chrome::ChromeLayerBuilder::new()
+            .include_args(true)
+            .file("trace.json")
+            .build();
 
-    let (chrome_layer, chrome_guard) = moon_tracing_env
-        .map(|env| {
-            let chrome_filter = tracing_subscriber::EnvFilter::builder()
-                .with_default_directive(tracing::Level::TRACE.into())
-                .parse_lossy(env);
+        Some((chrome_filter.and_then(layer), guard))
+    } else if let Some(env) = moon_tracing_env.as_deref() {
+        // `MOON_TRACE` environment variable
+        let chrome_filter = tracing_subscriber::EnvFilter::builder()
+            .with_default_directive(tracing::Level::TRACE.into())
+            .parse_lossy(env);
+        let (layer, guard) = tracing_chrome::ChromeLayerBuilder::new()
+            .include_args(true)
+            .build();
 
-            let (layer, guard) = tracing_chrome::ChromeLayerBuilder::new()
-                .include_args(true)
-                .build();
-            (chrome_filter.and_then(layer), guard)
-        })
-        .unzip();
+        Some((chrome_filter.and_then(layer), guard))
+    } else {
+        None
+    };
+
+    let (chrome_layer, chrome_guard) = chrome_trace.unzip();
 
     let fmt_layer = fmt.with_filter(filter);
     let registry = tracing_subscriber::registry()
@@ -90,7 +107,7 @@ pub fn main() {
     let cli = cli::MoonBuildCli::parse();
     let flags = cli.flags;
 
-    let _trace_guard = init_tracing();
+    let _trace_guard = init_tracing(flags.trace);
 
     use MoonBuildSubcommands::*;
     let res = match cli.subcommand {
