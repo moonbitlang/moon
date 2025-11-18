@@ -118,9 +118,6 @@ impl<'a> MooncBuildPackage<'a> {
 
         self.required.add_test_args(args);
 
-        // -no-mi after test flags
-        self.defaults.add_no_mi(args);
-
         // patch after -no-mi
         self.defaults.add_patch_file_moonc(args);
 
@@ -129,6 +126,9 @@ impl<'a> MooncBuildPackage<'a> {
 
         // Virtual package implementation
         self.defaults.add_virtual_package_implementation_build(args);
+
+        // -no-mi after test flags
+        self.defaults.add_no_mi(args);
 
         self.required.add_test_mode_args(args);
 

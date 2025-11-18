@@ -147,6 +147,7 @@ impl<'a> BuildPlanLowerContext<'a> {
         // Compute -check-mi and virtual implementation mapping when requested
         let mut virtual_implementation = None;
         let mut check_mi = None;
+        let mut no_mi = info.no_mi();
 
         if let Some(v_target) = info.check_mi_against {
             // The target to check against is always the Source target of the virtual package
@@ -165,13 +166,12 @@ impl<'a> BuildPlanLowerContext<'a> {
                     package_name: &v_pkg.fqn,
                     package_path: v_pkg.root_path.as_path().into(),
                 });
+                no_mi = true; // virtual implementations do not emit .mi because it cannot be imported directly
             } else {
                 // Same package → this is a virtual package being checked against its own interface
                 check_mi = Some(mi_path.into());
             }
         }
-
-        let no_mi = info.no_mi();
 
         BuildCommonConfig {
             stdlib_core_file,

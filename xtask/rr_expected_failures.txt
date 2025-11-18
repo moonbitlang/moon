@@ -10,16 +10,9 @@ cmd_test::cmd_test
 test_cases::test_moon_test_release
 test_cases::test_native_backend_cc_flags_with_env_override
 test_cases::test_native_backend_tcc_run
-test_cases::test_native_stub_in_pkg_json
-test_cases::test_nonexistent_package
-test_cases::test_specify_source_dir_with_deps
-test_cases::test_specify_source_dir_with_deps_002
 test_cases::test_sub_package
 test_cases::test_trace_001
 test_cases::test_use_cc_for_native_release
-test_cases::test_validate_import
-test_cases::test_virtual_pkg
-test_cases::virtual_pkg_dep::test_indirect_depend_virtual
 test_cases::warns::test_warn_list_dry_run
 
 # CI reported flaky tests
@@ -48,6 +41,7 @@ test_cases::extra_flags::test_extra_flags
 # Iteration order
 test_cases::blackbox::test_blackbox_success
 test_cases::blackbox::test_blackbox_test_core_override
+test_cases::test_virtual_pkg
 
 # moonrun binary improvements
 test_cases::target_backend::test_target_backend
@@ -59,3 +53,8 @@ test_cases::targets::test_many_targets
 test_cases::test_moon_check_filter_package
 test_cases::test_moon_check_package_with_patch
 test_cases::test_moon_doc_dry_run
+
+# RR improves error or warning message
+test_cases::test_nonexistent_package
+test_cases::test_validate_import
+test_cases::test_specify_source_dir_with_deps_002

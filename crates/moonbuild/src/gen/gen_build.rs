@@ -434,7 +434,8 @@ pub fn gen_build_interface_command(
                     .unwrap(),
             ],
         )
-        .arg("-error-format=json")
+        .arg("-error-format")
+        .arg("json")
         .build();
     log::debug!("Command: {}", command);
     build.cmdline = Some(command);
@@ -587,10 +588,10 @@ pub fn gen_build_command(
                 "-check-mi".to_string(),
                 mi_path.clone(),
                 "-impl-virtual".to_string(),
-                // implementation package should not been import so here don't emit .mi
-                "-no-mi".to_string(),
                 "-pkg-sources".to_string(),
                 format!("{}:{}", &pkg_name, &pkg_path,),
+                // implementation package should not been import so here don't emit .mi
+                "-no-mi".to_string(),
             ]
         })
         .arg("-workspace-path")
