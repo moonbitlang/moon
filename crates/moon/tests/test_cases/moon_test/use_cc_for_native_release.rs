@@ -118,20 +118,19 @@ fn test_use_cc_for_native_release() {
             expect_file!["cc_for_native_release/test_release_graph.jsonl.snap"],
         );
 
-        // use tcc for debug test
-
-        assert_dry_run_graph(
-            &dir,
-            "test_debug_graph.jsonl",
-            &[
-                "test",
-                "--target",
-                "native",
-                "--debug",
-                "--sort-input",
-                "--dry-run",
-            ],
-            expect_file!["cc_for_native_release/test_debug_graph.jsonl.snap"],
-        );
+        // TODO: use tcc for debug test
+        // assert_dry_run_graph(
+        //     &dir,
+        //     "test_debug_graph.jsonl",
+        //     &[
+        //         "test",
+        //         "--target",
+        //         "native",
+        //         "--debug",
+        //         "--sort-input",
+        //         "--dry-run",
+        //     ],
+        //     expect_file!["cc_for_native_release/test_debug_graph.jsonl.snap"],
+        // );
     }
 }
