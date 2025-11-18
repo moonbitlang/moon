@@ -4,6 +4,9 @@
   "deps": {
     "native_2": {
       "path": "../native_2.in"
+    },
+    "native_1": {
+      "path": "../native_1.in"
     }
   }
 }
