@@ -31,7 +31,7 @@ mod run;
 mod watch;
 
 use colored::*;
-use tracing_subscriber::{Layer, layer::SubscriberExt, util::SubscriberInitExt};
+use tracing_subscriber::{Layer, layer::SubscriberExt};
 
 /// Initialize logging and tracing-related functionality.
 ///
@@ -95,10 +95,11 @@ fn init_tracing(trace_flag: bool) -> Box<dyn Any> {
     let fmt_layer = fmt.with_filter(filter);
     let registry = tracing_subscriber::registry()
         .with(fmt_layer)
-        .with(chrome_layer)
-        .set_default();
+        .with(chrome_layer);
+    tracing::subscriber::set_global_default(registry)
+        .expect("Failed to set global tracing subscriber");
 
-    Box::new((chrome_guard, registry))
+    Box::new(chrome_guard)
 }
 
 pub fn main() {
