@@ -1613,6 +1613,7 @@ dependencies = [
  "anyhow",
  "arcstr",
  "derive_builder",
+ "dunce",
  "indexmap",
  "log",
  "moonbuild",

@@ -44,5 +44,6 @@ shlex.workspace = true
 derive_builder.workspace = true
 tracing.workspace = true
 regex.workspace = true
+dunce.workspace = true
 
 aho-corasick = "1.1.3"

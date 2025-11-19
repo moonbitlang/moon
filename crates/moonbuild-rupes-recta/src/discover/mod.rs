@@ -121,7 +121,13 @@ pub(crate) fn discover_packages_for_mod(
     }
 
     let source_dir_name = m.source.as_deref().unwrap_or("");
-    let scan_source_root = dir.join(source_dir_name);
+    let scan_source_root = {
+        let p = dir.join(source_dir_name);
+        dunce::canonicalize(p).map_err(|e| DiscoverError::CantReadModulePackages {
+            module: module_source.clone(),
+            inner: e.into(),
+        })?
+    };
     let is_core = module_name_is_core(&m.name);
 
     // Recursively walk through the module's directories
