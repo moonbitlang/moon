@@ -26,6 +26,7 @@ use crate::{
     model::{BuildPlanNode, BuildTarget},
     prebuild::PrebuildOutput,
 };
+use indexmap::IndexMap;
 use tracing::{Level, debug, instrument};
 
 use super::{BuildEnvironment, BuildPlan, BuildPlanConstructError};
@@ -130,7 +131,7 @@ impl<'a> BuildPlanConstructor<'a> {
     /// packages don't know if they will be built or checked.
     fn postprocess_coalesce(&mut self) {
         // list of nodes to coalesce and their input/output edges
-        let mut plan = HashMap::new();
+        let mut plan = IndexMap::new();
         for node in self.res.all_nodes() {
             if let BuildPlanNode::Check(build_target) = node {
                 // Coalesce to BuildCore if it exists
