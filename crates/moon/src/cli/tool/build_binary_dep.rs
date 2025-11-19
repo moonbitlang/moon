@@ -86,7 +86,12 @@ pub fn run_build_binary_dep(cli: &UniversalFlags, cmd: &BuildBinaryDepArgs) -> a
             .pkg_dirs
             .packages_for_module(main_module_id)
             .ok_or_else(|| anyhow::anyhow!("Cannot find the local module!"))?;
-        get_linkable_pkgs(&resolve_output, main_module_id, packages.values().cloned())?
+        get_linkable_pkgs(
+            &resolve_output,
+            main_module_id,
+            moonutil::common::TargetBackend::Native,
+            packages.values().cloned(),
+        )?
     } else {
         let mut result_pkgs = vec![];
         for pkg_name in cmd.pkg_names.iter() {
@@ -119,7 +124,7 @@ pub fn run_build_binary_dep(cli: &UniversalFlags, cmd: &BuildBinaryDepArgs) -> a
             preconfig,
             &cli.unstable_feature,
             &target_dir,
-            Box::new(|_, _| Ok(vec![UserIntent::Build(pkg)].into())),
+            Box::new(|_, _, _| Ok(vec![UserIntent::Build(pkg)].into())),
             // FIXME: cloning is not the best way to do this, it takes in this
             // type only to be returned in build meta. We should refactor later.
             resolve_output.clone(),

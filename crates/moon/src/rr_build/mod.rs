@@ -74,7 +74,11 @@ pub use dry_run::{dry_print_command, print_dry_run, print_dry_run_all};
 ///
 /// Returns: A vector of [`UserIntent`]s, representing what the user would like
 /// to do
-pub type CalcUserIntentFn<'b> = dyn for<'a> FnOnce(&'a ResolveOutput, &'a [ModuleId]) -> anyhow::Result<CalcUserIntentOutput>
+pub type CalcUserIntentFn<'b> = dyn for<'a> FnOnce(
+        &'a ResolveOutput,
+        &'a [ModuleId],
+        moonutil::common::TargetBackend,
+    ) -> anyhow::Result<CalcUserIntentOutput>
     + 'b;
 
 /// The output of a calculate user intent operation.
@@ -220,7 +224,7 @@ pub struct CompilePreConfig {
 impl CompilePreConfig {
     fn into_compile_config(
         self,
-        preferred_backend: Option<TargetBackend>,
+        final_target_backend: TargetBackend,
         is_core: bool,
         resolve_output: &ResolveOutput,
         input_nodes: &[BuildPlanNode],
@@ -233,13 +237,14 @@ impl CompilePreConfig {
             self.use_std, is_core, std
         );
 
-        let target_backend = self
-            .target_backend
-            .or(preferred_backend)
-            .unwrap_or_default();
+        let target_backend = final_target_backend;
         info!(
-            "Target backend: explicit = {:?}, preferred = {:?} => selected = {:?}",
-            self.target_backend, preferred_backend, target_backend
+            "Target backend: explicit = {:?} => selected = {:?}",
+            self.target_backend, target_backend
+        );
+        assert!(
+            self.target_backend.is_none_or(|x| x == target_backend),
+            "The final selected target backend must either be default or match the explicit one"
         );
 
         let tcc_available = check_tcc_availability(target_backend, resolve_output, input_nodes);
@@ -414,8 +419,13 @@ pub fn plan_build_from_resolved<'a>(
     let preferred_backend = main_module.preferred_target;
     info!("Preferred backend: {:?}", preferred_backend);
 
+    let target_backend = preconfig
+        .target_backend
+        .or(preferred_backend)
+        .unwrap_or_default();
+
     info!("Calculating user intent");
-    let intent = calc_user_intent(&resolve_output, &[main_module_id])?;
+    let intent = calc_user_intent(&resolve_output, &[main_module_id], target_backend)?;
     info!("User intent calculated: {:?}", intent.intents);
 
     // std or no-std?
@@ -434,8 +444,7 @@ pub fn plan_build_from_resolved<'a>(
         i.append_nodes(&resolve_output, &mut input_nodes, &intent.directive);
     }
 
-    let cx =
-        preconfig.into_compile_config(preferred_backend, is_core, &resolve_output, &input_nodes);
+    let cx = preconfig.into_compile_config(target_backend, is_core, &resolve_output, &input_nodes);
     info!("Begin lowering to build graph");
     let compile_output = moonbuild_rupes_recta::compile(
         &cx,

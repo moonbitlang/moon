@@ -179,7 +179,7 @@ pub fn run_info_rr_internal(
         &cli.unstable_feature,
         &source_dir,
         &target_dir,
-        Box::new(move |resolve_output, main_modules| {
+        Box::new(move |resolve_output, main_modules, _tb| {
             calc_user_intent(
                 package_filter.as_deref(),
                 path_filter.as_deref(),

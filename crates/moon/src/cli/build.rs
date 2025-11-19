@@ -156,12 +156,13 @@ fn run_build_rr(
         &cli.unstable_feature,
         source_dir,
         target_dir,
-        Box::new(|resolve_output, main_modules| {
+        Box::new(|resolve_output, main_modules, target_backend| {
             calc_user_intent(
                 cmd.path.as_deref(),
                 cmd.package.as_deref(),
                 resolve_output,
                 main_modules,
+                target_backend,
             )
         }),
     )?;
@@ -350,6 +351,7 @@ fn calc_user_intent(
     package_filter: Option<&str>,
     resolve_output: &moonbuild_rupes_recta::ResolveOutput,
     main_modules: &[moonutil::mooncakes::ModuleId],
+    target_backend: TargetBackend,
 ) -> Result<CalcUserIntentOutput, anyhow::Error> {
     if let Some(path) = path_filter {
         let (dir, _) = canonicalize_with_filename(path)?;
@@ -371,8 +373,12 @@ fn calc_user_intent(
             .pkg_dirs
             .packages_for_module(main_module_id)
             .ok_or_else(|| anyhow!("Cannot find the local module!"))?;
-        let linkable_pkgs =
-            get_linkable_pkgs(resolve_output, main_module_id, packages.values().cloned())?;
+        let linkable_pkgs = get_linkable_pkgs(
+            resolve_output,
+            main_module_id,
+            target_backend,
+            packages.values().cloned(),
+        )?;
         let intents: Vec<_> = if linkable_pkgs.is_empty() {
             packages
                 .iter()
@@ -388,6 +394,7 @@ fn calc_user_intent(
 pub fn get_linkable_pkgs(
     resolve_output: &moonbuild_rupes_recta::ResolveOutput,
     main_module_id: moonutil::mooncakes::ModuleId,
+    target_backend: TargetBackend,
     packages: impl Iterator<Item = PackageId>,
 ) -> anyhow::Result<Vec<PackageId>> {
     resolve_output
@@ -397,7 +404,14 @@ pub fn get_linkable_pkgs(
     let mut linkable_pkgs = vec![];
     for pkg_id in packages {
         let pkg = resolve_output.pkg_dirs.get_package(pkg_id);
-        if pkg.raw.force_link || pkg.raw.link.is_some() || pkg.raw.is_main {
+        if pkg.raw.force_link
+            || pkg
+                .raw
+                .link
+                .as_ref()
+                .is_some_and(|link| link.need_link(target_backend))
+            || pkg.raw.is_main
+        {
             linkable_pkgs.push(pkg_id)
         }
     }

@@ -659,8 +659,8 @@ fn run_test_rr(
         &cli.unstable_feature,
         source_dir,
         target_dir,
-        Box::new(|resolved, main_modules| {
-            calc_user_intent(resolved, main_modules, cmd, &mut filter)
+        Box::new(|resolved, main_modules, target_backend| {
+            calc_user_intent(resolved, main_modules, cmd, &mut filter, target_backend)
         }),
     )?;
     debug!(
@@ -936,6 +936,7 @@ fn calc_user_intent(
     main_modules: &[moonutil::mooncakes::ModuleId],
     cmd: &TestLikeSubcommand<'_>,
     out_filter: &mut TestFilter,
+    target_backend: moonutil::common::TargetBackend,
 ) -> Result<CalcUserIntentOutput, anyhow::Error> {
     let &[main_module_id] = main_modules else {
         panic!("No multiple main modules are supported");

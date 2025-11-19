@@ -125,7 +125,7 @@ pub fn run_bundle_internal_rr(
         &cli.unstable_feature,
         source_dir,
         target_dir,
-        Box::new(|_r, m| {
+        Box::new(|_r, m, _tb| {
             Ok(m.iter()
                 .map(|&mid| UserIntent::Bundle(mid))
                 .collect::<Vec<_>>()

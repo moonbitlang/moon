@@ -284,7 +284,7 @@ fn run_check_normal_internal_rr(
         &cli.unstable_feature,
         source_dir,
         target_dir,
-        Box::new(|r, m| {
+        Box::new(|r, m, _tb| {
             calc_user_intent(
                 r,
                 m,

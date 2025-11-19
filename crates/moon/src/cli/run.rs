@@ -401,7 +401,7 @@ fn run_run_rr(cli: &UniversalFlags, cmd: RunSubcommand) -> Result<i32, anyhow::E
         &cli.unstable_feature,
         &source_dir,
         &target_dir,
-        Box::new(|r, m| calc_user_intent(&input_path, &source_dir, r, value_tracing, m)),
+        Box::new(|r, m, _tb| calc_user_intent(&input_path, &source_dir, r, value_tracing, m)),
     )?;
     if cli.dry_run {
         // Print build commands
