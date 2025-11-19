@@ -179,12 +179,11 @@ pub fn run_info_rr_internal(
         &cli.unstable_feature,
         &source_dir,
         &target_dir,
-        Box::new(move |resolve_output, main_modules, _tb| {
+        Box::new(move |resolve_output, _tb| {
             calc_user_intent(
                 package_filter.as_deref(),
                 path_filter.as_deref(),
                 resolve_output,
-                main_modules,
             )
         }),
     )?;
@@ -200,9 +199,8 @@ fn calc_user_intent(
     package_filter: Option<&str>,
     path_filter: Option<&Path>,
     resolve_output: &moonbuild_rupes_recta::ResolveOutput,
-    main_modules: &[moonutil::mooncakes::ModuleId],
 ) -> Result<CalcUserIntentOutput, anyhow::Error> {
-    let &[main_module_id] = main_modules else {
+    let &[main_module_id] = resolve_output.local_modules() else {
         panic!("No multiple main modules are supported");
     };
 

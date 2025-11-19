@@ -156,12 +156,11 @@ fn run_build_rr(
         &cli.unstable_feature,
         source_dir,
         target_dir,
-        Box::new(|resolve_output, main_modules, target_backend| {
+        Box::new(|resolve_output, target_backend| {
             calc_user_intent(
                 cmd.path.as_deref(),
                 cmd.package.as_deref(),
                 resolve_output,
-                main_modules,
                 target_backend,
             )
         }),
@@ -350,7 +349,6 @@ fn calc_user_intent(
     path_filter: Option<&Path>,
     package_filter: Option<&str>,
     resolve_output: &moonbuild_rupes_recta::ResolveOutput,
-    main_modules: &[moonutil::mooncakes::ModuleId],
     target_backend: TargetBackend,
 ) -> Result<CalcUserIntentOutput, anyhow::Error> {
     if let Some(path) = path_filter {
@@ -358,14 +356,18 @@ fn calc_user_intent(
         let pkg = filter_pkg_by_dir(resolve_output, &dir)?;
         Ok(vec![UserIntent::Build(pkg)].into())
     } else if let Some(package_filter) = package_filter {
-        let pkg = match_packages_by_name_rr(resolve_output, main_modules, package_filter);
+        let pkg = match_packages_by_name_rr(
+            resolve_output,
+            resolve_output.local_modules(),
+            package_filter,
+        );
         Ok(pkg
             .into_iter()
             .map(UserIntent::Build)
             .collect::<Vec<_>>()
             .into())
     } else {
-        let &[main_module_id] = main_modules else {
+        let &[main_module_id] = resolve_output.local_modules() else {
             panic!("No multiple main modules are supported");
         };
 

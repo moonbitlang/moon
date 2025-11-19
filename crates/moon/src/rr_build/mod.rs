@@ -55,7 +55,7 @@ use moonutil::{
     compiler_flags::CC,
     cond_expr::OptLevel,
     features::FeatureGate,
-    mooncakes::{ModuleId, sync::AutoSyncFlags},
+    mooncakes::sync::AutoSyncFlags,
 };
 use tracing::{Level, info, instrument, warn};
 
@@ -69,14 +69,12 @@ pub use dry_run::{dry_print_command, print_dry_run, print_dry_run_all};
 /// Params:
 /// - The output of the resolve step. All modules and packages that this module
 ///   are available in this value.
-/// - The list of modules that were input into the compile process (those that
-///   exist in the source directory).
+/// - The target backend to build for.
 ///
 /// Returns: A vector of [`UserIntent`]s, representing what the user would like
 /// to do
 pub type CalcUserIntentFn<'b> = dyn for<'a> FnOnce(
         &'a ResolveOutput,
-        &'a [ModuleId],
         moonutil::common::TargetBackend,
     ) -> anyhow::Result<CalcUserIntentOutput>
     + 'b;
@@ -425,7 +423,7 @@ pub fn plan_build_from_resolved<'a>(
         .unwrap_or_default();
 
     info!("Calculating user intent");
-    let intent = calc_user_intent(&resolve_output, &[main_module_id], target_backend)?;
+    let intent = calc_user_intent(&resolve_output, target_backend)?;
     info!("User intent calculated: {:?}", intent.intents);
 
     // std or no-std?

@@ -86,7 +86,7 @@ pub fn run_doc_rr(cli: UniversalFlags, cmd: DocSubcommand) -> anyhow::Result<i32
         &source_dir,
         &target_dir,
         // Docs are global
-        Box::new(|_, _, _| Ok(vec![UserIntent::Docs].into())),
+        Box::new(|_, _| Ok(vec![UserIntent::Docs].into())),
     )?;
 
     // Early exit for dry-run

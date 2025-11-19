@@ -284,10 +284,9 @@ fn run_check_normal_internal_rr(
         &cli.unstable_feature,
         source_dir,
         target_dir,
-        Box::new(|r, m, _tb| {
+        Box::new(|r, _tb| {
             calc_user_intent(
                 r,
-                m,
                 source_dir,
                 cmd.package_path.as_deref(),
                 cmd.path.as_deref(),
@@ -497,14 +496,13 @@ fn run_check_normal_internal_legacy(
 #[instrument(level = Level::DEBUG, skip_all)]
 fn calc_user_intent(
     resolve_output: &moonbuild_rupes_recta::ResolveOutput,
-    main_modules: &[moonutil::mooncakes::ModuleId],
     source_dir: &Path,
     package_path: Option<&Path>,
     path: Option<&Path>,
     no_mi: bool,
     patch_file: Option<&Path>,
 ) -> Result<CalcUserIntentOutput, anyhow::Error> {
-    let &[_main_module_id] = main_modules else {
+    let &[_main_module_id] = resolve_output.local_modules() else {
         panic!("No multiple main modules are supported");
     };
 
