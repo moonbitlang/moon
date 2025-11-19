@@ -25,7 +25,14 @@ use std::io::{BufRead, BufReader, Write};
 use std::path::Path;
 use std::process::Command;
 
-use crate::test_rr_whitelist::WONT_FIX;
+const WONT_FIX_STR: &str = include_str!("../rr_wont_fix.txt");
+
+fn wont_fix_list() -> impl Iterator<Item = &'static str> {
+    WONT_FIX_STR
+        .lines()
+        .map(|line| line.trim())
+        .filter(|line| !line.is_empty() && !line.starts_with('#'))
+}
 
 const LOGS_ROOT: &str = "target/rr-parity-logs";
 
@@ -133,7 +140,7 @@ fn parse_test_output(output: &str, logs_dir: Option<&Path>) -> Result<TestResult
     };
     let mut failed_tests = Vec::new();
     let mut wont_fix_failed_count = 0u32;
-    let wont_fix_set: HashSet<_> = WONT_FIX.iter().copied().collect();
+    let wont_fix_set: HashSet<_> = wont_fix_list().collect();
 
     for line in output.lines() {
         if line.trim().is_empty() {

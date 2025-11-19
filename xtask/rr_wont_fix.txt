@@ -1,0 +1,7 @@
+# RR tests that won't be fixed (known differences)
+# One fully-qualified test name per line.
+# Lines starting with # and blank lines are ignored.
+
+test_cases::warns::test_warn_list_dry_run
+test_cases::test_nonexistent_package
+test_cases::test_validate_import
