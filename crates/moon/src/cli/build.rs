@@ -36,7 +36,6 @@ use moonutil::dirs::PackageDirs;
 use moonutil::dirs::mk_arch_mode_dir;
 use moonutil::mooncakes::RegistryConfig;
 use moonutil::mooncakes::sync::AutoSyncFlags;
-use n2::trace;
 use std::path::Path;
 use std::path::PathBuf;
 use tracing::{Level, instrument};
@@ -318,16 +317,8 @@ fn run_build_legacy(
         });
     }
 
-    let trace_flag = cli.trace;
-    if trace_flag {
-        trace::open("trace.json").context("failed to open `trace.json`")?;
-    }
-
     let res = entry::run_build(&moonc_opt, &moonbuild_opt, &module);
 
-    if trace_flag {
-        trace::close();
-    }
     if let (Ok(_), true) = (res.as_ref(), cmd.show_artifacts) {
         // can't use HashMap because the order of the packages is not guaranteed
         // can't use IndexMap because moonc cannot handled ordered map

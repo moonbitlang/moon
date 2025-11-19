@@ -46,7 +46,6 @@ use moonutil::mooncakes::sync::AutoSyncFlags;
 use moonutil::package::Package;
 use moonutil::path::PathComponent;
 
-use n2::trace as n2_trace;
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -1055,10 +1054,6 @@ pub(crate) fn run_test_or_bench_internal_legacy(
     trace!(target_dir = %target_dir.display(), "resolved legacy target directory");
     let _lock = FileLock::lock(&target_dir)?;
 
-    if cli.trace {
-        n2_trace::open("trace.json").context("failed to open `trace.json`")?;
-    }
-
     let verbose = cli.verbose;
     let build_only = cmd.build_only;
     let auto_update = cmd.update;
@@ -1378,10 +1373,6 @@ pub(crate) fn run_test_or_bench_internal_legacy(
     );
     if let Ok(code) = &res {
         trace!(exit_code = *code, "legacy runner finished execution");
-    }
-
-    if cli.trace {
-        n2_trace::close();
     }
 
     res
