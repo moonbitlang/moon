@@ -649,7 +649,8 @@ fn run_test_rr(
         default_opt_level,
         RunMode::Test,
     );
-    if !is_bench && !cli.dry_run {
+    // Enable tcc-run for tests regardless of dry-run so the graph shape matches legacy.
+    if !is_bench {
         preconfig.try_tcc_run = true;
     }
 
