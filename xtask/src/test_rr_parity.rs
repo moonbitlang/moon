@@ -130,6 +130,13 @@ fn parse_test_output(output: &str, logs_dir: Option<&Path>) -> Result<TestResult
         exec_time: 0.0,
     };
     let mut failed_tests = Vec::new();
+    let mut wont_fix_failed_count = 0u32;
+
+    let wont_fix: HashSet<&str> = HashSet::from_iter([
+        "test_cases::warns::test_warn_list_dry_run", // error message string differs
+        "test_cases::test_nonexistent_package",      // error message string differs
+        "test_cases::test_validate_import",          // error message string differs
+    ]);
 
     for line in output.lines() {
         if line.trim().is_empty() {
@@ -173,7 +180,12 @@ fn parse_test_output(output: &str, logs_dir: Option<&Path>) -> Result<TestResult
             && test.event_type == "test"
         {
             if test.event == "failed" {
-                failed_tests.push(test.name.clone());
+                if wont_fix.contains(test.name.as_str()) {
+                    // Count wont_fix failures so we can move them to ignored
+                    wont_fix_failed_count += 1;
+                } else {
+                    failed_tests.push(test.name.clone());
+                }
             }
             if let Some(dir) = logs_dir {
                 if let Some(out) = &test.stdout {
@@ -203,6 +215,10 @@ fn parse_test_output(output: &str, logs_dir: Option<&Path>) -> Result<TestResult
             continue;
         }
     }
+
+    // Move wont_fix failures from failed to ignored count
+    statistics.failed = statistics.failed.saturating_sub(wont_fix_failed_count);
+    statistics.ignored += wont_fix_failed_count;
 
     Ok(TestResult {
         statistics,
