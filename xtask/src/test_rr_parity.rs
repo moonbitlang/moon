@@ -25,6 +25,8 @@ use std::io::{BufRead, BufReader, Write};
 use std::path::Path;
 use std::process::Command;
 
+use crate::test_rr_whitelist::WONT_FIX;
+
 const LOGS_ROOT: &str = "target/rr-parity-logs";
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -131,12 +133,7 @@ fn parse_test_output(output: &str, logs_dir: Option<&Path>) -> Result<TestResult
     };
     let mut failed_tests = Vec::new();
     let mut wont_fix_failed_count = 0u32;
-
-    let wont_fix: HashSet<&str> = HashSet::from_iter([
-        "test_cases::warns::test_warn_list_dry_run", // error message string differs
-        "test_cases::test_nonexistent_package",      // error message string differs
-        "test_cases::test_validate_import",          // error message string differs
-    ]);
+    let wont_fix_set: HashSet<_> = WONT_FIX.iter().copied().collect();
 
     for line in output.lines() {
         if line.trim().is_empty() {
@@ -180,7 +177,7 @@ fn parse_test_output(output: &str, logs_dir: Option<&Path>) -> Result<TestResult
             && test.event_type == "test"
         {
             if test.event == "failed" {
-                if wont_fix.contains(test.name.as_str()) {
+                if wont_fix_set.contains(test.name.as_str()) {
                     // Count wont_fix failures so we can move them to ignored
                     wont_fix_failed_count += 1;
                 } else {

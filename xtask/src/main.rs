@@ -23,6 +23,7 @@ mod bundle_template;
 mod cmdtest;
 mod sync_docs;
 mod test_rr_parity;
+mod test_rr_whitelist;
 
 #[derive(Debug, clap::Parser)]
 struct Cli {
