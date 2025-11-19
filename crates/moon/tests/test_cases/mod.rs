@@ -77,6 +77,7 @@ mod test_driver_dependencies;
 mod test_error_report;
 mod test_expect_test;
 mod test_filter;
+mod test_release;
 mod value_tracing;
 mod virtual_pkg_dep;
 mod virtual_pkg_test;
@@ -110,42 +111,6 @@ fn test_no_work_to_do() {
     assert!(out.contains("now up to date"));
     let out = get_stderr(&dir, ["build"]);
     assert!(out.contains("moon: no work to do"));
-}
-
-#[test]
-fn test_moon_test_release() {
-    let dir = TestDir::new("test_release.in");
-
-    let test_graph = dir.join("test_graph.jsonl");
-    snap_dry_run_graph(&dir, ["test", "--dry-run", "--sort-input"], &test_graph);
-    compare_graphs(
-        &test_graph,
-        expect_file!["test_release.in/test_graph.expect"],
-    );
-
-    let release_test_graph = dir.join("release_test_graph.jsonl");
-    snap_dry_run_graph(
-        &dir,
-        ["test", "--release", "--dry-run", "--sort-input"],
-        &release_test_graph,
-    );
-    compare_graphs(
-        &release_test_graph,
-        expect_file!["test_release.in/release_test_graph.expect"],
-    );
-
-    check(
-        get_stdout(
-            &dir,
-            ["test", "--release", "--sort-input", "--no-parallelize"],
-        ),
-        expect![[r#"
-            test A
-            test hello_0
-            test hello_1
-            Total tests: 3, passed: 3, failed: 0.
-        "#]],
-    );
 }
 
 #[test]

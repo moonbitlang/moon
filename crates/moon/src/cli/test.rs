@@ -312,11 +312,20 @@ fn run_test_in_single_file(cli: &UniversalFlags, cmd: &TestSubcommand) -> anyhow
         dynamic_stub_libs: None,
         render_no_loc: cmd.build_flags.render_no_loc,
     };
+    let strip_flag = if cmd.build_flags.strip {
+        true
+    } else if cmd.build_flags.no_strip {
+        false
+    } else {
+        cmd.build_flags.release
+    };
+    let source_map_flag = !strip_flag && target_backend.supports_source_map();
+
     let moonc_opt = MooncOpt {
         build_opt: moonutil::common::BuildPackageFlags {
             debug_flag,
-            strip_flag: false,
-            source_map: debug_flag,
+            strip_flag,
+            source_map: source_map_flag,
             enable_coverage: false,
             deny_warn: false,
             target_backend,
@@ -326,7 +335,7 @@ fn run_test_in_single_file(cli: &UniversalFlags, cmd: &TestSubcommand) -> anyhow
         },
         link_opt: moonutil::common::LinkCoreFlags {
             debug_flag,
-            source_map: debug_flag,
+            source_map: source_map_flag,
             output_format: match target_backend {
                 TargetBackend::Js => OutputFormat::Js,
                 TargetBackend::Native => OutputFormat::Native,
@@ -628,7 +637,7 @@ fn run_test_rr(
     // should be removed once https://github.com/moonbitlang/moon/pull/1153 is
     // in place.
     let build_flags = BuildFlags {
-        debug: true,
+        no_strip: !cmd.build_flags.strip && !cmd.build_flags.release,
         ..cmd.build_flags.clone()
     };
 
@@ -1040,6 +1049,12 @@ pub(crate) fn run_test_or_bench_internal_legacy(
         build_flags.release
     };
     moonc_opt.link_opt.debug_flag = !build_flags.release;
+
+    // Recompute source-map consistently with strip and backend support: emit only when not stripped
+    let legacy_source_map =
+        !moonc_opt.build_opt.strip_flag && moonc_opt.build_opt.target_backend.supports_source_map();
+    moonc_opt.build_opt.source_map = legacy_source_map;
+    moonc_opt.link_opt.source_map = legacy_source_map;
 
     // TODO: remove this once LLVM backend is well supported
     if moonc_opt.build_opt.target_backend == TargetBackend::LLVM {
