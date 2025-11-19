@@ -11,7 +11,6 @@ test_cases::test_native_backend_cc_flags_with_env_override
 test_cases::test_native_backend_tcc_run
 test_cases::test_sub_package
 test_cases::test_trace_001
-test_cases::test_use_cc_for_native_release
 test_cases::warns::test_warn_list_dry_run
 
 # CI reported flaky tests
