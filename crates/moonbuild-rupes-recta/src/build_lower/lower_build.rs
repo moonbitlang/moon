@@ -741,7 +741,7 @@ impl<'a> BuildPlanLowerContext<'a> {
         // C stubs to link
         for &stub_tgt in &info.link_c_stubs {
             self.append_all_artifacts_of(
-                BuildPlanNode::ArchiveOrLinkCStubs(stub_tgt.package),
+                BuildPlanNode::ArchiveOrLinkCStubs(stub_tgt),
                 &mut sources,
             );
         }
@@ -806,7 +806,7 @@ impl<'a> BuildPlanLowerContext<'a> {
         // C stubs to link
         for &stub_tgt in &info.link_c_stubs {
             self.append_all_artifacts_of(
-                BuildPlanNode::ArchiveOrLinkCStubs(stub_tgt.package),
+                BuildPlanNode::ArchiveOrLinkCStubs(stub_tgt),
                 &mut sources,
             );
         }

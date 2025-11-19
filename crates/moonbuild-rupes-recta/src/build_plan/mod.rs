@@ -295,7 +295,7 @@ pub struct MakeExecutableInfo {
     /// The flags to pass to the C compiler when compiling the package itself
     pub(crate) c_flags: Vec<String>,
     /// The C stub targets to link with.
-    pub(crate) link_c_stubs: Vec<BuildTarget>,
+    pub(crate) link_c_stubs: Vec<PackageId>,
 }
 
 /// Resolved information about a prebuild command.

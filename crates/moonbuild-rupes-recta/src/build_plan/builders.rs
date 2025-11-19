@@ -567,7 +567,7 @@ impl<'a> BuildPlanConstructor<'a> {
 
         // Add dependencies of make exec
         for target in &c_stub_deps {
-            let dep_node = self.need_node(BuildPlanNode::ArchiveOrLinkCStubs(target.package));
+            let dep_node = self.need_node(BuildPlanNode::ArchiveOrLinkCStubs(*target));
             self.add_edge(make_exec_node, dep_node);
         }
         let c_stub_deps = c_stub_deps.into_iter().collect::<Vec<_>>();
@@ -631,7 +631,7 @@ impl<'a> BuildPlanConstructor<'a> {
     fn dfs_link_core_sources(
         &mut self,
         target: BuildTarget,
-    ) -> Result<(IndexSet<BuildTarget>, Vec<BuildTarget>, bool), BuildPlanConstructError> {
+    ) -> Result<(IndexSet<BuildTarget>, IndexSet<PackageId>, bool), BuildPlanConstructError> {
         // This DFS is shared by both LinkCore and MakeExecutable actions.
         let vp_info = self.input.pkg_rel.virtual_users.get(target.package);
 
@@ -640,7 +640,14 @@ impl<'a> BuildPlanConstructor<'a> {
         // This is the link core sources
         let mut link_core_deps: IndexSet<BuildTarget> = IndexSet::new();
         // This is the C stub sources
-        let mut c_stub_deps: Vec<BuildTarget> = Vec::new();
+        //
+        // Since a package don't have separate C stub for different test targets,
+        // we only need to record the package IDs here.
+        //
+        // Additionally, if we don't dedup it here, we will see C stub for the
+        // package itself and its blackbox test target both being added, which
+        // is redundant.
+        let mut c_stub_deps: IndexSet<PackageId> = IndexSet::new();
         // Whether `moonbitlang/core/abort` is overridden
         let abort_overridden = vp_info
             .zip(abort)
@@ -727,7 +734,7 @@ impl<'a> BuildPlanConstructor<'a> {
                         let pkg = self.input.pkg_dirs.get_package(cur.package);
                         if self.build_env.target_backend.is_native() && !pkg.c_stub_files.is_empty()
                         {
-                            c_stub_deps.push(cur);
+                            c_stub_deps.insert(cur.package);
                         }
                         continue;
                     }
@@ -751,7 +758,7 @@ impl<'a> BuildPlanConstructor<'a> {
                 trace!(?cur, "Post-order: emitted");
 
                 if self.build_env.target_backend.is_native() && !pkg.c_stub_files.is_empty() {
-                    c_stub_deps.push(cur);
+                    c_stub_deps.insert(cur.package);
                 }
             }
         }
