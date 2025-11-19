@@ -29,7 +29,7 @@
 mod special_case;
 
 use std::{
-    collections::HashMap,
+    collections::BTreeMap,
     path::{Path, PathBuf},
 };
 
@@ -439,7 +439,7 @@ pub struct DiscoverResult {
     packages: SlotMap<PackageId, DiscoveredPackage>,
 
     /// The index from modules to the packages they contain
-    module_map: SecondaryMap<ModuleId, HashMap<PackagePath, PackageId>>,
+    module_map: SecondaryMap<ModuleId, BTreeMap<PackagePath, PackageId>>,
 
     /// A special case: `moonbitlang/core/abort`, a standard library package that
     /// needs special treatments.
@@ -477,7 +477,7 @@ impl DiscoverResult {
     pub fn packages_for_module(
         &self,
         module: ModuleId,
-    ) -> Option<&HashMap<PackagePath, PackageId>> {
+    ) -> Option<&BTreeMap<PackagePath, PackageId>> {
         self.module_map.get(module)
     }
 
