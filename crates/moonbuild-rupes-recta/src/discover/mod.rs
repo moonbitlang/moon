@@ -126,6 +126,7 @@ pub(crate) fn discover_packages_for_mod(
 
     // Recursively walk through the module's directories
     let mut walkdir = WalkDir::new(&scan_source_root)
+        .sort_by_file_name()
         .into_iter()
         .filter_entry(|x| x.file_type().is_dir());
     while let Some(entry) = walkdir.next() {
