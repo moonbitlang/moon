@@ -3,7 +3,7 @@ use crate::util::check;
 
 #[test]
 fn native_backend_test_filter() {
-    let dir = TestDir::new("native_backend_test_filter");
+    let dir = TestDir::new("native_backend/test_filter");
 
     check(
         get_stdout(
