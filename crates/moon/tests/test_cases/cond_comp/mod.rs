@@ -8,8 +8,8 @@ fn test_cond_comp() {
         .parent()
         .unwrap()
         .join("target/debug/xtask");
-    let test_path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("tests/test_cases/cond_comp.in/moon.test");
+    let test_path =
+        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/test_cases/cond_comp.in/moon.test");
 
     let status = std::process::Command::new(xtask_path)
         .arg("cmdtest")
