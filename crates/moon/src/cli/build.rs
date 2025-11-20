@@ -375,12 +375,8 @@ fn calc_user_intent(
             .pkg_dirs
             .packages_for_module(main_module_id)
             .ok_or_else(|| anyhow!("Cannot find the local module!"))?;
-        let linkable_pkgs = get_linkable_pkgs(
-            resolve_output,
-            main_module_id,
-            target_backend,
-            packages.values().cloned(),
-        )?;
+        let linkable_pkgs =
+            get_linkable_pkgs(resolve_output, target_backend, packages.values().cloned())?;
         let intents: Vec<_> = if linkable_pkgs.is_empty() {
             packages
                 .iter()
@@ -393,16 +389,11 @@ fn calc_user_intent(
     }
 }
 
-pub fn get_linkable_pkgs(
+fn get_linkable_pkgs(
     resolve_output: &moonbuild_rupes_recta::ResolveOutput,
-    main_module_id: moonutil::mooncakes::ModuleId,
     target_backend: TargetBackend,
     packages: impl Iterator<Item = PackageId>,
 ) -> anyhow::Result<Vec<PackageId>> {
-    resolve_output
-        .pkg_dirs
-        .packages_for_module(main_module_id)
-        .ok_or_else(|| anyhow!("Cannot find the local module!"))?;
     let mut linkable_pkgs = vec![];
     for pkg_id in packages {
         let pkg = resolve_output.pkg_dirs.get_package(pkg_id);

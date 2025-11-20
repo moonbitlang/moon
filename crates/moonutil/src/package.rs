@@ -754,7 +754,7 @@ pub struct MoonPkg {
     pub pre_build: Option<Vec<MoonPkgGenerate>>,
 
     pub bin_name: Option<String>,
-    pub bin_target: TargetBackend,
+    pub bin_target: Option<TargetBackend>,
 
     pub supported_targets: HashSet<TargetBackend>,
 
@@ -874,11 +874,11 @@ pub fn convert_pkg_json_to_package(j: MoonPkgJSON) -> anyhow::Result<MoonPkg> {
         Some(BoolOrLink::Link(_)) => false,
     };
 
-    let bin_target = if let Some(ref b) = j.bin_target {
-        TargetBackend::str_to_backend(b)?
-    } else {
-        TargetBackend::WasmGC
-    };
+    let bin_target = j
+        .bin_target
+        .as_ref()
+        .map(|s| TargetBackend::str_to_backend(s))
+        .transpose()?;
 
     let mut supported_backends = HashSet::new();
     if let Some(ref b) = j.supported_targets {
