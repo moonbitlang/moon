@@ -13,3 +13,6 @@ test_cases::moon_build_package::test_moon_build_package
 
 # legacy implementation is buggy
 test_cases::cond_comp::test_cond_comp
+
+# rr improves the behavio: when `moon test main` rr will not check dependencies' white/blackbox test
+test_cases::filter_by_path::test_moon_check_filter_by_path_success
