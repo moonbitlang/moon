@@ -110,6 +110,9 @@ pub fn main() {
 
     let _trace_guard = init_tracing(flags.trace);
 
+    // Check for deprecated flags and emit warnings (after tracing is initialized)
+    flags.check_deprecations();
+
     use MoonBuildSubcommands::*;
     let res = match cli.subcommand {
         Add(a) => cli::add_cli(flags, a),

@@ -189,6 +189,9 @@ jobs:
         run: |
           cargo run --bin moon update
 
+      - name: Build xtask
+        run: cargo build -p xtask
+
       - name: Run tests
         run: cargo test
 
@@ -308,6 +311,9 @@ jobs:
       - name: moon update
         run: |
           cargo run --bin moon update
+
+      - name: Build xtask
+        run: cargo build -p xtask
 
       - name: Run tests
         run: cargo test
