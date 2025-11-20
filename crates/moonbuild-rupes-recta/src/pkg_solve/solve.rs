@@ -298,7 +298,7 @@ fn insert_black_box_dep(env: &mut ResolveEnv<'_>, pid: PackageId, pkg_data: &Dis
 }
 
 fn warn_about_test_import(pkg: &DiscoveredPackage, violating: &DiscoveredPackage) {
-    warn!(
+    tracing::warn!(
         "Duplicate alias `{}` at \"{}\". \
         \"test-import\" will automatically add \"import\" and current \
         package as dependency so you don't need to add it manually. \
