@@ -54,6 +54,7 @@ derive_builder.workspace = true
 pulldown-cmark.workspace = true
 serde_yaml.workspace = true
 slotmap.workspace = true
+tracing.workspace = true
 
 [target."cfg(unix)".dependencies]
 libc.workspace = true

@@ -20,6 +20,8 @@ use serde::{Deserialize, Serialize};
 
 use crate::dirs::SourceTargetDirs;
 
+use tracing::warn;
+
 // #[derive(clap::Parser)]
 // pub struct StdInfo {
 //     #[arg(long)]
@@ -52,11 +54,21 @@ pub struct UniversalFlags {
     #[clap(long, global = true)]
     pub dry_run: bool,
 
-    /// Generate build graph
-    #[clap(long, global = true, conflicts_with = "dry_run")]
+    #[clap(long, global = true, conflicts_with = "dry_run", hide = true)]
     pub build_graph: bool,
 
     /// Unstable flags to MoonBuild.
     #[clap(long, short = 'Z', default_value = "", env = "MOON_UNSTABLE")]
     pub unstable_feature: Box<crate::features::FeatureGate>,
+}
+
+impl UniversalFlags {
+    /// Emit deprecation warnings for deprecated flags
+    pub fn check_deprecations(&self) {
+        if self.build_graph && self.unstable_feature.rupes_recta {
+            warn!(
+                "`--build-graph` is deprecated. Use -Z rr_export_module_graph, -Z rr_export_package_graph, or -Z rr_export_build_plan instead"
+            );
+        }
+    }
 }

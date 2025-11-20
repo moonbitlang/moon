@@ -1715,6 +1715,7 @@ dependencies = [
  "serde_yaml",
  "slotmap",
  "thiserror 1.0.63",
+ "tracing",
  "vergen",
  "walkdir",
  "which 6.0.2",
