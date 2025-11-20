@@ -60,7 +60,7 @@ fn test_backend_config() {
             moonc build-package ./lib/hello.mbt -o ./target/js/release/build/lib/lib.core -pkg username/hello/lib -pkg-sources username/hello/lib:./lib -target js -workspace-path .
             moonc build-package ./main/main.mbt -o ./target/js/release/build/main/main.core -pkg username/hello/main -is-main -i ./target/js/release/build/lib/lib.mi:lib -pkg-sources username/hello/main:./main -target js -workspace-path .
             moonc link-core ./target/js/release/build/lib/lib.core ./target/js/release/build/main/main.core -main username/hello/main -o ./target/js/release/build/main/main.js -pkg-config-path ./main/moon.pkg.json -pkg-sources username/hello/lib:./lib -pkg-sources username/hello/main:./main -target js
-            moonc link-core ./target/js/release/build/lib/lib.core -main username/hello/lib -o ./target/js/release/build/lib/lib.js -pkg-config-path ./lib/moon.pkg.json -pkg-sources username/hello/lib:./lib -target js -exported_functions=hello:hello_js -js-format esm
+            moonc link-core ./target/js/release/build/lib/lib.core -main username/hello/lib -o ./target/js/release/build/lib/lib.js -pkg-config-path ./lib/moon.pkg.json -pkg-sources username/hello/lib:./lib -js-format esm -target js -exported_functions=hello:hello_js
         "#]],
     );
 }
