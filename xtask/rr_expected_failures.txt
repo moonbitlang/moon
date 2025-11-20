@@ -30,8 +30,6 @@ test_cases::moon_bundle::test_moon_bundle
 test_cases::moon_commands::test_moon_cmd
 test_cases::test_filter::test_moon_test_filter_package
 test_cases::test_need_link
-test_cases::diagnostics_format::test::test_moon_test_raw_output
-test_cases::diagnostics_format::test::test_moon_test_rendered_output
 # executable path mismatch
 test_cases::dummy_core::test_dummy_core
 

@@ -31,7 +31,7 @@ rust-version = "1.90"
 edition = "2024"
 
 [workspace.dependencies]
-n2 = { git = "https://github.com/moonbitlang/n2.git", rev = "4d4a85752269998d32acf81bc2eefbd395153c0c" }
+n2 = { git = "https://github.com/moonbitlang/n2.git", rev = "0377db7786f222b3e79da968a9ec4555b37852a8" }
 arcstr = { version = "1.2", features = ["serde"] }
 moonbuild = { path = "./crates/moonbuild", version = "*" }
 moonbuild-rupes-recta = { path = "./crates/moonbuild-rupes-recta", version = "*" }
