@@ -507,6 +507,13 @@ fn calc_user_intent(
         }
     };
     let pkg = crate::filter::filter_pkg_by_dir(resolve_output, &dir)?;
+
+    // check whether it's a main package
+
+    if !resolve_output.pkg_dirs.get_package(pkg).raw.is_main {
+        bail!("`{}` is not a main package", input_path);
+    }
+
     if value_tracing {
         Ok((
             vec![UserIntent::Run(pkg)],
