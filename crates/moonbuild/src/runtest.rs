@@ -180,6 +180,7 @@ async fn run(
         &mut [&mut test_capture, &mut coverage_capture],
         |line| print!("{line}"),
     )?;
+    std::io::Write::flush(&mut std::io::stdout())?;
     let output = execution.wait().await?;
 
     if !output.success() {

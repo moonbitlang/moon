@@ -139,13 +139,18 @@ pub async fn handle_stdout_async<'a>(
             .iter_mut()
             .find_map(|capture| capture.feed_line(&buf));
         match capture_status {
-            None => stdout.write_all(buf.as_bytes()).await?,
+            None => {
+                stdout.write_all(buf.as_bytes()).await?;
+                stdout.flush().await?;
+            }
             Some(LineCaptured::All) => {}
             Some(LineCaptured::Prefix(start_index)) => {
-                stdout.write_all(&buf.as_bytes()[start_index..]).await?
+                stdout.write_all(&buf.as_bytes()[start_index..]).await?;
+                stdout.flush().await?;
             }
             Some(LineCaptured::Suffix(end_index)) => {
-                stdout.write_all(&buf.as_bytes()[..end_index]).await?
+                stdout.write_all(&buf.as_bytes()[..end_index]).await?;
+                stdout.flush().await?;
             }
         }
     }
