@@ -137,6 +137,9 @@ impl<'a> MooncBuildPackage<'a> {
 
         // Workspace root
         self.defaults.add_workspace_root(args);
+
+        // all-pkgs.json
+        self.required.add_all_pkgs_json(args);
     }
 }
 

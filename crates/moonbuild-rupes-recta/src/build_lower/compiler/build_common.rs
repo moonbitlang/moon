@@ -42,6 +42,9 @@ pub struct BuildCommonInput<'a> {
     pub package_name: CompiledPackageName<'a>,
     /// The source directory of the current package
     pub package_source: Cow<'a, Path>,
+    /// Path to `all_pkgs.json` which contains all packages' artifacts for
+    /// resolving indirect dependencies
+    pub all_pkgs_json_path: PathBuf,
 
     // Target configuration
     /// Target backend to compile for
@@ -58,6 +61,7 @@ impl<'a> BuildCommonInput<'a> {
         mi_deps: &'a [MiDependency<'a>],
         package_name: CompiledPackageName<'a>,
         package_source: impl Into<Cow<'a, Path>>,
+        all_pkgs_json_path: PathBuf,
         target_backend: TargetBackend,
         target_kind: TargetKind,
     ) -> Self {
@@ -67,6 +71,7 @@ impl<'a> BuildCommonInput<'a> {
             mi_deps,
             package_name,
             package_source: package_source.into(),
+            all_pkgs_json_path,
             target_backend,
             target_kind,
         }
@@ -146,6 +151,14 @@ impl<'a> BuildCommonInput<'a> {
             TargetKind::BlackboxTest => args.push("-blackbox-test".to_string()),
             _ => {}
         }
+    }
+
+    /// Emit -all-pkgs argument
+    pub fn add_all_pkgs_json(&self, args: &mut Vec<String>) {
+        args.extend([
+            "-all-pkgs".to_string(),
+            self.all_pkgs_json_path.display().to_string(),
+        ]);
     }
 }
 
