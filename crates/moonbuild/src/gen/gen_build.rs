@@ -684,12 +684,35 @@ pub fn gen_link_command(
                 ),
             ],
         )
+        // JavaScript configuration (legacy order: before -target)
+        .lazy_args_with_cond(
+            moonc_opt.link_opt.target_backend == moonutil::common::TargetBackend::Js
+                && item.link.is_some()
+                && item.link.as_ref().unwrap().js.is_some(),
+            || {
+                let js = item.link.as_ref().unwrap().js.as_ref().unwrap();
+                if js.format.is_some() {
+                    vec![
+                        "-js-format".to_string(),
+                        js.format.unwrap().to_flag().to_string(),
+                    ]
+                } else {
+                    vec![
+                        "-js-format".to_string(),
+                        JsFormat::default().to_flag().to_string(),
+                    ]
+                }
+            },
+        )
+        // Target backend (legacy order)
         .args(["-target", moonc_opt.link_opt.target_backend.to_flag()])
+        // Debug and optimization flags (after -target per legacy)
         .args_with_cond(debug_flag && !strip_flag, vec!["-g", "-O0"])
         .arg_with_cond(debug_flag && strip_flag, "-O0")
         .arg_with_cond(!debug_flag && !strip_flag, "-g")
-        // .arg_with_cond(!debug_flag && strip_flag, "")
+        // Source map (after flags per legacy)
         .arg_with_cond(moonc_opt.link_opt.source_map, "-source-map")
+        // WebAssembly exports (after source-map per legacy)
         .lazy_args_with_cond(exports.is_some(), || {
             let es = exports.unwrap();
             if es.is_empty() {
@@ -701,6 +724,7 @@ pub fn gen_link_command(
                 )]
             }
         })
+        // WASM-specific config (after exports per legacy)
         .lazy_args_with_cond(export_memory_name.is_some(), || {
             vec![
                 "-export-memory-name".to_string(),
@@ -740,25 +764,7 @@ pub fn gen_link_command(
             ]
         })
         .lazy_args_with_cond(link_flags.is_some(), || link_flags.unwrap().into())
-        .lazy_args_with_cond(
-            moonc_opt.link_opt.target_backend == moonutil::common::TargetBackend::Js
-                && item.link.is_some()
-                && item.link.as_ref().unwrap().js.is_some(),
-            || {
-                let js = item.link.as_ref().unwrap().js.as_ref().unwrap();
-                if js.format.is_some() {
-                    vec![
-                        "-js-format".to_string(),
-                        js.format.unwrap().to_flag().to_string(),
-                    ]
-                } else {
-                    vec![
-                        "-js-format".to_string(),
-                        JsFormat::default().to_flag().to_string(),
-                    ]
-                }
-            },
-        )
+        // Extra link options (end per legacy)
         .args(moonc_opt.extra_link_opt.iter())
         // note: this is a workaround for windows cl, x86_64-pc-windows-gnu also need to consider
         .args_with_cond(
