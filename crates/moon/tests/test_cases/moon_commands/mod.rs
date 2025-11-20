@@ -69,8 +69,6 @@ fn test_moon_help() {
                       Trace the execution of the program
                   --dry-run
                       Do not actually run the command
-                  --build-graph
-                      Generate build graph
               -Z, --unstable-feature <UNSTABLE_FEATURE>
                       Unstable flags to MoonBuild [env: MOON_UNSTABLE=] [default: ]
         "#]],
