@@ -5,8 +5,7 @@
 # Typical local workflow (compare then refresh):
 #   cargo xtask test-rr-parity --compare-baseline xtask/rr_expected_failures.txt --write-baseline xtask/rr_expected_failures.txt
 # Note: This list is intended to be checked in and validated by CI on a single platform.
-test_cases::test_native_backend_cc_flags_with_env_override
-test_cases::test_native_backend_tcc_run
+
 test_cases::test_sub_package
 test_cases::test_trace_001
 test_cases::warns::test_warn_list_dry_run
