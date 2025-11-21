@@ -17,5 +17,3 @@ test_cases::dummy_core::test_dummy_core
 # moonrun binary improvements
 test_cases::target_backend::test_target_backend
 
-# Unimplemented: `moonlex` predefined prebuild rule
-test_cases::prebuild::test_moonlex
