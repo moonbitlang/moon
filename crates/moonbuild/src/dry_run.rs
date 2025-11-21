@@ -107,10 +107,14 @@ pub fn print_run_commands(
             // Append user arguments
             cmd.extend(args.iter().map(|x| x.as_str()));
 
-            let cmd_str =
-                shlex::try_join(cmd.iter().map(|x| &**x)).expect("null in args, should not happen");
-            let res = crate::dry_run::replace_path(source_dir, in_same_dir, &cmd_str);
-            println!("{}", res);
+            let cmd = cmd
+                .iter()
+                .map(|x| crate::dry_run::replace_path(source_dir, in_same_dir, x))
+                .collect::<Vec<_>>();
+
+            let cmd_str = shlex::try_join(cmd.iter().map(|x| x.as_ref()))
+                .expect("null in args, should not happen");
+            println!("{}", cmd_str);
         }
     }
 }
