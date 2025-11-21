@@ -80,35 +80,41 @@ pub fn print_run_commands(
         sorted_default.sort_by_key(|a| a.index());
 
         for fid in sorted_default.iter() {
-            let mut watfile = state.graph.file(*fid).name.clone();
-            let cmd = match target_backend {
+            let watfile = state.graph.file(*fid).name.clone();
+
+            // Store path values to ensure they live long enough
+            let moonrun = &moonutil::BINARIES.moonrun;
+            let node = moonutil::BINARIES.node_or_default();
+            let moonrun_path = moonrun.to_string_lossy();
+            let node_path = node.to_string_lossy();
+
+            let mut cmd: Vec<&str> = match target_backend {
                 TargetBackend::Wasm | TargetBackend::WasmGC => {
-                    Some(moonutil::BINARIES.moonrun.clone())
+                    vec![&*moonrun_path, &watfile, "--"]
                 }
-                TargetBackend::Js => Some(moonutil::BINARIES.node_or_default()),
+                TargetBackend::Js => {
+                    vec![&*node_path, &watfile]
+                }
                 TargetBackend::Native | TargetBackend::LLVM => {
                     // stub.o would be default for native and llvm, skip them
                     if !watfile.ends_with(".exe") {
                         continue;
                     }
-                    None
+                    vec![&watfile]
                 }
             };
-            if in_same_dir {
-                watfile = watfile.replacen(&source_dir.display().to_string(), ".", 1);
-            }
 
-            let mut moonrun_command = if let Some(cmd) = cmd {
-                let cmd = cmd.display();
-                format!("{cmd} {watfile} --")
-            } else {
-                watfile
-            };
-            if !args.is_empty() {
-                moonrun_command = format!("{moonrun_command} {}", args.join(" "));
-            }
+            // Append user arguments
+            cmd.extend(args.iter().map(|x| x.as_str()));
 
-            println!("{moonrun_command}");
+            let cmd = cmd
+                .iter()
+                .map(|x| crate::dry_run::replace_path(source_dir, in_same_dir, x))
+                .collect::<Vec<_>>();
+
+            let cmd_str = shlex::try_join(cmd.iter().map(|x| x.as_ref()))
+                .expect("null in args, should not happen");
+            println!("{}", cmd_str);
         }
     }
 }
