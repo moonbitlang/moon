@@ -2,16 +2,8 @@ use super::*;
 
 #[test]
 fn test_moonlex() {
-    if std::env::var("CI").is_err() {
-        return;
-    }
-    if !moonutil::moon_dir::MOON_DIRS
-        .moon_bin_path
-        .join("moonlex.wasm")
-        .exists()
-    {
-        panic!("`moonlex` should comes with installation of moonbit toolchain")
-    }
+    // Note: previously there's a check about installed `moonlex` binary,
+    // but since it comes with the distribution now, we can skip that.
     let dir = TestDir::new("prebuild/moonlex");
     let _ = get_stdout(&dir, ["check"]);
     assert!(dir.join("src/main/fortytwolexer.mbt").exists());
