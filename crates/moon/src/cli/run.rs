@@ -401,7 +401,7 @@ fn run_run_rr(cli: &UniversalFlags, cmd: RunSubcommand) -> Result<i32, anyhow::E
         &cli.unstable_feature,
         &source_dir,
         &target_dir,
-        Box::new(|r, m| calc_user_intent(&input_path, &source_dir, r, value_tracing, m)),
+        Box::new(|r, _tb| calc_user_intent(&input_path, &source_dir, r, value_tracing)),
     )?;
     if cli.dry_run {
         // Print build commands
@@ -484,7 +484,6 @@ fn calc_user_intent(
     source_dir: &Path,
     resolve_output: &moonbuild_rupes_recta::ResolveOutput,
     value_tracing: bool,
-    _main_modules: &[moonutil::mooncakes::ModuleId],
 ) -> Result<CalcUserIntentOutput, anyhow::Error> {
     // The legacy impl says the input path is based on `source_dir`, while
     // if we want to match the behavior of other commands we need it to be based

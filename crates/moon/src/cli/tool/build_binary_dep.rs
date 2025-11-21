@@ -32,17 +32,20 @@
 use std::path::{Path, PathBuf};
 
 use anyhow::Context;
-use moonbuild_rupes_recta::{ResolveConfig, intent::UserIntent};
+use moonbuild_rupes_recta::{
+    ResolveConfig, discover::DiscoveredPackage, intent::UserIntent, model::PackageId,
+};
 use moonutil::{
     cli::UniversalFlags,
-    common::{FileLock, RunMode},
+    common::{FileLock, RunMode, TargetBackend},
     cond_expr::OptLevel,
     dirs::PackageDirs,
     mooncakes::sync::AutoSyncFlags,
 };
+use tracing::warn;
 
 use crate::{
-    cli::{BuildFlags, get_linkable_pkgs},
+    cli::BuildFlags,
     filter::match_packages_by_name_rr,
     rr_build::{self, BuildConfig, BuildMeta, plan_build_from_resolved, preconfig_compile},
 };
@@ -77,16 +80,28 @@ pub fn run_build_binary_dep(cli: &UniversalFlags, cmd: &BuildBinaryDepArgs) -> a
     let resolve_cfg = ResolveConfig::new_with_load_defaults(false, false);
     let resolve_output = moonbuild_rupes_recta::resolve(&resolve_cfg, &source_dir)?;
 
+    // Note: There's a cyclic dependency!
+    //
+    // We need to know the target backend in order to find linkable packages,
+    // but the preferred target backend for each package is stored in its
+    // `bin_target` field, which is only known after resolution.
+    //
+    // To break the cycle, our strategy is to check if each package is linkable
+    // in its own `bin_target`, and if not present, fall back to the main
+    // module's preferred target backend (or default backend if not specified).
+    let &[main_module_id] = resolve_output.local_modules() else {
+        panic!("Expected exactly one main module when building all packages");
+    };
+    let main_module_ref = resolve_output.module_rel.module_info(main_module_id);
+    let default_backend = main_module_ref.preferred_target.unwrap_or_default();
+
     // Okay let's filter the packages
     let pkgs = if cmd.all_pkgs {
-        let &[main_module_id] = resolve_output.local_modules() else {
-            panic!("Expected exactly one main module when building all packages");
-        };
         let packages = resolve_output
             .pkg_dirs
             .packages_for_module(main_module_id)
             .ok_or_else(|| anyhow::anyhow!("Cannot find the local module!"))?;
-        get_linkable_pkgs(&resolve_output, main_module_id, packages.values().cloned())?
+        get_linkable_pkgs_for_bin_dep(&resolve_output, packages.values().cloned(), default_backend)?
     } else {
         let mut result_pkgs = vec![];
         for pkg_name in cmd.pkg_names.iter() {
@@ -95,22 +110,25 @@ pub fn run_build_binary_dep(cli: &UniversalFlags, cmd: &BuildBinaryDepArgs) -> a
                 resolve_output.local_modules(),
                 pkg_name,
             );
-            result_pkgs.extend(pkgs);
+            for pkg in pkgs {
+                let pkg_ref = resolve_output.pkg_dirs.get_package(pkg);
+                let pkg_bin_target = pkg_ref.raw.bin_target.unwrap_or(default_backend);
+                add_bin_dep(&mut result_pkgs, pkg, pkg_ref, pkg_bin_target);
+            }
         }
         result_pkgs
     };
 
     // For each package we need to get its target backend and then we can build it
-    for pkg in pkgs {
+    for (pkg, target) in pkgs {
         // Get package info
         let package = &*resolve_output.pkg_dirs.get_package(pkg).raw;
-        let backend = package.bin_target;
         let bin_name = package.bin_name.as_deref();
 
         let preconfig = preconfig_compile(
             &AutoSyncFlags { frozen: false },
             cli,
-            &BuildFlags::default().with_target_backend(Some(backend)),
+            &BuildFlags::default().with_target_backend(Some(target)),
             &target_dir,
             OptLevel::Release,
             RunMode::Build,
@@ -134,6 +152,44 @@ pub fn run_build_binary_dep(cli: &UniversalFlags, cmd: &BuildBinaryDepArgs) -> a
     }
 
     Ok(0)
+}
+
+fn get_linkable_pkgs_for_bin_dep(
+    resolve_output: &moonbuild_rupes_recta::ResolveOutput,
+    packages: impl Iterator<Item = PackageId>,
+    default_backend: TargetBackend,
+) -> anyhow::Result<Vec<(PackageId, TargetBackend)>> {
+    let mut linkable_pkgs = vec![];
+    for pkg_id in packages {
+        let pkg = resolve_output.pkg_dirs.get_package(pkg_id);
+        let pkg_bin_target = pkg.raw.bin_target.unwrap_or(default_backend);
+
+        add_bin_dep(&mut linkable_pkgs, pkg_id, pkg, pkg_bin_target);
+    }
+    Ok(linkable_pkgs)
+}
+
+fn add_bin_dep(
+    linkable_pkgs: &mut Vec<(PackageId, TargetBackend)>,
+    pkg_id: PackageId,
+    pkg: &DiscoveredPackage,
+    pkg_bin_target: TargetBackend,
+) {
+    if pkg.raw.force_link
+        || pkg
+            .raw
+            .link
+            .as_ref()
+            .is_some_and(|link| link.need_link(pkg_bin_target))
+        || pkg.raw.is_main
+    {
+        linkable_pkgs.push((pkg_id, pkg_bin_target))
+    } else if pkg.raw.bin_target.is_some() {
+        warn!(
+            "Package {} has bin_target set, but cannot be linked; skipping",
+            pkg.fqn
+        );
+    }
 }
 
 /// Handle `moon build --install-path`

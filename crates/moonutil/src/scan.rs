@@ -597,7 +597,7 @@ fn scan_one_package(
             .and_then(|it| it.install_path.clone())
             .filter(|_| pkg.is_main && !is_third_party),
         bin_name: pkg.bin_name,
-        bin_target: pkg.bin_target,
+        bin_target: pkg.bin_target.unwrap_or_default(),
         enable_value_tracing: false,
         supported_targets: pkg.supported_targets,
         stub_lib: pkg

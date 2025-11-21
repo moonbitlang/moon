@@ -16,3 +16,9 @@ test_cases::cond_comp::test_cond_comp
 
 # rr improves the behavio: when `moon test main` rr will not check dependencies' white/blackbox test
 test_cases::filter_by_path::test_moon_check_filter_by_path_success
+
+# Legacy includes irrelevant tasks while RR doesn't
+test_cases::test_native_backend_cc_flags_with_env_override
+
+# tcc -run execution method difference
+test_cases::test_native_backend_tcc_run

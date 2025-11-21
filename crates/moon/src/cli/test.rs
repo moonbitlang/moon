@@ -649,7 +649,8 @@ fn run_test_rr(
         default_opt_level,
         RunMode::Test,
     );
-    if !is_bench && !cli.dry_run {
+    // Enable tcc-run for tests regardless of dry-run so the graph shape matches legacy.
+    if !is_bench {
         preconfig.try_tcc_run = true;
     }
 
@@ -659,8 +660,8 @@ fn run_test_rr(
         &cli.unstable_feature,
         source_dir,
         target_dir,
-        Box::new(|resolved, main_modules| {
-            calc_user_intent(resolved, main_modules, cmd, &mut filter)
+        Box::new(|resolved, target_backend| {
+            calc_user_intent(resolved, cmd, &mut filter, target_backend)
         }),
     )?;
     debug!(
@@ -930,14 +931,14 @@ fn apply_list_of_filters(
 /// both the test filter and user intent wants the same `BuildTarget` list, but
 /// the earliest time we can get them is during intent calculation. Since the
 /// fuzzy matching process is quite complex, we would avoid doing it twice.
-#[instrument(level = "debug", skip(resolve_output, main_modules, cmd, out_filter))]
+#[instrument(level = "debug", skip(resolve_output, cmd, out_filter))]
 fn calc_user_intent(
     resolve_output: &moonbuild_rupes_recta::ResolveOutput,
-    main_modules: &[moonutil::mooncakes::ModuleId],
     cmd: &TestLikeSubcommand<'_>,
     out_filter: &mut TestFilter,
+    target_backend: moonutil::common::TargetBackend,
 ) -> Result<CalcUserIntentOutput, anyhow::Error> {
-    let &[main_module_id] = main_modules else {
+    let &[main_module_id] = resolve_output.local_modules() else {
         panic!("No multiple main modules are supported");
     };
 

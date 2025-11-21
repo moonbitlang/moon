@@ -586,6 +586,10 @@ impl<'a> BuildPlanLowerContext<'a> {
 
         let mut object_files = Vec::new();
         for (input, edge) in self.build_plan.dependency_edges(node) {
+            // FIXME: we need a better way to separate the different kinds of input edges
+            if !matches!(input, BuildPlanNode::BuildCStub { .. }) {
+                continue;
+            }
             self.append_artifact_of(input, edge, &mut object_files);
         }
 
@@ -672,7 +676,7 @@ impl<'a> BuildPlanLowerContext<'a> {
 
         // Build linker config: shared lib, no libmoonbitrun, and link shared runtime dir
         let lcfg = LinkerConfigBuilder::<&Path>::default()
-            .link_moonbitrun(false)
+            .link_moonbitrun(false) // this is only for tcc -run
             .output_ty(CCOutputType::SharedLib)
             .link_shared_runtime(Some(runtime_parent))
             .build()
@@ -741,7 +745,7 @@ impl<'a> BuildPlanLowerContext<'a> {
         // C stubs to link
         for &stub_tgt in &info.link_c_stubs {
             self.append_all_artifacts_of(
-                BuildPlanNode::ArchiveOrLinkCStubs(stub_tgt.package),
+                BuildPlanNode::ArchiveOrLinkCStubs(stub_tgt),
                 &mut sources,
             );
         }
@@ -806,7 +810,7 @@ impl<'a> BuildPlanLowerContext<'a> {
         // C stubs to link
         for &stub_tgt in &info.link_c_stubs {
             self.append_all_artifacts_of(
-                BuildPlanNode::ArchiveOrLinkCStubs(stub_tgt.package),
+                BuildPlanNode::ArchiveOrLinkCStubs(stub_tgt),
                 &mut sources,
             );
         }
