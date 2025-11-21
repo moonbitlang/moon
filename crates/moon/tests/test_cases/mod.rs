@@ -89,6 +89,7 @@ mod test_include_001;
 mod test_include_002;
 mod test_include_003;
 mod test_moon_info;
+mod test_moonbitlang_x;
 mod test_release;
 mod third_party;
 mod value_tracing;
@@ -556,57 +557,6 @@ fn test_moon_run_with_cli_args() {
         ],
     );
     assert!(s.contains("\"中文\", \"😄👍\", \"hello\", \"1242\", \"--flag\""));
-}
-
-#[test]
-fn test_moonbitlang_x() {
-    if std::env::var("CI").is_err() {
-        return;
-    }
-    let dir = TestDir::new("test_moonbitlang_x.in");
-    get_stdout(&dir, ["update"]);
-    get_stdout(&dir, ["install"]);
-
-    let build_output = get_stdout(&dir, ["build", "--dry-run", "--sort-input"]);
-
-    check(
-        &build_output,
-        expect![[r#"
-            moonc build-package ./.mooncakes/moonbitlang/x/stack/deprecated.mbt ./.mooncakes/moonbitlang/x/stack/stack.mbt ./.mooncakes/moonbitlang/x/stack/types.mbt -w -a -alert -all -o ./target/wasm-gc/release/build/.mooncakes/moonbitlang/x/stack/stack.core -pkg moonbitlang/x/stack -std-path $MOON_HOME/lib/core/target/wasm-gc/release/bundle -pkg-sources moonbitlang/x/stack:./.mooncakes/moonbitlang/x/stack -target wasm-gc -workspace-path ./.mooncakes/moonbitlang/x
-            moonc build-package ./src/lib/hello.mbt -o ./target/wasm-gc/release/build/lib/lib.core -pkg username/hello/lib -std-path $MOON_HOME/lib/core/target/wasm-gc/release/bundle -i ./target/wasm-gc/release/build/.mooncakes/moonbitlang/x/stack/stack.mi:stack -pkg-sources username/hello/lib:./src/lib -target wasm-gc -workspace-path .
-            moonc build-package ./src/main/main.mbt -o ./target/wasm-gc/release/build/main/main.core -pkg username/hello/main -is-main -std-path $MOON_HOME/lib/core/target/wasm-gc/release/bundle -i ./target/wasm-gc/release/build/lib/lib.mi:lib -i ./target/wasm-gc/release/build/.mooncakes/moonbitlang/x/stack/stack.mi:stack -pkg-sources username/hello/main:./src/main -target wasm-gc -workspace-path .
-            moonc link-core $MOON_HOME/lib/core/target/wasm-gc/release/bundle/abort/abort.core $MOON_HOME/lib/core/target/wasm-gc/release/bundle/core.core ./target/wasm-gc/release/build/.mooncakes/moonbitlang/x/stack/stack.core ./target/wasm-gc/release/build/lib/lib.core ./target/wasm-gc/release/build/main/main.core -main username/hello/main -o ./target/wasm-gc/release/build/main/main.wasm -pkg-config-path ./src/main/moon.pkg.json -pkg-sources moonbitlang/x/stack:./.mooncakes/moonbitlang/x/stack -pkg-sources username/hello/lib:./src/lib -pkg-sources username/hello/main:./src/main -pkg-sources moonbitlang/core:$MOON_HOME/lib/core -target wasm-gc
-        "#]],
-    );
-
-    let test_output = get_stdout(&dir, ["test", "--dry-run", "--sort-input"]);
-    check(
-        &test_output,
-        expect![[r#"
-            moonc build-package ./.mooncakes/moonbitlang/x/stack/deprecated.mbt ./.mooncakes/moonbitlang/x/stack/stack.mbt ./.mooncakes/moonbitlang/x/stack/types.mbt -w -a -alert -all -o ./target/wasm-gc/debug/test/.mooncakes/moonbitlang/x/stack/stack.core -pkg moonbitlang/x/stack -std-path $MOON_HOME/lib/core/target/wasm-gc/release/bundle -pkg-sources moonbitlang/x/stack:./.mooncakes/moonbitlang/x/stack -target wasm-gc -g -O0 -source-map -workspace-path ./.mooncakes/moonbitlang/x
-            moonc build-package ./src/lib/hello.mbt -o ./target/wasm-gc/debug/test/lib/lib.core -pkg username/hello/lib -std-path $MOON_HOME/lib/core/target/wasm-gc/release/bundle -i ./target/wasm-gc/debug/test/.mooncakes/moonbitlang/x/stack/stack.mi:stack -pkg-sources username/hello/lib:./src/lib -target wasm-gc -g -O0 -source-map -workspace-path .
-            moon generate-test-driver --output-driver ./target/wasm-gc/debug/test/main/__generated_driver_for_internal_test.mbt --output-metadata ./target/wasm-gc/debug/test/main/__internal_test_info.json ./src/main/main.mbt --target wasm-gc --pkg-name username/hello/main --driver-kind internal
-            moonc build-package ./src/main/main.mbt ./target/wasm-gc/debug/test/main/__generated_driver_for_internal_test.mbt -o ./target/wasm-gc/debug/test/main/main.internal_test.core -pkg username/hello/main -is-main -std-path $MOON_HOME/lib/core/target/wasm-gc/release/bundle -i ./target/wasm-gc/debug/test/lib/lib.mi:lib -i ./target/wasm-gc/debug/test/.mooncakes/moonbitlang/x/stack/stack.mi:stack -pkg-sources username/hello/main:./src/main -target wasm-gc -g -O0 -source-map -no-mi -test-mode -workspace-path .
-            moonc link-core $MOON_HOME/lib/core/target/wasm-gc/release/bundle/abort/abort.core $MOON_HOME/lib/core/target/wasm-gc/release/bundle/core.core ./target/wasm-gc/debug/test/.mooncakes/moonbitlang/x/stack/stack.core ./target/wasm-gc/debug/test/lib/lib.core ./target/wasm-gc/debug/test/main/main.internal_test.core -main username/hello/main -o ./target/wasm-gc/debug/test/main/main.internal_test.wasm -test-mode -pkg-config-path ./src/main/moon.pkg.json -pkg-sources moonbitlang/x/stack:./.mooncakes/moonbitlang/x/stack -pkg-sources username/hello/lib:./src/lib -pkg-sources username/hello/main:./src/main -pkg-sources moonbitlang/core:$MOON_HOME/lib/core -exported_functions moonbit_test_driver_internal_execute,moonbit_test_driver_finish -target wasm-gc -g -O0 -source-map
-            moonc build-package ./src/main/main.mbt -o ./target/wasm-gc/debug/test/main/main.core -pkg username/hello/main -is-main -std-path $MOON_HOME/lib/core/target/wasm-gc/release/bundle -i ./target/wasm-gc/debug/test/lib/lib.mi:lib -i ./target/wasm-gc/debug/test/.mooncakes/moonbitlang/x/stack/stack.mi:stack -pkg-sources username/hello/main:./src/main -target wasm-gc -g -O0 -source-map -workspace-path .
-            moon generate-test-driver --output-driver ./target/wasm-gc/debug/test/main/__generated_driver_for_blackbox_test.mbt --output-metadata ./target/wasm-gc/debug/test/main/__blackbox_test_info.json --doctest-only ./src/main/main.mbt --target wasm-gc --pkg-name username/hello/main --driver-kind blackbox
-            moonc build-package ./target/wasm-gc/debug/test/main/__generated_driver_for_blackbox_test.mbt -doctest-only ./src/main/main.mbt -o ./target/wasm-gc/debug/test/main/main.blackbox_test.core -pkg username/hello/main_blackbox_test -is-main -std-path $MOON_HOME/lib/core/target/wasm-gc/release/bundle -i ./target/wasm-gc/debug/test/lib/lib.mi:lib -i ./target/wasm-gc/debug/test/main/main.mi:main -i ./target/wasm-gc/debug/test/.mooncakes/moonbitlang/x/stack/stack.mi:stack -pkg-sources username/hello/main_blackbox_test:./src/main -target wasm-gc -g -O0 -source-map -blackbox-test -include-doctests -no-mi -test-mode -workspace-path .
-            moonc link-core $MOON_HOME/lib/core/target/wasm-gc/release/bundle/abort/abort.core $MOON_HOME/lib/core/target/wasm-gc/release/bundle/core.core ./target/wasm-gc/debug/test/.mooncakes/moonbitlang/x/stack/stack.core ./target/wasm-gc/debug/test/lib/lib.core ./target/wasm-gc/debug/test/main/main.core ./target/wasm-gc/debug/test/main/main.blackbox_test.core -main username/hello/main_blackbox_test -o ./target/wasm-gc/debug/test/main/main.blackbox_test.wasm -test-mode -pkg-config-path ./src/main/moon.pkg.json -pkg-sources moonbitlang/x/stack:./.mooncakes/moonbitlang/x/stack -pkg-sources username/hello/lib:./src/lib -pkg-sources username/hello/main:./src/main -pkg-sources username/hello/main_blackbox_test:./src/main -pkg-sources moonbitlang/core:$MOON_HOME/lib/core -exported_functions moonbit_test_driver_internal_execute,moonbit_test_driver_finish -target wasm-gc -g -O0 -source-map
-            moon generate-test-driver --output-driver ./target/wasm-gc/debug/test/lib/__generated_driver_for_internal_test.mbt --output-metadata ./target/wasm-gc/debug/test/lib/__internal_test_info.json ./src/lib/hello.mbt --target wasm-gc --pkg-name username/hello/lib --driver-kind internal
-            moonc build-package ./src/lib/hello.mbt ./target/wasm-gc/debug/test/lib/__generated_driver_for_internal_test.mbt -o ./target/wasm-gc/debug/test/lib/lib.internal_test.core -pkg username/hello/lib -is-main -std-path $MOON_HOME/lib/core/target/wasm-gc/release/bundle -i ./target/wasm-gc/debug/test/.mooncakes/moonbitlang/x/stack/stack.mi:stack -pkg-sources username/hello/lib:./src/lib -target wasm-gc -g -O0 -source-map -no-mi -test-mode -workspace-path .
-            moonc link-core $MOON_HOME/lib/core/target/wasm-gc/release/bundle/abort/abort.core $MOON_HOME/lib/core/target/wasm-gc/release/bundle/core.core ./target/wasm-gc/debug/test/.mooncakes/moonbitlang/x/stack/stack.core ./target/wasm-gc/debug/test/lib/lib.internal_test.core -main username/hello/lib -o ./target/wasm-gc/debug/test/lib/lib.internal_test.wasm -test-mode -pkg-config-path ./src/lib/moon.pkg.json -pkg-sources moonbitlang/x/stack:./.mooncakes/moonbitlang/x/stack -pkg-sources username/hello/lib:./src/lib -pkg-sources moonbitlang/core:$MOON_HOME/lib/core -exported_functions moonbit_test_driver_internal_execute,moonbit_test_driver_finish -target wasm-gc -g -O0 -source-map
-            moon generate-test-driver --output-driver ./target/wasm-gc/debug/test/lib/__generated_driver_for_blackbox_test.mbt --output-metadata ./target/wasm-gc/debug/test/lib/__blackbox_test_info.json ./src/lib/hello_test.mbt --doctest-only ./src/lib/hello.mbt --target wasm-gc --pkg-name username/hello/lib --driver-kind blackbox
-            moonc build-package ./src/lib/hello_test.mbt ./target/wasm-gc/debug/test/lib/__generated_driver_for_blackbox_test.mbt -doctest-only ./src/lib/hello.mbt -o ./target/wasm-gc/debug/test/lib/lib.blackbox_test.core -pkg username/hello/lib_blackbox_test -is-main -std-path $MOON_HOME/lib/core/target/wasm-gc/release/bundle -i ./target/wasm-gc/debug/test/lib/lib.mi:lib -i ./target/wasm-gc/debug/test/.mooncakes/moonbitlang/x/stack/stack.mi:stack -pkg-sources username/hello/lib_blackbox_test:./src/lib -target wasm-gc -g -O0 -source-map -blackbox-test -include-doctests -no-mi -test-mode -workspace-path .
-            moonc link-core $MOON_HOME/lib/core/target/wasm-gc/release/bundle/abort/abort.core $MOON_HOME/lib/core/target/wasm-gc/release/bundle/core.core ./target/wasm-gc/debug/test/.mooncakes/moonbitlang/x/stack/stack.core ./target/wasm-gc/debug/test/lib/lib.core ./target/wasm-gc/debug/test/lib/lib.blackbox_test.core -main username/hello/lib_blackbox_test -o ./target/wasm-gc/debug/test/lib/lib.blackbox_test.wasm -test-mode -pkg-config-path ./src/lib/moon.pkg.json -pkg-sources moonbitlang/x/stack:./.mooncakes/moonbitlang/x/stack -pkg-sources username/hello/lib:./src/lib -pkg-sources username/hello/lib_blackbox_test:./src/lib -pkg-sources moonbitlang/core:$MOON_HOME/lib/core -exported_functions moonbit_test_driver_internal_execute,moonbit_test_driver_finish -target wasm-gc -g -O0 -source-map
-        "#]],
-    );
-
-    check(
-        get_stdout(&dir, ["run", "src/main"]),
-        expect![[r#"
-            Some(123)
-        "#]],
-    );
 }
 
 #[test]
