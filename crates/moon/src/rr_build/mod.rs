@@ -649,7 +649,17 @@ pub fn generate_all_pkgs_json(
 
     // Only overwrite if changed
     if !orig_all_pkgs.is_ok_and(|o| o == all_pkgs_str) {
-        std::fs::write(&all_pkgs_path, all_pkgs_str).context("Failed to write build metadata")?;
+        // Ensure parent directory exists
+        if let Some(parent) = all_pkgs_path.parent() {
+            std::fs::create_dir_all(parent).context(format!(
+                "Failed to create directory for all_pkgs at {}",
+                parent.display()
+            ))?;
+        }
+        std::fs::write(&all_pkgs_path, all_pkgs_str).context(format!(
+            "Failed to write all_pkgs to the path {}",
+            all_pkgs_path.display()
+        ))?;
     }
     Ok(())
 }
