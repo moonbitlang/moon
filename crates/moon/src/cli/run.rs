@@ -706,6 +706,8 @@ fn rr_run_from_plan(
     }
 
     let _lock = FileLock::lock(target_dir)?;
+    // Generate all_pkgs.json for indirect dependency resolution
+    rr_build::generate_all_pkgs_json(&target_dir, &build_meta, RunMode::Run)?;
 
     let build_config =
         BuildConfig::from_flags(&cmd.build_flags, &cli.unstable_feature, cli.verbose);

@@ -120,6 +120,7 @@ pub fn run_bundle_internal_rr(
         OptLevel::Release,
         RunMode::Bundle,
     );
+
     // Allow warn in `moon bundle`, different from other run modes, to reduce
     // commandline clutter on installation
     preconfig.warning_condition = if cmd.build_flags.deny_warn {
@@ -128,7 +129,7 @@ pub fn run_bundle_internal_rr(
         WarningCondition::Allow
     };
 
-    let (_build_meta, build_graph) = rr_build::plan_build(
+    let (build_meta, build_graph) = rr_build::plan_build(
         preconfig,
         &cli.unstable_feature,
         source_dir,
@@ -145,16 +146,17 @@ pub fn run_bundle_internal_rr(
     if cli.dry_run {
         rr_build::print_dry_run(
             &build_graph,
-            _build_meta.artifacts.values(),
+            build_meta.artifacts.values(),
             source_dir,
             target_dir,
         );
         Ok(0)
     } else {
         let _lock = FileLock::lock(target_dir)?;
-
+        // Generate all_pkgs.json for indirect dependency resolution
+        rr_build::generate_all_pkgs_json(target_dir, &build_meta, RunMode::Bundle)?;
         // Generate metadata for IDE & bundler
-        rr_build::generate_metadata(source_dir, target_dir, &_build_meta, RunMode::Bundle, None)?;
+        rr_build::generate_metadata(source_dir, target_dir, &build_meta, RunMode::Bundle, None)?;
 
         let result = rr_build::execute_build(
             &BuildConfig::from_flags(&cmd.build_flags, &cli.unstable_feature, cli.verbose),

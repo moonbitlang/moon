@@ -616,7 +616,7 @@ pub fn generate_metadata(
     Ok(())
 }
 
-pub fn generate_all_deps(
+pub fn generate_all_pkgs_json(
     target_dir: &Path,
     build_meta: &BuildMeta,
     mode: RunMode,
