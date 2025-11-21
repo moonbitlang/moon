@@ -146,6 +146,8 @@ impl<'a> BuildPlanLowerContext<'a> {
             BuildPlanNode::BuildRuntimeLib => self.lower_compile_runtime(),
             BuildPlanNode::BuildDocs => self.lower_build_docs(),
             BuildPlanNode::RunPrebuild(pkg, idx) => self.lower_run_prebuild(pkg, idx),
+            BuildPlanNode::RunMoonLexPrebuild(pkg, idx) => self.lower_moon_lex_prebuild(pkg, idx),
+            BuildPlanNode::RunMoonYaccPrebuild(pkg, idx) => self.lower_moon_yacc_prebuild(pkg, idx),
         };
 
         // Collect n2 inputs and outputs.
@@ -169,7 +171,7 @@ impl<'a> BuildPlanLowerContext<'a> {
             .extract_target()
             .map(|x| self.get_package(x).fqn.clone());
         let mut build = Build::new(
-            build_n2_fileloc(node.human_desc(self.modules, self.packages)),
+            build_n2_fileloc(node.string_id(self.modules, self.packages)),
             ins,
             outs,
         );
@@ -349,6 +351,17 @@ impl<'a> BuildPlanLowerContext<'a> {
                     &t,
                     self.opt.target_backend.into(),
                 ));
+            }
+            BuildPlanNode::RunMoonLexPrebuild(pkg, idx) => {
+                // FIXME: The output path logic should match that in build_plan/builders.rs
+                let pkg_info = self.packages.get_package(pkg);
+                let mbtlex_file = &pkg_info.mbt_lex_files[idx as usize];
+                out.push(mbtlex_file.with_extension("mbt"));
+            }
+            BuildPlanNode::RunMoonYaccPrebuild(pkg, idx) => {
+                let pkg_info = self.packages.get_package(pkg);
+                let mbtyacc_file = &pkg_info.mbt_yacc_files[idx as usize];
+                out.push(mbtyacc_file.with_extension("mbt"));
             }
         }
     }

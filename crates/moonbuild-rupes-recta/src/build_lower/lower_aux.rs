@@ -255,4 +255,52 @@ impl<'a> super::BuildPlanLowerContext<'a> {
             extra_inputs: info.resolved_inputs.clone(),
         }
     }
+
+    pub(super) fn lower_moon_lex_prebuild(&self, pkg: PackageId, idx: u32) -> BuildCommand {
+        let pkg = self.packages.get_package(pkg);
+        let mbtlex_path = pkg
+            .mbt_lex_files
+            .get(idx as usize)
+            .expect("mbt_lex file index out of bounds")
+            .clone();
+        let output = mbtlex_path.with_extension("mbt");
+
+        let commandline = vec![
+            moonutil::BINARIES.moonrun.display().to_string(),
+            moonutil::BINARIES.moonlex.display().to_string(),
+            "--".into(),
+            mbtlex_path.display().to_string(),
+            "-o".into(),
+            output.display().to_string(),
+        ];
+
+        BuildCommand {
+            commandline,
+            extra_inputs: vec![mbtlex_path],
+        }
+    }
+
+    pub(super) fn lower_moon_yacc_prebuild(&self, pkg: PackageId, idx: u32) -> BuildCommand {
+        let pkg = self.packages.get_package(pkg);
+        let mby_path = pkg
+            .mbt_yacc_files
+            .get(idx as usize)
+            .expect("mbt_yacc file index out of bounds")
+            .clone();
+        let output = mby_path.with_extension("mbt");
+
+        let commandline = vec![
+            moonutil::BINARIES.moonrun.display().to_string(),
+            moonutil::BINARIES.moonyacc.display().to_string(),
+            "--".into(),
+            mby_path.display().to_string(),
+            "-o".into(),
+            output.display().to_string(),
+        ];
+
+        BuildCommand {
+            commandline,
+            extra_inputs: vec![mby_path],
+        }
+    }
 }

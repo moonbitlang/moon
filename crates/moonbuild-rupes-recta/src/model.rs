@@ -161,6 +161,11 @@ pub enum BuildPlanNode {
     /// Run the i-th prebuild script in the prebuild script list.
     RunPrebuild(PackageId, u32),
 
+    /// Run the i-th prebuild rule for `moonlex` predefined prebuild.
+    RunMoonLexPrebuild(PackageId, u32),
+    /// Run the i-th prebuild rule for `moonyacc` predefined prebuild.
+    RunMoonYaccPrebuild(PackageId, u32),
+
     /// Docs build is currently for everything.
     ///
     /// The legacy layout does not have a separate folder for different kinds
@@ -205,13 +210,15 @@ impl BuildPlanNode {
             | BuildPlanNode::BuildRuntimeLib
             | BuildPlanNode::BuildDocs
             | BuildPlanNode::BuildVirtual(_)
-            | BuildPlanNode::RunPrebuild(_, _) => None,
+            | BuildPlanNode::RunPrebuild(_, _)
+            | BuildPlanNode::RunMoonLexPrebuild(_, _)
+            | BuildPlanNode::RunMoonYaccPrebuild(_, _) => None,
         }
     }
 
-    /// Return a concise, human-readable description resolving PackageId/ModuleId to names.
+    /// Return a concise, human-readable identifier resolving PackageId/ModuleId to names.
     /// Single-line and stable; suitable for filenames/labels (e.g. n2 fileloc).
-    pub fn human_desc(&self, env: &ResolvedEnv, packages: &DiscoverResult) -> String {
+    pub fn string_id(&self, env: &ResolvedEnv, packages: &DiscoverResult) -> String {
         match self {
             BuildPlanNode::Check(t) => {
                 let fqn = packages.fqn(t.package);
@@ -257,6 +264,14 @@ impl BuildPlanNode {
             BuildPlanNode::RunPrebuild(pkg, idx) => {
                 let fqn = packages.fqn(*pkg);
                 format!("{}@RunPrebuild_{}", fqn, idx)
+            }
+            BuildPlanNode::RunMoonLexPrebuild(pkg, idx) => {
+                let fqn = packages.fqn(*pkg);
+                format!("{}@RunMoonLexPrebuild_{}", fqn, idx)
+            }
+            BuildPlanNode::RunMoonYaccPrebuild(pkg, idx) => {
+                let fqn = packages.fqn(*pkg);
+                format!("{}@RunMoonYaccPrebuild_{}", fqn, idx)
             }
             BuildPlanNode::BuildDocs => "BuildDocs".to_string(),
         }

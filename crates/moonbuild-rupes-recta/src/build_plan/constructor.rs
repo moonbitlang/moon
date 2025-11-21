@@ -328,6 +328,8 @@ impl<'a> BuildPlanConstructor<'a> {
                     node
                 );
             }
+            BuildPlanNode::RunMoonLexPrebuild(_pkg, _idx) => (),
+            BuildPlanNode::RunMoonYaccPrebuild(_pkg, _idx) => (),
             BuildPlanNode::BuildVirtual(_build_target) => (),
         }
     }
@@ -422,6 +424,10 @@ impl<'a> BuildPlanConstructor<'a> {
             BuildPlanNode::BuildDocs => self.build_build_docs(node),
             BuildPlanNode::RunPrebuild(package_id, index) => {
                 self.build_run_prebuild(node, package_id, index)
+            }
+            BuildPlanNode::RunMoonLexPrebuild(_package_id, _index) => self.build_lex_prebuild(node),
+            BuildPlanNode::RunMoonYaccPrebuild(_package_id, _index) => {
+                self.build_yacc_prebuild(node)
             }
             BuildPlanNode::BuildVirtual(target) => self.build_parse_mbti(node, target),
         }
