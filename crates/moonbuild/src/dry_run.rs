@@ -58,11 +58,8 @@ pub fn print_run_commands(
     state: &State,
     target_backend: TargetBackend,
     source_dir: &Path,
-    target_dir: &Path,
     args: &[String],
 ) {
-    let in_same_dir = target_dir.starts_with(source_dir);
-
     if !state.default.is_empty() {
         // FIXME: This sorts the default targets twice. Should not affect the perf much though.
         let mut sorted_default = state.default.clone();
@@ -101,6 +98,7 @@ pub fn print_run_commands(
 
             let cmd_str =
                 shlex::try_join(cmd.iter().map(|x| &**x)).expect("null in args, should not happen");
+
             println!("{}", cmd_str);
         }
     }
@@ -139,7 +137,6 @@ pub fn print_commands(
             &state,
             moonc_opt.link_opt.target_backend,
             source_dir,
-            target_dir,
             &moonbuild_opt.args,
         );
     }
