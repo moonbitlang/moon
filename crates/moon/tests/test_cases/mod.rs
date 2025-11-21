@@ -90,6 +90,7 @@ mod test_include_002;
 mod test_include_003;
 mod test_moon_info;
 mod test_release;
+mod third_party;
 mod value_tracing;
 mod virtual_pkg_dep;
 mod virtual_pkg_test;
@@ -555,63 +556,6 @@ fn test_moon_run_with_cli_args() {
         ],
     );
     assert!(s.contains("\"中文\", \"😄👍\", \"hello\", \"1242\", \"--flag\""));
-}
-
-#[test]
-fn test_third_party() {
-    if std::env::var("CI").is_err() {
-        return;
-    }
-    let dir = TestDir::new("third_party.in");
-    get_stdout(&dir, ["update"]);
-    get_stdout(&dir, ["install"]);
-    get_stdout(&dir, ["build"]);
-    get_stdout(&dir, ["clean"]);
-
-    let actual = get_stderr(&dir, ["check"]);
-    expect![[r#"
-        Finished. moon: ran 6 tasks, now up to date
-    "#]]
-    .assert_eq(&actual);
-
-    check(
-        get_stdout(&dir, ["test", "--dry-run", "--sort-input"]),
-        expect![[r#"
-            moonc build-package ./.mooncakes/lijunchen/hello18/lib/hello.mbt -w -a -alert -all -o ./target/wasm-gc/debug/test/.mooncakes/lijunchen/hello18/lib/lib.core -pkg lijunchen/hello18/lib -std-path $MOON_HOME/lib/core/target/wasm-gc/release/bundle -pkg-sources lijunchen/hello18/lib:./.mooncakes/lijunchen/hello18/lib -target wasm-gc -g -O0 -source-map -workspace-path ./.mooncakes/lijunchen/hello18
-            moon generate-test-driver --output-driver ./target/wasm-gc/debug/test/main/__generated_driver_for_internal_test.mbt --output-metadata ./target/wasm-gc/debug/test/main/__internal_test_info.json ./main/main.mbt --target wasm-gc --pkg-name username/hello/main --driver-kind internal
-            moonc build-package ./main/main.mbt ./target/wasm-gc/debug/test/main/__generated_driver_for_internal_test.mbt -o ./target/wasm-gc/debug/test/main/main.internal_test.core -pkg username/hello/main -is-main -std-path $MOON_HOME/lib/core/target/wasm-gc/release/bundle -i ./target/wasm-gc/debug/test/.mooncakes/lijunchen/hello18/lib/lib.mi:lib -pkg-sources username/hello/main:./main -target wasm-gc -g -O0 -source-map -no-mi -test-mode -workspace-path .
-            moonc link-core $MOON_HOME/lib/core/target/wasm-gc/release/bundle/abort/abort.core $MOON_HOME/lib/core/target/wasm-gc/release/bundle/core.core ./target/wasm-gc/debug/test/.mooncakes/lijunchen/hello18/lib/lib.core ./target/wasm-gc/debug/test/main/main.internal_test.core -main username/hello/main -o ./target/wasm-gc/debug/test/main/main.internal_test.wasm -test-mode -pkg-config-path ./main/moon.pkg.json -pkg-sources lijunchen/hello18/lib:./.mooncakes/lijunchen/hello18/lib -pkg-sources username/hello/main:./main -pkg-sources moonbitlang/core:$MOON_HOME/lib/core -exported_functions moonbit_test_driver_internal_execute,moonbit_test_driver_finish -target wasm-gc -g -O0 -source-map
-            moonc build-package ./main/main.mbt -o ./target/wasm-gc/debug/test/main/main.core -pkg username/hello/main -is-main -std-path $MOON_HOME/lib/core/target/wasm-gc/release/bundle -i ./target/wasm-gc/debug/test/.mooncakes/lijunchen/hello18/lib/lib.mi:lib -pkg-sources username/hello/main:./main -target wasm-gc -g -O0 -source-map -workspace-path .
-            moon generate-test-driver --output-driver ./target/wasm-gc/debug/test/main/__generated_driver_for_blackbox_test.mbt --output-metadata ./target/wasm-gc/debug/test/main/__blackbox_test_info.json --doctest-only ./main/main.mbt --target wasm-gc --pkg-name username/hello/main --driver-kind blackbox
-            moonc build-package ./target/wasm-gc/debug/test/main/__generated_driver_for_blackbox_test.mbt -doctest-only ./main/main.mbt -o ./target/wasm-gc/debug/test/main/main.blackbox_test.core -pkg username/hello/main_blackbox_test -is-main -std-path $MOON_HOME/lib/core/target/wasm-gc/release/bundle -i ./target/wasm-gc/debug/test/.mooncakes/lijunchen/hello18/lib/lib.mi:lib -i ./target/wasm-gc/debug/test/main/main.mi:main -pkg-sources username/hello/main_blackbox_test:./main -target wasm-gc -g -O0 -source-map -blackbox-test -include-doctests -no-mi -test-mode -workspace-path .
-            moonc link-core $MOON_HOME/lib/core/target/wasm-gc/release/bundle/abort/abort.core $MOON_HOME/lib/core/target/wasm-gc/release/bundle/core.core ./target/wasm-gc/debug/test/.mooncakes/lijunchen/hello18/lib/lib.core ./target/wasm-gc/debug/test/main/main.core ./target/wasm-gc/debug/test/main/main.blackbox_test.core -main username/hello/main_blackbox_test -o ./target/wasm-gc/debug/test/main/main.blackbox_test.wasm -test-mode -pkg-config-path ./main/moon.pkg.json -pkg-sources lijunchen/hello18/lib:./.mooncakes/lijunchen/hello18/lib -pkg-sources username/hello/main:./main -pkg-sources username/hello/main_blackbox_test:./main -pkg-sources moonbitlang/core:$MOON_HOME/lib/core -exported_functions moonbit_test_driver_internal_execute,moonbit_test_driver_finish -target wasm-gc -g -O0 -source-map
-            moon generate-test-driver --output-driver ./target/wasm-gc/debug/test/lib1/__generated_driver_for_internal_test.mbt --output-metadata ./target/wasm-gc/debug/test/lib1/__internal_test_info.json ./lib1/test.mbt --target wasm-gc --pkg-name username/hello/lib1 --driver-kind internal
-            moonc build-package ./lib1/test.mbt ./target/wasm-gc/debug/test/lib1/__generated_driver_for_internal_test.mbt -o ./target/wasm-gc/debug/test/lib1/lib1.internal_test.core -pkg username/hello/lib1 -is-main -std-path $MOON_HOME/lib/core/target/wasm-gc/release/bundle -i ./target/wasm-gc/debug/test/.mooncakes/lijunchen/hello18/lib/lib.mi:lib -pkg-sources username/hello/lib1:./lib1 -target wasm-gc -g -O0 -source-map -no-mi -test-mode -workspace-path .
-            moonc link-core $MOON_HOME/lib/core/target/wasm-gc/release/bundle/abort/abort.core $MOON_HOME/lib/core/target/wasm-gc/release/bundle/core.core ./target/wasm-gc/debug/test/.mooncakes/lijunchen/hello18/lib/lib.core ./target/wasm-gc/debug/test/lib1/lib1.internal_test.core -main username/hello/lib1 -o ./target/wasm-gc/debug/test/lib1/lib1.internal_test.wasm -test-mode -pkg-config-path ./lib1/moon.pkg.json -pkg-sources lijunchen/hello18/lib:./.mooncakes/lijunchen/hello18/lib -pkg-sources username/hello/lib1:./lib1 -pkg-sources moonbitlang/core:$MOON_HOME/lib/core -exported_functions moonbit_test_driver_internal_execute,moonbit_test_driver_finish -target wasm-gc -g -O0 -source-map
-            moonc build-package ./lib1/test.mbt -o ./target/wasm-gc/debug/test/lib1/lib1.core -pkg username/hello/lib1 -std-path $MOON_HOME/lib/core/target/wasm-gc/release/bundle -i ./target/wasm-gc/debug/test/.mooncakes/lijunchen/hello18/lib/lib.mi:lib -pkg-sources username/hello/lib1:./lib1 -target wasm-gc -g -O0 -source-map -workspace-path .
-            moon generate-test-driver --output-driver ./target/wasm-gc/debug/test/lib1/__generated_driver_for_blackbox_test.mbt --output-metadata ./target/wasm-gc/debug/test/lib1/__blackbox_test_info.json --doctest-only ./lib1/test.mbt --target wasm-gc --pkg-name username/hello/lib1 --driver-kind blackbox
-            moonc build-package ./target/wasm-gc/debug/test/lib1/__generated_driver_for_blackbox_test.mbt -doctest-only ./lib1/test.mbt -o ./target/wasm-gc/debug/test/lib1/lib1.blackbox_test.core -pkg username/hello/lib1_blackbox_test -is-main -std-path $MOON_HOME/lib/core/target/wasm-gc/release/bundle -i ./target/wasm-gc/debug/test/.mooncakes/lijunchen/hello18/lib/lib.mi:lib -i ./target/wasm-gc/debug/test/lib1/lib1.mi:lib1 -pkg-sources username/hello/lib1_blackbox_test:./lib1 -target wasm-gc -g -O0 -source-map -blackbox-test -include-doctests -no-mi -test-mode -workspace-path .
-            moonc link-core $MOON_HOME/lib/core/target/wasm-gc/release/bundle/abort/abort.core $MOON_HOME/lib/core/target/wasm-gc/release/bundle/core.core ./target/wasm-gc/debug/test/.mooncakes/lijunchen/hello18/lib/lib.core ./target/wasm-gc/debug/test/lib1/lib1.core ./target/wasm-gc/debug/test/lib1/lib1.blackbox_test.core -main username/hello/lib1_blackbox_test -o ./target/wasm-gc/debug/test/lib1/lib1.blackbox_test.wasm -test-mode -pkg-config-path ./lib1/moon.pkg.json -pkg-sources lijunchen/hello18/lib:./.mooncakes/lijunchen/hello18/lib -pkg-sources username/hello/lib1:./lib1 -pkg-sources username/hello/lib1_blackbox_test:./lib1 -pkg-sources moonbitlang/core:$MOON_HOME/lib/core -exported_functions moonbit_test_driver_internal_execute,moonbit_test_driver_finish -target wasm-gc -g -O0 -source-map
-        "#]],
-    );
-
-    check(
-        get_stdout(&dir, ["test", "--sort-input"]),
-        expect![[r#"
-            Hello, world!
-            Hello, world!
-            Total tests: 2, passed: 2, failed: 0.
-        "#]],
-    );
-
-    let actual = get_stderr(&dir, ["build"]);
-    expect![[r#"
-        Finished. moon: ran 3 tasks, now up to date
-    "#]]
-    .assert_eq(&actual);
-
-    let actual = get_stdout(&dir, ["run", "main"]);
-    assert!(actual.contains("Hello, world!"));
 }
 
 #[test]
