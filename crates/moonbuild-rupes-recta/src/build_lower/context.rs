@@ -169,7 +169,7 @@ impl<'a> BuildPlanLowerContext<'a> {
             .extract_target()
             .map(|x| self.get_package(x).fqn.clone());
         let mut build = Build::new(
-            build_n2_fileloc(node.human_desc(self.modules, self.packages)),
+            build_n2_fileloc(node.string_id(self.modules, self.packages)),
             ins,
             outs,
         );

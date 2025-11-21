@@ -194,6 +194,12 @@ impl BuildPlanNode {
             BuildPlanNode::BuildRuntimeLib => "BuildRuntimeLib".to_string(),
             BuildPlanNode::BuildDocs => "BuildDocs".to_string(),
             BuildPlanNode::BuildVirtual(target) => format!("{:?}@BuildVirtual", target),
+            BuildPlanNode::RunMoonLexPrebuild(package_id, index) => {
+                format!("{:?}@RunMoonLexPrebuild_{}", package_id, index)
+            }
+            BuildPlanNode::RunMoonYaccPrebuild(package_id, index) => {
+                format!("{:?}@RunMoonYaccPrebuild_{}", package_id, index)
+            }
         }
     }
 
@@ -227,7 +233,6 @@ impl BuildPlanNode {
                 let fqn = packages.fqn(target.package);
                 format!("{}\\nGenerateTestInfo", fqn)
             }
-
             BuildPlanNode::Bundle(module_id) => {
                 let src = env.mod_name_from_id(*module_id);
                 format!("{}\\nBundle", src)
@@ -245,6 +250,14 @@ impl BuildPlanNode {
             BuildPlanNode::BuildVirtual(package) => {
                 let fqn = packages.fqn(*package);
                 format!("{}\\nBuildVirtual", fqn)
+            }
+            BuildPlanNode::RunMoonLexPrebuild(package_id, index) => {
+                let fqn = packages.fqn(*package_id);
+                format!("{}\\nRunMoonLexPrebuild_{}", fqn, index)
+            }
+            BuildPlanNode::RunMoonYaccPrebuild(package_id, index) => {
+                let fqn = packages.fqn(*package_id);
+                format!("{}\\nRunMoonYaccPrebuild_{}", fqn, index)
             }
         }
     }
@@ -264,6 +277,8 @@ impl BuildPlanNode {
             BuildPlanNode::BuildRuntimeLib => "orange",
             BuildPlanNode::BuildDocs => "lavender",
             BuildPlanNode::BuildVirtual(_) => "lightsteelblue",
+            BuildPlanNode::RunMoonLexPrebuild(..) => "plum",
+            BuildPlanNode::RunMoonYaccPrebuild(..) => "thistle",
         }
     }
 }
