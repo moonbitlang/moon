@@ -52,6 +52,7 @@ mod fmt;
 mod fmt_ignore;
 mod fuzzy_matching;
 mod hello;
+mod indirect_dep;
 mod inline_test;
 mod mbti;
 mod moon_bench;

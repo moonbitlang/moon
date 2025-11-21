@@ -1,0 +1,34 @@
+{
+  "packages": [
+    {
+      "root": "username/indirect_dep",
+      "rel": "cmd/main",
+      "artifact": "$ROOT/target/wasm-gc/release/bundle/cmd/main/main.mi"
+    },
+    {
+      "root": "username/indirect_dep",
+      "rel": "lib1",
+      "artifact": "$ROOT/target/wasm-gc/release/bundle/lib1/lib1.mi"
+    },
+    {
+      "root": "username/indirect_dep",
+      "rel": "lib2",
+      "artifact": "$ROOT/target/wasm-gc/release/bundle/lib2/lib2.mi"
+    },
+    {
+      "root": "username/indirect_dep",
+      "rel": "src",
+      "artifact": "$ROOT/target/wasm-gc/release/bundle/src/src.mi"
+    },
+    {
+      "root": "username/sub",
+      "rel": "",
+      "artifact": "$ROOT/target/wasm-gc/release/bundle/.mooncakes/username/sub/sub.mi"
+    },
+    {
+      "root": "username/sub",
+      "rel": "p",
+      "artifact": "$ROOT/target/wasm-gc/release/bundle/.mooncakes/username/sub/p/p.mi"
+    }
+  ]
+}

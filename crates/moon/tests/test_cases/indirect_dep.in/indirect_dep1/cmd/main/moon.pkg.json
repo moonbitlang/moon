@@ -1,0 +1,9 @@
+{
+  "is-main": true,
+  "import": [
+    {
+      "path": "username/indirect_dep",
+      "alias": "lib"
+    }
+  ]
+}
