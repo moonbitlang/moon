@@ -7,6 +7,7 @@ test_cases::warns::test_warn_list_dry_run
 test_cases::test_nonexistent_package
 test_cases::test_validate_import
 test_cases::fuzzy_matching::test_fuzzy_matching
+test_cases::test_specify_source_dir_with_deps_002
 
 # deprecated --build-graph option
 test_cases::moon_build_package::test_moon_build_package
@@ -18,7 +19,17 @@ test_cases::cond_comp::test_cond_comp
 test_cases::filter_by_path::test_moon_check_filter_by_path_success
 
 # Legacy includes irrelevant tasks while RR doesn't
-test_cases::test_native_backend_cc_flags_with_env_override
+test_cases::test_moon_check_filter_package
+test_cases::test_moon_check_package_with_patch
+test_cases::test_moon_doc_dry_run
+test_cases::native_backend::cc_flags::test_native_backend_cc_flags_with_env_override
+test_cases::filter_by_path::test_moon_check_filter_by_path_failure
+test_cases::filter_by_path::test_moon_check_filter_by_path_success
 
 # tcc -run execution method difference
-test_cases::test_native_backend_tcc_run
+test_cases::native_backend::tcc_run::test_native_backend_tcc_run
+test_cases::targets::test_many_targets
+
+# test order different
+test_cases::test_virtual_pkg
+
