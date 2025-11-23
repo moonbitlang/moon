@@ -1,5 +1,5 @@
 
-/// ```mbt
+/// ```mbt test
 ///   let unused_in_lib_doc_test = 1
 ///   println("doc test 1")
 ///   inspect("update in doc test")
@@ -9,7 +9,7 @@ pub fn hello() -> String {
  "Hello, world!"
 }
 
-/// ```mbt
+/// ```mbt test
 ///   println("doc test 2")
 /// ```
 ///
