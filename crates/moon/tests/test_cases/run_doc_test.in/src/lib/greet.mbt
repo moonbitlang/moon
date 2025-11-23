@@ -1,4 +1,4 @@
-/// ```
+/// ```mbt test
 /// println("doc_test 1 from greet.mbt")
 /// ```
 pub fn greet1() -> String {
@@ -7,7 +7,7 @@ pub fn greet1() -> String {
 
 
 ///|
-/// ```mbt
+/// ```mbt test
 /// 
 /// 
 ///
@@ -15,7 +15,7 @@ pub fn greet1() -> String {
 ///
 /// ```
 /// 
-/// ```mbt
+/// ```mbt test
 ///
 /// 
 ///   println("test block 2")
@@ -27,7 +27,7 @@ pub fn greet1() -> String {
 ///
 /// ```
 /// 
-/// ```mbt
+/// ```mbt test
 ///
 ///   println("test block 3")
 /// 
@@ -39,7 +39,7 @@ pub fn greet2() -> String {
   "greet, world!"
 }
 
-/// ```moonbit
+/// ```mbt test
 /// 
 /// println("doc_test 3 from greet.mbt")
 /// 
@@ -50,7 +50,7 @@ pub fn greet3() -> String {
   "greet, wor1ld!"
 }
 
-/// ```moonbit
+/// ```mbt test
 ///
 /// 
 /// 
@@ -66,7 +66,7 @@ pub fn greet() -> String {
 }
 
 
-/// ```
+/// ```mbt test
 ///
 /// 
 ///   println("test block 5")
@@ -82,7 +82,7 @@ pub fn greet4() -> String {
 }
 
 
-/// ```
+/// ```mbt test
 ///   println("doc_test 5 from greet.mbt")
 /// 
 /// 
@@ -92,7 +92,7 @@ pub fn greet5() -> String {
   "greet, wor1ld!"
 }
 
-/// ```
+/// ```mbt test
 /// let buf = @buffer.new(size_hint=100)
 /// buf.write_string("Tes")
 /// buf.write_char('t')

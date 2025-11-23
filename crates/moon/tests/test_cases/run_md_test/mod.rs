@@ -8,9 +8,9 @@ fn test_run_md_test() {
         get_stderr(&dir, ["check", "--sort-input"]),
         expect![[r#"
             Warning: [0002]
-                ╭─[ $ROOT/src/lib/1.mbt.md:42:9 ]
+                ╭─[ $ROOT/src/lib/1.mbt.md:39:9 ]
                 │
-             42 │     let a = 1
+             39 │     let a = 1
                 │         ┬  
                 │         ╰── Warning: Unused variable 'a'
             ────╯
@@ -33,21 +33,21 @@ fn test_run_md_test() {
             ```
             Hello, world 2!
             [username/hello] test lib/hello_test.mbt:10 ("inspect in bbtest") failed
-            expect test failed at $ROOT/src/lib/hello_test.mbt:12:3-12:31
+            expect test failed at $ROOT/src/lib/hello_test.mbt:15:3-15:31
             Diff: (- expected, + actual)
             ----
             +inspect in bbtest
             ----
 
-            [username/hello] test lib/1.mbt.md:32 (#2) failed
-            expect test failed at $ROOT/src/lib/1.mbt.md:44:5-44:20
+            [username/hello] test lib/1.mbt.md:26 (#2) failed
+            expect test failed at $ROOT/src/lib/1.mbt.md:41:5-41:20
             Diff: (- expected, + actual)
             ----
             +4234
             ----
 
-            [username/hello] test lib/1.mbt.md:53 (#3) failed
-            expect test failed at $ROOT/src/lib/1.mbt.md:61:5-61:15
+            [username/hello] test lib/1.mbt.md:49 (#3) failed
+            expect test failed at $ROOT/src/lib/1.mbt.md:58:5-58:15
             Diff: (- expected, + actual)
             ----
             + all

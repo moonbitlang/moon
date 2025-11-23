@@ -8,6 +8,9 @@ fn test_hello() -> String {
 
 
 test "inspect in bbtest" {
+  fn fn_in_md_test() -> Unit {
+    println("fn in md test")
+  }
   fn_in_md_test()
   inspect("inspect in bbtest")
   let a = #| all

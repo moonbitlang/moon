@@ -1,4 +1,4 @@
-/// ```
+/// ```mbt test
 /// println("doc_test 1 from hello.mbt")
 /// ```
 pub fn hello1() -> String {
@@ -6,7 +6,7 @@ pub fn hello1() -> String {
 }
 
 
-/// ```mbt
+/// ```mbt test
 /// println("doc_test 2 from hello.mbt")
 /// 
 /// inspect(1256)
@@ -16,7 +16,7 @@ pub fn hello2() -> String {
   "Hello, world!"
 }
 
-/// ```
+/// ```mbt test
 /// println("doc_test 3 from hello.mbt")
 /// 
 /// fail("this is a failure")
@@ -26,7 +26,7 @@ pub fn hello3() -> String {
   "Hello, wor1ld!"
 }
 
-/// ```
+/// ```mbt test
 /// println("doc_test")
 /// 
 /// 
@@ -56,7 +56,7 @@ pub fn hello() -> String {
 /// 
 /// 
 /// 
-/// ```
+/// ```mbt test
 /// 
 /// assert_true(true)
 /// ```
@@ -64,7 +64,7 @@ pub fn hello() -> String {
 /// this is comment
 /// 
 /// 
-/// ```
+/// ```mbt test 
 /// 
 /// assert_true(true)
 /// ```
