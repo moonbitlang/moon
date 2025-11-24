@@ -1713,6 +1713,7 @@ dependencies = [
  "serde",
  "serde_json_lenient",
  "serde_yaml",
+ "shlex",
  "slotmap",
  "thiserror 1.0.63",
  "tracing",

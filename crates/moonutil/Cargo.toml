@@ -55,6 +55,7 @@ pulldown-cmark.workspace = true
 serde_yaml.workspace = true
 slotmap.workspace = true
 tracing.workspace = true
+shlex.workspace = true
 
 [target."cfg(unix)".dependencies]
 libc.workspace = true
