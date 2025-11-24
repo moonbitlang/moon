@@ -61,8 +61,9 @@ pub fn dry_print_command(cmd: &Command, source_dir: &Path) {
     let args = std::iter::once(cmd.get_program())
         .chain(cmd.get_args())
         .map(|x| x.to_string_lossy())
+        .map(|x| moonbuild::dry_run::replace_path(source_dir, true, &x).into_owned())
         .collect::<Vec<_>>();
-    let cmd = shlex::try_join(args.iter().map(|x| &**x)).expect("null in args, should not happen");
-    let res = moonbuild::dry_run::replace_path(source_dir, true, &cmd);
-    println!("{}", res);
+
+    let cmd = moonutil::shlex::join_unix(args.iter().map(|x| x.as_ref()));
+    println!("{}", cmd);
 }

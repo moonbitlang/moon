@@ -44,7 +44,12 @@ pub fn print_build_commands(
         for b in builds.iter() {
             let build = &graph.builds[*b];
             if let Some(cmdline) = &build.cmdline {
-                let res = replace_path(source_dir, in_same_dir, cmdline);
+                let args = moonutil::shlex::split_native(cmdline);
+                let args_replaced = args
+                    .iter()
+                    .map(|s| replace_path(source_dir, in_same_dir, s))
+                    .collect::<Vec<_>>();
+                let res = moonutil::shlex::join_unix(args_replaced.iter().map(|s| s.as_ref()));
                 println!("{}", res);
             }
         }
@@ -105,7 +110,8 @@ pub fn print_run_commands(
                 watfile
             };
             if !args.is_empty() {
-                moonrun_command = format!("{moonrun_command} {}", args.join(" "));
+                let args_str = moonutil::shlex::join_unix(args.iter().map(|s| s.as_str()));
+                moonrun_command = format!("{moonrun_command} {args_str}");
             }
 
             println!("{moonrun_command}");

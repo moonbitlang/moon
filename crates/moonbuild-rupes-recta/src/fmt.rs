@@ -221,7 +221,7 @@ fn format_node(
         ins,
         outs,
     );
-    build.cmdline = Some(shlex::try_join(cmd.iter().map(|x| x.as_str())).expect("no null"));
+    build.cmdline = Some(moonutil::shlex::join_native(cmd.iter().map(|x| x.as_str())));
     graph.add_build(build)?;
     Ok(())
 }

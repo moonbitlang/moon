@@ -199,8 +199,16 @@ impl PathNormalizer {
     }
 
     fn normalize_command(&self, command: &str) -> String {
-        let mut s = command.to_owned();
+        let args = moonutil::shlex::split_native(command);
+        let normalized_args = args
+            .iter()
+            .map(|s| self.normalize_command_arg(s))
+            .collect::<Vec<_>>();
+        moonutil::shlex::join_unix(normalized_args.iter().map(|s| s.as_ref()))
+    }
 
+    fn normalize_command_arg(&self, s: &str) -> String {
+        let mut s = s.to_owned();
         if let Some(canonical) = &self.canonical {
             let prefix = canonical.to_string_lossy();
             let prefix_str = prefix.as_ref();
