@@ -16,7 +16,7 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
-use clap::Parser;
+use clap::{Parser, builder::FalseyValueParser};
 use std::path::PathBuf;
 
 mod bundle_template;
@@ -49,7 +49,12 @@ enum XSubcommands {
 struct CmdTest {
     file: PathBuf,
 
-    #[arg(short, long)]
+    #[arg(
+        short,
+        long,
+        env("UPDATE_EXPECT"),
+        value_parser(FalseyValueParser::new())
+    )]
     update: bool,
 }
 
