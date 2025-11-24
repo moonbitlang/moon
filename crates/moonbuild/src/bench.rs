@@ -95,6 +95,7 @@ pub fn f() -> Unit {{
                     Some("".into()),
                 );
             }
+            #[allow(deprecated)]
             let pkg = MoonPkgJSON {
                 name: None,
                 is_main: None,
@@ -193,6 +194,7 @@ pub fn write(config: &Config, base_dir: &Path) {
         }
     }
 
+    #[allow(deprecated)]
     let pkg = MoonPkgJSON {
         name: None,
         is_main: Some(true),
