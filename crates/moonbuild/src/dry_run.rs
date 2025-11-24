@@ -20,7 +20,6 @@ use moonbuild_debug::graph::try_debug_dump_build_graph_to_file;
 use moonutil::module::ModuleDB;
 use n2::densemap::Index;
 use n2::graph::{BuildId, FileId, Graph};
-use std::borrow::Cow;
 use std::collections::{HashMap, HashSet};
 
 use std::path::Path;
@@ -35,7 +34,8 @@ pub fn print_build_commands(
     source_dir: &Path,
     target_dir: &Path,
 ) {
-    let in_same_dir = target_dir.starts_with(source_dir);
+    let _ = target_dir; // TODO
+    let replacer = moonbuild_debug::graph::PathNormalizer::new(source_dir);
 
     if !default.is_empty() {
         let mut sorted_default = default.to_vec();
@@ -44,29 +44,13 @@ pub fn print_build_commands(
         for b in builds.iter() {
             let build = &graph.builds[*b];
             if let Some(cmdline) = &build.cmdline {
-                let args = moonutil::shlex::split_native(cmdline);
-                let args_replaced = args
-                    .iter()
-                    .map(|s| replace_path(source_dir, in_same_dir, s))
-                    .collect::<Vec<_>>();
-                let res = moonutil::shlex::join_unix(args_replaced.iter().map(|s| s.as_ref()));
+                let res = replacer.normalize_command(cmdline);
                 println!("{}", res);
             }
         }
     }
 
     try_debug_dump_build_graph_to_file(graph, default, source_dir);
-}
-
-pub fn replace_path<'a>(source_dir: &Path, in_same_dir: bool, cmdline: &'a str) -> Cow<'a, str> {
-    if in_same_dir {
-        // TODO: this replace is not safe
-        cmdline
-            .replace(&source_dir.display().to_string(), ".")
-            .into()
-    } else {
-        Cow::Borrowed(cmdline)
-    }
 }
 
 /// Print run commands from a State

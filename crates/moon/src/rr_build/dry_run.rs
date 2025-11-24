@@ -58,10 +58,12 @@ pub fn print_dry_run_all(input: &BuildInput, source_dir: &Path, target_dir: &Pat
 ///
 /// This also replaces paths like `print_dry_run` does.
 pub fn dry_print_command(cmd: &Command, source_dir: &Path) {
+    let replacer = moonbuild_debug::graph::PathNormalizer::new(source_dir);
+
     let args = std::iter::once(cmd.get_program())
         .chain(cmd.get_args())
         .map(|x| x.to_string_lossy())
-        .map(|x| moonbuild::dry_run::replace_path(source_dir, true, &x).into_owned())
+        .map(|x| replacer.normalize_command_arg(&x))
         .collect::<Vec<_>>();
 
     let cmd = moonutil::shlex::join_unix(args.iter().map(|x| x.as_ref()));
