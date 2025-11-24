@@ -888,6 +888,9 @@ pub struct MoonModJSON {
     pub warn_list: Option<String>,
 
     /// Alert list setting of the module
+    ///     
+    /// Please use `warn-list` instead. For example, `"warn-list": "-deprecated"` or `"warn-list": "-alert_unsafe"`.
+    #[deprecated = r#"Please use `warn-list` instead. For example, `"warn-list": "-deprecated"` or `"warn-list": "-alert_unsafe"`"#]
     #[serde(skip_serializing_if = "Option::is_none")]
     pub alert_list: Option<String>,
 
@@ -952,6 +955,7 @@ impl TryFrom<MoonModJSON> for MoonMod {
             .transpose()
             .map_err(MoonModJSONFormatErrorKind::PreferredBackend)?;
 
+        #[allow(deprecated)]
         Ok(MoonMod {
             name: j.name,
             version,
@@ -983,6 +987,7 @@ impl TryFrom<MoonModJSON> for MoonMod {
     }
 }
 
+#[allow(deprecated)]
 pub fn convert_module_to_mod_json(m: MoonMod) -> MoonModJSON {
     MoonModJSON {
         name: m.name,

@@ -151,6 +151,7 @@ pub fn write(config: &Config, base_dir: &Path) {
         source: None,
         ext: Default::default(),
 
+        #[allow(deprecated)]
         alert_list: None,
         warn_list: None,
 
