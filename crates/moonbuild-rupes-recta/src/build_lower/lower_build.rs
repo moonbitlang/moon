@@ -36,7 +36,7 @@ use tracing::{Level, instrument};
 
 use crate::{
     build_lower::{
-        artifact,
+        WarningCondition, artifact,
         compiler::{
             BuildCommonConfig, BuildCommonInput, CmdlineAbstraction, ErrorFormat, JsConfig,
             MiDependency, PackageSource, WasmConfig,
@@ -108,10 +108,11 @@ impl<'a> BuildPlanLowerContext<'a> {
         } else {
             ErrorFormat::Regular
         };
-        let deny_warn = self.opt.deny_warn;
+        let deny_warn = self.opt.warning_condition == WarningCondition::Deny;
+        let allow_warn = self.opt.warning_condition == WarningCondition::Allow;
 
         // Determine warn/alert config
-        let (warn_config, alert_config) = if self.is_module_third_party(pkg.module) {
+        let (warn_config, alert_config) = if self.is_module_third_party(pkg.module) || allow_warn {
             // Third-party modules don't have any warnings or alerts
             (
                 compiler::WarnAlertConfig::AllowAll,

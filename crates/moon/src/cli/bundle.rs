@@ -18,7 +18,7 @@
 
 use anyhow::Context;
 use moonbuild::dry_run;
-use moonbuild_rupes_recta::intent::UserIntent;
+use moonbuild_rupes_recta::{build_lower::WarningCondition, intent::UserIntent};
 use mooncake::pkg::sync::auto_sync;
 use moonutil::{
     cli::UniversalFlags,
@@ -112,7 +112,7 @@ pub fn run_bundle_internal_rr(
     source_dir: &Path,
     target_dir: &Path,
 ) -> anyhow::Result<i32> {
-    let preconfig = rr_build::preconfig_compile(
+    let mut preconfig = rr_build::preconfig_compile(
         &cmd.auto_sync_flags,
         cli,
         &cmd.build_flags,
@@ -120,6 +120,14 @@ pub fn run_bundle_internal_rr(
         OptLevel::Release,
         RunMode::Bundle,
     );
+    // Allow warn in `moon bundle`, different from other run modes, to reduce
+    // commandline clutter on installation
+    preconfig.warning_condition = if cmd.build_flags.deny_warn {
+        WarningCondition::Deny
+    } else {
+        WarningCondition::Allow
+    };
+
     let (_build_meta, build_graph) = rr_build::plan_build(
         preconfig,
         &cli.unstable_feature,

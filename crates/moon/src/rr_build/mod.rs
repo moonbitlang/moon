@@ -39,7 +39,7 @@ use moonbuild::entry::{
 };
 use moonbuild_rupes_recta::{
     CompileConfig, ResolveConfig, ResolveOutput,
-    build_lower::artifact::n2_db_path,
+    build_lower::{WarningCondition, artifact::n2_db_path},
     build_plan::InputDirective,
     fmt::{FmtConfig, FmtResolveOutput},
     intent::UserIntent,
@@ -210,7 +210,7 @@ pub struct CompilePreConfig {
     target_dir: PathBuf,
     /// Whether to execute `moondoc` in serve mode, which outputs HTML
     pub docs_serve: bool,
-    pub deny_warn: bool,
+    pub warning_condition: WarningCondition,
     /// Whether to not emit alias when running `mooninfo`
     pub info_no_alias: bool,
     /// Attempt to use `tcc -run` when possible
@@ -279,7 +279,7 @@ impl CompilePreConfig {
             debug_export_build_plan: self.debug_export_build_plan,
             moonc_output_json: self.moonc_output_json,
             docs_serve: self.docs_serve,
-            deny_warn: self.deny_warn,
+            warning_condition: self.warning_condition,
             warn_list: self.warn_list,
             alert_list: self.alert_list,
             info_no_alias: self.info_no_alias,
@@ -335,7 +335,11 @@ pub fn preconfig_compile(
         docs_serve: false,
         info_no_alias: false,
         try_tcc_run: false,
-        deny_warn: build_flags.deny_warn,
+        warning_condition: if build_flags.deny_warn {
+            WarningCondition::Deny
+        } else {
+            WarningCondition::Default
+        },
         warn_list: build_flags.warn_list.clone(),
         alert_list: build_flags.alert_list.clone(),
     }

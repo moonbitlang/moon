@@ -29,7 +29,7 @@ use moonutil::{
 use tracing::{Level, instrument};
 
 use crate::{
-    build_lower,
+    build_lower::{self, WarningCondition},
     build_plan::{self, BuildEnvironment, InputDirective},
     model::{Artifacts, BuildPlanNode, OperatingSystem, RunBackend},
     prebuild::PrebuildOutput,
@@ -71,7 +71,7 @@ pub struct CompileConfig {
     /// Whether to output HTML for docs (in serve mode)
     pub docs_serve: bool,
     /// Whether to disallow all warnings
-    pub deny_warn: bool,
+    pub warning_condition: WarningCondition,
     /// List of warnings to enable
     pub warn_list: Option<String>,
     /// List of alerts to enable
@@ -154,7 +154,7 @@ pub fn compile(
         output_wat: cx.output_wat,
         moonc_output_json: cx.moonc_output_json,
         docs_serve: cx.docs_serve,
-        deny_warn: cx.deny_warn,
+        warning_condition: cx.warning_condition,
         info_no_alias: cx.info_no_alias,
 
         stdlib_path: cx.stdlib_path.clone(),
