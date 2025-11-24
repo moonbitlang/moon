@@ -298,11 +298,14 @@ pub struct MoonPkgJSON {
     #[schemars(rename = "warn-list")]
     pub warn_list: Option<String>,
 
-    /// Alert list setting of the package
+    /// Alert list setting of the package.
+    ///
+    /// Please use `warn-list` instead. For example, `"warn-list": "-deprecated"` or `"warn-list": "-alert_unsafe"`
     #[serde(skip_serializing_if = "Option::is_none")]
     #[serde(alias = "alert-list")]
     #[serde(alias = "alert_list")]
     #[schemars(rename = "alert-list")]
+    #[deprecated = r#"Please use `warn-list` instead. For example, `"warn-list": "-deprecated"` or `"warn-list": "-alert_unsafe"`"#]
     pub alert_list: Option<String>,
 
     /// Conditional compilation targets
@@ -890,6 +893,7 @@ pub fn convert_pkg_json_to_package(j: MoonPkgJSON) -> anyhow::Result<MoonPkg> {
         supported_backends.extend(TargetBackend::all());
     };
 
+    #[allow(deprecated)]
     let result = MoonPkg {
         name: None,
         is_main,
