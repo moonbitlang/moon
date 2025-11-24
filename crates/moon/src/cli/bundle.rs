@@ -183,7 +183,9 @@ fn run_bundle_internal_legacy(
     )?;
 
     let run_mode = RunMode::Bundle;
-    let moonc_opt = super::get_compiler_flags(source_dir, &cmd.build_flags)?;
+    let mut moonc_opt = super::get_compiler_flags(source_dir, &cmd.build_flags)?;
+    // Legacy path: allow all warnings for `moon bundle` unless explicitly denied via --deny-warn
+    moonc_opt.build_opt.deny_warn = cmd.build_flags.deny_warn;
     let sort_input = cmd.build_flags.sort_input;
 
     let raw_target_dir = target_dir.to_path_buf();

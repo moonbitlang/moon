@@ -229,6 +229,15 @@ pub fn gen_build_command(
     let command = CommandBuilder::new(moonc)
         .arg("build-package")
         .args_with_cond(moonc_opt.json_diagnostics, vec!["-error-format", "json"])
+        .args_with_cond(
+            moonc_opt.build_opt.deny_warn,
+            [
+                "-w",
+                "@a-31-32",
+                "-alert",
+                "@all-raise-throw-unsafe-test_import_all+deprecated",
+            ],
+        )
         .args(&item.mbt_deps)
         .lazy_args_with_cond(item.warn_list.is_some(), || {
             vec!["-w".to_string(), item.warn_list.clone().unwrap()]
@@ -236,6 +245,12 @@ pub fn gen_build_command(
         .lazy_args_with_cond(item.alert_list.is_some(), || {
             vec!["-alert".to_string(), item.alert_list.clone().unwrap()]
         })
+        // Legacy bundle: suppress warnings by default to reduce CLI noise on install,
+        // while still honoring --deny-warn to treat warnings as errors
+        .args_with_cond(
+            !moonc_opt.build_opt.deny_warn,
+            ["-w", "-a", "-alert", "-all"],
+        )
         .arg("-o")
         .arg(&item.core_out)
         .arg("-pkg")
