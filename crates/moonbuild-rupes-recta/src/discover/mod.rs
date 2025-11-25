@@ -27,6 +27,7 @@
 #![allow(clippy::disallowed_types, clippy::disallowed_methods)]
 
 mod special_case;
+pub mod synth;
 
 use std::{
     collections::BTreeMap,
@@ -34,12 +35,15 @@ use std::{
 };
 
 use log::{debug, info, trace};
-use moonutil::common::{
-    IGNORE_DIRS, MBTI_USER_WRITTEN, MOON_MOD_JSON, MOON_PKG_JSON, TargetBackend,
-    read_module_desc_file_in_dir, read_package_desc_file_in_dir,
-};
 use moonutil::mooncakes::{DirSyncResult, ModuleId, ModuleSource, result::ResolvedEnv};
 use moonutil::package::MoonPkg;
+use moonutil::{
+    common::{
+        IGNORE_DIRS, MBTI_USER_WRITTEN, MOON_MOD_JSON, MOON_PKG_JSON, TargetBackend,
+        read_module_desc_file_in_dir, read_package_desc_file_in_dir,
+    },
+    mooncakes::ModuleSourceKind,
+};
 use relative_path::{PathExt, RelativePath};
 use slotmap::{SecondaryMap, SlotMap};
 use tracing::{Level, instrument, warn};
@@ -66,7 +70,7 @@ pub fn discover_packages(
 
     for (id, m) in env.all_modules_and_id() {
         // SPECIAL_CASE: Skip stdlib in discovering. They are handled below.
-        if let moonutil::mooncakes::ModuleSourceKind::Stdlib(_) = m.source() {
+        if let ModuleSourceKind::Stdlib(_) | ModuleSourceKind::SingleFile(_) = m.source() {
             continue;
         };
 

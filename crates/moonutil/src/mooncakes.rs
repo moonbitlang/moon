@@ -143,6 +143,11 @@ pub enum ModuleSourceKind {
     ///
     /// TODO: Evaluate if this design is sound
     Stdlib(PathBuf),
+
+    /// This module is from a single-file compilation.
+    ///
+    /// Setting this skips discovery and uses the given path as the source file.
+    SingleFile(PathBuf),
 }
 
 impl Default for ModuleSourceKind {
@@ -165,6 +170,7 @@ impl std::fmt::Display for ModuleSourceKind {
             ModuleSourceKind::Local(path) => write!(f, "local {}", path.display()),
             ModuleSourceKind::Git(url) => write!(f, "git {url}"),
             ModuleSourceKind::Stdlib(_) => write!(f, "stdlib"),
+            ModuleSourceKind::SingleFile(path) => write!(f, "single file {}", path.display()),
         }
     }
 }
@@ -260,6 +266,17 @@ impl ModuleSource {
             version,
             source: ModuleSourceKind::Git(url),
         })
+    }
+
+    pub fn single_file(module: &MoonMod, path: &Path) -> Result<Self, String> {
+        Ok(Self::new_inner(ModuleSourceInner {
+            name: module.name.parse()?,
+            version: module
+                .version
+                .clone()
+                .unwrap_or_else(|| DEFAULT_VERSION.clone()),
+            source: ModuleSourceKind::SingleFile(path.to_owned()),
+        }))
     }
 
     fn new_inner(inner: ModuleSourceInner) -> Self {

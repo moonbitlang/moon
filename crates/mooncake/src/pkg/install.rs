@@ -45,12 +45,14 @@ pub fn install(
 ) -> anyhow::Result<i32> {
     let m = read_module_desc_file_in_dir(source_dir)?;
     let m = Arc::new(m);
-    install_impl(source_dir, m, quiet, verbose, false, no_std).map(|_| 0)
+    let ms = ModuleSource::from_local_module(&m, source_dir).expect("Malformed module manifest");
+    install_impl(source_dir, m, ms, quiet, verbose, false, no_std).map(|_| 0)
 }
 
 pub(crate) fn install_impl(
     source_dir: &Path,
     m: Arc<moonutil::module::MoonMod>,
+    ms: ModuleSource,
     quiet: bool,
     verbose: bool,
     dont_sync: bool,
@@ -59,7 +61,6 @@ pub(crate) fn install_impl(
     let registry = crate::registry::RegistryList::with_default_registry();
 
     let is_stdlib = m.name == MOONBITLANG_CORE;
-    let ms = ModuleSource::from_local_module(&m, source_dir).expect("Malformed module manifest");
 
     let resolve_config = ResolveConfig {
         registries: registry,

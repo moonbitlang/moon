@@ -226,6 +226,9 @@ impl<'a> super::BuildPlanLowerContext<'a> {
             | ModuleSourceKind::Stdlib(_) => {
                 panic!("Remote modules for docs are not supported")
             }
+            ModuleSourceKind::SingleFile(_) => {
+                panic!("Single file modules for docs are not supported")
+            }
         };
 
         let packages_json = self.layout.packages_json_path();

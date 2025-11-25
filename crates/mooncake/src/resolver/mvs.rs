@@ -118,6 +118,7 @@ fn local_dep_allowed(dependant: &ModuleSource) -> bool {
         ModuleSourceKind::Local(_) => true,
         ModuleSourceKind::Git(_) => true,
         ModuleSourceKind::Stdlib(_) => true,
+        ModuleSourceKind::SingleFile(_) => true,
     }
 }
 
@@ -128,6 +129,7 @@ fn git_dep_allowed(dependant: &ModuleSource) -> bool {
         ModuleSourceKind::Local(_) => true,
         ModuleSourceKind::Git(_) => true,
         ModuleSourceKind::Stdlib(_) => true,
+        ModuleSourceKind::SingleFile(_) => true,
     }
 }
 
@@ -143,6 +145,7 @@ fn root_path_of(dependant: &ModuleSource) -> PathBuf {
             todo!("Resolve local downloaded path for git repo: {}", repo)
         }
         ModuleSourceKind::Stdlib(path) => path.clone(),
+        ModuleSourceKind::SingleFile(path) => path.clone(),
     }
 }
 

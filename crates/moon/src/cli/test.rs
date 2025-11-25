@@ -454,7 +454,7 @@ pub fn get_module_for_single_file(
 
     let mut module = moonutil::scan::scan(
         false,
-        Some(moon_mod),
+        Some((*moon_mod).clone()),
         &resolved_env,
         &dir_sync_result,
         moonc_opt,
