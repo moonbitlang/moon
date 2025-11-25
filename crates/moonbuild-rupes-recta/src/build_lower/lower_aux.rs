@@ -29,7 +29,10 @@ use moonutil::{
 use tracing::{Level, instrument};
 
 use crate::{
-    build_lower::compiler::{CmdlineAbstraction, MoondocCommand, Mooninfo},
+    build_lower::{
+        Commandline,
+        compiler::{CmdlineAbstraction, MoondocCommand, Mooninfo},
+    },
     build_plan::BuildTargetInfo,
     model::{BuildPlanNode, BuildTarget, PackageId, RunBackend, TargetKind},
 };
@@ -93,7 +96,7 @@ impl<'a> super::BuildPlanLowerContext<'a> {
         extra_inputs.extend_from_slice(&info.doctest_files);
 
         BuildCommand {
-            commandline,
+            commandline: commandline.into(),
             extra_inputs,
         }
     }
@@ -126,7 +129,7 @@ impl<'a> super::BuildPlanLowerContext<'a> {
 
         BuildCommand {
             extra_inputs: vec![],
-            commandline: cmd.build_command(&*moonutil::BINARIES.moonc),
+            commandline: cmd.build_command(&*moonutil::BINARIES.moonc).into(),
         }
     }
 
@@ -175,7 +178,7 @@ impl<'a> super::BuildPlanLowerContext<'a> {
 
         BuildCommand {
             extra_inputs: vec![runtime_c_path],
-            commandline: cc_cmd,
+            commandline: cc_cmd.into(),
         }
     }
 
@@ -196,7 +199,7 @@ impl<'a> super::BuildPlanLowerContext<'a> {
 
         BuildCommand {
             extra_inputs: vec![],
-            commandline: cmd.build_command(&*moonutil::BINARIES.mooninfo),
+            commandline: cmd.build_command(&*moonutil::BINARIES.mooninfo).into(),
         }
     }
 
@@ -235,7 +238,7 @@ impl<'a> super::BuildPlanLowerContext<'a> {
         );
 
         BuildCommand {
-            commandline: cmd.build_command(&*moonutil::BINARIES.moondoc),
+            commandline: cmd.build_command(&*moonutil::BINARIES.moondoc).into(),
             extra_inputs: vec![packages_json],
         }
     }
@@ -251,7 +254,7 @@ impl<'a> super::BuildPlanLowerContext<'a> {
         // Ideally we can do this ourselves, but n2 does it anyway so we don't bother.
 
         BuildCommand {
-            commandline: vec!["sh".into(), "-c".into(), info.command.clone()],
+            commandline: Commandline::Verbatim(info.command.clone()),
             extra_inputs: info.resolved_inputs.clone(),
         }
     }
@@ -275,7 +278,7 @@ impl<'a> super::BuildPlanLowerContext<'a> {
         ];
 
         BuildCommand {
-            commandline,
+            commandline: commandline.into(),
             extra_inputs: vec![mbtlex_path],
         }
     }
@@ -299,7 +302,7 @@ impl<'a> super::BuildPlanLowerContext<'a> {
         ];
 
         BuildCommand {
-            commandline,
+            commandline: commandline.into(),
             extra_inputs: vec![mby_path],
         }
     }

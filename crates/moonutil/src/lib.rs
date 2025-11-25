@@ -40,6 +40,7 @@ pub mod path;
 pub mod platform;
 pub mod render;
 pub mod scan;
+pub mod shlex;
 pub mod version;
 
 pub use binaries::BINARIES;

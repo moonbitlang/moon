@@ -39,14 +39,9 @@ where
 
 impl CommandBuilder {
     pub fn new(command: &str) -> CommandBuilder {
-        // don't always quote the `command` since moon in windows will be quoted into 'moon'
-        let command = if command.contains(|c: char| c.is_whitespace()) {
-            shlex::try_quote(command).unwrap()
-        } else {
-            command.into()
-        };
+        let command = command.to_string();
         CommandBuilder {
-            command: command.into(),
+            command,
             args: Vec::new(),
         }
     }
@@ -117,17 +112,9 @@ impl CommandBuilder {
     }
 
     pub fn build(&self) -> String {
-        let mut cmd = self.command.clone();
-        for arg in self.args.iter() {
-            cmd.push(' ');
-            if arg.contains(' ') {
-                cmd.push('"');
-                cmd.push_str(arg);
-                cmd.push('"');
-            } else {
-                cmd.push_str(arg);
-            }
-        }
-        cmd
+        let mut parts = Vec::with_capacity(1 + self.args.len());
+        parts.push(self.command.clone());
+        parts.extend(self.args.iter().cloned());
+        moonutil::shlex::join_native(parts.iter().map(|s| s.as_str()))
     }
 }

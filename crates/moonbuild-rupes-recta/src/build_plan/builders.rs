@@ -1176,8 +1176,26 @@ static PREBUILD_AUTOMATA: LazyLock<aho_corasick::AhoCorasick> = LazyLock::new(||
 /// Handle the prebuild command replacement, outputs a single string that should
 /// be `sh -c`'ed.
 ///
-/// This should mostly match the legacy code in behavior, sans the strange
-/// `.ps1` replacement when encountering code.
+/// # Note about binary dependency artifacts
+///
+/// Currently, `moon` does not have direct support for referencing binary
+/// dependency artifacts. Artifacts built by binary dependencies are placed in
+/// either of these two locations:
+///
+/// - `<mod_source>/.mooncakes/__moonbin__/[bin-target-name]`, if the artifact
+///   comes from a regular dependency from the official registry.
+/// - At the root of the corresponding module's source directory, if the
+///   artifact comes from a local dependency.
+///
+/// In prebuild commands, users can reference the former location using
+/// `$mooncake_bin`. For the latter case, users need to manually specify the
+/// relative path from the module source directory. For robustness, the relative
+/// path needs to be resolved against the module source directory itself before
+/// executing.
+///
+/// Windows puts another issue on top of this: binary dependencies are
+/// Powershell scripts appended with `.ps1` extension. Therefore, we need to
+/// resolve `argv[0]` and append a `.ps1` if such file exists.
 fn handle_build_command_new(
     command: &str,
     mod_source: &Path,
@@ -1196,6 +1214,7 @@ fn handle_build_command_new(
         command
     };
 
+    // Perform replacements
     let mut last_end = 0usize;
     for magic in PREBUILD_AUTOMATA.find_iter(command) {
         // Commit previous segment
@@ -1207,7 +1226,6 @@ fn handle_build_command_new(
         // See the IDs in CHECK_AUTOMATA
         match magic.pattern().as_usize() {
             // $mooncake_bin => <mod_source>/.mooncakes/__moonbin__
-            // DUDE, WHAT THE FUCK IS THIS?!
             0 => {
                 let replacement = mod_source.join(DEP_PATH).join(MOON_BIN_DIR);
                 write!(reconstructed, "{}", replacement.display()).expect("write can't fail");
@@ -1244,6 +1262,40 @@ fn handle_build_command_new(
 
     if last_end < command.len() {
         reconstructed.push_str(&command[last_end..]);
+    }
+
+    // Resolve argv[0]
+    let argv0 = moonutil::shlex::get_argv0_native(&reconstructed);
+    // Check if argv[0] looks like a relative path.
+    let looks_like_path = argv0.contains(std::path::is_separator);
+    let is_relative = looks_like_path && !Path::new(&argv0).is_absolute();
+    // For relative paths, we need to resolve it against the package source
+    // directory. Since we cannot easily splice the resolved path back into the
+    // command string, we just prepend the source directory to the front of the
+    // command.
+    #[cfg(not(windows))]
+    if is_relative {
+        reconstructed = format!(
+            "{}{}{}",
+            mod_source.display(),
+            std::path::MAIN_SEPARATOR,
+            reconstructed
+        );
+    }
+    // For windows, we also need to check if the resolved path with `.ps1` exists.
+    #[cfg(windows)]
+    if is_relative {
+        let resolved_path_ps1 = dunce::canonicalize(mod_source.join(format!("{}.ps1", argv0)));
+        if let Ok(new_argv0) = resolved_path_ps1
+            && new_argv0.is_file()
+        {
+            use moonutil::shlex::split_argv0_windows;
+
+            let (_argv0, rest) = split_argv0_windows(&reconstructed);
+            // This is safe because '"' is not a valid path character on Windows,
+            // and the original argv[0] must be a path-like string.
+            reconstructed = format!("powershell \"{}\" {}", new_argv0.display(), rest);
+        }
     }
 
     reconstructed

@@ -175,10 +175,7 @@ impl<'a> BuildPlanLowerContext<'a> {
             ins,
             outs,
         );
-        build.cmdline = Some(
-            shlex::try_join(cmd.commandline.iter().map(|x| x.as_str()))
-                .expect("No `nul` should occur here"),
-        );
+        build.cmdline = Some(cmd.commandline.to_n2_string());
         // n2 can't capture and replay command outputs. this is a workaround to
         // avoid losing warnings from `moonc`. According to legacy code, this
         // only triggers for `Check` nodes.

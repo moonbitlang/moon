@@ -81,16 +81,7 @@ pub fn debug_dump_build_graph(
     input_files: &[FileId],
     source_dir: &Path,
 ) -> BuildGraphDump {
-    let path_replace_table = moonutil::BINARIES
-        .all_moon_bins()
-        .iter()
-        .map(|(name, path)| (path.to_string_lossy().to_string(), name.to_string()))
-        .collect();
-    let replacer = PathNormalizer::new(
-        source_dir,
-        path_replace_table,
-        home().to_string_lossy().to_string(),
-    );
+    let replacer = PathNormalizer::new(source_dir);
 
     let accessible_nodes = dfs_for_accessible_nodes(graph, input_files);
     generate_from_nodes(graph, accessible_nodes, &replacer)
@@ -182,14 +173,21 @@ fn generate_from_nodes(
     BuildGraphDump { nodes }
 }
 
-struct PathNormalizer {
+pub struct PathNormalizer {
     canonical: Option<PathBuf>,
     replace_table: Vec<(String, String)>,
     moon_home: String,
 }
 
 impl PathNormalizer {
-    fn new(source_dir: &Path, replace_table: Vec<(String, String)>, moon_home: String) -> Self {
+    pub fn new(source_dir: &Path) -> Self {
+        let replace_table = moonutil::BINARIES
+            .all_moon_bins()
+            .iter()
+            .map(|(name, path)| (path.to_string_lossy().to_string(), name.to_string()))
+            .collect();
+        let moon_home = home().to_string_lossy().to_string();
+
         let canonical = dunce::canonicalize(source_dir).ok();
         PathNormalizer {
             canonical,
@@ -198,9 +196,17 @@ impl PathNormalizer {
         }
     }
 
-    fn normalize_command(&self, command: &str) -> String {
-        let mut s = command.to_owned();
+    pub fn normalize_command(&self, command: &str) -> String {
+        let args = moonutil::shlex::split_native(command);
+        let normalized_args = args
+            .iter()
+            .map(|s| self.normalize_command_arg(s))
+            .collect::<Vec<_>>();
+        moonutil::shlex::join_unix(normalized_args.iter().map(|s| s.as_ref()))
+    }
 
+    pub fn normalize_command_arg(&self, s: &str) -> String {
+        let mut s = s.to_owned();
         if let Some(canonical) = &self.canonical {
             let prefix = canonical.to_string_lossy();
             let prefix_str = prefix.as_ref();
@@ -218,7 +224,7 @@ impl PathNormalizer {
         s
     }
 
-    fn normalize_path(&self, path: &str) -> String {
+    pub fn normalize_path(&self, path: &str) -> String {
         let path_obj = Path::new(path);
         if let Some(canonical) = &self.canonical
             && let Ok(stripped) = path_obj.strip_prefix(canonical)
