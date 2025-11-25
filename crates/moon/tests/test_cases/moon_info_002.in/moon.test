@@ -7,7 +7,7 @@
   package "username/hello/lib"
   
   // Values
-  fn hello() -> String
+  pub fn hello() -> String
   
   // Errors
   

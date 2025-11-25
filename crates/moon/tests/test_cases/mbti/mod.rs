@@ -16,9 +16,9 @@ fn test_mbti() {
         )
 
         // Values
-        fn hello() -> String
+        pub fn hello() -> String
 
-        let hello_list : @list.List[String]
+        pub let hello_list : @list.List[String]
 
         // Errors
 
@@ -61,9 +61,9 @@ fn test_mbti_no_alias() {
         package "username/hello/lib"
 
         // Values
-        fn hello() -> String
+        pub fn hello() -> String
 
-        let hello_list : @moonbitlang/core/list.List[String]
+        pub let hello_list : @moonbitlang/core/list.List[String]
 
         // Errors
 
