@@ -5,10 +5,10 @@
 --- username/hello/lib WasmGC ($ROOT/target/wasm-gc/release/check/lib/lib.mbti)
 +++ username/hello/lib Wasm ($ROOT/target/wasm/release/check/lib/lib.mbti)
 @@ -5,5 +5,5 @@
- fn hello() -> String
+ pub fn hello() -> String
  
--fn hello_wasm_gc() -> String
-+fn hello_wasm() -> String
+-pub fn hello_wasm_gc() -> String
++pub fn hello_wasm() -> String
  
  // Errors
 #
@@ -16,10 +16,10 @@
 --- username/hello/lib WasmGC ($ROOT/target/wasm-gc/release/check/lib/lib.mbti)
 +++ username/hello/lib Js ($ROOT/target/js/release/check/lib/lib.mbti)
 @@ -5,5 +5,5 @@
- fn hello() -> String
+ pub fn hello() -> String
  
--fn hello_wasm_gc() -> String
-+fn hello_js() -> String
+-pub fn hello_wasm_gc() -> String
++pub fn hello_js() -> String
  
  // Errors
 #
@@ -27,10 +27,10 @@
 --- username/hello/lib WasmGC ($ROOT/target/wasm-gc/release/check/lib/lib.mbti)
 +++ username/hello/lib Native ($ROOT/target/native/release/check/lib/lib.mbti)
 @@ -5,5 +5,5 @@
- fn hello() -> String
+ pub fn hello() -> String
  
--fn hello_wasm_gc() -> String
-+fn hello_native() -> String
+-pub fn hello_wasm_gc() -> String
++pub fn hello_native() -> String
  
  // Errors
 # ------

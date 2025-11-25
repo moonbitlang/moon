@@ -1996,8 +1996,8 @@ fn test_diff_mbti() {
     let content = get_err_stdout(&dir, ["info", "--target", "all"]);
     assert!(content.contains("$ROOT/target/wasm-gc/release/check/lib/lib.mbti"));
     assert!(content.contains("$ROOT/target/js/release/check/lib/lib.mbti"));
-    assert!(content.contains("-fn aaa() -> String"));
-    assert!(content.contains("+fn a() -> String"));
+    assert!(content.contains("-pub fn aaa() -> String"));
+    assert!(content.contains("+pub fn a() -> String"));
 }
 
 #[test]
