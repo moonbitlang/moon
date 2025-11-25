@@ -1193,6 +1193,7 @@ pub fn gen_moonbitlang_abort_pkg(moonc_opt: &MooncOpt) -> Package {
         link_libs: vec![],
         link_search_paths: vec![],
         module_root: module_root.into(),
+        max_concurrent_tests: None,
     }
 }
 

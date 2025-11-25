@@ -68,6 +68,14 @@
         }
       ]
     },
+    "max-concurrent-tests": {
+      "type": [
+        "integer",
+        "null"
+      ],
+      "format": "uint32",
+      "minimum": 0.0
+    },
     "name": {
       "type": [
         "string",

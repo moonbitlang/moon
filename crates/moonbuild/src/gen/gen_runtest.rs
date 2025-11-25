@@ -98,6 +98,7 @@ pub struct RuntestDriverItem {
     pub files_may_contain_test_block: Vec<String>,
     pub doctest_only_files: Vec<String>,
     pub patch_file: Option<PathBuf>,
+    pub max_concurrent_tests: Option<u32>,
 }
 
 #[derive(Debug)]
@@ -232,6 +233,7 @@ pub fn gen_package_test_driver(
         files_may_contain_test_block: files_that_may_contain_test_block,
         driver_kind,
         patch_file: pkg.patch_file.clone(),
+        max_concurrent_tests: pkg.max_concurrent_tests,
     })
 }
 
@@ -1592,6 +1594,12 @@ fn gen_generate_test_driver_command(
     // Driver kind
     .arg("--driver-kind")
     .arg(&item.driver_kind.to_string())
+    .lazy_args_with_cond(item.max_concurrent_tests.is_some(), || {
+        vec![
+            "--max-concurrent-tests".to_string(),
+            item.max_concurrent_tests.unwrap().to_string(),
+        ]
+    })
     .build();
 
     build.cmdline = Some(command);

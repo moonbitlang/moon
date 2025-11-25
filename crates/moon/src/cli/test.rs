@@ -445,6 +445,7 @@ pub fn get_module_for_single_file(
             link_flags: None,
             link_libs: vec![],
             link_search_paths: vec![],
+            max_concurrent_tests: None,
         }
     };
 

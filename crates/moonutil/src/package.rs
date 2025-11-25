@@ -117,6 +117,8 @@ pub struct Package {
     pub link_libs: Vec<String>,
     /// Additional link search paths to pass to all dependents
     pub link_search_paths: Vec<String>,
+
+    pub max_concurrent_tests: Option<u32>,
 }
 
 impl Package {
@@ -351,6 +353,11 @@ pub struct MoonPkgJSON {
 
     #[serde(skip_serializing_if = "Option::is_none")]
     pub overrides: Option<Vec<String>>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(alias = "max-concurrent-tests")]
+    #[schemars(rename = "max-concurrent-tests")]
+    pub max_concurrent_tests: Option<u32>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, JsonSchema)]
@@ -766,6 +773,8 @@ pub struct MoonPkg {
     pub virtual_pkg: Option<VirtualPkg>,
     pub implement: Option<String>,
     pub overrides: Option<Vec<String>>,
+
+    pub max_concurrent_tests: Option<u32>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -919,6 +928,7 @@ pub fn convert_pkg_json_to_package(j: MoonPkgJSON) -> anyhow::Result<MoonPkg> {
         virtual_pkg: j.virtual_pkg,
         implement: j.implement,
         overrides: j.overrides,
+        max_concurrent_tests: j.max_concurrent_tests,
     };
     Ok(result)
 }
