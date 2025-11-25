@@ -758,7 +758,7 @@ impl<'a> BuildPlanLowerContext<'a> {
             .no_sys_header(true)
             .output_ty(CCOutputType::Executable) // TODO: support compiling to library
             .opt_level(opt_level)
-            .debug_info(self.opt.opt_level == OptLevel::Debug)
+            .debug_info(self.opt.debug_symbols)
             .link_moonbitrun(true) // TODO: support `tcc run`
             .define_use_shared_runtime_macro(false)
             .build()
