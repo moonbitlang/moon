@@ -266,7 +266,7 @@ impl<'a> BuildPlanLowerContext<'a> {
 
         BuildCommand {
             extra_inputs,
-            commandline: cmd.build_command(&*moonutil::BINARIES.moonc),
+            commandline: cmd.build_command(&*moonutil::BINARIES.moonc).into(),
         }
     }
 
@@ -344,7 +344,7 @@ impl<'a> BuildPlanLowerContext<'a> {
         self.extend_extra_inputs(&cmd.defaults, &mut extra_inputs);
 
         BuildCommand {
-            commandline: cmd.build_command(&*moonutil::BINARIES.moonc),
+            commandline: cmd.build_command(&*moonutil::BINARIES.moonc).into(),
             extra_inputs,
         }
     }
@@ -445,7 +445,7 @@ impl<'a> BuildPlanLowerContext<'a> {
 
         BuildCommand {
             extra_inputs,
-            commandline: cmd.build_command(&*moonutil::BINARIES.moonc),
+            commandline: cmd.build_command(&*moonutil::BINARIES.moonc).into(),
         }
     }
 
@@ -567,7 +567,7 @@ impl<'a> BuildPlanLowerContext<'a> {
         );
 
         BuildCommand {
-            commandline: cc_cmd,
+            commandline: cc_cmd.into(),
             extra_inputs: vec![input_file.clone()],
         }
     }
@@ -639,7 +639,7 @@ impl<'a> BuildPlanLowerContext<'a> {
 
         BuildCommand {
             extra_inputs: vec![],
-            commandline: archiver_cmd,
+            commandline: archiver_cmd.into(),
         }
     }
 
@@ -704,7 +704,7 @@ impl<'a> BuildPlanLowerContext<'a> {
         // Note: Runtime input is tracked in build plan, so no need to add here.
         BuildCommand {
             extra_inputs: vec![],
-            commandline: cc_cmd,
+            commandline: cc_cmd.into(),
         }
     }
 
@@ -789,7 +789,7 @@ impl<'a> BuildPlanLowerContext<'a> {
 
         BuildCommand {
             extra_inputs: vec![],
-            commandline: cc_cmd,
+            commandline: cc_cmd.into(),
         }
     }
 
@@ -878,7 +878,7 @@ impl<'a> BuildPlanLowerContext<'a> {
 
         BuildCommand {
             extra_inputs: vec![],
-            commandline: rsp_cmdline,
+            commandline: rsp_cmdline.into(),
         }
     }
 
@@ -920,7 +920,7 @@ impl<'a> BuildPlanLowerContext<'a> {
         BuildCommand {
             // Track the user-written `.mbti` contract as an explicit input
             extra_inputs: vec![mbti_path.clone()],
-            commandline: cmd.build_command(&*moonutil::BINARIES.moonc),
+            commandline: cmd.build_command(&*moonutil::BINARIES.moonc).into(),
         }
     }
 

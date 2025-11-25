@@ -103,6 +103,68 @@ pub struct LoweringResult {
     pub artifacts: IndexMap<BuildPlanNode, Artifacts>,
 }
 
+/// The command to execute for n2.
+///
+/// # How n2 handles commandlines
+///
+/// N2 (and ninja) use different conventions for handling commandlines on
+/// different platforms.
+///
+/// - On Unix-like platforms, the command string will be fed into `sh -c`. Thus,
+///   shell features like variable expansion are supported.
+/// - On Windows, the command string will be directly passed to
+///   `CreateProcessA`. No shell features are supported.
+///
+/// For most build commands, this is not an issue. All executables and argument
+/// paths are absolute paths, and there's no shell features involved.
+///
+/// However, for prebuild commands, the commandline is expected to be copied
+/// verbatim (with minimal resolving) to the generated build script. Thus,
+/// splitting, resolving and quoting again may lead to e.g. shell features being
+/// lost.
+///
+/// Thus, we're currently providing a `Verbatim` variant to handle such cases.
+///
+/// # Future improvements
+///
+/// Future design might want to omit shell features entirely for better
+/// cross-platform consistency. Env var expansion are already used by some
+/// libraries, so maintainers must be careful not to break those while doing so.
+///
+/// An idea is to use unix-style shell splitting and expansion everywhere,
+/// performing the env var expansion ourselves during build graph execution
+/// time. Other shell features should be disallowed. The result will then be
+/// handled like `Args` native to the platform.
+#[derive(Debug, Clone)]
+enum Commandline {
+    /// This commandline will be joined using the platform's default convention.
+    Args(Vec<String>),
+
+    /// This verbatim string will be plugged into the build graph as-is.
+    /// Use with caution.
+    ///
+    /// This variant currently is only used in prebuild commands.
+    Verbatim(String),
+}
+
+impl From<Vec<String>> for Commandline {
+    fn from(v: Vec<String>) -> Self {
+        Commandline::Args(v)
+    }
+}
+
+impl Commandline {
+    /// Convert this to the string representation expected by n2.
+    fn to_n2_string(&self) -> String {
+        match self {
+            Commandline::Args(args) => {
+                moonutil::shlex::join_native(args.iter().map(|x| x.as_str()))
+            }
+            Commandline::Verbatim(s) => s.clone(),
+        }
+    }
+}
+
 /// Represents the essential information needed to construct an [`Build`] value
 /// that cannot be derived fromthe build plan graph.
 struct BuildCommand {
@@ -111,7 +173,7 @@ struct BuildCommand {
     extra_inputs: Vec<PathBuf>,
 
     /// The command to execute.
-    commandline: Vec<String>,
+    commandline: Commandline,
 }
 
 /// Lowers a [`BuildPlan`] into a n2 [Build Graph](n2::graph::Graph).
