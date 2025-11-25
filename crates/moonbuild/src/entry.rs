@@ -971,11 +971,11 @@ impl TestArgs {
 
     pub fn to_args(&self) -> String {
         let file_and_index = &self.file_and_index;
-        let mut test_params: Vec<[String; 2]> = vec![];
+        let mut test_params: Vec<(String, u32)> = vec![];
         for (file, ranges) in file_and_index {
             for range in ranges {
                 for i in range.clone() {
-                    test_params.push([file.clone(), i.to_string()]);
+                    test_params.push((file.clone(), i));
                 }
             }
         }

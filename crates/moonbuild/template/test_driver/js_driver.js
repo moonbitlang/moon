@@ -15,7 +15,7 @@ try {
       let arr = []
       for (let range of ranges) {
         for (let i = range.start; i < range.end; i++) {
-          arr.push([file, i.toString()])
+          arr.push([file, i])
         }
       }
       return arr
@@ -28,7 +28,7 @@ try {
 
 for (param of testParams) {
   try {
-    moonbit_test_driver_internal_execute(param[0], parseInt(param[1]))
+    moonbit_test_driver_internal_execute(param[0], param[1])
   } catch (e) {
     console.log('----- BEGIN MOON TEST RESULT -----')
     console.log(
