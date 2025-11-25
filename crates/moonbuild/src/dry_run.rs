@@ -58,47 +58,48 @@ pub fn print_run_commands(
     state: &State,
     target_backend: TargetBackend,
     source_dir: &Path,
-    target_dir: &Path,
     args: &[String],
 ) {
-    let in_same_dir = target_dir.starts_with(source_dir);
-
     if !state.default.is_empty() {
         // FIXME: This sorts the default targets twice. Should not affect the perf much though.
         let mut sorted_default = state.default.clone();
         sorted_default.sort_by_key(|a| a.index());
 
         for fid in sorted_default.iter() {
-            let mut watfile = state.graph.file(*fid).name.clone();
-            let cmd = match target_backend {
+            let watfile = state.graph.file(*fid).name.clone();
+
+            // This is only for dry-run output, so we can ignore the actual
+            // paths of moonrun/node binaries.
+            let mut cmd: Vec<&str> = match target_backend {
                 TargetBackend::Wasm | TargetBackend::WasmGC => {
-                    Some(moonutil::BINARIES.moonrun.clone())
+                    vec!["moonrun", &watfile, "--"]
                 }
-                TargetBackend::Js => Some(moonutil::BINARIES.node_or_default()),
+                TargetBackend::Js => {
+                    vec!["node", &watfile]
+                }
                 TargetBackend::Native | TargetBackend::LLVM => {
                     // stub.o would be default for native and llvm, skip them
                     if !watfile.ends_with(".exe") {
                         continue;
                     }
-                    None
+                    vec![&watfile]
                 }
             };
-            if in_same_dir {
-                watfile = watfile.replacen(&source_dir.display().to_string(), ".", 1);
-            }
 
-            let mut moonrun_command = if let Some(cmd) = cmd {
-                let cmd = cmd.display();
-                format!("{cmd} {watfile} --")
-            } else {
-                watfile
-            };
-            if !args.is_empty() {
-                let args_str = moonutil::shlex::join_unix(args.iter().map(|s| s.as_str()));
-                moonrun_command = format!("{moonrun_command} {args_str}");
-            }
+            // Append user arguments
+            cmd.extend(args.iter().map(|x| x.as_str()));
 
-            println!("{moonrun_command}");
+            // Normalize command arguments
+            let replacer = moonbuild_debug::graph::PathNormalizer::new(source_dir);
+            let cmd = cmd
+                .iter()
+                .map(|x| replacer.normalize_command_arg(x))
+                .collect::<Vec<_>>();
+
+            let cmd_str =
+                shlex::try_join(cmd.iter().map(|x| &**x)).expect("null in args, should not happen");
+
+            println!("{}", cmd_str);
         }
     }
 }
@@ -136,7 +137,6 @@ pub fn print_commands(
             &state,
             moonc_opt.link_opt.target_backend,
             source_dir,
-            target_dir,
             &moonbuild_opt.args,
         );
     }
