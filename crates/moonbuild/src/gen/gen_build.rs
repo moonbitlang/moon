@@ -996,7 +996,7 @@ pub fn gen_compile_exe_command(
                 !moonc_opt.build_opt.debug_flag,
                 moonc_opt.build_opt.debug_flag,
             ))
-            .debug_info(moonc_opt.build_opt.debug_flag)
+            .debug_info(!moonc_opt.build_opt.strip_flag)
             .link_moonbitrun(!moonbuild_opt.use_tcc_run) // if use tcc, we cannot link moonbitrun
             .define_use_shared_runtime_macro(moonbuild_opt.use_tcc_run)
             .build()
@@ -1381,7 +1381,7 @@ pub fn gen_link_exe_command(
                 !moonc_opt.build_opt.debug_flag,
                 moonc_opt.build_opt.debug_flag,
             ))
-            .debug_info(moonc_opt.build_opt.debug_flag)
+            .debug_info(!moonc_opt.build_opt.strip_flag)
             .link_moonbitrun(!moonbuild_opt.use_tcc_run) // if use tcc, we cannot link moonbitrun
             .define_use_shared_runtime_macro(moonbuild_opt.use_tcc_run)
             .build()
