@@ -26,6 +26,11 @@ pub fn split_unix(args: &str) -> Vec<String> {
     shlex::Shlex::new(args).collect()
 }
 
+pub fn get_argv0_unix(args: &str) -> String {
+    let mut lexer = shlex::Shlex::new(args);
+    lexer.next().unwrap_or_default()
+}
+
 pub fn join_unix<'a>(args: impl Iterator<Item = &'a str>) -> String {
     shlex::try_join(args).expect("Failed to join args with shlex, likely due to null bytes")
 }
@@ -34,6 +39,12 @@ pub fn join_unix<'a>(args: impl Iterator<Item = &'a str>) -> String {
 pub use join_unix as join_native;
 #[cfg(target_os = "windows")]
 pub use join_windows as join_native;
+
+#[cfg(not(target_os = "windows"))]
+pub use get_argv0_unix as get_argv0_native;
+#[cfg(target_os = "windows")]
+pub use get_argv0_windows as get_argv0_native;
+
 #[cfg(not(target_os = "windows"))]
 pub use split_unix as split_native;
 #[cfg(target_os = "windows")]
@@ -53,6 +64,16 @@ pub fn split_windows(args: &str) -> Vec<String> {
     }
 
     result
+}
+
+pub fn get_argv0_windows(args: &str) -> String {
+    let (argv0, _) = parse_windows_argv0(args);
+    argv0
+}
+
+/// Split the argv[0] from the rest of the command line according to Windows rules.
+pub fn split_argv0_windows(args: &str) -> (String, &str) {
+    parse_windows_argv0(args)
 }
 
 fn parse_windows_argv0(args: &str) -> (String, &str) {

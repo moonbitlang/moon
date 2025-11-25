@@ -29,7 +29,10 @@ use moonutil::{
 use tracing::{Level, instrument};
 
 use crate::{
-    build_lower::compiler::{CmdlineAbstraction, MoondocCommand, Mooninfo},
+    build_lower::{
+        Commandline,
+        compiler::{CmdlineAbstraction, MoondocCommand, Mooninfo},
+    },
     build_plan::BuildTargetInfo,
     model::{BuildPlanNode, BuildTarget, PackageId, RunBackend, TargetKind},
 };
@@ -251,7 +254,7 @@ impl<'a> super::BuildPlanLowerContext<'a> {
         // Ideally we can do this ourselves, but n2 does it anyway so we don't bother.
 
         BuildCommand {
-            commandline: vec!["sh".into(), "-c".into(), info.command.clone()].into(),
+            commandline: Commandline::Verbatim(info.command.clone()),
             extra_inputs: info.resolved_inputs.clone(),
         }
     }
