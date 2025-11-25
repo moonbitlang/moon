@@ -35,7 +35,8 @@ fn test_prebuild_config_common(dir: TestDir) {
             assert!(line.contains("-l______this_is_added_by_config_script_______"));
             assert!(line.contains("-lmylib"));
             assert!(line.contains("-L/my-search-path"));
-        } else if line.contains("cl.exe /Fe./target/native/release/build/main/main.exe")
+        } else if line.contains("cl.exe") // cl.exe might be quoted
+            && line.contains("/Fe./target/native/release/build/main/main.exe")
             && cfg!(windows)
         {
             found_link_flags.set(()).expect("final linking found twice");
