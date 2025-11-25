@@ -15,7 +15,7 @@ try {
       let arr = []
       for (let range of ranges) {
         for (let i = range.start; i < range.end; i++) {
-          arr.push([file, i.toString()])
+          arr.push([file, i])
         }
       }
       return arr
@@ -26,21 +26,5 @@ try {
   process.exit(1)
 }
 
-for (param of testParams) {
-  try {
-    moonbit_test_driver_internal_execute(param[0], parseInt(param[1]))
-  } catch (e) {
-    console.log('----- BEGIN MOON TEST RESULT -----')
-    console.log(
-      `{"package": "${packageName}", "filename": "${param[0]}", "index": "${
-        param[1]
-      }", "test_name": "${param[1]}", "message": "${e.stack
-        .toString()
-        .replaceAll('\\', '\\\\')
-        .split('\n')
-        .join('\\n')}"}`
-    )
-    console.log('----- END MOON TEST RESULT -----')
-  }
-}
+moonbit_test_driver_internal_execute(testParams)
 moonbit_test_driver_finish()

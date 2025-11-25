@@ -74,6 +74,10 @@ pub struct GenerateTestDriverSubcommand {
     /// Path to the patch file
     #[clap(long)]
     patch_file: Option<PathBuf>,
+
+    /// Max concurrent tests for `async test`
+    #[clap(long)]
+    max_concurrent_tests: Option<u32>,
 }
 
 fn moonc_gen_test_info(
@@ -188,6 +192,7 @@ pub fn generate_test_driver(
         cmd.enable_coverage,
         cmd.bench,
         cmd.coverage_package_override.as_deref(),
+        cmd.max_concurrent_tests,
     );
     std::fs::write(&cmd.output_driver, generated_content)?;
 
@@ -235,6 +240,7 @@ fn generate_driver(
     enable_coverage: bool,
     enable_bench: bool,
     coverage_package_override: Option<&str>,
+    max_concurrent_tests: Option<u32>,
 ) -> String {
     // Drivers selection:
     // enable_bench -> only bench tests
@@ -309,6 +315,18 @@ fn generate_driver(
                 &MooncGenTestInfo::section_to_mbt("moonbit_test_driver_internal_async_tests", &data.async_tests),
             )
         }
+    };
+
+    let template = if let Some(max_concurrent_tests) = max_concurrent_tests {
+        template.replace(
+            "let moonbit_test_driver_internal_max_concurrent_tests : Int = 10",
+            &format!(
+                "let moonbit_test_driver_internal_max_concurrent_tests : Int = {}",
+                max_concurrent_tests,
+            ),
+        )
+    } else {
+        template
     };
 
     let template =  template

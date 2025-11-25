@@ -35,6 +35,11 @@ pub async fn[X] with_task_group(
 }
 
 ///|
+pub fn is_being_cancelled() -> Bool {
+  false
+}
+
+///|
 pub fn run_async_main(f : async () -> Unit) -> Unit {
   let mut done = false
   run_async(fn() {

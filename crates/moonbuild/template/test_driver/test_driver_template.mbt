@@ -104,7 +104,7 @@ fn moonbit_test_driver_internal_apply_filter(
 }
 
 pub fn moonbit_test_driver_internal_do_execute(
-  async_ctx : Moonbit_Test_Driver_Internal_Async_Context,
+  async_tests : Array[async () -> Unit],
   filename : String,
   index : Int,
 ) -> Unit {
@@ -158,7 +158,10 @@ pub fn moonbit_test_driver_internal_do_execute(
 
       fn on_err(err : Error) {
         match err {
-          @moonbitlang/core/builtin.Failure(e) | @moonbitlang/core/builtin.InspectError(e) | @moonbitlang/core/builtin.SnapshotError(e) => {
+          @moonbitlang/core/builtin.Failure(e)
+          | @moonbitlang/core/builtin.InspectError(e)
+          | @moonbitlang/core/builtin.SnapshotError(e)
+          | MoonBitTestDriverInternalJsError(e) => {
             handle_result(name, file_name, e, false)
           }
           e => {
@@ -170,45 +173,96 @@ pub fn moonbit_test_driver_internal_do_execute(
 
       match item.f {
         Moonbit_Test_Driver_Internal__F::F0(f) => {
-          try f() catch {
-            err => on_err(err)
-          } noraise {
-            _ => handle_result(name, file_name, "", false)
-          }
+          moonbit_test_driver_internal_catch_error(
+            f,
+            on_ok=() => handle_result(name, file_name, "", false),
+            on_err~,
+          )
         }
         Moonbit_Test_Driver_Internal__F::F1(f) => {
-          try f(moonbit_test_driver_internal_new_test_arg(name)) catch {
-            err => on_err(err)
-          } noraise {
-            _ => handle_result(name, file_name, "", false)
-          }
+          moonbit_test_driver_internal_catch_error(
+            () => f(moonbit_test_driver_internal_new_test_arg(name)),
+            on_ok=() => handle_result(name, file_name, "", false),
+            on_err~,
+          )
         }
         Moonbit_Test_Driver_Internal__F::F2(f) =>
-          moonbit_test_driver_internal_run_async_test(
-            async_ctx,
-            name,
-            fn(arg) {
-              try f(arg) catch {
-                err => on_err(err)
-              } noraise {
-                _ => handle_result(name, file_name, "", false)
-              }
-            },
-          )
+          async_tests.push(() => {
+            try f(moonbit_test_driver_internal_new_test_arg(name)) catch {
+              err if moonbit_test_driver_internal_is_being_cancelled() => raise err
+              err => on_err(err)
+            } noraise {
+              _ => handle_result(name, file_name, "", false)
+            }
+          })
       }
     }
     _ => handle_result("", "", "skipped test", true)
   }
 }
 
+///|
+pub(all) suberror MoonBitTestDriverInternalJsError String
+
+///|
+#cfg(target="js")
+fn moonbit_test_driver_internal_catch_error(
+  f : () -> Unit raise,
+  on_ok~ : () -> Unit,
+  on_err~ : (Error) -> Unit,
+) -> Unit {
+  moonbit_test_driver_internal_js_catch(
+    on_err=(err_str) => on_err(MoonBitTestDriverInternalJsError(err_str)),
+    () => {
+      try f() catch {
+        err => on_err(err)
+      } noraise {
+        _ => on_ok()
+      }
+    }
+  )
+}
+
+///|
+#cfg(target="js")
+extern "js" fn moonbit_test_driver_internal_js_catch(
+  f : () -> Unit,
+  on_err~ : (String) -> Unit,
+) =
+  #| (f, on_err) => {
+  #|   try {
+  #|     f()
+  #|   } catch (err) {
+  #|     const msg = err.stack.toString()
+  #|     on_err(msg)
+  #|   }
+  #| }
+
+///|
+#cfg(not(target="js"))
+fn moonbit_test_driver_internal_catch_error(
+  f : () -> Unit raise,
+  on_ok~ : () -> Unit,
+  on_err~ : (Error) -> Unit,
+) -> Unit {
+  try f() catch {
+    err => on_err(err)
+  } noraise {
+    _ => on_ok()
+  }
+}
+
+///|
+let moonbit_test_driver_internal_max_concurrent_tests : Int = 10
+
 #cfg(target="native")
 #test_entry
 fn main {
-  moonbit_test_driver_internal_run_async_main(fn(ctx) {
-    for arg in moonbit_test_driver_internal_native_parse_args() {
-      moonbit_test_driver_internal_do_execute(ctx, arg.0, arg.1)
-    }
-  })
+  let async_tests = []
+  for arg in moonbit_test_driver_internal_native_parse_args() {
+    moonbit_test_driver_internal_do_execute(async_tests, arg.0, arg.1)
+  }
+  moonbit_test_driver_internal_run_async_tests(async_tests)
 }
 
 #cfg(not(target="native"))
@@ -218,10 +272,27 @@ fn main {
 }
 
 #cfg(target="js")
-pub fn moonbit_test_driver_internal_execute(filename : String, index : Int) -> Unit {
-  moonbit_test_driver_internal_run_async_main(fn(ctx) {
-    moonbit_test_driver_internal_do_execute(ctx, filename, index)
-  })
+#external
+type MoonBitTestDriverInternalTestEntry
+
+#cfg(target="js")
+extern "js" fn MoonBitTestDriverInternalTestEntry::filename(self : Self) -> String =
+  #| (entry) => entry[0]
+
+#cfg(target="js")
+extern "js" fn MoonBitTestDriverInternalTestEntry::index(self : Self) -> Int =
+  #| (entry) => entry[1]
+
+#cfg(target="js")
+pub fn moonbit_test_driver_internal_execute(
+  tests : Array[MoonBitTestDriverInternalTestEntry],
+) -> Unit {
+  let async_tests = []
+  for i in 0..<tests.length() {
+    let entry = tests[i]
+    moonbit_test_driver_internal_do_execute(async_tests, entry.filename(), entry.index())
+  }
+  moonbit_test_driver_internal_run_async_tests(async_tests)
 }
 
 #cfg(any(target="wasm", target="wasm-gc"))
@@ -230,9 +301,9 @@ pub fn moonbit_test_driver_internal_execute(
   index : Int,
 ) -> Unit {
   let filename = moonbit_test_driver_internal_get_file_name(filename)
-  moonbit_test_driver_internal_run_async_main(fn(ctx) {
-    moonbit_test_driver_internal_do_execute(ctx, filename, index)
-  })
+  let async_tests = []
+  moonbit_test_driver_internal_do_execute(async_tests, filename, index)
+  moonbit_test_driver_internal_run_async_tests(async_tests)
 }
 
 #cfg(not(target="native"))
