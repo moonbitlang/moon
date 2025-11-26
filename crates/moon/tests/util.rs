@@ -26,7 +26,7 @@ pub fn check<S: AsRef<str>>(actual: S, expect: Expect) {
 }
 
 pub fn moon_bin() -> PathBuf {
-    snapbox::cmd::cargo_bin("moon")
+    snapbox::cargo_bin!("moon").to_owned()
 }
 
 pub fn replace_dir(s: &str, dir: impl AsRef<std::path::Path>) -> String {
@@ -36,6 +36,7 @@ pub fn replace_dir(s: &str, dir: impl AsRef<std::path::Path>) -> String {
         .iter()
         .fold(s.to_string(), |s, (name, path)| {
             let path = match *name {
+                #[allow(deprecated)] // No replacements for now
                 "moon" | "moonrun" => snapbox::cmd::cargo_bin(name),
                 _ => path.clone(),
             };

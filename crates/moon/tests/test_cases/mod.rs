@@ -467,29 +467,29 @@ fn mooncake_cli_smoke_test() {
 #[test]
 fn bench2_test() {
     let dir = TestDir::new("bench2_test.in");
-    snapbox::cmd::Command::new(snapbox::cmd::cargo_bin("moon"))
+    snapbox::cmd::Command::new(snapbox::cargo_bin!("moon"))
         .current_dir(&dir)
         .args(["run", "main"])
         .assert()
         .success()
-        .stdout_matches("ok[..]");
+        .stdout_eq("ok[..]");
 }
 
 #[test]
 fn cakenew_test() {
     let dir = TestDir::new("cakenew_test.in");
-    snapbox::cmd::Command::new(snapbox::cmd::cargo_bin("moon"))
+    snapbox::cmd::Command::new(snapbox::cargo_bin!("moon"))
         .current_dir(&dir)
         .args(["run", "main"])
         .assert()
         .success()
-        .stdout_matches("Hello,[..]");
+        .stdout_eq("Hello,[..]");
 }
 
 #[test]
 fn capture_abort_test() {
     let dir = super::TestDir::new("capture_abort_test.in");
-    snapbox::cmd::Command::new(snapbox::cmd::cargo_bin("moon"))
+    snapbox::cmd::Command::new(snapbox::cargo_bin!("moon"))
         .current_dir(&dir)
         .args(["run", "main", "--nostd"])
         .assert()
