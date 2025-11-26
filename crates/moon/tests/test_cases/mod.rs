@@ -2053,6 +2053,7 @@ fn test_exports_in_native_backend() {
 }
 
 #[test]
+#[ignore = "moonyacc is not updated for a long time, and this test case is broken"]
 fn test_diag_loc_map() {
     let dir = TestDir::new("diag_loc_map.in");
     check(
@@ -2923,7 +2924,7 @@ fn moon_test_target_js_panic_with_sourcemap() {
             [username/hello] test lib/hello_test.mbt:1 ("hello") failed: Error
                 at $panic ($ROOT/target/js/debug/test/lib/lib.blackbox_test.js:3:9)
                 at username$hello$lib_blackbox_test$$__test_68656c6c6f5f746573742e6d6274_0 ($ROOT/src/lib/hello_test.mbt:3:5)
-                at username$hello$lib_blackbox_test$$moonbit_test_driver_internal_js_catch ($ROOT/src/lib/__generated_driver_for_blackbox_test.mbt:221:11)
+                at username$hello$lib_blackbox_test$$moonbit_test_driver_internal_js_catch ($ROOT/src/lib/__generated_driver_for_blackbox_test.mbt:223:11)
             Total tests: 1, passed: 0, failed: 1."#]],
     );
 }
