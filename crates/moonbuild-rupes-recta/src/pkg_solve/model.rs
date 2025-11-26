@@ -98,11 +98,9 @@ pub enum SolveError {
     ImportLoop { loop_path: ImportLoop },
 
     #[error(
-        "Conflicting import alias '{alias}' found \
-        in package {package_fqn}. \
-        Both {first_import} (in {first_import_kind:?} import) \
-        and {second_import} (in {second_import_kind:?} import) \
-        use the same alias."
+        "Conflicting import alias: \
+        Both {first_import} ({first_import_kind:?}) and {second_import} ({second_import_kind:?}) \
+        are imported into {package_fqn} with the same alias '{alias}'."
     )]
     ConflictingImportAlias {
         alias: String,

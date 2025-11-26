@@ -155,29 +155,29 @@ fn verify_no_duplicated_alias(
         // The alias map for the current node
         let mut map: HashMap<&arcstr::Substr, (BuildTarget, &DepEdge)> = HashMap::new();
 
-        for (from, _, edge) in dep
+        for (_from, to, edge) in dep
             .dep_graph
             .edges_directed(node, petgraph::Direction::Outgoing)
         {
             match map.entry(&edge.short_alias) {
                 Entry::Occupied(e) => {
-                    let (first_from, first_edge) = e.get();
+                    let (first_to, first_edge) = e.get();
 
                     errs.push(SolveError::ConflictingImportAlias {
                         alias: edge.short_alias.to_string(),
                         package_node: node,
                         package_fqn: packages.fqn(node.package).into(),
-                        first_import_node: *first_from,
-                        first_import: packages.fqn(first_from.package).into(),
+                        first_import_node: *first_to,
+                        first_import: packages.fqn(first_to.package).into(),
                         first_import_kind: first_edge.kind,
-                        second_import_node: from,
-                        second_import: packages.fqn(from.package).into(),
+                        second_import_node: to,
+                        second_import: packages.fqn(to.package).into(),
                         second_import_kind: edge.kind,
                     });
                 }
 
                 Entry::Vacant(vacant_entry) => {
-                    vacant_entry.insert((from, edge));
+                    vacant_entry.insert((to, edge));
                 }
             }
         }
