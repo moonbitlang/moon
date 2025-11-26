@@ -45,10 +45,13 @@ use crate::pkg_name::{PackageFQN, PackagePath};
 /// The synthetic package will be named `single` and will import all discovered
 /// packages (excluding the std abort) so that the single file can reference any
 /// package symbols without declaring per-package deps in the front matter.
+///
+/// If `run_mode` is true, the package will be marked as a main package.
 pub fn build_synth_single_file_package(
     file: &Path,
     env: &ResolvedEnv,
     discovered: &mut DiscoverResult,
+    run_mode: bool,
 ) -> PackageId {
     // Expect exactly one local module for single-file synth
     let &[mid] = env.input_module_ids() else {
@@ -86,7 +89,7 @@ pub fn build_synth_single_file_package(
     }
     let moon_pkg = MoonPkg {
         name: None,
-        is_main: false,
+        is_main: run_mode,
         force_link: false,
         sub_package: None,
         imports,
@@ -107,6 +110,7 @@ pub fn build_synth_single_file_package(
         virtual_pkg: None,
         implement: None,
         overrides: None,
+        max_concurrent_tests: None,
     };
 
     // Assign file to appropriate list

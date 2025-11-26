@@ -195,6 +195,7 @@ impl BuildResult {
 /// populate. Will be transformed into [`CompileConfig`] later in the pipeline.
 ///
 /// This type might be subject to change.
+#[derive(Debug)]
 pub struct CompilePreConfig {
     frozen: bool,
     target_backend: Option<TargetBackend>,

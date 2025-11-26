@@ -149,15 +149,9 @@ fn run_check_for_single_file_rr(
     let single_file_path = &dunce::canonicalize(cmd.path.as_ref().unwrap()).unwrap();
     let source_dir = single_file_path.parent().unwrap().to_path_buf();
     let raw_target_dir = source_dir.join("target");
+    let mut cmd = cmd.clone();
 
-    let preconfig = preconfig_compile(
-        &cmd.auto_sync_flags,
-        cli,
-        &cmd.build_flags,
-        &raw_target_dir,
-        moonutil::cond_expr::OptLevel::Release,
-        RunMode::Check,
-    );
+    cmd.build_flags.populate_target_backend_from_list()?;
 
     // Manually synthesize and resolve single file project
     let resolve_cfg = moonbuild_rupes_recta::ResolveConfig::new(
@@ -165,10 +159,20 @@ fn run_check_for_single_file_rr(
         RegistryConfig::load(),
         false,
     );
-    let resolved = moonbuild_rupes_recta::resolve::resolve_single_file_project(
+    let (resolved, backend) = moonbuild_rupes_recta::resolve::resolve_single_file_project(
         &resolve_cfg,
         single_file_path,
+        false,
     )?;
+
+    let preconfig = preconfig_compile(
+        &cmd.auto_sync_flags,
+        cli,
+        &cmd.build_flags.clone().with_default_target_backend(backend),
+        &raw_target_dir,
+        moonutil::cond_expr::OptLevel::Release,
+        RunMode::Check,
+    );
 
     // The rest is similar to normal check flow
     let (build_meta, build_graph) = rr_build::plan_build_from_resolved(

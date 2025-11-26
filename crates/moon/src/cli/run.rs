@@ -34,6 +34,7 @@ use moonutil::common::TargetBackend;
 use moonutil::common::TestArtifacts;
 use moonutil::common::lower_surface_targets;
 use moonutil::common::{MoonbuildOpt, OutputFormat};
+use moonutil::cond_expr::OptLevel;
 use moonutil::cond_expr::OptLevel::Release;
 use moonutil::dirs::PackageDirs;
 use moonutil::dirs::check_moon_pkg_exist;
@@ -86,7 +87,11 @@ pub fn run_run(cli: &UniversalFlags, cmd: RunSubcommand) -> anyhow::Result<i32> 
                     .parent()
                     .is_some_and(|p| p.join(MOON_PKG_JSON).exists());
                 if !moon_pkg_json_exist {
-                    return run_single_mbt_file(cli, cmd);
+                    if cli.unstable_feature.rupes_recta {
+                        return run_single_file_rr(cli, cmd);
+                    } else {
+                        return run_single_mbt_file(cli, cmd);
+                    }
                 }
             }
             // moon should report an error later if the source_dir doesn't
@@ -94,7 +99,11 @@ pub fn run_run(cli: &UniversalFlags, cmd: RunSubcommand) -> anyhow::Result<i32> 
         }
         Err(e @ moonutil::dirs::PackageDirsError::NotInProject(_)) => {
             if cmd.package_or_mbt_file.ends_with(".mbt") {
-                return run_single_mbt_file(cli, cmd);
+                if cli.unstable_feature.rupes_recta {
+                    return run_single_file_rr(cli, cmd);
+                } else {
+                    return run_single_mbt_file(cli, cmd);
+                }
             } else {
                 return Err(e.into());
             }
@@ -384,7 +393,7 @@ fn run_run_rr(cli: &UniversalFlags, cmd: RunSubcommand) -> Result<i32, anyhow::E
         target_dir,
     } = cli.source_tgt_dir.try_into_package_dirs()?;
 
-    let input_path = cmd.package_or_mbt_file;
+    let input_path = cmd.package_or_mbt_file.clone();
     let mut preconfig = preconfig_compile(
         &cmd.auto_sync_flags,
         cli,
@@ -403,61 +412,14 @@ fn run_run_rr(cli: &UniversalFlags, cmd: RunSubcommand) -> Result<i32, anyhow::E
         &target_dir,
         Box::new(|r, _tb| calc_user_intent(&input_path, &source_dir, r, value_tracing)),
     )?;
-    if cli.dry_run {
-        // Print build commands
-        rr_build::print_dry_run(
-            &build_graph,
-            build_meta.artifacts.values(),
-            &source_dir,
-            &target_dir,
-        );
-
-        let run_cmd = get_run_cmd(&build_meta, &cmd.args)?;
-        rr_build::dry_print_command(run_cmd.command.as_std(), &source_dir);
-
-        Ok(0)
-    } else {
-        let _lock = FileLock::lock(&target_dir)?;
-
-        let build_result = rr_build::execute_build(
-            &BuildConfig::from_flags(&cmd.build_flags, &cli.unstable_feature),
-            build_graph,
-            &target_dir,
-        )?;
-
-        if !build_result.successful() {
-            return Ok(build_result.return_code_for_success());
-        }
-
-        let run_cmd = get_run_cmd(&build_meta, &cmd.args)?;
-
-        // Release the lock before spawning the subprocess
-        drop(_lock);
-
-        if cmd.build_only {
-            let test_artifacts = TestArtifacts {
-                artifacts_path: build_meta
-                    .artifacts
-                    .values()
-                    .flat_map(|artifact| artifact.artifacts.clone())
-                    .collect(),
-            };
-            println!("{}", serde_json_lenient::to_string(&test_artifacts)?);
-            return Ok(0);
-        }
-
-        // FIXME: Simplify this part
-        let res = default_rt()
-            .context("Failed to create runtime")?
-            .block_on(crate::run::run(&mut [], false, run_cmd.command))
-            .context("failed to run command")?;
-
-        if let Some(code) = res.code() {
-            Ok(code)
-        } else {
-            bail!("Command exited without a return code");
-        }
-    }
+    rr_run_from_plan(
+        cli,
+        &cmd,
+        &source_dir,
+        &target_dir,
+        &build_meta,
+        build_graph,
+    )
 }
 
 #[instrument(level = Level::DEBUG, skip_all)]
@@ -646,4 +608,137 @@ fn run_run_internal_legacy(cli: &UniversalFlags, cmd: RunSubcommand) -> anyhow::
         cmd.build_only,
         Some(_lock),
     )
+}
+
+#[instrument(level = Level::DEBUG, skip_all)]
+fn run_single_file_rr(cli: &UniversalFlags, mut cmd: RunSubcommand) -> anyhow::Result<i32> {
+    let current_dir = std::env::current_dir()?;
+    let input_path = dunce::canonicalize(current_dir.join(&cmd.package_or_mbt_file))?;
+    let source_dir = input_path.parent().unwrap().to_path_buf();
+    let raw_target_dir = source_dir.join("target");
+    let value_tracing = cmd.build_flags.enable_value_tracing;
+
+    cmd.build_flags.populate_target_backend_from_list()?;
+
+    // Resolve single-file project (synthesized package around the file)
+    let resolve_cfg = moonbuild_rupes_recta::ResolveConfig::new(
+        cmd.auto_sync_flags.clone(),
+        RegistryConfig::load(),
+        false,
+    );
+    let (resolved, backend) = moonbuild_rupes_recta::resolve::resolve_single_file_project(
+        &resolve_cfg,
+        &input_path,
+        true,
+    )?;
+
+    let mut preconfig = preconfig_compile(
+        &cmd.auto_sync_flags,
+        cli,
+        &cmd.build_flags.clone().with_default_target_backend(backend),
+        &raw_target_dir,
+        OptLevel::Debug,
+        RunMode::Run,
+    );
+    // Match legacy behavior: allow tcc-run for Native debug runs in RR single-file if not dry-run
+    preconfig.try_tcc_run = !cli.dry_run;
+
+    // Plan build with a single UserIntent::Run for the synthesized package
+    let (build_meta, build_graph) = rr_build::plan_build_from_resolved(
+        preconfig,
+        &cli.unstable_feature,
+        &raw_target_dir,
+        Box::new(move |r, _tb| {
+            let m_packages = r
+                .pkg_dirs
+                .packages_for_module(r.local_modules()[0])
+                .expect("Local module must exist");
+            let pkg = *m_packages
+                .iter()
+                .next()
+                .expect("Single-file project must synthesize exactly one package")
+                .1;
+
+            let directive = if value_tracing {
+                rr_build::build_patch_directive_for_package(pkg, false, Some(pkg), None, false)?
+            } else {
+                Default::default()
+            };
+
+            Ok((vec![UserIntent::Run(pkg)], directive).into())
+        }),
+        resolved,
+    )?;
+
+    rr_run_from_plan(
+        cli,
+        &cmd,
+        &source_dir,
+        &raw_target_dir,
+        &build_meta,
+        build_graph,
+    )
+}
+
+#[instrument(level = Level::DEBUG, skip_all)]
+fn rr_run_from_plan(
+    cli: &UniversalFlags,
+    cmd: &RunSubcommand,
+    source_dir: &Path,
+    target_dir: &Path,
+    build_meta: &rr_build::BuildMeta,
+    build_graph: rr_build::BuildInput,
+) -> Result<i32, anyhow::Error> {
+    if cli.dry_run {
+        rr_build::print_dry_run(
+            &build_graph,
+            build_meta.artifacts.values(),
+            source_dir,
+            target_dir,
+        );
+
+        let run_cmd = get_run_cmd(build_meta, &cmd.args)?;
+        rr_build::dry_print_command(run_cmd.command.as_std(), source_dir);
+        return Ok(0);
+    }
+
+    let _lock = FileLock::lock(target_dir)?;
+
+    let build_result = rr_build::execute_build(
+        &BuildConfig::from_flags(&cmd.build_flags, &cli.unstable_feature),
+        build_graph,
+        target_dir,
+    )?;
+
+    if !build_result.successful() {
+        return Ok(build_result.return_code_for_success());
+    }
+
+    let run_cmd = get_run_cmd(build_meta, &cmd.args)?;
+
+    // Release the lock before spawning the subprocess
+    drop(_lock);
+
+    if cmd.build_only {
+        let test_artifacts = TestArtifacts {
+            artifacts_path: build_meta
+                .artifacts
+                .values()
+                .flat_map(|artifact| artifact.artifacts.clone())
+                .collect(),
+        };
+        println!("{}", serde_json_lenient::to_string(&test_artifacts)?);
+        return Ok(0);
+    }
+
+    let res = default_rt()
+        .context("Failed to create runtime")?
+        .block_on(crate::run::run(&mut [], false, run_cmd.command))
+        .context("failed to run command")?;
+
+    if let Some(code) = res.code() {
+        Ok(code)
+    } else {
+        bail!("Command exited without a return code")
+    }
 }
