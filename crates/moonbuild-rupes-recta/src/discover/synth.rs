@@ -29,7 +29,7 @@
 //! where it programmatically enumerates imports for the synthetic single-file package.
 
 use std::collections::HashSet;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 use moonutil::common::TargetBackend;
 use moonutil::mooncakes::result::ResolvedEnv;
@@ -42,11 +42,9 @@ use crate::pkg_name::{PackageFQN, PackagePath};
 /// Build and insert a synthetic single-file package into the discovery result,
 /// returning the newly created package ID.
 ///
-/// Behavior:
-/// - Choose the only local module (panics if multiple/none).
-/// - Create package path `single`.
-/// - Populate MoonPkg.imports with all discovered packages (excluding std abort).
-/// - Assign the input file into `.mbt` or `.mbt.md` into `source_files`; leave `mbt_md_files` empty in synth mode.
+/// The synthetic package will be named `single` and will import all discovered
+/// packages (excluding the std abort) so that the single file can reference any
+/// package symbols without declaring per-package deps in the front matter.
 pub fn build_synth_single_file_package(
     file: &Path,
     env: &ResolvedEnv,
@@ -72,6 +70,9 @@ pub fn build_synth_single_file_package(
     let mut imports = Vec::new();
     for (pid, pkg) in discovered.all_packages() {
         if Some(pid) == abort_pkg {
+            continue;
+        }
+        if pkg.fqn.has_internal_segment() {
             continue;
         }
         let fqn_str = pkg.fqn.to_string();
@@ -109,16 +110,13 @@ pub fn build_synth_single_file_package(
     };
 
     // Assign file to appropriate list
-    let mut source_files = Vec::new();
     let file_path = dunce::canonicalize(file).expect("Failed to canonicalize single-file input");
-    let file_name = file_path
-        .file_name()
-        .and_then(|x| x.to_str())
-        .unwrap_or_default()
-        .to_string();
-
-    // Treat both .mbt and .mbt.md as regular sources in synth mode
-    source_files.push(file_path.clone());
+    let files = vec![file_path.clone()];
+    let (source_files, mbt_md_files) = if file_path.extension().is_some_and(|x| x == "md") {
+        (Vec::new(), files)
+    } else {
+        (files, Vec::new())
+    };
 
     // Build DiscoveredPackage for synthetic package
     let synth_pkg = DiscoveredPackage {
@@ -128,11 +126,12 @@ pub fn build_synth_single_file_package(
             .to_path_buf(),
         module: mid,
         fqn: PackageFQN::new(module_src, pkg_path.clone()),
+        is_single_file: true,
         raw: Box::new(moon_pkg),
         source_files,
         mbt_lex_files: Vec::new(),
         mbt_yacc_files: Vec::new(),
-        mbt_md_files: Vec::new(),
+        mbt_md_files,
         c_stub_files: Vec::new(),
         virtual_mbti: None,
     };

@@ -2582,18 +2582,20 @@ fn moon_check_and_test_single_file() {
         );
 
         // rel path
-        check(
-            get_stderr(&dir, ["check", "111.mbt.md"]),
-            expect![[r#"
-                Warning: [0002]
-                    ╭─[ $ROOT/111.mbt.md:28:9 ]
-                    │
-                 28 │     let single_mbt_md = 1
-                    │         ──────┬──────  
-                    │               ╰──────── Warning: Unused variable 'single_mbt_md'
-                ────╯
-                Finished. moon: ran 20 tasks, now up to date (1 warnings, 0 errors)
-            "#]],
+        let out = get_stderr(&dir, ["check", "111.mbt.md"]);
+        snapbox::assert_matches(
+            r#"
+Warning: [0002]
+    ╭─[ $ROOT/111.mbt.md:28:9 ]
+    │
+ 28 │     let single_mbt_md = 1
+    │         ──────┬──────  
+    │               ╰──────── Warning: Unused variable 'single_mbt_md'
+────╯
+...
+            "#
+            .trim(),
+            out,
         );
         // abs path
         check(

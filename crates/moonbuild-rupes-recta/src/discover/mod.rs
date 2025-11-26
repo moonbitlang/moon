@@ -315,6 +315,7 @@ fn discover_one_package(
         root_path: abs.to_path_buf(),
         module: mid,
         fqn,
+        is_single_file: false,
         raw: Box::new(pkg_json),
         source_files,
         mbt_lex_files,
@@ -371,6 +372,12 @@ pub struct DiscoveredPackage {
     pub module: ModuleId,
     /// The fully-qualified name of the package
     pub fqn: PackageFQN,
+
+    /// Whether this is a synthetic single-file package
+    ///
+    /// Single-file packages behave differently in certain aspects, such as
+    /// file determination and import resolution.
+    pub is_single_file: bool,
 
     /// The raw `moon.pkg.json` of this package.
     pub raw: Box<MoonPkg>,

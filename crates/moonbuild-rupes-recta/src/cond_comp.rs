@@ -101,9 +101,16 @@ pub(crate) fn file_metadatas<'a>(
             .file_name()
             .expect("Input source file should have a filename");
         let str_filename = filename.to_string_lossy();
-        let without_mbt = str_filename
-            .strip_suffix(".mbt")
-            .expect("Input source file should end with .mbt");
+        let without_mbt = if let Some(stripped) = str_filename.strip_suffix(".mbt") {
+            stripped
+        } else if let Some(stripped) = str_filename.strip_suffix(DOT_MBT_DOT_MD) {
+            stripped
+        } else {
+            panic!(
+                "File name '{}' does not end with '.mbt' or '.mbt.md'",
+                str_filename
+            );
+        };
 
         let (cond, stem) = if let Some(expect_cond) = pkg
             .targets
@@ -157,8 +164,12 @@ pub fn get_file_target_backend(stripped_filename: &str) -> (Option<TargetBackend
 /// Check the file name to determine if it should be included. If true,
 /// returns `Some(file_test_kind)`, otherwise `None`.
 fn should_compile_using_filename(name: &str, actual: &CompileCondition) -> Option<FileTestKind> {
-    let Some(filename) = name.strip_suffix(".mbt") else {
-        panic!("File name '{}' does not end with '.mbt'", name);
+    let filename = if let Some(mbt_stripped) = name.strip_suffix(".mbt") {
+        mbt_stripped
+    } else if let Some(mbt_md_stripped) = name.strip_suffix(DOT_MBT_DOT_MD) {
+        mbt_md_stripped
+    } else {
+        panic!("File name '{}' does not end with '.mbt' or '.mbt.md'", name);
     };
 
     // Target backend checking -- check the suffix of the file name
