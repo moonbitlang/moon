@@ -2581,9 +2581,10 @@ Total tests: 1, passed: 1, failed: 0.
         );
 
         // rel path
-        let out = get_stderr(&dir, ["check", "111.mbt.md"]);
-        snapbox::assert_matches(
-            r#"
+        snapbox::assert_data_eq!(
+            get_stderr(&dir, ["check", "111.mbt.md"]),
+            snapbox::str!(
+                r#"
 Warning: [0002]
     ╭─[ $ROOT/111.mbt.md:28:9 ]
     │
@@ -2591,11 +2592,10 @@ Warning: [0002]
     │         ──────┬──────  
     │               ╰──────── Warning: Unused variable 'single_mbt_md'
 ────╯
-...
-            "#
-            .trim(),
-            out,
+..."#
+            )
         );
+
         // abs path
         check(
             get_stderr(&dir, ["check", &single_mbt_md]),
@@ -2615,39 +2615,39 @@ Warning: [0002]
     // check single file (with or without main func)
     {
         let with_main = dir.join("with_main.mbt").display().to_string();
-        check(
+        snapbox::assert_data_eq!(
             get_stderr(&dir, ["check", &with_main]),
-            expect![[r#"
-                Warning: [0002]
-                   ╭─[ $ROOT/with_main.mbt:2:7 ]
-                   │
-                 2 │   let with_main = 1
-                   │       ────┬────  
-                   │           ╰────── Warning: Unused variable 'with_main'
-                ───╯
-                Finished. moon: ran 1 task, now up to date (1 warnings, 0 errors)
-            "#]],
+            snapbox::str![[r#"
+Warning: [0002]
+   ╭─[ $ROOT/with_main.mbt:2:7 ]
+   │
+ 2 │   let with_main = 1
+   │       ────┬────  
+   │           ╰────── Warning: Unused variable 'with_main'
+───╯
+...
+"#]],
         );
         let without_main = dir.join("without_main.mbt").display().to_string();
-        check(
+        snapbox::assert_data_eq!(
             get_stderr(&dir, ["check", &without_main]),
-            expect![[r#"
-                Warning: [0001]
-                   ╭─[ $ROOT/without_main.mbt:1:4 ]
-                   │
-                 1 │ fn func() -> Unit {
-                   │    ──┬─  
-                   │      ╰─── Warning: Unused function 'func'
-                ───╯
-                Warning: [0002]
-                   ╭─[ $ROOT/without_main.mbt:2:7 ]
-                   │
-                 2 │   let without_main = 1
-                   │       ──────┬─────  
-                   │             ╰─────── Warning: Unused variable 'without_main'
-                ───╯
-                Finished. moon: ran 1 task, now up to date (2 warnings, 0 errors)
-            "#]],
+            snapbox::str![[r#"
+Warning: [0001]
+   ╭─[ $ROOT/without_main.mbt:1:4 ]
+   │
+ 1 │ fn func() -> Unit {
+   │    ──┬─  
+   │      ╰─── Warning: Unused function 'func'
+───╯
+Warning: [0002]
+   ╭─[ $ROOT/without_main.mbt:2:7 ]
+   │
+ 2 │   let without_main = 1
+   │       ──────┬─────  
+   │             ╰─────── Warning: Unused variable 'without_main'
+───╯
+...
+"#]],
         );
     }
 }
