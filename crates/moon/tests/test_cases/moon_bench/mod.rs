@@ -7,6 +7,25 @@ fn test_bench_driver_build() {
 }
 
 #[test]
+fn test_bench_driver_build_js() {
+    let dir = TestDir::new("moon_bench");
+    check(
+        get_stderr(&dir, ["bench", "--build-only", "--target", "js"]),
+        expect![""],
+    );
+}
+
+#[test]
+#[cfg(not(windows))]
+fn test_bench_driver_build_native() {
+    let dir = TestDir::new("moon_bench");
+    check(
+        get_stderr(&dir, ["bench", "--build-only", "--target", "native"]),
+        expect![""],
+    );
+}
+
+#[test]
 fn test_bench_uses_release_mode_by_default() {
     let dir = TestDir::new("moon_bench");
 

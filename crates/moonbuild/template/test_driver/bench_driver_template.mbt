@@ -78,19 +78,28 @@ pub fn moonbit_test_driver_internal_do_execute(filename : String, index : Int) -
         return
       }
       test_name = name
-      try {
-        let bench_out = @moonbitlang/core/bench.new()
-        item.f.0(bench_out)
-        let s = bench_out.dump_summaries()
-        message = "@BATCH_BENCH { \"summaries\": \{s} }"
-      } catch {
-        @moonbitlang/core/builtin.Failure(e) | @moonbitlang/core/builtin.InspectError(e) | @moonbitlang/core/builtin.SnapshotError(e) | @moonbitlang/core/builtin.BenchError(e) => {
-          message = e
-        }
-        e => {
-          message = moonbit_test_driver_internal_error_to_string(e)
-        }
-      }
+      let bench_out = @moonbitlang/core/bench.new()
+      moonbit_test_driver_internal_catch_error(
+        () => item.f.0(bench_out),
+        on_ok=() => {
+          let s = bench_out.dump_summaries()
+          message = "@BATCH_BENCH { \"summaries\": \{s} }"
+        },
+        on_err=(err) => {
+          match err {
+            @moonbitlang/core/builtin.Failure(e)
+            | @moonbitlang/core/builtin.InspectError(e)
+            | @moonbitlang/core/builtin.SnapshotError(e)
+            | @moonbitlang/core/builtin.BenchError(e)
+            | MoonBitTestDriverInternalJsError(e) => {
+              message = e
+            }
+            e => {
+              message = moonbit_test_driver_internal_error_to_string(e)
+            }
+          }
+        },
+      )
     }
     _ => { message = "skipped test" }
   }
@@ -120,8 +129,13 @@ fn main {
 }
 
 #cfg(target="js")
-pub fn moonbit_test_driver_internal_execute(filename : String, index : Int) -> Unit {
-  moonbit_test_driver_internal_do_execute(filename, index)
+pub fn moonbit_test_driver_internal_execute(
+  tests : Array[MoonBitTestDriverInternalTestEntry],
+) -> Unit {
+  for i in 0..<tests.length() {
+    let entry = tests[i]
+    moonbit_test_driver_internal_do_execute(entry.filename(), entry.index())
+  }
 }
 
 #cfg(any(target="wasm", target="wasm-gc"))
