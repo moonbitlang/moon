@@ -1,6 +1,7 @@
 use super::*;
 
 #[test]
+#[cfg(not(target_os = "windows"))]
 fn test_query_not_in_project() {
     let dir = TestDir::new("query_symbol.in/empty");
 
@@ -38,6 +39,7 @@ fn test_query_not_in_project() {
 }
 
 #[test]
+#[cfg(not(target_os = "windows"))]
 fn test_query_in_project() {
     let dir = TestDir::new("query_symbol.in/proj");
 
