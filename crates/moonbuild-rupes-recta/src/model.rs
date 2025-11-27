@@ -140,19 +140,67 @@ impl PackageId {
 /// A node in the build dependency graph, containing a build target and the
 /// corresponding action that should be performed on that target.
 ///
+/// Note: You may recognize that some nodes are keyed by [`BuildTarget`] while
+/// others are keyed by just [`PackageId`] or even [`ModuleId`]. This is because
+/// some artifacts (like C stubs and prebuild scripts) are shared by every
+/// target within the package/module, so they don't need to be duplicated for
+/// each target.
+///
 /// TODO: This type is a little big in size to be copied and used as an ID.
 #[derive(Debug, Clone, Copy, PartialEq, PartialOrd, Eq, Ord, Hash)]
 pub enum BuildPlanNode {
+    /// Check the given build target
     Check(BuildTarget),
+
+    /// Build the `.core` file from `.mbt` sources for the given target.
     BuildCore(BuildTarget),
+
     /// Build the i-th C file in the C stub list.
     BuildCStub(PackageId, u32), // change into global artifact list if we need non-package ones
+
+    /// Build an archive or link all C stubs for the given package.
+    ///
+    /// Archive building is for non-TCC native targets, so they can be
+    /// referenced during linking.
+    ///
+    /// Linking is for native targets using TCC to compile. TCC can't link with
+    /// Mach-O objects, so in Linux and MacOS we directly link the C stubs into
+    /// a shared library (which is in ELF format) and load it in TCC at runtime.
+    ///
+    /// FIXME: This node is not split into two separate Archive and Link nodes
+    /// because the action is determined by the default C compiler used in this
+    /// build. In theory this should be separated for better clarity, and maybe
+    /// determined by the C compiler overrides for each build target.
     ArchiveOrLinkCStubs(PackageId),
+
+    /// Link the `.core` file into an executable or library for the given target.
     LinkCore(BuildTarget),
+
+    /// If the output from `LinkCore` is not yet executable, make it executable.
+    ///
+    /// This is mainly for native targets, where the build output is a C file
+    /// that needs further compilation and linking to become an executable.
+    ///
+    /// In TCC mode, since linking is done at the same time as running, this
+    /// step writes a response file containing the linking flags for TCC to use.
+    /// This is to avoid leaking and coupling linking logic into the runtime
+    /// execution logic.
     MakeExecutable(BuildTarget),
+
+    /// Generate test driver and metadata for the given test target.
     GenerateTestInfo(BuildTarget),
+
+    /// Generate the `.mbti` interface file for the given target's package.
+    /// This does not promote the `.mbti` into the source directory.
     GenerateMbti(BuildTarget),
+
+    /// Bundle all non-virtual packages in the given module. This produces a
+    /// `.core` file containing all packages.
+    ///
+    /// This is only used in the standard library `moonbitlang/core` currently.
     Bundle(ModuleId),
+
+    /// Build the shared runtime library for native targets.
     BuildRuntimeLib,
 
     /// Build the virtual package's `.mbti` interface file to get an `.mi` file.
