@@ -264,6 +264,114 @@ impl BuildPlanNode {
         }
     }
 
+    /// Return a human-readable description for this build plan node, resolving
+    /// PackageId/ModuleId to names.
+    pub fn human_desc(&self, env: &ResolvedEnv, packages: &DiscoverResult) -> String {
+        let file_basename = |path: &std::path::Path| {
+            path.file_name()
+                .and_then(|name| name.to_str())
+                .map(|s| s.to_string())
+                .unwrap_or_else(|| path.display().to_string())
+        };
+
+        let kind_suffix = |kind: TargetKind| match kind {
+            TargetKind::Source => "",
+            TargetKind::WhiteboxTest => " (whitebox test)",
+            TargetKind::BlackboxTest => " (blackbox test)",
+            TargetKind::InlineTest => " (inline test)",
+            TargetKind::SubPackage => " (subpackage)",
+        };
+
+        match self {
+            BuildPlanNode::Check(build_target) => {
+                let fqn = packages.fqn(build_target.package);
+                format!("check {}{}", fqn, kind_suffix(build_target.kind))
+            }
+            BuildPlanNode::BuildCore(build_target) => {
+                let fqn = packages.fqn(build_target.package);
+                format!("build {}{}", fqn, kind_suffix(build_target.kind))
+            }
+            BuildPlanNode::BuildCStub(package_id, index) => {
+                let pkg = packages.get_package(*package_id);
+                let file = file_basename(pkg.c_stub_files[*index as usize].as_path());
+                format!("build c stub {} {}", packages.fqn(*package_id), file)
+            }
+            BuildPlanNode::ArchiveOrLinkCStubs(package_id) => {
+                format!("archive c stubs {}", packages.fqn(*package_id))
+            }
+            BuildPlanNode::LinkCore(build_target) => {
+                let fqn = packages.fqn(build_target.package);
+                format!("link {}{}", fqn, kind_suffix(build_target.kind))
+            }
+            BuildPlanNode::MakeExecutable(build_target) => {
+                let fqn = packages.fqn(build_target.package);
+                format!("make executable {}{}", fqn, kind_suffix(build_target.kind))
+            }
+            BuildPlanNode::GenerateTestInfo(build_target) => {
+                let fqn = packages.fqn(build_target.package);
+                format!(
+                    "generate test driver for {}{}",
+                    fqn,
+                    kind_suffix(build_target.kind)
+                )
+            }
+            BuildPlanNode::GenerateMbti(build_target) => {
+                let fqn = packages.fqn(build_target.package);
+                format!(
+                    "generate mbti for {}{}",
+                    fqn,
+                    kind_suffix(build_target.kind)
+                )
+            }
+            BuildPlanNode::Bundle(module_id) => {
+                let module_src = env.mod_name_from_id(*module_id);
+                format!(
+                    "bundle module {}@{}",
+                    module_src.name(),
+                    module_src.version()
+                )
+            }
+            BuildPlanNode::BuildRuntimeLib => "build runtime library".to_string(),
+            BuildPlanNode::BuildVirtual(package_id) => {
+                format!("build virtual {}", packages.fqn(*package_id))
+            }
+            BuildPlanNode::RunPrebuild(package_id, index) => {
+                let pkg = packages.get_package(*package_id);
+                let cmd = &pkg.raw.pre_build.as_ref().expect("prebuild exists")[*index as usize];
+                let outputs: Vec<String> = cmd
+                    .output
+                    .iter()
+                    .map(|path| {
+                        std::path::Path::new(path)
+                            .file_name()
+                            .and_then(|name| name.to_str())
+                            .map(|s| s.to_string())
+                            .unwrap_or_else(|| path.clone())
+                    })
+                    .collect();
+                let joined = if outputs.is_empty() {
+                    "(no outputs)".to_string()
+                } else {
+                    outputs.join(", ")
+                };
+                format!("prebuild script {} {}", packages.fqn(*package_id), joined)
+            }
+            BuildPlanNode::RunMoonLexPrebuild(package_id, index) => {
+                let pkg = packages.get_package(*package_id);
+                let input = &pkg.mbt_lex_files[*index as usize];
+                let input_name = file_basename(input.as_path());
+                format!("run moonlex {} {}", packages.fqn(*package_id), input_name)
+            }
+            BuildPlanNode::RunMoonYaccPrebuild(package_id, index) => {
+                let pkg = packages.get_package(*package_id);
+                let input = &pkg.mbt_yacc_files[*index as usize];
+                let input_name = file_basename(input.as_path());
+                format!("run moonyacc {} {}", packages.fqn(*package_id), input_name)
+            }
+            BuildPlanNode::BuildDocs => "build docs".to_string(),
+        }
+    }
+
     /// Return a concise, human-readable identifier resolving PackageId/ModuleId to names.
     /// Single-line and stable; suitable for filenames/labels (e.g. n2 fileloc).
     pub fn string_id(&self, env: &ResolvedEnv, packages: &DiscoverResult) -> String {
