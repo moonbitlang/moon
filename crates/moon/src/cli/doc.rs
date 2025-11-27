@@ -35,7 +35,7 @@ use super::pre_build::scan_with_x_build;
 use crate::cli::BuildFlags;
 use crate::rr_build::{self, BuildConfig, preconfig_compile};
 
-/// Generate documentation
+/// Generate documentation or searching documentation for a symbol.
 #[derive(Debug, clap::Parser)]
 pub struct DocSubcommand {
     /// Start a web server to serve the documentation
@@ -52,14 +52,36 @@ pub struct DocSubcommand {
 
     #[clap(flatten)]
     pub auto_sync_flags: AutoSyncFlags,
+
+    #[clap(conflicts_with("serve"))]
+    pub symbol: Option<String>,
 }
 
 #[instrument(skip_all)]
 pub fn run_doc(cli: UniversalFlags, cmd: DocSubcommand) -> anyhow::Result<i32> {
-    if cli.unstable_feature.rupes_recta {
-        run_doc_rr(cli, cmd)
-    } else {
-        run_doc_legacy(cli, cmd)
+    match cmd.symbol {
+        None => {
+            // generate the docs
+            if cli.unstable_feature.rupes_recta {
+                run_doc_rr(cli, cmd)
+            } else {
+                run_doc_legacy(cli, cmd)
+            }
+        }
+        Some(symbol) => {
+            // deligate to `moondoc` for querying symbol
+            let query_result = std::process::Command::new(&*moonutil::BINARIES.moondoc)
+                .arg("-q")
+                .arg(symbol)
+                .stdout(std::process::Stdio::inherit())
+                .stderr(std::process::Stdio::inherit())
+                .spawn()?
+                .wait()?;
+            if !query_result.success() {
+                bail!("failed to query symbol documentation");
+            }
+            Ok(0)
+        }
     }
 }
 
