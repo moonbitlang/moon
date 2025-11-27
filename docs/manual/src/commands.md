@@ -306,7 +306,7 @@ Generate documentation or searching documentation for a symbol
 
 ###### **Arguments:**
 
-* `<SYMBOL>`
+* `<SYMBOL>` — The symbol to query documentation for, e.g. 'String::from*' or '@list.from*'
 
 ###### **Options:**
 

@@ -53,7 +53,10 @@ pub struct DocSubcommand {
     #[clap(flatten)]
     pub auto_sync_flags: AutoSyncFlags,
 
-    #[clap(conflicts_with("serve"))]
+    #[clap(
+        conflicts_with("serve"),
+        help = "The symbol to query documentation for, e.g. 'String::from*' or '@list.from*'"
+    )]
     pub symbol: Option<String>,
 }
 
