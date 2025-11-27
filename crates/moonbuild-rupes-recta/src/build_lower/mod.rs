@@ -66,7 +66,7 @@ pub struct BuildOptions {
     pub output_wat: bool,
     pub moonc_output_json: bool,
     pub docs_serve: bool,
-    pub deny_warn: bool,
+    pub warning_condition: WarningCondition,
     pub info_no_alias: bool,
 
     // Environments
@@ -76,6 +76,17 @@ pub struct BuildOptions {
     pub compiler_paths: CompilerPaths,
     /// Preferred default C/C++ toolchain to use (overrides CC::default()).
     pub default_cc: CC,
+}
+
+#[derive(Default, Debug, Clone, Copy, PartialEq, Eq)]
+pub enum WarningCondition {
+    /// The default behavior: warnings are shown.
+    #[default]
+    Default,
+    /// Deny all warnings: treat warnings as errors.
+    Deny,
+    /// Allow all warnings: do not show any warnings.
+    Allow,
 }
 
 /// An error that may be raised during build plan lowering
