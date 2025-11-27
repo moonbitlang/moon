@@ -26,11 +26,15 @@
 
 use std::path::Path;
 
+use anyhow::Context;
 use log::{debug, info};
 
-use mooncake::pkg::sync::auto_sync;
-use moonutil::mooncakes::{
-    DirSyncResult, ModuleId, RegistryConfig, result::ResolvedEnv, sync::AutoSyncFlags,
+use mooncake::pkg::sync::{auto_sync, auto_sync_for_single_file_rr};
+use moonutil::{
+    common::{TargetBackend, parse_front_matter_config},
+    mooncakes::{
+        DirSyncResult, ModuleId, RegistryConfig, result::ResolvedEnv, sync::AutoSyncFlags,
+    },
 };
 use tracing::instrument;
 
@@ -98,6 +102,9 @@ pub enum ResolveError {
 
     #[error("Failed to solve package relationship")]
     SolveError(#[from] pkg_solve::SolveError),
+
+    #[error("Failed to parse single file front matter configuration")]
+    SingleFileParseError(#[source] anyhow::Error),
 }
 
 /// Performs the resolving process from a raw working directory, until all of
@@ -143,4 +150,57 @@ pub fn resolve(cfg: &ResolveConfig, source_dir: &Path) -> Result<ResolveOutput, 
         pkg_dirs: discover_result,
         pkg_rel: dep_relationship,
     })
+}
+
+/// Performs the resolving process for a single file project. Will try to
+/// synthesize a minimal MoonBit project around the given file.
+pub fn resolve_single_file_project(
+    cfg: &ResolveConfig,
+    file: &Path,
+    run_mode: bool,
+) -> Result<(ResolveOutput, Option<TargetBackend>), ResolveError> {
+    // Canonicalize input and parse optional front matter
+    let file = dunce::canonicalize(file)
+        .context("Failed to resolve the file path")
+        .map_err(ResolveError::SingleFileParseError)?;
+    let header = parse_front_matter_config(&file).map_err(ResolveError::SingleFileParseError)?;
+
+    let backend = header
+        .as_ref()
+        .and_then(|h| h.moonbit.as_ref())
+        .and_then(|mb| mb.backend.as_ref())
+        .map(|b| TargetBackend::str_to_backend(b))
+        // Error handling
+        .transpose()
+        .context("Unable to parse target backend from front matter")
+        .map_err(ResolveError::SingleFileParseError)?;
+
+    let source_dir = file.parent().expect("File must have a parent directory");
+
+    // Sync modules as usual
+    let (resolved_env, dir_sync_result) =
+        auto_sync_for_single_file_rr(source_dir, &cfg.sync_flags, header.as_ref())
+            .map_err(ResolveError::SyncModulesError)?;
+
+    // Discover all packages in resolved modules
+    let mut discover_result = discover_packages(&resolved_env, &dir_sync_result)?;
+
+    // Synthesize the single-file package that imports everything from discovered modules
+    crate::discover::synth::build_synth_single_file_package(
+        &file,
+        &resolved_env,
+        &mut discover_result,
+        run_mode,
+    );
+
+    // Solve package dependency relationship
+    let dep_relationship = pkg_solve::solve(&resolved_env, &discover_result)?;
+
+    let res = ResolveOutput {
+        module_rel: resolved_env,
+        module_dirs: dir_sync_result,
+        pkg_dirs: discover_result,
+        pkg_rel: dep_relationship,
+    };
+    Ok((res, backend))
 }

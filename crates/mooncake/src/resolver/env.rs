@@ -96,6 +96,10 @@ impl<'a> ResolverEnv<'a> {
             ModuleSourceKind::Git(_) => todo!("Resolve git module"),
             ModuleSourceKind::Local(path) => self.resolve_local_module(path).ok(),
             ModuleSourceKind::Stdlib(_) => self.stdlib.clone(),
+            ModuleSourceKind::SingleFile(path) => panic!(
+                "Single file module source should already be manually resolved: {}",
+                path.display()
+            ),
         }
     }
 

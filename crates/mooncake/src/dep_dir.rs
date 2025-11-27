@@ -109,6 +109,7 @@ fn pkg_list_to_dep_dir_state<'a>(
             ModuleSourceKind::Local(_) => continue,
             ModuleSourceKind::Git(_) => continue, // TODO: git registries are resolved differently
             ModuleSourceKind::Stdlib(_) => continue,
+            ModuleSourceKind::SingleFile(_) => continue,
         }
         let user = &pkg.name().username;
         let pkg_name = &pkg.name().unqual;
@@ -300,6 +301,7 @@ fn map_source_to_dir(dep_dir: &DepDir, module: &ModuleSource) -> PathBuf {
             todo!("Git dependency is not yet supported. Got git url: {}", url)
         }
         ModuleSourceKind::Stdlib(path) => path.clone(),
+        ModuleSourceKind::SingleFile(path) => path.clone(),
     }
 }
 

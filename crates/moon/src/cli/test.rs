@@ -252,6 +252,10 @@ fn run_test_internal(
 
 #[instrument(level = Level::DEBUG, skip_all)]
 fn run_test_in_single_file(cli: &UniversalFlags, cmd: &TestSubcommand) -> anyhow::Result<i32> {
+    if cli.unstable_feature.rupes_recta {
+        return run_test_in_single_file_rr(cli, cmd);
+    }
+
     let single_file_path = &dunce::canonicalize(cmd.single_file.as_ref().unwrap()).unwrap();
     let source_dir = single_file_path.parent().unwrap().to_path_buf();
     let raw_target_dir = source_dir.join("target");
@@ -374,6 +378,90 @@ fn run_test_in_single_file(cli: &UniversalFlags, cmd: &TestSubcommand) -> anyhow
     )
 }
 
+#[instrument(level = Level::DEBUG, skip_all)]
+fn run_test_in_single_file_rr(cli: &UniversalFlags, cmd: &TestSubcommand) -> anyhow::Result<i32> {
+    let single_file_path = &dunce::canonicalize(cmd.single_file.as_ref().unwrap()).unwrap();
+    let source_dir = single_file_path.parent().unwrap().to_path_buf();
+    let raw_target_dir = source_dir.join("target");
+    std::fs::create_dir_all(&raw_target_dir)
+        .context("failed to create target directory for single-file test")?;
+    let mut cmd = cmd.clone();
+
+    cmd.build_flags.populate_target_backend_from_list()?;
+
+    let mut filter = TestFilter::default();
+
+    // Resolve synthesized single-file project
+    let resolve_cfg = moonbuild_rupes_recta::ResolveConfig::new(
+        cmd.auto_sync_flags.clone(),
+        RegistryConfig::load(),
+        false,
+    );
+    let (resolved, backend) = moonbuild_rupes_recta::resolve::resolve_single_file_project(
+        &resolve_cfg,
+        single_file_path,
+        false,
+    )?;
+
+    let mut preconfig = preconfig_compile(
+        &cmd.auto_sync_flags,
+        cli,
+        &cmd.build_flags.clone().with_default_target_backend(backend),
+        &raw_target_dir,
+        OptLevel::Debug,
+        RunMode::Test,
+    );
+    // Enable tcc-run to match legacy debug test graph shape
+    preconfig.try_tcc_run = true;
+
+    // Plan build: single UserIntent::Test for synthesized package; apply file/index filters
+    let (build_meta, build_graph) = rr_build::plan_build_from_resolved(
+        preconfig,
+        &cli.unstable_feature,
+        &raw_target_dir,
+        Box::new(|r, _tb| {
+            let m_packages = r
+                .pkg_dirs
+                .packages_for_module(r.local_modules()[0])
+                .expect("Local module must exist");
+            let pkg = *m_packages
+                .iter()
+                .next()
+                .expect("Single-file project must synthesize exactly one package")
+                .1;
+
+            let test_index = cmd
+                .index
+                .map(TestIndex::Regular)
+                .or(cmd.doc_index.map(TestIndex::DocTest));
+            let filename = single_file_path.file_name().unwrap().to_string_lossy();
+            filter.add_autodetermine_target(pkg, Some(&filename), test_index);
+
+            let trace_pkg = if cmd.build_flags.enable_value_tracing {
+                Some(pkg)
+            } else {
+                None
+            };
+            let directive =
+                rr_build::build_patch_directive_for_package(pkg, false, trace_pkg, None, true)?;
+
+            Ok((vec![UserIntent::Test(pkg)], directive).into())
+        }),
+        resolved,
+    )?;
+
+    rr_test_from_plan(
+        cli,
+        &(&cmd).into(),
+        &source_dir,
+        &raw_target_dir,
+        None,
+        &build_meta,
+        build_graph,
+        filter,
+    )
+}
+
 pub fn get_module_for_single_file(
     single_file_path: &Path,
     moonc_opt: &MooncOpt,
@@ -454,7 +542,7 @@ pub fn get_module_for_single_file(
 
     let mut module = moonutil::scan::scan(
         false,
-        Some(moon_mod),
+        Some((*moon_mod).clone()),
         &resolved_env,
         &dir_sync_result,
         moonc_opt,
@@ -670,154 +758,16 @@ fn run_test_rr(
         "planned rupes-recta build graph"
     );
 
-    if cli.dry_run {
-        rr_build::print_dry_run(
-            &build_graph,
-            build_meta.artifacts.values(),
-            source_dir,
-            target_dir,
-        );
-        // The legacy behavior does not print the test commands, so we skip it too.
-
-        Ok(0)
-    } else {
-        let _lock = FileLock::lock(target_dir)?;
-
-        let build_config = BuildConfig::from_flags(cmd.build_flags, &cli.unstable_feature);
-
-        // since n2 build consumes the graph, we back it up for reruns
-        let build_graph_backup = cmd.update.then(|| build_graph.clone());
-        let result = rr_build::execute_build(&build_config, build_graph, target_dir)?;
-        debug!(
-            success = result.successful(),
-            exit_code = result.return_code_for_success(),
-            "executed rupes-recta build"
-        );
-
-        if !result.successful() || cmd.build_only {
-            return Ok(result.return_code_for_success());
-        }
-
-        let mut test_result =
-            crate::run::run_tests(&build_meta, target_dir, &filter, cmd.include_skipped)?;
-        let initial_summary = test_result.summary();
-        trace!(
-            total = initial_summary.total,
-            passed = initial_summary.passed,
-            "initial test results collected"
-        );
-
-        let backend_hint = display_backend_hint
-            .and(cmd.build_flags.target_backend)
-            .map(|t| t.to_backend_ext());
-
-        if cmd.update {
-            let mut loop_count = 1; // matching legacy; we already have 1 test run before
-            let mut last_test_result = None;
-            loop {
-                // Promote test results
-                let promotion_source = last_test_result.as_ref().unwrap_or(&test_result);
-                let (rerun_count, rerun_filter_raw) =
-                    perform_promotion(promotion_source).expect("Failed to promote tests");
-                debug!(
-                    rerun_count,
-                    pending_targets = rerun_filter_raw.0.len(),
-                    "promotion pass completed"
-                );
-                if rerun_filter_raw.is_empty() {
-                    break; // Nothing to promote
-                }
-
-                // Apply loop count limits
-                if loop_count >= cmd.limit {
-                    warn!(
-                        "reached the limit of {} update passes, stopping further updates.",
-                        cmd.limit
-                    );
-                    break;
-                }
-                loop_count += 1;
-
-                warn!("Updated {rerun_count} snapshots and retesting...");
-
-                // Get the graph from backup
-                let build_graph = build_graph_backup
-                    .as_ref()
-                    .cloned()
-                    .expect("build graph backup should be present when update is true");
-
-                // Calculate which files to rebuild
-                let want_files = rerun_filter_raw
-                    .0
-                    .keys()
-                    .cloned() // All targets to rerun
-                    .flat_map(node_from_target) // converted to nodes
-                    .flat_map(|node| {
-                        // their artifacts
-                        build_meta
-                            .artifacts
-                            .get(&node)
-                            .expect("test node from the last test run should have artifact")
-                            .artifacts
-                            .as_slice()
-                    });
-
-                // Run the build
-                let result = rr_build::execute_build_partial(
-                    &build_config,
-                    build_graph,
-                    target_dir,
-                    Box::new(|work| {
-                        trace!("requesting rerun artifacts");
-                        for file_path in want_files {
-                            let file_path_str = file_path.to_string_lossy();
-                            let file = work
-                                .lookup(&file_path_str)
-                                .expect("File should exist in work");
-                            work.want_file(file).context("Failed to want file")?;
-                        }
-                        Ok(())
-                    }),
-                )?;
-
-                if !result.successful() {
-                    return Ok(result.return_code_for_success());
-                }
-
-                // Run the tests
-                let rerun_filter = TestFilter {
-                    filter: Some(rerun_filter_raw),
-                };
-                let new_test_result = crate::run::run_tests(
-                    &build_meta,
-                    target_dir,
-                    &rerun_filter,
-                    cmd.include_skipped,
-                )?;
-                let rerun_summary = new_test_result.summary();
-                trace!(
-                    total = rerun_summary.total,
-                    passed = rerun_summary.passed,
-                    "rerun iteration completed"
-                );
-
-                // Merge test results
-                test_result.merge(&new_test_result);
-                last_test_result = Some(new_test_result);
-            }
-        }
-
-        test_result.print_result(&build_meta, cli.verbose, cmd.test_failure_json);
-        let summary = test_result.summary();
-        print_test_summary(summary.total, summary.passed, cli.quiet, backend_hint);
-
-        if summary.total == summary.passed {
-            trace!("rupes-recta test run finished successfully");
-            Ok(0)
-        } else {
-            Ok(2)
-        }
-    }
+    rr_test_from_plan(
+        cli,
+        cmd,
+        source_dir,
+        target_dir,
+        display_backend_hint,
+        &build_meta,
+        build_graph,
+        filter,
+    )
 }
 
 /// The nodes wanted to run a test for a build target
@@ -1449,5 +1399,150 @@ fn do_run_test(
     } else {
         // don't bail! here, use no-zero exit code to indicate test failed
         Ok(1)
+    }
+}
+
+#[instrument(level = Level::DEBUG, skip_all)]
+#[allow(clippy::too_many_arguments)] // FIXME
+fn rr_test_from_plan(
+    cli: &UniversalFlags,
+    cmd: &TestLikeSubcommand<'_>,
+    source_dir: &Path,
+    target_dir: &Path,
+    display_backend_hint: Option<()>,
+    build_meta: &rr_build::BuildMeta,
+    build_graph: rr_build::BuildInput,
+    filter: TestFilter,
+) -> Result<i32, anyhow::Error> {
+    // Dry-run: share the same routine
+    if cli.dry_run {
+        rr_build::print_dry_run(
+            &build_graph,
+            build_meta.artifacts.values(),
+            source_dir,
+            target_dir,
+        );
+        // The legacy behavior does not print the test commands, so we skip it too.
+        return Ok(0);
+    }
+
+    let _lock = FileLock::lock(target_dir)?;
+
+    let build_config = BuildConfig::from_flags(cmd.build_flags, &cli.unstable_feature);
+
+    // since n2 build consumes the graph, we back it up for reruns
+    let build_graph_backup = cmd.update.then(|| build_graph.clone());
+    let result = rr_build::execute_build(&build_config, build_graph, target_dir)?;
+    debug!(
+        success = result.successful(),
+        exit_code = result.return_code_for_success(),
+        "executed rupes-recta build"
+    );
+
+    if !result.successful() || cmd.build_only {
+        return Ok(result.return_code_for_success());
+    }
+
+    let mut test_result =
+        crate::run::run_tests(build_meta, target_dir, &filter, cmd.include_skipped)?;
+    let _initial_summary = test_result.summary();
+
+    let backend_hint = display_backend_hint
+        .and(cmd.build_flags.target_backend)
+        .map(|t| t.to_backend_ext());
+
+    if cmd.update {
+        let mut loop_count = 1; // matching legacy; we already have 1 test run before
+        let mut last_test_result = None;
+        loop {
+            // Promote test results
+            let promotion_source = last_test_result.as_ref().unwrap_or(&test_result);
+            let (rerun_count, rerun_filter_raw) =
+                perform_promotion(promotion_source).expect("Failed to promote tests");
+            debug!(
+                rerun_count,
+                pending_targets = rerun_filter_raw.0.len(),
+                "promotion pass completed"
+            );
+            if rerun_filter_raw.is_empty() {
+                break; // Nothing to promote
+            }
+
+            // Apply loop count limits
+            if loop_count >= cmd.limit {
+                warn!(
+                    "reached the limit of {} update passes, stopping further updates.",
+                    cmd.limit
+                );
+                break;
+            }
+            loop_count += 1;
+
+            // Get the graph from backup
+            let build_graph = build_graph_backup
+                .as_ref()
+                .cloned()
+                .expect("build graph backup should be present when update is true");
+
+            // Calculate which files to rebuild
+            let want_files = rerun_filter_raw
+                .0
+                .keys()
+                .cloned() // All targets to rerun
+                .flat_map(node_from_target) // converted to nodes
+                .flat_map(|node| {
+                    // their artifacts
+                    build_meta
+                        .artifacts
+                        .get(&node)
+                        .expect("test node from the last test run should have artifact")
+                        .artifacts
+                        .as_slice()
+                });
+
+            // Run the build
+            let result = rr_build::execute_build_partial(
+                &build_config,
+                build_graph,
+                target_dir,
+                Box::new(|work| {
+                    trace!("requesting rerun artifacts");
+                    for file_path in want_files {
+                        let file_path_str = file_path.to_string_lossy();
+                        let file = work
+                            .lookup(&file_path_str)
+                            .expect("File should exist in work");
+                        work.want_file(file).context("Failed to want file")?;
+                    }
+                    Ok(())
+                }),
+            )?;
+
+            if !result.successful() {
+                return Ok(result.return_code_for_success());
+            }
+
+            // Run the tests
+            let rerun_filter = TestFilter {
+                filter: Some(rerun_filter_raw),
+            };
+            let new_test_result =
+                crate::run::run_tests(build_meta, target_dir, &rerun_filter, cmd.include_skipped)?;
+            let _rerun_summary = new_test_result.summary();
+
+            // Merge test results
+            test_result.merge(&new_test_result);
+            last_test_result = Some(new_test_result);
+        }
+    }
+
+    test_result.print_result(build_meta, cli.verbose, cmd.test_failure_json);
+    let summary = test_result.summary();
+    print_test_summary(summary.total, summary.passed, cli.quiet, backend_hint);
+
+    if summary.total == summary.passed {
+        Ok(0)
+    } else {
+        Ok(2)
     }
 }

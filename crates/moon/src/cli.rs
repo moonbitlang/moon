@@ -262,6 +262,34 @@ impl BuildFlags {
         self.target_backend = backend;
         self
     }
+
+    // FIXME: This is not the correct way to determine target list.
+    // Legacy code, for whatever strange reason, decided that `target_backend`
+    // must be manually populated from `target` list before proceeding, but
+    // still puts the value within this type rather than directly passing it
+    // elsewhere. We must refactor this later.
+    pub fn populate_target_backend_from_list(&mut self) -> anyhow::Result<()> {
+        if let Some(targets) = &self.target {
+            let backends = moonutil::common::lower_surface_targets(targets);
+            if backends.len() == 1 {
+                self.target_backend = Some(backends[0]);
+            } else {
+                bail!(
+                    "Multiple target backends specified: {:?}. Please specify only one target backend.",
+                    backends
+                );
+            }
+        }
+        Ok(())
+    }
+
+    /// Set the target backend if not already set
+    pub fn with_default_target_backend(mut self, backend: Option<TargetBackend>) -> Self {
+        if self.target_backend.is_none() {
+            self.target_backend = backend;
+        }
+        self
+    }
 }
 
 /// The style to render diagnostics in.

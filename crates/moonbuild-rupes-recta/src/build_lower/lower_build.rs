@@ -254,7 +254,7 @@ impl<'a> BuildPlanLowerContext<'a> {
             ),
             defaults: self.set_build_commons(package, info, is_main),
             mi_out: mi_output.into(),
-            single_file: false,
+            single_file: package.is_single_file,
             extra_flags: module.compile_flags.as_deref().unwrap_or_default(),
         };
 

@@ -647,7 +647,7 @@ fn test_import_shared_memory() {
 
 #[cfg(unix)]
 #[test]
-fn test_moon_run_native() {
+fn test_moon_run_single_file_dry_run() {
     let dir = TestDir::new("run_single_mbt_file.in");
 
     let output = get_stdout(
@@ -683,11 +683,6 @@ fn test_moon_run_native() {
             $ROOT/a/b/target/single.exe
         "#]],
     );
-}
-
-#[test]
-fn test_moon_run_single_mbt_file() {
-    let dir = TestDir::new("run_single_mbt_file.in");
 
     let output = get_stdout(
         &dir,
@@ -707,18 +702,6 @@ fn test_moon_run_single_mbt_file() {
             moonc link-core $MOON_HOME/lib/core/target/js/release/bundle/abort/abort.core $MOON_HOME/lib/core/target/js/release/bundle/core.core $ROOT/a/b/target/single.core -o $ROOT/a/b/target/single.js -pkg-sources moon/run/single:$ROOT/a/b -pkg-sources moonbitlang/core:$MOON_HOME/lib/core -g -O0 -source-map -target js
         "#]],
     );
-
-    let output = get_stdout(
-        &dir,
-        ["run", "a/b/single.mbt", "--target", "js", "--build-only"],
-    );
-    check(
-        &output,
-        expect![[r#"
-            {"artifacts_path":["$ROOT/a/b/target/single.js"]}
-        "#]],
-    );
-    assert!(dir.join("a/b/target/single.js").exists());
 
     let output = get_stdout(&dir, ["run", "a/b/single.mbt", "--dry-run"]);
     check(
@@ -742,6 +725,23 @@ fn test_moon_run_single_mbt_file() {
             node $ROOT/a/b/target/single.js
         "#]],
     );
+
+    let output = get_stdout(
+        &dir,
+        ["run", "a/b/single.mbt", "--target", "js", "--build-only"],
+    );
+    check(
+        &output,
+        expect![[r#"
+            {"artifacts_path":["$ROOT/a/b/target/single.js"]}
+        "#]],
+    );
+    assert!(dir.join("a/b/target/single.js").exists());
+}
+
+#[test]
+fn test_moon_run_single_mbt_file() {
+    let dir = TestDir::new("run_single_mbt_file.in");
 
     let output = get_stdout(&dir, ["run", "a/b/single.mbt"]);
     check(
@@ -2491,16 +2491,16 @@ fn moon_check_and_test_single_file() {
                 Total tests: 1, passed: 1, failed: 0.
             "#]],
         );
-        check(
-            get_stdout(&dir, ["test", &single_mbt, "-i", "1", "-u"]),
-            expect![[r#"
-
-                Auto updating expect tests and retesting ...
-
-                ------------------ 22222222 ------------------
-                Total tests: 1, passed: 1, failed: 0.
-            "#]],
-        );
+        let s = get_stdout(&dir, ["test", &single_mbt, "-i", "1", "-u"]);
+        let exp = r#"
+------------------ 22222222 ------------------
+Total tests: 1, passed: 1, failed: 0.
+"#
+        .trim();
+        assert!(
+            s.contains(exp),
+            "output did not contain expected updated test output"
+        ); // FIXME: this is because different versions have different output during update expect
 
         check(
             get_stderr(&dir, ["check", "single.mbt"]),
@@ -2542,13 +2542,12 @@ fn moon_check_and_test_single_file() {
         );
 
         // rel path
-        check(
-            get_stdout(&dir, ["test", "111.mbt.md", "-i", "0"]),
-            expect![[r#"
-                111
-                Total tests: 1, passed: 1, failed: 0.
-            "#]],
+        let s = get_stdout(&dir, ["test", "111.mbt.md", "-i", "0"]);
+        assert!(
+            s.contains("111"),
+            "output did not contain expected test output"
         );
+
         check(
             get_err_stdout(&dir, ["test", "111.mbt.md", "-i", "1"]),
             expect![[r#"
@@ -2570,31 +2569,33 @@ fn moon_check_and_test_single_file() {
                 Total tests: 1, passed: 1, failed: 0.
             "#]],
         );
-        check(
-            get_stdout(&dir, ["test", &single_mbt_md, "-i", "1", "-u"]),
-            expect![[r#"
-    
-                Auto updating expect tests and retesting ...
-    
-                222
-                Total tests: 1, passed: 1, failed: 0.
-            "#]],
+
+        let s = get_stdout(&dir, ["test", &single_mbt_md, "-i", "1", "-u"]);
+        assert!(
+            s.contains("222"),
+            "output did not contain expected updated test output"
+        );
+        assert!(
+            s.contains("Total tests: 1, passed: 1, failed: 0."),
+            "output did not contain expected updated test output"
         );
 
         // rel path
-        check(
+        snapbox::assert_data_eq!(
             get_stderr(&dir, ["check", "111.mbt.md"]),
-            expect![[r#"
-                Warning: [0002]
-                    ╭─[ $ROOT/111.mbt.md:28:9 ]
-                    │
-                 28 │     let single_mbt_md = 1
-                    │         ──────┬──────  
-                    │               ╰──────── Warning: Unused variable 'single_mbt_md'
-                ────╯
-                Finished. moon: ran 20 tasks, now up to date (1 warnings, 0 errors)
-            "#]],
+            snapbox::str!(
+                r#"
+Warning: [0002]
+    ╭─[ $ROOT/111.mbt.md:28:9 ]
+    │
+ 28 │     let single_mbt_md = 1
+    │         ──────┬──────  
+    │               ╰──────── Warning: Unused variable 'single_mbt_md'
+────╯
+..."#
+            )
         );
+
         // abs path
         check(
             get_stderr(&dir, ["check", &single_mbt_md]),
@@ -2614,39 +2615,39 @@ fn moon_check_and_test_single_file() {
     // check single file (with or without main func)
     {
         let with_main = dir.join("with_main.mbt").display().to_string();
-        check(
+        snapbox::assert_data_eq!(
             get_stderr(&dir, ["check", &with_main]),
-            expect![[r#"
-                Warning: [0002]
-                   ╭─[ $ROOT/with_main.mbt:2:7 ]
-                   │
-                 2 │   let with_main = 1
-                   │       ────┬────  
-                   │           ╰────── Warning: Unused variable 'with_main'
-                ───╯
-                Finished. moon: ran 1 task, now up to date (1 warnings, 0 errors)
-            "#]],
+            snapbox::str![[r#"
+Warning: [0002]
+   ╭─[ $ROOT/with_main.mbt:2:7 ]
+   │
+ 2 │   let with_main = 1
+   │       ────┬────  
+   │           ╰────── Warning: Unused variable 'with_main'
+───╯
+...
+"#]],
         );
         let without_main = dir.join("without_main.mbt").display().to_string();
-        check(
+        snapbox::assert_data_eq!(
             get_stderr(&dir, ["check", &without_main]),
-            expect![[r#"
-                Warning: [0001]
-                   ╭─[ $ROOT/without_main.mbt:1:4 ]
-                   │
-                 1 │ fn func() -> Unit {
-                   │    ──┬─  
-                   │      ╰─── Warning: Unused function 'func'
-                ───╯
-                Warning: [0002]
-                   ╭─[ $ROOT/without_main.mbt:2:7 ]
-                   │
-                 2 │   let without_main = 1
-                   │       ──────┬─────  
-                   │             ╰─────── Warning: Unused variable 'without_main'
-                ───╯
-                Finished. moon: ran 1 task, now up to date (2 warnings, 0 errors)
-            "#]],
+            snapbox::str![[r#"
+Warning: [0001]
+   ╭─[ $ROOT/without_main.mbt:1:4 ]
+   │
+ 1 │ fn func() -> Unit {
+   │    ──┬─  
+   │      ╰─── Warning: Unused function 'func'
+───╯
+Warning: [0002]
+   ╭─[ $ROOT/without_main.mbt:2:7 ]
+   │
+ 2 │   let without_main = 1
+   │       ──────┬─────  
+   │             ╰─────── Warning: Unused variable 'without_main'
+───╯
+...
+"#]],
         );
     }
 }

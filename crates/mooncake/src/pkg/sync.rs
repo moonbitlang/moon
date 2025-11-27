@@ -24,7 +24,9 @@ use indexmap::IndexMap;
 use moonutil::{
     common::{MbtMdHeader, MoonbuildOpt, MooncOpt},
     module::MoonMod,
-    mooncakes::{DirSyncResult, RegistryConfig, result::ResolvedEnv, sync::AutoSyncFlags},
+    mooncakes::{
+        DirSyncResult, ModuleSource, RegistryConfig, result::ResolvedEnv, sync::AutoSyncFlags,
+    },
 };
 use semver::Version;
 
@@ -39,9 +41,10 @@ pub fn auto_sync(
 ) -> anyhow::Result<(ResolvedEnv, DirSyncResult)> {
     let m = moonutil::common::read_module_desc_file_in_dir(source_dir)?;
     let m = Arc::new(m);
+    let ms = ModuleSource::from_local_module(&m, source_dir).expect("Malformed module manifest");
 
     let (resolved_env, sync_result) =
-        super::install::install_impl(source_dir, m, quiet, false, cli.dont_sync(), no_std)?;
+        super::install::install_impl(source_dir, m, ms, quiet, false, cli.dont_sync(), no_std)?;
     log::debug!("Dir sync result: {:?}", sync_result);
     Ok((resolved_env, sync_result))
 }
@@ -50,7 +53,7 @@ pub fn auto_sync_for_single_mbt_md(
     moonc_opt: &MooncOpt,
     moonbuild_opt: &MoonbuildOpt,
     front_matter_config: Option<MbtMdHeader>,
-) -> anyhow::Result<(ResolvedEnv, DirSyncResult, MoonMod)> {
+) -> anyhow::Result<(ResolvedEnv, DirSyncResult, Arc<MoonMod>)> {
     let mut deps = IndexMap::new();
 
     // don't sync for gen-test-driver
@@ -64,18 +67,21 @@ pub fn auto_sync_for_single_mbt_md(
         }
     }
 
-    let m = MoonMod {
+    let m = Arc::new(MoonMod {
         name: moonutil::common::SINGLE_FILE_TEST_MODULE.to_string(),
         version: Some(Version::new(0, 0, 1)),
         deps,
         warn_list: moonc_opt.build_opt.warn_list.clone(),
         alert_list: moonc_opt.build_opt.alert_list.clone(),
         ..Default::default()
-    };
+    });
+    let ms = ModuleSource::single_file(&m, &moonbuild_opt.source_dir)
+        .expect("Malformed initializer for module");
 
     let (resolved_env, dir_sync_result) = super::install::install_impl(
         &moonbuild_opt.source_dir,
-        Arc::new(m.clone()),
+        Arc::clone(&m),
+        ms,
         moonbuild_opt.quiet,
         moonbuild_opt.verbose,
         dont_sync,
@@ -83,4 +89,41 @@ pub fn auto_sync_for_single_mbt_md(
     )?;
     log::debug!("Dir sync result: {:?}", dir_sync_result);
     Ok((resolved_env, dir_sync_result, m))
+}
+
+pub fn auto_sync_for_single_file_rr(
+    source_dir: &Path,
+    sync_flags: &AutoSyncFlags,
+    front_matter_config: Option<&MbtMdHeader>,
+) -> anyhow::Result<(ResolvedEnv, DirSyncResult)> {
+    let synth_deps_orig = front_matter_config
+        .and_then(|config| config.moonbit.as_ref())
+        .and_then(|mb| mb.deps.as_ref());
+    let mut synth_deps = IndexMap::new();
+    if let Some(deps_map) = synth_deps_orig {
+        for (k, v) in deps_map.iter() {
+            synth_deps.insert(k.to_string(), v.clone().into());
+        }
+    }
+
+    let m = Arc::new(MoonMod {
+        name: moonutil::common::SINGLE_FILE_TEST_MODULE.to_string(),
+        version: Some(Version::new(0, 0, 1)),
+        deps: synth_deps,
+        ..Default::default()
+    });
+    let ms = ModuleSource::single_file(&m, source_dir).expect("Malformed initializer for module");
+
+    let (resolved_env, dir_sync_result) = super::install::install_impl(
+        source_dir,
+        m,
+        ms,
+        false,
+        false,
+        sync_flags.dont_sync(),
+        false,
+    )?;
+
+    log::debug!("Dir sync result: {:?}", dir_sync_result);
+    Ok((resolved_env, dir_sync_result))
 }

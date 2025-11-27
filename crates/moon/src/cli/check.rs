@@ -134,8 +134,102 @@ fn run_check_internal(
     }
 }
 
-#[instrument(level = Level::DEBUG, skip_all)]
 fn run_check_for_single_file(cli: &UniversalFlags, cmd: &CheckSubcommand) -> anyhow::Result<i32> {
+    if cli.unstable_feature.rupes_recta {
+        run_check_for_single_file_rr(cli, cmd)
+    } else {
+        run_check_for_single_file_legacy(cli, cmd)
+    }
+}
+
+fn run_check_for_single_file_rr(
+    cli: &UniversalFlags,
+    cmd: &CheckSubcommand,
+) -> anyhow::Result<i32> {
+    let single_file_path = &dunce::canonicalize(cmd.path.as_ref().unwrap()).unwrap();
+    let source_dir = single_file_path.parent().unwrap().to_path_buf();
+    let raw_target_dir = source_dir.join("target");
+    std::fs::create_dir_all(&raw_target_dir).context("failed to create target directory")?;
+
+    let mut cmd = cmd.clone();
+
+    cmd.build_flags.populate_target_backend_from_list()?;
+
+    // Manually synthesize and resolve single file project
+    let resolve_cfg = moonbuild_rupes_recta::ResolveConfig::new(
+        cmd.auto_sync_flags.clone(),
+        RegistryConfig::load(),
+        false,
+    );
+    let (resolved, backend) = moonbuild_rupes_recta::resolve::resolve_single_file_project(
+        &resolve_cfg,
+        single_file_path,
+        false,
+    )?;
+
+    let preconfig = preconfig_compile(
+        &cmd.auto_sync_flags,
+        cli,
+        &cmd.build_flags.clone().with_default_target_backend(backend),
+        &raw_target_dir,
+        moonutil::cond_expr::OptLevel::Release,
+        RunMode::Check,
+    );
+
+    // The rest is similar to normal check flow
+    let (build_meta, build_graph) = rr_build::plan_build_from_resolved(
+        preconfig,
+        &cli.unstable_feature,
+        &raw_target_dir,
+        Box::new(get_user_intents_single_file),
+        resolved,
+    )?;
+
+    if cli.dry_run {
+        rr_build::print_dry_run(
+            &build_graph,
+            build_meta.artifacts.values(),
+            &source_dir,
+            &raw_target_dir,
+        );
+        return Ok(0);
+    }
+
+    let _lock = FileLock::lock(&raw_target_dir)?;
+    rr_build::generate_metadata(&source_dir, &raw_target_dir, &build_meta, RunMode::Check)?;
+
+    let mut cfg = BuildConfig::from_flags(&cmd.build_flags, &cli.unstable_feature);
+    cfg.patch_file = cmd.patch_file.clone();
+    cfg.explain_errors |= cmd.explain;
+
+    let result = rr_build::execute_build(&cfg, build_graph, &raw_target_dir)?;
+    result.print_info(cli.quiet, "checking")?;
+
+    Ok(if result.successful() { 0 } else { 1 })
+}
+
+fn get_user_intents_single_file(
+    resolve_output: &moonbuild_rupes_recta::ResolveOutput,
+    _backend: TargetBackend,
+) -> Result<CalcUserIntentOutput, anyhow::Error> {
+    let m_packages = resolve_output
+        .pkg_dirs
+        .packages_for_module(resolve_output.local_modules()[0])
+        .expect("Local module must exist");
+    let pkg = *m_packages
+        .iter()
+        .next()
+        .expect("Only one package should be resolved for single file package")
+        .1;
+
+    Ok(vec![UserIntent::Check(pkg)].into())
+}
+
+#[instrument(level = Level::DEBUG, skip_all)]
+fn run_check_for_single_file_legacy(
+    cli: &UniversalFlags,
+    cmd: &CheckSubcommand,
+) -> anyhow::Result<i32> {
     let single_file_path = &dunce::canonicalize(cmd.path.as_ref().unwrap()).unwrap();
     let source_dir = single_file_path.parent().unwrap().to_path_buf();
     let raw_target_dir = source_dir.join("target");
