@@ -112,17 +112,7 @@ fn test_tracing_value_for_main_func() {
 fn test_tracing_value_for_single_file() {
     // single file
     let dir = TestDir::new("tracing_value.in");
-    check(
-        get_stdout(
-            &dir,
-            ["run", "./main.mbt", "--enable-value-tracing", "--dry-run"],
-        ),
-        expect![[r#"
-            moonc build-package $ROOT/main.mbt -o $ROOT/target/main.core -std-path $MOON_HOME/lib/core/target/wasm-gc/release/bundle -is-main -pkg moon/run/single -g -O0 -source-map -target wasm-gc -enable-value-tracing
-            moonc link-core $MOON_HOME/lib/core/target/wasm-gc/release/bundle/abort/abort.core $MOON_HOME/lib/core/target/wasm-gc/release/bundle/core.core $ROOT/target/main.core -o $ROOT/target/main.wasm -pkg-sources moon/run/single:$ROOT -pkg-sources moonbitlang/core:$MOON_HOME/lib/core -g -O0 -source-map -target wasm-gc
-            moonrun $ROOT/target/main.wasm
-        "#]],
-    );
+
     let content = get_stdout(&dir, ["run", "./main.mbt", "--enable-value-tracing"])
         .split("######MOONBIT_VALUE_TRACING_START######")
         .filter(|l| !(l.contains("__generated_driver_for")))
@@ -154,5 +144,23 @@ fn test_tracing_value_for_single_file() {
           ######MOONBIT_VALUE_TRACING_END######
           3
       "#]],
+    );
+}
+
+#[test]
+fn test_tracing_value_for_single_file_dry_run() {
+    // single file
+    let dir = TestDir::new("tracing_value.in");
+
+    check(
+        get_stdout(
+            &dir,
+            ["run", "./main.mbt", "--enable-value-tracing", "--dry-run"],
+        ),
+        expect![[r#"
+            moonc build-package $ROOT/main.mbt -o $ROOT/target/main.core -std-path $MOON_HOME/lib/core/target/wasm-gc/release/bundle -is-main -pkg moon/run/single -g -O0 -source-map -target wasm-gc -enable-value-tracing
+            moonc link-core $MOON_HOME/lib/core/target/wasm-gc/release/bundle/abort/abort.core $MOON_HOME/lib/core/target/wasm-gc/release/bundle/core.core $ROOT/target/main.core -o $ROOT/target/main.wasm -pkg-sources moon/run/single:$ROOT -pkg-sources moonbitlang/core:$MOON_HOME/lib/core -g -O0 -source-map -target wasm-gc
+            moonrun $ROOT/target/main.wasm
+        "#]],
     );
 }
