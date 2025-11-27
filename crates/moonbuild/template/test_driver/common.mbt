@@ -170,3 +170,77 @@ fn moonbit_test_driver_internal_get_cli_args_ffi() -> FixedArray[Bytes] = "$moon
 // =========================================================
 // ================== END NATIVE SPECIFIC ==================
 // =========================================================
+
+// =========================================================
+// -================== BEGIN JS SPECIFIC ===================
+// =========================================================
+
+///|
+#cfg(target="js")
+#external
+type MoonBitTestDriverInternalTestEntry
+
+///|
+#cfg(target="js")
+extern "js" fn MoonBitTestDriverInternalTestEntry::filename(self : Self) -> String =
+  #| (entry) => entry[0]
+
+///|
+#cfg(target="js")
+extern "js" fn MoonBitTestDriverInternalTestEntry::index(self : Self) -> Int =
+  #| (entry) => entry[1]
+
+///|
+pub(all) suberror MoonBitTestDriverInternalJsError String
+
+///|
+#cfg(target="js")
+fn moonbit_test_driver_internal_catch_error(
+  f : () -> Unit raise,
+  on_ok~ : () -> Unit,
+  on_err~ : (Error) -> Unit,
+) -> Unit {
+  moonbit_test_driver_internal_js_catch(
+    on_err=(err_str) => on_err(MoonBitTestDriverInternalJsError(err_str)),
+    () => {
+      try f() catch {
+        err => on_err(err)
+      } noraise {
+        _ => on_ok()
+      }
+    }
+  )
+}
+
+///|
+#cfg(target="js")
+extern "js" fn moonbit_test_driver_internal_js_catch(
+  f : () -> Unit,
+  on_err~ : (String) -> Unit,
+) =
+  #| (f, on_err) => {
+  #|   try {
+  #|     f()
+  #|   } catch (err) {
+  #|     const msg = err.stack.toString()
+  #|     on_err(msg)
+  #|   }
+  #| }
+
+///|
+#cfg(not(target="js"))
+fn moonbit_test_driver_internal_catch_error(
+  f : () -> Unit raise,
+  on_ok~ : () -> Unit,
+  on_err~ : (Error) -> Unit,
+) -> Unit {
+  try f() catch {
+    err => on_err(err)
+  } noraise {
+    _ => on_ok()
+  }
+}
+
+// =========================================================
+// -=================== END JS SPECIFIC ====================
+// =========================================================
