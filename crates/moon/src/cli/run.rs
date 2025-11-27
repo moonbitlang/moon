@@ -616,6 +616,8 @@ fn run_single_file_rr(cli: &UniversalFlags, mut cmd: RunSubcommand) -> anyhow::R
     let input_path = dunce::canonicalize(current_dir.join(&cmd.package_or_mbt_file))?;
     let source_dir = input_path.parent().unwrap().to_path_buf();
     let raw_target_dir = source_dir.join("target");
+    std::fs::create_dir_all(&raw_target_dir).context("failed to create target directory")?;
+
     let value_tracing = cmd.build_flags.enable_value_tracing;
 
     cmd.build_flags.populate_target_backend_from_list()?;

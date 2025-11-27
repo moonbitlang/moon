@@ -149,6 +149,8 @@ fn run_check_for_single_file_rr(
     let single_file_path = &dunce::canonicalize(cmd.path.as_ref().unwrap()).unwrap();
     let source_dir = single_file_path.parent().unwrap().to_path_buf();
     let raw_target_dir = source_dir.join("target");
+    std::fs::create_dir_all(&raw_target_dir).context("failed to create target directory")?;
+
     let mut cmd = cmd.clone();
 
     cmd.build_flags.populate_target_backend_from_list()?;
