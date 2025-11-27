@@ -33,3 +33,8 @@ test_cases::targets::test_many_targets
 # test order different
 test_cases::test_virtual_pkg
 
+# `moon run` single-file mode is too different from others
+# dry-run output and artifact layout is different
+test_cases::test_moon_run_single_file_dry_run
+test_cases::value_tracing::test_tracing_value_for_single_file
+test_cases::value_tracing::test_tracing_value_for_single_file_dry_run
