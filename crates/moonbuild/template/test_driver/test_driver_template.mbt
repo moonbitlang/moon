@@ -149,7 +149,7 @@ pub fn moonbit_test_driver_internal_do_execute(
       }
 
       if MOONBIT_TEST_DRIVER_INTERNAL_IS_NATIVE && attrs.iter().any(fn(attr) -> Bool {
-        attr.length() >= 5 && attr[0] == 'p' && attr[1] == 'a' && attr[2] == 'n' && attr[3] == 'i' && attr[4] == 'c'
+        attr is [.."panic", ..]
       }) {
         @moonbitlang/core/builtin.println("skipped test block: \{file_name}: \{attrs[0]}")
         handle_result(name, file_name, "skipped test", true)

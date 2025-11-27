@@ -1,5 +1,8 @@
 fn moonbit_test_driver_internal_error_to_string(x : Error) -> String = "%error.to_string"
 
+#cfg(target="native")
+fn string_get(s: String, index: Int) -> Int = "%string_get"
+
 #cfg(not(target="js"))
 fn moonbit_unsafe_char_from_int(x : Int) -> Char = "%identity"
 
@@ -69,7 +72,7 @@ fn moonbit_test_driver_internal_native_parse_args() -> Array[(String, Int)] {
     let mut res = 0
     let len = s.length()
     for i = 0; i < len; i = i + 1 {
-      res = res * 10 + (s[i] - '0')
+      res = res * 10 + (string_get(s, i) - '0')
     }
     res
   }
@@ -130,7 +133,7 @@ fn moonbit_test_driver_internal_native_parse_args() -> Array[(String, Int)] {
     let mut i = 0
     let mut start = 0
     while i < s.length() {
-      if moonbit_unsafe_char_from_int(s[i]) == sep {
+      if moonbit_unsafe_char_from_int(string_get(s, i)) == sep {
         res.push(s.unsafe_substring(start = start, end = i))
         start = i + 1
       }
