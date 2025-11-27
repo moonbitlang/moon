@@ -34,7 +34,7 @@ fn test_moon_help() {
               test                   Test the current package
               clean                  Remove the target directory
               fmt                    Format source code
-              doc                    Generate documentation
+              doc                    Generate documentation or searching documentation for a symbol
               info                   Generate public interface (`.mbti`) files for all packages in the module
               bench                  Run benchmarks in the current package
               add                    Add a dependency
