@@ -152,8 +152,8 @@ fn test_blackbox_failed() {
         .to_owned();
 
     let output = String::from_utf8_lossy(&output);
-    assert!(output.contains("Warning: Unused variable 'a'"));
-    assert!(output.contains("Warning: Unused variable 'b'"));
+    assert!(output.contains("Unused variable 'a'"));
+    assert!(output.contains("Unused variable 'b'"));
     assert!(output.contains("Value _private_hello not found in package `A`"));
     assert!(output.contains("Package \"C\" not found in the loaded packages."));
 }
@@ -181,7 +181,7 @@ Warning: [0029]
    │
  3 │     "username/hello/dir/lib"
    │     ────────────┬───────────  
-   │                 ╰───────────── Warning: Unused package 'username/hello/dir/lib'
+   │                 ╰───────────── Warning (unused_package): Unused package 'username/hello/dir/lib'
 ───╯
     "#
             .trim()

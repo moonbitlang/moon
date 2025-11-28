@@ -67,14 +67,14 @@
      │
    2 │   let a = 1
      │       ┬  
-     │       ╰── Warning: Unused variable 'a'
+     │       ╰── Warning (unused_value): Unused variable 'a'
   ───╯
   Warning: [0029]
      ╭─[ ${WORK_DIR}/src/main/moon.pkg.json:4:5 ]
      │
    4 │     "username/hello/lib"
      │     ──────────┬─────────  
-     │               ╰─────────── Warning: Unused package 'username/hello/lib'
+     │               ╰─────────── Warning (unused_package): Unused package 'username/hello/lib'
   ───╯
   Finished. moon: ran 4 tasks, now up to date (2 warnings, 0 errors)
   

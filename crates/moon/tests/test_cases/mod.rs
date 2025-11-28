@@ -1596,7 +1596,7 @@ fn test_render_diagnostic_in_patch_file() {
                │
              2 │  let unused_in_patch_test_json = 1;
                │      ────────────┬────────────  
-               │                  ╰────────────── Warning: Unused variable 'unused_in_patch_test_json'
+               │                  ╰────────────── Warning (unused_value): Unused variable 'unused_in_patch_test_json'
             ───╯
             Finished. moon: ran 3 tasks, now up to date (1 warnings, 0 errors)
         "#]],
@@ -1612,7 +1612,7 @@ fn test_render_diagnostic_in_patch_file() {
                │
              2 │  let unused_in_patch_wbtest_json = 1;
                │      ─────────────┬─────────────  
-               │                   ╰─────────────── Warning: Unused variable 'unused_in_patch_wbtest_json'
+               │                   ╰─────────────── Warning (unused_value): Unused variable 'unused_in_patch_wbtest_json'
             ───╯
             Finished. moon: ran 2 tasks, now up to date (1 warnings, 0 errors)
         "#]],
@@ -1625,7 +1625,7 @@ fn test_render_diagnostic_in_patch_file() {
                │
              2 │  let unused_in_patch_json = 1;
                │      ──────────┬─────────  
-               │                ╰─────────── Warning: Unused variable 'unused_in_patch_json'
+               │                ╰─────────── Warning (unused_value): Unused variable 'unused_in_patch_json'
             ───╯
             Finished. moon: ran 2 tasks, now up to date (1 warnings, 0 errors)
         "#]],
@@ -1650,7 +1650,7 @@ fn test_render_diagnostic_in_patch_file() {
                │
              2 │  let unused_in_patch_test_json = 1;
                │      ────────────┬────────────  
-               │                  ╰────────────── Warning: Unused variable 'unused_in_patch_test_json'
+               │                  ╰────────────── Warning (unused_value): Unused variable 'unused_in_patch_test_json'
                │ 
                │ Help: # E0002
                │       
@@ -2511,7 +2511,7 @@ Total tests: 1, passed: 1, failed: 0.
                    │
                  8 │   let single_mbt = 1
                    │       ─────┬────  
-                   │            ╰────── Warning: Unused variable 'single_mbt'
+                   │            ╰────── Warning (unused_value): Unused variable 'single_mbt'
                 ───╯
                 Finished. moon: ran 2 tasks, now up to date (1 warnings, 0 errors)
             "#]],
@@ -2525,7 +2525,7 @@ Total tests: 1, passed: 1, failed: 0.
                    │
                  8 │   let single_mbt = 1
                    │       ─────┬────  
-                   │            ╰────── Warning: Unused variable 'single_mbt'
+                   │            ╰────── Warning (unused_value): Unused variable 'single_mbt'
                 ───╯
                 Finished. moon: ran 1 task, now up to date (1 warnings, 0 errors)
             "#]],
@@ -2591,7 +2591,7 @@ Warning: [0002]
     │
  28 │     let single_mbt_md = 1
     │         ──────┬──────  
-    │               ╰──────── Warning: Unused variable 'single_mbt_md'
+    │               ╰──────── Warning (unused_value): Unused variable 'single_mbt_md'
 ────╯
 ..."#
             )
@@ -2606,7 +2606,7 @@ Warning: [0002]
                     │
                  28 │     let single_mbt_md = 1
                     │         ──────┬──────  
-                    │               ╰──────── Warning: Unused variable 'single_mbt_md'
+                    │               ╰──────── Warning (unused_value): Unused variable 'single_mbt_md'
                 ────╯
                 Finished. moon: ran 1 task, now up to date (1 warnings, 0 errors)
             "#]],
@@ -2624,7 +2624,7 @@ Warning: [0002]
    │
  2 │   let with_main = 1
    │       ────┬────  
-   │           ╰────── Warning: Unused variable 'with_main'
+   │           ╰────── Warning (unused_value): Unused variable 'with_main'
 ───╯
 ...
 "#]],
@@ -2638,14 +2638,14 @@ Warning: [0001]
    │
  1 │ fn func() -> Unit {
    │    ──┬─  
-   │      ╰─── Warning: Unused function 'func'
+   │      ╰─── Warning (unused_value): Unused function 'func'
 ───╯
 Warning: [0002]
    ╭─[ $ROOT/without_main.mbt:2:7 ]
    │
  2 │   let without_main = 1
    │       ──────┬─────  
-   │             ╰─────── Warning: Unused variable 'without_main'
+   │             ╰─────── Warning (unused_value): Unused variable 'without_main'
 ───╯
 ...
 "#]],
@@ -2771,7 +2771,7 @@ fn test_in_main_pkg() {
                │
              2 │   let a = 1
                │       ┬  
-               │       ╰── Warning: Unused variable 'a'
+               │       ╰── Warning (unused_value): Unused variable 'a'
             ───╯
             Finished. moon: ran 6 tasks, now up to date (1 warnings, 0 errors)
         "#]],

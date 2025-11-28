@@ -12,7 +12,7 @@ fn test_run_md_test() {
                 │
              39 │     let a = 1
                 │         ┬  
-                │         ╰── Warning: Unused variable 'a'
+                │         ╰── Warning (unused_value): Unused variable 'a'
             ────╯
             Finished. moon: ran 4 tasks, now up to date (1 warnings, 0 errors)
         "#]],
