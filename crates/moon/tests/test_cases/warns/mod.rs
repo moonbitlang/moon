@@ -207,28 +207,28 @@ fn test_deny_warn() {
                │
              4 │   let a = 1;
                │       ┬  
-               │       ╰── Warning: Unused variable 'a'
+               │       ╰── Warning (unused_value): Unused variable 'a'
             ───╯
             Warning: [0002]
                 ╭─[ $ROOT/lib/hello.mbt:11:7 ]
                 │
              11 │   let 中文 = 2
                 │       ──┬─  
-                │         ╰─── Warning: Unused variable '中文'
+                │         ╰─── Warning (unused_value): Unused variable '中文'
             ────╯
             Warning: [0002]
                 ╭─[ $ROOT/lib/hello.mbt:12:7 ]
                 │
              12 │   let 🤣😭🤣😭🤣 = 2
                 │       ────┬─────  
-                │           ╰─────── Warning: Unused variable '🤣😭🤣😭🤣'
+                │           ╰─────── Warning (unused_value): Unused variable '🤣😭🤣😭🤣'
             ────╯
             Warning: [0002]
                ╭─[ $ROOT/main/main.mbt:2:7 ]
                │
              2 │   let a = 0
                │       ┬  
-               │       ╰── Warning: Unused variable 'a'
+               │       ╰── Warning (unused_value): Unused variable 'a'
             ───╯
             Finished. moon: ran 4 tasks, now up to date (4 warnings, 0 errors)
         "#]],
@@ -249,28 +249,28 @@ fn test_deny_warn() {
                │
              4 │   let a = 1;
                │       ┬  
-               │       ╰── Warning: Unused variable 'a'
+               │       ╰── Warning (unused_value): Unused variable 'a'
             ───╯
             Warning: [0002]
                 ╭─[ $ROOT/lib/hello.mbt:11:7 ]
                 │
              11 │   let 中文 = 2
                 │       ──┬─  
-                │         ╰─── Warning: Unused variable '中文'
+                │         ╰─── Warning (unused_value): Unused variable '中文'
             ────╯
             Warning: [0002]
                 ╭─[ $ROOT/lib/hello.mbt:12:7 ]
                 │
              12 │   let 🤣😭🤣😭🤣 = 2
                 │       ────┬─────  
-                │           ╰─────── Warning: Unused variable '🤣😭🤣😭🤣'
+                │           ╰─────── Warning (unused_value): Unused variable '🤣😭🤣😭🤣'
             ────╯
             Warning: [0002]
                ╭─[ $ROOT/main/main.mbt:2:7 ]
                │
              2 │   let a = 0
                │       ┬  
-               │       ╰── Warning: Unused variable 'a'
+               │       ╰── Warning (unused_value): Unused variable 'a'
             ───╯
             Finished. moon: ran 3 tasks, now up to date (4 warnings, 0 errors)
         "#]],
