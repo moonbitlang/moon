@@ -41,7 +41,11 @@ use crate::{
 const CORE_EXTENSION: &str = ".core";
 /// The extension of the package public interface file emitted by Check and Build
 const MI_EXTENSION: &str = ".mi";
-
+/// The extension of the phony MI files. This is used when the MI file is not
+/// actually generated but the check command still needs to be executed, e.g.,
+/// when --no-mi is specified or checking the implementation package for a
+/// virtual interface.
+const PHONY_MI_EXTENSION: &str = ".phony.mi";
 /// Target folder layout that matches the legacy (pre-beta) behavior
 #[derive(Builder)]
 pub struct LegacyLayout {
@@ -193,6 +197,33 @@ impl LegacyLayout {
             MI_EXTENSION
         ));
         base_dir
+    }
+
+    pub fn phony_mi_of_build_target(
+        &self,
+        pkg_list: &DiscoverResult,
+        target: &BuildTarget,
+        backend: TargetBackend,
+    ) -> Option<PathBuf> {
+        // Special case: `abort` lives in core
+        if let Some(abort) = pkg_list.abort_pkg()
+            && abort == target.package
+        {
+            if target.kind == TargetKind::Source {
+                return None;
+            } else {
+                panic!("Cannot import `.mi` for moonbitlang/core/abort");
+            }
+        }
+
+        let pkg_fqn = &pkg_list.get_package(target.package).fqn;
+        let mut base_dir = self.package_dir(pkg_fqn, backend);
+        base_dir.push(format!(
+            "{}{}",
+            artifact(pkg_fqn, target.kind),
+            PHONY_MI_EXTENSION
+        ));
+        Some(base_dir)
     }
 
     pub fn linked_core_of_build_target(
