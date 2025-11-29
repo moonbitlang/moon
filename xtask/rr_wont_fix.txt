@@ -31,7 +31,7 @@ test_cases::native_backend::tcc_run::test_native_backend_tcc_run
 test_cases::targets::test_many_targets
 
 # test order different
-test_cases::test_virtual_pkg
+test_cases::virtual_pkg::test_virtual_pkg
 
 # `moon run` single-file mode is too different from others
 # dry-run output and artifact layout is different
