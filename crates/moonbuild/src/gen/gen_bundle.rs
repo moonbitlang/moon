@@ -239,10 +239,7 @@ pub fn gen_build_command(
         })
         // Legacy bundle: suppress warnings by default to reduce CLI noise on install,
         // while still honoring --deny-warn to treat warnings as errors
-        .args_with_cond(
-            !moonc_opt.build_opt.deny_warn,
-            ["-w", "-a", "-alert", "-all"],
-        )
+        .args_with_cond(!moonc_opt.build_opt.deny_warn, ["-w", "-a"])
         .arg("-o")
         .arg(&item.core_out)
         .arg("-pkg")
