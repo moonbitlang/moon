@@ -23,7 +23,7 @@ use super::UniversalFlags;
 
 pub fn run_upgrade(cli: UniversalFlags, cmd: UpgradeSubcommand) -> anyhow::Result<i32> {
     if cli.dry_run {
-        bail!("dry-run is not implemented for upgrade")
+        bail!("dry-run is not supported for upgrade")
     }
     moonbuild::upgrade::upgrade(cmd)
 }
