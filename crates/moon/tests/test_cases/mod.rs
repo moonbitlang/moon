@@ -34,6 +34,7 @@ use walkdir::WalkDir;
 
 mod backend;
 mod backend_config;
+mod bench2;
 mod blackbox;
 mod circle_pkg_ab_001_test;
 mod cond_comp;
