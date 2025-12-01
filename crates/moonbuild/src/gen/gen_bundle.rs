@@ -229,15 +229,7 @@ pub fn gen_build_command(
     let command = CommandBuilder::new(moonc)
         .arg("build-package")
         .args_with_cond(moonc_opt.json_diagnostics, vec!["-error-format", "json"])
-        .args_with_cond(
-            moonc_opt.build_opt.deny_warn,
-            [
-                "-w",
-                "@a-31-32",
-                "-alert",
-                "@all-raise-throw-unsafe-test_import_all+deprecated",
-            ],
-        )
+        .args_with_cond(moonc_opt.build_opt.deny_warn, ["-w", "@a"])
         .args(&item.mbt_deps)
         .lazy_args_with_cond(item.warn_list.is_some(), || {
             vec!["-w".to_string(), item.warn_list.clone().unwrap()]

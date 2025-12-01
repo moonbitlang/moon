@@ -25,8 +25,7 @@ use moonutil::common::TargetBackend;
 
 use crate::build_lower::compiler::{
     CompiledPackageName, ErrorFormat, MOONC_ALLOW_ALERT_SET, MOONC_ALLOW_WARNING_SET,
-    MOONC_DENY_ALERT_SET, MOONC_DENY_WARNING_SET, MiDependency, VirtualPackageImplementation,
-    WarnAlertConfig,
+    MOONC_DENY_WARNING_SET, MiDependency, VirtualPackageImplementation, WarnAlertConfig,
 };
 use crate::model::TargetKind;
 
@@ -252,12 +251,7 @@ impl<'a> BuildCommonConfig<'a> {
     /// Add warning/alert deny all arguments (combined)
     pub fn add_deny_all(&self, args: &mut Vec<String>) {
         if self.deny_warn {
-            args.extend([
-                "-w".to_string(),
-                MOONC_DENY_WARNING_SET.to_string(),
-                "-alert".to_string(),
-                MOONC_DENY_ALERT_SET.to_string(),
-            ]);
+            args.extend(["-w".to_string(), MOONC_DENY_WARNING_SET.to_string()]);
         }
     }
 

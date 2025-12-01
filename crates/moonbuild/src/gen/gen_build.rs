@@ -526,12 +526,7 @@ pub fn gen_build_command(
             moonc_opt.build_opt.deny_warn,
             // the default strategy for warn and alert is +a-31-32 and +all-raise-throw-unsafe+deprecated
             // we replace + with @ to tell moonc treat warning as error
-            [
-                "-w",
-                "@a-31-32",
-                "-alert",
-                "@all-raise-throw-unsafe-test_import_all+deprecated",
-            ],
+            ["-w", "@a"],
         )
         .args(&item.mbt_deps)
         .lazy_args_with_cond(item.warn_list.is_some(), || {
