@@ -212,6 +212,14 @@ impl<'a> BuildPlanLowerContext<'a> {
                         &target,
                         self.opt.target_backend.into(),
                     ));
+                } else if let Some(mi_artifact) = self.layout.phony_mi_of_build_target(
+                    self.packages,
+                    &target,
+                    self.opt.target_backend.into(),
+                ) {
+                    // Even if MI is not generated, we may still need a phony MI file
+                    // so the check command can run.
+                    out.push(mi_artifact);
                 }
             }
             BuildPlanNode::BuildCore(target) => {
