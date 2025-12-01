@@ -27,7 +27,7 @@ pub struct UpdateSubcommand {}
 
 pub fn update_cli(cli: UniversalFlags, _cmd: UpdateSubcommand) -> anyhow::Result<i32> {
     if cli.dry_run {
-        bail!("dry-run is not implemented for update")
+        bail!("dry-run is not supported for update")
     }
     let registry_config = RegistryConfig::load();
     let target_dir = moonutil::moon_dir::index();

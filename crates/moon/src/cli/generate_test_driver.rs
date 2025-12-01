@@ -164,7 +164,7 @@ pub fn generate_test_driver(
     cmd: GenerateTestDriverSubcommand,
 ) -> anyhow::Result<i32> {
     if cli.dry_run {
-        bail!("dry-run is not implemented for generate-test-driver");
+        bail!("dry-run is not supported for generate-test-driver");
     }
 
     // Create directories if not exists

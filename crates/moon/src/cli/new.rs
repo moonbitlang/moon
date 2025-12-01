@@ -71,7 +71,7 @@ pub struct NewSubcommand {
 
 pub fn run_new(_cli: &UniversalFlags, cmd: NewSubcommand) -> anyhow::Result<i32> {
     if _cli.dry_run {
-        bail!("dry-run is not implemented for new")
+        bail!("dry-run is not supported for new")
     }
 
     let path = PathBuf::from(cmd.path);

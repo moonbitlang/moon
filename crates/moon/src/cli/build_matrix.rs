@@ -55,7 +55,7 @@ pub fn generate_build_matrix(
     cmd: GenerateBuildMatrix,
 ) -> anyhow::Result<i32> {
     if _cli.dry_run {
-        bail!("dry-run is not implemented for bench")
+        bail!("dry-run is not supported for bench")
     }
 
     let n = cmd.number.unwrap_or(1);

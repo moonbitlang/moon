@@ -87,7 +87,7 @@ pub fn run_info(cli: UniversalFlags, cmd: InfoSubcommand) -> anyhow::Result<i32>
         );
     }
     if cli.dry_run {
-        bail!("dry-run is not implemented for info")
+        bail!("dry-run is not supported for info")
     }
 
     if cli.unstable_feature.rupes_recta {

@@ -28,7 +28,7 @@ pub struct CleanSubcommand {}
 
 pub fn run_clean(cli: &UniversalFlags) -> anyhow::Result<i32> {
     if cli.dry_run {
-        bail!("dry-run is not implemented for clean");
+        bail!("dry-run is not supported for clean");
     }
 
     let src_tgt = cli.source_tgt_dir.try_into_package_dirs()?;
