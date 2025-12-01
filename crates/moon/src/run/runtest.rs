@@ -141,6 +141,7 @@ pub fn run_tests(
     target_dir: &Path,
     filter: &TestFilter,
     include_skipped: bool,
+    bench: bool,
 ) -> anyhow::Result<ReplaceableTestResults> {
     // Gathering artifacts
     let executables = gather_tests(build_meta);
@@ -151,8 +152,15 @@ pub fn run_tests(
     let mut total_cases = 0usize;
     for r in executables {
         debug!(target = ?r.target, executable = %r.executable.display(), "running test executable");
-        let res =
-            run_one_test_executable(build_meta, &rt, target_dir, &r, filter, include_skipped)?;
+        let res = run_one_test_executable(
+            build_meta,
+            &rt,
+            target_dir,
+            &r,
+            filter,
+            include_skipped,
+            bench,
+        )?;
         let cases_for_target = res.map.values().map(IndexMap::len).sum::<usize>();
         trace!(target = ?r.target, cases = cases_for_target, "merging test results");
         total_cases += cases_for_target;
@@ -331,6 +339,7 @@ fn run_one_test_executable(
     test: &TestExecutableToRun,
     filter: &TestFilter,
     include_skipped: bool,
+    bench: bool,
 ) -> Result<TargetTestResult, anyhow::Error> {
     let (included, file_filt) = filter.check_package(test.target);
     if !included {
@@ -357,6 +366,7 @@ fn run_one_test_executable(
         &meta,
         &mut test_args.file_and_index,
         include_skipped,
+        bench,
     );
     trace!(
         filter_entries = test_args.file_and_index.len(),
@@ -597,13 +607,12 @@ fn print_test_result_normal(res: &TestCaseResult, module_name: &str, verbose: bo
     let formatter = CompactTestFormatter::new(module_name, &res.raw, Some(&res.meta));
 
     match res.kind {
-        TestResultKind::Passed if !verbose => {}
         TestResultKind::Passed => {
             if message.starts_with(BATCHBENCH) {
                 let _ = formatter.write_bench(&mut std::io::stdout());
                 println!();
                 render_batch_bench_summary(message);
-            } else {
+            } else if verbose {
                 let _ = formatter.write_success(&mut std::io::stdout());
                 println!();
             }

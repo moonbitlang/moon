@@ -206,12 +206,17 @@ pub fn apply_filter(
     meta: &MooncGenTestInfo,
     files_and_index: &mut Vec<(String, Vec<std::ops::Range<u32>>)>,
     include_skipped: bool,
+    bench: bool,
 ) {
-    let lists = [
-        &meta.no_args_tests,
-        &meta.with_args_tests,
-        &meta.async_tests,
-    ];
+    let lists = if bench {
+        vec![&meta.with_bench_args_tests]
+    } else {
+        vec![
+            &meta.no_args_tests,
+            &meta.with_args_tests,
+            &meta.async_tests,
+        ]
+    };
 
     match file_filt {
         // If there is no file filter, we can simply add all files and indices
@@ -229,7 +234,7 @@ pub fn apply_filter(
             for (k, v) in &filt.0 {
                 let mut this_file_index = vec![];
                 // Filter files from lists
-                for test_list in lists {
+                for test_list in &lists {
                     if let Some(tests) = test_list.get(k) {
                         match v {
                             None => {
@@ -356,7 +361,7 @@ mod test {
     fn test_no_file_filter() {
         let meta = example_meta();
         let mut out = vec![];
-        super::apply_filter(None, &meta, &mut out, false);
+        super::apply_filter(None, &meta, &mut out, false, false);
 
         expect![[r#"[("file1.mbt", [0..2, 4..5]), ("file2.mbt", [2..3]), ("doc_tests.mbt", [0..2]), ("file1.mbt", [2..3]), ("my_file.mbt", []), ("param_file.mbt", [0..1])]"#]]
         .assert_eq(&format!("{:?}", out));
@@ -372,7 +377,7 @@ mod test {
         expect![[r#"FileFilter({"file1.mbt": None})"#]].assert_eq(&format!("{:?}", ff));
 
         let mut out = vec![];
-        super::apply_filter(Some(&ff), &meta, &mut out, false);
+        super::apply_filter(Some(&ff), &meta, &mut out, false, false);
 
         expect![[r#"[("file1.mbt", [0..2, 4..5, 2..3])]"#]].assert_eq(&format!("{:?}", out));
     }
@@ -389,7 +394,7 @@ mod test {
             .assert_eq(&format!("{:?}", ff));
 
         let mut out = vec![];
-        super::apply_filter(Some(&ff), &meta, &mut out, false);
+        super::apply_filter(Some(&ff), &meta, &mut out, false, false);
 
         expect![[r#"[("file1.mbt", [1..2, 4..5])]"#]].assert_eq(&format!("{:?}", out));
     }
@@ -408,7 +413,7 @@ mod test {
         .assert_eq(&format!("{:?}", ff));
 
         let mut out = vec![];
-        super::apply_filter(Some(&ff), &meta, &mut out, false);
+        super::apply_filter(Some(&ff), &meta, &mut out, false, false);
 
         expect![[
             r#"[("file1.mbt", [0..1]), ("doc_tests.mbt", [0..2]), ("param_file.mbt", [0..1])]"#
@@ -424,7 +429,7 @@ mod test {
         expect!["FileFilter({})"].assert_eq(&format!("{:?}", ff));
 
         let mut out = vec![];
-        super::apply_filter(Some(&ff), &meta, &mut out, false);
+        super::apply_filter(Some(&ff), &meta, &mut out, false, false);
 
         expect!["[]"].assert_eq(&format!("{:?}", out));
     }
@@ -439,7 +444,7 @@ mod test {
         expect![[r#"FileFilter({"my_file.mbt": None})"#]].assert_eq(&format!("{:?}", ff));
 
         let mut out = vec![];
-        super::apply_filter(Some(&ff), &meta, &mut out, false);
+        super::apply_filter(Some(&ff), &meta, &mut out, false, false);
 
         expect![[r#"[("my_file.mbt", [])]"#]].assert_eq(&format!("{:?}", out));
     }
