@@ -140,19 +140,67 @@ impl PackageId {
 /// A node in the build dependency graph, containing a build target and the
 /// corresponding action that should be performed on that target.
 ///
+/// Note: You may recognize that some nodes are keyed by [`BuildTarget`] while
+/// others are keyed by just [`PackageId`] or even [`ModuleId`]. This is because
+/// some artifacts (like C stubs and prebuild scripts) are shared by every
+/// target within the package/module, so they don't need to be duplicated for
+/// each target.
+///
 /// TODO: This type is a little big in size to be copied and used as an ID.
 #[derive(Debug, Clone, Copy, PartialEq, PartialOrd, Eq, Ord, Hash)]
 pub enum BuildPlanNode {
+    /// Check the given build target
     Check(BuildTarget),
+
+    /// Build the `.core` file from `.mbt` sources for the given target.
     BuildCore(BuildTarget),
+
     /// Build the i-th C file in the C stub list.
     BuildCStub(PackageId, u32), // change into global artifact list if we need non-package ones
+
+    /// Build an archive or link all C stubs for the given package.
+    ///
+    /// Archive building is for non-TCC native targets, so they can be
+    /// referenced during linking.
+    ///
+    /// Linking is for native targets using TCC to compile. TCC can't link with
+    /// Mach-O objects, so in Linux and MacOS we directly link the C stubs into
+    /// a shared library (which is in ELF format) and load it in TCC at runtime.
+    ///
+    /// FIXME: This node is not split into two separate Archive and Link nodes
+    /// because the action is determined by the default C compiler used in this
+    /// build. In theory this should be separated for better clarity, and maybe
+    /// determined by the C compiler overrides for each build target.
     ArchiveOrLinkCStubs(PackageId),
+
+    /// Link the `.core` file into an executable or library for the given target.
     LinkCore(BuildTarget),
+
+    /// If the output from `LinkCore` is not yet executable, make it executable.
+    ///
+    /// This is mainly for native targets, where the build output is a C file
+    /// that needs further compilation and linking to become an executable.
+    ///
+    /// In TCC mode, since linking is done at the same time as running, this
+    /// step writes a response file containing the linking flags for TCC to use.
+    /// This is to avoid leaking and coupling linking logic into the runtime
+    /// execution logic.
     MakeExecutable(BuildTarget),
+
+    /// Generate test driver and metadata for the given test target.
     GenerateTestInfo(BuildTarget),
+
+    /// Generate the `.mbti` interface file for the given target's package.
+    /// This does not promote the `.mbti` into the source directory.
     GenerateMbti(BuildTarget),
+
+    /// Bundle all non-virtual packages in the given module. This produces a
+    /// `.core` file containing all packages.
+    ///
+    /// This is only used in the standard library `moonbitlang/core` currently.
     Bundle(ModuleId),
+
+    /// Build the shared runtime library for native targets.
     BuildRuntimeLib,
 
     /// Build the virtual package's `.mbti` interface file to get an `.mi` file.
@@ -213,6 +261,114 @@ impl BuildPlanNode {
             | BuildPlanNode::RunPrebuild(_, _)
             | BuildPlanNode::RunMoonLexPrebuild(_, _)
             | BuildPlanNode::RunMoonYaccPrebuild(_, _) => None,
+        }
+    }
+
+    /// Return a human-readable description for this build plan node, resolving
+    /// PackageId/ModuleId to names.
+    pub fn human_desc(&self, env: &ResolvedEnv, packages: &DiscoverResult) -> String {
+        let file_basename = |path: &std::path::Path| {
+            path.file_name()
+                .and_then(|name| name.to_str())
+                .map(|s| s.to_string())
+                .unwrap_or_else(|| path.display().to_string())
+        };
+
+        let kind_suffix = |kind: TargetKind| match kind {
+            TargetKind::Source => "",
+            TargetKind::WhiteboxTest => " (whitebox test)",
+            TargetKind::BlackboxTest => " (blackbox test)",
+            TargetKind::InlineTest => " (inline test)",
+            TargetKind::SubPackage => " (subpackage)",
+        };
+
+        match self {
+            BuildPlanNode::Check(build_target) => {
+                let fqn = packages.fqn(build_target.package);
+                format!("check {}{}", fqn, kind_suffix(build_target.kind))
+            }
+            BuildPlanNode::BuildCore(build_target) => {
+                let fqn = packages.fqn(build_target.package);
+                format!("build {}{}", fqn, kind_suffix(build_target.kind))
+            }
+            BuildPlanNode::BuildCStub(package_id, index) => {
+                let pkg = packages.get_package(*package_id);
+                let file = file_basename(pkg.c_stub_files[*index as usize].as_path());
+                format!("build c stub {} {}", packages.fqn(*package_id), file)
+            }
+            BuildPlanNode::ArchiveOrLinkCStubs(package_id) => {
+                format!("archive c stubs {}", packages.fqn(*package_id))
+            }
+            BuildPlanNode::LinkCore(build_target) => {
+                let fqn = packages.fqn(build_target.package);
+                format!("link {}{}", fqn, kind_suffix(build_target.kind))
+            }
+            BuildPlanNode::MakeExecutable(build_target) => {
+                let fqn = packages.fqn(build_target.package);
+                format!("make executable {}{}", fqn, kind_suffix(build_target.kind))
+            }
+            BuildPlanNode::GenerateTestInfo(build_target) => {
+                let fqn = packages.fqn(build_target.package);
+                format!(
+                    "generate test driver for {}{}",
+                    fqn,
+                    kind_suffix(build_target.kind)
+                )
+            }
+            BuildPlanNode::GenerateMbti(build_target) => {
+                let fqn = packages.fqn(build_target.package);
+                format!(
+                    "generate mbti for {}{}",
+                    fqn,
+                    kind_suffix(build_target.kind)
+                )
+            }
+            BuildPlanNode::Bundle(module_id) => {
+                let module_src = env.mod_name_from_id(*module_id);
+                format!(
+                    "bundle module {}@{}",
+                    module_src.name(),
+                    module_src.version()
+                )
+            }
+            BuildPlanNode::BuildRuntimeLib => "build runtime library".to_string(),
+            BuildPlanNode::BuildVirtual(package_id) => {
+                format!("build virtual {}", packages.fqn(*package_id))
+            }
+            BuildPlanNode::RunPrebuild(package_id, index) => {
+                let pkg = packages.get_package(*package_id);
+                let cmd = &pkg.raw.pre_build.as_ref().expect("prebuild exists")[*index as usize];
+                let outputs: Vec<String> = cmd
+                    .output
+                    .iter()
+                    .map(|path| {
+                        std::path::Path::new(path)
+                            .file_name()
+                            .and_then(|name| name.to_str())
+                            .map(|s| s.to_string())
+                            .unwrap_or_else(|| path.clone())
+                    })
+                    .collect();
+                let joined = if outputs.is_empty() {
+                    "(no outputs)".to_string()
+                } else {
+                    outputs.join(", ")
+                };
+                format!("prebuild script {} {}", packages.fqn(*package_id), joined)
+            }
+            BuildPlanNode::RunMoonLexPrebuild(package_id, index) => {
+                let pkg = packages.get_package(*package_id);
+                let input = &pkg.mbt_lex_files[*index as usize];
+                let input_name = file_basename(input.as_path());
+                format!("run moonlex {} {}", packages.fqn(*package_id), input_name)
+            }
+            BuildPlanNode::RunMoonYaccPrebuild(package_id, index) => {
+                let pkg = packages.get_package(*package_id);
+                let input = &pkg.mbt_yacc_files[*index as usize];
+                let input_name = file_basename(input.as_path());
+                format!("run moonyacc {} {}", packages.fqn(*package_id), input_name)
+            }
+            BuildPlanNode::BuildDocs => "build docs".to_string(),
         }
     }
 

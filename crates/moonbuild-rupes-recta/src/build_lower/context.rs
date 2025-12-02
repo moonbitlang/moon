@@ -176,6 +176,7 @@ impl<'a> BuildPlanLowerContext<'a> {
             outs,
         );
         build.cmdline = Some(cmd.commandline.to_n2_string());
+        build.desc = Some(node.human_desc(self.modules, self.packages));
         // n2 can't capture and replay command outputs. this is a workaround to
         // avoid losing warnings from `moonc`. According to legacy code, this
         // only triggers for `Check` nodes.
