@@ -145,3 +145,22 @@ fn test_preferred_target() {
     test_target(&dir, &mod_json_path, &mut mod_json, "wasm-gc");
     test_target(&dir, &mod_json_path, &mut mod_json, "native");
 }
+
+/// This test ensures that paths with non-ASCII names are handled correctly,
+/// especially on Windows where codepages can cause issues.
+///
+/// See: https://github.com/moonbitlang/moon/issues/620
+#[test]
+fn test_non_ascii_path_names() {
+    let template_dir = TestDir::new("hello");
+    let unicode_dir = TestDir::new_empty();
+    let unicode_dir = unicode_dir.join("中文路径");
+    std::fs::create_dir_all(&unicode_dir).unwrap();
+
+    // Copy recursively into the non-ASCII path
+    crate::util::copy(template_dir.as_ref(), &unicode_dir).unwrap();
+
+    // Run a command to ensure it works
+    let output = get_stdout(&unicode_dir, ["run", "main"]);
+    assert_eq!(output.trim(), "Hello, world!");
+}
