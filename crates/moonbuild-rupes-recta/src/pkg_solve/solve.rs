@@ -19,6 +19,7 @@
 use std::collections::HashMap;
 
 use log::{debug, trace, warn};
+use moonutil::common::MOONBITLANG_COVERAGE;
 use moonutil::mooncakes::{ModuleId, result::ResolvedEnv};
 
 use super::model::{DepEdge, DepRelationship, SolveError};
@@ -220,6 +221,7 @@ fn solve_one_package(
     insert_black_box_dep(env, pid, pkg_data);
 
     inject_abort_usage(env, pid);
+    inject_core_coverage_usage(env, pid);
 
     // TODO: Add heuristic to not generate white box test targets for external packages
 
@@ -504,6 +506,8 @@ fn resolve_virtual_usages(
     Ok(v_user)
 }
 
+use crate::special_cases::{CORE_MODULE, is_self_coverage_lib, should_skip_coverage};
+
 /// Inject the dependency to `moonbitlang/core/abort` for every package
 fn inject_abort_usage(env: &mut ResolveEnv<'_>, pid: PackageId) {
     trace!(
@@ -529,6 +533,48 @@ fn inject_abort_usage(env: &mut ResolveEnv<'_>, pid: PackageId) {
             DepEdge {
                 short_alias: "moonbitlang/core/abort".into(),
                 kind: TargetKind::Source,
+            },
+        );
+    }
+}
+
+/// Inject the dependency to `moonbitlang/core/coverage` for core module packages.
+///
+/// This injects coverage at the solver layer so later stages don't need to
+/// special-case coverage wiring. We deliberately skip:
+/// - the coverage package itself and builtin (self-coverage libs)
+/// - packages that should skip coverage entirely
+/// - blackbox tests (legacy behavior doesn't link coverage there)
+fn inject_core_coverage_usage(env: &mut ResolveEnv<'_>, pid: PackageId) {
+    let pkg = env.packages.get_package(pid);
+
+    // Only for core module
+    let module_name = env.modules.mod_name_from_id(pkg.module).name().to_string();
+    if module_name != CORE_MODULE {
+        return;
+    }
+
+    // Resolve coverage package id
+    let Some((_, cov_pid)) = env.rev_map.get(MOONBITLANG_COVERAGE) else {
+        return;
+    };
+
+    if is_self_coverage_lib(&pkg.fqn) || should_skip_coverage(&pkg.fqn) {
+        return;
+    }
+
+    // Intentionally skip BlackboxTest
+    for &kind in &[
+        TargetKind::Source,
+        TargetKind::InlineTest,
+        TargetKind::WhiteboxTest,
+    ] {
+        env.res.dep_graph.add_edge(
+            pid.build_target(kind),
+            cov_pid.build_target(TargetKind::Source),
+            DepEdge {
+                short_alias: "coverage".into(),
+                kind,
             },
         );
     }
