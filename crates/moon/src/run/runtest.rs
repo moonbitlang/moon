@@ -138,10 +138,12 @@ impl TestIndex {
 #[instrument(level = "debug", skip(build_meta, filter))]
 pub fn run_tests(
     build_meta: &BuildMeta,
+    source_dir: &Path,
     target_dir: &Path,
     filter: &TestFilter,
     include_skipped: bool,
     bench: bool,
+    verbose: bool,
 ) -> anyhow::Result<ReplaceableTestResults> {
     // Gathering artifacts
     let executables = gather_tests(build_meta);
@@ -155,11 +157,13 @@ pub fn run_tests(
         let res = run_one_test_executable(
             build_meta,
             &rt,
+            source_dir,
             target_dir,
             &r,
             filter,
             include_skipped,
             bench,
+            verbose,
         )?;
         let cases_for_target = res.map.values().map(IndexMap::len).sum::<usize>();
         trace!(target = ?r.target, cases = cases_for_target, "merging test results");
@@ -331,15 +335,17 @@ fn gather_tests(build_meta: &BuildMeta) -> Vec<TestExecutableToRun<'_>> {
     results
 }
 
-#[instrument(level = "debug", skip(build_meta, rt, target_dir, filter))]
+#[instrument(level = "debug", skip(build_meta, rt, source_dir, target_dir, filter))]
 fn run_one_test_executable(
     build_meta: &BuildMeta,
     rt: &Runtime, // FIXME: parallel execution
+    source_dir: &Path,
     target_dir: &Path,
     test: &TestExecutableToRun,
     filter: &TestFilter,
     include_skipped: bool,
     bench: bool,
+    verbose: bool,
 ) -> Result<TargetTestResult, anyhow::Error> {
     let (included, file_filt) = filter.check_package(test.target);
     if !included {
@@ -377,6 +383,9 @@ fn run_one_test_executable(
         crate::run::command_for(build_meta.target_backend, test.executable, Some(&test_args))?;
     let mut cov_cap = mk_coverage_capture();
     let mut test_cap = make_test_capture();
+    if verbose {
+        crate::rr_build::dry_print_command(cmd.command.as_std(), source_dir);
+    }
     info!(package = %test_args.package, executable = %test.executable.display(), "launching test executable");
 
     let exit_status = rt

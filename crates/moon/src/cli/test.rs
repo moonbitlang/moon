@@ -1449,10 +1449,12 @@ fn rr_test_from_plan(
 
     let mut test_result = crate::run::run_tests(
         build_meta,
+        source_dir,
         target_dir,
         &filter,
         cmd.include_skipped,
         cmd.run_mode == RunMode::Bench,
+        cli.verbose,
     )?;
     let _initial_summary = test_result.summary();
 
@@ -1537,10 +1539,12 @@ fn rr_test_from_plan(
             };
             let new_test_result = crate::run::run_tests(
                 build_meta,
+                source_dir,
                 target_dir,
                 &rerun_filter,
                 cmd.include_skipped,
                 cmd.run_mode == RunMode::Bench,
+                cli.verbose,
             )?;
             let _rerun_summary = new_test_result.summary();
 

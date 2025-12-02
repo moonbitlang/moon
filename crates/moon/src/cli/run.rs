@@ -714,6 +714,9 @@ fn rr_run_from_plan(
         return Ok(build_result.return_code_for_success());
     }
     let run_cmd = get_run_cmd(build_meta, &cmd.args)?;
+    if cli.verbose {
+        rr_build::dry_print_command(run_cmd.command.as_std(), source_dir);
+    }
 
     // Release the lock before spawning the subprocess
     drop(_lock);
