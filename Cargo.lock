@@ -397,6 +397,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "colored"
+version = "3.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "fde0e0ec90c9dfb3b4b1a0891a7dcd0e2bffde2f7efed5fe7c9bb00e5bfb915e"
+dependencies = [
+ "windows-sys 0.59.0",
+]
+
+[[package]]
 name = "concolor"
 version = "0.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1686,7 +1695,7 @@ dependencies = [
  "clap",
  "clap-markdown",
  "clap_complete",
- "colored",
+ "colored 3.0.0",
  "ctrlc",
  "derive_builder",
  "dialoguer",
@@ -1735,7 +1744,7 @@ dependencies = [
  "base64",
  "chrono",
  "clap",
- "colored",
+ "colored 3.0.0",
  "console 0.16.1",
  "ctrlc",
  "dialoguer",
@@ -1824,7 +1833,7 @@ dependencies = [
  "arcstr",
  "bytes",
  "clap",
- "colored",
+ "colored 3.0.0",
  "dialoguer",
  "dunce",
  "expect-test",
@@ -1877,7 +1886,7 @@ dependencies = [
  "bincode",
  "chrono",
  "clap",
- "colored",
+ "colored 3.0.0",
  "derive_builder",
  "dialoguer",
  "dunce",
@@ -1915,7 +1924,7 @@ source = "git+https://github.com/moonbitlang/n2.git?rev=5288de14d1ee9994cefce56f
 dependencies = [
  "anyhow",
  "argh",
- "colored",
+ "colored 2.1.0",
  "libc",
  "rustc-hash 1.1.0",
  "tracing",

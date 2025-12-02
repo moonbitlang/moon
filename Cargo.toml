@@ -41,7 +41,7 @@ moonutil = { path = "./crates/moonutil", version = "*" }
 anyhow = { version = "1.0.86" }
 bincode = "1.3.3"
 clap = { version = "4.5.4", features = ["derive", "string", "env"] }
-colored = "2.1.0"
+colored = "3.0.0"
 ctrlc = { version = "3.4.4", features = ["termination"] }
 dunce = "1.0.4"
 expect-test = "1.5.0"
