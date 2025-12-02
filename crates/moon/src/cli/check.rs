@@ -160,6 +160,7 @@ fn run_check_for_single_file_rr(
         cmd.auto_sync_flags.clone(),
         RegistryConfig::load(),
         false,
+        cmd.build_flags.enable_coverage,
     );
     let (resolved, backend) = moonbuild_rupes_recta::resolve::resolve_single_file_project(
         &resolve_cfg,

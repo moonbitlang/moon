@@ -627,6 +627,7 @@ fn run_single_file_rr(cli: &UniversalFlags, mut cmd: RunSubcommand) -> anyhow::R
         cmd.auto_sync_flags.clone(),
         RegistryConfig::load(),
         false,
+        cmd.build_flags.enable_coverage,
     );
     let (resolved, backend) = moonbuild_rupes_recta::resolve::resolve_single_file_project(
         &resolve_cfg,

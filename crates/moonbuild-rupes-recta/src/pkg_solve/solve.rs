@@ -21,6 +21,7 @@ use std::collections::HashMap;
 use log::{debug, trace, warn};
 use moonutil::common::MOONBITLANG_COVERAGE;
 use moonutil::mooncakes::{ModuleId, result::ResolvedEnv};
+use tracing::info;
 
 use super::model::{DepEdge, DepRelationship, SolveError};
 use crate::{
@@ -38,11 +39,13 @@ struct ResolveEnv<'a> {
     packages: &'a DiscoverResult,
     rev_map: &'a RevMap,
     res: DepRelationship,
+    inject_coverage: bool,
 }
 
 pub fn solve_only(
     modules: &ResolvedEnv,
     packages: &DiscoverResult,
+    enable_coverage: bool,
 ) -> Result<DepRelationship, SolveError> {
     debug!(
         "Building dependency resolution structures for {} packages",
@@ -88,11 +91,17 @@ pub fn solve_only(
     }
     debug!("Built reverse mapping");
 
+    let main_is_core = if let &[main] = modules.input_module_ids() {
+        *modules.mod_name_from_id(main).name() == CORE_MODULE_TUPLE
+    } else {
+        false
+    };
     let mut env = ResolveEnv {
         modules,
         packages,
         rev_map: &rev_map,
         res: DepRelationship::default(),
+        inject_coverage: enable_coverage && main_is_core,
     };
 
     debug!("Processing packages for dependency resolution");
@@ -221,7 +230,9 @@ fn solve_one_package(
     insert_black_box_dep(env, pid, pkg_data);
 
     inject_abort_usage(env, pid);
-    inject_core_coverage_usage(env, pid);
+    if env.inject_coverage {
+        inject_core_coverage_usage(env, pid);
+    }
 
     // TODO: Add heuristic to not generate white box test targets for external packages
 
@@ -506,7 +517,7 @@ fn resolve_virtual_usages(
     Ok(v_user)
 }
 
-use crate::special_cases::{CORE_MODULE, is_self_coverage_lib, should_skip_coverage};
+use crate::special_cases::{CORE_MODULE_TUPLE, is_self_coverage_lib, should_skip_coverage};
 
 /// Inject the dependency to `moonbitlang/core/abort` for every package
 fn inject_abort_usage(env: &mut ResolveEnv<'_>, pid: PackageId) {
@@ -548,12 +559,6 @@ fn inject_abort_usage(env: &mut ResolveEnv<'_>, pid: PackageId) {
 fn inject_core_coverage_usage(env: &mut ResolveEnv<'_>, pid: PackageId) {
     let pkg = env.packages.get_package(pid);
 
-    // Only for core module
-    let module_name = env.modules.mod_name_from_id(pkg.module).name().to_string();
-    if module_name != CORE_MODULE {
-        return;
-    }
-
     // Resolve coverage package id
     let Some((_, cov_pid)) = env.rev_map.get(MOONBITLANG_COVERAGE) else {
         return;
@@ -563,11 +568,14 @@ fn inject_core_coverage_usage(env: &mut ResolveEnv<'_>, pid: PackageId) {
         return;
     }
 
+    info!("Injecting coverage usage for core package {:?}", pkg.fqn);
+
     // Intentionally skip BlackboxTest
     for &kind in &[
         TargetKind::Source,
         TargetKind::InlineTest,
         TargetKind::WhiteboxTest,
+        TargetKind::BlackboxTest,
     ] {
         env.res.dep_graph.add_edge(
             pid.build_target(kind),

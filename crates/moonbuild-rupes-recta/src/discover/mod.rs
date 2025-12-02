@@ -26,7 +26,7 @@
 // Specifically allow file I/O here, because that what this module is about.
 #![allow(clippy::disallowed_types, clippy::disallowed_methods)]
 
-mod special_case;
+pub mod special_case;
 pub mod synth;
 
 use std::{
@@ -484,6 +484,11 @@ impl DiscoverResult {
     /// is only created by this struct.
     pub fn get_package(&self, id: PackageId) -> &DiscoveredPackage {
         &self.packages[id]
+    }
+
+    /// Get a mutable handle to a package by its ID.
+    pub fn get_package_mut(&mut self, id: PackageId) -> &mut DiscoveredPackage {
+        &mut self.packages[id]
     }
 
     /// Get the package ID for a given module and package path.

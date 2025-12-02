@@ -38,6 +38,8 @@ use moonutil::{
 };
 use tracing::instrument;
 
+use crate::discover::special_case::inject_core_coverage_into_builtin;
+use crate::special_cases::CORE_MODULE_TUPLE;
 use crate::{
     discover::{DiscoverError, DiscoverResult, discover_packages},
     pkg_solve::{self, DepRelationship},
@@ -67,6 +69,8 @@ pub struct ResolveConfig {
     sync_flags: AutoSyncFlags,
     registry_config: RegistryConfig,
     no_std: bool,
+    /// Gate coverage injection in pkg_solve
+    pub enable_coverage: bool,
 }
 
 impl ResolveConfig {
@@ -74,20 +78,27 @@ impl ResolveConfig {
     /// and other flags populated from the environment with a sensible default.
     ///
     /// This method performs IO to load the registry configuration,
-    pub fn new_with_load_defaults(frozen: bool, no_std: bool) -> Self {
+    pub fn new_with_load_defaults(frozen: bool, no_std: bool, enable_coverage: bool) -> Self {
         Self {
             sync_flags: AutoSyncFlags { frozen },
             registry_config: RegistryConfig::load(),
             no_std,
+            enable_coverage,
         }
     }
 
     /// Creates a new `ResolveConfig` with the given flags and registry
-    pub fn new(sync_flags: AutoSyncFlags, registry_config: RegistryConfig, no_std: bool) -> Self {
+    pub fn new(
+        sync_flags: AutoSyncFlags,
+        registry_config: RegistryConfig,
+        no_std: bool,
+        enable_coverage: bool,
+    ) -> Self {
         Self {
             sync_flags,
             registry_config,
             no_std,
+            enable_coverage,
         }
     }
 }
@@ -129,14 +140,22 @@ pub fn resolve(cfg: &ResolveConfig, source_dir: &Path) -> Result<ResolveOutput, 
     info!("Module dependency resolution completed successfully");
     debug!("Resolved {} modules", resolved_env.module_count());
 
-    let discover_result = discover_packages(&resolved_env, &dir_sync_result)?;
+    let mut discover_result = discover_packages(&resolved_env, &dir_sync_result)?;
+    let main_is_core = {
+        let ids = resolved_env.input_module_ids();
+        ids.len() == 1 && *resolved_env.mod_name_from_id(ids[0]).name() == CORE_MODULE_TUPLE
+    };
+    if cfg.enable_coverage && main_is_core {
+        // Gate coverage bundling (coverage -> builtin) behind both flag and main-module check
+        inject_core_coverage_into_builtin(&resolved_env, &mut discover_result)?;
+    }
 
     info!(
         "Package discovery completed, found {} packages",
         discover_result.package_count()
     );
 
-    let dep_relationship = pkg_solve::solve(&resolved_env, &discover_result)?;
+    let dep_relationship = pkg_solve::solve(&resolved_env, &discover_result, cfg.enable_coverage)?;
 
     info!("Package dependency resolution completed successfully");
     debug!(
@@ -194,7 +213,7 @@ pub fn resolve_single_file_project(
     );
 
     // Solve package dependency relationship
-    let dep_relationship = pkg_solve::solve(&resolved_env, &discover_result)?;
+    let dep_relationship = pkg_solve::solve(&resolved_env, &discover_result, cfg.enable_coverage)?;
 
     let res = ResolveOutput {
         module_rel: resolved_env,
