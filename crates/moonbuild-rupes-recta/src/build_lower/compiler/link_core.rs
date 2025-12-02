@@ -157,13 +157,10 @@ impl<'a> MooncLinkCore<'a> {
         }
 
         // WebAssembly exports
-        if let Some(exports) = self.exports {
-            if exports.is_empty() {
-                // Empty exports case - legacy adds empty string
-                args.push("".to_string());
-            } else {
-                args.push(format!("-exported_functions={}", exports.join(",")));
-            }
+        if let Some(exports) = self.exports
+            && !exports.is_empty()
+        {
+            args.push(format!("-exported_functions={}", exports.join(",")));
         }
 
         // WASM-specific config

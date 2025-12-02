@@ -711,7 +711,7 @@ pub fn gen_link_command(
         .lazy_args_with_cond(exports.is_some(), || {
             let es = exports.unwrap();
             if es.is_empty() {
-                vec!["".to_string()]
+                vec![]
             } else {
                 vec![format!(
                     "-exported_functions={}",
