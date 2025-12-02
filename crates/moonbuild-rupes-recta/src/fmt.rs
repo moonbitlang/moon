@@ -31,7 +31,7 @@
 //! module into a more generic one, probably named "source utility" or similar.
 
 use log::*;
-use std::path::Path;
+use std::{collections::HashSet, path::Path};
 
 use moonutil::mooncakes::{ModuleId, ModuleSource, result::ResolvedEnv};
 use n2::graph::Build;
@@ -141,34 +141,44 @@ fn build_for_package(
     pkg: &DiscoveredPackage,
 ) -> anyhow::Result<()> {
     let ignore_set = &pkg.raw.formatter.ignore;
+    let prebuild_outputs = pkg
+        .raw
+        .pre_build
+        .as_ref()
+        .iter()
+        .flat_map(|prebuild_plans| {
+            prebuild_plans
+                .iter()
+                .flat_map(|plan| plan.output.iter().map(|path| path.as_str()))
+        })
+        .collect::<HashSet<_>>();
+
+    let mut add_fmt_for_file = |file: &Path| -> anyhow::Result<()> {
+        let name = file.file_name().and_then(|name| name.to_str());
+        if name.is_some_and(|name| ignore_set.contains(name)) {
+            debug!(
+                "Skipping formatter input {} due to formatter.ignore",
+                file.display()
+            );
+            return Ok(());
+        }
+        if name.is_some_and(|name| prebuild_outputs.contains(name)) {
+            debug!(
+                "Skipping formatter input {} due to pre-build output",
+                file.display()
+            );
+            return Ok(());
+        }
+
+        format_node(graph, cfg, layout, pkg, file)?;
+        Ok(())
+    };
 
     for file in &pkg.source_files {
-        if file
-            .file_name()
-            .and_then(|name| name.to_str())
-            .is_some_and(|name| ignore_set.contains(name))
-        {
-            debug!(
-                "Skipping formatter input {} due to formatter.ignore",
-                file.display()
-            );
-            continue;
-        }
-        format_node(graph, cfg, layout, pkg, file)?;
+        add_fmt_for_file(file)?;
     }
     for file in &pkg.mbt_md_files {
-        if file
-            .file_name()
-            .and_then(|name| name.to_str())
-            .is_some_and(|name| ignore_set.contains(name))
-        {
-            debug!(
-                "Skipping formatter input {} due to formatter.ignore",
-                file.display()
-            );
-            continue;
-        }
-        format_node(graph, cfg, layout, pkg, file)?;
+        add_fmt_for_file(file)?;
     }
     Ok(())
 }
