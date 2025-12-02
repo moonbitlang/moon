@@ -736,7 +736,11 @@ fn run_test_rr(
         &build_flags,
         target_dir,
         default_opt_level,
-        RunMode::Test,
+        if cmd.run_mode == RunMode::Bench {
+            RunMode::Bench
+        } else {
+            RunMode::Test
+        },
     );
     // Enable tcc-run for tests regardless of dry-run so the graph shape matches legacy.
     if !is_bench {
@@ -1443,8 +1447,13 @@ fn rr_test_from_plan(
         return Ok(result.return_code_for_success());
     }
 
-    let mut test_result =
-        crate::run::run_tests(build_meta, target_dir, &filter, cmd.include_skipped)?;
+    let mut test_result = crate::run::run_tests(
+        build_meta,
+        target_dir,
+        &filter,
+        cmd.include_skipped,
+        cmd.run_mode == RunMode::Bench,
+    )?;
     let _initial_summary = test_result.summary();
 
     let backend_hint = display_backend_hint
@@ -1526,8 +1535,13 @@ fn rr_test_from_plan(
             let rerun_filter = TestFilter {
                 filter: Some(rerun_filter_raw),
             };
-            let new_test_result =
-                crate::run::run_tests(build_meta, target_dir, &rerun_filter, cmd.include_skipped)?;
+            let new_test_result = crate::run::run_tests(
+                build_meta,
+                target_dir,
+                &rerun_filter,
+                cmd.include_skipped,
+                cmd.run_mode == RunMode::Bench,
+            )?;
             let _rerun_summary = new_test_result.summary();
 
             // Merge test results

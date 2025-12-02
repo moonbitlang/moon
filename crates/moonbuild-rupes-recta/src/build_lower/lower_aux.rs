@@ -80,7 +80,7 @@ impl<'a> super::BuildPlanLowerContext<'a> {
             doctest_only_files: &info.doctest_files,
             output_driver: output_driver.into(),
             output_metadata: output_metadata.into(),
-            bench: false, // TODO
+            bench: self.opt.action == moonutil::common::RunMode::Bench,
             enable_coverage,
             coverage_package_override: if self_coverage { Some("@self") } else { None },
             driver_kind,
