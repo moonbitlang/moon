@@ -3978,7 +3978,7 @@ dependencies = [
  "home",
  "serde",
  "serde_json",
- "snapbox 0.4.17",
+ "snapbox 0.6.23",
  "tempfile",
  "toml",
  "walkdir",
