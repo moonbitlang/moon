@@ -41,7 +41,6 @@ semver.workspace = true
 fs4.workspace = true
 petgraph.workspace = true
 ariadne.workspace = true
-env_logger.workspace = true
 log.workspace = true
 thiserror.workspace = true
 schemars.workspace = true
