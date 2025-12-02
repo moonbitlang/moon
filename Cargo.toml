@@ -121,6 +121,8 @@ similar = { version = "2.7.0", features = ["inline"] }
 
 libc = "0.2.177"
 
+snapbox = "0.6.23"
+
 # Use tracing instead of log in the future
 tracing = "0.1.41"
 tracing-subscriber = { version = "0.3.20", features = ["fmt", "env-filter"] }

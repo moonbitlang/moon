@@ -75,7 +75,7 @@ version = "0.59.0"
 
 [dev-dependencies]
 tempfile = "3.6.0"
-snapbox = "0.6.23"
+snapbox.workspace = true
 expect-test.workspace = true
 clap-markdown = "0.1.4"
 similar.workspace = true
