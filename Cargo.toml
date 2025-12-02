@@ -58,8 +58,9 @@ reqwest = { version = "0.12.24", default-features = false, features = [
     "http2",
     "system-proxy",
 ] }
-petgraph = { version = "0.6.4", features = [
+petgraph = { version = "0.8.3", features = [
     "graphmap",
+    "std",
 ], default-features = false }
 serde = { version = "1.0.163", features = ["derive"] }
 serde_json = { version = "1.0.97", features = ["preserve_order"] }
