@@ -260,3 +260,24 @@ fn test_moon_run_with_is_windows() {
     };
     assert!(actual_result == expected_result);
 }
+
+#[test]
+fn test_moon_fmt_skips_prebuild_output() {
+    // Prepare a temp copy of the test case
+    let dir = TestDir::new("test_fmt_skip_prebuild_output");
+
+    // The prebuild command is a NOOP; we intentionally wrote a sloppy file as the "generated" output.
+    // Ensure the source remains sloppy after fmt (formatter must skip prebuild outputs).
+    let generated_src = dir.join("main/generated.mbt");
+    let original = std::fs::read_to_string(&generated_src).expect("read generated.mbt");
+
+    // Run: moon fmt
+    snapbox::cmd::Command::new(snapbox::cmd::cargo_bin("moon"))
+        .current_dir(&dir)
+        .args(["fmt"])
+        .assert()
+        .success();
+
+    let after = std::fs::read_to_string(&generated_src).expect("read generated.mbt");
+    assert_eq!(original, after, "Formatter should skip prebuild outputs");
+}
