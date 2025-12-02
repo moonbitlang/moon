@@ -64,5 +64,5 @@ libc.workspace = true
 expect-test.workspace = true
 
 [build-dependencies]
-vergen = { version = "8.0.0", features = ["build", "git", "gitcl"] }
+vergen-git2 = { version = "1.0.0", features = ["build"] }
 chrono.workspace = true
