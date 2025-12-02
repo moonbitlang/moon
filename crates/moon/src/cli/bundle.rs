@@ -157,7 +157,7 @@ pub fn run_bundle_internal_rr(
         rr_build::generate_metadata(source_dir, target_dir, &_build_meta, RunMode::Bundle)?;
 
         let result = rr_build::execute_build(
-            &BuildConfig::from_flags(&cmd.build_flags, &cli.unstable_feature),
+            &BuildConfig::from_flags(&cmd.build_flags, &cli.unstable_feature, cli.verbose),
             build_graph,
             target_dir,
         )?;

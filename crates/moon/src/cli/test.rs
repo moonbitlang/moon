@@ -1432,7 +1432,7 @@ fn rr_test_from_plan(
 
     let _lock = FileLock::lock(target_dir)?;
 
-    let build_config = BuildConfig::from_flags(cmd.build_flags, &cli.unstable_feature);
+    let build_config = BuildConfig::from_flags(cmd.build_flags, &cli.unstable_feature, cli.verbose);
 
     // since n2 build consumes the graph, we back it up for reruns
     let build_graph_backup = cmd.update.then(|| build_graph.clone());

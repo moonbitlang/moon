@@ -706,16 +706,13 @@ fn rr_run_from_plan(
 
     let _lock = FileLock::lock(target_dir)?;
 
-    let build_result = rr_build::execute_build(
-        &BuildConfig::from_flags(&cmd.build_flags, &cli.unstable_feature),
-        build_graph,
-        target_dir,
-    )?;
+    let build_config =
+        BuildConfig::from_flags(&cmd.build_flags, &cli.unstable_feature, cli.verbose);
+    let build_result = rr_build::execute_build(&build_config, build_graph, target_dir)?;
 
     if !build_result.successful() {
         return Ok(build_result.return_code_for_success());
     }
-
     let run_cmd = get_run_cmd(build_meta, &cmd.args)?;
 
     // Release the lock before spawning the subprocess
