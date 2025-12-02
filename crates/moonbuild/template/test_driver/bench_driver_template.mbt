@@ -130,7 +130,7 @@ fn main {
 
 #cfg(target="js")
 pub fn moonbit_test_driver_internal_execute(
-  tests : Array[MoonBitTestDriverInternalTestEntry],
+  tests : @moonbitlang/core/builtin.Array[MoonBitTestDriverInternalTestEntry],
 ) -> Unit {
   for i in 0..<tests.length() {
     let entry = tests[i]

@@ -67,7 +67,7 @@ fn moonbit_test_driver_internal_string_from_extern(e : MoonbitTestDriverInternal
 // ================= BEGIN NATIVE SPECIFIC =================
 // =========================================================
 #cfg(target="native")
-fn moonbit_test_driver_internal_native_parse_args() -> Array[(String, Int)] {
+fn moonbit_test_driver_internal_native_parse_args() -> @moonbitlang/core/builtin.Array[(String, Int)] {
   fn moonbit_test_driver_internal_parse_int_(s : String) -> Int {
     let mut res = 0
     let len = s.length()
