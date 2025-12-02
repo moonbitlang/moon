@@ -1162,7 +1162,7 @@ pub fn gen_runtest_build_command(
         .lazy_args_with_cond(item.alert_list.is_some(), || {
             vec!["-alert".to_string(), item.alert_list.clone().unwrap()]
         })
-        .args_with_cond(item.is_third_party, ["-w", "-a", "-alert", "-all"])
+        .args_with_cond(item.is_third_party, ["-w", "-a"])
         .arg("-o")
         .arg(&item.core_out)
         .arg("-pkg")

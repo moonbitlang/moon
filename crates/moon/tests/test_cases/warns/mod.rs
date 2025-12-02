@@ -43,9 +43,9 @@ fn test_warn_list_dry_run() {
     check(
         get_stdout(&dir, ["bundle", "--sort-input", "--no-render", "--dry-run"]),
         expect![[r#"
-            moonc build-package ./lib1/hello.mbt -w -1 -w -a -alert -all -o ./target/wasm-gc/release/bundle/lib1/lib1.core -pkg username/hello/lib1 -pkg-sources username/hello/lib1:./lib1 -target wasm-gc -workspace-path .
-            moonc build-package ./lib/hello.mbt -w -2 -w -a -alert -all -o ./target/wasm-gc/release/bundle/lib/lib.core -pkg username/hello/lib -pkg-sources username/hello/lib:./lib -target wasm-gc -workspace-path .
-            moonc build-package ./main/main.mbt -w -1-2 -w -a -alert -all -o ./target/wasm-gc/release/bundle/main/main.core -pkg username/hello/main -is-main -i ./target/wasm-gc/release/bundle/lib/lib.mi:lib -i ./target/wasm-gc/release/bundle/lib1/lib1.mi:lib1 -pkg-sources username/hello/main:./main -target wasm-gc -workspace-path .
+            moonc build-package ./lib1/hello.mbt -w -1 -w -a -o ./target/wasm-gc/release/bundle/lib1/lib1.core -pkg username/hello/lib1 -pkg-sources username/hello/lib1:./lib1 -target wasm-gc -workspace-path .
+            moonc build-package ./lib/hello.mbt -w -2 -w -a -o ./target/wasm-gc/release/bundle/lib/lib.core -pkg username/hello/lib -pkg-sources username/hello/lib:./lib -target wasm-gc -workspace-path .
+            moonc build-package ./main/main.mbt -w -1-2 -w -a -o ./target/wasm-gc/release/bundle/main/main.core -pkg username/hello/main -is-main -i ./target/wasm-gc/release/bundle/lib/lib.mi:lib -i ./target/wasm-gc/release/bundle/lib1/lib1.mi:lib1 -pkg-sources username/hello/main:./main -target wasm-gc -workspace-path .
             moonc bundle-core ./target/wasm-gc/release/bundle/lib/lib.core ./target/wasm-gc/release/bundle/lib1/lib1.core ./target/wasm-gc/release/bundle/main/main.core -o ./target/wasm-gc/release/bundle/hello.core
         "#]],
     );
@@ -237,7 +237,7 @@ fn test_deny_warn() {
     check(
         get_err_stdout(&dir, ["check", "--deny-warn", "--sort-input"]),
         expect![[r#"
-            failed: moonc check -error-format json -w @a-31-32 -alert @all-raise-throw-unsafe-test_import_all+deprecated $ROOT/lib/hello.mbt -o $ROOT/target/wasm-gc/release/check/lib/lib.mi -pkg username/hello/lib -std-path $MOON_HOME/lib/core/target/wasm-gc/release/bundle -pkg-sources username/hello/lib:$ROOT/lib -target wasm-gc -workspace-path $ROOT
+            failed: moonc check -error-format json -w @a $ROOT/lib/hello.mbt -o $ROOT/target/wasm-gc/release/check/lib/lib.mi -pkg username/hello/lib -std-path $MOON_HOME/lib/core/target/wasm-gc/release/bundle -pkg-sources username/hello/lib:$ROOT/lib -target wasm-gc -workspace-path $ROOT
         "#]],
     );
 
@@ -279,7 +279,7 @@ fn test_deny_warn() {
     check(
         get_err_stdout(&dir, ["build", "--deny-warn", "--sort-input"]),
         expect![[r#"
-            failed: moonc build-package -error-format json -w @a-31-32 -alert @all-raise-throw-unsafe-test_import_all+deprecated $ROOT/lib/hello.mbt -o $ROOT/target/wasm-gc/release/build/lib/lib.core -pkg username/hello/lib -std-path $MOON_HOME/lib/core/target/wasm-gc/release/bundle -pkg-sources username/hello/lib:$ROOT/lib -target wasm-gc -workspace-path $ROOT
+            failed: moonc build-package -error-format json -w @a $ROOT/lib/hello.mbt -o $ROOT/target/wasm-gc/release/build/lib/lib.core -pkg username/hello/lib -std-path $MOON_HOME/lib/core/target/wasm-gc/release/bundle -pkg-sources username/hello/lib:$ROOT/lib -target wasm-gc -workspace-path $ROOT
         "#]],
     );
 }
