@@ -47,7 +47,7 @@ dunce = "1.0.4"
 expect-test = "1.5.0"
 futures = { version = "0.3.29", features = ["std"], default-features = false }
 indexmap = { version = "2.2.6", features = ["serde"] }
-notify = "6.1.1"
+notify = "8.0.0"
 reqwest = { version = "0.12.24", default-features = false, features = [
     "multipart",
     "blocking",
