@@ -1,6 +1,6 @@
 ///|
 fn moonbit_test_driver_internal_run_async_tests(
-  tests : Array[async () -> Unit],
+  tests : @moonbitlang/core/builtin.Array[async () -> Unit],
 ) -> Unit {
   @moonbitlang/async.run_async_main(() => {
     @moonbitlang/async.with_task_group(group => {
