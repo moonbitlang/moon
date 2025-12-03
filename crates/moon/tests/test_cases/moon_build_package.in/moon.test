@@ -7,9 +7,3 @@
   [33m WARN[0m `--build-graph` is deprecated. Use -Z rr_export_module_graph, -Z rr_export_package_graph, or -Z rr_export_build_plan instead
   Finished. moon: ran 2 tasks, now up to date
   
-  $ xls ./target/wasm-gc/release/build/lib/
-  lib.core lib.mi
-  $ xls ./target/wasm-gc/release/build/
-  build.moon_db hello.core hello.mi lib
-  $ xcat ./target/wasm-gc/release/build/build_graph.dot
-  failed to read file: No such file or directory (os error 2)
