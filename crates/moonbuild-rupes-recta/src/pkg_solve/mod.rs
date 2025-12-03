@@ -36,10 +36,11 @@ use solve::solve_only;
 pub fn solve(
     modules: &ResolvedEnv,
     packages: &DiscoverResult,
+    enable_coverage: bool,
 ) -> Result<DepRelationship, SolveError> {
     info!("Starting dependency resolution");
 
-    let res = solve_only(modules, packages)?;
+    let res = solve_only(modules, packages, enable_coverage)?;
     verify(&res, packages)?;
 
     info!("Dependency resolution completed successfully");

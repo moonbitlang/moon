@@ -77,7 +77,7 @@ pub fn run_build_binary_dep(cli: &UniversalFlags, cmd: &BuildBinaryDepArgs) -> a
     // bin-deps have their build target determined in `moon.pkg.json`, so we
     // must resolve the packages before settling on the build config and then
     // running the build plan.
-    let resolve_cfg = ResolveConfig::new_with_load_defaults(false, false);
+    let resolve_cfg = ResolveConfig::new_with_load_defaults(false, false, false);
     let resolve_output = moonbuild_rupes_recta::resolve(&resolve_cfg, &source_dir)?;
 
     // Note: There's a cyclic dependency!
