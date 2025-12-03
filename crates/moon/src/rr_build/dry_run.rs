@@ -57,7 +57,9 @@ pub fn print_dry_run_all(input: &BuildInput, source_dir: &Path, target_dir: &Pat
 /// Print a command as it would be executed, with the proper escaping.
 ///
 /// This also replaces paths like `print_dry_run` does.
-pub fn dry_print_command(cmd: &Command, source_dir: &Path) {
+///
+/// If `stderr` is true, the command is assumed to write to stderr instead of stdout.
+pub fn dry_print_command(cmd: &Command, source_dir: &Path, stderr: bool) {
     let replacer = moonbuild_debug::graph::PathNormalizer::new(source_dir);
 
     let args = std::iter::once(cmd.get_program())
@@ -67,5 +69,9 @@ pub fn dry_print_command(cmd: &Command, source_dir: &Path) {
         .collect::<Vec<_>>();
 
     let cmd = moonutil::shlex::join_unix(args.iter().map(|x| x.as_ref()));
-    println!("{}", cmd);
+    if stderr {
+        eprintln!("{}", cmd);
+    } else {
+        println!("{}", cmd);
+    }
 }

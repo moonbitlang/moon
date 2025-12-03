@@ -700,7 +700,7 @@ fn rr_run_from_plan(
         );
 
         let run_cmd = get_run_cmd(build_meta, &cmd.args)?;
-        rr_build::dry_print_command(run_cmd.command.as_std(), source_dir);
+        rr_build::dry_print_command(run_cmd.command.as_std(), source_dir, false);
         return Ok(0);
     }
 
@@ -715,7 +715,7 @@ fn rr_run_from_plan(
     }
     let run_cmd = get_run_cmd(build_meta, &cmd.args)?;
     if cli.verbose {
-        rr_build::dry_print_command(run_cmd.command.as_std(), source_dir);
+        rr_build::dry_print_command(run_cmd.command.as_std(), source_dir, true);
     }
 
     // Release the lock before spawning the subprocess

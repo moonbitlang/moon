@@ -384,7 +384,7 @@ fn run_one_test_executable(
     let mut cov_cap = mk_coverage_capture();
     let mut test_cap = make_test_capture();
     if verbose {
-        crate::rr_build::dry_print_command(cmd.command.as_std(), source_dir);
+        crate::rr_build::dry_print_command(cmd.command.as_std(), source_dir, true);
     }
     info!(package = %test_args.package, executable = %test.executable.display(), "launching test executable");
 
