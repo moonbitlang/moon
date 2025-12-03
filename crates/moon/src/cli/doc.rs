@@ -130,7 +130,7 @@ pub fn run_doc_rr(cli: UniversalFlags, cmd: DocSubcommand) -> anyhow::Result<i32
     rr_build::generate_metadata(&source_dir, &target_dir, &_build_meta, RunMode::Check)?;
 
     // Execute the build
-    let cfg = BuildConfig::from_flags(&BuildFlags::default(), &cli.unstable_feature);
+    let cfg = BuildConfig::from_flags(&BuildFlags::default(), &cli.unstable_feature, cli.verbose);
     let result = rr_build::execute_build(&cfg, build_graph, &target_dir)?;
     result.print_info(cli.quiet, "checking")?;
 

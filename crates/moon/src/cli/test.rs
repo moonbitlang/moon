@@ -1432,7 +1432,7 @@ fn rr_test_from_plan(
 
     let _lock = FileLock::lock(target_dir)?;
 
-    let build_config = BuildConfig::from_flags(cmd.build_flags, &cli.unstable_feature);
+    let build_config = BuildConfig::from_flags(cmd.build_flags, &cli.unstable_feature, cli.verbose);
 
     // since n2 build consumes the graph, we back it up for reruns
     let build_graph_backup = cmd.update.then(|| build_graph.clone());
@@ -1449,10 +1449,12 @@ fn rr_test_from_plan(
 
     let mut test_result = crate::run::run_tests(
         build_meta,
+        source_dir,
         target_dir,
         &filter,
         cmd.include_skipped,
         cmd.run_mode == RunMode::Bench,
+        cli.verbose,
     )?;
     let _initial_summary = test_result.summary();
 
@@ -1537,10 +1539,12 @@ fn rr_test_from_plan(
             };
             let new_test_result = crate::run::run_tests(
                 build_meta,
+                source_dir,
                 target_dir,
                 &rerun_filter,
                 cmd.include_skipped,
                 cmd.run_mode == RunMode::Bench,
+                cli.verbose,
             )?;
             let _rerun_summary = new_test_result.summary();
 

@@ -700,23 +700,23 @@ fn rr_run_from_plan(
         );
 
         let run_cmd = get_run_cmd(build_meta, &cmd.args)?;
-        rr_build::dry_print_command(run_cmd.command.as_std(), source_dir);
+        rr_build::dry_print_command(run_cmd.command.as_std(), source_dir, false);
         return Ok(0);
     }
 
     let _lock = FileLock::lock(target_dir)?;
 
-    let build_result = rr_build::execute_build(
-        &BuildConfig::from_flags(&cmd.build_flags, &cli.unstable_feature),
-        build_graph,
-        target_dir,
-    )?;
+    let build_config =
+        BuildConfig::from_flags(&cmd.build_flags, &cli.unstable_feature, cli.verbose);
+    let build_result = rr_build::execute_build(&build_config, build_graph, target_dir)?;
 
     if !build_result.successful() {
         return Ok(build_result.return_code_for_success());
     }
-
     let run_cmd = get_run_cmd(build_meta, &cmd.args)?;
+    if cli.verbose {
+        rr_build::dry_print_command(run_cmd.command.as_std(), source_dir, true);
+    }
 
     // Release the lock before spawning the subprocess
     drop(_lock);

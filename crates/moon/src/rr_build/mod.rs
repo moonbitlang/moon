@@ -621,12 +621,15 @@ pub struct BuildConfig {
     /// Ask n2 to explain rerun reasons
     pub n2_explain: bool,
 
+    /// Verbose output for build progress and command echo
+    verbose: bool,
+
     /// The patch file to use
     pub patch_file: Option<PathBuf>,
 }
 
 impl BuildConfig {
-    pub fn from_flags(flags: &BuildFlags, unstable_features: &FeatureGate) -> Self {
+    pub fn from_flags(flags: &BuildFlags, unstable_features: &FeatureGate, verbose: bool) -> Self {
         BuildConfig {
             parallelism: flags.jobs,
             no_render: flags.output_style().needs_no_render(),
@@ -634,6 +637,7 @@ impl BuildConfig {
             generate_metadata: false,
             explain_errors: false,
             n2_explain: unstable_features.rr_n2_explain,
+            verbose,
             patch_file: None,
         }
     }
@@ -648,6 +652,7 @@ impl Default for BuildConfig {
             generate_metadata: false,
             explain_errors: false,
             n2_explain: false,
+            verbose: false,
             patch_file: None,
         }
     }
@@ -746,7 +751,7 @@ pub fn execute_build_partial(
         PathBuf::new(),
         target_dir.into(),
     );
-    let mut prog_console = create_progress_console(Some(Box::new(callback)), false);
+    let mut prog_console = create_progress_console(Some(Box::new(callback)), cfg.verbose);
     let mut work = n2::work::Work::new(
         build_graph,
         hashes,

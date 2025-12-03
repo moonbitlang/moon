@@ -138,29 +138,33 @@ impl TestIndex {
 #[instrument(level = "debug", skip(build_meta, filter))]
 pub fn run_tests(
     build_meta: &BuildMeta,
+    source_dir: &Path,
     target_dir: &Path,
     filter: &TestFilter,
     include_skipped: bool,
     bench: bool,
+    verbose: bool,
 ) -> anyhow::Result<ReplaceableTestResults> {
     // Gathering artifacts
     let executables = gather_tests(build_meta);
     debug!(count = executables.len(), "collected test executables");
 
     let rt = default_rt().context("Failed to create runtime")?;
+    let ctx = TestRunCtx {
+        build_meta,
+        rt: &rt,
+        source_dir,
+        target_dir,
+        filter,
+        include_skipped,
+        bench,
+        verbose,
+    };
     let mut stats = ReplaceableTestResults::default();
     let mut total_cases = 0usize;
     for r in executables {
         debug!(target = ?r.target, executable = %r.executable.display(), "running test executable");
-        let res = run_one_test_executable(
-            build_meta,
-            &rt,
-            target_dir,
-            &r,
-            filter,
-            include_skipped,
-            bench,
-        )?;
+        let res = run_one_test_executable(&ctx, &r)?;
         let cases_for_target = res.map.values().map(IndexMap::len).sum::<usize>();
         trace!(target = ?r.target, cases = cases_for_target, "merging test results");
         total_cases += cases_for_target;
@@ -183,6 +187,27 @@ struct TestExecutableToRun<'a> {
     target: BuildTarget,
     executable: &'a Path,
     meta: &'a Path,
+}
+
+/// Context for running a single compiled test executable. This is for reducing
+/// the number of parameters shifted around.
+struct TestRunCtx<'a> {
+    /// Build outputs and target backend
+    build_meta: &'a BuildMeta,
+    /// Tokio runtime used to execute the test process
+    rt: &'a Runtime,
+    /// Source directory; used for dry-printing commands when verbose
+    source_dir: &'a Path,
+    /// Target directory; coverage output destination
+    target_dir: &'a Path,
+    /// Package/file/index selection
+    filter: &'a TestFilter,
+    /// Include tests marked as skipped
+    include_skipped: bool,
+    /// Include benchmark cases
+    bench: bool,
+    /// Enable verbose printing
+    verbose: bool,
 }
 
 /// A container of test results corresponding to each test artifact, and
@@ -331,23 +356,22 @@ fn gather_tests(build_meta: &BuildMeta) -> Vec<TestExecutableToRun<'_>> {
     results
 }
 
-#[instrument(level = "debug", skip(build_meta, rt, target_dir, filter))]
+#[instrument(level = "debug", skip(ctx, test))]
 fn run_one_test_executable(
-    build_meta: &BuildMeta,
-    rt: &Runtime, // FIXME: parallel execution
-    target_dir: &Path,
+    ctx: &TestRunCtx<'_>,
     test: &TestExecutableToRun,
-    filter: &TestFilter,
-    include_skipped: bool,
-    bench: bool,
 ) -> Result<TargetTestResult, anyhow::Error> {
-    let (included, file_filt) = filter.check_package(test.target);
+    let (included, file_filt) = ctx.filter.check_package(test.target);
     if !included {
         debug!(target = ?test.target, "skipping test executable due to filter");
         return Ok(TargetTestResult::default());
     }
 
-    let fqn = build_meta.resolve_output.pkg_dirs.fqn(test.target.package);
+    let fqn = ctx
+        .build_meta
+        .resolve_output
+        .pkg_dirs
+        .fqn(test.target.package);
     let pkgname = fqn.to_string();
 
     // Parse test metadata
@@ -365,21 +389,28 @@ fn run_one_test_executable(
         file_filt,
         &meta,
         &mut test_args.file_and_index,
-        include_skipped,
-        bench,
+        ctx.include_skipped,
+        ctx.bench,
     );
     trace!(
         filter_entries = test_args.file_and_index.len(),
         "applied test filter"
     );
 
-    let cmd =
-        crate::run::command_for(build_meta.target_backend, test.executable, Some(&test_args))?;
+    let cmd = crate::run::command_for(
+        ctx.build_meta.target_backend,
+        test.executable,
+        Some(&test_args),
+    )?;
     let mut cov_cap = mk_coverage_capture();
     let mut test_cap = make_test_capture();
+    if ctx.verbose {
+        crate::rr_build::dry_print_command(cmd.command.as_std(), ctx.source_dir, true);
+    }
     info!(package = %test_args.package, executable = %test.executable.display(), "launching test executable");
 
-    let exit_status = rt
+    let exit_status = ctx
+        .rt
         .block_on(crate::run::run(
             &mut [&mut cov_cap, &mut test_cap],
             true,
@@ -396,7 +427,7 @@ fn run_one_test_executable(
         );
     }
 
-    handle_finished_coverage(target_dir, cov_cap)?;
+    handle_finished_coverage(ctx.target_dir, cov_cap)?;
 
     parse_test_results(meta, test_cap).with_context(|| {
         format!(
