@@ -167,11 +167,11 @@ impl<'a> BuildPlanLowerContext<'a> {
                     package_name: &v_pkg.fqn,
                     package_path: v_pkg.root_path.as_path().into(),
                 });
-                no_mi = true; // virtual implementations do not emit .mi because it cannot be imported directly
             } else {
                 // Same package → this is a virtual package being checked against its own interface
                 check_mi = Some(mi_path.into());
             }
+            no_mi = true; // virtual implementations do not emit .mi because it cannot be imported directly
         }
 
         BuildCommonConfig {

@@ -16,6 +16,3 @@ test_cases::dummy_core::test_dummy_core
 
 # moonrun binary improvements
 test_cases::target_backend::test_target_backend
-
-# macos failure that cannot reproduce locally
-test_cases::virtual_pkg::test_virtual_pkg_err

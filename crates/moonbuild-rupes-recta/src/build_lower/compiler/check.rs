@@ -74,7 +74,9 @@ impl<'a> MooncCheck<'a> {
         self.defaults.add_warn_alert_allow_all(args);
 
         // Output
-        args.extend(["-o".to_string(), self.mi_out.display().to_string()]);
+        if !self.defaults.no_mi {
+            args.extend(["-o".to_string(), self.mi_out.display().to_string()]);
+        }
 
         // Package configuration
         self.required.add_package_config(args);
