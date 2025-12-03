@@ -1,0 +1,10 @@
+{
+  "is-main": true,
+  "pre-build": [
+    {
+      "input": "main.mbt",
+      "output": "generated.mbt",
+      "command": "hostname" // `hostname` is available on both Windows and *nix and without observable side effects
+    }
+  ]
+}
