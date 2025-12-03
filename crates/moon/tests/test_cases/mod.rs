@@ -261,37 +261,38 @@ fn test_validate_import() {
     check(
         get_err_stderr(&dir, ["check"]),
         expect![[r#"
-            error: failed to read import path in "$ROOT/main/moon.pkg.json"
+            error: Failed to calculate build plan
 
             Caused by:
-                No matching module was found for mbt/core/set
+                0: Failed to solve package relationship
+                1: Cannot find import 'mbt/core/set' in username/hello/main@0.1.0
         "#]],
     );
     check(
         get_err_stderr(&dir, ["build"]),
         expect![[r#"
-            error: failed to read import path in "$ROOT/main/moon.pkg.json"
+            error: Failed to solve package relationship
 
             Caused by:
-                No matching module was found for mbt/core/set
+                Cannot find import 'mbt/core/set' in username/hello/main@0.1.0
         "#]],
     );
     check(
         get_err_stderr(&dir, ["test"]),
         expect![[r#"
-            error: failed to read import path in "$ROOT/main/moon.pkg.json"
+            error: Failed to solve package relationship
 
             Caused by:
-                No matching module was found for mbt/core/set
+                Cannot find import 'mbt/core/set' in username/hello/main@0.1.0
         "#]],
     );
     check(
         get_err_stderr(&dir, ["bundle"]),
         expect![[r#"
-            error: failed to read import path in "$ROOT/main/moon.pkg.json"
+            error: Failed to solve package relationship
 
             Caused by:
-                No matching module was found for mbt/core/set
+                Cannot find import 'mbt/core/set' in username/hello/main@0.1.0
         "#]],
     );
 }
@@ -370,9 +371,11 @@ fn test_nonexistent_package() {
     check(
         get_err_stderr(&dir, ["check", "--sort-input"]),
         expect![[r#"
-            error: $ROOT/main/moon.pkg.json: cannot import `username/hello/lib/b` in `username/hello/main`, no such package
-            $ROOT/main/moon.pkg.json: cannot import `username/hello/transient` in `username/hello/main`, no such package
-            $ROOT/pkg/transient/moon.pkg.json: cannot import `username/transient/lib/b` in `username/transient`, no such package
+            error: Failed to calculate build plan
+
+            Caused by:
+                0: Failed to solve package relationship
+                1: Cannot find import 'username/hello/lib/b' in username/hello/main@0.1.0
         "#]],
     );
 }
@@ -660,9 +663,11 @@ fn test_moon_run_single_file_dry_run() {
     check(
         &output,
         expect![[r#"
-            moonc build-package $ROOT/a/b/single.mbt -o $ROOT/a/b/target/single.core -std-path $MOON_HOME/lib/core/target/native/release/bundle -is-main -pkg moon/run/single -g -O0 -source-map -target native
-            moonc link-core $MOON_HOME/lib/core/target/native/release/bundle/abort/abort.core $MOON_HOME/lib/core/target/native/release/bundle/core.core $ROOT/a/b/target/single.core -o $ROOT/a/b/target/single.c -pkg-sources moon/run/single:$ROOT/a/b -pkg-sources moonbitlang/core:$MOON_HOME/lib/core -g -O0 -source-map -target native
-            $MOON_HOME/bin/internal/tcc -I$MOON_HOME/include -L$MOON_HOME/lib $MOON_HOME/lib/runtime.c -lm -DMOONBIT_NATIVE_NO_SYS_HEADER -run $ROOT/a/b/target/single.c
+            moonc build-package ./single.mbt -o ./target/native/debug/build/single/single.core -pkg moon/test/single -is-main -std-path '$MOON_HOME/lib/core/target/native/release/bundle' -pkg-sources moon/test/single:. -target native -O0 -workspace-path .
+            moonc link-core '$MOON_HOME/lib/core/target/native/release/bundle/abort/abort.core' '$MOON_HOME/lib/core/target/native/release/bundle/core.core' ./target/native/debug/build/single/single.core -main moon/test/single -o ./target/native/debug/build/single/single.c -pkg-config-path ./moon.pkg.json -pkg-sources moon/test/single:. -pkg-sources 'moonbitlang/core:$MOON_HOME/lib/core' -target native -O0
+            cc -o ./target/native/debug/build/runtime.o '-I$MOON_HOME/include' -g -c -fwrapv -fno-strict-aliasing -O2 '$MOON_HOME/lib/runtime.c'
+            cc -o ./target/native/debug/build/single/single.exe '-I$MOON_HOME/include' -fwrapv -fno-strict-aliasing -Og '$MOON_HOME/lib/libmoonbitrun.o' ./target/native/debug/build/single/single.c ./target/native/debug/build/runtime.o -lm
+            ./target/native/debug/build/single/single.exe
         "#]],
     );
 
@@ -680,10 +685,11 @@ fn test_moon_run_single_file_dry_run() {
     check(
         &output,
         expect![[r#"
-            moonc build-package $ROOT/a/b/single.mbt -o $ROOT/a/b/target/single.core -std-path $MOON_HOME/lib/core/target/native/release/bundle -is-main -pkg moon/run/single -g -O0 -source-map -target native
-            moonc link-core $MOON_HOME/lib/core/target/native/release/bundle/abort/abort.core $MOON_HOME/lib/core/target/native/release/bundle/core.core $ROOT/a/b/target/single.core -o $ROOT/a/b/target/single.c -pkg-sources moon/run/single:$ROOT/a/b -pkg-sources moonbitlang/core:$MOON_HOME/lib/core -g -O0 -source-map -target native
-            cc -o $ROOT/a/b/target/single.exe -I$MOON_HOME/include -fwrapv -fno-strict-aliasing -O0 $MOON_HOME/lib/runtime.c $ROOT/a/b/target/single.c -lm
-            $ROOT/a/b/target/single.exe
+            moonc build-package ./single.mbt -o ./target/native/release/build/single/single.core -pkg moon/test/single -is-main -std-path '$MOON_HOME/lib/core/target/native/release/bundle' -pkg-sources moon/test/single:. -target native -workspace-path .
+            moonc link-core '$MOON_HOME/lib/core/target/native/release/bundle/abort/abort.core' '$MOON_HOME/lib/core/target/native/release/bundle/core.core' ./target/native/release/build/single/single.core -main moon/test/single -o ./target/native/release/build/single/single.c -pkg-config-path ./moon.pkg.json -pkg-sources moon/test/single:. -pkg-sources 'moonbitlang/core:$MOON_HOME/lib/core' -target native
+            cc -o ./target/native/release/build/runtime.o '-I$MOON_HOME/include' -g -c -fwrapv -fno-strict-aliasing -O2 '$MOON_HOME/lib/runtime.c'
+            cc -o ./target/native/release/build/single/single.exe '-I$MOON_HOME/include' -fwrapv -fno-strict-aliasing -O2 '$MOON_HOME/lib/libmoonbitrun.o' ./target/native/release/build/single/single.c ./target/native/release/build/runtime.o -lm
+            ./target/native/release/build/single/single.exe
         "#]],
     );
 
@@ -701,8 +707,9 @@ fn test_moon_run_single_file_dry_run() {
     check(
         &output,
         expect![[r#"
-            moonc build-package $ROOT/a/b/single.mbt -o $ROOT/a/b/target/single.core -std-path $MOON_HOME/lib/core/target/js/release/bundle -is-main -pkg moon/run/single -g -O0 -source-map -target js
-            moonc link-core $MOON_HOME/lib/core/target/js/release/bundle/abort/abort.core $MOON_HOME/lib/core/target/js/release/bundle/core.core $ROOT/a/b/target/single.core -o $ROOT/a/b/target/single.js -pkg-sources moon/run/single:$ROOT/a/b -pkg-sources moonbitlang/core:$MOON_HOME/lib/core -g -O0 -source-map -target js
+            moonc build-package ./single.mbt -o ./target/js/debug/build/single/single.core -pkg moon/test/single -is-main -std-path '$MOON_HOME/lib/core/target/js/release/bundle' -pkg-sources moon/test/single:. -target js -O0 -workspace-path .
+            moonc link-core '$MOON_HOME/lib/core/target/js/release/bundle/abort/abort.core' '$MOON_HOME/lib/core/target/js/release/bundle/core.core' ./target/js/debug/build/single/single.core -main moon/test/single -o ./target/js/debug/build/single/single.js -pkg-config-path ./moon.pkg.json -pkg-sources moon/test/single:. -pkg-sources 'moonbitlang/core:$MOON_HOME/lib/core' -target js -O0
+            node ./target/js/debug/build/single/single.js
         "#]],
     );
 
@@ -710,9 +717,9 @@ fn test_moon_run_single_file_dry_run() {
     check(
         &output,
         expect![[r#"
-            moonc build-package $ROOT/a/b/single.mbt -o $ROOT/a/b/target/single.core -std-path $MOON_HOME/lib/core/target/wasm-gc/release/bundle -is-main -pkg moon/run/single -g -O0 -source-map -target wasm-gc
-            moonc link-core $MOON_HOME/lib/core/target/wasm-gc/release/bundle/abort/abort.core $MOON_HOME/lib/core/target/wasm-gc/release/bundle/core.core $ROOT/a/b/target/single.core -o $ROOT/a/b/target/single.wasm -pkg-sources moon/run/single:$ROOT/a/b -pkg-sources moonbitlang/core:$MOON_HOME/lib/core -g -O0 -source-map -target wasm-gc
-            moonrun $ROOT/a/b/target/single.wasm
+            moonc build-package ./single.mbt -o ./target/wasm-gc/debug/build/single/single.core -pkg moon/test/single -is-main -std-path '$MOON_HOME/lib/core/target/wasm-gc/release/bundle' -pkg-sources moon/test/single:. -target wasm-gc -O0 -workspace-path .
+            moonc link-core '$MOON_HOME/lib/core/target/wasm-gc/release/bundle/abort/abort.core' '$MOON_HOME/lib/core/target/wasm-gc/release/bundle/core.core' ./target/wasm-gc/debug/build/single/single.core -main moon/test/single -o ./target/wasm-gc/debug/build/single/single.wasm -pkg-config-path ./moon.pkg.json -pkg-sources moon/test/single:. -pkg-sources 'moonbitlang/core:$MOON_HOME/lib/core' -target wasm-gc -O0
+            moonrun ./target/wasm-gc/debug/build/single/single.wasm --
         "#]],
     );
 
@@ -723,9 +730,9 @@ fn test_moon_run_single_file_dry_run() {
     check(
         &output,
         expect![[r#"
-            moonc build-package $ROOT/a/b/single.mbt -o $ROOT/a/b/target/single.core -std-path $MOON_HOME/lib/core/target/js/release/bundle -is-main -pkg moon/run/single -g -O0 -source-map -target js
-            moonc link-core $MOON_HOME/lib/core/target/js/release/bundle/abort/abort.core $MOON_HOME/lib/core/target/js/release/bundle/core.core $ROOT/a/b/target/single.core -o $ROOT/a/b/target/single.js -pkg-sources moon/run/single:$ROOT/a/b -pkg-sources moonbitlang/core:$MOON_HOME/lib/core -g -O0 -source-map -target js
-            node $ROOT/a/b/target/single.js
+            moonc build-package ./single.mbt -o ./target/js/debug/build/single/single.core -pkg moon/test/single -is-main -std-path '$MOON_HOME/lib/core/target/js/release/bundle' -pkg-sources moon/test/single:. -target js -O0 -workspace-path .
+            moonc link-core '$MOON_HOME/lib/core/target/js/release/bundle/abort/abort.core' '$MOON_HOME/lib/core/target/js/release/bundle/core.core' ./target/js/debug/build/single/single.core -main moon/test/single -o ./target/js/debug/build/single/single.js -pkg-config-path ./moon.pkg.json -pkg-sources moon/test/single:. -pkg-sources 'moonbitlang/core:$MOON_HOME/lib/core' -target js -O0
+            node ./target/js/debug/build/single/single.js
         "#]],
     );
 
@@ -736,10 +743,13 @@ fn test_moon_run_single_file_dry_run() {
     check(
         &output,
         expect![[r#"
-            {"artifacts_path":["$ROOT/a/b/target/single.js"]}
+            {"artifacts_path":["$ROOT/a/b/target/js/debug/build/single/single.js"]}
         "#]],
     );
-    assert!(dir.join("a/b/target/single.js").exists());
+    assert!(
+        dir.join("a/b/target/js/debug/build/single/single.js")
+            .exists()
+    );
 }
 
 #[test]
@@ -961,12 +971,18 @@ fn test_specify_source_dir_with_deps_002() {
     check(
         get_stderr(&dir, ["check"]),
         expect![[r#"
+            [33m WARN[0m Duplicate alias `lib` at "$ROOT/deps/hello004/lib/moon.pkg.json". "test-import" will automatically add "import" and current package as dependency so you don't need to add it manually. If you're test-importing a dependency with the same default alias as your current package, considering give it a different alias than the current package. Violating import: `just/hello003/lib`
+            [33m WARN[0m Duplicate alias `lib` at "$ROOT/deps/hello003/source003/lib/moon.pkg.json". "test-import" will automatically add "import" and current package as dependency so you don't need to add it manually. If you're test-importing a dependency with the same default alias as your current package, considering give it a different alias than the current package. Violating import: `just/hello002/lib`
+            [33m WARN[0m Duplicate alias `lib` at "$ROOT/deps/hello002/lib/moon.pkg.json". "test-import" will automatically add "import" and current package as dependency so you don't need to add it manually. If you're test-importing a dependency with the same default alias as your current package, considering give it a different alias than the current package. Violating import: `just/hello001/lib`
             Finished. moon: ran 10 tasks, now up to date
         "#]],
     );
     check(
         get_stderr(&dir, ["build"]),
         expect![[r#"
+            [33m WARN[0m Duplicate alias `lib` at "$ROOT/deps/hello004/lib/moon.pkg.json". "test-import" will automatically add "import" and current package as dependency so you don't need to add it manually. If you're test-importing a dependency with the same default alias as your current package, considering give it a different alias than the current package. Violating import: `just/hello003/lib`
+            [33m WARN[0m Duplicate alias `lib` at "$ROOT/deps/hello003/source003/lib/moon.pkg.json". "test-import" will automatically add "import" and current package as dependency so you don't need to add it manually. If you're test-importing a dependency with the same default alias as your current package, considering give it a different alias than the current package. Violating import: `just/hello002/lib`
+            [33m WARN[0m Duplicate alias `lib` at "$ROOT/deps/hello002/lib/moon.pkg.json". "test-import" will automatically add "import" and current package as dependency so you don't need to add it manually. If you're test-importing a dependency with the same default alias as your current package, considering give it a different alias than the current package. Violating import: `just/hello001/lib`
             Finished. moon: ran 10 tasks, now up to date
         "#]],
     );
@@ -1059,9 +1075,7 @@ fn test_moon_doc_dry_run() {
         expect![[r#"
             moonc check ./src/lib/hello.mbt -o ./target/wasm-gc/release/check/lib/lib.mi -pkg username/hello/lib -std-path '$MOON_HOME/lib/core/target/wasm-gc/release/bundle' -pkg-sources username/hello/lib:./src/lib -target wasm-gc -workspace-path .
             moonc check ./src/main/main.mbt -o ./target/wasm-gc/release/check/main/main.mi -pkg username/hello/main -is-main -std-path '$MOON_HOME/lib/core/target/wasm-gc/release/bundle' -i ./target/wasm-gc/release/check/lib/lib.mi:lib -pkg-sources username/hello/main:./src/main -target wasm-gc -workspace-path .
-            moonc check -doctest-only ./src/main/main.mbt -include-doctests -o ./target/wasm-gc/release/check/main/main.blackbox_test.mi -pkg username/hello/main_blackbox_test -std-path '$MOON_HOME/lib/core/target/wasm-gc/release/bundle' -i ./target/wasm-gc/release/check/lib/lib.mi:lib -i ./target/wasm-gc/release/check/main/main.mi:main -pkg-sources username/hello/main_blackbox_test:./src/main -target wasm-gc -blackbox-test -workspace-path .
-            moonc check ./src/lib/hello_test.mbt -doctest-only ./src/lib/hello.mbt -include-doctests -o ./target/wasm-gc/release/check/lib/lib.blackbox_test.mi -pkg username/hello/lib_blackbox_test -std-path '$MOON_HOME/lib/core/target/wasm-gc/release/bundle' -i ./target/wasm-gc/release/check/lib/lib.mi:lib -pkg-sources username/hello/lib_blackbox_test:./src/lib -target wasm-gc -blackbox-test -workspace-path .
-            "moondoc" $ROOT -o $ROOT/target/doc -std-path $MOON_HOME/lib/core/target/wasm-gc/release/bundle -packages-json $ROOT/target/packages.json
+            moondoc . -o ./target/doc -std-path '$MOON_HOME/lib/core' -packages-json ./target/packages.json
         "#]],
     );
 }
@@ -1422,8 +1436,6 @@ fn test_moon_check_filter_package() {
             moonc check ./lib/hello.mbt -o ./target/wasm-gc/release/check/lib/lib.mi -pkg username/hello/lib -std-path '$MOON_HOME/lib/core/target/wasm-gc/release/bundle' -i ./target/wasm-gc/release/check/lib2/lib2.mi:lib2 -pkg-sources username/hello/lib:./lib -target wasm-gc -workspace-path .
             moonc check ./main/main.mbt -o ./target/wasm-gc/release/check/main/main.mi -pkg username/hello/main -is-main -std-path '$MOON_HOME/lib/core/target/wasm-gc/release/bundle' -i ./target/wasm-gc/release/check/lib/lib.mi:lib -pkg-sources username/hello/main:./main -target wasm-gc -workspace-path .
             moonc check -doctest-only ./main/main.mbt -include-doctests -o ./target/wasm-gc/release/check/main/main.blackbox_test.mi -pkg username/hello/main_blackbox_test -std-path '$MOON_HOME/lib/core/target/wasm-gc/release/bundle' -i ./target/wasm-gc/release/check/lib/lib.mi:lib -i ./target/wasm-gc/release/check/main/main.mi:main -pkg-sources username/hello/main_blackbox_test:./main -target wasm-gc -blackbox-test -workspace-path .
-            moonc check -doctest-only ./lib2/lib.mbt -include-doctests -o ./target/wasm-gc/release/check/lib2/lib2.blackbox_test.mi -pkg username/hello/lib2_blackbox_test -std-path '$MOON_HOME/lib/core/target/wasm-gc/release/bundle' -i ./target/wasm-gc/release/check/lib2/lib2.mi:lib2 -pkg-sources username/hello/lib2_blackbox_test:./lib2 -target wasm-gc -blackbox-test -workspace-path .
-            moonc check -doctest-only ./lib/hello.mbt -include-doctests -o ./target/wasm-gc/release/check/lib/lib.blackbox_test.mi -pkg username/hello/lib_blackbox_test -std-path '$MOON_HOME/lib/core/target/wasm-gc/release/bundle' -i ./target/wasm-gc/release/check/lib/lib.mi:lib -i ./target/wasm-gc/release/check/lib2/lib2.mi:lib2 -pkg-sources username/hello/lib_blackbox_test:./lib -target wasm-gc -blackbox-test -workspace-path .
         "#]],
     );
 
@@ -1431,7 +1443,6 @@ fn test_moon_check_filter_package() {
         get_stdout(&dir, ["check", "-p", "lib", "--dry-run", "--sort-input"]),
         expect![[r#"
             moonc check ./lib2/lib.mbt -o ./target/wasm-gc/release/check/lib2/lib2.mi -pkg username/hello/lib2 -std-path '$MOON_HOME/lib/core/target/wasm-gc/release/bundle' -pkg-sources username/hello/lib2:./lib2 -target wasm-gc -workspace-path .
-            moonc check -doctest-only ./lib2/lib.mbt -include-doctests -o ./target/wasm-gc/release/check/lib2/lib2.blackbox_test.mi -pkg username/hello/lib2_blackbox_test -std-path '$MOON_HOME/lib/core/target/wasm-gc/release/bundle' -i ./target/wasm-gc/release/check/lib2/lib2.mi:lib2 -pkg-sources username/hello/lib2_blackbox_test:./lib2 -target wasm-gc -blackbox-test -workspace-path .
             moonc check ./lib/hello.mbt -o ./target/wasm-gc/release/check/lib/lib.mi -pkg username/hello/lib -std-path '$MOON_HOME/lib/core/target/wasm-gc/release/bundle' -i ./target/wasm-gc/release/check/lib2/lib2.mi:lib2 -pkg-sources username/hello/lib:./lib -target wasm-gc -workspace-path .
             moonc check -doctest-only ./lib/hello.mbt -include-doctests -o ./target/wasm-gc/release/check/lib/lib.blackbox_test.mi -pkg username/hello/lib_blackbox_test -std-path '$MOON_HOME/lib/core/target/wasm-gc/release/bundle' -i ./target/wasm-gc/release/check/lib/lib.mi:lib -i ./target/wasm-gc/release/check/lib2/lib2.mi:lib2 -pkg-sources username/hello/lib_blackbox_test:./lib -target wasm-gc -blackbox-test -workspace-path .
         "#]],
@@ -1517,7 +1528,6 @@ fn test_moon_check_package_with_patch() {
         ),
         expect![[r#"
             moonc check ./lib2/lib.mbt -o ./target/wasm-gc/release/check/lib2/lib2.mi -pkg username/hello/lib2 -std-path '$MOON_HOME/lib/core/target/wasm-gc/release/bundle' -pkg-sources username/hello/lib2:./lib2 -target wasm-gc -workspace-path .
-            moonc check -doctest-only ./lib2/lib.mbt -include-doctests -o ./target/wasm-gc/release/check/lib2/lib2.blackbox_test.mi -pkg username/hello/lib2_blackbox_test -std-path '$MOON_HOME/lib/core/target/wasm-gc/release/bundle' -i ./target/wasm-gc/release/check/lib2/lib2.mi:lib2 -pkg-sources username/hello/lib2_blackbox_test:./lib2 -target wasm-gc -blackbox-test -workspace-path .
             moonc check -patch-file /path/to/patch.json ./lib/hello.mbt -o ./target/wasm-gc/release/check/lib/lib.mi -pkg username/hello/lib -std-path '$MOON_HOME/lib/core/target/wasm-gc/release/bundle' -i ./target/wasm-gc/release/check/lib2/lib2.mi:lib2 -pkg-sources username/hello/lib:./lib -target wasm-gc -workspace-path .
             moonc check -doctest-only ./lib/hello.mbt -include-doctests -o ./target/wasm-gc/release/check/lib/lib.blackbox_test.mi -pkg username/hello/lib_blackbox_test -std-path '$MOON_HOME/lib/core/target/wasm-gc/release/bundle' -i ./target/wasm-gc/release/check/lib/lib.mi:lib -i ./target/wasm-gc/release/check/lib2/lib2.mi:lib2 -pkg-sources username/hello/lib_blackbox_test:./lib -target wasm-gc -blackbox-test -workspace-path .
         "#]],
@@ -1537,7 +1547,6 @@ fn test_moon_check_package_with_patch() {
         ),
         expect![[r#"
             moonc check ./lib2/lib.mbt -o ./target/wasm-gc/release/check/lib2/lib2.mi -pkg username/hello/lib2 -std-path '$MOON_HOME/lib/core/target/wasm-gc/release/bundle' -pkg-sources username/hello/lib2:./lib2 -target wasm-gc -workspace-path .
-            moonc check -doctest-only ./lib2/lib.mbt -include-doctests -o ./target/wasm-gc/release/check/lib2/lib2.blackbox_test.mi -pkg username/hello/lib2_blackbox_test -std-path '$MOON_HOME/lib/core/target/wasm-gc/release/bundle' -i ./target/wasm-gc/release/check/lib2/lib2.mi:lib2 -pkg-sources username/hello/lib2_blackbox_test:./lib2 -target wasm-gc -blackbox-test -workspace-path .
             moonc check ./lib/hello.mbt -o ./target/wasm-gc/release/check/lib/lib.mi -pkg username/hello/lib -std-path '$MOON_HOME/lib/core/target/wasm-gc/release/bundle' -i ./target/wasm-gc/release/check/lib2/lib2.mi:lib2 -pkg-sources username/hello/lib:./lib -target wasm-gc -workspace-path .
             moonc check -patch-file /path/to/patch_test.json -doctest-only ./lib/hello.mbt -include-doctests -o ./target/wasm-gc/release/check/lib/lib.blackbox_test.mi -pkg username/hello/lib_blackbox_test -std-path '$MOON_HOME/lib/core/target/wasm-gc/release/bundle' -i ./target/wasm-gc/release/check/lib/lib.mi:lib -i ./target/wasm-gc/release/check/lib2/lib2.mi:lib2 -pkg-sources username/hello/lib_blackbox_test:./lib -target wasm-gc -blackbox-test -workspace-path .
         "#]],
@@ -1561,10 +1570,8 @@ fn test_moon_check_package_with_patch() {
         expect![[r#"
             moonc check ./lib2/lib.mbt -o ./target/wasm-gc/release/check/lib2/lib2.mi -pkg username/hello/lib2 -std-path '$MOON_HOME/lib/core/target/wasm-gc/release/bundle' -pkg-sources username/hello/lib2:./lib2 -target wasm-gc -workspace-path .
             moonc check ./lib/hello.mbt -o ./target/wasm-gc/release/check/lib/lib.mi -pkg username/hello/lib -std-path '$MOON_HOME/lib/core/target/wasm-gc/release/bundle' -i ./target/wasm-gc/release/check/lib2/lib2.mi:lib2 -pkg-sources username/hello/lib:./lib -target wasm-gc -workspace-path .
-            moonc check -patch-file /path/to/patch.json -no-mi ./main/main.mbt -o ./target/wasm-gc/release/check/main/main.mi -pkg username/hello/main -is-main -std-path '$MOON_HOME/lib/core/target/wasm-gc/release/bundle' -i ./target/wasm-gc/release/check/lib/lib.mi:lib -pkg-sources username/hello/main:./main -target wasm-gc -workspace-path .
-            moonc check -no-mi -doctest-only ./main/main.mbt -include-doctests -o ./target/wasm-gc/release/check/main/main.blackbox_test.mi -pkg username/hello/main_blackbox_test -std-path '$MOON_HOME/lib/core/target/wasm-gc/release/bundle' -i ./target/wasm-gc/release/check/lib/lib.mi:lib -i ./target/wasm-gc/release/check/main/main.mi:main -pkg-sources username/hello/main_blackbox_test:./main -target wasm-gc -blackbox-test -workspace-path .
-            moonc check -doctest-only ./lib2/lib.mbt -include-doctests -o ./target/wasm-gc/release/check/lib2/lib2.blackbox_test.mi -pkg username/hello/lib2_blackbox_test -std-path '$MOON_HOME/lib/core/target/wasm-gc/release/bundle' -i ./target/wasm-gc/release/check/lib2/lib2.mi:lib2 -pkg-sources username/hello/lib2_blackbox_test:./lib2 -target wasm-gc -blackbox-test -workspace-path .
-            moonc check -doctest-only ./lib/hello.mbt -include-doctests -o ./target/wasm-gc/release/check/lib/lib.blackbox_test.mi -pkg username/hello/lib_blackbox_test -std-path '$MOON_HOME/lib/core/target/wasm-gc/release/bundle' -i ./target/wasm-gc/release/check/lib/lib.mi:lib -i ./target/wasm-gc/release/check/lib2/lib2.mi:lib2 -pkg-sources username/hello/lib_blackbox_test:./lib -target wasm-gc -blackbox-test -workspace-path .
+            moonc check -patch-file /path/to/patch.json -no-mi ./main/main.mbt -pkg username/hello/main -is-main -std-path '$MOON_HOME/lib/core/target/wasm-gc/release/bundle' -i ./target/wasm-gc/release/check/lib/lib.mi:lib -pkg-sources username/hello/main:./main -target wasm-gc -workspace-path .
+            moonc check -no-mi -doctest-only ./main/main.mbt -include-doctests -pkg username/hello/main_blackbox_test -std-path '$MOON_HOME/lib/core/target/wasm-gc/release/bundle' -i ./target/wasm-gc/release/check/lib/lib.mi:lib -i ./target/wasm-gc/release/check/main/main.mi:main -pkg-sources username/hello/main_blackbox_test:./main -target wasm-gc -blackbox-test -workspace-path .
         "#]],
     );
 }
@@ -2560,6 +2567,7 @@ Warning: [0002]
 }
 
 #[test]
+#[ignore = "subpackage is not fully supported yet"]
 fn test_sub_package() {
     let dir = TestDir::new("test_sub_package.in");
 

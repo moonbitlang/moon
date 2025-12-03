@@ -123,27 +123,27 @@ fn test_tracing_value_for_single_file() {
         expect![[r#"
 
 
-          {"name": "a", "line": 2, "start_column": 7, "end_column": 8, "filepath": "moon/run/single/main.mbt", "value": "$placeholder"}
-          ######MOONBIT_VALUE_TRACING_CONTENT_START######
-          1
-          ######MOONBIT_VALUE_TRACING_CONTENT_END######
-          ######MOONBIT_VALUE_TRACING_END######
+            {"name": "a", "line": 2, "start_column": 7, "end_column": 8, "filepath": "$ROOT/main.mbt", "value": "$placeholder"}
+            ######MOONBIT_VALUE_TRACING_CONTENT_START######
+            1
+            ######MOONBIT_VALUE_TRACING_CONTENT_END######
+            ######MOONBIT_VALUE_TRACING_END######
 
 
-          {"name": "b", "line": 3, "start_column": 7, "end_column": 8, "filepath": "moon/run/single/main.mbt", "value": "$placeholder"}
-          ######MOONBIT_VALUE_TRACING_CONTENT_START######
-          2
-          ######MOONBIT_VALUE_TRACING_CONTENT_END######
-          ######MOONBIT_VALUE_TRACING_END######
+            {"name": "b", "line": 3, "start_column": 7, "end_column": 8, "filepath": "$ROOT/main.mbt", "value": "$placeholder"}
+            ######MOONBIT_VALUE_TRACING_CONTENT_START######
+            2
+            ######MOONBIT_VALUE_TRACING_CONTENT_END######
+            ######MOONBIT_VALUE_TRACING_END######
 
 
-          {"name": "c", "line": 4, "start_column": 7, "end_column": 8, "filepath": "moon/run/single/main.mbt", "value": "$placeholder"}
-          ######MOONBIT_VALUE_TRACING_CONTENT_START######
-          3
-          ######MOONBIT_VALUE_TRACING_CONTENT_END######
-          ######MOONBIT_VALUE_TRACING_END######
-          3
-      "#]],
+            {"name": "c", "line": 4, "start_column": 7, "end_column": 8, "filepath": "$ROOT/main.mbt", "value": "$placeholder"}
+            ######MOONBIT_VALUE_TRACING_CONTENT_START######
+            3
+            ######MOONBIT_VALUE_TRACING_CONTENT_END######
+            ######MOONBIT_VALUE_TRACING_END######
+            3
+        "#]],
     );
 }
 
@@ -158,9 +158,9 @@ fn test_tracing_value_for_single_file_dry_run() {
             ["run", "./main.mbt", "--enable-value-tracing", "--dry-run"],
         ),
         expect![[r#"
-            moonc build-package $ROOT/main.mbt -o $ROOT/target/main.core -std-path $MOON_HOME/lib/core/target/wasm-gc/release/bundle -is-main -pkg moon/run/single -g -O0 -source-map -target wasm-gc -enable-value-tracing
-            moonc link-core $MOON_HOME/lib/core/target/wasm-gc/release/bundle/abort/abort.core $MOON_HOME/lib/core/target/wasm-gc/release/bundle/core.core $ROOT/target/main.core -o $ROOT/target/main.wasm -pkg-sources moon/run/single:$ROOT -pkg-sources moonbitlang/core:$MOON_HOME/lib/core -g -O0 -source-map -target wasm-gc
-            moonrun $ROOT/target/main.wasm
+            moonc build-package ./main.mbt -o ./target/wasm-gc/debug/build/single/single.core -pkg moon/test/single -is-main -std-path '$MOON_HOME/lib/core/target/wasm-gc/release/bundle' -pkg-sources moon/test/single:. -target wasm-gc -O0 -enable-value-tracing -workspace-path .
+            moonc link-core '$MOON_HOME/lib/core/target/wasm-gc/release/bundle/abort/abort.core' '$MOON_HOME/lib/core/target/wasm-gc/release/bundle/core.core' ./target/wasm-gc/debug/build/single/single.core -main moon/test/single -o ./target/wasm-gc/debug/build/single/single.wasm -pkg-config-path ./moon.pkg.json -pkg-sources moon/test/single:. -pkg-sources 'moonbitlang/core:$MOON_HOME/lib/core' -target wasm-gc -O0
+            moonrun ./target/wasm-gc/debug/build/single/single.wasm --
         "#]],
     );
 }
