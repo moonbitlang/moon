@@ -68,10 +68,9 @@ fn print_unstable_footer(flags: &UniversalFlags) {
     println!("Feature flags enabled: {features}");
     if flags.unstable_feature.rupes_recta {
         println!(
-            "-> You're currently using the experimental build graph generator \"Rupes Recta\" \
-            (`-Z rupes_recta` or `NEW_MOON=1` set). \
+            "-> You're currently using the experimental build graph generator \"Rupes Recta\". \
             If you encounter a problem, \
-            please verify whether it also reproduces with the legacy build."
+            please verify whether it also reproduces with the legacy build (by setting NEW_MOON=0)."
         )
     }
 }

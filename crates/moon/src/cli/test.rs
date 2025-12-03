@@ -870,7 +870,10 @@ fn apply_list_of_filters(
         }
     } else {
         // No package matched
-        warn!("no package found matching the given filters");
+        warn!(
+            "package `{}` not found, make sure you have spelled it correctly, e.g. `moonbitlang/core/hashmap`(exact match) or `hashmap`(fuzzy match)",
+            package_filter.join(", ")
+        );
     }
     trace!("finished building package directive");
 

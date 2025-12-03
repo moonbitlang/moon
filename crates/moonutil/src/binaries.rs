@@ -91,6 +91,8 @@ impl CachedBinaries {
             ("moonrun", self.moonrun.clone()),
             ("moonyacc", self.moonyacc.clone()),
             ("moon_cove_report", self.moon_cove_report.clone()),
+            ("node", self.node_or_default()),
+            ("git", self.git_or_default()),
         ]
     }
 

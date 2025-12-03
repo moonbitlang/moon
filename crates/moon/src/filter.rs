@@ -21,7 +21,7 @@
 //! This module contains the common path filtering logic for both legacy and RR backends.
 
 use std::{
-    collections::{HashMap, HashSet},
+    collections::{BTreeMap, HashSet},
     path::{Path, PathBuf},
 };
 
@@ -71,7 +71,7 @@ pub fn canonicalize_with_filename(path: &Path) -> anyhow::Result<(PathBuf, Optio
 /// Returns a list of matches ordered by relevance, without duplicates. The `name_map`
 /// should contain the full package names as keys and the desired return value (e.g.
 /// `PackageId`, `String`) as values.
-pub fn fuzzy_match_by_name<T>(needle: &str, name_map: &HashMap<String, T>) -> SmallVec<[T; 1]>
+pub fn fuzzy_match_by_name<T>(needle: &str, name_map: &BTreeMap<String, T>) -> SmallVec<[T; 1]>
 where
     T: Clone + PartialEq,
 {
@@ -113,7 +113,7 @@ pub fn match_packages_by_name_rr(
         .packages_for_module(main_module_id)
         .expect("Cannot find the local module!");
 
-    let name_map: HashMap<String, PackageId> = packages
+    let name_map: BTreeMap<String, PackageId> = packages
         .values()
         .map(|&pkg_id| {
             let pkg = resolve_output.pkg_dirs.get_package(pkg_id);
@@ -242,7 +242,7 @@ where
     I: IntoIterator<Item = S>,
     S: AsRef<str>,
 {
-    let mut name_map = HashMap::new();
+    let mut name_map = BTreeMap::new();
     for pkg_id in candidates {
         let pkg = resolve_output.pkg_dirs.get_package(pkg_id);
         name_map.insert(pkg.fqn.to_string(), pkg_id);

@@ -35,13 +35,13 @@
   Total tests: 6, passed: 6, failed: 0.
   
   $ moon test -p asdf --sort-input --no-parallelize
-  [255]
-  
-  error: package `asdf` not found, make sure you have spelled it correctly, e.g. `moonbitlang/core/hashmap`(exact match) or `hashmap`(fuzzy match)
-  
-  $ moon test -p y -f asdf --sort-input --no-parallelize
   Total tests: 0, passed: 0, failed: 0.
   
-  Warning: cannot find file `asdf` in package `username/hello/x/y`, `username/hello/y`, --file only support exact matching
+  [33m WARN[0m package `asdf` not found, make sure you have spelled it correctly, e.g. `moonbitlang/core/hashmap`(exact match) or `hashmap`(fuzzy match)
   Warning: no test entry found.
+  
+  $ moon test -p y -f asdf --sort-input --no-parallelize
+  [255]
+  
+  error: Cannot filter by file or index when multiple packages are specified. Matched packages: ["username/hello/x/y", "username/hello/y"]
   

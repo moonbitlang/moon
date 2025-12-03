@@ -30,13 +30,13 @@ fn test_virtual_pkg() {
     check(
         get_stdout(&virtual_pkg, ["test", "--no-parallelize"]),
         expect![[r#"
+            bb test
+            default impl for f1 in lib1: 1
+            another impl for f3 in lib4
             internal test
             default impl for f1 in lib1: 1
             another impl for f3 in lib4
             wb test
-            default impl for f1 in lib1: 1
-            another impl for f3 in lib4
-            bb test
             default impl for f1 in lib1: 1
             another impl for f3 in lib4
             Total tests: 3, passed: 3, failed: 0.
@@ -60,13 +60,13 @@ fn test_virtual_pkg() {
             .join("\n")
             + "\n",
         expect![[r#"
+            bb test
+            default impl for f1 in lib1: 1
+            another impl for f3 in lib4
             internal test
             default impl for f1 in lib1: 1
             another impl for f3 in lib4
             wb test
-            default impl for f1 in lib1: 1
-            another impl for f3 in lib4
-            bb test
             default impl for f1 in lib1: 1
             another impl for f3 in lib4
             [username/xxx] test lib2/hello_test.mbt:2 (#0) failed: Error
@@ -80,6 +80,7 @@ fn test_virtual_pkg_err() {
 
     let err = dir.join("err");
     let content = get_err_stderr(&err, ["check"]);
+    println!("Error output:\n{}", content);
     assert!(content.contains("$ROOT/lib1/pkg.mbti:5:1"));
     assert!(content.contains("$ROOT/lib1/pkg.mbti:3:1"));
 
