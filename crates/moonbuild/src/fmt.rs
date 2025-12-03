@@ -16,6 +16,7 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
+use std::collections::HashSet;
 use std::path::PathBuf;
 
 use moonutil::module::ModuleDB;
@@ -66,6 +67,18 @@ pub fn gen_fmt(
         if pkg.is_third_party {
             continue;
         }
+
+        let prebuild_outputs = pkg
+            .pre_build
+            .as_ref()
+            .iter()
+            .flat_map(|prebuild_plans| {
+                prebuild_plans
+                    .iter()
+                    .flat_map(|plan| plan.output.iter().map(|path| path.as_str()))
+            })
+            .collect::<HashSet<_>>();
+
         for (f, _) in pkg
             .files
             .iter()
@@ -76,7 +89,9 @@ pub fn gen_fmt(
             let ignored = f
                 .file_name()
                 .and_then(|name| name.to_str())
-                .is_some_and(|name| pkg.formatter_ignore.contains(name));
+                .is_some_and(|name| {
+                    pkg.formatter_ignore.contains(name) || prebuild_outputs.contains(name)
+                });
             if ignored {
                 continue;
             }
