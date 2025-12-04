@@ -158,7 +158,7 @@ fn test_tracing_value_for_single_file_dry_run() {
             ["run", "./main.mbt", "--enable-value-tracing", "--dry-run"],
         ),
         expect![[r#"
-            moonc build-package ./main.mbt -o ./target/wasm-gc/debug/build/single/single.core -pkg moon/test/single -is-main -std-path '$MOON_HOME/lib/core/target/wasm-gc/release/bundle' -pkg-sources moon/test/single:. -target wasm-gc -O0 -enable-value-tracing -workspace-path .
+            moonc build-package ./main.mbt -o ./target/wasm-gc/debug/build/single/single.core -pkg moon/test/single -is-main -std-path '$MOON_HOME/lib/core/target/wasm-gc/release/bundle' -pkg-sources moon/test/single:. -target wasm-gc -O0 -enable-value-tracing -workspace-path . -all-pkgs ./target/wasm-gc/debug/build/all_pkgs.json
             moonc link-core '$MOON_HOME/lib/core/target/wasm-gc/release/bundle/abort/abort.core' '$MOON_HOME/lib/core/target/wasm-gc/release/bundle/core.core' ./target/wasm-gc/debug/build/single/single.core -main moon/test/single -o ./target/wasm-gc/debug/build/single/single.wasm -pkg-config-path ./moon.pkg.json -pkg-sources moon/test/single:. -pkg-sources 'moonbitlang/core:$MOON_HOME/lib/core' -target wasm-gc -O0
             moonrun ./target/wasm-gc/debug/build/single/single.wasm --
         "#]],
