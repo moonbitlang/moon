@@ -89,6 +89,57 @@ fn test_moonrun_version() {
     assert!(s.contains("moonrun"));
 }
 
+pub fn normalize_wasm_trace(text: &str) -> String {
+    const PREFIX: &str = "wasm://wasm/";
+
+    let mut result = String::with_capacity(text.len());
+    let bytes = text.as_bytes();
+    let mut i = 0;
+
+    while i < bytes.len() {
+        // Look for the prefix
+        if bytes[i..].starts_with(PREFIX.as_bytes()) {
+            // Write "wasm://wasm:"
+            result.push_str("wasm://wasm:");
+            i += PREFIX.len();
+
+            // Skip hex characters (the hash)
+            while i < bytes.len() && bytes[i].is_ascii_hexdigit() {
+                i += 1;
+            }
+
+            // Skip the ':' after hash
+            if i < bytes.len() && bytes[i] == b':' {
+                i += 1;
+            }
+
+            // Copy until we hit another ':' (the offset separator)
+            while i < bytes.len() && bytes[i] != b':' {
+                result.push(bytes[i] as char);
+                i += 1;
+            }
+
+            // Skip the ':0x...' part (offset)
+            if i < bytes.len() && bytes[i] == b':' {
+                i += 1; // skip ':'
+                // Skip '0x' if present
+                if i + 1 < bytes.len() && bytes[i] == b'0' && bytes[i + 1] == b'x' {
+                    i += 2;
+                }
+                // Skip hex digits
+                while i < bytes.len() && bytes[i].is_ascii_hexdigit() {
+                    i += 1;
+                }
+            }
+        } else {
+            result.push(bytes[i] as char);
+            i += 1;
+        }
+    }
+
+    result
+}
+
 #[test]
 fn test_moonrun_wasm_stack_trace() {
     let dir = TestDir::new("test_stack_trace.in");
@@ -108,13 +159,23 @@ fn test_moonrun_wasm_stack_trace() {
         .get_output()
         .stderr
         .to_owned();
+    // original output:
+    //             RuntimeError: unreachable
+    //          at wasm://wasm/d858b7fa:wasm-function[19]:0x734
+    //          at wasm://wasm/d858b7fa:wasm-function[17]:0x72b
+    //          at wasm://wasm/d858b7fa:wasm-function[24]:0x7a3
     let s = std::str::from_utf8(&out).unwrap().to_string();
+    // need normalization because the source loc (absolute path now) string in
+    // encoded in data section and makes the hash of the .wasm file flaky
+    // because the absolute path contains temp dir path
+    let normalized_s = normalize_wasm_trace(&s);
     check(
-        &s,
+        &normalized_s,
         expect![[r#"
             RuntimeError: unreachable
-                at wasm://wasm/6bf44e26:wasm-function[1]:0x87
-                at wasm://wasm/6bf44e26:wasm-function[2]:0x93
+                at wasm://wasm:wasm-function[19]
+                at wasm://wasm:wasm-function[17]
+                at wasm://wasm:wasm-function[24]
         "#]],
     );
 
