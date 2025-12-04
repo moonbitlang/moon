@@ -1247,6 +1247,13 @@ pub fn gen_compile_stub_command(
         let cpath = &input.display().to_string();
         let sources: Vec<&str> = vec![cpath];
 
+        // Use per-package directory for intermediates (align with RR artifacts.package_dir())
+        let intermediate_dir = PathBuf::from(&item.out)
+            .parent()
+            .unwrap()
+            .display()
+            .to_string();
+
         let cc_cmd = make_cc_command(
             CC::default(),
             native_stub_cc.map(|cc| {
@@ -1272,7 +1279,7 @@ pub fn gen_compile_stub_command(
                 .unwrap(),
             &native_stub_cc_flags,
             sources,
-            &MOON_DIRS.moon_lib_path.display().to_string(),
+            &intermediate_dir,
             &artifact_output_path,
         );
         let command = CommandBuilder::from_iter(cc_cmd).build();
