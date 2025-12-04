@@ -27,7 +27,6 @@ use moonutil::{
         make_linker_command_pure, resolve_cc,
     },
     cond_expr::OptLevel,
-    moon_dir::MOON_DIRS,
     mooncakes::{CORE_MODULE, ModuleId},
     package::JsFormat,
 };
@@ -557,13 +556,19 @@ impl<'a> BuildPlanLowerContext<'a> {
             .build()
             .expect("Failed to build CC configuration for C stub");
 
+        let intermediate_dir = self
+            .layout
+            .package_dir(&package.fqn, self.opt.target_backend.into())
+            .display()
+            .to_string();
+
         let cc_cmd = make_cc_command(
             self.opt.default_cc.clone(),
             info.stub_cc.clone(),
             config,
             &info.cc_flags,
             [input_file.display().to_string()],
-            &MOON_DIRS.moon_lib_path.display().to_string(),
+            &intermediate_dir,
             &output_file.display().to_string(),
         );
 
@@ -778,12 +783,23 @@ impl<'a> BuildPlanLowerContext<'a> {
             .display()
             .to_string();
 
+        // This directory is used for MSVC to place intermediate files.
+        // Each package should use their own to minimize conflicts.
+        let pkg_dir = self
+            .layout
+            .package_dir(
+                &self.get_package(target).fqn,
+                self.opt.target_backend.into(),
+            )
+            .display()
+            .to_string();
+
         let cc_cmd = make_cc_command_pure(
             resolve_cc(self.opt.default_cc.clone(), info.cc.clone()), // TODO: no clone
             config,
             &info.c_flags,
             sources.iter().map(|x| x.display().to_string()),
-            &self.opt.target_dir_root.display().to_string(),
+            &pkg_dir,
             Some(&dest),
             &self.opt.compiler_paths,
         );
