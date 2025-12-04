@@ -4,6 +4,7 @@ use moonbuild_debug::graph::ENV_VAR;
 use crate::{TestDir, build_graph::compare_graphs_with_replacements, get_stdout_with_envs};
 
 mod cc_flags;
+mod parallel_msvc;
 mod tcc_run;
 mod test_filter;
 
