@@ -8,7 +8,15 @@ fn normalize_all_pkgs_json(dir: &impl AsRef<std::path::Path>, json_path: &Path) 
         .to_string();
 
     let json_content = std::fs::read_to_string(json_path).unwrap();
-    json_content.replace(&path_str, "$ROOT")
+
+    // Normalize Windows paths: replace backslashes with forward slashes
+    // In JSON, Windows paths are escaped (e.g., "C:\\Users\\..."), so we replace "\\" with "/"
+    // For the canonical path, we replace single "\" with "/"
+    let normalized_path = path_str.replace('\\', "/");
+    let normalized_json = json_content.replace("\\\\", "/");
+
+    // Replace the project path with $ROOT
+    normalized_json.replace(&normalized_path, "$ROOT")
 }
 
 #[test]
