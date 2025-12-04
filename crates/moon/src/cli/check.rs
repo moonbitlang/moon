@@ -197,7 +197,17 @@ fn run_check_for_single_file_rr(
     }
 
     let _lock = FileLock::lock(&raw_target_dir)?;
-    rr_build::generate_metadata(&source_dir, &raw_target_dir, &build_meta, RunMode::Check)?;
+    let filename = single_file_path
+        .file_name()
+        .and_then(|n| n.to_str())
+        .map(String::from);
+    rr_build::generate_metadata(
+        &source_dir,
+        &raw_target_dir,
+        &build_meta,
+        RunMode::Check,
+        filename.as_deref(),
+    )?;
 
     let mut cfg = BuildConfig::from_flags(&cmd.build_flags, &cli.unstable_feature, cli.verbose);
     cfg.patch_file = cmd.patch_file.clone();
@@ -413,7 +423,7 @@ fn run_check_normal_internal_rr(
         let _lock = FileLock::lock(target_dir)?;
 
         // Generate metadata for IDE
-        rr_build::generate_metadata(source_dir, target_dir, &build_meta, RunMode::Check)?;
+        rr_build::generate_metadata(source_dir, target_dir, &build_meta, RunMode::Check, None)?;
 
         let mut cfg = BuildConfig::from_flags(&cmd.build_flags, &cli.unstable_feature, cli.verbose);
         cfg.patch_file = cmd.patch_file.clone();

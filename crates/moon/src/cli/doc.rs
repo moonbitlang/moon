@@ -127,7 +127,7 @@ pub fn run_doc_rr(cli: UniversalFlags, cmd: DocSubcommand) -> anyhow::Result<i32
 
     // Generate metadata for `moondoc`
     let _lock = FileLock::lock(&target_dir)?;
-    rr_build::generate_metadata(&source_dir, &target_dir, &_build_meta, RunMode::Check)?;
+    rr_build::generate_metadata(&source_dir, &target_dir, &_build_meta, RunMode::Check, None)?;
 
     // Execute the build
     let cfg = BuildConfig::from_flags(&BuildFlags::default(), &cli.unstable_feature, cli.verbose);

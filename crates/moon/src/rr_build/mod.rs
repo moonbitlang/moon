@@ -581,14 +581,23 @@ fn check_tcc_availability(
 ///
 /// To ensure the correct paths are generated, `mode` should match your
 /// corresponding `preconfig` used in [`plan_build`].
+///
+/// If the caller is from a single-file build, `single_file_filename` should
+/// be set to the filename (with extension) of the single file being built.
 #[instrument(level = Level::DEBUG, skip_all)]
 pub fn generate_metadata(
     source_dir: &Path,
     target_dir: &Path,
     build_meta: &BuildMeta,
     mode: RunMode,
+    single_file_filename: Option<&str>,
 ) -> anyhow::Result<()> {
-    let metadata_file = target_dir.join("packages.json");
+    let metadata_file = if let Some(filename) = single_file_filename {
+        target_dir.join(format!("{}.packages.json", filename))
+    } else {
+        target_dir.join("packages.json")
+    };
+
     let metadata = moonbuild_rupes_recta::metadata::gen_metadata_json(
         &build_meta.resolve_output,
         source_dir,
