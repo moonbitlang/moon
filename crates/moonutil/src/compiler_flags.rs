@@ -829,7 +829,7 @@ pub fn make_cc_command<S>(
     config: CCConfig,
     user_cc_flags: &[S],
     src: impl IntoIterator<Item = impl Into<String>>,
-    dest_dir: &str,
+    intermediate_dir: &str,
     dest: &str,
 ) -> Vec<String>
 where
@@ -842,7 +842,7 @@ where
         config,
         user_cc_flags,
         src,
-        dest_dir,
+        intermediate_dir,
         Some(dest),
         &paths,
     )
@@ -853,7 +853,7 @@ pub fn make_cc_command_pure<S>(
     config: CCConfig,
     user_cc_flags: &[S],
     src: impl IntoIterator<Item = impl Into<String>>,
-    dest_dir: &str,
+    intermediate_dir: &str,
     dest: Option<&str>,
     paths: &CompilerPaths,
 ) -> Vec<String>
@@ -869,7 +869,7 @@ where
 
     add_cc_output_flags(&cc, &mut buf, &config, dest);
     add_cc_include_and_lib_paths(&cc, &mut buf, &paths.include_path, &paths.lib_path);
-    add_cc_intermediate_dir_flags(&cc, &mut buf, &config, dest_dir);
+    add_cc_intermediate_dir_flags(&cc, &mut buf, &config, intermediate_dir);
     add_cc_debug_flags(&cc, &mut buf, &config);
     add_cc_shared_lib_flags(&cc, &mut buf, &config);
     add_cc_compile_only_flags(&cc, &mut buf, &config);
