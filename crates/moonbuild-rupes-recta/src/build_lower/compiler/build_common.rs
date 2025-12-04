@@ -55,6 +55,7 @@ pub struct BuildCommonInput<'a> {
 
 impl<'a> BuildCommonInput<'a> {
     /// Construct the required part from its required params
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         mbt_sources: &'a [PathBuf],
         doctest_only_sources: &'a [PathBuf],
