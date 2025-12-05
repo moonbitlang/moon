@@ -16,6 +16,17 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
+//! Generation of `all_pkgs.json` metadata file.
+//!
+//! This module provides functionality to generate the `all_pkgs.json` file,
+//! which is a metadata file used by `moonc` to resolve indirect dependencies.
+//! The file contains information about all packages in the build, including
+//! their root modules, relative paths, and artifact locations (`.mi` files).
+//!
+//! The `all_pkgs.json` file is generated in the target directory during the
+//! build process and is consumed by the MoonBit compiler for dependency
+//! analysis.
+
 use moonutil::common::TargetBackend;
 use serde::{Deserialize, Serialize};
 
