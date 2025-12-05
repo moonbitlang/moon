@@ -37,56 +37,15 @@
 
     <script>
         const schema = {
-  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
   "title": "JSON schema for MoonBit moon.pkg.json files",
   "description": "A package of MoonBit language",
   "type": "object",
   "properties": {
-    "alert-list": {
-      "description": "Alert list setting of the package.\n\nPlease use `warn-list` instead. For example, `\"warn-list\": \"-deprecated\"` or `\"warn-list\": \"-alert_unsafe\"`",
-      "deprecated": true,
+    "name": {
       "type": [
         "string",
         "null"
-      ]
-    },
-    "bin-name": {
-      "type": [
-        "string",
-        "null"
-      ]
-    },
-    "bin-target": {
-      "type": [
-        "string",
-        "null"
-      ]
-    },
-    "formatter": {
-      "anyOf": [
-        {
-          "$ref": "#/definitions/MoonPkgFormatterJSON"
-        },
-        {
-          "type": "null"
-        }
-      ]
-    },
-    "implement": {
-      "type": [
-        "string",
-        "null"
-      ]
-    },
-    "import": {
-      "description": "Imported packages of the package",
-      "anyOf": [
-        {
-          "$ref": "#/definitions/PkgJSONImport"
-        },
-        {
-          "type": "null"
-        }
       ]
     },
     "is-main": {
@@ -96,93 +55,44 @@
         "null"
       ]
     },
-    "link": {
-      "anyOf": [
-        {
-          "$ref": "#/definitions/BoolOrLink"
-        },
-        {
-          "type": "null"
-        }
-      ]
-    },
-    "max-concurrent-tests": {
-      "type": [
-        "integer",
-        "null"
-      ],
-      "format": "uint32",
-      "minimum": 0.0
-    },
-    "name": {
-      "type": [
-        "string",
-        "null"
-      ]
-    },
-    "native-stub": {
-      "type": [
-        "array",
-        "null"
-      ],
-      "items": {
-        "type": "string"
-      }
-    },
-    "overrides": {
-      "type": [
-        "array",
-        "null"
-      ],
-      "items": {
-        "type": "string"
-      }
-    },
-    "pre-build": {
-      "description": "Command for moon generate",
-      "type": [
-        "array",
-        "null"
-      ],
-      "items": {
-        "$ref": "#/definitions/MoonPkgGenerate"
-      }
-    },
     "sub-package": {
       "description": "Specify whether this package is a sub package or not",
       "anyOf": [
         {
-          "$ref": "#/definitions/SubPackageInMoonPkgJSON"
+          "$ref": "#/$defs/SubPackageInMoonPkgJSON"
         },
         {
           "type": "null"
         }
       ]
     },
-    "supported-targets": {
-      "type": [
-        "array",
-        "null"
-      ],
-      "items": {
-        "type": "string"
-      }
+    "import": {
+      "description": "Imported packages of the package",
+      "anyOf": [
+        {
+          "$ref": "#/$defs/PkgJSONImport"
+        },
+        {
+          "type": "null"
+        }
+      ]
     },
-    "targets": {
-      "description": "Conditional compilation targets",
-      "type": [
-        "object",
-        "null"
-      ],
-      "additionalProperties": {
-        "$ref": "#/definitions/StringOrArray"
-      }
+    "wbtest-import": {
+      "description": "White box test imported packages of the package",
+      "anyOf": [
+        {
+          "$ref": "#/$defs/PkgJSONImport"
+        },
+        {
+          "type": "null"
+        }
+      ]
     },
     "test-import": {
       "description": "Black box test imported packages of the package",
       "anyOf": [
         {
-          "$ref": "#/definitions/PkgJSONImport"
+          "$ref": "#/$defs/PkgJSONImport"
         },
         {
           "type": "null"
@@ -196,10 +106,20 @@
         "null"
       ]
     },
-    "virtual": {
+    "link": {
       "anyOf": [
         {
-          "$ref": "#/definitions/VirtualPkg"
+          "$ref": "#/$defs/BoolOrLink"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "formatter": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/MoonPkgFormatterJSON"
         },
         {
           "type": "null"
@@ -213,36 +133,400 @@
         "null"
       ]
     },
-    "wbtest-import": {
-      "description": "White box test imported packages of the package",
+    "alert-list": {
+      "description": "Alert list setting of the package.\n\nPlease use `warn-list` instead. For example, `\"warn-list\": \"-deprecated\"` or `\"warn-list\": \"-alert_unsafe\"`",
+      "type": [
+        "string",
+        "null"
+      ],
+      "deprecated": true
+    },
+    "targets": {
+      "description": "Conditional compilation targets",
+      "type": [
+        "object",
+        "null"
+      ],
+      "additionalProperties": {
+        "$ref": "#/$defs/StringOrArray"
+      }
+    },
+    "pre-build": {
+      "description": "Command for moon generate",
+      "type": [
+        "array",
+        "null"
+      ],
+      "items": {
+        "$ref": "#/$defs/MoonPkgGenerate"
+      }
+    },
+    "bin-name": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "bin-target": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "supported-targets": {
+      "type": [
+        "array",
+        "null"
+      ],
+      "items": {
+        "type": "string"
+      }
+    },
+    "native-stub": {
+      "type": [
+        "array",
+        "null"
+      ],
+      "items": {
+        "type": "string"
+      }
+    },
+    "virtual": {
       "anyOf": [
         {
-          "$ref": "#/definitions/PkgJSONImport"
+          "$ref": "#/$defs/VirtualPkg"
         },
         {
           "type": "null"
         }
       ]
+    },
+    "implement": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "overrides": {
+      "type": [
+        "array",
+        "null"
+      ],
+      "items": {
+        "type": "string"
+      }
+    },
+    "max-concurrent-tests": {
+      "type": [
+        "integer",
+        "null"
+      ],
+      "format": "uint32",
+      "minimum": 0
     }
   },
-  "definitions": {
+  "$defs": {
+    "SubPackageInMoonPkgJSON": {
+      "type": "object",
+      "properties": {
+        "files": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "import": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/PkgJSONImport"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "files"
+      ]
+    },
+    "PkgJSONImport": {
+      "anyOf": [
+        {
+          "description": "Path and alias of an imported package",
+          "type": "object",
+          "additionalProperties": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/PkgJSONImportItem"
+          }
+        }
+      ]
+    },
+    "PkgJSONImportItem": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "object",
+          "properties": {
+            "path": {
+              "type": "string"
+            },
+            "alias": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "value": {
+              "type": [
+                "array",
+                "null"
+              ],
+              "items": {
+                "type": "string"
+              }
+            },
+            "sub-package": {
+              "type": [
+                "boolean",
+                "null"
+              ]
+            }
+          },
+          "required": [
+            "path"
+          ]
+        }
+      ]
+    },
     "BoolOrLink": {
       "anyOf": [
         {
           "type": "boolean"
         },
         {
-          "$ref": "#/definitions/Link"
+          "$ref": "#/$defs/Link"
         }
       ]
     },
-    "JsFormat": {
-      "type": "string",
-      "enum": [
-        "esm",
-        "cjs",
-        "iife"
+    "Link": {
+      "type": "object",
+      "properties": {
+        "wasm": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/WasmLinkConfig"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "wasm-gc": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/WasmGcLinkConfig"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "js": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/JsLinkConfig"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "native": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/NativeLinkConfig"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      }
+    },
+    "WasmLinkConfig": {
+      "type": "object",
+      "properties": {
+        "exports": {
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": {
+            "type": "string"
+          }
+        },
+        "heap-start-address": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint32",
+          "minimum": 0
+        },
+        "import-memory": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/import-memory"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "memory-limits": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/memory-limits"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "shared-memory": {
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "export-memory-name": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "flags": {
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "import-memory": {
+      "type": "object",
+      "properties": {
+        "module": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "module",
+        "name"
       ]
+    },
+    "memory-limits": {
+      "type": "object",
+      "properties": {
+        "min": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        },
+        "max": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        }
+      },
+      "required": [
+        "min",
+        "max"
+      ]
+    },
+    "WasmGcLinkConfig": {
+      "type": "object",
+      "properties": {
+        "exports": {
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": {
+            "type": "string"
+          }
+        },
+        "import-memory": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/import-memory"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "memory-limits": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/memory-limits"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "shared-memory": {
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "export-memory-name": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "flags": {
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": {
+            "type": "string"
+          }
+        },
+        "use-js-builtin-string": {
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "imported-string-constants": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      }
     },
     "JsLinkConfig": {
       "type": "object",
@@ -259,7 +543,7 @@
         "format": {
           "anyOf": [
             {
-              "$ref": "#/definitions/JsFormat"
+              "$ref": "#/$defs/JsFormat"
             },
             {
               "type": "null"
@@ -268,89 +552,28 @@
         }
       }
     },
-    "Link": {
-      "type": "object",
-      "properties": {
-        "js": {
-          "anyOf": [
-            {
-              "$ref": "#/definitions/JsLinkConfig"
-            },
-            {
-              "type": "null"
-            }
-          ]
-        },
-        "native": {
-          "anyOf": [
-            {
-              "$ref": "#/definitions/NativeLinkConfig"
-            },
-            {
-              "type": "null"
-            }
-          ]
-        },
-        "wasm": {
-          "anyOf": [
-            {
-              "$ref": "#/definitions/WasmLinkConfig"
-            },
-            {
-              "type": "null"
-            }
-          ]
-        },
-        "wasm-gc": {
-          "anyOf": [
-            {
-              "$ref": "#/definitions/WasmGcLinkConfig"
-            },
-            {
-              "type": "null"
-            }
-          ]
-        }
-      }
+    "JsFormat": {
+      "type": "string",
+      "enum": [
+        "esm",
+        "cjs",
+        "iife"
+      ]
     },
-    "MoonPkgFormatterJSON": {
+    "NativeLinkConfig": {
+      "description": "Native C/C++ compilation and linking configuration for MoonBit packages.\n\nControls how C stub files and main executables are compiled and linked.\nThe build system uses these flags differently depending on compilation mode:\nnormal mode creates static libraries, while TCC mode creates dynamic libraries.",
       "type": "object",
       "properties": {
-        "ignore": {
+        "exports": {
+          "description": "Function exports for the final native executable",
           "type": [
             "array",
             "null"
           ],
           "items": {
             "type": "string"
-          },
-          "uniqueItems": true
-        }
-      }
-    },
-    "MoonPkgGenerate": {
-      "type": "object",
-      "required": [
-        "command",
-        "input",
-        "output"
-      ],
-      "properties": {
-        "command": {
-          "type": "string"
+          }
         },
-        "input": {
-          "$ref": "#/definitions/StringOrArray"
-        },
-        "output": {
-          "$ref": "#/definitions/StringOrArray"
-        }
-      }
-    },
-    "NativeLinkConfig": {
-      "description": "Native C/C++ compilation and linking configuration for MoonBit packages.\n\nControls how C stub files and main executables are compiled and linked. The build system uses these flags differently depending on compilation mode: normal mode creates static libraries, while TCC mode creates dynamic libraries.",
-      "type": "object",
-      "properties": {
         "cc": {
           "description": "Custom C compiler for main MoonBit-generated C code",
           "type": [
@@ -371,16 +594,6 @@
             "string",
             "null"
           ]
-        },
-        "exports": {
-          "description": "Function exports for the final native executable",
-          "type": [
-            "array",
-            "null"
-          ],
-          "items": {
-            "type": "string"
-          }
         },
         "stub-cc": {
           "description": "Custom C compiler for C stub files",
@@ -405,64 +618,20 @@
         }
       }
     },
-    "PkgJSONImport": {
-      "anyOf": [
-        {
-          "description": "Path and alias of an imported package",
-          "type": "object",
-          "additionalProperties": {
-            "type": [
-              "string",
-              "null"
-            ]
-          }
-        },
-        {
-          "type": "array",
-          "items": {
-            "$ref": "#/definitions/PkgJSONImportItem"
-          }
-        }
-      ]
-    },
-    "PkgJSONImportItem": {
-      "anyOf": [
-        {
-          "type": "string"
-        },
-        {
-          "type": "object",
-          "required": [
-            "path"
+    "MoonPkgFormatterJSON": {
+      "type": "object",
+      "properties": {
+        "ignore": {
+          "type": [
+            "array",
+            "null"
           ],
-          "properties": {
-            "alias": {
-              "type": [
-                "string",
-                "null"
-              ]
-            },
-            "path": {
-              "type": "string"
-            },
-            "sub-package": {
-              "type": [
-                "boolean",
-                "null"
-              ]
-            },
-            "value": {
-              "type": [
-                "array",
-                "null"
-              ],
-              "items": {
-                "type": "string"
-              }
-            }
+          "uniqueItems": true,
+          "items": {
+            "type": "string"
           }
         }
-      ]
+      }
     },
     "StringOrArray": {
       "anyOf": [
@@ -477,204 +646,35 @@
         }
       ]
     },
-    "SubPackageInMoonPkgJSON": {
+    "MoonPkgGenerate": {
       "type": "object",
-      "required": [
-        "files"
-      ],
       "properties": {
-        "files": {
-          "type": "array",
-          "items": {
-            "type": "string"
-          }
+        "input": {
+          "$ref": "#/$defs/StringOrArray"
         },
-        "import": {
-          "anyOf": [
-            {
-              "$ref": "#/definitions/PkgJSONImport"
-            },
-            {
-              "type": "null"
-            }
-          ]
+        "output": {
+          "$ref": "#/$defs/StringOrArray"
+        },
+        "command": {
+          "type": "string"
         }
-      }
+      },
+      "required": [
+        "input",
+        "output",
+        "command"
+      ]
     },
     "VirtualPkg": {
       "type": "object",
-      "required": [
-        "has-default"
-      ],
       "properties": {
         "has-default": {
           "type": "boolean"
         }
-      }
-    },
-    "WasmGcLinkConfig": {
-      "type": "object",
-      "properties": {
-        "export-memory-name": {
-          "type": [
-            "string",
-            "null"
-          ]
-        },
-        "exports": {
-          "type": [
-            "array",
-            "null"
-          ],
-          "items": {
-            "type": "string"
-          }
-        },
-        "flags": {
-          "type": [
-            "array",
-            "null"
-          ],
-          "items": {
-            "type": "string"
-          }
-        },
-        "import-memory": {
-          "anyOf": [
-            {
-              "$ref": "#/definitions/import-memory"
-            },
-            {
-              "type": "null"
-            }
-          ]
-        },
-        "imported-string-constants": {
-          "type": [
-            "string",
-            "null"
-          ]
-        },
-        "memory-limits": {
-          "anyOf": [
-            {
-              "$ref": "#/definitions/memory-limits"
-            },
-            {
-              "type": "null"
-            }
-          ]
-        },
-        "shared-memory": {
-          "type": [
-            "boolean",
-            "null"
-          ]
-        },
-        "use-js-builtin-string": {
-          "type": [
-            "boolean",
-            "null"
-          ]
-        }
-      }
-    },
-    "WasmLinkConfig": {
-      "type": "object",
-      "properties": {
-        "export-memory-name": {
-          "type": [
-            "string",
-            "null"
-          ]
-        },
-        "exports": {
-          "type": [
-            "array",
-            "null"
-          ],
-          "items": {
-            "type": "string"
-          }
-        },
-        "flags": {
-          "type": [
-            "array",
-            "null"
-          ],
-          "items": {
-            "type": "string"
-          }
-        },
-        "heap-start-address": {
-          "type": [
-            "integer",
-            "null"
-          ],
-          "format": "uint32",
-          "minimum": 0.0
-        },
-        "import-memory": {
-          "anyOf": [
-            {
-              "$ref": "#/definitions/import-memory"
-            },
-            {
-              "type": "null"
-            }
-          ]
-        },
-        "memory-limits": {
-          "anyOf": [
-            {
-              "$ref": "#/definitions/memory-limits"
-            },
-            {
-              "type": "null"
-            }
-          ]
-        },
-        "shared-memory": {
-          "type": [
-            "boolean",
-            "null"
-          ]
-        }
-      }
-    },
-    "import-memory": {
-      "type": "object",
+      },
       "required": [
-        "module",
-        "name"
-      ],
-      "properties": {
-        "module": {
-          "type": "string"
-        },
-        "name": {
-          "type": "string"
-        }
-      }
-    },
-    "memory-limits": {
-      "type": "object",
-      "required": [
-        "max",
-        "min"
-      ],
-      "properties": {
-        "max": {
-          "type": "integer",
-          "format": "uint32",
-          "minimum": 0.0
-        },
-        "min": {
-          "type": "integer",
-          "format": "uint32",
-          "minimum": 0.0
-        }
-      }
+        "has-default"
+      ]
     }
   }
 }

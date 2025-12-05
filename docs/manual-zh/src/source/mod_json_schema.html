@@ -37,38 +37,21 @@
 
     <script>
         const schema = {
-  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
   "title": "JSON schema for MoonBit moon.mod.json files",
   "description": "A module of MoonBit lang",
   "type": "object",
-  "required": [
-    "name"
-  ],
   "properties": {
-    "--moonbit-unstable-prebuild": {
-      "description": "**Experimental:** A relative path to the pre-build configuration script.\n\nThe script should be a **JavaScript or Python** file that is able to be executed with vanilla Node.JS or Python interpreter. Since this is experimental, the API may change at any time without warning.",
+    "name": {
+      "description": "name of the module",
+      "type": "string"
+    },
+    "version": {
+      "description": "version of the module",
       "type": [
         "string",
         "null"
       ]
-    },
-    "alert-list": {
-      "description": "Alert list setting of the module\n\nPlease use `warn-list` instead. For example, `\"warn-list\": \"-deprecated\"` or `\"warn-list\": \"-alert_unsafe\"`.",
-      "deprecated": true,
-      "type": [
-        "string",
-        "null"
-      ]
-    },
-    "bin-deps": {
-      "description": "third-party binary dependencies of the module",
-      "type": [
-        "object",
-        "null"
-      ],
-      "additionalProperties": {
-        "$ref": "#/definitions/BinaryDependencyInfoJson"
-      }
     },
     "deps": {
       "description": "third-party dependencies of the module",
@@ -77,63 +60,18 @@
         "null"
       ],
       "additionalProperties": {
-        "$ref": "#/definitions/SourceDependencyInfoJson"
+        "$ref": "#/$defs/SourceDependencyInfoJson"
       }
     },
-    "description": {
-      "description": "description of this module",
+    "bin-deps": {
+      "description": "third-party binary dependencies of the module",
       "type": [
-        "string",
-        "null"
-      ]
-    },
-    "exclude": {
-      "description": "Files to exclude when publishing.",
-      "type": [
-        "array",
+        "object",
         "null"
       ],
-      "items": {
-        "type": "string"
+      "additionalProperties": {
+        "$ref": "#/$defs/BinaryDependencyInfoJson"
       }
-    },
-    "include": {
-      "description": "Files to include when publishing.",
-      "type": [
-        "array",
-        "null"
-      ],
-      "items": {
-        "type": "string"
-      }
-    },
-    "keywords": {
-      "description": "keywords of this module",
-      "type": [
-        "array",
-        "null"
-      ],
-      "items": {
-        "type": "string"
-      }
-    },
-    "license": {
-      "description": "license of this module",
-      "type": [
-        "string",
-        "null"
-      ]
-    },
-    "name": {
-      "description": "name of the module",
-      "type": "string"
-    },
-    "preferred-target": {
-      "description": "The preferred target backend of this module.\n\nToolchains are recommended to use this target as the default target when the user is not specifying or overriding in any other ways. However, this is merely a recommendation, and tools may deviate from this value at any time.",
-      "type": [
-        "string",
-        "null"
-      ]
     },
     "readme": {
       "description": "path to module's README file",
@@ -149,25 +87,32 @@
         "null"
       ]
     },
-    "scripts": {
-      "description": "Scripts related to the current module.",
-      "type": [
-        "object",
-        "null"
-      ],
-      "additionalProperties": {
-        "type": "string"
-      }
-    },
-    "source": {
-      "description": "source code directory of this module",
+    "license": {
+      "description": "license of this module",
       "type": [
         "string",
         "null"
       ]
     },
-    "version": {
-      "description": "version of the module",
+    "keywords": {
+      "description": "keywords of this module",
+      "type": [
+        "array",
+        "null"
+      ],
+      "items": {
+        "type": "string"
+      }
+    },
+    "description": {
+      "description": "description of this module",
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "source": {
+      "description": "source code directory of this module",
       "type": [
         "string",
         "null"
@@ -179,25 +124,86 @@
         "string",
         "null"
       ]
+    },
+    "alert-list": {
+      "description": "Alert list setting of the module\n    \nPlease use `warn-list` instead. For example, `\"warn-list\": \"-deprecated\"` or `\"warn-list\": \"-alert_unsafe\"`.",
+      "type": [
+        "string",
+        "null"
+      ],
+      "deprecated": true
+    },
+    "include": {
+      "description": "Files to include when publishing.",
+      "type": [
+        "array",
+        "null"
+      ],
+      "items": {
+        "type": "string"
+      }
+    },
+    "exclude": {
+      "description": "Files to exclude when publishing.",
+      "type": [
+        "array",
+        "null"
+      ],
+      "items": {
+        "type": "string"
+      }
+    },
+    "scripts": {
+      "description": "Scripts related to the current module.",
+      "type": [
+        "object",
+        "null"
+      ],
+      "additionalProperties": {
+        "type": "string"
+      }
+    },
+    "preferred-target": {
+      "description": "The preferred target backend of this module.\n\nToolchains are recommended to use this target as the default target\nwhen the user is not specifying or overriding in any other ways.\nHowever, this is merely a recommendation, and tools may deviate from\nthis value at any time.",
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "--moonbit-unstable-prebuild": {
+      "description": "**Experimental:** A relative path to the pre-build configuration script.\n\nThe script should be a **JavaScript or Python** file that is able to be\nexecuted with vanilla Node.JS or Python interpreter. Since this is\nexperimental, the API may change at any time without warning.",
+      "type": [
+        "string",
+        "null"
+      ]
     }
   },
-  "definitions": {
-    "BinaryDependencyInfo": {
+  "required": [
+    "name"
+  ],
+  "$defs": {
+    "SourceDependencyInfoJson": {
+      "description": "The JSON representation of a source dependency info",
+      "anyOf": [
+        {
+          "description": "A simple version requirement",
+          "type": "string"
+        },
+        {
+          "description": "A detailed dependency info",
+          "$ref": "#/$defs/SourceDependencyInfo"
+        }
+      ]
+    },
+    "SourceDependencyInfo": {
       "description": "Information about a specific dependency",
       "type": "object",
       "properties": {
-        "bin_pkg": {
-          "description": "Binary packages to compile.",
-          "type": [
-            "array",
-            "null"
-          ],
-          "items": {
-            "type": "string"
-          }
+        "version": {
+          "type": "string"
         },
-        "branch": {
-          "description": "Git branch to use.",
+        "path": {
+          "description": "Local path to the dependency. Overrides the version requirement.",
           "type": [
             "string",
             "null"
@@ -210,15 +216,12 @@
             "null"
           ]
         },
-        "path": {
-          "description": "Local path to the dependency. Overrides the version requirement.",
+        "branch": {
+          "description": "Git branch to use.",
           "type": [
             "string",
             "null"
           ]
-        },
-        "version": {
-          "type": "string"
         }
       }
     },
@@ -231,20 +234,19 @@
         },
         {
           "description": "A detailed dependency info",
-          "allOf": [
-            {
-              "$ref": "#/definitions/BinaryDependencyInfo"
-            }
-          ]
+          "$ref": "#/$defs/BinaryDependencyInfo"
         }
       ]
     },
-    "SourceDependencyInfo": {
+    "BinaryDependencyInfo": {
       "description": "Information about a specific dependency",
       "type": "object",
       "properties": {
-        "branch": {
-          "description": "Git branch to use.",
+        "version": {
+          "type": "string"
+        },
+        "path": {
+          "description": "Local path to the dependency. Overrides the version requirement.",
           "type": [
             "string",
             "null"
@@ -257,34 +259,24 @@
             "null"
           ]
         },
-        "path": {
-          "description": "Local path to the dependency. Overrides the version requirement.",
+        "branch": {
+          "description": "Git branch to use.",
           "type": [
             "string",
             "null"
           ]
         },
-        "version": {
-          "type": "string"
+        "bin_pkg": {
+          "description": "Binary packages to compile.",
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": {
+            "type": "string"
+          }
         }
       }
-    },
-    "SourceDependencyInfoJson": {
-      "description": "The JSON representation of a source dependency info",
-      "anyOf": [
-        {
-          "description": "A simple version requirement",
-          "type": "string"
-        },
-        {
-          "description": "A detailed dependency info",
-          "allOf": [
-            {
-              "$ref": "#/definitions/SourceDependencyInfo"
-            }
-          ]
-        }
-      ]
     }
   }
 }
