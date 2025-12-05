@@ -103,6 +103,7 @@ pub mod build_plan;
 pub mod discover;
 pub mod model;
 pub mod pkg_name;
+pub mod pkg_parser;
 pub mod pkg_solve;
 
 // High-level actions
