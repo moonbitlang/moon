@@ -63,7 +63,7 @@ pub fn inject_std_abort(
     let abort_rel_pkg = PackagePath::new("abort").expect("abort is a valid name");
 
     let id = res.add_package(stdlib, abort_rel_pkg, pkg);
-    res.abort_pkg = Some(id);
+    res.set_abort_pkg(id);
 
     Ok(())
 }
