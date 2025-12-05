@@ -256,13 +256,21 @@ fn run_test_in_single_file(cli: &UniversalFlags, cmd: &TestSubcommand) -> anyhow
         return run_test_in_single_file_rr(cli, cmd);
     }
 
-    let single_file_path = &dunce::canonicalize(cmd.single_file.as_ref().unwrap()).unwrap();
-    let source_dir = single_file_path.parent().unwrap().to_path_buf();
+    let path = cmd
+        .single_file
+        .as_ref()
+        .expect("single_file should be set in single-file mode");
+    let single_file_path = dunce::canonicalize(path)
+        .with_context(|| format!("failed to resolve file path `{}`", path.display()))?;
+    let source_dir = single_file_path
+        .parent()
+        .context("file path must have a parent directory")?
+        .to_path_buf();
     let raw_target_dir = source_dir.join("target");
     info!(path = %single_file_path.display(), update = cmd.update, build_only = cmd.build_only, "running tests in single-file mode");
     debug!(source = %source_dir.display(), raw_target_dir = %raw_target_dir.display(), "prepared single-file directories");
 
-    let mbt_md_header = parse_front_matter_config(single_file_path)?;
+    let mbt_md_header = parse_front_matter_config(&single_file_path)?;
     let target_backend = if let Some(moonutil::common::MbtMdHeader {
         moonbit:
             Some(moonutil::common::MbtMdSection {
@@ -355,7 +363,7 @@ fn run_test_in_single_file(cli: &UniversalFlags, cmd: &TestSubcommand) -> anyhow
         single_file: true,
     };
     let module =
-        get_module_for_single_file(single_file_path, &moonc_opt, &moonbuild_opt, mbt_md_header)?;
+        get_module_for_single_file(&single_file_path, &moonc_opt, &moonbuild_opt, mbt_md_header)?;
     debug!(
         package_count = module.get_all_packages().len(),
         "scanned single-file module graph"
@@ -380,8 +388,16 @@ fn run_test_in_single_file(cli: &UniversalFlags, cmd: &TestSubcommand) -> anyhow
 
 #[instrument(level = Level::DEBUG, skip_all)]
 fn run_test_in_single_file_rr(cli: &UniversalFlags, cmd: &TestSubcommand) -> anyhow::Result<i32> {
-    let single_file_path = &dunce::canonicalize(cmd.single_file.as_ref().unwrap()).unwrap();
-    let source_dir = single_file_path.parent().unwrap().to_path_buf();
+    let path = cmd
+        .single_file
+        .as_ref()
+        .expect("single_file should be set in single-file mode");
+    let single_file_path = dunce::canonicalize(path)
+        .with_context(|| format!("failed to resolve file path `{}`", path.display()))?;
+    let source_dir = single_file_path
+        .parent()
+        .context("file path must have a parent directory")?
+        .to_path_buf();
     let raw_target_dir = source_dir.join("target");
     std::fs::create_dir_all(&raw_target_dir)
         .context("failed to create target directory for single-file test")?;
@@ -400,7 +416,7 @@ fn run_test_in_single_file_rr(cli: &UniversalFlags, cmd: &TestSubcommand) -> any
     );
     let (resolved, backend) = moonbuild_rupes_recta::resolve::resolve_single_file_project(
         &resolve_cfg,
-        single_file_path,
+        &single_file_path,
         false,
     )?;
 
@@ -435,7 +451,10 @@ fn run_test_in_single_file_rr(cli: &UniversalFlags, cmd: &TestSubcommand) -> any
                 .index
                 .map(TestIndex::Regular)
                 .or(cmd.doc_index.map(TestIndex::DocTest));
-            let filename = single_file_path.file_name().unwrap().to_string_lossy();
+            let filename = single_file_path
+                .file_name()
+                .expect("single file path should have a filename")
+                .to_string_lossy();
             filter.add_autodetermine_target(pkg, Some(&filename), test_index);
 
             let trace_pkg = if cmd.build_flags.enable_value_tracing {

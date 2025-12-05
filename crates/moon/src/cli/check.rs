@@ -88,8 +88,12 @@ pub fn run_check(cli: &UniversalFlags, cmd: &CheckSubcommand) -> anyhow::Result<
         Err(e @ moonutil::dirs::PackageDirsError::NotInProject(_)) => {
             // Now we're talking about real single-file scenario.
             if let Some(path) = cmd.path.as_deref() {
-                let single_file_path = &dunce::canonicalize(path).unwrap();
-                let source_dir = single_file_path.parent().unwrap().to_path_buf();
+                let single_file_path = dunce::canonicalize(path)
+                    .with_context(|| format!("failed to resolve file path `{}`", path.display()))?;
+                let source_dir = single_file_path
+                    .parent()
+                    .context("file path must have a parent directory")?
+                    .to_path_buf();
                 let target_dir = source_dir.join("target");
                 (source_dir, target_dir, true)
             } else {
@@ -146,8 +150,16 @@ fn run_check_for_single_file_rr(
     cli: &UniversalFlags,
     cmd: &CheckSubcommand,
 ) -> anyhow::Result<i32> {
-    let single_file_path = &dunce::canonicalize(cmd.path.as_ref().unwrap()).unwrap();
-    let source_dir = single_file_path.parent().unwrap().to_path_buf();
+    let path = cmd
+        .path
+        .as_ref()
+        .expect("path should be set in single-file mode");
+    let single_file_path = dunce::canonicalize(path)
+        .with_context(|| format!("failed to resolve file path `{}`", path.display()))?;
+    let source_dir = single_file_path
+        .parent()
+        .context("file path must have a parent directory")?
+        .to_path_buf();
     let raw_target_dir = source_dir.join("target");
     std::fs::create_dir_all(&raw_target_dir).context("failed to create target directory")?;
 
@@ -164,7 +176,7 @@ fn run_check_for_single_file_rr(
     );
     let (resolved, backend) = moonbuild_rupes_recta::resolve::resolve_single_file_project(
         &resolve_cfg,
-        single_file_path,
+        &single_file_path,
         false,
     )?;
 
@@ -244,11 +256,19 @@ fn run_check_for_single_file_legacy(
     cli: &UniversalFlags,
     cmd: &CheckSubcommand,
 ) -> anyhow::Result<i32> {
-    let single_file_path = &dunce::canonicalize(cmd.path.as_ref().unwrap()).unwrap();
-    let source_dir = single_file_path.parent().unwrap().to_path_buf();
+    let path = cmd
+        .path
+        .as_ref()
+        .expect("path should be set in single-file mode");
+    let single_file_path = dunce::canonicalize(path)
+        .with_context(|| format!("failed to resolve file path `{}`", path.display()))?;
+    let source_dir = single_file_path
+        .parent()
+        .context("file path must have a parent directory")?
+        .to_path_buf();
     let raw_target_dir = source_dir.join("target");
 
-    let mbt_md_header = parse_front_matter_config(single_file_path)?;
+    let mbt_md_header = parse_front_matter_config(&single_file_path)?;
     let target_backend = if let Some(moonutil::common::MbtMdHeader {
         moonbit:
             Some(moonutil::common::MbtMdSection {
@@ -327,7 +347,7 @@ fn run_check_for_single_file_legacy(
         single_file: true,
     };
     let module =
-        get_module_for_single_file(single_file_path, &moonc_opt, &moonbuild_opt, mbt_md_header)?;
+        get_module_for_single_file(&single_file_path, &moonc_opt, &moonbuild_opt, mbt_md_header)?;
 
     if cli.dry_run {
         return dry_run::print_commands(&module, &moonc_opt, &moonbuild_opt);

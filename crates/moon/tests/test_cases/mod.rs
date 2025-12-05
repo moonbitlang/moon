@@ -2567,6 +2567,57 @@ Warning: [0002]
     }
 }
 
+/// Test that single-file commands properly report errors for non-existent files
+/// instead of panicking (issue #1192)
+#[test]
+fn test_single_file_nonexistent_path_error() {
+    // Use temp_dir for cross-platform compatibility
+    let nonexistent_path = std::env::temp_dir()
+        .join("nonexistent_file_12345.mbt")
+        .display()
+        .to_string();
+
+    // Test moon check with non-existent file outside any project
+    // Should fail gracefully (exit != 101 which is Rust panic code)
+    let check_result = snapbox::cmd::Command::new(moon_bin())
+        .current_dir(std::env::temp_dir())
+        .args(["check", &nonexistent_path])
+        .assert()
+        .failure();
+    // Verify it's not a panic (exit code 101)
+    assert_ne!(
+        check_result.get_output().status.code(),
+        Some(101),
+        "moon check should not panic for non-existent file"
+    );
+
+    // Test moon test with non-existent file outside any project
+    let test_result = snapbox::cmd::Command::new(moon_bin())
+        .current_dir(std::env::temp_dir())
+        .args(["test", &nonexistent_path])
+        .assert()
+        .failure();
+    // Verify it's not a panic (exit code 101)
+    assert_ne!(
+        test_result.get_output().status.code(),
+        Some(101),
+        "moon test should not panic for non-existent file"
+    );
+
+    // Test moon run with non-existent file outside any project
+    let run_result = snapbox::cmd::Command::new(moon_bin())
+        .current_dir(std::env::temp_dir())
+        .args(["run", &nonexistent_path])
+        .assert()
+        .failure();
+    // Verify it's not a panic (exit code 101)
+    assert_ne!(
+        run_result.get_output().status.code(),
+        Some(101),
+        "moon run should not panic for non-existent file"
+    );
+}
+
 #[test]
 #[ignore = "subpackage is not fully supported yet"]
 fn test_sub_package() {
