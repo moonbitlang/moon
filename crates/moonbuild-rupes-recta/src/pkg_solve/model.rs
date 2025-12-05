@@ -67,16 +67,6 @@ pub struct DepRelationship {
 
 #[derive(Debug, thiserror::Error)]
 pub enum SolveError {
-    #[error(
-        "Duplicated package name found across all packages currently found. \
-        The first one is found in {first}, \
-        and the second one is found in {second}"
-    )]
-    DuplicatedPackageFQN {
-        first: PackageFQNWithSource,
-        second: PackageFQNWithSource,
-    },
-
     #[error("Cannot find import '{import}' in {package_fqn}")]
     ImportNotFound {
         import: String,

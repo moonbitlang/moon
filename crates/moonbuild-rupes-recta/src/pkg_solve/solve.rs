@@ -16,9 +16,7 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
-use std::collections::HashMap;
-
-use log::{debug, trace, warn};
+use log::{debug, trace};
 use moonutil::common::MOONBITLANG_COVERAGE;
 use moonutil::mooncakes::{ModuleId, result::ResolvedEnv};
 use tracing::info;
@@ -27,17 +25,13 @@ use super::model::{DepEdge, DepRelationship, SolveError};
 use crate::{
     discover::{DiscoverResult, DiscoveredPackage},
     model::{PackageId, TargetKind},
-    pkg_name::format_package_fqn,
     pkg_solve::model::VirtualUser,
 };
-
-type RevMap = HashMap<String, (ModuleId, PackageId)>;
 
 /// A grouped environment for resolving dependencies.
 struct ResolveEnv<'a> {
     modules: &'a ResolvedEnv,
     packages: &'a DiscoverResult,
-    rev_map: &'a RevMap,
     res: DepRelationship,
     inject_coverage: bool,
 }
@@ -52,45 +46,6 @@ pub fn solve_only(
         packages.package_count()
     );
 
-    // To convert the Package FQNs within `moon.pkg.json` into actual resolved
-    // package instances, we will need to construct a reversed mapping from
-    // FQNs we will see in the import list to that of actual packages in scope.
-    //
-    // `moonc` currently cannot disambiguate between packages of the same FQN.
-    // Thus, this mapping needs to be constructed globally. (And thankfully we
-    // don't have module-level dependency renaming just yet, or we will need to
-    // do this twice.)
-    //
-    // This reverse search map only contains the minimal data to find the
-    // package and determine if it can be imported.
-    debug!("Building reverse package FQN mapping");
-    let mut rev_map = HashMap::new();
-    for (pid, pkg_val) in packages.all_packages() {
-        let mid = pkg_val.module;
-        let m_name = modules.mod_name_from_id(mid);
-        let fqn = format_package_fqn(m_name.name(), pkg_val.fqn.package());
-
-        trace!(
-            "Mapping package FQN '{}' to pid={:?}, mid={:?}",
-            fqn, pid, mid
-        );
-        let insert_result = rev_map.insert(fqn.clone(), (mid, pid));
-
-        // If we already have a same name in the map, this is an error and
-        // should abort the solving procedure.
-        if let Some((_, existing_pid)) = insert_result {
-            warn!(
-                "Duplicate package FQN '{}' found: existing={:?}, new={:?}",
-                fqn, existing_pid, pid
-            );
-            return Err(SolveError::DuplicatedPackageFQN {
-                first: packages.fqn(existing_pid).into(),
-                second: packages.fqn(pid).into(),
-            });
-        }
-    }
-    debug!("Built reverse mapping");
-
     let main_is_core = if let &[main] = modules.input_module_ids() {
         *modules.mod_name_from_id(main).name() == CORE_MODULE_TUPLE
     } else {
@@ -99,7 +54,6 @@ pub fn solve_only(
     let mut env = ResolveEnv {
         modules,
         packages,
-        rev_map: &rev_map,
         res: DepRelationship::default(),
         inject_coverage: enable_coverage && main_is_core,
     };
@@ -391,7 +345,7 @@ fn resolve_import_raw<'a>(
 ) -> Result<(PackageId, &'a DiscoveredPackage), SolveError> {
     trace!("Resolving import '{}' for package {:?}", import_source, pid);
 
-    let Some((import_mid, import_pid)) = env.rev_map.get(import_source) else {
+    let Some(import_pid) = env.packages.get_package_id_by_name(import_source) else {
         debug!(
             "Import '{}' not found in reverse mapping for package {:?}",
             import_source, pid
@@ -401,13 +355,16 @@ fn resolve_import_raw<'a>(
             package_fqn: env.packages.fqn(pid).into(),
         });
     };
+
+    let imported = env.packages.get_package(import_pid);
+    let import_mid = imported.module;
+
     trace!(
         "Import '{}' resolved to module {:?}, package {:?}",
         import_source, import_mid, import_pid
     );
 
-    let imported = env.packages.get_package(*import_pid);
-    if *import_mid != mid && env.modules.graph().edge_weight(mid, *import_mid).is_none() {
+    if import_mid != mid && env.modules.graph().edge_weight(mid, import_mid).is_none() {
         debug!(
             "Import '{}' module {:?} not imported by current module {:?}",
             import_source, import_mid, mid
@@ -419,7 +376,7 @@ fn resolve_import_raw<'a>(
         });
     }
 
-    Ok((*import_pid, imported))
+    Ok((import_pid, imported))
 }
 
 /// Insert dependency edges for one resolved import.
@@ -560,7 +517,7 @@ fn inject_core_coverage_usage(env: &mut ResolveEnv<'_>, pid: PackageId) {
     let pkg = env.packages.get_package(pid);
 
     // Resolve coverage package id
-    let Some((_, cov_pid)) = env.rev_map.get(MOONBITLANG_COVERAGE) else {
+    let Some(cov_pid) = env.packages.get_package_id_by_name(MOONBITLANG_COVERAGE) else {
         return;
     };
 
