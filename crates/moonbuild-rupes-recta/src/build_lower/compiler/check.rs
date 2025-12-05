@@ -112,6 +112,9 @@ impl<'a> MooncCheck<'a> {
 
         self.defaults.add_workspace_root(args);
 
+        // all-pkgs.json
+        self.required.add_all_pkgs_json(args);
+
         // Extra flags
         for flag in self.extra_flags.iter() {
             args.push(flag.to_string());

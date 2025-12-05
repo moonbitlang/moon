@@ -174,7 +174,7 @@ pub fn run_info_rr_internal(
     preconfig.info_no_alias = cmd.no_alias;
     let package_filter = cmd.package.clone();
     let path_filter = cmd.path.clone();
-    let (_build_meta, build_graph) = rr_build::plan_build(
+    let (build_meta, build_graph) = rr_build::plan_build(
         preconfig,
         &cli.unstable_feature,
         &source_dir,
@@ -187,12 +187,15 @@ pub fn run_info_rr_internal(
             )
         }),
     )?;
+    // Generate the all_pkgs.json for indirect dependency resolution
+    // before executing the build
+    rr_build::generate_all_pkgs_json(&target_dir, &build_meta, RunMode::Check)?;
 
     // TODO: `moon info` is a wrapper over `moon check`, so should have flags that `moon check` has?
     let result = rr_build::execute_build(&BuildConfig::default(), build_graph, &target_dir)?;
     result.print_info(cli.quiet, "generating mbti files")?;
 
-    Ok((result.successful(), _build_meta))
+    Ok((result.successful(), build_meta))
 }
 
 fn calc_user_intent(

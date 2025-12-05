@@ -240,7 +240,7 @@ impl<'a> BuildPlanLowerContext<'a> {
             | TargetKind::InlineTest
             | TargetKind::SubPackage => package.raw.is_main,
         };
-
+        let backend = self.opt.target_backend.into();
         let cmd = compiler::MooncCheck {
             required: BuildCommonInput::new(
                 &files_vec,
@@ -248,7 +248,8 @@ impl<'a> BuildPlanLowerContext<'a> {
                 &mi_inputs,
                 compiler::CompiledPackageName::new(&package.fqn, target.kind),
                 &package.root_path,
-                self.opt.target_backend.into(),
+                self.layout.all_pkgs_of_build_target(backend),
+                backend,
                 target.kind,
             ),
             defaults: self.set_build_commons(package, info, is_main),
@@ -311,7 +312,7 @@ impl<'a> BuildPlanLowerContext<'a> {
             TargetKind::Source | TargetKind::SubPackage => package.raw.is_main,
             TargetKind::InlineTest | TargetKind::WhiteboxTest | TargetKind::BlackboxTest => true,
         };
-
+        let backend = self.opt.target_backend.into();
         let mut cmd = compiler::MooncBuildPackage {
             required: BuildCommonInput::new(
                 &files,
@@ -319,7 +320,8 @@ impl<'a> BuildPlanLowerContext<'a> {
                 &mi_inputs,
                 compiler::CompiledPackageName::new(&package.fqn, target.kind),
                 &package.root_path,
-                self.opt.target_backend.into(),
+                self.layout.all_pkgs_of_build_target(backend),
+                backend,
                 target.kind,
             ),
             defaults: self.set_build_commons(package, info, is_main),

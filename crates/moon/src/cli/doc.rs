@@ -105,7 +105,7 @@ pub fn run_doc_rr(cli: UniversalFlags, cmd: DocSubcommand) -> anyhow::Result<i32
     );
     preconfig.docs_serve = cmd.serve;
 
-    let (_build_meta, build_graph) = rr_build::plan_build(
+    let (build_meta, build_graph) = rr_build::plan_build(
         preconfig,
         &cli.unstable_feature,
         &source_dir,
@@ -118,16 +118,19 @@ pub fn run_doc_rr(cli: UniversalFlags, cmd: DocSubcommand) -> anyhow::Result<i32
     if cli.dry_run {
         rr_build::print_dry_run(
             &build_graph,
-            _build_meta.artifacts.values(),
+            build_meta.artifacts.values(),
             &source_dir,
             &target_dir,
         );
         return Ok(0);
     }
 
-    // Generate metadata for `moondoc`
     let _lock = FileLock::lock(&target_dir)?;
-    rr_build::generate_metadata(&source_dir, &target_dir, &_build_meta, RunMode::Check, None)?;
+    // Generate the all_pkgs.json for indirect dependency resolution
+    // before executing the build
+    rr_build::generate_all_pkgs_json(&target_dir, &build_meta, RunMode::Check)?;
+    // Generate metadata for `moondoc`
+    rr_build::generate_metadata(&source_dir, &target_dir, &build_meta, RunMode::Check, None)?;
 
     // Execute the build
     let cfg = BuildConfig::from_flags(&BuildFlags::default(), &cli.unstable_feature, cli.verbose);
@@ -149,8 +152,8 @@ pub fn run_doc_rr(cli: UniversalFlags, cmd: DocSubcommand) -> anyhow::Result<i32
                 static_dir.display()
             );
         }
-        let mid = _build_meta.resolve_output.local_modules()[0];
-        let full_name = _build_meta
+        let mid = build_meta.resolve_output.local_modules()[0];
+        let full_name = build_meta
             .resolve_output
             .module_rel
             .mod_name_from_id(mid)

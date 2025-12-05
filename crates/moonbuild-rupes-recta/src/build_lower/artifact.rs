@@ -226,6 +226,14 @@ impl LegacyLayout {
         Some(base_dir)
     }
 
+    // for each backend/opt_level/run_mode, there's a copy of all_pkgs.json
+    pub fn all_pkgs_of_build_target(&self, backend: TargetBackend) -> PathBuf {
+        let mut dir = self.target_base_dir.clone();
+        self.push_opt_and_run_mode(backend, &mut dir);
+        dir.push(crate::all_pkgs::ALL_PKGS_JSON);
+        dir
+    }
+
     pub fn linked_core_of_build_target(
         &self,
         pkg_list: &DiscoverResult,
