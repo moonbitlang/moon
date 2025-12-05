@@ -25,20 +25,27 @@ use crate::build_lower::compiler::CmdlineAbstraction;
 
 /// Commandline arguments to `moon generate-test-driver`.
 ///
+/// This command generates two files based on the provided source files:
+/// - a `.mbt` test driver file that contains the test harness code, and serves
+///   as the entry point for test execution.
+/// - a test metadata file that contains names, locations, and other metadata of
+///   the tests found in the package.
+///
 /// Check `moon::cli::generate_test_driver` for details. This struct is a by-ref
 /// mirror of the original command for process spawning.
 #[derive(Debug)]
 pub struct MoonGenTestDriver<'a> {
-    /// The paths of the source files to be mapped
+    /// The paths of the source files which need to be included
     pub files: &'a [PathBuf],
 
-    /// Files that need to be mapped, but only extract the doctests, not main contents
+    /// Files that need to be included, but only extract the tests in the
+    /// markdown doc comments, not the main body of code
     pub doctest_only_files: &'a [PathBuf],
 
     /// The output test driver `.mbt` file
     pub output_driver: Cow<'a, Path>,
 
-    /// The output test metadata file
+    /// The output test metadata file (JSON)
     pub output_metadata: Cow<'a, Path>,
 
     /// The target backend for the generated test driver.
@@ -47,21 +54,23 @@ pub struct MoonGenTestDriver<'a> {
     /// The name of the package for which the test driver is generated for.
     pub pkg_name: &'a str,
 
-    /// Whether to generate the test driver in bench mode. Not providing this
-    /// option will result in test mode.
+    /// Whether to generate the test driver in bench mode, which will run
+    /// benches instead of tests. False = normal test mode.
     pub bench: bool,
 
     /// Whether coverage is enabled in this build. Enabling it will insert
-    /// coverage-custom code at the end of the test.
+    /// coverage collection code into the test driver to correctly track code
+    /// coverage during test execution.
     pub enable_coverage: bool,
 
-    /// Override coverage package name; `@self` is a special value that means the package itself
+    /// Override coverage package name; `@self` is a special value that means
+    /// the package itself.
     pub coverage_package_override: Option<&'a str>,
 
-    /// The test driver kind
+    /// The kind of test (corresponds to the build target kind)
     pub driver_kind: DriverKind,
 
-    /// Path to the patch file
+    /// Path to the patch file, if any.
     pub patch_file: Option<Cow<'a, Path>>,
 
     /// Max concurrent test limit for `async test`

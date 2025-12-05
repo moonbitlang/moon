@@ -25,6 +25,9 @@ use crate::build_lower::compiler::{CmdlineAbstraction, CompiledPackageName, MiDe
 
 /// Command-line abstraction for `moonc build-interface`.
 ///
+/// This builds a MoonBit interface file (`.mi`) from a MoonBit interface
+/// contract file (`.mbti`). It is the reverse of `mooninfo`.
+///
 /// This mirrors the invocation assembled in
 /// [`gen_build_interface_command`](crates/moonbuild/src/gen/gen_build.rs:369) and
 /// is used to parametrise interface generation for virtual packages.

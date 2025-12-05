@@ -25,6 +25,9 @@ use crate::build_lower::compiler::CmdlineAbstraction;
 
 /// Abstraction for `moondoc` documentation generation command.
 ///
+/// `moondoc` reads the dependencies of packages, source files and built `.mi`
+/// interface files, and generates documentation in HTML or other formats.
+///
 /// This struct provides a wrapper around the moondoc command,
 /// converting from the legacy `run_doc_rr` function implementation
 /// to the new command abstraction pattern.

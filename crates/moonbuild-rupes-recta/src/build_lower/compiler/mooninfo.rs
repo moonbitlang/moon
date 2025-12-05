@@ -21,7 +21,13 @@ use std::path::Path;
 
 use crate::build_lower::compiler::CmdlineAbstraction;
 
-/// Wrapper for the external `mooninfo` tool. This mirrors the flag order
+/// Wrapper for the external `mooninfo` tool.
+///
+/// `mooninfo` converts a `.mi` or `.core` file into a textual representation.
+/// MoonBuild only uses a subset of its functionality to convert `.mi` files
+/// into `.mbti` files.
+///
+/// This mirrors the flag order
 /// used by `crates/moon/src/cli/info.rs` when invoking the `mooninfo` binary.
 #[derive(Debug)]
 pub struct Mooninfo<'a> {
@@ -29,16 +35,12 @@ pub struct Mooninfo<'a> {
     pub mi_in: Cow<'a, Path>,
     /// Output .mbti file path
     pub out: Cow<'a, Path>,
-    /// Whether to disable aliasing
+    /// Whether to not emit aliases for package names, and instead use full
+    /// package FQNs everywhere.
     pub no_alias: bool,
 }
 
 impl<'a> Mooninfo<'a> {
-    /// Build args following the exact order from `info.rs`:
-    /// 1. -format=text
-    /// 2. <mi path>
-    /// 3. -o=<out path>
-    /// 4. -no-alias (optional)
     pub fn to_args_legacy(&self, args: &mut Vec<String>) {
         args.push("-format=text".into());
 

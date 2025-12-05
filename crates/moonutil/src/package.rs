@@ -649,11 +649,14 @@ pub struct JsLinkConfig {
 )]
 #[repr(u8)]
 pub enum JsFormat {
+    /// An ECMAScript Module
     #[default]
     #[serde(rename = "esm")]
     ESM,
+    /// A CommonJS Module
     #[serde(rename = "cjs")]
     CJS,
+    /// An Immediately Invoked Function Expression (no module)
     #[serde(rename = "iife")]
     IIFE,
 }

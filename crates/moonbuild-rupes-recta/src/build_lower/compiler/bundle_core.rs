@@ -25,6 +25,9 @@ use crate::build_lower::compiler::CmdlineAbstraction;
 
 /// Abstraction for `moonc bundle-core`.
 ///
+/// This command bundles multiple `.core` files into a single `.core` file.
+/// It is currently only used in `moonbitlang/core`.
+///
 /// This struct provides a wrapper around the bundle-core command,
 /// converting from the legacy `gen_bundle_all` function implementation
 /// to the new command abstraction pattern.
