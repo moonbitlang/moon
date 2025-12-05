@@ -24,7 +24,6 @@ use crate::package::{MoonPkg, MoonPkgJSON, Package, VirtualPkg, convert_pkg_json
 use crate::path::PathComponent;
 use anyhow::{Context, bail};
 use clap::ValueEnum;
-use fs4::fs_std::FileExt;
 use indexmap::{IndexMap, IndexSet};
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
@@ -845,14 +844,14 @@ pub struct FileLock {
 
 impl Drop for FileLock {
     fn drop(&mut self) {
-        fs4::fs_std::FileExt::unlock(&self._file).unwrap();
+        let _ = self._file.unlock();
     }
 }
 
 impl FileLock {
     pub fn lock(path: &std::path::Path) -> std::io::Result<Self> {
         let file = std::fs::File::create(path.join(MOON_LOCK))?;
-        match file.try_lock_exclusive() {
+        match file.try_lock() {
             Ok(_) => Ok(FileLock { _file: file }),
             Err(_) => {
                 #[cfg(not(test))]
@@ -860,7 +859,7 @@ impl FileLock {
                     "Blocking waiting for file lock {} ...",
                     path.join(MOON_LOCK).display()
                 );
-                file.lock_exclusive()
+                file.lock()
                     .map_err(|e| std::io::Error::new(e.kind(), "failed to lock target dir"))?;
                 Ok(FileLock { _file: file })
             }

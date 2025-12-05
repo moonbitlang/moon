@@ -38,7 +38,6 @@ dialoguer.workspace = true
 dunce.workspace = true
 bincode.workspace = true
 semver.workspace = true
-fs4.workspace = true
 petgraph.workspace = true
 ariadne.workspace = true
 log.workspace = true
