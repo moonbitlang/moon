@@ -210,7 +210,7 @@ pub fn resolve_single_file_project(
         &resolved_env,
         &mut discover_result,
         run_mode,
-    );
+    )?;
 
     // Solve package dependency relationship
     let dep_relationship = pkg_solve::solve(&resolved_env, &discover_result, cfg.enable_coverage)?;

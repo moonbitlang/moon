@@ -35,7 +35,7 @@ use moonutil::common::TargetBackend;
 use moonutil::mooncakes::result::ResolvedEnv;
 use moonutil::package::{Import, MoonPkg, MoonPkgFormatter};
 
-use crate::discover::{DiscoverResult, DiscoveredPackage};
+use crate::discover::{DiscoverError, DiscoverResult, DiscoveredPackage};
 use crate::model::PackageId;
 use crate::pkg_name::{PackageFQN, PackagePath};
 
@@ -52,7 +52,7 @@ pub fn build_synth_single_file_package(
     env: &ResolvedEnv,
     discovered: &mut DiscoverResult,
     run_mode: bool,
-) -> PackageId {
+) -> Result<PackageId, DiscoverError> {
     // Expect exactly one local module for single-file synth
     let &[mid] = env.input_module_ids() else {
         panic!("No multiple main modules are supported")
