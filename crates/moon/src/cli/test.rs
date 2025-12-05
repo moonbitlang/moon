@@ -432,7 +432,6 @@ fn run_test_in_single_file_rr(cli: &UniversalFlags, cmd: &TestSubcommand) -> any
     preconfig.try_tcc_run = true;
 
     // Plan build: single UserIntent::Test for synthesized package; apply file/index filters
-    let single_file_path_ref = &single_file_path;
     let (build_meta, build_graph) = rr_build::plan_build_from_resolved(
         preconfig,
         &cli.unstable_feature,
@@ -452,7 +451,7 @@ fn run_test_in_single_file_rr(cli: &UniversalFlags, cmd: &TestSubcommand) -> any
                 .index
                 .map(TestIndex::Regular)
                 .or(cmd.doc_index.map(TestIndex::DocTest));
-            let filename = single_file_path_ref
+            let filename = single_file_path
                 .file_name()
                 .expect("single file path should have a filename")
                 .to_string_lossy();

@@ -2571,42 +2571,49 @@ Warning: [0002]
 /// instead of panicking (issue #1192)
 #[test]
 fn test_single_file_nonexistent_path_error() {
-    const PANIC_EXIT_CODE: i32 = 101;
-
-    // Helper to run moon command and get exit code
-    let run_moon = |args: &[&str]| -> i32 {
-        std::process::Command::new(moon_bin())
-            .current_dir(std::env::temp_dir())
-            .args(args)
-            .output()
-            .expect("failed to execute moon")
-            .status
-            .code()
-            .unwrap_or(-1)
-    };
+    // Use temp_dir for cross-platform compatibility
+    let nonexistent_path = std::env::temp_dir()
+        .join("nonexistent_file_12345.mbt")
+        .display()
+        .to_string();
 
     // Test moon check with non-existent file outside any project
-    // Should fail gracefully (exit != 0) but not panic (exit != 101)
-    let code = run_moon(&["check", "/tmp/nonexistent_file_12345.mbt"]);
-    assert_ne!(code, 0, "moon check should fail for non-existent file");
+    // Should fail gracefully (exit != 101 which is Rust panic code)
+    let check_result = snapbox::cmd::Command::new(moon_bin())
+        .current_dir(std::env::temp_dir())
+        .args(["check", &nonexistent_path])
+        .assert()
+        .failure();
+    // Verify it's not a panic (exit code 101)
     assert_ne!(
-        code, PANIC_EXIT_CODE,
+        check_result.get_output().status.code(),
+        Some(101),
         "moon check should not panic for non-existent file"
     );
 
     // Test moon test with non-existent file outside any project
-    let code = run_moon(&["test", "/tmp/nonexistent_file_12345.mbt"]);
-    assert_ne!(code, 0, "moon test should fail for non-existent file");
+    let test_result = snapbox::cmd::Command::new(moon_bin())
+        .current_dir(std::env::temp_dir())
+        .args(["test", &nonexistent_path])
+        .assert()
+        .failure();
+    // Verify it's not a panic (exit code 101)
     assert_ne!(
-        code, PANIC_EXIT_CODE,
+        test_result.get_output().status.code(),
+        Some(101),
         "moon test should not panic for non-existent file"
     );
 
     // Test moon run with non-existent file outside any project
-    let code = run_moon(&["run", "/tmp/nonexistent_file_12345.mbt"]);
-    assert_ne!(code, 0, "moon run should fail for non-existent file");
+    let run_result = snapbox::cmd::Command::new(moon_bin())
+        .current_dir(std::env::temp_dir())
+        .args(["run", &nonexistent_path])
+        .assert()
+        .failure();
+    // Verify it's not a panic (exit code 101)
     assert_ne!(
-        code, PANIC_EXIT_CODE,
+        run_result.get_output().status.code(),
+        Some(101),
         "moon run should not panic for non-existent file"
     );
 }
