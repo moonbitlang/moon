@@ -144,19 +144,34 @@ pub struct DiscoverResult {
 }
 
 impl DiscoverResult {
+    /// Add a discovered package to the result.
+    ///
+    /// If a package with the same fully-qualified name already exists, an error
+    /// is returned.
     pub(super) fn add_package(
         &mut self,
         m: ModuleId,
         path: PackagePath,
         data: DiscoveredPackage,
-    ) -> PackageId {
+    ) -> Result<PackageId, DiscoverError> {
         let id = self.packages.insert(data);
         self.module_map
             .entry(m)
             .expect("There should not be replacement in this map")
             .or_default()
             .insert(path, id);
-        id
+
+        if let Some(original) = self
+            .packages_rev_map
+            .insert(self.packages[id].fqn.to_string(), id)
+        {
+            return Err(DiscoverError::ConflictingPackageNameString {
+                first: self.packages[original].fqn.clone().into(),
+                second: self.packages[id].fqn.clone().into(),
+            });
+        }
+
+        Ok(id)
     }
 
     pub(super) fn set_abort_pkg(&mut self, id: PackageId) {
@@ -277,4 +292,10 @@ pub enum DiscoverError {
 
     #[error("Cannot find `pkg.mbti` declaration file for virtual package {0}")]
     MissingVirtualMbtiFile(PackageFQNWithSource),
+
+    #[error("Duplicated package name `{}` used by both packages {first} from {} and {second} from {}", .first.fqn(), .first.fqn().module(), .second.fqn().module())]
+    ConflictingPackageNameString {
+        first: PackageFQNWithSource,
+        second: PackageFQNWithSource,
+    },
 }

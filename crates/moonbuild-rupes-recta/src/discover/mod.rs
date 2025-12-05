@@ -192,7 +192,7 @@ pub(crate) fn discover_packages_for_mod(
             pkg.fqn,
             pkg.source_files.len()
         );
-        res.add_package(id, pkg.fqn.package().clone(), pkg);
+        res.add_package(id, pkg.fqn.package().clone(), pkg)?;
     }
 
     Ok(())
