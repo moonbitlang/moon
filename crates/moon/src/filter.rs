@@ -66,12 +66,17 @@ pub fn canonicalize_with_filename(path: &Path) -> anyhow::Result<(PathBuf, Optio
     }
 }
 
+trait AsNameMap<T> {
+    fn all_names(&self) -> impl Iterator<Item = impl AsRef<str>>;
+    fn get(&self, name: &str) -> Option<T>;
+}
+
 /// Resolve package identifiers (or other entities) by name using exact or fuzzy matching.
 ///
 /// Returns a list of matches ordered by relevance, without duplicates. The `name_map`
 /// should contain the full package names as keys and the desired return value (e.g.
 /// `PackageId`, `String`) as values.
-pub fn fuzzy_match_by_name<T>(needle: &str, name_map: &BTreeMap<String, T>) -> SmallVec<[T; 1]>
+fn fuzzy_match_by_name<T>(needle: &str, name_map: &impl AsNameMap<T>) -> SmallVec<[T; 1]>
 where
     T: Clone + PartialEq,
 {
@@ -83,12 +88,10 @@ where
 
     let mut result = SmallVec::new();
 
-    if let Some(matches) =
-        moonutil::fuzzy_match::fuzzy_match(needle, name_map.keys().map(|k| k.as_str()))
-    {
+    if let Some(matches) = moonutil::fuzzy_match::fuzzy_match(needle, name_map.all_names()) {
         for m in matches {
             if let Some(value) = name_map.get(m.as_str())
-                && result.iter().all(|existing| existing != value)
+                && result.iter().all(|existing| *existing != value)
             {
                 result.push(value.clone());
             }
@@ -108,20 +111,30 @@ pub fn match_packages_by_name_rr(
         panic!("No multiple main modules are supported");
     };
 
-    let packages = resolve_output
-        .pkg_dirs
-        .packages_for_module(main_module_id)
-        .expect("Cannot find the local module!");
+    let res = fuzzy_match_by_name(needle, &resolve_output.pkg_dirs);
 
-    let name_map: BTreeMap<String, PackageId> = packages
-        .values()
-        .map(|&pkg_id| {
-            let pkg = resolve_output.pkg_dirs.get_package(pkg_id);
-            (pkg.fqn.to_string(), pkg_id)
-        })
-        .collect();
+    // Warn about non-local packages being matched
+    for &pkg_id in &res {
+        let pkg = resolve_output.pkg_dirs.get_package(pkg_id);
+        if pkg.module != main_module_id {
+            log::warn!(
+                "Package '{}' matched by name '{}' is not in the main module, it may not be accessible.",
+                pkg.fqn,
+                needle
+            );
+        }
+    }
+    res
+}
 
-    fuzzy_match_by_name(needle, &name_map)
+impl AsNameMap<PackageId> for moonbuild_rupes_recta::discover::DiscoverResult {
+    fn all_names(&self) -> impl Iterator<Item = impl AsRef<str>> {
+        self.all_packages().map(|(_, pkg)| pkg.fqn.to_string())
+    }
+
+    fn get(&self, name: &str) -> Option<PackageId> {
+        self.get_package_id_by_name(name)
+    }
 }
 
 /// From a canonicalized, directory path, find the corresponding package ID.
