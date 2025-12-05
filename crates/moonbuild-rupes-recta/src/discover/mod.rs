@@ -30,7 +30,7 @@ pub mod special_case;
 pub mod synth;
 
 use std::{
-    collections::BTreeMap,
+    collections::{BTreeMap, HashMap},
     path::{Path, PathBuf},
 };
 
@@ -459,6 +459,14 @@ pub struct DiscoverResult {
     /// The index from modules to the packages they contain
     module_map: SecondaryMap<ModuleId, BTreeMap<PackagePath, PackageId>>,
 
+    /// Reverse map from package FQN string to package ID
+    ///
+    /// Currently, we assume that packages names should be unique across all
+    /// dependencies. If we allow incompatible versions of the same module
+    /// later, this map will not work, and a per-module package name map should
+    /// be used instead.
+    packages_rev_map: HashMap<String, PackageId>,
+
     /// A special case: `moonbitlang/core/abort`, a standard library package that
     /// needs special treatments.
     abort_pkg: Option<PackageId>,
@@ -494,6 +502,11 @@ impl DiscoverResult {
     /// Get the package ID for a given module and package path.
     pub fn get_package_id(&self, module: ModuleId, path: &PackagePath) -> Option<PackageId> {
         self.module_map.get(module)?.get(path).copied()
+    }
+
+    /// Get the package ID by its fully-qualified name string.
+    pub fn get_package_id_by_name(&self, name: &str) -> Option<PackageId> {
+        self.packages_rev_map.get(name).copied()
     }
 
     /// Get all packages for a given module.
