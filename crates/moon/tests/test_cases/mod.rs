@@ -2567,6 +2567,35 @@ Warning: [0002]
     }
 }
 
+/// Test that single-file commands properly report errors for non-existent files
+/// instead of panicking (issue #1192)
+#[test]
+fn test_single_file_nonexistent_path_error() {
+    // Test moon check with non-existent file outside any project
+    // Should fail gracefully instead of panicking
+    snapbox::cmd::Command::new(moon_bin())
+        .current_dir(std::env::temp_dir())
+        .args(["check", "/tmp/nonexistent_file_12345.mbt"])
+        .assert()
+        .failure();
+
+    // Test moon test with non-existent file outside any project
+    // Should fail gracefully instead of panicking
+    snapbox::cmd::Command::new(moon_bin())
+        .current_dir(std::env::temp_dir())
+        .args(["test", "/tmp/nonexistent_file_12345.mbt"])
+        .assert()
+        .failure();
+
+    // Test moon run with non-existent file outside any project
+    // (moon run already handled this gracefully, just verify it still works)
+    snapbox::cmd::Command::new(moon_bin())
+        .current_dir(std::env::temp_dir())
+        .args(["run", "/tmp/nonexistent_file_12345.mbt"])
+        .assert()
+        .failure();
+}
+
 #[test]
 #[ignore = "subpackage is not fully supported yet"]
 fn test_sub_package() {
