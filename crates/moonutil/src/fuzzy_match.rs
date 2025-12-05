@@ -17,7 +17,7 @@
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
 pub fn fuzzy_match<T: AsRef<str>>(
-    needle: T,
+    needle: impl AsRef<str>,
     haystack: impl IntoIterator<Item = T>,
 ) -> Option<Vec<String>> {
     let mut matcher = nucleo_matcher::Matcher::new(nucleo_matcher::Config::DEFAULT.match_paths());
