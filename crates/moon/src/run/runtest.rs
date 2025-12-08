@@ -79,7 +79,7 @@ use moonutil::common::{
     MOON_COVERAGE_DELIMITER_BEGIN, MOON_COVERAGE_DELIMITER_END, MOON_TEST_DELIMITER_BEGIN,
     MOON_TEST_DELIMITER_END, MbtTestInfo, MooncGenTestInfo,
 };
-use tokio::runtime::Runtime;
+use tokio::{runtime::Runtime, sync::Mutex};
 use tracing::{debug, info, instrument, trace, warn};
 
 use crate::{rr_build::BuildMeta, run::default_rt};
@@ -402,21 +402,19 @@ fn run_one_test_executable(
         test.executable,
         Some(&test_args),
     )?;
-    let mut cov_cap = mk_coverage_capture();
-    let mut test_cap = make_test_capture();
+    let cov_cap = Arc::new(Mutex::new(mk_coverage_capture()));
+    let test_cap = Arc::new(Mutex::new(make_test_capture()));
     if ctx.verbose {
         crate::rr_build::dry_print_command(cmd.command.as_std(), ctx.source_dir, true);
     }
     info!(package = %test_args.package, executable = %test.executable.display(), "launching test executable");
 
-    let exit_status = ctx
-        .rt
-        .block_on(crate::run::run(
-            &mut [&mut cov_cap, &mut test_cap],
-            true,
-            cmd.command,
-        ))
-        .with_context(|| format!("Failed to run test for {fqn} {:?}", test.target.kind))?;
+    let exit_status = {
+        let captures = [Arc::clone(&cov_cap), Arc::clone(&test_cap)];
+        ctx.rt
+            .block_on(crate::run::run(&captures, true, cmd.command))
+            .with_context(|| format!("Failed to run test for {fqn} {:?}", test.target.kind))?
+    };
     debug!(?exit_status, "test process finished");
 
     if !exit_status.success() {
@@ -427,9 +425,17 @@ fn run_one_test_executable(
         );
     }
 
-    handle_finished_coverage(ctx.target_dir, cov_cap)?;
+    let cov_result = Arc::try_unwrap(cov_cap)
+        .ok()
+        .expect("cov_cap should have no other references")
+        .into_inner();
+    handle_finished_coverage(ctx.target_dir, cov_result)?;
 
-    parse_test_results(meta, test_cap).with_context(|| {
+    let test_result = Arc::try_unwrap(test_cap)
+        .ok()
+        .expect("test_cap should have no other references")
+        .into_inner();
+    parse_test_results(meta, test_result).with_context(|| {
         format!(
             "Failed to parse test results for {fqn} {:?}",
             test.target.kind

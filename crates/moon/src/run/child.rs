@@ -18,12 +18,15 @@
 
 //! Handles spawning of a child process under the govern of `moon run`
 
-use std::process::{ExitStatus, Stdio};
+use std::{
+    process::{ExitStatus, Stdio},
+    sync::Arc,
+};
 
 use anyhow::Context;
 use moonbuild::section_capture::{SectionCapture, handle_stdout_async};
 use moonutil::platform::macos_with_sigchild_blocked;
-use tokio::process::Command;
+use tokio::{process::Command, sync::Mutex};
 
 /// Run a command under the governing of `moon run`.
 ///
@@ -39,7 +42,7 @@ use tokio::process::Command;
 /// output since the running process might not have any other method to interact
 /// with the host `moon` process.
 pub async fn run<'a>(
-    captures: &mut [&mut SectionCapture<'a>],
+    captures: &[Arc<Mutex<SectionCapture<'a>>>],
     capture: bool,
     mut cmd: Command,
 ) -> anyhow::Result<ExitStatus> {
