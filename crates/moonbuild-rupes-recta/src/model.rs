@@ -73,12 +73,24 @@ impl From<RunBackend> for TargetBackend {
     }
 }
 
+/// The kind of build target within a package.
+///
+/// This determines what files are included and/or the arguments passed to the
+/// compiler.
 #[derive(Clone, Debug, Copy, PartialEq, Eq, Hash, Ord, PartialOrd)]
 pub enum TargetKind {
+    /// The library or executable itself represented by the package.
     Source,
+    /// Whitebox tests are tests that are built *alongside* the source code,
+    /// having access to its internal symbols.
     WhiteboxTest,
+    /// Blackbox tests are tests that depend on the package as an external
+    /// module, only having access to its public interface.
     BlackboxTest,
 
+    /// Inline tests are tests that are embedded within the source files
+    /// themselves. They are similar to whitebox tests, but lack their own
+    /// import list.
     InlineTest,
     /// This is the subpackage designed originally for breaking cycles in
     /// `moonbitlang/core`. It's expected to be used sparingly.
