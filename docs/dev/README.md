@@ -13,12 +13,12 @@ The first thing is to install Rust toolchain and MoonBit toolchain, if you have 
 - [Install Rust](https://www.rust-lang.org/tools/install)
 - [MoonBit CLI Tools](https://www.moonbitlang.com/download/#moonbit-cli-tools)
 
-
 ## How to Build and Test
 
 ### On Unix
 
 ```bash
+cargo xtask
 cargo build
 cargo test
 ```
@@ -34,6 +34,7 @@ env UPDATE_EXPECT=1 cargo test
 ### On Windows
 
 ```bash
+cargo xtask
 cargo build
 cargo test
 ```
