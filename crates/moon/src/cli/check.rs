@@ -346,8 +346,13 @@ fn run_check_for_single_file_legacy(
         json_diagnostics: cmd.build_flags.output_style().needs_moonc_json(),
         single_file: true,
     };
-    let module =
-        get_module_for_single_file(&single_file_path, &moonc_opt, &moonbuild_opt, mbt_md_header)?;
+    let module = get_module_for_single_file(
+        &single_file_path,
+        &moonc_opt,
+        &moonbuild_opt,
+        mbt_md_header,
+        None,
+    )?;
 
     if cli.dry_run {
         return dry_run::print_commands(&module, &moonc_opt, &moonbuild_opt);

@@ -119,6 +119,9 @@ pub struct Package {
     pub link_search_paths: Vec<String>,
 
     pub max_concurrent_tests: Option<u32>,
+
+    /// Test timeout in seconds
+    pub test_timeout: Option<u64>,
 }
 
 impl Package {
@@ -358,6 +361,12 @@ pub struct MoonPkgJSON {
     #[serde(alias = "max-concurrent-tests")]
     #[schemars(rename = "max-concurrent-tests")]
     pub max_concurrent_tests: Option<u32>,
+
+    /// Test timeout in seconds
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(alias = "test-timeout")]
+    #[schemars(rename = "test-timeout")]
+    pub test_timeout: Option<u64>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, JsonSchema)]
@@ -775,6 +784,9 @@ pub struct MoonPkg {
     pub overrides: Option<Vec<String>>,
 
     pub max_concurrent_tests: Option<u32>,
+
+    /// Test timeout in seconds
+    pub test_timeout: Option<u64>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -929,6 +941,7 @@ pub fn convert_pkg_json_to_package(j: MoonPkgJSON) -> anyhow::Result<MoonPkg> {
         implement: j.implement,
         overrides: j.overrides,
         max_concurrent_tests: j.max_concurrent_tests,
+        test_timeout: j.test_timeout,
     };
     Ok(result)
 }
