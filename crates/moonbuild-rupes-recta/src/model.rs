@@ -73,15 +73,6 @@ impl From<RunBackend> for TargetBackend {
     }
 }
 
-/// Represents the overall action of this build tool call
-#[derive(Clone, Debug, Copy, PartialEq, Eq)]
-pub enum RunAction {
-    Build,
-    Bundle,
-    Check,
-    Test,
-}
-
 #[derive(Clone, Debug, Copy, PartialEq, Eq, Hash, Ord, PartialOrd)]
 pub enum TargetKind {
     Source,
