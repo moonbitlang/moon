@@ -87,6 +87,7 @@ impl<'a> super::BuildPlanLowerContext<'a> {
             target_backend: self.opt.target_backend.into(),
             patch_file,
             pkg_name: &pkg_full_name,
+            max_concurrent_tests: package.raw.max_concurrent_tests,
         };
 
         let commandline = cmd.build_command(&*moonutil::BINARIES.moonbuild);
