@@ -272,6 +272,7 @@ impl<'a> BuildPlanLowerContext<'a> {
         // Track doctest-only files as inputs as well
         let mut extra_inputs = files_vec.clone();
         extra_inputs.extend(info.doctest_files.clone());
+        extra_inputs.push(package.config_path());
 
         // Also track any -check-mi file used by this command (virtual checks/impl)
         self.extend_extra_inputs(&cmd.defaults, &mut extra_inputs);
@@ -351,6 +352,7 @@ impl<'a> BuildPlanLowerContext<'a> {
         // tracked via the build graph.
         let mut extra_inputs = info.files().map(|x| x.to_path_buf()).collect::<Vec<_>>();
         extra_inputs.extend(info.doctest_files.clone());
+        extra_inputs.push(package.config_path());
 
         self.extend_extra_inputs(&cmd.defaults, &mut extra_inputs);
 
@@ -429,7 +431,7 @@ impl<'a> BuildPlanLowerContext<'a> {
                 kind: target.kind,
             },
             output_path: out_file.into(),
-            pkg_config_path: config_path.into(),
+            pkg_config_path: config_path.clone().into(),
             package_sources: &package_sources,
             stdlib_core_source: None,
             target_backend: self.opt.target_backend.into(),
@@ -453,6 +455,7 @@ impl<'a> BuildPlanLowerContext<'a> {
                 self.opt.target_backend.into(),
             ));
         }
+        extra_inputs.push(config_path);
 
         BuildCommand {
             extra_inputs,
