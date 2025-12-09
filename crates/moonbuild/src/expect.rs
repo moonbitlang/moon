@@ -19,7 +19,9 @@
 use anyhow::Context;
 use base64::Engine;
 use colored::Colorize;
+use core::fmt;
 use moonutil::common::line_col_to_byte_idx;
+use moonutil::module::ModuleDB;
 use similar::DiffOp;
 use similar::DiffTag;
 use similar::TextDiff;
@@ -28,6 +30,16 @@ use std::collections::HashMap;
 use std::io::Write;
 use std::path::PathBuf;
 use std::str::FromStr;
+
+pub trait PackageSrcResolver {
+    fn resolve_pkg_src(&self, pkg_path: &str) -> PathBuf;
+}
+
+impl PackageSrcResolver for ModuleDB {
+    fn resolve_pkg_src(&self, pkg_path: &str) -> PathBuf {
+        self.get_package_by_name(pkg_path).root_path.clone()
+    }
+}
 
 #[derive(Debug, Default)]
 pub struct PackagePatch {
@@ -101,10 +113,34 @@ pub struct Target {
     mode: Option<String>,
 }
 
-#[derive(Debug, Default, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, serde::Serialize, serde::Deserialize)]
+pub struct StructuredLocation {
+    pkg: String,
+    filename: String,
+    start_line: u32,
+    start_column: u32,
+    end_line: u32,
+    end_column: u32,
+}
+
+#[derive(Debug, serde::Serialize, serde::Deserialize)]
+#[serde(untagged)]
+pub enum LocationJson {
+    Structured(StructuredLocation),
+    Legacy(String),
+}
+
+#[derive(Debug, serde::Serialize, serde::Deserialize)]
+#[serde(untagged)]
+pub enum ArgsLocJson {
+    Structured(Vec<Option<StructuredLocation>>),
+    Legacy(String),
+}
+
+#[derive(Debug, serde::Serialize, serde::Deserialize)]
 pub struct ExpectFailedRaw {
-    pub loc: String,
-    pub args_loc: String,
+    pub loc: LocationJson,
+    pub args_loc: ArgsLocJson,
     pub expect: Option<String>,
     pub actual: Option<String>,
     pub expect_base64: Option<String>,
@@ -132,8 +168,11 @@ impl std::str::FromStr for ExpectFailedRaw {
     }
 }
 
-pub fn expect_failed_to_snapshot_result(efr: ExpectFailedRaw) -> SnapshotResult {
-    let filename = parse_filename(&efr.loc).unwrap();
+pub fn expect_failed_to_snapshot_result(
+    pkg_src: &impl PackageSrcResolver,
+    efr: ExpectFailedRaw,
+) -> SnapshotResult {
+    let filename = efr.loc.resolve(pkg_src).unwrap().filename;
     let expect_file = dunce::canonicalize(PathBuf::from(&filename))
         .unwrap()
         .parent()
@@ -160,10 +199,10 @@ pub fn expect_failed_to_snapshot_result(efr: ExpectFailedRaw) -> SnapshotResult 
     }
 }
 
-#[derive(Debug, Default, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, serde::Serialize, serde::Deserialize)]
 pub struct SnapshotResult {
-    pub loc: String,
-    pub args_loc: String,
+    pub loc: LocationJson,
+    pub args_loc: ArgsLocJson,
     pub expect_file: PathBuf,
     pub expect_content: Option<String>,
     pub actual: String,
@@ -172,7 +211,7 @@ pub struct SnapshotResult {
 
 #[derive(Debug)]
 struct Location {
-    pub raw: String,
+    pub filename: String,
     pub line_start: u32,
     pub col_start: u32,
     pub line_end: u32,
@@ -191,10 +230,22 @@ impl Location {
     }
 }
 
+impl fmt::Display for Location {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(
+            f,
+            "{}:{}:{}-{}:{}",
+            self.filename,
+            self.line_start + 1,
+            self.col_start + 1,
+            self.line_end + 1,
+            self.col_end + 1,
+        )
+    }
+}
+
 #[derive(Debug)]
 struct Replace {
-    pub filename: String,
-
     // inspect(1234)
     // ^............^
     pub loc: Location,
@@ -355,9 +406,12 @@ fn test_decode() {
     );
 }
 
-fn parse_expect_failed_message(msg: &str) -> anyhow::Result<Replace> {
+fn parse_expect_failed_message(
+    pkg_src: &impl PackageSrcResolver,
+    msg: &str,
+) -> anyhow::Result<Replace> {
     let j: ExpectFailedRaw = ExpectFailedRaw::from_str(msg)?;
-    let locs: Vec<Option<String>> = serde_json_lenient::from_str(&j.args_loc)?;
+    let locs: Vec<Option<Location>> = j.args_loc.resolve(pkg_src)?;
     if locs.len() != 4 {
         anyhow::bail!(
             "invalid locations {:?}, expect 4, got: {}",
@@ -369,13 +423,10 @@ fn parse_expect_failed_message(msg: &str) -> anyhow::Result<Replace> {
         // impossible
         anyhow::bail!("the location of first argument cannot be None");
     }
-    let loc = parse_loc(&j.loc)?;
-    let actual_loc = parse_loc(locs[0].as_ref().unwrap())?;
-    let expect_loc = if locs[1].is_some() {
-        Some(parse_loc(locs[1].as_ref().unwrap())?)
-    } else {
-        None
-    };
+    let loc = j.loc.resolve(pkg_src)?;
+    let mut locs_iter = locs.into_iter();
+    let actual_loc = locs_iter.next().unwrap().unwrap();
+    let expect_loc = locs_iter.next().unwrap();
 
     let expect = if let Some(base64) = &j.expect_base64 {
         base64_decode_string_codepoint(base64)
@@ -389,7 +440,6 @@ fn parse_expect_failed_message(msg: &str) -> anyhow::Result<Replace> {
     };
 
     Ok(Replace {
-        filename: parse_filename(&j.loc)?,
         loc,
         expect,
         expect_loc,
@@ -399,54 +449,84 @@ fn parse_expect_failed_message(msg: &str) -> anyhow::Result<Replace> {
     })
 }
 
-pub fn parse_filename(loc: &str) -> anyhow::Result<String> {
-    let mut index = loc.len();
-    let mut colon = 0;
-    for (i, c) in loc.char_indices().rev() {
-        if c == ':' {
-            colon += 1;
-            if colon == 3 {
-                index = i;
-                break;
-            }
+impl StructuredLocation {
+    fn resolve(&self, pkg_src: &impl PackageSrcResolver) -> Location {
+        let actual_pkg = self.pkg.strip_suffix("_blackbox_test").unwrap_or(&self.pkg);
+        let mut full_path = pkg_src.resolve_pkg_src(actual_pkg);
+        full_path.push(&self.filename);
+        Location {
+            filename: full_path.display().to_string(),
+            line_start: self.start_line,
+            col_start: self.start_column,
+            line_end: self.end_line,
+            col_end: self.end_column,
         }
     }
-    Ok(loc[..index].to_string())
 }
 
-fn parse_loc(loc: &str) -> anyhow::Result<Location> {
-    // find 3rd colon from right of loc
-    let mut index = loc.len();
-    let mut colon = 0;
-    for (i, c) in loc.char_indices().rev() {
-        if c == ':' {
-            colon += 1;
-            if colon == 3 {
-                index = i;
-                break;
+impl LocationJson {
+    fn resolve(&self, pkg_src: &impl PackageSrcResolver) -> anyhow::Result<Location> {
+        match self {
+            LocationJson::Structured(structured) => Ok(structured.resolve(pkg_src)),
+            LocationJson::Legacy(loc) => {
+                // find 3rd colon from right of loc
+                let mut index = loc.len();
+                let mut colon = 0;
+                for (i, c) in loc.char_indices().rev() {
+                    if c == ':' {
+                        colon += 1;
+                        if colon == 3 {
+                            index = i;
+                            break;
+                        }
+                    }
+                }
+                let tmp = &loc[index + 1..];
+                let rloc = tmp.replace('-', ":");
+                let parts: Vec<&str> = rloc.split(':').collect();
+                if parts.len() != 4 {
+                    anyhow::bail!("invalid location: {}", rloc);
+                }
+                let line_start = parts[0].parse::<u32>()? - 1;
+                let col_start = parts[1].parse::<u32>()? - 1;
+                let line_end = parts[2].parse::<u32>()? - 1;
+                let col_end = parts[3].parse::<u32>()? - 1;
+                Ok(Location {
+                    filename: loc[..index].to_string(),
+                    line_start,
+                    col_start,
+                    line_end,
+                    col_end,
+                })
             }
         }
     }
-    let tmp = &loc[index + 1..];
-    let rloc = tmp.replace('-', ":");
-    let parts: Vec<&str> = rloc.split(':').collect();
-    if parts.len() != 4 {
-        anyhow::bail!("invalid location: {}", rloc);
+}
+
+impl ArgsLocJson {
+    fn resolve(&self, pkg_src: &impl PackageSrcResolver) -> anyhow::Result<Vec<Option<Location>>> {
+        match self {
+            ArgsLocJson::Structured(locs) => Ok(locs
+                .iter()
+                .map(|loc| loc.as_ref().map(|loc| loc.resolve(pkg_src)))
+                .collect()),
+            ArgsLocJson::Legacy(locs) => {
+                let locs: Vec<Option<LocationJson>> = serde_json_lenient::from_str(locs)?;
+                let mut result = vec![];
+                for loc in locs {
+                    match loc {
+                        None => result.push(None),
+                        Some(loc) => result.push(Some(loc.resolve(pkg_src)?)),
+                    }
+                }
+                Ok(result)
+            }
+        }
     }
-    let line_start = parts[0].parse::<u32>()? - 1;
-    let col_start = parts[1].parse::<u32>()? - 1;
-    let line_end = parts[2].parse::<u32>()? - 1;
-    let col_end = parts[3].parse::<u32>()? - 1;
-    Ok(Location {
-        raw: loc.to_string(),
-        line_start,
-        col_start,
-        line_end,
-        col_end,
-    })
 }
 
 fn collect<'a>(
+    pkg_src: &impl PackageSrcResolver,
     messages: impl IntoIterator<Item = &'a str>,
 ) -> anyhow::Result<HashMap<String, BTreeSet<Target>>> {
     let mut targets: HashMap<String, BTreeSet<Target>> = HashMap::new();
@@ -456,16 +536,16 @@ fn collect<'a>(
             continue;
         }
         let json_str = &msg[EXPECT_FAILED.len()..];
-        let rep = parse_expect_failed_message(json_str)?;
+        let rep = parse_expect_failed_message(pkg_src, json_str)?;
 
-        match targets.get_mut(&rep.filename) {
+        match targets.get_mut(&rep.loc.filename) {
             Some(st) => {
                 st.insert(rep.guess_target()?);
             }
             None => {
                 let mut newst = BTreeSet::new();
                 newst.insert(rep.guess_target()?);
-                targets.insert(rep.filename.clone(), newst);
+                targets.insert(rep.loc.filename.clone(), newst);
             }
         }
     }
@@ -837,7 +917,10 @@ fn apply_patch(pp: &PackagePatch) -> anyhow::Result<()> {
     Ok(())
 }
 
-pub fn apply_snapshot<'a>(messages: impl IntoIterator<Item = &'a str>) -> anyhow::Result<()> {
+pub fn apply_snapshot<'a>(
+    pkg_src: &impl PackageSrcResolver,
+    messages: impl IntoIterator<Item = &'a str>,
+) -> anyhow::Result<()> {
     let snapshots = messages
         .into_iter()
         .filter(|msg| msg.starts_with(SNAPSHOT_TESTING))
@@ -848,10 +931,10 @@ pub fn apply_snapshot<'a>(messages: impl IntoIterator<Item = &'a str>) -> anyhow
                 .unwrap();
             rep
         })
-        .map(expect_failed_to_snapshot_result);
+        .map(|epf| expect_failed_to_snapshot_result(pkg_src, epf));
 
     for snapshot in snapshots {
-        let filename = parse_filename(&snapshot.loc)?;
+        let filename = snapshot.loc.resolve(pkg_src)?.filename;
         let actual = snapshot.actual.clone();
         let expect_file = &snapshot.expect_file;
         let expect_file = dunce::canonicalize(PathBuf::from(&filename))
@@ -877,9 +960,12 @@ pub fn apply_snapshot<'a>(messages: impl IntoIterator<Item = &'a str>) -> anyhow
     Ok(())
 }
 
-pub fn apply_expect<'a>(messages: impl IntoIterator<Item = &'a str>) -> anyhow::Result<()> {
+pub fn apply_expect<'a>(
+    pkg_src: &impl PackageSrcResolver,
+    messages: impl IntoIterator<Item = &'a str>,
+) -> anyhow::Result<()> {
     // dbg!(&messages);
-    let targets = collect(messages)?;
+    let targets = collect(pkg_src, messages)?;
     // dbg!(&targets);
     let patches = gen_patch(targets)?;
     // dbg!(&patches);
@@ -1012,10 +1098,10 @@ fn write_diff_header(mut to: impl Write) -> std::io::Result<()> {
     )
 }
 
-pub fn render_expect_fail(msg: &str) -> anyhow::Result<()> {
+pub fn render_expect_fail(pkg_src: &impl PackageSrcResolver, msg: &str) -> anyhow::Result<()> {
     assert!(msg.starts_with(EXPECT_FAILED));
     let json_str = &msg[EXPECT_FAILED.len()..];
-    let rep = parse_expect_failed_message(json_str)?;
+    let rep = parse_expect_failed_message(pkg_src, json_str)?;
 
     if let Some("json") = rep.mode.as_deref() {
         let j_expect = serde_json_lenient::from_str(&rep.expect)?;
@@ -1023,14 +1109,14 @@ pub fn render_expect_fail(msg: &str) -> anyhow::Result<()> {
         let diffs = json_structural_diff::JsonDiff::diff(&j_expect, &j_actual, false);
         if let Some(diff) = diffs.diff {
             let diffs = json_structural_diff::colorize(&diff, true);
-            println!("inspect failed at {}", rep.loc.raw);
+            println!("inspect failed at {}", rep.loc);
             println!("{}", "Diff:".bold());
             println!("{diffs}");
         }
         return Ok(());
     }
 
-    println!("expect test failed at {}", rep.loc.raw);
+    println!("expect test failed at {}", rep.loc);
     write_diff_header(std::io::stdout())?;
     println!("----");
     write_diff(
@@ -1046,15 +1132,15 @@ pub fn render_expect_fail(msg: &str) -> anyhow::Result<()> {
     Ok(())
 }
 
-pub fn snapshot_eq(msg: &str) -> anyhow::Result<bool> {
+pub fn snapshot_eq(pkg_src: &impl PackageSrcResolver, msg: &str) -> anyhow::Result<bool> {
     assert!(msg.starts_with(SNAPSHOT_TESTING));
     let json_str = &msg[SNAPSHOT_TESTING.len()..];
 
     let e: ExpectFailedRaw = ExpectFailedRaw::from_str(json_str)
         .context(format!("parse snapshot test result failed: {json_str}"))?;
-    let snapshot = expect_failed_to_snapshot_result(e);
+    let snapshot = expect_failed_to_snapshot_result(pkg_src, e);
 
-    let filename = parse_filename(&snapshot.loc)?;
+    let filename = snapshot.loc.resolve(pkg_src)?.filename;
     let actual = snapshot.actual.clone();
     let expect_file = &snapshot.expect_file;
     let expect_file = dunce::canonicalize(PathBuf::from(&filename))
@@ -1076,19 +1162,21 @@ pub fn snapshot_eq(msg: &str) -> anyhow::Result<bool> {
     Ok(eq)
 }
 
-pub fn render_snapshot_fail(msg: &str) -> anyhow::Result<(bool, String, String)> {
+pub fn render_snapshot_fail(
+    pkg_src: &impl PackageSrcResolver,
+    msg: &str,
+) -> anyhow::Result<(bool, String, String)> {
     assert!(msg.starts_with(SNAPSHOT_TESTING));
     let json_str = &msg[SNAPSHOT_TESTING.len()..];
 
     let e: ExpectFailedRaw = ExpectFailedRaw::from_str(json_str)
         .context(format!("parse snapshot test result failed: {json_str}"))?;
-    let snapshot = expect_failed_to_snapshot_result(e);
+    let snapshot = expect_failed_to_snapshot_result(pkg_src, e);
 
-    let filename = parse_filename(&snapshot.loc)?;
-    let loc = parse_loc(&snapshot.loc)?;
+    let loc = snapshot.loc.resolve(pkg_src)?;
     let actual = snapshot.actual.clone();
     let expect_file = &snapshot.expect_file;
-    let expect_file = dunce::canonicalize(PathBuf::from(&filename))
+    let expect_file = dunce::canonicalize(PathBuf::from(&loc.filename))
         .unwrap()
         .parent()
         .unwrap()
@@ -1104,7 +1192,7 @@ pub fn render_snapshot_fail(msg: &str) -> anyhow::Result<(bool, String, String)>
     if !eq {
         println!(
             "expect test failed at {}:{}:{}",
-            filename,
+            loc.filename,
             loc.line_start + 1,
             loc.col_start + 1
         );
@@ -1123,12 +1211,15 @@ pub fn render_snapshot_fail(msg: &str) -> anyhow::Result<(bool, String, String)>
     Ok((eq, expect, actual))
 }
 
-pub fn render_expect_fails(messages: &[String]) -> anyhow::Result<()> {
+pub fn render_expect_fails(
+    pkg_src: &impl PackageSrcResolver,
+    messages: &[String],
+) -> anyhow::Result<()> {
     for msg in messages {
         if !msg.starts_with(EXPECT_FAILED) {
             continue;
         }
-        render_expect_fail(msg)?;
+        render_expect_fail(pkg_src, msg)?;
     }
     Ok(())
 }

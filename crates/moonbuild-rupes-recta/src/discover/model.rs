@@ -23,6 +23,7 @@ use std::{
     path::PathBuf,
 };
 
+use moonbuild::expect::PackageSrcResolver;
 use moonutil::common::{MOON_PKG_JSON, TargetBackend};
 use moonutil::mooncakes::{ModuleId, ModuleSource};
 use moonutil::package::MoonPkg;
@@ -225,6 +226,13 @@ impl DiscoverResult {
 
     pub fn abort_pkg(&self) -> Option<PackageId> {
         self.abort_pkg
+    }
+}
+
+impl PackageSrcResolver for DiscoverResult {
+    fn resolve_pkg_src(&self, pkg_path: &str) -> PathBuf {
+        let pkg_id = self.packages_rev_map[pkg_path];
+        self.packages[pkg_id].root_path.clone()
     }
 }
 

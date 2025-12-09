@@ -869,6 +869,7 @@ pub fn run_test(
                         &moonbuild_opt.target_dir,
                         &test_args,
                         &file_test_info_map,
+                        &module,
                     ),
                 )
                 .await;
@@ -1001,12 +1002,20 @@ async fn execute_test(
     target_dir: &Path,
     args: &TestArgs,
     file_test_info_map: &FileTestInfo,
+    module: &ModuleDB,
 ) -> anyhow::Result<Vec<Result<TestStatistics, TestFailedStatus>>> {
     let verbose = moonbuild_opt.verbose;
     match target_backend {
         TargetBackend::Wasm | TargetBackend::WasmGC => {
-            crate::runtest::run_wat(artifact_path, target_dir, args, file_test_info_map, verbose)
-                .await
+            crate::runtest::run_wat(
+                artifact_path,
+                target_dir,
+                args,
+                file_test_info_map,
+                verbose,
+                module,
+            )
+            .await
         }
         TargetBackend::Js => {
             crate::runtest::run_js(
@@ -1015,6 +1024,7 @@ async fn execute_test(
                 args,
                 file_test_info_map,
                 verbose,
+                module,
             )
             .await
         }
@@ -1026,12 +1036,20 @@ async fn execute_test(
                 args,
                 file_test_info_map,
                 verbose,
+                module,
             )
             .await
         }
         TargetBackend::LLVM => {
-            crate::runtest::run_llvm(artifact_path, target_dir, args, file_test_info_map, verbose)
-                .await
+            crate::runtest::run_llvm(
+                artifact_path,
+                target_dir,
+                args,
+                file_test_info_map,
+                verbose,
+                module,
+            )
+            .await
         }
     }
 }
@@ -1192,7 +1210,7 @@ async fn handle_test_result(
                         let _ = formatter.write_failure(&mut std::io::stdout());
                         println!();
                     }
-                    let _ = render_snapshot_fail(&stat.message);
+                    let _ = render_snapshot_fail(module, &stat.message);
                 }
                 if auto_update {
                     if !printed.load(std::sync::atomic::Ordering::SeqCst) {
@@ -1202,7 +1220,7 @@ async fn handle_test_result(
                         );
                         printed.store(true, std::sync::atomic::Ordering::SeqCst);
                     }
-                    apply_snapshot([stat.message.as_str()])?;
+                    apply_snapshot(module, [stat.message.as_str()])?;
                     let index = stat.index.clone().parse::<u32>().unwrap();
                     let test_args = TestArgs {
                         package: stat.package.clone(),
@@ -1215,6 +1233,7 @@ async fn handle_test_result(
                         target_dir,
                         &test_args,
                         file_test_info_map,
+                        module,
                     )
                     .await?
                     .first()
@@ -1230,7 +1249,7 @@ async fn handle_test_result(
                         Err(TestFailedStatus::SnapshotPending(cur_err)) => &cur_err.message,
                         _ => &stat.message,
                     };
-                    if let Err(e) = apply_snapshot([update_msg.as_str()]) {
+                    if let Err(e) = apply_snapshot(module, [update_msg.as_str()]) {
                         eprintln!("{}: {:?}", "apply snapshot failed".red().bold(), e);
                     }
 
@@ -1241,6 +1260,7 @@ async fn handle_test_result(
                         target_dir,
                         &test_args,
                         file_test_info_map,
+                        module,
                     )
                     .await?
                     .first()
@@ -1282,7 +1302,7 @@ async fn handle_test_result(
                         let _ = formatter.write_failure(&mut std::io::stdout());
                         println!();
                     }
-                    let _ = crate::expect::render_expect_fail(&origin_err.message);
+                    let _ = crate::expect::render_expect_fail(module, &origin_err.message);
                 }
                 if auto_update {
                     if !printed.load(std::sync::atomic::Ordering::SeqCst) {
@@ -1309,6 +1329,7 @@ async fn handle_test_result(
                         target_dir,
                         &test_args,
                         file_test_info_map,
+                        module,
                     )
                     .await?
                     .first()
@@ -1324,7 +1345,7 @@ async fn handle_test_result(
                         _ => &origin_err.message,
                     };
 
-                    if let Err(e) = crate::expect::apply_expect([update_msg.as_str()]) {
+                    if let Err(e) = crate::expect::apply_expect(module, [update_msg.as_str()]) {
                         eprintln!("{}: {:?}", "apply expect failed".red().bold(), e);
                     }
 
@@ -1345,6 +1366,7 @@ async fn handle_test_result(
                         target_dir,
                         &test_args,
                         file_test_info_map,
+                        module,
                     )
                     .await?
                     .first()
@@ -1359,7 +1381,8 @@ async fn handle_test_result(
                             break;
                         }
 
-                        if let Err(e) = crate::expect::apply_expect([etf.message.as_str()]) {
+                        if let Err(e) = crate::expect::apply_expect(module, [etf.message.as_str()])
+                        {
                             eprintln!("{}: {:?}", "failed".red().bold(), e);
                             break;
                         }
@@ -1382,6 +1405,7 @@ async fn handle_test_result(
                             target_dir,
                             &test_args,
                             file_test_info_map,
+                            module,
                         )
                         .await?
                         .first()
