@@ -16,9 +16,12 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
-use std::io::BufRead;
+use std::{io::BufRead, sync::Arc};
 
-use tokio::io::{AsyncBufRead, AsyncWriteExt};
+use tokio::{
+    io::{AsyncBufRead, AsyncWriteExt},
+    sync::Mutex,
+};
 
 pub struct SectionCapture<'a> {
     begin_delimiter: &'a str,
@@ -121,7 +124,7 @@ pub fn handle_stdout<P: FnMut(&str)>(
 /// Async version of [`handle_stdout`].
 pub async fn handle_stdout_async<'a>(
     proc: impl AsyncBufRead,
-    captures: &mut [&mut SectionCapture<'a>],
+    captures: &[Arc<Mutex<SectionCapture<'a>>>],
 ) -> anyhow::Result<()> {
     use tokio::io::AsyncBufReadExt;
     let mut buf = String::new();
@@ -135,9 +138,14 @@ pub async fn handle_stdout_async<'a>(
         if n == 0 {
             break;
         }
-        let capture_status = captures
-            .iter_mut()
-            .find_map(|capture| capture.feed_line(&buf));
+        let mut capture_status = None;
+        for capture in captures.iter() {
+            let mut guard = capture.lock().await;
+            if let Some(status) = guard.feed_line(&buf) {
+                capture_status = Some(status);
+                break;
+            }
+        }
         match capture_status {
             None => {
                 stdout.write_all(buf.as_bytes()).await?;
