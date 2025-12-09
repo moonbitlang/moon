@@ -4,6 +4,7 @@ This is a reference documentation of the current MoonBuild behavior.
 
 ## Core features
 
+- [Architecture and overview](./arch.md)
 - [Modules and packages](./modules-packages.md)
 - [Package build process](./build.md)
 - [Conditional compilation](./cond-comp.md)
