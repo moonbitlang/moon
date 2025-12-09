@@ -68,8 +68,8 @@ use moonbuild::{
     benchmark::{BATCHBENCH, render_batch_bench_summary},
     entry::{CompactTestFormatter, TestArgs},
     expect::{
-        ERROR, EXPECT_FAILED, RUNTIME_ERROR, SNAPSHOT_TESTING, render_expect_fail,
-        render_snapshot_fail,
+        ERROR, EXPECT_FAILED, PackageSrcResolver, RUNTIME_ERROR, SNAPSHOT_TESTING,
+        render_expect_fail, render_snapshot_fail,
     },
     runtest::TestStatistics,
     section_capture::SectionCapture,
@@ -268,7 +268,13 @@ impl ReplaceableTestResults {
                 .to_string();
             for file_map in result.map.values() {
                 for res in file_map.values() {
-                    print_test_result(res, &module_name, verbose, json);
+                    print_test_result(
+                        res,
+                        &module_name,
+                        verbose,
+                        json,
+                        &meta.resolve_output.pkg_dirs,
+                    );
                 }
             }
         }
@@ -429,7 +435,7 @@ fn run_one_test_executable(
 
     handle_finished_coverage(ctx.target_dir, cov_cap)?;
 
-    parse_test_results(meta, test_cap).with_context(|| {
+    parse_test_results(meta, test_cap, &ctx.build_meta.resolve_output.pkg_dirs).with_context(|| {
         format!(
             "Failed to parse test results for {fqn} {:?}",
             test.target.kind
@@ -469,10 +475,11 @@ fn handle_finished_coverage(target_dir: &Path, cap: SectionCapture) -> anyhow::R
     Ok(())
 }
 
-#[instrument(level = "debug", skip(meta, cap))]
+#[instrument(level = "debug", skip(meta, cap, pkg_src))]
 fn parse_test_results(
     meta: MooncGenTestInfo,
     cap: SectionCapture,
+    pkg_src: &impl PackageSrcResolver,
 ) -> anyhow::Result<TargetTestResult> {
     let Some(s) = cap.finish() else {
         debug!("no test output captured");
@@ -537,7 +544,7 @@ fn parse_test_results(
         //     )
         // })?;
         let name = meta.name.as_ref().unwrap_or(&stat.test_name);
-        let result_kind = parse_one_test_result(&stat, name)?;
+        let result_kind = parse_one_test_result(&stat, name, pkg_src)?;
         trace!(file = %stat.filename, index, kind = ?result_kind, "parsed test case");
         let case_result = TestCaseResult {
             kind: result_kind,
@@ -555,6 +562,7 @@ fn parse_test_results(
 fn parse_one_test_result(
     result: &TestStatistics,
     test_name: &str,
+    pkg_src: &impl PackageSrcResolver,
 ) -> anyhow::Result<TestResultKind> {
     use TestResultKind::*;
 
@@ -571,7 +579,7 @@ fn parse_one_test_result(
         ExpectTestFailed
     } else if result.message.starts_with(SNAPSHOT_TESTING) {
         // FIXME: file access HERE?!
-        if moonbuild::expect::snapshot_eq(&result.message)
+        if moonbuild::expect::snapshot_eq(pkg_src, &result.message)
             .with_context(|| format!("Failed to read snapshot for {}", result.test_name))?
         {
             Passed
@@ -588,11 +596,17 @@ fn parse_one_test_result(
     Ok(res)
 }
 
-fn print_test_result(res: &TestCaseResult, module_name: &str, verbose: bool, json: bool) {
+fn print_test_result(
+    res: &TestCaseResult,
+    module_name: &str,
+    verbose: bool,
+    json: bool,
+    pkg_src: &impl PackageSrcResolver,
+) {
     if json {
         print_test_result_json(res);
     } else {
-        print_test_result_normal(res, module_name, verbose);
+        print_test_result_normal(res, module_name, verbose, pkg_src);
     }
 }
 
@@ -633,7 +647,12 @@ fn print_test_result_json(res: &TestCaseResult) {
     }
 }
 
-fn print_test_result_normal(res: &TestCaseResult, module_name: &str, verbose: bool) {
+fn print_test_result_normal(
+    res: &TestCaseResult,
+    module_name: &str,
+    verbose: bool,
+    pkg_src: &impl PackageSrcResolver,
+) {
     let message = &res.raw.message;
     let formatter = CompactTestFormatter::new(module_name, &res.raw, Some(&res.meta));
 
@@ -660,12 +679,12 @@ fn print_test_result_normal(res: &TestCaseResult, module_name: &str, verbose: bo
         TestResultKind::ExpectTestFailed => {
             let _ = formatter.write_failure(&mut std::io::stdout());
             println!();
-            let _ = render_expect_fail(message);
+            let _ = render_expect_fail(pkg_src, message);
         }
         TestResultKind::SnapshotTestFailed => {
             let _ = formatter.write_failure(&mut std::io::stdout());
             println!();
-            let _ = render_snapshot_fail(message);
+            let _ = render_snapshot_fail(pkg_src, message);
         }
         TestResultKind::ExpectPanic => {
             let _ =

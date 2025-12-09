@@ -70,12 +70,13 @@ pub async fn run_wat(
     args: &TestArgs,
     file_test_info_map: &FileTestInfo,
     verbose: bool,
+    module: &ModuleDB,
 ) -> anyhow::Result<Vec<Result<TestStatistics, TestFailedStatus>>> {
     let mut cmd = tokio::process::Command::new(&*moonutil::BINARIES.moonrun);
     cmd.arg(path)
         .arg("--test-args")
         .arg(serde_json_lenient::to_string(args).expect("valid JSON"));
-    run(path, cmd, target_dir, file_test_info_map, verbose).await
+    run(path, cmd, target_dir, file_test_info_map, verbose, module).await
 }
 
 pub async fn run_js(
@@ -84,6 +85,7 @@ pub async fn run_js(
     args: &TestArgs,
     file_test_info_map: &FileTestInfo,
     verbose: bool,
+    module: &ModuleDB,
 ) -> anyhow::Result<Vec<Result<TestStatistics, TestFailedStatus>>> {
     let mut cmd = tokio::process::Command::new(
         moonutil::BINARIES
@@ -94,7 +96,7 @@ pub async fn run_js(
     cmd.arg("--enable-source-maps")
         .arg(path)
         .arg(serde_json_lenient::to_string(args).expect("valid JSON"));
-    run(path, cmd, target_dir, file_test_info_map, verbose).await
+    run(path, cmd, target_dir, file_test_info_map, verbose, module).await
 }
 
 pub async fn run_native(
@@ -104,6 +106,7 @@ pub async fn run_native(
     args: &TestArgs,
     file_test_info_map: &FileTestInfo,
     verbose: bool,
+    module: &ModuleDB,
 ) -> anyhow::Result<Vec<Result<TestStatistics, TestFailedStatus>>> {
     let args = args.to_cli_args_for_native();
     let cmd = if moonbuild_opt.use_tcc_run {
@@ -125,7 +128,7 @@ pub async fn run_native(
         cmd.arg(args);
         cmd
     };
-    run(path, cmd, target_dir, file_test_info_map, verbose).await
+    run(path, cmd, target_dir, file_test_info_map, verbose, module).await
 }
 
 pub async fn run_llvm(
@@ -134,10 +137,11 @@ pub async fn run_llvm(
     args: &TestArgs,
     file_test_info_map: &FileTestInfo,
     verbose: bool,
+    module: &ModuleDB,
 ) -> anyhow::Result<Vec<Result<TestStatistics, TestFailedStatus>>> {
     let mut cmd = tokio::process::Command::new(path);
     cmd.arg(args.to_cli_args_for_native());
-    run(path, cmd, target_dir, file_test_info_map, verbose).await
+    run(path, cmd, target_dir, file_test_info_map, verbose, module).await
 }
 
 async fn run(
@@ -146,6 +150,7 @@ async fn run(
     target_dir: &Path,
     file_test_info_map: &FileTestInfo,
     verbose: bool,
+    module: &ModuleDB,
 ) -> anyhow::Result<Vec<Result<TestStatistics, TestFailedStatus>>> {
     if verbose {
         eprintln!("{:?}", subprocess.as_std());
@@ -245,7 +250,7 @@ async fn run(
             } else if return_message.starts_with(EXPECT_FAILED) {
                 res.push(Err(TestFailedStatus::ExpectTestFailed(test_statistic)));
             } else if return_message.starts_with(SNAPSHOT_TESTING) {
-                let ok = snapshot_eq(&test_statistic.message)?;
+                let ok = snapshot_eq(module, &test_statistic.message)?;
                 if ok {
                     res.push(Ok(test_statistic));
                 } else {

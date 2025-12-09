@@ -19,6 +19,7 @@
 //! Handles test promotion
 
 use anyhow::Context;
+use moonbuild::expect::PackageSrcResolver;
 use moonbuild::expect::{apply_expect, apply_snapshot};
 use tracing::info;
 
@@ -30,6 +31,7 @@ use crate::run::runtest::{
 /// the total number of tests promoted, along with a filter indicating which
 /// tests needs rerunning.
 pub fn perform_promotion(
+    pkg_src: &impl PackageSrcResolver,
     results: &ReplaceableTestResults,
 ) -> anyhow::Result<(usize, PackageFilter)> {
     let mut res = PackageFilter::default();
@@ -68,22 +70,24 @@ pub fn perform_promotion(
     // to the functions).
     //
     // We will be very sad if it doesn't work.
-    promote_all_snapshots(to_update_snapshot).context("Failed to promote snapshots")?;
-    promote_all_expects(to_update_expect).context("Failed to promote expects")?;
+    promote_all_snapshots(pkg_src, to_update_snapshot).context("Failed to promote snapshots")?;
+    promote_all_expects(pkg_src, to_update_expect).context("Failed to promote expects")?;
 
     Ok((count, res))
 }
 
 /// Perform promotion on all test snapshots met.
 fn promote_all_snapshots<'a>(
+    pkg_src: &impl PackageSrcResolver,
     results: impl IntoIterator<Item = &'a TestCaseResult>,
 ) -> anyhow::Result<()> {
-    apply_snapshot(results.into_iter().map(|x| x.raw.message.as_str()))
+    apply_snapshot(pkg_src, results.into_iter().map(|x| x.raw.message.as_str()))
 }
 
 /// Perform promotion on all expect tests met. Should fil
 fn promote_all_expects<'a>(
+    pkg_src: &impl PackageSrcResolver,
     results: impl IntoIterator<Item = &'a TestCaseResult>,
 ) -> anyhow::Result<()> {
-    apply_expect(results.into_iter().map(|x| x.raw.message.as_str()))
+    apply_expect(pkg_src, results.into_iter().map(|x| x.raw.message.as_str()))
 }

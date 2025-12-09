@@ -1495,7 +1495,8 @@ fn rr_test_from_plan(
             // Promote test results
             let promotion_source = last_test_result.as_ref().unwrap_or(&test_result);
             let (rerun_count, rerun_filter_raw) =
-                perform_promotion(promotion_source).expect("Failed to promote tests");
+                perform_promotion(&build_meta.resolve_output.pkg_dirs, promotion_source)
+                    .expect("Failed to promote tests");
             debug!(
                 rerun_count,
                 pending_targets = rerun_filter_raw.0.len(),
