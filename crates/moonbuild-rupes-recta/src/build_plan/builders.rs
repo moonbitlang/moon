@@ -155,6 +155,27 @@ impl<'a> BuildPlanConstructor<'a> {
         self.add_edge_spec(node, dep_node, edge_kind);
     }
 
+    fn need_virtual_if_necessary(
+        &mut self,
+        pkg: &DiscoveredPackage,
+        node: BuildPlanNode,
+        target: BuildTarget,
+    ) {
+        // If the given target is a virtual package with default implementation,
+        // we need to build its interface first.
+        if pkg.is_virtual() {
+            let dep_node = self.need_node(BuildPlanNode::BuildVirtual(target.package));
+            self.add_edge(node, dep_node);
+        }
+
+        // If the given target implements a virtual package, we need to build
+        // the virtual package's interface first.
+        if let Some(vpkg_id) = self.input.pkg_rel.virt_impl.get(target.package) {
+            let dep_node = self.need_node(BuildPlanNode::BuildVirtual(*vpkg_id));
+            self.add_edge(node, dep_node);
+        }
+    }
+
     #[instrument(level = Level::DEBUG, skip(self))]
     pub(super) fn build_check(
         &mut self,
@@ -183,20 +204,7 @@ impl<'a> BuildPlanConstructor<'a> {
 
         self.need_all_package_prebuild(node, target.package);
 
-        // A virtual package (with or without default implementation) needs to
-        // compile its interface first
-        if pkg.is_virtual() {
-            let dep_node = self.need_node(BuildPlanNode::BuildVirtual(target.package));
-            self.add_edge(node, dep_node);
-        }
-
-        // If the given target implements a virtual package, we need to build
-        // the virtual package's interface first.
-        if let Some(vpkg_id) = self.input.pkg_rel.virt_impl.get(target.package) {
-            let dep_node = self.need_node(BuildPlanNode::BuildVirtual(*vpkg_id));
-            self.add_edge(node, dep_node);
-        }
-
+        self.need_virtual_if_necessary(pkg, node, target);
         self.populate_target_info(target);
 
         self.resolved_node(node);
@@ -242,24 +250,7 @@ impl<'a> BuildPlanConstructor<'a> {
             );
         }
 
-        // If the given target is a virtual package with default implementation,
-        // we need to build its interface first.
-        if pkg.is_virtual() {
-            let dep_node = self.need_node(BuildPlanNode::BuildVirtual(target.package));
-            self.add_edge(node, dep_node);
-        }
-
-        // If the given target implements a virtual package, we need to build
-        // the virtual package's interface first.
-        if let Some(virtual_pkg) = pkg.get_virtual_impl() {
-            let vpkg_id = self
-                .input
-                .pkg_dirs
-                .get_package_id_by_name(virtual_pkg)
-                .expect("Virtual package should exist");
-            let dep_node = self.need_node(BuildPlanNode::BuildVirtual(vpkg_id));
-            self.add_edge(node, dep_node);
-        }
+        self.need_virtual_if_necessary(pkg, node, target);
 
         self.need_all_package_prebuild(node, target.package);
 
