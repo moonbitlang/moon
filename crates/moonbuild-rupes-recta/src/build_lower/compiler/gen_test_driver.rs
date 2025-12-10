@@ -63,6 +63,9 @@ pub struct MoonGenTestDriver<'a> {
 
     /// Path to the patch file
     pub patch_file: Option<Cow<'a, Path>>,
+
+    /// Max concurrent test limit for `async test`
+    pub max_concurrent_tests: Option<u32>,
 }
 
 impl<'a> CmdlineAbstraction for MoonGenTestDriver<'a> {
@@ -116,5 +119,13 @@ impl<'a> CmdlineAbstraction for MoonGenTestDriver<'a> {
 
         // Driver kind
         args.extend(["--driver-kind".to_string(), self.driver_kind.to_string()]);
+
+        // Max concurrent test limit for `async test`
+        if let Some(max_concurrent_tests) = self.max_concurrent_tests {
+            args.extend([
+                "--max-concurrent-tests".to_string(),
+                max_concurrent_tests.to_string(),
+            ]);
+        }
     }
 }

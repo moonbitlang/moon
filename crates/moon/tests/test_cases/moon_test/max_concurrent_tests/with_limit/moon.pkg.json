@@ -1,0 +1,4 @@
+{
+  "test-import": [ "moonbitlang/async" ],
+  "max-concurrent-tests": 1
+}

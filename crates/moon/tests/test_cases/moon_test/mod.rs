@@ -336,6 +336,51 @@ fn test_async_test() {
 }
 
 #[test]
+fn test_max_concurrent_tests() {
+    let dir = TestDir::new("moon_test");
+    let out1 = get_stdout(
+        &dir,
+        [
+            "test",
+            "-C",
+            "max_concurrent_tests",
+            "-p",
+            "moon/test_async_test/with_limit",
+        ],
+    );
+    check(
+        &out1,
+        expect![[r#"
+            test 1 msg 1
+            test 1 msg 2
+            test 2 msg 1
+            test 2 msg 2
+            Total tests: 2, passed: 2, failed: 0.
+        "#]],
+    );
+    let out2 = get_stdout(
+        &dir,
+        [
+            "test",
+            "-C",
+            "max_concurrent_tests",
+            "-p",
+            "moon/test_async_test/no_limit",
+        ],
+    );
+    check(
+        &out2,
+        expect![[r#"
+            test 1 msg 1
+            test 2 msg 1
+            test 1 msg 2
+            test 2 msg 2
+            Total tests: 2, passed: 2, failed: 0.
+        "#]],
+    );
+}
+
+#[test]
 fn test_doctest_without_bbtest_file() {
     let dir = TestDir::new("moon_test/doctest_without_bbtest");
 
