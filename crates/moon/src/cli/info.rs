@@ -191,7 +191,7 @@ pub fn run_info_rr_internal(
     // before executing the build
     rr_build::generate_all_pkgs_json(&target_dir, &build_meta, RunMode::Check)?;
 
-    // TODO: `moon info` is a wrapper over `moon check`, so should have flags that `moon check` has?
+    // TODO: UX: Consider mirroring flags from `moon check`?
     let result = rr_build::execute_build(&BuildConfig::default(), build_graph, &target_dir)?;
     result.print_info(cli.quiet, "generating mbti files")?;
 
