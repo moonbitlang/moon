@@ -159,6 +159,8 @@ impl<'a> MooncLinkCore<'a> {
         // WebAssembly exports
         if let Some(exports) = self.exports
             && !exports.is_empty()
+            && !self.test_mode
+        // when it's test mode, we only export test driver utils
         {
             args.push(format!("-exported_functions={}", exports.join(",")));
         }
