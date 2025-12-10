@@ -189,6 +189,19 @@ impl<'a> BuildPlanConstructor<'a> {
             let dep_node = self.need_node(BuildPlanNode::BuildVirtual(target.package));
             self.add_edge(node, dep_node);
         }
+
+        // If the given target implements a virtual package, we need to build
+        // the virtual package's interface first.
+        if let Some(virtual_pkg) = pkg.get_virtual_impl() {
+            let vpkg_id = self
+                .input
+                .pkg_dirs
+                .get_package_id_by_name(virtual_pkg)
+                .expect("Virtual package should exist");
+            let dep_node = self.need_node(BuildPlanNode::BuildVirtual(vpkg_id));
+            self.add_edge(node, dep_node);
+        }
+
         self.populate_target_info(target);
 
         self.resolved_node(node);
@@ -238,6 +251,18 @@ impl<'a> BuildPlanConstructor<'a> {
         // we need to build its interface first.
         if pkg.is_virtual() {
             let dep_node = self.need_node(BuildPlanNode::BuildVirtual(target.package));
+            self.add_edge(node, dep_node);
+        }
+
+        // If the given target implements a virtual package, we need to build
+        // the virtual package's interface first.
+        if let Some(virtual_pkg) = pkg.get_virtual_impl() {
+            let vpkg_id = self
+                .input
+                .pkg_dirs
+                .get_package_id_by_name(virtual_pkg)
+                .expect("Virtual package should exist");
+            let dep_node = self.need_node(BuildPlanNode::BuildVirtual(vpkg_id));
             self.add_edge(node, dep_node);
         }
 
