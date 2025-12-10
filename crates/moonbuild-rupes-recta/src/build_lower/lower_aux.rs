@@ -140,7 +140,6 @@ impl<'a> super::BuildPlanLowerContext<'a> {
             .layout
             .runtime_output_path(self.opt.target_backend, self.opt.os);
 
-        // TODO: this part might need more simplification?
         let runtime_c_path = self.opt.runtime_dot_c_path.clone();
 
         let output_ty;
@@ -213,6 +212,9 @@ impl<'a> super::BuildPlanLowerContext<'a> {
         // n2 for the file doesn't exist and nobody can create it, but if we
         // have a stale file, we currently have to rely on ourselves.
         //
+        // One possible solution is to modify `n2` to support build steps that
+        // execute an in-process callback to generate files.
+
         // Currently, moondoc only support a single module in scope, so we
         // have these constraints
         let main_module = self

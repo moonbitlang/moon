@@ -88,8 +88,6 @@ pub enum TargetKind {
     WhiteboxTest,
     BlackboxTest,
 
-    // TODO: do we really need to specify inline tests as a separate target kind,
-    // or should it be just `Source` with tests enabled?
     InlineTest,
     /// This is the subpackage designed originally for breaking cycles in
     /// `moonbitlang/core`. It's expected to be used sparingly.
@@ -119,7 +117,9 @@ impl TargetKind {
 pub struct BuildTarget {
     pub package: PackageId,
     pub kind: TargetKind,
-    // TODO: Target backend need to be added here!
+    // MAINTAINERS: You might want to add a target-backend field here, if
+    // packages no longer share the same target backend. That should be an ID
+    // into a global list or something similar.
 }
 
 impl std::fmt::Debug for BuildTarget {
@@ -145,8 +145,6 @@ impl PackageId {
 /// some artifacts (like C stubs and prebuild scripts) are shared by every
 /// target within the package/module, so they don't need to be duplicated for
 /// each target.
-///
-/// TODO: This type is a little big in size to be copied and used as an ID.
 #[derive(Debug, Clone, Copy, PartialEq, PartialOrd, Eq, Ord, Hash)]
 pub enum BuildPlanNode {
     /// Check the given build target

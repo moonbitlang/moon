@@ -152,8 +152,10 @@ impl<'a> BuildPlanLowerContext<'a> {
 
         // Collect n2 inputs and outputs.
         //
-        // TODO: some of the inputs and outputs might be calculated twice,
-        // once for the commandline and another here. Will this hurt perf?
+        // MAINTAINERS: some of the inputs and outputs might be calculated
+        // twice, once for the commandline and another here. This is currently
+        // not a performance concern, but if you have found a way to optimize
+        // this, or if you are duplicating a lot of code for it, please refactor.
         let mut ins = vec![];
         for (n, edge) in self.build_plan.dependency_edges(node) {
             self.append_artifact_of(n, edge, &mut ins);
@@ -359,7 +361,6 @@ impl<'a> BuildPlanLowerContext<'a> {
                 ));
             }
             BuildPlanNode::RunMoonLexPrebuild(pkg, idx) => {
-                // FIXME: The output path logic should match that in build_plan/builders.rs
                 let pkg_info = self.packages.get_package(pkg);
                 let mbtlex_file = &pkg_info.mbt_lex_files[idx as usize];
                 out.push(mbtlex_file.with_extension("mbt"));

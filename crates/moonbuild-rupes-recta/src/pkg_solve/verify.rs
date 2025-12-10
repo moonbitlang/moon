@@ -95,7 +95,6 @@ fn verify_no_loop(packages: &DiscoverResult, dep: &DepRelationship) -> Result<()
             // Check for loops
             if path.contains(&node) {
                 // We found a loop, return an error
-                // TODO: handle white box testing should not cause loop
                 let loop_path: Vec<_> = path
                     .into_iter()
                     .chain([node])
@@ -185,8 +184,6 @@ fn verify_no_duplicated_alias(
 }
 
 /// Verify no forbidden internal imports between package pairs.
-///
-/// TODO: Need to re-asses if this is better reported here or in solver
 fn verify_no_forbidden_internal_imports(
     dep: &DepRelationship,
     packages: &DiscoverResult,

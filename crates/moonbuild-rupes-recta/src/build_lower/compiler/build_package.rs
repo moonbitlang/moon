@@ -30,8 +30,6 @@ use crate::build_lower::compiler::{
 /// FIXME: This is a shallow abstraction that tries to mimic the legacy
 /// behavior as much as possible. It definitely contains some suboptimal
 /// abstractions, which needs to be fixed in the future.
-///
-/// FIXME: Avoid laying everything out flat
 #[derive(Debug)]
 pub struct MooncBuildPackage<'a> {
     // Common arguments

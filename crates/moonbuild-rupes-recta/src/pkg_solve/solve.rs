@@ -188,8 +188,6 @@ fn solve_one_package(
         inject_core_coverage_usage(env, pid);
     }
 
-    // TODO: Add heuristic to not generate white box test targets for external packages
-
     let virtual_info = resolve_virtual_usages(env, pid, pkg_data)?;
     if let Some(vu) = virtual_info {
         env.res.virtual_users.insert(pid, vu);
@@ -310,9 +308,6 @@ fn resolve_import<'a>(
         });
     }
 
-    // Okay, now let's add this package to our package's import in deps
-    // TODO: the import alias determination part is a mess, will need to refactor later
-    //     Currently this part is just for making the whole thing work.
     let short_alias = match import {
         moonutil::package::Import::Simple(_) => imported.fqn.short_alias(),
         moonutil::package::Import::Alias { alias, .. } => alias

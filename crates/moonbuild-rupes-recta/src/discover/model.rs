@@ -64,7 +64,9 @@ pub struct DiscoveredPackage {
 
     /// MoonBit Lex files (`.mbl`) contained by this package.
     ///
-    /// TODO: These files should not be handled by the build system.
+    /// TODO: Most of these logic are replaced with pre-build tasks, and
+    /// `moonlex`/`moonyacc` bundled with the toolchain is not updated
+    /// frequently. Consider deprecating these fields and related logic.
     pub mbt_lex_files: Vec<PathBuf>,
     /// MoonBit Yacc files (`.mby`) contained by this package.
     pub mbt_yacc_files: Vec<PathBuf>,
