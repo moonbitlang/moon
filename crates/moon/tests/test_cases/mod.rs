@@ -98,6 +98,7 @@ mod test_release;
 mod third_party;
 mod value_tracing;
 mod virtual_pkg;
+mod virtual_pkg2;
 mod virtual_pkg_dep;
 mod virtual_pkg_test;
 mod warns;
