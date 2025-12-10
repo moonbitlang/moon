@@ -456,10 +456,10 @@ impl StructuredLocation {
         full_path.push(&self.filename);
         Location {
             filename: full_path.display().to_string(),
-            line_start: self.start_line,
-            col_start: self.start_column,
-            line_end: self.end_line,
-            col_end: self.end_column,
+            line_start: self.start_line - 1,
+            col_start: self.start_column - 1,
+            line_end: self.end_line - 1,
+            col_end: self.end_column - 1,
         }
     }
 }
