@@ -192,13 +192,8 @@ impl<'a> BuildPlanConstructor<'a> {
 
         // If the given target implements a virtual package, we need to build
         // the virtual package's interface first.
-        if let Some(virtual_pkg) = pkg.get_virtual_impl() {
-            let vpkg_id = self
-                .input
-                .pkg_dirs
-                .get_package_id_by_name(virtual_pkg)
-                .expect("Virtual package should exist");
-            let dep_node = self.need_node(BuildPlanNode::BuildVirtual(vpkg_id));
+        if let Some(vpkg_id) = self.input.pkg_rel.virt_impl.get(target.package) {
+            let dep_node = self.need_node(BuildPlanNode::BuildVirtual(*vpkg_id));
             self.add_edge(node, dep_node);
         }
 
