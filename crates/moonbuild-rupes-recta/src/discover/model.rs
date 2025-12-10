@@ -102,10 +102,6 @@ impl DiscoveredPackage {
         self.raw.implement.is_some()
     }
 
-    pub fn get_virtual_impl(&self) -> Option<&String> {
-        self.raw.implement.as_ref()
-    }
-
     /// Get whether if the package has a concrete implementation, i.e. moonbit
     /// code to compile.
     ///
