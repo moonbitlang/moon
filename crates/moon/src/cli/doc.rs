@@ -94,7 +94,7 @@ pub fn run_doc_rr(cli: UniversalFlags, cmd: DocSubcommand) -> anyhow::Result<i32
     let source_dir = dir.source_dir;
     let target_dir = dir.target_dir;
 
-    // FIXME: This is copied from `moon check`'s code
+    // FIXME: This is copied from `moon check`'s code. Share code if possible.
     let mut preconfig = preconfig_compile(
         &cmd.auto_sync_flags,
         &cli,

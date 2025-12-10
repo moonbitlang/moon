@@ -335,8 +335,6 @@ impl<'a> BuildPlanLowerContext<'a> {
             self.get_coverage_flags(target, &package.fqn, true);
         cmd.defaults.no_mi |= target.kind.is_test();
 
-        // TODO: a lot of knobs are not controlled here
-
         // Include doctest-only files as inputs to track dependency correctly
         // Note: This is the *extra* inputs, trivial dependencies are already
         // tracked via the build graph.
@@ -767,7 +765,7 @@ impl<'a> BuildPlanLowerContext<'a> {
             .output_ty(CCOutputType::Executable) // TODO: support compiling to library
             .opt_level(opt_level)
             .debug_info(self.opt.debug_symbols)
-            .link_moonbitrun(true) // TODO: support `tcc run`
+            .link_moonbitrun(true)
             .define_use_shared_runtime_macro(false)
             .build()
             .expect("Failed to build CC configuration for executable");

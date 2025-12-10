@@ -790,7 +790,6 @@ pub fn execute_build_partial(
         .context("Failed to create parent for build cache DB")?;
 
     // Generate n2 state
-    // FIXME: This is extremely verbose and barebones, only for testing purpose
 
     let mut hashes = n2::graph::Hashes::default();
     let n2_db = n2::db::open(&db_path, &mut build_graph, &mut hashes)?;

@@ -66,8 +66,6 @@ impl<'a> FileFilterBuilder<'a> {
 
     /// Add the gitignore file for all parent directories of `file_path`, and
     /// check if it should be ignored. Returns true if the file should be ignored.
-    ///
-    /// FIXME: This is not the most efficient way to do this.
     #[tracing::instrument(skip_all)]
     pub fn check_file(&mut self, file_path: &Path) -> bool {
         // This should not happen, but just in case

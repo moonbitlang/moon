@@ -137,7 +137,6 @@ fn should_compile_using_pkg_cond_expr(
     cond_expr: &CondExpr,
     actual: &CompileCondition,
 ) -> Option<FileTestKind> {
-    // TODO: Put the parsing earlier, not here
     if !cond_expr.eval(actual.optlevel, actual.backend) {
         None // Fails the condition in pkg.json
     } else if let Some(stripped) = name.strip_suffix(".mbt") {
@@ -223,7 +222,6 @@ fn check_test_suffix(file_test_spec: FileTestKind, test_kind: Option<TestKind>) 
         (Some(TestKind::Inline), NoTest) => true,
         (Some(TestKind::Whitebox), NoTest | Whitebox) => true,
         // Black box tests return no test files for doctest compilation
-        // FIXME: might not be the best way to handle this
         (Some(TestKind::Blackbox), NoTest | Blackbox) => true,
         _ => false,
     }

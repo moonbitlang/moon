@@ -577,7 +577,7 @@ impl<'a> BuildPlanConstructor<'a> {
         let link_core_info = LinkCoreInfo {
             linked_order: targets.clone(),
             abort_overridden,
-            // std: self.build_env.std, // TODO: move to per-package
+            // std: self.build_env.std, // Can move std/nostd to per-package info
         };
         self.res.link_core_info.insert(target, link_core_info);
 
@@ -690,7 +690,6 @@ impl<'a> BuildPlanConstructor<'a> {
             if !expanded {
                 // Pre-order processing
                 // Check if already visited (before override resolution)
-                // TODO: check if the override resolution is properly done
                 if visited.contains(&curr) {
                     continue;
                 }

@@ -318,7 +318,7 @@ pub struct BuildEnvironment {
     pub opt_level: OptLevel,
     /// Whether compiling requires the standard library.
     ///
-    /// TODO: Move this to per-package/module.
+    /// MAINTAINERS: Potentially useful to move this to per-package/module.
     pub std: bool,
     /// Commandline_level warnings to enable/disable
     pub warn_list: Option<String>,

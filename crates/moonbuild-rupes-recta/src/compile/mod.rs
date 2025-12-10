@@ -52,13 +52,9 @@ pub struct CompileConfig {
 
     /// The path to the standard library's project root, or `None` if to not
     /// import the standard library during compilation.
-    ///
-    /// TODO: This should be a per-module or per-package setting, instead of a
-    /// global one.
     pub stdlib_path: Option<PathBuf>,
 
-    // TODO: more knobs
-    // TODO: Some of these knobs should be migrated to be applied by configs and similar
+    // MAINTAINERS: consider moving some of these to per-package/module options.
     /// Whether to export the build plan graph in the compile output.
     /// This should only be used in debugging scenarios.
     pub debug_export_build_plan: bool,

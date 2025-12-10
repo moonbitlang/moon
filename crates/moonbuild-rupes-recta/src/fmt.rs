@@ -94,9 +94,6 @@ pub struct FmtConfig {
 }
 
 /// Generate the necessary build graph for the formatter operation
-///
-/// TODO: This function is verbose. Refactor and check [`crate::build_lower`]
-/// before proceeding.
 pub fn build_graph_for_fmt(
     resolved: &FmtResolveOutput,
     cfg: &FmtConfig,
