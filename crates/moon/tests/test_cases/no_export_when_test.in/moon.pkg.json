@@ -1,0 +1,7 @@
+{
+  "link": {
+    "wasm-gc": {
+      "exports": ["f"]
+    }
+  }
+}

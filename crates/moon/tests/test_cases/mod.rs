@@ -68,6 +68,7 @@ mod moon_test;
 mod moon_version;
 mod native_backend;
 mod native_stub_stability;
+mod no_export_when_test;
 mod output_format;
 mod packages;
 mod prebuild;
