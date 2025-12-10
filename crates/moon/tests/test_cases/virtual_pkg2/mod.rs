@@ -8,9 +8,12 @@ fn implement_third_party1() {
     compare_graphs(&check_graph, expect_file!["./check_graph.jsonl"]);
 
     let s = get_stderr(&dir, ["check", "."]);
-    check(s, expect![[r#"
+    check(
+        s,
+        expect![[r#"
         Finished. moon: ran 2 tasks, now up to date
-    "#]]);
+    "#]],
+    );
 }
 
 #[test]
@@ -21,7 +24,10 @@ fn implement_third_party2() {
     compare_graphs(&build_graph, expect_file!["./build_graph.jsonl"]);
 
     let s = get_stderr(&dir, ["build"]);
-    check(s, expect![[r#"
+    check(
+        s,
+        expect![[r#"
         Finished. moon: ran 2 tasks, now up to date
-    "#]]);
+    "#]],
+    );
 }
