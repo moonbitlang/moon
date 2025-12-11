@@ -19,6 +19,7 @@ This is a reference documentation of the current MoonBuild behavior.
 - [`moon bundle`](./bundle.md)
 - TODO: Single-file mode
 - TODO: Markdown checks and tests
+- [Dry-run behavior (UB)](./dry-run.md)
 
 ## Testing
 
