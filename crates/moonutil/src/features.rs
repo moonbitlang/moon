@@ -20,7 +20,7 @@ use std::str::FromStr;
 
 #[derive(Debug, thiserror::Error)]
 pub enum FeatureGateParseError {
-    #[error("Unknown feature `{0}`.\n{}", AllFeatures)]
+    #[error("Unknown feature `{0}`.")]
     UnknownFeature(String),
 }
 

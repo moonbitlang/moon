@@ -21,10 +21,17 @@ use std::{
     error::Error,
     time::{SystemTime, UNIX_EPOCH},
 };
-use vergen::EmitBuilder;
 
 pub fn main() -> Result<(), Box<dyn Error>> {
-    EmitBuilder::builder().build_date().git_sha(true).emit()?;
+    // Emit: git info and build date
+    vergen_git2::Emitter::new()
+        .add_instructions(
+            &vergen_git2::BuildBuilder::default()
+                .build_date(true)
+                .build()?,
+        )?
+        .add_instructions(&vergen_git2::Git2Builder::default().sha(true).build()?)?
+        .emit()?;
 
     let time = SystemTime::now().duration_since(UNIX_EPOCH).unwrap();
     let datetime = DateTime::from_timestamp(time.as_secs() as i64, 0).unwrap();

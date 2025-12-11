@@ -154,13 +154,13 @@ pub fn mk_arch_mode_dir(
     Ok(arch_mode_dir)
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, bincode::Encode, bincode::Decode)]
 struct FileHash {
     path: String,
     hash: u64,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, bincode::Encode, bincode::Decode)]
 struct Fingerprint {
     moon_version: String,
     moonc_version: String,
@@ -267,7 +267,7 @@ pub fn create_moon_db(source_dir: &Path, target_dir: &Path) -> anyhow::Result<()
     let fp = std::fs::File::create(moon_db).context("failed to create `moon.db`")?;
     let mut writer = std::io::BufWriter::new(fp);
     let finger = get_fingerprint(source_dir);
-    let data = bincode::serialize(&finger).unwrap();
+    let data = bincode::encode_to_vec(&finger, bincode::config::legacy()).unwrap();
     writer.write_all(&data)?;
     Ok(())
 }
@@ -279,7 +279,8 @@ fn load_moon_db(target_dir: &Path) -> anyhow::Result<Fingerprint> {
     let mut buf = vec![];
     reader.read_to_end(&mut buf)?;
     let _ = reader.read(&mut buf)?;
-    let finger: Fingerprint = bincode::deserialize(&buf)?;
+    let (finger, _): (Fingerprint, _) =
+        bincode::decode_from_slice(&buf, bincode::config::legacy())?;
     Ok(finger)
 }
 
