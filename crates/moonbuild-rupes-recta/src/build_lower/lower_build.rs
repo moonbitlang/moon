@@ -147,7 +147,7 @@ impl<'a> BuildPlanLowerContext<'a> {
         // Compute -check-mi and virtual implementation mapping when requested
         let mut virtual_implementation = None;
         let mut check_mi = None;
-        let mut no_mi = info.no_mi();
+        let no_mi = info.no_mi();
 
         if let Some(v_target) = info.check_mi_against {
             // The target to check against is always the Source target of the virtual package
@@ -170,7 +170,9 @@ impl<'a> BuildPlanLowerContext<'a> {
                 // Same package → this is a virtual package being checked against its own interface
                 check_mi = Some(mi_path.into());
             }
-            no_mi = true; // virtual implementations do not emit .mi because it cannot be imported directly
+
+            // Implementation package will generate a dummy mi file so that it
+            // won't be rebuilt every time
         }
 
         BuildCommonConfig {
@@ -217,9 +219,18 @@ impl<'a> BuildPlanLowerContext<'a> {
         let package = self.get_package(target);
         let module = self.modules.module_info(package.module);
 
-        let mi_output =
+        let mi_output = if info.check_mi_against.is_some() {
             self.layout
-                .mi_of_build_target(self.packages, &target, self.opt.target_backend.into());
+                .mi_of_build_target_impl_virtual(
+                    self.packages,
+                    &target,
+                    self.opt.target_backend.into(),
+                )
+                .into_path()
+        } else {
+            self.layout
+                .mi_of_build_target(self.packages, &target, self.opt.target_backend.into())
+        };
         let mi_inputs = self.mi_inputs_of(node, target);
 
         // Collect files iterator once so we can pass slices and extra inputs

@@ -209,21 +209,46 @@ impl<'a> BuildPlanLowerContext<'a> {
                     .get_build_target_info(&target)
                     .expect("Build target info should be present for Check nodes");
 
-                if !info.no_mi() && info.check_mi_against.is_none() {
-                    out.push(self.layout.mi_of_build_target(
+                // Generate a `.mi` artifact including the case besides normal
+                // cases:
+                // * --no-mi is enabled: need add mi to the artifacts so that n2
+                // run the command for it and notice in this case, the command
+                // will always be executed because it doesn't produce any output
+                // so n2 will think it's always dirty.
+                // * implementing a virtual package: no nee to generate mi
+                // though, but still need to declare a `.mi` artifact so that n2
+                // executes it. And it actually produces a useless `.mi` file.
+                // So that n2 can check its timestamp to decide whether the it
+                // needs to be rebuilt.
+                //
+                // Not generating `.mi` for the special case:
+                // * moonbitlang/core/abort when working on non-core packages.
+                // First, abort is injected as a dependency for every package.
+                // When working on core/non-core, abort will have a different
+                // PackageId. When working on non-core packages, the mi artifact
+                // of abort is not needed, and it avoids checking
+                // moonbitlang/core/abort, which is unnecessary. When working on
+                // core, the abort mi is returned as `Regular` below. So it will
+                // be actually checked.
+                if info.check_mi_against.is_some() {
+                    match self.layout.mi_of_build_target_impl_virtual(
                         self.packages,
                         &target,
                         self.opt.target_backend.into(),
-                    ));
-                } else if let Some(mi_artifact) = self.layout.phony_mi_of_build_target(
-                    self.packages,
-                    &target,
-                    self.opt.target_backend.into(),
-                ) {
-                    // Even if MI is not generated, we may still need a phony MI file
-                    // so the check command can run.
-                    out.push(mi_artifact);
-                }
+                    ) {
+                        crate::build_lower::artifact::MiPathResult::StdAbort(_) => {}
+                        crate::build_lower::artifact::MiPathResult::Regular(p) => {
+                            out.push(p);
+                        }
+                    }
+                } else {
+                    let mi_artifact_path = self.layout.mi_of_build_target(
+                        self.packages,
+                        &target,
+                        self.opt.target_backend.into(),
+                    );
+                    out.push(mi_artifact_path);
+                };
             }
             BuildPlanNode::BuildCore(target) => {
                 let info = self
