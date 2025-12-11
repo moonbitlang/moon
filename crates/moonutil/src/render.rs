@@ -28,7 +28,7 @@ use crate::{
     error_code_docs::get_error_code_doc,
 };
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, Ord, PartialOrd, Eq, PartialEq)]
 pub struct MooncDiagnostic {
     pub level: String,
     #[serde(alias = "loc")]
@@ -37,14 +37,14 @@ pub struct MooncDiagnostic {
     pub error_code: u32,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, Ord, PartialOrd, Eq, PartialEq)]
 pub struct Location {
     pub start: Position,
     pub end: Position,
     pub path: String,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, Ord, PartialOrd, Eq, PartialEq)]
 pub struct Position {
     pub line: usize,
     pub col: usize,
@@ -103,63 +103,22 @@ struct SourceMapping {
 }
 
 impl MooncDiagnostic {
-    pub fn render(
-        content: &str,
+    // TODO: swap names for `render` and `render_diagnostics`
+    pub fn render_diagnostics(
+        &self,
         use_fancy: bool,
         check_patch_file: Option<PathBuf>,
         explain: bool,
         render_no_loc_level: DiagnosticLevel,
-        source_dir: &Path,
-        target_dir: &Path,
     ) -> Option<ReportKind<'static>> {
+        let diagnostic = self;
         let bail_print_original = || {
-            eprintln!("{content}");
+            eprintln!(
+                "{}",
+                serde_json_lenient::to_string(diagnostic).unwrap_or_default()
+            );
             None
         };
-        let mut diagnostic = match serde_json_lenient::from_str::<MooncDiagnostic>(content) {
-            Ok(d) => d,
-            Err(_) => bail_print_original()?,
-        };
-
-        // a workaround for rendering the diagnostaic and error in generated test driver file correctly
-        'fail_to_get_source: {
-            if diagnostic.location.path.contains("__generated_driver_for_") {
-                let Ok(file) = crate::common::read_module_desc_file_in_dir(source_dir) else {
-                    error!(
-                        "when working around driver file path issue, failed to read module.desc file in source dir: {}",
-                        source_dir.display()
-                    );
-                    break 'fail_to_get_source;
-                };
-                let source = file.source;
-                let source_code_dir = match source {
-                    Some(source) => source_dir.join(source),
-                    None => source_dir.to_owned(),
-                };
-
-                // Normalize source dir. Work around when `source_dir` ends with `.`
-                let Ok(source_code_dir) = dunce::canonicalize(&source_code_dir) else {
-                    warn!(
-                        "when working around driver file path issue, failed to canonicalize source code dir: {}",
-                        source_code_dir.display()
-                    );
-                    break 'fail_to_get_source;
-                };
-                let diag_path: &Path = diagnostic.location.path.as_ref();
-                let Ok(rel_path) = diag_path.strip_prefix(&source_code_dir) else {
-                    warn!(
-                        "when working around driver file path issue, failed to strip prefix {} from {}",
-                        source_code_dir.display(),
-                        diag_path.display()
-                    );
-                    break 'fail_to_get_source;
-                };
-
-                let mbt_file_path = target_dir.join(rel_path);
-                diagnostic.location.path = mbt_file_path.display().to_string();
-            }
-        }
-
         let (kind, color) = diagnostic.get_level_and_color();
 
         // for no-location diagnostic, like Missing main function in the main package(4067)
@@ -293,6 +252,66 @@ impl MooncDiagnostic {
         };
 
         Some(kind)
+    }
+
+    pub fn render(
+        content: &str,
+        use_fancy: bool,
+        check_patch_file: Option<PathBuf>,
+        explain: bool,
+        render_no_loc_level: DiagnosticLevel,
+        source_dir: &Path,
+        target_dir: &Path,
+    ) -> Option<ReportKind<'static>> {
+        let bail_print_original = || {
+            eprintln!("{content}");
+            None
+        };
+        let mut diagnostic = match serde_json_lenient::from_str::<MooncDiagnostic>(content) {
+            Ok(d) => d,
+            Err(_) => bail_print_original()?,
+        };
+
+        // a workaround for rendering the diagnostaic and error in generated test driver file correctly
+        'fail_to_get_source: {
+            if diagnostic.location.path.contains("__generated_driver_for_") {
+                let Ok(file) = crate::common::read_module_desc_file_in_dir(source_dir) else {
+                    error!(
+                        "when working around driver file path issue, failed to read module.desc file in source dir: {}",
+                        source_dir.display()
+                    );
+                    break 'fail_to_get_source;
+                };
+                let source = file.source;
+                let source_code_dir = match source {
+                    Some(source) => source_dir.join(source),
+                    None => source_dir.to_owned(),
+                };
+
+                // Normalize source dir. Work around when `source_dir` ends with `.`
+                let Ok(source_code_dir) = dunce::canonicalize(&source_code_dir) else {
+                    warn!(
+                        "when working around driver file path issue, failed to canonicalize source code dir: {}",
+                        source_code_dir.display()
+                    );
+                    break 'fail_to_get_source;
+                };
+                let diag_path: &Path = diagnostic.location.path.as_ref();
+                let Ok(rel_path) = diag_path.strip_prefix(&source_code_dir) else {
+                    warn!(
+                        "when working around driver file path issue, failed to strip prefix {} from {}",
+                        source_code_dir.display(),
+                        diag_path.display()
+                    );
+                    break 'fail_to_get_source;
+                };
+
+                let mbt_file_path = target_dir.join(rel_path);
+                diagnostic.location.path = mbt_file_path.display().to_string();
+            }
+        }
+
+        diagnostic.render_diagnostics(use_fancy, check_patch_file, explain, render_no_loc_level)
     }
 
     fn get_content_and_filename_from_diagnostic_patch_file(

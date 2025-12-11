@@ -27,16 +27,17 @@
 //! - If you want to insert dry-running, your compilation process is split in
 //!   two parts: [``]
 
+use core::panic;
 use std::{
+    collections::{BTreeMap, BTreeSet},
     path::{Path, PathBuf},
     sync::{Arc, Mutex},
+    vec,
 };
 
 use anyhow::Context;
 use indexmap::IndexMap;
-use moonbuild::entry::{
-    N2RunStats, ResultCatcher, create_progress_console, render_and_catch_callback,
-};
+use moonbuild::entry::{N2RunStats, ResultCatcher, create_progress_console};
 use moonbuild_rupes_recta::{
     CompileConfig, ResolveConfig, ResolveOutput,
     build_lower::{WarningCondition, artifact::n2_db_path},
@@ -56,6 +57,7 @@ use moonutil::{
     cond_expr::OptLevel,
     features::FeatureGate,
     mooncakes::sync::AutoSyncFlags,
+    render::MooncDiagnostic,
 };
 use tracing::{Level, info, instrument, warn};
 
@@ -799,19 +801,17 @@ pub fn execute_build_partial(
         .or_else(|| std::thread::available_parallelism().ok().map(|x| x.into()))
         .unwrap();
 
-    // FIXME: Rewrite the rendering mechanism
     let result_catcher = Arc::new(Mutex::new(ResultCatcher::default()));
-    let callback = render_and_catch_callback(
-        Arc::clone(&result_catcher),
-        cfg.no_render,
-        n2::terminal::use_fancy(),
-        cfg.patch_file.clone(),
-        cfg.explain_errors,
-        cfg.render_no_loc,
-        PathBuf::new(),
-        target_dir.into(),
-    );
-    let mut prog_console = create_progress_console(Some(Box::new(callback)), cfg.verbose);
+    let mut prog_console = if cfg.no_render {
+        create_progress_console(Some(Box::new(no_render_callback())), cfg.verbose)
+    } else {
+        create_progress_console(
+            Some(Box::new(capture_diagnostics_callback(Arc::clone(
+                &result_catcher,
+            )))),
+            cfg.verbose,
+        )
+    };
     let mut work = n2::work::Work::new(
         build_graph,
         hashes,
@@ -831,7 +831,9 @@ pub fn execute_build_partial(
     // The actual execution done by the n2 executor
     let res = work.run().context("Failed to run n2 graph")?;
 
-    let result_catcher = result_catcher.lock().unwrap();
+    let mut result_catcher = result_catcher.lock().unwrap();
+    drop(prog_console); // Ensure the progress bar won't mess with diagnostic output
+    process_captured_diagnostics(&mut result_catcher, cfg);
     let stats = N2RunStats {
         n_tasks_executed: res,
         n_errors: result_catcher.n_errors,
@@ -839,4 +841,71 @@ pub fn execute_build_partial(
     };
 
     Ok(stats)
+}
+
+/// The callback function that catches diagnostics output. The output is
+/// expected to have json format. The captured diagnostics will be processed
+/// later.
+fn capture_diagnostics_callback(catcher: Arc<Mutex<ResultCatcher>>) -> impl Fn(&str) {
+    move |output: &str| {
+        output
+            .split('\n')
+            .filter(|it| !it.is_empty())
+            .for_each(|content| {
+                catcher.lock().unwrap().append_content(content, None);
+            });
+    }
+}
+
+fn no_render_callback() -> impl Fn(&str) {
+    move |output: &str| {
+        output
+            .split('\n')
+            .filter(|it| !it.is_empty())
+            .for_each(|content| {
+                println!("{}", content);
+            });
+    }
+}
+
+fn process_captured_diagnostics(catcher: &mut ResultCatcher, cfg: &BuildConfig) {
+    let mut unprocessed = vec![];
+    let mut by_file = BTreeMap::<String, BTreeSet<MooncDiagnostic>>::new();
+    for content in &catcher.content_writer {
+        match serde_json::from_str::<moonutil::render::MooncDiagnostic>(content) {
+            Ok(d) => {
+                // errors/warnings in test driver should be in rare case and
+                // are not expected in normal builds, so we skip rendering them
+                if d.location.path.contains("__generated_driver_for_") {
+                    unprocessed.push(content.clone());
+                } else {
+                    let file_key = d.location.path.clone();
+                    by_file.entry(file_key).or_default().insert(d);
+                }
+            }
+            Err(_) => {
+                // Non-diagnostics output, just print as-is
+                // This could happen for installing binaries dependencies etc.
+                eprintln!("{content}");
+            }
+        };
+    }
+
+    for file_diagnostics in by_file.values() {
+        for diag in file_diagnostics {
+            let kind = diag.render_diagnostics(
+                n2::terminal::use_fancy(),
+                cfg.patch_file.clone(),
+                cfg.explain_errors,
+                cfg.render_no_loc,
+            );
+            catcher.append_kind(kind);
+        }
+    }
+
+    if !unprocessed.is_empty() {
+        warn!(
+            "Some diagnostics could not be rendered, please run with --no-render to see raw output."
+        );
+    }
 }

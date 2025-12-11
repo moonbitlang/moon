@@ -115,9 +115,17 @@ pub struct ResultCatcher {
 }
 
 impl ResultCatcher {
-    fn append_content(&mut self, s: impl Into<String>, report: Option<ReportKind>) {
+    pub fn append_content(&mut self, s: impl Into<String>, report: Option<ReportKind>) {
         self.content_writer.push(s.into());
         match report {
+            Some(ReportKind::Error) => self.n_errors += 1,
+            Some(ReportKind::Warning) => self.n_warnings += 1,
+            _ => {}
+        }
+    }
+
+    pub fn append_kind(&mut self, kind: Option<ReportKind>) {
+        match kind {
             Some(ReportKind::Error) => self.n_errors += 1,
             Some(ReportKind::Warning) => self.n_warnings += 1,
             _ => {}
