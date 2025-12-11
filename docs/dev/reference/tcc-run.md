@@ -1,175 +1,74 @@
-# TCC Run Mode (Fast CC) — How it differs from regular builds
+# TCC Run Mode
 
-This document explains the TCC run mode (“fast CC”) across build and test, how it is modelled in the build graph, and how it differs from regular native builds. It describes the current behavior implemented in Moon’s generator and CLI.
+> This document reflects the state of the repository around 2025.12.
+> Please use the actual implementation as the ultimate source of truth.
+>
+> A major portion of this document is written by an LLM.
 
-## What “TCC run” is
+Moon can execute the artifacts of the native (C) backend directly through `tcc -run`
+in order to reduce build times.
+This document describes the TCC run mode,
+which keeps the regular MoonBit compilation stages
+but reshapes the native toolchain steps
+so that linking happens at execution time instead of during the build.
 
-- Codegen stays on the Native backend: we still produce a C artifact via `moonc link-core`.
-- Execution differs: instead of compiling that C artifact into a native executable and running it, we invoke the internal `tcc` with `-run` to execute the C directly.
-- Artifact shapes differ under TCC: runtime is built as a shared library, and C stubs are linked to dynamic libraries.
+## When TCC run mode is selected
 
-Key references:
+TCC run mode is considered only in debug builds that target the native backend.
+The planner verifies three conditions before switching to the TCC run flow:
 
-- Link-core output and exported functions: [gen_runtest::gen_runtest_link_command()](crates/moonbuild/src/gen/gen_runtest.rs:1235)
-- Example tcc-run command shape in CLI run: [run.rs](crates/moon/src/cli/run.rs:193)
-- Internal TCC detection: [CC::internal_tcc()](crates/moonutil/src/compiler_flags.rs:208)
+- The invocation runs on Linux or macOS, where the bundled `tcc` is available.
+- No package in the build graph requests custom native compilers or flags.
+  If any package opts into its own toolchain, the run falls back to the regular native pipeline.
+- The requested action actually needs a runnable binary (for example, `run` or `test`).
+  Pure build or check requests keep using the standard native backend.
 
-## When TCC run applies
+If every gate passes, the planner substitutes the backend with the dedicated TCC run backend.
+Otherwise, nothing changes and the regular linker path is used.
 
-TCC run is enabled only when all gates pass:
+## How the pipeline diverges
 
-- Native backend (not JS/WASM/LLVM)
-- Non-Windows (runtime.c cannot be built with tcc on Windows)
-- Debug builds (fast iteration) and in test/run modes that opt into fast CC
-- Package does not set custom `cc`, `cc-flags`, or `cc-link-flags` (user control takes precedence)
+TCC run mode keeps the logical build steps described in the [architecture][] and [build][] references:
 
-References for gating:
+[architecture]: ./arch.md
+[build]: ./build.md
 
-- CLI run gating: [run.rs](crates/moon/src/cli/run.rs:188)
-- CLI test gating and warnings: [test.rs](crates/moon/src/cli/test.rs:1325) and [test.rs](crates/moon/src/cli/test.rs:1334)
+1. `BuildPackage` compiles MoonBit sources into CoreIR and emits package interfaces.
+2. `LinkCore` gathers all transitive dependencies
+   to produce a single C artifact for the selected target kind.
+3. Native-specific nodes prepare artifacts for execution.
 
-## Build graph changes (legacy generator behaviour)
+The first two stages behave identically across all native backends.
+Divergence happens in the native-specific step:
 
-The legacy generator already branches on `use_tcc_run` and changes artifacts accordingly:
+- The runtime code is compiled into a shared library instead of an object file.
+- Each package's C stubs remain as object files, but are collected into shared libraries (`.so`/`.dylib`).
+- The final `MakeExecutable` node no longer compiles and link the resulting C code.
+  Instead, it writes a response file that captures the full `tcc -run` command line,
+  pointing at the C artifact and the shared libraries prepared above.
 
-- Runtime artifact:
+### Notes
 
-  - TCC: build shared runtime and add to default targets: [gen_runtest.rs](crates/moonbuild/src/gen/gen_runtest.rs:1386)
-  - Non-TCC: build a plain `runtime.o`: [gen_runtest.rs](crates/moonbuild/src/gen/gen_runtest.rs:1390)
+We emit a shared library instead of a static library or plain object file because TCC,
+on \*nix systems, can only consume ELF.
+On macOS the object files are Mach-O,
+while the shared libraries/executables we care about are ELF,
+so using a shared library in place of an object file lets TCC link against them successfully.
 
-- Stub libraries:
+We use a response file so that all concrete build and link details stay inside the build-graph generator.
+The executable runners only see "call `tcc` with `@<response-file>`",
+which avoids leaking flags/paths out of the pipeline
+and keeps the runners loosely coupled to the build system.
 
-  - Non-TCC: archive stub objects into static libraries `.a`: [gen_runtest.rs](crates/moonbuild/src/gen/gen_runtest.rs:1445)
-  - TCC: link stubs into dynamic libraries `.so`/`.dylib` and add them to default: [gen_runtest.rs](crates/moonbuild/src/gen/gen_runtest.rs:1451)
+## Execution at runtime
 
-- Executable step:
+When `moon` later executes the target,
+it detects the TCC run backend and launches the internal `TCC` with the response file recorded earlier,
+`tcc @<response-file> [args...]`.
 
-  - Non-TCC Native: compile C to a native executable: [gen_runtest.rs](crates/moonbuild/src/gen/gen_runtest.rs:1399)
-  - LLVM: perform a separate link to an executable: [gen_runtest.rs](crates/moonbuild/src/gen/gen_runtest.rs:1411)
-  - TCC Native: skip compiling to exe; run via `tcc -run` using the shared runtime and dynamic stubs
+This behavior is transparent to the user and the rest of the build system.
+The command and user-provided arguments are generated in the exact same way as other backends.
 
-- Link-core (unchanged): always produces the C output and exports test driver entry points: [gen_runtest::gen_runtest_link_command()](crates/moonbuild/src/gen/gen_runtest.rs:1235)
+## Fallback behavior
 
-## Compiler and linker configuration differences under TCC
-
-TCC has different toolchain behaviour; the build driver must render flags accordingly. Use `CC.is_tcc()` to gate toolchain-specific quirks:
-
-- No separate `ar`; use `tcc -ar`: [compiler_flags.rs](crates/moonutil/src/compiler_flags.rs:362)
-- Include/library flags use tcc forms, not MSVC or clang forms:
-  - `-I<path>`, `-L<path>`: [compiler_flags.rs](crates/moonutil/src/compiler_flags.rs:644) and [compiler_flags.rs](crates/moonutil/src/compiler_flags.rs:457)
-- Define `MOONBIT_NATIVE_NO_SYS_HEADER` to avoid problematic system header behaviour in tcc:
-  - [compiler_flags.rs](crates/moonutil/src/compiler_flags.rs:302)
-- Do not link or archive `libmoonbitrun.o` under tcc; only warn if asked:
-  - Archive warning: [compiler_flags.rs](crates/moonutil/src/compiler_flags.rs:381)
-  - Link warning: [compiler_flags.rs](crates/moonutil/src/compiler_flags.rs:505)
-
-At a higher level, compile/link configs flip under TCC:
-
-- Do not link `libmoonbitrun`: [gen_build.rs](crates/moonbuild/src/gen/gen_build.rs:979)
-- Define shared-runtime macro so generated code resolves runtime APIs from the shared library: [gen_build.rs](crates/moonbuild/src/gen/gen_build.rs:981)
-
-## Running under TCC (current behavior)
-
-The runner invokes the internal tcc with `-run`, passing Moon’s include and lib paths, the runtime source, and defining `MOONBIT_NATIVE_NO_SYS_HEADER`. The linked C produced by `moonc link-core` is the program body.
-
-Schematic (shape from CLI):
-`tcc -I <moon include> -L <moon lib> <moon lib>/runtime.c -lm -DMOONBIT_NATIVE_NO_SYS_HEADER -run <output.c>`
-See [run.rs](crates/moon/src/cli/run.rs:193).
-
-## Backend semantics
-
-TCC run uses the Native backend for codegen; `moonc link-core` still targets Native and produces C (with exported test driver entry points). The differences are in runtime/stub artifacts and in execution (using `tcc -run`).
-
-## Target directory and default targets
-
-Under TCC:
-
-- Shared runtime `.so`/`.dylib` should be explicitly included in default targets (not referenced by any single target otherwise): [gen_runtest.rs](crates/moonbuild/src/gen/gen_runtest.rs:1386)
-- Dynamic stub libraries also get added to defaults so they are built before the run: [gen_runtest.rs](crates/moonbuild/src/gen/gen_runtest.rs:1451)
-
-Under non-TCC:
-
-- Stubs are archived `.a` and pulled in via native link; no need to be default outputs: [gen_runtest.rs](crates/moonbuild/src/gen/gen_runtest.rs:1445)
-
-## Coverage notes
-
-- Build-package coverage is enabled only when not blackbox and not third-party: [gen_runtest::enable_coverage_during_compile()](crates/moonbuild/src/gen/gen_runtest.rs:1597)
-- Test driver generation passes coverage collection flags independently of blackbox coverage behaviour: [gen_runtest::gen_generate_test_driver_command()](crates/moonbuild/src/gen/gen_runtest.rs:1495)
-
-## Virtual packages
-
-TCC run does not change virtual package semantics:
-
-- Link traversal and substitution of implementation cores continue to happen the same way.
-- See substitution: [gen_build::replace_virtual_pkg_core_with_impl_pkg_core()](crates/moonbuild/src/gen/gen_build.rs:769)
-
-## End-to-end flow (summary)
-
-```mermaid
-flowchart TD
-  subgraph Common
-    A[moonc build-package -> .core]
-    B[moonc link-core -> .c (exports test driver entry points)]
-    A --> B
-  end
-
-  subgraph Non-TCC (Native/LLVM)
-    B --> C[Compile/Link Executable]
-    subgraph Stubs
-      S1[Compile stub .o] --> S2[Archive static .a]
-    end
-    subgraph Runtime
-      R1[Compile runtime.o]
-    end
-    C --> D[Run exe]
-  end
-
-  subgraph TCC Run (Native fast CC)
-    B --> RT[Build shared runtime (.so/.dylib)]
-    B --> SD[Build stub dynamic libs (.so/.dylib)]
-    RT --> TR[tcc -I/-L runtime.c -lm -DMOONBIT_NATIVE_NO_SYS_HEADER -run <.c>]
-    SD --> TR
-  end
-```
-
-## Practical implications
-
-- TCC run uses Native backend for codegen; `moonc link-core` emits C and exported test functions.
-- artifact kinds differ from regular native runs: shared runtime and dynamic stub libraries are built; the native exe compile step is skipped.
-- Behavior is gated by platform/backend/mode and by per-package CC override checks; when overrides exist, the run falls back to the regular native executable.
-- Respect platform constraints and user overrides; when gates fail, tests run via the regular executable.
-
-## Cross-references (selected)
-
-- Link-core command for tests (exports): [gen_runtest::gen_runtest_link_command()](crates/moonbuild/src/gen/gen_runtest.rs:1235)
-- Runtime shared vs object: [gen_runtest.rs](crates/moonbuild/src/gen/gen_runtest.rs:1386) / [gen_runtest.rs](crates/moonbuild/src/gen/gen_runtest.rs:1390)
-- Stub archive vs dynamic link: [gen_runtest.rs](crates/moonbuild/src/gen/gen_runtest.rs:1445) / [gen_runtest.rs](crates/moonbuild/src/gen/gen_runtest.rs:1451)
-- Skip native exe under TCC; compile/link exe otherwise: [gen_runtest.rs](crates/moonbuild/src/gen/gen_runtest.rs:1399) / [gen_runtest.rs](crates/moonbuild/src/gen/gen_runtest.rs:1411)
-- CLI tcc run shape: [run.rs](crates/moon/src/cli/run.rs:193)
-- TCC toolchain helpers and flags: [compiler_flags.rs](crates/moonutil/src/compiler_flags.rs:196), [compiler_flags.rs](crates/moonutil/src/compiler_flags.rs:362), [compiler_flags.rs](crates/moonutil/src/compiler_flags.rs:644), [compiler_flags.rs](crates/moonutil/src/compiler_flags.rs:302), [compiler_flags.rs](crates/moonutil/src/compiler_flags.rs:381), [compiler_flags.rs](crates/moonutil/src/compiler_flags.rs:505)
-- Compile/link config flips (shared runtime macro, no moonbitrun): [gen_build.rs](crates/moonbuild/src/gen/gen_build.rs:979) and [gen_build.rs](crates/moonbuild/src/gen/gen_build.rs:981)
-
-## Test runner detection and custom CC overrides
-
-How the test runner decides TCC vs regular executable:
-
-- The decision is made up front per invocation. Default enabling rule for tests is: debug build AND run mode is test. See [crates/moon/src/cli/test.rs](crates/moon/src/cli/test.rs:1325).
-- Then for every package in the module (after filter), Moon checks if a package has any native CC overrides (cc, cc-flags, cc-link-flags). If any such override exists, TCC run is globally disabled for the whole test invocation, and a warning is emitted naming the offending package. See [crates/moon/src/cli/test.rs](crates/moon/src/cli/test.rs:1334).
-  - The specific logic is: `use_tcc_run &= n.cc.is_none() && n.cc_flags.is_none() && n.cc_link_flags.is_none();` and compare `old_flag` to emit a warning when flipping. See [crates/moon/src/cli/test.rs](crates/moon/src/cli/test.rs:1336).
-- Platform gating applies before this: TCC-run is disabled on Windows and only considered for Native backend debug runs. See [crates/moon/src/cli/run.rs](crates/moon/src/cli/run.rs:188).
-
-Behavior when a package sets custom CC in tests:
-
-- TCC run is disabled for the entire test run, even if only one package has overrides. This avoids mixing toolchains in a single run (which would cause inconsistent link behavior and hard-to-debug runtime differences).
-- The runner falls back to the regular native executable pipeline:
-  - Link-core still produces the C output: [gen_runtest_link_command()](crates/moonbuild/src/gen/gen_runtest.rs:1235)
-  - Runtime built as `runtime.o` instead of shared: [gen_n2_runtest_state()](crates/moonbuild/src/gen/gen_runtest.rs:1390)
-  - Stubs archived into static `.a` instead of dynamic `.so/.dylib`: [gen_n2_runtest_state()](crates/moonbuild/src/gen/gen_runtest.rs:1445)
-  - Native exe is compiled and executed: [gen_n2_runtest_state()](crates/moonbuild/src/gen/gen_runtest.rs:1399)
-- Coverage/test-driver behavior remains the same with respect to mode-specific coverage gating (e.g., blackbox compile coverage disabled): [enable_coverage_during_compile()](crates/moonbuild/src/gen/gen_runtest.rs:1597) and generation of driver metadata: [gen_generate_test_driver_command()](crates/moonbuild/src/gen/gen_runtest.rs:1495).
-
-Summary:
-
-- Detect TCC-run using platform/backend/mode conditions and per-package CC overrides; if any overrides exist, disable TCC-run globally and warn.
-- Under TCC-run, build shared runtime and dynamic stubs and run `tcc -run` on the linked C artifact.
-- Under regular run, build `runtime.o`, archive static stubs, compile a native executable, and run it.
+Any violation of the eligibility rules reverts the pipeline to the regular native backend. This applies per invocation rather than per package: once one package blocks TCC run mode, every target in that run uses the traditional linker path so the build graph stays coherent.
