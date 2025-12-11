@@ -7,19 +7,20 @@ This is a reference documentation of the current MoonBuild behavior.
 - [Architecture and overview](./arch.md)
 - [Modules and packages](./modules-packages.md)
 - [Package build process](./build.md)
-- [Conditional compilation](./cond-comp.md)
-- [Prebuild tasks](./prebuild.md)
-- [Virtual packages](./virtual-pkg.md)
-- TODO: C-stub compilation
-- TODO: [Compiler command references](./compiler-cmd-ref.md)
 - [How binaries are found](./binaries.md)
+- [Indirect dependency support for compiler](./indirect-dep.md)
+
+## Additional features
+
+- [Prebuild tasks](./prebuild.md)
+- [Conditional compilation](./cond-comp.md)
+- [Virtual packages](./virtual-pkg.md)
+- [`tcc -run` mode](./tcc-run.md)
+- [`moon bundle`](./bundle.md)
+- TODO: Single-file mode
+- TODO: Markdown checks and tests
 
 ## Testing
 
 - TODO: Doc tests
 - TODO: Snapshot testing
-
-## Auxiliary modes
-
-- TODO: Single-file mode
-- TODO: Markdown checks and tests
