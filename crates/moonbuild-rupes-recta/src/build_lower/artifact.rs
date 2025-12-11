@@ -203,7 +203,7 @@ impl LegacyLayout {
         pkg_list: &DiscoverResult,
         target: &BuildTarget,
         backend: TargetBackend,
-        is_implementating_virtual: bool,
+        is_implementing_virtual: bool,
     ) -> MiPathResult {
         // Special case: `abort` lives in core
         if let Some(abort) = pkg_list.abort_pkg()
@@ -215,7 +215,7 @@ impl LegacyLayout {
                         .as_ref()
                         .expect("Standard library should be present"),
                     backend,
-                    is_implementating_virtual,
+                    is_implementing_virtual,
                 ));
             } else {
                 panic!("Cannot import `.mi` for moonbitlang/core/abort");
@@ -227,7 +227,7 @@ impl LegacyLayout {
         base_dir.push(format!(
             "{}{}",
             artifact(pkg_fqn, target.kind),
-            if is_implementating_virtual {
+            if is_implementing_virtual {
                 IMPL_MI_EXTENSION
             } else {
                 MI_EXTENSION
@@ -585,11 +585,11 @@ pub fn abort_core_path(core_root: &Path, backend: TargetBackend) -> PathBuf {
 pub fn abort_mi_path(
     core_root: &Path,
     backend: TargetBackend,
-    is_implementating_virtual: bool,
+    is_implementing_virtual: bool,
 ) -> PathBuf {
     let mut path = core_bundle_path(core_root, backend);
     path.push("abort");
-    if is_implementating_virtual {
+    if is_implementing_virtual {
         path.push(format!("abort{}", IMPL_MI_EXTENSION));
     } else {
         path.push(format!("abort{}", MI_EXTENSION));
