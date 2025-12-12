@@ -218,7 +218,7 @@ impl<'a> BuildPlanLowerContext<'a> {
                 // * implementing a virtual package: no need to generate mi
                 // though, but still need to declare a `.mi` artifact so that n2
                 // executes it. And it actually produces a useless `.mi` file.
-                // So that n2 can check its timestamp to decide whether the it
+                // So that n2 can check its timestamp to decide whether it
                 // needs to be rebuilt.
                 //
                 // Not generating `.mi` for the special case:
