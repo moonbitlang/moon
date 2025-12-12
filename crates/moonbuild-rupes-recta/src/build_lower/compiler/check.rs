@@ -25,6 +25,10 @@ use crate::build_lower::compiler::{BuildCommonConfig, BuildCommonInput, CmdlineA
 
 /// Abstraction for `moonc check`.
 ///
+/// This command checks MoonBit source files for errors and warnings without
+/// producing any output `.core` files. It outputs a `.mi` file that contains
+/// the public interface information for downstream consumption.
+///
 /// FIXME: This is a shallow abstraction that tries to mimic the legacy
 /// behavior as much as possible. It definitely contains some suboptimal
 /// abstractions, which needs to be fixed in the future.
@@ -33,10 +37,14 @@ pub struct MooncCheck<'a> {
     // Common arguments
     pub required: BuildCommonInput<'a>,
     pub defaults: BuildCommonConfig<'a>,
+
+    /// The output `.mi` file's path.
     pub mi_out: Cow<'a, Path>,
 
+    /// Whether to enable single file mode.
     pub single_file: bool,
 
+    /// Extra flags to append at the end.
     pub extra_flags: &'a [String],
 }
 

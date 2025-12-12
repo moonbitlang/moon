@@ -114,8 +114,8 @@ impl<'a> BuildPlanLowerContext<'a> {
         let (warn_config, alert_config) = if self.is_module_third_party(pkg.module) || allow_warn {
             // Third-party modules don't have any warnings or alerts
             (
-                compiler::WarnAlertConfig::AllowAll,
-                compiler::WarnAlertConfig::AllowAll,
+                compiler::WarnAlertConfig::Suppress,
+                compiler::WarnAlertConfig::Suppress,
             )
         } else {
             let wc = if let Some(w) = &info.warn_list {

@@ -24,7 +24,7 @@ use std::path::{Path, PathBuf};
 use moonutil::common::TargetBackend;
 
 use crate::build_lower::compiler::{
-    CompiledPackageName, ErrorFormat, MOONC_ALLOW_WARNING_SET, MOONC_DENY_WARNING_SET,
+    CompiledPackageName, ErrorFormat, MOONC_DENY_WARNING_SET, MOONC_SUPPRESS_WARNING_SET,
     MiDependency, VirtualPackageImplementation, WarnAlertConfig,
 };
 use crate::model::TargetKind;
@@ -271,8 +271,8 @@ impl<'a> BuildCommonConfig<'a> {
 
     /// Add warning/alert allow all arguments
     pub fn add_warn_alert_allow_all(&self, args: &mut Vec<String>) {
-        if matches!(self.warn_config, WarnAlertConfig::AllowAll) {
-            args.extend(["-w".to_string(), MOONC_ALLOW_WARNING_SET.into()]);
+        if matches!(self.warn_config, WarnAlertConfig::Suppress) {
+            args.extend(["-w".to_string(), MOONC_SUPPRESS_WARNING_SET.into()]);
         }
     }
 

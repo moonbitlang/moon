@@ -27,6 +27,10 @@ use crate::build_lower::compiler::{
 
 /// Abstraction for `moonc build-package`.
 ///
+/// This command builds a MoonBit package into a `.core` file. The outputs of
+/// this command is a `.core` file that contains the compiled IR of the package,
+/// and a `.mi` file that contains the public interface information.
+///
 /// FIXME: This is a shallow abstraction that tries to mimic the legacy
 /// behavior as much as possible. It definitely contains some suboptimal
 /// abstractions, which needs to be fixed in the future.
@@ -35,11 +39,21 @@ pub struct MooncBuildPackage<'a> {
     // Common arguments
     pub required: BuildCommonInput<'a>,
     pub defaults: BuildCommonConfig<'a>,
+
+    /// The output `.core` file's path.
     pub core_out: Cow<'a, Path>,
+
+    /// The output `.mi` file's path.
+    ///
+    /// This file is currently unused in the commandline arguments.
+    /// Theoretically, it should be `core_out.replace_extension("mi")`, but we
+    /// leave it here for future use.
     #[allow(unused)]
     pub mi_out: Cow<'a, Path>,
 
     pub flags: CompilationFlags,
+
+    /// Extra build options to append at the end.
     pub extra_build_opts: &'a [String],
 }
 

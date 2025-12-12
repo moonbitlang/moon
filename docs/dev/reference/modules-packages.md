@@ -87,19 +87,26 @@ Currently, the major part of module versions are restricted to 0
 (i.e. modules may only have `0.x.y` version).
 
 Dependencies are currently resolved using the [MVS][] algorithm.
-In consequence, only caret version requirements (`^version`) are supported.
-Caret version requirements only allow the dependency to be resolved to
-a version larger or equal to the specified version,
-_and_ less than the next incompatible version (see SemVer spec for more info).
-According to the MVS algorithm,
-the smallest version among all applicable versions is selected.
+The nature of MVS only allows version ranges with `>=` semantics
+(higher versions must be compatible with lower versions).
 
-Currently, if two different, incompatible version of the same module
-are resolved into the module dependency graph,
-the build system will reject such graph with an error.
+Since MoonBit packages follows [SemVer][] (while Go ones don't),
+only the caret version range (all compatible versions) is supported here, when specifying version ranges.
+The implementation currently follows the interpretation of SemVer ranges
+made by the [`semver` crate][semver-range], which in turn is Cargo's interpretation.
+
+Under this interpretation, a caret version range means all versions that:
+
+- is larger than the specified version, and
+- has the same first non-zero component.
+
+Additionally, due to limitations of the MoonBit compiler,
+only one module with a specific name may be present in the resolved dependency graph.
+The build system will reject violating graph with an error.
 
 [semver]: https://semver.org/
 [mvs]: https://go.dev/ref/mod#minimal-version-selection
+[semver-range]: https://docs.rs/semver/latest/semver/struct.VersionReq.html
 
 ## Package discovery
 

@@ -35,48 +35,87 @@ use crate::build_lower::compiler::{
 #[derive(Debug)]
 pub struct MooncLinkCore<'a> {
     // Input/Output configuration
+    /// The `.core` file dependencies to link.
+    ///
+    /// Due to `moonc`'s restrictions, this list **must be in topological-sorted
+    /// order**. Failing to do so will result in a mismatch in the initializer
+    /// order of the linked output, and eventually lead to runtime errors.
     pub core_deps: &'a [PathBuf],
+    /// THe main package to link. This package should contain the `main`
+    /// function/entry point, if applicable.
     pub main_package: CompiledPackageName<'a>,
+    /// The linked output file's path.
+    ///
+    /// This should be the `.wasm`/`.wat`/`.js`/`.c`/`.o`/`.obj` file depending
+    /// on the target backend and platform.
     pub output_path: Cow<'a, Path>,
+    /// The path to the `moon.pkg.json` file of the main package.
     pub pkg_config_path: Cow<'a, Path>,
 
     // Package configuration
+    /// The package name to source path mapping of all packages involved in the build.
     pub package_sources: &'a [PackageSource<'a>],
     /// Pass [None] for no_std, otherwise provide PackageSource for core
     pub stdlib_core_source: Option<PackageSource<'a>>,
 
     // Target and compilation configuration
+    /// The target backend to link for.
     pub target_backend: TargetBackend,
     /// Compilation flags - reuse existing structure, symbols maps to -g, no_opt maps to -O0
     pub flags: CompilationFlags,
+    /// Whether this project is linked to be used for testing. Test projects
+    /// enables special configs that is not applicable to a normal
+    /// executable/library.
     pub test_mode: bool,
+    /// List of functions to export in the final (WebAssembly/JS) output.
     pub exports: Option<&'a [String]>,
 
-    // WebAssembly specific configuration
+    /// WebAssembly specific configuration
     pub wasm_config: WasmConfig<'a>,
 
-    // JavaScript specific configuration
+    /// JavaScript specific configuration
     pub js_config: Option<JsConfig>,
 
-    // Extra options
+    /// Extra options passed from user configuration.
     pub extra_link_opts: &'a [String],
 }
 
 /// WebAssembly-specific linking configuration
 #[derive(Debug, Default)]
 pub struct WasmConfig<'a> {
+    /// The name of the exported WASM memory, if any.
+    ///
+    /// See: https://www.w3.org/TR/2019/REC-wasm-core-1-20191205/#exports%E2%91%A0
     pub export_memory_name: Option<Cow<'a, str>>,
+    /// The import memory configuration, if any.
+    ///
+    /// See: https://www.w3.org/TR/2019/REC-wasm-core-1-20191205/#imports%E2%91%A0
     pub import_memory: Option<&'a ImportMemory>,
+    /// Memory limits configuration
+    ///
+    /// See: https://www.w3.org/TR/2019/REC-wasm-core-1-20191205/#syntax-limits
     pub memory_limits: Option<&'a MemoryLimits>,
+    /// Whether to enable shared memory
+    ///
+    /// See: https://developer.mozilla.org/en-US/docs/WebAssembly/Guides/Understanding_the_text_format#shared_memories
     pub shared_memory: Option<bool>,
+    /// The starting address of the heap in WASM linear memory.
+    ///
+    /// As the WASM linear memory only grows upwards, this affects the size of
+    /// the stack data segment. A value too small may cause the stack to be too
+    /// small and overflow during runtime, while a value too large may waste
+    /// memory.
     pub heap_start_address: Option<u32>,
+    /// Extra link flags to pass to the WASM linker.
     pub link_flags: Option<&'a [String]>,
 }
 
 /// JavaScript-specific linking configuration
 #[derive(Debug)]
 pub struct JsConfig {
+    /// The output format of the script, see [JsFormat].
     pub format: Option<JsFormat>,
+    /// Whether to skip generating TypeScript declaration files.
     pub no_dts: bool,
 }
 

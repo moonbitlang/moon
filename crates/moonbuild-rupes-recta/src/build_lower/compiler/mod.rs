@@ -45,16 +45,27 @@ pub use self::link_core::*;
 pub use self::moondoc::*;
 pub use self::mooninfo::*;
 
+/// The format of error reports from `moonc`.
+///
+/// Note that rendering of diagnostics is done in `moon`. `moonc` never directly
+/// renders diagnostics to the user.
 #[allow(unused)]
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ErrorFormat {
+    /// A semi-structured format with only the location and message.
     Regular,
+    /// A fully structured JSON format. `moon` uses this to render diagnostics.
     Json,
 }
 
+/// Represents a dependency to the `.mi` (module interface) file of another
+/// package.
 #[derive(Clone, Debug)]
 pub struct MiDependency<'a> {
+    /// The path to the `.mi` file of the dependency.
     pub path: Cow<'a, Path>,
+    /// An optional alias for the package, to be used when referencing symbols
+    /// declared in this package. Also see: [`PackageFQN::short_alias`].
     pub alias: Option<Cow<'a, str>>,
 }
 
@@ -83,11 +94,12 @@ impl<'a> MiDependency<'a> {
     }
 }
 
-/// Represents a package name of a specific kind passed to the compiler.
-/// Used to create the actual package name of the compiled package.
+/// Represents a package name passed to the compiler. This might add a suffix
+/// to the original package name depending on the target kind.
 ///
-/// Since tests are not dependencies of any other packages, adding a suffix to
-/// test packages will not interfere with the names of other packages.
+/// Note: this is not the same as the filenames used by the artifacts produced
+/// by the compiler. This suffix is currently only necessary for blackbox test
+/// targets, while the filename need to be deduplicated for every target kind.
 #[derive(Clone, Debug)]
 pub struct CompiledPackageName<'a> {
     pub fqn: &'a PackageFQN,
@@ -122,9 +134,12 @@ impl<'a> std::fmt::Display for CompiledPackageName<'a> {
     }
 }
 
+/// The mapping from package name to its base directory.
 #[derive(Clone, Debug)]
 pub struct PackageSource<'a> {
+    /// The package name.
     pub package_name: CompiledPackageName<'a>,
+    /// The directory containing the package's source files and `moon.pkg.json`.
     pub source_dir: Cow<'a, Path>,
 }
 
@@ -134,22 +149,42 @@ impl<'a> PackageSource<'a> {
     }
 }
 
+/// The information needed to specify an implementation of a virtual package.
+///
+/// Note: The following data is all about the **virtual package** that is being
+/// implemented, not the implementation package itself.
 #[derive(Clone, Debug)]
 pub struct VirtualPackageImplementation<'a> {
+    /// The path to the `.mi` file of the virtual package itself.
     pub mi_path: Cow<'a, Path>,
+    /// The name of the virtual package.
     pub package_name: &'a PackageFQN,
+    /// The path to the virtual package's source directory.
     pub package_path: Cow<'a, Path>,
 }
 
+/// Compilation flags that affect code generation.
 #[derive(Clone, Debug)]
 pub struct CompilationFlags {
     /// Disable optimization (adds -O0)
     pub no_opt: bool,
     /// Include debug symbols (adds -g)
     pub symbols: bool,
+    /// Emit source map file for supported backends (JS and WASM)
     pub source_map: bool,
+    /// Enable code coverage instrumentation.
+    ///
+    /// This injects additional code in the compiled output to track which part
+    /// of the code has been executed at runtime. This by default uses the
+    /// standard library's code coverage tracking primitives.
     pub enable_coverage: bool,
+    /// Use self-coverage mode, which uses the current package itself as the
+    /// package implementing code coverage tracking primitives.
     pub self_coverage: bool,
+    /// Enable value tracing instrumentation.
+    ///
+    /// This injects additional code in the compiled output to track the values
+    /// of variables at runtime for debugging purposes.
     pub enable_value_tracing: bool,
 }
 
@@ -157,15 +192,22 @@ pub struct CompilationFlags {
 #[derive(Clone, Debug, Default)]
 #[allow(unused)]
 pub enum WarnAlertConfig<'a> {
+    /// Use the compiler's default configuration
     #[default]
     Default,
+    /// Use a specified list of warnings/alerts that will be passed to the compiler
     List(Cow<'a, str>),
-    AllowAll,
+    /// Suppress all warnings/alerts. No optional warnings/alerts will be
+    /// reported, only the errors that will prevent successful compilation.
+    Suppress,
 }
 
+/// The trait for building command line arguments for `moonc` commands.
 pub trait CmdlineAbstraction {
+    /// Convert this structure to command line arguments.
     fn to_args(&self, args: &mut Vec<String>);
 
+    /// Build the full command with executable and arguments.
     fn build_command(&self, executable: impl AsRef<OsStr>) -> Vec<String> {
         let mut args = vec![executable.as_ref().to_string_lossy().to_string()];
         self.to_args(&mut args);
@@ -173,8 +215,12 @@ pub trait CmdlineAbstraction {
     }
 }
 
+/// The default list of warnings used by `moonc` for regular compilation.
+///
+/// Only provided as a reference, not actually used in code.
 #[allow(unused)]
 pub(crate) const MOONC_REGULAR_WARNING_SET: &str = "+a-31-32";
-
+/// The warning list to use when denying all warnings.
 pub(crate) const MOONC_DENY_WARNING_SET: &str = "@a";
-pub(crate) const MOONC_ALLOW_WARNING_SET: &str = "-a";
+/// The warning list to use when suppressing all warnings.
+pub(crate) const MOONC_SUPPRESS_WARNING_SET: &str = "-a";

@@ -34,22 +34,11 @@ use crate::{
 };
 
 /// A concise set of user actions that expand into concrete BuildPlanNode groups.
-///
-/// Notes:
-/// - Build emits either BuildCore(Source) or MakeExecutable(Source) depending on linkability.
-/// - Check emits three Check nodes: Source, WhiteboxTest, BlackboxTest. If the package has no
-///   implementation (pure virtual), it emits BuildVirtual instead.
-/// - Test emits pairs per test target: MakeExecutable + GenerateTestInfo for
-///   WhiteboxTest, BlackboxTest, InlineTest.
-/// - Bundle emits a module-level Bundle node.
-/// - Docs emits a single BuildDocs node.
-/// - Info emits GenerateMbti(Source) for non-virtual packages.
-/// - Run emits MakeExecutable(Source).
 #[derive(Clone, Copy, Debug)]
 pub enum UserIntent {
     /// Build a package (produce either .core or an executable).
     Build(PackageId),
-    /// Run a package (executable of Source target).
+    /// Run a package (executable of Source target). Does not actually execute the output.
     Run(PackageId),
     /// Check a package (source/whitebox/blackbox).
     Check(PackageId),
