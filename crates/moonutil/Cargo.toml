@@ -56,6 +56,7 @@ serde_yaml.workspace = true
 slotmap.workspace = true
 tracing.workspace = true
 shlex.workspace = true
+logos = "0.15.1"
 
 [target."cfg(unix)".dependencies]
 libc.workspace = true
