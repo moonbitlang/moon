@@ -29,8 +29,8 @@ use std::{
 use indexmap::{IndexSet, set::MutableValues};
 use moonutil::{
     common::{
-        DEP_PATH, DOT_MBT_DOT_MD, MOD_DIR, MOON_BIN_DIR, MOON_MOD_JSON, MOON_PKG_JSON,
-        MOONCAKE_BIN, PKG_DIR,
+        DEP_PATH, DOT_MBT_DOT_MD, MOD_DIR, MOON_BIN_DIR, MOON_MOD_JSON, MOONCAKE_BIN, PKG_DIR,
+        is_moon_pkg,
     },
     compiler_flags::{CC, DETECTED_CC},
     mooncakes::ModuleId,
@@ -1095,7 +1095,7 @@ impl<'a> BuildPlanConstructor<'a> {
                 );
             }
             // If the file looks like a package manifest
-            if filename == MOON_MOD_JSON || filename == MOON_PKG_JSON {
+            if filename == MOON_MOD_JSON || is_moon_pkg(filename) {
                 warn!(
                     "Prebuild output '{}' of package {} looks like a package manifest file. \
                     Overwriting package manifests is not supported and may lead to unexpected behavior.",
