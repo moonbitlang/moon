@@ -16,32 +16,7 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
-#![warn(clippy::clone_on_ref_ptr)]
-
-mod binaries;
-pub mod build_script;
-pub mod cli;
-pub mod common;
-pub mod compiler_flags;
-pub mod cond_expr;
-pub mod dependency;
-pub mod dirs;
-pub mod doc_test;
-pub mod error_code_docs;
-pub mod features;
-pub mod fuzzy_match;
-pub mod git;
-pub mod graph;
-pub mod module;
-pub mod moon_dir;
-pub mod moon_pkg;
-pub mod mooncakes;
-pub mod package;
-pub mod path;
-pub mod platform;
-pub mod render;
-pub mod scan;
-pub mod shlex;
-pub mod version;
-
-pub use binaries::BINARIES;
+mod lexer;
+mod parser;
+pub use lexer::*;
+pub use parser::*;
