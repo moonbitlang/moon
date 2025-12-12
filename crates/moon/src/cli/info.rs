@@ -192,7 +192,8 @@ pub fn run_info_rr_internal(
     rr_build::generate_all_pkgs_json(&target_dir, &build_meta, RunMode::Check)?;
 
     // TODO: UX: Consider mirroring flags from `moon check`?
-    let result = rr_build::execute_build(&BuildConfig::default(), build_graph, &target_dir)?;
+    let cfg = BuildConfig::from_flags(&BuildFlags::default(), &cli.unstable_feature, cli.verbose);
+    let result = rr_build::execute_build(&cfg, build_graph, &target_dir)?;
     result.print_info(cli.quiet, "generating mbti files")?;
 
     Ok((result.successful(), build_meta))
