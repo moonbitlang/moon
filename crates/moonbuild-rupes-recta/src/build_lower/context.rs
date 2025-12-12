@@ -215,7 +215,7 @@ impl<'a> BuildPlanLowerContext<'a> {
                 // run the command for it and notice in this case, the command
                 // will always be executed because it doesn't produce any output
                 // so n2 will think it's always dirty.
-                // * implementing a virtual package: no nee to generate mi
+                // * implementing a virtual package: no need to generate mi
                 // though, but still need to declare a `.mi` artifact so that n2
                 // executes it. And it actually produces a useless `.mi` file.
                 // So that n2 can check its timestamp to decide whether the it
