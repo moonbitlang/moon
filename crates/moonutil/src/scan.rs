@@ -562,7 +562,6 @@ fn scan_one_package(
     }
 
     let mut cur_pkg = Package {
-        pkg_descriptor_kind: pkg.kind,
         is_main: pkg.is_main,
         force_link: pkg.force_link,
         is_third_party,

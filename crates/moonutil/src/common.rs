@@ -1175,7 +1175,6 @@ pub fn gen_moonbitlang_abort_pkg(moonc_opt: &MooncOpt) -> Package {
     let root_path = module_root.join("abort");
 
     Package {
-        pkg_descriptor_kind: crate::package::PkgDescriptorKind::Synthesized,
         is_main: false,
         force_link: false,
         is_third_party: true,

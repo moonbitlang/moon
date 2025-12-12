@@ -44,7 +44,6 @@ use moonutil::module::ModuleDB;
 use moonutil::mooncakes::RegistryConfig;
 use moonutil::mooncakes::sync::AutoSyncFlags;
 use moonutil::package::Package;
-use moonutil::package::PkgDescriptorKind;
 use moonutil::path::PathComponent;
 
 use std::collections::HashSet;
@@ -500,7 +499,6 @@ pub fn get_module_for_single_file(
         let target_dir = &moonbuild_opt.target_dir;
 
         Package {
-            pkg_descriptor_kind: PkgDescriptorKind::Synthesized,
             is_main: false,
             force_link: false,
             is_third_party: false,
