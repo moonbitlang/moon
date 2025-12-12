@@ -41,11 +41,9 @@ use crate::{
 const CORE_EXTENSION: &str = ".core";
 /// The extension of the package public interface file emitted by Check and Build
 const MI_EXTENSION: &str = ".mi";
-/// The extension of the phony MI files. This is used when the MI file is not
-/// actually generated but the check command still needs to be executed, e.g.,
-/// when --no-mi is specified or checking the implementation package for a
-/// virtual interface.
-const PHONY_MI_EXTENSION: &str = ".phony.mi";
+/// Implementation package will generate a dummy mi file so that it
+/// won't be rebuilt every time
+const IMPL_MI_EXTENSION: &str = ".impl.mi";
 /// Target folder layout that matches the legacy (pre-beta) behavior
 #[derive(Builder)]
 pub struct LegacyLayout {
@@ -91,6 +89,20 @@ impl Display for PackageArtifactName<'_> {
             self.fqn.short_alias(),
             build_kind_suffix(self.kind)
         )
+    }
+}
+
+pub enum MiPathResult {
+    Regular(PathBuf),
+    StdAbort(PathBuf),
+}
+
+impl MiPathResult {
+    pub fn into_path(self) -> PathBuf {
+        match self {
+            MiPathResult::Regular(p) => p,
+            MiPathResult::StdAbort(p) => p,
+        }
     }
 }
 
@@ -173,44 +185,38 @@ impl LegacyLayout {
         target: &BuildTarget,
         backend: TargetBackend,
     ) -> PathBuf {
-        // Special case: `abort` lives in core
-        if let Some(abort) = pkg_list.abort_pkg()
-            && abort == target.package
-        {
-            if target.kind == TargetKind::Source {
-                return abort_mi_path(
-                    self.stdlib_dir
-                        .as_ref()
-                        .expect("Standard library should be present"),
-                    backend,
-                );
-            } else {
-                panic!("Cannot import `.mi` for moonbitlang/core/abort");
-            }
-        }
-
-        let pkg_fqn = &pkg_list.get_package(target.package).fqn;
-        let mut base_dir = self.package_dir(pkg_fqn, backend);
-        base_dir.push(format!(
-            "{}{}",
-            artifact(pkg_fqn, target.kind),
-            MI_EXTENSION
-        ));
-        base_dir
+        self.mi_of_build_target_aux(pkg_list, target, backend, false)
+            .into_path()
     }
 
-    pub fn phony_mi_of_build_target(
+    pub fn mi_of_build_target_impl_virtual(
         &self,
         pkg_list: &DiscoverResult,
         target: &BuildTarget,
         backend: TargetBackend,
-    ) -> Option<PathBuf> {
+    ) -> MiPathResult {
+        self.mi_of_build_target_aux(pkg_list, target, backend, true)
+    }
+
+    fn mi_of_build_target_aux(
+        &self,
+        pkg_list: &DiscoverResult,
+        target: &BuildTarget,
+        backend: TargetBackend,
+        is_implementing_virtual: bool,
+    ) -> MiPathResult {
         // Special case: `abort` lives in core
         if let Some(abort) = pkg_list.abort_pkg()
             && abort == target.package
         {
             if target.kind == TargetKind::Source {
-                return None;
+                return MiPathResult::StdAbort(abort_mi_path(
+                    self.stdlib_dir
+                        .as_ref()
+                        .expect("Standard library should be present"),
+                    backend,
+                    is_implementing_virtual,
+                ));
             } else {
                 panic!("Cannot import `.mi` for moonbitlang/core/abort");
             }
@@ -221,9 +227,13 @@ impl LegacyLayout {
         base_dir.push(format!(
             "{}{}",
             artifact(pkg_fqn, target.kind),
-            PHONY_MI_EXTENSION
+            if is_implementing_virtual {
+                IMPL_MI_EXTENSION
+            } else {
+                MI_EXTENSION
+            }
         ));
-        Some(base_dir)
+        MiPathResult::Regular(base_dir)
     }
 
     // for each backend/opt_level/run_mode, there's a copy of all_pkgs.json
@@ -572,10 +582,18 @@ pub fn abort_core_path(core_root: &Path, backend: TargetBackend) -> PathBuf {
     path
 }
 
-pub fn abort_mi_path(core_root: &Path, backend: TargetBackend) -> PathBuf {
+pub fn abort_mi_path(
+    core_root: &Path,
+    backend: TargetBackend,
+    is_implementing_virtual: bool,
+) -> PathBuf {
     let mut path = core_bundle_path(core_root, backend);
     path.push("abort");
-    path.push("abort.mi");
+    if is_implementing_virtual {
+        path.push(format!("abort{}", IMPL_MI_EXTENSION));
+    } else {
+        path.push(format!("abort{}", MI_EXTENSION));
+    }
     path
 }
 
