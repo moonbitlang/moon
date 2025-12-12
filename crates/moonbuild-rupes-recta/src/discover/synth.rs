@@ -111,6 +111,7 @@ pub fn build_synth_single_file_package(
         implement: None,
         overrides: None,
         max_concurrent_tests: None,
+        test_timeout: None,
     };
 
     // Assign file to appropriate list

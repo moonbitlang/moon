@@ -649,6 +649,7 @@ fn scan_one_package(
         link_search_paths: vec![],
         link_flags: None,
         max_concurrent_tests: pkg.max_concurrent_tests,
+        test_timeout: pkg.test_timeout,
     };
     if doc_mode {
         // -o <folder>

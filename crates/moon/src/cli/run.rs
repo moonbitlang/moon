@@ -738,7 +738,7 @@ fn rr_run_from_plan(
 
     let res = default_rt()
         .context("Failed to create runtime")?
-        .block_on(crate::run::run(&mut [], false, run_cmd.command))
+        .block_on(crate::run::run(&mut [], false, run_cmd.command, None))
         .context("failed to run command")?;
 
     if let Some(code) = res.code() {
