@@ -653,6 +653,7 @@ pub fn gen_link_command(
         .moonc
         .to_str()
         .expect("moonc path is valid UTF-8");
+
     let command = CommandBuilder::new(moonc)
         .arg("link-core")
         .args(&item.core_deps)

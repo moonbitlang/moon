@@ -25,13 +25,13 @@ use moonbuild_rupes_recta::build_plan::InputDirective;
 use moonbuild_rupes_recta::intent::UserIntent;
 use mooncake::pkg::sync::auto_sync;
 use moonutil::common::FileLock;
-use moonutil::common::MOON_PKG_JSON;
 use moonutil::common::MOONBITLANG_CORE;
 use moonutil::common::PrePostBuild;
 use moonutil::common::RunMode;
 use moonutil::common::SurfaceTarget;
 use moonutil::common::TargetBackend;
 use moonutil::common::TestArtifacts;
+use moonutil::common::is_moon_pkg_exists;
 use moonutil::common::lower_surface_targets;
 use moonutil::common::{MoonbuildOpt, OutputFormat};
 use moonutil::cond_expr::OptLevel;
@@ -85,7 +85,7 @@ pub fn run_run(cli: &UniversalFlags, cmd: RunSubcommand) -> anyhow::Result<i32> 
                 let moon_pkg_json_exist = std::env::current_dir()?
                     .join(&cmd.package_or_mbt_file)
                     .parent()
-                    .is_some_and(|p| p.join(MOON_PKG_JSON).exists());
+                    .is_some_and(|p| is_moon_pkg_exists(p));
                 if !moon_pkg_json_exist {
                     if cli.unstable_feature.rupes_recta {
                         return run_single_file_rr(cli, cmd);
@@ -494,7 +494,7 @@ fn run_run_internal_legacy(cli: &UniversalFlags, cmd: RunSubcommand) -> anyhow::
     let moon_pkg_json_exist = std::env::current_dir()?
         .join(&cmd.package_or_mbt_file)
         .parent()
-        .is_some_and(|p| p.join(MOON_PKG_JSON).exists());
+        .is_some_and(|p| is_moon_pkg_exists(p));
     if cmd.package_or_mbt_file.ends_with(".mbt") && !moon_pkg_json_exist {
         return run_single_mbt_file(cli, cmd);
     }

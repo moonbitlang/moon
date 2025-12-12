@@ -17,22 +17,27 @@
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
 use std::{
+    any,
     collections::HashSet,
     path::{Path, PathBuf},
     sync::Arc,
 };
 
+use anyhow::bail;
 use colored::Colorize;
 use indexmap::{IndexMap, IndexSet};
+use nucleo_matcher::pattern::Atom;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
+use serde_json_lenient::{Value, value::Index};
 
 use crate::{
     common::{
-        FileName, GeneratedTestDriver, TargetBackend, TargetBackend::Js, TargetBackend::LLVM,
-        TargetBackend::Native, TargetBackend::Wasm, TargetBackend::WasmGC,
+        FileName, GeneratedTestDriver,
+        TargetBackend::{self, Js, LLVM, Native, Wasm, WasmGC},
     },
-    cond_expr::{CompileCondition, CondExpr, CondExprs},
+    cond_expr::{self, CompileCondition, CondExpr, CondExprs},
+    moon_pkg::{self},
     path::{ImportComponent, PathComponent},
 };
 
@@ -44,6 +49,7 @@ pub struct SubPackageInPackage {
 
 #[derive(Debug, Clone)]
 pub struct Package {
+    pub pkg_descriptor_kind: PkgDescriptorKind,
     pub is_main: bool,
     pub force_link: bool,
     pub is_third_party: bool,
@@ -745,7 +751,15 @@ pub struct SubPackageInMoonPkg {
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
+pub enum PkgDescriptorKind {
+    LegacyJson,
+    MoonPkg,
+    Synthesized,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct MoonPkg {
+    pub kind: PkgDescriptorKind,
     pub name: Option<String>,
     pub is_main: bool,
     pub force_link: bool,
@@ -799,6 +813,30 @@ impl Import {
             } => path,
         }
     }
+}
+
+pub fn convert_pkg_dsl_to_package(json: Value) -> anyhow::Result<MoonPkg> {
+    let allowed_toplevel_keys = vec!["import", "wbtest-import", "test-import", "options"];
+    let json = match json {
+        Value::Object(mut map) => {
+            for key in map.keys() {
+                if !allowed_toplevel_keys.contains(&key.as_str()) {
+                    bail!("Unexpected key '{}' found in moon.pkg.", key,);
+                }
+            }
+            if let Value::Object(options) = map.remove("options").unwrap_or_default() {
+                for (k, v) in options {
+                    map.insert(k.clone(), v.clone());
+                }
+                Value::Object(map)
+            } else {
+                Value::Object(map)
+            }
+        }
+        _ => json,
+    };
+    let pkg_json: MoonPkgJSON = serde_json_lenient::from_value(json)?;
+    convert_pkg_json_to_package(pkg_json)
 }
 
 pub fn convert_pkg_json_to_package(j: MoonPkgJSON) -> anyhow::Result<MoonPkg> {
@@ -904,6 +942,7 @@ pub fn convert_pkg_json_to_package(j: MoonPkgJSON) -> anyhow::Result<MoonPkg> {
 
     #[allow(deprecated)]
     let result = MoonPkg {
+        kind: PkgDescriptorKind::LegacyJson,
         name: None,
         is_main,
         force_link,
