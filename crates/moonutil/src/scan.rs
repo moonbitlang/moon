@@ -34,7 +34,7 @@ use walkdir::WalkDir;
 
 use crate::common::{
     DEP_PATH, DOT_MBL, DOT_MBT_DOT_MD, DOT_MBY, IGNORE_DIRS, MBTI_USER_WRITTEN, MOON_MOD_JSON,
-    MOON_PKG_JSON, MOONBITLANG_ABORT, MoonbuildOpt, SUB_PKG_POSTFIX, TargetBackend,
+    MOON_PKG_JSON, MOONBITLANG_ABORT, MoonbuildOpt, SUB_PKG_POSTFIX, TargetBackend, is_moon_pkg,
     read_module_desc_file_in_dir,
 };
 
@@ -216,7 +216,9 @@ fn scan_module_packages(
             let filename = it?.file_name();
             if filename == MOON_MOD_JSON && path != module_source_dir {
                 has_moon_mod = true;
-            } else if filename == MOON_PKG_JSON {
+            } else if let Some(s) = filename.to_str()
+                && is_moon_pkg(s)
+            {
                 has_moon_pkg = true;
             }
         }
@@ -560,6 +562,7 @@ fn scan_one_package(
     }
 
     let mut cur_pkg = Package {
+        pkg_descriptor_kind: pkg.kind,
         is_main: pkg.is_main,
         force_link: pkg.force_link,
         is_third_party,

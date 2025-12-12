@@ -24,7 +24,7 @@ use std::{
 };
 
 use moonbuild::expect::PackageSrcResolver;
-use moonutil::common::{MOON_PKG_JSON, TargetBackend};
+use moonutil::common::{MOON_PKG, MOON_PKG_JSON, TargetBackend};
 use moonutil::mooncakes::{ModuleId, ModuleSource};
 use moonutil::package::MoonPkg;
 use slotmap::{SecondaryMap, SlotMap};
@@ -89,7 +89,12 @@ impl DiscoveredPackage {
     ///
     /// This function assumes regular project layout.
     pub fn config_path(&self) -> PathBuf {
-        self.root_path.join(MOON_PKG_JSON)
+        if self.root_path.join(MOON_PKG_JSON).exists() {
+            //TODO: store which one exists?
+            self.root_path.join(MOON_PKG_JSON)
+        } else {
+            self.root_path.join(MOON_PKG)
+        }
     }
 
     /// Get whether if the package is a virtual package

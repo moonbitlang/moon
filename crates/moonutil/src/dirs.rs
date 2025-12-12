@@ -29,8 +29,8 @@ use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
 use crate::common::{
-    IGNORE_DIRS, MOON_MOD_JSON, MOON_PKG_JSON, MooncOpt, RunMode, get_moon_version,
-    get_moonc_version,
+    IGNORE_DIRS, MOON_MOD_JSON, MOON_PKG, MOON_PKG_JSON, MooncOpt, RunMode, get_moon_version,
+    get_moonc_version, is_moon_pkg,
 };
 
 const MOON_DB: &str = "moon.db";
@@ -66,7 +66,7 @@ pub struct PackageDirs {
 }
 
 pub fn check_moon_pkg_exist(dir: &Path) -> bool {
-    dir.join(MOON_PKG_JSON).exists()
+    dir.join(MOON_PKG_JSON).exists() || dir.join(MOON_PKG).exists()
 }
 
 pub fn check_moon_mod_exists(source_dir: &Path) -> bool {
@@ -220,7 +220,9 @@ fn get_project_files(
         {
             if extension == "mbt" {
                 mbt_files.push(path.display().to_string());
-            } else if filename == MOON_PKG_JSON {
+            } else if let Some(s) = filename.to_str()
+                && is_moon_pkg(s)
+            {
                 pkg_files.push(path.display().to_string())
             }
         }
