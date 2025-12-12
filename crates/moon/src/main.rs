@@ -18,7 +18,7 @@
 
 #![warn(clippy::clone_on_ref_ptr)]
 
-use std::any::Any;
+use std::{any::Any, io::IsTerminal};
 
 use clap::Parser;
 use cli::MoonBuildSubcommands;
@@ -54,7 +54,7 @@ fn init_tracing(trace_flag: bool) -> Box<dyn Any> {
         .from_env_lossy();
 
     let fmt = tracing_subscriber::fmt::layer()
-        .with_ansi(true)
+        .with_ansi(std::io::stderr().is_terminal())
         .with_line_number(log_env_set)
         .with_level(true)
         .with_writer(std::io::stderr);
