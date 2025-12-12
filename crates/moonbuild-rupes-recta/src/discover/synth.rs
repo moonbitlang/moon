@@ -33,7 +33,7 @@ use std::path::Path;
 
 use moonutil::common::TargetBackend;
 use moonutil::mooncakes::result::ResolvedEnv;
-use moonutil::package::{Import, MoonPkg, MoonPkgFormatter, PkgDescriptorKind};
+use moonutil::package::{Import, MoonPkg, MoonPkgFormatter};
 
 use crate::discover::{DiscoverError, DiscoverResult, DiscoveredPackage};
 use crate::model::PackageId;
@@ -88,7 +88,6 @@ pub fn build_synth_single_file_package(
         supported.insert(b);
     }
     let moon_pkg = MoonPkg {
-        kind: PkgDescriptorKind::Synthesized,
         name: None,
         is_main: run_mode,
         force_link: false,
