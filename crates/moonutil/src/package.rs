@@ -49,7 +49,6 @@ pub struct SubPackageInPackage {
 
 #[derive(Debug, Clone)]
 pub struct Package {
-    pub pkg_descriptor_kind: PkgDescriptorKind,
     pub is_main: bool,
     pub force_link: bool,
     pub is_third_party: bool,
@@ -751,15 +750,7 @@ pub struct SubPackageInMoonPkg {
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
-pub enum PkgDescriptorKind {
-    LegacyJson,
-    MoonPkg,
-    Synthesized,
-}
-
-#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct MoonPkg {
-    pub kind: PkgDescriptorKind,
     pub name: Option<String>,
     pub is_main: bool,
     pub force_link: bool,
@@ -942,7 +933,6 @@ pub fn convert_pkg_json_to_package(j: MoonPkgJSON) -> anyhow::Result<MoonPkg> {
 
     #[allow(deprecated)]
     let result = MoonPkg {
-        kind: PkgDescriptorKind::LegacyJson,
         name: None,
         is_main,
         force_link,

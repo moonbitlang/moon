@@ -316,6 +316,11 @@ options(
   },
 )
 
+f(
+  label1: [],
+  label2: {},
+) 
+
   "#;
 
     let tokens = tokenize(source).unwrap();
@@ -358,6 +363,10 @@ options(
                         String("native"),
                     ],
                 },
+            },
+            "f": Object {
+                "label1": Array [],
+                "label2": Object {},
             },
         }
     "#]]
