@@ -33,6 +33,10 @@ pub struct FormatAndDiffSubcommand {
     #[clap(long)]
     block_style: bool,
 
+    /// Warn instead of showing differences
+    #[clap(long)]
+    warn: bool,
+
     pub args: Vec<String>,
 }
 
@@ -57,8 +61,18 @@ pub fn run_format_and_diff(cmd: FormatAndDiffSubcommand) -> anyhow::Result<i32> 
     let x = execution.wait()?;
     let exit_code = x.code().unwrap_or(1);
     if exit_code == 0 {
+        // when the return code is 0, it means no difference
         return Ok(0);
     }
+
+    // handle the case when there are differences
+    if cmd.warn {
+        // This command is executed by n2, so colored message using with
+        // `eprintln!` is not displayed correctly.
+        tracing::warn!("File not formatted: {}", cmd.old.display());
+        return Ok(0);
+    }
+
     let mut execution = std::process::Command::new(moonutil::BINARIES.git_or_default())
         .args([
             "--no-pager",

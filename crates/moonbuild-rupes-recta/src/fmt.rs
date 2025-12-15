@@ -91,6 +91,9 @@ pub struct FmtConfig {
 
     /// Extra arguments to pass to the formatter
     pub extra_args: Vec<String>,
+
+    /// Warn instead of showing differences
+    pub warn_only: bool,
 }
 
 /// Generate the necessary build graph for the formatter operation
@@ -191,7 +194,7 @@ fn format_node(
         .format_artifact_path(&pkg.fqn, file.file_name().expect("Should have filename"))
         .to_string_lossy()
         .into_owned();
-    let cmd: Vec<String> = if cfg.check_only {
+    let cmd: Vec<String> = if cfg.check_only || cfg.warn_only {
         let mut cmd = vec![
             "moon".into(),
             "tool".into(),
@@ -201,6 +204,9 @@ fn format_node(
             "--new".into(),
             out_file.clone(),
         ];
+        if cfg.warn_only {
+            cmd.push("--warn".into());
+        }
         if cfg.block_style {
             cmd.push("--block-style".into());
         }
@@ -229,6 +235,12 @@ fn format_node(
         outs,
     );
     build.cmdline = Some(moonutil::shlex::join_native(cmd.iter().map(|x| x.as_str())));
+
+    // When `warn_only` is enabled, the artifact is marked as dirty
+    // if there are differences, so the command will rerun on the next run.
+    if cfg.warn_only {
+        build.can_dirty_on_output = true;
+    }
     graph.add_build(build)?;
     Ok(())
 }

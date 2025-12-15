@@ -35,10 +35,10 @@ use super::{UniversalFlags, pre_build::scan_with_x_build};
 
 /// Format source code
 #[derive(Debug, clap::Parser)]
-pub struct FmtSubcommand {
+pub(crate) struct FmtSubcommand {
     /// Check only and don't change the source code
     #[clap(long)]
-    check: bool,
+    pub check: bool,
 
     /// Sort input files
     #[clap(long)]
@@ -47,6 +47,11 @@ pub struct FmtSubcommand {
     /// Add separator between each segments
     #[clap(long, value_enum, num_args=0..=1, default_missing_value = "true")]
     pub block_style: Option<BlockStyle>,
+
+    /// Warn if code is not properly formatted
+    #[clap(long, conflicts_with = "check")]
+    pub warn: bool,
+
     pub args: Vec<String>,
 }
 
@@ -69,6 +74,7 @@ fn run_fmt_rr(cli: &UniversalFlags, cmd: FmtSubcommand) -> anyhow::Result<i32> {
     let fmt_config = FmtConfig {
         block_style: cmd.block_style.unwrap_or_default().is_line(),
         check_only: cmd.check,
+        warn_only: cmd.warn,
         extra_args: cmd.args.clone(),
     };
     let graph = plan_fmt(&resolved, &fmt_config, &target_dir)?;

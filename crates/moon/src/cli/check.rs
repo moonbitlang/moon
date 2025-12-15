@@ -78,10 +78,32 @@ pub struct CheckSubcommand {
     /// Check single file (.mbt or .mbt.md)
     #[clap(conflicts_with = "watch", name = "PATH")]
     pub path: Option<PathBuf>,
+
+    /// Check whether the code is properly formatted
+    #[clap(long)]
+    pub fmt: bool,
 }
 
 #[instrument(skip_all)]
 pub fn run_check(cli: &UniversalFlags, cmd: &CheckSubcommand) -> anyhow::Result<i32> {
+    if cmd.fmt {
+        let mut cli_for_fmt = cli.clone();
+        cli_for_fmt.quiet = true;
+        let fmt_exit_code = crate::cli::fmt::run_fmt(
+            &cli_for_fmt,
+            crate::cli::FmtSubcommand {
+                check: false,
+                sort_input: false,
+                block_style: None,
+                warn: true,
+                args: vec![],
+            },
+        )?;
+        if fmt_exit_code != 0 {
+            eprintln!("{}: formatting code failed", "Warning".yellow().bold());
+        }
+    }
+
     // Check if we're running within a project
     let (source_dir, target_dir, single_file) = match cli.source_tgt_dir.try_into_package_dirs() {
         Ok(dirs) => (dirs.source_dir, dirs.target_dir, false),

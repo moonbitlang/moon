@@ -168,6 +168,7 @@ Check the current package, but don't build object files
 * `--patch-file <PATCH_FILE>` — The patch file to check, Only valid when checking specified package
 * `--no-mi` — Whether to skip the mi generation, Only valid when checking specified package
 * `--explain` — Whether to explain the error code with details
+* `--fmt` — Check whether the code is properly formatted
 
 
 
@@ -295,6 +296,7 @@ Format source code
 
   Possible values: `false`, `true`
 
+* `--warn` — Warn if code is not properly formatted
 
 
 
