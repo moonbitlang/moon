@@ -173,9 +173,9 @@ fn test_moonrun_wasm_stack_trace() {
         &normalized_s,
         expect![[r#"
             RuntimeError: unreachable
-                at wasm://wasm:wasm-function[19]
-                at wasm://wasm:wasm-function[17]
-                at wasm://wasm:wasm-function[24]
+                at wasm://wasm:wasm-function[38]
+                at wasm://wasm:wasm-function[34]
+                at wasm://wasm:wasm-function[44]
         "#]],
     );
 
