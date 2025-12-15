@@ -28,6 +28,7 @@ use moonutil::{
     dirs::{PackageDirs, mk_arch_mode_dir},
     mooncakes::{RegistryConfig, sync::AutoSyncFlags},
 };
+use std::path::{Path, PathBuf};
 
 use crate::rr_build::{self, BuildConfig, plan_fmt};
 
@@ -50,6 +51,24 @@ pub struct FmtSubcommand {
     pub args: Vec<String>,
 }
 
+/// Process args to filter out directories that would cause moonfmt to crash
+fn process_fmt_args(args: &[String], source_dir: &Path) -> Vec<String> {
+    args.iter()
+        .filter(|arg| {
+            let path = if Path::new(arg).is_absolute() {
+                PathBuf::from(arg)
+            } else {
+                source_dir.join(arg)
+            };
+            
+            // Only keep arguments that are not directories
+            // This prevents passing directory paths to moonfmt which would crash
+            !path.is_dir()
+        })
+        .cloned()
+        .collect()
+}
+
 pub fn run_fmt(cli: &UniversalFlags, cmd: FmtSubcommand) -> anyhow::Result<i32> {
     if cli.unstable_feature.rupes_recta {
         run_fmt_rr(cli, cmd)
@@ -66,10 +85,11 @@ fn run_fmt_rr(cli: &UniversalFlags, cmd: FmtSubcommand) -> anyhow::Result<i32> {
 
     let resolved = moonbuild_rupes_recta::fmt::resolve_for_fmt(&source_dir)
         .context("Failed to resolve environment")?;
+    let processed_args = process_fmt_args(&cmd.args, &source_dir);
     let fmt_config = FmtConfig {
         block_style: cmd.block_style.unwrap_or_default().is_line(),
         check_only: cmd.check,
-        extra_args: cmd.args.clone(),
+        extra_args: processed_args,
     };
     let graph = plan_fmt(&resolved, &fmt_config, &target_dir)?;
 
@@ -104,6 +124,7 @@ fn run_fmt_legacy(cli: &UniversalFlags, cmd: FmtSubcommand) -> anyhow::Result<i3
         true, // Legacy don't need std injection
     )?;
 
+    let processed_args = process_fmt_args(&cmd.args, &source_dir);
     let moonbuild_opt = MoonbuildOpt {
         source_dir,
         raw_target_dir,
@@ -113,7 +134,7 @@ fn run_fmt_legacy(cli: &UniversalFlags, cmd: FmtSubcommand) -> anyhow::Result<i3
         fmt_opt: Some(FmtOpt {
             check: cmd.check,
             block_style: cmd.block_style.unwrap_or_default(),
-            extra_args: cmd.args,
+            extra_args: processed_args,
         }),
         build_graph: cli.build_graph,
         test_opt: None,

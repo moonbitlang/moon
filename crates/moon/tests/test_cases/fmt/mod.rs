@@ -223,3 +223,41 @@ fn test_moon_fmt_block_style() {
         "#]],
     );
 }
+
+#[test]
+fn test_moon_fmt_directory_arg() {
+    // Test that passing a directory argument doesn't crash
+    // The directory argument should be filtered out silently
+    let dir = TestDir::new("fmt");
+    check(
+        get_stdout(&dir, ["fmt", "--dry-run", "main"]),
+        expect![[r#"
+            moonfmt ./lib/test.mbt.md -w -o ./target/wasm-gc/release/format/lib/test.mbt.md
+            moonfmt ./main/main.mbt -w -o ./target/wasm-gc/release/format/main/main.mbt
+            moonfmt ./lib/hello_wbtest.mbt -w -o ./target/wasm-gc/release/format/lib/hello_wbtest.mbt
+            moonfmt ./lib/hello.mbt -w -o ./target/wasm-gc/release/format/lib/hello.mbt
+        "#]],
+    );
+    
+    // Test with directory after --
+    check(
+        get_stdout(&dir, ["fmt", "--dry-run", "--", "main"]),
+        expect![[r#"
+            moonfmt ./lib/test.mbt.md -w -o ./target/wasm-gc/release/format/lib/test.mbt.md
+            moonfmt ./main/main.mbt -w -o ./target/wasm-gc/release/format/main/main.mbt
+            moonfmt ./lib/hello_wbtest.mbt -w -o ./target/wasm-gc/release/format/lib/hello_wbtest.mbt
+            moonfmt ./lib/hello.mbt -w -o ./target/wasm-gc/release/format/lib/hello.mbt
+        "#]],
+    );
+    
+    // Test that non-directory args are still passed through
+    check(
+        get_stdout(&dir, ["fmt", "--dry-run", "--", "main", "-some-flag"]),
+        expect![[r#"
+            moonfmt ./lib/test.mbt.md -w -o ./target/wasm-gc/release/format/lib/test.mbt.md -some-flag
+            moonfmt ./main/main.mbt -w -o ./target/wasm-gc/release/format/main/main.mbt -some-flag
+            moonfmt ./lib/hello_wbtest.mbt -w -o ./target/wasm-gc/release/format/lib/hello_wbtest.mbt -some-flag
+            moonfmt ./lib/hello.mbt -w -o ./target/wasm-gc/release/format/lib/hello.mbt -some-flag
+        "#]],
+    );
+}
