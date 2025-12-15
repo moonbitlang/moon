@@ -35,10 +35,10 @@ use super::{UniversalFlags, pre_build::scan_with_x_build};
 
 /// Format source code
 #[derive(Debug, clap::Parser)]
-pub struct FmtSubcommand {
+pub(crate) struct FmtSubcommand {
     /// Check only and don't change the source code
     #[clap(long)]
-    check: bool,
+    pub check: bool,
 
     /// Sort input files
     #[clap(long)]
