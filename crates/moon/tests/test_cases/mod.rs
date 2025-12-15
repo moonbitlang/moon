@@ -36,6 +36,7 @@ mod backend;
 mod backend_config;
 mod bench2;
 mod blackbox;
+mod check_fmt;
 mod circle_pkg_ab_001_test;
 mod cond_comp;
 mod debug_flag_test;
