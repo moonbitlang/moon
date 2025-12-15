@@ -52,6 +52,14 @@ pub struct FmtSubcommand {
 }
 
 /// Process args to filter out directories that would cause moonfmt to crash
+///
+/// When a directory path is passed as an argument, moonfmt doesn't know how to
+/// handle it and crashes with "unknown file type". This function filters out
+/// any arguments that resolve to existing directories on the filesystem.
+///
+/// Note: This only filters actual directories that exist, not flags or options
+/// that might contain path-like strings. Arguments that don't resolve to
+/// existing directories are passed through unchanged.
 fn process_fmt_args(args: &[String], source_dir: &Path) -> Vec<String> {
     args.iter()
         .filter(|arg| {
@@ -60,7 +68,7 @@ fn process_fmt_args(args: &[String], source_dir: &Path) -> Vec<String> {
             } else {
                 source_dir.join(arg)
             };
-            
+
             // Only keep arguments that are not directories
             // This prevents passing directory paths to moonfmt which would crash
             !path.is_dir()

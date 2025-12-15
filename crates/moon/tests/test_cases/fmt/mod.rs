@@ -238,7 +238,7 @@ fn test_moon_fmt_directory_arg() {
             moonfmt ./lib/hello.mbt -w -o ./target/wasm-gc/release/format/lib/hello.mbt
         "#]],
     );
-    
+
     // Test with directory after --
     check(
         get_stdout(&dir, ["fmt", "--dry-run", "--", "main"]),
@@ -249,7 +249,7 @@ fn test_moon_fmt_directory_arg() {
             moonfmt ./lib/hello.mbt -w -o ./target/wasm-gc/release/format/lib/hello.mbt
         "#]],
     );
-    
+
     // Test that non-directory args are still passed through
     check(
         get_stdout(&dir, ["fmt", "--dry-run", "--", "main", "-some-flag"]),
