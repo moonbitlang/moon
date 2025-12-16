@@ -400,7 +400,7 @@ impl TargetBackend {
         }
     }
 
-    pub fn hashset_to_string(backends: &HashSet<TargetBackend>) -> String {
+    pub fn indexset_to_string(backends: &indexmap::IndexSet<TargetBackend>) -> String {
         let mut backends = backends
             .iter()
             .map(|b| b.to_flag().to_string())
@@ -1209,7 +1209,7 @@ pub fn gen_moonbitlang_abort_pkg(moonc_opt: &MooncOpt) -> Package {
         bin_name: None,
         bin_target: moonc_opt.link_opt.target_backend,
         enable_value_tracing: false,
-        supported_targets: HashSet::from_iter([moonc_opt.link_opt.target_backend]),
+        supported_targets: indexmap::IndexSet::from_iter([moonc_opt.link_opt.target_backend]),
         stub_lib: None,
         virtual_pkg: Some(VirtualPkg { has_default: true }),
         virtual_mbti_file: Some(root_path.join("abort.mbti")),

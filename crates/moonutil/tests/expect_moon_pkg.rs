@@ -43,7 +43,6 @@ fn expect_import() {
     "#);
     expect_test::expect![[r#"
         MoonPkg {
-            kind: LegacyJson,
             name: None,
             is_main: false,
             force_link: false,
@@ -73,11 +72,11 @@ fn expect_import() {
             bin_name: None,
             bin_target: None,
             supported_targets: {
-                WasmGC,
                 Wasm,
-                LLVM,
+                WasmGC,
                 Js,
                 Native,
+                LLVM,
             },
             native_stub: None,
             virtual_pkg: None,
@@ -95,7 +94,6 @@ fn expect_is_main() {
     "#);
     expect_test::expect![[r#"
         MoonPkg {
-            kind: LegacyJson,
             name: None,
             is_main: true,
             force_link: false,
@@ -138,7 +136,6 @@ fn expect_formatter() {
     "#);
     expect_test::expect![[r#"
         MoonPkg {
-            kind: LegacyJson,
             name: None,
             is_main: false,
             force_link: false,
@@ -162,8 +159,8 @@ fn expect_formatter() {
             bin_target: None,
             supported_targets: {
                 Wasm,
-                Js,
                 WasmGC,
+                Js,
                 Native,
                 LLVM,
             },
@@ -185,7 +182,6 @@ fn expect_supported_targets() {
     "#);
     expect_test::expect![[r#"
         MoonPkg {
-            kind: LegacyJson,
             name: None,
             is_main: false,
             force_link: false,
@@ -204,9 +200,9 @@ fn expect_supported_targets() {
             bin_name: None,
             bin_target: None,
             supported_targets: {
-                WasmGC,
-                Js,
                 Wasm,
+                Js,
+                WasmGC,
             },
             native_stub: None,
             virtual_pkg: None,
@@ -237,7 +233,6 @@ fn expect_build() {
     "#);
     expect_test::expect![[r#"
         MoonPkg {
-            kind: LegacyJson,
             name: None,
             is_main: false,
             force_link: false,
@@ -277,11 +272,11 @@ fn expect_build() {
             bin_name: None,
             bin_target: None,
             supported_targets: {
-                Native,
-                LLVM,
                 Wasm,
                 WasmGC,
                 Js,
+                Native,
+                LLVM,
             },
             native_stub: None,
             virtual_pkg: None,
@@ -301,7 +296,6 @@ fn expect_warnings() {
     "#);
     expect_test::expect![[r#"
         MoonPkg {
-            kind: LegacyJson,
             name: None,
             is_main: false,
             force_link: false,
@@ -320,11 +314,11 @@ fn expect_warnings() {
             bin_name: None,
             bin_target: None,
             supported_targets: {
-                Js,
+                Wasm,
                 WasmGC,
+                Js,
                 Native,
                 LLVM,
-                Wasm,
             },
             native_stub: None,
             virtual_pkg: None,
@@ -395,7 +389,6 @@ fn expect_options() {
     "#);
     expect_test::expect![[r#"
         MoonPkg {
-            kind: LegacyJson,
             name: None,
             is_main: false,
             force_link: false,
@@ -529,10 +522,10 @@ fn expect_options() {
             ),
             supported_targets: {
                 Wasm,
-                Js,
-                LLVM,
                 WasmGC,
+                Js,
                 Native,
+                LLVM,
             },
             native_stub: Some(
                 [
@@ -570,7 +563,6 @@ fn expect_max_concurrent_tests() {
     "#);
     expect_test::expect![[r#"
         MoonPkg {
-            kind: LegacyJson,
             name: None,
             is_main: false,
             force_link: false,
@@ -589,11 +581,11 @@ fn expect_max_concurrent_tests() {
             bin_name: None,
             bin_target: None,
             supported_targets: {
-                LLVM,
                 Wasm,
                 WasmGC,
                 Js,
                 Native,
+                LLVM,
             },
             native_stub: None,
             virtual_pkg: None,
