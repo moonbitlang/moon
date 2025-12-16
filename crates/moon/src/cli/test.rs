@@ -544,7 +544,7 @@ pub fn get_module_for_single_file(
             bin_name: None,
             bin_target: moonc_opt.link_opt.target_backend,
             enable_value_tracing: moonc_opt.build_opt.enable_value_tracing,
-            supported_targets: HashSet::from_iter([moonc_opt.link_opt.target_backend]),
+            supported_targets: IndexSet::from_iter([moonc_opt.link_opt.target_backend]),
             stub_lib: None,
             virtual_pkg: None,
             virtual_mbti_file: None,

@@ -175,8 +175,8 @@ impl ModuleDB {
     pub fn get_project_supported_targets(
         &self,
         _cur_target_backend: TargetBackend,
-    ) -> anyhow::Result<HashSet<TargetBackend>> {
-        let mut project_supported_targets = HashSet::from_iter(
+    ) -> anyhow::Result<indexmap::IndexSet<TargetBackend>> {
+        let mut project_supported_targets = indexmap::IndexSet::from_iter(
             TargetBackend::all()
                 .iter()
                 .filter(|b| b.allowed_as_project_target())
@@ -186,8 +186,8 @@ impl ModuleDB {
         for entry_pkg in self.get_entry_pkgs() {
             let deps_chain = self.backtrace_deps_chain(entry_pkg);
             for chain in deps_chain.iter() {
-                let mut cur_deps_chain_supported_targets =
-                    HashSet::from_iter(TargetBackend::all().iter().cloned());
+                let mut cur_deps_chain_supported_targets: indexmap::IndexSet<TargetBackend> =
+                    indexmap::IndexSet::from_iter(TargetBackend::all().iter().cloned());
                 for (i, dpe_pkg_name) in chain.iter().enumerate() {
                     let dep_pkg = self.get_package_by_name(dpe_pkg_name);
                     cur_deps_chain_supported_targets = cur_deps_chain_supported_targets
@@ -202,7 +202,7 @@ impl ModuleDB {
                                 .map(|s| format!(
                                     "{}: {}",
                                     s,
-                                    TargetBackend::hashset_to_string(
+                                    TargetBackend::indexset_to_string(
                                         &self.get_package_by_name(s).supported_targets
                                     )
                                 ))

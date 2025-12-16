@@ -17,8 +17,6 @@
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
 use std::{
-    any,
-    collections::HashSet,
     path::{Path, PathBuf},
     sync::Arc,
 };
@@ -107,7 +105,7 @@ pub struct Package {
 
     pub enable_value_tracing: bool,
 
-    pub supported_targets: HashSet<TargetBackend>,
+    pub supported_targets: IndexSet<TargetBackend>,
 
     pub stub_lib: Option<Vec<String>>,
 
@@ -771,7 +769,7 @@ pub struct MoonPkg {
     pub bin_name: Option<String>,
     pub bin_target: Option<TargetBackend>,
 
-    pub supported_targets: HashSet<TargetBackend>,
+    pub supported_targets: IndexSet<TargetBackend>,
 
     pub native_stub: Option<Vec<String>>,
 
@@ -921,7 +919,7 @@ pub fn convert_pkg_json_to_package(j: MoonPkgJSON) -> anyhow::Result<MoonPkg> {
         .map(|s| TargetBackend::str_to_backend(s))
         .transpose()?;
 
-    let mut supported_backends = HashSet::new();
+    let mut supported_backends = IndexSet::new();
     if let Some(ref b) = j.supported_targets {
         for backend in b.iter() {
             supported_backends.insert(TargetBackend::str_to_backend(backend)?);
