@@ -16,10 +16,12 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
-use crate::moon_pkg::{lexer, tokenize};
+use crate::moon_pkg::lexer;
+#[cfg(test)]
+use crate::moon_pkg::tokenize;
 
 use super::lexer::{Token, TokenKind};
-use anyhow::{anyhow, bail};
+use anyhow::anyhow;
 use serde_json_lenient::{Map, Value, json};
 use std::{cell::Cell, ops::Range};
 
@@ -139,7 +141,7 @@ impl Parser {
             TokenKind::COMMA,
             |s| s.parse_map_elem(),
         )?;
-        Ok(Value::Object(Map::from_iter(elems.into_iter())))
+        Ok(Value::Object(Map::from_iter(elems)))
     }
 
     fn parse_expr(&self) -> Result<Value, ParseError> {
@@ -189,7 +191,7 @@ impl Parser {
                 }
             },
         )?;
-        Ok((func_name, Value::Object(Map::from_iter(args.into_iter()))))
+        Ok((func_name, Value::Object(Map::from_iter(args))))
     }
 
     /// Leave this wrapper for clarity
@@ -203,17 +205,17 @@ impl Parser {
             Token::STRING((_, s)) => match s.as_str() {
                 "test" => {
                     self.skip();
-                    json!("test-import")
+                    "test-import"
                 }
                 "wbtest" => {
                     self.skip();
-                    json!("wbtest-import")
+                    "wbtest-import"
                 }
                 _ => {
                     return Err(ParseError::UnexpectedToken(self.peek().clone()));
                 }
             },
-            _ => json!("import"),
+            _ => "import",
         };
         let import_items = self.surround_series(
             TokenKind::LBRACE,
@@ -238,7 +240,7 @@ impl Parser {
                 })
             },
         )?;
-        Ok((String::from("import"), Value::Array(import_items)))
+        Ok((String::from(import_kind), Value::Array(import_items)))
     }
 
     fn parse_statement(&self) -> Result<(String, Value), ParseError> {
@@ -264,7 +266,7 @@ impl Parser {
             }
             statements.push(stmt);
         }
-        Ok(Value::Object(Map::from_iter(statements.into_iter())))
+        Ok(Value::Object(Map::from_iter(statements)))
     }
 
     fn parse(tokens: Vec<Token>) -> Result<Value, ParseError> {
@@ -328,6 +330,13 @@ f(
     expect_test::expect![[r#"
         Object {
             "import": Array [
+                String("path/to/pkg1"),
+                Object {
+                    "path": String("path/to/pkg2"),
+                    "alias": String("alias"),
+                },
+            ],
+            "test-import": Array [
                 String("path/to/pkg1"),
             ],
             "options": Object {
