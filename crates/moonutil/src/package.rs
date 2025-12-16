@@ -24,18 +24,16 @@ use std::{
 use anyhow::bail;
 use colored::Colorize;
 use indexmap::{IndexMap, IndexSet};
-use nucleo_matcher::pattern::Atom;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
-use serde_json_lenient::{Value, value::Index};
+use serde_json_lenient::Value;
 
 use crate::{
     common::{
         FileName, GeneratedTestDriver,
         TargetBackend::{self, Js, LLVM, Native, Wasm, WasmGC},
     },
-    cond_expr::{self, CompileCondition, CondExpr, CondExprs},
-    moon_pkg::{self},
+    cond_expr::{CompileCondition, CondExpr, CondExprs},
     path::{ImportComponent, PathComponent},
 };
 
@@ -805,7 +803,7 @@ impl Import {
 }
 
 pub fn convert_pkg_dsl_to_package(json: Value) -> anyhow::Result<MoonPkg> {
-    let allowed_toplevel_keys = vec!["import", "wbtest-import", "test-import", "options"];
+    let allowed_toplevel_keys = ["import", "wbtest-import", "test-import", "options"];
     let json = match json {
         Value::Object(mut map) => {
             for key in map.keys() {
