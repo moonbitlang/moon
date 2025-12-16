@@ -42,6 +42,7 @@ use crate::{
         build_ins, build_n2_fileloc, build_outs,
     },
     discover::{DiscoverResult, DiscoveredPackage, discover_packages_for_mod},
+    model::PackageId,
     resolve::ResolveError,
 };
 
@@ -96,11 +97,15 @@ pub struct FmtConfig {
     pub warn_only: bool,
 }
 
-/// Generate the necessary build graph for the formatter operation
+/// Generate the necessary build graph for the formatter operation.
+///
+/// If `package_filter` is `Some`, only the specified package will be formatted.
+/// Otherwise, all packages in the module will be formatted.
 pub fn build_graph_for_fmt(
     resolved: &FmtResolveOutput,
     cfg: &FmtConfig,
     target_dir: &Path,
+    package_filter: Option<PackageId>,
 ) -> anyhow::Result<n2::graph::Graph> {
     let ms = resolved
         .module_rel
@@ -120,12 +125,19 @@ pub fn build_graph_for_fmt(
 
     let mut graph = n2::graph::Graph::default();
 
-    for &id in resolved
+    let all_packages = resolved
         .pkg_dirs
         .packages_for_module(resolved.main_module_id)
-        .expect("We only have one module, this should succeed")
-        .values()
-    {
+        .expect("We only have one module, this should succeed");
+
+    for &id in all_packages.values() {
+        // Skip packages that don't match the filter
+        if let Some(filter_id) = package_filter
+            && id != filter_id
+        {
+            continue;
+        }
+
         let pkg = resolved.pkg_dirs.get_package(id);
         info!("Processing package {}", pkg.fqn);
         build_for_package(&mut graph, cfg, &layout, pkg)?;

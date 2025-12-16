@@ -502,8 +502,10 @@ pub fn plan_fmt(
     resolved: &FmtResolveOutput,
     cfg: &FmtConfig,
     target_dir: &Path,
+    package_filter: Option<PackageId>,
 ) -> anyhow::Result<BuildInput> {
-    let graph = moonbuild_rupes_recta::fmt::build_graph_for_fmt(resolved, cfg, target_dir)?;
+    let graph =
+        moonbuild_rupes_recta::fmt::build_graph_for_fmt(resolved, cfg, target_dir, package_filter)?;
     let db_path = n2_db_path(
         target_dir,
         TargetBackend::default(),

@@ -16,6 +16,8 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
+use std::path::PathBuf;
+
 use anyhow::Context;
 use moonbuild::dry_run;
 use moonbuild_rupes_recta::fmt::FmtConfig;
@@ -29,6 +31,7 @@ use moonutil::{
     mooncakes::{RegistryConfig, sync::AutoSyncFlags},
 };
 
+use crate::filter::{canonicalize_with_filename, filter_pkg_by_dir_for_fmt};
 use crate::rr_build::{self, BuildConfig, plan_fmt};
 
 use super::{UniversalFlags, pre_build::scan_with_x_build};
@@ -52,6 +55,12 @@ pub(crate) struct FmtSubcommand {
     #[clap(long, conflicts_with = "check")]
     pub warn: bool,
 
+    /// Path to a package directory to format
+    #[clap(name = "PATH")]
+    pub path: Option<PathBuf>,
+
+    /// Extra arguments passed to the formatter (after --)
+    #[clap(last = true)]
     pub args: Vec<String>,
 }
 
@@ -71,13 +80,23 @@ fn run_fmt_rr(cli: &UniversalFlags, cmd: FmtSubcommand) -> anyhow::Result<i32> {
 
     let resolved = moonbuild_rupes_recta::fmt::resolve_for_fmt(&source_dir)
         .context("Failed to resolve environment")?;
+
+    // Resolve the package filter from the path argument
+    let package_filter = if let Some(path) = &cmd.path {
+        let (dir, _) = canonicalize_with_filename(path)
+            .with_context(|| format!("Cannot canonicalize provided path '{}'", path.display()))?;
+        Some(filter_pkg_by_dir_for_fmt(&resolved, &dir)?)
+    } else {
+        None
+    };
+
     let fmt_config = FmtConfig {
         block_style: cmd.block_style.unwrap_or_default().is_line(),
         check_only: cmd.check,
         warn_only: cmd.warn,
         extra_args: cmd.args.clone(),
     };
-    let graph = plan_fmt(&resolved, &fmt_config, &target_dir)?;
+    let graph = plan_fmt(&resolved, &fmt_config, &target_dir, package_filter)?;
 
     if cli.dry_run {
         rr_build::print_dry_run_all(&graph, &source_dir, &target_dir);
