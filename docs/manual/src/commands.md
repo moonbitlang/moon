@@ -282,11 +282,12 @@ Remove the target directory
 
 Format source code
 
-**Usage:** `moon fmt [OPTIONS] [ARGS]...`
+**Usage:** `moon fmt [OPTIONS] [PATH] [-- <ARGS>...]`
 
 ###### **Arguments:**
 
-* `<ARGS>`
+* `<PATH>` — Path to a package directory to format
+* `<ARGS>` — Extra arguments passed to the formatter (after --)
 
 ###### **Options:**
 
