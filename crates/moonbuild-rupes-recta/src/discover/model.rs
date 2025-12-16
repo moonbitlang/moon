@@ -85,15 +85,17 @@ pub struct DiscoveredPackage {
 }
 
 impl DiscoveredPackage {
-    /// Get the configuration file `moon.pkg.json` of this package
+    /// Get the configuration file `moon.pkg.json` or `moon.pkg` of this package
     ///
     /// This function assumes regular project layout.
+    /// Prefers `moon.pkg` (DSL format) if it exists, otherwise falls back to `moon.pkg.json`.
     pub fn config_path(&self) -> PathBuf {
-        if self.root_path.join(MOON_PKG_JSON).exists() {
-            //TODO: store which one exists?
-            self.root_path.join(MOON_PKG_JSON)
-        } else {
+        // TODO: maybe store the config name?
+        if self.root_path.join(MOON_PKG).exists() {
             self.root_path.join(MOON_PKG)
+        } else {
+            // Default to JSON format (for backward compatibility and single-file scenarios)
+            self.root_path.join(MOON_PKG_JSON)
         }
     }
 
