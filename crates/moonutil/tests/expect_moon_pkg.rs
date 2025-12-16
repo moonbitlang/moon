@@ -49,6 +49,18 @@ fn expect_import() {
             sub_package: None,
             imports: [
                 Simple(
+                    "path/to/pkg1",
+                ),
+                Alias {
+                    path: "path/to/another1",
+                    alias: Some(
+                        "another1",
+                    ),
+                    sub_package: false,
+                },
+            ],
+            wbtest_imports: [
+                Simple(
                     "path/to/pkg3",
                 ),
                 Alias {
@@ -59,8 +71,18 @@ fn expect_import() {
                     sub_package: false,
                 },
             ],
-            wbtest_imports: [],
-            test_imports: [],
+            test_imports: [
+                Simple(
+                    "path/to/pkg2",
+                ),
+                Alias {
+                    path: "path/to/another2",
+                    alias: Some(
+                        "another2",
+                    ),
+                    sub_package: false,
+                },
+            ],
             formatter: MoonPkgFormatter {
                 ignore: {},
             },
