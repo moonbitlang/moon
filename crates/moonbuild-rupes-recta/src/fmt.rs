@@ -132,10 +132,10 @@ pub fn build_graph_for_fmt(
 
     for &id in all_packages.values() {
         // Skip packages that don't match the filter
-        if let Some(filter_id) = package_filter {
-            if id != filter_id {
-                continue;
-            }
+        if let Some(filter_id) = package_filter
+            && id != filter_id
+        {
+            continue;
         }
 
         let pkg = resolved.pkg_dirs.get_package(id);
