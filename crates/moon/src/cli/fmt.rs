@@ -83,9 +83,8 @@ fn run_fmt_rr(cli: &UniversalFlags, cmd: FmtSubcommand) -> anyhow::Result<i32> {
 
     // Resolve the package filter from the path argument
     let package_filter = if let Some(path) = &cmd.path {
-        let (dir, _) = canonicalize_with_filename(path).with_context(|| {
-            format!("Cannot canonicalize provided path '{}'", path.display())
-        })?;
+        let (dir, _) = canonicalize_with_filename(path)
+            .with_context(|| format!("Cannot canonicalize provided path '{}'", path.display()))?;
         Some(filter_pkg_by_dir_for_fmt(&resolved, &dir)?)
     } else {
         None
