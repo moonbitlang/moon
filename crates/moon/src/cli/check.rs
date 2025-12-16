@@ -96,6 +96,7 @@ pub fn run_check(cli: &UniversalFlags, cmd: &CheckSubcommand) -> anyhow::Result<
                 sort_input: false,
                 block_style: None,
                 warn: true,
+                path: cmd.path.clone(),
                 args: vec![],
             },
         )?;
