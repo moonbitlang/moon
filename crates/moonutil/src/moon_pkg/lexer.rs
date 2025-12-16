@@ -16,7 +16,7 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
-use anyhow::{Result, anyhow};
+use anyhow::anyhow;
 use logos::{Lexer, Logos, Skip};
 use std::{fmt::Display, ops::Range};
 

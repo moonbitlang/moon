@@ -85,7 +85,7 @@ pub fn run_run(cli: &UniversalFlags, cmd: RunSubcommand) -> anyhow::Result<i32> 
                 let moon_pkg_json_exist = std::env::current_dir()?
                     .join(&cmd.package_or_mbt_file)
                     .parent()
-                    .is_some_and(|p| is_moon_pkg_exists(p));
+                    .is_some_and(is_moon_pkg_exists);
                 if !moon_pkg_json_exist {
                     if cli.unstable_feature.rupes_recta {
                         return run_single_file_rr(cli, cmd);
@@ -494,7 +494,7 @@ fn run_run_internal_legacy(cli: &UniversalFlags, cmd: RunSubcommand) -> anyhow::
     let moon_pkg_json_exist = std::env::current_dir()?
         .join(&cmd.package_or_mbt_file)
         .parent()
-        .is_some_and(|p| is_moon_pkg_exists(p));
+        .is_some_and(is_moon_pkg_exists);
     if cmd.package_or_mbt_file.ends_with(".mbt") && !moon_pkg_json_exist {
         return run_single_mbt_file(cli, cmd);
     }

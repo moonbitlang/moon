@@ -28,7 +28,6 @@
 //! This mirrors the legacy path in `moon/src/cli/test.rs:get_module_for_single_file`
 //! where it programmatically enumerates imports for the synthetic single-file package.
 
-use std::collections::HashSet;
 use std::path::Path;
 
 use indexmap::IndexSet;
