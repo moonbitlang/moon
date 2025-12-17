@@ -106,6 +106,31 @@ mod warns;
 mod whitespace_test;
 
 #[test]
+fn test_moon_pkg() {
+    let dir = TestDir::new("moon_pkg.in");
+    check(
+        get_stdout(&dir, ["check", "--dry-run"]),
+        expect![[r#"
+            cat ./pkg/pkg.mbt '>' ./pkg/gen.txt
+            moonc check ./pkg/pkg.mbt -w -unused_value-todo -o ./target/wasm-gc/release/check/pkg/pkg.mi -pkg user/mod/pkg -std-path '$MOON_HOME/lib/core/target/wasm-gc/release/bundle' -pkg-sources user/mod/pkg:./pkg -target wasm-gc -workspace-path . -all-pkgs ./target/wasm-gc/release/check/all_pkgs.json
+            moonc check ./pkg/pkg_test.mbt -doctest-only ./pkg/pkg.mbt -include-doctests -w -unused_value-todo -o ./target/wasm-gc/release/check/pkg/pkg.blackbox_test.mi -pkg user/mod/pkg_blackbox_test -std-path '$MOON_HOME/lib/core/target/wasm-gc/release/bundle' -i ./target/wasm-gc/release/check/pkg/pkg.mi:pkg -pkg-sources user/mod/pkg_blackbox_test:./pkg -target wasm-gc -blackbox-test -workspace-path . -all-pkgs ./target/wasm-gc/release/check/all_pkgs.json
+            moonc check ./main/main.mbt -o ./target/wasm-gc/release/check/main/main.mi -pkg user/mod/main -is-main -std-path '$MOON_HOME/lib/core/target/wasm-gc/release/bundle' -i ./target/wasm-gc/release/check/pkg/pkg.mi:lib -pkg-sources user/mod/main:./main -target wasm-gc -workspace-path . -all-pkgs ./target/wasm-gc/release/check/all_pkgs.json
+            moonc check -doctest-only ./main/main.mbt -include-doctests -o ./target/wasm-gc/release/check/main/main.blackbox_test.mi -pkg user/mod/main_blackbox_test -std-path '$MOON_HOME/lib/core/target/wasm-gc/release/bundle' -i ./target/wasm-gc/release/check/pkg/pkg.mi:lib -i ./target/wasm-gc/release/check/main/main.mi:main -pkg-sources user/mod/main_blackbox_test:./main -target wasm-gc -blackbox-test -workspace-path . -all-pkgs ./target/wasm-gc/release/check/all_pkgs.json
+        "#]],
+    );
+    check(
+        get_stdout(&dir, ["build", "--dry-run"]),
+        expect![[r#"
+            cat ./pkg/pkg.mbt '>' ./pkg/gen.txt
+            moonc build-package ./pkg/pkg.mbt -w -unused_value-todo -o ./target/wasm-gc/release/build/pkg/pkg.core -pkg user/mod/pkg -std-path '$MOON_HOME/lib/core/target/wasm-gc/release/bundle' -pkg-sources user/mod/pkg:./pkg -target wasm-gc -workspace-path . -all-pkgs ./target/wasm-gc/release/build/all_pkgs.json
+            moonc link-core '$MOON_HOME/lib/core/target/wasm-gc/release/bundle/abort/abort.core' '$MOON_HOME/lib/core/target/wasm-gc/release/bundle/core.core' ./target/wasm-gc/release/build/pkg/pkg.core -main user/mod/pkg -o ./target/wasm-gc/release/build/pkg/pkg.wasm -pkg-config-path ./pkg/moon.pkg -pkg-sources user/mod/pkg:./pkg -pkg-sources 'moonbitlang/core:$MOON_HOME/lib/core' -target wasm-gc
+            moonc build-package ./main/main.mbt -o ./target/wasm-gc/release/build/main/main.core -pkg user/mod/main -is-main -std-path '$MOON_HOME/lib/core/target/wasm-gc/release/bundle' -i ./target/wasm-gc/release/build/pkg/pkg.mi:lib -pkg-sources user/mod/main:./main -target wasm-gc -workspace-path . -all-pkgs ./target/wasm-gc/release/build/all_pkgs.json
+            moonc link-core '$MOON_HOME/lib/core/target/wasm-gc/release/bundle/abort/abort.core' '$MOON_HOME/lib/core/target/wasm-gc/release/bundle/core.core' ./target/wasm-gc/release/build/pkg/pkg.core ./target/wasm-gc/release/build/main/main.core -main user/mod/main -o ./target/wasm-gc/release/build/main/main.wasm -pkg-config-path ./main/moon.pkg -pkg-sources user/mod/pkg:./pkg -pkg-sources user/mod/main:./main -pkg-sources 'moonbitlang/core:$MOON_HOME/lib/core' -target wasm-gc
+        "#]],
+    );
+}
+
+#[test]
 fn test_need_link() {
     let dir = TestDir::new("need_link.in");
     check(
