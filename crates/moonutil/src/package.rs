@@ -802,7 +802,11 @@ impl Import {
     }
 }
 
+/// Convert moon.pkg DSL (with `options` key) to MoonPkg struct
 pub fn convert_pkg_dsl_to_package(json: Value) -> anyhow::Result<MoonPkg> {
+    // It will validate the top-level keys and merge `options` into the root level.
+    // Might be removed in the future, after we remove the moon.pkg.json and have an
+    // AST to represent moon.pkg files.
     let allowed_toplevel_keys = ["import", "wbtest-import", "test-import", "options"];
     let json = match json {
         Value::Object(mut map) => {
@@ -813,7 +817,7 @@ pub fn convert_pkg_dsl_to_package(json: Value) -> anyhow::Result<MoonPkg> {
             }
             if let Value::Object(options) = map.remove("options").unwrap_or_default() {
                 for (k, v) in options {
-                    map.insert(k.clone(), v.clone());
+                    map.insert(k, v);
                 }
                 Value::Object(map)
             } else {

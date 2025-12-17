@@ -25,8 +25,11 @@ use anyhow::anyhow;
 use serde_json_lenient::{Map, Value, json};
 use std::{cell::Cell, ops::Range};
 
+/// Parser for MoonPkg DSL
 pub struct Parser {
+    /// The whole token stream, including EOF
     tokens: Vec<Token>,
+    /// Index of the next unconsumed token
     index: Cell<usize>,
 }
 
@@ -37,10 +40,16 @@ pub enum ParseError {
 }
 
 impl Parser {
+    /// Peek next unconsumed token
     pub fn peek(&self) -> &Token {
         self.peek_nth(0)
     }
 
+    /// Peek the n-th unconsumed token
+    /// 
+    /// If n == 0, same as `peek()`
+    /// If n == 1, peek the token next to `peek()`
+    /// If out of bounds, return the last token `EOF`
     pub fn peek_nth(&self, n: usize) -> &Token {
         if self.index.get() + n >= self.tokens.len() {
             return &self.tokens[self.index.get() - 1];
@@ -48,10 +57,12 @@ impl Parser {
         &self.tokens[self.index.get() + n]
     }
 
+    /// Consume the next unconsumed token
     pub fn skip(&self) {
         self.index.set(self.index.get() + 1)
     }
-
+    
+    /// Parse an identifier token
     pub fn parse_id(&self) -> Result<String, ParseError> {
         match self.peek() {
             Token::LIDENT((_, s)) => {
@@ -72,6 +83,10 @@ impl Parser {
         }
     }
 
+    /// Parse a series of elements surrounded by `l` and `r`, separated by `sep`,
+    /// the parsing function `f` is used to parse each element.
+    /// 
+    /// Note: allows trailing separator.
     pub fn surround_series<T, F>(
         &self,
         l: TokenKind,
@@ -278,6 +293,7 @@ impl Parser {
     }
 }
 
+/// Parse MoonPkg DSL input string into serde_json_lenient::Value
 pub fn parse(input: &str) -> anyhow::Result<Value> {
     let tokens = lexer::tokenize(input)?;
     Parser::parse(tokens).map_err(|e| anyhow!("Parsing error: {:?}", e))

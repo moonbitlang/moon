@@ -20,12 +20,16 @@ use anyhow::anyhow;
 use logos::{Lexer, Logos, Skip};
 use std::{fmt::Display, ops::Range};
 
+/// Position in the source code
 #[derive(Debug, PartialEq, Clone)]
 pub struct Pos {
+    /// Line number (1-based)
     pub line: usize,
+    /// Column number (1-based)
     pub column: usize,
 }
 
+/// Location range in the source code, from start to end
 pub type Loc = Range<Pos>;
 
 #[derive(Logos, Debug, PartialEq, Clone)]
