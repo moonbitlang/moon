@@ -813,7 +813,7 @@ pub fn convert_pkg_dsl_to_package(json: Value) -> anyhow::Result<MoonPkg> {
             }
             if let Value::Object(options) = map.remove("options").unwrap_or_default() {
                 for (k, v) in options {
-                    map.insert(k.clone(), v.clone());
+                    map.insert(k, v);
                 }
                 Value::Object(map)
             } else {
