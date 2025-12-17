@@ -1,0 +1,10 @@
+import {
+  "user/mod/pkg" as @lib
+}
+
+options(
+  "is-main": true 
+)
+
+
+
