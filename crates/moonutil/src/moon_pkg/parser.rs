@@ -46,7 +46,7 @@ impl Parser {
     }
 
     /// Peek the n-th unconsumed token
-    /// 
+    ///
     /// If n == 0, same as `peek()`
     /// If n == 1, peek the token next to `peek()`
     /// If out of bounds, return the last token `EOF`
@@ -61,7 +61,7 @@ impl Parser {
     pub fn skip(&self) {
         self.index.set(self.index.get() + 1)
     }
-    
+
     /// Parse an identifier token
     pub fn parse_id(&self) -> Result<String, ParseError> {
         match self.peek() {
@@ -85,7 +85,7 @@ impl Parser {
 
     /// Parse a series of elements surrounded by `l` and `r`, separated by `sep`,
     /// the parsing function `f` is used to parse each element.
-    /// 
+    ///
     /// Note: allows trailing separator.
     pub fn surround_series<T, F>(
         &self,

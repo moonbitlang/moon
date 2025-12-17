@@ -29,7 +29,7 @@ pub struct Pos {
     pub column: usize,
 }
 
-/// Location range in the source code, from start to end
+/// Location range in the source code, from start (inclusive) to end (exclusive)
 pub type Loc = Range<Pos>;
 
 #[derive(Logos, Debug, PartialEq, Clone)]
@@ -78,7 +78,7 @@ pub enum Token {
 
 fn newline_callback(lex: &mut Lexer<Token>) -> Skip {
     lex.extras.0 += 1;
-    lex.extras.1 = 1;
+    lex.extras.1 = lex.span().end;
     Skip
 }
 
@@ -86,11 +86,11 @@ fn get_loc<'a>(lex: &mut Lexer<'a, Token>) -> Loc {
     let span = lex.span();
     let start = Pos {
         line: lex.extras.0,
-        column: span.start - lex.extras.1,
+        column: span.start - lex.extras.1 + 1,
     };
     let end = Pos {
         line: lex.extras.0,
-        column: span.end - lex.extras.1,
+        column: span.end - lex.extras.1 + 1,
     };
     start..end
 }
@@ -262,6 +262,8 @@ impl Display for Token {
 
 pub fn tokenize(input: &str) -> anyhow::Result<Vec<Token>> {
     let mut lexer = Token::lexer(input);
+    // Current line number and offset of current line start
+    lexer.extras = (1, 0);
     let mut tokens = Vec::new();
     while let Some(token) = lexer.next() {
         match token {
@@ -271,7 +273,7 @@ pub fn tokenize(input: &str) -> anyhow::Result<Vec<Token>> {
     }
     let pos = Pos {
         line: lexer.extras.0,
-        column: lexer.span().end - lexer.extras.1,
+        column: lexer.span().end - lexer.extras.1 + 1,
     };
     tokens.push(Token::EOF(pos.clone()..pos));
     Ok(tokens)
@@ -279,8 +281,7 @@ pub fn tokenize(input: &str) -> anyhow::Result<Vec<Token>> {
 
 #[test]
 fn tokenize_test() {
-    let input = r#"
-import {
+    let input = r#"import {
   "path/to/pkg1",
   "path/to/pkg2" as @alias,
 }
@@ -307,29 +308,29 @@ options(
                 IMPORT(
                     Pos {
                         line: 1,
-                        column: 0,
+                        column: 1,
                     }..Pos {
                         line: 1,
-                        column: 6,
+                        column: 7,
                     },
                 ),
                 LBRACE(
                     Pos {
                         line: 1,
-                        column: 7,
+                        column: 8,
                     }..Pos {
                         line: 1,
-                        column: 8,
+                        column: 9,
                     },
                 ),
                 STRING(
                     (
                         Pos {
                             line: 2,
-                            column: 11,
+                            column: 3,
                         }..Pos {
                             line: 2,
-                            column: 25,
+                            column: 17,
                         },
                         "path/to/pkg1",
                     ),
@@ -337,20 +338,20 @@ options(
                 COMMA(
                     Pos {
                         line: 2,
-                        column: 25,
+                        column: 17,
                     }..Pos {
                         line: 2,
-                        column: 26,
+                        column: 18,
                     },
                 ),
                 STRING(
                     (
                         Pos {
                             line: 3,
-                            column: 29,
+                            column: 3,
                         }..Pos {
                             line: 3,
-                            column: 43,
+                            column: 17,
                         },
                         "path/to/pkg2",
                     ),
@@ -358,20 +359,20 @@ options(
                 AS(
                     Pos {
                         line: 3,
-                        column: 44,
+                        column: 18,
                     }..Pos {
                         line: 3,
-                        column: 46,
+                        column: 20,
                     },
                 ),
                 PACKAGENAME(
                     (
                         Pos {
                             line: 3,
-                            column: 47,
+                            column: 21,
                         }..Pos {
                             line: 3,
-                            column: 53,
+                            column: 27,
                         },
                         "alias",
                     ),
@@ -379,38 +380,38 @@ options(
                 COMMA(
                     Pos {
                         line: 3,
-                        column: 53,
+                        column: 27,
                     }..Pos {
                         line: 3,
-                        column: 54,
+                        column: 28,
                     },
                 ),
                 RBRACE(
                     Pos {
                         line: 4,
-                        column: 55,
+                        column: 1,
                     }..Pos {
                         line: 4,
-                        column: 56,
+                        column: 2,
                     },
                 ),
                 IMPORT(
                     Pos {
                         line: 6,
-                        column: 58,
+                        column: 1,
                     }..Pos {
                         line: 6,
-                        column: 64,
+                        column: 7,
                     },
                 ),
                 STRING(
                     (
                         Pos {
                             line: 6,
-                            column: 65,
+                            column: 8,
                         }..Pos {
                             line: 6,
-                            column: 71,
+                            column: 14,
                         },
                         "test",
                     ),
@@ -418,20 +419,20 @@ options(
                 LBRACE(
                     Pos {
                         line: 6,
-                        column: 72,
+                        column: 15,
                     }..Pos {
                         line: 6,
-                        column: 73,
+                        column: 16,
                     },
                 ),
                 STRING(
                     (
                         Pos {
                             line: 7,
-                            column: 76,
+                            column: 3,
                         }..Pos {
                             line: 7,
-                            column: 90,
+                            column: 17,
                         },
                         "path/to/pkg1",
                     ),
@@ -439,29 +440,29 @@ options(
                 COMMA(
                     Pos {
                         line: 7,
-                        column: 90,
+                        column: 17,
                     }..Pos {
                         line: 7,
-                        column: 91,
+                        column: 18,
                     },
                 ),
                 RBRACE(
                     Pos {
                         line: 8,
-                        column: 92,
+                        column: 1,
                     }..Pos {
                         line: 8,
-                        column: 93,
+                        column: 2,
                     },
                 ),
                 LIDENT(
                     (
                         Pos {
                             line: 10,
-                            column: 95,
+                            column: 1,
                         }..Pos {
                             line: 10,
-                            column: 102,
+                            column: 8,
                         },
                         "options",
                     ),
@@ -469,20 +470,20 @@ options(
                 LPAREN(
                     Pos {
                         line: 10,
-                        column: 102,
+                        column: 8,
                     }..Pos {
                         line: 10,
-                        column: 103,
+                        column: 9,
                     },
                 ),
                 STRING(
                     (
                         Pos {
                             line: 11,
-                            column: 106,
+                            column: 3,
                         }..Pos {
                             line: 11,
-                            column: 115,
+                            column: 12,
                         },
                         "is_main",
                     ),
@@ -490,38 +491,38 @@ options(
                 COLON(
                     Pos {
                         line: 11,
-                        column: 115,
+                        column: 12,
                     }..Pos {
                         line: 11,
-                        column: 116,
+                        column: 13,
                     },
                 ),
                 TRUE(
                     Pos {
                         line: 11,
-                        column: 117,
+                        column: 14,
                     }..Pos {
                         line: 11,
-                        column: 121,
+                        column: 18,
                     },
                 ),
                 COMMA(
                     Pos {
                         line: 11,
-                        column: 121,
+                        column: 18,
                     }..Pos {
                         line: 11,
-                        column: 122,
+                        column: 19,
                     },
                 ),
                 LIDENT(
                     (
                         Pos {
                             line: 12,
-                            column: 125,
+                            column: 3,
                         }..Pos {
                             line: 12,
-                            column: 133,
+                            column: 11,
                         },
                         "warnings",
                     ),
@@ -529,20 +530,20 @@ options(
                 COLON(
                     Pos {
                         line: 12,
-                        column: 133,
+                        column: 11,
                     }..Pos {
                         line: 12,
-                        column: 134,
+                        column: 12,
                     },
                 ),
                 STRING(
                     (
                         Pos {
                             line: 12,
-                            column: 135,
+                            column: 13,
                         }..Pos {
                             line: 12,
-                            column: 173,
+                            column: 51,
                         },
                         "-fragile_match+all@deprecated_syntax",
                     ),
@@ -550,20 +551,20 @@ options(
                 COMMA(
                     Pos {
                         line: 12,
-                        column: 173,
+                        column: 51,
                     }..Pos {
                         line: 12,
-                        column: 174,
+                        column: 52,
                     },
                 ),
                 LIDENT(
                     (
                         Pos {
                             line: 13,
-                            column: 177,
+                            column: 3,
                         }..Pos {
                             line: 13,
-                            column: 186,
+                            column: 12,
                         },
                         "formatter",
                     ),
@@ -571,29 +572,29 @@ options(
                 COLON(
                     Pos {
                         line: 13,
-                        column: 186,
+                        column: 12,
                     }..Pos {
                         line: 13,
-                        column: 187,
+                        column: 13,
                     },
                 ),
                 LBRACE(
                     Pos {
                         line: 13,
-                        column: 188,
+                        column: 14,
                     }..Pos {
                         line: 13,
-                        column: 189,
+                        column: 15,
                     },
                 ),
                 STRING(
                     (
                         Pos {
                             line: 14,
-                            column: 194,
+                            column: 5,
                         }..Pos {
                             line: 14,
-                            column: 202,
+                            column: 13,
                         },
                         "ignore",
                     ),
@@ -601,29 +602,29 @@ options(
                 COLON(
                     Pos {
                         line: 14,
-                        column: 202,
+                        column: 13,
                     }..Pos {
                         line: 14,
-                        column: 203,
+                        column: 14,
                     },
                 ),
                 LBRACKET(
                     Pos {
                         line: 14,
-                        column: 204,
+                        column: 15,
                     }..Pos {
                         line: 14,
-                        column: 205,
+                        column: 16,
                     },
                 ),
                 STRING(
                     (
                         Pos {
                             line: 15,
-                            column: 212,
+                            column: 7,
                         }..Pos {
                             line: 15,
-                            column: 223,
+                            column: 18,
                         },
                         "file1.mbt",
                     ),
@@ -631,64 +632,64 @@ options(
                 COMMA(
                     Pos {
                         line: 15,
-                        column: 223,
+                        column: 18,
                     }..Pos {
                         line: 15,
-                        column: 224,
+                        column: 19,
                     },
                 ),
                 RBRACKET(
                     Pos {
                         line: 16,
-                        column: 229,
+                        column: 5,
                     }..Pos {
                         line: 16,
-                        column: 230,
+                        column: 6,
                     },
                 ),
                 COMMA(
                     Pos {
                         line: 16,
-                        column: 230,
+                        column: 6,
                     }..Pos {
                         line: 16,
-                        column: 231,
+                        column: 7,
                     },
                 ),
                 RBRACE(
                     Pos {
                         line: 17,
-                        column: 234,
+                        column: 3,
                     }..Pos {
                         line: 17,
-                        column: 235,
+                        column: 4,
                     },
                 ),
                 COMMA(
                     Pos {
                         line: 17,
-                        column: 235,
+                        column: 4,
                     }..Pos {
                         line: 17,
-                        column: 236,
+                        column: 5,
                     },
                 ),
                 RPAREN(
                     Pos {
                         line: 18,
-                        column: 237,
+                        column: 1,
                     }..Pos {
                         line: 18,
-                        column: 238,
+                        column: 2,
                     },
                 ),
                 EOF(
                     Pos {
                         line: 20,
-                        column: 242,
+                        column: 3,
                     }..Pos {
                         line: 20,
-                        column: 242,
+                        column: 3,
                     },
                 ),
             ],
@@ -708,22 +709,22 @@ fn test_escape_sequences() {
                 STRING(
                     (
                         Pos {
-                            line: 0,
-                            column: 0,
+                            line: 1,
+                            column: 1,
                         }..Pos {
-                            line: 0,
-                            column: 18,
+                            line: 1,
+                            column: 19,
                         },
                         "\n\t\u{c}\u{8}\r\\\"/",
                     ),
                 ),
                 EOF(
                     Pos {
-                        line: 0,
-                        column: 18,
+                        line: 1,
+                        column: 19,
                     }..Pos {
-                        line: 0,
-                        column: 18,
+                        line: 1,
+                        column: 19,
                     },
                 ),
             ],
@@ -740,22 +741,22 @@ fn test_escape_sequences() {
                 STRING(
                     (
                         Pos {
-                            line: 0,
-                            column: 0,
+                            line: 1,
+                            column: 1,
                         }..Pos {
-                            line: 0,
-                            column: 20,
+                            line: 1,
+                            column: 21,
                         },
                         "A♥\u{ffff}",
                     ),
                 ),
                 EOF(
                     Pos {
-                        line: 0,
-                        column: 20,
+                        line: 1,
+                        column: 21,
                     }..Pos {
-                        line: 0,
-                        column: 20,
+                        line: 1,
+                        column: 21,
                     },
                 ),
             ],
