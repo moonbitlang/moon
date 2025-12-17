@@ -113,11 +113,47 @@ fn with_int<'a>(lex: &mut Lexer<'a, Token>) -> (Loc, i32) {
     (loc, i)
 }
 
-fn with_string<'a>(lex: &mut Lexer<'a, Token>) -> (Loc, String) {
+fn with_string<'a>(lex: &mut Lexer<'a, Token>) -> Result<(Loc, String), ()> {
     let s = lex.slice();
     let loc = get_loc(lex);
-    let lexme = s[1..s.len() - 1].to_string();
-    (loc, lexme)
+    let inner = &s[1..s.len() - 1];
+    let lexme = unescape_string(inner).ok_or(())?;
+    Ok((loc, lexme))
+}
+
+fn unescape_string(s: &str) -> Option<String> {
+    let mut result = String::with_capacity(s.len());
+    let mut chars = s.chars().peekable();
+
+    while let Some(c) = chars.next() {
+        if c == '\\' {
+            match chars.next()? {
+                'n' => result.push('\n'),
+                't' => result.push('\t'),
+                'r' => result.push('\r'),
+                'f' => result.push('\x0C'),
+                'b' => result.push('\x08'),
+                '\\' => result.push('\\'),
+                '"' => result.push('"'),
+                '/' => result.push('/'),
+                'u' => {
+                    // Parse \uXXXX unicode escape
+                    let mut hex = String::with_capacity(4);
+                    for _ in 0..4 {
+                        hex.push(chars.next()?);
+                    }
+                    let code_point = u32::from_str_radix(&hex, 16).ok()?;
+                    let ch = char::from_u32(code_point)?;
+                    result.push(ch);
+                }
+                _ => return None, // Invalid escape sequence
+            }
+        } else {
+            result.push(c);
+        }
+    }
+
+    Some(result)
 }
 
 fn with_package_name<'a>(lex: &mut Lexer<'a, Token>) -> (Loc, String) {
@@ -656,6 +692,83 @@ options(
                     },
                 ),
             ],
+        )
+    "#]]
+    .assert_debug_eq(&tokens);
+}
+
+#[test]
+fn test_escape_sequences() {
+    // Test all escape sequences: \n \t \r \f \b \\ \" \/ \uXXXX
+    let input = r#""\n\t\f\b\r\\\"\/""#;
+    let tokens = tokenize(input);
+    expect_test::expect![[r#"
+        Ok(
+            [
+                STRING(
+                    (
+                        Pos {
+                            line: 0,
+                            column: 0,
+                        }..Pos {
+                            line: 0,
+                            column: 18,
+                        },
+                        "\n\t\u{c}\u{8}\r\\\"/",
+                    ),
+                ),
+                EOF(
+                    Pos {
+                        line: 0,
+                        column: 18,
+                    }..Pos {
+                        line: 0,
+                        column: 18,
+                    },
+                ),
+            ],
+        )
+    "#]]
+    .assert_debug_eq(&tokens);
+
+    // Test unicode escape \uXXXX
+    let input = r#""\u0041\u2665\uFFFF""#;
+    let tokens = tokenize(input);
+    expect_test::expect![[r#"
+        Ok(
+            [
+                STRING(
+                    (
+                        Pos {
+                            line: 0,
+                            column: 0,
+                        }..Pos {
+                            line: 0,
+                            column: 20,
+                        },
+                        "A♥\u{ffff}",
+                    ),
+                ),
+                EOF(
+                    Pos {
+                        line: 0,
+                        column: 20,
+                    }..Pos {
+                        line: 0,
+                        column: 20,
+                    },
+                ),
+            ],
+        )
+    "#]]
+    .assert_debug_eq(&tokens);
+
+    // Test invalid escape sequence should fail
+    let input = r#""invalid\x""#;
+    let tokens = tokenize(input);
+    expect_test::expect![[r#"
+        Err(
+            "Lexing error at 0..11",
         )
     "#]]
     .assert_debug_eq(&tokens);
