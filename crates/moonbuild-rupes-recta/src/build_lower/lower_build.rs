@@ -347,7 +347,7 @@ impl<'a> BuildPlanLowerContext<'a> {
         // Propagate debug/coverage flags and common settings
         (cmd.flags.enable_coverage, cmd.flags.self_coverage) =
             self.get_coverage_flags(target, &package.fqn, true);
-        cmd.defaults.no_mi |= target.kind.is_test();
+        cmd.defaults.no_mi |= target.kind.is_test() | (cmd.defaults.check_mi.is_some());
 
         // Include doctest-only files as inputs to track dependency correctly
         // Note: This is the *extra* inputs, trivial dependencies are already
