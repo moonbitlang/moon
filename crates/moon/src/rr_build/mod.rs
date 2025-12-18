@@ -805,10 +805,10 @@ pub fn execute_build_partial(
 
     let result_catcher = Arc::new(Mutex::new(ResultCatcher::default()));
     let mut prog_console = match cfg.output_style {
-        crate::cli::OutputStyle::Raw | crate::cli::OutputStyle::Json => {
+        crate::cli::OutputStyle::Raw => {
             create_progress_console(Some(Box::new(no_render_callback())), cfg.verbose)
         }
-        crate::cli::OutputStyle::Fancy => create_progress_console(
+        crate::cli::OutputStyle::Fancy | crate::cli::OutputStyle::Json => create_progress_console(
             Some(Box::new(capture_diagnostics_callback(Arc::clone(
                 &result_catcher,
             )))),
@@ -873,7 +873,7 @@ fn no_render_callback() -> impl Fn(&str) {
 
 fn process_captured_diagnostics(catcher: &mut ResultCatcher, cfg: &BuildConfig) {
     let mut unprocessed = vec![];
-    let mut by_file = BTreeMap::<String, BTreeSet<MooncDiagnostic>>::new();
+    let mut by_file = BTreeMap::<String, BTreeSet<(MooncDiagnostic, String)>>::new();
     for content in &catcher.content_writer {
         match serde_json::from_str::<moonutil::render::MooncDiagnostic>(content) {
             Ok(d) => {
@@ -883,7 +883,10 @@ fn process_captured_diagnostics(catcher: &mut ResultCatcher, cfg: &BuildConfig) 
                     unprocessed.push(content.clone());
                 } else {
                     let file_key = d.location.path.clone();
-                    by_file.entry(file_key).or_default().insert(d);
+                    by_file
+                        .entry(file_key)
+                        .or_default()
+                        .insert((d, content.clone()));
                 }
             }
             Err(_) => {
@@ -894,15 +897,25 @@ fn process_captured_diagnostics(catcher: &mut ResultCatcher, cfg: &BuildConfig) 
         };
     }
 
-    for file_diagnostics in by_file.values() {
-        for diag in file_diagnostics {
-            let kind = diag.render_diagnostics(
-                n2::terminal::use_fancy(),
-                cfg.patch_file.clone(),
-                cfg.explain_errors,
-                cfg.render_no_loc,
-            );
-            catcher.append_kind(kind);
+    if cfg.output_style == crate::cli::OutputStyle::Json {
+        // In JSON mode, just print raw content after dedup
+        for file_diagnostics in by_file.values() {
+            for (diag, content) in file_diagnostics {
+                println!("{content}");
+                catcher.append_diag(diag);
+            }
+        }
+    } else if cfg.output_style == crate::cli::OutputStyle::Fancy {
+        for file_diagnostics in by_file.values() {
+            for (diag, _content) in file_diagnostics {
+                let kind = diag.render_diagnostics(
+                    n2::terminal::use_fancy(),
+                    cfg.patch_file.clone(),
+                    cfg.explain_errors,
+                    cfg.render_no_loc,
+                );
+                catcher.append_kind(kind);
+            }
         }
     }
 

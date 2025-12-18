@@ -131,6 +131,14 @@ impl ResultCatcher {
             _ => {}
         }
     }
+
+    pub fn append_diag(&mut self, diag: &moonutil::render::MooncDiagnostic) {
+        if diag.level == "error" {
+            self.n_errors += 1;
+        } else if diag.level == "warning" {
+            self.n_warnings += 1;
+        }
+    }
 }
 
 #[allow(clippy::too_many_arguments)] // This is inefficient and we know it
