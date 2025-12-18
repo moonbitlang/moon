@@ -90,7 +90,6 @@ impl DiscoveredPackage {
     /// This function assumes regular project layout.
     /// Prefers `moon.pkg` (DSL format) if it exists, otherwise falls back to `moon.pkg.json`.
     pub fn config_path(&self) -> PathBuf {
-        // TODO: maybe store the config name?
         if self.root_path.join(MOON_PKG).exists() {
             self.root_path.join(MOON_PKG)
         } else {
