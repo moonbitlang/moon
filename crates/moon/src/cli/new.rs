@@ -21,7 +21,7 @@ use std::{fs::File, io::BufReader, path::PathBuf};
 use anyhow::bail;
 use colored::Colorize;
 use moonutil::{
-    common::{MOON_MOD_JSON, is_moon_pkg_exists},
+    common::{MOON_MOD_JSON, is_moon_pkg_exist},
     moon_dir,
     mooncakes::{Credentials, validate_username},
 };
@@ -76,7 +76,7 @@ pub fn run_new(_cli: &UniversalFlags, cmd: NewSubcommand) -> anyhow::Result<i32>
 
     let path = PathBuf::from(cmd.path);
 
-    if path.exists() && (path.join(MOON_MOD_JSON).exists() || is_moon_pkg_exists(&path)) {
+    if path.exists() && (path.join(MOON_MOD_JSON).exists() || is_moon_pkg_exist(&path)) {
         bail!("A MoonBit project already exists in `{}`.", path.display());
     }
 

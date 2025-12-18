@@ -65,10 +65,6 @@ pub struct PackageDirs {
     pub target_dir: PathBuf,
 }
 
-pub fn check_moon_pkg_exist(dir: &Path) -> bool {
-    dir.join(MOON_PKG_JSON).exists() || dir.join(MOON_PKG).exists()
-}
-
 pub fn check_moon_mod_exists(source_dir: &Path) -> bool {
     source_dir.join(MOON_MOD_JSON).exists()
 }

@@ -31,13 +31,12 @@ use moonutil::common::RunMode;
 use moonutil::common::SurfaceTarget;
 use moonutil::common::TargetBackend;
 use moonutil::common::TestArtifacts;
-use moonutil::common::is_moon_pkg_exists;
+use moonutil::common::is_moon_pkg_exist;
 use moonutil::common::lower_surface_targets;
 use moonutil::common::{MoonbuildOpt, OutputFormat};
 use moonutil::cond_expr::OptLevel;
 use moonutil::cond_expr::OptLevel::Release;
 use moonutil::dirs::PackageDirs;
-use moonutil::dirs::check_moon_pkg_exist;
 use moonutil::dirs::mk_arch_mode_dir;
 use moonutil::moon_dir::MOON_DIRS;
 use moonutil::mooncakes::RegistryConfig;
@@ -85,7 +84,7 @@ pub fn run_run(cli: &UniversalFlags, cmd: RunSubcommand) -> anyhow::Result<i32> 
                 let moon_pkg_json_exist = std::env::current_dir()?
                     .join(&cmd.package_or_mbt_file)
                     .parent()
-                    .is_some_and(is_moon_pkg_exists);
+                    .is_some_and(is_moon_pkg_exist);
                 if !moon_pkg_json_exist {
                     if cli.unstable_feature.rupes_recta {
                         return run_single_file_rr(cli, cmd);
@@ -494,7 +493,7 @@ fn run_run_internal_legacy(cli: &UniversalFlags, cmd: RunSubcommand) -> anyhow::
     let moon_pkg_json_exist = std::env::current_dir()?
         .join(&cmd.package_or_mbt_file)
         .parent()
-        .is_some_and(is_moon_pkg_exists);
+        .is_some_and(is_moon_pkg_exist);
     if cmd.package_or_mbt_file.ends_with(".mbt") && !moon_pkg_json_exist {
         return run_single_mbt_file(cli, cmd);
     }
@@ -541,7 +540,7 @@ fn run_run_internal_legacy(cli: &UniversalFlags, cmd: RunSubcommand) -> anyhow::
         cmd.package_or_mbt_file
     };
     let package = source_dir.join(&package_path);
-    if !check_moon_pkg_exist(&package) {
+    if !is_moon_pkg_exist(&package) {
         bail!("{} is not a package", package_path);
     }
 

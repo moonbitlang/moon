@@ -100,12 +100,12 @@ pub const DYN_EXT: &str = if cfg!(windows) {
 
 pub const A_EXT: &str = if cfg!(windows) { "lib" } else { "a" };
 
-pub fn is_moon_pkg_exists(dir: &Path) -> bool {
-    dir.join(MOON_PKG_JSON).exists() || dir.join(MOON_PKG).exists()
+pub fn is_moon_pkg_exist(dir: &Path) -> bool {
+    dir.join(MOON_PKG).exists() || dir.join(MOON_PKG_JSON).exists()
 }
 
 pub fn is_moon_pkg(filename: &str) -> bool {
-    filename == MOON_PKG_JSON || filename == MOON_PKG
+    filename == MOON_PKG || filename == MOON_PKG_JSON
 }
 
 #[derive(Debug, Serialize, Deserialize)]
