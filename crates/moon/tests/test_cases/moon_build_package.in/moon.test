@@ -4,6 +4,6 @@
   
   $ moon build --build-graph --sort-input
   
-  [33m WARN[0m `--build-graph` is deprecated. Use -Z rr_export_module_graph, -Z rr_export_package_graph, or -Z rr_export_build_plan instead
+   WARN `--build-graph` is deprecated. Use -Z rr_export_module_graph, -Z rr_export_package_graph, or -Z rr_export_build_plan instead
   Finished. moon: ran 2 tasks, now up to date
   
