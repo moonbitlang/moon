@@ -672,8 +672,8 @@ pub struct BuildConfig {
     /// The level of parallelism to use. If `None`, will use the number of
     /// available CPU cores.
     parallelism: Option<usize>,
-    /// Skip rendering compiler diagnostics to console
-    no_render: bool,
+    /// The output style for errors and warnings
+    output_style: crate::cli::OutputStyle,
     /// Render no-location diagnostics above this level
     render_no_loc: DiagnosticLevel,
 
@@ -697,7 +697,7 @@ impl BuildConfig {
     pub fn from_flags(flags: &BuildFlags, unstable_features: &FeatureGate, verbose: bool) -> Self {
         BuildConfig {
             parallelism: flags.jobs,
-            no_render: flags.output_style().needs_no_render(),
+            output_style: flags.output_style(),
             render_no_loc: flags.render_no_loc,
             generate_metadata: false,
             explain_errors: false,
@@ -712,7 +712,7 @@ impl Default for BuildConfig {
     fn default() -> Self {
         Self {
             parallelism: None,
-            no_render: false,
+            output_style: crate::cli::OutputStyle::Raw,
             render_no_loc: DiagnosticLevel::Error,
             generate_metadata: false,
             explain_errors: false,
@@ -804,15 +804,16 @@ pub fn execute_build_partial(
         .unwrap();
 
     let result_catcher = Arc::new(Mutex::new(ResultCatcher::default()));
-    let mut prog_console = if cfg.no_render {
-        create_progress_console(Some(Box::new(no_render_callback())), cfg.verbose)
-    } else {
-        create_progress_console(
+    let mut prog_console = match cfg.output_style {
+        crate::cli::OutputStyle::Raw | crate::cli::OutputStyle::Json => {
+            create_progress_console(Some(Box::new(no_render_callback())), cfg.verbose)
+        }
+        crate::cli::OutputStyle::Fancy => create_progress_console(
             Some(Box::new(capture_diagnostics_callback(Arc::clone(
                 &result_catcher,
             )))),
             cfg.verbose,
-        )
+        ),
     };
     let mut work = n2::work::Work::new(
         build_graph,
