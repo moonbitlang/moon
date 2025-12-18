@@ -37,6 +37,10 @@ pub struct AddSubcommand {
     /// Whether to add the dependency as a binary
     #[clap(long)]
     pub bin: bool,
+
+    /// Do not update the registry index before adding the dependency
+    #[clap(long)]
+    pub no_update: bool,
 }
 
 pub fn add_latest(
@@ -45,6 +49,7 @@ pub fn add_latest(
     pkg_name: &ModuleName,
     bin: bool,
     quiet: bool,
+    index_updated: bool,
 ) -> anyhow::Result<i32> {
     if pkg_name.to_string() == MOONBITLANG_CORE {
         eprintln!(
@@ -59,10 +64,14 @@ pub fn add_latest(
     let latest_version = registry
         .get_latest_version(pkg_name)
         .ok_or_else(|| {
+            if index_updated {
+                anyhow::anyhow!("could not find the latest version of {}", pkg_name.to_string())
+            } else {
             anyhow::anyhow!(
                 "could not find the latest version of {}. Please consider running `moon update` to update the index.",
                 pkg_name.to_string()
             )
+            }
         })?
         .version
         .clone()
