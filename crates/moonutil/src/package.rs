@@ -17,20 +17,21 @@
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
 use std::{
-    collections::HashSet,
     path::{Path, PathBuf},
     sync::Arc,
 };
 
+use anyhow::bail;
 use colored::Colorize;
 use indexmap::{IndexMap, IndexSet};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
+use serde_json_lenient::Value;
 
 use crate::{
     common::{
-        FileName, GeneratedTestDriver, TargetBackend, TargetBackend::Js, TargetBackend::LLVM,
-        TargetBackend::Native, TargetBackend::Wasm, TargetBackend::WasmGC,
+        FileName, GeneratedTestDriver,
+        TargetBackend::{self, Js, LLVM, Native, Wasm, WasmGC},
     },
     cond_expr::{CompileCondition, CondExpr, CondExprs},
     path::{ImportComponent, PathComponent},
@@ -102,7 +103,7 @@ pub struct Package {
 
     pub enable_value_tracing: bool,
 
-    pub supported_targets: HashSet<TargetBackend>,
+    pub supported_targets: IndexSet<TargetBackend>,
 
     pub stub_lib: Option<Vec<String>>,
 
@@ -766,7 +767,7 @@ pub struct MoonPkg {
     pub bin_name: Option<String>,
     pub bin_target: Option<TargetBackend>,
 
-    pub supported_targets: HashSet<TargetBackend>,
+    pub supported_targets: IndexSet<TargetBackend>,
 
     pub native_stub: Option<Vec<String>>,
 
@@ -799,6 +800,34 @@ impl Import {
             } => path,
         }
     }
+}
+
+/// Convert moon.pkg DSL (with `options` key) to MoonPkg struct
+pub fn convert_pkg_dsl_to_package(json: Value) -> anyhow::Result<MoonPkg> {
+    // It will validate the top-level keys and merge `options` into the root level.
+    // Might be removed in the future, after we remove the moon.pkg.json and have an
+    // AST to represent moon.pkg files.
+    let allowed_toplevel_keys = ["import", "wbtest-import", "test-import", "options"];
+    let json = match json {
+        Value::Object(mut map) => {
+            for key in map.keys() {
+                if !allowed_toplevel_keys.contains(&key.as_str()) {
+                    bail!("Unexpected key '{}' found in moon.pkg.", key,);
+                }
+            }
+            if let Value::Object(options) = map.remove("options").unwrap_or_default() {
+                for (k, v) in options {
+                    map.insert(k, v);
+                }
+                Value::Object(map)
+            } else {
+                Value::Object(map)
+            }
+        }
+        _ => json,
+    };
+    let pkg_json: MoonPkgJSON = serde_json_lenient::from_value(json)?;
+    convert_pkg_json_to_package(pkg_json)
 }
 
 pub fn convert_pkg_json_to_package(j: MoonPkgJSON) -> anyhow::Result<MoonPkg> {
@@ -892,7 +921,7 @@ pub fn convert_pkg_json_to_package(j: MoonPkgJSON) -> anyhow::Result<MoonPkg> {
         .map(|s| TargetBackend::str_to_backend(s))
         .transpose()?;
 
-    let mut supported_backends = HashSet::new();
+    let mut supported_backends = IndexSet::new();
     if let Some(ref b) = j.supported_targets {
         for backend in b.iter() {
             supported_backends.insert(TargetBackend::str_to_backend(backend)?);

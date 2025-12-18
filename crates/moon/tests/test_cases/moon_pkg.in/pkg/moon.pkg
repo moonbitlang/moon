@@ -1,0 +1,29 @@
+options(
+  formatter: {
+    "ignore": []
+  },
+  "pre-build": [
+    {
+      "command": "cat $input > $output",
+      "input": "pkg.mbt",
+      "output": "gen.txt",
+    }
+  ],
+  "warn-list": "-unused_value-todo",
+  link: {
+    "js": {
+      "exports": ["sum", "fib"]
+    }
+  }
+)
+
+
+
+
+
+
+
+
+
+
+

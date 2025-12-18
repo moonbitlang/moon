@@ -19,8 +19,12 @@
 use crate::cond_expr::{CompileCondition, OptLevel};
 pub use crate::dirs::check_moon_mod_exists;
 use crate::module::{MoonMod, MoonModJSON};
+use crate::moon_pkg;
 use crate::mooncakes::ModuleName;
-use crate::package::{MoonPkg, MoonPkgJSON, Package, VirtualPkg, convert_pkg_json_to_package};
+use crate::package::{
+    MoonPkg, MoonPkgJSON, Package, VirtualPkg, convert_pkg_dsl_to_package,
+    convert_pkg_json_to_package,
+};
 use crate::path::PathComponent;
 use anyhow::{Context, bail};
 use clap::ValueEnum;
@@ -31,12 +35,14 @@ use std::collections::{HashMap, HashSet};
 use std::ffi::OsStr;
 use std::fs;
 use std::fs::File;
+use std::hash::Hash;
 use std::io::ErrorKind;
 use std::io::{BufReader, BufWriter};
 use std::path::{Path, PathBuf};
 
 pub const MOON_MOD_JSON: &str = "moon.mod.json";
 pub const MOON_PKG_JSON: &str = "moon.pkg.json";
+pub const MOON_PKG: &str = "moon.pkg";
 pub const MBTI_GENERATED: &str = "pkg.generated.mbti";
 pub const MBTI_USER_WRITTEN: &str = "pkg.mbti";
 pub const MOONBITLANG_CORE: &str = "moonbitlang/core";
@@ -93,6 +99,14 @@ pub const DYN_EXT: &str = if cfg!(windows) {
 };
 
 pub const A_EXT: &str = if cfg!(windows) { "lib" } else { "a" };
+
+pub fn is_moon_pkg_exist(dir: &Path) -> bool {
+    dir.join(MOON_PKG).exists() || dir.join(MOON_PKG_JSON).exists()
+}
+
+pub fn is_moon_pkg(filename: &str) -> bool {
+    filename == MOON_PKG || filename == MOON_PKG_JSON
+}
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct PatchJSON {
@@ -193,6 +207,15 @@ fn read_package_from_json(path: &Path) -> anyhow::Result<MoonPkg> {
     convert_pkg_json_to_package(j)
 }
 
+/// Reads a moon.pkg from the given path.
+fn read_package_from_dsl(path: &Path) -> anyhow::Result<MoonPkg> {
+    let file = File::open(path)?;
+    let str = std::io::read_to_string(file)?;
+    let json = moon_pkg::parse(&str)?;
+    let j = serde_json_lenient::from_value(json)?;
+    convert_pkg_dsl_to_package(j)
+}
+
 pub fn write_module_json_to_file(m: &MoonModJSON, source_dir: &Path) -> anyhow::Result<()> {
     let p = source_dir.join(MOON_MOD_JSON);
     let file = File::create(p)?;
@@ -216,11 +239,14 @@ pub fn read_module_desc_file_in_dir(dir: &Path) -> anyhow::Result<MoonMod> {
 }
 
 pub fn read_package_desc_file_in_dir(dir: &Path) -> anyhow::Result<MoonPkg> {
-    if !dir.join(MOON_PKG_JSON).exists() {
+    if dir.join(MOON_PKG).exists() {
+        read_package_from_dsl(&dir.join(MOON_PKG))
+    } else if dir.join(MOON_PKG_JSON).exists() {
+        read_package_from_json(&dir.join(MOON_PKG_JSON))
+            .context(format!("Failed to load {:?}", dir.join(MOON_PKG_JSON)))
+    } else {
         bail!("`{:?}` does not exist", dir.join(MOON_PKG_JSON));
     }
-    read_package_from_json(&dir.join(MOON_PKG_JSON))
-        .context(format!("Failed to load {:?}", dir.join(MOON_PKG_JSON)))
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, ValueEnum, Default)]
@@ -374,7 +400,7 @@ impl TargetBackend {
         }
     }
 
-    pub fn hashset_to_string(backends: &HashSet<TargetBackend>) -> String {
+    pub fn indexset_to_string(backends: &indexmap::IndexSet<TargetBackend>) -> String {
         let mut backends = backends
             .iter()
             .map(|b| b.to_flag().to_string())
@@ -1183,7 +1209,7 @@ pub fn gen_moonbitlang_abort_pkg(moonc_opt: &MooncOpt) -> Package {
         bin_name: None,
         bin_target: moonc_opt.link_opt.target_backend,
         enable_value_tracing: false,
-        supported_targets: HashSet::from_iter([moonc_opt.link_opt.target_backend]),
+        supported_targets: indexmap::IndexSet::from_iter([moonc_opt.link_opt.target_backend]),
         stub_lib: None,
         virtual_pkg: Some(VirtualPkg { has_default: true }),
         virtual_mbti_file: Some(root_path.join("abort.mbti")),

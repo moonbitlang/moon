@@ -28,9 +28,9 @@
 //! This mirrors the legacy path in `moon/src/cli/test.rs:get_module_for_single_file`
 //! where it programmatically enumerates imports for the synthetic single-file package.
 
-use std::collections::HashSet;
 use std::path::Path;
 
+use indexmap::IndexSet;
 use moonutil::common::TargetBackend;
 use moonutil::mooncakes::result::ResolvedEnv;
 use moonutil::package::{Import, MoonPkg, MoonPkgFormatter};
@@ -83,7 +83,7 @@ pub fn build_synth_single_file_package(
     }
 
     // Construct MoonPkg for synthetic package
-    let mut supported = HashSet::new();
+    let mut supported = IndexSet::new();
     for &b in TargetBackend::all() {
         supported.insert(b);
     }

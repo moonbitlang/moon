@@ -1,0 +1,10 @@
+{
+  "name": "user/mod",
+  "version": "0.1.0",
+  "deps": {},
+  "readme": "README.mbt.md",
+  "repository": "",
+  "license": "Apache-2.0",
+  "keywords": [],
+  "description": ""
+}

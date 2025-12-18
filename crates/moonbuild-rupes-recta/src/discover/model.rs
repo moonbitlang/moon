@@ -24,7 +24,7 @@ use std::{
 };
 
 use moonbuild::expect::PackageSrcResolver;
-use moonutil::common::{MOON_PKG_JSON, TargetBackend};
+use moonutil::common::{MOON_PKG, MOON_PKG_JSON, TargetBackend};
 use moonutil::mooncakes::{ModuleId, ModuleSource};
 use moonutil::package::MoonPkg;
 use slotmap::{SecondaryMap, SlotMap};
@@ -85,11 +85,17 @@ pub struct DiscoveredPackage {
 }
 
 impl DiscoveredPackage {
-    /// Get the configuration file `moon.pkg.json` of this package
+    /// Get the configuration file `moon.pkg.json` or `moon.pkg` of this package
     ///
     /// This function assumes regular project layout.
+    /// Prefers `moon.pkg` (DSL format) if it exists, otherwise falls back to `moon.pkg.json`.
     pub fn config_path(&self) -> PathBuf {
-        self.root_path.join(MOON_PKG_JSON)
+        if self.root_path.join(MOON_PKG).exists() {
+            self.root_path.join(MOON_PKG)
+        } else {
+            // Default to JSON format (for backward compatibility and single-file scenarios)
+            self.root_path.join(MOON_PKG_JSON)
+        }
     }
 
     /// Get whether if the package is a virtual package

@@ -31,6 +31,7 @@ pub mod special_case;
 pub mod synth;
 
 pub use model::{DiscoverError, DiscoverResult, DiscoveredPackage};
+use moonutil::common::is_moon_pkg_exist;
 
 use std::path::{Path, PathBuf};
 
@@ -174,8 +175,7 @@ pub(crate) fn discover_packages_for_mod(
         }
 
         // Check if this directory is a package
-        let pkg_json_path = abs_path.join(MOON_PKG_JSON);
-        if !pkg_json_path.exists() {
+        if !is_moon_pkg_exist(abs_path) {
             debug!(
                 "Skipping {} because it does not contain {}",
                 abs_path.display(),
