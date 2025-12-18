@@ -239,11 +239,11 @@ pub fn read_module_desc_file_in_dir(dir: &Path) -> anyhow::Result<MoonMod> {
 }
 
 pub fn read_package_desc_file_in_dir(dir: &Path) -> anyhow::Result<MoonPkg> {
-    if dir.join(MOON_PKG_JSON).exists() {
+    if dir.join(MOON_PKG).exists() {
+        read_package_from_dsl(&dir.join(MOON_PKG))
+    } else if dir.join(MOON_PKG_JSON).exists() {
         read_package_from_json(&dir.join(MOON_PKG_JSON))
             .context(format!("Failed to load {:?}", dir.join(MOON_PKG_JSON)))
-    } else if dir.join(MOON_PKG).exists() {
-        read_package_from_dsl(&dir.join(MOON_PKG))
     } else {
         bail!("`{:?}` does not exist", dir.join(MOON_PKG_JSON));
     }
