@@ -16,7 +16,8 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
+use std::time::{SystemTime, UNIX_EPOCH};
 
 use colored::Colorize;
 use moonutil::{
@@ -47,6 +48,19 @@ fn clone_registry_index(
     registry_config: &RegistryConfig,
     target_dir: &Path,
 ) -> Result<(), CloneRegistryIndexError> {
+    // Ensure parent directory exists (e.g. `$MOON_HOME/registry`).
+    // `git clone <url> <target_dir>` does not create intermediate directories.
+    let Some(parent) = target_dir.parent() else {
+        return Err(CloneRegistryIndexError {
+            source: CloneRegistryIndexErrorKind::IO(std::io::Error::other(
+                "registry index directory has no parent",
+            )),
+        });
+    };
+    std::fs::create_dir_all(parent).map_err(|e| CloneRegistryIndexError {
+        source: CloneRegistryIndexErrorKind::IO(e),
+    })?;
+
     let mut child = moonutil::git::git_command(
         &[
             "clone",
@@ -67,6 +81,89 @@ fn clone_registry_index(
             source: CloneRegistryIndexErrorKind::NonZeroExitCode(status),
         });
     }
+    Ok(())
+}
+
+/// Create a unique sibling directory name under `parent`.
+///
+/// NOTE: We intentionally avoid using `tempfile` here to keep dependencies minimal.
+fn unique_sibling_dir(parent: &Path, prefix: &str) -> std::io::Result<PathBuf> {
+    // SAFETY/ROBUSTNESS:
+    // - Use pid + timestamp to minimize collision risk.
+    // - Retry a few times if a collision happens (e.g. parallel processes).
+    let pid = std::process::id();
+    for _ in 0..10 {
+        let nanos = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_nanos();
+        let p = parent.join(format!("{prefix}.{pid}.{nanos}"));
+        if !p.exists() {
+            return Ok(p);
+        }
+    }
+    Err(std::io::Error::new(
+        std::io::ErrorKind::AlreadyExists,
+        "failed to create a unique temp directory name",
+    ))
+}
+
+/// Re-clone the registry index without risking data loss.
+///
+/// The old index directory is kept until the new clone succeeds, then swapped in.
+fn safe_reclone_registry_index(
+    registry_config: &RegistryConfig,
+    target_dir: &Path,
+) -> Result<(), UpdateError> {
+    // Determine parent directory so we can `rename` within the same filesystem.
+    let Some(parent) = target_dir.parent() else {
+        return Err(UpdateError {
+            source: UpdateErrorKind::IO(std::io::Error::other(
+                "registry index directory has no parent",
+            )),
+        });
+    };
+
+    // Clone into a fresh sibling directory first.
+    let tmp_dir = unique_sibling_dir(parent, ".registry-index.tmp").map_err(|e| UpdateError {
+        source: UpdateErrorKind::IO(e),
+    })?;
+    let clone_res = clone_registry_index(registry_config, &tmp_dir).map_err(|e| UpdateError {
+        source: UpdateErrorKind::CloneRegistryIndexError(e),
+    });
+    if let Err(e) = clone_res {
+        // Best effort cleanup; ignore errors.
+        let _ = std::fs::remove_dir_all(&tmp_dir);
+        return Err(e);
+    }
+
+    // Swap: move old -> backup, move tmp -> target, then delete backup.
+    let backup_dir =
+        unique_sibling_dir(parent, ".registry-index.old").map_err(|e| UpdateError {
+            source: UpdateErrorKind::IO(e),
+        })?;
+    std::fs::rename(target_dir, &backup_dir).map_err(|e| UpdateError {
+        source: UpdateErrorKind::IO(e),
+    })?;
+
+    if let Err(e) = std::fs::rename(&tmp_dir, target_dir) {
+        // Best effort rollback: restore original index.
+        let _ = std::fs::rename(&backup_dir, target_dir);
+        // Best effort cleanup.
+        let _ = std::fs::remove_dir_all(&tmp_dir);
+        return Err(UpdateError {
+            source: UpdateErrorKind::IO(e),
+        });
+    }
+
+    if let Err(e) = std::fs::remove_dir_all(&backup_dir) {
+        eprintln!(
+            "{}: failed to remove old registry index at `{}`: {e}",
+            "Warning".yellow().bold(),
+            backup_dir.display()
+        );
+    }
+
     Ok(())
 }
 
@@ -184,12 +281,7 @@ pub fn update(target_dir: &Path, registry_config: &RegistryConfig) -> anyhow::Re
                         "failed to update registry, {}",
                         "re-cloning".bold().yellow()
                     );
-                    std::fs::remove_dir_all(target_dir).map_err(|e| UpdateError {
-                        source: UpdateErrorKind::IO(e),
-                    })?;
-                    clone_registry_index(registry_config, target_dir).map_err(|e| UpdateError {
-                        source: UpdateErrorKind::CloneRegistryIndexError(e),
-                    })?;
+                    safe_reclone_registry_index(registry_config, target_dir)?;
                     eprintln!("{}", "Registry index re-cloned successfully".bold().green());
                     Ok(0)
                 }
@@ -203,12 +295,7 @@ pub fn update(target_dir: &Path, registry_config: &RegistryConfig) -> anyhow::Re
                 "Registry index is not cloned from the same URL, {}",
                 "re-cloning".yellow().bold()
             );
-            std::fs::remove_dir_all(target_dir).map_err(|e| UpdateError {
-                source: UpdateErrorKind::IO(e),
-            })?;
-            clone_registry_index(registry_config, target_dir).map_err(|e| UpdateError {
-                source: UpdateErrorKind::CloneRegistryIndexError(e),
-            })?;
+            safe_reclone_registry_index(registry_config, target_dir)?;
             eprintln!("{}", "Registry index re-cloned successfully".bold().green());
             Ok(0)
         }
