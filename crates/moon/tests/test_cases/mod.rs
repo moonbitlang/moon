@@ -40,6 +40,7 @@ mod check_fmt;
 mod circle_pkg_ab_001_test;
 mod cond_comp;
 mod debug_flag_test;
+mod dedup_diag;
 mod dep_order;
 mod design;
 mod diagnostics_format;
