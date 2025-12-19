@@ -76,13 +76,13 @@ pub fn add_cli(cli: UniversalFlags, cmd: AddSubcommand) -> anyhow::Result<i32> {
         match mooncake::update::update(&index_dir, &registry_config) {
             Ok(_) => index_updated = true,
             Err(e) => {
-            if had_index {
-                eprintln!(
-                    "{}: failed to update registry index, continuing with existing index: {e}",
-                    "Warning".yellow().bold(),
-                );
-            } else {
-                return Err(e);
+                if had_index {
+                    eprintln!(
+                        "{}: failed to update registry index, continuing with existing index: {e}",
+                        "Warning".yellow().bold(),
+                    );
+                } else {
+                    return Err(e);
                 }
             }
         }
