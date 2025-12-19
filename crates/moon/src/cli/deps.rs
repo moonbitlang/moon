@@ -17,6 +17,7 @@
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
 use anyhow::bail;
+use colored::Colorize;
 use mooncake::pkg::{
     add::AddSubcommand, install::InstallSubcommand, remove::RemoveSubcommand, tree::TreeSubcommand,
 };
@@ -62,6 +63,31 @@ pub fn add_cli(cli: UniversalFlags, cmd: AddSubcommand) -> anyhow::Result<i32> {
         source_dir,
         target_dir,
     } = cli.source_tgt_dir.try_into_package_dirs()?;
+
+    // Update registry index by default (issue #963).
+    // - `--no-update` keeps the previous behavior.
+    // - If an index already exists, update failures are treated as warnings so users can proceed
+    //   with the existing local index.
+    let index_dir = moonutil::moon_dir::index();
+    let mut index_updated = false;
+    if !cmd.no_update {
+        let had_index = index_dir.exists();
+        let registry_config = RegistryConfig::load();
+        match mooncake::update::update(&index_dir, &registry_config) {
+            Ok(_) => index_updated = true,
+            Err(e) => {
+                if had_index {
+                    eprintln!(
+                        "{}: failed to update registry index, continuing with existing index: {e}",
+                        "Warning".yellow().bold(),
+                    );
+                } else {
+                    return Err(e);
+                }
+            }
+        }
+    }
+
     let package_path = cmd.package_path;
 
     let parts: Vec<&str> = package_path.splitn(2, '@').collect();
@@ -86,10 +112,17 @@ pub fn add_cli(cli: UniversalFlags, cmd: AddSubcommand) -> anyhow::Result<i32> {
             &pkg_name,
             cmd.bin,
             &version,
-            false,
+            cli.quiet,
         )
     } else {
-        mooncake::pkg::add::add_latest(&source_dir, &target_dir, &pkg_name, cmd.bin, false)
+        mooncake::pkg::add::add_latest(
+            &source_dir,
+            &target_dir,
+            &pkg_name,
+            cmd.bin,
+            cli.quiet,
+            index_updated,
+        )
     }
 }
 
