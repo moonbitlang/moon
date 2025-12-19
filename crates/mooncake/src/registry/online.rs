@@ -40,7 +40,7 @@ impl OnlineRegistry {
     pub fn mooncakes_io() -> Self {
         OnlineRegistry {
             index: moonutil::moon_dir::index(),
-            url_base: "https://moonbitlang-mooncakes.s3.us-west-2.amazonaws.com/user".to_string(),
+            url_base: "https://download.mooncakes.io/user".to_string(),
             cache: RefCell::new(HashMap::new()),
         }
     }
