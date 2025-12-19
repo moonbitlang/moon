@@ -27,6 +27,7 @@ use std::{
 use anyhow::bail;
 use moonutil::module::{MoonMod, MoonModJSON};
 use moonutil::{common::execute_postadd_script, mooncakes::ModuleName};
+use reqwest::header::USER_AGENT;
 use semver::Version;
 
 pub struct OnlineRegistry {
@@ -196,7 +197,16 @@ impl OnlineRegistry {
             .append_key_only(&format!("{}/{}/{}", name.username, name.unqual, version))
             .finish();
         let url = format!("{}/{}.zip", self.url_base, filepath);
-        let data = reqwest::blocking::get(url)?.error_for_status()?.bytes()?;
+        let client = reqwest::blocking::Client::new();
+        let data = client
+            .get(url)
+            .header(
+                USER_AGENT,
+                format!("mooncake/{}", env!("CARGO_PKG_VERSION")),
+            )
+            .send()?
+            .error_for_status()?
+            .bytes()?;
         std::fs::create_dir_all(cache_file.parent().unwrap())?;
         std::fs::write(cache_file, &data)?;
         Ok(data)
