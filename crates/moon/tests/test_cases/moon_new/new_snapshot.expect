@@ -94,6 +94,7 @@ jobs:
 
 === ./.gitignore ===
 .DS_Store
+_build/
 target/
 .mooncakes/
 .moonagent/

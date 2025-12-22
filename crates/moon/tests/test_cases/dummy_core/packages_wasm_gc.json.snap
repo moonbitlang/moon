@@ -103,7 +103,7 @@
           "fspath": "$ROOT/prelude"
         }
       ],
-      "artifact": "$ROOT/target/wasm-gc/release/check/0/0.mi"
+      "artifact": "$ROOT/_build/wasm-gc/release/check/0/0.mi"
     },
     {
       "is-main": false,
@@ -175,7 +175,7 @@
           "fspath": "$ROOT/prelude"
         }
       ],
-      "artifact": "$ROOT/target/wasm-gc/release/check/1/1.mi"
+      "artifact": "$ROOT/_build/wasm-gc/release/check/1/1.mi"
     },
     {
       "is-main": false,
@@ -216,7 +216,7 @@
           "fspath": "$ROOT/prelude"
         }
       ],
-      "artifact": "$ROOT/target/wasm-gc/release/check/2/2.mi"
+      "artifact": "$ROOT/_build/wasm-gc/release/check/2/2.mi"
     },
     {
       "is-main": false,
@@ -243,7 +243,7 @@
           "fspath": "$ROOT/prelude"
         }
       ],
-      "artifact": "$ROOT/target/wasm-gc/release/check/char/char.mi"
+      "artifact": "$ROOT/_build/wasm-gc/release/check/char/char.mi"
     },
     {
       "is-main": false,
@@ -264,7 +264,7 @@
           "fspath": "$ROOT/prelude"
         }
       ],
-      "artifact": "$ROOT/target/wasm-gc/release/check/coverage/coverage.mi"
+      "artifact": "$ROOT/_build/wasm-gc/release/check/coverage/coverage.mi"
     },
     {
       "is-main": false,
@@ -297,7 +297,7 @@
           "fspath": "$ROOT/prelude"
         }
       ],
-      "artifact": "$ROOT/target/wasm-gc/release/check/iter/iter.mi"
+      "artifact": "$ROOT/_build/wasm-gc/release/check/iter/iter.mi"
     },
     {
       "is-main": false,
@@ -312,7 +312,7 @@
       "deps": [],
       "wbtest-deps": [],
       "test-deps": [],
-      "artifact": "$ROOT/target/wasm-gc/release/check/prelude/prelude.mi"
+      "artifact": "$ROOT/_build/wasm-gc/release/check/prelude/prelude.mi"
     }
   ],
   "deps": [],
