@@ -167,7 +167,7 @@ fn test_moon_dir() {
     expect![[r#"
         [
             "",
-            "lib|core|target|wasm-gc|release|bundle",
+            "lib|core|_build|wasm-gc|release|bundle",
             "registry|cache",
             "registry|index",
             "credentials.json",

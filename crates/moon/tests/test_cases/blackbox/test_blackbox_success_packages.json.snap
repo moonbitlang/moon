@@ -75,7 +75,7 @@
           "fspath": "$ROOT/C"
         }
       ],
-      "artifact": "$ROOT/target/wasm-gc/release/check/A/A.mi"
+      "artifact": "$ROOT/_build/wasm-gc/release/check/A/A.mi"
     },
     {
       "is-main": false,
@@ -104,7 +104,7 @@
       "deps": [],
       "wbtest-deps": [],
       "test-deps": [],
-      "artifact": "$ROOT/target/wasm-gc/release/check/B/B.mi"
+      "artifact": "$ROOT/_build/wasm-gc/release/check/B/B.mi"
     },
     {
       "is-main": false,
@@ -133,7 +133,7 @@
       "deps": [],
       "wbtest-deps": [],
       "test-deps": [],
-      "artifact": "$ROOT/target/wasm-gc/release/check/C/C.mi"
+      "artifact": "$ROOT/_build/wasm-gc/release/check/C/C.mi"
     },
     {
       "is-main": false,
@@ -162,7 +162,7 @@
       "deps": [],
       "wbtest-deps": [],
       "test-deps": [],
-      "artifact": "$ROOT/target/wasm-gc/release/check/D/D.mi"
+      "artifact": "$ROOT/_build/wasm-gc/release/check/D/D.mi"
     },
     {
       "is-main": true,
@@ -191,7 +191,7 @@
       "deps": [],
       "wbtest-deps": [],
       "test-deps": [],
-      "artifact": "$ROOT/target/wasm-gc/release/check/main/main.mi"
+      "artifact": "$ROOT/_build/wasm-gc/release/check/main/main.mi"
     }
   ],
   "deps": [],

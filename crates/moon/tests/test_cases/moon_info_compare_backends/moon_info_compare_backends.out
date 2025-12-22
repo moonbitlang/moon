@@ -2,8 +2,8 @@
 # Package username/hello/lib has diverging interfaces across backends:
 #
 # ---
---- username/hello/lib WasmGC ($ROOT/target/wasm-gc/release/check/lib/lib.mbti)
-+++ username/hello/lib Wasm ($ROOT/target/wasm/release/check/lib/lib.mbti)
+--- username/hello/lib WasmGC ($ROOT/_build/wasm-gc/release/check/lib/lib.mbti)
++++ username/hello/lib Wasm ($ROOT/_build/wasm/release/check/lib/lib.mbti)
 @@ -5,5 +5,5 @@
  pub fn hello() -> String
  
@@ -13,8 +13,8 @@
  // Errors
 #
 # ---
---- username/hello/lib WasmGC ($ROOT/target/wasm-gc/release/check/lib/lib.mbti)
-+++ username/hello/lib Js ($ROOT/target/js/release/check/lib/lib.mbti)
+--- username/hello/lib WasmGC ($ROOT/_build/wasm-gc/release/check/lib/lib.mbti)
++++ username/hello/lib Js ($ROOT/_build/js/release/check/lib/lib.mbti)
 @@ -5,5 +5,5 @@
  pub fn hello() -> String
  
@@ -24,8 +24,8 @@
  // Errors
 #
 # ---
---- username/hello/lib WasmGC ($ROOT/target/wasm-gc/release/check/lib/lib.mbti)
-+++ username/hello/lib Native ($ROOT/target/native/release/check/lib/lib.mbti)
+--- username/hello/lib WasmGC ($ROOT/_build/wasm-gc/release/check/lib/lib.mbti)
++++ username/hello/lib Native ($ROOT/_build/native/release/check/lib/lib.mbti)
 @@ -5,5 +5,5 @@
  pub fn hello() -> String
  

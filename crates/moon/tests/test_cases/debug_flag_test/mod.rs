@@ -414,9 +414,9 @@ fn assert_moonrun_line(output: &str, release: bool) {
     let empty: &[&str] = &[];
     let line = line_with(output, "moonrun", empty);
     let target_prefix = if release {
-        "target/wasm-gc/release/"
+        "_build/wasm-gc/release/"
     } else {
-        "target/wasm-gc/debug/"
+        "_build/wasm-gc/debug/"
     };
     assert!(
         line.contains(target_prefix),
