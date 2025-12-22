@@ -618,9 +618,12 @@ impl MooncOpt {
 
 pub const DEP_PATH: &str = ".mooncakes";
 
-pub const BUILD_DIR: &str = "target";
+pub const BUILD_DIR: &str = "_build";
 
-pub const IGNORE_DIRS: &[&str] = &[BUILD_DIR, ".git", "node_modules", DEP_PATH];
+/// Legacy build directory name, kept for backwards compatibility via symlink
+pub const LEGACY_BUILD_DIR: &str = "target";
+
+pub const IGNORE_DIRS: &[&str] = &[BUILD_DIR, LEGACY_BUILD_DIR, ".git", "node_modules", DEP_PATH];
 
 pub fn dialoguer_ctrlc_handler() {
     // Fix cursor disappears after ctrc+c
