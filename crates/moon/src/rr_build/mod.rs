@@ -672,8 +672,8 @@ pub struct BuildConfig {
     /// The level of parallelism to use. If `None`, will use the number of
     /// available CPU cores.
     parallelism: Option<usize>,
-    /// Skip rendering compiler diagnostics to console
-    no_render: bool,
+    /// The output style for errors and warnings
+    output_style: crate::cli::OutputStyle,
     /// Render no-location diagnostics above this level
     render_no_loc: DiagnosticLevel,
 
@@ -697,7 +697,7 @@ impl BuildConfig {
     pub fn from_flags(flags: &BuildFlags, unstable_features: &FeatureGate, verbose: bool) -> Self {
         BuildConfig {
             parallelism: flags.jobs,
-            no_render: flags.output_style().needs_no_render(),
+            output_style: flags.output_style(),
             render_no_loc: flags.render_no_loc,
             generate_metadata: false,
             explain_errors: false,
@@ -712,7 +712,7 @@ impl Default for BuildConfig {
     fn default() -> Self {
         Self {
             parallelism: None,
-            no_render: false,
+            output_style: crate::cli::OutputStyle::Raw,
             render_no_loc: DiagnosticLevel::Error,
             generate_metadata: false,
             explain_errors: false,
@@ -804,15 +804,16 @@ pub fn execute_build_partial(
         .unwrap();
 
     let result_catcher = Arc::new(Mutex::new(ResultCatcher::default()));
-    let mut prog_console = if cfg.no_render {
-        create_progress_console(Some(Box::new(no_render_callback())), cfg.verbose)
-    } else {
-        create_progress_console(
+    let mut prog_console = match cfg.output_style {
+        crate::cli::OutputStyle::Raw => {
+            create_progress_console(Some(Box::new(no_render_callback())), cfg.verbose)
+        }
+        crate::cli::OutputStyle::Fancy | crate::cli::OutputStyle::Json => create_progress_console(
             Some(Box::new(capture_diagnostics_callback(Arc::clone(
                 &result_catcher,
             )))),
             cfg.verbose,
-        )
+        ),
     };
     let mut work = n2::work::Work::new(
         build_graph,
@@ -872,7 +873,7 @@ fn no_render_callback() -> impl Fn(&str) {
 
 fn process_captured_diagnostics(catcher: &mut ResultCatcher, cfg: &BuildConfig) {
     let mut unprocessed = vec![];
-    let mut by_file = BTreeMap::<String, BTreeSet<MooncDiagnostic>>::new();
+    let mut by_file = BTreeMap::<String, BTreeSet<(MooncDiagnostic, String)>>::new();
     for content in &catcher.content_writer {
         match serde_json::from_str::<moonutil::render::MooncDiagnostic>(content) {
             Ok(d) => {
@@ -882,7 +883,10 @@ fn process_captured_diagnostics(catcher: &mut ResultCatcher, cfg: &BuildConfig) 
                     unprocessed.push(content.clone());
                 } else {
                     let file_key = d.location.path.clone();
-                    by_file.entry(file_key).or_default().insert(d);
+                    by_file
+                        .entry(file_key)
+                        .or_default()
+                        .insert((d, content.clone()));
                 }
             }
             Err(_) => {
@@ -893,15 +897,25 @@ fn process_captured_diagnostics(catcher: &mut ResultCatcher, cfg: &BuildConfig) 
         };
     }
 
-    for file_diagnostics in by_file.values() {
-        for diag in file_diagnostics {
-            let kind = diag.render_diagnostics(
-                n2::terminal::use_fancy(),
-                cfg.patch_file.clone(),
-                cfg.explain_errors,
-                cfg.render_no_loc,
-            );
-            catcher.append_kind(kind);
+    if cfg.output_style == crate::cli::OutputStyle::Json {
+        // In JSON mode, just print raw content after dedup
+        for file_diagnostics in by_file.values() {
+            for (diag, content) in file_diagnostics {
+                println!("{content}");
+                catcher.append_diag(diag);
+            }
+        }
+    } else if cfg.output_style == crate::cli::OutputStyle::Fancy {
+        for file_diagnostics in by_file.values() {
+            for (diag, _content) in file_diagnostics {
+                let kind = diag.render_diagnostics(
+                    n2::terminal::use_fancy(),
+                    cfg.patch_file.clone(),
+                    cfg.explain_errors,
+                    cfg.render_no_loc,
+                );
+                catcher.append_kind(kind);
+            }
         }
     }
 

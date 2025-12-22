@@ -12,10 +12,6 @@ fn test_moon_test_json_output() {
             {"$message_type":"diagnostic","level":"warning","loc":{"path":"$ROOT/lib/hello.mbt","start":{"line":4,"col":7},"end":{"line":4,"col":8}},"message":"Warning (unused_value): Unused variable 'a'","error_code":2}
             {"$message_type":"diagnostic","level":"warning","loc":{"path":"$ROOT/lib/hello.mbt","start":{"line":11,"col":7},"end":{"line":11,"col":9}},"message":"Warning (unused_value): Unused variable '中文'","error_code":2}
             {"$message_type":"diagnostic","level":"warning","loc":{"path":"$ROOT/lib/hello.mbt","start":{"line":12,"col":7},"end":{"line":12,"col":12}},"message":"Warning (unused_value): Unused variable '🤣😭🤣😭🤣'","error_code":2}
-            {"$message_type":"diagnostic","level":"warning","loc":{"path":"$ROOT/lib/hello.mbt","start":{"line":4,"col":7},"end":{"line":4,"col":8}},"message":"Warning (unused_value): Unused variable 'a'","error_code":2}
-            {"$message_type":"diagnostic","level":"warning","loc":{"path":"$ROOT/lib/hello.mbt","start":{"line":11,"col":7},"end":{"line":11,"col":9}},"message":"Warning (unused_value): Unused variable '中文'","error_code":2}
-            {"$message_type":"diagnostic","level":"warning","loc":{"path":"$ROOT/lib/hello.mbt","start":{"line":12,"col":7},"end":{"line":12,"col":12}},"message":"Warning (unused_value): Unused variable '🤣😭🤣😭🤣'","error_code":2}
-            {"$message_type":"diagnostic","level":"warning","loc":{"path":"$ROOT/main/main.mbt","start":{"line":2,"col":7},"end":{"line":2,"col":8}},"message":"Warning (unused_value): Unused variable 'a'","error_code":2}
             {"$message_type":"diagnostic","level":"warning","loc":{"path":"$ROOT/main/main.mbt","start":{"line":2,"col":7},"end":{"line":2,"col":8}},"message":"Warning (unused_value): Unused variable 'a'","error_code":2}
         "#]],
     );
