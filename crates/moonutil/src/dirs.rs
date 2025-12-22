@@ -29,7 +29,8 @@ use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
 use crate::common::{
-    IGNORE_DIRS, MOON_MOD_JSON, MooncOpt, RunMode, get_moon_version, get_moonc_version, is_moon_pkg,
+    BUILD_DIR, IGNORE_DIRS, MOON_MOD_JSON, MooncOpt, RunMode, get_moon_version, get_moonc_version,
+    is_moon_pkg,
 };
 
 const MOON_DB: &str = "moon.db";
@@ -91,7 +92,7 @@ fn get_src_dst_dir(matches: &SourceTargetDirs) -> Result<PackageDirs, PackageDir
     let target_dir = matches
         .target_dir
         .clone()
-        .unwrap_or_else(|| project_root.join("target"));
+        .unwrap_or_else(|| project_root.join(BUILD_DIR));
     if !target_dir.exists() {
         std::fs::create_dir_all(&target_dir)
             .context("failed to create target directory")

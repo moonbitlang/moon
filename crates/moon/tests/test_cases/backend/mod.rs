@@ -1,4 +1,5 @@
 use super::*;
+use moonutil::common::BUILD_DIR;
 
 #[test]
 #[ignore = "not implemented"]
@@ -83,7 +84,7 @@ fn test_js_format() {
     assert!(get_link_core_of("lib3").contains("-js-format iife"));
 
     let _ = get_stdout(&dir, ["build", "--target", "js", "--nostd"]);
-    let t = dir.join("target").join("js").join("release").join("build");
+    let t = dir.join(BUILD_DIR).join("js").join("release").join("build");
     check(
         std::fs::read_to_string(t.join("lib0").join("lib0.js"))
             .unwrap()

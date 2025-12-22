@@ -31,7 +31,7 @@ use moonbuild_rupes_recta::model::PackageId;
 use mooncake::pkg::sync::auto_sync;
 use mooncake::pkg::sync::auto_sync_for_single_mbt_md;
 use moonutil::common::PrePostBuild;
-use moonutil::common::{BLACKBOX_TEST_DRIVER, DOT_MBT_DOT_MD, SINGLE_FILE_TEST_PACKAGE};
+use moonutil::common::{BLACKBOX_TEST_DRIVER, BUILD_DIR, DOT_MBT_DOT_MD, SINGLE_FILE_TEST_PACKAGE};
 use moonutil::common::{
     FileLock, GeneratedTestDriver, MOONBITLANG_CORE, MbtMdHeader, MoonbuildOpt, MooncOpt,
     OutputFormat, RunMode, TargetBackend, TestOpt, lower_surface_targets,
@@ -266,7 +266,7 @@ fn run_test_in_single_file(cli: &UniversalFlags, cmd: &TestSubcommand) -> anyhow
         .parent()
         .context("file path must have a parent directory")?
         .to_path_buf();
-    let raw_target_dir = source_dir.join("target");
+    let raw_target_dir = source_dir.join(BUILD_DIR);
     info!(path = %single_file_path.display(), update = cmd.update, build_only = cmd.build_only, "running tests in single-file mode");
     debug!(source = %source_dir.display(), raw_target_dir = %raw_target_dir.display(), "prepared single-file directories");
 
@@ -398,7 +398,7 @@ fn run_test_in_single_file_rr(cli: &UniversalFlags, cmd: &TestSubcommand) -> any
         .parent()
         .context("file path must have a parent directory")?
         .to_path_buf();
-    let raw_target_dir = source_dir.join("target");
+    let raw_target_dir = source_dir.join(BUILD_DIR);
     std::fs::create_dir_all(&raw_target_dir)
         .context("failed to create target directory for single-file test")?;
     let mut cmd = cmd.clone();
