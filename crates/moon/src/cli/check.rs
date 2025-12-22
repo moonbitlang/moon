@@ -27,7 +27,7 @@ use moonutil::common::{FileLock, TargetBackend};
 use moonutil::common::{MoonbuildOpt, PrePostBuild};
 use moonutil::common::{MooncOpt, OutputFormat, RunMode};
 use moonutil::common::{WATCH_MODE_DIR, parse_front_matter_config};
-use moonutil::dirs::mk_arch_mode_dir;
+use moonutil::dirs::{create_legacy_symlink, mk_arch_mode_dir};
 use moonutil::mooncakes::RegistryConfig;
 use moonutil::mooncakes::sync::AutoSyncFlags;
 use std::path::{Path, PathBuf};
@@ -185,6 +185,7 @@ fn run_check_for_single_file_rr(
         .to_path_buf();
     let raw_target_dir = source_dir.join(BUILD_DIR);
     std::fs::create_dir_all(&raw_target_dir).context("failed to create target directory")?;
+    create_legacy_symlink(&source_dir);
 
     let mut cmd = cmd.clone();
 

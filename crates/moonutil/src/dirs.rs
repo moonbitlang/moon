@@ -79,7 +79,7 @@ fn find_ancestor_with_mod(source_dir: &Path) -> Option<PathBuf> {
 /// Creates a backwards compatibility symlink from "target" -> "_build"
 /// This allows existing tools and scripts that reference "target" to continue working.
 /// Symlink creation failures are non-fatal and only produce warnings.
-fn create_legacy_symlink(project_root: &Path) {
+pub fn create_legacy_symlink(project_root: &Path) {
     let symlink_path = project_root.join(LEGACY_BUILD_DIR);
     let target_path = Path::new(BUILD_DIR);
 

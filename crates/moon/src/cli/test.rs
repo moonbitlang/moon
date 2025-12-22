@@ -39,7 +39,7 @@ use moonutil::common::{
 };
 use moonutil::cond_expr::CompileCondition;
 use moonutil::cond_expr::OptLevel;
-use moonutil::dirs::mk_arch_mode_dir;
+use moonutil::dirs::{create_legacy_symlink, mk_arch_mode_dir};
 use moonutil::module::ModuleDB;
 use moonutil::mooncakes::RegistryConfig;
 use moonutil::mooncakes::sync::AutoSyncFlags;
@@ -401,6 +401,7 @@ fn run_test_in_single_file_rr(cli: &UniversalFlags, cmd: &TestSubcommand) -> any
     let raw_target_dir = source_dir.join(BUILD_DIR);
     std::fs::create_dir_all(&raw_target_dir)
         .context("failed to create target directory for single-file test")?;
+    create_legacy_symlink(&source_dir);
     let mut cmd = cmd.clone();
 
     cmd.build_flags.populate_target_backend_from_list()?;
