@@ -44,10 +44,16 @@ pub fn run_clean(cli: &UniversalFlags) -> anyhow::Result<i32> {
             .context("failed to remove target directory")?;
     }
 
-    // Also remove the legacy "target" symlink if it exists
+    // Also remove the legacy "target" symlink/directory if it exists
     let legacy_target_path = src_tgt.source_dir.join(LEGACY_BUILD_DIR);
     if legacy_target_path.is_symlink() {
+        // On Unix, symlinks are removed with remove_file
+        // On Windows, directory symlinks are removed with remove_dir
+        #[cfg(unix)]
         std::fs::remove_file(&legacy_target_path)
+            .context("failed to remove legacy target symlink")?;
+        #[cfg(windows)]
+        std::fs::remove_dir(&legacy_target_path)
             .context("failed to remove legacy target symlink")?;
     } else if legacy_target_path.is_dir() {
         // Handle case where "target" is an actual directory (e.g., from older moon versions)
