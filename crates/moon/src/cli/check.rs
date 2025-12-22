@@ -22,7 +22,7 @@ use moonbuild::{dry_run, entry};
 use moonbuild_rupes_recta::intent::UserIntent;
 use mooncake::pkg::sync::auto_sync;
 use moonutil::cli::UniversalFlags;
-use moonutil::common::{CheckOpt, lower_surface_targets};
+use moonutil::common::{BUILD_DIR, CheckOpt, lower_surface_targets};
 use moonutil::common::{FileLock, TargetBackend};
 use moonutil::common::{MoonbuildOpt, PrePostBuild};
 use moonutil::common::{MooncOpt, OutputFormat, RunMode};
@@ -117,7 +117,7 @@ pub fn run_check(cli: &UniversalFlags, cmd: &CheckSubcommand) -> anyhow::Result<
                     .parent()
                     .context("file path must have a parent directory")?
                     .to_path_buf();
-                let target_dir = source_dir.join("target");
+                let target_dir = source_dir.join(BUILD_DIR);
                 (source_dir, target_dir, true)
             } else {
                 return Err(e.into());
@@ -183,7 +183,7 @@ fn run_check_for_single_file_rr(
         .parent()
         .context("file path must have a parent directory")?
         .to_path_buf();
-    let raw_target_dir = source_dir.join("target");
+    let raw_target_dir = source_dir.join(BUILD_DIR);
     std::fs::create_dir_all(&raw_target_dir).context("failed to create target directory")?;
 
     let mut cmd = cmd.clone();
@@ -289,7 +289,7 @@ fn run_check_for_single_file_legacy(
         .parent()
         .context("file path must have a parent directory")?
         .to_path_buf();
-    let raw_target_dir = source_dir.join("target");
+    let raw_target_dir = source_dir.join(BUILD_DIR);
 
     let mbt_md_header = parse_front_matter_config(&single_file_path)?;
     let target_backend = if let Some(moonutil::common::MbtMdHeader {

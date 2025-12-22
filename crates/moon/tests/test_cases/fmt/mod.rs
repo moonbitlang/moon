@@ -1,4 +1,5 @@
 use super::*;
+use moonutil::common::BUILD_DIR;
 
 #[test]
 fn test_moon_fmt() {
@@ -81,7 +82,7 @@ fn test_moon_fmt_002() {
     );
     check(
         read(
-            dir.join("target")
+            dir.join(BUILD_DIR)
                 .join(TargetBackend::default().to_dir_name())
                 .join("release")
                 .join("format")
@@ -97,7 +98,7 @@ fn test_moon_fmt_002() {
     );
     check(
         read(
-            dir.join("target")
+            dir.join(BUILD_DIR)
                 .join(TargetBackend::default().to_dir_name())
                 .join("release")
                 .join("format")

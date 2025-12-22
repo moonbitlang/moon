@@ -1,4 +1,5 @@
 use super::*;
+use moonutil::common::BUILD_DIR;
 
 #[test]
 fn test_hello() {
@@ -10,7 +11,7 @@ fn test_hello() {
         "#]],
     );
     check(
-        dir.join("target")
+        dir.join(BUILD_DIR)
             .join("common")
             .join(".moon-lock")
             .exists()

@@ -25,7 +25,7 @@ use super::*;
 use expect_test::expect;
 use moonutil::{
     common::{
-        CargoPathExt, DEP_PATH, MBTI_GENERATED, MOON_MOD_JSON, StringExt, TargetBackend,
+        BUILD_DIR, CargoPathExt, DEP_PATH, MBTI_GENERATED, MOON_MOD_JSON, StringExt, TargetBackend,
         get_cargo_pkg_version,
     },
     module::MoonModJSON,
@@ -219,7 +219,7 @@ fn test_export_memory_name() {
     // Check the results
     let _ = get_stdout(&dir, ["build", "--target", "wasm-gc", "--output-wat"]);
     let content = std::fs::read_to_string(
-        dir.join("target")
+        dir.join(BUILD_DIR)
             .join("wasm-gc")
             .join("release")
             .join("build")
@@ -2065,7 +2065,7 @@ fn test_exports_in_native_backend() {
     let dir = TestDir::new("native_exports.in");
     let _ = get_stdout(&dir, ["build", "--target", "native"]);
     assert!(
-        !dir.join("target")
+        !dir.join(BUILD_DIR)
             .join("native")
             .join("release")
             .join("build")
@@ -2074,7 +2074,7 @@ fn test_exports_in_native_backend() {
             .exists()
     );
     let lib2_c = read(
-        dir.join("target")
+        dir.join(BUILD_DIR)
             .join("native")
             .join("release")
             .join("build")
@@ -2085,7 +2085,7 @@ fn test_exports_in_native_backend() {
 
     // alias not works
     let lib3_c = read(
-        dir.join("target")
+        dir.join(BUILD_DIR)
             .join("native")
             .join("release")
             .join("build")
