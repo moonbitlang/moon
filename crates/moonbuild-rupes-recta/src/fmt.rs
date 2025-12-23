@@ -389,8 +389,8 @@ fn format_moon_pkg_dsl(
 /// Migrate moon.pkg.json to moon.pkg (DSL format) and remove the JSON file.
 ///
 /// - moon_pkg_json: Path to the source moon.pkg.json file
-/// - moon_pkg: Path to the output formatted moon.pkg file
-/// - target_moon_pkg: Path to the output formatted moon.pkg file
+/// - target_moon_pkg: Path to the output formatted moon.pkg file in the target directory
+/// - moon_pkg: Path to the destination moon.pkg file in the source directory
 fn format_moon_pkg_json_migrate(
     graph: &mut n2::graph::Graph,
     cfg: &FmtConfig,
