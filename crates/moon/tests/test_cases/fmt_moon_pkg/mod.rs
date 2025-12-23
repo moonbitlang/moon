@@ -12,6 +12,21 @@ fn test_fmt_moon_pkg_json_migration_dry_run() {
     // Verify moon.pkg exists in main/
     assert!(dir.join("main").join("moon.pkg").exists());
 
+    // Check stderr for migration warning
+    check(
+        get_stderr(
+            &dir,
+            [
+                "--unstable-feature",
+                "rr_moon_pkg",
+                "fmt",
+                "--dry-run",
+                "--sort-input",
+            ],
+        ),
+        expect![""],
+    );
+
     let output = get_stdout(
         &dir,
         [
@@ -23,15 +38,14 @@ fn test_fmt_moon_pkg_json_migration_dry_run() {
         ],
     );
 
-    // Test dry run output with rr_moon_pkg feature
+    // Test dry run output with rr_moon_pkg feature (no rm command)
     if cfg!(windows) {
         check(
             output,
             expect![[r#"
+                moonfmt ./main/moon.pkg -w -o ./target/wasm-gc/release/format/main/moon.pkg
                 moonfmt ./lib/moon.pkg.json -o ./target/wasm-gc/release/format/lib/moon.pkg
                 cmd /c copy ./target/wasm-gc/release/format/lib/moon.pkg ./lib/moon.pkg
-                cmd /c del ./lib/moon.pkg.json
-                moonfmt ./main/moon.pkg -w -o ./target/wasm-gc/release/format/main/moon.pkg
                 moonfmt ./main/main.mbt -w -o ./target/wasm-gc/release/format/main/main.mbt
                 moonfmt ./lib/hello.mbt -w -o ./target/wasm-gc/release/format/lib/hello.mbt
             "#]],
@@ -40,10 +54,9 @@ fn test_fmt_moon_pkg_json_migration_dry_run() {
         check(
             output,
             expect![[r#"
+                moonfmt ./main/moon.pkg -w -o ./target/wasm-gc/release/format/main/moon.pkg
                 moonfmt ./lib/moon.pkg.json -o ./target/wasm-gc/release/format/lib/moon.pkg
                 cp ./target/wasm-gc/release/format/lib/moon.pkg ./lib/moon.pkg
-                rm ./lib/moon.pkg.json
-                moonfmt ./main/moon.pkg -w -o ./target/wasm-gc/release/format/main/moon.pkg
                 moonfmt ./main/main.mbt -w -o ./target/wasm-gc/release/format/main/main.mbt
                 moonfmt ./lib/hello.mbt -w -o ./target/wasm-gc/release/format/lib/hello.mbt
             "#]],
@@ -67,7 +80,7 @@ fn test_fmt_without_moon_pkg_feature() {
 }
 
 /// Test that when both moon.pkg and moon.pkg.json exist in the same package,
-/// an error is reported but formatting still proceeds with moon.pkg
+/// a warning is shown and formatting proceeds with moon.pkg (new format)
 #[test]
 fn test_fmt_moon_pkg_both_exist() {
     let dir = TestDir::new("fmt_moon_pkg_both.in");
@@ -76,7 +89,9 @@ fn test_fmt_moon_pkg_both_exist() {
     assert!(dir.join("both").join("moon.pkg.json").exists());
     assert!(dir.join("both").join("moon.pkg").exists());
 
-    // Test dry run output - should show error on stderr and format moon.pkg
+    // Test dry run output - should show warnings on stderr:
+    // 1. Migration warning for root package (moon.pkg.json only)
+    // 2. Both-exist warning for both/ package
     check(
         get_stderr(
             &dir,
@@ -88,9 +103,7 @@ fn test_fmt_moon_pkg_both_exist() {
                 "--sort-input",
             ],
         ),
-        expect![[r#"
-            error: Both moon.pkg and moon.pkg.json exist in package test/fmt_moon_pkg_both/both. Please remove one of them.
-        "#]],
+        expect![""],
     );
 
     let output = get_stdout(
@@ -104,15 +117,14 @@ fn test_fmt_moon_pkg_both_exist() {
         ],
     );
 
-    // Stdout should still show the formatting commands (using moon.pkg, not migrating)
+    // Stdout should still show the formatting commands (using moon.pkg for both/, migrating for root)
     if cfg!(windows) {
         check(
             output,
             expect![[r#"
+                moonfmt ./both/moon.pkg -w -o ./target/wasm-gc/release/format/both/moon.pkg
                 moonfmt ./moon.pkg.json -o ./target/wasm-gc/release/format/moon.pkg
                 cmd /c copy ./target/wasm-gc/release/format/moon.pkg ./moon.pkg
-                cmd /c del ./moon.pkg.json
-                moonfmt ./both/moon.pkg -w -o ./target/wasm-gc/release/format/both/moon.pkg
                 moonfmt ./both/lib.mbt -w -o ./target/wasm-gc/release/format/both/lib.mbt
             "#]],
         );
@@ -120,10 +132,9 @@ fn test_fmt_moon_pkg_both_exist() {
         check(
             output,
             expect![[r#"
+                moonfmt ./both/moon.pkg -w -o ./target/wasm-gc/release/format/both/moon.pkg
                 moonfmt ./moon.pkg.json -o ./target/wasm-gc/release/format/moon.pkg
                 cp ./target/wasm-gc/release/format/moon.pkg ./moon.pkg
-                rm ./moon.pkg.json
-                moonfmt ./both/moon.pkg -w -o ./target/wasm-gc/release/format/both/moon.pkg
                 moonfmt ./both/lib.mbt -w -o ./target/wasm-gc/release/format/both/lib.mbt
             "#]],
         );

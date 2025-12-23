@@ -33,7 +33,10 @@
 use log::*;
 use std::{collections::HashSet, path::Path};
 
-use moonutil::mooncakes::{ModuleId, ModuleSource, result::ResolvedEnv};
+use moonutil::{
+    common::{MOON_PKG, MOON_PKG_JSON},
+    mooncakes::{ModuleId, ModuleSource, result::ResolvedEnv},
+};
 use n2::graph::Build;
 
 use crate::{
@@ -298,12 +301,12 @@ fn format_moon_pkg_node(
     let target_moon_pkg = layout.format_artifact_path(&pkg.fqn, std::ffi::OsStr::new("moon.pkg"));
 
     if has_dsl && has_json {
-        // Both files exist: prefer moon.pkg, but report error about duplicate
-        eprintln!(
-            "error: Both {} and {} exist in package {}. Please remove one of them.",
-            MOON_PKG, MOON_PKG_JSON, pkg.fqn
+        // Both files exist: prefer moon.pkg (new format), warn about duplicate
+        warn!(
+            "Both {} and {} exist in package '{}', using the new format {}. Please remove the deprecated {}.",
+            MOON_PKG_JSON, MOON_PKG, pkg.fqn, MOON_PKG, MOON_PKG_JSON
         );
-        // Still format moon.pkg
+        // Format moon.pkg (new format)
         format_moon_pkg_dsl(graph, cfg, &moon_pkg_dsl, &target_moon_pkg, pkg)
     } else if has_dsl {
         // Only moon.pkg exists: format it
@@ -386,7 +389,10 @@ fn format_moon_pkg_dsl(
     Ok(())
 }
 
-/// Migrate moon.pkg.json to moon.pkg (DSL format) and remove the JSON file.
+/// Migrate moon.pkg.json to moon.pkg (DSL format).
+///
+/// This function generates moon.pkg from moon.pkg.json and warns the user
+/// to manually remove the deprecated moon.pkg.json file.
 ///
 /// - moon_pkg_json: Path to the source moon.pkg.json file
 /// - target_moon_pkg: Path to the output formatted moon.pkg file in the target directory
@@ -399,6 +405,12 @@ fn format_moon_pkg_json_migrate(
     moon_pkg: &std::path::Path,
     pkg: &DiscoveredPackage,
 ) -> anyhow::Result<()> {
+    // Warn the user about migration and prompt to remove the old config
+    warn!(
+        "Migrating to {} in package '{}'. Please manually remove the deprecated {}.",
+        MOON_PKG, pkg.fqn, MOON_PKG_JSON
+    );
+
     if cfg.check_only || cfg.warn_only {
         // In check/warn mode, use format-and-diff to compare
         let mut cmd = vec![
@@ -473,32 +485,6 @@ fn format_moon_pkg_json_migrate(
         );
         build.cmdline = Some(moonutil::shlex::join_native(
             cp_cmd.iter().map(|x| x.as_str()),
-        ));
-        graph.add_build(build)?;
-
-        // Step 3: Remove the original JSON file
-        // Use a marker file as output since rm doesn't produce output
-        let rm_marker = format!("{}.removed", moon_pkg_json.to_string_lossy());
-        let rm_cmd: Vec<String> = if cfg!(windows) {
-            vec![
-                "cmd".into(),
-                "/c".into(),
-                "del".into(),
-                moon_pkg_json.to_string_lossy().into_owned(),
-            ]
-        } else {
-            vec!["rm".into(), moon_pkg_json.to_string_lossy().into_owned()]
-        };
-
-        let ins = build_ins(graph, [moon_pkg]);
-        let outs = build_outs(graph, [&rm_marker]);
-        let mut build = Build::new(
-            build_n2_fileloc(format!("remove moon.pkg.json {}", pkg.fqn)),
-            ins,
-            outs,
-        );
-        build.cmdline = Some(moonutil::shlex::join_native(
-            rm_cmd.iter().map(|x| x.as_str()),
         ));
         graph.add_build(build)?;
     }
