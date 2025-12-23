@@ -1,0 +1,10 @@
+{
+    "import": [
+        "test/fmt_moon_pkg/lib2"
+    ],
+    "formatter": {
+        "ignore": [
+            "ignored.mbt"
+    ]
+}
+}
