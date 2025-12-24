@@ -38,10 +38,14 @@ use tokio::process::Command;
 /// `captures` uses a list of [`SectionCapture`] to capture part of the `stdout`
 /// output since the running process might not have any other method to interact
 /// with the host `moon` process.
+///
+/// `timeout` specifies the maximum time in seconds to wait for the process to complete.
+/// If None, the process will wait indefinitely.
 pub async fn run<'a>(
     captures: &mut [&mut SectionCapture<'a>],
     capture: bool,
     mut cmd: Command,
+    timeout: Option<u64>,
 ) -> anyhow::Result<ExitStatus> {
     if capture {
         // If we want to capture some/all of the output, we want to set piped
@@ -97,10 +101,23 @@ pub async fn run<'a>(
     }
 
     // Wait for the child process to finish
-    let status = child
-        .wait()
-        .await
-        .context("Failed to wait for child process")?;
+    let status = if let Some(timeout_secs) = timeout {
+        let timeout_duration = std::time::Duration::from_secs(timeout_secs);
+        match tokio::time::timeout(timeout_duration, child.wait()).await {
+            Ok(Ok(status)) => status,
+            Ok(Err(e)) => return Err(anyhow::anyhow!("Failed to wait for child process: {}", e)),
+            Err(_) => {
+                // Timeout occurred
+                let _ = child.kill().await;
+                anyhow::bail!("Test execution timed out after {} seconds", timeout_secs);
+            }
+        }
+    } else {
+        child
+            .wait()
+            .await
+            .context("Failed to wait for child process")?
+    };
 
     if let Some(task) = stderr_pipe_task {
         task.await
