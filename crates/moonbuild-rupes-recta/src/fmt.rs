@@ -33,7 +33,10 @@
 use log::*;
 use std::{collections::HashSet, path::Path};
 
-use moonutil::mooncakes::{ModuleId, ModuleSource, result::ResolvedEnv};
+use moonutil::{
+    common::{MOON_PKG, MOON_PKG_JSON},
+    mooncakes::{ModuleId, ModuleSource, result::ResolvedEnv},
+};
 use n2::graph::Build;
 
 use crate::{
@@ -95,6 +98,9 @@ pub struct FmtConfig {
 
     /// Warn instead of showing differences
     pub warn_only: bool,
+
+    /// Format moon.pkg.json files (requires rr_moon_pkg feature gate)
+    pub format_moon_pkg: bool,
 }
 
 /// Generate the necessary build graph for the formatter operation.
@@ -192,6 +198,12 @@ fn build_for_package(
     for file in &pkg.mbt_md_files {
         add_fmt_for_file(file)?;
     }
+
+    // Format moon.pkg.json if enabled
+    if cfg.format_moon_pkg {
+        format_moon_pkg_node(graph, cfg, layout, pkg)?;
+    }
+
     Ok(())
 }
 
@@ -254,5 +266,228 @@ fn format_node(
         build.can_dirty_on_output = true;
     }
     graph.add_build(build)?;
+    Ok(())
+}
+
+/// Format moon.pkg or moon.pkg.json package configuration files.
+///
+/// This function handles three scenarios:
+/// 1. Both `moon.pkg` and `moon.pkg.json` exist: prefer `moon.pkg`, report error about duplicate
+/// 2. Only `moon.pkg.json` exists: migrate to `moon.pkg` format
+/// 3. Only `moon.pkg` exists: format it in place
+fn format_moon_pkg_node(
+    graph: &mut n2::graph::Graph,
+    cfg: &FmtConfig,
+    layout: &LegacyLayout,
+    pkg: &DiscoveredPackage,
+) -> anyhow::Result<()> {
+    use moonutil::common::{MOON_PKG, MOON_PKG_JSON};
+
+    let moon_pkg_dsl = pkg.root_path.join(MOON_PKG);
+    let moon_pkg_json = pkg.root_path.join(MOON_PKG_JSON);
+
+    let has_dsl = moon_pkg_dsl.exists();
+    let has_json = moon_pkg_json.exists();
+
+    if !has_dsl && !has_json {
+        debug!(
+            "Skipping moon.pkg formatting for {} - no config file exists",
+            pkg.fqn
+        );
+        return Ok(());
+    }
+
+    // Output to target directory
+    let target_moon_pkg = layout.format_artifact_path(&pkg.fqn, std::ffi::OsStr::new("moon.pkg"));
+
+    if has_dsl && has_json {
+        // Both files exist: prefer moon.pkg (new format), warn about duplicate
+        warn!(
+            "Both {} and {} exist in package '{}', using the new format {}. Please remove the deprecated {}.",
+            MOON_PKG_JSON, MOON_PKG, pkg.fqn, MOON_PKG, MOON_PKG_JSON
+        );
+        // Format moon.pkg (new format)
+        format_moon_pkg_dsl(graph, cfg, &moon_pkg_dsl, &target_moon_pkg, pkg)
+    } else if has_dsl {
+        // Only moon.pkg exists: format it
+        format_moon_pkg_dsl(graph, cfg, &moon_pkg_dsl, &target_moon_pkg, pkg)
+    } else {
+        // Only moon.pkg.json exists: migrate to moon.pkg
+        format_moon_pkg_json_migrate(
+            graph,
+            cfg,
+            &moon_pkg_json,
+            &target_moon_pkg,
+            &moon_pkg_dsl,
+            pkg,
+        )
+    }
+}
+
+/// Format an existing moon.pkg (DSL format) file.
+///
+/// - moon_pkg: Path to the source moon.pkg file
+/// - target_moon_pkg: Path to the output formatted moon.pkg file
+fn format_moon_pkg_dsl(
+    graph: &mut n2::graph::Graph,
+    cfg: &FmtConfig,
+    moon_pkg: &std::path::Path,
+    target_moon_pkg: &std::path::Path,
+    pkg: &DiscoveredPackage,
+) -> anyhow::Result<()> {
+    if cfg.check_only || cfg.warn_only {
+        // In check/warn mode, use format-and-diff to compare
+        let mut cmd = vec![
+            "moon".into(),
+            "tool".into(),
+            "format-and-diff".into(),
+            "--old".into(),
+            moon_pkg.to_string_lossy().into_owned(),
+            "--new".into(),
+            target_moon_pkg.to_string_lossy().into_owned(),
+        ];
+        if cfg.warn_only {
+            cmd.push("--warn".into());
+        }
+
+        let ins = build_ins(graph, [moon_pkg]);
+        let outs = build_outs(graph, [target_moon_pkg]);
+        let mut build = Build::new(
+            build_n2_fileloc(format!("check moon.pkg format {}", pkg.fqn)),
+            ins,
+            outs,
+        );
+        build.cmdline = Some(moonutil::shlex::join_native(cmd.iter().map(|x| x.as_str())));
+        if cfg.warn_only {
+            build.can_dirty_on_output = true;
+        }
+        graph.add_build(build)?;
+    } else {
+        // Format moon.pkg - use -w to write back to source and -o to target
+        // This is consistent with how .mbt files are formatted
+        let fmt_cmd: Vec<String> = vec![
+            "moonfmt".into(),
+            moon_pkg.to_string_lossy().into_owned(),
+            "-w".into(),
+            "-o".into(),
+            target_moon_pkg.to_string_lossy().into_owned(),
+        ];
+
+        let ins = build_ins(graph, [moon_pkg]);
+        let outs = build_outs(graph, [target_moon_pkg]);
+        let mut build = Build::new(
+            build_n2_fileloc(format!("format moon.pkg {}", pkg.fqn)),
+            ins,
+            outs,
+        );
+        build.cmdline = Some(moonutil::shlex::join_native(
+            fmt_cmd.iter().map(|x| x.as_str()),
+        ));
+        graph.add_build(build)?;
+    }
+
+    Ok(())
+}
+
+/// Migrate moon.pkg.json to moon.pkg (DSL format).
+///
+/// This function generates moon.pkg from moon.pkg.json and warns the user
+/// to manually remove the deprecated moon.pkg.json file.
+///
+/// - moon_pkg_json: Path to the source moon.pkg.json file
+/// - target_moon_pkg: Path to the output formatted moon.pkg file in the target directory
+/// - moon_pkg: Path to the destination moon.pkg file in the source directory
+fn format_moon_pkg_json_migrate(
+    graph: &mut n2::graph::Graph,
+    cfg: &FmtConfig,
+    moon_pkg_json: &std::path::Path,
+    target_moon_pkg: &std::path::Path,
+    moon_pkg: &std::path::Path,
+    pkg: &DiscoveredPackage,
+) -> anyhow::Result<()> {
+    // Warn the user about migration and prompt to remove the old config
+    warn!(
+        "Migrating to {} in package '{}'. Please manually remove the deprecated {}.",
+        MOON_PKG, pkg.fqn, MOON_PKG_JSON
+    );
+
+    if cfg.check_only || cfg.warn_only {
+        // In check/warn mode, use format-and-diff to compare
+        let mut cmd = vec![
+            "moon".into(),
+            "tool".into(),
+            "format-and-diff".into(),
+            "--old".into(),
+            moon_pkg_json.to_string_lossy().into_owned(),
+            "--new".into(),
+            target_moon_pkg.to_string_lossy().into_owned(),
+        ];
+        if cfg.warn_only {
+            cmd.push("--warn".into());
+        }
+
+        let ins = build_ins(graph, [moon_pkg_json]);
+        let outs = build_outs(graph, [target_moon_pkg]);
+        let mut build = Build::new(
+            build_n2_fileloc(format!("check moon.pkg.json migration {}", pkg.fqn)),
+            ins,
+            outs,
+        );
+        build.cmdline = Some(moonutil::shlex::join_native(cmd.iter().map(|x| x.as_str())));
+        if cfg.warn_only {
+            build.can_dirty_on_output = true;
+        }
+        graph.add_build(build)?;
+    } else {
+        // Step 1: Format moon.pkg.json to target directory
+        let fmt_cmd: Vec<String> = vec![
+            "moonfmt".into(),
+            moon_pkg_json.to_string_lossy().into_owned(),
+            "-o".into(),
+            target_moon_pkg.to_string_lossy().into_owned(),
+        ];
+
+        let ins = build_ins(graph, [moon_pkg_json]);
+        let outs = build_outs(graph, [target_moon_pkg.to_string_lossy().into_owned()]);
+        let mut build = Build::new(
+            build_n2_fileloc(format!("format moon.pkg.json {}", pkg.fqn)),
+            ins,
+            outs,
+        );
+        build.cmdline = Some(moonutil::shlex::join_native(
+            fmt_cmd.iter().map(|x| x.as_str()),
+        ));
+        graph.add_build(build)?;
+
+        // Step 2: Copy from target to source directory
+        let cp_cmd: Vec<String> = if cfg!(windows) {
+            vec![
+                "cmd".into(),
+                "/c".into(),
+                "copy".into(),
+                target_moon_pkg.to_string_lossy().into_owned(),
+                moon_pkg.to_string_lossy().into_owned(),
+            ]
+        } else {
+            vec![
+                "cp".into(),
+                target_moon_pkg.to_string_lossy().into_owned(),
+                moon_pkg.to_string_lossy().into_owned(),
+            ]
+        };
+
+        let ins = build_ins(graph, [target_moon_pkg]);
+        let outs = build_outs(graph, [moon_pkg.to_string_lossy().into_owned()]);
+        let mut build = Build::new(
+            build_n2_fileloc(format!("copy moon.pkg {}", pkg.fqn)),
+            ins,
+            outs,
+        );
+        build.cmdline = Some(moonutil::shlex::join_native(
+            cp_cmd.iter().map(|x| x.as_str()),
+        ));
+        graph.add_build(build)?;
+    }
+
     Ok(())
 }
