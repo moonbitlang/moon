@@ -29,7 +29,8 @@ use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
 use crate::common::{
-    IGNORE_DIRS, MOON_MOD_JSON, MooncOpt, RunMode, get_moon_version, get_moonc_version, is_moon_pkg,
+    BUILD_DIR, IGNORE_DIRS, LEGACY_BUILD_DIR, MOON_MOD_JSON, MooncOpt, RunMode, get_moon_version,
+    get_moonc_version, is_moon_pkg,
 };
 
 const MOON_DB: &str = "moon.db";
@@ -75,6 +76,44 @@ fn find_ancestor_with_mod(source_dir: &Path) -> Option<PathBuf> {
         .map(|p| p.to_path_buf())
 }
 
+/// Creates a backwards compatibility symlink from "target" -> "_build"
+/// This allows existing tools and scripts that reference "target" to continue working.
+/// Symlink creation failures are non-fatal and only produce warnings.
+pub fn create_legacy_symlink(project_root: &Path) {
+    let symlink_path = project_root.join(LEGACY_BUILD_DIR);
+    let target_path = Path::new(BUILD_DIR);
+
+    // Skip if symlink already exists or if there's already a directory/file there
+    if symlink_path.exists() || symlink_path.is_symlink() {
+        return;
+    }
+
+    #[cfg(unix)]
+    {
+        if let Err(e) = std::os::unix::fs::symlink(target_path, &symlink_path) {
+            eprintln!(
+                "Warning: failed to create symbolic link: {} -> {}. {}",
+                symlink_path.display(),
+                target_path.display(),
+                e
+            );
+        }
+    }
+
+    #[cfg(windows)]
+    {
+        // On Windows, use directory symlink since _build is a directory
+        if let Err(e) = std::os::windows::fs::symlink_dir(target_path, &symlink_path) {
+            eprintln!(
+                "Warning: failed to create directory symlink: {} -> {}. You may need to enable developer mode or have administrator privileges. {}",
+                symlink_path.display(),
+                target_path.display(),
+                e
+            );
+        }
+    }
+}
+
 fn get_src_dst_dir(matches: &SourceTargetDirs) -> Result<PackageDirs, PackageDirsError> {
     let source_dir = match matches.source_dir.clone() {
         Some(v) => v,
@@ -91,12 +130,14 @@ fn get_src_dst_dir(matches: &SourceTargetDirs) -> Result<PackageDirs, PackageDir
     let target_dir = matches
         .target_dir
         .clone()
-        .unwrap_or_else(|| project_root.join("target"));
+        .unwrap_or_else(|| project_root.join(BUILD_DIR));
     if !target_dir.exists() {
         std::fs::create_dir_all(&target_dir)
             .context("failed to create target directory")
             .map_err(PackageDirsError::from)?;
     }
+    // Create backwards compatibility symlink from "target" -> "_build"
+    create_legacy_symlink(&project_root);
     let target_dir = dunce::canonicalize(target_dir)
         .context("failed to set target directory")
         .map_err(PackageDirsError::from)?;

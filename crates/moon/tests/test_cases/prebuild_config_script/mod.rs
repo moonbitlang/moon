@@ -30,13 +30,13 @@ fn test_prebuild_config_common(dir: TestDir) {
             assert!(line.contains("HELLO=------this-is-added-by-config-script------"));
         }
 
-        if line.contains("cc -o ./target/native/release/build/main/main") && cfg!(unix) {
+        if line.contains("cc -o ./_build/native/release/build/main/main") && cfg!(unix) {
             found_link_flags.set(()).expect("final linking found twice");
             assert!(line.contains("-l______this_is_added_by_config_script_______"));
             assert!(line.contains("-lmylib"));
             assert!(line.contains("-L/my-search-path"));
         } else if line.contains("cl.exe") // cl.exe might be quoted
-            && line.contains("/Fe./target/native/release/build/main/main.exe")
+            && line.contains("/Fe./_build/native/release/build/main/main.exe")
             && cfg!(windows)
         {
             found_link_flags.set(()).expect("final linking found twice");

@@ -24,6 +24,7 @@ use moonbuild::entry;
 use moonbuild_rupes_recta::build_plan::InputDirective;
 use moonbuild_rupes_recta::intent::UserIntent;
 use mooncake::pkg::sync::auto_sync;
+use moonutil::common::BUILD_DIR;
 use moonutil::common::FileLock;
 use moonutil::common::MOONBITLANG_CORE;
 use moonutil::common::PrePostBuild;
@@ -37,6 +38,7 @@ use moonutil::common::{MoonbuildOpt, OutputFormat};
 use moonutil::cond_expr::OptLevel;
 use moonutil::cond_expr::OptLevel::Release;
 use moonutil::dirs::PackageDirs;
+use moonutil::dirs::create_legacy_symlink;
 use moonutil::dirs::mk_arch_mode_dir;
 use moonutil::moon_dir::MOON_DIRS;
 use moonutil::mooncakes::RegistryConfig;
@@ -150,7 +152,9 @@ fn run_single_mbt_file(cli: &UniversalFlags, cmd: RunSubcommand) -> anyhow::Resu
         .map_or(TargetBackend::default(), |it| *it);
     let core_bundle_path = moonutil::moon_dir::core_bundle(target_backend);
 
-    let output_artifact_path = mbt_file_parent_path.join("target");
+    let output_artifact_path = mbt_file_parent_path.join(BUILD_DIR);
+    std::fs::create_dir_all(&output_artifact_path).context("failed to create target directory")?;
+    create_legacy_symlink(mbt_file_parent_path);
 
     let output_core_path = &(output_artifact_path
         .join(format!("{file_name}.core"))
@@ -614,8 +618,9 @@ fn run_single_file_rr(cli: &UniversalFlags, mut cmd: RunSubcommand) -> anyhow::R
     let current_dir = std::env::current_dir()?;
     let input_path = dunce::canonicalize(current_dir.join(&cmd.package_or_mbt_file))?;
     let source_dir = input_path.parent().unwrap().to_path_buf();
-    let raw_target_dir = source_dir.join("target");
+    let raw_target_dir = source_dir.join(BUILD_DIR);
     std::fs::create_dir_all(&raw_target_dir).context("failed to create target directory")?;
+    create_legacy_symlink(&source_dir);
 
     let value_tracing = cmd.build_flags.enable_value_tracing;
 

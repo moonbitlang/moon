@@ -294,6 +294,7 @@ fn run_and_print(run: impl FnOnce() -> anyhow::Result<WatchOutput>) -> HashSet<P
 mod tests {
     use super::*;
 
+    use moonutil::common::BUILD_DIR;
     use notify::event::{CreateKind, Event, EventKind};
 
     fn build_event(path: &Path) -> notify::Event {
@@ -307,7 +308,7 @@ mod tests {
     #[test]
     fn rerun_not_triggered_when_no_relevant_events() {
         let temp_dir = tempfile::tempdir().unwrap();
-        let target_dir = temp_dir.path().join("target");
+        let target_dir = temp_dir.path().join(BUILD_DIR);
         std::fs::create_dir_all(&target_dir).unwrap();
 
         let result =
@@ -322,7 +323,7 @@ mod tests {
 
         let temp_dir = tempfile::tempdir().unwrap();
         let root = temp_dir.path();
-        let target_dir = root.join("target");
+        let target_dir = root.join(BUILD_DIR);
         std::fs::create_dir_all(&target_dir).unwrap();
 
         fs::write(root.join(".gitignore"), "ignored.txt\n").unwrap();
@@ -341,7 +342,7 @@ mod tests {
 
         let temp_dir = tempfile::tempdir().unwrap();
         let root = temp_dir.path();
-        let target_dir = root.join("target");
+        let target_dir = root.join(BUILD_DIR);
         std::fs::create_dir_all(&target_dir).unwrap();
 
         let file = root.join("src/main.mbt");
@@ -358,7 +359,7 @@ mod tests {
     fn rerun_target_dir_recreated_when_missing() {
         let temp_dir = tempfile::tempdir().unwrap();
         let root = temp_dir.path();
-        let target_dir = root.join("target");
+        let target_dir = root.join(BUILD_DIR);
 
         let file = root.join("src/main.mbt");
         std::fs::create_dir_all(file.parent().unwrap()).unwrap();

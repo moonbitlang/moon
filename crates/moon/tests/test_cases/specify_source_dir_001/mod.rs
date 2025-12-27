@@ -71,7 +71,7 @@ fn test_specify_source_dir_001() {
                       "deps": [],
                       "wbtest-deps": [],
                       "test-deps": [],
-                      "artifact": "$ROOT/target/wasm-gc/release/check/lib/lib.mi"
+                      "artifact": "$ROOT/_build/wasm-gc/release/check/lib/lib.mi"
                     },
                     {
                       "is-main": true,
@@ -106,7 +106,7 @@ fn test_specify_source_dir_001() {
                       ],
                       "wbtest-deps": [],
                       "test-deps": [],
-                      "artifact": "$ROOT/target/wasm-gc/release/check/main/main.mi"
+                      "artifact": "$ROOT/_build/wasm-gc/release/check/main/main.mi"
                     }
                   ],
                   "deps": [],
