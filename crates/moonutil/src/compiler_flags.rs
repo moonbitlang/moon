@@ -166,7 +166,7 @@ impl CC {
             "Invalid compiler path: path must point to a file with valid UTF-8 filename",
         )?;
         let replaced_ar = |s: &str| name.replace(s, "ar");
-        if name.ends_with("cl") {
+        if name.ends_with("cl") || name.ends_with("cl.exe") {
             CC::try_from_cc_path_and_kind("lib.exe", &path, CCKind::Msvc)
         } else if name.ends_with("gcc") {
             CC::try_from_cc_path_and_kind(&replaced_ar("gcc"), &path, CCKind::Gcc)
