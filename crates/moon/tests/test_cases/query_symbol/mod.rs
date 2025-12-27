@@ -17,9 +17,11 @@ fn test_query_not_in_project() {
             package "moonbitlang/core/string"
             pub fn String::from_array(ArrayView[Char]) -> String
               Convert char array to string.
-               ```mbt
+               ```mbt check
+               test {
                  let s = String::from_array(['H', 'e', 'l', 'l', 'o'])
                  assert_eq(s, "Hello")
+               }
                ```
                Do not convert large data to `Array[Char]` and build a string with `String::from_array`.
                For efficiency considerations, it's recommended to use `Buffer` instead."#]],
