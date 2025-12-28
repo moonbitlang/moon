@@ -71,7 +71,8 @@ pub fn build_synth_single_file_package(
     // Build import-all list (excluding std abort)
     let abort_pkg = discovered.abort_pkg();
     let mut imports = Vec::new();
-    for (pid, pkg) in discovered.all_packages() {
+    // FIXME: what if single-file indeed imports a stdlib package?
+    for (pid, pkg) in discovered.all_packages(true) {
         if Some(pid) == abort_pkg {
             continue;
         }
@@ -138,6 +139,7 @@ pub fn build_synth_single_file_package(
         mbt_md_files,
         c_stub_files: Vec::new(),
         virtual_mbti: None,
+        is_stdlib: false,
     };
 
     // Insert and return the new package ID

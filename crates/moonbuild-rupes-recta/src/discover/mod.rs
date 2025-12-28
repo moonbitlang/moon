@@ -50,7 +50,6 @@ use tracing::{Level, instrument, warn};
 use walkdir::WalkDir;
 
 use crate::{
-    discover::special_case::inject_std_abort,
     pkg_name::{PackageFQN, PackagePath},
     special_cases::{add_prelude_as_import_for_core, module_name_is_core},
     util::strip_trailing_slash,
@@ -69,16 +68,15 @@ pub fn discover_packages(
 
     for (id, m) in env.all_modules_and_id() {
         // SPECIAL_CASE: Skip stdlib in discovering. They are handled below.
-        if let ModuleSourceKind::Stdlib(_) | ModuleSourceKind::SingleFile(_) = m.source() {
+        // UPDATED: stdlib is not skipped anymore, as we require
+        // packages in stdlib to be explicitly imported by users.
+        if let ModuleSourceKind::SingleFile(_) = m.source() {
             continue;
         };
 
         let dir = dirs.get(id).expect("Bad module ID to get directory");
         discover_packages_for_mod(&mut res, env, dir, id, m)?;
     }
-
-    // Inject `moonbitlang/core/abort` package to be used by other packages
-    inject_std_abort(env, dirs, &mut res)?;
 
     info!(
         "Package discovery completed: found {} packages across {} modules",
@@ -186,7 +184,15 @@ pub(crate) fn discover_packages_for_mod(
 
         // Begin discovering the package
         debug!("Discovering package at {}", abs_path.display());
-        let pkg = discover_one_package(id, module_source, abs_path, &rel_path, is_core)?;
+        let is_stdlib_pkg = matches!(module_source.source(), ModuleSourceKind::Stdlib(_));
+        let pkg = discover_one_package(
+            id,
+            module_source,
+            abs_path,
+            &rel_path,
+            is_core,
+            is_stdlib_pkg,
+        )?;
         debug!(
             "Found package: {} with {} source files",
             pkg.fqn,
@@ -206,7 +212,8 @@ fn discover_one_package(
     m: &ModuleSource,
     abs: &Path,
     rel: &RelativePath,
-    is_core: bool, // We have a couple of special cases for core packages
+    is_core: bool, // We have a couple of special cases for core packages. is_core is true when building the core module.
+    pkg_is_stdlib: bool, // Whether the package being discovered is inside the stdlib (core) module.
 ) -> Result<DiscoveredPackage, DiscoverError> {
     let pkg_path = PackagePath::new_from_rel_path(rel)
         .expect("Generation of package path from relative path should not error");
@@ -321,6 +328,7 @@ fn discover_one_package(
         mbt_md_files,
         c_stub_files: c_stubs,
         virtual_mbti,
+        is_stdlib: pkg_is_stdlib,
     })
 }
 

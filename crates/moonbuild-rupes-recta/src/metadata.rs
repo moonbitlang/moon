@@ -65,7 +65,7 @@ pub fn gen_metadata_json(
 
     let mut packages: Vec<PackageJSON> = ctx
         .pkg_dirs
-        .all_packages()
+        .all_packages(true)
         // Skip the `moonbitlang/core/abort` package to match the behavior of the legacy metadata JSON
         .filter(|(id, _)| ctx.pkg_dirs.abort_pkg().is_none_or(|id2| *id != id2))
         .map(|(id, _)| gen_package_json(ctx, &layout, id, backend))
