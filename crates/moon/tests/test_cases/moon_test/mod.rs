@@ -154,20 +154,17 @@ fn test_zombie_child_process() {
     let _ = moon_child.kill();
     let _ = moon_child.wait();
 
-    // The test demonstrates the bug: file should NOT be updated after moon is killed,
-    // but currently it IS updated (child process still running)
-    if file_updated {
-        // Bug demonstrated: lock file was updated after moon was killed
-        // This means that child process (node/moonrun) is still running as a zombie
-        panic!(
-            "BUG DEMONSTRATED: Lock file was updated after moon was killed. \
-            Child process (node/moonrun) is still running as a zombie. \
-            This demonstrates that moon does not properly clean up child processes when killed."
-        );
-    }
-
-    // If we reach here, the bug is fixed
-    // The test passed: lock file was not updated after moon was killed
+    // When moon is killed, all child processes (moonrun/node) should also be terminated.
+    // This is verified by checking that the lock file is NOT updated after moon is killed.
+    // If the file is still being updated, it means the child process continues running as a zombie.
+    // This test currently fails because moon does not properly clean up child processes when it receives a termination signal.
+    // Once the bug is fixed, the lock file will stop being updated after moon is killed and this assertion will pass.
+    assert!(
+        !file_updated,
+        "Child processes (moonrun/node) are not terminated when moon is killed. \
+        The lock file continues to be updated, indicating that spawned test processes remain running as zombies. \
+        Moon should properly propagate termination signals to all child processes."
+    );
 }
 
 #[test]
