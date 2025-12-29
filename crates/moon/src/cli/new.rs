@@ -113,5 +113,17 @@ pub fn run_new(_cli: &UniversalFlags, cmd: NewSubcommand) -> anyhow::Result<i32>
             project_name
         );
     }
+
+    // Warn about reserved suffixes that may cause template files to be misrecognized
+    if project_name.ends_with("_test") || project_name.ends_with("_wbtest") {
+        eprintln!(
+            "{} Project name '{}' ends with a reserved suffix. \
+            In MoonBit, files ending with '_test.mbt' or '_wbtest.mbt' are treated as test files. \
+            Template files in this project may be incorrectly recognized as test files.",
+            "Warning:".bold().yellow(),
+            project_name
+        );
+    }
+
     moonbuild::new::moon_new_default(&path, username, project_name)
 }
