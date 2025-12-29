@@ -56,6 +56,7 @@ mod fmt_moon_pkg;
 mod fmt_path;
 mod fuzzy_matching;
 mod hello;
+mod import_stdlib;
 mod indirect_dep;
 mod inline_test;
 mod mbti;
