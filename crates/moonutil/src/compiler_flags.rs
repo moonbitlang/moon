@@ -340,6 +340,13 @@ pub struct ArchiverConfig {
 
 /// Resolve the C compiler to use from global state
 pub fn resolve_cc(cc: CC, user_cc: Option<CC>) -> CC {
+    if ENV_CC.is_some() && user_cc.is_some() {
+        eprintln!(
+            "{}: Both MOON_CC environment variable and user-specified CC are provided. \
+            MOON_CC takes precedence.",
+            "Warning".yellow().bold(),
+        );
+    }
     ENV_CC.clone().unwrap_or_else(|| user_cc.unwrap_or(cc))
 }
 
