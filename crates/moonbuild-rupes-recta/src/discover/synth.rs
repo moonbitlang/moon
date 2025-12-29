@@ -72,6 +72,22 @@ pub fn build_synth_single_file_package(
     let abort_pkg = discovered.abort_pkg();
     let mut imports = Vec::new();
     // FIXME: what if single-file indeed imports a stdlib package?
+    //
+    // Currently we exclude all stdlib packages (`all_packages(true)`) because discovered
+    // packages now include the entire stdlib. However, this means single-file mode cannot
+    // import stdlib packages like `@json`.
+    //
+    // We cannot simply use front matter deps because:
+    // - Front matter deps are module names (e.g., `moonbitlang/x`), not package paths
+    //   (e.g., `moonbitlang/x/json`)
+    // - To properly handle this, we'd need to import all packages from each specified module
+    // - This is problematic for `moonbitlang/core` which has many packages with conflicting
+    //   aliases (e.g., multiple packages might want the same short alias)
+    //
+    // A proper solution would need to either:
+    // 1. Allow specifying package-level imports in front matter (not just module deps)
+    // 2. Implement alias conflict resolution when importing all packages from a module
+    // 3. Parse the single file source to detect which `@package` references are used
     for (pid, pkg) in discovered.all_packages(true) {
         if Some(pid) == abort_pkg {
             continue;
