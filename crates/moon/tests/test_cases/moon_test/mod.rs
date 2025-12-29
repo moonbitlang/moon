@@ -104,7 +104,6 @@ fn test_moon_test_hello_lib() {
 }
 
 #[test]
-#[ignore]  // This test demonstrates the bug - child processes not killed when moon is killed
 fn test_zombie_child_process() {
     use super::util::moon_bin;
     use std::thread;
