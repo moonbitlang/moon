@@ -120,6 +120,8 @@ smallvec = "1.15.1"
 ignore = "0.4.23"
 similar = { version = "2.7.0", features = ["inline"] }
 
+signal-hook = "0.3.17"
+
 libc = "0.2.177"
 
 # Use tracing instead of log in the future

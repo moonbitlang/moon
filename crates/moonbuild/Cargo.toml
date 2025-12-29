@@ -50,6 +50,7 @@ self-replace.workspace = true
 sysinfo.workspace = true
 text-size.workspace = true
 log.workspace = true
+signal-hook.workspace = true
 hyper.workspace = true
 hyper-util.workspace = true
 hyper-staticfile.workspace = true

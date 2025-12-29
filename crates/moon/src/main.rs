@@ -28,6 +28,7 @@ mod filter;
 mod panic;
 pub mod rr_build;
 mod run;
+mod signal_handler;
 mod watch;
 
 use colored::*;
@@ -104,6 +105,11 @@ fn init_tracing(trace_flag: bool) -> Box<dyn Any> {
 
 pub fn main() {
     panic::setup_panic_hook();
+
+    // Setup signal handlers for proper child process termination
+    if let Err(e) = signal_handler::setup_signal_handlers() {
+        eprintln!("Warning: Failed to setup signal handlers: {}", e);
+    }
 
     let cli = cli::MoonBuildCli::parse();
     let flags = cli.flags;

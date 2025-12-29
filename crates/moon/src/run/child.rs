@@ -24,6 +24,7 @@ use anyhow::Context;
 use moonbuild::section_capture::{SectionCapture, handle_stdout_async};
 use moonutil::platform::macos_with_sigchild_blocked;
 use tokio::process::Command;
+use crate::signal_handler::make_signal_aware;
 
 /// Run a command under the governing of `moon run`.
 ///
@@ -63,13 +64,15 @@ pub async fn run<'a>(
     cmd.kill_on_drop(true); // to prevent zombie processes;
 
     // Preventing race conditions with SIGCHLD handlers, see definition for info
-    let mut child = macos_with_sigchild_blocked(|| {
+    let raw_child = macos_with_sigchild_blocked(|| {
         cmd.spawn()
             .with_context(|| format!("Failed to spawn command {:?}", cmd))
     })?;
+    
+    let mut child = make_signal_aware(raw_child);
 
     // Task only exists when capturing
-    let stderr_pipe_task = child.stderr.take().map(|mut stderr| {
+    let stderr_pipe_task = child.inner_mut().stderr.take().map(|mut stderr| {
         tokio::spawn(async move {
             let mut proc_stderr = tokio::io::stderr();
             tokio::io::copy(&mut stderr, &mut proc_stderr)
@@ -82,6 +85,7 @@ pub async fn run<'a>(
     // sections, we'll handle stdout in this main task
     if capture {
         let child_stdout = child
+            .inner_mut()
             .stdout
             .take()
             .expect("Child process should have stdout piped");
