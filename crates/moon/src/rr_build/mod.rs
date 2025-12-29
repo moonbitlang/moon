@@ -36,6 +36,7 @@ use std::{
 };
 
 use anyhow::Context;
+use colored::Colorize;
 use indexmap::IndexMap;
 use moonbuild::entry::{N2RunStats, ResultCatcher, create_progress_console};
 use moonbuild_rupes_recta::{
@@ -432,6 +433,14 @@ pub fn plan_build_from_resolved<'a>(
         .target_backend
         .or(preferred_backend)
         .unwrap_or_default();
+
+    // TODO: remove this once LLVM backend is well supported
+    if target_backend == TargetBackend::LLVM {
+        eprintln!(
+            "{}: LLVM backend is experimental and only supported on nightly moonbit toolchain for now",
+            "Warning".yellow()
+        );
+    }
 
     info!("Calculating user intent");
     let intent = calc_user_intent(&resolve_output, target_backend)?;
