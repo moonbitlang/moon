@@ -100,10 +100,79 @@ fn test_moon_test_hello_lib() {
             [moonbitlang/hello] test lib/hello_wbtest.mbt:1 (#0) ok
             Total tests: 1, passed: 1, failed: 0.
         "#]],
-    );
+    )
 }
 
 #[test]
+#[ignore]  // This test demonstrates the bug - child processes not killed when moon is killed
+fn test_zombie_child_process() {
+    use super::util::moon_bin;
+    use std::thread;
+    use std::time::{Duration, SystemTime};
+
+    let dir = TestDir::new("moon_test/zombie_child");
+    let lock_file = dir.join("test_lock_file.txt");
+
+    // Spawn moon test in background
+    let mut moon_child = std::process::Command::new(moon_bin())
+        .current_dir(&dir)
+        .args(["test", "--target", "js", "--no-parallelize"])
+        .spawn()
+        .expect("Failed to spawn moon test");
+
+    // Wait for lock file to be created
+    let start = SystemTime::now();
+    while !lock_file.exists() {
+        thread::sleep(Duration::from_millis(100));
+        if start.elapsed().unwrap().as_secs() > 10 {
+            panic!("Timeout waiting for lock file to be created");
+        }
+    }
+
+    // Record the initial modification time of the lock file
+    let initial_mtime = lock_file
+        .metadata()
+        .expect("Failed to get lock file metadata")
+        .modified()
+        .expect("Failed to get lock file modified time");
+
+    // Kill the moon process (simulating the scenario in example/script.js)
+    moon_child.kill().expect("Failed to kill moon process");
+
+    // Wait a bit to see if child process continues running
+    thread::sleep(Duration::from_millis(500));
+
+    // Check if lock file has been updated (child still renewing it)
+    let current_mtime = lock_file
+        .metadata()
+        .expect("Failed to get lock file metadata")
+        .modified()
+        .expect("Failed to get lock file modified time");
+
+    let file_updated = current_mtime > initial_mtime;
+
+    // Clean up moon child process (if still alive)
+    let _ = moon_child.kill();
+    let _ = moon_child.wait();
+
+    // The test demonstrates the bug: file should NOT be updated after moon is killed,
+    // but currently it IS updated (child process still running)
+    if file_updated {
+        // Bug demonstrated: lock file was updated after moon was killed
+        // This means that child process (node/moonrun) is still running as a zombie
+        panic!(
+            "BUG DEMONSTRATED: Lock file was updated after moon was killed. \
+            Child process (node/moonrun) is still running as a zombie. \
+            This demonstrates that moon does not properly clean up child processes when killed."
+        );
+    }
+
+    // If we reach here, the bug is fixed
+    // The test passed: lock file was not updated after moon was killed
+}
+
+#[test]
+
 fn test_moon_test_with_local_dep() {
     let dir = TestDir::new("moon_test/with_local_deps");
     check(
