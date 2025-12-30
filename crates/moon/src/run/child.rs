@@ -137,7 +137,6 @@ pub async fn run<'a>(
 
 #[cfg(windows)]
 fn assign_child_to_job(child: &tokio::process::Child) -> anyhow::Result<()> {
-    use std::os::windows::io::AsRawHandle;
     use std::sync::OnceLock;
     use windows_sys::Win32::Foundation::ERROR_ACCESS_DENIED;
     use windows_sys::Win32::System::JobObjects::{
@@ -146,12 +145,17 @@ fn assign_child_to_job(child: &tokio::process::Child) -> anyhow::Result<()> {
         SetInformationJobObject,
     };
 
-    static JOB_OBJECT: OnceLock<windows_sys::Win32::Foundation::HANDLE> = OnceLock::new();
+    #[derive(Clone, Copy)]
+    struct JobHandle(isize);
+    unsafe impl Send for JobHandle {}
+    unsafe impl Sync for JobHandle {}
 
-    let job = *JOB_OBJECT.get_or_try_init(|| unsafe {
+    static JOB_OBJECT: OnceLock<Result<JobHandle, std::io::Error>> = OnceLock::new();
+
+    let job = match JOB_OBJECT.get_or_init(|| unsafe {
         let handle = CreateJobObjectW(std::ptr::null_mut(), std::ptr::null());
         if handle == 0 {
-            return Err(std::io::Error::last_os_error()).context("CreateJobObjectW failed");
+            return Err(std::io::Error::last_os_error());
         }
         let mut info: JOBOBJECT_EXTENDED_LIMIT_INFORMATION = std::mem::zeroed();
         info.BasicLimitInformation.LimitFlags = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE;
@@ -162,12 +166,18 @@ fn assign_child_to_job(child: &tokio::process::Child) -> anyhow::Result<()> {
             std::mem::size_of::<JOBOBJECT_EXTENDED_LIMIT_INFORMATION>() as u32,
         );
         if ok == 0 {
-            return Err(std::io::Error::last_os_error()).context("SetInformationJobObject failed");
+            return Err(std::io::Error::last_os_error());
         }
-        Ok(handle)
-    })?;
+        Ok(JobHandle(handle))
+    }) {
+        Ok(handle) => *handle,
+        Err(err) => {
+            return Err(anyhow::anyhow!(err.to_string()))
+                .context("Failed to initialize job object");
+        }
+    };
 
-    let ok = unsafe { AssignProcessToJobObject(job, child.as_raw_handle() as isize) };
+    let ok = unsafe { AssignProcessToJobObject(job.0, child.raw_handle() as isize) };
     if ok == 0 {
         let err = std::io::Error::last_os_error();
         if err.raw_os_error() == Some(ERROR_ACCESS_DENIED as i32) {
