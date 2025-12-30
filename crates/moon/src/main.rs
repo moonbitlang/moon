@@ -127,20 +127,16 @@ fn setup_signal_handlers() {
 
     #[cfg(windows)]
     {
-        use signal_hook::consts::SIGTERM;
-        use signal_hook::iterator::Signals;
-
-        let mut signals = Signals::new([SIGTERM, signal_hook::consts::SIGINT])
-            .expect("Failed to register signal handler");
-
-        std::thread::spawn(move || {
-            for signal in signals.forever() {
-                debug!("Received termination signal: {:?}", signal);
-                SHUTDOWN_REQUESTED.store(true, Ordering::SeqCst);
-                moonutil::child_process::request_shutdown();
-                moonutil::child_process::ChildProcessRegistry::global().lock().unwrap().kill_all_sync();
-            }
-        });
+        ctrlc::set_handler(|| {
+            debug!("Received termination signal");
+            SHUTDOWN_REQUESTED.store(true, Ordering::SeqCst);
+            moonutil::child_process::request_shutdown();
+            moonutil::child_process::ChildProcessRegistry::global()
+                .lock()
+                .unwrap()
+                .kill_all_sync();
+        })
+        .expect("Failed to register Ctrl-C handler");
     }
 }
 
