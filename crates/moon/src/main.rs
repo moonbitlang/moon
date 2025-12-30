@@ -118,6 +118,7 @@ fn setup_signal_handlers() {
             for signal in signals.forever() {
                 debug!("Received termination signal: {:?}", signal);
                 SHUTDOWN_REQUESTED.store(true, Ordering::SeqCst);
+                moonutil::child_process::request_shutdown();
                 // Immediately kill all child processes
                 moonutil::child_process::ChildProcessRegistry::global().lock().unwrap().kill_all_sync();
             }
@@ -136,6 +137,7 @@ fn setup_signal_handlers() {
             for signal in signals.forever() {
                 debug!("Received termination signal: {:?}", signal);
                 SHUTDOWN_REQUESTED.store(true, Ordering::SeqCst);
+                moonutil::child_process::request_shutdown();
                 moonutil::child_process::ChildProcessRegistry::global().lock().unwrap().kill_all_sync();
             }
         });

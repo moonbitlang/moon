@@ -156,7 +156,7 @@ async fn run(
         eprintln!("{:?}", subprocess.as_std());
     }
 
-    let mut execution = macos_with_sigchild_blocked(|| {
+    let execution = macos_with_sigchild_blocked(|| {
         subprocess
             .stdin(Stdio::null())
             .stdout(Stdio::piped())
@@ -165,12 +165,18 @@ async fn run(
             .with_context(|| format!("failed to execute: {:?}", subprocess))
     })?;
 
-    if register_child {
-        let child_id = execution.id().expect("child should have an ID");
+    let child_id = execution.id().expect("child should have an ID");
+    let child_handle = if register_child {
         log::debug!("Registering test child process with PID: {}", child_id);
-        moonutil::child_process::ChildProcessRegistry::global().lock().unwrap().register_tokio_id(child_id);
-    }
-    let mut stdout = execution.stdout.take().unwrap();
+        moonutil::child_process::ChildProcessRegistry::global()
+            .lock()
+            .unwrap()
+            .register_tokio(execution)
+    } else {
+        std::sync::Arc::new(tokio::sync::Mutex::new(execution))
+    };
+
+    let mut stdout = child_handle.lock().await.stdout.take().unwrap();
 
     let mut test_capture =
         SectionCapture::new(MOON_TEST_DELIMITER_BEGIN, MOON_TEST_DELIMITER_END, false);
@@ -192,12 +198,24 @@ async fn run(
         |line| print!("{line}"),
     )?;
     std::io::Write::flush(&mut std::io::stdout())?;
-    let output = execution.wait().await?;
+    let output = tokio::select! {
+        res = async {
+            let mut child = child_handle.lock().await;
+            child.wait().await
+        } => res,
+        _ = moonutil::child_process::wait_for_shutdown() => {
+            let mut child = child_handle.lock().await;
+            let _ = child.start_kill();
+            child.wait().await
+        }
+    }?;
 
     if register_child {
-        let child_id = execution.id().expect("child should have an ID");
         log::debug!("Unregistering test child process with PID: {}", child_id);
-        moonutil::child_process::ChildProcessRegistry::global().lock().unwrap().unregister(child_id);
+        moonutil::child_process::ChildProcessRegistry::global()
+            .lock()
+            .unwrap()
+            .unregister(child_id);
     }
 
     if !output.success() {
@@ -290,7 +308,7 @@ async fn run(
 pub async fn spawn_and_register_child(
     mut subprocess: tokio::process::Command,
     register_child: bool,
-) -> anyhow::Result<tokio::process::Child> {
+) -> anyhow::Result<std::sync::Arc<tokio::sync::Mutex<tokio::process::Child>>> {
     let execution = macos_with_sigchild_blocked(|| {
         subprocess
             .stdin(Stdio::null())
@@ -300,11 +318,16 @@ pub async fn spawn_and_register_child(
             .with_context(|| format!("failed to execute: {:?}", subprocess))
     })?;
 
-    if register_child {
-        let child_id = execution.id().expect("child should have an ID");
+    let child_id = execution.id().expect("child should have an ID");
+    let handle = if register_child {
         log::debug!("Registering test child process with PID: {}", child_id);
-        moonutil::child_process::ChildProcessRegistry::global().lock().unwrap().register_tokio_id(child_id);
-    }
+        moonutil::child_process::ChildProcessRegistry::global()
+            .lock()
+            .unwrap()
+            .register_tokio(execution)
+    } else {
+        std::sync::Arc::new(tokio::sync::Mutex::new(execution))
+    };
 
-    Ok(execution)
+    Ok(handle)
 }

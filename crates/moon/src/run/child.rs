@@ -77,31 +77,38 @@ pub async fn run<'a>(
     cmd.kill_on_drop(true); // to prevent zombie processes;
 
     // Preventing race conditions with SIGCHLD handlers, see definition for info
-    let mut child = macos_with_sigchild_blocked(|| {
+    let child = macos_with_sigchild_blocked(|| {
         cmd.spawn()
             .with_context(|| format!("Failed to spawn command {:?}", cmd))
     })?;
     let child_id = child.id().expect("child should have an ID");
-    ChildProcessRegistry::global()
+    let child_handle = ChildProcessRegistry::global()
         .lock()
         .unwrap()
-        .register_tokio_id(child_id);
+        .register_tokio(child);
     let _registration = ChildRegistration { id: child_id };
 
     // Task only exists when capturing
-    let stderr_pipe_task = child.stderr.take().map(|mut stderr| {
-        tokio::spawn(async move {
-            let mut proc_stderr = tokio::io::stderr();
-            tokio::io::copy(&mut stderr, &mut proc_stderr)
-                .await
-                .context("Failed to pipe stderr to child process")
-        })
-    });
+    let stderr_pipe_task = child_handle
+        .lock()
+        .await
+        .stderr
+        .take()
+        .map(|mut stderr| {
+            tokio::spawn(async move {
+                let mut proc_stderr = tokio::io::stderr();
+                tokio::io::copy(&mut stderr, &mut proc_stderr)
+                    .await
+                    .context("Failed to pipe stderr to child process")
+            })
+        });
 
     // Since we cannot have scoped async tasks here, and we borrow the capture
     // sections, we'll handle stdout in this main task
     if capture {
-        let child_stdout = child
+        let child_stdout = child_handle
+            .lock()
+            .await
             .stdout
             .take()
             .expect("Child process should have stdout piped");
@@ -117,10 +124,18 @@ pub async fn run<'a>(
     }
 
     // Wait for the child process to finish
-    let status = child
-        .wait()
-        .await
-        .context("Failed to wait for child process")?;
+    let status = tokio::select! {
+        res = async {
+            let mut child = child_handle.lock().await;
+            child.wait().await
+        } => res,
+        _ = moonutil::child_process::wait_for_shutdown() => {
+            let mut child = child_handle.lock().await;
+            let _ = child.start_kill();
+            child.wait().await
+        }
+    }
+    .context("Failed to wait for child process")?;
 
     if let Some(task) = stderr_pipe_task {
         task.await
