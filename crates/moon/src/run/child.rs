@@ -44,6 +44,7 @@ pub async fn run<'a>(
     capture: bool,
     mut cmd: Command,
 ) -> anyhow::Result<ExitStatus> {
+    let shutdown = super::shutdown_token();
     if capture {
         // If we want to capture some/all of the output, we want to set piped
         // to both streams to prevent `node` and friends changing fd blocking
@@ -89,16 +90,30 @@ pub async fn run<'a>(
 
         if !captures.is_empty() {
             let buf_stdout = tokio::io::BufReader::new(child_stdout);
-            handle_stdout_async(buf_stdout, captures).await?;
+            if let Some(token) = shutdown {
+                tokio::select! {
+                    res = handle_stdout_async(buf_stdout, captures) => res?,
+                    _ = token.cancelled() => {}
+                }
+            } else {
+                handle_stdout_async(buf_stdout, captures).await?;
+            }
         } else {
             let mut child_stdout = child_stdout;
             let mut proc_stdout = tokio::io::stdout();
-            tokio::io::copy(&mut child_stdout, &mut proc_stdout).await?;
+            if let Some(token) = shutdown {
+                tokio::select! {
+                    res = tokio::io::copy(&mut child_stdout, &mut proc_stdout) => { res?; }
+                    _ = token.cancelled() => {}
+                }
+            } else {
+                tokio::io::copy(&mut child_stdout, &mut proc_stdout).await?;
+            }
         }
     }
 
     // Wait for the child process to finish
-    let status = match super::shutdown_token() {
+    let status = match shutdown {
         Some(token) => wait_with_shutdown(&mut child, token).await?,
         None => child
             .wait()
