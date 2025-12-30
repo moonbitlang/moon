@@ -267,6 +267,7 @@ Test the current package
 * `--patch-file <PATCH_FILE>` — Path to the patch file
 * `--doc` — Run doc test
 * `--include-skipped` — Include skipped tests. Automatically implied when `--[doc-]index` is set
+* `-F`, `--filter <FILTER>` — Run only tests whose name matches the given glob pattern. Supports '*' (matches any sequence) and '?' (matches any single character)
 
 
 

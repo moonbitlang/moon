@@ -5,6 +5,174 @@ mod skip_test;
 use super::*;
 
 #[test]
+fn test_moon_test_filter_by_name() {
+    let dir = TestDir::new("test_filter/test_filter");
+
+    // Filter tests matching "A" - should only run test named "A"
+    check(
+        get_stdout(
+            &dir,
+            [
+                "test",
+                "-p",
+                "username/hello/A",
+                "--filter",
+                "A",
+                "--sort-input",
+                "--no-parallelize",
+            ],
+        ),
+        expect![[r#"
+            test A
+            Total tests: 1, passed: 1, failed: 0.
+        "#]],
+    );
+
+    // Filter tests matching "hello_*" - should run hello_0, hello_1, hello_2
+    check(
+        get_stdout(
+            &dir,
+            [
+                "test",
+                "-p",
+                "username/hello/A",
+                "--filter",
+                "hello_*",
+                "--sort-input",
+                "--no-parallelize",
+            ],
+        ),
+        expect![[r#"
+            test hello_0
+            test hello_1
+            test hello_2
+            Total tests: 3, passed: 3, failed: 0.
+        "#]],
+    );
+
+    // Filter tests matching "*_1" - should only run hello_1
+    check(
+        get_stdout(
+            &dir,
+            [
+                "test",
+                "-p",
+                "username/hello/A",
+                "--filter",
+                "*_1",
+                "--sort-input",
+                "--no-parallelize",
+            ],
+        ),
+        expect![[r#"
+            test hello_1
+            Total tests: 1, passed: 1, failed: 0.
+        "#]],
+    );
+}
+
+#[test]
+fn test_moon_test_filter_by_name_with_question_mark() {
+    let dir = TestDir::new("test_filter/test_filter");
+
+    // Filter tests matching "hello_?" - should run hello_0, hello_1, hello_2
+    check(
+        get_stdout(
+            &dir,
+            [
+                "test",
+                "-p",
+                "username/hello/A",
+                "--filter",
+                "hello_?",
+                "--sort-input",
+                "--no-parallelize",
+            ],
+        ),
+        expect![[r#"
+            test hello_0
+            test hello_1
+            test hello_2
+            Total tests: 3, passed: 3, failed: 0.
+        "#]],
+    );
+
+    // Filter tests matching "?" - should match single character names like "A" and "B"
+    check(
+        get_stdout(
+            &dir,
+            [
+                "test",
+                "-p",
+                "username/hello/A",
+                "-f",
+                "hello.mbt",
+                "--filter",
+                "?",
+                "--sort-input",
+                "--no-parallelize",
+            ],
+        ),
+        expect![[r#"
+            test A
+            test B
+            Total tests: 2, passed: 2, failed: 0.
+        "#]],
+    );
+}
+
+#[test]
+fn test_moon_test_filter_by_name_no_match() {
+    let dir = TestDir::new("test_filter/test_filter");
+
+    // Filter with pattern that matches nothing
+    check(
+        get_stdout(
+            &dir,
+            [
+                "test",
+                "-p",
+                "username/hello/A",
+                "--filter",
+                "nonexistent*",
+                "--sort-input",
+                "--no-parallelize",
+            ],
+        ),
+        expect![[r#"
+            Total tests: 0, passed: 0, failed: 0.
+        "#]],
+    );
+}
+
+#[test]
+fn test_moon_test_filter_by_name_combined_with_file() {
+    let dir = TestDir::new("test_filter/test_filter");
+
+    // Filter by file and name pattern
+    check(
+        get_stdout(
+            &dir,
+            [
+                "test",
+                "-p",
+                "username/hello/A",
+                "-f",
+                "hello.mbt",
+                "--filter",
+                "A",
+                "--sort-input",
+                "--no-parallelize",
+            ],
+        ),
+        expect![[r#"
+            test A
+            Total tests: 1, passed: 1, failed: 0.
+        "#]],
+    );
+}
+
+#[test]
 fn test_moon_test_filter_package() {
     let dir = TestDir::new("test_filter/test_filter");
 
