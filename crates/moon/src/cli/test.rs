@@ -163,6 +163,7 @@ pub struct TestSubcommand {
 
 #[instrument(skip_all)]
 pub fn run_test(cli: UniversalFlags, cmd: TestSubcommand) -> anyhow::Result<i32> {
+    crate::run::setup_shutdown_handler();
     info!(
         update = cmd.update,
         build_only = cmd.build_only,
