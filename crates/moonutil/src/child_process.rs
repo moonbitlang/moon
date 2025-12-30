@@ -24,6 +24,16 @@ use tracing::{debug, warn, trace};
 use libc::{kill, SIGKILL, SIGTERM};
 #[cfg(unix)]
 use std::os::unix::process::ExitStatusExt;
+#[cfg(windows)]
+use windows_sys::Win32::Foundation::{CloseHandle, WAIT_OBJECT_0, WAIT_TIMEOUT};
+#[cfg(windows)]
+use windows_sys::Win32::System::Threading::{
+    OpenProcess,
+    TerminateProcess,
+    WaitForSingleObject,
+    PROCESS_TERMINATE,
+    SYNCHRONIZE,
+};
 
 pub enum ChildProcess {
     Std(StdChild),
@@ -96,6 +106,44 @@ fn kill_pid_with_grace_sync(pid: i32) -> std::io::Result<()> {
     ))
 }
 
+#[cfg(windows)]
+fn kill_pid_with_grace(pid: u32) -> std::io::Result<()> {
+    kill_pid_with_timeout(pid, 2000)
+}
+
+#[cfg(windows)]
+fn kill_pid_with_grace_sync(pid: u32) -> std::io::Result<()> {
+    kill_pid_with_timeout(pid, 2000)
+}
+
+#[cfg(windows)]
+fn kill_pid_with_timeout(pid: u32, timeout_ms: u32) -> std::io::Result<()> {
+    unsafe {
+        let handle = OpenProcess(PROCESS_TERMINATE | SYNCHRONIZE, 0, pid);
+        if handle == 0 {
+            return Err(std::io::Error::last_os_error());
+        }
+
+        if TerminateProcess(handle, 1) == 0 {
+            let err = std::io::Error::last_os_error();
+            CloseHandle(handle);
+            return Err(err);
+        }
+
+        let wait_result = WaitForSingleObject(handle, timeout_ms);
+        CloseHandle(handle);
+
+        match wait_result {
+            WAIT_OBJECT_0 => Ok(()),
+            WAIT_TIMEOUT => Err(std::io::Error::new(
+                std::io::ErrorKind::TimedOut,
+                "process did not exit after terminate",
+            )),
+            _ => Err(std::io::Error::last_os_error()),
+        }
+    }
+}
+
 impl ChildProcess {
     pub fn id(&self) -> u32 {
         match self {
@@ -127,10 +175,25 @@ impl ChildProcess {
                     }
                     Ok(())
                 }
-                #[cfg(not(unix))]
+                #[cfg(windows)]
+                {
+                    if let Err(e) = kill_pid_with_grace(*id) {
+                        warn!(
+                            "Failed to kill child process {} (errno: {})",
+                            id,
+                            std::io::Error::last_os_error().raw_os_error().unwrap_or(0)
+                        );
+                        return Err(e);
+                    }
+                    Ok(())
+                }
+                #[cfg(not(any(unix, windows)))]
                 {
                     warn!("Killing by PID is not supported on this platform");
-                    Err(std::io::Error::new(std::io::ErrorKind::Unsupported, "Killing by PID is not supported on this platform"))
+                    Err(std::io::Error::new(
+                        std::io::ErrorKind::Unsupported,
+                        "Killing by PID is not supported on this platform",
+                    ))
                 }
             }
         }
@@ -200,7 +263,11 @@ impl ChildProcessRegistry {
 
     pub async fn kill_all(&self) {
         let mut children = self.children.lock().unwrap();
-        for (pid, child) in children.iter_mut() {
+        let mut entries = Vec::with_capacity(children.len());
+        entries.extend(children.drain());
+        drop(children);
+
+        for (pid, mut child) in entries {
             debug!("Killing child process with PID: {}", pid);
             if let Err(e) = child.kill().await {
                 warn!("Failed to kill child process {}: {:?}", pid, e);
@@ -239,7 +306,11 @@ impl ChildProcessRegistry {
 
     pub fn kill_all_sync(&self) {
         let mut children = self.children.lock().unwrap();
-        for (pid, child) in children.iter_mut() {
+        let mut entries = Vec::with_capacity(children.len());
+        entries.extend(children.drain());
+        drop(children);
+
+        for (pid, mut child) in entries {
             debug!("Killing child process with PID: {} (synchronous)", pid);
             if let Err(e) = child.kill_sync() {
                 warn!("Failed to kill child process {}: {:?}", pid, e);
@@ -271,10 +342,25 @@ impl ChildProcess {
                     }
                     Ok(())
                 }
-                #[cfg(not(unix))]
+                #[cfg(windows)]
+                {
+                    if let Err(e) = kill_pid_with_grace_sync(*id) {
+                        warn!(
+                            "Failed to kill child process {} (errno: {})",
+                            id,
+                            std::io::Error::last_os_error().raw_os_error().unwrap_or(0)
+                        );
+                        return Err(e);
+                    }
+                    Ok(())
+                }
+                #[cfg(not(any(unix, windows)))]
                 {
                     warn!("Killing by PID is not supported on this platform");
-                    Err(std::io::Error::new(std::io::ErrorKind::Unsupported, "Killing by PID is not supported on this platform"))
+                    Err(std::io::Error::new(
+                        std::io::ErrorKind::Unsupported,
+                        "Killing by PID is not supported on this platform",
+                    ))
                 }
             }
         }
