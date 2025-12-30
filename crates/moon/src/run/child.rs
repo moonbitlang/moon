@@ -24,6 +24,7 @@ use anyhow::Context;
 use moonbuild::section_capture::{SectionCapture, handle_stdout_async};
 use moonutil::platform::macos_with_sigchild_blocked;
 use tokio::process::Command;
+use tokio_util::sync::CancellationToken;
 
 /// Run a command under the governing of `moon run`.
 ///
@@ -97,10 +98,13 @@ pub async fn run<'a>(
     }
 
     // Wait for the child process to finish
-    let status = child
-        .wait()
-        .await
-        .context("Failed to wait for child process")?;
+    let status = match super::shutdown_token() {
+        Some(token) => wait_with_shutdown(&mut child, token).await?,
+        None => child
+            .wait()
+            .await
+            .context("Failed to wait for child process")?,
+    };
 
     if let Some(task) = stderr_pipe_task {
         task.await
@@ -108,4 +112,18 @@ pub async fn run<'a>(
     }
 
     Ok(status)
+}
+
+async fn wait_with_shutdown(
+    child: &mut tokio::process::Child,
+    token: &CancellationToken,
+) -> anyhow::Result<ExitStatus> {
+    let status = tokio::select! {
+        res = child.wait() => res,
+        _ = token.cancelled() => {
+            let _ = child.start_kill();
+            child.wait().await
+        }
+    };
+    status.context("Failed to wait for child process")
 }
