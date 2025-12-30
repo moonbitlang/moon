@@ -25,6 +25,8 @@ use moonbuild::section_capture::{SectionCapture, handle_stdout_async};
 use moonutil::platform::macos_with_sigchild_blocked;
 use tokio::process::Command;
 use tokio_util::sync::CancellationToken;
+#[cfg(windows)]
+use tracing::warn;
 
 /// Run a command under the governing of `moon run`.
 ///
@@ -69,6 +71,10 @@ pub async fn run<'a>(
         cmd.spawn()
             .with_context(|| format!("Failed to spawn command {:?}", cmd))
     })?;
+    #[cfg(windows)]
+    if let Err(err) = assign_child_to_job(&child) {
+        warn!(?err, "Failed to assign child process to job object");
+    }
 
     // Task only exists when capturing
     let stderr_pipe_task = child.stderr.take().map(|mut stderr| {
@@ -127,6 +133,49 @@ pub async fn run<'a>(
     }
 
     Ok(status)
+}
+
+#[cfg(windows)]
+fn assign_child_to_job(child: &tokio::process::Child) -> anyhow::Result<()> {
+    use std::os::windows::io::AsRawHandle;
+    use std::sync::OnceLock;
+    use windows_sys::Win32::Foundation::ERROR_ACCESS_DENIED;
+    use windows_sys::Win32::System::JobObjects::{
+        AssignProcessToJobObject, CreateJobObjectW, JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE,
+        JOBOBJECT_EXTENDED_LIMIT_INFORMATION, JobObjectExtendedLimitInformation,
+        SetInformationJobObject,
+    };
+
+    static JOB_OBJECT: OnceLock<windows_sys::Win32::Foundation::HANDLE> = OnceLock::new();
+
+    let job = *JOB_OBJECT.get_or_try_init(|| unsafe {
+        let handle = CreateJobObjectW(std::ptr::null_mut(), std::ptr::null());
+        if handle == 0 {
+            return Err(std::io::Error::last_os_error()).context("CreateJobObjectW failed");
+        }
+        let mut info: JOBOBJECT_EXTENDED_LIMIT_INFORMATION = std::mem::zeroed();
+        info.BasicLimitInformation.LimitFlags = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE;
+        let ok = SetInformationJobObject(
+            handle,
+            JobObjectExtendedLimitInformation,
+            &mut info as *mut _ as *mut _,
+            std::mem::size_of::<JOBOBJECT_EXTENDED_LIMIT_INFORMATION>() as u32,
+        );
+        if ok == 0 {
+            return Err(std::io::Error::last_os_error()).context("SetInformationJobObject failed");
+        }
+        Ok(handle)
+    })?;
+
+    let ok = unsafe { AssignProcessToJobObject(job, child.as_raw_handle() as isize) };
+    if ok == 0 {
+        let err = std::io::Error::last_os_error();
+        if err.raw_os_error() == Some(ERROR_ACCESS_DENIED as i32) {
+            return Ok(());
+        }
+        return Err(err).context("AssignProcessToJobObject failed");
+    }
+    Ok(())
 }
 
 async fn wait_with_shutdown(
