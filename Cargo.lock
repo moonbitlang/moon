@@ -1559,6 +1559,7 @@ dependencies = [
  "home",
  "ignore",
  "indexmap",
+ "libc",
  "log",
  "moonbuild",
  "moonbuild-debug",
