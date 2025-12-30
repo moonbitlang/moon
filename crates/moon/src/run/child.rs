@@ -138,7 +138,7 @@ pub async fn run<'a>(
 #[cfg(windows)]
 fn assign_child_to_job(child: &tokio::process::Child) -> anyhow::Result<()> {
     use std::sync::OnceLock;
-    use windows_sys::Win32::Foundation::ERROR_ACCESS_DENIED;
+    use windows_sys::Win32::Foundation::{ERROR_ACCESS_DENIED, HANDLE};
     use windows_sys::Win32::System::JobObjects::{
         AssignProcessToJobObject, CreateJobObjectW, JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE,
         JOBOBJECT_EXTENDED_LIMIT_INFORMATION, JobObjectExtendedLimitInformation,
@@ -146,7 +146,7 @@ fn assign_child_to_job(child: &tokio::process::Child) -> anyhow::Result<()> {
     };
 
     #[derive(Clone, Copy)]
-    struct JobHandle(isize);
+    struct JobHandle(usize);
     unsafe impl Send for JobHandle {}
     unsafe impl Sync for JobHandle {}
 
@@ -154,7 +154,7 @@ fn assign_child_to_job(child: &tokio::process::Child) -> anyhow::Result<()> {
 
     let job = match JOB_OBJECT.get_or_init(|| unsafe {
         let handle = CreateJobObjectW(std::ptr::null_mut(), std::ptr::null());
-        if handle == 0 {
+        if handle.is_null() {
             return Err(std::io::Error::last_os_error());
         }
         let mut info: JOBOBJECT_EXTENDED_LIMIT_INFORMATION = std::mem::zeroed();
@@ -168,16 +168,19 @@ fn assign_child_to_job(child: &tokio::process::Child) -> anyhow::Result<()> {
         if ok == 0 {
             return Err(std::io::Error::last_os_error());
         }
-        Ok(JobHandle(handle))
+        Ok(JobHandle(handle as usize))
     }) {
         Ok(handle) => *handle,
         Err(err) => {
-            return Err(anyhow::anyhow!(err.to_string()))
-                .context("Failed to initialize job object");
+            return Err(anyhow::Error::new(*err)).context("Failed to initialize job object");
         }
     };
 
-    let ok = unsafe { AssignProcessToJobObject(job.0, child.raw_handle() as isize) };
+    let Some(proc_handle) = child.raw_handle() else {
+        return Err(anyhow::anyhow!("Missing child process handle"));
+    };
+    let job_handle = job.0 as HANDLE;
+    let ok = unsafe { AssignProcessToJobObject(job_handle, proc_handle) };
     if ok == 0 {
         let err = std::io::Error::last_os_error();
         if err.raw_os_error() == Some(ERROR_ACCESS_DENIED as i32) {
