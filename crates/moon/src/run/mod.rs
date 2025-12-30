@@ -38,17 +38,15 @@ pub fn setup_shutdown_handler() {
     if SHUTDOWN_HANDLER.get().is_some() {
         return;
     }
-    let token = SHUTDOWN_TOKEN
-        .get_or_init(CancellationToken::new)
-        .clone();
+    let token = SHUTDOWN_TOKEN.get_or_init(CancellationToken::new).clone();
 
     #[cfg(unix)]
     {
         use signal_hook::consts::signal::*;
         use signal_hook::iterator::Signals;
 
-        let mut signals = Signals::new([SIGTERM, SIGINT, SIGQUIT])
-            .expect("Failed to register signal handler");
+        let mut signals =
+            Signals::new([SIGTERM, SIGINT, SIGQUIT]).expect("Failed to register signal handler");
         std::thread::spawn(move || {
             for signal in signals.forever() {
                 debug!("Received termination signal: {:?}", signal);
