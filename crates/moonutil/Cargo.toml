@@ -57,6 +57,8 @@ slotmap.workspace = true
 tracing.workspace = true
 shlex.workspace = true
 logos = "0.15.1"
+tokio = { workspace = true, features = ["rt"] }
+signal-hook.workspace = true
 
 [target."cfg(unix)".dependencies]
 libc.workspace = true

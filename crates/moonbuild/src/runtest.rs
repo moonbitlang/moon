@@ -76,7 +76,7 @@ pub async fn run_wat(
     cmd.arg(path)
         .arg("--test-args")
         .arg(serde_json_lenient::to_string(args).expect("valid JSON"));
-    run(path, cmd, target_dir, file_test_info_map, verbose, module).await
+    run(path, cmd, target_dir, file_test_info_map, verbose, module, true).await
 }
 
 pub async fn run_js(
@@ -91,12 +91,12 @@ pub async fn run_js(
         moonutil::BINARIES
             .node
             .as_deref()
-            .context("Unable to find the `node` executable in PATH")?,
+            .context("Unable to find `node` executable in PATH")?,
     );
     cmd.arg("--enable-source-maps")
         .arg(path)
         .arg(serde_json_lenient::to_string(args).expect("valid JSON"));
-    run(path, cmd, target_dir, file_test_info_map, verbose, module).await
+    run(path, cmd, target_dir, file_test_info_map, verbose, module, true).await
 }
 
 pub async fn run_native(
@@ -111,7 +111,6 @@ pub async fn run_native(
     let args = args.to_cli_args_for_native();
     let cmd = if moonbuild_opt.use_tcc_run {
         let path = path.with_extension("c");
-        // TODO
         let mut cmd = tokio::process::Command::new(&MOON_DIRS.internal_tcc_path);
         cmd.arg(format!("-I{}", MOON_DIRS.moon_include_path.display()))
             .arg(format!("-L{}", MOON_DIRS.moon_lib_path.display()))
@@ -124,11 +123,11 @@ pub async fn run_native(
             .arg(args);
         cmd
     } else {
-        let mut cmd = tokio::process::Command::new(path);
+        let mut cmd = tokio::process::Command::new(path.as_os_str());
         cmd.arg(args);
         cmd
     };
-    run(path, cmd, target_dir, file_test_info_map, verbose, module).await
+    run(path, cmd, target_dir, file_test_info_map, verbose, module, true).await
 }
 
 pub async fn run_llvm(
@@ -139,9 +138,9 @@ pub async fn run_llvm(
     verbose: bool,
     module: &ModuleDB,
 ) -> anyhow::Result<Vec<Result<TestStatistics, TestFailedStatus>>> {
-    let mut cmd = tokio::process::Command::new(path);
+    let mut cmd = tokio::process::Command::new(path.as_os_str());
     cmd.arg(args.to_cli_args_for_native());
-    run(path, cmd, target_dir, file_test_info_map, verbose, module).await
+    run(path, cmd, target_dir, file_test_info_map, verbose, module, true).await
 }
 
 async fn run(
@@ -151,6 +150,7 @@ async fn run(
     file_test_info_map: &FileTestInfo,
     verbose: bool,
     module: &ModuleDB,
+    register_child: bool,
 ) -> anyhow::Result<Vec<Result<TestStatistics, TestFailedStatus>>> {
     if verbose {
         eprintln!("{:?}", subprocess.as_std());
@@ -164,6 +164,12 @@ async fn run(
             .spawn()
             .with_context(|| format!("failed to execute: {:?}", subprocess))
     })?;
+
+    if register_child {
+        let child_id = execution.id().expect("child should have an ID");
+        log::debug!("Registering test child process with PID: {}", child_id);
+        moonutil::child_process::ChildProcessRegistry::global().lock().unwrap().register_tokio_id(child_id);
+    }
     let mut stdout = execution.stdout.take().unwrap();
 
     let mut test_capture =
@@ -187,6 +193,12 @@ async fn run(
     )?;
     std::io::Write::flush(&mut std::io::stdout())?;
     let output = execution.wait().await?;
+
+    if register_child {
+        let child_id = execution.id().expect("child should have an ID");
+        log::debug!("Unregistering test child process with PID: {}", child_id);
+        moonutil::child_process::ChildProcessRegistry::global().lock().unwrap().unregister(child_id);
+    }
 
     if !output.success() {
         bail!(format!(
@@ -262,7 +274,6 @@ async fn run(
             } else if return_message.starts_with(BATCHBENCH) {
                 res.push(Ok(test_statistic));
             } else if return_message.starts_with(FAILED) || !return_message.is_empty() {
-                // FAILED(moonbit) or something like "panic is expected"
                 res.push(Err(TestFailedStatus::Failed(test_statistic)));
             } else {
                 res.push(Err(TestFailedStatus::Others(return_message.to_string())));
@@ -271,4 +282,29 @@ async fn run(
     }
 
     Ok(res)
+}
+
+/// Spawn a subprocess and register it in the global child process registry.
+/// This ensures that when moon receives a termination signal (e.g., SIGTERM),
+/// all child processes can be cleaned up properly.
+pub async fn spawn_and_register_child(
+    mut subprocess: tokio::process::Command,
+    register_child: bool,
+) -> anyhow::Result<tokio::process::Child> {
+    let execution = macos_with_sigchild_blocked(|| {
+        subprocess
+            .stdin(Stdio::null())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::inherit())
+            .spawn()
+            .with_context(|| format!("failed to execute: {:?}", subprocess))
+    })?;
+
+    if register_child {
+        let child_id = execution.id().expect("child should have an ID");
+        log::debug!("Registering test child process with PID: {}", child_id);
+        moonutil::child_process::ChildProcessRegistry::global().lock().unwrap().register_tokio_id(child_id);
+    }
+
+    Ok(execution)
 }

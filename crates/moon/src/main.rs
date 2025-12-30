@@ -18,7 +18,7 @@
 
 #![warn(clippy::clone_on_ref_ptr)]
 
-use std::{any::Any, io::IsTerminal};
+use std::{any::Any, io::IsTerminal, sync::atomic::{AtomicBool, Ordering}};
 
 use clap::Parser;
 use cli::MoonBuildSubcommands;
@@ -31,6 +31,7 @@ mod run;
 mod watch;
 
 use colored::*;
+use tracing::*;
 use tracing_subscriber::{Layer, layer::SubscriberExt};
 
 /// Initialize logging and tracing-related functionality.
@@ -102,8 +103,47 @@ fn init_tracing(trace_flag: bool) -> Box<dyn Any> {
     Box::new(chrome_guard)
 }
 
+static SHUTDOWN_REQUESTED: AtomicBool = AtomicBool::new(false);
+
+fn setup_signal_handlers() {
+    #[cfg(unix)]
+    {
+        use signal_hook::consts::signal::*;
+        use signal_hook::iterator::Signals;
+
+        let mut signals = Signals::new([SIGTERM, SIGINT, SIGQUIT])
+            .expect("Failed to register signal handler");
+
+        std::thread::spawn(move || {
+            for signal in signals.forever() {
+                debug!("Received termination signal: {:?}", signal);
+                SHUTDOWN_REQUESTED.store(true, Ordering::SeqCst);
+                // Immediately kill all child processes
+                moonutil::child_process::ChildProcessRegistry::global().lock().unwrap().kill_all_sync();
+            }
+        });
+    }
+
+    #[cfg(windows)]
+    {
+        use signal_hook::consts::SIGTERM;
+        use signal_hook::iterator::Signals;
+
+        let mut signals = Signals::new([SIGTERM, signal_hook::consts::SIGINT])
+            .expect("Failed to register signal handler");
+
+        std::thread::spawn(move || {
+            for signal in signals.forever() {
+                debug!("Received termination signal: {:?}", signal);
+                SHUTDOWN_REQUESTED.store(true, Ordering::SeqCst);
+            }
+        });
+    }
+}
+
 pub fn main() {
     panic::setup_panic_hook();
+    setup_signal_handlers();
 
     let cli = cli::MoonBuildCli::parse();
     let flags = cli.flags;
@@ -149,8 +189,18 @@ pub fn main() {
     drop(_trace_guard);
 
     match res {
-        Ok(code) => std::process::exit(code),
+        Ok(code) => {
+            if SHUTDOWN_REQUESTED.load(Ordering::SeqCst) {
+                debug!("Shutdown requested, cleaning up child processes");
+                moonutil::child_process::ChildProcessRegistry::global().lock().unwrap().kill_all_sync();
+            }
+            std::process::exit(code);
+        }
         Err(e) => {
+            if SHUTDOWN_REQUESTED.load(Ordering::SeqCst) {
+                debug!("Shutdown requested, cleaning up child processes");
+                moonutil::child_process::ChildProcessRegistry::global().lock().unwrap().kill_all_sync();
+            }
             eprintln!("{}: {:?}", "error".red().bold(), e);
             std::process::exit(-1);
         }

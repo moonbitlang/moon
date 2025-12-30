@@ -22,8 +22,22 @@ use std::process::{ExitStatus, Stdio};
 
 use anyhow::Context;
 use moonbuild::section_capture::{SectionCapture, handle_stdout_async};
+use moonutil::child_process::ChildProcessRegistry;
 use moonutil::platform::macos_with_sigchild_blocked;
 use tokio::process::Command;
+
+struct ChildRegistration {
+    id: u32,
+}
+
+impl Drop for ChildRegistration {
+    fn drop(&mut self) {
+        ChildProcessRegistry::global()
+            .lock()
+            .unwrap()
+            .unregister(self.id);
+    }
+}
 
 /// Run a command under the governing of `moon run`.
 ///
@@ -67,6 +81,12 @@ pub async fn run<'a>(
         cmd.spawn()
             .with_context(|| format!("Failed to spawn command {:?}", cmd))
     })?;
+    let child_id = child.id().expect("child should have an ID");
+    ChildProcessRegistry::global()
+        .lock()
+        .unwrap()
+        .register_tokio_id(child_id);
+    let _registration = ChildRegistration { id: child_id };
 
     // Task only exists when capturing
     let stderr_pipe_task = child.stderr.take().map(|mut stderr| {

@@ -46,6 +46,7 @@ dunce.workspace = true
 ctrlc.workspace = true
 home.workspace = true
 which.workspace = true
+signal-hook.workspace = true
 chrono.workspace = true
 log.workspace = true
 walkdir.workspace = true
@@ -80,6 +81,7 @@ expect-test.workspace = true
 clap-markdown = "0.1.4"
 similar.workspace = true
 colored.workspace = true
+libc.workspace = true
 
 
 [[bin]]

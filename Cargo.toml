@@ -38,6 +38,7 @@ moonbuild-rupes-recta = { path = "./crates/moonbuild-rupes-recta", version = "*"
 moonbuild-debug = { path = "./crates/moonbuild-debug", version = "*" }
 mooncake = { path = "./crates/mooncake", version = "*" }
 moonutil = { path = "./crates/moonutil", version = "*" }
+signal-hook = "0.3"
 anyhow = { version = "1.0.86" }
 bincode = "1.3.3"
 clap = { version = "4.5.4", features = ["derive", "string", "env"] }

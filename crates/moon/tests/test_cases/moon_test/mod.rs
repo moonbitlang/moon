@@ -6,6 +6,9 @@ use expect_test::expect_file;
 
 use crate::{build_graph::compare_graphs, dry_run_utils::assert_lines_in_order};
 
+#[cfg(unix)]
+use libc::{kill, SIGTERM};
+
 use super::*;
 
 #[test]
@@ -136,6 +139,12 @@ fn test_zombie_child_process() {
         .expect("Failed to get lock file modified time");
 
     // Kill the moon process (simulating the scenario in example/script.js)
+    // Send SIGTERM instead of SIGKILL to allow signal handlers to run and clean up child processes
+    #[cfg(unix)]
+    unsafe {
+        kill(moon_child.id() as i32, SIGTERM);
+    }
+    #[cfg(not(unix))]
     moon_child.kill().expect("Failed to kill moon process");
 
     // Wait a bit to see if child process continues running

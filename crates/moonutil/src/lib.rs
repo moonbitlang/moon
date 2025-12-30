@@ -20,6 +20,7 @@
 
 mod binaries;
 pub mod build_script;
+pub mod child_process;
 pub mod cli;
 pub mod common;
 pub mod compiler_flags;
