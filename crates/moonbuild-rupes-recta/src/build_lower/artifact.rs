@@ -24,7 +24,6 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use anyhow::Context;
 use derive_builder::Builder;
 use moonutil::{
     common::{RunMode, TargetBackend},
@@ -625,9 +624,8 @@ pub fn stdlib_mi_path(core_root: &Path, backend: TargetBackend, fqn: &PackageFQN
     let package_last_segment = fqn
         .package()
         .segments()
-        .last()
-        .context("Package must have at least one segment")
-        .unwrap();
+        .next_back()
+        .expect("Package must have at least one segment");
     path.push(package_name);
     path.push(format!("{}{}", package_last_segment, MI_EXTENSION));
     path

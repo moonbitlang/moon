@@ -559,7 +559,10 @@ fn inject_prelude_usage(env: &mut ResolveEnv<'_>, pid: PackageId) {
     }
 
     // Resolve prelude package id
-    let Some(prelude_pid) = env.packages.get_package_id_by_name("moonbitlang/core/prelude") else {
+    let Some(prelude_pid) = env
+        .packages
+        .get_package_id_by_name("moonbitlang/core/prelude")
+    else {
         return; // no-std scenario
     };
 
