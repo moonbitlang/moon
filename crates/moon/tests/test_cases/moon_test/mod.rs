@@ -135,8 +135,8 @@ fn test_zombie_child_process() {
         .modified()
         .expect("Failed to get lock file modified time");
 
-    // Kill the moon process (simulating the scenario in example/script.js)
-    moon_child.kill().expect("Failed to kill moon process");
+    // Terminate the moon process (simulating the scenario in example/script.js)
+    terminate_child(&mut moon_child);
 
     // Wait a bit to see if child process continues running
     thread::sleep(Duration::from_millis(500));
@@ -165,6 +165,23 @@ fn test_zombie_child_process() {
         The lock file continues to be updated, indicating that spawned test processes remain running as zombies. \
         Moon should properly propagate termination signals to all child processes."
     );
+}
+
+#[cfg(unix)]
+fn terminate_child(child: &mut std::process::Child) {
+    let pid = child.id() as i32;
+    let rc = unsafe { libc::kill(pid, libc::SIGTERM) };
+    if rc != 0 {
+        panic!(
+            "Failed to send SIGTERM to moon process: {}",
+            std::io::Error::last_os_error()
+        );
+    }
+}
+
+#[cfg(windows)]
+fn terminate_child(child: &mut std::process::Child) {
+    child.kill().expect("Failed to terminate moon process");
 }
 
 #[test]

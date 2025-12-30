@@ -82,6 +82,7 @@ expect-test.workspace = true
 clap-markdown = "0.1.4"
 similar.workspace = true
 colored.workspace = true
+libc.workspace = true
 
 
 [[bin]]
