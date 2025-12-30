@@ -69,6 +69,8 @@ impl Template {
                     path,
                     executable,
                 } => {
+                    #[cfg(not(unix))]
+                    let _ = executable;
                     // Prepare template environment
                     let parent = path.parent().unwrap_or_else(|| Path::new(""));
                     let template_env = TemplateEnv {
