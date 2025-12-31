@@ -88,7 +88,7 @@ pub fn build_synth_single_file_package(
     // 1. Allow specifying package-level imports in front matter (not just module deps)
     // 2. Implement alias conflict resolution when importing all packages from a module
     // 3. Parse the single file source to detect which `@package` references are used
-    for (pid, pkg) in discovered.all_packages(true) {
+    for (pid, pkg) in discovered.all_packages(false) {
         if Some(pid) == abort_pkg {
             continue;
         }
@@ -96,7 +96,19 @@ pub fn build_synth_single_file_package(
             continue;
         }
         let fqn_str = pkg.fqn.to_string();
-        imports.push(Import::Simple(fqn_str));
+
+        // Check if this is an immut package that would conflict with mutable counterpart
+        // e.g., moonbitlang/core/immut/array conflicts with moonbitlang/core/array
+        let custom_alias = get_immut_alias(&pkg.fqn);
+        if let Some(alias) = custom_alias {
+            imports.push(Import::Alias {
+                path: fqn_str,
+                alias: Some(alias),
+                sub_package: false,
+            });
+        } else {
+            imports.push(Import::Simple(fqn_str));
+        }
     }
 
     // Construct MoonPkg for synthetic package
@@ -160,4 +172,36 @@ pub fn build_synth_single_file_package(
 
     // Insert and return the new package ID
     discovered.add_package(mid, pkg_path, synth_pkg)
+}
+
+/// Returns a custom alias for packages under `moonbitlang/core/immut/*` to avoid
+/// conflicts with their mutable counterparts (e.g., `moonbitlang/core/array`).
+///
+/// For example:
+/// - `moonbitlang/core/immut/array` -> `immut/array`
+/// - `moonbitlang/core/immut/hashmap` -> `immut/hashmap`
+///
+/// HACK: This is a temporary workaround for alias conflicts in single-file mode.
+/// A proper solution should systematically handle alias conflicts, potentially by:
+/// - Implementing general alias conflict resolution during package solving
+/// - Allowing users to specify package-level imports in front matter
+/// - Parsing source files to detect which `@package` references are actually used
+fn get_immut_alias(fqn: &PackageFQN) -> Option<String> {
+    const IMMUT_PREFIX: &str = "immut/";
+
+    let pkg_path = fqn.package().as_str();
+
+    // Check if package path starts with "immut/"
+    if !pkg_path.starts_with(IMMUT_PREFIX) {
+        return None;
+    }
+
+    // Only apply to moonbitlang/core module
+    let module_name = fqn.module().name();
+    if module_name.username != "moonbitlang" || module_name.unqual != "core" {
+        return None;
+    }
+
+    // Return alias like "immut/array" for "moonbitlang/core/immut/array"
+    Some(pkg_path.to_string())
 }
