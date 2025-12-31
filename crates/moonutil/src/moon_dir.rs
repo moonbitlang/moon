@@ -20,7 +20,7 @@ use std::path::{Path, PathBuf};
 
 use anyhow::Context;
 
-use crate::common::TargetBackend;
+use crate::common::{BUILD_DIR, TargetBackend};
 
 pub struct MoonDirs {
     pub moon_home: PathBuf,
@@ -79,7 +79,7 @@ pub fn core() -> PathBuf {
 
 pub fn core_bundle(backend: TargetBackend) -> PathBuf {
     core()
-        .join("target")
+        .join(BUILD_DIR)
         .join(backend.to_dir_name())
         .join("release")
         .join("bundle")
@@ -87,7 +87,7 @@ pub fn core_bundle(backend: TargetBackend) -> PathBuf {
 
 pub fn core_packages_list(backend: TargetBackend) -> PathBuf {
     core()
-        .join("target")
+        .join(BUILD_DIR)
         .join(backend.to_dir_name())
         .join("release")
         .join("bundle")
@@ -167,7 +167,7 @@ fn test_moon_dir() {
     expect![[r#"
         [
             "",
-            "lib|core|target|wasm-gc|release|bundle",
+            "lib|core|_build|wasm-gc|release|bundle",
             "registry|cache",
             "registry|index",
             "credentials.json",
