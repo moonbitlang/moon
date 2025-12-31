@@ -172,7 +172,7 @@ fn assign_child_to_job(child: &tokio::process::Child) -> anyhow::Result<()> {
     }) {
         Ok(handle) => *handle,
         Err(err) => {
-            return Err(anyhow::Error::new(err.clone())).context("Failed to initialize job object");
+            return Err(anyhow::Error::new(err)).context("Failed to initialize job object");
         }
     };
 

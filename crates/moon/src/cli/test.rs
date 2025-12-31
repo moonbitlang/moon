@@ -169,6 +169,15 @@ pub struct TestSubcommand {
 #[instrument(skip_all)]
 pub fn run_test(cli: UniversalFlags, cmd: TestSubcommand) -> anyhow::Result<i32> {
     crate::run::setup_shutdown_handler();
+    let result = run_test_impl(&cli, &cmd);
+    if crate::run::shutdown_requested() {
+        return Ok(130);
+    }
+    result
+}
+
+#[instrument(skip_all)]
+fn run_test_impl(cli: &UniversalFlags, cmd: &TestSubcommand) -> anyhow::Result<i32> {
     info!(
         update = cmd.update,
         build_only = cmd.build_only,
@@ -184,7 +193,7 @@ pub fn run_test(cli: UniversalFlags, cmd: TestSubcommand) -> anyhow::Result<i32>
             // Now we're talking about real single-file scenario.
             if cmd.single_file.is_some() {
                 info!("delegating to single-file test runner");
-                return run_test_in_single_file(&cli, &cmd);
+                return run_test_in_single_file(cli, cmd);
             } else {
                 return Err(e.into());
             }
@@ -209,7 +218,7 @@ pub fn run_test(cli: UniversalFlags, cmd: TestSubcommand) -> anyhow::Result<i32>
 
     let Some(surface_targets) = &cmd.build_flags.target else {
         debug!("no explicit backend target provided; using defaults");
-        return run_test_internal(&cli, &cmd, &dirs.source_dir, &dirs.target_dir, None);
+        return run_test_internal(cli, cmd, &dirs.source_dir, &dirs.target_dir, None);
     };
     let targets = lower_surface_targets(surface_targets);
     if cmd.update && targets.len() > 1 {
@@ -223,7 +232,7 @@ pub fn run_test(cli: UniversalFlags, cmd: TestSubcommand) -> anyhow::Result<i32>
         let mut cmd = cmd.clone();
         cmd.build_flags.target_backend = Some(t);
         let x = run_test_internal(
-            &cli,
+            cli,
             &cmd,
             &dirs.source_dir,
             &dirs.target_dir,

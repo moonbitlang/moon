@@ -69,6 +69,8 @@ impl Template {
                     path,
                     executable,
                 } => {
+                    #[cfg(windows)]
+                    let _ = executable;
                     // Prepare template environment
                     let parent = path.parent().unwrap_or_else(|| Path::new(""));
                     let template_env = TemplateEnv {
@@ -154,16 +156,15 @@ impl Template {
                                     e
                                 );
                             }
-                        } else {
-                            if let Err(e) = std::os::windows::fs::symlink_file(target, &full_path) {
-                                eprintln!(
-                                    "{} failed to create file symlink: {} -> {}. You may need to enable developer mode or have administrator privileges. {}",
-                                    "Warning:".bold().yellow(),
-                                    full_path.display(),
-                                    target.display(),
-                                    e
-                                );
-                            }
+                        } else if let Err(e) = std::os::windows::fs::symlink_file(target, &full_path)
+                        {
+                            eprintln!(
+                                "{} failed to create file symlink: {} -> {}. You may need to enable developer mode or have administrator privileges. {}",
+                                "Warning:".bold().yellow(),
+                                full_path.display(),
+                                target.display(),
+                                e
+                            );
                         }
                     }
                 }

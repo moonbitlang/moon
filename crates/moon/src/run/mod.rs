@@ -29,8 +29,10 @@ pub use runtime::{CommandGuard, command_for};
 use std::sync::OnceLock;
 
 use tokio_util::sync::CancellationToken;
+#[cfg(unix)]
 use tracing::debug;
 
+#[cfg(unix)]
 static SHUTDOWN_TOKEN: OnceLock<CancellationToken> = OnceLock::new();
 static SHUTDOWN_HANDLER: OnceLock<()> = OnceLock::new();
 
@@ -38,10 +40,10 @@ pub fn setup_shutdown_handler() {
     if SHUTDOWN_HANDLER.get().is_some() {
         return;
     }
-    let token = SHUTDOWN_TOKEN.get_or_init(CancellationToken::new).clone();
 
     #[cfg(unix)]
     {
+        let token = SHUTDOWN_TOKEN.get_or_init(CancellationToken::new).clone();
         use signal_hook::consts::signal::*;
         use signal_hook::iterator::Signals;
 
@@ -55,21 +57,22 @@ pub fn setup_shutdown_handler() {
         });
     }
 
-    #[cfg(windows)]
-    {
-        let token = token.clone();
-        ctrlc::set_handler(move || {
-            debug!("Received termination signal");
-            token.cancel();
-        })
-        .expect("Failed to register Ctrl-C handler");
-    }
-
     let _ = SHUTDOWN_HANDLER.set(());
 }
 
 pub fn shutdown_token() -> Option<&'static CancellationToken> {
+    #[cfg(windows)]
+    {
+        None
+    }
+    #[cfg(unix)]
+    {
     SHUTDOWN_TOKEN.get()
+    }
+}
+
+pub fn shutdown_requested() -> bool {
+    shutdown_token().is_some_and(|token| token.is_cancelled())
 }
 
 pub fn default_rt() -> std::io::Result<tokio::runtime::Runtime> {
