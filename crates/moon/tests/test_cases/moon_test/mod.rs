@@ -138,17 +138,21 @@ fn test_zombie_child_process() {
     // Terminate the moon process (simulating the scenario in example/script.js)
     terminate_child(&mut moon_child);
 
-    // Wait a bit to see if child process continues running
-    thread::sleep(Duration::from_millis(500));
-
-    // Check if lock file has been updated (child still renewing it)
-    let current_mtime = lock_file
-        .metadata()
-        .expect("Failed to get lock file metadata")
-        .modified()
-        .expect("Failed to get lock file modified time");
-
-    let file_updated = current_mtime > initial_mtime;
+    // Wait a bit to see if child process continues running (Windows CI can be slow).
+    let start = SystemTime::now();
+    let mut file_updated = false;
+    while start.elapsed().unwrap().as_millis() < 2000 {
+        thread::sleep(Duration::from_millis(200));
+        let current_mtime = lock_file
+            .metadata()
+            .expect("Failed to get lock file metadata")
+            .modified()
+            .expect("Failed to get lock file modified time");
+        if current_mtime > initial_mtime {
+            file_updated = true;
+            break;
+        }
+    }
 
     // Clean up moon child process (if still alive)
     let _ = moon_child.kill();
