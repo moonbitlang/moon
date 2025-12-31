@@ -100,10 +100,96 @@ fn test_moon_test_hello_lib() {
             [moonbitlang/hello] test lib/hello_wbtest.mbt:1 (#0) ok
             Total tests: 1, passed: 1, failed: 0.
         "#]],
-    );
+    )
 }
 
 #[test]
+fn test_zombie_child_process() {
+    use super::util::moon_bin;
+    use std::thread;
+    use std::time::{Duration, SystemTime};
+
+    let dir = TestDir::new("moon_test/zombie_child");
+    let lock_file = dir.join("test_lock_file.txt");
+
+    // Spawn moon test in background
+    let mut moon_child = std::process::Command::new(moon_bin())
+        .current_dir(&dir)
+        .args(["test", "--target", "js", "--no-parallelize"])
+        .spawn()
+        .expect("Failed to spawn moon test");
+
+    // Wait for lock file to be created
+    let start = SystemTime::now();
+    while !lock_file.exists() {
+        thread::sleep(Duration::from_millis(100));
+        if start.elapsed().unwrap().as_secs() > 10 {
+            panic!("Timeout waiting for lock file to be created");
+        }
+    }
+
+    // Record the initial modification time of the lock file
+    let initial_mtime = lock_file
+        .metadata()
+        .expect("Failed to get lock file metadata")
+        .modified()
+        .expect("Failed to get lock file modified time");
+
+    // Terminate the moon process (simulating the scenario in example/script.js)
+    terminate_child(&mut moon_child);
+
+    // Wait a bit to see if child process continues running (Windows CI can be slow).
+    let start = SystemTime::now();
+    let mut file_updated = false;
+    while start.elapsed().unwrap().as_millis() < 2000 {
+        thread::sleep(Duration::from_millis(200));
+        let current_mtime = lock_file
+            .metadata()
+            .expect("Failed to get lock file metadata")
+            .modified()
+            .expect("Failed to get lock file modified time");
+        if current_mtime > initial_mtime {
+            file_updated = true;
+            break;
+        }
+    }
+
+    // Clean up moon child process (if still alive)
+    let _ = moon_child.kill();
+    let _ = moon_child.wait();
+
+    // When moon is killed, all child processes (moonrun/node) should also be terminated.
+    // This is verified by checking that the lock file is NOT updated after moon is killed.
+    // If the file is still being updated, it means the child process continues running as a zombie.
+    // This test currently fails because moon does not properly clean up child processes when it receives a termination signal.
+    // Once the bug is fixed, the lock file will stop being updated after moon is killed and this assertion will pass.
+    assert!(
+        !file_updated,
+        "Child processes (moonrun/node) are not terminated when moon is killed. \
+        The lock file continues to be updated, indicating that spawned test processes remain running as zombies. \
+        Moon should properly propagate termination signals to all child processes."
+    );
+}
+
+#[cfg(unix)]
+fn terminate_child(child: &mut std::process::Child) {
+    let pid = child.id() as i32;
+    let rc = unsafe { libc::kill(pid, libc::SIGTERM) };
+    if rc != 0 {
+        panic!(
+            "Failed to send SIGTERM to moon process: {}",
+            std::io::Error::last_os_error()
+        );
+    }
+}
+
+#[cfg(windows)]
+fn terminate_child(child: &mut std::process::Child) {
+    child.kill().expect("Failed to terminate moon process");
+}
+
+#[test]
+
 fn test_moon_test_with_local_dep() {
     let dir = TestDir::new("moon_test/with_local_deps");
     check(

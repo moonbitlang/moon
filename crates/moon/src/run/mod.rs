@@ -26,6 +26,55 @@ pub use child::run;
 pub use runtest::{TestFilter, TestIndex, perform_promotion, run_tests};
 pub use runtime::{CommandGuard, command_for};
 
+use std::sync::OnceLock;
+
+use tokio_util::sync::CancellationToken;
+#[cfg(unix)]
+use tracing::debug;
+
+#[cfg(unix)]
+static SHUTDOWN_TOKEN: OnceLock<CancellationToken> = OnceLock::new();
+static SHUTDOWN_HANDLER: OnceLock<()> = OnceLock::new();
+
+pub fn setup_shutdown_handler() {
+    if SHUTDOWN_HANDLER.get().is_some() {
+        return;
+    }
+
+    #[cfg(unix)]
+    {
+        let token = SHUTDOWN_TOKEN.get_or_init(CancellationToken::new).clone();
+        use signal_hook::consts::signal::*;
+        use signal_hook::iterator::Signals;
+
+        let mut signals =
+            Signals::new([SIGTERM, SIGINT, SIGQUIT]).expect("Failed to register signal handler");
+        std::thread::spawn(move || {
+            for signal in signals.forever() {
+                debug!("Received termination signal: {:?}", signal);
+                token.cancel();
+            }
+        });
+    }
+
+    let _ = SHUTDOWN_HANDLER.set(());
+}
+
+pub fn shutdown_token() -> Option<&'static CancellationToken> {
+    #[cfg(windows)]
+    {
+        None
+    }
+    #[cfg(unix)]
+    {
+        SHUTDOWN_TOKEN.get()
+    }
+}
+
+pub fn shutdown_requested() -> bool {
+    shutdown_token().is_some_and(|token| token.is_cancelled())
+}
+
 pub fn default_rt() -> std::io::Result<tokio::runtime::Runtime> {
     tokio::runtime::Builder::new_current_thread()
         .enable_all()
