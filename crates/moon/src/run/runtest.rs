@@ -144,6 +144,7 @@ pub fn run_tests(
     include_skipped: bool,
     bench: bool,
     verbose: bool,
+    timeout: Option<u64>,
 ) -> anyhow::Result<ReplaceableTestResults> {
     // Gathering artifacts
     let executables = gather_tests(build_meta);
@@ -159,6 +160,7 @@ pub fn run_tests(
         include_skipped,
         bench,
         verbose,
+        timeout,
     };
     let mut stats = ReplaceableTestResults::default();
     let mut total_cases = 0usize;
@@ -208,6 +210,8 @@ struct TestRunCtx<'a> {
     bench: bool,
     /// Enable verbose printing
     verbose: bool,
+    /// Test timeout in seconds
+    timeout: Option<u64>,
 }
 
 /// A container of test results corresponding to each test artifact, and
@@ -421,6 +425,7 @@ fn run_one_test_executable(
             &mut [&mut cov_cap, &mut test_cap],
             true,
             cmd.command,
+            ctx.timeout,
         ))
         .with_context(|| format!("Failed to run test for {fqn} {:?}", test.target.kind))?;
     debug!(?exit_status, "test process finished");
