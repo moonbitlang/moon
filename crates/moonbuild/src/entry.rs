@@ -864,6 +864,10 @@ pub fn run_test(
                 std::fs::write(&wrapper_js_driver_path, js_driver)?;
                 // prevent node use the outer layer package.json with `"type": "module"`
                 std::fs::write(moonbuild_opt.target_dir.join("package.json"), "{}")?;
+                // Also write package.json to the directory of the .js file being required
+                if let Some(artifact_parent) = artifact_path.parent() {
+                    let _ = std::fs::write(artifact_parent.join("package.json"), "{}");
+                }
                 test_artifacts
                     .artifacts_path
                     .push(wrapper_js_driver_path.clone());
