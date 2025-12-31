@@ -95,6 +95,7 @@ impl Display for PackageArtifactName<'_> {
 pub enum MiPathResult {
     Regular(PathBuf),
     StdAbort(PathBuf),
+    Std(PathBuf),
 }
 
 impl MiPathResult {
@@ -102,6 +103,7 @@ impl MiPathResult {
         match self {
             MiPathResult::Regular(p) => p,
             MiPathResult::StdAbort(p) => p,
+            MiPathResult::Std(p) => p,
         }
     }
 }
@@ -220,6 +222,18 @@ impl LegacyLayout {
             } else {
                 panic!("Cannot import `.mi` for moonbitlang/core/abort");
             }
+        }
+
+        if pkg_list.get_package(target.package).is_stdlib {
+            let core_root = self
+                .stdlib_dir
+                .as_ref()
+                .expect("Standard library should be present");
+            return MiPathResult::Std(stdlib_mi_path(
+                core_root,
+                backend,
+                &pkg_list.get_package(target.package).fqn,
+            ));
         }
 
         let pkg_fqn = &pkg_list.get_package(target.package).fqn;
@@ -601,5 +615,18 @@ pub fn abort_mi_path(
 pub fn core_core_path(core_root: &Path, backend: TargetBackend) -> PathBuf {
     let mut path = core_bundle_path(core_root, backend);
     path.push("core.core");
+    path
+}
+
+pub fn stdlib_mi_path(core_root: &Path, backend: TargetBackend, fqn: &PackageFQN) -> PathBuf {
+    let mut path = core_bundle_path(core_root, backend);
+    let package_name = fqn.package().as_str();
+    let package_last_segment = fqn
+        .package()
+        .segments()
+        .next_back()
+        .expect("Package must have at least one segment");
+    path.push(package_name);
+    path.push(format!("{}{}", package_last_segment, MI_EXTENSION));
     path
 }

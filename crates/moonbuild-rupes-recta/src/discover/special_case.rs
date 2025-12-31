@@ -51,6 +51,7 @@ pub fn inject_std_abort(
         &abort_path,
         RelativePath::new("abort"),
         true,
+        true,
     )?;
 
     // I know you have imports, but no, you don't.

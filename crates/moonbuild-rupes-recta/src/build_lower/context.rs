@@ -237,6 +237,14 @@ impl<'a> BuildPlanLowerContext<'a> {
                         self.opt.target_backend.into(),
                     ) {
                         crate::build_lower::artifact::MiPathResult::StdAbort(_) => {}
+                        crate::build_lower::artifact::MiPathResult::Std(p) => {
+                            // this should not happen because there is no
+                            // implementation package in stdlib other than abort
+                            tracing::warn!(
+                                "stdlib mi should not be needed for check as an implementation package: {:?}",
+                                p
+                            );
+                        }
                         crate::build_lower::artifact::MiPathResult::Regular(p) => {
                             out.push(p);
                         }

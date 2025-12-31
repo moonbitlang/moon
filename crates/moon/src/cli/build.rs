@@ -382,6 +382,12 @@ fn calc_user_intent(
         let intents: Vec<_> = if linkable_pkgs.is_empty() {
             packages
                 .iter()
+                .filter(|&(_, &pkg_id)| {
+                    // Skip building stdlib packages
+                    // because we should use prebuilt stdlib artifacts instead
+                    let pkg = resolve_output.pkg_dirs.get_package(pkg_id);
+                    !pkg.is_stdlib
+                })
                 .map(|(_, &pkg_id)| UserIntent::Build(pkg_id))
                 .collect()
         } else {

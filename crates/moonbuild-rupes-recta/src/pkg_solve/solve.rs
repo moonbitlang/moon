@@ -184,6 +184,7 @@ fn solve_one_package(
     insert_black_box_dep(env, pid, pkg_data);
 
     inject_abort_usage(env, pid);
+    inject_prelude_usage(env, pid);
     if env.inject_coverage {
         inject_core_coverage_usage(env, pid);
     }
@@ -534,6 +535,50 @@ fn inject_core_coverage_usage(env: &mut ResolveEnv<'_>, pid: PackageId) {
             cov_pid.build_target(TargetKind::Source),
             DepEdge {
                 short_alias: "coverage".into(),
+                kind,
+            },
+        );
+    }
+}
+
+/// Inject the dependency to `moonbitlang/core/prelude` for every non-stdlib package.
+///
+/// The prelude package provides common definitions that should be available to all
+/// user packages without explicit import.
+fn inject_prelude_usage(env: &mut ResolveEnv<'_>, pid: PackageId) {
+    let pkg = env.packages.get_package(pid);
+
+    // Skip stdlib packages - they don't need prelude injected
+    if pkg.is_stdlib {
+        return;
+    }
+
+    // Also skip packages in moonbitlang/core module (defensive check)
+    if pkg.fqn.module().name() == &CORE_MODULE_TUPLE {
+        return;
+    }
+
+    // Resolve prelude package id
+    let Some(prelude_pid) = env
+        .packages
+        .get_package_id_by_name("moonbitlang/core/prelude")
+    else {
+        return; // no-std scenario
+    };
+
+    trace!("Injecting prelude usage for package {:?}", pid);
+
+    for &kind in &[
+        TargetKind::Source,
+        TargetKind::InlineTest,
+        TargetKind::WhiteboxTest,
+        TargetKind::BlackboxTest,
+    ] {
+        env.res.dep_graph.add_edge(
+            pid.build_target(kind),
+            prelude_pid.build_target(TargetKind::Source),
+            DepEdge {
+                short_alias: "prelude".into(),
                 kind,
             },
         );

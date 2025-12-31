@@ -685,7 +685,7 @@ fn calc_user_intent(
     } else {
         let intents: Vec<_> = resolve_output
             .pkg_dirs
-            .all_packages()
+            .all_packages(true)
             .map(|(id, _)| UserIntent::Check(id))
             .collect();
         Ok(intents.into())

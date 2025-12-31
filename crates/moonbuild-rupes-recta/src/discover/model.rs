@@ -82,6 +82,9 @@ pub struct DiscoveredPackage {
     ///
     /// This is `None` for non-virtual packages.
     pub virtual_mbti: Option<PathBuf>,
+
+    /// Whether this package is part of the standard library.    
+    pub is_stdlib: bool,
 }
 
 impl DiscoveredPackage {
@@ -217,8 +220,13 @@ impl DiscoverResult {
     }
 
     /// Get all discovered packages.
-    pub fn all_packages(&self) -> impl Iterator<Item = (PackageId, &DiscoveredPackage)> {
-        self.packages.iter()
+    pub fn all_packages(
+        &self,
+        exclude_stdlib: bool,
+    ) -> impl Iterator<Item = (PackageId, &DiscoveredPackage)> {
+        self.packages
+            .iter()
+            .filter(move |(_, pkg)| !exclude_stdlib || !pkg.is_stdlib)
     }
 
     /// Get the number of discovered packages.
@@ -234,6 +242,10 @@ impl DiscoverResult {
 
     pub fn abort_pkg(&self) -> Option<PackageId> {
         self.abort_pkg
+    }
+
+    pub fn is_stdlib_package(&self, id: PackageId) -> bool {
+        self.packages[id].is_stdlib
     }
 }
 

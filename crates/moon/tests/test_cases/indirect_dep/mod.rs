@@ -16,7 +16,16 @@ fn normalize_all_pkgs_json(dir: &impl AsRef<std::path::Path>, json_path: &Path) 
     let normalized_json = json_content.replace("\\\\", "/");
 
     // Replace the project path with $ROOT
-    normalized_json.replace(&normalized_path, "$ROOT")
+    let normalized_json = normalized_json.replace(&normalized_path, "$ROOT");
+
+    // Replace the MOON_HOME path with $MOON_HOME
+    normalized_json.replace(
+        &moonutil::moon_dir::home()
+            .to_str()
+            .unwrap()
+            .replace('\\', "/"),
+        "$MOON_HOME",
+    )
 }
 
 #[test]

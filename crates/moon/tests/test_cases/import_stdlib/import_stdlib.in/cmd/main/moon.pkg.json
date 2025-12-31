@@ -1,0 +1,9 @@
+{
+  "is-main": true,
+  "import": [
+    {
+      "path": "moonbitlang/core/math",
+      "alias": "core_math"
+    }
+  ]
+}

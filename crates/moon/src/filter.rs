@@ -129,7 +129,7 @@ pub fn match_packages_by_name_rr(
 
 impl AsNameMap<PackageId> for moonbuild_rupes_recta::discover::DiscoverResult {
     fn all_names(&self) -> impl Iterator<Item = impl AsRef<str>> {
-        self.all_packages().map(|(_, pkg)| pkg.fqn.to_string())
+        self.all_packages(true).map(|(_, pkg)| pkg.fqn.to_string())
     }
 
     fn get(&self, name: &str) -> Option<PackageId> {

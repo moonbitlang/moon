@@ -133,6 +133,12 @@ impl<'a> BuildPlanConstructor<'a> {
             return;
         }
 
+        // Skip stdlib packages
+        // using the prebuilt .mi files directly
+        if self.input.pkg_dirs.is_stdlib_package(dep.package) {
+            return;
+        }
+
         let pkg_info = self.input.pkg_dirs.get_package(dep.package);
         let dep_node = if pkg_info.is_virtual() {
             self.need_node(BuildPlanNode::BuildVirtual(dep.package))
@@ -734,6 +740,11 @@ impl<'a> BuildPlanConstructor<'a> {
                 // Gather dependencies (outgoing neighbors) and sort deterministically
                 let mut deps: Vec<BuildTarget> = graph
                     .neighbors_directed(node, petgraph::Direction::Outgoing)
+                    .filter(|dep| {
+                        // Skip stdlib packages
+                        // because they are always linked implicitly
+                        !self.input.pkg_dirs.is_stdlib_package(dep.package)
+                    })
                     .collect();
 
                 deps.sort_by(|a, b| {
@@ -1024,7 +1035,7 @@ impl<'a> BuildPlanConstructor<'a> {
     ) -> Result<(), BuildPlanConstructError> {
         // For now, `moondoc` depends on *every check*, as specified in its
         // packages.json input. I guess bad things might happen if you don't?
-        for (pkg_id, _) in self.input.pkg_dirs.all_packages() {
+        for (pkg_id, _) in self.input.pkg_dirs.all_packages(true) {
             let check_node = self.need_node(BuildPlanNode::Check(
                 pkg_id.build_target(TargetKind::Source),
             ));

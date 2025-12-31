@@ -238,9 +238,27 @@
           }
         },
         "mbt-md-files": {},
-        "deps": [],
-        "wbtest-deps": [],
-        "test-deps": [],
+        "deps": [
+          {
+            "path": "moonbitlang/core/prelude",
+            "alias": "prelude",
+            "fspath": "$MOON_HOME/lib/core/prelude"
+          }
+        ],
+        "wbtest-deps": [
+          {
+            "path": "moonbitlang/core/prelude",
+            "alias": "prelude",
+            "fspath": "$MOON_HOME/lib/core/prelude"
+          }
+        ],
+        "test-deps": [
+          {
+            "path": "moonbitlang/core/prelude",
+            "alias": "prelude",
+            "fspath": "$MOON_HOME/lib/core/prelude"
+          }
+        ],
         "artifact": "${WORK_DIR}/target/wasm-gc/release/check/lib/lib.mi"
       },
       {
@@ -269,13 +287,30 @@
         "mbt-md-files": {},
         "deps": [
           {
+            "path": "moonbitlang/core/prelude",
+            "alias": "prelude",
+            "fspath": "$MOON_HOME/lib/core/prelude"
+          },
+          {
             "path": "username/hello/lib",
             "alias": "lib",
             "fspath": "${WORK_DIR}/src/lib"
           }
         ],
-        "wbtest-deps": [],
-        "test-deps": [],
+        "wbtest-deps": [
+          {
+            "path": "moonbitlang/core/prelude",
+            "alias": "prelude",
+            "fspath": "$MOON_HOME/lib/core/prelude"
+          }
+        ],
+        "test-deps": [
+          {
+            "path": "moonbitlang/core/prelude",
+            "alias": "prelude",
+            "fspath": "$MOON_HOME/lib/core/prelude"
+          }
+        ],
         "artifact": "${WORK_DIR}/target/wasm-gc/release/check/main/main.mi"
       }
     ],
