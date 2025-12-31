@@ -184,7 +184,10 @@ fn assign_child_to_job(child: &tokio::process::Child) -> anyhow::Result<()> {
     if ok == 0 {
         let err = std::io::Error::last_os_error();
         if err.raw_os_error() == Some(ERROR_ACCESS_DENIED as i32) {
-            warn!(?err, "AssignProcessToJobObject denied; child may outlive parent");
+            warn!(
+                ?err,
+                "AssignProcessToJobObject denied; child may outlive parent"
+            );
             return Ok(());
         }
         warn!(?err, "AssignProcessToJobObject failed");

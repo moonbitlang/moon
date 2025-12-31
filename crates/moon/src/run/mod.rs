@@ -67,7 +67,7 @@ pub fn shutdown_token() -> Option<&'static CancellationToken> {
     }
     #[cfg(unix)]
     {
-    SHUTDOWN_TOKEN.get()
+        SHUTDOWN_TOKEN.get()
     }
 }
 
