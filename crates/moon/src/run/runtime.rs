@@ -139,5 +139,12 @@ fn create_js_driver(js_path: &Path, test_args: &TestArgs) -> anyhow::Result<(Tem
     std::fs::write(package_json, "{}")
         .expect("Failed to write temporary package.json for JS testing script");
 
+    // Also write package.json to the directory of the .js file being required
+    // to prevent node from finding the user's package.json with "type": "module"
+    if let Some(js_parent) = js_path.parent() {
+        let js_dir_package_json = js_parent.join("package.json");
+        let _ = std::fs::write(js_dir_package_json, "{}");
+    }
+
     Ok((dir, js_file))
 }
