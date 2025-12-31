@@ -156,7 +156,8 @@ impl Template {
                                     e
                                 );
                             }
-                        } else if let Err(e) = std::os::windows::fs::symlink_file(target, &full_path)
+                        } else if let Err(e) =
+                            std::os::windows::fs::symlink_file(target, &full_path)
                         {
                             eprintln!(
                                 "{} failed to create file symlink: {} -> {}. You may need to enable developer mode or have administrator privileges. {}",
