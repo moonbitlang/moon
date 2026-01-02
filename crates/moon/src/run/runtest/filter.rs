@@ -24,7 +24,7 @@ use moonbuild_rupes_recta::{
     cond_comp::FileTestKind,
     model::{BuildTarget, PackageId, TargetKind},
 };
-use moonutil::common::{MbtTestInfo, MooncGenTestInfo};
+use moonutil::common::{glob_match, MbtTestInfo, MooncGenTestInfo};
 
 use crate::run::TestIndex;
 
@@ -58,6 +58,8 @@ pub struct PackageFilter(pub IndexMap<BuildTarget, Option<FileFilter>>);
 #[derive(Default, Debug, Clone, PartialEq, Eq)]
 pub struct TestFilter {
     pub filter: Option<PackageFilter>,
+    /// Glob pattern to filter tests by name
+    pub name_filter: Option<String>,
 }
 
 impl TestFilter {
@@ -191,11 +193,23 @@ impl FileFilter {
     }
 }
 
-fn all_ranges(infos: &[MbtTestInfo], include_skipped: bool) -> Vec<Range<u32>> {
+fn all_ranges(
+    infos: &[MbtTestInfo],
+    include_skipped: bool,
+    name_filter: Option<&str>,
+) -> Vec<Range<u32>> {
     // Use actual indices from test metadata instead of assuming contiguous 0..max_index
     let actual_indices: Vec<u32> = infos
         .iter()
         .filter(|t| include_skipped || !t.has_skip())
+        .filter(|t| {
+            // Apply name filter if present
+            match (name_filter, &t.name) {
+                (Some(pattern), Some(name)) => glob_match(pattern, name),
+                (Some(pattern), None) => glob_match(pattern, &t.func),
+                (None, _) => true,
+            }
+        })
         .map(|t| t.index)
         .collect();
     indices_to_ranges(actual_indices)
@@ -207,6 +221,7 @@ pub fn apply_filter(
     files_and_index: &mut Vec<(String, Vec<std::ops::Range<u32>>)>,
     include_skipped: bool,
     bench: bool,
+    name_filter: Option<&str>,
 ) {
     let lists = if bench {
         vec![&meta.with_bench_args_tests]
@@ -223,7 +238,7 @@ pub fn apply_filter(
         None => {
             for test_list in lists {
                 for (filename, test_infos) in test_list {
-                    let this_file_index = all_ranges(test_infos, include_skipped);
+                    let this_file_index = all_ranges(test_infos, include_skipped, name_filter);
                     files_and_index.push((filename.clone(), this_file_index));
                 }
             }
@@ -239,13 +254,24 @@ pub fn apply_filter(
                         match v {
                             None => {
                                 // Wildcard, add all indices
-                                this_file_index.extend(all_ranges(tests, include_skipped));
+                                this_file_index
+                                    .extend(all_ranges(tests, include_skipped, name_filter));
                             }
                             Some(ixf) => {
                                 for t in tests {
                                     if ixf.0.contains(&t.index) {
-                                        // for single test, the `#skip` attribute is ignored
-                                        this_file_index.push(t.index..t.index + 1);
+                                        // Apply name filter for specific index selection
+                                        let name_matches = match (name_filter, &t.name) {
+                                            (Some(pattern), Some(name)) => {
+                                                glob_match(pattern, name)
+                                            }
+                                            (Some(pattern), None) => glob_match(pattern, &t.func),
+                                            (None, _) => true,
+                                        };
+                                        if name_matches {
+                                            // for single test, the `#skip` attribute is ignored
+                                            this_file_index.push(t.index..t.index + 1);
+                                        }
                                     }
                                 }
                             }
@@ -261,7 +287,7 @@ pub fn apply_filter(
 #[cfg(test)]
 mod test {
     use expect_test::expect;
-    use moonutil::common::{MbtTestInfo, MooncGenTestInfo};
+    use moonutil::common::{glob_match, MbtTestInfo, MooncGenTestInfo};
 
     fn example_meta() -> MooncGenTestInfo {
         MooncGenTestInfo {
@@ -361,7 +387,7 @@ mod test {
     fn test_no_file_filter() {
         let meta = example_meta();
         let mut out = vec![];
-        super::apply_filter(None, &meta, &mut out, false, false);
+        super::apply_filter(None, &meta, &mut out, false, false, None);
 
         expect![[r#"[("file1.mbt", [0..2, 4..5]), ("file2.mbt", [2..3]), ("doc_tests.mbt", [0..2]), ("file1.mbt", [2..3]), ("my_file.mbt", []), ("param_file.mbt", [0..1])]"#]]
         .assert_eq(&format!("{:?}", out));
@@ -377,7 +403,7 @@ mod test {
         expect![[r#"FileFilter({"file1.mbt": None})"#]].assert_eq(&format!("{:?}", ff));
 
         let mut out = vec![];
-        super::apply_filter(Some(&ff), &meta, &mut out, false, false);
+        super::apply_filter(Some(&ff), &meta, &mut out, false, false, None);
 
         expect![[r#"[("file1.mbt", [0..2, 4..5, 2..3])]"#]].assert_eq(&format!("{:?}", out));
     }
@@ -394,7 +420,7 @@ mod test {
             .assert_eq(&format!("{:?}", ff));
 
         let mut out = vec![];
-        super::apply_filter(Some(&ff), &meta, &mut out, false, false);
+        super::apply_filter(Some(&ff), &meta, &mut out, false, false, None);
 
         expect![[r#"[("file1.mbt", [1..2, 4..5])]"#]].assert_eq(&format!("{:?}", out));
     }
@@ -413,7 +439,7 @@ mod test {
         .assert_eq(&format!("{:?}", ff));
 
         let mut out = vec![];
-        super::apply_filter(Some(&ff), &meta, &mut out, false, false);
+        super::apply_filter(Some(&ff), &meta, &mut out, false, false, None);
 
         expect![[
             r#"[("file1.mbt", [0..1]), ("doc_tests.mbt", [0..2]), ("param_file.mbt", [0..1])]"#
@@ -429,7 +455,7 @@ mod test {
         expect!["FileFilter({})"].assert_eq(&format!("{:?}", ff));
 
         let mut out = vec![];
-        super::apply_filter(Some(&ff), &meta, &mut out, false, false);
+        super::apply_filter(Some(&ff), &meta, &mut out, false, false, None);
 
         expect!["[]"].assert_eq(&format!("{:?}", out));
     }
@@ -444,8 +470,48 @@ mod test {
         expect![[r#"FileFilter({"my_file.mbt": None})"#]].assert_eq(&format!("{:?}", ff));
 
         let mut out = vec![];
-        super::apply_filter(Some(&ff), &meta, &mut out, false, false);
+        super::apply_filter(Some(&ff), &meta, &mut out, false, false, None);
 
         expect![[r#"[("my_file.mbt", [])]"#]].assert_eq(&format!("{:?}", out));
+    }
+
+    #[test]
+    fn test_glob_match_basic() {
+        // Exact match
+        assert!(glob_match("hello", "hello"));
+        assert!(!glob_match("hello", "world"));
+
+        // Wildcard *
+        assert!(glob_match("*", "anything"));
+        assert!(glob_match("test_*", "test_add"));
+        assert!(glob_match("test_*", "test_"));
+        assert!(!glob_match("test_*", "test"));
+        assert!(glob_match("*_test", "unit_test"));
+        assert!(glob_match("*parse*", "test_parse_json"));
+
+        // Wildcard ?
+        assert!(glob_match("test_?", "test_a"));
+        assert!(!glob_match("test_?", "test_ab"));
+        assert!(!glob_match("test_?", "test_"));
+        assert!(glob_match("t?st", "test"));
+        assert!(glob_match("t?st", "tost"));
+
+        // Combined
+        assert!(glob_match("*_?", "test_a"));
+        assert!(glob_match("t*t_?", "test_a"));
+        assert!(glob_match("t*t_?", "tt_a"));
+    }
+
+    #[test]
+    fn test_name_filter_with_pattern() {
+        let meta = example_meta();
+        let mut out = vec![];
+        // Filter by name pattern - should match tests with 'o' in name
+        super::apply_filter(None, &meta, &mut out, false, false, Some("*o*"));
+
+        // Tests with names containing 'o': zero (0), one (1), four (4), two (2), doctest a (0), doctest b (1)
+        // Note: file1 param (index 2) has name "file1 param" which doesn't match "*o*"
+        expect![[r#"[("file1.mbt", [0..2, 4..5]), ("file2.mbt", [2..3]), ("doc_tests.mbt", [0..2]), ("file1.mbt", []), ("my_file.mbt", []), ("param_file.mbt", [])]"#]]
+        .assert_eq(&format!("{:?}", out));
     }
 }
