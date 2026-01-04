@@ -131,10 +131,12 @@ pub fn build_graph_for_fmt(
 
     let mut graph = n2::graph::Graph::default();
 
-    let all_packages = resolved
+    let Some(all_packages) = resolved
         .pkg_dirs
         .packages_for_module(resolved.main_module_id)
-        .expect("We only have one module, this should succeed");
+    else {
+        anyhow::bail!("No packages found in module to format");
+    };
 
     for &id in all_packages.values() {
         // Skip packages that don't match the filter
