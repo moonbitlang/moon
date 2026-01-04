@@ -138,7 +138,7 @@ fn assign_child_to_job(child: &tokio::process::Child) -> anyhow::Result<()> {
     };
 
     #[derive(Clone, Copy)]
-    struct JobHandle(usize);
+    struct JobHandle(HANDLE);
     unsafe impl Send for JobHandle {}
     unsafe impl Sync for JobHandle {}
 
@@ -160,7 +160,7 @@ fn assign_child_to_job(child: &tokio::process::Child) -> anyhow::Result<()> {
         if ok == 0 {
             return Err(std::io::Error::last_os_error());
         }
-        Ok(JobHandle(handle as usize))
+        Ok(JobHandle(handle as HANDLE))
     }) {
         Ok(handle) => *handle,
         Err(err) => {
@@ -171,7 +171,7 @@ fn assign_child_to_job(child: &tokio::process::Child) -> anyhow::Result<()> {
     let Some(proc_handle) = child.raw_handle() else {
         return Err(anyhow::anyhow!("Missing child process handle"));
     };
-    let job_handle = job.0 as HANDLE;
+    let job_handle = job.0;
     let ok = unsafe { AssignProcessToJobObject(job_handle, proc_handle) };
     if ok == 0 {
         let err = std::io::Error::last_os_error();
