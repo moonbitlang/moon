@@ -49,7 +49,7 @@ which.workspace = true
 chrono.workspace = true
 log.workspace = true
 walkdir.workspace = true
-tokio = { workspace = true, features = ["rt"] }
+tokio = { workspace = true, features = ["rt", "signal"] }
 tokio-util.workspace = true
 futures.workspace = true
 clap_complete.workspace = true
@@ -69,7 +69,6 @@ ignore.workspace = true
 tracing.workspace = true
 tracing-subscriber.workspace = true
 tracing-chrome.workspace = true
-signal-hook.workspace = true
 
 [target."cfg(windows)".dependencies.windows-sys]
 features = [

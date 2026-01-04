@@ -24,7 +24,6 @@ use anyhow::Context;
 use moonbuild::section_capture::{SectionCapture, handle_stdout_async};
 use moonutil::platform::macos_with_sigchild_blocked;
 use tokio::process::Command;
-use tokio_util::sync::CancellationToken;
 #[cfg(windows)]
 use tracing::warn;
 
@@ -96,36 +95,29 @@ pub async fn run<'a>(
 
         if !captures.is_empty() {
             let buf_stdout = tokio::io::BufReader::new(child_stdout);
-            if let Some(token) = shutdown {
-                tokio::select! {
-                    res = handle_stdout_async(buf_stdout, captures) => res?,
-                    _ = token.cancelled() => {}
-                }
-            } else {
-                handle_stdout_async(buf_stdout, captures).await?;
+            tokio::select! {
+                res = handle_stdout_async(buf_stdout, captures) => res?,
+                _ = shutdown.cancelled() => {}
             }
         } else {
             let mut child_stdout = child_stdout;
             let mut proc_stdout = tokio::io::stdout();
-            if let Some(token) = shutdown {
-                tokio::select! {
-                    res = tokio::io::copy(&mut child_stdout, &mut proc_stdout) => { res?; }
-                    _ = token.cancelled() => {}
-                }
-            } else {
-                tokio::io::copy(&mut child_stdout, &mut proc_stdout).await?;
+            tokio::select! {
+                res = tokio::io::copy(&mut child_stdout, &mut proc_stdout) => { res?; }
+                _ = shutdown.cancelled() => {}
             }
         }
     }
 
     // Wait for the child process to finish
-    let status = match shutdown {
-        Some(token) => wait_with_shutdown(&mut child, token).await?,
-        None => child
-            .wait()
-            .await
-            .context("Failed to wait for child process")?,
-    };
+    let status = tokio::select! {
+        res = child.wait() => res,
+        _ = shutdown.cancelled() => {
+            let _ = child.start_kill();
+            child.wait().await
+        }
+    }
+    .context("Failed to wait for child process")?;
 
     if let Some(task) = stderr_pipe_task {
         task.await
@@ -194,18 +186,4 @@ fn assign_child_to_job(child: &tokio::process::Child) -> anyhow::Result<()> {
         return Err(err).context("AssignProcessToJobObject failed");
     }
     Ok(())
-}
-
-async fn wait_with_shutdown(
-    child: &mut tokio::process::Child,
-    token: &CancellationToken,
-) -> anyhow::Result<ExitStatus> {
-    let status = tokio::select! {
-        res = child.wait() => res,
-        _ = token.cancelled() => {
-            let _ = child.start_kill();
-            child.wait().await
-        }
-    };
-    status.context("Failed to wait for child process")
 }

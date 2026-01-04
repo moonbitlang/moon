@@ -29,46 +29,56 @@ pub use runtime::{CommandGuard, command_for};
 use std::sync::OnceLock;
 
 use tokio_util::sync::CancellationToken;
-#[cfg(unix)]
-use tracing::debug;
 
-#[cfg(unix)]
 static SHUTDOWN_TOKEN: OnceLock<CancellationToken> = OnceLock::new();
 static SHUTDOWN_HANDLER: OnceLock<()> = OnceLock::new();
 
 pub fn setup_shutdown_handler() {
     SHUTDOWN_HANDLER.get_or_init(|| {
-        #[cfg(unix)]
-        {
-            let token = SHUTDOWN_TOKEN.get_or_init(CancellationToken::new).clone();
-            use signal_hook::consts::signal::*;
-            use signal_hook::iterator::Signals;
-
-            let mut signals = Signals::new([SIGTERM, SIGINT, SIGQUIT])
-                .expect("Failed to register signal handler");
-            std::thread::spawn(move || {
-                for signal in signals.forever() {
-                    debug!("Received termination signal: {:?}", signal);
-                    token.cancel();
+        let token = SHUTDOWN_TOKEN.get_or_init(CancellationToken::new).clone();
+        tokio::spawn(async move {
+            #[cfg(not(windows))]
+            {
+                let mut terminate =
+                    tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())
+                        .expect("Failed to wait on SigTerm");
+                let mut interrupt =
+                    tokio::signal::unix::signal(tokio::signal::unix::SignalKind::interrupt())
+                        .expect("Failed to wait on SigInt");
+                let mut quit = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::quit())
+                    .expect("Failed to wait on SigQuit");
+                tokio::select! {
+                    _ = terminate.recv() => {},
+                    _ = interrupt.recv() => {},
+                    _ = quit.recv() => {},
                 }
-            });
-        }
+                token.cancel();
+            }
+            #[cfg(windows)]
+            {
+                let mut ctrl_break =
+                    tokio::signal::windows::ctrl_break().expect("Failed to wait on ctrl+break");
+                let mut ctrl_c =
+                    tokio::signal::windows::ctrl_c().expect("Failed to wait on ctrl+c");
+                let mut ctrl_close =
+                    tokio::signal::windows::ctrl_close().expect("Failed to wait on ctrl+close");
+                tokio::select! {
+                    _ = ctrl_break.recv() => {},
+                    _ = ctrl_c.recv() => {},
+                    _ = ctrl_close.recv() => {},
+                }
+                token.cancel();
+            }
+        });
     });
 }
 
-pub fn shutdown_token() -> Option<&'static CancellationToken> {
-    #[cfg(windows)]
-    {
-        None
-    }
-    #[cfg(unix)]
-    {
-        SHUTDOWN_TOKEN.get()
-    }
+pub fn shutdown_token() -> &'static CancellationToken {
+    SHUTDOWN_TOKEN.get_or_init(CancellationToken::new)
 }
 
 pub fn shutdown_requested() -> bool {
-    shutdown_token().is_some_and(|token| token.is_cancelled())
+    shutdown_token().is_cancelled()
 }
 
 pub fn default_rt() -> std::io::Result<tokio::runtime::Runtime> {
