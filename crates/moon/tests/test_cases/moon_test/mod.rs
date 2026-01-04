@@ -138,11 +138,6 @@ fn test_zombie_child_process() {
     // Terminate the moon process (simulating the scenario in example/script.js)
     terminate_child(&mut moon_child);
 
-    // Clean up moon child process (if still alive)
-    moon_child.kill().expect("Failed to terminate moon process");
-    moon_child.wait().expect("Failed to wait moon process");
-    let quiescent = wait_for_lock_quiescent(&lock_file, initial_counter);
-
     // When moon is killed, all child processes (moonrun/node) should also be terminated.
     // This is verified by checking that the lock file eventually stops
     // being updated after moon is killed.
@@ -150,12 +145,17 @@ fn test_zombie_child_process() {
     // child process continues running as a zombie.
     // If this assertion fails, it indicates a regression where child
     // processes survive after termination.
-    assert!(
-        quiescent,
-        "Child processes (moonrun/node) are not terminated when moon is killed. \
+    let quiescent = wait_for_lock_quiescent(&lock_file, initial_counter);
+    if !quiescent {
+        // Clean up moon child process (if still alive)
+        moon_child.kill().expect("Failed to terminate moon process");
+        moon_child.wait().expect("Failed to wait moon process");
+        panic!(
+            "Child processes (moonrun/node) are not terminated when moon is killed. \
         The lock file continues to be updated until timeout, indicating that spawned test processes remain running as zombies. \
         Moon should properly propagate termination signals to all child processes."
-    );
+        );
+    }
 }
 
 #[cfg(unix)]
