@@ -382,7 +382,6 @@ fn run_single_mbt_file(cli: &UniversalFlags, cmd: RunSubcommand) -> anyhow::Resu
 
 #[instrument(skip_all)]
 pub fn run_run_internal(cli: &UniversalFlags, cmd: RunSubcommand) -> anyhow::Result<i32> {
-    crate::run::setup_shutdown_handler();
     let result = if cli.unstable_feature.rupes_recta {
         run_run_rr(cli, cmd)
     } else {

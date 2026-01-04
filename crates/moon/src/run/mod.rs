@@ -33,10 +33,11 @@ use tokio_util::sync::CancellationToken;
 static SHUTDOWN_TOKEN: OnceLock<CancellationToken> = OnceLock::new();
 static SHUTDOWN_HANDLER: OnceLock<()> = OnceLock::new();
 
-pub fn setup_shutdown_handler() {
+fn install_shutdown_handler(rt: &tokio::runtime::Runtime) {
     SHUTDOWN_HANDLER.get_or_init(|| {
         let token = SHUTDOWN_TOKEN.get_or_init(CancellationToken::new).clone();
-        tokio::spawn(async move {
+        let handle = rt.handle().clone();
+        handle.spawn(async move {
             #[cfg(not(windows))]
             {
                 let mut terminate =
@@ -82,7 +83,9 @@ pub fn shutdown_requested() -> bool {
 }
 
 pub fn default_rt() -> std::io::Result<tokio::runtime::Runtime> {
-    tokio::runtime::Builder::new_current_thread()
+    let runtime = tokio::runtime::Builder::new_current_thread()
         .enable_all()
-        .build()
+        .build()?;
+    install_shutdown_handler(&runtime);
+    Ok(runtime)
 }
