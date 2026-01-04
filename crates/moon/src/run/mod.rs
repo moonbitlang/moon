@@ -37,27 +37,23 @@ static SHUTDOWN_TOKEN: OnceLock<CancellationToken> = OnceLock::new();
 static SHUTDOWN_HANDLER: OnceLock<()> = OnceLock::new();
 
 pub fn setup_shutdown_handler() {
-    if SHUTDOWN_HANDLER.get().is_some() {
-        return;
-    }
+    SHUTDOWN_HANDLER.get_or_init(|| {
+        #[cfg(unix)]
+        {
+            let token = SHUTDOWN_TOKEN.get_or_init(CancellationToken::new).clone();
+            use signal_hook::consts::signal::*;
+            use signal_hook::iterator::Signals;
 
-    #[cfg(unix)]
-    {
-        let token = SHUTDOWN_TOKEN.get_or_init(CancellationToken::new).clone();
-        use signal_hook::consts::signal::*;
-        use signal_hook::iterator::Signals;
-
-        let mut signals =
-            Signals::new([SIGTERM, SIGINT, SIGQUIT]).expect("Failed to register signal handler");
-        std::thread::spawn(move || {
-            for signal in signals.forever() {
-                debug!("Received termination signal: {:?}", signal);
-                token.cancel();
-            }
-        });
-    }
-
-    let _ = SHUTDOWN_HANDLER.set(());
+            let mut signals = Signals::new([SIGTERM, SIGINT, SIGQUIT])
+                .expect("Failed to register signal handler");
+            std::thread::spawn(move || {
+                for signal in signals.forever() {
+                    debug!("Received termination signal: {:?}", signal);
+                    token.cancel();
+                }
+            });
+        }
+    });
 }
 
 pub fn shutdown_token() -> Option<&'static CancellationToken> {

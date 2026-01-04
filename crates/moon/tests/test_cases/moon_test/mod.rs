@@ -157,12 +157,12 @@ fn test_zombie_child_process() {
     // Clean up moon child process (if still alive)
     let _ = moon_child.kill();
     let _ = moon_child.wait();
+    wait_for_lock_quiescent(&lock_file, initial_mtime);
 
     // When moon is killed, all child processes (moonrun/node) should also be terminated.
     // This is verified by checking that the lock file is NOT updated after moon is killed.
     // If the file is still being updated, it means the child process continues running as a zombie.
-    // This test currently fails because moon does not properly clean up child processes when it receives a termination signal.
-    // Once the bug is fixed, the lock file will stop being updated after moon is killed and this assertion will pass.
+    // If this assertion fails, it indicates a regression where child processes survive after termination.
     assert!(
         !file_updated,
         "Child processes (moonrun/node) are not terminated when moon is killed. \
@@ -188,8 +188,27 @@ fn terminate_child(child: &mut std::process::Child) {
     child.kill().expect("Failed to terminate moon process");
 }
 
-#[test]
+fn wait_for_lock_quiescent(lock_file: &std::path::Path, mut last_mtime: std::time::SystemTime) {
+    let start = std::time::SystemTime::now();
+    loop {
+        std::thread::sleep(std::time::Duration::from_millis(200));
+        if start.elapsed().unwrap().as_secs() > 5 {
+            break;
+        }
+        let Ok(metadata) = lock_file.metadata() else {
+            break;
+        };
+        let Ok(mtime) = metadata.modified() else {
+            break;
+        };
+        if mtime <= last_mtime {
+            break;
+        }
+        last_mtime = mtime;
+    }
+}
 
+#[test]
 fn test_moon_test_with_local_dep() {
     let dir = TestDir::new("moon_test/with_local_deps");
     check(
