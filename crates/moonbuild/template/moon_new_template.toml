@@ -315,7 +315,9 @@ content = "# {{username}}/{{module}}"
 path = ".gitignore"
 content = """
 .DS_Store
+_build/
 target/
+target
 .mooncakes/
 .moonagent/"""
 

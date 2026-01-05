@@ -144,6 +144,102 @@ fn test_moon_test_with_local_dep() {
         expect![[r#"
 
             .gitignore
+            _build
+            _build/.moon-lock
+            _build/wasm-gc
+            _build/wasm-gc/debug
+            _build/wasm-gc/debug/test
+            _build/wasm-gc/debug/test/.mooncakes
+            _build/wasm-gc/debug/test/.mooncakes/lijunchen
+            _build/wasm-gc/debug/test/.mooncakes/lijunchen/mooncake
+            _build/wasm-gc/debug/test/.mooncakes/lijunchen/mooncake/lib
+            _build/wasm-gc/debug/test/.mooncakes/lijunchen/mooncake/lib/lib.core
+            _build/wasm-gc/debug/test/.mooncakes/lijunchen/mooncake/lib/lib.mi
+            _build/wasm-gc/debug/test/.mooncakes/lijunchen/mooncake/mooncake.core
+            _build/wasm-gc/debug/test/.mooncakes/lijunchen/mooncake/mooncake.mi
+            _build/wasm-gc/debug/test/.mooncakes/lijunchen/mooncake2
+            _build/wasm-gc/debug/test/.mooncakes/lijunchen/mooncake2/lib
+            _build/wasm-gc/debug/test/.mooncakes/lijunchen/mooncake2/lib/lib.core
+            _build/wasm-gc/debug/test/.mooncakes/lijunchen/mooncake2/lib/lib.mi
+            _build/wasm-gc/debug/test/.mooncakes/lijunchen/mooncake2/mooncake2.core
+            _build/wasm-gc/debug/test/.mooncakes/lijunchen/mooncake2/mooncake2.mi
+            _build/wasm-gc/debug/test/all_pkgs.json
+            _build/wasm-gc/debug/test/lib
+            _build/wasm-gc/debug/test/lib/__blackbox_test_info.json
+            _build/wasm-gc/debug/test/lib/__generated_driver_for_blackbox_test.mbt
+            _build/wasm-gc/debug/test/lib/__generated_driver_for_internal_test.mbt
+            _build/wasm-gc/debug/test/lib/__generated_driver_for_whitebox_test.mbt
+            _build/wasm-gc/debug/test/lib/__internal_test_info.json
+            _build/wasm-gc/debug/test/lib/__whitebox_test_info.json
+            _build/wasm-gc/debug/test/lib/lib.blackbox_test.core
+            _build/wasm-gc/debug/test/lib/lib.blackbox_test.wasm
+            _build/wasm-gc/debug/test/lib/lib.blackbox_test.wasm.map
+            _build/wasm-gc/debug/test/lib/lib.core
+            _build/wasm-gc/debug/test/lib/lib.internal_test.core
+            _build/wasm-gc/debug/test/lib/lib.internal_test.wasm
+            _build/wasm-gc/debug/test/lib/lib.internal_test.wasm.map
+            _build/wasm-gc/debug/test/lib/lib.mi
+            _build/wasm-gc/debug/test/lib/lib.whitebox_test.core
+            _build/wasm-gc/debug/test/lib/lib.whitebox_test.wasm
+            _build/wasm-gc/debug/test/lib/lib.whitebox_test.wasm.map
+            _build/wasm-gc/debug/test/main
+            _build/wasm-gc/debug/test/main/__blackbox_test_info.json
+            _build/wasm-gc/debug/test/main/__generated_driver_for_blackbox_test.mbt
+            _build/wasm-gc/debug/test/main/__generated_driver_for_internal_test.mbt
+            _build/wasm-gc/debug/test/main/__internal_test_info.json
+            _build/wasm-gc/debug/test/main/main.blackbox_test.core
+            _build/wasm-gc/debug/test/main/main.blackbox_test.wasm
+            _build/wasm-gc/debug/test/main/main.blackbox_test.wasm.map
+            _build/wasm-gc/debug/test/main/main.core
+            _build/wasm-gc/debug/test/main/main.internal_test.core
+            _build/wasm-gc/debug/test/main/main.internal_test.wasm
+            _build/wasm-gc/debug/test/main/main.internal_test.wasm.map
+            _build/wasm-gc/debug/test/main/main.mi
+            _build/wasm-gc/debug/test/test.moon_db
+            _build/wasm-gc/release
+            _build/wasm-gc/release/build
+            _build/wasm-gc/release/build/.mooncakes
+            _build/wasm-gc/release/build/.mooncakes/lijunchen
+            _build/wasm-gc/release/build/.mooncakes/lijunchen/mooncake
+            _build/wasm-gc/release/build/.mooncakes/lijunchen/mooncake/lib
+            _build/wasm-gc/release/build/.mooncakes/lijunchen/mooncake/lib/lib.core
+            _build/wasm-gc/release/build/.mooncakes/lijunchen/mooncake/lib/lib.mi
+            _build/wasm-gc/release/build/.mooncakes/lijunchen/mooncake/mooncake.core
+            _build/wasm-gc/release/build/.mooncakes/lijunchen/mooncake/mooncake.mi
+            _build/wasm-gc/release/build/.mooncakes/lijunchen/mooncake2
+            _build/wasm-gc/release/build/.mooncakes/lijunchen/mooncake2/lib
+            _build/wasm-gc/release/build/.mooncakes/lijunchen/mooncake2/lib/lib.core
+            _build/wasm-gc/release/build/.mooncakes/lijunchen/mooncake2/lib/lib.mi
+            _build/wasm-gc/release/build/.mooncakes/lijunchen/mooncake2/mooncake2.core
+            _build/wasm-gc/release/build/.mooncakes/lijunchen/mooncake2/mooncake2.mi
+            _build/wasm-gc/release/build/all_pkgs.json
+            _build/wasm-gc/release/build/build.moon_db
+            _build/wasm-gc/release/build/lib
+            _build/wasm-gc/release/build/lib/lib.core
+            _build/wasm-gc/release/build/lib/lib.mi
+            _build/wasm-gc/release/build/main
+            _build/wasm-gc/release/build/main/main.core
+            _build/wasm-gc/release/build/main/main.mi
+            _build/wasm-gc/release/build/main/main.wasm
+            _build/wasm-gc/release/check
+            _build/wasm-gc/release/check/.mooncakes
+            _build/wasm-gc/release/check/.mooncakes/lijunchen
+            _build/wasm-gc/release/check/.mooncakes/lijunchen/mooncake
+            _build/wasm-gc/release/check/.mooncakes/lijunchen/mooncake/lib
+            _build/wasm-gc/release/check/.mooncakes/lijunchen/mooncake/lib/lib.mi
+            _build/wasm-gc/release/check/.mooncakes/lijunchen/mooncake/mooncake.mi
+            _build/wasm-gc/release/check/.mooncakes/lijunchen/mooncake2
+            _build/wasm-gc/release/check/.mooncakes/lijunchen/mooncake2/lib
+            _build/wasm-gc/release/check/.mooncakes/lijunchen/mooncake2/lib/lib.mi
+            _build/wasm-gc/release/check/.mooncakes/lijunchen/mooncake2/mooncake2.mi
+            _build/wasm-gc/release/check/all_pkgs.json
+            _build/wasm-gc/release/check/check.moon_db
+            _build/wasm-gc/release/check/lib
+            _build/wasm-gc/release/check/lib/lib.mbti
+            _build/wasm-gc/release/check/lib/lib.mi
+            _build/wasm-gc/release/check/main
+            _build/wasm-gc/release/check/main/main.mbti
+            _build/wasm-gc/release/check/main/main.mi
             lib
             lib/hello.mbt
             lib/hello_wbtest.mbt
@@ -183,13 +279,13 @@ fn test_pkg_source_in() {
     check(
         &out,
         expect![[r#"
-            moonc build-package ./mods/lijunchen/mooncake2/src/lib/hello.mbt -w -a -o ./target/wasm-gc/release/build/.mooncakes/lijunchen/mooncake2/lib/lib.core -pkg lijunchen/mooncake2/lib -std-path '$MOON_HOME/lib/core/target/wasm-gc/release/bundle' -i '$MOON_HOME/lib/core/target/wasm-gc/release/bundle/prelude/prelude.mi:prelude' -pkg-sources lijunchen/mooncake2/lib:./mods/lijunchen/mooncake2/src/lib -target wasm-gc -workspace-path ./mods/lijunchen/mooncake2 -all-pkgs ./target/wasm-gc/release/build/all_pkgs.json
-            moonc build-package ./mods/lijunchen/mooncake2/src/top.mbt -w -a -o ./target/wasm-gc/release/build/.mooncakes/lijunchen/mooncake2/mooncake2.core -pkg lijunchen/mooncake2 -std-path '$MOON_HOME/lib/core/target/wasm-gc/release/bundle' -i ./target/wasm-gc/release/build/.mooncakes/lijunchen/mooncake2/lib/lib.mi:lib -i '$MOON_HOME/lib/core/target/wasm-gc/release/bundle/prelude/prelude.mi:prelude' -pkg-sources lijunchen/mooncake2:./mods/lijunchen/mooncake2/src -target wasm-gc -workspace-path ./mods/lijunchen/mooncake2 -all-pkgs ./target/wasm-gc/release/build/all_pkgs.json
-            moonc build-package ./mods/lijunchen/mooncake/lib/hello.mbt -w -a -o ./target/wasm-gc/release/build/.mooncakes/lijunchen/mooncake/lib/lib.core -pkg lijunchen/mooncake/lib -std-path '$MOON_HOME/lib/core/target/wasm-gc/release/bundle' -i '$MOON_HOME/lib/core/target/wasm-gc/release/bundle/prelude/prelude.mi:prelude' -pkg-sources lijunchen/mooncake/lib:./mods/lijunchen/mooncake/lib -target wasm-gc -workspace-path ./mods/lijunchen/mooncake -all-pkgs ./target/wasm-gc/release/build/all_pkgs.json
-            moonc build-package ./mods/lijunchen/mooncake/top.mbt -w -a -o ./target/wasm-gc/release/build/.mooncakes/lijunchen/mooncake/mooncake.core -pkg lijunchen/mooncake -std-path '$MOON_HOME/lib/core/target/wasm-gc/release/bundle' -i ./target/wasm-gc/release/build/.mooncakes/lijunchen/mooncake/lib/lib.mi:lib -i '$MOON_HOME/lib/core/target/wasm-gc/release/bundle/prelude/prelude.mi:prelude' -pkg-sources lijunchen/mooncake:./mods/lijunchen/mooncake -target wasm-gc -workspace-path ./mods/lijunchen/mooncake -all-pkgs ./target/wasm-gc/release/build/all_pkgs.json
-            moonc build-package ./lib/hello.mbt -o ./target/wasm-gc/release/build/lib/lib.core -pkg hello31/lib -std-path '$MOON_HOME/lib/core/target/wasm-gc/release/bundle' -i '$MOON_HOME/lib/core/target/wasm-gc/release/bundle/prelude/prelude.mi:prelude' -pkg-sources hello31/lib:./lib -target wasm-gc -workspace-path . -all-pkgs ./target/wasm-gc/release/build/all_pkgs.json
-            moonc build-package ./main/main.mbt -o ./target/wasm-gc/release/build/main/main.core -pkg hello31/main -is-main -std-path '$MOON_HOME/lib/core/target/wasm-gc/release/bundle' -i ./target/wasm-gc/release/build/lib/lib.mi:lib -i ./target/wasm-gc/release/build/.mooncakes/lijunchen/mooncake/mooncake.mi:mooncake -i ./target/wasm-gc/release/build/.mooncakes/lijunchen/mooncake2/mooncake2.mi:mooncake2 -i '$MOON_HOME/lib/core/target/wasm-gc/release/bundle/prelude/prelude.mi:prelude' -pkg-sources hello31/main:./main -target wasm-gc -workspace-path . -all-pkgs ./target/wasm-gc/release/build/all_pkgs.json
-            moonc link-core '$MOON_HOME/lib/core/target/wasm-gc/release/bundle/abort/abort.core' '$MOON_HOME/lib/core/target/wasm-gc/release/bundle/core.core' ./target/wasm-gc/release/build/lib/lib.core ./target/wasm-gc/release/build/.mooncakes/lijunchen/mooncake/lib/lib.core ./target/wasm-gc/release/build/.mooncakes/lijunchen/mooncake/mooncake.core ./target/wasm-gc/release/build/.mooncakes/lijunchen/mooncake2/lib/lib.core ./target/wasm-gc/release/build/.mooncakes/lijunchen/mooncake2/mooncake2.core ./target/wasm-gc/release/build/main/main.core -main hello31/main -o ./target/wasm-gc/release/build/main/main.wasm -pkg-config-path ./main/moon.pkg.json -pkg-sources hello31/lib:./lib -pkg-sources lijunchen/mooncake/lib:./mods/lijunchen/mooncake/lib -pkg-sources lijunchen/mooncake:./mods/lijunchen/mooncake -pkg-sources lijunchen/mooncake2/lib:./mods/lijunchen/mooncake2/src/lib -pkg-sources lijunchen/mooncake2:./mods/lijunchen/mooncake2/src -pkg-sources hello31/main:./main -pkg-sources 'moonbitlang/core:$MOON_HOME/lib/core' -target wasm-gc
+            moonc build-package ./mods/lijunchen/mooncake2/src/lib/hello.mbt -w -a -o ./_build/wasm-gc/release/build/.mooncakes/lijunchen/mooncake2/lib/lib.core -pkg lijunchen/mooncake2/lib -std-path '$MOON_HOME/lib/core/target/wasm-gc/release/bundle' -i '$MOON_HOME/lib/core/target/wasm-gc/release/bundle/prelude/prelude.mi:prelude' -pkg-sources lijunchen/mooncake2/lib:./mods/lijunchen/mooncake2/src/lib -target wasm-gc -workspace-path ./mods/lijunchen/mooncake2 -all-pkgs ./_build/wasm-gc/release/build/all_pkgs.json
+            moonc build-package ./mods/lijunchen/mooncake2/src/top.mbt -w -a -o ./_build/wasm-gc/release/build/.mooncakes/lijunchen/mooncake2/mooncake2.core -pkg lijunchen/mooncake2 -std-path '$MOON_HOME/lib/core/target/wasm-gc/release/bundle' -i ./_build/wasm-gc/release/build/.mooncakes/lijunchen/mooncake2/lib/lib.mi:lib -i '$MOON_HOME/lib/core/target/wasm-gc/release/bundle/prelude/prelude.mi:prelude' -pkg-sources lijunchen/mooncake2:./mods/lijunchen/mooncake2/src -target wasm-gc -workspace-path ./mods/lijunchen/mooncake2 -all-pkgs ./_build/wasm-gc/release/build/all_pkgs.json
+            moonc build-package ./mods/lijunchen/mooncake/lib/hello.mbt -w -a -o ./_build/wasm-gc/release/build/.mooncakes/lijunchen/mooncake/lib/lib.core -pkg lijunchen/mooncake/lib -std-path '$MOON_HOME/lib/core/target/wasm-gc/release/bundle' -i '$MOON_HOME/lib/core/target/wasm-gc/release/bundle/prelude/prelude.mi:prelude' -pkg-sources lijunchen/mooncake/lib:./mods/lijunchen/mooncake/lib -target wasm-gc -workspace-path ./mods/lijunchen/mooncake -all-pkgs ./_build/wasm-gc/release/build/all_pkgs.json
+            moonc build-package ./mods/lijunchen/mooncake/top.mbt -w -a -o ./_build/wasm-gc/release/build/.mooncakes/lijunchen/mooncake/mooncake.core -pkg lijunchen/mooncake -std-path '$MOON_HOME/lib/core/target/wasm-gc/release/bundle' -i ./_build/wasm-gc/release/build/.mooncakes/lijunchen/mooncake/lib/lib.mi:lib -i '$MOON_HOME/lib/core/target/wasm-gc/release/bundle/prelude/prelude.mi:prelude' -pkg-sources lijunchen/mooncake:./mods/lijunchen/mooncake -target wasm-gc -workspace-path ./mods/lijunchen/mooncake -all-pkgs ./_build/wasm-gc/release/build/all_pkgs.json
+            moonc build-package ./lib/hello.mbt -o ./_build/wasm-gc/release/build/lib/lib.core -pkg hello31/lib -std-path '$MOON_HOME/lib/core/target/wasm-gc/release/bundle' -i '$MOON_HOME/lib/core/target/wasm-gc/release/bundle/prelude/prelude.mi:prelude' -pkg-sources hello31/lib:./lib -target wasm-gc -workspace-path . -all-pkgs ./_build/wasm-gc/release/build/all_pkgs.json
+            moonc build-package ./main/main.mbt -o ./_build/wasm-gc/release/build/main/main.core -pkg hello31/main -is-main -std-path '$MOON_HOME/lib/core/target/wasm-gc/release/bundle' -i ./_build/wasm-gc/release/build/lib/lib.mi:lib -i ./_build/wasm-gc/release/build/.mooncakes/lijunchen/mooncake/mooncake.mi:mooncake -i ./_build/wasm-gc/release/build/.mooncakes/lijunchen/mooncake2/mooncake2.mi:mooncake2 -i '$MOON_HOME/lib/core/target/wasm-gc/release/bundle/prelude/prelude.mi:prelude' -pkg-sources hello31/main:./main -target wasm-gc -workspace-path . -all-pkgs ./_build/wasm-gc/release/build/all_pkgs.json
+            moonc link-core '$MOON_HOME/lib/core/target/wasm-gc/release/bundle/abort/abort.core' '$MOON_HOME/lib/core/target/wasm-gc/release/bundle/core.core' ./_build/wasm-gc/release/build/lib/lib.core ./_build/wasm-gc/release/build/.mooncakes/lijunchen/mooncake/lib/lib.core ./_build/wasm-gc/release/build/.mooncakes/lijunchen/mooncake/mooncake.core ./_build/wasm-gc/release/build/.mooncakes/lijunchen/mooncake2/lib/lib.core ./_build/wasm-gc/release/build/.mooncakes/lijunchen/mooncake2/mooncake2.core ./_build/wasm-gc/release/build/main/main.core -main hello31/main -o ./_build/wasm-gc/release/build/main/main.wasm -pkg-config-path ./main/moon.pkg.json -pkg-sources hello31/lib:./lib -pkg-sources lijunchen/mooncake/lib:./mods/lijunchen/mooncake/lib -pkg-sources lijunchen/mooncake:./mods/lijunchen/mooncake -pkg-sources lijunchen/mooncake2/lib:./mods/lijunchen/mooncake2/src/lib -pkg-sources lijunchen/mooncake2:./mods/lijunchen/mooncake2/src -pkg-sources hello31/main:./main -pkg-sources 'moonbitlang/core:$MOON_HOME/lib/core' -target wasm-gc
         "#]],
     );
     assert!(out.contains("lijunchen/mooncake:./mods/lijunchen/mooncake"));

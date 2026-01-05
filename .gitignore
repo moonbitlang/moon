@@ -1,5 +1,6 @@
 /target
 **/target
+**/_build
 .vscode/
 .DS_store
 .idea/

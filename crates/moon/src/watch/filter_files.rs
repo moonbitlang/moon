@@ -24,6 +24,7 @@ use std::{
 };
 
 use ignore::gitignore::{Gitignore, GitignoreBuilder};
+use moonutil::common::{BUILD_DIR, LEGACY_BUILD_DIR};
 use tracing::{info, warn};
 
 /// Ephemeral struct to apply filters on file paths in a single run
@@ -42,13 +43,19 @@ pub struct FileFilterBuilder<'a> {
 impl<'a> FileFilterBuilder<'a> {
     /// Create a new instance.
     ///
-    /// This will always ignore the `target/` and `.mooncakes/` directories.
+    /// This will always ignore the `_build/`, `target/` and `.mooncakes/` directories.
     pub fn new(repo_path: &'a Path) -> Self {
         let mut builder = GitignoreBuilder::new(repo_path);
 
-        // Always ignore the target and .mooncakes directories
+        // Always ignore the build directories and .mooncakes
         builder
-            .add_line(Some(repo_path.to_path_buf()), "target/")
+            .add_line(Some(repo_path.to_path_buf()), &format!("{}/", BUILD_DIR))
+            .unwrap();
+        builder
+            .add_line(
+                Some(repo_path.to_path_buf()),
+                &format!("{}/", LEGACY_BUILD_DIR),
+            )
             .unwrap();
         builder
             .add_line(Some(repo_path.to_path_buf()), ".mooncakes/")
@@ -187,14 +194,14 @@ fn test_ignore_target_and_mooncakes() {
     let repo_path = temp_dir.path();
 
     // Create target and .mooncakes directories
-    fs::create_dir_all(repo_path.join("target")).unwrap();
+    fs::create_dir_all(repo_path.join(BUILD_DIR)).unwrap();
     fs::create_dir_all(repo_path.join(".mooncakes")).unwrap();
-    fs::write(repo_path.join("target/some_file.txt"), "").unwrap();
+    fs::write(repo_path.join(format!("{}/some_file.txt", BUILD_DIR)), "").unwrap();
     fs::write(repo_path.join(".mooncakes/another_file.txt"), "").unwrap();
 
     let mut builder = FileFilterBuilder::new(repo_path);
 
-    assert!(builder.check_file(&repo_path.join("target/some_file.txt")));
+    assert!(builder.check_file(&repo_path.join(format!("{}/some_file.txt", BUILD_DIR))));
     assert!(builder.check_file(&repo_path.join(".mooncakes/another_file.txt")));
 }
 
