@@ -172,7 +172,10 @@ fn test_moonrun_wasm_stack_trace() {
     check(
         &normalized_s,
         expect![[r#"
-            Error: no such file
+            RuntimeError: unreachable
+                at wasm://wasm:wasm-function[38]
+                at wasm://wasm:wasm-function[34]
+                at wasm://wasm:wasm-function[44]
         "#]],
     );
 
@@ -188,7 +191,7 @@ fn test_moonrun_wasm_stack_trace() {
     check(
         &s,
         expect![[r#"
-            Error: no such file
+            RuntimeError: unreachable
         "#]],
     );
 }
