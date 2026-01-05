@@ -142,6 +142,9 @@ fn assign_child_to_job(child: &tokio::process::Child) -> anyhow::Result<()> {
     unsafe impl Send for JobHandle {}
     unsafe impl Sync for JobHandle {}
 
+    // Intentionally never dropped: we rely on the OS closing the last handle
+    // when the parent process exits so that JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE
+    // can terminate any remaining child processes.
     static JOB_OBJECT: OnceLock<Result<JobHandle, std::io::Error>> = OnceLock::new();
 
     let job = match JOB_OBJECT.get_or_init(|| unsafe {

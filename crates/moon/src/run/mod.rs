@@ -30,7 +30,9 @@ use std::sync::OnceLock;
 
 use tokio_util::sync::CancellationToken;
 
+/// Process-wide cancellation token toggled when we observe a shutdown signal.
 static SHUTDOWN_TOKEN: OnceLock<CancellationToken> = OnceLock::new();
+/// Ensures we only install the shutdown handler task once per process.
 static SHUTDOWN_HANDLER: OnceLock<()> = OnceLock::new();
 
 fn install_shutdown_handler(rt: &tokio::runtime::Runtime) {
@@ -74,14 +76,18 @@ fn install_shutdown_handler(rt: &tokio::runtime::Runtime) {
     });
 }
 
+/// Return the shared shutdown token, initializing it lazily on first use.
 pub fn shutdown_token() -> &'static CancellationToken {
     SHUTDOWN_TOKEN.get_or_init(CancellationToken::new)
 }
 
+/// Check whether shutdown has been requested via any of the registered signals.
 pub fn shutdown_requested() -> bool {
     shutdown_token().is_cancelled()
 }
 
+/// Build the canonical Tokio runtime used by `moon run` facilities and install
+/// the global shutdown handler the first time it is called.
 pub fn default_rt() -> std::io::Result<tokio::runtime::Runtime> {
     let runtime = tokio::runtime::Builder::new_current_thread()
         .enable_all()
