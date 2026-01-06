@@ -159,6 +159,11 @@ pub struct TestSubcommand {
     #[clap(default_value_if("index", ArgPredicate::IsPresent, "true"))]
     #[clap(default_value_if("doc_index", ArgPredicate::IsPresent, "true"))]
     pub include_skipped: bool,
+
+    /// Run only tests whose name matches the given glob pattern.
+    /// Supports '*' (matches any sequence) and '?' (matches any single character).
+    #[clap(short = 'F', long)]
+    pub filter: Option<String>,
 }
 
 #[instrument(skip_all)]
@@ -307,6 +312,7 @@ fn run_test_in_single_file(cli: &UniversalFlags, cmd: &TestSubcommand) -> anyhow
             test_failure_json: false,
             display_backend_hint: None,
             patch_file: None,
+            filter_name: cmd.filter.clone(),
         }),
         check_opt: None,
         build_opt: None,
@@ -406,7 +412,10 @@ fn run_test_in_single_file_rr(cli: &UniversalFlags, cmd: &TestSubcommand) -> any
 
     cmd.build_flags.populate_target_backend_from_list()?;
 
-    let mut filter = TestFilter::default();
+    let mut filter = TestFilter {
+        name_filter: cmd.filter.clone(),
+        ..Default::default()
+    };
 
     // Resolve synthesized single-file project
     let resolve_cfg = moonbuild_rupes_recta::ResolveConfig::new(
@@ -629,6 +638,8 @@ pub(crate) struct TestLikeSubcommand<'a> {
     pub test_failure_json: bool,
     pub patch_file: &'a Option<PathBuf>,
     pub include_skipped: bool,
+    /// Glob pattern to filter tests by name
+    pub filter: &'a Option<String>,
 }
 
 impl<'a> From<&'a TestSubcommand> for TestLikeSubcommand<'a> {
@@ -649,6 +660,7 @@ impl<'a> From<&'a TestSubcommand> for TestLikeSubcommand<'a> {
             test_failure_json: cmd.test_failure_json,
             patch_file: &cmd.patch_file,
             include_skipped: cmd.include_skipped,
+            filter: &cmd.filter,
         }
     }
 }
@@ -670,6 +682,7 @@ impl<'a> From<&'a BenchSubcommand> for TestLikeSubcommand<'a> {
             test_failure_json: false,
             patch_file: &None,
             include_skipped: false,
+            filter: &None,
         }
     }
 }
@@ -768,7 +781,10 @@ fn run_test_rr(
         preconfig.try_tcc_run = true;
     }
 
-    let mut filter = TestFilter::default();
+    let mut filter = TestFilter {
+        name_filter: cmd.filter.clone(),
+        ..Default::default()
+    };
     let (build_meta, build_graph) = rr_build::plan_build(
         preconfig,
         &cli.unstable_feature,
@@ -1074,6 +1090,7 @@ pub(crate) fn run_test_or_bench_internal_legacy(
     let filter_doc_index = *cmd.doc_index;
     trace!(filter_package = ?filter_package, filter_file = ?filter_file, filter_index, filter_doc_index, "legacy filter state");
 
+    let filter_name = cmd.filter.clone();
     let test_opt = if run_mode == RunMode::Bench {
         Some(TestOpt {
             filter_package: filter_package.clone(),
@@ -1084,6 +1101,7 @@ pub(crate) fn run_test_or_bench_internal_legacy(
             test_failure_json: false,
             display_backend_hint,
             patch_file: None,
+            filter_name: filter_name.clone(),
         })
     } else {
         Some(TestOpt {
@@ -1095,6 +1113,7 @@ pub(crate) fn run_test_or_bench_internal_legacy(
             test_failure_json: cmd.test_failure_json,
             display_backend_hint,
             patch_file: patch_file.clone(),
+            filter_name,
         })
     };
     let moonbuild_opt = MoonbuildOpt {
@@ -1564,6 +1583,7 @@ fn rr_test_from_plan(
             // Run the tests
             let rerun_filter = TestFilter {
                 filter: Some(rerun_filter_raw),
+                name_filter: cmd.filter.clone(),
             };
             let new_test_result = crate::run::run_tests(
                 build_meta,

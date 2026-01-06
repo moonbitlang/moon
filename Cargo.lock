@@ -1747,6 +1747,7 @@ dependencies = [
  "env_logger 0.10.2",
  "expect-test",
  "fs4",
+ "globset",
  "home",
  "indexmap",
  "libc",

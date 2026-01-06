@@ -773,6 +773,7 @@ pub fn run_test(
     let filter_file = test_opt.as_ref().and_then(|it| it.filter_file.as_ref());
     let filter_index = test_opt.as_ref().and_then(|it| it.filter_index);
     let filter_doc_index = test_opt.as_ref().and_then(|it| it.filter_doc_index);
+    let filter_name = test_opt.as_ref().and_then(|it| it.filter_name.as_ref());
 
     let printed = Arc::new(AtomicBool::new(false));
     let mut test_artifacts = TestArtifacts {
@@ -827,14 +828,39 @@ pub fn run_test(
                 let filter_index = filter_index.or(filter_doc_index);
                 if let Some(filter_index) = filter_index {
                     // Single test filter - use exact index
-                    // for single test, the `#skip` attribute is ignored
-                    let ranges = vec![filter_index..(filter_index + 1)];
-                    test_args.file_and_index.push((file_name.clone(), ranges));
+                    // Also apply name filter if present
+                    let name_matches = if let Some(pattern) = filter_name {
+                        test_metadata.values().any(|t| {
+                            t.index == filter_index
+                                && match &t.name {
+                                    Some(name) => moonutil::common::glob_match(pattern, name),
+                                    None => moonutil::common::glob_match(pattern, &t.func),
+                                }
+                        })
+                    } else {
+                        true
+                    };
+                    if name_matches {
+                        // for single test, the `#skip` attribute is ignored
+                        let ranges = vec![filter_index..(filter_index + 1)];
+                        test_args.file_and_index.push((file_name.clone(), ranges));
+                    }
                 } else {
-                    // No filter - use actual indices from metadata, filtering based on include_skipped
+                    // No index filter - use actual indices from metadata, filtering based on include_skipped and name
                     let actual_indices: Vec<u32> = test_metadata
                         .values()
                         .filter(|t| include_skipped || !t.has_skip())
+                        .filter(|t| {
+                            // Apply name filter if present
+                            if let Some(pattern) = filter_name {
+                                match &t.name {
+                                    Some(name) => moonutil::common::glob_match(pattern, name),
+                                    None => moonutil::common::glob_match(pattern, &t.func),
+                                }
+                            } else {
+                                true
+                            }
+                        })
                         .map(|t| t.index)
                         .collect();
                     let ranges = indices_to_ranges(actual_indices);

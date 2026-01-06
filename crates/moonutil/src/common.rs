@@ -546,6 +546,8 @@ pub struct TestOpt {
     pub test_failure_json: bool,
     pub display_backend_hint: Option<()>, // use Option to avoid if else
     pub patch_file: Option<PathBuf>,
+    /// Glob pattern to filter tests by name
+    pub filter_name: Option<String>,
 }
 
 impl TestOpt {
@@ -1264,4 +1266,23 @@ pub fn parse_front_matter_config(single_file_path: &Path) -> anyhow::Result<Opti
         None
     };
     Ok(front_matter_config)
+}
+
+/// Glob pattern matching supporting `*` (any sequence), `?` (any single character),
+/// and other glob patterns. Uses the `globset` crate for robust matching.
+/// Returns true if the text matches the pattern.
+pub fn glob_match(pattern: &str, text: &str) -> bool {
+    use globset::GlobBuilder;
+
+    // Build a glob matcher with case-sensitive matching
+    let glob = GlobBuilder::new(pattern)
+        .case_insensitive(false)
+        .literal_separator(false)
+        .build();
+
+    match glob {
+        Ok(glob) => glob.compile_matcher().is_match(text),
+        // If pattern is invalid, fall back to literal comparison
+        Err(_) => pattern == text,
+    }
 }

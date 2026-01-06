@@ -397,6 +397,7 @@ fn run_one_test_executable(
         &mut test_args.file_and_index,
         ctx.include_skipped,
         ctx.bench,
+        ctx.filter.name_filter.as_deref(),
     );
     trace!(
         filter_entries = test_args.file_and_index.len(),
