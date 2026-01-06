@@ -206,7 +206,7 @@ fn all_ranges(
             // Apply name filter if present
             match (name_filter, &t.name) {
                 (Some(pattern), Some(name)) => glob_match(pattern, name),
-                (Some(pattern), None) => glob_match(pattern, &t.func),
+                (Some(_), None) => false,
                 (None, _) => true,
             }
         })
@@ -268,7 +268,7 @@ pub fn apply_filter(
                                             (Some(pattern), Some(name)) => {
                                                 glob_match(pattern, name)
                                             }
-                                            (Some(pattern), None) => glob_match(pattern, &t.func),
+                                            (Some(_), None) => false,
                                             (None, _) => true,
                                         };
                                         if name_matches {
