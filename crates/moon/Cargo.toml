@@ -80,6 +80,9 @@ features = [
 ]
 version = "0.59.0"
 
+[target."cfg(windows)".dependencies]
+junction = "1"
+
 [dev-dependencies]
 tempfile = "3.6.0"
 snapbox = "0.6.23"
