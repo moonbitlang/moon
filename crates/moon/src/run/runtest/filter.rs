@@ -24,7 +24,7 @@ use moonbuild_rupes_recta::{
     cond_comp::FileTestKind,
     model::{BuildTarget, PackageId, TargetKind},
 };
-use moonutil::common::{glob_match, MbtTestInfo, MooncGenTestInfo};
+use moonutil::common::{MbtTestInfo, MooncGenTestInfo, glob_match};
 
 use crate::run::TestIndex;
 
@@ -254,8 +254,11 @@ pub fn apply_filter(
                         match v {
                             None => {
                                 // Wildcard, add all indices
-                                this_file_index
-                                    .extend(all_ranges(tests, include_skipped, name_filter));
+                                this_file_index.extend(all_ranges(
+                                    tests,
+                                    include_skipped,
+                                    name_filter,
+                                ));
                             }
                             Some(ixf) => {
                                 for t in tests {
@@ -287,7 +290,7 @@ pub fn apply_filter(
 #[cfg(test)]
 mod test {
     use expect_test::expect;
-    use moonutil::common::{glob_match, MbtTestInfo, MooncGenTestInfo};
+    use moonutil::common::{MbtTestInfo, MooncGenTestInfo, glob_match};
 
     fn example_meta() -> MooncGenTestInfo {
         MooncGenTestInfo {
