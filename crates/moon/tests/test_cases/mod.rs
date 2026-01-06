@@ -38,6 +38,7 @@ mod bench2;
 mod blackbox;
 mod check_fmt;
 mod circle_pkg_ab_001_test;
+mod clean;
 mod cond_comp;
 mod debug_flag_test;
 mod dedup_diag;
