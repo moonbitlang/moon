@@ -24,6 +24,17 @@ type Moonbit_Test_Driver_Internal_TestDriver_Async_Map = @moonbitlang/core/built
   @moonbitlang/core/builtin.Map[
     Int,
     (
+      async () -> Unit raise,
+      @moonbitlang/core/builtin.Array[String],
+    ),
+  ],
+]
+
+type Moonbit_Test_Driver_Internal_TestDriver_Async_With_Args_Map = @moonbitlang/core/builtin.Map[
+  String,
+  @moonbitlang/core/builtin.Map[
+    Int,
+    (
       async (Moonbit_Test_Driver_Internal_Test_Arg) -> Unit raise,
       @moonbitlang/core/builtin.Array[String],
     ),
@@ -33,6 +44,7 @@ type Moonbit_Test_Driver_Internal_TestDriver_Async_Map = @moonbitlang/core/built
 let moonbit_test_driver_internal_no_args_tests : Moonbit_Test_Driver_Internal_No_Args_Map = { }  // WILL BE REPLACED
 let moonbit_test_driver_internal_with_args_tests : Moonbit_Test_Driver_Internal_TestDriver_With_Args_Map = { }  // WILL BE REPLACED
 let moonbit_test_driver_internal_async_tests : Moonbit_Test_Driver_Internal_TestDriver_Async_Map = { }  // WILL BE REPLACED
+let moonbit_test_driver_internal_async_tests_with_args : Moonbit_Test_Driver_Internal_TestDriver_Async_With_Args_Map = { }  // WILL BE REPLACED
 
 ///|
 pub fn moonbit_test_driver_internal_do_execute(
@@ -118,6 +130,23 @@ pub fn moonbit_test_driver_internal_do_execute(
 
   if (
     moonbit_test_driver_internal_async_tests.get(filename) is Some(index_map) &&
+    index_map.get(index) is Some((f, attrs))
+  ) {
+    let name = if attrs is [name, ..] { name } else { "" }
+    guard !test_should_be_skipped(name, attrs) else {}
+    async_tests.push(() => {
+      try f() catch {
+        err if moonbit_test_driver_internal_is_being_cancelled() => raise err
+        err => on_err(name, err)
+      } noraise {
+        _ => handle_result(name, "", false)
+      }
+    })
+    return
+  }
+
+  if (
+    moonbit_test_driver_internal_async_tests_with_args.get(filename) is Some(index_map) &&
     index_map.get(index) is Some((f, attrs))
   ) {
     let name = if attrs is [name, ..] { name } else { "" }

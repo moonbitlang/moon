@@ -230,6 +230,7 @@ pub fn apply_filter(
             &meta.no_args_tests,
             &meta.with_args_tests,
             &meta.async_tests,
+            &meta.async_tests_with_args,
         ]
     };
 
@@ -383,6 +384,7 @@ mod test {
             .collect(),
             with_bench_args_tests: Default::default(),
             async_tests: Default::default(),
+            async_tests_with_args: Default::default(),
         }
     }
 
