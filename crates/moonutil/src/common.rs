@@ -546,6 +546,7 @@ pub struct TestOpt {
     pub test_failure_json: bool,
     pub display_backend_hint: Option<()>, // use Option to avoid if else
     pub patch_file: Option<PathBuf>,
+    pub timeout: Option<u64>, // Test timeout in seconds
 }
 
 impl TestOpt {
@@ -1231,6 +1232,7 @@ pub fn gen_moonbitlang_abort_pkg(moonc_opt: &MooncOpt) -> Package {
         link_search_paths: vec![],
         module_root: module_root.into(),
         max_concurrent_tests: None,
+        test_timeout: None,
     }
 }
 

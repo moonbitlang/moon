@@ -159,6 +159,10 @@ pub struct TestSubcommand {
     #[clap(default_value_if("index", ArgPredicate::IsPresent, "true"))]
     #[clap(default_value_if("doc_index", ArgPredicate::IsPresent, "true"))]
     pub include_skipped: bool,
+
+    /// Test timeout in seconds. If not specified, defaults to no timeout.
+    #[clap(long)]
+    pub timeout: Option<u64>,
 }
 
 #[instrument(skip_all)]
@@ -307,6 +311,7 @@ fn run_test_in_single_file(cli: &UniversalFlags, cmd: &TestSubcommand) -> anyhow
             test_failure_json: false,
             display_backend_hint: None,
             patch_file: None,
+            timeout: cmd.timeout,
         }),
         check_opt: None,
         build_opt: None,
@@ -362,8 +367,13 @@ fn run_test_in_single_file(cli: &UniversalFlags, cmd: &TestSubcommand) -> anyhow
         json_diagnostics: cmd.build_flags.output_style().needs_moonc_json(),
         single_file: true,
     };
-    let module =
-        get_module_for_single_file(&single_file_path, &moonc_opt, &moonbuild_opt, mbt_md_header)?;
+    let module = get_module_for_single_file(
+        &single_file_path,
+        &moonc_opt,
+        &moonbuild_opt,
+        mbt_md_header,
+        cmd.timeout,
+    )?;
     debug!(
         package_count = module.get_all_packages().len(),
         "scanned single-file module graph"
@@ -488,6 +498,7 @@ pub fn get_module_for_single_file(
     moonc_opt: &MooncOpt,
     moonbuild_opt: &MoonbuildOpt,
     front_matter_config: Option<MbtMdHeader>,
+    timeout: Option<u64>,
 ) -> anyhow::Result<ModuleDB> {
     let gen_single_file_pkg = |moonc_opt: &MooncOpt, single_file_path: &Path| -> Package {
         let path_comp = PathComponent {
@@ -555,6 +566,7 @@ pub fn get_module_for_single_file(
             link_libs: vec![],
             link_search_paths: vec![],
             max_concurrent_tests: None,
+            test_timeout: timeout,
         }
     };
 
@@ -629,6 +641,7 @@ pub(crate) struct TestLikeSubcommand<'a> {
     pub test_failure_json: bool,
     pub patch_file: &'a Option<PathBuf>,
     pub include_skipped: bool,
+    pub timeout: Option<u64>,
 }
 
 impl<'a> From<&'a TestSubcommand> for TestLikeSubcommand<'a> {
@@ -649,6 +662,7 @@ impl<'a> From<&'a TestSubcommand> for TestLikeSubcommand<'a> {
             test_failure_json: cmd.test_failure_json,
             patch_file: &cmd.patch_file,
             include_skipped: cmd.include_skipped,
+            timeout: cmd.timeout,
         }
     }
 }
@@ -670,6 +684,7 @@ impl<'a> From<&'a BenchSubcommand> for TestLikeSubcommand<'a> {
             test_failure_json: false,
             patch_file: &None,
             include_skipped: false,
+            timeout: None,
         }
     }
 }
@@ -1084,6 +1099,7 @@ pub(crate) fn run_test_or_bench_internal_legacy(
             test_failure_json: false,
             display_backend_hint,
             patch_file: None,
+            timeout: cmd.timeout,
         })
     } else {
         Some(TestOpt {
@@ -1095,6 +1111,7 @@ pub(crate) fn run_test_or_bench_internal_legacy(
             test_failure_json: cmd.test_failure_json,
             display_backend_hint,
             patch_file: patch_file.clone(),
+            timeout: cmd.timeout,
         })
     };
     let moonbuild_opt = MoonbuildOpt {
@@ -1474,6 +1491,17 @@ fn rr_test_from_plan(
         return Ok(result.return_code_for_success());
     }
 
+    // Determine test timeout: command-line arg takes precedence over package config
+    let test_timeout = cmd.timeout.or_else(|| {
+        // Try to get timeout from the first package's configuration
+        build_meta
+            .resolve_output
+            .pkg_dirs
+            .all_packages()
+            .next()
+            .and_then(|(_, pkg)| pkg.raw.test_timeout)
+    });
+
     let mut test_result = crate::run::run_tests(
         build_meta,
         source_dir,
@@ -1482,6 +1510,7 @@ fn rr_test_from_plan(
         cmd.include_skipped,
         cmd.run_mode == RunMode::Bench,
         cli.verbose,
+        test_timeout,
     )?;
     let _initial_summary = test_result.summary();
 
@@ -1573,6 +1602,7 @@ fn rr_test_from_plan(
                 cmd.include_skipped,
                 cmd.run_mode == RunMode::Bench,
                 cli.verbose,
+                test_timeout,
             )?;
             let _rerun_summary = new_test_result.summary();
 
