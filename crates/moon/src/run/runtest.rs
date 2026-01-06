@@ -495,6 +495,7 @@ fn parse_test_results(
         meta.with_args_tests,
         meta.with_bench_args_tests,
         meta.async_tests,
+        meta.async_tests_with_args,
     ]
     .into_iter()
     .flatten()

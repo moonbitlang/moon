@@ -983,6 +983,8 @@ pub struct MooncGenTestInfo {
     pub with_bench_args_tests: IndexMap<FileName, Vec<MbtTestInfo>>,
     #[serde(default)]
     pub async_tests: IndexMap<FileName, Vec<MbtTestInfo>>,
+    #[serde(default)]
+    pub async_tests_with_args: IndexMap<FileName, Vec<MbtTestInfo>>,
 }
 
 impl MbtTestInfo {
