@@ -34,7 +34,7 @@ use moonutil::common::PrePostBuild;
 use moonutil::common::{BLACKBOX_TEST_DRIVER, BUILD_DIR, DOT_MBT_DOT_MD, SINGLE_FILE_TEST_PACKAGE};
 use moonutil::common::{
     FileLock, GeneratedTestDriver, MOONBITLANG_CORE, MbtMdHeader, MoonbuildOpt, MooncOpt,
-    OutputFormat, RunMode, TargetBackend, TestOpt, lower_surface_targets,
+    OutputFormat, RunMode, TargetBackend, TestArtifacts, TestOpt, lower_surface_targets,
     parse_front_matter_config,
 };
 use moonutil::cond_expr::CompileCondition;
@@ -1498,8 +1498,15 @@ fn rr_test_from_plan(
         "executed rupes-recta build"
     );
 
-    if !result.successful() || cmd.build_only {
+    if !result.successful() {
         return Ok(result.return_code_for_success());
+    }
+
+    if cmd.build_only {
+        // Match legacy behavior: create JS wrappers and print test artifacts as JSON
+        let test_artifacts = collect_test_artifacts_for_build_only(build_meta, target_dir)?;
+        println!("{}", serde_json_lenient::to_string(&test_artifacts)?);
+        return Ok(0);
     }
 
     let mut test_result = crate::run::run_tests(
@@ -1620,4 +1627,85 @@ fn rr_test_from_plan(
     } else {
         Ok(2)
     }
+}
+
+/// Collect test artifacts for --build-only mode, matching legacy behavior.
+/// For JS backend, creates .cjs wrapper files and returns those paths.
+/// For other backends, returns the executable paths directly.
+/// Only includes artifacts that have actual tests (skips empty test executables).
+fn collect_test_artifacts_for_build_only(
+    build_meta: &rr_build::BuildMeta,
+    target_dir: &Path,
+) -> anyhow::Result<TestArtifacts> {
+    use moonbuild_rupes_recta::model::RunBackend;
+    use moonutil::common::MooncGenTestInfo;
+
+    let mut artifacts_path = vec![];
+
+    // Gather test executables (only MakeExecutable nodes)
+    for (node, node_artifacts) in &build_meta.artifacts {
+        if !matches!(node, BuildPlanNode::MakeExecutable(_)) {
+            continue;
+        }
+
+        let target = node
+            .extract_target()
+            .expect("MakeExecutable should have a build target");
+
+        // Find the corresponding GenerateTestInfo node to check if there are actual tests
+        let meta_node = BuildPlanNode::GenerateTestInfo(target);
+        let meta_artifacts = match build_meta.artifacts.get(&meta_node) {
+            Some(a) => a,
+            None => continue,
+        };
+
+        // Read test info to check if there are actual tests
+        let meta_path = &meta_artifacts.artifacts[1]; // Second artifact is the JSON
+        let meta_file = match std::fs::File::open(meta_path) {
+            Ok(f) => f,
+            Err(_) => continue,
+        };
+        let meta: MooncGenTestInfo = match serde_json_lenient::from_reader(meta_file) {
+            Ok(m) => m,
+            Err(_) => continue,
+        };
+
+        // Skip if no tests exist (legacy behavior)
+        if meta.no_args_tests.values().all(|v| v.is_empty()) {
+            continue;
+        }
+
+        let executable_path = &node_artifacts.artifacts[0];
+
+        // For JS backend, create .cjs wrapper file (matching legacy behavior)
+        if matches!(build_meta.target_backend, RunBackend::Js) {
+            let wrapper_path = executable_path.with_extension("cjs");
+
+            let js_driver_template = include_str!(concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/../moonbuild/template/test_driver/js_driver.js"
+            ));
+
+            // Create wrapper pointing to the JS file
+            let js_driver = js_driver_template.replace(
+                "origin_js_path",
+                &executable_path.display().to_string().replace('\\', "/"),
+            );
+
+            std::fs::write(&wrapper_path, &js_driver)
+                .with_context(|| format!("Failed to write JS wrapper at {}", wrapper_path.display()))?;
+
+            // Write package.json to prevent node from using outer "type": "module"
+            let _ = std::fs::write(target_dir.join("package.json"), "{}");
+            if let Some(parent) = executable_path.parent() {
+                let _ = std::fs::write(parent.join("package.json"), "{}");
+            }
+
+            artifacts_path.push(wrapper_path);
+        } else {
+            artifacts_path.push(executable_path.clone());
+        }
+    }
+
+    Ok(TestArtifacts { artifacts_path })
 }

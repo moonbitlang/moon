@@ -7,7 +7,7 @@ fn test_js_test_build_only() {
     check(
         &stdout,
         expect![[r#"
-            {"artifacts_path":["$ROOT/_build/js/debug/test/js_test_build_only.blackbox_test.js","$ROOT/_build/js/debug/test/__generated_driver_for_blackbox_test.mbt","$ROOT/_build/js/debug/test/__blackbox_test_info.json","$ROOT/_build/js/debug/test/js_test_build_only.internal_test.js","$ROOT/_build/js/debug/test/__generated_driver_for_internal_test.mbt","$ROOT/_build/js/debug/test/__internal_test_info.json"]}
+            {"artifacts_path":["$ROOT/_build/js/debug/test/js_test_build_only.internal_test.cjs"]}
         "#]],
     )
 }

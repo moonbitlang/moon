@@ -733,12 +733,17 @@ fn rr_run_from_plan(
     drop(_lock);
 
     if cmd.build_only {
+        // Get the single executable path (same as get_run_cmd does)
+        let (_, artifact) = build_meta
+            .artifacts
+            .first()
+            .expect("Expected exactly one build node for moon run");
+        let executable = artifact
+            .artifacts
+            .first()
+            .expect("Expected exactly one executable");
         let test_artifacts = TestArtifacts {
-            artifacts_path: build_meta
-                .artifacts
-                .values()
-                .flat_map(|artifact| artifact.artifacts.clone())
-                .collect(),
+            artifacts_path: vec![executable.clone()],
         };
         println!("{}", serde_json_lenient::to_string(&test_artifacts)?);
         return Ok(0);
