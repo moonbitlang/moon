@@ -191,7 +191,7 @@ extern "js" fn MoonBitTestDriverInternalTestEntry::index(self : Self) -> Int =
   #| (entry) => entry[1]
 
 ///|
-pub(all) suberror MoonBitTestDriverInternalJsError String
+pub(all) suberror MoonBitTestDriverInternalJsError { MoonBitTestDriverInternalJsError(String) }
 
 ///|
 #cfg(target="js")
