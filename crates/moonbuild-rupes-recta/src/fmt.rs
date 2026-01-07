@@ -491,7 +491,6 @@ fn format_moon_pkg_json_migrate(
         graph.add_build(build)?;
 
         // Step 3: Remove the original JSON file
-        // Use a marker file as output since rm doesn't produce output
         let rm_cmd: Vec<String> = if cfg!(windows) {
             vec![
                 "cmd".into(),
