@@ -409,7 +409,7 @@ fn format_moon_pkg_json_migrate(
 ) -> anyhow::Result<()> {
     // Warn the user about migration and prompt to remove the old config
     warn!(
-        "Migrating to {} in package '{}'. Please manually remove the deprecated {}.",
+        "Migrating to {} in package '{}', deprecated {} is removed.",
         MOON_PKG, pkg.fqn, MOON_PKG_JSON
     );
 
@@ -487,6 +487,34 @@ fn format_moon_pkg_json_migrate(
         );
         build.cmdline = Some(moonutil::shlex::join_native(
             cp_cmd.iter().map(|x| x.as_str()),
+        ));
+        graph.add_build(build)?;
+
+        // Step 3: Remove the original JSON file
+        // Use a marker file as output since rm doesn't produce output
+        let rm_cmd: Vec<String> = if cfg!(windows) {
+            vec![
+                "cmd".into(),
+                "/c".into(),
+                "del".into(),
+                moon_pkg_json.to_string_lossy().into_owned(),
+            ]
+        } else {
+            vec!["rm".into(), moon_pkg_json.to_string_lossy().into_owned()]
+        };
+
+        let ins = build_ins(graph, [moon_pkg]);
+        // The `rm` command does not actually produce an output file, so we fake one to ensure this build task will run in n2.
+        // If moon.pkg.json is removed successfully, this branch will not be executed again next time.
+        let faked_rm_output = format!("{}.removed", moon_pkg_json.to_string_lossy());
+        let outs = build_outs(graph, [&faked_rm_output]);
+        let mut build = Build::new(
+            build_n2_fileloc(format!("remove moon.pkg.json {}", pkg.fqn)),
+            ins,
+            outs,
+        );
+        build.cmdline = Some(moonutil::shlex::join_native(
+            rm_cmd.iter().map(|x| x.as_str()),
         ));
         graph.add_build(build)?;
     }
