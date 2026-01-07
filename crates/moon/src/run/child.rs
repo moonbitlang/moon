@@ -24,6 +24,8 @@ use anyhow::Context;
 use moonbuild::section_capture::{SectionCapture, handle_stdout_async};
 use moonutil::platform::macos_with_sigchild_blocked;
 use tokio::process::Command;
+#[cfg(windows)]
+use tracing::warn;
 
 /// Run a command under the governing of `moon run`.
 ///
@@ -43,6 +45,7 @@ pub async fn run<'a>(
     capture: bool,
     mut cmd: Command,
 ) -> anyhow::Result<ExitStatus> {
+    let shutdown = super::shutdown_token();
     if capture {
         // If we want to capture some/all of the output, we want to set piped
         // to both streams to prevent `node` and friends changing fd blocking
@@ -67,6 +70,10 @@ pub async fn run<'a>(
         cmd.spawn()
             .with_context(|| format!("Failed to spawn command {:?}", cmd))
     })?;
+    #[cfg(windows)]
+    if let Err(err) = assign_child_to_job(&child) {
+        warn!(?err, "Failed to assign child process to job object");
+    }
 
     // Task only exists when capturing
     let stderr_pipe_task = child.stderr.take().map(|mut stderr| {
@@ -88,19 +95,29 @@ pub async fn run<'a>(
 
         if !captures.is_empty() {
             let buf_stdout = tokio::io::BufReader::new(child_stdout);
-            handle_stdout_async(buf_stdout, captures).await?;
+            tokio::select! {
+                res = handle_stdout_async(buf_stdout, captures) => res?,
+                _ = shutdown.cancelled() => {}
+            }
         } else {
             let mut child_stdout = child_stdout;
             let mut proc_stdout = tokio::io::stdout();
-            tokio::io::copy(&mut child_stdout, &mut proc_stdout).await?;
+            tokio::select! {
+                res = tokio::io::copy(&mut child_stdout, &mut proc_stdout) => { res?; }
+                _ = shutdown.cancelled() => {}
+            }
         }
     }
 
     // Wait for the child process to finish
-    let status = child
-        .wait()
-        .await
-        .context("Failed to wait for child process")?;
+    let status = tokio::select! {
+        res = child.wait() => res,
+        _ = shutdown.cancelled() => {
+            let _ = child.start_kill();
+            child.wait().await
+        }
+    }
+    .context("Failed to wait for child process")?;
 
     if let Some(task) = stderr_pipe_task {
         task.await
@@ -108,4 +125,68 @@ pub async fn run<'a>(
     }
 
     Ok(status)
+}
+
+#[cfg(windows)]
+fn assign_child_to_job(child: &tokio::process::Child) -> anyhow::Result<()> {
+    use std::sync::OnceLock;
+    use windows_sys::Win32::Foundation::{ERROR_ACCESS_DENIED, HANDLE};
+    use windows_sys::Win32::System::JobObjects::{
+        AssignProcessToJobObject, CreateJobObjectW, JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE,
+        JOBOBJECT_EXTENDED_LIMIT_INFORMATION, JobObjectExtendedLimitInformation,
+        SetInformationJobObject,
+    };
+
+    #[derive(Clone, Copy)]
+    struct JobHandle(HANDLE);
+    unsafe impl Send for JobHandle {}
+    unsafe impl Sync for JobHandle {}
+
+    // Intentionally never dropped: we rely on the OS closing the last handle
+    // when the parent process exits so that JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE
+    // can terminate any remaining child processes.
+    static JOB_OBJECT: OnceLock<Result<JobHandle, std::io::Error>> = OnceLock::new();
+
+    let job = match JOB_OBJECT.get_or_init(|| unsafe {
+        let handle = CreateJobObjectW(std::ptr::null_mut(), std::ptr::null());
+        if handle.is_null() {
+            return Err(std::io::Error::last_os_error());
+        }
+        let mut info: JOBOBJECT_EXTENDED_LIMIT_INFORMATION = std::mem::zeroed();
+        info.BasicLimitInformation.LimitFlags = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE;
+        let ok = SetInformationJobObject(
+            handle,
+            JobObjectExtendedLimitInformation,
+            &mut info as *mut _ as *mut _,
+            std::mem::size_of::<JOBOBJECT_EXTENDED_LIMIT_INFORMATION>() as u32,
+        );
+        if ok == 0 {
+            return Err(std::io::Error::last_os_error());
+        }
+        Ok(JobHandle(handle as HANDLE))
+    }) {
+        Ok(handle) => *handle,
+        Err(err) => {
+            return Err(anyhow::Error::new(err)).context("Failed to initialize job object");
+        }
+    };
+
+    let Some(proc_handle) = child.raw_handle() else {
+        return Err(anyhow::anyhow!("Missing child process handle"));
+    };
+    let job_handle = job.0;
+    let ok = unsafe { AssignProcessToJobObject(job_handle, proc_handle) };
+    if ok == 0 {
+        let err = std::io::Error::last_os_error();
+        if err.raw_os_error() == Some(ERROR_ACCESS_DENIED as i32) {
+            warn!(
+                ?err,
+                "AssignProcessToJobObject denied; child may outlive parent"
+            );
+            return Ok(());
+        }
+        warn!(?err, "AssignProcessToJobObject failed");
+        return Err(err).context("AssignProcessToJobObject failed");
+    }
+    Ok(())
 }

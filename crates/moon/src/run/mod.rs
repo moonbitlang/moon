@@ -26,8 +26,72 @@ pub use child::run;
 pub use runtest::{TestFilter, TestIndex, perform_promotion, run_tests};
 pub use runtime::{CommandGuard, command_for};
 
+use std::sync::OnceLock;
+
+use tokio_util::sync::CancellationToken;
+
+/// Process-wide cancellation token toggled when we observe a shutdown signal.
+static SHUTDOWN_TOKEN: OnceLock<CancellationToken> = OnceLock::new();
+/// Ensures we only install the shutdown handler task once per process.
+static SHUTDOWN_HANDLER: OnceLock<()> = OnceLock::new();
+
+fn install_shutdown_handler(rt: &tokio::runtime::Runtime) {
+    SHUTDOWN_HANDLER.get_or_init(|| {
+        let token = SHUTDOWN_TOKEN.get_or_init(CancellationToken::new).clone();
+        let handle = rt.handle().clone();
+        handle.spawn(async move {
+            #[cfg(not(windows))]
+            {
+                let mut terminate =
+                    tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())
+                        .expect("Failed to wait on SigTerm");
+                let mut interrupt =
+                    tokio::signal::unix::signal(tokio::signal::unix::SignalKind::interrupt())
+                        .expect("Failed to wait on SigInt");
+                let mut quit = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::quit())
+                    .expect("Failed to wait on SigQuit");
+                tokio::select! {
+                    _ = terminate.recv() => {},
+                    _ = interrupt.recv() => {},
+                    _ = quit.recv() => {},
+                }
+                token.cancel();
+            }
+            #[cfg(windows)]
+            {
+                let mut ctrl_break =
+                    tokio::signal::windows::ctrl_break().expect("Failed to wait on ctrl+break");
+                let mut ctrl_c =
+                    tokio::signal::windows::ctrl_c().expect("Failed to wait on ctrl+c");
+                let mut ctrl_close =
+                    tokio::signal::windows::ctrl_close().expect("Failed to wait on ctrl+close");
+                tokio::select! {
+                    _ = ctrl_break.recv() => {},
+                    _ = ctrl_c.recv() => {},
+                    _ = ctrl_close.recv() => {},
+                }
+                token.cancel();
+            }
+        });
+    });
+}
+
+/// Return the shared shutdown token, initializing it lazily on first use.
+pub fn shutdown_token() -> &'static CancellationToken {
+    SHUTDOWN_TOKEN.get_or_init(CancellationToken::new)
+}
+
+/// Check whether shutdown has been requested via any of the registered signals.
+pub fn shutdown_requested() -> bool {
+    shutdown_token().is_cancelled()
+}
+
+/// Build the canonical Tokio runtime used by `moon run` facilities and install
+/// the global shutdown handler the first time it is called.
 pub fn default_rt() -> std::io::Result<tokio::runtime::Runtime> {
-    tokio::runtime::Builder::new_current_thread()
+    let runtime = tokio::runtime::Builder::new_current_thread()
         .enable_all()
-        .build()
+        .build()?;
+    install_shutdown_handler(&runtime);
+    Ok(runtime)
 }
