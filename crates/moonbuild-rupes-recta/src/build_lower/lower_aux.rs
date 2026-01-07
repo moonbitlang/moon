@@ -159,8 +159,17 @@ impl<'a> super::BuildPlanLowerContext<'a> {
             }
         };
 
-        let cc_cmd = make_cc_command_pure::<&'static str>(
-            resolve_cc(CC::default(), None),
+        let resolved_cc = resolve_cc(CC::default(), None);
+        let libbacktrace_path = runtime_c_path.parent().unwrap().join("libbacktrace.a");
+        
+        let mut cc_flags = vec![];
+        // Add libbacktrace.a if it exists and we're generating a shared library
+        if output_ty == CCOutputType::SharedLib && libbacktrace_path.exists() {
+            cc_flags.push(libbacktrace_path.to_str().unwrap());
+        }
+
+        let cc_cmd = make_cc_command_pure(
+            resolved_cc,
             CCConfigBuilder::default()
                 .no_sys_header(true)
                 .output_ty(output_ty)
@@ -170,7 +179,7 @@ impl<'a> super::BuildPlanLowerContext<'a> {
                 .define_use_shared_runtime_macro(false)
                 .build()
                 .expect("Failed to build CC configuration for runtime"),
-            &[],
+            &cc_flags,
             [runtime_c_path.display().to_string()],
             &self.opt.target_dir_root.display().to_string(),
             Some(&artifact_path.display().to_string()),

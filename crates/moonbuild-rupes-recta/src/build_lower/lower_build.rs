@@ -43,12 +43,12 @@ use crate::{
     },
     build_plan::{BuildCStubsInfo, BuildTargetInfo, LinkCoreInfo, MakeExecutableInfo},
     discover::DiscoveredPackage,
-    model::{BuildPlanNode, BuildTarget, PackageId, RunBackend, TargetKind},
+    model::{BuildPlanNode, BuildTarget, OperatingSystem, PackageId, RunBackend, TargetKind},
     pkg_name::{PackageFQN, PackagePath},
     special_cases::{is_self_coverage_lib, should_skip_coverage},
 };
 
-use super::{BuildCommand, compiler, context::BuildPlanLowerContext};
+use super::{BuildCommand, Commandline, compiler, context::BuildPlanLowerContext};
 
 impl<'a> BuildPlanLowerContext<'a> {
     fn is_module_third_party(&self, mid: ModuleId) -> bool {
@@ -718,13 +718,23 @@ impl<'a> BuildPlanLowerContext<'a> {
             .collect();
 
         // User linker flags: stub_cc_link_flags (already parsed) from BuildCStubsInfo
-        let link_flags: Vec<String> = info.link_flags.clone();
+        let mut link_flags: Vec<String> = info.link_flags.clone();
+        
+        // Add libbacktrace.a if it exists
+        let libbacktrace_path = std::path::Path::new(&self.opt.compiler_paths.lib_path)
+            .join("libbacktrace.a");
+        if libbacktrace_path.exists() {
+            link_flags.push(libbacktrace_path.display().to_string());
+        }
 
+        let link_flags_refs: Vec<&str> = link_flags.iter().map(|s| s.as_str()).collect();
+        let sources_refs: Vec<&str> = sources.iter().map(|s| s.as_str()).collect();
+        
         let cc_cmd = make_linker_command_pure(
             cc,
             lcfg,
-            &link_flags,
-            &sources,
+            &link_flags_refs,
+            &sources_refs,
             &dest_dir,
             &dylib_out.display().to_string(),
             &self.opt.compiler_paths.lib_path,
@@ -817,19 +827,44 @@ impl<'a> BuildPlanLowerContext<'a> {
             .display()
             .to_string();
 
+        // Add libbacktrace.a if it exists
+        let libbacktrace_path = std::path::Path::new(&self.opt.compiler_paths.lib_path)
+            .join("libbacktrace.a");
+        
+        let mut c_flags = info.c_flags.clone();
+        if libbacktrace_path.exists() {
+            c_flags.push(libbacktrace_path.display().to_string());
+        }
+        
         let cc_cmd = make_cc_command_pure(
             resolve_cc(self.opt.default_cc.clone(), info.cc.clone()), // TODO: no clone
             config,
-            &info.c_flags,
+            &c_flags.iter().map(|s| s.as_str()).collect::<Vec<_>>(),
             sources.iter().map(|x| x.display().to_string()),
             &pkg_dir,
             Some(&dest),
             &self.opt.compiler_paths,
         );
 
+        // On macOS with LLVM backend and debug symbols, run dsymutil after linking
+        // to generate the dSYM bundle for better debugging experience
+        let commandline = if self.opt.os == OperatingSystem::MacOS
+            && self.opt.target_backend == RunBackend::Llvm
+            && self.opt.debug_symbols
+        {
+            // Convert cc_cmd to shell command string and append dsymutil
+            let cc_cmd_str = moonutil::shlex::join_unix(cc_cmd.iter().map(|x| x.as_str()));
+            let dsymutil_args = vec!["dsymutil", &dest];
+            let dsymutil_cmd_str = moonutil::shlex::join_unix(dsymutil_args.iter().copied());
+            let combined_cmd = format!("{} && {}", cc_cmd_str, dsymutil_cmd_str);
+            Commandline::Verbatim(combined_cmd)
+        } else {
+            cc_cmd.into()
+        };
+
         BuildCommand {
             extra_inputs: vec![],
-            commandline: cc_cmd.into(),
+            commandline,
         }
     }
 
