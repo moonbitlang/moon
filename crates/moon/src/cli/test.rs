@@ -1692,8 +1692,9 @@ fn collect_test_artifacts_for_build_only(
                 &executable_path.display().to_string().replace('\\', "/"),
             );
 
-            std::fs::write(&wrapper_path, &js_driver)
-                .with_context(|| format!("Failed to write JS wrapper at {}", wrapper_path.display()))?;
+            std::fs::write(&wrapper_path, &js_driver).with_context(|| {
+                format!("Failed to write JS wrapper at {}", wrapper_path.display())
+            })?;
 
             // Write package.json to prevent node from using outer "type": "module"
             let _ = std::fs::write(target_dir.join("package.json"), "{}");
