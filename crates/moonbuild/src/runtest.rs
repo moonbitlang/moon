@@ -32,7 +32,6 @@ use moonutil::moon_dir::MOON_DIRS;
 use moonutil::platform::macos_with_sigchild_blocked;
 use n2::load::State;
 use serde::{Deserialize, Serialize};
-use std::borrow::Cow;
 use std::{path::Path, process::Stdio};
 use tokio::io::AsyncReadExt;
 
@@ -53,74 +52,6 @@ pub struct TestStatistics {
     pub index: String,
     pub test_name: String,
     pub message: String,
-}
-
-/// Convert MoonBit-style unicode escapes `\u{XX}` to JSON-style `\uXXXX`.
-///
-/// The test driver templates (see `template/test_driver/test_driver_template.mbt`)
-/// use MoonBit's `String::escape()` method to escape the message field before
-/// outputting JSON:
-///
-/// ```moonbit
-/// let message = message.escape()
-/// println("{\"package\": \"...\", \"message\": \{message}}")
-/// ```
-///
-/// However, MoonBit's `escape()` uses `\u{XX}` syntax for unicode escapes,
-/// which is invalid JSON. JSON requires exactly 4 hex digits: `\uXXXX`.
-///
-/// This function converts MoonBit-style escapes to valid JSON escapes so that
-/// `serde_json` can parse the test output correctly.
-fn fix_moonbit_unicode_escapes(s: &str) -> Cow<'_, str> {
-    if !s.contains("\\u{") {
-        return Cow::Borrowed(s);
-    }
-
-    let mut result = String::with_capacity(s.len());
-    let mut chars = s.chars().peekable();
-
-    while let Some(c) = chars.next() {
-        if c == '\\' && chars.peek() == Some(&'u') {
-            chars.next(); // consume 'u'
-            if chars.peek() == Some(&'{') {
-                chars.next(); // consume '{'
-                let mut hex = String::new();
-                while let Some(&ch) = chars.peek() {
-                    if ch == '}' {
-                        chars.next(); // consume '}'
-                        break;
-                    }
-                    if ch.is_ascii_hexdigit() {
-                        hex.push(chars.next().unwrap());
-                    } else {
-                        break;
-                    }
-                }
-                if let Ok(codepoint) = u32::from_str_radix(&hex, 16) {
-                    if codepoint <= 0xFFFF {
-                        result.push_str(&format!("\\u{:04X}", codepoint));
-                    } else {
-                        // Supplementary character: use surrogate pair
-                        let adjusted = codepoint - 0x10000;
-                        let high = 0xD800 + (adjusted >> 10);
-                        let low = 0xDC00 + (adjusted & 0x3FF);
-                        result.push_str(&format!("\\u{:04X}\\u{:04X}", high, low));
-                    }
-                } else {
-                    // Invalid hex, keep original
-                    result.push_str("\\u{");
-                    result.push_str(&hex);
-                    result.push('}');
-                }
-            } else {
-                result.push_str("\\u");
-            }
-        } else {
-            result.push(c);
-        }
-    }
-
-    Cow::Owned(result)
 }
 
 impl std::fmt::Display for TestStatistics {
@@ -281,9 +212,7 @@ async fn run(
             if s.is_empty() {
                 continue;
             }
-            // Fix MoonBit-style \u{XX} escapes to JSON-style \uXXXX
-            let fixed = fix_moonbit_unicode_escapes(s.trim());
-            let ts: TestStatistics = serde_json_lenient::from_str(&fixed)
+            let ts: TestStatistics = serde_json_lenient::from_str(s.trim())
                 .context(format!("failed to parse test summary: {s}"))?;
 
             if ts.message == "skipped test" {
