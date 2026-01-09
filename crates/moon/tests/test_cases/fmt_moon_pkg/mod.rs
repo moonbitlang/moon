@@ -43,11 +43,12 @@ fn test_fmt_moon_pkg_json_migration_dry_run() {
         check(
             output,
             expect![[r#"
-                moonfmt ./main/moon.pkg -w -o ./target/wasm-gc/release/format/main/moon.pkg
-                moonfmt ./lib/moon.pkg.json -o ./target/wasm-gc/release/format/lib/moon.pkg
-                cmd /c copy ./target/wasm-gc/release/format/lib/moon.pkg ./lib/moon.pkg
-                moonfmt ./main/main.mbt -w -o ./target/wasm-gc/release/format/main/main.mbt
-                moonfmt ./lib/hello.mbt -w -o ./target/wasm-gc/release/format/lib/hello.mbt
+                moonfmt ./lib/moon.pkg.json -o ./_build/wasm-gc/release/format/lib/moon.pkg
+                cmd /c copy ./_build/wasm-gc/release/format/lib/moon.pkg ./lib/moon.pkg
+                cmd /c del ./lib/moon.pkg.json
+                moonfmt ./main/moon.pkg -w -o ./_build/wasm-gc/release/format/main/moon.pkg
+                moonfmt ./main/main.mbt -w -o ./_build/wasm-gc/release/format/main/main.mbt
+                moonfmt ./lib/hello.mbt -w -o ./_build/wasm-gc/release/format/lib/hello.mbt
             "#]],
         );
     } else {
@@ -123,12 +124,11 @@ fn test_fmt_moon_pkg_both_exist() {
         check(
             output,
             expect![[r#"
-                moonfmt ./lib/moon.pkg.json -o ./_build/wasm-gc/release/format/lib/moon.pkg
-                cmd /c copy ./_build/wasm-gc/release/format/lib/moon.pkg ./lib/moon.pkg
-                cmd /c del ./lib/moon.pkg.json
-                moonfmt ./main/moon.pkg -w -o ./_build/wasm-gc/release/format/main/moon.pkg
-                moonfmt ./main/main.mbt -w -o ./_build/wasm-gc/release/format/main/main.mbt
-                moonfmt ./lib/hello.mbt -w -o ./_build/wasm-gc/release/format/lib/hello.mbt
+                moonfmt ./moon.pkg.json -o ./_build/wasm-gc/release/format/moon.pkg
+                cmd /c copy ./_build/wasm-gc/release/format/moon.pkg ./moon.pkg
+                cmd /c del ./moon.pkg.json
+                moonfmt ./both/moon.pkg -w -o ./_build/wasm-gc/release/format/both/moon.pkg
+                moonfmt ./both/lib.mbt -w -o ./_build/wasm-gc/release/format/both/lib.mbt
             "#]],
         );
     } else {
