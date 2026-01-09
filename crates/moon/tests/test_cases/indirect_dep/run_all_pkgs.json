@@ -62,6 +62,11 @@
     },
     {
       "root": "moonbitlang/core",
+      "rel": "debug",
+      "artifact": "$MOON_HOME/lib/core/target/wasm-gc/release/bundle/debug/debug.mi"
+    },
+    {
+      "root": "moonbitlang/core",
       "rel": "deque",
       "artifact": "$MOON_HOME/lib/core/target/wasm-gc/release/bundle/deque/deque.mi"
     },
