@@ -102,12 +102,14 @@ pub fn create_legacy_symlink(project_root: &Path) {
 
     #[cfg(windows)]
     {
-        // On Windows, use directory symlink since _build is a directory
-        if let Err(e) = std::os::windows::fs::symlink_dir(target_path, &symlink_path) {
+        // On Windows, use NTFS junction instead of symlink to avoid requiring
+        // developer mode or administrator privileges
+        let absolute_target = project_root.join(target_path);
+        if let Err(e) = junction::create(&absolute_target, &symlink_path) {
             eprintln!(
-                "Warning: failed to create directory symlink: {} -> {}. You may need to enable developer mode or have administrator privileges. {}",
+                "Warning: failed to create directory junction: {} -> {}. {}",
                 symlink_path.display(),
-                target_path.display(),
+                absolute_target.display(),
                 e
             );
         }
