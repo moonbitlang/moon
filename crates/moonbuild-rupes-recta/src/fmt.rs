@@ -222,7 +222,7 @@ fn format_node(
         .into_owned();
     let cmd: Vec<String> = if cfg.check_only || cfg.warn_only {
         let mut cmd = vec![
-            "moon".into(),
+            moonutil::BINARIES.moonbuild.to_string_lossy().into_owned(),
             "tool".into(),
             "format-and-diff".into(),
             "--old".into(),
@@ -240,7 +240,7 @@ fn format_node(
         cmd
     } else {
         let mut cmd = vec![
-            "moonfmt".into(),
+            moonutil::BINARIES.moonfmt.to_string_lossy().into_owned(),
             file.to_string_lossy().into_owned(),
             "-w".into(),
             "-o".into(),
@@ -340,7 +340,7 @@ fn format_moon_pkg_dsl(
     if cfg.check_only || cfg.warn_only {
         // In check/warn mode, use format-and-diff to compare
         let mut cmd = vec![
-            "moon".into(),
+            moonutil::BINARIES.moonbuild.to_string_lossy().into_owned(),
             "tool".into(),
             "format-and-diff".into(),
             "--old".into(),
@@ -368,7 +368,7 @@ fn format_moon_pkg_dsl(
         // Format moon.pkg - use -w to write back to source and -o to target
         // This is consistent with how .mbt files are formatted
         let fmt_cmd: Vec<String> = vec![
-            "moonfmt".into(),
+            moonutil::BINARIES.moonfmt.to_string_lossy().into_owned(),
             moon_pkg.to_string_lossy().into_owned(),
             "-w".into(),
             "-o".into(),
@@ -416,7 +416,7 @@ fn format_moon_pkg_json_migrate(
     if cfg.check_only || cfg.warn_only {
         // In check/warn mode, use format-and-diff to compare
         let mut cmd = vec![
-            "moon".into(),
+            moonutil::BINARIES.moonbuild.to_string_lossy().into_owned(),
             "tool".into(),
             "format-and-diff".into(),
             "--old".into(),
@@ -443,7 +443,7 @@ fn format_moon_pkg_json_migrate(
     } else {
         // Step 1: Format moon.pkg.json to target directory
         let fmt_cmd: Vec<String> = vec![
-            "moonfmt".into(),
+            moonutil::BINARIES.moonfmt.to_string_lossy().into_owned(),
             moon_pkg_json.to_string_lossy().into_owned(),
             "-o".into(),
             target_moon_pkg.to_string_lossy().into_owned(),
