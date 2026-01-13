@@ -1228,8 +1228,14 @@ fn handle_build_command_new(
 
     let mut reconstructed = String::new();
 
+    let moon_bin_path = moonutil::BINARIES
+        .moonbuild
+        .to_str()
+        .unwrap_or("moon")
+        .to_string();
+
     let command = if let Some(command) = command.strip_prefix(":embed ") {
-        reconstructed.push_str("moon tool embed ");
+        reconstructed.push_str(&format!("{} tool embed ", moon_bin_path));
         command
     } else {
         command
