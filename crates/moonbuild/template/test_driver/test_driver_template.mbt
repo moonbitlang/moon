@@ -105,7 +105,7 @@ pub fn moonbit_test_driver_internal_do_execute(
     index_map.get(index) is Some((f, attrs))
   ) {
     let name = if attrs is [name, ..] { name } else { "" }
-    guard !test_should_be_skipped(name, attrs) else {}
+    guard !test_should_be_skipped(name, attrs) else { return }
     moonbit_test_driver_internal_catch_error(
       f,
       on_ok=() => handle_result(name, "", false),
