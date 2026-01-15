@@ -2,18 +2,18 @@
 
 pub(all) struct Moonbit_Test_Driver_Internal_With_Bench_Args_Function((@moonbitlang/core/bench.T) -> Unit raise Error)
 
-type Moonbit_Test_Driver_Internal_TestDriver_With_Bench_Args_Map = @moonbitlang/core/builtin.Map[
+type Moonbit_Test_Driver_Internal_TestDriver_With_Bench_Args_Map = @moonbitlang/core/prelude.Map[
   String,
-  @moonbitlang/core/builtin.Map[
+  @moonbitlang/core/prelude.Map[
     Int,
-    (Moonbit_Test_Driver_Internal_With_Bench_Args_Function, @moonbitlang/core/builtin.Array[String]),
+    (Moonbit_Test_Driver_Internal_With_Bench_Args_Function, @moonbitlang/core/prelude.Array[String]),
   ],
 ]
 
 struct Moonbit_Test_Driver_Internal_Meta {
   filename : String
   index : Int
-  attrs : @moonbitlang/core/builtin.Array[String]
+  attrs : @moonbitlang/core/prelude.Array[String]
 }
 
 struct Moonbit_Test_Driver_Internal__TestCase {
@@ -69,12 +69,12 @@ pub fn moonbit_test_driver_internal_do_execute(filename : String, index : Int) -
       if MOONBIT_TEST_DRIVER_INTERNAL_IS_NATIVE && attrs.iter().any(fn(attr) -> Bool {
         attr is [.."panic", ..]
       }) {
-        @moonbitlang/core/builtin.println("skipped test block: \{file_name}: \{attrs[0]}")
-        @moonbitlang/core/builtin.println("{BEGIN_MOONTEST}")
-        @moonbitlang/core/builtin.println(
+        @moonbitlang/core/prelude.println("skipped test block: \{file_name}: \{attrs[0]}")
+        @moonbitlang/core/prelude.println("{BEGIN_MOONTEST}")
+        @moonbitlang/core/prelude.println(
           "{\"package\": \"{PACKAGE}\", \"filename\": \{file_name.escape()}, \"index\": \"\{index}\", \"test_name\": \{name.escape()}, \"message\": \"skipped test\"}",
         )
-        @moonbitlang/core/builtin.println("{END_MOONTEST}")
+        @moonbitlang/core/prelude.println("{END_MOONTEST}")
         return
       }
       test_name = name
@@ -87,10 +87,9 @@ pub fn moonbit_test_driver_internal_do_execute(filename : String, index : Int) -
         },
         on_err=(err) => {
           match err {
-            @moonbitlang/core/builtin.Failure(e)
-            | @moonbitlang/core/builtin.InspectError(e)
-            | @moonbitlang/core/builtin.SnapshotError(e)
-            | @moonbitlang/core/builtin.BenchError(e)
+            @moonbitlang/core/prelude.Failure::Failure(e)
+            | @moonbitlang/core/prelude.InspectError::InspectError(e)
+            | @moonbitlang/core/prelude.SnapshotError::SnapshotError(e)
             | MoonBitTestDriverInternalJsError(e) => {
               message = e
             }
@@ -107,11 +106,11 @@ pub fn moonbit_test_driver_internal_do_execute(filename : String, index : Int) -
   let file_name = file_name.escape()
   let test_name = test_name.escape()
   let message = message.escape()
-  @moonbitlang/core/builtin.println("{BEGIN_MOONTEST}")
-  @moonbitlang/core/builtin.println(
+  @moonbitlang/core/prelude.println("{BEGIN_MOONTEST}")
+  @moonbitlang/core/prelude.println(
     "{\"package\": \"{PACKAGE}\", \"filename\": \{file_name}, \"index\": \"\{index}\", \"test_name\": \{test_name}, \"message\": \{message}}",
   )
-  @moonbitlang/core/builtin.println("{END_MOONTEST}")
+  @moonbitlang/core/prelude.println("{END_MOONTEST}")
 }
 
 #cfg(target="native")
@@ -130,7 +129,7 @@ fn main {
 
 #cfg(target="js")
 pub fn moonbit_test_driver_internal_execute(
-  tests : @moonbitlang/core/builtin.Array[MoonBitTestDriverInternalTestEntry],
+  tests : @moonbitlang/core/prelude.Array[MoonBitTestDriverInternalTestEntry],
 ) -> Unit {
   for i in 0..<tests.length() {
     let entry = tests[i]
