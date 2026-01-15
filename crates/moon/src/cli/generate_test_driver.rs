@@ -19,8 +19,8 @@
 use anyhow::{Context, bail};
 use moonutil::cli::UniversalFlags;
 use moonutil::common::{
-    DriverKind, MOON_TEST_DELIMITER_BEGIN, MOON_TEST_DELIMITER_END, MOONBITLANG_CORE_BUILTIN,
-    MooncGenTestInfo, TargetBackend,
+    DriverKind, MOON_TEST_DELIMITER_BEGIN, MOON_TEST_DELIMITER_END, MOONBITLANG_CORE,
+    MOONBITLANG_CORE_BUILTIN, MOONBITLANG_CORE_PRELUDE, MooncGenTestInfo, TargetBackend,
 };
 use std::ffi::OsStr;
 use std::io::{Read, Write};
@@ -369,7 +369,12 @@ fn generate_driver(
         .replace("// {COVERAGE_END}", &coverage_end_template);
 
     if pkgname == MOONBITLANG_CORE_BUILTIN {
-        template.replace(&format!("@{MOONBITLANG_CORE_BUILTIN}."), "")
+        template.replace(&format!("@{MOONBITLANG_CORE_PRELUDE}."), "")
+    } else if pkgname.starts_with(MOONBITLANG_CORE) {
+        template.replace(
+            &format!("@{MOONBITLANG_CORE_PRELUDE}."),
+            &format!("@{MOONBITLANG_CORE_BUILTIN}."),
+        )
     } else {
         template
     }
