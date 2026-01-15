@@ -35,6 +35,7 @@ pub type Loc = Range<Pos>;
 #[derive(Logos, Debug, PartialEq, Clone)]
 #[logos(extras = (usize, usize))]
 #[logos(skip(r"(\n|\r\n)", newline_callback))]
+#[logos(skip(r"//[^\n\r]*"))] // Skip single-line comments
 #[logos(skip(r"[ \t\f]+"))]
 pub enum Token {
     #[token("[", with_span)]
@@ -690,6 +691,96 @@ options(
                     }..Pos {
                         line: 20,
                         column: 3,
+                    },
+                ),
+            ],
+        )
+    "#]]
+    .assert_debug_eq(&tokens);
+}
+
+#[test]
+fn test_comment_lexing() {
+    // Single-line comments should be skipped
+    let input = r#"
+    // this is a comment
+    import // another comment
+    "pkg" // trailing comment
+    "#;
+    let tokens = tokenize(input);
+    expect_test::expect![[r#"
+        Ok(
+            [
+                IMPORT(
+                    Pos {
+                        line: 3,
+                        column: 5,
+                    }..Pos {
+                        line: 3,
+                        column: 11,
+                    },
+                ),
+                STRING(
+                    (
+                        Pos {
+                            line: 4,
+                            column: 5,
+                        }..Pos {
+                            line: 4,
+                            column: 10,
+                        },
+                        "pkg",
+                    ),
+                ),
+                EOF(
+                    Pos {
+                        line: 5,
+                        column: 5,
+                    }..Pos {
+                        line: 5,
+                        column: 5,
+                    },
+                ),
+            ],
+        )
+    "#]]
+    .assert_debug_eq(&tokens);
+
+    // Comments between tokens
+    let input = r#"import // comment
+    "pkg""#;
+    let tokens = tokenize(input);
+    expect_test::expect![[r#"
+        Ok(
+            [
+                IMPORT(
+                    Pos {
+                        line: 1,
+                        column: 1,
+                    }..Pos {
+                        line: 1,
+                        column: 7,
+                    },
+                ),
+                STRING(
+                    (
+                        Pos {
+                            line: 2,
+                            column: 5,
+                        }..Pos {
+                            line: 2,
+                            column: 10,
+                        },
+                        "pkg",
+                    ),
+                ),
+                EOF(
+                    Pos {
+                        line: 2,
+                        column: 10,
+                    }..Pos {
+                        line: 2,
+                        column: 10,
                     },
                 ),
             ],
