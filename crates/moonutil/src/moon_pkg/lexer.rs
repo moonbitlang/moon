@@ -72,7 +72,7 @@ pub enum Token {
     AS(Loc),
     #[token("import", with_span)]
     IMPORT(Loc),
-    #[regex(r"@[a-zA-Z_][a-zA-Z0-9_]*", with_package_name)]
+    #[regex(r"@[a-zA-Z_][a-zA-Z0-9_/]*", with_package_name)]
     PACKAGENAME((Loc, String)),
     EOF(Loc),
 }
@@ -283,7 +283,7 @@ pub fn tokenize(input: &str) -> anyhow::Result<Vec<Token>> {
 #[test]
 fn tokenize_test() {
     let input = r#"import {
-  "path/to/pkg1",
+  "path/to/pkg1" as @path/alias,
   "path/to/pkg2" as @alias,
 }
 
@@ -336,13 +336,34 @@ options(
                         "path/to/pkg1",
                     ),
                 ),
+                AS(
+                    Pos {
+                        line: 2,
+                        column: 18,
+                    }..Pos {
+                        line: 2,
+                        column: 20,
+                    },
+                ),
+                PACKAGENAME(
+                    (
+                        Pos {
+                            line: 2,
+                            column: 21,
+                        }..Pos {
+                            line: 2,
+                            column: 32,
+                        },
+                        "path/alias",
+                    ),
+                ),
                 COMMA(
                     Pos {
                         line: 2,
-                        column: 17,
+                        column: 32,
                     }..Pos {
                         line: 2,
-                        column: 18,
+                        column: 33,
                     },
                 ),
                 STRING(
