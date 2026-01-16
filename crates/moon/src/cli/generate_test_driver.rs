@@ -219,9 +219,14 @@ const ASYNC_TEMPLATE: &str = include_str!(concat!(
     "/../moonbuild/template/test_driver/async.mbt"
 ));
 
-const BENCH_DRIVER_TEMPLATE: &str = include_str!(concat!(
+const BENCH_ARG_TEMPLATE: &str = include_str!(concat!(
     env!("CARGO_MANIFEST_DIR"),
-    "/../moonbuild/template/test_driver/bench_driver_template.mbt"
+    "/../moonbuild/template/test_driver/bench_arg_template.mbt"
+));
+
+const NO_BENCH_ARG_TEMPLATE: &str = include_str!(concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/../moonbuild/template/test_driver/no_bench_arg_template.mbt"
 ));
 
 const TEST_DRIVER_TEMPLATE: &str = include_str!(concat!(
@@ -259,13 +264,16 @@ fn generate_driver(
         .chain(data.async_tests_with_args.iter())
         .all(|x| x.1.is_empty());
 
-    let template = if enable_bench {
-        BENCH_DRIVER_TEMPLATE
+    let mut template = TEST_DRIVER_TEMPLATE.to_string();
+    if enable_bench {
+        template.push_str(NO_ARGS_TEMPLATE);
+        template.push_str(NO_ASYNC_TEMPLATE);
+        if data.with_bench_args_tests.iter().all(|x| x.1.is_empty()) {
+            template.push_str(NO_BENCH_ARG_TEMPLATE)
+        } else {
+            template.push_str(BENCH_ARG_TEMPLATE)
+        }
     } else {
-        TEST_DRIVER_TEMPLATE
-    };
-    let mut template = template.to_string();
-    if !enable_bench {
         if only_no_arg_tests {
             template.push_str(NO_ARGS_TEMPLATE)
         } else {
@@ -276,6 +284,7 @@ fn generate_driver(
         } else {
             template.push_str(ASYNC_TEMPLATE)
         }
+        template.push_str(NO_BENCH_ARG_TEMPLATE)
     }
     template.push_str(COMMON_TEMPLATE);
 

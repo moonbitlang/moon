@@ -3,40 +3,7 @@ use super::*;
 #[test]
 fn test_bench_driver_build() {
     let dir = TestDir::new("moon_bench");
-    check(
-        get_stderr(&dir, ["bench", "--build-only"]),
-        expect![[r#"
-        Warning: [0071]
-           ╭─[ $ROOT/lib/hello_bench.mbt:3:35 ]
-           │
-         3 │ test "bench: without error" (it : @bench.T) {
-           │                                   ────┬───  
-           │                                       ╰───── Warning (core_package_not_imported): Package `bench` from `moonbitlang/core/` is used without import. This is deprecated. Please add it to the imports in the moon.pkg file.
-        ───╯
-        Warning: [0071]
-           ╭─[ $ROOT/lib/hello_bench.mbt:9:36 ]
-           │
-         9 │ test "non-bench: with error" (it : @bench.T) {
-           │                                    ────┬───  
-           │                                        ╰───── Warning (core_package_not_imported): Package `bench` from `moonbitlang/core/` is used without import. This is deprecated. Please add it to the imports in the moon.pkg file.
-        ───╯
-        Warning: [0071]
-            ╭─[ $ROOT/lib/hello_bench.mbt:15:32 ]
-            │
-         15 │ test "bench: with error" (it : @bench.T) {
-            │                                ────┬───  
-            │                                    ╰───── Warning (core_package_not_imported): Package `bench` from `moonbitlang/core/` is used without import. This is deprecated. Please add it to the imports in the moon.pkg file.
-        ────╯
-        Warning: [0071]
-            ╭─[ $ROOT/lib/hello_bench.mbt:21:31 ]
-            │
-         21 │ test "bench: naive fib" (it : @bench.T) {
-            │                               ────┬───  
-            │                                   ╰───── Warning (core_package_not_imported): Package `bench` from `moonbitlang/core/` is used without import. This is deprecated. Please add it to the imports in the moon.pkg file.
-        ────╯
-         WARN Some diagnostics could not be rendered, please run with --no-render to see raw output.
-    "#]],
-    );
+    check(get_stderr(&dir, ["bench", "--build-only"]), expect![""]);
 }
 
 #[test]
@@ -44,37 +11,7 @@ fn test_bench_driver_build_js() {
     let dir = TestDir::new("moon_bench");
     check(
         get_stderr(&dir, ["bench", "--build-only", "--target", "js"]),
-        expect![[r#"
-            Warning: [0071]
-               ╭─[ $ROOT/lib/hello_bench.mbt:3:35 ]
-               │
-             3 │ test "bench: without error" (it : @bench.T) {
-               │                                   ────┬───  
-               │                                       ╰───── Warning (core_package_not_imported): Package `bench` from `moonbitlang/core/` is used without import. This is deprecated. Please add it to the imports in the moon.pkg file.
-            ───╯
-            Warning: [0071]
-               ╭─[ $ROOT/lib/hello_bench.mbt:9:36 ]
-               │
-             9 │ test "non-bench: with error" (it : @bench.T) {
-               │                                    ────┬───  
-               │                                        ╰───── Warning (core_package_not_imported): Package `bench` from `moonbitlang/core/` is used without import. This is deprecated. Please add it to the imports in the moon.pkg file.
-            ───╯
-            Warning: [0071]
-                ╭─[ $ROOT/lib/hello_bench.mbt:15:32 ]
-                │
-             15 │ test "bench: with error" (it : @bench.T) {
-                │                                ────┬───  
-                │                                    ╰───── Warning (core_package_not_imported): Package `bench` from `moonbitlang/core/` is used without import. This is deprecated. Please add it to the imports in the moon.pkg file.
-            ────╯
-            Warning: [0071]
-                ╭─[ $ROOT/lib/hello_bench.mbt:21:31 ]
-                │
-             21 │ test "bench: naive fib" (it : @bench.T) {
-                │                               ────┬───  
-                │                                   ╰───── Warning (core_package_not_imported): Package `bench` from `moonbitlang/core/` is used without import. This is deprecated. Please add it to the imports in the moon.pkg file.
-            ────╯
-             WARN Some diagnostics could not be rendered, please run with --no-render to see raw output.
-        "#]],
+        expect![""],
     );
 }
 
@@ -84,37 +21,7 @@ fn test_bench_driver_build_native() {
     let dir = TestDir::new("moon_bench");
     check(
         get_stderr(&dir, ["bench", "--build-only", "--target", "native"]),
-        expect![[r#"
-            Warning: [0071]
-               ╭─[ $ROOT/lib/hello_bench.mbt:3:35 ]
-               │
-             3 │ test "bench: without error" (it : @bench.T) {
-               │                                   ────┬───  
-               │                                       ╰───── Warning (core_package_not_imported): Package `bench` from `moonbitlang/core/` is used without import. This is deprecated. Please add it to the imports in the moon.pkg file.
-            ───╯
-            Warning: [0071]
-               ╭─[ $ROOT/lib/hello_bench.mbt:9:36 ]
-               │
-             9 │ test "non-bench: with error" (it : @bench.T) {
-               │                                    ────┬───  
-               │                                        ╰───── Warning (core_package_not_imported): Package `bench` from `moonbitlang/core/` is used without import. This is deprecated. Please add it to the imports in the moon.pkg file.
-            ───╯
-            Warning: [0071]
-                ╭─[ $ROOT/lib/hello_bench.mbt:15:32 ]
-                │
-             15 │ test "bench: with error" (it : @bench.T) {
-                │                                ────┬───  
-                │                                    ╰───── Warning (core_package_not_imported): Package `bench` from `moonbitlang/core/` is used without import. This is deprecated. Please add it to the imports in the moon.pkg file.
-            ────╯
-            Warning: [0071]
-                ╭─[ $ROOT/lib/hello_bench.mbt:21:31 ]
-                │
-             21 │ test "bench: naive fib" (it : @bench.T) {
-                │                               ────┬───  
-                │                                   ╰───── Warning (core_package_not_imported): Package `bench` from `moonbitlang/core/` is used without import. This is deprecated. Please add it to the imports in the moon.pkg file.
-            ────╯
-             WARN Some diagnostics could not be rendered, please run with --no-render to see raw output.
-        "#]],
+        expect![""],
     );
 }
 

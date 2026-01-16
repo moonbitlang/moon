@@ -41,10 +41,22 @@ type Moonbit_Test_Driver_Internal_TestDriver_Async_With_Args_Map = @moonbitlang/
   ],
 ]
 
+type Moonbit_Test_Driver_Internal_TestDriver_With_Bench_Args_Map = @moonbitlang/core/prelude.Map[
+  String,
+  @moonbitlang/core/prelude.Map[
+    Int,
+    (
+      (Moonbit_Test_Driver_Internal_Bench_Arg) -> Unit raise,
+      @moonbitlang/core/prelude.Array[String],
+    )
+  ]
+]
+
 let moonbit_test_driver_internal_no_args_tests : Moonbit_Test_Driver_Internal_No_Args_Map = { }  // WILL BE REPLACED
 let moonbit_test_driver_internal_with_args_tests : Moonbit_Test_Driver_Internal_TestDriver_With_Args_Map = { }  // WILL BE REPLACED
 let moonbit_test_driver_internal_async_tests : Moonbit_Test_Driver_Internal_TestDriver_Async_Map = { }  // WILL BE REPLACED
 let moonbit_test_driver_internal_async_tests_with_args : Moonbit_Test_Driver_Internal_TestDriver_Async_With_Args_Map = { }  // WILL BE REPLACED
+let moonbit_test_driver_internal_with_bench_args_tests : Moonbit_Test_Driver_Internal_TestDriver_With_Bench_Args_Map = { }  // WILL BE REPLACED
 
 ///|
 pub fn moonbit_test_driver_internal_do_execute(
@@ -159,6 +171,25 @@ pub fn moonbit_test_driver_internal_do_execute(
         _ => handle_result(name, "", false)
       }
     })
+    return
+  }
+
+  if (
+    moonbit_test_driver_internal_with_bench_args_tests.get(filename) is Some(index_map) &&
+    index_map.get(index) is Some((f, attrs))
+  ) {
+    let name = if attrs is [name, ..] { name } else { "" }
+    guard !test_should_be_skipped(name, attrs) else { return }
+    let bench = moonbit_test_driver_internal_new_bench_arg()
+    moonbit_test_driver_internal_catch_error(
+      () => f(bench),
+      on_ok=() => handle_result(
+        name,
+        moonbit_test_driver_internal_get_bench_summary(bench),
+        false,
+      ),
+      on_err=err => on_err(name, err),
+    )
     return
   }
 
