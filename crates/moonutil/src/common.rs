@@ -997,17 +997,14 @@ impl MbtTestInfo {
 impl MooncGenTestInfo {
     /// Convert part of the driver metadata into MoonBit declaraction code for
     /// the test driver to use.
-    pub fn section_to_mbt(
-        var_name: &str,
-        section: &IndexMap<FileName, Vec<MbtTestInfo>>,
-    ) -> String {
+    pub fn section_to_mbt(section: &IndexMap<FileName, Vec<MbtTestInfo>>) -> String {
         use std::fmt::Write;
 
         let mut result = String::new();
         let default_name = "";
 
         // Writing to string cannot fail, so unwrap() is safe here.
-        writeln!(result, "let {var_name} = {{").unwrap();
+        writeln!(result, "{{").unwrap();
         for (file, tests) in section {
             writeln!(result, "  \"{file}\": {{").unwrap();
             for test in tests {

@@ -308,35 +308,27 @@ fn generate_driver(
 
     let template = if enable_bench {
         template.replace(
-            "let moonbit_test_driver_internal_with_bench_args_tests : Moonbit_Test_Driver_Internal_TestDriver_With_Bench_Args_Map = { }  // WILL BE REPLACED\n",
-            &   MooncGenTestInfo::section_to_mbt("moonbit_test_driver_internal_with_bench_args_tests", &data.with_bench_args_tests),
+            "{} // REPLACE ME: moonbit_test_driver_internal_with_bench_args_tests\n",
+            &MooncGenTestInfo::section_to_mbt(&data.with_bench_args_tests),
         )
     } else {
-        let template = template.replace(
-            "let moonbit_test_driver_internal_no_args_tests : Moonbit_Test_Driver_Internal_No_Args_Map = { }  // WILL BE REPLACED\n",
-            &MooncGenTestInfo::section_to_mbt("moonbit_test_driver_internal_no_args_tests", &data.no_args_tests),
-        );
-        let template = if only_no_arg_tests {
-            template
-        } else {
-            template.replace(
-                "let moonbit_test_driver_internal_with_args_tests : Moonbit_Test_Driver_Internal_TestDriver_With_Args_Map = { }  // WILL BE REPLACED\n",
-                &MooncGenTestInfo::section_to_mbt("moonbit_test_driver_internal_with_args_tests", &data.with_args_tests),
+        template
+            .replace(
+                "{} // REPLACE ME: moonbit_test_driver_internal_no_args_tests\n",
+                &MooncGenTestInfo::section_to_mbt(&data.no_args_tests),
             )
-        };
-        if no_async_tests {
-            template
-        } else {
-            template
-                .replace(
-                    "let moonbit_test_driver_internal_async_tests : Moonbit_Test_Driver_Internal_TestDriver_Async_Map = { }  // WILL BE REPLACED",
-                    &MooncGenTestInfo::section_to_mbt("moonbit_test_driver_internal_async_tests", &data.async_tests),
-                )
-                .replace(
-                    "let moonbit_test_driver_internal_async_tests_with_args : Moonbit_Test_Driver_Internal_TestDriver_Async_With_Args_Map = { }  // WILL BE REPLACED",
-                    &MooncGenTestInfo::section_to_mbt("moonbit_test_driver_internal_async_tests_with_args", &data.async_tests_with_args),
-                )
-        }
+            .replace(
+                "{} // REPLACE ME: moonbit_test_driver_internal_with_args_tests\n",
+                &MooncGenTestInfo::section_to_mbt(&data.with_args_tests),
+            )
+            .replace(
+                "{} // REPLACE ME: moonbit_test_driver_internal_async_tests\n",
+                &MooncGenTestInfo::section_to_mbt(&data.async_tests),
+            )
+            .replace(
+                "{} // REPLACE ME: moonbit_test_driver_internal_async_tests_with_args\n",
+                &MooncGenTestInfo::section_to_mbt(&data.async_tests_with_args),
+            )
     };
 
     let template = if let Some(max_concurrent_tests) = max_concurrent_tests {
@@ -351,27 +343,7 @@ fn generate_driver(
         template
     };
 
-    let template =  template
-        .replace(
-            "let moonbit_test_driver_internal_no_args_tests =",
-            "let moonbit_test_driver_internal_no_args_tests : Moonbit_Test_Driver_Internal_No_Args_Map =",
-        )
-        .replace(
-            "let moonbit_test_driver_internal_with_args_tests =",
-            "let moonbit_test_driver_internal_with_args_tests : Moonbit_Test_Driver_Internal_TestDriver_With_Args_Map =",
-        )
-        .replace(
-            "let moonbit_test_driver_internal_with_bench_args_tests =",
-            "let moonbit_test_driver_internal_with_bench_args_tests : Moonbit_Test_Driver_Internal_TestDriver_With_Bench_Args_Map =",
-        )
-        .replace(
-            "let moonbit_test_driver_internal_async_tests =",
-            "let moonbit_test_driver_internal_async_tests : Moonbit_Test_Driver_Internal_TestDriver_Async_Map =",
-        )
-        .replace(
-            "let moonbit_test_driver_internal_async_tests_with_args =",
-            "let moonbit_test_driver_internal_async_tests_with_args : Moonbit_Test_Driver_Internal_TestDriver_Async_With_Args_Map =",
-        )
+    let template = template
         .replace("{PACKAGE}", pkgname)
         .replace("{BEGIN_MOONTEST}", MOON_TEST_DELIMITER_BEGIN)
         .replace("{END_MOONTEST}", MOON_TEST_DELIMITER_END)
