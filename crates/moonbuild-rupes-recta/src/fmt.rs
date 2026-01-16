@@ -99,8 +99,8 @@ pub struct FmtConfig {
     /// Warn instead of showing differences
     pub warn_only: bool,
 
-    /// Format moon.pkg.json files (requires rr_moon_pkg feature gate)
-    pub format_moon_pkg: bool,
+    /// Migrate moon.pkg.json to moon.pkg when only the JSON file exists.
+    pub migrate_moon_pkg_json: bool,
 }
 
 /// Generate the necessary build graph for the formatter operation.
@@ -201,10 +201,8 @@ fn build_for_package(
         add_fmt_for_file(file)?;
     }
 
-    // Format moon.pkg.json if enabled
-    if cfg.format_moon_pkg {
-        format_moon_pkg_node(graph, cfg, layout, pkg)?;
-    }
+    // Always format moon.pkg when present; migration from moon.pkg.json is gated.
+    format_moon_pkg_node(graph, cfg, layout, pkg)?;
 
     Ok(())
 }
@@ -271,11 +269,11 @@ fn format_node(
     Ok(())
 }
 
-/// Format moon.pkg or moon.pkg.json package configuration files.
+/// Format moon.pkg package configuration files and optionally migrate moon.pkg.json.
 ///
 /// This function handles three scenarios:
 /// 1. Both `moon.pkg` and `moon.pkg.json` exist: prefer `moon.pkg`, report error about duplicate
-/// 2. Only `moon.pkg.json` exists: migrate to `moon.pkg` format
+/// 2. Only `moon.pkg.json` exists: migrate to `moon.pkg` format if enabled
 /// 3. Only `moon.pkg` exists: format it in place
 fn format_moon_pkg_node(
     graph: &mut n2::graph::Graph,
@@ -313,7 +311,7 @@ fn format_moon_pkg_node(
     } else if has_dsl {
         // Only moon.pkg exists: format it
         format_moon_pkg_dsl(graph, cfg, &moon_pkg_dsl, &target_moon_pkg, pkg)
-    } else {
+    } else if cfg.migrate_moon_pkg_json {
         // Only moon.pkg.json exists: migrate to moon.pkg
         format_moon_pkg_json_migrate(
             graph,
@@ -323,6 +321,12 @@ fn format_moon_pkg_node(
             &moon_pkg_dsl,
             pkg,
         )
+    } else {
+        debug!(
+            "Skipping moon.pkg.json migration for {} - feature disabled",
+            pkg.fqn
+        );
+        Ok(())
     }
 }
 

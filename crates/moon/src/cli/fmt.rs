@@ -95,7 +95,7 @@ fn run_fmt_rr(cli: &UniversalFlags, cmd: FmtSubcommand) -> anyhow::Result<i32> {
         check_only: cmd.check,
         warn_only: cmd.warn,
         extra_args: cmd.args.clone(),
-        format_moon_pkg: cli.unstable_feature.rr_moon_pkg,
+        migrate_moon_pkg_json: cli.unstable_feature.rr_moon_pkg,
     };
     let graph = plan_fmt(&resolved, &fmt_config, &target_dir, package_filter)?;
 
