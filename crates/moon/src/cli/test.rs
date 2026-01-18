@@ -1517,6 +1517,8 @@ fn rr_test_from_plan(
         cmd.include_skipped,
         cmd.run_mode == RunMode::Bench,
         cli.verbose,
+        cmd.no_parallelize,
+        cmd.build_flags.jobs,
     )?;
     let _initial_summary = test_result.summary();
 
@@ -1609,6 +1611,8 @@ fn rr_test_from_plan(
                 cmd.include_skipped,
                 cmd.run_mode == RunMode::Bench,
                 cli.verbose,
+                cmd.no_parallelize,
+                cmd.build_flags.jobs,
             )?;
             let _rerun_summary = new_test_result.summary();
 

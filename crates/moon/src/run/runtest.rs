@@ -136,6 +136,7 @@ impl TestIndex {
 /// An external driver should check the results for reruns. See [module-level
 /// docs](crate::run::runtest) for more information about the workflow.
 #[instrument(level = "debug", skip(build_meta, filter))]
+#[allow(clippy::too_many_arguments)]
 pub fn run_tests(
     build_meta: &BuildMeta,
     source_dir: &Path,
@@ -144,31 +145,99 @@ pub fn run_tests(
     include_skipped: bool,
     bench: bool,
     verbose: bool,
+    no_parallelize: bool,
+    parallelism: Option<usize>,
 ) -> anyhow::Result<ReplaceableTestResults> {
     // Gathering artifacts
     let executables = gather_tests(build_meta);
     debug!(count = executables.len(), "collected test executables");
 
-    let rt = default_rt().context("Failed to create runtime")?;
-    let ctx = TestRunCtx {
-        build_meta,
-        rt: &rt,
-        source_dir,
-        target_dir,
-        filter,
-        include_skipped,
-        bench,
-        verbose,
+    // Parallelism is opt-in: sequential by default, parallel only when -j is given
+    let parallelism = if no_parallelize {
+        1
+    } else {
+        parallelism.unwrap_or(1).max(1)
     };
+
     let mut stats = ReplaceableTestResults::default();
     let mut total_cases = 0usize;
-    for r in executables {
-        debug!(target = ?r.target, executable = %r.executable.display(), "running test executable");
-        let res = run_one_test_executable(&ctx, &r)?;
-        let cases_for_target = res.map.values().map(IndexMap::len).sum::<usize>();
-        trace!(target = ?r.target, cases = cases_for_target, "merging test results");
-        total_cases += cases_for_target;
-        stats.merge_with_target(r.target, res);
+
+    if parallelism <= 1 || executables.len() <= 1 {
+        // Sequential execution
+        let rt = default_rt().context("Failed to create runtime")?;
+        let ctx = TestRunCtx {
+            build_meta,
+            rt: &rt,
+            source_dir,
+            target_dir,
+            filter,
+            include_skipped,
+            bench,
+            verbose,
+        };
+        for r in executables {
+            debug!(target = ?r.target, executable = %r.executable.display(), "running test executable");
+            let res = run_one_test_executable(&ctx, &r)?;
+            let cases_for_target = res.map.values().map(IndexMap::len).sum::<usize>();
+            trace!(target = ?r.target, cases = cases_for_target, "merging test results");
+            total_cases += cases_for_target;
+            stats.merge_with_target(r.target, res);
+        }
+    } else {
+        // Parallel execution using OS threads (like n2)
+        let parallelism = parallelism.min(executables.len()).max(1);
+        debug!(
+            parallelism,
+            executables = executables.len(),
+            "running test executables in parallel"
+        );
+
+        let work_queue: std::sync::Arc<std::sync::Mutex<std::slice::Iter<'_, _>>> =
+            std::sync::Arc::new(std::sync::Mutex::new(executables.iter()));
+        let (result_tx, result_rx) = std::sync::mpsc::channel();
+
+        std::thread::scope(|s| {
+            for _ in 0..parallelism {
+                let work_queue = std::sync::Arc::clone(&work_queue);
+                let result_tx = result_tx.clone();
+
+                s.spawn(move || {
+                    // Each thread creates its own runtime
+                    let rt = default_rt().expect("Failed to create runtime");
+                    let ctx = TestRunCtx {
+                        build_meta,
+                        rt: &rt,
+                        source_dir,
+                        target_dir,
+                        filter,
+                        include_skipped,
+                        bench,
+                        verbose,
+                    };
+
+                    loop {
+                        let r = {
+                            let mut queue = work_queue.lock().unwrap();
+                            queue.next()
+                        };
+                        let Some(r) = r else { break };
+
+                        debug!(target = ?r.target, executable = %r.executable.display(), "running test executable");
+                        let res = run_one_test_executable(&ctx, r);
+                        let _ = result_tx.send((r.target, res));
+                    }
+                });
+            }
+        });
+
+        drop(result_tx);
+        for (target, res) in result_rx {
+            let res = res?;
+            let cases_for_target = res.map.values().map(IndexMap::len).sum::<usize>();
+            trace!(?target, cases = cases_for_target, "merging test results");
+            total_cases += cases_for_target;
+            stats.merge_with_target(target, res);
+        }
     }
     debug!(total_cases, "finished aggregating test cases");
     let summary = stats.summary();
