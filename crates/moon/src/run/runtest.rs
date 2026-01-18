@@ -186,7 +186,11 @@ pub fn run_tests(
     } else {
         // Parallel execution using OS threads (like n2)
         let parallelism = parallelism.min(executables.len()).max(1);
-        debug!(parallelism, executables = executables.len(), "running test executables in parallel");
+        debug!(
+            parallelism,
+            executables = executables.len(),
+            "running test executables in parallel"
+        );
 
         let work_queue: std::sync::Arc<std::sync::Mutex<std::slice::Iter<'_, _>>> =
             std::sync::Arc::new(std::sync::Mutex::new(executables.iter()));
