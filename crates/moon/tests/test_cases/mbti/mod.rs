@@ -11,9 +11,9 @@ fn test_mbti() {
         // Generated using `moon info`, DON'T EDIT IT
         package "username/hello/lib"
 
-        import(
-          "moonbitlang/core/list"
-        )
+        import {
+          "moonbitlang/core/list",
+        }
 
         // Values
         pub fn hello() -> String

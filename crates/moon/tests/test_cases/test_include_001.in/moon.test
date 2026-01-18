@@ -12,5 +12,5 @@
   test/a/a.txt
   test/b/b.txt
   test/c/c.md
-  Package to ${WORK_DIR}/target/publish/username-hello-0.1.0.zip
+  Package to ${WORK_DIR}/_build/publish/username-hello-0.1.0.zip
   
