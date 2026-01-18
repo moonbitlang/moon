@@ -198,7 +198,7 @@ pub fn run_tests(
 
         std::thread::scope(|s| {
             for _ in 0..parallelism {
-                let work_queue = work_queue.clone();
+                let work_queue = std::sync::Arc::clone(&work_queue);
                 let result_tx = result_tx.clone();
 
                 s.spawn(move || {
