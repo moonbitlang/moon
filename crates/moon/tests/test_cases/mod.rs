@@ -1697,6 +1697,8 @@ fn test_render_diagnostic_in_patch_file() {
                │ 
                │ Help: # E0002
                │       
+               │       Warning name: `unused_value`
+               │       
                │       Unused variable.
                │       
                │       This variable is unused by any other part of your code, nor marked with `pub`
