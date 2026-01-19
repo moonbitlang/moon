@@ -27,20 +27,28 @@ If you are working from mainland China, using the `.cn` domain may result in a s
 
 - `crates/`
   - `moon/`: The entry point to the `moon` utility.
-    - `test/`
-      - `test_cases/`: Integration snapshot tests, the majority of tests.
-      - other files: Test utilities to use.
-  - `moonbuild/`: The legacy build graph generation engine. Will be removed soon, avoid modifying except for bugfixes.
+    - `src/rr_build/`: Integration with Rupes Recta build engine.
+    - `tests/test_cases/`: Integration snapshot tests, the majority of tests.
+  - `moonbuild-rupes-recta/`: The new build graph generation engine (**now default**).
+  - `moonbuild/`: The legacy build graph generation engine. Set `NEW_MOON=0` to use it if you encounter issues with Rupes Recta.
   - `moonbuild-debug/`: Debugging utilities, mainly around dry-run printing and snapshotting.
-  - `moonbuild-rupes-recta/`: The new build graph generation engine.
   - `mooncake/`: Library to resolve and download dependencies.
   - `moonrun/`: The runtime of WASM MoonBit programs.
-  - `moonutil/`: Misc utilities.
+  - `moonutil/`: Misc utilities including feature flags (`src/features.rs`).
 - `docs/`: Documentation site
   - `manual/`, `manual-zh/`: User-facing documentation
   - `dev/`: Developer-facing documentation
     - `reference/`: Reference behaviors and models of the build system. Keep in sync with code.
 - `xtask/`: Development utilities
+
+### Build system transition
+
+The project has transitioned from the legacy `moonbuild` to the new `moonbuild-rupes-recta` ("Rupes Recta") build engine:
+
+- **Rupes Recta is now enabled by default**
+- To use the legacy build system: set `NEW_MOON=0`
+- Unstable features can be enabled via `-Z` flags (e.g., `-Z rr_export_module_graph`)
+- See `crates/moonutil/src/features.rs` for all feature flags
 
 ## Coding guidelines
 

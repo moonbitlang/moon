@@ -67,30 +67,32 @@ cargo install --path ./crates/moon --debug --offline
 
 ## Source Code Overview
 
-The following content is based on [a28d2f1a](https://github.com/moonbitlang/moon/commit/a28d2f1a1bb47bdaf428fd150e0f6d2b4c959bb0), which may outdated as the project develops.
-
 - `crates/moon`
   - `src/cli`: the command line interface of `moon`
     - `src/cli/mooncake_adapter.rs`: forwards to the `mooncake`
       binary
     - `src/cli/generate_test_driver.rs`: as the name suggests
+  - `src/rr_build`: integration with the Rupes Recta build engine
   - `tests/test_cases/mod.rs`: all end-to-end tests are located in
     this file
 
-- `crates/moonbuild`
+- `crates/moonbuild-rupes-recta`: the new build graph generation engine (now default)
+  - `src/build_lower`: lowers resolved modules to n2 build commands
+  - `src/fmt.rs`: formatting support
+  - `src/metadata.rs`: metadata generation for IDE/tooling
+  - See `docs/dev/reference/compiler-cmd-ref.md` for compiler command reference
+
+- `crates/moonbuild`: the legacy build graph generation engine
+  - Being phased out in favor of `moonbuild-rupes-recta`
+  - Set `NEW_MOON=0` to use the legacy engine if needed
   - `src/{check, gen, build, bundle, entry, runtest}`: generate
     commands and n2 state according to `moon.mod.json` and `moon.pkg.json`
   - `src/bundle.rs`: only for `moonbitlang/core`, not visible
     to users
-  - `src/bench.rs`: generates a project for benchmarking, will
-    be moved to `moon new`
   - `src/dry_run.rs`: prints commands without executing them,
     mainly used by end-to-end tests.
   - `src/expect.rs`: the implementation of expect tests in
     `moon`
-  - `src/upgrade.rs`: for `moon upgrade`. We hope to move it to
-    another binary crate, not mooncake, since depending on network in moonbuild
-    does not make sense.
 
 - `crates/mooncake`: package manager
   - `src/pkg/add`: `moon add`
@@ -102,13 +104,18 @@ The following content is based on [a28d2f1a](https://github.com/moonbitlang/moon
   - `src/resolver/mvs.rs`: Go-like minimal version selection
     algorithm.
 
-- `crates/moonutil`: currently not well organized, needs cleanup
+- `crates/moonutil`: shared utilities
   - `src/common.rs`: common definitions shared by other crates
   - `src/scan.rs`: scans the project directory to gather all
     structural information
   - `src/moon_dir.rs`: gets the `.moon`, `core`, etc. directory
     paths and handles related environment variables
+  - `src/features.rs`: feature flags including `rupes_recta`
   - `src/build.rs`: for `moon version`
+
+- `crates/moonrun`: runtime for executing WASM MoonBit programs
+
+- `crates/moonbuild-debug`: debugging utilities for dry-run printing and snapshotting
 
 
 ## Before PR
