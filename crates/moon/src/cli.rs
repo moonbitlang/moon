@@ -26,6 +26,7 @@ pub mod coverage;
 pub mod deps;
 pub mod doc;
 pub mod external;
+pub mod fetch;
 pub mod fmt;
 pub mod generate_test_driver;
 pub mod info;
@@ -51,6 +52,7 @@ pub use coverage::*;
 pub use deps::*;
 pub use doc::*;
 pub use external::*;
+pub use fetch::*;
 pub use fmt::*;
 pub use generate_test_driver::*;
 pub use info::*;
@@ -115,6 +117,7 @@ pub enum MoonBuildSubcommands {
     Remove(RemoveSubcommand),
     Install(InstallSubcommand),
     Tree(TreeSubcommand),
+    Fetch(FetchSubcommand),
 
     // Mooncake
     Login(LoginSubcommand),
