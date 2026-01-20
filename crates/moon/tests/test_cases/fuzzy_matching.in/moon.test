@@ -40,7 +40,7 @@
   Warning: package `asdf` not found, make sure you have spelled it correctly, e.g. `moonbitlang/core/hashmap`(exact match) or `hashmap`(fuzzy match)
   Warning: no test entry found.
   
-  $ moon test -p y -f asdf --sort-input --no-parallelize
+  $ moon test -p y --file asdf --sort-input --no-parallelize
   [255]
   
   Error: Cannot filter by file or index when multiple packages are specified. Matched packages: ["username/hello/x/y", "username/hello/y"]

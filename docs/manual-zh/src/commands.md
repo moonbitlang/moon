@@ -282,9 +282,8 @@ Test the current package
   Possible values: `info`, `warn`, `error`
 
 * `-p`, `--package <PACKAGE>` — Run test in the specified package
-* `-f`, `--file <FILE>` — Run test in the specified file. Only valid when `--package` is also specified
-* `-i`, `--index <INDEX>` — Run only the index-th test in the file. Accepts a single index or a left-inclusive right-exclusive range like `0-2`. Only valid when `--file` is also specified. Implies `--include-skipped`
-* `--doc-index <DOC_INDEX>` — Run only the index-th doc test in the file. Only valid when `--file` is also specified. Implies `--include-skipped`
+* `-i`, `--index <INDEX>` — Run only the index-th test in the file. Accepts a single index or a left-inclusive right-exclusive range like `0-2`. Only valid when a single file is selected. Implies `--include-skipped`
+* `--doc-index <DOC_INDEX>` — Run only the index-th doc test in the file. Only valid when a single file is selected. Implies `--include-skipped`
 * `-u`, `--update` — Update the test snapshot
 * `-l`, `--limit <LIMIT>` — Limit of expect test update passes to run, in order to avoid infinite loops
 
@@ -296,7 +295,7 @@ Test the current package
 * `--test-failure-json` — Print failure message in JSON format
 * `--patch-file <PATCH_FILE>` — Path to the patch file
 * `--include-skipped` — Include skipped tests. Automatically implied when `--[doc-]index` is set
-* `-F`, `--filter <FILTER>` — Run only tests whose name matches the given glob pattern. Supports '*' (matches any sequence) and '?' (matches any single character)
+* `-f`, `--filter <FILTER>` — Run only tests whose name matches the given glob pattern. Supports '*' (matches any sequence) and '?' (matches any single character)
 
 
 

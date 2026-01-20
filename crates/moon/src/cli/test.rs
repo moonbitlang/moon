@@ -132,16 +132,16 @@ pub(crate) struct TestSubcommand {
     pub package: Option<Vec<String>>,
 
     /// Run test in the specified file. Only valid when `--package` is also specified.
-    #[clap(short, long, requires = "package")]
+    #[clap(long, hide = true, requires = "package")]
     pub file: Option<String>,
 
     /// Run only the index-th test in the file. Accepts a single index or a left-inclusive
-    /// right-exclusive range like `0-2`. Only valid when `--file` is also specified.
+    /// right-exclusive range like `0-2`. Only valid when a single file is selected.
     /// Implies `--include-skipped`.
     #[clap(short, long, group = "test_index_selector")]
     pub index: Option<TestIndexRange>,
 
-    /// Run only the index-th doc test in the file. Only valid when `--file` is also specified.
+    /// Run only the index-th doc test in the file. Only valid when a single file is selected.
     /// Implies `--include-skipped`.
     #[clap(long, group = "test_index_selector")]
     pub doc_index: Option<u32>,
@@ -195,7 +195,7 @@ pub(crate) struct TestSubcommand {
 
     /// Run only tests whose name matches the given glob pattern.
     /// Supports '*' (matches any sequence) and '?' (matches any single character).
-    #[clap(short = 'F', long)]
+    #[clap(short = 'f', short_alias = 'F', long)]
     pub filter: Option<String>,
 }
 
@@ -745,7 +745,7 @@ pub(crate) fn run_test_or_bench_internal(
         "cli filter state"
     );
 
-    // Accept -i/--doc-index when the positional PATH refers to a file; otherwise they require --file.
+    // Accept -i/--doc-index when either --file is set or the positional PATH refers to a file.
     // explicit_is_file is true only when PATH is an existing regular file.
     let explicit_is_file = matches!(cmd.explicit_path_filters, [path] if path.is_file());
 
@@ -756,10 +756,12 @@ pub(crate) fn run_test_or_bench_internal(
         anyhow::bail!("`--index` and `--doc-index` cannot be used with multiple `PATH`s");
     }
     if cmd.file.is_none() && cmd.index.is_some() && !explicit_is_file {
-        anyhow::bail!("`--index` must be used with `--file`");
+        anyhow::bail!("`--index` must be used with a single file selected by `--file` or `PATH`");
     }
     if cmd.file.is_none() && cmd.doc_index.is_some() && !explicit_is_file {
-        anyhow::bail!("`--doc-index` must be used with `--file`");
+        anyhow::bail!(
+            "`--doc-index` must be used with a single file selected by `--file` or `PATH`"
+        );
     }
     if !cmd.explicit_path_filters.is_empty() && (cmd.package.is_some() || cmd.file.is_some()) {
         anyhow::bail!("cannot combine positional `PATH` filters with `--package` or `--file`");

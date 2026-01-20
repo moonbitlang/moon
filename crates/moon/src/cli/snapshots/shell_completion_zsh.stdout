@@ -256,15 +256,14 @@ _arguments "${_arguments_options[@]}" : \
 '--render-no-loc=[Render no-location diagnostics starting from a certain level]:MIN_LEVEL:(info warn error)' \
 '*-p+[Run test in the specified package]:PACKAGE: ' \
 '*--package=[Run test in the specified package]:PACKAGE: ' \
-'-f+[Run test in the specified file. Only valid when \`--package\` is also specified]:FILE: ' \
 '--file=[Run test in the specified file. Only valid when \`--package\` is also specified]:FILE: ' \
-'-i+[Run only the index-th test in the file. Accepts a single index or a left-inclusive right-exclusive range like \`0-2\`. Only valid when \`--file\` is also specified. Implies \`--include-skipped\`]:INDEX: ' \
-'--index=[Run only the index-th test in the file. Accepts a single index or a left-inclusive right-exclusive range like \`0-2\`. Only valid when \`--file\` is also specified. Implies \`--include-skipped\`]:INDEX: ' \
-'--doc-index=[Run only the index-th doc test in the file. Only valid when \`--file\` is also specified. Implies \`--include-skipped\`]:DOC_INDEX: ' \
+'-i+[Run only the index-th test in the file. Accepts a single index or a left-inclusive right-exclusive range like \`0-2\`. Only valid when a single file is selected. Implies \`--include-skipped\`]:INDEX: ' \
+'--index=[Run only the index-th test in the file. Accepts a single index or a left-inclusive right-exclusive range like \`0-2\`. Only valid when a single file is selected. Implies \`--include-skipped\`]:INDEX: ' \
+'--doc-index=[Run only the index-th doc test in the file. Only valid when a single file is selected. Implies \`--include-skipped\`]:DOC_INDEX: ' \
 '-l+[Limit of expect test update passes to run, in order to avoid infinite loops]:LIMIT: ' \
 '--limit=[Limit of expect test update passes to run, in order to avoid infinite loops]:LIMIT: ' \
 '(-u --update)--patch-file=[Path to the patch file]:PATCH_FILE:_files' \
-'-F+[Run only tests whose name matches the given glob pattern. Supports '\''*'\'' (matches any sequence) and '\''?'\'' (matches any single character)]:FILTER: ' \
+'-f+[Run only tests whose name matches the given glob pattern. Supports '\''*'\'' (matches any sequence) and '\''?'\'' (matches any single character)]:FILTER: ' \
 '--filter=[Run only tests whose name matches the given glob pattern. Supports '\''*'\'' (matches any sequence) and '\''?'\'' (matches any single character)]:FILTER: ' \
 '--manifest-path=[Path to \`moon.mod.json\` or \`moon.work\` to use as the project manifest (does not change the working directory)]:PATH:_files' \
 '--target-dir=[The target directory. Defaults to \`<project-root>/_build\`]:TARGET_DIR:_files' \
