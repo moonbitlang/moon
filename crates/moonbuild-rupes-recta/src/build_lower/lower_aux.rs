@@ -21,23 +21,23 @@
 use moonutil::{
     common::DriverKind,
     compiler_flags::{
-        CC, CCConfigBuilder, OptLevel as CCOptLevel, OutputType as CCOutputType,
-        make_cc_command_pure, resolve_cc,
+        make_cc_command_pure, resolve_cc, CCConfigBuilder, OptLevel as CCOptLevel,
+        OutputType as CCOutputType, CC,
     },
     mooncakes::{ModuleId, ModuleSourceKind},
 };
-use tracing::{Level, instrument};
+use tracing::{instrument, Level};
 
 use crate::{
     build_lower::{
-        Commandline,
         compiler::{CmdlineAbstraction, MoondocCommand, Mooninfo},
+        Commandline,
     },
     build_plan::BuildTargetInfo,
     model::{BuildPlanNode, BuildTarget, PackageId, RunBackend, TargetKind},
 };
 
-use super::{BuildCommand, compiler};
+use super::{compiler, BuildCommand};
 
 impl<'a> super::BuildPlanLowerContext<'a> {
     #[instrument(level = Level::DEBUG, skip(self, info))]
@@ -73,7 +73,8 @@ impl<'a> super::BuildPlanLowerContext<'a> {
         };
         let patch_file = info.patch_file.as_deref().map(|x| x.into());
 
-        let (enable_coverage, self_coverage) = self.get_coverage_flags(target, &package.fqn, false);
+        let (enable_coverage, self_coverage) =
+            self.get_coverage_flags(target, package, &package.fqn, false);
 
         let cmd = compiler::MoonGenTestDriver {
             files: &files_vec,
