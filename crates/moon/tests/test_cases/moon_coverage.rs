@@ -18,7 +18,7 @@
 
 use moonbuild_debug::graph::ENV_VAR;
 
-use crate::{build_graph::compare_graphs, get_stdout, get_stdout_with_envs, TestDir};
+use crate::{TestDir, build_graph::compare_graphs, get_stdout, get_stdout_with_envs};
 
 use super::*;
 
