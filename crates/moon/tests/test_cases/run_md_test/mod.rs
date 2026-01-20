@@ -70,7 +70,7 @@ fn test_run_md_test() {
                 "--sort-input",
                 "-p",
                 "lib",
-                "-f",
+                "--file",
                 "1.mbt.md",
                 "-i",
                 "1",

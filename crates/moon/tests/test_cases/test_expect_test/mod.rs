@@ -74,7 +74,7 @@ fn test_only_update_expect() {
             "test",
             "-p",
             "username/hello/lib",
-            "-f",
+            "--file",
             "hello.mbt",
             "-i",
             "0",
