@@ -104,7 +104,8 @@ pub struct TestSubcommand {
     pub package: Option<Vec<String>>,
 
     /// Run test in the specified file. Only valid when `--package` is also specified.
-    #[clap(short, long)]
+    /// TODO: Hide this option since PATH positional argument already provides file filtering.
+    #[clap(long, hide = true)]
     pub file: Option<String>,
 
     /// Run only the index-th test in the file. Only valid when `--file` is also specified.
@@ -162,7 +163,7 @@ pub struct TestSubcommand {
 
     /// Run only tests whose name matches the given glob pattern.
     /// Supports '*' (matches any sequence) and '?' (matches any single character).
-    #[clap(short = 'F', long)]
+    #[clap(short = 'f', short_alias = 'F', long)]
     pub filter: Option<String>,
 }
 
