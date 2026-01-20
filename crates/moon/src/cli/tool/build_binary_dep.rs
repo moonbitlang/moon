@@ -145,7 +145,7 @@ pub fn run_build_binary_dep(cli: &UniversalFlags, cmd: &BuildBinaryDepArgs) -> a
 
         let _lock = FileLock::lock(&target_dir)?;
         // Generate all_pkgs.json for indirect dependency resolution
-        rr_build::generate_all_pkgs_json(&target_dir, &build_meta, RunMode::Build)?;
+        rr_build::generate_all_pkgs_json(&target_dir, &build_meta, RunMode::Build, false)?;
 
         let result = rr_build::execute_build(&BuildConfig::default(), build_graph, &target_dir)?;
         result.print_info(cli.quiet, "building")?;

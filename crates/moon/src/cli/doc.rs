@@ -128,7 +128,7 @@ pub fn run_doc_rr(cli: UniversalFlags, cmd: DocSubcommand) -> anyhow::Result<i32
     let _lock = FileLock::lock(&target_dir)?;
     // Generate the all_pkgs.json for indirect dependency resolution
     // before executing the build
-    rr_build::generate_all_pkgs_json(&target_dir, &build_meta, RunMode::Check)?;
+    rr_build::generate_all_pkgs_json(&target_dir, &build_meta, RunMode::Check, false)?;
     // Generate metadata for `moondoc`
     rr_build::generate_metadata(&source_dir, &target_dir, &build_meta, RunMode::Check, None)?;
 

@@ -189,7 +189,7 @@ pub fn run_info_rr_internal(
     )?;
     // Generate the all_pkgs.json for indirect dependency resolution
     // before executing the build
-    rr_build::generate_all_pkgs_json(&target_dir, &build_meta, RunMode::Check)?;
+    rr_build::generate_all_pkgs_json(&target_dir, &build_meta, RunMode::Check, false)?;
 
     // TODO: UX: Consider mirroring flags from `moon check`?
     let cfg = BuildConfig::from_flags(&BuildFlags::default(), &cli.unstable_feature, cli.verbose);

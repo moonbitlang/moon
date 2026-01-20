@@ -55,10 +55,20 @@ pub fn gen_all_pkgs_json(
     resolve_output: &ResolveOutput,
     layout: &crate::build_lower::artifact::LegacyLayout,
     backend: TargetBackend,
+    exclude_third_party: bool,
 ) -> AllPkgsJSON {
+    let local_modules = resolve_output.local_modules();
     let mut packages: Vec<PackageArtifactJSON> = resolve_output
         .pkg_dirs
         .all_packages(false)
+        // Skip third-party packages if requested
+        .filter(|(_id, pkg)| {
+            if !exclude_third_party {
+                return true;
+            }
+            // Keep only packages whose module is in the local modules
+            local_modules.contains(&pkg.module)
+        })
         // Skip the `moonbitlang/core/abort` package to match the behavior of the legacy metadata JSON
         .filter(|(id, _)| {
             resolve_output

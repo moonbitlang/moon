@@ -154,7 +154,7 @@ pub fn run_bundle_internal_rr(
     } else {
         let _lock = FileLock::lock(target_dir)?;
         // Generate all_pkgs.json for indirect dependency resolution
-        rr_build::generate_all_pkgs_json(target_dir, &build_meta, RunMode::Bundle)?;
+        rr_build::generate_all_pkgs_json(target_dir, &build_meta, RunMode::Bundle, false)?;
         // Generate metadata for IDE & bundler
         rr_build::generate_metadata(source_dir, target_dir, &build_meta, RunMode::Bundle, None)?;
 

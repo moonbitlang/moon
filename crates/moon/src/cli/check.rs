@@ -235,7 +235,7 @@ fn run_check_for_single_file_rr(
     let _lock = FileLock::lock(&raw_target_dir)?;
 
     // Generate all_pkgs.json for indirect dependency resolution
-    rr_build::generate_all_pkgs_json(&raw_target_dir, &build_meta, RunMode::Check)?;
+    rr_build::generate_all_pkgs_json(&raw_target_dir, &build_meta, RunMode::Check, false)?;
     let filename = single_file_path
         .file_name()
         .and_then(|n| n.to_str())
@@ -469,7 +469,7 @@ fn run_check_normal_internal_rr(
     } else {
         let _lock = FileLock::lock(target_dir)?;
         // Generate all_pkgs.json for indirect dependency resolution
-        rr_build::generate_all_pkgs_json(target_dir, &build_meta, RunMode::Check)?;
+        rr_build::generate_all_pkgs_json(target_dir, &build_meta, RunMode::Check, false)?;
         // Generate metadata for IDE
         rr_build::generate_metadata(source_dir, target_dir, &build_meta, RunMode::Check, None)?;
 

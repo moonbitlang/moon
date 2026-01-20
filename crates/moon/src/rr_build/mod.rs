@@ -629,10 +629,13 @@ pub fn generate_metadata(
     Ok(())
 }
 
+/// Generate the `all_pkgs.json` metadata file for indirect dependency resolution.
+/// If `exclude_third_party` is true, only packages in the local workspace will be included.
 pub fn generate_all_pkgs_json(
     target_dir: &Path,
     build_meta: &BuildMeta,
     mode: RunMode,
+    exclude_third_party: bool,
 ) -> anyhow::Result<()> {
     let resolve_output = &build_meta.resolve_output;
     let &[main_module_id] = resolve_output.local_modules() else {
@@ -655,6 +658,7 @@ pub fn generate_all_pkgs_json(
         &build_meta.resolve_output,
         &layout,
         build_meta.target_backend.into(),
+        exclude_third_party,
     );
     let orig_all_pkgs = std::fs::read_to_string(&all_pkgs_path);
     let all_pkgs_str =
