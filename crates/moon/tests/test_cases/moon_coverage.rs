@@ -126,3 +126,15 @@ fn test_moon_coverage_analyze_dry_run() {
         "#]],
     );
 }
+
+#[test]
+fn test_moon_coverage_analyze_fails_on_test_failure() {
+    let dir = TestDir::new("test_coverage_fail_test.in");
+    let output = snapbox::cmd::Command::new(moon_bin())
+        .current_dir(&dir)
+        .args(["coverage", "analyze"])
+        .assert()
+        .failure();
+    let stdout = String::from_utf8(output.get_output().stdout.to_owned()).unwrap();
+    assert!(stdout.contains("Total tests") && stdout.contains("failed"));
+}

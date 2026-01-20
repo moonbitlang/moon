@@ -25,7 +25,7 @@ use clap::Parser;
 use moonutil::dirs::PackageDirs;
 use walkdir::WalkDir;
 
-use super::{TestSubcommand, UniversalFlags, run_test};
+use super::{run_test, TestSubcommand, UniversalFlags};
 
 #[derive(Debug, clap::Parser, Default)]
 #[clap(
@@ -94,7 +94,7 @@ fn run_coverage_analyze(
     test_args.extend(args.test_flag);
     let mut test_flags = TestSubcommand::try_parse_from(test_args)?;
     test_flags.build_flags.enable_coverage = true;
-    run_test(
+    let test_result = run_test(
         UniversalFlags {
             quiet: true, // Disable output for `moon test` on success
             ..cli.clone()
@@ -108,7 +108,9 @@ fn run_coverage_analyze(
         report_flags.args.push(format!("-p={package}"));
     }
     report_flags.args.extend(args.extra_flags);
-    run_coverage_report(cli, report_flags)
+    let _ = run_coverage_report(cli, report_flags)?;
+
+    Ok(test_result)
 }
 
 fn run_coverage_clean(cli: UniversalFlags) -> Result<i32, anyhow::Error> {
