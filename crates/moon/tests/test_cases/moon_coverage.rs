@@ -18,7 +18,7 @@
 
 use moonbuild_debug::graph::ENV_VAR;
 
-use crate::build_graph::compare_graphs;
+use crate::{TestDir, build_graph::compare_graphs, get_stdout, get_stdout_with_envs};
 
 use super::*;
 
@@ -124,5 +124,27 @@ fn test_moon_coverage_analyze_dry_run() {
             {"command":"moonc link-core ./_build/wasm-gc/debug/test/lib/lib.core ./_build/wasm-gc/debug/test/lib2/lib2.core ./_build/wasm-gc/debug/test/main/main.internal_test.core -main username/hello/main -o ./_build/wasm-gc/debug/test/main/main.internal_test.wasm -test-mode -pkg-config-path ./main/moon.pkg.json -pkg-sources username/hello/lib:./lib -pkg-sources username/hello/lib2:./lib2 -pkg-sources username/hello/main:./main -exported_functions 'moonbit_test_driver_internal_execute,moonbit_test_driver_finish' -target wasm-gc -g -O0 -source-map","inputs":["./_build/wasm-gc/debug/test/lib/lib.core","./_build/wasm-gc/debug/test/lib2/lib2.core","./_build/wasm-gc/debug/test/main/main.internal_test.core","./main/moon.pkg.json"],"outputs":["./_build/wasm-gc/debug/test/main/main.internal_test.wasm"]}
             {"command":"moonc build-package ./main/main.mbt -o ./_build/wasm-gc/debug/test/main/main.core -pkg username/hello/main -is-main -i ./_build/wasm-gc/debug/test/lib/lib.mi:lib -i ./_build/wasm-gc/debug/test/lib2/lib2.mi:lib2 -pkg-sources username/hello/main:./main -target wasm-gc -g -O0 -source-map -enable-coverage -workspace-path . -all-pkgs ./_build/wasm-gc/debug/test/all_pkgs.json","inputs":["./_build/wasm-gc/debug/test/lib/lib.mi","./_build/wasm-gc/debug/test/lib2/lib2.mi","./main/main.mbt","./main/moon.pkg.json"],"outputs":["./_build/wasm-gc/debug/test/main/main.mi","./_build/wasm-gc/debug/test/main/main.core"]}
         "#]],
+    );
+}
+
+#[test]
+fn test_moon_coverage_analyze_third_party() {
+    let dir = TestDir::new("third_party");
+    let dump_file = dir.join("coverage_third_party_dry_run.jsonl");
+    let _stdout = get_stdout_with_envs(
+        &dir,
+        [
+            "coverage",
+            "analyze",
+            "--dry-run",
+            "--test-flag=--nostd",
+            "--test-flag=--sort-input",
+        ],
+        [(ENV_VAR, dump_file.to_str().unwrap())],
+    );
+
+    compare_graphs(
+        &dump_file,
+        expect_file!["third_party_coverage_dry_run.jsonl"],
     );
 }

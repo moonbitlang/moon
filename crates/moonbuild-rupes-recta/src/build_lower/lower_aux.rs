@@ -73,7 +73,8 @@ impl<'a> super::BuildPlanLowerContext<'a> {
         };
         let patch_file = info.patch_file.as_deref().map(|x| x.into());
 
-        let (enable_coverage, self_coverage) = self.get_coverage_flags(target, &package.fqn, false);
+        let (enable_coverage, self_coverage) =
+            self.get_coverage_flags(target, package, &package.fqn, false);
 
         let cmd = compiler::MoonGenTestDriver {
             files: &files_vec,

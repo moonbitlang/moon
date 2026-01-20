@@ -72,18 +72,21 @@ impl<'a> BuildPlanLowerContext<'a> {
     ///
     /// - `target`: The build target, to determine if it's a blackbox test (bb
     ///   tests builds themselves don't need coverage)
+    /// - `package`: The discovered package, to check if it's third-party
     /// - `fqn`: The package FQN, to match against hardcoded exceptions
     /// - `is_build`: Whether this is a build command. BB tests need to be aware
     ///   of coverage but not apply it to themselves.
     pub(super) fn get_coverage_flags(
         &self,
         target: BuildTarget,
+        package: &DiscoveredPackage,
         fqn: &PackageFQN,
         is_build: bool,
     ) -> (bool, bool) {
         let enable_coverage = self.opt.enable_coverage
             && (!is_build || target.kind != TargetKind::BlackboxTest)
-            && !should_skip_coverage(fqn);
+            && !should_skip_coverage(fqn)
+            && !self.is_module_third_party(package.module);
         let self_coverage = enable_coverage && is_self_coverage_lib(fqn);
         (enable_coverage, self_coverage)
     }
@@ -346,7 +349,7 @@ impl<'a> BuildPlanLowerContext<'a> {
         };
         // Propagate debug/coverage flags and common settings
         (cmd.flags.enable_coverage, cmd.flags.self_coverage) =
-            self.get_coverage_flags(target, &package.fqn, true);
+            self.get_coverage_flags(target, package, &package.fqn, true);
         cmd.defaults.no_mi |= target.kind.is_test() | (cmd.defaults.check_mi.is_some());
 
         // Include doctest-only files as inputs to track dependency correctly
