@@ -809,11 +809,10 @@ pub fn gen_compile_runtime_command(
     };
 
     let resolved_cc = moonutil::compiler_flags::resolve_cc(CC::default(), None);
-    let cc_flags: &[&str] = if resolved_cc.is_gcc_like() {
-        &["-rdynamic"]
-    } else {
-        &[]
-    };
+    let mut cc_flags = vec!["-DMOONBIT_ALLOW_STACKTRACE"];
+    if resolved_cc.is_gcc_like() {
+        cc_flags.push("-rdynamic");
+    }
 
     let cc_cmd = make_cc_command(
         CC::default(),
@@ -828,7 +827,7 @@ pub fn gen_compile_runtime_command(
             .define_use_shared_runtime_macro(false)
             .build()
             .unwrap(),
-        cc_flags,
+        &cc_flags,
         &[runtime_dot_c_path.display().to_string()],
         &target_dir.display().to_string(),
         &artifact_output_path.display().to_string(),
@@ -876,7 +875,7 @@ pub fn gen_compile_shared_runtime_command(
 
     let libbacktrace_path = MOON_DIRS.moon_lib_path.join("libbacktrace.a");
     
-    let mut cc_flags = vec![];
+    let mut cc_flags = vec!["-DMOONBIT_ALLOW_STACKTRACE"];
 
     // Add libbacktrace.a if it exists
     if libbacktrace_path.exists() {
