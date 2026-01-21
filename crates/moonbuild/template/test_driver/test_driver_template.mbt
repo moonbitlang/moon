@@ -172,9 +172,10 @@ pub fn moonbit_test_driver_internal_do_execute(
       raise MoonBitTestDriverInternalSkipTest(name="")
     }
   } catch {
-    MoonBitTestDriverInternalSkipTest(name~) =>
+    err => {
+      guard err is MoonBitTestDriverInternalSkipTest(name~)
       handle_result(name, "skipped test", true)
-    _err => panic()
+    }
   }
 }
 
