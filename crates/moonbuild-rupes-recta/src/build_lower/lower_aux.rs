@@ -162,7 +162,7 @@ impl<'a> super::BuildPlanLowerContext<'a> {
         let resolved_cc = resolve_cc(CC::default(), None);
         let libbacktrace_path = runtime_c_path.parent().unwrap().join("libbacktrace.a");
         
-        let mut cc_flags = vec![];
+        let mut cc_flags = vec!["-DMOONBIT_ALLOW_STACKTRACE"];
         // Add libbacktrace.a if it exists and we're generating a shared library
         if output_ty == CCOutputType::SharedLib && libbacktrace_path.exists() {
             cc_flags.push(libbacktrace_path.to_str().unwrap());
