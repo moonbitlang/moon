@@ -779,6 +779,7 @@ pub fn gen_link_command(
 pub fn gen_compile_runtime_command(
     graph: &mut n2graph::Graph,
     target_dir: &Path,
+    enable_stacktrace: bool,
 ) -> (Build, PathBuf) {
     let runtime_dot_c_path = &MOON_DIRS.moon_lib_path.join("runtime.c");
 
@@ -809,7 +810,10 @@ pub fn gen_compile_runtime_command(
     };
 
     let resolved_cc = moonutil::compiler_flags::resolve_cc(CC::default(), None);
-    let mut cc_flags = vec!["-DMOONBIT_ALLOW_STACKTRACE"];
+    let mut cc_flags = vec![];
+    if enable_stacktrace {
+        cc_flags.push("-DMOONBIT_ALLOW_STACKTRACE");
+    }
     if resolved_cc.is_gcc_like() {
         cc_flags.push("-rdynamic");
     }
@@ -844,6 +848,7 @@ pub fn gen_compile_runtime_command(
 pub fn gen_compile_shared_runtime_command(
     graph: &mut n2graph::Graph,
     target_dir: &Path,
+    enable_stacktrace: bool,
 ) -> (Build, PathBuf) {
     let runtime_dot_c_path = &MOON_DIRS
         .moon_lib_path
@@ -874,8 +879,11 @@ pub fn gen_compile_shared_runtime_command(
     };
 
     let libbacktrace_path = MOON_DIRS.moon_lib_path.join("libbacktrace.a");
-    
-    let mut cc_flags = vec!["-DMOONBIT_ALLOW_STACKTRACE"];
+
+    let mut cc_flags = vec![];
+    if enable_stacktrace {
+        cc_flags.push("-DMOONBIT_ALLOW_STACKTRACE");
+    }
 
     // Add libbacktrace.a if it exists
     if libbacktrace_path.exists() {
@@ -980,7 +988,7 @@ pub fn gen_compile_exe_command(
     let mut native_flags = vec![];
     native_flags.extend(native_cc_flags);
     native_flags.extend(native_cc_link_flags);
-    
+
     // Add libbacktrace.a if it exists
     let libbacktrace_path = MOON_DIRS.moon_lib_path.join("libbacktrace.a");
     let libbacktrace_str;
@@ -1028,7 +1036,7 @@ pub fn gen_compile_exe_command(
 
     let command = CommandBuilder::from_iter(cc_cmd).build();
     log::debug!("Command: {}", command);
-    
+
     // On macOS with LLVM backend and debug symbols, run dsymutil after linking
     // to generate the dSYM bundle for better debugging experience
     let final_command = if cfg!(target_os = "macos")
@@ -1036,13 +1044,13 @@ pub fn gen_compile_exe_command(
         && !moonc_opt.build_opt.strip_flag
     {
         let artifact_path_str = artifact_output_path.display().to_string();
-        let dsymutil_args = vec!["dsymutil", &artifact_path_str];
+        let dsymutil_args = ["dsymutil", &artifact_path_str];
         let dsymutil_cmd = moonutil::shlex::join_unix(dsymutil_args.iter().copied());
         format!("{} && {}", command, dsymutil_cmd)
     } else {
         command
     };
-    
+
     build.cmdline = Some(final_command);
     build.desc = Some(format!("compile-exe: {}", item.package_full_name));
     (build, artifact_id)
@@ -1203,7 +1211,7 @@ pub fn gen_link_stub_to_dynamic_lib_command(
         .into_iter()
         .chain(native_cc_link_flags)
         .collect::<Vec<_>>();
-    
+
     // Add libbacktrace.a if it exists
     let libbacktrace_path = MOON_DIRS.moon_lib_path.join("libbacktrace.a");
     let libbacktrace_str;
@@ -1406,7 +1414,7 @@ pub fn gen_link_exe_command(
     let mut native_flags = vec![];
     native_flags.extend(native_cc_flags);
     native_flags.extend(native_cc_link_flags);
-    
+
     // Add libbacktrace.a if it exists
     let libbacktrace_path = MOON_DIRS.moon_lib_path.join("libbacktrace.a");
     let libbacktrace_str;
@@ -1488,24 +1496,35 @@ pub fn gen_n2_build_state(
             graph: &mut n2graph::Graph,
             target_dir: &Path,
             default: &mut Vec<n2graph::FileId>,
+            enable_stacktrace: bool,
         ) -> anyhow::Result<PathBuf> {
-            let (build, path) = gen_compile_shared_runtime_command(graph, target_dir);
+            let (build, path) =
+                gen_compile_shared_runtime_command(graph, target_dir, enable_stacktrace);
             graph.add_build(build)?;
             // we explicitly add it to default because shared runtime is not a target or depended by any target
             default.push(graph.files.id_from_canonical(path.display().to_string()));
             Ok(path)
         }
 
-        fn gen_runtime(graph: &mut n2graph::Graph, target_dir: &Path) -> anyhow::Result<PathBuf> {
-            let (build, path) = gen_compile_runtime_command(graph, target_dir);
+        fn gen_runtime(
+            graph: &mut n2graph::Graph,
+            target_dir: &Path,
+            enable_stacktrace: bool,
+        ) -> anyhow::Result<PathBuf> {
+            let (build, path) = gen_compile_runtime_command(graph, target_dir, enable_stacktrace);
             graph.add_build(build)?;
             Ok(path)
         }
 
         runtime_path = Some(if moonbuild_opt.use_tcc_run {
-            gen_shared_runtime(&mut graph, target_dir, &mut default)?
+            gen_shared_runtime(
+                &mut graph,
+                target_dir,
+                &mut default,
+                moonc_opt.build_opt.debug_flag,
+            )?
         } else {
-            gen_runtime(&mut graph, target_dir)?
+            gen_runtime(&mut graph, target_dir, moonc_opt.build_opt.debug_flag)?
         });
     }
 

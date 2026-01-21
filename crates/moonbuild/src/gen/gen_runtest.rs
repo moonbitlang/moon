@@ -1381,8 +1381,10 @@ pub fn gen_n2_runtest_state(
             graph: &mut n2graph::Graph,
             target_dir: &std::path::Path,
             default: &mut Vec<n2graph::FileId>,
+            enable_stacktrace: bool,
         ) -> anyhow::Result<PathBuf> {
-            let (build, path) = gen_compile_shared_runtime_command(graph, target_dir);
+            let (build, path) =
+                gen_compile_shared_runtime_command(graph, target_dir, enable_stacktrace);
             graph.add_build(build)?;
             // we explicitly add it to default because shared runtime is not a target or depended by any target
             default.push(graph.files.id_from_canonical(path.display().to_string()));
@@ -1392,16 +1394,26 @@ pub fn gen_n2_runtest_state(
         fn gen_runtime(
             graph: &mut n2graph::Graph,
             target_dir: &std::path::Path,
+            enable_stacktrace: bool,
         ) -> anyhow::Result<PathBuf> {
-            let (build, path) = gen_compile_runtime_command(graph, target_dir);
+            let (build, path) = gen_compile_runtime_command(graph, target_dir, enable_stacktrace);
             graph.add_build(build)?;
             Ok(path)
         }
 
         runtime_path = Some(if moonbuild_opt.use_tcc_run {
-            gen_shared_runtime(&mut graph, &moonbuild_opt.target_dir, &mut default)?
+            gen_shared_runtime(
+                &mut graph,
+                &moonbuild_opt.target_dir,
+                &mut default,
+                moonc_opt.build_opt.debug_flag,
+            )?
         } else {
-            gen_runtime(&mut graph, &moonbuild_opt.target_dir)?
+            gen_runtime(
+                &mut graph,
+                &moonbuild_opt.target_dir,
+                moonc_opt.build_opt.debug_flag,
+            )?
         });
     }
 

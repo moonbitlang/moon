@@ -160,12 +160,25 @@ impl<'a> super::BuildPlanLowerContext<'a> {
         };
 
         let resolved_cc = resolve_cc(CC::default(), None);
-        let libbacktrace_path = runtime_c_path.parent().unwrap().join("libbacktrace.a");
-        
-        let mut cc_flags = vec!["-DMOONBIT_ALLOW_STACKTRACE"];
+        let libbacktrace_path = runtime_c_path
+            .parent()
+            .expect("runtime_c_path should have a parent")
+            .join("libbacktrace.a");
+
+        let mut cc_flags = vec![];
+        if self.opt.debug_symbols {
+            cc_flags.push("-DMOONBIT_ALLOW_STACKTRACE");
+        }
+        if matches!(self.opt.target_backend, RunBackend::NativeTccRun) {
+            cc_flags.push("-D__TINYC__");
+        }
         // Add libbacktrace.a if it exists and we're generating a shared library
         if output_ty == CCOutputType::SharedLib && libbacktrace_path.exists() {
-            cc_flags.push(libbacktrace_path.to_str().unwrap());
+            cc_flags.push(
+                libbacktrace_path
+                    .to_str()
+                    .expect("libbacktrace_path should be valid UTF-8"),
+            );
         }
 
         let cc_cmd = make_cc_command_pure(
