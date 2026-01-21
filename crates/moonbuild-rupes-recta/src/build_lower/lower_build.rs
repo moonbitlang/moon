@@ -719,17 +719,17 @@ impl<'a> BuildPlanLowerContext<'a> {
 
         // User linker flags: stub_cc_link_flags (already parsed) from BuildCStubsInfo
         let mut link_flags: Vec<String> = info.link_flags.clone();
-        
+
         // Add libbacktrace.a if it exists
-        let libbacktrace_path = std::path::Path::new(&self.opt.compiler_paths.lib_path)
-            .join("libbacktrace.a");
+        let libbacktrace_path =
+            std::path::Path::new(&self.opt.compiler_paths.lib_path).join("libbacktrace.a");
         if libbacktrace_path.exists() {
             link_flags.push(libbacktrace_path.display().to_string());
         }
 
         let link_flags_refs: Vec<&str> = link_flags.iter().map(|s| s.as_str()).collect();
         let sources_refs: Vec<&str> = sources.iter().map(|s| s.as_str()).collect();
-        
+
         let cc_cmd = make_linker_command_pure(
             cc,
             lcfg,
@@ -828,14 +828,14 @@ impl<'a> BuildPlanLowerContext<'a> {
             .to_string();
 
         // Add libbacktrace.a if it exists
-        let libbacktrace_path = std::path::Path::new(&self.opt.compiler_paths.lib_path)
-            .join("libbacktrace.a");
-        
+        let libbacktrace_path =
+            std::path::Path::new(&self.opt.compiler_paths.lib_path).join("libbacktrace.a");
+
         let mut c_flags = info.c_flags.clone();
         if libbacktrace_path.exists() {
             c_flags.push(libbacktrace_path.display().to_string());
         }
-        
+
         let cc_cmd = make_cc_command_pure(
             resolve_cc(self.opt.default_cc.clone(), info.cc.clone()), // TODO: no clone
             config,
@@ -854,7 +854,7 @@ impl<'a> BuildPlanLowerContext<'a> {
         {
             // Convert cc_cmd to shell command string and append dsymutil
             let cc_cmd_str = moonutil::shlex::join_unix(cc_cmd.iter().map(|x| x.as_str()));
-            let dsymutil_args = vec!["dsymutil", &dest];
+            let dsymutil_args = ["dsymutil", &dest];
             let dsymutil_cmd_str = moonutil::shlex::join_unix(dsymutil_args.iter().copied());
             let combined_cmd = format!("{} && {}", cc_cmd_str, dsymutil_cmd_str);
             Commandline::Verbatim(combined_cmd)
