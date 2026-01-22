@@ -53,10 +53,43 @@ pub enum ResolverError {
     /// Multiple versions of a package are required, but the build system cannot handle this.
     #[error("Multiple conflicting versions were found for module {0}: {1:?}")]
     ConflictingVersions(ModuleName, Vec<Version>),
+    /// Multiple versions of a package are required with detailed information about dependents
+    #[error("{}", format_conflicting_versions_detailed(.0, .1))]
+    ConflictingVersionsDetailed(ModuleName, Vec<(Version, Vec<ModuleName>)>),
     #[error("Cannot inject the standard library `moonbitlang/core`")]
     CannotInjectCore(#[source] anyhow::Error),
     #[error("Error during resolution: {0}")]
     Other(anyhow::Error),
+}
+
+fn format_conflicting_versions_detailed(
+    module: &ModuleName,
+    conflicts: &[(Version, Vec<ModuleName>)],
+) -> String {
+    use std::fmt::Write;
+    
+    let mut msg = format!("Multiple conflicting versions were found for module {module}:\n");
+    for (version, dependents) in conflicts {
+        let _ = writeln!(msg, "  - Version {version} required by:");
+        for dep in dependents {
+            let _ = writeln!(msg, "      * {dep}");
+        }
+    }
+    
+    if conflicts.len() == 2 {
+        let packages: Vec<_> = conflicts
+            .iter()
+            .flat_map(|(_, deps)| deps.iter())
+            .map(|d| d.to_string())
+            .collect();
+        let _ = write!(
+            msg,
+            "\nHint: You can try upgrading all affected packages together:\n  moon add {}",
+            packages.join(" ")
+        );
+    }
+    
+    msg
 }
 
 #[derive(Debug)]
@@ -95,20 +128,63 @@ pub trait Resolver {
 /// this function will return an error if any duplicate module names with different versions
 /// (implying incompatible versions of the same module are resolved) are found.
 fn assert_no_duplicate_module_names(result: &result::ResolvedEnv) -> Result<(), ResolverErrors> {
+    use std::collections::HashMap;
+    
+    // First, collect all modules and their versions
     let mut module_name_versions: HashMap<_, Vec<_>> = HashMap::new();
+    let mut module_versions_to_sources: HashMap<(ModuleName, Version), Vec<ModuleName>> = HashMap::new();
+    
     for it in result.all_modules() {
         module_name_versions
-            .entry(it.name())
+            .entry(it.name().clone())
             .or_default()
-            .push(it.version());
+            .push(it.version().clone());
     }
+    
+    // For modules with multiple versions, find out which modules depend on each version
+    let mut conflicting_modules = HashMap::new();
+    for (name, versions) in &module_name_versions {
+        if versions.len() > 1 {
+            conflicting_modules.insert(name.clone(), versions.clone());
+        }
+    }
+    
+    if !conflicting_modules.is_empty() {
+        // Find the dependents of each conflicting version
+        for (conflicting_name, _versions) in &conflicting_modules {
+            for (module_id, module_source) in result.all_modules_and_id() {
+                for (dep_id, _edge) in result.deps_keyed(module_id) {
+                    let dep_source = result.mod_name_from_id(dep_id);
+                    if dep_source.name() == conflicting_name {
+                        module_versions_to_sources
+                            .entry((conflicting_name.clone(), dep_source.version().clone()))
+                            .or_default()
+                            .push(module_source.name().clone());
+                    }
+                }
+            }
+        }
+    }
+    
     let mut errs = vec![];
     for (name, versions) in module_name_versions {
         if versions.len() > 1 {
-            let err = ResolverError::ConflictingVersions(
-                name.clone(),
-                versions.iter().cloned().cloned().collect(),
-            );
+            // Build detailed conflict information
+            let mut version_dependents: Vec<(Version, Vec<ModuleName>)> = Vec::new();
+            let unique_versions: std::collections::HashSet<_> = versions.iter().cloned().collect();
+            
+            for version in unique_versions {
+                let dependents = module_versions_to_sources
+                    .get(&(name.clone(), version.clone()))
+                    .cloned()
+                    .unwrap_or_default();
+                version_dependents.push((version, dependents));
+            }
+            
+            // Sort by version for consistent output
+            version_dependents.sort_by(|a, b| a.0.cmp(&b.0));
+            
+            let err = ResolverError::ConflictingVersionsDetailed(name.clone(), version_dependents);
             errs.push(err);
         }
     }

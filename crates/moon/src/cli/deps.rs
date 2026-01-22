@@ -21,6 +21,7 @@ use colored::Colorize;
 use mooncake::pkg::{
     add::AddSubcommand, install::InstallSubcommand, remove::RemoveSubcommand, tree::TreeSubcommand,
 };
+use mooncake::registry::Registry;
 use moonutil::{
     dirs::PackageDirs,
     moon_dir,
@@ -136,6 +137,10 @@ pub fn add_cli(cli: UniversalFlags, cmd: AddSubcommand) -> anyhow::Result<i32> {
         target_dir,
     } = cli.source_tgt_dir.try_into_package_dirs()?;
 
+    if cmd.package_paths.is_empty() {
+        bail!("at least one package path must be provided");
+    }
+
     // Update registry index by default (issue #963).
     // - `--no-update` keeps the previous behavior.
     // - If an index already exists, update failures are treated as warnings so users can proceed
@@ -160,40 +165,65 @@ pub fn add_cli(cli: UniversalFlags, cmd: AddSubcommand) -> anyhow::Result<i32> {
         }
     }
 
-    let package_path = cmd.package_path;
+    // Parse all package paths
+    let mut packages = Vec::new();
+    for package_path in &cmd.package_paths {
+        let parts: Vec<&str> = package_path.splitn(2, '@').collect();
 
-    let parts: Vec<&str> = package_path.splitn(2, '@').collect();
+        let author_pkg: Vec<&str> = parts[0].splitn(2, '/').collect();
+        if author_pkg.len() != 2 {
+            bail!("package path must be in the form of <author>/<package_name>[@<version>]");
+        }
+        let username = author_pkg[0];
+        let pkgname = author_pkg[1];
+        let pkg_name = ModuleName {
+            username: username.into(),
+            unqual: pkgname.into(),
+        };
 
-    let author_pkg: Vec<&str> = parts[0].splitn(2, '/').collect();
-    if author_pkg.len() != 2 {
-        bail!("package path must be in the form of <author>/<package_name>[@<version>]");
+        let version = if parts.len() == 2 {
+            parts[1].parse()?
+        } else {
+            // Get latest version
+            let registry = mooncake::registry::OnlineRegistry::mooncakes_io();
+            registry
+                .get_latest_version(&pkg_name)
+                .ok_or_else(|| {
+                    if index_updated {
+                        anyhow::anyhow!("could not find the latest version of {}", pkg_name.to_string())
+                    } else {
+                        anyhow::anyhow!(
+                            "could not find the latest version of {}. Please consider running `moon update` to update the index.",
+                            pkg_name.to_string()
+                        )
+                    }
+                })?
+                .version
+                .clone()
+                .unwrap()
+        };
+
+        packages.push((pkg_name, version));
     }
-    let username = author_pkg[0];
-    let pkgname = author_pkg[1];
-    let pkg_name = ModuleName {
-        username: username.into(),
-        unqual: pkgname.into(),
-    };
 
-    if parts.len() == 2 {
-        let version: &str = parts[1];
-        let version = version.parse()?;
-        mooncake::pkg::add::add(
+    // Use batch add if multiple packages, otherwise use the original single add
+    if packages.len() > 1 {
+        mooncake::pkg::add::add_batch(
             &source_dir,
             &target_dir,
-            &pkg_name,
+            &packages,
             cmd.bin,
-            &version,
             cli.quiet,
         )
     } else {
-        mooncake::pkg::add::add_latest(
+        let (pkg_name, version) = &packages[0];
+        mooncake::pkg::add::add(
             &source_dir,
             &target_dir,
-            &pkg_name,
+            pkg_name,
             cmd.bin,
+            version,
             cli.quiet,
-            index_updated,
         )
     }
 }
