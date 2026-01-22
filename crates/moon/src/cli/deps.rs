@@ -166,6 +166,7 @@ pub fn add_cli(cli: UniversalFlags, cmd: AddSubcommand) -> anyhow::Result<i32> {
     }
 
     // Parse all package paths
+    let registry = mooncake::registry::OnlineRegistry::mooncakes_io();
     let mut packages = Vec::new();
     for package_path in &cmd.package_paths {
         let parts: Vec<&str> = package_path.splitn(2, '@').collect();
@@ -185,7 +186,6 @@ pub fn add_cli(cli: UniversalFlags, cmd: AddSubcommand) -> anyhow::Result<i32> {
             parts[1].parse()?
         } else {
             // Get latest version
-            let registry = mooncake::registry::OnlineRegistry::mooncakes_io();
             registry
                 .get_latest_version(&pkg_name)
                 .ok_or_else(|| {

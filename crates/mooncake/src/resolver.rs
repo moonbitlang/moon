@@ -132,32 +132,26 @@ fn assert_no_duplicate_module_names(result: &result::ResolvedEnv) -> Result<(), 
     
     // First, collect all modules and their versions
     let mut module_name_versions: HashMap<_, Vec<_>> = HashMap::new();
-    let mut module_versions_to_sources: HashMap<(ModuleName, Version), Vec<ModuleName>> = HashMap::new();
     
     for it in result.all_modules() {
         module_name_versions
-            .entry(it.name().clone())
+            .entry(it.name())
             .or_default()
-            .push(it.version().clone());
+            .push(it.version());
     }
     
     // For modules with multiple versions, find out which modules depend on each version
-    let mut conflicting_modules = HashMap::new();
+    let mut module_versions_to_sources: HashMap<(&ModuleName, &Version), Vec<ModuleName>> = HashMap::new();
+    
     for (name, versions) in &module_name_versions {
         if versions.len() > 1 {
-            conflicting_modules.insert(name.clone(), versions.clone());
-        }
-    }
-    
-    if !conflicting_modules.is_empty() {
-        // Find the dependents of each conflicting version
-        for (conflicting_name, _versions) in &conflicting_modules {
+            // Find the dependents of each conflicting version
             for (module_id, module_source) in result.all_modules_and_id() {
                 for (dep_id, _edge) in result.deps_keyed(module_id) {
                     let dep_source = result.mod_name_from_id(dep_id);
-                    if dep_source.name() == conflicting_name {
+                    if dep_source.name() == *name {
                         module_versions_to_sources
-                            .entry((conflicting_name.clone(), dep_source.version().clone()))
+                            .entry((name, dep_source.version()))
                             .or_default()
                             .push(module_source.name().clone());
                     }
@@ -171,14 +165,16 @@ fn assert_no_duplicate_module_names(result: &result::ResolvedEnv) -> Result<(), 
         if versions.len() > 1 {
             // Build detailed conflict information
             let mut version_dependents: Vec<(Version, Vec<ModuleName>)> = Vec::new();
-            let unique_versions: std::collections::HashSet<_> = versions.iter().cloned().collect();
+            let mut seen_versions = std::collections::HashSet::new();
             
-            for version in unique_versions {
-                let dependents = module_versions_to_sources
-                    .get(&(name.clone(), version.clone()))
-                    .cloned()
-                    .unwrap_or_default();
-                version_dependents.push((version, dependents));
+            for version in versions {
+                if seen_versions.insert(version) {
+                    let dependents = module_versions_to_sources
+                        .get(&(name, version))
+                        .cloned()
+                        .unwrap_or_default();
+                    version_dependents.push((version.clone(), dependents));
+                }
             }
             
             // Sort by version for consistent output
