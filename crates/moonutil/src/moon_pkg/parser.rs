@@ -250,13 +250,13 @@ impl Parser {
 
     fn parse_import_statement(&self) -> Result<(String, Value), ParseError> {
         self.skip(); // skip 'import'
-        if let Token::STRING((loc, s)) = self.peek() {
-            if s == "test" || s == "wbtest" {
-                return Err(ParseError::LegacyImportSyntax {
-                    loc: loc.clone(),
-                    kind: s.clone(),
-                });
-            }
+        if let Token::STRING((loc, s)) = self.peek()
+            && (s == "test" || s == "wbtest")
+        {
+            return Err(ParseError::LegacyImportSyntax {
+                loc: loc.clone(),
+                kind: s.clone(),
+            });
         }
         let import_items = self.surround_series(
             TokenKind::LBRACE,
@@ -299,10 +299,11 @@ impl Parser {
     }
 
     fn parse_statement(&self) -> Result<(String, Value), ParseError> {
-        if let Token::LIDENT((loc, ident)) = self.peek() {
-            if ident == "test" && matches!(self.peek_nth(1), Token::STRING(_)) {
-                return Err(ParseError::UnexpectedTestBlock { loc: loc.clone() });
-            }
+        if let Token::LIDENT((loc, ident)) = self.peek()
+            && ident == "test"
+            && matches!(self.peek_nth(1), Token::STRING(_))
+        {
+            return Err(ParseError::UnexpectedTestBlock { loc: loc.clone() });
         }
         match self.peek() {
             Token::IMPORT(_) => self.parse_import_statement(),
