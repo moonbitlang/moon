@@ -48,7 +48,7 @@ fn test_moon_fmt() {
         expect![[r#"
             This is for testing formatter on `.mbt.md` files
 
-            ```mbt
+            ```mbt nocheck
             ///|
             fn __test_formatter() -> Unit {
               println("hell world")
