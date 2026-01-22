@@ -20,10 +20,10 @@ use crate::moon_pkg::lexer;
 #[cfg(test)]
 use crate::moon_pkg::tokenize;
 
-use super::lexer::{Token, TokenKind};
+use super::lexer::{Loc, Token, TokenKind};
 use anyhow::anyhow;
 use serde_json_lenient::{Map, Value, json};
-use std::{cell::Cell, ops::Range};
+use std::{cell::Cell, fmt, ops::Range};
 
 /// Parser for MoonPkg DSL
 pub struct Parser {
@@ -37,6 +37,40 @@ pub struct Parser {
 pub enum ParseError {
     UnexpectedToken(Token),
     LexingError(Range<usize>),
+    LegacyImportSyntax { loc: Loc, kind: String },
+    UnexpectedTestBlock { loc: Loc },
+}
+
+impl fmt::Display for ParseError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            ParseError::UnexpectedToken(token) => {
+                let loc = token.range();
+                write!(
+                    f,
+                    "unexpected token {} at line {}, column {}",
+                    token, loc.start.line, loc.start.column
+                )
+            }
+            ParseError::LexingError(range) => {
+                write!(
+                    f,
+                    "lexing error at byte range {}..{}",
+                    range.start, range.end
+                )
+            }
+            ParseError::LegacyImportSyntax { loc, kind } => write!(
+                f,
+                "legacy import syntax at line {}, column {}; use `import {{ ... }} for \"{}\"`",
+                loc.start.line, loc.start.column, kind
+            ),
+            ParseError::UnexpectedTestBlock { loc } => write!(
+                f,
+                "unexpected test block at line {}, column {}; moon.pkg does not support test declarations",
+                loc.start.line, loc.start.column
+            ),
+        }
+    }
 }
 
 impl Parser {
@@ -216,22 +250,14 @@ impl Parser {
 
     fn parse_import_statement(&self) -> Result<(String, Value), ParseError> {
         self.skip(); // skip 'import'
-        let import_kind = match self.peek() {
-            Token::STRING((_, s)) => match s.as_str() {
-                "test" => {
-                    self.skip();
-                    "test-import"
-                }
-                "wbtest" => {
-                    self.skip();
-                    "wbtest-import"
-                }
-                _ => {
-                    return Err(ParseError::UnexpectedToken(self.peek().clone()));
-                }
-            },
-            _ => "import",
-        };
+        if let Token::STRING((loc, s)) = self.peek() {
+            if s == "test" || s == "wbtest" {
+                return Err(ParseError::LegacyImportSyntax {
+                    loc: loc.clone(),
+                    kind: s.clone(),
+                });
+            }
+        }
         let import_items = self.surround_series(
             TokenKind::LBRACE,
             TokenKind::RBRACE,
@@ -255,10 +281,29 @@ impl Parser {
                 })
             },
         )?;
+        let import_kind = if let Token::FOR(_) = self.peek() {
+            self.skip();
+            let kind = match self.peek() {
+                Token::STRING((_, s)) if s == "test" => "test-import",
+                Token::STRING((_, s)) if s == "wbtest" => "wbtest-import",
+                _ => {
+                    return Err(ParseError::UnexpectedToken(self.peek().clone()));
+                }
+            };
+            self.skip();
+            kind
+        } else {
+            "import"
+        };
         Ok((String::from(import_kind), Value::Array(import_items)))
     }
 
     fn parse_statement(&self) -> Result<(String, Value), ParseError> {
+        if let Token::LIDENT((loc, ident)) = self.peek() {
+            if ident == "test" && matches!(self.peek_nth(1), Token::STRING(_)) {
+                return Err(ParseError::UnexpectedTestBlock { loc: loc.clone() });
+            }
+        }
         match self.peek() {
             Token::IMPORT(_) => self.parse_import_statement(),
             Token::LIDENT(_) => {
@@ -296,7 +341,10 @@ impl Parser {
 /// Parse MoonPkg DSL input string into serde_json_lenient::Value
 pub fn parse(input: &str) -> anyhow::Result<Value> {
     let tokens = lexer::tokenize(input)?;
-    Parser::parse(tokens).map_err(|e| anyhow!("Parsing error: {:?}", e))
+    Parser::parse(tokens).map_err(|e| match &e {
+        ParseError::LegacyImportSyntax { .. } => anyhow!("Parsing error: {}", e),
+        _ => anyhow!("Parsing error: {:?}", e),
+    })
 }
 
 #[test]
@@ -307,9 +355,9 @@ import {
   "path/to/pkg2" as @alias,
 }
 
-import "test" {
+import {
   "path/to/pkg1",
-}
+} for "test"
 
 options(
   "is_main": true,
@@ -339,7 +387,7 @@ f(
   label2: {},
 ) 
 
-  "#;
+    "#;
 
     let tokens = tokenize(source).unwrap();
     let ast = Parser::parse(tokens).unwrap();
@@ -396,4 +444,26 @@ f(
         }
     "#]]
     .assert_debug_eq(&ast);
+}
+
+#[test]
+fn parse_legacy_import_error() {
+    let source = r#"import "test" { "path/to/pkg1" }"#;
+    let tokens = tokenize(source).unwrap();
+    let err = Parser::parse(tokens).unwrap_err();
+    expect_test::expect![[
+        r#"legacy import syntax at line 1, column 8; use `import { ... } for "test"`"#
+    ]]
+    .assert_eq(&err.to_string());
+}
+
+#[test]
+fn parse_test_block_error() {
+    let source = r#"test "abc" { }"#;
+    let tokens = tokenize(source).unwrap();
+    let err = Parser::parse(tokens).unwrap_err();
+    expect_test::expect![[
+        r#"unexpected test block at line 1, column 1; moon.pkg does not support test declarations"#
+    ]]
+    .assert_eq(&err.to_string());
 }

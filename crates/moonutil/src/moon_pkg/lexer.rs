@@ -62,6 +62,8 @@ pub enum Token {
     TRUE(Loc),
     #[token("false", with_span)]
     FALSE(Loc),
+    #[token("for", with_span)]
+    FOR(Loc),
     #[regex(r#""([^"\\]|\\.)*""#, with_string)]
     STRING((Loc, String)),
     #[regex(r"-?[0-9]+", with_int)]
@@ -177,6 +179,7 @@ pub enum TokenKind {
     SEMI,
     TRUE,
     FALSE,
+    FOR,
     STRING,
     INT,
     LIDENT,
@@ -201,6 +204,7 @@ impl Token {
             | Token::SEMI(r)
             | Token::TRUE(r)
             | Token::FALSE(r)
+            | Token::FOR(r)
             | Token::AS(r)
             | Token::IMPORT(r)
             | Token::EOF(r)
@@ -224,6 +228,7 @@ impl Token {
             Token::SEMI(_) => TokenKind::SEMI,
             Token::TRUE(_) => TokenKind::TRUE,
             Token::FALSE(_) => TokenKind::FALSE,
+            Token::FOR(_) => TokenKind::FOR,
             Token::STRING(_) => TokenKind::STRING,
             Token::INT(_) => TokenKind::INT,
             Token::LIDENT(_) => TokenKind::LIDENT,
@@ -250,6 +255,7 @@ impl Display for Token {
             Token::SEMI(_) => write!(f, ";"),
             Token::TRUE(_) => write!(f, "true"),
             Token::FALSE(_) => write!(f, "false"),
+            Token::FOR(_) => write!(f, "for"),
             Token::STRING((_, s)) => write!(f, "\"{}\"", s),
             Token::INT((_, s)) => write!(f, "{}", s),
             Token::LIDENT((_, s)) => write!(f, "{}", s),
@@ -287,9 +293,9 @@ fn tokenize_test() {
   "path/to/pkg2" as @alias,
 }
 
-import "test" {
+import {
   "path/to/pkg1",
-}
+} for "test"
 
 options(
   "is_main": true,
@@ -426,25 +432,13 @@ options(
                         column: 7,
                     },
                 ),
-                STRING(
-                    (
-                        Pos {
-                            line: 6,
-                            column: 8,
-                        }..Pos {
-                            line: 6,
-                            column: 14,
-                        },
-                        "test",
-                    ),
-                ),
                 LBRACE(
                     Pos {
                         line: 6,
-                        column: 15,
+                        column: 8,
                     }..Pos {
                         line: 6,
-                        column: 16,
+                        column: 9,
                     },
                 ),
                 STRING(
@@ -476,6 +470,27 @@ options(
                         line: 8,
                         column: 2,
                     },
+                ),
+                FOR(
+                    Pos {
+                        line: 8,
+                        column: 3,
+                    }..Pos {
+                        line: 8,
+                        column: 6,
+                    },
+                ),
+                STRING(
+                    (
+                        Pos {
+                            line: 8,
+                            column: 7,
+                        }..Pos {
+                            line: 8,
+                            column: 13,
+                        },
+                        "test",
+                    ),
                 ),
                 LIDENT(
                     (
