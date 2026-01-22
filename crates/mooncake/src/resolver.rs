@@ -168,12 +168,14 @@ fn assert_no_duplicate_module_names(result: &result::ResolvedEnv) -> Result<(), 
             let mut seen_versions = std::collections::HashSet::new();
             
             for version in versions {
+                // Clone before insert to reuse for the lookup
+                let version_clone = version.clone();
                 if seen_versions.insert(version) {
                     let dependents = module_versions_to_sources
-                        .get(&(name, version))
+                        .get(&(name, &version_clone))
                         .cloned()
                         .unwrap_or_default();
-                    version_dependents.push((version.clone(), dependents));
+                    version_dependents.push((version_clone, dependents));
                 }
             }
             
