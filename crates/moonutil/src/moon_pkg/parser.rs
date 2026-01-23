@@ -37,7 +37,6 @@ pub struct Parser {
 pub enum ParseError {
     UnexpectedToken(Token),
     LexingError(Range<usize>),
-    UnexpectedTestBlock { loc: Loc },
 }
 
 impl fmt::Display for ParseError {
@@ -58,11 +57,6 @@ impl fmt::Display for ParseError {
                     range.start, range.end
                 )
             }
-            ParseError::UnexpectedTestBlock { loc } => write!(
-                f,
-                "unexpected test block at line {}, column {}; moon.pkg does not support test declarations",
-                loc.start.line, loc.start.column
-            ),
         }
     }
 }
@@ -302,12 +296,6 @@ impl Parser {
     }
 
     fn parse_statement(&self) -> Result<(String, Value), ParseError> {
-        if let Token::LIDENT((loc, ident)) = self.peek()
-            && ident == "test"
-            && matches!(self.peek_nth(1), Token::STRING(_))
-        {
-            return Err(ParseError::UnexpectedTestBlock { loc: loc.clone() });
-        }
         match self.peek() {
             Token::IMPORT(_) => self.parse_import_statement(),
             Token::LIDENT(_) => {
