@@ -20,7 +20,7 @@ use crate::moon_pkg::lexer;
 #[cfg(test)]
 use crate::moon_pkg::tokenize;
 
-use super::lexer::{Loc, Token, TokenKind};
+use super::lexer::{Token, TokenKind};
 use anyhow::anyhow;
 use serde_json_lenient::{Map, Value, json};
 use std::{cell::Cell, fmt, ops::Range};
