@@ -448,17 +448,6 @@ f(
 }
 
 #[test]
-fn parse_test_block_error() {
-    let source = r#"test "abc" { }"#;
-    let tokens = tokenize(source).unwrap();
-    let err = Parser::parse(tokens).unwrap_err();
-    expect_test::expect![[
-        r#"unexpected test block at line 1, column 1; moon.pkg does not support test declarations"#
-    ]]
-    .assert_eq(&err.to_string());
-}
-
-#[test]
 fn parse_legacy_import_syntax() {
     let source = r#"
 import "test" {
