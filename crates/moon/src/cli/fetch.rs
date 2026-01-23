@@ -25,7 +25,7 @@ use super::UniversalFlags;
 
 #[derive(Debug, clap::Parser)]
 #[clap(
-    about = "Download a package to .repo directory (unstable)",
+    about = "Download a package to .repos directory (unstable)",
     before_help = "Note: This is an unstable command and may change or be removed in future versions."
 )]
 pub struct FetchSubcommand {
@@ -103,7 +103,7 @@ pub fn fetch_cli(cli: UniversalFlags, cmd: FetchSubcommand) -> anyhow::Result<i3
         .source_tgt_dir
         .source_dir
         .unwrap_or(std::env::current_dir()?)
-        .join(".repo");
+        .join(".repos");
     let pkg_dir = repo_dir
         .join(username)
         .join(pkgname)
