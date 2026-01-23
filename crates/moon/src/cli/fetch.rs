@@ -99,7 +99,11 @@ pub fn fetch_cli(cli: UniversalFlags, cmd: FetchSubcommand) -> anyhow::Result<i3
         latest_version
     };
 
-    let repo_dir = std::env::current_dir()?.join(".repo");
+    let repo_dir = cli
+        .source_tgt_dir
+        .source_dir
+        .unwrap_or(std::env::current_dir()?)
+        .join(".repo");
     let pkg_dir = repo_dir
         .join(username)
         .join(pkgname)
