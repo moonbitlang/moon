@@ -19,7 +19,10 @@
 use anyhow::bail;
 use colored::Colorize;
 use mooncake::registry::Registry;
-use moonutil::mooncakes::{ModuleName, RegistryConfig};
+use moonutil::{
+    dirs::PackageDirs,
+    mooncakes::{ModuleName, RegistryConfig},
+};
 
 use super::UniversalFlags;
 
@@ -99,11 +102,12 @@ pub fn fetch_cli(cli: UniversalFlags, cmd: FetchSubcommand) -> anyhow::Result<i3
         latest_version
     };
 
-    let repo_dir = cli
-        .source_tgt_dir
-        .source_dir
-        .unwrap_or(std::env::current_dir()?)
-        .join(".repos");
+    // If we are under a project, put it into `.repos` next to `.mooncakes`
+    let source_dir = match cli.source_tgt_dir.try_into_package_dirs() {
+        Ok(PackageDirs { source_dir, .. }) => source_dir,
+        Err(_) => std::env::current_dir()?,
+    };
+    let repo_dir = source_dir.join(".repos");
     let pkg_dir = repo_dir
         .join(username)
         .join(pkgname)
