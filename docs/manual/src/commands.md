@@ -54,7 +54,7 @@ This document contains the help content for the `moon` command-line program.
 * `remove` — Remove a dependency
 * `install` — Install dependencies
 * `tree` — Display the dependency tree
-* `fetch` — Download a package to .repo directory (unstable)
+* `fetch` — Download a package to .repos directory (unstable)
 * `login` — Log in to your account
 * `register` — Register an account at mooncakes.io
 * `publish` — Publish the current module
@@ -439,7 +439,7 @@ Display the dependency tree
 
 ## `moon fetch`
 
-Download a package to .repo directory (unstable)
+Download a package to .repos directory (unstable)
 
 Note: This is an unstable command and may change or be removed in future versions.
 
