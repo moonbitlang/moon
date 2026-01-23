@@ -24,6 +24,10 @@ use moonutil::mooncakes::{ModuleName, RegistryConfig};
 use super::UniversalFlags;
 
 #[derive(Debug, clap::Parser)]
+#[clap(
+    about = "Download a package to .repo directory (unstable)",
+    before_help = "Note: This is an unstable command and may change or be removed in future versions."
+)]
 pub struct FetchSubcommand {
     /// The package to fetch in the form of <author>/<package_name>[@<version>]
     pub package_path: String,
@@ -59,7 +63,7 @@ pub fn fetch_cli(cli: UniversalFlags, cmd: FetchSubcommand) -> anyhow::Result<i3
     let parts: Vec<&str> = package_path.splitn(2, '@').collect();
 
     let author_pkg: Vec<&str> = parts[0].splitn(2, '/').collect();
-    if author_pkg.len() != 2 {
+    if author_pkg.len() != 2 || author_pkg[0].is_empty() || author_pkg[1].is_empty() {
         bail!("package path must be in the form of <author>/<package_name>[@<version>]");
     }
     let username = author_pkg[0];

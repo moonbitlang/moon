@@ -41,6 +41,7 @@ fn test_moon_help() {
               remove                 Remove a dependency
               install                Install dependencies
               tree                   Display the dependency tree
+              fetch                  Download a package to .repo directory (unstable)
               login                  Log in to your account
               register               Register an account at mooncakes.io
               publish                Publish the current module
