@@ -19,6 +19,7 @@ This document contains the help content for the `moon` command-line program.
 * [`moon remove`↴](#moon-remove)
 * [`moon install`↴](#moon-install)
 * [`moon tree`↴](#moon-tree)
+* [`moon fetch`↴](#moon-fetch)
 * [`moon login`↴](#moon-login)
 * [`moon register`↴](#moon-register)
 * [`moon publish`↴](#moon-publish)
@@ -53,6 +54,7 @@ This document contains the help content for the `moon` command-line program.
 * `remove` — Remove a dependency
 * `install` — Install dependencies
 * `tree` — Display the dependency tree
+* `fetch` — Download a package to .repo directory (unstable)
 * `login` — Log in to your account
 * `register` — Register an account at mooncakes.io
 * `publish` — Publish the current module
@@ -432,6 +434,24 @@ Install dependencies
 Display the dependency tree
 
 **Usage:** `moon tree`
+
+
+
+## `moon fetch`
+
+Download a package to .repo directory (unstable)
+
+Note: This is an unstable command and may change or be removed in future versions.
+
+**Usage:** `moon fetch [OPTIONS] <PACKAGE_PATH>`
+
+###### **Arguments:**
+
+* `<PACKAGE_PATH>` — The package to fetch in the form of <author>/<package_name>[@<version>]
+
+###### **Options:**
+
+* `--no-update` — Do not update the registry index before fetching
 
 
 

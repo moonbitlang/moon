@@ -123,6 +123,7 @@ pub fn main() {
         Clean(_) => cli::run_clean(&flags),
         Coverage(c) => cli::run_coverage(flags, c),
         Doc(d) => cli::run_doc(flags, d),
+        Fetch(f) => cli::fetch_cli(flags, f),
         Fmt(f) => cli::run_fmt(&flags, f),
         GenerateBuildMatrix(b) => cli::generate_build_matrix(&flags, b),
         GenerateTestDriver(g) => cli::generate_test_driver(flags, g),
