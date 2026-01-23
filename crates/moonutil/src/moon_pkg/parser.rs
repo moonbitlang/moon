@@ -23,7 +23,7 @@ use crate::moon_pkg::tokenize;
 use super::lexer::{Token, TokenKind};
 use anyhow::anyhow;
 use serde_json_lenient::{Map, Value, json};
-use std::{cell::Cell, ops::Range};
+use std::{cell::Cell, fmt, ops::Range};
 
 /// Parser for MoonPkg DSL
 pub struct Parser {
@@ -37,6 +37,28 @@ pub struct Parser {
 pub enum ParseError {
     UnexpectedToken(Token),
     LexingError(Range<usize>),
+}
+
+impl fmt::Display for ParseError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            ParseError::UnexpectedToken(token) => {
+                let loc = token.range();
+                write!(
+                    f,
+                    "unexpected token {} at line {}, column {}",
+                    token, loc.start.line, loc.start.column
+                )
+            }
+            ParseError::LexingError(range) => {
+                write!(
+                    f,
+                    "lexing error at byte range {}..{}",
+                    range.start, range.end
+                )
+            }
+        }
+    }
 }
 
 impl Parser {
@@ -216,21 +238,20 @@ impl Parser {
 
     fn parse_import_statement(&self) -> Result<(String, Value), ParseError> {
         self.skip(); // skip 'import'
-        let import_kind = match self.peek() {
-            Token::STRING((_, s)) => match s.as_str() {
-                "test" => {
-                    self.skip();
-                    "test-import"
-                }
-                "wbtest" => {
-                    self.skip();
-                    "wbtest-import"
-                }
-                _ => {
-                    return Err(ParseError::UnexpectedToken(self.peek().clone()));
-                }
-            },
-            _ => "import",
+        let legacy_kind = match self.peek() {
+            // Legacy syntax: import "test" { ... } / import "wbtest" { ... }.
+            Token::STRING((_, s)) if s == "test" => {
+                self.skip();
+                Some("test-import")
+            }
+            Token::STRING((_, s)) if s == "wbtest" => {
+                self.skip();
+                Some("wbtest-import")
+            }
+            Token::STRING((_, _)) => {
+                return Err(ParseError::UnexpectedToken(self.peek().clone()));
+            }
+            _ => None,
         };
         let import_items = self.surround_series(
             TokenKind::LBRACE,
@@ -255,6 +276,22 @@ impl Parser {
                 })
             },
         )?;
+        let import_kind = if let Some(kind) = legacy_kind {
+            kind
+        } else if let Token::FOR(_) = self.peek() {
+            self.skip();
+            let kind = match self.peek() {
+                Token::STRING((_, s)) if s == "test" => "test-import",
+                Token::STRING((_, s)) if s == "wbtest" => "wbtest-import",
+                _ => {
+                    return Err(ParseError::UnexpectedToken(self.peek().clone()));
+                }
+            };
+            self.skip();
+            kind
+        } else {
+            "import"
+        };
         Ok((String::from(import_kind), Value::Array(import_items)))
     }
 
@@ -307,9 +344,9 @@ import {
   "path/to/pkg2" as @alias,
 }
 
-import "test" {
+import {
   "path/to/pkg1",
-}
+} for "test"
 
 options(
   "is_main": true,
@@ -339,7 +376,7 @@ f(
   label2: {},
 ) 
 
-  "#;
+    "#;
 
     let tokens = tokenize(source).unwrap();
     let ast = Parser::parse(tokens).unwrap();
@@ -393,6 +430,32 @@ f(
                 "label1": Array [],
                 "label2": Object {},
             },
+        }
+    "#]]
+    .assert_debug_eq(&ast);
+}
+
+#[test]
+fn parse_legacy_import_syntax() {
+    let source = r#"
+import "test" {
+  "path/to/pkg1",
+}
+
+import "wbtest" {
+  "path/to/pkg2",
+}
+"#;
+    let tokens = tokenize(source).unwrap();
+    let ast = Parser::parse(tokens).unwrap();
+    expect_test::expect![[r#"
+        Object {
+            "test-import": Array [
+                String("path/to/pkg1"),
+            ],
+            "wbtest-import": Array [
+                String("path/to/pkg2"),
+            ],
         }
     "#]]
     .assert_debug_eq(&ast);

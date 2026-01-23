@@ -31,15 +31,15 @@ fn expect_import() {
         "path/to/another1" as @another1,
       }
 
-      import "test" {
+      import {
         "path/to/pkg2",
         "path/to/another2" as @another2,
-      }
+      } for "test"
 
-      import "wbtest" {
+      import {
         "path/to/pkg3",
         "path/to/another3" as @another3,
-      }
+      } for "wbtest"
     "#);
     expect_test::expect![[r#"
         MoonPkg {
