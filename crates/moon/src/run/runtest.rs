@@ -450,8 +450,9 @@ fn run_one_test_executable(
     let pkgname = fqn.to_string();
 
     // Parse test metadata
-    let meta = std::fs::File::open(test.meta).context("Failed to open test metadata")?;
-    let meta: MooncGenTestInfo = serde_json_lenient::from_reader(meta)
+    let meta_bytes = std::fs::read(test.meta)
+        .with_context(|| format!("Failed to read test metadata at {}", test.meta.display()))?;
+    let meta: MooncGenTestInfo = serde_json_lenient::from_slice(&meta_bytes)
         .with_context(|| format!("Failed to parse test metadata at {}", test.meta.display()))?;
     trace!(path = %test.meta.display(), "loaded test metadata");
 
