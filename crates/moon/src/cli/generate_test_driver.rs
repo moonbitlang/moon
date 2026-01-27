@@ -267,23 +267,65 @@ fn generate_driver(
 
     if enable_bench {
         if has_bench_args {
-            template.push_str(TEMPLATE_WITH_BENCH_ARGS);
+            template.push_str(
+                TEMPLATE_WITH_BENCH_ARGS
+                    .replace(
+                        "{} // REPLACE ME: moonbit_test_driver_internal_with_bench_args_tests\n",
+                        &MooncGenTestInfo::section_to_mbt(&data.with_bench_args_tests),
+                    )
+                    .as_str(),
+            );
         }
     } else {
         if has_no_args {
-            template.push_str(TEMPLATE_NO_ARGS);
+            template.push_str(
+                TEMPLATE_NO_ARGS
+                    .replace(
+                        "{} // REPLACE ME: moonbit_test_driver_internal_no_args_tests\n",
+                        &MooncGenTestInfo::section_to_mbt(&data.no_args_tests),
+                    )
+                    .as_str(),
+            );
         }
         if has_with_args {
-            template.push_str(TEMPLATE_WITH_ARGS);
+            template.push_str(
+                TEMPLATE_WITH_ARGS
+                    .replace(
+                        "{} // REPLACE ME: moonbit_test_driver_internal_with_args_tests\n",
+                        &MooncGenTestInfo::section_to_mbt(&data.with_args_tests),
+                    )
+                    .as_str(),
+            );
         }
         if has_any_async {
-            template.push_str(TEMPLATE_ASYNC_RUNTIME);
+            template.push_str(
+                TEMPLATE_ASYNC_RUNTIME
+                    .replace(
+                        "0 // REPLACE ME: moonbit_test_driver_internal_max_concurrent_tests",
+                        &format!("{}", max_concurrent_tests.unwrap_or(10)),
+                    )
+                    .as_str(),
+            );
         }
         if has_no_args_async {
-            template.push_str(TEMPLATE_NO_ARGS_ASYNC);
+            template.push_str(
+                TEMPLATE_NO_ARGS_ASYNC
+                    .replace(
+                        "{} // REPLACE ME: moonbit_test_driver_internal_async_tests\n",
+                        &MooncGenTestInfo::section_to_mbt(&data.async_tests),
+                    )
+                    .as_str(),
+            );
         }
         if has_with_args_async {
-            template.push_str(TEMPLATE_WITH_ARGS_ASYNC);
+            template.push_str(
+                TEMPLATE_WITH_ARGS_ASYNC
+                    .replace(
+                        "{} // REPLACE ME: moonbit_test_driver_internal_async_tests_with_args\n",
+                        &MooncGenTestInfo::section_to_mbt(&data.async_tests_with_args),
+                    )
+                    .as_str(),
+            );
         }
     }
 
@@ -305,40 +347,6 @@ fn generate_driver(
         format!("{coverage_package_name}end();")
     } else {
         "".into()
-    };
-
-    let template = template
-        .replace(
-            "{} // REPLACE ME: moonbit_test_driver_internal_no_args_tests\n",
-            &MooncGenTestInfo::section_to_mbt(&data.no_args_tests),
-        )
-        .replace(
-            "{} // REPLACE ME: moonbit_test_driver_internal_with_args_tests\n",
-            &MooncGenTestInfo::section_to_mbt(&data.with_args_tests),
-        )
-        .replace(
-            "{} // REPLACE ME: moonbit_test_driver_internal_async_tests\n",
-            &MooncGenTestInfo::section_to_mbt(&data.async_tests),
-        )
-        .replace(
-            "{} // REPLACE ME: moonbit_test_driver_internal_async_tests_with_args\n",
-            &MooncGenTestInfo::section_to_mbt(&data.async_tests_with_args),
-        )
-        .replace(
-            "{} // REPLACE ME: moonbit_test_driver_internal_with_bench_args_tests\n",
-            &MooncGenTestInfo::section_to_mbt(&data.with_bench_args_tests),
-        );
-
-    let template = if let Some(max_concurrent_tests) = max_concurrent_tests {
-        template.replace(
-            "let moonbit_test_driver_internal_max_concurrent_tests : Int = 10",
-            &format!(
-                "let moonbit_test_driver_internal_max_concurrent_tests : Int = {}",
-                max_concurrent_tests,
-            ),
-        )
-    } else {
-        template
     };
 
     let template = template

@@ -9,11 +9,8 @@ trait MoonBit_Async_Test_Driver {
 }
 
 ///|
-let moonbit_test_driver_internal_max_concurrent_tests : Int = 10
-
-///|
 impl MoonBit_Async_Test_Driver with run_async_tests(_) {
-  ignore(moonbit_test_driver_internal_max_concurrent_tests)
+  ()
 }
 
 ///|

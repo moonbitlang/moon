@@ -6,6 +6,7 @@
 impl MoonBit_Async_Test_Driver for MoonBit_Async_Test_Driver_Impl with run_async_tests(
   tests,
 ) {
+  let moonbit_test_driver_internal_max_concurrent_tests : Int = 0 // REPLACE ME: moonbit_test_driver_internal_max_concurrent_tests
   @moonbitlang/async.run_async_main(() => @moonbitlang/async.with_task_group(group => {
     let mut i = 0
     for _ in 0..<moonbit_test_driver_internal_max_concurrent_tests {
