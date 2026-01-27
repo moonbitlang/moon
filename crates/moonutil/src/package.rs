@@ -807,7 +807,13 @@ pub fn convert_pkg_dsl_to_package(json: Value) -> anyhow::Result<MoonPkg> {
     // It will validate the top-level keys and merge `options` into the root level.
     // Might be removed in the future, after we remove the moon.pkg.json and have an
     // AST to represent moon.pkg files.
-    let allowed_toplevel_keys = ["import", "wbtest-import", "test-import", "options"];
+    let allowed_toplevel_keys = [
+        "import",
+        "wbtest-import",
+        "test-import",
+        "options",
+        "warnings",
+    ];
     let json = match json {
         Value::Object(mut map) => {
             for key in map.keys() {
@@ -819,10 +825,22 @@ pub fn convert_pkg_dsl_to_package(json: Value) -> anyhow::Result<MoonPkg> {
                 for (k, v) in options {
                     map.insert(k, v);
                 }
-                Value::Object(map)
-            } else {
-                Value::Object(map)
             }
+            if let Some(warnings) = map.remove("warnings") {
+                let warnings = match warnings {
+                    Value::String(s) => s,
+                    _ => String::new(),
+                };
+                let legacy_warn_list = match map.remove("warn-list") {
+                    Some(Value::String(s)) => s,
+                    _ => String::new(),
+                };
+                let merged = format!("{warnings}{legacy_warn_list}");
+                if !merged.is_empty() {
+                    map.insert(String::from("warn-list"), Value::String(merged));
+                }
+            }
+            Value::Object(map)
         }
         _ => json,
     };

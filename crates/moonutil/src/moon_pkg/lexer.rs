@@ -297,9 +297,10 @@ import {
   "path/to/pkg1",
 } for "test"
 
+warnings = "-fragile_match+all@deprecated_syntax"
+
 options(
   "is_main": true,
-  warnings: "-fragile_match+all@deprecated_syntax",
   formatter: {
     "ignore": [
       "file1.mbt",
@@ -499,6 +500,39 @@ options(
                             column: 1,
                         }..Pos {
                             line: 10,
+                            column: 9,
+                        },
+                        "warnings",
+                    ),
+                ),
+                EQUAL(
+                    Pos {
+                        line: 10,
+                        column: 10,
+                    }..Pos {
+                        line: 10,
+                        column: 11,
+                    },
+                ),
+                STRING(
+                    (
+                        Pos {
+                            line: 10,
+                            column: 12,
+                        }..Pos {
+                            line: 10,
+                            column: 50,
+                        },
+                        "-fragile_match+all@deprecated_syntax",
+                    ),
+                ),
+                LIDENT(
+                    (
+                        Pos {
+                            line: 12,
+                            column: 1,
+                        }..Pos {
+                            line: 12,
                             column: 8,
                         },
                         "options",
@@ -506,20 +540,20 @@ options(
                 ),
                 LPAREN(
                     Pos {
-                        line: 10,
+                        line: 12,
                         column: 8,
                     }..Pos {
-                        line: 10,
+                        line: 12,
                         column: 9,
                     },
                 ),
                 STRING(
                     (
                         Pos {
-                            line: 11,
+                            line: 13,
                             column: 3,
                         }..Pos {
-                            line: 11,
+                            line: 13,
                             column: 12,
                         },
                         "is_main",
@@ -527,80 +561,38 @@ options(
                 ),
                 COLON(
                     Pos {
-                        line: 11,
+                        line: 13,
                         column: 12,
                     }..Pos {
-                        line: 11,
+                        line: 13,
                         column: 13,
                     },
                 ),
                 TRUE(
                     Pos {
-                        line: 11,
+                        line: 13,
                         column: 14,
                     }..Pos {
-                        line: 11,
+                        line: 13,
                         column: 18,
                     },
                 ),
                 COMMA(
                     Pos {
-                        line: 11,
+                        line: 13,
                         column: 18,
                     }..Pos {
-                        line: 11,
+                        line: 13,
                         column: 19,
                     },
                 ),
                 LIDENT(
                     (
                         Pos {
-                            line: 12,
+                            line: 14,
                             column: 3,
                         }..Pos {
-                            line: 12,
-                            column: 11,
-                        },
-                        "warnings",
-                    ),
-                ),
-                COLON(
-                    Pos {
-                        line: 12,
-                        column: 11,
-                    }..Pos {
-                        line: 12,
-                        column: 12,
-                    },
-                ),
-                STRING(
-                    (
-                        Pos {
-                            line: 12,
-                            column: 13,
-                        }..Pos {
-                            line: 12,
-                            column: 51,
-                        },
-                        "-fragile_match+all@deprecated_syntax",
-                    ),
-                ),
-                COMMA(
-                    Pos {
-                        line: 12,
-                        column: 51,
-                    }..Pos {
-                        line: 12,
-                        column: 52,
-                    },
-                ),
-                LIDENT(
-                    (
-                        Pos {
-                            line: 13,
-                            column: 3,
-                        }..Pos {
-                            line: 13,
+                            line: 14,
                             column: 12,
                         },
                         "formatter",
@@ -608,29 +600,29 @@ options(
                 ),
                 COLON(
                     Pos {
-                        line: 13,
+                        line: 14,
                         column: 12,
                     }..Pos {
-                        line: 13,
+                        line: 14,
                         column: 13,
                     },
                 ),
                 LBRACE(
                     Pos {
-                        line: 13,
+                        line: 14,
                         column: 14,
                     }..Pos {
-                        line: 13,
+                        line: 14,
                         column: 15,
                     },
                 ),
                 STRING(
                     (
                         Pos {
-                            line: 14,
+                            line: 15,
                             column: 5,
                         }..Pos {
-                            line: 14,
+                            line: 15,
                             column: 13,
                         },
                         "ignore",
@@ -638,29 +630,29 @@ options(
                 ),
                 COLON(
                     Pos {
-                        line: 14,
+                        line: 15,
                         column: 13,
                     }..Pos {
-                        line: 14,
+                        line: 15,
                         column: 14,
                     },
                 ),
                 LBRACKET(
                     Pos {
-                        line: 14,
+                        line: 15,
                         column: 15,
                     }..Pos {
-                        line: 14,
+                        line: 15,
                         column: 16,
                     },
                 ),
                 STRING(
                     (
                         Pos {
-                            line: 15,
+                            line: 16,
                             column: 7,
                         }..Pos {
-                            line: 15,
+                            line: 16,
                             column: 18,
                         },
                         "file1.mbt",
@@ -668,64 +660,64 @@ options(
                 ),
                 COMMA(
                     Pos {
-                        line: 15,
+                        line: 16,
                         column: 18,
                     }..Pos {
-                        line: 15,
+                        line: 16,
                         column: 19,
                     },
                 ),
                 RBRACKET(
                     Pos {
-                        line: 16,
+                        line: 17,
                         column: 5,
                     }..Pos {
-                        line: 16,
+                        line: 17,
                         column: 6,
                     },
                 ),
                 COMMA(
                     Pos {
-                        line: 16,
+                        line: 17,
                         column: 6,
                     }..Pos {
-                        line: 16,
+                        line: 17,
                         column: 7,
                     },
                 ),
                 RBRACE(
                     Pos {
-                        line: 17,
+                        line: 18,
                         column: 3,
                     }..Pos {
-                        line: 17,
+                        line: 18,
                         column: 4,
                     },
                 ),
                 COMMA(
                     Pos {
-                        line: 17,
+                        line: 18,
                         column: 4,
                     }..Pos {
-                        line: 17,
+                        line: 18,
                         column: 5,
                     },
                 ),
                 RPAREN(
                     Pos {
-                        line: 18,
+                        line: 19,
                         column: 1,
                     }..Pos {
-                        line: 18,
+                        line: 19,
                         column: 2,
                     },
                 ),
                 EOF(
                     Pos {
-                        line: 20,
+                        line: 21,
                         column: 3,
                     }..Pos {
-                        line: 20,
+                        line: 21,
                         column: 3,
                     },
                 ),
