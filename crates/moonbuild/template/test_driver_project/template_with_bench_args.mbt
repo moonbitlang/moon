@@ -11,6 +11,8 @@ impl MoonBit_Test_Driver for MoonBit_Test_Driver_Internal_With_Bench_Args with r
   _,
   filename,
   index,
+  handle_result,
+  error_to_string,
 ) {
   if moonbit_test_driver_internal_with_bench_args_tests.0.get(filename)
     is Some(index_map) &&
@@ -28,21 +30,9 @@ impl MoonBit_Test_Driver for MoonBit_Test_Driver_Internal_With_Bench_Args with r
       () => f(bench),
       on_ok=() => {
         let s = bench.dump_summaries()
-        moonbit_test_driver_internal_handle_result(
-          filename,
-          index,
-          name,
-          "@BATCH_BENCH { \"summaries\": \{s} }",
-          false,
-        )
+        handle_result(name, "@BATCH_BENCH { \"summaries\": \{s} }", false)
       },
-      on_err=err => moonbit_test_driver_internal_handle_result(
-        filename,
-        index,
-        name,
-        moonbit_test_driver_internal_error_to_string(err),
-        false,
-      ),
+      on_err=err => handle_result(name, error_to_string(err), false),
     )
     true
   } else {

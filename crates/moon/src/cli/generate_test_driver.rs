@@ -252,6 +252,7 @@ fn generate_driver(
     coverage_package_override: Option<&str>,
     max_concurrent_tests: Option<u32>,
 ) -> String {
+    // Driver selection : determine which templates to include
     let has_no_args = data.no_args_tests.values().any(|v| !v.is_empty());
     let has_with_args = data.with_args_tests.values().any(|v| !v.is_empty());
     let has_no_args_async = data.async_tests.values().any(|v| !v.is_empty());

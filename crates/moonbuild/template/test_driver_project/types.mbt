@@ -1,6 +1,8 @@
 // #region Define traits with default implementations
 
 ///|
+/// is_being_cancelled may be unused if there's no async test
+#warnings("-unused_value")
 trait MoonBit_Async_Test_Driver {
   run_async_tests(@moonbitlang/core/prelude.Array[async () -> Unit]) -> Unit = _
   is_being_cancelled() -> Bool = _
@@ -22,11 +24,17 @@ impl MoonBit_Async_Test_Driver with is_being_cancelled() {
 ///|
 trait MoonBit_Test_Driver {
   /// returns if the test is found and executed
-  run_test(@moonbitlang/core/prelude.Array[async () -> Unit], String, Int) -> Bool raise MoonBitTestDriverInternalSkipTest = _
+  run_test(
+    @moonbitlang/core/prelude.Array[async () -> Unit],
+    String,
+    Int,
+    (String, String, Bool) -> Unit,
+    (Error) -> String,
+  ) -> Bool raise MoonBitTestDriverInternalSkipTest = _
 }
 
 ///|
-impl MoonBit_Test_Driver with run_test(_, _, _) {
+impl MoonBit_Test_Driver with run_test(_, _, _, _, _) {
   false
 }
 
@@ -34,37 +42,37 @@ impl MoonBit_Test_Driver with run_test(_, _, _) {
 // #region Define abstract types for namespace with implementation declarations
 
 ///|
-type MoonBit_Test_Driver_Internal_No_Args
+priv type MoonBit_Test_Driver_Internal_No_Args
 
 ///|
 impl MoonBit_Test_Driver for MoonBit_Test_Driver_Internal_No_Args
 
 ///|
-type MoonBit_Test_Driver_Internal_With_Args
+priv type MoonBit_Test_Driver_Internal_With_Args
 
 ///|
 impl MoonBit_Test_Driver for MoonBit_Test_Driver_Internal_With_Args
 
 ///|
-type MoonBit_Test_Driver_Internal_Async_No_Args
+priv type MoonBit_Test_Driver_Internal_Async_No_Args
 
 ///|
 impl MoonBit_Test_Driver for MoonBit_Test_Driver_Internal_Async_No_Args
 
 ///|
-type MoonBit_Test_Driver_Internal_Async_With_Args
+priv type MoonBit_Test_Driver_Internal_Async_With_Args
 
 ///|
 impl MoonBit_Test_Driver for MoonBit_Test_Driver_Internal_Async_With_Args
 
 ///|
-type MoonBit_Test_Driver_Internal_With_Bench_Args
+priv type MoonBit_Test_Driver_Internal_With_Bench_Args
 
 ///|
 impl MoonBit_Test_Driver for MoonBit_Test_Driver_Internal_With_Bench_Args
 
 ///|
-type MoonBit_Async_Test_Driver_Impl
+priv type MoonBit_Async_Test_Driver_Impl
 
 ///|
 impl MoonBit_Async_Test_Driver for MoonBit_Async_Test_Driver_Impl
@@ -74,6 +82,8 @@ impl MoonBit_Async_Test_Driver for MoonBit_Async_Test_Driver_Impl
 // #region Utility Types
 
 ///|
+/// Maybe unused if there's no tests
+#warnings("-unused_type_declaration")
 priv struct MoonBitTestDriverInternalTestMap[F](
   @moonbitlang/core/prelude.Map[
     String,
@@ -85,7 +95,7 @@ priv struct MoonBitTestDriverInternalTestMap[F](
 )
 
 ///|
-suberror MoonBitTestDriverInternalSkipTest {
+priv suberror MoonBitTestDriverInternalSkipTest {
   MoonBitTestDriverInternalSkipTest(name~ : String)
 }
 

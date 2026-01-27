@@ -10,6 +10,13 @@ fn main {
 }
 
 ///|
+#cfg(not(target="native"))
+#test_entry
+fn main {
+  ()
+}
+
+///|
 #cfg(target="js")
 pub fn moonbit_test_driver_internal_execute(
   tests : Array[MoonBitTestDriverInternalTestEntry],
@@ -50,64 +57,56 @@ fn moonbit_test_driver_internal_do_execute(
   filename : String,
   index : Int,
 ) -> Unit {
+  // These two are internalized to avoid unused warnings
+
+  fn handle_result(testname : String, message : String, skipped : Bool) {
+    // In WASM, this function is called by the external test driver, but here
+    // in native mode there's nothing that calls it, so we call it manually.
+    if not(skipped) && MOONBIT_TEST_DRIVER_INTERNAL_IS_NATIVE {
+      // {COVERAGE_END}
+    }
+    let file_name = filename.escape()
+    let test_name = testname.escape()
+    let message = message.escape()
+    @moonbitlang/core/prelude.println("{BEGIN_MOONTEST}")
+    @moonbitlang/core/prelude.println(
+      "{\"package\": \"{PACKAGE}\", \"filename\": \{file_name}, \"index\": \"\{index}\", \"test_name\": \{test_name}, \"message\": \{message}}",
+    )
+    @moonbitlang/core/prelude.println("{END_MOONTEST}")
+  }
+
+  fn error_to_string(err : Error) -> String {
+    match err {
+      @moonbitlang/core/prelude.Failure::Failure(e)
+      | @moonbitlang/core/prelude.InspectError::InspectError(e)
+      | @moonbitlang/core/prelude.SnapshotError::SnapshotError(e)
+      | MoonBitTestDriverInternalJsError(e) => e
+      e => moonbit_test_driver_internal_error_to_string(e)
+    }
+  }
+
   try {
     if !(MoonBit_Test_Driver_Internal_No_Args::run_test(
-        async_tests, filename, index,
+        async_tests, filename, index, handle_result, error_to_string,
       ) ||
       MoonBit_Test_Driver_Internal_With_Args::run_test(
-        async_tests, filename, index,
+        async_tests, filename, index, handle_result, error_to_string,
       ) ||
       MoonBit_Test_Driver_Internal_Async_No_Args::run_test(
-        async_tests, filename, index,
+        async_tests, filename, index, handle_result, error_to_string,
       ) ||
       MoonBit_Test_Driver_Internal_Async_With_Args::run_test(
-        async_tests, filename, index,
+        async_tests, filename, index, handle_result, error_to_string,
       ) ||
       MoonBit_Test_Driver_Internal_With_Bench_Args::run_test(
-        async_tests, filename, index,
+        async_tests, filename, index, handle_result, error_to_string,
       )) {
       raise MoonBitTestDriverInternalSkipTest(name="")
     }
   } catch {
     err => {
       guard err is MoonBitTestDriverInternalSkipTest(name~)
-      moonbit_test_driver_internal_handle_result(
-        filename, index, name, "skipped test", true,
-      )
+      handle_result(name, "skipped test", true)
     }
-  }
-}
-
-///|
-fn moonbit_test_driver_internal_handle_result(
-  filename : String,
-  index : Int,
-  testname : String,
-  message : String,
-  skipped : Bool,
-) -> Unit {
-  // In WASM, this function is called by the external test driver, but here
-  // in native mode there's nothing that calls it, so we call it manually.
-  if not(skipped) && MOONBIT_TEST_DRIVER_INTERNAL_IS_NATIVE {
-    // {COVERAGE_END}
-  }
-  let file_name = filename.escape()
-  let test_name = testname.escape()
-  let message = message.escape()
-  @moonbitlang/core/prelude.println("{BEGIN_MOONTEST}")
-  @moonbitlang/core/prelude.println(
-    "{\"package\": \"{PACKAGE}\", \"filename\": \{file_name}, \"index\": \"\{index}\", \"test_name\": \{test_name}, \"message\": \{message}}",
-  )
-  @moonbitlang/core/prelude.println("{END_MOONTEST}")
-}
-
-///|
-fn moonbit_test_driver_internal_error_to_string(err : Error) -> String {
-  match err {
-    @moonbitlang/core/prelude.Failure::Failure(msg)
-    | @moonbitlang/core/prelude.InspectError::InspectError(msg)
-    | @moonbitlang/core/prelude.SnapshotError::SnapshotError(msg)
-    | MoonBitTestDriverInternalJsError(msg) => msg
-    e => moonbit_test_driver_internal_error_to_string_intrinsic(e)
   }
 }

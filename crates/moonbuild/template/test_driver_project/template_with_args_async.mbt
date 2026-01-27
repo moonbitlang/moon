@@ -11,6 +11,8 @@ impl MoonBit_Test_Driver for MoonBit_Test_Driver_Internal_Async_With_Args with r
   async_tests,
   filename,
   index,
+  handle_result,
+  error_to_string,
 ) {
   if moonbit_test_driver_internal_async_tests_with_args.0.get(filename)
     is Some(index_map) &&
@@ -25,19 +27,9 @@ impl MoonBit_Test_Driver for MoonBit_Test_Driver_Internal_Async_With_Args with r
     }
     async_tests.push(() => try f(@moonbitlang/core/test.new(name)) catch {
       err if MoonBit_Async_Test_Driver_Impl::is_being_cancelled() => raise err
-      err =>
-        moonbit_test_driver_internal_handle_result(
-          filename,
-          index,
-          name,
-          moonbit_test_driver_internal_error_to_string(err),
-          false,
-        )
+      err => handle_result(name, error_to_string(err), false)
     } noraise {
-      _ =>
-        moonbit_test_driver_internal_handle_result(
-          filename, index, name, "", false,
-        )
+      _ => handle_result(name, "", false)
     })
     true
   } else {
