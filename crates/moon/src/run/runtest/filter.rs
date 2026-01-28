@@ -24,7 +24,7 @@ use moonbuild_rupes_recta::{
     cond_comp::FileTestKind,
     model::{BuildTarget, PackageId, TargetKind},
 };
-use moonutil::common::{MbtTestInfo, MooncGenTestInfo, glob_match};
+use moonutil::common::{MbtTestInfo, MooncGenTestInfo, TestIndexRange, glob_match};
 
 use crate::run::TestIndex;
 
@@ -34,8 +34,46 @@ use crate::run::TestIndex;
 /// [`PackageFilter`], and files within a single kind of test have only one
 /// numbering sequence, so there's no need to distinguish between regular tests
 /// and doc tests here.
-#[derive(Default, Debug, Clone, PartialEq, Eq)]
-pub struct IndexFilter(pub BTreeSet<u32>);
+#[derive(Default, Clone, PartialEq, Eq)]
+pub struct IndexFilter {
+    singles: BTreeSet<u32>,
+    ranges: Vec<Range<u32>>,
+}
+
+impl IndexFilter {
+    pub fn insert_index(&mut self, index: u32) {
+        self.singles.insert(index);
+    }
+
+    pub fn insert_range(&mut self, range: TestIndexRange) {
+        self.ranges.push(range.as_range());
+    }
+
+    pub fn contains(&self, index: u32) -> bool {
+        if self.singles.contains(&index) {
+            return true;
+        }
+        self.ranges.iter().any(|r| r.contains(&index))
+    }
+}
+
+impl std::fmt::Debug for IndexFilter {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        if self.ranges.is_empty() {
+            return f.debug_tuple("IndexFilter").field(&self.singles).finish();
+        }
+        if self.singles.is_empty() {
+            return f
+                .debug_struct("IndexFilter")
+                .field("ranges", &self.ranges)
+                .finish();
+        }
+        f.debug_struct("IndexFilter")
+            .field("singles", &self.singles)
+            .field("ranges", &self.ranges)
+            .finish()
+    }
+}
 
 /// File-level filter within a package.
 /// - Key: file path (exact match).
@@ -69,7 +107,12 @@ impl TestFilter {
     /// - (pkg, None, _) => package wildcard; discards any file/index subfilters
     /// - (pkg, Some(file), None) => file wildcard; discards any index set for that file
     /// - (pkg, Some(file), Some(index)) => adds that index unless the path is already wildcarded
-    pub fn add_one(&mut self, pkg: Option<BuildTarget>, file: Option<&str>, index: Option<u32>) {
+    pub fn add_one(
+        &mut self,
+        pkg: Option<BuildTarget>,
+        file: Option<&str>,
+        index: Option<TestIndexRange>,
+    ) {
         if let Some(pkg) = pkg {
             let pf = self.filter.get_or_insert_with(Default::default);
             pf.add_one(pkg, file, index);
@@ -111,7 +154,7 @@ impl TestFilter {
                 self.add_one(
                     Some(pkg.build_target(target)),
                     Some(file),
-                    index.map(TestIndex::value),
+                    index.map(TestIndex::range),
                 );
             }
         } else {
@@ -120,7 +163,7 @@ impl TestFilter {
                 self.add_one(
                     Some(pkg.build_target(target)),
                     None,
-                    index.map(TestIndex::value),
+                    index.map(TestIndex::range),
                 );
             }
         }
@@ -148,7 +191,7 @@ impl TestFilter {
 
 /// Package-level helpers for constructing filters.
 impl PackageFilter {
-    pub fn add_one(&mut self, pkg: BuildTarget, file: Option<&str>, index: Option<u32>) {
+    pub fn add_one(&mut self, pkg: BuildTarget, file: Option<&str>, index: Option<TestIndexRange>) {
         if let Some(v) = self.0.get_mut(&pkg) {
             match (file, v) {
                 (None, v) => *v = None, // wildcard package, nothing more to do
@@ -175,19 +218,31 @@ impl PackageFilter {
 }
 
 impl FileFilter {
-    pub fn add_one(&mut self, file: &str, index: Option<u32>) {
+    pub fn add_one(&mut self, file: &str, index: Option<TestIndexRange>) {
         if let Some(v) = self.0.get_mut(file) {
             match (index, v) {
                 (None, v) => *v = None,
                 (Some(_), None) => {} // already wildcarded
                 (Some(i), Some(ixf)) => {
-                    ixf.0.insert(i);
+                    if i.end == i.start + 1 {
+                        ixf.insert_index(i.start);
+                    } else {
+                        ixf.insert_range(i);
+                    }
                 }
             }
         } else {
             self.0.insert(
                 file.to_string(),
-                index.map(|i| IndexFilter([i].into_iter().collect())),
+                index.map(|i| {
+                    let mut ixf = IndexFilter::default();
+                    if i.end == i.start + 1 {
+                        ixf.insert_index(i.start);
+                    } else {
+                        ixf.insert_range(i);
+                    }
+                    ixf
+                }),
             );
         }
     }
@@ -263,7 +318,7 @@ pub fn apply_filter(
                             }
                             Some(ixf) => {
                                 for t in tests {
-                                    if ixf.0.contains(&t.index) {
+                                    if ixf.contains(t.index) {
                                         // Apply name filter for specific index selection
                                         let name_matches = match (name_filter, &t.name) {
                                             (Some(pattern), Some(name)) => {
@@ -291,7 +346,7 @@ pub fn apply_filter(
 #[cfg(test)]
 mod test {
     use expect_test::expect;
-    use moonutil::common::{MbtTestInfo, MooncGenTestInfo, glob_match};
+    use moonutil::common::{MbtTestInfo, MooncGenTestInfo, TestIndexRange, glob_match};
 
     fn example_meta() -> MooncGenTestInfo {
         MooncGenTestInfo {
@@ -418,8 +473,8 @@ mod test {
         let meta = example_meta();
         let mut ff = super::FileFilter::default();
         // Only allow specific indices for file1.mbt; others should be excluded
-        ff.add_one("file1.mbt", Some(1));
-        ff.add_one("file1.mbt", Some(4));
+        ff.add_one("file1.mbt", Some(TestIndexRange::from_single(1).unwrap()));
+        ff.add_one("file1.mbt", Some(TestIndexRange::from_single(4).unwrap()));
 
         expect![[r#"FileFilter({"file1.mbt": Some(IndexFilter({1, 4}))})"#]]
             .assert_eq(&format!("{:?}", ff));
@@ -436,9 +491,12 @@ mod test {
         let mut ff = super::FileFilter::default();
 
         // Mixed: specific indices for one file, wildcard for another, and a with-args file with a single allowed index
-        ff.add_one("file1.mbt", Some(0)); // allow only index 0 in file1.mbt
+        ff.add_one("file1.mbt", Some(TestIndexRange::from_single(0).unwrap())); // allow only index 0 in file1.mbt
         ff.add_one("doc_tests.mbt", None); // allow all in doc_tests.mbt
-        ff.add_one("param_file.mbt", Some(0)); // allow only index 0 in param_file.mbt
+        ff.add_one(
+            "param_file.mbt",
+            Some(TestIndexRange::from_single(0).unwrap()),
+        ); // allow only index 0 in param_file.mbt
 
         expect![[r#"FileFilter({"file1.mbt": Some(IndexFilter({0})), "doc_tests.mbt": None, "param_file.mbt": Some(IndexFilter({0}))})"#]]
         .assert_eq(&format!("{:?}", ff));

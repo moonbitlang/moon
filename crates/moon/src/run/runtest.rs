@@ -83,6 +83,7 @@ use tokio::runtime::Runtime;
 use tracing::{debug, info, instrument, trace, warn};
 
 use crate::{rr_build::BuildMeta, run::default_rt};
+use moonutil::common::TestIndexRange;
 
 pub use filter::TestFilter;
 pub use promotion::perform_promotion;
@@ -115,14 +116,13 @@ impl TestCaseResult {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum TestIndex {
     /// A regular test block, i.e. `test { ... }`
-    Regular(u32),
+    Regular(TestIndexRange),
     /// A doctest block after `///`
-    DocTest(u32),
+    DocTest(TestIndexRange),
 }
 
 impl TestIndex {
-    /// Extract the value of the index, when there is no ambiguity.
-    pub fn value(self) -> u32 {
+    pub fn range(self) -> TestIndexRange {
         match self {
             TestIndex::Regular(v) => v,
             TestIndex::DocTest(v) => v,
