@@ -134,6 +134,7 @@ Filtering is handled by `TestFilter` (`runtest/filter.rs`). It stores allowed
 
 - `--index N` selects a single inline test (the index is taken from the generated
   metadata, displayed in failure output as `#N`).
+- `--index A-B` selects an inclusive range (end included).
 - `--doc-index N` selects a single doc test block.
 - When a positional `PATH` points to a file, the indexes can be provided without an
   explicit `--file`. Otherwise, the CLI requires `--file` whenever `--index` or

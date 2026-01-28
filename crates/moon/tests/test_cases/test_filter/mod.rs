@@ -823,6 +823,31 @@ fn test_moon_test_filter_index() {
 }
 
 #[test]
+fn test_moon_test_filter_index_range() {
+    let dir = TestDir::new("test_filter/test_filter");
+
+    check(
+        get_stdout(
+            &dir,
+            [
+                "test",
+                "-p",
+                "username/hello/A",
+                "-f",
+                "hello.mbt",
+                "-i",
+                "0-1",
+            ],
+        ),
+        expect![[r#"
+            test A
+            test B
+            Total tests: 2, passed: 2, failed: 0.
+        "#]],
+    );
+}
+
+#[test]
 fn test_moon_test_filter_index_with_auto_update() {
     let dir = TestDir::new("test_filter/test_filter");
 

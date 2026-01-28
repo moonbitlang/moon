@@ -17,7 +17,11 @@
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
 use anyhow::Context;
-use moonutil::{common::lower_surface_targets, dirs::PackageDirs, mooncakes::sync::AutoSyncFlags};
+use moonutil::{
+    common::{TestIndexRange, lower_surface_targets},
+    dirs::PackageDirs,
+    mooncakes::sync::AutoSyncFlags,
+};
 use std::path::Path;
 use tracing::{Level, instrument};
 
@@ -37,9 +41,10 @@ pub struct BenchSubcommand {
     #[clap(short, long, requires("package"))]
     pub file: Option<String>,
 
-    /// Run only the index-th test in the file. Only valid when `--file` is also specified.
+    /// Run only the index-th test in the file. Accepts a single index or an inclusive
+    /// range like `0-2`. Only valid when `--file` is also specified.
     #[clap(short, long, requires("file"))]
-    pub index: Option<u32>,
+    pub index: Option<TestIndexRange>,
 
     #[clap(flatten)]
     pub auto_sync_flags: AutoSyncFlags,

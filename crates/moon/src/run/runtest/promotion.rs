@@ -26,6 +26,7 @@ use tracing::info;
 use crate::run::runtest::{
     ReplaceableTestResults, TestCaseResult, TestResultKind, filter::PackageFilter,
 };
+use moonutil::common::TestIndexRange;
 
 /// Perform promotion on all test snapshots and expect tests met. Returns
 /// the total number of tests promoted, along with a filter indicating which
@@ -45,13 +46,21 @@ pub fn perform_promotion(
                 match result.kind {
                     TestResultKind::SnapshotTestFailed => {
                         info!(?target, file, idx, "Need to update snapshot");
-                        res.add_one(*target, Some(file), Some(*idx));
+                        res.add_one(
+                            *target,
+                            Some(file),
+                            Some(TestIndexRange::from_single(*idx)?),
+                        );
                         to_update_snapshot.push(result);
                         count += 1;
                     }
                     TestResultKind::ExpectTestFailed => {
                         info!(?target, file, idx, "Need to update expect");
-                        res.add_one(*target, Some(file), Some(*idx));
+                        res.add_one(
+                            *target,
+                            Some(file),
+                            Some(TestIndexRange::from_single(*idx)?),
+                        );
                         to_update_expect.push(result);
                         count += 1;
                     }
