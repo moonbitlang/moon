@@ -90,10 +90,10 @@ fn test_js_format() {
             .unwrap()
             .replace_crlf_to_lf(),
         expect![[r#"
-            function username$hello$lib0$$hello() {
+            function _M0FP38username5hello4lib05hello() {
               return "Hello, world!";
             }
-            export { username$hello$lib0$$hello as hello }
+            export { _M0FP38username5hello4lib05hello as hello }
         "#]],
     );
     check(
@@ -101,10 +101,10 @@ fn test_js_format() {
             .unwrap()
             .replace_crlf_to_lf(),
         expect![[r#"
-            function username$hello$lib1$$hello() {
+            function _M0FP38username5hello4lib15hello() {
               return "Hello, world!";
             }
-            export { username$hello$lib1$$hello as hello }
+            export { _M0FP38username5hello4lib15hello as hello }
         "#]],
     );
     check(
@@ -112,10 +112,10 @@ fn test_js_format() {
             .unwrap()
             .replace_crlf_to_lf(),
         expect![[r#"
-            function username$hello$lib2$$hello() {
+            function _M0FP38username5hello4lib25hello() {
               return "Hello, world!";
             }
-            exports.hello = username$hello$lib2$$hello;
+            exports.hello = _M0FP38username5hello4lib25hello;
         "#]],
     );
     check(
@@ -124,10 +124,10 @@ fn test_js_format() {
             .replace_crlf_to_lf(),
         expect![[r#"
             (() => {
-              function username$hello$lib3$$hello() {
+              function _M0FP38username5hello4lib35hello() {
                 return "Hello, world!";
               }
-              globalThis.hello = username$hello$lib3$$hello;
+              globalThis.hello = _M0FP38username5hello4lib35hello;
             })();
         "#]],
     );

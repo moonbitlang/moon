@@ -142,11 +142,6 @@
     },
     {
       "root": "moonbitlang/core",
-      "rel": "immut/list",
-      "artifact": "$MOON_HOME/lib/core/target/wasm-gc/release/bundle/immut/list/list.mi"
-    },
-    {
-      "root": "moonbitlang/core",
       "rel": "immut/priority_queue",
       "artifact": "$MOON_HOME/lib/core/target/wasm-gc/release/bundle/immut/priority_queue/priority_queue.mi"
     },
