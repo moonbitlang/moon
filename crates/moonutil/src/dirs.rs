@@ -22,11 +22,13 @@ use std::{
     hash::Hasher,
     io::{Read, Write},
     path::{Path, PathBuf},
+    sync::atomic::{AtomicBool, Ordering},
 };
 
 use anyhow::Context;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
+use tracing::warn;
 
 use crate::common::{
     BUILD_DIR, IGNORE_DIRS, LEGACY_BUILD_DIR, MOON_MOD_JSON, MooncOpt, RunMode, get_moon_version,
@@ -45,11 +47,36 @@ pub enum PackageDirsError {
 
 #[derive(Debug, clap::Parser, Serialize, Deserialize, Clone)]
 pub struct SourceTargetDirs {
-    /// The source code directory. Defaults to the current directory.
-    #[arg(long = "directory", global = true, alias = "source-dir", short = 'C')]
+    // NOTE: This is a transitional split of "working directory" vs "project root".
+    // See https://github.com/moonbitlang/moon/issues/1411.
+    //
+    // - `--cwd` changes the process working directory early (like `cd DIR && moon ...`).
+    // - `--source-dir` selects where we look for `moon.mod.json` (no chdir).
+    // - `-C/--directory` is deprecated and currently keeps its historical meaning
+    //   (project discovery only). It is expected to become the real chdir flag in a
+    //   future breaking release.
+    /// Change to DIR before doing anything else. This affects path options (e.g. `--source-dir`,
+    /// `--target-dir`) in that their interpretations of relative paths are made relative to DIR.
+    /// For example, `moon --cwd DIR <cmd>` is equivalent to `cd DIR && moon <cmd>`.
+    #[arg(long = "cwd", global = true, value_name = "DIR")]
+    pub cwd: Option<PathBuf>,
+
+    /// The source directory used to locate `moon.mod.json`. Defaults to the current directory (after `--cwd`).
+    #[arg(long = "source-dir", global = true, value_name = "DIR")]
     pub source_dir: Option<PathBuf>,
 
-    /// The target directory. Defaults to `source_dir/target`.
+    /// [Deprecated] The source directory used to locate `moon.mod.json`. Use `--source-dir` instead.
+    #[arg(
+        long = "directory",
+        global = true,
+        short = 'C',
+        value_name = "DIR",
+        conflicts_with = "source_dir",
+        conflicts_with = "cwd"
+    )]
+    pub directory: Option<PathBuf>,
+
+    /// The target directory. Defaults to `<project-root>/target`.
     #[clap(long, global = true)]
     pub target_dir: Option<PathBuf>,
 }
@@ -117,17 +144,35 @@ pub fn create_legacy_symlink(project_root: &Path) {
 }
 
 fn get_src_dst_dir(matches: &SourceTargetDirs) -> Result<PackageDirs, PackageDirsError> {
-    let source_dir = match matches.source_dir.clone() {
+    static WARNED_ANCESTOR_DISCOVERY: AtomicBool = AtomicBool::new(false);
+
+    let start_dir = match matches
+        .source_dir
+        .clone()
+        .or_else(|| matches.directory.clone())
+    {
         Some(v) => v,
         None => std::env::current_dir()
             .context("failed to get current directory")
             .map_err(PackageDirsError::from)?,
     };
-    let source_dir = dunce::canonicalize(source_dir)
+    let start_dir = dunce::canonicalize(start_dir)
         .context("failed to set source directory")
         .map_err(PackageDirsError::from)?;
-    let project_root = find_ancestor_with_mod(&source_dir)
-        .ok_or_else(|| PackageDirsError::NotInProject(source_dir.clone()))?;
+    let project_root = find_ancestor_with_mod(&start_dir)
+        .ok_or_else(|| PackageDirsError::NotInProject(start_dir.clone()))?;
+    // TODO(#1411): In the breaking change, remove ancestor discovery and require
+    // `moon.mod.json` to exist exactly in `start_dir` (or in CWD if `--source-dir`
+    // is not provided).
+    if project_root != start_dir && !WARNED_ANCESTOR_DISCOVERY.swap(true, Ordering::Relaxed) {
+        warn!(
+            "moon.mod.json found in ancestor directory {} while starting from {}. \
+             This ancestor discovery will become an error in a future release; \
+             use --source-dir <project-root> (keeps CWD) or --cwd <project-root> (changes CWD).",
+            project_root.display(),
+            start_dir.display()
+        );
+    }
 
     let target_dir = matches
         .target_dir
