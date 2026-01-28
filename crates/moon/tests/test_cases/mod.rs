@@ -86,6 +86,7 @@ mod simple_pkg;
 mod snapshot_testing;
 mod specify_source_dir_001;
 mod specify_source_dir_002;
+mod symlink_file_discovery;
 mod target_backend;
 mod targets;
 mod test_dot_source;
