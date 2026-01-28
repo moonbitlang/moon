@@ -255,8 +255,8 @@ fn discover_one_package(
             inner: e.into(),
         })?;
         let path = file.path();
-        let file_info = file
-            .metadata()
+        let file_type = file
+            .file_type()
             .map_err(|e| DiscoverError::CantReadFileInfo {
                 module: m.clone(),
                 package: fqn.package().clone(),
@@ -264,8 +264,8 @@ fn discover_one_package(
                 inner: e.into(),
             })?;
 
-        if !file_info.is_file() {
-            // Only files are included within the package
+        if !file_type.is_file() && !file_type.is_symlink() {
+            // Only files (including symlinked files) are included within the package
             continue;
         }
         trace!("Found file {}", path.display());
