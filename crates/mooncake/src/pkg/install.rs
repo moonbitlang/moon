@@ -32,9 +32,12 @@ use moonutil::{
 };
 use std::{path::Path, sync::Arc};
 
-/// Install dependencies
+/// Install dependencies or install a package executable.
 #[derive(Debug, clap::Parser)]
-pub struct InstallSubcommand {}
+pub struct InstallSubcommand {
+    /// Optional package path to install in the form of <author>/<package_name>[@<version>]
+    pub package_path: Option<String>,
+}
 
 pub fn install(
     source_dir: &Path,

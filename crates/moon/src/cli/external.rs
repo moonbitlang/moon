@@ -17,8 +17,10 @@
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
 use anyhow::{Context as _, bail};
+use std::path::PathBuf;
 use std::process::{Command, ExitStatus};
-use which::which_global;
+use which::{which_global, which_in};
+use moonutil::moon_dir;
 
 pub fn run_external(mut args: Vec<String>) -> anyhow::Result<i32> {
     if args.is_empty() {
@@ -26,9 +28,16 @@ pub fn run_external(mut args: Vec<String>) -> anyhow::Result<i32> {
     };
     let subcmd = args.remove(0);
     let bin = &format!("moon-{subcmd}");
-    let resolved = which_global(bin).context(anyhow::format_err!(
-        "no such subcommand: `{subcmd}`, is `{bin}` a valid executable accessible via your `PATH`?"
-    ))?;
+    let cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
+    let moon_bin = moon_dir::bin();
+    let mooncakes_bin = moon_bin.join("mooncakes");
+
+    let resolved = which_in(bin, Some(moon_bin.as_os_str()), &cwd)
+        .or_else(|_| which_in(bin, Some(mooncakes_bin.as_os_str()), &cwd))
+        .or_else(|_| which_global(bin))
+        .context(anyhow::format_err!(
+            "no such subcommand: `{subcmd}`, is `{bin}` a valid executable accessible via your `PATH`?"
+        ))?;
     Ok(exec(Command::new(resolved).args(args))?.code().unwrap_or(0))
 }
 
