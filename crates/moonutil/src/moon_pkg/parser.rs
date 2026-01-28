@@ -236,6 +236,16 @@ impl Parser {
         self.parse_apply()
     }
 
+    fn parse_assign_statement(&self) -> Result<(String, Value), ParseError> {
+        let key = self.parse_id()?;
+        let Token::EQUAL(_) = self.peek() else {
+            return Err(ParseError::UnexpectedToken(self.peek().clone()));
+        };
+        self.skip();
+        let value = self.parse_expr()?;
+        Ok((key, value))
+    }
+
     fn parse_import_statement(&self) -> Result<(String, Value), ParseError> {
         self.skip(); // skip 'import'
         let legacy_kind = match self.peek() {
@@ -299,7 +309,9 @@ impl Parser {
         match self.peek() {
             Token::IMPORT(_) => self.parse_import_statement(),
             Token::LIDENT(_) => {
-                if let Token::LPAREN(_) = self.peek_nth(1) {
+                if let Token::EQUAL(_) = self.peek_nth(1) {
+                    self.parse_assign_statement()
+                } else if let Token::LPAREN(_) = self.peek_nth(1) {
                     self.parse_apply_statement()
                 } else {
                     Err(ParseError::UnexpectedToken(self.peek().clone()))
@@ -348,6 +360,8 @@ import {
   "path/to/pkg1",
 } for "test"
 
+warnings = "-fragile_match+all@deprecated_syntax"
+
 options(
   "is_main": true,
   "pre-build": [
@@ -357,7 +371,6 @@ options(
       "output": "output.moonpkg",
     }
   ],
-  warnings: "-fragile_match+all@deprecated_syntax",
   formatter: {
     "ignore": [
       "file1.mbt",
@@ -392,6 +405,7 @@ f(
             "test-import": Array [
                 String("path/to/pkg1"),
             ],
+            "warnings": String("-fragile_match+all@deprecated_syntax"),
             "options": Object {
                 "is_main": Bool(true),
                 "pre-build": Array [
@@ -401,7 +415,6 @@ f(
                         "output": String("output.moonpkg"),
                     },
                 ],
-                "warnings": String("-fragile_match+all@deprecated_syntax"),
                 "formatter": Object {
                     "ignore": Array [
                         String("file1.mbt"),

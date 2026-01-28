@@ -312,8 +312,9 @@ fn expect_build() {
 #[test]
 fn expect_warnings() {
     let actual = run(r#"
+    warnings = "+unused_variable"
     options(
-      warnings: "-fragile_match-deprecated_syntax+unused_variable+todo@unused_variable@todo",
+      "warn-list": "-deprecated_syntax",
     )
     "#);
     expect_test::expect![[r#"
@@ -329,7 +330,9 @@ fn expect_warnings() {
                 ignore: {},
             },
             link: None,
-            warn_list: None,
+            warn_list: Some(
+                "+unused_variable-deprecated_syntax",
+            ),
             alert_list: None,
             targets: None,
             pre_build: None,
