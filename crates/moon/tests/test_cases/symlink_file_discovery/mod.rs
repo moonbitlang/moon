@@ -13,6 +13,7 @@ fn test_symlink_file_discovery() {
     check(
         get_stdout(&dir, ["run", "main"]),
         expect![[r#"
-    "#]],
+            42
+        "#]],
     )
 }
