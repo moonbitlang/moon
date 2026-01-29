@@ -37,8 +37,8 @@ use super::UniversalFlags;
 use crate::cli::BuildFlags;
 use crate::rr_build::{self, BuildConfig, plan_build_from_resolved, preconfig_compile};
 
-pub fn install_cli(cli: UniversalFlags, _cmd: InstallSubcommand) -> anyhow::Result<i32> {
-    if let Some(package_path) = _cmd.package_path {
+pub fn install_cli(cli: UniversalFlags, cmd: InstallSubcommand) -> anyhow::Result<i32> {
+    if let Some(package_path) = cmd.package_path {
         return install_package(cli, &package_path);
     }
 
@@ -86,7 +86,7 @@ fn install_package(cli: UniversalFlags, package_path: &str) -> anyhow::Result<i3
     let resolve_cfg = ResolveConfig::new_with_load_defaults(false, false, false);
     let resolve_output = moonbuild_rupes_recta::resolve(&resolve_cfg, &pkg_dir)?;
     let local_modules = resolve_output.local_modules();
-    let [main_module_id] = local_modules else {
+    let &[main_module_id] = local_modules else {
         bail!(
             "expected exactly one main module when installing {}",
             pkg_name
@@ -94,7 +94,7 @@ fn install_package(cli: UniversalFlags, package_path: &str) -> anyhow::Result<i3
     };
     let packages = resolve_output
         .pkg_dirs
-        .packages_for_module(*main_module_id)
+        .packages_for_module(main_module_id)
         .ok_or_else(|| anyhow::anyhow!("cannot find packages for module {}", pkg_name))?;
 
     let mut main_pkgs = Vec::new();

@@ -36,7 +36,9 @@ pub fn run_external(mut args: Vec<String>) -> anyhow::Result<i32> {
         .or_else(|_| which_in(bin, Some(mooncakes_bin.as_os_str()), &cwd))
         .or_else(|_| which_global(bin))
         .context(anyhow::format_err!(
-            "no such subcommand: `{subcmd}`, is `{bin}` a valid executable accessible via your `PATH`?"
+            "no such subcommand: `{subcmd}`, searched for `{bin}` in `{}`, `{}`, and your `PATH`",
+            moon_bin.display(),
+            mooncakes_bin.display()
         ))?;
     Ok(exec(Command::new(resolved).args(args))?.code().unwrap_or(0))
 }
