@@ -34,8 +34,8 @@ use std::path::{Path, PathBuf};
 use tempfile::TempDir;
 
 use super::UniversalFlags;
-use crate::rr_build::{self, BuildConfig, plan_build_from_resolved, preconfig_compile};
 use crate::cli::BuildFlags;
+use crate::rr_build::{self, BuildConfig, plan_build_from_resolved, preconfig_compile};
 
 pub fn install_cli(cli: UniversalFlags, _cmd: InstallSubcommand) -> anyhow::Result<i32> {
     if let Some(package_path) = _cmd.package_path {
@@ -90,7 +90,10 @@ fn install_package(cli: UniversalFlags, package_path: &str) -> anyhow::Result<i3
     let resolve_output = moonbuild_rupes_recta::resolve(&resolve_cfg, &pkg_dir)?;
     let local_modules = resolve_output.local_modules();
     let [main_module_id] = local_modules else {
-        bail!("expected exactly one main module when installing {}", pkg_name);
+        bail!(
+            "expected exactly one main module when installing {}",
+            pkg_name
+        );
     };
     let packages = resolve_output
         .pkg_dirs
@@ -109,13 +112,9 @@ fn install_package(cli: UniversalFlags, package_path: &str) -> anyhow::Result<i3
     }
 
     for pkg_id in main_pkgs {
-        if let Err(err) = build_and_install_pkg(
-            &cli,
-            &resolve_output,
-            pkg_id,
-            &target_dir,
-            &install_dir,
-        ) {
+        if let Err(err) =
+            build_and_install_pkg(&cli, &resolve_output, pkg_id, &target_dir, &install_dir)
+        {
             let pkg = resolve_output.pkg_dirs.get_package(pkg_id);
             eprintln!(
                 "{}: failed to install {}: {err}",
@@ -210,10 +209,7 @@ fn build_and_install_pkg(
 ) -> anyhow::Result<()> {
     let pkg = resolve_output.pkg_dirs.get_package(pkg_id);
     if !pkg.raw.supported_targets.contains(&TargetBackend::Native) {
-        bail!(
-            "package {} does not support native target",
-            pkg.fqn
-        );
+        bail!("package {} does not support native target", pkg.fqn);
     }
 
     let build_flags = BuildFlags::default().with_target_backend(Some(TargetBackend::Native));

@@ -17,10 +17,10 @@
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
 use anyhow::{Context as _, bail};
+use moonutil::moon_dir;
 use std::path::PathBuf;
 use std::process::{Command, ExitStatus};
 use which::{which_global, which_in};
-use moonutil::moon_dir;
 
 pub fn run_external(mut args: Vec<String>) -> anyhow::Result<i32> {
     if args.is_empty() {
