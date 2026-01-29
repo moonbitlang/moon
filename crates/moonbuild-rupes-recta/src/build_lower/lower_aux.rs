@@ -34,7 +34,7 @@ use crate::{
         compiler::{CmdlineAbstraction, MoondocCommand, Mooninfo},
     },
     build_plan::BuildTargetInfo,
-    model::{BuildPlanNode, BuildTarget, PackageId, RunBackend, TargetKind},
+    model::{BuildPlanNode, BuildTarget, OperatingSystem, PackageId, RunBackend, TargetKind},
 };
 
 use super::{BuildCommand, compiler};
@@ -166,7 +166,7 @@ impl<'a> super::BuildPlanLowerContext<'a> {
             .join("libbacktrace.a");
 
         let mut cc_flags = vec![];
-        if self.opt.debug_symbols {
+        if self.opt.debug_symbols && self.opt.os != OperatingSystem::Windows {
             cc_flags.push("-DMOONBIT_ALLOW_STACKTRACE");
         }
         if matches!(self.opt.target_backend, RunBackend::NativeTccRun) {

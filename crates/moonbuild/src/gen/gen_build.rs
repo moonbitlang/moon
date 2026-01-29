@@ -811,7 +811,7 @@ pub fn gen_compile_runtime_command(
 
     let resolved_cc = moonutil::compiler_flags::resolve_cc(CC::default(), None);
     let mut cc_flags = vec![];
-    if enable_stacktrace {
+    if enable_stacktrace && !cfg!(target_os = "windows") {
         cc_flags.push("-DMOONBIT_ALLOW_STACKTRACE");
     }
     if resolved_cc.is_gcc_like() {
@@ -881,7 +881,7 @@ pub fn gen_compile_shared_runtime_command(
     let libbacktrace_path = MOON_DIRS.moon_lib_path.join("libbacktrace.a");
 
     let mut cc_flags = vec![];
-    if enable_stacktrace {
+    if enable_stacktrace && !cfg!(target_os = "windows") {
         cc_flags.push("-DMOONBIT_ALLOW_STACKTRACE");
     }
 
