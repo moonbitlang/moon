@@ -109,6 +109,7 @@ mod virtual_pkg2;
 mod virtual_pkg_dep;
 mod virtual_pkg_test;
 mod warns;
+mod wbtest_coverage;
 mod whitespace_test;
 
 #[test]
