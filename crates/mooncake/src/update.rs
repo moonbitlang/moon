@@ -19,11 +19,17 @@
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
+use anyhow::Context;
 use colored::Colorize;
 use moonutil::{
     git::{GitCommandError, Stdios},
     mooncakes::RegistryConfig,
 };
+use reqwest::header::USER_AGENT;
+
+use crate::zip_util::extract_zip_to_dir;
+
+const SYMBOLS_URL: &str = "https://download.mooncakes.io/symbols.zip";
 
 #[derive(Debug, thiserror::Error)]
 #[error("failed to clone registry index")]
@@ -268,6 +274,66 @@ fn get_remote_url(target_dir: &Path) -> Result<String, GetRemoteUrlError> {
     Ok(url)
 }
 
+fn download_symbols_zip() -> anyhow::Result<bytes::Bytes> {
+    let client = reqwest::blocking::Client::new();
+    let data = client
+        .get(SYMBOLS_URL)
+        .header(
+            USER_AGENT,
+            format!("mooncake/{}", env!("CARGO_PKG_VERSION")),
+        )
+        .send()
+        .context("failed to fetch symbols.zip")?
+        .error_for_status()
+        .context("symbols.zip download returned error status")?
+        .bytes()
+        .context("failed to read symbols.zip response body")?;
+    Ok(data)
+}
+
+fn update_symbols(registry_dir: &Path) -> anyhow::Result<()> {
+    std::fs::create_dir_all(registry_dir)
+        .with_context(|| format!("failed to create `{}`", registry_dir.display()))?;
+
+    let tmp_dir = unique_sibling_dir(registry_dir, ".symbols.tmp")
+        .context("failed to create temp directory for symbols")?;
+    std::fs::create_dir_all(&tmp_dir)?;
+
+    let data = download_symbols_zip()?;
+    if let Err(e) = extract_zip_to_dir(&tmp_dir, data) {
+        let _ = std::fs::remove_dir_all(&tmp_dir);
+        return Err(e);
+    }
+
+    let target_dir = registry_dir.join("symbols");
+    if target_dir.exists() {
+        let backup_dir =
+            unique_sibling_dir(registry_dir, ".symbols.old").context("failed to create backup dir")?;
+        std::fs::rename(&target_dir, &backup_dir)
+            .context("failed to move existing symbols dir to backup")?;
+
+        if let Err(e) = std::fs::rename(&tmp_dir, &target_dir) {
+            let _ = std::fs::rename(&backup_dir, &target_dir);
+            let _ = std::fs::remove_dir_all(&tmp_dir);
+            return Err(anyhow::Error::from(e).context("failed to replace symbols directory"));
+        }
+
+        if let Err(e) = std::fs::remove_dir_all(&backup_dir) {
+            eprintln!(
+                "{}: failed to remove old symbols directory at `{}`: {e}",
+                "Warning".yellow().bold(),
+                backup_dir.display()
+            );
+        }
+    } else {
+        std::fs::rename(&tmp_dir, &target_dir)
+            .context("failed to move symbols directory into place")?;
+    }
+
+    eprintln!("{}", "Symbols updated successfully".bold().green());
+    Ok(())
+}
+
 pub fn update(target_dir: &Path, registry_config: &RegistryConfig) -> anyhow::Result<i32> {
     if target_dir.exists() {
         let url = get_remote_url(target_dir).map_err(|e| UpdateError {
@@ -283,11 +349,9 @@ pub fn update(target_dir: &Path, registry_config: &RegistryConfig) -> anyhow::Re
                     );
                     safe_reclone_registry_index(registry_config, target_dir)?;
                     eprintln!("{}", "Registry index re-cloned successfully".bold().green());
-                    Ok(0)
                 }
                 Ok(()) => {
                     eprintln!("{}", "Registry index updated successfully".bold().green());
-                    Ok(0)
                 }
             }
         } else {
@@ -297,13 +361,18 @@ pub fn update(target_dir: &Path, registry_config: &RegistryConfig) -> anyhow::Re
             );
             safe_reclone_registry_index(registry_config, target_dir)?;
             eprintln!("{}", "Registry index re-cloned successfully".bold().green());
-            Ok(0)
         }
     } else {
         clone_registry_index(registry_config, target_dir).map_err(|e| UpdateError {
             source: UpdateErrorKind::CloneRegistryIndexError(e),
         })?;
         eprintln!("{}", "Registry index cloned successfully".bold().green());
-        Ok(0)
     }
+
+    let registry_dir = target_dir
+        .parent()
+        .context("registry index directory has no parent")?;
+    update_symbols(registry_dir)?;
+
+    Ok(0)
 }

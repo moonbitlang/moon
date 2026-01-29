@@ -23,3 +23,4 @@ pub mod pkg;
 pub mod registry;
 pub mod resolver;
 pub mod update;
+pub(crate) mod zip_util;
