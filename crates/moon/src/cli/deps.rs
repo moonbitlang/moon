@@ -16,7 +16,7 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
-use anyhow::{Context as _, bail};
+use anyhow::{Context, bail};
 use colored::Colorize;
 use moonbuild_rupes_recta::{ResolveConfig, intent::UserIntent, model::BuildPlanNode};
 use mooncake::pkg::{
@@ -269,14 +269,12 @@ fn install_executable(src: &Path, base_name: &str, install_dir: &Path) -> anyhow
     std::fs::create_dir_all(install_dir).context("failed to create install directory")?;
 
     let mut file_name = base_name.to_string();
-    if let Some(ext) = src.extension().and_then(|s| s.to_str()) {
-        let expected = format!(".{ext}");
-        let keep_ext = !ext.eq_ignore_ascii_case("exe") || cfg!(windows);
-        if keep_ext && !file_name.ends_with(&expected) {
-            file_name.push_str(&expected);
+    let has_exe_suffix = file_name.to_ascii_lowercase().ends_with(".exe");
+    if cfg!(windows) {
+        if !has_exe_suffix {
+            file_name.push_str(".exe");
         }
-    }
-    if !cfg!(windows) && file_name.to_ascii_lowercase().ends_with(".exe") {
+    } else if has_exe_suffix {
         let new_len = file_name.len() - 4;
         file_name.truncate(new_len);
     }
