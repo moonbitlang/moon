@@ -71,8 +71,7 @@ rendered via `render_expect_fail` / `render_snapshot_fail` to provide context wh
 
 ## Commands per backend (and how to specify test cases)
 
-`command_for` (in `runtime.rs`) hides the differences between target backends. The
-runner always records a `CommandGuard` that cleans up temporary drivers when necessary.
+`command_for` (in `runtime.rs`) hides the differences between target backends.
 
 ### Wasm and WasmGC
 
@@ -84,13 +83,14 @@ runner always records a `CommandGuard` that cleans up temporary drivers when nec
 ### JavaScript
 
 - For plain `moon run`, Node reads the emitted `.js`. For tests, the runner synthesizes
-  a temporary CommonJS driver next to the compiled `.cjs` file.
-- The driver imports the original artifact, sets `testParams` and `packageName`, and
-  then invokes the generated test harness.
-- Execution command: `node --enable-source-maps <temp_dir>/driver.cjs '<TestArgs JSON>'`.
-  The temporary directory also contains a throwaway `package.json` so Node does not try
-  to interpret surrounding workspace settings (`type: module`). The directory is deleted
-  once the command finishes.
+  a CommonJS driver alongside the compiled `.js` file.
+- The driver (e.g. `foo.cjs` next to `foo.js`) imports the original artifact, sets
+  `testParams` and `packageName`, and then invokes the generated test harness.
+- Execution command: `node --enable-source-maps <artifact>.cjs '<TestArgs JSON>'`.
+  A `package.json` is also written to the artifact directory so Node does not try
+  to interpret surrounding workspace settings (`type: module`).
+- The driver file persists after test runs, allowing users to manually re-run or debug
+  tests by invoking the driver directly.
 
 ### Native and LLVM
 

@@ -24,7 +24,7 @@ mod runtime;
 
 pub use child::run;
 pub use runtest::{TestFilter, TestIndex, perform_promotion, run_tests};
-pub use runtime::{CommandGuard, command_for};
+pub use runtime::command_for;
 
 use std::sync::OnceLock;
 

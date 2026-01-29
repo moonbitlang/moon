@@ -482,7 +482,7 @@ fn run_one_test_executable(
     let mut cov_cap = mk_coverage_capture();
     let mut test_cap = make_test_capture();
     if ctx.verbose {
-        crate::rr_build::dry_print_command(cmd.command.as_std(), ctx.source_dir, true);
+        crate::rr_build::dry_print_command(cmd.as_std(), ctx.source_dir, true);
     }
     info!(package = %test_args.package, executable = %test.executable.display(), "launching test executable");
 
@@ -491,7 +491,7 @@ fn run_one_test_executable(
         .block_on(crate::run::run(
             &mut [&mut cov_cap, &mut test_cap],
             true,
-            cmd.command,
+            cmd,
         ))
         .with_context(|| format!("Failed to run test for {fqn} {:?}", test.target.kind))?;
     debug!(?exit_status, "test process finished");
