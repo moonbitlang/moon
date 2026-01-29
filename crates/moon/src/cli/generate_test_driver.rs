@@ -270,7 +270,7 @@ fn generate_driver(
             template.push_str(
                 TEMPLATE_WITH_BENCH_ARGS
                     .replace(
-                        "{} // REPLACE ME: moonbit_test_driver_internal_with_bench_args_tests\n",
+                        "{} // REPLACE ME: moonbit_test_driver_internal_with_bench_args_tests",
                         &MooncGenTestInfo::section_to_mbt(&data.with_bench_args_tests),
                     )
                     .as_str(),
@@ -281,7 +281,7 @@ fn generate_driver(
             template.push_str(
                 TEMPLATE_NO_ARGS
                     .replace(
-                        "{} // REPLACE ME: moonbit_test_driver_internal_no_args_tests\n",
+                        "{} // REPLACE ME: moonbit_test_driver_internal_no_args_tests",
                         &MooncGenTestInfo::section_to_mbt(&data.no_args_tests),
                     )
                     .as_str(),
@@ -291,7 +291,7 @@ fn generate_driver(
             template.push_str(
                 TEMPLATE_WITH_ARGS
                     .replace(
-                        "{} // REPLACE ME: moonbit_test_driver_internal_with_args_tests\n",
+                        "{} // REPLACE ME: moonbit_test_driver_internal_with_args_tests",
                         &MooncGenTestInfo::section_to_mbt(&data.with_args_tests),
                     )
                     .as_str(),
@@ -311,7 +311,7 @@ fn generate_driver(
             template.push_str(
                 TEMPLATE_NO_ARGS_ASYNC
                     .replace(
-                        "{} // REPLACE ME: moonbit_test_driver_internal_async_tests\n",
+                        "{} // REPLACE ME: moonbit_test_driver_internal_async_tests",
                         &MooncGenTestInfo::section_to_mbt(&data.async_tests),
                     )
                     .as_str(),
@@ -321,7 +321,7 @@ fn generate_driver(
             template.push_str(
                 TEMPLATE_WITH_ARGS_ASYNC
                     .replace(
-                        "{} // REPLACE ME: moonbit_test_driver_internal_async_tests_with_args\n",
+                        "{} // REPLACE ME: moonbit_test_driver_internal_async_tests_with_args",
                         &MooncGenTestInfo::section_to_mbt(&data.async_tests_with_args),
                     )
                     .as_str(),
