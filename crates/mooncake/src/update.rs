@@ -307,8 +307,8 @@ fn update_symbols(registry_dir: &Path) -> anyhow::Result<()> {
 
     let target_dir = registry_dir.join("symbols");
     if target_dir.exists() {
-        let backup_dir =
-            unique_sibling_dir(registry_dir, ".symbols.old").context("failed to create backup dir")?;
+        let backup_dir = unique_sibling_dir(registry_dir, ".symbols.old")
+            .context("failed to create backup dir")?;
         std::fs::rename(&target_dir, &backup_dir)
             .context("failed to move existing symbols dir to backup")?;
 
