@@ -1196,8 +1196,9 @@ fn test_moon_update_failed() {
     check(
         &out,
         expect![[r#"
-        Registry index cloned successfully
-    "#]],
+            Registry index cloned successfully
+            Symbols updated successfully
+        "#]],
     );
 
     let _ = std::process::Command::new("git")
@@ -1226,6 +1227,7 @@ fn test_moon_update_failed() {
         expect![[r#"
             Registry index is not cloned from the same URL, re-cloning
             Registry index re-cloned successfully
+            Symbols updated successfully
         "#]],
     );
 }
