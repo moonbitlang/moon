@@ -13,7 +13,5 @@ fn test_wbtest_coverage() {
     );
     let _ = get_stdout(&dir, ["clean"]);
     let stderr = get_stderr(&dir, ["test", "--enable-coverage"]);
-    check(&stderr, expect![[r#"
-         WARN Some diagnostics could not be rendered, please run with --no-render to see raw output.
-    "#]]);
+    check(&stderr, expect![""]);
 }
