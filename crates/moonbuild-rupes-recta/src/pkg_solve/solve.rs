@@ -46,16 +46,11 @@ pub fn solve_only(
         packages.package_count()
     );
 
-    let main_is_core = if let &[main] = modules.input_module_ids() {
-        *modules.mod_name_from_id(main).name() == CORE_MODULE_TUPLE
-    } else {
-        false
-    };
     let mut env = ResolveEnv {
         modules,
         packages,
         res: DepRelationship::default(),
-        inject_coverage: enable_coverage && main_is_core,
+        inject_coverage: enable_coverage,
     };
 
     debug!("Processing packages for dependency resolution");

@@ -11,4 +11,7 @@ fn test_wbtest_coverage() {
             Total tests: 1, passed: 1, failed: 0.
         "#]],
     );
+    let _ = get_stdout(&dir, ["clean"]);
+    let stderr = get_stderr(&dir, ["test", "--enable-coverage"]);
+    check(&stderr, expect![""]);
 }
