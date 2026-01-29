@@ -196,7 +196,8 @@ fn test_many_targets_auto_update_001() {
         read(dir.join("lib").join("x.wasm-gc.mbt")),
         expect![[r#"
             test {
-              inspect("wasm-gc", content="wasm-gc")
+              inspect("wasm-gc", content=(#|wasm-gc
+              ))
             }
         "#]],
     );
@@ -243,7 +244,8 @@ fn test_many_targets_auto_update_002() {
         read(dir.join("lib").join("x.js.mbt")),
         expect![[r#"
             test {
-              inspect("js", content="js")
+              inspect("js", content=(#|js
+              ))
             }
         "#]],
     );
@@ -265,7 +267,8 @@ fn test_many_targets_auto_update_002() {
         read(dir.join("lib").join("x.native.mbt")),
         expect![[r#"
             test {
-              inspect("native", content="native")
+              inspect("native", content=(#|native
+              ))
             }
         "#]],
     );
@@ -279,7 +282,8 @@ fn test_many_targets_auto_update_003() {
         read(dir.join("lib").join("x.wasm.mbt")),
         expect![[r#"
             test {
-              inspect("wasm", content="wasm")
+              inspect("wasm", content=(#|wasm
+              ))
             }
         "#]],
     );
@@ -296,7 +300,8 @@ fn test_many_targets_auto_update_003() {
         read(dir.join("lib").join("x.js.mbt")),
         expect![[r#"
             test {
-              inspect("js", content="js")
+              inspect("js", content=(#|js
+              ))
             }
         "#]],
     );
@@ -310,7 +315,8 @@ fn test_many_targets_auto_update_004() {
         read(dir.join("lib").join("x.wasm.mbt")),
         expect![[r#"
             test {
-              inspect("wasm", content="wasm")
+              inspect("wasm", content=(#|wasm
+              ))
             }
         "#]],
     );
@@ -322,7 +328,8 @@ fn test_many_targets_auto_update_004() {
         read(dir.join("lib").join("x.wasm-gc.mbt")),
         expect![[r#"
             test {
-              inspect("wasm-gc", content="wasm-gc")
+              inspect("wasm-gc", content=(#|wasm-gc
+              ))
             }
         "#]],
     );
@@ -331,7 +338,8 @@ fn test_many_targets_auto_update_004() {
         read(dir.join("lib").join("x.js.mbt")),
         expect![[r#"
             test {
-              inspect("js", content="js")
+              inspect("js", content=(#|js
+              ))
             }
         "#]],
     );
