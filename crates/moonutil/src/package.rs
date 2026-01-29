@@ -112,6 +112,8 @@ pub struct Package {
     pub implement: Option<String>,
     pub overrides: Option<Vec<String>>,
 
+    pub regex_backend: Option<RegexBackend>,
+
     /// Additional link flags to pass to all dependents
     pub link_flags: Option<String>,
     /// Libraries to link to pass to all dependents
@@ -359,6 +361,11 @@ pub struct MoonPkgJSON {
     #[serde(alias = "max-concurrent-tests")]
     #[schemars(rename = "max-concurrent-tests")]
     pub max_concurrent_tests: Option<u32>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(alias = "regex-backend")]
+    #[schemars(rename = "regex-backend")]
+    pub regex_backend: Option<RegexBackend>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, JsonSchema)]
@@ -669,6 +676,29 @@ impl JsFormat {
     }
 }
 
+#[derive(
+    Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Default, Serialize, Deserialize, JsonSchema,
+)]
+#[serde(rename_all = "kebab-case")]
+pub enum RegexBackend {
+    #[default]
+    Auto,
+    Block,
+    Table,
+    Runtime,
+}
+
+impl RegexBackend {
+    pub fn to_flag(&self) -> &'static str {
+        match self {
+            RegexBackend::Auto => "auto",
+            RegexBackend::Block => "block",
+            RegexBackend::Table => "table",
+            RegexBackend::Runtime => "runtime",
+        }
+    }
+}
+
 #[derive(Debug, Serialize, Deserialize, Clone, JsonSchema, Default)]
 pub struct Link {
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -776,6 +806,8 @@ pub struct MoonPkg {
     pub overrides: Option<Vec<String>>,
 
     pub max_concurrent_tests: Option<u32>,
+
+    pub regex_backend: Option<RegexBackend>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -976,6 +1008,7 @@ pub fn convert_pkg_json_to_package(j: MoonPkgJSON) -> anyhow::Result<MoonPkg> {
         implement: j.implement,
         overrides: j.overrides,
         max_concurrent_tests: j.max_concurrent_tests,
+        regex_backend: j.regex_backend,
     };
     Ok(result)
 }

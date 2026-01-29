@@ -651,6 +651,7 @@ fn scan_one_package(
         link_search_paths: vec![],
         link_flags: None,
         max_concurrent_tests: pkg.max_concurrent_tests,
+        regex_backend: pkg.regex_backend,
     };
     if doc_mode {
         // -o <folder>

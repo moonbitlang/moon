@@ -110,6 +110,16 @@
         "$ref": "#/definitions/MoonPkgGenerate"
       }
     },
+    "regex-backend": {
+      "anyOf": [
+        {
+          "$ref": "#/definitions/RegexBackend"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
     "sub-package": {
       "description": "Specify whether this package is a sub package or not",
       "anyOf": [
@@ -424,6 +434,15 @@
             }
           }
         }
+      ]
+    },
+    "RegexBackend": {
+      "type": "string",
+      "enum": [
+        "auto",
+        "block",
+        "table",
+        "runtime"
       ]
     },
     "StringOrArray": {
