@@ -30,6 +30,8 @@ use moonutil::{common::execute_postadd_script, mooncakes::ModuleName};
 use reqwest::header::USER_AGENT;
 use semver::Version;
 
+use crate::zip_util::extract_zip_to_dir;
+
 pub struct OnlineRegistry {
     index: std::path::PathBuf,
     url_base: String, // TODO: add download feature to registry interface
@@ -228,31 +230,7 @@ impl OnlineRegistry {
         }
 
         let data = self.download_or_using_cache(name, version, quiet)?;
-        let cursor = std::io::Cursor::new(data);
-        let mut zip = zip::ZipArchive::new(cursor)?;
-        for i in 0..zip.len() {
-            let mut file = zip.by_index(i)?;
-            let outpath = pkg_install_dir.join(file.mangled_name());
-
-            if file.is_dir() {
-                std::fs::create_dir_all(&outpath)?;
-            } else {
-                if let Some(parent) = outpath.parent() {
-                    std::fs::create_dir_all(parent)?;
-                }
-                let mut outfile = std::fs::File::create(&outpath)?;
-                std::io::copy(&mut file, &mut outfile)?;
-
-                // Preserve file permissions
-                #[cfg(unix)]
-                {
-                    use std::os::unix::fs::PermissionsExt;
-                    if let Some(mode) = file.unix_mode() {
-                        std::fs::set_permissions(&outpath, std::fs::Permissions::from_mode(mode))?;
-                    }
-                }
-            }
-        }
+        extract_zip_to_dir(pkg_install_dir, data)?;
 
         execute_postadd_script(pkg_install_dir)?;
 
