@@ -318,54 +318,6 @@ fn base64_decode_string_codepoint(s: &str) -> String {
     s
 }
 
-struct EscapeInfo {
-    pub quote: bool,
-    pub newline: bool,
-    pub ascii_control: bool,
-}
-
-fn detect_escape_info(s: &str) -> EscapeInfo {
-    let mut info = EscapeInfo {
-        quote: false,
-        newline: false,
-        ascii_control: false,
-    };
-
-    for c in s.chars() {
-        match c {
-            '"' => info.quote = true,
-            '\n' => info.newline = true,
-            c if (c as u32) < 0x20 => info.ascii_control = true,
-            _ => {}
-        }
-    }
-    info
-}
-
-fn to_moonbit_style(s: &str, with_quote: bool) -> String {
-    let mut buf = String::new();
-    if with_quote {
-        buf.push('"');
-    }
-    for c in s.chars() {
-        match c {
-            c if (c as u32) < 0x20 => {
-                buf.push_str(&format!("\\u{{{:x}}}", c as u32));
-            }
-            '"' => buf.push_str("\\\""),
-            '\\' => buf.push_str("\\\\"),
-            '\n' => buf.push_str("\\n"),
-            '\r' => buf.push_str("\\r"),
-            '\t' => buf.push_str("\\t"),
-            _ => buf.push(c),
-        }
-    }
-    if with_quote {
-        buf.push('"');
-    }
-    buf
-}
-
 #[test]
 fn test_decode() {
     assert_eq!("", base64_decode_string_codepoint(""));
@@ -536,13 +488,9 @@ fn gen_patch(targets: HashMap<String, BTreeSet<Target>>) -> anyhow::Result<Packa
                             _ => i -= 1,
                         }
                     }
-                    let escape_info = detect_escape_info(&t.actual);
-                    let is_double_quoted_string =
-                        (!escape_info.newline && !escape_info.quote) || escape_info.ascii_control;
-
-                    // If the left parenthesis `(` is not found, and the promoted content is a multi-line string,
-                    // parentheses `(` and `)` need to be added around the promoted content.
-                    if !find_lparen && !is_double_quoted_string {
+                    // If the left parenthesis `(` is not found, parentheses need to be
+                    // added around the multiline string content.
+                    if !find_lparen {
                         (Some("(".to_string()), Some(")".to_string()))
                     } else {
                         (None, None)
@@ -614,16 +562,9 @@ fn gen_patch(targets: HashMap<String, BTreeSet<Target>>) -> anyhow::Result<Packa
                         }
                         i -= 1
                     }
-                    let mut left_padding = String::new();
-                    let mut right_padding = String::new();
-                    left_padding.push_str(if find_comma { "content=" } else { ", content=" });
-                    let escape_info = detect_escape_info(&t.actual);
-                    let is_double_quoted_string =
-                        (!escape_info.newline && !escape_info.quote) || escape_info.ascii_control;
-                    if !is_double_quoted_string {
-                        left_padding.push('(');
-                        right_padding.push(')');
-                    }
+                    let left_padding =
+                        if find_comma { "content=(" } else { ", content=(" }.to_string();
+                    let right_padding = ")".to_string();
 
                     (Some(left_padding), Some(right_padding))
                 }
@@ -800,22 +741,16 @@ fn apply_patch(pp: &PackagePatch) -> anyhow::Result<()> {
 
                 match patch.mode.as_deref() {
                     None => {
-                        let escape_info = detect_escape_info(&patch.actual);
-                        if (!escape_info.newline && !escape_info.quote) || escape_info.ascii_control
-                        {
-                            output.push_str(&to_moonbit_style(&patch.actual, true));
-                        } else {
-                            let next_char = content_chars[usize::from(end)..].first();
-                            let prev_char = content_chars[..usize::from(start)].last();
-                            push_multi_line_string(
-                                &mut output,
-                                spaces + 2,
-                                &patch.actual,
-                                prev_char,
-                                next_char,
-                                is_doc_test,
-                            );
-                        }
+                        let next_char = content_chars[usize::from(end)..].first();
+                        let prev_char = content_chars[..usize::from(start)].last();
+                        push_multi_line_string(
+                            &mut output,
+                            spaces + 2,
+                            &patch.actual,
+                            prev_char,
+                            next_char,
+                            is_doc_test,
+                        );
                     }
                     Some("json") => {
                         output.push_str(&patch.actual.to_string());
