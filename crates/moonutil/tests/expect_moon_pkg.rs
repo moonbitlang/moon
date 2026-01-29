@@ -105,6 +105,7 @@ fn expect_import() {
             implement: None,
             overrides: None,
             max_concurrent_tests: None,
+            regex_backend: None,
         }"#]]
     .assert_eq(&actual);
 }
@@ -145,6 +146,7 @@ fn expect_is_main() {
             implement: None,
             overrides: None,
             max_concurrent_tests: None,
+            regex_backend: None,
         }"#]]
     .assert_eq(&actual);
 }
@@ -191,6 +193,7 @@ fn expect_formatter() {
             implement: None,
             overrides: None,
             max_concurrent_tests: None,
+            regex_backend: None,
         }"#]]
     .assert_eq(&actual);
 }
@@ -231,6 +234,7 @@ fn expect_supported_targets() {
             implement: None,
             overrides: None,
             max_concurrent_tests: None,
+            regex_backend: None,
         }"#]]
     .assert_eq(&actual);
 }
@@ -305,6 +309,7 @@ fn expect_build() {
             implement: None,
             overrides: None,
             max_concurrent_tests: None,
+            regex_backend: None,
         }"#]]
     .assert_eq(&actual);
 }
@@ -350,6 +355,7 @@ fn expect_warnings() {
             implement: None,
             overrides: None,
             max_concurrent_tests: None,
+            regex_backend: None,
         }"#]]
     .assert_eq(&actual);
 }
@@ -575,6 +581,7 @@ fn expect_options() {
             max_concurrent_tests: Some(
                 4,
             ),
+            regex_backend: None,
         }"#]]
     .assert_eq(&actual);
 }
@@ -619,6 +626,7 @@ fn expect_max_concurrent_tests() {
             max_concurrent_tests: Some(
                 1,
             ),
+            regex_backend: None,
         }"#]]
     .assert_eq(&actual);
 }
