@@ -78,7 +78,7 @@ fn install_package(cli: UniversalFlags, package_path: &str) -> anyhow::Result<i3
     }
 
     let mut failures = Vec::new();
-    let install_dir = moon_dir::bin();
+    let install_dir = moon_dir::home().join("mooncakes_bin");
     let target_dir = pkg_dir.join(BUILD_DIR);
     std::fs::create_dir_all(&target_dir)
         .context("failed to create target directory for install")?;

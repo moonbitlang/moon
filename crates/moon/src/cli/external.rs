@@ -17,10 +17,8 @@
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
 use anyhow::{Context as _, bail};
-use moonutil::moon_dir;
-use std::path::PathBuf;
 use std::process::{Command, ExitStatus};
-use which::{which_global, which_in};
+use which::which_global;
 
 pub fn run_external(mut args: Vec<String>) -> anyhow::Result<i32> {
     if args.is_empty() {
@@ -28,23 +26,10 @@ pub fn run_external(mut args: Vec<String>) -> anyhow::Result<i32> {
     };
     let subcmd = args.remove(0);
     let prefixed = format!("moon-{subcmd}");
-    let cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
-    let moon_bin = moon_dir::bin();
-    let mooncakes_bin = moon_bin.join("mooncakes");
-
-    let resolved = which_in(&prefixed, Some(moon_bin.as_os_str()), &cwd)
-        .or_else(|_| which_in(&prefixed, Some(mooncakes_bin.as_os_str()), &cwd))
+    let resolved = which_global(&subcmd)
         .or_else(|_| which_global(&prefixed))
-        .or_else(|_| which_in(&subcmd, Some(moon_bin.as_os_str()), &cwd))
-        .or_else(|_| which_in(&subcmd, Some(mooncakes_bin.as_os_str()), &cwd))
         .context(anyhow::format_err!(
-            "no such subcommand: `{subcmd}`, searched for `{}` in `{}`, `{}`, and your `PATH`, and `{}` in `{}` and `{}`",
-            prefixed,
-            moon_bin.display(),
-            mooncakes_bin.display(),
-            subcmd,
-            moon_bin.display(),
-            mooncakes_bin.display()
+            "no such subcommand: `{subcmd}`, searched `PATH` for `{subcmd}` and `{prefixed}`"
         ))?;
     Ok(exec(Command::new(resolved).args(args))?.code().unwrap_or(0))
 }

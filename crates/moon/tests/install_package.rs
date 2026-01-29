@@ -62,6 +62,7 @@ fn prepare_moon_home() -> Option<TempDir> {
     }
     let temp = tempfile::tempdir().ok()?;
     std::fs::create_dir_all(temp.path().join("bin")).ok()?;
+    std::fs::create_dir_all(temp.path().join("mooncakes_bin")).ok()?;
     #[cfg(unix)]
     {
         std::os::unix::fs::symlink(&real_lib, temp.path().join("lib")).ok()?;
@@ -255,7 +256,7 @@ fn test_moon_install_package_to_moon_home_bin() -> anyhow::Result<()> {
     if cfg!(windows) {
         expected.push_str(".exe");
     }
-    let installed = moon_home.path().join("bin").join(expected);
+    let installed = moon_home.path().join("mooncakes_bin").join(expected);
     assert!(
         installed.exists(),
         "expected installed binary at {}",
