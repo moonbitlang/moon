@@ -423,7 +423,7 @@ Remove a dependency
 
 ## `moon install`
 
-Note: `moon install` without `PACKAGE_PATH` is deprecated; use `moon build` instead.
+Note: `moon install` without `PACKAGE_PATH` is deprecated; use `moon check` or `moon build` directly.
 
 Install a package executable
 

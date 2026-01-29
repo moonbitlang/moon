@@ -462,8 +462,7 @@ fn gen_docs_for_moon_help_page() {
 #[cfg(test)]
 fn inject_install_note(markdown: &str) -> String {
     const NEEDLE: &str = "## `moon install`\n\n";
-    const NOTE: &str =
-        "Note: `moon install` without `PACKAGE_PATH` is deprecated; use `moon build` instead.\n\n";
+    const NOTE: &str = "Note: `moon install` without `PACKAGE_PATH` is deprecated; use `moon check` or `moon build` directly.\n\n";
     if let Some(pos) = markdown.find(NEEDLE) {
         let insert_at = pos + NEEDLE.len();
         let mut out = String::with_capacity(markdown.len() + NOTE.len());
