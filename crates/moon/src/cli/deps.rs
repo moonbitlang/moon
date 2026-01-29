@@ -284,9 +284,14 @@ fn install_executable(src: &Path, base_name: &str, install_dir: &Path) -> anyhow
     let mut file_name = base_name.to_string();
     if let Some(ext) = src.extension().and_then(|s| s.to_str()) {
         let expected = format!(".{ext}");
-        if !file_name.ends_with(&expected) {
+        let keep_ext = !ext.eq_ignore_ascii_case("exe") || cfg!(windows);
+        if keep_ext && !file_name.ends_with(&expected) {
             file_name.push_str(&expected);
         }
+    }
+    if !cfg!(windows) && file_name.to_ascii_lowercase().ends_with(".exe") {
+        let new_len = file_name.len() - 4;
+        file_name.truncate(new_len);
     }
     let dest = install_dir.join(file_name);
     std::fs::copy(src, &dest).with_context(|| {
