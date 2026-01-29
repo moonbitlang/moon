@@ -34,7 +34,7 @@ use crate::{
         compiler::{CmdlineAbstraction, MoondocCommand, Mooninfo},
     },
     build_plan::BuildTargetInfo,
-    model::{BuildPlanNode, BuildTarget, PackageId, RunBackend, TargetKind},
+    model::{BuildPlanNode, BuildTarget, OperatingSystem, PackageId, RunBackend, TargetKind},
 };
 
 use super::{BuildCommand, compiler};
@@ -159,8 +159,30 @@ impl<'a> super::BuildPlanLowerContext<'a> {
             }
         };
 
-        let cc_cmd = make_cc_command_pure::<&'static str>(
-            resolve_cc(CC::default(), None),
+        let resolved_cc = resolve_cc(CC::default(), None);
+        let libbacktrace_path = runtime_c_path
+            .parent()
+            .expect("runtime_c_path should have a parent")
+            .join("libbacktrace.a");
+
+        let mut cc_flags = vec![];
+        if self.opt.debug_symbols && self.opt.os != OperatingSystem::Windows {
+            cc_flags.push("-DMOONBIT_ALLOW_STACKTRACE");
+        }
+        if matches!(self.opt.target_backend, RunBackend::NativeTccRun) {
+            cc_flags.push("-D__TINYC__");
+        }
+        // Add libbacktrace.a if it exists and we're generating a shared library
+        if output_ty == CCOutputType::SharedLib && libbacktrace_path.exists() {
+            cc_flags.push(
+                libbacktrace_path
+                    .to_str()
+                    .expect("libbacktrace_path should be valid UTF-8"),
+            );
+        }
+
+        let cc_cmd = make_cc_command_pure(
+            resolved_cc,
             CCConfigBuilder::default()
                 .no_sys_header(true)
                 .output_ty(output_ty)
@@ -170,7 +192,7 @@ impl<'a> super::BuildPlanLowerContext<'a> {
                 .define_use_shared_runtime_macro(false)
                 .build()
                 .expect("Failed to build CC configuration for runtime"),
-            &[],
+            &cc_flags,
             [runtime_c_path.display().to_string()],
             &self.opt.target_dir_root.display().to_string(),
             Some(&artifact_path.display().to_string()),
