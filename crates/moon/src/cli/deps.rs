@@ -70,14 +70,15 @@ fn install_package(cli: UniversalFlags, package_path: &str) -> anyhow::Result<i3
     registry.install_to(&pkg_name, &version, &pkg_dir, cli.quiet)?;
 
     let moon_mod = read_module_desc_file_in_dir(&pkg_dir)?;
-    if let Some(preferred) = moon_mod.preferred_target {
-        if preferred != TargetBackend::Native {
+    match moon_mod.preferred_target {
+        Some(preferred) if preferred != TargetBackend::Native => {
             bail!(
                 "package {} prefers target `{}`, but `moon install` only supports native",
                 pkg_name,
                 preferred.to_flag()
             );
         }
+        _ => {}
     }
 
     let mut failures = Vec::new();
@@ -256,10 +257,11 @@ fn collect_executables(
 ) -> anyhow::Result<Vec<PathBuf>> {
     let mut execs = Vec::new();
     for (node, arts) in &build_meta.artifacts {
-        if let BuildPlanNode::MakeExecutable(target) = node {
-            if target.package == pkg_id {
+        match node {
+            BuildPlanNode::MakeExecutable(target) if target.package == pkg_id => {
                 execs.extend(arts.artifacts.iter().cloned());
             }
+            _ => {}
         }
     }
     if execs.is_empty() {
