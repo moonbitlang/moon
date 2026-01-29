@@ -62,10 +62,6 @@ fn install_package(cli: UniversalFlags, package_path: &str) -> anyhow::Result<i3
     let temp_dir = TempDir::new().context("failed to create temp directory for install")?;
     let pkg_dir = temp_dir.path().join("pkg");
 
-    if !cli.quiet {
-        println!("Fetching {}@{} to {}", pkg_name, version, pkg_dir.display());
-    }
-
     let registry = OnlineRegistry::mooncakes_io();
     registry.install_to(&pkg_name, &version, &pkg_dir, cli.quiet)?;
 
