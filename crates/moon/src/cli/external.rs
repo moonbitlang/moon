@@ -27,16 +27,22 @@ pub fn run_external(mut args: Vec<String>) -> anyhow::Result<i32> {
         bail!("no external subcommand provided");
     };
     let subcmd = args.remove(0);
-    let bin = &format!("moon-{subcmd}");
+    let prefixed = format!("moon-{subcmd}");
     let cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
     let moon_bin = moon_dir::bin();
     let mooncakes_bin = moon_bin.join("mooncakes");
 
-    let resolved = which_in(bin, Some(moon_bin.as_os_str()), &cwd)
-        .or_else(|_| which_in(bin, Some(mooncakes_bin.as_os_str()), &cwd))
-        .or_else(|_| which_global(bin))
+    let resolved = which_in(&prefixed, Some(moon_bin.as_os_str()), &cwd)
+        .or_else(|_| which_in(&prefixed, Some(mooncakes_bin.as_os_str()), &cwd))
+        .or_else(|_| which_global(&prefixed))
+        .or_else(|_| which_in(&subcmd, Some(moon_bin.as_os_str()), &cwd))
+        .or_else(|_| which_in(&subcmd, Some(mooncakes_bin.as_os_str()), &cwd))
         .context(anyhow::format_err!(
-            "no such subcommand: `{subcmd}`, searched for `{bin}` in `{}`, `{}`, and your `PATH`",
+            "no such subcommand: `{subcmd}`, searched for `{}` in `{}`, `{}`, and your `PATH`, and `{}` in `{}` and `{}`",
+            prefixed,
+            moon_bin.display(),
+            mooncakes_bin.display(),
+            subcmd,
             moon_bin.display(),
             mooncakes_bin.display()
         ))?;

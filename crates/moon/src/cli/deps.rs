@@ -78,7 +78,7 @@ fn install_package(cli: UniversalFlags, package_path: &str) -> anyhow::Result<i3
     }
 
     let mut failures = Vec::new();
-    let install_dir = moon_dir::bin().join("mooncakes");
+    let install_dir = moon_dir::bin();
     let target_dir = pkg_dir.join(BUILD_DIR);
     std::fs::create_dir_all(&target_dir)
         .context("failed to create target directory for install")?;
@@ -240,9 +240,8 @@ fn build_and_install_pkg(
         .bin_name
         .as_deref()
         .unwrap_or_else(|| pkg.fqn.short_alias());
-    let install_name = normalize_moon_bin_name(base_name);
     for exec_path in execs {
-        install_executable(&exec_path, &install_name, install_dir)?;
+        install_executable(&exec_path, base_name, install_dir)?;
     }
     Ok(())
 }
@@ -264,14 +263,6 @@ fn collect_executables(
         bail!("no executable artifacts found for package");
     }
     Ok(execs)
-}
-
-fn normalize_moon_bin_name(name: &str) -> String {
-    if name.starts_with("moon-") {
-        name.to_string()
-    } else {
-        format!("moon-{name}")
-    }
 }
 
 fn install_executable(src: &Path, base_name: &str, install_dir: &Path) -> anyhow::Result<()> {
