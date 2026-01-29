@@ -1610,6 +1610,7 @@ dependencies = [
  "walkdir",
  "which 6.0.2",
  "windows-sys 0.59.0",
+ "zip",
 ]
 
 [[package]]

@@ -91,6 +91,7 @@ clap-markdown = "0.1.4"
 similar.workspace = true
 colored.workspace = true
 libc.workspace = true
+zip.workspace = true
 
 
 [[bin]]
