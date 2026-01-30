@@ -152,6 +152,23 @@ fn test_moon_new() {
             89
         "#]],
     );
+
+    check(
+        get_stdout(
+            &dir,
+            [
+                "run",
+                "--cwd",
+                "./hello",
+                "--target-dir",
+                "./target",
+                "cmd/main",
+            ],
+        ),
+        expect![[r#"
+            89
+        "#]],
+    );
 }
 
 #[test]

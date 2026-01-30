@@ -108,6 +108,22 @@ pub fn main() {
     let cli = cli::MoonBuildCli::parse();
     let flags = cli.flags;
 
+    if let Some(dir) = &flags.source_tgt_dir.cwd {
+        // `--cwd` is a transitional opt-in for real chdir semantics.
+        // TODO(#1411): In the breaking release, `-C/--directory` should perform this
+        // chdir before any other work (including external subcommands), and `--cwd`
+        // can become an alias or be removed.
+        if let Err(err) = std::env::set_current_dir(dir) {
+            eprintln!(
+                "{}: failed to change directory to {}: {}",
+                "error".red().bold(),
+                dir.display(),
+                err
+            );
+            std::process::exit(-1);
+        }
+    }
+
     let _trace_guard = init_tracing(flags.trace);
 
     // Check for deprecated flags and emit warnings (after tracing is initialized)

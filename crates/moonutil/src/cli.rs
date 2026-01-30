@@ -70,5 +70,13 @@ impl UniversalFlags {
                 "`--build-graph` is deprecated. Use -Z rr_export_module_graph, -Z rr_export_package_graph, or -Z rr_export_build_plan instead"
             );
         }
+
+        if self.source_tgt_dir.directory.is_some() {
+            // TODO(#1411): `-C/--directory` will flip to real chdir semantics in a
+            // future breaking release. For now we keep the historical meaning but warn.
+            warn!(
+                "`-C/--directory` is deprecated and will change meaning in a future release. Use `--cwd` to change the working directory, or `--source-dir` to select the project root without changing the working directory."
+            );
+        }
     }
 }
