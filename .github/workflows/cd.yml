@@ -31,6 +31,9 @@ jobs:
         os: [macos-latest, windows-latest]
     runs-on: ${{ matrix.os }}
     steps:
+      - name: Configure git
+        run: git config --global core.autocrlf false
+
       - uses: actions/checkout@v4
         with:
           submodules: true
@@ -73,6 +76,9 @@ jobs:
       - name: Install dependencies
         run: |
           apt update && apt install -y software-properties-common curl unzip build-essential git sudo coreutils
+
+      - name: Configure git
+        run: git config --global core.autocrlf false
 
       - name: Checkout
         run: |

@@ -1,0 +1,125 @@
+# moon: The build system and package manager for MoonBit.
+# Copyright (C) 2024 International Digital Economy Academy
+#
+# This program is free software: you can redistribute it and/or modify
+# it under the terms of the GNU Affero General Public License as published by
+# the Free Software Foundation, either version 3 of the License, or
+# (at your option) any later version.
+#
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU Affero General Public License for more details.
+#
+# You should have received a copy of the GNU Affero General Public License
+# along with this program.  If not, see <https://www.gnu.org/licenses/>.
+#
+# For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
+
+name: CD E2E
+
+on:
+  workflow_run:
+    workflows: ["CD"]
+    types: [completed]
+
+permissions:
+  actions: read
+  contents: read
+
+jobs:
+  e2e:
+    if: ${{ github.event.workflow_run.conclusion == 'success' }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os:
+          - ubuntu-latest
+          - macos-latest
+          - windows-latest
+    runs-on: ${{ matrix.os }}
+    env:
+      RELEASE_SHA: ${{ github.event.workflow_run.head_sha }}
+    steps:
+      - name: Download release binaries (S3, Unix)
+        if: ${{ matrix.os != 'windows-latest' }}
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          AWS_DEFAULT_REGION: ${{ secrets.AWS_DEFAULT_REGION }}
+        run: |
+          version=$(echo "$RELEASE_SHA" | cut -c 1-9)
+          mkdir -p dist
+          platform="$(uname -s)-$(uname -m)"
+          aws s3 cp "s3://${{ secrets.AWS_BUCKET_NAME }}/bleeding-moon/$version/${platform}/moon" dist/moon
+          aws s3 cp "s3://${{ secrets.AWS_BUCKET_NAME }}/bleeding-moonrun/$version/${platform}/moonrun" dist/moonrun
+
+      - name: Download release binaries (S3, Windows)
+        if: ${{ matrix.os == 'windows-latest' }}
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          AWS_DEFAULT_REGION: ${{ secrets.AWS_DEFAULT_REGION }}
+        run: |
+          $version = $env:RELEASE_SHA.Substring(0, 9)
+          New-Item -ItemType Directory -Force -Path dist | Out-Null
+          aws s3 cp "s3://${{ secrets.AWS_BUCKET_NAME }}/bleeding-moon/$version/Windows-x86_64/moon.exe" dist/moon.exe
+          aws s3 cp "s3://${{ secrets.AWS_BUCKET_NAME }}/bleeding-moonrun/$version/Windows-x86_64/moonrun.exe" dist/moonrun.exe
+
+      - name: Install MoonBit (Unix)
+        if: ${{ matrix.os != 'windows-latest' }}
+        run: |
+          curl -fsSL https://cli.moonbitlang.com/install/unix.sh | bash -s nightly
+          echo "$HOME/.moon/bin" >> $GITHUB_PATH
+
+      - name: Install MoonBit (Windows)
+        if: ${{ matrix.os == 'windows-latest' }}
+        run: |
+          $env:MOONBIT_INSTALL_VERSION="nightly"
+          Set-ExecutionPolicy RemoteSigned -Scope CurrentUser; irm https://cli.moonbitlang.com/install/powershell.ps1 | iex
+          "$env:USERPROFILE\.moon\bin" | Out-File -FilePath $env:GITHUB_PATH -Append
+
+      - name: Make release binaries executable (Unix)
+        if: ${{ matrix.os != 'windows-latest' }}
+        run: chmod +x dist/moon dist/moonrun
+
+      - name: E2E smoke test release binary (Unix)
+        if: ${{ matrix.os != 'windows-latest' }}
+        run: |
+          set -euo pipefail
+          moon_bin="${GITHUB_WORKSPACE}/dist/moon"
+          "${moon_bin}" update
+          workdir="$(mktemp -d)"
+          project="${workdir}/moon_e2e"
+          "${moon_bin}" new "${project}"
+          cat <<'EOF' >> "${project}/moon_e2e_test.mbt"
+          ///|
+          test "e2e" {
+            let array = [1, 2, 3]
+            inspect(sum(data=array), content="6")
+          }
+          EOF
+          cd "${project}"
+          "${moon_bin}" check
+          "${moon_bin}" test --target wasm-gc --no-parallelize
+          "${moon_bin}" package --frozen
+
+      - name: E2E smoke test release binary (Windows)
+        if: ${{ matrix.os == 'windows-latest' }}
+        run: |
+          $moon = Join-Path $env:GITHUB_WORKSPACE "dist\moon.exe"
+          $project = Join-Path $env:RUNNER_TEMP "moon_e2e"
+          & $moon update
+          & $moon new $project
+          $testFile = Join-Path $project "moon_e2e_test.mbt"
+          @"
+///|
+test "e2e" {
+  let array = [1, 2, 3]
+  inspect(sum(data=array), content="6")
+}
+"@ | Add-Content -Path $testFile
+          Set-Location $project
+          & $moon check
+          & $moon test --target wasm-gc --no-parallelize
+          & $moon package --frozen
