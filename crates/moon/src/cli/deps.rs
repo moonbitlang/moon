@@ -80,9 +80,7 @@ fn install_local_package(
         bail!("--dry-run is not supported for `moon install --path`");
     }
 
-    let pkg_dir = path
-        .canonicalize()
-        .context("failed to resolve install path")?;
+    let pkg_dir = dunce::canonicalize(path).context("failed to resolve install path")?;
     let moon_mod = read_module_desc_file_in_dir(&pkg_dir)?;
     let module_name = parse_module_name(&moon_mod.name).with_context(|| {
         format!(
