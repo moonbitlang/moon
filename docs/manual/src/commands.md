@@ -429,11 +429,15 @@ Installed executables are placed in `$MOON_HOME/mooncakes_bin`.
 
 Install a package executable
 
-**Usage:** `moon install [PACKAGE_PATH]`
+**Usage:** `moon install [OPTIONS] [PACKAGE_PATH]`
 
 ###### **Arguments:**
 
-* `<PACKAGE_PATH>` — Package path to install in the form of <author>/<package_name>[@<version>]
+* `<PACKAGE_PATH>` — Package path to install in the form of <author>/<module>[@<version>]
+
+###### **Options:**
+
+* `--path <PATH>` — Install from a local module path
 
 
 

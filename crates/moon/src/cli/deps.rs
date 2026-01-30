@@ -38,8 +38,11 @@ use crate::cli::BuildFlags;
 use crate::rr_build::{self, BuildConfig, plan_build_from_resolved, preconfig_compile};
 
 pub fn install_cli(cli: UniversalFlags, cmd: InstallSubcommand) -> anyhow::Result<i32> {
+    if let Some(path) = cmd.path {
+        return install_local_package(cli, &path, cmd.package_path.as_deref());
+    }
     if let Some(package_path) = cmd.package_path {
-        return install_package(cli, &package_path);
+        return install_registry_package(cli, &package_path);
     }
 
     let PackageDirs {
@@ -53,24 +56,67 @@ pub fn install_cli(cli: UniversalFlags, cmd: InstallSubcommand) -> anyhow::Resul
     mooncake::pkg::install::install(&source_dir, &target_dir, cli.quiet, cli.verbose, true)
 }
 
-fn install_package(cli: UniversalFlags, package_path: &str) -> anyhow::Result<i32> {
+fn install_registry_package(cli: UniversalFlags, package_path: &str) -> anyhow::Result<i32> {
     if cli.dry_run {
         bail!("--dry-run is not supported for `moon install <package>`");
     }
 
-    let (pkg_name, version) = resolve_package_version(&cli, package_path)?;
+    let target = parse_install_path(package_path)?;
+    let version = resolve_package_version(&cli, &target.module, target.version)?;
     let temp_dir = TempDir::new().context("failed to create temp directory for install")?;
     let pkg_dir = temp_dir.path().join("pkg");
 
     let registry = OnlineRegistry::mooncakes_io();
-    registry.install_to(&pkg_name, &version, &pkg_dir, cli.quiet)?;
+    registry.install_to(&target.module, &version, &pkg_dir, cli.quiet)?;
+    install_from_pkg_dir(&cli, &pkg_dir, &target.module)
+}
 
+fn install_local_package(
+    cli: UniversalFlags,
+    path: &Path,
+    package_path: Option<&str>,
+) -> anyhow::Result<i32> {
+    if cli.dry_run {
+        bail!("--dry-run is not supported for `moon install --path`");
+    }
+
+    let pkg_dir = path.canonicalize().context("failed to resolve install path")?;
     let moon_mod = read_module_desc_file_in_dir(&pkg_dir)?;
+    let module_name = parse_module_name(&moon_mod.name).with_context(|| {
+        format!(
+            "local module name `{}` must be in the form of <author>/<package_name>",
+            moon_mod.name
+        )
+    })?;
+
+    if let Some(raw) = package_path {
+        let parsed = parse_install_path(raw)?;
+        if parsed.version.is_some() {
+            bail!("--path does not support @<version>");
+        }
+        if parsed.module != module_name {
+            bail!(
+                "package path `{}` does not match local module `{}`",
+                raw,
+                module_name
+            );
+        }
+    }
+
+    install_from_pkg_dir(&cli, &pkg_dir, &module_name)
+}
+
+fn install_from_pkg_dir(
+    cli: &UniversalFlags,
+    pkg_dir: &Path,
+    module_name: &ModuleName,
+) -> anyhow::Result<i32> {
+    let moon_mod = read_module_desc_file_in_dir(pkg_dir)?;
     match moon_mod.preferred_target {
         Some(preferred) if preferred != TargetBackend::Native => {
             bail!(
                 "package {} prefers target `{}`, but `moon install` only supports native",
-                pkg_name,
+                module_name,
                 preferred.to_flag()
             );
         }
@@ -84,33 +130,33 @@ fn install_package(cli: UniversalFlags, package_path: &str) -> anyhow::Result<i3
         .context("failed to create target directory for install")?;
 
     let resolve_cfg = ResolveConfig::new_with_load_defaults(false, false, false);
-    let resolve_output = moonbuild_rupes_recta::resolve(&resolve_cfg, &pkg_dir)?;
+    let resolve_output = moonbuild_rupes_recta::resolve(&resolve_cfg, pkg_dir)?;
     let local_modules = resolve_output.local_modules();
     let &[main_module_id] = local_modules else {
         bail!(
             "expected exactly one main module when installing {}",
-            pkg_name
+            module_name
         );
     };
+
     let packages = resolve_output
         .pkg_dirs
         .packages_for_module(main_module_id)
-        .ok_or_else(|| anyhow::anyhow!("cannot find packages for module {}", pkg_name))?;
-
-    let mut main_pkgs = Vec::new();
+        .ok_or_else(|| anyhow::anyhow!("cannot find packages for module {}", module_name))?;
+    let mut selected_pkgs = Vec::new();
     for &pkg_id in packages.values() {
         let pkg = resolve_output.pkg_dirs.get_package(pkg_id);
         if pkg.raw.is_main {
-            main_pkgs.push(pkg_id);
+            selected_pkgs.push(pkg_id);
         }
     }
-    if main_pkgs.is_empty() {
-        bail!("no `is_main` packages found in {}", pkg_name);
+    if selected_pkgs.is_empty() {
+        bail!("no `is_main` packages found in {}", module_name);
     }
 
-    for pkg_id in main_pkgs {
+    for pkg_id in selected_pkgs {
         if let Err(err) =
-            build_and_install_pkg(&cli, &resolve_output, pkg_id, &target_dir, &install_dir)
+            build_and_install_pkg(cli, &resolve_output, pkg_id, &target_dir, &install_dir)
         {
             let pkg = resolve_output.pkg_dirs.get_package(pkg_id);
             eprintln!(
@@ -127,7 +173,7 @@ fn install_package(cli: UniversalFlags, package_path: &str) -> anyhow::Result<i3
             println!(
                 "{}: installed {} to {}",
                 "Success".green().bold(),
-                pkg_name,
+                module_name,
                 install_dir.display()
             );
         }
@@ -139,8 +185,9 @@ fn install_package(cli: UniversalFlags, package_path: &str) -> anyhow::Result<i3
 
 fn resolve_package_version(
     cli: &UniversalFlags,
-    package_path: &str,
-) -> anyhow::Result<(ModuleName, Version)> {
+    pkg_name: &ModuleName,
+    version: Option<Version>,
+) -> anyhow::Result<Version> {
     let index_dir = moon_dir::index();
     let mut index_updated = false;
 
@@ -160,22 +207,12 @@ fn resolve_package_version(
         }
     }
 
-    let parts: Vec<&str> = package_path.splitn(2, '@').collect();
-    let author_pkg: Vec<&str> = parts[0].splitn(2, '/').collect();
-    if author_pkg.len() != 2 || author_pkg[0].is_empty() || author_pkg[1].is_empty() {
-        bail!("package path must be in the form of <author>/<package_name>[@<version>]");
-    }
-    let pkg_name = ModuleName {
-        username: author_pkg[0].into(),
-        unqual: author_pkg[1].into(),
-    };
-
     let registry = OnlineRegistry::mooncakes_io();
-    let version = if parts.len() == 2 {
-        parts[1].parse()?
+    let version = if let Some(version) = version {
+        version
     } else {
         let latest_version = registry
-            .get_latest_version(&pkg_name)
+            .get_latest_version(pkg_name)
             .ok_or_else(|| {
                 if index_updated {
                     anyhow::anyhow!("could not find the latest version of {pkg_name}")
@@ -194,7 +231,46 @@ fn resolve_package_version(
         latest_version
     };
 
-    Ok((pkg_name, version))
+    Ok(version)
+}
+
+fn parse_install_path(input: &str) -> anyhow::Result<ParsedInstallPath> {
+    let parts: Vec<&str> = input.splitn(2, '@').collect();
+    let path_part = parts[0];
+    let version = if parts.len() == 2 {
+        Some(parts[1].parse()?)
+    } else {
+        None
+    };
+
+    let segments: Vec<&str> = path_part.split('/').collect();
+    if segments.len() != 2 || segments.iter().any(|s| s.is_empty()) {
+        bail!("package path must be in the form of <author>/<module>[@<version>]");
+    }
+    let module = ModuleName {
+        username: segments[0].into(),
+        unqual: segments[1].into(),
+    };
+    Ok(ParsedInstallPath {
+        module,
+        version,
+    })
+}
+
+fn parse_module_name(input: &str) -> anyhow::Result<ModuleName> {
+    let segments: Vec<&str> = input.split('/').collect();
+    if segments.len() != 2 || segments.iter().any(|s| s.is_empty()) {
+        bail!("module name must be in the form of <author>/<package_name>");
+    }
+    Ok(ModuleName {
+        username: segments[0].into(),
+        unqual: segments[1].into(),
+    })
+}
+
+struct ParsedInstallPath {
+    module: ModuleName,
+    version: Option<Version>,
 }
 
 fn build_and_install_pkg(

@@ -20,25 +20,18 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
 use anyhow::Context;
-use mooncake::registry::calc_sha2;
 use tempfile::TempDir;
-use walkdir::WalkDir;
-use zip::write::FileOptions;
 
 fn moon_bin() -> PathBuf {
     snapbox::cargo_bin!("moon").to_owned()
 }
 
-fn git_writes_allowed() -> bool {
-    let dir = match tempfile::tempdir() {
-        Ok(d) => d,
-        Err(_) => return false,
-    };
-    std::fs::create_dir(dir.path().join(".git")).is_ok()
-}
-
-fn git_available() -> bool {
-    which::which("git").is_ok()
+fn expected_bin_name(base: &str) -> String {
+    let mut name = base.to_string();
+    if cfg!(windows) {
+        name.push_str(".exe");
+    }
+    name
 }
 
 fn real_moon_home() -> Option<PathBuf> {
@@ -48,9 +41,6 @@ fn real_moon_home() -> Option<PathBuf> {
 }
 
 fn prepare_moon_home() -> Option<TempDir> {
-    if !git_writes_allowed() || !git_available() {
-        return None;
-    }
     let real_home = real_moon_home()?;
     let real_lib = real_home.join("lib");
     let real_include = real_home.join("include");
@@ -61,7 +51,6 @@ fn prepare_moon_home() -> Option<TempDir> {
         return None;
     }
     let temp = tempfile::tempdir().ok()?;
-    std::fs::create_dir_all(temp.path().join("bin")).ok()?;
     std::fs::create_dir_all(temp.path().join("mooncakes_bin")).ok()?;
     #[cfg(unix)]
     {
@@ -76,224 +65,178 @@ fn prepare_moon_home() -> Option<TempDir> {
     Some(temp)
 }
 
-fn run_git(cwd: &Path, args: &[&str]) -> anyhow::Result<()> {
-    let out = Command::new("git")
-        .current_dir(cwd)
-        .args(args)
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .output()
-        .context("failed to run git")?;
-    if !out.status.success() {
-        anyhow::bail!(
-            "git {:?} failed: {}",
-            args,
-            String::from_utf8_lossy(&out.stderr)
-        );
-    }
-    Ok(())
-}
-
-fn init_local_registry(
-    author: &str,
-    pkg: &str,
-    version: &str,
-    checksum: &str,
-) -> anyhow::Result<TempDir> {
-    let base = tempfile::tempdir().context("failed to create registry tempdir")?;
-    let work = base.path().join("work");
-    let index_dir = work.join("user").join(author);
-    std::fs::create_dir_all(&index_dir)?;
-    let index_path = index_dir.join(format!("{pkg}.index"));
-    let index_line =
-        format!(r#"{{"name":"{author}/{pkg}","version":"{version}","checksum":"{checksum}"}}"#);
-    std::fs::write(&index_path, format!("{index_line}\n"))?;
-
-    run_git(&work, &["init"])?;
-    run_git(&work, &["config", "user.email", "ci@example.com"])?;
-    run_git(&work, &["config", "user.name", "ci"])?;
-    run_git(&work, &["add", "."])?;
-    run_git(&work, &["commit", "-m", "init index"])?;
-
-    let bare_parent = base.path().join("git");
-    std::fs::create_dir_all(&bare_parent)?;
-    run_git(
-        &bare_parent,
-        &["clone", "--bare", work.to_str().unwrap(), "index"],
-    )?;
-    Ok(base)
-}
-
-fn write_package_zip(
-    dest: &Path,
-    module_name: &str,
-    version: &str,
-    bin_name: &str,
-    preferred_target: Option<&str>,
+struct LocalPackageSpec<'a> {
+    dir: &'a str,
     is_main: bool,
-) -> anyhow::Result<()> {
-    let temp = tempfile::tempdir().context("failed to create package tempdir")?;
-    let root = temp.path();
+    bin_name: &'a str,
+}
 
-    let mut mod_json = serde_json::json!({
+fn write_local_module(
+    root: &Path,
+    module_name: &str,
+    preferred_target: Option<&str>,
+    packages: &[LocalPackageSpec<'_>],
+) -> anyhow::Result<()> {
+    let mod_json = serde_json::json!({
         "name": module_name,
-        "version": version,
+        "version": "0.1.0",
     });
-    if let Some(preferred) = preferred_target {
-        mod_json["preferred-target"] = serde_json::json!(preferred);
-    }
+    let mod_json = if let Some(preferred) = preferred_target {
+        let mut json = mod_json;
+        json["preferred-target"] = serde_json::json!(preferred);
+        json
+    } else {
+        mod_json
+    };
     std::fs::write(
         root.join("moon.mod.json"),
         serde_json::to_string_pretty(&mod_json)?,
     )?;
 
-    let pkg_json = if is_main {
-        serde_json::json!({
-            "is-main": true,
-            "bin-name": bin_name,
-        })
-    } else {
-        serde_json::json!({
-            "import": {},
-        })
-    };
-    std::fs::write(
-        root.join("moon.pkg.json"),
-        serde_json::to_string_pretty(&pkg_json)?,
-    )?;
-    std::fs::write(root.join("main.mbt"), "fn main {}\n")?;
-
-    let file = std::fs::File::create(dest)?;
-    let mut zip = zip::ZipWriter::new(file);
-    let options = FileOptions::default();
-    for entry in WalkDir::new(root) {
-        let entry = entry?;
-        let path = entry.path();
-        let name = path
-            .strip_prefix(root)?
-            .to_string_lossy()
-            .replace('\\', "/");
-        if name.is_empty() {
-            continue;
-        }
-        if entry.file_type().is_dir() {
-            zip.add_directory(name, options)?;
+    for pkg in packages {
+        let pkg_dir = if pkg.dir.is_empty() {
+            root.to_path_buf()
         } else {
-            zip.start_file(name, options)?;
-            let mut src = std::fs::File::open(path)?;
-            std::io::copy(&mut src, &mut zip)?;
+            root.join(pkg.dir)
+        };
+        std::fs::create_dir_all(&pkg_dir)?;
+        let pkg_json = if pkg.is_main {
+            serde_json::json!({
+                "is-main": true,
+                "bin-name": pkg.bin_name,
+            })
+        } else {
+            serde_json::json!({
+                "import": {},
+            })
+        };
+        std::fs::write(
+            pkg_dir.join("moon.pkg.json"),
+            serde_json::to_string_pretty(&pkg_json)?,
+        )?;
+        if pkg.is_main {
+            std::fs::write(pkg_dir.join("main.mbt"), "fn main {}\n")?;
+        } else {
+            std::fs::write(pkg_dir.join("lib.mbt"), "let _ = 1\n")?;
         }
     }
-    zip.finish()?;
     Ok(())
 }
 
-fn cache_zip(
+fn run_install_local(
     moon_home: &Path,
-    author: &str,
-    pkg: &str,
-    version: &str,
-    src: &Path,
-) -> anyhow::Result<PathBuf> {
-    let cache_path = moon_home
-        .join("registry")
-        .join("cache")
-        .join(author)
-        .join(pkg)
-        .join(format!("{version}.zip"));
-    if let Some(parent) = cache_path.parent() {
-        std::fs::create_dir_all(parent)?;
-    }
-    std::fs::copy(src, &cache_path)?;
-    Ok(cache_path)
-}
-
-fn run_install(
-    moon_home: &Path,
-    registry_base: &Path,
-    package_path: &str,
+    module_path: &Path,
+    package_path: Option<&str>,
 ) -> anyhow::Result<std::process::Output> {
-    let out = Command::new(moon_bin())
-        .env("MOON_HOME", moon_home)
-        .env("MOONCAKES_REGISTRY", registry_base)
+    let mut cmd = Command::new(moon_bin());
+    cmd.env("MOON_HOME", moon_home)
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
-        .args(["install", package_path])
-        .output()?;
-    Ok(out)
+        .arg("install")
+        .arg("--path")
+        .arg(module_path);
+    if let Some(package_path) = package_path {
+        cmd.arg(package_path);
+    }
+    Ok(cmd.output()?)
 }
 
 #[test]
-fn test_moon_install_package_to_moon_home_bin() -> anyhow::Result<()> {
+fn test_moon_install_local_module_installs_main_packages() -> anyhow::Result<()> {
     let Some(moon_home) = prepare_moon_home() else {
         return Ok(());
     };
-    let author = "testuser";
-    let pkg = "installpkg";
-    let version = "0.1.0";
-    let bin_name = "install-tool";
-    let module_name = format!("{author}/{pkg}");
-
-    let zip_path = moon_home.path().join("pkg.zip");
-    write_package_zip(&zip_path, &module_name, version, bin_name, None, true)?;
-    let checksum = calc_sha2(&zip_path)?;
-    let registry_base = init_local_registry(author, pkg, version, &checksum)?;
-    cache_zip(moon_home.path(), author, pkg, version, &zip_path)?;
-
-    let out = run_install(
-        moon_home.path(),
-        registry_base.path(),
-        &format!("{author}/{pkg}@{version}"),
+    let module_dir = tempfile::tempdir().context("failed to create module tempdir")?;
+    let module_name = "localuser/localmod";
+    let root_bin = "root-tool";
+    let sub_bin = "sub-tool";
+    write_local_module(
+        module_dir.path(),
+        module_name,
+        None,
+        &[
+            LocalPackageSpec {
+                dir: "",
+                is_main: true,
+                bin_name: root_bin,
+            },
+            LocalPackageSpec {
+                dir: "tools",
+                is_main: true,
+                bin_name: sub_bin,
+            },
+            LocalPackageSpec {
+                dir: "lib",
+                is_main: false,
+                bin_name: "lib-tool",
+            },
+        ],
     )?;
+
+    let out = run_install_local(moon_home.path(), module_dir.path(), None)?;
     let stderr = String::from_utf8_lossy(&out.stderr);
     assert!(
         out.status.success(),
-        "moon install failed: stdout={} stderr={stderr}",
+        "moon install --path failed: stdout={} stderr={stderr}",
         String::from_utf8_lossy(&out.stdout)
     );
 
-    let mut expected = bin_name.to_string();
-    if cfg!(windows) {
-        expected.push_str(".exe");
-    }
-    let installed = moon_home.path().join("mooncakes_bin").join(expected);
+    let install_dir = moon_home.path().join("mooncakes_bin");
+    assert!(install_dir.join(expected_bin_name(root_bin)).exists());
+    assert!(install_dir.join(expected_bin_name(sub_bin)).exists());
+    assert!(!install_dir.join(expected_bin_name("lib-tool")).exists());
+    Ok(())
+}
+
+#[test]
+fn test_moon_install_local_requires_main_package() -> anyhow::Result<()> {
+    let Some(moon_home) = prepare_moon_home() else {
+        return Ok(());
+    };
+    let module_dir = tempfile::tempdir().context("failed to create module tempdir")?;
+    let module_name = "localuser/nomains";
+    write_local_module(
+        module_dir.path(),
+        module_name,
+        None,
+        &[LocalPackageSpec {
+            dir: "",
+            is_main: false,
+            bin_name: "no-main",
+        }],
+    )?;
+
+    let out = run_install_local(moon_home.path(), module_dir.path(), None)?;
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(!out.status.success(), "expected failure, got success");
     assert!(
-        installed.exists(),
-        "expected installed binary at {}",
-        installed.display()
+        stderr.contains("no `is_main` packages found"),
+        "unexpected stderr: {stderr}"
     );
     Ok(())
 }
 
 #[test]
-fn test_moon_install_rejects_non_native_preferred_target() -> anyhow::Result<()> {
+fn test_moon_install_local_rejects_non_native_preferred_target() -> anyhow::Result<()> {
     let Some(moon_home) = prepare_moon_home() else {
         return Ok(());
     };
-    let author = "testuser";
-    let pkg = "prefertarget";
-    let version = "0.1.0";
-    let bin_name = "prefer-tool";
-    let module_name = format!("{author}/{pkg}");
-
-    let zip_path = moon_home.path().join("prefers.zip");
-    write_package_zip(
-        &zip_path,
-        &module_name,
-        version,
-        bin_name,
+    let module_dir = tempfile::tempdir().context("failed to create module tempdir")?;
+    let module_name = "localuser/prefertarget";
+    write_local_module(
+        module_dir.path(),
+        module_name,
         Some("wasm"),
-        true,
+        &[
+            LocalPackageSpec {
+                dir: "",
+                is_main: true,
+                bin_name: "prefer-tool",
+            },
+        ],
     )?;
-    let checksum = calc_sha2(&zip_path)?;
-    let registry_base = init_local_registry(author, pkg, version, &checksum)?;
-    cache_zip(moon_home.path(), author, pkg, version, &zip_path)?;
 
-    let out = run_install(
-        moon_home.path(),
-        registry_base.path(),
-        &format!("{author}/{pkg}@{version}"),
-    )?;
+    let out = run_install_local(moon_home.path(), module_dir.path(), None)?;
     let stderr = String::from_utf8_lossy(&out.stderr);
     assert!(!out.status.success(), "expected failure, got success");
     assert!(
@@ -304,31 +247,39 @@ fn test_moon_install_rejects_non_native_preferred_target() -> anyhow::Result<()>
 }
 
 #[test]
-fn test_moon_install_requires_main_package() -> anyhow::Result<()> {
+fn test_moon_install_local_rejects_package_path() -> anyhow::Result<()> {
     let Some(moon_home) = prepare_moon_home() else {
         return Ok(());
     };
-    let author = "testuser";
-    let pkg = "nomains";
-    let version = "0.1.0";
-    let bin_name = "no-main";
-    let module_name = format!("{author}/{pkg}");
+    let module_dir = tempfile::tempdir().context("failed to create module tempdir")?;
+    let module_name = "localuser/localmod";
+    write_local_module(
+        module_dir.path(),
+        module_name,
+        None,
+        &[
+            LocalPackageSpec {
+                dir: "",
+                is_main: true,
+                bin_name: "root-tool",
+            },
+            LocalPackageSpec {
+                dir: "tools",
+                is_main: true,
+                bin_name: "sub-tool",
+            },
+        ],
+    )?;
 
-    let zip_path = moon_home.path().join("nomains.zip");
-    write_package_zip(&zip_path, &module_name, version, bin_name, None, false)?;
-    let checksum = calc_sha2(&zip_path)?;
-    let registry_base = init_local_registry(author, pkg, version, &checksum)?;
-    cache_zip(moon_home.path(), author, pkg, version, &zip_path)?;
-
-    let out = run_install(
+    let out = run_install_local(
         moon_home.path(),
-        registry_base.path(),
-        &format!("{author}/{pkg}@{version}"),
+        module_dir.path(),
+        Some("localuser/localmod/tools"),
     )?;
     let stderr = String::from_utf8_lossy(&out.stderr);
     assert!(!out.status.success(), "expected failure, got success");
     assert!(
-        stderr.contains("no `is_main` packages found"),
+        stderr.contains("package path must be in the form of <author>/<module>[@<version>]"),
         "unexpected stderr: {stderr}"
     );
     Ok(())
