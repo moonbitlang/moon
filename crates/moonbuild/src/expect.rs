@@ -562,8 +562,12 @@ fn gen_patch(targets: HashMap<String, BTreeSet<Target>>) -> anyhow::Result<Packa
                         }
                         i -= 1
                     }
-                    let left_padding =
-                        if find_comma { "content=(" } else { ", content=(" }.to_string();
+                    let left_padding = if find_comma {
+                        "content=("
+                    } else {
+                        ", content=("
+                    }
+                    .to_string();
                     let right_padding = ")".to_string();
 
                     (Some(left_padding), Some(right_padding))
