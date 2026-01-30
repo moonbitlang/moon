@@ -423,21 +423,18 @@ Remove a dependency
 
 ## `moon install`
 
-Note: `moon install` without `PACKAGE_PATH` is deprecated; use `moon check` or `moon build` directly.
-
-Installed executables are placed in `$MOON_HOME/mooncakes_bin`.
-
 Install a package executable
 
-**Usage:** `moon install [OPTIONS] [PACKAGE_PATH]`
+**Usage:** `moon install [OPTIONS] [MODULE_PATH]`
 
 ###### **Arguments:**
 
-* `<PACKAGE_PATH>` — Package path to install in the form of <author>/<module>[@<version>]
+* `<MODULE_PATH>` — Module path to install in the form of <author>/<module>[@<version>]
 
 ###### **Options:**
 
 * `--path <PATH>` — Install from a local module path
+* `--bin <PATH>` — Install executables into this directory
 
 
 

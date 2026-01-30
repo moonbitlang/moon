@@ -16,15 +16,11 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
+use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
-use anyhow::Context;
 use tempfile::TempDir;
-
-fn moon_bin() -> PathBuf {
-    snapbox::cargo_bin!("moon").to_owned()
-}
 
 fn expected_bin_name(base: &str) -> String {
     let mut name = base.to_string();
@@ -34,107 +30,83 @@ fn expected_bin_name(base: &str) -> String {
     name
 }
 
-fn real_moon_home() -> Option<PathBuf> {
-    std::env::var_os("MOON_HOME")
-        .map(PathBuf::from)
-        .or_else(|| home::home_dir().map(|h| h.join(".moon")))
+fn moon_bin() -> PathBuf {
+    snapbox::cargo_bin!("moon").to_owned()
 }
 
-fn prepare_moon_home() -> Option<TempDir> {
-    let real_home = real_moon_home()?;
-    let real_lib = real_home.join("lib");
-    let real_include = real_home.join("include");
-    if !real_lib.exists() {
-        return None;
-    }
-    if !real_include.exists() {
-        return None;
-    }
+fn prepare_install_dir() -> Option<TempDir> {
     let temp = tempfile::tempdir().ok()?;
-    std::fs::create_dir_all(temp.path().join("mooncakes_bin")).ok()?;
-    #[cfg(unix)]
-    {
-        std::os::unix::fs::symlink(&real_lib, temp.path().join("lib")).ok()?;
-        std::os::unix::fs::symlink(&real_include, temp.path().join("include")).ok()?;
-    }
-    #[cfg(windows)]
-    {
-        // Avoid Windows symlink permission issues for now.
-        return None;
-    }
+    std::fs::create_dir_all(temp.path()).ok()?;
     Some(temp)
 }
 
-struct LocalPackageSpec<'a> {
-    dir: &'a str,
-    is_main: bool,
-    bin_name: &'a str,
-}
-
-fn write_local_module(
-    root: &Path,
-    module_name: &str,
-    preferred_target: Option<&str>,
-    packages: &[LocalPackageSpec<'_>],
-) -> anyhow::Result<()> {
-    let mod_json = serde_json::json!({
-        "name": module_name,
-        "version": "0.1.0",
-    });
-    let mod_json = if let Some(preferred) = preferred_target {
-        let mut json = mod_json;
-        json["preferred-target"] = serde_json::json!(preferred);
-        json
-    } else {
-        mod_json
-    };
-    std::fs::write(
-        root.join("moon.mod.json"),
-        serde_json::to_string_pretty(&mod_json)?,
-    )?;
-
-    for pkg in packages {
-        let pkg_dir = if pkg.dir.is_empty() {
-            root.to_path_buf()
-        } else {
-            root.join(pkg.dir)
-        };
-        std::fs::create_dir_all(&pkg_dir)?;
-        let pkg_json = if pkg.is_main {
-            serde_json::json!({
-                "is-main": true,
-                "bin-name": pkg.bin_name,
-            })
-        } else {
-            serde_json::json!({
-                "import": {},
-            })
-        };
-        std::fs::write(
-            pkg_dir.join("moon.pkg.json"),
-            serde_json::to_string_pretty(&pkg_json)?,
-        )?;
-        if pkg.is_main {
-            std::fs::write(pkg_dir.join("main.mbt"), "fn main {}\n")?;
-        } else {
-            std::fs::write(pkg_dir.join("lib.mbt"), "let _ = 1\n")?;
-        }
+fn write_file(path: &Path, contents: &str) -> anyhow::Result<()> {
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent)?;
     }
+    fs::write(path, contents)?;
     Ok(())
 }
 
+fn write_mod_json(dir: &Path, name: &str, preferred_target: Option<&str>) -> anyhow::Result<()> {
+    let content = match preferred_target {
+        Some(target) => format!(
+            r#"{{
+  "name": "{name}",
+  "version": "0.1.0",
+  "preferred-target": "{target}"
+}}
+"#
+        ),
+        None => format!(
+            r#"{{
+  "name": "{name}",
+  "version": "0.1.0"
+}}
+"#
+        ),
+    };
+    write_file(&dir.join("moon.mod.json"), &content)
+}
+
+fn write_main_pkg(dir: &Path, bin_name: &str) -> anyhow::Result<()> {
+    write_file(
+        &dir.join("moon.pkg.json"),
+        &format!(
+            r#"{{
+  "is-main": true,
+  "bin-name": "{bin_name}"
+}}
+"#
+        ),
+    )?;
+    write_file(&dir.join("main.mbt"), "fn main {}\n")
+}
+
+fn write_lib_pkg(dir: &Path) -> anyhow::Result<()> {
+    write_file(
+        &dir.join("moon.pkg.json"),
+        r#"{
+  "import": {}
+}
+"#,
+    )?;
+    write_file(&dir.join("lib.mbt"), "let _ = 1\n")
+}
+
 fn run_install_local(
-    moon_home: &Path,
+    install_dir: &Path,
     module_path: &Path,
     package_path: Option<&str>,
 ) -> anyhow::Result<std::process::Output> {
     let mut cmd = Command::new(moon_bin());
-    cmd.env("MOON_HOME", moon_home)
-        .stdout(Stdio::piped())
+    cmd.stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .arg("install")
         .arg("--path")
-        .arg(module_path);
+        .arg(module_path)
+        .arg("--bin")
+        .arg(install_dir);
     if let Some(package_path) = package_path {
         cmd.arg(package_path);
     }
@@ -143,37 +115,18 @@ fn run_install_local(
 
 #[test]
 fn test_moon_install_local_module_installs_main_packages() -> anyhow::Result<()> {
-    let Some(moon_home) = prepare_moon_home() else {
+    let Some(install_dir) = prepare_install_dir() else {
         return Ok(());
     };
-    let module_dir = tempfile::tempdir().context("failed to create module tempdir")?;
-    let module_name = "localuser/localmod";
+    let module_dir = tempfile::tempdir()?;
+    write_mod_json(module_dir.path(), "localuser/localmod", None)?;
+    write_main_pkg(module_dir.path(), "root-tool")?;
+    write_main_pkg(&module_dir.path().join("tools"), "sub-tool")?;
+    write_lib_pkg(&module_dir.path().join("lib"))?;
     let root_bin = "root-tool";
     let sub_bin = "sub-tool";
-    write_local_module(
-        module_dir.path(),
-        module_name,
-        None,
-        &[
-            LocalPackageSpec {
-                dir: "",
-                is_main: true,
-                bin_name: root_bin,
-            },
-            LocalPackageSpec {
-                dir: "tools",
-                is_main: true,
-                bin_name: sub_bin,
-            },
-            LocalPackageSpec {
-                dir: "lib",
-                is_main: false,
-                bin_name: "lib-tool",
-            },
-        ],
-    )?;
 
-    let out = run_install_local(moon_home.path(), module_dir.path(), None)?;
+    let out = run_install_local(install_dir.path(), module_dir.path(), None)?;
     let stderr = String::from_utf8_lossy(&out.stderr);
     assert!(
         out.status.success(),
@@ -181,32 +134,32 @@ fn test_moon_install_local_module_installs_main_packages() -> anyhow::Result<()>
         String::from_utf8_lossy(&out.stdout)
     );
 
-    let install_dir = moon_home.path().join("mooncakes_bin");
-    assert!(install_dir.join(expected_bin_name(root_bin)).exists());
-    assert!(install_dir.join(expected_bin_name(sub_bin)).exists());
-    assert!(!install_dir.join(expected_bin_name("lib-tool")).exists());
+    assert!(
+        install_dir
+            .path()
+            .join(expected_bin_name(root_bin))
+            .exists()
+    );
+    assert!(install_dir.path().join(expected_bin_name(sub_bin)).exists());
+    assert!(
+        !install_dir
+            .path()
+            .join(expected_bin_name("lib-tool"))
+            .exists()
+    );
     Ok(())
 }
 
 #[test]
 fn test_moon_install_local_requires_main_package() -> anyhow::Result<()> {
-    let Some(moon_home) = prepare_moon_home() else {
+    let Some(install_dir) = prepare_install_dir() else {
         return Ok(());
     };
-    let module_dir = tempfile::tempdir().context("failed to create module tempdir")?;
-    let module_name = "localuser/nomains";
-    write_local_module(
-        module_dir.path(),
-        module_name,
-        None,
-        &[LocalPackageSpec {
-            dir: "",
-            is_main: false,
-            bin_name: "no-main",
-        }],
-    )?;
+    let module_dir = tempfile::tempdir()?;
+    write_mod_json(module_dir.path(), "localuser/nomains", None)?;
+    write_lib_pkg(module_dir.path())?;
 
-    let out = run_install_local(moon_home.path(), module_dir.path(), None)?;
+    let out = run_install_local(install_dir.path(), module_dir.path(), None)?;
     let stderr = String::from_utf8_lossy(&out.stderr);
     assert!(!out.status.success(), "expected failure, got success");
     assert!(
@@ -218,23 +171,14 @@ fn test_moon_install_local_requires_main_package() -> anyhow::Result<()> {
 
 #[test]
 fn test_moon_install_local_rejects_non_native_preferred_target() -> anyhow::Result<()> {
-    let Some(moon_home) = prepare_moon_home() else {
+    let Some(install_dir) = prepare_install_dir() else {
         return Ok(());
     };
-    let module_dir = tempfile::tempdir().context("failed to create module tempdir")?;
-    let module_name = "localuser/prefertarget";
-    write_local_module(
-        module_dir.path(),
-        module_name,
-        Some("wasm"),
-        &[LocalPackageSpec {
-            dir: "",
-            is_main: true,
-            bin_name: "prefer-tool",
-        }],
-    )?;
+    let module_dir = tempfile::tempdir()?;
+    write_mod_json(module_dir.path(), "localuser/prefertarget", Some("wasm"))?;
+    write_main_pkg(module_dir.path(), "root-tool")?;
 
-    let out = run_install_local(moon_home.path(), module_dir.path(), None)?;
+    let out = run_install_local(install_dir.path(), module_dir.path(), None)?;
     let stderr = String::from_utf8_lossy(&out.stderr);
     assert!(!out.status.success(), "expected failure, got success");
     assert!(
@@ -246,38 +190,23 @@ fn test_moon_install_local_rejects_non_native_preferred_target() -> anyhow::Resu
 
 #[test]
 fn test_moon_install_local_rejects_package_path() -> anyhow::Result<()> {
-    let Some(moon_home) = prepare_moon_home() else {
+    let Some(install_dir) = prepare_install_dir() else {
         return Ok(());
     };
-    let module_dir = tempfile::tempdir().context("failed to create module tempdir")?;
-    let module_name = "localuser/localmod";
-    write_local_module(
-        module_dir.path(),
-        module_name,
-        None,
-        &[
-            LocalPackageSpec {
-                dir: "",
-                is_main: true,
-                bin_name: "root-tool",
-            },
-            LocalPackageSpec {
-                dir: "tools",
-                is_main: true,
-                bin_name: "sub-tool",
-            },
-        ],
-    )?;
+    let module_dir = tempfile::tempdir()?;
+    write_mod_json(module_dir.path(), "localuser/localmod", None)?;
+    write_main_pkg(module_dir.path(), "root-tool")?;
+    write_main_pkg(&module_dir.path().join("tools"), "sub-tool")?;
 
     let out = run_install_local(
-        moon_home.path(),
+        install_dir.path(),
         module_dir.path(),
-        Some("localuser/localmod/tools"),
+        Some("localuser/localmod"),
     )?;
     let stderr = String::from_utf8_lossy(&out.stderr);
     assert!(!out.status.success(), "expected failure, got success");
     assert!(
-        stderr.contains("package path must be in the form of <author>/<module>[@<version>]"),
+        stderr.contains("cannot be used with '[MODULE_PATH]'"),
         "unexpected stderr: {stderr}"
     );
     Ok(())

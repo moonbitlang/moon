@@ -19,7 +19,10 @@
 use anyhow::bail;
 use colored::Colorize;
 use mooncake::pkg::{add::AddSubcommand, remove::RemoveSubcommand, tree::TreeSubcommand};
-use moonutil::{dirs::PackageDirs, mooncakes::{ModuleName, RegistryConfig}};
+use moonutil::{
+    dirs::PackageDirs,
+    mooncakes::{ModuleName, RegistryConfig},
+};
 
 use super::UniversalFlags;
 

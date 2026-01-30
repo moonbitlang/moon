@@ -450,8 +450,7 @@ fn gen_docs_for_moon_help_page() {
             need_trim = false;
         }
     }
-    let mut markdown = lines.join("\n");
-    markdown = inject_install_note(&markdown);
+    let markdown = lines.join("\n");
     let manifest_dir = std::env::var("CARGO_MANIFEST_DIR").unwrap();
     let file_path =
         std::path::PathBuf::from(&manifest_dir).join("../../docs/manual-zh/src/commands.md");
@@ -459,20 +458,4 @@ fn gen_docs_for_moon_help_page() {
     let file_path =
         std::path::PathBuf::from(&manifest_dir).join("../../docs/manual/src/commands.md");
     expect_test::expect_file!(file_path).assert_eq(&markdown);
-}
-
-#[cfg(test)]
-fn inject_install_note(markdown: &str) -> String {
-    const NEEDLE: &str = "## `moon install`\n\n";
-    const NOTE: &str = "Note: `moon install` without `PACKAGE_PATH` is deprecated; use `moon check` or `moon build` directly.\n\nInstalled executables are placed in `$MOON_HOME/mooncakes_bin`.\n\n";
-    if let Some(pos) = markdown.find(NEEDLE) {
-        let insert_at = pos + NEEDLE.len();
-        let mut out = String::with_capacity(markdown.len() + NOTE.len());
-        out.push_str(&markdown[..insert_at]);
-        out.push_str(NOTE);
-        out.push_str(&markdown[insert_at..]);
-        out
-    } else {
-        markdown.to_string()
-    }
 }

@@ -38,12 +38,17 @@ use std::{
 /// Install a package executable.
 #[derive(Debug, clap::Parser)]
 pub struct InstallSubcommand {
-    /// Package path to install in the form of <author>/<module>[@<version>]
+    /// Module path to install in the form of <author>/<module>[@<version>]
+    #[clap(value_name = "MODULE_PATH", conflicts_with = "path")]
     pub package_path: Option<String>,
 
     /// Install from a local module path.
-    #[clap(long, value_name = "PATH")]
+    #[clap(long, value_name = "PATH", conflicts_with = "package_path")]
     pub path: Option<PathBuf>,
+
+    /// Install executables into this directory.
+    #[clap(long, value_name = "PATH")]
+    pub bin: Option<PathBuf>,
 }
 
 pub fn install(

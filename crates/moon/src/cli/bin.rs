@@ -36,11 +36,18 @@ use crate::cli::BuildFlags;
 use crate::rr_build::{self, BuildConfig, plan_build_from_resolved, preconfig_compile};
 
 pub fn install_cli(cli: UniversalFlags, cmd: InstallSubcommand) -> anyhow::Result<i32> {
-    if let Some(path) = cmd.path {
-        return install_local_package(cli, &path, cmd.package_path.as_deref());
+    let InstallSubcommand {
+        package_path,
+        path,
+        bin,
+    } = cmd;
+    let install_dir = bin.unwrap_or_else(|| moon_dir::home().join("mooncakes_bin"));
+
+    if let Some(path) = path {
+        return install_local_package(cli, &path, &install_dir);
     }
-    if let Some(package_path) = cmd.package_path {
-        return install_registry_package(cli, &package_path);
+    if let Some(package_path) = package_path {
+        return install_registry_package(cli, &package_path, &install_dir);
     }
 
     let PackageDirs {
@@ -54,7 +61,11 @@ pub fn install_cli(cli: UniversalFlags, cmd: InstallSubcommand) -> anyhow::Resul
     mooncake::pkg::install::install(&source_dir, &target_dir, cli.quiet, cli.verbose, true)
 }
 
-fn install_registry_package(cli: UniversalFlags, package_path: &str) -> anyhow::Result<i32> {
+fn install_registry_package(
+    cli: UniversalFlags,
+    package_path: &str,
+    install_dir: &Path,
+) -> anyhow::Result<i32> {
     if cli.dry_run {
         bail!("--dry-run is not supported for `moon install <package>`");
     }
@@ -66,13 +77,13 @@ fn install_registry_package(cli: UniversalFlags, package_path: &str) -> anyhow::
 
     let registry = OnlineRegistry::mooncakes_io();
     registry.install_to(&target.module, &version, &pkg_dir, cli.quiet)?;
-    install_from_pkg_dir(&cli, &pkg_dir, &target.module)
+    install_from_pkg_dir(&cli, &pkg_dir, &target.module, install_dir)
 }
 
 fn install_local_package(
     cli: UniversalFlags,
     path: &Path,
-    package_path: Option<&str>,
+    install_dir: &Path,
 ) -> anyhow::Result<i32> {
     if cli.dry_run {
         bail!("--dry-run is not supported for `moon install --path`");
@@ -87,27 +98,14 @@ fn install_local_package(
         )
     })?;
 
-    if let Some(raw) = package_path {
-        let parsed = parse_install_path(raw)?;
-        if parsed.version.is_some() {
-            bail!("--path does not support @<version>");
-        }
-        if parsed.module != module_name {
-            bail!(
-                "package path `{}` does not match local module `{}`",
-                raw,
-                module_name
-            );
-        }
-    }
-
-    install_from_pkg_dir(&cli, &pkg_dir, &module_name)
+    install_from_pkg_dir(&cli, &pkg_dir, &module_name, install_dir)
 }
 
 fn install_from_pkg_dir(
     cli: &UniversalFlags,
     pkg_dir: &Path,
     module_name: &ModuleName,
+    install_dir: &Path,
 ) -> anyhow::Result<i32> {
     let moon_mod = read_module_desc_file_in_dir(pkg_dir)?;
     match moon_mod.preferred_target {
@@ -122,7 +120,6 @@ fn install_from_pkg_dir(
     }
 
     let mut failures = Vec::new();
-    let install_dir = moon_dir::home().join("mooncakes_bin");
     let target_dir = pkg_dir.join(BUILD_DIR);
     std::fs::create_dir_all(&target_dir)
         .context("failed to create target directory for install")?;
@@ -154,7 +151,7 @@ fn install_from_pkg_dir(
 
     for pkg_id in selected_pkgs {
         if let Err(err) =
-            build_and_install_pkg(cli, &resolve_output, pkg_id, &target_dir, &install_dir)
+            build_and_install_pkg(cli, &resolve_output, pkg_id, &target_dir, install_dir)
         {
             let pkg = resolve_output.pkg_dirs.get_package(pkg_id);
             eprintln!(
@@ -211,18 +208,16 @@ fn resolve_package_version(
     } else {
         let latest_version = registry
             .get_latest_version(pkg_name)
+            .and_then(|m| m.version.clone())
             .ok_or_else(|| {
                 if index_updated {
                     anyhow::anyhow!("could not find the latest version of {pkg_name}")
                 } else {
                     anyhow::anyhow!(
-                        "could not find the latest version of {pkg_name}. Please run `moon update` to refresh the index."
+                        "could not find the latest version of {pkg_name} (registry index update failed)"
                     )
                 }
-            })?
-            .version
-            .clone()
-            .unwrap();
+            })?;
         if !cli.quiet {
             println!("Latest version of {pkg_name} is {latest_version}");
         }
@@ -241,26 +236,23 @@ fn parse_install_path(input: &str) -> anyhow::Result<ParsedInstallPath> {
         None
     };
 
-    let segments: Vec<&str> = path_part.split('/').collect();
-    if segments.len() != 2 || segments.iter().any(|s| s.is_empty()) {
-        bail!("package path must be in the form of <author>/<module>[@<version>]");
+    let module: ModuleName = path_part.parse().map_err(|_| {
+        anyhow::anyhow!("module path must be in the form of <author>/<module>[@<version>]")
+    })?;
+    if module.username.is_empty() || module.unqual.is_empty() || module.unqual.contains('/') {
+        bail!("module path must be in the form of <author>/<module>[@<version>]");
     }
-    let module = ModuleName {
-        username: segments[0].into(),
-        unqual: segments[1].into(),
-    };
     Ok(ParsedInstallPath { module, version })
 }
 
 fn parse_module_name(input: &str) -> anyhow::Result<ModuleName> {
-    let segments: Vec<&str> = input.split('/').collect();
-    if segments.len() != 2 || segments.iter().any(|s| s.is_empty()) {
-        bail!("module name must be in the form of <author>/<package_name>");
+    let module: ModuleName = input
+        .parse()
+        .map_err(|_| anyhow::anyhow!("module name must be in the form of <author>/<module>"))?;
+    if module.username.is_empty() || module.unqual.is_empty() || module.unqual.contains('/') {
+        bail!("module name must be in the form of <author>/<module>");
     }
-    Ok(ModuleName {
-        username: segments[0].into(),
-        unqual: segments[1].into(),
-    })
+    Ok(module)
 }
 
 struct ParsedInstallPath {
@@ -277,7 +269,7 @@ fn build_and_install_pkg(
 ) -> anyhow::Result<()> {
     let pkg = resolve_output.pkg_dirs.get_package(pkg_id);
     if !pkg.raw.supported_targets.contains(&TargetBackend::Native) {
-        bail!("package {} does not support native target", pkg.fqn);
+        bail!("module {} does not support native target", pkg.fqn);
     }
 
     let build_flags = BuildFlags::default().with_target_backend(Some(TargetBackend::Native));
