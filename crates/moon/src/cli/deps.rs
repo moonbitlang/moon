@@ -18,23 +18,13 @@
 
 use anyhow::bail;
 use colored::Colorize;
-use mooncake::pkg::{
-    add::AddSubcommand, install::InstallSubcommand, remove::RemoveSubcommand, tree::TreeSubcommand,
-};
+use mooncake::pkg::{add::AddSubcommand, remove::RemoveSubcommand, tree::TreeSubcommand};
 use moonutil::{
     dirs::PackageDirs,
     mooncakes::{ModuleName, RegistryConfig},
 };
 
 use super::UniversalFlags;
-
-pub fn install_cli(cli: UniversalFlags, _cmd: InstallSubcommand) -> anyhow::Result<i32> {
-    let PackageDirs {
-        source_dir,
-        target_dir,
-    } = cli.source_tgt_dir.try_into_package_dirs()?;
-    mooncake::pkg::install::install(&source_dir, &target_dir, cli.quiet, cli.verbose, true)
-}
 
 pub fn remove_cli(cli: UniversalFlags, cmd: RemoveSubcommand) -> anyhow::Result<i32> {
     let PackageDirs {

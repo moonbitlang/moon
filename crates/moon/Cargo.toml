@@ -92,7 +92,6 @@ similar.workspace = true
 colored.workspace = true
 libc.workspace = true
 
-
 [[bin]]
 name = "moon"
 bench = false

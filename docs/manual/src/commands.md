@@ -52,7 +52,7 @@ This document contains the help content for the `moon` command-line program.
 * `bench` — Run benchmarks in the current package
 * `add` — Add a dependency
 * `remove` — Remove a dependency
-* `install` — Install dependencies
+* `install` — Install a package executable
 * `tree` — Display the dependency tree
 * `fetch` — Download a package to .repos directory (unstable)
 * `login` — Log in to your account
@@ -423,9 +423,18 @@ Remove a dependency
 
 ## `moon install`
 
-Install dependencies
+Install a package executable
 
-**Usage:** `moon install`
+**Usage:** `moon install [OPTIONS] [MODULE_PATH]`
+
+###### **Arguments:**
+
+* `<MODULE_PATH>` — Module path to install in the form of <author>/<module>[@<version>]
+
+###### **Options:**
+
+* `--path <PATH>` — Install from a local module path
+* `--bin <PATH>` — Install executables into this directory
 
 
 

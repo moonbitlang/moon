@@ -30,11 +30,26 @@ use moonutil::{
         result::{DependencyKind, ResolvedEnv},
     },
 };
-use std::{path::Path, sync::Arc};
+use std::{
+    path::{Path, PathBuf},
+    sync::Arc,
+};
 
-/// Install dependencies
+/// Install a package executable.
 #[derive(Debug, clap::Parser)]
-pub struct InstallSubcommand {}
+pub struct InstallSubcommand {
+    /// Module path to install in the form of <author>/<module>[@<version>]
+    #[clap(value_name = "MODULE_PATH", conflicts_with = "path")]
+    pub package_path: Option<String>,
+
+    /// Install from a local module path.
+    #[clap(long, value_name = "PATH", conflicts_with = "package_path")]
+    pub path: Option<PathBuf>,
+
+    /// Install executables into this directory.
+    #[clap(long, value_name = "PATH")]
+    pub bin: Option<PathBuf>,
+}
 
 pub fn install(
     source_dir: &Path,
