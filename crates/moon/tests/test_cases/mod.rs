@@ -1909,6 +1909,96 @@ fn test_moon_install_bin() {
     assert!(content.contains("()"));
 }
 
+fn run_install_local(
+    install_dir: &Path,
+    module_dir: &Path,
+    module_arg: Option<&str>,
+) -> std::process::Output {
+    let mut cmd = std::process::Command::new(moon_bin());
+    cmd.arg("install")
+        .arg("--path")
+        .arg(module_dir)
+        .arg("--bin")
+        .arg(install_dir);
+    if let Some(module_arg) = module_arg {
+        cmd.arg(module_arg);
+    }
+    cmd.output().expect("failed to run moon install")
+}
+
+#[test]
+fn test_moon_install_local_module_installs_main_packages() {
+    let module_dir = TestDir::new("install_package/multi_main");
+    let install_dir = tempfile::tempdir().expect("failed to create install dir");
+    let root_bin = "root-tool";
+    let sub_bin = "sub-tool";
+    let bin_name = |base: &str| {
+        if cfg!(windows) {
+            format!("{base}.exe")
+        } else {
+            base.to_string()
+        }
+    };
+
+    let out = run_install_local(install_dir.path(), module_dir.as_ref(), None);
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(
+        out.status.success(),
+        "moon install --path failed: stdout={} stderr={stderr}",
+        String::from_utf8_lossy(&out.stdout)
+    );
+
+    assert!(install_dir.path().join(bin_name(root_bin)).exists());
+    assert!(install_dir.path().join(bin_name(sub_bin)).exists());
+    assert!(!install_dir.path().join(bin_name("lib-tool")).exists());
+}
+
+#[test]
+fn test_moon_install_local_requires_main_package() {
+    let module_dir = TestDir::new("install_package/no_main");
+    let install_dir = tempfile::tempdir().expect("failed to create install dir");
+
+    let out = run_install_local(install_dir.path(), module_dir.as_ref(), None);
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(!out.status.success(), "expected failure, got success");
+    assert!(
+        stderr.contains("no `is_main` packages found"),
+        "unexpected stderr: {stderr}"
+    );
+}
+
+#[test]
+fn test_moon_install_local_rejects_non_native_preferred_target() {
+    let module_dir = TestDir::new("install_package/prefer_target");
+    let install_dir = tempfile::tempdir().expect("failed to create install dir");
+
+    let out = run_install_local(install_dir.path(), module_dir.as_ref(), None);
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(!out.status.success(), "expected failure, got success");
+    assert!(
+        stderr.contains("prefers target `wasm`"),
+        "unexpected stderr: {stderr}"
+    );
+}
+
+#[test]
+fn test_moon_install_local_rejects_module_arg() {
+    let module_dir = TestDir::new("install_package/multi_main");
+    let install_dir = tempfile::tempdir().expect("failed to create install dir");
+
+    let out = run_install_local(
+        install_dir.path(),
+        module_dir.as_ref(),
+        Some("localuser/localmod"),
+    );
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(!out.status.success(), "expected failure, got success");
+    assert!(
+        stderr.contains("cannot be used with '[MODULE_PATH]'"),
+        "unexpected stderr: {stderr}"
+    );
+}
+
 #[test]
 #[ignore = "platform-dependent behavior"]
 fn test_strip_debug() {
