@@ -227,13 +227,11 @@ fn test_moon_install_local_rejects_non_native_preferred_target() -> anyhow::Resu
         module_dir.path(),
         module_name,
         Some("wasm"),
-        &[
-            LocalPackageSpec {
-                dir: "",
-                is_main: true,
-                bin_name: "prefer-tool",
-            },
-        ],
+        &[LocalPackageSpec {
+            dir: "",
+            is_main: true,
+            bin_name: "prefer-tool",
+        }],
     )?;
 
     let out = run_install_local(moon_home.path(), module_dir.path(), None)?;
