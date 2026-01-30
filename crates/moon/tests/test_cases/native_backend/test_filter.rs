@@ -52,8 +52,8 @@ fn native_backend_test_filter() {
     );
     let updated_content = read(&file);
     println!("Updated content:\n{}", updated_content);
-    assert!(updated_content.contains("content=\"523\""));
-    assert!(updated_content.contains("content=\"asdfhjas\""));
+    assert!(updated_content.contains("content=(#|523"));
+    assert!(updated_content.contains("content=(#|asdfhjas"));
 
     let file = dir.join("lib/hello_wbtest.mbt");
     let original_content = read(&file);
@@ -78,7 +78,7 @@ fn native_backend_test_filter() {
     );
     let updated_content = read(&file);
     println!("Updated content:\n{}", updated_content);
-    assert!(updated_content.contains("content=\"1256\""));
+    assert!(updated_content.contains("content=(#|1256"));
 
     check(
         get_stdout(
@@ -119,8 +119,8 @@ fn native_backend_test_filter() {
             ],
         ),
         expect![[r#"
-            [username/hello] test lib/hello.mbt:22 ("D") failed
-            expect test failed at $ROOT/lib/hello.mbt:24:3
+            [username/hello] test lib/hello.mbt:24 ("D") failed
+            expect test failed at $ROOT/lib/hello.mbt:26:3
             Diff: (- expected, + actual)
             ----
             +test D

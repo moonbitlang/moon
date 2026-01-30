@@ -25,7 +25,8 @@ fn test_specify_source_dir_002() {
         read(dir.join("src").join("lib").join("hello_test.mbt")),
         expect![[r#"
             test "hello" {
-              inspect(@lib.hello(), content="Hello, world!")
+              inspect(@lib.hello(), content=(#|Hello, world!
+              ))
             }
         "#]],
     );

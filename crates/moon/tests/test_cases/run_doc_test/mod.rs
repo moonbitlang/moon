@@ -54,17 +54,21 @@ fn test_run_doc_test() {
     let greet_mbt = read(dir.join("src/lib/greet.mbt"));
     let greet_content = greet_mbt.lines().collect::<Vec<_>>();
     check(
-        hello_content[11],
-        expect![[r#"/// inspect(1256, content="1256")"#]],
+        hello_content[11..13].join("\n"),
+        expect![[r#"
+            /// inspect(1256, content=(
+            ///   #|1256"#]],
     );
 
     check(
-        greet_content[22],
-        expect![[r#"///   inspect(1256, content="1256")"#]],
+        greet_content[22..24].join("\n"),
+        expect![[r#"
+            ///   inspect(1256, content=(
+            ///   #|1256"#]],
     );
 
     check(
-        greet_content[98..100].join("\n"),
+        greet_content[100..102].join("\n"),
         expect![[r#"
             /// inspect(buf.contents(), content=(
             ///   #|b"T\x00e\x00s\x00t\x00""#]],
@@ -86,8 +90,8 @@ fn test_run_doc_test() {
             test block 4
             test block 5
             doc_test 5 from greet.mbt
-            [username/hello] test lib/hello.mbt:19 (#2) failed: lib_blackbox_test/hello.mbt:22:5-22:30@username/hello FAILED: this is a failure
-            [username/hello] test lib/greet.mbt:30 (#3) failed: lib_blackbox_test/greet.mbt:34:7-34:30@username/hello FAILED: another failure
+            [username/hello] test lib/hello.mbt:21 (#2) failed: lib_blackbox_test/hello.mbt:24:5-24:30@username/hello FAILED: this is a failure
+            [username/hello] test lib/greet.mbt:32 (#3) failed: lib_blackbox_test/greet.mbt:36:7-36:30@username/hello FAILED: another failure
             Total tests: 16, passed: 14, failed: 2.
         "#]],
     );

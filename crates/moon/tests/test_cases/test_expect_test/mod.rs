@@ -41,7 +41,26 @@ fn test_expect_test() -> anyhow::Result<()> {
     assert!(out.contains("Total tests: 30, passed: 30, failed: 0."));
     let out = std::fs::read_to_string(tmp_dir_path.as_ref().join("lib").join("hello_wbtest.mbt"))
         .unwrap();
-    assert!(out.contains(r#"inspect(notbuf, content="haha")"#));
+    expect![[r#"
+        test "hello" {
+          let buf = @buffer.new()
+          buf.write_string("just\ntest")
+          inspect(buf, content=(
+            
+            #|just
+            #|test
+          ))
+        }
+
+        test "not-buf" {
+          let notbuf = @buffer.new()
+          notbuf.write_string("haha")
+          inspect(notbuf, content=(
+            #|haha
+          ))
+        }
+    "#]]
+    .assert_eq(&out);
     Ok(())
 }
 

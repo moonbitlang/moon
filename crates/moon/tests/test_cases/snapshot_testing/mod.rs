@@ -101,8 +101,10 @@ fn test_snapshot_test_target_js() {
             }
 
             test "test inspect 1" {
-              inspect("a", content="a")
-              inspect("b", content="b")
+              inspect("a", content=(#|a
+              ))
+              inspect("b", content=(#|b
+              ))
             }
 
             test "test snapshot 1" (it : @test.Test) {
@@ -113,8 +115,10 @@ fn test_snapshot_test_target_js() {
             }
 
             test "test inspect 2" {
-              inspect("c", content="c")
-              inspect("d", content="d")
+              inspect("c", content=(#|c
+              ))
+              inspect("d", content=(#|d
+              ))
             }
 
             test "test snapshot 2" (it : @test.Test) {
@@ -266,8 +270,10 @@ fn test_snapshot_test() {
             }
 
             test "test inspect 1" {
-              inspect("a", content="a")
-              inspect("b", content="b")
+              inspect("a", content=(#|a
+              ))
+              inspect("b", content=(#|b
+              ))
             }
 
             test "test snapshot 1" (it : @test.Test) {
@@ -278,8 +284,10 @@ fn test_snapshot_test() {
             }
 
             test "test inspect 2" {
-              inspect("c", content="c")
-              inspect("d", content="d")
+              inspect("c", content=(#|c
+              ))
+              inspect("d", content=(#|d
+              ))
             }
 
             test "test snapshot 2" (it : @test.Test) {
