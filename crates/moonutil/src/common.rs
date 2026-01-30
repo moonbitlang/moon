@@ -596,9 +596,6 @@ impl FromStr for TestIndexRange {
             }
             let start = parse_index_bound(start, TestIndexRangeParseError::MissingStart)?;
             let end = parse_index_bound(end, TestIndexRangeParseError::MissingEnd)?;
-            let end = end
-                .checked_add(1)
-                .ok_or(TestIndexRangeParseError::EndOverflow)?;
             if start >= end {
                 return Err(TestIndexRangeParseError::InvalidRange);
             }

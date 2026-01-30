@@ -836,7 +836,7 @@ fn test_moon_test_filter_index_range() {
                 "-f",
                 "hello.mbt",
                 "-i",
-                "0-1",
+                "0-2",
             ],
         ),
         expect![[r#"

@@ -41,8 +41,8 @@ pub struct BenchSubcommand {
     #[clap(short, long, requires("package"))]
     pub file: Option<String>,
 
-    /// Run only the index-th test in the file. Accepts a single index or an inclusive
-    /// range like `0-2`. Only valid when `--file` is also specified.
+    /// Run only the index-th test in the file. Accepts a single index or a left-inclusive
+    /// right-exclusive range like `0-2`. Only valid when `--file` is also specified.
     #[clap(short, long, requires("file"))]
     pub index: Option<TestIndexRange>,
 
