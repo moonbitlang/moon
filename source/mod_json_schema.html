@@ -1,0 +1,304 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/jsoneditor/9.9.2/jsoneditor.min.css" rel="stylesheet"
+        type="text/css">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jsoneditor/9.9.2/jsoneditor.min.js"></script>
+
+    <title>moon.mod.json schema viewer</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 0;
+            padding: 20px;
+            background-color: #f0f0f0;
+        }
+
+        h1 {
+            color: #333;
+        }
+
+        #schema-container {
+            max-width: 800px;
+            margin: 20px auto;
+            background-color: white;
+            padding: 20px;
+            border-radius: 5px;
+            box-shadow: 0 2px 5px rgba(0, 0, 0, 0.1);
+        }
+    </style>
+</head>
+
+<body>
+    <div id="schema-container"></div>
+
+    <script>
+        const schema = {
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "JSON schema for MoonBit moon.mod.json files",
+  "description": "A module of MoonBit lang",
+  "type": "object",
+  "required": [
+    "name"
+  ],
+  "properties": {
+    "--moonbit-unstable-prebuild": {
+      "description": "**Experimental:** A relative path to the pre-build configuration script.\n\nThe script should be a **JavaScript or Python** file that is able to be executed with vanilla Node.JS or Python interpreter. Since this is experimental, the API may change at any time without warning.",
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "alert-list": {
+      "description": "Alert list setting of the module\n\nPlease use `warn-list` instead. For example, `\"warn-list\": \"-deprecated\"` or `\"warn-list\": \"-alert_unsafe\"`.",
+      "deprecated": true,
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "bin-deps": {
+      "description": "third-party binary dependencies of the module",
+      "type": [
+        "object",
+        "null"
+      ],
+      "additionalProperties": {
+        "$ref": "#/definitions/BinaryDependencyInfoJson"
+      }
+    },
+    "deps": {
+      "description": "third-party dependencies of the module",
+      "type": [
+        "object",
+        "null"
+      ],
+      "additionalProperties": {
+        "$ref": "#/definitions/SourceDependencyInfoJson"
+      }
+    },
+    "description": {
+      "description": "description of this module",
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "exclude": {
+      "description": "Files to exclude when publishing.",
+      "type": [
+        "array",
+        "null"
+      ],
+      "items": {
+        "type": "string"
+      }
+    },
+    "include": {
+      "description": "Files to include when publishing.",
+      "type": [
+        "array",
+        "null"
+      ],
+      "items": {
+        "type": "string"
+      }
+    },
+    "keywords": {
+      "description": "keywords of this module",
+      "type": [
+        "array",
+        "null"
+      ],
+      "items": {
+        "type": "string"
+      }
+    },
+    "license": {
+      "description": "license of this module",
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "name": {
+      "description": "name of the module",
+      "type": "string"
+    },
+    "preferred-target": {
+      "description": "The preferred target backend of this module.\n\nToolchains are recommended to use this target as the default target when the user is not specifying or overriding in any other ways. However, this is merely a recommendation, and tools may deviate from this value at any time.",
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "readme": {
+      "description": "path to module's README file",
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "repository": {
+      "description": "url to module's repository",
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "scripts": {
+      "description": "Scripts related to the current module.",
+      "type": [
+        "object",
+        "null"
+      ],
+      "additionalProperties": {
+        "type": "string"
+      }
+    },
+    "source": {
+      "description": "source code directory of this module",
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "version": {
+      "description": "version of the module",
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "warn-list": {
+      "description": "Warn list setting of the module",
+      "type": [
+        "string",
+        "null"
+      ]
+    }
+  },
+  "definitions": {
+    "BinaryDependencyInfo": {
+      "description": "Information about a specific dependency",
+      "type": "object",
+      "properties": {
+        "bin_pkg": {
+          "description": "Binary packages to compile.",
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": {
+            "type": "string"
+          }
+        },
+        "branch": {
+          "description": "Git branch to use.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "git": {
+          "description": "Git repository URL. Overrides the version requirement.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "path": {
+          "description": "Local path to the dependency. Overrides the version requirement.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "version": {
+          "type": "string"
+        }
+      }
+    },
+    "BinaryDependencyInfoJson": {
+      "description": "The JSON representation of a binary dependency info",
+      "anyOf": [
+        {
+          "description": "A simple version requirement",
+          "type": "string"
+        },
+        {
+          "description": "A detailed dependency info",
+          "allOf": [
+            {
+              "$ref": "#/definitions/BinaryDependencyInfo"
+            }
+          ]
+        }
+      ]
+    },
+    "SourceDependencyInfo": {
+      "description": "Information about a specific dependency",
+      "type": "object",
+      "properties": {
+        "branch": {
+          "description": "Git branch to use.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "git": {
+          "description": "Git repository URL. Overrides the version requirement.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "path": {
+          "description": "Local path to the dependency. Overrides the version requirement.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "version": {
+          "type": "string"
+        }
+      }
+    },
+    "SourceDependencyInfoJson": {
+      "description": "The JSON representation of a source dependency info",
+      "anyOf": [
+        {
+          "description": "A simple version requirement",
+          "type": "string"
+        },
+        {
+          "description": "A detailed dependency info",
+          "allOf": [
+            {
+              "$ref": "#/definitions/SourceDependencyInfo"
+            }
+          ]
+        }
+      ]
+    }
+  }
+}
+        const container = document.getElementById('schema-container');
+        const options = {
+            language: 'en',
+            mode: 'view',
+            modes: ['code', 'form', 'text', 'tree', 'view'],
+            onError: function (err) {
+                console.error(err);
+            }
+        };
+        const editor = new JSONEditor(container, options, schema);
+    </script>
+</body>
+
+</html>
