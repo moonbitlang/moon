@@ -43,6 +43,7 @@ jobs:
     steps:
       - name: Download release binaries (S3, Unix)
         if: ${{ matrix.os != 'windows-latest' }}
+        shell: bash
         env:
           AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
@@ -56,6 +57,7 @@ jobs:
 
       - name: Download release binaries (S3, Windows)
         if: ${{ matrix.os == 'windows-latest' }}
+        shell: pwsh
         env:
           AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
@@ -68,12 +70,14 @@ jobs:
 
       - name: Install MoonBit (Unix)
         if: ${{ matrix.os != 'windows-latest' }}
+        shell: bash
         run: |
           curl -fsSL https://cli.moonbitlang.com/install/unix.sh | bash -s nightly
-          echo "$HOME/.moon/bin" >> $GITHUB_PATH
+          echo "$HOME/.moon/bin" >> "$GITHUB_PATH"
 
       - name: Install MoonBit (Windows)
         if: ${{ matrix.os == 'windows-latest' }}
+        shell: pwsh
         run: |
           $env:MOONBIT_INSTALL_VERSION="nightly"
           Set-ExecutionPolicy RemoteSigned -Scope CurrentUser; irm https://cli.moonbitlang.com/install/powershell.ps1 | iex
@@ -81,10 +85,12 @@ jobs:
 
       - name: Make release binaries executable (Unix)
         if: ${{ matrix.os != 'windows-latest' }}
+        shell: bash
         run: chmod +x dist/moon dist/moonrun
 
       - name: E2E smoke test release binary (Unix)
         if: ${{ matrix.os != 'windows-latest' }}
+        shell: bash
         run: |
           set -euo pipefail
           moon_bin="${GITHUB_WORKSPACE}/dist/moon"
@@ -106,6 +112,7 @@ jobs:
 
       - name: E2E smoke test release binary (Windows)
         if: ${{ matrix.os == 'windows-latest' }}
+        shell: pwsh
         run: |
           $moon = Join-Path $env:GITHUB_WORKSPACE "dist\moon.exe"
           $project = Join-Path $env:RUNNER_TEMP "moon_e2e"
@@ -113,12 +120,12 @@ jobs:
           & $moon new $project
           $testFile = Join-Path $project "moon_e2e_test.mbt"
           @"
-///|
-test "e2e" {
-  let array = [1, 2, 3]
-  inspect(sum(data=array), content="6")
-}
-"@ | Add-Content -Path $testFile
+          ///|
+          test "e2e" {
+            let array = [1, 2, 3]
+            inspect(sum(data=array), content="6")
+          }
+          "@ | Add-Content -Path $testFile
           Set-Location $project
           & $moon check
           & $moon test --target wasm-gc --no-parallelize
