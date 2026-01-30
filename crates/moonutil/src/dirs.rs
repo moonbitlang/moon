@@ -57,7 +57,7 @@ pub struct SourceTargetDirs {
     //   future breaking release.
     /// Change to DIR before doing anything else. This affects path options (e.g. `--source-dir`,
     /// `--target-dir`) in that their interpretations of relative paths are made relative to DIR.
-    /// For example, `moon --cwd DIR <cmd>` is equivalent to `cd DIR && moon <cmd>`.
+    /// Example: `moon check --cwd a --target-dir _build` uses target directory `a/_build`.
     #[arg(long = "cwd", global = true, value_name = "DIR")]
     pub cwd: Option<PathBuf>,
 

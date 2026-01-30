@@ -59,7 +59,7 @@ fn test_moon_help() {
 
             Common Options:
                   --cwd <DIR>
-                      Change to DIR before doing anything else. This affects path options (e.g. `--source-dir`, `--target-dir`) in that their interpretations of relative paths are made relative to DIR. For example, `moon --cwd DIR <cmd>` is equivalent to `cd DIR && moon <cmd>`
+                      Change to DIR before doing anything else. This affects path options (e.g. `--source-dir`, `--target-dir`) in that their interpretations of relative paths are made relative to DIR. Example: `moon check --cwd a --target-dir _build` uses target directory `a/_build`
                   --source-dir <DIR>
                       The source directory used to locate `moon.mod.json`. Defaults to the current directory (after `--cwd`)
               -C, --directory <DIR>
