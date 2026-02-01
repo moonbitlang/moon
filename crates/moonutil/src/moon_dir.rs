@@ -110,6 +110,17 @@ pub fn cache() -> PathBuf {
     home().join("registry").join("cache")
 }
 
+/// Get the directory for globally installed binary packages from mooncakes.
+/// This is where `moon install <package>` installs binaries.
+/// Default: ~/.moon/mooncakes_bin/
+pub fn mooncakes_bin() -> PathBuf {
+    let bin = home().join("mooncakes_bin");
+    if !bin.exists() {
+        std::fs::create_dir_all(&bin).unwrap();
+    }
+    bin
+}
+
 pub fn index() -> PathBuf {
     home().join("registry").join("index")
 }

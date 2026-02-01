@@ -23,17 +23,46 @@ use mooncake::pkg::{
 };
 use moonutil::{
     dirs::PackageDirs,
+    moon_dir,
     mooncakes::{ModuleName, RegistryConfig},
 };
 
 use super::UniversalFlags;
+use super::install_binary::{install_binary, install_from_local, parse_package_spec};
 
-pub fn install_cli(cli: UniversalFlags, _cmd: InstallSubcommand) -> anyhow::Result<i32> {
-    let PackageDirs {
-        source_dir,
-        target_dir,
-    } = cli.source_tgt_dir.try_into_package_dirs()?;
-    mooncake::pkg::install::install(&source_dir, &target_dir, cli.quiet, cli.verbose, true)
+pub fn install_cli(cli: UniversalFlags, cmd: InstallSubcommand) -> anyhow::Result<i32> {
+    // If no package path and no local path specified, use legacy behavior with deprecation warning
+    if cmd.package_path.is_none() && cmd.path.is_none() {
+        eprintln!(
+            "{}: `moon install` without arguments is deprecated and will be removed in a future version. \
+             Use `moon install <package>` to install binaries globally, or use `moon build` to build your project.",
+            "Warning".yellow().bold()
+        );
+        let PackageDirs {
+            source_dir,
+            target_dir,
+        } = cli.source_tgt_dir.try_into_package_dirs()?;
+        return mooncake::pkg::install::install(
+            &source_dir,
+            &target_dir,
+            cli.quiet,
+            cli.verbose,
+            true,
+        );
+    }
+
+    // New behavior: install binary package globally
+    let install_dir = cmd.bin.unwrap_or_else(moon_dir::mooncakes_bin);
+
+    if let Some(local_path) = cmd.path {
+        // Install from local path
+        install_from_local(&cli, &local_path, &install_dir)
+    } else {
+        // Install from registry
+        let package_path = cmd.package_path.unwrap();
+        let spec = parse_package_spec(&package_path)?;
+        install_binary(&cli, &spec, &install_dir)
+    }
 }
 
 pub fn remove_cli(cli: UniversalFlags, cmd: RemoveSubcommand) -> anyhow::Result<i32> {

@@ -30,6 +30,7 @@ pub mod fetch;
 pub mod fmt;
 pub mod generate_test_driver;
 pub mod info;
+pub mod install_binary;
 pub mod mooncake_adapter;
 pub mod new;
 mod pre_build;

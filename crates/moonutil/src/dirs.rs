@@ -69,7 +69,7 @@ pub fn check_moon_mod_exists(source_dir: &Path) -> bool {
     source_dir.join(MOON_MOD_JSON).exists()
 }
 
-fn find_ancestor_with_mod(source_dir: &Path) -> Option<PathBuf> {
+pub fn find_ancestor_with_mod(source_dir: &Path) -> Option<PathBuf> {
     source_dir
         .ancestors()
         .find(|dir| check_moon_mod_exists(dir))
