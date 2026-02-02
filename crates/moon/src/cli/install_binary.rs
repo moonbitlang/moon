@@ -314,6 +314,17 @@ fn build_and_install_packages(
             .filter(|s| !s.is_empty())
             .unwrap_or(&spec.module_name.unqual)
             .to_string();
+
+        // Check if binary name would overwrite a reserved toolchain binary
+        if moonutil::moon_dir::RESERVED_BIN_NAMES.contains(&binary_name.as_str()) {
+            eprintln!(
+                "{}: Cannot install `{}` - name conflicts with MoonBit toolchain binary",
+                "Error".red().bold(),
+                binary_name
+            );
+            continue;
+        }
+
         let full_pkg_name = if pkg_path.is_empty() {
             spec.module_name.to_string()
         } else {

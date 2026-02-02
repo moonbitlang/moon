@@ -43,7 +43,7 @@ pub struct InstallSubcommand {
     /// If not provided, falls back to legacy behavior (install project dependencies)
     pub package_path: Option<String>,
 
-    /// Specify installation directory (default: ~/.moon/mooncakes_bin/)
+    /// Specify installation directory (default: ~/.moon/bin/)
     #[clap(long)]
     pub bin: Option<PathBuf>,
 

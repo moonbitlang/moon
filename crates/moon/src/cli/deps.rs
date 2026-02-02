@@ -52,7 +52,7 @@ pub fn install_cli(cli: UniversalFlags, cmd: InstallSubcommand) -> anyhow::Resul
     }
 
     // New behavior: install binary package globally
-    let install_dir = cmd.bin.unwrap_or_else(moon_dir::mooncakes_bin);
+    let install_dir = cmd.bin.unwrap_or_else(moon_dir::bin);
 
     if let Some(local_path) = cmd.path {
         // Install from local path

@@ -434,7 +434,7 @@ Install a binary package globally or install project dependencies (deprecated wi
 
 ###### **Options:**
 
-* `--bin <BIN>` — Specify installation directory (default: ~/.moon/mooncakes_bin/)
+* `--bin <BIN>` — Specify installation directory (default: ~/.moon/bin/)
 * `--path <PATH>` — Install from local path instead of registry
 
 

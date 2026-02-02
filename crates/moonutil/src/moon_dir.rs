@@ -110,16 +110,21 @@ pub fn cache() -> PathBuf {
     home().join("registry").join("cache")
 }
 
-/// Get the directory for globally installed binary packages from mooncakes.
-/// This is where `moon install <package>` installs binaries.
-/// Default: ~/.moon/mooncakes_bin/
-pub fn mooncakes_bin() -> PathBuf {
-    let bin = home().join("mooncakes_bin");
-    if !bin.exists() {
-        std::fs::create_dir_all(&bin).unwrap();
-    }
-    bin
-}
+/// Reserved binary names that cannot be overwritten by user-installed packages.
+pub const RESERVED_BIN_NAMES: &[&str] = &[
+    "moon",
+    "moonc",
+    "mooncake",
+    "moondoc",
+    "moonfmt",
+    "mooninfo",
+    "moonrun",
+    "moon_cove_report",
+    "moon-ide",
+    "moon-pilot",
+    "moon-wasm-opt",
+    "moonbit-lsp",
+];
 
 pub fn index() -> PathBuf {
     home().join("registry").join("index")
