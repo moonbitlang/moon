@@ -60,6 +60,8 @@ use crate::rr_build::preconfig_compile;
 use crate::rr_build::{BuildConfig, CalcUserIntentOutput};
 use crate::run::TestFilter;
 use crate::run::TestIndex;
+use crate::run::TestOutlineEntry;
+use crate::run::collect_test_outline;
 use crate::run::perform_promotion;
 
 use super::BenchSubcommand;
@@ -90,6 +92,32 @@ fn print_test_summary(total: usize, passed: usize, quiet: bool, backend_hint: Op
             },
             backend_suffix,
         );
+    }
+}
+
+fn print_test_outline(entries: &[TestOutlineEntry]) {
+    if entries.is_empty() {
+        eprintln!("{}: no test entry found.", "Warning".yellow().bold());
+        return;
+    }
+
+    for (i, entry) in entries.iter().enumerate() {
+        let line = entry
+            .line_number
+            .map(|v| v.to_string())
+            .unwrap_or_else(|| "?".to_string());
+        let mut line_out = format!(
+            "{:>4}. {} {}:{} index={}",
+            i + 1,
+            entry.package,
+            entry.file,
+            line,
+            entry.index
+        );
+        if let Some(name) = &entry.name {
+            line_out.push_str(&format!(" name={name:?}"));
+        }
+        println!("{line_out}");
     }
 }
 
@@ -136,6 +164,10 @@ pub struct TestSubcommand {
     /// Run the tests in a target backend sequentially
     #[clap(long)]
     pub no_parallelize: bool,
+
+    /// Print the outline of tests to be executed and exit
+    #[clap(long, conflicts_with_all = ["build_only", "update", "test_failure_json"])]
+    pub outline: bool,
 
     /// Print failure message in JSON format
     #[clap(long)]
@@ -267,6 +299,12 @@ fn run_test_internal(
 
 #[instrument(level = Level::DEBUG, skip_all)]
 fn run_test_in_single_file(cli: &UniversalFlags, cmd: &TestSubcommand) -> anyhow::Result<i32> {
+    if cmd.outline && cli.dry_run {
+        anyhow::bail!("`--outline` cannot be used with `--dry-run`");
+    }
+    if cmd.outline && !cli.unstable_feature.rupes_recta {
+        anyhow::bail!("`--outline` is only supported with Rupes Recta (-Z rupes_recta)");
+    }
     if cli.unstable_feature.rupes_recta {
         return run_test_in_single_file_rr(cli, cmd);
     }
@@ -649,6 +687,7 @@ pub(crate) struct TestLikeSubcommand<'a> {
     pub auto_sync_flags: &'a AutoSyncFlags,
     pub build_only: bool,
     pub no_parallelize: bool,
+    pub outline: bool,
     pub test_failure_json: bool,
     pub patch_file: &'a Option<PathBuf>,
     pub include_skipped: bool,
@@ -671,6 +710,7 @@ impl<'a> From<&'a TestSubcommand> for TestLikeSubcommand<'a> {
             auto_sync_flags: &cmd.auto_sync_flags,
             build_only: cmd.build_only,
             no_parallelize: cmd.no_parallelize,
+            outline: cmd.outline,
             test_failure_json: cmd.test_failure_json,
             patch_file: &cmd.patch_file,
             include_skipped: cmd.include_skipped,
@@ -693,6 +733,7 @@ impl<'a> From<&'a BenchSubcommand> for TestLikeSubcommand<'a> {
             auto_sync_flags: &cmd.auto_sync_flags,
             build_only: cmd.build_only,
             no_parallelize: cmd.no_parallelize,
+            outline: false,
             test_failure_json: false,
             patch_file: &None,
             include_skipped: false,
@@ -739,6 +780,12 @@ pub(crate) fn run_test_or_bench_internal(
     }
     if cmd.explicit_file_filter.is_some() && (cmd.package.is_some() || cmd.file.is_some()) {
         anyhow::bail!("cannot filter package or files when testing a single file in a project");
+    }
+    if cmd.outline && cli.dry_run {
+        anyhow::bail!("`--outline` cannot be used with `--dry-run`");
+    }
+    if cmd.outline && !cli.unstable_feature.rupes_recta {
+        anyhow::bail!("`--outline` is only supported with Rupes Recta (-Z rupes_recta)");
     }
 
     debug!(
@@ -1517,6 +1564,17 @@ fn rr_test_from_plan(
 
     if !result.successful() {
         return Ok(result.return_code_for_success());
+    }
+
+    if cmd.outline {
+        let entries = collect_test_outline(
+            build_meta,
+            &filter,
+            cmd.include_skipped,
+            cmd.run_mode == RunMode::Bench,
+        )?;
+        print_test_outline(&entries);
+        return Ok(0);
     }
 
     if cmd.build_only {

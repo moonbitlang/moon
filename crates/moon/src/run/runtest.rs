@@ -88,6 +88,15 @@ use moonutil::common::TestIndexRange;
 pub use filter::TestFilter;
 pub use promotion::perform_promotion;
 
+#[derive(Debug, Clone)]
+pub struct TestOutlineEntry {
+    pub package: String,
+    pub file: String,
+    pub index: u32,
+    pub name: Option<String>,
+    pub line_number: Option<usize>,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum TestResultKind {
     Passed,
@@ -380,6 +389,111 @@ impl TargetTestResult {
             }
         }
     }
+}
+
+fn collect_tests_by_file(
+    meta: &MooncGenTestInfo,
+    bench: bool,
+) -> IndexMap<String, IndexMap<u32, MbtTestInfo>> {
+    let mut out: IndexMap<String, IndexMap<u32, MbtTestInfo>> = IndexMap::new();
+    let lists: Vec<&IndexMap<String, Vec<MbtTestInfo>>> = if bench {
+        vec![&meta.with_bench_args_tests]
+    } else {
+        vec![
+            &meta.no_args_tests,
+            &meta.with_args_tests,
+            &meta.async_tests,
+            &meta.async_tests_with_args,
+        ]
+    };
+
+    for test_list in lists {
+        for (file, tests) in test_list {
+            let entry = out.entry(file.clone()).or_default();
+            for test in tests {
+                entry.entry(test.index).or_insert_with(|| test.clone());
+            }
+        }
+    }
+
+    out
+}
+
+#[instrument(level = "debug", skip(build_meta, filter))]
+pub fn collect_test_outline(
+    build_meta: &BuildMeta,
+    filter: &TestFilter,
+    include_skipped: bool,
+    bench: bool,
+) -> anyhow::Result<Vec<TestOutlineEntry>> {
+    let executables = gather_tests(build_meta);
+    debug!(count = executables.len(), "collecting test outline entries");
+    let mut entries = Vec::new();
+
+    for test in executables {
+        let (included, file_filt) = filter.check_package(test.target);
+        if !included {
+            continue;
+        }
+
+        let meta_bytes = std::fs::read(test.meta)
+            .with_context(|| format!("Failed to read test metadata at {}", test.meta.display()))?;
+        let meta: MooncGenTestInfo = serde_json_lenient::from_slice(&meta_bytes)
+            .with_context(|| format!("Failed to parse test metadata at {}", test.meta.display()))?;
+
+        let mut file_ranges = vec![];
+        filter::apply_filter(
+            file_filt,
+            &meta,
+            &mut file_ranges,
+            include_skipped,
+            bench,
+            filter.name_filter.as_deref(),
+        );
+
+        let mut allowed_indices: IndexMap<String, std::collections::HashSet<u32>> =
+            IndexMap::new();
+        for (file, ranges) in file_ranges {
+            let entry = allowed_indices.entry(file).or_default();
+            for range in ranges {
+                entry.extend(range);
+            }
+        }
+
+        if allowed_indices.values().all(|v| v.is_empty()) {
+            continue;
+        }
+
+        let tests_by_file = collect_tests_by_file(&meta, bench);
+        let pkgname = build_meta
+            .resolve_output
+            .pkg_dirs
+            .get_package(test.target.package)
+            .fqn
+            .to_string();
+        for (file, tests) in tests_by_file {
+            let Some(allowed) = allowed_indices.get(&file) else {
+                continue;
+            };
+            if allowed.is_empty() {
+                continue;
+            }
+            for (index, test) in tests {
+                if !allowed.contains(&index) {
+                    continue;
+                }
+                entries.push(TestOutlineEntry {
+                    package: pkgname.clone(),
+                    file: file.clone(),
+                    index,
+                    name: test.name.clone(),
+                    line_number: test.line_number,
+                });
+            }
+        }
+    }
+
+    Ok(entries)
 }
 
 /// Gather tests executables from the build metadata.
