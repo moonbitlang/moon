@@ -63,19 +63,6 @@ impl PackageSpec {
         }
     }
 
-    /// Get the wildcard prefix for matching packages.
-    pub fn wildcard_prefix(&self) -> Option<String> {
-        if !self.is_wildcard {
-            return None;
-        }
-        self.package_path.as_ref().map(|p| {
-            if p.is_empty() {
-                String::new()
-            } else {
-                format!("{}/", p)
-            }
-        })
-    }
 }
 
 /// Yet another package path parser because we need to parse wildcard patterns.
@@ -260,7 +247,17 @@ fn build_and_install_packages(
         bail!("No packages found in module");
     };
 
-    let wildcard_prefix = spec.wildcard_prefix();
+    let wildcard_prefix = if spec.is_wildcard {
+        spec.package_path.as_ref().map(|p| {
+            if p.is_empty() {
+                String::new()
+            } else {
+                format!("{}/", p)
+            }
+        })
+    } else {
+        None
+    };
     let mut packages_to_build: Vec<(PackageId, String)> = Vec::new();
 
     for (pkg_path, &pkg_id) in all_pkgs {
