@@ -58,10 +58,12 @@ fn test_moon_help() {
               -h, --help  Print help
 
             Common Options:
-              -C, --directory <SOURCE_DIR>
-                      The source code directory. Defaults to the current directory
+                  --cwd <DIR>
+                      Change to DIR before doing anything else. This affects options that expect path names (e.g. `--target-dir`) in that their interpretations of relative paths are made relative to DIR. Example: `moon check --cwd a --target-dir _build` uses target directory `a/_build`
+              -C, --directory <DIR>
+                      [Deprecated] Directory used to locate `moon.mod.json` (does not change the working directory). Use `--cwd` if you intended to change the working directory
                   --target-dir <TARGET_DIR>
-                      The target directory. Defaults to `source_dir/target`
+                      The target directory. Defaults to `<project-root>/target`
               -q, --quiet
                       Suppress output
               -v, --verbose

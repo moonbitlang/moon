@@ -53,7 +53,7 @@ pub fn run_query(_cli: UniversalFlags, cmd: QuerySubcommand) -> anyhow::Result<i
     let moon_add_output = std::process::Command::new(&moon_path)
         .arg("add")
         .arg(&mod_name)
-        .arg("--source-dir")
+        .arg("--cwd")
         .arg(moon_repl_dir.to_str().unwrap())
         .output()?;
 
@@ -65,7 +65,7 @@ pub fn run_query(_cli: UniversalFlags, cmd: QuerySubcommand) -> anyhow::Result<i
 
     let moon_build_output = std::process::Command::new(&moon_path)
         .arg("build")
-        .arg("--source-dir")
+        .arg("--cwd")
         .arg(
             moon_repl_dir
                 .join(DEP_PATH)
