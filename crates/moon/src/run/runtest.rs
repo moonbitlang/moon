@@ -451,8 +451,7 @@ pub fn collect_test_outline(
             filter.name_filter.as_deref(),
         );
 
-        let mut allowed_indices: IndexMap<String, std::collections::HashSet<u32>> =
-            IndexMap::new();
+        let mut allowed_indices: IndexMap<String, std::collections::HashSet<u32>> = IndexMap::new();
         for (file, ranges) in file_ranges {
             let entry = allowed_indices.entry(file).or_default();
             for range in ranges {
