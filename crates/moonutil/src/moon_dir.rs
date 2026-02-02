@@ -121,6 +121,7 @@ pub const RESERVED_BIN_NAMES: &[&str] = &[
     "moonrun",
     "moon_cove_report",
     "moon-ide",
+    "moon-lsp",
     "moon-pilot",
     "moon-wasm-opt",
     "moonbit-lsp",
