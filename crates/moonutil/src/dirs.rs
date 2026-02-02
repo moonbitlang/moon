@@ -53,10 +53,8 @@ pub struct SourceTargetDirs {
     // - `-C/--directory` is deprecated and currently keeps its historical meaning
     //   (project discovery only). It is expected to become the real chdir flag in a
     //   future breaking release.
-    /// Change to DIR before doing anything else. This affects options that expect path names
-    /// (e.g. `--target-dir`) in that their interpretations of relative paths are made relative to DIR.
-    /// Example: `moon check --cwd a --target-dir _build` uses target directory `a/_build`.
-    #[arg(long = "cwd", global = true, value_name = "DIR")]
+    /// Change to DIR before doing anything else (must appear before the subcommand). Relative paths in other options and arguments are interpreted relative to DIR. Example: `moon --cwd a run .` runs the same as invoking `moon run .` from within `a`.
+    #[arg(long = "cwd", value_name = "DIR", conflicts_with = "directory")]
     pub cwd: Option<PathBuf>,
 
     /// [Deprecated] The source directory used to locate `moon.mod.json` (legacy, not shown in help).
@@ -71,8 +69,7 @@ pub struct SourceTargetDirs {
         global = true,
         short = 'C',
         value_name = "DIR",
-        conflicts_with = "source_dir",
-        conflicts_with = "cwd"
+        conflicts_with = "source_dir"
     )]
     pub directory: Option<PathBuf>,
 

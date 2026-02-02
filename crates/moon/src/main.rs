@@ -45,7 +45,7 @@ use tracing_subscriber::{Layer, layer::SubscriberExt};
 /// Returns a boxed guard that keeps the tracing system alive.
 fn init_tracing(trace_flag: bool) -> Box<dyn Any> {
     // usage example: only show debug logs for moonbuild::runtest module
-    // env RUST_LOG=moonbuild::runtest=debug cargo run -- test --cwd ./tests/test_cases/moon_new.in
+    // env RUST_LOG=moonbuild::runtest=debug cargo run -- --cwd ./tests/test_cases/moon_new.in test
 
     let log_env_set = std::env::var("RUST_LOG").is_ok();
     let moon_tracing_env = std::env::var("MOON_TRACE").ok();

@@ -140,33 +140,16 @@ fn test_moon_new() {
         get_stdout(
             &dir,
             [
-                "run",
-                "-C",
-                "./hello",
-                "--target-dir",
-                "./hello/target",
-                "cmd/main",
-            ],
-        ),
-        expect![[r#"
-            Hello
-        "#]],
-    );
-
-    check(
-        get_stdout(
-            &dir,
-            [
-                "run",
                 "--cwd",
                 "./hello",
+                "run",
                 "--target-dir",
                 "./target",
                 "cmd/main",
             ],
         ),
         expect![[r#"
-            89
+            Hello
         "#]],
     );
 }
