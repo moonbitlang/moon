@@ -30,11 +30,27 @@ use moonutil::{
         result::{DependencyKind, ResolvedEnv},
     },
 };
-use std::{path::Path, sync::Arc};
+use std::{
+    path::{Path, PathBuf},
+    sync::Arc,
+};
 
-/// Install dependencies
+/// Install a binary package globally or install project dependencies (deprecated without args)
 #[derive(Debug, clap::Parser)]
-pub struct InstallSubcommand {}
+pub struct InstallSubcommand {
+    /// Package path to install (e.g., user/pkg/main or user/pkg/cmd/...)
+    /// Supports @version suffix (e.g., user/pkg/main@1.0.0)
+    /// If not provided, falls back to legacy behavior (install project dependencies)
+    pub package_path: Option<String>,
+
+    /// Specify installation directory (default: ~/.moon/bin/)
+    #[clap(long)]
+    pub bin: Option<PathBuf>,
+
+    /// Install from local path instead of registry
+    #[clap(long, conflicts_with = "package_path")]
+    pub path: Option<PathBuf>,
+}
 
 pub fn install(
     source_dir: &Path,

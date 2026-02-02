@@ -52,7 +52,7 @@ This document contains the help content for the `moon` command-line program.
 * `bench` — Run benchmarks in the current package
 * `add` — Add a dependency
 * `remove` — Remove a dependency
-* `install` — Install dependencies
+* `install` — Install a binary package globally or install project dependencies (deprecated without args)
 * `tree` — Display the dependency tree
 * `fetch` — Download a package to .repos directory (unstable)
 * `login` — Log in to your account
@@ -424,9 +424,18 @@ Remove a dependency
 
 ## `moon install`
 
-Install dependencies
+Install a binary package globally or install project dependencies (deprecated without args)
 
-**Usage:** `moon install`
+**Usage:** `moon install [OPTIONS] [PACKAGE_PATH]`
+
+###### **Arguments:**
+
+* `<PACKAGE_PATH>` — Package path to install (e.g., user/pkg/main or user/pkg/cmd/...) Supports @version suffix (e.g., user/pkg/main@1.0.0) If not provided, falls back to legacy behavior (install project dependencies)
+
+###### **Options:**
+
+* `--bin <BIN>` — Specify installation directory (default: ~/.moon/bin/)
+* `--path <PATH>` — Install from local path instead of registry
 
 
 

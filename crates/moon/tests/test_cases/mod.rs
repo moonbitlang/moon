@@ -2953,3 +2953,52 @@ fn moon_test_target_js_panic_with_sourcemap() {
             Total tests: 1, passed: 0, failed: 1."#]],
     );
 }
+
+#[test]
+fn test_moon_install_global_deprecated_warning() {
+    // Test that running `moon install` without arguments shows deprecation warning
+    let dir = TestDir::new("moon_install_global.in");
+
+    // Running moon install without arguments should show deprecation warning
+    let stderr = get_stderr(&dir, ["install"]);
+    assert!(
+        stderr.contains("deprecated"),
+        "Expected deprecation warning in stderr, got: {}",
+        stderr
+    );
+}
+
+#[test]
+#[ignore = "requires native backend support"]
+fn test_moon_install_global_local_path() {
+    // Test installing from local path using --path
+    let dir = TestDir::new("moon_install_global.in");
+
+    // Create a temporary directory for installation
+    let install_dir = dir.join("test_bin");
+    std::fs::create_dir_all(&install_dir).unwrap();
+
+    // Install using --path
+    let _output = get_stdout(
+        &dir,
+        [
+            "install",
+            "--path",
+            "src/main",
+            "--bin",
+            install_dir.to_str().unwrap(),
+        ],
+    );
+
+    // Check that the binary was created
+    #[cfg(unix)]
+    let binary_path = install_dir.join("main");
+    #[cfg(target_os = "windows")]
+    let binary_path = install_dir.join("main.exe");
+
+    assert!(
+        binary_path.exists(),
+        "Expected binary at {:?} to exist",
+        binary_path
+    );
+}

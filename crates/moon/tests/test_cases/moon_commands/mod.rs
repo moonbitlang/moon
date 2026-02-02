@@ -39,7 +39,7 @@ fn test_moon_help() {
               bench                  Run benchmarks in the current package
               add                    Add a dependency
               remove                 Remove a dependency
-              install                Install dependencies
+              install                Install a binary package globally or install project dependencies (deprecated without args)
               tree                   Display the dependency tree
               fetch                  Download a package to .repos directory (unstable)
               login                  Log in to your account
