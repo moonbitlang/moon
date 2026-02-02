@@ -265,6 +265,7 @@ Test the current package
 * `--frozen` — Do not sync dependencies, assuming local dependencies are up-to-date
 * `--build-only` — Only build, do not run the tests
 * `--no-parallelize` — Run the tests in a target backend sequentially
+* `--outline` — Print the outline of tests to be executed and exit
 * `--test-failure-json` — Print failure message in JSON format
 * `--patch-file <PATCH_FILE>` — Path to the patch file
 * `--doc` — Run doc test

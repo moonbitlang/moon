@@ -101,6 +101,7 @@ mod test_include_002;
 mod test_include_003;
 mod test_moon_info;
 mod test_moonbitlang_x;
+mod test_outline;
 mod test_release;
 mod third_party;
 mod value_tracing;
