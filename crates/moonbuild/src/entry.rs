@@ -46,7 +46,7 @@ use crate::test_utils::indices_to_ranges;
 use moonutil::common::{
     DOT_MBT_DOT_MD, DiagnosticLevel, DriverKind, FileLock, FileName, MbtTestInfo, MoonbuildOpt,
     MooncGenTestInfo, MooncOpt, PrePostBuild, TEST_INFO_FILE, TargetBackend, TestArtifacts,
-    TestBlockIndex,
+    TestBlockIndex, TestIndexRange,
 };
 
 use std::sync::{Arc, Mutex};
@@ -825,25 +825,39 @@ pub fn run_test(
                 file_and_index: vec![],
             };
             for (file_name, test_metadata) in &file_test_info_map {
-                let filter_index = filter_index.or(filter_doc_index);
+                let filter_index = if let Some(range) = filter_index {
+                    Some(range)
+                } else if let Some(doc_index) = filter_doc_index {
+                    Some(TestIndexRange::from_single(doc_index)?)
+                } else {
+                    None
+                };
                 if let Some(filter_index) = filter_index {
-                    // Single test filter - use exact index
+                    // Range filter - use indices from metadata within the range
                     // Also apply name filter if present
-                    let name_matches = if let Some(pattern) = filter_name {
-                        test_metadata.values().any(|t| {
-                            t.index == filter_index
-                                && match &t.name {
-                                    Some(name) => moonutil::common::glob_match(pattern, name),
-                                    None => moonutil::common::glob_match(pattern, &t.func),
-                                }
-                        })
-                    } else {
-                        true
-                    };
-                    if name_matches {
-                        // for single test, the `#skip` attribute is ignored
-                        let ranges = vec![filter_index..(filter_index + 1)];
+                    let mut indices = vec![];
+                    for t in test_metadata.values() {
+                        if !filter_index.contains(t.index) {
+                            continue;
+                        }
+                        let name_matches = if let Some(pattern) = filter_name {
+                            match &t.name {
+                                Some(name) => moonutil::common::glob_match(pattern, name),
+                                None => moonutil::common::glob_match(pattern, &t.func),
+                            }
+                        } else {
+                            true
+                        };
+                        if name_matches {
+                            indices.push(t.index);
+                        }
+                    }
+                    if !indices.is_empty() {
+                        // for explicit index ranges, the `#skip` attribute is ignored
+                        let ranges = indices_to_ranges(indices);
                         test_args.file_and_index.push((file_name.clone(), ranges));
+                    } else {
+                        test_args.file_and_index.push((file_name.clone(), vec![]));
                     }
                 } else {
                     // No index filter - use actual indices from metadata, filtering based on include_skipped and name

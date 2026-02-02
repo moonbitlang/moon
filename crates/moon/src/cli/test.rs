@@ -34,8 +34,8 @@ use moonutil::common::PrePostBuild;
 use moonutil::common::{BLACKBOX_TEST_DRIVER, BUILD_DIR, DOT_MBT_DOT_MD, SINGLE_FILE_TEST_PACKAGE};
 use moonutil::common::{
     FileLock, GeneratedTestDriver, MOONBITLANG_CORE, MbtMdHeader, MoonbuildOpt, MooncOpt,
-    OutputFormat, RunMode, TargetBackend, TestArtifacts, TestOpt, lower_surface_targets,
-    parse_front_matter_config,
+    OutputFormat, RunMode, TargetBackend, TestArtifacts, TestIndexRange, TestOpt,
+    lower_surface_targets, parse_front_matter_config,
 };
 use moonutil::cond_expr::CompileCondition;
 use moonutil::cond_expr::OptLevel;
@@ -107,10 +107,11 @@ pub struct TestSubcommand {
     #[clap(short, long)]
     pub file: Option<String>,
 
-    /// Run only the index-th test in the file. Only valid when `--file` is also specified.
+    /// Run only the index-th test in the file. Accepts a single index or a left-inclusive
+    /// right-exclusive range like `0-2`. Only valid when `--file` is also specified.
     /// Implies `--include-skipped`.
     #[clap(short, long)]
-    pub index: Option<u32>,
+    pub index: Option<TestIndexRange>,
 
     /// Run only the index-th doc test in the file. Only valid when `--file` is also specified.
     /// Implies `--include-skipped`.
@@ -466,10 +467,13 @@ fn run_test_in_single_file_rr(cli: &UniversalFlags, cmd: &TestSubcommand) -> any
                 .expect("Single-file project must synthesize exactly one package")
                 .1;
 
-            let test_index = cmd
-                .index
-                .map(TestIndex::Regular)
-                .or(cmd.doc_index.map(TestIndex::DocTest));
+            let test_index = if let Some(index) = cmd.index {
+                Some(TestIndex::Regular(index))
+            } else if let Some(id) = cmd.doc_index {
+                Some(TestIndex::DocTest(TestIndexRange::from_single(id)?))
+            } else {
+                None
+            };
             let filename = single_file_path
                 .file_name()
                 .expect("single file path should have a filename")
@@ -638,7 +642,7 @@ pub(crate) struct TestLikeSubcommand<'a> {
     pub explicit_file_filter: Option<&'a Path>,
     pub package: &'a Option<Vec<String>>,
     pub file: &'a Option<String>,
-    pub index: &'a Option<u32>,
+    pub index: &'a Option<TestIndexRange>,
     pub doc_index: &'a Option<u32>,
     pub update: bool,
     pub limit: u32,
@@ -715,7 +719,7 @@ pub(crate) fn run_test_or_bench_internal(
         "entering run_test_or_bench_internal"
     );
     trace!(
-        index = cmd.index,
+        index = ?cmd.index,
         doc_index = cmd.doc_index,
         no_parallelize = cmd.no_parallelize,
         "cli filter state"
@@ -830,7 +834,7 @@ fn node_from_target(x: BuildTarget) -> [BuildPlanNode; 2] {
 }
 
 /// Apply explicit PATH filter (acts as package and optional file filter).
-/// `test_index` selects a single test (regular/doc) when PATH is a file.
+/// `test_index` selects test indices (regular/doc) when PATH is a file.
 #[instrument(level = "debug", skip(resolve_output, out_filter))]
 fn apply_explicit_file_filter(
     resolve_output: &moonbuild_rupes_recta::ResolveOutput,
@@ -856,7 +860,7 @@ fn apply_list_of_filters(
     resolve_output: &moonbuild_rupes_recta::ResolveOutput,
     package_filter: &[String],
     file_filter: Option<&str>,
-    index_filter: Option<u32>,
+    index_filter: Option<TestIndexRange>,
     doc_index_filter: Option<u32>,
     patch_file: Option<&Path>,
     value_tracing: bool,
@@ -879,10 +883,19 @@ fn apply_list_of_filters(
     if filtered_package_ids.len() == 1 {
         // Single filtered package, can apply file/index filtering
         let pkg_id = filtered_package_ids[0];
-        if let Some(id) = index_filter {
-            out_filter.add_autodetermine_target(pkg_id, file_filter, Some(TestIndex::Regular(id)));
+        if let Some(range) = index_filter {
+            out_filter.add_autodetermine_target(
+                pkg_id,
+                file_filter,
+                Some(TestIndex::Regular(range)),
+            );
         } else if let Some(id) = doc_index_filter {
-            out_filter.add_autodetermine_target(pkg_id, file_filter, Some(TestIndex::DocTest(id)));
+            let range = TestIndexRange::from_single(id)?;
+            out_filter.add_autodetermine_target(
+                pkg_id,
+                file_filter,
+                Some(TestIndex::DocTest(range)),
+            );
         } else {
             out_filter.add_autodetermine_target(pkg_id, file_filter, None);
         }
@@ -958,10 +971,13 @@ fn calc_user_intent(
     let affected_packages: Vec<_> = packages.values().copied().collect();
 
     let directive = if let Some(file_filter) = cmd.explicit_file_filter {
-        let test_index = cmd
-            .index
-            .map(TestIndex::Regular)
-            .or(cmd.doc_index.map(TestIndex::DocTest));
+        let test_index = if let Some(index) = cmd.index {
+            Some(TestIndex::Regular(*index))
+        } else if let Some(id) = cmd.doc_index {
+            Some(TestIndex::DocTest(TestIndexRange::from_single(*id)?))
+        } else {
+            None
+        };
         apply_explicit_file_filter(resolve_output, out_filter, file_filter, test_index)?;
         trace!("explicit file filter applied");
         Default::default()
@@ -1098,7 +1114,7 @@ pub(crate) fn run_test_or_bench_internal_legacy(
     };
     let filter_index = *cmd.index;
     let filter_doc_index = *cmd.doc_index;
-    trace!(filter_package = ?filter_package, filter_file = ?filter_file, filter_index, filter_doc_index, "legacy filter state");
+    trace!(filter_package = ?filter_package, filter_file = ?filter_file, filter_index = ?filter_index, filter_doc_index, "legacy filter state");
 
     let filter_name = cmd.filter.clone();
     let test_opt = if run_mode == RunMode::Bench {
