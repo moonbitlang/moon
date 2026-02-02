@@ -47,24 +47,6 @@ pub struct PackageSpec {
     pub is_wildcard: bool,
 }
 
-impl PackageSpec {
-    /// Get the full package name (module_name/package_path).
-    pub fn full_package_name(&self) -> Option<String> {
-        if self.is_wildcard {
-            None
-        } else {
-            self.package_path.as_ref().map(|p| {
-                if p.is_empty() {
-                    self.module_name.to_string()
-                } else {
-                    format!("{}/{}", self.module_name, p)
-                }
-            })
-        }
-    }
-
-}
-
 /// Yet another package path parser because we need to parse wildcard patterns.
 pub fn parse_package_spec(input: &str) -> anyhow::Result<PackageSpec> {
     let (path_part, version) = if let Some(at_pos) = input.rfind('@') {
@@ -307,7 +289,16 @@ fn build_and_install_packages(
         } else {
             bail!(
                 "Package `{}` not found or is not a main package (is-main: true required)",
-                spec.full_package_name().unwrap_or_default()
+                spec.package_path
+                    .as_ref()
+                    .map(|p| {
+                        if p.is_empty() {
+                            spec.module_name.to_string()
+                        } else {
+                            format!("{}/{}", spec.module_name, p)
+                        }
+                    })
+                    .unwrap_or_default()
             );
         }
     }
