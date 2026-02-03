@@ -2,6 +2,9 @@
 
 This is a [MoonBit](https://docs.moonbitlang.com) project.
 
+You can browse and install extra skills here:
+<https://github.com/moonbitlang/skills>
+
 ## Project Structure
 
 - MoonBit packages are organized per directory, for each directory, there is a
@@ -25,6 +28,9 @@ This is a [MoonBit](https://docs.moonbitlang.com) project.
 
 - `moon fmt` is used to format your code properly.
 
+- `moon ide` provides project navigation helpers like `peek-def`, `outline`, and
+  `find-references`. See $moonbit-agent-guide for details.
+
 - `moon info` is used to update the generated interface of the package, each
   package has a generated interface file `.mbti`, it is a brief formal
   description of the package. If nothing in `.mbti` changes, this means your
@@ -35,17 +41,11 @@ This is a [MoonBit](https://docs.moonbitlang.com) project.
   format the code. Check the diffs of `.mbti` file to see if the changes are
   expected.
 
-- Run `moon test` to check the test is passed. MoonBit supports snapshot
-  testing, so when your changes indeed change the behavior of the code, you
-  should run `moon test --update` to update the snapshot.
+- Run `moon test` to check tests pass. MoonBit supports snapshot testing; when
+  changes affect outputs, run `moon test --update` to refresh snapshots.
 
-- You can run `moon check` to check the code is linted correctly.
-
-- When writing tests, you are encouraged to use `inspect` and run
-  `moon test --update` to update the snapshots, only use assertions like
-  `assert_eq` when you are in some loops where each snapshot may vary. You can
-  use `moon coverage analyze > uncovered.log` to see which parts of your code
-  are not covered by tests.
-
-- agent-todo.md has some small tasks that are easy for AI to pick up, agent is
-  welcome to finish the tasks and check the box when you are done
+- Prefer `assert_eq` or `assert_true(pattern is Pattern(...))` for results that
+  are stable or very unlikely to change. Use snapshot tests to record current
+  behavior. For solid, well‑defined results (e.g. scientific computations),
+  prefer assertion tests. You can use `moon coverage analyze > uncovered.log` to
+  see which parts of your code are not covered by tests.
