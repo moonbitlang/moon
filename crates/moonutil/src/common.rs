@@ -42,6 +42,7 @@ use std::path::{Path, PathBuf};
 use std::str::FromStr;
 
 pub const MOON_MOD_JSON: &str = "moon.mod.json";
+pub const MOON_MOD: &str = "moon.mod";
 pub const MOON_PKG_JSON: &str = "moon.pkg.json";
 pub const MOON_PKG: &str = "moon.pkg";
 pub const MBTI_GENERATED: &str = "pkg.generated.mbti";
@@ -172,6 +173,79 @@ pub enum MoonModJSONFormatErrorKind {
     PreferredBackend(anyhow::Error),
 }
 
+pub fn read_module_from_dsl(path : &Path) -> Result<MoonMod, MoonModJSONFormatError> {
+    let file = File::open(path).map_err(|e| MoonModJSONFormatError {
+        path: path.into(),
+        kind: MoonModJSONFormatErrorKind::IO(e),
+    })?;
+    let contents = std::io::read_to_string(file).map_err(|e| MoonModJSONFormatError {
+        path: path.into(),
+        kind: MoonModJSONFormatErrorKind::IO(e),
+    })?;
+
+    // Allow calling Error::custom from serde to wrap DSL parse errors.
+    use serde::de::Error as _;
+    let json = moon_pkg::parse(&contents).map_err(|e| MoonModJSONFormatError {
+        path: path.into(),
+        kind: MoonModJSONFormatErrorKind::Parse(serde_json_lenient::Error::custom(
+            e.to_string(),
+        )),
+    })?;
+
+    let json = match json {
+        serde_json_lenient::Value::Object(mut map) => {
+            if let serde_json_lenient::Value::Object(options) =
+                map.remove("options").unwrap_or_default()
+            {
+                for (k, v) in options {
+                    map.insert(k, v);
+                }
+            }
+
+            if let Some(warnings) = map.remove("warnings") {
+                let warnings = match warnings {
+                    serde_json_lenient::Value::String(s) => s,
+                    _ => String::new(),
+                };
+                let legacy_warn_list = match map.remove("warn-list") {
+                    Some(serde_json_lenient::Value::String(s)) => s,
+                    _ => String::new(),
+                };
+                let merged = format!("{warnings}{legacy_warn_list}");
+                if !merged.is_empty() {
+                    map.insert(String::from("warn-list"), serde_json_lenient::Value::String(merged));
+                }
+            }
+
+            serde_json_lenient::Value::Object(map)
+        }
+        _ => json,
+    };
+
+    let j: MoonModJSON = serde_json_lenient::from_value(json).map_err(|e| MoonModJSONFormatError {
+        path: path.into(),
+        kind: MoonModJSONFormatErrorKind::Parse(e),
+    })?;
+
+    if let Some(src) = &j.source {
+        is_valid_folder_name(src).map_err(|e| MoonModJSONFormatError {
+            path: path.into(),
+            kind: MoonModJSONFormatErrorKind::Source(e),
+        })?;
+        if src.starts_with('/') || src.starts_with('\\') {
+            return Err(MoonModJSONFormatError {
+                path: path.into(),
+                kind: MoonModJSONFormatErrorKind::Source(SourceError::NotSubdirectory),
+            });
+        }
+    }
+
+    j.try_into().map_err(|e| MoonModJSONFormatError {
+        path: path.into(),
+        kind: e,
+    })
+}
+
 pub fn read_module_from_json(path: &Path) -> Result<MoonMod, MoonModJSONFormatError> {
     let file = File::open(path).map_err(|e| MoonModJSONFormatError {
         path: path.into(),
@@ -234,10 +308,19 @@ pub fn write_package_json_to_file(pkg: &MoonPkgJSON, path: &Path) -> anyhow::Res
 }
 
 pub fn read_module_desc_file_in_dir(dir: &Path) -> anyhow::Result<MoonMod> {
-    if !dir.join(MOON_MOD_JSON).exists() {
-        bail!("`{:?}` does not exist", dir.join(MOON_MOD_JSON));
+    let mod_path = dir.join(MOON_MOD);
+    if mod_path.exists() {
+        return Ok(read_module_from_dsl(&mod_path)?);
     }
-    Ok(read_module_from_json(&dir.join(MOON_MOD_JSON))?)
+
+    let mod_json_path = dir.join(MOON_MOD_JSON);
+    if !mod_json_path.exists() {
+        bail!(
+            "`{:?}` does not exist",
+            mod_json_path
+        );
+    }
+    Ok(read_module_from_json(&mod_json_path)?)
 }
 
 pub fn read_package_desc_file_in_dir(dir: &Path) -> anyhow::Result<MoonPkg> {

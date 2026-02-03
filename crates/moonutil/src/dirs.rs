@@ -29,8 +29,8 @@ use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
 use crate::common::{
-    BUILD_DIR, IGNORE_DIRS, LEGACY_BUILD_DIR, MOON_MOD_JSON, MooncOpt, RunMode, get_moon_version,
-    get_moonc_version, is_moon_pkg,
+    BUILD_DIR, IGNORE_DIRS, LEGACY_BUILD_DIR, MOON_MOD, MOON_MOD_JSON, MooncOpt, RunMode,
+    get_moon_version, get_moonc_version, is_moon_pkg,
 };
 
 const MOON_DB: &str = "moon.db";
@@ -66,7 +66,7 @@ pub struct PackageDirs {
 }
 
 pub fn check_moon_mod_exists(source_dir: &Path) -> bool {
-    source_dir.join(MOON_MOD_JSON).exists()
+    source_dir.join(MOON_MOD).exists() || source_dir.join(MOON_MOD_JSON).exists()
 }
 
 fn find_ancestor_with_mod(source_dir: &Path) -> Option<PathBuf> {
