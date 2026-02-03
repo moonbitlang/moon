@@ -335,10 +335,14 @@ fn build_and_install_packages(
             eprintln!("{}: Building `{}`...", "Info".cyan(), full_pkg_name);
         }
 
+        let build_flags = BuildFlags {
+            warn_list: Some("-a".to_string()),
+            ..BuildFlags::default().with_target_backend(Some(TargetBackend::Native))
+        };
         let preconfig = preconfig_compile(
             &moonutil::mooncakes::sync::AutoSyncFlags { frozen: false },
             cli,
-            &BuildFlags::default().with_target_backend(Some(TargetBackend::Native)),
+            &build_flags,
             &target_dir,
             OptLevel::Release,
             RunMode::Build,
