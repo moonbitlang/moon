@@ -47,6 +47,13 @@ pub struct PackageSpec {
     pub is_wildcard: bool,
 }
 
+const GIT_URL_PREFIXES: &[&str] = &["https://", "http://", "git://", "ssh://", "file://", "git@"];
+
+/// Check if a string looks like a git URL.
+pub fn is_git_url(s: &str) -> bool {
+    GIT_URL_PREFIXES.iter().any(|p| s.starts_with(p))
+}
+
 /// Yet another package path parser because we need to parse wildcard patterns.
 pub fn parse_package_spec(input: &str) -> anyhow::Result<PackageSpec> {
     let (path_part, version) = if let Some(at_pos) = input.rfind('@') {

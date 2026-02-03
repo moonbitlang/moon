@@ -29,7 +29,7 @@ use moonutil::{
 
 use super::UniversalFlags;
 use super::install_binary::{
-    GitRef, install_binary, install_from_git, install_from_local, parse_package_spec,
+    GitRef, install_binary, install_from_git, install_from_local, is_git_url, parse_package_spec,
 };
 
 pub fn install_cli(cli: UniversalFlags, cmd: InstallSubcommand) -> anyhow::Result<i32> {
@@ -76,8 +76,14 @@ pub fn install_cli(cli: UniversalFlags, cmd: InstallSubcommand) -> anyhow::Resul
         )
     } else {
         let package_path = cmd.package_path.unwrap();
-        let spec = parse_package_spec(&package_path)?;
-        install_binary(&cli, &spec, &install_dir)
+
+        // Auto-detect git URLs
+        if is_git_url(&package_path) {
+            install_from_git(&cli, &package_path, GitRef::Default, None, &install_dir)
+        } else {
+            let spec = parse_package_spec(&package_path)?;
+            install_binary(&cli, &spec, &install_dir)
+        }
     }
 }
 

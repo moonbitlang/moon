@@ -40,6 +40,7 @@ use std::{
 pub struct InstallSubcommand {
     /// Package path to install (e.g., user/pkg/main or user/pkg/cmd/...)
     /// Supports @version suffix (e.g., user/pkg/main@1.0.0)
+    /// Git URLs are auto-detected and passed directly to git (any URL format git supports)
     /// When used with --git, specifies the package path within the repository
     /// If not provided, falls back to legacy behavior (install project dependencies)
     pub package_path: Option<String>,
