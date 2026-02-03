@@ -115,7 +115,7 @@ fn test_moon_new() {
             ],
         ),
         expect![[r#"
-            89
+            Hello
         "#]],
     );
 
@@ -132,7 +132,7 @@ fn test_moon_new() {
             ],
         ),
         expect![[r#"
-            89
+            Hello
         "#]],
     );
 
@@ -149,7 +149,7 @@ fn test_moon_new() {
             ],
         ),
         expect![[r#"
-            89
+            Hello
         "#]],
     );
 }
@@ -191,7 +191,7 @@ fn test_moon_new_new() {
     check(
         get_stdout(&hello1, ["run", "cmd/main"]),
         expect![[r#"
-            89
+            Hello
         "#]],
     );
     hello1.rm_rf();
@@ -206,7 +206,7 @@ fn test_moon_new_new() {
     check(
         get_stdout(&hello2, ["run", "cmd/main"]),
         expect![[r#"
-            89
+            Hello
         "#]],
     );
     hello2.rm_rf();
@@ -223,15 +223,13 @@ fn test_moon_new_new() {
     check(
         get_stdout(&hello3, ["test", "-v"]),
         expect![[r#"
-            [moonbitlang/hello] test hello_test.mbt:2 ("fib") ok
-            [moonbitlang/hello] test hello_test.mbt:12 ("sum") ok
-            Total tests: 2, passed: 2, failed: 0.
+            Total tests: 0, passed: 0, failed: 0.
         "#]],
     );
     check(
         get_stdout(&hello3, ["test"]),
         expect![[r#"
-            Total tests: 2, passed: 2, failed: 0.
+            Total tests: 0, passed: 0, failed: 0.
         "#]],
     );
     hello3.rm_rf();
@@ -244,15 +242,13 @@ fn test_moon_new_new() {
         .assert()
         .success();
     check(
-        std::fs::read_to_string(hello4.join("moon.pkg.json")).unwrap(),
-        expect![["{}"]],
+        std::fs::read_to_string(hello4.join("moon.pkg")).unwrap(),
+        expect![[""]],
     );
     check(
         get_stdout(&hello4, ["test", "-v"]),
         expect![[r#"
-            [moonbitlang/hello] test hello_test.mbt:2 ("fib") ok
-            [moonbitlang/hello] test hello_test.mbt:12 ("sum") ok
-            Total tests: 2, passed: 2, failed: 0.
+            Total tests: 0, passed: 0, failed: 0.
         "#]],
     );
     hello4.rm_rf();
