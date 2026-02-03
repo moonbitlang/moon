@@ -40,6 +40,7 @@ use std::{
 pub struct InstallSubcommand {
     /// Package path to install (e.g., user/pkg/main or user/pkg/cmd/...)
     /// Supports @version suffix (e.g., user/pkg/main@1.0.0)
+    /// When used with --git, specifies the package path within the repository
     /// If not provided, falls back to legacy behavior (install project dependencies)
     pub package_path: Option<String>,
 
@@ -48,8 +49,24 @@ pub struct InstallSubcommand {
     pub bin: Option<PathBuf>,
 
     /// Install from local path instead of registry
-    #[clap(long, conflicts_with = "package_path")]
+    #[clap(long, conflicts_with_all = ["package_path", "git"])]
     pub path: Option<PathBuf>,
+
+    /// Install from a git repository URL
+    #[clap(long, conflicts_with = "path")]
+    pub git: Option<String>,
+
+    /// Git revision to checkout (commit hash)
+    #[clap(long, requires = "git", conflicts_with_all = ["branch", "tag"])]
+    pub rev: Option<String>,
+
+    /// Git branch to checkout
+    #[clap(long, requires = "git", conflicts_with_all = ["rev", "tag"])]
+    pub branch: Option<String>,
+
+    /// Git tag to checkout
+    #[clap(long, requires = "git", conflicts_with_all = ["rev", "branch"])]
+    pub tag: Option<String>,
 }
 
 pub fn install(

@@ -430,12 +430,16 @@ Install a binary package globally or install project dependencies (deprecated wi
 
 ###### **Arguments:**
 
-* `<PACKAGE_PATH>` — Package path to install (e.g., user/pkg/main or user/pkg/cmd/...) Supports @version suffix (e.g., user/pkg/main@1.0.0) If not provided, falls back to legacy behavior (install project dependencies)
+* `<PACKAGE_PATH>` — Package path to install (e.g., user/pkg/main or user/pkg/cmd/...) Supports @version suffix (e.g., user/pkg/main@1.0.0) When used with --git, specifies the package path within the repository If not provided, falls back to legacy behavior (install project dependencies)
 
 ###### **Options:**
 
 * `--bin <BIN>` — Specify installation directory (default: ~/.moon/bin/)
 * `--path <PATH>` — Install from local path instead of registry
+* `--git <GIT>` — Install from a git repository URL
+* `--rev <REV>` — Git revision to checkout (commit hash)
+* `--branch <BRANCH>` — Git branch to checkout
+* `--tag <TAG>` — Git tag to checkout
 
 
 

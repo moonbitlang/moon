@@ -201,6 +201,139 @@ pub fn install_from_local(
     build_and_install_packages(cli, &spec, &module_root, install_dir, filter_path)
 }
 
+/// Git reference type for checkout.
+pub enum GitRef<'a> {
+    /// Checkout a specific revision (commit hash)
+    Rev(&'a str),
+    /// Checkout a branch
+    Branch(&'a str),
+    /// Checkout a tag
+    Tag(&'a str),
+    /// Use default branch
+    Default,
+}
+
+/// Install from a git repository.
+pub fn install_from_git(
+    cli: &UniversalFlags,
+    git_url: &str,
+    git_ref: GitRef<'_>,
+    package_path: Option<&str>,
+    install_dir: &Path,
+) -> anyhow::Result<i32> {
+    let quiet = cli.quiet;
+
+    if !quiet {
+        eprintln!("{}: Cloning `{}`...", "Info".cyan(), git_url);
+    }
+
+    let tmp_dir = tempfile::TempDir::new().context("Failed to create temporary directory")?;
+    let clone_dir = tmp_dir.path();
+
+    // Clone the repository
+    let mut clone_cmd = std::process::Command::new("git");
+    clone_cmd.arg("clone").arg("--depth").arg("1");
+
+    match git_ref {
+        GitRef::Branch(branch) => {
+            clone_cmd.arg("--branch").arg(branch);
+        }
+        GitRef::Tag(tag) => {
+            clone_cmd.arg("--branch").arg(tag);
+        }
+        GitRef::Rev(_) => {
+            // For rev, we need full clone then checkout
+            clone_cmd.args(["--depth", "1"]).arg("--no-checkout");
+        }
+        GitRef::Default => {}
+    }
+
+    clone_cmd.arg(git_url).arg(clone_dir);
+
+    let status = clone_cmd
+        .status()
+        .context("Failed to execute git clone")?;
+
+    if !status.success() {
+        bail!("Failed to clone repository `{}`", git_url);
+    }
+
+    // If rev specified, fetch and checkout
+    if let GitRef::Rev(rev) = git_ref {
+        let status = std::process::Command::new("git")
+            .current_dir(clone_dir)
+            .args(["fetch", "--depth", "1", "origin", rev])
+            .status()
+            .context("Failed to fetch revision")?;
+
+        if !status.success() {
+            bail!("Failed to fetch revision `{}`", rev);
+        }
+
+        let status = std::process::Command::new("git")
+            .current_dir(clone_dir)
+            .args(["checkout", rev])
+            .status()
+            .context("Failed to checkout revision")?;
+
+        if !status.success() {
+            bail!("Failed to checkout revision `{}`", rev);
+        }
+    }
+
+    // Determine the target path within the cloned repo
+    let target_path = if let Some(pkg_path) = package_path {
+        let pkg_path = pkg_path.trim_matches('/');
+        if pkg_path.is_empty() {
+            clone_dir.to_path_buf()
+        } else {
+            clone_dir.join(pkg_path.trim_end_matches("/..."))
+        }
+    } else {
+        clone_dir.to_path_buf()
+    };
+
+    // Check if target path exists
+    if !target_path.exists() {
+        bail!(
+            "Path `{}` does not exist in the repository",
+            package_path.unwrap_or("")
+        );
+    }
+
+    // Find module root
+    let module_root = moonutil::dirs::find_ancestor_with_mod(&target_path).ok_or_else(|| {
+        anyhow::anyhow!(
+            "No {} found in repository",
+            moonutil::common::MOON_MOD_JSON
+        )
+    })?;
+
+    let module = moonutil::common::read_module_desc_file_in_dir(&module_root)?;
+    let module_name: ModuleName = module.name.parse().map_err(|e| anyhow::anyhow!("{}", e))?;
+
+    // Determine if wildcard or specific package
+    let is_module_root = target_path == module_root;
+    let is_wildcard = package_path
+        .map(|p| p.ends_with("/...") || p == "...")
+        .unwrap_or(is_module_root);
+
+    let spec = PackageSpec {
+        module_name,
+        package_path: Some(String::new()),
+        version: module.version,
+        is_wildcard,
+    };
+
+    let filter_path = if is_module_root || is_wildcard {
+        None
+    } else {
+        Some(target_path)
+    };
+
+    build_and_install_packages(cli, &spec, &module_root, install_dir, filter_path)
+}
+
 /// Build matching packages and install binaries using RR build engine.
 ///
 /// If `filter_by_path` is Some, only packages whose `root_path` matches are installed.

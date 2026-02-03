@@ -28,11 +28,13 @@ use moonutil::{
 };
 
 use super::UniversalFlags;
-use super::install_binary::{install_binary, install_from_local, parse_package_spec};
+use super::install_binary::{
+    GitRef, install_binary, install_from_git, install_from_local, parse_package_spec,
+};
 
 pub fn install_cli(cli: UniversalFlags, cmd: InstallSubcommand) -> anyhow::Result<i32> {
-    // If no package path and no local path specified, use legacy behavior with deprecation warning
-    if cmd.package_path.is_none() && cmd.path.is_none() {
+    // If no package path, no local path, and no git specified, use legacy behavior
+    if cmd.package_path.is_none() && cmd.path.is_none() && cmd.git.is_none() {
         eprintln!(
             "{}: `moon install` without arguments is deprecated and will be removed in a future version. \
              Use `moon install <package>` to install binaries globally, or use `moon build` to build your project.",
@@ -51,14 +53,28 @@ pub fn install_cli(cli: UniversalFlags, cmd: InstallSubcommand) -> anyhow::Resul
         );
     }
 
-    // New behavior: install binary package globally
     let install_dir = cmd.bin.unwrap_or_else(moon_dir::bin);
 
     if let Some(local_path) = cmd.path {
-        // Install from local path
         install_from_local(&cli, &local_path, &install_dir)
+    } else if let Some(git_url) = cmd.git {
+        let git_ref = if let Some(rev) = cmd.rev.as_deref() {
+            GitRef::Rev(rev)
+        } else if let Some(branch) = cmd.branch.as_deref() {
+            GitRef::Branch(branch)
+        } else if let Some(tag) = cmd.tag.as_deref() {
+            GitRef::Tag(tag)
+        } else {
+            GitRef::Default
+        };
+        install_from_git(
+            &cli,
+            &git_url,
+            git_ref,
+            cmd.package_path.as_deref(),
+            &install_dir,
+        )
     } else {
-        // Install from registry
         let package_path = cmd.package_path.unwrap();
         let spec = parse_package_spec(&package_path)?;
         install_binary(&cli, &spec, &install_dir)
