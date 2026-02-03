@@ -250,9 +250,7 @@ pub fn install_from_git(
 
     clone_cmd.arg(git_url).arg(clone_dir);
 
-    let status = clone_cmd
-        .status()
-        .context("Failed to execute git clone")?;
+    let status = clone_cmd.status().context("Failed to execute git clone")?;
 
     if !status.success() {
         bail!("Failed to clone repository `{}`", git_url);
@@ -303,10 +301,7 @@ pub fn install_from_git(
 
     // Find module root
     let module_root = moonutil::dirs::find_ancestor_with_mod(&target_path).ok_or_else(|| {
-        anyhow::anyhow!(
-            "No {} found in repository",
-            moonutil::common::MOON_MOD_JSON
-        )
+        anyhow::anyhow!("No {} found in repository", moonutil::common::MOON_MOD_JSON)
     })?;
 
     let module = moonutil::common::read_module_desc_file_in_dir(&module_root)?;
