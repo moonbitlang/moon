@@ -1,9 +1,0 @@
-{
-  "is-main": true,
-  "import": [
-    {
-      "path": "{{username}}/{{module}}",
-      "alias": "lib"
-    }
-  ]
-}

@@ -3886,6 +3886,7 @@ dependencies = [
  "dissimilar",
  "dunce",
  "home",
+ "ignore",
  "serde",
  "serde_json",
  "snapbox 0.4.17",

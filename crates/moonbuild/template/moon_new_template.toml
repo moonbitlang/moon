@@ -1,48 +1,34 @@
 [[files]]
-path = "cmd/main/moon.pkg.json"
+path = "moon.pkg"
+content = ""
+
+[[files]]
+path = "cmd/main/moon.pkg"
 content = """
-{
+// import "{{username}}/{{module}}" as @lib
+
+options(
   "is-main": true,
-  "import": [
-    {
-      "path": "{{username}}/{{module}}",
-      "alias": "lib"
-    }
-  ]
-}"""
+)"""
 
 [[files]]
 path = "cmd/main/main.mbt"
 content = """
 ///|
+/// Entry point for the CLI or runnable program in this template.
+/// Keep main focused; move logic into the library package.
+/// Run with `moon run cmd/main` from the project root.
 fn main {
-  println(@lib.fib(10))
+  println("Hello")
 }
 """
 
 [[files]]
 path = "{{package}}.mbt"
 content = """
-///|
-pub fn fib(n : Int) -> Int64 {
-  loop (n, 0L, 1L) {
-    (0, _, b) => b
-    (i, a, b) => continue (i - 1, b, a + b)
-  }
-}
-
-///|
-/// data is a labelled argument without default value having type Array[Int]
-/// start is an optional labelled argument with default value 0 having type Int
-/// length is an optional labelled argument without default value having type Option[Int]
-pub fn sum(data~ : Array[Int], start? : Int = 0, length? : Int) -> Int {
-  let end = if length is Some(length) { start + length } else { data.length() }
-  for i = start, sum = 0; i < end; i = i + 1, sum = sum + data[i] {
-
-  } else {
-    sum
-  }
-}
+// Main package file for your library code.
+// Put public APIs and shared helpers here.
+// Keep blocks small and focused for easy refactors.
 """
 
 [[files]]
@@ -300,8 +286,12 @@ content = """
 """
 
 [[files]]
-path = "moon.pkg.json"
-content = "{}"
+path = "{{package}}_wbtest.mbt"
+content = """
+// Whitebox tests run within the package scope.
+// Use them to validate internal helpers or invariants.
+// Keep them focused; public behavior belongs in `_test.mbt`.
+"""
 
 [[files]]
 path = "README.md"
@@ -370,26 +360,9 @@ jobs:
 [[files]]
 path = "{{package}}_test.mbt"
 content = """
-///|
-test "fib" {
-  let array = [1, 2, 3, 4, 5].map(fib)
-
-  // `inspect` is used to check the output of the function
-  // Just write `inspect(value)` and execute `moon test --update`
-  // to update the expected output, and verify them afterwards
-  inspect(array, content="[1, 2, 3, 5, 8]")
-}
-
-///|
-test "sum" {
-  let array = [1, 2, 3, 4, 5]
-  inspect(sum(data=array), content="15")
-  inspect(sum(data=array, start=1), content="14")
-  inspect(sum(data=array, length=3), content="6")
-  let length = None
-  // Use `?` for punning
-  inspect(sum(data=array, length?), content="15")
-}
+// Blackbox tests run against the package's public API. Use `@{{module}}` to import.
+// Prefer high-level behaviors over implementation details.
+// Run `moon test` to execute and `moon test --update` to refresh snapshots.
 """
 
 [[files]]
@@ -398,6 +371,9 @@ content = """
 # Project Agents.md Guide
 
 This is a [MoonBit](https://docs.moonbitlang.com) project.
+
+You can browse and install extra skills here:
+<https://github.com/moonbitlang/skills>
 
 ## Project Structure
 
@@ -422,6 +398,9 @@ This is a [MoonBit](https://docs.moonbitlang.com) project.
 
 - `moon fmt` is used to format your code properly.
 
+- `moon ide` provides project navigation helpers like `peek-def`, `outline`, and
+  `find-references`. See $moonbit-agent-guide for details.
+
 - `moon info` is used to update the generated interface of the package, each
   package has a generated interface file `.mbti`, it is a brief formal
   description of the package. If nothing in `.mbti` changes, this means your
@@ -432,18 +411,12 @@ This is a [MoonBit](https://docs.moonbitlang.com) project.
   format the code. Check the diffs of `.mbti` file to see if the changes are
   expected.
 
-- Run `moon test` to check the test is passed. MoonBit supports snapshot
-  testing, so when your changes indeed change the behavior of the code, you
-  should run `moon test --update` to update the snapshot.
+- Run `moon test` to check tests pass. MoonBit supports snapshot testing; when
+  changes affect outputs, run `moon test --update` to refresh snapshots.
 
-- You can run `moon check` to check the code is linted correctly.
-
-- When writing tests, you are encouraged to use `inspect` and run
-  `moon test --update` to update the snapshots, only use assertions like
-  `assert_eq` when you are in some loops where each snapshot may vary. You can
-  use `moon coverage analyze > uncovered.log` to see which parts of your code
-  are not covered by tests.
-
-- agent-todo.md has some small tasks that are easy for AI to pick up, agent is
-  welcome to finish the tasks and check the box when you are done
+- Prefer `assert_eq` or `assert_true(pattern is Pattern(...))` for results that
+  are stable or very unlikely to change. Use snapshot tests to record current
+  behavior. For solid, well-defined results (e.g. scientific computations),
+  prefer assertion tests. You can use `moon coverage analyze > uncovered.log` to
+  see which parts of your code are not covered by tests.
 """
