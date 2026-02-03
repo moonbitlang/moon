@@ -37,6 +37,7 @@ use std::{
 
 /// Install a binary package globally or install project dependencies (deprecated without args)
 #[derive(Debug, clap::Parser)]
+#[clap(group = clap::ArgGroup::new("git_ref").multiple(false))]
 pub struct InstallSubcommand {
     /// Package path to install (e.g., user/pkg/main or user/pkg/cmd/...)
     /// Supports @version suffix (e.g., user/pkg/main@1.0.0)
@@ -58,15 +59,15 @@ pub struct InstallSubcommand {
     pub git: Option<String>,
 
     /// Git revision to checkout (commit hash)
-    #[clap(long, requires = "git", conflicts_with_all = ["branch", "tag"])]
+    #[clap(long, requires = "git", group = "git_ref")]
     pub rev: Option<String>,
 
     /// Git branch to checkout
-    #[clap(long, requires = "git", conflicts_with_all = ["rev", "tag"])]
+    #[clap(long, requires = "git", group = "git_ref")]
     pub branch: Option<String>,
 
     /// Git tag to checkout
-    #[clap(long, requires = "git", conflicts_with_all = ["rev", "branch"])]
+    #[clap(long, requires = "git", group = "git_ref")]
     pub tag: Option<String>,
 }
 

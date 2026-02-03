@@ -47,7 +47,17 @@ pub struct PackageSpec {
     pub is_wildcard: bool,
 }
 
-const GIT_URL_PREFIXES: &[&str] = &["https://", "http://", "git://", "ssh://", "file://", "git@"];
+/// How to filter packages for installation.
+enum PackageFilter {
+    /// Match by filesystem path (for local/git install pointing to specific package)
+    ByPath(PathBuf),
+    /// Match all main packages, optionally with a prefix (for wildcard patterns)
+    Wildcard { prefix: String },
+    /// Match by package path string (for registry install)
+    ByPackagePath(String),
+}
+
+const GIT_URL_PREFIXES: &[&str] = &["https://", "http://", "git://", "ssh://", "git@"];
 
 /// Check if a string looks like a git URL.
 pub fn is_git_url(s: &str) -> bool {
@@ -164,7 +174,15 @@ pub fn install_binary(
 
     registry.install_to(&spec.module_name, &version, module_dir, quiet)?;
 
-    build_and_install_packages(cli, spec, module_dir, install_dir, None)
+    let filter = if spec.is_wildcard {
+        PackageFilter::Wildcard {
+            prefix: spec.package_path.clone().unwrap_or_default(),
+        }
+    } else {
+        PackageFilter::ByPackagePath(spec.package_path.clone().unwrap_or_default())
+    };
+
+    build_and_install_packages(cli, &spec.module_name, module_dir, install_dir, filter)
 }
 
 /// Install from a local path.
@@ -191,21 +209,15 @@ pub fn install_from_local(
     let module = moonutil::common::read_module_desc_file_in_dir(&module_root)?;
     let module_name: ModuleName = module.name.parse().map_err(|e| anyhow::anyhow!("{}", e))?;
 
-    let is_module_root = input_path == module_root;
-    let spec = PackageSpec {
-        module_name,
-        package_path: Some(String::new()),
-        version: module.version,
-        is_wildcard: is_module_root,
-    };
-
-    let filter_path = if is_module_root {
-        None
+    let filter = if input_path == module_root {
+        PackageFilter::Wildcard {
+            prefix: String::new(),
+        }
     } else {
-        Some(input_path)
+        PackageFilter::ByPath(input_path)
     };
 
-    build_and_install_packages(cli, &spec, &module_root, install_dir, filter_path)
+    build_and_install_packages(cli, &module_name, &module_root, install_dir, filter)
 }
 
 /// Git reference type for checkout.
@@ -238,21 +250,22 @@ pub fn install_from_git(
     let clone_dir = tmp_dir.path();
 
     // Clone the repository
-    let mut clone_cmd = std::process::Command::new("git");
-    clone_cmd.arg("clone").arg("--depth").arg("1");
+    let mut clone_cmd = std::process::Command::new(moonutil::BINARIES.git_or_default());
+    clone_cmd.arg("clone");
 
     match git_ref {
         GitRef::Branch(branch) => {
-            clone_cmd.arg("--branch").arg(branch);
+            clone_cmd.args(["--depth", "1", "--branch", branch]);
         }
         GitRef::Tag(tag) => {
-            clone_cmd.arg("--branch").arg(tag);
+            clone_cmd.args(["--depth", "1", "--branch", tag]);
+        }
+        GitRef::Default => {
+            clone_cmd.args(["--depth", "1"]);
         }
         GitRef::Rev(_) => {
-            // For rev, we need full clone then checkout
-            clone_cmd.args(["--depth", "1"]).arg("--no-checkout");
+            // For rev, need full clone (specific commit may not be in shallow history)
         }
-        GitRef::Default => {}
     }
 
     clone_cmd.arg(git_url).arg(clone_dir);
@@ -263,19 +276,9 @@ pub fn install_from_git(
         bail!("Failed to clone repository `{}`", git_url);
     }
 
-    // If rev specified, fetch and checkout
+    // If rev specified, checkout to that commit
     if let GitRef::Rev(rev) = git_ref {
-        let status = std::process::Command::new("git")
-            .current_dir(clone_dir)
-            .args(["fetch", "--depth", "1", "origin", rev])
-            .status()
-            .context("Failed to fetch revision")?;
-
-        if !status.success() {
-            bail!("Failed to fetch revision `{}`", rev);
-        }
-
-        let status = std::process::Command::new("git")
+        let status = std::process::Command::new(moonutil::BINARIES.git_or_default())
             .current_dir(clone_dir)
             .args(["checkout", rev])
             .status()
@@ -314,38 +317,32 @@ pub fn install_from_git(
     let module = moonutil::common::read_module_desc_file_in_dir(&module_root)?;
     let module_name: ModuleName = module.name.parse().map_err(|e| anyhow::anyhow!("{}", e))?;
 
-    // Determine if wildcard or specific package
     let is_module_root = target_path == module_root;
     let is_wildcard = package_path
         .map(|p| p.ends_with("/...") || p == "...")
         .unwrap_or(is_module_root);
 
-    let spec = PackageSpec {
-        module_name,
-        package_path: Some(String::new()),
-        version: module.version,
-        is_wildcard,
-    };
-
-    let filter_path = if is_module_root || is_wildcard {
-        None
+    let filter = if is_wildcard || is_module_root {
+        PackageFilter::Wildcard {
+            prefix: package_path
+                .map(|p| p.trim_end_matches("/...").trim_end_matches("..."))
+                .unwrap_or("")
+                .to_string(),
+        }
     } else {
-        Some(target_path)
+        PackageFilter::ByPath(target_path)
     };
 
-    build_and_install_packages(cli, &spec, &module_root, install_dir, filter_path)
+    build_and_install_packages(cli, &module_name, &module_root, install_dir, filter)
 }
 
 /// Build matching packages and install binaries using RR build engine.
-///
-/// If `filter_by_path` is Some, only packages whose `root_path` matches are installed.
-/// This is used for local installation when user points to a specific package directory.
 fn build_and_install_packages(
     cli: &UniversalFlags,
-    spec: &PackageSpec,
+    module_name: &ModuleName,
     module_dir: &Path,
     install_dir: &Path,
-    filter_by_path: Option<PathBuf>,
+    filter: PackageFilter,
 ) -> anyhow::Result<i32> {
     let quiet = cli.quiet;
 
@@ -364,17 +361,6 @@ fn build_and_install_packages(
         bail!("No packages found in module");
     };
 
-    let wildcard_prefix = if spec.is_wildcard {
-        spec.package_path.as_ref().map(|p| {
-            if p.is_empty() {
-                String::new()
-            } else {
-                format!("{}/", p)
-            }
-        })
-    } else {
-        None
-    };
     let mut packages_to_build: Vec<(PackageId, String)> = Vec::new();
 
     for (pkg_path, &pkg_id) in all_pkgs {
@@ -385,56 +371,51 @@ fn build_and_install_packages(
 
         let pkg_path_str = pkg_path.to_string();
 
-        if let Some(ref filter_path) = filter_by_path {
-            if pkg.root_path == *filter_path {
-                packages_to_build.push((pkg_id, pkg_path_str));
+        let matched = match &filter {
+            PackageFilter::ByPath(path) => pkg.root_path == *path,
+            PackageFilter::Wildcard { prefix } => {
+                prefix.is_empty()
+                    || pkg_path_str.starts_with(&format!("{}/", prefix))
+                    || pkg_path_str == *prefix
             }
-            continue;
-        }
+            PackageFilter::ByPackagePath(target) => pkg_path_str == *target,
+        };
 
-        if spec.is_wildcard {
-            if let Some(prefix) = &wildcard_prefix
-                && (prefix.is_empty()
-                    || pkg_path_str.starts_with(prefix)
-                    || pkg_path_str == prefix.trim_end_matches('/'))
-            {
-                packages_to_build.push((pkg_id, pkg_path_str));
-            }
-            continue;
-        }
-
-        if let Some(target_path) = &spec.package_path
-            && pkg_path_str == *target_path
-        {
+        if matched {
             packages_to_build.push((pkg_id, pkg_path_str));
         }
     }
 
     if packages_to_build.is_empty() {
-        if let Some(ref filter_path) = filter_by_path {
-            bail!(
-                "Path `{}` is not a main package (is-main: true required)",
-                filter_path.display()
-            );
-        } else if spec.is_wildcard {
-            bail!(
-                "No main packages found matching pattern `{}/...`",
-                spec.module_name
-            );
-        } else {
-            bail!(
-                "Package `{}` not found or is not a main package (is-main: true required)",
-                spec.package_path
-                    .as_ref()
-                    .map(|p| {
-                        if p.is_empty() {
-                            spec.module_name.to_string()
-                        } else {
-                            format!("{}/{}", spec.module_name, p)
-                        }
-                    })
-                    .unwrap_or_default()
-            );
+        match &filter {
+            PackageFilter::ByPath(path) => {
+                bail!(
+                    "Path `{}` is not a main package (is-main: true required)",
+                    path.display()
+                );
+            }
+            PackageFilter::Wildcard { prefix } => {
+                if prefix.is_empty() {
+                    bail!("No main packages found in module `{}`", module_name);
+                } else {
+                    bail!(
+                        "No main packages found matching pattern `{}/{}/...`",
+                        module_name,
+                        prefix
+                    );
+                }
+            }
+            PackageFilter::ByPackagePath(target) => {
+                let full_name = if target.is_empty() {
+                    module_name.to_string()
+                } else {
+                    format!("{}/{}", module_name, target)
+                };
+                bail!(
+                    "Package `{}` not found or is not a main package (is-main: true required)",
+                    full_name
+                );
+            }
         }
     }
 
@@ -447,7 +428,7 @@ fn build_and_install_packages(
             .rsplit('/')
             .next()
             .filter(|s| !s.is_empty())
-            .unwrap_or(&spec.module_name.unqual)
+            .unwrap_or(&module_name.unqual)
             .to_string();
 
         // Check if binary name would overwrite a reserved toolchain binary
@@ -461,9 +442,9 @@ fn build_and_install_packages(
         }
 
         let full_pkg_name = if pkg_path.is_empty() {
-            spec.module_name.to_string()
+            module_name.to_string()
         } else {
-            format!("{}/{}", spec.module_name, pkg_path)
+            format!("{}/{}", module_name, pkg_path)
         };
 
         if !quiet {
