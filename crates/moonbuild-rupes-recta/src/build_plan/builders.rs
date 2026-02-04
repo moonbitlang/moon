@@ -123,19 +123,10 @@ impl<'a> BuildPlanConstructor<'a> {
     /// This dynamically maps into either `Build`, `Check` or `BuildVirtual`
     /// nodes based on the property of the dependency package.
     fn need_mi_of_dep(&mut self, node: BuildPlanNode, dep: BuildTarget, check_only: bool) {
-        // Skip `.mi` for standard library item `moonbitlang/core/abort`
-        if self
-            .input
-            .pkg_dirs
-            .abort_pkg()
-            .is_some_and(|x| x == dep.package)
-        {
-            return;
-        }
-
-        // Skip stdlib packages
-        // using the prebuilt .mi files directly
-        if self.input.pkg_dirs.is_stdlib_package(dep.package) {
+        // Skip stdlib packages when stdlib is injected, since we can use prebuilt .mi files.
+        // When building the stdlib itself (build_env.std == false), treat stdlib packages
+        // like normal packages and build their dependencies.
+        if self.build_env.std && self.input.pkg_dirs.is_stdlib_package(dep.package) {
             return;
         }
 
@@ -675,7 +666,13 @@ impl<'a> BuildPlanConstructor<'a> {
         // This DFS is shared by both LinkCore and MakeExecutable actions.
         let vp_info = self.input.pkg_rel.virtual_users.get(target.package);
 
-        let abort = self.input.pkg_dirs.abort_pkg();
+        let abort = if self.build_env.std {
+            self.input.pkg_dirs.abort_pkg()
+        } else {
+            None
+        };
+        let abort_override_pkg =
+            abort.and_then(|abort| vp_info.and_then(|vu| vu.overrides.get(abort).copied()));
 
         // This is the link core sources
         let mut link_core_deps: IndexSet<BuildTarget> = IndexSet::new();
@@ -689,9 +686,7 @@ impl<'a> BuildPlanConstructor<'a> {
         // is redundant.
         let mut c_stub_deps: IndexSet<PackageId> = IndexSet::new();
         // Whether `moonbitlang/core/abort` is overridden
-        let abort_overridden = vp_info
-            .zip(abort)
-            .is_some_and(|(vu, abort)| vu.overrides.contains_key(abort));
+        let abort_overridden = abort_override_pkg.is_some();
 
         let graph = &self.input.pkg_rel.dep_graph;
 
@@ -741,11 +736,23 @@ impl<'a> BuildPlanConstructor<'a> {
                 let mut deps: Vec<BuildTarget> = graph
                     .neighbors_directed(node, petgraph::Direction::Outgoing)
                     .filter(|dep| {
-                        // Skip stdlib packages
-                        // because they are always linked implicitly
-                        !self.input.pkg_dirs.is_stdlib_package(dep.package)
+                        // Skip stdlib packages because they are always linked implicitly
+                        // only when stdlib is injected. When building stdlib itself, keep them.
+                        !self.build_env.std || !self.input.pkg_dirs.is_stdlib_package(dep.package)
                     })
                     .collect();
+
+                if curr == target
+                    && let Some(override_pkg) = abort_override_pkg
+                {
+                    let override_target = BuildTarget {
+                        package: override_pkg,
+                        kind: TargetKind::Source,
+                    };
+                    if !deps.contains(&override_target) {
+                        deps.push(override_target);
+                    }
+                }
 
                 deps.sort_by(|a, b| {
                     let pa = self.input.pkg_dirs.get_package(a.package);

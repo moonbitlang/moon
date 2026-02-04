@@ -156,7 +156,9 @@ impl LegacyLayout {
         backend: TargetBackend,
     ) -> PathBuf {
         // Special case: `abort` lives in core
-        if let Some(abort) = pkg_list.abort_pkg()
+        // Only redirect abort to prebuilt stdlib artifacts when stdlib is injected.
+        if self.stdlib_dir.is_some()
+            && let Some(abort) = pkg_list.abort_pkg()
             && abort == target.package
         {
             if target.kind == TargetKind::Source {
@@ -208,7 +210,9 @@ impl LegacyLayout {
         is_implementing_virtual: bool,
     ) -> MiPathResult {
         // Special case: `abort` lives in core
-        if let Some(abort) = pkg_list.abort_pkg()
+        // Only redirect abort to prebuilt stdlib artifacts when stdlib is injected.
+        if self.stdlib_dir.is_some()
+            && let Some(abort) = pkg_list.abort_pkg()
             && abort == target.package
         {
             if target.kind == TargetKind::Source {
@@ -224,7 +228,8 @@ impl LegacyLayout {
             }
         }
 
-        if pkg_list.get_package(target.package).is_stdlib {
+        // Stdlib packages use prebuilt .mi only when stdlib is injected.
+        if self.stdlib_dir.is_some() && pkg_list.get_package(target.package).is_stdlib {
             let core_root = self
                 .stdlib_dir
                 .as_ref()

@@ -32,6 +32,7 @@ use moonutil::{
 };
 use walkdir::WalkDir;
 
+mod abort_override;
 mod backend;
 mod backend_config;
 mod bench2;

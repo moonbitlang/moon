@@ -152,6 +152,11 @@ pub struct DiscoverResult {
 
     /// A special case: `moonbitlang/core/abort`, a standard library package that
     /// needs special treatments.
+    ///
+    /// Note: this is purely a discovery-time record. It is set whenever abort
+    /// is present, regardless of whether we are building the stdlib itself or
+    /// injecting a prebuilt stdlib. Build-mode checks decide whether the
+    /// prebuilt abort artifacts are used.
     abort_pkg: Option<PackageId>,
 }
 
