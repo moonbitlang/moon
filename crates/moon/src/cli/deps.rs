@@ -67,7 +67,7 @@ pub fn install_cli(cli: UniversalFlags, cmd: InstallSubcommand) -> anyhow::Resul
     let package_path = cmd.package_path.unwrap();
 
     // Auto-detect local paths starting with ./
-    if package_path.starts_with("./") || package_path.starts_with("../") {
+    if package_path.starts_with("./") {
         if has_git_ref {
             anyhow::bail!("--rev, --branch, and --tag can only be used with git URLs");
         }

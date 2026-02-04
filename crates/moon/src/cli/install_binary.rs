@@ -534,3 +534,89 @@ fn build_and_install_packages(
 
     Ok(0)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_is_git_url() {
+        // Valid git URLs
+        assert!(is_git_url("https://github.com/user/repo"));
+        assert!(is_git_url("https://gitlab.com/user/repo.git"));
+        assert!(is_git_url("http://github.com/user/repo"));
+        assert!(is_git_url("git://github.com/user/repo"));
+        assert!(is_git_url("ssh://git@github.com/user/repo"));
+        assert!(is_git_url("git@github.com:user/repo.git"));
+        assert!(is_git_url("git@gitlab.com:group/subgroup/repo.git"));
+
+        // Not git URLs (registry paths)
+        assert!(!is_git_url("user/repo"));
+        assert!(!is_git_url("user/repo/cmd/main"));
+        assert!(!is_git_url("Lampese/moonbead"));
+
+        // Not git URLs (local paths)
+        assert!(!is_git_url("./local/path"));
+        assert!(!is_git_url("/absolute/path"));
+    }
+
+    #[test]
+    fn test_parse_package_spec_basic() {
+        // Basic user/module
+        let spec = parse_package_spec("user/module").unwrap();
+        assert_eq!(spec.module_name.username, "user");
+        assert_eq!(spec.module_name.unqual, "module");
+        assert_eq!(spec.package_path, Some(String::new()));
+        assert_eq!(spec.version, None);
+        assert!(!spec.is_wildcard);
+
+        // user/module/package
+        let spec = parse_package_spec("user/module/cmd/main").unwrap();
+        assert_eq!(spec.module_name.username, "user");
+        assert_eq!(spec.module_name.unqual, "module");
+        assert_eq!(spec.package_path, Some("cmd/main".to_string()));
+        assert!(!spec.is_wildcard);
+    }
+
+    #[test]
+    fn test_parse_package_spec_with_version() {
+        let spec = parse_package_spec("user/module@1.0.0").unwrap();
+        assert_eq!(spec.module_name.username, "user");
+        assert_eq!(spec.module_name.unqual, "module");
+        assert_eq!(spec.version.unwrap().to_string(), "1.0.0");
+        assert!(!spec.is_wildcard);
+
+        let spec = parse_package_spec("user/module/cmd/main@2.3.4").unwrap();
+        assert_eq!(spec.package_path, Some("cmd/main".to_string()));
+        assert_eq!(spec.version.unwrap().to_string(), "2.3.4");
+    }
+
+    #[test]
+    fn test_parse_package_spec_wildcard() {
+        // user/module/...
+        let spec = parse_package_spec("user/module/...").unwrap();
+        assert_eq!(spec.module_name.username, "user");
+        assert_eq!(spec.module_name.unqual, "module");
+        assert!(spec.is_wildcard);
+        assert_eq!(spec.package_path, Some(String::new()));
+
+        // user/module/cmd/...
+        let spec = parse_package_spec("user/module/cmd/...").unwrap();
+        assert!(spec.is_wildcard);
+        assert_eq!(spec.package_path, Some("cmd".to_string()));
+
+        // Alternate syntax: user/module...
+        let spec = parse_package_spec("user/module...").unwrap();
+        assert!(spec.is_wildcard);
+    }
+
+    #[test]
+    fn test_parse_package_spec_invalid() {
+        // Too few components
+        assert!(parse_package_spec("user").is_err());
+        assert!(parse_package_spec("single").is_err());
+
+        // Invalid version
+        assert!(parse_package_spec("user/module@invalid").is_err());
+    }
+}
