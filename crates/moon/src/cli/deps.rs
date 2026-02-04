@@ -29,7 +29,8 @@ use moonutil::{
 
 use super::UniversalFlags;
 use super::install_binary::{
-    GitRef, install_binary, install_from_git, install_from_local, is_git_url, parse_package_spec,
+    GitRef, install_binary, install_from_git, install_from_local, is_git_url, is_local_path,
+    parse_package_spec,
 };
 
 pub fn install_cli(cli: UniversalFlags, cmd: InstallSubcommand) -> anyhow::Result<i32> {
@@ -58,16 +59,13 @@ pub fn install_cli(cli: UniversalFlags, cmd: InstallSubcommand) -> anyhow::Resul
 
     // Explicit --path takes priority
     if let Some(local_path) = cmd.path {
-        if has_git_ref {
-            anyhow::bail!("--rev, --branch, and --tag can only be used with git URLs");
-        }
         return install_from_local(&cli, &local_path, &install_dir);
     }
 
     let package_path = cmd.package_path.unwrap();
 
-    // Auto-detect local paths starting with ./
-    if package_path.starts_with("./") {
+    // Auto-detect local paths
+    if is_local_path(&package_path) {
         if has_git_ref {
             anyhow::bail!("--rev, --branch, and --tag can only be used with git URLs");
         }

@@ -64,6 +64,15 @@ pub fn is_git_url(s: &str) -> bool {
     GIT_URL_PREFIXES.iter().any(|p| s.starts_with(p))
 }
 
+/// Check if a string looks like a local filesystem path.
+/// Matches: ./, ../, / (Unix absolute), C: (Windows drive letter)
+pub fn is_local_path(s: &str) -> bool {
+    s.starts_with("./")
+        || s.starts_with("../")
+        || s.starts_with('/')
+        || s.chars().nth(1) == Some(':') // Windows drive letter
+}
+
 /// Yet another package path parser because we need to parse wildcard patterns.
 pub fn parse_package_spec(input: &str) -> anyhow::Result<PackageSpec> {
     let (path_part, version) = if let Some(at_pos) = input.rfind('@') {
@@ -558,6 +567,34 @@ mod tests {
         // Not git URLs (local paths)
         assert!(!is_git_url("./local/path"));
         assert!(!is_git_url("/absolute/path"));
+    }
+
+    #[test]
+    fn test_is_local_path() {
+        // Relative paths
+        assert!(is_local_path("./local/path"));
+        assert!(is_local_path("./"));
+        assert!(is_local_path("../parent/path"));
+        assert!(is_local_path("../"));
+
+        // Unix absolute paths
+        assert!(is_local_path("/absolute/path"));
+        assert!(is_local_path("/"));
+
+        // Windows drive letters
+        assert!(is_local_path("C:\\path\\to\\dir"));
+        assert!(is_local_path("C:/path/to/dir"));
+        assert!(is_local_path("D:\\"));
+        assert!(is_local_path("D:/"));
+
+        // Not local paths (registry paths)
+        assert!(!is_local_path("user/repo"));
+        assert!(!is_local_path("user/repo/cmd/main"));
+        assert!(!is_local_path("Lampese/moonbead"));
+
+        // Not local paths (git URLs)
+        assert!(!is_local_path("https://github.com/user/repo"));
+        assert!(!is_local_path("git@github.com:user/repo.git"));
     }
 
     #[test]

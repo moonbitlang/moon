@@ -42,7 +42,7 @@ pub struct InstallSubcommand {
     /// Package path to install (e.g., user/pkg/main or user/pkg/cmd/...)
     /// Supports @version suffix (e.g., user/pkg/main@1.0.0)
     /// Git URLs are auto-detected (any URL format git supports)
-    /// Paths starting with ./ are treated as local paths
+    /// Local paths are auto-detected: ./, ../, / (Unix), or drive letter (Windows)
     /// If not provided, falls back to legacy behavior (install project dependencies)
     pub package_path: Option<String>,
 
@@ -51,7 +51,7 @@ pub struct InstallSubcommand {
     pub bin: Option<PathBuf>,
 
     /// Install from local path instead of registry
-    #[clap(long, conflicts_with = "package_path")]
+    #[clap(long, conflicts_with = "package_path", conflicts_with = "git_ref")]
     pub path: Option<PathBuf>,
 
     /// Git revision to checkout (commit hash, requires git URL)
