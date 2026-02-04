@@ -80,6 +80,7 @@ mod output_format;
 mod packages;
 mod prebuild;
 mod prebuild_config_script;
+mod prebuild_link_config_self;
 mod query_symbol;
 mod run_doc_test;
 mod run_md_test;
