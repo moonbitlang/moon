@@ -41,8 +41,8 @@ use std::{
 pub struct InstallSubcommand {
     /// Package path to install (e.g., user/pkg/main or user/pkg/cmd/...)
     /// Supports @version suffix (e.g., user/pkg/main@1.0.0)
-    /// Git URLs are auto-detected and passed directly to git (any URL format git supports)
-    /// When used with --git, specifies the package path within the repository
+    /// Git URLs are auto-detected (any URL format git supports)
+    /// Paths starting with ./ are treated as local paths
     /// If not provided, falls back to legacy behavior (install project dependencies)
     pub package_path: Option<String>,
 
@@ -51,23 +51,19 @@ pub struct InstallSubcommand {
     pub bin: Option<PathBuf>,
 
     /// Install from local path instead of registry
-    #[clap(long, conflicts_with_all = ["package_path", "git"])]
+    #[clap(long, conflicts_with = "package_path")]
     pub path: Option<PathBuf>,
 
-    /// Install from a git repository URL
-    #[clap(long, conflicts_with = "path")]
-    pub git: Option<String>,
-
-    /// Git revision to checkout (commit hash)
-    #[clap(long, requires = "git", group = "git_ref")]
+    /// Git revision to checkout (commit hash, requires git URL)
+    #[clap(long, group = "git_ref", requires = "package_path")]
     pub rev: Option<String>,
 
-    /// Git branch to checkout
-    #[clap(long, requires = "git", group = "git_ref")]
+    /// Git branch to checkout (requires git URL)
+    #[clap(long, group = "git_ref", requires = "package_path")]
     pub branch: Option<String>,
 
-    /// Git tag to checkout
-    #[clap(long, requires = "git", group = "git_ref")]
+    /// Git tag to checkout (requires git URL)
+    #[clap(long, group = "git_ref", requires = "package_path")]
     pub tag: Option<String>,
 }
 

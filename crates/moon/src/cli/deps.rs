@@ -33,8 +33,8 @@ use super::install_binary::{
 };
 
 pub fn install_cli(cli: UniversalFlags, cmd: InstallSubcommand) -> anyhow::Result<i32> {
-    // If no package path, no local path, and no git specified, use legacy behavior
-    if cmd.package_path.is_none() && cmd.path.is_none() && cmd.git.is_none() {
+    // If no package path and no local path, use legacy behavior
+    if cmd.package_path.is_none() && cmd.path.is_none() {
         eprintln!(
             "{}: `moon install` without arguments is deprecated and will be removed in a future version. \
              Use `moon install <package>` to install binaries globally, or use `moon build` to build your project.",
@@ -54,10 +54,28 @@ pub fn install_cli(cli: UniversalFlags, cmd: InstallSubcommand) -> anyhow::Resul
     }
 
     let install_dir = cmd.bin.unwrap_or_else(moon_dir::bin);
+    let has_git_ref = cmd.rev.is_some() || cmd.branch.is_some() || cmd.tag.is_some();
 
+    // Explicit --path takes priority
     if let Some(local_path) = cmd.path {
-        install_from_local(&cli, &local_path, &install_dir)
-    } else if let Some(git_url) = cmd.git {
+        if has_git_ref {
+            anyhow::bail!("--rev, --branch, and --tag can only be used with git URLs");
+        }
+        return install_from_local(&cli, &local_path, &install_dir);
+    }
+
+    let package_path = cmd.package_path.unwrap();
+
+    // Auto-detect local paths starting with ./
+    if package_path.starts_with("./") || package_path.starts_with("../") {
+        if has_git_ref {
+            anyhow::bail!("--rev, --branch, and --tag can only be used with git URLs");
+        }
+        return install_from_local(&cli, package_path.as_ref(), &install_dir);
+    }
+
+    // Auto-detect git URLs
+    if is_git_url(&package_path) {
         let git_ref = if let Some(rev) = cmd.rev.as_deref() {
             GitRef::Rev(rev)
         } else if let Some(branch) = cmd.branch.as_deref() {
@@ -67,24 +85,15 @@ pub fn install_cli(cli: UniversalFlags, cmd: InstallSubcommand) -> anyhow::Resul
         } else {
             GitRef::Default
         };
-        install_from_git(
-            &cli,
-            &git_url,
-            git_ref,
-            cmd.package_path.as_deref(),
-            &install_dir,
-        )
-    } else {
-        let package_path = cmd.package_path.unwrap();
-
-        // Auto-detect git URLs
-        if is_git_url(&package_path) {
-            install_from_git(&cli, &package_path, GitRef::Default, None, &install_dir)
-        } else {
-            let spec = parse_package_spec(&package_path)?;
-            install_binary(&cli, &spec, &install_dir)
-        }
+        return install_from_git(&cli, &package_path, git_ref, None, &install_dir);
     }
+
+    // Registry install
+    if has_git_ref {
+        anyhow::bail!("--rev, --branch, and --tag can only be used with git URLs");
+    }
+    let spec = parse_package_spec(&package_path)?;
+    install_binary(&cli, &spec, &install_dir)
 }
 
 pub fn remove_cli(cli: UniversalFlags, cmd: RemoveSubcommand) -> anyhow::Result<i32> {
