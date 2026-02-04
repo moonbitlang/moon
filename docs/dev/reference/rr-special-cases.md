@@ -48,9 +48,24 @@ important ones and why they exist.
 - **Abort artifacts live beside the stdlib.** When lowering build plans
   (`build_lower::artifact`), calls that would normally resolve `.core`, `.mi`,
   or `.phony_mi` files check whether the target package is the recorded abort
-  package. If so, the code switches to the stdlib’s prebuilt `abort` outputs
-  (`abort_core_path` / `abort_mi_path`) because those artifacts are shipped as
-  part of the toolchain rather than being rebuilt per project.
+  package. If so, and **only when stdlib is injected**, the code switches to
+  the stdlib’s prebuilt `abort` outputs (`abort_core_path` / `abort_mi_path`)
+  because those artifacts are shipped as part of the toolchain rather than
+  being rebuilt per project. When **building the stdlib itself**, the abort
+  package must resolve to local `_build/...` artifacts, so the prebuilt paths
+  are explicitly *not* used.
+
+## Stdlib injection boundaries
+
+- **`abort_pkg` is discovery-only, not build-mode.** We always record the abort
+  package ID if it exists, even when building the stdlib. Build-mode decisions
+  (use prebuilt paths vs local artifacts) are gated by whether stdlib is
+  injected (`build_env.std` / `stdlib_dir.is_some()`), not by mutating
+  `abort_pkg`.
+- **`all_pkgs.json` respects stdlib mode.** When building the stdlib (core
+  module), `all_pkgs.json` is generated without a stdlib directory so indirect
+  dependency resolution uses the locally built `.mi` files. For non-core
+  projects, the stdlib directory is set so prebuilt artifacts can be used.
 
 ## Runtime + tooling side effects
 

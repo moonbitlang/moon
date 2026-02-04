@@ -206,6 +206,10 @@ impl ModuleSource {
         &self.inner.source
     }
 
+    pub fn is_core(&self) -> bool {
+        *self.name() == ("moonbitlang", "core")
+    }
+
     pub fn new_full(name: ModuleName, version: Version, source: ModuleSourceKind) -> Self {
         Self::new_inner(ModuleSourceInner {
             name,
