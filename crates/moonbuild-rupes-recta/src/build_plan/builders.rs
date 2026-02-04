@@ -123,9 +123,10 @@ impl<'a> BuildPlanConstructor<'a> {
     /// This dynamically maps into either `Build`, `Check` or `BuildVirtual`
     /// nodes based on the property of the dependency package.
     fn need_mi_of_dep(&mut self, node: BuildPlanNode, dep: BuildTarget, check_only: bool) {
-        // Skip stdlib packages
-        // using the prebuilt .mi files directly
-        if self.input.pkg_dirs.is_stdlib_package(dep.package) {
+        // Skip stdlib packages when stdlib is injected, since we can use prebuilt .mi files.
+        // When building the stdlib itself (build_env.std == false), treat stdlib packages
+        // like normal packages and build their dependencies.
+        if self.build_env.std && self.input.pkg_dirs.is_stdlib_package(dep.package) {
             return;
         }
 
@@ -665,10 +666,13 @@ impl<'a> BuildPlanConstructor<'a> {
         // This DFS is shared by both LinkCore and MakeExecutable actions.
         let vp_info = self.input.pkg_rel.virtual_users.get(target.package);
 
-        let abort = self.input.pkg_dirs.abort_pkg();
-        let abort_override_pkg = vp_info
-            .zip(abort)
-            .and_then(|(vu, abort)| vu.overrides.get(abort).copied());
+        let abort = if self.build_env.std {
+            self.input.pkg_dirs.abort_pkg()
+        } else {
+            None
+        };
+        let abort_override_pkg = abort
+            .and_then(|abort| vp_info.and_then(|vu| vu.overrides.get(abort).copied()));
 
         // This is the link core sources
         let mut link_core_deps: IndexSet<BuildTarget> = IndexSet::new();
@@ -732,8 +736,10 @@ impl<'a> BuildPlanConstructor<'a> {
                 let mut deps: Vec<BuildTarget> = graph
                     .neighbors_directed(node, petgraph::Direction::Outgoing)
                     .filter(|dep| {
-                        // Skip stdlib packages because they are always linked implicitly.
-                        !self.input.pkg_dirs.is_stdlib_package(dep.package)
+                        // Skip stdlib packages because they are always linked implicitly
+                        // only when stdlib is injected. When building stdlib itself, keep them.
+                        !self.build_env.std
+                            || !self.input.pkg_dirs.is_stdlib_package(dep.package)
                     })
                     .collect();
 
