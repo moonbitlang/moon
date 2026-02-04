@@ -349,6 +349,12 @@ impl BuildFlags {
             ),
         }
     }
+
+    pub fn apply_default_debug_for_run_build(&mut self) {
+        if !self.release && !self.debug {
+            self.debug = true;
+        }
+    }
 }
 
 pub fn get_compiler_flags(src_dir: &Path, build_flags: &BuildFlags) -> anyhow::Result<MooncOpt> {
