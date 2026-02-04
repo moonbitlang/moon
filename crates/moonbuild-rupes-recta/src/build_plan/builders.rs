@@ -505,7 +505,7 @@ impl<'a> BuildPlanConstructor<'a> {
             .transpose()?
             .unwrap_or_default();
 
-        let link_flags = native_config
+        let mut link_flags = native_config
             .and_then(|native| native.stub_cc_link_flags.as_ref())
             .map(|s| self.replace_build_vars(target, pkg.module, s))
             .map(|replaced| {
@@ -515,6 +515,12 @@ impl<'a> BuildPlanConstructor<'a> {
             })
             .transpose()?
             .unwrap_or_default();
+
+        self.propagate_link_config(
+            stub_cc.as_ref(),
+            std::iter::once(target),
+            &mut link_flags,
+        );
 
         let c_info = BuildCStubsInfo {
             stub_cc,
@@ -639,7 +645,11 @@ impl<'a> BuildPlanConstructor<'a> {
             c_flags.append(&mut link_flags);
         }
 
-        self.propagate_link_config(cc.as_ref(), targets.iter().map(|x| x.package), &mut c_flags);
+        let mut link_pkgs: Vec<PackageId> = targets.iter().map(|x| x.package).collect();
+        if !link_pkgs.iter().any(|pkg| *pkg == target.package) {
+            link_pkgs.push(target.package);
+        }
+        self.propagate_link_config(cc.as_ref(), link_pkgs.into_iter(), &mut c_flags);
 
         let v = MakeExecutableInfo {
             link_c_stubs: c_stub_deps.clone(),
