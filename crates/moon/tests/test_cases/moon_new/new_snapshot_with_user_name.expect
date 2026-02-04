@@ -123,7 +123,9 @@ fn main {
 }
 
 === ./cmd/main/moon.pkg ===
-// import "moonbitlang/hello" as @lib
+// import {
+//   "moonbitlang/hello" as @lib,
+// }
 
 options(
   "is-main": true,
