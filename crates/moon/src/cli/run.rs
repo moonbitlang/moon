@@ -77,6 +77,8 @@ pub struct RunSubcommand {
 
 #[instrument(skip_all)]
 pub fn run_run(cli: &UniversalFlags, cmd: RunSubcommand) -> anyhow::Result<i32> {
+    let mut cmd = cmd;
+    cmd.build_flags.default_to_debug_unless_release();
     // Falling back to legacy to support running standalone single mbt file This
     // is currently how the `moon test` handles single file as well. We should
     // have a RR solution later.
@@ -175,12 +177,16 @@ fn run_single_mbt_file(cli: &UniversalFlags, cmd: RunSubcommand) -> anyhow::Resu
         "-is-main".to_string(),
         "-pkg".to_string(),
         pkg_name.to_string(),
-        "-g".to_string(),
-        "-O0".to_string(),
-        "-source-map".to_string(),
         "-target".to_string(),
         target_backend.to_flag().to_string(),
     ];
+    if !cmd.build_flags.release {
+        build_package_command.push("-g".to_string());
+        build_package_command.push("-O0".to_string());
+        if target_backend.supports_source_map() {
+            build_package_command.push("-source-map".to_string());
+        }
+    }
     if cmd.build_flags.enable_value_tracing {
         build_package_command.push("-enable-value-tracing".to_string());
     }
@@ -203,12 +209,16 @@ fn run_single_mbt_file(cli: &UniversalFlags, cmd: RunSubcommand) -> anyhow::Resu
             MOONBITLANG_CORE,
             moonutil::moon_dir::core().display()
         ),
-        "-g".to_string(),
-        "-O0".to_string(),
-        "-source-map".to_string(),
         "-target".to_string(),
         target_backend.to_flag().to_string(),
     ];
+    if !cmd.build_flags.release {
+        link_core_command.push("-g".to_string());
+        link_core_command.push("-O0".to_string());
+        if target_backend.supports_source_map() {
+            link_core_command.push("-source-map".to_string());
+        }
+    }
 
     let cc_default = moonutil::compiler_flags::CC::default();
     if cc_default.is_msvc() && target_backend == TargetBackend::LLVM {

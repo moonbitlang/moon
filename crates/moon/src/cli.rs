@@ -293,6 +293,13 @@ impl BuildFlags {
         }
         self
     }
+
+    /// Default to debug mode unless release is explicitly requested.
+    pub fn default_to_debug_unless_release(&mut self) {
+        if !self.release && !self.debug {
+            self.debug = true;
+        }
+    }
 }
 
 /// The style to render diagnostics in.
