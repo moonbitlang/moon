@@ -39,9 +39,7 @@ fn test_prebuild_link_config_self() {
         for line in lines {
             let is_stub_link = line.contains("libmain") && line.contains("-shared");
             if is_stub_link {
-                found_stub_link
-                    .set(())
-                    .expect("c stub linking found twice");
+                found_stub_link.set(()).expect("c stub linking found twice");
                 assert!(line.contains("-l__prebuild_self_link_flag__"));
                 assert!(line.contains("-lprebuildselflib"));
                 assert!(line.contains("-L/prebuild-self-path"));

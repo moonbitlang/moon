@@ -516,11 +516,7 @@ impl<'a> BuildPlanConstructor<'a> {
             .transpose()?
             .unwrap_or_default();
 
-        self.propagate_link_config(
-            stub_cc.as_ref(),
-            std::iter::once(target),
-            &mut link_flags,
-        );
+        self.propagate_link_config(stub_cc.as_ref(), std::iter::once(target), &mut link_flags);
 
         let c_info = BuildCStubsInfo {
             stub_cc,
