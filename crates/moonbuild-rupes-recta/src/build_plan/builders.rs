@@ -741,9 +741,12 @@ impl<'a> BuildPlanConstructor<'a> {
                 let mut deps: Vec<BuildTarget> = graph
                     .neighbors_directed(node, petgraph::Direction::Outgoing)
                     .filter(|dep| {
-                        // Skip stdlib packages
-                        // because they are always linked implicitly
-                        !self.input.pkg_dirs.is_stdlib_package(dep.package)
+                        // Skip stdlib packages because they are always linked implicitly,
+                        // except when the stdlib package is explicitly overridden (e.g. abort).
+                        if !self.input.pkg_dirs.is_stdlib_package(dep.package) {
+                            return true;
+                        }
+                        vp_info.is_some_and(|vu| vu.overrides.contains_key(dep.package))
                     })
                     .collect();
 

@@ -7,11 +7,10 @@ important ones and why they exist.
 
 ## Discovery-time injections
 
-- **Force-add `moonbitlang/core/abort`.** `discover::special_case::inject_std_abort`
-  synthesizes the `abort` package when a stdlib checkout is present. The shim
-  clears every import list because `abort` is fully bundled already, then marks
-  the resulting package ID via `DiscoverResult::set_abort_pkg`. This guarantees
-  that user projects can override `abort` even if they never checked it out.
+- **Record `moonbitlang/core/abort` when present.** During discovery, if
+  `moonbitlang/core/abort` exists in the resolved package set, we record its
+  package ID via `DiscoverResult::set_abort_pkg`. This preserves the legacy
+  override behavior without synthesizing a separate package.
 - **Merge coverage sources into builtin.** `inject_core_coverage_into_builtin`
   copies `moonbitlang/core/coverage` sources into `moonbitlang/core/builtin` so
   downstream compilation steps see a builtin package that already contains the

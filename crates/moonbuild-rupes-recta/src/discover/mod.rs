@@ -40,8 +40,8 @@ use moonutil::mooncakes::{DirSyncResult, ModuleId, ModuleSource, result::Resolve
 use moonutil::package::MoonPkg;
 use moonutil::{
     common::{
-        IGNORE_DIRS, MBTI_USER_WRITTEN, MOON_MOD_JSON, MOON_PKG_JSON, read_module_desc_file_in_dir,
-        read_package_desc_file_in_dir,
+        IGNORE_DIRS, MBTI_USER_WRITTEN, MOON_MOD_JSON, MOON_PKG_JSON, MOONBITLANG_ABORT,
+        read_module_desc_file_in_dir, read_package_desc_file_in_dir,
     },
     mooncakes::ModuleSourceKind,
 };
@@ -76,6 +76,10 @@ pub fn discover_packages(
 
         let dir = dirs.get(id).expect("Bad module ID to get directory");
         discover_packages_for_mod(&mut res, env, dir, id, m)?;
+    }
+
+    if let Some(id) = res.get_package_id_by_name(MOONBITLANG_ABORT) {
+        res.set_abort_pkg(id);
     }
 
     info!(
