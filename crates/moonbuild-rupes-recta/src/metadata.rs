@@ -66,8 +66,6 @@ pub fn gen_metadata_json(
     let mut packages: Vec<PackageJSON> = ctx
         .pkg_dirs
         .all_packages(true)
-        // Skip the `moonbitlang/core/abort` package to match the behavior of the legacy metadata JSON
-        .filter(|(id, _)| ctx.pkg_dirs.abort_pkg().is_none_or(|id2| *id != id2))
         .map(|(id, _)| gen_package_json(ctx, &layout, id, backend))
         .collect();
     packages.sort_by(|x, y| (x.root.cmp(&y.root)).then_with(|| x.rel.cmp(&y.rel)));
@@ -125,11 +123,7 @@ fn gen_package_json(
         .pkg_rel
         .dep_graph
         .edges(pkg_id.build_target(TargetKind::Source))
-        .filter(|(_, out, edge)| {
-            edge.kind == TargetKind::Source
-            // Skip the dependency to `moonbitlang/core/abort` to match the behavior of the legacy metadata JSON
-                && ctx.pkg_dirs.abort_pkg().is_none_or(|id| id != out.package)
-        })
+        .filter(|(_, _, edge)| edge.kind == TargetKind::Source)
         .map(edge_to_alias_json(ctx))
         .collect();
     deps.sort_by(|a, b| a.path.cmp(&b.path).then_with(|| a.alias.cmp(&b.alias)));

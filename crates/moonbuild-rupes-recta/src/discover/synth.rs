@@ -21,9 +21,9 @@
 //! Implements the "import everything from resolved modules" behavior for single-file
 //! scenarios by synthesizing a package `single` under the local single-file module.
 //!
-//! The synthetic package's `MoonPkg` imports all discovered packages (excluding the
-//! std abort) so that the single-file can reference any package symbols without
-//! declaring per-package deps in the front matter.
+//! The synthetic package's `MoonPkg` imports all discovered packages (excluding
+//! internal-only packages) so that the single-file can reference any package
+//! symbols without declaring per-package deps in the front matter.
 //!
 //! This mirrors the legacy path in `moon/src/cli/test.rs:get_module_for_single_file`
 //! where it programmatically enumerates imports for the synthetic single-file package.
@@ -43,8 +43,8 @@ use crate::pkg_name::{PackageFQN, PackagePath};
 /// returning the newly created package ID.
 ///
 /// The synthetic package will be named `single` and will import all discovered
-/// packages (excluding the std abort) so that the single file can reference any
-/// package symbols without declaring per-package deps in the front matter.
+/// packages (excluding internal-only packages) so that the single file can
+/// reference any package symbols without declaring per-package deps in the front matter.
 ///
 /// If `run_mode` is true, the package will be marked as a main package.
 pub fn build_synth_single_file_package(
@@ -69,7 +69,6 @@ pub fn build_synth_single_file_package(
     let pkg_path = PackagePath::new("single").expect("synthetic package path should be valid");
 
     // Build import-all list (excluding std abort)
-    let abort_pkg = discovered.abort_pkg();
     let mut imports = Vec::new();
     // FIXME: what if single-file indeed imports a stdlib package?
     //
@@ -88,10 +87,7 @@ pub fn build_synth_single_file_package(
     // 1. Allow specifying package-level imports in front matter (not just module deps)
     // 2. Implement alias conflict resolution when importing all packages from a module
     // 3. Parse the single file source to detect which `@package` references are used
-    for (pid, pkg) in discovered.all_packages(false) {
-        if Some(pid) == abort_pkg {
-            continue;
-        }
+    for (_pid, pkg) in discovered.all_packages(false) {
         if pkg.fqn.has_internal_segment() {
             continue;
         }

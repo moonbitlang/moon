@@ -17,57 +17,13 @@
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
 use crate::special_cases::CORE_MODULE_TUPLE;
-use moonutil::mooncakes::{DirSyncResult, result::ResolvedEnv};
-use relative_path::RelativePath;
+use moonutil::mooncakes::result::ResolvedEnv;
 use tracing::{info, instrument, warn};
 
 use crate::{
-    discover::{DiscoverError, DiscoverResult, discover_one_package},
+    discover::{DiscoverError, DiscoverResult},
     pkg_name::PackagePath,
 };
-
-/// Inject `moonbitlang/core/abort` to the package graph, so that user packages
-/// can override it.
-#[instrument(skip_all)]
-pub fn inject_std_abort(
-    env: &ResolvedEnv,
-    dirs: &DirSyncResult,
-    res: &mut DiscoverResult,
-) -> Result<(), DiscoverError> {
-    // Don't inject if there's no injected standard library
-    let Some(stdlib) = env.stdlib() else {
-        info!("No standard library injected, skipping abort injection");
-        return Ok(());
-    };
-
-    let source = env.mod_name_from_id(stdlib);
-    let path = dirs.get(stdlib).expect("stdlib directory non-existent");
-
-    // Hardcoded package name and path: `abort`
-    let abort_path = path.join("abort");
-    let mut pkg = discover_one_package(
-        stdlib,
-        source,
-        &abort_path,
-        RelativePath::new("abort"),
-        true,
-        true,
-    )?;
-
-    // I know you have imports, but no, you don't.
-    //
-    // The imports of `abort` is fully encompassed in the bundled `moonbitlang/core`
-    pkg.raw.imports.clear();
-    pkg.raw.test_imports.clear();
-    pkg.raw.wbtest_imports.clear();
-
-    let abort_rel_pkg = PackagePath::new("abort").expect("abort is a valid name");
-
-    let id = res.add_package(stdlib, abort_rel_pkg, pkg)?;
-    res.set_abort_pkg(id);
-
-    Ok(())
-}
 
 /// Inject `moonbitlang/core/coverage` contents into `moonbitlang/core/builtin`
 /// so builtin is effectively augmented with coverage sources during discovery.

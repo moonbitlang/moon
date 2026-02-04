@@ -59,13 +59,6 @@ pub fn gen_all_pkgs_json(
     let mut packages: Vec<PackageArtifactJSON> = resolve_output
         .pkg_dirs
         .all_packages(false)
-        // Skip the `moonbitlang/core/abort` package to match the behavior of the legacy metadata JSON
-        .filter(|(id, _)| {
-            resolve_output
-                .pkg_dirs
-                .abort_pkg()
-                .is_none_or(|id2| *id != id2)
-        })
         .map(|(id, _)| {
             let pkg = resolve_output.pkg_dirs.get_package(id);
             let root = pkg.fqn.module().name().to_string();

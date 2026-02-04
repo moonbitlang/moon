@@ -178,7 +178,6 @@ fn solve_one_package(
     // Black box tests also add the source package as an import
     insert_black_box_dep(env, pid, pkg_data);
 
-    inject_abort_usage(env, pid);
     inject_prelude_usage(env, pid);
     if env.inject_coverage {
         inject_core_coverage_usage(env, pid);
@@ -466,36 +465,6 @@ fn resolve_virtual_usages(
 }
 
 use crate::special_cases::{CORE_MODULE_TUPLE, is_self_coverage_lib, should_skip_coverage};
-
-/// Inject the dependency to `moonbitlang/core/abort` for every package
-fn inject_abort_usage(env: &mut ResolveEnv<'_>, pid: PackageId) {
-    trace!(
-        "Injecting abort usage for package {:?} via black box test",
-        pid
-    );
-    let Some(abort) = env.packages.abort_pkg() else {
-        return; // includes no-std scenarios, where abort is simply unset
-    };
-    if abort == pid {
-        return;
-    }
-
-    for target_kind in &[
-        TargetKind::Source,
-        TargetKind::InlineTest,
-        TargetKind::WhiteboxTest,
-        TargetKind::BlackboxTest,
-    ] {
-        env.res.dep_graph.add_edge(
-            pid.build_target(*target_kind),
-            abort.build_target(TargetKind::Source),
-            DepEdge {
-                short_alias: "moonbitlang/core/abort".into(),
-                kind: TargetKind::Source,
-            },
-        );
-    }
-}
 
 /// Inject the dependency to `moonbitlang/core/coverage` for core module packages.
 ///
