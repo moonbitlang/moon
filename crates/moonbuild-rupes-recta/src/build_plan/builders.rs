@@ -642,7 +642,7 @@ impl<'a> BuildPlanConstructor<'a> {
         }
 
         let mut link_pkgs: Vec<PackageId> = targets.iter().map(|x| x.package).collect();
-        if !link_pkgs.iter().any(|pkg| *pkg == target.package) {
+        if !link_pkgs.contains(&target.package) {
             link_pkgs.push(target.package);
         }
         self.propagate_link_config(cc.as_ref(), link_pkgs.into_iter(), &mut c_flags);
