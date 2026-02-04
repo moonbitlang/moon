@@ -639,12 +639,17 @@ pub fn generate_all_pkgs_json(
         panic!("Currently only one local module is supported");
     };
     let main_module = resolve_output.module_rel.mod_name_from_id(main_module_id);
+    let is_core = *main_module.name() == ("moonbitlang", "core");
     // the necessary information to calculate the layout of the `target`
     // directory
     let layout = moonbuild_rupes_recta::build_lower::artifact::LegacyLayoutBuilder::default()
         .opt_level(build_meta.opt_level)
         .run_mode(mode)
-        .stdlib_dir(Some(moonutil::moon_dir::core()))
+        .stdlib_dir(if is_core {
+            None
+        } else {
+            Some(moonutil::moon_dir::core())
+        })
         .target_base_dir(target_dir.to_owned())
         .main_module(Some(main_module.clone()))
         .build()
