@@ -20,18 +20,9 @@ important ones and why they exist.
   package under the core module, `add_prelude_as_import_for_core` injects
   `moonbitlang/core/prelude` into `test_imports`. Without this implicit import,
   core tests would fail to compile because they rely on the prelude symbols.
-- **Synthetic single-file projects omit abort.** When we create a temporary
-  package for `moon test <file>` (`discover::synth`), every discovered package
-  except `moonbitlang/core/abort` is auto-imported. This matches the behavior
-  of the legacy build graph generator.
 
 ## Solver-time dependency hacks
 
-- **Every package depends on abort.** `pkg_solve::inject_abort_usage` adds a
-  `moonbitlang/core/abort` edge from each target kind (source + tests) to the
-  abort source target. That guarantees abort is always available at link time
-  even if the package never referenced it explicitly, while still allowing
-  overrides via virtual packages.
 - **Core packages auto-link coverage.** `pkg_solve::inject_core_coverage_usage`
   wires every non-exempt core package to `moonbitlang/core/coverage` (skipping
   the coverage and builtin packages themselves, plus libraries marked to skip
@@ -63,10 +54,9 @@ important ones and why they exist.
 
 ## Runtime + tooling side effects
 
-- **Skip abort during coverage/test runs.** Multiple callers (e.g.
-  `all_pkgs`, `metadata`, `pkg_solve::solve`, and `build_plan::builders`) check
-  `DiscoverResult::abort_pkg()` to avoid emitting redundant metadata for abort
-  or to treat overrides specially.
+- **Skip abort during coverage/test runs.** `special_cases::should_skip_tests`
+  and `should_skip_coverage` prevent abort from producing test targets or being
+  instrumented for coverage.
 - **Core coverage is folded into builtin artifacts.** Once coverage sources are
   merged into builtin and coverage edges are injected, the rest of the pipeline
   can assume builtin already carries every helper needed for coverage-enabled
