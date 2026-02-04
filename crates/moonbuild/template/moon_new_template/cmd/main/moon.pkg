@@ -1,4 +1,6 @@
-// import "{{username}}/{{module}}" as @lib
+// import {
+//   "{{username}}/{{module}}" as @lib,
+// }
 
 options(
   "is-main": true,

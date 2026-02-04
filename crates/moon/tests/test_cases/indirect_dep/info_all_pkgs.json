@@ -77,8 +77,13 @@
     },
     {
       "root": "moonbitlang/core",
-      "rel": "double/internal/ryu",
-      "artifact": "$MOON_HOME/lib/core/target/wasm-gc/release/bundle/double/internal/ryu/ryu.mi"
+      "rel": "encoding/ascii",
+      "artifact": "$MOON_HOME/lib/core/target/wasm-gc/release/bundle/encoding/ascii/ascii.mi"
+    },
+    {
+      "root": "moonbitlang/core",
+      "rel": "encoding/base64",
+      "artifact": "$MOON_HOME/lib/core/target/wasm-gc/release/bundle/encoding/base64/base64.mi"
     },
     {
       "root": "moonbitlang/core",
@@ -199,6 +204,11 @@
       "root": "moonbitlang/core",
       "rel": "internal/regex_engine/symbol_map",
       "artifact": "$MOON_HOME/lib/core/target/wasm-gc/release/bundle/internal/regex_engine/symbol_map/symbol_map.mi"
+    },
+    {
+      "root": "moonbitlang/core",
+      "rel": "internal/regex_parser",
+      "artifact": "$MOON_HOME/lib/core/target/wasm-gc/release/bundle/internal/regex_parser/regex_parser.mi"
     },
     {
       "root": "moonbitlang/core",

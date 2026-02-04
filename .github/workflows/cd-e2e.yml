@@ -98,15 +98,21 @@ jobs:
           workdir="$(mktemp -d)"
           project="${workdir}/moon_e2e"
           "${moon_bin}" new "${project}"
+          cat <<'EOF' >> "${project}/moon_e2e.mbt"
+          ///|
+          pub fn add(a: Int, b: Int) -> Int {
+            a + b
+          }
+          EOF
           cat <<'EOF' >> "${project}/moon_e2e_test.mbt"
           ///|
           test "e2e" {
-            let array = [1, 2, 3]
-            inspect(sum(data=array), content="6")
+            inspect(@moon_e2e.add(1, 2), content="3")
           }
           EOF
           cd "${project}"
           "${moon_bin}" check
+          "${moon_bin}" run cmd/main
           "${moon_bin}" test --target wasm-gc --no-parallelize
           "${moon_bin}" package --frozen
 
@@ -118,15 +124,22 @@ jobs:
           $project = Join-Path $env:RUNNER_TEMP "moon_e2e"
           & $moon update
           & $moon new $project
+          $libFile = Join-Path $project "moon_e2e.mbt"
           $testFile = Join-Path $project "moon_e2e_test.mbt"
           @"
           ///|
+          pub fn add(a: Int, b: Int) -> Int {
+            a + b
+          }
+          "@ | Add-Content -Path $libFile
+          @"
+          ///|
           test "e2e" {
-            let array = [1, 2, 3]
-            inspect(sum(data=array), content="6")
+            inspect(@moon_e2e.add(1, 2), content="3")
           }
           "@ | Add-Content -Path $testFile
           Set-Location $project
           & $moon check
+          & $moon run cmd/main
           & $moon test --target wasm-gc --no-parallelize
           & $moon package --frozen
