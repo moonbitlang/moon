@@ -34,7 +34,7 @@ fn test_design() {
         .success();
     snapbox::cmd::Command::new(moon_bin())
         .current_dir(&dir)
-        .args(["build"])
+        .args(["build", "--release"])
         .assert()
         .success();
     snapbox::cmd::Command::new(moon_bin())
@@ -43,7 +43,7 @@ fn test_design() {
         .assert()
         .success();
     check(
-        get_stdout(&dir, ["run", "main1"]),
+        get_stdout(&dir, ["run", "main1", "--release"]),
         expect![[r#"
             new_list
             new_queue
@@ -54,7 +54,7 @@ fn test_design() {
         "#]],
     );
     check(
-        get_stdout(&dir, ["run", "main2"]),
+        get_stdout(&dir, ["run", "main2", "--release"]),
         expect![[r#"
             new_list
             new_queue
@@ -64,7 +64,10 @@ fn test_design() {
 
     get_stdout(&dir, ["clean"]);
     check(
-        get_stdout(&dir, ["run", "main2", "--target", "js", "--build-only"]),
+        get_stdout(
+            &dir,
+            ["run", "main2", "--target", "js", "--build-only", "--release"],
+        ),
         expect![[r#"
             {"artifacts_path":["$ROOT/_build/js/release/build/main2/main2.js"]}
         "#]],

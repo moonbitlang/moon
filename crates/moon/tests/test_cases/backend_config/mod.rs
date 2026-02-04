@@ -4,7 +4,7 @@ use super::*;
 fn test_backend_config() {
     let dir = TestDir::new("backend_config");
 
-    let _ = get_stdout(&dir, ["build", "--output-wat"]);
+    let _ = get_stdout(&dir, ["build", "--output-wat", "--release"]);
     let out = std::fs::read_to_string(dir.join(format!(
         "target/{}/release/build/lib/lib.wat",
         TargetBackend::default().to_backend_ext()
@@ -15,7 +15,7 @@ fn test_backend_config() {
         TargetBackend::default().to_backend_ext().replace('-', "_")
     )));
     assert_command_matches(
-        get_stdout(&dir, ["build", "--dry-run", "--sort-input"]),
+        get_stdout(&dir, ["build", "--dry-run", "--sort-input", "--release"]),
         expect![[r#"
             moonc build-package ./lib/hello.mbt -o ./_build/wasm-gc/release/build/lib/lib.core -pkg username/hello/lib -std-path '$MOON_HOME/lib/core/target/wasm-gc/release/bundle' -i '$MOON_HOME/lib/core/target/wasm-gc/release/bundle/prelude/prelude.mi:prelude' -pkg-sources username/hello/lib:./lib -target wasm-gc -workspace-path . -all-pkgs ./_build/wasm-gc/release/build/all_pkgs.json
             moonc build-package ./main/main.mbt -o ./_build/wasm-gc/release/build/main/main.core -pkg username/hello/main -is-main -std-path '$MOON_HOME/lib/core/target/wasm-gc/release/bundle' -i ./_build/wasm-gc/release/build/lib/lib.mi:lib -i '$MOON_HOME/lib/core/target/wasm-gc/release/bundle/prelude/prelude.mi:prelude' -pkg-sources username/hello/main:./main -target wasm-gc -workspace-path . -all-pkgs ./_build/wasm-gc/release/build/all_pkgs.json
@@ -34,6 +34,7 @@ fn test_backend_config() {
                 "--target",
                 "wasm-gc",
                 "--sort-input",
+                "--release",
             ],
         ),
         expect![[r#"
@@ -54,6 +55,7 @@ fn test_backend_config() {
                 "--target",
                 "js",
                 "--sort-input",
+                "--release",
             ],
         ),
         expect![[r#"

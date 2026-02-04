@@ -1,8 +1,8 @@
-  $ moon build --dry-run
+  $ moon build --dry-run --release
   moonc build-package ./src/lib/hello.mbt -o ./_build/wasm-gc/release/build/lib/lib.core -pkg username/hello/lib -std-path '$MOON_HOME/lib/core/target/wasm-gc/release/bundle' -i '$MOON_HOME/lib/core/target/wasm-gc/release/bundle/prelude/prelude.mi:prelude' -pkg-sources username/hello/lib:./src/lib -target wasm-gc -workspace-path . -all-pkgs ./_build/wasm-gc/release/build/all_pkgs.json
   moonc build-package ./src/top.mbt -o ./_build/wasm-gc/release/build/hello.core -pkg username/hello -std-path '$MOON_HOME/lib/core/target/wasm-gc/release/bundle' -i ./_build/wasm-gc/release/build/lib/lib.mi:lib -i '$MOON_HOME/lib/core/target/wasm-gc/release/bundle/prelude/prelude.mi:prelude' -pkg-sources username/hello:./src -target wasm-gc -workspace-path . -all-pkgs ./_build/wasm-gc/release/build/all_pkgs.json
   
-  $ moon build --build-graph --sort-input
+  $ moon build --build-graph --sort-input --release
   
    WARN `--build-graph` is deprecated. Use -Z rr_export_module_graph, -Z rr_export_package_graph, or -Z rr_export_build_plan instead
   Finished. moon: ran 2 tasks, now up to date

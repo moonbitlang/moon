@@ -16,7 +16,10 @@ fn test_prebuild_config_py() {
 }
 
 fn test_prebuild_config_common(dir: TestDir) {
-    let stdout = get_stdout(&dir, ["build", "--target", "native", "--dry-run"]);
+    let stdout = get_stdout(
+        &dir,
+        ["build", "--target", "native", "--dry-run", "--release"],
+    );
     println!("{}", &stdout);
     let lines = stdout.lines().collect::<Vec<_>>();
 

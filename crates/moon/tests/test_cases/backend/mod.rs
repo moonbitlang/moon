@@ -57,6 +57,7 @@ fn test_js_format() {
             "--sort-input",
             "--dry-run",
             "--nostd",
+            "--release",
         ],
     );
     println!("{stdout}");
@@ -83,7 +84,7 @@ fn test_js_format() {
     assert!(get_link_core_of("lib3").contains("-target js"));
     assert!(get_link_core_of("lib3").contains("-js-format iife"));
 
-    let _ = get_stdout(&dir, ["build", "--target", "js", "--nostd"]);
+    let _ = get_stdout(&dir, ["build", "--target", "js", "--nostd", "--release"]);
     let t = dir.join(BUILD_DIR).join("js").join("release").join("build");
     check(
         std::fs::read_to_string(t.join("lib0").join("lib0.js"))

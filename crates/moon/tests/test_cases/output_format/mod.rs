@@ -12,7 +12,7 @@ fn test_output_format() {
 
     snapbox::cmd::Command::new(moon_bin())
         .current_dir(&dir)
-        .args(["build", "-q"])
+        .args(["build", "-q", "--release"])
         .assert()
         .success();
     assert!(
@@ -38,7 +38,7 @@ fn test_output_format() {
 
     snapbox::cmd::Command::new(moon_bin())
         .current_dir(&dir)
-        .args(["build", "-q", "--output-wat"])
+        .args(["build", "-q", "--output-wat", "--release"])
         .assert()
         .success();
     assert!(
@@ -64,7 +64,7 @@ fn test_output_format() {
 
     snapbox::cmd::Command::new(moon_bin())
         .current_dir(&dir)
-        .args(["run", "main"])
+        .args(["run", "main", "--release"])
         .assert()
         .success();
     assert!(
@@ -90,7 +90,7 @@ fn test_output_format() {
 
     snapbox::cmd::Command::new(moon_bin())
         .current_dir(&dir)
-        .args(["run", "main", "--output-wat"])
+        .args(["run", "main", "--output-wat", "--release"])
         .assert()
         .failure();
 

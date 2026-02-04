@@ -47,7 +47,7 @@ fn test_all_pkgs() {
     // build
     let _ = get_stdout(&dir, ["clean"]);
     check(
-        get_stderr(&dir, ["build"]),
+        get_stderr(&dir, ["build", "--release"]),
         expect![[r#"
             Finished. moon: ran 7 tasks, now up to date
         "#]],
@@ -59,7 +59,7 @@ fn test_all_pkgs() {
     // run
     let _ = get_stdout(&dir, ["clean"]);
     check(
-        get_stdout(&dir, ["run", "cmd/main"]),
+        get_stdout(&dir, ["run", "cmd/main", "--release"]),
         expect![[r#"
         42
         42
