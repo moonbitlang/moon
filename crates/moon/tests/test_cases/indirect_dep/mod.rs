@@ -28,6 +28,30 @@ fn normalize_all_pkgs_json(dir: &impl AsRef<std::path::Path>, json_path: &Path) 
     )
 }
 
+fn find_all_pkgs_json(dir: &impl AsRef<Path>, backend: &str, mode: &str) -> PathBuf {
+    let debug = dir
+        .as_ref()
+        .join("target")
+        .join(backend)
+        .join("debug")
+        .join(mode)
+        .join("all_pkgs.json");
+    if debug.exists() {
+        return debug;
+    }
+    let release = dir
+        .as_ref()
+        .join("target")
+        .join(backend)
+        .join("release")
+        .join(mode)
+        .join("all_pkgs.json");
+    if release.exists() {
+        return release;
+    }
+    panic!("all_pkgs.json not found for backend={backend} mode={mode}");
+}
+
 #[test]
 fn test_all_pkgs() {
     let dir = TestDir::new("indirect_dep.in/indirect_dep1");
@@ -40,7 +64,7 @@ fn test_all_pkgs() {
         Finished. moon: ran 10 tasks, now up to date
     "#]],
     );
-    let all_pkgs_path = dir.join("target/wasm-gc/release/check/all_pkgs.json");
+    let all_pkgs_path = find_all_pkgs_json(&dir, "wasm-gc", "check");
     let all_pkgs_json = normalize_all_pkgs_json(&dir, &all_pkgs_path);
     expect_file!["check_all_pkgs.json"].assert_eq(&all_pkgs_json);
 
@@ -52,7 +76,7 @@ fn test_all_pkgs() {
             Finished. moon: ran 7 tasks, now up to date
         "#]],
     );
-    let all_pkgs_path = dir.join("target/wasm-gc/release/build/all_pkgs.json");
+    let all_pkgs_path = find_all_pkgs_json(&dir, "wasm-gc", "build");
     let all_pkgs_json = normalize_all_pkgs_json(&dir, &all_pkgs_path);
     expect_file!["build_all_pkgs.json"].assert_eq(&all_pkgs_json);
 
@@ -65,7 +89,7 @@ fn test_all_pkgs() {
         42
     "#]],
     );
-    let all_pkgs_path = dir.join("target/wasm-gc/release/build/all_pkgs.json");
+    let all_pkgs_path = find_all_pkgs_json(&dir, "wasm-gc", "build");
     let all_pkgs_json = normalize_all_pkgs_json(&dir, &all_pkgs_path);
     expect_file!["run_all_pkgs.json"].assert_eq(&all_pkgs_json);
 
@@ -89,7 +113,7 @@ fn test_all_pkgs() {
             Finished. moon: ran 10 tasks, now up to date
         "#]],
     );
-    let all_pkgs_path = dir.join("target/wasm-gc/release/check/all_pkgs.json");
+    let all_pkgs_path = find_all_pkgs_json(&dir, "wasm-gc", "check");
     let all_pkgs_json = normalize_all_pkgs_json(&dir, &all_pkgs_path);
     expect_file!["info_all_pkgs.json"].assert_eq(&all_pkgs_json);
 }

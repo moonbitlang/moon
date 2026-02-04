@@ -56,7 +56,6 @@ fn replace_dir(s: &str, dir: &impl AsRef<std::path::Path>) -> String {
         .join("bin")
         .read_dir()
         .expect("read dir")
-        .into_iter()
         .fold(s.to_string(), |s, e| {
             if let Ok(entry) = e {
                 let path = entry.path();
@@ -82,8 +81,7 @@ fn replace_dir(s: &str, dir: &impl AsRef<std::path::Path>) -> String {
     let s = s.replace(moon_bin().to_string_lossy().as_ref(), "moon");
     let s = ["node.cmd", "node"]
         .iter()
-        .map(which::which)
-        .flatten()
+        .flat_map(which::which)
         .next()
         .map(|node| s.replace(node.to_string_lossy().as_ref(), "node"))
         .unwrap_or(s);

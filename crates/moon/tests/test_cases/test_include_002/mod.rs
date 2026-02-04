@@ -1,13 +1,9 @@
 use std::path::PathBuf;
+use crate::util::xtask_bin;
 
 #[test]
 fn test_include_002() {
-    let xtask_path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .parent()
-        .unwrap()
-        .parent()
-        .unwrap()
-        .join("target/debug/xtask");
+    let xtask_path = xtask_bin();
     let test_path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .join("tests/test_cases/test_include_002.in/moon.test");
 

@@ -29,6 +29,36 @@ pub fn moon_bin() -> PathBuf {
     snapbox::cargo_bin!("moon").to_owned()
 }
 
+pub fn xtask_bin() -> PathBuf {
+    let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .unwrap()
+        .parent()
+        .unwrap()
+        .to_path_buf();
+    let profile = std::env::var("PROFILE").unwrap_or_else(|_| {
+        if cfg!(debug_assertions) {
+            "debug".to_string()
+        } else {
+            "release".to_string()
+        }
+    });
+    let exe_name = if cfg!(windows) { "xtask.exe" } else { "xtask" };
+    let path = root.join("target").join(&profile).join(exe_name);
+    if path.exists() {
+        return path;
+    }
+
+    let mut cmd = std::process::Command::new("cargo");
+    cmd.args(["build", "-p", "xtask"]);
+    if profile == "release" {
+        cmd.arg("--release");
+    }
+    let status = cmd.status().expect("failed to build xtask");
+    assert!(status.success(), "failed to build xtask");
+    path
+}
+
 pub fn replace_dir(s: &str, dir: impl AsRef<std::path::Path>) -> String {
     let s = s.replace("\\\\", "\\");
     let s = moonutil::BINARIES

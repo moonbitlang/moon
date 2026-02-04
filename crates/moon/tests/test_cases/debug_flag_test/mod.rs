@@ -19,8 +19,24 @@ fn debug_flag_test() {
         .assert()
         .success();
 
-    let check_release = get_stdout(&dir, ["check", "--dry-run", "--nostd"]);
-    let check_debug = get_stdout(&dir, ["check", "--dry-run", "--debug", "--nostd"]);
+    let check_debug = get_stdout(&dir, ["check", "--dry-run", "--nostd"]);
+    let check_release = get_stdout(&dir, ["check", "--dry-run", "--release", "--nostd"]);
+    // Default dry-run `check` uses debug artifact layout without adding compiler flags.
+    assert_moonc_line(
+        &check_debug,
+        "moonc check",
+        &["./lib/hello.mbt"],
+        false,
+        Some(false),
+    );
+    // Same expectation for the main package check invocation.
+    assert_moonc_line(
+        &check_debug,
+        "moonc check",
+        &["./main/main.mbt"],
+        false,
+        Some(false),
+    );
     // Release dry-run `check` keeps release artifact layout.
     assert_moonc_line(
         &check_release,
@@ -37,25 +53,33 @@ fn debug_flag_test() {
         true,
         None,
     );
-    // Debug flag switches check artifacts to the debug directory without adding compiler flags.
+
+    let build_debug = get_stdout(&dir, ["build", "--dry-run", "--nostd"]);
+    let build_release = get_stdout(&dir, ["build", "--dry-run", "--release", "--nostd"]);
+    // Default build toggles the library compilation into the debug directory with debug flags.
     assert_moonc_line(
-        &check_debug,
-        "moonc check",
+        &build_debug,
+        "moonc build-package",
         &["./lib/hello.mbt"],
         false,
-        Some(false),
+        None,
     );
-    // Same expectation for the main package check invocation.
+    // Default build toggles the main package compilation likewise.
     assert_moonc_line(
-        &check_debug,
-        "moonc check",
+        &build_debug,
+        "moonc build-package",
         &["./main/main.mbt"],
         false,
-        Some(false),
+        None,
     );
-
-    let build_release = get_stdout(&dir, ["build", "--dry-run", "--nostd"]);
-    let build_debug = get_stdout(&dir, ["build", "--dry-run", "--debug", "--nostd"]);
+    // Default build link step consumes debug artifacts with debug flags.
+    assert_moonc_line(
+        &build_debug,
+        "moonc link-core",
+        &["-main", "hello/main"],
+        false,
+        None,
+    );
     // Release build keeps release-only artifact paths for the library.
     assert_moonc_line(
         &build_release,
@@ -80,33 +104,35 @@ fn debug_flag_test() {
         true,
         None,
     );
-    // Debug build toggles the library compilation into the debug directory with debug flags.
+
+    let run_debug = get_stdout(&dir, ["run", "main", "--dry-run", "--nostd"]);
+    let run_release = get_stdout(&dir, ["run", "main", "--dry-run", "--release", "--nostd"]);
+    // Default run recompiles the library in debug mode with flags.
     assert_moonc_line(
-        &build_debug,
+        &run_debug,
         "moonc build-package",
         &["./lib/hello.mbt"],
         false,
         None,
     );
-    // Debug build toggles the main package compilation likewise.
+    // Default run recompiles the main package in debug mode with flags.
     assert_moonc_line(
-        &build_debug,
+        &run_debug,
         "moonc build-package",
         &["./main/main.mbt"],
         false,
         None,
     );
-    // Debug build link step consumes debug artifacts with debug flags.
+    // Default run links debug artifacts with flags.
     assert_moonc_line(
-        &build_debug,
+        &run_debug,
         "moonc link-core",
         &["-main", "hello/main"],
         false,
         None,
     );
-
-    let run_release = get_stdout(&dir, ["run", "main", "--dry-run", "--nostd"]);
-    let run_debug = get_stdout(&dir, ["run", "main", "--dry-run", "--debug", "--nostd"]);
+    // Default run executes the debug Wasm.
+    assert_moonrun_line(&run_debug, false);
     // Running in release mode recompiles the library using release settings.
     assert_moonc_line(
         &run_release,
@@ -133,36 +159,17 @@ fn debug_flag_test() {
     );
     // Release run executes the release Wasm.
     assert_moonrun_line(&run_release, true);
-    // Debug run recompiles the library in debug mode with flags.
-    assert_moonc_line(
-        &run_debug,
-        "moonc build-package",
-        &["./lib/hello.mbt"],
-        false,
-        None,
-    );
-    // Debug run recompiles the main package in debug mode with flags.
-    assert_moonc_line(
-        &run_debug,
-        "moonc build-package",
-        &["./main/main.mbt"],
-        false,
-        None,
-    );
-    // Debug run links debug artifacts with flags.
-    assert_moonc_line(
-        &run_debug,
-        "moonc link-core",
-        &["-main", "hello/main"],
-        false,
-        None,
-    );
-    // Debug run executes the debug Wasm.
-    assert_moonrun_line(&run_debug, false);
 
     let build_target_release = get_stdout(
         &dir,
-        ["build", "--target", "wasm-gc", "--dry-run", "--nostd"],
+        [
+            "build",
+            "--target",
+            "wasm-gc",
+            "--dry-run",
+            "--release",
+            "--nostd",
+        ],
     );
     let build_target_debug = get_stdout(
         &dir,
@@ -226,7 +233,15 @@ fn debug_flag_test() {
 
     let run_target_release = get_stdout(
         &dir,
-        ["run", "main", "--target", "wasm-gc", "--dry-run", "--nostd"],
+        [
+            "run",
+            "main",
+            "--target",
+            "wasm-gc",
+            "--dry-run",
+            "--release",
+            "--nostd",
+        ],
     );
     let run_target_debug = get_stdout(
         &dir,

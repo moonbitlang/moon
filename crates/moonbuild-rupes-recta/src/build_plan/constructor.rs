@@ -18,7 +18,10 @@
 
 //! Core build plan construction logic.
 
-use std::collections::{HashMap, HashSet};
+use std::collections::HashSet;
+
+#[cfg(debug_assertions)]
+use std::collections::HashMap;
 
 use crate::{
     ResolveOutput,

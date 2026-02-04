@@ -77,13 +77,8 @@
     },
     {
       "root": "moonbitlang/core",
-      "rel": "encoding/ascii",
-      "artifact": "$MOON_HOME/lib/core/target/wasm-gc/release/bundle/encoding/ascii/ascii.mi"
-    },
-    {
-      "root": "moonbitlang/core",
-      "rel": "encoding/base64",
-      "artifact": "$MOON_HOME/lib/core/target/wasm-gc/release/bundle/encoding/base64/base64.mi"
+      "rel": "double/internal/ryu",
+      "artifact": "$MOON_HOME/lib/core/target/wasm-gc/release/bundle/double/internal/ryu/ryu.mi"
     },
     {
       "root": "moonbitlang/core",
@@ -204,11 +199,6 @@
       "root": "moonbitlang/core",
       "rel": "internal/regex_engine/symbol_map",
       "artifact": "$MOON_HOME/lib/core/target/wasm-gc/release/bundle/internal/regex_engine/symbol_map/symbol_map.mi"
-    },
-    {
-      "root": "moonbitlang/core",
-      "rel": "internal/regex_parser",
-      "artifact": "$MOON_HOME/lib/core/target/wasm-gc/release/bundle/internal/regex_parser/regex_parser.mi"
     },
     {
       "root": "moonbitlang/core",
@@ -333,32 +323,32 @@
     {
       "root": "username/indirect_dep",
       "rel": "",
-      "artifact": "$ROOT/_build/wasm-gc/release/build/indirect_dep.mi"
+      "artifact": "$ROOT/_build/wasm-gc/debug/build/indirect_dep.mi"
     },
     {
       "root": "username/indirect_dep",
       "rel": "cmd/main",
-      "artifact": "$ROOT/_build/wasm-gc/release/build/cmd/main/main.mi"
+      "artifact": "$ROOT/_build/wasm-gc/debug/build/cmd/main/main.mi"
     },
     {
       "root": "username/indirect_dep",
       "rel": "lib1",
-      "artifact": "$ROOT/_build/wasm-gc/release/build/lib1/lib1.mi"
+      "artifact": "$ROOT/_build/wasm-gc/debug/build/lib1/lib1.mi"
     },
     {
       "root": "username/indirect_dep",
       "rel": "lib2",
-      "artifact": "$ROOT/_build/wasm-gc/release/build/lib2/lib2.mi"
+      "artifact": "$ROOT/_build/wasm-gc/debug/build/lib2/lib2.mi"
     },
     {
       "root": "username/sub",
       "rel": "",
-      "artifact": "$ROOT/_build/wasm-gc/release/build/.mooncakes/username/sub/sub.mi"
+      "artifact": "$ROOT/_build/wasm-gc/debug/build/.mooncakes/username/sub/sub.mi"
     },
     {
       "root": "username/sub",
       "rel": "p",
-      "artifact": "$ROOT/_build/wasm-gc/release/build/.mooncakes/username/sub/p/p.mi"
+      "artifact": "$ROOT/_build/wasm-gc/debug/build/.mooncakes/username/sub/p/p.mi"
     }
   ]
 }
