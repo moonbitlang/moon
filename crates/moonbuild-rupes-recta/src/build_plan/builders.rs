@@ -671,8 +671,8 @@ impl<'a> BuildPlanConstructor<'a> {
         } else {
             None
         };
-        let abort_override_pkg = abort
-            .and_then(|abort| vp_info.and_then(|vu| vu.overrides.get(abort).copied()));
+        let abort_override_pkg =
+            abort.and_then(|abort| vp_info.and_then(|vu| vu.overrides.get(abort).copied()));
 
         // This is the link core sources
         let mut link_core_deps: IndexSet<BuildTarget> = IndexSet::new();
@@ -738,8 +738,7 @@ impl<'a> BuildPlanConstructor<'a> {
                     .filter(|dep| {
                         // Skip stdlib packages because they are always linked implicitly
                         // only when stdlib is injected. When building stdlib itself, keep them.
-                        !self.build_env.std
-                            || !self.input.pkg_dirs.is_stdlib_package(dep.package)
+                        !self.build_env.std || !self.input.pkg_dirs.is_stdlib_package(dep.package)
                     })
                     .collect();
 
