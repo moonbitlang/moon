@@ -94,13 +94,10 @@ pub fn auto_sync_for_single_mbt_md(
 pub fn auto_sync_for_single_file_rr(
     source_dir: &Path,
     sync_flags: &AutoSyncFlags,
-    front_matter_config: Option<&MbtMdHeader>,
+    front_matter_deps: Option<&IndexMap<String, moonutil::dependency::SourceDependencyInfoJson>>,
 ) -> anyhow::Result<(ResolvedEnv, DirSyncResult)> {
-    let synth_deps_orig = front_matter_config
-        .and_then(|config| config.moonbit.as_ref())
-        .and_then(|mb| mb.deps.as_ref());
     let mut synth_deps = IndexMap::new();
-    if let Some(deps_map) = synth_deps_orig {
+    if let Some(deps_map) = front_matter_deps {
         for (k, v) in deps_map.iter() {
             synth_deps.insert(k.to_string(), v.clone().into());
         }
