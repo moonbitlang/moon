@@ -58,10 +58,10 @@ fn test_moon_help() {
               -h, --help  Print help
 
             Common Options:
-                  --cwd <DIR>
-                      Change to DIR before doing anything else (must appear before the subcommand). Relative paths in other options and arguments are interpreted relative to DIR. Example: `moon --cwd a run .` runs the same as invoking `moon run .` from within `a`
-              -C, --directory <DIR>
-                      [Deprecated] Directory used to locate `moon.mod.json` (does not change the working directory). Use `--cwd` if you intended to change the working directory
+              -C <DIR>
+                      Change to DIR before doing anything else (must appear before the subcommand). Relative paths in other options and arguments are interpreted relative to DIR. Example: `moon -C a run .` runs the same as invoking `moon run .` from within `a`
+                  --manifest-path <PATH>
+                      Path to `moon.mod.json` to use as the project manifest (does not change the working directory)
                   --target-dir <TARGET_DIR>
                       The target directory. Defaults to `<project-root>/target`
               -q, --quiet
@@ -96,8 +96,8 @@ fn test_bench4() {
             &dir,
             [
                 "run",
-                "--source-dir",
-                "./bench4",
+                "--manifest-path",
+                "./bench4/moon.mod.json",
                 "--target-dir",
                 "./bench4/target",
                 "main",
@@ -112,8 +112,8 @@ fn test_bench4() {
         &dir,
         [
             "run",
-            "--source-dir",
-            "./bench4",
+            "--manifest-path",
+            "./bench4/moon.mod.json",
             "--target-dir",
             "./bench4/target",
             "--trace",

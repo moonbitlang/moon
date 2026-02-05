@@ -45,7 +45,7 @@ use tracing_subscriber::{Layer, layer::SubscriberExt};
 /// Returns a boxed guard that keeps the tracing system alive.
 fn init_tracing(trace_flag: bool) -> Box<dyn Any> {
     // usage example: only show debug logs for moonbuild::runtest module
-    // env RUST_LOG=moonbuild::runtest=debug cargo run -- --cwd ./tests/test_cases/moon_new.in test
+    // env RUST_LOG=moonbuild::runtest=debug cargo run -- -C ./tests/test_cases/moon_new.in test
 
     let log_env_set = std::env::var("RUST_LOG").is_ok();
     let moon_tracing_env = std::env::var("MOON_TRACE").ok();
@@ -109,10 +109,7 @@ pub fn main() {
     let flags = cli.flags;
 
     if let Some(dir) = &flags.source_tgt_dir.cwd {
-        // `--cwd` is a transitional opt-in for real chdir semantics.
-        // TODO(#1411): In the breaking release, `-C/--directory` should perform this
-        // chdir before any other work (including external subcommands), and `--cwd`
-        // can become an alias or be removed.
+        // `-C` changes the process working directory early.
         if let Err(err) = std::env::set_current_dir(dir) {
             eprintln!(
                 "{}: failed to change directory to {}: {}",

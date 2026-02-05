@@ -70,21 +70,5 @@ impl UniversalFlags {
                 "`--build-graph` is deprecated. Use -Z rr_export_module_graph, -Z rr_export_package_graph, or -Z rr_export_build_plan instead"
             );
         }
-
-        if self.source_tgt_dir.source_dir.is_some() {
-            // TODO(#1411): `--source-dir` used to be a hidden alias of `--directory`. We keep it
-            // temporarily with the old meaning but warn because it was never a documented option.
-            warn!(
-                "`--source-dir` is a legacy/internal flag (not shown in help). It only affects project discovery (moon.mod.json lookup) and does not change the working directory."
-            );
-        }
-
-        if self.source_tgt_dir.directory.is_some() {
-            // TODO(#1411): `-C/--directory` will flip to real chdir semantics in a
-            // future breaking release. For now we keep the historical meaning but warn.
-            warn!(
-                "`-C/--directory` is deprecated. It only affects project discovery (moon.mod.json lookup) and does not change the working directory; use `--cwd` if you intended to change the working directory."
-            );
-        }
     }
 }
