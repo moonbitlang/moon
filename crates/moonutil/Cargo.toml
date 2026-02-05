@@ -48,7 +48,6 @@ line-index.workspace = true
 nucleo-matcher.workspace = true
 which.workspace = true
 regex.workspace = true
-once_cell.workspace = true
 derive_builder.workspace = true
 pulldown-cmark.workspace = true
 serde_yaml.workspace = true

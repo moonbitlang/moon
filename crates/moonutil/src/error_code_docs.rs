@@ -16,7 +16,6 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
-use once_cell::sync::Lazy;
 use std::collections::HashMap;
 
 // include the generated error code docs
