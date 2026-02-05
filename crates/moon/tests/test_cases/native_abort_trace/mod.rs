@@ -1,5 +1,6 @@
 use super::*;
 
+#[cfg(unix)]
 #[test]
 fn test_native_abort_trace() {
     let dir = TestDir::new("native_abort_trace/native_abort_trace.in");
