@@ -45,11 +45,35 @@ pub enum PackageDirsError {
 
 #[derive(Debug, clap::Parser, Serialize, Deserialize, Clone)]
 pub struct SourceTargetDirs {
-    /// The source code directory. Defaults to the current directory.
-    #[arg(long = "directory", global = true, alias = "source-dir", short = 'C')]
+    // NOTE: This is a transitional split of "working directory" vs "project root".
+    // See https://github.com/moonbitlang/moon/issues/1411.
+    //
+    // - `--cwd` changes the process working directory early (like `cd DIR && moon ...`).
+    // - `--source-dir` (hidden) keeps its historical meaning (project discovery only, no chdir).
+    // - `-C/--directory` is deprecated and currently keeps its historical meaning
+    //   (project discovery only). It is expected to become the real chdir flag in a
+    //   future breaking release.
+    /// Change to DIR before doing anything else (must appear before the subcommand). Relative paths in other options and arguments are interpreted relative to DIR. Example: `moon --cwd a run .` runs the same as invoking `moon run .` from within `a`.
+    #[arg(long = "cwd", value_name = "DIR", conflicts_with = "directory")]
+    pub cwd: Option<PathBuf>,
+
+    /// [Deprecated] The source directory used to locate `moon.mod.json` (legacy, not shown in help).
+    /// This does not change the working directory.
+    #[arg(long = "source-dir", global = true, value_name = "DIR", hide = true)]
     pub source_dir: Option<PathBuf>,
 
-    /// The target directory. Defaults to `source_dir/target`.
+    /// [Deprecated] Directory used to locate `moon.mod.json` (does not change the working directory).
+    /// Use `--cwd` if you intended to change the working directory.
+    #[arg(
+        long = "directory",
+        global = true,
+        short = 'C',
+        value_name = "DIR",
+        conflicts_with = "source_dir"
+    )]
+    pub directory: Option<PathBuf>,
+
+    /// The target directory. Defaults to `<project-root>/target`.
     #[clap(long, global = true)]
     pub target_dir: Option<PathBuf>,
 }
@@ -117,17 +141,21 @@ pub fn create_legacy_symlink(project_root: &Path) {
 }
 
 fn get_src_dst_dir(matches: &SourceTargetDirs) -> Result<PackageDirs, PackageDirsError> {
-    let source_dir = match matches.source_dir.clone() {
+    let start_dir = match matches
+        .source_dir
+        .clone()
+        .or_else(|| matches.directory.clone())
+    {
         Some(v) => v,
         None => std::env::current_dir()
             .context("failed to get current directory")
             .map_err(PackageDirsError::from)?,
     };
-    let source_dir = dunce::canonicalize(source_dir)
+    let start_dir = dunce::canonicalize(start_dir)
         .context("failed to set source directory")
         .map_err(PackageDirsError::from)?;
-    let project_root = find_ancestor_with_mod(&source_dir)
-        .ok_or_else(|| PackageDirsError::NotInProject(source_dir.clone()))?;
+    let project_root = find_ancestor_with_mod(&start_dir)
+        .ok_or_else(|| PackageDirsError::NotInProject(start_dir.clone()))?;
 
     let target_dir = matches
         .target_dir

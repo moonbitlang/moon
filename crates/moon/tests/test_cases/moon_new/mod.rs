@@ -140,11 +140,11 @@ fn test_moon_new() {
         get_stdout(
             &dir,
             [
-                "run",
-                "-C",
+                "--cwd",
                 "./hello",
+                "run",
                 "--target-dir",
-                "./hello/target",
+                "./target",
                 "cmd/main",
             ],
         ),
