@@ -1,5 +1,5 @@
 // import {
-//   "{{username}}/{{module}}" as @lib,
+//   "{{username}}/{{module}}" @lib,
 // }
 
 options(
