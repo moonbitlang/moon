@@ -27,14 +27,18 @@
 use std::path::Path;
 
 use anyhow::Context;
-use log::{debug, info};
+use indexmap::IndexMap;
+use log::{debug, info, warn};
+use std::str::FromStr;
 
 use mooncake::pkg::sync::{auto_sync, auto_sync_for_single_file_rr};
 use moonutil::{
-    common::{TargetBackend, parse_front_matter_config},
+    common::{MOONBITLANG_CORE, MbtMdHeader, TargetBackend, parse_front_matter_config},
+    dependency::{SourceDependencyInfo, SourceDependencyInfoJson},
     mooncakes::{
         DirSyncResult, ModuleId, RegistryConfig, result::ResolvedEnv, sync::AutoSyncFlags,
     },
+    package::{Import, PkgJSONImport, pkg_json_imports_to_imports},
 };
 use tracing::instrument;
 
@@ -71,6 +75,171 @@ pub struct ResolveConfig {
     no_std: bool,
     /// Gate coverage injection in pkg_solve
     pub enable_coverage: bool,
+}
+
+struct FrontMatterImports {
+    deps: IndexMap<String, SourceDependencyInfoJson>,
+    imports: Vec<Import>,
+}
+
+struct FrontMatterConfig {
+    deps_to_sync: Option<IndexMap<String, SourceDependencyInfoJson>>,
+    package_imports: Option<Vec<Import>>,
+    warn_import_all: bool,
+}
+
+fn extract_front_matter_config(header: Option<&MbtMdHeader>) -> anyhow::Result<FrontMatterConfig> {
+    let mut config = FrontMatterConfig {
+        deps_to_sync: None,
+        package_imports: None,
+        warn_import_all: false,
+    };
+
+    let Some(moonbit) = header.and_then(|h| h.moonbit.as_ref()) else {
+        return Ok(config);
+    };
+
+    match (moonbit.deps.as_ref(), moonbit.import.as_ref()) {
+        (Some(_), Some(_)) => {
+            anyhow::bail!("moonbit.deps and moonbit.import are mutually exclusive");
+        }
+        (Some(deps), None) => {
+            config.deps_to_sync = Some(deps.clone());
+            config.warn_import_all = true;
+        }
+        (None, Some(_)) => {
+            let imports = parse_front_matter_imports(moonbit.import.clone())?;
+            config.deps_to_sync = Some(imports.deps);
+            config.package_imports = Some(imports.imports);
+        }
+        (None, None) => {}
+    }
+
+    Ok(config)
+}
+
+fn parse_front_matter_imports(
+    imports: Option<PkgJSONImport>,
+) -> anyhow::Result<FrontMatterImports> {
+    let imports = pkg_json_imports_to_imports(imports);
+    let mut deps = IndexMap::new();
+    let mut module_versions: IndexMap<String, Option<String>> = IndexMap::new();
+    let mut normalized_imports = Vec::with_capacity(imports.len());
+
+    for import in imports {
+        let (module, version, package) = split_import_path(import.get_path())?;
+        if module == MOONBITLANG_CORE && version.is_some() {
+            anyhow::bail!("moonbitlang/core imports must not specify a version");
+        }
+
+        let entry = module_versions.entry(module.clone()).or_insert(None);
+        if let Some(version) = version {
+            match entry {
+                Some(existing) if existing.as_str() != version => {
+                    anyhow::bail!(
+                        "multiple versions specified for module '{module}': '{existing}' and '{version}'"
+                    );
+                }
+                None => {
+                    *entry = Some(version.to_string());
+                }
+                _ => {}
+            }
+        }
+
+        let normalized_path = match package {
+            Some(package) => format!("{module}/{package}"),
+            None => module.clone(),
+        };
+        let normalized_import = match import {
+            Import::Simple(_) => Import::Simple(normalized_path),
+            Import::Alias {
+                path: _,
+                alias,
+                sub_package,
+            } => Import::Alias {
+                path: normalized_path,
+                alias,
+                sub_package,
+            },
+        };
+        normalized_imports.push(normalized_import);
+    }
+
+    for (module, version) in module_versions {
+        if module == MOONBITLANG_CORE {
+            continue;
+        }
+        let Some(version) = version else {
+            anyhow::bail!(
+                "module '{module}' must include a version in moonbit.import (e.g. {module}@0.4.40[/package])"
+            );
+        };
+        let version = SourceDependencyInfo::from_str(&version)?;
+        deps.insert(module, SourceDependencyInfoJson::from(version));
+    }
+
+    Ok(FrontMatterImports {
+        deps,
+        imports: normalized_imports,
+    })
+}
+
+fn split_import_path(path: &str) -> anyhow::Result<(String, Option<String>, Option<String>)> {
+    let parts: Vec<&str> = path.split('/').collect();
+    if parts.len() < 2 {
+        anyhow::bail!(
+            "import path '{path}' must be in the form 'username/module@version[/package]'"
+        );
+    }
+    let username = parts[0];
+    let module_and_version = parts[1];
+    let mut module_parts = module_and_version.splitn(2, '@');
+    let module = module_parts
+        .next()
+        .ok_or_else(|| anyhow::anyhow!("import path '{path}' has an empty module name"))?;
+    let version = module_parts.next();
+    if module.is_empty() {
+        anyhow::bail!("import path '{path}' has an empty module name");
+    }
+    let version = match version {
+        Some("") => anyhow::bail!("import path '{path}' has an empty version"),
+        Some(v) => Some(v.to_string()),
+        None => None,
+    };
+    let package = if parts.len() > 2 {
+        let pkg = parts[2..].join("/");
+        if pkg.is_empty() {
+            anyhow::bail!("import path '{path}' has an empty package path");
+        }
+        Some(pkg)
+    } else {
+        None
+    };
+    Ok((format!("{username}/{module}"), version, package))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::split_import_path;
+
+    #[test]
+    fn split_import_path_supports_module_root() {
+        let (module, version, package) =
+            split_import_path("moonbitlang/async@0.16.5").expect("module-root import should parse");
+        assert_eq!(module, "moonbitlang/async");
+        assert_eq!(version.as_deref(), Some("0.16.5"));
+        assert_eq!(package, None);
+    }
+
+    #[test]
+    fn split_import_path_supports_module_package() {
+        let (module, version, package) =
+            split_import_path("moonbitlang/x@0.4.38/stack").expect("module import should parse");
+        assert_eq!(module, "moonbitlang/x");
+        assert_eq!(version.as_deref(), Some("0.4.38"));
+        assert_eq!(package.as_deref(), Some("stack"));
+    }
 }
 
 impl ResolveConfig {
@@ -196,10 +365,22 @@ pub fn resolve_single_file_project(
 
     let source_dir = file.parent().expect("File must have a parent directory");
 
+    let front_matter_config =
+        extract_front_matter_config(header.as_ref()).map_err(ResolveError::SingleFileParseError)?;
+    if front_matter_config.warn_import_all {
+        warn!(
+            "moonbit.deps without moonbit.import: importing all packages (legacy behavior). \
+Use moonbit.import with 'username/module@version[/package]' entries to opt in to explicit imports."
+        );
+    }
+
     // Sync modules as usual
-    let (resolved_env, dir_sync_result) =
-        auto_sync_for_single_file_rr(source_dir, &cfg.sync_flags, header.as_ref())
-            .map_err(ResolveError::SyncModulesError)?;
+    let (resolved_env, dir_sync_result) = auto_sync_for_single_file_rr(
+        source_dir,
+        &cfg.sync_flags,
+        front_matter_config.deps_to_sync.as_ref(),
+    )
+    .map_err(ResolveError::SyncModulesError)?;
 
     // Discover all packages in resolved modules
     let mut discover_result = discover_packages(&resolved_env, &dir_sync_result)?;
@@ -210,6 +391,7 @@ pub fn resolve_single_file_project(
         &resolved_env,
         &mut discover_result,
         run_mode,
+        front_matter_config.package_imports,
     )?;
 
     // Solve package dependency relationship

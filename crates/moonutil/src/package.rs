@@ -880,61 +880,64 @@ pub fn convert_pkg_dsl_to_package(json: Value) -> anyhow::Result<MoonPkg> {
     convert_pkg_json_to_package(pkg_json)
 }
 
-pub fn convert_pkg_json_to_package(j: MoonPkgJSON) -> anyhow::Result<MoonPkg> {
-    let get_imports = |source: Option<PkgJSONImport>| -> Vec<Import> {
-        let mut imports = vec![];
-        if let Some(im) = source {
-            match im {
-                PkgJSONImport::Map(m) => {
-                    for (k, v) in m.into_iter() {
-                        match &v {
-                            None => imports.push(Import::Simple(k)),
-                            Some(p) => {
-                                if p.is_empty() {
-                                    imports.push(Import::Simple(k));
-                                } else {
-                                    imports.push(Import::Alias {
-                                        path: k,
-                                        alias: v,
-                                        sub_package: false,
-                                    })
-                                }
+pub fn pkg_json_imports_to_imports(source: Option<PkgJSONImport>) -> Vec<Import> {
+    let mut imports = vec![];
+    if let Some(im) = source {
+        match im {
+            PkgJSONImport::Map(m) => {
+                for (k, v) in m.into_iter() {
+                    match &v {
+                        None => imports.push(Import::Simple(k)),
+                        Some(p) => {
+                            if p.is_empty() {
+                                imports.push(Import::Simple(k));
+                            } else {
+                                imports.push(Import::Alias {
+                                    path: k,
+                                    alias: v,
+                                    sub_package: false,
+                                })
                             }
                         }
                     }
                 }
-                PkgJSONImport::List(l) => {
-                    for item in l.into_iter() {
-                        match item {
-                            PkgJSONImportItem::String(s) => imports.push(Import::Simple(s)),
-                            PkgJSONImportItem::Object {
+            }
+            PkgJSONImport::List(l) => {
+                for item in l.into_iter() {
+                    match item {
+                        PkgJSONImportItem::String(s) => imports.push(Import::Simple(s)),
+                        PkgJSONImportItem::Object {
+                            path,
+                            alias,
+                            value: _,
+                            sub_package,
+                        } => match (alias, sub_package) {
+                            (None, None) => imports.push(Import::Simple(path)),
+                            (Some(alias), None) if alias.is_empty() => {
+                                imports.push(Import::Simple(path))
+                            }
+                            (Some(alias), _) => imports.push(Import::Alias {
                                 path,
-                                alias,
-                                value: _,
+                                alias: Some(alias),
+                                sub_package: sub_package.unwrap_or(false),
+                            }),
+                            (_, Some(sub_package)) => imports.push(Import::Alias {
+                                path: path.clone(),
+                                alias: Some(path.split('/').next_back().unwrap().to_string()),
                                 sub_package,
-                            } => match (alias, sub_package) {
-                                (None, None) => imports.push(Import::Simple(path)),
-                                (Some(alias), None) if alias.is_empty() => {
-                                    imports.push(Import::Simple(path))
-                                }
-                                (Some(alias), _) => imports.push(Import::Alias {
-                                    path,
-                                    alias: Some(alias),
-                                    sub_package: sub_package.unwrap_or(false),
-                                }),
-                                (_, Some(sub_package)) => imports.push(Import::Alias {
-                                    path: path.clone(),
-                                    alias: Some(path.split('/').next_back().unwrap().to_string()),
-                                    sub_package,
-                                }),
-                            },
-                        }
+                            }),
+                        },
                     }
                 }
             }
-        };
-        imports
+        }
     };
+    imports
+}
+
+pub fn convert_pkg_json_to_package(j: MoonPkgJSON) -> anyhow::Result<MoonPkg> {
+    let get_imports =
+        |source: Option<PkgJSONImport>| -> Vec<Import> { pkg_json_imports_to_imports(source) };
 
     let sub_package = j.sub_package.map(|s| SubPackageInMoonPkg {
         files: s.files,
