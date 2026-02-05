@@ -28,7 +28,6 @@ use std::{
 use anyhow::Context;
 use moonbuild_rupes_recta::{ResolveOutput, fmt::FmtResolveOutput, model::PackageId};
 use moonutil::mooncakes::{DirSyncResult, result::ResolvedEnv};
-use smallvec::SmallVec;
 
 /// Canonicalize the given path, returning the directory it's referencing, and
 /// an optional filename if the path is a file.
@@ -76,17 +75,15 @@ trait AsNameMap<T> {
 /// Returns a list of matches ordered by relevance, without duplicates. The `name_map`
 /// should contain the full package names as keys and the desired return value (e.g.
 /// `PackageId`, `String`) as values.
-fn fuzzy_match_by_name<T>(needle: &str, name_map: &impl AsNameMap<T>) -> SmallVec<[T; 1]>
+fn fuzzy_match_by_name<T>(needle: &str, name_map: &impl AsNameMap<T>) -> Vec<T>
 where
     T: Clone + PartialEq,
 {
     if let Some(value) = name_map.get(needle) {
-        let mut out = SmallVec::new();
-        out.push(value.clone());
-        return out;
+        return vec![value.clone()];
     }
 
-    let mut result = SmallVec::new();
+    let mut result = Vec::new();
 
     if let Some(matches) = moonutil::fuzzy_match::fuzzy_match(needle, name_map.all_names()) {
         for m in matches {
@@ -106,7 +103,7 @@ pub fn match_packages_by_name_rr(
     resolve_output: &ResolveOutput,
     main_modules: &[moonutil::mooncakes::ModuleId],
     needle: &str,
-) -> SmallVec<[PackageId; 1]> {
+) -> Vec<PackageId> {
     let &[main_module_id] = main_modules else {
         panic!("No multiple main modules are supported");
     };
