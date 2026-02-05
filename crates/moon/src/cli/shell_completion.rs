@@ -17,7 +17,7 @@
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
 use super::MoonBuildCli;
-use clap::CommandFactory;
+use clap::{Arg, Command, CommandFactory};
 use clap_complete::{Shell, generate};
 use moonutil::cli::UniversalFlags;
 use std::io;
@@ -166,7 +166,84 @@ pub fn gen_shellcomp(_cli: &UniversalFlags, cmd: ShellCompSubCommand) -> anyhow:
     if _cli.dry_run {
         anyhow::bail!("this command has no side effects, dry run is not needed.")
     }
-    let mut _moon = MoonBuildCli::command();
+    let mut _moon = adjust_shell_completion_command(MoonBuildCli::command());
     generate(cmd.shell, &mut _moon, "moon", &mut io::stdout());
     Ok(0)
+}
+
+fn adjust_shell_completion_command(cmd: Command) -> Command {
+    // Clap global args are inherited by all subcommands and can't be disabled
+    // per-subcommand. For shell completion we don't want global args on `moon ide`,
+    // so strip them from the root and reattach them as regular args everywhere
+    // except `ide`.
+    let cmd = add_ide_completion(cmd);
+
+    let common_args = collect_global_args(&cmd);
+    let mut cmd = strip_all_globals(cmd);
+    for subcmd in cmd.get_subcommands_mut() {
+        if subcmd.get_name() == "ide" {
+            continue;
+        }
+        *subcmd = add_common_args_recursive(subcmd.clone(), &common_args);
+    }
+    cmd
+}
+
+fn add_ide_completion(mut cmd: Command) -> Command {
+    let loc_arg = Arg::new("loc").long("loc").value_name("LOC");
+
+    let ide_cmd = Command::new("ide")
+        .about("IDE utilities")
+        .subcommand(
+            Command::new("peek-def")
+                .about("Peek Definition of a symbol")
+                .arg(loc_arg.clone()),
+        )
+        .subcommand(
+            Command::new("find-references")
+                .about("Find references of a symbol")
+                .arg(loc_arg.clone()),
+        )
+        .subcommand(
+            Command::new("rename")
+                .about("Rename a symbol")
+                .arg(loc_arg.clone()),
+        )
+        .subcommand(
+            Command::new("hover")
+                .about("Show hover information of a symbol")
+                .arg(loc_arg),
+        )
+        .subcommand(Command::new("outline").about("Show outline of specified path"))
+        .subcommand(Command::new("doc").about("Show documentation of a symbol"));
+
+    cmd = cmd.subcommand(ide_cmd);
+    cmd
+}
+
+fn collect_global_args(cmd: &Command) -> Vec<Arg> {
+    cmd.get_arguments()
+        .filter(|arg| arg.is_global_set())
+        .cloned()
+        .collect()
+}
+
+fn strip_all_globals(cmd: Command) -> Command {
+    cmd.mut_args(|arg| {
+        if arg.is_global_set() {
+            arg.global(false)
+        } else {
+            arg
+        }
+    })
+}
+
+fn add_common_args_recursive(mut cmd: Command, common_args: &[Arg]) -> Command {
+    for arg in common_args {
+        cmd = cmd.arg(arg.clone().global(false));
+    }
+    for subcmd in cmd.get_subcommands_mut() {
+        *subcmd = add_common_args_recursive(subcmd.clone(), common_args);
+    }
+    cmd
 }
