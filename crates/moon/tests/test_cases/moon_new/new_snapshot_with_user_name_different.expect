@@ -124,7 +124,7 @@ fn main {
 
 === ./cmd/main/moon.pkg ===
 // import {
-//   "moonbitlang/wow" as @lib,
+//   "moonbitlang/wow" @lib,
 // }
 
 options(
