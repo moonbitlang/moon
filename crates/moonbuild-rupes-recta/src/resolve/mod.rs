@@ -128,10 +128,8 @@ fn parse_front_matter_imports(
 
     for import in imports {
         let (module, version, package) = split_import_path(import.get_path())?;
-        if module == MOONBITLANG_CORE {
-            if version.is_some() {
-                anyhow::bail!("moonbitlang/core imports must not specify a version");
-            }
+        if module == MOONBITLANG_CORE && version.is_some() {
+            anyhow::bail!("moonbitlang/core imports must not specify a version");
         }
 
         let entry = module_versions.entry(module.clone()).or_insert(None);
@@ -197,15 +195,15 @@ fn split_import_path(path: &str) -> anyhow::Result<(String, Option<String>, Opti
     let username = parts[0];
     let module_and_version = parts[1];
     let mut module_parts = module_and_version.splitn(2, '@');
-    let module = module_parts.next().unwrap();
+    let module = module_parts
+        .next()
+        .ok_or_else(|| anyhow::anyhow!("import path '{path}' has an empty module name"))?;
     let version = module_parts.next();
     if module.is_empty() {
         anyhow::bail!("import path '{path}' has an empty module name");
     }
     let version = match version {
-        Some(v) if v.is_empty() => {
-            anyhow::bail!("import path '{path}' has an empty version");
-        }
+        Some("") => anyhow::bail!("import path '{path}' has an empty version"),
         Some(v) => Some(v.to_string()),
         None => None,
     };
@@ -227,7 +225,8 @@ mod tests {
 
     #[test]
     fn split_import_path_supports_module_root() {
-        let (module, version, package) = split_import_path("moonbitlang/async@0.16.5").unwrap();
+        let (module, version, package) =
+            split_import_path("moonbitlang/async@0.16.5").expect("module-root import should parse");
         assert_eq!(module, "moonbitlang/async");
         assert_eq!(version.as_deref(), Some("0.16.5"));
         assert_eq!(package, None);
@@ -235,7 +234,8 @@ mod tests {
 
     #[test]
     fn split_import_path_supports_module_package() {
-        let (module, version, package) = split_import_path("moonbitlang/x@0.4.38/stack").unwrap();
+        let (module, version, package) =
+            split_import_path("moonbitlang/x@0.4.38/stack").expect("module import should parse");
         assert_eq!(module, "moonbitlang/x");
         assert_eq!(version.as_deref(), Some("0.4.38"));
         assert_eq!(package.as_deref(), Some("stack"));
