@@ -339,7 +339,12 @@ pub(super) fn install_from_git(
                 .to_string(),
         }
     } else {
-        PackageFilter::ByPath(target_path)
+        // Use ByPackagePath for git install (string comparison, not filesystem path)
+        PackageFilter::ByPackagePath(
+            package_path
+                .map(|p| p.trim_matches('/').to_string())
+                .unwrap_or_default(),
+        )
     };
 
     build_and_install_packages(cli, &module_name, &module_root, install_dir, filter)

@@ -46,12 +46,21 @@ pub struct InstallSubcommand {
     /// If not provided, falls back to legacy behavior (install project dependencies)
     pub package_path: Option<String>,
 
+    /// Package path within a git repository (e.g., src/main or cmd/...)
+    /// Only used with git URLs. Supports /... suffix for wildcard matching.
+    pub package_path_in_repo: Option<String>,
+
     /// Specify installation directory (default: ~/.moon/bin/)
     #[clap(long)]
     pub bin: Option<PathBuf>,
 
     /// Install from local path instead of registry
-    #[clap(long, conflicts_with = "package_path", conflicts_with = "git_ref")]
+    #[clap(
+        long,
+        conflicts_with = "package_path",
+        conflicts_with = "git_ref",
+        conflicts_with = "package_path_in_repo"
+    )]
     pub path: Option<PathBuf>,
 
     /// Git revision to checkout (commit hash, requires git URL)

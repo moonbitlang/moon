@@ -2972,7 +2972,6 @@ fn test_moon_install_global_deprecated_warning() {
 }
 
 #[test]
-#[ignore = "requires native backend support"]
 fn test_moon_install_global_local_path() {
     // Test installing from local path using --path
     let dir = TestDir::new("moon_install_global.in");
@@ -3004,4 +3003,111 @@ fn test_moon_install_global_local_path() {
         "Expected binary at {:?} to exist",
         binary_path
     );
+}
+
+#[test]
+fn test_moon_install_global_git_url() {
+    // Test installing from git URL
+    let install_dir = tempfile::tempdir().unwrap();
+    let install_path = install_dir.path();
+    let work_dir = tempfile::tempdir().unwrap();
+
+    // Install all packages from git repo
+    get_stdout(
+        &work_dir,
+        [
+            "install",
+            "https://github.com/moonbitlang/moon-install-git-test-cases.git",
+            "--bin",
+            install_path.to_str().unwrap(),
+        ],
+    );
+
+    // Check that all 4 binaries were created
+    #[cfg(unix)]
+    {
+        assert!(install_path.join("install-test").exists());
+        assert!(install_path.join("hello").exists());
+        assert!(install_path.join("tool1").exists());
+        assert!(install_path.join("tool2").exists());
+    }
+    #[cfg(target_os = "windows")]
+    {
+        assert!(install_path.join("install-test.exe").exists());
+        assert!(install_path.join("hello.exe").exists());
+        assert!(install_path.join("tool1.exe").exists());
+        assert!(install_path.join("tool2.exe").exists());
+    }
+}
+
+#[test]
+fn test_moon_install_global_git_url_specific_package() {
+    // Test installing specific package from git URL
+    let install_dir = tempfile::tempdir().unwrap();
+    let install_path = install_dir.path();
+    let work_dir = tempfile::tempdir().unwrap();
+
+    // Install only cmd/tool1
+    get_stdout(
+        &work_dir,
+        [
+            "install",
+            "https://github.com/moonbitlang/moon-install-git-test-cases.git",
+            "cmd/tool1",
+            "--bin",
+            install_path.to_str().unwrap(),
+        ],
+    );
+
+    // Check that only tool1 was installed
+    #[cfg(unix)]
+    {
+        assert!(install_path.join("tool1").exists());
+        assert!(!install_path.join("tool2").exists());
+        assert!(!install_path.join("hello").exists());
+        assert!(!install_path.join("install-test").exists());
+    }
+    #[cfg(target_os = "windows")]
+    {
+        assert!(install_path.join("tool1.exe").exists());
+        assert!(!install_path.join("tool2.exe").exists());
+        assert!(!install_path.join("hello.exe").exists());
+        assert!(!install_path.join("install-test.exe").exists());
+    }
+}
+
+#[test]
+fn test_moon_install_global_git_url_wildcard() {
+    // Test installing with wildcard pattern from git URL
+    let install_dir = tempfile::tempdir().unwrap();
+    let install_path = install_dir.path();
+    let work_dir = tempfile::tempdir().unwrap();
+
+    // Install cmd/... (should install tool1 and tool2)
+    get_stdout(
+        &work_dir,
+        [
+            "install",
+            "https://github.com/moonbitlang/moon-install-git-test-cases.git",
+            "cmd/...",
+            "--bin",
+            install_path.to_str().unwrap(),
+        ],
+    );
+
+    // Check that tool1 and tool2 were installed, but not others
+    #[cfg(unix)]
+    {
+        assert!(install_path.join("tool1").exists());
+        assert!(install_path.join("tool2").exists());
+        assert!(!install_path.join("hello").exists());
+        assert!(!install_path.join("install-test").exists());
+    }
+    #[cfg(target_os = "windows")]
+    {
+        assert!(install_path.join("tool1.exe").exists());
+        assert!(install_path.join("tool2.exe").exists());
+        assert!(!install_path.join("hello.exe").exists());
+        assert!(!install_path.join("install-test.exe").exists());
+    }
 }

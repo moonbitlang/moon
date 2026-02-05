@@ -64,15 +64,20 @@ pub fn install_cli(cli: UniversalFlags, cmd: InstallSubcommand) -> anyhow::Resul
 
     let package_path = cmd.package_path.unwrap();
 
-    // Auto-detect local paths
+    // Local path install
+    // These checks can't be done in clap because we need to inspect the value of package_path
+    // to determine whether it's a local path, git URL, or registry path.
     if is_local_path(&package_path) {
         if has_git_ref {
             anyhow::bail!("--rev, --branch, and --tag can only be used with git URLs");
         }
+        if cmd.package_path_in_repo.is_some() {
+            anyhow::bail!("Package path in repo can only be used with git URLs");
+        }
         return install_from_local(&cli, package_path.as_ref(), &install_dir);
     }
 
-    // Auto-detect git URLs
+    // Git URL install
     if is_git_url(&package_path) {
         let git_ref = if let Some(rev) = cmd.rev.as_deref() {
             GitRef::Rev(rev)
@@ -83,12 +88,21 @@ pub fn install_cli(cli: UniversalFlags, cmd: InstallSubcommand) -> anyhow::Resul
         } else {
             GitRef::Default
         };
-        return install_from_git(&cli, &package_path, git_ref, None, &install_dir);
+        return install_from_git(
+            &cli,
+            &package_path,
+            git_ref,
+            cmd.package_path_in_repo.as_deref(),
+            &install_dir,
+        );
     }
 
     // Registry install
     if has_git_ref {
         anyhow::bail!("--rev, --branch, and --tag can only be used with git URLs");
+    }
+    if cmd.package_path_in_repo.is_some() {
+        anyhow::bail!("Package path in repo can only be used with git URLs");
     }
     let spec = parse_package_spec(&package_path)?;
     install_binary(&cli, &spec, &install_dir)

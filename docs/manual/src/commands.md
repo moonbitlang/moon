@@ -426,11 +426,12 @@ Remove a dependency
 
 Install a binary package globally or install project dependencies (deprecated without args)
 
-**Usage:** `moon install [OPTIONS] [PACKAGE_PATH]`
+**Usage:** `moon install [OPTIONS] [PACKAGE_PATH] [PACKAGE_PATH_IN_REPO]`
 
 ###### **Arguments:**
 
 * `<PACKAGE_PATH>` — Package path to install (e.g., user/pkg/main or user/pkg/cmd/...) Supports @version suffix (e.g., user/pkg/main@1.0.0) Git URLs are auto-detected (any URL format git supports) Local paths are auto-detected: ./, ../, / (Unix), or drive letter (Windows) If not provided, falls back to legacy behavior (install project dependencies)
+* `<PACKAGE_PATH_IN_REPO>` — Package path within a git repository (e.g., src/main or cmd/...) Only used with git URLs. Supports /... suffix for wildcard matching
 
 ###### **Options:**
 
