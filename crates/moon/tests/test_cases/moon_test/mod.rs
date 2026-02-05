@@ -512,7 +512,7 @@ fn test_generate_test_driver_incremental() {
 fn test_async_test_inline() {
     let dir = TestDir::new("moon_test");
 
-    let out1 = get_stdout(&dir, ["test", "-C", "async_test_inline"]);
+    let out1 = get_stdout(&dir, ["-C", "async_test_inline", "test"]);
     check(
         &out1,
         expect![[r#"
@@ -527,9 +527,9 @@ fn test_async_test() {
     let out1 = get_stdout(
         &dir,
         [
-            "test",
             "-C",
             "async_test",
+            "test",
             "--package",
             "moon/test_async_test",
             "--file",
@@ -547,9 +547,9 @@ fn test_async_test() {
     let out2 = get_err_stdout(
         &dir,
         [
-            "test",
             "-C",
             "async_test",
+            "test",
             "--package",
             "moon/test_async_test",
             "--file",
@@ -568,9 +568,9 @@ fn test_max_concurrent_tests() {
     let out1 = get_stdout(
         &dir,
         [
-            "test",
             "-C",
             "max_concurrent_tests",
+            "test",
             "-p",
             "moon/test_async_test/with_limit",
         ],
@@ -588,9 +588,9 @@ fn test_max_concurrent_tests() {
     let out2 = get_stdout(
         &dir,
         [
-            "test",
             "-C",
             "max_concurrent_tests",
+            "test",
             "-p",
             "moon/test_async_test/no_limit",
         ],

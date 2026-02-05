@@ -107,8 +107,8 @@ fn test_moon_new() {
             &dir,
             [
                 "run",
-                "--source-dir",
-                "./hello",
+                "--manifest-path",
+                "./hello/moon.mod.json",
                 "--target-dir",
                 "./hello/target",
                 "cmd/main",
@@ -123,11 +123,11 @@ fn test_moon_new() {
         get_stdout(
             &dir,
             [
+                "-C",
+                "./hello",
                 "run",
-                "--directory",
-                "./hello",
                 "--target-dir",
-                "./hello/target",
+                "./target",
                 "cmd/main",
             ],
         ),
@@ -140,7 +140,7 @@ fn test_moon_new() {
         get_stdout(
             &dir,
             [
-                "--cwd",
+                "-C",
                 "./hello",
                 "run",
                 "--target-dir",
