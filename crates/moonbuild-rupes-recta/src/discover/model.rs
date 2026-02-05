@@ -331,4 +331,9 @@ pub enum DiscoverError {
         first: PackageFQNWithSource,
         second: PackageFQNWithSource,
     },
+
+    #[error(
+        "Front matter import '{import}' could not be resolved. Make sure its module is listed in moonbit.deps."
+    )]
+    SingleFileImportNotFound { import: String },
 }

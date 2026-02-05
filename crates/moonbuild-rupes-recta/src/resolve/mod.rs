@@ -35,6 +35,7 @@ use moonutil::{
     mooncakes::{
         DirSyncResult, ModuleId, RegistryConfig, result::ResolvedEnv, sync::AutoSyncFlags,
     },
+    package::pkg_json_imports_to_imports,
 };
 use tracing::instrument;
 
@@ -195,6 +196,11 @@ pub fn resolve_single_file_project(
         .map_err(ResolveError::SingleFileParseError)?;
 
     let source_dir = file.parent().expect("File must have a parent directory");
+    let front_matter_imports = header
+        .as_ref()
+        .and_then(|h| h.moonbit.as_ref())
+        .and_then(|mb| mb.import.clone())
+        .map(|imports| pkg_json_imports_to_imports(Some(imports)));
 
     // Sync modules as usual
     let (resolved_env, dir_sync_result) =
@@ -210,6 +216,7 @@ pub fn resolve_single_file_project(
         &resolved_env,
         &mut discover_result,
         run_mode,
+        front_matter_imports,
     )?;
 
     // Solve package dependency relationship

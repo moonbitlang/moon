@@ -21,9 +21,9 @@
 //! Implements the "import everything from resolved modules" behavior for single-file
 //! scenarios by synthesizing a package `single` under the local single-file module.
 //!
-//! The synthetic package's `MoonPkg` imports all discovered packages (excluding
-//! internal-only packages) so that the single-file can reference any package
-//! symbols without declaring per-package deps in the front matter.
+//! The synthetic package's `MoonPkg` either:
+//! - Uses package imports declared in single-file front matter, or
+//! - Imports all discovered packages (excluding internal-only packages).
 //!
 //! This mirrors the legacy path in `moon/src/cli/test.rs:get_module_for_single_file`
 //! where it programmatically enumerates imports for the synthetic single-file package.
@@ -42,9 +42,9 @@ use crate::pkg_name::{PackageFQN, PackagePath};
 /// Build and insert a synthetic single-file package into the discovery result,
 /// returning the newly created package ID.
 ///
-/// The synthetic package will be named `single` and will import all discovered
-/// packages (excluding internal-only packages) so that the single file can
-/// reference any package symbols without declaring per-package deps in the front matter.
+/// The synthetic package will be named `single` and will either:
+/// - Use explicit front matter package imports, or
+/// - Import all discovered packages (excluding internal-only packages).
 ///
 /// If `run_mode` is true, the package will be marked as a main package.
 pub fn build_synth_single_file_package(
@@ -52,6 +52,7 @@ pub fn build_synth_single_file_package(
     env: &ResolvedEnv,
     discovered: &mut DiscoverResult,
     run_mode: bool,
+    front_matter_imports: Option<Vec<Import>>,
 ) -> Result<PackageId, DiscoverError> {
     // Expect exactly one local module for single-file synth
     let &[mid] = env.input_module_ids() else {
@@ -68,44 +69,40 @@ pub fn build_synth_single_file_package(
     // Synthetic package path: "single"
     let pkg_path = PackagePath::new("single").expect("synthetic package path should be valid");
 
-    // Build import-all list (excluding std abort)
-    let mut imports = Vec::new();
-    // FIXME: what if single-file indeed imports a stdlib package?
-    //
-    // Currently we exclude all stdlib packages (`all_packages(true)`) because discovered
-    // packages now include the entire stdlib. However, this means single-file mode cannot
-    // import stdlib packages like `@json`.
-    //
-    // We cannot simply use front matter deps because:
-    // - Front matter deps are module names (e.g., `moonbitlang/x`), not package paths
-    //   (e.g., `moonbitlang/x/json`)
-    // - To properly handle this, we'd need to import all packages from each specified module
-    // - This is problematic for `moonbitlang/core` which has many packages with conflicting
-    //   aliases (e.g., multiple packages might want the same short alias)
-    //
-    // A proper solution would need to either:
-    // 1. Allow specifying package-level imports in front matter (not just module deps)
-    // 2. Implement alias conflict resolution when importing all packages from a module
-    // 3. Parse the single file source to detect which `@package` references are used
-    for (_pid, pkg) in discovered.all_packages(false) {
-        if pkg.fqn.has_internal_segment() {
-            continue;
+    let imports = if let Some(imports) = front_matter_imports {
+        for import in &imports {
+            let path = import.get_path();
+            if discovered.get_package_id_by_name(path).is_none() {
+                return Err(DiscoverError::SingleFileImportNotFound {
+                    import: path.to_string(),
+                });
+            }
         }
-        let fqn_str = pkg.fqn.to_string();
+        imports
+    } else {
+        // Build import-all list (excluding std abort)
+        let mut imports = Vec::new();
+        for (_pid, pkg) in discovered.all_packages(false) {
+            if pkg.fqn.has_internal_segment() {
+                continue;
+            }
+            let fqn_str = pkg.fqn.to_string();
 
-        // Check if this is an immut package that would conflict with mutable counterpart
-        // e.g., moonbitlang/core/immut/array conflicts with moonbitlang/core/array
-        let custom_alias = get_immut_alias(&pkg.fqn);
-        if let Some(alias) = custom_alias {
-            imports.push(Import::Alias {
-                path: fqn_str,
-                alias: Some(alias),
-                sub_package: false,
-            });
-        } else {
-            imports.push(Import::Simple(fqn_str));
+            // Check if this is an immut package that would conflict with mutable counterpart
+            // e.g., moonbitlang/core/immut/array conflicts with moonbitlang/core/array
+            let custom_alias = get_immut_alias(&pkg.fqn);
+            if let Some(alias) = custom_alias {
+                imports.push(Import::Alias {
+                    path: fqn_str,
+                    alias: Some(alias),
+                    sub_package: false,
+                });
+            } else {
+                imports.push(Import::Simple(fqn_str));
+            }
         }
-    }
+        imports
+    };
 
     // Construct MoonPkg for synthetic package
     let mut supported = IndexSet::new();
