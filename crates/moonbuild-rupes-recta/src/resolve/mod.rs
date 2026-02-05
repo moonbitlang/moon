@@ -368,7 +368,10 @@ pub fn resolve_single_file_project(
     let front_matter_config =
         extract_front_matter_config(header.as_ref()).map_err(ResolveError::SingleFileParseError)?;
     if front_matter_config.warn_import_all {
-        warn!("moonbit.deps without moonbit.import: importing all packages (legacy behavior)");
+        warn!(
+            "moonbit.deps without moonbit.import: importing all packages (legacy behavior). \
+Use moonbit.import with 'username/module@version[/package]' entries to opt in to explicit imports."
+        );
     }
 
     // Sync modules as usual
