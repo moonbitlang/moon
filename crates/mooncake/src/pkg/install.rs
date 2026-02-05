@@ -37,19 +37,43 @@ use std::{
 
 /// Install a binary package globally or install project dependencies (deprecated without args)
 #[derive(Debug, clap::Parser)]
+#[clap(group = clap::ArgGroup::new("git_ref").multiple(false))]
 pub struct InstallSubcommand {
     /// Package path to install (e.g., user/pkg/main or user/pkg/cmd/...)
     /// Supports @version suffix (e.g., user/pkg/main@1.0.0)
+    /// Git URLs are auto-detected (any URL format git supports)
+    /// Local paths are auto-detected: ./, ../, / (Unix), or drive letter (Windows)
     /// If not provided, falls back to legacy behavior (install project dependencies)
     pub package_path: Option<String>,
+
+    /// Package path within a git repository (e.g., src/main or cmd/...)
+    /// Only used with git URLs. Supports /... suffix for wildcard matching.
+    pub package_path_in_repo: Option<String>,
 
     /// Specify installation directory (default: ~/.moon/bin/)
     #[clap(long)]
     pub bin: Option<PathBuf>,
 
     /// Install from local path instead of registry
-    #[clap(long, conflicts_with = "package_path")]
+    #[clap(
+        long,
+        conflicts_with = "package_path",
+        conflicts_with = "git_ref",
+        conflicts_with = "package_path_in_repo"
+    )]
     pub path: Option<PathBuf>,
+
+    /// Git revision to checkout (commit hash, requires git URL)
+    #[clap(long, group = "git_ref", requires = "package_path")]
+    pub rev: Option<String>,
+
+    /// Git branch to checkout (requires git URL)
+    #[clap(long, group = "git_ref", requires = "package_path")]
+    pub branch: Option<String>,
+
+    /// Git tag to checkout (requires git URL)
+    #[clap(long, group = "git_ref", requires = "package_path")]
+    pub tag: Option<String>,
 }
 
 pub fn install(

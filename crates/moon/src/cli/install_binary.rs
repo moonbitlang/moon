@@ -40,15 +40,41 @@ use crate::{
 
 /// Represents a parsed package specification from the command line.
 #[derive(Debug, Clone)]
-pub struct PackageSpec {
+pub(super) struct PackageSpec {
     pub module_name: ModuleName,
     pub package_path: Option<String>,
     pub version: Option<Version>,
     pub is_wildcard: bool,
 }
 
+/// How to filter packages for installation.
+enum PackageFilter {
+    /// Match by filesystem path (for local/git install pointing to specific package)
+    ByPath(PathBuf),
+    /// Match all main packages, optionally with a prefix (for wildcard patterns)
+    Wildcard { prefix: String },
+    /// Match by package path string (for registry install)
+    ByPackagePath(String),
+}
+
+const GIT_URL_PREFIXES: &[&str] = &["https://", "http://", "git://", "ssh://", "git@"];
+
+/// Check if a string looks like a git URL.
+pub(super) fn is_git_url(s: &str) -> bool {
+    GIT_URL_PREFIXES.iter().any(|p| s.starts_with(p))
+}
+
+/// Check if a string looks like a local filesystem path.
+/// Matches: ./, ../, / (Unix absolute), C: (Windows drive letter)
+pub(super) fn is_local_path(s: &str) -> bool {
+    s.starts_with("./")
+        || s.starts_with("../")
+        || s.starts_with('/')
+        || s.chars().nth(1) == Some(':') // Windows drive letter
+}
+
 /// Yet another package path parser because we need to parse wildcard patterns.
-pub fn parse_package_spec(input: &str) -> anyhow::Result<PackageSpec> {
+pub(super) fn parse_package_spec(input: &str) -> anyhow::Result<PackageSpec> {
     let (path_part, version) = if let Some(at_pos) = input.rfind('@') {
         let path = &input[..at_pos];
         let version_str = &input[at_pos + 1..];
@@ -97,7 +123,7 @@ pub fn parse_package_spec(input: &str) -> anyhow::Result<PackageSpec> {
 }
 
 /// Install a binary package from the registry.
-pub fn install_binary(
+pub(super) fn install_binary(
     cli: &UniversalFlags,
     spec: &PackageSpec,
     install_dir: &Path,
@@ -157,11 +183,19 @@ pub fn install_binary(
 
     registry.install_to(&spec.module_name, &version, module_dir, quiet)?;
 
-    build_and_install_packages(cli, spec, module_dir, install_dir, None)
+    let filter = if spec.is_wildcard {
+        PackageFilter::Wildcard {
+            prefix: spec.package_path.clone().unwrap_or_default(),
+        }
+    } else {
+        PackageFilter::ByPackagePath(spec.package_path.clone().unwrap_or_default())
+    };
+
+    build_and_install_packages(cli, &spec.module_name, module_dir, install_dir, filter)
 }
 
 /// Install from a local path.
-pub fn install_from_local(
+pub(super) fn install_from_local(
     cli: &UniversalFlags,
     local_path: &Path,
     install_dir: &Path,
@@ -184,33 +218,145 @@ pub fn install_from_local(
     let module = moonutil::common::read_module_desc_file_in_dir(&module_root)?;
     let module_name: ModuleName = module.name.parse().map_err(|e| anyhow::anyhow!("{}", e))?;
 
-    let is_module_root = input_path == module_root;
-    let spec = PackageSpec {
-        module_name,
-        package_path: Some(String::new()),
-        version: module.version,
-        is_wildcard: is_module_root,
-    };
-
-    let filter_path = if is_module_root {
-        None
+    let filter = if input_path == module_root {
+        PackageFilter::Wildcard {
+            prefix: String::new(),
+        }
     } else {
-        Some(input_path)
+        PackageFilter::ByPath(input_path)
     };
 
-    build_and_install_packages(cli, &spec, &module_root, install_dir, filter_path)
+    build_and_install_packages(cli, &module_name, &module_root, install_dir, filter)
+}
+
+/// Git reference type for checkout.
+pub(super) enum GitRef<'a> {
+    /// Checkout a specific revision (commit hash)
+    Rev(&'a str),
+    /// Checkout a branch
+    Branch(&'a str),
+    /// Checkout a tag
+    Tag(&'a str),
+    /// Use default branch
+    Default,
+}
+
+/// Install from a git repository.
+pub(super) fn install_from_git(
+    cli: &UniversalFlags,
+    git_url: &str,
+    git_ref: GitRef<'_>,
+    package_path: Option<&str>,
+    install_dir: &Path,
+) -> anyhow::Result<i32> {
+    let quiet = cli.quiet;
+
+    if !quiet {
+        eprintln!("{}: Cloning `{}`...", "Info".cyan(), git_url);
+    }
+
+    let tmp_dir = tempfile::TempDir::new().context("Failed to create temporary directory")?;
+    let clone_dir = tmp_dir.path();
+
+    // Clone the repository
+    let mut clone_cmd = std::process::Command::new(moonutil::BINARIES.git_or_default());
+    clone_cmd.arg("clone");
+
+    match git_ref {
+        GitRef::Branch(branch) => {
+            clone_cmd.args(["--depth", "1", "--branch", branch]);
+        }
+        GitRef::Tag(tag) => {
+            clone_cmd.args(["--depth", "1", "--branch", tag]);
+        }
+        GitRef::Default => {
+            clone_cmd.args(["--depth", "1"]);
+        }
+        GitRef::Rev(_) => {
+            // For rev, need full clone (specific commit may not be in shallow history)
+        }
+    }
+
+    clone_cmd.arg(git_url).arg(clone_dir);
+
+    let status = clone_cmd.status().context("Failed to execute git clone")?;
+
+    if !status.success() {
+        bail!("Failed to clone repository `{}`", git_url);
+    }
+
+    // If rev specified, checkout to that commit
+    if let GitRef::Rev(rev) = git_ref {
+        let status = std::process::Command::new(moonutil::BINARIES.git_or_default())
+            .current_dir(clone_dir)
+            .args(["checkout", rev])
+            .status()
+            .context("Failed to checkout revision")?;
+
+        if !status.success() {
+            bail!("Failed to checkout revision `{}`", rev);
+        }
+    }
+
+    // Determine the target path within the cloned repo
+    let target_path = if let Some(pkg_path) = package_path {
+        let pkg_path = pkg_path.trim_matches('/');
+        if pkg_path.is_empty() {
+            clone_dir.to_path_buf()
+        } else {
+            clone_dir.join(pkg_path.trim_end_matches("/..."))
+        }
+    } else {
+        clone_dir.to_path_buf()
+    };
+
+    // Check if target path exists
+    if !target_path.exists() {
+        bail!(
+            "Path `{}` does not exist in the repository",
+            package_path.unwrap_or("")
+        );
+    }
+
+    // Find module root
+    let module_root = moonutil::dirs::find_ancestor_with_mod(&target_path).ok_or_else(|| {
+        anyhow::anyhow!("No {} found in repository", moonutil::common::MOON_MOD_JSON)
+    })?;
+
+    let module = moonutil::common::read_module_desc_file_in_dir(&module_root)?;
+    let module_name: ModuleName = module.name.parse().map_err(|e| anyhow::anyhow!("{}", e))?;
+
+    let is_module_root = target_path == module_root;
+    let is_wildcard = package_path
+        .map(|p| p.ends_with("/...") || p == "...")
+        .unwrap_or(is_module_root);
+
+    let filter = if is_wildcard || is_module_root {
+        PackageFilter::Wildcard {
+            prefix: package_path
+                .map(|p| p.trim_end_matches("/...").trim_end_matches("..."))
+                .unwrap_or("")
+                .to_string(),
+        }
+    } else {
+        // Use ByPackagePath for git install (string comparison, not filesystem path)
+        PackageFilter::ByPackagePath(
+            package_path
+                .map(|p| p.trim_matches('/').to_string())
+                .unwrap_or_default(),
+        )
+    };
+
+    build_and_install_packages(cli, &module_name, &module_root, install_dir, filter)
 }
 
 /// Build matching packages and install binaries using RR build engine.
-///
-/// If `filter_by_path` is Some, only packages whose `root_path` matches are installed.
-/// This is used for local installation when user points to a specific package directory.
 fn build_and_install_packages(
     cli: &UniversalFlags,
-    spec: &PackageSpec,
+    module_name: &ModuleName,
     module_dir: &Path,
     install_dir: &Path,
-    filter_by_path: Option<PathBuf>,
+    filter: PackageFilter,
 ) -> anyhow::Result<i32> {
     let quiet = cli.quiet;
 
@@ -229,17 +375,6 @@ fn build_and_install_packages(
         bail!("No packages found in module");
     };
 
-    let wildcard_prefix = if spec.is_wildcard {
-        spec.package_path.as_ref().map(|p| {
-            if p.is_empty() {
-                String::new()
-            } else {
-                format!("{}/", p)
-            }
-        })
-    } else {
-        None
-    };
     let mut packages_to_build: Vec<(PackageId, String)> = Vec::new();
 
     for (pkg_path, &pkg_id) in all_pkgs {
@@ -250,56 +385,51 @@ fn build_and_install_packages(
 
         let pkg_path_str = pkg_path.to_string();
 
-        if let Some(ref filter_path) = filter_by_path {
-            if pkg.root_path == *filter_path {
-                packages_to_build.push((pkg_id, pkg_path_str));
+        let matched = match &filter {
+            PackageFilter::ByPath(path) => pkg.root_path == *path,
+            PackageFilter::Wildcard { prefix } => {
+                prefix.is_empty()
+                    || pkg_path_str.starts_with(&format!("{}/", prefix))
+                    || pkg_path_str == *prefix
             }
-            continue;
-        }
+            PackageFilter::ByPackagePath(target) => pkg_path_str == *target,
+        };
 
-        if spec.is_wildcard {
-            if let Some(prefix) = &wildcard_prefix
-                && (prefix.is_empty()
-                    || pkg_path_str.starts_with(prefix)
-                    || pkg_path_str == prefix.trim_end_matches('/'))
-            {
-                packages_to_build.push((pkg_id, pkg_path_str));
-            }
-            continue;
-        }
-
-        if let Some(target_path) = &spec.package_path
-            && pkg_path_str == *target_path
-        {
+        if matched {
             packages_to_build.push((pkg_id, pkg_path_str));
         }
     }
 
     if packages_to_build.is_empty() {
-        if let Some(ref filter_path) = filter_by_path {
-            bail!(
-                "Path `{}` is not a main package (is-main: true required)",
-                filter_path.display()
-            );
-        } else if spec.is_wildcard {
-            bail!(
-                "No main packages found matching pattern `{}/...`",
-                spec.module_name
-            );
-        } else {
-            bail!(
-                "Package `{}` not found or is not a main package (is-main: true required)",
-                spec.package_path
-                    .as_ref()
-                    .map(|p| {
-                        if p.is_empty() {
-                            spec.module_name.to_string()
-                        } else {
-                            format!("{}/{}", spec.module_name, p)
-                        }
-                    })
-                    .unwrap_or_default()
-            );
+        match &filter {
+            PackageFilter::ByPath(path) => {
+                bail!(
+                    "Path `{}` is not a main package (is-main: true required)",
+                    path.display()
+                );
+            }
+            PackageFilter::Wildcard { prefix } => {
+                if prefix.is_empty() {
+                    bail!("No main packages found in module `{}`", module_name);
+                } else {
+                    bail!(
+                        "No main packages found matching pattern `{}/{}/...`",
+                        module_name,
+                        prefix
+                    );
+                }
+            }
+            PackageFilter::ByPackagePath(target) => {
+                let full_name = if target.is_empty() {
+                    module_name.to_string()
+                } else {
+                    format!("{}/{}", module_name, target)
+                };
+                bail!(
+                    "Package `{}` not found or is not a main package (is-main: true required)",
+                    full_name
+                );
+            }
         }
     }
 
@@ -312,7 +442,7 @@ fn build_and_install_packages(
             .rsplit('/')
             .next()
             .filter(|s| !s.is_empty())
-            .unwrap_or(&spec.module_name.unqual)
+            .unwrap_or(&module_name.unqual)
             .to_string();
 
         // Check if binary name would overwrite a reserved toolchain binary
@@ -326,9 +456,9 @@ fn build_and_install_packages(
         }
 
         let full_pkg_name = if pkg_path.is_empty() {
-            spec.module_name.to_string()
+            module_name.to_string()
         } else {
-            format!("{}/{}", spec.module_name, pkg_path)
+            format!("{}/{}", module_name, pkg_path)
         };
 
         if !quiet {
@@ -417,4 +547,118 @@ fn build_and_install_packages(
     }
 
     Ok(0)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_is_git_url() {
+        // Valid git URLs
+        assert!(is_git_url("https://github.com/user/repo"));
+        assert!(is_git_url("https://gitlab.com/user/repo.git"));
+        assert!(is_git_url("http://github.com/user/repo"));
+        assert!(is_git_url("git://github.com/user/repo"));
+        assert!(is_git_url("ssh://git@github.com/user/repo"));
+        assert!(is_git_url("git@github.com:user/repo.git"));
+        assert!(is_git_url("git@gitlab.com:group/subgroup/repo.git"));
+
+        // Not git URLs (registry paths)
+        assert!(!is_git_url("user/repo"));
+        assert!(!is_git_url("user/repo/cmd/main"));
+        assert!(!is_git_url("Lampese/moonbead"));
+
+        // Not git URLs (local paths)
+        assert!(!is_git_url("./local/path"));
+        assert!(!is_git_url("/absolute/path"));
+    }
+
+    #[test]
+    fn test_is_local_path() {
+        // Relative paths
+        assert!(is_local_path("./local/path"));
+        assert!(is_local_path("./"));
+        assert!(is_local_path("../parent/path"));
+        assert!(is_local_path("../"));
+
+        // Unix absolute paths
+        assert!(is_local_path("/absolute/path"));
+        assert!(is_local_path("/"));
+
+        // Windows drive letters
+        assert!(is_local_path("C:\\path\\to\\dir"));
+        assert!(is_local_path("C:/path/to/dir"));
+        assert!(is_local_path("D:\\"));
+        assert!(is_local_path("D:/"));
+
+        // Not local paths (registry paths)
+        assert!(!is_local_path("user/repo"));
+        assert!(!is_local_path("user/repo/cmd/main"));
+        assert!(!is_local_path("Lampese/moonbead"));
+
+        // Not local paths (git URLs)
+        assert!(!is_local_path("https://github.com/user/repo"));
+        assert!(!is_local_path("git@github.com:user/repo.git"));
+    }
+
+    #[test]
+    fn test_parse_package_spec_basic() {
+        // Basic user/module
+        let spec = parse_package_spec("user/module").unwrap();
+        assert_eq!(spec.module_name.username, "user");
+        assert_eq!(spec.module_name.unqual, "module");
+        assert_eq!(spec.package_path, Some(String::new()));
+        assert_eq!(spec.version, None);
+        assert!(!spec.is_wildcard);
+
+        // user/module/package
+        let spec = parse_package_spec("user/module/cmd/main").unwrap();
+        assert_eq!(spec.module_name.username, "user");
+        assert_eq!(spec.module_name.unqual, "module");
+        assert_eq!(spec.package_path, Some("cmd/main".to_string()));
+        assert!(!spec.is_wildcard);
+    }
+
+    #[test]
+    fn test_parse_package_spec_with_version() {
+        let spec = parse_package_spec("user/module@1.0.0").unwrap();
+        assert_eq!(spec.module_name.username, "user");
+        assert_eq!(spec.module_name.unqual, "module");
+        assert_eq!(spec.version.unwrap().to_string(), "1.0.0");
+        assert!(!spec.is_wildcard);
+
+        let spec = parse_package_spec("user/module/cmd/main@2.3.4").unwrap();
+        assert_eq!(spec.package_path, Some("cmd/main".to_string()));
+        assert_eq!(spec.version.unwrap().to_string(), "2.3.4");
+    }
+
+    #[test]
+    fn test_parse_package_spec_wildcard() {
+        // user/module/...
+        let spec = parse_package_spec("user/module/...").unwrap();
+        assert_eq!(spec.module_name.username, "user");
+        assert_eq!(spec.module_name.unqual, "module");
+        assert!(spec.is_wildcard);
+        assert_eq!(spec.package_path, Some(String::new()));
+
+        // user/module/cmd/...
+        let spec = parse_package_spec("user/module/cmd/...").unwrap();
+        assert!(spec.is_wildcard);
+        assert_eq!(spec.package_path, Some("cmd".to_string()));
+
+        // Alternate syntax: user/module...
+        let spec = parse_package_spec("user/module...").unwrap();
+        assert!(spec.is_wildcard);
+    }
+
+    #[test]
+    fn test_parse_package_spec_invalid() {
+        // Too few components
+        assert!(parse_package_spec("user").is_err());
+        assert!(parse_package_spec("single").is_err());
+
+        // Invalid version
+        assert!(parse_package_spec("user/module@invalid").is_err());
+    }
 }
