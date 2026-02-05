@@ -128,7 +128,12 @@ pub fn create_legacy_symlink(project_root: &Path) {
 fn get_src_dst_dir(matches: &SourceTargetDirs) -> Result<PackageDirs, PackageDirsError> {
     let project_root = if let Some(manifest_path) = &matches.manifest_path {
         let manifest_path = dunce::canonicalize(manifest_path)
-            .with_context(|| format!("failed to resolve manifest path `{}`", manifest_path.display()))
+            .with_context(|| {
+                format!(
+                    "failed to resolve manifest path `{}`",
+                    manifest_path.display()
+                )
+            })
             .map_err(PackageDirsError::from)?;
 
         if manifest_path.is_dir() {
