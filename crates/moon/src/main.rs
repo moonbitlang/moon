@@ -133,7 +133,7 @@ pub fn main() {
     let res = match cli.subcommand {
         Add(a) => cli::add_cli(flags, a),
         Bench(b) => cli::run_bench(flags, b),
-        Build(b) => cli::run_build(&flags, &b),
+        Build(b) => cli::run_build(&flags, b),
         Bundle(b) => cli::run_bundle(flags, b),
         Check(c) => cli::run_check(&flags, &c),
         Clean(_) => cli::run_clean(&flags),
