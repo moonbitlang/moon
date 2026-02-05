@@ -1,0 +1,1726 @@
+#compdef moon
+
+autoload -U is-at-least
+
+_moon() {
+    typeset -A opt_args
+    typeset -a _arguments_options
+    local ret=1
+
+    if is-at-least 5.2; then
+        _arguments_options=(-s -S -C)
+    else
+        _arguments_options=(-s -C)
+    fi
+
+    local context curcontext="$curcontext" state line
+    _arguments "${_arguments_options[@]}" : /
+'-C+[The source code directory. Defaults to the current directory]:SOURCE_DIR:_files' /
+'--directory=[The source code directory. Defaults to the current directory]:SOURCE_DIR:_files' /
+'--target-dir=[The target directory. Defaults to /`source_dir/target/`]:TARGET_DIR:_files' /
+'-Z+[Unstable flags to MoonBuild]:UNSTABLE_FEATURE: ' /
+'--unstable-feature=[Unstable flags to MoonBuild]:UNSTABLE_FEATURE: ' /
+'-q[Suppress output]' /
+'--quiet[Suppress output]' /
+'-v[Increase verbosity]' /
+'--verbose[Increase verbosity]' /
+'--trace[Trace the execution of the program]' /
+'--dry-run[Do not actually run the command]' /
+'(--dry-run)--build-graph[]' /
+'-h[Print help]' /
+'--help[Print help]' /
+":: :_moon_commands" /
+"*::: :->moon" /
+&& ret=0
+    case $state in
+    (moon)
+        words=($line[1] "${words[@]}")
+        (( CURRENT += 1 ))
+        curcontext="${curcontext%:*:*}:moon-command-$line[1]:"
+        case $line[1] in
+            (new)
+_arguments "${_arguments_options[@]}" : /
+'--user=[The username of the module. Default to the logged-in username]:USER: ' /
+'--name=[The name of the module. Default to the last part of the path]:NAME: ' /
+'-C+[The source code directory. Defaults to the current directory]:SOURCE_DIR:_files' /
+'--directory=[The source code directory. Defaults to the current directory]:SOURCE_DIR:_files' /
+'--target-dir=[The target directory. Defaults to /`source_dir/target/`]:TARGET_DIR:_files' /
+'-q[Suppress output]' /
+'--quiet[Suppress output]' /
+'-v[Increase verbosity]' /
+'--verbose[Increase verbosity]' /
+'--trace[Trace the execution of the program]' /
+'--dry-run[Do not actually run the command]' /
+'(--dry-run)--build-graph[]' /
+'-h[Print help]' /
+'--help[Print help]' /
+':path -- The path of the new project:' /
+&& ret=0
+;;
+(bundle)
+_arguments "${_arguments_options[@]}" : /
+'*--target=[Select output target]:TARGET:(wasm wasm-gc js native llvm all)' /
+'--warn-list=[Warn list config]:WARN_LIST: ' /
+'--alert-list=[Alert list config]:ALERT_LIST: ' /
+'-j+[Set the max number of jobs to run in parallel]:JOBS: ' /
+'--jobs=[Set the max number of jobs to run in parallel]:JOBS: ' /
+'--render-no-loc=[Render no-location diagnostics starting from a certain level]:MIN_LEVEL:(info warn error)' /
+'-C+[The source code directory. Defaults to the current directory]:SOURCE_DIR:_files' /
+'--directory=[The source code directory. Defaults to the current directory]:SOURCE_DIR:_files' /
+'--target-dir=[The target directory. Defaults to /`source_dir/target/`]:TARGET_DIR:_files' /
+'--std[Enable the standard library (default)]' /
+'--nostd[Disable the standard library]' /
+'-g[Emit debug information]' /
+'--debug[Emit debug information]' /
+'(-g --debug)--release[Compile in release mode]' /
+'(--no-strip)--strip[Enable stripping debug information]' /
+'(--strip)--no-strip[Disable stripping debug information]' /
+'--serial[/[Deprecated/] Handle the selected targets sequentially]' /
+'--enable-coverage[Enable coverage instrumentation]' /
+'--sort-input[Sort input files]' /
+'--output-wat[Output WAT instead of WASM]' /
+'-d[Treat all warnings as errors]' /
+'--deny-warn[Treat all warnings as errors]' /
+'--no-render[Don'/''t render diagnostics (in raw human-readable format)]' /
+'(--no-render)--output-json[Output diagnostics in JSON format]' /
+'--enable-value-tracing[Enable value tracing]' /
+'--all[Bundle all targets]' /
+'--frozen[Do not sync dependencies, assuming local dependencies are up-to-date]' /
+'-q[Suppress output]' /
+'--quiet[Suppress output]' /
+'-v[Increase verbosity]' /
+'--verbose[Increase verbosity]' /
+'--trace[Trace the execution of the program]' /
+'--dry-run[Do not actually run the command]' /
+'(--dry-run)--build-graph[]' /
+'-h[Print help]' /
+'--help[Print help]' /
+&& ret=0
+;;
+(build)
+_arguments "${_arguments_options[@]}" : /
+'*--target=[Select output target]:TARGET:(wasm wasm-gc js native llvm all)' /
+'--warn-list=[Warn list config]:WARN_LIST: ' /
+'--alert-list=[Alert list config]:ALERT_LIST: ' /
+'-j+[Set the max number of jobs to run in parallel]:JOBS: ' /
+'--jobs=[Set the max number of jobs to run in parallel]:JOBS: ' /
+'--render-no-loc=[Render no-location diagnostics starting from a certain level]:MIN_LEVEL:(info warn error)' /
+'--install-path=[]:INSTALL_PATH:_files' /
+'--package=[]:PACKAGE: ' /
+'--bin-alias=[]:BIN_ALIAS: ' /
+'-C+[The source code directory. Defaults to the current directory]:SOURCE_DIR:_files' /
+'--directory=[The source code directory. Defaults to the current directory]:SOURCE_DIR:_files' /
+'--target-dir=[The target directory. Defaults to /`source_dir/target/`]:TARGET_DIR:_files' /
+'--std[Enable the standard library (default)]' /
+'--nostd[Disable the standard library]' /
+'-g[Emit debug information]' /
+'--debug[Emit debug information]' /
+'(-g --debug)--release[Compile in release mode]' /
+'(--no-strip)--strip[Enable stripping debug information]' /
+'(--strip)--no-strip[Disable stripping debug information]' /
+'--serial[/[Deprecated/] Handle the selected targets sequentially]' /
+'--enable-coverage[Enable coverage instrumentation]' /
+'--sort-input[Sort input files]' /
+'--output-wat[Output WAT instead of WASM]' /
+'-d[Treat all warnings as errors]' /
+'--deny-warn[Treat all warnings as errors]' /
+'--no-render[Don'/''t render diagnostics (in raw human-readable format)]' /
+'(--no-render)--output-json[Output diagnostics in JSON format]' /
+'--enable-value-tracing[Enable value tracing]' /
+'--frozen[Do not sync dependencies, assuming local dependencies are up-to-date]' /
+'-w[Monitor the file system and automatically build artifacts]' /
+'--watch[Monitor the file system and automatically build artifacts]' /
+'--show-artifacts[]' /
+'-q[Suppress output]' /
+'--quiet[Suppress output]' /
+'-v[Increase verbosity]' /
+'--verbose[Increase verbosity]' /
+'--trace[Trace the execution of the program]' /
+'--dry-run[Do not actually run the command]' /
+'(--dry-run)--build-graph[]' /
+'-h[Print help]' /
+'--help[Print help]' /
+'::PATH -- The path to the package that should be built:_files' /
+&& ret=0
+;;
+(check)
+_arguments "${_arguments_options[@]}" : /
+'*--target=[Select output target]:TARGET:(wasm wasm-gc js native llvm all)' /
+'--warn-list=[Warn list config]:WARN_LIST: ' /
+'--alert-list=[Alert list config]:ALERT_LIST: ' /
+'-j+[Set the max number of jobs to run in parallel]:JOBS: ' /
+'--jobs=[Set the max number of jobs to run in parallel]:JOBS: ' /
+'--render-no-loc=[Render no-location diagnostics starting from a certain level]:MIN_LEVEL:(info warn error)' /
+'-p+[The package(and it'/''s deps) to check]:PACKAGE_PATH:_files' /
+'--package-path=[The package(and it'/''s deps) to check]:PACKAGE_PATH:_files' /
+'--patch-file=[The patch file to check, Only valid when checking specified package]:PATCH_FILE:_files' /
+'-C+[The source code directory. Defaults to the current directory]:SOURCE_DIR:_files' /
+'--directory=[The source code directory. Defaults to the current directory]:SOURCE_DIR:_files' /
+'--target-dir=[The target directory. Defaults to /`source_dir/target/`]:TARGET_DIR:_files' /
+'--std[Enable the standard library (default)]' /
+'--nostd[Disable the standard library]' /
+'-g[Emit debug information]' /
+'--debug[Emit debug information]' /
+'(-g --debug)--release[Compile in release mode]' /
+'(--no-strip)--strip[Enable stripping debug information]' /
+'(--strip)--no-strip[Disable stripping debug information]' /
+'--serial[/[Deprecated/] Handle the selected targets sequentially]' /
+'--enable-coverage[Enable coverage instrumentation]' /
+'--sort-input[Sort input files]' /
+'--output-wat[Output WAT instead of WASM]' /
+'-d[Treat all warnings as errors]' /
+'--deny-warn[Treat all warnings as errors]' /
+'--no-render[Don'/''t render diagnostics (in raw human-readable format)]' /
+'(--no-render)--output-json[Output diagnostics in JSON format]' /
+'--enable-value-tracing[Enable value tracing]' /
+'--frozen[Do not sync dependencies, assuming local dependencies are up-to-date]' /
+'-w[Monitor the file system and automatically check files]' /
+'--watch[Monitor the file system and automatically check files]' /
+'--no-mi[Whether to skip the mi generation, Only valid when checking specified package]' /
+'--explain[Whether to explain the error code with details]' /
+'--fmt[Check whether the code is properly formatted]' /
+'-q[Suppress output]' /
+'--quiet[Suppress output]' /
+'-v[Increase verbosity]' /
+'--verbose[Increase verbosity]' /
+'--trace[Trace the execution of the program]' /
+'--dry-run[Do not actually run the command]' /
+'(--dry-run)--build-graph[]' /
+'-h[Print help]' /
+'--help[Print help]' /
+'::PATH -- Check single file (.mbt or .mbt.md):_files' /
+&& ret=0
+;;
+(run)
+_arguments "${_arguments_options[@]}" : /
+'*--target=[Select output target]:TARGET:(wasm wasm-gc js native llvm all)' /
+'--warn-list=[Warn list config]:WARN_LIST: ' /
+'--alert-list=[Alert list config]:ALERT_LIST: ' /
+'-j+[Set the max number of jobs to run in parallel]:JOBS: ' /
+'--jobs=[Set the max number of jobs to run in parallel]:JOBS: ' /
+'--render-no-loc=[Render no-location diagnostics starting from a certain level]:MIN_LEVEL:(info warn error)' /
+'-C+[The source code directory. Defaults to the current directory]:SOURCE_DIR:_files' /
+'--directory=[The source code directory. Defaults to the current directory]:SOURCE_DIR:_files' /
+'--target-dir=[The target directory. Defaults to /`source_dir/target/`]:TARGET_DIR:_files' /
+'--std[Enable the standard library (default)]' /
+'--nostd[Disable the standard library]' /
+'-g[Emit debug information]' /
+'--debug[Emit debug information]' /
+'(-g --debug)--release[Compile in release mode]' /
+'(--no-strip)--strip[Enable stripping debug information]' /
+'(--strip)--no-strip[Disable stripping debug information]' /
+'--serial[/[Deprecated/] Handle the selected targets sequentially]' /
+'--enable-coverage[Enable coverage instrumentation]' /
+'--sort-input[Sort input files]' /
+'--output-wat[Output WAT instead of WASM]' /
+'-d[Treat all warnings as errors]' /
+'--deny-warn[Treat all warnings as errors]' /
+'--no-render[Don'/''t render diagnostics (in raw human-readable format)]' /
+'(--no-render)--output-json[Output diagnostics in JSON format]' /
+'--enable-value-tracing[Enable value tracing]' /
+'--frozen[Do not sync dependencies, assuming local dependencies are up-to-date]' /
+'--build-only[Only build, do not run the code]' /
+'-q[Suppress output]' /
+'--quiet[Suppress output]' /
+'-v[Increase verbosity]' /
+'--verbose[Increase verbosity]' /
+'--trace[Trace the execution of the program]' /
+'--dry-run[Do not actually run the command]' /
+'(--dry-run)--build-graph[]' /
+'-h[Print help]' /
+'--help[Print help]' /
+':package_or_mbt_file -- The package or .mbt file to run:' /
+'*::args -- The arguments provided to the program to be run:' /
+&& ret=0
+;;
+(test)
+_arguments "${_arguments_options[@]}" : /
+'*--target=[Select output target]:TARGET:(wasm wasm-gc js native llvm all)' /
+'--warn-list=[Warn list config]:WARN_LIST: ' /
+'--alert-list=[Alert list config]:ALERT_LIST: ' /
+'-j+[Set the max number of jobs to run in parallel]:JOBS: ' /
+'--jobs=[Set the max number of jobs to run in parallel]:JOBS: ' /
+'--render-no-loc=[Render no-location diagnostics starting from a certain level]:MIN_LEVEL:(info warn error)' /
+'*-p+[Run test in the specified package]:PACKAGE: ' /
+'*--package=[Run test in the specified package]:PACKAGE: ' /
+'-f+[Run test in the specified file. Only valid when /`--package/` is also specified]:FILE: ' /
+'--file=[Run test in the specified file. Only valid when /`--package/` is also specified]:FILE: ' /
+'-i+[Run only the index-th test in the file. Accepts a single index or a left-inclusive right-exclusive range like /`0-2/`. Only valid when /`--file/` is also specified. Implies /`--include-skipped/`]:INDEX: ' /
+'--index=[Run only the index-th test in the file. Accepts a single index or a left-inclusive right-exclusive range like /`0-2/`. Only valid when /`--file/` is also specified. Implies /`--include-skipped/`]:INDEX: ' /
+'(-i --index)--doc-index=[Run only the index-th doc test in the file. Only valid when /`--file/` is also specified. Implies /`--include-skipped/`]:DOC_INDEX: ' /
+'-l+[Limit of expect test update passes to run, in order to avoid infinite loops]:LIMIT: ' /
+'--limit=[Limit of expect test update passes to run, in order to avoid infinite loops]:LIMIT: ' /
+'(-u --update)--patch-file=[Path to the patch file]:PATCH_FILE:_files' /
+'-F+[Run only tests whose name matches the given glob pattern. Supports '/''*'/'' (matches any sequence) and '/''?'/'' (matches any single character)]:FILTER: ' /
+'--filter=[Run only tests whose name matches the given glob pattern. Supports '/''*'/'' (matches any sequence) and '/''?'/'' (matches any single character)]:FILTER: ' /
+'-C+[The source code directory. Defaults to the current directory]:SOURCE_DIR:_files' /
+'--directory=[The source code directory. Defaults to the current directory]:SOURCE_DIR:_files' /
+'--target-dir=[The target directory. Defaults to /`source_dir/target/`]:TARGET_DIR:_files' /
+'--std[Enable the standard library (default)]' /
+'--nostd[Disable the standard library]' /
+'-g[Emit debug information]' /
+'--debug[Emit debug information]' /
+'(-g --debug)--release[Compile in release mode]' /
+'(--no-strip)--strip[Enable stripping debug information]' /
+'(--strip)--no-strip[Disable stripping debug information]' /
+'--serial[/[Deprecated/] Handle the selected targets sequentially]' /
+'--enable-coverage[Enable coverage instrumentation]' /
+'--sort-input[Sort input files]' /
+'--output-wat[Output WAT instead of WASM]' /
+'-d[Treat all warnings as errors]' /
+'--deny-warn[Treat all warnings as errors]' /
+'--no-render[Don'/''t render diagnostics (in raw human-readable format)]' /
+'(--no-render)--output-json[Output diagnostics in JSON format]' /
+'--enable-value-tracing[Enable value tracing]' /
+'-u[Update the test snapshot]' /
+'--update[Update the test snapshot]' /
+'--frozen[Do not sync dependencies, assuming local dependencies are up-to-date]' /
+'--build-only[Only build, do not run the tests]' /
+'--no-parallelize[Run the tests in a target backend sequentially]' /
+'(--build-only -u --update --test-failure-json)--outline[Print the outline of tests to be executed and exit]' /
+'--test-failure-json[Print failure message in JSON format]' /
+'--doc[Run doc test]' /
+'--include-skipped[Include skipped tests. Automatically implied when /`--/[doc-/]index/` is set]' /
+'-q[Suppress output]' /
+'--quiet[Suppress output]' /
+'-v[Increase verbosity]' /
+'--verbose[Increase verbosity]' /
+'--trace[Trace the execution of the program]' /
+'--dry-run[Do not actually run the command]' /
+'(--dry-run)--build-graph[]' /
+'-h[Print help]' /
+'--help[Print help]' /
+'::PATH -- Run test in single file or directory. If in a project, runs only this package (if matches a package path) or file (if matches a file in package); otherwise, runs in a temporary project:_files' /
+&& ret=0
+;;
+(generate-test-driver)
+_arguments "${_arguments_options[@]}" : /
+'*--doctest-only=[Files that need to be mapped, but only extract the doctests, not main contents]:DOCTEST_ONLY_FILES:_files' /
+'--output-driver=[The output test driver /`.mbt/` file]:OUTPUT_DRIVER:_files' /
+'--output-metadata=[The output test metadata file]:OUTPUT_METADATA:_files' /
+'--target=[The target backend for the generated test driver]:TARGET_BACKEND:(wasm wasm-gc js native llvm)' /
+'--pkg-name=[The name of the package for which the test driver is generated for]:PKG_NAME: ' /
+'--coverage-package-override=[Override coverage package name; /`@self/` is a special value that means the package itself]:COVERAGE_PACKAGE_OVERRIDE: ' /
+'--driver-kind=[The test driver kind]:DRIVER_KIND:(internal whitebox blackbox)' /
+'--patch-file=[Path to the patch file]:PATCH_FILE:_files' /
+'--max-concurrent-tests=[Max concurrent tests for /`async test/`]:MAX_CONCURRENT_TESTS: ' /
+'-C+[The source code directory. Defaults to the current directory]:SOURCE_DIR:_files' /
+'--directory=[The source code directory. Defaults to the current directory]:SOURCE_DIR:_files' /
+'--target-dir=[The target directory. Defaults to /`source_dir/target/`]:TARGET_DIR:_files' /
+'--bench[Whether to generate the test driver in bench mode. Not providing this option will result in test mode]' /
+'--enable-coverage[Whether coverage is enabled in this build. Enabling it will insert coverage-custom code at the end of the test..]' /
+'-q[Suppress output]' /
+'--quiet[Suppress output]' /
+'-v[Increase verbosity]' /
+'--verbose[Increase verbosity]' /
+'--trace[Trace the execution of the program]' /
+'--dry-run[Do not actually run the command]' /
+'(--dry-run)--build-graph[]' /
+'-h[Print help]' /
+'--help[Print help]' /
+'*::files -- The paths of the source files to be mapped:_files' /
+&& ret=0
+;;
+(clean)
+_arguments "${_arguments_options[@]}" : /
+'-C+[The source code directory. Defaults to the current directory]:SOURCE_DIR:_files' /
+'--directory=[The source code directory. Defaults to the current directory]:SOURCE_DIR:_files' /
+'--target-dir=[The target directory. Defaults to /`source_dir/target/`]:TARGET_DIR:_files' /
+'-q[Suppress output]' /
+'--quiet[Suppress output]' /
+'-v[Increase verbosity]' /
+'--verbose[Increase verbosity]' /
+'--trace[Trace the execution of the program]' /
+'--dry-run[Do not actually run the command]' /
+'(--dry-run)--build-graph[]' /
+'-h[Print help]' /
+'--help[Print help]' /
+&& ret=0
+;;
+(fmt)
+_arguments "${_arguments_options[@]}" : /
+'--block-style=[Add separator between each segments]' /
+'-C+[The source code directory. Defaults to the current directory]:SOURCE_DIR:_files' /
+'--directory=[The source code directory. Defaults to the current directory]:SOURCE_DIR:_files' /
+'--target-dir=[The target directory. Defaults to /`source_dir/target/`]:TARGET_DIR:_files' /
+'--check[Check only and don'/''t change the source code]' /
+'--sort-input[Sort input files]' /
+'(--check)--warn[Warn if code is not properly formatted]' /
+'-q[Suppress output]' /
+'--quiet[Suppress output]' /
+'-v[Increase verbosity]' /
+'--verbose[Increase verbosity]' /
+'--trace[Trace the execution of the program]' /
+'--dry-run[Do not actually run the command]' /
+'(--dry-run)--build-graph[]' /
+'-h[Print help]' /
+'--help[Print help]' /
+'::PATH -- Path to a package directory to format:_files' /
+'*::args -- Extra arguments passed to the formatter (after --):' /
+&& ret=0
+;;
+(doc)
+_arguments "${_arguments_options[@]}" : /
+'-b+[The address of the server]:BIND: ' /
+'--bind=[The address of the server]:BIND: ' /
+'-p+[The port of the server]:PORT: ' /
+'--port=[The port of the server]:PORT: ' /
+'-C+[The source code directory. Defaults to the current directory]:SOURCE_DIR:_files' /
+'--directory=[The source code directory. Defaults to the current directory]:SOURCE_DIR:_files' /
+'--target-dir=[The target directory. Defaults to /`source_dir/target/`]:TARGET_DIR:_files' /
+'--serve[Start a web server to serve the documentation]' /
+'--frozen[Do not sync dependencies, assuming local dependencies are up-to-date]' /
+'-q[Suppress output]' /
+'--quiet[Suppress output]' /
+'-v[Increase verbosity]' /
+'--verbose[Increase verbosity]' /
+'--trace[Trace the execution of the program]' /
+'--dry-run[Do not actually run the command]' /
+'(--dry-run)--build-graph[]' /
+'-h[Print help]' /
+'--help[Print help]' /
+'::symbol -- The symbol to query documentation for, e.g. '/''String/:/:from*'/'' or '/''@list.from*'/'':' /
+&& ret=0
+;;
+(info)
+_arguments "${_arguments_options[@]}" : /
+'*--target=[Select output target]:TARGET:(wasm wasm-gc js native llvm all)' /
+'-p+[The full or subset of name of the package to emit /`mbti/` files for]:PACKAGE: ' /
+'--package=[The full or subset of name of the package to emit /`mbti/` files for]:PACKAGE: ' /
+'-C+[The source code directory. Defaults to the current directory]:SOURCE_DIR:_files' /
+'--directory=[The source code directory. Defaults to the current directory]:SOURCE_DIR:_files' /
+'--target-dir=[The target directory. Defaults to /`source_dir/target/`]:TARGET_DIR:_files' /
+'--frozen[Do not sync dependencies, assuming local dependencies are up-to-date]' /
+'--no-alias[Do not use alias to shorten package names in the output]' /
+'-q[Suppress output]' /
+'--quiet[Suppress output]' /
+'-v[Increase verbosity]' /
+'--verbose[Increase verbosity]' /
+'--trace[Trace the execution of the program]' /
+'--dry-run[Do not actually run the command]' /
+'(--dry-run)--build-graph[]' /
+'-h[Print help (see more with '/''--help'/'')]' /
+'--help[Print help (see more with '/''--help'/'')]' /
+'::PATH -- The file-system path to the package or file in package to emit `mbti` files for:_files' /
+&& ret=0
+;;
+(bench)
+_arguments "${_arguments_options[@]}" : /
+'*--target=[Select output target]:TARGET:(wasm wasm-gc js native llvm all)' /
+'--warn-list=[Warn list config]:WARN_LIST: ' /
+'--alert-list=[Alert list config]:ALERT_LIST: ' /
+'-j+[Set the max number of jobs to run in parallel]:JOBS: ' /
+'--jobs=[Set the max number of jobs to run in parallel]:JOBS: ' /
+'--render-no-loc=[Render no-location diagnostics starting from a certain level]:MIN_LEVEL:(info warn error)' /
+'*-p+[Run test in the specified package]' /
+'*--package=[Run test in the specified package]' /
+'-f+[Run test in the specified file. Only valid when /`--package/` is also specified]:FILE: ' /
+'--file=[Run test in the specified file. Only valid when /`--package/` is also specified]:FILE: ' /
+'-i+[Run only the index-th test in the file. Accepts a single index or a left-inclusive right-exclusive range like /`0-2/`. Only valid when /`--file/` is also specified]:INDEX: ' /
+'--index=[Run only the index-th test in the file. Accepts a single index or a left-inclusive right-exclusive range like /`0-2/`. Only valid when /`--file/` is also specified]:INDEX: ' /
+'-C+[The source code directory. Defaults to the current directory]:SOURCE_DIR:_files' /
+'--directory=[The source code directory. Defaults to the current directory]:SOURCE_DIR:_files' /
+'--target-dir=[The target directory. Defaults to /`source_dir/target/`]:TARGET_DIR:_files' /
+'--std[Enable the standard library (default)]' /
+'--nostd[Disable the standard library]' /
+'-g[Emit debug information]' /
+'--debug[Emit debug information]' /
+'(-g --debug)--release[Compile in release mode]' /
+'(--no-strip)--strip[Enable stripping debug information]' /
+'(--strip)--no-strip[Disable stripping debug information]' /
+'--serial[/[Deprecated/] Handle the selected targets sequentially]' /
+'--enable-coverage[Enable coverage instrumentation]' /
+'--sort-input[Sort input files]' /
+'--output-wat[Output WAT instead of WASM]' /
+'-d[Treat all warnings as errors]' /
+'--deny-warn[Treat all warnings as errors]' /
+'--no-render[Don'/''t render diagnostics (in raw human-readable format)]' /
+'(--no-render)--output-json[Output diagnostics in JSON format]' /
+'--enable-value-tracing[Enable value tracing]' /
+'--frozen[Do not sync dependencies, assuming local dependencies are up-to-date]' /
+'--build-only[Only build, do not bench]' /
+'--no-parallelize[Run the benchmarks in a target backend sequentially]' /
+'-q[Suppress output]' /
+'--quiet[Suppress output]' /
+'-v[Increase verbosity]' /
+'--verbose[Increase verbosity]' /
+'--trace[Trace the execution of the program]' /
+'--dry-run[Do not actually run the command]' /
+'(--dry-run)--build-graph[]' /
+'-h[Print help]' /
+'--help[Print help]' /
+&& ret=0
+;;
+(add)
+_arguments "${_arguments_options[@]}" : /
+'-C+[The source code directory. Defaults to the current directory]:SOURCE_DIR:_files' /
+'--directory=[The source code directory. Defaults to the current directory]:SOURCE_DIR:_files' /
+'--target-dir=[The target directory. Defaults to /`source_dir/target/`]:TARGET_DIR:_files' /
+'--bin[Whether to add the dependency as a binary]' /
+'--no-update[Do not update the registry index before adding the dependency]' /
+'-q[Suppress output]' /
+'--quiet[Suppress output]' /
+'-v[Increase verbosity]' /
+'--verbose[Increase verbosity]' /
+'--trace[Trace the execution of the program]' /
+'--dry-run[Do not actually run the command]' /
+'(--dry-run)--build-graph[]' /
+'-h[Print help]' /
+'--help[Print help]' /
+':package_path -- The package path to add:' /
+&& ret=0
+;;
+(remove)
+_arguments "${_arguments_options[@]}" : /
+'-C+[The source code directory. Defaults to the current directory]:SOURCE_DIR:_files' /
+'--directory=[The source code directory. Defaults to the current directory]:SOURCE_DIR:_files' /
+'--target-dir=[The target directory. Defaults to /`source_dir/target/`]:TARGET_DIR:_files' /
+'-q[Suppress output]' /
+'--quiet[Suppress output]' /
+'-v[Increase verbosity]' /
+'--verbose[Increase verbosity]' /
+'--trace[Trace the execution of the program]' /
+'--dry-run[Do not actually run the command]' /
+'(--dry-run)--build-graph[]' /
+'-h[Print help]' /
+'--help[Print help]' /
+':package_path -- The package path to remove:' /
+&& ret=0
+;;
+(install)
+_arguments "${_arguments_options[@]}" : /
+'--bin=[Specify installation directory (default/: ~/.moon/bin/)]:BIN:_files' /
+'()--path=[Install from local path instead of registry]:PATH:_files' /
+'-C+[The source code directory. Defaults to the current directory]:SOURCE_DIR:_files' /
+'--directory=[The source code directory. Defaults to the current directory]:SOURCE_DIR:_files' /
+'--target-dir=[The target directory. Defaults to /`source_dir/target/`]:TARGET_DIR:_files' /
+'-q[Suppress output]' /
+'--quiet[Suppress output]' /
+'-v[Increase verbosity]' /
+'--verbose[Increase verbosity]' /
+'--trace[Trace the execution of the program]' /
+'--dry-run[Do not actually run the command]' /
+'(--dry-run)--build-graph[]' /
+'-h[Print help]' /
+'--help[Print help]' /
+'::package_path -- Package path to install (e.g., user/pkg/main or user/pkg/cmd/...) Supports @version suffix (e.g., user/pkg/main@1.0.0) If not provided, falls back to legacy behavior (install project dependencies):' /
+&& ret=0
+;;
+(tree)
+_arguments "${_arguments_options[@]}" : /
+'-C+[The source code directory. Defaults to the current directory]:SOURCE_DIR:_files' /
+'--directory=[The source code directory. Defaults to the current directory]:SOURCE_DIR:_files' /
+'--target-dir=[The target directory. Defaults to /`source_dir/target/`]:TARGET_DIR:_files' /
+'-q[Suppress output]' /
+'--quiet[Suppress output]' /
+'-v[Increase verbosity]' /
+'--verbose[Increase verbosity]' /
+'--trace[Trace the execution of the program]' /
+'--dry-run[Do not actually run the command]' /
+'(--dry-run)--build-graph[]' /
+'-h[Print help]' /
+'--help[Print help]' /
+&& ret=0
+;;
+(fetch)
+_arguments "${_arguments_options[@]}" : /
+'-C+[The source code directory. Defaults to the current directory]:SOURCE_DIR:_files' /
+'--directory=[The source code directory. Defaults to the current directory]:SOURCE_DIR:_files' /
+'--target-dir=[The target directory. Defaults to /`source_dir/target/`]:TARGET_DIR:_files' /
+'--no-update[Do not update the registry index before fetching]' /
+'-q[Suppress output]' /
+'--quiet[Suppress output]' /
+'-v[Increase verbosity]' /
+'--verbose[Increase verbosity]' /
+'--trace[Trace the execution of the program]' /
+'--dry-run[Do not actually run the command]' /
+'(--dry-run)--build-graph[]' /
+'-h[Print help]' /
+'--help[Print help]' /
+':package_path -- The package to fetch in the form of <author>/<package_name>/[@<version>/]:' /
+&& ret=0
+;;
+(login)
+_arguments "${_arguments_options[@]}" : /
+'-C+[The source code directory. Defaults to the current directory]:SOURCE_DIR:_files' /
+'--directory=[The source code directory. Defaults to the current directory]:SOURCE_DIR:_files' /
+'--target-dir=[The target directory. Defaults to /`source_dir/target/`]:TARGET_DIR:_files' /
+'-q[Suppress output]' /
+'--quiet[Suppress output]' /
+'-v[Increase verbosity]' /
+'--verbose[Increase verbosity]' /
+'--trace[Trace the execution of the program]' /
+'--dry-run[Do not actually run the command]' /
+'(--dry-run)--build-graph[]' /
+'-h[Print help]' /
+'--help[Print help]' /
+&& ret=0
+;;
+(register)
+_arguments "${_arguments_options[@]}" : /
+'-C+[The source code directory. Defaults to the current directory]:SOURCE_DIR:_files' /
+'--directory=[The source code directory. Defaults to the current directory]:SOURCE_DIR:_files' /
+'--target-dir=[The target directory. Defaults to /`source_dir/target/`]:TARGET_DIR:_files' /
+'-q[Suppress output]' /
+'--quiet[Suppress output]' /
+'-v[Increase verbosity]' /
+'--verbose[Increase verbosity]' /
+'--trace[Trace the execution of the program]' /
+'--dry-run[Do not actually run the command]' /
+'(--dry-run)--build-graph[]' /
+'-h[Print help]' /
+'--help[Print help]' /
+&& ret=0
+;;
+(publish)
+_arguments "${_arguments_options[@]}" : /
+'-C+[The source code directory. Defaults to the current directory]:SOURCE_DIR:_files' /
+'--directory=[The source code directory. Defaults to the current directory]:SOURCE_DIR:_files' /
+'--target-dir=[The target directory. Defaults to /`source_dir/target/`]:TARGET_DIR:_files' /
+'--frozen[Do not sync dependencies, assuming local dependencies are up-to-date]' /
+'-q[Suppress output]' /
+'--quiet[Suppress output]' /
+'-v[Increase verbosity]' /
+'--verbose[Increase verbosity]' /
+'--trace[Trace the execution of the program]' /
+'--dry-run[Do not actually run the command]' /
+'(--dry-run)--build-graph[]' /
+'-h[Print help]' /
+'--help[Print help]' /
+&& ret=0
+;;
+(package)
+_arguments "${_arguments_options[@]}" : /
+'-C+[The source code directory. Defaults to the current directory]:SOURCE_DIR:_files' /
+'--directory=[The source code directory. Defaults to the current directory]:SOURCE_DIR:_files' /
+'--target-dir=[The target directory. Defaults to /`source_dir/target/`]:TARGET_DIR:_files' /
+'--frozen[Do not sync dependencies, assuming local dependencies are up-to-date]' /
+'--list[]' /
+'-q[Suppress output]' /
+'--quiet[Suppress output]' /
+'-v[Increase verbosity]' /
+'--verbose[Increase verbosity]' /
+'--trace[Trace the execution of the program]' /
+'--dry-run[Do not actually run the command]' /
+'(--dry-run)--build-graph[]' /
+'-h[Print help]' /
+'--help[Print help]' /
+&& ret=0
+;;
+(update)
+_arguments "${_arguments_options[@]}" : /
+'-C+[The source code directory. Defaults to the current directory]:SOURCE_DIR:_files' /
+'--directory=[The source code directory. Defaults to the current directory]:SOURCE_DIR:_files' /
+'--target-dir=[The target directory. Defaults to /`source_dir/target/`]:TARGET_DIR:_files' /
+'-q[Suppress output]' /
+'--quiet[Suppress output]' /
+'-v[Increase verbosity]' /
+'--verbose[Increase verbosity]' /
+'--trace[Trace the execution of the program]' /
+'--dry-run[Do not actually run the command]' /
+'(--dry-run)--build-graph[]' /
+'-h[Print help]' /
+'--help[Print help]' /
+&& ret=0
+;;
+(coverage)
+_arguments "${_arguments_options[@]}" : /
+'-C+[The source code directory. Defaults to the current directory]:SOURCE_DIR:_files' /
+'--directory=[The source code directory. Defaults to the current directory]:SOURCE_DIR:_files' /
+'--target-dir=[The target directory. Defaults to /`source_dir/target/`]:TARGET_DIR:_files' /
+'-q[Suppress output]' /
+'--quiet[Suppress output]' /
+'-v[Increase verbosity]' /
+'--verbose[Increase verbosity]' /
+'--trace[Trace the execution of the program]' /
+'--dry-run[Do not actually run the command]' /
+'(--dry-run)--build-graph[]' /
+'-h[Print help]' /
+'--help[Print help]' /
+":: :_moon__coverage_commands" /
+"*::: :->coverage" /
+&& ret=0
+
+    case $state in
+    (coverage)
+        words=($line[1] "${words[@]}")
+        (( CURRENT += 1 ))
+        curcontext="${curcontext%:*:*}:moon-coverage-command-$line[1]:"
+        case $line[1] in
+            (analyze)
+_arguments "${_arguments_options[@]}" : /
+'-p+[Analyze coverage for a specific package]:PACKAGE: ' /
+'--package=[Analyze coverage for a specific package]:PACKAGE: ' /
+'*-t+[Extra flags passed directly to /`moon test/`]:TEST_FLAG: ' /
+'*--test-flag=[Extra flags passed directly to /`moon test/`]:TEST_FLAG: ' /
+'-C+[The source code directory. Defaults to the current directory]:SOURCE_DIR:_files' /
+'--directory=[The source code directory. Defaults to the current directory]:SOURCE_DIR:_files' /
+'--target-dir=[The target directory. Defaults to /`source_dir/target/`]:TARGET_DIR:_files' /
+'-q[Suppress output]' /
+'--quiet[Suppress output]' /
+'-v[Increase verbosity]' /
+'--verbose[Increase verbosity]' /
+'--trace[Trace the execution of the program]' /
+'--dry-run[Do not actually run the command]' /
+'(--dry-run)--build-graph[]' /
+'-h[Print help]' /
+'--help[Print help]' /
+'*::EXTRA_FLAGS -- Extra flags passed directly to `moon_cove_report`:' /
+&& ret=0
+;;
+(report)
+_arguments "${_arguments_options[@]}" : /
+'-C+[The source code directory. Defaults to the current directory]:SOURCE_DIR:_files' /
+'--directory=[The source code directory. Defaults to the current directory]:SOURCE_DIR:_files' /
+'--target-dir=[The target directory. Defaults to /`source_dir/target/`]:TARGET_DIR:_files' /
+'-h[Show help for the coverage utility]' /
+'--help[Show help for the coverage utility]' /
+'-q[Suppress output]' /
+'--quiet[Suppress output]' /
+'-v[Increase verbosity]' /
+'--verbose[Increase verbosity]' /
+'--trace[Trace the execution of the program]' /
+'--dry-run[Do not actually run the command]' /
+'(--dry-run)--build-graph[]' /
+'*::args -- Arguments to pass to the coverage utility:' /
+&& ret=0
+;;
+(clean)
+_arguments "${_arguments_options[@]}" : /
+'-C+[The source code directory. Defaults to the current directory]:SOURCE_DIR:_files' /
+'--directory=[The source code directory. Defaults to the current directory]:SOURCE_DIR:_files' /
+'--target-dir=[The target directory. Defaults to /`source_dir/target/`]:TARGET_DIR:_files' /
+'-q[Suppress output]' /
+'--quiet[Suppress output]' /
+'-v[Increase verbosity]' /
+'--verbose[Increase verbosity]' /
+'--trace[Trace the execution of the program]' /
+'--dry-run[Do not actually run the command]' /
+'(--dry-run)--build-graph[]' /
+'-h[Print help]' /
+'--help[Print help]' /
+&& ret=0
+;;
+(help)
+_arguments "${_arguments_options[@]}" : /
+":: :_moon__coverage__help_commands" /
+"*::: :->help" /
+&& ret=0
+
+    case $state in
+    (help)
+        words=($line[1] "${words[@]}")
+        (( CURRENT += 1 ))
+        curcontext="${curcontext%:*:*}:moon-coverage-help-command-$line[1]:"
+        case $line[1] in
+            (analyze)
+_arguments "${_arguments_options[@]}" : /
+&& ret=0
+;;
+(report)
+_arguments "${_arguments_options[@]}" : /
+&& ret=0
+;;
+(clean)
+_arguments "${_arguments_options[@]}" : /
+&& ret=0
+;;
+(help)
+_arguments "${_arguments_options[@]}" : /
+&& ret=0
+;;
+        esac
+    ;;
+esac
+;;
+        esac
+    ;;
+esac
+;;
+(generate-build-matrix)
+_arguments "${_arguments_options[@]}" : /
+'-n+[Set all of /`drow/`, /`dcol/`, /`mrow/`, /`mcol/` to the same value]:NUMBER: ' /
+'--drow=[Number of directory rows]:DIR_ROWS: ' /
+'--dcol=[Number of directory columns]:DIR_COLS: ' /
+'--mrow=[Number of module rows]:MOD_ROWS: ' /
+'--mcol=[Number of module columns]:MOD_COLS: ' /
+'-o+[The output directory]:OUT_DIR:_files' /
+'--output-dir=[The output directory]:OUT_DIR:_files' /
+'-C+[The source code directory. Defaults to the current directory]:SOURCE_DIR:_files' /
+'--directory=[The source code directory. Defaults to the current directory]:SOURCE_DIR:_files' /
+'--target-dir=[The target directory. Defaults to /`source_dir/target/`]:TARGET_DIR:_files' /
+'-q[Suppress output]' /
+'--quiet[Suppress output]' /
+'-v[Increase verbosity]' /
+'--verbose[Increase verbosity]' /
+'--trace[Trace the execution of the program]' /
+'--dry-run[Do not actually run the command]' /
+'(--dry-run)--build-graph[]' /
+'-h[Print help]' /
+'--help[Print help]' /
+&& ret=0
+;;
+(query)
+_arguments "${_arguments_options[@]}" : /
+'*--target=[Select output target]:TARGET:(wasm wasm-gc js native llvm all)' /
+'--warn-list=[Warn list config]:WARN_LIST: ' /
+'--alert-list=[Alert list config]:ALERT_LIST: ' /
+'-j+[Set the max number of jobs to run in parallel]:JOBS: ' /
+'--jobs=[Set the max number of jobs to run in parallel]:JOBS: ' /
+'--render-no-loc=[Render no-location diagnostics starting from a certain level]:MIN_LEVEL:(info warn error)' /
+'-C+[The source code directory. Defaults to the current directory]:SOURCE_DIR:_files' /
+'--directory=[The source code directory. Defaults to the current directory]:SOURCE_DIR:_files' /
+'--target-dir=[The target directory. Defaults to /`source_dir/target/`]:TARGET_DIR:_files' /
+'--std[Enable the standard library (default)]' /
+'--nostd[Disable the standard library]' /
+'-g[Emit debug information]' /
+'--debug[Emit debug information]' /
+'(-g --debug)--release[Compile in release mode]' /
+'(--no-strip)--strip[Enable stripping debug information]' /
+'(--strip)--no-strip[Disable stripping debug information]' /
+'--serial[/[Deprecated/] Handle the selected targets sequentially]' /
+'--enable-coverage[Enable coverage instrumentation]' /
+'--sort-input[Sort input files]' /
+'--output-wat[Output WAT instead of WASM]' /
+'-d[Treat all warnings as errors]' /
+'--deny-warn[Treat all warnings as errors]' /
+'--no-render[Don'/''t render diagnostics (in raw human-readable format)]' /
+'(--no-render)--output-json[Output diagnostics in JSON format]' /
+'--enable-value-tracing[Enable value tracing]' /
+'-q[Suppress output]' /
+'--quiet[Suppress output]' /
+'-v[Increase verbosity]' /
+'--verbose[Increase verbosity]' /
+'--trace[Trace the execution of the program]' /
+'--dry-run[Do not actually run the command]' /
+'(--dry-run)--build-graph[]' /
+'-h[Print help]' /
+'--help[Print help]' /
+':mod_name:' /
+&& ret=0
+;;
+(upgrade)
+_arguments "${_arguments_options[@]}" : /
+'--base-url=[]:BASE_URL: ' /
+'-C+[The source code directory. Defaults to the current directory]:SOURCE_DIR:_files' /
+'--directory=[The source code directory. Defaults to the current directory]:SOURCE_DIR:_files' /
+'--target-dir=[The target directory. Defaults to /`source_dir/target/`]:TARGET_DIR:_files' /
+'-f[Force upgrade]' /
+'--force[Force upgrade]' /
+'--dev[Install the latest development version]' /
+'--non-interactive[]' /
+'-q[Suppress output]' /
+'--quiet[Suppress output]' /
+'-v[Increase verbosity]' /
+'--verbose[Increase verbosity]' /
+'--trace[Trace the execution of the program]' /
+'--dry-run[Do not actually run the command]' /
+'(--dry-run)--build-graph[]' /
+'-h[Print help]' /
+'--help[Print help]' /
+&& ret=0
+;;
+(shell-completion)
+_arguments "${_arguments_options[@]}" : /
+'--shell=[The shell to generate completion for]:SHELL:(bash elvish fish powershell zsh)' /
+'-C+[The source code directory. Defaults to the current directory]:SOURCE_DIR:_files' /
+'--directory=[The source code directory. Defaults to the current directory]:SOURCE_DIR:_files' /
+'--target-dir=[The target directory. Defaults to /`source_dir/target/`]:TARGET_DIR:_files' /
+'-q[Suppress output]' /
+'--quiet[Suppress output]' /
+'-v[Increase verbosity]' /
+'--verbose[Increase verbosity]' /
+'--trace[Trace the execution of the program]' /
+'--dry-run[Do not actually run the command]' /
+'(--dry-run)--build-graph[]' /
+'-h[Print help]' /
+'--help[Print help]' /
+&& ret=0
+;;
+(version)
+_arguments "${_arguments_options[@]}" : /
+'-C+[The source code directory. Defaults to the current directory]:SOURCE_DIR:_files' /
+'--directory=[The source code directory. Defaults to the current directory]:SOURCE_DIR:_files' /
+'--target-dir=[The target directory. Defaults to /`source_dir/target/`]:TARGET_DIR:_files' /
+'--all[Print all version information]' /
+'--json[Print version information in JSON format]' /
+'--no-path[Do not print the path]' /
+'-q[Suppress output]' /
+'--quiet[Suppress output]' /
+'-v[Increase verbosity]' /
+'--verbose[Increase verbosity]' /
+'--trace[Trace the execution of the program]' /
+'--dry-run[Do not actually run the command]' /
+'(--dry-run)--build-graph[]' /
+'-h[Print help]' /
+'--help[Print help]' /
+&& ret=0
+;;
+(tool)
+_arguments "${_arguments_options[@]}" : /
+'-C+[The source code directory. Defaults to the current directory]:SOURCE_DIR:_files' /
+'--directory=[The source code directory. Defaults to the current directory]:SOURCE_DIR:_files' /
+'--target-dir=[The target directory. Defaults to /`source_dir/target/`]:TARGET_DIR:_files' /
+'-q[Suppress output]' /
+'--quiet[Suppress output]' /
+'-v[Increase verbosity]' /
+'--verbose[Increase verbosity]' /
+'--trace[Trace the execution of the program]' /
+'--dry-run[Do not actually run the command]' /
+'(--dry-run)--build-graph[]' /
+'-h[Print help]' /
+'--help[Print help]' /
+":: :_moon__tool_commands" /
+"*::: :->tool" /
+&& ret=0
+
+    case $state in
+    (tool)
+        words=($line[1] "${words[@]}")
+        (( CURRENT += 1 ))
+        curcontext="${curcontext%:*:*}:moon-tool-command-$line[1]:"
+        case $line[1] in
+            (format-and-diff)
+_arguments "${_arguments_options[@]}" : /
+'--old=[The source path of the code which needs to be formatted]:OLD:_files' /
+'--new=[The target path of the formatted code]:NEW:_files' /
+'-C+[The source code directory. Defaults to the current directory]:SOURCE_DIR:_files' /
+'--directory=[The source code directory. Defaults to the current directory]:SOURCE_DIR:_files' /
+'--target-dir=[The target directory. Defaults to /`source_dir/target/`]:TARGET_DIR:_files' /
+'--block-style[Add separator between each segments]' /
+'--warn[Warn instead of showing differences]' /
+'-q[Suppress output]' /
+'--quiet[Suppress output]' /
+'-v[Increase verbosity]' /
+'--verbose[Increase verbosity]' /
+'--trace[Trace the execution of the program]' /
+'--dry-run[Do not actually run the command]' /
+'(--dry-run)--build-graph[]' /
+'-h[Print help]' /
+'--help[Print help]' /
+'*::args:' /
+&& ret=0
+;;
+(embed)
+_arguments "${_arguments_options[@]}" : /
+'-i+[]:INPUT:_files' /
+'--input=[]:INPUT:_files' /
+'-o+[]:OUTPUT:_files' /
+'--output=[]:OUTPUT:_files' /
+'--name=[]:NAME: ' /
+'-C+[The source code directory. Defaults to the current directory]:SOURCE_DIR:_files' /
+'--directory=[The source code directory. Defaults to the current directory]:SOURCE_DIR:_files' /
+'--target-dir=[The target directory. Defaults to /`source_dir/target/`]:TARGET_DIR:_files' /
+'(--text)--binary[]' /
+'(--binary)--text[]' /
+'--timestamp[]' /
+'-q[Suppress output]' /
+'--quiet[Suppress output]' /
+'-v[Increase verbosity]' /
+'--verbose[Increase verbosity]' /
+'--trace[Trace the execution of the program]' /
+'--dry-run[Do not actually run the command]' /
+'(--dry-run)--build-graph[]' /
+'-h[Print help]' /
+'--help[Print help]' /
+&& ret=0
+;;
+(write-tcc-rsp-file)
+_arguments "${_arguments_options[@]}" : /
+'-C+[The source code directory. Defaults to the current directory]:SOURCE_DIR:_files' /
+'--directory=[The source code directory. Defaults to the current directory]:SOURCE_DIR:_files' /
+'--target-dir=[The target directory. Defaults to /`source_dir/target/`]:TARGET_DIR:_files' /
+'-q[Suppress output]' /
+'--quiet[Suppress output]' /
+'-v[Increase verbosity]' /
+'--verbose[Increase verbosity]' /
+'--trace[Trace the execution of the program]' /
+'--dry-run[Do not actually run the command]' /
+'(--dry-run)--build-graph[]' /
+'-h[Print help]' /
+'--help[Print help]' /
+':output -- The file path to write the response file to:_files' /
+'*::args -- The command line arguments to include in the response file:' /
+&& ret=0
+;;
+(build-binary-dep)
+_arguments "${_arguments_options[@]}" : /
+'--install-path=[The parent directory where the binary module is installed to]:INSTALL_PATH:_files' /
+'-C+[The source code directory. Defaults to the current directory]:SOURCE_DIR:_files' /
+'--directory=[The source code directory. Defaults to the current directory]:SOURCE_DIR:_files' /
+'--target-dir=[The target directory. Defaults to /`source_dir/target/`]:TARGET_DIR:_files' /
+'()--all-pkgs[Whether to build and install all binary packages in the module]' /
+'-q[Suppress output]' /
+'--quiet[Suppress output]' /
+'-v[Increase verbosity]' /
+'--verbose[Increase verbosity]' /
+'--trace[Trace the execution of the program]' /
+'--dry-run[Do not actually run the command]' /
+'(--dry-run)--build-graph[]' /
+'-h[Print help]' /
+'--help[Print help]' /
+'*::pkg_names -- The name of the package to build and install, without the module name prefix. The top-level package can be specified as an empty string:' /
+&& ret=0
+;;
+(help)
+_arguments "${_arguments_options[@]}" : /
+":: :_moon__tool__help_commands" /
+"*::: :->help" /
+&& ret=0
+
+    case $state in
+    (help)
+        words=($line[1] "${words[@]}")
+        (( CURRENT += 1 ))
+        curcontext="${curcontext%:*:*}:moon-tool-help-command-$line[1]:"
+        case $line[1] in
+            (format-and-diff)
+_arguments "${_arguments_options[@]}" : /
+&& ret=0
+;;
+(embed)
+_arguments "${_arguments_options[@]}" : /
+&& ret=0
+;;
+(write-tcc-rsp-file)
+_arguments "${_arguments_options[@]}" : /
+&& ret=0
+;;
+(build-binary-dep)
+_arguments "${_arguments_options[@]}" : /
+&& ret=0
+;;
+(help)
+_arguments "${_arguments_options[@]}" : /
+&& ret=0
+;;
+        esac
+    ;;
+esac
+;;
+        esac
+    ;;
+esac
+;;
+(help)
+_arguments "${_arguments_options[@]}" : /
+":: :_moon__help_commands" /
+"*::: :->help" /
+&& ret=0
+
+    case $state in
+    (help)
+        words=($line[1] "${words[@]}")
+        (( CURRENT += 1 ))
+        curcontext="${curcontext%:*:*}:moon-help-command-$line[1]:"
+        case $line[1] in
+            (new)
+_arguments "${_arguments_options[@]}" : /
+&& ret=0
+;;
+(bundle)
+_arguments "${_arguments_options[@]}" : /
+&& ret=0
+;;
+(build)
+_arguments "${_arguments_options[@]}" : /
+&& ret=0
+;;
+(check)
+_arguments "${_arguments_options[@]}" : /
+&& ret=0
+;;
+(run)
+_arguments "${_arguments_options[@]}" : /
+&& ret=0
+;;
+(test)
+_arguments "${_arguments_options[@]}" : /
+&& ret=0
+;;
+(generate-test-driver)
+_arguments "${_arguments_options[@]}" : /
+&& ret=0
+;;
+(clean)
+_arguments "${_arguments_options[@]}" : /
+&& ret=0
+;;
+(fmt)
+_arguments "${_arguments_options[@]}" : /
+&& ret=0
+;;
+(doc)
+_arguments "${_arguments_options[@]}" : /
+&& ret=0
+;;
+(info)
+_arguments "${_arguments_options[@]}" : /
+&& ret=0
+;;
+(bench)
+_arguments "${_arguments_options[@]}" : /
+&& ret=0
+;;
+(add)
+_arguments "${_arguments_options[@]}" : /
+&& ret=0
+;;
+(remove)
+_arguments "${_arguments_options[@]}" : /
+&& ret=0
+;;
+(install)
+_arguments "${_arguments_options[@]}" : /
+&& ret=0
+;;
+(tree)
+_arguments "${_arguments_options[@]}" : /
+&& ret=0
+;;
+(fetch)
+_arguments "${_arguments_options[@]}" : /
+&& ret=0
+;;
+(login)
+_arguments "${_arguments_options[@]}" : /
+&& ret=0
+;;
+(register)
+_arguments "${_arguments_options[@]}" : /
+&& ret=0
+;;
+(publish)
+_arguments "${_arguments_options[@]}" : /
+&& ret=0
+;;
+(package)
+_arguments "${_arguments_options[@]}" : /
+&& ret=0
+;;
+(update)
+_arguments "${_arguments_options[@]}" : /
+&& ret=0
+;;
+(coverage)
+_arguments "${_arguments_options[@]}" : /
+":: :_moon__help__coverage_commands" /
+"*::: :->coverage" /
+&& ret=0
+
+    case $state in
+    (coverage)
+        words=($line[1] "${words[@]}")
+        (( CURRENT += 1 ))
+        curcontext="${curcontext%:*:*}:moon-help-coverage-command-$line[1]:"
+        case $line[1] in
+            (analyze)
+_arguments "${_arguments_options[@]}" : /
+&& ret=0
+;;
+(report)
+_arguments "${_arguments_options[@]}" : /
+&& ret=0
+;;
+(clean)
+_arguments "${_arguments_options[@]}" : /
+&& ret=0
+;;
+        esac
+    ;;
+esac
+;;
+(generate-build-matrix)
+_arguments "${_arguments_options[@]}" : /
+&& ret=0
+;;
+(query)
+_arguments "${_arguments_options[@]}" : /
+&& ret=0
+;;
+(upgrade)
+_arguments "${_arguments_options[@]}" : /
+&& ret=0
+;;
+(shell-completion)
+_arguments "${_arguments_options[@]}" : /
+&& ret=0
+;;
+(version)
+_arguments "${_arguments_options[@]}" : /
+&& ret=0
+;;
+(tool)
+_arguments "${_arguments_options[@]}" : /
+":: :_moon__help__tool_commands" /
+"*::: :->tool" /
+&& ret=0
+
+    case $state in
+    (tool)
+        words=($line[1] "${words[@]}")
+        (( CURRENT += 1 ))
+        curcontext="${curcontext%:*:*}:moon-help-tool-command-$line[1]:"
+        case $line[1] in
+            (format-and-diff)
+_arguments "${_arguments_options[@]}" : /
+&& ret=0
+;;
+(embed)
+_arguments "${_arguments_options[@]}" : /
+&& ret=0
+;;
+(write-tcc-rsp-file)
+_arguments "${_arguments_options[@]}" : /
+&& ret=0
+;;
+(build-binary-dep)
+_arguments "${_arguments_options[@]}" : /
+&& ret=0
+;;
+        esac
+    ;;
+esac
+;;
+(help)
+_arguments "${_arguments_options[@]}" : /
+&& ret=0
+;;
+        esac
+    ;;
+esac
+;;
+        esac
+    ;;
+esac
+}
+
+(( $+functions[_moon_commands] )) ||
+_moon_commands() {
+    local commands; commands=(
+'new:Create a new MoonBit module' /
+'bundle:Bundle the module' /
+'build:Build the current package' /
+'check:Check the current package, but don'/''t build object files' /
+'run:Run a main package' /
+'test:Test the current package' /
+'generate-test-driver:Generate tests for a provided package. This is a thin wrapper around /`moonc gen-test-info/`, which does the actual parsing and generation' /
+'clean:Remove the target directory' /
+'fmt:Format source code' /
+'doc:Generate documentation or searching documentation for a symbol' /
+'info:Generate public interface (/`.mbti/`) files for all packages in the module' /
+'bench:Run benchmarks in the current package' /
+'add:Add a dependency' /
+'remove:Remove a dependency' /
+'install:Install a binary package globally or install project dependencies (deprecated without args)' /
+'tree:Display the dependency tree' /
+'fetch:Download a package to .repos directory (unstable)' /
+'login:Log in to your account' /
+'register:Register an account at mooncakes.io' /
+'publish:Publish the current module' /
+'package:Package the current module' /
+'update:Update the package registry index' /
+'coverage:Code coverage utilities' /
+'generate-build-matrix:Generate build matrix for benchmarking (legacy feature)' /
+'query:' /
+'upgrade:Upgrade toolchains' /
+'shell-completion:Generate shell completion for bash/elvish/fish/pwsh/zsh to stdout' /
+'version:Print version information and exit' /
+'tool:' /
+'help:Print this message or the help of the given subcommand(s)' /
+    )
+    _describe -t commands 'moon commands' commands "$@"
+}
+(( $+functions[_moon__add_commands] )) ||
+_moon__add_commands() {
+    local commands; commands=()
+    _describe -t commands 'moon add commands' commands "$@"
+}
+(( $+functions[_moon__bench_commands] )) ||
+_moon__bench_commands() {
+    local commands; commands=()
+    _describe -t commands 'moon bench commands' commands "$@"
+}
+(( $+functions[_moon__build_commands] )) ||
+_moon__build_commands() {
+    local commands; commands=()
+    _describe -t commands 'moon build commands' commands "$@"
+}
+(( $+functions[_moon__bundle_commands] )) ||
+_moon__bundle_commands() {
+    local commands; commands=()
+    _describe -t commands 'moon bundle commands' commands "$@"
+}
+(( $+functions[_moon__check_commands] )) ||
+_moon__check_commands() {
+    local commands; commands=()
+    _describe -t commands 'moon check commands' commands "$@"
+}
+(( $+functions[_moon__clean_commands] )) ||
+_moon__clean_commands() {
+    local commands; commands=()
+    _describe -t commands 'moon clean commands' commands "$@"
+}
+(( $+functions[_moon__coverage_commands] )) ||
+_moon__coverage_commands() {
+    local commands; commands=(
+'analyze:Run test with instrumentation and report coverage' /
+'report:Generate code coverage report' /
+'clean:Clean up coverage artifacts' /
+'help:Print this message or the help of the given subcommand(s)' /
+    )
+    _describe -t commands 'moon coverage commands' commands "$@"
+}
+(( $+functions[_moon__coverage__analyze_commands] )) ||
+_moon__coverage__analyze_commands() {
+    local commands; commands=()
+    _describe -t commands 'moon coverage analyze commands' commands "$@"
+}
+(( $+functions[_moon__coverage__clean_commands] )) ||
+_moon__coverage__clean_commands() {
+    local commands; commands=()
+    _describe -t commands 'moon coverage clean commands' commands "$@"
+}
+(( $+functions[_moon__coverage__help_commands] )) ||
+_moon__coverage__help_commands() {
+    local commands; commands=(
+'analyze:Run test with instrumentation and report coverage' /
+'report:Generate code coverage report' /
+'clean:Clean up coverage artifacts' /
+'help:Print this message or the help of the given subcommand(s)' /
+    )
+    _describe -t commands 'moon coverage help commands' commands "$@"
+}
+(( $+functions[_moon__coverage__help__analyze_commands] )) ||
+_moon__coverage__help__analyze_commands() {
+    local commands; commands=()
+    _describe -t commands 'moon coverage help analyze commands' commands "$@"
+}
+(( $+functions[_moon__coverage__help__clean_commands] )) ||
+_moon__coverage__help__clean_commands() {
+    local commands; commands=()
+    _describe -t commands 'moon coverage help clean commands' commands "$@"
+}
+(( $+functions[_moon__coverage__help__help_commands] )) ||
+_moon__coverage__help__help_commands() {
+    local commands; commands=()
+    _describe -t commands 'moon coverage help help commands' commands "$@"
+}
+(( $+functions[_moon__coverage__help__report_commands] )) ||
+_moon__coverage__help__report_commands() {
+    local commands; commands=()
+    _describe -t commands 'moon coverage help report commands' commands "$@"
+}
+(( $+functions[_moon__coverage__report_commands] )) ||
+_moon__coverage__report_commands() {
+    local commands; commands=()
+    _describe -t commands 'moon coverage report commands' commands "$@"
+}
+(( $+functions[_moon__doc_commands] )) ||
+_moon__doc_commands() {
+    local commands; commands=()
+    _describe -t commands 'moon doc commands' commands "$@"
+}
+(( $+functions[_moon__fetch_commands] )) ||
+_moon__fetch_commands() {
+    local commands; commands=()
+    _describe -t commands 'moon fetch commands' commands "$@"
+}
+(( $+functions[_moon__fmt_commands] )) ||
+_moon__fmt_commands() {
+    local commands; commands=()
+    _describe -t commands 'moon fmt commands' commands "$@"
+}
+(( $+functions[_moon__generate-build-matrix_commands] )) ||
+_moon__generate-build-matrix_commands() {
+    local commands; commands=()
+    _describe -t commands 'moon generate-build-matrix commands' commands "$@"
+}
+(( $+functions[_moon__generate-test-driver_commands] )) ||
+_moon__generate-test-driver_commands() {
+    local commands; commands=()
+    _describe -t commands 'moon generate-test-driver commands' commands "$@"
+}
+(( $+functions[_moon__help_commands] )) ||
+_moon__help_commands() {
+    local commands; commands=(
+'new:Create a new MoonBit module' /
+'bundle:Bundle the module' /
+'build:Build the current package' /
+'check:Check the current package, but don'/''t build object files' /
+'run:Run a main package' /
+'test:Test the current package' /
+'generate-test-driver:Generate tests for a provided package. This is a thin wrapper around /`moonc gen-test-info/`, which does the actual parsing and generation' /
+'clean:Remove the target directory' /
+'fmt:Format source code' /
+'doc:Generate documentation or searching documentation for a symbol' /
+'info:Generate public interface (/`.mbti/`) files for all packages in the module' /
+'bench:Run benchmarks in the current package' /
+'add:Add a dependency' /
+'remove:Remove a dependency' /
+'install:Install a binary package globally or install project dependencies (deprecated without args)' /
+'tree:Display the dependency tree' /
+'fetch:Download a package to .repos directory (unstable)' /
+'login:Log in to your account' /
+'register:Register an account at mooncakes.io' /
+'publish:Publish the current module' /
+'package:Package the current module' /
+'update:Update the package registry index' /
+'coverage:Code coverage utilities' /
+'generate-build-matrix:Generate build matrix for benchmarking (legacy feature)' /
+'query:' /
+'upgrade:Upgrade toolchains' /
+'shell-completion:Generate shell completion for bash/elvish/fish/pwsh/zsh to stdout' /
+'version:Print version information and exit' /
+'tool:' /
+'help:Print this message or the help of the given subcommand(s)' /
+    )
+    _describe -t commands 'moon help commands' commands "$@"
+}
+(( $+functions[_moon__help__add_commands] )) ||
+_moon__help__add_commands() {
+    local commands; commands=()
+    _describe -t commands 'moon help add commands' commands "$@"
+}
+(( $+functions[_moon__help__bench_commands] )) ||
+_moon__help__bench_commands() {
+    local commands; commands=()
+    _describe -t commands 'moon help bench commands' commands "$@"
+}
+(( $+functions[_moon__help__build_commands] )) ||
+_moon__help__build_commands() {
+    local commands; commands=()
+    _describe -t commands 'moon help build commands' commands "$@"
+}
+(( $+functions[_moon__help__bundle_commands] )) ||
+_moon__help__bundle_commands() {
+    local commands; commands=()
+    _describe -t commands 'moon help bundle commands' commands "$@"
+}
+(( $+functions[_moon__help__check_commands] )) ||
+_moon__help__check_commands() {
+    local commands; commands=()
+    _describe -t commands 'moon help check commands' commands "$@"
+}
+(( $+functions[_moon__help__clean_commands] )) ||
+_moon__help__clean_commands() {
+    local commands; commands=()
+    _describe -t commands 'moon help clean commands' commands "$@"
+}
+(( $+functions[_moon__help__coverage_commands] )) ||
+_moon__help__coverage_commands() {
+    local commands; commands=(
+'analyze:Run test with instrumentation and report coverage' /
+'report:Generate code coverage report' /
+'clean:Clean up coverage artifacts' /
+    )
+    _describe -t commands 'moon help coverage commands' commands "$@"
+}
+(( $+functions[_moon__help__coverage__analyze_commands] )) ||
+_moon__help__coverage__analyze_commands() {
+    local commands; commands=()
+    _describe -t commands 'moon help coverage analyze commands' commands "$@"
+}
+(( $+functions[_moon__help__coverage__clean_commands] )) ||
+_moon__help__coverage__clean_commands() {
+    local commands; commands=()
+    _describe -t commands 'moon help coverage clean commands' commands "$@"
+}
+(( $+functions[_moon__help__coverage__report_commands] )) ||
+_moon__help__coverage__report_commands() {
+    local commands; commands=()
+    _describe -t commands 'moon help coverage report commands' commands "$@"
+}
+(( $+functions[_moon__help__doc_commands] )) ||
+_moon__help__doc_commands() {
+    local commands; commands=()
+    _describe -t commands 'moon help doc commands' commands "$@"
+}
+(( $+functions[_moon__help__fetch_commands] )) ||
+_moon__help__fetch_commands() {
+    local commands; commands=()
+    _describe -t commands 'moon help fetch commands' commands "$@"
+}
+(( $+functions[_moon__help__fmt_commands] )) ||
+_moon__help__fmt_commands() {
+    local commands; commands=()
+    _describe -t commands 'moon help fmt commands' commands "$@"
+}
+(( $+functions[_moon__help__generate-build-matrix_commands] )) ||
+_moon__help__generate-build-matrix_commands() {
+    local commands; commands=()
+    _describe -t commands 'moon help generate-build-matrix commands' commands "$@"
+}
+(( $+functions[_moon__help__generate-test-driver_commands] )) ||
+_moon__help__generate-test-driver_commands() {
+    local commands; commands=()
+    _describe -t commands 'moon help generate-test-driver commands' commands "$@"
+}
+(( $+functions[_moon__help__help_commands] )) ||
+_moon__help__help_commands() {
+    local commands; commands=()
+    _describe -t commands 'moon help help commands' commands "$@"
+}
+(( $+functions[_moon__help__info_commands] )) ||
+_moon__help__info_commands() {
+    local commands; commands=()
+    _describe -t commands 'moon help info commands' commands "$@"
+}
+(( $+functions[_moon__help__install_commands] )) ||
+_moon__help__install_commands() {
+    local commands; commands=()
+    _describe -t commands 'moon help install commands' commands "$@"
+}
+(( $+functions[_moon__help__login_commands] )) ||
+_moon__help__login_commands() {
+    local commands; commands=()
+    _describe -t commands 'moon help login commands' commands "$@"
+}
+(( $+functions[_moon__help__new_commands] )) ||
+_moon__help__new_commands() {
+    local commands; commands=()
+    _describe -t commands 'moon help new commands' commands "$@"
+}
+(( $+functions[_moon__help__package_commands] )) ||
+_moon__help__package_commands() {
+    local commands; commands=()
+    _describe -t commands 'moon help package commands' commands "$@"
+}
+(( $+functions[_moon__help__publish_commands] )) ||
+_moon__help__publish_commands() {
+    local commands; commands=()
+    _describe -t commands 'moon help publish commands' commands "$@"
+}
+(( $+functions[_moon__help__query_commands] )) ||
+_moon__help__query_commands() {
+    local commands; commands=()
+    _describe -t commands 'moon help query commands' commands "$@"
+}
+(( $+functions[_moon__help__register_commands] )) ||
+_moon__help__register_commands() {
+    local commands; commands=()
+    _describe -t commands 'moon help register commands' commands "$@"
+}
+(( $+functions[_moon__help__remove_commands] )) ||
+_moon__help__remove_commands() {
+    local commands; commands=()
+    _describe -t commands 'moon help remove commands' commands "$@"
+}
+(( $+functions[_moon__help__run_commands] )) ||
+_moon__help__run_commands() {
+    local commands; commands=()
+    _describe -t commands 'moon help run commands' commands "$@"
+}
+(( $+functions[_moon__help__shell-completion_commands] )) ||
+_moon__help__shell-completion_commands() {
+    local commands; commands=()
+    _describe -t commands 'moon help shell-completion commands' commands "$@"
+}
+(( $+functions[_moon__help__test_commands] )) ||
+_moon__help__test_commands() {
+    local commands; commands=()
+    _describe -t commands 'moon help test commands' commands "$@"
+}
+(( $+functions[_moon__help__tool_commands] )) ||
+_moon__help__tool_commands() {
+    local commands; commands=(
+'format-and-diff:Format the code and print the difference' /
+'embed:' /
+'write-tcc-rsp-file:' /
+'build-binary-dep:' /
+    )
+    _describe -t commands 'moon help tool commands' commands "$@"
+}
+(( $+functions[_moon__help__tool__build-binary-dep_commands] )) ||
+_moon__help__tool__build-binary-dep_commands() {
+    local commands; commands=()
+    _describe -t commands 'moon help tool build-binary-dep commands' commands "$@"
+}
+(( $+functions[_moon__help__tool__embed_commands] )) ||
+_moon__help__tool__embed_commands() {
+    local commands; commands=()
+    _describe -t commands 'moon help tool embed commands' commands "$@"
+}
+(( $+functions[_moon__help__tool__format-and-diff_commands] )) ||
+_moon__help__tool__format-and-diff_commands() {
+    local commands; commands=()
+    _describe -t commands 'moon help tool format-and-diff commands' commands "$@"
+}
+(( $+functions[_moon__help__tool__write-tcc-rsp-file_commands] )) ||
+_moon__help__tool__write-tcc-rsp-file_commands() {
+    local commands; commands=()
+    _describe -t commands 'moon help tool write-tcc-rsp-file commands' commands "$@"
+}
+(( $+functions[_moon__help__tree_commands] )) ||
+_moon__help__tree_commands() {
+    local commands; commands=()
+    _describe -t commands 'moon help tree commands' commands "$@"
+}
+(( $+functions[_moon__help__update_commands] )) ||
+_moon__help__update_commands() {
+    local commands; commands=()
+    _describe -t commands 'moon help update commands' commands "$@"
+}
+(( $+functions[_moon__help__upgrade_commands] )) ||
+_moon__help__upgrade_commands() {
+    local commands; commands=()
+    _describe -t commands 'moon help upgrade commands' commands "$@"
+}
+(( $+functions[_moon__help__version_commands] )) ||
+_moon__help__version_commands() {
+    local commands; commands=()
+    _describe -t commands 'moon help version commands' commands "$@"
+}
+(( $+functions[_moon__info_commands] )) ||
+_moon__info_commands() {
+    local commands; commands=()
+    _describe -t commands 'moon info commands' commands "$@"
+}
+(( $+functions[_moon__install_commands] )) ||
+_moon__install_commands() {
+    local commands; commands=()
+    _describe -t commands 'moon install commands' commands "$@"
+}
+(( $+functions[_moon__login_commands] )) ||
+_moon__login_commands() {
+    local commands; commands=()
+    _describe -t commands 'moon login commands' commands "$@"
+}
+(( $+functions[_moon__new_commands] )) ||
+_moon__new_commands() {
+    local commands; commands=()
+    _describe -t commands 'moon new commands' commands "$@"
+}
+(( $+functions[_moon__package_commands] )) ||
+_moon__package_commands() {
+    local commands; commands=()
+    _describe -t commands 'moon package commands' commands "$@"
+}
+(( $+functions[_moon__publish_commands] )) ||
+_moon__publish_commands() {
+    local commands; commands=()
+    _describe -t commands 'moon publish commands' commands "$@"
+}
+(( $+functions[_moon__query_commands] )) ||
+_moon__query_commands() {
+    local commands; commands=()
+    _describe -t commands 'moon query commands' commands "$@"
+}
+(( $+functions[_moon__register_commands] )) ||
+_moon__register_commands() {
+    local commands; commands=()
+    _describe -t commands 'moon register commands' commands "$@"
+}
+(( $+functions[_moon__remove_commands] )) ||
+_moon__remove_commands() {
+    local commands; commands=()
+    _describe -t commands 'moon remove commands' commands "$@"
+}
+(( $+functions[_moon__run_commands] )) ||
+_moon__run_commands() {
+    local commands; commands=()
+    _describe -t commands 'moon run commands' commands "$@"
+}
+(( $+functions[_moon__shell-completion_commands] )) ||
+_moon__shell-completion_commands() {
+    local commands; commands=()
+    _describe -t commands 'moon shell-completion commands' commands "$@"
+}
+(( $+functions[_moon__test_commands] )) ||
+_moon__test_commands() {
+    local commands; commands=()
+    _describe -t commands 'moon test commands' commands "$@"
+}
+(( $+functions[_moon__tool_commands] )) ||
+_moon__tool_commands() {
+    local commands; commands=(
+'format-and-diff:Format the code and print the difference' /
+'embed:' /
+'write-tcc-rsp-file:' /
+'build-binary-dep:' /
+'help:Print this message or the help of the given subcommand(s)' /
+    )
+    _describe -t commands 'moon tool commands' commands "$@"
+}
+(( $+functions[_moon__tool__build-binary-dep_commands] )) ||
+_moon__tool__build-binary-dep_commands() {
+    local commands; commands=()
+    _describe -t commands 'moon tool build-binary-dep commands' commands "$@"
+}
+(( $+functions[_moon__tool__embed_commands] )) ||
+_moon__tool__embed_commands() {
+    local commands; commands=()
+    _describe -t commands 'moon tool embed commands' commands "$@"
+}
+(( $+functions[_moon__tool__format-and-diff_commands] )) ||
+_moon__tool__format-and-diff_commands() {
+    local commands; commands=()
+    _describe -t commands 'moon tool format-and-diff commands' commands "$@"
+}
+(( $+functions[_moon__tool__help_commands] )) ||
+_moon__tool__help_commands() {
+    local commands; commands=(
+'format-and-diff:Format the code and print the difference' /
+'embed:' /
+'write-tcc-rsp-file:' /
+'build-binary-dep:' /
+'help:Print this message or the help of the given subcommand(s)' /
+    )
+    _describe -t commands 'moon tool help commands' commands "$@"
+}
+(( $+functions[_moon__tool__help__build-binary-dep_commands] )) ||
+_moon__tool__help__build-binary-dep_commands() {
+    local commands; commands=()
+    _describe -t commands 'moon tool help build-binary-dep commands' commands "$@"
+}
+(( $+functions[_moon__tool__help__embed_commands] )) ||
+_moon__tool__help__embed_commands() {
+    local commands; commands=()
+    _describe -t commands 'moon tool help embed commands' commands "$@"
+}
+(( $+functions[_moon__tool__help__format-and-diff_commands] )) ||
+_moon__tool__help__format-and-diff_commands() {
+    local commands; commands=()
+    _describe -t commands 'moon tool help format-and-diff commands' commands "$@"
+}
+(( $+functions[_moon__tool__help__help_commands] )) ||
+_moon__tool__help__help_commands() {
+    local commands; commands=()
+    _describe -t commands 'moon tool help help commands' commands "$@"
+}
+(( $+functions[_moon__tool__help__write-tcc-rsp-file_commands] )) ||
+_moon__tool__help__write-tcc-rsp-file_commands() {
+    local commands; commands=()
+    _describe -t commands 'moon tool help write-tcc-rsp-file commands' commands "$@"
+}
+(( $+functions[_moon__tool__write-tcc-rsp-file_commands] )) ||
+_moon__tool__write-tcc-rsp-file_commands() {
+    local commands; commands=()
+    _describe -t commands 'moon tool write-tcc-rsp-file commands' commands "$@"
+}
+(( $+functions[_moon__tree_commands] )) ||
+_moon__tree_commands() {
+    local commands; commands=()
+    _describe -t commands 'moon tree commands' commands "$@"
+}
+(( $+functions[_moon__update_commands] )) ||
+_moon__update_commands() {
+    local commands; commands=()
+    _describe -t commands 'moon update commands' commands "$@"
+}
+(( $+functions[_moon__upgrade_commands] )) ||
+_moon__upgrade_commands() {
+    local commands; commands=()
+    _describe -t commands 'moon upgrade commands' commands "$@"
+}
+(( $+functions[_moon__version_commands] )) ||
+_moon__version_commands() {
+    local commands; commands=()
+    _describe -t commands 'moon version commands' commands "$@"
+}
+
+if [ "$funcstack[1]" = "_moon" ]; then
+    _moon "$@"
+else
+    compdef _moon moon
+fi
