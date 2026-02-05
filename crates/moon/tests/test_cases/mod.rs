@@ -73,6 +73,7 @@ mod moon_info_compare_backends;
 mod moon_new;
 mod moon_test;
 mod moon_version;
+mod native_abort_trace;
 mod native_backend;
 mod native_stub_stability;
 mod no_export_when_test;
