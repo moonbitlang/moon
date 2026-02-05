@@ -37,6 +37,8 @@ fn finish_read_string(handle : StringReadHandle) = "__moonbit_fs_unstable" "fini
 
 use v8::{Function, Local, Object};
 
+use crate::v8_builder::ScopeExt;
+
 const INIT_JS_API: &str = r#"
     (() => function(obj) {
         // String ops
@@ -155,7 +157,7 @@ pub fn init_env<'s>(
     obj: v8::Local<'s, Object>,
     scope: &mut v8::HandleScope<'s>,
 ) -> v8::Local<'s, Object> {
-    let code = v8::String::new(scope, INIT_JS_API).unwrap();
+    let code = scope.string(INIT_JS_API);
     let code_origin = super::create_script_origin(scope, "js_api_init");
     let script = v8::Script::compile(scope, code, Some(&code_origin)).unwrap();
     let func = script.run(scope).unwrap();
