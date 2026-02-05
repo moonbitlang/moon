@@ -430,7 +430,7 @@ Install a binary package globally or install project dependencies (deprecated wi
 
 ###### **Arguments:**
 
-* `<PACKAGE_PATH>` — Package path to install (e.g., user/pkg/main or user/pkg/cmd/...) Supports @version suffix (e.g., user/pkg/main@1.0.0) Git URLs are auto-detected (any URL format git supports) Paths starting with ./ are treated as local paths If not provided, falls back to legacy behavior (install project dependencies)
+* `<PACKAGE_PATH>` — Package path to install (e.g., user/pkg/main or user/pkg/cmd/...) Supports @version suffix (e.g., user/pkg/main@1.0.0) Git URLs are auto-detected (any URL format git supports) Local paths are auto-detected: ./, ../, / (Unix), or drive letter (Windows) If not provided, falls back to legacy behavior (install project dependencies)
 
 ###### **Options:**
 

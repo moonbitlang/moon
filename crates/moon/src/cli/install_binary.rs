@@ -40,7 +40,7 @@ use crate::{
 
 /// Represents a parsed package specification from the command line.
 #[derive(Debug, Clone)]
-pub struct PackageSpec {
+pub(super) struct PackageSpec {
     pub module_name: ModuleName,
     pub package_path: Option<String>,
     pub version: Option<Version>,
@@ -60,13 +60,13 @@ enum PackageFilter {
 const GIT_URL_PREFIXES: &[&str] = &["https://", "http://", "git://", "ssh://", "git@"];
 
 /// Check if a string looks like a git URL.
-pub fn is_git_url(s: &str) -> bool {
+pub(super) fn is_git_url(s: &str) -> bool {
     GIT_URL_PREFIXES.iter().any(|p| s.starts_with(p))
 }
 
 /// Check if a string looks like a local filesystem path.
 /// Matches: ./, ../, / (Unix absolute), C: (Windows drive letter)
-pub fn is_local_path(s: &str) -> bool {
+pub(super) fn is_local_path(s: &str) -> bool {
     s.starts_with("./")
         || s.starts_with("../")
         || s.starts_with('/')
@@ -74,7 +74,7 @@ pub fn is_local_path(s: &str) -> bool {
 }
 
 /// Yet another package path parser because we need to parse wildcard patterns.
-pub fn parse_package_spec(input: &str) -> anyhow::Result<PackageSpec> {
+pub(super) fn parse_package_spec(input: &str) -> anyhow::Result<PackageSpec> {
     let (path_part, version) = if let Some(at_pos) = input.rfind('@') {
         let path = &input[..at_pos];
         let version_str = &input[at_pos + 1..];
@@ -123,7 +123,7 @@ pub fn parse_package_spec(input: &str) -> anyhow::Result<PackageSpec> {
 }
 
 /// Install a binary package from the registry.
-pub fn install_binary(
+pub(super) fn install_binary(
     cli: &UniversalFlags,
     spec: &PackageSpec,
     install_dir: &Path,
@@ -195,7 +195,7 @@ pub fn install_binary(
 }
 
 /// Install from a local path.
-pub fn install_from_local(
+pub(super) fn install_from_local(
     cli: &UniversalFlags,
     local_path: &Path,
     install_dir: &Path,
@@ -230,7 +230,7 @@ pub fn install_from_local(
 }
 
 /// Git reference type for checkout.
-pub enum GitRef<'a> {
+pub(super) enum GitRef<'a> {
     /// Checkout a specific revision (commit hash)
     Rev(&'a str),
     /// Checkout a branch
@@ -242,7 +242,7 @@ pub enum GitRef<'a> {
 }
 
 /// Install from a git repository.
-pub fn install_from_git(
+pub(super) fn install_from_git(
     cli: &UniversalFlags,
     git_url: &str,
     git_ref: GitRef<'_>,
