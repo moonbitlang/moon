@@ -146,11 +146,8 @@ impl FromStr for FeatureGate {
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         let mut this = Self::parse_features_internal(s)?;
 
-        // By default, enable rupes_recta unless NEW_MOON=0 is set
+        // Legacy build support is removed; always use Rupes Recta.
         this.rupes_recta = true;
-        if let Ok("0") = std::env::var("NEW_MOON").as_deref() {
-            this.rupes_recta = false;
-        }
 
         // By default, enable rr_moon_pkg unless NEW_MOON_PKG=0 is set
         this.rr_moon_pkg = true;

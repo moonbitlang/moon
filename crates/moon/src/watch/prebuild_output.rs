@@ -21,7 +21,7 @@
 use std::path::{Path, PathBuf};
 
 use moonbuild_rupes_recta::ResolveOutput;
-use moonutil::{module::ModuleDB, package::MoonPkgGenerate};
+use moonutil::package::MoonPkgGenerate;
 
 /// Generate the list of paths to ignore from pre-build outputs for
 /// [`super::WatchOutput`], in RR backend.
@@ -56,18 +56,4 @@ fn push_prebuild_paths(
             ignored_paths.push(path);
         }
     }
-}
-
-/// Generate the list of paths to ignore from pre-build outputs for
-/// [`super::WatchOutput`], in legacy backend.
-pub fn legacy_get_prebuild_ignored_paths(env: &ModuleDB) -> Vec<PathBuf> {
-    let mut ignored_paths = vec![];
-
-    for (_name, pkg) in env.get_all_packages() {
-        if let Some(pkg_pre_build) = pkg.pre_build.as_ref() {
-            push_prebuild_paths(&mut ignored_paths, pkg_pre_build, &pkg.root_path);
-        }
-    }
-
-    ignored_paths
 }

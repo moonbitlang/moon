@@ -18,31 +18,23 @@
 
 use anyhow::Context;
 use colored::Colorize;
-use moonbuild::{dry_run, entry};
 use moonbuild_rupes_recta::intent::UserIntent;
-use mooncake::pkg::sync::auto_sync;
 use moonutil::cli::UniversalFlags;
-use moonutil::common::{BUILD_DIR, CheckOpt, lower_surface_targets};
+use moonutil::common::RunMode;
+use moonutil::common::WATCH_MODE_DIR;
+use moonutil::common::{BUILD_DIR, lower_surface_targets};
 use moonutil::common::{FileLock, TargetBackend};
-use moonutil::common::{MoonbuildOpt, PrePostBuild};
-use moonutil::common::{MooncOpt, OutputFormat, RunMode};
-use moonutil::common::{WATCH_MODE_DIR, parse_front_matter_config};
-use moonutil::dirs::mk_arch_mode_dir;
 use moonutil::mooncakes::RegistryConfig;
 use moonutil::mooncakes::sync::AutoSyncFlags;
 use std::path::{Path, PathBuf};
 use tracing::{Level, instrument};
 
-use crate::cli::get_module_for_single_file;
 use crate::filter::{canonicalize_with_filename, filter_pkg_by_dir};
 use crate::rr_build::{self, BuildConfig, CalcUserIntentOutput, preconfig_compile};
-use crate::watch::prebuild_output::{
-    legacy_get_prebuild_ignored_paths, rr_get_prebuild_ignored_paths,
-};
+use crate::watch::prebuild_output::rr_get_prebuild_ignored_paths;
 use crate::watch::{WatchOutput, watching};
 
-use super::pre_build::scan_with_x_build;
-use super::{BuildFlags, get_compiler_flags};
+use super::BuildFlags;
 
 /// Check the current package, but don't build object files
 #[derive(Debug, clap::Parser, Clone)]
@@ -162,11 +154,7 @@ fn run_check_internal(
 }
 
 fn run_check_for_single_file(cli: &UniversalFlags, cmd: &CheckSubcommand) -> anyhow::Result<i32> {
-    if cli.unstable_feature.rupes_recta {
-        run_check_for_single_file_rr(cli, cmd)
-    } else {
-        run_check_for_single_file_legacy(cli, cmd)
-    }
+    run_check_for_single_file_rr(cli, cmd)
 }
 
 fn run_check_for_single_file_rr(
@@ -275,111 +263,6 @@ fn get_user_intents_single_file(
     Ok(vec![UserIntent::Check(pkg)].into())
 }
 
-#[instrument(level = Level::DEBUG, skip_all)]
-fn run_check_for_single_file_legacy(
-    cli: &UniversalFlags,
-    cmd: &CheckSubcommand,
-) -> anyhow::Result<i32> {
-    let path = cmd
-        .path
-        .as_ref()
-        .expect("path should be set in single-file mode");
-    let single_file_path = dunce::canonicalize(path)
-        .with_context(|| format!("failed to resolve file path `{}`", path.display()))?;
-    let source_dir = single_file_path
-        .parent()
-        .context("file path must have a parent directory")?
-        .to_path_buf();
-    let raw_target_dir = source_dir.join(BUILD_DIR);
-
-    let mbt_md_header = parse_front_matter_config(&single_file_path)?;
-    let target_backend = if let Some(moonutil::common::MbtMdHeader {
-        moonbit:
-            Some(moonutil::common::MbtMdSection {
-                backend: Some(backend),
-                ..
-            }),
-    }) = &mbt_md_header
-    {
-        TargetBackend::str_to_backend(backend)?
-    } else {
-        cmd.build_flags
-            .target_backend
-            .unwrap_or(TargetBackend::WasmGC)
-    };
-
-    let release_flag = !cmd.build_flags.debug;
-
-    let target_dir = raw_target_dir
-        .join(target_backend.to_dir_name())
-        .join(if release_flag { "release" } else { "debug" })
-        .join(RunMode::Check.to_dir_name());
-
-    let moonbuild_opt = MoonbuildOpt {
-        source_dir: source_dir.clone(),
-        target_dir: target_dir.clone(),
-        raw_target_dir: raw_target_dir.clone(),
-        test_opt: None,
-        check_opt: Some(CheckOpt {
-            package_name_filter: None, // Single file check has no package filter
-            patch_file: None,
-            no_mi: cmd.no_mi,
-            explain: cmd.explain,
-        }),
-        build_opt: None,
-        sort_input: cmd.build_flags.sort_input,
-        run_mode: RunMode::Check,
-        quiet: cli.quiet,
-        verbose: cli.verbose,
-        no_parallelize: false,
-        build_graph: cli.build_graph,
-        fmt_opt: None,
-        args: vec![],
-        no_render_output: cmd.build_flags.output_style().needs_no_render(),
-        parallelism: cmd.build_flags.jobs,
-        use_tcc_run: false,
-        dynamic_stub_libs: None,
-        render_no_loc: cmd.build_flags.render_no_loc,
-    };
-    let moonc_opt = MooncOpt {
-        build_opt: moonutil::common::BuildPackageFlags {
-            debug_flag: !release_flag,
-            strip_flag: false,
-            source_map: false,
-            enable_coverage: false,
-            deny_warn: false,
-            target_backend,
-            warn_list: cmd.build_flags.warn_list.clone(),
-            alert_list: cmd.build_flags.alert_list.clone(),
-            enable_value_tracing: cmd.build_flags.enable_value_tracing,
-        },
-        link_opt: moonutil::common::LinkCoreFlags {
-            debug_flag: !release_flag,
-            source_map: !release_flag,
-            output_format: match target_backend {
-                TargetBackend::Js => OutputFormat::Js,
-                TargetBackend::Native => OutputFormat::Native,
-                TargetBackend::LLVM => OutputFormat::LLVM,
-                _ => OutputFormat::Wasm,
-            },
-            target_backend,
-        },
-        extra_build_opt: vec![],
-        extra_link_opt: vec![],
-        nostd: false,
-        json_diagnostics: cmd.build_flags.output_style().needs_moonc_json(),
-        single_file: true,
-    };
-    let module =
-        get_module_for_single_file(&single_file_path, &moonc_opt, &moonbuild_opt, mbt_md_header)?;
-
-    if cli.dry_run {
-        return dry_run::print_commands(&module, &moonc_opt, &moonbuild_opt);
-    }
-
-    entry::run_check(&moonc_opt, &moonbuild_opt, &module)
-}
-
 #[instrument(skip_all)]
 fn run_check_normal_internal(
     cli: &UniversalFlags,
@@ -388,11 +271,7 @@ fn run_check_normal_internal(
     target_dir: &Path,
 ) -> anyhow::Result<i32> {
     let run_once = |watch: bool, target_dir: &Path| -> anyhow::Result<WatchOutput> {
-        if cli.unstable_feature.rupes_recta {
-            run_check_normal_internal_rr(cli, cmd, source_dir, target_dir, watch)
-        } else {
-            run_check_normal_internal_legacy(cli, cmd, source_dir, target_dir, watch)
-        }
+        run_check_normal_internal_rr(cli, cmd, source_dir, target_dir, watch)
     };
     if cmd.watch {
         // For checks, the actual target dir is a subdir of the original target
@@ -482,159 +361,6 @@ fn run_check_normal_internal_rr(
             additional_ignored_paths: prebuild_list,
         })
     }
-}
-
-#[instrument(skip_all)]
-fn run_check_normal_internal_legacy(
-    cli: &UniversalFlags,
-    cmd: &CheckSubcommand,
-    source_dir: &Path,
-    target_dir: &Path,
-    _watch: bool,
-) -> anyhow::Result<WatchOutput> {
-    // Run moon install before build
-    let (resolved_env, dir_sync_result) = auto_sync(
-        source_dir,
-        &cmd.auto_sync_flags,
-        &RegistryConfig::load(),
-        cli.quiet,
-        true, // Legacy don't need std injection
-    )?;
-
-    let raw_target_dir = target_dir;
-    let run_mode = RunMode::Check;
-    let mut moonc_opt = get_compiler_flags(source_dir, &cmd.build_flags)?;
-    moonc_opt.build_opt.deny_warn = cmd.build_flags.deny_warn;
-    let target_dir = mk_arch_mode_dir(source_dir, target_dir, &moonc_opt, run_mode)?;
-    let _lock = FileLock::lock(&target_dir)?;
-
-    // TODO: remove this once LLVM backend is well supported
-    if moonc_opt.build_opt.target_backend == TargetBackend::LLVM {
-        eprintln!(
-            "{}: LLVM backend is experimental and only supported on bleeding moonbit toolchain for now",
-            "Warning".yellow()
-        );
-    }
-
-    let sort_input = cmd.build_flags.sort_input;
-
-    let mut moonbuild_opt = MoonbuildOpt {
-        source_dir: source_dir.to_path_buf(),
-        raw_target_dir: raw_target_dir.to_path_buf(),
-        target_dir: target_dir.clone(),
-        sort_input,
-        run_mode,
-        quiet: cli.quiet,
-        verbose: cli.verbose,
-        no_render_output: cmd.build_flags.output_style().needs_no_render(),
-        build_graph: cli.build_graph,
-        check_opt: Some(CheckOpt {
-            package_name_filter: None,
-            // ^ Set below. Strange to put it here, but didn't bother changing now.
-            patch_file: cmd.patch_file.clone(),
-            no_mi: cmd.no_mi,
-            explain: cmd.explain,
-        }),
-        test_opt: None,
-        build_opt: None,
-        fmt_opt: None,
-        args: vec![],
-        no_parallelize: false,
-        parallelism: cmd.build_flags.jobs,
-        use_tcc_run: false,
-        dynamic_stub_libs: None,
-        render_no_loc: cmd.build_flags.render_no_loc,
-    };
-
-    let mut module = scan_with_x_build(
-        false,
-        &moonc_opt,
-        &moonbuild_opt,
-        &resolved_env,
-        &dir_sync_result,
-        &PrePostBuild::PreBuild,
-    )?;
-
-    {
-        let nm = cmd.no_mi;
-        let pp = &cmd.patch_file;
-
-        // Filter packages using the two flags
-        let filtered_package_name = if let Some(pkg_path) = &cmd.package_path {
-            // This path is relative to source_dir
-            let path = dunce::canonicalize(source_dir.join(pkg_path))
-                .context("Cannot canonicalize package name")?;
-            let pkg_name = module
-                .get_package_by_path(&path)
-                .with_context(|| {
-                    format!(
-                        "Cannot find package at given package path '{}'",
-                        pkg_path.display()
-                    )
-                })?
-                .full_name();
-            Some(pkg_name)
-        } else if let Some(path) = &cmd.path {
-            let (canonical_path, _) = canonicalize_with_filename(path).with_context(|| {
-                format!("Cannot canonicalize provided path '{}'", path.display())
-            })?;
-            let pkg_name = module
-                .get_package_by_path(&canonical_path)
-                .with_context(|| {
-                    format!(
-                        "Cannot find package at path '{}' (resolved to '{}')",
-                        path.display(),
-                        canonical_path.display(),
-                    )
-                })?
-                .full_name();
-            Some(pkg_name)
-        } else {
-            None
-        };
-
-        if let Some(pkg_name) = filtered_package_name {
-            let pkg_by_name = module.get_package_by_name_mut_safe(&pkg_name);
-            if let Some(specified_pkg) = pkg_by_name {
-                specified_pkg.no_mi = nm;
-                specified_pkg.patch_file = pp.clone();
-            } else {
-                panic!(
-                    "Package '{}' not found in module, but it was queried from path earlier. This is a bug.",
-                    pkg_name,
-                );
-            }
-
-            // Set the package name filter
-            moonbuild_opt
-                .check_opt
-                .as_mut()
-                .unwrap()
-                .package_name_filter = Some(pkg_name);
-        }
-    };
-
-    let prebuild_list = if _watch {
-        legacy_get_prebuild_ignored_paths(&module)
-    } else {
-        Vec::new()
-    };
-
-    if cli.dry_run {
-        let exit_code = dry_run::print_commands(&module, &moonc_opt, &moonbuild_opt)?;
-        return Ok(WatchOutput {
-            ok: exit_code == 0,
-            additional_ignored_paths: prebuild_list,
-        });
-    }
-
-    let res = entry::run_check(&moonc_opt, &moonbuild_opt, &module);
-
-    let exit_code = res?;
-    Ok(WatchOutput {
-        ok: exit_code == 0,
-        additional_ignored_paths: prebuild_list,
-    })
 }
 
 /// Generate user intent of checking all packages in the current module.

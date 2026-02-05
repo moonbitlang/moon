@@ -84,7 +84,6 @@ cargo install --path ./crates/moon --debug --offline
 
 - `crates/moonbuild`: the legacy build graph generation engine
   - Being phased out in favor of `moonbuild-rupes-recta`
-  - Set `NEW_MOON=0` to use the legacy engine if needed
   - `src/{check, gen, build, bundle, entry, runtest}`: generate
     commands and n2 state according to `moon.mod.json` and `moon.pkg.json`
   - `src/bundle.rs`: only for `moonbitlang/core`, not visible

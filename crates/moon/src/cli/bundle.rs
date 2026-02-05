@@ -17,24 +17,19 @@
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
 use anyhow::Context;
-use moonbuild::dry_run;
 use moonbuild_rupes_recta::{build_lower::WarningCondition, intent::UserIntent};
-use mooncake::pkg::sync::auto_sync;
 use moonutil::{
     cli::UniversalFlags,
-    common::{
-        FileLock, MoonbuildOpt, PrePostBuild, RunMode, SurfaceTarget, TargetBackend,
-        lower_surface_targets,
-    },
-    dirs::{PackageDirs, mk_arch_mode_dir},
-    mooncakes::{RegistryConfig, sync::AutoSyncFlags},
+    common::{FileLock, RunMode, SurfaceTarget, TargetBackend, lower_surface_targets},
+    dirs::PackageDirs,
+    mooncakes::sync::AutoSyncFlags,
 };
 use std::path::Path;
-use tracing::{Level, instrument};
+use tracing::instrument;
 
 use crate::rr_build::{self, BuildConfig};
 
-use super::{BuildFlags, pre_build::scan_with_x_build};
+use super::BuildFlags;
 
 /// Bundle the module
 #[derive(Debug, clap::Parser, Clone)]
@@ -92,11 +87,7 @@ pub fn run_bundle_internal(
     source_dir: &Path,
     target_dir: &Path,
 ) -> anyhow::Result<i32> {
-    if cli.unstable_feature.rupes_recta {
-        run_bundle_internal_rr(cli, cmd, source_dir, target_dir)
-    } else {
-        run_bundle_internal_legacy(cli, cmd, source_dir, target_dir)
-    }
+    run_bundle_internal_rr(cli, cmd, source_dir, target_dir)
 }
 
 #[instrument(skip_all)]
@@ -159,67 +150,4 @@ pub fn run_bundle_internal_rr(
         result.print_info(cli.quiet, "bundling")?;
         Ok(result.return_code_for_success())
     }
-}
-
-#[instrument(level = Level::DEBUG, skip_all)]
-fn run_bundle_internal_legacy(
-    cli: &UniversalFlags,
-    cmd: &BundleSubcommand,
-    source_dir: &Path,
-    target_dir: &Path,
-) -> anyhow::Result<i32> {
-    // Run moon install before build
-    let (resolved_env, dir_sync_result) = auto_sync(
-        source_dir,
-        &cmd.auto_sync_flags,
-        &RegistryConfig::load(),
-        cli.quiet,
-        true, // Legacy don't need std injection
-    )?;
-
-    let run_mode = RunMode::Bundle;
-    let mut moonc_opt = super::get_compiler_flags(source_dir, &cmd.build_flags)?;
-    // Legacy path: allow all warnings for `moon bundle` unless explicitly denied via --deny-warn
-    moonc_opt.build_opt.deny_warn = cmd.build_flags.deny_warn;
-    let sort_input = cmd.build_flags.sort_input;
-
-    let raw_target_dir = target_dir.to_path_buf();
-    let target_dir = mk_arch_mode_dir(source_dir, target_dir, &moonc_opt, run_mode)?;
-    let _lock = FileLock::lock(&target_dir)?;
-
-    let moonbuild_opt = MoonbuildOpt {
-        source_dir: source_dir.to_path_buf(),
-        raw_target_dir,
-        target_dir,
-        sort_input,
-        run_mode,
-        test_opt: None,
-        check_opt: None,
-        build_opt: None,
-        fmt_opt: None,
-        args: vec![],
-        verbose: cli.verbose,
-        quiet: cli.quiet,
-        no_render_output: cmd.build_flags.output_style().needs_no_render(),
-        no_parallelize: false,
-        build_graph: false,
-        parallelism: cmd.build_flags.jobs,
-        use_tcc_run: false,
-        dynamic_stub_libs: None,
-        render_no_loc: cmd.build_flags.render_no_loc,
-    };
-    let module = scan_with_x_build(
-        false,
-        &moonc_opt,
-        &moonbuild_opt,
-        &resolved_env,
-        &dir_sync_result,
-        &PrePostBuild::PreBuild,
-    )?;
-
-    if cli.dry_run {
-        return dry_run::print_commands(&module, &moonc_opt, &moonbuild_opt);
-    }
-
-    moonbuild::entry::run_bundle(&module, &moonbuild_opt, &moonc_opt)
 }
