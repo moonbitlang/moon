@@ -22,13 +22,15 @@ use crate::cmdtest::exec::construct_executable;
 
 use super::parse;
 
-fn format_chunks(chunks: Vec<dissimilar::Chunk>) -> String {
+fn format_diff(expected: &str, actual: &str) -> String {
+    let diff = similar::TextDiff::from_chars(expected, actual);
     let mut buf = String::new();
-    for chunk in chunks {
-        let formatted = match chunk {
-            dissimilar::Chunk::Equal(text) => text.into(),
-            dissimilar::Chunk::Delete(text) => format!("\x1b[4m\x1b[31m{}\x1b[0m", text),
-            dissimilar::Chunk::Insert(text) => format!("\x1b[4m\x1b[32m{}\x1b[0m", text),
+    for change in diff.iter_all_changes() {
+        let text = change.value();
+        let formatted = match change.tag() {
+            similar::ChangeTag::Equal => text.to_string(),
+            similar::ChangeTag::Delete => format!("\x1b[4m\x1b[31m{}\x1b[0m", text),
+            similar::ChangeTag::Insert => format!("\x1b[4m\x1b[32m{}\x1b[0m", text),
         };
         buf.push_str(&formatted);
     }
@@ -36,8 +38,6 @@ fn format_chunks(chunks: Vec<dissimilar::Chunk>) -> String {
 }
 
 pub fn render_expect_fail(cmd: &str, expected: &str, actual: &str) {
-    let diff = dissimilar::diff(expected, actual);
-
     println!(
         "\n
 \x1b[1m\x1b[91merror\x1b[97m: expect test failed\x1b[0m
@@ -60,7 +60,7 @@ pub fn render_expect_fail(cmd: &str, expected: &str, actual: &str) {
         cmd,
         expected,
         actual,
-        format_chunks(diff)
+        format_diff(expected, actual)
     );
 }
 
