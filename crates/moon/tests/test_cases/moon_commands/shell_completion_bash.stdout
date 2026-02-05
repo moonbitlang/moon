@@ -51,6 +51,9 @@ _moon() {
             moon,help)
                 cmd="moon__help"
                 ;;
+            moon,ide)
+                cmd="moon__ide"
+                ;;
             moon,info)
                 cmd="moon__info"
                 ;;
@@ -165,6 +168,9 @@ _moon() {
             moon__help,help)
                 cmd="moon__help__help"
                 ;;
+            moon__help,ide)
+                cmd="moon__help__ide"
+                ;;
             moon__help,info)
                 cmd="moon__help__info"
                 ;;
@@ -225,6 +231,24 @@ _moon() {
             moon__help__coverage,report)
                 cmd="moon__help__coverage__report"
                 ;;
+            moon__help__ide,doc)
+                cmd="moon__help__ide__doc"
+                ;;
+            moon__help__ide,find-references)
+                cmd="moon__help__ide__find__references"
+                ;;
+            moon__help__ide,hover)
+                cmd="moon__help__ide__hover"
+                ;;
+            moon__help__ide,outline)
+                cmd="moon__help__ide__outline"
+                ;;
+            moon__help__ide,peek-def)
+                cmd="moon__help__ide__peek__def"
+                ;;
+            moon__help__ide,rename)
+                cmd="moon__help__ide__rename"
+                ;;
             moon__help__tool,build-binary-dep)
                 cmd="moon__help__tool__build__binary__dep"
                 ;;
@@ -236,6 +260,48 @@ _moon() {
                 ;;
             moon__help__tool,write-tcc-rsp-file)
                 cmd="moon__help__tool__write__tcc__rsp__file"
+                ;;
+            moon__ide,doc)
+                cmd="moon__ide__doc"
+                ;;
+            moon__ide,find-references)
+                cmd="moon__ide__find__references"
+                ;;
+            moon__ide,help)
+                cmd="moon__ide__help"
+                ;;
+            moon__ide,hover)
+                cmd="moon__ide__hover"
+                ;;
+            moon__ide,outline)
+                cmd="moon__ide__outline"
+                ;;
+            moon__ide,peek-def)
+                cmd="moon__ide__peek__def"
+                ;;
+            moon__ide,rename)
+                cmd="moon__ide__rename"
+                ;;
+            moon__ide__help,doc)
+                cmd="moon__ide__help__doc"
+                ;;
+            moon__ide__help,find-references)
+                cmd="moon__ide__help__find__references"
+                ;;
+            moon__ide__help,help)
+                cmd="moon__ide__help__help"
+                ;;
+            moon__ide__help,hover)
+                cmd="moon__ide__help__hover"
+                ;;
+            moon__ide__help,outline)
+                cmd="moon__ide__help__outline"
+                ;;
+            moon__ide__help,peek-def)
+                cmd="moon__ide__help__peek__def"
+                ;;
+            moon__ide__help,rename)
+                cmd="moon__ide__help__rename"
                 ;;
             moon__tool,build-binary-dep)
                 cmd="moon__tool__build__binary__dep"
@@ -274,17 +340,17 @@ _moon() {
 
     case "${cmd}" in
         moon)
-            opts="-C -q -v -Z -h --directory --target-dir --quiet --verbose --trace --dry-run --build-graph --unstable-feature --help new bundle build check run test generate-test-driver clean fmt doc info bench add remove install tree fetch login register publish package update coverage generate-build-matrix query upgrade shell-completion version tool help"
+            opts="-C -q -v -Z -h --manifest-path --target-dir --quiet --verbose --trace --dry-run --build-graph --unstable-feature --help new bundle build check run test generate-test-driver clean fmt doc info bench add remove install tree fetch login register publish package update coverage generate-build-matrix query upgrade shell-completion version tool ide help"
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 1 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
                 return 0
             fi
             case "${prev}" in
-                --directory)
+                -C)
                     COMPREPLY=($(compgen -f "${cur}"))
                     return 0
                     ;;
-                -C)
+                --manifest-path)
                     COMPREPLY=($(compgen -f "${cur}"))
                     return 0
                     ;;
@@ -308,17 +374,13 @@ _moon() {
             return 0
             ;;
         moon__add)
-            opts="-C -q -v -h --bin --no-update --directory --target-dir --quiet --verbose --trace --dry-run --build-graph --help <PACKAGE_PATH>"
+            opts="-q -v -h --bin --no-update --manifest-path --target-dir --quiet --verbose --trace --dry-run --build-graph --help <PACKAGE_PATH>"
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 2 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
                 return 0
             fi
             case "${prev}" in
-                --directory)
-                    COMPREPLY=($(compgen -f "${cur}"))
-                    return 0
-                    ;;
-                -C)
+                --manifest-path)
                     COMPREPLY=($(compgen -f "${cur}"))
                     return 0
                     ;;
@@ -334,7 +396,7 @@ _moon() {
             return 0
             ;;
         moon__bench)
-            opts="-g -d -j -p -f -i -C -q -v -h --std --nostd --debug --release --strip --no-strip --target --serial --enable-coverage --sort-input --output-wat --deny-warn --no-render --output-json --warn-list --alert-list --enable-value-tracing --jobs --render-no-loc --package --file --index --frozen --build-only --no-parallelize --directory --target-dir --quiet --verbose --trace --dry-run --build-graph --help"
+            opts="-g -d -j -p -f -i -q -v -h --std --nostd --debug --release --strip --no-strip --target --serial --enable-coverage --sort-input --output-wat --deny-warn --no-render --output-json --warn-list --alert-list --enable-value-tracing --jobs --render-no-loc --package --file --index --frozen --build-only --no-parallelize --manifest-path --target-dir --quiet --verbose --trace --dry-run --build-graph --help"
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 2 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
                 return 0
@@ -388,11 +450,7 @@ _moon() {
                     COMPREPLY=($(compgen -f "${cur}"))
                     return 0
                     ;;
-                --directory)
-                    COMPREPLY=($(compgen -f "${cur}"))
-                    return 0
-                    ;;
-                -C)
+                --manifest-path)
                     COMPREPLY=($(compgen -f "${cur}"))
                     return 0
                     ;;
@@ -408,7 +466,7 @@ _moon() {
             return 0
             ;;
         moon__build)
-            opts="-g -d -j -w -C -q -v -h --std --nostd --debug --release --strip --no-strip --target --serial --enable-coverage --sort-input --output-wat --deny-warn --no-render --output-json --warn-list --alert-list --enable-value-tracing --jobs --render-no-loc --frozen --watch --install-path --show-artifacts --package --bin-alias --directory --target-dir --quiet --verbose --trace --dry-run --build-graph --help [PATH]"
+            opts="-g -d -j -w -q -v -h --std --nostd --debug --release --strip --no-strip --target --serial --enable-coverage --sort-input --output-wat --deny-warn --no-render --output-json --warn-list --alert-list --enable-value-tracing --jobs --render-no-loc --frozen --watch --install-path --show-artifacts --package --bin-alias --manifest-path --target-dir --quiet --verbose --trace --dry-run --build-graph --help [PATH]"
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 2 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
                 return 0
@@ -450,11 +508,7 @@ _moon() {
                     COMPREPLY=($(compgen -f "${cur}"))
                     return 0
                     ;;
-                --directory)
-                    COMPREPLY=($(compgen -f "${cur}"))
-                    return 0
-                    ;;
-                -C)
+                --manifest-path)
                     COMPREPLY=($(compgen -f "${cur}"))
                     return 0
                     ;;
@@ -470,7 +524,7 @@ _moon() {
             return 0
             ;;
         moon__bundle)
-            opts="-g -d -j -C -q -v -h --std --nostd --debug --release --strip --no-strip --target --serial --enable-coverage --sort-input --output-wat --deny-warn --no-render --output-json --warn-list --alert-list --enable-value-tracing --jobs --render-no-loc --all --frozen --directory --target-dir --quiet --verbose --trace --dry-run --build-graph --help"
+            opts="-g -d -j -q -v -h --std --nostd --debug --release --strip --no-strip --target --serial --enable-coverage --sort-input --output-wat --deny-warn --no-render --output-json --warn-list --alert-list --enable-value-tracing --jobs --render-no-loc --all --frozen --manifest-path --target-dir --quiet --verbose --trace --dry-run --build-graph --help"
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 2 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
                 return 0
@@ -500,11 +554,7 @@ _moon() {
                     COMPREPLY=($(compgen -W "info warn error" -- "${cur}"))
                     return 0
                     ;;
-                --directory)
-                    COMPREPLY=($(compgen -f "${cur}"))
-                    return 0
-                    ;;
-                -C)
+                --manifest-path)
                     COMPREPLY=($(compgen -f "${cur}"))
                     return 0
                     ;;
@@ -520,7 +570,7 @@ _moon() {
             return 0
             ;;
         moon__check)
-            opts="-g -d -j -w -p -C -q -v -h --std --nostd --debug --release --strip --no-strip --target --serial --enable-coverage --sort-input --output-wat --deny-warn --no-render --output-json --warn-list --alert-list --enable-value-tracing --jobs --render-no-loc --frozen --watch --package-path --patch-file --no-mi --explain --fmt --directory --target-dir --quiet --verbose --trace --dry-run --build-graph --help [PATH]"
+            opts="-g -d -j -w -p -q -v -h --std --nostd --debug --release --strip --no-strip --target --serial --enable-coverage --sort-input --output-wat --deny-warn --no-render --output-json --warn-list --alert-list --enable-value-tracing --jobs --render-no-loc --frozen --watch --package-path --patch-file --no-mi --explain --fmt --manifest-path --target-dir --quiet --verbose --trace --dry-run --build-graph --help [PATH]"
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 2 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
                 return 0
@@ -562,11 +612,7 @@ _moon() {
                     COMPREPLY=($(compgen -f "${cur}"))
                     return 0
                     ;;
-                --directory)
-                    COMPREPLY=($(compgen -f "${cur}"))
-                    return 0
-                    ;;
-                -C)
+                --manifest-path)
                     COMPREPLY=($(compgen -f "${cur}"))
                     return 0
                     ;;
@@ -582,17 +628,13 @@ _moon() {
             return 0
             ;;
         moon__clean)
-            opts="-C -q -v -h --directory --target-dir --quiet --verbose --trace --dry-run --build-graph --help"
+            opts="-q -v -h --manifest-path --target-dir --quiet --verbose --trace --dry-run --build-graph --help"
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 2 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
                 return 0
             fi
             case "${prev}" in
-                --directory)
-                    COMPREPLY=($(compgen -f "${cur}"))
-                    return 0
-                    ;;
-                -C)
+                --manifest-path)
                     COMPREPLY=($(compgen -f "${cur}"))
                     return 0
                     ;;
@@ -608,17 +650,13 @@ _moon() {
             return 0
             ;;
         moon__coverage)
-            opts="-C -q -v -h --directory --target-dir --quiet --verbose --trace --dry-run --build-graph --help analyze report clean help"
+            opts="-q -v -h --manifest-path --target-dir --quiet --verbose --trace --dry-run --build-graph --help analyze report clean help"
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 2 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
                 return 0
             fi
             case "${prev}" in
-                --directory)
-                    COMPREPLY=($(compgen -f "${cur}"))
-                    return 0
-                    ;;
-                -C)
+                --manifest-path)
                     COMPREPLY=($(compgen -f "${cur}"))
                     return 0
                     ;;
@@ -634,7 +672,7 @@ _moon() {
             return 0
             ;;
         moon__coverage__analyze)
-            opts="-p -t -C -q -v -h --package --test-flag --directory --target-dir --quiet --verbose --trace --dry-run --build-graph --help [EXTRA_FLAGS]..."
+            opts="-p -t -q -v -h --package --test-flag --manifest-path --target-dir --quiet --verbose --trace --dry-run --build-graph --help [EXTRA_FLAGS]..."
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 3 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
                 return 0
@@ -656,11 +694,7 @@ _moon() {
                     COMPREPLY=($(compgen -f "${cur}"))
                     return 0
                     ;;
-                --directory)
-                    COMPREPLY=($(compgen -f "${cur}"))
-                    return 0
-                    ;;
-                -C)
+                --manifest-path)
                     COMPREPLY=($(compgen -f "${cur}"))
                     return 0
                     ;;
@@ -676,17 +710,13 @@ _moon() {
             return 0
             ;;
         moon__coverage__clean)
-            opts="-C -q -v -h --directory --target-dir --quiet --verbose --trace --dry-run --build-graph --help"
+            opts="-q -v -h --manifest-path --target-dir --quiet --verbose --trace --dry-run --build-graph --help"
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 3 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
                 return 0
             fi
             case "${prev}" in
-                --directory)
-                    COMPREPLY=($(compgen -f "${cur}"))
-                    return 0
-                    ;;
-                -C)
+                --manifest-path)
                     COMPREPLY=($(compgen -f "${cur}"))
                     return 0
                     ;;
@@ -772,17 +802,13 @@ _moon() {
             return 0
             ;;
         moon__coverage__report)
-            opts="-h -C -q -v --help --directory --target-dir --quiet --verbose --trace --dry-run --build-graph [args]..."
+            opts="-h -q -v --help --manifest-path --target-dir --quiet --verbose --trace --dry-run --build-graph [args]..."
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 3 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
                 return 0
             fi
             case "${prev}" in
-                --directory)
-                    COMPREPLY=($(compgen -f "${cur}"))
-                    return 0
-                    ;;
-                -C)
+                --manifest-path)
                     COMPREPLY=($(compgen -f "${cur}"))
                     return 0
                     ;;
@@ -798,7 +824,7 @@ _moon() {
             return 0
             ;;
         moon__doc)
-            opts="-b -p -C -q -v -h --serve --bind --port --frozen --directory --target-dir --quiet --verbose --trace --dry-run --build-graph --help [SYMBOL]"
+            opts="-b -p -q -v -h --serve --bind --port --frozen --manifest-path --target-dir --quiet --verbose --trace --dry-run --build-graph --help [SYMBOL]"
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 2 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
                 return 0
@@ -820,11 +846,7 @@ _moon() {
                     COMPREPLY=($(compgen -f "${cur}"))
                     return 0
                     ;;
-                --directory)
-                    COMPREPLY=($(compgen -f "${cur}"))
-                    return 0
-                    ;;
-                -C)
+                --manifest-path)
                     COMPREPLY=($(compgen -f "${cur}"))
                     return 0
                     ;;
@@ -840,17 +862,13 @@ _moon() {
             return 0
             ;;
         moon__fetch)
-            opts="-C -q -v -h --no-update --directory --target-dir --quiet --verbose --trace --dry-run --build-graph --help <PACKAGE_PATH>"
+            opts="-q -v -h --no-update --manifest-path --target-dir --quiet --verbose --trace --dry-run --build-graph --help <PACKAGE_PATH>"
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 2 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
                 return 0
             fi
             case "${prev}" in
-                --directory)
-                    COMPREPLY=($(compgen -f "${cur}"))
-                    return 0
-                    ;;
-                -C)
+                --manifest-path)
                     COMPREPLY=($(compgen -f "${cur}"))
                     return 0
                     ;;
@@ -866,7 +884,7 @@ _moon() {
             return 0
             ;;
         moon__fmt)
-            opts="-C -q -v -h --check --sort-input --block-style --warn --directory --target-dir --quiet --verbose --trace --dry-run --build-graph --help [PATH] [ARGS]..."
+            opts="-q -v -h --check --sort-input --block-style --warn --manifest-path --target-dir --quiet --verbose --trace --dry-run --build-graph --help [PATH] [ARGS]..."
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 2 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
                 return 0
@@ -876,11 +894,7 @@ _moon() {
                     COMPREPLY=($(compgen -W "false true" -- "${cur}"))
                     return 0
                     ;;
-                --directory)
-                    COMPREPLY=($(compgen -f "${cur}"))
-                    return 0
-                    ;;
-                -C)
+                --manifest-path)
                     COMPREPLY=($(compgen -f "${cur}"))
                     return 0
                     ;;
@@ -896,7 +910,7 @@ _moon() {
             return 0
             ;;
         moon__generate__build__matrix)
-            opts="-n -o -C -q -v -h --drow --dcol --mrow --mcol --output-dir --directory --target-dir --quiet --verbose --trace --dry-run --build-graph --help"
+            opts="-n -o -q -v -h --drow --dcol --mrow --mcol --output-dir --manifest-path --target-dir --quiet --verbose --trace --dry-run --build-graph --help"
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 2 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
                 return 0
@@ -930,11 +944,7 @@ _moon() {
                     COMPREPLY=($(compgen -f "${cur}"))
                     return 0
                     ;;
-                --directory)
-                    COMPREPLY=($(compgen -f "${cur}"))
-                    return 0
-                    ;;
-                -C)
+                --manifest-path)
                     COMPREPLY=($(compgen -f "${cur}"))
                     return 0
                     ;;
@@ -950,7 +960,7 @@ _moon() {
             return 0
             ;;
         moon__generate__test__driver)
-            opts="-C -q -v -h --doctest-only --output-driver --output-metadata --target --pkg-name --bench --enable-coverage --coverage-package-override --driver-kind --patch-file --max-concurrent-tests --directory --target-dir --quiet --verbose --trace --dry-run --build-graph --help [FILES]..."
+            opts="-q -v -h --doctest-only --output-driver --output-metadata --target --pkg-name --bench --enable-coverage --coverage-package-override --driver-kind --patch-file --max-concurrent-tests --manifest-path --target-dir --quiet --verbose --trace --dry-run --build-graph --help [FILES]..."
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 2 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
                 return 0
@@ -992,11 +1002,7 @@ _moon() {
                     COMPREPLY=($(compgen -f "${cur}"))
                     return 0
                     ;;
-                --directory)
-                    COMPREPLY=($(compgen -f "${cur}"))
-                    return 0
-                    ;;
-                -C)
+                --manifest-path)
                     COMPREPLY=($(compgen -f "${cur}"))
                     return 0
                     ;;
@@ -1012,7 +1018,7 @@ _moon() {
             return 0
             ;;
         moon__help)
-            opts="new bundle build check run test generate-test-driver clean fmt doc info bench add remove install tree fetch login register publish package update coverage generate-build-matrix query upgrade shell-completion version tool help"
+            opts="new bundle build check run test generate-test-driver clean fmt doc info bench add remove install tree fetch login register publish package update coverage generate-build-matrix query upgrade shell-completion version tool ide help"
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 2 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
                 return 0
@@ -1238,6 +1244,104 @@ _moon() {
         moon__help__help)
             opts=""
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 3 ]] ; then
+                COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+                return 0
+            fi
+            case "${prev}" in
+                *)
+                    COMPREPLY=()
+                    ;;
+            esac
+            COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+            return 0
+            ;;
+        moon__help__ide)
+            opts="peek-def find-references rename hover outline doc"
+            if [[ ${cur} == -* || ${COMP_CWORD} -eq 3 ]] ; then
+                COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+                return 0
+            fi
+            case "${prev}" in
+                *)
+                    COMPREPLY=()
+                    ;;
+            esac
+            COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+            return 0
+            ;;
+        moon__help__ide__doc)
+            opts=""
+            if [[ ${cur} == -* || ${COMP_CWORD} -eq 4 ]] ; then
+                COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+                return 0
+            fi
+            case "${prev}" in
+                *)
+                    COMPREPLY=()
+                    ;;
+            esac
+            COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+            return 0
+            ;;
+        moon__help__ide__find__references)
+            opts=""
+            if [[ ${cur} == -* || ${COMP_CWORD} -eq 4 ]] ; then
+                COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+                return 0
+            fi
+            case "${prev}" in
+                *)
+                    COMPREPLY=()
+                    ;;
+            esac
+            COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+            return 0
+            ;;
+        moon__help__ide__hover)
+            opts=""
+            if [[ ${cur} == -* || ${COMP_CWORD} -eq 4 ]] ; then
+                COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+                return 0
+            fi
+            case "${prev}" in
+                *)
+                    COMPREPLY=()
+                    ;;
+            esac
+            COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+            return 0
+            ;;
+        moon__help__ide__outline)
+            opts=""
+            if [[ ${cur} == -* || ${COMP_CWORD} -eq 4 ]] ; then
+                COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+                return 0
+            fi
+            case "${prev}" in
+                *)
+                    COMPREPLY=()
+                    ;;
+            esac
+            COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+            return 0
+            ;;
+        moon__help__ide__peek__def)
+            opts=""
+            if [[ ${cur} == -* || ${COMP_CWORD} -eq 4 ]] ; then
+                COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+                return 0
+            fi
+            case "${prev}" in
+                *)
+                    COMPREPLY=()
+                    ;;
+            esac
+            COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+            return 0
+            ;;
+        moon__help__ide__rename)
+            opts=""
+            if [[ ${cur} == -* || ${COMP_CWORD} -eq 4 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
                 return 0
             fi
@@ -1543,8 +1647,234 @@ _moon() {
             COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
             return 0
             ;;
+        moon__ide)
+            opts="-h --help peek-def find-references rename hover outline doc help"
+            if [[ ${cur} == -* || ${COMP_CWORD} -eq 2 ]] ; then
+                COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+                return 0
+            fi
+            case "${prev}" in
+                *)
+                    COMPREPLY=()
+                    ;;
+            esac
+            COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+            return 0
+            ;;
+        moon__ide__doc)
+            opts="-h --help"
+            if [[ ${cur} == -* || ${COMP_CWORD} -eq 3 ]] ; then
+                COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+                return 0
+            fi
+            case "${prev}" in
+                *)
+                    COMPREPLY=()
+                    ;;
+            esac
+            COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+            return 0
+            ;;
+        moon__ide__find__references)
+            opts="-h --loc --help"
+            if [[ ${cur} == -* || ${COMP_CWORD} -eq 3 ]] ; then
+                COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+                return 0
+            fi
+            case "${prev}" in
+                --loc)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                *)
+                    COMPREPLY=()
+                    ;;
+            esac
+            COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+            return 0
+            ;;
+        moon__ide__help)
+            opts="peek-def find-references rename hover outline doc help"
+            if [[ ${cur} == -* || ${COMP_CWORD} -eq 3 ]] ; then
+                COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+                return 0
+            fi
+            case "${prev}" in
+                *)
+                    COMPREPLY=()
+                    ;;
+            esac
+            COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+            return 0
+            ;;
+        moon__ide__help__doc)
+            opts=""
+            if [[ ${cur} == -* || ${COMP_CWORD} -eq 4 ]] ; then
+                COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+                return 0
+            fi
+            case "${prev}" in
+                *)
+                    COMPREPLY=()
+                    ;;
+            esac
+            COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+            return 0
+            ;;
+        moon__ide__help__find__references)
+            opts=""
+            if [[ ${cur} == -* || ${COMP_CWORD} -eq 4 ]] ; then
+                COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+                return 0
+            fi
+            case "${prev}" in
+                *)
+                    COMPREPLY=()
+                    ;;
+            esac
+            COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+            return 0
+            ;;
+        moon__ide__help__help)
+            opts=""
+            if [[ ${cur} == -* || ${COMP_CWORD} -eq 4 ]] ; then
+                COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+                return 0
+            fi
+            case "${prev}" in
+                *)
+                    COMPREPLY=()
+                    ;;
+            esac
+            COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+            return 0
+            ;;
+        moon__ide__help__hover)
+            opts=""
+            if [[ ${cur} == -* || ${COMP_CWORD} -eq 4 ]] ; then
+                COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+                return 0
+            fi
+            case "${prev}" in
+                *)
+                    COMPREPLY=()
+                    ;;
+            esac
+            COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+            return 0
+            ;;
+        moon__ide__help__outline)
+            opts=""
+            if [[ ${cur} == -* || ${COMP_CWORD} -eq 4 ]] ; then
+                COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+                return 0
+            fi
+            case "${prev}" in
+                *)
+                    COMPREPLY=()
+                    ;;
+            esac
+            COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+            return 0
+            ;;
+        moon__ide__help__peek__def)
+            opts=""
+            if [[ ${cur} == -* || ${COMP_CWORD} -eq 4 ]] ; then
+                COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+                return 0
+            fi
+            case "${prev}" in
+                *)
+                    COMPREPLY=()
+                    ;;
+            esac
+            COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+            return 0
+            ;;
+        moon__ide__help__rename)
+            opts=""
+            if [[ ${cur} == -* || ${COMP_CWORD} -eq 4 ]] ; then
+                COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+                return 0
+            fi
+            case "${prev}" in
+                *)
+                    COMPREPLY=()
+                    ;;
+            esac
+            COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+            return 0
+            ;;
+        moon__ide__hover)
+            opts="-h --loc --help"
+            if [[ ${cur} == -* || ${COMP_CWORD} -eq 3 ]] ; then
+                COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+                return 0
+            fi
+            case "${prev}" in
+                --loc)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                *)
+                    COMPREPLY=()
+                    ;;
+            esac
+            COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+            return 0
+            ;;
+        moon__ide__outline)
+            opts="-h --help"
+            if [[ ${cur} == -* || ${COMP_CWORD} -eq 3 ]] ; then
+                COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+                return 0
+            fi
+            case "${prev}" in
+                *)
+                    COMPREPLY=()
+                    ;;
+            esac
+            COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+            return 0
+            ;;
+        moon__ide__peek__def)
+            opts="-h --loc --help"
+            if [[ ${cur} == -* || ${COMP_CWORD} -eq 3 ]] ; then
+                COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+                return 0
+            fi
+            case "${prev}" in
+                --loc)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                *)
+                    COMPREPLY=()
+                    ;;
+            esac
+            COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+            return 0
+            ;;
+        moon__ide__rename)
+            opts="-h --loc --help"
+            if [[ ${cur} == -* || ${COMP_CWORD} -eq 3 ]] ; then
+                COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+                return 0
+            fi
+            case "${prev}" in
+                --loc)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                *)
+                    COMPREPLY=()
+                    ;;
+            esac
+            COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+            return 0
+            ;;
         moon__info)
-            opts="-p -C -q -v -h --frozen --no-alias --target --package --directory --target-dir --quiet --verbose --trace --dry-run --build-graph --help [PATH]"
+            opts="-p -q -v -h --frozen --no-alias --target --package --manifest-path --target-dir --quiet --verbose --trace --dry-run --build-graph --help [PATH]"
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 2 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
                 return 0
@@ -1562,11 +1892,7 @@ _moon() {
                     COMPREPLY=($(compgen -f "${cur}"))
                     return 0
                     ;;
-                --directory)
-                    COMPREPLY=($(compgen -f "${cur}"))
-                    return 0
-                    ;;
-                -C)
+                --manifest-path)
                     COMPREPLY=($(compgen -f "${cur}"))
                     return 0
                     ;;
@@ -1582,7 +1908,7 @@ _moon() {
             return 0
             ;;
         moon__install)
-            opts="-C -q -v -h --bin --path --directory --target-dir --quiet --verbose --trace --dry-run --build-graph --help [PACKAGE_PATH]"
+            opts="-q -v -h --bin --path --rev --branch --tag --manifest-path --target-dir --quiet --verbose --trace --dry-run --build-graph --help [PACKAGE_PATH] [PACKAGE_PATH_IN_REPO]"
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 2 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
                 return 0
@@ -1596,11 +1922,19 @@ _moon() {
                     COMPREPLY=($(compgen -f "${cur}"))
                     return 0
                     ;;
-                --directory)
+                --rev)
                     COMPREPLY=($(compgen -f "${cur}"))
                     return 0
                     ;;
-                -C)
+                --branch)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                --tag)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                --manifest-path)
                     COMPREPLY=($(compgen -f "${cur}"))
                     return 0
                     ;;
@@ -1616,17 +1950,13 @@ _moon() {
             return 0
             ;;
         moon__login)
-            opts="-C -q -v -h --directory --target-dir --quiet --verbose --trace --dry-run --build-graph --help"
+            opts="-q -v -h --manifest-path --target-dir --quiet --verbose --trace --dry-run --build-graph --help"
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 2 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
                 return 0
             fi
             case "${prev}" in
-                --directory)
-                    COMPREPLY=($(compgen -f "${cur}"))
-                    return 0
-                    ;;
-                -C)
+                --manifest-path)
                     COMPREPLY=($(compgen -f "${cur}"))
                     return 0
                     ;;
@@ -1642,7 +1972,7 @@ _moon() {
             return 0
             ;;
         moon__new)
-            opts="-C -q -v -h --user --name --directory --target-dir --quiet --verbose --trace --dry-run --build-graph --help <PATH>"
+            opts="-q -v -h --user --name --manifest-path --target-dir --quiet --verbose --trace --dry-run --build-graph --help <PATH>"
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 2 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
                 return 0
@@ -1656,11 +1986,7 @@ _moon() {
                     COMPREPLY=($(compgen -f "${cur}"))
                     return 0
                     ;;
-                --directory)
-                    COMPREPLY=($(compgen -f "${cur}"))
-                    return 0
-                    ;;
-                -C)
+                --manifest-path)
                     COMPREPLY=($(compgen -f "${cur}"))
                     return 0
                     ;;
@@ -1676,17 +2002,13 @@ _moon() {
             return 0
             ;;
         moon__package)
-            opts="-C -q -v -h --frozen --list --directory --target-dir --quiet --verbose --trace --dry-run --build-graph --help"
+            opts="-q -v -h --frozen --list --manifest-path --target-dir --quiet --verbose --trace --dry-run --build-graph --help"
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 2 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
                 return 0
             fi
             case "${prev}" in
-                --directory)
-                    COMPREPLY=($(compgen -f "${cur}"))
-                    return 0
-                    ;;
-                -C)
+                --manifest-path)
                     COMPREPLY=($(compgen -f "${cur}"))
                     return 0
                     ;;
@@ -1702,17 +2024,13 @@ _moon() {
             return 0
             ;;
         moon__publish)
-            opts="-C -q -v -h --frozen --directory --target-dir --quiet --verbose --trace --dry-run --build-graph --help"
+            opts="-q -v -h --frozen --manifest-path --target-dir --quiet --verbose --trace --dry-run --build-graph --help"
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 2 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
                 return 0
             fi
             case "${prev}" in
-                --directory)
-                    COMPREPLY=($(compgen -f "${cur}"))
-                    return 0
-                    ;;
-                -C)
+                --manifest-path)
                     COMPREPLY=($(compgen -f "${cur}"))
                     return 0
                     ;;
@@ -1728,7 +2046,7 @@ _moon() {
             return 0
             ;;
         moon__query)
-            opts="-g -d -j -C -q -v -h --std --nostd --debug --release --strip --no-strip --target --serial --enable-coverage --sort-input --output-wat --deny-warn --no-render --output-json --warn-list --alert-list --enable-value-tracing --jobs --render-no-loc --directory --target-dir --quiet --verbose --trace --dry-run --build-graph --help <MOD_NAME>"
+            opts="-g -d -j -q -v -h --std --nostd --debug --release --strip --no-strip --target --serial --enable-coverage --sort-input --output-wat --deny-warn --no-render --output-json --warn-list --alert-list --enable-value-tracing --jobs --render-no-loc --manifest-path --target-dir --quiet --verbose --trace --dry-run --build-graph --help <MOD_NAME>"
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 2 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
                 return 0
@@ -1758,11 +2076,7 @@ _moon() {
                     COMPREPLY=($(compgen -W "info warn error" -- "${cur}"))
                     return 0
                     ;;
-                --directory)
-                    COMPREPLY=($(compgen -f "${cur}"))
-                    return 0
-                    ;;
-                -C)
+                --manifest-path)
                     COMPREPLY=($(compgen -f "${cur}"))
                     return 0
                     ;;
@@ -1778,17 +2092,13 @@ _moon() {
             return 0
             ;;
         moon__register)
-            opts="-C -q -v -h --directory --target-dir --quiet --verbose --trace --dry-run --build-graph --help"
+            opts="-q -v -h --manifest-path --target-dir --quiet --verbose --trace --dry-run --build-graph --help"
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 2 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
                 return 0
             fi
             case "${prev}" in
-                --directory)
-                    COMPREPLY=($(compgen -f "${cur}"))
-                    return 0
-                    ;;
-                -C)
+                --manifest-path)
                     COMPREPLY=($(compgen -f "${cur}"))
                     return 0
                     ;;
@@ -1804,17 +2114,13 @@ _moon() {
             return 0
             ;;
         moon__remove)
-            opts="-C -q -v -h --directory --target-dir --quiet --verbose --trace --dry-run --build-graph --help <PACKAGE_PATH>"
+            opts="-q -v -h --manifest-path --target-dir --quiet --verbose --trace --dry-run --build-graph --help <PACKAGE_PATH>"
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 2 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
                 return 0
             fi
             case "${prev}" in
-                --directory)
-                    COMPREPLY=($(compgen -f "${cur}"))
-                    return 0
-                    ;;
-                -C)
+                --manifest-path)
                     COMPREPLY=($(compgen -f "${cur}"))
                     return 0
                     ;;
@@ -1830,7 +2136,7 @@ _moon() {
             return 0
             ;;
         moon__run)
-            opts="-g -d -j -C -q -v -h --std --nostd --debug --release --strip --no-strip --target --serial --enable-coverage --sort-input --output-wat --deny-warn --no-render --output-json --warn-list --alert-list --enable-value-tracing --jobs --render-no-loc --frozen --build-only --directory --target-dir --quiet --verbose --trace --dry-run --build-graph --help <PACKAGE_OR_MBT_FILE> [ARGS]..."
+            opts="-g -d -j -q -v -h --std --nostd --debug --release --strip --no-strip --target --serial --enable-coverage --sort-input --output-wat --deny-warn --no-render --output-json --warn-list --alert-list --enable-value-tracing --jobs --render-no-loc --frozen --build-only --manifest-path --target-dir --quiet --verbose --trace --dry-run --build-graph --help <PACKAGE_OR_MBT_FILE> [ARGS]..."
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 2 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
                 return 0
@@ -1860,11 +2166,7 @@ _moon() {
                     COMPREPLY=($(compgen -W "info warn error" -- "${cur}"))
                     return 0
                     ;;
-                --directory)
-                    COMPREPLY=($(compgen -f "${cur}"))
-                    return 0
-                    ;;
-                -C)
+                --manifest-path)
                     COMPREPLY=($(compgen -f "${cur}"))
                     return 0
                     ;;
@@ -1880,7 +2182,7 @@ _moon() {
             return 0
             ;;
         moon__shell__completion)
-            opts="-C -q -v -h --shell --directory --target-dir --quiet --verbose --trace --dry-run --build-graph --help"
+            opts="-q -v -h --shell --manifest-path --target-dir --quiet --verbose --trace --dry-run --build-graph --help"
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 2 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
                 return 0
@@ -1890,11 +2192,7 @@ _moon() {
                     COMPREPLY=($(compgen -W "bash elvish fish powershell zsh" -- "${cur}"))
                     return 0
                     ;;
-                --directory)
-                    COMPREPLY=($(compgen -f "${cur}"))
-                    return 0
-                    ;;
-                -C)
+                --manifest-path)
                     COMPREPLY=($(compgen -f "${cur}"))
                     return 0
                     ;;
@@ -1910,7 +2208,7 @@ _moon() {
             return 0
             ;;
         moon__test)
-            opts="-g -d -j -p -f -i -u -l -F -C -q -v -h --std --nostd --debug --release --strip --no-strip --target --serial --enable-coverage --sort-input --output-wat --deny-warn --no-render --output-json --warn-list --alert-list --enable-value-tracing --jobs --render-no-loc --package --file --index --doc-index --update --limit --frozen --build-only --no-parallelize --outline --test-failure-json --patch-file --doc --include-skipped --filter --directory --target-dir --quiet --verbose --trace --dry-run --build-graph --help [PATH]"
+            opts="-g -d -j -p -f -i -u -l -F -q -v -h --std --nostd --debug --release --strip --no-strip --target --serial --enable-coverage --sort-input --output-wat --deny-warn --no-render --output-json --warn-list --alert-list --enable-value-tracing --jobs --render-no-loc --package --file --index --doc-index --update --limit --frozen --build-only --no-parallelize --outline --test-failure-json --patch-file --doc --include-skipped --filter --manifest-path --target-dir --quiet --verbose --trace --dry-run --build-graph --help [PATH]"
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 2 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
                 return 0
@@ -1988,11 +2286,7 @@ _moon() {
                     COMPREPLY=($(compgen -f "${cur}"))
                     return 0
                     ;;
-                --directory)
-                    COMPREPLY=($(compgen -f "${cur}"))
-                    return 0
-                    ;;
-                -C)
+                --manifest-path)
                     COMPREPLY=($(compgen -f "${cur}"))
                     return 0
                     ;;
@@ -2008,17 +2302,13 @@ _moon() {
             return 0
             ;;
         moon__tool)
-            opts="-C -q -v -h --directory --target-dir --quiet --verbose --trace --dry-run --build-graph --help format-and-diff embed write-tcc-rsp-file build-binary-dep help"
+            opts="-q -v -h --manifest-path --target-dir --quiet --verbose --trace --dry-run --build-graph --help format-and-diff embed write-tcc-rsp-file build-binary-dep help"
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 2 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
                 return 0
             fi
             case "${prev}" in
-                --directory)
-                    COMPREPLY=($(compgen -f "${cur}"))
-                    return 0
-                    ;;
-                -C)
+                --manifest-path)
                     COMPREPLY=($(compgen -f "${cur}"))
                     return 0
                     ;;
@@ -2034,7 +2324,7 @@ _moon() {
             return 0
             ;;
         moon__tool__build__binary__dep)
-            opts="-C -q -v -h --all-pkgs --install-path --directory --target-dir --quiet --verbose --trace --dry-run --build-graph --help [PKG_NAMES]..."
+            opts="-q -v -h --all-pkgs --install-path --manifest-path --target-dir --quiet --verbose --trace --dry-run --build-graph --help [PKG_NAMES]..."
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 3 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
                 return 0
@@ -2044,11 +2334,7 @@ _moon() {
                     COMPREPLY=($(compgen -f "${cur}"))
                     return 0
                     ;;
-                --directory)
-                    COMPREPLY=($(compgen -f "${cur}"))
-                    return 0
-                    ;;
-                -C)
+                --manifest-path)
                     COMPREPLY=($(compgen -f "${cur}"))
                     return 0
                     ;;
@@ -2064,7 +2350,7 @@ _moon() {
             return 0
             ;;
         moon__tool__embed)
-            opts="-i -o -C -q -v -h --binary --text --input --output --name --timestamp --directory --target-dir --quiet --verbose --trace --dry-run --build-graph --help"
+            opts="-i -o -q -v -h --binary --text --input --output --name --timestamp --manifest-path --target-dir --quiet --verbose --trace --dry-run --build-graph --help"
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 3 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
                 return 0
@@ -2090,11 +2376,7 @@ _moon() {
                     COMPREPLY=($(compgen -f "${cur}"))
                     return 0
                     ;;
-                --directory)
-                    COMPREPLY=($(compgen -f "${cur}"))
-                    return 0
-                    ;;
-                -C)
+                --manifest-path)
                     COMPREPLY=($(compgen -f "${cur}"))
                     return 0
                     ;;
@@ -2110,7 +2392,7 @@ _moon() {
             return 0
             ;;
         moon__tool__format__and__diff)
-            opts="-C -q -v -h --old --new --block-style --warn --directory --target-dir --quiet --verbose --trace --dry-run --build-graph --help [ARGS]..."
+            opts="-q -v -h --old --new --block-style --warn --manifest-path --target-dir --quiet --verbose --trace --dry-run --build-graph --help [ARGS]..."
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 3 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
                 return 0
@@ -2124,11 +2406,7 @@ _moon() {
                     COMPREPLY=($(compgen -f "${cur}"))
                     return 0
                     ;;
-                --directory)
-                    COMPREPLY=($(compgen -f "${cur}"))
-                    return 0
-                    ;;
-                -C)
+                --manifest-path)
                     COMPREPLY=($(compgen -f "${cur}"))
                     return 0
                     ;;
@@ -2228,17 +2506,13 @@ _moon() {
             return 0
             ;;
         moon__tool__write__tcc__rsp__file)
-            opts="-C -q -v -h --directory --target-dir --quiet --verbose --trace --dry-run --build-graph --help <OUTPUT> [args]..."
+            opts="-q -v -h --manifest-path --target-dir --quiet --verbose --trace --dry-run --build-graph --help <OUTPUT> [args]..."
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 3 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
                 return 0
             fi
             case "${prev}" in
-                --directory)
-                    COMPREPLY=($(compgen -f "${cur}"))
-                    return 0
-                    ;;
-                -C)
+                --manifest-path)
                     COMPREPLY=($(compgen -f "${cur}"))
                     return 0
                     ;;
@@ -2254,17 +2528,13 @@ _moon() {
             return 0
             ;;
         moon__tree)
-            opts="-C -q -v -h --directory --target-dir --quiet --verbose --trace --dry-run --build-graph --help"
+            opts="-q -v -h --manifest-path --target-dir --quiet --verbose --trace --dry-run --build-graph --help"
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 2 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
                 return 0
             fi
             case "${prev}" in
-                --directory)
-                    COMPREPLY=($(compgen -f "${cur}"))
-                    return 0
-                    ;;
-                -C)
+                --manifest-path)
                     COMPREPLY=($(compgen -f "${cur}"))
                     return 0
                     ;;
@@ -2280,17 +2550,13 @@ _moon() {
             return 0
             ;;
         moon__update)
-            opts="-C -q -v -h --directory --target-dir --quiet --verbose --trace --dry-run --build-graph --help"
+            opts="-q -v -h --manifest-path --target-dir --quiet --verbose --trace --dry-run --build-graph --help"
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 2 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
                 return 0
             fi
             case "${prev}" in
-                --directory)
-                    COMPREPLY=($(compgen -f "${cur}"))
-                    return 0
-                    ;;
-                -C)
+                --manifest-path)
                     COMPREPLY=($(compgen -f "${cur}"))
                     return 0
                     ;;
@@ -2306,7 +2572,7 @@ _moon() {
             return 0
             ;;
         moon__upgrade)
-            opts="-f -C -q -v -h --force --dev --non-interactive --base-url --directory --target-dir --quiet --verbose --trace --dry-run --build-graph --help"
+            opts="-f -q -v -h --force --dev --non-interactive --base-url --manifest-path --target-dir --quiet --verbose --trace --dry-run --build-graph --help"
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 2 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
                 return 0
@@ -2316,11 +2582,7 @@ _moon() {
                     COMPREPLY=($(compgen -f "${cur}"))
                     return 0
                     ;;
-                --directory)
-                    COMPREPLY=($(compgen -f "${cur}"))
-                    return 0
-                    ;;
-                -C)
+                --manifest-path)
                     COMPREPLY=($(compgen -f "${cur}"))
                     return 0
                     ;;
@@ -2336,17 +2598,13 @@ _moon() {
             return 0
             ;;
         moon__version)
-            opts="-C -q -v -h --all --json --no-path --directory --target-dir --quiet --verbose --trace --dry-run --build-graph --help"
+            opts="-q -v -h --all --json --no-path --manifest-path --target-dir --quiet --verbose --trace --dry-run --build-graph --help"
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 2 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
                 return 0
             fi
             case "${prev}" in
-                --directory)
-                    COMPREPLY=($(compgen -f "${cur}"))
-                    return 0
-                    ;;
-                -C)
+                --manifest-path)
                     COMPREPLY=($(compgen -f "${cur}"))
                     return 0
                     ;;

@@ -15,9 +15,9 @@ _moon() {
 
     local context curcontext="$curcontext" state line
     _arguments "${_arguments_options[@]}" : /
-'-C+[The source code directory. Defaults to the current directory]:SOURCE_DIR:_files' /
-'--directory=[The source code directory. Defaults to the current directory]:SOURCE_DIR:_files' /
-'--target-dir=[The target directory. Defaults to /`source_dir/target/`]:TARGET_DIR:_files' /
+'-C+[Change to DIR before doing anything else (must appear before the subcommand). Relative paths in other options and arguments are interpreted relative to DIR. Example/: /`moon -C a run ./` runs the same as invoking /`moon run ./` from within /`a/`]:DIR:_files' /
+'--manifest-path=[Path to /`moon.mod.json/` to use as the project manifest (does not change the working directory)]:PATH:_files' /
+'--target-dir=[The target directory. Defaults to /`<project-root>/target/`]:TARGET_DIR:_files' /
 '-Z+[Unstable flags to MoonBuild]:UNSTABLE_FEATURE: ' /
 '--unstable-feature=[Unstable flags to MoonBuild]:UNSTABLE_FEATURE: ' /
 '-q[Suppress output]' /
@@ -42,9 +42,8 @@ _moon() {
 _arguments "${_arguments_options[@]}" : /
 '--user=[The username of the module. Default to the logged-in username]:USER: ' /
 '--name=[The name of the module. Default to the last part of the path]:NAME: ' /
-'-C+[The source code directory. Defaults to the current directory]:SOURCE_DIR:_files' /
-'--directory=[The source code directory. Defaults to the current directory]:SOURCE_DIR:_files' /
-'--target-dir=[The target directory. Defaults to /`source_dir/target/`]:TARGET_DIR:_files' /
+'--manifest-path=[Path to /`moon.mod.json/` to use as the project manifest (does not change the working directory)]:PATH:_files' /
+'--target-dir=[The target directory. Defaults to /`<project-root>/target/`]:TARGET_DIR:_files' /
 '-q[Suppress output]' /
 '--quiet[Suppress output]' /
 '-v[Increase verbosity]' /
@@ -65,9 +64,8 @@ _arguments "${_arguments_options[@]}" : /
 '-j+[Set the max number of jobs to run in parallel]:JOBS: ' /
 '--jobs=[Set the max number of jobs to run in parallel]:JOBS: ' /
 '--render-no-loc=[Render no-location diagnostics starting from a certain level]:MIN_LEVEL:(info warn error)' /
-'-C+[The source code directory. Defaults to the current directory]:SOURCE_DIR:_files' /
-'--directory=[The source code directory. Defaults to the current directory]:SOURCE_DIR:_files' /
-'--target-dir=[The target directory. Defaults to /`source_dir/target/`]:TARGET_DIR:_files' /
+'--manifest-path=[Path to /`moon.mod.json/` to use as the project manifest (does not change the working directory)]:PATH:_files' /
+'--target-dir=[The target directory. Defaults to /`<project-root>/target/`]:TARGET_DIR:_files' /
 '--std[Enable the standard library (default)]' /
 '--nostd[Disable the standard library]' /
 '-g[Emit debug information]' /
@@ -108,9 +106,8 @@ _arguments "${_arguments_options[@]}" : /
 '--install-path=[]:INSTALL_PATH:_files' /
 '--package=[]:PACKAGE: ' /
 '--bin-alias=[]:BIN_ALIAS: ' /
-'-C+[The source code directory. Defaults to the current directory]:SOURCE_DIR:_files' /
-'--directory=[The source code directory. Defaults to the current directory]:SOURCE_DIR:_files' /
-'--target-dir=[The target directory. Defaults to /`source_dir/target/`]:TARGET_DIR:_files' /
+'--manifest-path=[Path to /`moon.mod.json/` to use as the project manifest (does not change the working directory)]:PATH:_files' /
+'--target-dir=[The target directory. Defaults to /`<project-root>/target/`]:TARGET_DIR:_files' /
 '--std[Enable the standard library (default)]' /
 '--nostd[Disable the standard library]' /
 '-g[Emit debug information]' /
@@ -154,9 +151,8 @@ _arguments "${_arguments_options[@]}" : /
 '-p+[The package(and it'/''s deps) to check]:PACKAGE_PATH:_files' /
 '--package-path=[The package(and it'/''s deps) to check]:PACKAGE_PATH:_files' /
 '--patch-file=[The patch file to check, Only valid when checking specified package]:PATCH_FILE:_files' /
-'-C+[The source code directory. Defaults to the current directory]:SOURCE_DIR:_files' /
-'--directory=[The source code directory. Defaults to the current directory]:SOURCE_DIR:_files' /
-'--target-dir=[The target directory. Defaults to /`source_dir/target/`]:TARGET_DIR:_files' /
+'--manifest-path=[Path to /`moon.mod.json/` to use as the project manifest (does not change the working directory)]:PATH:_files' /
+'--target-dir=[The target directory. Defaults to /`<project-root>/target/`]:TARGET_DIR:_files' /
 '--std[Enable the standard library (default)]' /
 '--nostd[Disable the standard library]' /
 '-g[Emit debug information]' /
@@ -199,9 +195,8 @@ _arguments "${_arguments_options[@]}" : /
 '-j+[Set the max number of jobs to run in parallel]:JOBS: ' /
 '--jobs=[Set the max number of jobs to run in parallel]:JOBS: ' /
 '--render-no-loc=[Render no-location diagnostics starting from a certain level]:MIN_LEVEL:(info warn error)' /
-'-C+[The source code directory. Defaults to the current directory]:SOURCE_DIR:_files' /
-'--directory=[The source code directory. Defaults to the current directory]:SOURCE_DIR:_files' /
-'--target-dir=[The target directory. Defaults to /`source_dir/target/`]:TARGET_DIR:_files' /
+'--manifest-path=[Path to /`moon.mod.json/` to use as the project manifest (does not change the working directory)]:PATH:_files' /
+'--target-dir=[The target directory. Defaults to /`<project-root>/target/`]:TARGET_DIR:_files' /
 '--std[Enable the standard library (default)]' /
 '--nostd[Disable the standard library]' /
 '-g[Emit debug information]' /
@@ -253,9 +248,8 @@ _arguments "${_arguments_options[@]}" : /
 '(-u --update)--patch-file=[Path to the patch file]:PATCH_FILE:_files' /
 '-F+[Run only tests whose name matches the given glob pattern. Supports '/''*'/'' (matches any sequence) and '/''?'/'' (matches any single character)]:FILTER: ' /
 '--filter=[Run only tests whose name matches the given glob pattern. Supports '/''*'/'' (matches any sequence) and '/''?'/'' (matches any single character)]:FILTER: ' /
-'-C+[The source code directory. Defaults to the current directory]:SOURCE_DIR:_files' /
-'--directory=[The source code directory. Defaults to the current directory]:SOURCE_DIR:_files' /
-'--target-dir=[The target directory. Defaults to /`source_dir/target/`]:TARGET_DIR:_files' /
+'--manifest-path=[Path to /`moon.mod.json/` to use as the project manifest (does not change the working directory)]:PATH:_files' /
+'--target-dir=[The target directory. Defaults to /`<project-root>/target/`]:TARGET_DIR:_files' /
 '--std[Enable the standard library (default)]' /
 '--nostd[Disable the standard library]' /
 '-g[Emit debug information]' /
@@ -304,9 +298,8 @@ _arguments "${_arguments_options[@]}" : /
 '--driver-kind=[The test driver kind]:DRIVER_KIND:(internal whitebox blackbox)' /
 '--patch-file=[Path to the patch file]:PATCH_FILE:_files' /
 '--max-concurrent-tests=[Max concurrent tests for /`async test/`]:MAX_CONCURRENT_TESTS: ' /
-'-C+[The source code directory. Defaults to the current directory]:SOURCE_DIR:_files' /
-'--directory=[The source code directory. Defaults to the current directory]:SOURCE_DIR:_files' /
-'--target-dir=[The target directory. Defaults to /`source_dir/target/`]:TARGET_DIR:_files' /
+'--manifest-path=[Path to /`moon.mod.json/` to use as the project manifest (does not change the working directory)]:PATH:_files' /
+'--target-dir=[The target directory. Defaults to /`<project-root>/target/`]:TARGET_DIR:_files' /
 '--bench[Whether to generate the test driver in bench mode. Not providing this option will result in test mode]' /
 '--enable-coverage[Whether coverage is enabled in this build. Enabling it will insert coverage-custom code at the end of the test..]' /
 '-q[Suppress output]' /
@@ -323,9 +316,8 @@ _arguments "${_arguments_options[@]}" : /
 ;;
 (clean)
 _arguments "${_arguments_options[@]}" : /
-'-C+[The source code directory. Defaults to the current directory]:SOURCE_DIR:_files' /
-'--directory=[The source code directory. Defaults to the current directory]:SOURCE_DIR:_files' /
-'--target-dir=[The target directory. Defaults to /`source_dir/target/`]:TARGET_DIR:_files' /
+'--manifest-path=[Path to /`moon.mod.json/` to use as the project manifest (does not change the working directory)]:PATH:_files' /
+'--target-dir=[The target directory. Defaults to /`<project-root>/target/`]:TARGET_DIR:_files' /
 '-q[Suppress output]' /
 '--quiet[Suppress output]' /
 '-v[Increase verbosity]' /
@@ -340,9 +332,8 @@ _arguments "${_arguments_options[@]}" : /
 (fmt)
 _arguments "${_arguments_options[@]}" : /
 '--block-style=[Add separator between each segments]' /
-'-C+[The source code directory. Defaults to the current directory]:SOURCE_DIR:_files' /
-'--directory=[The source code directory. Defaults to the current directory]:SOURCE_DIR:_files' /
-'--target-dir=[The target directory. Defaults to /`source_dir/target/`]:TARGET_DIR:_files' /
+'--manifest-path=[Path to /`moon.mod.json/` to use as the project manifest (does not change the working directory)]:PATH:_files' /
+'--target-dir=[The target directory. Defaults to /`<project-root>/target/`]:TARGET_DIR:_files' /
 '--check[Check only and don'/''t change the source code]' /
 '--sort-input[Sort input files]' /
 '(--check)--warn[Warn if code is not properly formatted]' /
@@ -365,9 +356,8 @@ _arguments "${_arguments_options[@]}" : /
 '--bind=[The address of the server]:BIND: ' /
 '-p+[The port of the server]:PORT: ' /
 '--port=[The port of the server]:PORT: ' /
-'-C+[The source code directory. Defaults to the current directory]:SOURCE_DIR:_files' /
-'--directory=[The source code directory. Defaults to the current directory]:SOURCE_DIR:_files' /
-'--target-dir=[The target directory. Defaults to /`source_dir/target/`]:TARGET_DIR:_files' /
+'--manifest-path=[Path to /`moon.mod.json/` to use as the project manifest (does not change the working directory)]:PATH:_files' /
+'--target-dir=[The target directory. Defaults to /`<project-root>/target/`]:TARGET_DIR:_files' /
 '--serve[Start a web server to serve the documentation]' /
 '--frozen[Do not sync dependencies, assuming local dependencies are up-to-date]' /
 '-q[Suppress output]' /
@@ -387,9 +377,8 @@ _arguments "${_arguments_options[@]}" : /
 '*--target=[Select output target]:TARGET:(wasm wasm-gc js native llvm all)' /
 '-p+[The full or subset of name of the package to emit /`mbti/` files for]:PACKAGE: ' /
 '--package=[The full or subset of name of the package to emit /`mbti/` files for]:PACKAGE: ' /
-'-C+[The source code directory. Defaults to the current directory]:SOURCE_DIR:_files' /
-'--directory=[The source code directory. Defaults to the current directory]:SOURCE_DIR:_files' /
-'--target-dir=[The target directory. Defaults to /`source_dir/target/`]:TARGET_DIR:_files' /
+'--manifest-path=[Path to /`moon.mod.json/` to use as the project manifest (does not change the working directory)]:PATH:_files' /
+'--target-dir=[The target directory. Defaults to /`<project-root>/target/`]:TARGET_DIR:_files' /
 '--frozen[Do not sync dependencies, assuming local dependencies are up-to-date]' /
 '--no-alias[Do not use alias to shorten package names in the output]' /
 '-q[Suppress output]' /
@@ -418,9 +407,8 @@ _arguments "${_arguments_options[@]}" : /
 '--file=[Run test in the specified file. Only valid when /`--package/` is also specified]:FILE: ' /
 '-i+[Run only the index-th test in the file. Accepts a single index or a left-inclusive right-exclusive range like /`0-2/`. Only valid when /`--file/` is also specified]:INDEX: ' /
 '--index=[Run only the index-th test in the file. Accepts a single index or a left-inclusive right-exclusive range like /`0-2/`. Only valid when /`--file/` is also specified]:INDEX: ' /
-'-C+[The source code directory. Defaults to the current directory]:SOURCE_DIR:_files' /
-'--directory=[The source code directory. Defaults to the current directory]:SOURCE_DIR:_files' /
-'--target-dir=[The target directory. Defaults to /`source_dir/target/`]:TARGET_DIR:_files' /
+'--manifest-path=[Path to /`moon.mod.json/` to use as the project manifest (does not change the working directory)]:PATH:_files' /
+'--target-dir=[The target directory. Defaults to /`<project-root>/target/`]:TARGET_DIR:_files' /
 '--std[Enable the standard library (default)]' /
 '--nostd[Disable the standard library]' /
 '-g[Emit debug information]' /
@@ -453,9 +441,8 @@ _arguments "${_arguments_options[@]}" : /
 ;;
 (add)
 _arguments "${_arguments_options[@]}" : /
-'-C+[The source code directory. Defaults to the current directory]:SOURCE_DIR:_files' /
-'--directory=[The source code directory. Defaults to the current directory]:SOURCE_DIR:_files' /
-'--target-dir=[The target directory. Defaults to /`source_dir/target/`]:TARGET_DIR:_files' /
+'--manifest-path=[Path to /`moon.mod.json/` to use as the project manifest (does not change the working directory)]:PATH:_files' /
+'--target-dir=[The target directory. Defaults to /`<project-root>/target/`]:TARGET_DIR:_files' /
 '--bin[Whether to add the dependency as a binary]' /
 '--no-update[Do not update the registry index before adding the dependency]' /
 '-q[Suppress output]' /
@@ -472,9 +459,8 @@ _arguments "${_arguments_options[@]}" : /
 ;;
 (remove)
 _arguments "${_arguments_options[@]}" : /
-'-C+[The source code directory. Defaults to the current directory]:SOURCE_DIR:_files' /
-'--directory=[The source code directory. Defaults to the current directory]:SOURCE_DIR:_files' /
-'--target-dir=[The target directory. Defaults to /`source_dir/target/`]:TARGET_DIR:_files' /
+'--manifest-path=[Path to /`moon.mod.json/` to use as the project manifest (does not change the working directory)]:PATH:_files' /
+'--target-dir=[The target directory. Defaults to /`<project-root>/target/`]:TARGET_DIR:_files' /
 '-q[Suppress output]' /
 '--quiet[Suppress output]' /
 '-v[Increase verbosity]' /
@@ -490,10 +476,12 @@ _arguments "${_arguments_options[@]}" : /
 (install)
 _arguments "${_arguments_options[@]}" : /
 '--bin=[Specify installation directory (default/: ~/.moon/bin/)]:BIN:_files' /
-'()--path=[Install from local path instead of registry]:PATH:_files' /
-'-C+[The source code directory. Defaults to the current directory]:SOURCE_DIR:_files' /
-'--directory=[The source code directory. Defaults to the current directory]:SOURCE_DIR:_files' /
-'--target-dir=[The target directory. Defaults to /`source_dir/target/`]:TARGET_DIR:_files' /
+'(--rev --branch --tag)--path=[Install from local path instead of registry]:PATH:_files' /
+'--rev=[Git revision to checkout (commit hash, requires git URL)]:REV: ' /
+'--branch=[Git branch to checkout (requires git URL)]:BRANCH: ' /
+'--tag=[Git tag to checkout (requires git URL)]:TAG: ' /
+'--manifest-path=[Path to /`moon.mod.json/` to use as the project manifest (does not change the working directory)]:PATH:_files' /
+'--target-dir=[The target directory. Defaults to /`<project-root>/target/`]:TARGET_DIR:_files' /
 '-q[Suppress output]' /
 '--quiet[Suppress output]' /
 '-v[Increase verbosity]' /
@@ -503,14 +491,14 @@ _arguments "${_arguments_options[@]}" : /
 '(--dry-run)--build-graph[]' /
 '-h[Print help]' /
 '--help[Print help]' /
-'::package_path -- Package path to install (e.g., user/pkg/main or user/pkg/cmd/...) Supports @version suffix (e.g., user/pkg/main@1.0.0) If not provided, falls back to legacy behavior (install project dependencies):' /
+'::package_path -- Package path to install (e.g., user/pkg/main or user/pkg/cmd/...) Supports @version suffix (e.g., user/pkg/main@1.0.0) Git URLs are auto-detected (any URL format git supports) Local paths are auto-detected/: ./, ../, / (Unix), or drive letter (Windows) If not provided, falls back to legacy behavior (install project dependencies):' /
+'::package_path_in_repo -- Package path within a git repository (e.g., src/main or cmd/...) Only used with git URLs. Supports /... suffix for wildcard matching:' /
 && ret=0
 ;;
 (tree)
 _arguments "${_arguments_options[@]}" : /
-'-C+[The source code directory. Defaults to the current directory]:SOURCE_DIR:_files' /
-'--directory=[The source code directory. Defaults to the current directory]:SOURCE_DIR:_files' /
-'--target-dir=[The target directory. Defaults to /`source_dir/target/`]:TARGET_DIR:_files' /
+'--manifest-path=[Path to /`moon.mod.json/` to use as the project manifest (does not change the working directory)]:PATH:_files' /
+'--target-dir=[The target directory. Defaults to /`<project-root>/target/`]:TARGET_DIR:_files' /
 '-q[Suppress output]' /
 '--quiet[Suppress output]' /
 '-v[Increase verbosity]' /
@@ -524,9 +512,8 @@ _arguments "${_arguments_options[@]}" : /
 ;;
 (fetch)
 _arguments "${_arguments_options[@]}" : /
-'-C+[The source code directory. Defaults to the current directory]:SOURCE_DIR:_files' /
-'--directory=[The source code directory. Defaults to the current directory]:SOURCE_DIR:_files' /
-'--target-dir=[The target directory. Defaults to /`source_dir/target/`]:TARGET_DIR:_files' /
+'--manifest-path=[Path to /`moon.mod.json/` to use as the project manifest (does not change the working directory)]:PATH:_files' /
+'--target-dir=[The target directory. Defaults to /`<project-root>/target/`]:TARGET_DIR:_files' /
 '--no-update[Do not update the registry index before fetching]' /
 '-q[Suppress output]' /
 '--quiet[Suppress output]' /
@@ -542,9 +529,8 @@ _arguments "${_arguments_options[@]}" : /
 ;;
 (login)
 _arguments "${_arguments_options[@]}" : /
-'-C+[The source code directory. Defaults to the current directory]:SOURCE_DIR:_files' /
-'--directory=[The source code directory. Defaults to the current directory]:SOURCE_DIR:_files' /
-'--target-dir=[The target directory. Defaults to /`source_dir/target/`]:TARGET_DIR:_files' /
+'--manifest-path=[Path to /`moon.mod.json/` to use as the project manifest (does not change the working directory)]:PATH:_files' /
+'--target-dir=[The target directory. Defaults to /`<project-root>/target/`]:TARGET_DIR:_files' /
 '-q[Suppress output]' /
 '--quiet[Suppress output]' /
 '-v[Increase verbosity]' /
@@ -558,9 +544,8 @@ _arguments "${_arguments_options[@]}" : /
 ;;
 (register)
 _arguments "${_arguments_options[@]}" : /
-'-C+[The source code directory. Defaults to the current directory]:SOURCE_DIR:_files' /
-'--directory=[The source code directory. Defaults to the current directory]:SOURCE_DIR:_files' /
-'--target-dir=[The target directory. Defaults to /`source_dir/target/`]:TARGET_DIR:_files' /
+'--manifest-path=[Path to /`moon.mod.json/` to use as the project manifest (does not change the working directory)]:PATH:_files' /
+'--target-dir=[The target directory. Defaults to /`<project-root>/target/`]:TARGET_DIR:_files' /
 '-q[Suppress output]' /
 '--quiet[Suppress output]' /
 '-v[Increase verbosity]' /
@@ -574,9 +559,8 @@ _arguments "${_arguments_options[@]}" : /
 ;;
 (publish)
 _arguments "${_arguments_options[@]}" : /
-'-C+[The source code directory. Defaults to the current directory]:SOURCE_DIR:_files' /
-'--directory=[The source code directory. Defaults to the current directory]:SOURCE_DIR:_files' /
-'--target-dir=[The target directory. Defaults to /`source_dir/target/`]:TARGET_DIR:_files' /
+'--manifest-path=[Path to /`moon.mod.json/` to use as the project manifest (does not change the working directory)]:PATH:_files' /
+'--target-dir=[The target directory. Defaults to /`<project-root>/target/`]:TARGET_DIR:_files' /
 '--frozen[Do not sync dependencies, assuming local dependencies are up-to-date]' /
 '-q[Suppress output]' /
 '--quiet[Suppress output]' /
@@ -591,9 +575,8 @@ _arguments "${_arguments_options[@]}" : /
 ;;
 (package)
 _arguments "${_arguments_options[@]}" : /
-'-C+[The source code directory. Defaults to the current directory]:SOURCE_DIR:_files' /
-'--directory=[The source code directory. Defaults to the current directory]:SOURCE_DIR:_files' /
-'--target-dir=[The target directory. Defaults to /`source_dir/target/`]:TARGET_DIR:_files' /
+'--manifest-path=[Path to /`moon.mod.json/` to use as the project manifest (does not change the working directory)]:PATH:_files' /
+'--target-dir=[The target directory. Defaults to /`<project-root>/target/`]:TARGET_DIR:_files' /
 '--frozen[Do not sync dependencies, assuming local dependencies are up-to-date]' /
 '--list[]' /
 '-q[Suppress output]' /
@@ -609,9 +592,8 @@ _arguments "${_arguments_options[@]}" : /
 ;;
 (update)
 _arguments "${_arguments_options[@]}" : /
-'-C+[The source code directory. Defaults to the current directory]:SOURCE_DIR:_files' /
-'--directory=[The source code directory. Defaults to the current directory]:SOURCE_DIR:_files' /
-'--target-dir=[The target directory. Defaults to /`source_dir/target/`]:TARGET_DIR:_files' /
+'--manifest-path=[Path to /`moon.mod.json/` to use as the project manifest (does not change the working directory)]:PATH:_files' /
+'--target-dir=[The target directory. Defaults to /`<project-root>/target/`]:TARGET_DIR:_files' /
 '-q[Suppress output]' /
 '--quiet[Suppress output]' /
 '-v[Increase verbosity]' /
@@ -625,9 +607,8 @@ _arguments "${_arguments_options[@]}" : /
 ;;
 (coverage)
 _arguments "${_arguments_options[@]}" : /
-'-C+[The source code directory. Defaults to the current directory]:SOURCE_DIR:_files' /
-'--directory=[The source code directory. Defaults to the current directory]:SOURCE_DIR:_files' /
-'--target-dir=[The target directory. Defaults to /`source_dir/target/`]:TARGET_DIR:_files' /
+'--manifest-path=[Path to /`moon.mod.json/` to use as the project manifest (does not change the working directory)]:PATH:_files' /
+'--target-dir=[The target directory. Defaults to /`<project-root>/target/`]:TARGET_DIR:_files' /
 '-q[Suppress output]' /
 '--quiet[Suppress output]' /
 '-v[Increase verbosity]' /
@@ -653,9 +634,8 @@ _arguments "${_arguments_options[@]}" : /
 '--package=[Analyze coverage for a specific package]:PACKAGE: ' /
 '*-t+[Extra flags passed directly to /`moon test/`]:TEST_FLAG: ' /
 '*--test-flag=[Extra flags passed directly to /`moon test/`]:TEST_FLAG: ' /
-'-C+[The source code directory. Defaults to the current directory]:SOURCE_DIR:_files' /
-'--directory=[The source code directory. Defaults to the current directory]:SOURCE_DIR:_files' /
-'--target-dir=[The target directory. Defaults to /`source_dir/target/`]:TARGET_DIR:_files' /
+'--manifest-path=[Path to /`moon.mod.json/` to use as the project manifest (does not change the working directory)]:PATH:_files' /
+'--target-dir=[The target directory. Defaults to /`<project-root>/target/`]:TARGET_DIR:_files' /
 '-q[Suppress output]' /
 '--quiet[Suppress output]' /
 '-v[Increase verbosity]' /
@@ -670,9 +650,8 @@ _arguments "${_arguments_options[@]}" : /
 ;;
 (report)
 _arguments "${_arguments_options[@]}" : /
-'-C+[The source code directory. Defaults to the current directory]:SOURCE_DIR:_files' /
-'--directory=[The source code directory. Defaults to the current directory]:SOURCE_DIR:_files' /
-'--target-dir=[The target directory. Defaults to /`source_dir/target/`]:TARGET_DIR:_files' /
+'--manifest-path=[Path to /`moon.mod.json/` to use as the project manifest (does not change the working directory)]:PATH:_files' /
+'--target-dir=[The target directory. Defaults to /`<project-root>/target/`]:TARGET_DIR:_files' /
 '-h[Show help for the coverage utility]' /
 '--help[Show help for the coverage utility]' /
 '-q[Suppress output]' /
@@ -687,9 +666,8 @@ _arguments "${_arguments_options[@]}" : /
 ;;
 (clean)
 _arguments "${_arguments_options[@]}" : /
-'-C+[The source code directory. Defaults to the current directory]:SOURCE_DIR:_files' /
-'--directory=[The source code directory. Defaults to the current directory]:SOURCE_DIR:_files' /
-'--target-dir=[The target directory. Defaults to /`source_dir/target/`]:TARGET_DIR:_files' /
+'--manifest-path=[Path to /`moon.mod.json/` to use as the project manifest (does not change the working directory)]:PATH:_files' /
+'--target-dir=[The target directory. Defaults to /`<project-root>/target/`]:TARGET_DIR:_files' /
 '-q[Suppress output]' /
 '--quiet[Suppress output]' /
 '-v[Increase verbosity]' /
@@ -746,9 +724,8 @@ _arguments "${_arguments_options[@]}" : /
 '--mcol=[Number of module columns]:MOD_COLS: ' /
 '-o+[The output directory]:OUT_DIR:_files' /
 '--output-dir=[The output directory]:OUT_DIR:_files' /
-'-C+[The source code directory. Defaults to the current directory]:SOURCE_DIR:_files' /
-'--directory=[The source code directory. Defaults to the current directory]:SOURCE_DIR:_files' /
-'--target-dir=[The target directory. Defaults to /`source_dir/target/`]:TARGET_DIR:_files' /
+'--manifest-path=[Path to /`moon.mod.json/` to use as the project manifest (does not change the working directory)]:PATH:_files' /
+'--target-dir=[The target directory. Defaults to /`<project-root>/target/`]:TARGET_DIR:_files' /
 '-q[Suppress output]' /
 '--quiet[Suppress output]' /
 '-v[Increase verbosity]' /
@@ -768,9 +745,8 @@ _arguments "${_arguments_options[@]}" : /
 '-j+[Set the max number of jobs to run in parallel]:JOBS: ' /
 '--jobs=[Set the max number of jobs to run in parallel]:JOBS: ' /
 '--render-no-loc=[Render no-location diagnostics starting from a certain level]:MIN_LEVEL:(info warn error)' /
-'-C+[The source code directory. Defaults to the current directory]:SOURCE_DIR:_files' /
-'--directory=[The source code directory. Defaults to the current directory]:SOURCE_DIR:_files' /
-'--target-dir=[The target directory. Defaults to /`source_dir/target/`]:TARGET_DIR:_files' /
+'--manifest-path=[Path to /`moon.mod.json/` to use as the project manifest (does not change the working directory)]:PATH:_files' /
+'--target-dir=[The target directory. Defaults to /`<project-root>/target/`]:TARGET_DIR:_files' /
 '--std[Enable the standard library (default)]' /
 '--nostd[Disable the standard library]' /
 '-g[Emit debug information]' /
@@ -802,9 +778,8 @@ _arguments "${_arguments_options[@]}" : /
 (upgrade)
 _arguments "${_arguments_options[@]}" : /
 '--base-url=[]:BASE_URL: ' /
-'-C+[The source code directory. Defaults to the current directory]:SOURCE_DIR:_files' /
-'--directory=[The source code directory. Defaults to the current directory]:SOURCE_DIR:_files' /
-'--target-dir=[The target directory. Defaults to /`source_dir/target/`]:TARGET_DIR:_files' /
+'--manifest-path=[Path to /`moon.mod.json/` to use as the project manifest (does not change the working directory)]:PATH:_files' /
+'--target-dir=[The target directory. Defaults to /`<project-root>/target/`]:TARGET_DIR:_files' /
 '-f[Force upgrade]' /
 '--force[Force upgrade]' /
 '--dev[Install the latest development version]' /
@@ -823,9 +798,8 @@ _arguments "${_arguments_options[@]}" : /
 (shell-completion)
 _arguments "${_arguments_options[@]}" : /
 '--shell=[The shell to generate completion for]:SHELL:(bash elvish fish powershell zsh)' /
-'-C+[The source code directory. Defaults to the current directory]:SOURCE_DIR:_files' /
-'--directory=[The source code directory. Defaults to the current directory]:SOURCE_DIR:_files' /
-'--target-dir=[The target directory. Defaults to /`source_dir/target/`]:TARGET_DIR:_files' /
+'--manifest-path=[Path to /`moon.mod.json/` to use as the project manifest (does not change the working directory)]:PATH:_files' /
+'--target-dir=[The target directory. Defaults to /`<project-root>/target/`]:TARGET_DIR:_files' /
 '-q[Suppress output]' /
 '--quiet[Suppress output]' /
 '-v[Increase verbosity]' /
@@ -839,9 +813,8 @@ _arguments "${_arguments_options[@]}" : /
 ;;
 (version)
 _arguments "${_arguments_options[@]}" : /
-'-C+[The source code directory. Defaults to the current directory]:SOURCE_DIR:_files' /
-'--directory=[The source code directory. Defaults to the current directory]:SOURCE_DIR:_files' /
-'--target-dir=[The target directory. Defaults to /`source_dir/target/`]:TARGET_DIR:_files' /
+'--manifest-path=[Path to /`moon.mod.json/` to use as the project manifest (does not change the working directory)]:PATH:_files' /
+'--target-dir=[The target directory. Defaults to /`<project-root>/target/`]:TARGET_DIR:_files' /
 '--all[Print all version information]' /
 '--json[Print version information in JSON format]' /
 '--no-path[Do not print the path]' /
@@ -858,9 +831,8 @@ _arguments "${_arguments_options[@]}" : /
 ;;
 (tool)
 _arguments "${_arguments_options[@]}" : /
-'-C+[The source code directory. Defaults to the current directory]:SOURCE_DIR:_files' /
-'--directory=[The source code directory. Defaults to the current directory]:SOURCE_DIR:_files' /
-'--target-dir=[The target directory. Defaults to /`source_dir/target/`]:TARGET_DIR:_files' /
+'--manifest-path=[Path to /`moon.mod.json/` to use as the project manifest (does not change the working directory)]:PATH:_files' /
+'--target-dir=[The target directory. Defaults to /`<project-root>/target/`]:TARGET_DIR:_files' /
 '-q[Suppress output]' /
 '--quiet[Suppress output]' /
 '-v[Increase verbosity]' /
@@ -884,9 +856,8 @@ _arguments "${_arguments_options[@]}" : /
 _arguments "${_arguments_options[@]}" : /
 '--old=[The source path of the code which needs to be formatted]:OLD:_files' /
 '--new=[The target path of the formatted code]:NEW:_files' /
-'-C+[The source code directory. Defaults to the current directory]:SOURCE_DIR:_files' /
-'--directory=[The source code directory. Defaults to the current directory]:SOURCE_DIR:_files' /
-'--target-dir=[The target directory. Defaults to /`source_dir/target/`]:TARGET_DIR:_files' /
+'--manifest-path=[Path to /`moon.mod.json/` to use as the project manifest (does not change the working directory)]:PATH:_files' /
+'--target-dir=[The target directory. Defaults to /`<project-root>/target/`]:TARGET_DIR:_files' /
 '--block-style[Add separator between each segments]' /
 '--warn[Warn instead of showing differences]' /
 '-q[Suppress output]' /
@@ -908,9 +879,8 @@ _arguments "${_arguments_options[@]}" : /
 '-o+[]:OUTPUT:_files' /
 '--output=[]:OUTPUT:_files' /
 '--name=[]:NAME: ' /
-'-C+[The source code directory. Defaults to the current directory]:SOURCE_DIR:_files' /
-'--directory=[The source code directory. Defaults to the current directory]:SOURCE_DIR:_files' /
-'--target-dir=[The target directory. Defaults to /`source_dir/target/`]:TARGET_DIR:_files' /
+'--manifest-path=[Path to /`moon.mod.json/` to use as the project manifest (does not change the working directory)]:PATH:_files' /
+'--target-dir=[The target directory. Defaults to /`<project-root>/target/`]:TARGET_DIR:_files' /
 '(--text)--binary[]' /
 '(--binary)--text[]' /
 '--timestamp[]' /
@@ -927,9 +897,8 @@ _arguments "${_arguments_options[@]}" : /
 ;;
 (write-tcc-rsp-file)
 _arguments "${_arguments_options[@]}" : /
-'-C+[The source code directory. Defaults to the current directory]:SOURCE_DIR:_files' /
-'--directory=[The source code directory. Defaults to the current directory]:SOURCE_DIR:_files' /
-'--target-dir=[The target directory. Defaults to /`source_dir/target/`]:TARGET_DIR:_files' /
+'--manifest-path=[Path to /`moon.mod.json/` to use as the project manifest (does not change the working directory)]:PATH:_files' /
+'--target-dir=[The target directory. Defaults to /`<project-root>/target/`]:TARGET_DIR:_files' /
 '-q[Suppress output]' /
 '--quiet[Suppress output]' /
 '-v[Increase verbosity]' /
@@ -946,9 +915,8 @@ _arguments "${_arguments_options[@]}" : /
 (build-binary-dep)
 _arguments "${_arguments_options[@]}" : /
 '--install-path=[The parent directory where the binary module is installed to]:INSTALL_PATH:_files' /
-'-C+[The source code directory. Defaults to the current directory]:SOURCE_DIR:_files' /
-'--directory=[The source code directory. Defaults to the current directory]:SOURCE_DIR:_files' /
-'--target-dir=[The target directory. Defaults to /`source_dir/target/`]:TARGET_DIR:_files' /
+'--manifest-path=[Path to /`moon.mod.json/` to use as the project manifest (does not change the working directory)]:PATH:_files' /
+'--target-dir=[The target directory. Defaults to /`<project-root>/target/`]:TARGET_DIR:_files' /
 '()--all-pkgs[Whether to build and install all binary packages in the module]' /
 '-q[Suppress output]' /
 '--quiet[Suppress output]' /
@@ -987,6 +955,108 @@ _arguments "${_arguments_options[@]}" : /
 && ret=0
 ;;
 (build-binary-dep)
+_arguments "${_arguments_options[@]}" : /
+&& ret=0
+;;
+(help)
+_arguments "${_arguments_options[@]}" : /
+&& ret=0
+;;
+        esac
+    ;;
+esac
+;;
+        esac
+    ;;
+esac
+;;
+(ide)
+_arguments "${_arguments_options[@]}" : /
+'-h[Print help]' /
+'--help[Print help]' /
+":: :_moon__ide_commands" /
+"*::: :->ide" /
+&& ret=0
+
+    case $state in
+    (ide)
+        words=($line[1] "${words[@]}")
+        (( CURRENT += 1 ))
+        curcontext="${curcontext%:*:*}:moon-ide-command-$line[1]:"
+        case $line[1] in
+            (peek-def)
+_arguments "${_arguments_options[@]}" : /
+'--loc=[]:LOC: ' /
+'-h[Print help]' /
+'--help[Print help]' /
+&& ret=0
+;;
+(find-references)
+_arguments "${_arguments_options[@]}" : /
+'--loc=[]:LOC: ' /
+'-h[Print help]' /
+'--help[Print help]' /
+&& ret=0
+;;
+(rename)
+_arguments "${_arguments_options[@]}" : /
+'--loc=[]:LOC: ' /
+'-h[Print help]' /
+'--help[Print help]' /
+&& ret=0
+;;
+(hover)
+_arguments "${_arguments_options[@]}" : /
+'--loc=[]:LOC: ' /
+'-h[Print help]' /
+'--help[Print help]' /
+&& ret=0
+;;
+(outline)
+_arguments "${_arguments_options[@]}" : /
+'-h[Print help]' /
+'--help[Print help]' /
+&& ret=0
+;;
+(doc)
+_arguments "${_arguments_options[@]}" : /
+'-h[Print help]' /
+'--help[Print help]' /
+&& ret=0
+;;
+(help)
+_arguments "${_arguments_options[@]}" : /
+":: :_moon__ide__help_commands" /
+"*::: :->help" /
+&& ret=0
+
+    case $state in
+    (help)
+        words=($line[1] "${words[@]}")
+        (( CURRENT += 1 ))
+        curcontext="${curcontext%:*:*}:moon-ide-help-command-$line[1]:"
+        case $line[1] in
+            (peek-def)
+_arguments "${_arguments_options[@]}" : /
+&& ret=0
+;;
+(find-references)
+_arguments "${_arguments_options[@]}" : /
+&& ret=0
+;;
+(rename)
+_arguments "${_arguments_options[@]}" : /
+&& ret=0
+;;
+(hover)
+_arguments "${_arguments_options[@]}" : /
+&& ret=0
+;;
+(outline)
+_arguments "${_arguments_options[@]}" : /
+&& ret=0
+;;
+(doc)
 _arguments "${_arguments_options[@]}" : /
 && ret=0
 ;;
@@ -1182,6 +1252,46 @@ _arguments "${_arguments_options[@]}" : /
     ;;
 esac
 ;;
+(ide)
+_arguments "${_arguments_options[@]}" : /
+":: :_moon__help__ide_commands" /
+"*::: :->ide" /
+&& ret=0
+
+    case $state in
+    (ide)
+        words=($line[1] "${words[@]}")
+        (( CURRENT += 1 ))
+        curcontext="${curcontext%:*:*}:moon-help-ide-command-$line[1]:"
+        case $line[1] in
+            (peek-def)
+_arguments "${_arguments_options[@]}" : /
+&& ret=0
+;;
+(find-references)
+_arguments "${_arguments_options[@]}" : /
+&& ret=0
+;;
+(rename)
+_arguments "${_arguments_options[@]}" : /
+&& ret=0
+;;
+(hover)
+_arguments "${_arguments_options[@]}" : /
+&& ret=0
+;;
+(outline)
+_arguments "${_arguments_options[@]}" : /
+&& ret=0
+;;
+(doc)
+_arguments "${_arguments_options[@]}" : /
+&& ret=0
+;;
+        esac
+    ;;
+esac
+;;
 (help)
 _arguments "${_arguments_options[@]}" : /
 && ret=0
@@ -1227,6 +1337,7 @@ _moon_commands() {
 'shell-completion:Generate shell completion for bash/elvish/fish/pwsh/zsh to stdout' /
 'version:Print version information and exit' /
 'tool:' /
+'ide:IDE utilities' /
 'help:Print this message or the help of the given subcommand(s)' /
     )
     _describe -t commands 'moon commands' commands "$@"
@@ -1373,6 +1484,7 @@ _moon__help_commands() {
 'shell-completion:Generate shell completion for bash/elvish/fish/pwsh/zsh to stdout' /
 'version:Print version information and exit' /
 'tool:' /
+'ide:IDE utilities' /
 'help:Print this message or the help of the given subcommand(s)' /
     )
     _describe -t commands 'moon help commands' commands "$@"
@@ -1460,6 +1572,48 @@ _moon__help__generate-test-driver_commands() {
 _moon__help__help_commands() {
     local commands; commands=()
     _describe -t commands 'moon help help commands' commands "$@"
+}
+(( $+functions[_moon__help__ide_commands] )) ||
+_moon__help__ide_commands() {
+    local commands; commands=(
+'peek-def:Peek Definition of a symbol' /
+'find-references:Find references of a symbol' /
+'rename:Rename a symbol' /
+'hover:Show hover information of a symbol' /
+'outline:Show outline of specified path' /
+'doc:Show documentation of a symbol' /
+    )
+    _describe -t commands 'moon help ide commands' commands "$@"
+}
+(( $+functions[_moon__help__ide__doc_commands] )) ||
+_moon__help__ide__doc_commands() {
+    local commands; commands=()
+    _describe -t commands 'moon help ide doc commands' commands "$@"
+}
+(( $+functions[_moon__help__ide__find-references_commands] )) ||
+_moon__help__ide__find-references_commands() {
+    local commands; commands=()
+    _describe -t commands 'moon help ide find-references commands' commands "$@"
+}
+(( $+functions[_moon__help__ide__hover_commands] )) ||
+_moon__help__ide__hover_commands() {
+    local commands; commands=()
+    _describe -t commands 'moon help ide hover commands' commands "$@"
+}
+(( $+functions[_moon__help__ide__outline_commands] )) ||
+_moon__help__ide__outline_commands() {
+    local commands; commands=()
+    _describe -t commands 'moon help ide outline commands' commands "$@"
+}
+(( $+functions[_moon__help__ide__peek-def_commands] )) ||
+_moon__help__ide__peek-def_commands() {
+    local commands; commands=()
+    _describe -t commands 'moon help ide peek-def commands' commands "$@"
+}
+(( $+functions[_moon__help__ide__rename_commands] )) ||
+_moon__help__ide__rename_commands() {
+    local commands; commands=()
+    _describe -t commands 'moon help ide rename commands' commands "$@"
 }
 (( $+functions[_moon__help__info_commands] )) ||
 _moon__help__info_commands() {
@@ -1570,6 +1724,97 @@ _moon__help__upgrade_commands() {
 _moon__help__version_commands() {
     local commands; commands=()
     _describe -t commands 'moon help version commands' commands "$@"
+}
+(( $+functions[_moon__ide_commands] )) ||
+_moon__ide_commands() {
+    local commands; commands=(
+'peek-def:Peek Definition of a symbol' /
+'find-references:Find references of a symbol' /
+'rename:Rename a symbol' /
+'hover:Show hover information of a symbol' /
+'outline:Show outline of specified path' /
+'doc:Show documentation of a symbol' /
+'help:Print this message or the help of the given subcommand(s)' /
+    )
+    _describe -t commands 'moon ide commands' commands "$@"
+}
+(( $+functions[_moon__ide__doc_commands] )) ||
+_moon__ide__doc_commands() {
+    local commands; commands=()
+    _describe -t commands 'moon ide doc commands' commands "$@"
+}
+(( $+functions[_moon__ide__find-references_commands] )) ||
+_moon__ide__find-references_commands() {
+    local commands; commands=()
+    _describe -t commands 'moon ide find-references commands' commands "$@"
+}
+(( $+functions[_moon__ide__help_commands] )) ||
+_moon__ide__help_commands() {
+    local commands; commands=(
+'peek-def:Peek Definition of a symbol' /
+'find-references:Find references of a symbol' /
+'rename:Rename a symbol' /
+'hover:Show hover information of a symbol' /
+'outline:Show outline of specified path' /
+'doc:Show documentation of a symbol' /
+'help:Print this message or the help of the given subcommand(s)' /
+    )
+    _describe -t commands 'moon ide help commands' commands "$@"
+}
+(( $+functions[_moon__ide__help__doc_commands] )) ||
+_moon__ide__help__doc_commands() {
+    local commands; commands=()
+    _describe -t commands 'moon ide help doc commands' commands "$@"
+}
+(( $+functions[_moon__ide__help__find-references_commands] )) ||
+_moon__ide__help__find-references_commands() {
+    local commands; commands=()
+    _describe -t commands 'moon ide help find-references commands' commands "$@"
+}
+(( $+functions[_moon__ide__help__help_commands] )) ||
+_moon__ide__help__help_commands() {
+    local commands; commands=()
+    _describe -t commands 'moon ide help help commands' commands "$@"
+}
+(( $+functions[_moon__ide__help__hover_commands] )) ||
+_moon__ide__help__hover_commands() {
+    local commands; commands=()
+    _describe -t commands 'moon ide help hover commands' commands "$@"
+}
+(( $+functions[_moon__ide__help__outline_commands] )) ||
+_moon__ide__help__outline_commands() {
+    local commands; commands=()
+    _describe -t commands 'moon ide help outline commands' commands "$@"
+}
+(( $+functions[_moon__ide__help__peek-def_commands] )) ||
+_moon__ide__help__peek-def_commands() {
+    local commands; commands=()
+    _describe -t commands 'moon ide help peek-def commands' commands "$@"
+}
+(( $+functions[_moon__ide__help__rename_commands] )) ||
+_moon__ide__help__rename_commands() {
+    local commands; commands=()
+    _describe -t commands 'moon ide help rename commands' commands "$@"
+}
+(( $+functions[_moon__ide__hover_commands] )) ||
+_moon__ide__hover_commands() {
+    local commands; commands=()
+    _describe -t commands 'moon ide hover commands' commands "$@"
+}
+(( $+functions[_moon__ide__outline_commands] )) ||
+_moon__ide__outline_commands() {
+    local commands; commands=()
+    _describe -t commands 'moon ide outline commands' commands "$@"
+}
+(( $+functions[_moon__ide__peek-def_commands] )) ||
+_moon__ide__peek-def_commands() {
+    local commands; commands=()
+    _describe -t commands 'moon ide peek-def commands' commands "$@"
+}
+(( $+functions[_moon__ide__rename_commands] )) ||
+_moon__ide__rename_commands() {
+    local commands; commands=()
+    _describe -t commands 'moon ide rename commands' commands "$@"
 }
 (( $+functions[_moon__info_commands] )) ||
 _moon__info_commands() {
