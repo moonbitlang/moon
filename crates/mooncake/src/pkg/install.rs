@@ -140,10 +140,10 @@ fn install_bin_deps(
 
             let path = dep_dir.get(id).expect("Failed to get dep dir");
             let mut cmd = std::process::Command::new(moon_path.as_ref());
-            cmd.args(["tool", "build-binary-dep"]);
             // root_path
             cmd.arg("-C");
             cmd.arg(path);
+            cmd.args(["tool", "build-binary-dep"]);
             // pkg_names
             if let Some(pkgs) = info.bin_pkg.as_ref() {
                 cmd.args(pkgs.iter());
