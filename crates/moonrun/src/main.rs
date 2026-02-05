@@ -24,7 +24,6 @@ use std::{cell::Cell, io::Read, path::PathBuf, time::Instant};
 use v8::V8::set_flags_from_string;
 
 mod fs_api_temp;
-mod js;
 mod sys_api;
 mod util;
 mod v8_builder;
@@ -381,7 +380,6 @@ fn init_env(
     // API for the fs module
     {
         let obj = global_proxy.child(scope, "__moonbit_fs_unstable");
-        let obj: v8::Local<'_, v8::Object> = js::init_env(obj, scope);
         let obj = sys_api::init_env(obj, scope, wasm_file_name, args);
         let obj: v8::Local<'_, v8::Object> = fs_api_temp::init_fs(obj, scope);
         global_proxy.set_value(scope, "__moonbit_fs_unstable", obj.into());

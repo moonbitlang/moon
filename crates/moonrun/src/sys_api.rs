@@ -18,23 +18,6 @@
 
 use crate::v8_builder::{ArgsExt, ObjectExt, ScopeExt};
 
-const INIT_SYS_API: &str = r#"
-    (() => function(obj, run_env) {
-        // Return the value of the environment variable
-        function env_get_var(name) {
-            return run_env.env_vars.get(name) || ""
-        }
-
-        // Get the list of arguments passed to the program
-        function args_get() {
-            return run_env.args
-        }
-
-        obj.env_get_var = env_get_var
-        obj.args_get = args_get
-    })()
-"#;
-
 fn construct_args_list<'s>(
     wasm_file_name: &str,
     args: &[String],
@@ -129,13 +112,6 @@ pub fn init_env<'s>(
     wasm_file_name: &str,
     args: &[String],
 ) -> v8::Local<'s, v8::Object> {
-    let code = scope.string(INIT_SYS_API);
-    let code_origin = super::create_script_origin(scope, "sys_api_init");
-    let script = v8::Script::compile(scope, code, Some(&code_origin)).unwrap();
-    let func = script.run(scope).unwrap();
-    let func: v8::Local<v8::Function> = func.try_into().unwrap();
-
-    // Construct the object to pass to the JS function
     let args_list = construct_args_list(wasm_file_name, args, scope);
     let env_vars = construct_env_vars(scope);
     let env_obj = v8::Object::new(scope);
@@ -144,8 +120,10 @@ pub fn init_env<'s>(
     let args_key = scope.string("args").into();
     env_obj.set(scope, args_key, args_list.into());
 
-    let undefined = v8::undefined(scope);
-    func.call(scope, undefined.into(), &[obj.into(), env_obj.into()]);
+    // Expose the run env for the unified JS glue in `template/js_glue.js`.
+    let global_proxy = scope.get_current_context().global(scope);
+    let run_env_key = scope.string("__moonbit_run_env");
+    global_proxy.set(scope, run_env_key.into(), env_obj.into());
 
     obj.set_func(scope, "set_env_var", set_env_var);
     obj.set_func(scope, "unset_env_var", unset_env_var);
