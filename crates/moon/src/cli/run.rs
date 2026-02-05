@@ -76,7 +76,8 @@ pub struct RunSubcommand {
 }
 
 #[instrument(skip_all)]
-pub fn run_run(cli: &UniversalFlags, cmd: RunSubcommand) -> anyhow::Result<i32> {
+pub fn run_run(cli: &UniversalFlags, mut cmd: RunSubcommand) -> anyhow::Result<i32> {
+    cmd.build_flags.apply_default_debug();
     // Falling back to legacy to support running standalone single mbt file This
     // is currently how the `moon test` handles single file as well. We should
     // have a RR solution later.

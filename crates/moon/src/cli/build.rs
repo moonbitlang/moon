@@ -87,21 +87,22 @@ pub struct BuildSubcommand {
 }
 
 #[instrument(skip_all)]
-pub fn run_build(cli: &UniversalFlags, cmd: &BuildSubcommand) -> anyhow::Result<i32> {
+pub fn run_build(cli: &UniversalFlags, mut cmd: BuildSubcommand) -> anyhow::Result<i32> {
+    cmd.build_flags.apply_default_debug();
     let PackageDirs {
         source_dir,
         target_dir,
     } = cli.source_tgt_dir.try_into_package_dirs()?;
 
     if cmd.build_flags.target.is_none() {
-        return run_build_internal(cli, cmd, &source_dir, &target_dir);
+        return run_build_internal(cli, &cmd, &source_dir, &target_dir);
     }
     let surface_targets = cmd.build_flags.target.clone().unwrap();
     let targets = lower_surface_targets(&surface_targets);
 
     let mut ret_value = 0;
     for t in targets {
-        let mut cmd = (*cmd).clone();
+        let mut cmd = cmd.clone();
         cmd.build_flags.target_backend = Some(t);
         let x = run_build_internal(cli, &cmd, &source_dir, &target_dir)
             .context(format!("failed to run build for target {t:?}"))?;

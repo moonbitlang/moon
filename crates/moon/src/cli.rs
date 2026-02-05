@@ -329,6 +329,12 @@ impl BuildFlags {
         }
     }
 
+    pub fn apply_default_debug(&mut self) {
+        if !self.debug && !self.release {
+            self.debug = true;
+        }
+    }
+
     pub fn strip(&self) -> bool {
         if self.strip {
             true
