@@ -38,7 +38,7 @@ use moonutil::{
     mooncakes::{
         DirSyncResult, ModuleId, RegistryConfig, result::ResolvedEnv, sync::AutoSyncFlags,
     },
-    package::{Import, pkg_json_imports_to_imports},
+    package::{Import, PkgJSONImport, pkg_json_imports_to_imports},
 };
 use tracing::instrument;
 
@@ -118,9 +118,7 @@ fn extract_front_matter_config(header: Option<&MbtMdHeader>) -> anyhow::Result<F
     Ok(config)
 }
 
-fn parse_front_matter_imports(
-    imports: Option<moonutil::package::PkgJSONImport>,
-) -> anyhow::Result<FrontMatterImports> {
+fn parse_front_matter_imports(imports: Option<PkgJSONImport>) -> anyhow::Result<FrontMatterImports> {
     let imports = pkg_json_imports_to_imports(imports);
     let mut deps = IndexMap::new();
     let mut module_versions: IndexMap<String, Option<String>> = IndexMap::new();
@@ -149,7 +147,10 @@ fn parse_front_matter_imports(
             }
         }
 
-        let normalized_path = format!("{module}/{package}");
+        let normalized_path = match package {
+            Some(package) => format!("{module}/{package}"),
+            None => module.clone(),
+        };
         let normalized_import = match import {
             Import::Simple(_) => Import::Simple(normalized_path),
             Import::Alias {
@@ -171,7 +172,7 @@ fn parse_front_matter_imports(
         }
         let Some(version) = version else {
             anyhow::bail!(
-                "module '{module}' must include a version in moonbit.import (e.g. {module}@0.4.40/...)"
+                "module '{module}' must include a version in moonbit.import (e.g. {module}@0.4.40[/package])"
             );
         };
         let version = SourceDependencyInfo::from_str(&version)?;
@@ -184,10 +185,12 @@ fn parse_front_matter_imports(
     })
 }
 
-fn split_import_path(path: &str) -> anyhow::Result<(String, Option<String>, String)> {
+fn split_import_path(path: &str) -> anyhow::Result<(String, Option<String>, Option<String>)> {
     let parts: Vec<&str> = path.split('/').collect();
-    if parts.len() < 3 {
-        anyhow::bail!("import path '{path}' must be in the form 'username/module@version/package'");
+    if parts.len() < 2 {
+        anyhow::bail!(
+            "import path '{path}' must be in the form 'username/module@version[/package]'"
+        );
     }
     let username = parts[0];
     let module_and_version = parts[1];
@@ -204,11 +207,39 @@ fn split_import_path(path: &str) -> anyhow::Result<(String, Option<String>, Stri
         Some(v) => Some(v.to_string()),
         None => None,
     };
-    let package = parts[2..].join("/");
-    if package.is_empty() {
-        anyhow::bail!("import path '{path}' has an empty package path");
-    }
+    let package = if parts.len() > 2 {
+        let pkg = parts[2..].join("/");
+        if pkg.is_empty() {
+            anyhow::bail!("import path '{path}' has an empty package path");
+        }
+        Some(pkg)
+    } else {
+        None
+    };
     Ok((format!("{username}/{module}"), version, package))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::split_import_path;
+
+    #[test]
+    fn split_import_path_supports_module_root() {
+        let (module, version, package) =
+            split_import_path("moonbitlang/async@0.16.5").unwrap();
+        assert_eq!(module, "moonbitlang/async");
+        assert_eq!(version.as_deref(), Some("0.16.5"));
+        assert_eq!(package, None);
+    }
+
+    #[test]
+    fn split_import_path_supports_module_package() {
+        let (module, version, package) =
+            split_import_path("moonbitlang/x@0.4.38/stack").unwrap();
+        assert_eq!(module, "moonbitlang/x");
+        assert_eq!(version.as_deref(), Some("0.4.38"));
+        assert_eq!(package.as_deref(), Some("stack"));
+    }
 }
 
 impl ResolveConfig {

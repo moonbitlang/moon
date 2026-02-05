@@ -86,6 +86,7 @@ mod query_symbol;
 mod run_doc_test;
 mod run_md_test;
 mod simple_pkg;
+mod single_file_front_matter;
 mod snapshot_testing;
 mod specify_source_dir_001;
 mod specify_source_dir_002;
