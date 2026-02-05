@@ -59,7 +59,7 @@ pub fn main() -> Result<(), Box<dyn Error>> {
     fs::write(
         dest_path,
         format!(
-            "pub static ERROR_DOCS: Lazy<HashMap<&'static str, &'static str>> = Lazy::new(|| {docs_map});"
+            "pub static ERROR_DOCS: std::sync::LazyLock<HashMap<&'static str, &'static str>> = std::sync::LazyLock::new(|| {docs_map});"
         ),
     )
     .unwrap();

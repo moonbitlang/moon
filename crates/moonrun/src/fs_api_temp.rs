@@ -199,10 +199,9 @@ fn current_dir(
 
 // new ffi with error handling, use in moonbitlang/core
 
-use once_cell::sync::Lazy;
-use std::sync::Mutex;
+use std::sync::{LazyLock, Mutex};
 
-static GLOBAL_STATE: Lazy<Mutex<GlobalState>> = Lazy::new(|| {
+static GLOBAL_STATE: LazyLock<Mutex<GlobalState>> = LazyLock::new(|| {
     Mutex::new(GlobalState {
         file_content: Vec::new(),
         dir_files: Vec::new(),
