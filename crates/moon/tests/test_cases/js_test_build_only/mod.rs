@@ -15,7 +15,7 @@ fn test_js_test_build_only() {
     check(
         &stdout,
         expect![[r#"
-            {"artifacts_path":["$ROOT/_build/js/release/build/main/main.js"]}
+            {"artifacts_path":["$ROOT/_build/js/debug/build/main/main.js"]}
         "#]],
     )
 }

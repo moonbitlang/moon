@@ -54,8 +54,33 @@ fn debug_flag_test() {
         Some(false),
     );
 
-    let build_release = get_stdout(&dir, ["build", "--dry-run", "--nostd"]);
+    let build_default = get_stdout(&dir, ["build", "--dry-run", "--nostd"]);
+    let build_release = get_stdout(&dir, ["build", "--dry-run", "--release", "--nostd"]);
     let build_debug = get_stdout(&dir, ["build", "--dry-run", "--debug", "--nostd"]);
+    // Default build uses debug artifact paths for the library.
+    assert_moonc_line(
+        &build_default,
+        "moonc build-package",
+        &["./lib/hello.mbt"],
+        false,
+        None,
+    );
+    // Default build for the main package also uses debug paths.
+    assert_moonc_line(
+        &build_default,
+        "moonc build-package",
+        &["./main/main.mbt"],
+        false,
+        None,
+    );
+    // Default build link step targets the debug artifact.
+    assert_moonc_line(
+        &build_default,
+        "moonc link-core",
+        &["-main", "hello/main"],
+        false,
+        None,
+    );
     // Release build keeps release-only artifact paths for the library.
     assert_moonc_line(
         &build_release,
@@ -105,8 +130,35 @@ fn debug_flag_test() {
         None,
     );
 
-    let run_release = get_stdout(&dir, ["run", "main", "--dry-run", "--nostd"]);
+    let run_default = get_stdout(&dir, ["run", "main", "--dry-run", "--nostd"]);
+    let run_release = get_stdout(&dir, ["run", "main", "--dry-run", "--release", "--nostd"]);
     let run_debug = get_stdout(&dir, ["run", "main", "--dry-run", "--debug", "--nostd"]);
+    // Default run recompiles the library in debug mode with flags.
+    assert_moonc_line(
+        &run_default,
+        "moonc build-package",
+        &["./lib/hello.mbt"],
+        false,
+        None,
+    );
+    // Default run recompiles the main package in debug mode with flags.
+    assert_moonc_line(
+        &run_default,
+        "moonc build-package",
+        &["./main/main.mbt"],
+        false,
+        None,
+    );
+    // Default run links debug artifacts with flags.
+    assert_moonc_line(
+        &run_default,
+        "moonc link-core",
+        &["-main", "hello/main"],
+        false,
+        None,
+    );
+    // Default run executes the debug Wasm.
+    assert_moonrun_line(&run_default, false);
     // Running in release mode recompiles the library using release settings.
     assert_moonc_line(
         &run_release,
@@ -160,9 +212,20 @@ fn debug_flag_test() {
     // Debug run executes the debug Wasm.
     assert_moonrun_line(&run_debug, false);
 
-    let build_target_release = get_stdout(
+    let build_target_default = get_stdout(
         &dir,
         ["build", "--target", "wasm-gc", "--dry-run", "--nostd"],
+    );
+    let build_target_release = get_stdout(
+        &dir,
+        [
+            "build",
+            "--target",
+            "wasm-gc",
+            "--dry-run",
+            "--release",
+            "--nostd",
+        ],
     );
     let build_target_debug = get_stdout(
         &dir,
@@ -175,7 +238,31 @@ fn debug_flag_test() {
             "--nostd",
         ],
     );
-    // Explicit target keeps release artifacts for the library.
+    // Default target build uses debug artifacts for the library.
+    assert_moonc_line(
+        &build_target_default,
+        "moonc build-package",
+        &["./lib/hello.mbt"],
+        false,
+        None,
+    );
+    // Default target build uses debug artifacts for the main package.
+    assert_moonc_line(
+        &build_target_default,
+        "moonc build-package",
+        &["./main/main.mbt"],
+        false,
+        None,
+    );
+    // Default target build links debug outputs.
+    assert_moonc_line(
+        &build_target_default,
+        "moonc link-core",
+        &["-main", "hello/main"],
+        false,
+        None,
+    );
+    // Explicit release target keeps release artifacts for the library.
     assert_moonc_line(
         &build_target_release,
         "moonc build-package",
@@ -183,7 +270,7 @@ fn debug_flag_test() {
         true,
         None,
     );
-    // Explicit target keeps release artifacts for the main package.
+    // Explicit release target keeps release artifacts for the main package.
     assert_moonc_line(
         &build_target_release,
         "moonc build-package",
@@ -191,7 +278,7 @@ fn debug_flag_test() {
         true,
         None,
     );
-    // Explicit target release link references release outputs.
+    // Explicit release target link references release outputs.
     assert_moonc_line(
         &build_target_release,
         "moonc link-core",
@@ -224,9 +311,21 @@ fn debug_flag_test() {
         None,
     );
 
-    let run_target_release = get_stdout(
+    let run_target_default = get_stdout(
         &dir,
         ["run", "main", "--target", "wasm-gc", "--dry-run", "--nostd"],
+    );
+    let run_target_release = get_stdout(
+        &dir,
+        [
+            "run",
+            "main",
+            "--target",
+            "wasm-gc",
+            "--dry-run",
+            "--release",
+            "--nostd",
+        ],
     );
     let run_target_debug = get_stdout(
         &dir,
@@ -240,6 +339,32 @@ fn debug_flag_test() {
             "--nostd",
         ],
     );
+    // Default run with explicit target rebuilds the library in debug mode.
+    assert_moonc_line(
+        &run_target_default,
+        "moonc build-package",
+        &["./lib/hello.mbt"],
+        false,
+        None,
+    );
+    // Default run with explicit target rebuilds the main package in debug mode.
+    assert_moonc_line(
+        &run_target_default,
+        "moonc build-package",
+        &["./main/main.mbt"],
+        false,
+        None,
+    );
+    // Default run with explicit target links debug outputs.
+    assert_moonc_line(
+        &run_target_default,
+        "moonc link-core",
+        &["-main", "hello/main"],
+        false,
+        None,
+    );
+    // Default run with explicit target executes the debug artifact.
+    assert_moonrun_line(&run_target_default, false);
     // Release run with explicit target rebuilds the library in release mode.
     assert_moonc_line(
         &run_target_release,

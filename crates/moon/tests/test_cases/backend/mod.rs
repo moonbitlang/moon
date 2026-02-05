@@ -18,9 +18,9 @@ fn test_backend_flag() {
     check(
         get_stdout(&dir, ["build", "--dry-run", "--sort-input"]),
         expect![[r#"
-            moonc build-package ./lib/hello.mbt -o ./target/js/release/build/lib/lib.core -pkg username/hello/lib -std-path $MOON_HOME/lib/core/target/js/release/bundle -pkg-sources username/hello/lib:./lib
-            moonc build-package ./main/main.mbt -o ./target/js/release/build/main/main.core -pkg username/hello/main -is-main -std-path $MOON_HOME/lib/core/target/js/release/bundle -i ./target/js/release/build/lib/lib.mi:lib -pkg-sources username/hello/main:./main
-            moonc link-core $MOON_HOME/lib/core/target/js/release/bundle/core.core ./target/js/release/build/lib/lib.core ./target/js/release/build/main/main.core -main username/hello/main -o ./target/js/release/build/main/main.js -pkg-sources username/hello/lib:./lib -pkg-sources username/hello/main:./main -target js
+            moonc build-package ./lib/hello.mbt -o ./target/js/debug/build/lib/lib.core -pkg username/hello/lib -std-path $MOON_HOME/lib/core/target/js/release/bundle -pkg-sources username/hello/lib:./lib
+            moonc build-package ./main/main.mbt -o ./target/js/debug/build/main/main.core -pkg username/hello/main -is-main -std-path $MOON_HOME/lib/core/target/js/release/bundle -i ./target/js/debug/build/lib/lib.mi:lib -pkg-sources username/hello/main:./main
+            moonc link-core $MOON_HOME/lib/core/target/js/release/bundle/core.core ./target/js/debug/build/lib/lib.core ./target/js/debug/build/main/main.core -main username/hello/main -o ./target/js/debug/build/main/main.js -pkg-sources username/hello/lib:./lib -pkg-sources username/hello/main:./main -target js -g -O0 -source-map
         "#]],
     );
 
@@ -83,7 +83,7 @@ fn test_js_format() {
     assert!(get_link_core_of("lib3").contains("-target js"));
     assert!(get_link_core_of("lib3").contains("-js-format iife"));
 
-    let _ = get_stdout(&dir, ["build", "--target", "js", "--nostd"]);
+    let _ = get_stdout(&dir, ["build", "--target", "js", "--release", "--nostd"]);
     let t = dir.join(BUILD_DIR).join("js").join("release").join("build");
     check(
         std::fs::read_to_string(t.join("lib0").join("lib0.js"))

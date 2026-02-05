@@ -333,32 +333,32 @@
     {
       "root": "username/indirect_dep",
       "rel": "",
-      "artifact": "$ROOT/_build/wasm-gc/release/build/indirect_dep.mi"
+      "artifact": "$ROOT/_build/wasm-gc/debug/build/indirect_dep.mi"
     },
     {
       "root": "username/indirect_dep",
       "rel": "cmd/main",
-      "artifact": "$ROOT/_build/wasm-gc/release/build/cmd/main/main.mi"
+      "artifact": "$ROOT/_build/wasm-gc/debug/build/cmd/main/main.mi"
     },
     {
       "root": "username/indirect_dep",
       "rel": "lib1",
-      "artifact": "$ROOT/_build/wasm-gc/release/build/lib1/lib1.mi"
+      "artifact": "$ROOT/_build/wasm-gc/debug/build/lib1/lib1.mi"
     },
     {
       "root": "username/indirect_dep",
       "rel": "lib2",
-      "artifact": "$ROOT/_build/wasm-gc/release/build/lib2/lib2.mi"
+      "artifact": "$ROOT/_build/wasm-gc/debug/build/lib2/lib2.mi"
     },
     {
       "root": "username/sub",
       "rel": "",
-      "artifact": "$ROOT/_build/wasm-gc/release/build/.mooncakes/username/sub/sub.mi"
+      "artifact": "$ROOT/_build/wasm-gc/debug/build/.mooncakes/username/sub/sub.mi"
     },
     {
       "root": "username/sub",
       "rel": "p",
-      "artifact": "$ROOT/_build/wasm-gc/release/build/.mooncakes/username/sub/p/p.mi"
+      "artifact": "$ROOT/_build/wasm-gc/debug/build/.mooncakes/username/sub/p/p.mi"
     }
   ]
 }
