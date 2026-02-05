@@ -271,12 +271,18 @@ impl Parser {
                 let path = s.parse_string()?;
                 let alias = match s.peek() {
                     Token::AS(_) => {
+                        // deprecated syntax: "path/to/pkg" as @alias
                         s.skip();
                         let Token::PACKAGENAME((_, alias)) = s.peek() else {
                             return Err(ParseError::UnexpectedToken(s.peek().clone()));
                         };
                         s.skip();
                         Some(alias.clone())
+                    }
+                    Token::PACKAGENAME((_, alias)) => {
+                        let alias = alias.clone();
+                        s.skip();
+                        Some(alias)
                     }
                     _ => None,
                 };
@@ -354,6 +360,7 @@ fn parse_test() {
 import {
   "path/to/pkg1",
   "path/to/pkg2" as @alias,
+  "path/to/pkg3" @alias3,
 }
 
 import {
@@ -400,6 +407,10 @@ f(
                 Object {
                     "path": String("path/to/pkg2"),
                     "alias": String("alias"),
+                },
+                Object {
+                    "path": String("path/to/pkg3"),
+                    "alias": String("alias3"),
                 },
             ],
             "test-import": Array [

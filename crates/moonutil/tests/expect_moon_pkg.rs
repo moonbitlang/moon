@@ -28,7 +28,7 @@ fn expect_import() {
     let actual = run(r#"
       import {
         "path/to/pkg1",
-        "path/to/another1" as @another1,
+        "path/to/another1" @another1,
       }
 
       import {
@@ -38,7 +38,7 @@ fn expect_import() {
 
       import {
         "path/to/pkg3",
-        "path/to/another3" as @another3,
+        "path/to/another3" @another3,
       } for "wbtest"
     "#);
     expect_test::expect![[r#"
