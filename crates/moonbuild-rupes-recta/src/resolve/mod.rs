@@ -118,7 +118,9 @@ fn extract_front_matter_config(header: Option<&MbtMdHeader>) -> anyhow::Result<F
     Ok(config)
 }
 
-fn parse_front_matter_imports(imports: Option<PkgJSONImport>) -> anyhow::Result<FrontMatterImports> {
+fn parse_front_matter_imports(
+    imports: Option<PkgJSONImport>,
+) -> anyhow::Result<FrontMatterImports> {
     let imports = pkg_json_imports_to_imports(imports);
     let mut deps = IndexMap::new();
     let mut module_versions: IndexMap<String, Option<String>> = IndexMap::new();
@@ -225,8 +227,7 @@ mod tests {
 
     #[test]
     fn split_import_path_supports_module_root() {
-        let (module, version, package) =
-            split_import_path("moonbitlang/async@0.16.5").unwrap();
+        let (module, version, package) = split_import_path("moonbitlang/async@0.16.5").unwrap();
         assert_eq!(module, "moonbitlang/async");
         assert_eq!(version.as_deref(), Some("0.16.5"));
         assert_eq!(package, None);
@@ -234,8 +235,7 @@ mod tests {
 
     #[test]
     fn split_import_path_supports_module_package() {
-        let (module, version, package) =
-            split_import_path("moonbitlang/x@0.4.38/stack").unwrap();
+        let (module, version, package) = split_import_path("moonbitlang/x@0.4.38/stack").unwrap();
         assert_eq!(module, "moonbitlang/x");
         assert_eq!(version.as_deref(), Some("0.4.38"));
         assert_eq!(package.as_deref(), Some("stack"));
