@@ -139,7 +139,7 @@ fn main {
 
 === ./cmd/main/moon.pkg ===
 // import {
-//   "testuser/asdf" as @lib,
+//   "testuser/asdf" @lib,
 // }
 
 options(

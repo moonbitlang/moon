@@ -152,9 +152,10 @@ impl FromStr for FeatureGate {
             this.rupes_recta = false;
         }
 
-        // Enable rr_moon_pkg if NEW_MOON_PKG=1 is set (in addition to command line)
-        if let Ok("1") = std::env::var("NEW_MOON_PKG").as_deref() {
-            this.rr_moon_pkg = true;
+        // By default, enable rr_moon_pkg unless NEW_MOON_PKG=0 is set
+        this.rr_moon_pkg = true;
+        if let Ok("0") = std::env::var("NEW_MOON_PKG").as_deref() {
+            this.rr_moon_pkg = false;
         }
 
         Ok(this)

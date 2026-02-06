@@ -66,7 +66,7 @@ fn test_fmt_moon_pkg_json_migration_dry_run() {
     }
 }
 
-/// Test that without rr_moon_pkg feature, moon.pkg.json is not migrated,
+/// Test that with rr_moon_pkg disabled, moon.pkg.json is not migrated,
 /// but existing moon.pkg files are still formatted
 #[test]
 fn test_fmt_without_moon_pkg_feature() {
@@ -74,7 +74,11 @@ fn test_fmt_without_moon_pkg_feature() {
 
     // Test dry run output without rr_moon_pkg feature
     check(
-        get_stdout(&dir, ["fmt", "--dry-run", "--sort-input"]),
+        get_stdout_with_envs(
+            &dir,
+            ["fmt", "--dry-run", "--sort-input"],
+            [("NEW_MOON_PKG", "0")],
+        ),
         expect![[r#"
             moonfmt ./main/moon.pkg -w -o ./_build/wasm-gc/release/format/main/moon.pkg
             moonfmt ./main/main.mbt -w -o ./_build/wasm-gc/release/format/main/main.mbt
