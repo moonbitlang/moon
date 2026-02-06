@@ -28,12 +28,12 @@ impl<'s> ScopeExt<'s> for HandleScope<'s> {
     }
 }
 
-pub trait ArgsExt<'s> {
-    fn string_lossy(&self, scope: &mut HandleScope<'s>, index: i32) -> String;
+pub trait ArgsExt {
+    fn string_lossy(&self, scope: &mut HandleScope, index: i32) -> String;
 }
 
-impl<'s> ArgsExt<'s> for FunctionCallbackArguments<'s> {
-    fn string_lossy(&self, scope: &mut HandleScope<'s>, index: i32) -> String {
+impl<'s> ArgsExt for FunctionCallbackArguments<'s> {
+    fn string_lossy(&self, scope: &mut HandleScope, index: i32) -> String {
         self.get(index)
             .to_string(scope)
             .unwrap()

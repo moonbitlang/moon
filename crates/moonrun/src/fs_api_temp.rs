@@ -19,9 +19,9 @@
 //! Temporary-use FS API. Only has whole-file read/write and no other features.
 
 /// `fn read_file_to_string(path: JSString) -> JSString`
-fn read_file_to_string<'s>(
-    scope: &mut v8::HandleScope<'s>,
-    args: v8::FunctionCallbackArguments<'s>,
+fn read_file_to_string(
+    scope: &mut v8::HandleScope,
+    args: v8::FunctionCallbackArguments,
     mut ret: v8::ReturnValue,
 ) {
     let path = args.string_lossy(scope, 0);
@@ -33,9 +33,9 @@ fn read_file_to_string<'s>(
 }
 
 /// `fn write_string_to_file(path: JSString, contents: JSString) -> Unit`
-fn write_string_to_file<'s>(
-    scope: &mut v8::HandleScope<'s>,
-    args: v8::FunctionCallbackArguments<'s>,
+fn write_string_to_file(
+    scope: &mut v8::HandleScope,
+    args: v8::FunctionCallbackArguments,
     mut ret: v8::ReturnValue,
 ) {
     let path = args.string_lossy(scope, 0);
@@ -46,9 +46,9 @@ fn write_string_to_file<'s>(
     ret.set_undefined()
 }
 
-fn write_bytes_to_file<'s>(
-    scope: &mut v8::HandleScope<'s>,
-    args: v8::FunctionCallbackArguments<'s>,
+fn write_bytes_to_file(
+    scope: &mut v8::HandleScope,
+    args: v8::FunctionCallbackArguments,
     mut ret: v8::ReturnValue,
 ) {
     let path = args.string_lossy(scope, 0);
@@ -64,9 +64,9 @@ fn write_bytes_to_file<'s>(
     ret.set_undefined()
 }
 
-fn create_dir<'s>(
-    scope: &mut v8::HandleScope<'s>,
-    args: v8::FunctionCallbackArguments<'s>,
+fn create_dir(
+    scope: &mut v8::HandleScope,
+    args: v8::FunctionCallbackArguments,
     mut ret: v8::ReturnValue,
 ) {
     let path = args.string_lossy(scope, 0);
@@ -77,9 +77,9 @@ fn create_dir<'s>(
 }
 
 #[allow(clippy::manual_flatten)]
-fn read_dir<'s>(
-    scope: &mut v8::HandleScope<'s>,
-    args: v8::FunctionCallbackArguments<'s>,
+fn read_dir(
+    scope: &mut v8::HandleScope,
+    args: v8::FunctionCallbackArguments,
     mut ret: v8::ReturnValue,
 ) {
     let path = args.string_lossy(scope, 0);
@@ -105,9 +105,9 @@ fn read_dir<'s>(
     ret.set(result.into());
 }
 
-fn is_file<'s>(
-    scope: &mut v8::HandleScope<'s>,
-    args: v8::FunctionCallbackArguments<'s>,
+fn is_file(
+    scope: &mut v8::HandleScope,
+    args: v8::FunctionCallbackArguments,
     mut ret: v8::ReturnValue,
 ) {
     let path = args.string_lossy(scope, 0);
@@ -116,9 +116,9 @@ fn is_file<'s>(
     ret.set_bool(is_file);
 }
 
-fn is_dir<'s>(
-    scope: &mut v8::HandleScope<'s>,
-    args: v8::FunctionCallbackArguments<'s>,
+fn is_dir(
+    scope: &mut v8::HandleScope,
+    args: v8::FunctionCallbackArguments,
     mut ret: v8::ReturnValue,
 ) {
     let path = args.string_lossy(scope, 0);
@@ -127,9 +127,9 @@ fn is_dir<'s>(
     ret.set_bool(is_dir);
 }
 
-fn remove_file<'s>(
-    scope: &mut v8::HandleScope<'s>,
-    args: v8::FunctionCallbackArguments<'s>,
+fn remove_file(
+    scope: &mut v8::HandleScope,
+    args: v8::FunctionCallbackArguments,
     mut ret: v8::ReturnValue,
 ) {
     let path = args.string_lossy(scope, 0);
@@ -139,9 +139,9 @@ fn remove_file<'s>(
     ret.set_undefined();
 }
 
-fn remove_dir<'s>(
-    scope: &mut v8::HandleScope<'s>,
-    args: v8::FunctionCallbackArguments<'s>,
+fn remove_dir(
+    scope: &mut v8::HandleScope,
+    args: v8::FunctionCallbackArguments,
     mut ret: v8::ReturnValue,
 ) {
     let path = args.string_lossy(scope, 0);
@@ -151,9 +151,9 @@ fn remove_dir<'s>(
     ret.set_undefined();
 }
 
-fn path_exists<'s>(
-    scope: &mut v8::HandleScope<'s>,
-    args: v8::FunctionCallbackArguments<'s>,
+fn path_exists(
+    scope: &mut v8::HandleScope,
+    args: v8::FunctionCallbackArguments,
     mut ret: v8::ReturnValue,
 ) {
     let path = args.string_lossy(scope, 0);
@@ -193,9 +193,9 @@ struct GlobalState {
     error_message: String,
 }
 
-fn write_bytes_to_file_new<'s>(
-    scope: &mut v8::HandleScope<'s>,
-    args: v8::FunctionCallbackArguments<'s>,
+fn write_bytes_to_file_new(
+    scope: &mut v8::HandleScope,
+    args: v8::FunctionCallbackArguments,
     mut ret: v8::ReturnValue,
 ) {
     let path = args.string_lossy(scope, 0);
@@ -227,9 +227,9 @@ fn write_bytes_to_file_new<'s>(
     }
 }
 
-fn read_file_to_bytes_new<'s>(
-    scope: &mut v8::HandleScope<'s>,
-    args: v8::FunctionCallbackArguments<'s>,
+fn read_file_to_bytes_new(
+    scope: &mut v8::HandleScope,
+    args: v8::FunctionCallbackArguments,
     mut ret: v8::ReturnValue,
 ) {
     let path = args.string_lossy(scope, 0);
@@ -297,9 +297,9 @@ fn create_dir_new<'s>(
 }
 
 #[allow(clippy::manual_flatten)]
-fn read_dir_new<'s>(
-    scope: &mut v8::HandleScope<'s>,
-    args: v8::FunctionCallbackArguments<'s>,
+fn read_dir_new(
+    scope: &mut v8::HandleScope,
+    args: v8::FunctionCallbackArguments,
     mut ret: v8::ReturnValue,
 ) {
     let path = args.string_lossy(scope, 0);
@@ -330,9 +330,9 @@ fn read_dir_new<'s>(
     ret.set_int32(0);
 }
 
-fn is_file_new<'s>(
-    scope: &mut v8::HandleScope<'s>,
-    args: v8::FunctionCallbackArguments<'s>,
+fn is_file_new(
+    scope: &mut v8::HandleScope,
+    args: v8::FunctionCallbackArguments,
     mut ret: v8::ReturnValue,
 ) {
     let path = args.string_lossy(scope, 0);
@@ -353,9 +353,9 @@ fn is_file_new<'s>(
     ret.set_int32(is_file);
 }
 
-fn is_dir_new<'s>(
-    scope: &mut v8::HandleScope<'s>,
-    args: v8::FunctionCallbackArguments<'s>,
+fn is_dir_new(
+    scope: &mut v8::HandleScope,
+    args: v8::FunctionCallbackArguments,
     mut ret: v8::ReturnValue,
 ) {
     let path = args.string_lossy(scope, 0);
@@ -376,9 +376,9 @@ fn is_dir_new<'s>(
     ret.set_int32(is_dir);
 }
 
-fn remove_file_new<'s>(
-    scope: &mut v8::HandleScope<'s>,
-    args: v8::FunctionCallbackArguments<'s>,
+fn remove_file_new(
+    scope: &mut v8::HandleScope,
+    args: v8::FunctionCallbackArguments,
     mut ret: v8::ReturnValue,
 ) {
     let path = args.string_lossy(scope, 0);
@@ -395,9 +395,9 @@ fn remove_file_new<'s>(
     }
 }
 
-fn remove_dir_new<'s>(
-    scope: &mut v8::HandleScope<'s>,
-    args: v8::FunctionCallbackArguments<'s>,
+fn remove_dir_new(
+    scope: &mut v8::HandleScope,
+    args: v8::FunctionCallbackArguments,
     mut ret: v8::ReturnValue,
 ) {
     let path = args.string_lossy(scope, 0);

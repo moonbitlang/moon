@@ -44,9 +44,9 @@ fn construct_env_vars<'s>(scope: &mut v8::HandleScope<'s>) -> v8::Local<'s, v8::
     }
     map
 }
-fn set_env_var<'s>(
-    scope: &mut v8::HandleScope<'s>,
-    args: v8::FunctionCallbackArguments<'s>,
+fn set_env_var(
+    scope: &mut v8::HandleScope,
+    args: v8::FunctionCallbackArguments,
     mut ret: v8::ReturnValue,
 ) {
     let key = args.string_lossy(scope, 0);
@@ -58,9 +58,9 @@ fn set_env_var<'s>(
     ret.set_undefined()
 }
 
-fn unset_env_var<'s>(
-    scope: &mut v8::HandleScope<'s>,
-    args: v8::FunctionCallbackArguments<'s>,
+fn unset_env_var(
+    scope: &mut v8::HandleScope,
+    args: v8::FunctionCallbackArguments,
     mut ret: v8::ReturnValue,
 ) {
     let key = args.string_lossy(scope, 0);
@@ -69,9 +69,9 @@ fn unset_env_var<'s>(
     ret.set_undefined()
 }
 
-fn get_env_var<'s>(
-    scope: &mut v8::HandleScope<'s>,
-    args: v8::FunctionCallbackArguments<'s>,
+fn get_env_var(
+    scope: &mut v8::HandleScope,
+    args: v8::FunctionCallbackArguments,
     mut ret: v8::ReturnValue,
 ) {
     let key = args.string_lossy(scope, 0);
@@ -80,9 +80,9 @@ fn get_env_var<'s>(
     ret.set(value.into());
 }
 
-fn get_env_var_exists<'s>(
-    scope: &mut v8::HandleScope<'s>,
-    args: v8::FunctionCallbackArguments<'s>,
+fn get_env_var_exists(
+    scope: &mut v8::HandleScope,
+    args: v8::FunctionCallbackArguments,
     mut ret: v8::ReturnValue,
 ) {
     let key = args.string_lossy(scope, 0);
