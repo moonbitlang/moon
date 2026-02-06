@@ -373,7 +373,11 @@ fn init_env(
     {
         let time = global_proxy.child(scope, "__moonbit_time_unstable");
         time.set_func(scope, "instant_now", instant_now);
-        time.set_func(scope, "instant_elapsed_as_secs_f64", instant_elapsed_as_secs_f64);
+        time.set_func(
+            scope,
+            "instant_elapsed_as_secs_f64",
+            instant_elapsed_as_secs_f64,
+        );
         time.set_func(scope, "now", now);
     }
 
@@ -460,9 +464,7 @@ fn wasm_mode(
     match source {
         Source::File(file) => {
             let module_key = scope.string("module_name").into();
-            let module_name = scope
-                .string(file.to_string_lossy().as_ref())
-                .into();
+            let module_name = scope.string(file.to_string_lossy().as_ref()).into();
             global_proxy.set(scope, module_key, module_name);
             script.push_str("let bytes;");
         }
