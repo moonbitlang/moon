@@ -79,6 +79,41 @@ fn test_moon_help() {
 }
 
 #[test]
+fn test_shell_completion_bash() {
+    let dir = TestDir::new_empty();
+    let out = get_stdout(&dir, ["shell-completion", "--shell", "bash"]);
+    expect_file!["./shell_completion_bash.stdout"].assert_eq(&out);
+}
+
+#[test]
+fn test_shell_completion_elvish() {
+    let dir = TestDir::new_empty();
+    let out = get_stdout(&dir, ["shell-completion", "--shell", "elvish"]);
+    expect_file!["./shell_completion_elvish.stdout"].assert_eq(&out);
+}
+
+#[test]
+fn test_shell_completion_fish() {
+    let dir = TestDir::new_empty();
+    let out = get_stdout(&dir, ["shell-completion", "--shell", "fish"]);
+    expect_file!["./shell_completion_fish.stdout"].assert_eq(&out);
+}
+
+#[test]
+fn test_shell_completion_powershell() {
+    let dir = TestDir::new_empty();
+    let out = get_stdout(&dir, ["shell-completion", "--shell", "powershell"]);
+    expect_file!["./shell_completion_powershell.stdout"].assert_eq(&out);
+}
+
+#[test]
+fn test_shell_completion_zsh() {
+    let dir = TestDir::new_empty();
+    let out = get_stdout(&dir, ["shell-completion", "--shell", "zsh"]);
+    expect_file!["./shell_completion_zsh.stdout"].assert_eq(&out);
+}
+
+#[test]
 fn test_moon_add_help_includes_no_update() {
     let dir = TestDir::new_empty();
     let out = get_stdout(&dir, ["add", "--help"]).replace("moon.exe", "moon");

@@ -1,0 +1,1163 @@
+
+using namespace System.Management.Automation
+using namespace System.Management.Automation.Language
+
+Register-ArgumentCompleter -Native -CommandName 'moon' -ScriptBlock {
+    param($wordToComplete, $commandAst, $cursorPosition)
+
+    $commandElements = $commandAst.CommandElements
+    $command = @(
+        'moon'
+        for ($i = 1; $i -lt $commandElements.Count; $i++) {
+            $element = $commandElements[$i]
+            if ($element -isnot [StringConstantExpressionAst] -or
+                $element.StringConstantType -ne [StringConstantType]::BareWord -or
+                $element.Value.StartsWith('-') -or
+                $element.Value -eq $wordToComplete) {
+                break
+        }
+        $element.Value
+    }) -join ';'
+
+    $completions = @(switch ($command) {
+        'moon' {
+            [CompletionResult]::new('-C', 'C ', [CompletionResultType]::ParameterName, 'Change to DIR before doing anything else (must appear before the subcommand). Relative paths in other options and arguments are interpreted relative to DIR. Example: `moon -C a run .` runs the same as invoking `moon run .` from within `a`')
+            [CompletionResult]::new('--manifest-path', 'manifest-path', [CompletionResultType]::ParameterName, 'Path to `moon.mod.json` to use as the project manifest (does not change the working directory)')
+            [CompletionResult]::new('--target-dir', 'target-dir', [CompletionResultType]::ParameterName, 'The target directory. Defaults to `<project-root>/target`')
+            [CompletionResult]::new('-Z', 'Z ', [CompletionResultType]::ParameterName, 'Unstable flags to MoonBuild')
+            [CompletionResult]::new('--unstable-feature', 'unstable-feature', [CompletionResultType]::ParameterName, 'Unstable flags to MoonBuild')
+            [CompletionResult]::new('-q', 'q', [CompletionResultType]::ParameterName, 'Suppress output')
+            [CompletionResult]::new('--quiet', 'quiet', [CompletionResultType]::ParameterName, 'Suppress output')
+            [CompletionResult]::new('-v', 'v', [CompletionResultType]::ParameterName, 'Increase verbosity')
+            [CompletionResult]::new('--verbose', 'verbose', [CompletionResultType]::ParameterName, 'Increase verbosity')
+            [CompletionResult]::new('--trace', 'trace', [CompletionResultType]::ParameterName, 'Trace the execution of the program')
+            [CompletionResult]::new('--dry-run', 'dry-run', [CompletionResultType]::ParameterName, 'Do not actually run the command')
+            [CompletionResult]::new('--build-graph', 'build-graph', [CompletionResultType]::ParameterName, 'build-graph')
+            [CompletionResult]::new('-h', 'h', [CompletionResultType]::ParameterName, 'Print help')
+            [CompletionResult]::new('--help', 'help', [CompletionResultType]::ParameterName, 'Print help')
+            [CompletionResult]::new('new', 'new', [CompletionResultType]::ParameterValue, 'Create a new MoonBit module')
+            [CompletionResult]::new('bundle', 'bundle', [CompletionResultType]::ParameterValue, 'Bundle the module')
+            [CompletionResult]::new('build', 'build', [CompletionResultType]::ParameterValue, 'Build the current package')
+            [CompletionResult]::new('check', 'check', [CompletionResultType]::ParameterValue, 'Check the current package, but don''t build object files')
+            [CompletionResult]::new('run', 'run', [CompletionResultType]::ParameterValue, 'Run a main package')
+            [CompletionResult]::new('test', 'test', [CompletionResultType]::ParameterValue, 'Test the current package')
+            [CompletionResult]::new('generate-test-driver', 'generate-test-driver', [CompletionResultType]::ParameterValue, 'Generate tests for a provided package. This is a thin wrapper around `moonc gen-test-info`, which does the actual parsing and generation')
+            [CompletionResult]::new('clean', 'clean', [CompletionResultType]::ParameterValue, 'Remove the target directory')
+            [CompletionResult]::new('fmt', 'fmt', [CompletionResultType]::ParameterValue, 'Format source code')
+            [CompletionResult]::new('doc', 'doc', [CompletionResultType]::ParameterValue, 'Generate documentation or searching documentation for a symbol')
+            [CompletionResult]::new('info', 'info', [CompletionResultType]::ParameterValue, 'Generate public interface (`.mbti`) files for all packages in the module')
+            [CompletionResult]::new('bench', 'bench', [CompletionResultType]::ParameterValue, 'Run benchmarks in the current package')
+            [CompletionResult]::new('add', 'add', [CompletionResultType]::ParameterValue, 'Add a dependency')
+            [CompletionResult]::new('remove', 'remove', [CompletionResultType]::ParameterValue, 'Remove a dependency')
+            [CompletionResult]::new('install', 'install', [CompletionResultType]::ParameterValue, 'Install a binary package globally or install project dependencies (deprecated without args)')
+            [CompletionResult]::new('tree', 'tree', [CompletionResultType]::ParameterValue, 'Display the dependency tree')
+            [CompletionResult]::new('fetch', 'fetch', [CompletionResultType]::ParameterValue, 'Download a package to .repos directory (unstable)')
+            [CompletionResult]::new('login', 'login', [CompletionResultType]::ParameterValue, 'Log in to your account')
+            [CompletionResult]::new('register', 'register', [CompletionResultType]::ParameterValue, 'Register an account at mooncakes.io')
+            [CompletionResult]::new('publish', 'publish', [CompletionResultType]::ParameterValue, 'Publish the current module')
+            [CompletionResult]::new('package', 'package', [CompletionResultType]::ParameterValue, 'Package the current module')
+            [CompletionResult]::new('update', 'update', [CompletionResultType]::ParameterValue, 'Update the package registry index')
+            [CompletionResult]::new('coverage', 'coverage', [CompletionResultType]::ParameterValue, 'Code coverage utilities')
+            [CompletionResult]::new('generate-build-matrix', 'generate-build-matrix', [CompletionResultType]::ParameterValue, 'Generate build matrix for benchmarking (legacy feature)')
+            [CompletionResult]::new('query', 'query', [CompletionResultType]::ParameterValue, 'query')
+            [CompletionResult]::new('upgrade', 'upgrade', [CompletionResultType]::ParameterValue, 'Upgrade toolchains')
+            [CompletionResult]::new('shell-completion', 'shell-completion', [CompletionResultType]::ParameterValue, 'Generate shell completion for bash/elvish/fish/pwsh/zsh to stdout')
+            [CompletionResult]::new('version', 'version', [CompletionResultType]::ParameterValue, 'Print version information and exit')
+            [CompletionResult]::new('tool', 'tool', [CompletionResultType]::ParameterValue, 'tool')
+            [CompletionResult]::new('ide', 'ide', [CompletionResultType]::ParameterValue, 'IDE utilities')
+            [CompletionResult]::new('help', 'help', [CompletionResultType]::ParameterValue, 'Print this message or the help of the given subcommand(s)')
+            break
+        }
+        'moon;new' {
+            [CompletionResult]::new('--user', 'user', [CompletionResultType]::ParameterName, 'The username of the module. Default to the logged-in username')
+            [CompletionResult]::new('--name', 'name', [CompletionResultType]::ParameterName, 'The name of the module. Default to the last part of the path')
+            [CompletionResult]::new('--manifest-path', 'manifest-path', [CompletionResultType]::ParameterName, 'Path to `moon.mod.json` to use as the project manifest (does not change the working directory)')
+            [CompletionResult]::new('--target-dir', 'target-dir', [CompletionResultType]::ParameterName, 'The target directory. Defaults to `<project-root>/target`')
+            [CompletionResult]::new('-q', 'q', [CompletionResultType]::ParameterName, 'Suppress output')
+            [CompletionResult]::new('--quiet', 'quiet', [CompletionResultType]::ParameterName, 'Suppress output')
+            [CompletionResult]::new('-v', 'v', [CompletionResultType]::ParameterName, 'Increase verbosity')
+            [CompletionResult]::new('--verbose', 'verbose', [CompletionResultType]::ParameterName, 'Increase verbosity')
+            [CompletionResult]::new('--trace', 'trace', [CompletionResultType]::ParameterName, 'Trace the execution of the program')
+            [CompletionResult]::new('--dry-run', 'dry-run', [CompletionResultType]::ParameterName, 'Do not actually run the command')
+            [CompletionResult]::new('--build-graph', 'build-graph', [CompletionResultType]::ParameterName, 'build-graph')
+            [CompletionResult]::new('-h', 'h', [CompletionResultType]::ParameterName, 'Print help')
+            [CompletionResult]::new('--help', 'help', [CompletionResultType]::ParameterName, 'Print help')
+            break
+        }
+        'moon;bundle' {
+            [CompletionResult]::new('--target', 'target', [CompletionResultType]::ParameterName, 'Select output target')
+            [CompletionResult]::new('--warn-list', 'warn-list', [CompletionResultType]::ParameterName, 'Warn list config')
+            [CompletionResult]::new('--alert-list', 'alert-list', [CompletionResultType]::ParameterName, 'Alert list config')
+            [CompletionResult]::new('-j', 'j', [CompletionResultType]::ParameterName, 'Set the max number of jobs to run in parallel')
+            [CompletionResult]::new('--jobs', 'jobs', [CompletionResultType]::ParameterName, 'Set the max number of jobs to run in parallel')
+            [CompletionResult]::new('--render-no-loc', 'render-no-loc', [CompletionResultType]::ParameterName, 'Render no-location diagnostics starting from a certain level')
+            [CompletionResult]::new('--manifest-path', 'manifest-path', [CompletionResultType]::ParameterName, 'Path to `moon.mod.json` to use as the project manifest (does not change the working directory)')
+            [CompletionResult]::new('--target-dir', 'target-dir', [CompletionResultType]::ParameterName, 'The target directory. Defaults to `<project-root>/target`')
+            [CompletionResult]::new('--std', 'std', [CompletionResultType]::ParameterName, 'Enable the standard library (default)')
+            [CompletionResult]::new('--nostd', 'nostd', [CompletionResultType]::ParameterName, 'Disable the standard library')
+            [CompletionResult]::new('-g', 'g', [CompletionResultType]::ParameterName, 'Emit debug information')
+            [CompletionResult]::new('--debug', 'debug', [CompletionResultType]::ParameterName, 'Emit debug information')
+            [CompletionResult]::new('--release', 'release', [CompletionResultType]::ParameterName, 'Compile in release mode')
+            [CompletionResult]::new('--strip', 'strip', [CompletionResultType]::ParameterName, 'Enable stripping debug information')
+            [CompletionResult]::new('--no-strip', 'no-strip', [CompletionResultType]::ParameterName, 'Disable stripping debug information')
+            [CompletionResult]::new('--serial', 'serial', [CompletionResultType]::ParameterName, '[Deprecated] Handle the selected targets sequentially')
+            [CompletionResult]::new('--enable-coverage', 'enable-coverage', [CompletionResultType]::ParameterName, 'Enable coverage instrumentation')
+            [CompletionResult]::new('--sort-input', 'sort-input', [CompletionResultType]::ParameterName, 'Sort input files')
+            [CompletionResult]::new('--output-wat', 'output-wat', [CompletionResultType]::ParameterName, 'Output WAT instead of WASM')
+            [CompletionResult]::new('-d', 'd', [CompletionResultType]::ParameterName, 'Treat all warnings as errors')
+            [CompletionResult]::new('--deny-warn', 'deny-warn', [CompletionResultType]::ParameterName, 'Treat all warnings as errors')
+            [CompletionResult]::new('--no-render', 'no-render', [CompletionResultType]::ParameterName, 'Don''t render diagnostics (in raw human-readable format)')
+            [CompletionResult]::new('--output-json', 'output-json', [CompletionResultType]::ParameterName, 'Output diagnostics in JSON format')
+            [CompletionResult]::new('--enable-value-tracing', 'enable-value-tracing', [CompletionResultType]::ParameterName, 'Enable value tracing')
+            [CompletionResult]::new('--all', 'all', [CompletionResultType]::ParameterName, 'Bundle all targets')
+            [CompletionResult]::new('--frozen', 'frozen', [CompletionResultType]::ParameterName, 'Do not sync dependencies, assuming local dependencies are up-to-date')
+            [CompletionResult]::new('-q', 'q', [CompletionResultType]::ParameterName, 'Suppress output')
+            [CompletionResult]::new('--quiet', 'quiet', [CompletionResultType]::ParameterName, 'Suppress output')
+            [CompletionResult]::new('-v', 'v', [CompletionResultType]::ParameterName, 'Increase verbosity')
+            [CompletionResult]::new('--verbose', 'verbose', [CompletionResultType]::ParameterName, 'Increase verbosity')
+            [CompletionResult]::new('--trace', 'trace', [CompletionResultType]::ParameterName, 'Trace the execution of the program')
+            [CompletionResult]::new('--dry-run', 'dry-run', [CompletionResultType]::ParameterName, 'Do not actually run the command')
+            [CompletionResult]::new('--build-graph', 'build-graph', [CompletionResultType]::ParameterName, 'build-graph')
+            [CompletionResult]::new('-h', 'h', [CompletionResultType]::ParameterName, 'Print help')
+            [CompletionResult]::new('--help', 'help', [CompletionResultType]::ParameterName, 'Print help')
+            break
+        }
+        'moon;build' {
+            [CompletionResult]::new('--target', 'target', [CompletionResultType]::ParameterName, 'Select output target')
+            [CompletionResult]::new('--warn-list', 'warn-list', [CompletionResultType]::ParameterName, 'Warn list config')
+            [CompletionResult]::new('--alert-list', 'alert-list', [CompletionResultType]::ParameterName, 'Alert list config')
+            [CompletionResult]::new('-j', 'j', [CompletionResultType]::ParameterName, 'Set the max number of jobs to run in parallel')
+            [CompletionResult]::new('--jobs', 'jobs', [CompletionResultType]::ParameterName, 'Set the max number of jobs to run in parallel')
+            [CompletionResult]::new('--render-no-loc', 'render-no-loc', [CompletionResultType]::ParameterName, 'Render no-location diagnostics starting from a certain level')
+            [CompletionResult]::new('--install-path', 'install-path', [CompletionResultType]::ParameterName, 'install-path')
+            [CompletionResult]::new('--package', 'package', [CompletionResultType]::ParameterName, 'package')
+            [CompletionResult]::new('--bin-alias', 'bin-alias', [CompletionResultType]::ParameterName, 'bin-alias')
+            [CompletionResult]::new('--manifest-path', 'manifest-path', [CompletionResultType]::ParameterName, 'Path to `moon.mod.json` to use as the project manifest (does not change the working directory)')
+            [CompletionResult]::new('--target-dir', 'target-dir', [CompletionResultType]::ParameterName, 'The target directory. Defaults to `<project-root>/target`')
+            [CompletionResult]::new('--std', 'std', [CompletionResultType]::ParameterName, 'Enable the standard library (default)')
+            [CompletionResult]::new('--nostd', 'nostd', [CompletionResultType]::ParameterName, 'Disable the standard library')
+            [CompletionResult]::new('-g', 'g', [CompletionResultType]::ParameterName, 'Emit debug information')
+            [CompletionResult]::new('--debug', 'debug', [CompletionResultType]::ParameterName, 'Emit debug information')
+            [CompletionResult]::new('--release', 'release', [CompletionResultType]::ParameterName, 'Compile in release mode')
+            [CompletionResult]::new('--strip', 'strip', [CompletionResultType]::ParameterName, 'Enable stripping debug information')
+            [CompletionResult]::new('--no-strip', 'no-strip', [CompletionResultType]::ParameterName, 'Disable stripping debug information')
+            [CompletionResult]::new('--serial', 'serial', [CompletionResultType]::ParameterName, '[Deprecated] Handle the selected targets sequentially')
+            [CompletionResult]::new('--enable-coverage', 'enable-coverage', [CompletionResultType]::ParameterName, 'Enable coverage instrumentation')
+            [CompletionResult]::new('--sort-input', 'sort-input', [CompletionResultType]::ParameterName, 'Sort input files')
+            [CompletionResult]::new('--output-wat', 'output-wat', [CompletionResultType]::ParameterName, 'Output WAT instead of WASM')
+            [CompletionResult]::new('-d', 'd', [CompletionResultType]::ParameterName, 'Treat all warnings as errors')
+            [CompletionResult]::new('--deny-warn', 'deny-warn', [CompletionResultType]::ParameterName, 'Treat all warnings as errors')
+            [CompletionResult]::new('--no-render', 'no-render', [CompletionResultType]::ParameterName, 'Don''t render diagnostics (in raw human-readable format)')
+            [CompletionResult]::new('--output-json', 'output-json', [CompletionResultType]::ParameterName, 'Output diagnostics in JSON format')
+            [CompletionResult]::new('--enable-value-tracing', 'enable-value-tracing', [CompletionResultType]::ParameterName, 'Enable value tracing')
+            [CompletionResult]::new('--frozen', 'frozen', [CompletionResultType]::ParameterName, 'Do not sync dependencies, assuming local dependencies are up-to-date')
+            [CompletionResult]::new('-w', 'w', [CompletionResultType]::ParameterName, 'Monitor the file system and automatically build artifacts')
+            [CompletionResult]::new('--watch', 'watch', [CompletionResultType]::ParameterName, 'Monitor the file system and automatically build artifacts')
+            [CompletionResult]::new('--show-artifacts', 'show-artifacts', [CompletionResultType]::ParameterName, 'show-artifacts')
+            [CompletionResult]::new('-q', 'q', [CompletionResultType]::ParameterName, 'Suppress output')
+            [CompletionResult]::new('--quiet', 'quiet', [CompletionResultType]::ParameterName, 'Suppress output')
+            [CompletionResult]::new('-v', 'v', [CompletionResultType]::ParameterName, 'Increase verbosity')
+            [CompletionResult]::new('--verbose', 'verbose', [CompletionResultType]::ParameterName, 'Increase verbosity')
+            [CompletionResult]::new('--trace', 'trace', [CompletionResultType]::ParameterName, 'Trace the execution of the program')
+            [CompletionResult]::new('--dry-run', 'dry-run', [CompletionResultType]::ParameterName, 'Do not actually run the command')
+            [CompletionResult]::new('--build-graph', 'build-graph', [CompletionResultType]::ParameterName, 'build-graph')
+            [CompletionResult]::new('-h', 'h', [CompletionResultType]::ParameterName, 'Print help')
+            [CompletionResult]::new('--help', 'help', [CompletionResultType]::ParameterName, 'Print help')
+            break
+        }
+        'moon;check' {
+            [CompletionResult]::new('--target', 'target', [CompletionResultType]::ParameterName, 'Select output target')
+            [CompletionResult]::new('--warn-list', 'warn-list', [CompletionResultType]::ParameterName, 'Warn list config')
+            [CompletionResult]::new('--alert-list', 'alert-list', [CompletionResultType]::ParameterName, 'Alert list config')
+            [CompletionResult]::new('-j', 'j', [CompletionResultType]::ParameterName, 'Set the max number of jobs to run in parallel')
+            [CompletionResult]::new('--jobs', 'jobs', [CompletionResultType]::ParameterName, 'Set the max number of jobs to run in parallel')
+            [CompletionResult]::new('--render-no-loc', 'render-no-loc', [CompletionResultType]::ParameterName, 'Render no-location diagnostics starting from a certain level')
+            [CompletionResult]::new('-p', 'p', [CompletionResultType]::ParameterName, 'The package(and it''s deps) to check')
+            [CompletionResult]::new('--package-path', 'package-path', [CompletionResultType]::ParameterName, 'The package(and it''s deps) to check')
+            [CompletionResult]::new('--patch-file', 'patch-file', [CompletionResultType]::ParameterName, 'The patch file to check, Only valid when checking specified package')
+            [CompletionResult]::new('--manifest-path', 'manifest-path', [CompletionResultType]::ParameterName, 'Path to `moon.mod.json` to use as the project manifest (does not change the working directory)')
+            [CompletionResult]::new('--target-dir', 'target-dir', [CompletionResultType]::ParameterName, 'The target directory. Defaults to `<project-root>/target`')
+            [CompletionResult]::new('--std', 'std', [CompletionResultType]::ParameterName, 'Enable the standard library (default)')
+            [CompletionResult]::new('--nostd', 'nostd', [CompletionResultType]::ParameterName, 'Disable the standard library')
+            [CompletionResult]::new('-g', 'g', [CompletionResultType]::ParameterName, 'Emit debug information')
+            [CompletionResult]::new('--debug', 'debug', [CompletionResultType]::ParameterName, 'Emit debug information')
+            [CompletionResult]::new('--release', 'release', [CompletionResultType]::ParameterName, 'Compile in release mode')
+            [CompletionResult]::new('--strip', 'strip', [CompletionResultType]::ParameterName, 'Enable stripping debug information')
+            [CompletionResult]::new('--no-strip', 'no-strip', [CompletionResultType]::ParameterName, 'Disable stripping debug information')
+            [CompletionResult]::new('--serial', 'serial', [CompletionResultType]::ParameterName, '[Deprecated] Handle the selected targets sequentially')
+            [CompletionResult]::new('--enable-coverage', 'enable-coverage', [CompletionResultType]::ParameterName, 'Enable coverage instrumentation')
+            [CompletionResult]::new('--sort-input', 'sort-input', [CompletionResultType]::ParameterName, 'Sort input files')
+            [CompletionResult]::new('--output-wat', 'output-wat', [CompletionResultType]::ParameterName, 'Output WAT instead of WASM')
+            [CompletionResult]::new('-d', 'd', [CompletionResultType]::ParameterName, 'Treat all warnings as errors')
+            [CompletionResult]::new('--deny-warn', 'deny-warn', [CompletionResultType]::ParameterName, 'Treat all warnings as errors')
+            [CompletionResult]::new('--no-render', 'no-render', [CompletionResultType]::ParameterName, 'Don''t render diagnostics (in raw human-readable format)')
+            [CompletionResult]::new('--output-json', 'output-json', [CompletionResultType]::ParameterName, 'Output diagnostics in JSON format')
+            [CompletionResult]::new('--enable-value-tracing', 'enable-value-tracing', [CompletionResultType]::ParameterName, 'Enable value tracing')
+            [CompletionResult]::new('--frozen', 'frozen', [CompletionResultType]::ParameterName, 'Do not sync dependencies, assuming local dependencies are up-to-date')
+            [CompletionResult]::new('-w', 'w', [CompletionResultType]::ParameterName, 'Monitor the file system and automatically check files')
+            [CompletionResult]::new('--watch', 'watch', [CompletionResultType]::ParameterName, 'Monitor the file system and automatically check files')
+            [CompletionResult]::new('--no-mi', 'no-mi', [CompletionResultType]::ParameterName, 'Whether to skip the mi generation, Only valid when checking specified package')
+            [CompletionResult]::new('--explain', 'explain', [CompletionResultType]::ParameterName, 'Whether to explain the error code with details')
+            [CompletionResult]::new('--fmt', 'fmt', [CompletionResultType]::ParameterName, 'Check whether the code is properly formatted')
+            [CompletionResult]::new('-q', 'q', [CompletionResultType]::ParameterName, 'Suppress output')
+            [CompletionResult]::new('--quiet', 'quiet', [CompletionResultType]::ParameterName, 'Suppress output')
+            [CompletionResult]::new('-v', 'v', [CompletionResultType]::ParameterName, 'Increase verbosity')
+            [CompletionResult]::new('--verbose', 'verbose', [CompletionResultType]::ParameterName, 'Increase verbosity')
+            [CompletionResult]::new('--trace', 'trace', [CompletionResultType]::ParameterName, 'Trace the execution of the program')
+            [CompletionResult]::new('--dry-run', 'dry-run', [CompletionResultType]::ParameterName, 'Do not actually run the command')
+            [CompletionResult]::new('--build-graph', 'build-graph', [CompletionResultType]::ParameterName, 'build-graph')
+            [CompletionResult]::new('-h', 'h', [CompletionResultType]::ParameterName, 'Print help')
+            [CompletionResult]::new('--help', 'help', [CompletionResultType]::ParameterName, 'Print help')
+            break
+        }
+        'moon;run' {
+            [CompletionResult]::new('--target', 'target', [CompletionResultType]::ParameterName, 'Select output target')
+            [CompletionResult]::new('--warn-list', 'warn-list', [CompletionResultType]::ParameterName, 'Warn list config')
+            [CompletionResult]::new('--alert-list', 'alert-list', [CompletionResultType]::ParameterName, 'Alert list config')
+            [CompletionResult]::new('-j', 'j', [CompletionResultType]::ParameterName, 'Set the max number of jobs to run in parallel')
+            [CompletionResult]::new('--jobs', 'jobs', [CompletionResultType]::ParameterName, 'Set the max number of jobs to run in parallel')
+            [CompletionResult]::new('--render-no-loc', 'render-no-loc', [CompletionResultType]::ParameterName, 'Render no-location diagnostics starting from a certain level')
+            [CompletionResult]::new('--manifest-path', 'manifest-path', [CompletionResultType]::ParameterName, 'Path to `moon.mod.json` to use as the project manifest (does not change the working directory)')
+            [CompletionResult]::new('--target-dir', 'target-dir', [CompletionResultType]::ParameterName, 'The target directory. Defaults to `<project-root>/target`')
+            [CompletionResult]::new('--std', 'std', [CompletionResultType]::ParameterName, 'Enable the standard library (default)')
+            [CompletionResult]::new('--nostd', 'nostd', [CompletionResultType]::ParameterName, 'Disable the standard library')
+            [CompletionResult]::new('-g', 'g', [CompletionResultType]::ParameterName, 'Emit debug information')
+            [CompletionResult]::new('--debug', 'debug', [CompletionResultType]::ParameterName, 'Emit debug information')
+            [CompletionResult]::new('--release', 'release', [CompletionResultType]::ParameterName, 'Compile in release mode')
+            [CompletionResult]::new('--strip', 'strip', [CompletionResultType]::ParameterName, 'Enable stripping debug information')
+            [CompletionResult]::new('--no-strip', 'no-strip', [CompletionResultType]::ParameterName, 'Disable stripping debug information')
+            [CompletionResult]::new('--serial', 'serial', [CompletionResultType]::ParameterName, '[Deprecated] Handle the selected targets sequentially')
+            [CompletionResult]::new('--enable-coverage', 'enable-coverage', [CompletionResultType]::ParameterName, 'Enable coverage instrumentation')
+            [CompletionResult]::new('--sort-input', 'sort-input', [CompletionResultType]::ParameterName, 'Sort input files')
+            [CompletionResult]::new('--output-wat', 'output-wat', [CompletionResultType]::ParameterName, 'Output WAT instead of WASM')
+            [CompletionResult]::new('-d', 'd', [CompletionResultType]::ParameterName, 'Treat all warnings as errors')
+            [CompletionResult]::new('--deny-warn', 'deny-warn', [CompletionResultType]::ParameterName, 'Treat all warnings as errors')
+            [CompletionResult]::new('--no-render', 'no-render', [CompletionResultType]::ParameterName, 'Don''t render diagnostics (in raw human-readable format)')
+            [CompletionResult]::new('--output-json', 'output-json', [CompletionResultType]::ParameterName, 'Output diagnostics in JSON format')
+            [CompletionResult]::new('--enable-value-tracing', 'enable-value-tracing', [CompletionResultType]::ParameterName, 'Enable value tracing')
+            [CompletionResult]::new('--frozen', 'frozen', [CompletionResultType]::ParameterName, 'Do not sync dependencies, assuming local dependencies are up-to-date')
+            [CompletionResult]::new('--build-only', 'build-only', [CompletionResultType]::ParameterName, 'Only build, do not run the code')
+            [CompletionResult]::new('-q', 'q', [CompletionResultType]::ParameterName, 'Suppress output')
+            [CompletionResult]::new('--quiet', 'quiet', [CompletionResultType]::ParameterName, 'Suppress output')
+            [CompletionResult]::new('-v', 'v', [CompletionResultType]::ParameterName, 'Increase verbosity')
+            [CompletionResult]::new('--verbose', 'verbose', [CompletionResultType]::ParameterName, 'Increase verbosity')
+            [CompletionResult]::new('--trace', 'trace', [CompletionResultType]::ParameterName, 'Trace the execution of the program')
+            [CompletionResult]::new('--dry-run', 'dry-run', [CompletionResultType]::ParameterName, 'Do not actually run the command')
+            [CompletionResult]::new('--build-graph', 'build-graph', [CompletionResultType]::ParameterName, 'build-graph')
+            [CompletionResult]::new('-h', 'h', [CompletionResultType]::ParameterName, 'Print help')
+            [CompletionResult]::new('--help', 'help', [CompletionResultType]::ParameterName, 'Print help')
+            break
+        }
+        'moon;test' {
+            [CompletionResult]::new('--target', 'target', [CompletionResultType]::ParameterName, 'Select output target')
+            [CompletionResult]::new('--warn-list', 'warn-list', [CompletionResultType]::ParameterName, 'Warn list config')
+            [CompletionResult]::new('--alert-list', 'alert-list', [CompletionResultType]::ParameterName, 'Alert list config')
+            [CompletionResult]::new('-j', 'j', [CompletionResultType]::ParameterName, 'Set the max number of jobs to run in parallel')
+            [CompletionResult]::new('--jobs', 'jobs', [CompletionResultType]::ParameterName, 'Set the max number of jobs to run in parallel')
+            [CompletionResult]::new('--render-no-loc', 'render-no-loc', [CompletionResultType]::ParameterName, 'Render no-location diagnostics starting from a certain level')
+            [CompletionResult]::new('-p', 'p', [CompletionResultType]::ParameterName, 'Run test in the specified package')
+            [CompletionResult]::new('--package', 'package', [CompletionResultType]::ParameterName, 'Run test in the specified package')
+            [CompletionResult]::new('-f', 'f', [CompletionResultType]::ParameterName, 'Run test in the specified file. Only valid when `--package` is also specified')
+            [CompletionResult]::new('--file', 'file', [CompletionResultType]::ParameterName, 'Run test in the specified file. Only valid when `--package` is also specified')
+            [CompletionResult]::new('-i', 'i', [CompletionResultType]::ParameterName, 'Run only the index-th test in the file. Accepts a single index or a left-inclusive right-exclusive range like `0-2`. Only valid when `--file` is also specified. Implies `--include-skipped`')
+            [CompletionResult]::new('--index', 'index', [CompletionResultType]::ParameterName, 'Run only the index-th test in the file. Accepts a single index or a left-inclusive right-exclusive range like `0-2`. Only valid when `--file` is also specified. Implies `--include-skipped`')
+            [CompletionResult]::new('--doc-index', 'doc-index', [CompletionResultType]::ParameterName, 'Run only the index-th doc test in the file. Only valid when `--file` is also specified. Implies `--include-skipped`')
+            [CompletionResult]::new('-l', 'l', [CompletionResultType]::ParameterName, 'Limit of expect test update passes to run, in order to avoid infinite loops')
+            [CompletionResult]::new('--limit', 'limit', [CompletionResultType]::ParameterName, 'Limit of expect test update passes to run, in order to avoid infinite loops')
+            [CompletionResult]::new('--patch-file', 'patch-file', [CompletionResultType]::ParameterName, 'Path to the patch file')
+            [CompletionResult]::new('-F', 'F ', [CompletionResultType]::ParameterName, 'Run only tests whose name matches the given glob pattern. Supports ''*'' (matches any sequence) and ''?'' (matches any single character)')
+            [CompletionResult]::new('--filter', 'filter', [CompletionResultType]::ParameterName, 'Run only tests whose name matches the given glob pattern. Supports ''*'' (matches any sequence) and ''?'' (matches any single character)')
+            [CompletionResult]::new('--manifest-path', 'manifest-path', [CompletionResultType]::ParameterName, 'Path to `moon.mod.json` to use as the project manifest (does not change the working directory)')
+            [CompletionResult]::new('--target-dir', 'target-dir', [CompletionResultType]::ParameterName, 'The target directory. Defaults to `<project-root>/target`')
+            [CompletionResult]::new('--std', 'std', [CompletionResultType]::ParameterName, 'Enable the standard library (default)')
+            [CompletionResult]::new('--nostd', 'nostd', [CompletionResultType]::ParameterName, 'Disable the standard library')
+            [CompletionResult]::new('-g', 'g', [CompletionResultType]::ParameterName, 'Emit debug information')
+            [CompletionResult]::new('--debug', 'debug', [CompletionResultType]::ParameterName, 'Emit debug information')
+            [CompletionResult]::new('--release', 'release', [CompletionResultType]::ParameterName, 'Compile in release mode')
+            [CompletionResult]::new('--strip', 'strip', [CompletionResultType]::ParameterName, 'Enable stripping debug information')
+            [CompletionResult]::new('--no-strip', 'no-strip', [CompletionResultType]::ParameterName, 'Disable stripping debug information')
+            [CompletionResult]::new('--serial', 'serial', [CompletionResultType]::ParameterName, '[Deprecated] Handle the selected targets sequentially')
+            [CompletionResult]::new('--enable-coverage', 'enable-coverage', [CompletionResultType]::ParameterName, 'Enable coverage instrumentation')
+            [CompletionResult]::new('--sort-input', 'sort-input', [CompletionResultType]::ParameterName, 'Sort input files')
+            [CompletionResult]::new('--output-wat', 'output-wat', [CompletionResultType]::ParameterName, 'Output WAT instead of WASM')
+            [CompletionResult]::new('-d', 'd', [CompletionResultType]::ParameterName, 'Treat all warnings as errors')
+            [CompletionResult]::new('--deny-warn', 'deny-warn', [CompletionResultType]::ParameterName, 'Treat all warnings as errors')
+            [CompletionResult]::new('--no-render', 'no-render', [CompletionResultType]::ParameterName, 'Don''t render diagnostics (in raw human-readable format)')
+            [CompletionResult]::new('--output-json', 'output-json', [CompletionResultType]::ParameterName, 'Output diagnostics in JSON format')
+            [CompletionResult]::new('--enable-value-tracing', 'enable-value-tracing', [CompletionResultType]::ParameterName, 'Enable value tracing')
+            [CompletionResult]::new('-u', 'u', [CompletionResultType]::ParameterName, 'Update the test snapshot')
+            [CompletionResult]::new('--update', 'update', [CompletionResultType]::ParameterName, 'Update the test snapshot')
+            [CompletionResult]::new('--frozen', 'frozen', [CompletionResultType]::ParameterName, 'Do not sync dependencies, assuming local dependencies are up-to-date')
+            [CompletionResult]::new('--build-only', 'build-only', [CompletionResultType]::ParameterName, 'Only build, do not run the tests')
+            [CompletionResult]::new('--no-parallelize', 'no-parallelize', [CompletionResultType]::ParameterName, 'Run the tests in a target backend sequentially')
+            [CompletionResult]::new('--outline', 'outline', [CompletionResultType]::ParameterName, 'Print the outline of tests to be executed and exit')
+            [CompletionResult]::new('--test-failure-json', 'test-failure-json', [CompletionResultType]::ParameterName, 'Print failure message in JSON format')
+            [CompletionResult]::new('--doc', 'doc', [CompletionResultType]::ParameterName, 'Run doc test')
+            [CompletionResult]::new('--include-skipped', 'include-skipped', [CompletionResultType]::ParameterName, 'Include skipped tests. Automatically implied when `--[doc-]index` is set')
+            [CompletionResult]::new('-q', 'q', [CompletionResultType]::ParameterName, 'Suppress output')
+            [CompletionResult]::new('--quiet', 'quiet', [CompletionResultType]::ParameterName, 'Suppress output')
+            [CompletionResult]::new('-v', 'v', [CompletionResultType]::ParameterName, 'Increase verbosity')
+            [CompletionResult]::new('--verbose', 'verbose', [CompletionResultType]::ParameterName, 'Increase verbosity')
+            [CompletionResult]::new('--trace', 'trace', [CompletionResultType]::ParameterName, 'Trace the execution of the program')
+            [CompletionResult]::new('--dry-run', 'dry-run', [CompletionResultType]::ParameterName, 'Do not actually run the command')
+            [CompletionResult]::new('--build-graph', 'build-graph', [CompletionResultType]::ParameterName, 'build-graph')
+            [CompletionResult]::new('-h', 'h', [CompletionResultType]::ParameterName, 'Print help')
+            [CompletionResult]::new('--help', 'help', [CompletionResultType]::ParameterName, 'Print help')
+            break
+        }
+        'moon;generate-test-driver' {
+            [CompletionResult]::new('--doctest-only', 'doctest-only', [CompletionResultType]::ParameterName, 'Files that need to be mapped, but only extract the doctests, not main contents')
+            [CompletionResult]::new('--output-driver', 'output-driver', [CompletionResultType]::ParameterName, 'The output test driver `.mbt` file')
+            [CompletionResult]::new('--output-metadata', 'output-metadata', [CompletionResultType]::ParameterName, 'The output test metadata file')
+            [CompletionResult]::new('--target', 'target', [CompletionResultType]::ParameterName, 'The target backend for the generated test driver')
+            [CompletionResult]::new('--pkg-name', 'pkg-name', [CompletionResultType]::ParameterName, 'The name of the package for which the test driver is generated for')
+            [CompletionResult]::new('--coverage-package-override', 'coverage-package-override', [CompletionResultType]::ParameterName, 'Override coverage package name; `@self` is a special value that means the package itself')
+            [CompletionResult]::new('--driver-kind', 'driver-kind', [CompletionResultType]::ParameterName, 'The test driver kind')
+            [CompletionResult]::new('--patch-file', 'patch-file', [CompletionResultType]::ParameterName, 'Path to the patch file')
+            [CompletionResult]::new('--max-concurrent-tests', 'max-concurrent-tests', [CompletionResultType]::ParameterName, 'Max concurrent tests for `async test`')
+            [CompletionResult]::new('--manifest-path', 'manifest-path', [CompletionResultType]::ParameterName, 'Path to `moon.mod.json` to use as the project manifest (does not change the working directory)')
+            [CompletionResult]::new('--target-dir', 'target-dir', [CompletionResultType]::ParameterName, 'The target directory. Defaults to `<project-root>/target`')
+            [CompletionResult]::new('--bench', 'bench', [CompletionResultType]::ParameterName, 'Whether to generate the test driver in bench mode. Not providing this option will result in test mode')
+            [CompletionResult]::new('--enable-coverage', 'enable-coverage', [CompletionResultType]::ParameterName, 'Whether coverage is enabled in this build. Enabling it will insert coverage-custom code at the end of the test..')
+            [CompletionResult]::new('-q', 'q', [CompletionResultType]::ParameterName, 'Suppress output')
+            [CompletionResult]::new('--quiet', 'quiet', [CompletionResultType]::ParameterName, 'Suppress output')
+            [CompletionResult]::new('-v', 'v', [CompletionResultType]::ParameterName, 'Increase verbosity')
+            [CompletionResult]::new('--verbose', 'verbose', [CompletionResultType]::ParameterName, 'Increase verbosity')
+            [CompletionResult]::new('--trace', 'trace', [CompletionResultType]::ParameterName, 'Trace the execution of the program')
+            [CompletionResult]::new('--dry-run', 'dry-run', [CompletionResultType]::ParameterName, 'Do not actually run the command')
+            [CompletionResult]::new('--build-graph', 'build-graph', [CompletionResultType]::ParameterName, 'build-graph')
+            [CompletionResult]::new('-h', 'h', [CompletionResultType]::ParameterName, 'Print help')
+            [CompletionResult]::new('--help', 'help', [CompletionResultType]::ParameterName, 'Print help')
+            break
+        }
+        'moon;clean' {
+            [CompletionResult]::new('--manifest-path', 'manifest-path', [CompletionResultType]::ParameterName, 'Path to `moon.mod.json` to use as the project manifest (does not change the working directory)')
+            [CompletionResult]::new('--target-dir', 'target-dir', [CompletionResultType]::ParameterName, 'The target directory. Defaults to `<project-root>/target`')
+            [CompletionResult]::new('-q', 'q', [CompletionResultType]::ParameterName, 'Suppress output')
+            [CompletionResult]::new('--quiet', 'quiet', [CompletionResultType]::ParameterName, 'Suppress output')
+            [CompletionResult]::new('-v', 'v', [CompletionResultType]::ParameterName, 'Increase verbosity')
+            [CompletionResult]::new('--verbose', 'verbose', [CompletionResultType]::ParameterName, 'Increase verbosity')
+            [CompletionResult]::new('--trace', 'trace', [CompletionResultType]::ParameterName, 'Trace the execution of the program')
+            [CompletionResult]::new('--dry-run', 'dry-run', [CompletionResultType]::ParameterName, 'Do not actually run the command')
+            [CompletionResult]::new('--build-graph', 'build-graph', [CompletionResultType]::ParameterName, 'build-graph')
+            [CompletionResult]::new('-h', 'h', [CompletionResultType]::ParameterName, 'Print help')
+            [CompletionResult]::new('--help', 'help', [CompletionResultType]::ParameterName, 'Print help')
+            break
+        }
+        'moon;fmt' {
+            [CompletionResult]::new('--block-style', 'block-style', [CompletionResultType]::ParameterName, 'Add separator between each segments')
+            [CompletionResult]::new('--manifest-path', 'manifest-path', [CompletionResultType]::ParameterName, 'Path to `moon.mod.json` to use as the project manifest (does not change the working directory)')
+            [CompletionResult]::new('--target-dir', 'target-dir', [CompletionResultType]::ParameterName, 'The target directory. Defaults to `<project-root>/target`')
+            [CompletionResult]::new('--check', 'check', [CompletionResultType]::ParameterName, 'Check only and don''t change the source code')
+            [CompletionResult]::new('--sort-input', 'sort-input', [CompletionResultType]::ParameterName, 'Sort input files')
+            [CompletionResult]::new('--warn', 'warn', [CompletionResultType]::ParameterName, 'Warn if code is not properly formatted')
+            [CompletionResult]::new('-q', 'q', [CompletionResultType]::ParameterName, 'Suppress output')
+            [CompletionResult]::new('--quiet', 'quiet', [CompletionResultType]::ParameterName, 'Suppress output')
+            [CompletionResult]::new('-v', 'v', [CompletionResultType]::ParameterName, 'Increase verbosity')
+            [CompletionResult]::new('--verbose', 'verbose', [CompletionResultType]::ParameterName, 'Increase verbosity')
+            [CompletionResult]::new('--trace', 'trace', [CompletionResultType]::ParameterName, 'Trace the execution of the program')
+            [CompletionResult]::new('--dry-run', 'dry-run', [CompletionResultType]::ParameterName, 'Do not actually run the command')
+            [CompletionResult]::new('--build-graph', 'build-graph', [CompletionResultType]::ParameterName, 'build-graph')
+            [CompletionResult]::new('-h', 'h', [CompletionResultType]::ParameterName, 'Print help')
+            [CompletionResult]::new('--help', 'help', [CompletionResultType]::ParameterName, 'Print help')
+            break
+        }
+        'moon;doc' {
+            [CompletionResult]::new('-b', 'b', [CompletionResultType]::ParameterName, 'The address of the server')
+            [CompletionResult]::new('--bind', 'bind', [CompletionResultType]::ParameterName, 'The address of the server')
+            [CompletionResult]::new('-p', 'p', [CompletionResultType]::ParameterName, 'The port of the server')
+            [CompletionResult]::new('--port', 'port', [CompletionResultType]::ParameterName, 'The port of the server')
+            [CompletionResult]::new('--manifest-path', 'manifest-path', [CompletionResultType]::ParameterName, 'Path to `moon.mod.json` to use as the project manifest (does not change the working directory)')
+            [CompletionResult]::new('--target-dir', 'target-dir', [CompletionResultType]::ParameterName, 'The target directory. Defaults to `<project-root>/target`')
+            [CompletionResult]::new('--serve', 'serve', [CompletionResultType]::ParameterName, 'Start a web server to serve the documentation')
+            [CompletionResult]::new('--frozen', 'frozen', [CompletionResultType]::ParameterName, 'Do not sync dependencies, assuming local dependencies are up-to-date')
+            [CompletionResult]::new('-q', 'q', [CompletionResultType]::ParameterName, 'Suppress output')
+            [CompletionResult]::new('--quiet', 'quiet', [CompletionResultType]::ParameterName, 'Suppress output')
+            [CompletionResult]::new('-v', 'v', [CompletionResultType]::ParameterName, 'Increase verbosity')
+            [CompletionResult]::new('--verbose', 'verbose', [CompletionResultType]::ParameterName, 'Increase verbosity')
+            [CompletionResult]::new('--trace', 'trace', [CompletionResultType]::ParameterName, 'Trace the execution of the program')
+            [CompletionResult]::new('--dry-run', 'dry-run', [CompletionResultType]::ParameterName, 'Do not actually run the command')
+            [CompletionResult]::new('--build-graph', 'build-graph', [CompletionResultType]::ParameterName, 'build-graph')
+            [CompletionResult]::new('-h', 'h', [CompletionResultType]::ParameterName, 'Print help')
+            [CompletionResult]::new('--help', 'help', [CompletionResultType]::ParameterName, 'Print help')
+            break
+        }
+        'moon;info' {
+            [CompletionResult]::new('--target', 'target', [CompletionResultType]::ParameterName, 'Select output target')
+            [CompletionResult]::new('-p', 'p', [CompletionResultType]::ParameterName, 'The full or subset of name of the package to emit `mbti` files for')
+            [CompletionResult]::new('--package', 'package', [CompletionResultType]::ParameterName, 'The full or subset of name of the package to emit `mbti` files for')
+            [CompletionResult]::new('--manifest-path', 'manifest-path', [CompletionResultType]::ParameterName, 'Path to `moon.mod.json` to use as the project manifest (does not change the working directory)')
+            [CompletionResult]::new('--target-dir', 'target-dir', [CompletionResultType]::ParameterName, 'The target directory. Defaults to `<project-root>/target`')
+            [CompletionResult]::new('--frozen', 'frozen', [CompletionResultType]::ParameterName, 'Do not sync dependencies, assuming local dependencies are up-to-date')
+            [CompletionResult]::new('--no-alias', 'no-alias', [CompletionResultType]::ParameterName, 'Do not use alias to shorten package names in the output')
+            [CompletionResult]::new('-q', 'q', [CompletionResultType]::ParameterName, 'Suppress output')
+            [CompletionResult]::new('--quiet', 'quiet', [CompletionResultType]::ParameterName, 'Suppress output')
+            [CompletionResult]::new('-v', 'v', [CompletionResultType]::ParameterName, 'Increase verbosity')
+            [CompletionResult]::new('--verbose', 'verbose', [CompletionResultType]::ParameterName, 'Increase verbosity')
+            [CompletionResult]::new('--trace', 'trace', [CompletionResultType]::ParameterName, 'Trace the execution of the program')
+            [CompletionResult]::new('--dry-run', 'dry-run', [CompletionResultType]::ParameterName, 'Do not actually run the command')
+            [CompletionResult]::new('--build-graph', 'build-graph', [CompletionResultType]::ParameterName, 'build-graph')
+            [CompletionResult]::new('-h', 'h', [CompletionResultType]::ParameterName, 'Print help (see more with ''--help'')')
+            [CompletionResult]::new('--help', 'help', [CompletionResultType]::ParameterName, 'Print help (see more with ''--help'')')
+            break
+        }
+        'moon;bench' {
+            [CompletionResult]::new('--target', 'target', [CompletionResultType]::ParameterName, 'Select output target')
+            [CompletionResult]::new('--warn-list', 'warn-list', [CompletionResultType]::ParameterName, 'Warn list config')
+            [CompletionResult]::new('--alert-list', 'alert-list', [CompletionResultType]::ParameterName, 'Alert list config')
+            [CompletionResult]::new('-j', 'j', [CompletionResultType]::ParameterName, 'Set the max number of jobs to run in parallel')
+            [CompletionResult]::new('--jobs', 'jobs', [CompletionResultType]::ParameterName, 'Set the max number of jobs to run in parallel')
+            [CompletionResult]::new('--render-no-loc', 'render-no-loc', [CompletionResultType]::ParameterName, 'Render no-location diagnostics starting from a certain level')
+            [CompletionResult]::new('-p', 'p', [CompletionResultType]::ParameterName, 'Run test in the specified package')
+            [CompletionResult]::new('--package', 'package', [CompletionResultType]::ParameterName, 'Run test in the specified package')
+            [CompletionResult]::new('-f', 'f', [CompletionResultType]::ParameterName, 'Run test in the specified file. Only valid when `--package` is also specified')
+            [CompletionResult]::new('--file', 'file', [CompletionResultType]::ParameterName, 'Run test in the specified file. Only valid when `--package` is also specified')
+            [CompletionResult]::new('-i', 'i', [CompletionResultType]::ParameterName, 'Run only the index-th test in the file. Accepts a single index or a left-inclusive right-exclusive range like `0-2`. Only valid when `--file` is also specified')
+            [CompletionResult]::new('--index', 'index', [CompletionResultType]::ParameterName, 'Run only the index-th test in the file. Accepts a single index or a left-inclusive right-exclusive range like `0-2`. Only valid when `--file` is also specified')
+            [CompletionResult]::new('--manifest-path', 'manifest-path', [CompletionResultType]::ParameterName, 'Path to `moon.mod.json` to use as the project manifest (does not change the working directory)')
+            [CompletionResult]::new('--target-dir', 'target-dir', [CompletionResultType]::ParameterName, 'The target directory. Defaults to `<project-root>/target`')
+            [CompletionResult]::new('--std', 'std', [CompletionResultType]::ParameterName, 'Enable the standard library (default)')
+            [CompletionResult]::new('--nostd', 'nostd', [CompletionResultType]::ParameterName, 'Disable the standard library')
+            [CompletionResult]::new('-g', 'g', [CompletionResultType]::ParameterName, 'Emit debug information')
+            [CompletionResult]::new('--debug', 'debug', [CompletionResultType]::ParameterName, 'Emit debug information')
+            [CompletionResult]::new('--release', 'release', [CompletionResultType]::ParameterName, 'Compile in release mode')
+            [CompletionResult]::new('--strip', 'strip', [CompletionResultType]::ParameterName, 'Enable stripping debug information')
+            [CompletionResult]::new('--no-strip', 'no-strip', [CompletionResultType]::ParameterName, 'Disable stripping debug information')
+            [CompletionResult]::new('--serial', 'serial', [CompletionResultType]::ParameterName, '[Deprecated] Handle the selected targets sequentially')
+            [CompletionResult]::new('--enable-coverage', 'enable-coverage', [CompletionResultType]::ParameterName, 'Enable coverage instrumentation')
+            [CompletionResult]::new('--sort-input', 'sort-input', [CompletionResultType]::ParameterName, 'Sort input files')
+            [CompletionResult]::new('--output-wat', 'output-wat', [CompletionResultType]::ParameterName, 'Output WAT instead of WASM')
+            [CompletionResult]::new('-d', 'd', [CompletionResultType]::ParameterName, 'Treat all warnings as errors')
+            [CompletionResult]::new('--deny-warn', 'deny-warn', [CompletionResultType]::ParameterName, 'Treat all warnings as errors')
+            [CompletionResult]::new('--no-render', 'no-render', [CompletionResultType]::ParameterName, 'Don''t render diagnostics (in raw human-readable format)')
+            [CompletionResult]::new('--output-json', 'output-json', [CompletionResultType]::ParameterName, 'Output diagnostics in JSON format')
+            [CompletionResult]::new('--enable-value-tracing', 'enable-value-tracing', [CompletionResultType]::ParameterName, 'Enable value tracing')
+            [CompletionResult]::new('--frozen', 'frozen', [CompletionResultType]::ParameterName, 'Do not sync dependencies, assuming local dependencies are up-to-date')
+            [CompletionResult]::new('--build-only', 'build-only', [CompletionResultType]::ParameterName, 'Only build, do not bench')
+            [CompletionResult]::new('--no-parallelize', 'no-parallelize', [CompletionResultType]::ParameterName, 'Run the benchmarks in a target backend sequentially')
+            [CompletionResult]::new('-q', 'q', [CompletionResultType]::ParameterName, 'Suppress output')
+            [CompletionResult]::new('--quiet', 'quiet', [CompletionResultType]::ParameterName, 'Suppress output')
+            [CompletionResult]::new('-v', 'v', [CompletionResultType]::ParameterName, 'Increase verbosity')
+            [CompletionResult]::new('--verbose', 'verbose', [CompletionResultType]::ParameterName, 'Increase verbosity')
+            [CompletionResult]::new('--trace', 'trace', [CompletionResultType]::ParameterName, 'Trace the execution of the program')
+            [CompletionResult]::new('--dry-run', 'dry-run', [CompletionResultType]::ParameterName, 'Do not actually run the command')
+            [CompletionResult]::new('--build-graph', 'build-graph', [CompletionResultType]::ParameterName, 'build-graph')
+            [CompletionResult]::new('-h', 'h', [CompletionResultType]::ParameterName, 'Print help')
+            [CompletionResult]::new('--help', 'help', [CompletionResultType]::ParameterName, 'Print help')
+            break
+        }
+        'moon;add' {
+            [CompletionResult]::new('--manifest-path', 'manifest-path', [CompletionResultType]::ParameterName, 'Path to `moon.mod.json` to use as the project manifest (does not change the working directory)')
+            [CompletionResult]::new('--target-dir', 'target-dir', [CompletionResultType]::ParameterName, 'The target directory. Defaults to `<project-root>/target`')
+            [CompletionResult]::new('--bin', 'bin', [CompletionResultType]::ParameterName, 'Whether to add the dependency as a binary')
+            [CompletionResult]::new('--no-update', 'no-update', [CompletionResultType]::ParameterName, 'Do not update the registry index before adding the dependency')
+            [CompletionResult]::new('-q', 'q', [CompletionResultType]::ParameterName, 'Suppress output')
+            [CompletionResult]::new('--quiet', 'quiet', [CompletionResultType]::ParameterName, 'Suppress output')
+            [CompletionResult]::new('-v', 'v', [CompletionResultType]::ParameterName, 'Increase verbosity')
+            [CompletionResult]::new('--verbose', 'verbose', [CompletionResultType]::ParameterName, 'Increase verbosity')
+            [CompletionResult]::new('--trace', 'trace', [CompletionResultType]::ParameterName, 'Trace the execution of the program')
+            [CompletionResult]::new('--dry-run', 'dry-run', [CompletionResultType]::ParameterName, 'Do not actually run the command')
+            [CompletionResult]::new('--build-graph', 'build-graph', [CompletionResultType]::ParameterName, 'build-graph')
+            [CompletionResult]::new('-h', 'h', [CompletionResultType]::ParameterName, 'Print help')
+            [CompletionResult]::new('--help', 'help', [CompletionResultType]::ParameterName, 'Print help')
+            break
+        }
+        'moon;remove' {
+            [CompletionResult]::new('--manifest-path', 'manifest-path', [CompletionResultType]::ParameterName, 'Path to `moon.mod.json` to use as the project manifest (does not change the working directory)')
+            [CompletionResult]::new('--target-dir', 'target-dir', [CompletionResultType]::ParameterName, 'The target directory. Defaults to `<project-root>/target`')
+            [CompletionResult]::new('-q', 'q', [CompletionResultType]::ParameterName, 'Suppress output')
+            [CompletionResult]::new('--quiet', 'quiet', [CompletionResultType]::ParameterName, 'Suppress output')
+            [CompletionResult]::new('-v', 'v', [CompletionResultType]::ParameterName, 'Increase verbosity')
+            [CompletionResult]::new('--verbose', 'verbose', [CompletionResultType]::ParameterName, 'Increase verbosity')
+            [CompletionResult]::new('--trace', 'trace', [CompletionResultType]::ParameterName, 'Trace the execution of the program')
+            [CompletionResult]::new('--dry-run', 'dry-run', [CompletionResultType]::ParameterName, 'Do not actually run the command')
+            [CompletionResult]::new('--build-graph', 'build-graph', [CompletionResultType]::ParameterName, 'build-graph')
+            [CompletionResult]::new('-h', 'h', [CompletionResultType]::ParameterName, 'Print help')
+            [CompletionResult]::new('--help', 'help', [CompletionResultType]::ParameterName, 'Print help')
+            break
+        }
+        'moon;install' {
+            [CompletionResult]::new('--bin', 'bin', [CompletionResultType]::ParameterName, 'Specify installation directory (default: ~/.moon/bin/)')
+            [CompletionResult]::new('--path', 'path', [CompletionResultType]::ParameterName, 'Install from local path instead of registry')
+            [CompletionResult]::new('--rev', 'rev', [CompletionResultType]::ParameterName, 'Git revision to checkout (commit hash, requires git URL)')
+            [CompletionResult]::new('--branch', 'branch', [CompletionResultType]::ParameterName, 'Git branch to checkout (requires git URL)')
+            [CompletionResult]::new('--tag', 'tag', [CompletionResultType]::ParameterName, 'Git tag to checkout (requires git URL)')
+            [CompletionResult]::new('--manifest-path', 'manifest-path', [CompletionResultType]::ParameterName, 'Path to `moon.mod.json` to use as the project manifest (does not change the working directory)')
+            [CompletionResult]::new('--target-dir', 'target-dir', [CompletionResultType]::ParameterName, 'The target directory. Defaults to `<project-root>/target`')
+            [CompletionResult]::new('-q', 'q', [CompletionResultType]::ParameterName, 'Suppress output')
+            [CompletionResult]::new('--quiet', 'quiet', [CompletionResultType]::ParameterName, 'Suppress output')
+            [CompletionResult]::new('-v', 'v', [CompletionResultType]::ParameterName, 'Increase verbosity')
+            [CompletionResult]::new('--verbose', 'verbose', [CompletionResultType]::ParameterName, 'Increase verbosity')
+            [CompletionResult]::new('--trace', 'trace', [CompletionResultType]::ParameterName, 'Trace the execution of the program')
+            [CompletionResult]::new('--dry-run', 'dry-run', [CompletionResultType]::ParameterName, 'Do not actually run the command')
+            [CompletionResult]::new('--build-graph', 'build-graph', [CompletionResultType]::ParameterName, 'build-graph')
+            [CompletionResult]::new('-h', 'h', [CompletionResultType]::ParameterName, 'Print help')
+            [CompletionResult]::new('--help', 'help', [CompletionResultType]::ParameterName, 'Print help')
+            break
+        }
+        'moon;tree' {
+            [CompletionResult]::new('--manifest-path', 'manifest-path', [CompletionResultType]::ParameterName, 'Path to `moon.mod.json` to use as the project manifest (does not change the working directory)')
+            [CompletionResult]::new('--target-dir', 'target-dir', [CompletionResultType]::ParameterName, 'The target directory. Defaults to `<project-root>/target`')
+            [CompletionResult]::new('-q', 'q', [CompletionResultType]::ParameterName, 'Suppress output')
+            [CompletionResult]::new('--quiet', 'quiet', [CompletionResultType]::ParameterName, 'Suppress output')
+            [CompletionResult]::new('-v', 'v', [CompletionResultType]::ParameterName, 'Increase verbosity')
+            [CompletionResult]::new('--verbose', 'verbose', [CompletionResultType]::ParameterName, 'Increase verbosity')
+            [CompletionResult]::new('--trace', 'trace', [CompletionResultType]::ParameterName, 'Trace the execution of the program')
+            [CompletionResult]::new('--dry-run', 'dry-run', [CompletionResultType]::ParameterName, 'Do not actually run the command')
+            [CompletionResult]::new('--build-graph', 'build-graph', [CompletionResultType]::ParameterName, 'build-graph')
+            [CompletionResult]::new('-h', 'h', [CompletionResultType]::ParameterName, 'Print help')
+            [CompletionResult]::new('--help', 'help', [CompletionResultType]::ParameterName, 'Print help')
+            break
+        }
+        'moon;fetch' {
+            [CompletionResult]::new('--manifest-path', 'manifest-path', [CompletionResultType]::ParameterName, 'Path to `moon.mod.json` to use as the project manifest (does not change the working directory)')
+            [CompletionResult]::new('--target-dir', 'target-dir', [CompletionResultType]::ParameterName, 'The target directory. Defaults to `<project-root>/target`')
+            [CompletionResult]::new('--no-update', 'no-update', [CompletionResultType]::ParameterName, 'Do not update the registry index before fetching')
+            [CompletionResult]::new('-q', 'q', [CompletionResultType]::ParameterName, 'Suppress output')
+            [CompletionResult]::new('--quiet', 'quiet', [CompletionResultType]::ParameterName, 'Suppress output')
+            [CompletionResult]::new('-v', 'v', [CompletionResultType]::ParameterName, 'Increase verbosity')
+            [CompletionResult]::new('--verbose', 'verbose', [CompletionResultType]::ParameterName, 'Increase verbosity')
+            [CompletionResult]::new('--trace', 'trace', [CompletionResultType]::ParameterName, 'Trace the execution of the program')
+            [CompletionResult]::new('--dry-run', 'dry-run', [CompletionResultType]::ParameterName, 'Do not actually run the command')
+            [CompletionResult]::new('--build-graph', 'build-graph', [CompletionResultType]::ParameterName, 'build-graph')
+            [CompletionResult]::new('-h', 'h', [CompletionResultType]::ParameterName, 'Print help')
+            [CompletionResult]::new('--help', 'help', [CompletionResultType]::ParameterName, 'Print help')
+            break
+        }
+        'moon;login' {
+            [CompletionResult]::new('--manifest-path', 'manifest-path', [CompletionResultType]::ParameterName, 'Path to `moon.mod.json` to use as the project manifest (does not change the working directory)')
+            [CompletionResult]::new('--target-dir', 'target-dir', [CompletionResultType]::ParameterName, 'The target directory. Defaults to `<project-root>/target`')
+            [CompletionResult]::new('-q', 'q', [CompletionResultType]::ParameterName, 'Suppress output')
+            [CompletionResult]::new('--quiet', 'quiet', [CompletionResultType]::ParameterName, 'Suppress output')
+            [CompletionResult]::new('-v', 'v', [CompletionResultType]::ParameterName, 'Increase verbosity')
+            [CompletionResult]::new('--verbose', 'verbose', [CompletionResultType]::ParameterName, 'Increase verbosity')
+            [CompletionResult]::new('--trace', 'trace', [CompletionResultType]::ParameterName, 'Trace the execution of the program')
+            [CompletionResult]::new('--dry-run', 'dry-run', [CompletionResultType]::ParameterName, 'Do not actually run the command')
+            [CompletionResult]::new('--build-graph', 'build-graph', [CompletionResultType]::ParameterName, 'build-graph')
+            [CompletionResult]::new('-h', 'h', [CompletionResultType]::ParameterName, 'Print help')
+            [CompletionResult]::new('--help', 'help', [CompletionResultType]::ParameterName, 'Print help')
+            break
+        }
+        'moon;register' {
+            [CompletionResult]::new('--manifest-path', 'manifest-path', [CompletionResultType]::ParameterName, 'Path to `moon.mod.json` to use as the project manifest (does not change the working directory)')
+            [CompletionResult]::new('--target-dir', 'target-dir', [CompletionResultType]::ParameterName, 'The target directory. Defaults to `<project-root>/target`')
+            [CompletionResult]::new('-q', 'q', [CompletionResultType]::ParameterName, 'Suppress output')
+            [CompletionResult]::new('--quiet', 'quiet', [CompletionResultType]::ParameterName, 'Suppress output')
+            [CompletionResult]::new('-v', 'v', [CompletionResultType]::ParameterName, 'Increase verbosity')
+            [CompletionResult]::new('--verbose', 'verbose', [CompletionResultType]::ParameterName, 'Increase verbosity')
+            [CompletionResult]::new('--trace', 'trace', [CompletionResultType]::ParameterName, 'Trace the execution of the program')
+            [CompletionResult]::new('--dry-run', 'dry-run', [CompletionResultType]::ParameterName, 'Do not actually run the command')
+            [CompletionResult]::new('--build-graph', 'build-graph', [CompletionResultType]::ParameterName, 'build-graph')
+            [CompletionResult]::new('-h', 'h', [CompletionResultType]::ParameterName, 'Print help')
+            [CompletionResult]::new('--help', 'help', [CompletionResultType]::ParameterName, 'Print help')
+            break
+        }
+        'moon;publish' {
+            [CompletionResult]::new('--manifest-path', 'manifest-path', [CompletionResultType]::ParameterName, 'Path to `moon.mod.json` to use as the project manifest (does not change the working directory)')
+            [CompletionResult]::new('--target-dir', 'target-dir', [CompletionResultType]::ParameterName, 'The target directory. Defaults to `<project-root>/target`')
+            [CompletionResult]::new('--frozen', 'frozen', [CompletionResultType]::ParameterName, 'Do not sync dependencies, assuming local dependencies are up-to-date')
+            [CompletionResult]::new('-q', 'q', [CompletionResultType]::ParameterName, 'Suppress output')
+            [CompletionResult]::new('--quiet', 'quiet', [CompletionResultType]::ParameterName, 'Suppress output')
+            [CompletionResult]::new('-v', 'v', [CompletionResultType]::ParameterName, 'Increase verbosity')
+            [CompletionResult]::new('--verbose', 'verbose', [CompletionResultType]::ParameterName, 'Increase verbosity')
+            [CompletionResult]::new('--trace', 'trace', [CompletionResultType]::ParameterName, 'Trace the execution of the program')
+            [CompletionResult]::new('--dry-run', 'dry-run', [CompletionResultType]::ParameterName, 'Do not actually run the command')
+            [CompletionResult]::new('--build-graph', 'build-graph', [CompletionResultType]::ParameterName, 'build-graph')
+            [CompletionResult]::new('-h', 'h', [CompletionResultType]::ParameterName, 'Print help')
+            [CompletionResult]::new('--help', 'help', [CompletionResultType]::ParameterName, 'Print help')
+            break
+        }
+        'moon;package' {
+            [CompletionResult]::new('--manifest-path', 'manifest-path', [CompletionResultType]::ParameterName, 'Path to `moon.mod.json` to use as the project manifest (does not change the working directory)')
+            [CompletionResult]::new('--target-dir', 'target-dir', [CompletionResultType]::ParameterName, 'The target directory. Defaults to `<project-root>/target`')
+            [CompletionResult]::new('--frozen', 'frozen', [CompletionResultType]::ParameterName, 'Do not sync dependencies, assuming local dependencies are up-to-date')
+            [CompletionResult]::new('--list', 'list', [CompletionResultType]::ParameterName, 'list')
+            [CompletionResult]::new('-q', 'q', [CompletionResultType]::ParameterName, 'Suppress output')
+            [CompletionResult]::new('--quiet', 'quiet', [CompletionResultType]::ParameterName, 'Suppress output')
+            [CompletionResult]::new('-v', 'v', [CompletionResultType]::ParameterName, 'Increase verbosity')
+            [CompletionResult]::new('--verbose', 'verbose', [CompletionResultType]::ParameterName, 'Increase verbosity')
+            [CompletionResult]::new('--trace', 'trace', [CompletionResultType]::ParameterName, 'Trace the execution of the program')
+            [CompletionResult]::new('--dry-run', 'dry-run', [CompletionResultType]::ParameterName, 'Do not actually run the command')
+            [CompletionResult]::new('--build-graph', 'build-graph', [CompletionResultType]::ParameterName, 'build-graph')
+            [CompletionResult]::new('-h', 'h', [CompletionResultType]::ParameterName, 'Print help')
+            [CompletionResult]::new('--help', 'help', [CompletionResultType]::ParameterName, 'Print help')
+            break
+        }
+        'moon;update' {
+            [CompletionResult]::new('--manifest-path', 'manifest-path', [CompletionResultType]::ParameterName, 'Path to `moon.mod.json` to use as the project manifest (does not change the working directory)')
+            [CompletionResult]::new('--target-dir', 'target-dir', [CompletionResultType]::ParameterName, 'The target directory. Defaults to `<project-root>/target`')
+            [CompletionResult]::new('-q', 'q', [CompletionResultType]::ParameterName, 'Suppress output')
+            [CompletionResult]::new('--quiet', 'quiet', [CompletionResultType]::ParameterName, 'Suppress output')
+            [CompletionResult]::new('-v', 'v', [CompletionResultType]::ParameterName, 'Increase verbosity')
+            [CompletionResult]::new('--verbose', 'verbose', [CompletionResultType]::ParameterName, 'Increase verbosity')
+            [CompletionResult]::new('--trace', 'trace', [CompletionResultType]::ParameterName, 'Trace the execution of the program')
+            [CompletionResult]::new('--dry-run', 'dry-run', [CompletionResultType]::ParameterName, 'Do not actually run the command')
+            [CompletionResult]::new('--build-graph', 'build-graph', [CompletionResultType]::ParameterName, 'build-graph')
+            [CompletionResult]::new('-h', 'h', [CompletionResultType]::ParameterName, 'Print help')
+            [CompletionResult]::new('--help', 'help', [CompletionResultType]::ParameterName, 'Print help')
+            break
+        }
+        'moon;coverage' {
+            [CompletionResult]::new('--manifest-path', 'manifest-path', [CompletionResultType]::ParameterName, 'Path to `moon.mod.json` to use as the project manifest (does not change the working directory)')
+            [CompletionResult]::new('--target-dir', 'target-dir', [CompletionResultType]::ParameterName, 'The target directory. Defaults to `<project-root>/target`')
+            [CompletionResult]::new('-q', 'q', [CompletionResultType]::ParameterName, 'Suppress output')
+            [CompletionResult]::new('--quiet', 'quiet', [CompletionResultType]::ParameterName, 'Suppress output')
+            [CompletionResult]::new('-v', 'v', [CompletionResultType]::ParameterName, 'Increase verbosity')
+            [CompletionResult]::new('--verbose', 'verbose', [CompletionResultType]::ParameterName, 'Increase verbosity')
+            [CompletionResult]::new('--trace', 'trace', [CompletionResultType]::ParameterName, 'Trace the execution of the program')
+            [CompletionResult]::new('--dry-run', 'dry-run', [CompletionResultType]::ParameterName, 'Do not actually run the command')
+            [CompletionResult]::new('--build-graph', 'build-graph', [CompletionResultType]::ParameterName, 'build-graph')
+            [CompletionResult]::new('-h', 'h', [CompletionResultType]::ParameterName, 'Print help')
+            [CompletionResult]::new('--help', 'help', [CompletionResultType]::ParameterName, 'Print help')
+            [CompletionResult]::new('analyze', 'analyze', [CompletionResultType]::ParameterValue, 'Run test with instrumentation and report coverage')
+            [CompletionResult]::new('report', 'report', [CompletionResultType]::ParameterValue, 'Generate code coverage report')
+            [CompletionResult]::new('clean', 'clean', [CompletionResultType]::ParameterValue, 'Clean up coverage artifacts')
+            [CompletionResult]::new('help', 'help', [CompletionResultType]::ParameterValue, 'Print this message or the help of the given subcommand(s)')
+            break
+        }
+        'moon;coverage;analyze' {
+            [CompletionResult]::new('-p', 'p', [CompletionResultType]::ParameterName, 'Analyze coverage for a specific package')
+            [CompletionResult]::new('--package', 'package', [CompletionResultType]::ParameterName, 'Analyze coverage for a specific package')
+            [CompletionResult]::new('-t', 't', [CompletionResultType]::ParameterName, 'Extra flags passed directly to `moon test`')
+            [CompletionResult]::new('--test-flag', 'test-flag', [CompletionResultType]::ParameterName, 'Extra flags passed directly to `moon test`')
+            [CompletionResult]::new('--manifest-path', 'manifest-path', [CompletionResultType]::ParameterName, 'Path to `moon.mod.json` to use as the project manifest (does not change the working directory)')
+            [CompletionResult]::new('--target-dir', 'target-dir', [CompletionResultType]::ParameterName, 'The target directory. Defaults to `<project-root>/target`')
+            [CompletionResult]::new('-q', 'q', [CompletionResultType]::ParameterName, 'Suppress output')
+            [CompletionResult]::new('--quiet', 'quiet', [CompletionResultType]::ParameterName, 'Suppress output')
+            [CompletionResult]::new('-v', 'v', [CompletionResultType]::ParameterName, 'Increase verbosity')
+            [CompletionResult]::new('--verbose', 'verbose', [CompletionResultType]::ParameterName, 'Increase verbosity')
+            [CompletionResult]::new('--trace', 'trace', [CompletionResultType]::ParameterName, 'Trace the execution of the program')
+            [CompletionResult]::new('--dry-run', 'dry-run', [CompletionResultType]::ParameterName, 'Do not actually run the command')
+            [CompletionResult]::new('--build-graph', 'build-graph', [CompletionResultType]::ParameterName, 'build-graph')
+            [CompletionResult]::new('-h', 'h', [CompletionResultType]::ParameterName, 'Print help')
+            [CompletionResult]::new('--help', 'help', [CompletionResultType]::ParameterName, 'Print help')
+            break
+        }
+        'moon;coverage;report' {
+            [CompletionResult]::new('--manifest-path', 'manifest-path', [CompletionResultType]::ParameterName, 'Path to `moon.mod.json` to use as the project manifest (does not change the working directory)')
+            [CompletionResult]::new('--target-dir', 'target-dir', [CompletionResultType]::ParameterName, 'The target directory. Defaults to `<project-root>/target`')
+            [CompletionResult]::new('-h', 'h', [CompletionResultType]::ParameterName, 'Show help for the coverage utility')
+            [CompletionResult]::new('--help', 'help', [CompletionResultType]::ParameterName, 'Show help for the coverage utility')
+            [CompletionResult]::new('-q', 'q', [CompletionResultType]::ParameterName, 'Suppress output')
+            [CompletionResult]::new('--quiet', 'quiet', [CompletionResultType]::ParameterName, 'Suppress output')
+            [CompletionResult]::new('-v', 'v', [CompletionResultType]::ParameterName, 'Increase verbosity')
+            [CompletionResult]::new('--verbose', 'verbose', [CompletionResultType]::ParameterName, 'Increase verbosity')
+            [CompletionResult]::new('--trace', 'trace', [CompletionResultType]::ParameterName, 'Trace the execution of the program')
+            [CompletionResult]::new('--dry-run', 'dry-run', [CompletionResultType]::ParameterName, 'Do not actually run the command')
+            [CompletionResult]::new('--build-graph', 'build-graph', [CompletionResultType]::ParameterName, 'build-graph')
+            break
+        }
+        'moon;coverage;clean' {
+            [CompletionResult]::new('--manifest-path', 'manifest-path', [CompletionResultType]::ParameterName, 'Path to `moon.mod.json` to use as the project manifest (does not change the working directory)')
+            [CompletionResult]::new('--target-dir', 'target-dir', [CompletionResultType]::ParameterName, 'The target directory. Defaults to `<project-root>/target`')
+            [CompletionResult]::new('-q', 'q', [CompletionResultType]::ParameterName, 'Suppress output')
+            [CompletionResult]::new('--quiet', 'quiet', [CompletionResultType]::ParameterName, 'Suppress output')
+            [CompletionResult]::new('-v', 'v', [CompletionResultType]::ParameterName, 'Increase verbosity')
+            [CompletionResult]::new('--verbose', 'verbose', [CompletionResultType]::ParameterName, 'Increase verbosity')
+            [CompletionResult]::new('--trace', 'trace', [CompletionResultType]::ParameterName, 'Trace the execution of the program')
+            [CompletionResult]::new('--dry-run', 'dry-run', [CompletionResultType]::ParameterName, 'Do not actually run the command')
+            [CompletionResult]::new('--build-graph', 'build-graph', [CompletionResultType]::ParameterName, 'build-graph')
+            [CompletionResult]::new('-h', 'h', [CompletionResultType]::ParameterName, 'Print help')
+            [CompletionResult]::new('--help', 'help', [CompletionResultType]::ParameterName, 'Print help')
+            break
+        }
+        'moon;coverage;help' {
+            [CompletionResult]::new('analyze', 'analyze', [CompletionResultType]::ParameterValue, 'Run test with instrumentation and report coverage')
+            [CompletionResult]::new('report', 'report', [CompletionResultType]::ParameterValue, 'Generate code coverage report')
+            [CompletionResult]::new('clean', 'clean', [CompletionResultType]::ParameterValue, 'Clean up coverage artifacts')
+            [CompletionResult]::new('help', 'help', [CompletionResultType]::ParameterValue, 'Print this message or the help of the given subcommand(s)')
+            break
+        }
+        'moon;coverage;help;analyze' {
+            break
+        }
+        'moon;coverage;help;report' {
+            break
+        }
+        'moon;coverage;help;clean' {
+            break
+        }
+        'moon;coverage;help;help' {
+            break
+        }
+        'moon;generate-build-matrix' {
+            [CompletionResult]::new('-n', 'n', [CompletionResultType]::ParameterName, 'Set all of `drow`, `dcol`, `mrow`, `mcol` to the same value')
+            [CompletionResult]::new('--drow', 'drow', [CompletionResultType]::ParameterName, 'Number of directory rows')
+            [CompletionResult]::new('--dcol', 'dcol', [CompletionResultType]::ParameterName, 'Number of directory columns')
+            [CompletionResult]::new('--mrow', 'mrow', [CompletionResultType]::ParameterName, 'Number of module rows')
+            [CompletionResult]::new('--mcol', 'mcol', [CompletionResultType]::ParameterName, 'Number of module columns')
+            [CompletionResult]::new('-o', 'o', [CompletionResultType]::ParameterName, 'The output directory')
+            [CompletionResult]::new('--output-dir', 'output-dir', [CompletionResultType]::ParameterName, 'The output directory')
+            [CompletionResult]::new('--manifest-path', 'manifest-path', [CompletionResultType]::ParameterName, 'Path to `moon.mod.json` to use as the project manifest (does not change the working directory)')
+            [CompletionResult]::new('--target-dir', 'target-dir', [CompletionResultType]::ParameterName, 'The target directory. Defaults to `<project-root>/target`')
+            [CompletionResult]::new('-q', 'q', [CompletionResultType]::ParameterName, 'Suppress output')
+            [CompletionResult]::new('--quiet', 'quiet', [CompletionResultType]::ParameterName, 'Suppress output')
+            [CompletionResult]::new('-v', 'v', [CompletionResultType]::ParameterName, 'Increase verbosity')
+            [CompletionResult]::new('--verbose', 'verbose', [CompletionResultType]::ParameterName, 'Increase verbosity')
+            [CompletionResult]::new('--trace', 'trace', [CompletionResultType]::ParameterName, 'Trace the execution of the program')
+            [CompletionResult]::new('--dry-run', 'dry-run', [CompletionResultType]::ParameterName, 'Do not actually run the command')
+            [CompletionResult]::new('--build-graph', 'build-graph', [CompletionResultType]::ParameterName, 'build-graph')
+            [CompletionResult]::new('-h', 'h', [CompletionResultType]::ParameterName, 'Print help')
+            [CompletionResult]::new('--help', 'help', [CompletionResultType]::ParameterName, 'Print help')
+            break
+        }
+        'moon;query' {
+            [CompletionResult]::new('--target', 'target', [CompletionResultType]::ParameterName, 'Select output target')
+            [CompletionResult]::new('--warn-list', 'warn-list', [CompletionResultType]::ParameterName, 'Warn list config')
+            [CompletionResult]::new('--alert-list', 'alert-list', [CompletionResultType]::ParameterName, 'Alert list config')
+            [CompletionResult]::new('-j', 'j', [CompletionResultType]::ParameterName, 'Set the max number of jobs to run in parallel')
+            [CompletionResult]::new('--jobs', 'jobs', [CompletionResultType]::ParameterName, 'Set the max number of jobs to run in parallel')
+            [CompletionResult]::new('--render-no-loc', 'render-no-loc', [CompletionResultType]::ParameterName, 'Render no-location diagnostics starting from a certain level')
+            [CompletionResult]::new('--manifest-path', 'manifest-path', [CompletionResultType]::ParameterName, 'Path to `moon.mod.json` to use as the project manifest (does not change the working directory)')
+            [CompletionResult]::new('--target-dir', 'target-dir', [CompletionResultType]::ParameterName, 'The target directory. Defaults to `<project-root>/target`')
+            [CompletionResult]::new('--std', 'std', [CompletionResultType]::ParameterName, 'Enable the standard library (default)')
+            [CompletionResult]::new('--nostd', 'nostd', [CompletionResultType]::ParameterName, 'Disable the standard library')
+            [CompletionResult]::new('-g', 'g', [CompletionResultType]::ParameterName, 'Emit debug information')
+            [CompletionResult]::new('--debug', 'debug', [CompletionResultType]::ParameterName, 'Emit debug information')
+            [CompletionResult]::new('--release', 'release', [CompletionResultType]::ParameterName, 'Compile in release mode')
+            [CompletionResult]::new('--strip', 'strip', [CompletionResultType]::ParameterName, 'Enable stripping debug information')
+            [CompletionResult]::new('--no-strip', 'no-strip', [CompletionResultType]::ParameterName, 'Disable stripping debug information')
+            [CompletionResult]::new('--serial', 'serial', [CompletionResultType]::ParameterName, '[Deprecated] Handle the selected targets sequentially')
+            [CompletionResult]::new('--enable-coverage', 'enable-coverage', [CompletionResultType]::ParameterName, 'Enable coverage instrumentation')
+            [CompletionResult]::new('--sort-input', 'sort-input', [CompletionResultType]::ParameterName, 'Sort input files')
+            [CompletionResult]::new('--output-wat', 'output-wat', [CompletionResultType]::ParameterName, 'Output WAT instead of WASM')
+            [CompletionResult]::new('-d', 'd', [CompletionResultType]::ParameterName, 'Treat all warnings as errors')
+            [CompletionResult]::new('--deny-warn', 'deny-warn', [CompletionResultType]::ParameterName, 'Treat all warnings as errors')
+            [CompletionResult]::new('--no-render', 'no-render', [CompletionResultType]::ParameterName, 'Don''t render diagnostics (in raw human-readable format)')
+            [CompletionResult]::new('--output-json', 'output-json', [CompletionResultType]::ParameterName, 'Output diagnostics in JSON format')
+            [CompletionResult]::new('--enable-value-tracing', 'enable-value-tracing', [CompletionResultType]::ParameterName, 'Enable value tracing')
+            [CompletionResult]::new('-q', 'q', [CompletionResultType]::ParameterName, 'Suppress output')
+            [CompletionResult]::new('--quiet', 'quiet', [CompletionResultType]::ParameterName, 'Suppress output')
+            [CompletionResult]::new('-v', 'v', [CompletionResultType]::ParameterName, 'Increase verbosity')
+            [CompletionResult]::new('--verbose', 'verbose', [CompletionResultType]::ParameterName, 'Increase verbosity')
+            [CompletionResult]::new('--trace', 'trace', [CompletionResultType]::ParameterName, 'Trace the execution of the program')
+            [CompletionResult]::new('--dry-run', 'dry-run', [CompletionResultType]::ParameterName, 'Do not actually run the command')
+            [CompletionResult]::new('--build-graph', 'build-graph', [CompletionResultType]::ParameterName, 'build-graph')
+            [CompletionResult]::new('-h', 'h', [CompletionResultType]::ParameterName, 'Print help')
+            [CompletionResult]::new('--help', 'help', [CompletionResultType]::ParameterName, 'Print help')
+            break
+        }
+        'moon;upgrade' {
+            [CompletionResult]::new('--base-url', 'base-url', [CompletionResultType]::ParameterName, 'base-url')
+            [CompletionResult]::new('--manifest-path', 'manifest-path', [CompletionResultType]::ParameterName, 'Path to `moon.mod.json` to use as the project manifest (does not change the working directory)')
+            [CompletionResult]::new('--target-dir', 'target-dir', [CompletionResultType]::ParameterName, 'The target directory. Defaults to `<project-root>/target`')
+            [CompletionResult]::new('-f', 'f', [CompletionResultType]::ParameterName, 'Force upgrade')
+            [CompletionResult]::new('--force', 'force', [CompletionResultType]::ParameterName, 'Force upgrade')
+            [CompletionResult]::new('--dev', 'dev', [CompletionResultType]::ParameterName, 'Install the latest development version')
+            [CompletionResult]::new('--non-interactive', 'non-interactive', [CompletionResultType]::ParameterName, 'non-interactive')
+            [CompletionResult]::new('-q', 'q', [CompletionResultType]::ParameterName, 'Suppress output')
+            [CompletionResult]::new('--quiet', 'quiet', [CompletionResultType]::ParameterName, 'Suppress output')
+            [CompletionResult]::new('-v', 'v', [CompletionResultType]::ParameterName, 'Increase verbosity')
+            [CompletionResult]::new('--verbose', 'verbose', [CompletionResultType]::ParameterName, 'Increase verbosity')
+            [CompletionResult]::new('--trace', 'trace', [CompletionResultType]::ParameterName, 'Trace the execution of the program')
+            [CompletionResult]::new('--dry-run', 'dry-run', [CompletionResultType]::ParameterName, 'Do not actually run the command')
+            [CompletionResult]::new('--build-graph', 'build-graph', [CompletionResultType]::ParameterName, 'build-graph')
+            [CompletionResult]::new('-h', 'h', [CompletionResultType]::ParameterName, 'Print help')
+            [CompletionResult]::new('--help', 'help', [CompletionResultType]::ParameterName, 'Print help')
+            break
+        }
+        'moon;shell-completion' {
+            [CompletionResult]::new('--shell', 'shell', [CompletionResultType]::ParameterName, 'The shell to generate completion for')
+            [CompletionResult]::new('--manifest-path', 'manifest-path', [CompletionResultType]::ParameterName, 'Path to `moon.mod.json` to use as the project manifest (does not change the working directory)')
+            [CompletionResult]::new('--target-dir', 'target-dir', [CompletionResultType]::ParameterName, 'The target directory. Defaults to `<project-root>/target`')
+            [CompletionResult]::new('-q', 'q', [CompletionResultType]::ParameterName, 'Suppress output')
+            [CompletionResult]::new('--quiet', 'quiet', [CompletionResultType]::ParameterName, 'Suppress output')
+            [CompletionResult]::new('-v', 'v', [CompletionResultType]::ParameterName, 'Increase verbosity')
+            [CompletionResult]::new('--verbose', 'verbose', [CompletionResultType]::ParameterName, 'Increase verbosity')
+            [CompletionResult]::new('--trace', 'trace', [CompletionResultType]::ParameterName, 'Trace the execution of the program')
+            [CompletionResult]::new('--dry-run', 'dry-run', [CompletionResultType]::ParameterName, 'Do not actually run the command')
+            [CompletionResult]::new('--build-graph', 'build-graph', [CompletionResultType]::ParameterName, 'build-graph')
+            [CompletionResult]::new('-h', 'h', [CompletionResultType]::ParameterName, 'Print help')
+            [CompletionResult]::new('--help', 'help', [CompletionResultType]::ParameterName, 'Print help')
+            break
+        }
+        'moon;version' {
+            [CompletionResult]::new('--manifest-path', 'manifest-path', [CompletionResultType]::ParameterName, 'Path to `moon.mod.json` to use as the project manifest (does not change the working directory)')
+            [CompletionResult]::new('--target-dir', 'target-dir', [CompletionResultType]::ParameterName, 'The target directory. Defaults to `<project-root>/target`')
+            [CompletionResult]::new('--all', 'all', [CompletionResultType]::ParameterName, 'Print all version information')
+            [CompletionResult]::new('--json', 'json', [CompletionResultType]::ParameterName, 'Print version information in JSON format')
+            [CompletionResult]::new('--no-path', 'no-path', [CompletionResultType]::ParameterName, 'Do not print the path')
+            [CompletionResult]::new('-q', 'q', [CompletionResultType]::ParameterName, 'Suppress output')
+            [CompletionResult]::new('--quiet', 'quiet', [CompletionResultType]::ParameterName, 'Suppress output')
+            [CompletionResult]::new('-v', 'v', [CompletionResultType]::ParameterName, 'Increase verbosity')
+            [CompletionResult]::new('--verbose', 'verbose', [CompletionResultType]::ParameterName, 'Increase verbosity')
+            [CompletionResult]::new('--trace', 'trace', [CompletionResultType]::ParameterName, 'Trace the execution of the program')
+            [CompletionResult]::new('--dry-run', 'dry-run', [CompletionResultType]::ParameterName, 'Do not actually run the command')
+            [CompletionResult]::new('--build-graph', 'build-graph', [CompletionResultType]::ParameterName, 'build-graph')
+            [CompletionResult]::new('-h', 'h', [CompletionResultType]::ParameterName, 'Print help')
+            [CompletionResult]::new('--help', 'help', [CompletionResultType]::ParameterName, 'Print help')
+            break
+        }
+        'moon;tool' {
+            [CompletionResult]::new('--manifest-path', 'manifest-path', [CompletionResultType]::ParameterName, 'Path to `moon.mod.json` to use as the project manifest (does not change the working directory)')
+            [CompletionResult]::new('--target-dir', 'target-dir', [CompletionResultType]::ParameterName, 'The target directory. Defaults to `<project-root>/target`')
+            [CompletionResult]::new('-q', 'q', [CompletionResultType]::ParameterName, 'Suppress output')
+            [CompletionResult]::new('--quiet', 'quiet', [CompletionResultType]::ParameterName, 'Suppress output')
+            [CompletionResult]::new('-v', 'v', [CompletionResultType]::ParameterName, 'Increase verbosity')
+            [CompletionResult]::new('--verbose', 'verbose', [CompletionResultType]::ParameterName, 'Increase verbosity')
+            [CompletionResult]::new('--trace', 'trace', [CompletionResultType]::ParameterName, 'Trace the execution of the program')
+            [CompletionResult]::new('--dry-run', 'dry-run', [CompletionResultType]::ParameterName, 'Do not actually run the command')
+            [CompletionResult]::new('--build-graph', 'build-graph', [CompletionResultType]::ParameterName, 'build-graph')
+            [CompletionResult]::new('-h', 'h', [CompletionResultType]::ParameterName, 'Print help')
+            [CompletionResult]::new('--help', 'help', [CompletionResultType]::ParameterName, 'Print help')
+            [CompletionResult]::new('format-and-diff', 'format-and-diff', [CompletionResultType]::ParameterValue, 'Format the code and print the difference')
+            [CompletionResult]::new('embed', 'embed', [CompletionResultType]::ParameterValue, 'embed')
+            [CompletionResult]::new('write-tcc-rsp-file', 'write-tcc-rsp-file', [CompletionResultType]::ParameterValue, 'write-tcc-rsp-file')
+            [CompletionResult]::new('build-binary-dep', 'build-binary-dep', [CompletionResultType]::ParameterValue, 'build-binary-dep')
+            [CompletionResult]::new('help', 'help', [CompletionResultType]::ParameterValue, 'Print this message or the help of the given subcommand(s)')
+            break
+        }
+        'moon;tool;format-and-diff' {
+            [CompletionResult]::new('--old', 'old', [CompletionResultType]::ParameterName, 'The source path of the code which needs to be formatted')
+            [CompletionResult]::new('--new', 'new', [CompletionResultType]::ParameterName, 'The target path of the formatted code')
+            [CompletionResult]::new('--manifest-path', 'manifest-path', [CompletionResultType]::ParameterName, 'Path to `moon.mod.json` to use as the project manifest (does not change the working directory)')
+            [CompletionResult]::new('--target-dir', 'target-dir', [CompletionResultType]::ParameterName, 'The target directory. Defaults to `<project-root>/target`')
+            [CompletionResult]::new('--block-style', 'block-style', [CompletionResultType]::ParameterName, 'Add separator between each segments')
+            [CompletionResult]::new('--warn', 'warn', [CompletionResultType]::ParameterName, 'Warn instead of showing differences')
+            [CompletionResult]::new('-q', 'q', [CompletionResultType]::ParameterName, 'Suppress output')
+            [CompletionResult]::new('--quiet', 'quiet', [CompletionResultType]::ParameterName, 'Suppress output')
+            [CompletionResult]::new('-v', 'v', [CompletionResultType]::ParameterName, 'Increase verbosity')
+            [CompletionResult]::new('--verbose', 'verbose', [CompletionResultType]::ParameterName, 'Increase verbosity')
+            [CompletionResult]::new('--trace', 'trace', [CompletionResultType]::ParameterName, 'Trace the execution of the program')
+            [CompletionResult]::new('--dry-run', 'dry-run', [CompletionResultType]::ParameterName, 'Do not actually run the command')
+            [CompletionResult]::new('--build-graph', 'build-graph', [CompletionResultType]::ParameterName, 'build-graph')
+            [CompletionResult]::new('-h', 'h', [CompletionResultType]::ParameterName, 'Print help')
+            [CompletionResult]::new('--help', 'help', [CompletionResultType]::ParameterName, 'Print help')
+            break
+        }
+        'moon;tool;embed' {
+            [CompletionResult]::new('-i', 'i', [CompletionResultType]::ParameterName, 'i')
+            [CompletionResult]::new('--input', 'input', [CompletionResultType]::ParameterName, 'input')
+            [CompletionResult]::new('-o', 'o', [CompletionResultType]::ParameterName, 'o')
+            [CompletionResult]::new('--output', 'output', [CompletionResultType]::ParameterName, 'output')
+            [CompletionResult]::new('--name', 'name', [CompletionResultType]::ParameterName, 'name')
+            [CompletionResult]::new('--manifest-path', 'manifest-path', [CompletionResultType]::ParameterName, 'Path to `moon.mod.json` to use as the project manifest (does not change the working directory)')
+            [CompletionResult]::new('--target-dir', 'target-dir', [CompletionResultType]::ParameterName, 'The target directory. Defaults to `<project-root>/target`')
+            [CompletionResult]::new('--binary', 'binary', [CompletionResultType]::ParameterName, 'binary')
+            [CompletionResult]::new('--text', 'text', [CompletionResultType]::ParameterName, 'text')
+            [CompletionResult]::new('--timestamp', 'timestamp', [CompletionResultType]::ParameterName, 'timestamp')
+            [CompletionResult]::new('-q', 'q', [CompletionResultType]::ParameterName, 'Suppress output')
+            [CompletionResult]::new('--quiet', 'quiet', [CompletionResultType]::ParameterName, 'Suppress output')
+            [CompletionResult]::new('-v', 'v', [CompletionResultType]::ParameterName, 'Increase verbosity')
+            [CompletionResult]::new('--verbose', 'verbose', [CompletionResultType]::ParameterName, 'Increase verbosity')
+            [CompletionResult]::new('--trace', 'trace', [CompletionResultType]::ParameterName, 'Trace the execution of the program')
+            [CompletionResult]::new('--dry-run', 'dry-run', [CompletionResultType]::ParameterName, 'Do not actually run the command')
+            [CompletionResult]::new('--build-graph', 'build-graph', [CompletionResultType]::ParameterName, 'build-graph')
+            [CompletionResult]::new('-h', 'h', [CompletionResultType]::ParameterName, 'Print help')
+            [CompletionResult]::new('--help', 'help', [CompletionResultType]::ParameterName, 'Print help')
+            break
+        }
+        'moon;tool;write-tcc-rsp-file' {
+            [CompletionResult]::new('--manifest-path', 'manifest-path', [CompletionResultType]::ParameterName, 'Path to `moon.mod.json` to use as the project manifest (does not change the working directory)')
+            [CompletionResult]::new('--target-dir', 'target-dir', [CompletionResultType]::ParameterName, 'The target directory. Defaults to `<project-root>/target`')
+            [CompletionResult]::new('-q', 'q', [CompletionResultType]::ParameterName, 'Suppress output')
+            [CompletionResult]::new('--quiet', 'quiet', [CompletionResultType]::ParameterName, 'Suppress output')
+            [CompletionResult]::new('-v', 'v', [CompletionResultType]::ParameterName, 'Increase verbosity')
+            [CompletionResult]::new('--verbose', 'verbose', [CompletionResultType]::ParameterName, 'Increase verbosity')
+            [CompletionResult]::new('--trace', 'trace', [CompletionResultType]::ParameterName, 'Trace the execution of the program')
+            [CompletionResult]::new('--dry-run', 'dry-run', [CompletionResultType]::ParameterName, 'Do not actually run the command')
+            [CompletionResult]::new('--build-graph', 'build-graph', [CompletionResultType]::ParameterName, 'build-graph')
+            [CompletionResult]::new('-h', 'h', [CompletionResultType]::ParameterName, 'Print help')
+            [CompletionResult]::new('--help', 'help', [CompletionResultType]::ParameterName, 'Print help')
+            break
+        }
+        'moon;tool;build-binary-dep' {
+            [CompletionResult]::new('--install-path', 'install-path', [CompletionResultType]::ParameterName, 'The parent directory where the binary module is installed to')
+            [CompletionResult]::new('--manifest-path', 'manifest-path', [CompletionResultType]::ParameterName, 'Path to `moon.mod.json` to use as the project manifest (does not change the working directory)')
+            [CompletionResult]::new('--target-dir', 'target-dir', [CompletionResultType]::ParameterName, 'The target directory. Defaults to `<project-root>/target`')
+            [CompletionResult]::new('--all-pkgs', 'all-pkgs', [CompletionResultType]::ParameterName, 'Whether to build and install all binary packages in the module')
+            [CompletionResult]::new('-q', 'q', [CompletionResultType]::ParameterName, 'Suppress output')
+            [CompletionResult]::new('--quiet', 'quiet', [CompletionResultType]::ParameterName, 'Suppress output')
+            [CompletionResult]::new('-v', 'v', [CompletionResultType]::ParameterName, 'Increase verbosity')
+            [CompletionResult]::new('--verbose', 'verbose', [CompletionResultType]::ParameterName, 'Increase verbosity')
+            [CompletionResult]::new('--trace', 'trace', [CompletionResultType]::ParameterName, 'Trace the execution of the program')
+            [CompletionResult]::new('--dry-run', 'dry-run', [CompletionResultType]::ParameterName, 'Do not actually run the command')
+            [CompletionResult]::new('--build-graph', 'build-graph', [CompletionResultType]::ParameterName, 'build-graph')
+            [CompletionResult]::new('-h', 'h', [CompletionResultType]::ParameterName, 'Print help')
+            [CompletionResult]::new('--help', 'help', [CompletionResultType]::ParameterName, 'Print help')
+            break
+        }
+        'moon;tool;help' {
+            [CompletionResult]::new('format-and-diff', 'format-and-diff', [CompletionResultType]::ParameterValue, 'Format the code and print the difference')
+            [CompletionResult]::new('embed', 'embed', [CompletionResultType]::ParameterValue, 'embed')
+            [CompletionResult]::new('write-tcc-rsp-file', 'write-tcc-rsp-file', [CompletionResultType]::ParameterValue, 'write-tcc-rsp-file')
+            [CompletionResult]::new('build-binary-dep', 'build-binary-dep', [CompletionResultType]::ParameterValue, 'build-binary-dep')
+            [CompletionResult]::new('help', 'help', [CompletionResultType]::ParameterValue, 'Print this message or the help of the given subcommand(s)')
+            break
+        }
+        'moon;tool;help;format-and-diff' {
+            break
+        }
+        'moon;tool;help;embed' {
+            break
+        }
+        'moon;tool;help;write-tcc-rsp-file' {
+            break
+        }
+        'moon;tool;help;build-binary-dep' {
+            break
+        }
+        'moon;tool;help;help' {
+            break
+        }
+        'moon;ide' {
+            [CompletionResult]::new('-h', 'h', [CompletionResultType]::ParameterName, 'Print help')
+            [CompletionResult]::new('--help', 'help', [CompletionResultType]::ParameterName, 'Print help')
+            [CompletionResult]::new('peek-def', 'peek-def', [CompletionResultType]::ParameterValue, 'Peek Definition of a symbol')
+            [CompletionResult]::new('find-references', 'find-references', [CompletionResultType]::ParameterValue, 'Find references of a symbol')
+            [CompletionResult]::new('rename', 'rename', [CompletionResultType]::ParameterValue, 'Rename a symbol')
+            [CompletionResult]::new('hover', 'hover', [CompletionResultType]::ParameterValue, 'Show hover information of a symbol')
+            [CompletionResult]::new('outline', 'outline', [CompletionResultType]::ParameterValue, 'Show outline of specified path')
+            [CompletionResult]::new('doc', 'doc', [CompletionResultType]::ParameterValue, 'Show documentation of a symbol')
+            [CompletionResult]::new('help', 'help', [CompletionResultType]::ParameterValue, 'Print this message or the help of the given subcommand(s)')
+            break
+        }
+        'moon;ide;peek-def' {
+            [CompletionResult]::new('--loc', 'loc', [CompletionResultType]::ParameterName, 'loc')
+            [CompletionResult]::new('-h', 'h', [CompletionResultType]::ParameterName, 'Print help')
+            [CompletionResult]::new('--help', 'help', [CompletionResultType]::ParameterName, 'Print help')
+            break
+        }
+        'moon;ide;find-references' {
+            [CompletionResult]::new('--loc', 'loc', [CompletionResultType]::ParameterName, 'loc')
+            [CompletionResult]::new('-h', 'h', [CompletionResultType]::ParameterName, 'Print help')
+            [CompletionResult]::new('--help', 'help', [CompletionResultType]::ParameterName, 'Print help')
+            break
+        }
+        'moon;ide;rename' {
+            [CompletionResult]::new('--loc', 'loc', [CompletionResultType]::ParameterName, 'loc')
+            [CompletionResult]::new('-h', 'h', [CompletionResultType]::ParameterName, 'Print help')
+            [CompletionResult]::new('--help', 'help', [CompletionResultType]::ParameterName, 'Print help')
+            break
+        }
+        'moon;ide;hover' {
+            [CompletionResult]::new('--loc', 'loc', [CompletionResultType]::ParameterName, 'loc')
+            [CompletionResult]::new('-h', 'h', [CompletionResultType]::ParameterName, 'Print help')
+            [CompletionResult]::new('--help', 'help', [CompletionResultType]::ParameterName, 'Print help')
+            break
+        }
+        'moon;ide;outline' {
+            [CompletionResult]::new('-h', 'h', [CompletionResultType]::ParameterName, 'Print help')
+            [CompletionResult]::new('--help', 'help', [CompletionResultType]::ParameterName, 'Print help')
+            break
+        }
+        'moon;ide;doc' {
+            [CompletionResult]::new('-h', 'h', [CompletionResultType]::ParameterName, 'Print help')
+            [CompletionResult]::new('--help', 'help', [CompletionResultType]::ParameterName, 'Print help')
+            break
+        }
+        'moon;ide;help' {
+            [CompletionResult]::new('peek-def', 'peek-def', [CompletionResultType]::ParameterValue, 'Peek Definition of a symbol')
+            [CompletionResult]::new('find-references', 'find-references', [CompletionResultType]::ParameterValue, 'Find references of a symbol')
+            [CompletionResult]::new('rename', 'rename', [CompletionResultType]::ParameterValue, 'Rename a symbol')
+            [CompletionResult]::new('hover', 'hover', [CompletionResultType]::ParameterValue, 'Show hover information of a symbol')
+            [CompletionResult]::new('outline', 'outline', [CompletionResultType]::ParameterValue, 'Show outline of specified path')
+            [CompletionResult]::new('doc', 'doc', [CompletionResultType]::ParameterValue, 'Show documentation of a symbol')
+            [CompletionResult]::new('help', 'help', [CompletionResultType]::ParameterValue, 'Print this message or the help of the given subcommand(s)')
+            break
+        }
+        'moon;ide;help;peek-def' {
+            break
+        }
+        'moon;ide;help;find-references' {
+            break
+        }
+        'moon;ide;help;rename' {
+            break
+        }
+        'moon;ide;help;hover' {
+            break
+        }
+        'moon;ide;help;outline' {
+            break
+        }
+        'moon;ide;help;doc' {
+            break
+        }
+        'moon;ide;help;help' {
+            break
+        }
+        'moon;help' {
+            [CompletionResult]::new('new', 'new', [CompletionResultType]::ParameterValue, 'Create a new MoonBit module')
+            [CompletionResult]::new('bundle', 'bundle', [CompletionResultType]::ParameterValue, 'Bundle the module')
+            [CompletionResult]::new('build', 'build', [CompletionResultType]::ParameterValue, 'Build the current package')
+            [CompletionResult]::new('check', 'check', [CompletionResultType]::ParameterValue, 'Check the current package, but don''t build object files')
+            [CompletionResult]::new('run', 'run', [CompletionResultType]::ParameterValue, 'Run a main package')
+            [CompletionResult]::new('test', 'test', [CompletionResultType]::ParameterValue, 'Test the current package')
+            [CompletionResult]::new('generate-test-driver', 'generate-test-driver', [CompletionResultType]::ParameterValue, 'Generate tests for a provided package. This is a thin wrapper around `moonc gen-test-info`, which does the actual parsing and generation')
+            [CompletionResult]::new('clean', 'clean', [CompletionResultType]::ParameterValue, 'Remove the target directory')
+            [CompletionResult]::new('fmt', 'fmt', [CompletionResultType]::ParameterValue, 'Format source code')
+            [CompletionResult]::new('doc', 'doc', [CompletionResultType]::ParameterValue, 'Generate documentation or searching documentation for a symbol')
+            [CompletionResult]::new('info', 'info', [CompletionResultType]::ParameterValue, 'Generate public interface (`.mbti`) files for all packages in the module')
+            [CompletionResult]::new('bench', 'bench', [CompletionResultType]::ParameterValue, 'Run benchmarks in the current package')
+            [CompletionResult]::new('add', 'add', [CompletionResultType]::ParameterValue, 'Add a dependency')
+            [CompletionResult]::new('remove', 'remove', [CompletionResultType]::ParameterValue, 'Remove a dependency')
+            [CompletionResult]::new('install', 'install', [CompletionResultType]::ParameterValue, 'Install a binary package globally or install project dependencies (deprecated without args)')
+            [CompletionResult]::new('tree', 'tree', [CompletionResultType]::ParameterValue, 'Display the dependency tree')
+            [CompletionResult]::new('fetch', 'fetch', [CompletionResultType]::ParameterValue, 'Download a package to .repos directory (unstable)')
+            [CompletionResult]::new('login', 'login', [CompletionResultType]::ParameterValue, 'Log in to your account')
+            [CompletionResult]::new('register', 'register', [CompletionResultType]::ParameterValue, 'Register an account at mooncakes.io')
+            [CompletionResult]::new('publish', 'publish', [CompletionResultType]::ParameterValue, 'Publish the current module')
+            [CompletionResult]::new('package', 'package', [CompletionResultType]::ParameterValue, 'Package the current module')
+            [CompletionResult]::new('update', 'update', [CompletionResultType]::ParameterValue, 'Update the package registry index')
+            [CompletionResult]::new('coverage', 'coverage', [CompletionResultType]::ParameterValue, 'Code coverage utilities')
+            [CompletionResult]::new('generate-build-matrix', 'generate-build-matrix', [CompletionResultType]::ParameterValue, 'Generate build matrix for benchmarking (legacy feature)')
+            [CompletionResult]::new('query', 'query', [CompletionResultType]::ParameterValue, 'query')
+            [CompletionResult]::new('upgrade', 'upgrade', [CompletionResultType]::ParameterValue, 'Upgrade toolchains')
+            [CompletionResult]::new('shell-completion', 'shell-completion', [CompletionResultType]::ParameterValue, 'Generate shell completion for bash/elvish/fish/pwsh/zsh to stdout')
+            [CompletionResult]::new('version', 'version', [CompletionResultType]::ParameterValue, 'Print version information and exit')
+            [CompletionResult]::new('tool', 'tool', [CompletionResultType]::ParameterValue, 'tool')
+            [CompletionResult]::new('ide', 'ide', [CompletionResultType]::ParameterValue, 'IDE utilities')
+            [CompletionResult]::new('help', 'help', [CompletionResultType]::ParameterValue, 'Print this message or the help of the given subcommand(s)')
+            break
+        }
+        'moon;help;new' {
+            break
+        }
+        'moon;help;bundle' {
+            break
+        }
+        'moon;help;build' {
+            break
+        }
+        'moon;help;check' {
+            break
+        }
+        'moon;help;run' {
+            break
+        }
+        'moon;help;test' {
+            break
+        }
+        'moon;help;generate-test-driver' {
+            break
+        }
+        'moon;help;clean' {
+            break
+        }
+        'moon;help;fmt' {
+            break
+        }
+        'moon;help;doc' {
+            break
+        }
+        'moon;help;info' {
+            break
+        }
+        'moon;help;bench' {
+            break
+        }
+        'moon;help;add' {
+            break
+        }
+        'moon;help;remove' {
+            break
+        }
+        'moon;help;install' {
+            break
+        }
+        'moon;help;tree' {
+            break
+        }
+        'moon;help;fetch' {
+            break
+        }
+        'moon;help;login' {
+            break
+        }
+        'moon;help;register' {
+            break
+        }
+        'moon;help;publish' {
+            break
+        }
+        'moon;help;package' {
+            break
+        }
+        'moon;help;update' {
+            break
+        }
+        'moon;help;coverage' {
+            [CompletionResult]::new('analyze', 'analyze', [CompletionResultType]::ParameterValue, 'Run test with instrumentation and report coverage')
+            [CompletionResult]::new('report', 'report', [CompletionResultType]::ParameterValue, 'Generate code coverage report')
+            [CompletionResult]::new('clean', 'clean', [CompletionResultType]::ParameterValue, 'Clean up coverage artifacts')
+            break
+        }
+        'moon;help;coverage;analyze' {
+            break
+        }
+        'moon;help;coverage;report' {
+            break
+        }
+        'moon;help;coverage;clean' {
+            break
+        }
+        'moon;help;generate-build-matrix' {
+            break
+        }
+        'moon;help;query' {
+            break
+        }
+        'moon;help;upgrade' {
+            break
+        }
+        'moon;help;shell-completion' {
+            break
+        }
+        'moon;help;version' {
+            break
+        }
+        'moon;help;tool' {
+            [CompletionResult]::new('format-and-diff', 'format-and-diff', [CompletionResultType]::ParameterValue, 'Format the code and print the difference')
+            [CompletionResult]::new('embed', 'embed', [CompletionResultType]::ParameterValue, 'embed')
+            [CompletionResult]::new('write-tcc-rsp-file', 'write-tcc-rsp-file', [CompletionResultType]::ParameterValue, 'write-tcc-rsp-file')
+            [CompletionResult]::new('build-binary-dep', 'build-binary-dep', [CompletionResultType]::ParameterValue, 'build-binary-dep')
+            break
+        }
+        'moon;help;tool;format-and-diff' {
+            break
+        }
+        'moon;help;tool;embed' {
+            break
+        }
+        'moon;help;tool;write-tcc-rsp-file' {
+            break
+        }
+        'moon;help;tool;build-binary-dep' {
+            break
+        }
+        'moon;help;ide' {
+            [CompletionResult]::new('peek-def', 'peek-def', [CompletionResultType]::ParameterValue, 'Peek Definition of a symbol')
+            [CompletionResult]::new('find-references', 'find-references', [CompletionResultType]::ParameterValue, 'Find references of a symbol')
+            [CompletionResult]::new('rename', 'rename', [CompletionResultType]::ParameterValue, 'Rename a symbol')
+            [CompletionResult]::new('hover', 'hover', [CompletionResultType]::ParameterValue, 'Show hover information of a symbol')
+            [CompletionResult]::new('outline', 'outline', [CompletionResultType]::ParameterValue, 'Show outline of specified path')
+            [CompletionResult]::new('doc', 'doc', [CompletionResultType]::ParameterValue, 'Show documentation of a symbol')
+            break
+        }
+        'moon;help;ide;peek-def' {
+            break
+        }
+        'moon;help;ide;find-references' {
+            break
+        }
+        'moon;help;ide;rename' {
+            break
+        }
+        'moon;help;ide;hover' {
+            break
+        }
+        'moon;help;ide;outline' {
+            break
+        }
+        'moon;help;ide;doc' {
+            break
+        }
+        'moon;help;help' {
+            break
+        }
+    })
+
+    $completions.Where{ $_.CompletionText -like "$wordToComplete*" } |
+        Sort-Object -Property ListItemText
+}

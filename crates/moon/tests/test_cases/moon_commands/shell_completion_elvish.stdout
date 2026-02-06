@@ -1,0 +1,1050 @@
+
+use builtin;
+use str;
+
+set edit:completion:arg-completer[moon] = {|@words|
+    fn spaces {|n|
+        builtin:repeat $n ' ' | str:join ''
+    }
+    fn cand {|text desc|
+        edit:complex-candidate $text &display=$text' '(spaces (- 14 (wcswidth $text)))$desc
+    }
+    var command = 'moon'
+    for word $words[1..-1] {
+        if (str:has-prefix $word '-') {
+            break
+        }
+        set command = $command';'$word
+    }
+    var completions = [
+        &'moon'= {
+            cand -C 'Change to DIR before doing anything else (must appear before the subcommand). Relative paths in other options and arguments are interpreted relative to DIR. Example: `moon -C a run .` runs the same as invoking `moon run .` from within `a`'
+            cand --manifest-path 'Path to `moon.mod.json` to use as the project manifest (does not change the working directory)'
+            cand --target-dir 'The target directory. Defaults to `<project-root>/target`'
+            cand -Z 'Unstable flags to MoonBuild'
+            cand --unstable-feature 'Unstable flags to MoonBuild'
+            cand -q 'Suppress output'
+            cand --quiet 'Suppress output'
+            cand -v 'Increase verbosity'
+            cand --verbose 'Increase verbosity'
+            cand --trace 'Trace the execution of the program'
+            cand --dry-run 'Do not actually run the command'
+            cand --build-graph 'build-graph'
+            cand -h 'Print help'
+            cand --help 'Print help'
+            cand new 'Create a new MoonBit module'
+            cand bundle 'Bundle the module'
+            cand build 'Build the current package'
+            cand check 'Check the current package, but don''t build object files'
+            cand run 'Run a main package'
+            cand test 'Test the current package'
+            cand generate-test-driver 'Generate tests for a provided package. This is a thin wrapper around `moonc gen-test-info`, which does the actual parsing and generation'
+            cand clean 'Remove the target directory'
+            cand fmt 'Format source code'
+            cand doc 'Generate documentation or searching documentation for a symbol'
+            cand info 'Generate public interface (`.mbti`) files for all packages in the module'
+            cand bench 'Run benchmarks in the current package'
+            cand add 'Add a dependency'
+            cand remove 'Remove a dependency'
+            cand install 'Install a binary package globally or install project dependencies (deprecated without args)'
+            cand tree 'Display the dependency tree'
+            cand fetch 'Download a package to .repos directory (unstable)'
+            cand login 'Log in to your account'
+            cand register 'Register an account at mooncakes.io'
+            cand publish 'Publish the current module'
+            cand package 'Package the current module'
+            cand update 'Update the package registry index'
+            cand coverage 'Code coverage utilities'
+            cand generate-build-matrix 'Generate build matrix for benchmarking (legacy feature)'
+            cand query 'query'
+            cand upgrade 'Upgrade toolchains'
+            cand shell-completion 'Generate shell completion for bash/elvish/fish/pwsh/zsh to stdout'
+            cand version 'Print version information and exit'
+            cand tool 'tool'
+            cand ide 'IDE utilities'
+            cand help 'Print this message or the help of the given subcommand(s)'
+        }
+        &'moon;new'= {
+            cand --user 'The username of the module. Default to the logged-in username'
+            cand --name 'The name of the module. Default to the last part of the path'
+            cand --manifest-path 'Path to `moon.mod.json` to use as the project manifest (does not change the working directory)'
+            cand --target-dir 'The target directory. Defaults to `<project-root>/target`'
+            cand -q 'Suppress output'
+            cand --quiet 'Suppress output'
+            cand -v 'Increase verbosity'
+            cand --verbose 'Increase verbosity'
+            cand --trace 'Trace the execution of the program'
+            cand --dry-run 'Do not actually run the command'
+            cand --build-graph 'build-graph'
+            cand -h 'Print help'
+            cand --help 'Print help'
+        }
+        &'moon;bundle'= {
+            cand --target 'Select output target'
+            cand --warn-list 'Warn list config'
+            cand --alert-list 'Alert list config'
+            cand -j 'Set the max number of jobs to run in parallel'
+            cand --jobs 'Set the max number of jobs to run in parallel'
+            cand --render-no-loc 'Render no-location diagnostics starting from a certain level'
+            cand --manifest-path 'Path to `moon.mod.json` to use as the project manifest (does not change the working directory)'
+            cand --target-dir 'The target directory. Defaults to `<project-root>/target`'
+            cand --std 'Enable the standard library (default)'
+            cand --nostd 'Disable the standard library'
+            cand -g 'Emit debug information'
+            cand --debug 'Emit debug information'
+            cand --release 'Compile in release mode'
+            cand --strip 'Enable stripping debug information'
+            cand --no-strip 'Disable stripping debug information'
+            cand --serial '[Deprecated] Handle the selected targets sequentially'
+            cand --enable-coverage 'Enable coverage instrumentation'
+            cand --sort-input 'Sort input files'
+            cand --output-wat 'Output WAT instead of WASM'
+            cand -d 'Treat all warnings as errors'
+            cand --deny-warn 'Treat all warnings as errors'
+            cand --no-render 'Don''t render diagnostics (in raw human-readable format)'
+            cand --output-json 'Output diagnostics in JSON format'
+            cand --enable-value-tracing 'Enable value tracing'
+            cand --all 'Bundle all targets'
+            cand --frozen 'Do not sync dependencies, assuming local dependencies are up-to-date'
+            cand -q 'Suppress output'
+            cand --quiet 'Suppress output'
+            cand -v 'Increase verbosity'
+            cand --verbose 'Increase verbosity'
+            cand --trace 'Trace the execution of the program'
+            cand --dry-run 'Do not actually run the command'
+            cand --build-graph 'build-graph'
+            cand -h 'Print help'
+            cand --help 'Print help'
+        }
+        &'moon;build'= {
+            cand --target 'Select output target'
+            cand --warn-list 'Warn list config'
+            cand --alert-list 'Alert list config'
+            cand -j 'Set the max number of jobs to run in parallel'
+            cand --jobs 'Set the max number of jobs to run in parallel'
+            cand --render-no-loc 'Render no-location diagnostics starting from a certain level'
+            cand --install-path 'install-path'
+            cand --package 'package'
+            cand --bin-alias 'bin-alias'
+            cand --manifest-path 'Path to `moon.mod.json` to use as the project manifest (does not change the working directory)'
+            cand --target-dir 'The target directory. Defaults to `<project-root>/target`'
+            cand --std 'Enable the standard library (default)'
+            cand --nostd 'Disable the standard library'
+            cand -g 'Emit debug information'
+            cand --debug 'Emit debug information'
+            cand --release 'Compile in release mode'
+            cand --strip 'Enable stripping debug information'
+            cand --no-strip 'Disable stripping debug information'
+            cand --serial '[Deprecated] Handle the selected targets sequentially'
+            cand --enable-coverage 'Enable coverage instrumentation'
+            cand --sort-input 'Sort input files'
+            cand --output-wat 'Output WAT instead of WASM'
+            cand -d 'Treat all warnings as errors'
+            cand --deny-warn 'Treat all warnings as errors'
+            cand --no-render 'Don''t render diagnostics (in raw human-readable format)'
+            cand --output-json 'Output diagnostics in JSON format'
+            cand --enable-value-tracing 'Enable value tracing'
+            cand --frozen 'Do not sync dependencies, assuming local dependencies are up-to-date'
+            cand -w 'Monitor the file system and automatically build artifacts'
+            cand --watch 'Monitor the file system and automatically build artifacts'
+            cand --show-artifacts 'show-artifacts'
+            cand -q 'Suppress output'
+            cand --quiet 'Suppress output'
+            cand -v 'Increase verbosity'
+            cand --verbose 'Increase verbosity'
+            cand --trace 'Trace the execution of the program'
+            cand --dry-run 'Do not actually run the command'
+            cand --build-graph 'build-graph'
+            cand -h 'Print help'
+            cand --help 'Print help'
+        }
+        &'moon;check'= {
+            cand --target 'Select output target'
+            cand --warn-list 'Warn list config'
+            cand --alert-list 'Alert list config'
+            cand -j 'Set the max number of jobs to run in parallel'
+            cand --jobs 'Set the max number of jobs to run in parallel'
+            cand --render-no-loc 'Render no-location diagnostics starting from a certain level'
+            cand -p 'The package(and it''s deps) to check'
+            cand --package-path 'The package(and it''s deps) to check'
+            cand --patch-file 'The patch file to check, Only valid when checking specified package'
+            cand --manifest-path 'Path to `moon.mod.json` to use as the project manifest (does not change the working directory)'
+            cand --target-dir 'The target directory. Defaults to `<project-root>/target`'
+            cand --std 'Enable the standard library (default)'
+            cand --nostd 'Disable the standard library'
+            cand -g 'Emit debug information'
+            cand --debug 'Emit debug information'
+            cand --release 'Compile in release mode'
+            cand --strip 'Enable stripping debug information'
+            cand --no-strip 'Disable stripping debug information'
+            cand --serial '[Deprecated] Handle the selected targets sequentially'
+            cand --enable-coverage 'Enable coverage instrumentation'
+            cand --sort-input 'Sort input files'
+            cand --output-wat 'Output WAT instead of WASM'
+            cand -d 'Treat all warnings as errors'
+            cand --deny-warn 'Treat all warnings as errors'
+            cand --no-render 'Don''t render diagnostics (in raw human-readable format)'
+            cand --output-json 'Output diagnostics in JSON format'
+            cand --enable-value-tracing 'Enable value tracing'
+            cand --frozen 'Do not sync dependencies, assuming local dependencies are up-to-date'
+            cand -w 'Monitor the file system and automatically check files'
+            cand --watch 'Monitor the file system and automatically check files'
+            cand --no-mi 'Whether to skip the mi generation, Only valid when checking specified package'
+            cand --explain 'Whether to explain the error code with details'
+            cand --fmt 'Check whether the code is properly formatted'
+            cand -q 'Suppress output'
+            cand --quiet 'Suppress output'
+            cand -v 'Increase verbosity'
+            cand --verbose 'Increase verbosity'
+            cand --trace 'Trace the execution of the program'
+            cand --dry-run 'Do not actually run the command'
+            cand --build-graph 'build-graph'
+            cand -h 'Print help'
+            cand --help 'Print help'
+        }
+        &'moon;run'= {
+            cand --target 'Select output target'
+            cand --warn-list 'Warn list config'
+            cand --alert-list 'Alert list config'
+            cand -j 'Set the max number of jobs to run in parallel'
+            cand --jobs 'Set the max number of jobs to run in parallel'
+            cand --render-no-loc 'Render no-location diagnostics starting from a certain level'
+            cand --manifest-path 'Path to `moon.mod.json` to use as the project manifest (does not change the working directory)'
+            cand --target-dir 'The target directory. Defaults to `<project-root>/target`'
+            cand --std 'Enable the standard library (default)'
+            cand --nostd 'Disable the standard library'
+            cand -g 'Emit debug information'
+            cand --debug 'Emit debug information'
+            cand --release 'Compile in release mode'
+            cand --strip 'Enable stripping debug information'
+            cand --no-strip 'Disable stripping debug information'
+            cand --serial '[Deprecated] Handle the selected targets sequentially'
+            cand --enable-coverage 'Enable coverage instrumentation'
+            cand --sort-input 'Sort input files'
+            cand --output-wat 'Output WAT instead of WASM'
+            cand -d 'Treat all warnings as errors'
+            cand --deny-warn 'Treat all warnings as errors'
+            cand --no-render 'Don''t render diagnostics (in raw human-readable format)'
+            cand --output-json 'Output diagnostics in JSON format'
+            cand --enable-value-tracing 'Enable value tracing'
+            cand --frozen 'Do not sync dependencies, assuming local dependencies are up-to-date'
+            cand --build-only 'Only build, do not run the code'
+            cand -q 'Suppress output'
+            cand --quiet 'Suppress output'
+            cand -v 'Increase verbosity'
+            cand --verbose 'Increase verbosity'
+            cand --trace 'Trace the execution of the program'
+            cand --dry-run 'Do not actually run the command'
+            cand --build-graph 'build-graph'
+            cand -h 'Print help'
+            cand --help 'Print help'
+        }
+        &'moon;test'= {
+            cand --target 'Select output target'
+            cand --warn-list 'Warn list config'
+            cand --alert-list 'Alert list config'
+            cand -j 'Set the max number of jobs to run in parallel'
+            cand --jobs 'Set the max number of jobs to run in parallel'
+            cand --render-no-loc 'Render no-location diagnostics starting from a certain level'
+            cand -p 'Run test in the specified package'
+            cand --package 'Run test in the specified package'
+            cand -f 'Run test in the specified file. Only valid when `--package` is also specified'
+            cand --file 'Run test in the specified file. Only valid when `--package` is also specified'
+            cand -i 'Run only the index-th test in the file. Accepts a single index or a left-inclusive right-exclusive range like `0-2`. Only valid when `--file` is also specified. Implies `--include-skipped`'
+            cand --index 'Run only the index-th test in the file. Accepts a single index or a left-inclusive right-exclusive range like `0-2`. Only valid when `--file` is also specified. Implies `--include-skipped`'
+            cand --doc-index 'Run only the index-th doc test in the file. Only valid when `--file` is also specified. Implies `--include-skipped`'
+            cand -l 'Limit of expect test update passes to run, in order to avoid infinite loops'
+            cand --limit 'Limit of expect test update passes to run, in order to avoid infinite loops'
+            cand --patch-file 'Path to the patch file'
+            cand -F 'Run only tests whose name matches the given glob pattern. Supports ''*'' (matches any sequence) and ''?'' (matches any single character)'
+            cand --filter 'Run only tests whose name matches the given glob pattern. Supports ''*'' (matches any sequence) and ''?'' (matches any single character)'
+            cand --manifest-path 'Path to `moon.mod.json` to use as the project manifest (does not change the working directory)'
+            cand --target-dir 'The target directory. Defaults to `<project-root>/target`'
+            cand --std 'Enable the standard library (default)'
+            cand --nostd 'Disable the standard library'
+            cand -g 'Emit debug information'
+            cand --debug 'Emit debug information'
+            cand --release 'Compile in release mode'
+            cand --strip 'Enable stripping debug information'
+            cand --no-strip 'Disable stripping debug information'
+            cand --serial '[Deprecated] Handle the selected targets sequentially'
+            cand --enable-coverage 'Enable coverage instrumentation'
+            cand --sort-input 'Sort input files'
+            cand --output-wat 'Output WAT instead of WASM'
+            cand -d 'Treat all warnings as errors'
+            cand --deny-warn 'Treat all warnings as errors'
+            cand --no-render 'Don''t render diagnostics (in raw human-readable format)'
+            cand --output-json 'Output diagnostics in JSON format'
+            cand --enable-value-tracing 'Enable value tracing'
+            cand -u 'Update the test snapshot'
+            cand --update 'Update the test snapshot'
+            cand --frozen 'Do not sync dependencies, assuming local dependencies are up-to-date'
+            cand --build-only 'Only build, do not run the tests'
+            cand --no-parallelize 'Run the tests in a target backend sequentially'
+            cand --outline 'Print the outline of tests to be executed and exit'
+            cand --test-failure-json 'Print failure message in JSON format'
+            cand --doc 'Run doc test'
+            cand --include-skipped 'Include skipped tests. Automatically implied when `--[doc-]index` is set'
+            cand -q 'Suppress output'
+            cand --quiet 'Suppress output'
+            cand -v 'Increase verbosity'
+            cand --verbose 'Increase verbosity'
+            cand --trace 'Trace the execution of the program'
+            cand --dry-run 'Do not actually run the command'
+            cand --build-graph 'build-graph'
+            cand -h 'Print help'
+            cand --help 'Print help'
+        }
+        &'moon;generate-test-driver'= {
+            cand --doctest-only 'Files that need to be mapped, but only extract the doctests, not main contents'
+            cand --output-driver 'The output test driver `.mbt` file'
+            cand --output-metadata 'The output test metadata file'
+            cand --target 'The target backend for the generated test driver'
+            cand --pkg-name 'The name of the package for which the test driver is generated for'
+            cand --coverage-package-override 'Override coverage package name; `@self` is a special value that means the package itself'
+            cand --driver-kind 'The test driver kind'
+            cand --patch-file 'Path to the patch file'
+            cand --max-concurrent-tests 'Max concurrent tests for `async test`'
+            cand --manifest-path 'Path to `moon.mod.json` to use as the project manifest (does not change the working directory)'
+            cand --target-dir 'The target directory. Defaults to `<project-root>/target`'
+            cand --bench 'Whether to generate the test driver in bench mode. Not providing this option will result in test mode'
+            cand --enable-coverage 'Whether coverage is enabled in this build. Enabling it will insert coverage-custom code at the end of the test..'
+            cand -q 'Suppress output'
+            cand --quiet 'Suppress output'
+            cand -v 'Increase verbosity'
+            cand --verbose 'Increase verbosity'
+            cand --trace 'Trace the execution of the program'
+            cand --dry-run 'Do not actually run the command'
+            cand --build-graph 'build-graph'
+            cand -h 'Print help'
+            cand --help 'Print help'
+        }
+        &'moon;clean'= {
+            cand --manifest-path 'Path to `moon.mod.json` to use as the project manifest (does not change the working directory)'
+            cand --target-dir 'The target directory. Defaults to `<project-root>/target`'
+            cand -q 'Suppress output'
+            cand --quiet 'Suppress output'
+            cand -v 'Increase verbosity'
+            cand --verbose 'Increase verbosity'
+            cand --trace 'Trace the execution of the program'
+            cand --dry-run 'Do not actually run the command'
+            cand --build-graph 'build-graph'
+            cand -h 'Print help'
+            cand --help 'Print help'
+        }
+        &'moon;fmt'= {
+            cand --block-style 'Add separator between each segments'
+            cand --manifest-path 'Path to `moon.mod.json` to use as the project manifest (does not change the working directory)'
+            cand --target-dir 'The target directory. Defaults to `<project-root>/target`'
+            cand --check 'Check only and don''t change the source code'
+            cand --sort-input 'Sort input files'
+            cand --warn 'Warn if code is not properly formatted'
+            cand -q 'Suppress output'
+            cand --quiet 'Suppress output'
+            cand -v 'Increase verbosity'
+            cand --verbose 'Increase verbosity'
+            cand --trace 'Trace the execution of the program'
+            cand --dry-run 'Do not actually run the command'
+            cand --build-graph 'build-graph'
+            cand -h 'Print help'
+            cand --help 'Print help'
+        }
+        &'moon;doc'= {
+            cand -b 'The address of the server'
+            cand --bind 'The address of the server'
+            cand -p 'The port of the server'
+            cand --port 'The port of the server'
+            cand --manifest-path 'Path to `moon.mod.json` to use as the project manifest (does not change the working directory)'
+            cand --target-dir 'The target directory. Defaults to `<project-root>/target`'
+            cand --serve 'Start a web server to serve the documentation'
+            cand --frozen 'Do not sync dependencies, assuming local dependencies are up-to-date'
+            cand -q 'Suppress output'
+            cand --quiet 'Suppress output'
+            cand -v 'Increase verbosity'
+            cand --verbose 'Increase verbosity'
+            cand --trace 'Trace the execution of the program'
+            cand --dry-run 'Do not actually run the command'
+            cand --build-graph 'build-graph'
+            cand -h 'Print help'
+            cand --help 'Print help'
+        }
+        &'moon;info'= {
+            cand --target 'Select output target'
+            cand -p 'The full or subset of name of the package to emit `mbti` files for'
+            cand --package 'The full or subset of name of the package to emit `mbti` files for'
+            cand --manifest-path 'Path to `moon.mod.json` to use as the project manifest (does not change the working directory)'
+            cand --target-dir 'The target directory. Defaults to `<project-root>/target`'
+            cand --frozen 'Do not sync dependencies, assuming local dependencies are up-to-date'
+            cand --no-alias 'Do not use alias to shorten package names in the output'
+            cand -q 'Suppress output'
+            cand --quiet 'Suppress output'
+            cand -v 'Increase verbosity'
+            cand --verbose 'Increase verbosity'
+            cand --trace 'Trace the execution of the program'
+            cand --dry-run 'Do not actually run the command'
+            cand --build-graph 'build-graph'
+            cand -h 'Print help (see more with ''--help'')'
+            cand --help 'Print help (see more with ''--help'')'
+        }
+        &'moon;bench'= {
+            cand --target 'Select output target'
+            cand --warn-list 'Warn list config'
+            cand --alert-list 'Alert list config'
+            cand -j 'Set the max number of jobs to run in parallel'
+            cand --jobs 'Set the max number of jobs to run in parallel'
+            cand --render-no-loc 'Render no-location diagnostics starting from a certain level'
+            cand -p 'Run test in the specified package'
+            cand --package 'Run test in the specified package'
+            cand -f 'Run test in the specified file. Only valid when `--package` is also specified'
+            cand --file 'Run test in the specified file. Only valid when `--package` is also specified'
+            cand -i 'Run only the index-th test in the file. Accepts a single index or a left-inclusive right-exclusive range like `0-2`. Only valid when `--file` is also specified'
+            cand --index 'Run only the index-th test in the file. Accepts a single index or a left-inclusive right-exclusive range like `0-2`. Only valid when `--file` is also specified'
+            cand --manifest-path 'Path to `moon.mod.json` to use as the project manifest (does not change the working directory)'
+            cand --target-dir 'The target directory. Defaults to `<project-root>/target`'
+            cand --std 'Enable the standard library (default)'
+            cand --nostd 'Disable the standard library'
+            cand -g 'Emit debug information'
+            cand --debug 'Emit debug information'
+            cand --release 'Compile in release mode'
+            cand --strip 'Enable stripping debug information'
+            cand --no-strip 'Disable stripping debug information'
+            cand --serial '[Deprecated] Handle the selected targets sequentially'
+            cand --enable-coverage 'Enable coverage instrumentation'
+            cand --sort-input 'Sort input files'
+            cand --output-wat 'Output WAT instead of WASM'
+            cand -d 'Treat all warnings as errors'
+            cand --deny-warn 'Treat all warnings as errors'
+            cand --no-render 'Don''t render diagnostics (in raw human-readable format)'
+            cand --output-json 'Output diagnostics in JSON format'
+            cand --enable-value-tracing 'Enable value tracing'
+            cand --frozen 'Do not sync dependencies, assuming local dependencies are up-to-date'
+            cand --build-only 'Only build, do not bench'
+            cand --no-parallelize 'Run the benchmarks in a target backend sequentially'
+            cand -q 'Suppress output'
+            cand --quiet 'Suppress output'
+            cand -v 'Increase verbosity'
+            cand --verbose 'Increase verbosity'
+            cand --trace 'Trace the execution of the program'
+            cand --dry-run 'Do not actually run the command'
+            cand --build-graph 'build-graph'
+            cand -h 'Print help'
+            cand --help 'Print help'
+        }
+        &'moon;add'= {
+            cand --manifest-path 'Path to `moon.mod.json` to use as the project manifest (does not change the working directory)'
+            cand --target-dir 'The target directory. Defaults to `<project-root>/target`'
+            cand --bin 'Whether to add the dependency as a binary'
+            cand --no-update 'Do not update the registry index before adding the dependency'
+            cand -q 'Suppress output'
+            cand --quiet 'Suppress output'
+            cand -v 'Increase verbosity'
+            cand --verbose 'Increase verbosity'
+            cand --trace 'Trace the execution of the program'
+            cand --dry-run 'Do not actually run the command'
+            cand --build-graph 'build-graph'
+            cand -h 'Print help'
+            cand --help 'Print help'
+        }
+        &'moon;remove'= {
+            cand --manifest-path 'Path to `moon.mod.json` to use as the project manifest (does not change the working directory)'
+            cand --target-dir 'The target directory. Defaults to `<project-root>/target`'
+            cand -q 'Suppress output'
+            cand --quiet 'Suppress output'
+            cand -v 'Increase verbosity'
+            cand --verbose 'Increase verbosity'
+            cand --trace 'Trace the execution of the program'
+            cand --dry-run 'Do not actually run the command'
+            cand --build-graph 'build-graph'
+            cand -h 'Print help'
+            cand --help 'Print help'
+        }
+        &'moon;install'= {
+            cand --bin 'Specify installation directory (default: ~/.moon/bin/)'
+            cand --path 'Install from local path instead of registry'
+            cand --rev 'Git revision to checkout (commit hash, requires git URL)'
+            cand --branch 'Git branch to checkout (requires git URL)'
+            cand --tag 'Git tag to checkout (requires git URL)'
+            cand --manifest-path 'Path to `moon.mod.json` to use as the project manifest (does not change the working directory)'
+            cand --target-dir 'The target directory. Defaults to `<project-root>/target`'
+            cand -q 'Suppress output'
+            cand --quiet 'Suppress output'
+            cand -v 'Increase verbosity'
+            cand --verbose 'Increase verbosity'
+            cand --trace 'Trace the execution of the program'
+            cand --dry-run 'Do not actually run the command'
+            cand --build-graph 'build-graph'
+            cand -h 'Print help'
+            cand --help 'Print help'
+        }
+        &'moon;tree'= {
+            cand --manifest-path 'Path to `moon.mod.json` to use as the project manifest (does not change the working directory)'
+            cand --target-dir 'The target directory. Defaults to `<project-root>/target`'
+            cand -q 'Suppress output'
+            cand --quiet 'Suppress output'
+            cand -v 'Increase verbosity'
+            cand --verbose 'Increase verbosity'
+            cand --trace 'Trace the execution of the program'
+            cand --dry-run 'Do not actually run the command'
+            cand --build-graph 'build-graph'
+            cand -h 'Print help'
+            cand --help 'Print help'
+        }
+        &'moon;fetch'= {
+            cand --manifest-path 'Path to `moon.mod.json` to use as the project manifest (does not change the working directory)'
+            cand --target-dir 'The target directory. Defaults to `<project-root>/target`'
+            cand --no-update 'Do not update the registry index before fetching'
+            cand -q 'Suppress output'
+            cand --quiet 'Suppress output'
+            cand -v 'Increase verbosity'
+            cand --verbose 'Increase verbosity'
+            cand --trace 'Trace the execution of the program'
+            cand --dry-run 'Do not actually run the command'
+            cand --build-graph 'build-graph'
+            cand -h 'Print help'
+            cand --help 'Print help'
+        }
+        &'moon;login'= {
+            cand --manifest-path 'Path to `moon.mod.json` to use as the project manifest (does not change the working directory)'
+            cand --target-dir 'The target directory. Defaults to `<project-root>/target`'
+            cand -q 'Suppress output'
+            cand --quiet 'Suppress output'
+            cand -v 'Increase verbosity'
+            cand --verbose 'Increase verbosity'
+            cand --trace 'Trace the execution of the program'
+            cand --dry-run 'Do not actually run the command'
+            cand --build-graph 'build-graph'
+            cand -h 'Print help'
+            cand --help 'Print help'
+        }
+        &'moon;register'= {
+            cand --manifest-path 'Path to `moon.mod.json` to use as the project manifest (does not change the working directory)'
+            cand --target-dir 'The target directory. Defaults to `<project-root>/target`'
+            cand -q 'Suppress output'
+            cand --quiet 'Suppress output'
+            cand -v 'Increase verbosity'
+            cand --verbose 'Increase verbosity'
+            cand --trace 'Trace the execution of the program'
+            cand --dry-run 'Do not actually run the command'
+            cand --build-graph 'build-graph'
+            cand -h 'Print help'
+            cand --help 'Print help'
+        }
+        &'moon;publish'= {
+            cand --manifest-path 'Path to `moon.mod.json` to use as the project manifest (does not change the working directory)'
+            cand --target-dir 'The target directory. Defaults to `<project-root>/target`'
+            cand --frozen 'Do not sync dependencies, assuming local dependencies are up-to-date'
+            cand -q 'Suppress output'
+            cand --quiet 'Suppress output'
+            cand -v 'Increase verbosity'
+            cand --verbose 'Increase verbosity'
+            cand --trace 'Trace the execution of the program'
+            cand --dry-run 'Do not actually run the command'
+            cand --build-graph 'build-graph'
+            cand -h 'Print help'
+            cand --help 'Print help'
+        }
+        &'moon;package'= {
+            cand --manifest-path 'Path to `moon.mod.json` to use as the project manifest (does not change the working directory)'
+            cand --target-dir 'The target directory. Defaults to `<project-root>/target`'
+            cand --frozen 'Do not sync dependencies, assuming local dependencies are up-to-date'
+            cand --list 'list'
+            cand -q 'Suppress output'
+            cand --quiet 'Suppress output'
+            cand -v 'Increase verbosity'
+            cand --verbose 'Increase verbosity'
+            cand --trace 'Trace the execution of the program'
+            cand --dry-run 'Do not actually run the command'
+            cand --build-graph 'build-graph'
+            cand -h 'Print help'
+            cand --help 'Print help'
+        }
+        &'moon;update'= {
+            cand --manifest-path 'Path to `moon.mod.json` to use as the project manifest (does not change the working directory)'
+            cand --target-dir 'The target directory. Defaults to `<project-root>/target`'
+            cand -q 'Suppress output'
+            cand --quiet 'Suppress output'
+            cand -v 'Increase verbosity'
+            cand --verbose 'Increase verbosity'
+            cand --trace 'Trace the execution of the program'
+            cand --dry-run 'Do not actually run the command'
+            cand --build-graph 'build-graph'
+            cand -h 'Print help'
+            cand --help 'Print help'
+        }
+        &'moon;coverage'= {
+            cand --manifest-path 'Path to `moon.mod.json` to use as the project manifest (does not change the working directory)'
+            cand --target-dir 'The target directory. Defaults to `<project-root>/target`'
+            cand -q 'Suppress output'
+            cand --quiet 'Suppress output'
+            cand -v 'Increase verbosity'
+            cand --verbose 'Increase verbosity'
+            cand --trace 'Trace the execution of the program'
+            cand --dry-run 'Do not actually run the command'
+            cand --build-graph 'build-graph'
+            cand -h 'Print help'
+            cand --help 'Print help'
+            cand analyze 'Run test with instrumentation and report coverage'
+            cand report 'Generate code coverage report'
+            cand clean 'Clean up coverage artifacts'
+            cand help 'Print this message or the help of the given subcommand(s)'
+        }
+        &'moon;coverage;analyze'= {
+            cand -p 'Analyze coverage for a specific package'
+            cand --package 'Analyze coverage for a specific package'
+            cand -t 'Extra flags passed directly to `moon test`'
+            cand --test-flag 'Extra flags passed directly to `moon test`'
+            cand --manifest-path 'Path to `moon.mod.json` to use as the project manifest (does not change the working directory)'
+            cand --target-dir 'The target directory. Defaults to `<project-root>/target`'
+            cand -q 'Suppress output'
+            cand --quiet 'Suppress output'
+            cand -v 'Increase verbosity'
+            cand --verbose 'Increase verbosity'
+            cand --trace 'Trace the execution of the program'
+            cand --dry-run 'Do not actually run the command'
+            cand --build-graph 'build-graph'
+            cand -h 'Print help'
+            cand --help 'Print help'
+        }
+        &'moon;coverage;report'= {
+            cand --manifest-path 'Path to `moon.mod.json` to use as the project manifest (does not change the working directory)'
+            cand --target-dir 'The target directory. Defaults to `<project-root>/target`'
+            cand -h 'Show help for the coverage utility'
+            cand --help 'Show help for the coverage utility'
+            cand -q 'Suppress output'
+            cand --quiet 'Suppress output'
+            cand -v 'Increase verbosity'
+            cand --verbose 'Increase verbosity'
+            cand --trace 'Trace the execution of the program'
+            cand --dry-run 'Do not actually run the command'
+            cand --build-graph 'build-graph'
+        }
+        &'moon;coverage;clean'= {
+            cand --manifest-path 'Path to `moon.mod.json` to use as the project manifest (does not change the working directory)'
+            cand --target-dir 'The target directory. Defaults to `<project-root>/target`'
+            cand -q 'Suppress output'
+            cand --quiet 'Suppress output'
+            cand -v 'Increase verbosity'
+            cand --verbose 'Increase verbosity'
+            cand --trace 'Trace the execution of the program'
+            cand --dry-run 'Do not actually run the command'
+            cand --build-graph 'build-graph'
+            cand -h 'Print help'
+            cand --help 'Print help'
+        }
+        &'moon;coverage;help'= {
+            cand analyze 'Run test with instrumentation and report coverage'
+            cand report 'Generate code coverage report'
+            cand clean 'Clean up coverage artifacts'
+            cand help 'Print this message or the help of the given subcommand(s)'
+        }
+        &'moon;coverage;help;analyze'= {
+        }
+        &'moon;coverage;help;report'= {
+        }
+        &'moon;coverage;help;clean'= {
+        }
+        &'moon;coverage;help;help'= {
+        }
+        &'moon;generate-build-matrix'= {
+            cand -n 'Set all of `drow`, `dcol`, `mrow`, `mcol` to the same value'
+            cand --drow 'Number of directory rows'
+            cand --dcol 'Number of directory columns'
+            cand --mrow 'Number of module rows'
+            cand --mcol 'Number of module columns'
+            cand -o 'The output directory'
+            cand --output-dir 'The output directory'
+            cand --manifest-path 'Path to `moon.mod.json` to use as the project manifest (does not change the working directory)'
+            cand --target-dir 'The target directory. Defaults to `<project-root>/target`'
+            cand -q 'Suppress output'
+            cand --quiet 'Suppress output'
+            cand -v 'Increase verbosity'
+            cand --verbose 'Increase verbosity'
+            cand --trace 'Trace the execution of the program'
+            cand --dry-run 'Do not actually run the command'
+            cand --build-graph 'build-graph'
+            cand -h 'Print help'
+            cand --help 'Print help'
+        }
+        &'moon;query'= {
+            cand --target 'Select output target'
+            cand --warn-list 'Warn list config'
+            cand --alert-list 'Alert list config'
+            cand -j 'Set the max number of jobs to run in parallel'
+            cand --jobs 'Set the max number of jobs to run in parallel'
+            cand --render-no-loc 'Render no-location diagnostics starting from a certain level'
+            cand --manifest-path 'Path to `moon.mod.json` to use as the project manifest (does not change the working directory)'
+            cand --target-dir 'The target directory. Defaults to `<project-root>/target`'
+            cand --std 'Enable the standard library (default)'
+            cand --nostd 'Disable the standard library'
+            cand -g 'Emit debug information'
+            cand --debug 'Emit debug information'
+            cand --release 'Compile in release mode'
+            cand --strip 'Enable stripping debug information'
+            cand --no-strip 'Disable stripping debug information'
+            cand --serial '[Deprecated] Handle the selected targets sequentially'
+            cand --enable-coverage 'Enable coverage instrumentation'
+            cand --sort-input 'Sort input files'
+            cand --output-wat 'Output WAT instead of WASM'
+            cand -d 'Treat all warnings as errors'
+            cand --deny-warn 'Treat all warnings as errors'
+            cand --no-render 'Don''t render diagnostics (in raw human-readable format)'
+            cand --output-json 'Output diagnostics in JSON format'
+            cand --enable-value-tracing 'Enable value tracing'
+            cand -q 'Suppress output'
+            cand --quiet 'Suppress output'
+            cand -v 'Increase verbosity'
+            cand --verbose 'Increase verbosity'
+            cand --trace 'Trace the execution of the program'
+            cand --dry-run 'Do not actually run the command'
+            cand --build-graph 'build-graph'
+            cand -h 'Print help'
+            cand --help 'Print help'
+        }
+        &'moon;upgrade'= {
+            cand --base-url 'base-url'
+            cand --manifest-path 'Path to `moon.mod.json` to use as the project manifest (does not change the working directory)'
+            cand --target-dir 'The target directory. Defaults to `<project-root>/target`'
+            cand -f 'Force upgrade'
+            cand --force 'Force upgrade'
+            cand --dev 'Install the latest development version'
+            cand --non-interactive 'non-interactive'
+            cand -q 'Suppress output'
+            cand --quiet 'Suppress output'
+            cand -v 'Increase verbosity'
+            cand --verbose 'Increase verbosity'
+            cand --trace 'Trace the execution of the program'
+            cand --dry-run 'Do not actually run the command'
+            cand --build-graph 'build-graph'
+            cand -h 'Print help'
+            cand --help 'Print help'
+        }
+        &'moon;shell-completion'= {
+            cand --shell 'The shell to generate completion for'
+            cand --manifest-path 'Path to `moon.mod.json` to use as the project manifest (does not change the working directory)'
+            cand --target-dir 'The target directory. Defaults to `<project-root>/target`'
+            cand -q 'Suppress output'
+            cand --quiet 'Suppress output'
+            cand -v 'Increase verbosity'
+            cand --verbose 'Increase verbosity'
+            cand --trace 'Trace the execution of the program'
+            cand --dry-run 'Do not actually run the command'
+            cand --build-graph 'build-graph'
+            cand -h 'Print help'
+            cand --help 'Print help'
+        }
+        &'moon;version'= {
+            cand --manifest-path 'Path to `moon.mod.json` to use as the project manifest (does not change the working directory)'
+            cand --target-dir 'The target directory. Defaults to `<project-root>/target`'
+            cand --all 'Print all version information'
+            cand --json 'Print version information in JSON format'
+            cand --no-path 'Do not print the path'
+            cand -q 'Suppress output'
+            cand --quiet 'Suppress output'
+            cand -v 'Increase verbosity'
+            cand --verbose 'Increase verbosity'
+            cand --trace 'Trace the execution of the program'
+            cand --dry-run 'Do not actually run the command'
+            cand --build-graph 'build-graph'
+            cand -h 'Print help'
+            cand --help 'Print help'
+        }
+        &'moon;tool'= {
+            cand --manifest-path 'Path to `moon.mod.json` to use as the project manifest (does not change the working directory)'
+            cand --target-dir 'The target directory. Defaults to `<project-root>/target`'
+            cand -q 'Suppress output'
+            cand --quiet 'Suppress output'
+            cand -v 'Increase verbosity'
+            cand --verbose 'Increase verbosity'
+            cand --trace 'Trace the execution of the program'
+            cand --dry-run 'Do not actually run the command'
+            cand --build-graph 'build-graph'
+            cand -h 'Print help'
+            cand --help 'Print help'
+            cand format-and-diff 'Format the code and print the difference'
+            cand embed 'embed'
+            cand write-tcc-rsp-file 'write-tcc-rsp-file'
+            cand build-binary-dep 'build-binary-dep'
+            cand help 'Print this message or the help of the given subcommand(s)'
+        }
+        &'moon;tool;format-and-diff'= {
+            cand --old 'The source path of the code which needs to be formatted'
+            cand --new 'The target path of the formatted code'
+            cand --manifest-path 'Path to `moon.mod.json` to use as the project manifest (does not change the working directory)'
+            cand --target-dir 'The target directory. Defaults to `<project-root>/target`'
+            cand --block-style 'Add separator between each segments'
+            cand --warn 'Warn instead of showing differences'
+            cand -q 'Suppress output'
+            cand --quiet 'Suppress output'
+            cand -v 'Increase verbosity'
+            cand --verbose 'Increase verbosity'
+            cand --trace 'Trace the execution of the program'
+            cand --dry-run 'Do not actually run the command'
+            cand --build-graph 'build-graph'
+            cand -h 'Print help'
+            cand --help 'Print help'
+        }
+        &'moon;tool;embed'= {
+            cand -i 'i'
+            cand --input 'input'
+            cand -o 'o'
+            cand --output 'output'
+            cand --name 'name'
+            cand --manifest-path 'Path to `moon.mod.json` to use as the project manifest (does not change the working directory)'
+            cand --target-dir 'The target directory. Defaults to `<project-root>/target`'
+            cand --binary 'binary'
+            cand --text 'text'
+            cand --timestamp 'timestamp'
+            cand -q 'Suppress output'
+            cand --quiet 'Suppress output'
+            cand -v 'Increase verbosity'
+            cand --verbose 'Increase verbosity'
+            cand --trace 'Trace the execution of the program'
+            cand --dry-run 'Do not actually run the command'
+            cand --build-graph 'build-graph'
+            cand -h 'Print help'
+            cand --help 'Print help'
+        }
+        &'moon;tool;write-tcc-rsp-file'= {
+            cand --manifest-path 'Path to `moon.mod.json` to use as the project manifest (does not change the working directory)'
+            cand --target-dir 'The target directory. Defaults to `<project-root>/target`'
+            cand -q 'Suppress output'
+            cand --quiet 'Suppress output'
+            cand -v 'Increase verbosity'
+            cand --verbose 'Increase verbosity'
+            cand --trace 'Trace the execution of the program'
+            cand --dry-run 'Do not actually run the command'
+            cand --build-graph 'build-graph'
+            cand -h 'Print help'
+            cand --help 'Print help'
+        }
+        &'moon;tool;build-binary-dep'= {
+            cand --install-path 'The parent directory where the binary module is installed to'
+            cand --manifest-path 'Path to `moon.mod.json` to use as the project manifest (does not change the working directory)'
+            cand --target-dir 'The target directory. Defaults to `<project-root>/target`'
+            cand --all-pkgs 'Whether to build and install all binary packages in the module'
+            cand -q 'Suppress output'
+            cand --quiet 'Suppress output'
+            cand -v 'Increase verbosity'
+            cand --verbose 'Increase verbosity'
+            cand --trace 'Trace the execution of the program'
+            cand --dry-run 'Do not actually run the command'
+            cand --build-graph 'build-graph'
+            cand -h 'Print help'
+            cand --help 'Print help'
+        }
+        &'moon;tool;help'= {
+            cand format-and-diff 'Format the code and print the difference'
+            cand embed 'embed'
+            cand write-tcc-rsp-file 'write-tcc-rsp-file'
+            cand build-binary-dep 'build-binary-dep'
+            cand help 'Print this message or the help of the given subcommand(s)'
+        }
+        &'moon;tool;help;format-and-diff'= {
+        }
+        &'moon;tool;help;embed'= {
+        }
+        &'moon;tool;help;write-tcc-rsp-file'= {
+        }
+        &'moon;tool;help;build-binary-dep'= {
+        }
+        &'moon;tool;help;help'= {
+        }
+        &'moon;ide'= {
+            cand -h 'Print help'
+            cand --help 'Print help'
+            cand peek-def 'Peek Definition of a symbol'
+            cand find-references 'Find references of a symbol'
+            cand rename 'Rename a symbol'
+            cand hover 'Show hover information of a symbol'
+            cand outline 'Show outline of specified path'
+            cand doc 'Show documentation of a symbol'
+            cand help 'Print this message or the help of the given subcommand(s)'
+        }
+        &'moon;ide;peek-def'= {
+            cand --loc 'loc'
+            cand -h 'Print help'
+            cand --help 'Print help'
+        }
+        &'moon;ide;find-references'= {
+            cand --loc 'loc'
+            cand -h 'Print help'
+            cand --help 'Print help'
+        }
+        &'moon;ide;rename'= {
+            cand --loc 'loc'
+            cand -h 'Print help'
+            cand --help 'Print help'
+        }
+        &'moon;ide;hover'= {
+            cand --loc 'loc'
+            cand -h 'Print help'
+            cand --help 'Print help'
+        }
+        &'moon;ide;outline'= {
+            cand -h 'Print help'
+            cand --help 'Print help'
+        }
+        &'moon;ide;doc'= {
+            cand -h 'Print help'
+            cand --help 'Print help'
+        }
+        &'moon;ide;help'= {
+            cand peek-def 'Peek Definition of a symbol'
+            cand find-references 'Find references of a symbol'
+            cand rename 'Rename a symbol'
+            cand hover 'Show hover information of a symbol'
+            cand outline 'Show outline of specified path'
+            cand doc 'Show documentation of a symbol'
+            cand help 'Print this message or the help of the given subcommand(s)'
+        }
+        &'moon;ide;help;peek-def'= {
+        }
+        &'moon;ide;help;find-references'= {
+        }
+        &'moon;ide;help;rename'= {
+        }
+        &'moon;ide;help;hover'= {
+        }
+        &'moon;ide;help;outline'= {
+        }
+        &'moon;ide;help;doc'= {
+        }
+        &'moon;ide;help;help'= {
+        }
+        &'moon;help'= {
+            cand new 'Create a new MoonBit module'
+            cand bundle 'Bundle the module'
+            cand build 'Build the current package'
+            cand check 'Check the current package, but don''t build object files'
+            cand run 'Run a main package'
+            cand test 'Test the current package'
+            cand generate-test-driver 'Generate tests for a provided package. This is a thin wrapper around `moonc gen-test-info`, which does the actual parsing and generation'
+            cand clean 'Remove the target directory'
+            cand fmt 'Format source code'
+            cand doc 'Generate documentation or searching documentation for a symbol'
+            cand info 'Generate public interface (`.mbti`) files for all packages in the module'
+            cand bench 'Run benchmarks in the current package'
+            cand add 'Add a dependency'
+            cand remove 'Remove a dependency'
+            cand install 'Install a binary package globally or install project dependencies (deprecated without args)'
+            cand tree 'Display the dependency tree'
+            cand fetch 'Download a package to .repos directory (unstable)'
+            cand login 'Log in to your account'
+            cand register 'Register an account at mooncakes.io'
+            cand publish 'Publish the current module'
+            cand package 'Package the current module'
+            cand update 'Update the package registry index'
+            cand coverage 'Code coverage utilities'
+            cand generate-build-matrix 'Generate build matrix for benchmarking (legacy feature)'
+            cand query 'query'
+            cand upgrade 'Upgrade toolchains'
+            cand shell-completion 'Generate shell completion for bash/elvish/fish/pwsh/zsh to stdout'
+            cand version 'Print version information and exit'
+            cand tool 'tool'
+            cand ide 'IDE utilities'
+            cand help 'Print this message or the help of the given subcommand(s)'
+        }
+        &'moon;help;new'= {
+        }
+        &'moon;help;bundle'= {
+        }
+        &'moon;help;build'= {
+        }
+        &'moon;help;check'= {
+        }
+        &'moon;help;run'= {
+        }
+        &'moon;help;test'= {
+        }
+        &'moon;help;generate-test-driver'= {
+        }
+        &'moon;help;clean'= {
+        }
+        &'moon;help;fmt'= {
+        }
+        &'moon;help;doc'= {
+        }
+        &'moon;help;info'= {
+        }
+        &'moon;help;bench'= {
+        }
+        &'moon;help;add'= {
+        }
+        &'moon;help;remove'= {
+        }
+        &'moon;help;install'= {
+        }
+        &'moon;help;tree'= {
+        }
+        &'moon;help;fetch'= {
+        }
+        &'moon;help;login'= {
+        }
+        &'moon;help;register'= {
+        }
+        &'moon;help;publish'= {
+        }
+        &'moon;help;package'= {
+        }
+        &'moon;help;update'= {
+        }
+        &'moon;help;coverage'= {
+            cand analyze 'Run test with instrumentation and report coverage'
+            cand report 'Generate code coverage report'
+            cand clean 'Clean up coverage artifacts'
+        }
+        &'moon;help;coverage;analyze'= {
+        }
+        &'moon;help;coverage;report'= {
+        }
+        &'moon;help;coverage;clean'= {
+        }
+        &'moon;help;generate-build-matrix'= {
+        }
+        &'moon;help;query'= {
+        }
+        &'moon;help;upgrade'= {
+        }
+        &'moon;help;shell-completion'= {
+        }
+        &'moon;help;version'= {
+        }
+        &'moon;help;tool'= {
+            cand format-and-diff 'Format the code and print the difference'
+            cand embed 'embed'
+            cand write-tcc-rsp-file 'write-tcc-rsp-file'
+            cand build-binary-dep 'build-binary-dep'
+        }
+        &'moon;help;tool;format-and-diff'= {
+        }
+        &'moon;help;tool;embed'= {
+        }
+        &'moon;help;tool;write-tcc-rsp-file'= {
+        }
+        &'moon;help;tool;build-binary-dep'= {
+        }
+        &'moon;help;ide'= {
+            cand peek-def 'Peek Definition of a symbol'
+            cand find-references 'Find references of a symbol'
+            cand rename 'Rename a symbol'
+            cand hover 'Show hover information of a symbol'
+            cand outline 'Show outline of specified path'
+            cand doc 'Show documentation of a symbol'
+        }
+        &'moon;help;ide;peek-def'= {
+        }
+        &'moon;help;ide;find-references'= {
+        }
+        &'moon;help;ide;rename'= {
+        }
+        &'moon;help;ide;hover'= {
+        }
+        &'moon;help;ide;outline'= {
+        }
+        &'moon;help;ide;doc'= {
+        }
+        &'moon;help;help'= {
+        }
+    ]
+    $completions[$command]
+}
