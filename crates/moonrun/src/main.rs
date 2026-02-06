@@ -24,13 +24,14 @@ use std::{cell::Cell, io::Read, path::PathBuf, time::Instant};
 use v8::V8::set_flags_from_string;
 
 mod fs_api_temp;
-mod js;
 mod sys_api;
 mod util;
+mod v8_builder;
 
 use rand::Rng;
 use rand::SeedableRng;
 use rand::rngs::StdRng;
+use v8_builder::{ArgsExt, ObjectExt, ScopeExt};
 
 const BUILTIN_SCRIPT_ORIGIN_PREFIX: &str = "__$moonrun_v8_builtin_script$__";
 
@@ -140,9 +141,7 @@ fn console_elog(
     args: v8::FunctionCallbackArguments,
     mut _ret: v8::ReturnValue,
 ) {
-    let arg = args.get(0);
-    let arg = arg.to_string(scope).unwrap();
-    let arg = arg.to_rust_string_lossy(scope);
+    let arg = args.string_lossy(scope, 0);
     eprintln!("{arg}");
 }
 
@@ -151,9 +150,7 @@ fn console_log(
     args: v8::FunctionCallbackArguments,
     mut _ret: v8::ReturnValue,
 ) {
-    let arg = args.get(0);
-    let arg = arg.to_string(scope).unwrap();
-    let arg = arg.to_rust_string_lossy(scope);
+    let arg = args.string_lossy(scope, 0);
     println!("{arg}");
 }
 
@@ -241,8 +238,7 @@ fn read_file_to_bytes(
     args: v8::FunctionCallbackArguments,
     mut ret: v8::ReturnValue,
 ) {
-    let arg = args.get(0);
-    let path = PathBuf::from(arg.to_rust_string_lossy(scope));
+    let path = PathBuf::from(args.string_lossy(scope, 0));
     let bytes = std::fs::read(path).unwrap();
     let buffer = v8::ArrayBuffer::new(scope, bytes.len());
     let ab = v8::Uint8Array::new(scope, buffer, 0, bytes.len()).unwrap();
@@ -352,7 +348,7 @@ fn init_env(
     let global_proxy = scope.get_current_context().global(scope);
 
     let print_env_box = Box::<PrintEnv>::default();
-    let identifier = v8::String::new(scope, "print").unwrap();
+    let identifier = scope.string("print");
     let print_env = &*print_env_box as *const PrintEnv;
     let print_env = v8::External::new(scope, print_env as *mut std::ffi::c_void);
     let value = v8::Function::builder(print_char)
@@ -363,115 +359,56 @@ fn init_env(
     dtors.push(print_env_box);
 
     {
-        let identifier = v8::String::new(scope, "console_elog").unwrap();
-        let value = v8::Function::builder(console_elog).build(scope).unwrap();
-        global_proxy.set(scope, identifier.into(), value.into());
+        global_proxy.set_func(scope, "console_log", console_log);
+        global_proxy.set_func(scope, "console_elog", console_elog);
     }
 
     {
-        let identifier = v8::String::new(scope, "console_log").unwrap();
-        let value = v8::Function::builder(console_log).build(scope).unwrap();
-        global_proxy.set(scope, identifier.into(), value.into());
-    }
-
-    {
-        let identifier = v8::String::new(scope, "__moonbit_time_unstable").unwrap();
-        let obj = v8::Object::new(scope);
-        global_proxy.set(scope, identifier.into(), obj.into());
-
-        let identifier = v8::String::new(scope, "instant_now").unwrap();
-        let value = v8::Function::builder(instant_now).build(scope).unwrap();
-        obj.set(scope, identifier.into(), value.into());
-
-        let identifier = v8::String::new(scope, "instant_elapsed_as_secs_f64").unwrap();
-        let value = v8::Function::builder(instant_elapsed_as_secs_f64)
-            .build(scope)
-            .unwrap();
-        obj.set(scope, identifier.into(), value.into());
-
-        let identifier = v8::String::new(scope, "now").unwrap();
-        let value = v8::Function::builder(now).build(scope).unwrap();
-        obj.set(scope, identifier.into(), value.into());
+        let time = global_proxy.child(scope, "__moonbit_time_unstable");
+        time.set_func(scope, "instant_now", instant_now);
+        time.set_func(
+            scope,
+            "instant_elapsed_as_secs_f64",
+            instant_elapsed_as_secs_f64,
+        );
+        time.set_func(scope, "now", now);
     }
 
     // API for the fs module
-    let identifier = v8::String::new(scope, "__moonbit_fs_unstable").unwrap();
-    let obj = v8::Object::new(scope);
-    let obj: v8::Local<'_, v8::Object> = js::init_env(obj, scope);
-    let obj = sys_api::init_env(obj, scope, wasm_file_name, args);
-    let obj: v8::Local<'_, v8::Object> = fs_api_temp::init_fs(obj, scope);
-    global_proxy.set(scope, identifier.into(), obj.into());
-
     {
-        let identifier = v8::String::new(scope, "read_file_to_bytes").unwrap();
-        let value = v8::Function::builder(read_file_to_bytes)
-            .build(scope)
-            .unwrap();
-        global_proxy.set(scope, identifier.into(), value.into());
+        let obj = global_proxy.child(scope, "__moonbit_fs_unstable");
+        sys_api::init_env(obj, scope, wasm_file_name, args);
+        fs_api_temp::init_fs(obj, scope);
     }
 
     {
-        let identifier = v8::String::new(scope, "__moonbit_io_unstable").unwrap();
-        let obj = v8::Object::new(scope);
-        global_proxy.set(scope, identifier.into(), obj.into());
-
-        let identifier = v8::String::new(scope, "read_bytes_from_stdin").unwrap();
-        let value = v8::Function::builder(read_bytes_from_stdin)
-            .build(scope)
-            .unwrap();
-        obj.set(scope, identifier.into(), value.into());
-
-        let identifier = v8::String::new(scope, "read_char").unwrap();
-        let value = v8::Function::builder(read_char).build(scope).unwrap();
-        obj.set(scope, identifier.into(), value.into());
-
-        let identifier = v8::String::new(scope, "write_char").unwrap();
-        let value = v8::Function::builder(write_char).build(scope).unwrap();
-        obj.set(scope, identifier.into(), value.into());
-
-        let identifier = v8::String::new(scope, "flush").unwrap();
-        let value = v8::Function::builder(flush).build(scope).unwrap();
-        obj.set(scope, identifier.into(), value.into());
+        global_proxy.set_func(scope, "read_file_to_bytes", read_file_to_bytes);
     }
 
     {
-        let identifier = v8::String::new(scope, "__moonbit_rand_unstable").unwrap();
-        let obj = v8::Object::new(scope);
-        global_proxy.set(scope, identifier.into(), obj.into());
-
-        let identifier = v8::String::new(scope, "stdrng_seed_from_u64").unwrap();
-        let value = v8::Function::builder(stdrng_seed_from_u64)
-            .build(scope)
-            .unwrap();
-        obj.set(scope, identifier.into(), value.into());
-
-        let identifier = v8::String::new(scope, "stdrng_gen_range").unwrap();
-        let value = v8::Function::builder(stdrng_gen_range)
-            .build(scope)
-            .unwrap();
-        obj.set(scope, identifier.into(), value.into());
+        let io = global_proxy.child(scope, "__moonbit_io_unstable");
+        io.set_func(scope, "read_bytes_from_stdin", read_bytes_from_stdin);
+        io.set_func(scope, "read_char", read_char);
+        io.set_func(scope, "write_char", write_char);
+        io.set_func(scope, "flush", flush);
     }
 
     {
-        let identifier = v8::String::new(scope, "__moonbit_sys_unstable").unwrap();
-        let obj = v8::Object::new(scope);
-        global_proxy.set(scope, identifier.into(), obj.into());
+        let rand = global_proxy.child(scope, "__moonbit_rand_unstable");
+        rand.set_func(scope, "stdrng_seed_from_u64", stdrng_seed_from_u64);
+        rand.set_func(scope, "stdrng_gen_range", stdrng_gen_range);
+    }
 
-        let exit = v8::FunctionTemplate::new(scope, exit);
-        let exit = exit.get_function(scope).unwrap();
-        let ident = v8::String::new(scope, "exit").unwrap();
-        obj.set(scope, ident.into(), exit.into());
-
-        let is_windows = v8::FunctionTemplate::new(scope, is_windows);
-        let is_windows = is_windows.get_function(scope).unwrap();
-        let ident = v8::String::new(scope, "is_windows").unwrap();
-        obj.set(scope, ident.into(), is_windows.into());
+    {
+        let sys = global_proxy.child(scope, "__moonbit_sys_unstable");
+        sys.set_func(scope, "exit", exit);
+        sys.set_func(scope, "is_windows", is_windows);
     }
 }
 
 fn create_script_origin<'s>(scope: &mut v8::HandleScope<'s>, name: &str) -> v8::ScriptOrigin<'s> {
     let name = format!("{BUILTIN_SCRIPT_ORIGIN_PREFIX}{name}");
-    let name = v8::String::new(scope, &name).unwrap();
+    let name = scope.string(&name);
     v8::ScriptOrigin::new(
         scope,
         name.into(),
@@ -514,17 +451,15 @@ fn wasm_mode(
 
     match source {
         Source::File(file) => {
-            let module_key = v8::String::new(scope, "module_name").unwrap().into();
-            let module_name = v8::String::new(scope, file.to_string_lossy().as_ref())
-                .unwrap()
-                .into();
+            let module_key = scope.string("module_name").into();
+            let module_name = scope.string(file.to_string_lossy().as_ref()).into();
             global_proxy.set(scope, module_key, module_name);
             script.push_str("let bytes;");
         }
         Source::Bytes(bytes) => {
             let len = bytes.len();
 
-            let bytes_key = v8::String::new(scope, "bytes").unwrap().into();
+            let bytes_key = scope.string("bytes").into();
             let buf = v8::ArrayBuffer::new_backing_store_from_vec(bytes);
             let buf = v8::ArrayBuffer::with_backing_store(scope, &buf.make_shared());
             let u8arr = v8::Uint8Array::new(scope, buf, 0, len)
@@ -559,7 +494,7 @@ fn wasm_mode(
     ));
     script.push_str(js_glue);
 
-    let code = v8::String::new(scope, &script).unwrap();
+    let code = scope.string(&script);
     let script_origin = create_script_origin(scope, "wasm_mode_entry");
     let script = v8::Script::compile(scope, code, Some(&script_origin)).unwrap();
 
