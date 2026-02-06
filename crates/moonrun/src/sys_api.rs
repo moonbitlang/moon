@@ -111,7 +111,7 @@ pub fn init_env<'s>(
     scope: &mut v8::HandleScope<'s>,
     wasm_file_name: &str,
     args: &[String],
-) -> v8::Local<'s, v8::Object> {
+) {
     let args_list = construct_args_list(wasm_file_name, args, scope);
     let env_vars = construct_env_vars(scope);
     let env_obj = v8::Object::new(scope);
@@ -130,6 +130,4 @@ pub fn init_env<'s>(
     obj.set_func(scope, "get_env_vars", get_env_vars);
     obj.set_func(scope, "get_env_var", get_env_var);
     obj.set_func(scope, "get_env_var_exists", get_env_var_exists);
-
-    obj
 }

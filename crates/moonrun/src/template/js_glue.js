@@ -144,7 +144,7 @@ const console = {
     elog: (x) => console_elog(x),
     log: (x) => console_log(x),
 };
-const ffiBytesMemory = new WebAssembly.Memory({ initial: 1});
+const ffiBytesMemory = new WebAssembly.Memory({ initial: 1 });
 const spectest = {
     spectest: {
         print_char: (x) => print(x),
@@ -217,5 +217,5 @@ catch (e) {
         }
     }
     __moonbit_sys_unstable.exit(1);
-    
+
 }

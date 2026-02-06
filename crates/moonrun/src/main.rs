@@ -136,18 +136,18 @@ fn print_char(
     ret.set_undefined()
 }
 
-fn console_elog<'s>(
-    scope: &mut v8::HandleScope<'s>,
-    args: v8::FunctionCallbackArguments<'s>,
+fn console_elog(
+    scope: &mut v8::HandleScope,
+    args: v8::FunctionCallbackArguments,
     mut _ret: v8::ReturnValue,
 ) {
     let arg = args.string_lossy(scope, 0);
     eprintln!("{arg}");
 }
 
-fn console_log<'s>(
-    scope: &mut v8::HandleScope<'s>,
-    args: v8::FunctionCallbackArguments<'s>,
+fn console_log(
+    scope: &mut v8::HandleScope,
+    args: v8::FunctionCallbackArguments,
     mut _ret: v8::ReturnValue,
 ) {
     let arg = args.string_lossy(scope, 0);
@@ -233,9 +233,9 @@ fn read_bytes_from_stdin(
     }
 }
 
-fn read_file_to_bytes<'s>(
-    scope: &mut v8::HandleScope<'s>,
-    args: v8::FunctionCallbackArguments<'s>,
+fn read_file_to_bytes(
+    scope: &mut v8::HandleScope,
+    args: v8::FunctionCallbackArguments,
     mut ret: v8::ReturnValue,
 ) {
     let path = PathBuf::from(args.string_lossy(scope, 0));
@@ -359,15 +359,8 @@ fn init_env(
     dtors.push(print_env_box);
 
     {
-        let identifier = scope.string("console_elog");
-        let value = v8::Function::builder(console_elog).build(scope).unwrap();
-        global_proxy.set(scope, identifier.into(), value.into());
-    }
-
-    {
-        let identifier = scope.string("console_log");
-        let value = v8::Function::builder(console_log).build(scope).unwrap();
-        global_proxy.set(scope, identifier.into(), value.into());
+        global_proxy.set_func(scope, "console_log", console_log);
+        global_proxy.set_func(scope, "console_elog", console_elog);
     }
 
     {
@@ -384,17 +377,12 @@ fn init_env(
     // API for the fs module
     {
         let obj = global_proxy.child(scope, "__moonbit_fs_unstable");
-        let obj = sys_api::init_env(obj, scope, wasm_file_name, args);
-        let obj: v8::Local<'_, v8::Object> = fs_api_temp::init_fs(obj, scope);
-        global_proxy.set_value(scope, "__moonbit_fs_unstable", obj.into());
+        sys_api::init_env(obj, scope, wasm_file_name, args);
+        fs_api_temp::init_fs(obj, scope);
     }
 
     {
-        let identifier = scope.string("read_file_to_bytes");
-        let value = v8::Function::builder(read_file_to_bytes)
-            .build(scope)
-            .unwrap();
-        global_proxy.set(scope, identifier.into(), value.into());
+        global_proxy.set_func(scope, "read_file_to_bytes", read_file_to_bytes);
     }
 
     {

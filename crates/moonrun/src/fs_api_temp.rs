@@ -277,9 +277,9 @@ fn get_dir_files(
     ret.set(array.into());
 }
 
-fn create_dir_new<'s>(
-    scope: &mut v8::HandleScope<'s>,
-    args: v8::FunctionCallbackArguments<'s>,
+fn create_dir_new(
+    scope: &mut v8::HandleScope,
+    args: v8::FunctionCallbackArguments,
     mut ret: v8::ReturnValue,
 ) {
     let path = args.string_lossy(scope, 0);
@@ -424,10 +424,7 @@ fn get_error_message(
     ret.set(error.into());
 }
 
-pub fn init_fs<'s>(
-    obj: v8::Local<'s, v8::Object>,
-    scope: &mut v8::HandleScope<'s>,
-) -> v8::Local<'s, v8::Object> {
+pub fn init_fs<'s>(obj: v8::Local<'s, v8::Object>, scope: &mut v8::HandleScope<'s>) {
     obj.set_func(scope, "read_file_to_string", read_file_to_string);
     obj.set_func(scope, "write_string_to_file", write_string_to_file);
     obj.set_func(scope, "write_bytes_to_file", write_bytes_to_file);
@@ -451,6 +448,4 @@ pub fn init_fs<'s>(
     obj.set_func(scope, "is_dir_new", is_dir_new);
     obj.set_func(scope, "remove_file_new", remove_file_new);
     obj.set_func(scope, "remove_dir_new", remove_dir_new);
-
-    obj
 }
