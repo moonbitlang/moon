@@ -181,10 +181,6 @@ impl ImportPath {
         }
         p
     }
-
-    pub fn make_rel_path(&self) -> String {
-        self.rel_path.full_name()
-    }
 }
 
 impl Debug for ImportPath {

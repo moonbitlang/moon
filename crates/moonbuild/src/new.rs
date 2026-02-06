@@ -175,19 +175,6 @@ impl Template {
     }
 }
 
-pub fn create_or_warning(path: &Path) -> anyhow::Result<()> {
-    if path.exists() {
-        eprintln!(
-            "{} {}",
-            "Warning:".bold().yellow(),
-            format_args!("{} already exists", path.display())
-        );
-    } else {
-        std::fs::create_dir_all(path).context(format!("failed to create {}", path.display()))?;
-    }
-    Ok(())
-}
-
 pub fn moon_new_default(target_dir: &Path, user: String, name: String) -> anyhow::Result<i32> {
     let template: Template =
         Template::from_toml(include_str!("../template/moon_new_template.toml"))

@@ -48,10 +48,6 @@ impl OnlineRegistry {
         }
     }
 
-    pub fn flush_cache(&mut self) {
-        self.cache.borrow_mut().clear();
-    }
-
     fn index_file_of(&self, name: &ModuleName) -> std::path::PathBuf {
         self.index
             .join("user")

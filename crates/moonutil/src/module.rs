@@ -17,13 +17,12 @@
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
 use crate::common::{
-    MOON_PKG_JSON, MOONBITLANG_CORE, MoonModJSONFormatErrorKind, MooncOpt, NameError, TargetBackend,
+    MOON_PKG_JSON, MOONBITLANG_CORE, MoonModJSONFormatErrorKind, NameError, TargetBackend,
 };
 use crate::dependency::{
     BinaryDependencyInfo, BinaryDependencyInfoJson, SourceDependencyInfo, SourceDependencyInfoJson,
 };
 use crate::package::{AliasJSON, Package, PackageJSON};
-use crate::path::ImportPath;
 use anyhow::bail;
 use indexmap::map::IndexMap;
 use petgraph::graph::DiGraph;
@@ -296,27 +295,6 @@ impl ModuleDB {
         })
     }
 
-    pub fn get_filtered_packages_and_its_deps_by_pkgpath(
-        &self,
-        pkg_path: &Path,
-    ) -> IndexMap<String, Package> {
-        let pkg = self.get_package_by_path(pkg_path);
-        match pkg {
-            Some(pkg) => {
-                let mut resolved = HashSet::new();
-                resolved.insert(pkg.full_name().clone());
-                self.resolve_deps_of_pkg(pkg, &mut resolved);
-                let it = resolved
-                    .iter()
-                    .map(|pkg_name| (pkg_name.clone(), self.get_package_by_name(pkg_name).clone()));
-                let mut map = IndexMap::from_iter(it);
-                map.sort_keys();
-                map
-            }
-            None => IndexMap::new(),
-        }
-    }
-
     pub fn get_filtered_packages_and_its_deps_by_pkgname(
         &self,
         pkgname: &str,
@@ -367,114 +345,7 @@ impl ModuleDB {
     }
 }
 
-impl ModuleDB {
-    pub fn make_pkg_import_path(&self, pkg_idx: usize) -> String {
-        let pkg = &self.packages[pkg_idx];
-
-        let p = ImportPath {
-            module_name: self.name.clone(),
-            rel_path: pkg.rel.clone(),
-            is_3rd: false,
-        };
-
-        p.make_full_path()
-    }
-
-    pub fn get_package_dir(&self, index: usize) -> PathBuf {
-        self.source_dir
-            .join(self.packages[index].rel.fs_full_name())
-    }
-
-    pub fn make_pkg_core_path(&self, target_dir: &Path, pkg_full_name: &str) -> PathBuf {
-        let pkg = &self.packages[pkg_full_name];
-        target_dir
-            .join(pkg.rel.fs_full_name())
-            .join(format!("{}.core", pkg.rel.short_name()))
-    }
-
-    pub fn make_pkg_mi_path(&self, target_dir: &Path, pkg_idx: usize) -> PathBuf {
-        let pkg = &self.packages[pkg_idx];
-        target_dir
-            .join(pkg.rel.fs_full_name())
-            .join(format!("{}.mi", pkg.rel.short_name()))
-    }
-
-    pub fn get_pkg_mi_deps(&self, target_dir: &Path, pkg_idx: usize) -> Vec<String> {
-        let mut deps: Vec<String> = vec![];
-        let pkg = &self.packages[pkg_idx];
-        for dep in pkg.imports.iter() {
-            let mi_path = target_dir
-                .join(dep.path.make_rel_path())
-                .join(format!("{}.mi", dep.path.rel_path.short_name()));
-
-            deps.push(mi_path.display().to_string());
-        }
-        deps
-    }
-
-    pub fn get_pkg_mi_deps_with_alias(&self, target_dir: &Path, pkg_idx: usize) -> Vec<String> {
-        let mut deps: Vec<String> = vec![];
-        let pkg = &self.packages[pkg_idx];
-        for dep in pkg.imports.iter() {
-            let alias = if let Some(a) = &dep.alias {
-                a.clone()
-            } else {
-                dep.path.rel_path.short_name().into()
-            };
-            let mi_path = target_dir
-                .join(dep.path.make_rel_path())
-                .join(format!("{}.mi", dep.path.rel_path.short_name()));
-
-            deps.push(format!("{}:{}", mi_path.display(), alias));
-        }
-        deps
-    }
-
-    pub fn make_output_path(
-        &self,
-        target_dir: &Path,
-        pkg_idx: usize,
-        moonc_opt: &MooncOpt,
-    ) -> PathBuf {
-        let pkg = &self.packages[pkg_idx];
-        target_dir.join(pkg.rel.fs_full_name()).join(format!(
-            "{}.{}",
-            pkg.rel.short_name(),
-            moonc_opt.link_opt.output_format.to_str()
-        ))
-    }
-
-    fn get_core_dep_rec(
-        &self,
-        visited: &mut HashSet<String>,
-        target_dir: &Path,
-        pkg_full_name: &str,
-        cores: &mut Vec<PathBuf>,
-    ) {
-        if visited.contains(pkg_full_name) {
-            return;
-        }
-        visited.insert(pkg_full_name.into());
-        let c = self.make_pkg_core_path(target_dir, pkg_full_name);
-        cores.push(c);
-        let pkg = &self.packages[pkg_full_name];
-        for d in pkg.imports.iter() {
-            let pkgname = d.path.make_full_path();
-            if self.packages.contains_key(&pkgname) {
-                self.get_core_dep_rec(visited, target_dir, &pkgname, cores);
-            }
-        }
-    }
-
-    pub fn get_all_dep_cores(&self, target_dir: &Path, pkg_full_name: &str) -> Vec<PathBuf> {
-        let mut cores = vec![];
-        let mut visited = HashSet::<String>::new();
-        self.get_core_dep_rec(&mut visited, target_dir, pkg_full_name, &mut cores);
-        cores.sort();
-        cores.dedup();
-        cores
-    }
-}
+impl ModuleDB {}
 
 impl ModuleDB {
     pub fn validate(&self) -> anyhow::Result<()> {

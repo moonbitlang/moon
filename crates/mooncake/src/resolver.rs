@@ -37,9 +37,6 @@ pub use mvs::MvsSolver;
 
 use self::env::ResolverEnv;
 
-/// Each package's resolved dependencies.
-pub type PackageResolveResult = HashMap<ModuleName, Version>;
-
 /// Any error that may occur during dependency resolution.
 #[derive(Debug, Error)]
 pub enum ResolverError {

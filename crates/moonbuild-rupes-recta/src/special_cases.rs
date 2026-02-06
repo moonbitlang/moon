@@ -86,7 +86,3 @@ pub fn is_self_coverage_lib(package_fqn: &PackageFQN) -> bool {
         .iter()
         .any(|&target| name_matches(package_fqn, target))
 }
-
-pub fn is_builtin_lib(package_id: &PackageFQN) -> bool {
-    name_matches(package_id, (MOONBIT, CORE, BUILTIN))
-}

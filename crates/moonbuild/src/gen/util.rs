@@ -25,8 +25,6 @@ use std::fmt::Write;
 #[allow(unused)]
 use std::collections::{HashMap, HashSet};
 
-use petgraph::dot::{Config, Dot};
-
 pub fn toposort(m: &ModuleDB) -> anyhow::Result<Vec<String>> {
     let topo = match petgraph::algo::toposort(&m.graph, None) {
         Ok(nodes) => {
@@ -216,10 +214,6 @@ pub fn nodes_to_pkg_sources(m: &ModuleDB, nodes: &[String]) -> Vec<(String, Stri
             (pkg.full_name(), pkg.root_path.display().to_string())
         })
         .collect::<Vec<_>>()
-}
-
-pub fn graph_to_dot(m: &ModuleDB) {
-    println!("{:?}", Dot::with_config(&m.graph, &[Config::EdgeNoLabel]));
 }
 
 pub fn self_in_test_import(pkg: &Package) -> bool {

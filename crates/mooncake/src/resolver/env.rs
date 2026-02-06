@@ -50,10 +50,6 @@ impl<'a> ResolverEnv<'a> {
         }
     }
 
-    pub fn set_std_lib(&mut self, stdlib: Arc<MoonMod>) {
-        self.stdlib = Some(stdlib);
-    }
-
     pub fn into_errors(self) -> Vec<super::ResolverError> {
         self.errors
     }

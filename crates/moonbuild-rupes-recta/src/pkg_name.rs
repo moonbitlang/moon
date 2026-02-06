@@ -135,15 +135,6 @@ pub fn write_package_fqn_to<W: std::fmt::Write>(
     }
 }
 
-/// Format a package FQN as a string given module and package parts, without
-/// constructing a PackageFQN.
-pub fn format_package_fqn(module: &ModuleName, package: &PackagePath) -> String {
-    let mut result = String::new();
-    write_package_fqn_to(&mut result, module, package)
-        .expect("writing to String should never fail");
-    result
-}
-
 /// A wrapper around [`PackageFQN`] that displays the module source and version
 /// information instead of just the module name when formatted.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -283,13 +274,6 @@ impl PackagePath {
     pub fn new(s: &str) -> Result<Self, PackagePathParseError> {
         Self::validate(s)?;
         Ok(unsafe { Self::new_unchecked(s) })
-    }
-
-    /// Construct a new package path without copying string data by cloning an
-    /// underlying reference-counted string with validation.
-    pub fn new_no_copy(s: ArcStr) -> Result<Self, PackagePathParseError> {
-        Self::validate(&s)?;
-        Ok(unsafe { Self::new_no_copy_unchecked(s) })
     }
 
     /// Construct a new package path from a [`RelativePath`]. This process

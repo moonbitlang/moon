@@ -910,18 +910,6 @@ pub fn gen_link_blackbox_test(
     })
 }
 
-pub fn contain_mbt_test_file(pkg: &Package, moonc_opt: &MooncOpt) -> bool {
-    let backend_filtered = moonutil::common::backend_filter(
-        &pkg.files,
-        moonc_opt.build_opt.debug_flag,
-        moonc_opt.build_opt.target_backend,
-    );
-    backend_filtered.iter().any(|f| {
-        let filename = f.file_name().unwrap().to_str().unwrap().to_string();
-        filename.ends_with("_test.mbt")
-    })
-}
-
 pub fn gen_runtest(
     m: &ModuleDB,
     moonc_opt: &MooncOpt,

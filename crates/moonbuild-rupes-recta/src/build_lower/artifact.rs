@@ -139,16 +139,6 @@ impl LegacyLayout {
         dir.push(self.run_mode.to_dir_name());
     }
 
-    fn push_package_dir_no_backend(&self, dir: &mut PathBuf, pkg: &PackageFQN) {
-        if self.main_module.as_ref().is_some_and(|m| pkg.module() == m) {
-            // no nested directory for the working module
-        } else {
-            dir.push(LEGACY_NON_MAIN_MODULE_DIR);
-            dir.extend(pkg.module().name().segments());
-        }
-        dir.extend(pkg.package().segments());
-    }
-
     pub fn core_of_build_target(
         &self,
         pkg_list: &DiscoverResult,
@@ -365,13 +355,6 @@ impl LegacyLayout {
         let mut result = self.package_dir(pkg, TargetBackend::WasmGC);
         result.push(filename);
         result
-    }
-
-    pub fn mi_of_pkg_without_backend(&self, pkg: &PackageFQN) -> PathBuf {
-        let mut base_dir = PathBuf::new();
-        self.push_package_dir_no_backend(&mut base_dir, pkg);
-        base_dir.push(format!("{}{}", pkg.short_alias(), MI_EXTENSION));
-        base_dir
     }
 
     pub fn generated_mbti_path(

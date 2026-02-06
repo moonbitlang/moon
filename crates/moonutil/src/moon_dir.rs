@@ -16,7 +16,7 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
 use anyhow::Context;
 
@@ -85,15 +85,6 @@ pub fn core_bundle(backend: TargetBackend) -> PathBuf {
         .join("bundle")
 }
 
-pub fn core_packages_list(backend: TargetBackend) -> PathBuf {
-    core()
-        .join(BUILD_DIR)
-        .join(backend.to_dir_name())
-        .join("release")
-        .join("bundle")
-        .join("packages.json")
-}
-
 // core.core & abort.core(virtual pkg default impl)
 pub fn core_core(backend: TargetBackend) -> Vec<String> {
     vec![
@@ -129,15 +120,6 @@ pub const RESERVED_BIN_NAMES: &[&str] = &[
 
 pub fn index() -> PathBuf {
     home().join("registry").join("index")
-}
-
-/// Get the path of the index file of a package. [`base`] should be the path of
-/// the index directory, for example, returned from [`index()`].
-pub fn index_of_pkg(base: &Path, user: &str, pkg: &str) -> PathBuf {
-    base.join("user")
-        .join(user)
-        .join(pkg)
-        .with_extension("index")
 }
 
 pub fn credentials_json() -> PathBuf {
