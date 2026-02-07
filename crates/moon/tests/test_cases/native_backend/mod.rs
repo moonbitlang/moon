@@ -24,6 +24,8 @@ pub(super) fn assert_native_backend_graph(
     env_pairs.push((ENV_VAR.to_string(), graph.to_string_lossy().into_owned()));
     get_stdout_with_envs(dir, args.iter().copied(), env_pairs);
     compare_graphs_with_replacements(&graph, expected, |s| {
+        // Normalize clang-only warnings to keep snapshots portable across macOS/Linux.
+        *s = s.replace(" -Wno-unused-value", "");
         *s = s.replace(".dylib", ".so");
     });
 }
