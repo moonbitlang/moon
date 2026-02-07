@@ -723,6 +723,12 @@ fn add_cc_gcc_like_specific_flags(cc: &CC, buf: &mut Vec<String>) {
     if cc.is_full_featured_gcc_like() {
         buf.push("-fwrapv".to_string());
         buf.push("-fno-strict-aliasing".to_string());
+        // Apple clang is usually detected as SystemCC on macOS.
+        if matches!(cc.cc_kind, CCKind::Clang)
+            || (cfg!(target_os = "macos") && matches!(cc.cc_kind, CCKind::SystemCC))
+        {
+            buf.push("-Wno-unused-value".to_string());
+        }
     }
 }
 
