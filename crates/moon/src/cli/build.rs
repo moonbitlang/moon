@@ -87,7 +87,6 @@ pub struct BuildSubcommand {
 
 #[instrument(skip_all)]
 pub fn run_build(cli: &UniversalFlags, mut cmd: BuildSubcommand) -> anyhow::Result<i32> {
-    cmd.build_flags.apply_default_debug();
     let PackageDirs {
         source_dir,
         target_dir,

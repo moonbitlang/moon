@@ -76,7 +76,8 @@ use moonutil::{
     cli::UniversalFlags,
     common::{
         BuildPackageFlags, DiagnosticLevel, LinkCoreFlags, MOON_MOD_JSON, MOONBITLANG_CORE,
-        MooncOpt, OutputFormat, RunMode, SurfaceTarget, TargetBackend, read_module_desc_file_in_dir,
+        MooncOpt, OutputFormat, RunMode, SurfaceTarget, TargetBackend,
+        read_module_desc_file_in_dir,
     },
     cond_expr::OptLevel as BuildProfile,
     mooncakes::{LoginSubcommand, PackageSubcommand, PublishSubcommand, RegisterSubcommand},
@@ -263,11 +264,6 @@ impl Default for BuildFlags {
 }
 
 impl BuildFlags {
-    pub fn with_target_backend(mut self, backend: Option<TargetBackend>) -> Self {
-        self.target_backend = backend;
-        self
-    }
-
     // FIXME: This is not the correct way to determine target list.
     // Legacy code, for whatever strange reason, decided that `target_backend`
     // must be manually populated from `target` list before proceeding, but

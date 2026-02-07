@@ -165,7 +165,10 @@ pub fn run_info_rr_internal(
     let mut preconfig = rr_build::preconfig_compile(
         &cmd.auto_sync_flags,
         cli,
-        &BuildFlags::default().with_target_backend(target),
+        &BuildFlags {
+            target_backend: target,
+            ..BuildFlags::default()
+        },
         &target_dir,
         RunMode::Check,
     );
