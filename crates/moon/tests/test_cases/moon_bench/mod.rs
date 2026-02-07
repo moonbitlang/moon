@@ -17,7 +17,6 @@ fn test_bench_driver_build_js() {
 
 #[test]
 #[cfg(not(windows))]
-#[ignore = "need to fix moonc to not generate C code with warnings"]
 fn test_bench_driver_build_native() {
     let dir = TestDir::new("moon_bench");
     check(

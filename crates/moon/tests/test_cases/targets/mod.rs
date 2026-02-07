@@ -126,6 +126,8 @@ fn test_many_targets() {
 
     // Normalize dylib outputs to linux style
     let replacement_fn = |s: &mut String| {
+        // Normalize clang-only warnings to keep snapshots portable across macOS/Linux.
+        *s = s.replace(" -Wno-unused-value", "");
         *s = s.replace(".dylib", ".so");
     };
 

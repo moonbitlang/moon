@@ -703,7 +703,9 @@ fn test_moon_run_single_file_dry_run() {
     let output = get_stdout(
         &dir,
         ["run", "a/b/single.mbt", "--target", "native", "--dry-run"],
-    );
+    )
+    // Normalize clang-only warnings to keep snapshots portable across macOS/Linux.
+    .replace(" -Wno-unused-value", "");
     check(
         &output,
         expect![[r#"
@@ -725,7 +727,9 @@ fn test_moon_run_single_file_dry_run() {
             "--dry-run",
             "--release",
         ],
-    );
+    )
+    // Normalize clang-only warnings to keep snapshots portable across macOS/Linux.
+    .replace(" -Wno-unused-value", "");
     check(
         &output,
         expect![[r#"

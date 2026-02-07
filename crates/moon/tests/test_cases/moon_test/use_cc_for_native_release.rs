@@ -11,6 +11,8 @@ fn assert_dry_run_graph(
     let graph = dir.join(tmp_name);
     snap_dry_run_graph(dir, args.iter().copied(), &graph);
     compare_graphs_with_replacements(&graph, expected, |s| {
+        // Normalize clang-only warnings to keep snapshots portable across macOS/Linux.
+        *s = s.replace(" -Wno-unused-value", "");
         *s = s.replace(".dylib", ".so");
     });
 }
