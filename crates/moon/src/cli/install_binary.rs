@@ -27,7 +27,6 @@ use mooncake::registry::{OnlineRegistry, Registry};
 use moonutil::{
     cli::UniversalFlags,
     common::{FileLock, RunMode, TargetBackend},
-    cond_expr::OptLevel,
     mooncakes::{ModuleName, RegistryConfig},
 };
 use semver::Version;
@@ -466,15 +465,16 @@ fn build_and_install_packages(
         }
 
         let build_flags = BuildFlags {
+            release: true,
             warn_list: Some("-a".to_string()),
-            ..BuildFlags::default().with_target_backend(Some(TargetBackend::Native))
+            target_backend: Some(TargetBackend::Native),
+            ..BuildFlags::default()
         };
         let preconfig = preconfig_compile(
             &moonutil::mooncakes::sync::AutoSyncFlags { frozen: false },
             cli,
             &build_flags,
             &target_dir,
-            OptLevel::Release,
             RunMode::Build,
         );
 

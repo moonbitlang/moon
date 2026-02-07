@@ -26,7 +26,6 @@ use moonutil::{
         FileLock, MoonbuildOpt, PrePostBuild, RunMode, SurfaceTarget, TargetBackend,
         lower_surface_targets,
     },
-    cond_expr::OptLevel,
     dirs::{PackageDirs, mk_arch_mode_dir},
     mooncakes::{RegistryConfig, sync::AutoSyncFlags},
 };
@@ -117,7 +116,6 @@ pub fn run_bundle_internal_rr(
         cli,
         &cmd.build_flags,
         target_dir,
-        OptLevel::Release,
         RunMode::Bundle,
     );
 

@@ -38,7 +38,6 @@ use moonutil::common::{
     lower_surface_targets, parse_front_matter_config,
 };
 use moonutil::cond_expr::CompileCondition;
-use moonutil::cond_expr::OptLevel;
 use moonutil::dirs::{create_legacy_symlink, mk_arch_mode_dir};
 use moonutil::module::ModuleDB;
 use moonutil::mooncakes::RegistryConfig;
@@ -483,7 +482,6 @@ fn run_test_in_single_file_rr(cli: &UniversalFlags, cmd: &TestSubcommand) -> any
         cli,
         &cmd.build_flags.clone().with_default_target_backend(backend),
         &raw_target_dir,
-        OptLevel::Debug,
         RunMode::Test,
     );
     // Enable tcc-run to match legacy debug test graph shape
@@ -809,11 +807,6 @@ fn run_test_rr(
 ) -> Result<i32, anyhow::Error> {
     info!(run_mode = ?cmd.run_mode, update = cmd.update, build_only = cmd.build_only, "starting rupes-recta test run");
     let is_bench = cmd.run_mode == RunMode::Bench;
-    let default_opt_level = if is_bench {
-        OptLevel::Release
-    } else {
-        OptLevel::Debug
-    };
 
     // MAINTAINERS: This is to match the legacy behavior of `moon test` always
     // emitting debug info regardless of `--release` flag. This may result in
@@ -830,7 +823,6 @@ fn run_test_rr(
         cli,
         &build_flags,
         target_dir,
-        default_opt_level,
         if cmd.run_mode == RunMode::Bench {
             RunMode::Bench
         } else {

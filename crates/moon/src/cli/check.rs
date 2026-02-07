@@ -209,7 +209,6 @@ fn run_check_for_single_file_rr(
         cli,
         &cmd.build_flags.clone().with_default_target_backend(backend),
         &raw_target_dir,
-        moonutil::cond_expr::OptLevel::Release,
         RunMode::Check,
     );
 
@@ -427,7 +426,6 @@ fn run_check_normal_internal_rr(
         cli,
         &cmd.build_flags,
         target_dir,
-        moonutil::cond_expr::OptLevel::Release,
         RunMode::Check,
     );
 

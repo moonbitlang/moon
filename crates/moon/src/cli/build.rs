@@ -31,7 +31,6 @@ use moonutil::common::PrePostBuild;
 use moonutil::common::RunMode;
 use moonutil::common::TargetBackend;
 use moonutil::common::lower_surface_targets;
-use moonutil::cond_expr::OptLevel;
 use moonutil::dirs::PackageDirs;
 use moonutil::dirs::mk_arch_mode_dir;
 use moonutil::mooncakes::RegistryConfig;
@@ -87,8 +86,7 @@ pub struct BuildSubcommand {
 }
 
 #[instrument(skip_all)]
-pub fn run_build(cli: &UniversalFlags, mut cmd: BuildSubcommand) -> anyhow::Result<i32> {
-    cmd.build_flags.apply_default_debug();
+pub fn run_build(cli: &UniversalFlags, cmd: BuildSubcommand) -> anyhow::Result<i32> {
     let PackageDirs {
         source_dir,
         target_dir,
@@ -149,7 +147,6 @@ fn run_build_rr(
         cli,
         &cmd.build_flags,
         target_dir,
-        OptLevel::Release,
         RunMode::Build,
     );
     let (build_meta, build_graph) = rr_build::plan_build(

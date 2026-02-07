@@ -38,7 +38,6 @@ use moonbuild_rupes_recta::{
 use moonutil::{
     cli::UniversalFlags,
     common::{FileLock, RunMode, TargetBackend},
-    cond_expr::OptLevel,
     dirs::PackageDirs,
     mooncakes::sync::AutoSyncFlags,
 };
@@ -128,9 +127,12 @@ pub fn run_build_binary_dep(cli: &UniversalFlags, cmd: &BuildBinaryDepArgs) -> a
         let preconfig = preconfig_compile(
             &AutoSyncFlags { frozen: false },
             cli,
-            &BuildFlags::default().with_target_backend(Some(target)),
+            &BuildFlags {
+                release: true,
+                target_backend: Some(target),
+                ..BuildFlags::default()
+            },
             &target_dir,
-            OptLevel::Release,
             RunMode::Build,
         );
         let (build_meta, build_graph) = plan_build_from_resolved(
