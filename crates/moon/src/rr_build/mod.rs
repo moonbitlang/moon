@@ -55,7 +55,7 @@ use moonutil::{
         WHITEBOX_TEST_PATCH,
     },
     compiler_flags::CC,
-    cond_expr::OptLevel,
+    cond_expr::OptLevel as BuildProfile,
     features::FeatureGate,
     mooncakes::sync::AutoSyncFlags,
     render::MooncDiagnostic,
@@ -158,7 +158,7 @@ pub struct BuildMeta {
     pub target_backend: RunBackend,
 
     /// The main optimization level used in this compile process
-    pub opt_level: OptLevel,
+    pub opt_level: BuildProfile,
 }
 
 /// Represents the result of the build process
@@ -202,7 +202,7 @@ impl BuildResult {
 pub struct CompilePreConfig {
     frozen: bool,
     target_backend: Option<TargetBackend>,
-    opt_level: OptLevel,
+    opt_level: BuildProfile,
     action: RunMode,
     debug_symbols: bool,
     use_std: bool,
@@ -257,7 +257,7 @@ impl CompilePreConfig {
             TargetBackend::WasmGC => RunBackend::WasmGC,
             TargetBackend::Js => RunBackend::Js,
             TargetBackend::Native => {
-                if self.try_tcc_run && tcc_available && self.opt_level == OptLevel::Debug {
+                if self.try_tcc_run && tcc_available && self.opt_level == BuildProfile::Debug {
                     RunBackend::NativeTccRun
                 } else {
                     RunBackend::Native
@@ -299,29 +299,17 @@ impl CompilePreConfig {
 /// - `cli`: The universal CLI flags.
 /// - `build_flags`: The build-specific flags.
 /// - `target_dir`: The target directory for the build.
-/// - `default_opt_level`: The default optimization level to use if not specified.
-/// - `default_cc`: The default C/C++ toolchain to use, when not overridden by optimization level.
-///   This field is used to force using TCC by default for some release builds. When `None`,
-///   TCC will be used in debug builds, and system default toolchain will be used otherwise.
-/// - `action`: The run mode (build, test, bench, etc.), only affects target directory layout.
-///   This is different from the legacy code where action also affects the actual compilation
-///   behavior.
+/// - `action`: The run mode (build, test, bench, etc.). This also affects the
+///   default build profile (bench/check/bundle default to release; others default to debug).
 #[instrument(level = Level::DEBUG, skip_all)]
 pub fn preconfig_compile(
     auto_sync_flags: &AutoSyncFlags,
     cli: &UniversalFlags,
     build_flags: &BuildFlags,
     target_dir: &Path,
-    default_opt_level: OptLevel,
     action: RunMode,
 ) -> CompilePreConfig {
-    let opt_level = if build_flags.debug {
-        OptLevel::Debug
-    } else if build_flags.release {
-        OptLevel::Release
-    } else {
-        default_opt_level
-    };
+    let opt_level = build_flags.effective_profile(action);
 
     CompilePreConfig {
         frozen: auto_sync_flags.frozen,
@@ -329,7 +317,7 @@ pub fn preconfig_compile(
         target_backend: build_flags.target_backend,
         opt_level,
         action,
-        debug_symbols: !build_flags.strip(),
+        debug_symbols: build_flags.debug_symbols_for(action),
         use_std: build_flags.std(),
         enable_coverage: build_flags.enable_coverage,
         output_wat: build_flags.output_wat,
@@ -518,7 +506,7 @@ pub fn plan_fmt(
     let db_path = n2_db_path(
         target_dir,
         TargetBackend::default(),
-        OptLevel::Debug,
+        BuildProfile::Debug,
         RunMode::Format,
     );
     let input = BuildInput { graph, db_path };

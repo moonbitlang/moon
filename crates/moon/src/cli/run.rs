@@ -35,8 +35,6 @@ use moonutil::common::TestArtifacts;
 use moonutil::common::is_moon_pkg_exist;
 use moonutil::common::lower_surface_targets;
 use moonutil::common::{MoonbuildOpt, OutputFormat};
-use moonutil::cond_expr::OptLevel;
-use moonutil::cond_expr::OptLevel::Release;
 use moonutil::dirs::PackageDirs;
 use moonutil::dirs::create_legacy_symlink;
 use moonutil::dirs::mk_arch_mode_dir;
@@ -407,7 +405,6 @@ fn run_run_rr(cli: &UniversalFlags, cmd: RunSubcommand) -> Result<i32, anyhow::E
         cli,
         &cmd.build_flags,
         &target_dir,
-        Release,
         RunMode::Run,
     );
     preconfig.try_tcc_run = !cli.dry_run;
@@ -649,7 +646,6 @@ fn run_single_file_rr(cli: &UniversalFlags, mut cmd: RunSubcommand) -> anyhow::R
         cli,
         &cmd.build_flags.clone().with_default_target_backend(backend),
         &raw_target_dir,
-        OptLevel::Debug,
         RunMode::Run,
     );
     // Match legacy behavior: allow tcc-run for Native debug runs in RR single-file if not dry-run

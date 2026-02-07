@@ -76,8 +76,9 @@ use moonutil::{
     cli::UniversalFlags,
     common::{
         BuildPackageFlags, DiagnosticLevel, LinkCoreFlags, MOON_MOD_JSON, MOONBITLANG_CORE,
-        MooncOpt, OutputFormat, SurfaceTarget, TargetBackend, read_module_desc_file_in_dir,
+        MooncOpt, OutputFormat, RunMode, SurfaceTarget, TargetBackend, read_module_desc_file_in_dir,
     },
+    cond_expr::OptLevel as BuildProfile,
     mooncakes::{LoginSubcommand, PackageSubcommand, PublishSubcommand, RegisterSubcommand},
 };
 use std::path::Path;
@@ -343,6 +344,38 @@ impl BuildFlags {
         } else {
             !self.debug
         }
+    }
+
+    /// Resolve the effective build profile for Rupes Recta compilation.
+    pub fn effective_profile(&self, run_mode: RunMode) -> BuildProfile {
+        if self.debug {
+            BuildProfile::Debug
+        } else if self.release {
+            BuildProfile::Release
+        } else {
+            match run_mode {
+                RunMode::Bench | RunMode::Check | RunMode::Bundle => BuildProfile::Release,
+                RunMode::Build | RunMode::Run | RunMode::Test | RunMode::Format => {
+                    BuildProfile::Debug
+                }
+            }
+        }
+    }
+
+    /// Resolve whether to strip debug info for Rupes Recta compilation.
+    pub fn strip_for(&self, run_mode: RunMode) -> bool {
+        if self.strip {
+            true
+        } else if self.no_strip {
+            false
+        } else {
+            self.effective_profile(run_mode) == BuildProfile::Release
+        }
+    }
+
+    /// Resolve whether to emit debug symbols for Rupes Recta compilation.
+    pub fn debug_symbols_for(&self, run_mode: RunMode) -> bool {
+        !self.strip_for(run_mode)
     }
 
     pub fn output_style(&self) -> OutputStyle {

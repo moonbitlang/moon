@@ -100,7 +100,6 @@ pub fn run_doc_rr(cli: UniversalFlags, cmd: DocSubcommand) -> anyhow::Result<i32
         &cli,
         &BuildFlags::default(),
         &target_dir,
-        moonutil::cond_expr::OptLevel::Release,
         RunMode::Check,
     );
     preconfig.docs_serve = cmd.serve;

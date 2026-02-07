@@ -31,7 +31,6 @@ use moonutil::common::PrePostBuild;
 use moonutil::common::RunMode;
 use moonutil::common::TargetBackend;
 use moonutil::common::lower_surface_targets;
-use moonutil::cond_expr::OptLevel;
 use moonutil::dirs::PackageDirs;
 use moonutil::dirs::mk_arch_mode_dir;
 use moonutil::mooncakes::RegistryConfig;
@@ -149,7 +148,6 @@ fn run_build_rr(
         cli,
         &cmd.build_flags,
         target_dir,
-        OptLevel::Release,
         RunMode::Build,
     );
     let (build_meta, build_graph) = rr_build::plan_build(
