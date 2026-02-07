@@ -189,7 +189,9 @@ fn run_check_for_single_file_rr(
 
     let mut cmd = cmd.clone();
 
-    cmd.build_flags.populate_target_backend_from_list()?;
+    if let Some(target_backend) = cmd.build_flags.resolve_single_target_backend()? {
+        cmd.build_flags.target_backend = Some(target_backend);
+    }
 
     // Manually synthesize and resolve single file project
     let resolve_cfg = moonbuild_rupes_recta::ResolveConfig::new(

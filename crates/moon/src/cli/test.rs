@@ -457,7 +457,9 @@ fn run_test_in_single_file_rr(cli: &UniversalFlags, cmd: &TestSubcommand) -> any
     create_legacy_symlink(&source_dir);
     let mut cmd = cmd.clone();
 
-    cmd.build_flags.populate_target_backend_from_list()?;
+    if let Some(target_backend) = cmd.build_flags.resolve_single_target_backend()? {
+        cmd.build_flags.target_backend = Some(target_backend);
+    }
 
     let mut filter = TestFilter {
         name_filter: cmd.filter.clone(),

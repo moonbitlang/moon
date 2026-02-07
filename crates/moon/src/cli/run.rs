@@ -29,7 +29,6 @@ use moonutil::common::FileLock;
 use moonutil::common::MOONBITLANG_CORE;
 use moonutil::common::PrePostBuild;
 use moonutil::common::RunMode;
-use moonutil::common::SurfaceTarget;
 use moonutil::common::TargetBackend;
 use moonutil::common::TestArtifacts;
 use moonutil::common::is_moon_pkg_exist;
@@ -110,23 +109,10 @@ pub fn run_run(cli: &UniversalFlags, cmd: RunSubcommand) -> anyhow::Result<i32> 
         Err(e) => return Err(e.into()),
     }
 
-    if let Some(surface_targets) = &cmd.build_flags.target {
-        for st in surface_targets.iter() {
-            if *st == SurfaceTarget::All {
-                anyhow::bail!("`--target all` is not supported for `run`");
-            }
-        }
-
-        if surface_targets.len() > 1 {
-            anyhow::bail!("`--target` only supports one target for `run`")
-        }
-
-        let targets = lower_surface_targets(surface_targets);
-        for t in targets {
-            let mut cmd = cmd.clone();
-            cmd.build_flags.target_backend = Some(t);
-            run_run_internal(cli, cmd)?;
-        }
+    if let Some(target_backend) = cmd.build_flags.resolve_single_target_backend()? {
+        let mut cmd = cmd.clone();
+        cmd.build_flags.target_backend = Some(target_backend);
+        run_run_internal(cli, cmd)?;
         Ok(0)
     } else {
         run_run_internal(cli, cmd)
@@ -625,7 +611,9 @@ fn run_single_file_rr(cli: &UniversalFlags, mut cmd: RunSubcommand) -> anyhow::R
 
     let value_tracing = cmd.build_flags.enable_value_tracing;
 
-    cmd.build_flags.populate_target_backend_from_list()?;
+    if let Some(target_backend) = cmd.build_flags.resolve_single_target_backend()? {
+        cmd.build_flags.target_backend = Some(target_backend);
+    }
 
     // Resolve single-file project (synthesized package around the file)
     let resolve_cfg = moonbuild_rupes_recta::ResolveConfig::new(

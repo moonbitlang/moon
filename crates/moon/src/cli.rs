@@ -264,32 +264,28 @@ impl Default for BuildFlags {
 }
 
 impl BuildFlags {
-    // FIXME: This is not the correct way to determine target list.
-    // Legacy code, for whatever strange reason, decided that `target_backend`
-    // must be manually populated from `target` list before proceeding, but
-    // still puts the value within this type rather than directly passing it
-    // elsewhere. We must refactor this later.
-    pub fn populate_target_backend_from_list(&mut self) -> anyhow::Result<()> {
-        if let Some(targets) = &self.target {
-            let backends = moonutil::common::lower_surface_targets(targets);
-            if backends.len() == 1 {
-                self.target_backend = Some(backends[0]);
-            } else {
-                bail!(
-                    "Multiple target backends specified: {:?}. Please specify only one target backend.",
-                    backends
-                );
-            }
-        }
-        Ok(())
-    }
-
     /// Set the target backend if not already set
     pub fn with_default_target_backend(mut self, backend: Option<TargetBackend>) -> Self {
         if self.target_backend.is_none() {
             self.target_backend = backend;
         }
         self
+    }
+
+    pub fn resolve_single_target_backend(&self) -> anyhow::Result<Option<TargetBackend>> {
+        let Some(targets) = &self.target else {
+            return Ok(None);
+        };
+
+        if targets.len() > 1 {
+            bail!("`--target` only supports one target backend");
+        }
+        let backends = moonutil::common::lower_surface_targets(targets);
+        if backends.len() == 1 {
+            Ok(Some(backends[0]))
+        } else {
+            bail!("`--target` only supports one target backend");
+        }
     }
 }
 
