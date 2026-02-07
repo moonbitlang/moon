@@ -176,7 +176,7 @@ pub struct BuildFlags {
 
     /// Select output target
     #[clap(long, value_delimiter = ',')]
-    pub target: Option<Vec<SurfaceTarget>>,
+    pub target: Vec<SurfaceTarget>,
 
     #[clap(skip)]
     pub target_backend: Option<TargetBackend>,
@@ -245,7 +245,7 @@ impl Default for BuildFlags {
             release: false,
             strip: false,
             no_strip: false,
-            target: None,
+            target: Vec::new(),
             target_backend: None,
             serial: false,
             enable_coverage: false,
@@ -273,9 +273,10 @@ impl BuildFlags {
     }
 
     pub fn resolve_single_target_backend(&self) -> anyhow::Result<Option<TargetBackend>> {
-        let Some(targets) = &self.target else {
+        if self.target.is_empty() {
             return Ok(None);
-        };
+        }
+        let targets = &self.target;
 
         if targets.len() > 1 {
             bail!("`--target` only supports one target backend");

@@ -247,10 +247,11 @@ fn run_test_impl(cli: &UniversalFlags, cmd: &TestSubcommand) -> anyhow::Result<i
         );
     }
 
-    let Some(surface_targets) = &cmd.build_flags.target else {
+    if cmd.build_flags.target.is_empty() {
         debug!("no explicit backend target provided; using defaults");
         return run_test_internal(cli, cmd, &dirs.source_dir, &dirs.target_dir, None);
-    };
+    }
+    let surface_targets = &cmd.build_flags.target;
     let targets = lower_surface_targets(surface_targets);
     if cmd.update && targets.len() > 1 {
         return Err(anyhow::anyhow!("cannot update test on multiple targets"));

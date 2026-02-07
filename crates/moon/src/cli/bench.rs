@@ -65,10 +65,10 @@ pub fn run_bench(cli: UniversalFlags, cmd: BenchSubcommand) -> anyhow::Result<i3
         target_dir,
     } = cli.source_tgt_dir.try_into_package_dirs()?;
 
-    if cmd.build_flags.target.is_none() {
+    if cmd.build_flags.target.is_empty() {
         return run_bench_internal(&cli, &cmd, &source_dir, &target_dir, None);
     }
-    let surface_targets = cmd.build_flags.target.clone().unwrap();
+    let surface_targets = cmd.build_flags.target.clone();
     let targets = lower_surface_targets(&surface_targets);
     let display_backend_hint = if targets.len() > 1 { Some(()) } else { None };
 

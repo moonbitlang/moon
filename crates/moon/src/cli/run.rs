@@ -131,7 +131,7 @@ fn run_single_mbt_file(cli: &UniversalFlags, cmd: RunSubcommand) -> anyhow::Resu
 
     let file_name = mbt_file_path.file_stem().unwrap().to_str().unwrap();
 
-    let target_backend = lower_surface_targets(&cmd.build_flags.target.unwrap_or_default())
+    let target_backend = lower_surface_targets(&cmd.build_flags.target)
         .first()
         .map_or(TargetBackend::default(), |it| *it);
     let core_bundle_path = moonutil::moon_dir::core_bundle(target_backend);

@@ -128,11 +128,11 @@ pub fn run_check(cli: &UniversalFlags, cmd: &CheckSubcommand) -> anyhow::Result<
         }
     };
 
-    if cmd.build_flags.target.is_none() {
+    if cmd.build_flags.target.is_empty() {
         return run_check_internal(cli, cmd, &source_dir, &target_dir, single_file);
     }
 
-    let surface_targets = cmd.build_flags.target.clone().unwrap();
+    let surface_targets = cmd.build_flags.target.clone();
     let targets = lower_surface_targets(&surface_targets);
 
     let mut ret_value = 0;
