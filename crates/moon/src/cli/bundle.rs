@@ -58,24 +58,19 @@ pub fn run_bundle(cli: UniversalFlags, cmd: BundleSubcommand) -> anyhow::Result<
         target_dir,
     } = cli.source_tgt_dir.try_into_package_dirs()?;
 
-    let target = if cmd.all {
-        Some(vec![SurfaceTarget::All])
-    } else {
-        cmd.build_flags.target.clone()
-    };
-
-    if target.is_none() {
-        return run_bundle_internal(&cli, &cmd, &source_dir, &target_dir);
-    }
-
-    let mut surface_targets = target.clone().unwrap();
+    let mut surface_targets = cmd.build_flags.target.clone();
     if cmd.all {
         surface_targets.push(SurfaceTarget::All);
     }
+
+    if surface_targets.is_empty() {
+        return run_bundle_internal(&cli, &cmd, &source_dir, &target_dir);
+    }
+
     let mut targets = lower_surface_targets(&surface_targets);
     // this is a workaround for supporting bundle core for native & llvm backend when --target all
     // should move to `lower_surface_targets` when native backend being stable
-    if cmd.all || cmd.build_flags.target == Some(vec![SurfaceTarget::All]) {
+    if cmd.all || cmd.build_flags.target == vec![SurfaceTarget::All] {
         targets.push(TargetBackend::Native);
     }
 

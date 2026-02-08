@@ -247,10 +247,11 @@ fn run_test_impl(cli: &UniversalFlags, cmd: &TestSubcommand) -> anyhow::Result<i
         );
     }
 
-    let Some(surface_targets) = &cmd.build_flags.target else {
+    if cmd.build_flags.target.is_empty() {
         debug!("no explicit backend target provided; using defaults");
         return run_test_internal(cli, cmd, &dirs.source_dir, &dirs.target_dir, None);
-    };
+    }
+    let surface_targets = &cmd.build_flags.target;
     let targets = lower_surface_targets(surface_targets);
     if cmd.update && targets.len() > 1 {
         return Err(anyhow::anyhow!("cannot update test on multiple targets"));
@@ -457,7 +458,9 @@ fn run_test_in_single_file_rr(cli: &UniversalFlags, cmd: &TestSubcommand) -> any
     create_legacy_symlink(&source_dir);
     let mut cmd = cmd.clone();
 
-    cmd.build_flags.populate_target_backend_from_list()?;
+    if let Some(target_backend) = cmd.build_flags.resolve_single_target_backend()? {
+        cmd.build_flags.target_backend = Some(target_backend);
+    }
 
     let mut filter = TestFilter {
         name_filter: cmd.filter.clone(),
