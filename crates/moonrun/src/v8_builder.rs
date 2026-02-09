@@ -20,11 +20,16 @@ use v8::{FunctionCallback, FunctionCallbackArguments, HandleScope, Local, Object
 
 pub trait ScopeExt<'s> {
     fn string(&mut self, value: &str) -> Local<'s, v8::String>;
+    fn boolean(&mut self, value: bool) -> Local<'s, v8::Boolean>;
 }
 
 impl<'s> ScopeExt<'s> for HandleScope<'s> {
     fn string(&mut self, value: &str) -> Local<'s, v8::String> {
         v8::String::new(self, value).unwrap()
+    }
+
+    fn boolean(&mut self, value: bool) -> Local<'s, v8::Boolean> {
+        v8::Boolean::new(self, value)
     }
 }
 

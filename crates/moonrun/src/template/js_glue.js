@@ -8,7 +8,7 @@ const __moonbit_fs_unstable =
 const __moonbit_run_env = globalThis.__moonbit_run_env || {
     env_vars: new Map(),
     args: [],
-    stderr_is_tty: false,
+    backtrace_color_enabled: false,
 };
 
 // JS helper API attached to __moonbit_fs_unstable.
@@ -557,21 +557,7 @@ function demangleMangledFunctionName(funcName) {
     return text;
 }
 
-function shouldUseColor() {
-    const explicit = __moonbit_fs_unstable.env_get_var("MOONBIT_BACKTRACE_COLOR");
-    if (explicit === "0" || explicit === "false" || explicit === "never") {
-        return false;
-    }
-    if (explicit === "1" || explicit === "true" || explicit === "always") {
-        return true;
-    }
-    if (__moonbit_fs_unstable.env_get_var("NO_COLOR") !== "") {
-        return false;
-    }
-    return !!__moonbit_run_env.stderr_is_tty;
-}
-
-const STACKTRACE_COLOR_ENABLED = shouldUseColor();
+const STACKTRACE_COLOR_ENABLED = !!__moonbit_run_env.backtrace_color_enabled;
 
 const ANSI_RESET = "\x1b[0m";
 const ANSI_RED_BOLD = "\x1b[1;31m";

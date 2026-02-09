@@ -19,6 +19,24 @@
 use crate::v8_builder::{ArgsExt, ObjectExt, ScopeExt};
 use std::io::IsTerminal;
 
+fn should_use_backtrace_color() -> bool {
+    if let Ok(explicit) = std::env::var("MOONBIT_BACKTRACE_COLOR") {
+        match explicit.as_str() {
+            "0" | "false" | "never" => return false,
+            "1" | "true" | "always" => return true,
+            _ => {}
+        }
+    }
+
+    if let Ok(no_color) = std::env::var("NO_COLOR") {
+        if !no_color.is_empty() {
+            return false;
+        }
+    }
+
+    std::io::stderr().is_terminal()
+}
+
 fn construct_args_list<'s>(
     wasm_file_name: &str,
     args: &[String],
@@ -120,9 +138,9 @@ pub fn init_env<'s>(
     env_obj.set(scope, env_vars_key, env_vars.into());
     let args_key = scope.string("args").into();
     env_obj.set(scope, args_key, args_list.into());
-    let stderr_is_tty_key = scope.string("stderr_is_tty").into();
-    let stderr_is_tty = v8::Boolean::new(scope, std::io::stderr().is_terminal()).into();
-    env_obj.set(scope, stderr_is_tty_key, stderr_is_tty);
+    let backtrace_color_enabled_key = scope.string("backtrace_color_enabled").into();
+    let backtrace_color_enabled = scope.boolean(should_use_backtrace_color()).into();
+    env_obj.set(scope, backtrace_color_enabled_key, backtrace_color_enabled);
 
     // Expose the run env for the unified JS glue in `template/js_glue.js`.
     let global_proxy = scope.get_current_context().global(scope);
