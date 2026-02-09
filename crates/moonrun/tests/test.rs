@@ -76,6 +76,30 @@ fn check(actual: &str, expect: Expect) {
     expect.assert_eq(actual)
 }
 
+fn strip_ansi(text: &str) -> String {
+    let mut out = String::with_capacity(text.len());
+    let bytes = text.as_bytes();
+    let mut i = 0;
+
+    while i < bytes.len() {
+        if bytes[i] == 0x1b && i + 1 < bytes.len() && bytes[i + 1] == b'[' {
+            i += 2;
+            while i < bytes.len() {
+                let b = bytes[i];
+                if b.is_ascii_alphabetic() {
+                    i += 1;
+                    break;
+                }
+                i += 1;
+            }
+            continue;
+        }
+        out.push(bytes[i] as char);
+        i += 1;
+    }
+    out
+}
+
 #[test]
 fn test_moonrun_version() {
     let out = snapbox::cmd::Command::new(snapbox::cmd::cargo_bin("moonrun"))
@@ -165,6 +189,7 @@ fn test_moonrun_wasm_stack_trace() {
     //          at wasm://wasm/d858b7fa:wasm-function[17]:0x72b
     //          at wasm://wasm/d858b7fa:wasm-function[24]:0x7a3
     let s = std::str::from_utf8(&out).unwrap().to_string();
+    let s = strip_ansi(&s);
     // need normalization because the source loc (absolute path now) string in
     // encoded in data section and makes the hash of the .wasm file flaky
     // because the absolute path contains temp dir path
@@ -173,9 +198,9 @@ fn test_moonrun_wasm_stack_trace() {
         &normalized_s,
         expect![[r#"
             RuntimeError: unreachable
-                at _M0FP311moonbitlang4core5abort5abortGuE (wasm://wasm:wasm-function[35])
-                at _M0FP311moonbitlang4core7builtin5abortGuE (wasm://wasm:wasm-function[33])
-                at _M0FP017____moonbit__main (wasm://wasm:wasm-function[40])
+                at @moonbitlang/core/abort.abort[Unit] (wasm://wasm:wasm-function[35])
+                at @moonbitlang/core/builtin.abort[Unit] (wasm://wasm:wasm-function[33])
+                at @__moonbit_main (wasm://wasm:wasm-function[40])
         "#]],
     );
 
@@ -188,6 +213,7 @@ fn test_moonrun_wasm_stack_trace() {
         .stderr
         .to_owned();
     let s = std::str::from_utf8(&out).unwrap().to_string();
+    let s = strip_ansi(&s);
     check(
         &s,
         expect![[r#"
