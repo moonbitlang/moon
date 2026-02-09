@@ -17,20 +17,12 @@
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
 use anyhow::bail;
-use moonbuild::dry_run::print_commands;
 use moonbuild_rupes_recta::intent::UserIntent;
-use mooncake::pkg::sync::auto_sync;
-use moonutil::common::{
-    CargoPathExt, DiagnosticLevel, FileLock, MOONBITLANG_CORE, MoonbuildOpt, MooncOpt,
-    PrePostBuild, RunMode, read_module_desc_file_in_dir,
-};
-use moonutil::dirs::{PackageDirs, mk_arch_mode_dir};
-use moonutil::mooncakes::RegistryConfig;
+use moonutil::common::{FileLock, RunMode};
 use moonutil::mooncakes::sync::AutoSyncFlags;
 use tracing::instrument;
 
 use super::UniversalFlags;
-use super::pre_build::scan_with_x_build;
 
 use crate::cli::BuildFlags;
 use crate::rr_build::{self, BuildConfig, preconfig_compile};
@@ -65,11 +57,7 @@ pub fn run_doc(cli: UniversalFlags, cmd: DocSubcommand) -> anyhow::Result<i32> {
     match cmd.symbol {
         None => {
             // generate the docs
-            if cli.unstable_feature.rupes_recta {
-                run_doc_rr(cli, cmd)
-            } else {
-                run_doc_legacy(cli, cmd)
-            }
+            run_doc_rr(cli, cmd)
         }
         Some(symbol) => {
             // deligate to `moondoc` for querying symbol
@@ -161,111 +149,5 @@ pub fn run_doc_rr(cli: UniversalFlags, cmd: DocSubcommand) -> anyhow::Result<i32
         moonbuild::doc_http::start_server(static_dir, &full_name, cmd.bind, cmd.port)?;
     }
 
-    Ok(0)
-}
-
-#[instrument(skip_all)]
-pub fn run_doc_legacy(cli: UniversalFlags, cmd: DocSubcommand) -> anyhow::Result<i32> {
-    let PackageDirs {
-        source_dir,
-        target_dir,
-    } = cli.source_tgt_dir.try_into_package_dirs()?;
-
-    let static_dir = target_dir.join("doc");
-    if !static_dir.exists() {
-        std::fs::create_dir_all(&static_dir)?;
-    }
-    let _lock = FileLock::lock(&static_dir)?;
-
-    if static_dir.exists() {
-        static_dir.rm_rf();
-    }
-    let serve = cmd.serve;
-    let bind = cmd.bind;
-    let port = cmd.port;
-
-    let mod_desc = read_module_desc_file_in_dir(&source_dir)?;
-
-    let mut moonc_opt = MooncOpt::default();
-    if mod_desc.name == MOONBITLANG_CORE {
-        moonc_opt.nostd = true;
-    }
-
-    let (resolved_env, dir_sync_result) = auto_sync(
-        &source_dir,
-        &cmd.auto_sync_flags,
-        &RegistryConfig::load(),
-        cli.quiet,
-        true, // Legacy don't need std injection
-    )?;
-
-    let run_mode = RunMode::Check;
-    let raw_target_dir = target_dir.to_path_buf();
-    let target_dir = mk_arch_mode_dir(&source_dir, &target_dir, &moonc_opt, run_mode)?;
-    let moonbuild_opt = MoonbuildOpt {
-        source_dir: source_dir.clone(),
-        raw_target_dir,
-        target_dir,
-        sort_input: true,
-        run_mode,
-        test_opt: None,
-        check_opt: None,
-        build_opt: None,
-        fmt_opt: None,
-        args: vec![],
-        verbose: cli.verbose,
-        quiet: cli.quiet,
-        no_render_output: false,
-        no_parallelize: false,
-        build_graph: false,
-        parallelism: None,
-        use_tcc_run: false,
-        dynamic_stub_libs: None,
-        render_no_loc: DiagnosticLevel::default(),
-    };
-
-    let module = scan_with_x_build(
-        false,
-        &moonc_opt,
-        &moonbuild_opt,
-        &resolved_env,
-        &dir_sync_result,
-        &PrePostBuild::PreBuild,
-    )?;
-
-    let mut args = vec![
-        source_dir.display().to_string(),
-        "-o".to_string(),
-        static_dir.display().to_string(),
-        "-std-path".to_string(),
-        moonutil::moon_dir::core_bundle(moonc_opt.link_opt.target_backend)
-            .display()
-            .to_string(),
-        "-packages-json".to_string(),
-        moonbuild_opt
-            .raw_target_dir
-            .join("packages.json")
-            .display()
-            .to_string(),
-    ];
-    if serve {
-        args.push("-serve-mode".to_string())
-    }
-    let moondoc = &*moonutil::BINARIES.moondoc;
-    if cli.dry_run {
-        print_commands(&module, &moonc_opt, &moonbuild_opt)?;
-        println!("{moondoc:?} {}", args.join(" "));
-        return Ok(0);
-    }
-    moonbuild::entry::run_check(&moonc_opt, &moonbuild_opt, &module)?;
-    let output = std::process::Command::new(moondoc).args(&args).output()?;
-    if output.status.code().unwrap() != 0 {
-        eprintln!("{}", String::from_utf8_lossy(&output.stderr));
-        bail!("failed to generate documentation");
-    }
-
-    if serve {
-        moonbuild::doc_http::start_server(static_dir, &mod_desc.name, bind, port)?;
-    }
     Ok(0)
 }

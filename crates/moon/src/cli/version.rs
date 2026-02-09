@@ -69,9 +69,8 @@ fn print_unstable_footer(flags: &UniversalFlags) {
     if flags.unstable_feature.rupes_recta {
         println!(
             "-> You're currently using the experimental build graph generator \"Rupes Recta\". \
-            If you encounter a problem, \
-            please verify whether it also reproduces with the legacy build (by setting NEW_MOON=0)."
-        )
+            Legacy build support has been removed, so NEW_MOON=0 is ignored."
+        );
     }
 }
 

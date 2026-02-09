@@ -33,7 +33,6 @@ pub mod info;
 pub mod install_binary;
 pub mod mooncake_adapter;
 pub mod new;
-mod pre_build;
 pub mod query;
 pub mod run;
 pub mod shell_completion;
@@ -74,15 +73,10 @@ pub use version::*;
 use anyhow::bail;
 use moonutil::{
     cli::UniversalFlags,
-    common::{
-        BuildPackageFlags, DiagnosticLevel, LinkCoreFlags, MOON_MOD_JSON, MOONBITLANG_CORE,
-        MooncOpt, OutputFormat, RunMode, SurfaceTarget, TargetBackend,
-        read_module_desc_file_in_dir,
-    },
+    common::{DiagnosticLevel, RunMode, SurfaceTarget, TargetBackend},
     cond_expr::OptLevel as BuildProfile,
     mooncakes::{LoginSubcommand, PackageSubcommand, PublishSubcommand, RegisterSubcommand},
 };
-use std::path::Path;
 
 #[derive(Debug, clap::Parser)]
 #[clap(
@@ -381,75 +375,6 @@ impl BuildFlags {
             ),
         }
     }
-}
-
-pub fn get_compiler_flags(src_dir: &Path, build_flags: &BuildFlags) -> anyhow::Result<MooncOpt> {
-    // read moon.mod.json
-    if !moonutil::common::check_moon_mod_exists(src_dir) {
-        bail!("could not find `{}`", MOON_MOD_JSON);
-    }
-    let moon_mod = read_module_desc_file_in_dir(src_dir)?;
-    let extra_build_opt = moon_mod.compile_flags.unwrap_or_default();
-    let extra_link_opt = moon_mod.link_flags.unwrap_or_default();
-
-    let output_format = if build_flags.output_wat {
-        OutputFormat::Wat
-    } else {
-        OutputFormat::Wasm
-    };
-
-    let target_backend = build_flags
-        .target_backend
-        .or(moon_mod.preferred_target) // if we have specified in module config
-        .unwrap_or_default();
-
-    if target_backend == TargetBackend::Js && output_format == OutputFormat::Wat {
-        bail!("--output-wat is not supported for --target js");
-    }
-
-    let output_format = match target_backend {
-        TargetBackend::Js => OutputFormat::Js,
-        TargetBackend::Native => OutputFormat::Native,
-        TargetBackend::LLVM => OutputFormat::LLVM,
-        _ => output_format,
-    };
-
-    let debug_flag = build_flags.debug;
-    let enable_coverage = build_flags.enable_coverage;
-    let source_map = !build_flags.strip() && target_backend.supports_source_map();
-
-    let build_opt = BuildPackageFlags {
-        debug_flag,
-        strip_flag: build_flags.strip(),
-        source_map,
-        enable_coverage,
-        deny_warn: false,
-        target_backend,
-        warn_list: build_flags.warn_list.clone(),
-        alert_list: build_flags.alert_list.clone(),
-        enable_value_tracing: build_flags.enable_value_tracing,
-    };
-
-    let link_opt = LinkCoreFlags {
-        debug_flag,
-        source_map,
-        output_format,
-        target_backend,
-    };
-
-    let nostd = !build_flags.std() || moon_mod.name == MOONBITLANG_CORE;
-    let json_diagnostics = build_flags.output_style().needs_moonc_json()
-        || std::env::var("MOON_NO_RENDER").unwrap_or_default() == "1";
-
-    Ok(MooncOpt {
-        build_opt,
-        link_opt,
-        extra_build_opt,
-        extra_link_opt,
-        nostd,
-        json_diagnostics,
-        single_file: false,
-    })
 }
 
 #[test]

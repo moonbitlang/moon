@@ -19,22 +19,13 @@
 use std::path::PathBuf;
 
 use anyhow::Context;
-use moonbuild::dry_run;
 use moonbuild_rupes_recta::fmt::FmtConfig;
-use mooncake::pkg::sync::auto_sync;
-use moonutil::{
-    common::{
-        BlockStyle, DiagnosticLevel, FileLock, FmtOpt, MoonbuildOpt, MooncOpt, PrePostBuild,
-        RunMode,
-    },
-    dirs::{PackageDirs, mk_arch_mode_dir},
-    mooncakes::{RegistryConfig, sync::AutoSyncFlags},
-};
+use moonutil::{common::BlockStyle, dirs::PackageDirs};
 
 use crate::filter::{canonicalize_with_filename, filter_pkg_by_dir_for_fmt};
 use crate::rr_build::{self, BuildConfig, plan_fmt};
 
-use super::{UniversalFlags, pre_build::scan_with_x_build};
+use super::UniversalFlags;
 
 /// Format source code
 #[derive(Debug, clap::Parser)]
@@ -65,11 +56,7 @@ pub(crate) struct FmtSubcommand {
 }
 
 pub fn run_fmt(cli: &UniversalFlags, cmd: FmtSubcommand) -> anyhow::Result<i32> {
-    if cli.unstable_feature.rupes_recta {
-        run_fmt_rr(cli, cmd)
-    } else {
-        run_fmt_legacy(cli, cmd)
-    }
+    run_fmt_rr(cli, cmd)
 }
 
 fn run_fmt_rr(cli: &UniversalFlags, cmd: FmtSubcommand) -> anyhow::Result<i32> {
@@ -107,67 +94,4 @@ fn run_fmt_rr(cli: &UniversalFlags, cmd: FmtSubcommand) -> anyhow::Result<i32> {
         res.print_info(cli.quiet, "formatting")?;
         Ok(res.return_code_for_success())
     }
-}
-
-fn run_fmt_legacy(cli: &UniversalFlags, cmd: FmtSubcommand) -> anyhow::Result<i32> {
-    let PackageDirs {
-        source_dir,
-        target_dir,
-    } = cli.source_tgt_dir.try_into_package_dirs()?;
-
-    let moonc_opt = MooncOpt::default();
-    let run_mode = RunMode::Format;
-    let raw_target_dir = target_dir.to_path_buf();
-    let target_dir = mk_arch_mode_dir(&source_dir, &target_dir, &moonc_opt, run_mode)?;
-    let _lock = FileLock::lock(&target_dir)?;
-
-    // Resolve dependencies, but don't download anything
-    let (resolved_env, dir_sync_result) = auto_sync(
-        &source_dir,
-        &AutoSyncFlags { frozen: true },
-        &RegistryConfig::load(),
-        cli.quiet,
-        true, // Legacy don't need std injection
-    )?;
-
-    let moonbuild_opt = MoonbuildOpt {
-        source_dir,
-        raw_target_dir,
-        target_dir: target_dir.clone(),
-        sort_input: cmd.sort_input,
-        run_mode,
-        fmt_opt: Some(FmtOpt {
-            check: cmd.check,
-            block_style: cmd.block_style.unwrap_or_default(),
-            extra_args: cmd.args,
-        }),
-        build_graph: cli.build_graph,
-        test_opt: None,
-        check_opt: None,
-        build_opt: None,
-        args: vec![],
-        verbose: cli.verbose,
-        quiet: cli.quiet,
-        no_render_output: false,
-        no_parallelize: false,
-        parallelism: None,
-        use_tcc_run: false,
-        dynamic_stub_libs: None,
-        render_no_loc: DiagnosticLevel::default(),
-    };
-
-    let module = scan_with_x_build(
-        false,
-        &moonc_opt,
-        &moonbuild_opt,
-        &resolved_env,
-        &dir_sync_result,
-        &PrePostBuild::PreBuild,
-    )?;
-
-    if cli.dry_run {
-        return dry_run::print_commands(&module, &moonc_opt, &moonbuild_opt);
-    }
-
-    moonbuild::entry::run_fmt(&module, &moonc_opt, &moonbuild_opt)
 }
