@@ -2,17 +2,10 @@
 // Sections: JS helper API, sys API wiring, WASM instantiation.
 
 const __moonbit_fs_unstable =
-    globalThis.__moonbit_fs_unstable ||
-    (globalThis.__moonbit_fs_unstable = {});
+    globalThis.__moonbit_fs_unstable;
 const __moonbit_backtrace_unstable =
-    globalThis.__moonbit_backtrace_unstable ||
-    (globalThis.__moonbit_backtrace_unstable = {});
-// Provided by Rust in `sys_api::init_env`; fallback keeps interactive tests safe.
-const __moonbit_run_env = globalThis.__moonbit_run_env || {
-    env_vars: new Map(),
-    args: [],
-    backtrace_color_enabled: false,
-};
+    globalThis.__moonbit_backtrace_unstable;
+const __moonbit_run_env = globalThis.__moonbit_run_env;
 
 // JS helper API attached to __moonbit_fs_unstable.
 (function init_js_api(obj) {
@@ -681,19 +674,7 @@ function formatSourcePathAuto(path) {
     if (typeof path !== "string" || path.length === 0) {
         return "";
     }
-
-    try {
-        if (
-            __moonbit_backtrace_unstable &&
-            typeof __moonbit_backtrace_unstable.format_source_path_auto === "function"
-        ) {
-            return __moonbit_backtrace_unstable.format_source_path_auto(path);
-        }
-    } catch (_) {
-        // Keep stack formatting robust even if helper lookup fails.
-    }
-
-    return path;
+    return __moonbit_backtrace_unstable.format_source_path_auto(path);
 }
 
 function readULEB128(buf, start) {

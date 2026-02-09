@@ -618,3 +618,157 @@ fn main() -> anyhow::Result<()> {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::v8_builder::ScopeExt;
+    use std::sync::Once;
+
+    const JS_RUNTIME_CONTRACT_CHECK: &str = r#"
+(() => {
+  const fs = globalThis.__moonbit_fs_unstable;
+  const backtrace = globalThis.__moonbit_backtrace_unstable;
+  const runEnv = globalThis.__moonbit_run_env;
+  if (!fs || typeof fs !== "object") {
+    throw new Error("missing __moonbit_fs_unstable");
+  }
+  if (!backtrace || typeof backtrace !== "object") {
+    throw new Error("missing __moonbit_backtrace_unstable");
+  }
+  if (typeof backtrace.format_source_path_auto !== "function") {
+    throw new Error("missing __moonbit_backtrace_unstable.format_source_path_auto");
+  }
+  if (!runEnv || typeof runEnv !== "object") {
+    throw new Error("missing __moonbit_run_env");
+  }
+  if (typeof runEnv.backtrace_color_enabled !== "boolean") {
+    throw new Error("invalid __moonbit_run_env.backtrace_color_enabled");
+  }
+})();
+"#;
+
+    static V8_INIT: Once = Once::new();
+
+    fn init_v8_once() {
+        V8_INIT.call_once(|| {
+            let platform = v8::new_default_platform(0, false).make_shared();
+            v8::V8::initialize_platform(platform);
+            v8::V8::initialize();
+        });
+    }
+
+    fn format_source_path_auto_passthrough(
+        _scope: &mut v8::HandleScope,
+        args: v8::FunctionCallbackArguments,
+        mut ret: v8::ReturnValue,
+    ) {
+        ret.set(args.get(0));
+    }
+
+    fn build_runtime_for_contract_test<'s>(scope: &mut v8::ContextScope<'s, v8::HandleScope<'s>>) {
+        let global = scope.get_current_context().global(scope);
+
+        let fs = v8::Object::new(scope);
+        global.set(
+            scope,
+            scope.string("__moonbit_fs_unstable").into(),
+            fs.into(),
+        );
+
+        let run_env = v8::Object::new(scope);
+        run_env.set(
+            scope,
+            scope.string("backtrace_color_enabled").into(),
+            v8::Boolean::new(scope, false).into(),
+        );
+        global.set(
+            scope,
+            scope.string("__moonbit_run_env").into(),
+            run_env.into(),
+        );
+    }
+
+    fn install_backtrace_api_for_contract_test<'s>(
+        scope: &mut v8::ContextScope<'s, v8::HandleScope<'s>>,
+    ) {
+        let global = scope.get_current_context().global(scope);
+        let backtrace = v8::Object::new(scope);
+        let func = v8::FunctionTemplate::new(scope, format_source_path_auto_passthrough)
+            .get_function(scope)
+            .unwrap();
+        backtrace.set(
+            scope,
+            scope.string("format_source_path_auto").into(),
+            func.into(),
+        );
+        global.set(
+            scope,
+            scope.string("__moonbit_backtrace_unstable").into(),
+            backtrace.into(),
+        );
+    }
+
+    fn eval_contract_check_with_backtrace_api() -> Result<(), String> {
+        init_v8_once();
+
+        let isolate = &mut v8::Isolate::new(Default::default());
+        let scope = &mut v8::HandleScope::new(isolate);
+        let context = v8::Context::new(scope, Default::default());
+        let scope = &mut v8::ContextScope::new(scope, context);
+        build_runtime_for_contract_test(scope);
+        install_backtrace_api_for_contract_test(scope);
+
+        let try_catch = &mut v8::TryCatch::new(scope);
+        let code = v8::String::new(try_catch, JS_RUNTIME_CONTRACT_CHECK).unwrap();
+        let Some(script) = v8::Script::compile(try_catch, code, None) else {
+            return Err("compile failed".to_string());
+        };
+        if script.run(try_catch).is_some() {
+            return Ok(());
+        }
+
+        let msg = try_catch
+            .exception()
+            .and_then(|e| e.to_string(try_catch))
+            .map(|s| s.to_rust_string_lossy(try_catch))
+            .unwrap_or_else(|| "runtime contract check failed".to_string());
+        Err(msg)
+    }
+
+    fn eval_contract_check_without_backtrace_api() -> Result<(), String> {
+        init_v8_once();
+
+        let isolate = &mut v8::Isolate::new(Default::default());
+        let scope = &mut v8::HandleScope::new(isolate);
+        let context = v8::Context::new(scope, Default::default());
+        let scope = &mut v8::ContextScope::new(scope, context);
+        build_runtime_for_contract_test(scope);
+
+        let try_catch = &mut v8::TryCatch::new(scope);
+        let code = v8::String::new(try_catch, JS_RUNTIME_CONTRACT_CHECK).unwrap();
+        let Some(script) = v8::Script::compile(try_catch, code, None) else {
+            return Err("compile failed".to_string());
+        };
+        if script.run(try_catch).is_some() {
+            return Ok(());
+        }
+
+        let msg = try_catch
+            .exception()
+            .and_then(|e| e.to_string(try_catch))
+            .map(|s| s.to_rust_string_lossy(try_catch))
+            .unwrap_or_else(|| "runtime contract check failed".to_string());
+        Err(msg)
+    }
+
+    #[test]
+    fn js_runtime_contract_check_accepts_expected_globals() {
+        assert!(eval_contract_check_with_backtrace_api().is_ok());
+    }
+
+    #[test]
+    fn js_runtime_contract_check_rejects_missing_backtrace_api() {
+        assert!(eval_contract_check_without_backtrace_api().is_err());
+    }
+}
