@@ -704,12 +704,7 @@ pub const DEP_PATH: &str = ".mooncakes";
 
 pub const BUILD_DIR: &str = "_build";
 
-pub const IGNORE_DIRS: &[&str] = &[
-    BUILD_DIR,
-    ".git",
-    "node_modules",
-    DEP_PATH,
-];
+pub const IGNORE_DIRS: &[&str] = &[BUILD_DIR, ".git", "node_modules", DEP_PATH];
 
 pub fn dialoguer_ctrlc_handler() {
     // Fix cursor disappears after ctrc+c

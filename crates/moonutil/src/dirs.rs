@@ -29,8 +29,8 @@ use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
 use crate::common::{
-    BUILD_DIR, IGNORE_DIRS, MOON_MOD_JSON, MooncOpt, RunMode, get_moon_version,
-    get_moonc_version, is_moon_pkg,
+    BUILD_DIR, IGNORE_DIRS, MOON_MOD_JSON, MooncOpt, RunMode, get_moon_version, get_moonc_version,
+    is_moon_pkg,
 };
 
 const MOON_DB: &str = "moon.db";
