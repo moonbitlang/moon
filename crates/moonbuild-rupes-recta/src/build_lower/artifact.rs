@@ -47,7 +47,7 @@ const IMPL_MI_EXTENSION: &str = ".impl.mi";
 /// Target folder layout that matches the legacy (pre-beta) behavior
 #[derive(Builder)]
 pub struct LegacyLayout {
-    /// The base target directory, usually `<project-root>/target`
+    /// The base target directory, usually `<project-root>/_build`
     target_base_dir: PathBuf,
     /// The name of the main module, so that packages from the main module will
     /// not be put into nested directories.
@@ -112,8 +112,8 @@ impl LegacyLayout {
     /// Returns the directory the given package resides in.
     ///
     /// For modules determined as the "main module", this path is
-    /// `target/<backend>[/<opt_level>/build]/<...package>/`. Otherwise, it's
-    /// `target/<backend>[/<opt_level>/build]/.mooncakes/<...module>/<...package>`.
+    /// `_build/<backend>[/<opt_level>/build]/<...package>/`. Otherwise, it's
+    /// `_build/<backend>[/<opt_level>/build]/.mooncakes/<...module>/<...package>`.
     pub fn package_dir(&self, pkg: &PackageFQN, backend: TargetBackend) -> PathBuf {
         let mut dir = self.target_base_dir.clone();
         self.push_opt_and_run_mode(backend, &mut dir);
@@ -388,7 +388,7 @@ impl LegacyLayout {
 
     /// Returns the path for a C stub object file.
     ///
-    /// Format: `target/{backend}/{opt_level}/build/{package_path}/{stub_name}.o`
+    /// Format: `_build/{backend}/{opt_level}/build/{package_path}/{stub_name}.o`
     pub fn c_stub_object_path(
         &self,
         pkg_list: &DiscoverResult,
@@ -407,7 +407,7 @@ impl LegacyLayout {
 
     /// Returns the path for a C stub static library archive.
     ///
-    /// Format: `target/{backend}/{opt_level}/build/{package_path}/lib{package_name}.a`
+    /// Format: `_build/{backend}/{opt_level}/build/{package_path}/lib{package_name}.a`
     pub fn c_stub_archive_path(
         &self,
         pkg_list: &DiscoverResult,
@@ -426,8 +426,8 @@ impl LegacyLayout {
     }
 
     /// Returns the path for a C stub dynamic library.
-    ///     
-    /// Format: `target/{backend}/{opt_level}/build/{package_path}/lib{package_name}.{dylib_ext}`
+    ///
+    /// Format: `_build/{backend}/{opt_level}/build/{package_path}/lib{package_name}.{dylib_ext}`
     pub fn c_stub_link_dylib_path(
         &self,
         pkg_list: &DiscoverResult,
@@ -447,7 +447,7 @@ impl LegacyLayout {
 
     /// Returns the directory for outputting documentation.
     ///
-    /// Format: `target/doc`
+    /// Format: `_build/doc`
     pub fn doc_dir(&self) -> PathBuf {
         let mut dir = self.target_base_dir.clone();
         dir.push("doc");

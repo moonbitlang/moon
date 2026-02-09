@@ -204,7 +204,7 @@ fn check_paths(
     relevant_events: &[&notify::Event],
 ) -> bool {
     // Check if any of the relevant events are in ignored dirs.
-    // Note: `target/` and `.mooncakes/` are always ignored by default.
+    // Note: `_build/` and `.mooncakes/` are always ignored by default.
     let mut ignore_builder = filter_files::FileFilterBuilder::new(repo_root);
 
     for evt in relevant_events {
