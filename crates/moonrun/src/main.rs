@@ -23,6 +23,7 @@ use std::path::Path;
 use std::{cell::Cell, io::Read, path::PathBuf, time::Instant};
 use v8::V8::set_flags_from_string;
 
+mod backtrace_api;
 mod fs_api_temp;
 mod sys_api;
 mod util;
@@ -379,6 +380,12 @@ fn init_env(
         let obj = global_proxy.child(scope, "__moonbit_fs_unstable");
         sys_api::init_env(obj, scope, wasm_file_name, args);
         fs_api_temp::init_fs(obj, scope);
+    }
+
+    // API for backtrace formatting helpers.
+    {
+        let obj = global_proxy.child(scope, "__moonbit_backtrace_unstable");
+        backtrace_api::init_backtrace(obj, scope);
     }
 
     {

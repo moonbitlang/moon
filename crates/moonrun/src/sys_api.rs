@@ -16,26 +16,8 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
+use crate::backtrace_api::should_use_backtrace_color;
 use crate::v8_builder::{ArgsExt, ObjectExt, ScopeExt};
-use std::io::IsTerminal;
-
-fn should_use_backtrace_color() -> bool {
-    if let Ok(explicit) = std::env::var("MOONBIT_BACKTRACE_COLOR") {
-        match explicit.as_str() {
-            "0" | "false" | "never" => return false,
-            "1" | "true" | "always" => return true,
-            _ => {}
-        }
-    }
-
-    if let Ok(no_color) = std::env::var("NO_COLOR") {
-        if !no_color.is_empty() {
-            return false;
-        }
-    }
-
-    std::io::stderr().is_terminal()
-}
 
 fn construct_args_list<'s>(
     wasm_file_name: &str,
