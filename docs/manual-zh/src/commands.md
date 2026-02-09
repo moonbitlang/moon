@@ -45,7 +45,7 @@ This document contains the help content for the `moon` command-line program.
 * `check` — Check the current package, but don't build object files
 * `run` — Run a main package
 * `test` — Test the current package
-* `clean` — Remove the target directory
+* `clean` — Remove the _build directory
 * `fmt` — Format source code
 * `doc` — Generate documentation or searching documentation for a symbol
 * `info` — Generate public interface (`.mbti`) files for all packages in the module
@@ -276,7 +276,7 @@ Test the current package
 
 ## `moon clean`
 
-Remove the target directory
+Remove the _build directory
 
 **Usage:** `moon clean`
 
