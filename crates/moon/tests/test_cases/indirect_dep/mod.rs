@@ -40,7 +40,7 @@ fn test_all_pkgs() {
         Finished. moon: ran 10 tasks, now up to date
     "#]],
     );
-    let all_pkgs_path = dir.join("target/wasm-gc/release/check/all_pkgs.json");
+    let all_pkgs_path = dir.join("_build/wasm-gc/release/check/all_pkgs.json");
     let all_pkgs_json = normalize_all_pkgs_json(&dir, &all_pkgs_path);
     expect_file!["check_all_pkgs.json"].assert_eq(&all_pkgs_json);
 
@@ -52,7 +52,7 @@ fn test_all_pkgs() {
             Finished. moon: ran 7 tasks, now up to date
         "#]],
     );
-    let all_pkgs_path = dir.join("target/wasm-gc/debug/build/all_pkgs.json");
+    let all_pkgs_path = dir.join("_build/wasm-gc/debug/build/all_pkgs.json");
     let all_pkgs_json = normalize_all_pkgs_json(&dir, &all_pkgs_path);
     expect_file!["build_all_pkgs.json"].assert_eq(&all_pkgs_json);
 
@@ -65,7 +65,7 @@ fn test_all_pkgs() {
         42
     "#]],
     );
-    let all_pkgs_path = dir.join("target/wasm-gc/debug/build/all_pkgs.json");
+    let all_pkgs_path = dir.join("_build/wasm-gc/debug/build/all_pkgs.json");
     let all_pkgs_json = normalize_all_pkgs_json(&dir, &all_pkgs_path);
     expect_file!["run_all_pkgs.json"].assert_eq(&all_pkgs_json);
 
@@ -77,7 +77,7 @@ fn test_all_pkgs() {
             Total tests: 2, passed: 2, failed: 0.
         "#]],
     );
-    let all_pkgs_path = dir.join("target/wasm-gc/debug/test/all_pkgs.json");
+    let all_pkgs_path = dir.join("_build/wasm-gc/debug/test/all_pkgs.json");
     let all_pkgs_json = normalize_all_pkgs_json(&dir, &all_pkgs_path);
     expect_file!["test_all_pkgs.json"].assert_eq(&all_pkgs_json);
 
@@ -89,7 +89,7 @@ fn test_all_pkgs() {
             Finished. moon: ran 10 tasks, now up to date
         "#]],
     );
-    let all_pkgs_path = dir.join("target/wasm-gc/release/check/all_pkgs.json");
+    let all_pkgs_path = dir.join("_build/wasm-gc/release/check/all_pkgs.json");
     let all_pkgs_json = normalize_all_pkgs_json(&dir, &all_pkgs_path);
     expect_file!["info_all_pkgs.json"].assert_eq(&all_pkgs_json);
 }
@@ -105,7 +105,7 @@ fn test_indirect_dep_bundle() {
             Finished. moon: ran 7 tasks, now up to date
         "#]],
     );
-    let all_pkgs_path = dir.join("target/wasm-gc/release/bundle/all_pkgs.json");
+    let all_pkgs_path = dir.join("_build/wasm-gc/release/bundle/all_pkgs.json");
     let all_pkgs_json = normalize_all_pkgs_json(&dir, &all_pkgs_path);
     expect_file!["bundle_all_pkgs.json"].assert_eq(&all_pkgs_json);
 }

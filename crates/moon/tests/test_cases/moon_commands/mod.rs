@@ -32,7 +32,7 @@ fn test_moon_help() {
               check                  Check the current package, but don't build object files
               run                    Run a main package
               test                   Test the current package
-              clean                  Remove the target directory
+              clean                  Remove the _build directory
               fmt                    Format source code
               doc                    Generate documentation or searching documentation for a symbol
               info                   Generate public interface (`.mbti`) files for all packages in the module
@@ -63,7 +63,7 @@ fn test_moon_help() {
                   --manifest-path <PATH>
                       Path to `moon.mod.json` to use as the project manifest (does not change the working directory)
                   --target-dir <TARGET_DIR>
-                      The target directory. Defaults to `<project-root>/target`
+                      The target directory. Defaults to `<project-root>/_build`
               -q, --quiet
                       Suppress output
               -v, --verbose

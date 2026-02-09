@@ -486,13 +486,13 @@ fn assert_tokens_follow_mode(
     debug_flags: Option<bool>,
 ) {
     let target_prefix = if release {
-        "./target/wasm-gc/release/"
+        "./_build/wasm-gc/release/"
     } else {
-        "./target/wasm-gc/debug/"
+        "./_build/wasm-gc/debug/"
     };
 
     for token in tokens {
-        if token.contains("./target/wasm-gc/") {
+        if token.contains("./_build/wasm-gc/") {
             assert!(
                 token.contains(target_prefix),
                 "expected `{}` command with filter {:?} to use `{}` artifacts, saw `{}`",

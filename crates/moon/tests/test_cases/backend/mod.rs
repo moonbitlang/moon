@@ -9,38 +9,38 @@ fn test_backend_flag() {
     check(
         get_stdout(&dir, ["check", "--dry-run", "--sort-input"]),
         expect![[r#"
-            moonc check ./lib/hello.mbt -o ./target/js/release/check/lib/lib.mi -pkg username/hello/lib -std-path $MOON_HOME/lib/core/target/js/release/bundle -pkg-sources username/hello/lib:./lib
-            moonc check ./main/main.mbt -o ./target/js/release/check/main/main.mi -pkg username/hello/main -is-main -std-path $MOON_HOME/lib/core/target/js/release/bundle -i ./target/js/release/check/lib/lib.mi:lib -pkg-sources username/hello/main:./main
-            moonc check ./lib/hello.mbt ./lib/hello_test.mbt -o ./target/js/release/check/lib/lib.underscore_test.mi -pkg username/hello/lib -std-path $MOON_HOME/lib/core/target/js/release/bundle -pkg-sources username/hello/lib:./lib
+            moonc check ./lib/hello.mbt -o ./_build/js/release/check/lib/lib.mi -pkg username/hello/lib -std-path $MOON_HOME/lib/core/_build/js/release/bundle -pkg-sources username/hello/lib:./lib
+            moonc check ./main/main.mbt -o ./_build/js/release/check/main/main.mi -pkg username/hello/main -is-main -std-path $MOON_HOME/lib/core/_build/js/release/bundle -i ./_build/js/release/check/lib/lib.mi:lib -pkg-sources username/hello/main:./main
+            moonc check ./lib/hello.mbt ./lib/hello_test.mbt -o ./_build/js/release/check/lib/lib.underscore_test.mi -pkg username/hello/lib -std-path $MOON_HOME/lib/core/_build/js/release/bundle -pkg-sources username/hello/lib:./lib
         "#]],
     );
 
     check(
         get_stdout(&dir, ["build", "--dry-run", "--sort-input"]),
         expect![[r#"
-            moonc build-package ./lib/hello.mbt -o ./target/js/debug/build/lib/lib.core -pkg username/hello/lib -std-path $MOON_HOME/lib/core/target/js/release/bundle -pkg-sources username/hello/lib:./lib
-            moonc build-package ./main/main.mbt -o ./target/js/debug/build/main/main.core -pkg username/hello/main -is-main -std-path $MOON_HOME/lib/core/target/js/release/bundle -i ./target/js/debug/build/lib/lib.mi:lib -pkg-sources username/hello/main:./main
-            moonc link-core $MOON_HOME/lib/core/target/js/release/bundle/core.core ./target/js/debug/build/lib/lib.core ./target/js/debug/build/main/main.core -main username/hello/main -o ./target/js/debug/build/main/main.js -pkg-sources username/hello/lib:./lib -pkg-sources username/hello/main:./main -target js -g -O0 -source-map
+            moonc build-package ./lib/hello.mbt -o ./_build/js/debug/build/lib/lib.core -pkg username/hello/lib -std-path $MOON_HOME/lib/core/_build/js/release/bundle -pkg-sources username/hello/lib:./lib
+            moonc build-package ./main/main.mbt -o ./_build/js/debug/build/main/main.core -pkg username/hello/main -is-main -std-path $MOON_HOME/lib/core/_build/js/release/bundle -i ./_build/js/debug/build/lib/lib.mi:lib -pkg-sources username/hello/main:./main
+            moonc link-core $MOON_HOME/lib/core/_build/js/release/bundle/core.core ./_build/js/debug/build/lib/lib.core ./_build/js/debug/build/main/main.core -main username/hello/main -o ./_build/js/debug/build/main/main.js -pkg-sources username/hello/lib:./lib -pkg-sources username/hello/main:./main -target js -g -O0 -source-map
         "#]],
     );
 
     check(
         get_stdout(&dir, ["test", "--dry-run", "--sort-input"]),
         expect![[r#"
-            moon generate-test-driver --source-dir . --target-dir ./target/js/debug/test --mode test
-            moonc build-package ./lib/hello.mbt ./lib/hello_test.mbt ./target/js/debug/test/lib/__generated_driver_for_underscore_test.mbt -o ./target/js/debug/test/lib/lib.underscore_test.core -pkg username/hello/lib -is-main -std-path $MOON_HOME/lib/core/target/js/release/bundle -pkg-sources username/hello/lib:./lib -g -ryu
-            moonc link-core $MOON_HOME/lib/core/target/js/release/bundle/core.core ./target/js/debug/test/lib/lib.underscore_test.core -main username/hello/lib -o ./target/js/debug/test/lib/lib.underscore_test.js -test-mode -pkg-sources username/hello/lib:./lib -target js -ryu
-            moonc build-package ./lib/hello.mbt ./target/js/debug/test/lib/__generated_driver_for_internal_test.mbt -o ./target/js/debug/test/lib/lib.internal_test.core -pkg username/hello/lib -is-main -std-path $MOON_HOME/lib/core/target/js/release/bundle -pkg-sources username/hello/lib:./lib -g -ryu
-            moonc link-core $MOON_HOME/lib/core/target/js/release/bundle/core.core ./target/js/debug/test/lib/lib.internal_test.core -main username/hello/lib -o ./target/js/debug/test/lib/lib.internal_test.js -test-mode -pkg-sources username/hello/lib:./lib -target js -ryu
+            moon generate-test-driver --source-dir . --target-dir ./_build/js/debug/test --mode test
+            moonc build-package ./lib/hello.mbt ./lib/hello_test.mbt ./_build/js/debug/test/lib/__generated_driver_for_underscore_test.mbt -o ./_build/js/debug/test/lib/lib.underscore_test.core -pkg username/hello/lib -is-main -std-path $MOON_HOME/lib/core/_build/js/release/bundle -pkg-sources username/hello/lib:./lib -g -ryu
+            moonc link-core $MOON_HOME/lib/core/_build/js/release/bundle/core.core ./_build/js/debug/test/lib/lib.underscore_test.core -main username/hello/lib -o ./_build/js/debug/test/lib/lib.underscore_test.js -test-mode -pkg-sources username/hello/lib:./lib -target js -ryu
+            moonc build-package ./lib/hello.mbt ./_build/js/debug/test/lib/__generated_driver_for_internal_test.mbt -o ./_build/js/debug/test/lib/lib.internal_test.core -pkg username/hello/lib -is-main -std-path $MOON_HOME/lib/core/_build/js/release/bundle -pkg-sources username/hello/lib:./lib -g -ryu
+            moonc link-core $MOON_HOME/lib/core/_build/js/release/bundle/core.core ./_build/js/debug/test/lib/lib.internal_test.core -main username/hello/lib -o ./_build/js/debug/test/lib/lib.internal_test.js -test-mode -pkg-sources username/hello/lib:./lib -target js -ryu
         "#]],
     );
 
     check(
         get_stdout(&dir, ["bundle", "--dry-run", "--sort-input"]),
         expect![[r#"
-            moonc build-package ./lib/hello.mbt -o ./target/js/release/bundle/lib/lib.core -pkg username/hello/lib -pkg-sources username/hello/lib:./lib
-            moonc build-package ./main/main.mbt -o ./target/js/release/bundle/main/main.core -pkg username/hello/main -is-main -i ./target/js/release/bundle/lib/lib.mi:lib -pkg-sources username/hello/main:./main
-            moonc bundle-core ./target/js/release/bundle/lib/lib.core ./target/js/release/bundle/main/main.core -o ./target/js/release/bundle/hello.core
+            moonc build-package ./lib/hello.mbt -o ./_build/js/release/bundle/lib/lib.core -pkg username/hello/lib -pkg-sources username/hello/lib:./lib
+            moonc build-package ./main/main.mbt -o ./_build/js/release/bundle/main/main.core -pkg username/hello/main -is-main -i ./_build/js/release/bundle/lib/lib.mi:lib -pkg-sources username/hello/main:./main
+            moonc bundle-core ./_build/js/release/bundle/lib/lib.core ./_build/js/release/bundle/main/main.core -o ./_build/js/release/bundle/hello.core
         "#]],
     );
 }

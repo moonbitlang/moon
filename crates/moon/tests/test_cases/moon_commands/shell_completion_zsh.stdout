@@ -17,7 +17,7 @@ _moon() {
     _arguments "${_arguments_options[@]}" : /
 '-C+[Change to DIR before doing anything else (must appear before the subcommand). Relative paths in other options and arguments are interpreted relative to DIR. Example/: /`moon -C a run ./` runs the same as invoking /`moon run ./` from within /`a/`]:DIR:_files' /
 '--manifest-path=[Path to /`moon.mod.json/` to use as the project manifest (does not change the working directory)]:PATH:_files' /
-'--target-dir=[The target directory. Defaults to /`<project-root>/target/`]:TARGET_DIR:_files' /
+'--target-dir=[The target directory. Defaults to /`<project-root>/_build/`]:TARGET_DIR:_files' /
 '-Z+[Unstable flags to MoonBuild]:UNSTABLE_FEATURE: ' /
 '--unstable-feature=[Unstable flags to MoonBuild]:UNSTABLE_FEATURE: ' /
 '-q[Suppress output]' /
@@ -43,7 +43,7 @@ _arguments "${_arguments_options[@]}" : /
 '--user=[The username of the module. Default to the logged-in username]:USER: ' /
 '--name=[The name of the module. Default to the last part of the path]:NAME: ' /
 '--manifest-path=[Path to /`moon.mod.json/` to use as the project manifest (does not change the working directory)]:PATH:_files' /
-'--target-dir=[The target directory. Defaults to /`<project-root>/target/`]:TARGET_DIR:_files' /
+'--target-dir=[The target directory. Defaults to /`<project-root>/_build/`]:TARGET_DIR:_files' /
 '-q[Suppress output]' /
 '--quiet[Suppress output]' /
 '-v[Increase verbosity]' /
@@ -65,7 +65,7 @@ _arguments "${_arguments_options[@]}" : /
 '--jobs=[Set the max number of jobs to run in parallel]:JOBS: ' /
 '--render-no-loc=[Render no-location diagnostics starting from a certain level]:MIN_LEVEL:(info warn error)' /
 '--manifest-path=[Path to /`moon.mod.json/` to use as the project manifest (does not change the working directory)]:PATH:_files' /
-'--target-dir=[The target directory. Defaults to /`<project-root>/target/`]:TARGET_DIR:_files' /
+'--target-dir=[The target directory. Defaults to /`<project-root>/_build/`]:TARGET_DIR:_files' /
 '--std[Enable the standard library (default)]' /
 '--nostd[Disable the standard library]' /
 '-g[Emit debug information]' /
@@ -107,7 +107,7 @@ _arguments "${_arguments_options[@]}" : /
 '--package=[]:PACKAGE: ' /
 '--bin-alias=[]:BIN_ALIAS: ' /
 '--manifest-path=[Path to /`moon.mod.json/` to use as the project manifest (does not change the working directory)]:PATH:_files' /
-'--target-dir=[The target directory. Defaults to /`<project-root>/target/`]:TARGET_DIR:_files' /
+'--target-dir=[The target directory. Defaults to /`<project-root>/_build/`]:TARGET_DIR:_files' /
 '--std[Enable the standard library (default)]' /
 '--nostd[Disable the standard library]' /
 '-g[Emit debug information]' /
@@ -152,7 +152,7 @@ _arguments "${_arguments_options[@]}" : /
 '--package-path=[The package(and it'/''s deps) to check]:PACKAGE_PATH:_files' /
 '--patch-file=[The patch file to check, Only valid when checking specified package]:PATCH_FILE:_files' /
 '--manifest-path=[Path to /`moon.mod.json/` to use as the project manifest (does not change the working directory)]:PATH:_files' /
-'--target-dir=[The target directory. Defaults to /`<project-root>/target/`]:TARGET_DIR:_files' /
+'--target-dir=[The target directory. Defaults to /`<project-root>/_build/`]:TARGET_DIR:_files' /
 '--std[Enable the standard library (default)]' /
 '--nostd[Disable the standard library]' /
 '-g[Emit debug information]' /
@@ -196,7 +196,7 @@ _arguments "${_arguments_options[@]}" : /
 '--jobs=[Set the max number of jobs to run in parallel]:JOBS: ' /
 '--render-no-loc=[Render no-location diagnostics starting from a certain level]:MIN_LEVEL:(info warn error)' /
 '--manifest-path=[Path to /`moon.mod.json/` to use as the project manifest (does not change the working directory)]:PATH:_files' /
-'--target-dir=[The target directory. Defaults to /`<project-root>/target/`]:TARGET_DIR:_files' /
+'--target-dir=[The target directory. Defaults to /`<project-root>/_build/`]:TARGET_DIR:_files' /
 '--std[Enable the standard library (default)]' /
 '--nostd[Disable the standard library]' /
 '-g[Emit debug information]' /
@@ -249,7 +249,7 @@ _arguments "${_arguments_options[@]}" : /
 '-F+[Run only tests whose name matches the given glob pattern. Supports '/''*'/'' (matches any sequence) and '/''?'/'' (matches any single character)]:FILTER: ' /
 '--filter=[Run only tests whose name matches the given glob pattern. Supports '/''*'/'' (matches any sequence) and '/''?'/'' (matches any single character)]:FILTER: ' /
 '--manifest-path=[Path to /`moon.mod.json/` to use as the project manifest (does not change the working directory)]:PATH:_files' /
-'--target-dir=[The target directory. Defaults to /`<project-root>/target/`]:TARGET_DIR:_files' /
+'--target-dir=[The target directory. Defaults to /`<project-root>/_build/`]:TARGET_DIR:_files' /
 '--std[Enable the standard library (default)]' /
 '--nostd[Disable the standard library]' /
 '-g[Emit debug information]' /
@@ -299,7 +299,7 @@ _arguments "${_arguments_options[@]}" : /
 '--patch-file=[Path to the patch file]:PATCH_FILE:_files' /
 '--max-concurrent-tests=[Max concurrent tests for /`async test/`]:MAX_CONCURRENT_TESTS: ' /
 '--manifest-path=[Path to /`moon.mod.json/` to use as the project manifest (does not change the working directory)]:PATH:_files' /
-'--target-dir=[The target directory. Defaults to /`<project-root>/target/`]:TARGET_DIR:_files' /
+'--target-dir=[The target directory. Defaults to /`<project-root>/_build/`]:TARGET_DIR:_files' /
 '--bench[Whether to generate the test driver in bench mode. Not providing this option will result in test mode]' /
 '--enable-coverage[Whether coverage is enabled in this build. Enabling it will insert coverage-custom code at the end of the test..]' /
 '-q[Suppress output]' /
@@ -317,7 +317,7 @@ _arguments "${_arguments_options[@]}" : /
 (clean)
 _arguments "${_arguments_options[@]}" : /
 '--manifest-path=[Path to /`moon.mod.json/` to use as the project manifest (does not change the working directory)]:PATH:_files' /
-'--target-dir=[The target directory. Defaults to /`<project-root>/target/`]:TARGET_DIR:_files' /
+'--target-dir=[The target directory. Defaults to /`<project-root>/_build/`]:TARGET_DIR:_files' /
 '-q[Suppress output]' /
 '--quiet[Suppress output]' /
 '-v[Increase verbosity]' /
@@ -333,7 +333,7 @@ _arguments "${_arguments_options[@]}" : /
 _arguments "${_arguments_options[@]}" : /
 '--block-style=[Add separator between each segments]' /
 '--manifest-path=[Path to /`moon.mod.json/` to use as the project manifest (does not change the working directory)]:PATH:_files' /
-'--target-dir=[The target directory. Defaults to /`<project-root>/target/`]:TARGET_DIR:_files' /
+'--target-dir=[The target directory. Defaults to /`<project-root>/_build/`]:TARGET_DIR:_files' /
 '--check[Check only and don'/''t change the source code]' /
 '--sort-input[Sort input files]' /
 '(--check)--warn[Warn if code is not properly formatted]' /
@@ -357,7 +357,7 @@ _arguments "${_arguments_options[@]}" : /
 '-p+[The port of the server]:PORT: ' /
 '--port=[The port of the server]:PORT: ' /
 '--manifest-path=[Path to /`moon.mod.json/` to use as the project manifest (does not change the working directory)]:PATH:_files' /
-'--target-dir=[The target directory. Defaults to /`<project-root>/target/`]:TARGET_DIR:_files' /
+'--target-dir=[The target directory. Defaults to /`<project-root>/_build/`]:TARGET_DIR:_files' /
 '--serve[Start a web server to serve the documentation]' /
 '--frozen[Do not sync dependencies, assuming local dependencies are up-to-date]' /
 '-q[Suppress output]' /
@@ -378,7 +378,7 @@ _arguments "${_arguments_options[@]}" : /
 '-p+[The full or subset of name of the package to emit /`mbti/` files for]:PACKAGE: ' /
 '--package=[The full or subset of name of the package to emit /`mbti/` files for]:PACKAGE: ' /
 '--manifest-path=[Path to /`moon.mod.json/` to use as the project manifest (does not change the working directory)]:PATH:_files' /
-'--target-dir=[The target directory. Defaults to /`<project-root>/target/`]:TARGET_DIR:_files' /
+'--target-dir=[The target directory. Defaults to /`<project-root>/_build/`]:TARGET_DIR:_files' /
 '--frozen[Do not sync dependencies, assuming local dependencies are up-to-date]' /
 '--no-alias[Do not use alias to shorten package names in the output]' /
 '-q[Suppress output]' /
@@ -408,7 +408,7 @@ _arguments "${_arguments_options[@]}" : /
 '-i+[Run only the index-th test in the file. Accepts a single index or a left-inclusive right-exclusive range like /`0-2/`. Only valid when /`--file/` is also specified]:INDEX: ' /
 '--index=[Run only the index-th test in the file. Accepts a single index or a left-inclusive right-exclusive range like /`0-2/`. Only valid when /`--file/` is also specified]:INDEX: ' /
 '--manifest-path=[Path to /`moon.mod.json/` to use as the project manifest (does not change the working directory)]:PATH:_files' /
-'--target-dir=[The target directory. Defaults to /`<project-root>/target/`]:TARGET_DIR:_files' /
+'--target-dir=[The target directory. Defaults to /`<project-root>/_build/`]:TARGET_DIR:_files' /
 '--std[Enable the standard library (default)]' /
 '--nostd[Disable the standard library]' /
 '-g[Emit debug information]' /
@@ -442,7 +442,7 @@ _arguments "${_arguments_options[@]}" : /
 (add)
 _arguments "${_arguments_options[@]}" : /
 '--manifest-path=[Path to /`moon.mod.json/` to use as the project manifest (does not change the working directory)]:PATH:_files' /
-'--target-dir=[The target directory. Defaults to /`<project-root>/target/`]:TARGET_DIR:_files' /
+'--target-dir=[The target directory. Defaults to /`<project-root>/_build/`]:TARGET_DIR:_files' /
 '--bin[Whether to add the dependency as a binary]' /
 '--no-update[Do not update the registry index before adding the dependency]' /
 '-q[Suppress output]' /
@@ -460,7 +460,7 @@ _arguments "${_arguments_options[@]}" : /
 (remove)
 _arguments "${_arguments_options[@]}" : /
 '--manifest-path=[Path to /`moon.mod.json/` to use as the project manifest (does not change the working directory)]:PATH:_files' /
-'--target-dir=[The target directory. Defaults to /`<project-root>/target/`]:TARGET_DIR:_files' /
+'--target-dir=[The target directory. Defaults to /`<project-root>/_build/`]:TARGET_DIR:_files' /
 '-q[Suppress output]' /
 '--quiet[Suppress output]' /
 '-v[Increase verbosity]' /
@@ -481,7 +481,7 @@ _arguments "${_arguments_options[@]}" : /
 '--branch=[Git branch to checkout (requires git URL)]:BRANCH: ' /
 '--tag=[Git tag to checkout (requires git URL)]:TAG: ' /
 '--manifest-path=[Path to /`moon.mod.json/` to use as the project manifest (does not change the working directory)]:PATH:_files' /
-'--target-dir=[The target directory. Defaults to /`<project-root>/target/`]:TARGET_DIR:_files' /
+'--target-dir=[The target directory. Defaults to /`<project-root>/_build/`]:TARGET_DIR:_files' /
 '-q[Suppress output]' /
 '--quiet[Suppress output]' /
 '-v[Increase verbosity]' /
@@ -498,7 +498,7 @@ _arguments "${_arguments_options[@]}" : /
 (tree)
 _arguments "${_arguments_options[@]}" : /
 '--manifest-path=[Path to /`moon.mod.json/` to use as the project manifest (does not change the working directory)]:PATH:_files' /
-'--target-dir=[The target directory. Defaults to /`<project-root>/target/`]:TARGET_DIR:_files' /
+'--target-dir=[The target directory. Defaults to /`<project-root>/_build/`]:TARGET_DIR:_files' /
 '-q[Suppress output]' /
 '--quiet[Suppress output]' /
 '-v[Increase verbosity]' /
@@ -513,7 +513,7 @@ _arguments "${_arguments_options[@]}" : /
 (fetch)
 _arguments "${_arguments_options[@]}" : /
 '--manifest-path=[Path to /`moon.mod.json/` to use as the project manifest (does not change the working directory)]:PATH:_files' /
-'--target-dir=[The target directory. Defaults to /`<project-root>/target/`]:TARGET_DIR:_files' /
+'--target-dir=[The target directory. Defaults to /`<project-root>/_build/`]:TARGET_DIR:_files' /
 '--no-update[Do not update the registry index before fetching]' /
 '-q[Suppress output]' /
 '--quiet[Suppress output]' /
@@ -530,7 +530,7 @@ _arguments "${_arguments_options[@]}" : /
 (login)
 _arguments "${_arguments_options[@]}" : /
 '--manifest-path=[Path to /`moon.mod.json/` to use as the project manifest (does not change the working directory)]:PATH:_files' /
-'--target-dir=[The target directory. Defaults to /`<project-root>/target/`]:TARGET_DIR:_files' /
+'--target-dir=[The target directory. Defaults to /`<project-root>/_build/`]:TARGET_DIR:_files' /
 '-q[Suppress output]' /
 '--quiet[Suppress output]' /
 '-v[Increase verbosity]' /
@@ -545,7 +545,7 @@ _arguments "${_arguments_options[@]}" : /
 (register)
 _arguments "${_arguments_options[@]}" : /
 '--manifest-path=[Path to /`moon.mod.json/` to use as the project manifest (does not change the working directory)]:PATH:_files' /
-'--target-dir=[The target directory. Defaults to /`<project-root>/target/`]:TARGET_DIR:_files' /
+'--target-dir=[The target directory. Defaults to /`<project-root>/_build/`]:TARGET_DIR:_files' /
 '-q[Suppress output]' /
 '--quiet[Suppress output]' /
 '-v[Increase verbosity]' /
@@ -560,7 +560,7 @@ _arguments "${_arguments_options[@]}" : /
 (publish)
 _arguments "${_arguments_options[@]}" : /
 '--manifest-path=[Path to /`moon.mod.json/` to use as the project manifest (does not change the working directory)]:PATH:_files' /
-'--target-dir=[The target directory. Defaults to /`<project-root>/target/`]:TARGET_DIR:_files' /
+'--target-dir=[The target directory. Defaults to /`<project-root>/_build/`]:TARGET_DIR:_files' /
 '--frozen[Do not sync dependencies, assuming local dependencies are up-to-date]' /
 '-q[Suppress output]' /
 '--quiet[Suppress output]' /
@@ -576,7 +576,7 @@ _arguments "${_arguments_options[@]}" : /
 (package)
 _arguments "${_arguments_options[@]}" : /
 '--manifest-path=[Path to /`moon.mod.json/` to use as the project manifest (does not change the working directory)]:PATH:_files' /
-'--target-dir=[The target directory. Defaults to /`<project-root>/target/`]:TARGET_DIR:_files' /
+'--target-dir=[The target directory. Defaults to /`<project-root>/_build/`]:TARGET_DIR:_files' /
 '--frozen[Do not sync dependencies, assuming local dependencies are up-to-date]' /
 '--list[]' /
 '-q[Suppress output]' /
@@ -593,7 +593,7 @@ _arguments "${_arguments_options[@]}" : /
 (update)
 _arguments "${_arguments_options[@]}" : /
 '--manifest-path=[Path to /`moon.mod.json/` to use as the project manifest (does not change the working directory)]:PATH:_files' /
-'--target-dir=[The target directory. Defaults to /`<project-root>/target/`]:TARGET_DIR:_files' /
+'--target-dir=[The target directory. Defaults to /`<project-root>/_build/`]:TARGET_DIR:_files' /
 '-q[Suppress output]' /
 '--quiet[Suppress output]' /
 '-v[Increase verbosity]' /
@@ -608,7 +608,7 @@ _arguments "${_arguments_options[@]}" : /
 (coverage)
 _arguments "${_arguments_options[@]}" : /
 '--manifest-path=[Path to /`moon.mod.json/` to use as the project manifest (does not change the working directory)]:PATH:_files' /
-'--target-dir=[The target directory. Defaults to /`<project-root>/target/`]:TARGET_DIR:_files' /
+'--target-dir=[The target directory. Defaults to /`<project-root>/_build/`]:TARGET_DIR:_files' /
 '-q[Suppress output]' /
 '--quiet[Suppress output]' /
 '-v[Increase verbosity]' /
@@ -635,7 +635,7 @@ _arguments "${_arguments_options[@]}" : /
 '*-t+[Extra flags passed directly to /`moon test/`]:TEST_FLAG: ' /
 '*--test-flag=[Extra flags passed directly to /`moon test/`]:TEST_FLAG: ' /
 '--manifest-path=[Path to /`moon.mod.json/` to use as the project manifest (does not change the working directory)]:PATH:_files' /
-'--target-dir=[The target directory. Defaults to /`<project-root>/target/`]:TARGET_DIR:_files' /
+'--target-dir=[The target directory. Defaults to /`<project-root>/_build/`]:TARGET_DIR:_files' /
 '-q[Suppress output]' /
 '--quiet[Suppress output]' /
 '-v[Increase verbosity]' /
@@ -651,7 +651,7 @@ _arguments "${_arguments_options[@]}" : /
 (report)
 _arguments "${_arguments_options[@]}" : /
 '--manifest-path=[Path to /`moon.mod.json/` to use as the project manifest (does not change the working directory)]:PATH:_files' /
-'--target-dir=[The target directory. Defaults to /`<project-root>/target/`]:TARGET_DIR:_files' /
+'--target-dir=[The target directory. Defaults to /`<project-root>/_build/`]:TARGET_DIR:_files' /
 '-h[Show help for the coverage utility]' /
 '--help[Show help for the coverage utility]' /
 '-q[Suppress output]' /
@@ -667,7 +667,7 @@ _arguments "${_arguments_options[@]}" : /
 (clean)
 _arguments "${_arguments_options[@]}" : /
 '--manifest-path=[Path to /`moon.mod.json/` to use as the project manifest (does not change the working directory)]:PATH:_files' /
-'--target-dir=[The target directory. Defaults to /`<project-root>/target/`]:TARGET_DIR:_files' /
+'--target-dir=[The target directory. Defaults to /`<project-root>/_build/`]:TARGET_DIR:_files' /
 '-q[Suppress output]' /
 '--quiet[Suppress output]' /
 '-v[Increase verbosity]' /
@@ -725,7 +725,7 @@ _arguments "${_arguments_options[@]}" : /
 '-o+[The output directory]:OUT_DIR:_files' /
 '--output-dir=[The output directory]:OUT_DIR:_files' /
 '--manifest-path=[Path to /`moon.mod.json/` to use as the project manifest (does not change the working directory)]:PATH:_files' /
-'--target-dir=[The target directory. Defaults to /`<project-root>/target/`]:TARGET_DIR:_files' /
+'--target-dir=[The target directory. Defaults to /`<project-root>/_build/`]:TARGET_DIR:_files' /
 '-q[Suppress output]' /
 '--quiet[Suppress output]' /
 '-v[Increase verbosity]' /
@@ -746,7 +746,7 @@ _arguments "${_arguments_options[@]}" : /
 '--jobs=[Set the max number of jobs to run in parallel]:JOBS: ' /
 '--render-no-loc=[Render no-location diagnostics starting from a certain level]:MIN_LEVEL:(info warn error)' /
 '--manifest-path=[Path to /`moon.mod.json/` to use as the project manifest (does not change the working directory)]:PATH:_files' /
-'--target-dir=[The target directory. Defaults to /`<project-root>/target/`]:TARGET_DIR:_files' /
+'--target-dir=[The target directory. Defaults to /`<project-root>/_build/`]:TARGET_DIR:_files' /
 '--std[Enable the standard library (default)]' /
 '--nostd[Disable the standard library]' /
 '-g[Emit debug information]' /
@@ -779,7 +779,7 @@ _arguments "${_arguments_options[@]}" : /
 _arguments "${_arguments_options[@]}" : /
 '--base-url=[]:BASE_URL: ' /
 '--manifest-path=[Path to /`moon.mod.json/` to use as the project manifest (does not change the working directory)]:PATH:_files' /
-'--target-dir=[The target directory. Defaults to /`<project-root>/target/`]:TARGET_DIR:_files' /
+'--target-dir=[The target directory. Defaults to /`<project-root>/_build/`]:TARGET_DIR:_files' /
 '-f[Force upgrade]' /
 '--force[Force upgrade]' /
 '--dev[Install the latest development version]' /
@@ -799,7 +799,7 @@ _arguments "${_arguments_options[@]}" : /
 _arguments "${_arguments_options[@]}" : /
 '--shell=[The shell to generate completion for]:SHELL:(bash elvish fish powershell zsh)' /
 '--manifest-path=[Path to /`moon.mod.json/` to use as the project manifest (does not change the working directory)]:PATH:_files' /
-'--target-dir=[The target directory. Defaults to /`<project-root>/target/`]:TARGET_DIR:_files' /
+'--target-dir=[The target directory. Defaults to /`<project-root>/_build/`]:TARGET_DIR:_files' /
 '-q[Suppress output]' /
 '--quiet[Suppress output]' /
 '-v[Increase verbosity]' /
@@ -814,7 +814,7 @@ _arguments "${_arguments_options[@]}" : /
 (version)
 _arguments "${_arguments_options[@]}" : /
 '--manifest-path=[Path to /`moon.mod.json/` to use as the project manifest (does not change the working directory)]:PATH:_files' /
-'--target-dir=[The target directory. Defaults to /`<project-root>/target/`]:TARGET_DIR:_files' /
+'--target-dir=[The target directory. Defaults to /`<project-root>/_build/`]:TARGET_DIR:_files' /
 '--all[Print all version information]' /
 '--json[Print version information in JSON format]' /
 '--no-path[Do not print the path]' /
@@ -832,7 +832,7 @@ _arguments "${_arguments_options[@]}" : /
 (tool)
 _arguments "${_arguments_options[@]}" : /
 '--manifest-path=[Path to /`moon.mod.json/` to use as the project manifest (does not change the working directory)]:PATH:_files' /
-'--target-dir=[The target directory. Defaults to /`<project-root>/target/`]:TARGET_DIR:_files' /
+'--target-dir=[The target directory. Defaults to /`<project-root>/_build/`]:TARGET_DIR:_files' /
 '-q[Suppress output]' /
 '--quiet[Suppress output]' /
 '-v[Increase verbosity]' /
@@ -857,7 +857,7 @@ _arguments "${_arguments_options[@]}" : /
 '--old=[The source path of the code which needs to be formatted]:OLD:_files' /
 '--new=[The target path of the formatted code]:NEW:_files' /
 '--manifest-path=[Path to /`moon.mod.json/` to use as the project manifest (does not change the working directory)]:PATH:_files' /
-'--target-dir=[The target directory. Defaults to /`<project-root>/target/`]:TARGET_DIR:_files' /
+'--target-dir=[The target directory. Defaults to /`<project-root>/_build/`]:TARGET_DIR:_files' /
 '--block-style[Add separator between each segments]' /
 '--warn[Warn instead of showing differences]' /
 '-q[Suppress output]' /
@@ -880,7 +880,7 @@ _arguments "${_arguments_options[@]}" : /
 '--output=[]:OUTPUT:_files' /
 '--name=[]:NAME: ' /
 '--manifest-path=[Path to /`moon.mod.json/` to use as the project manifest (does not change the working directory)]:PATH:_files' /
-'--target-dir=[The target directory. Defaults to /`<project-root>/target/`]:TARGET_DIR:_files' /
+'--target-dir=[The target directory. Defaults to /`<project-root>/_build/`]:TARGET_DIR:_files' /
 '(--text)--binary[]' /
 '(--binary)--text[]' /
 '--timestamp[]' /
@@ -898,7 +898,7 @@ _arguments "${_arguments_options[@]}" : /
 (write-tcc-rsp-file)
 _arguments "${_arguments_options[@]}" : /
 '--manifest-path=[Path to /`moon.mod.json/` to use as the project manifest (does not change the working directory)]:PATH:_files' /
-'--target-dir=[The target directory. Defaults to /`<project-root>/target/`]:TARGET_DIR:_files' /
+'--target-dir=[The target directory. Defaults to /`<project-root>/_build/`]:TARGET_DIR:_files' /
 '-q[Suppress output]' /
 '--quiet[Suppress output]' /
 '-v[Increase verbosity]' /
@@ -916,7 +916,7 @@ _arguments "${_arguments_options[@]}" : /
 _arguments "${_arguments_options[@]}" : /
 '--install-path=[The parent directory where the binary module is installed to]:INSTALL_PATH:_files' /
 '--manifest-path=[Path to /`moon.mod.json/` to use as the project manifest (does not change the working directory)]:PATH:_files' /
-'--target-dir=[The target directory. Defaults to /`<project-root>/target/`]:TARGET_DIR:_files' /
+'--target-dir=[The target directory. Defaults to /`<project-root>/_build/`]:TARGET_DIR:_files' /
 '()--all-pkgs[Whether to build and install all binary packages in the module]' /
 '-q[Suppress output]' /
 '--quiet[Suppress output]' /
@@ -1315,7 +1315,7 @@ _moon_commands() {
 'run:Run a main package' /
 'test:Test the current package' /
 'generate-test-driver:Generate tests for a provided package. This is a thin wrapper around /`moonc gen-test-info/`, which does the actual parsing and generation' /
-'clean:Remove the target directory' /
+'clean:Remove the _build directory' /
 'fmt:Format source code' /
 'doc:Generate documentation or searching documentation for a symbol' /
 'info:Generate public interface (/`.mbti/`) files for all packages in the module' /
@@ -1462,7 +1462,7 @@ _moon__help_commands() {
 'run:Run a main package' /
 'test:Test the current package' /
 'generate-test-driver:Generate tests for a provided package. This is a thin wrapper around /`moonc gen-test-info/`, which does the actual parsing and generation' /
-'clean:Remove the target directory' /
+'clean:Remove the _build directory' /
 'fmt:Format source code' /
 'doc:Generate documentation or searching documentation for a symbol' /
 'info:Generate public interface (/`.mbti/`) files for all packages in the module' /

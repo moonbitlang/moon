@@ -14,9 +14,9 @@ fn whitespace_test() {
     // check(
     //     &get_stdout_with_args(&dir, ["check", "--dry-run", "--nostd"]),
     //     expect![[r#"
-    //         moonc check './main lib/hello.mbt' './main lib/hello_test.mbt' -o './target/check/main lib/main lib.underscore_test.mi' -pkg 'username/hello/main lib' -pkg-sources 'username/hello/main lib:./main lib'
-    //         moonc check './main lib/hello.mbt' -o './target/check/main lib/main lib.mi' -pkg 'username/hello/main lib' -pkg-sources 'username/hello/main lib:./main lib'
-    //         moonc check './main exe/main.mbt' -o './target/check/main exe/main exe.mi' -pkg 'username/hello/main exe' -is-main -i './target/check/main lib/main lib.mi:lib' -pkg-sources 'username/hello/main exe:./main exe'
+    //         moonc check './main lib/hello.mbt' './main lib/hello_test.mbt' -o './_build/check/main lib/main lib.underscore_test.mi' -pkg 'username/hello/main lib' -pkg-sources 'username/hello/main lib:./main lib'
+    //         moonc check './main lib/hello.mbt' -o './_build/check/main lib/main lib.mi' -pkg 'username/hello/main lib' -pkg-sources 'username/hello/main lib:./main lib'
+    //         moonc check './main exe/main.mbt' -o './_build/check/main exe/main exe.mi' -pkg 'username/hello/main exe' -is-main -i './_build/check/main lib/main lib.mi:lib' -pkg-sources 'username/hello/main exe:./main exe'
     //     "#]],
     // );
     let build_graph = dir.join("build_graph.jsonl");

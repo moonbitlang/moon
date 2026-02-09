@@ -23,7 +23,7 @@ Register-ArgumentCompleter -Native -CommandName 'moon' -ScriptBlock {
         'moon' {
             [CompletionResult]::new('-C', 'C ', [CompletionResultType]::ParameterName, 'Change to DIR before doing anything else (must appear before the subcommand). Relative paths in other options and arguments are interpreted relative to DIR. Example: `moon -C a run .` runs the same as invoking `moon run .` from within `a`')
             [CompletionResult]::new('--manifest-path', 'manifest-path', [CompletionResultType]::ParameterName, 'Path to `moon.mod.json` to use as the project manifest (does not change the working directory)')
-            [CompletionResult]::new('--target-dir', 'target-dir', [CompletionResultType]::ParameterName, 'The target directory. Defaults to `<project-root>/target`')
+            [CompletionResult]::new('--target-dir', 'target-dir', [CompletionResultType]::ParameterName, 'The target directory. Defaults to `<project-root>/_build`')
             [CompletionResult]::new('-Z', 'Z ', [CompletionResultType]::ParameterName, 'Unstable flags to MoonBuild')
             [CompletionResult]::new('--unstable-feature', 'unstable-feature', [CompletionResultType]::ParameterName, 'Unstable flags to MoonBuild')
             [CompletionResult]::new('-q', 'q', [CompletionResultType]::ParameterName, 'Suppress output')
@@ -42,7 +42,7 @@ Register-ArgumentCompleter -Native -CommandName 'moon' -ScriptBlock {
             [CompletionResult]::new('run', 'run', [CompletionResultType]::ParameterValue, 'Run a main package')
             [CompletionResult]::new('test', 'test', [CompletionResultType]::ParameterValue, 'Test the current package')
             [CompletionResult]::new('generate-test-driver', 'generate-test-driver', [CompletionResultType]::ParameterValue, 'Generate tests for a provided package. This is a thin wrapper around `moonc gen-test-info`, which does the actual parsing and generation')
-            [CompletionResult]::new('clean', 'clean', [CompletionResultType]::ParameterValue, 'Remove the target directory')
+            [CompletionResult]::new('clean', 'clean', [CompletionResultType]::ParameterValue, 'Remove the _build directory')
             [CompletionResult]::new('fmt', 'fmt', [CompletionResultType]::ParameterValue, 'Format source code')
             [CompletionResult]::new('doc', 'doc', [CompletionResultType]::ParameterValue, 'Generate documentation or searching documentation for a symbol')
             [CompletionResult]::new('info', 'info', [CompletionResultType]::ParameterValue, 'Generate public interface (`.mbti`) files for all packages in the module')
@@ -72,7 +72,7 @@ Register-ArgumentCompleter -Native -CommandName 'moon' -ScriptBlock {
             [CompletionResult]::new('--user', 'user', [CompletionResultType]::ParameterName, 'The username of the module. Default to the logged-in username')
             [CompletionResult]::new('--name', 'name', [CompletionResultType]::ParameterName, 'The name of the module. Default to the last part of the path')
             [CompletionResult]::new('--manifest-path', 'manifest-path', [CompletionResultType]::ParameterName, 'Path to `moon.mod.json` to use as the project manifest (does not change the working directory)')
-            [CompletionResult]::new('--target-dir', 'target-dir', [CompletionResultType]::ParameterName, 'The target directory. Defaults to `<project-root>/target`')
+            [CompletionResult]::new('--target-dir', 'target-dir', [CompletionResultType]::ParameterName, 'The target directory. Defaults to `<project-root>/_build`')
             [CompletionResult]::new('-q', 'q', [CompletionResultType]::ParameterName, 'Suppress output')
             [CompletionResult]::new('--quiet', 'quiet', [CompletionResultType]::ParameterName, 'Suppress output')
             [CompletionResult]::new('-v', 'v', [CompletionResultType]::ParameterName, 'Increase verbosity')
@@ -92,7 +92,7 @@ Register-ArgumentCompleter -Native -CommandName 'moon' -ScriptBlock {
             [CompletionResult]::new('--jobs', 'jobs', [CompletionResultType]::ParameterName, 'Set the max number of jobs to run in parallel')
             [CompletionResult]::new('--render-no-loc', 'render-no-loc', [CompletionResultType]::ParameterName, 'Render no-location diagnostics starting from a certain level')
             [CompletionResult]::new('--manifest-path', 'manifest-path', [CompletionResultType]::ParameterName, 'Path to `moon.mod.json` to use as the project manifest (does not change the working directory)')
-            [CompletionResult]::new('--target-dir', 'target-dir', [CompletionResultType]::ParameterName, 'The target directory. Defaults to `<project-root>/target`')
+            [CompletionResult]::new('--target-dir', 'target-dir', [CompletionResultType]::ParameterName, 'The target directory. Defaults to `<project-root>/_build`')
             [CompletionResult]::new('--std', 'std', [CompletionResultType]::ParameterName, 'Enable the standard library (default)')
             [CompletionResult]::new('--nostd', 'nostd', [CompletionResultType]::ParameterName, 'Disable the standard library')
             [CompletionResult]::new('-g', 'g', [CompletionResultType]::ParameterName, 'Emit debug information')
@@ -133,7 +133,7 @@ Register-ArgumentCompleter -Native -CommandName 'moon' -ScriptBlock {
             [CompletionResult]::new('--package', 'package', [CompletionResultType]::ParameterName, 'package')
             [CompletionResult]::new('--bin-alias', 'bin-alias', [CompletionResultType]::ParameterName, 'bin-alias')
             [CompletionResult]::new('--manifest-path', 'manifest-path', [CompletionResultType]::ParameterName, 'Path to `moon.mod.json` to use as the project manifest (does not change the working directory)')
-            [CompletionResult]::new('--target-dir', 'target-dir', [CompletionResultType]::ParameterName, 'The target directory. Defaults to `<project-root>/target`')
+            [CompletionResult]::new('--target-dir', 'target-dir', [CompletionResultType]::ParameterName, 'The target directory. Defaults to `<project-root>/_build`')
             [CompletionResult]::new('--std', 'std', [CompletionResultType]::ParameterName, 'Enable the standard library (default)')
             [CompletionResult]::new('--nostd', 'nostd', [CompletionResultType]::ParameterName, 'Disable the standard library')
             [CompletionResult]::new('-g', 'g', [CompletionResultType]::ParameterName, 'Emit debug information')
@@ -176,7 +176,7 @@ Register-ArgumentCompleter -Native -CommandName 'moon' -ScriptBlock {
             [CompletionResult]::new('--package-path', 'package-path', [CompletionResultType]::ParameterName, 'The package(and it''s deps) to check')
             [CompletionResult]::new('--patch-file', 'patch-file', [CompletionResultType]::ParameterName, 'The patch file to check, Only valid when checking specified package')
             [CompletionResult]::new('--manifest-path', 'manifest-path', [CompletionResultType]::ParameterName, 'Path to `moon.mod.json` to use as the project manifest (does not change the working directory)')
-            [CompletionResult]::new('--target-dir', 'target-dir', [CompletionResultType]::ParameterName, 'The target directory. Defaults to `<project-root>/target`')
+            [CompletionResult]::new('--target-dir', 'target-dir', [CompletionResultType]::ParameterName, 'The target directory. Defaults to `<project-root>/_build`')
             [CompletionResult]::new('--std', 'std', [CompletionResultType]::ParameterName, 'Enable the standard library (default)')
             [CompletionResult]::new('--nostd', 'nostd', [CompletionResultType]::ParameterName, 'Disable the standard library')
             [CompletionResult]::new('-g', 'g', [CompletionResultType]::ParameterName, 'Emit debug information')
@@ -218,7 +218,7 @@ Register-ArgumentCompleter -Native -CommandName 'moon' -ScriptBlock {
             [CompletionResult]::new('--jobs', 'jobs', [CompletionResultType]::ParameterName, 'Set the max number of jobs to run in parallel')
             [CompletionResult]::new('--render-no-loc', 'render-no-loc', [CompletionResultType]::ParameterName, 'Render no-location diagnostics starting from a certain level')
             [CompletionResult]::new('--manifest-path', 'manifest-path', [CompletionResultType]::ParameterName, 'Path to `moon.mod.json` to use as the project manifest (does not change the working directory)')
-            [CompletionResult]::new('--target-dir', 'target-dir', [CompletionResultType]::ParameterName, 'The target directory. Defaults to `<project-root>/target`')
+            [CompletionResult]::new('--target-dir', 'target-dir', [CompletionResultType]::ParameterName, 'The target directory. Defaults to `<project-root>/_build`')
             [CompletionResult]::new('--std', 'std', [CompletionResultType]::ParameterName, 'Enable the standard library (default)')
             [CompletionResult]::new('--nostd', 'nostd', [CompletionResultType]::ParameterName, 'Disable the standard library')
             [CompletionResult]::new('-g', 'g', [CompletionResultType]::ParameterName, 'Emit debug information')
@@ -268,7 +268,7 @@ Register-ArgumentCompleter -Native -CommandName 'moon' -ScriptBlock {
             [CompletionResult]::new('-F', 'F ', [CompletionResultType]::ParameterName, 'Run only tests whose name matches the given glob pattern. Supports ''*'' (matches any sequence) and ''?'' (matches any single character)')
             [CompletionResult]::new('--filter', 'filter', [CompletionResultType]::ParameterName, 'Run only tests whose name matches the given glob pattern. Supports ''*'' (matches any sequence) and ''?'' (matches any single character)')
             [CompletionResult]::new('--manifest-path', 'manifest-path', [CompletionResultType]::ParameterName, 'Path to `moon.mod.json` to use as the project manifest (does not change the working directory)')
-            [CompletionResult]::new('--target-dir', 'target-dir', [CompletionResultType]::ParameterName, 'The target directory. Defaults to `<project-root>/target`')
+            [CompletionResult]::new('--target-dir', 'target-dir', [CompletionResultType]::ParameterName, 'The target directory. Defaults to `<project-root>/_build`')
             [CompletionResult]::new('--std', 'std', [CompletionResultType]::ParameterName, 'Enable the standard library (default)')
             [CompletionResult]::new('--nostd', 'nostd', [CompletionResultType]::ParameterName, 'Disable the standard library')
             [CompletionResult]::new('-g', 'g', [CompletionResultType]::ParameterName, 'Emit debug information')
@@ -316,7 +316,7 @@ Register-ArgumentCompleter -Native -CommandName 'moon' -ScriptBlock {
             [CompletionResult]::new('--patch-file', 'patch-file', [CompletionResultType]::ParameterName, 'Path to the patch file')
             [CompletionResult]::new('--max-concurrent-tests', 'max-concurrent-tests', [CompletionResultType]::ParameterName, 'Max concurrent tests for `async test`')
             [CompletionResult]::new('--manifest-path', 'manifest-path', [CompletionResultType]::ParameterName, 'Path to `moon.mod.json` to use as the project manifest (does not change the working directory)')
-            [CompletionResult]::new('--target-dir', 'target-dir', [CompletionResultType]::ParameterName, 'The target directory. Defaults to `<project-root>/target`')
+            [CompletionResult]::new('--target-dir', 'target-dir', [CompletionResultType]::ParameterName, 'The target directory. Defaults to `<project-root>/_build`')
             [CompletionResult]::new('--bench', 'bench', [CompletionResultType]::ParameterName, 'Whether to generate the test driver in bench mode. Not providing this option will result in test mode')
             [CompletionResult]::new('--enable-coverage', 'enable-coverage', [CompletionResultType]::ParameterName, 'Whether coverage is enabled in this build. Enabling it will insert coverage-custom code at the end of the test..')
             [CompletionResult]::new('-q', 'q', [CompletionResultType]::ParameterName, 'Suppress output')
@@ -332,7 +332,7 @@ Register-ArgumentCompleter -Native -CommandName 'moon' -ScriptBlock {
         }
         'moon;clean' {
             [CompletionResult]::new('--manifest-path', 'manifest-path', [CompletionResultType]::ParameterName, 'Path to `moon.mod.json` to use as the project manifest (does not change the working directory)')
-            [CompletionResult]::new('--target-dir', 'target-dir', [CompletionResultType]::ParameterName, 'The target directory. Defaults to `<project-root>/target`')
+            [CompletionResult]::new('--target-dir', 'target-dir', [CompletionResultType]::ParameterName, 'The target directory. Defaults to `<project-root>/_build`')
             [CompletionResult]::new('-q', 'q', [CompletionResultType]::ParameterName, 'Suppress output')
             [CompletionResult]::new('--quiet', 'quiet', [CompletionResultType]::ParameterName, 'Suppress output')
             [CompletionResult]::new('-v', 'v', [CompletionResultType]::ParameterName, 'Increase verbosity')
@@ -347,7 +347,7 @@ Register-ArgumentCompleter -Native -CommandName 'moon' -ScriptBlock {
         'moon;fmt' {
             [CompletionResult]::new('--block-style', 'block-style', [CompletionResultType]::ParameterName, 'Add separator between each segments')
             [CompletionResult]::new('--manifest-path', 'manifest-path', [CompletionResultType]::ParameterName, 'Path to `moon.mod.json` to use as the project manifest (does not change the working directory)')
-            [CompletionResult]::new('--target-dir', 'target-dir', [CompletionResultType]::ParameterName, 'The target directory. Defaults to `<project-root>/target`')
+            [CompletionResult]::new('--target-dir', 'target-dir', [CompletionResultType]::ParameterName, 'The target directory. Defaults to `<project-root>/_build`')
             [CompletionResult]::new('--check', 'check', [CompletionResultType]::ParameterName, 'Check only and don''t change the source code')
             [CompletionResult]::new('--sort-input', 'sort-input', [CompletionResultType]::ParameterName, 'Sort input files')
             [CompletionResult]::new('--warn', 'warn', [CompletionResultType]::ParameterName, 'Warn if code is not properly formatted')
@@ -368,7 +368,7 @@ Register-ArgumentCompleter -Native -CommandName 'moon' -ScriptBlock {
             [CompletionResult]::new('-p', 'p', [CompletionResultType]::ParameterName, 'The port of the server')
             [CompletionResult]::new('--port', 'port', [CompletionResultType]::ParameterName, 'The port of the server')
             [CompletionResult]::new('--manifest-path', 'manifest-path', [CompletionResultType]::ParameterName, 'Path to `moon.mod.json` to use as the project manifest (does not change the working directory)')
-            [CompletionResult]::new('--target-dir', 'target-dir', [CompletionResultType]::ParameterName, 'The target directory. Defaults to `<project-root>/target`')
+            [CompletionResult]::new('--target-dir', 'target-dir', [CompletionResultType]::ParameterName, 'The target directory. Defaults to `<project-root>/_build`')
             [CompletionResult]::new('--serve', 'serve', [CompletionResultType]::ParameterName, 'Start a web server to serve the documentation')
             [CompletionResult]::new('--frozen', 'frozen', [CompletionResultType]::ParameterName, 'Do not sync dependencies, assuming local dependencies are up-to-date')
             [CompletionResult]::new('-q', 'q', [CompletionResultType]::ParameterName, 'Suppress output')
@@ -387,7 +387,7 @@ Register-ArgumentCompleter -Native -CommandName 'moon' -ScriptBlock {
             [CompletionResult]::new('-p', 'p', [CompletionResultType]::ParameterName, 'The full or subset of name of the package to emit `mbti` files for')
             [CompletionResult]::new('--package', 'package', [CompletionResultType]::ParameterName, 'The full or subset of name of the package to emit `mbti` files for')
             [CompletionResult]::new('--manifest-path', 'manifest-path', [CompletionResultType]::ParameterName, 'Path to `moon.mod.json` to use as the project manifest (does not change the working directory)')
-            [CompletionResult]::new('--target-dir', 'target-dir', [CompletionResultType]::ParameterName, 'The target directory. Defaults to `<project-root>/target`')
+            [CompletionResult]::new('--target-dir', 'target-dir', [CompletionResultType]::ParameterName, 'The target directory. Defaults to `<project-root>/_build`')
             [CompletionResult]::new('--frozen', 'frozen', [CompletionResultType]::ParameterName, 'Do not sync dependencies, assuming local dependencies are up-to-date')
             [CompletionResult]::new('--no-alias', 'no-alias', [CompletionResultType]::ParameterName, 'Do not use alias to shorten package names in the output')
             [CompletionResult]::new('-q', 'q', [CompletionResultType]::ParameterName, 'Suppress output')
@@ -415,7 +415,7 @@ Register-ArgumentCompleter -Native -CommandName 'moon' -ScriptBlock {
             [CompletionResult]::new('-i', 'i', [CompletionResultType]::ParameterName, 'Run only the index-th test in the file. Accepts a single index or a left-inclusive right-exclusive range like `0-2`. Only valid when `--file` is also specified')
             [CompletionResult]::new('--index', 'index', [CompletionResultType]::ParameterName, 'Run only the index-th test in the file. Accepts a single index or a left-inclusive right-exclusive range like `0-2`. Only valid when `--file` is also specified')
             [CompletionResult]::new('--manifest-path', 'manifest-path', [CompletionResultType]::ParameterName, 'Path to `moon.mod.json` to use as the project manifest (does not change the working directory)')
-            [CompletionResult]::new('--target-dir', 'target-dir', [CompletionResultType]::ParameterName, 'The target directory. Defaults to `<project-root>/target`')
+            [CompletionResult]::new('--target-dir', 'target-dir', [CompletionResultType]::ParameterName, 'The target directory. Defaults to `<project-root>/_build`')
             [CompletionResult]::new('--std', 'std', [CompletionResultType]::ParameterName, 'Enable the standard library (default)')
             [CompletionResult]::new('--nostd', 'nostd', [CompletionResultType]::ParameterName, 'Disable the standard library')
             [CompletionResult]::new('-g', 'g', [CompletionResultType]::ParameterName, 'Emit debug information')
@@ -448,7 +448,7 @@ Register-ArgumentCompleter -Native -CommandName 'moon' -ScriptBlock {
         }
         'moon;add' {
             [CompletionResult]::new('--manifest-path', 'manifest-path', [CompletionResultType]::ParameterName, 'Path to `moon.mod.json` to use as the project manifest (does not change the working directory)')
-            [CompletionResult]::new('--target-dir', 'target-dir', [CompletionResultType]::ParameterName, 'The target directory. Defaults to `<project-root>/target`')
+            [CompletionResult]::new('--target-dir', 'target-dir', [CompletionResultType]::ParameterName, 'The target directory. Defaults to `<project-root>/_build`')
             [CompletionResult]::new('--bin', 'bin', [CompletionResultType]::ParameterName, 'Whether to add the dependency as a binary')
             [CompletionResult]::new('--no-update', 'no-update', [CompletionResultType]::ParameterName, 'Do not update the registry index before adding the dependency')
             [CompletionResult]::new('-q', 'q', [CompletionResultType]::ParameterName, 'Suppress output')
@@ -464,7 +464,7 @@ Register-ArgumentCompleter -Native -CommandName 'moon' -ScriptBlock {
         }
         'moon;remove' {
             [CompletionResult]::new('--manifest-path', 'manifest-path', [CompletionResultType]::ParameterName, 'Path to `moon.mod.json` to use as the project manifest (does not change the working directory)')
-            [CompletionResult]::new('--target-dir', 'target-dir', [CompletionResultType]::ParameterName, 'The target directory. Defaults to `<project-root>/target`')
+            [CompletionResult]::new('--target-dir', 'target-dir', [CompletionResultType]::ParameterName, 'The target directory. Defaults to `<project-root>/_build`')
             [CompletionResult]::new('-q', 'q', [CompletionResultType]::ParameterName, 'Suppress output')
             [CompletionResult]::new('--quiet', 'quiet', [CompletionResultType]::ParameterName, 'Suppress output')
             [CompletionResult]::new('-v', 'v', [CompletionResultType]::ParameterName, 'Increase verbosity')
@@ -483,7 +483,7 @@ Register-ArgumentCompleter -Native -CommandName 'moon' -ScriptBlock {
             [CompletionResult]::new('--branch', 'branch', [CompletionResultType]::ParameterName, 'Git branch to checkout (requires git URL)')
             [CompletionResult]::new('--tag', 'tag', [CompletionResultType]::ParameterName, 'Git tag to checkout (requires git URL)')
             [CompletionResult]::new('--manifest-path', 'manifest-path', [CompletionResultType]::ParameterName, 'Path to `moon.mod.json` to use as the project manifest (does not change the working directory)')
-            [CompletionResult]::new('--target-dir', 'target-dir', [CompletionResultType]::ParameterName, 'The target directory. Defaults to `<project-root>/target`')
+            [CompletionResult]::new('--target-dir', 'target-dir', [CompletionResultType]::ParameterName, 'The target directory. Defaults to `<project-root>/_build`')
             [CompletionResult]::new('-q', 'q', [CompletionResultType]::ParameterName, 'Suppress output')
             [CompletionResult]::new('--quiet', 'quiet', [CompletionResultType]::ParameterName, 'Suppress output')
             [CompletionResult]::new('-v', 'v', [CompletionResultType]::ParameterName, 'Increase verbosity')
@@ -497,7 +497,7 @@ Register-ArgumentCompleter -Native -CommandName 'moon' -ScriptBlock {
         }
         'moon;tree' {
             [CompletionResult]::new('--manifest-path', 'manifest-path', [CompletionResultType]::ParameterName, 'Path to `moon.mod.json` to use as the project manifest (does not change the working directory)')
-            [CompletionResult]::new('--target-dir', 'target-dir', [CompletionResultType]::ParameterName, 'The target directory. Defaults to `<project-root>/target`')
+            [CompletionResult]::new('--target-dir', 'target-dir', [CompletionResultType]::ParameterName, 'The target directory. Defaults to `<project-root>/_build`')
             [CompletionResult]::new('-q', 'q', [CompletionResultType]::ParameterName, 'Suppress output')
             [CompletionResult]::new('--quiet', 'quiet', [CompletionResultType]::ParameterName, 'Suppress output')
             [CompletionResult]::new('-v', 'v', [CompletionResultType]::ParameterName, 'Increase verbosity')
@@ -511,7 +511,7 @@ Register-ArgumentCompleter -Native -CommandName 'moon' -ScriptBlock {
         }
         'moon;fetch' {
             [CompletionResult]::new('--manifest-path', 'manifest-path', [CompletionResultType]::ParameterName, 'Path to `moon.mod.json` to use as the project manifest (does not change the working directory)')
-            [CompletionResult]::new('--target-dir', 'target-dir', [CompletionResultType]::ParameterName, 'The target directory. Defaults to `<project-root>/target`')
+            [CompletionResult]::new('--target-dir', 'target-dir', [CompletionResultType]::ParameterName, 'The target directory. Defaults to `<project-root>/_build`')
             [CompletionResult]::new('--no-update', 'no-update', [CompletionResultType]::ParameterName, 'Do not update the registry index before fetching')
             [CompletionResult]::new('-q', 'q', [CompletionResultType]::ParameterName, 'Suppress output')
             [CompletionResult]::new('--quiet', 'quiet', [CompletionResultType]::ParameterName, 'Suppress output')
@@ -526,7 +526,7 @@ Register-ArgumentCompleter -Native -CommandName 'moon' -ScriptBlock {
         }
         'moon;login' {
             [CompletionResult]::new('--manifest-path', 'manifest-path', [CompletionResultType]::ParameterName, 'Path to `moon.mod.json` to use as the project manifest (does not change the working directory)')
-            [CompletionResult]::new('--target-dir', 'target-dir', [CompletionResultType]::ParameterName, 'The target directory. Defaults to `<project-root>/target`')
+            [CompletionResult]::new('--target-dir', 'target-dir', [CompletionResultType]::ParameterName, 'The target directory. Defaults to `<project-root>/_build`')
             [CompletionResult]::new('-q', 'q', [CompletionResultType]::ParameterName, 'Suppress output')
             [CompletionResult]::new('--quiet', 'quiet', [CompletionResultType]::ParameterName, 'Suppress output')
             [CompletionResult]::new('-v', 'v', [CompletionResultType]::ParameterName, 'Increase verbosity')
@@ -540,7 +540,7 @@ Register-ArgumentCompleter -Native -CommandName 'moon' -ScriptBlock {
         }
         'moon;register' {
             [CompletionResult]::new('--manifest-path', 'manifest-path', [CompletionResultType]::ParameterName, 'Path to `moon.mod.json` to use as the project manifest (does not change the working directory)')
-            [CompletionResult]::new('--target-dir', 'target-dir', [CompletionResultType]::ParameterName, 'The target directory. Defaults to `<project-root>/target`')
+            [CompletionResult]::new('--target-dir', 'target-dir', [CompletionResultType]::ParameterName, 'The target directory. Defaults to `<project-root>/_build`')
             [CompletionResult]::new('-q', 'q', [CompletionResultType]::ParameterName, 'Suppress output')
             [CompletionResult]::new('--quiet', 'quiet', [CompletionResultType]::ParameterName, 'Suppress output')
             [CompletionResult]::new('-v', 'v', [CompletionResultType]::ParameterName, 'Increase verbosity')
@@ -554,7 +554,7 @@ Register-ArgumentCompleter -Native -CommandName 'moon' -ScriptBlock {
         }
         'moon;publish' {
             [CompletionResult]::new('--manifest-path', 'manifest-path', [CompletionResultType]::ParameterName, 'Path to `moon.mod.json` to use as the project manifest (does not change the working directory)')
-            [CompletionResult]::new('--target-dir', 'target-dir', [CompletionResultType]::ParameterName, 'The target directory. Defaults to `<project-root>/target`')
+            [CompletionResult]::new('--target-dir', 'target-dir', [CompletionResultType]::ParameterName, 'The target directory. Defaults to `<project-root>/_build`')
             [CompletionResult]::new('--frozen', 'frozen', [CompletionResultType]::ParameterName, 'Do not sync dependencies, assuming local dependencies are up-to-date')
             [CompletionResult]::new('-q', 'q', [CompletionResultType]::ParameterName, 'Suppress output')
             [CompletionResult]::new('--quiet', 'quiet', [CompletionResultType]::ParameterName, 'Suppress output')
@@ -569,7 +569,7 @@ Register-ArgumentCompleter -Native -CommandName 'moon' -ScriptBlock {
         }
         'moon;package' {
             [CompletionResult]::new('--manifest-path', 'manifest-path', [CompletionResultType]::ParameterName, 'Path to `moon.mod.json` to use as the project manifest (does not change the working directory)')
-            [CompletionResult]::new('--target-dir', 'target-dir', [CompletionResultType]::ParameterName, 'The target directory. Defaults to `<project-root>/target`')
+            [CompletionResult]::new('--target-dir', 'target-dir', [CompletionResultType]::ParameterName, 'The target directory. Defaults to `<project-root>/_build`')
             [CompletionResult]::new('--frozen', 'frozen', [CompletionResultType]::ParameterName, 'Do not sync dependencies, assuming local dependencies are up-to-date')
             [CompletionResult]::new('--list', 'list', [CompletionResultType]::ParameterName, 'list')
             [CompletionResult]::new('-q', 'q', [CompletionResultType]::ParameterName, 'Suppress output')
@@ -585,7 +585,7 @@ Register-ArgumentCompleter -Native -CommandName 'moon' -ScriptBlock {
         }
         'moon;update' {
             [CompletionResult]::new('--manifest-path', 'manifest-path', [CompletionResultType]::ParameterName, 'Path to `moon.mod.json` to use as the project manifest (does not change the working directory)')
-            [CompletionResult]::new('--target-dir', 'target-dir', [CompletionResultType]::ParameterName, 'The target directory. Defaults to `<project-root>/target`')
+            [CompletionResult]::new('--target-dir', 'target-dir', [CompletionResultType]::ParameterName, 'The target directory. Defaults to `<project-root>/_build`')
             [CompletionResult]::new('-q', 'q', [CompletionResultType]::ParameterName, 'Suppress output')
             [CompletionResult]::new('--quiet', 'quiet', [CompletionResultType]::ParameterName, 'Suppress output')
             [CompletionResult]::new('-v', 'v', [CompletionResultType]::ParameterName, 'Increase verbosity')
@@ -599,7 +599,7 @@ Register-ArgumentCompleter -Native -CommandName 'moon' -ScriptBlock {
         }
         'moon;coverage' {
             [CompletionResult]::new('--manifest-path', 'manifest-path', [CompletionResultType]::ParameterName, 'Path to `moon.mod.json` to use as the project manifest (does not change the working directory)')
-            [CompletionResult]::new('--target-dir', 'target-dir', [CompletionResultType]::ParameterName, 'The target directory. Defaults to `<project-root>/target`')
+            [CompletionResult]::new('--target-dir', 'target-dir', [CompletionResultType]::ParameterName, 'The target directory. Defaults to `<project-root>/_build`')
             [CompletionResult]::new('-q', 'q', [CompletionResultType]::ParameterName, 'Suppress output')
             [CompletionResult]::new('--quiet', 'quiet', [CompletionResultType]::ParameterName, 'Suppress output')
             [CompletionResult]::new('-v', 'v', [CompletionResultType]::ParameterName, 'Increase verbosity')
@@ -621,7 +621,7 @@ Register-ArgumentCompleter -Native -CommandName 'moon' -ScriptBlock {
             [CompletionResult]::new('-t', 't', [CompletionResultType]::ParameterName, 'Extra flags passed directly to `moon test`')
             [CompletionResult]::new('--test-flag', 'test-flag', [CompletionResultType]::ParameterName, 'Extra flags passed directly to `moon test`')
             [CompletionResult]::new('--manifest-path', 'manifest-path', [CompletionResultType]::ParameterName, 'Path to `moon.mod.json` to use as the project manifest (does not change the working directory)')
-            [CompletionResult]::new('--target-dir', 'target-dir', [CompletionResultType]::ParameterName, 'The target directory. Defaults to `<project-root>/target`')
+            [CompletionResult]::new('--target-dir', 'target-dir', [CompletionResultType]::ParameterName, 'The target directory. Defaults to `<project-root>/_build`')
             [CompletionResult]::new('-q', 'q', [CompletionResultType]::ParameterName, 'Suppress output')
             [CompletionResult]::new('--quiet', 'quiet', [CompletionResultType]::ParameterName, 'Suppress output')
             [CompletionResult]::new('-v', 'v', [CompletionResultType]::ParameterName, 'Increase verbosity')
@@ -635,7 +635,7 @@ Register-ArgumentCompleter -Native -CommandName 'moon' -ScriptBlock {
         }
         'moon;coverage;report' {
             [CompletionResult]::new('--manifest-path', 'manifest-path', [CompletionResultType]::ParameterName, 'Path to `moon.mod.json` to use as the project manifest (does not change the working directory)')
-            [CompletionResult]::new('--target-dir', 'target-dir', [CompletionResultType]::ParameterName, 'The target directory. Defaults to `<project-root>/target`')
+            [CompletionResult]::new('--target-dir', 'target-dir', [CompletionResultType]::ParameterName, 'The target directory. Defaults to `<project-root>/_build`')
             [CompletionResult]::new('-h', 'h', [CompletionResultType]::ParameterName, 'Show help for the coverage utility')
             [CompletionResult]::new('--help', 'help', [CompletionResultType]::ParameterName, 'Show help for the coverage utility')
             [CompletionResult]::new('-q', 'q', [CompletionResultType]::ParameterName, 'Suppress output')
@@ -649,7 +649,7 @@ Register-ArgumentCompleter -Native -CommandName 'moon' -ScriptBlock {
         }
         'moon;coverage;clean' {
             [CompletionResult]::new('--manifest-path', 'manifest-path', [CompletionResultType]::ParameterName, 'Path to `moon.mod.json` to use as the project manifest (does not change the working directory)')
-            [CompletionResult]::new('--target-dir', 'target-dir', [CompletionResultType]::ParameterName, 'The target directory. Defaults to `<project-root>/target`')
+            [CompletionResult]::new('--target-dir', 'target-dir', [CompletionResultType]::ParameterName, 'The target directory. Defaults to `<project-root>/_build`')
             [CompletionResult]::new('-q', 'q', [CompletionResultType]::ParameterName, 'Suppress output')
             [CompletionResult]::new('--quiet', 'quiet', [CompletionResultType]::ParameterName, 'Suppress output')
             [CompletionResult]::new('-v', 'v', [CompletionResultType]::ParameterName, 'Increase verbosity')
@@ -689,7 +689,7 @@ Register-ArgumentCompleter -Native -CommandName 'moon' -ScriptBlock {
             [CompletionResult]::new('-o', 'o', [CompletionResultType]::ParameterName, 'The output directory')
             [CompletionResult]::new('--output-dir', 'output-dir', [CompletionResultType]::ParameterName, 'The output directory')
             [CompletionResult]::new('--manifest-path', 'manifest-path', [CompletionResultType]::ParameterName, 'Path to `moon.mod.json` to use as the project manifest (does not change the working directory)')
-            [CompletionResult]::new('--target-dir', 'target-dir', [CompletionResultType]::ParameterName, 'The target directory. Defaults to `<project-root>/target`')
+            [CompletionResult]::new('--target-dir', 'target-dir', [CompletionResultType]::ParameterName, 'The target directory. Defaults to `<project-root>/_build`')
             [CompletionResult]::new('-q', 'q', [CompletionResultType]::ParameterName, 'Suppress output')
             [CompletionResult]::new('--quiet', 'quiet', [CompletionResultType]::ParameterName, 'Suppress output')
             [CompletionResult]::new('-v', 'v', [CompletionResultType]::ParameterName, 'Increase verbosity')
@@ -709,7 +709,7 @@ Register-ArgumentCompleter -Native -CommandName 'moon' -ScriptBlock {
             [CompletionResult]::new('--jobs', 'jobs', [CompletionResultType]::ParameterName, 'Set the max number of jobs to run in parallel')
             [CompletionResult]::new('--render-no-loc', 'render-no-loc', [CompletionResultType]::ParameterName, 'Render no-location diagnostics starting from a certain level')
             [CompletionResult]::new('--manifest-path', 'manifest-path', [CompletionResultType]::ParameterName, 'Path to `moon.mod.json` to use as the project manifest (does not change the working directory)')
-            [CompletionResult]::new('--target-dir', 'target-dir', [CompletionResultType]::ParameterName, 'The target directory. Defaults to `<project-root>/target`')
+            [CompletionResult]::new('--target-dir', 'target-dir', [CompletionResultType]::ParameterName, 'The target directory. Defaults to `<project-root>/_build`')
             [CompletionResult]::new('--std', 'std', [CompletionResultType]::ParameterName, 'Enable the standard library (default)')
             [CompletionResult]::new('--nostd', 'nostd', [CompletionResultType]::ParameterName, 'Disable the standard library')
             [CompletionResult]::new('-g', 'g', [CompletionResultType]::ParameterName, 'Emit debug information')
@@ -740,7 +740,7 @@ Register-ArgumentCompleter -Native -CommandName 'moon' -ScriptBlock {
         'moon;upgrade' {
             [CompletionResult]::new('--base-url', 'base-url', [CompletionResultType]::ParameterName, 'base-url')
             [CompletionResult]::new('--manifest-path', 'manifest-path', [CompletionResultType]::ParameterName, 'Path to `moon.mod.json` to use as the project manifest (does not change the working directory)')
-            [CompletionResult]::new('--target-dir', 'target-dir', [CompletionResultType]::ParameterName, 'The target directory. Defaults to `<project-root>/target`')
+            [CompletionResult]::new('--target-dir', 'target-dir', [CompletionResultType]::ParameterName, 'The target directory. Defaults to `<project-root>/_build`')
             [CompletionResult]::new('-f', 'f', [CompletionResultType]::ParameterName, 'Force upgrade')
             [CompletionResult]::new('--force', 'force', [CompletionResultType]::ParameterName, 'Force upgrade')
             [CompletionResult]::new('--dev', 'dev', [CompletionResultType]::ParameterName, 'Install the latest development version')
@@ -759,7 +759,7 @@ Register-ArgumentCompleter -Native -CommandName 'moon' -ScriptBlock {
         'moon;shell-completion' {
             [CompletionResult]::new('--shell', 'shell', [CompletionResultType]::ParameterName, 'The shell to generate completion for')
             [CompletionResult]::new('--manifest-path', 'manifest-path', [CompletionResultType]::ParameterName, 'Path to `moon.mod.json` to use as the project manifest (does not change the working directory)')
-            [CompletionResult]::new('--target-dir', 'target-dir', [CompletionResultType]::ParameterName, 'The target directory. Defaults to `<project-root>/target`')
+            [CompletionResult]::new('--target-dir', 'target-dir', [CompletionResultType]::ParameterName, 'The target directory. Defaults to `<project-root>/_build`')
             [CompletionResult]::new('-q', 'q', [CompletionResultType]::ParameterName, 'Suppress output')
             [CompletionResult]::new('--quiet', 'quiet', [CompletionResultType]::ParameterName, 'Suppress output')
             [CompletionResult]::new('-v', 'v', [CompletionResultType]::ParameterName, 'Increase verbosity')
@@ -773,7 +773,7 @@ Register-ArgumentCompleter -Native -CommandName 'moon' -ScriptBlock {
         }
         'moon;version' {
             [CompletionResult]::new('--manifest-path', 'manifest-path', [CompletionResultType]::ParameterName, 'Path to `moon.mod.json` to use as the project manifest (does not change the working directory)')
-            [CompletionResult]::new('--target-dir', 'target-dir', [CompletionResultType]::ParameterName, 'The target directory. Defaults to `<project-root>/target`')
+            [CompletionResult]::new('--target-dir', 'target-dir', [CompletionResultType]::ParameterName, 'The target directory. Defaults to `<project-root>/_build`')
             [CompletionResult]::new('--all', 'all', [CompletionResultType]::ParameterName, 'Print all version information')
             [CompletionResult]::new('--json', 'json', [CompletionResultType]::ParameterName, 'Print version information in JSON format')
             [CompletionResult]::new('--no-path', 'no-path', [CompletionResultType]::ParameterName, 'Do not print the path')
@@ -790,7 +790,7 @@ Register-ArgumentCompleter -Native -CommandName 'moon' -ScriptBlock {
         }
         'moon;tool' {
             [CompletionResult]::new('--manifest-path', 'manifest-path', [CompletionResultType]::ParameterName, 'Path to `moon.mod.json` to use as the project manifest (does not change the working directory)')
-            [CompletionResult]::new('--target-dir', 'target-dir', [CompletionResultType]::ParameterName, 'The target directory. Defaults to `<project-root>/target`')
+            [CompletionResult]::new('--target-dir', 'target-dir', [CompletionResultType]::ParameterName, 'The target directory. Defaults to `<project-root>/_build`')
             [CompletionResult]::new('-q', 'q', [CompletionResultType]::ParameterName, 'Suppress output')
             [CompletionResult]::new('--quiet', 'quiet', [CompletionResultType]::ParameterName, 'Suppress output')
             [CompletionResult]::new('-v', 'v', [CompletionResultType]::ParameterName, 'Increase verbosity')
@@ -811,7 +811,7 @@ Register-ArgumentCompleter -Native -CommandName 'moon' -ScriptBlock {
             [CompletionResult]::new('--old', 'old', [CompletionResultType]::ParameterName, 'The source path of the code which needs to be formatted')
             [CompletionResult]::new('--new', 'new', [CompletionResultType]::ParameterName, 'The target path of the formatted code')
             [CompletionResult]::new('--manifest-path', 'manifest-path', [CompletionResultType]::ParameterName, 'Path to `moon.mod.json` to use as the project manifest (does not change the working directory)')
-            [CompletionResult]::new('--target-dir', 'target-dir', [CompletionResultType]::ParameterName, 'The target directory. Defaults to `<project-root>/target`')
+            [CompletionResult]::new('--target-dir', 'target-dir', [CompletionResultType]::ParameterName, 'The target directory. Defaults to `<project-root>/_build`')
             [CompletionResult]::new('--block-style', 'block-style', [CompletionResultType]::ParameterName, 'Add separator between each segments')
             [CompletionResult]::new('--warn', 'warn', [CompletionResultType]::ParameterName, 'Warn instead of showing differences')
             [CompletionResult]::new('-q', 'q', [CompletionResultType]::ParameterName, 'Suppress output')
@@ -832,7 +832,7 @@ Register-ArgumentCompleter -Native -CommandName 'moon' -ScriptBlock {
             [CompletionResult]::new('--output', 'output', [CompletionResultType]::ParameterName, 'output')
             [CompletionResult]::new('--name', 'name', [CompletionResultType]::ParameterName, 'name')
             [CompletionResult]::new('--manifest-path', 'manifest-path', [CompletionResultType]::ParameterName, 'Path to `moon.mod.json` to use as the project manifest (does not change the working directory)')
-            [CompletionResult]::new('--target-dir', 'target-dir', [CompletionResultType]::ParameterName, 'The target directory. Defaults to `<project-root>/target`')
+            [CompletionResult]::new('--target-dir', 'target-dir', [CompletionResultType]::ParameterName, 'The target directory. Defaults to `<project-root>/_build`')
             [CompletionResult]::new('--binary', 'binary', [CompletionResultType]::ParameterName, 'binary')
             [CompletionResult]::new('--text', 'text', [CompletionResultType]::ParameterName, 'text')
             [CompletionResult]::new('--timestamp', 'timestamp', [CompletionResultType]::ParameterName, 'timestamp')
@@ -849,7 +849,7 @@ Register-ArgumentCompleter -Native -CommandName 'moon' -ScriptBlock {
         }
         'moon;tool;write-tcc-rsp-file' {
             [CompletionResult]::new('--manifest-path', 'manifest-path', [CompletionResultType]::ParameterName, 'Path to `moon.mod.json` to use as the project manifest (does not change the working directory)')
-            [CompletionResult]::new('--target-dir', 'target-dir', [CompletionResultType]::ParameterName, 'The target directory. Defaults to `<project-root>/target`')
+            [CompletionResult]::new('--target-dir', 'target-dir', [CompletionResultType]::ParameterName, 'The target directory. Defaults to `<project-root>/_build`')
             [CompletionResult]::new('-q', 'q', [CompletionResultType]::ParameterName, 'Suppress output')
             [CompletionResult]::new('--quiet', 'quiet', [CompletionResultType]::ParameterName, 'Suppress output')
             [CompletionResult]::new('-v', 'v', [CompletionResultType]::ParameterName, 'Increase verbosity')
@@ -864,7 +864,7 @@ Register-ArgumentCompleter -Native -CommandName 'moon' -ScriptBlock {
         'moon;tool;build-binary-dep' {
             [CompletionResult]::new('--install-path', 'install-path', [CompletionResultType]::ParameterName, 'The parent directory where the binary module is installed to')
             [CompletionResult]::new('--manifest-path', 'manifest-path', [CompletionResultType]::ParameterName, 'Path to `moon.mod.json` to use as the project manifest (does not change the working directory)')
-            [CompletionResult]::new('--target-dir', 'target-dir', [CompletionResultType]::ParameterName, 'The target directory. Defaults to `<project-root>/target`')
+            [CompletionResult]::new('--target-dir', 'target-dir', [CompletionResultType]::ParameterName, 'The target directory. Defaults to `<project-root>/_build`')
             [CompletionResult]::new('--all-pkgs', 'all-pkgs', [CompletionResultType]::ParameterName, 'Whether to build and install all binary packages in the module')
             [CompletionResult]::new('-q', 'q', [CompletionResultType]::ParameterName, 'Suppress output')
             [CompletionResult]::new('--quiet', 'quiet', [CompletionResultType]::ParameterName, 'Suppress output')
@@ -985,7 +985,7 @@ Register-ArgumentCompleter -Native -CommandName 'moon' -ScriptBlock {
             [CompletionResult]::new('run', 'run', [CompletionResultType]::ParameterValue, 'Run a main package')
             [CompletionResult]::new('test', 'test', [CompletionResultType]::ParameterValue, 'Test the current package')
             [CompletionResult]::new('generate-test-driver', 'generate-test-driver', [CompletionResultType]::ParameterValue, 'Generate tests for a provided package. This is a thin wrapper around `moonc gen-test-info`, which does the actual parsing and generation')
-            [CompletionResult]::new('clean', 'clean', [CompletionResultType]::ParameterValue, 'Remove the target directory')
+            [CompletionResult]::new('clean', 'clean', [CompletionResultType]::ParameterValue, 'Remove the _build directory')
             [CompletionResult]::new('fmt', 'fmt', [CompletionResultType]::ParameterValue, 'Format source code')
             [CompletionResult]::new('doc', 'doc', [CompletionResultType]::ParameterValue, 'Generate documentation or searching documentation for a symbol')
             [CompletionResult]::new('info', 'info', [CompletionResultType]::ParameterValue, 'Generate public interface (`.mbti`) files for all packages in the module')

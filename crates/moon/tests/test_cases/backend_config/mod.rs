@@ -6,7 +6,7 @@ fn test_backend_config() {
 
     let _ = get_stdout(&dir, ["build", "--output-wat"]);
     let out = std::fs::read_to_string(dir.join(format!(
-        "target/{}/debug/build/lib/lib.wat",
+        "_build/{}/debug/build/lib/lib.wat",
         TargetBackend::default().to_backend_ext()
     )))
     .unwrap();

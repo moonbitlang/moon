@@ -69,5 +69,5 @@ fn test_design() {
             {"artifacts_path":["$ROOT/_build/js/debug/build/main2/main2.js"]}
         "#]],
     );
-    assert!(dir.join("target/js/debug/build/main2/main2.js").exists());
+    assert!(dir.join("_build/js/debug/build/main2/main2.js").exists());
 }

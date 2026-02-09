@@ -77,8 +77,8 @@ fn test_snapshot_test_target_js() {
             Total tests: 6, passed: 1, failed: 5.
         "#]],
     );
-    // I'm not sure whether `moon test` should generate `package.json` in the target directory
-    // assert!(dir.join("target/js/debug/test/package.json").exists());
+    // I'm not sure whether `moon test` should generate `package.json` in the _build directory
+    // assert!(dir.join("_build/js/debug/test/package.json").exists());
     let output = get_stdout(
         &dir,
         [
