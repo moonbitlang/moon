@@ -634,13 +634,262 @@ function colorizeDemangledName(s) {
     return colorize(s, ANSI_WHITE);
 }
 
+const BASE64 = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+const BASE64_INDEX = (() => {
+    const map = Object.create(null);
+    for (let i = 0; i < BASE64.length; i++) {
+        map[BASE64[i]] = i;
+    }
+    return map;
+})();
+
+const SOURCE_MAP_CACHE = new Map();
+
+function decodeVLQSegment(seg) {
+    let i = 0;
+    const out = [];
+    while (i < seg.length) {
+        let value = 0;
+        let shift = 0;
+        let cont = false;
+        do {
+            if (i >= seg.length) return null;
+            const digit = BASE64_INDEX[seg[i]];
+            if (digit === undefined) return null;
+            i += 1;
+            cont = (digit & 32) !== 0;
+            value |= (digit & 31) << shift;
+            shift += 5;
+        } while (cont);
+        const neg = (value & 1) !== 0;
+        value >>= 1;
+        out.push(neg ? -value : value);
+    }
+    return out;
+}
+
+function bytesToString(bytes) {
+    if (typeof TextDecoder !== "undefined") {
+        return new TextDecoder("utf-8").decode(bytes);
+    }
+    let s = "";
+    for (let i = 0; i < bytes.length; i++) {
+        s += String.fromCharCode(bytes[i]);
+    }
+    return s;
+}
+
+function basename(path) {
+    if (!path) return "";
+    const slash = Math.max(path.lastIndexOf("/"), path.lastIndexOf("\\"));
+    return slash >= 0 ? path.slice(slash + 1) : path;
+}
+
+function dirname(path) {
+    const slash = Math.max(path.lastIndexOf("/"), path.lastIndexOf("\\"));
+    return slash >= 0 ? path.slice(0, slash) : ".";
+}
+
+function isAbsolutePath(path) {
+    return path.startsWith("/") || /^[A-Za-z]:[\\/]/.test(path);
+}
+
+function joinPath(baseDir, relPath) {
+    if (!relPath) return baseDir;
+    if (isAbsolutePath(relPath)) return relPath;
+    if (baseDir === "." || baseDir === "") return relPath;
+    const sep = baseDir.includes("\\") ? "\\" : "/";
+    if (baseDir.endsWith("/") || baseDir.endsWith("\\")) {
+        return `${baseDir}${relPath}`;
+    }
+    return `${baseDir}${sep}${relPath}`;
+}
+
+function readULEB128(buf, start) {
+    let i = start;
+    let n = 0;
+    let shift = 0;
+    while (i < buf.length) {
+        const b = buf[i];
+        i += 1;
+        n |= (b & 0x7f) << shift;
+        if ((b & 0x80) === 0) {
+            return [n, i];
+        }
+        shift += 7;
+    }
+    return null;
+}
+
+function extractSourceMapURLFromWasm(buf) {
+    const name = "sourceMappingURL";
+    let pos = 8; // skip wasm magic and version
+    while (pos < buf.length) {
+        const idRead = readULEB128(buf, pos);
+        if (!idRead) return null;
+        const secId = idRead[0];
+        const sizeRead = readULEB128(buf, idRead[1]);
+        if (!sizeRead) return null;
+        const secSize = sizeRead[0];
+        const bodyPos = sizeRead[1];
+        const secEnd = bodyPos + secSize;
+        if (secEnd > buf.length) return null;
+
+        if (secId === 0) {
+            const nameLenRead = readULEB128(buf, bodyPos);
+            if (!nameLenRead) return null;
+            const secNameLen = nameLenRead[0];
+            const secNamePos = nameLenRead[1];
+            const secNameEnd = secNamePos + secNameLen;
+            if (secNameEnd > secEnd) return null;
+            const secName = bytesToString(buf.slice(secNamePos, secNameEnd));
+            if (secName === name) {
+                const valLenRead = readULEB128(buf, secNameEnd);
+                if (!valLenRead) return null;
+                const valLen = valLenRead[0];
+                const valPos = valLenRead[1];
+                const valEnd = valPos + valLen;
+                if (valEnd > secEnd) return null;
+                return bytesToString(buf.slice(valPos, valEnd));
+            }
+        }
+        pos = secEnd;
+    }
+    return null;
+}
+
+function parseWasmSourceMap(rawMap) {
+    if (!rawMap || typeof rawMap.mappings !== "string" || !Array.isArray(rawMap.sources)) {
+        return null;
+    }
+    const text = rawMap.mappings;
+    const mappings = [];
+    let generatedLine = 0;
+    let generatedColumn = 0;
+    let source = 0;
+    let originalLine = 0;
+    let originalColumn = 0;
+
+    let i = 0;
+    while (i < text.length) {
+        const ch = text[i];
+        if (ch === ";") {
+            generatedLine += 1;
+            generatedColumn = 0;
+            i += 1;
+            continue;
+        }
+        if (ch === ",") {
+            i += 1;
+            continue;
+        }
+
+        let j = i;
+        while (j < text.length && text[j] !== "," && text[j] !== ";") {
+            j += 1;
+        }
+        const seg = decodeVLQSegment(text.slice(i, j));
+        if (!seg || seg.length < 1) return null;
+
+        generatedColumn += seg[0];
+        if (seg.length >= 4) {
+            source += seg[1];
+            originalLine += seg[2];
+            originalColumn += seg[3];
+            // moon_wat2wasm encodes address into generated column.
+            if (generatedLine === 0) {
+                mappings.push({
+                    addr: generatedColumn,
+                    source,
+                    line: originalLine + 1,
+                    col: originalColumn + 1,
+                });
+            }
+        }
+        i = j;
+    }
+    return { sources: rawMap.sources, mappings };
+}
+
+function loadSourceMapForModule(wasmPath) {
+    if (!wasmPath) return null;
+    if (SOURCE_MAP_CACHE.has(wasmPath)) {
+        return SOURCE_MAP_CACHE.get(wasmPath);
+    }
+
+    let parsed = null;
+    try {
+        const wasmBytes = read_file_to_bytes(wasmPath);
+        let mapPath = null;
+        const embedded = extractSourceMapURLFromWasm(wasmBytes);
+        if (
+            embedded &&
+            !embedded.startsWith("data:") &&
+            !embedded.startsWith("http://") &&
+            !embedded.startsWith("https://")
+        ) {
+            mapPath = isAbsolutePath(embedded) ? embedded : joinPath(dirname(wasmPath), embedded);
+        }
+        if (!mapPath) {
+            mapPath = `${wasmPath}.map`;
+        }
+        const mapBytes = read_file_to_bytes(mapPath);
+        const rawMap = JSON.parse(bytesToString(mapBytes));
+        parsed = parseWasmSourceMap(rawMap);
+    } catch (_) {
+        parsed = null;
+    }
+    SOURCE_MAP_CACHE.set(wasmPath, parsed);
+    return parsed;
+}
+
+function sourcePosForOffset(offset) {
+    if (typeof module_name !== "string" || !module_name) {
+        return null;
+    }
+    const sm = loadSourceMapForModule(module_name);
+    if (!sm || !Array.isArray(sm.mappings) || sm.mappings.length === 0) {
+        return null;
+    }
+
+    let lo = 0;
+    let hi = sm.mappings.length - 1;
+    let best = -1;
+    while (lo <= hi) {
+        const mid = (lo + hi) >> 1;
+        if (sm.mappings[mid].addr <= offset) {
+            best = mid;
+            lo = mid + 1;
+        } else {
+            hi = mid - 1;
+        }
+    }
+    if (best < 0) return null;
+
+    const m = sm.mappings[best];
+    if (m.source < 0 || m.source >= sm.sources.length) {
+        return null;
+    }
+    const sourceFile = basename(sm.sources[m.source]);
+    return `${sourceFile}:${m.line}`;
+}
+
+function sourcePosForWasmLocation(location) {
+    const m = /:0x([0-9a-fA-F]+)\s*$/.exec(location);
+    if (!m) return null;
+    const offset = parseInt(m[1], 16);
+    if (!Number.isFinite(offset)) return null;
+    return sourcePosForOffset(offset);
+}
+
 function formatStackLine(line) {
     // Typical v8 frame: "    at <func> (<loc>)"
     const withLoc = line.match(/^(\s*)at\s+(.+?)(\s+\((.*)\)\s*)$/);
     if (withLoc) {
         const fn = colorizeDemangledName(demangleMangledFunctionName(withLoc[2]));
-        const loc = colorize(`(${withLoc[4]})`, ANSI_GREY);
-        return `${withLoc[1]}${colorize("at", ANSI_CYAN)} ${colorize(fn, ANSI_BOLD)} ${loc}`;
+        const srcPos = sourcePosForWasmLocation(withLoc[4]);
+        const src = srcPos ? ` ${colorize(srcPos, ANSI_GREY)}` : "";
+        return `${withLoc[1]}${colorize("at", ANSI_CYAN)} ${colorize(fn, ANSI_BOLD)}${src}`;
     }
 
     // Fallback: "    at <func>"

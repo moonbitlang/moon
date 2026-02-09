@@ -198,9 +198,9 @@ fn test_moonrun_wasm_stack_trace() {
         &normalized_s,
         expect![[r#"
             RuntimeError: unreachable
-                at @moonbitlang/core/abort.abort[Unit] (wasm://wasm:wasm-function[35])
-                at @moonbitlang/core/builtin.abort[Unit] (wasm://wasm:wasm-function[33])
-                at @__moonbit_main (wasm://wasm:wasm-function[40])
+                at @moonbitlang/core/abort.abort[Unit] abort.mbt:29
+                at @moonbitlang/core/builtin.abort[Unit] intrinsics.mbt:70
+                at @__moonbit_main main.mbt:20
         "#]],
     );
 
