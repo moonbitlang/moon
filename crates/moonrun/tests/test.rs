@@ -76,6 +76,77 @@ fn check(actual: &str, expect: Expect) {
     expect.assert_eq(actual)
 }
 
+fn strip_ansi(text: &str) -> String {
+    let mut out = String::with_capacity(text.len());
+    let bytes = text.as_bytes();
+    let mut i = 0;
+
+    while i < bytes.len() {
+        if bytes[i] == 0x1b && i + 1 < bytes.len() && bytes[i + 1] == b'[' {
+            i += 2;
+            while i < bytes.len() {
+                let b = bytes[i];
+                if b.is_ascii_alphabetic() {
+                    i += 1;
+                    break;
+                }
+                i += 1;
+            }
+            continue;
+        }
+        out.push(bytes[i] as char);
+        i += 1;
+    }
+    out
+}
+
+fn normalize_source_token(token: &str) -> String {
+    let Some(line_sep) = token.rfind(':') else {
+        return token.to_string();
+    };
+    if !token[line_sep + 1..].chars().all(|c| c.is_ascii_digit()) {
+        return token.to_string();
+    }
+
+    let path = &token[..line_sep];
+    if !(path.contains('/') || path.contains('\\')) {
+        return token.to_string();
+    }
+
+    let parts: Vec<_> = path
+        .split(['/', '\\'])
+        .filter(|seg| !seg.is_empty())
+        .collect();
+    let short_path = if parts.len() >= 2 {
+        format!("{}/{}", parts[parts.len() - 2], parts[parts.len() - 1])
+    } else {
+        parts
+            .last()
+            .map(|s| (*s).to_string())
+            .unwrap_or_else(|| path.to_string())
+    };
+    format!("{}:{}", short_path, &token[line_sep + 1..])
+}
+
+fn normalize_source_paths(text: &str) -> String {
+    let mut out = String::with_capacity(text.len());
+    for (i, line) in text.lines().enumerate() {
+        if i > 0 {
+            out.push('\n');
+        }
+        if let Some(space) = line.rfind(' ') {
+            out.push_str(&line[..space + 1]);
+            out.push_str(&normalize_source_token(&line[space + 1..]));
+        } else {
+            out.push_str(line);
+        }
+    }
+    if text.ends_with('\n') {
+        out.push('\n');
+    }
+    out
+}
+
 #[test]
 fn test_moonrun_version() {
     let out = snapbox::cmd::Command::new(snapbox::cmd::cargo_bin("moonrun"))
@@ -137,7 +208,7 @@ pub fn normalize_wasm_trace(text: &str) -> String {
         }
     }
 
-    result
+    normalize_source_paths(&result)
 }
 
 #[test]
@@ -165,6 +236,7 @@ fn test_moonrun_wasm_stack_trace() {
     //          at wasm://wasm/d858b7fa:wasm-function[17]:0x72b
     //          at wasm://wasm/d858b7fa:wasm-function[24]:0x7a3
     let s = std::str::from_utf8(&out).unwrap().to_string();
+    let s = strip_ansi(&s);
     // need normalization because the source loc (absolute path now) string in
     // encoded in data section and makes the hash of the .wasm file flaky
     // because the absolute path contains temp dir path
@@ -173,9 +245,9 @@ fn test_moonrun_wasm_stack_trace() {
         &normalized_s,
         expect![[r#"
             RuntimeError: unreachable
-                at _M0FP311moonbitlang4core5abort5abortGuE (wasm://wasm:wasm-function[35])
-                at _M0FP311moonbitlang4core7builtin5abortGuE (wasm://wasm:wasm-function[33])
-                at _M0FP017____moonbit__main (wasm://wasm:wasm-function[40])
+                at @moonbitlang/core/abort.abort[Unit] abort/abort.mbt:29
+                at @moonbitlang/core/builtin.abort[Unit] builtin/intrinsics.mbt:70
+                at @__moonbit_main main/main.mbt:20
         "#]],
     );
 
@@ -188,6 +260,7 @@ fn test_moonrun_wasm_stack_trace() {
         .stderr
         .to_owned();
     let s = std::str::from_utf8(&out).unwrap().to_string();
+    let s = strip_ansi(&s);
     check(
         &s,
         expect![[r#"
