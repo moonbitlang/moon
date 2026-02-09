@@ -70,11 +70,51 @@ fn display_path(path: &Path) -> String {
     path.to_string_lossy().replace('\\', "/")
 }
 
+fn normalize_source_path(path: &Path) -> PathBuf {
+    normalize_windows_drive_case(normalize_path(path))
+}
+
+#[cfg(windows)]
+fn normalize_windows_drive_case(path: PathBuf) -> PathBuf {
+    use std::path::{Component, Prefix};
+
+    let mut components = path.components();
+    let Some(Component::Prefix(prefix)) = components.next() else {
+        return path;
+    };
+
+    let (drive, verbatim) = match prefix.kind() {
+        Prefix::Disk(drive) => (drive, false),
+        Prefix::VerbatimDisk(drive) => (drive, true),
+        _ => return path,
+    };
+
+    if !drive.is_ascii_alphabetic() {
+        return path;
+    }
+
+    let lower = drive.to_ascii_lowercase() as char;
+    let mut normalized = if verbatim {
+        PathBuf::from(format!(r"\\?\{lower}:"))
+    } else {
+        PathBuf::from(format!("{lower}:"))
+    };
+    for component in components {
+        normalized.push(component.as_os_str());
+    }
+    normalized
+}
+
+#[cfg(not(windows))]
+fn normalize_windows_drive_case(path: PathBuf) -> PathBuf {
+    path
+}
+
 fn format_source_path_auto_impl(path: &str) -> String {
     if path.is_empty() {
         return String::new();
     }
-    let source = normalize_path(Path::new(path));
+    let source = normalize_source_path(Path::new(path));
     let normalized = display_path(&source);
     if !source.is_absolute() {
         return normalized;
@@ -83,7 +123,7 @@ fn format_source_path_auto_impl(path: &str) -> String {
     let Ok(cwd) = std::env::current_dir() else {
         return normalized;
     };
-    let cwd = normalize_path(&cwd);
+    let cwd = normalize_source_path(&cwd);
     let Ok(rel) = source.strip_prefix(&cwd) else {
         return normalized;
     };
@@ -176,30 +216,42 @@ fn base64_index(ch: u8) -> Option<i32> {
     }
 }
 
+fn decode_vlq_value(bytes: &[u8], i: &mut usize) -> Option<i32> {
+    let mut value = 0u32;
+    let mut shift = 0u32;
+    loop {
+        if *i >= bytes.len() {
+            return None;
+        }
+        let digit = base64_index(bytes[*i])? as u32;
+        *i += 1;
+        if shift >= 32 {
+            return None;
+        }
+        let shifted = (digit & 31).checked_shl(shift)?;
+        value = value.checked_add(shifted)?;
+        let cont = (digit & 32) != 0;
+        if !cont {
+            break;
+        }
+        shift += 5;
+    }
+
+    // Keep decoded values within i32 so malformed source maps fail gracefully.
+    if (value >> 1) > i32::MAX as u32 {
+        return None;
+    }
+    let neg = (value & 1) != 0;
+    let value = (value >> 1) as i32;
+    Some(if neg { -value } else { value })
+}
+
 fn decode_vlq_segment(seg: &str) -> Option<Vec<i32>> {
     let bytes = seg.as_bytes();
     let mut i = 0usize;
     let mut out = Vec::new();
     while i < bytes.len() {
-        let mut value = 0i32;
-        let mut shift = 0u32;
-        loop {
-            if i >= bytes.len() {
-                return None;
-            }
-            let digit = base64_index(bytes[i])?;
-            i += 1;
-            let cont = (digit & 32) != 0;
-            value |= (digit & 31) << shift;
-            shift += 5;
-            if !cont {
-                break;
-            }
-        }
-
-        let neg = (value & 1) != 0;
-        value >>= 1;
-        out.push(if neg { -value } else { value });
+        out.push(decode_vlq_value(bytes, &mut i)?);
     }
     Some(out)
 }
@@ -318,19 +370,13 @@ fn parse_offset_from_wasm_location(location: &str) -> Option<u32> {
 
 fn source_pos_for_offset(module_name: &str, offset: u32) -> Option<String> {
     let sm = load_source_map_for_module(Path::new(module_name))?;
-    if sm.mappings.is_empty() {
-        return None;
-    }
-
     let idx = sm.mappings.partition_point(|m| m.addr <= offset);
     if idx == 0 {
         return None;
     }
     let m = &sm.mappings[idx - 1];
-    if m.source < 0 || m.source as usize >= sm.sources.len() {
-        return None;
-    }
-    let source_file = format_source_path_auto_impl(&sm.sources[m.source as usize]);
+    let source_idx = usize::try_from(m.source).ok()?;
+    let source_file = format_source_path_auto_impl(sm.sources.get(source_idx)?);
     Some(format!("{source_file}:{}", m.line))
 }
 
@@ -399,6 +445,11 @@ mod tests {
     }
 
     #[test]
+    fn decode_vlq_segment_rejects_shift_overflow() {
+        assert_eq!(decode_vlq_segment("ggggggggA"), None);
+    }
+
+    #[test]
     fn parse_offset_from_location_works() {
         assert_eq!(parse_offset_from_wasm_location("wasm://x:0x10"), Some(0x10));
         assert_eq!(
@@ -421,5 +472,24 @@ mod tests {
         assert_eq!(parsed.mappings[0].addr, 0);
         assert_eq!(parsed.mappings[0].source, 0);
         assert_eq!(parsed.mappings[0].line, 1);
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn path_inside_cwd_with_drive_case_mismatch_becomes_relative() {
+        let cwd = std::env::current_dir().unwrap();
+        let cwd = display_path(&normalize_path(&cwd));
+        let mut cwd_bytes = cwd.into_bytes();
+        if cwd_bytes.len() < 2 || cwd_bytes[1] != b':' || !cwd_bytes[0].is_ascii_alphabetic() {
+            return;
+        }
+        cwd_bytes[0] = if cwd_bytes[0].is_ascii_uppercase() {
+            cwd_bytes[0].to_ascii_lowercase()
+        } else {
+            cwd_bytes[0].to_ascii_uppercase()
+        };
+        let cwd_with_mismatched_drive = String::from_utf8(cwd_bytes).unwrap();
+        let path = format!("{cwd_with_mismatched_drive}/foo/bar.mbt");
+        assert_eq!(format_source_path_auto_impl(&path), "foo/bar.mbt");
     }
 }

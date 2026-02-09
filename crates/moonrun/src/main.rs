@@ -658,13 +658,14 @@ mod tests {
         });
     }
 
-    fn build_runtime_for_contract_test<'s>(scope: &mut v8::ContextScope<'s, v8::HandleScope<'s>>) {
+    fn build_runtime_for_contract_test(scope: &mut v8::HandleScope<'_>) {
         let global = scope.get_current_context().global(scope);
 
         let fs = v8::Object::new(scope);
+        let fs_key = scope.string("__moonbit_fs_unstable");
         global.set(
             scope,
-            scope.string("__moonbit_fs_unstable").into(),
+            fs_key.into(),
             fs.into(),
         );
         sys_api::init_env(fs, scope, "main.wasm", &[]);
@@ -673,9 +674,7 @@ mod tests {
         global.child(scope, "__moonbit_backtrace_unstable");
     }
 
-    fn install_backtrace_api_for_contract_test<'s>(
-        scope: &mut v8::ContextScope<'s, v8::HandleScope<'s>>,
-    ) {
+    fn install_backtrace_api_for_contract_test(scope: &mut v8::HandleScope<'_>) {
         let global = scope.get_current_context().global(scope);
         let key = scope.string("__moonbit_backtrace_unstable");
         let backtrace = global
