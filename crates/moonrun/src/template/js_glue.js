@@ -679,12 +679,6 @@ function bytesToString(bytes) {
     return s;
 }
 
-function basename(path) {
-    if (!path) return "";
-    const slash = Math.max(path.lastIndexOf("/"), path.lastIndexOf("\\"));
-    return slash >= 0 ? path.slice(slash + 1) : path;
-}
-
 function dirname(path) {
     const slash = Math.max(path.lastIndexOf("/"), path.lastIndexOf("\\"));
     return slash >= 0 ? path.slice(0, slash) : ".";
@@ -703,6 +697,141 @@ function joinPath(baseDir, relPath) {
         return `${baseDir}${relPath}`;
     }
     return `${baseDir}${sep}${relPath}`;
+}
+
+function splitNormalizedPath(path) {
+    const unified = path.replace(/\\/g, "/");
+    let absolute = false;
+    let root = "";
+    let rest = unified;
+    if (/^[A-Za-z]:\//.test(unified)) {
+        absolute = true;
+        root = unified.slice(0, 2).toLowerCase();
+        rest = unified.slice(2);
+        if (rest.startsWith("/")) {
+            rest = rest.slice(1);
+        }
+    } else if (unified.startsWith("/")) {
+        absolute = true;
+        root = "/";
+        rest = unified.slice(1);
+    }
+
+    const parts = [];
+    for (const seg of rest.split("/")) {
+        if (!seg || seg === ".") continue;
+        if (seg === "..") {
+            if (parts.length > 0 && parts[parts.length - 1] !== "..") {
+                parts.pop();
+            } else if (!absolute) {
+                parts.push("..");
+            }
+            continue;
+        }
+        parts.push(seg);
+    }
+    return { absolute, root, parts };
+}
+
+function formatNormalizedPath(parsed) {
+    if (parsed.absolute) {
+        if (parsed.root === "/") {
+            return `/${parsed.parts.join("/")}`;
+        }
+        if (parsed.parts.length === 0) {
+            return `${parsed.root}/`;
+        }
+        return `${parsed.root}/${parsed.parts.join("/")}`;
+    }
+    if (parsed.parts.length === 0) {
+        return ".";
+    }
+    return parsed.parts.join("/");
+}
+
+function normalizeDisplayPath(path) {
+    if (!path) return "";
+    return formatNormalizedPath(splitNormalizedPath(path));
+}
+
+function makeRelativePath(baseDir, targetPath) {
+    const from = splitNormalizedPath(baseDir);
+    const to = splitNormalizedPath(targetPath);
+    if (!from.absolute || !to.absolute || from.root !== to.root) {
+        return null;
+    }
+
+    let common = 0;
+    const maxCommon = Math.min(from.parts.length, to.parts.length);
+    while (common < maxCommon && from.parts[common] === to.parts[common]) {
+        common += 1;
+    }
+
+    const rel = [];
+    for (let i = common; i < from.parts.length; i++) {
+        rel.push("..");
+    }
+    for (let i = common; i < to.parts.length; i++) {
+        rel.push(to.parts[i]);
+    }
+    if (rel.length === 0) return ".";
+    return rel.join("/");
+}
+
+let CACHED_CWD = undefined;
+
+function getCurrentDirPath() {
+    if (CACHED_CWD !== undefined) {
+        return CACHED_CWD;
+    }
+    CACHED_CWD = "";
+    try {
+        if (
+            __moonbit_fs_unstable &&
+            typeof __moonbit_fs_unstable.current_dir === "function"
+        ) {
+            const cwd = __moonbit_fs_unstable.current_dir();
+            if (typeof cwd === "string" && cwd.length > 0) {
+                CACHED_CWD = cwd;
+                return CACHED_CWD;
+            }
+        }
+    } catch (_) { }
+
+    try {
+        if (
+            __moonbit_fs_unstable &&
+            typeof __moonbit_fs_unstable.env_get_var === "function"
+        ) {
+            const cwd = __moonbit_fs_unstable.env_get_var("PWD");
+            if (typeof cwd === "string" && cwd.length > 0) {
+                CACHED_CWD = cwd;
+            }
+        }
+    } catch (_) { }
+
+    return CACHED_CWD;
+}
+
+function formatSourcePathAuto(path) {
+    if (typeof path !== "string" || path.length === 0) {
+        return "";
+    }
+    const normalized = normalizeDisplayPath(path);
+    if (!isAbsolutePath(normalized)) {
+        return normalized;
+    }
+
+    const cwd = normalizeDisplayPath(getCurrentDirPath());
+    if (!cwd || !isAbsolutePath(cwd)) {
+        return normalized;
+    }
+
+    const rel = makeRelativePath(cwd, normalized);
+    if (!rel || rel === "." || rel.startsWith("../")) {
+        return normalized;
+    }
+    return rel;
 }
 
 function readULEB128(buf, start) {
@@ -870,7 +999,7 @@ function sourcePosForOffset(offset) {
     if (m.source < 0 || m.source >= sm.sources.length) {
         return null;
     }
-    const sourceFile = basename(sm.sources[m.source]);
+    const sourceFile = formatSourcePathAuto(sm.sources[m.source]);
     return `${sourceFile}:${m.line}`;
 }
 

@@ -100,6 +100,53 @@ fn strip_ansi(text: &str) -> String {
     out
 }
 
+fn normalize_source_token(token: &str) -> String {
+    let Some(line_sep) = token.rfind(':') else {
+        return token.to_string();
+    };
+    if !token[line_sep + 1..].chars().all(|c| c.is_ascii_digit()) {
+        return token.to_string();
+    }
+
+    let path = &token[..line_sep];
+    if !(path.contains('/') || path.contains('\\')) {
+        return token.to_string();
+    }
+
+    let parts: Vec<_> = path
+        .split(['/', '\\'])
+        .filter(|seg| !seg.is_empty())
+        .collect();
+    let short_path = if parts.len() >= 2 {
+        format!("{}/{}", parts[parts.len() - 2], parts[parts.len() - 1])
+    } else {
+        parts
+            .last()
+            .map(|s| (*s).to_string())
+            .unwrap_or_else(|| path.to_string())
+    };
+    format!("{}:{}", short_path, &token[line_sep + 1..])
+}
+
+fn normalize_source_paths(text: &str) -> String {
+    let mut out = String::with_capacity(text.len());
+    for (i, line) in text.lines().enumerate() {
+        if i > 0 {
+            out.push('\n');
+        }
+        if let Some(space) = line.rfind(' ') {
+            out.push_str(&line[..space + 1]);
+            out.push_str(&normalize_source_token(&line[space + 1..]));
+        } else {
+            out.push_str(line);
+        }
+    }
+    if text.ends_with('\n') {
+        out.push('\n');
+    }
+    out
+}
+
 #[test]
 fn test_moonrun_version() {
     let out = snapbox::cmd::Command::new(snapbox::cmd::cargo_bin("moonrun"))
@@ -161,7 +208,7 @@ pub fn normalize_wasm_trace(text: &str) -> String {
         }
     }
 
-    result
+    normalize_source_paths(&result)
 }
 
 #[test]
@@ -198,9 +245,9 @@ fn test_moonrun_wasm_stack_trace() {
         &normalized_s,
         expect![[r#"
             RuntimeError: unreachable
-                at @moonbitlang/core/abort.abort[Unit] abort.mbt:29
-                at @moonbitlang/core/builtin.abort[Unit] intrinsics.mbt:70
-                at @__moonbit_main main.mbt:20
+                at @moonbitlang/core/abort.abort[Unit] abort/abort.mbt:29
+                at @moonbitlang/core/builtin.abort[Unit] builtin/intrinsics.mbt:70
+                at @__moonbit_main main/main.mbt:20
         "#]],
     );
 
