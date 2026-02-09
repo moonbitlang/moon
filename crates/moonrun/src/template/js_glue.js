@@ -8,6 +8,7 @@ const __moonbit_fs_unstable =
 const __moonbit_run_env = globalThis.__moonbit_run_env || {
     env_vars: new Map(),
     args: [],
+    stderr_is_tty: false,
 };
 
 // JS helper API attached to __moonbit_fs_unstable.
@@ -556,21 +557,6 @@ function demangleMangledFunctionName(funcName) {
     return text;
 }
 
-function demangleStackLine(line) {
-    // Typical v8 frame: "    at <func> (<loc>)"
-    const withLoc = line.match(/^(\s*at\s+)(.+?)(\s+\(.*\)\s*)$/);
-    if (withLoc) {
-        return `${withLoc[1]}${demangleMangledFunctionName(withLoc[2])}${withLoc[3]}`;
-    }
-
-    // Fallback: "    at <func>"
-    const noLoc = line.match(/^(\s*at\s+)(\S+)(\s*)$/);
-    if (noLoc) {
-        return `${noLoc[1]}${demangleMangledFunctionName(noLoc[2])}${noLoc[3]}`;
-    }
-    return line;
-}
-
 function shouldUseColor() {
     const explicit = __moonbit_fs_unstable.env_get_var("MOONBIT_BACKTRACE_COLOR");
     if (explicit === "0" || explicit === "false" || explicit === "never") {
@@ -579,7 +565,10 @@ function shouldUseColor() {
     if (explicit === "1" || explicit === "true" || explicit === "always") {
         return true;
     }
-    return __moonbit_fs_unstable.env_get_var("NO_COLOR") === "";
+    if (__moonbit_fs_unstable.env_get_var("NO_COLOR") !== "") {
+        return false;
+    }
+    return !!__moonbit_run_env.stderr_is_tty;
 }
 
 const STACKTRACE_COLOR_ENABLED = shouldUseColor();

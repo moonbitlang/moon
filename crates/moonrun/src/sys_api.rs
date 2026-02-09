@@ -17,6 +17,7 @@
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
 use crate::v8_builder::{ArgsExt, ObjectExt, ScopeExt};
+use std::io::IsTerminal;
 
 fn construct_args_list<'s>(
     wasm_file_name: &str,
@@ -119,6 +120,9 @@ pub fn init_env<'s>(
     env_obj.set(scope, env_vars_key, env_vars.into());
     let args_key = scope.string("args").into();
     env_obj.set(scope, args_key, args_list.into());
+    let stderr_is_tty_key = scope.string("stderr_is_tty").into();
+    let stderr_is_tty = v8::Boolean::new(scope, std::io::stderr().is_terminal()).into();
+    env_obj.set(scope, stderr_is_tty_key, stderr_is_tty);
 
     // Expose the run env for the unified JS glue in `template/js_glue.js`.
     let global_proxy = scope.get_current_context().global(scope);
