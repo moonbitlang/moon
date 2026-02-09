@@ -569,7 +569,7 @@ fn object_file_ext(os: OperatingSystem) -> &'static str {
 /// removed in the future.
 pub fn core_bundle_path(core_root: &Path, backend: TargetBackend) -> PathBuf {
     let mut path = PathBuf::from(core_root);
-    path.push("_build");
+    path.push(moonutil::common::BUILD_DIR);
     path.push(backend.to_dir_name());
     path.push("release");
     path.push("bundle");
