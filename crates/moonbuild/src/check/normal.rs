@@ -62,7 +62,7 @@ pub fn write_pkg_lst(module: &ModuleDB, target_dir: &Path) -> anyhow::Result<()>
     } else {
         target_dir.join(format!("{mbt_md_file_name}.packages.json"))
     };
-    // packages.json now placed in target/, should be protected for mutil-thread write
+    // packages.json now placed in _build/, should be protected for mutil-thread write
     let _lock = FileLock::lock(target_dir)?;
 
     // if the file exist and the old content is the same as the new content in `module`, don't rewrite it

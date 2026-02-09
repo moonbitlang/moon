@@ -22,7 +22,7 @@ fn test_specify_source_dir_001() {
     );
     #[cfg(unix)]
     {
-        let p = dir.join("target/packages.json");
+        let p = dir.join("_build/packages.json");
         check(
             replace_dir(&std::fs::read_to_string(p).unwrap(), &dir),
             expect![[r#"

@@ -6,9 +6,9 @@ Moon ships several maintainer-facing utilities for debugging builds.
 
 Four perma-unstable feature flags help inspect dependency graphs and rebuild decisions:
 
-- `rr_export_module_graph` exports the module dependency graph in `target/`.
-- `rr_export_package_graph` exports the package dependency graph in `target/`.
-- `rr_export_build_plan` exports the build plan graph in `target/`.
+- `rr_export_module_graph` exports the module dependency graph in `_build/`.
+- `rr_export_package_graph` exports the package dependency graph in `_build/`.
+- `rr_export_build_plan` exports the build plan graph in `_build/`.
 - `rr_n2_explain` enables logging to explain why a build node is rebuilt.
 
 The graph exporters emit [Graphviz][] DOT text.

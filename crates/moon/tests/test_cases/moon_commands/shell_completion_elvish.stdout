@@ -20,7 +20,7 @@ set edit:completion:arg-completer[moon] = {|@words|
         &'moon'= {
             cand -C 'Change to DIR before doing anything else (must appear before the subcommand). Relative paths in other options and arguments are interpreted relative to DIR. Example: `moon -C a run .` runs the same as invoking `moon run .` from within `a`'
             cand --manifest-path 'Path to `moon.mod.json` to use as the project manifest (does not change the working directory)'
-            cand --target-dir 'The target directory. Defaults to `<project-root>/target`'
+            cand --target-dir 'The target directory. Defaults to `<project-root>/_build`'
             cand -Z 'Unstable flags to MoonBuild'
             cand --unstable-feature 'Unstable flags to MoonBuild'
             cand -q 'Suppress output'
@@ -39,7 +39,7 @@ set edit:completion:arg-completer[moon] = {|@words|
             cand run 'Run a main package'
             cand test 'Test the current package'
             cand generate-test-driver 'Generate tests for a provided package. This is a thin wrapper around `moonc gen-test-info`, which does the actual parsing and generation'
-            cand clean 'Remove the target directory'
+            cand clean 'Remove the _build directory'
             cand fmt 'Format source code'
             cand doc 'Generate documentation or searching documentation for a symbol'
             cand info 'Generate public interface (`.mbti`) files for all packages in the module'
@@ -68,7 +68,7 @@ set edit:completion:arg-completer[moon] = {|@words|
             cand --user 'The username of the module. Default to the logged-in username'
             cand --name 'The name of the module. Default to the last part of the path'
             cand --manifest-path 'Path to `moon.mod.json` to use as the project manifest (does not change the working directory)'
-            cand --target-dir 'The target directory. Defaults to `<project-root>/target`'
+            cand --target-dir 'The target directory. Defaults to `<project-root>/_build`'
             cand -q 'Suppress output'
             cand --quiet 'Suppress output'
             cand -v 'Increase verbosity'
@@ -87,7 +87,7 @@ set edit:completion:arg-completer[moon] = {|@words|
             cand --jobs 'Set the max number of jobs to run in parallel'
             cand --render-no-loc 'Render no-location diagnostics starting from a certain level'
             cand --manifest-path 'Path to `moon.mod.json` to use as the project manifest (does not change the working directory)'
-            cand --target-dir 'The target directory. Defaults to `<project-root>/target`'
+            cand --target-dir 'The target directory. Defaults to `<project-root>/_build`'
             cand --std 'Enable the standard library (default)'
             cand --nostd 'Disable the standard library'
             cand -g 'Emit debug information'
@@ -127,7 +127,7 @@ set edit:completion:arg-completer[moon] = {|@words|
             cand --package 'package'
             cand --bin-alias 'bin-alias'
             cand --manifest-path 'Path to `moon.mod.json` to use as the project manifest (does not change the working directory)'
-            cand --target-dir 'The target directory. Defaults to `<project-root>/target`'
+            cand --target-dir 'The target directory. Defaults to `<project-root>/_build`'
             cand --std 'Enable the standard library (default)'
             cand --nostd 'Disable the standard library'
             cand -g 'Emit debug information'
@@ -169,7 +169,7 @@ set edit:completion:arg-completer[moon] = {|@words|
             cand --package-path 'The package(and it''s deps) to check'
             cand --patch-file 'The patch file to check, Only valid when checking specified package'
             cand --manifest-path 'Path to `moon.mod.json` to use as the project manifest (does not change the working directory)'
-            cand --target-dir 'The target directory. Defaults to `<project-root>/target`'
+            cand --target-dir 'The target directory. Defaults to `<project-root>/_build`'
             cand --std 'Enable the standard library (default)'
             cand --nostd 'Disable the standard library'
             cand -g 'Emit debug information'
@@ -210,7 +210,7 @@ set edit:completion:arg-completer[moon] = {|@words|
             cand --jobs 'Set the max number of jobs to run in parallel'
             cand --render-no-loc 'Render no-location diagnostics starting from a certain level'
             cand --manifest-path 'Path to `moon.mod.json` to use as the project manifest (does not change the working directory)'
-            cand --target-dir 'The target directory. Defaults to `<project-root>/target`'
+            cand --target-dir 'The target directory. Defaults to `<project-root>/_build`'
             cand --std 'Enable the standard library (default)'
             cand --nostd 'Disable the standard library'
             cand -g 'Emit debug information'
@@ -259,7 +259,7 @@ set edit:completion:arg-completer[moon] = {|@words|
             cand -F 'Run only tests whose name matches the given glob pattern. Supports ''*'' (matches any sequence) and ''?'' (matches any single character)'
             cand --filter 'Run only tests whose name matches the given glob pattern. Supports ''*'' (matches any sequence) and ''?'' (matches any single character)'
             cand --manifest-path 'Path to `moon.mod.json` to use as the project manifest (does not change the working directory)'
-            cand --target-dir 'The target directory. Defaults to `<project-root>/target`'
+            cand --target-dir 'The target directory. Defaults to `<project-root>/_build`'
             cand --std 'Enable the standard library (default)'
             cand --nostd 'Disable the standard library'
             cand -g 'Emit debug information'
@@ -306,7 +306,7 @@ set edit:completion:arg-completer[moon] = {|@words|
             cand --patch-file 'Path to the patch file'
             cand --max-concurrent-tests 'Max concurrent tests for `async test`'
             cand --manifest-path 'Path to `moon.mod.json` to use as the project manifest (does not change the working directory)'
-            cand --target-dir 'The target directory. Defaults to `<project-root>/target`'
+            cand --target-dir 'The target directory. Defaults to `<project-root>/_build`'
             cand --bench 'Whether to generate the test driver in bench mode. Not providing this option will result in test mode'
             cand --enable-coverage 'Whether coverage is enabled in this build. Enabling it will insert coverage-custom code at the end of the test..'
             cand -q 'Suppress output'
@@ -321,7 +321,7 @@ set edit:completion:arg-completer[moon] = {|@words|
         }
         &'moon;clean'= {
             cand --manifest-path 'Path to `moon.mod.json` to use as the project manifest (does not change the working directory)'
-            cand --target-dir 'The target directory. Defaults to `<project-root>/target`'
+            cand --target-dir 'The target directory. Defaults to `<project-root>/_build`'
             cand -q 'Suppress output'
             cand --quiet 'Suppress output'
             cand -v 'Increase verbosity'
@@ -335,7 +335,7 @@ set edit:completion:arg-completer[moon] = {|@words|
         &'moon;fmt'= {
             cand --block-style 'Add separator between each segments'
             cand --manifest-path 'Path to `moon.mod.json` to use as the project manifest (does not change the working directory)'
-            cand --target-dir 'The target directory. Defaults to `<project-root>/target`'
+            cand --target-dir 'The target directory. Defaults to `<project-root>/_build`'
             cand --check 'Check only and don''t change the source code'
             cand --sort-input 'Sort input files'
             cand --warn 'Warn if code is not properly formatted'
@@ -355,7 +355,7 @@ set edit:completion:arg-completer[moon] = {|@words|
             cand -p 'The port of the server'
             cand --port 'The port of the server'
             cand --manifest-path 'Path to `moon.mod.json` to use as the project manifest (does not change the working directory)'
-            cand --target-dir 'The target directory. Defaults to `<project-root>/target`'
+            cand --target-dir 'The target directory. Defaults to `<project-root>/_build`'
             cand --serve 'Start a web server to serve the documentation'
             cand --frozen 'Do not sync dependencies, assuming local dependencies are up-to-date'
             cand -q 'Suppress output'
@@ -373,7 +373,7 @@ set edit:completion:arg-completer[moon] = {|@words|
             cand -p 'The full or subset of name of the package to emit `mbti` files for'
             cand --package 'The full or subset of name of the package to emit `mbti` files for'
             cand --manifest-path 'Path to `moon.mod.json` to use as the project manifest (does not change the working directory)'
-            cand --target-dir 'The target directory. Defaults to `<project-root>/target`'
+            cand --target-dir 'The target directory. Defaults to `<project-root>/_build`'
             cand --frozen 'Do not sync dependencies, assuming local dependencies are up-to-date'
             cand --no-alias 'Do not use alias to shorten package names in the output'
             cand -q 'Suppress output'
@@ -400,7 +400,7 @@ set edit:completion:arg-completer[moon] = {|@words|
             cand -i 'Run only the index-th test in the file. Accepts a single index or a left-inclusive right-exclusive range like `0-2`. Only valid when `--file` is also specified'
             cand --index 'Run only the index-th test in the file. Accepts a single index or a left-inclusive right-exclusive range like `0-2`. Only valid when `--file` is also specified'
             cand --manifest-path 'Path to `moon.mod.json` to use as the project manifest (does not change the working directory)'
-            cand --target-dir 'The target directory. Defaults to `<project-root>/target`'
+            cand --target-dir 'The target directory. Defaults to `<project-root>/_build`'
             cand --std 'Enable the standard library (default)'
             cand --nostd 'Disable the standard library'
             cand -g 'Emit debug information'
@@ -432,7 +432,7 @@ set edit:completion:arg-completer[moon] = {|@words|
         }
         &'moon;add'= {
             cand --manifest-path 'Path to `moon.mod.json` to use as the project manifest (does not change the working directory)'
-            cand --target-dir 'The target directory. Defaults to `<project-root>/target`'
+            cand --target-dir 'The target directory. Defaults to `<project-root>/_build`'
             cand --bin 'Whether to add the dependency as a binary'
             cand --no-update 'Do not update the registry index before adding the dependency'
             cand -q 'Suppress output'
@@ -447,7 +447,7 @@ set edit:completion:arg-completer[moon] = {|@words|
         }
         &'moon;remove'= {
             cand --manifest-path 'Path to `moon.mod.json` to use as the project manifest (does not change the working directory)'
-            cand --target-dir 'The target directory. Defaults to `<project-root>/target`'
+            cand --target-dir 'The target directory. Defaults to `<project-root>/_build`'
             cand -q 'Suppress output'
             cand --quiet 'Suppress output'
             cand -v 'Increase verbosity'
@@ -465,7 +465,7 @@ set edit:completion:arg-completer[moon] = {|@words|
             cand --branch 'Git branch to checkout (requires git URL)'
             cand --tag 'Git tag to checkout (requires git URL)'
             cand --manifest-path 'Path to `moon.mod.json` to use as the project manifest (does not change the working directory)'
-            cand --target-dir 'The target directory. Defaults to `<project-root>/target`'
+            cand --target-dir 'The target directory. Defaults to `<project-root>/_build`'
             cand -q 'Suppress output'
             cand --quiet 'Suppress output'
             cand -v 'Increase verbosity'
@@ -478,7 +478,7 @@ set edit:completion:arg-completer[moon] = {|@words|
         }
         &'moon;tree'= {
             cand --manifest-path 'Path to `moon.mod.json` to use as the project manifest (does not change the working directory)'
-            cand --target-dir 'The target directory. Defaults to `<project-root>/target`'
+            cand --target-dir 'The target directory. Defaults to `<project-root>/_build`'
             cand -q 'Suppress output'
             cand --quiet 'Suppress output'
             cand -v 'Increase verbosity'
@@ -491,7 +491,7 @@ set edit:completion:arg-completer[moon] = {|@words|
         }
         &'moon;fetch'= {
             cand --manifest-path 'Path to `moon.mod.json` to use as the project manifest (does not change the working directory)'
-            cand --target-dir 'The target directory. Defaults to `<project-root>/target`'
+            cand --target-dir 'The target directory. Defaults to `<project-root>/_build`'
             cand --no-update 'Do not update the registry index before fetching'
             cand -q 'Suppress output'
             cand --quiet 'Suppress output'
@@ -505,7 +505,7 @@ set edit:completion:arg-completer[moon] = {|@words|
         }
         &'moon;login'= {
             cand --manifest-path 'Path to `moon.mod.json` to use as the project manifest (does not change the working directory)'
-            cand --target-dir 'The target directory. Defaults to `<project-root>/target`'
+            cand --target-dir 'The target directory. Defaults to `<project-root>/_build`'
             cand -q 'Suppress output'
             cand --quiet 'Suppress output'
             cand -v 'Increase verbosity'
@@ -518,7 +518,7 @@ set edit:completion:arg-completer[moon] = {|@words|
         }
         &'moon;register'= {
             cand --manifest-path 'Path to `moon.mod.json` to use as the project manifest (does not change the working directory)'
-            cand --target-dir 'The target directory. Defaults to `<project-root>/target`'
+            cand --target-dir 'The target directory. Defaults to `<project-root>/_build`'
             cand -q 'Suppress output'
             cand --quiet 'Suppress output'
             cand -v 'Increase verbosity'
@@ -531,7 +531,7 @@ set edit:completion:arg-completer[moon] = {|@words|
         }
         &'moon;publish'= {
             cand --manifest-path 'Path to `moon.mod.json` to use as the project manifest (does not change the working directory)'
-            cand --target-dir 'The target directory. Defaults to `<project-root>/target`'
+            cand --target-dir 'The target directory. Defaults to `<project-root>/_build`'
             cand --frozen 'Do not sync dependencies, assuming local dependencies are up-to-date'
             cand -q 'Suppress output'
             cand --quiet 'Suppress output'
@@ -545,7 +545,7 @@ set edit:completion:arg-completer[moon] = {|@words|
         }
         &'moon;package'= {
             cand --manifest-path 'Path to `moon.mod.json` to use as the project manifest (does not change the working directory)'
-            cand --target-dir 'The target directory. Defaults to `<project-root>/target`'
+            cand --target-dir 'The target directory. Defaults to `<project-root>/_build`'
             cand --frozen 'Do not sync dependencies, assuming local dependencies are up-to-date'
             cand --list 'list'
             cand -q 'Suppress output'
@@ -560,7 +560,7 @@ set edit:completion:arg-completer[moon] = {|@words|
         }
         &'moon;update'= {
             cand --manifest-path 'Path to `moon.mod.json` to use as the project manifest (does not change the working directory)'
-            cand --target-dir 'The target directory. Defaults to `<project-root>/target`'
+            cand --target-dir 'The target directory. Defaults to `<project-root>/_build`'
             cand -q 'Suppress output'
             cand --quiet 'Suppress output'
             cand -v 'Increase verbosity'
@@ -573,7 +573,7 @@ set edit:completion:arg-completer[moon] = {|@words|
         }
         &'moon;coverage'= {
             cand --manifest-path 'Path to `moon.mod.json` to use as the project manifest (does not change the working directory)'
-            cand --target-dir 'The target directory. Defaults to `<project-root>/target`'
+            cand --target-dir 'The target directory. Defaults to `<project-root>/_build`'
             cand -q 'Suppress output'
             cand --quiet 'Suppress output'
             cand -v 'Increase verbosity'
@@ -594,7 +594,7 @@ set edit:completion:arg-completer[moon] = {|@words|
             cand -t 'Extra flags passed directly to `moon test`'
             cand --test-flag 'Extra flags passed directly to `moon test`'
             cand --manifest-path 'Path to `moon.mod.json` to use as the project manifest (does not change the working directory)'
-            cand --target-dir 'The target directory. Defaults to `<project-root>/target`'
+            cand --target-dir 'The target directory. Defaults to `<project-root>/_build`'
             cand -q 'Suppress output'
             cand --quiet 'Suppress output'
             cand -v 'Increase verbosity'
@@ -607,7 +607,7 @@ set edit:completion:arg-completer[moon] = {|@words|
         }
         &'moon;coverage;report'= {
             cand --manifest-path 'Path to `moon.mod.json` to use as the project manifest (does not change the working directory)'
-            cand --target-dir 'The target directory. Defaults to `<project-root>/target`'
+            cand --target-dir 'The target directory. Defaults to `<project-root>/_build`'
             cand -h 'Show help for the coverage utility'
             cand --help 'Show help for the coverage utility'
             cand -q 'Suppress output'
@@ -620,7 +620,7 @@ set edit:completion:arg-completer[moon] = {|@words|
         }
         &'moon;coverage;clean'= {
             cand --manifest-path 'Path to `moon.mod.json` to use as the project manifest (does not change the working directory)'
-            cand --target-dir 'The target directory. Defaults to `<project-root>/target`'
+            cand --target-dir 'The target directory. Defaults to `<project-root>/_build`'
             cand -q 'Suppress output'
             cand --quiet 'Suppress output'
             cand -v 'Increase verbosity'
@@ -654,7 +654,7 @@ set edit:completion:arg-completer[moon] = {|@words|
             cand -o 'The output directory'
             cand --output-dir 'The output directory'
             cand --manifest-path 'Path to `moon.mod.json` to use as the project manifest (does not change the working directory)'
-            cand --target-dir 'The target directory. Defaults to `<project-root>/target`'
+            cand --target-dir 'The target directory. Defaults to `<project-root>/_build`'
             cand -q 'Suppress output'
             cand --quiet 'Suppress output'
             cand -v 'Increase verbosity'
@@ -673,7 +673,7 @@ set edit:completion:arg-completer[moon] = {|@words|
             cand --jobs 'Set the max number of jobs to run in parallel'
             cand --render-no-loc 'Render no-location diagnostics starting from a certain level'
             cand --manifest-path 'Path to `moon.mod.json` to use as the project manifest (does not change the working directory)'
-            cand --target-dir 'The target directory. Defaults to `<project-root>/target`'
+            cand --target-dir 'The target directory. Defaults to `<project-root>/_build`'
             cand --std 'Enable the standard library (default)'
             cand --nostd 'Disable the standard library'
             cand -g 'Emit debug information'
@@ -703,7 +703,7 @@ set edit:completion:arg-completer[moon] = {|@words|
         &'moon;upgrade'= {
             cand --base-url 'base-url'
             cand --manifest-path 'Path to `moon.mod.json` to use as the project manifest (does not change the working directory)'
-            cand --target-dir 'The target directory. Defaults to `<project-root>/target`'
+            cand --target-dir 'The target directory. Defaults to `<project-root>/_build`'
             cand -f 'Force upgrade'
             cand --force 'Force upgrade'
             cand --dev 'Install the latest development version'
@@ -721,7 +721,7 @@ set edit:completion:arg-completer[moon] = {|@words|
         &'moon;shell-completion'= {
             cand --shell 'The shell to generate completion for'
             cand --manifest-path 'Path to `moon.mod.json` to use as the project manifest (does not change the working directory)'
-            cand --target-dir 'The target directory. Defaults to `<project-root>/target`'
+            cand --target-dir 'The target directory. Defaults to `<project-root>/_build`'
             cand -q 'Suppress output'
             cand --quiet 'Suppress output'
             cand -v 'Increase verbosity'
@@ -734,7 +734,7 @@ set edit:completion:arg-completer[moon] = {|@words|
         }
         &'moon;version'= {
             cand --manifest-path 'Path to `moon.mod.json` to use as the project manifest (does not change the working directory)'
-            cand --target-dir 'The target directory. Defaults to `<project-root>/target`'
+            cand --target-dir 'The target directory. Defaults to `<project-root>/_build`'
             cand --all 'Print all version information'
             cand --json 'Print version information in JSON format'
             cand --no-path 'Do not print the path'
@@ -750,7 +750,7 @@ set edit:completion:arg-completer[moon] = {|@words|
         }
         &'moon;tool'= {
             cand --manifest-path 'Path to `moon.mod.json` to use as the project manifest (does not change the working directory)'
-            cand --target-dir 'The target directory. Defaults to `<project-root>/target`'
+            cand --target-dir 'The target directory. Defaults to `<project-root>/_build`'
             cand -q 'Suppress output'
             cand --quiet 'Suppress output'
             cand -v 'Increase verbosity'
@@ -770,7 +770,7 @@ set edit:completion:arg-completer[moon] = {|@words|
             cand --old 'The source path of the code which needs to be formatted'
             cand --new 'The target path of the formatted code'
             cand --manifest-path 'Path to `moon.mod.json` to use as the project manifest (does not change the working directory)'
-            cand --target-dir 'The target directory. Defaults to `<project-root>/target`'
+            cand --target-dir 'The target directory. Defaults to `<project-root>/_build`'
             cand --block-style 'Add separator between each segments'
             cand --warn 'Warn instead of showing differences'
             cand -q 'Suppress output'
@@ -790,7 +790,7 @@ set edit:completion:arg-completer[moon] = {|@words|
             cand --output 'output'
             cand --name 'name'
             cand --manifest-path 'Path to `moon.mod.json` to use as the project manifest (does not change the working directory)'
-            cand --target-dir 'The target directory. Defaults to `<project-root>/target`'
+            cand --target-dir 'The target directory. Defaults to `<project-root>/_build`'
             cand --binary 'binary'
             cand --text 'text'
             cand --timestamp 'timestamp'
@@ -806,7 +806,7 @@ set edit:completion:arg-completer[moon] = {|@words|
         }
         &'moon;tool;write-tcc-rsp-file'= {
             cand --manifest-path 'Path to `moon.mod.json` to use as the project manifest (does not change the working directory)'
-            cand --target-dir 'The target directory. Defaults to `<project-root>/target`'
+            cand --target-dir 'The target directory. Defaults to `<project-root>/_build`'
             cand -q 'Suppress output'
             cand --quiet 'Suppress output'
             cand -v 'Increase verbosity'
@@ -820,7 +820,7 @@ set edit:completion:arg-completer[moon] = {|@words|
         &'moon;tool;build-binary-dep'= {
             cand --install-path 'The parent directory where the binary module is installed to'
             cand --manifest-path 'Path to `moon.mod.json` to use as the project manifest (does not change the working directory)'
-            cand --target-dir 'The target directory. Defaults to `<project-root>/target`'
+            cand --target-dir 'The target directory. Defaults to `<project-root>/_build`'
             cand --all-pkgs 'Whether to build and install all binary packages in the module'
             cand -q 'Suppress output'
             cand --quiet 'Suppress output'
@@ -919,7 +919,7 @@ set edit:completion:arg-completer[moon] = {|@words|
             cand run 'Run a main package'
             cand test 'Test the current package'
             cand generate-test-driver 'Generate tests for a provided package. This is a thin wrapper around `moonc gen-test-info`, which does the actual parsing and generation'
-            cand clean 'Remove the target directory'
+            cand clean 'Remove the _build directory'
             cand fmt 'Format source code'
             cand doc 'Generate documentation or searching documentation for a symbol'
             cand info 'Generate public interface (`.mbti`) files for all packages in the module'

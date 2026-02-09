@@ -263,8 +263,6 @@ fn test_moon_test_with_local_dep() {
         .into_iter()
         .filter_map(|e| e.ok())
         .map(|e| e.path().strip_prefix(&root_dir).unwrap().to_owned())
-        // Filter out target directory
-        .filter(|p| !p.starts_with("target"))
         // Convert to string and join with newline
         .map(|p| p.to_string_lossy().to_string())
         .collect::<Vec<_>>();
@@ -450,7 +448,7 @@ fn test_generate_test_driver_incremental() {
 
     get_stdout(&dir, ["test", "--package", "moonbitlang/hello/lib"]);
     let driver_file =
-        dir.join("target/wasm-gc/debug/test/lib/__generated_driver_for_internal_test.mbt");
+        dir.join("_build/wasm-gc/debug/test/lib/__generated_driver_for_internal_test.mbt");
     assert!(driver_file.exists());
 
     let time_1 = driver_file.metadata().unwrap().modified().unwrap();

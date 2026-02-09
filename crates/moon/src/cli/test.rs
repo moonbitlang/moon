@@ -38,7 +38,7 @@ use moonutil::common::{
     lower_surface_targets, parse_front_matter_config,
 };
 use moonutil::cond_expr::CompileCondition;
-use moonutil::dirs::{create_legacy_symlink, mk_arch_mode_dir};
+use moonutil::dirs::mk_arch_mode_dir;
 use moonutil::module::ModuleDB;
 use moonutil::mooncakes::RegistryConfig;
 use moonutil::mooncakes::sync::AutoSyncFlags;
@@ -455,7 +455,6 @@ fn run_test_in_single_file_rr(cli: &UniversalFlags, cmd: &TestSubcommand) -> any
     let raw_target_dir = source_dir.join(BUILD_DIR);
     std::fs::create_dir_all(&raw_target_dir)
         .context("failed to create target directory for single-file test")?;
-    create_legacy_symlink(&source_dir);
     let mut cmd = cmd.clone();
 
     if let Some(target_backend) = cmd.build_flags.resolve_single_target_backend()? {
@@ -1130,7 +1129,7 @@ pub(crate) fn run_test_or_bench_internal_legacy(
 
     let raw_target_dir = target_dir.to_path_buf();
     let target_dir = mk_arch_mode_dir(source_dir, target_dir, &moonc_opt, run_mode)?;
-    trace!(target_dir = %target_dir.display(), "resolved legacy target directory");
+    trace!(target_dir = %target_dir.display(), "resolved target directory");
     let _lock = FileLock::lock(&target_dir)?;
 
     let verbose = cli.verbose;

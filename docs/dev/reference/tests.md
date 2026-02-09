@@ -21,7 +21,7 @@ behavior can change.
      `--verbose` is enabled.
    - Captures the test output between the `MOON_TEST_DELIMITER_{BEGIN,END}` markers and
      turns each JSONL line into `TestStatistics`. Coverage sections delimited by
-     `MOON_COVERAGE_DELIMITER_*` are written to `target/moonbit_coverage_<timestamp>_<rand>.txt`.
+     `MOON_COVERAGE_DELIMITER_*` are written to `_build/moonbit_coverage_<timestamp>_<rand>.txt`.
 4. The collected `TestCaseResult`s are merged per build target inside
    `ReplaceableTestResults`. This structure keeps the latest result per
    `(target, file, index)` pair so later reruns can overwrite earlier data. The

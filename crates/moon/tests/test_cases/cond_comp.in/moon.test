@@ -78,7 +78,7 @@
   ───╯
   Finished. moon: ran 4 tasks, now up to date (2 warnings, 0 errors)
   
-  $ xcat target/packages.json
+  $ xcat _build/packages.json
   {
     "source_dir": "${WORK_DIR}",
     "name": "username/hello",

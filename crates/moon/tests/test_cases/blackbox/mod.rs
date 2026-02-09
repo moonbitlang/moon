@@ -117,7 +117,7 @@ fn test_blackbox_success() {
     {
         use crate::util::replace_dir;
 
-        let p = dir.join("target/packages.json");
+        let p = dir.join("_build/packages.json");
         expect_file!["test_blackbox_success_packages.json.snap"]
             .assert_eq(&replace_dir(&std::fs::read_to_string(p).unwrap(), &dir));
     }

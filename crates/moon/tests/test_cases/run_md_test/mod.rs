@@ -105,7 +105,7 @@ fn test_run_md_test() {
     #[cfg(unix)]
     {
         get_stdout(&dir, ["check", "--sort-input"]);
-        let p = dir.join("target/packages.json");
+        let p = dir.join("_build/packages.json");
         check(
             replace_dir(&std::fs::read_to_string(p).unwrap(), &dir),
             expect![[r#"

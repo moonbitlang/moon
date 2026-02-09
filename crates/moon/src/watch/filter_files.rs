@@ -24,7 +24,7 @@ use std::{
 };
 
 use ignore::gitignore::{Gitignore, GitignoreBuilder};
-use moonutil::common::{BUILD_DIR, LEGACY_BUILD_DIR};
+use moonutil::common::BUILD_DIR;
 use tracing::{info, warn};
 
 /// Ephemeral struct to apply filters on file paths in a single run
@@ -43,19 +43,13 @@ pub struct FileFilterBuilder<'a> {
 impl<'a> FileFilterBuilder<'a> {
     /// Create a new instance.
     ///
-    /// This will always ignore the `_build/`, `target/` and `.mooncakes/` directories.
+    /// This will always ignore the `_build/` and `.mooncakes/` directories.
     pub fn new(repo_path: &'a Path) -> Self {
         let mut builder = GitignoreBuilder::new(repo_path);
 
         // Always ignore the build directories and .mooncakes
         builder
             .add_line(Some(repo_path.to_path_buf()), &format!("{}/", BUILD_DIR))
-            .unwrap();
-        builder
-            .add_line(
-                Some(repo_path.to_path_buf()),
-                &format!("{}/", LEGACY_BUILD_DIR),
-            )
             .unwrap();
         builder
             .add_line(Some(repo_path.to_path_buf()), ".mooncakes/")

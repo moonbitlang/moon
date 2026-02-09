@@ -39,7 +39,7 @@ use crate::{
 
 /// The context that encapsulates all the data needed for the building process.
 pub struct CompileConfig {
-    /// Target directory, i.e. `target/`
+    /// Target directory, i.e. `_build/`
     pub target_dir: PathBuf,
     /// The backend to use for the compilation.
     pub target_backend: RunBackend,

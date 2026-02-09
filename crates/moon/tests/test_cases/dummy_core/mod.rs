@@ -17,7 +17,7 @@ fn test_dummy_core() {
 
     #[cfg(unix)]
     {
-        let p = dir.join("target/packages.json");
+        let p = dir.join("_build/packages.json");
         expect_file!["./packages_wasm_gc.json.snap"]
             .assert_eq(&replace_dir(&std::fs::read_to_string(p).unwrap(), &dir))
     }
@@ -29,7 +29,7 @@ fn test_dummy_core() {
 
     #[cfg(unix)]
     {
-        let p = dir.join("target/packages.json");
+        let p = dir.join("_build/packages.json");
         expect_file!["./packages_js.json.snap"]
             .assert_eq(&replace_dir(&std::fs::read_to_string(p).unwrap(), &dir))
     };

@@ -29,8 +29,8 @@ use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
 use crate::common::{
-    BUILD_DIR, IGNORE_DIRS, LEGACY_BUILD_DIR, MOON_MOD_JSON, MooncOpt, RunMode, get_moon_version,
-    get_moonc_version, is_moon_pkg,
+    BUILD_DIR, IGNORE_DIRS, MOON_MOD_JSON, MooncOpt, RunMode, get_moon_version, get_moonc_version,
+    is_moon_pkg,
 };
 
 const MOON_DB: &str = "moon.db";
@@ -58,7 +58,7 @@ pub struct SourceTargetDirs {
     #[arg(long = "manifest-path", global = true, value_name = "PATH")]
     pub manifest_path: Option<PathBuf>,
 
-    /// The target directory. Defaults to `<project-root>/target`.
+    /// The target directory. Defaults to `<project-root>/_build`.
     #[clap(long, global = true)]
     pub target_dir: Option<PathBuf>,
 }
@@ -83,46 +83,6 @@ pub fn find_ancestor_with_mod(source_dir: &Path) -> Option<PathBuf> {
         .ancestors()
         .find(|dir| check_moon_mod_exists(dir))
         .map(|p| p.to_path_buf())
-}
-
-/// Creates a backwards compatibility symlink from "target" -> "_build"
-/// This allows existing tools and scripts that reference "target" to continue working.
-/// Symlink creation failures are non-fatal and only produce warnings.
-pub fn create_legacy_symlink(project_root: &Path) {
-    let symlink_path = project_root.join(LEGACY_BUILD_DIR);
-    let target_path = Path::new(BUILD_DIR);
-
-    // Skip if symlink already exists or if there's already a directory/file there
-    if symlink_path.exists() || symlink_path.is_symlink() {
-        return;
-    }
-
-    #[cfg(unix)]
-    {
-        if let Err(e) = std::os::unix::fs::symlink(target_path, &symlink_path) {
-            eprintln!(
-                "Warning: failed to create symbolic link: {} -> {}. {}",
-                symlink_path.display(),
-                target_path.display(),
-                e
-            );
-        }
-    }
-
-    #[cfg(windows)]
-    {
-        // On Windows, use NTFS junction instead of symlink to avoid requiring
-        // developer mode or administrator privileges
-        let absolute_target = project_root.join(target_path);
-        if let Err(e) = junction::create(&absolute_target, &symlink_path) {
-            eprintln!(
-                "Warning: failed to create directory junction: {} -> {}. {}",
-                symlink_path.display(),
-                absolute_target.display(),
-                e
-            );
-        }
-    }
 }
 
 fn get_src_dst_dir(matches: &SourceTargetDirs) -> Result<PackageDirs, PackageDirsError> {
@@ -180,8 +140,6 @@ fn get_src_dst_dir(matches: &SourceTargetDirs) -> Result<PackageDirs, PackageDir
             .context("failed to create target directory")
             .map_err(PackageDirsError::from)?;
     }
-    // Create backwards compatibility symlink from "target" -> "_build"
-    create_legacy_symlink(&project_root);
     let target_dir = dunce::canonicalize(target_dir)
         .context("failed to set target directory")
         .map_err(PackageDirsError::from)?;
