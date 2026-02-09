@@ -67,9 +67,6 @@ pub const MOON_LOCK: &str = ".moon-lock";
 
 pub const WATCH_MODE_DIR: &str = "watch";
 
-pub const MOON_SNAPSHOT_DELIMITER_BEGIN: &str = "----- BEGIN MOONBIT SNAPSHOT TESTING -----";
-pub const MOON_SNAPSHOT_DELIMITER_END: &str = "----- END MOONBIT SNAPSHOT TESTING -----";
-
 pub const TEST_INFO_FILE: &str = "test_info.json";
 
 pub const WHITEBOX_TEST_PATCH: &str = "_wbtest.json";
@@ -1024,8 +1021,6 @@ impl std::fmt::Display for DiagnosticLevel {
     }
 }
 
-pub const INTERNAL_TEST_DRIVER: &str = "__generated_driver_for_internal_test.mbt";
-pub const WHITEBOX_TEST_DRIVER: &str = "__generated_driver_for_whitebox_test.mbt";
 pub const BLACKBOX_TEST_DRIVER: &str = "__generated_driver_for_blackbox_test.mbt";
 
 pub type FileName = String;

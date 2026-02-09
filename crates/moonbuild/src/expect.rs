@@ -1079,19 +1079,6 @@ pub fn render_snapshot_fail(
     Ok((eq, expect, actual))
 }
 
-pub fn render_expect_fails(
-    pkg_src: &impl PackageSrcResolver,
-    messages: &[String],
-) -> anyhow::Result<()> {
-    for msg in messages {
-        if !msg.starts_with(EXPECT_FAILED) {
-            continue;
-        }
-        render_expect_fail(pkg_src, msg)?;
-    }
-    Ok(())
-}
-
 #[test]
 fn test_split() {
     let input = "\n";

@@ -186,12 +186,6 @@ impl BuildPlan {
         self.bundle_info.get(&module_id)
     }
 
-    /// Get the list of nodes that **depend on the given node**.
-    pub fn consumer_nodes(&self, node: BuildPlanNode) -> impl Iterator<Item = BuildPlanNode> + '_ {
-        self.graph
-            .neighbors_directed(node, petgraph::Direction::Incoming)
-    }
-
     pub fn all_nodes(&self) -> impl Iterator<Item = BuildPlanNode> + '_ {
         self.graph.nodes()
     }

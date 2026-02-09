@@ -49,18 +49,6 @@ pub struct ModuleName {
 }
 
 impl ModuleName {
-    /// Returns whether the module's name is in legacy format, either having
-    /// empty username or containing multiple segments in the unqualified name.
-    pub fn is_legacy(&self) -> bool {
-        if self.username.is_empty() {
-            return true;
-        }
-        if self.unqual.contains('/') {
-            return true;
-        }
-        false
-    }
-
     /// Return the last segment of the name, that may be used as a short name
     /// of a package.
     pub fn last_segment(&self) -> &str {
@@ -223,14 +211,6 @@ impl ModuleSource {
             name,
             version,
             source: Default::default(),
-        })
-    }
-
-    pub fn from_registry_and_version(name: ModuleName, registry: &str, version: Version) -> Self {
-        Self::new_inner(ModuleSourceInner {
-            name,
-            version,
-            source: ModuleSourceKind::Registry(Some(registry.to_owned())),
         })
     }
 
@@ -416,10 +396,6 @@ pub mod result {
     impl ResolvedEnv {
         pub fn input_module_ids(&self) -> &[ModuleId] {
             &self.input_module_ids
-        }
-
-        pub fn mod_from_name(&self, ms: &ModuleSource) -> Option<ModuleId> {
-            self.rev_map.get(ms).cloned()
         }
 
         pub fn mod_name_from_id(&self, id: ModuleId) -> &ModuleSource {

@@ -108,29 +108,6 @@ impl RegistryList {
         }
     }
 
-    pub fn from_registries(
-        registries: impl Iterator<Item = (String, Box<dyn Registry>)>,
-        default: String,
-    ) -> Self {
-        let registries: HashMap<_, _> = registries.collect();
-        assert!(
-            registries.contains_key(&default),
-            "Registries must contain the default registry"
-        );
-        Self {
-            registries,
-            default_registry: default,
-        }
-    }
-
-    pub fn set_default_registry(&mut self, registry: String) {
-        self.default_registry = registry
-    }
-
-    pub fn add_registry(&mut self, name: String, registry: Box<dyn Registry>) {
-        self.registries.insert(name, registry);
-    }
-
     pub fn get_registry(&self, name: Option<&str>) -> Option<&dyn Registry> {
         self.registries
             .get(name.unwrap_or(&self.default_registry))

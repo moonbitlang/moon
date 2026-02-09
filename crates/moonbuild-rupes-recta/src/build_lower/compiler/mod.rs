@@ -215,11 +215,6 @@ pub trait CmdlineAbstraction {
     }
 }
 
-/// The default list of warnings used by `moonc` for regular compilation.
-///
-/// Only provided as a reference, not actually used in code.
-#[allow(unused)]
-pub(crate) const MOONC_REGULAR_WARNING_SET: &str = "+a-31-32";
 /// The warning list to use when denying all warnings.
 pub(crate) const MOONC_DENY_WARNING_SET: &str = "@a";
 /// The warning list to use when suppressing all warnings.
