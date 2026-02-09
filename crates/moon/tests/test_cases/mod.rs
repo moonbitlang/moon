@@ -176,12 +176,16 @@ fn test_backtrace() {
     let dir = TestDir::new("backtrace.in");
 
     let out = get_err_stderr(&dir, ["run", "main"]);
-    assert!(!out.contains("main.foo"));
-    assert!(!out.contains("main.bar"));
+    assert!(out.contains("main.foo"));
+    assert!(out.contains("main.bar"));
+    assert!(!out.contains("4main3foo"));
+    assert!(!out.contains("4main3bar"));
 
     let out = get_err_stderr(&dir, ["run", "main", "--debug"]);
-    assert!(out.contains("4main3foo"));
-    assert!(out.contains("4main3bar"));
+    assert!(out.contains("main.foo"));
+    assert!(out.contains("main.bar"));
+    assert!(!out.contains("4main3foo"));
+    assert!(!out.contains("4main3bar"));
 }
 
 #[test]
