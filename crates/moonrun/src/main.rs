@@ -622,7 +622,7 @@ fn main() -> anyhow::Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::v8_builder::ScopeExt;
+    use crate::v8_builder::{ObjectExt, ScopeExt};
     use std::sync::Once;
 
     const JS_RUNTIME_CONTRACT_CHECK: &str = r#"
@@ -636,8 +636,8 @@ mod tests {
   if (!backtrace || typeof backtrace !== "object") {
     throw new Error("missing __moonbit_backtrace_unstable");
   }
-  if (typeof backtrace.format_source_path_auto !== "function") {
-    throw new Error("missing __moonbit_backtrace_unstable.format_source_path_auto");
+  if (typeof backtrace.source_pos_for_wasm_location !== "function") {
+    throw new Error("missing __moonbit_backtrace_unstable.source_pos_for_wasm_location");
   }
   if (!runEnv || typeof runEnv !== "object") {
     throw new Error("missing __moonbit_run_env");
@@ -658,14 +658,6 @@ mod tests {
         });
     }
 
-    fn format_source_path_auto_passthrough(
-        _scope: &mut v8::HandleScope,
-        args: v8::FunctionCallbackArguments,
-        mut ret: v8::ReturnValue,
-    ) {
-        ret.set(args.get(0));
-    }
-
     fn build_runtime_for_contract_test<'s>(scope: &mut v8::ContextScope<'s, v8::HandleScope<'s>>) {
         let global = scope.get_current_context().global(scope);
 
@@ -675,38 +667,23 @@ mod tests {
             scope.string("__moonbit_fs_unstable").into(),
             fs.into(),
         );
+        sys_api::init_env(fs, scope, "main.wasm", &[]);
 
-        let run_env = v8::Object::new(scope);
-        run_env.set(
-            scope,
-            scope.string("backtrace_color_enabled").into(),
-            v8::Boolean::new(scope, false).into(),
-        );
-        global.set(
-            scope,
-            scope.string("__moonbit_run_env").into(),
-            run_env.into(),
-        );
+        // Always create the object; tests can choose whether to install APIs on it.
+        global.child(scope, "__moonbit_backtrace_unstable");
     }
 
     fn install_backtrace_api_for_contract_test<'s>(
         scope: &mut v8::ContextScope<'s, v8::HandleScope<'s>>,
     ) {
         let global = scope.get_current_context().global(scope);
-        let backtrace = v8::Object::new(scope);
-        let func = v8::FunctionTemplate::new(scope, format_source_path_auto_passthrough)
-            .get_function(scope)
+        let key = scope.string("__moonbit_backtrace_unstable");
+        let backtrace = global
+            .get(scope, key.into())
+            .unwrap()
+            .to_object(scope)
             .unwrap();
-        backtrace.set(
-            scope,
-            scope.string("format_source_path_auto").into(),
-            func.into(),
-        );
-        global.set(
-            scope,
-            scope.string("__moonbit_backtrace_unstable").into(),
-            backtrace.into(),
-        );
+        backtrace_api::init_backtrace(backtrace, scope);
     }
 
     fn eval_contract_check_with_backtrace_api() -> Result<(), String> {
