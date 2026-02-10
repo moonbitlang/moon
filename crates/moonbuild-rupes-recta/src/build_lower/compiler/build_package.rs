@@ -31,8 +31,7 @@ use crate::build_lower::compiler::{
 /// this command is a `.core` file that contains the compiled IR of the package,
 /// and a `.mi` file that contains the public interface information.
 ///
-/// FIXME: This is a shallow abstraction that tries to mimic the legacy
-/// behavior as much as possible. It definitely contains some suboptimal
+/// FIXME: This is a shallow abstraction that still contains some suboptimal
 /// abstractions, which needs to be fixed in the future.
 #[derive(Debug)]
 pub struct MooncBuildPackage<'a> {
@@ -57,10 +56,8 @@ pub struct MooncBuildPackage<'a> {
     pub extra_build_opts: &'a [String],
 }
 
-impl<'a> MooncBuildPackage<'a> {
-    /// Convert this to list of args. The behavior tries to mimic the legacy
-    /// behavior as much as possible.
-    pub fn to_args_legacy(&self, args: &mut Vec<String>) {
+impl<'a> CmdlineAbstraction for MooncBuildPackage<'a> {
+    fn to_args(&self, args: &mut Vec<String>) {
         args.push("build-package".into());
 
         // Error format
@@ -71,7 +68,7 @@ impl<'a> MooncBuildPackage<'a> {
 
         // Input files
         self.required.add_mbt_sources(args);
-        // Additional inputs following legacy ordering
+        // Additional inputs in stable ordering
         self.required.add_doctest_only_sources(args);
 
         // Custom warning/alert lists
@@ -152,11 +149,5 @@ impl<'a> MooncBuildPackage<'a> {
 
         // all-pkgs.json
         self.required.add_all_pkgs_json(args);
-    }
-}
-
-impl<'a> CmdlineAbstraction for MooncBuildPackage<'a> {
-    fn to_args(&self, args: &mut Vec<String>) {
-        self.to_args_legacy(args);
     }
 }

@@ -57,7 +57,7 @@ fn get_moon_path() -> anyhow::Result<String> {
     replace_home_with_tilde(&moon_path)
 }
 
-/// Single place to print the unstable footer (features + notice) for non-JSON output.
+/// Single place to print the unstable feature footer for non-JSON output.
 fn print_unstable_footer(flags: &UniversalFlags) {
     let features = flags.unstable_feature.to_string();
     if features.is_empty() {
@@ -66,10 +66,6 @@ fn print_unstable_footer(flags: &UniversalFlags) {
 
     println!();
     println!("Feature flags enabled: {features}");
-    println!(
-        "-> You're currently using the experimental build graph generator \"Rupes Recta\". \
-        Legacy build support has been removed, so NEW_MOON=0 is ignored."
-    );
 }
 
 pub fn run_version(flags: &UniversalFlags, cmd: VersionSubcommand) -> anyhow::Result<i32> {

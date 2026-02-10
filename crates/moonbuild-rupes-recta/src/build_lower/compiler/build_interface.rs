@@ -50,7 +50,7 @@ pub struct MooncBuildInterface<'a> {
 }
 
 impl<'a> MooncBuildInterface<'a> {
-    /// Create a new command abstraction with defaults matching the legacy builder.
+    /// Create a new command abstraction with default settings.
     pub fn new(
         mbti_input: impl Into<Cow<'a, Path>>,
         mi_output: impl Into<Cow<'a, Path>>,

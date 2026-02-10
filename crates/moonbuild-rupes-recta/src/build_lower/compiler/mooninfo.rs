@@ -40,8 +40,8 @@ pub struct Mooninfo<'a> {
     pub no_alias: bool,
 }
 
-impl<'a> Mooninfo<'a> {
-    pub fn to_args_legacy(&self, args: &mut Vec<String>) {
+impl<'a> CmdlineAbstraction for Mooninfo<'a> {
+    fn to_args(&self, args: &mut Vec<String>) {
         args.push("-format=text".into());
 
         // 2. input mi path (positional)
@@ -54,11 +54,5 @@ impl<'a> Mooninfo<'a> {
         if self.no_alias {
             args.push("-no-alias".to_string());
         }
-    }
-}
-
-impl<'a> CmdlineAbstraction for Mooninfo<'a> {
-    fn to_args(&self, args: &mut Vec<String>) {
-        self.to_args_legacy(args);
     }
 }

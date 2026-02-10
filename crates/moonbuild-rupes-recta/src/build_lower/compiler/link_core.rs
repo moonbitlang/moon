@@ -30,8 +30,7 @@ use crate::build_lower::compiler::{
 
 /// Abstraction for `moonc link-core`.
 ///
-/// This struct reuses existing structures and mimics the legacy behavior
-/// as much as possible, maintaining EXACT argument order.
+/// This struct reuses existing structures and keeps a stable argument order.
 #[derive(Debug)]
 pub struct MooncLinkCore<'a> {
     // Input/Output configuration
@@ -119,14 +118,12 @@ pub struct JsConfig {
     pub no_dts: bool,
 }
 
-impl<'a> MooncLinkCore<'a> {
-    /// Convert this to list of args. The behavior tries to mimic the legacy
-    /// behavior as much as possible, maintaining EXACT argument order.
-    pub fn to_args_legacy(&self, args: &mut Vec<String>) {
+impl CmdlineAbstraction for MooncLinkCore<'_> {
+    fn to_args(&self, args: &mut Vec<String>) {
         // Command name
         args.push("link-core".into());
 
-        // Core dependencies (input files) - first in legacy order
+        // Core dependencies (input files) first
         for core_dep in self.core_deps {
             args.push(core_dep.to_string_lossy().into_owned());
         }
@@ -254,7 +251,7 @@ impl<'a> MooncLinkCore<'a> {
             args.push(opt.to_string());
         }
 
-        // Windows-specific LLVM target workaround (conditional compilation like legacy)
+        // Windows-specific LLVM target workaround
         // FIXME: We should always provide target info for LLVM
         #[cfg(target_os = "windows")]
         if self.target_backend == TargetBackend::LLVM {
@@ -264,11 +261,5 @@ impl<'a> MooncLinkCore<'a> {
                 args.push("x86_64-pc-windows-msvc".to_string());
             }
         }
-    }
-}
-
-impl CmdlineAbstraction for MooncLinkCore<'_> {
-    fn to_args(&self, args: &mut Vec<String>) {
-        self.to_args_legacy(args);
     }
 }
