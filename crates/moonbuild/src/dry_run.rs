@@ -17,15 +17,11 @@
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
 use moonbuild_debug::graph::try_debug_dump_build_graph_to_file;
-use moonutil::module::ModuleDB;
 use n2::densemap::Index;
 use n2::graph::{BuildId, FileId, Graph};
 use std::collections::{HashMap, HashSet};
 
 use std::path::Path;
-
-use moonutil::common::{MoonbuildOpt, MooncOpt, RunMode, TargetBackend};
-use n2::load::State;
 
 /// Print build commands from a State
 pub fn print_build_commands(
@@ -51,97 +47,6 @@ pub fn print_build_commands(
     }
 
     try_debug_dump_build_graph_to_file(graph, default, source_dir);
-}
-
-/// Print run commands from a State
-pub fn print_run_commands(
-    state: &State,
-    target_backend: TargetBackend,
-    source_dir: &Path,
-    args: &[String],
-) {
-    if !state.default.is_empty() {
-        // FIXME: This sorts the default targets twice. Should not affect the perf much though.
-        let mut sorted_default = state.default.clone();
-        sorted_default.sort_by_key(|a| a.index());
-
-        for fid in sorted_default.iter() {
-            let watfile = state.graph.file(*fid).name.clone();
-
-            // This is only for dry-run output, so we can ignore the actual
-            // paths of moonrun/node binaries.
-            let mut cmd: Vec<&str> = match target_backend {
-                TargetBackend::Wasm | TargetBackend::WasmGC => {
-                    vec!["moonrun", &watfile, "--"]
-                }
-                TargetBackend::Js => {
-                    vec!["node", &watfile]
-                }
-                TargetBackend::Native | TargetBackend::LLVM => {
-                    // stub.o would be default for native and llvm, skip them
-                    if !watfile.ends_with(".exe") {
-                        continue;
-                    }
-                    vec![&watfile]
-                }
-            };
-
-            // Append user arguments
-            cmd.extend(args.iter().map(|x| x.as_str()));
-
-            // Normalize command arguments
-            let replacer = moonbuild_debug::graph::PathNormalizer::new(source_dir);
-            let cmd = cmd
-                .iter()
-                .map(|x| replacer.normalize_command_arg(x))
-                .collect::<Vec<_>>();
-
-            let cmd_str =
-                shlex::try_join(cmd.iter().map(|x| &**x)).expect("null in args, should not happen");
-
-            println!("{}", cmd_str);
-        }
-    }
-}
-
-pub fn print_commands(
-    module: &ModuleDB,
-    moonc_opt: &MooncOpt,
-    moonbuild_opt: &MoonbuildOpt,
-) -> anyhow::Result<i32> {
-    let moonc_opt = &MooncOpt {
-        json_diagnostics: false,
-        ..moonc_opt.clone()
-    };
-
-    let (source_dir, target_dir) = (&moonbuild_opt.source_dir, &moonbuild_opt.target_dir);
-    let mode = moonbuild_opt.run_mode;
-
-    let state = match mode {
-        RunMode::Build | RunMode::Run => {
-            crate::build::load_moon_proj(module, moonc_opt, moonbuild_opt)?
-        }
-        RunMode::Check => crate::check::normal::load_moon_proj(module, moonc_opt, moonbuild_opt)?,
-        RunMode::Test | RunMode::Bench => {
-            crate::runtest::load_moon_proj(module, moonc_opt, moonbuild_opt)?
-        }
-        RunMode::Bundle => crate::bundle::load_moon_proj(module, moonc_opt, moonbuild_opt)?,
-        RunMode::Format => crate::fmt::load_moon_proj(module, moonc_opt, moonbuild_opt)?,
-    };
-    log::debug!("{:#?}", state);
-
-    print_build_commands(&state.graph, &state.default, source_dir, target_dir);
-
-    if mode == RunMode::Run {
-        print_run_commands(
-            &state,
-            moonc_opt.link_opt.target_backend,
-            source_dir,
-            &moonbuild_opt.args,
-        );
-    }
-
-    Ok(0)
 }
 
 /// Create a filename-based sorting key cache for stable graph traversal.

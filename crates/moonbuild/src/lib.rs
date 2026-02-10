@@ -20,18 +20,12 @@
 
 pub mod bench;
 pub mod benchmark;
-pub mod build;
 pub mod build_script;
-pub mod bundle;
-pub mod check;
 pub mod doc_http;
 pub mod dry_run;
 pub mod entry;
 pub mod expect;
-pub mod fmt;
-pub mod r#gen;
 pub mod new;
-pub mod pre_build;
 pub mod runtest;
 pub mod section_capture;
 pub mod test_utils;
