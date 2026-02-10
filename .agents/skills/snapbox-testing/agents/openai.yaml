@@ -1,0 +1,4 @@
+interface:
+  display_name: "Snapbox Testing"
+  short_description: "Use Snapbox for robust Rust test snapshots"
+  default_prompt: "Use $snapbox-testing to convert these Rust command-output tests to snapbox 0.6+ assertions with minimal, stable wildcarding."
