@@ -45,6 +45,7 @@ colored = "2.1.0"
 ctrlc = { version = "3.4.4", features = ["termination"] }
 dunce = "1.0.4"
 expect-test = "1.5.0"
+snapbox = "0.6.23"
 futures = { version = "0.3.29", features = ["std"], default-features = false }
 indexmap = { version = "2.2.6", features = ["serde"] }
 notify = "6.1.1"

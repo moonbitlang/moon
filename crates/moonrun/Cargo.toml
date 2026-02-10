@@ -38,10 +38,9 @@ vergen = { version = "8.0.0", features = ["build", "git", "gitcl"] }
 chrono.workspace = true
 
 [dev-dependencies]
-snapbox = "0.4.15"
+snapbox.workspace = true
 tempfile = "3.6.0"
 walkdir = "2.5.0"
-expect-test.workspace = true
 
 [[bin]]
 name = "moonrun"
