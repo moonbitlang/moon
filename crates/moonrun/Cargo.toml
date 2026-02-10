@@ -39,8 +39,7 @@ chrono.workspace = true
 
 [dev-dependencies]
 snapbox.workspace = true
-tempfile = "3.6.0"
-walkdir = "2.5.0"
+moon-test-util = { path = "../moon-test-util" }
 
 [[bin]]
 name = "moonrun"

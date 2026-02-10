@@ -16,7 +16,7 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
 fn moon_cmd() -> snapbox::cmd::Command {
     let manifest_path = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../moon/Cargo.toml");
@@ -30,56 +30,26 @@ fn moon_cmd() -> snapbox::cmd::Command {
         .arg("--")
 }
 
-struct TestDir {
-    // tempfile::TempDir has a drop implementation that will remove the directory
-    // copy the test directory to a temporary directory to abvoid conflict with other tests when `cargo test` parallelly testing
-    path: tempfile::TempDir,
-}
+struct TestDir(moon_test_util::test_dir::TestDir);
 
 impl TestDir {
     // create a new TestDir with the test directory in tests/test_cases/<sub>
     fn new(sub: &str) -> Self {
-        let dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-            .join("tests/test_cases")
-            .join(sub);
-        let tmp_dir = tempfile::TempDir::new().unwrap();
-        copy(&dir, tmp_dir.path()).unwrap();
-        Self { path: tmp_dir }
+        let case_root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/test_cases");
+        Self(moon_test_util::test_dir::TestDir::from_case_root(
+            case_root, sub, false,
+        ))
     }
 
     fn join(&self, sub: &str) -> PathBuf {
-        self.path.path().join(sub)
+        self.0.join(sub)
     }
 }
 
-impl AsRef<Path> for TestDir {
-    fn as_ref(&self) -> &Path {
-        self.path.path()
+impl AsRef<std::path::Path> for TestDir {
+    fn as_ref(&self) -> &std::path::Path {
+        self.0.as_ref()
     }
-}
-
-fn copy(src: &Path, dest: &Path) -> anyhow::Result<()> {
-    if src.is_dir() {
-        if !dest.exists() {
-            std::fs::create_dir_all(dest)?;
-        }
-        for entry in walkdir::WalkDir::new(src) {
-            let entry = entry?;
-            let path = entry.path();
-            let relative_path = path.strip_prefix(src)?;
-            let dest_path = dest.join(relative_path);
-            if path.is_dir() {
-                if !dest_path.exists() {
-                    std::fs::create_dir_all(dest_path)?;
-                }
-            } else {
-                std::fs::copy(path, dest_path)?;
-            }
-        }
-    } else {
-        std::fs::copy(src, dest)?;
-    }
-    Ok(())
 }
 
 #[test]

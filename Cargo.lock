@@ -1732,16 +1732,15 @@ dependencies = [
  "anyhow",
  "chrono",
  "clap",
+ "moon-test-util",
  "rand 0.8.5",
  "serde",
  "serde_json_lenient",
  "snapbox",
- "tempfile",
  "tracing",
  "tracing-subscriber",
  "v8",
  "vergen",
- "walkdir",
 ]
 
 [[package]]

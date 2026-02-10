@@ -17,3 +17,4 @@
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
 pub mod cmdtest;
+pub mod test_dir;
