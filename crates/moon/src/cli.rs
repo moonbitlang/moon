@@ -172,9 +172,6 @@ pub struct BuildFlags {
     #[clap(long, value_delimiter = ',')]
     pub target: Vec<SurfaceTarget>,
 
-    #[clap(skip)]
-    pub target_backend: Option<TargetBackend>,
-
     /// [Deprecated] Handle the selected targets sequentially
     ///
     /// This flag is deprecated, because all targets are handled sequentially
@@ -240,7 +237,6 @@ impl Default for BuildFlags {
             strip: false,
             no_strip: false,
             target: Vec::new(),
-            target_backend: None,
             serial: false,
             enable_coverage: false,
             sort_input: false,
@@ -258,14 +254,6 @@ impl Default for BuildFlags {
 }
 
 impl BuildFlags {
-    /// Set the target backend if not already set
-    pub fn with_default_target_backend(mut self, backend: Option<TargetBackend>) -> Self {
-        if self.target_backend.is_none() {
-            self.target_backend = backend;
-        }
-        self
-    }
-
     pub fn resolve_single_target_backend(&self) -> anyhow::Result<Option<TargetBackend>> {
         if self.target.is_empty() {
             return Ok(None);

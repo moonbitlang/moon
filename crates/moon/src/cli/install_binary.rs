@@ -467,13 +467,13 @@ fn build_and_install_packages(
         let build_flags = BuildFlags {
             release: true,
             warn_list: Some("-a".to_string()),
-            target_backend: Some(TargetBackend::Native),
             ..BuildFlags::default()
         };
         let preconfig = preconfig_compile(
             &moonutil::mooncakes::sync::AutoSyncFlags { frozen: false },
             cli,
             &build_flags,
+            Some(TargetBackend::Native),
             &target_dir,
             RunMode::Build,
         );

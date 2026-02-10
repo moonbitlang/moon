@@ -87,6 +87,7 @@ pub fn run_doc_rr(cli: UniversalFlags, cmd: DocSubcommand) -> anyhow::Result<i32
         &cmd.auto_sync_flags,
         &cli,
         &BuildFlags::default(),
+        None,
         &target_dir,
         RunMode::Check,
     );

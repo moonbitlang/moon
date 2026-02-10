@@ -21,7 +21,9 @@ use std::path::Path;
 use anyhow::{Context, bail};
 use moonbuild_rupes_recta::build_plan::InputDirective;
 use moonbuild_rupes_recta::intent::UserIntent;
-use moonutil::common::{BUILD_DIR, FileLock, RunMode, TestArtifacts, is_moon_pkg_exist};
+use moonutil::common::{
+    BUILD_DIR, FileLock, RunMode, TargetBackend, TestArtifacts, is_moon_pkg_exist,
+};
 use moonutil::dirs::PackageDirs;
 use moonutil::mooncakes::RegistryConfig;
 use moonutil::mooncakes::sync::AutoSyncFlags;
@@ -81,19 +83,22 @@ pub fn run_run(cli: &UniversalFlags, cmd: RunSubcommand) -> anyhow::Result<i32> 
         Err(e) => return Err(e.into()),
     }
 
-    if let Some(target_backend) = cmd.build_flags.resolve_single_target_backend()? {
-        let mut cmd = cmd.clone();
-        cmd.build_flags.target_backend = Some(target_backend);
-        run_run_internal(cli, cmd)?;
+    let selected_target_backend = cmd.build_flags.resolve_single_target_backend()?;
+    if selected_target_backend.is_some() {
+        run_run_internal(cli, cmd, selected_target_backend)?;
         Ok(0)
     } else {
-        run_run_internal(cli, cmd)
+        run_run_internal(cli, cmd, selected_target_backend)
     }
 }
 
 #[instrument(skip_all)]
-pub fn run_run_internal(cli: &UniversalFlags, cmd: RunSubcommand) -> anyhow::Result<i32> {
-    let result = run_run_rr(cli, cmd);
+pub fn run_run_internal(
+    cli: &UniversalFlags,
+    cmd: RunSubcommand,
+    selected_target_backend: Option<TargetBackend>,
+) -> anyhow::Result<i32> {
+    let result = run_run_rr(cli, cmd, selected_target_backend);
     if crate::run::shutdown_requested() {
         return Ok(130);
     }
@@ -101,7 +106,11 @@ pub fn run_run_internal(cli: &UniversalFlags, cmd: RunSubcommand) -> anyhow::Res
 }
 
 #[instrument(skip_all)]
-fn run_run_rr(cli: &UniversalFlags, cmd: RunSubcommand) -> Result<i32, anyhow::Error> {
+fn run_run_rr(
+    cli: &UniversalFlags,
+    cmd: RunSubcommand,
+    selected_target_backend: Option<TargetBackend>,
+) -> Result<i32, anyhow::Error> {
     let PackageDirs {
         source_dir,
         target_dir,
@@ -112,6 +121,7 @@ fn run_run_rr(cli: &UniversalFlags, cmd: RunSubcommand) -> Result<i32, anyhow::E
         &cmd.auto_sync_flags,
         cli,
         &cmd.build_flags,
+        selected_target_backend,
         &target_dir,
         RunMode::Run,
     );
@@ -203,7 +213,7 @@ fn calc_user_intent(
 }
 
 #[instrument(level = Level::DEBUG, skip_all)]
-fn run_single_file_rr(cli: &UniversalFlags, mut cmd: RunSubcommand) -> anyhow::Result<i32> {
+fn run_single_file_rr(cli: &UniversalFlags, cmd: RunSubcommand) -> anyhow::Result<i32> {
     let current_dir = std::env::current_dir()?;
     let input_path = dunce::canonicalize(current_dir.join(&cmd.package_or_mbt_file))?;
     let source_dir = input_path.parent().unwrap().to_path_buf();
@@ -212,9 +222,7 @@ fn run_single_file_rr(cli: &UniversalFlags, mut cmd: RunSubcommand) -> anyhow::R
 
     let value_tracing = cmd.build_flags.enable_value_tracing;
 
-    if let Some(target_backend) = cmd.build_flags.resolve_single_target_backend()? {
-        cmd.build_flags.target_backend = Some(target_backend);
-    }
+    let selected_target_backend = cmd.build_flags.resolve_single_target_backend()?;
 
     // Resolve single-file project (synthesized package around the file)
     let resolve_cfg = moonbuild_rupes_recta::ResolveConfig::new(
@@ -228,11 +236,13 @@ fn run_single_file_rr(cli: &UniversalFlags, mut cmd: RunSubcommand) -> anyhow::R
         &input_path,
         true,
     )?;
+    let selected_target_backend = selected_target_backend.or(backend);
 
     let mut preconfig = preconfig_compile(
         &cmd.auto_sync_flags,
         cli,
-        &cmd.build_flags.clone().with_default_target_backend(backend),
+        &cmd.build_flags,
+        selected_target_backend,
         &raw_target_dir,
         RunMode::Run,
     );

@@ -298,6 +298,7 @@ impl CompilePreConfig {
 /// - `auto_sync_flags`: The flags to control module download & sync behavior.
 /// - `cli`: The universal CLI flags.
 /// - `build_flags`: The build-specific flags.
+/// - `selected_target_backend`: The backend selected for this invocation, if explicit.
 /// - `target_dir`: The target directory for the build.
 /// - `action`: The run mode (build, test, bench, etc.). This also affects the
 ///   default build profile (bench/check/bundle default to release; others default to debug).
@@ -306,6 +307,7 @@ pub fn preconfig_compile(
     auto_sync_flags: &AutoSyncFlags,
     cli: &UniversalFlags,
     build_flags: &BuildFlags,
+    selected_target_backend: Option<TargetBackend>,
     target_dir: &Path,
     action: RunMode,
 ) -> CompilePreConfig {
@@ -314,7 +316,7 @@ pub fn preconfig_compile(
     CompilePreConfig {
         frozen: auto_sync_flags.frozen,
         target_dir: target_dir.to_owned(),
-        target_backend: build_flags.target_backend,
+        target_backend: selected_target_backend,
         opt_level,
         action,
         debug_symbols: build_flags.debug_symbols_for(action),

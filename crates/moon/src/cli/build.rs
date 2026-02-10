@@ -82,16 +82,14 @@ pub fn run_build(cli: &UniversalFlags, cmd: BuildSubcommand) -> anyhow::Result<i
     } = cli.source_tgt_dir.try_into_package_dirs()?;
 
     if cmd.build_flags.target.is_empty() {
-        return run_build_internal(cli, &cmd, &source_dir, &target_dir);
+        return run_build_internal(cli, &cmd, &source_dir, &target_dir, None);
     }
     let surface_targets = cmd.build_flags.target.clone();
     let targets = lower_surface_targets(&surface_targets);
 
     let mut ret_value = 0;
     for t in targets {
-        let mut cmd = cmd.clone();
-        cmd.build_flags.target_backend = Some(t);
-        let x = run_build_internal(cli, &cmd, &source_dir, &target_dir)
+        let x = run_build_internal(cli, &cmd, &source_dir, &target_dir, Some(t))
             .context(format!("failed to run build for target {t:?}"))?;
         ret_value = ret_value.max(x);
     }
@@ -104,8 +102,18 @@ fn run_build_internal(
     cmd: &BuildSubcommand,
     source_dir: &Path,
     target_dir: &Path,
+    selected_target_backend: Option<TargetBackend>,
 ) -> anyhow::Result<i32> {
-    let f = |watch: bool| run_build_rr(cli, cmd, source_dir, target_dir, watch);
+    let f = |watch: bool| {
+        run_build_rr(
+            cli,
+            cmd,
+            source_dir,
+            target_dir,
+            watch,
+            selected_target_backend,
+        )
+    };
 
     if cmd.watch {
         watching(|| f(true), source_dir, source_dir, target_dir)
@@ -124,11 +132,13 @@ fn run_build_rr(
     source_dir: &Path,
     target_dir: &Path,
     _watch: bool,
+    selected_target_backend: Option<TargetBackend>,
 ) -> anyhow::Result<WatchOutput> {
     let preconfig = preconfig_compile(
         &cmd.auto_sync_flags,
         cli,
         &cmd.build_flags,
+        selected_target_backend,
         target_dir,
         RunMode::Build,
     );

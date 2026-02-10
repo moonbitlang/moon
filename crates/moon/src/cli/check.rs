@@ -121,7 +121,7 @@ pub fn run_check(cli: &UniversalFlags, cmd: &CheckSubcommand) -> anyhow::Result<
     };
 
     if cmd.build_flags.target.is_empty() {
-        return run_check_internal(cli, cmd, &source_dir, &target_dir, single_file);
+        return run_check_internal(cli, cmd, &source_dir, &target_dir, single_file, None);
     }
 
     let surface_targets = cmd.build_flags.target.clone();
@@ -129,9 +129,7 @@ pub fn run_check(cli: &UniversalFlags, cmd: &CheckSubcommand) -> anyhow::Result<
 
     let mut ret_value = 0;
     for t in targets {
-        let mut cmd = (*cmd).clone();
-        cmd.build_flags.target_backend = Some(t);
-        let x = run_check_internal(cli, &cmd, &source_dir, &target_dir, single_file)
+        let x = run_check_internal(cli, cmd, &source_dir, &target_dir, single_file, Some(t))
             .context(format!("failed to run check for target {t:?}"))?;
         ret_value = ret_value.max(x);
     }
@@ -145,21 +143,27 @@ fn run_check_internal(
     source_dir: &Path,
     target_dir: &Path,
     single_file: bool,
+    selected_target_backend: Option<TargetBackend>,
 ) -> anyhow::Result<i32> {
     if single_file {
-        run_check_for_single_file(cli, cmd)
+        run_check_for_single_file(cli, cmd, selected_target_backend)
     } else {
-        run_check_normal_internal(cli, cmd, source_dir, target_dir)
+        run_check_normal_internal(cli, cmd, source_dir, target_dir, selected_target_backend)
     }
 }
 
-fn run_check_for_single_file(cli: &UniversalFlags, cmd: &CheckSubcommand) -> anyhow::Result<i32> {
-    run_check_for_single_file_rr(cli, cmd)
+fn run_check_for_single_file(
+    cli: &UniversalFlags,
+    cmd: &CheckSubcommand,
+    selected_target_backend: Option<TargetBackend>,
+) -> anyhow::Result<i32> {
+    run_check_for_single_file_rr(cli, cmd, selected_target_backend)
 }
 
 fn run_check_for_single_file_rr(
     cli: &UniversalFlags,
     cmd: &CheckSubcommand,
+    selected_target_backend: Option<TargetBackend>,
 ) -> anyhow::Result<i32> {
     let path = cmd
         .path
@@ -174,12 +178,6 @@ fn run_check_for_single_file_rr(
     let raw_target_dir = source_dir.join(BUILD_DIR);
     std::fs::create_dir_all(&raw_target_dir).context("failed to create target directory")?;
 
-    let mut cmd = cmd.clone();
-
-    if let Some(target_backend) = cmd.build_flags.resolve_single_target_backend()? {
-        cmd.build_flags.target_backend = Some(target_backend);
-    }
-
     // Manually synthesize and resolve single file project
     let resolve_cfg = moonbuild_rupes_recta::ResolveConfig::new(
         cmd.auto_sync_flags.clone(),
@@ -192,11 +190,15 @@ fn run_check_for_single_file_rr(
         &single_file_path,
         false,
     )?;
+    let selected_target_backend = selected_target_backend
+        .or(cmd.build_flags.resolve_single_target_backend()?)
+        .or(backend);
 
     let preconfig = preconfig_compile(
         &cmd.auto_sync_flags,
         cli,
-        &cmd.build_flags.clone().with_default_target_backend(backend),
+        &cmd.build_flags,
+        selected_target_backend,
         &raw_target_dir,
         RunMode::Check,
     );
@@ -269,9 +271,17 @@ fn run_check_normal_internal(
     cmd: &CheckSubcommand,
     source_dir: &Path,
     target_dir: &Path,
+    selected_target_backend: Option<TargetBackend>,
 ) -> anyhow::Result<i32> {
     let run_once = |watch: bool, target_dir: &Path| -> anyhow::Result<WatchOutput> {
-        run_check_normal_internal_rr(cli, cmd, source_dir, target_dir, watch)
+        run_check_normal_internal_rr(
+            cli,
+            cmd,
+            source_dir,
+            target_dir,
+            watch,
+            selected_target_backend,
+        )
     };
     if cmd.watch {
         // For checks, the actual target dir is a subdir of the original target
@@ -300,11 +310,13 @@ fn run_check_normal_internal_rr(
     source_dir: &Path,
     target_dir: &Path,
     _watch: bool,
+    selected_target_backend: Option<TargetBackend>,
 ) -> anyhow::Result<WatchOutput> {
     let preconfig = preconfig_compile(
         &cmd.auto_sync_flags,
         cli,
         &cmd.build_flags,
+        selected_target_backend,
         target_dir,
         RunMode::Check,
     );

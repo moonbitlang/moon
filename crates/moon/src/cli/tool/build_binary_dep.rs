@@ -129,9 +129,9 @@ pub fn run_build_binary_dep(cli: &UniversalFlags, cmd: &BuildBinaryDepArgs) -> a
             cli,
             &BuildFlags {
                 release: true,
-                target_backend: Some(target),
                 ..BuildFlags::default()
             },
+            Some(target),
             &target_dir,
             RunMode::Build,
         );
