@@ -37,7 +37,9 @@ use moonbuild_rupes_recta::model::BuildPlanNode;
 use moonbuild_rupes_recta::model::BuildTarget;
 use moonbuild_rupes_recta::model::PackageId;
 use moonutil::common::BUILD_DIR;
-use moonutil::common::{FileLock, RunMode, TestArtifacts, TestIndexRange, lower_surface_targets};
+use moonutil::common::{
+    FileLock, RunMode, TargetBackend, TestArtifacts, TestIndexRange, lower_surface_targets,
+};
 use moonutil::mooncakes::RegistryConfig;
 use moonutil::mooncakes::sync::AutoSyncFlags;
 use std::path::{Path, PathBuf};
@@ -229,7 +231,7 @@ fn run_test_impl(cli: &UniversalFlags, cmd: &TestSubcommand) -> anyhow::Result<i
 
     if cmd.build_flags.target.is_empty() {
         debug!("no explicit backend target provided; using defaults");
-        return run_test_internal(cli, cmd, &dirs.source_dir, &dirs.target_dir, None);
+        return run_test_internal(cli, cmd, &dirs.source_dir, &dirs.target_dir, None, None);
     }
     let surface_targets = &cmd.build_flags.target;
     let targets = lower_surface_targets(surface_targets);
@@ -241,14 +243,13 @@ fn run_test_impl(cli: &UniversalFlags, cmd: &TestSubcommand) -> anyhow::Result<i
     let mut ret_value = 0;
     for t in targets {
         info!(backend = ?t, "running tests for backend");
-        let mut cmd = cmd.clone();
-        cmd.build_flags.target_backend = Some(t);
         let x = run_test_internal(
             cli,
-            &cmd,
+            cmd,
             &dirs.source_dir,
             &dirs.target_dir,
             display_backend_hint,
+            Some(t),
         )
         .context(format!("failed to run test for target {t:?}"))?;
         ret_value = ret_value.max(x);
@@ -264,14 +265,20 @@ fn run_test_internal(
     source_dir: &Path,
     target_dir: &Path,
     display_backend_hint: Option<()>,
+    selected_target_backend: Option<TargetBackend>,
 ) -> anyhow::Result<i32> {
-    debug!(backend = ?cmd.build_flags.target_backend, build_only = cmd.build_only, "entering run_test_internal");
+    debug!(
+        backend = ?selected_target_backend,
+        build_only = cmd.build_only,
+        "entering run_test_internal"
+    );
     let exit_code = run_test_or_bench_internal(
         cli,
         cmd.into(),
         source_dir,
         target_dir,
         display_backend_hint,
+        selected_target_backend,
     )?;
     trace!(exit_code, "run_test_internal finished");
     Ok(exit_code)
@@ -303,11 +310,6 @@ fn run_test_in_single_file_rr(cli: &UniversalFlags, cmd: &TestSubcommand) -> any
     let raw_target_dir = source_dir.join(BUILD_DIR);
     std::fs::create_dir_all(&raw_target_dir)
         .context("failed to create target directory for single-file test")?;
-    let mut cmd = cmd.clone();
-
-    if let Some(target_backend) = cmd.build_flags.resolve_single_target_backend()? {
-        cmd.build_flags.target_backend = Some(target_backend);
-    }
 
     let mut filter = TestFilter {
         name_filter: cmd.filter.clone(),
@@ -326,11 +328,13 @@ fn run_test_in_single_file_rr(cli: &UniversalFlags, cmd: &TestSubcommand) -> any
         &single_file_path,
         false,
     )?;
+    let selected_target_backend = cmd.build_flags.resolve_single_target_backend()?.or(backend);
 
     let mut preconfig = preconfig_compile(
         &cmd.auto_sync_flags,
         cli,
-        &cmd.build_flags.clone().with_default_target_backend(backend),
+        &cmd.build_flags,
+        selected_target_backend,
         &raw_target_dir,
         RunMode::Test,
     );
@@ -379,9 +383,10 @@ fn run_test_in_single_file_rr(cli: &UniversalFlags, cmd: &TestSubcommand) -> any
         resolved,
     )?;
 
+    let test_cmd: TestLikeSubcommand<'_> = cmd.into();
     rr_test_from_plan(
         cli,
-        &(&cmd).into(),
+        &test_cmd,
         &source_dir,
         &raw_target_dir,
         None,
@@ -472,6 +477,7 @@ pub(crate) fn run_test_or_bench_internal(
     source_dir: &Path,
     target_dir: &Path,
     display_backend_hint: Option<()>,
+    selected_target_backend: Option<TargetBackend>,
 ) -> anyhow::Result<i32> {
     let explicit_file = cmd.explicit_file_filter.map(|p| p.display().to_string());
     debug!(
@@ -515,7 +521,14 @@ pub(crate) fn run_test_or_bench_internal(
         rupes_recta = cli.unstable_feature.rupes_recta,
         "selecting test runner implementation"
     );
-    run_test_rr(cli, &cmd, source_dir, target_dir, display_backend_hint)
+    run_test_rr(
+        cli,
+        &cmd,
+        source_dir,
+        target_dir,
+        display_backend_hint,
+        selected_target_backend,
+    )
 }
 
 #[instrument(skip_all)]
@@ -525,6 +538,7 @@ fn run_test_rr(
     source_dir: &Path,
     target_dir: &Path,
     display_backend_hint: Option<()>, // FIXME: unsure why it's option but as-is for now
+    selected_target_backend: Option<TargetBackend>,
 ) -> Result<i32, anyhow::Error> {
     info!(run_mode = ?cmd.run_mode, update = cmd.update, build_only = cmd.build_only, "starting rupes-recta test run");
     let is_bench = cmd.run_mode == RunMode::Bench;
@@ -543,6 +557,7 @@ fn run_test_rr(
         cmd.auto_sync_flags,
         cli,
         &build_flags,
+        selected_target_backend,
         target_dir,
         if cmd.run_mode == RunMode::Bench {
             RunMode::Bench
@@ -860,8 +875,7 @@ fn rr_test_from_plan(
     let _initial_summary = test_result.summary();
 
     let backend_hint = display_backend_hint
-        .and(cmd.build_flags.target_backend)
-        .map(|t| t.to_backend_ext());
+        .map(|_| TargetBackend::from(build_meta.target_backend).to_backend_ext());
 
     if cmd.update {
         let mut loop_count = 1; // matching legacy; we already have 1 test run before

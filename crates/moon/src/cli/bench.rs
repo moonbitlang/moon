@@ -18,7 +18,7 @@
 
 use anyhow::Context;
 use moonutil::{
-    common::{TestIndexRange, lower_surface_targets},
+    common::{TargetBackend, TestIndexRange, lower_surface_targets},
     dirs::PackageDirs,
     mooncakes::sync::AutoSyncFlags,
 };
@@ -66,7 +66,7 @@ pub fn run_bench(cli: UniversalFlags, cmd: BenchSubcommand) -> anyhow::Result<i3
     } = cli.source_tgt_dir.try_into_package_dirs()?;
 
     if cmd.build_flags.target.is_empty() {
-        return run_bench_internal(&cli, &cmd, &source_dir, &target_dir, None);
+        return run_bench_internal(&cli, &cmd, &source_dir, &target_dir, None, None);
     }
     let surface_targets = cmd.build_flags.target.clone();
     let targets = lower_surface_targets(&surface_targets);
@@ -74,10 +74,15 @@ pub fn run_bench(cli: UniversalFlags, cmd: BenchSubcommand) -> anyhow::Result<i3
 
     let mut ret_value = 0;
     for t in targets {
-        let mut cmd = cmd.clone();
-        cmd.build_flags.target_backend = Some(t);
-        let x = run_bench_internal(&cli, &cmd, &source_dir, &target_dir, display_backend_hint)
-            .context(format!("failed to run bench for target {t:?}"))?;
+        let x = run_bench_internal(
+            &cli,
+            &cmd,
+            &source_dir,
+            &target_dir,
+            display_backend_hint,
+            Some(t),
+        )
+        .context(format!("failed to run bench for target {t:?}"))?;
         ret_value = ret_value.max(x);
     }
     Ok(ret_value)
@@ -90,6 +95,7 @@ fn run_bench_internal(
     source_dir: &Path,
     target_dir: &Path,
     display_backend_hint: Option<()>,
+    selected_target_backend: Option<TargetBackend>,
 ) -> anyhow::Result<i32> {
     super::run_test_or_bench_internal(
         cli,
@@ -97,5 +103,6 @@ fn run_bench_internal(
         source_dir,
         target_dir,
         display_backend_hint,
+        selected_target_backend,
     )
 }

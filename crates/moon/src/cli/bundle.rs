@@ -59,7 +59,7 @@ pub fn run_bundle(cli: UniversalFlags, cmd: BundleSubcommand) -> anyhow::Result<
     }
 
     if surface_targets.is_empty() {
-        return run_bundle_internal(&cli, &cmd, &source_dir, &target_dir);
+        return run_bundle_internal(&cli, &cmd, &source_dir, &target_dir, None);
     }
 
     let mut targets = lower_surface_targets(&surface_targets);
@@ -71,9 +71,7 @@ pub fn run_bundle(cli: UniversalFlags, cmd: BundleSubcommand) -> anyhow::Result<
 
     let mut ret_value = 0;
     for t in targets {
-        let mut cmd = cmd.clone();
-        cmd.build_flags.target_backend = Some(t);
-        let x = run_bundle_internal(&cli, &cmd, &source_dir, &target_dir)
+        let x = run_bundle_internal(&cli, &cmd, &source_dir, &target_dir, Some(t))
             .context(format!("failed to run bundle for target {t:?}"))?;
         ret_value = ret_value.max(x);
     }
@@ -86,8 +84,9 @@ pub fn run_bundle_internal(
     cmd: &BundleSubcommand,
     source_dir: &Path,
     target_dir: &Path,
+    selected_target_backend: Option<TargetBackend>,
 ) -> anyhow::Result<i32> {
-    run_bundle_internal_rr(cli, cmd, source_dir, target_dir)
+    run_bundle_internal_rr(cli, cmd, source_dir, target_dir, selected_target_backend)
 }
 
 #[instrument(skip_all)]
@@ -96,11 +95,13 @@ pub fn run_bundle_internal_rr(
     cmd: &BundleSubcommand,
     source_dir: &Path,
     target_dir: &Path,
+    selected_target_backend: Option<TargetBackend>,
 ) -> anyhow::Result<i32> {
     let mut preconfig = rr_build::preconfig_compile(
         &cmd.auto_sync_flags,
         cli,
         &cmd.build_flags,
+        selected_target_backend,
         target_dir,
         RunMode::Bundle,
     );
