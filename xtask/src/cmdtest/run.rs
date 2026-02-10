@@ -19,50 +19,9 @@
 use std::path::Path;
 
 use crate::cmdtest::exec::construct_executable;
+use snapbox::assert::Action;
 
 use super::parse;
-
-fn format_diff(expected: &str, actual: &str) -> String {
-    let diff = similar::TextDiff::from_chars(expected, actual);
-    let mut buf = String::new();
-    for change in diff.iter_all_changes() {
-        let text = change.value();
-        let formatted = match change.tag() {
-            similar::ChangeTag::Equal => text.to_string(),
-            similar::ChangeTag::Delete => format!("\x1b[4m\x1b[31m{}\x1b[0m", text),
-            similar::ChangeTag::Insert => format!("\x1b[4m\x1b[32m{}\x1b[0m", text),
-        };
-        buf.push_str(&formatted);
-    }
-    buf
-}
-
-pub fn render_expect_fail(cmd: &str, expected: &str, actual: &str) {
-    println!(
-        "\n
-\x1b[1m\x1b[91merror\x1b[97m: expect test failed\x1b[0m
-   \x1b[1m\x1b[34m-->\x1b[0m {}
-\x1b[1mExpect\x1b[0m:
-----
-{}
-----
-
-\x1b[1mActual\x1b[0m:
-----
-{}
-----
-
-\x1b[1mDiff\x1b[0m:
-----
-{}
-----
-",
-        cmd,
-        expected,
-        actual,
-        format_diff(expected, actual)
-    );
-}
 
 fn copy(src: &Path, dest: &Path) -> anyhow::Result<()> {
     if src.is_dir() {
@@ -108,26 +67,15 @@ pub fn t(file: &Path, update: bool) -> i32 {
     let workdir = dunce::canonicalize(tmpdir.path().join(folder_name)).unwrap();
 
     let items = parse::parse(file);
-    // dbg!(&items);
     let mut result: Vec<parse::Block> = vec![];
-
-    let mut exit_code = 0;
 
     for item in items.iter() {
         match item {
-            parse::Block::Command { cmd, content } => {
+            parse::Block::Command { cmd, content: _ } => {
                 let args = cmd.split_whitespace().collect::<Vec<&str>>();
-                let expect = content.as_deref().unwrap_or_default();
                 let exec = construct_executable(args[0]);
                 let ret = exec.execute(&args[1..], &workdir);
                 let actual = ret.normalize(&workdir);
-
-                // dbg!(&expect, &actual);
-
-                if expect != actual {
-                    render_expect_fail(cmd, expect, &actual);
-                    exit_code = 1;
-                }
                 result.push(parse::Block::Command {
                     cmd: cmd.to_string(),
                     content: Some(actual),
@@ -139,38 +87,40 @@ pub fn t(file: &Path, update: bool) -> i32 {
         }
     }
 
-    let mut buf = String::new();
+    let mut actual = String::new();
     for item in result.iter() {
         match item {
             parse::Block::Command { cmd, content } => {
-                buf.push_str("  $ ");
-                buf.push_str(cmd);
-                buf.push('\n');
+                actual.push_str("  $ ");
+                actual.push_str(cmd);
+                actual.push('\n');
                 if let Some(content) = content {
                     for (i, line) in content.split('\n').enumerate() {
                         if i > 0 {
-                            buf.push('\n');
+                            actual.push('\n');
                         }
-                        buf.push_str("  ");
-                        buf.push_str(line);
+                        actual.push_str("  ");
+                        actual.push_str(line);
                     }
-                    buf.push('\n');
+                    actual.push('\n');
                 }
             }
-            parse::Block::Other { content } => buf.push_str(content),
+            parse::Block::Other { content } => actual.push_str(content),
         }
     }
-    if update {
-        std::fs::write(file, buf).unwrap();
-        exit_code = 0;
-    }
-    exit_code
-}
 
-#[test]
-fn test() {
-    let s = "a\n";
-    let lines0: Vec<&str> = s.lines().collect();
-    let lines1: Vec<&str> = s.split('\n').collect();
-    dbg!(lines0, lines1);
+    let expected = snapbox::Data::read_from(file, None);
+    let assertion = snapbox::Assert::new().action(if update {
+        Action::Overwrite
+    } else {
+        Action::Verify
+    });
+
+    match assertion.try_eq(Some(&file.display()), snapbox::Data::text(actual), expected) {
+        Ok(_) => 0,
+        Err(err) => {
+            eprintln!("{err}");
+            1
+        }
+    }
 }
