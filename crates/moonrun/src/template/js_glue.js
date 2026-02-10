@@ -10,6 +10,12 @@ const __moonbit_run_env = globalThis.__moonbit_run_env || {
     args: [],
     stderr_is_tty: false,
 };
+// Provided by Rust in `backtrace_api::init`; fallback keeps interactive tests safe.
+const __moonbit_backtrace_runtime = globalThis.__moonbit_backtrace_runtime || {
+    stacktrace_color_enabled: false,
+    resolve_source_map_path: (_wasmPath, sourceMapPath) =>
+        typeof sourceMapPath === "string" ? sourceMapPath : "",
+};
 
 // JS helper API attached to __moonbit_fs_unstable.
 (function init_js_api(obj) {
@@ -138,6 +144,7 @@ const __moonbit_run_env = globalThis.__moonbit_run_env || {
 })(__moonbit_fs_unstable, __moonbit_run_env);
 
 delete globalThis.__moonbit_run_env;
+delete globalThis.__moonbit_backtrace_runtime;
 
 function isDigit(ch) {
     return ch >= "0" && ch <= "9";
@@ -557,21 +564,7 @@ function demangleMangledFunctionName(funcName) {
     return text;
 }
 
-function shouldUseColor() {
-    const explicit = __moonbit_fs_unstable.env_get_var("MOONBIT_BACKTRACE_COLOR");
-    if (explicit === "0" || explicit === "false" || explicit === "never") {
-        return false;
-    }
-    if (explicit === "1" || explicit === "true" || explicit === "always") {
-        return true;
-    }
-    if (__moonbit_fs_unstable.env_get_var("NO_COLOR") !== "") {
-        return false;
-    }
-    return !!__moonbit_run_env.stderr_is_tty;
-}
-
-const STACKTRACE_COLOR_ENABLED = shouldUseColor();
+const STACKTRACE_COLOR_ENABLED = !!__moonbit_backtrace_runtime.stacktrace_color_enabled;
 
 const ANSI_RESET = "\x1b[0m";
 const ANSI_RED_BOLD = "\x1b[1;31m";
@@ -666,161 +659,6 @@ function bytesToString(bytes) {
         s += String.fromCharCode(bytes[i]);
     }
     return s;
-}
-
-function dirname(path) {
-    const slash = Math.max(path.lastIndexOf("/"), path.lastIndexOf("\\"));
-    return slash >= 0 ? path.slice(0, slash) : ".";
-}
-
-function isAbsolutePath(path) {
-    return path.startsWith("/") || /^[A-Za-z]:[\\/]/.test(path);
-}
-
-function joinPath(baseDir, relPath) {
-    if (!relPath) return baseDir;
-    if (isAbsolutePath(relPath)) return relPath;
-    if (baseDir === "." || baseDir === "") return relPath;
-    const sep = baseDir.includes("\\") ? "\\" : "/";
-    if (baseDir.endsWith("/") || baseDir.endsWith("\\")) {
-        return `${baseDir}${relPath}`;
-    }
-    return `${baseDir}${sep}${relPath}`;
-}
-
-function splitNormalizedPath(path) {
-    const unified = path.replace(/\\/g, "/");
-    let absolute = false;
-    let root = "";
-    let rest = unified;
-    if (/^[A-Za-z]:\//.test(unified)) {
-        absolute = true;
-        root = unified.slice(0, 2).toLowerCase();
-        rest = unified.slice(2);
-        if (rest.startsWith("/")) {
-            rest = rest.slice(1);
-        }
-    } else if (unified.startsWith("/")) {
-        absolute = true;
-        root = "/";
-        rest = unified.slice(1);
-    }
-
-    const parts = [];
-    for (const seg of rest.split("/")) {
-        if (!seg || seg === ".") continue;
-        if (seg === "..") {
-            if (parts.length > 0 && parts[parts.length - 1] !== "..") {
-                parts.pop();
-            } else if (!absolute) {
-                parts.push("..");
-            }
-            continue;
-        }
-        parts.push(seg);
-    }
-    return { absolute, root, parts };
-}
-
-function formatNormalizedPath(parsed) {
-    if (parsed.absolute) {
-        if (parsed.root === "/") {
-            return `/${parsed.parts.join("/")}`;
-        }
-        if (parsed.parts.length === 0) {
-            return `${parsed.root}/`;
-        }
-        return `${parsed.root}/${parsed.parts.join("/")}`;
-    }
-    if (parsed.parts.length === 0) {
-        return ".";
-    }
-    return parsed.parts.join("/");
-}
-
-function normalizeDisplayPath(path) {
-    if (!path) return "";
-    return formatNormalizedPath(splitNormalizedPath(path));
-}
-
-function makeRelativePath(baseDir, targetPath) {
-    const from = splitNormalizedPath(baseDir);
-    const to = splitNormalizedPath(targetPath);
-    if (!from.absolute || !to.absolute || from.root !== to.root) {
-        return null;
-    }
-
-    let common = 0;
-    const maxCommon = Math.min(from.parts.length, to.parts.length);
-    while (common < maxCommon && from.parts[common] === to.parts[common]) {
-        common += 1;
-    }
-
-    const rel = [];
-    for (let i = common; i < from.parts.length; i++) {
-        rel.push("..");
-    }
-    for (let i = common; i < to.parts.length; i++) {
-        rel.push(to.parts[i]);
-    }
-    if (rel.length === 0) return ".";
-    return rel.join("/");
-}
-
-let CACHED_CWD = undefined;
-
-function getCurrentDirPath() {
-    if (CACHED_CWD !== undefined) {
-        return CACHED_CWD;
-    }
-    CACHED_CWD = "";
-    try {
-        if (
-            __moonbit_fs_unstable &&
-            typeof __moonbit_fs_unstable.current_dir === "function"
-        ) {
-            const cwd = __moonbit_fs_unstable.current_dir();
-            if (typeof cwd === "string" && cwd.length > 0) {
-                CACHED_CWD = cwd;
-                return CACHED_CWD;
-            }
-        }
-    } catch (_) { }
-
-    try {
-        if (
-            __moonbit_fs_unstable &&
-            typeof __moonbit_fs_unstable.env_get_var === "function"
-        ) {
-            const cwd = __moonbit_fs_unstable.env_get_var("PWD");
-            if (typeof cwd === "string" && cwd.length > 0) {
-                CACHED_CWD = cwd;
-            }
-        }
-    } catch (_) { }
-
-    return CACHED_CWD;
-}
-
-function formatSourcePathAuto(path) {
-    if (typeof path !== "string" || path.length === 0) {
-        return "";
-    }
-    const normalized = normalizeDisplayPath(path);
-    if (!isAbsolutePath(normalized)) {
-        return normalized;
-    }
-
-    const cwd = normalizeDisplayPath(getCurrentDirPath());
-    if (!cwd || !isAbsolutePath(cwd)) {
-        return normalized;
-    }
-
-    const rel = makeRelativePath(cwd, normalized);
-    if (!rel || rel === "." || rel.startsWith("../")) {
-        return normalized;
-    }
-    return rel;
 }
 
 function readULEB128(buf, start) {
@@ -946,7 +784,7 @@ function loadSourceMapForModule(wasmPath) {
             !embedded.startsWith("http://") &&
             !embedded.startsWith("https://")
         ) {
-            mapPath = isAbsolutePath(embedded) ? embedded : joinPath(dirname(wasmPath), embedded);
+            mapPath = __moonbit_backtrace_runtime.resolve_source_map_path(wasmPath, embedded);
         }
         if (!mapPath) {
             mapPath = `${wasmPath}.map`;
@@ -988,7 +826,7 @@ function sourcePosForOffset(offset) {
     if (m.source < 0 || m.source >= sm.sources.length) {
         return null;
     }
-    const sourceFile = formatSourcePathAuto(sm.sources[m.source]);
+    const sourceFile = sm.sources[m.source];
     return `${sourceFile}:${m.line}`;
 }
 
