@@ -12,5 +12,5 @@
   src/main/main.mbt
   src/main/moon.pkg.json
   test/b/b.txt
-  Package to ${WORK_DIR}/_build/publish/username-hello-0.1.0.zip
+  Package to [WORK_DIR]/_build/publish/username-hello-0.1.0.zip
   

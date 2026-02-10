@@ -71,33 +71,7 @@ pub fn replace_dir(s: &str, dir: impl AsRef<std::path::Path>) -> String {
 }
 
 pub fn copy(src: &Path, dest: &Path) -> anyhow::Result<()> {
-    if src.is_dir() {
-        if !dest.exists() {
-            std::fs::create_dir_all(dest)?;
-        }
-        let mut walker = ignore::WalkBuilder::new(src);
-        walker.hidden(false);
-        walker.git_global(false);
-        walker.filter_entry(|x| x.file_name() != "target");
-        let walker = walker.build();
-        for entry in walker {
-            let entry = entry?;
-            let path = entry.path();
-            let relative_path = path.strip_prefix(src)?;
-
-            let dest_path = dest.join(relative_path);
-            if path.is_dir() {
-                if !dest_path.exists() {
-                    std::fs::create_dir_all(dest_path)?;
-                }
-            } else {
-                std::fs::copy(path, dest_path)?;
-            }
-        }
-    } else {
-        std::fs::copy(src, dest)?;
-    }
-    Ok(())
+    moon_test_util::test_dir::copy_tree(src, dest, true)
 }
 
 #[track_caller]
@@ -130,4 +104,17 @@ pub fn assert_command_matches(s: impl AsRef<str>, expect: Expect) {
     if diff_found {
         expect.assert_eq(s.as_ref());
     }
+}
+
+#[track_caller]
+pub fn run_moon_cmdtest(case_dir: &str) {
+    let test_path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("tests/test_cases")
+        .join(case_dir)
+        .join("moon.test");
+
+    let update = std::env::var_os("UPDATE_EXPECT").is_some();
+    let exit_code = moon_test_util::cmdtest::run::t(&test_path, &moon_bin(), update);
+
+    assert_eq!(exit_code, 0, "cmdtest failed for {}", test_path.display());
 }

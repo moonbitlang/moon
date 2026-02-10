@@ -49,5 +49,6 @@ excludes = [
     "*.js",
     "*.wasm",
     "crates/moonutil/resources/error_codes/**",
-    "rust-toolchain.toml"
+    "rust-toolchain.toml",
+    ".agents/skills/**/agents/openai.yaml"
 ]

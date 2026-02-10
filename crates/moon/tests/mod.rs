@@ -25,37 +25,30 @@ use moonbuild_debug::graph::ENV_VAR;
 use std::path::{Path, PathBuf};
 use util::*;
 
-struct TestDir {
-    // tempfile::TempDir has a drop implementation that will remove the directory
-    // copy the test directory to a temporary directory to abvoid conflict with other tests when `cargo test` parallelly testing
-    path: tempfile::TempDir,
-}
+pub(crate) struct TestDir(moon_test_util::test_dir::TestDir);
 
 impl TestDir {
     // create a new TestDir with the test directory in tests/test_cases/<sub>
     fn new(sub: &str) -> Self {
-        let dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-            .join("tests/test_cases")
-            .join(sub);
-        let tmp_dir = tempfile::TempDir::new().unwrap();
-        copy(&dir, tmp_dir.path()).unwrap();
-        Self { path: tmp_dir }
+        let case_root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/test_cases");
+        Self(moon_test_util::test_dir::TestDir::from_case_root(
+            case_root, sub, true,
+        ))
     }
 
     // create a empty TestDir
     fn new_empty() -> Self {
-        let tmp_dir = tempfile::TempDir::new().unwrap();
-        Self { path: tmp_dir }
+        Self(moon_test_util::test_dir::TestDir::new_empty())
     }
 
     fn join(&self, sub: impl AsRef<str>) -> PathBuf {
-        self.path.path().join(sub.as_ref())
+        self.0.join(sub.as_ref())
     }
 }
 
 impl AsRef<Path> for TestDir {
     fn as_ref(&self) -> &Path {
-        self.path.path()
+        self.0.as_ref()
     }
 }
 

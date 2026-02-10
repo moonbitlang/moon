@@ -266,7 +266,7 @@ fn test_moon_new_snapshot() {
     snapbox::cmd::Command::new(moon_bin())
         .current_dir(&dir)
         .args(["new", "asdf"])
-        .env("MOON_HOME", dir.path.path())
+        .env("MOON_HOME", dir.as_ref())
         .assert()
         .success();
 

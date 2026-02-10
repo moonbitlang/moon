@@ -14,7 +14,7 @@ fn test_driver_no_args() {
     let dir = TestDir::new("test_driver_dependencies");
     let test_file = dir.join("test_no_args.mbt");
 
-    let (output, meta) = try_gen_output(dir.path.path(), &test_file, false);
+    let (output, meta) = try_gen_output(dir.as_ref(), &test_file, false);
     assert!(
         !output.contains("@moonbitlang/core/test"),
         "No args test driver should not contain test dependencies. Full output:\n{output}"
@@ -45,7 +45,7 @@ fn test_driver_with_args() {
     let dir = TestDir::new("test_driver_dependencies");
     let test_file = dir.join("test_with_args.mbt");
 
-    let (output, meta) = try_gen_output(dir.path.path(), &test_file, false);
+    let (output, meta) = try_gen_output(dir.as_ref(), &test_file, false);
     assert!(
         output.contains("@moonbitlang/core/test"),
         "With args test driver should contain test dependencies. Full output:\n{output}"
@@ -76,7 +76,7 @@ fn test_driver_with_bench_args() {
     let dir = TestDir::new("test_driver_dependencies");
     let bench_file = dir.join("bench_with_args.mbt");
 
-    let (output, meta) = try_gen_output(dir.path.path(), &bench_file, true);
+    let (output, meta) = try_gen_output(dir.as_ref(), &bench_file, true);
     assert!(
         !output.contains("@moonbitlang/core/test"),
         "With args bench driver should not contain test dependencies. Full output:\n{output}"
@@ -107,7 +107,7 @@ fn test_driver_with_no_args_and_bench() {
     let dir = TestDir::new("test_driver_dependencies");
     let bench_file = dir.join("no_args_and_bench.mbt");
 
-    let (output, meta) = try_gen_output(dir.path.path(), &bench_file, false);
+    let (output, meta) = try_gen_output(dir.as_ref(), &bench_file, false);
     assert!(
         !output.contains("@moonbitlang/core/test"),
         "With args bench driver should not contain test dependencies. Full output:\n{output}"
