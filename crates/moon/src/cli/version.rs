@@ -66,12 +66,10 @@ fn print_unstable_footer(flags: &UniversalFlags) {
 
     println!();
     println!("Feature flags enabled: {features}");
-    if flags.unstable_feature.rupes_recta {
-        println!(
-            "-> You're currently using the experimental build graph generator \"Rupes Recta\". \
-            Legacy build support has been removed, so NEW_MOON=0 is ignored."
-        );
-    }
+    println!(
+        "-> You're currently using the experimental build graph generator \"Rupes Recta\". \
+        Legacy build support has been removed, so NEW_MOON=0 is ignored."
+    );
 }
 
 pub fn run_version(flags: &UniversalFlags, cmd: VersionSubcommand) -> anyhow::Result<i32> {

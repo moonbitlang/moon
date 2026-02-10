@@ -65,7 +65,7 @@ pub struct UniversalFlags {
 impl UniversalFlags {
     /// Emit deprecation warnings for deprecated flags
     pub fn check_deprecations(&self) {
-        if self.build_graph && self.unstable_feature.rupes_recta {
+        if self.build_graph {
             warn!(
                 "`--build-graph` is deprecated. Use -Z rr_export_module_graph, -Z rr_export_package_graph, or -Z rr_export_build_plan instead"
             );
