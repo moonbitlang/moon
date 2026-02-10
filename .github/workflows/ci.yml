@@ -123,14 +123,20 @@ jobs:
           mdbook build docs/manual-zh
 
   nightly-test:
+    name: nightly-test (${{ matrix.os }} / msvc:${{ matrix.msvc }})
     needs: [typo-check, license-header-check]
     strategy:
       fail-fast: false
       matrix:
-        os:
-          - ubuntu-latest
-          - macos-latest
-          - windows-latest
+        include:
+          - os: ubuntu-latest
+            msvc: disabled
+          - os: macos-latest
+            msvc: disabled
+          - os: windows-latest
+            msvc: enabled
+          - os: windows-latest
+            msvc: disabled
     runs-on: ${{ matrix.os }}
     steps:
       - name: Configure git
@@ -163,7 +169,7 @@ jobs:
           "$env:GITHUB_WORKSPACE\target\debug" | Out-File -FilePath $env:GITHUB_PATH -Append
 
       - name: Setup MSVC
-        if: ${{ matrix.os == 'windows-latest' }}
+        if: ${{ matrix.os == 'windows-latest' && matrix.msvc == 'enabled' }}
         uses: ilammy/msvc-dev-cmd@v1
 
       - name: Build
@@ -249,14 +255,20 @@ jobs:
           cargo run --bin moon -- -Z rupes_recta -C ~/.moon/lib/core build --target wasm-gc
 
   stable-test:
+    name: stable-test (${{ matrix.os }} / msvc:${{ matrix.msvc }})
     needs: [typo-check, license-header-check]
     strategy:
       fail-fast: false
       matrix:
-        os:
-          - ubuntu-latest
-          - macos-latest
-          - windows-latest
+        include:
+          - os: ubuntu-latest
+            msvc: disabled
+          - os: macos-latest
+            msvc: disabled
+          - os: windows-latest
+            msvc: enabled
+          - os: windows-latest
+            msvc: disabled
     runs-on: ${{ matrix.os }}
     steps:
       - name: Configure git
@@ -286,7 +298,7 @@ jobs:
           "C:\Users\runneradmin\.moon\bin" | Out-File -FilePath $env:GITHUB_PATH -Append
 
       - name: Setup MSVC
-        if: ${{ matrix.os == 'windows-latest' }}
+        if: ${{ matrix.os == 'windows-latest' && matrix.msvc == 'enabled' }}
         uses: ilammy/msvc-dev-cmd@v1
 
       - name: Build
