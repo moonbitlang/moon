@@ -18,7 +18,7 @@
 
 use std::path::Path;
 
-use crate::cmdtest::exec::construct_executable;
+use crate::cmdtest::exec::execute_command;
 use snapbox::assert::Action;
 
 use super::parse;
@@ -72,10 +72,12 @@ pub fn t(file: &Path, moon_bin: &Path, update: bool) -> i32 {
     for item in items.iter() {
         match item {
             parse::Block::Command { cmd, content: _ } => {
-                let args = cmd.split_whitespace().collect::<Vec<&str>>();
-                let exec = construct_executable(args[0], moon_bin);
-                let ret = exec.execute(&args[1..], &workdir);
-                let actual = ret.normalize(&workdir, moon_bin);
+                let args = cmd.split_whitespace().collect::<Vec<_>>();
+                let actual = if let Some((command, rest)) = args.split_first() {
+                    execute_command(command, rest, &workdir, moon_bin)
+                } else {
+                    String::new()
+                };
                 result.push(parse::Block::Command {
                     cmd: cmd.to_string(),
                     content: Some(actual),

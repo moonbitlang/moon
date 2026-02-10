@@ -19,7 +19,7 @@
 use std::path::Path;
 
 #[derive(Debug)]
-pub enum Block {
+pub(crate) enum Block {
     Command {
         cmd: String,
         content: Option<String>,
@@ -30,13 +30,13 @@ pub enum Block {
 }
 
 #[derive(Debug)]
-pub enum LineMarker {
+enum LineMarker {
     Command,
     Content,
     Other,
 }
 
-pub fn parse(p: &Path) -> Vec<Block> {
+pub(crate) fn parse(p: &Path) -> Vec<Block> {
     let content = std::fs::read_to_string(p).unwrap();
     let content = content.replace("\r\n", "\n");
 
@@ -53,9 +53,6 @@ pub fn parse(p: &Path) -> Vec<Block> {
             }
         })
         .collect();
-
-    // dbg!(&lines);
-    // dbg!(&markers);
 
     let mut items: Vec<Block> = Vec::new();
     let mut cur_cmd: Option<String> = None;
