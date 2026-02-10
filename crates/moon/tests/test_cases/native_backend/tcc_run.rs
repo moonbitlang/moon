@@ -53,3 +53,25 @@ fn test_native_backend_tcc_run_windows_experimental() {
         "expected tcc-run graph on Windows experimental path:\n{out}"
     );
 }
+
+#[test]
+#[cfg(windows)]
+fn test_native_backend_tcc_run_windows_with_env_tcc_cc() {
+    let dir = TestDir::new("native_backend/tcc_run");
+    let out = get_stdout_with_envs(
+        &dir,
+        ["test", "--target", "native", "--dry-run", "--sort-input"],
+        [
+            ("MOON_ENABLE_WINDOWS_TCC_RUN", "1"),
+            ("MOON_CC", "x86_64-unknown-fake_os-fake_libc-tcc"),
+        ],
+    );
+    assert!(
+        out.contains("write-tcc-rsp-file"),
+        "expected tcc-run graph on Windows with MOON_CC=tcc:\n{out}"
+    );
+    assert!(
+        out.contains("-lm"),
+        "expected math library linkage for Windows tcc path:\n{out}"
+    );
+}

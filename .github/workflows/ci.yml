@@ -401,6 +401,9 @@ jobs:
       - name: Verify windows tcc-run experimental path
         run: cargo test -p moon --test mod test_cases::native_backend::tcc_run::test_native_backend_tcc_run_windows_experimental -- --exact
 
+      - name: Verify windows tcc-run with MOON_CC=tcc
+        run: cargo test -p moon --test mod test_cases::native_backend::tcc_run::test_native_backend_tcc_run_windows_with_env_tcc_cc -- --exact
+
   # coverage:
   #   needs: bleeding-test
   #   runs-on: macos-latest

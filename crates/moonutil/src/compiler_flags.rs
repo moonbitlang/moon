@@ -537,12 +537,14 @@ fn add_linker_common_libraries<P: AsRef<Path>>(
     config: &LinkerConfig<P>,
 ) {
     if cc.is_gcc_like() {
-        if cc.is_full_featured_gcc_like() {
+        if should_link_math_library(cc) {
             buf.push("-lm".to_string());
         }
         if let Some(dyn_lib_path) = config.link_shared_runtime.as_ref() {
             buf.push("-lruntime".to_string());
-            buf.push(format!("-Wl,-rpath,{}", dyn_lib_path.as_ref().display()));
+            if should_add_runtime_rpath() {
+                buf.push(format!("-Wl,-rpath,{}", dyn_lib_path.as_ref().display()));
+            }
         }
     }
 }
@@ -824,9 +826,24 @@ fn add_cc_moonbitrun_with_warnings(cc: &CC, buf: &mut Vec<String>, config: &CCCo
 }
 
 fn add_cc_common_libraries(cc: &CC, buf: &mut Vec<String>, config: &CCConfig) {
-    if cc.is_full_featured_gcc_like() && config.output_ty != OutputType::Object {
+    if should_link_math_library(cc) && config.output_ty != OutputType::Object {
         buf.push("-lm".to_string());
     }
+}
+
+fn should_link_math_library(cc: &CC) -> bool {
+    // On Unix, keep legacy behavior: only full-featured gcc-like toolchains get -lm.
+    // On Windows, TCC and GNU-like drivers also need explicit math library linkage.
+    if cfg!(target_os = "windows") {
+        cc.is_gcc_like() && !cc.is_msvc()
+    } else {
+        cc.is_full_featured_gcc_like()
+    }
+}
+
+fn should_add_runtime_rpath() -> bool {
+    // PE/COFF loaders do not use ELF rpath semantics.
+    !cfg!(target_os = "windows")
 }
 
 fn add_cc_msvc_linker_flags(cc: &CC, buf: &mut Vec<String>, config: &CCConfig, lpath: &str) {
@@ -903,4 +920,108 @@ where
     add_cc_msvc_linker_flags(&cc, &mut buf, &config, &paths.lib_path);
 
     buf
+}
+
+#[cfg(all(test, windows))]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn windows_tcc_linker_uses_lm_without_rpath() {
+        let cc = CC {
+            cc_kind: CCKind::Tcc,
+            cc_path: "tcc".to_string(),
+            ar_kind: ARKind::TccAr,
+            ar_path: "tcc".to_string(),
+            is_env_override: false,
+        };
+
+        let cfg = LinkerConfigBuilder::<&Path>::default()
+            .link_moonbitrun(false)
+            .output_ty(OutputType::SharedLib)
+            .link_shared_runtime(Some(Path::new(r"C:\rt")))
+            .build()
+            .expect("Linker config should be valid");
+
+        let cmd = make_linker_command_pure(
+            cc,
+            cfg,
+            &[] as &[&str],
+            &["stub.o"],
+            r"C:\out",
+            r"C:\out\libstub.dll",
+            r"C:\moon\lib",
+        );
+
+        assert!(cmd.iter().any(|x| x == "-lm"));
+        assert!(cmd.iter().any(|x| x == "-lruntime"));
+        assert!(!cmd.iter().any(|x| x.starts_with("-Wl,-rpath,")));
+    }
+
+    #[test]
+    fn windows_msvc_linker_does_not_use_lm_or_rpath() {
+        let cc = CC {
+            cc_kind: CCKind::Msvc,
+            cc_path: "cl.exe".to_string(),
+            ar_kind: ARKind::MsvcLib,
+            ar_path: "lib.exe".to_string(),
+            is_env_override: false,
+        };
+
+        let cfg = LinkerConfigBuilder::<&Path>::default()
+            .link_moonbitrun(false)
+            .output_ty(OutputType::SharedLib)
+            .link_shared_runtime(Some(Path::new(r"C:\rt")))
+            .build()
+            .expect("Linker config should be valid");
+
+        let cmd = make_linker_command_pure(
+            cc,
+            cfg,
+            &[] as &[&str],
+            &["stub.obj"],
+            r"C:\out",
+            r"C:\out\stub.dll",
+            r"C:\moon\lib",
+        );
+
+        assert!(!cmd.iter().any(|x| x == "-lm"));
+        assert!(!cmd.iter().any(|x| x == "-lruntime"));
+        assert!(!cmd.iter().any(|x| x.starts_with("-Wl,-rpath,")));
+        assert!(cmd.iter().any(|x| x.contains("libruntime.lib")));
+    }
+
+    #[test]
+    fn windows_tcc_cc_command_includes_lm_for_linking() {
+        let cc = CC {
+            cc_kind: CCKind::Tcc,
+            cc_path: "tcc".to_string(),
+            ar_kind: ARKind::TccAr,
+            ar_path: "tcc".to_string(),
+            is_env_override: false,
+        };
+
+        let cfg = CCConfigBuilder::default()
+            .output_ty(OutputType::Executable)
+            .opt_level(OptLevel::Debug)
+            .debug_info(true)
+            .link_moonbitrun(false)
+            .build()
+            .expect("CC config should be valid");
+
+        let cmd = make_cc_command_pure(
+            cc,
+            cfg,
+            &[] as &[&str],
+            ["main.c".to_string()],
+            r"C:\out",
+            Some(r"C:\out\main.exe"),
+            &CompilerPaths {
+                include_path: r"C:\moon\include".to_string(),
+                lib_path: r"C:\moon\lib".to_string(),
+            },
+        );
+
+        assert!(cmd.iter().any(|x| x == "-lm"));
+    }
 }
