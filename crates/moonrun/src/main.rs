@@ -23,6 +23,7 @@ use std::path::Path;
 use std::{cell::Cell, io::Read, path::PathBuf, time::Instant};
 use v8::V8::set_flags_from_string;
 
+mod backtrace_api;
 mod fs_api_temp;
 mod sys_api;
 mod util;
@@ -380,6 +381,7 @@ fn init_env(
         sys_api::init_env(obj, scope, wasm_file_name, args);
         fs_api_temp::init_fs(obj, scope);
     }
+    backtrace_api::init(scope);
 
     {
         global_proxy.set_func(scope, "read_file_to_bytes", read_file_to_bytes);
