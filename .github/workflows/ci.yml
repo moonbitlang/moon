@@ -350,6 +350,57 @@ jobs:
           cargo run --bin moon -- -C "$env:USERPROFILE\.moon\lib\core" test --release --target native
           cargo run --bin moon -- -C "$env:USERPROFILE\.moon\lib\core" test --doc
 
+  windows-tcc-first-test:
+    name: windows tcc first test (${{ matrix.msvc }})
+    needs: [typo-check, license-header-check]
+    strategy:
+      fail-fast: false
+      matrix:
+        msvc:
+          - enabled
+          - disabled
+    runs-on: windows-latest
+    steps:
+      - name: Configure git
+        run: git config --global core.autocrlf false
+
+      - uses: actions/checkout@v4
+        with:
+          submodules: true
+
+      - uses: dtolnay/rust-toolchain@1.90.0
+        with:
+          components: rustfmt, clippy
+
+      - name: Cargo cache
+        uses: Swatinem/rust-cache@v2
+
+      - name: install MoonBit(Windows)
+        run: |
+          $env:MOONBIT_INSTALL_VERSION="nightly"
+          Set-ExecutionPolicy RemoteSigned -Scope CurrentUser; irm https://cli.moonbitlang.com/install/powershell.ps1 | iex
+          "$env:USERPROFILE\.moon\bin" | Out-File -FilePath $env:GITHUB_PATH -Append
+          "$env:GITHUB_WORKSPACE\target\debug" | Out-File -FilePath $env:GITHUB_PATH -Append
+
+      - name: Setup MSVC
+        if: ${{ matrix.msvc == 'enabled' }}
+        uses: ilammy/msvc-dev-cmd@v1
+
+      - name: Build moon binary
+        run: cargo build -p moon --bin moon
+
+      - name: Set built binary to PATH (Windows)
+        run: Add-Content $env:GITHUB_PATH "$env:GITHUB_WORKSPACE\target\debug"
+
+      - name: Bundle core (Windows)
+        run: cargo run --bin moon -- -C "$env:USERPROFILE\.moon\lib\core" bundle --all
+
+      - name: Verify windows tcc-run default gate
+        run: cargo test -p moon --test mod test_cases::native_backend::tcc_run::test_native_backend_tcc_run_windows_disabled_by_default -- --exact
+
+      - name: Verify windows tcc-run experimental path
+        run: cargo test -p moon --test mod test_cases::native_backend::tcc_run::test_native_backend_tcc_run_windows_experimental -- --exact
+
   # coverage:
   #   needs: bleeding-test
   #   runs-on: macos-latest
